@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@keyframes car-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes car-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+@keyframes car-boot-bar {
+  from { width: 0%;    }
+  to   { width: 100%;  }
+}
+
+@theme {
+  --animate-fade-in:  car-fade-in  0.2s ease-out both;
+  --animate-slide-up: car-slide-up 0.25s ease-out both;
+  --animate-boot-bar: car-boot-bar 0.75s cubic-bezier(0.4,0,0.2,1) forwards;
+
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  --color-car-bg: #0a0e1a;
+  --color-car-surface: #131929;
+  --color-car-card: #1a2235;
+  --color-car-card-hover: #212d45;
+  --color-car-border: #2a3555;
+  --color-car-accent: #3b82f6;
+  --color-car-accent-glow: #60a5fa;
+  --color-car-success: #22c55e;
+  --color-car-warning: #f59e0b;
+  --color-car-danger: #ef4444;
+  --color-car-text: #e2e8f0;
+  --color-car-text-dim: #64748b;
+  --color-car-text-bright: #f8fafc;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-car-bg);
+  color: var(--color-car-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* OLED tema — kart arkaplanlarını siyaha çeker */
+[data-theme="oled"] .bg-\[\#0d1628\],
+[data-theme="oled"] .bg-\[\#0b1424\] {
+  background-color: #0a0a0a !important;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-car-border);
+  border-radius: 4px;
+}

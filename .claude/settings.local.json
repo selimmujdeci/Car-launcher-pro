@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(npx cap:*)",
+      "Bash(cmd /c \"taskkill /F /IM java.exe /T & taskkill /F /IM javaw.exe /T & taskkill /F /IM gradle.exe /T & echo Done\")",
+      "Bash(cmd /c \"taskkill /F /IM java.exe /T\")",
+      "Bash(cmd /c \"taskkill /F /IM javaw.exe /T\")",
+      "Bash(cmd /c \"rmdir /s /q android && echo SILINDI || echo HATA\")",
+      "Bash(node -e \"const fs=require\\(''fs''\\); console.log\\(fs.existsSync\\(''src/platform/mediaService.ts''\\) ? ''mediaService.ts EXISTS'' : ''MISSING''\\)\")",
+      "Bash(node -e \"const fs=require\\(''fs''\\); [''src/platform/deviceApi.ts'',''src/components/home/HomeScreen.tsx''].forEach\\(f => { const c=fs.readFileSync\\(f,''utf8''\\); console.log\\(f+'': updateDeviceStatus=''+c.includes\\(''updateDeviceStatus''\\)+'' useDeviceStatus=''+c.includes\\(''useDeviceStatus''\\)+'' SAFE_DEFAULTS=''+c.includes\\(''SAFE_DEFAULTS''\\)\\); }\\)\")"
+    ]
+  }
+}
