@@ -1,5 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
-import { AlertCircle, MapPin } from 'lucide-react';
+import { AlertCircle, MapPin, Wifi, WifiOff } from 'lucide-react';
 import {
   initializeMap,
   setMapCenter,
@@ -9,6 +9,7 @@ import {
   setMapHeading,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
+import { useMapSources, getMapSourceStatus } from '../../platform/mapSourceManager';
 
 interface MiniMapWidgetProps {
   onFullScreenClick?: () => void;
@@ -19,6 +20,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
   const mapRef = useRef<any>(null);
   const location = useGPSLocation();
   const heading = useGPSHeading();
+  const { activeSourceId } = useMapSources();
+  const status = getMapSourceStatus();
 
   // Init harita
   useEffect(() => {
@@ -88,6 +91,12 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
           <span className="text-slate-500 text-xs tracking-widest uppercase">Harita</span>
+          {status.status === 'offline' && (
+            <WifiOff className="w-3 h-3 text-amber-500" />
+          )}
+          {status.status === 'online' && (
+            <Wifi className="w-3 h-3 text-emerald-500" />
+          )}
         </div>
         {onFullScreenClick && (
           <button
@@ -99,6 +108,13 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
           </button>
         )}
       </div>
+      {activeSourceId && (
+        <div className="flex-shrink-0 mb-2 px-2 py-1 bg-white/5 rounded-lg border border-white/5">
+          <div className="text-[10px] text-slate-500 leading-tight">
+            {status.message}
+          </div>
+        </div>
+      )}
 
       <div
         ref={containerRef}

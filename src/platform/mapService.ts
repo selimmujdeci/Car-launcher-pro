@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { initializeOfflineMapStorage, initializeTileInterceptor } from './offlineMapService';
 import { initializeOfflineTileServer } from './offlineTileServer';
 import { registerOfflineServiceWorker } from './serviceWorkerManager';
+import { initializeMapSources } from './mapSourceManager';
 
 export interface MapConfig {
   offline: boolean;
@@ -83,6 +84,9 @@ export async function initializeMap(
       await initializeOfflineMapStorage();
       await initializeOfflineTileServer();
       initializeTileInterceptor();
+
+      // Initialize map sources (offline/online)
+      await initializeMapSources();
 
       // Register service worker for offline tile serving
       registerOfflineServiceWorker().catch((err) => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
-import { X, ZoomIn, ZoomOut, Navigation } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Navigation, Wifi, WifiOff } from 'lucide-react';
 import {
   initializeMap,
   setMapCenter,
@@ -8,6 +8,7 @@ import {
   setMapHeading,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
+import { useMapSources, getMapSourceStatus } from '../../platform/mapSourceManager';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -18,6 +19,8 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
   const mapRef = useRef<any>(null);
   const location = useGPSLocation();
   const heading = useGPSHeading();
+  useMapSources();
+  const status = getMapSourceStatus();
 
   // Init harita
   useEffect(() => {
@@ -148,6 +151,17 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
       {/* Bottom info */}
       {location && (
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black via-black/50 to-transparent z-10 pointer-events-none">
+          <div className="flex justify-between items-end gap-4 mb-3 pb-3 border-b border-white/10">
+            <div className="flex items-center gap-2 text-white text-xs">
+              {status.status === 'offline' && (
+                <WifiOff className="w-4 h-4 text-amber-500" />
+              )}
+              {status.status === 'online' && (
+                <Wifi className="w-4 h-4 text-emerald-500" />
+              )}
+              <span className="text-slate-300">{status.message}</span>
+            </div>
+          </div>
           <div className="flex justify-between items-end">
             <div className="text-white text-sm">
               <div className="text-slate-400 text-xs mb-1">Konum</div>
