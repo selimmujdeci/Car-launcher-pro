@@ -1,6 +1,7 @@
 import maplibregl, { Map as MapLibreMap, GeoJSONSource } from 'maplibre-gl';
 import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
+import { initializeOfflineMapStorage, initializeTileInterceptor } from './offlineMapService';
 
 export interface MapConfig {
   offline: boolean;
@@ -21,14 +22,15 @@ const useMapStore = create<MapState>(() => ({
 }));
 
 let initInProgress = false;
+let offlineInitialized = false;
 
-const DEFAULT_OFFLINE_STYLE = {
-  version: 8,
+const getDefaultOfflineStyle = () => ({
+  version: 8 as const,
   name: 'Offline Map',
   metadata: { 'mapbox:autocomposite': false },
   sources: {
     osm: {
-      type: 'raster',
+      type: 'raster' as const,
       tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors',
@@ -36,13 +38,13 @@ const DEFAULT_OFFLINE_STYLE = {
   },
   layers: [
     {
-      id: 'osm-tiles',
-      type: 'raster',
+      id: 'osm-tiles' as const,
+      type: 'raster' as const,
       source: 'osm',
       paint: { 'raster-opacity': 1 },
     },
   ],
-} as const;
+});
 
 export async function initializeMap(
   container: HTMLElement,
@@ -72,7 +74,14 @@ export async function initializeMap(
   initInProgress = true;
 
   try {
-    const style = config.style ? { version: 8, sources: {}, layers: [] } : DEFAULT_OFFLINE_STYLE;
+    // Initialize offline map storage on first use
+    if (config.offline && !offlineInitialized) {
+      await initializeOfflineMapStorage();
+      initializeTileInterceptor();
+      offlineInitialized = true;
+    }
+
+    const style = config.style ? { version: 8, sources: {}, layers: [] } : getDefaultOfflineStyle();
 
     const map = new MapLibreMap({
       container,
