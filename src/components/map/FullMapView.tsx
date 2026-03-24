@@ -9,6 +9,7 @@ import {
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
 import { useMapSources, getMapSourceStatus } from '../../platform/mapSourceManager';
+import { MapOverlay } from './MapOverlay';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -109,7 +110,9 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
         ref={containerRef}
         className="flex-1"
         style={{ position: 'relative' }}
-      />
+      >
+        <MapOverlay location={location} heading={heading} speedKmh={location?.speed} />
+      </div>
 
       {/* Top bar - Close */}
       <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-10 pointer-events-none">

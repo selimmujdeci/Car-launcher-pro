@@ -10,6 +10,7 @@ import {
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
 import { useMapSources, getMapSourceStatus } from '../../platform/mapSourceManager';
+import { MapOverlay } from './MapOverlay';
 
 interface MiniMapWidgetProps {
   onFullScreenClick?: () => void;
@@ -120,7 +121,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
         ref={containerRef}
         className="flex-1 min-h-0 rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800"
         style={{ position: 'relative' }}
-      />
+      >
+        <MapOverlay location={location} heading={heading} compact={true} />
+      </div>
     </div>
   );
 });
