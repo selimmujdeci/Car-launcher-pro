@@ -3,6 +3,7 @@ import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { initializeOfflineMapStorage, initializeTileInterceptor } from './offlineMapService';
 import { initializeOfflineTileServer } from './offlineTileServer';
+import { registerOfflineServiceWorker } from './serviceWorkerManager';
 
 export interface MapConfig {
   offline: boolean;
@@ -30,20 +31,20 @@ const getDefaultOfflineStyle = () => ({
   name: 'Offline Map',
   metadata: { 'mapbox:autocomposite': false },
   sources: {
-    offline: {
+    tiles: {
       type: 'raster' as const,
-      tiles: ['tile://default/{z}/{x}/{y}'],
+      tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
-      attribution: 'Offline Map Data',
+      attribution: '© OpenStreetMap | Offline Cache',
       minzoom: 0,
       maxzoom: 18,
     },
   },
   layers: [
     {
-      id: 'offline-tiles' as const,
+      id: 'map-tiles' as const,
       type: 'raster' as const,
-      source: 'offline',
+      source: 'tiles',
       paint: { 'raster-opacity': 1 },
     },
   ],
@@ -77,11 +78,17 @@ export async function initializeMap(
   initInProgress = true;
 
   try {
-    // Initialize offline map storage on first use
+    // Initialize offline map storage and service worker on first use
     if (config.offline && !offlineInitialized) {
       await initializeOfflineMapStorage();
       await initializeOfflineTileServer();
       initializeTileInterceptor();
+
+      // Register service worker for offline tile serving
+      registerOfflineServiceWorker().catch((err) => {
+        console.warn('Service worker registration failed:', err);
+      });
+
       offlineInitialized = true;
     }
 
