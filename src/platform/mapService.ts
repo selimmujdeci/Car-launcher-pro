@@ -2,6 +2,7 @@ import maplibregl, { Map as MapLibreMap, GeoJSONSource } from 'maplibre-gl';
 import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { initializeOfflineMapStorage, initializeTileInterceptor } from './offlineMapService';
+import { initializeOfflineTileServer } from './offlineTileServer';
 
 export interface MapConfig {
   offline: boolean;
@@ -29,18 +30,20 @@ const getDefaultOfflineStyle = () => ({
   name: 'Offline Map',
   metadata: { 'mapbox:autocomposite': false },
   sources: {
-    osm: {
+    offline: {
       type: 'raster' as const,
-      tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tiles: ['tile://default/{z}/{x}/{y}'],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: 'Offline Map Data',
+      minzoom: 0,
+      maxzoom: 18,
     },
   },
   layers: [
     {
-      id: 'osm-tiles' as const,
+      id: 'offline-tiles' as const,
       type: 'raster' as const,
-      source: 'osm',
+      source: 'offline',
       paint: { 'raster-opacity': 1 },
     },
   ],
@@ -77,6 +80,7 @@ export async function initializeMap(
     // Initialize offline map storage on first use
     if (config.offline && !offlineInitialized) {
       await initializeOfflineMapStorage();
+      await initializeOfflineTileServer();
       initializeTileInterceptor();
       offlineInitialized = true;
     }
