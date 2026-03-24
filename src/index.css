@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 @keyframes car-fade-in {
   from { opacity: 0; }
@@ -59,6 +60,1592 @@ html, body, #root {
 [data-theme="oled"] .bg-\[\#0d1628\],
 [data-theme="oled"] .bg-\[\#0b1424\] {
   background-color: #0a0a0a !important;
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* DYNAMIC UI SYSTEM — 3-Level Mode: Idle / Normal / Driving         */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── IDLE MODE: Rich animations, full glow (parked, premium) ───── */
+[data-drive-state="idle"] {
+  /* Default state — all animations and effects enabled */
+}
+
+/* ── NORMAL MODE: Moderate animations, moderate glow (light traffic) */
+[data-drive-state="normal"] {
+  /* Reduce all animation/transition durations */
+}
+
+[data-drive-state="normal"] [class*="animate"] {
+  animation-duration: 360ms !important;
+}
+
+[data-drive-state="normal"] [class*="rounded"],
+[data-drive-state="normal"] button,
+[data-drive-state="normal"] [class*="flex"] {
+  transition-duration: 250ms !important;
+}
+
+/* Normal mode: reduce glow intensity */
+[data-drive-state="normal"] button:hover {
+  filter: brightness(1.06) !important;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.15) !important;
+}
+
+[data-drive-state="normal"] button:focus,
+[data-drive-state="normal"] button:focus-visible {
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2) !important;
+}
+
+/* Normal mode: theme style glow reduction */
+[data-drive-state="normal"] [data-theme-style="glass"] button:hover {
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15) !important;
+}
+
+[data-drive-state="normal"] [data-theme-style="neon"] button:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3) !important;
+}
+
+[data-drive-state="normal"] [data-theme-pack="ai-center"] h1,
+[data-drive-state="normal"] [data-theme-pack="ai-center"] h2 {
+  text-shadow: 0 0 10px rgba(6, 182, 212, 0.3), 0 0 15px rgba(139, 92, 246, 0.2) !important;
+}
+
+/* ── DRIVING MODE: Minimal animations, sade UI, big buttons ───── */
+/* Disable all animations — instant feedback priority */
+[data-drive-state="driving"] * {
+  animation: none !important;
+  animation-duration: 0s !important;
+  transition-duration: 50ms !important;
+  transition-timing-function: linear !important;
+}
+
+/* Driving mode: enlarge button fonts and padding for touch safety */
+[data-drive-state="driving"] button {
+  font-size: 1.125rem !important;
+  padding: 0.75rem 1.5rem !important;
+  min-height: 2.75rem !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="elevated"] button,
+[data-drive-state="driving"] [data-widget-style="flat"] button,
+[data-drive-state="driving"] [data-widget-style="outlined"] button {
+  font-size: 1.125rem !important;
+  min-height: 3rem !important;
+  padding: 0.75rem 1rem !important;
+}
+
+/* Driving mode: button glow → minimal brightness only */
+[data-drive-state="driving"] button:hover {
+  filter: brightness(1.04) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+[data-drive-state="driving"] button:active {
+  filter: brightness(0.95) !important;
+  transform: none !important;
+}
+
+[data-drive-state="driving"] button:focus,
+[data-drive-state="driving"] button:focus-visible {
+  filter: brightness(1.06) !important;
+  box-shadow: none !important;
+}
+
+/* Driving mode: simplify all theme styles */
+[data-drive-state="driving"] [data-theme-style="glass"] button {
+  backdrop-filter: blur(4px);
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="glass"] button:hover {
+  backdrop-filter: blur(6px);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="neon"] button {
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="neon"] button:hover {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="minimal"] button {
+  box-shadow: none !important;
+}
+
+/* Driving mode: disable widget shadows */
+[data-drive-state="driving"] [data-widget-style="elevated"] button {
+  box-shadow: none !important;
+  transform: translateY(0) !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="elevated"] button:hover {
+  box-shadow: none !important;
+  transform: translateY(0) !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="flat"] button {
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="outlined"] button {
+  box-shadow: none !important;
+}
+
+/* Driving mode: disable all theme pack animations */
+[data-drive-state="driving"] [data-theme-pack="big-cards"] [data-section="obd"] {
+  animation: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [data-section="hero"] > div > div {
+  animation: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] h1,
+[data-drive-state="driving"] [data-theme-pack="ai-center"] h2,
+[data-drive-state="driving"] [data-theme-pack="ai-center"] span[class*="text-"] {
+  animation: none !important;
+  text-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] button[class*="rounded"] {
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [class*="w-12"],
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [class*="w-14"],
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [class*="w-16"] {
+  animation: none !important;
+}
+
+/* ── TESLA theme pack ─────────────────────────────── */
+[data-theme-pack="tesla"] {
+  --pack-widget-radius: 2rem;
+  --pack-widget-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+  --pack-accent-color: #3b82f6;
+  --pack-accent-light: #60a5fa;
+  --pack-card-bg: rgba(19, 25, 41, 0.8);
+  --pack-border: rgba(255, 255, 255, 0.05);
+  --pack-glow: rgba(59, 130, 246, 0.1);
+}
+
+[data-theme-pack="tesla"] * {
+  transition-property: none;
+}
+
+[data-theme-pack="tesla"] button:hover {
+  --tw-bg-opacity: 1;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* ── BIG CARDS theme pack ─────────────────────────── */
+[data-theme-pack="big-cards"] {
+  --pack-widget-radius: 2.5rem;
+  --pack-widget-shadow: 0 8px 32px rgba(59, 130, 246, 0.2);
+  --pack-accent-color: #6366f1;
+  --pack-accent-light: #818cf8;
+  --pack-card-bg: rgba(49, 46, 129, 0.4);
+  --pack-border: rgba(165, 180, 252, 0.2);
+  --pack-glow: rgba(99, 102, 241, 0.15);
+}
+
+[data-theme-pack="big-cards"] button {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+[data-theme-pack="big-cards"] .rounded-2xl,
+[data-theme-pack="big-cards"] .rounded-3xl {
+  border-radius: 1.875rem;
+}
+
+[data-theme-pack="big-cards"] .text-base {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* ── AI CENTER theme pack ─────────────────────────── */
+[data-theme-pack="ai-center"] {
+  --pack-widget-radius: 1.5rem;
+  --pack-widget-shadow: 0 0 30px rgba(139, 92, 246, 0.3), 0 0 60px rgba(6, 182, 212, 0.1);
+  --pack-accent-color: #8b5cf6;
+  --pack-accent-light: #a78bfa;
+  --pack-card-bg: rgba(59, 41, 96, 0.3);
+  --pack-border: rgba(139, 92, 246, 0.2);
+  --pack-glow: rgba(139, 92, 246, 0.2);
+}
+
+[data-theme-pack="ai-center"] {
+  background-image:
+    radial-gradient(circle at 20% 50%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(6, 182, 212, 0.06) 0%, transparent 40%);
+}
+
+[data-theme-pack="ai-center"] button {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
+[data-theme-pack="ai-center"] .rounded-xl {
+  border-radius: 0.875rem;
+}
+
+/* Global theme pack adjustments */
+[data-theme-pack="big-cards"] button:active {
+  transform: scale(0.95);
+}
+
+[data-theme-pack="ai-center"] button:hover {
+  border-color: rgba(6, 182, 212, 0.6);
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* EXPERIENCE SYSTEM — Layout & Behavior per Theme Pack            */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── TESLA: Split screen, map-centric ────────────────────────── */
+[data-theme-pack="tesla"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+[data-theme-pack="tesla"] [data-section="obd"] {
+  display: none;
+}
+
+[data-theme-pack="tesla"] [data-section="alerts"] {
+  grid-row: 1;
+  order: 1;
+}
+
+[data-theme-pack="tesla"] [data-section="quick-actions"] {
+  display: none;
+}
+
+[data-theme-pack="tesla"] [data-section="voice"] {
+  grid-row: 2;
+  order: 2;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] {
+  grid-row: 3 / -1;
+  order: 3;
+  display: flex;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div {
+  flex-direction: row;
+}
+
+/* Flex now handled by wrapper div inline styles */
+
+/* ── BIG CARDS: OBD-centric, driving focused ─────────────────── */
+[data-theme-pack="big-cards"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr;
+  gap: 0;
+}
+
+[data-theme-pack="big-cards"] [data-section="obd"] {
+  grid-row: 1;
+  order: 1;
+  margin: 1rem 2rem 0.5rem 2rem;
+  padding: 0;
+}
+
+[data-theme-pack="big-cards"] [data-section="alerts"] {
+  grid-row: 2;
+  order: 2;
+}
+
+[data-theme-pack="big-cards"] [data-section="quick-actions"] {
+  grid-row: 3;
+  order: 3;
+  display: block;
+}
+
+[data-theme-pack="big-cards"] [data-section="voice"] {
+  grid-row: 4;
+  order: 4;
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] {
+  grid-row: 5;
+  order: 5;
+  display: flex;
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] > div {
+  flex-direction: row;
+  gap: 1.5rem;
+}
+
+/* Flex now handled by wrapper div inline styles */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.95; }
+}
+
+/* ── AI CENTER: Center-focused, orbital modules ────────────────── */
+[data-theme-pack="ai-center"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-columns: 1fr;
+  gap: 0;
+  position: relative;
+}
+
+[data-theme-pack="ai-center"] [data-section="obd"] {
+  display: none;
+}
+
+[data-theme-pack="ai-center"] [data-section="alerts"] {
+  grid-row: 1;
+  order: 1;
+  opacity: 0.7;
+}
+
+[data-theme-pack="ai-center"] [data-section="quick-actions"] {
+  display: none;
+}
+
+[data-theme-pack="ai-center"] [data-section="voice"] {
+  grid-row: 2;
+  order: 2;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] {
+  grid-row: 3 / -1;
+  order: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div {
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+/* Flex now handled by wrapper div inline styles */
+
+/* Theme pack animations — PERFORMANCE SAFE MODE: disabled */
+@keyframes float { 0%, 100% { transform: translateY(0px); } }
+@keyframes glow-pulse { 0%, 100% { filter: none; } }
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div > div {
+  animation-name: glow-pulse;
+  animation-duration: 6s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* ── Widget-level behavior ──────────────────────────────────────── */
+
+/* Tesla: Minimal animations, fast response */
+[data-theme-pack="tesla"] {
+  --animation-duration: 400ms;
+}
+
+[data-theme-pack="tesla"] [class*="animate"] {
+  animation-duration: var(--animation-duration) !important;
+}
+
+[data-theme-pack="tesla"] [class*="shadow"] {
+  filter: brightness(0.95);
+}
+
+[data-theme-pack="tesla"] button {
+  transition: all 120ms ease;
+}
+
+[data-theme-pack="tesla"] button:active {
+  transform: scale(0.98);
+}
+
+/* Big Cards: Bold animations, dramatic effects */
+[data-theme-pack="big-cards"] {
+  --animation-duration: 200ms;
+}
+
+[data-theme-pack="big-cards"] button:hover {
+  filter: brightness(1.1);
+  transition: all 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform: translateY(-4px);
+  box-shadow: 0 15px 35px rgba(99, 102, 241, 0.4);
+}
+
+[data-theme-pack="big-cards"] button:active {
+  transform: translateY(-2px) scale(0.97);
+}
+
+[data-theme-pack="big-cards"] [class*="shadow"] {
+  filter: drop-shadow(0 20px 25px rgba(0, 0, 0, 0.3));
+}
+
+/* Big Cards OBD — subtle pulse */
+/* Big Cards heartbeat — PERFORMANCE SAFE MODE: disabled */
+@keyframes heartbeat { 0%, 100% { transform: scale(1); opacity: 1; } }
+[data-theme-pack="big-cards"] [data-section="obd"] {
+  animation: none !important;
+}
+
+/* AI Center: Smooth, ethereal animations, glowing */
+[data-theme-pack="ai-center"] {
+  --animation-duration: 600ms;
+}
+
+[data-theme-pack="ai-center"] button {
+  transition: all 300ms cubic-bezier(0.23, 1, 0.320, 1);
+}
+
+[data-theme-pack="ai-center"] button:hover {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 10px 20px rgba(6, 182, 212, 0.4));
+}
+
+[data-theme-pack="ai-center"] button:active {
+  transform: translateY(0px) scale(0.98);
+}
+
+[data-theme-pack="ai-center"] [class*="shadow"] {
+  filter: drop-shadow(0 0 30px rgba(139, 92, 246, 0.4));
+}
+
+/* AI Center glow effect — optimized */
+@keyframes ai-glow {
+  0%, 100% {
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.3), 0 0 12px rgba(139, 92, 246, 0.2);
+  }
+  50% {
+    text-shadow: 0 0 12px rgba(6, 182, 212, 0.5), 0 0 16px rgba(139, 92, 246, 0.3);
+  }
+}
+
+[data-theme-pack="ai-center"] h1,
+[data-theme-pack="ai-center"] h2,
+[data-theme-pack="ai-center"] span[class*="text-"] {
+  animation: none !important;
+}
+
+/* ── Component-level experience tweaks ──────────────────────────── */
+
+/* TESLA: Clean, minimal, glass aesthetic */
+[data-theme-pack="tesla"] {
+  --widget-spacing: 0.5rem;
+  --widget-padding: 1rem;
+  --widget-border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] {
+  padding: 0.5rem;
+  gap: 0.5rem;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div > div {
+  background: rgba(13, 22, 40, 0.6) !important;
+  border: 1px solid rgba(59, 130, 246, 0.1) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Tesla: NavHero dominates */
+[data-theme-pack="tesla"] [data-section="hero"] > div > div:first-child {
+  min-height: 400px;
+  flex: 2 1 0;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div > div:last-child {
+  min-height: 400px;
+  flex: 0.8 1 0;
+  opacity: 0.9;
+}
+
+/* Tesla: Compact info panels */
+[data-theme-pack="tesla"] [class*="flex"] [class*="flex-col"] {
+  gap: 0.25rem;
+}
+
+[data-theme-pack="tesla"] [class*="text-xs"] {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+[data-theme-pack="tesla"] [class*="py-"] {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+
+/* BIG CARDS: Bold, driving-focused, OBD-centric */
+[data-theme-pack="big-cards"] {
+  --widget-spacing: 1.5rem;
+  --widget-padding: 2rem;
+  --widget-border: 2px solid rgba(165, 180, 252, 0.3);
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] {
+  padding: 1.5rem;
+  gap: 1.5rem;
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] > div > div {
+  background: rgba(49, 46, 129, 0.5) !important;
+  border: 2px solid rgba(165, 180, 252, 0.3) !important;
+  border-radius: 2.5rem !important;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.25) !important;
+  padding: 2rem !important;
+}
+
+/* Big Cards: OBD panel prominent */
+[data-theme-pack="big-cards"] [data-section="obd"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.3), rgba(99, 102, 241, 0.2)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.4) !important;
+  border-radius: 2rem !important;
+}
+
+/* Big Cards: Maximum visual impact */
+[data-theme-pack="big-cards"] button[class*="rounded"] {
+  transition: all 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  border-radius: 2rem !important;
+}
+
+[data-theme-pack="big-cards"] button[class*="rounded"]:hover {
+  transform: scale(1.05) translateY(-8px);
+  filter: brightness(1.15);
+}
+
+/* Big Cards: Scale up progress bars and metrics */
+[data-theme-pack="big-cards"] [class*="h-1"],
+[data-theme-pack="big-cards"] [class*="h-1.5"],
+[data-theme-pack="big-cards"] [class*="h-2"] {
+  height: 0.5rem !important;
+}
+
+/* Big Cards: Enlarge text in media controls */
+[data-theme-pack="big-cards"] [class*="text-xs"] {
+  font-size: 0.875rem !important;
+}
+
+/* Big Cards: Bold spacing */
+[data-theme-pack="big-cards"] [class*="gap"] {
+  gap: 1.5rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="px-"] {
+  padding-left: 2rem !important;
+  padding-right: 2rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="py-"] {
+  padding-top: 1.5rem !important;
+  padding-bottom: 1.5rem !important;
+}
+
+/* ── AI CENTER: Futuristic, orbital layout, centered ─────────────────── */
+[data-theme-pack="ai-center"] {
+  --widget-spacing: 1rem;
+  --widget-padding: 1.5rem;
+  --widget-border: 1px solid rgba(6, 182, 212, 0.4);
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  gap: 2rem;
+  min-height: 500px;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div > div {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.08), rgba(139, 92, 246, 0.08)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.3) !important;
+  border-radius: 1.5rem !important;
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.15), inset 0 0 15px rgba(139, 92, 246, 0.08) !important;
+  padding: 1.5rem !important;
+  text-align: center;
+  max-width: 280px;
+}
+
+/* AI Center: Centered media widget */
+[data-theme-pack="ai-center"] [data-section="hero"] > div:last-child {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+/* AI Center: Orbital glow on nav buttons */
+@keyframes orbital-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 10px rgba(6, 182, 212, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(139, 92, 246, 0.25), inset 0 0 15px rgba(139, 92, 246, 0.12);
+  }
+}
+
+[data-theme-pack="ai-center"] button[class*="rounded"] {
+  animation: orbital-glow 3s ease-in-out infinite;
+  border: 1px solid rgba(6, 182, 212, 0.5);
+  background: rgba(6, 182, 212, 0.08);
+}
+
+[data-theme-pack="ai-center"] button[class*="rounded"]:hover {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.7);
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.3), inset 0 0 15px rgba(6, 182, 212, 0.15);
+  transform: scale(1.05);
+}
+
+/* AI Center text styling: futuristic typography */
+[data-theme-pack="ai-center"] h1,
+[data-theme-pack="ai-center"] h2 {
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+[data-theme-pack="ai-center"] [class*="text-xs"],
+[data-theme-pack="ai-center"] [class*="text-sm"] {
+  letter-spacing: 0.05em;
+  font-size: 0.875rem;
+}
+
+/* AI Center: Minimal gap and padding in widgets */
+[data-theme-pack="ai-center"] [class*="flex"] [class*="flex-col"] {
+  gap: 0.75rem;
+}
+
+[data-theme-pack="ai-center"] [class*="px-"] {
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+[data-theme-pack="ai-center"] [class*="py-"] {
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* WIDGET SIZE SYSTEM — Focus mode and size differentiation         */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* Widget size transitions (performance-mode aware) */
+[data-performance-mode="lite"] [data-widget-key] {
+  transition: opacity 100ms ease-out;
+}
+
+[data-performance-mode="balanced"] [data-widget-key] {
+  transition: opacity 300ms ease-out;
+}
+
+[data-performance-mode="premium"] [data-widget-key] {
+  transition: opacity 500ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Small: reduced presence and visibility */
+[data-widget-key][data-widget-size="small"] {
+  opacity: 0.65;
+}
+
+[data-widget-key="obd"][data-widget-size="small"] {
+  max-height: 72px;
+  overflow: hidden;
+}
+
+/* Medium: default, no override needed */
+
+/* Large: focus ring and full presence */
+[data-widget-key][data-widget-size="large"] > * {
+  outline: 1px solid rgba(59, 130, 246, 0.25);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+[data-widget-key][data-widget-size="large"] {
+  opacity: 1;
+}
+
+[data-widget-key="obd"][data-widget-size="large"] {
+  max-height: 140px;
+}
+
+/* Tesla: unhide OBD when focused (usually hidden in tesla layout) */
+[data-theme-pack="tesla"] [data-widget-key="obd"][data-widget-size="large"],
+[data-theme-pack="tesla"] [data-widget-key="obd"][data-widget-size="medium"] {
+  display: block !important;
+}
+
+/* Driving mode: safety overrides */
+[data-drive-state="driving"] [data-widget-key][data-widget-size="small"] {
+  opacity: 1 !important;
+  min-height: 60px;
+}
+
+[data-drive-state="driving"] [data-widget-key="obd"] {
+  max-height: 80px !important;
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+/* WIDGET-SPECIFIC STYLING PER THEME PACK                           */
+/* ────────────────────────────────────────────────────────────────── */
+
+/* TESLA: Compact, technical, minimal info density */
+
+/* Tesla Clock widget: Minimal styling */
+[data-theme-pack="tesla"] [class*="ClockWidget"],
+[data-theme-pack="tesla"] [class*="TimeWidget"] {
+  background: rgba(13, 22, 40, 0.6) !important;
+  border: 1px solid rgba(59, 130, 246, 0.15) !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem !important;
+  font-size: 0.85rem;
+}
+
+/* Tesla OBD widget: Technical readout */
+[data-theme-pack="tesla"] [data-section="obd"],
+[data-theme-pack="tesla"] [class*="OBDPanel"] {
+  background: rgba(13, 22, 40, 0.5) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 0.5rem !important;
+  padding: 0.75rem !important;
+  gap: 0.5rem !important;
+}
+
+/* Tesla progress bars: Minimal */
+[data-theme-pack="tesla"] [class*="progress"],
+[data-theme-pack="tesla"] [class*="bg-gradient"] {
+  height: 0.25rem !important;
+  border-radius: 0.125rem !important;
+}
+
+/* Tesla buttons: Subtle hover */
+[data-theme-pack="tesla"] button {
+  transition: all 150ms ease-out;
+  border-radius: 0.5rem !important;
+}
+
+[data-theme-pack="tesla"] button:hover {
+  background: rgba(59, 130, 246, 0.1) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+
+/* BIG CARDS: Bold, driving-focused, emphasis on OBD data */
+
+/* Big Cards Clock widget: Large and prominent */
+[data-theme-pack="big-cards"] [class*="ClockWidget"],
+[data-theme-pack="big-cards"] [class*="TimeWidget"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.25), rgba(99, 102, 241, 0.15)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.35) !important;
+  border-radius: 1.5rem !important;
+  padding: 1.25rem !important;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Big Cards OBD widget: Maximum prominence */
+[data-theme-pack="big-cards"] [data-section="obd"],
+[data-theme-pack="big-cards"] [class*="OBDPanel"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.35), rgba(99, 102, 241, 0.25)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.4) !important;
+  border-radius: 2rem !important;
+  padding: 1.5rem !important;
+  gap: 1rem !important;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.2) !important;
+}
+
+/* Big Cards progress bars: Bold and visible */
+[data-theme-pack="big-cards"] [class*="progress"],
+[data-theme-pack="big-cards"] [class*="bg-gradient"] {
+  height: 0.75rem !important;
+  border-radius: 0.375rem !important;
+}
+
+/* Big Cards media widget: Large controls */
+[data-theme-pack="big-cards"] [class*="MediaWidget"],
+[data-theme-pack="big-cards"] [class*="MediaPanel"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.25), rgba(99, 102, 241, 0.15)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.3) !important;
+  border-radius: 1.5rem !important;
+  padding: 1.5rem !important;
+  gap: 1rem !important;
+}
+
+/* Big Cards buttons: Oversized and tactile */
+[data-theme-pack="big-cards"] button {
+  transition: all 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  min-height: 2.75rem !important;
+  font-size: 0.95rem !important;
+}
+
+[data-theme-pack="big-cards"] button:active {
+  transform: scale(0.95) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+
+/* AI CENTER: Futuristic, centered, modern typography */
+
+/* AI Center Clock widget: Prominent central display */
+[data-theme-pack="ai-center"] [class*="ClockWidget"],
+[data-theme-pack="ai-center"] [class*="TimeWidget"] {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(139, 92, 246, 0.1)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.4) !important;
+  border-radius: 1rem !important;
+  padding: 1.25rem !important;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.15), inset 0 0 10px rgba(6, 182, 212, 0.05) !important;
+}
+
+/* AI Center OBD widget: Orbital presentation */
+[data-theme-pack="ai-center"] [data-section="obd"],
+[data-theme-pack="ai-center"] [class*="OBDPanel"] {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(139, 92, 246, 0.08)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.35) !important;
+  border-radius: 1rem !important;
+  padding: 1.25rem !important;
+  gap: 0.875rem !important;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.1), inset 0 0 12px rgba(139, 92, 246, 0.05) !important;
+}
+
+/* AI Center media widget: Centered and modern */
+[data-theme-pack="ai-center"] [class*="MediaWidget"],
+[data-theme-pack="ai-center"] [class*="MediaPanel"] {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(139, 92, 246, 0.08)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.35) !important;
+  border-radius: 1rem !important;
+  padding: 1.25rem !important;
+  gap: 1rem !important;
+  text-align: center;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.1) !important;
+}
+
+/* AI Center progress bars: Thin and elegant */
+[data-theme-pack="ai-center"] [class*="progress"],
+[data-theme-pack="ai-center"] [class*="bg-gradient"] {
+  height: 0.3rem !important;
+  border-radius: 0.15rem !important;
+  background: linear-gradient(90deg, rgba(6, 182, 212, 0.5), rgba(139, 92, 246, 0.5)) !important;
+}
+
+/* AI Center buttons: Futuristic interaction */
+[data-theme-pack="ai-center"] button {
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  min-height: 2.5rem !important;
+}
+
+[data-theme-pack="ai-center"] button:active {
+  transform: scale(0.97) !important;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.3), inset 0 0 10px rgba(6, 182, 212, 0.1) !important;
+}
+
+/* ── Responsive adjustments per theme ───────────────────────────── */
+
+/* ════════════════════════════════════════════════════════════════ */
+/* SMOOTH TRANSITIONS — Premium Theme Change Animations             */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── Theme change transitions — Performance mode aware ──────────── */
+
+/* Lite mode: Very light theme transitions (100ms) */
+[data-performance-mode="lite"] [data-theme-style],
+[data-performance-mode="lite"] [data-widget-style],
+[data-performance-mode="lite"] [data-theme-pack],
+[data-performance-mode="lite"] [class*="rounded"],
+[data-performance-mode="lite"] [class*="bg-"],
+[data-performance-mode="lite"] div[class*="flex"] {
+  transition: background-color 100ms ease-out, border-color 100ms ease-out, box-shadow 100ms ease-out, color 100ms ease-out;
+}
+
+/* Balanced mode: Normal theme transitions (300ms) */
+[data-performance-mode="balanced"] [data-theme-style],
+[data-performance-mode="balanced"] [data-widget-style],
+[data-performance-mode="balanced"] [data-theme-pack],
+[data-performance-mode="balanced"] [class*="rounded"],
+[data-performance-mode="balanced"] [class*="bg-"],
+[data-performance-mode="balanced"] div[class*="flex"] {
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, box-shadow 300ms ease-out, color 300ms ease-out;
+}
+
+/* Premium mode: Rich theme transitions (500ms) */
+[data-performance-mode="premium"] [data-theme-style],
+[data-performance-mode="premium"] [data-widget-style],
+[data-performance-mode="premium"] [data-theme-pack],
+[data-performance-mode="premium"] [class*="rounded"],
+[data-performance-mode="premium"] [class*="bg-"],
+[data-performance-mode="premium"] div[class*="flex"] {
+  transition: background-color 500ms cubic-bezier(0.4, 0, 0.2, 1), border-color 500ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1), color 500ms ease-out;
+}
+
+/* Interactive elements — instant feedback, no transition delay */
+button {
+  transition: none !important;
+}
+
+/* Micro-interactions: Button press & glow — instant, no transitions */
+button {
+  transition: none !important;
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+button:focus,
+button:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
+}
+
+button:hover {
+  filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3));
+}
+
+/* ── Keyframe Animations ────────────────────────────────────────── */
+
+/* Keyframe animations — PERFORMANCE SAFE MODE: disabled */
+@keyframes theme-fade-in { 0%, 100% { opacity: 1; filter: brightness(1); } }
+@keyframes theme-fade-out { 0%, 100% { opacity: 1; filter: brightness(1); } }
+@keyframes card-entrance { 0%, 100% { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes card-exit { 0%, 100% { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes glow-smooth { 0%, 100% { filter: none; opacity: 1; } }
+
+/* Heavy effect animations — PERFORMANCE SAFE MODE: disabled */
+@keyframes blur-entrance { 0%, 100% { filter: none; opacity: 1; } }
+@keyframes neon-glow-transition { 0%, 100% { box-shadow: none; } }
+@keyframes color-shift { 0%, 100% { filter: none; } }
+
+/* Widget float entrance (AI Center) */
+@keyframes float-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* THEME STYLE SYSTEM — Panel & Widget Appearance                   */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── GLASS: Glassmorphism, blur, transparency ──────────────────── */
+[data-theme-style="glass"] {
+  --style-backdrop: rgba(255, 255, 255, 0.05);
+  --style-blur: 12px;
+  --style-border: rgba(255, 255, 255, 0.1);
+  --style-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme-style="glass"] [class*="rounded"] {
+  background: rgba(13, 22, 40, 0.4);
+  backdrop-filter: blur(var(--style-blur));
+  border: 1px solid var(--style-border);
+  box-shadow: var(--style-shadow);
+  animation:
+    blur-entrance 400ms cubic-bezier(0.4, 0, 0.2, 1) backwards,
+    glow-smooth 6s ease-in-out infinite;
+}
+
+[data-theme-style="glass"] button,
+[data-theme-style="glass"] [class*="bg-"] {
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  animation: blur-entrance 800ms cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+[data-theme-style="glass"] button:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.3);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+  transform: translateY(-2px);
+}
+
+[data-theme-style="glass"] button:active {
+  transform: scale(0.96) translateY(0);
+}
+
+[data-theme-style="glass"] button:focus,
+[data-theme-style="glass"] button:focus-visible {
+  box-shadow:
+    0 0 20px rgba(59, 130, 246, 0.5),
+    inset 0 0 10px rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Stagger animation for glass cards */
+[data-theme-style="glass"] [class*="rounded"]:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+[data-theme-style="glass"] [class*="rounded"]:nth-child(2) {
+  animation-delay: 100ms;
+}
+
+[data-theme-style="glass"] [class*="rounded"]:nth-child(3) {
+  animation-delay: 200ms;
+}
+
+/* ── NEON: Glow, bright edges, electric ─────────────────────────── */
+[data-theme-style="neon"] {
+  --style-glow: rgba(59, 130, 246, 0.5);
+  --style-border: 2px;
+  --style-shadow: 0 0 20px rgba(59, 130, 246, 0.4), inset 0 0 10px rgba(59, 130, 246, 0.1);
+}
+
+[data-theme-style="neon"] [class*="rounded"] {
+  background: rgba(13, 22, 40, 0.7);
+  border: var(--style-border) solid rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
+  animation:
+    card-entrance 400ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+[data-theme-style="neon"] button {
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+  animation: card-entrance 400ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+[data-theme-style="neon"] button:hover {
+  border-color: rgba(59, 130, 246, 0.8);
+  box-shadow: none !important;
+  background: rgba(59, 130, 246, 0.1);
+  transform: none;
+}
+
+[data-theme-style="neon"] button:active {
+  box-shadow:
+    0 0 50px rgba(59, 130, 246, 1),
+    inset 0 0 25px rgba(59, 130, 246, 0.4);
+  transform: scale(0.94);
+}
+
+[data-theme-style="neon"] button:focus,
+[data-theme-style="neon"] button:focus-visible {
+  box-shadow:
+    0 0 40px rgba(59, 130, 246, 0.8),
+    inset 0 0 20px rgba(59, 130, 246, 0.3),
+    0 0 60px rgba(59, 130, 246, 0.5);
+  border-color: rgba(59, 130, 246, 1);
+}
+
+@keyframes neon-flicker {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.05); }
+}
+
+[data-theme-style="neon"] [class*="text-"] {
+  animation: none !important;
+}
+
+/* Stagger animation for neon cards */
+[data-theme-style="neon"] [class*="rounded"]:nth-child(1) {
+  animation-delay: 0ms, 200ms;
+}
+
+[data-theme-style="neon"] [class*="rounded"]:nth-child(2) {
+  animation-delay: 100ms, 300ms;
+}
+
+[data-theme-style="neon"] [class*="rounded"]:nth-child(3) {
+  animation-delay: 200ms, 400ms;
+}
+
+/* ── MINIMAL: Flat, no shadows, clean ──────────────────────────── */
+[data-theme-style="minimal"] {
+  --style-bg: rgba(13, 22, 40, 0.8);
+  --style-border: 1px solid rgba(255, 255, 255, 0.08);
+  --style-shadow: none;
+}
+
+/* Smooth fade entrance for minimal style */
+@keyframes minimal-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-theme-style="minimal"] [class*="rounded"] {
+  background: var(--style-bg);
+  border: var(--style-border);
+  box-shadow: none;
+  animation: minimal-entrance 600ms cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+[data-theme-style="minimal"] button {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: none;
+  animation: minimal-entrance 600ms cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+[data-theme-style="minimal"] button:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
+  transform: translateY(-2px);
+}
+
+[data-theme-style="minimal"] button:active {
+  transform: scale(0.96);
+}
+
+[data-theme-style="minimal"] button:focus,
+[data-theme-style="minimal"] button:focus-visible {
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+[data-theme-style="minimal"] [class*="shadow"] {
+  filter: none;
+  box-shadow: none !important;
+}
+
+/* Stagger animation for minimal cards */
+[data-theme-style="minimal"] [class*="rounded"]:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+[data-theme-style="minimal"] [class*="rounded"]:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+[data-theme-style="minimal"] [class*="rounded"]:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+/* ── WIDGET STYLE: elevated, flat, outlined ────────────────────── */
+
+/* Elevated: Prominent, layered, shadow-heavy */
+[data-widget-style="elevated"] [class*="rounded"] {
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.3),
+    0 5px 15px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+}
+
+[data-widget-style="elevated"] button {
+  box-shadow:
+    0 8px 20px rgba(59, 130, 246, 0.3),
+    0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+[data-widget-style="elevated"] button:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 12px 28px rgba(59, 130, 246, 0.4),
+    0 6px 14px rgba(0, 0, 0, 0.25);
+}
+
+[data-widget-style="elevated"] button:active {
+  transform: translateY(-1px) scale(0.97);
+  box-shadow:
+    0 6px 16px rgba(59, 130, 246, 0.3),
+    0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+[data-widget-style="elevated"] button:focus,
+[data-widget-style="elevated"] button:focus-visible {
+  box-shadow:
+    0 12px 28px rgba(59, 130, 246, 0.4),
+    0 6px 14px rgba(0, 0, 0, 0.25),
+    0 0 15px rgba(59, 130, 246, 0.3);
+}
+
+/* Flat: Borderless, minimal depth */
+[data-widget-style="flat"] [class*="rounded"] {
+  border: none;
+  box-shadow: none;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+[data-widget-style="flat"] button {
+  border: none;
+  box-shadow: none;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+[data-widget-style="flat"] button:hover {
+  background: rgba(59, 130, 246, 0.18);
+  transform: translateY(-2px);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+}
+
+[data-widget-style="flat"] button:active {
+  transform: scale(0.96);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+}
+
+[data-widget-style="flat"] button:focus,
+[data-widget-style="flat"] button:focus-visible {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.2);
+}
+
+/* Outlined: Border-focused, minimalist */
+[data-widget-style="outlined"] [class*="rounded"] {
+  background: transparent;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+
+[data-widget-style="outlined"] button {
+  background: transparent;
+  border: 2px solid rgba(59, 130, 246, 0.4);
+  box-shadow: none;
+}
+
+[data-widget-style="outlined"] button:hover {
+  border-color: rgba(59, 130, 246, 0.8);
+  background: rgba(59, 130, 246, 0.05);
+  transform: translateY(-2px);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.25);
+}
+
+[data-widget-style="outlined"] button:active {
+  transform: scale(0.96);
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: inset 0 0 8px rgba(59, 130, 246, 0.1);
+}
+
+[data-widget-style="outlined"] button:focus,
+[data-widget-style="outlined"] button:focus-visible {
+  border-color: rgba(59, 130, 246, 1);
+  box-shadow:
+    0 0 15px rgba(59, 130, 246, 0.4),
+    inset 0 0 10px rgba(59, 130, 246, 0.05);
+}
+
+/* ── Composite: Theme Style + Widget Style ──────────────────────── */
+
+/* Glass + Elevated = ultra-refined */
+[data-theme-style="glass"][data-widget-style="elevated"] [class*="rounded"] {
+  backdrop-filter: blur(15px);
+  box-shadow:
+    0 10px 40px rgba(59, 130, 246, 0.2),
+    0 5px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Neon + Flat = bold and modern */
+[data-theme-style="neon"][data-widget-style="flat"] [class*="rounded"] {
+  border: 2px solid rgba(59, 130, 246, 0.8);
+  background: rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+/* Minimal + Outlined = ultra-clean */
+[data-theme-style="minimal"][data-widget-style="outlined"] [class*="rounded"] {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* AI RECOMMENDATION CARD — Premium One-Tap Suggestions             */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* Recommendation card — PERFORMANCE SAFE MODE: no animation */
+@keyframes rec-card-enter { 0%, 100% { opacity: 1; transform: translateY(0); } }
+[class*="RecommendationCard"] button {
+  animation: none !important;
+}
+
+/* Glass theme: premium recommendation card */
+[data-theme-style="glass"] [class*="RecommendationCard"] button {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.25) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme-style="glass"] [class*="RecommendationCard"] button:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%) !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow: 0 12px 48px rgba(59, 130, 246, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Neon theme: electric recommendation card */
+[data-theme-style="neon"] [class*="RecommendationCard"] button {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.2), inset 0 0 10px rgba(59, 130, 246, 0.05) !important;
+}
+
+[data-theme-style="neon"] [class*="RecommendationCard"] button:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18) 0%, rgba(139, 92, 246, 0.12) 100%) !important;
+  border-color: rgba(59, 130, 246, 0.6) !important;
+  box-shadow: 0 0 40px rgba(59, 130, 246, 0.4), inset 0 0 15px rgba(59, 130, 246, 0.1) !important;
+}
+
+/* Minimal theme: clean recommendation card */
+[data-theme-style="minimal"] [class*="RecommendationCard"] button {
+  background: rgba(59, 130, 246, 0.08) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  box-shadow: none !important;
+}
+
+[data-theme-style="minimal"] [class*="RecommendationCard"] button:hover {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Mode-specific recommendation visibility */
+[data-drive-state="driving"] [class*="RecommendationCard"] {
+  display: none !important;
+}
+
+/* Icon scale animation */
+[class*="RecommendationCard"] button > div:first-child {
+  transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[class*="RecommendationCard"] button:hover > div:first-child {
+  transform: scale(1.2) !important;
+}
+
+/* Arrow animation */
+[class*="RecommendationCard"] button > div:last-child {
+  transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[class*="RecommendationCard"] button:hover > div:last-child {
+  transform: translateX(4px) !important;
+}
+
+/* Normal mode: reduce recommendation intensity */
+[data-drive-state="normal"] [class*="RecommendationCard"] button {
+  animation-duration: 350ms !important;
+}
+
+[data-drive-state="normal"] [data-theme-style="glass"] [class*="RecommendationCard"] button:hover {
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-drive-state="normal"] [data-theme-style="neon"] [class*="RecommendationCard"] button:hover {
+  box-shadow: 0 0 25px rgba(59, 130, 246, 0.25), inset 0 0 10px rgba(59, 130, 246, 0.05) !important;
+}
+
+/* Idle mode: premium recommendation (full glow) */
+[data-drive-state="idle"] [data-theme-style="glass"] [class*="RecommendationCard"] button:hover {
+  box-shadow: 0 12px 48px rgba(59, 130, 246, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+[data-drive-state="idle"] [data-theme-style="neon"] [class*="RecommendationCard"] button:hover {
+  box-shadow: 0 0 50px rgba(59, 130, 246, 0.5), inset 0 0 20px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* PERFORMANCE MODE SYSTEM — Update Frequency & Visual Intensity      */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── LITE MODE: Minimal updates, no effects ──────────────────── */
+[data-performance-mode="lite"] {
+  --enable-gpu-effects: 0;
+}
+
+/* Lite: No glow, blur, shadow effects */
+[data-performance-mode="lite"] * {
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+/* Lite: Dynamic UI transitions instant (no animation) */
+[data-performance-mode="lite"] [data-drive-state] {
+  transition: none !important;
+}
+
+/* Lite: All animations disabled */
+[data-performance-mode="lite"] * {
+  animation: none !important;
+  transition-duration: 100ms !important;
+}
+
+/* Lite: Button effects minimal */
+[data-performance-mode="lite"] button:hover,
+[data-performance-mode="lite"] button:focus {
+  box-shadow: none !important;
+  filter: brightness(1.02) !important;
+  transform: none !important;
+}
+
+/* Lite: OBD and AI recommendation updates very infrequent (handled by service) */
+[data-performance-mode="lite"] [data-section="obd"],
+[data-performance-mode="lite"] [class*="RecommendationCard"] {
+  opacity: 1; /* Prevent flicker on infrequent updates */
+}
+
+/* ── BALANCED MODE: Normal operation ──────────────────────────── */
+[data-performance-mode="balanced"] {
+  --enable-gpu-effects: 1;
+}
+
+/* Balanced: Standard transitions and animations (no changes needed) */
+
+/* ── PREMIUM MODE: Rich effects, enhanced visuals ─────────────────── */
+[data-performance-mode="premium"] {
+  --enable-gpu-effects: 1;
+}
+
+/* Premium: Enhanced button glow effects */
+[data-performance-mode="premium"] [data-theme-style="glass"] button:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+[data-performance-mode="premium"] [data-theme-style="neon"] button:hover {
+  box-shadow: 0 0 30px rgba(59, 130, 246, 0.4), inset 0 0 15px rgba(59, 130, 246, 0.1) !important;
+}
+
+/* Premium: Enhanced theme pack glows */
+[data-performance-mode="premium"] [data-theme-pack="ai-center"] h1,
+[data-performance-mode="premium"] [data-theme-pack="ai-center"] h2 {
+  text-shadow: 0 0 15px rgba(6, 182, 212, 0.4), 0 0 25px rgba(139, 92, 246, 0.3) !important;
+}
+
+/* Premium: Recommendation card enhanced */
+[data-performance-mode="premium"] [class*="RecommendationCard"] button:hover {
+  box-shadow: 0 16px 64px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Premium: Smoother dynamic UI transitions (already smooth, enhance for visual polish) */
+[data-performance-mode="premium"] [data-drive-state] {
+  transition: background-color 400ms ease-out, opacity 400ms ease-out !important;
+}
+
+/* ── EDIT MODE SYSTEM ──────────────────────────────────────── */
+
+/* Performance-aware edit mode transitions */
+[data-performance-mode="lite"] [data-section] {
+  transition: outline 100ms ease-out, opacity 100ms ease-out;
+}
+[data-performance-mode="balanced"] [data-section] {
+  transition: outline 300ms ease-out, opacity 300ms ease-out;
+}
+[data-performance-mode="premium"] [data-section] {
+  transition: outline 500ms ease-out, opacity 500ms ease-out;
+}
+
+/* Edit mode: section highlight border */
+[data-edit-mode="true"] [data-section] {
+  outline: 1px dashed rgba(59, 130, 246, 0.4);
+  outline-offset: 3px;
+  border-radius: 1rem;
+  position: relative;
+}
+
+/* Edit controls hidden by default, shown in edit mode */
+.widget-edit-controls {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-out;
+}
+
+[data-edit-mode="true"] .widget-edit-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hidden widget placeholder */
+[data-edit-mode="true"] [data-section][data-hidden="true"] {
+  opacity: 0.35;
+  outline-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Edit mode: banner entrance */
+@keyframes edit-banner-in {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+[data-edit-mode="true"] .edit-mode-banner {
+  animation: edit-banner-in 250ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Lite mode: no animations */
+[data-performance-mode="lite"] [data-edit-mode="true"] .edit-mode-banner {
+  animation: none;
+}
+
+/* ── SLEEP MODE ──────────────────────────────────────────── */
+
+.sleep-overlay {
+  animation: sleep-fade-in 600ms ease-out both;
+}
+
+[data-performance-mode="lite"] .sleep-overlay {
+  animation-duration: 100ms;
+}
+
+[data-performance-mode="balanced"] .sleep-overlay {
+  animation-duration: 400ms;
+}
+
+[data-performance-mode="premium"] .sleep-overlay {
+  animation-duration: 700ms;
+}
+
+@keyframes sleep-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (max-width: 1280px) {
+  [data-theme-pack="tesla"] [data-section="hero"] > div {
+    flex-direction: column;
+  }
+
+  [data-theme-pack="tesla"] [data-section="hero"] > div > div {
+    flex: 1 !important;
+  }
+
+  [data-theme-pack="big-cards"] [data-section="hero"] {
+    flex-direction: column;
+  }
+
+  [data-theme-pack="ai-center"] [data-section="hero"] > div {
+    flex-direction: column;
+    gap: 2rem;
+  }
 }
 
 ::-webkit-scrollbar {

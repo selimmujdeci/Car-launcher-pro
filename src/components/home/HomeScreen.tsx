@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback, memo } from 'react';
 import {
   Bluetooth, Wifi, WifiOff,
   BatteryFull, BatteryMedium, BatteryLow, BatteryCharging,
-  Play, Pause, SkipBack, SkipForward, MapPin, Star as StarIcon,
+  Play, Pause, SkipBack, SkipForward, Star as StarIcon,
 } from 'lucide-react';
-import { APP_MAP, NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
-import type { AppItem, NavOptionKey, MusicOptionKey } from '../../data/apps';
-import { openNavigation, openMusic } from '../../platform/appLauncher';
+import { APP_MAP, MUSIC_OPTIONS } from '../../data/apps';
+import type { AppItem, MusicOptionKey } from '../../data/apps';
+import { openMusic } from '../../platform/appLauncher';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useMediaState, togglePlayPause, next, previous, fmtTime } from '../../platform/mediaService';
+import { MiniMapWidget } from '../map/MiniMapWidget';
+import { FullMapView } from '../map/FullMapView';
 
 /* ── Clock hook ──────────────────────────────────────────── */
 function useClock() {
@@ -235,44 +237,6 @@ const MusicCard = memo(function MusicCard({ defaultMusic }: { defaultMusic: Musi
 });
 
 /* ── Navigasyon Kartı ────────────────────────────────────── */
-const NavCard = memo(function NavCard({ defaultNav }: { defaultNav: NavOptionKey }) {
-  const app = NAV_OPTIONS[defaultNav];
-  const open = useCallback(() => openNavigation(defaultNav), [defaultNav]);
-
-  return (
-    <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex flex-col gap-3 overflow-hidden">
-
-      {/* Header */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-        <span className="text-slate-500 text-xs tracking-widest uppercase">Navigasyon</span>
-      </div>
-
-      {/* App info */}
-      <div className="flex items-center gap-3 flex-shrink-0">
-        <div
-          className="w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center text-2xl shadow-md"
-          style={{ background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)' }}
-        >
-          {app.icon}
-        </div>
-        <div className="min-w-0">
-          <div className="text-white text-base font-semibold leading-tight">{app.name}</div>
-          <div className="text-slate-500 text-xs mt-0.5">Varsayılan navigasyon</div>
-        </div>
-      </div>
-
-      {/* CTA */}
-      <button
-        onClick={open}
-        className="flex-1 w-full rounded-xl bg-blue-600 text-white text-lg font-bold hover:bg-blue-500 active:scale-[0.97] active:bg-blue-700 transition-[transform,background-color] duration-150 shadow-lg shadow-blue-600/25 flex items-center justify-center gap-3"
-      >
-        <MapPin className="w-5 h-5 flex-shrink-0" />
-        <span>Haritayı Aç</span>
-      </button>
-    </div>
-  );
-});
 
 /* ── Favori Uygulamalar ──────────────────────────────────── */
 const COL_CLASS: Record<number, string> = { 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6' };
@@ -363,42 +327,47 @@ interface Props {
   onLaunch: (id: string) => void;
   use24Hour: boolean;
   showSeconds: boolean;
-  defaultNav: NavOptionKey;
   defaultMusic: MusicOptionKey;
 }
 
-function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, defaultNav, defaultMusic }: Props) {
+function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, defaultMusic }: Props) {
+  const [fullMapOpen, setFullMapOpen] = useState(false);
+
   return (
-    <div className="h-full overflow-hidden flex flex-col gap-3 p-4">
+    <>
+      <div className="h-full overflow-hidden flex flex-col gap-3 p-4">
 
-      <div className="flex gap-3 flex-1 min-h-0">
+        <div className="flex gap-3 flex-1 min-h-0">
 
-        {/* Sol panel */}
-        <div className="w-[38%] min-w-0 flex flex-col gap-3">
-          <div className="bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex-shrink-0 animate-slide-up">
-            <Clock use24Hour={use24Hour} showSeconds={showSeconds} />
-            <DeviceStatus />
+          {/* Sol panel */}
+          <div className="w-[38%] min-w-0 flex flex-col gap-3">
+            <div className="bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex-shrink-0 animate-slide-up">
+              <Clock use24Hour={use24Hour} showSeconds={showSeconds} />
+              <DeviceStatus />
+            </div>
+            <div className="flex-1 min-h-0 animate-slide-up" style={{ animationDelay: '60ms' }}>
+              <FavApps ids={favorites} onLaunch={onLaunch} columns={3} />
+            </div>
           </div>
-          <div className="flex-1 min-h-0 animate-slide-up" style={{ animationDelay: '60ms' }}>
-            <FavApps ids={favorites} onLaunch={onLaunch} columns={3} />
+
+          {/* Sağ panel */}
+          <div className="flex-1 min-w-0 flex flex-col gap-3">
+            <div className="flex-[1] min-h-0 animate-slide-up" style={{ animationDelay: '30ms' }}>
+              <MiniMapWidget onFullScreenClick={() => setFullMapOpen(true)} />
+            </div>
+            <div className="flex-[1] min-h-0 animate-slide-up" style={{ animationDelay: '90ms' }}>
+              <MusicCard defaultMusic={defaultMusic} />
+            </div>
           </div>
+
         </div>
 
-        {/* Sağ panel */}
-        <div className="flex-1 min-w-0 flex flex-col gap-3">
-          <div className="flex-[1] min-h-0 animate-slide-up" style={{ animationDelay: '30ms' }}>
-            <NavCard defaultNav={defaultNav} />
-          </div>
-          <div className="flex-[1] min-h-0 animate-slide-up" style={{ animationDelay: '90ms' }}>
-            <MusicCard defaultMusic={defaultMusic} />
-          </div>
-        </div>
+        <RecentApps ids={recentApps} onLaunch={onLaunch} />
 
       </div>
 
-      <RecentApps ids={recentApps} onLaunch={onLaunch} />
-
-    </div>
+      {fullMapOpen && <FullMapView onClose={() => setFullMapOpen(false)} />}
+    </>
   );
 }
 

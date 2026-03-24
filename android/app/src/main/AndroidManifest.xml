@@ -65,10 +65,17 @@
     <!-- Network state (Wi-Fi connected check) -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Bluetooth state (API < 31) -->
+    <!-- Bluetooth (API < 31) -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <!-- Bluetooth state (API 31+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" android:maxSdkVersion="34" />
+    <!-- Bluetooth (API 31+) — OBD adapter connect + paired device names -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Needed on API 31+ to call cancelDiscovery() before OBD connect -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <!-- GPS permissions -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
 </manifest>
