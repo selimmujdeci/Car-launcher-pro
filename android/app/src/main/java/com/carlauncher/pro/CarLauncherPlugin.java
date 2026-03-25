@@ -6,11 +6,14 @@ import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -24,6 +27,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -62,11 +66,12 @@ public class CarLauncherPlugin extends Plugin {
         String packageName = call.getString("packageName");
         String action      = call.getString("action");
         String data        = call.getString("data");
+        String category    = call.getString("category");
 
         try {
-            Intent intent = resolveIntent(packageName, action, data);
+            Intent intent = resolveIntent(packageName, action, data, category);
             if (intent == null) {
-                call.reject("INVALID_ARGS", "No launchable target");
+                call.reject("INVALID_ARGS", "No launchable target found");
                 return;
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -77,24 +82,67 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
-    private Intent resolveIntent(String packageName, String action, String data) {
+    /**
+     * Scan all apps with CATEGORY_LAUNCHER.
+     */
+    @PluginMethod
+    public void getApps(PluginCall call) {
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            Intent intent = new Intent(Intent.ACTION_MAIN, null);
+            intent.addCategory(Intent.CATEGORY_LAUNCHER);
+
+            List<ResolveInfo> list = pm.queryIntentActivities(intent, 0);
+            JSArray apps = new JSArray();
+
+            for (ResolveInfo info : list) {
+                JSObject app = new JSObject();
+                app.put("name",        info.loadLabel(pm).toString());
+                app.put("packageName", info.activityInfo.packageName);
+                app.put("className",   info.activityInfo.name);
+
+                boolean isSystem = (info.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                app.put("isSystemApp", isSystem);
+
+                apps.put(app);
+            }
+
+            JSObject result = new JSObject();
+            result.put("apps", apps);
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("SCAN_FAILED", e.getMessage());
+        }
+    }
+
+    private Intent resolveIntent(String packageName, String action, String data, String category) {
         PackageManager pm = getContext().getPackageManager();
 
+        // 1. Try package directly
         if (isPresent(packageName)) {
             Intent intent = pm.getLaunchIntentForPackage(packageName);
             if (intent != null) return intent;
-
-            if (isPresent(action)) {
-                Intent fallback = buildActionIntent(action, data);
-                if (fallback != null && fallback.resolveActivity(pm) != null) return fallback;
-            }
-
-            return new Intent(Intent.ACTION_VIEW,
-                Uri.parse("market://details?id=" + packageName));
         }
 
-        if (isPresent(action)) return buildActionIntent(action, data);
-        if (isPresent(data))   return new Intent(Intent.ACTION_VIEW, Uri.parse(data));
+        // 2. Try action (even if package was provided but not found/launcher)
+        if (isPresent(action)) {
+            Intent intent = buildActionIntent(action, data);
+            if (intent != null && intent.resolveActivity(pm) != null) return intent;
+        }
+
+        // 3. Try standard Category (e.g. CATEGORY_APP_MESSAGING)
+        if (isPresent(category) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+            Intent intent = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, category);
+            if (intent != null && intent.resolveActivity(pm) != null) return intent;
+        }
+
+        // 4. Fallback to Market (only as last resort for a specific package)
+        if (isPresent(packageName)) {
+            return new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageName));
+        }
+
+        // 5. Raw data view
+        if (isPresent(data)) return new Intent(Intent.ACTION_VIEW, Uri.parse(data));
 
         return null;
     }

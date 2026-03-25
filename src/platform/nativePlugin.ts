@@ -9,6 +9,18 @@ export interface LaunchAppOptions {
   packageName?: string; // startActivity by package
   action?: string;      // startActivity by intent action
   data?: string;        // optional URI / data for the intent
+  category?: string;    // optional standard category (e.g. android.intent.category.APP_MAPS)
+}
+
+export interface NativeApp {
+  name: string;
+  packageName: string;
+  className: string;
+  isSystemApp: boolean;
+}
+
+export interface GetAppsResult {
+  apps: NativeApp[];
 }
 
 export interface NativeDeviceStatus {
@@ -63,6 +75,7 @@ export interface MediaActionOptions {
 
 export interface CarLauncherPlugin {
   launchApp(options: LaunchAppOptions): Promise<void>;
+  getApps(): Promise<GetAppsResult>;
   getDeviceStatus(): Promise<NativeDeviceStatus>;
 
   // Media playback control

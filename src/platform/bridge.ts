@@ -39,9 +39,9 @@ const demoBridge: CarBridge = {
 
 /* ── Native implementation (Android / Capacitor) ─────────── */
 
-// Pass all available fields — plugin chains: package → action → url → Play Store
-function _nativeLaunch(packageName?: string, action?: string, data?: string): void {
-  CarLauncher.launchApp({ packageName, action, data }).catch((e) => {
+// Pass all available fields — plugin chains: package → action → category → url → Play Store
+function _nativeLaunch(packageName?: string, action?: string, data?: string, category?: string): void {
+  CarLauncher.launchApp({ packageName, action, data, category }).catch((e) => {
     if (import.meta.env.DEV) console.warn('[CarLauncher] launchApp failed:', e);
   });
 }
@@ -50,21 +50,23 @@ const nativeBridge: CarBridge = {
   isNative: true,
 
   launchApp(app) {
-    // Supply both package and action when available — plugin decides fallback order
+    // Supply package, action and category — plugin decides fallback order
     const data = app.url || undefined;
-    if (app.androidPackage || app.androidAction) {
-      _nativeLaunch(app.androidPackage, app.androidAction, data);
+    if (app.androidPackage || app.androidAction || app.androidCategory) {
+      _nativeLaunch(app.androidPackage, app.androidAction, data, app.androidCategory);
     } else if (app.url) {
       _nativeLaunch(undefined, 'android.intent.action.VIEW', app.url);
     }
   },
 
   launchNavigation(key) {
-    _nativeLaunch(NAV_OPTIONS[key].androidPackage);
+    const opt = NAV_OPTIONS[key] as any;
+    _nativeLaunch(opt.androidPackage, opt.androidAction, opt.url, opt.androidCategory);
   },
 
   launchMusic(key) {
-    _nativeLaunch(MUSIC_OPTIONS[key].androidPackage);
+    const opt = MUSIC_OPTIONS[key] as any;
+    _nativeLaunch(opt.androidPackage, opt.androidAction, opt.url, opt.androidCategory);
   },
 
   launchSystemSettings() {

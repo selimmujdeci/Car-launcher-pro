@@ -1,8 +1,9 @@
 import { memo } from 'react';
 import { Star } from 'lucide-react';
-import { ALL_APPS } from '../../data/apps';
+import type { AppItem } from '../../data/apps';
 
 interface Props {
+  apps: AppItem[];
   favorites: string[];
   onToggleFavorite: (id: string) => void;
   onLaunch: (id: string) => void;
@@ -15,7 +16,7 @@ const COL_CLASS: Record<number, string> = {
   5: 'grid-cols-5',
 };
 
-function AppGrid({ favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
+function AppGrid({ apps, favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden">
       <div className="p-5 pb-8">
@@ -24,13 +25,13 @@ function AppGrid({ favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Pro
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-semibold text-white">Uygulamalar</h2>
           <span className="text-[11px] text-slate-600 bg-white/5 border border-white/5 rounded-full px-3 py-1 tabular-nums">
-            {ALL_APPS.length} uygulama
+            {apps.length} uygulama
           </span>
         </div>
 
         {/* Grid */}
         <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-4`}>
-          {ALL_APPS.map((app, index) => {
+          {apps.map((app, index) => {
             const isFav = favorites.includes(app.id);
             return (
               <div

@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback, useRef, memo, type ReactNode } from 'react';
 import {
   Wifi, Bluetooth, Battery, BatteryCharging,
-  MapPin, SkipBack, SkipForward, Play, Pause,
+  MapPin, Map as MapIcon, SkipBack, SkipForward, Play, Pause,
   LayoutGrid, SlidersHorizontal,
 } from 'lucide-react';
+import { FullMapView } from '../map/FullMapView';
+import { MiniMapWidget } from '../map/MiniMapWidget';
 import AppGrid from '../apps/AppGrid';
 import { SettingsPage, type Settings } from '../settings/SettingsPage';
 import {
-  APP_MAP,
   NAV_OPTIONS, MUSIC_OPTIONS,
   type NavOptionKey, type MusicOptionKey,
+  type AppItem,
 } from '../../data/apps';
 import { openApp } from '../../platform/appLauncher';
 import { useDeviceStatus } from '../../platform/deviceApi';
@@ -20,11 +22,9 @@ import {
 import { toIntent, routeIntent } from '../../platform/intentEngine';
 import { registerCommandHandler } from '../../platform/voiceService';
 import type { ParsedCommand } from '../../platform/commandParser';
-import {
-  useSmartEngine, trackLaunch,
-  type DrivingMode,
-} from '../../platform/smartEngine';
+import { useSmartEngine, trackLaunch, type DrivingMode } from '../../platform/smartEngine';
 import { initializeAddressBook } from '../../platform/addressBookService';
+import { useApps } from '../../platform/appDiscovery';
 import {
   getPerformanceMode, onPerformanceModeChange,
   type PerformanceMode,
@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultNav: 'maps',
   defaultMusic: 'spotify',
   sleepMode: false,
+  offlineMap: true,
   widgetOrder: ['hero'],
   widgetVisible: { hero: true },
 };
@@ -359,12 +360,25 @@ const NavHero = memo(function NavHero({
   defaultNav,
   onLaunch,
   drivingMode,
+  onOpenMap,
+  offlineMap,
 }: {
   defaultNav:  NavOptionKey;
   onLaunch:    (id: string) => void;
   drivingMode: DrivingMode;
+  onOpenMap?:  () => void;
+  offlineMap?: boolean;
 }) {
   const nav = NAV_OPTIONS[defaultNav];
+
+  // Offline map mode: show MiniMapWidget inside NavHero card
+  if (offlineMap && onOpenMap) {
+    return (
+      <div className="min-h-0 w-full h-full">
+        <MiniMapWidget onFullScreenClick={onOpenMap} />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -386,12 +400,23 @@ const NavHero = memo(function NavHero({
             <div className="text-white text-sm font-semibold">{nav.name}</div>
           </div>
         </div>
-        {drivingMode === 'driving' && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25" style={{ boxShadow: '0 0 10px rgba(52,211,153,0.1)' }}>
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest">Sürüş</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {onOpenMap && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenMap(); }}
+              className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-[transform,background-color,color] duration-150"
+              title="Haritayı Aç"
+            >
+              <MapIcon className="w-4 h-4" />
+            </button>
+          )}
+          {drivingMode === 'driving' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25" style={{ boxShadow: '0 0 10px rgba(52,211,153,0.1)' }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest">Sürüş</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Main launch button */}
@@ -499,11 +524,13 @@ const MediaPanel = memo(function MediaPanel({
 const DockShortcuts = memo(function DockShortcuts({
   dockIds,
   onLaunch,
+  appMap,
 }: {
   dockIds: string[];
   onLaunch: (id: string) => void;
+  appMap: Record<string, AppItem>;
 }) {
-  const apps = dockIds.slice(0, 4).map((id) => ({ id, app: APP_MAP[id] })).filter((x) => x.app);
+  const apps = dockIds.slice(0, 4).map((id) => ({ id, app: appMap[id] })).filter((x) => x.app);
 
   return (
     <div
@@ -535,17 +562,19 @@ const Dock = memo(function Dock({
   onLaunch,
   onOpenApps,
   onOpenSettings,
+  appMap,
 }: {
   dockIds:        string[];
   onLaunch:       (id: string) => void;
   onOpenApps:     () => void;
   onOpenSettings: () => void;
+  appMap:         Record<string, AppItem>;
 }) {
 
   return (
     <div className="flex items-center gap-2 px-5 py-1.5 border-t border-white/[0.06] flex-shrink-0" style={{ background: 'linear-gradient(180deg, rgba(10,16,32,0.6) 0%, rgba(6,13,26,0.8) 100%)' }}>
       {dockIds.map((id) => {
-        const app = APP_MAP[id];
+        const app = appMap[id];
         if (!app) return null;
         return (
           <button
@@ -672,16 +701,25 @@ const SleepOverlay = memo(function SleepOverlay({
 type DrawerType = 'none' | 'apps' | 'settings';
 
 export default function MainLayout() {
+  const { apps: allApps, appMap, loading: appsLoading } = useApps();
   const [bootPhase, setBootPhase] = useState<BootPhase>('show');
   const [drawer, setDrawer]       = useState<DrawerType>('none');
   const [favorites, setFavorites] = useState<string[]>(() =>
-    load<string[]>('favorites', []).filter((id) => id in APP_MAP)
+    load<string[]>('favorites', [])
   );
   const [settings, setSettings] = useState<Settings>(() => ({
     ...DEFAULT_SETTINGS,
     ...load<Partial<Settings>>('settings', {}),
   }));
   const [perfMode, setPerfMode] = useState<PerformanceMode>(() => getPerformanceMode());
+  const [fullMapOpen, setFullMapOpen] = useState(false);
+
+  // Filter invalid favorites once apps load (only on native)
+  useEffect(() => {
+    if (!appsLoading && Object.keys(appMap).length > 0) {
+      setFavorites(prev => prev.filter(id => id in appMap || id.startsWith('native-')));
+    }
+  }, [appsLoading, appMap]);
 
   // Smart engine — local AI layer
   const device = useDeviceStatus();
@@ -720,7 +758,7 @@ export default function MainLayout() {
 
   const handleLaunch = useCallback((id: string) => {
     if (!id) return;
-    const app = APP_MAP[id];
+    const app = appMap[id];
     if (!app) return;
 
     if (app.internalPage === 'settings') {
@@ -731,7 +769,7 @@ export default function MainLayout() {
     trackLaunch(id);
     openApp(app);
     setDrawer('none');
-  }, []);
+  }, [appMap]);
 
   const updateSettings = useCallback((partial: Partial<Settings>) => {
     setSettings((prev) => {
@@ -824,15 +862,17 @@ export default function MainLayout() {
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         <div className="flex-1 min-h-0 overflow-hidden flex gap-3 px-5 pt-1.5 pb-2.5">
-          {/* Left: Navigation — fills full height */}
+          {/* Left: Navigation / Offline Map — fills full height */}
           <div className="flex-1 min-w-0 min-h-0 flex">
             <NavHero
               defaultNav={settings.defaultNav}
               onLaunch={handleLaunch}
               drivingMode={smart.drivingMode}
+              onOpenMap={() => setFullMapOpen(true)}
+              offlineMap={settings.offlineMap}
             />
           </div>
-          {/* Right: Media (top) + Quick Access (bottom) */}
+          {/* Right: Media + Quick Access */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3">
             <div className="flex-[3] min-h-0 flex">
               <MediaPanel
@@ -844,6 +884,7 @@ export default function MainLayout() {
               <DockShortcuts
                 dockIds={smart.dockIds}
                 onLaunch={handleLaunch}
+                appMap={appMap}
               />
             </div>
           </div>
@@ -856,11 +897,13 @@ export default function MainLayout() {
         onLaunch={handleLaunch}
         onOpenApps={openApps}
         onOpenSettings={openSettings}
+        appMap={appMap}
       />
 
       {/* Apps drawer */}
       <DrawerShell open={drawer === 'apps'} onClose={closeDrawer}>
         <AppGrid
+          apps={allApps}
           favorites={favorites}
           onToggleFavorite={toggleFavorite}
           onLaunch={handleLaunch}
@@ -870,8 +913,11 @@ export default function MainLayout() {
 
       {/* Settings drawer */}
       <DrawerShell open={drawer === 'settings'} onClose={closeDrawer}>
-        <SettingsPage settings={settings} onUpdate={updateSettings} />
+        <SettingsPage settings={settings} onUpdate={updateSettings} onOpenMap={() => { closeDrawer(); setFullMapOpen(true); }} />
       </DrawerShell>
+
+      {/* Full-screen map overlay */}
+      {fullMapOpen && <FullMapView onClose={() => setFullMapOpen(false)} />}
     </div>
   );
 }
