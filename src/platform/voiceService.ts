@@ -16,6 +16,7 @@
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import { getConfig } from './performanceMode';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -49,6 +50,7 @@ const INITIAL: VoiceState = {
 let _current: VoiceState = { ...INITIAL };
 const _stateListeners  = new Set<(s: VoiceState) => void>();
 const _commandHandlers = new Set<CommandHandler>();
+let _lastCommandTime = 0;
 
 function push(partial: Partial<VoiceState>): void {
   _current = { ..._current, ...partial };
@@ -68,12 +70,18 @@ export function registerCommandHandler(handler: CommandHandler): () => void {
 
 /* ── Core dispatch ───────────────────────────────────────── */
 
-// Reset delays per priority tier
-const RESET_DELAY: Record<string, number> = {
-  critical: 2000,
-  high:     2500,
-  normal:   2500,
-};
+// Reset delays per priority tier — affected by performance mode
+function getResetDelays(): Record<string, number> {
+  const cfg = getConfig();
+  // Lite mode: longer delays to avoid UI thrashing
+  // Premium mode: shorter delays for snappier feel
+  const baseMultiplier = cfg.enableRecommendations ? 1 : 1.5; // lite mode is slower
+  return {
+    critical: Math.round(2000 * baseMultiplier),
+    high:     Math.round(2500 * baseMultiplier),
+    normal:   Math.round(2500 * baseMultiplier),
+  };
+}
 
 function dispatch(cmd: ParsedCommand): void {
   // Set success state FIRST — then call handlers synchronously so the UI
@@ -86,9 +94,10 @@ function dispatch(cmd: ParsedCommand): void {
     suggestions: [],
   });
   _commandHandlers.forEach((fn) => fn(cmd));
+  const delays = getResetDelays();
   setTimeout(() => {
     if (_current.status === 'success') push({ status: 'idle' });
-  }, RESET_DELAY[cmd.priority] ?? 2500);
+  }, delays[cmd.priority] ?? 2500);
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -96,15 +105,24 @@ function dispatch(cmd: ParsedCommand): void {
 /**
  * Process text as a voice command (demo input or native speech transcript).
  * Parsing is synchronous — critical commands feel instantaneous.
+ * Lite mode: throttles command processing to prevent excessive updates.
  * Returns `true` if a command was recognised and dispatched.
  */
 export function processTextCommand(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
+  // Throttle in lite mode (no recommendations = lite mode)
+  const cfg = getConfig();
+  const now = Date.now();
+  if (!cfg.enableRecommendations && (now - _lastCommandTime < 1500)) {
+    return false; // Command ignored due to throttle
+  }
+
   const result = parseCommandFull(trimmed);
 
   if (result.command) {
+    _lastCommandTime = now;
     dispatch(result.command);
     return true;
   }

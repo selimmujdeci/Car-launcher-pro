@@ -27,7 +27,15 @@ export type CommandType =
   | 'open_recent'
   | 'show_favorites'
   | 'theme_night'
-  | 'driving_mode';
+  | 'theme_dark'
+  | 'theme_oled'
+  | 'music_spotify'
+  | 'music_youtube'
+  | 'driving_mode'
+  | 'toggle_sleep_mode'
+  | 'vehicle_speed'
+  | 'vehicle_fuel'
+  | 'vehicle_temp';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -137,11 +145,67 @@ const PATTERNS: CommandPattern[] = [
     tokens:   ['gece', 'karanlık', 'dark', 'oled'],
   },
   {
+    type: 'theme_dark', priority: 'normal',
+    feedback: 'Koyu tema etkinleştirildi',
+    label: 'Koyu Temaya Geç', example: 'koyu temaya geç',
+    keywords: ['koyu temaya geç', 'koyu tema', 'dark theme', 'lacivert'],
+    tokens:   ['koyu', 'dark', 'lacivert', 'tema'],
+  },
+  {
+    type: 'theme_oled', priority: 'normal',
+    feedback: 'OLED modu etkinleştirildi',
+    label: 'OLED Moduna Geç', example: 'oled moduna geç',
+    keywords: ['oled moduna geç', 'oled modu', 'oled theme', 'siyah tema'],
+    tokens:   ['oled', 'siyah', 'tema'],
+  },
+  {
+    type: 'music_spotify', priority: 'normal',
+    feedback: 'Spotify seçildi',
+    label: 'Spotify Seç', example: 'spotify seç',
+    keywords: ['spotify seç', 'spotify', 'spotify müzik'],
+    tokens:   ['spotify', 'müzik'],
+  },
+  {
+    type: 'music_youtube', priority: 'normal',
+    feedback: 'YouTube seçildi',
+    label: 'YouTube Seç', example: 'youtube seç',
+    keywords: ['youtube seç', 'youtube music', 'youtube'],
+    tokens:   ['youtube', 'müzik'],
+  },
+  {
     type: 'driving_mode', priority: 'normal',
     feedback: 'Sürüş modu aktif',
     label: 'Sürüş Moduna Geç', example: 'sürüş moduna geç',
     keywords: ['sürüş moduna geç', 'sürüş modu', 'driving mode', 'araba modu'],
     tokens:   ['sürüş', 'driving', 'araba', 'araç'],
+  },
+  {
+    type: 'toggle_sleep_mode', priority: 'normal',
+    feedback: 'Uyku modu değiştirildi',
+    label: 'Uyku Modunu Aç/Kapat', example: 'uyku modunu aç',
+    keywords: ['uyku modunu aç', 'uyku modunu kapat', 'uyku modu', 'sleep mode'],
+    tokens:   ['uyku', 'sleep', 'modu'],
+  },
+  {
+    type: 'vehicle_speed', priority: 'normal',
+    feedback: 'Hız gösteriliyor',
+    label: 'Hızı Göster', example: 'hızım kaç',
+    keywords: ['hızım kaç', 'hız kaç', 'hız nedir', 'ne kadar hızlı', 'hız göster', 'current speed'],
+    tokens:   ['hız', 'speed', 'kaç', 'nedir'],
+  },
+  {
+    type: 'vehicle_fuel', priority: 'normal',
+    feedback: 'Yakıt durumu gösteriliyor',
+    label: 'Yakıt Durumunu Göster', example: 'yakıt durumum ne',
+    keywords: ['yakıt durumum ne', 'yakıt kaç', 'yakıt nedir', 'yakıt miktarı', 'fuel level', 'kalan yakıt'],
+    tokens:   ['yakıt', 'fuel', 'tank', 'kalan'],
+  },
+  {
+    type: 'vehicle_temp', priority: 'normal',
+    feedback: 'Motor sıcaklığı gösteriliyor',
+    label: 'Motor Sıcaklığını Göster', example: 'motor sıcaklığı kaç',
+    keywords: ['motor sıcaklığı kaç', 'motor sıcaklığı nedir', 'motor ısısı', 'engine temp', 'sıcaklık kaç'],
+    tokens:   ['motor', 'sıcaklık', 'temp', 'temperature', 'ısı'],
   },
 ];
 

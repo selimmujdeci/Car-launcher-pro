@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, memo, type ReactNode } from '
 import {
   Wifi, Bluetooth, Battery, BatteryCharging,
   MapPin, SkipBack, SkipForward, Play, Pause,
-  LayoutGrid, SlidersHorizontal, Mic,
+  LayoutGrid, SlidersHorizontal,
 } from 'lucide-react';
 import AppGrid from '../apps/AppGrid';
 import { SettingsPage, type Settings } from '../settings/SettingsPage';
@@ -18,14 +18,17 @@ import {
   togglePlayPause, next, previous, fmtTime, pause, play,
 } from '../../platform/mediaService';
 import { toIntent, routeIntent } from '../../platform/intentEngine';
-import {
-  useVoiceState, processTextCommand, startListening, registerCommandHandler,
-} from '../../platform/voiceService';
+import { registerCommandHandler } from '../../platform/voiceService';
 import type { ParsedCommand } from '../../platform/commandParser';
 import {
   useSmartEngine, trackLaunch,
-  type DrivingMode, type QuickAction,
+  type DrivingMode,
 } from '../../platform/smartEngine';
+import { initializeAddressBook } from '../../platform/addressBookService';
+import {
+  getPerformanceMode, onPerformanceModeChange,
+  type PerformanceMode,
+} from '../../platform/performanceMode';
 
 /* ── Constants ───────────────────────────────────────────── */
 
@@ -33,11 +36,16 @@ const DEFAULT_SETTINGS: Settings = {
   brightness: 80,
   volume: 60,
   theme: 'dark',
+  themePack: 'tesla',
   use24Hour: true,
   showSeconds: false,
+  clockStyle: 'digital',
   gridColumns: 3,
   defaultNav: 'maps',
   defaultMusic: 'spotify',
+  sleepMode: false,
+  widgetOrder: ['hero'],
+  widgetVisible: { hero: true },
 };
 
 /* ── Persistence ─────────────────────────────────────────── */
@@ -148,22 +156,142 @@ function useClock(use24Hour: boolean, showSeconds: boolean) {
   return { time, date };
 }
 
+function useAnalogClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return {
+    hours: now.getHours() % 12,
+    minutes: now.getMinutes(),
+    seconds: now.getSeconds(),
+  };
+}
+
+/* ── AnalogClock ──────────────────────────────────────────── */
+
+const AnalogClock = memo(function AnalogClock({
+  size = 200,
+  hours,
+  minutes,
+  seconds,
+  showSeconds,
+}: {
+  size?: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  showSeconds: boolean;
+}) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.42;
+  const hourAngle = (hours + minutes / 60) * 30;
+  const minuteAngle = (minutes + seconds / 60) * 6;
+  const secondAngle = seconds * 6;
+
+  const Hand = ({ angle, length, width, color }: { angle: number; length: number; width: number; color: string }) => {
+    const rad = (angle - 90) * (Math.PI / 180);
+    const x2 = cx + length * Math.cos(rad);
+    const y2 = cy + length * Math.sin(rad);
+    return <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={color} strokeWidth={width} strokeLinecap="round" />;
+  };
+
+  return (
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      width={size}
+      height={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Face circle */}
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+
+      {/* Hour marks */}
+      {[...Array(12)].map((_, i) => {
+        const angle = i * 30;
+        const rad = (angle - 90) * (Math.PI / 180);
+        const isBig = i % 3 === 0;
+        const start = r * (isBig ? 0.85 : 0.88);
+        const end = r * (isBig ? 1 : 0.95);
+        const x1 = cx + (start) * Math.cos(rad);
+        const y1 = cy + (start) * Math.sin(rad);
+        const x2 = cx + (end) * Math.cos(rad);
+        const y2 = cy + (end) * Math.sin(rad);
+        return (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke={isBig ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.15)"}
+            strokeWidth={isBig ? 1.5 : 0.8}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* Hour hand */}
+      <Hand angle={hourAngle} length={r * 0.5} width={2.5} color="rgba(255,255,255,0.9)" />
+
+      {/* Minute hand */}
+      <Hand angle={minuteAngle} length={r * 0.72} width={1.5} color="rgba(255,255,255,0.7)" />
+
+      {/* Second hand with glow */}
+      {showSeconds && (
+        <g filter="drop-shadow(0 0 6px rgba(59,130,246,0.5))">
+          <Hand angle={secondAngle} length={r * 0.85} width={1} color="#3b82f6" />
+        </g>
+      )}
+
+      {/* Center dot */}
+      <circle cx={cx} cy={cy} r="3" fill="white" />
+    </svg>
+  );
+});
+
 /* ── ClockArea ───────────────────────────────────────────── */
 
 const ClockArea = memo(function ClockArea({
   use24Hour,
   showSeconds,
+  clockStyle,
 }: {
   use24Hour: boolean;
   showSeconds: boolean;
+  clockStyle: 'digital' | 'analog';
 }) {
   const { time, date } = useClock(use24Hour, showSeconds);
+  const analogClock = useAnalogClock();
+
+  if (clockStyle === 'analog') {
+    return (
+      <div className="flex items-center gap-4">
+        <AnalogClock
+          size={52}
+          hours={analogClock.hours}
+          minutes={analogClock.minutes}
+          seconds={analogClock.seconds}
+          showSeconds={showSeconds}
+        />
+        <div className="flex flex-col gap-1">
+          <span className="text-slate-400 text-sm font-medium">{time}</span>
+          <span className="text-slate-600 text-xs tracking-wide">{date}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col justify-center">
-      <div className="text-[72px] font-thin leading-none text-white tabular-nums tracking-tight">
+    <div className="flex items-baseline gap-3">
+      <div className="text-[28px] font-semibold leading-none text-white tabular-nums tracking-tight" style={{ textShadow: '0 0 30px rgba(255,255,255,0.06)' }}>
         {time}
       </div>
-      <div className="text-slate-500 text-sm font-medium mt-2 tracking-wide">{date}</div>
+      <div className="text-xs font-medium tracking-wide text-slate-500">
+        {date}
+      </div>
     </div>
   );
 });
@@ -181,8 +309,8 @@ const StatusPill = memo(function StatusPill({
 }) {
   return (
     <div
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors duration-200 ${
-        active ? 'bg-white/10 text-white' : 'bg-white/5 text-slate-600'
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors duration-200 border ${
+        active ? 'bg-white/[0.07] border-white/[0.08] text-white' : 'bg-white/[0.03] border-white/[0.05] text-slate-600'
       }`}
     >
       <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${active ? 'text-blue-400' : 'text-slate-600'}`} />
@@ -230,47 +358,61 @@ const DeviceStatusBar = memo(function DeviceStatusBar() {
 const NavHero = memo(function NavHero({
   defaultNav,
   onLaunch,
-  navFlex,
   drivingMode,
 }: {
   defaultNav:  NavOptionKey;
   onLaunch:    (id: string) => void;
-  navFlex:     number;
   drivingMode: DrivingMode;
 }) {
   const nav = NAV_OPTIONS[defaultNav];
+
   return (
     <div
-      className="flex flex-col rounded-3xl bg-[#0d1628] border border-white/5 p-6 overflow-hidden relative min-h-0"
-      style={{ flex: navFlex }}
+      className="flex flex-col rounded-3xl border border-white/[0.08] p-5 overflow-hidden relative min-h-0 w-full h-full"
+      style={{ background: 'linear-gradient(165deg, #0c1428 0%, #0a1020 40%, #080e1c 100%)', boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(37,99,235,0.06)' }}
     >
-      <div className="absolute -top-16 -left-16 w-56 h-56 bg-blue-600/8 rounded-full blur-3xl pointer-events-none" />
+      {/* Ambient glow */}
+      <div className="absolute -top-24 -left-24 w-80 h-80 bg-blue-600/[0.12] rounded-full blur-[80px] pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-56 h-56 bg-blue-500/[0.06] rounded-full blur-[60px] pointer-events-none" />
 
-      {drivingMode === 'driving' && (
-        <div className="absolute top-4 right-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/20 pointer-events-none">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-emerald-400 text-[9px] font-semibold uppercase tracking-widest">Sürüş</span>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/25 flex items-center justify-center flex-shrink-0" style={{ boxShadow: '0 0 12px rgba(59,130,246,0.15)' }}>
+            <span className="text-lg leading-none">{nav.icon}</span>
+          </div>
+          <div>
+            <div className="text-blue-400/60 text-[10px] uppercase tracking-[0.2em] font-semibold">Navigasyon</div>
+            <div className="text-white text-sm font-semibold">{nav.name}</div>
+          </div>
         </div>
-      )}
-
-      <div className="flex items-center gap-3 mb-5 flex-shrink-0">
-        <span className="text-3xl">{nav.icon}</span>
-        <div>
-          <div className="text-slate-500 text-xs uppercase tracking-widest font-medium">Navigasyon</div>
-          <div className="text-white text-xl font-semibold">{nav.name}</div>
-        </div>
+        {drivingMode === 'driving' && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25" style={{ boxShadow: '0 0 10px rgba(52,211,153,0.1)' }}>
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest">Sürüş</span>
+          </div>
+        )}
       </div>
 
+      {/* Main launch button */}
       <button
-        onClick={() => onLaunch(defaultNav)}
-        className="flex-1 flex flex-col items-center justify-center rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 active:scale-[0.98] transition-[transform,background-color] duration-150 shadow-2xl shadow-blue-600/25 gap-3 min-h-0"
+        onClick={(e) => { e.stopPropagation(); onLaunch(defaultNav); }}
+        className="relative flex flex-col items-center justify-center rounded-2xl overflow-hidden active:scale-[0.97] transition-transform duration-150 gap-3 min-h-0 flex-1"
+        style={{ background: 'linear-gradient(145deg, #1e50d8 0%, #2563eb 40%, #1d4ed8 70%, #1a3fb0 100%)', boxShadow: '0 6px 30px rgba(37,99,235,0.3), inset 0 1px 0 rgba(255,255,255,0.08)' }}
       >
-        <div className="relative">
-          <div className="absolute inset-0 bg-white/20 rounded-full blur-xl scale-150 pointer-events-none" />
-          <MapPin className="w-14 h-14 text-white relative" />
+        {/* Inner glow overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-white/[0.06] pointer-events-none" />
+
+        <div className="relative flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="absolute inset-0 bg-white/25 rounded-full blur-2xl scale-[2.5] pointer-events-none" />
+            <MapPin className="w-16 h-16 text-white relative" style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }} />
+          </div>
+          <div className="text-center">
+            <div className="text-white text-3xl font-black tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>Rota Başlat</div>
+            <div className="text-blue-100/70 text-sm font-medium mt-1">{nav.name} ile aç</div>
+          </div>
         </div>
-        <span className="text-white text-3xl font-bold">Rota Başlat</span>
-        <span className="text-blue-200 text-base">{nav.name} ile aç</span>
       </button>
     </div>
   );
@@ -281,11 +423,9 @@ const NavHero = memo(function NavHero({
 const MediaPanel = memo(function MediaPanel({
   defaultMusic,
   onLaunch,
-  mediaFlex,
 }: {
   defaultMusic: MusicOptionKey;
   onLaunch:     (id: string) => void;
-  mediaFlex:    number;
 }) {
   const { playing, track } = useMediaState();
   const music = MUSIC_OPTIONS[defaultMusic];
@@ -293,61 +433,60 @@ const MediaPanel = memo(function MediaPanel({
 
   return (
     <div
-      className="flex flex-col rounded-3xl bg-[#0d1628] border border-white/5 p-6 min-h-0"
-      style={{ flex: mediaFlex }}
+      className="flex flex-col rounded-3xl border border-white/[0.08] p-5 min-h-0 w-full h-full overflow-hidden relative"
+      style={{ background: 'linear-gradient(165deg, #0c1428 0%, #0a1020 40%, #080e1c 100%)', boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 40px rgba(37,99,235,0.04)' }}
     >
+      {/* Ambient */}
+      <div className="absolute -bottom-20 -right-20 w-56 h-56 bg-blue-600/[0.08] rounded-full blur-[60px] pointer-events-none" />
+      <div className="absolute -top-12 -left-12 w-40 h-40 bg-blue-500/[0.04] rounded-full blur-[40px] pointer-events-none" />
+
       {/* Header */}
-      <div className="flex items-center justify-between mb-5 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{music.icon}</span>
-          <span className="text-slate-500 text-xs uppercase tracking-widest font-medium">Müzik</span>
+      <div className="flex items-center justify-between mb-3 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/25 flex items-center justify-center flex-shrink-0" style={{ boxShadow: '0 0 10px rgba(59,130,246,0.1)' }}>
+            <span className="text-base leading-none">{music.icon}</span>
+          </div>
+          <span className="text-blue-400/60 text-[10px] uppercase tracking-[0.2em] font-semibold">Müzik</span>
+          {playing && <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
         </div>
-        <button
-          onClick={() => onLaunch(defaultMusic)}
-          className="text-xs text-blue-400 font-semibold hover:text-blue-300 active:text-blue-200 transition-colors duration-150 px-3 py-1.5 rounded-xl hover:bg-blue-400/10"
-        >
+        <button onClick={(e) => { e.stopPropagation(); onLaunch(defaultMusic); }} className="text-[11px] text-blue-400 font-semibold hover:text-blue-300 active:text-blue-200 transition-colors duration-150 px-3 py-1.5 rounded-xl hover:bg-blue-400/10 border border-transparent hover:border-blue-500/15">
           Aç →
         </button>
       </div>
 
-      {/* Track info + controls */}
       <div className="flex-1 flex flex-col justify-center min-h-0">
-        <div className="text-white text-2xl font-semibold leading-tight truncate">{track.title}</div>
-        <div className="text-slate-400 text-base mt-1 truncate">{track.artist}</div>
+        {/* Track info */}
+        <div className="text-white font-bold leading-tight truncate text-[1.65rem]" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.3)' }}>{track.title}</div>
+        <div className="text-slate-300 mt-1.5 truncate text-sm font-medium">{track.artist}</div>
 
-        {/* Progress */}
-        <div className="mt-5 mb-5 flex-shrink-0">
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+        {/* Progress bar */}
+        <div className="mt-4 mb-4 flex-shrink-0">
+          <div className="h-[5px] bg-white/[0.08] rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500 rounded-full transition-[width] duration-500"
-              style={{ width: `${pct}%` }}
+              className="h-full rounded-full transition-[width] duration-500"
+              style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', boxShadow: '0 0 10px rgba(59,130,246,0.5)' }}
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            <span className="text-slate-600 text-xs tabular-nums">{fmtTime(track.positionSec)}</span>
-            <span className="text-slate-600 text-xs tabular-nums">{fmtTime(track.durationSec)}</span>
+            <span className="text-slate-500 text-[11px] tabular-nums font-mono">{fmtTime(track.positionSec)}</span>
+            <span className="text-slate-500 text-[11px] tabular-nums font-mono">{fmtTime(track.durationSec)}</span>
           </div>
         </div>
 
         {/* Controls */}
-        <div className="flex items-center justify-center gap-4 flex-shrink-0">
-          <button
-            onClick={previous}
-            className="w-14 h-14 flex items-center justify-center rounded-2xl text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-[transform,background-color,color] duration-150"
-          >
-            <SkipBack className="w-6 h-6" />
+        <div className="flex items-center justify-center gap-3 flex-shrink-0">
+          <button onClick={(e) => { e.stopPropagation(); previous(); }} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-[transform,background-color,color] duration-150">
+            <SkipBack className="w-5 h-5" />
           </button>
           <button
-            onClick={togglePlayPause}
-            className="w-20 h-20 flex items-center justify-center rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 active:scale-95 text-white shadow-xl shadow-blue-600/30 transition-[transform,background-color] duration-150"
+            onClick={(e) => { e.stopPropagation(); togglePlayPause(); }}
+            className="w-14 h-14 flex items-center justify-center rounded-2xl text-white active:scale-95 transition-[transform,background-color] duration-150"
+            style={{ background: 'linear-gradient(145deg, #2563eb, #1d4ed8)', boxShadow: '0 4px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}
           >
-            {playing ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
+            {playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
           </button>
-          <button
-            onClick={next}
-            className="w-14 h-14 flex items-center justify-center rounded-2xl text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-[transform,background-color,color] duration-150"
-          >
-            <SkipForward className="w-6 h-6" />
+          <button onClick={(e) => { e.stopPropagation(); next(); }} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-[transform,background-color,color] duration-150">
+            <SkipForward className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -355,35 +494,36 @@ const MediaPanel = memo(function MediaPanel({
   );
 });
 
-/* ── QuickActions ────────────────────────────────────────── */
+/* ── DockShortcuts ───────────────────────────────────────── */
 
-const QuickActions = memo(function QuickActions({
-  actions,
+const DockShortcuts = memo(function DockShortcuts({
+  dockIds,
   onLaunch,
 }: {
-  actions:  QuickAction[];
+  dockIds: string[];
   onLaunch: (id: string) => void;
 }) {
-  if (actions.length === 0) return null;
+  const apps = dockIds.slice(0, 4).map((id) => ({ id, app: APP_MAP[id] })).filter((x) => x.app);
+
   return (
-    <div className="flex items-center gap-2 px-8 pb-3 flex-shrink-0">
-      <span className="text-slate-700 text-[10px] uppercase tracking-widest font-medium mr-1 flex-shrink-0">
-        Hızlı Eylem
-      </span>
-      {actions.map((action) => {
-        const app = APP_MAP[action.appId];
-        if (!app) return null;
-        return (
+    <div
+      className="flex flex-col rounded-3xl border border-white/[0.08] p-4 h-full overflow-hidden relative"
+      style={{ background: 'linear-gradient(165deg, #0c1428 0%, #0a1020 40%, #080e1c 100%)', boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 30px rgba(37,99,235,0.03)' }}
+    >
+      <div className="absolute -bottom-10 -left-10 w-36 h-36 bg-blue-600/[0.04] rounded-full blur-[40px] pointer-events-none" />
+      <div className="text-blue-400/50 text-[10px] uppercase tracking-[0.2em] font-semibold mb-2.5 flex-shrink-0">Hızlı Erişim</div>
+      <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
+        {apps.map(({ id, app }) => (
           <button
-            key={action.id}
-            onClick={() => onLaunch(action.appId)}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
+            key={id}
+            onClick={() => onLaunch(id)}
+            className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] hover:border-white/[0.12] active:scale-[0.94] transition-[transform,background-color,border-color] duration-150 min-h-0"
           >
-            <span className="text-base leading-none">{app.icon}</span>
-            <span className="text-slate-300 text-xs font-medium whitespace-nowrap">{action.label}</span>
+            <span className="text-[1.7rem] leading-none">{app!.icon}</span>
+            <span className="text-slate-400 text-[11px] font-medium truncate px-1">{app!.name}</span>
           </button>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 });
@@ -403,7 +543,7 @@ const Dock = memo(function Dock({
 }) {
 
   return (
-    <div className="flex items-center gap-3 px-6 py-4 border-t border-white/5 flex-shrink-0">
+    <div className="flex items-center gap-2 px-5 py-1.5 border-t border-white/[0.06] flex-shrink-0" style={{ background: 'linear-gradient(180deg, rgba(10,16,32,0.6) 0%, rgba(6,13,26,0.8) 100%)' }}>
       {dockIds.map((id) => {
         const app = APP_MAP[id];
         if (!app) return null;
@@ -411,140 +551,35 @@ const Dock = memo(function Dock({
           <button
             key={id}
             onClick={() => onLaunch(id)}
-            className="flex-1 h-16 flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 active:scale-[0.95] active:bg-white/[0.12] transition-[transform,background-color,border-color] duration-150"
+            className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.1] active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
           >
-            <span className="text-2xl leading-none">{app.icon}</span>
-            <span className="text-slate-400 text-[10px] font-medium truncate px-1">{app.name}</span>
+            <span className="text-lg leading-none">{app.icon}</span>
+            <span className="text-slate-400 text-[10px] font-medium truncate">{app.name}</span>
           </button>
         );
       })}
 
-      <div className="w-px h-10 bg-white/5 mx-1 flex-shrink-0" />
+      <div className="w-px h-6 bg-white/[0.06] mx-0.5 flex-shrink-0" />
 
       <button
         onClick={onOpenApps}
-        className="flex-1 h-16 flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
+        className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.1] active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
       >
-        <LayoutGrid className="w-5 h-5 text-slate-400" />
+        <LayoutGrid className="w-4 h-4 text-slate-500" />
         <span className="text-slate-400 text-[10px] font-medium">Uygulamalar</span>
       </button>
 
       <button
         onClick={onOpenSettings}
-        className="flex-1 h-16 flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
+        className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.1] active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
       >
-        <SlidersHorizontal className="w-5 h-5 text-slate-400" />
+        <SlidersHorizontal className="w-4 h-4 text-slate-500" />
         <span className="text-slate-400 text-[10px] font-medium">Ayarlar</span>
       </button>
     </div>
   );
 });
 
-/* ── VoiceBar ────────────────────────────────────────────── */
-
-const VOICE_CHIPS = ['Eve git', 'Müziği aç', 'Haritayı aç', 'Ayarları aç'] as const;
-
-const VoiceBar = memo(function VoiceBar() {
-  const voice = useVoiceState();
-  const [input, setInput] = useState('');
-
-  const isListening = voice.status === 'listening';
-  const isSuccess   = voice.status === 'success';
-  const isError     = voice.status === 'error';
-
-  const submit = useCallback(() => {
-    const text = input.trim();
-    if (!text) return;
-    processTextCommand(text);
-    setInput('');
-  }, [input]);
-
-  // Placeholder: rich feedback text for each status
-  const placeholder =
-    isError   ? (voice.error ?? 'Anlaşılamadı') :
-    isSuccess ? `Anlaşıldı: ${voice.lastCommand?.feedback ?? ''}` :
-    isListening ? 'Dinleniyor...' :
-    'Bir komut söyle...';
-
-  return (
-    <div className="flex items-center gap-3 px-8 pb-3 flex-shrink-0">
-
-      {/* Mic toggle */}
-      <button
-        onClick={startListening}
-        className={`w-10 h-10 flex items-center justify-center rounded-xl flex-shrink-0 border transition-[transform,background-color,border-color,color,box-shadow] duration-150 active:scale-90 ${
-          isListening ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/30' :
-          isError     ? 'bg-red-500/10 border-red-500/20 text-red-400' :
-          isSuccess   ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
-          'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
-        }`}
-      >
-        <Mic className={`w-4 h-4 ${isListening ? 'animate-pulse' : ''}`} />
-      </button>
-
-      {/* Text input (demo) — native bypasses this via processTextCommand() */}
-      <div
-        className={`flex-1 flex items-center gap-2 h-10 px-3 rounded-xl border transition-[border-color,background-color] duration-150 ${
-          isListening ? 'bg-blue-600/10 border-blue-500/30' :
-          isError     ? 'bg-red-500/5 border-red-500/15' :
-          isSuccess   ? 'bg-emerald-500/5 border-emerald-500/20' :
-          'bg-white/5 border-white/5 focus-within:border-blue-500/30 focus-within:bg-white/[0.07]'
-        }`}
-      >
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder={placeholder}
-          style={{ userSelect: 'text' } as React.CSSProperties}
-          className={`flex-1 bg-transparent text-sm outline-none ${
-            isError   ? 'text-red-400 placeholder:text-red-400/70' :
-            isSuccess ? 'placeholder:text-emerald-400/80 text-white' :
-            'text-white placeholder:text-slate-600'
-          }`}
-        />
-        {input && (
-          <button
-            onClick={submit}
-            className="text-blue-400 text-xs font-semibold hover:text-blue-300 active:text-blue-200 transition-colors duration-150 flex-shrink-0"
-          >
-            Gönder
-          </button>
-        )}
-      </div>
-
-      {/* Chip area: suggestions on error, default hints otherwise */}
-      <div className="hidden lg:flex items-center gap-1.5 flex-shrink-0">
-        {isError && voice.suggestions.length > 0 ? (
-          <>
-            <span className="text-slate-700 text-[10px] mr-0.5 flex-shrink-0">Bunu mu demek istediniz?</span>
-            {voice.suggestions.slice(0, 3).map((s) => (
-              <button
-                key={s.example}
-                onClick={() => processTextCommand(s.example)}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium hover:bg-amber-500/20 active:scale-95 transition-[transform,background-color,border-color] duration-150"
-              >
-                {s.label}
-              </button>
-            ))}
-          </>
-        ) : (
-          VOICE_CHIPS.map((chip) => (
-            <button
-              key={chip}
-              onClick={() => processTextCommand(chip)}
-              className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 text-slate-500 text-[10px] font-medium hover:bg-white/10 hover:text-slate-300 hover:border-white/10 active:scale-95 transition-[transform,background-color,border-color,color] duration-150"
-            >
-              {chip}
-            </button>
-          ))
-        )}
-      </div>
-
-    </div>
-  );
-});
 
 /* ── DrawerShell ─────────────────────────────────────────── */
 
@@ -585,6 +620,53 @@ const DrawerShell = memo(function DrawerShell({
   );
 });
 
+/* ── SleepOverlay ───────────────────────────────────────── */
+
+const SleepOverlay = memo(function SleepOverlay({
+  use24Hour,
+  showSeconds,
+  clockStyle,
+  onWake,
+}: {
+  use24Hour: boolean;
+  showSeconds: boolean;
+  clockStyle: 'digital' | 'analog';
+  onWake: () => void;
+}) {
+  const sleepClk = useClock(use24Hour, showSeconds);
+  const sleepAnalog = useAnalogClock();
+
+  return (
+    <div
+      className="sleep-overlay fixed inset-0 z-40 bg-black flex flex-col items-center justify-center cursor-pointer select-none"
+      onClick={onWake}
+    >
+      <div className="absolute w-96 h-96 rounded-full bg-blue-500/[0.04] blur-[100px] pointer-events-none" />
+      <div className="relative z-10 pointer-events-none mb-6">
+        {clockStyle === 'analog' ? (
+          <AnalogClock
+            size={240}
+            hours={sleepAnalog.hours}
+            minutes={sleepAnalog.minutes}
+            seconds={sleepAnalog.seconds}
+            showSeconds={showSeconds}
+          />
+        ) : (
+          <div className="text-[110px] font-extralight tabular-nums tracking-tight text-white leading-none drop-shadow-[0_0_30px_rgba(255,255,255,0.08)]">
+            {sleepClk.time}
+          </div>
+        )}
+      </div>
+      <div className="text-slate-600 text-base tracking-[0.35em] uppercase pointer-events-none z-10">
+        {sleepClk.date}
+      </div>
+      <div className="fixed bottom-8 text-slate-800 text-[10px] tracking-[0.4em] pointer-events-none">
+        DOKUNUN
+      </div>
+    </div>
+  );
+});
+
 /* ── MainLayout ──────────────────────────────────────────── */
 
 type DrawerType = 'none' | 'apps' | 'settings';
@@ -599,6 +681,7 @@ export default function MainLayout() {
     ...DEFAULT_SETTINGS,
     ...load<Partial<Settings>>('settings', {}),
   }));
+  const [perfMode, setPerfMode] = useState<PerformanceMode>(() => getPerformanceMode());
 
   // Smart engine — local AI layer
   const device = useDeviceStatus();
@@ -613,6 +696,18 @@ export default function MainLayout() {
     const t1 = setTimeout(() => setBootPhase('fade'), 850);
     const t2 = setTimeout(() => setBootPhase('done'), 1150);
     return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  // Subscribe to performance mode changes
+  useEffect(() => {
+    return onPerformanceModeChange(setPerfMode);
+  }, []);
+
+  // Initialize address book for navigation
+  useEffect(() => {
+    initializeAddressBook().catch((err) => {
+      console.error('Failed to initialize address book:', err);
+    });
   }, []);
 
   const toggleFavorite = useCallback((id: string) => {
@@ -644,6 +739,10 @@ export default function MainLayout() {
       save('settings', next);
       return next;
     });
+    // Auto-close settings drawer on theme changes for immediate visual feedback
+    if (partial.theme) {
+      setTimeout(() => setDrawer('none'), 150);
+    }
   }, []);
 
   const openApps     = useCallback(() => setDrawer('apps'),     []);
@@ -663,6 +762,17 @@ export default function MainLayout() {
     return registerCommandHandler((cmd: ParsedCommand) => {
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open } =
         voiceCtxRef.current;
+
+      // Handle vehicle status queries directly (don't need intent routing)
+      if (cmd.type === 'vehicle_speed' || cmd.type === 'vehicle_fuel' || cmd.type === 'vehicle_temp') {
+        return; // feedback already set by parser, voice state shows success
+      }
+
+      // Handle sleep mode toggle directly
+      if (cmd.type === 'toggle_sleep_mode') {
+        update({ sleepMode: !s.sleepMode });
+        return;
+      }
 
       // Build intent from parsed command + current user context
       const intent = toIntent(cmd, {
@@ -685,36 +795,59 @@ export default function MainLayout() {
   return (
     <div
       data-theme={settings.theme}
+      data-drive-state={smart.drivingMode}
+      data-performance-mode={perfMode}
       className="flex flex-col h-full w-full overflow-hidden text-white"
-      style={{ background: settings.theme === 'oled' ? '#000' : '#060d1a' }}
+      style={{
+        background: settings.theme === 'oled' ? '#000' : '#060d1a',
+        filter: `brightness(${Math.max(50, Math.min(150, settings.brightness)) / 100})`,
+      }}
     >
       <BootSplash phase={bootPhase} />
 
+      {/* Sleep mode overlay */}
+      {settings.sleepMode && (
+        <SleepOverlay
+          use24Hour={settings.use24Hour}
+          showSeconds={settings.showSeconds}
+          clockStyle={settings.clockStyle}
+          onWake={() => updateSettings({ sleepMode: false })}
+        />
+      )}
+
       {/* Top bar */}
-      <div className="flex items-center justify-between px-8 pt-6 pb-4 flex-shrink-0">
-        <ClockArea use24Hour={settings.use24Hour} showSeconds={settings.showSeconds} />
+      <div className="flex items-center justify-between px-5 pt-2.5 pb-1 flex-shrink-0">
+        <ClockArea use24Hour={settings.use24Hour} showSeconds={settings.showSeconds} clockStyle={settings.clockStyle} />
         <DeviceStatusBar />
       </div>
 
-      {/* Quick actions */}
-      <QuickActions actions={smart.quickActions} onLaunch={handleLaunch} />
-
-      {/* Voice bar */}
-      <VoiceBar />
-
-      {/* Hero */}
-      <div className="flex flex-1 gap-5 px-8 pb-5 min-h-0">
-        <NavHero
-          defaultNav={settings.defaultNav}
-          onLaunch={handleLaunch}
-          navFlex={smart.layoutWeights.navFlex}
-          drivingMode={smart.drivingMode}
-        />
-        <MediaPanel
-          defaultMusic={settings.defaultMusic}
-          onLaunch={handleLaunch}
-          mediaFlex={smart.layoutWeights.mediaFlex}
-        />
+      {/* Main content area */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <div className="flex-1 min-h-0 overflow-hidden flex gap-3 px-5 pt-1.5 pb-2.5">
+          {/* Left: Navigation — fills full height */}
+          <div className="flex-1 min-w-0 min-h-0 flex">
+            <NavHero
+              defaultNav={settings.defaultNav}
+              onLaunch={handleLaunch}
+              drivingMode={smart.drivingMode}
+            />
+          </div>
+          {/* Right: Media (top) + Quick Access (bottom) */}
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3">
+            <div className="flex-[3] min-h-0 flex">
+              <MediaPanel
+                defaultMusic={settings.defaultMusic}
+                onLaunch={handleLaunch}
+              />
+            </div>
+            <div className="flex-[2] min-h-0 flex">
+              <DockShortcuts
+                dockIds={smart.dockIds}
+                onLaunch={handleLaunch}
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Dock */}

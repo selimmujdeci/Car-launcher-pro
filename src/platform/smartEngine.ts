@@ -19,6 +19,8 @@
 import { useState, useEffect, useRef } from 'react';
 import type { DeviceStatus } from './deviceApi';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
+import { onOBDData } from './obdService';
+import { getConfig } from './performanceMode';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -36,8 +38,8 @@ export interface LayoutWeights {
   mediaFlex: 1 | 2 | 3;
 }
 
-/** Detected driving context. */
-export type DrivingMode = 'driving' | 'parked';
+/** Detected driving context — 3-level mode system based on vehicle speed. */
+export type DrivingMode = 'idle' | 'normal' | 'driving';
 
 /** A single contextual quick-action suggestion. */
 export interface QuickAction {
@@ -47,12 +49,22 @@ export interface QuickAction {
   appId: string;  // target for onLaunch()
 }
 
+/** AI-powered recommendation. */
+export interface SmartRecommendation {
+  type: 'app' | 'theme-pack' | 'sleep-mode' | 'theme-style';
+  reason: string;  // "morning_high_nav" | "driving_mode_active" | "idle_rich_theme" etc.
+  value: string;   // app ID, 'tesla'/'big-cards'/'ai-center', 'true', 'glass'/'neon'/'minimal'
+  confidence: number;  // 0.0–1.0
+  autoApply: boolean;  // true only for safe recommendations (driving mode)
+}
+
 /** Full computed smart state. */
 export interface SmartSnapshot {
   layoutWeights: LayoutWeights;
   quickActions:  QuickAction[];
   drivingMode:   DrivingMode;
   dockIds:       string[];  // up to 4, usage-ranked
+  recommendation?: SmartRecommendation;  // single highest-confidence recommendation
 }
 
 /* ── Persistence ─────────────────────────────────────────── */
@@ -174,6 +186,142 @@ function timedScore(id: string, map: UsageMap, ctx: TimeContext): number {
   return score(map[id]) + (TIME_BIAS[ctx][id] ?? 0);
 }
 
+/* ── AI Recommendations Engine ────────────────────────────────── */
+
+interface RecommendationCandidate {
+  rec: SmartRecommendation;
+  score: number;
+}
+
+let _lastRecommendationTime = 0;
+
+function shouldGenerateNow(): boolean {
+  const cfg = getConfig();
+  if (!cfg.enableRecommendations) return false;
+  const elapsed = Date.now() - _lastRecommendationTime;
+  return elapsed >= cfg.recCooldownMs;
+}
+
+/**
+ * Generate a single high-confidence recommendation based on:
+ *   - Time of day + usage patterns
+ *   - Current driving mode
+ *   - Respects performance mode cooldown
+ * Returns undefined if cooldown not met or recommendations disabled.
+ */
+function generateRecommendation(
+  map: UsageMap,
+  timeContext: TimeContext,
+  drivingMode: DrivingMode,
+): SmartRecommendation | undefined {
+  if (!shouldGenerateNow()) return;
+
+  const candidates: RecommendationCandidate[] = [];
+
+  // ── Driving mode: minimal UI
+  if (drivingMode === 'driving') {
+    candidates.push({
+      rec: {
+        type: 'theme-style',
+        reason: 'driving_mode_minimal_ui',
+        value: 'minimal',
+        confidence: 0.95,
+        autoApply: true,
+      },
+      score: 0.95,
+    });
+  }
+
+  // ── Idle mode: rich theme based on usage
+  if (drivingMode === 'idle') {
+    const navScore = score(map.maps) + score(map.waze);
+    const musicScore = score(map.spotify) + score(map.youtube);
+
+    if (navScore > musicScore + 0.5) {
+      candidates.push({
+        rec: {
+          type: 'theme-pack',
+          reason: 'idle_high_nav_usage',
+          value: 'big-cards',
+          confidence: 0.7,
+          autoApply: false,
+        },
+        score: 0.7,
+      });
+    } else if (musicScore > navScore + 0.5) {
+      candidates.push({
+        rec: {
+          type: 'theme-pack',
+          reason: 'idle_high_music_usage',
+          value: 'ai-center',
+          confidence: 0.65,
+          autoApply: false,
+        },
+        score: 0.65,
+      });
+    }
+  }
+
+  // ── Time context: Morning → commute
+  if (timeContext === 'morning') {
+    const navScore = timedScore('maps', map, timeContext) + timedScore('waze', map, timeContext);
+    if (navScore > 0.8) {
+      candidates.push({
+        rec: {
+          type: 'app',
+          reason: 'morning_commute_pattern',
+          value: timedScore('maps', map, timeContext) > timedScore('waze', map, timeContext) ? 'maps' : 'waze',
+          confidence: 0.75,
+          autoApply: false,
+        },
+        score: 0.75,
+      });
+    }
+  }
+
+  // ── Time context: Evening → entertainment
+  if (timeContext === 'evening') {
+    const musicScore = timedScore('spotify', map, timeContext) + timedScore('youtube', map, timeContext);
+    if (musicScore > 0.7) {
+      candidates.push({
+        rec: {
+          type: 'app',
+          reason: 'evening_entertainment_pattern',
+          value: timedScore('spotify', map, timeContext) > timedScore('youtube', map, timeContext) ? 'spotify' : 'youtube',
+          confidence: 0.7,
+          autoApply: false,
+        },
+        score: 0.7,
+      });
+    }
+  }
+
+  // ── Low activity + idle: sleep mode
+  const totalRecentUsage = Object.values(map).reduce((sum, rec) => sum + rec.recentCount, 0);
+  if (totalRecentUsage === 0 && drivingMode === 'idle') {
+    candidates.push({
+      rec: {
+        type: 'sleep-mode',
+        reason: 'low_activity_idle',
+        value: 'true',
+        confidence: 0.35,
+        autoApply: false,
+      },
+      score: 0.35,
+    });
+  }
+
+  // Pick best candidate
+  if (candidates.length === 0) return;
+  const best = candidates.reduce((a, b) => b.score - a.score > 0 ? b : a);
+
+  // Only return if confidence high enough
+  if (best.rec.confidence < 0.4) return;
+
+  _lastRecommendationTime = Date.now();
+  return best.rec;
+}
+
 /* ── Quick actions ───────────────────────────────────────── */
 
 function computeQuickActions(
@@ -230,15 +378,24 @@ function computeQuickActions(
 /* ── Driving mode ────────────────────────────────────────── */
 
 /**
- * Heuristic: Bluetooth connected AND charging → likely plugged into car.
- *
- * Native upgrade path: query Android CarInfo.getCurrentDrivingState()
- * via CarLauncherPlugin to get authoritative DRIVING / IDLING / PARKED states.
+ * OBD speed takes priority (speed > 5 km/h → driving, ≤ 3 km/h → parked).
+ * Falls back to Bluetooth + charging heuristic when OBD data is unavailable.
  */
 export function detectDrivingMode(
-  device: Pick<DeviceStatus, 'btConnected' | 'charging'>,
+  device:    Pick<DeviceStatus, 'btConnected' | 'charging'>,
+  obdSpeed?: number,
 ): DrivingMode {
-  return device.btConnected && device.charging ? 'driving' : 'parked';
+  if (obdSpeed !== undefined) {
+    // 3-level speed-based mode detection:
+    // idle: 0 km/h (parked, premium animations)
+    // normal: 0 < speed < 20 km/h (light traffic, moderate animations)
+    // driving: >= 20 km/h (highway/city, minimal UI)
+    if (obdSpeed === 0) return 'idle';
+    if (obdSpeed < 20) return 'normal';
+    return 'driving';
+  }
+  // Fallback heuristic: if BT connected + charging → likely parked (idle)
+  return device.btConnected && device.charging ? 'idle' : 'normal';
 }
 
 /* ── Smart dock ──────────────────────────────────────────── */
@@ -265,15 +422,20 @@ type SmartParams = {
   favorites:    string[];
   defaultNav:   NavOptionKey;
   defaultMusic: MusicOptionKey;
+  obdSpeed?:    number;
 };
 
-function buildSnapshot(p: SmartParams): SmartSnapshot {
+function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): SmartSnapshot {
   const map = pruneIfStale(loadUsage());
+  const drivingMode = detectDrivingMode(p.device, p.obdSpeed);
+  const timeContext = getTimeContext();
   return {
     layoutWeights: computeLayoutWeights(map),
     quickActions:  computeQuickActions(map, p.defaultNav, p.defaultMusic, p.favorites),
-    drivingMode:   detectDrivingMode(p.device),
+    drivingMode,
     dockIds:       computeDockIds(map, p.favorites),
+    // Only generate recommendation on demand (mode change, not every OBD update)
+    recommendation: shouldGenerateRec ? generateRecommendation(map, timeContext, drivingMode) : undefined,
   };
 }
 
@@ -301,17 +463,52 @@ export function useSmartEngine(
     paramsRef.current = { device, favorites, defaultNav, defaultMusic };
   });
 
-  // Recompute when device signals or user preferences change
+  // Recompute when device signals or user preferences change — WITH recommendation
   useEffect(() => {
     if (!device.ready) return;
-    setSnapshot(buildSnapshot(paramsRef.current));
+    setSnapshot(buildSnapshot(paramsRef.current, true));
   // Primitive dep comparisons are intentional (object spread avoids identity check)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.btConnected, device.charging, device.ready, favorites, defaultNav, defaultMusic]);
 
-  // Recompute immediately after each tracked launch
+  // Recompute on OBD speed changes — heavily optimized, only on mode change
   useEffect(() => {
-    const refresh = () => setSnapshot(buildSnapshot(paramsRef.current));
+    const prevModeRef = { current: paramsRef.current.obdSpeed !== undefined
+      ? detectDrivingMode({ btConnected: false, charging: false }, paramsRef.current.obdSpeed)
+      : 'idle' as DrivingMode,
+    };
+    let lastNotifiedSpeed = paramsRef.current.obdSpeed ?? 0;
+    return onOBDData((d) => {
+      if (d.connectionState !== 'connected') return;
+      // Filter noise: only rebuild if speed changes significantly (≥3 km/h)
+      const speedChange = Math.abs(d.speed - lastNotifiedSpeed);
+      if (speedChange < 3) {
+        paramsRef.current = { ...paramsRef.current, obdSpeed: d.speed };
+        return;
+      }
+      lastNotifiedSpeed = d.speed;
+      const newMode: DrivingMode = detectDrivingMode({ btConnected: false, charging: false }, d.speed);
+      const modeChanged = newMode !== prevModeRef.current;
+      if (modeChanged) {
+        // Hysteresis: slow down transitions to avoid jitter
+        if (prevModeRef.current === 'idle' && newMode === 'normal' && d.speed < 3) return;
+        if (prevModeRef.current === 'normal' && newMode === 'idle' && d.speed > 1) return;
+        if (prevModeRef.current === 'normal' && newMode === 'driving' && d.speed < 15) return;
+        if (prevModeRef.current === 'driving' && newMode === 'normal' && d.speed > 22) return;
+        prevModeRef.current = newMode;
+        paramsRef.current = { ...paramsRef.current, obdSpeed: d.speed };
+        // Mode changed: rebuild snapshot WITH recommendation
+        setSnapshot(buildSnapshot(paramsRef.current, true));
+      } else {
+        // Speed changed but mode unchanged: update obdSpeed WITHOUT recommendation
+        paramsRef.current = { ...paramsRef.current, obdSpeed: d.speed };
+      }
+    });
+  }, []);
+
+  // Recompute after each tracked launch — WITH recommendation (usage changed)
+  useEffect(() => {
+    const refresh = () => setSnapshot(buildSnapshot(paramsRef.current, true));
     _listeners.add(refresh);
     return () => { _listeners.delete(refresh); };
   }, []);

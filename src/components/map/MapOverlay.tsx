@@ -5,6 +5,8 @@ interface MapOverlayProps {
   location?: GPSLocation | null;
   heading?: number | null;
   speedKmh?: number | undefined;
+  destination?: { latitude: number; longitude: number; name?: string } | null;
+  distanceMeters?: number;
   compact?: boolean;
 }
 
@@ -15,6 +17,8 @@ export const MapOverlay = memo(function MapOverlay({
   location,
   heading,
   speedKmh,
+  destination,
+  distanceMeters,
   compact = false,
 }: MapOverlayProps) {
   if (!location) return null;
@@ -80,21 +84,29 @@ export const MapOverlay = memo(function MapOverlay({
       {!compact && (
         <div className="absolute top-4 left-4 space-y-2 pointer-events-auto">
           {/* GPS Signal Strength */}
-          <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-lg px-3 py-2 border border-white/10">
-            <div className="flex gap-0.5">
-              {[0, 1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className={`w-1 h-2 rounded-sm transition-all ${
-                    i < signalBars ? 'bg-emerald-400' : 'bg-white/20'
-                  }`}
-                  style={{ height: `${(i + 1) * 6}px` }}
-                />
-              ))}
+          <div className="flex flex-col gap-2 bg-black/40 backdrop-blur-md rounded-lg px-3 py-2 border border-white/10">
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className={`w-1 h-2 rounded-sm transition-all ${
+                      i < signalBars ? 'bg-emerald-400' : 'bg-white/20'
+                    }`}
+                    style={{ height: `${(i + 1) * 6}px` }}
+                  />
+                ))}
+              </div>
+              <span className="text-xs text-slate-300 font-mono">
+                {signalBars === 4 ? '📡 Mükemmel' : signalBars >= 2 ? '📶 İyi' : '📊 Zayıf'}
+              </span>
             </div>
-            <span className="text-xs text-slate-300 font-mono">
-              {signalBars === 4 ? '📡' : signalBars >= 2 ? '📶' : '📊'} {accuracyMeters}m
-            </span>
+            <div className="text-xs text-slate-400 font-mono">
+              ±{accuracyMeters}m hassasiyet
+            </div>
+            <div className="text-xs text-emerald-400 font-medium">
+              ✓ GPS Aktif
+            </div>
           </div>
 
           {/* Heading Display */}
@@ -127,6 +139,59 @@ export const MapOverlay = memo(function MapOverlay({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Destination Marker and Route Line */}
+      {destination && !compact && (
+        <>
+          {/* Route line SVG */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
+            <line
+              x1="50%"
+              y1="50%"
+              x2="50%"
+              y2="50%"
+              stroke="#f43f5e"
+              strokeWidth="2"
+              strokeDasharray="4,4"
+              opacity="0.6"
+            />
+          </svg>
+
+          {/* Destination Marker */}
+          <div
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ transform: 'translate(-50%, -50%)' }}
+          >
+            {/* Destination glow */}
+            <div className="absolute inset-0 w-12 h-12 -translate-x-1/2 -translate-y-1/2 left-1/2 top-1/2">
+              <div className="absolute inset-0 bg-red-500 rounded-full opacity-15 animate-pulse" />
+            </div>
+
+            {/* Destination circle */}
+            <div className="relative w-5 h-5 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+              <div className="absolute inset-0 bg-red-500 rounded-full shadow-lg shadow-red-600/40 border-2 border-red-300/80" />
+              <div className="absolute inset-1.5 bg-red-400 rounded-full" />
+            </div>
+          </div>
+
+          {/* Distance Info */}
+          {distanceMeters && (
+            <div className="absolute top-1/2 right-4 -translate-y-1/2 bg-red-500/30 backdrop-blur-md rounded-lg px-4 py-2 border border-red-400/40">
+              <div className="text-xs text-red-300 font-medium">Destination</div>
+              <div className="text-lg font-bold text-red-400 font-mono">
+                {distanceMeters < 1000
+                  ? `${Math.round(distanceMeters)}m`
+                  : `${(distanceMeters / 1000).toFixed(1)}km`}
+              </div>
+              {destination.name && (
+                <div className="text-xs text-red-300 mt-1 truncate max-w-[200px]">
+                  {destination.name}
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Compact Mode: Center Speed Badge */}

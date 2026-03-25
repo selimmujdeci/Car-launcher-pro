@@ -9,6 +9,10 @@ import type { AppItem, MusicOptionKey } from '../../data/apps';
 import { openMusic } from '../../platform/appLauncher';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useMediaState, togglePlayPause, next, previous, fmtTime } from '../../platform/mediaService';
+import { registerCommandHandler } from '../../platform/voiceService';
+import type { ParsedCommand } from '../../platform/commandParser';
+import { startNavigation } from '../../platform/navigationService';
+import { getFavoriteAddresses } from '../../platform/addressBookService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { FullMapView } from '../map/FullMapView';
 
@@ -332,6 +336,20 @@ interface Props {
 
 function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, defaultMusic }: Props) {
   const [fullMapOpen, setFullMapOpen] = useState(false);
+
+  // Register navigation command handler
+  useEffect(() => {
+    const cleanup = registerCommandHandler((cmd: ParsedCommand) => {
+      if (cmd.type === 'navigate_home') {
+        const homeAddress = getFavoriteAddresses().find((a) => a.category === 'home');
+        if (homeAddress) {
+          startNavigation(homeAddress);
+          setFullMapOpen(true);
+        }
+      }
+    });
+    return cleanup;
+  }, []);
 
   return (
     <>

@@ -1,18 +1,16 @@
-import { memo, useState, useEffect, type ReactNode } from 'react';
-import { Sun, Volume2, Grid3x3, Map, Music, Moon, Smartphone, Clock, Zap } from 'lucide-react';
+import { memo, type ReactNode } from 'react';
+import { Sun, Grid3x3, Music, Moon, Smartphone, Clock, Zap, MapPin } from 'lucide-react';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
 import type { NavOptionKey, MusicOptionKey } from '../../data/apps';
 import { getPerformanceMode, setPerformanceMode } from '../../platform/performanceMode';
-import { getMapSources, getActiveMapSourceId, setActiveMapSource } from '../../platform/mapSourceManager';
 
 export interface Settings {
   brightness: number;
   volume: number;
   theme: 'dark' | 'oled';
-  themePack: 'tesla' | 'big-cards' | 'ai-center';
-  themeStyle: 'glass' | 'neon' | 'minimal';
-  widgetStyle: 'elevated' | 'flat' | 'outlined';
-  widgetLayout: 'dashboard' | 'focus-nav' | 'focus-media' | 'focus-obd';
+  themePack: 'tesla';
+  themeStyle?: 'glass';
+  widgetStyle?: 'elevated';
   use24Hour: boolean;
   showSeconds: boolean;
   clockStyle: 'digital' | 'analog';
@@ -22,7 +20,6 @@ export interface Settings {
   sleepMode: boolean;
   widgetOrder: string[];
   widgetVisible: Record<string, boolean>;
-  dockPins: string[] | null;
 }
 
 /* ── Yardımcı bileşenler ─────────────────────────────────── */
@@ -177,7 +174,7 @@ function AppPickerRow<K extends string>({
   value,
   onChange,
 }: {
-  icon: typeof Map;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   label: string;
   options: Record<K, { name: string; icon: string }>;
   value: K;
@@ -217,20 +214,6 @@ interface Props {
 }
 
 function SettingsPageInner({ settings, onUpdate }: Props) {
-  const [mapSources, setMapSources] = useState<any[]>([]);
-  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const sources = getMapSources();
-    setMapSources(sources);
-    setActiveSourceId(getActiveMapSourceId());
-  }, []);
-
-  const handleMapSourceChange = (sourceId: string) => {
-    setActiveMapSource(sourceId);
-    setActiveSourceId(sourceId);
-  };
-
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden">
       <div className="p-6 flex flex-col gap-5">
@@ -270,69 +253,6 @@ function SettingsPageInner({ settings, onUpdate }: Props) {
                     desc="Tam siyah"
                   />
                 </div>
-                <div className="pb-5 mb-5 border-b border-white/5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-blue-400 text-sm">🎨</span>
-                    <span className="text-white text-sm font-medium">Tema Paketi</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {(['tesla', 'big-cards', 'ai-center'] as const).map((pack) => (
-                      <button
-                        key={pack}
-                        onClick={() => onUpdate({ themePack: pack })}
-                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-[transform,background-color,border-color] duration-150 active:scale-95 border ${
-                          settings.themePack === pack
-                            ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/25'
-                            : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:border-white/10'
-                        }`}
-                      >
-                        {pack === 'tesla' ? '⚡ Tesla' : pack === 'big-cards' ? '🎯 Big Cards' : '🤖 AI'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="pb-5 mb-5 border-b border-white/5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-blue-400 text-sm">✨</span>
-                    <span className="text-white text-sm font-medium">Panel Stili</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {(['glass', 'neon', 'minimal'] as const).map((style) => (
-                      <button
-                        key={style}
-                        onClick={() => onUpdate({ themeStyle: style })}
-                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-[transform,background-color,border-color] duration-150 active:scale-95 border ${
-                          settings.themeStyle === style
-                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-600/25'
-                            : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:border-white/10'
-                        }`}
-                      >
-                        {style === 'glass' ? '🔷 Cam' : style === 'neon' ? '⚡ Neon' : '▫️ Minimal'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="pb-5 mb-5 border-b border-white/5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-blue-400 text-sm">📦</span>
-                    <span className="text-white text-sm font-medium">Widget Görünümü</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {(['elevated', 'flat', 'outlined'] as const).map((wStyle) => (
-                      <button
-                        key={wStyle}
-                        onClick={() => onUpdate({ widgetStyle: wStyle })}
-                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-[transform,background-color,border-color] duration-150 active:scale-95 border ${
-                          settings.widgetStyle === wStyle
-                            ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-600/25'
-                            : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:border-white/10'
-                        }`}
-                      >
-                        {wStyle === 'elevated' ? '⬆️ Yükseltilmiş' : wStyle === 'flat' ? '▬ Düz' : '⬜ Kenarlı'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 <div>
                   <BigSlider
                     icon={Sun}
@@ -367,20 +287,8 @@ function SettingsPageInner({ settings, onUpdate }: Props) {
 
           </div>
 
-          {/* SAĞ ── Ses + Saat + Varsayılan Uygulamalar */}
+          {/* SAĞ ── Saat + Varsayılan Uygulamalar + Performans */}
           <div className="flex flex-col gap-5">
-
-            <div>
-              <SectionTitle>Ses</SectionTitle>
-              <Card>
-                <BigSlider
-                  icon={Volume2}
-                  label="Ses Seviyesi"
-                  value={settings.volume}
-                  onChange={(v) => onUpdate({ volume: v })}
-                />
-              </Card>
-            </div>
 
             <div>
               <SectionTitle>Saat</SectionTitle>
@@ -422,7 +330,7 @@ function SettingsPageInner({ settings, onUpdate }: Props) {
               <SectionTitle>Varsayılan Uygulamalar</SectionTitle>
               <Card>
                 <AppPickerRow
-                  icon={Map}
+                  icon={MapPin}
                   label="Navigasyon"
                   options={NAV_OPTIONS}
                   value={settings.defaultNav}
@@ -439,7 +347,7 @@ function SettingsPageInner({ settings, onUpdate }: Props) {
             </div>
 
             <div>
-              <SectionTitle>Ek Modlar</SectionTitle>
+              <SectionTitle>Performans</SectionTitle>
               <Card>
                 <ToggleRow
                   label="Uyku Modu"
@@ -541,114 +449,6 @@ function SettingsPageInner({ settings, onUpdate }: Props) {
               </Card>
             </div>
 
-            {/* Map Source Section */}
-            {mapSources.length > 0 && (
-              <div>
-                <Card>
-                  <div className="flex items-center gap-3 mb-5">
-                    <Map className="w-5 h-5 text-teal-400" />
-                    <div>
-                      <span className="text-white text-base font-semibold">Harita Kaynağı</span>
-                      <p className="text-xs text-slate-500 mt-0.5">Yerel veya online harita seç</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    {mapSources.map((source) => (
-                      <button
-                        key={source.id}
-                        onClick={() => handleMapSourceChange(source.id)}
-                        className={`w-full text-left p-3 rounded-xl transition-all ${
-                          activeSourceId === source.id
-                            ? 'bg-teal-600/40 border-2 border-teal-500/60 shadow-lg shadow-teal-600/20'
-                            : 'bg-white/5 border-2 border-white/10 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-white font-semibold text-sm">{source.name}</div>
-                            <div className="text-xs text-slate-400 mt-1">{source.description}</div>
-                            {source.type === 'offline' && source.tileCount && (
-                              <div className="text-xs text-emerald-400 mt-1">
-                                📦 {source.tileCount} tiles • {source.cacheSize}
-                              </div>
-                            )}
-                          </div>
-                          <div className="ml-3 flex-shrink-0">
-                            {activeSourceId === source.id && (
-                              <div className="w-2 h-2 rounded-full bg-teal-400" />
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </Card>
-              </div>
-            )}
-
-            {/* Widget Layout Section */}
-            <div>
-              <Card>
-                <div className="flex items-center gap-3 mb-5">
-                  <Grid3x3 className="w-5 h-5 text-cyan-400" />
-                  <div>
-                    <span className="text-white text-base font-semibold">Widget Düzeni</span>
-                    <p className="text-xs text-slate-500 mt-0.5">Ana widgetlerin odak noktasını seç</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {(['dashboard', 'focus-nav', 'focus-media', 'focus-obd'] as const).map((layout) => {
-                    const isSelected = settings.widgetLayout === layout;
-                    const configs = {
-                      dashboard: {
-                        icon: '🎯',
-                        label: 'Dashboard',
-                        desc: 'Tüm widgetler dengeli boyutta. Full kontrol paneli görünümü.',
-                      },
-                      'focus-nav': {
-                        icon: '🗺️',
-                        label: 'Navigasyon Odaklı',
-                        desc: 'Harita widgeti büyütülür. Sürüş ve navigasyon için optimize.',
-                      },
-                      'focus-media': {
-                        icon: '🎵',
-                        label: 'Müzik Odaklı',
-                        desc: 'Müzik kontrolü büyütülür. Şarkı seçimi ve kontrol için ideal.',
-                      },
-                      'focus-obd': {
-                        icon: '🔧',
-                        label: 'OBD Verisi Odaklı',
-                        desc: 'Motor bilgileri büyütülür. Aracın durumunu takip etmek için.',
-                      },
-                    };
-                    const config = configs[layout];
-
-                    return (
-                      <button
-                        key={layout}
-                        onClick={() => onUpdate({ widgetLayout: layout })}
-                        className={`w-full text-left p-3 rounded-xl transition-all ${
-                          isSelected
-                            ? 'bg-cyan-600/40 border-2 border-cyan-500/60 shadow-lg shadow-cyan-600/20'
-                            : 'bg-white/5 border-2 border-white/10 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl">{config.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-white font-semibold text-sm">{config.label}</div>
-                            <div className="text-xs text-slate-400 mt-1">{config.desc}</div>
-                          </div>
-                          {isSelected && <div className="w-2 h-2 rounded-full bg-cyan-400 flex-shrink-0" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </Card>
-            </div>
 
           </div>
         </div>

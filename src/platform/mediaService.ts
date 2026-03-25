@@ -2,13 +2,14 @@
  * Media Service — central state for music playback.
  *
  * Demo:  mock track, play/pause/next/prev update local state.
- * Native migration:
+ * Native:
  *   - updateMediaState() called from a Capacitor MediaSession listener
  *   - play/pause/next/prev send media key events via CarLauncherPlugin.sendMediaAction()
  *   - Android side: MediaControllerCompat or AudioManager.dispatchMediaKeyEvent()
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
+import { CarLauncher } from './nativePlugin';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -61,7 +62,10 @@ export function updateMediaState(partial: Partial<MediaState>): void {
 
 export function play(): void {
   if (isNative) {
-    // TODO: CarLauncher.sendMediaAction({ action: 'play' });
+    CarLauncher.sendMediaAction({ action: 'play' }).catch(() => {
+      // Fallback on error
+      updateMediaState({ playing: true });
+    });
     return;
   }
   updateMediaState({ playing: true });
@@ -69,7 +73,10 @@ export function play(): void {
 
 export function pause(): void {
   if (isNative) {
-    // TODO: CarLauncher.sendMediaAction({ action: 'pause' });
+    CarLauncher.sendMediaAction({ action: 'pause' }).catch(() => {
+      // Fallback on error
+      updateMediaState({ playing: false });
+    });
     return;
   }
   updateMediaState({ playing: false });
@@ -81,7 +88,11 @@ export function togglePlayPause(): void {
 
 export function next(): void {
   if (isNative) {
-    // TODO: CarLauncher.sendMediaAction({ action: 'next' });
+    CarLauncher.sendMediaAction({ action: 'next' }).catch(() => {
+      // Fallback: cycle through demo tracks
+      _demoIndex = (_demoIndex + 1) % DEMO_TRACKS.length;
+      updateMediaState({ playing: _current.playing, track: { ...DEMO_TRACKS[_demoIndex] } });
+    });
     return;
   }
   _demoIndex = (_demoIndex + 1) % DEMO_TRACKS.length;
@@ -90,7 +101,11 @@ export function next(): void {
 
 export function previous(): void {
   if (isNative) {
-    // TODO: CarLauncher.sendMediaAction({ action: 'previous' });
+    CarLauncher.sendMediaAction({ action: 'previous' }).catch(() => {
+      // Fallback: cycle through demo tracks
+      _demoIndex = (_demoIndex - 1 + DEMO_TRACKS.length) % DEMO_TRACKS.length;
+      updateMediaState({ playing: _current.playing, track: { ...DEMO_TRACKS[_demoIndex] } });
+    });
     return;
   }
   _demoIndex = (_demoIndex - 1 + DEMO_TRACKS.length) % DEMO_TRACKS.length;

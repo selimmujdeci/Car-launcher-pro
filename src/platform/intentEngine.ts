@@ -31,7 +31,10 @@ export type IntentType =
   | 'PAUSE_MEDIA'
   | 'OPEN_FAVORITES'
   | 'ENABLE_NIGHT_MODE'
+  | 'SET_THEME'
+  | 'SET_MUSIC'
   | 'ENABLE_DRIVING_MODE'
+  | 'TOGGLE_SLEEP_MODE'
   | 'OPEN_LAST_APP'
   | 'UNKNOWN';
 
@@ -72,16 +75,24 @@ export interface RouterContext {
 /* ── CommandType → IntentType map ────────────────────────── */
 
 const CMD_TO_INTENT: Record<CommandType, IntentType> = {
-  navigate_home:  'OPEN_NAVIGATION',
-  open_maps:      'OPEN_NAVIGATION',
-  open_music:     'OPEN_MUSIC',
-  stop_music:     'PAUSE_MEDIA',
-  open_phone:     'OPEN_PHONE',
-  open_settings:  'OPEN_SETTINGS',
-  open_recent:    'OPEN_LAST_APP',
-  show_favorites: 'OPEN_FAVORITES',
-  theme_night:    'ENABLE_NIGHT_MODE',
-  driving_mode:   'ENABLE_DRIVING_MODE',
+  navigate_home:      'OPEN_NAVIGATION',
+  open_maps:          'OPEN_NAVIGATION',
+  open_music:         'OPEN_MUSIC',
+  stop_music:         'PAUSE_MEDIA',
+  open_phone:         'OPEN_PHONE',
+  open_settings:      'OPEN_SETTINGS',
+  open_recent:        'OPEN_LAST_APP',
+  show_favorites:     'OPEN_FAVORITES',
+  theme_night:        'ENABLE_NIGHT_MODE',
+  theme_dark:         'SET_THEME',
+  theme_oled:         'SET_THEME',
+  music_spotify:      'SET_MUSIC',
+  music_youtube:      'SET_MUSIC',
+  driving_mode:       'ENABLE_DRIVING_MODE',
+  toggle_sleep_mode:  'TOGGLE_SLEEP_MODE',
+  vehicle_speed:      'UNKNOWN',
+  vehicle_fuel:       'UNKNOWN',
+  vehicle_temp:       'UNKNOWN',
 };
 
 /* ── toIntent ────────────────────────────────────────────── */
@@ -116,8 +127,23 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
     case 'theme_night':
       payload.mode = 'oled';
       break;
+    case 'theme_dark':
+      payload.mode = 'dark';
+      break;
+    case 'theme_oled':
+      payload.mode = 'oled';
+      break;
+    case 'music_spotify':
+      payload.targetApp = 'spotify';
+      break;
+    case 'music_youtube':
+      payload.targetApp = 'youtube';
+      break;
     case 'driving_mode':
       payload.mode = 'driving';
+      break;
+    case 'toggle_sleep_mode':
+      payload.mode = 'toggle_sleep';
       break;
   }
 
@@ -159,10 +185,19 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'ENABLE_NIGHT_MODE':
       ctx.setTheme((intent.payload.mode as 'dark' | 'oled') ?? 'oled');
       break;
+    case 'SET_THEME':
+      ctx.setTheme((intent.payload.mode as 'dark' | 'oled') ?? 'dark');
+      break;
+    case 'SET_MUSIC':
+      if (intent.payload.targetApp) ctx.launch(intent.payload.targetApp);
+      break;
     case 'ENABLE_DRIVING_MODE':
       // Foundation: close all overlays for distraction-free focus
       // Future: trigger driving-mode UI override via a dedicated context flag
       ctx.openDrawer('none');
+      break;
+    case 'TOGGLE_SLEEP_MODE':
+      // Handled in MainLayout registerCommandHandler
       break;
     case 'UNKNOWN':
       // Safe fallback — take no action; voice UI already shows the error state
@@ -176,6 +211,7 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
 const VALID_INTENTS = new Set<IntentType>([
   'OPEN_NAVIGATION', 'OPEN_MUSIC', 'OPEN_PHONE', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'OPEN_FAVORITES',
+  'SET_THEME', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
   'ENABLE_NIGHT_MODE', 'ENABLE_DRIVING_MODE', 'OPEN_LAST_APP', 'UNKNOWN',
 ]);
 
