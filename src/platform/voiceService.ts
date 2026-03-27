@@ -15,6 +15,7 @@
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
+import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { getConfig } from './performanceMode';
 
@@ -141,21 +142,34 @@ export function processTextCommand(text: string): boolean {
 
 /**
  * Toggle listening state.
- * Demo: activates text input. Native (future): triggers SpeechRecognizer.
+ * Native: uses CarLauncher.startSpeechRecognition() with EXTRA_PREFER_OFFLINE=true
+ *   so the device's on-device speech model is used without an internet connection.
+ * Web / demo: activates text-input mode.
  */
 export function startListening(): void {
   if (_current.status === 'listening') {
     push({ status: 'idle' });
     return;
   }
-  if (isNative) {
-    // TODO: CarLauncher.startSpeechRecognition()
-    //   .then((r) => processTextCommand(r.transcript))
-    //   .catch(() => push({ status: 'error', error: 'Ses alınamadı', suggestions: [] }));
-    push({ status: 'listening', error: null, suggestions: [] });
-    return;
-  }
+
   push({ status: 'listening', error: null, suggestions: [] });
+
+  if (isNative) {
+    CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
+      .then((result) => {
+        if (result.transcript) {
+          processTextCommand(result.transcript);
+        } else {
+          push({ status: 'idle' });
+        }
+      })
+      .catch(() => {
+        push({ status: 'error', error: 'Ses alınamadı', suggestions: [] });
+        setTimeout(() => {
+          if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] });
+        }, 3_000);
+      });
+  }
 }
 
 /** Cancel an active listening session. */

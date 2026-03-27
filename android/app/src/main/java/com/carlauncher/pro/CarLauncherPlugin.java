@@ -1,5 +1,6 @@
 package com.carlauncher.pro;
 
+import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -9,13 +10,19 @@ import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
+import android.speech.RecognizerIntent;
+import android.view.WindowManager;
+import java.util.ArrayList;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -445,6 +452,108 @@ public class CarLauncherPlugin extends Plugin {
             }
         } catch (Exception ignored) {}
         return -1;
+    }
+
+    // ── System settings ─────────────────────────────────────
+
+    /**
+     * Set screen brightness.
+     * Requires WRITE_SETTINGS permission (granted at install or via system settings overlay).
+     * value: 0–255 (maps from JS 0–100 percent)
+     */
+    @PluginMethod
+    public void setBrightness(PluginCall call) {
+        Integer value = call.getInt("value");
+        if (value == null) { call.reject("INVALID_ARGS", "value gerekli"); return; }
+        int clamped = Math.max(0, Math.min(255, value));
+        try {
+            // Window-level brightness (no permission required)
+            WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
+            lp.screenBrightness = clamped / 255.0f;
+            mainHandler.post(() -> getActivity().getWindow().setAttributes(lp));
+
+            // System-level brightness (requires WRITE_SETTINGS)
+            if (Settings.System.canWrite(getContext())) {
+                Settings.System.putInt(getContext().getContentResolver(),
+                    Settings.System.SCREEN_BRIGHTNESS, clamped);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("BRIGHTNESS_FAILED", e.getMessage());
+        }
+    }
+
+    /**
+     * Set media (music) volume.
+     * value: 0–15 (Android STREAM_MUSIC max index, maps from JS 0–100 percent)
+     */
+    @PluginMethod
+    public void setVolume(PluginCall call) {
+        Integer value = call.getInt("value");
+        if (value == null) { call.reject("INVALID_ARGS", "value gerekli"); return; }
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int clamped = Math.max(0, Math.min(max, value));
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, clamped, 0);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("VOLUME_FAILED", e.getMessage());
+        }
+    }
+
+    // ── On-device speech recognition ────────────────────────
+
+    private static final int REQUEST_SPEECH = 1001;
+    private PluginCall savedSpeechCall = null;
+
+    /**
+     * Launch Android SpeechRecognizer with EXTRA_PREFER_OFFLINE=true.
+     * Uses the on-device speech model — no internet required when a Turkish
+     * offline language pack is installed (Settings → Language & input → Offline speech).
+     */
+    @PluginMethod
+    public void startSpeechRecognition(PluginCall call) {
+        savedSpeechCall = call;
+        boolean preferOffline = Boolean.TRUE.equals(call.getBoolean("preferOffline", true));
+        String language = call.getString("language", "tr-TR");
+        int maxResults = call.getInt("maxResults", 1);
+
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, maxResults);
+        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
+
+        try {
+            startActivityForResult(call, intent, REQUEST_SPEECH);
+        } catch (Exception e) {
+            savedSpeechCall = null;
+            call.reject("NO_RECOGNIZER", "Ses tanıma uygulaması bulunamadı: " + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
+        super.handleOnActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_SPEECH || savedSpeechCall == null) return;
+
+        PluginCall call = savedSpeechCall;
+        savedSpeechCall = null;
+
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            ArrayList<String> results =
+                data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+            if (results != null && !results.isEmpty()) {
+                JSObject r = new JSObject();
+                r.put("transcript", results.get(0));
+                call.resolve(r);
+                return;
+            }
+        }
+        call.reject("NO_RESULT", resultCode == Activity.RESULT_CANCELED
+            ? "İptal edildi" : "Sonuç alınamadı");
     }
 
     // ── Lifecycle ───────────────────────────────────────────

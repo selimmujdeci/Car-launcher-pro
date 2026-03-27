@@ -1,0 +1,74 @@
+/* ════════════════════════════════════════════════════════════════ */
+/* SMOOTH TRANSITIONS — Premium Theme Change Animations             */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* Lite mode: Very light theme transitions */
+[data-performance-mode="lite"] [data-theme-style],
+[data-performance-mode="lite"] [data-widget-style],
+[data-performance-mode="lite"] [data-theme-pack],
+[data-performance-mode="lite"] [class*="rounded"],
+[data-performance-mode="lite"] [class*="bg-"],
+[data-performance-mode="lite"] div[class*="flex"] {
+  transition: background-color 100ms ease-out, border-color 100ms ease-out,
+              box-shadow 100ms ease-out, color 100ms ease-out;
+}
+
+/* Balanced mode: Normal theme transitions */
+[data-performance-mode="balanced"] [data-theme-style],
+[data-performance-mode="balanced"] [data-widget-style],
+[data-performance-mode="balanced"] [data-theme-pack],
+[data-performance-mode="balanced"] [class*="rounded"],
+[data-performance-mode="balanced"] [class*="bg-"],
+[data-performance-mode="balanced"] div[class*="flex"] {
+  transition: background-color 300ms ease-out, border-color 300ms ease-out,
+              box-shadow 300ms ease-out, color 300ms ease-out;
+}
+
+/* Premium mode: Rich theme transitions */
+[data-performance-mode="premium"] [data-theme-style],
+[data-performance-mode="premium"] [data-widget-style],
+[data-performance-mode="premium"] [data-theme-pack],
+[data-performance-mode="premium"] [class*="rounded"],
+[data-performance-mode="premium"] [class*="bg-"],
+[data-performance-mode="premium"] div[class*="flex"] {
+  transition: background-color 500ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 500ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 500ms ease-out;
+}
+
+/* Interactive elements — instant feedback, no transition delay */
+button {
+  transition: none !important;
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+button:focus,
+button:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
+}
+
+button:hover {
+  filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3));
+}
+
+/* ── Keyframe Animations — PERFORMANCE SAFE MODE: disabled ─── */
+
+@keyframes theme-fade-in  { 0%, 100% { opacity: 1; filter: brightness(1); } }
+@keyframes theme-fade-out { 0%, 100% { opacity: 1; filter: brightness(1); } }
+@keyframes card-entrance  { 0%, 100% { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes card-exit      { 0%, 100% { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes glow-smooth    { 0%, 100% { filter: none; opacity: 1; } }
+
+@keyframes blur-entrance        { 0%, 100% { filter: none; opacity: 1; } }
+@keyframes neon-glow-transition { 0%, 100% { box-shadow: none; } }
+@keyframes color-shift          { 0%, 100% { filter: none; } }
+
+@keyframes float-entrance {
+  0%   { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}

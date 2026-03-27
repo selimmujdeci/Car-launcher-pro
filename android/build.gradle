@@ -22,6 +22,8 @@ allprojects {
         google()
         mavenCentral()
     }
+    // Build to a temp path to avoid antivirus locking Desktop project files
+    buildDir = new File("C:/Temp/carlauncher/${project.name}/build")
 }
 
 task clean(type: Delete) {

@@ -1,0 +1,565 @@
+/* ════════════════════════════════════════════════════════════════ */
+/* THEME PACK SYSTEM — Variables, Experience Layout, Widget Behavior */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── TESLA theme pack ─────────────────────────────────────── */
+[data-theme-pack="tesla"] {
+  --pack-widget-radius: 2rem;
+  --pack-widget-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+  --pack-accent-color:  #3b82f6;
+  --pack-accent-light:  #60a5fa;
+  --pack-card-bg:       rgba(19, 25, 41, 0.8);
+  --pack-border:        rgba(255, 255, 255, 0.05);
+  --pack-glow:          rgba(59, 130, 246, 0.1);
+}
+
+[data-theme-pack="tesla"] * {
+  transition-property: none;
+}
+
+[data-theme-pack="tesla"] button:hover {
+  --tw-bg-opacity: 1;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* ── BIG CARDS theme pack ─────────────────────────────────── */
+[data-theme-pack="big-cards"] {
+  --pack-widget-radius: 2.5rem;
+  --pack-widget-shadow: 0 8px 32px rgba(59, 130, 246, 0.2);
+  --pack-accent-color:  #6366f1;
+  --pack-accent-light:  #818cf8;
+  --pack-card-bg:       rgba(49, 46, 129, 0.4);
+  --pack-border:        rgba(165, 180, 252, 0.2);
+  --pack-glow:          rgba(99, 102, 241, 0.15);
+}
+
+[data-theme-pack="big-cards"] button {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+[data-theme-pack="big-cards"] .rounded-2xl,
+[data-theme-pack="big-cards"] .rounded-3xl {
+  border-radius: 1.875rem;
+}
+
+[data-theme-pack="big-cards"] .text-base {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* ── AI CENTER theme pack ─────────────────────────────────── */
+[data-theme-pack="ai-center"] {
+  --pack-widget-radius: 1.5rem;
+  --pack-widget-shadow: 0 0 30px rgba(139, 92, 246, 0.3), 0 0 60px rgba(6, 182, 212, 0.1);
+  --pack-accent-color:  #8b5cf6;
+  --pack-accent-light:  #a78bfa;
+  --pack-card-bg:       rgba(59, 41, 96, 0.3);
+  --pack-border:        rgba(139, 92, 246, 0.2);
+  --pack-glow:          rgba(139, 92, 246, 0.2);
+}
+
+[data-theme-pack="ai-center"] {
+  background-image:
+    radial-gradient(circle at 20% 50%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(6, 182, 212, 0.06) 0%, transparent 40%);
+}
+
+[data-theme-pack="ai-center"] button {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
+[data-theme-pack="ai-center"] .rounded-xl {
+  border-radius: 0.875rem;
+}
+
+/* ── BMW M-SPORT theme pack ────────────────────────────────── */
+[data-theme-pack="bmw"] {
+  --pack-widget-radius: 0.75rem;
+  --pack-widget-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --pack-accent-color:  #1d4ed8;
+  --pack-accent-light:  #60a5fa;
+  --pack-card-bg:       rgba(15, 23, 42, 0.9);
+  --pack-border:        #1e293b;
+  --pack-glow:          rgba(29, 78, 216, 0.15);
+  --bmw-red:            #ef4444;
+  --bmw-light-blue:     #0ea5e9;
+}
+
+[data-theme-pack="bmw"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+}
+
+[data-theme-pack="bmw"] button {
+  border-left: 4px solid var(--pack-accent-color);
+  border-radius: 0.25rem;
+}
+
+[data-theme-pack="bmw"] button:hover {
+  border-left-color: var(--bmw-red);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── MERCEDES MBUX theme pack ─────────────────────────────── */
+[data-theme-pack="mercedes"] {
+  --pack-widget-radius: 3rem;
+  --pack-widget-shadow: 0 0 40px rgba(6, 182, 212, 0.15);
+  --pack-accent-color:  #06b6d4;
+  --pack-accent-light:  #22d3ee;
+  --pack-card-bg:       rgba(8, 10, 15, 0.85);
+  --pack-border:        rgba(6, 182, 212, 0.2);
+  --pack-glow:          rgba(6, 182, 212, 0.2);
+}
+
+[data-theme-pack="mercedes"] {
+  background: radial-gradient(circle at 50% 120%, rgba(6, 182, 212, 0.15), transparent 70%);
+}
+
+[data-theme-pack="mercedes"] [class*="rounded"] {
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+[data-theme-pack="mercedes"] button {
+  border-radius: 50px !important;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(168, 85, 247, 0.1));
+}
+
+/* Global theme pack adjustments */
+[data-theme-pack="big-cards"] button:active {
+  transform: scale(0.95);
+}
+
+[data-theme-pack="ai-center"] button:hover {
+  border-color: rgba(6, 182, 212, 0.6);
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* EXPERIENCE SYSTEM — Layout & Behavior per Theme Pack             */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── TESLA: Split screen, map-centric ────────────────────────── */
+[data-theme-pack="tesla"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+[data-theme-pack="tesla"] [data-section="obd"] {
+  display: none;
+}
+
+[data-theme-pack="tesla"] [data-section="alerts"] {
+  grid-row: 1;
+  order: 1;
+}
+
+[data-theme-pack="tesla"] [data-section="quick-actions"] {
+  display: none;
+}
+
+[data-theme-pack="tesla"] [data-section="voice"] {
+  grid-row: 2;
+  order: 2;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] {
+  grid-row: 3 / -1;
+  order: 3;
+  display: flex;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div {
+  flex-direction: row;
+}
+
+/* ── BIG CARDS: OBD-centric, driving focused ─────────────────── */
+[data-theme-pack="big-cards"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr;
+  gap: 0;
+}
+
+[data-theme-pack="big-cards"] [data-section="obd"] {
+  grid-row: 1;
+  order: 1;
+  margin: 1rem 2rem 0.5rem 2rem;
+  padding: 0;
+}
+
+[data-theme-pack="big-cards"] [data-section="alerts"] {
+  grid-row: 2;
+  order: 2;
+}
+
+[data-theme-pack="big-cards"] [data-section="quick-actions"] {
+  grid-row: 3;
+  order: 3;
+  display: block;
+}
+
+[data-theme-pack="big-cards"] [data-section="voice"] {
+  grid-row: 4;
+  order: 4;
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] {
+  grid-row: 5;
+  order: 5;
+  display: flex;
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] > div {
+  flex-direction: row;
+  gap: 1.5rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1;    }
+  50%       { opacity: 0.95; }
+}
+
+/* ── AI CENTER: Center-focused, orbital modules ─────────────── */
+[data-theme-pack="ai-center"] [data-theme-layout="main"] {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-columns: 1fr;
+  gap: 0;
+  position: relative;
+}
+
+[data-theme-pack="ai-center"] [data-section="obd"] {
+  display: none;
+}
+
+[data-theme-pack="ai-center"] [data-section="alerts"] {
+  grid-row: 1;
+  order: 1;
+  opacity: 0.7;
+}
+
+[data-theme-pack="ai-center"] [data-section="quick-actions"] {
+  display: none;
+}
+
+[data-theme-pack="ai-center"] [data-section="voice"] {
+  grid-row: 2;
+  order: 2;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] {
+  grid-row: 3 / -1;
+  order: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div {
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+/* Theme pack animations — PERFORMANCE SAFE MODE: disabled */
+@keyframes float     { 0%, 100% { transform: translateY(0px); } }
+@keyframes glow-pulse { 0%, 100% { filter: none; }               }
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div > div {
+  animation-name: glow-pulse;
+  animation-duration: 6s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* WIDGET-LEVEL BEHAVIOR — Animations, Spacing per Theme Pack       */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* Tesla: Minimal animations, fast response */
+[data-theme-pack="tesla"] {
+  --animation-duration: 400ms;
+}
+
+[data-theme-pack="tesla"] [class*="animate"] {
+  animation-duration: var(--animation-duration) !important;
+}
+
+[data-theme-pack="tesla"] [class*="shadow"] {
+  filter: brightness(0.95);
+}
+
+[data-theme-pack="tesla"] button {
+  transition: all 120ms ease;
+}
+
+[data-theme-pack="tesla"] button:active {
+  transform: scale(0.98);
+}
+
+/* Big Cards: Bold animations, dramatic effects */
+[data-theme-pack="big-cards"] {
+  --animation-duration: 200ms;
+}
+
+[data-theme-pack="big-cards"] button:hover {
+  filter: brightness(1.1);
+  transition: all 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform: translateY(-4px);
+  box-shadow: 0 15px 35px rgba(99, 102, 241, 0.4);
+}
+
+[data-theme-pack="big-cards"] button:active {
+  transform: translateY(-2px) scale(0.97);
+}
+
+[data-theme-pack="big-cards"] [class*="shadow"] {
+  filter: drop-shadow(0 20px 25px rgba(0, 0, 0, 0.3));
+}
+
+/* Big Cards heartbeat — PERFORMANCE SAFE MODE: disabled */
+@keyframes heartbeat { 0%, 100% { transform: scale(1); opacity: 1; } }
+
+[data-theme-pack="big-cards"] [data-section="obd"] {
+  animation: none !important;
+}
+
+/* AI Center: Smooth, ethereal animations, glowing */
+[data-theme-pack="ai-center"] {
+  --animation-duration: 600ms;
+}
+
+[data-theme-pack="ai-center"] button {
+  transition: all 300ms cubic-bezier(0.23, 1, 0.320, 1);
+}
+
+[data-theme-pack="ai-center"] button:hover {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 10px 20px rgba(6, 182, 212, 0.4));
+}
+
+[data-theme-pack="ai-center"] button:active {
+  transform: translateY(0px) scale(0.98);
+}
+
+[data-theme-pack="ai-center"] [class*="shadow"] {
+  filter: drop-shadow(0 0 30px rgba(139, 92, 246, 0.4));
+}
+
+@keyframes ai-glow {
+  0%, 100% {
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.3), 0 0 12px rgba(139, 92, 246, 0.2);
+  }
+  50% {
+    text-shadow: 0 0 12px rgba(6, 182, 212, 0.5), 0 0 16px rgba(139, 92, 246, 0.3);
+  }
+}
+
+[data-theme-pack="ai-center"] h1,
+[data-theme-pack="ai-center"] h2,
+[data-theme-pack="ai-center"] span[class*="text-"] {
+  animation: none !important;
+}
+
+/* ── Component-level experience tweaks ──────────────────────── */
+
+/* TESLA: Clean, minimal, glass aesthetic */
+[data-theme-pack="tesla"] {
+  --widget-spacing: 0.5rem;
+  --widget-padding: 1rem;
+  --widget-border:  1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] {
+  padding: 0.5rem;
+  gap: 0.5rem;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div > div {
+  background: rgba(13, 22, 40, 0.6) !important;
+  border: 1px solid rgba(59, 130, 246, 0.1) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div > div:first-child {
+  min-height: 400px;
+  flex: 2 1 0;
+}
+
+[data-theme-pack="tesla"] [data-section="hero"] > div > div:last-child {
+  min-height: 400px;
+  flex: 0.8 1 0;
+  opacity: 0.9;
+}
+
+[data-theme-pack="tesla"] [class*="flex"] [class*="flex-col"] {
+  gap: 0.25rem;
+}
+
+[data-theme-pack="tesla"] [class*="text-xs"] {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+[data-theme-pack="tesla"] [class*="py-"] {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+
+/* BIG CARDS: Bold, driving-focused, OBD-centric */
+[data-theme-pack="big-cards"] {
+  --widget-spacing: 1.5rem;
+  --widget-padding: 2rem;
+  --widget-border:  2px solid rgba(165, 180, 252, 0.3);
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] {
+  padding: 1.5rem;
+  gap: 1.5rem;
+}
+
+[data-theme-pack="big-cards"] [data-section="hero"] > div > div {
+  background: rgba(49, 46, 129, 0.5) !important;
+  border: 2px solid rgba(165, 180, 252, 0.3) !important;
+  border-radius: 2.5rem !important;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.25) !important;
+  padding: 2rem !important;
+}
+
+[data-theme-pack="big-cards"] [data-section="obd"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.3), rgba(99, 102, 241, 0.2)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.4) !important;
+  border-radius: 2rem !important;
+}
+
+[data-theme-pack="big-cards"] button[class*="rounded"] {
+  transition: all 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  border-radius: 2rem !important;
+}
+
+[data-theme-pack="big-cards"] button[class*="rounded"]:hover {
+  transform: scale(1.05) translateY(-8px);
+  filter: brightness(1.15);
+}
+
+[data-theme-pack="big-cards"] [class*="h-1"],
+[data-theme-pack="big-cards"] [class*="h-1.5"],
+[data-theme-pack="big-cards"] [class*="h-2"] {
+  height: 0.5rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="text-xs"] {
+  font-size: 0.875rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="gap"] {
+  gap: 1.5rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="px-"] {
+  padding-left: 2rem !important;
+  padding-right: 2rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="py-"] {
+  padding-top: 1.5rem !important;
+  padding-bottom: 1.5rem !important;
+}
+
+/* AI CENTER: Futuristic, orbital layout, centered */
+[data-theme-pack="ai-center"] {
+  --widget-spacing: 1rem;
+  --widget-padding: 1.5rem;
+  --widget-border:  1px solid rgba(6, 182, 212, 0.4);
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  gap: 2rem;
+  min-height: 500px;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div > div {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.08), rgba(139, 92, 246, 0.08)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.3) !important;
+  border-radius: 1.5rem !important;
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.15), inset 0 0 15px rgba(139, 92, 246, 0.08) !important;
+  padding: 1.5rem !important;
+  text-align: center;
+  max-width: 280px;
+}
+
+[data-theme-pack="ai-center"] [data-section="hero"] > div:last-child {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+@keyframes orbital-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 10px rgba(6, 182, 212, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(139, 92, 246, 0.25), inset 0 0 15px rgba(139, 92, 246, 0.12);
+  }
+}
+
+[data-theme-pack="ai-center"] button[class*="rounded"] {
+  animation: orbital-glow 3s ease-in-out infinite;
+  border: 1px solid rgba(6, 182, 212, 0.5);
+  background: rgba(6, 182, 212, 0.08);
+}
+
+[data-theme-pack="ai-center"] button[class*="rounded"]:hover {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.7);
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.3), inset 0 0 15px rgba(6, 182, 212, 0.15);
+  transform: scale(1.05);
+}
+
+[data-theme-pack="ai-center"] h1,
+[data-theme-pack="ai-center"] h2 {
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+[data-theme-pack="ai-center"] [class*="text-xs"],
+[data-theme-pack="ai-center"] [class*="text-sm"] {
+  letter-spacing: 0.05em;
+  font-size: 0.875rem;
+}
+
+[data-theme-pack="ai-center"] [class*="flex"] [class*="flex-col"] {
+  gap: 0.75rem;
+}
+
+[data-theme-pack="ai-center"] [class*="px-"] {
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+[data-theme-pack="ai-center"] [class*="py-"] {
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+}

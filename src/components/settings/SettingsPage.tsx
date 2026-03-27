@@ -1,26 +1,12 @@
-import { memo, type ReactNode } from 'react';
-import { Sun, Grid3x3, Music, Moon, Smartphone, Clock, Zap, MapPin } from 'lucide-react';
+import { memo, type ReactNode, useState, useCallback, type ComponentType } from 'react';
+import {
+  Sun, Smartphone, Zap, Palette, Layout, Image as ImageIcon, Check, Layers, PenTool as Tool
+} from 'lucide-react';
+import { useStore } from '../../store/useStore';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
-import type { NavOptionKey, MusicOptionKey } from '../../data/apps';
 import { getPerformanceMode, setPerformanceMode } from '../../platform/performanceMode';
-
-export interface Settings {
-  brightness: number;
-  volume: number;
-  theme: 'dark' | 'oled';
-  themePack: 'tesla';
-  themeStyle?: 'glass';
-  widgetStyle?: 'elevated';
-  use24Hour: boolean;
-  showSeconds: boolean;
-  clockStyle: 'digital' | 'analog';
-  gridColumns: 3 | 4 | 5;
-  defaultNav: NavOptionKey;
-  defaultMusic: MusicOptionKey;
-  sleepMode: boolean;
-  widgetOrder: string[];
-  widgetVisible: Record<string, boolean>;
-}
+import { setBrightness } from '../../platform/systemSettingsService';
+import { MaintenancePanel } from '../obd/MaintenancePanel';
 
 /* ── Yardımcı bileşenler ─────────────────────────────────── */
 
@@ -33,9 +19,9 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function Card({ children }: { children: ReactNode }) {
+function Card({ children, className = "" }: { children: ReactNode, className?: string }) {
   return (
-    <div className="bg-[#0d1628] rounded-2xl border border-white/5 shadow-xl p-5">
+    <div className={`bg-[#0d1628] rounded-2xl border border-white/5 shadow-xl p-5 ${className}`}>
       {children}
     </div>
   );
@@ -81,7 +67,7 @@ function BigSlider({
   );
 }
 
-function ThemeCard({
+function ChoiceCard({
   active,
   onClick,
   icon: Icon,
@@ -90,22 +76,22 @@ function ThemeCard({
 }: {
   active: boolean;
   onClick: () => void;
-  icon: typeof Moon;
+  icon: ComponentType<{ className?: string }>;
   label: string;
-  desc: string;
+  desc?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex flex-col items-center gap-2 py-5 rounded-2xl border transition-[transform,background-color,border-color] duration-150 active:scale-[0.97] ${
+      className={`flex-1 flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-2xl border transition-all duration-200 active:scale-[0.95] ${
         active
-          ? 'bg-blue-600/20 border-blue-500/40 shadow-lg shadow-blue-600/10 active:bg-blue-600/30'
-          : 'bg-white/5 border-white/5 hover:bg-white/[0.08] hover:border-white/10'
+          ? 'bg-blue-600/20 border-blue-500/50 shadow-lg shadow-blue-500/10'
+          : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
       }`}
     >
       <Icon className={`w-6 h-6 ${active ? 'text-blue-400' : 'text-slate-500'}`} />
-      <span className={`text-base font-semibold ${active ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-      <span className={`text-xs ${active ? 'text-slate-400' : 'text-slate-600'}`}>{desc}</span>
+      <span className={`text-sm font-bold ${active ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+      {desc && <span className="text-[10px] text-slate-600 text-center leading-tight">{desc}</span>}
     </button>
   );
 }
@@ -149,7 +135,6 @@ function ToggleRow({
       role="button"
       tabIndex={0}
       onClick={() => onChange(!value)}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onChange(!value)}
       className="flex items-center justify-between pb-5 mb-5 border-b border-white/5 last:border-0 last:pb-0 last:mb-0 active:opacity-70 transition-opacity duration-100"
     >
       <div>
@@ -167,292 +152,335 @@ function ToggleRow({
   );
 }
 
-function AppPickerRow<K extends string>({
-  icon: Icon,
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
-  label: string;
-  options: Record<K, { name: string; icon: string }>;
-  value: K;
-  onChange: (v: K) => void;
-}) {
-  return (
-    <div className="pb-4 mb-4 border-b border-white/5 last:border-0 last:pb-0 last:mb-0">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-4 h-4 text-blue-400" />
-        <span className="text-white text-sm font-medium">{label}</span>
-      </div>
-      <div className="flex gap-2">
-        {(Object.entries(options) as [K, { name: string; icon: string }][]).map(([id, app]) => (
-          <button
-            key={id}
-            onClick={() => onChange(id)}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-xl border transition-[transform,background-color,border-color,color] duration-150 active:scale-[0.97] ${
-              value === id
-                ? 'bg-blue-600/20 border-blue-500/40 text-white active:bg-blue-600/30'
-                : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:border-white/10 hover:text-slate-200'
-            }`}
-          >
-            <span className="text-xl">{app.icon}</span>
-            <span className="font-medium text-sm truncate">{app.name}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+const WALLPAPERS = [
+  { id: 'none', label: 'Yok', url: 'none' },
+  { id: 'road', label: 'Yol', url: 'https://images.unsplash.com/photo-1449034446853-66c86144b0ad?auto=format&fit=crop&w=800&q=60' },
+  { id: 'city', label: 'Şehir', url: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?auto=format&fit=crop&w=800&q=60' },
+  { id: 'abstract', label: 'Soyut', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=800&q=60' },
+  { id: 'cyber', label: 'Cyber', url: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=800&q=60' },
+];
 
 /* ── Ana bileşen ─────────────────────────────────────────── */
 
 interface Props {
-  settings: Settings;
-  onUpdate: (partial: Partial<Settings>) => void;
+  onOpenMap?: () => void;
 }
 
-function SettingsPageInner({ settings, onUpdate }: Props) {
+function SettingsPageInner({ onOpenMap }: Props) {
+  const { settings, updateSettings } = useStore();
+  const [tab, setTab] = useState<'general' | 'appearance' | 'performance' | 'maintenance'>('general');
+
+  const handleBrightness = useCallback((v: number) => {
+    updateSettings({ brightness: v });
+    setBrightness(v);
+  }, [updateSettings]);
+
+
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden">
-      <div className="p-6 flex flex-col gap-5">
+    <div className="h-full flex flex-col bg-[#0b1424]">
+      {/* Tabs */}
+      <div className="flex border-b border-white/5 px-6 pt-4 gap-6">
+        {[
+          { id: 'general', label: 'Genel', icon: Smartphone },
+          { id: 'appearance', label: 'Özelleştirme', icon: Palette },
+          { id: 'maintenance', label: 'Bakım', icon: Tool },
+          { id: 'performance', label: 'Performans', icon: Zap },
+        ].map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id as any)}
+            className={`flex items-center gap-2 pb-4 border-b-2 transition-all duration-200 ${
+              tab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-500'
+            }`}
+          >
+            <t.icon className="w-4 h-4" />
+            <span className="text-sm font-bold uppercase tracking-widest">{t.label}</span>
+          </button>
+        ))}
+      </div>
 
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-semibold text-white">Ayarlar</h2>
-          <span className="text-[11px] text-slate-600 bg-white/5 border border-white/5 rounded-full px-3 py-1">
-            Car Launcher Pro
-          </span>
-        </div>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+        <div className="flex flex-col gap-6">
+          
+          {tab === 'maintenance' && (
+            <div className="max-w-3xl mx-auto w-full animate-fade-in">
+              <MaintenancePanel />
+            </div>
+          )}
 
-        <div className="grid grid-cols-2 gap-5">
-
-          {/* SOL ── Görünüm + Düzen */}
-          <div className="flex flex-col gap-5">
-
-            <div>
-              <SectionTitle>Görünüm</SectionTitle>
+          {tab === 'general' && (
+            <>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="flex flex-col gap-6">
+                  <SectionTitle>Temel Ayarlar</SectionTitle>
+                  <Card>
+                    <ToggleRow 
+                      label="24 Saat Formatı" 
+                      desc="Saat görünümünü değiştirir" 
+                      value={settings.use24Hour} 
+                      onChange={(v) => updateSettings({ use24Hour: v })}
+                    />
+                    <ToggleRow 
+                      label="Saniyeleri Göster" 
+                      desc="Dijital saatte saniyeleri göster" 
+                      value={settings.showSeconds} 
+                      onChange={(v) => updateSettings({ showSeconds: v })}
+                    />
+                    <ToggleRow 
+                      label="Çevrimdışı Harita" 
+                      desc="Ana ekranda mini harita göster" 
+                      value={settings.offlineMap} 
+                      onChange={(v) => updateSettings({ offlineMap: v })}
+                    />
+                    {onOpenMap && (
+                      <button
+                        onClick={onOpenMap}
+                        className="w-full mt-2 py-3 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-600/30 active:scale-[0.97] transition-all duration-150"
+                      >
+                        TAM EKRAN HARİTAYI AÇ
+                      </button>
+                    )}
+                  </Card>
+                </div>
+                <div className="flex flex-col gap-6">
+                  <SectionTitle>Kontroller</SectionTitle>
+                  <Card>
+                    <BigSlider
+                      icon={Sun}
+                      label="Parlaklık"
+                      value={settings.brightness}
+                      onChange={handleBrightness}
+                    />
+                    <div className="mt-6">
+                      <SectionTitle>Uygulama Düzeni</SectionTitle>
+                      <div className="flex gap-2">
+                        {[3, 4, 5].map(n => (
+                          <ColButton 
+                            key={n} 
+                            active={settings.gridColumns === n} 
+                            onClick={() => updateSettings({ gridColumns: n })}
+                          >
+                            {n} Kolon
+                          </ColButton>
+                        ))}
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              </div>
+              
+              <SectionTitle>Varsayılan Uygulamalar</SectionTitle>
               <Card>
-                <div className="flex items-center gap-3 mb-4">
-                  <Moon className="w-5 h-5 text-blue-400" />
-                  <span className="text-white text-base font-medium">Tema Rengi</span>
-                </div>
-                <div className="flex gap-4 mb-5">
-                  <ThemeCard
-                    active={settings.theme === 'dark'}
-                    onClick={() => onUpdate({ theme: 'dark' })}
-                    icon={Moon}
-                    label="Koyu"
-                    desc="Lacivert zemin"
-                  />
-                  <ThemeCard
-                    active={settings.theme === 'oled'}
-                    onClick={() => onUpdate({ theme: 'oled' })}
-                    icon={Smartphone}
-                    label="OLED"
-                    desc="Tam siyah"
-                  />
-                </div>
-                <div>
-                  <BigSlider
-                    icon={Sun}
-                    label="Parlaklık"
-                    value={settings.brightness}
-                    onChange={(v) => onUpdate({ brightness: v })}
-                  />
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <div className="text-white text-sm font-medium mb-3">Navigasyon</div>
+                    <div className="flex gap-2">
+                      {Object.entries(NAV_OPTIONS).map(([id, app]) => (
+                        <ChoiceCard 
+                          key={id}
+                          active={settings.defaultNav === id}
+                          onClick={() => updateSettings({ defaultNav: id })}
+                          icon={() => <span className="text-xl">{app.icon}</span>}
+                          label={app.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-white text-sm font-medium mb-3">Müzik</div>
+                    <div className="flex gap-2">
+                      {Object.entries(MUSIC_OPTIONS).map(([id, app]) => (
+                        <ChoiceCard 
+                          key={id}
+                          active={settings.defaultMusic === id}
+                          onClick={() => updateSettings({ defaultMusic: id })}
+                          icon={() => <span className="text-xl">{app.icon}</span>}
+                          label={app.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </Card>
-            </div>
+            </>
+          )}
 
-            <div>
-              <SectionTitle>Uygulama Düzeni</SectionTitle>
-              <Card>
-                <div className="flex items-center gap-3 mb-4">
-                  <Grid3x3 className="w-5 h-5 text-blue-400" />
-                  <span className="text-white text-base font-medium">Grid Sütun Sayısı</span>
+          {tab === 'appearance' && (
+            <>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="flex flex-col gap-6">
+                  <SectionTitle>Tema Paketi</SectionTitle>
+                  <Card className="grid grid-cols-5 gap-2">
+                    <ChoiceCard 
+                      active={settings.themePack === 'tesla'}
+                      onClick={() => updateSettings({ themePack: 'tesla' })}
+                      icon={Layout}
+                      label="Tesla"
+                      desc="Minimalist"
+                    />
+                    <ChoiceCard 
+                      active={settings.themePack === 'big-cards'}
+                      onClick={() => updateSettings({ themePack: 'big-cards' })}
+                      icon={Layers}
+                      label="Sürüş"
+                      desc="Büyük"
+                    />
+                    <ChoiceCard 
+                      active={settings.themePack === 'ai-center'}
+                      onClick={() => updateSettings({ themePack: 'ai-center' })}
+                      icon={Zap}
+                      label="Futuristik"
+                      desc="Parlak"
+                    />
+                    <ChoiceCard 
+                      active={settings.themePack === 'bmw'}
+                      onClick={() => updateSettings({ themePack: 'bmw' })}
+                      icon={Palette}
+                      label="BMW"
+                      desc="M-Sport"
+                    />
+                    <ChoiceCard 
+                      active={settings.themePack === 'mercedes'}
+                      onClick={() => updateSettings({ themePack: 'mercedes' })}
+                      icon={Smartphone}
+                      label="Mercedes"
+                      desc="MBUX"
+                    />
+                  </Card>
+
+                  <SectionTitle>Panel Stili</SectionTitle>
+                  <Card className="grid grid-cols-3 gap-3">
+                    <ChoiceCard 
+                      active={settings.themeStyle === 'glass'}
+                      onClick={() => updateSettings({ themeStyle: 'glass' })}
+                      icon={ImageIcon}
+                      label="Cam"
+                    />
+                    <ChoiceCard 
+                      active={settings.themeStyle === 'neon'}
+                      onClick={() => updateSettings({ themeStyle: 'neon' })}
+                      icon={Zap}
+                      label="Neon"
+                    />
+                    <ChoiceCard 
+                      active={settings.themeStyle === 'minimal'}
+                      onClick={() => updateSettings({ themeStyle: 'minimal' })}
+                      icon={Smartphone}
+                      label="Minimal"
+                    />
+                  </Card>
                 </div>
-                <div className="flex gap-4">
-                  {([3, 4, 5] as const).map((n) => (
-                    <ColButton
-                      key={n}
-                      active={settings.gridColumns === n}
-                      onClick={() => onUpdate({ gridColumns: n })}
+
+                <div className="flex flex-col gap-6">
+                  <SectionTitle>Widget Tarzı</SectionTitle>
+                  <Card className="grid grid-cols-3 gap-3">
+                    <ChoiceCard 
+                      active={settings.widgetStyle === 'elevated'}
+                      onClick={() => updateSettings({ widgetStyle: 'elevated' })}
+                      icon={Layers}
+                      label="Gölgeli"
+                    />
+                    <ChoiceCard 
+                      active={settings.widgetStyle === 'flat'}
+                      onClick={() => updateSettings({ widgetStyle: 'flat' })}
+                      icon={Layout}
+                      label="Düz"
+                    />
+                    <ChoiceCard 
+                      active={settings.widgetStyle === 'outlined'}
+                      onClick={() => updateSettings({ widgetStyle: 'outlined' })}
+                      icon={Smartphone}
+                      label="Çizgisel"
+                    />
+                  </Card>
+
+                  <SectionTitle>Düzenleme</SectionTitle>
+                  <Card>
+                    <ToggleRow 
+                      label="Düzenleme Modu" 
+                      desc="Ana ekrandaki widget'ları gizle/göster" 
+                      value={settings.editMode} 
+                      onChange={(v) => updateSettings({ editMode: v })}
+                    />
+                  </Card>
+                </div>
+              </div>
+
+              <SectionTitle>Duvar Kağıdı</SectionTitle>
+              <Card>
+                <div className="grid grid-cols-5 gap-4">
+                  {WALLPAPERS.map((w) => (
+                    <button
+                      key={w.id}
+                      onClick={() => updateSettings({ wallpaper: w.url })}
+                      className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all ${
+                        settings.wallpaper === w.url ? 'border-blue-500 scale-105' : 'border-transparent opacity-60 hover:opacity-100'
+                      }`}
                     >
-                      {n} Kolon
-                    </ColButton>
+                      {w.url === 'none' ? (
+                        <div className="w-full h-full bg-slate-900 flex items-center justify-center">
+                          <ImageIcon className="w-6 h-6 text-slate-700" />
+                        </div>
+                      ) : (
+                        <img src={w.url} className="w-full h-full object-cover" alt={w.label} />
+                      )}
+                      <div className="absolute inset-0 bg-black/20 flex items-end p-2">
+                        <span className="text-[10px] font-bold text-white uppercase">{w.label}</span>
+                      </div>
+                      {settings.wallpaper === w.url && (
+                        <div className="absolute top-1 right-1 bg-blue-500 rounded-full p-0.5">
+                          <Check className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                    </button>
                   ))}
                 </div>
               </Card>
-            </div>
+            </>
+          )}
 
-          </div>
-
-          {/* SAĞ ── Saat + Varsayılan Uygulamalar + Performans */}
-          <div className="flex flex-col gap-5">
-
-            <div>
-              <SectionTitle>Saat</SectionTitle>
+          {tab === 'performance' && (
+            <div className="flex flex-col gap-6">
+              <SectionTitle>Sistem Performansı</SectionTitle>
               <Card>
-                <div className="flex items-center gap-3 mb-4">
-                  <Clock className="w-5 h-5 text-blue-400" />
-                  <span className="text-white text-base font-medium">Saat Görünümü</span>
-                </div>
-                <div className="flex gap-3 mb-5">
-                  <ColButton
-                    active={settings.clockStyle === 'digital'}
-                    onClick={() => onUpdate({ clockStyle: 'digital' })}
-                  >
-                    🔢 Dijital
-                  </ColButton>
-                  <ColButton
-                    active={settings.clockStyle === 'analog'}
-                    onClick={() => onUpdate({ clockStyle: 'analog' })}
-                  >
-                    🕐 Analog
-                  </ColButton>
-                </div>
-                <ToggleRow
-                  label="24 Saat Formatı"
-                  desc="13:00 yerine 1:00 PM göster"
-                  value={settings.use24Hour}
-                  onChange={(v) => onUpdate({ use24Hour: v })}
-                />
-                <ToggleRow
-                  label="Saniye Göster"
-                  desc="Saat: Dakika: Saniye formatı"
-                  value={settings.showSeconds}
-                  onChange={(v) => onUpdate({ showSeconds: v })}
-                />
-              </Card>
-            </div>
-
-            <div>
-              <SectionTitle>Varsayılan Uygulamalar</SectionTitle>
-              <Card>
-                <AppPickerRow
-                  icon={MapPin}
-                  label="Navigasyon"
-                  options={NAV_OPTIONS}
-                  value={settings.defaultNav}
-                  onChange={(v) => onUpdate({ defaultNav: v })}
-                />
-                <AppPickerRow
-                  icon={Music}
-                  label="Müzik"
-                  options={MUSIC_OPTIONS}
-                  value={settings.defaultMusic}
-                  onChange={(v) => onUpdate({ defaultMusic: v })}
-                />
-              </Card>
-            </div>
-
-            <div>
-              <SectionTitle>Performans</SectionTitle>
-              <Card>
-                <ToggleRow
-                  label="Uyku Modu"
-                  desc="Araç parkedken ekranı kapat"
-                  value={settings.sleepMode}
-                  onChange={(v) => onUpdate({ sleepMode: v })}
-                />
-                <div className="pt-5 mt-5 border-t border-white/5">
-                  <div className="flex items-center gap-3 mb-5">
-                    <Zap className="w-5 h-5 text-blue-400" />
-                    <div>
-                      <span className="text-white text-base font-semibold">Performans Modu</span>
-                      <p className="text-xs text-slate-500 mt-0.5">Cihazınıza uygun mod seçin</p>
-                    </div>
-                  </div>
-
-                  {/* Premium mode cards layout */}
-                  <div className="space-y-2">
-                    {(['lite', 'balanced', 'premium'] as const).map((mode) => {
-                      const isSelected = getPerformanceMode() === mode;
-                      const configs = {
-                        lite: {
-                          icon: '⚡',
-                          label: 'Hafif',
-                          desc: 'Minimum işlem yükü, en akıcı deneyim. Update sıklığı düşük, görsel efektler kapalı.',
-                          specs: '30s OBD poll • No effects • Fast',
-                          color: 'from-amber-600/20 to-amber-500/10 border-amber-500/30',
-                          activeColor: 'from-amber-600/40 to-amber-500/20 border-amber-500/60 shadow-lg shadow-amber-600/20',
-                        },
-                        balanced: {
-                          icon: '⚙️',
-                          label: 'Dengeli',
-                          desc: 'Optimal denge. Tüm özellikler aktif, cihazınız yeterli performans gösterir. (Önerilen)',
-                          specs: '10s OBD poll • All features • Balanced',
-                          color: 'from-blue-600/20 to-blue-500/10 border-blue-500/30',
-                          activeColor: 'from-blue-600/40 to-blue-500/20 border-blue-500/60 shadow-lg shadow-blue-600/20',
-                        },
-                        premium: {
-                          icon: '🚀',
-                          label: 'Premium',
-                          desc: 'Maksimum kalite. Sık updates, zengin görsel efektler, smooth animations. Yüksek performans gerektir.',
-                          specs: '3s OBD poll • Enhanced effects • Premium',
-                          color: 'from-purple-600/20 to-purple-500/10 border-purple-500/30',
-                          activeColor: 'from-purple-600/40 to-purple-500/20 border-purple-500/60 shadow-lg shadow-purple-600/20',
-                        },
-                      };
-
-                      const config = configs[mode];
-
-                      return (
-                        <button
-                          key={mode}
-                          onClick={() => setPerformanceMode(mode)}
-                          className={`w-full text-left px-4 py-3 rounded-xl border transition-all duration-200 active:scale-95 bg-gradient-to-br ${
-                            isSelected ? config.activeColor : config.color
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="text-2xl flex-shrink-0 mt-0.5">{config.icon}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className={`text-sm font-bold ${isSelected ? 'text-white' : 'text-slate-300'}`}>
-                                  {config.label}
-                                </h3>
-                                {isSelected && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/20 text-white font-medium">
-                                    Aktif
-                                  </span>
-                                )}
-                              </div>
-                              <p className={`text-xs mb-2 leading-relaxed ${isSelected ? 'text-slate-200' : 'text-slate-400'}`}>
-                                {config.desc}
-                              </p>
-                              <div className={`text-xs font-mono ${isSelected ? 'text-blue-300' : 'text-slate-500'}`}>
-                                {config.specs}
-                              </div>
-                            </div>
+                <div className="space-y-4">
+                  {(['lite', 'balanced', 'premium'] as const).map((mode) => {
+                    const isSelected = getPerformanceMode() === mode;
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => { setPerformanceMode(mode); updateSettings({}); }}
+                        className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                          isSelected ? 'bg-blue-600/20 border-blue-500 shadow-lg shadow-blue-500/10' : 'bg-white/5 border-white/5 opacity-60'
+                        }`}
+                      >
+                        <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center text-2xl">
+                          {mode === 'lite' ? '⚡' : mode === 'balanced' ? '⚙️' : '🚀'}
+                        </div>
+                        <div className="flex-1 text-left">
+                          <div className="text-white font-bold capitalize">{mode === 'lite' ? 'Hafif' : mode === 'balanced' ? 'Dengeli' : 'Premium'}</div>
+                          <div className="text-xs text-slate-500">
+                            {mode === 'lite' ? 'Düşük donanım için optimize edildi.' : mode === 'balanced' ? 'Çoğu cihaz için önerilen mod.' : 'En iyi görsel kalite ve sık veri güncellemesi.'}
                           </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Current mode info */}
-                  <div className="mt-4 p-3 rounded-lg bg-white/5 border border-white/10">
-                    <p className="text-xs text-slate-400">
-                      <span className="text-blue-400 font-semibold">
-                        {getPerformanceMode() === 'lite' && '⚡ Hafif Mod'}
-                        {getPerformanceMode() === 'balanced' && '⚙️ Dengeli Mod'}
-                        {getPerformanceMode() === 'premium' && '🚀 Premium Mod'}
-                      </span>
-                      {' aktif. '}
-                      {getPerformanceMode() === 'lite' && 'OBD, AI ve animasyonlar minimal. Eski cihazlar için ideal.'}
-                      {getPerformanceMode() === 'balanced' && 'Çoğu cihaz için en uygun. Tüm özellikler dengeli şekilde çalışır.'}
-                      {getPerformanceMode() === 'premium' && 'Tüm efektler açık. Yüksek performans cihazlar için optimize.'}
-                    </p>
-                  </div>
+                        </div>
+                        {isSelected && <Check className="w-5 h-5 text-blue-500" />}
+                      </button>
+                    );
+                  })}
                 </div>
               </Card>
+              <SectionTitle>Güç Yönetimi</SectionTitle>
+              <Card>
+                <ToggleRow 
+                  label="Uyku Modu" 
+                  desc="Ekranı kapatarak güç tasarrufu sağlar" 
+                  value={settings.sleepMode} 
+                  onChange={(v) => updateSettings({ sleepMode: v })}
+                />
+              </Card>
             </div>
-
-
-          </div>
+          )}
         </div>
-
       </div>
     </div>
   );

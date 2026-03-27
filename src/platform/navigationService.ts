@@ -181,13 +181,17 @@ export function formatEta(seconds: number): string {
  * Use hook for navigation state
  */
 export function useNavigation() {
-  return useNavigationStore((state) => ({
-    isNavigating: state.isNavigating,
-    destination: state.destination,
-    distanceMeters: state.distanceMeters,
-    etaSeconds: state.etaSeconds,
-    headingToDestination: state.headingToDestination,
-    startNavigation: (dest: Address) => state.setDestination(dest),
-    stopNavigation: () => state.clearNavigation(),
-  }));
+  const isNavigating = useNavigationStore((s) => s.isNavigating);
+  const destination = useNavigationStore((s) => s.destination);
+  const distanceMeters = useNavigationStore((s) => s.distanceMeters);
+  const etaSeconds = useNavigationStore((s) => s.etaSeconds);
+  const headingToDestination = useNavigationStore((s) => s.headingToDestination);
+
+  return {
+    isNavigating,
+    destination,
+    distanceMeters,
+    etaSeconds,
+    headingToDestination,
+  };
 }

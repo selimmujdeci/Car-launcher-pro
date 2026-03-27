@@ -1,13 +1,30 @@
-import { useState, useEffect, useCallback, useRef, memo, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, memo, type ReactNode, type PointerEvent } from 'react';
 import {
   Wifi, Bluetooth, Battery, BatteryCharging,
   MapPin, Map as MapIcon, SkipBack, SkipForward, Play, Pause,
-  LayoutGrid, SlidersHorizontal,
+  LayoutGrid, SlidersHorizontal, Check, X,
+  Camera, Route, ShieldAlert, GripVertical, Bell, CloudSun,
 } from 'lucide-react';
+import { useStore } from '../../store/useStore';
 import { FullMapView } from '../map/FullMapView';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import AppGrid from '../apps/AppGrid';
-import { SettingsPage, type Settings } from '../settings/SettingsPage';
+import { SettingsPage } from '../settings/SettingsPage';
+import { OBDPanel } from '../obd/OBDPanel';
+import { DigitalCluster } from '../obd/DigitalCluster';
+import { DTCPanel } from '../obd/DTCPanel';
+import { DashcamView } from '../dashcam/DashcamView';
+import { TripLogView } from '../trip/TripLogView';
+import { NotificationCenter } from '../notifications/NotificationCenter';
+import { WeatherWidget } from '../weather/WeatherWidget';
+import { startTripLog } from '../../platform/tripLogService';
+import {
+  startNotificationService, stopNotificationService,
+  useNotificationState,
+} from '../../platform/notificationService';
+import {
+  startWeatherService, stopWeatherService,
+} from '../../platform/weatherService';
 import {
   NAV_OPTIONS, MUSIC_OPTIONS,
   type NavOptionKey, type MusicOptionKey,
@@ -17,39 +34,31 @@ import { openApp } from '../../platform/appLauncher';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import {
   useMediaState,
-  togglePlayPause, next, previous, fmtTime, pause, play,
+  togglePlayPause, next, previous, pause, play,
 } from '../../platform/mediaService';
 import { toIntent, routeIntent } from '../../platform/intentEngine';
 import { registerCommandHandler } from '../../platform/voiceService';
 import type { ParsedCommand } from '../../platform/commandParser';
-import { useSmartEngine, trackLaunch, type DrivingMode } from '../../platform/smartEngine';
+import { useSmartEngine, trackLaunch } from '../../platform/smartEngine';
 import { initializeAddressBook } from '../../platform/addressBookService';
 import { useApps } from '../../platform/appDiscovery';
+import { startSpeedLimitService, stopSpeedLimitService } from '../../platform/speedLimitService';
+import { useOBDState } from '../../platform/obdService';
+import {
+  startHeadlightAutoBrightness,
+  stopHeadlightAutoBrightness,
+} from '../../platform/systemSettingsService';
+import { useGPSLocation } from '../../platform/gpsService';
 import {
   getPerformanceMode, onPerformanceModeChange,
   type PerformanceMode,
 } from '../../platform/performanceMode';
 
-/* ── Constants ───────────────────────────────────────────── */
-
-const DEFAULT_SETTINGS: Settings = {
-  brightness: 80,
-  volume: 60,
-  theme: 'dark',
-  themePack: 'tesla',
-  use24Hour: true,
-  showSeconds: false,
-  clockStyle: 'digital',
-  gridColumns: 3,
-  defaultNav: 'maps',
-  defaultMusic: 'spotify',
-  sleepMode: false,
-  offlineMap: true,
-  widgetOrder: ['hero'],
-  widgetVisible: { hero: true },
-};
-
 /* ── Persistence ─────────────────────────────────────────── */
+
+function save(key: string, value: unknown) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -58,10 +67,6 @@ function load<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function save(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
 }
 
 /* ── Boot splash ─────────────────────────────────────────── */
@@ -172,6 +177,13 @@ function useAnalogClock() {
 
 /* ── AnalogClock ──────────────────────────────────────────── */
 
+const ClockHand = ({ angle, length, width, color, cx, cy }: { angle: number; length: number; width: number; color: string; cx: number; cy: number }) => {
+  const rad = (angle - 90) * (Math.PI / 180);
+  const x2 = cx + length * Math.cos(rad);
+  const y2 = cy + length * Math.sin(rad);
+  return <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={color} strokeWidth={width} strokeLinecap="round" />;
+};
+
 const AnalogClock = memo(function AnalogClock({
   size = 200,
   hours,
@@ -191,13 +203,6 @@ const AnalogClock = memo(function AnalogClock({
   const hourAngle = (hours + minutes / 60) * 30;
   const minuteAngle = (minutes + seconds / 60) * 6;
   const secondAngle = seconds * 6;
-
-  const Hand = ({ angle, length, width, color }: { angle: number; length: number; width: number; color: string }) => {
-    const rad = (angle - 90) * (Math.PI / 180);
-    const x2 = cx + length * Math.cos(rad);
-    const y2 = cy + length * Math.sin(rad);
-    return <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={color} strokeWidth={width} strokeLinecap="round" />;
-  };
 
   return (
     <svg
@@ -235,15 +240,15 @@ const AnalogClock = memo(function AnalogClock({
       })}
 
       {/* Hour hand */}
-      <Hand angle={hourAngle} length={r * 0.5} width={2.5} color="rgba(255,255,255,0.9)" />
+      <ClockHand angle={hourAngle} length={r * 0.5} width={2.5} color="rgba(255,255,255,0.9)" cx={cx} cy={cy} />
 
       {/* Minute hand */}
-      <Hand angle={minuteAngle} length={r * 0.72} width={1.5} color="rgba(255,255,255,0.7)" />
+      <ClockHand angle={minuteAngle} length={r * 0.72} width={1.5} color="rgba(255,255,255,0.7)" cx={cx} cy={cy} />
 
       {/* Second hand with glow */}
       {showSeconds && (
         <g filter="drop-shadow(0 0 6px rgba(59,130,246,0.5))">
-          <Hand angle={secondAngle} length={r * 0.85} width={1} color="#3b82f6" />
+          <ClockHand angle={secondAngle} length={r * 0.85} width={1} color="#3b82f6" cx={cx} cy={cy} />
         </g>
       )}
 
@@ -359,13 +364,11 @@ const DeviceStatusBar = memo(function DeviceStatusBar() {
 const NavHero = memo(function NavHero({
   defaultNav,
   onLaunch,
-  drivingMode,
   onOpenMap,
   offlineMap,
 }: {
   defaultNav:  NavOptionKey;
   onLaunch:    (id: string) => void;
-  drivingMode: DrivingMode;
   onOpenMap?:  () => void;
   offlineMap?: boolean;
 }) {
@@ -374,7 +377,7 @@ const NavHero = memo(function NavHero({
   // Offline map mode: show MiniMapWidget inside NavHero card
   if (offlineMap && onOpenMap) {
     return (
-      <div className="min-h-0 w-full h-full">
+      <div className="min-h-0 w-full h-full transform transition-all duration-300 hover:scale-[1.002] active:scale-[0.995]">
         <MiniMapWidget onFullScreenClick={onOpenMap} />
       </div>
     );
@@ -382,60 +385,43 @@ const NavHero = memo(function NavHero({
 
   return (
     <div
-      className="flex flex-col rounded-3xl border border-white/[0.08] p-5 overflow-hidden relative min-h-0 w-full h-full"
-      style={{ background: 'linear-gradient(165deg, #0c1428 0%, #0a1020 40%, #080e1c 100%)', boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(37,99,235,0.06)' }}
+      className="flex flex-col rounded-[2.5rem] border border-white/10 p-8 overflow-hidden relative min-h-0 w-full h-full group transition-all duration-300 shadow-[0_20px_60px_rgba(0,0,0,0.6)] hover:border-white/20 hover:shadow-[0_25px_70px_rgba(0,0,0,0.7)]"
+      style={{ background: 'linear-gradient(165deg, rgba(10,18,40,0.7) 0%, rgba(5,10,25,0.9) 100%)', backdropFilter: 'blur(50px)' }}
     >
-      {/* Ambient glow */}
-      <div className="absolute -top-24 -left-24 w-80 h-80 bg-blue-600/[0.12] rounded-full blur-[80px] pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-56 h-56 bg-blue-500/[0.06] rounded-full blur-[60px] pointer-events-none" />
-
       {/* Header */}
-      <div className="flex items-center justify-between mb-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/25 flex items-center justify-center flex-shrink-0" style={{ boxShadow: '0 0 12px rgba(59,130,246,0.15)' }}>
-            <span className="text-lg leading-none">{nav.icon}</span>
+      <div className="flex items-center justify-between mb-10 flex-shrink-0 relative z-10">
+        <div className="flex items-center gap-6">
+          <div className="w-16 h-16 rounded-[1.5rem] bg-blue-600/15 border border-blue-500/30 flex items-center justify-center flex-shrink-0 shadow-[0_10px_30px_rgba(59,130,246,0.25)] group-hover:border-blue-500/50 transition-colors duration-300">
+            <span className="text-4xl leading-none drop-shadow-2xl">{nav.icon}</span>
           </div>
           <div>
-            <div className="text-blue-400/60 text-[10px] uppercase tracking-[0.2em] font-semibold">Navigasyon</div>
-            <div className="text-white text-sm font-semibold">{nav.name}</div>
+            <div className="text-blue-400 font-black text-xs uppercase tracking-[0.5em] mb-1.5 opacity-100">NAVİGASYON ÜNİTESİ</div>
+            <div className="text-white text-3xl font-black tracking-tighter uppercase">{nav.name}</div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-5">
           {onOpenMap && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenMap(); }}
-              className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-[transform,background-color,color] duration-150"
-              title="Haritayı Aç"
+              className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 hover:border-white/40 active:scale-90 active:bg-white/20 transition-all duration-150 shadow-xl group/map"
             >
-              <MapIcon className="w-4 h-4" />
+              <MapIcon className="w-7 h-7 transform group-hover/map:scale-110 transition-transform duration-200" />
             </button>
-          )}
-          {drivingMode === 'driving' && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25" style={{ boxShadow: '0 0 10px rgba(52,211,153,0.1)' }}>
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest">Sürüş</span>
-            </div>
           )}
         </div>
       </div>
 
-      {/* Main launch button */}
+      {/* Main launch button — Snappy & Tactile */}
       <button
         onClick={(e) => { e.stopPropagation(); onLaunch(defaultNav); }}
-        className="relative flex flex-col items-center justify-center rounded-2xl overflow-hidden active:scale-[0.97] transition-transform duration-150 gap-3 min-h-0 flex-1"
-        style={{ background: 'linear-gradient(145deg, #1e50d8 0%, #2563eb 40%, #1d4ed8 70%, #1a3fb0 100%)', boxShadow: '0 6px 30px rgba(37,99,235,0.3), inset 0 1px 0 rgba(255,255,255,0.08)' }}
+        className="relative flex flex-col items-center justify-center rounded-[3rem] overflow-hidden active:scale-[0.975] active:brightness-90 transition-all duration-200 gap-8 min-h-0 flex-1 group/btn shadow-[0_30px_70px_rgba(37,99,235,0.4)] hover:shadow-[0_35px_80px_rgba(37,99,235,0.5)]"
+        style={{ background: 'linear-gradient(145deg, #1e3a8a 0%, #2563eb 50%, #1e3a8a 100%)', border: '1px solid rgba(255,255,255,0.2)' }}
       >
-        {/* Inner glow overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-white/[0.06] pointer-events-none" />
-
-        <div className="relative flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="absolute inset-0 bg-white/25 rounded-full blur-2xl scale-[2.5] pointer-events-none" />
-            <MapPin className="w-16 h-16 text-white relative" style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }} />
-          </div>
+        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300" />
+        <div className="relative flex flex-col items-center gap-8 pointer-events-none">
+          <MapPin className="w-36 h-36 text-white relative drop-shadow-[0_15px_40px_rgba(0,0,0,0.6)] transform group-hover/btn:scale-105 transition-transform duration-500" />
           <div className="text-center">
-            <div className="text-white text-3xl font-black tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,0.3)' }}>Rota Başlat</div>
-            <div className="text-blue-100/70 text-sm font-medium mt-1">{nav.name} ile aç</div>
+            <div className="text-white text-6xl font-black tracking-tighter uppercase" style={{ textShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>NAVİGASYONU AÇ</div>
           </div>
         </div>
       </button>
@@ -447,71 +433,36 @@ const NavHero = memo(function NavHero({
 
 const MediaPanel = memo(function MediaPanel({
   defaultMusic,
-  onLaunch,
 }: {
   defaultMusic: MusicOptionKey;
-  onLaunch:     (id: string) => void;
 }) {
   const { playing, track } = useMediaState();
   const music = MUSIC_OPTIONS[defaultMusic];
-  const pct = track.durationSec > 0 ? (track.positionSec / track.durationSec) * 100 : 0;
 
   return (
     <div
-      className="flex flex-col rounded-3xl border border-white/[0.08] p-5 min-h-0 w-full h-full overflow-hidden relative"
-      style={{ background: 'linear-gradient(165deg, #0c1428 0%, #0a1020 40%, #080e1c 100%)', boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 40px rgba(37,99,235,0.04)' }}
+      className="flex flex-col rounded-[2.5rem] border border-white/10 p-8 min-h-0 w-full h-full overflow-hidden relative group transition-all duration-300 shadow-[0_20px_60px_rgba(0,0,0,0.6)] hover:border-white/20"
+      style={{ background: 'linear-gradient(165deg, rgba(10,18,40,0.7) 0%, rgba(5,10,25,0.9) 100%)', backdropFilter: 'blur(50px)' }}
     >
-      {/* Ambient */}
-      <div className="absolute -bottom-20 -right-20 w-56 h-56 bg-blue-600/[0.08] rounded-full blur-[60px] pointer-events-none" />
-      <div className="absolute -top-12 -left-12 w-40 h-40 bg-blue-500/[0.04] rounded-full blur-[40px] pointer-events-none" />
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/25 flex items-center justify-center flex-shrink-0" style={{ boxShadow: '0 0 10px rgba(59,130,246,0.1)' }}>
-            <span className="text-base leading-none">{music.icon}</span>
-          </div>
-          <span className="text-blue-400/60 text-[10px] uppercase tracking-[0.2em] font-semibold">Müzik</span>
-          {playing && <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
-        </div>
-        <button onClick={(e) => { e.stopPropagation(); onLaunch(defaultMusic); }} className="text-[11px] text-blue-400 font-semibold hover:text-blue-300 active:text-blue-200 transition-colors duration-150 px-3 py-1.5 rounded-xl hover:bg-blue-400/10 border border-transparent hover:border-blue-500/15">
-          Aç →
-        </button>
-      </div>
-
-      <div className="flex-1 flex flex-col justify-center min-h-0">
+      <div className="flex-1 flex flex-col justify-center min-h-0 relative z-10">
         {/* Track info */}
-        <div className="text-white font-bold leading-tight truncate text-[1.65rem]" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.3)' }}>{track.title}</div>
-        <div className="text-slate-300 mt-1.5 truncate text-sm font-medium">{track.artist}</div>
+        <div className="text-white font-black leading-none truncate text-[2.2rem] tracking-tight mb-2 group-hover:text-blue-50 transition-colors duration-300">{track.title}</div>
+        <div className="text-blue-200/40 truncate text-base font-black uppercase tracking-[0.2em] mb-4">{track.artist}</div>
 
-        {/* Progress bar */}
-        <div className="mt-4 mb-4 flex-shrink-0">
-          <div className="h-[5px] bg-white/[0.08] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-[width] duration-500"
-              style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', boxShadow: '0 0 10px rgba(59,130,246,0.5)' }}
-            />
-          </div>
-          <div className="flex justify-between mt-1.5">
-            <span className="text-slate-500 text-[11px] tabular-nums font-mono">{fmtTime(track.positionSec)}</span>
-            <span className="text-slate-500 text-[11px] tabular-nums font-mono">{fmtTime(track.durationSec)}</span>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center justify-center gap-3 flex-shrink-0">
-          <button onClick={(e) => { e.stopPropagation(); previous(); }} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-[transform,background-color,color] duration-150">
-            <SkipBack className="w-5 h-5" />
+        {/* Controls — Snappy Tactile Buttons */}
+        <div className="flex items-center justify-center gap-6 flex-shrink-0 mt-4">
+          <button onClick={(e) => { e.stopPropagation(); previous(); }} className="w-14 h-14 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 text-white/50 hover:text-white hover:bg-white/10 hover:border-white/30 active:scale-90 active:bg-white/20 transition-all duration-150 shadow-md">
+            <SkipBack className="w-7 h-7" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); togglePlayPause(); }}
-            className="w-14 h-14 flex items-center justify-center rounded-2xl text-white active:scale-95 transition-[transform,background-color] duration-150"
-            style={{ background: 'linear-gradient(145deg, #2563eb, #1d4ed8)', boxShadow: '0 4px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}
+            className="w-20 h-20 flex items-center justify-center rounded-[2rem] text-white active:scale-[0.94] active:brightness-90 transition-all duration-200 group/play"
+            style={{ background: `linear-gradient(145deg, ${music.color}cc, ${music.color}88)`, border: '1px solid rgba(255,255,255,0.2)' }}
           >
-            {playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+            {playing ? <Pause className="w-9 h-9" /> : <Play className="w-9 h-9 ml-1.5 fill-white" />}
           </button>
-          <button onClick={(e) => { e.stopPropagation(); next(); }} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-[transform,background-color,color] duration-150">
-            <SkipForward className="w-5 h-5" />
+          <button onClick={(e) => { e.stopPropagation(); next(); }} className="w-14 h-14 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 text-white/50 hover:text-white hover:bg-white/10 hover:border-white/30 active:scale-90 active:bg-white/20 transition-all duration-150 shadow-md">
+            <SkipForward className="w-7 h-7" />
           </button>
         </div>
       </div>
@@ -534,81 +485,26 @@ const DockShortcuts = memo(function DockShortcuts({
 
   return (
     <div
-      className="flex flex-col rounded-3xl border border-white/[0.08] p-4 h-full overflow-hidden relative"
-      style={{ background: 'linear-gradient(165deg, #0c1428 0%, #0a1020 40%, #080e1c 100%)', boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 30px rgba(37,99,235,0.03)' }}
+      className="flex flex-col rounded-[2.5rem] border border-white/10 p-6 h-full overflow-hidden relative group transition-all duration-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+      style={{ background: 'linear-gradient(165deg, rgba(15,23,42,0.6) 0%, rgba(10,15,30,0.8) 100%)', backdropFilter: 'blur(40px)' }}
     >
-      <div className="absolute -bottom-10 -left-10 w-36 h-36 bg-blue-600/[0.04] rounded-full blur-[40px] pointer-events-none" />
-      <div className="text-blue-400/50 text-[10px] uppercase tracking-[0.2em] font-semibold mb-2.5 flex-shrink-0">Hızlı Erişim</div>
-      <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
+      <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-blue-600/5 rounded-full blur-[60px] pointer-events-none" />
+      <div className="text-blue-400 font-black text-[9px] uppercase tracking-[0.3em] mb-4 opacity-70 px-1">Kısayollar</div>
+      <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
         {apps.map(({ id, app }) => (
           <button
             key={id}
             onClick={() => onLaunch(id)}
-            className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] hover:border-white/[0.12] active:scale-[0.94] transition-[transform,background-color,border-color] duration-150 min-h-0"
+            className="flex flex-col items-center justify-center gap-2.5 rounded-[1.8rem] bg-white/[0.03] border border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.15] active:scale-[0.94] transition-all duration-300 min-h-0 group/item shadow-sm hover:shadow-blue-500/10"
           >
-            <span className="text-[1.7rem] leading-none">{app!.icon}</span>
-            <span className="text-slate-400 text-[11px] font-medium truncate px-1">{app!.name}</span>
+            <span className="text-[2rem] leading-none transform group-hover/item:scale-110 transition-transform duration-500">{app!.icon}</span>
+            <span className="text-white/40 group-hover:text-white/80 text-[10px] font-bold uppercase tracking-widest truncate px-2 transition-colors">{app!.name}</span>
           </button>
         ))}
       </div>
     </div>
   );
 });
-
-/* ── Dock ────────────────────────────────────────────────── */
-
-const Dock = memo(function Dock({
-  dockIds,
-  onLaunch,
-  onOpenApps,
-  onOpenSettings,
-  appMap,
-}: {
-  dockIds:        string[];
-  onLaunch:       (id: string) => void;
-  onOpenApps:     () => void;
-  onOpenSettings: () => void;
-  appMap:         Record<string, AppItem>;
-}) {
-
-  return (
-    <div className="flex items-center gap-2 px-5 py-1.5 border-t border-white/[0.06] flex-shrink-0" style={{ background: 'linear-gradient(180deg, rgba(10,16,32,0.6) 0%, rgba(6,13,26,0.8) 100%)' }}>
-      {dockIds.map((id) => {
-        const app = appMap[id];
-        if (!app) return null;
-        return (
-          <button
-            key={id}
-            onClick={() => onLaunch(id)}
-            className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.1] active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
-          >
-            <span className="text-lg leading-none">{app.icon}</span>
-            <span className="text-slate-400 text-[10px] font-medium truncate">{app.name}</span>
-          </button>
-        );
-      })}
-
-      <div className="w-px h-6 bg-white/[0.06] mx-0.5 flex-shrink-0" />
-
-      <button
-        onClick={onOpenApps}
-        className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.1] active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
-      >
-        <LayoutGrid className="w-4 h-4 text-slate-500" />
-        <span className="text-slate-400 text-[10px] font-medium">Uygulamalar</span>
-      </button>
-
-      <button
-        onClick={onOpenSettings}
-        className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.1] active:scale-[0.95] transition-[transform,background-color,border-color] duration-150"
-      >
-        <SlidersHorizontal className="w-4 h-4 text-slate-500" />
-        <span className="text-slate-400 text-[10px] font-medium">Ayarlar</span>
-      </button>
-    </div>
-  );
-});
-
 
 /* ── DrawerShell ─────────────────────────────────────────── */
 
@@ -696,38 +592,152 @@ const SleepOverlay = memo(function SleepOverlay({
   );
 });
 
+/* ── DraggableWidget ─────────────────────────────────────── */
+
+interface DraggableWidgetProps {
+  id: string;
+  editMode: boolean;
+  dragId: string | null;
+  dropId: string | null;
+  onDragStart: (id: string) => void;
+  onDragOver: (id: string) => void;
+  onDrop: () => void;
+  children: ReactNode;
+  className?: string;
+}
+
+const DraggableWidget = memo(function DraggableWidget({
+  id, editMode, dragId, dropId, onDragStart, onDragOver, onDrop, children, className = '',
+}: DraggableWidgetProps) {
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDragging = dragId === id;
+  const isDropTarget = dropId === id && dragId !== null && dragId !== id;
+
+  const handlePointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    if (!editMode) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    holdTimer.current = setTimeout(() => {
+      onDragStart(id);
+    }, 350);
+  }, [editMode, id, onDragStart]);
+
+  const handlePointerUp = useCallback(() => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    onDrop();
+  }, [onDrop]);
+
+  const handlePointerMove = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (dragId === null || dragId === id) return;
+    // Check if pointer is over this widget
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (
+      e.clientX >= rect.left && e.clientX <= rect.right &&
+      e.clientY >= rect.top  && e.clientY <= rect.bottom
+    ) {
+      onDragOver(id);
+    }
+  }, [dragId, id, onDragOver]);
+
+  return (
+    <div
+      className={`relative flex min-h-0 transition-all duration-200 ${
+        isDragging ? 'opacity-50 scale-[0.98]' : ''
+      } ${
+        isDropTarget ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-transparent rounded-[2.5rem]' : ''
+      } ${className}`}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerMove={handlePointerMove}
+      onPointerCancel={handlePointerUp}
+    >
+      {children}
+      {/* Drag handle indicator in edit mode */}
+      {editMode && (
+        <div className="absolute top-3 left-3 z-50 bg-black/60 backdrop-blur-sm rounded-xl p-1.5 text-slate-400">
+          <GripVertical className="w-4 h-4" />
+        </div>
+      )}
+    </div>
+  );
+});
+
 /* ── MainLayout ──────────────────────────────────────────── */
 
-type DrawerType = 'none' | 'apps' | 'settings';
+type DrawerType = 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc' | 'notifications' | 'weather';
 
 export default function MainLayout() {
+  const { settings, updateSettings, updateParking } = useStore();
   const { apps: allApps, appMap, loading: appsLoading } = useApps();
+  const obd = useOBDState();
+  const location = useGPSLocation();
   const [bootPhase, setBootPhase] = useState<BootPhase>('show');
   const [drawer, setDrawer]       = useState<DrawerType>('none');
   const [favorites, setFavorites] = useState<string[]>(() =>
     load<string[]>('favorites', [])
   );
-  const [settings, setSettings] = useState<Settings>(() => ({
-    ...DEFAULT_SETTINGS,
-    ...load<Partial<Settings>>('settings', {}),
-  }));
   const [perfMode, setPerfMode] = useState<PerformanceMode>(() => getPerformanceMode());
   const [fullMapOpen, setFullMapOpen] = useState(false);
+
+  const notifState = useNotificationState();
+
+  // ── Drag & drop state for right-column widgets ────────────
+  const [dragId, setDragId]   = useState<string | null>(null);
+  const [dropId, setDropId]   = useState<string | null>(null);
+
+  const handleDragStart = useCallback((id: string) => {
+    setDragId(id);
+    setDropId(null);
+  }, []);
+
+  const handleDragOver = useCallback((id: string) => {
+    setDropId(id);
+  }, []);
+
+  const handleDrop = useCallback(() => {
+    if (dragId && dropId && dragId !== dropId) {
+      const order = [...(settings.widgetOrder ?? ['media', 'shortcuts'])];
+      const fromIdx = order.indexOf(dragId);
+      const toIdx   = order.indexOf(dropId);
+      if (fromIdx !== -1 && toIdx !== -1) {
+        [order[fromIdx], order[toIdx]] = [order[toIdx], order[fromIdx]];
+        updateSettings({ widgetOrder: order });
+      }
+    }
+    setDragId(null);
+    setDropId(null);
+  }, [dragId, dropId, settings.widgetOrder, updateSettings]);
+
+  // Save parking location when RPM drops to 0 (Engine Off)
+  const lastRpmRef = useRef(0);
+  useEffect(() => {
+    if (lastRpmRef.current > 0 && obd.rpm === 0 && location) {
+      updateParking({
+        lat: location.latitude,
+        lng: location.longitude,
+        timestamp: Date.now(),
+      });
+    }
+    lastRpmRef.current = obd.rpm;
+  }, [obd.rpm, location, updateParking]);
 
   // Filter invalid favorites once apps load (only on native)
   useEffect(() => {
     if (!appsLoading && Object.keys(appMap).length > 0) {
-      setFavorites(prev => prev.filter(id => id in appMap || id.startsWith('native-')));
+      const validFavorites = favorites.filter(id => id in appMap || id.startsWith('native-'));
+      if (validFavorites.length !== favorites.length) {
+        setFavorites(validFavorites);
+      }
     }
-  }, [appsLoading, appMap]);
+  }, [appsLoading, appMap, favorites]);
 
   // Smart engine — local AI layer
   const device = useDeviceStatus();
   const smart  = useSmartEngine(
     device,
     favorites,
-    settings.defaultNav,
-    settings.defaultMusic,
+    settings.defaultNav as NavOptionKey,
+    settings.defaultMusic as MusicOptionKey,
   );
 
   useEffect(() => {
@@ -741,11 +751,24 @@ export default function MainLayout() {
     return onPerformanceModeChange(setPerfMode);
   }, []);
 
-  // Initialize address book for navigation
+  // Initialize address book, speed limit service, and trip log
   useEffect(() => {
     initializeAddressBook().catch((err) => {
       console.error('Failed to initialize address book:', err);
     });
+
+    startSpeedLimitService();
+    startTripLog();
+    startNotificationService();
+    startWeatherService();
+    startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
+
+    return () => {
+      stopSpeedLimitService();
+      stopNotificationService();
+      stopWeatherService();
+      stopHeadlightAutoBrightness();
+    };
   }, []);
 
   const toggleFavorite = useCallback((id: string) => {
@@ -771,24 +794,11 @@ export default function MainLayout() {
     setDrawer('none');
   }, [appMap]);
 
-  const updateSettings = useCallback((partial: Partial<Settings>) => {
-    setSettings((prev) => {
-      const next = { ...prev, ...partial };
-      save('settings', next);
-      return next;
-    });
-    // Auto-close settings drawer on theme changes for immediate visual feedback
-    if (partial.theme) {
-      setTimeout(() => setDrawer('none'), 150);
-    }
-  }, []);
-
   const openApps     = useCallback(() => setDrawer('apps'),     []);
   const openSettings = useCallback(() => setDrawer('settings'), []);
   const closeDrawer  = useCallback(() => setDrawer('none'),     []);
 
   // ── Voice command routing ────────────────────────────────
-  // Ref always holds latest closure values — avoids stale deps in the handler
   const voiceCtxRef = useRef({
     settings, smart, handleLaunch, updateSettings, setDrawer,
   });
@@ -801,25 +811,17 @@ export default function MainLayout() {
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open } =
         voiceCtxRef.current;
 
-      // Handle vehicle status queries directly (don't need intent routing)
-      if (cmd.type === 'vehicle_speed' || cmd.type === 'vehicle_fuel' || cmd.type === 'vehicle_temp') {
-        return; // feedback already set by parser, voice state shows success
-      }
-
-      // Handle sleep mode toggle directly
       if (cmd.type === 'toggle_sleep_mode') {
         update({ sleepMode: !s.sleepMode });
         return;
       }
 
-      // Build intent from parsed command + current user context
       const intent = toIntent(cmd, {
         defaultNav:   s.defaultNav,
         defaultMusic: s.defaultMusic,
         recentAppId:  sm.quickActions.find((a) => a.id.startsWith('last-'))?.appId,
       });
 
-      // Route through the central action dispatcher
       routeIntent(intent, {
         launch,
         openDrawer: (target) => open(target as DrawerType),
@@ -828,20 +830,49 @@ export default function MainLayout() {
         pauseMedia: pause,
       });
     });
-  }, []); // register once — voiceCtxRef keeps values current
+  }, []);
+
+  const wallpaperStyle = settings.wallpaper !== 'none' ? {
+    backgroundImage: `url(${settings.wallpaper})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat'
+  } : {};
 
   return (
     <div
       data-theme={settings.theme}
+      data-theme-pack={settings.themePack}
+      data-theme-style={settings.themeStyle}
+      data-widget-style={settings.widgetStyle}
       data-drive-state={smart.drivingMode}
       data-performance-mode={perfMode}
-      className="flex flex-col h-full w-full overflow-hidden text-white"
+      data-edit-mode={settings.editMode}
+      className="flex flex-col h-full w-full overflow-hidden text-white transition-all duration-500"
       style={{
         background: settings.theme === 'oled' ? '#000' : '#060d1a',
         filter: `brightness(${Math.max(50, Math.min(150, settings.brightness)) / 100})`,
+        ...wallpaperStyle
       }}
     >
       <BootSplash phase={bootPhase} />
+
+      {/* Edit Mode Banner */}
+      {settings.editMode && (
+        <div className="edit-mode-banner fixed top-0 inset-x-0 z-[60] h-12 bg-blue-600 flex items-center justify-between px-6 shadow-2xl">
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4 text-white animate-pulse" />
+            <span className="text-white text-sm font-bold tracking-wider uppercase">DÜZENLEME MODU AKTİF</span>
+          </div>
+          <button 
+            onClick={() => updateSettings({ editMode: false })}
+            className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-1.5 rounded-full transition-colors active:scale-95"
+          >
+            <Check className="w-4 h-4 text-white" />
+            <span className="text-white text-xs font-bold uppercase">BİTTİ</span>
+          </button>
+        </div>
+      )}
 
       {/* Sleep mode overlay */}
       {settings.sleepMode && (
@@ -854,69 +885,268 @@ export default function MainLayout() {
       )}
 
       {/* Top bar */}
-      <div className="flex items-center justify-between px-5 pt-2.5 pb-1 flex-shrink-0">
+      <div className="flex items-center justify-between px-5 pt-2.5 pb-1 flex-shrink-0 relative z-30">
         <ClockArea use24Hour={settings.use24Hour} showSeconds={settings.showSeconds} clockStyle={settings.clockStyle} />
         <DeviceStatusBar />
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        <div className="flex-1 min-h-0 overflow-hidden flex gap-3 px-5 pt-1.5 pb-2.5">
-          {/* Left: Navigation / Offline Map — fills full height */}
-          <div className="flex-1 min-w-0 min-h-0 flex">
-            <NavHero
-              defaultNav={settings.defaultNav}
-              onLaunch={handleLaunch}
-              drivingMode={smart.drivingMode}
-              onOpenMap={() => setFullMapOpen(true)}
-              offlineMap={settings.offlineMap}
-            />
+      <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative z-10" data-theme-layout="main">
+        {/* OBD Row (Visible in Big Cards or when forced) */}
+        <div 
+          className="px-3 pt-1 flex-shrink-0 relative" 
+          data-section="obd"
+          data-hidden={!settings.widgetVisible.obd}
+        >
+          {settings.widgetVisible.obd && (
+            (settings.themePack === 'bmw' || settings.themePack === 'mercedes') 
+              ? <DigitalCluster /> 
+              : <OBDPanel />
+          )}
+          {settings.editMode && (
+            <div className="absolute top-4 right-4 z-50 flex gap-2">
+              <button 
+                onClick={() => updateSettings({ widgetVisible: { ...settings.widgetVisible, obd: !settings.widgetVisible.obd }})}
+                className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 transition-all ${settings.widgetVisible.obd ? 'bg-red-500/80 text-white' : 'bg-green-500/80 text-white'}`}
+              >
+                {settings.widgetVisible.obd ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-hidden flex gap-3 px-3 pt-1 pb-1">
+          {/* Left: Navigation / Offline Map */}
+          <div 
+            className="flex-[1.8] min-w-0 min-h-0 flex relative" 
+            data-section="hero"
+            data-hidden={!settings.widgetVisible.nav}
+          >
+            {settings.widgetVisible.nav && (
+              <NavHero
+                defaultNav={settings.defaultNav as NavOptionKey}
+                onLaunch={handleLaunch}
+                onOpenMap={() => setFullMapOpen(true)}
+                offlineMap={settings.offlineMap}
+              />
+            )}
+            {settings.editMode && (
+              <div className="absolute top-4 right-4 z-50 flex gap-2">
+                <button 
+                  onClick={() => updateSettings({ widgetVisible: { ...settings.widgetVisible, nav: !settings.widgetVisible.nav }})}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 transition-all ${settings.widgetVisible.nav ? 'bg-red-500/80 text-white' : 'bg-green-500/80 text-white'}`}
+                >
+                  {settings.widgetVisible.nav ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                </button>
+              </div>
+            )}
           </div>
-          {/* Right: Media + Quick Access */}
+          {/* Right: Media + Quick Access (drag & drop reorderable in edit mode) */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3">
-            <div className="flex-[3] min-h-0 flex">
-              <MediaPanel
-                defaultMusic={settings.defaultMusic}
-                onLaunch={handleLaunch}
-              />
-            </div>
-            <div className="flex-[2] min-h-0 flex">
-              <DockShortcuts
-                dockIds={smart.dockIds}
-                onLaunch={handleLaunch}
-                appMap={appMap}
-              />
-            </div>
+            {(settings.widgetOrder ?? ['media', 'shortcuts']).map((widgetId, index) => {
+              const flex = index === 0 ? 'flex-[1.5]' : 'flex-1';
+              if (widgetId === 'media') {
+                return (
+                  <DraggableWidget
+                    key="media"
+                    id="media"
+                    editMode={settings.editMode}
+                    dragId={dragId}
+                    dropId={dropId}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    className={`${flex} min-h-0`}
+                  >
+                    <div className="flex-1 min-h-0 flex relative w-full" data-section="media" data-hidden={!settings.widgetVisible.media}>
+                      {settings.widgetVisible.media && (
+                        <MediaPanel
+                          defaultMusic={settings.defaultMusic as MusicOptionKey}
+                        />
+                      )}
+                      {settings.editMode && (
+                        <div className="absolute top-4 right-4 z-50">
+                          <button
+                            onClick={() => updateSettings({ widgetVisible: { ...settings.widgetVisible, media: !settings.widgetVisible.media } })}
+                            className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 transition-all ${settings.widgetVisible.media ? 'bg-red-500/80 text-white' : 'bg-green-500/80 text-white'}`}
+                          >
+                            {settings.widgetVisible.media ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </DraggableWidget>
+                );
+              }
+              if (widgetId === 'shortcuts') {
+                return (
+                  <DraggableWidget
+                    key="shortcuts"
+                    id="shortcuts"
+                    editMode={settings.editMode}
+                    dragId={dragId}
+                    dropId={dropId}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    className={`${flex} min-h-0`}
+                  >
+                    <div className="flex-1 min-h-0 flex relative w-full" data-section="shortcuts" data-hidden={!settings.widgetVisible.shortcuts}>
+                      {settings.widgetVisible.shortcuts && (
+                        <DockShortcuts
+                          dockIds={smart.dockIds}
+                          onLaunch={handleLaunch}
+                          appMap={appMap}
+                        />
+                      )}
+                      {settings.editMode && (
+                        <div className="absolute top-4 right-4 z-50">
+                          <button
+                            onClick={() => updateSettings({ widgetVisible: { ...settings.widgetVisible, shortcuts: !settings.widgetVisible.shortcuts } })}
+                            className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 transition-all ${settings.widgetVisible.shortcuts ? 'bg-red-500/80 text-white' : 'bg-green-500/80 text-white'}`}
+                          >
+                            {settings.widgetVisible.shortcuts ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </DraggableWidget>
+                );
+              }
+              return null;
+            })}
           </div>
         </div>
       </div>
 
       {/* Dock */}
-      <Dock
-        dockIds={smart.dockIds}
-        onLaunch={handleLaunch}
-        onOpenApps={openApps}
-        onOpenSettings={openSettings}
-        appMap={appMap}
-      />
+      <div className="flex items-center justify-center px-6 py-3 flex-shrink-0 relative z-20">
+        <div className="flex items-center gap-2 p-1 rounded-2xl bg-black/60 backdrop-blur-3xl border border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] max-w-5xl w-full relative overflow-hidden">
+          <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
+          
+          {smart.dockIds.slice(0, 5).map((id) => {
+            const app = appMap[id];
+            if (!app) return null;
+            return (
+              <button
+                key={id}
+                onClick={() => handleLaunch(id)}
+                className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+              >
+                <span className="text-xl leading-none group-hover:scale-110 transition-transform">{app.icon}</span>
+                <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">{app.name}</span>
+              </button>
+            );
+          })}
 
-      {/* Apps drawer */}
+          <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
+
+          {/* Notifications */}
+          <button
+            onClick={() => setDrawer('notifications')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative"
+          >
+            <Bell className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
+            {notifState.unreadCount > 0 && (
+              <span className="absolute top-1.5 right-2.5 min-w-[16px] h-4 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 leading-none">
+                {notifState.unreadCount > 9 ? '9+' : notifState.unreadCount}
+              </span>
+            )}
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Bildirim</span>
+          </button>
+
+          {/* Dashcam */}
+          <button
+            onClick={() => setDrawer('dashcam')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group"
+          >
+            <Camera className="w-5 h-5 text-red-400/60 group-hover:text-red-400 transition-colors" />
+            <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Kamera</span>
+          </button>
+
+          {/* Trip Log */}
+          <button
+            onClick={() => setDrawer('triplog')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <Route className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Seyir</span>
+          </button>
+
+          {/* DTC */}
+          <button
+            onClick={() => setDrawer('dtc')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <ShieldAlert className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Arıza</span>
+          </button>
+
+          {/* Weather */}
+          <button
+            onClick={() => setDrawer('weather')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <CloudSun className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Hava</span>
+          </button>
+
+          <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
+
+          <button
+            onClick={openApps}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group"
+          >
+            <LayoutGrid className="w-5 h-5 text-blue-400 group-hover:text-blue-300 transition-colors" />
+            <span className="text-blue-400/60 group-hover:text-blue-300 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Menü</span>
+          </button>
+
+          <button
+            onClick={openSettings}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <SlidersHorizontal className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors" />
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Ayarlar</span>
+          </button>
+        </div>
+      </div>
+
       <DrawerShell open={drawer === 'apps'} onClose={closeDrawer}>
         <AppGrid
           apps={allApps}
           favorites={favorites}
           onToggleFavorite={toggleFavorite}
           onLaunch={handleLaunch}
-          gridColumns={settings.gridColumns}
+          gridColumns={settings.gridColumns as 3 | 4 | 5}
         />
       </DrawerShell>
 
-      {/* Settings drawer */}
       <DrawerShell open={drawer === 'settings'} onClose={closeDrawer}>
-        <SettingsPage settings={settings} onUpdate={updateSettings} onOpenMap={() => { closeDrawer(); setFullMapOpen(true); }} />
+        <SettingsPage onOpenMap={() => { closeDrawer(); setFullMapOpen(true); }} />
       </DrawerShell>
 
-      {/* Full-screen map overlay */}
+      <DrawerShell open={drawer === 'dtc'} onClose={closeDrawer}>
+        <DTCPanel />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'notifications'} onClose={closeDrawer}>
+        <NotificationCenter />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'triplog'} onClose={closeDrawer}>
+        <TripLogView />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'weather'} onClose={closeDrawer}>
+        <WeatherWidget />
+      </DrawerShell>
+
+      {drawer === 'dashcam' && (
+        <div className="fixed inset-0 z-40 bg-[#060d1a]">
+          <DashcamView onClose={closeDrawer} />
+        </div>
+      )}
+
       {fullMapOpen && <FullMapView onClose={() => setFullMapOpen(false)} />}
     </div>
   );

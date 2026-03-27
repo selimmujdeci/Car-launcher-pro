@@ -1,0 +1,155 @@
+/* ════════════════════════════════════════════════════════════════ */
+/* DYNAMIC UI SYSTEM — 3-Level Mode: Idle / Normal / Driving        */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── IDLE MODE: Rich animations, full glow (parked, premium) ─── */
+[data-drive-state="idle"] {
+  /* Default state — all animations and effects enabled */
+}
+
+/* ── NORMAL MODE: Moderate animations, moderate glow ─────────── */
+[data-drive-state="normal"] {
+  /* Reduce all animation/transition durations */
+}
+
+[data-drive-state="normal"] [class*="animate"] {
+  animation-duration: 360ms !important;
+}
+
+[data-drive-state="normal"] [class*="rounded"],
+[data-drive-state="normal"] button,
+[data-drive-state="normal"] [class*="flex"] {
+  transition-duration: 250ms !important;
+}
+
+[data-drive-state="normal"] button:hover {
+  filter: brightness(1.06) !important;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.15) !important;
+}
+
+[data-drive-state="normal"] button:focus,
+[data-drive-state="normal"] button:focus-visible {
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2) !important;
+}
+
+[data-drive-state="normal"] [data-theme-style="glass"] button:hover {
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15) !important;
+}
+
+[data-drive-state="normal"] [data-theme-style="neon"] button:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3) !important;
+}
+
+[data-drive-state="normal"] [data-theme-pack="ai-center"] h1,
+[data-drive-state="normal"] [data-theme-pack="ai-center"] h2 {
+  text-shadow: 0 0 10px rgba(6, 182, 212, 0.3), 0 0 15px rgba(139, 92, 246, 0.2) !important;
+}
+
+/* ── DRIVING MODE: Minimal animations, sade UI, big buttons ──── */
+[data-drive-state="driving"] * {
+  animation: none !important;
+  animation-duration: 0s !important;
+  transition-duration: 50ms !important;
+  transition-timing-function: linear !important;
+}
+
+[data-drive-state="driving"] button {
+  font-size: 1.125rem !important;
+  padding: 0.75rem 1.5rem !important;
+  min-height: 2.75rem !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="elevated"] button,
+[data-drive-state="driving"] [data-widget-style="flat"] button,
+[data-drive-state="driving"] [data-widget-style="outlined"] button {
+  font-size: 1.125rem !important;
+  min-height: 3rem !important;
+  padding: 0.75rem 1rem !important;
+}
+
+[data-drive-state="driving"] button:hover {
+  filter: brightness(1.04) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+[data-drive-state="driving"] button:active {
+  filter: brightness(0.95) !important;
+  transform: none !important;
+}
+
+[data-drive-state="driving"] button:focus,
+[data-drive-state="driving"] button:focus-visible {
+  filter: brightness(1.06) !important;
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="glass"] button {
+  backdrop-filter: blur(4px);
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="glass"] button:hover {
+  backdrop-filter: blur(6px);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="neon"] button {
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="neon"] button:hover {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-style="minimal"] button {
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="elevated"] button {
+  box-shadow: none !important;
+  transform: translateY(0) !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="elevated"] button:hover {
+  box-shadow: none !important;
+  transform: translateY(0) !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="flat"] button {
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-widget-style="outlined"] button {
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="big-cards"] [data-section="obd"] {
+  animation: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [data-section="hero"] > div > div {
+  animation: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] h1,
+[data-drive-state="driving"] [data-theme-pack="ai-center"] h2,
+[data-drive-state="driving"] [data-theme-pack="ai-center"] span[class*="text-"] {
+  animation: none !important;
+  text-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] button[class*="rounded"] {
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [class*="w-12"],
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [class*="w-14"],
+[data-drive-state="driving"] [data-theme-pack="ai-center"] [class*="w-16"] {
+  animation: none !important;
+}

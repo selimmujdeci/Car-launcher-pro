@@ -19,16 +19,23 @@ import { getConfig, onPerformanceModeChange } from './performanceMode';
 
 /* ── Types ───────────────────────────────────────────────── */
 
-export type OBDConnectionState = 'idle' | 'scanning' | 'connecting' | 'connected' | 'error';
+export type OBDConnectionState =
+  | 'idle'
+  | 'scanning'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'   // exponential-backoff retry in progress
+  | 'error';
 
 export interface OBDData {
   connectionState: OBDConnectionState;
   source: 'real' | 'mock' | 'none';
   deviceName: string;
-  speed: number;       // km/h
-  rpm: number;         // engine RPM
-  engineTemp: number;  // °C
-  fuelLevel: number;   // 0–100 %
+  speed: number;        // km/h
+  rpm: number;          // engine RPM
+  engineTemp: number;   // °C
+  fuelLevel: number;    // 0–100 %
+  headlights: boolean;  // far açık/kapalı
 }
 
 /* ── Module state ────────────────────────────────────────── */
@@ -41,14 +48,16 @@ const INITIAL: OBDData = {
   rpm: 750,
   engineTemp: 88,
   fuelLevel: 65,
+  headlights: false,
 };
 
 // Realistic starting values for mock mode
-const MOCK_BASE: Pick<OBDData, 'speed' | 'rpm' | 'engineTemp' | 'fuelLevel'> = {
+const MOCK_BASE: Pick<OBDData, 'speed' | 'rpm' | 'engineTemp' | 'fuelLevel' | 'headlights'> = {
   speed: 42,
   rpm: 1450,
   engineTemp: 90,
   fuelLevel: 68,
+  headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
 };
 
 let _current: OBDData        = { ...INITIAL };
@@ -57,6 +66,11 @@ let _mockTimerId: ReturnType<typeof setInterval> | null = null;
 let _nativeHandles: PluginListenerHandle[] = [];
 let _running                 = false;
 let _lastNotifyTime          = 0;
+
+// Exponential back-off reconnect state
+const MAX_RECONNECT_ATTEMPTS = 5; // 1 s, 2 s, 4 s, 8 s, 16 s
+let _reconnectAttempts       = 0;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Listen for performance mode changes and restart mock with new interval
 onPerformanceModeChange(() => {
@@ -91,11 +105,16 @@ function _clamp(v: number, lo: number, hi: number): number {
 /* ── Mock simulation ─────────────────────────────────────── */
 
 function _tickMock(): void {
+  // Far simülasyonu: saat 20:00–06:00 arası açık, her 30 tick'te bir kontrol
+  const hour = new Date().getHours();
+  const headlights = hour >= 20 || hour < 6;
+
   _merge({
     speed:      _clamp(Math.round(_current.speed      + (Math.random() * 14 - 7)),   0,   180),
     rpm:        _clamp(Math.round(_current.rpm        + (Math.random() * 300 - 150)), 650, 4000),
     engineTemp: _clamp(Math.round(_current.engineTemp + (Math.random() * 2  - 1)),   75,   105),
     fuelLevel:  _clamp(Math.round(_current.fuelLevel  - Math.random() * 0.3),        0,   100),
+    headlights,
   });
 }
 
@@ -116,6 +135,47 @@ function _stopMock(): void {
     clearInterval(_mockTimerId);
     _mockTimerId = null;
   }
+}
+
+/* ── Exponential back-off reconnect ──────────────────────── */
+
+/**
+ * Schedule a reconnect attempt.
+ * Delays: 1 s, 2 s, 4 s, 8 s, 16 s — then gives up and falls back to mock.
+ * Mock data continues flowing between attempts so OBD panels stay alive.
+ */
+function _scheduleReconnect(): void {
+  if (!_running) return;
+
+  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    // Exhausted all attempts — switch permanently to mock
+    _reconnectAttempts = 0;
+    _startMock();
+    return;
+  }
+
+  const delayMs = Math.pow(2, _reconnectAttempts) * 1_000; // 1 s, 2 s, 4 s, 8 s, 16 s
+  _reconnectAttempts++;
+
+  _merge({ connectionState: 'reconnecting', source: 'mock', deviceName: '' });
+
+  // Keep mock running during the wait so UI has live data
+  _startMock();
+
+  if (_reconnectTimer) clearTimeout(_reconnectTimer);
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    if (!_running) return;
+
+    _stopMock();
+    _startNative().then(() => {
+      // Success — reset counter
+      _reconnectAttempts = 0;
+    }).catch(() => {
+      void _removeNativeHandles();
+      _scheduleReconnect();
+    });
+  }, delayMs);
 }
 
 /* ── Native OBD helpers ──────────────────────────────────── */
@@ -144,15 +204,12 @@ async function _startNative(): Promise<void> {
 
   _merge({ connectionState: 'connecting', deviceName: candidate.name });
 
-  // 2. Register disconnect / error listener (fires on subsequent state changes)
+  // 2. Register disconnect / error listener — triggers exponential-backoff reconnect
   const statusHandle = await CarLauncher.addListener(
     'obdStatus',
     (_event: OBDStatusEvent) => {
-      // Connection lost while running → fall back to mock
-      void _removeNativeHandles().then(() => {
-        _stopMock(); // no-op if already stopped
-        _startMock();
-      });
+      if (!_running) return;
+      void _removeNativeHandles().then(() => _scheduleReconnect());
     },
   );
 
@@ -165,6 +222,7 @@ async function _startNative(): Promise<void> {
       if (data.rpm        >= 0) patch.rpm        = data.rpm;
       if (data.engineTemp >= 0) patch.engineTemp = data.engineTemp;
       if (data.fuelLevel  >= 0) patch.fuelLevel  = data.fuelLevel;
+      if (data.headlights !== undefined) patch.headlights = data.headlights;
       if (Object.keys(patch).length) _merge(patch);
     },
   );
@@ -211,6 +269,8 @@ export function startOBD(): void {
  */
 export function stopOBD(): void {
   _running = false;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  _reconnectAttempts = 0;
   _stopMock();
   void _removeNativeHandles().then(() => {
     if (Capacitor.isNativePlatform()) {

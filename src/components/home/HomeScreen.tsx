@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   Bluetooth, Wifi, WifiOff,
   BatteryFull, BatteryMedium, BatteryLow, BatteryCharging,
-  Play, Pause, SkipBack, SkipForward, Star as StarIcon,
+  Play, Pause, SkipBack, SkipForward,
+  Bell, MapPin, GripVertical, Check,
 } from 'lucide-react';
 import { APP_MAP, MUSIC_OPTIONS } from '../../data/apps';
 import type { AppItem, MusicOptionKey } from '../../data/apps';
@@ -15,6 +16,81 @@ import { startNavigation } from '../../platform/navigationService';
 import { getFavoriteAddresses } from '../../platform/addressBookService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { FullMapView } from '../map/FullMapView';
+import { TPMSWidget } from '../obd/TPMSWidget';
+import { useStore, type ParkingLocation } from '../../store/useStore';
+
+/* ── useDragSort — pointer tabanlı sırala ────────────────── */
+
+/**
+ * Pointer event tabanlı sürükle-bırak sıralama.
+ * Kullanım: itemRefs'e her widget'ın ref'ini ver, getHandlers(i) ile pointer
+ * handlerlarını al. 600 ms basılı tutunca drag modu aktifleşir.
+ */
+function useDragSort(
+  order: string[],
+  onReorder: (next: string[]) => void,
+) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const dragRef    = useRef<number | null>(null);
+  const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const itemRefs   = useRef<(HTMLDivElement | null)[]>([]);
+
+  const cancelTimer = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+  }, []);
+
+  const resetDrag = useCallback(() => {
+    cancelTimer();
+    dragRef.current = null;
+    setDragIndex(null);
+    setOverIndex(null);
+  }, [cancelTimer]);
+
+  /** Pointer Y konumundan en yakın widget indeksini bul */
+  const nearestIndex = useCallback((clientY: number): number => {
+    let best = 0, bestDist = Infinity;
+    itemRefs.current.forEach((el, i) => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const dist = Math.abs(clientY - (rect.top + rect.height / 2));
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    return best;
+  }, []);
+
+  const getHandlers = useCallback((index: number) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        dragRef.current = index;
+        setDragIndex(index);
+        setOverIndex(index);
+      }, 600);
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      if (dragRef.current === null) return;
+      setOverIndex(nearestIndex(e.clientY));
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => {
+      cancelTimer();
+      if (dragRef.current === null) return;
+      const from = dragRef.current;
+      const to   = nearestIndex(e.clientY);
+      resetDrag();
+      if (from !== to) {
+        const next = [...order];
+        const [item] = next.splice(from, 1);
+        next.splice(to, 0, item);
+        onReorder(next);
+      }
+    },
+    onPointerCancel: resetDrag,
+  }), [cancelTimer, nearestIndex, onReorder, order, resetDrag]);
+
+  return { dragIndex, overIndex, itemRefs, getHandlers };
+}
 
 /* ── Clock hook ──────────────────────────────────────────── */
 function useClock() {
@@ -25,6 +101,38 @@ function useClock() {
   }, []);
   return now;
 }
+
+/* ── Bildirim Alanı ──────────────────────────────────────── */
+const NotificationArea = memo(function NotificationArea() {
+  const [notifications] = useState([
+    { id: 1, app: 'WhatsApp', sender: 'Murat', text: 'Yola çıktın mı?', time: 'Şimdi' },
+    { id: 2, app: 'Takvim', sender: 'Hatırlatıcı', text: 'Araç muayenesi yaklaşıyor', time: '10 dk' },
+  ]);
+
+  return (
+    <div className="flex flex-col gap-2 h-full bg-[#0d1628] rounded-2xl border border-white/5 p-4 overflow-hidden">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Bell className="w-4 h-4 text-blue-400" />
+          <span className="text-slate-500 text-xs tracking-widest uppercase">Bildirimler</span>
+        </div>
+        <span className="bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">2</span>
+      </div>
+      <div className="flex flex-col gap-2 overflow-y-auto pr-1">
+        {notifications.map((n) => (
+          <div key={n.id} className="bg-white/5 rounded-xl p-3 border border-white/5 animate-slide-up">
+            <div className="flex justify-between items-start mb-1">
+              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">{n.app}</span>
+              <span className="text-[9px] text-slate-600">{n.time}</span>
+            </div>
+            <div className="text-[11px] font-bold text-white truncate">{n.sender}</div>
+            <div className="text-[11px] text-slate-400 truncate leading-tight mt-0.5">{n.text}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
 
 /* ── Saat + Tarih ────────────────────────────────────────── */
 const Clock = memo(function Clock({ use24Hour, showSeconds }: { use24Hour: boolean; showSeconds: boolean }) {
@@ -100,7 +208,6 @@ const StatusChip = memo(function StatusChip({
 const DeviceStatus = memo(function DeviceStatus() {
   const s = useDeviceStatus();
 
-  // Skeleton while native data loads
   if (!s.ready) {
     return (
       <div className="mt-3 pt-3 border-t border-white/5 grid grid-cols-3 gap-2">
@@ -172,8 +279,6 @@ const MusicCard = memo(function MusicCard({ defaultMusic }: { defaultMusic: Musi
 
   return (
     <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex flex-col gap-3 overflow-hidden">
-
-      {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${playing ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
@@ -182,7 +287,6 @@ const MusicCard = memo(function MusicCard({ defaultMusic }: { defaultMusic: Musi
         <span className="text-slate-700 text-xs">{app.name}</span>
       </div>
 
-      {/* Album art + track info */}
       <button onClick={launch} className="flex items-center gap-4 flex-shrink-0 w-full text-left active:opacity-70 transition-opacity duration-100">
         <div
           className="w-16 h-16 rounded-xl flex-shrink-0 flex items-center justify-center text-3xl shadow-lg"
@@ -200,7 +304,6 @@ const MusicCard = memo(function MusicCard({ defaultMusic }: { defaultMusic: Musi
         </div>
       </button>
 
-      {/* Progress */}
       <div className="flex-shrink-0">
         <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
           <div
@@ -214,37 +317,22 @@ const MusicCard = memo(function MusicCard({ defaultMusic }: { defaultMusic: Musi
         </div>
       </div>
 
-      {/* Controls */}
       <div className="flex gap-2.5 flex-1 min-h-0">
-        <button
-          onClick={previous}
-          className="flex-1 rounded-xl bg-white/5 border border-white/5 text-white hover:bg-white/10 active:scale-95 transition-transform duration-150 flex items-center justify-center"
-        >
-          <SkipBack className="w-5 h-5" />
-        </button>
+        <button onClick={previous} className="flex-1 rounded-xl bg-white/5 border border-white/5 text-white flex items-center justify-center"><SkipBack className="w-5 h-5" /></button>
         <button
           onClick={togglePlayPause}
-          className="flex-[2] rounded-xl text-white hover:opacity-90 active:scale-95 active:opacity-80 transition-[transform,opacity] duration-150 shadow-lg flex items-center justify-center"
-          style={{ background: app.color, boxShadow: `0 4px 20px ${app.color}40` }}
+          className="flex-[2] rounded-xl text-white shadow-lg flex items-center justify-center"
+          style={{ background: app.color }}
         >
           {playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
         </button>
-        <button
-          onClick={next}
-          className="flex-1 rounded-xl bg-white/5 border border-white/5 text-white hover:bg-white/10 active:scale-95 transition-transform duration-150 flex items-center justify-center"
-        >
-          <SkipForward className="w-5 h-5" />
-        </button>
+        <button onClick={next} className="flex-1 rounded-xl bg-white/5 border border-white/5 text-white flex items-center justify-center"><SkipForward className="w-5 h-5" /></button>
       </div>
     </div>
   );
 });
 
-/* ── Navigasyon Kartı ────────────────────────────────────── */
-
 /* ── Favori Uygulamalar ──────────────────────────────────── */
-const COL_CLASS: Record<number, string> = { 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6' };
-
 const FavApps = memo(function FavApps({
   ids,
   onLaunch,
@@ -255,28 +343,7 @@ const FavApps = memo(function FavApps({
   columns?: number;
 }) {
   const favApps = ids.map((id) => APP_MAP[id]).filter(Boolean) as AppItem[];
-  const isEmpty = favApps.length === 0;
-
-  if (isEmpty) {
-    return (
-      <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex flex-col overflow-hidden">
-        <span className="text-slate-500 text-xs tracking-widest uppercase flex-shrink-0 mb-3">Favoriler</span>
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center">
-            <StarIcon className="w-5 h-5 text-slate-700" />
-          </div>
-          <div className="text-center">
-            <div className="text-slate-400 text-xs font-medium mb-1">Favori yok</div>
-            <div className="text-slate-700 text-[11px] leading-relaxed">
-              Uygulamalar ekranından<br />yıldıza basarak ekle
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const displayed = favApps.slice(0, columns * 3);
+  const COL_CLASS: Record<number, string> = { 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5' };
 
   return (
     <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-4 flex flex-col overflow-hidden">
@@ -285,11 +352,11 @@ const FavApps = memo(function FavApps({
         <span className="text-slate-700 text-xs tabular-nums">{favApps.length}</span>
       </div>
       <div className={`grid ${COL_CLASS[columns] ?? 'grid-cols-3'} gap-2.5 flex-1`}>
-        {displayed.map((app) => (
+        {favApps.slice(0, columns * 3).map((app) => (
           <button
             key={app.id}
             onClick={() => onLaunch(app.id)}
-            className="flex flex-col items-center justify-center gap-2 py-2 rounded-xl active:scale-95 transition-transform duration-150 bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 overflow-hidden min-w-0 min-h-[44px]"
+            className="flex flex-col items-center justify-center gap-2 py-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 active:scale-95 transition-transform overflow-hidden"
           >
             <span className="text-3xl leading-none">{app.icon}</span>
             <span className="text-slate-300 text-xs font-medium truncate w-full text-center px-1 leading-tight">{app.name}</span>
@@ -313,13 +380,30 @@ const RecentApps = memo(function RecentApps({ ids, onLaunch }: { ids: string[]; 
           <button
             key={app.id}
             onClick={() => onLaunch(app.id)}
-            className="flex-1 flex flex-col items-center gap-2 py-3.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/[0.08] hover:border-white/10 active:scale-95 transition-transform duration-150 min-w-0"
+            className="flex-1 flex flex-col items-center gap-2 py-3.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/[0.08] active:scale-95 transition-transform min-w-0"
           >
             <span className="text-2xl leading-none">{app.icon}</span>
             <span className="text-slate-300 text-xs font-medium truncate w-full text-center px-1 leading-tight">{app.name}</span>
           </button>
         ))}
       </div>
+    </div>
+  );
+});
+
+/* ── Park Konumu ─────────────────────────────────────────── */
+const ParkingWidget = memo(function ParkingWidget({ location }: { location: ParkingLocation }) {
+  if (!location) return null;
+  const timeStr = new Date(location.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  
+  return (
+    <div className="flex flex-col gap-2 bg-blue-600/10 border border-blue-500/20 rounded-2xl p-4 animate-fade-in">
+      <div className="flex items-center gap-2">
+        <MapPin className="w-4 h-4 text-blue-400" />
+        <span className="text-slate-500 text-[10px] tracking-widest uppercase">Park Konumu</span>
+      </div>
+      <div className="text-white text-xs font-bold truncate">Son Park: {timeStr}</div>
+      <div className="text-slate-400 text-[10px] truncate">{location.lat.toFixed(4)}, {location.lng.toFixed(4)}</div>
     </div>
   );
 });
@@ -335,9 +419,9 @@ interface Props {
 }
 
 function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, defaultMusic }: Props) {
+  const { settings, updateSettings } = useStore();
   const [fullMapOpen, setFullMapOpen] = useState(false);
 
-  // Register navigation command handler
   useEffect(() => {
     const cleanup = registerCommandHandler((cmd: ParsedCommand) => {
       if (cmd.type === 'navigate_home') {
@@ -351,18 +435,80 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
     return cleanup;
   }, []);
 
+  /* ── Edit mode toggle — saat alanına uzun bas ────── */
+  const editTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClockPointerDown = useCallback(() => {
+    editTimerRef.current = setTimeout(() => {
+      editTimerRef.current = null;
+      updateSettings({ editMode: true });
+    }, 800);
+  }, [updateSettings]);
+
+  const handleClockPointerUp = useCallback(() => {
+    if (editTimerRef.current) { clearTimeout(editTimerRef.current); editTimerRef.current = null; }
+  }, []);
+
+  /* ── Drag & Drop sıralama ─────────────────────────── */
+  const handleReorder = useCallback((next: string[]) => {
+    updateSettings({ widgetOrder: next });
+  }, [updateSettings]);
+
+  const { dragIndex, overIndex, itemRefs, getHandlers } = useDragSort(
+    settings.widgetOrder,
+    handleReorder,
+  );
+
+  const exitEditMode = useCallback(() => {
+    updateSettings({ editMode: false });
+  }, [updateSettings]);
+
+  /* ── Sağ panel alt satır widget render ────────────── */
+  const WIDGET_LABELS: Record<string, string> = {
+    music: 'Müzik',
+    notifications: 'Bildirimler',
+  };
+
+  const renderWidget = useCallback((key: string) => {
+    if (key === 'music') {
+      return (
+        <div className="flex-1 min-h-0 flex flex-col gap-3">
+          <MusicCard defaultMusic={defaultMusic} />
+          {settings.parkingLocation && <ParkingWidget location={settings.parkingLocation} />}
+        </div>
+      );
+    }
+    if (key === 'notifications') {
+      return <div className="flex-1 min-h-0"><NotificationArea /></div>;
+    }
+    return null;
+  }, [defaultMusic, settings.parkingLocation]);
+
+  const editMode = settings.editMode;
+
   return (
     <>
       <div className="h-full overflow-hidden flex flex-col gap-3 p-4">
-
         <div className="flex gap-3 flex-1 min-h-0">
-
           {/* Sol panel */}
           <div className="w-[38%] min-w-0 flex flex-col gap-3">
-            <div className="bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex-shrink-0 animate-slide-up">
+            <div
+              className="bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex-shrink-0 animate-slide-up select-none touch-none"
+              onPointerDown={handleClockPointerDown}
+              onPointerUp={handleClockPointerUp}
+              onPointerCancel={handleClockPointerUp}
+              title="Widget düzenlemek için 1 sn basılı tut"
+            >
               <Clock use24Hour={use24Hour} showSeconds={showSeconds} />
               <DeviceStatus />
             </div>
+
+            {(settings.themePack === 'bmw' || settings.themePack === 'mercedes' || settings.themePack === 'big-cards') && (
+              <div className="flex-shrink-0 animate-slide-up" style={{ animationDelay: '40ms' }}>
+                <TPMSWidget />
+              </div>
+            )}
+
             <div className="flex-1 min-h-0 animate-slide-up" style={{ animationDelay: '60ms' }}>
               <FavApps ids={favorites} onLaunch={onLaunch} columns={3} />
             </div>
@@ -370,18 +516,84 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
 
           {/* Sağ panel */}
           <div className="flex-1 min-w-0 flex flex-col gap-3">
-            <div className="flex-[1] min-h-0 animate-slide-up" style={{ animationDelay: '30ms' }}>
+            <div className="flex-[1.2] min-h-0 animate-slide-up" style={{ animationDelay: '30ms' }}>
               <MiniMapWidget onFullScreenClick={() => setFullMapOpen(true)} />
             </div>
-            <div className="flex-[1] min-h-0 animate-slide-up" style={{ animationDelay: '90ms' }}>
-              <MusicCard defaultMusic={defaultMusic} />
-            </div>
-          </div>
 
+            {/* ── Alt satır: normal veya düzenleme modu ── */}
+            {editMode ? (
+              /* Düzenleme modu — dikey sürükle-bırak listesi */
+              <div className="flex-1 min-h-0 flex flex-col gap-2">
+                {/* Başlık */}
+                <div className="flex items-center justify-between px-1 flex-shrink-0">
+                  <span className="text-slate-500 text-[10px] uppercase tracking-widest">
+                    Widget Sırala
+                  </span>
+                  <button
+                    onClick={exitEditMode}
+                    className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold px-3 py-1.5 rounded-xl active:scale-95 transition-transform"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    Bitti
+                  </button>
+                </div>
+
+                {/* Sürüklenebilir widget kartları */}
+                {settings.widgetOrder.map((key, i) => {
+                  const isDragging  = dragIndex === i;
+                  const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
+
+                  return (
+                    <div
+                      key={key}
+                      ref={(el) => { itemRefs.current[i] = el; }}
+                      className={`
+                        flex-1 min-h-0 relative rounded-2xl border transition-all duration-150 touch-none select-none
+                        ${isDragging
+                          ? 'scale-[1.02] shadow-2xl border-blue-400/40 z-10'
+                          : isDropTarget
+                          ? 'border-blue-400/30 bg-blue-500/5'
+                          : 'border-transparent'
+                        }
+                      `}
+                      {...getHandlers(i)}
+                    >
+                      {/* Drag tutacağı */}
+                      <div className="absolute top-2 right-2 z-20 w-8 h-8 flex items-center justify-center rounded-xl bg-black/50 border border-white/10 text-slate-400 pointer-events-none">
+                        <GripVertical className="w-4 h-4" />
+                      </div>
+
+                      {/* Widget adı etiketi */}
+                      <div className="absolute top-2 left-3 z-20 text-[10px] font-black text-slate-400 uppercase tracking-widest pointer-events-none">
+                        {WIDGET_LABELS[key] ?? key}
+                      </div>
+
+                      {/* Widget içeriği (dim görünüm) */}
+                      <div className={`h-full transition-opacity ${isDragging ? 'opacity-70' : 'opacity-100'}`}>
+                        {renderWidget(key)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Normal mod — widgetOrder'a göre yan yana */
+              <div className="flex-1 min-h-0 flex gap-3">
+                {settings.widgetOrder.slice(0, 2).map((key, i) => (
+                  <div
+                    key={key}
+                    className={`min-h-0 animate-slide-up ${i === 0 ? 'flex-[1.5]' : 'flex-1'}`}
+                    style={{ animationDelay: `${90 + i * 30}ms` }}
+                  >
+                    {renderWidget(key)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <RecentApps ids={recentApps} onLaunch={onLaunch} />
-
       </div>
 
       {fullMapOpen && <FullMapView onClose={() => setFullMapOpen(false)} />}

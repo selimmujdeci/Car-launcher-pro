@@ -61,14 +61,33 @@ export interface OBDStatusEvent {
  * A value of -1 means the vehicle does not support that PID.
  */
 export interface NativeOBDData {
-  speed: number;       // km/h  or -1
-  rpm: number;         // RPM   or -1
-  engineTemp: number;  // °C    or -1
-  fuelLevel: number;   // 0–100 or -1
+  speed: number;        // km/h  or -1
+  rpm: number;          // RPM   or -1
+  engineTemp: number;   // °C    or -1
+  fuelLevel: number;    // 0–100 or -1
+  headlights?: boolean; // far durumu (opsiyonel — destekleyen araçlarda gelir)
 }
 
 export interface MediaActionOptions {
   action: 'play' | 'pause' | 'next' | 'previous';
+}
+
+export interface SetBrightnessOptions {
+  value: number; // 0–255 (Android WindowManager.LayoutParams.screenBrightness)
+}
+
+export interface SetVolumeOptions {
+  value: number; // 0–15 (Android AudioManager STREAM_MUSIC max index)
+}
+
+export interface SpeechRecognitionOptions {
+  preferOffline: boolean; // EXTRA_PREFER_OFFLINE
+  language?: string;      // BCP-47, e.g. 'tr-TR'
+  maxResults?: number;
+}
+
+export interface SpeechRecognitionResult {
+  transcript: string; // top recognition result
 }
 
 /* ── Plugin interface ────────────────────────────────────── */
@@ -80,6 +99,13 @@ export interface CarLauncherPlugin {
 
   // Media playback control
   sendMediaAction(options: MediaActionOptions): Promise<void>;
+
+  // System hardware controls
+  setBrightness(options: SetBrightnessOptions): Promise<void>;
+  setVolume(options: SetVolumeOptions): Promise<void>;
+
+  // On-device speech recognition (EXTRA_PREFER_OFFLINE)
+  startSpeechRecognition(options: SpeechRecognitionOptions): Promise<SpeechRecognitionResult>;
 
   // OBD-II Bluetooth Serial
   scanOBD(): Promise<OBDScanResult>;

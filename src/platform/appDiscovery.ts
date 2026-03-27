@@ -93,7 +93,11 @@ function guessIcon(app: NativeApp): string {
   if (pkg.includes('tool') || pkg.includes('fix')) return '🔧';
   if (pkg.includes('radio')) return '📻';
   if (pkg.includes('market') || pkg.includes('store') || pkg.includes('vending')) return '🛍️';
-  
+
+  // Name-based fallbacks
+  if (name.includes('müzik') || name.includes('music')) return '🎵';
+  if (name.includes('harita') || name.includes('map')) return '🗺️';
+
   // Generic icons
   if (app.isSystemApp) return '⚙️';
   return '📱';

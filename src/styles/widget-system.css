@@ -1,0 +1,200 @@
+/* ════════════════════════════════════════════════════════════════ */
+/* WIDGET SIZE SYSTEM — Focus mode and size differentiation         */
+/* ════════════════════════════════════════════════════════════════ */
+
+[data-performance-mode="lite"] [data-widget-key] {
+  transition: opacity 100ms ease-out;
+}
+
+[data-performance-mode="balanced"] [data-widget-key] {
+  transition: opacity 300ms ease-out;
+}
+
+[data-performance-mode="premium"] [data-widget-key] {
+  transition: opacity 500ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Small: reduced presence and visibility */
+[data-widget-key][data-widget-size="small"] {
+  opacity: 0.65;
+}
+
+[data-widget-key="obd"][data-widget-size="small"] {
+  max-height: 72px;
+  overflow: hidden;
+}
+
+/* Large: focus ring and full presence */
+[data-widget-key][data-widget-size="large"] > * {
+  outline: 1px solid rgba(59, 130, 246, 0.25);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+[data-widget-key][data-widget-size="large"] {
+  opacity: 1;
+}
+
+[data-widget-key="obd"][data-widget-size="large"] {
+  max-height: 140px;
+}
+
+/* Tesla: unhide OBD when focused */
+[data-theme-pack="tesla"] [data-widget-key="obd"][data-widget-size="large"],
+[data-theme-pack="tesla"] [data-widget-key="obd"][data-widget-size="medium"] {
+  display: block !important;
+}
+
+/* Driving mode: safety overrides */
+[data-drive-state="driving"] [data-widget-key][data-widget-size="small"] {
+  opacity: 1 !important;
+  min-height: 60px;
+}
+
+[data-drive-state="driving"] [data-widget-key="obd"] {
+  max-height: 80px !important;
+}
+
+/* ════════════════════════════════════════════════════════════════ */
+/* WIDGET-SPECIFIC STYLING PER THEME PACK                          */
+/* ════════════════════════════════════════════════════════════════ */
+
+/* ── TESLA: Compact, technical, minimal ─────────────────────── */
+
+[data-theme-pack="tesla"] [class*="ClockWidget"],
+[data-theme-pack="tesla"] [class*="TimeWidget"] {
+  background: rgba(13, 22, 40, 0.6) !important;
+  border: 1px solid rgba(59, 130, 246, 0.15) !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem !important;
+  font-size: 0.85rem;
+}
+
+[data-theme-pack="tesla"] [data-section="obd"],
+[data-theme-pack="tesla"] [class*="OBDPanel"] {
+  background: rgba(13, 22, 40, 0.5) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 0.5rem !important;
+  padding: 0.75rem !important;
+  gap: 0.5rem !important;
+}
+
+[data-theme-pack="tesla"] [class*="progress"],
+[data-theme-pack="tesla"] [class*="bg-gradient"] {
+  height: 0.25rem !important;
+  border-radius: 0.125rem !important;
+}
+
+[data-theme-pack="tesla"] button {
+  transition: all 150ms ease-out;
+  border-radius: 0.5rem !important;
+}
+
+[data-theme-pack="tesla"] button:hover {
+  background: rgba(59, 130, 246, 0.1) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1) !important;
+}
+
+/* ── BIG CARDS: Bold, driving-focused ───────────────────────── */
+
+[data-theme-pack="big-cards"] [class*="ClockWidget"],
+[data-theme-pack="big-cards"] [class*="TimeWidget"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.25), rgba(99, 102, 241, 0.15)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.35) !important;
+  border-radius: 1.5rem !important;
+  padding: 1.25rem !important;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+[data-theme-pack="big-cards"] [data-section="obd"],
+[data-theme-pack="big-cards"] [class*="OBDPanel"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.35), rgba(99, 102, 241, 0.25)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.4) !important;
+  border-radius: 2rem !important;
+  padding: 1.5rem !important;
+  gap: 1rem !important;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.2) !important;
+}
+
+[data-theme-pack="big-cards"] [class*="progress"],
+[data-theme-pack="big-cards"] [class*="bg-gradient"] {
+  height: 0.75rem !important;
+  border-radius: 0.375rem !important;
+}
+
+[data-theme-pack="big-cards"] [class*="MediaWidget"],
+[data-theme-pack="big-cards"] [class*="MediaPanel"] {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.25), rgba(99, 102, 241, 0.15)) !important;
+  border: 2px solid rgba(165, 180, 252, 0.3) !important;
+  border-radius: 1.5rem !important;
+  padding: 1.5rem !important;
+  gap: 1rem !important;
+}
+
+[data-theme-pack="big-cards"] button {
+  transition: all 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  min-height: 2.75rem !important;
+  font-size: 0.95rem !important;
+}
+
+[data-theme-pack="big-cards"] button:active {
+  transform: scale(0.95) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2) !important;
+}
+
+/* ── AI CENTER: Futuristic, centered, modern typography ──────── */
+
+[data-theme-pack="ai-center"] [class*="ClockWidget"],
+[data-theme-pack="ai-center"] [class*="TimeWidget"] {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(139, 92, 246, 0.1)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.4) !important;
+  border-radius: 1rem !important;
+  padding: 1.25rem !important;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.15), inset 0 0 10px rgba(6, 182, 212, 0.05) !important;
+}
+
+[data-theme-pack="ai-center"] [data-section="obd"],
+[data-theme-pack="ai-center"] [class*="OBDPanel"] {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(139, 92, 246, 0.08)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.35) !important;
+  border-radius: 1rem !important;
+  padding: 1.25rem !important;
+  gap: 0.875rem !important;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.1), inset 0 0 12px rgba(139, 92, 246, 0.05) !important;
+}
+
+[data-theme-pack="ai-center"] [class*="MediaWidget"],
+[data-theme-pack="ai-center"] [class*="MediaPanel"] {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(139, 92, 246, 0.08)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.35) !important;
+  border-radius: 1rem !important;
+  padding: 1.25rem !important;
+  gap: 1rem !important;
+  text-align: center;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.1) !important;
+}
+
+[data-theme-pack="ai-center"] [class*="progress"],
+[data-theme-pack="ai-center"] [class*="bg-gradient"] {
+  height: 0.3rem !important;
+  border-radius: 0.15rem !important;
+  background: linear-gradient(90deg, rgba(6, 182, 212, 0.5), rgba(139, 92, 246, 0.5)) !important;
+}
+
+[data-theme-pack="ai-center"] button {
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  min-height: 2.5rem !important;
+}
+
+[data-theme-pack="ai-center"] button:active {
+  transform: scale(0.97) !important;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.3), inset 0 0 10px rgba(6, 182, 212, 0.1) !important;
+}
