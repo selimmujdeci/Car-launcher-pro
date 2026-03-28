@@ -1047,6 +1047,19 @@ export default function MainLayout() {
       <ErrorToast />
       <VolumeOverlay />
 
+      {/* Premium Settings Shortcut */}
+      <button
+        onClick={openSettings}
+        className="fixed top-4 right-4 z-[45] group flex items-center justify-center transition-all duration-500 ease-out"
+        data-drive-size={smart.drivingMode ? 'compact' : 'normal'}
+      >
+        <div className="absolute inset-0 bg-white/[0.03] backdrop-blur-2xl rounded-2xl border border-white/10 group-hover:bg-white/10 group-hover:border-white/20 transition-all shadow-[0_10px_30px_rgba(0,0,0,0.3)]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl" />
+        <div className="relative p-3 flex items-center justify-center group-active:scale-90 transition-transform">
+          <SlidersHorizontal className="w-5 h-5 text-slate-400 group-hover:text-white group-hover:drop-shadow-[0_0_8px_var(--pack-glow-color,rgba(59,130,246,0.5))] transition-all" />
+        </div>
+      </button>
+
       {/* Kenar swipe ses kontrolü — sadece seçili tarafta aktif */}
       {settings.gestureVolumeSide !== 'off' && (
         <GestureVolumeZone
@@ -1289,165 +1302,170 @@ export default function MainLayout() {
       </div>
 
       {/* Dock */}
-      <div data-dock="main" className="flex items-center justify-center px-6 py-3 flex-shrink-0 relative z-20">
-        <div className="flex items-center gap-2 p-1 rounded-2xl bg-black/60 backdrop-blur-3xl border border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] max-w-5xl w-full relative overflow-hidden">
+      <div data-dock="main" className="flex items-center justify-center px-6 py-3 flex-shrink-0 relative z-20 overflow-hidden">
+        <div className="flex items-center gap-2 p-1 rounded-[2rem] bg-black/60 backdrop-blur-3xl border border-white/5 shadow-[0_15px_40px_rgba(0,0,0,0.7)] max-w-5xl w-full relative overflow-hidden group">
           <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
           
-          {smart.dockIds.slice(0, 5).map((id) => {
-            const app = appMap[id];
-            if (!app) return null;
-            return (
-              <button
-                key={id}
-                onClick={() => handleLaunch(id)}
-                className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-              >
-                <span className="text-xl leading-none group-hover:scale-110 transition-transform">{app.icon}</span>
-                <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">{app.name}</span>
-              </button>
-            );
-          })}
+          {/* Scrollable Container */}
+          <div className="flex items-center gap-2 overflow-x-auto overflow-y-hidden snap-x snap-mandatory no-scrollbar scroll-smooth px-2 py-1 w-full mask-fade">
+            {smart.dockIds.slice(0, 5).map((id) => {
+              const app = appMap[id];
+              if (!app) return null;
+              return (
+                <button
+                  key={id}
+                  onClick={() => handleLaunch(id)}
+                  className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+                >
+                  <span className="text-xl leading-none group-hover:scale-110 transition-transform">{app.icon}</span>
+                  <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">{app.name}</span>
+                </button>
+              );
+            })}
 
-          <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
+            <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
 
-          {/* Notifications */}
-          <button
-            onClick={() => setDrawer('notifications')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative"
-          >
-            <Bell className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
-            {notifState.unreadCount > 0 && (
-              <span className="absolute top-1.5 right-2.5 min-w-[16px] h-4 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 leading-none">
-                {notifState.unreadCount > 9 ? '9+' : notifState.unreadCount}
-              </span>
-            )}
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Bildirim</span>
-          </button>
+            {/* Notifications */}
+            <button
+              onClick={() => setDrawer('notifications')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative snap-center"
+            >
+              <Bell className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
+              {notifState.unreadCount > 0 && (
+                <span className="absolute top-1.5 right-2.5 min-w-[16px] h-4 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 leading-none">
+                  {notifState.unreadCount > 9 ? '9+' : notifState.unreadCount}
+                </span>
+              )}
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Bildirim</span>
+            </button>
 
-          {/* Dashcam */}
-          <button
-            onClick={() => setDrawer('dashcam')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group"
-          >
-            <Camera className="w-5 h-5 text-red-400/60 group-hover:text-red-400 transition-colors" />
-            <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Kamera</span>
-          </button>
+            {/* Dashcam */}
+            <button
+              onClick={() => setDrawer('dashcam')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <Camera className="w-5 h-5 text-red-400/60 group-hover:text-red-400 transition-colors" />
+              <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em]">Kamera</span>
+            </button>
 
-          {/* Trip Log */}
-          <button
-            onClick={() => setDrawer('triplog')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <Route className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Seyir</span>
-          </button>
+            {/* Trip Log */}
+            <button
+              onClick={() => setDrawer('triplog')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <Route className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Seyir</span>
+            </button>
 
-          {/* DTC */}
-          <button
-            onClick={() => setDrawer('dtc')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <ShieldAlert className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Arıza</span>
-          </button>
+            {/* DTC */}
+            <button
+              onClick={() => setDrawer('dtc')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <ShieldAlert className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Arıza</span>
+            </button>
 
-          {/* Weather */}
-          <button
-            onClick={() => setDrawer('weather')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <CloudSun className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Hava</span>
-          </button>
+            {/* Weather */}
+            <button
+              onClick={() => setDrawer('weather')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <CloudSun className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Hava</span>
+            </button>
 
-          <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
+            <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
 
-          <VoiceMicButton />
+            <div className="flex-shrink-0 snap-center">
+              <VoiceMicButton />
+            </div>
 
-          <button
-            onClick={openApps}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group"
-          >
-            <LayoutGrid className="w-5 h-5 text-blue-400 group-hover:text-blue-300 transition-colors" />
-            <span className="text-blue-400/60 group-hover:text-blue-300 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Menü</span>
-          </button>
+            <button
+              onClick={openApps}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <LayoutGrid className="w-5 h-5 text-blue-400 group-hover:text-blue-300 transition-colors" />
+              <span className="text-blue-400/60 group-hover:text-blue-300 text-[10px] font-black uppercase tracking-[0.2em]">Menü</span>
+            </button>
 
-          {/* Split Screen */}
-          <button
-            onClick={() => setSplitOpen(true)}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">⊞</span>
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Split</span>
-          </button>
+            {/* Split Screen */}
+            <button
+              onClick={() => setSplitOpen(true)}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <span className="text-lg leading-none group-hover:scale-110 transition-transform">⊞</span>
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Split</span>
+            </button>
 
-          {/* Geri Kamera */}
-          <button
-            onClick={() => setRearCamOpen(true)}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">📸</span>
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Kamera</span>
-          </button>
+            {/* Geri Kamera */}
+            <button
+              onClick={() => setRearCamOpen(true)}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <span className="text-lg leading-none group-hover:scale-110 transition-transform">📸</span>
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Kamera</span>
+            </button>
 
-          {/* Trafik */}
-          <button
-            onClick={() => { /* trafik paneli ileride */ }}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative"
-          >
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">🚦</span>
-            {traffic.summary && (
-              <span
-                className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full border border-black/40"
-                style={{ backgroundColor: TRAFFIC_COLORS[traffic.summary.level] }}
-              />
-            )}
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Trafik</span>
-          </button>
+            {/* Trafik */}
+            <button
+              onClick={() => { /* trafik paneli ileride */ }}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative snap-center"
+            >
+              <span className="text-lg leading-none group-hover:scale-110 transition-transform">🚦</span>
+              {traffic.summary && (
+                <span
+                  className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full border border-black/40"
+                  style={{ backgroundColor: TRAFFIC_COLORS[traffic.summary.level] }}
+                />
+              )}
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Trafik</span>
+            </button>
 
-          {/* Sport Modu */}
-          <button
-            onClick={() => setDrawer('sport')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group"
-          >
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">⚡</span>
-            <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Sport</span>
-          </button>
+            {/* Sport Modu */}
+            <button
+              onClick={() => setDrawer('sport')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <span className="text-lg leading-none group-hover:scale-110 transition-transform">⚡</span>
+              <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-widest">Sport</span>
+            </button>
 
-          {/* Güvenlik */}
-          <button
-            onClick={() => setDrawer('security')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <Shield className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Vale</span>
-          </button>
+            {/* Güvenlik */}
+            <button
+              onClick={() => setDrawer('security')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <Shield className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Vale</span>
+            </button>
 
-          {/* Eğlence */}
-          <button
-            onClick={() => setDrawer('entertainment')}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">🎬</span>
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Eğlence</span>
-          </button>
+            {/* Eğlence */}
+            <button
+              onClick={() => setDrawer('entertainment')}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <span className="text-lg leading-none group-hover:scale-110 transition-transform">🎬</span>
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Eğlence</span>
+            </button>
 
-          {/* Yolcu Kontrolü */}
-          <button
-            onClick={() => setPassengerOpen(true)}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <Smartphone className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-blue-400 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Yolcu</span>
-          </button>
+            {/* Yolcu Kontrolü */}
+            <button
+              onClick={() => setPassengerOpen(true)}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <Smartphone className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
+              <span className="text-white/30 group-hover:text-blue-400 text-[10px] font-black uppercase tracking-[0.2em]">Yolcu</span>
+            </button>
 
-          <button
-            onClick={openSettings}
-            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
-          >
-            <SlidersHorizontal className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Ayarlar</span>
-          </button>
+            <button
+              onClick={openSettings}
+              className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center"
+            >
+              <SlidersHorizontal className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors" />
+              <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Ayarlar</span>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
 import { getPerformanceMode, setPerformanceMode } from '../../platform/performanceMode';
 import { setBrightness, setVolume } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
+import { triggerThemeTransition } from '../../platform/themeTransitionService';
 
 /* ── Yardımcı bileşenler ─────────────────────────────────── */
 
@@ -183,6 +184,19 @@ function SettingsPageInner({ onOpenMap }: Props) {
   const handleVolume = useCallback((v: number) => {
     updateSettings({ volume: v });
     setVolume(v);
+  }, [updateSettings]);
+
+  // ── Theme change wrappers — route through crossfade overlay ──
+  const applyThemePack = useCallback((pack: string) => {
+    triggerThemeTransition(() => updateSettings({ themePack: pack as import('../../store/useStore').ThemePack }), pack);
+  }, [updateSettings]);
+
+  const applyThemeStyle = useCallback((style: import('../../store/useStore').ThemeStyle) => {
+    triggerThemeTransition(() => updateSettings({ themeStyle: style }));
+  }, [updateSettings]);
+
+  const applyWidgetStyle = useCallback((style: import('../../store/useStore').WidgetStyle) => {
+    triggerThemeTransition(() => updateSettings({ widgetStyle: style }));
   }, [updateSettings]);
 
   const handleCustomWallpaper = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -381,65 +395,65 @@ function SettingsPageInner({ onOpenMap }: Props) {
                     <div>
                       <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Marka & Stil</div>
                       <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'tesla'} onClick={() => updateSettings({ themePack: 'tesla' })} icon={Layout} label="Tesla" />
-                        <ChoiceCard active={settings.themePack === 'bmw'} onClick={() => updateSettings({ themePack: 'bmw' })} icon={Palette} label="BMW" />
-                        <ChoiceCard active={settings.themePack === 'mercedes'} onClick={() => updateSettings({ themePack: 'mercedes' })} icon={Smartphone} label="Mercedes" />
-                        <ChoiceCard active={settings.themePack === 'audi'} onClick={() => updateSettings({ themePack: 'audi' })} icon={Layers} label="Audi" />
-                        <ChoiceCard active={settings.themePack === 'porsche'} onClick={() => updateSettings({ themePack: 'porsche' })} icon={Zap} label="Porsche" />
+                        <ChoiceCard active={settings.themePack === 'tesla'} onClick={() => applyThemePack('tesla')} icon={Layout} label="Tesla" />
+                        <ChoiceCard active={settings.themePack === 'bmw'} onClick={() => applyThemePack('bmw')} icon={Palette} label="BMW" />
+                        <ChoiceCard active={settings.themePack === 'mercedes'} onClick={() => applyThemePack('mercedes')} icon={Smartphone} label="Mercedes" />
+                        <ChoiceCard active={settings.themePack === 'audi'} onClick={() => applyThemePack('audi')} icon={Layers} label="Audi" />
+                        <ChoiceCard active={settings.themePack === 'porsche'} onClick={() => applyThemePack('porsche')} icon={Zap} label="Porsche" />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Atmosfer & Neon</div>
                       <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'cyberpunk'} onClick={() => updateSettings({ themePack: 'cyberpunk' })} icon={Zap} label="Neon" />
-                        <ChoiceCard active={settings.themePack === 'midnight'} onClick={() => updateSettings({ themePack: 'midnight' })} icon={ImageIcon} label="Gece" />
-                        <ChoiceCard active={settings.themePack === 'glass-pro'} onClick={() => updateSettings({ themePack: 'glass-pro' })} icon={Layers} label="Cam Pro" />
-                        <ChoiceCard active={settings.themePack === 'ambient'} onClick={() => updateSettings({ themePack: 'ambient' })} icon={Sun} label="Ortam" />
-                        <ChoiceCard active={settings.themePack === 'galaxy'} onClick={() => updateSettings({ themePack: 'galaxy' })} icon={Zap} label="Galaksi" />
+                        <ChoiceCard active={settings.themePack === 'cyberpunk'} onClick={() => applyThemePack('cyberpunk')} icon={Zap} label="Neon" />
+                        <ChoiceCard active={settings.themePack === 'midnight'} onClick={() => applyThemePack('midnight')} icon={ImageIcon} label="Gece" />
+                        <ChoiceCard active={settings.themePack === 'glass-pro'} onClick={() => applyThemePack('glass-pro')} icon={Layers} label="Cam Pro" />
+                        <ChoiceCard active={settings.themePack === 'ambient'} onClick={() => applyThemePack('ambient')} icon={Sun} label="Ortam" />
+                        <ChoiceCard active={settings.themePack === 'galaxy'} onClick={() => applyThemePack('galaxy')} icon={Zap} label="Galaksi" />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Sport & Teknik</div>
                       <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'redline'} onClick={() => updateSettings({ themePack: 'redline' })} icon={Zap} label="Redline" />
-                        <ChoiceCard active={settings.themePack === 'electric'} onClick={() => updateSettings({ themePack: 'electric' })} icon={Zap} label="Elektrik" />
-                        <ChoiceCard active={settings.themePack === 'carbon'} onClick={() => updateSettings({ themePack: 'carbon' })} icon={Layers} label="Karbon" />
-                        <ChoiceCard active={settings.themePack === 'night-city'} onClick={() => updateSettings({ themePack: 'night-city' })} icon={Layout} label="Şehir" />
-                        <ChoiceCard active={settings.themePack === 'range-rover'} onClick={() => updateSettings({ themePack: 'range-rover' })} icon={Smartphone} label="Range" />
+                        <ChoiceCard active={settings.themePack === 'redline'} onClick={() => applyThemePack('redline')} icon={Zap} label="Redline" />
+                        <ChoiceCard active={settings.themePack === 'electric'} onClick={() => applyThemePack('electric')} icon={Zap} label="Elektrik" />
+                        <ChoiceCard active={settings.themePack === 'carbon'} onClick={() => applyThemePack('carbon')} icon={Layers} label="Karbon" />
+                        <ChoiceCard active={settings.themePack === 'night-city'} onClick={() => applyThemePack('night-city')} icon={Layout} label="Şehir" />
+                        <ChoiceCard active={settings.themePack === 'range-rover'} onClick={() => applyThemePack('range-rover')} icon={Smartphone} label="Range" />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Minimal & Soft</div>
                       <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'minimal-dark'} onClick={() => updateSettings({ themePack: 'minimal-dark' })} icon={Smartphone} label="Koyu" />
-                        <ChoiceCard active={settings.themePack === 'minimal-light'} onClick={() => updateSettings({ themePack: 'minimal-light' })} icon={Sun} label="Açık" />
-                        <ChoiceCard active={settings.themePack === 'monochrome'} onClick={() => updateSettings({ themePack: 'monochrome' })} icon={Palette} label="Mono" />
-                        <ChoiceCard active={settings.themePack === 'arctic'} onClick={() => updateSettings({ themePack: 'arctic' })} icon={ImageIcon} label="Arktik" />
-                        <ChoiceCard active={settings.themePack === 'sunset'} onClick={() => updateSettings({ themePack: 'sunset' })} icon={Sun} label="Günbatımı" />
+                        <ChoiceCard active={settings.themePack === 'minimal-dark'} onClick={() => applyThemePack('minimal-dark')} icon={Smartphone} label="Koyu" />
+                        <ChoiceCard active={settings.themePack === 'minimal-light'} onClick={() => applyThemePack('minimal-light')} icon={Sun} label="Açık" />
+                        <ChoiceCard active={settings.themePack === 'monochrome'} onClick={() => applyThemePack('monochrome')} icon={Palette} label="Mono" />
+                        <ChoiceCard active={settings.themePack === 'arctic'} onClick={() => applyThemePack('arctic')} icon={ImageIcon} label="Arktik" />
+                        <ChoiceCard active={settings.themePack === 'sunset'} onClick={() => applyThemePack('sunset')} icon={Sun} label="Günbatımı" />
                       </div>
                     </div>
                   </Card>
 
                   <SectionTitle>Panel Stili</SectionTitle>
                   <Card className="grid grid-cols-3 gap-3">
-                    <ChoiceCard 
+                    <ChoiceCard
                       active={settings.themeStyle === 'glass'}
-                      onClick={() => updateSettings({ themeStyle: 'glass' })}
+                      onClick={() => applyThemeStyle('glass')}
                       icon={ImageIcon}
                       label="Cam"
                     />
-                    <ChoiceCard 
+                    <ChoiceCard
                       active={settings.themeStyle === 'neon'}
-                      onClick={() => updateSettings({ themeStyle: 'neon' })}
+                      onClick={() => applyThemeStyle('neon')}
                       icon={Zap}
                       label="Neon"
                     />
-                    <ChoiceCard 
+                    <ChoiceCard
                       active={settings.themeStyle === 'minimal'}
-                      onClick={() => updateSettings({ themeStyle: 'minimal' })}
+                      onClick={() => applyThemeStyle('minimal')}
                       icon={Smartphone}
                       label="Minimal"
                     />
@@ -512,21 +526,21 @@ function SettingsPageInner({ onOpenMap }: Props) {
                 <div className="flex flex-col gap-6">
                   <SectionTitle>Widget Tarzı</SectionTitle>
                   <Card className="grid grid-cols-3 gap-3">
-                    <ChoiceCard 
+                    <ChoiceCard
                       active={settings.widgetStyle === 'elevated'}
-                      onClick={() => updateSettings({ widgetStyle: 'elevated' })}
+                      onClick={() => applyWidgetStyle('elevated')}
                       icon={Layers}
                       label="Gölgeli"
                     />
-                    <ChoiceCard 
+                    <ChoiceCard
                       active={settings.widgetStyle === 'flat'}
-                      onClick={() => updateSettings({ widgetStyle: 'flat' })}
+                      onClick={() => applyWidgetStyle('flat')}
                       icon={Layout}
                       label="Düz"
                     />
-                    <ChoiceCard 
+                    <ChoiceCard
                       active={settings.widgetStyle === 'outlined'}
-                      onClick={() => updateSettings({ widgetStyle: 'outlined' })}
+                      onClick={() => applyWidgetStyle('outlined')}
                       icon={Smartphone}
                       label="Çizgisel"
                     />

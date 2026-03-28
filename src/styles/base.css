@@ -82,6 +82,20 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Custom Utilities ────────────────────────────────────── */
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.mask-fade {
+  mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+}
+
 /* OLED tema — kart arkaplanlarını siyaha çeker */
 [data-theme="oled"] .bg-\[\#0d1628\],
 [data-theme="oled"] .bg-\[\#0b1424\] {

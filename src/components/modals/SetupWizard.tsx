@@ -42,7 +42,7 @@ const STEPS: StepDef[] = [
 
 /* ── Tema meta verisi ────────────────────────────────────── */
 
-const THEME_META: Record<ThemePack, { color: string; label: string; emoji: string }> = {
+const THEME_META: Partial<Record<ThemePack, { color: string; label: string; emoji: string }>> = {
   tesla:           { color: '#3b82f6', label: 'Tesla',        emoji: '⚡' },
   bmw:             { color: '#ef4444', label: 'BMW Sport',     emoji: '🏎️' },
   mercedes:        { color: '#22c55e', label: 'Mercedes',      emoji: '🌿' },
@@ -264,7 +264,7 @@ export function SetupWizard() {
                 <p className="text-slate-500 text-sm">Daha sonra Ayarlar'dan değiştirilebilir.</p>
               </div>
               <div className="grid grid-cols-3 gap-2.5 w-full">
-                {(Object.entries(THEME_META) as [ThemePack, typeof THEME_META[ThemePack]][]).map(([id, meta]) => {
+                {(Object.entries(THEME_META) as [ThemePack, { color: string; label: string; emoji: string }][]).map(([id, meta]) => {
                   const active = settings.themePack === id;
                   return (
                     <button

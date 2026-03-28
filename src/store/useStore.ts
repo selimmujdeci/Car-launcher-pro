@@ -3,11 +3,12 @@ import { persist } from 'zustand/middleware';
 
 export type ThemeStyle = 'glass' | 'neon' | 'minimal';
 export type WidgetStyle = 'elevated' | 'flat' | 'outlined';
-export type ThemePack = 
-  | 'tesla' | 'bmw' | 'mercedes' | 'audi' | 'porsche' 
-  | 'range-rover' | 'cyberpunk' | 'midnight' | 'glass-pro' | 'ambient' 
-  | 'redline' | 'electric' | 'carbon' | 'minimal-dark' | 'minimal-light' 
-  | 'monochrome' | 'sunset' | 'night-city' | 'arctic' | 'galaxy';
+export type ThemePack =
+  | 'tesla' | 'bmw' | 'mercedes' | 'audi' | 'porsche'
+  | 'range-rover' | 'cyberpunk' | 'midnight' | 'glass-pro' | 'ambient'
+  | 'redline' | 'electric' | 'carbon' | 'minimal-dark' | 'minimal-light'
+  | 'monochrome' | 'sunset' | 'night-city' | 'arctic' | 'galaxy'
+  | 'big-cards' | 'ai-center' | 'tesla-x-night';
 export type ClockStyle = 'digital' | 'analog';
 export type VolumeStyle = 'bmw_polished' | 'tesla_ultra' | 'glass_orb' | 'ambient_line' | 'minimal_pro';
 export type GestureVolumeSide = 'left' | 'right' | 'off';

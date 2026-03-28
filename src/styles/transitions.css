@@ -1,45 +1,57 @@
 /* ════════════════════════════════════════════════════════════════ */
-/* SMOOTH TRANSITIONS — Premium Theme Change Animations             */
+/* SMOOTH TRANSITIONS — Premium Theme & Interaction Animations      */
 /* ════════════════════════════════════════════════════════════════ */
 
-/* Lite mode: Very light theme transitions */
-[data-performance-mode="lite"] [data-theme-style],
-[data-performance-mode="lite"] [data-widget-style],
-[data-performance-mode="lite"] [data-theme-pack],
-[data-performance-mode="lite"] [class*="rounded"],
-[data-performance-mode="lite"] [class*="bg-"],
-[data-performance-mode="lite"] div[class*="flex"] {
-  transition: background-color 100ms ease-out, border-color 100ms ease-out,
-              box-shadow 100ms ease-out, color 100ms ease-out;
+/*
+ * Theme PACK changes are handled by themeTransitionService.ts (crossfade overlay).
+ * CSS transitions here cover only the fine-grained properties that remain
+ * visible during/after the overlay (border-radius morphs, drive-state shifts, etc.)
+ * Broad [class*="bg-"] / div[class*="flex"] selectors are intentionally removed —
+ * they hit O(n) elements and cause expensive style recalculations on every render.
+ */
+
+/* ── Targeted section transitions — drive state / smart context ── */
+
+[data-section],
+[data-drive-hud],
+[data-dock] {
+  transition:
+    max-height   500ms cubic-bezier(0.4, 0, 0.2, 1),
+    max-width    500ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity      350ms ease,
+    flex         500ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Balanced mode: Normal theme transitions */
-[data-performance-mode="balanced"] [data-theme-style],
-[data-performance-mode="balanced"] [data-widget-style],
-[data-performance-mode="balanced"] [data-theme-pack],
-[data-performance-mode="balanced"] [class*="rounded"],
-[data-performance-mode="balanced"] [class*="bg-"],
-[data-performance-mode="balanced"] div[class*="flex"] {
-  transition: background-color 300ms ease-out, border-color 300ms ease-out,
-              box-shadow 300ms ease-out, color 300ms ease-out;
+/* ── Performance mode: reduce section transitions in lite/balanced ── */
+
+[data-performance-mode="lite"] [data-section],
+[data-performance-mode="lite"] [data-drive-hud],
+[data-performance-mode="lite"] [data-dock] {
+  transition:
+    max-height 150ms ease,
+    max-width  150ms ease,
+    opacity    100ms ease,
+    flex       150ms ease;
 }
 
-/* Premium mode: Rich theme transitions */
-[data-performance-mode="premium"] [data-theme-style],
-[data-performance-mode="premium"] [data-widget-style],
-[data-performance-mode="premium"] [data-theme-pack],
-[data-performance-mode="premium"] [class*="rounded"],
-[data-performance-mode="premium"] [class*="bg-"],
-[data-performance-mode="premium"] div[class*="flex"] {
-  transition: background-color 500ms cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 500ms cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1),
-              color 500ms ease-out;
+[data-performance-mode="balanced"] [data-section],
+[data-performance-mode="balanced"] [data-drive-hud],
+[data-performance-mode="balanced"] [data-dock] {
+  transition:
+    max-height 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    max-width  300ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity    220ms ease,
+    flex       300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Interactive elements — instant feedback, no transition delay */
+/* ── Interactive elements — snappy tactile feedback ─────────────── */
+
 button {
-  transition: none !important;
+  transition:
+    transform      0.12s ease,
+    box-shadow     0.18s ease,
+    filter         0.15s ease,
+    opacity        0.12s ease;
 }
 
 button:active {
@@ -49,11 +61,12 @@ button:active {
 button:focus,
 button:focus-visible {
   outline: none;
-  filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
 }
 
-button:hover {
-  filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3));
+/* ── Lite mode: strip button transitions for max perf ─────────── */
+
+[data-performance-mode="lite"] button {
+  transition: transform 0.08s ease;
 }
 
 /* ── Keyframe Animations — PERFORMANCE SAFE MODE: disabled ─── */

@@ -470,6 +470,17 @@
 
 /* ── SLEEP MODE ──────────────────────────────────────────── */
 
+/* ── Premium Settings Shortcut ───────────────────────────── */
+[data-drive-size="compact"] {
+  transform: scale(0.85) translate(4px, -4px);
+  opacity: 0.5;
+}
+
+[data-drive-size="compact"]:hover {
+  opacity: 1;
+  transform: scale(1) translate(0, 0);
+}
+
 .sleep-overlay {
   animation: sleep-fade-in 600ms ease-out both;
 }
