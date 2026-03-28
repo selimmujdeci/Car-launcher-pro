@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- ── Sorgu bildirimleri (API 30+ paket görünürlüğü) ─────────────── -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -18,6 +20,11 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="http" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application
@@ -28,6 +35,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- ── Ana Activity ─────────────────────────────────────────────── -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -44,6 +52,7 @@
             android:clearTaskOnLaunch="true"
             android:showOnLockScreen="true">
 
+            <!-- Launcher + Home ekranı olarak kaydet -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -53,17 +62,48 @@
 
         </activity>
 
-        <!-- Boot receiver: starts launcher after device power-on -->
+        <!-- ── Boot receiver: cihaz açıldığında launcher'ı başlat ────── -->
+        <!-- priority="1000": diğer receiver'lardan önce çalışsın       -->
         <receiver
             android:name=".BootReceiver"
             android:exported="true"
             android:enabled="true">
-            <intent-filter>
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- API 24+ şifreli cihazlar — Direct Boot -->
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <!-- HTC / Xiaomi ve bazı OEM'ler -->
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </receiver>
 
+        <!-- ── Arka plan GPS + mola hatırlatıcısı Foreground Service ─────
+             location foregroundServiceType gerektirir.
+             Android 12+'de kullanıcı konum iznini ön planda vermeli.
+        ──────────────────────────────────────────────────────────────── -->
+        <service
+            android:name=".CarLauncherForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- ── Media oturumu okuma için NotificationListenerService ─────
+             Kullanıcı Ayarlar → Bildirim Erişimi → Car Launcher Pro'yu
+             etkinleştirdiğinde bu servis bağlanır ve MediaSessionManager
+             üzerinden aktif medya oturumuna erişim sağlar.
+        ──────────────────────────────────────────────────────────────── -->
+        <service
+            android:name=".MediaListenerService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- ── FileProvider (dashcam, çekim kayıtları için) ─────────── -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -71,30 +111,69 @@
             android:grantUriPermissions="true">
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"></meta-data>
+                android:resource="@xml/file_paths" />
         </provider>
+
     </application>
 
-    <!-- Permissions -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         İZİNLER
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- Temel ağ -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- Cihaz boot & ekran kilidi -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Wake screen on boot for car head unit -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Network state (Wi-Fi connected check) -->
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- GPS / Konum -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Arka planda GPS (dashcam + trip log için) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
-    <!-- Bluetooth (API < 31) -->
+    <!-- Bluetooth — OBD ELM327 bağlantısı -->
+    <!-- API < 31 -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <!-- Bluetooth (API 31+) — OBD adapter connect + paired device names -->
+    <!-- API 31+ -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Needed on API 31+ to call cancelDiscovery() before OBD connect -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
 
-    <!-- GPS permissions -->
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Mikrofon — sesli asistan -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Kamera — geri görüş kamerası -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Kişiler — Android rehber senkronizasyonu -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Depolama — dashcam kayıtları -->
+    <!-- API 28 ve altı -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- API 33+ (Android 13) — granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Sistem ayarları — ekran parlaklığı (WRITE_SETTINGS) -->
+    <!-- Uygulama normal WRITE_SETTINGS talep edebilir;
+         Android, kullanıcıyı özel izin ekranına yönlendirir -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Ön plan servisi — arka planda GPS/dashcam -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
 </manifest>

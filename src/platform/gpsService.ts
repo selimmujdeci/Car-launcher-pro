@@ -194,3 +194,28 @@ export function useGPSState() {
 export function useGPSAvailable() {
   return useGPSStore((s) => !s.unavailable);
 }
+
+/**
+ * Arka plan GPS servisinden gelen konum verisini store'a besle.
+ * CarLauncherForegroundService → CarLauncherPlugin → backgroundLocation event → buraya.
+ * Capacitor Geolocation minimize olunca dursa bile GPS takibi sürekliliği sağlanır.
+ */
+export function feedBackgroundLocation(data: {
+  lat:      number;
+  lng:      number;
+  speed:    number;   // km/h (CarLauncherForegroundService'den geliyor)
+  bearing:  number;
+  accuracy: number;
+}): void {
+  handlePosition(
+    {
+      latitude:  data.lat,
+      longitude: data.lng,
+      accuracy:  data.accuracy,
+      altitude:  null,
+      heading:   data.bearing,
+      speed:     data.speed / 3.6, // km/h → m/s (GPS API standardı)
+    },
+    Date.now(),
+  );
+}

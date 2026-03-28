@@ -35,7 +35,8 @@ export type CommandType =
   | 'toggle_sleep_mode'
   | 'vehicle_speed'
   | 'vehicle_fuel'
-  | 'vehicle_temp';
+  | 'vehicle_temp'
+  | 'vehicle_maintenance';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -206,6 +207,17 @@ const PATTERNS: CommandPattern[] = [
     label: 'Motor Sıcaklığını Göster', example: 'motor sıcaklığı kaç',
     keywords: ['motor sıcaklığı kaç', 'motor sıcaklığı nedir', 'motor ısısı', 'engine temp', 'sıcaklık kaç'],
     tokens:   ['motor', 'sıcaklık', 'temp', 'temperature', 'ısı'],
+  },
+  {
+    type: 'vehicle_maintenance', priority: 'normal',
+    feedback: 'Bakım bilgileri gösteriliyor',
+    label: 'Bakım Durumunu Göster', example: 'bakım ne zaman',
+    keywords: [
+      'bakım ne zaman', 'bakım durumu', 'araç bakımı', 'bakım zamanı',
+      'muayene ne zaman', 'sigorta ne zaman', 'kasko ne zaman',
+      'yağ değişimi ne zaman', 'yağ ne zaman', 'servis ne zaman',
+    ],
+    tokens: ['bakım', 'muayene', 'sigorta', 'kasko', 'servis'],
   },
 ];
 

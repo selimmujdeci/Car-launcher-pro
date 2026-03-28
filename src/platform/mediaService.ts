@@ -10,27 +10,59 @@
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
+import type { NativeMediaInfo } from './nativePlugin';
 
 /* ── Types ───────────────────────────────────────────────── */
 
 export interface TrackInfo {
   title: string;
   artist: string;
+  albumArt?: string; // URL or base64
   durationSec: number;
   positionSec: number;
 }
 
+export type MediaSource =
+  | 'spotify'
+  | 'youtube'
+  | 'youtube_music'
+  | 'local'
+  | 'bluetooth'
+  | 'unknown';
+
 export interface MediaState {
-  playing: boolean;
-  track: TrackInfo;
+  playing:       boolean;
+  source:        MediaSource;
+  track:         TrackInfo;
+  activePackage: string;   // native'de tespit edilen paket adı
+  activeAppName: string;   // kullanıcıya görünen uygulama adı
+  hasSession:    boolean;  // aktif medya oturumu var mı (pasif mod için)
 }
 
 /* ── Demo data ───────────────────────────────────────────── */
 
 const DEMO_TRACKS: TrackInfo[] = [
-  { title: 'Blinding Lights',   artist: 'The Weeknd',       durationSec: 200, positionSec: 84  },
-  { title: 'As It Was',         artist: 'Harry Styles',     durationSec: 167, positionSec: 12  },
-  { title: 'Starboy',           artist: 'The Weeknd',       durationSec: 230, positionSec: 0   },
+  { 
+    title: 'Blinding Lights',   
+    artist: 'The Weeknd',       
+    durationSec: 200, 
+    positionSec: 84,
+    albumArt: 'https://i.scdn.co/image/ab67616d0000b273c5113d961e6992d9e03d7c4b'
+  },
+  { 
+    title: 'As It Was',         
+    artist: 'Harry Styles',     
+    durationSec: 167, 
+    positionSec: 12,
+    albumArt: 'https://i.scdn.co/image/ab67616d0000b273b46f74097655d7f353caab14'
+  },
+  { 
+    title: 'Starboy',           
+    artist: 'The Weeknd',       
+    durationSec: 230, 
+    positionSec: 0,
+    albumArt: 'https://i.scdn.co/image/ab67616d0000b2734718e2b124f79258be7bc39d'
+  },
 ];
 
 let _demoIndex = 0;
@@ -38,8 +70,13 @@ let _demoIndex = 0;
 /* ── Module-level state ──────────────────────────────────── */
 
 let _current: MediaState = {
-  playing: false,
-  track: { ...DEMO_TRACKS[0] },
+  playing:       false,
+  source:        'spotify',
+  track:         { ...DEMO_TRACKS[0] },
+  activePackage: '',
+  activeAppName: 'Spotify',
+  // Web/demo modda demo track her zaman görünür; native'de ilk poll'a kadar pasif
+  hasSession:    !isNative,
 };
 const _listeners = new Set<(s: MediaState) => void>();
 
@@ -56,6 +93,14 @@ export function updateMediaState(partial: Partial<MediaState>): void {
     track: partial.track ? { ..._current.track, ...partial.track } : _current.track,
   };
   _listeners.forEach((fn) => fn(_current));
+}
+
+export function getMediaState(): MediaState {
+  return _current;
+}
+
+export function setSource(source: MediaSource): void {
+  updateMediaState({ source });
 }
 
 /* ── Playback controls ───────────────────────────────────── */
@@ -134,4 +179,114 @@ export function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/* ── Media Hub — aktif medya oturumu tespiti ─────────────── */
+
+const PACKAGE_SOURCE: Record<string, MediaSource> = {
+  'com.spotify.music':                      'spotify',
+  'com.google.android.youtube':             'youtube',
+  'com.google.android.apps.youtube.music':  'youtube_music',
+  'com.vanced.android.youtube':             'youtube',
+  'app.revanced.android.youtube':           'youtube',
+  'com.soundcloud.android':                 'local',
+  'com.amazon.music':                       'local',
+  'com.deezer.android.app':                 'local',
+  'com.tidal.android':                      'local',
+  'com.apple.android.music':                'local',
+};
+
+const PACKAGE_LABEL: Record<string, string> = {
+  'com.spotify.music':                      'Spotify',
+  'com.google.android.youtube':             'YouTube',
+  'com.google.android.apps.youtube.music':  'YT Music',
+  'com.vanced.android.youtube':             'YouTube',
+  'app.revanced.android.youtube':           'YouTube',
+  'com.soundcloud.android':                 'SoundCloud',
+  'com.amazon.music':                       'Amazon Müzik',
+  'com.deezer.android.app':                 'Deezer',
+  'com.tidal.android':                      'Tidal',
+  'com.apple.android.music':                'Apple Music',
+};
+
+function applyNativeMediaInfo(info: NativeMediaInfo): void {
+  const pkg    = info.packageName ?? '';
+  const source: MediaSource = PACKAGE_SOURCE[pkg]
+    ?? (pkg.toLowerCase().includes('bluetooth') ? 'bluetooth' : 'unknown');
+  const appName   = PACKAGE_LABEL[pkg] || info.appName || 'Medya';
+  // Gerçek oturum var: başlık, sanatçı veya oynatma durumundan en az biri dolu
+  const hasSession = !!(info.title || info.artist || info.playing);
+
+  updateMediaState({
+    hasSession,
+    playing:       info.playing,
+    source,
+    activePackage: pkg,
+    activeAppName: appName,
+    track: {
+      title:       info.title       || _current.track.title,
+      artist:      info.artist      || _current.track.artist,
+      albumArt:    info.albumArt    ?? _current.track.albumArt,
+      durationSec: info.durationMs  > 0 ? Math.round(info.durationMs / 1000)  : _current.track.durationSec,
+      positionSec: info.positionMs  > 0 ? Math.round(info.positionMs / 1000)  : _current.track.positionSec,
+    },
+  });
+}
+
+let _hubTimer:        ReturnType<typeof setInterval> | null = null;
+let _hubListenerStop: (() => void) | null = null;
+
+export async function startMediaHub(): Promise<void> {
+  if (isNative) {
+    // Gerçek zamanlı event dinle
+    try {
+      const handle = await CarLauncher.addListener('mediaChanged', applyNativeMediaInfo);
+      _hubListenerStop = () => handle.remove();
+    } catch { /* plugin bu eventi desteklemiyor */ }
+
+    // Her 2 sn'de bir poll et (event'ler arasındaki boşlukları doldurur)
+    const poll = async () => {
+      try {
+        const info = await CarLauncher.getMediaInfo();
+        applyNativeMediaInfo(info);
+      } catch {
+        // Aktif medya oturumu yok → pasif moda geç
+        updateMediaState({ hasSession: false });
+      }
+    };
+
+    poll();
+    if (_hubTimer) clearInterval(_hubTimer);
+    _hubTimer = setInterval(poll, 2000);
+    return;
+  }
+
+  // Web: navigator.mediaSession varsa oku
+  const pollWeb = () => {
+    const ms = navigator.mediaSession;
+    if (!ms?.metadata) return;
+    const m = ms.metadata;
+    updateMediaState({
+      playing:       ms.playbackState === 'playing',
+      source:        'unknown',
+      activePackage: '',
+      activeAppName: 'Tarayıcı',
+      track: {
+        title:       m.title  || _current.track.title,
+        artist:      m.artist || _current.track.artist,
+        albumArt:    m.artwork?.[0]?.src ?? _current.track.albumArt,
+        durationSec: _current.track.durationSec,
+        positionSec: _current.track.positionSec,
+      },
+    });
+  };
+
+  pollWeb();
+  if (_hubTimer) clearInterval(_hubTimer);
+  _hubTimer = setInterval(pollWeb, 2000);
+}
+
+export function stopMediaHub(): void {
+  if (_hubTimer)        { clearInterval(_hubTimer);  _hubTimer = null; }
+  if (_hubListenerStop) { _hubListenerStop();         _hubListenerStop = null; }
 }

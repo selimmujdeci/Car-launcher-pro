@@ -1,4 +1,4 @@
-import maplibregl, { Map as MapLibreMap, GeoJSONSource } from 'maplibre-gl';
+import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { registerOfflineServiceWorker } from './serviceWorkerManager';
@@ -456,10 +456,14 @@ function speedToZoom(speedKmh: number): number {
 }
 
 let _lastDrivingZoom = 15.5;
+let _inTurnApproach  = false;
 
 /**
  * Navigation (driving) view: vehicle offset lower on screen, map rotates with
- * heading, zoom adapts to speed. Includes 3D pitch for perspective.
+ * heading, zoom adapts to speed. Includes 3D pitch, look-ahead offset,
+ * and turn approach zoom-in for premium driving feel.
+ *
+ * @param turnApproachM — metres to next turn (undefined = no active route step)
  */
 export function setDrivingView(
   map: MapLibreMap,
@@ -468,29 +472,48 @@ export function setDrivingView(
   heading: number,
   speedKmh: number,
   containerHeight: number,
+  turnApproachM?: number,
 ) {
   if (!map || !map.isStyleLoaded()) return;
 
-  const targetZoom = speedToZoom(speedKmh);
-  // Hysteresis: only commit zoom change when difference is meaningful to prevent jitter
-  const zoom = Math.abs(targetZoom - _lastDrivingZoom) > 0.15
-    ? targetZoom
-    : _lastDrivingZoom;
-  _lastDrivingZoom = zoom;
+  // ── Base zoom (speed-adaptive) with hysteresis ────────────
+  const baseZoom = speedToZoom(speedKmh);
+  const smoothed = Math.abs(baseZoom - _lastDrivingZoom) > 0.15 ? baseZoom : _lastDrivingZoom;
 
-  // Top padding pushes the visual center downward (lower ~65% of viewport)
+  // ── Turn approach zoom-in ──────────────────────────────────
+  // Boost zoom by up to +1.8 levels as we close within 180 m of the next turn.
+  const approaching = turnApproachM !== undefined && turnApproachM > 0 && turnApproachM < 180;
+  let targetZoom = smoothed;
+  if (approaching) {
+    const factor = Math.pow(Math.max(0, (180 - turnApproachM) / 180), 1.5);
+    targetZoom   = Math.min(18.5, smoothed + factor * 1.8);
+    _inTurnApproach = true;
+  } else if (_inTurnApproach) {
+    _inTurnApproach = false;
+    // zoom naturally recovers to smoothed on next GPS tick
+  }
+  _lastDrivingZoom = targetZoom;
+
+  // ── Look-ahead offset (camera sees road ahead, not just car) ──
+  // Shift center forward along heading: 0 m at rest → 55 m at 110 km/h
+  const lookAheadM   = Math.min(55, speedKmh * 0.5);
+  const lookAheadDeg = lookAheadM / 111_320;
+  const headRad      = (heading * Math.PI) / 180;
+  const cosLat       = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
+  const centerLat    = lat + lookAheadDeg * Math.cos(headRad);
+  const centerLng    = lng + lookAheadDeg * Math.sin(headRad) / cosLat;
+
+  // ── Pitch & padding ───────────────────────────────────────
   const topPad = Math.round(containerHeight * 0.42);
-  
-  // 3D Tilt: increased at higher speeds for better horizon view
-  const pitch = Math.min(65, 45 + (speedKmh * 0.15));
+  const pitch  = Math.min(65, 45 + speedKmh * 0.15);
 
   map.easeTo({
-    center: [lng, lat],
+    center:  [centerLng, centerLat],
     bearing: heading,
-    zoom,
+    zoom:    targetZoom,
     pitch,
-    padding: { top: topPad, bottom: 0, left: 0, right: 0 },
-    duration: 1000,
+    padding:  { top: topPad, bottom: 0, left: 0, right: 0 },
+    duration: approaching ? 1200 : 1000,
     essential: true,
   });
 }
@@ -516,6 +539,137 @@ export function setDrivingMode(enabled: boolean) {
 
 export function useDrivingMode() {
   return useMapStore((s) => s.drivingMode);
+}
+
+/* ── Rota çizgisi ───────────────────────────────────────────── */
+
+const ROUTE_SRC  = 'car-route';
+const ROUTE_GLOW = 'car-route-glow';
+const ROUTE_CASE = 'car-route-casing';
+const ROUTE_FILL = 'car-route-fill';
+
+/**
+ * Haritada premium rota çizgisi göster ya da güncelle.
+ * Beyaz dış casing + mavi iç çizgi — GPS marker'ının altında durur.
+ */
+export function setRouteGeometry(
+  map:         MapLibreMap,
+  coordinates: [number, number][],
+): void {
+  if (!map?.isStyleLoaded() || !coordinates.length) return;
+
+  const data = {
+    type: 'Feature' as const,
+    geometry: { type: 'LineString' as const, coordinates },
+    properties: {},
+  };
+
+  // Kaynak zaten varsa sadece veri güncelle
+  if (map.getSource(ROUTE_SRC)) {
+    (map.getSource(ROUTE_SRC) as GeoJSONSource).setData(data);
+    return;
+  }
+
+  map.addSource(ROUTE_SRC, { type: 'geojson', data });
+
+  // Alt glow katmanı — daha geniş ve yumuşak neon hale efekti (32px, blur 8)
+  map.addLayer({
+    id: ROUTE_GLOW,
+    type: 'line',
+    source: ROUTE_SRC,
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: {
+      'line-color': '#3b82f6',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 16, 16, 32, 20, 48],
+      'line-opacity': 0.15,
+      'line-blur': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 8, 20, 12],
+    },
+  });
+
+  // Dış beyaz/cam casing (14px)
+  map.addLayer({
+    id: ROUTE_CASE,
+    type: 'line',
+    source: ROUTE_SRC,
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: {
+      'line-color': '#ffffff',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 14, 20, 20],
+      'line-opacity': 0.4,
+    },
+  });
+
+  // İç ana premium çizgi (8px) — canlı mavi
+  map.addLayer({
+    id: ROUTE_FILL,
+    type: 'line',
+    source: ROUTE_SRC,
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: {
+      'line-color': '#2563eb',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 8, 20, 12],
+      'line-opacity': 1,
+    },
+  }, ROUTE_CASE);
+
+  // Kullanıcı marker'ının altına taşı: GLOW → CASE → FILL → car-accuracy
+  try {
+    if (map.getLayer('car-accuracy')) {
+      map.moveLayer(ROUTE_GLOW, 'car-accuracy');
+      map.moveLayer(ROUTE_CASE, 'car-accuracy');
+      map.moveLayer(ROUTE_FILL, 'car-accuracy');
+    }
+  } catch { /* best effort */ }
+}
+
+/** Rota çizgisini ve kaynağını haritadan kaldır. */
+export function clearRouteGeometry(map: MapLibreMap): void {
+  if (!map) return;
+  try {
+    if (map.getLayer(ROUTE_FILL)) map.removeLayer(ROUTE_FILL);
+    if (map.getLayer(ROUTE_CASE)) map.removeLayer(ROUTE_CASE);
+    if (map.getLayer(ROUTE_GLOW)) map.removeLayer(ROUTE_GLOW);
+    if (map.getSource(ROUTE_SRC)) map.removeSource(ROUTE_SRC);
+  } catch { /* ignore — style may already be reset */ }
+  clearTurnFocus();
+}
+
+/* ── Dönüş odak noktası (turn focus marker) ────────────────── */
+
+let _turnFocusMarker: Marker | null = null;
+
+/**
+ * Bir sonraki dönüş noktasını haritada vurgula (CSS animasyonlu DOM marker).
+ * Aynı noktayı tekrar geçince sadece konum güncellenir — yeniden oluşturulmaz.
+ */
+export function setTurnFocus(map: MapLibreMap, lon: number, lat: number): void {
+  if (!map) return;
+  if (_turnFocusMarker) {
+    _turnFocusMarker.setLngLat([lon, lat]);
+    return;
+  }
+  const el = document.createElement('div');
+  el.style.cssText = [
+    'width:36px',
+    'height:36px',
+    'border-radius:50%',
+    'background:rgba(245,158,11,0.22)',
+    'border:2px solid rgba(245,158,11,0.82)',
+    'box-shadow:0 0 18px rgba(245,158,11,0.45),0 0 6px rgba(245,158,11,0.7)',
+    'animation:turnFocusPulse 1.4s ease-in-out infinite',
+    'pointer-events:none',
+  ].join(';');
+  _turnFocusMarker = new Marker({ element: el, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .addTo(map);
+}
+
+/** Dönüş odak marker'ını kaldır. */
+export function clearTurnFocus(): void {
+  if (_turnFocusMarker) {
+    _turnFocusMarker.remove();
+    _turnFocusMarker = null;
+  }
 }
 
 export function destroyMap() {

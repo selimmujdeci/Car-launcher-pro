@@ -1,28 +1,49 @@
 package com.carlauncher.pro;
 
-import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothSocket;
+import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.ImageFormat;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CameraCaptureSession;
 import android.media.AudioManager;
+import android.media.Image;
+import android.media.ImageReader;
+import android.util.Base64;
+import android.view.Surface;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.provider.ContactsContract;
 import android.provider.Settings;
 import android.speech.RecognizerIntent;
+import android.view.KeyEvent;
 import android.view.WindowManager;
-import java.util.ArrayList;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -31,9 +52,23 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.Enumeration;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -44,29 +79,35 @@ import java.util.concurrent.Executors;
  * CarLauncherPlugin — native Android bridge for Car Launcher Pro.
  *
  * Methods:
- *   launchApp(packageName?, action?, data?)  — launch with full fallback chain
- *   getDeviceStatus()                        — BT / Wi-Fi / battery snapshot
- *   scanOBD()                                — list paired Bluetooth devices
- *   connectOBD(address)                      — connect to ELM327 OBD adapter
- *   disconnectOBD()                          — close OBD connection
+ *   launchApp(packageName?, action?, data?, category?)
+ *   getApps()
+ *   getDeviceStatus()
+ *   sendMediaAction(action)        — play/pause/next/previous via KeyEvent
+ *   getMediaInfo()                 — active MediaSession metadata
+ *   getContacts()                  — Android contacts (READ_CONTACTS)
+ *   scanOBD()                      — paired Bluetooth devices
+ *   connectOBD(address)            — ELM327 Bluetooth connection
+ *   disconnectOBD()
+ *   setBrightness(value)           — 0–255
+ *   setVolume(value)               — 0–15
+ *   startSpeechRecognition(...)
  *
- * Events (via notifyListeners):
- *   obdStatus  { state: 'disconnected'|'error', message? }
- *   obdData    { speed, rpm, engineTemp, fuelLevel }  (every ~3 s)
+ * Events (notifyListeners):
+ *   obdStatus      { state, message? }
+ *   obdData        { speed, rpm, engineTemp, fuelLevel }
+ *   mediaChanged   { packageName, appName, title, artist, albumArt?, playing,
+ *                    durationMs, positionMs }
  */
 @CapacitorPlugin(name = "CarLauncher")
 public class CarLauncherPlugin extends Plugin {
 
-    // ── App launch ──────────────────────────────────────────
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // ── App launch ──────────────────────────────────────────────────────────
 
     /**
      * Launch an app using the best available strategy.
-     *
-     * Fallback chain (in order):
-     *   1. packageName  → getLaunchIntentForPackage
-     *   2. action       → Intent(action) [with optional data URI]
-     *   3. data (URL)   → ACTION_VIEW
-     *   4. packageName  → Play Store (if package provided but not installed)
+     * Fallback chain: packageName → action → category → Play Store → raw URL
      */
     @PluginMethod
     public void launchApp(PluginCall call) {
@@ -78,7 +119,7 @@ public class CarLauncherPlugin extends Plugin {
         try {
             Intent intent = resolveIntent(packageName, action, data, category);
             if (intent == null) {
-                call.reject("INVALID_ARGS", "No launchable target found");
+                call.reject("INVALID_ARGS", "Başlatılabilir hedef bulunamadı");
                 return;
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -89,9 +130,6 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
-    /**
-     * Scan all apps with CATEGORY_LAUNCHER.
-     */
     @PluginMethod
     public void getApps(PluginCall call) {
         try {
@@ -107,10 +145,9 @@ public class CarLauncherPlugin extends Plugin {
                 app.put("name",        info.loadLabel(pm).toString());
                 app.put("packageName", info.activityInfo.packageName);
                 app.put("className",   info.activityInfo.name);
-
-                boolean isSystem = (info.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                boolean isSystem = (info.activityInfo.applicationInfo.flags
+                                    & ApplicationInfo.FLAG_SYSTEM) != 0;
                 app.put("isSystemApp", isSystem);
-
                 apps.put(app);
             }
 
@@ -122,99 +159,415 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
-    private Intent resolveIntent(String packageName, String action, String data, String category) {
+    private Intent resolveIntent(String pkg, String action, String data, String category) {
         PackageManager pm = getContext().getPackageManager();
+        boolean pkgInstalled = false;
 
-        // 1. Try package directly
-        if (isPresent(packageName)) {
-            Intent intent = pm.getLaunchIntentForPackage(packageName);
-            if (intent != null) return intent;
+        if (present(pkg)) {
+            // Check whether the package is actually installed on this device
+            try { pm.getPackageInfo(pkg, 0); pkgInstalled = true; }
+            catch (PackageManager.NameNotFoundException ignored) {}
+
+            if (pkgInstalled) {
+                // Standard launcher intent
+                Intent i = pm.getLaunchIntentForPackage(pkg);
+                if (i != null) return i;
+
+                // Some OEM apps don't expose a launcher intent via getLaunchIntentForPackage;
+                // try a manual ACTION_MAIN + CATEGORY_LAUNCHER query scoped to the package.
+                Intent qi = new Intent(Intent.ACTION_MAIN);
+                qi.addCategory(Intent.CATEGORY_LAUNCHER);
+                qi.setPackage(pkg);
+                List<ResolveInfo> acts = pm.queryIntentActivities(qi, 0);
+                if (!acts.isEmpty()) {
+                    Intent manual = new Intent(Intent.ACTION_MAIN);
+                    manual.addCategory(Intent.CATEGORY_LAUNCHER);
+                    manual.setClassName(acts.get(0).activityInfo.packageName,
+                                        acts.get(0).activityInfo.name);
+                    return manual;
+                }
+            }
         }
 
-        // 2. Try action (even if package was provided but not found/launcher)
-        if (isPresent(action)) {
-            Intent intent = buildActionIntent(action, data);
-            if (intent != null && intent.resolveActivity(pm) != null) return intent;
+        if (present(action)) {
+            Intent i = new Intent(action);
+            if (present(data)) i.setData(Uri.parse(data));
+            if (i.resolveActivity(pm) != null) return i;
         }
 
-        // 3. Try standard Category (e.g. CATEGORY_APP_MESSAGING)
-        if (isPresent(category) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            Intent intent = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, category);
-            if (intent != null && intent.resolveActivity(pm) != null) return intent;
+        if (present(category)) {
+            Intent i = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, category);
+            if (i != null && i.resolveActivity(pm) != null) return i;
         }
 
-        // 4. Fallback to Market (only as last resort for a specific package)
-        if (isPresent(packageName)) {
-            return new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageName));
+        // Play Store fallback — ONLY when the package is NOT installed on the device
+        if (present(pkg) && !pkgInstalled) {
+            return new Intent(Intent.ACTION_VIEW,
+                Uri.parse("market://details?id=" + pkg));
         }
 
-        // 5. Raw data view
-        if (isPresent(data)) return new Intent(Intent.ACTION_VIEW, Uri.parse(data));
+        if (present(data)) return new Intent(Intent.ACTION_VIEW, Uri.parse(data));
 
         return null;
     }
 
-    private Intent buildActionIntent(String action, String data) {
-        Intent intent = new Intent(action);
-        if (isPresent(data)) intent.setData(Uri.parse(data));
-        return intent;
-    }
-
-    private static boolean isPresent(String s) {
-        return s != null && !s.isEmpty();
-    }
-
-    // ── Device status ───────────────────────────────────────
+    // ── Device status ───────────────────────────────────────────────────────
 
     @PluginMethod
     public void getDeviceStatus(PluginCall call) {
         JSObject result = new JSObject();
 
+        // ── Bluetooth ──
         BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
-        boolean btEnabled = btAdapter != null && btAdapter.isEnabled();
-        result.put("btConnected", btEnabled);
-        result.put("btDevice", btEnabled ? "Bağlı Cihaz" : "");
+        boolean btOn = btAdapter != null && btAdapter.isEnabled();
+        boolean btConnected = false;
+        String  btDevice    = "";
 
+        if (btOn) {
+            try {
+                // Check A2DP (audio) profile connection state — fast, no callback needed
+                int a2dp = btAdapter.getProfileConnectionState(BluetoothProfile.A2DP);
+                int hfp  = btAdapter.getProfileConnectionState(BluetoothProfile.HEADSET);
+                btConnected = (a2dp == BluetoothProfile.STATE_CONNECTED)
+                           || (hfp  == BluetoothProfile.STATE_CONNECTED);
+
+                // Get the name of the connected device via reflection (unofficial but stable)
+                Set<BluetoothDevice> bonded = btAdapter.getBondedDevices();
+                if (bonded != null) {
+                    for (BluetoothDevice dev : bonded) {
+                        try {
+                            Method m = dev.getClass().getMethod("isConnected");
+                            if (Boolean.TRUE.equals(m.invoke(dev))) {
+                                btDevice = dev.getName();
+                                btConnected = true;
+                                break;
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } catch (SecurityException ignored) {
+                btConnected = btOn;
+            }
+        }
+        result.put("btConnected", btConnected);
+        result.put("btDevice",    btDevice);
+
+        // ── Wi-Fi ──
         ConnectivityManager cm =
             (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo wifiInfo = cm.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
-        boolean wifiConnected = wifiInfo != null && wifiInfo.isConnected();
-        result.put("wifiConnected", wifiConnected);
-        result.put("wifiName", "");
+        boolean wifiOn = wifiInfo != null && wifiInfo.isConnected();
+        result.put("wifiConnected", wifiOn);
+        result.put("wifiName", getWifiSSID(wifiOn));
 
+        // ── Battery ──
         IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        Intent batteryIntent = getContext().registerReceiver(null, ifilter);
-        int level = batteryIntent != null
-            ? batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) : 0;
-        int scale = batteryIntent != null
-            ? batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, 100) : 100;
-        result.put("battery", scale > 0 ? (int) ((level / (float) scale) * 100) : 0);
+        Intent bat = getContext().registerReceiver(null, ifilter);
+        int level = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)  : 0;
+        int scale = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_SCALE, 100): 100;
+        int pct   = scale > 0 ? (int) ((level / (float) scale) * 100) : 0;
+        result.put("battery", pct);
 
-        int status = batteryIntent != null
-            ? batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1) : -1;
-        boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
-                        || status == BatteryManager.BATTERY_STATUS_FULL;
-        result.put("charging", charging);
+        int status = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_STATUS, -1) : -1;
+        result.put("charging",
+            status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL);
 
         call.resolve(result);
     }
 
-    // ── OBD-II Bluetooth ────────────────────────────────────
+    private String getWifiSSID(boolean wifiConnected) {
+        if (!wifiConnected || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return "";
+        try {
+            WifiManager wm = (WifiManager) getContext().getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) return "";
+            WifiInfo wi = wm.getConnectionInfo();
+            if (wi == null) return "";
+            String ssid = wi.getSSID();
+            if (ssid == null || ssid.equals("<unknown ssid>")) return "";
+            return ssid.startsWith("\"") ? ssid.substring(1, ssid.length() - 1) : ssid;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    // ── Media control ───────────────────────────────────────────────────────
+
+    /**
+     * Dispatch a media key event to the currently active media session.
+     * Works system-wide without knowing which app is playing.
+     * action: "play" | "pause" | "next" | "previous"
+     */
+    @PluginMethod
+    public void sendMediaAction(PluginCall call) {
+        String action = call.getString("action", "");
+        int keyCode;
+        switch (action) {
+            case "play":
+            case "pause":
+                keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+                break;
+            case "next":
+                keyCode = KeyEvent.KEYCODE_MEDIA_NEXT;
+                break;
+            case "previous":
+                keyCode = KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+                break;
+            default:
+                call.reject("INVALID_ACTION", "Geçersiz aksiyon: " + action);
+                return;
+        }
+        try {
+            AudioManager am =
+                (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            long now = SystemClock.uptimeMillis();
+            am.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+            am.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP,   keyCode, 0));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("MEDIA_ACTION_FAILED", e.getMessage());
+        }
+    }
+
+    // ── Media session info ──────────────────────────────────────────────────
+
+    private volatile MediaController activeMediaController = null;
+    private volatile MediaController.Callback mediaCallback = null;
+
+    /**
+     * Return metadata of the currently active media session.
+     * Requires notification access (MediaListenerService must be enabled).
+     * On first call also registers a MediaController.Callback for mediaChanged events.
+     */
+    @PluginMethod
+    public void getMediaInfo(PluginCall call) {
+        MediaListenerService svc = MediaListenerService.instance;
+        if (svc == null) {
+            call.reject("NO_LISTENER",
+                "Bildirim erişim izni gerekli: Ayarlar → Uygulama Bildirimleri");
+            return;
+        }
+
+        try {
+            MediaSessionManager msm = (MediaSessionManager)
+                getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
+            ComponentName cn =
+                new ComponentName(getContext(), MediaListenerService.class);
+            List<MediaController> controllers = msm.getActiveSessions(cn);
+
+            if (controllers.isEmpty()) {
+                call.reject("NO_SESSION", "Aktif medya oturumu yok");
+                return;
+            }
+
+            MediaController ctrl = controllers.get(0);
+            ensureMediaCallback(ctrl);
+
+            call.resolve(buildMediaInfo(ctrl));
+
+        } catch (SecurityException e) {
+            call.reject("PERMISSION_DENIED", "Bildirim erişim izni gerekli");
+        } catch (Exception e) {
+            call.reject("MEDIA_INFO_FAILED", e.getMessage());
+        }
+    }
+
+    /** Register (or re-register) the MediaController.Callback on the active controller. */
+    private void ensureMediaCallback(MediaController ctrl) {
+        if (ctrl.equals(activeMediaController)) return; // already watching this one
+
+        // Unregister from the old controller
+        if (activeMediaController != null && mediaCallback != null) {
+            activeMediaController.unregisterCallback(mediaCallback);
+        }
+
+        activeMediaController = ctrl;
+
+        mediaCallback = new MediaController.Callback() {
+            @Override
+            public void onMetadataChanged(MediaMetadata metadata) {
+                JSObject info = buildMediaInfo(ctrl);
+                notifyListeners("mediaChanged", info);
+            }
+
+            @Override
+            public void onPlaybackStateChanged(PlaybackState state) {
+                JSObject info = buildMediaInfo(ctrl);
+                notifyListeners("mediaChanged", info);
+            }
+
+            @Override
+            public void onSessionDestroyed() {
+                if (ctrl.equals(activeMediaController)) {
+                    activeMediaController = null;
+                    mediaCallback         = null;
+                }
+            }
+        };
+
+        ctrl.registerCallback(mediaCallback, mainHandler);
+    }
+
+    private JSObject buildMediaInfo(MediaController ctrl) {
+        JSObject out = new JSObject();
+        out.put("packageName", ctrl.getPackageName());
+
+        // Resolve human-readable app name from package
+        String appName = ctrl.getPackageName();
+        try {
+            appName = (String) getContext().getPackageManager()
+                .getApplicationLabel(getContext().getPackageManager()
+                    .getApplicationInfo(ctrl.getPackageName(), 0));
+        } catch (Exception ignored) {}
+        out.put("appName", appName);
+
+        MediaMetadata meta  = ctrl.getMetadata();
+        PlaybackState state = ctrl.getPlaybackState();
+
+        if (meta != null) {
+            out.put("title",      safe(meta.getString(MediaMetadata.METADATA_KEY_TITLE)));
+            out.put("artist",     safe(meta.getString(MediaMetadata.METADATA_KEY_ARTIST)));
+            out.put("durationMs", meta.getLong(MediaMetadata.METADATA_KEY_DURATION));
+
+            // Try both ALBUM_ART and ART keys
+            Bitmap art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (art == null) art = meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            if (art != null) out.put("albumArt", bitmapToDataUri(art));
+        } else {
+            out.put("title",      "");
+            out.put("artist",     "");
+            out.put("durationMs", 0L);
+        }
+
+        boolean playing = state != null
+            && state.getState() == PlaybackState.STATE_PLAYING;
+        out.put("playing",    playing);
+        out.put("positionMs", state != null ? state.getPosition() : 0L);
+
+        return out;
+    }
+
+    /** Encode a Bitmap to a JPEG data URI (200×200 px, 75% quality). */
+    private String bitmapToDataUri(Bitmap src) {
+        try {
+            Bitmap scaled = Bitmap.createScaledBitmap(src, 200, 200, true);
+            ByteArrayOutputStream stream = new ByteArrayOutputStream();
+            scaled.compress(Bitmap.CompressFormat.JPEG, 75, stream);
+            String b64 = android.util.Base64.encodeToString(
+                stream.toByteArray(), android.util.Base64.NO_WRAP);
+            return "data:image/jpeg;base64," + b64;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    // ── Contacts ────────────────────────────────────────────────────────────
+
+    /**
+     * Read all contacts that have at least one phone number.
+     * Requires READ_CONTACTS permission (runtime grant handled by Capacitor).
+     */
+    @PluginMethod
+    public void getContacts(PluginCall call) {
+        try {
+            ContentResolver cr = getContext().getContentResolver();
+
+            Cursor contactCursor = cr.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                new String[]{
+                    ContactsContract.Contacts._ID,
+                    ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+                    ContactsContract.Contacts.HAS_PHONE_NUMBER
+                },
+                ContactsContract.Contacts.HAS_PHONE_NUMBER + " > 0",
+                null,
+                ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " COLLATE LOCALIZED ASC"
+            );
+
+            JSArray contacts = new JSArray();
+
+            if (contactCursor != null) {
+                int idCol   = contactCursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID);
+                int nameCol = contactCursor.getColumnIndexOrThrow(
+                    ContactsContract.Contacts.DISPLAY_NAME_PRIMARY);
+
+                while (contactCursor.moveToNext()) {
+                    String id   = contactCursor.getString(idCol);
+                    String name = safe(contactCursor.getString(nameCol));
+
+                    Cursor phoneCursor = cr.query(
+                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                        new String[]{
+                            ContactsContract.CommonDataKinds.Phone.NUMBER,
+                            ContactsContract.CommonDataKinds.Phone.TYPE
+                        },
+                        ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = ?",
+                        new String[]{id},
+                        null
+                    );
+
+                    JSArray phones = new JSArray();
+                    if (phoneCursor != null) {
+                        while (phoneCursor.moveToNext()) {
+                            String number = safe(phoneCursor.getString(0));
+                            int    type   = phoneCursor.getInt(1);
+                            if (!number.isEmpty()) {
+                                JSObject ph = new JSObject();
+                                ph.put("number", number);
+                                ph.put("type",   phoneTypeLabel(type));
+                                phones.put(ph);
+                            }
+                        }
+                        phoneCursor.close();
+                    }
+
+                    if (phones.length() > 0) {
+                        JSObject contact = new JSObject();
+                        contact.put("id",     id);
+                        contact.put("name",   name);
+                        contact.put("phones", phones);
+                        contacts.put(contact);
+                    }
+                }
+                contactCursor.close();
+            }
+
+            JSObject result = new JSObject();
+            result.put("contacts", contacts);
+            call.resolve(result);
+
+        } catch (SecurityException e) {
+            call.reject("PERMISSION_DENIED", "READ_CONTACTS izni gerekli");
+        } catch (Exception e) {
+            call.reject("CONTACTS_FAILED", e.getMessage());
+        }
+    }
+
+    private static String phoneTypeLabel(int type) {
+        switch (type) {
+            case ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE: return "MOBILE";
+            case ContactsContract.CommonDataKinds.Phone.TYPE_HOME:   return "HOME";
+            case ContactsContract.CommonDataKinds.Phone.TYPE_WORK:   return "WORK";
+            default:                                                  return "OTHER";
+        }
+    }
+
+    // ── OBD-II Bluetooth (ELM327) ───────────────────────────────────────────
 
     private static final UUID SPP_UUID =
         UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
-    private final ExecutorService obdExecutor  = Executors.newSingleThreadExecutor();
-    private final Handler         mainHandler  = new Handler(Looper.getMainLooper());
+    private final ExecutorService obdExecutor = Executors.newSingleThreadExecutor();
 
-    private volatile BluetoothSocket obdSocket    = null;
-    private volatile InputStream     obdInput     = null;
-    private volatile OutputStream    obdOutput    = null;
-    private volatile boolean         obdRunning   = false;
+    private volatile BluetoothSocket obdSocket  = null;
+    private volatile InputStream     obdInput   = null;
+    private volatile OutputStream    obdOutput  = null;
+    private volatile boolean         obdRunning = false;
 
     /**
-     * Return paired Bluetooth devices.
-     * The JS side filters for OBD-looking names.
+     * Return the list of paired Bluetooth devices.
+     * The JS side filters for OBD adapter names.
      */
     @PluginMethod
     public void scanOBD(PluginCall call) {
@@ -230,7 +583,7 @@ public class CarLauncherPlugin extends Plugin {
             for (BluetoothDevice dev : paired) {
                 JSObject d = new JSObject();
                 String name;
-                try   { name = dev.getName(); }
+                try { name = dev.getName(); }
                 catch (SecurityException ignored) { name = null; }
                 d.put("name",    name != null ? name : dev.getAddress());
                 d.put("address", dev.getAddress());
@@ -247,19 +600,17 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
-     * Open a Bluetooth Serial (SPP) connection to the ELM327 adapter,
-     * run the initialization sequence, then resolve.
-     * Data polling starts automatically and pushes "obdData" events every ~3 s.
+     * Connect to an ELM327 OBD adapter over Bluetooth SPP.
+     * Resolves on successful connection; then starts the polling loop.
      */
     @PluginMethod
     public void connectOBD(PluginCall call) {
         String address = call.getString("address");
-        if (!isPresent(address)) {
+        if (!present(address)) {
             call.reject("INVALID_ARGS", "address gerekli");
             return;
         }
 
-        // Tear down any existing connection first
         disconnectOBDInternal();
 
         obdExecutor.submit(() -> {
@@ -271,22 +622,18 @@ public class CarLauncherPlugin extends Plugin {
                 BluetoothSocket socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
                 obdSocket = socket;
 
-                // Stop discovery to speed up connection
                 try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
 
-                socket.connect(); // blocks until connected or throws
+                socket.connect();
 
                 obdInput  = socket.getInputStream();
                 obdOutput = socket.getOutputStream();
 
-                // ELM327 initialization sequence
                 initELM327();
 
-                // Notify JS: connected
                 obdRunning = true;
                 mainHandler.post(call::resolve);
 
-                // Start polling — runs until disconnected
                 pollOBDLoop();
 
             } catch (Exception e) {
@@ -302,9 +649,6 @@ public class CarLauncherPlugin extends Plugin {
         });
     }
 
-    /**
-     * Close the OBD connection and stop polling.
-     */
     @PluginMethod
     public void disconnectOBD(PluginCall call) {
         disconnectOBDInternal();
@@ -316,37 +660,33 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve();
     }
 
-    // ── OBD internals ───────────────────────────────────────
+    // ── OBD internals ───────────────────────────────────────────────────────
 
     private void initELM327() throws IOException {
-        sendOBDCommand("ATZ",   2500); // Reset (adapter startup takes up to 2 s)
+        sendOBDCommand("ATZ",   2500); // Reset
         sendOBDCommand("ATE0",  1000); // Echo off
         sendOBDCommand("ATL0",   500); // Line feeds off
         sendOBDCommand("ATH0",   500); // Headers off
-        sendOBDCommand("ATSP0", 1000); // Auto-detect OBD protocol
+        sendOBDCommand("ATSP0", 1000); // Auto-detect protocol
     }
 
-    /**
-     * Continuously read all four PIDs and emit "obdData" events.
-     * Exits when obdRunning is false or the socket is closed.
-     */
     private void pollOBDLoop() {
         while (obdRunning && obdSocket != null && obdSocket.isConnected()) {
             try {
                 JSObject data = new JSObject();
-                data.put("speed",      readSpeed());
-                data.put("rpm",        readRPM());
-                data.put("engineTemp", readEngineTemp());
-                data.put("fuelLevel",  readFuelLevel());
+                data.put("speed",      readPID_speed());
+                data.put("rpm",        readPID_rpm());
+                data.put("engineTemp", readPID_temp());
+                data.put("fuelLevel",  readPID_fuel());
+                data.put("headlights", false); // manufacturer-specific, skip
                 notifyListeners("obdData", data);
 
-                Thread.sleep(3000); // 3-second polling cadence
+                Thread.sleep(3000);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                // Lost connection — notify JS
                 disconnectOBDInternal();
                 JSObject event = new JSObject();
                 event.put("state",   "disconnected");
@@ -364,16 +704,11 @@ public class CarLauncherPlugin extends Plugin {
         try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}
     }
 
-    /**
-     * Send an AT/OBD command and return the raw response string.
-     * Uses available()-based polling to avoid blocking indefinitely.
-     */
     private String sendOBDCommand(String cmd, int timeoutMs) throws IOException {
         InputStream  in  = obdInput;
         OutputStream out = obdOutput;
         if (in == null || out == null) throw new IOException("OBD bağlantısı yok");
 
-        // Flush any stale input
         int stale = in.available();
         if (stale > 0) in.skip(stale);
 
@@ -387,7 +722,7 @@ public class CarLauncherPlugin extends Plugin {
             if (in.available() > 0) {
                 int c = in.read();
                 if (c < 0) throw new IOException("Stream kapandı");
-                if (c == '>') break; // ELM327 ready prompt
+                if (c == '>') break;
                 if (c != '\r') sb.append((char) c);
             } else {
                 try { Thread.sleep(20); }
@@ -397,32 +732,30 @@ public class CarLauncherPlugin extends Plugin {
                 }
             }
         }
-
         return sb.toString().trim();
     }
 
-    // ── PID readers ─────────────────────────────────────────
+    // ── PID readers ─────────────────────────────────────────────────────────
 
     /** 010D — Vehicle Speed (km/h) */
-    private int readSpeed() {
+    private int readPID_speed() {
         try {
             String r = sendOBDCommand("010D", 1500).replaceAll("\\s+", "").toUpperCase();
-            if (r.contains("410D") && r.length() >= r.indexOf("410D") + 6) {
-                int idx = r.indexOf("410D");
+            int idx = r.indexOf("410D");
+            if (idx >= 0 && r.length() >= idx + 6)
                 return Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-            }
         } catch (Exception ignored) {}
         return -1;
     }
 
     /** 010C — Engine RPM */
-    private int readRPM() {
+    private int readPID_rpm() {
         try {
             String r = sendOBDCommand("010C", 1500).replaceAll("\\s+", "").toUpperCase();
-            if (r.contains("410C") && r.length() >= r.indexOf("410C") + 8) {
-                int idx = r.indexOf("410C");
-                int a   = Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-                int b   = Integer.parseInt(r.substring(idx + 6, idx + 8), 16);
+            int idx = r.indexOf("410C");
+            if (idx >= 0 && r.length() >= idx + 8) {
+                int a = Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
+                int b = Integer.parseInt(r.substring(idx + 6, idx + 8), 16);
                 return ((a * 256) + b) / 4;
             }
         } catch (Exception ignored) {}
@@ -430,36 +763,32 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /** 0105 — Engine Coolant Temperature (°C) */
-    private int readEngineTemp() {
+    private int readPID_temp() {
         try {
             String r = sendOBDCommand("0105", 1500).replaceAll("\\s+", "").toUpperCase();
-            if (r.contains("4105") && r.length() >= r.indexOf("4105") + 6) {
-                int idx = r.indexOf("4105");
+            int idx = r.indexOf("4105");
+            if (idx >= 0 && r.length() >= idx + 6)
                 return Integer.parseInt(r.substring(idx + 4, idx + 6), 16) - 40;
-            }
         } catch (Exception ignored) {}
         return -1;
     }
 
-    /** 012F — Fuel Tank Level Input (0–100 %) */
-    private int readFuelLevel() {
+    /** 012F — Fuel Tank Level (0–100 %) */
+    private int readPID_fuel() {
         try {
             String r = sendOBDCommand("012F", 1500).replaceAll("\\s+", "").toUpperCase();
-            if (r.contains("412F") && r.length() >= r.indexOf("412F") + 6) {
-                int idx = r.indexOf("412F");
-                int hex = Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-                return (int) ((hex * 100.0) / 255.0);
-            }
+            int idx = r.indexOf("412F");
+            if (idx >= 0 && r.length() >= idx + 6)
+                return (int) (Integer.parseInt(r.substring(idx + 4, idx + 6), 16) * 100.0 / 255.0);
         } catch (Exception ignored) {}
         return -1;
     }
 
-    // ── System settings ─────────────────────────────────────
+    // ── System settings ──────────────────────────────────────────────────────
 
     /**
      * Set screen brightness.
-     * Requires WRITE_SETTINGS permission (granted at install or via system settings overlay).
-     * value: 0–255 (maps from JS 0–100 percent)
+     * value: 0–255 (mapped from JS 0–100 by systemSettingsService)
      */
     @PluginMethod
     public void setBrightness(PluginCall call) {
@@ -467,12 +796,14 @@ public class CarLauncherPlugin extends Plugin {
         if (value == null) { call.reject("INVALID_ARGS", "value gerekli"); return; }
         int clamped = Math.max(0, Math.min(255, value));
         try {
-            // Window-level brightness (no permission required)
-            WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
-            lp.screenBrightness = clamped / 255.0f;
-            mainHandler.post(() -> getActivity().getWindow().setAttributes(lp));
+            // Window-level brightness (always works, no permission)
+            mainHandler.post(() -> {
+                WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
+                lp.screenBrightness = clamped / 255.0f;
+                getActivity().getWindow().setAttributes(lp);
+            });
 
-            // System-level brightness (requires WRITE_SETTINGS)
+            // System-level brightness (requires WRITE_SETTINGS grant)
             if (Settings.System.canWrite(getContext())) {
                 Settings.System.putInt(getContext().getContentResolver(),
                     Settings.System.SCREEN_BRIGHTNESS, clamped);
@@ -484,16 +815,17 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
-     * Set media (music) volume.
-     * value: 0–15 (Android STREAM_MUSIC max index, maps from JS 0–100 percent)
+     * Set media (STREAM_MUSIC) volume.
+     * value: 0–15 (Android max index; JS maps 0–100 percent)
      */
     @PluginMethod
     public void setVolume(PluginCall call) {
         Integer value = call.getInt("value");
         if (value == null) { call.reject("INVALID_ARGS", "value gerekli"); return; }
         try {
-            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
-            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            AudioManager am =
+                (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            int max     = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             int clamped = Math.max(0, Math.min(max, value));
             am.setStreamVolume(AudioManager.STREAM_MUSIC, clamped, 0);
             call.resolve();
@@ -502,35 +834,35 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
-    // ── On-device speech recognition ────────────────────────
+    // ── Speech recognition ───────────────────────────────────────────────────
 
     private static final int REQUEST_SPEECH = 1001;
     private PluginCall savedSpeechCall = null;
 
     /**
-     * Launch Android SpeechRecognizer with EXTRA_PREFER_OFFLINE=true.
-     * Uses the on-device speech model — no internet required when a Turkish
-     * offline language pack is installed (Settings → Language & input → Offline speech).
+     * Launch on-device SpeechRecognizer with EXTRA_PREFER_OFFLINE.
+     * Turkish offline language pack must be installed for truly offline operation.
      */
     @PluginMethod
     public void startSpeechRecognition(PluginCall call) {
         savedSpeechCall = call;
         boolean preferOffline = Boolean.TRUE.equals(call.getBoolean("preferOffline", true));
-        String language = call.getString("language", "tr-TR");
-        int maxResults = call.getInt("maxResults", 1);
+        String  language      = call.getString("language", "tr-TR");
+        int     maxResults    = call.getInt("maxResults", 1);
 
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
-        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, maxResults);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,      language);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,   maxResults);
         intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
 
         try {
             startActivityForResult(call, intent, REQUEST_SPEECH);
         } catch (Exception e) {
             savedSpeechCall = null;
-            call.reject("NO_RECOGNIZER", "Ses tanıma uygulaması bulunamadı: " + e.getMessage());
+            call.reject("NO_RECOGNIZER",
+                "Ses tanıma uygulaması bulunamadı: " + e.getMessage());
         }
     }
 
@@ -542,7 +874,7 @@ public class CarLauncherPlugin extends Plugin {
         PluginCall call = savedSpeechCall;
         savedSpeechCall = null;
 
-        if (resultCode == Activity.RESULT_OK && data != null) {
+        if (resultCode == android.app.Activity.RESULT_OK && data != null) {
             ArrayList<String> results =
                 data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
@@ -552,16 +884,588 @@ public class CarLauncherPlugin extends Plugin {
                 return;
             }
         }
-        call.reject("NO_RESULT", resultCode == Activity.RESULT_CANCELED
-            ? "İptal edildi" : "Sonuç alınamadı");
+        call.reject("NO_RESULT",
+            resultCode == android.app.Activity.RESULT_CANCELED
+                ? "İptal edildi" : "Sonuç alınamadı");
     }
 
-    // ── Lifecycle ───────────────────────────────────────────
+    // ── Background service ───────────────────────────────────────────────────
+
+    /**
+     * Start the foreground GPS service.
+     * Wires callbacks so backgroundLocation + breakReminder events flow to JS.
+     */
+    @PluginMethod
+    public void startBackgroundService(PluginCall call) {
+        CarLauncherForegroundService.setCallbacks(
+            (lat, lng, speedKmh, bearing, accuracy) -> {
+                JSObject d = new JSObject();
+                d.put("lat",      lat);
+                d.put("lng",      lng);
+                d.put("speed",    speedKmh);
+                d.put("bearing",  bearing);
+                d.put("accuracy", accuracy);
+                notifyListeners("backgroundLocation", d);
+            },
+            (drivingMinutes) -> {
+                JSObject d = new JSObject();
+                d.put("drivingMinutes", drivingMinutes);
+                notifyListeners("breakReminder", d);
+            }
+        );
+
+        Intent intent = new Intent(getContext(), CarLauncherForegroundService.class);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                getContext().startForegroundService(intent);
+            } else {
+                getContext().startService(intent);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("START_FAILED", e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopBackgroundService(PluginCall call) {
+        getContext().stopService(new Intent(getContext(), CarLauncherForegroundService.class));
+        call.resolve();
+    }
+
+    // ── System permissions ────────────────────────────────────────────────────
+
+    /** Check if WRITE_SETTINGS is granted (special system permission). */
+    @PluginMethod
+    public void checkWriteSettings(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("granted", Settings.System.canWrite(getContext()));
+        call.resolve(r);
+    }
+
+    /** Open the system WRITE_SETTINGS grant screen for this app. */
+    @PluginMethod
+    public void requestWriteSettings(PluginCall call) {
+        if (!Settings.System.canWrite(getContext())) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+            intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                getContext().startActivity(intent);
+            } catch (Exception e) {
+                call.reject("OPEN_SETTINGS_FAILED", e.getMessage());
+                return;
+            }
+        }
+        call.resolve();
+    }
+
+    /** Open notification access settings so MediaListenerService can be enabled. */
+    @PluginMethod
+    public void requestNotificationAccess(PluginCall call) {
+        Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("OPEN_SETTINGS_FAILED", e.getMessage());
+        }
+    }
+
+    /** Check whether MediaListenerService is currently active. */
+    @PluginMethod
+    public void checkNotificationAccess(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("granted", MediaListenerService.instance != null);
+        call.resolve(r);
+    }
+
+    // ── Camera2 ───────────────────────────────────────────────────────────────
+
+    private CameraDevice          activeCameraDevice = null;
+    private CameraCaptureSession  captureSession     = null;
+    private ImageReader           cameraImageReader  = null;
+    private volatile byte[]       lastFrame          = null;
+    private volatile PluginCall   pendingFrameCall   = null;
+
+    /**
+     * Arka (veya ön) kamerayı Camera2 API ile açar; ImageReader üzerinden
+     * sürekli JPEG frame döngüsü başlatır.
+     * facing: "back" | "front"
+     */
+    @PluginMethod
+    public void openCamera(PluginCall call) {
+        String facing = call.getString("facing", "back");
+        CameraManager mgr = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
+        if (mgr == null) { call.reject("NO_CAMERA_SERVICE", "CameraManager yok"); return; }
+
+        try {
+            String targetId = null;
+            int wantFacing  = "back".equals(facing)
+                ? CameraCharacteristics.LENS_FACING_BACK
+                : CameraCharacteristics.LENS_FACING_FRONT;
+
+            for (String id : mgr.getCameraIdList()) {
+                CameraCharacteristics c = mgr.getCameraCharacteristics(id);
+                Integer lf = c.get(CameraCharacteristics.LENS_FACING);
+                if (lf != null && lf == wantFacing) { targetId = id; break; }
+            }
+            if (targetId == null) {
+                call.reject("NO_CAMERA", "Kamera bulunamadı: " + facing);
+                return;
+            }
+
+            closeCameraInternal(); // önceki oturumu temizle
+            final String cameraId = targetId;
+
+            cameraImageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2);
+            cameraImageReader.setOnImageAvailableListener(reader -> {
+                Image img = reader.acquireLatestImage();
+                if (img == null) return;
+                try {
+                    ByteBuffer buf   = img.getPlanes()[0].getBuffer();
+                    byte[]     bytes = new byte[buf.remaining()];
+                    buf.get(bytes);
+                    lastFrame = bytes;
+
+                    // Bekleyen captureFrame çağrısı varsa anında yanıtla
+                    PluginCall pending = pendingFrameCall;
+                    if (pending != null) {
+                        pendingFrameCall = null;
+                        JSObject r = new JSObject();
+                        r.put("imageData", Base64.encodeToString(bytes, Base64.NO_WRAP));
+                        pending.resolve(r);
+                    }
+                } finally {
+                    img.close();
+                }
+            }, mainHandler);
+
+            mgr.openCamera(cameraId, new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(CameraDevice camera) {
+                    activeCameraDevice = camera;
+                    try {
+                        List<Surface> targets = Collections.singletonList(cameraImageReader.getSurface());
+                        camera.createCaptureSession(targets, new CameraCaptureSession.StateCallback() {
+                            @Override
+                            public void onConfigured(CameraCaptureSession session) {
+                                captureSession = session;
+                                try {
+                                    CaptureRequest.Builder b =
+                                        camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                                    b.addTarget(cameraImageReader.getSurface());
+                                    b.set(CaptureRequest.CONTROL_MODE,
+                                          CaptureRequest.CONTROL_MODE_AUTO);
+                                    session.setRepeatingRequest(b.build(), null, mainHandler);
+                                    JSObject r = new JSObject();
+                                    r.put("cameraId", cameraId);
+                                    call.resolve(r);
+                                } catch (Exception e) {
+                                    call.reject("CAPTURE_SETUP_FAILED", e.getMessage());
+                                }
+                            }
+                            @Override
+                            public void onConfigureFailed(CameraCaptureSession session) {
+                                call.reject("SESSION_CONFIG_FAILED",
+                                    "Kamera oturumu yapılandırılamadı");
+                            }
+                        }, mainHandler);
+                    } catch (Exception e) {
+                        call.reject("SESSION_FAILED", e.getMessage());
+                    }
+                }
+                @Override public void onDisconnected(CameraDevice camera) {
+                    camera.close(); activeCameraDevice = null;
+                }
+                @Override public void onError(CameraDevice camera, int error) {
+                    camera.close(); activeCameraDevice = null;
+                }
+            }, mainHandler);
+
+        } catch (SecurityException e) {
+            call.reject("PERMISSION_DENIED", "Kamera izni gerekli");
+        } catch (Exception e) {
+            call.reject("CAMERA_ERROR", e.getMessage());
+        }
+    }
+
+    /** Aktif kamera oturumunu kapat. */
+    @PluginMethod
+    public void closeCamera(PluginCall call) {
+        closeCameraInternal();
+        call.resolve();
+    }
+
+    /**
+     * En son yakalanan JPEG frame'i base64 olarak döner.
+     * Kamera henüz ilk frame'i üretmediyse bir sonraki frame gelince yanıtlar.
+     */
+    @PluginMethod
+    public void captureFrame(PluginCall call) {
+        byte[] frame = lastFrame;
+        if (frame != null) {
+            JSObject r = new JSObject();
+            r.put("imageData", Base64.encodeToString(frame, Base64.NO_WRAP));
+            call.resolve(r);
+        } else if (activeCameraDevice != null) {
+            pendingFrameCall = call; // ilk frame hazır olunca yanıtla
+        } else {
+            call.reject("CAMERA_NOT_OPEN", "Kamera açık değil — önce openCamera() çağırın");
+        }
+    }
+
+    /**
+     * Dashcam kayıt durumunu foreground servis bildirimine yansıtır.
+     * active: true → "GPS + Kayıt", false → "GPS takibi aktif"
+     */
+    @PluginMethod
+    public void setDashcamActive(PluginCall call) {
+        boolean active = Boolean.TRUE.equals(call.getBoolean("active", false));
+        CarLauncherForegroundService svc = CarLauncherForegroundService.instance;
+        if (svc != null) {
+            CarLauncherForegroundService.setDashcamRecording(active);
+            svc.updateNotification(active ? "GPS takibi + Dashcam kaydı" : "GPS takibi aktif");
+        }
+        call.resolve();
+    }
+
+    /** Camera2 kaynaklarını serbest bırak. */
+    private void closeCameraInternal() {
+        pendingFrameCall = null;
+        lastFrame        = null;
+        if (captureSession != null) {
+            try { captureSession.close(); } catch (Exception ignored) {}
+            captureSession = null;
+        }
+        if (activeCameraDevice != null) {
+            try { activeCameraDevice.close(); } catch (Exception ignored) {}
+            activeCameraDevice = null;
+        }
+        if (cameraImageReader != null) {
+            cameraImageReader.close();
+            cameraImageReader = null;
+        }
+    }
+
+    // ── Passenger HTTP Server ─────────────────────────────────────────────────
+
+    private volatile ServerSocket psSocket  = null;
+    private volatile String       psToken   = null;
+    private volatile boolean      psLocked  = false;
+    private volatile String       psTitle   = "";
+    private volatile String       psArtist  = "";
+    private volatile String       psAppName = "";
+    private volatile boolean      psPlaying = false;
+
+    /**
+     * Yolcu kontrolü için yerel WiFi HTTP sunucusu başlatır.
+     * Döner: { ip, port, token } — QR kodunda kullanılır.
+     */
+    @PluginMethod
+    public void startPassengerServer(PluginCall call) {
+        stopPassengerServerInternal();
+        try {
+            String ip = getLocalIPv4();
+            if (ip == null) {
+                call.reject("NO_WIFI", "WiFi IP adresi bulunamadı");
+                return;
+            }
+
+            psToken  = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+            psLocked = false;
+            psSocket = new ServerSocket(0);   // OS boş port atar
+            int port = psSocket.getLocalPort();
+
+            Thread srv = new Thread(this::runPassengerServer, "PassengerHTTP");
+            srv.setDaemon(true);
+            srv.start();
+
+            JSObject r = new JSObject();
+            r.put("ip",    ip);
+            r.put("port",  port);
+            r.put("token", psToken);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("SERVER_ERROR", e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopPassengerServer(PluginCall call) {
+        stopPassengerServerInternal();
+        call.resolve();
+    }
+
+    /** JS tarafından medya durumu değiştikçe çağrılır. */
+    @PluginMethod
+    public void updatePassengerState(PluginCall call) {
+        psTitle   = safe(call.getString("title"));
+        psArtist  = safe(call.getString("artist"));
+        psAppName = safe(call.getString("appName"));
+        psPlaying = Boolean.TRUE.equals(call.getBoolean("playing", false));
+        call.resolve();
+    }
+
+    private void stopPassengerServerInternal() {
+        ServerSocket s = psSocket;
+        psSocket = null;
+        if (s != null) { try { s.close(); } catch (IOException ignored) {} }
+    }
+
+    private void runPassengerServer() {
+        ServerSocket srv = psSocket;
+        while (srv != null && !srv.isClosed()) {
+            try {
+                Socket client = srv.accept();
+                client.setSoTimeout(8000);
+                new Thread(() -> handlePassengerClient(client), "PassengerReq").start();
+            } catch (IOException ignored) { /* sunucu kapandı */ }
+        }
+    }
+
+    private void handlePassengerClient(Socket client) {
+        try (
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+            OutputStream out = client.getOutputStream()
+        ) {
+            String requestLine = reader.readLine();
+            if (requestLine == null) return;
+
+            String[] parts = requestLine.split(" ", 3);
+            if (parts.length < 2) return;
+            String method   = parts[0];
+            String fullPath = parts[1];
+
+            int contentLength = 0;
+            String hdr;
+            while ((hdr = reader.readLine()) != null && !hdr.isEmpty()) {
+                if (hdr.toLowerCase().startsWith("content-length:")) {
+                    try { contentLength = Integer.parseInt(hdr.substring(15).trim()); }
+                    catch (NumberFormatException ignored) {}
+                }
+            }
+
+            String body = "";
+            if ("POST".equals(method) && contentLength > 0) {
+                char[] buf = new char[Math.min(contentLength, 4096)];
+                int n = reader.read(buf, 0, buf.length);
+                if (n > 0) body = new String(buf, 0, n);
+            }
+
+            int qi     = fullPath.indexOf('?');
+            String path  = (qi >= 0) ? fullPath.substring(0, qi)  : fullPath;
+            String query = (qi >= 0) ? fullPath.substring(qi + 1) : "";
+
+            String tok = "";
+            for (String kv : query.split("&")) {
+                if (kv.startsWith("t=")) { tok = kv.substring(2); break; }
+            }
+
+            // Token doğrulama — tüm istekler için zorunlu
+            if (psToken == null || !psToken.equals(tok)) {
+                sendHttpResponse(out, 403, "text/plain", "Forbidden");
+                return;
+            }
+
+            if ("/panel".equals(path)) {
+                if (psLocked) {
+                    // Tek oturum: başka bir cihaz zaten bağlı
+                    sendHttpResponse(out, 403, "text/html; charset=utf-8",
+                        "<html><body style='background:#060d1a;color:#f87171;text-align:center;padding:48px 24px;font-size:18px;font-family:sans-serif'>"
+                        + "Bu oturum ba\u015Fka bir cihazda a\u00E7\u0131k.</body></html>");
+                } else {
+                    psLocked = true;
+                    sendHttpResponse(out, 200, "text/html; charset=utf-8", buildPassengerHtml());
+                }
+
+            } else if ("/state".equals(path)) {
+                String json = "{\"title\":\""   + escJson(psTitle)   + "\","
+                            + "\"artist\":\""   + escJson(psArtist)  + "\","
+                            + "\"appName\":\"" + escJson(psAppName)  + "\","
+                            + "\"playing\":"   + psPlaying           + "}";
+                sendHttpResponse(out, 200, "application/json", json);
+
+            } else if ("/cmd".equals(path) && "POST".equals(method)) {
+                String action = "";
+                int idx = body.indexOf("\"action\":\"");
+                if (idx >= 0) {
+                    int s2 = idx + 10, e2 = body.indexOf('"', s2);
+                    if (e2 > s2) action = body.substring(s2, e2);
+                }
+                if (!action.isEmpty()) {
+                    JSObject ev = new JSObject();
+                    ev.put("action", action);
+                    notifyListeners("passengerCommand", ev);
+                }
+                sendHttpResponse(out, 200, "application/json", "{\"ok\":true}");
+
+            } else {
+                sendHttpResponse(out, 404, "text/plain", "Not Found");
+            }
+
+        } catch (Exception ignored) {
+        } finally {
+            try { client.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private void sendHttpResponse(OutputStream out, int status, String ct, String body)
+        throws IOException {
+        byte[] b = body.getBytes(StandardCharsets.UTF_8);
+        String h = "HTTP/1.1 " + status + " OK\r\n"
+            + "Content-Type: " + ct + "\r\n"
+            + "Content-Length: " + b.length + "\r\n"
+            + "Cache-Control: no-store\r\n"
+            + "Connection: close\r\n\r\n";
+        out.write(h.getBytes(StandardCharsets.UTF_8));
+        out.write(b);
+        out.flush();
+    }
+
+    /**
+     * Aktif ağ arayüzünden ilk non-loopback IPv4 adresini döner.
+     * WifiManager.getIpAddress() yerine kullanılır — o API Android 12+'de
+     * deprecated ve bazı cihazlarda yanlış byte sırası döndürür.
+     */
+    private static String getLocalIPv4() {
+        try {
+            Enumeration<NetworkInterface> nics = NetworkInterface.getNetworkInterfaces();
+            while (nics.hasMoreElements()) {
+                NetworkInterface nic = nics.nextElement();
+                if (!nic.isUp() || nic.isLoopback() || nic.isVirtual()) continue;
+                Enumeration<InetAddress> addrs = nic.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private static String escJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    /**
+     * Yolcu telefon paneli — self-contained mobile web sayfası.
+     * Bağımsız çalışır: dış kaynak yok, offline uyumlu.
+     */
+    private static String buildPassengerHtml() {
+        return "<!DOCTYPE html><html lang='tr'><head>"
+            + "<meta charset='UTF-8'>"
+            + "<meta name='viewport' content='width=device-width,initial-scale=1.0,maximum-scale=1.0'>"
+            + "<meta name='mobile-web-app-capable' content='yes'>"
+            + "<meta name='apple-mobile-web-app-capable' content='yes'>"
+            + "<title>Yolcu Kontrol\u00FC</title>"
+            + "<style>"
+            + "*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation}"
+            + "body{background:#060d1a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;"
+            + "min-height:100vh;display:flex;flex-direction:column;align-items:center;"
+            + "padding:36px 24px;user-select:none;-webkit-user-select:none}"
+            + ".hdr{text-align:center;margin-bottom:32px;font-size:11px;letter-spacing:.3em;"
+            + "text-transform:uppercase;color:rgba(255,255,255,.3);display:flex;align-items:center;gap:8px}"
+            + ".d{width:7px;height:7px;border-radius:50%;background:#3b82f6;animation:bl 2s infinite;flex-shrink:0}"
+            + "@keyframes bl{0%,100%{opacity:1}50%{opacity:.3}}"
+            + ".card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);"
+            + "border-radius:20px;padding:28px 20px;text-align:center;margin-bottom:28px;width:100%;max-width:380px}"
+            + ".t1{font-size:20px;font-weight:700;line-height:1.3;margin-bottom:8px;min-height:26px}"
+            + ".t2{font-size:14px;color:rgba(255,255,255,.5);min-height:20px}"
+            + ".t3{font-size:11px;color:#60a5fa;margin-top:8px;letter-spacing:.2em;text-transform:uppercase;min-height:16px}"
+            + ".ctrl{display:flex;justify-content:center;align-items:center;gap:24px;margin-bottom:24px}"
+            + ".btn{display:flex;align-items:center;justify-content:center;border:none;"
+            + "cursor:pointer;transition:transform .1s,opacity .1s;outline:none;background:none}"
+            + ".btn:active{transform:scale(.86);opacity:.6}"
+            + ".sk{width:68px;height:68px;border-radius:50%;background:rgba(255,255,255,.07);"
+            + "border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.8);font-size:24px}"
+            + ".pl{width:88px;height:88px;border-radius:50%;background:#2563eb;color:#fff;font-size:30px;"
+            + "box-shadow:0 0 32px rgba(59,130,246,.4)}"
+            + ".pl.pp{background:rgba(37,99,235,.12);border:2px solid rgba(59,130,246,.3);box-shadow:none}"
+            + ".st{text-align:center;font-size:11px;color:rgba(255,255,255,.2);letter-spacing:.12em}"
+            + ".st.e{color:#fca5a5}"
+            + "</style></head><body>"
+            + "<div class='hdr'><span class='d'></span>Car Launcher Pro &#183; Yolcu Kontrol\u00FC</div>"
+            + "<div class='card'>"
+            + "<div class='t1' id='ti'>Ba\u011Flan\u0131yor\u2026</div>"
+            + "<div class='t2' id='ar'></div>"
+            + "<div class='t3' id='ap'></div>"
+            + "</div>"
+            + "<div class='ctrl'>"
+            + "<button class='btn sk' id='bprev'>&#9198;</button>"
+            + "<button class='btn pl pp' id='pb'>&#9654;</button>"
+            + "<button class='btn sk' id='bnext'>&#9197;</button>"
+            + "</div>"
+            + "<div class='st' id='st'>Ba\u011Flan\u0131yor\u2026</div>"
+            + "<script>"
+            + "var T=new URLSearchParams(location.search).get('t')||'',pl=false,ec=0;"
+            + "function cmd(a){"
+            + "fetch('/cmd?t='+T,{method:'POST',headers:{'Content-Type':'application/json'},"
+            + "body:JSON.stringify({action:a})})"
+            + ".then(function(){setTimeout(poll,350)})"
+            + ".catch(function(){sst('Hata',1)});}"
+            + "function tog(){cmd(pl?'pause':'play');}"
+            + "function sst(m,e){var el=document.getElementById('st');"
+            + "el.textContent=m;el.className='st'+(e?' e':'');}"
+            + "document.getElementById('bprev').onclick=function(){cmd('previous');};"
+            + "document.getElementById('pb').onclick=function(){tog();};"
+            + "document.getElementById('bnext').onclick=function(){cmd('next');};"
+            + "function poll(){"
+            + "fetch('/state?t='+T)"
+            + ".then(function(r){"
+            + "if(r.status===403){"
+            + "document.getElementById('ti').textContent='Oturum ba\u015Fka cihazda a\u00E7\u0131k';"
+            + "document.getElementById('ar').textContent='';"
+            + "document.getElementById('ap').textContent='';"
+            + "sst('',0);return null;}"
+            + "return r.ok?r.json():null;})"
+            + ".then(function(s){"
+            + "if(!s)return;"
+            + "document.getElementById('ti').textContent=s.title||'\u2014';"
+            + "document.getElementById('ar').textContent=s.artist||'';"
+            + "document.getElementById('ap').textContent=s.appName||'';"
+            + "pl=s.playing;"
+            + "var pb=document.getElementById('pb');"
+            + "pb.innerHTML=pl?'&#9646;&#9646;':'&#9654;';"
+            + "pb.className='btn pl'+(pl?'':' pp');"
+            + "ec=0;sst(pl?'\u00C7al\u0131yor':'Duraklatıld\u0131');})"
+            + ".catch(function(){ec++;if(ec>3)sst('Ba\u011Flant\u0131 kesildi',1);});}"
+            + "poll();setInterval(poll,2500);"
+            + "</script></body></html>";
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private static boolean present(String s) { return s != null && !s.isEmpty(); }
+    private static String  safe(String s)    { return s != null ? s : ""; }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     protected void handleOnDestroy() {
+        // OBD cleanup
         disconnectOBDInternal();
         obdExecutor.shutdownNow();
+
+        // Media session cleanup
+        if (activeMediaController != null && mediaCallback != null) {
+            activeMediaController.unregisterCallback(mediaCallback);
+            activeMediaController = null;
+            mediaCallback         = null;
+        }
+
+        // Camera2 cleanup
+        closeCameraInternal();
+
+        // Passenger server cleanup
+        stopPassengerServerInternal();
+
         super.handleOnDestroy();
     }
 }

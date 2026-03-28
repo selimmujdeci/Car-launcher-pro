@@ -9,6 +9,8 @@
  */
 
 import { useState, useEffect } from 'react';
+import { isNative } from './bridge';
+import { CarLauncher } from './nativePlugin';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -159,6 +161,11 @@ export async function startDashcam(): Promise<void> {
     window.addEventListener('devicemotion', _onMotion);
     _setState({ active: true, hasPermission: true, error: null, segments: 0 });
 
+    // Foreground servis bildirimini "Kayıt aktif" olarak güncelle
+    if (isNative) {
+      CarLauncher.setDashcamActive({ active: true }).catch(() => undefined);
+    }
+
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Kamera erişimi reddedildi';
     _setState({ hasPermission: false, error: msg });
@@ -183,6 +190,11 @@ export function stopDashcam(): void {
 
   _flushSegment();
   _setState({ active: false, currentDurationSec: 0, gForce: 0 });
+
+  // Foreground servis bildirimini sıfırla
+  if (isNative) {
+    CarLauncher.setDashcamActive({ active: false }).catch(() => undefined);
+  }
 }
 
 export function lockCurrentRecording(): void {

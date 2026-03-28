@@ -1,25 +1,73 @@
 package com.carlauncher.pro;
 
+import android.Manifest;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+
 import com.getcapacitor.BridgeActivity;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class MainActivity extends BridgeActivity {
 
+    /**
+     * Zorunlu çalışma zamanı izinleri.
+     * WRITE_SETTINGS ve Bildirim Erişimi BURAYA EKLENMEZ —
+     * bunların kendi ayar ekranları var (plugin metotları açar).
+     */
+    private static final String[] REQUIRED_PERMISSIONS;
+
+    static {
+        List<String> perms = new ArrayList<>(Arrays.asList(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.CAMERA
+        ));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            perms.add(Manifest.permission.BLUETOOTH_CONNECT);
+            perms.add(Manifest.permission.BLUETOOTH_SCAN);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // API 33
+            perms.add(Manifest.permission.READ_MEDIA_VIDEO);
+            perms.add(Manifest.permission.READ_MEDIA_IMAGES);
+        } else if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        }
+
+        REQUIRED_PERMISSIONS = perms.toArray(new String[0]);
+    }
+
+    private ActivityResultLauncher<String[]> permissionLauncher;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Crash durumunda uygulamayı yeniden başlat — launcher asla kapalı kalmamalı
+        installCrashRecovery();
         registerPlugin(CarLauncherPlugin.class);
         super.onCreate(savedInstanceState);
 
-        // Always-on screen for car head unit
+        // ── Ekran ayarları ──
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // Show over lock screen — car HU may not have PIN but could have ambient lock
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
@@ -32,12 +80,37 @@ public class MainActivity extends BridgeActivity {
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         applyImmersive();
+
+        // ── İzin launcher ──
+        permissionLauncher = registerForActivityResult(
+            new ActivityResultContracts.RequestMultiplePermissions(),
+            results -> {
+                // İzin sonuçlarını logla; uygulama kendi hata yönetimini yapıyor
+                // "false" sonuçlar için kullanıcı SetupWizard'dan tekrar yönlendirilebilir
+            }
+        );
+
+        // ── Eksik izinleri bir seferde iste ──
+        requestMissingPermissions();
+    }
+
+    /** Henüz verilmemiş izinleri toplu olarak iste. */
+    private void requestMissingPermissions() {
+        List<String> missing = new ArrayList<>();
+        for (String perm : REQUIRED_PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(this, perm)
+                    != PackageManager.PERMISSION_GRANTED) {
+                missing.add(perm);
+            }
+        }
+        if (!missing.isEmpty()) {
+            permissionLauncher.launch(missing.toArray(new String[0]));
+        }
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        // Re-apply after returning from another app (some devices drop immersive on resume)
         applyImmersive();
     }
 
@@ -49,15 +122,63 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onNewIntent(Intent intent) {
-        // Called when HOME is pressed while already running as the launcher.
-        // Pass to Capacitor so the WebView can handle navigation if needed.
         super.onNewIntent(intent);
         setIntent(intent);
     }
 
     @Override
     public void onBackPressed() {
-        // Launcher: suppress back — prevents accidental exit from home screen
+        // Launcher: geri tuşunu sustur — ana ekrandan çıkışı engelle
+    }
+
+    /**
+     * Yakalanmamış exception'larda uygulamayı 2 saniye sonra yeniden başlatır.
+     * Launcher asla kapalı kalmamalı — araç gösterge paneli her zaman görünür olmalı.
+     *
+     * Akış:
+     *   1. AlarmManager ile 2 sn sonrası için MainActivity PendingIntent kur
+     *   2. Mevcut varsayılan handler'a exception'ı ilet (crash log yazılsın)
+     *   3. Süreci sonlandır — Android runtime temizlenmiş süreçte yeniden başlar
+     */
+    private void installCrashRecovery() {
+        final Context appCtx = getApplicationContext();
+        final Thread.UncaughtExceptionHandler defaultHandler =
+            Thread.getDefaultUncaughtExceptionHandler();
+
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                Intent restart = new Intent(appCtx, MainActivity.class);
+                restart.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK |
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                );
+
+                int piFlags = PendingIntent.FLAG_ONE_SHOT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    piFlags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+
+                PendingIntent pi = PendingIntent.getActivity(appCtx, 0, restart, piFlags);
+
+                AlarmManager am = (AlarmManager) appCtx.getSystemService(Context.ALARM_SERVICE);
+                if (am != null) {
+                    // 2 sn sonra yeniden başlat — sistem temizlenecek zamanı olsun
+                    am.set(AlarmManager.RTC, System.currentTimeMillis() + 2_000L, pi);
+                }
+            } catch (Throwable ignored) {
+                // Crash handler'ı çökertme — son çare
+            }
+
+            // Varsayılan handler → crash log (Firebase Crashlytics vb.)
+            if (defaultHandler != null) {
+                defaultHandler.uncaughtException(thread, throwable);
+            }
+
+            // Süreci temiz şekilde öldür
+            android.os.Process.killProcess(android.os.Process.myPid());
+            System.exit(1);
+        });
     }
 
     private void applyImmersive() {

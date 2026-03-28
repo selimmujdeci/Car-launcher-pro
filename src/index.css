@@ -7,3 +7,10 @@
 @import "./styles/widget-system.css";
 @import "./styles/transitions.css";
 @import "./styles/theme-styles.css";
+@import "./styles/volume-overlays.css";
+
+/* Performance Mode Global Overrides */
+body.performance-mode * {
+  animation: none !important;
+  transition: none !important;
+}

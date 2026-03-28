@@ -1,11 +1,12 @@
-import { memo, type ReactNode, useState, useCallback, type ComponentType } from 'react';
+import { memo, type ReactNode, useState, useCallback, useRef, type ComponentType } from 'react';
 import {
-  Sun, Smartphone, Zap, Palette, Layout, Image as ImageIcon, Check, Layers, PenTool as Tool
+  Sun, Smartphone, Zap, Palette, Layout, Image as ImageIcon, Check, Layers, PenTool as Tool, Volume2,
+  Plus, Monitor, Upload
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
 import { getPerformanceMode, setPerformanceMode } from '../../platform/performanceMode';
-import { setBrightness } from '../../platform/systemSettingsService';
+import { setBrightness, setVolume } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 
 /* ── Yardımcı bileşenler ─────────────────────────────────── */
@@ -153,11 +154,14 @@ function ToggleRow({
 }
 
 const WALLPAPERS = [
-  { id: 'none', label: 'Yok', url: 'none' },
-  { id: 'road', label: 'Yol', url: 'https://images.unsplash.com/photo-1449034446853-66c86144b0ad?auto=format&fit=crop&w=800&q=60' },
-  { id: 'city', label: 'Şehir', url: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?auto=format&fit=crop&w=800&q=60' },
-  { id: 'abstract', label: 'Soyut', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=800&q=60' },
-  { id: 'cyber', label: 'Cyber', url: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=800&q=60' },
+  { id: 'none', label: 'Klasik', url: 'none' },
+  { id: 'carbon', label: 'Karbon', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'midnight', label: 'Gece', url: 'https://images.unsplash.com/photo-1614850523296-e8c041de4398?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'minimal', label: 'Minimal', url: 'https://images.unsplash.com/photo-1550684376-efcbd6e3f031?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'liquid', label: 'Sıvı', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'horizon', label: 'Ufuk', url: 'https://images.unsplash.com/photo-1519608487953-e999c86e74c0?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'tech', label: 'Teknoloji', url: 'https://images.unsplash.com/photo-1504333638930-c8787321eee0?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'deep', label: 'Derinlik', url: 'https://images.unsplash.com/photo-1439405326854-014607f694d7?auto=format&fit=crop&w=1200&q=80' },
 ];
 
 /* ── Ana bileşen ─────────────────────────────────────────── */
@@ -169,11 +173,29 @@ interface Props {
 function SettingsPageInner({ onOpenMap }: Props) {
   const { settings, updateSettings } = useStore();
   const [tab, setTab] = useState<'general' | 'appearance' | 'performance' | 'maintenance'>('general');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBrightness = useCallback((v: number) => {
     updateSettings({ brightness: v });
     setBrightness(v);
   }, [updateSettings]);
+
+  const handleVolume = useCallback((v: number) => {
+    updateSettings({ volume: v });
+    setVolume(v);
+  }, [updateSettings]);
+
+  const handleCustomWallpaper = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const url = event.target?.result as string;
+        updateSettings({ wallpaper: url });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
 
   return (
@@ -232,6 +254,45 @@ function SettingsPageInner({ onOpenMap }: Props) {
                       value={settings.offlineMap} 
                       onChange={(v) => updateSettings({ offlineMap: v })}
                     />
+                    <ToggleRow
+                      label="Düşük Güç Modu"
+                      desc="Animasyonları kapatır, performansı artırır"
+                      value={settings.performanceMode}
+                      onChange={(v) => {
+                        updateSettings({ performanceMode: v });
+                        setPerformanceMode(v ? 'lite' : 'balanced');
+                      }}
+                    />
+                    <ToggleRow
+                      label="Uyandırma Kelimesi"
+                      desc='"Hey Car" diyerek asistanı aktif et'
+                      value={settings.wakeWordEnabled ?? false}
+                      onChange={(v) => updateSettings({ wakeWordEnabled: v })}
+                    />
+                    <ToggleRow
+                      label="Mola Hatırlatıcı"
+                      desc="Uzun sürüşlerde kahve molası öner"
+                      value={settings.breakReminderEnabled ?? false}
+                      onChange={(v) => updateSettings({ breakReminderEnabled: v })}
+                    />
+                    <ToggleRow
+                      label="Akıllı Bağlam"
+                      desc="Hıza, müziğe ve rotaya göre arayüzü otomatik uyarla"
+                      value={settings.smartContextEnabled ?? true}
+                      onChange={(v) => updateSettings({ smartContextEnabled: v })}
+                    />
+                    <ToggleRow
+                      label="Otomatik Parlaklık"
+                      desc="Gün doğumu/batımına göre parlaklık ayarla"
+                      value={settings.autoBrightnessEnabled ?? false}
+                      onChange={(v) => updateSettings({ autoBrightnessEnabled: v })}
+                    />
+                    <ToggleRow
+                      label="Otomatik Tema (Gün/Gece)"
+                      desc="Gece OLED, gündüz koyu temaya geç"
+                      value={settings.autoThemeEnabled ?? false}
+                      onChange={(v) => updateSettings({ autoThemeEnabled: v })}
+                    />
                     {onOpenMap && (
                       <button
                         onClick={onOpenMap}
@@ -244,14 +305,20 @@ function SettingsPageInner({ onOpenMap }: Props) {
                 </div>
                 <div className="flex flex-col gap-6">
                   <SectionTitle>Kontroller</SectionTitle>
-                  <Card>
+                  <Card className="flex flex-col gap-6">
                     <BigSlider
                       icon={Sun}
                       label="Parlaklık"
                       value={settings.brightness}
                       onChange={handleBrightness}
                     />
-                    <div className="mt-6">
+                    <BigSlider
+                      icon={Volume2}
+                      label="Ses"
+                      value={settings.volume}
+                      onChange={handleVolume}
+                    />
+                    <div className="mt-2">
                       <SectionTitle>Uygulama Düzeni</SectionTitle>
                       <div className="flex gap-2">
                         {[3, 4, 5].map(n => (
@@ -310,42 +377,50 @@ function SettingsPageInner({ onOpenMap }: Props) {
               <div className="grid grid-cols-2 gap-6">
                 <div className="flex flex-col gap-6">
                   <SectionTitle>Tema Paketi</SectionTitle>
-                  <Card className="grid grid-cols-5 gap-2">
-                    <ChoiceCard 
-                      active={settings.themePack === 'tesla'}
-                      onClick={() => updateSettings({ themePack: 'tesla' })}
-                      icon={Layout}
-                      label="Tesla"
-                      desc="Minimalist"
-                    />
-                    <ChoiceCard 
-                      active={settings.themePack === 'big-cards'}
-                      onClick={() => updateSettings({ themePack: 'big-cards' })}
-                      icon={Layers}
-                      label="Sürüş"
-                      desc="Büyük"
-                    />
-                    <ChoiceCard 
-                      active={settings.themePack === 'ai-center'}
-                      onClick={() => updateSettings({ themePack: 'ai-center' })}
-                      icon={Zap}
-                      label="Futuristik"
-                      desc="Parlak"
-                    />
-                    <ChoiceCard 
-                      active={settings.themePack === 'bmw'}
-                      onClick={() => updateSettings({ themePack: 'bmw' })}
-                      icon={Palette}
-                      label="BMW"
-                      desc="M-Sport"
-                    />
-                    <ChoiceCard 
-                      active={settings.themePack === 'mercedes'}
-                      onClick={() => updateSettings({ themePack: 'mercedes' })}
-                      icon={Smartphone}
-                      label="Mercedes"
-                      desc="MBUX"
-                    />
+                  <Card className="flex flex-col gap-6">
+                    <div>
+                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Marka & Stil</div>
+                      <div className="grid grid-cols-5 gap-2">
+                        <ChoiceCard active={settings.themePack === 'tesla'} onClick={() => updateSettings({ themePack: 'tesla' })} icon={Layout} label="Tesla" />
+                        <ChoiceCard active={settings.themePack === 'bmw'} onClick={() => updateSettings({ themePack: 'bmw' })} icon={Palette} label="BMW" />
+                        <ChoiceCard active={settings.themePack === 'mercedes'} onClick={() => updateSettings({ themePack: 'mercedes' })} icon={Smartphone} label="Mercedes" />
+                        <ChoiceCard active={settings.themePack === 'audi'} onClick={() => updateSettings({ themePack: 'audi' })} icon={Layers} label="Audi" />
+                        <ChoiceCard active={settings.themePack === 'porsche'} onClick={() => updateSettings({ themePack: 'porsche' })} icon={Zap} label="Porsche" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Atmosfer & Neon</div>
+                      <div className="grid grid-cols-5 gap-2">
+                        <ChoiceCard active={settings.themePack === 'cyberpunk'} onClick={() => updateSettings({ themePack: 'cyberpunk' })} icon={Zap} label="Neon" />
+                        <ChoiceCard active={settings.themePack === 'midnight'} onClick={() => updateSettings({ themePack: 'midnight' })} icon={ImageIcon} label="Gece" />
+                        <ChoiceCard active={settings.themePack === 'glass-pro'} onClick={() => updateSettings({ themePack: 'glass-pro' })} icon={Layers} label="Cam Pro" />
+                        <ChoiceCard active={settings.themePack === 'ambient'} onClick={() => updateSettings({ themePack: 'ambient' })} icon={Sun} label="Ortam" />
+                        <ChoiceCard active={settings.themePack === 'galaxy'} onClick={() => updateSettings({ themePack: 'galaxy' })} icon={Zap} label="Galaksi" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Sport & Teknik</div>
+                      <div className="grid grid-cols-5 gap-2">
+                        <ChoiceCard active={settings.themePack === 'redline'} onClick={() => updateSettings({ themePack: 'redline' })} icon={Zap} label="Redline" />
+                        <ChoiceCard active={settings.themePack === 'electric'} onClick={() => updateSettings({ themePack: 'electric' })} icon={Zap} label="Elektrik" />
+                        <ChoiceCard active={settings.themePack === 'carbon'} onClick={() => updateSettings({ themePack: 'carbon' })} icon={Layers} label="Karbon" />
+                        <ChoiceCard active={settings.themePack === 'night-city'} onClick={() => updateSettings({ themePack: 'night-city' })} icon={Layout} label="Şehir" />
+                        <ChoiceCard active={settings.themePack === 'range-rover'} onClick={() => updateSettings({ themePack: 'range-rover' })} icon={Smartphone} label="Range" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Minimal & Soft</div>
+                      <div className="grid grid-cols-5 gap-2">
+                        <ChoiceCard active={settings.themePack === 'minimal-dark'} onClick={() => updateSettings({ themePack: 'minimal-dark' })} icon={Smartphone} label="Koyu" />
+                        <ChoiceCard active={settings.themePack === 'minimal-light'} onClick={() => updateSettings({ themePack: 'minimal-light' })} icon={Sun} label="Açık" />
+                        <ChoiceCard active={settings.themePack === 'monochrome'} onClick={() => updateSettings({ themePack: 'monochrome' })} icon={Palette} label="Mono" />
+                        <ChoiceCard active={settings.themePack === 'arctic'} onClick={() => updateSettings({ themePack: 'arctic' })} icon={ImageIcon} label="Arktik" />
+                        <ChoiceCard active={settings.themePack === 'sunset'} onClick={() => updateSettings({ themePack: 'sunset' })} icon={Sun} label="Günbatımı" />
+                      </div>
+                    </div>
                   </Card>
 
                   <SectionTitle>Panel Stili</SectionTitle>
@@ -368,6 +443,69 @@ function SettingsPageInner({ onOpenMap }: Props) {
                       icon={Smartphone}
                       label="Minimal"
                     />
+                  </Card>
+
+                  <SectionTitle>Ses Paneli Stili</SectionTitle>
+                  <Card className="grid grid-cols-5 gap-2">
+                    <ChoiceCard
+                      active={settings.volumeStyle === 'minimal_pro'}
+                      onClick={() => updateSettings({ volumeStyle: 'minimal_pro' })}
+                      icon={Smartphone}
+                      label="Minimal Pro"
+                    />
+                    <ChoiceCard
+                      active={settings.volumeStyle === 'tesla_ultra'}
+                      onClick={() => updateSettings({ volumeStyle: 'tesla_ultra' })}
+                      icon={Zap}
+                      label="Tesla Ultra"
+                    />
+                    <ChoiceCard
+                      active={settings.volumeStyle === 'bmw_polished'}
+                      onClick={() => updateSettings({ volumeStyle: 'bmw_polished' })}
+                      icon={Layout}
+                      label="BMW M"
+                    />
+                    <ChoiceCard
+                      active={settings.volumeStyle === 'glass_orb'}
+                      onClick={() => updateSettings({ volumeStyle: 'glass_orb' })}
+                      icon={Layers}
+                      label="Glass Orb"
+                    />
+                    <ChoiceCard
+                      active={settings.volumeStyle === 'ambient_line'}
+                      onClick={() => updateSettings({ volumeStyle: 'ambient_line' })}
+                      icon={Sun}
+                      label="Ambient"
+                    />
+                  </Card>
+
+                  <SectionTitle>Swipe Ses Kontrolü</SectionTitle>
+                  <Card>
+                    <p className="text-slate-500 text-xs mb-3 leading-relaxed">
+                      Ekran kenarından yukarı/aşağı kaydırarak sisteme sesi değiştir.
+                      Sürüş sırasında butona basmadan ses kontrolü sağlar.
+                    </p>
+                    <div className="flex gap-2">
+                      {(
+                        [
+                          { value: 'off',   label: 'Kapalı'    },
+                          { value: 'left',  label: 'Sol Kenar' },
+                          { value: 'right', label: 'Sağ Kenar' },
+                        ] as const
+                      ).map(({ value, label }) => (
+                        <button
+                          key={value}
+                          onClick={() => updateSettings({ gestureVolumeSide: value })}
+                          className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                            settings.gestureVolumeSide === value
+                              ? 'bg-blue-500 text-white shadow-[0_2px_12px_rgba(59,130,246,0.4)]'
+                              : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </Card>
                 </div>
 
@@ -408,32 +546,79 @@ function SettingsPageInner({ onOpenMap }: Props) {
 
               <SectionTitle>Duvar Kağıdı</SectionTitle>
               <Card>
-                <div className="grid grid-cols-5 gap-4">
+                <div className="grid grid-cols-4 lg:grid-cols-5 gap-4">
+                  {/* Hazır Duvar Kağıtları */}
                   {WALLPAPERS.map((w) => (
                     <button
                       key={w.id}
                       onClick={() => updateSettings({ wallpaper: w.url })}
-                      className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all ${
-                        settings.wallpaper === w.url ? 'border-blue-500 scale-105' : 'border-transparent opacity-60 hover:opacity-100'
+                      className={`group relative aspect-video rounded-2xl overflow-hidden border-2 transition-all duration-300 ${
+                        settings.wallpaper === w.url 
+                          ? 'border-blue-500 scale-105 shadow-lg shadow-blue-500/20' 
+                          : 'border-white/5 opacity-50 hover:opacity-100 hover:border-white/20'
                       }`}
                     >
                       {w.url === 'none' ? (
-                        <div className="w-full h-full bg-slate-900 flex items-center justify-center">
-                          <ImageIcon className="w-6 h-6 text-slate-700" />
+                        <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center gap-2">
+                          <Monitor className="w-6 h-6 text-slate-700 group-hover:text-blue-500 transition-colors" />
+                          <span className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">Orijinal</span>
                         </div>
                       ) : (
-                        <img src={w.url} className="w-full h-full object-cover" alt={w.label} />
+                        <>
+                          <img src={w.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={w.label} />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
+                          <div className="absolute bottom-2 left-3">
+                            <span className="text-[10px] font-black text-white uppercase tracking-widest drop-shadow-md">{w.label}</span>
+                          </div>
+                        </>
                       )}
-                      <div className="absolute inset-0 bg-black/20 flex items-end p-2">
-                        <span className="text-[10px] font-bold text-white uppercase">{w.label}</span>
-                      </div>
+                      
                       {settings.wallpaper === w.url && (
-                        <div className="absolute top-1 right-1 bg-blue-500 rounded-full p-0.5">
+                        <div className="absolute top-2 right-2 bg-blue-500 shadow-lg rounded-full p-1 animate-in zoom-in duration-300">
                           <Check className="w-3 h-3 text-white" />
                         </div>
                       )}
                     </button>
                   ))}
+
+                  {/* Özel Duvar Kağıdı Yükle */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`group relative aspect-video rounded-2xl overflow-hidden border-2 border-dashed transition-all duration-300 ${
+                      settings.wallpaper.startsWith('data:') 
+                        ? 'border-blue-500 scale-105 shadow-lg shadow-blue-500/20' 
+                        : 'border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5'
+                    }`}
+                  >
+                    {settings.wallpaper.startsWith('data:') ? (
+                      <>
+                        <img src={settings.wallpaper} className="w-full h-full object-cover" alt="Custom" />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Upload className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="absolute bottom-2 left-3">
+                          <span className="text-[10px] font-black text-white uppercase tracking-widest drop-shadow-md">Özel Görsel</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                        <Plus className="w-6 h-6 text-slate-500 group-hover:text-blue-400 transition-colors" />
+                        <span className="text-[10px] text-slate-500 group-hover:text-blue-400 font-bold uppercase tracking-wider">Kendi Görselin</span>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleCustomWallpaper}
+                    />
+                    {settings.wallpaper.startsWith('data:') && (
+                      <div className="absolute top-2 right-2 bg-blue-500 shadow-lg rounded-full p-1">
+                        <Check className="w-3 h-3 text-white" />
+                      </div>
+                    )}
+                  </button>
                 </div>
               </Card>
             </>

@@ -60,11 +60,15 @@ export interface SmartRecommendation {
 
 /** Full computed smart state. */
 export interface SmartSnapshot {
-  layoutWeights: LayoutWeights;
-  quickActions:  QuickAction[];
-  drivingMode:   DrivingMode;
-  dockIds:       string[];  // up to 4, usage-ranked
+  layoutWeights:  LayoutWeights;
+  quickActions:   QuickAction[];
+  drivingMode:    DrivingMode;
+  dockIds:        string[];  // up to 4, usage-ranked
   recommendation?: SmartRecommendation;  // single highest-confidence recommendation
+  /** True when music is actively playing — media panel should be visually prominent. */
+  mediaProminent: boolean;
+  /** True when an active navigation route exists — map/nav section takes priority. */
+  mapPriority:    boolean;
 }
 
 /* ── Persistence ─────────────────────────────────────────── */
@@ -418,24 +422,33 @@ function computeDockIds(map: UsageMap, favorites: string[]): string[] {
 /* ── Snapshot builder ────────────────────────────────────── */
 
 type SmartParams = {
-  device:       Pick<DeviceStatus, 'btConnected' | 'charging' | 'ready'>;
-  favorites:    string[];
-  defaultNav:   NavOptionKey;
-  defaultMusic: MusicOptionKey;
-  obdSpeed?:    number;
+  device:        Pick<DeviceStatus, 'btConnected' | 'charging' | 'ready'>;
+  favorites:     string[];
+  defaultNav:    NavOptionKey;
+  defaultMusic:  MusicOptionKey;
+  obdSpeed?:     number;
+  /** GPS-derived speed (km/h). Used as fallback when OBD is not connected. */
+  gpsSpeedKmh?:  number;
+  /** Whether music is currently playing. */
+  isPlaying?:    boolean;
+  /** Whether an active navigation route exists. */
+  isNavigating?: boolean;
 };
 
 function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): SmartSnapshot {
   const map = pruneIfStale(loadUsage());
-  const drivingMode = detectDrivingMode(p.device, p.obdSpeed);
+  // OBD speed takes priority; GPS speed is the fallback.
+  const effectiveSpeed = p.obdSpeed ?? (p.gpsSpeedKmh !== undefined ? p.gpsSpeedKmh : undefined);
+  const drivingMode = detectDrivingMode(p.device, effectiveSpeed);
   const timeContext = getTimeContext();
   return {
-    layoutWeights: computeLayoutWeights(map),
-    quickActions:  computeQuickActions(map, p.defaultNav, p.defaultMusic, p.favorites),
+    layoutWeights:  computeLayoutWeights(map),
+    quickActions:   computeQuickActions(map, p.defaultNav, p.defaultMusic, p.favorites),
     drivingMode,
-    dockIds:       computeDockIds(map, p.favorites),
-    // Only generate recommendation on demand (mode change, not every OBD update)
+    dockIds:        computeDockIds(map, p.favorites),
     recommendation: shouldGenerateRec ? generateRecommendation(map, timeContext, drivingMode) : undefined,
+    mediaProminent: p.isPlaying  === true,
+    mapPriority:    p.isNavigating === true,
   };
 }
 
@@ -448,28 +461,31 @@ function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): Smart
  *   - Any app is launched via trackLaunch()
  */
 export function useSmartEngine(
-  device:       Pick<DeviceStatus, 'btConnected' | 'charging' | 'ready'>,
-  favorites:    string[],
-  defaultNav:   NavOptionKey,
-  defaultMusic: MusicOptionKey,
+  device:        Pick<DeviceStatus, 'btConnected' | 'charging' | 'ready'>,
+  favorites:     string[],
+  defaultNav:    NavOptionKey,
+  defaultMusic:  MusicOptionKey,
+  gpsSpeedKmh?:  number,
+  isPlaying?:    boolean,
+  isNavigating?: boolean,
 ): SmartSnapshot {
   const [snapshot, setSnapshot] = useState<SmartSnapshot>(() =>
-    buildSnapshot({ device, favorites, defaultNav, defaultMusic }),
+    buildSnapshot({ device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating }),
   );
 
   // Ref always holds latest params — avoids stale closures in the listener below
-  const paramsRef = useRef<SmartParams>({ device, favorites, defaultNav, defaultMusic });
+  const paramsRef = useRef<SmartParams>({ device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating });
   useEffect(() => {
-    paramsRef.current = { device, favorites, defaultNav, defaultMusic };
+    paramsRef.current = { device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating };
   });
 
-  // Recompute when device signals or user preferences change — WITH recommendation
+  // Recompute when device signals, user preferences, or live context changes
   useEffect(() => {
     if (!device.ready) return;
     setSnapshot(buildSnapshot(paramsRef.current, true));
   // Primitive dep comparisons are intentional (object spread avoids identity check)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [device.btConnected, device.charging, device.ready, favorites, defaultNav, defaultMusic]);
+  }, [device.btConnected, device.charging, device.ready, favorites, defaultNav, defaultMusic, isPlaying, isNavigating]);
 
   // Recompute on OBD speed changes — heavily optimized, only on mode change
   useEffect(() => {
@@ -505,6 +521,20 @@ export function useSmartEngine(
       }
     });
   }, []);
+
+  // GPS speed effect — drives mode when OBD is not connected
+  useEffect(() => {
+    if (gpsSpeedKmh === undefined) return;
+    if (paramsRef.current.obdSpeed !== undefined) return; // OBD has priority
+    const prev = paramsRef.current;
+    const newMode = detectDrivingMode(prev.device, gpsSpeedKmh);
+    const oldMode = detectDrivingMode(prev.device, prev.gpsSpeedKmh ?? 0);
+    paramsRef.current = { ...prev, gpsSpeedKmh };
+    if (newMode !== oldMode) {
+      setSnapshot(buildSnapshot(paramsRef.current, true));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gpsSpeedKmh]);
 
   // Recompute after each tracked launch — WITH recommendation (usage changed)
   useEffect(() => {

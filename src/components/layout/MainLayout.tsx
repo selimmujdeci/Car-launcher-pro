@@ -3,9 +3,25 @@ import {
   Wifi, Bluetooth, Battery, BatteryCharging,
   MapPin, Map as MapIcon, SkipBack, SkipForward, Play, Pause,
   LayoutGrid, SlidersHorizontal, Check, X,
-  Camera, Route, ShieldAlert, GripVertical, Bell, CloudSun,
+  Camera, Route, ShieldAlert, Shield, GripVertical, Bell, CloudSun, Smartphone,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { VoiceMicButton } from '../modals/VoiceAssistant';
+import { PassengerQRModal } from '../modals/PassengerQRModal';
+import { SportModePanel } from '../sport/SportModePanel';
+import { SecuritySuite } from '../security/SecuritySuite';
+import { EntertainmentPortal, BreakAlertOverlay } from '../entertainment/EntertainmentPortal';
+import { SplitScreen } from '../split/SplitScreen';
+import { RearViewCamera } from '../camera/RearViewCamera';
+import { enableWakeWord, disableWakeWord, useWakeWordState } from '../../platform/wakeWordService';
+import { startTrafficService, updateTrafficLocation, useTrafficState, TRAFFIC_COLORS } from '../../platform/trafficService';
+import { initializeContacts } from '../../platform/contactsService';
+import {
+  startAutoBrightness,
+  stopAutoBrightness,
+  updateAutoBrightnessLocation,
+  useAutoBrightnessState,
+} from '../../platform/autoBrightnessService';
 import { FullMapView } from '../map/FullMapView';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import AppGrid from '../apps/AppGrid';
@@ -40,6 +56,9 @@ import { toIntent, routeIntent } from '../../platform/intentEngine';
 import { registerCommandHandler } from '../../platform/voiceService';
 import type { ParsedCommand } from '../../platform/commandParser';
 import { useSmartEngine, trackLaunch } from '../../platform/smartEngine';
+import { SmartContextBanner } from '../common/SmartContextBanner';
+import { setDrivingMode } from '../../platform/mapService';
+import { useNavigation } from '../../platform/navigationService';
 import { initializeAddressBook } from '../../platform/addressBookService';
 import { useApps } from '../../platform/appDiscovery';
 import { startSpeedLimitService, stopSpeedLimitService } from '../../platform/speedLimitService';
@@ -48,7 +67,14 @@ import {
   startHeadlightAutoBrightness,
   stopHeadlightAutoBrightness,
 } from '../../platform/systemSettingsService';
-import { useGPSLocation } from '../../platform/gpsService';
+import { useGPSLocation, feedBackgroundLocation } from '../../platform/gpsService';
+import { startWifiService, stopWifiService } from '../../platform/wifiService';
+import { isNative } from '../../platform/bridge';
+import { CarLauncher } from '../../platform/nativePlugin';
+import { showToast, dismissToastByTitle } from '../../platform/errorBus';
+import { ErrorToast } from '../common/ErrorToast';
+import { VolumeOverlay } from '../common/VolumeOverlay';
+import { GestureVolumeZone } from '../common/GestureVolumeZone';
 import {
   getPerformanceMode, onPerformanceModeChange,
   type PerformanceMode,
@@ -664,7 +690,7 @@ const DraggableWidget = memo(function DraggableWidget({
 
 /* ── MainLayout ──────────────────────────────────────────── */
 
-type DrawerType = 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc' | 'notifications' | 'weather';
+type DrawerType = 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc' | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment';
 
 export default function MainLayout() {
   const { settings, updateSettings, updateParking } = useStore();
@@ -679,7 +705,156 @@ export default function MainLayout() {
   const [perfMode, setPerfMode] = useState<PerformanceMode>(() => getPerformanceMode());
   const [fullMapOpen, setFullMapOpen] = useState(false);
 
-  const notifState = useNotificationState();
+  const notifState  = useNotificationState();
+  const traffic = useTrafficState();
+  const autoBrightness = useAutoBrightnessState();
+  const hudMedia = useMediaState();
+
+  const [splitOpen,      setSplitOpen]      = useState(false);
+  const [rearCamOpen,    setRearCamOpen]    = useState(false);
+  const [passengerOpen,  setPassengerOpen]  = useState(false);
+
+  const { isNavigating } = useNavigation();
+
+  useWakeWordState(); // wake word durumunu başlatmak için subscribe
+
+  // Wake word
+  useEffect(() => {
+    if (settings.wakeWordEnabled) enableWakeWord(settings.wakeWord ?? 'hey car');
+    else disableWakeWord();
+    return () => { disableWakeWord(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.wakeWordEnabled]);
+
+  // Kişi rehberini yükle
+  useEffect(() => { initializeContacts(); }, []);
+
+  // OBD hata durumlarını toast ile kullanıcıya ilet
+  useEffect(() => {
+    const state = obd.connectionState;
+    if (state === 'error') {
+      showToast({
+        type:    'error',
+        title:   'OBD Bağlantısı Kesildi',
+        message: 'ELM327 adapteriyle bağlantı kurulamadı. Simüle veri gösteriliyor.',
+        duration: 7000,
+      });
+    } else if (state === 'connected') {
+      dismissToastByTitle('OBD Bağlantısı Kesildi');
+      showToast({ type: 'success', title: 'OBD Bağlandı', message: obd.deviceName, duration: 3000 });
+    } else if (state === 'reconnecting') {
+      showToast({ type: 'warning', title: 'OBD Yeniden Bağlanıyor...', duration: 4000 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obd.connectionState]);
+
+  // GPS izin hatası toast
+  useEffect(() => {
+    if (!location && isNative) {
+      const t = setTimeout(() => {
+        showToast({
+          type: 'warning',
+          title: 'GPS İzni Gerekli',
+          message: 'Konum izni verilmeden harita ve navigasyon çalışmaz.',
+          duration: 8000,
+        });
+      }, 5000); // 5 sn bekle — servis henüz başlıyor olabilir
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Arka plan GPS servisi (native cihazda app minimize olunca GPS'i ayakta tutar)
+  useEffect(() => {
+    if (!isNative) return;
+    CarLauncher.startBackgroundService().catch(() => {
+      showToast({ type: 'warning', title: 'Arka Plan GPS', message: 'Foreground servis başlatılamadı.', duration: 5000 });
+    });
+    // Arka plan konumu gps servisine ilet
+    let handle: { remove(): void } | null = null;
+    CarLauncher.addListener('backgroundLocation', (loc) => {
+      // Arka plan GPS → gpsService store'a besle (minimize modda Capacitor dursa bile)
+      feedBackgroundLocation(loc);
+      if (settings.autoBrightnessEnabled) {
+        updateAutoBrightnessLocation(loc.lat, loc.lng);
+      }
+      updateTrafficLocation(loc.lat);
+    }).then((h) => { handle = h; }).catch(() => undefined);
+    // Mola hatırlatıcısı
+    let breakHandle: { remove(): void } | null = null;
+    CarLauncher.addListener('breakReminder', () => {
+      if (settings.breakReminderEnabled) {
+        // BreakAlertOverlay'i tetikle — breakReminderService üzerinden
+        // (native servis bağımsız çalışır, JS servisi de kendi sayacını tutar)
+        showToast({ type: 'warning', title: 'Mola Zamanı', message: '2 saattir kesintisiz sürüş yapıyorsunuz.', duration: 0 });
+      }
+    }).then((h) => { breakHandle = h; }).catch(() => undefined);
+
+    return () => {
+      handle?.remove();
+      breakHandle?.remove();
+      CarLauncher.stopBackgroundService().catch(() => undefined);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // WiFi durumu servisi — SSID + bağlantı durumu
+  useEffect(() => {
+    startWifiService();
+    return () => { stopWifiService(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Trafik servisi — GPS ile güncelle
+  useEffect(() => {
+    startTrafficService(location?.latitude);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (location?.latitude) updateTrafficLocation(location.latitude);
+  }, [location?.latitude]);
+
+  // Otomatik parlaklık
+  useEffect(() => {
+    if (settings.autoBrightnessEnabled && location?.latitude) {
+      startAutoBrightness({
+        lat: location.latitude,
+        lng: location.longitude,
+        onThemeChange: settings.autoThemeEnabled
+          ? (theme) => updateSettings({ theme })
+          : undefined,
+      });
+    } else {
+      stopAutoBrightness();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.autoBrightnessEnabled, settings.autoThemeEnabled]);
+
+  useEffect(() => {
+    if (settings.autoBrightnessEnabled && location?.latitude) {
+      updateAutoBrightnessLocation(location.latitude, location.longitude);
+    }
+  }, [location?.latitude, location?.longitude, settings.autoBrightnessEnabled]);
+
+  // GPS hızına göre sürüş modu — 15 km/h üzeri 3 saniye boyunca devam ederse drive mode aktif
+  const autoDriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!settings.smartContextEnabled) return;
+    const speedKmh = location?.speed != null ? location.speed * 3.6 : 0;
+    if (speedKmh > 15) {
+      if (!autoDriveTimerRef.current) {
+        autoDriveTimerRef.current = setTimeout(() => {
+          setDrivingMode(true);
+          autoDriveTimerRef.current = null;
+        }, 3000);
+      }
+    } else {
+      if (autoDriveTimerRef.current) {
+        clearTimeout(autoDriveTimerRef.current);
+        autoDriveTimerRef.current = null;
+      }
+    }
+  }, [location?.speed, settings.smartContextEnabled]);
 
   // ── Drag & drop state for right-column widgets ────────────
   const [dragId, setDragId]   = useState<string | null>(null);
@@ -738,6 +913,9 @@ export default function MainLayout() {
     favorites,
     settings.defaultNav as NavOptionKey,
     settings.defaultMusic as MusicOptionKey,
+    location?.speed != null ? location.speed * 3.6 : undefined,
+    hudMedia.playing,
+    isNavigating,
   );
 
   useEffect(() => {
@@ -832,6 +1010,14 @@ export default function MainLayout() {
     });
   }, []);
 
+  useEffect(() => {
+    if (settings.performanceMode) {
+      document.body.classList.add('performance-mode');
+    } else {
+      document.body.classList.remove('performance-mode');
+    }
+  }, [settings.performanceMode]);
+
   const wallpaperStyle = settings.wallpaper !== 'none' ? {
     backgroundImage: `url(${settings.wallpaper})`,
     backgroundSize: 'cover',
@@ -848,6 +1034,8 @@ export default function MainLayout() {
       data-drive-state={smart.drivingMode}
       data-performance-mode={perfMode}
       data-edit-mode={settings.editMode}
+      data-media-active={String(smart.mediaProminent)}
+      data-nav-active={String(smart.mapPriority)}
       className="flex flex-col h-full w-full overflow-hidden text-white transition-all duration-500"
       style={{
         background: settings.theme === 'oled' ? '#000' : '#060d1a',
@@ -856,6 +1044,19 @@ export default function MainLayout() {
       }}
     >
       <BootSplash phase={bootPhase} />
+      <ErrorToast />
+      <VolumeOverlay />
+
+      {/* Kenar swipe ses kontrolü — sadece seçili tarafta aktif */}
+      {settings.gestureVolumeSide !== 'off' && (
+        <GestureVolumeZone
+          side={settings.gestureVolumeSide}
+          volume={settings.volume}
+          onVolumeChange={(v) => {
+            updateSettings({ volume: v });
+          }}
+        />
+      )}
 
       {/* Edit Mode Banner */}
       {settings.editMode && (
@@ -890,6 +1091,13 @@ export default function MainLayout() {
         <DeviceStatusBar />
       </div>
 
+      {/* Smart Context Banner — öneri bandı + hızlı eylem chipleri */}
+      <SmartContextBanner
+        smart={smart}
+        enabled={settings.smartContextEnabled}
+        onLaunch={handleLaunch}
+      />
+
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative z-10" data-theme-layout="main">
         {/* OBD Row (Visible in Big Cards or when forced) */}
@@ -917,8 +1125,14 @@ export default function MainLayout() {
 
         <div className="flex-1 min-h-0 overflow-hidden flex gap-3 px-3 pt-1 pb-1">
           {/* Left: Navigation / Offline Map */}
-          <div 
-            className="flex-[1.8] min-w-0 min-h-0 flex relative" 
+          <div
+            className={`min-w-0 min-h-0 flex relative transition-[flex] duration-700 ${
+              settings.smartContextEnabled
+                ? smart.layoutWeights.navFlex === 4 ? 'flex-[2.5]'
+                  : smart.layoutWeights.navFlex === 2 ? 'flex-[1.2]'
+                  : 'flex-[1.8]'
+                : 'flex-[1.8]'
+            }`}
             data-section="hero"
             data-hidden={!settings.widgetVisible.nav}
           >
@@ -942,7 +1156,7 @@ export default function MainLayout() {
             )}
           </div>
           {/* Right: Media + Quick Access (drag & drop reorderable in edit mode) */}
-          <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3" data-section="sidebar">
             {(settings.widgetOrder ?? ['media', 'shortcuts']).map((widgetId, index) => {
               const flex = index === 0 ? 'flex-[1.5]' : 'flex-1';
               if (widgetId === 'media') {
@@ -1019,8 +1233,63 @@ export default function MainLayout() {
         </div>
       </div>
 
+      {/* Drive Mode HUD — collapses when idle/normal, slides up when driving */}
+      <div data-drive-hud="main" className="flex-shrink-0 relative z-25 px-3">
+        <div className="mb-1.5 px-4 py-2.5 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/[0.08] flex items-center gap-4">
+          {/* Speed display */}
+          <div className="flex items-baseline gap-1 flex-shrink-0 min-w-[72px]">
+            <span className="text-4xl font-black text-white tabular-nums leading-none">
+              {Math.round(obd.speed)}
+            </span>
+            <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wide self-end mb-0.5">km/h</span>
+          </div>
+
+          <div className="w-px h-8 bg-white/10 flex-shrink-0" />
+
+          {/* Track info */}
+          <div className="flex-1 min-w-0">
+            <div className="text-white text-sm font-bold truncate leading-tight">
+              {hudMedia.track.title || '—'}
+            </div>
+            <div className="text-slate-500 text-xs truncate mt-0.5">
+              {hudMedia.track.artist || '\u00a0'}
+            </div>
+          </div>
+
+          {/* Media controls */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={previous}
+              className="w-9 h-9 rounded-xl bg-white/[0.07] border border-white/10 flex items-center justify-center active:scale-95"
+            >
+              <SkipBack className="w-4 h-4 text-slate-300" />
+            </button>
+            <button
+              onClick={togglePlayPause}
+              className="w-11 h-11 rounded-xl bg-blue-500 flex items-center justify-center active:scale-95 shadow-[0_2px_12px_rgba(59,130,246,0.45)]"
+            >
+              {hudMedia.playing
+                ? <Pause className="w-5 h-5 fill-current" />
+                : <Play  className="w-5 h-5 fill-current" />
+              }
+            </button>
+            <button
+              onClick={next}
+              className="w-9 h-9 rounded-xl bg-white/[0.07] border border-white/10 flex items-center justify-center active:scale-95"
+            >
+              <SkipForward className="w-4 h-4 text-slate-300" />
+            </button>
+          </div>
+
+          {/* Night indicator */}
+          {(autoBrightness.phase === 'night' || autoBrightness.phase === 'evening' || autoBrightness.phase === 'dawn') && (
+            <span className="flex-shrink-0 text-base leading-none select-none">🌙</span>
+          )}
+        </div>
+      </div>
+
       {/* Dock */}
-      <div className="flex items-center justify-center px-6 py-3 flex-shrink-0 relative z-20">
+      <div data-dock="main" className="flex items-center justify-center px-6 py-3 flex-shrink-0 relative z-20">
         <div className="flex items-center gap-2 p-1 rounded-2xl bg-black/60 backdrop-blur-3xl border border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] max-w-5xl w-full relative overflow-hidden">
           <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
           
@@ -1093,12 +1362,83 @@ export default function MainLayout() {
 
           <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
 
+          <VoiceMicButton />
+
           <button
             onClick={openApps}
             className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group"
           >
             <LayoutGrid className="w-5 h-5 text-blue-400 group-hover:text-blue-300 transition-colors" />
             <span className="text-blue-400/60 group-hover:text-blue-300 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Menü</span>
+          </button>
+
+          {/* Split Screen */}
+          <button
+            onClick={() => setSplitOpen(true)}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <span className="text-lg leading-none group-hover:scale-110 transition-transform">⊞</span>
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Split</span>
+          </button>
+
+          {/* Geri Kamera */}
+          <button
+            onClick={() => setRearCamOpen(true)}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <span className="text-lg leading-none group-hover:scale-110 transition-transform">📸</span>
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Kamera</span>
+          </button>
+
+          {/* Trafik */}
+          <button
+            onClick={() => { /* trafik paneli ileride */ }}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative"
+          >
+            <span className="text-lg leading-none group-hover:scale-110 transition-transform">🚦</span>
+            {traffic.summary && (
+              <span
+                className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full border border-black/40"
+                style={{ backgroundColor: TRAFFIC_COLORS[traffic.summary.level] }}
+              />
+            )}
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Trafik</span>
+          </button>
+
+          {/* Sport Modu */}
+          <button
+            onClick={() => setDrawer('sport')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group"
+          >
+            <span className="text-lg leading-none group-hover:scale-110 transition-transform">⚡</span>
+            <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Sport</span>
+          </button>
+
+          {/* Güvenlik */}
+          <button
+            onClick={() => setDrawer('security')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <Shield className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Vale</span>
+          </button>
+
+          {/* Eğlence */}
+          <button
+            onClick={() => setDrawer('entertainment')}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <span className="text-lg leading-none group-hover:scale-110 transition-transform">🎬</span>
+            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Eğlence</span>
+          </button>
+
+          {/* Yolcu Kontrolü */}
+          <button
+            onClick={() => setPassengerOpen(true)}
+            className="flex-1 h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group"
+          >
+            <Smartphone className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
+            <span className="text-white/30 group-hover:text-blue-400 text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block">Yolcu</span>
           </button>
 
           <button
@@ -1141,6 +1481,27 @@ export default function MainLayout() {
         <WeatherWidget />
       </DrawerShell>
 
+      <DrawerShell open={drawer === 'sport'} onClose={closeDrawer}>
+        <SportModePanel />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'security'} onClose={closeDrawer}>
+        <SecuritySuite />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'entertainment'} onClose={closeDrawer}>
+        <EntertainmentPortal />
+      </DrawerShell>
+
+      {/* Mola uyarısı — her zaman üstte */}
+      <BreakAlertOverlay />
+
+      {/* Split Screen */}
+      {splitOpen && <SplitScreen onClose={() => setSplitOpen(false)} />}
+
+      {/* Geri Görüş Kamerası */}
+      {rearCamOpen && <RearViewCamera onClose={() => setRearCamOpen(false)} />}
+
       {drawer === 'dashcam' && (
         <div className="fixed inset-0 z-40 bg-[#060d1a]">
           <DashcamView onClose={closeDrawer} />
@@ -1148,6 +1509,9 @@ export default function MainLayout() {
       )}
 
       {fullMapOpen && <FullMapView onClose={() => setFullMapOpen(false)} />}
+
+      {/* Yolcu QR Paneli */}
+      {passengerOpen && <PassengerQRModal onClose={() => setPassengerOpen(false)} />}
     </div>
   );
 }

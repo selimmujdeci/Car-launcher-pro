@@ -10,6 +10,31 @@ export interface AppDiscoveryResult {
 }
 
 /**
+ * System app package variants that are covered by curated entries using universal
+ * actions/categories. Prevents duplicate tiles when the OEM ships a different
+ * package name for phone / contacts / messages / camera / clock / calculator.
+ */
+const SYSTEM_APP_BLOCKLIST = new Set([
+  // Phone / dialer
+  'com.android.dialer', 'com.samsung.android.dialer', 'com.miui.dialer',
+  'com.oneplus.dialer', 'com.lge.dialer', 'com.motorola.dialer',
+  // Contacts
+  'com.android.contacts', 'com.samsung.android.contacts', 'com.miui.contacts',
+  // Messages / SMS
+  'com.android.mms', 'com.samsung.android.messaging', 'com.android.messaging',
+  'com.google.android.apps.messaging', 'com.miui.sms',
+  // Camera
+  'com.android.camera', 'com.android.camera2', 'com.samsung.android.camera',
+  'com.miui.camera', 'com.oneplus.camera', 'com.huawei.camera',
+  // Clock / alarm
+  'com.android.deskclock', 'com.google.android.deskclock', 'com.samsung.android.clock',
+  'com.miui.clock',
+  // Calculator
+  'com.android.calculator2', 'com.google.android.calculator', 'com.samsung.android.calculator',
+  'com.miui.calculator',
+]);
+
+/**
  * Hook to discover installed apps on the device and merge them with our curated list.
  */
 export function useApps(): AppDiscoveryResult {
@@ -25,14 +50,14 @@ export function useApps(): AppDiscoveryResult {
     async function scan() {
       try {
         const { apps } = await CarLauncher.getApps();
-        
+
         // Curated package names for easy lookup
         const curatedPackages = new Set(
           ALL_APPS.map(a => a.androidPackage).filter(Boolean)
         );
 
         const newApps: AppItem[] = apps
-          .filter(na => !curatedPackages.has(na.packageName))
+          .filter(na => !curatedPackages.has(na.packageName) && !SYSTEM_APP_BLOCKLIST.has(na.packageName))
           .map(na => ({
             id: `native-${na.packageName}`,
             name: na.name,

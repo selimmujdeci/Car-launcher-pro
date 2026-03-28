@@ -239,6 +239,23 @@ async function _startNative(): Promise<void> {
 /* ── Public API ──────────────────────────────────────────── */
 
 /**
+ * Eşleşmiş Bluetooth cihazlarını tara — SetupWizard için.
+ * Sonuç { name, address }[] döner.
+ */
+export async function scanOBD(): Promise<Array<{ name: string; address: string }>> {
+  if (!Capacitor.isNativePlatform()) return [];
+  const { devices } = await CarLauncher.scanOBD();
+  return devices;
+}
+
+/**
+ * Belirli bir BT adresiyle OBD bağlantısı kur — SetupWizard için.
+ */
+export async function connectOBD(address: string): Promise<void> {
+  await CarLauncher.connectOBD({ address });
+}
+
+/**
  * Start OBD.
  * Tries native Bluetooth first; silently falls back to mock on any failure.
  * Idempotent — safe to call multiple times.

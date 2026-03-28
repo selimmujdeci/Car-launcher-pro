@@ -2,14 +2,18 @@ import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   Bluetooth, Wifi, WifiOff,
   BatteryFull, BatteryMedium, BatteryLow, BatteryCharging,
-  Play, Pause, SkipBack, SkipForward,
   Bell, MapPin, GripVertical, Check,
+  Search, Phone, User, Star,
 } from 'lucide-react';
-import { APP_MAP, MUSIC_OPTIONS } from '../../data/apps';
+import {
+  useContactsState,
+  searchContacts,
+  recordCall,
+} from '../../platform/contactsService';
+import { APP_MAP } from '../../data/apps';
 import type { AppItem, MusicOptionKey } from '../../data/apps';
-import { openMusic } from '../../platform/appLauncher';
 import { useDeviceStatus } from '../../platform/deviceApi';
-import { useMediaState, togglePlayPause, next, previous, fmtTime } from '../../platform/mediaService';
+import { MediaHub } from './MediaHub';
 import { registerCommandHandler } from '../../platform/voiceService';
 import type { ParsedCommand } from '../../platform/commandParser';
 import { startNavigation } from '../../platform/navigationService';
@@ -17,6 +21,8 @@ import { getFavoriteAddresses } from '../../platform/addressBookService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { FullMapView } from '../map/FullMapView';
 import { TPMSWidget } from '../obd/TPMSWidget';
+import { VehicleReminderWidget } from './VehicleReminderWidget';
+import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { useStore, type ParkingLocation } from '../../store/useStore';
 
 /* ── useDragSort — pointer tabanlı sırala ────────────────── */
@@ -267,70 +273,6 @@ const DeviceStatus = memo(function DeviceStatus() {
   );
 });
 
-/* ── Müzik Kartı ─────────────────────────────────────────── */
-const MusicCard = memo(function MusicCard({ defaultMusic }: { defaultMusic: MusicOptionKey }) {
-  const { playing, track } = useMediaState();
-  const launch = useCallback(() => openMusic(defaultMusic), [defaultMusic]);
-  const app = MUSIC_OPTIONS[defaultMusic];
-
-  const progressPct = track.durationSec > 0
-    ? Math.min(100, Math.round((track.positionSec / track.durationSec) * 100))
-    : 0;
-
-  return (
-    <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex flex-col gap-3 overflow-hidden">
-      <div className="flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${playing ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
-          <span className="text-slate-500 text-xs tracking-widest uppercase">Müzik</span>
-        </div>
-        <span className="text-slate-700 text-xs">{app.name}</span>
-      </div>
-
-      <button onClick={launch} className="flex items-center gap-4 flex-shrink-0 w-full text-left active:opacity-70 transition-opacity duration-100">
-        <div
-          className="w-16 h-16 rounded-xl flex-shrink-0 flex items-center justify-center text-3xl shadow-lg"
-          style={{ background: `linear-gradient(135deg, ${app.color}cc, ${app.color}44)` }}
-        >
-          {app.icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-white text-lg font-semibold truncate leading-tight">
-            {track.title || '—'}
-          </div>
-          <div className="text-slate-400 text-sm truncate mt-1 leading-tight">
-            {track.artist || '—'}
-          </div>
-        </div>
-      </button>
-
-      <div className="flex-shrink-0">
-        <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 rounded-full transition-[width] duration-500"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-slate-700 text-[10px] mt-1 tabular-nums">
-          <span>{fmtTime(track.positionSec)}</span>
-          <span>{fmtTime(track.durationSec)}</span>
-        </div>
-      </div>
-
-      <div className="flex gap-2.5 flex-1 min-h-0">
-        <button onClick={previous} className="flex-1 rounded-xl bg-white/5 border border-white/5 text-white flex items-center justify-center"><SkipBack className="w-5 h-5" /></button>
-        <button
-          onClick={togglePlayPause}
-          className="flex-[2] rounded-xl text-white shadow-lg flex items-center justify-center"
-          style={{ background: app.color }}
-        >
-          {playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-        </button>
-        <button onClick={next} className="flex-1 rounded-xl bg-white/5 border border-white/5 text-white flex items-center justify-center"><SkipForward className="w-5 h-5" /></button>
-      </div>
-    </div>
-  );
-});
 
 /* ── Favori Uygulamalar ──────────────────────────────────── */
 const FavApps = memo(function FavApps({
@@ -408,6 +350,110 @@ const ParkingWidget = memo(function ParkingWidget({ location }: { location: Park
   );
 });
 
+/* ── Telefon Paneli ──────────────────────────────────────── */
+const PhonePanel = memo(function PhonePanel() {
+  const [query, setQuery] = useState('');
+  const [dial,  setDial]  = useState('');
+  const state = useContactsState();
+
+  const shown = query
+    ? searchContacts(query, 'name')
+    : searchContacts('', 'recent').slice(0, 8);
+
+  const handleCall = useCallback((id: string, number: string) => {
+    recordCall(id);
+    setDial(number);
+    // Native: CarLauncher.launchApp({ androidAction: 'android.intent.action.CALL', data: `tel:${number}` })
+    if (typeof window !== 'undefined') {
+      window.open(`tel:${number.replace(/\s/g, '')}`, '_self');
+    }
+  }, []);
+
+  function timeSince(ts?: number): string {
+    if (!ts) return '';
+    const diffMin = Math.round((Date.now() - ts) / 60000);
+    if (diffMin < 60) return `${diffMin} dk önce`;
+    const diffH = Math.round(diffMin / 60);
+    if (diffH < 24) return `${diffH} sa önce`;
+    return `${Math.round(diffH / 24)} gün önce`;
+  }
+
+  return (
+    <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 flex flex-col overflow-hidden">
+      {/* Arama */}
+      <div className="p-4 border-b border-white/5 bg-white/5 flex-shrink-0">
+        <div className="flex items-center gap-3 bg-black/30 rounded-xl px-4 py-2 border border-white/5">
+          <Search className="w-4 h-4 text-slate-500 flex-shrink-0" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent border-none outline-none text-white text-sm w-full font-medium placeholder:text-slate-600"
+            placeholder="Kişi veya numara ara…"
+          />
+        </div>
+      </div>
+
+      {/* Kişi listesi */}
+      <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
+        {state.loading && (
+          <div className="text-slate-600 text-xs text-center py-4">Yükleniyor…</div>
+        )}
+        {!state.loading && shown.length === 0 && (
+          <div className="text-slate-700 text-xs text-center py-4">Kişi bulunamadı</div>
+        )}
+        {shown.map((c) => {
+          const phone = c.phones[0];
+          return (
+            <div
+              key={c.id}
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors group"
+            >
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border ${
+                c.favorite ? 'bg-amber-500/10 border-amber-500/20' : 'bg-blue-500/10 border-blue-500/20'
+              }`}>
+                {c.avatar
+                  ? <img src={c.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                  : <User className={`w-5 h-5 ${c.favorite ? 'text-amber-400' : 'text-blue-400'}`} />
+                }
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <div className="text-white text-sm font-bold truncate flex items-center gap-1">
+                  {c.name}
+                  {c.favorite && <Star className="w-3 h-3 text-amber-400 fill-current flex-shrink-0" />}
+                </div>
+                <div className="text-slate-500 text-[10px] truncate">
+                  {phone?.number ?? '—'}
+                  {c.lastCalled ? ` · ${timeSince(c.lastCalled)}` : ''}
+                </div>
+              </div>
+              <button
+                onClick={() => phone && handleCall(c.id, phone.number)}
+                disabled={!phone}
+                className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 disabled:opacity-30 active:scale-90 transition-all flex-shrink-0"
+              >
+                <Phone className="w-4 h-4 fill-current" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Tuş takımı + arama göstergesi */}
+      <div className="p-4 bg-white/5 border-t border-white/5 flex gap-2 flex-shrink-0">
+        <div className="flex-1 bg-black/40 rounded-xl flex items-center px-4 h-12 font-black text-blue-400 tracking-widest overflow-hidden text-sm">
+          {dial || 'NUMARA'}
+        </div>
+        <button
+          onClick={() => { if (dial) window.open(`tel:${dial}`, '_self'); }}
+          className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-lg active:scale-95 transition-all"
+        >
+          <Phone className="w-5 h-5 fill-current" />
+        </button>
+      </div>
+    </div>
+  );
+});
+
 /* ── Ana bileşen ─────────────────────────────────────────── */
 interface Props {
   favorites: string[];
@@ -421,6 +467,7 @@ interface Props {
 function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, defaultMusic }: Props) {
   const { settings, updateSettings } = useStore();
   const [fullMapOpen, setFullMapOpen] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
 
   useEffect(() => {
     const cleanup = registerCommandHandler((cmd: ParsedCommand) => {
@@ -430,6 +477,9 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
           startNavigation(homeAddress);
           setFullMapOpen(true);
         }
+      }
+      if (cmd.type === 'vehicle_maintenance') {
+        setReminderOpen(true);
       }
     });
     return cleanup;
@@ -467,19 +517,23 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
   const WIDGET_LABELS: Record<string, string> = {
     music: 'Müzik',
     notifications: 'Bildirimler',
+    phone: 'Telefon',
   };
 
   const renderWidget = useCallback((key: string) => {
     if (key === 'music') {
       return (
         <div className="flex-1 min-h-0 flex flex-col gap-3">
-          <MusicCard defaultMusic={defaultMusic} />
+          <MediaHub defaultMusic={defaultMusic} />
           {settings.parkingLocation && <ParkingWidget location={settings.parkingLocation} />}
         </div>
       );
     }
     if (key === 'notifications') {
       return <div className="flex-1 min-h-0"><NotificationArea /></div>;
+    }
+    if (key === 'phone') {
+      return <div className="flex-1 min-h-0"><PhonePanel /></div>;
     }
     return null;
   }, [defaultMusic, settings.parkingLocation]);
@@ -508,6 +562,10 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
                 <TPMSWidget />
               </div>
             )}
+
+            <div className="flex-shrink-0 animate-slide-up" style={{ animationDelay: '50ms' }}>
+              <VehicleReminderWidget onOpen={() => setReminderOpen(true)} />
+            </div>
 
             <div className="flex-1 min-h-0 animate-slide-up" style={{ animationDelay: '60ms' }}>
               <FavApps ids={favorites} onLaunch={onLaunch} columns={3} />
@@ -597,6 +655,7 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
       </div>
 
       {fullMapOpen && <FullMapView onClose={() => setFullMapOpen(false)} />}
+      {reminderOpen && <VehicleReminderModal onClose={() => setReminderOpen(false)} />}
     </>
   );
 }

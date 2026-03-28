@@ -90,6 +90,59 @@ export interface SpeechRecognitionResult {
   transcript: string; // top recognition result
 }
 
+/* ── Contacts types ──────────────────────────────────────── */
+
+export interface NativeContactPhone {
+  number: string;
+  type:   'MOBILE' | 'HOME' | 'WORK' | 'OTHER';
+}
+
+export interface NativeContact {
+  id:     string;
+  name:   string;
+  phones: NativeContactPhone[];
+}
+
+export interface GetContactsResult {
+  contacts: NativeContact[];
+}
+
+/* ── Passenger control types ─────────────────────────────── */
+
+export interface PassengerServerResult {
+  ip:    string;
+  port:  number;
+  token: string;
+}
+
+export interface PassengerStateOptions {
+  title:   string;
+  artist:  string;
+  appName: string;
+  playing: boolean;
+}
+
+export interface PassengerCommandEvent {
+  action: 'play' | 'pause' | 'next' | 'previous';
+}
+
+/* ── Media session types ─────────────────────────────────── */
+
+/**
+ * Aktif medya oturumu bilgisi — Android MediaSessionManager'dan okunur.
+ * Hangi uygulama çalıyorsa (Spotify, YouTube, vb.) bu yapı döner.
+ */
+export interface NativeMediaInfo {
+  packageName: string;  // com.spotify.music, com.google.android.youtube, vb.
+  appName:     string;  // kullanıcıya görünen uygulama adı
+  title:       string;  // parça / video başlığı
+  artist:      string;  // sanatçı / kanal adı
+  albumArt?:   string;  // base64 data URI (JPEG)
+  playing:     boolean;
+  durationMs:  number;  // 0 = bilinmiyor
+  positionMs:  number;  // 0 = bilinmiyor
+}
+
 /* ── Plugin interface ────────────────────────────────────── */
 
 export interface CarLauncherPlugin {
@@ -112,6 +165,30 @@ export interface CarLauncherPlugin {
   connectOBD(options: OBDConnectOptions): Promise<void>;
   disconnectOBD(): Promise<void>;
 
+  // Android contacts (READ_CONTACTS permission required)
+  getContacts(): Promise<GetContactsResult>;
+
+  // Background GPS + break reminder foreground service
+  startBackgroundService(): Promise<void>;
+  stopBackgroundService():  Promise<void>;
+
+  // Special Android system permissions
+  checkWriteSettings():     Promise<{ granted: boolean }>;
+  requestWriteSettings():   Promise<void>;
+  checkNotificationAccess():  Promise<{ granted: boolean }>;
+  requestNotificationAccess(): Promise<void>;
+
+  // Active media session (Android MediaSessionManager)
+  getMediaInfo(): Promise<NativeMediaInfo>;
+
+  // Camera2 API — geri görüş kamerası (CAMERA permission required)
+  openCamera(options: { facing: 'back' | 'front' }): Promise<{ cameraId: string }>;
+  closeCamera(): Promise<void>;
+  captureFrame(): Promise<{ imageData: string }>; // base64 JPEG, data URI prefix yok
+
+  // Dashcam kayıt durumunu foreground servis bildirimine yansıt
+  setDashcamActive(options: { active: boolean }): Promise<void>;
+
   addListener(
     event: 'obdStatus',
     handler: (data: OBDStatusEvent) => void,
@@ -119,6 +196,35 @@ export interface CarLauncherPlugin {
   addListener(
     event: 'obdData',
     handler: (data: NativeOBDData) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    event: 'mediaChanged',
+    handler: (data: NativeMediaInfo) => void,
+  ): Promise<PluginListenerHandle>;
+
+  // Passenger HTTP server — yolcu müzik kontrolü
+  startPassengerServer(): Promise<PassengerServerResult>;
+  stopPassengerServer(): Promise<void>;
+  updatePassengerState(options: PassengerStateOptions): Promise<void>;
+
+  addListener(
+    event: 'passengerCommand',
+    handler: (data: PassengerCommandEvent) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /** Arka planda GPS konum güncellemesi (CarLauncherForegroundService'den) */
+  addListener(
+    event: 'backgroundLocation',
+    handler: (data: {
+      lat: number; lng: number;
+      speed: number; bearing: number; accuracy: number;
+    }) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /** Mola hatırlatıcısı — 2 saatlik kesintisiz sürüşte tetiklenir */
+  addListener(
+    event: 'breakReminder',
+    handler: (data: { drivingMinutes: number }) => void,
   ): Promise<PluginListenerHandle>;
 }
 

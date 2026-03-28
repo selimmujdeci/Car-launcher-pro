@@ -27,10 +27,10 @@ export interface AppItem {
 }
 
 export const ALL_APPS: AppItem[] = [
-  // İletişim
-  { id: 'phone',      name: 'Telefon',        icon: '📞', category: 'communication', url: 'tel:',                       androidPackage: 'com.android.dialer',         androidAction: 'android.intent.action.DIAL',         supportsFavorite: true,  supportsRecent: true  },
-  { id: 'messages',   name: 'Mesajlar',       icon: '💬', category: 'communication', url: 'sms:',                       androidPackage: 'com.google.android.apps.messaging', androidAction: 'android.intent.action.SENDTO',   androidCategory: 'android.intent.category.APP_MESSAGING', supportsFavorite: true,  supportsRecent: true  },
-  { id: 'contacts',   name: 'Kişiler',        icon: '👤', category: 'communication', url: '',                           androidPackage: 'com.android.contacts',                              androidCategory: 'android.intent.category.APP_CONTACTS', supportsFavorite: true,  supportsRecent: true  },
+  // İletişim — OEM paketleri yerine evrensel action/category kullan
+  { id: 'phone',      name: 'Telefon',        icon: '📞', category: 'communication', url: 'tel:',   androidAction: 'android.intent.action.DIAL',                                                            supportsFavorite: true,  supportsRecent: true  },
+  { id: 'messages',   name: 'Mesajlar',       icon: '💬', category: 'communication', url: 'sms:',                                                          androidCategory: 'android.intent.category.APP_MESSAGING', supportsFavorite: true,  supportsRecent: true  },
+  { id: 'contacts',   name: 'Kişiler',        icon: '👤', category: 'communication', url: '',                                                               androidCategory: 'android.intent.category.APP_CONTACTS',  supportsFavorite: true,  supportsRecent: true  },
 
   // Navigasyon
   { id: 'maps',       name: 'Google Maps',    icon: '🗺️', category: 'navigation',    url: 'https://maps.google.com',    androidPackage: 'com.google.android.apps.maps',                      androidCategory: 'android.intent.category.APP_MAPS', supportsFavorite: true,  supportsRecent: true  },
@@ -45,10 +45,10 @@ export const ALL_APPS: AppItem[] = [
 
   // Araçlar
   { id: 'weather',    name: 'Hava Durumu',    icon: '⛅', category: 'utility',       url: 'https://weather.com',        androidPackage: 'com.google.android.apps.weather', androidAction: 'android.intent.action.VIEW',         supportsFavorite: true,  supportsRecent: true  },
-  { id: 'camera',     name: 'Kamera',         icon: '📷', category: 'utility',       url: '',                                                                                androidAction: 'android.media.action.STILL_IMAGE_CAMERA', androidCategory: 'android.intent.category.APP_GALLERY', supportsFavorite: true,  supportsRecent: true  },
-  { id: 'calculator', name: 'Hesap Makinesi', icon: '🧮', category: 'utility',       url: '',                           androidPackage: 'com.google.android.calculator',                     androidCategory: 'android.intent.category.APP_CALCULATOR', supportsFavorite: true,  supportsRecent: true  },
-  { id: 'clock',      name: 'Saat',           icon: '⏰', category: 'utility',       url: '',                           androidPackage: 'com.google.android.deskclock',                      supportsFavorite: true,  supportsRecent: true  },
-  { id: 'files',      name: 'Dosyalar',       icon: '📁', category: 'utility',       url: '',                           androidPackage: 'com.google.android.apps.docs',                      supportsFavorite: true,  supportsRecent: true  },
+  { id: 'camera',     name: 'Kamera',         icon: '📷', category: 'utility',       url: '',   androidAction: 'android.media.action.STILL_IMAGE_CAMERA',                                                                          supportsFavorite: true,  supportsRecent: true  },
+  { id: 'calculator', name: 'Hesap Makinesi', icon: '🧮', category: 'utility',       url: '',                                                               androidCategory: 'android.intent.category.APP_CALCULATOR',  supportsFavorite: true,  supportsRecent: true  },
+  { id: 'clock',      name: 'Saat',           icon: '⏰', category: 'utility',       url: '',   androidAction: 'android.intent.action.SHOW_ALARMS',                                                                                supportsFavorite: true,  supportsRecent: true  },
+  { id: 'files',      name: 'Dosyalar',       icon: '📁', category: 'utility',       url: '',   androidPackage: 'com.google.android.apps.nbu.files',                                                                                supportsFavorite: true,  supportsRecent: true  },
 
   // Sistem
   { id: 'bluetooth',  name: 'Bluetooth',      icon: '📶', category: 'system',        url: '',                                                                                androidAction: 'android.settings.BLUETOOTH_SETTINGS', supportsFavorite: false, supportsRecent: false },

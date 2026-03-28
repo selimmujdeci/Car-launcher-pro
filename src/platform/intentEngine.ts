@@ -90,9 +90,10 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   music_youtube:      'SET_MUSIC',
   driving_mode:       'ENABLE_DRIVING_MODE',
   toggle_sleep_mode:  'TOGGLE_SLEEP_MODE',
-  vehicle_speed:      'UNKNOWN',
-  vehicle_fuel:       'UNKNOWN',
-  vehicle_temp:       'UNKNOWN',
+  vehicle_speed:       'UNKNOWN',
+  vehicle_fuel:        'UNKNOWN',
+  vehicle_temp:        'UNKNOWN',
+  vehicle_maintenance: 'UNKNOWN',
 };
 
 /* ── toIntent ────────────────────────────────────────────── */

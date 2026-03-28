@@ -178,6 +178,35 @@ export function formatEta(seconds: number): string {
 }
 
 /**
+ * Metin adresini Nominatim ile geocode edip navigasyonu başlatır.
+ * Sesli komut entegrasyonu için kullanılır.
+ * Başarısız olursa false döner (ağ yok / adres bulunamadı).
+ */
+export async function navigateToAddress(text: string): Promise<boolean> {
+  try {
+    const q   = encodeURIComponent(text);
+    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=tr`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'CarLauncherPro/1.0' },
+      signal: AbortSignal.timeout(6_000),
+    });
+    const data = await res.json() as Array<{ display_name: string; lat: string; lon: string }>;
+    if (!data.length) return false;
+    const r = data[0];
+    startNavigation({
+      id:        `geo-${Date.now()}`,
+      name:      r.display_name.split(',')[0].trim(),
+      latitude:  parseFloat(r.lat),
+      longitude: parseFloat(r.lon),
+      type:      'history',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Use hook for navigation state
  */
 export function useNavigation() {

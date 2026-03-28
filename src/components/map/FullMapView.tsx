@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
@@ -14,6 +14,10 @@ import {
   exitDrivingView,
   setDrivingMode,
   useDrivingMode,
+  setRouteGeometry,
+  clearRouteGeometry,
+  setTurnFocus,
+  clearTurnFocus,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
 import {
@@ -23,7 +27,15 @@ import {
   type MapMode,
 } from '../../platform/mapSourceManager';
 import { useNavigation, updateNavigationProgress } from '../../platform/navigationService';
+import {
+  fetchRoute,
+  useRouteState,
+  updateRouteProgress,
+  clearRoute,
+} from '../../platform/routingService';
+import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { MapOverlay } from './MapOverlay';
+import { NavigationHUD } from './NavigationHUD';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -44,11 +56,20 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
   const locationRef = useRef<ReturnType<typeof useGPSLocation>>(null);
   const headingRef = useRef<number | null>(null);
 
+  const [isPreview, setIsPreview] = useState(false);
+  const [routeStartFlash, setRouteStartFlash] = useState(false);
+  const routeGeometryRef  = useRef<[number, number][] | null>(null);
+  const prevStepIndexRef  = useRef(0);
+
   const location = useGPSLocation();
   const heading = useGPSHeading();
-  const { destination, distanceMeters } = useNavigation();
+  const { isNavigating, destination } = useNavigation();
+  const route = useRouteState();
+  const autoBrightness = useAutoBrightnessState();
   const mode = useMapMode();
   const drivingMode = useDrivingMode();
+
+  const isNight = autoBrightness.phase === 'night' || autoBrightness.phase === 'evening' || autoBrightness.phase === 'dawn';
 
   // Sync refs safely outside of render
   useEffect(() => {
@@ -118,6 +139,62 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
     }
   }, [drivingMode]);
 
+  // Fetch route when navigation starts
+  useEffect(() => {
+    if (isNavigating && destination) {
+      const loc = locationRef.current;
+      const fromLat = loc?.latitude  ?? destination.latitude;
+      const fromLon = loc?.longitude ?? destination.longitude;
+      fetchRoute(fromLat, fromLon, destination.latitude, destination.longitude);
+      setIsPreview(true);
+    } else if (!isNavigating) {
+      setIsPreview(false);
+      if (mapRef.current) clearRouteGeometry(mapRef.current);
+      clearRoute();
+      routeGeometryRef.current = null;
+    }
+  }, [isNavigating]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Draw / update route line on map when geometry arrives
+  useEffect(() => {
+    if (route.geometry && mapRef.current && mapRef.current.isStyleLoaded()) {
+      setRouteGeometry(mapRef.current, route.geometry);
+      routeGeometryRef.current = route.geometry;
+    }
+  }, [route.geometry]);
+
+  // Turn focus: highlight next turn when approaching, clear on step advance
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !route.steps.length) return;
+
+    // Step just advanced → turn completed, clear focus
+    if (route.currentStepIndex !== prevStepIndexRef.current) {
+      prevStepIndexRef.current = route.currentStepIndex;
+      clearTurnFocus();
+      return;
+    }
+
+    const nextIdx  = Math.min(route.currentStepIndex + 1, route.steps.length - 1);
+    const nextStep = route.steps[nextIdx];
+    const dist     = route.distanceToNextTurnMeters;
+
+    if (dist > 0 && dist < 200 && nextStep && nextIdx > route.currentStepIndex) {
+      const [nLon, nLat] = nextStep.coordinate;
+      setTurnFocus(map, nLon, nLat);
+    } else {
+      clearTurnFocus();
+    }
+  }, [route.currentStepIndex, route.distanceToNextTurnMeters, route.steps.length]);
+
+  // Route start micro-interaction flash
+  useEffect(() => {
+    if (!isPreview) return;
+    setRouteStartFlash(true);
+    const t = setTimeout(() => setRouteStartFlash(false), 700);
+    return () => clearTimeout(t);
+  }, [isPreview]);
+
   // Map mode change — switch tile style and re-add marker after load
   useEffect(() => {
     if (!modeInitRef.current) {
@@ -138,6 +215,10 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
         setMapCenter(map, [loc.longitude, loc.latitude], undefined, false);
         map._fullMapInitialized = true;
       }
+      // Restore route line after style change
+      if (routeGeometryRef.current) {
+        setRouteGeometry(map, routeGeometryRef.current);
+      }
       setStyleKey((k) => k + 1);
     });
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -151,11 +232,13 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
     const speedKmh = (location.speed ?? 0) * 3.6;
     const bear = heading || 0;
 
+    const turnDist = route.steps.length ? route.distanceToNextTurnMeters : undefined;
+
     if (!mapRef.current._fullMapInitialized) {
       addUserMarker(mapRef.current, latitude, longitude, bear);
       if (drivingMode) {
         const h = containerRef.current?.offsetHeight ?? 600;
-        setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h);
+        setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
       } else {
         setMapCenter(mapRef.current, [longitude, latitude], 15, true);
       }
@@ -165,7 +248,7 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
 
       if (drivingMode) {
         const h = containerRef.current?.offsetHeight ?? 600;
-        setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h);
+        setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
       } else {
         const currentCenter = mapRef.current.getCenter();
         const dx = longitude - currentCenter.lng;
@@ -181,8 +264,18 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
 
     if (destination) {
       updateNavigationProgress(latitude, longitude, bear);
+      updateRouteProgress(latitude, longitude);
     }
   }, [location, heading, destination, mapStyleReady, styleKey, drivingMode]);
+
+  const handleNavStart  = useCallback(() => setIsPreview(false), []);
+  const handleNavCancel = useCallback(() => {
+    setIsPreview(false);
+    if (mapRef.current) clearRouteGeometry(mapRef.current);
+    clearRoute();
+    routeGeometryRef.current = null;
+    // stopNavigation is handled inside NavigationHUD cancel
+  }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
@@ -208,20 +301,41 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
       <div
         ref={containerRef}
         className="absolute inset-0"
-        style={{ width: '100%', height: '100%' }}
-      >
+        style={{
+          width: '100%',
+          height: '100%',
+          filter: isNight ? 'brightness(0.72) saturate(0.65)' : 'none',
+          transition: 'filter 5s ease',
+        }}
+      />
+
+      {/* Map overlays (pointer-events layer on top of map) */}
+      <div className="absolute inset-0 pointer-events-none">
         <MapOverlay
           location={location}
           heading={heading}
           speedKmh={location?.speed != null ? location.speed * 3.6 : undefined}
-          destination={destination ? {
-            latitude: destination.latitude,
-            longitude: destination.longitude,
-            name: destination.name,
-          } : null}
-          distanceMeters={distanceMeters}
         />
       </div>
+
+      {/* Route start micro-interaction */}
+      {routeStartFlash && (
+        <div
+          className="absolute inset-0 pointer-events-none z-10"
+          style={{
+            background: 'radial-gradient(ellipse at 50% 65%, rgba(59,130,246,0.22) 0%, transparent 70%)',
+            animation: 'routeStartFlash 0.7s ease-out forwards',
+          }}
+        />
+      )}
+
+      {/* Navigation HUD */}
+      <NavigationHUD
+        isPreview={isPreview}
+        onStart={handleNavStart}
+        onCancel={handleNavCancel}
+        speedKmh={location?.speed != null ? location.speed * 3.6 : 0}
+      />
 
       {/* ── Top controls ── */}
       <button
@@ -276,7 +390,7 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
 
       {/* ── Bottom controls ── */}
       <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-6 transition-all duration-500 ${
-        drivingMode ? 'opacity-20 translate-y-4 pointer-events-none' : 'opacity-100'
+        drivingMode || isPreview ? 'opacity-20 translate-y-4 pointer-events-none' : 'opacity-100'
       }`}>
         {/* Map mode switcher */}
         <div className="flex items-center gap-1 bg-black/50 backdrop-blur-xl rounded-[1.25rem] p-1 border border-white/10 shadow-2xl">

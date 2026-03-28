@@ -30,11 +30,7 @@ function debounce<T extends unknown[]>(
 /** percent: 0–100  →  native 0–255 */
 function _applyBrightnessNative(percent: number): void {
   const value = Math.round((percent / 100) * 255);
-  (CarLauncher as unknown as {
-    setBrightness: (o: { value: number }) => Promise<void>;
-  })
-    .setBrightness({ value: value })
-    .catch(() => undefined);
+  CarLauncher.setBrightness({ value }).catch(() => undefined);
 }
 
 /** Web fallback: apply brightness via CSS filter on the root element */
@@ -66,11 +62,7 @@ export function setBrightness(percent: number): void {
 /** percent: 0–100  →  Android stream index 0–15 */
 function _applyVolumeNative(percent: number): void {
   const value = Math.round((percent / 100) * 15);
-  (CarLauncher as unknown as {
-    setVolume: (o: { value: number }) => Promise<void>;
-  })
-    .setVolume({ value: value })
-    .catch(() => undefined);
+  CarLauncher.setVolume({ value }).catch(() => undefined);
 }
 
 const _applyVolumeDebounced = debounce((percent: number) => {

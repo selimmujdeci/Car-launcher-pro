@@ -3,14 +3,28 @@ import { persist } from 'zustand/middleware';
 
 export type ThemeStyle = 'glass' | 'neon' | 'minimal';
 export type WidgetStyle = 'elevated' | 'flat' | 'outlined';
-export type ThemePack = 'tesla' | 'big-cards' | 'ai-center' | 'bmw' | 'mercedes';
+export type ThemePack = 
+  | 'tesla' | 'bmw' | 'mercedes' | 'audi' | 'porsche' 
+  | 'range-rover' | 'cyberpunk' | 'midnight' | 'glass-pro' | 'ambient' 
+  | 'redline' | 'electric' | 'carbon' | 'minimal-dark' | 'minimal-light' 
+  | 'monochrome' | 'sunset' | 'night-city' | 'arctic' | 'galaxy';
 export type ClockStyle = 'digital' | 'analog';
+export type VolumeStyle = 'bmw_polished' | 'tesla_ultra' | 'glass_orb' | 'ambient_line' | 'minimal_pro';
+export type GestureVolumeSide = 'left' | 'right' | 'off';
 
 export interface MaintenanceInfo {
   lastOilChangeKm: number;
   nextOilChangeKm: number;
   lastServiceDate: string;
   fuelConsumptionAvg: number;
+  /** Güncel kilometre (kullanıcı girişi) */
+  currentKm: number;
+  /** Sonraki araç muayene tarihi (YYYY-MM-DD) */
+  inspectionDate: string;
+  /** Trafik sigortası bitiş tarihi (YYYY-MM-DD) */
+  insuranceExpiry: string;
+  /** Kasko bitiş tarihi (YYYY-MM-DD) */
+  kaskoExpiry: string;
 }
 
 export interface TireData {
@@ -36,11 +50,16 @@ export interface ParkingLocation {
 export interface AppSettings {
   brightness: number;
   volume: number;
+  volumeStyle: VolumeStyle;
   theme: 'dark' | 'oled';
   themePack: ThemePack;
   themeStyle: ThemeStyle;
   widgetStyle: WidgetStyle;
   wallpaper: string;
+  favorites: string[];
+  hiddenApps: string[];
+  appOrder: string[];
+  folders: Record<string, { name: string; icon: string; appIds: string[] }>;
   use24Hour: boolean;
   showSeconds: boolean;
   clockStyle: ClockStyle;
@@ -53,9 +72,30 @@ export interface AppSettings {
   widgetVisible: Record<string, boolean>;
   /** Sağ panel alt satır widget sırası: ['music', 'notifications'] */
   widgetOrder: string[];
+  hasCompletedSetup: boolean;
+  performanceMode: boolean;
   maintenance: MaintenanceInfo;
   tpms: TPMSData;
   parkingLocation: ParkingLocation | null;
+  /** Sesli asistan uyandırma kelimesi */
+  wakeWordEnabled: boolean;
+  wakeWord: string;
+  /** Mola hatırlatıcı */
+  breakReminderEnabled: boolean;
+  breakReminderIntervalMin: number;
+  /** Otomatik parlaklık (gün/gece) */
+  autoBrightnessEnabled: boolean;
+  autoThemeEnabled: boolean;
+  autoBrightnessMin: number;
+  autoBrightnessMax: number;
+  /** Kenar swipe ile ses kontrolü tarafı */
+  gestureVolumeSide: GestureVolumeSide;
+  /** Navigasyon hızlı hedefleri */
+  homeLocation: { lat: number; lng: number; name: string } | null;
+  workLocation: { lat: number; lng: number; name: string } | null;
+  recentDestinations: { lat: number; lng: number; name: string; timestamp: number }[];
+  /** Bağlam-farkındı akıllı launcher davranışları */
+  smartContextEnabled: boolean;
 }
 
 interface StoreState {
@@ -70,11 +110,16 @@ interface StoreState {
 const DEFAULT_SETTINGS: AppSettings = {
   brightness: 100,
   volume: 60,
+  volumeStyle: 'minimal_pro',
   theme: 'dark',
   themePack: 'tesla',
   themeStyle: 'glass',
   widgetStyle: 'elevated',
   wallpaper: 'none',
+  favorites: [],
+  hiddenApps: [],
+  appOrder: [],
+  folders: {},
   use24Hour: true,
   showSeconds: false,
   clockStyle: 'digital',
@@ -91,11 +136,17 @@ const DEFAULT_SETTINGS: AppSettings = {
     obd: true,
   },
   widgetOrder: ['music', 'notifications'],
+  hasCompletedSetup: false,
+  performanceMode: false,
   maintenance: {
     lastOilChangeKm: 0,
     nextOilChangeKm: 10000,
     lastServiceDate: new Date().toISOString().split('T')[0],
     fuelConsumptionAvg: 8.5,
+    currentKm: 0,
+    inspectionDate: '',
+    insuranceExpiry: '',
+    kaskoExpiry: '',
   },
   tpms: {
     fl: { pressure: 32, temp: 24, status: 'normal' },
@@ -104,6 +155,19 @@ const DEFAULT_SETTINGS: AppSettings = {
     rr: { pressure: 31, temp: 25, status: 'normal' },
   },
   parkingLocation: null,
+  wakeWordEnabled: false,
+  wakeWord: 'hey car',
+  breakReminderEnabled: false,
+  breakReminderIntervalMin: 120,
+  autoBrightnessEnabled: false,
+  autoThemeEnabled: false,
+  autoBrightnessMin: 15,
+  autoBrightnessMax: 100,
+  gestureVolumeSide: 'left',
+  homeLocation: null,
+  workLocation: null,
+  recentDestinations: [],
+  smartContextEnabled: true,
 };
 
 export const useStore = create<StoreState>()(
@@ -160,6 +224,8 @@ export const useStore = create<StoreState>()(
               ...(ps.settings?.widgetVisible || {}),
             },
             widgetOrder: ps.settings?.widgetOrder ?? currentState.settings.widgetOrder,
+            hasCompletedSetup: ps.settings?.hasCompletedSetup ?? currentState.settings.hasCompletedSetup,
+            performanceMode: ps.settings?.performanceMode ?? currentState.settings.performanceMode,
           }
         };
       },
