@@ -1,14 +1,283 @@
-import { memo, type ReactNode, useState, useCallback, useRef, type ComponentType } from 'react';
+import { memo, type ReactNode, useState, useCallback, useRef, useEffect, type ComponentType } from 'react';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Image as ImageIcon, Check, Layers, PenTool as Tool, Volume2,
-  Plus, Monitor, Upload
+  Plus, Monitor, Upload, Wifi, WifiOff, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
+  Download, Trash2, Moon,
 } from 'lucide-react';
+import { useEditStore } from '../../store/useEditStore';
 import { useStore } from '../../store/useStore';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
 import { getPerformanceMode, setPerformanceMode } from '../../platform/performanceMode';
 import { setBrightness, setVolume } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { triggerThemeTransition } from '../../platform/themeTransitionService';
+import {
+  useMapSources,
+  useMapNetworkStatus,
+  setActiveMapSource,
+  refreshMapSources,
+  type MapSource,
+} from '../../platform/mapSourceManager';
+import { LayoutPreview } from './LayoutPreview';
+import { useLayoutSync } from '../../platform/themeLayoutEngine';
+import {
+  TILE_PRESETS,
+  estimateTileCount,
+  downloadTileRegion,
+  cancelTileDownload,
+  clearCachedTiles,
+  getCachedTileCount,
+  subscribeDownloadState,
+  getDownloadState,
+  type DownloadState,
+} from '../../platform/offlineTileDownloader';
+
+/* ── Harita Kaynak Seçimi ────────────────────────────────── */
+
+const MapSourcePanel = memo(function MapSourcePanel() {
+  const mapState     = useMapSources();
+  const sources: MapSource[] = Array.from(mapState.sources.values());
+  const activeId     = mapState.activeSourceId;
+  const { isOnline } = useMapNetworkStatus();
+  const { updateSettings } = useStore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleSelect = useCallback((id: string) => {
+    const ok = setActiveMapSource(id);
+    if (ok) updateSettings({ activeMapSourceId: id });
+  }, [updateSettings]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshMapSources();
+    setRefreshing(false);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-5 pt-5 border-t border-white/5">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2.5">
+          <div className="w-1.5 h-4 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.6)]" />
+          <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Harita Kaynağı</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border backdrop-blur-md transition-all ${isOnline ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'bg-red-500/10 text-red-400 border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.1)]'}`}>
+            {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            <span className="text-[10px] font-black uppercase tracking-widest">{isOnline ? 'ÇEVRİMİÇİ' : 'ÇEVRİMDIŞI'}</span>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center active:scale-90 transition-all hover:bg-white/10 hover:border-white/20 shadow-lg"
+            title="Kaynakları Yenile"
+          >
+            <RefreshCw className={`w-4 h-4 text-slate-300 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {sources.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 rounded-[2rem] bg-white/[0.05] border border-white/10 transition-all">
+          <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden mb-4">
+             <div className="h-full bg-blue-500/70 rounded-full animate-boot-bar" />
+          </div>
+          <div className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">KAYNAKLAR TARANIYOR</div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {sources.map((src) => {
+            const isOfflineType = src.type === 'offline';
+            const isCached      = src.id === 'cached';
+            const Icon          = isOfflineType ? HardDrive : isCached ? Database : Cloud;
+            const isActive      = activeId === src.id;
+            
+            return (
+              <button
+                key={src.id}
+                onClick={() => src.isAvailable && handleSelect(src.id)}
+                disabled={!src.isAvailable}
+                className={`group relative flex items-center gap-4 px-5 py-4 rounded-[1.5rem] border transition-all duration-300 overflow-hidden ${
+                  isActive
+                    ? 'bg-blue-600/15 border-blue-400/70 shadow-[0_0_24px_rgba(59,130,246,0.2)] ring-2 ring-blue-500/30'
+                    : src.isAvailable
+                      ? 'bg-white/[0.05] border-white/[0.1] text-slate-300 hover:bg-white/[0.08] hover:border-white/[0.18]'
+                      : 'bg-white/[0.03] border-white/[0.07] text-slate-600 cursor-not-allowed opacity-50'
+                }`}
+              >
+                {isActive && (
+                   <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent pointer-events-none" />
+                )}
+                
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 ${
+                  isActive ? 'bg-blue-600 text-white scale-105 shadow-blue-600/40' : src.isAvailable ? 'bg-white/[0.06] border border-white/10 text-slate-400 group-hover:text-blue-300 group-hover:border-blue-500/30' : 'bg-white/[0.04] border border-white/[0.06] text-slate-600'
+                }`}>
+                  <Icon className={`w-6 h-6 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
+                </div>
+
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`text-[13px] font-black uppercase tracking-wider truncate ${isActive ? 'text-white' : src.isAvailable ? 'text-slate-300' : 'text-slate-500'}`}>
+                      {src.name}
+                    </div>
+                    {isActive && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)] animate-pulse" />
+                    )}
+                  </div>
+                  <div className={`text-[10px] font-bold tracking-tight truncate leading-none ${isActive ? 'text-blue-400/80' : src.isAvailable ? 'text-slate-500' : 'text-slate-600'}`}>
+                    {src.description}
+                  </div>
+                  {src.tileCount != null && src.tileCount > 0 && src.isAvailable && (
+                    <div className="text-[10px] font-black text-slate-600 mt-2 flex items-center gap-1.5 bg-black/20 self-start px-2 py-0.5 rounded-md border border-white/5 uppercase tracking-tighter">
+                      <Database className="w-2.5 h-2.5" />
+                      {src.tileCount.toLocaleString()} Karo {src.cacheSize ? `· ${src.cacheSize}` : ''}
+                    </div>
+                  )}
+                </div>
+
+                <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                  isActive ? 'border-blue-400 bg-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/15 bg-white/[0.04] text-transparent'
+                }`}>
+                  <Check className="w-3.5 h-3.5 stroke-[3.5px]" />
+                </div>
+
+                {!src.isAvailable && (
+                  <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-slate-800/60 border border-white/10 text-slate-400 text-[8px] font-black uppercase tracking-widest">
+                    BAĞLANTI YOK
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/* ── Çevrimdışı Tile İndirici ────────────────────────────── */
+
+const OfflineTilePanel = memo(function OfflineTilePanel() {
+  const [dl, setDl]             = useState<DownloadState>(getDownloadState());
+  const [cachedCount, setCached] = useState<number>(0);
+  const [clearing, setClearing]  = useState(false);
+
+  useEffect(() => {
+    getCachedTileCount().then(setCached).catch(() => undefined);
+  }, [dl.status]);
+
+  useEffect(() => {
+    return subscribeDownloadState(setDl);
+  }, []);
+
+  const handleDownload = useCallback((presetId: string) => {
+    if (dl.status === 'downloading') return;
+    downloadTileRegion(presetId).catch(() => undefined);
+  }, [dl.status]);
+
+  const handleClear = useCallback(async () => {
+    setClearing(true);
+    await clearCachedTiles();
+    setCached(0);
+    setClearing(false);
+  }, []);
+
+  const isDownloading = dl.status === 'downloading';
+  const pct = dl.total > 0 ? Math.round((dl.done / dl.total) * 100) : 0;
+
+  return (
+    <div className="flex flex-col gap-4 pt-5 border-t border-white/5">
+      {/* Başlık */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2.5">
+          <div className="w-1.5 h-4 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
+          <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Çevrimdışı Harita İndir</span>
+        </div>
+        {cachedCount > 0 && (
+          <button
+            onClick={handleClear}
+            disabled={isDownloading || clearing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest active:scale-90 transition-all disabled:opacity-40"
+          >
+            <Trash2 className="w-3 h-3" />
+            {clearing ? 'Siliniyor…' : `${cachedCount.toLocaleString()} tile sil`}
+          </button>
+        )}
+      </div>
+
+      {/* Aktif indirme — ilerleme çubuğu */}
+      {isDownloading && (
+        <div className="flex flex-col gap-2 px-1">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-xs">{dl.presetName} indiriliyor…</span>
+            <span className="text-blue-400 text-xs font-bold tabular-nums">{dl.done}/{dl.total}</span>
+          </div>
+          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-[width] duration-300"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-600 text-[10px]">
+              {dl.failedCount > 0 ? `${dl.failedCount} hata` : 'İndiriliyor…'}
+            </span>
+            <button
+              onClick={cancelTileDownload}
+              className="text-red-400 text-[10px] font-bold uppercase tracking-widest active:opacity-60"
+            >
+              İptal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tamamlandı/Hata mesajı */}
+      {(dl.status === 'done' || dl.status === 'cancelled' || dl.status === 'error') && (
+        <div className={`px-4 py-3 rounded-xl border text-xs font-medium ${
+          dl.status === 'done' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
+          dl.status === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' :
+          'bg-slate-700/30 border-white/10 text-slate-400'
+        }`}>
+          {dl.status === 'done' && `✓ ${dl.presetName} indirildi — ${dl.done.toLocaleString()} tile`}
+          {dl.status === 'cancelled' && 'İndirme iptal edildi'}
+          {dl.status === 'error' && `Hata: ${dl.errorMsg ?? 'Bilinmiyor'}`}
+        </div>
+      )}
+
+      {/* Preset butonları */}
+      <div className="grid grid-cols-2 gap-2">
+        {TILE_PRESETS.map((preset) => {
+          const count     = estimateTileCount(preset);
+          const isActive  = dl.presetId === preset.id && isDownloading;
+          return (
+            <button
+              key={preset.id}
+              onClick={() => handleDownload(preset.id)}
+              disabled={isDownloading}
+              className={`flex flex-col gap-1.5 p-3.5 rounded-2xl border text-left transition-all active:scale-[0.97] disabled:opacity-50 ${
+                isActive
+                  ? 'bg-blue-600/20 border-blue-500/40'
+                  : 'bg-white/[0.04] border-white/8 hover:bg-white/[0.07] hover:border-white/15'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Download className={`w-4 h-4 ${isActive ? 'text-blue-400 animate-pulse' : 'text-slate-400'}`} />
+                <span className="text-white text-sm font-bold">{preset.name}</span>
+              </div>
+              <span className="text-slate-500 text-[10px]">
+                Z{preset.minZoom}–Z{preset.maxZoom} · ~{count.toLocaleString()} tile
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-slate-700 text-[9px] px-1 leading-relaxed">
+        Tile'lar OpenStreetMap sunucusundan indirilir ve tarayıcı önbelleğine kaydedilir.
+        İnternet bağlantısı kesildiğinde bu bölgeler haritada çalışmaya devam eder.
+      </p>
+    </div>
+  );
+});
 
 /* ── Yardımcı bileşenler ─────────────────────────────────── */
 
@@ -169,11 +438,16 @@ const WALLPAPERS = [
 
 interface Props {
   onOpenMap?: () => void;
+  onClose?: () => void;
 }
 
-function SettingsPageInner({ onOpenMap }: Props) {
+function SettingsPageInner({ onOpenMap, onClose }: Props) {
   const { settings, updateSettings } = useStore();
   const [tab, setTab] = useState<'general' | 'appearance' | 'performance' | 'maintenance'>('general');
+  const { locked: layoutLocked, toggleLock, resetAll: resetPersonalization } = useEditStore();
+
+  // DOM'da data-layout attribute'unu tema değişince güncelle
+  useLayoutSync();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBrightness = useCallback((v: number) => {
@@ -214,13 +488,30 @@ function SettingsPageInner({ onOpenMap }: Props) {
 
   return (
     <div className="h-full flex flex-col bg-[#0b1424]">
+      {/* ── Top Bar ── */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-3 px-5 py-3 bg-white/10 border border-white/20 rounded-2xl active:scale-90 transition-transform hover:bg-white/20"
+        >
+          <ArrowLeft className="w-5 h-5 text-white" />
+          <span className="text-white text-sm font-black uppercase tracking-widest">Geri</span>
+        </button>
+        <span className="text-white text-base font-black uppercase tracking-[0.2em]">Ayarlar</span>
+        <button
+          onClick={onClose}
+          className="w-14 h-14 flex items-center justify-center bg-white/10 border border-white/20 rounded-2xl active:scale-90 transition-transform hover:bg-red-500/30 hover:border-red-400/40"
+        >
+          <X className="w-6 h-6 text-white" />
+        </button>
+      </div>
       {/* Tabs */}
       <div className="flex border-b border-white/5 px-6 pt-4 gap-6">
         {[
-          { id: 'general', label: 'Genel', icon: Smartphone },
-          { id: 'appearance', label: 'Özelleştirme', icon: Palette },
-          { id: 'maintenance', label: 'Bakım', icon: Tool },
-          { id: 'performance', label: 'Performans', icon: Zap },
+          { id: 'general',     label: 'Genel',       icon: Smartphone },
+          { id: 'appearance',  label: 'Tema',        icon: Palette    },
+          { id: 'maintenance', label: 'Bakım',       icon: Tool       },
+          { id: 'performance', label: 'Performans',  icon: Zap        },
         ].map((t) => (
           <button
             key={t.id}
@@ -262,12 +553,14 @@ function SettingsPageInner({ onOpenMap }: Props) {
                       value={settings.showSeconds} 
                       onChange={(v) => updateSettings({ showSeconds: v })}
                     />
-                    <ToggleRow 
-                      label="Çevrimdışı Harita" 
-                      desc="Ana ekranda mini harita göster" 
-                      value={settings.offlineMap} 
+                    <ToggleRow
+                      label="Çevrimdışı Harita"
+                      desc="Ana ekranda mini harita göster"
+                      value={settings.offlineMap}
                       onChange={(v) => updateSettings({ offlineMap: v })}
                     />
+                    {settings.offlineMap && <MapSourcePanel />}
+                    {settings.offlineMap && <OfflineTilePanel />}
                     <ToggleRow
                       label="Düşük Güç Modu"
                       desc="Animasyonları kapatır, performansı artırır"
@@ -283,6 +576,12 @@ function SettingsPageInner({ onOpenMap }: Props) {
                       value={settings.wakeWordEnabled ?? false}
                       onChange={(v) => updateSettings({ wakeWordEnabled: v })}
                     />
+                    {(settings.wakeWordEnabled) && (
+                      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20 -mt-2 mb-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0 shadow-[0_0_6px_rgba(251,191,36,0.8)]" />
+                        <span className="text-amber-400/80 text-[10px] font-bold leading-tight">Mikrofon arka planda sürekli dinliyor</span>
+                      </div>
+                    )}
                     <ToggleRow
                       label="Mola Hatırlatıcı"
                       desc="Uzun sürüşlerde kahve molası öner"
@@ -307,6 +606,33 @@ function SettingsPageInner({ onOpenMap }: Props) {
                       value={settings.autoThemeEnabled ?? false}
                       onChange={(v) => updateSettings({ autoThemeEnabled: v })}
                     />
+
+                    {/* Ekran Modu — Karanlık / Aydınlık / OLED */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Ekran Modu</span>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([
+                          { id: 'dark',  icon: '🌙', label: 'Karanlık' },
+                          { id: 'light', icon: '☀️', label: 'Aydınlık' },
+                          { id: 'oled',  icon: '⬛', label: 'OLED' },
+                        ] as const).map(({ id, icon, label }) => (
+                          <button
+                            key={id}
+                            onClick={() => updateSettings({ theme: id })}
+                            className={`
+                              flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all duration-200 active:scale-95
+                              ${settings.theme === id
+                                ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
+                                : 'bg-white/[0.03] border-white/[0.07] text-slate-500 hover:bg-white/[0.08]'
+                              }
+                            `}
+                          >
+                            <span className="text-xl">{icon}</span>
+                            <span className="text-[10px] font-black uppercase tracking-wider">{label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {onOpenMap && (
                       <button
                         onClick={onOpenMap}
@@ -392,6 +718,9 @@ function SettingsPageInner({ onOpenMap }: Props) {
                 <div className="flex flex-col gap-6">
                   <SectionTitle>Tema Paketi</SectionTitle>
                   <Card className="flex flex-col gap-6">
+                    {/* ── Layout önizleme — aktif temayı gösterir ── */}
+                    <LayoutPreview pack={settings.themePack} />
+
                     <div>
                       <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Marka & Stil</div>
                       <div className="grid grid-cols-5 gap-2">
@@ -546,17 +875,39 @@ function SettingsPageInner({ onOpenMap }: Props) {
                     />
                   </Card>
 
-                  <SectionTitle>Düzenleme</SectionTitle>
-                  <Card>
-                    <ToggleRow 
-                      label="Düzenleme Modu" 
-                      desc="Ana ekrandaki widget'ları gizle/göster" 
-                      value={settings.editMode} 
-                      onChange={(v) => updateSettings({ editMode: v })}
-                    />
-                  </Card>
                 </div>
               </div>
+
+              <SectionTitle>Düzenleme Kilidi</SectionTitle>
+              <Card>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-white text-sm font-bold mb-0.5">Düzen Kilidi</div>
+                    <div className="text-slate-500 text-[11px] leading-relaxed">
+                      Kilitliyken ana ekranda hiçbir widget düzenlenemez veya taşınamaz.
+                      Sürüş sırasında yanlışlıkla değişikliği önler.
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 ml-4">
+                    <button
+                      onClick={toggleLock}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-[12px] uppercase tracking-widest transition-all active:scale-95 border ${
+                        layoutLocked
+                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                          : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                      }`}
+                    >
+                      {layoutLocked ? '🔒 Kilitli' : '🔓 Açık'}
+                    </button>
+                    <button
+                      onClick={resetPersonalization}
+                      className="text-slate-600 text-[10px] font-bold hover:text-slate-400 transition-colors active:scale-95"
+                    >
+                      Widget'ları sıfırla
+                    </button>
+                  </div>
+                </div>
+              </Card>
 
               <SectionTitle>Duvar Kağıdı</SectionTitle>
               <Card>
@@ -670,12 +1021,46 @@ function SettingsPageInner({ onOpenMap }: Props) {
               </Card>
               <SectionTitle>Güç Yönetimi</SectionTitle>
               <Card>
-                <ToggleRow 
-                  label="Uyku Modu" 
-                  desc="Ekranı kapatarak güç tasarrufu sağlar" 
-                  value={settings.sleepMode} 
+                <ToggleRow
+                  label="Uyku Modu"
+                  desc="Ekranı kapatarak güç tasarrufu sağlar"
+                  value={settings.sleepMode}
                   onChange={(v) => updateSettings({ sleepMode: v })}
                 />
+                <ToggleRow
+                  label="OBD Otomatik Uyku"
+                  desc="Motor durursa (RPM = 0) ekran otomatik kapanır"
+                  value={settings.obdAutoSleep ?? false}
+                  onChange={(v) => updateSettings({ obdAutoSleep: v })}
+                />
+                {settings.obdAutoSleep && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Moon className="w-4 h-4 text-blue-400" />
+                        <span className="text-white text-sm font-medium">Uyku Gecikmesi</span>
+                      </div>
+                      <span className="text-blue-400 text-sm font-bold tabular-nums">
+                        {settings.obdSleepDelayMin ?? 5} dk
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      {[1, 2, 5, 10, 15].map((min) => (
+                        <button
+                          key={min}
+                          onClick={() => updateSettings({ obdSleepDelayMin: min })}
+                          className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
+                            (settings.obdSleepDelayMin ?? 5) === min
+                              ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/25'
+                              : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:text-slate-200'
+                          }`}
+                        >
+                          {min}dk
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Card>
             </div>
           )}

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Address } from './addressBookService';
+import { getGPSSpeedKmh } from './gpsService';
 
 export interface NavigationState {
   isNavigating: boolean;
@@ -101,11 +102,11 @@ export function updateNavigationProgress(
   useNavigationStore.getState().updateDistance(distance);
   useNavigationStore.getState().updateHeading(heading);
 
-  // Estimate ETA (assumes average speed of 40 km/h)
-  const avgSpeedMph = 40;
+  // ETA: GPS hızı varsa onu kullan, yoksa şehir içi ortalama (50 km/h)
+  const gpsSpeed = getGPSSpeedKmh();
+  const avgSpeedKmh = (gpsSpeed && gpsSpeed > 5) ? gpsSpeed : 50;
   const distanceKm = distance / 1000;
-  const etaHours = distanceKm / avgSpeedMph;
-  const etaSeconds = Math.round(etaHours * 3600);
+  const etaSeconds = Math.round((distanceKm / avgSpeedKmh) * 3600);
   useNavigationStore.getState().updateEta(etaSeconds);
 }
 
@@ -186,10 +187,13 @@ export async function navigateToAddress(text: string): Promise<boolean> {
   try {
     const q   = encodeURIComponent(text);
     const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=tr`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6_000);
     const res = await fetch(url, {
       headers: { 'User-Agent': 'CarLauncherPro/1.0' },
-      signal: AbortSignal.timeout(6_000),
+      signal: ctrl.signal,
     });
+    clearTimeout(timer);
     const data = await res.json() as Array<{ display_name: string; lat: string; lon: string }>;
     if (!data.length) return false;
     const r = data[0];

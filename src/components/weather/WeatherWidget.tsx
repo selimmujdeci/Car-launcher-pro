@@ -87,7 +87,7 @@ function WeatherWidgetInner() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6">
+    <div className="flex flex-col gap-4 p-4 pb-6" data-editable="weather-card" data-editable-type="card">
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -160,6 +160,9 @@ function WeatherWidgetInner() {
             <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">
               Yakın İstasyonlar
             </span>
+            <span className="text-amber-400/60 text-[9px] border border-amber-400/25 rounded px-1.5 py-0.5 uppercase tracking-wider font-bold">
+              Simülasyon
+            </span>
           </div>
           <button
             onClick={handleRefreshFuel}
@@ -174,7 +177,7 @@ function WeatherWidgetInner() {
         {ws.isLoadingFuel ? (
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="flex-shrink-0 w-52 h-36 rounded-2xl bg-white/5 animate-pulse" />
+              <div key={i} className="flex-shrink-0 w-52 h-36 rounded-2xl bg-white/[0.09] animate-pulse" />
             ))}
           </div>
         ) : ws.stations.length > 0 ? (
@@ -184,12 +187,12 @@ function WeatherWidgetInner() {
             ))}
           </div>
         ) : (
-          <div className="text-slate-700 text-sm text-center py-8">
+          <div className="text-slate-500 text-sm text-center py-8">
             Yakın istasyon bulunamadı
           </div>
         )}
 
-        <p className="text-slate-700 text-[10px] text-center mt-3 leading-relaxed">
+        <p className="text-slate-500 text-[10px] text-center mt-3 leading-relaxed">
           Fiyatlar Türkiye EPDK ortalaması baz alınarak hesaplanmaktadır.
           Gerçek fiyatlar farklılık gösterebilir.
         </p>
@@ -226,18 +229,18 @@ function Detail({
 
 function WeatherSkeleton() {
   return (
-    <div className="rounded-2xl border border-white/10 p-5 bg-white/[0.03] animate-pulse">
-      <div className="h-3 w-24 rounded bg-white/10 mb-4" />
-      <div className="h-12 w-28 rounded bg-white/10 mb-2" />
-      <div className="h-3 w-36 rounded bg-white/10 mb-1" />
-      <div className="h-3 w-28 rounded bg-white/10" />
+    <div className="rounded-2xl border border-white/10 p-5 bg-white/[0.07] animate-pulse">
+      <div className="h-3 w-24 rounded bg-white/15 mb-4" />
+      <div className="h-12 w-28 rounded bg-white/15 mb-2" />
+      <div className="h-3 w-36 rounded bg-white/12 mb-1" />
+      <div className="h-3 w-28 rounded bg-white/12" />
     </div>
   );
 }
 
 function WeatherEmpty({ onRetry, error }: { onRetry: () => void; error: string | null }) {
   return (
-    <div className="rounded-2xl border border-white/10 p-8 flex flex-col items-center gap-3 text-center bg-white/[0.02]">
+    <div className="rounded-2xl border border-white/10 p-8 flex flex-col items-center gap-3 text-center bg-white/[0.05]">
       <span className="text-5xl">🌡️</span>
       <div className="text-slate-500 text-sm">{error ?? 'Hava durumu yüklenemedi'}</div>
       <button

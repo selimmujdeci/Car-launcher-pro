@@ -149,7 +149,7 @@ export function calcBrightness(
 const INITIAL: AutoBrightnessState = {
   enabled:            false,
   autoTheme:          false,
-  phase:              'night',
+  phase:              'morning',
   sunTimes:           null,
   currentBrightness:  100,
   minNight:           15,
@@ -169,21 +169,23 @@ let _tickerId:  ReturnType<typeof setInterval> | null = null;
 let _onThemeChange: ((theme: 'dark' | 'oled') => void) | null = null;
 
 function applyBrightness(): void {
-  if (!_state.enabled || _state.overridden) return;
-  if (!_state.sunTimes) return;
+  try {
+    if (!_state.enabled || _state.overridden) return;
+    if (!_state.sunTimes) return;
 
-  const min    = nowMinutes();
-  const phase  = calcPhase(_state.sunTimes, min);
-  const bright = calcBrightness(_state.sunTimes, min, _state.minNight, _state.maxDay);
+    const min    = nowMinutes();
+    const phase  = calcPhase(_state.sunTimes, min);
+    const bright = calcBrightness(_state.sunTimes, min, _state.minNight, _state.maxDay);
 
-  const isNight = phase === 'night' || phase === 'evening' || phase === 'dusk';
+    const isNight = phase === 'night' || phase === 'evening' || phase === 'dusk';
 
-  if (_state.autoTheme && _onThemeChange) {
-    _onThemeChange(isNight ? 'oled' : 'dark');
-  }
+    if (_state.autoTheme && _onThemeChange) {
+      try { _onThemeChange(isNight ? 'oled' : 'dark'); } catch { /* callback failure must not stop brightness */ }
+    }
 
-  setBrightness(bright);
-  push({ phase, currentBrightness: bright });
+    setBrightness(bright);
+    push({ phase, currentBrightness: bright });
+  } catch { /* Never let a brightness tick crash the interval */ }
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -205,6 +207,10 @@ export function startAutoBrightness(opts: {
 
 export function stopAutoBrightness(): void {
   if (_tickerId) { clearInterval(_tickerId); _tickerId = null; }
+  if (_state.enabled) {
+    // Stale brightness filter'ı temizle — aksi halde ekran karanlık kalır
+    setBrightness(100);
+  }
   push({ enabled: false });
 }
 

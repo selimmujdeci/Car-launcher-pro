@@ -145,30 +145,35 @@ async function syncFromNative(): Promise<Contact[]> {
 /* ── Public API ──────────────────────────────────────────── */
 
 export async function initializeContacts(): Promise<void> {
-  push({ loading: true, error: null });
+  try {
+    push({ loading: true, error: null });
 
-  // Önce localStorage'dan yükle (anında görünür)
-  const stored = loadFromStorage();
-  push({ contacts: stored });
+    // Önce localStorage'dan yükle (anında görünür)
+    const stored = loadFromStorage();
+    push({ contacts: stored });
 
-  if (isNative) {
-    const native = await syncFromNative();
-    if (native.length > 0) {
-      // Native kişileri stored ile birleştir (favorites/callCount koru)
-      const storedMap = new Map(stored.map((c) => [c.id, c]));
-      const merged: Contact[] = native.map((nc) => ({
-        ...nc,
-        favorite:  storedMap.get(nc.id)?.favorite  ?? nc.favorite,
-        callCount: storedMap.get(nc.id)?.callCount ?? nc.callCount,
-        lastCalled: storedMap.get(nc.id)?.lastCalled,
-      }));
-      saveToStorage(merged);
-      push({ contacts: merged, loading: false, synced: true, lastSyncAt: Date.now() });
-      return;
+    if (isNative) {
+      const native = await syncFromNative();
+      if (native.length > 0) {
+        // Native kişileri stored ile birleştir (favorites/callCount koru)
+        const storedMap = new Map(stored.map((c) => [c.id, c]));
+        const merged: Contact[] = native.map((nc) => ({
+          ...nc,
+          favorite:   storedMap.get(nc.id)?.favorite  ?? nc.favorite,
+          callCount:  storedMap.get(nc.id)?.callCount ?? nc.callCount,
+          lastCalled: storedMap.get(nc.id)?.lastCalled,
+        }));
+        saveToStorage(merged);
+        push({ contacts: merged, loading: false, synced: true, lastSyncAt: Date.now() });
+        return;
+      }
     }
-  }
 
-  push({ loading: false, synced: false });
+    push({ loading: false, synced: false });
+  } catch {
+    // loadFromStorage / syncFromNative failure — degrade to empty contacts, never crash
+    push({ loading: false, synced: false, error: 'Kişiler yüklenemedi' });
+  }
 }
 
 export function searchContacts(query: string, sort: ContactSort = 'name'): Contact[] {

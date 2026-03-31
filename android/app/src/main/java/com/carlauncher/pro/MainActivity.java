@@ -128,7 +128,10 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onBackPressed() {
-        // Launcher: geri tuşunu sustur — ana ekrandan çıkışı engelle
+        // Geri basışı JS tarafına ilet — MainLayout öncelik sırasıyla handle eder:
+        //   modal → panel → drawer → home (çift basış → arka plana al)
+        // super.onBackPressed() çağrılmaz — launcher asla kendi kendine kapanmasın.
+        getBridge().triggerWindowJSEvent("carlauncherBackButton", "{}");
     }
 
     /**

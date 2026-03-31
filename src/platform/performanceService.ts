@@ -110,9 +110,11 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
 function startSprintTicker(): void {
   if (_sprintRafId) return;
   _sprintRafId = setInterval(() => {
-    if (_state.sprintState === 'running') {
-      push({ sprintElapsedMs: Date.now() - _sprintStartMs });
-    }
+    try {
+      if (_state.sprintState === 'running') {
+        push({ sprintElapsedMs: Date.now() - _sprintStartMs });
+      }
+    } catch { /* interval must never crash */ }
   }, 50);
 }
 
@@ -125,9 +127,11 @@ function stopSprintTicker(): void {
 function startQMTicker(): void {
   if (_qmRafId) return;
   _qmRafId = setInterval(() => {
-    if (_state.qmState === 'running') {
-      push({ qmElapsedMs: Date.now() - _qmStartMs });
-    }
+    try {
+      if (_state.qmState === 'running') {
+        push({ qmElapsedMs: Date.now() - _qmStartMs });
+      }
+    } catch { /* interval must never crash */ }
   }, 50);
 }
 

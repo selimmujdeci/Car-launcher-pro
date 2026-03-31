@@ -11,7 +11,7 @@
  *
  * Tamamlandığında useStore.hasCompletedSetup = true olur.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import {
   ChevronRight, ChevronLeft, Check,
   Bluetooth, Palette, Rocket, Eye,
@@ -52,8 +52,9 @@ const THEME_META: Partial<Record<ThemePack, { color: string; label: string; emoj
 };
 
 const NAV_COLORS: Record<NavOptionKey, string> = {
-  maps: '#4285f4',
-  waze: '#33ccff',
+  maps:   '#4285f4',
+  waze:   '#33ccff',
+  yandex: '#f5404a',
 };
 
 /* ── İzin listesi ────────────────────────────────────────── */
@@ -79,6 +80,36 @@ type PermStatus = 'idle' | 'granted';
 
 interface OBDDevice { name: string; address: string; }
 
+/* ── BootSplash — High-end brand presentation ────────────── */
+
+export const BootSplash = memo(function BootSplash({ phase }: { phase: 'idle' | 'loading' | 'ready' }) {
+  if (phase === 'ready') return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-[#060d1a] flex flex-col items-center justify-center animate-fade-in">
+      <div className="flex flex-col items-center gap-8">
+        {/* Brand Icon */}
+        <div className="w-24 h-24 rounded-[2rem] bg-blue-600 flex items-center justify-center shadow-[0_0_50px_rgba(37,99,235,0.3)] animate-pulse">
+          <Rocket className="w-12 h-12 text-white" />
+        </div>
+        
+        <div className="flex flex-col items-center gap-2">
+          <h1 className="text-white text-3xl font-black tracking-[0.2em] uppercase">CAR LAUNCHER PRO</h1>
+          <p className="text-blue-400/60 text-xs font-bold tracking-[0.4em] uppercase">Professional Automotive UI</p>
+        </div>
+
+        {/* Loader bar */}
+        <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden mt-4">
+          <div 
+            className="h-full bg-blue-600 rounded-full transition-all duration-1000 ease-out"
+            style={{ width: phase === 'loading' ? '100%' : '0%' }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+});
+
 /* ── Ana bileşen ─────────────────────────────────────────── */
 
 export function SetupWizard() {
@@ -91,7 +122,19 @@ export function SetupWizard() {
 
   const goNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
   const goPrev = () => setStep((s) => Math.max(s - 1, 0));
-  const finish = () => updateSettings({ hasCompletedSetup: true });
+  const finish = () => {
+    updateSettings({ hasCompletedSetup: true });
+    // Defensive fallback: ensure flag is persisted even if Zustand has a hiccup
+    try {
+      const stored = JSON.parse(localStorage.getItem('car-launcher-storage') ?? '{}');
+      if (stored?.state?.settings) {
+        stored.state.settings.hasCompletedSetup = true;
+        localStorage.setItem('car-launcher-storage', JSON.stringify(stored));
+      }
+    } catch {
+      // ignore — Zustand persist handles it
+    }
+  };
 
   /* ── Permissions ──────────────────────────────────────── */
 
@@ -174,19 +217,22 @@ export function SetupWizard() {
   /* ── Render ──────────────────────────────────────────────── */
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#030810] flex items-center justify-center p-4 animate-fade-in">
+    <div className="fixed inset-0 z-[100] bg-[#030810] flex items-center justify-center sm:p-4 animate-fade-in overflow-hidden">
       <div
-        className="w-full max-w-xl flex flex-col overflow-hidden"
+        className="w-full h-full sm:h-auto sm:max-w-xl flex flex-col overflow-hidden sm:min-h-[580px]"
         style={{
           background:   '#0a1020',
-          borderRadius: 32,
-          border:       '1px solid rgba(255,255,255,0.06)',
-          boxShadow:    `0 32px 80px rgba(0,0,0,0.8), 0 0 60px ${accent}14`,
-          minHeight:    580,
+          borderRadius: window.innerWidth < 640 ? 0 : 32,
+          border:       window.innerWidth < 640 ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          boxShadow:    window.innerWidth < 640 ? 'none' : `0 32px 80px rgba(0,0,0,0.8), 0 0 60px ${accent}14`,
+          paddingTop:   'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft:  'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
         }}
       >
         {/* ── Adım göstergesi ────────────────────────────── */}
-        <div className="flex items-center justify-between px-8 pt-7 pb-1">
+        <div className="flex items-center justify-between px-6 sm:px-8 pt-7 pb-1">
           <div className="flex items-center gap-2">
             {STEPS.map((s, i) => (
               <div
@@ -209,7 +255,7 @@ export function SetupWizard() {
         </div>
 
         {/* ── İçerik — key={step} ile her adımda animate-slide-up ── */}
-        <div key={step} className="flex-1 flex flex-col items-center px-8 py-5 animate-slide-up overflow-y-auto">
+        <div key={step} className="flex-1 flex flex-col items-center px-6 sm:px-8 py-5 animate-slide-up overflow-y-auto no-scrollbar">
 
           {/* Adım ikonu */}
           <div
@@ -227,12 +273,12 @@ export function SetupWizard() {
             <div className="w-full flex flex-col items-center gap-5 text-center">
               <div>
                 <h1 className="text-2xl font-bold text-white mb-2">Car Launcher Pro</h1>
-                <p className="text-slate-400 text-sm leading-relaxed max-w-sm">
+                <p className="text-slate-400 text-sm leading-relaxed max-w-sm px-2">
                   Aracınız için tasarlanmış dijital kokpit. Birkaç adımda
                   kişiselleştirin ve yola çıkın.
                 </p>
               </div>
-              <div className="grid grid-cols-3 gap-2.5 w-full max-w-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 w-full max-w-sm">
                 {[
                   { icon: '🗺️', label: 'Offline Harita' },
                   { icon: '🔌', label: 'OBD-II Veri'    },
@@ -263,11 +309,12 @@ export function SetupWizard() {
                 <h2 className="text-xl font-bold text-white mb-1">Tema Seçin</h2>
                 <p className="text-slate-500 text-sm">Daha sonra Ayarlar'dan değiştirilebilir.</p>
               </div>
-              <div className="grid grid-cols-3 gap-2.5 w-full">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 w-full">
                 {(Object.entries(THEME_META) as [ThemePack, { color: string; label: string; emoji: string }][]).map(([id, meta]) => {
                   const active = settings.themePack === id;
                   return (
                     <button
+                      type="button"
                       key={id}
                       onClick={() => updateSettings({ themePack: id })}
                       className="flex flex-col items-center gap-2.5 p-3.5 rounded-2xl border active:scale-95"
@@ -322,11 +369,12 @@ export function SetupWizard() {
                     Müzik Uygulaması
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(Object.entries(MUSIC_OPTIONS) as [MusicOptionKey, typeof MUSIC_OPTIONS[MusicOptionKey]][]).map(([key, opt]) => {
                     const active = settings.defaultMusic === key;
                     return (
                       <button
+                        type="button"
                         key={key}
                         onClick={() => updateSettings({ defaultMusic: key })}
                         className="flex items-center gap-3 p-3.5 rounded-2xl border text-left active:scale-95"
@@ -358,12 +406,13 @@ export function SetupWizard() {
                     Navigasyon Uygulaması
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(Object.entries(NAV_OPTIONS) as [NavOptionKey, typeof NAV_OPTIONS[NavOptionKey]][]).map(([key, opt]) => {
                     const active = settings.defaultNav === key;
                     const color  = NAV_COLORS[key] ?? '#4285f4';
                     return (
                       <button
+                        type="button"
                         key={key}
                         onClick={() => updateSettings({ defaultNav: key })}
                         className="flex items-center gap-3 p-3.5 rounded-2xl border text-left active:scale-95"
@@ -437,6 +486,7 @@ export function SetupWizard() {
                       <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                     ) : (
                       <button
+                        type="button"
                         onClick={() => grantPerm(p.id)}
                         className="text-xs font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0 active:scale-95"
                         style={{
@@ -486,6 +536,7 @@ export function SetupWizard() {
                     {mediaAccess
                       ? <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                       : <button
+                          type="button"
                           onClick={grantMedia}
                           className="text-xs font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0 active:scale-95"
                           style={{ backgroundColor: `${accent}18`, color: accent, border: `1px solid ${accent}22` }}
@@ -516,6 +567,7 @@ export function SetupWizard() {
                     {writeAccess
                       ? <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                       : <button
+                          type="button"
                           onClick={grantWrite}
                           className="text-xs font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0 active:scale-95"
                           style={{ backgroundColor: `${accent}18`, color: accent, border: `1px solid ${accent}22` }}
@@ -564,6 +616,7 @@ export function SetupWizard() {
               ) : (
                 <div className="w-full max-w-xs flex flex-col gap-3">
                   <button
+                    type="button"
                     onClick={handleScanOBD}
                     disabled={obdScanning}
                     className="w-full py-3.5 text-white rounded-2xl font-bold flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50"
@@ -589,6 +642,7 @@ export function SetupWizard() {
                     <div className="flex flex-col gap-2">
                       {obdDevices.map((d) => (
                         <button
+                          type="button"
                           key={d.address}
                           onClick={() => handleConnectOBD(d.address)}
                           disabled={!!obdConnecting}
@@ -750,12 +804,13 @@ export function SetupWizard() {
         </div>
 
         {/* ── Footer navigasyon ────────────────────────────── */}
-        <div className="px-8 pb-7 pt-4 flex items-center justify-between border-t border-white/5">
+        <div className="px-6 sm:px-8 pb-7 sm:pb-8 pt-4 flex items-center justify-between border-t border-white/5 bg-[#0a1020]/80 backdrop-blur-md">
           {/* Geri */}
           <button
+            type="button"
             onClick={goPrev}
             disabled={step === 0}
-            className="flex items-center gap-1 text-slate-500 active:text-slate-300 disabled:opacity-0 disabled:pointer-events-none"
+            className="flex items-center gap-1 text-slate-500 active:text-slate-300 disabled:opacity-25 disabled:pointer-events-none"
           >
             <ChevronLeft className="w-5 h-5" />
             <span className="text-sm font-medium">Geri</span>
@@ -764,8 +819,9 @@ export function SetupWizard() {
           {/* İleri / Başlat */}
           {isLast ? (
             <button
+              type="button"
               onClick={finish}
-              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-white font-bold active:scale-95"
+              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-white font-bold active:scale-95 transition-all"
               style={{
                 backgroundColor: '#22c55e',
                 boxShadow:       '0 4px 24px rgba(34,197,94,0.4)',
@@ -776,8 +832,9 @@ export function SetupWizard() {
             </button>
           ) : (
             <button
+              type="button"
               onClick={goNext}
-              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-white font-bold active:scale-95"
+              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-white font-bold active:scale-95 transition-all"
               style={{
                 backgroundColor: accent,
                 boxShadow:       `0 4px 20px ${accent}38`,

@@ -19,13 +19,24 @@ import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { getConfig } from './performanceMode';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SpeechRecognitionAny = any;
+
+function getWebSpeechAPI(): SpeechRecognitionAny {
+  if (typeof window === 'undefined') return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const W = window as any;
+  return W.SpeechRecognition ?? W.webkitSpeechRecognition ?? null;
+}
+
 /* ── Types ───────────────────────────────────────────────── */
 
 export type VoiceStatus =
   | 'idle'        // waiting for input
   | 'listening'   // mic active (native) or demo listening
   | 'success'     // command dispatched — feedback visible
-  | 'error';      // input unrecognised — suggestions visible
+  | 'error'       // input unrecognised — suggestions visible
+  | 'throttled';  // lite mode: too soon after last command
 
 export interface VoiceState {
   status:      VoiceStatus;
@@ -52,6 +63,75 @@ let _current: VoiceState = { ...INITIAL };
 const _stateListeners  = new Set<(s: VoiceState) => void>();
 const _commandHandlers = new Set<CommandHandler>();
 let _lastCommandTime = 0;
+
+/* ── Web push-to-talk state ──────────────────────────────── */
+let _webRec: SpeechRecognitionAny = null;
+let _webTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function clearWebRec(): void {
+  if (_webTimeout) { clearTimeout(_webTimeout); _webTimeout = null; }
+  if (_webRec) {
+    try { _webRec.abort(); } catch { /* noop */ }
+    _webRec = null;
+  }
+}
+
+/** Push-to-talk: opens mic once, closes on first result or timeout. */
+function startWebRec(): void {
+  const SR = getWebSpeechAPI();
+  if (!SR) return; // Tarayıcı desteği yok — text-input fallback çalışmaya devam eder
+
+  clearWebRec();
+
+  const rec: SpeechRecognitionAny = new SR();
+  rec.continuous      = false; // Tek seferlik — sürekli dinleme yok
+  rec.interimResults  = false; // Sadece nihai sonuç — mikrofon süresi minimum
+  rec.lang            = 'tr-TR';
+  rec.maxAlternatives = 1;
+
+  rec.onresult = (evt: SpeechRecognitionAny) => {
+    const transcript: string = evt.results?.[0]?.[0]?.transcript ?? '';
+    clearWebRec();
+    if (transcript.trim()) {
+      processTextCommand(transcript.trim());
+    } else {
+      push({ status: 'idle' });
+    }
+  };
+
+  rec.onerror = (evt: SpeechRecognitionAny) => {
+    clearWebRec();
+    if (evt.error === 'aborted') return; // stopListening() tarafından kapatıldı
+    if (evt.error === 'no-speech') {
+      push({ status: 'idle' });
+    } else {
+      push({ status: 'error', error: 'Ses algılanamadı', suggestions: [] });
+      setTimeout(() => {
+        try { if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] }); } catch { /* noop */ }
+      }, 2500);
+    }
+  };
+
+  rec.onend = () => {
+    clearWebRec();
+    if (_current.status === 'listening') push({ status: 'idle' });
+  };
+
+  _webRec = rec;
+
+  // 8 saniye hard timeout — mikrofon asla açık kalmaz
+  _webTimeout = setTimeout(() => {
+    clearWebRec();
+    if (_current.status === 'listening') push({ status: 'idle' });
+  }, 8000);
+
+  try {
+    rec.start();
+  } catch {
+    clearWebRec();
+    push({ status: 'idle' });
+  }
+}
 
 function push(partial: Partial<VoiceState>): void {
   _current = { ..._current, ...partial };
@@ -97,7 +177,9 @@ function dispatch(cmd: ParsedCommand): void {
   _commandHandlers.forEach((fn) => fn(cmd));
   const delays = getResetDelays();
   setTimeout(() => {
-    if (_current.status === 'success') push({ status: 'idle' });
+    try {
+      if (_current.status === 'success') push({ status: 'idle' });
+    } catch { /* ignore */ }
   }, delays[cmd.priority] ?? 2500);
 }
 
@@ -117,7 +199,10 @@ export function processTextCommand(text: string): boolean {
   const cfg = getConfig();
   const now = Date.now();
   if (!cfg.enableRecommendations && (now - _lastCommandTime < 1500)) {
-    return false; // Command ignored due to throttle
+    const remaining = Math.ceil((1500 - (now - _lastCommandTime)) / 1000);
+    push({ status: 'throttled', error: `Lütfen ${remaining}s bekleyin`, transcript: trimmed });
+    setTimeout(() => push({ status: 'idle' }), 1200);
+    return false;
   }
 
   const result = parseCommandFull(trimmed);
@@ -135,50 +220,66 @@ export function processTextCommand(text: string): boolean {
     suggestions: result.suggestions,
   });
   setTimeout(() => {
-    if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] });
+    try {
+      if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] });
+    } catch { /* ignore */ }
   }, 3500);
   return false;
 }
 
 /**
- * Toggle listening state.
- * Native: uses CarLauncher.startSpeechRecognition() with EXTRA_PREFER_OFFLINE=true
- *   so the device's on-device speech model is used without an internet connection.
- * Web / demo: activates text-input mode.
+ * Push-to-talk: opens mic for a single utterance then closes it.
+ * Native: CarLauncher.startSpeechRecognition() — one-shot Android STT.
+ * Web: SpeechRecognition API, continuous=false — mic closes after first result.
+ *      Falls back to text-input if SpeechRecognition unavailable.
  */
 export function startListening(): void {
   if (_current.status === 'listening') {
-    push({ status: 'idle' });
+    stopListening();
     return;
   }
 
   push({ status: 'listening', error: null, suggestions: [] });
 
   if (isNative) {
+    // Native: tek seferlik Android STT — doğal olarak biter
     CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
       .then((result) => {
-        if (result.transcript) {
-          processTextCommand(result.transcript);
-        } else {
+        try {
+          if (result.transcript) {
+            processTextCommand(result.transcript);
+          } else {
+            push({ status: 'idle' });
+          }
+        } catch {
           push({ status: 'idle' });
         }
       })
       .catch(() => {
-        push({ status: 'error', error: 'Ses alınamadı', suggestions: [] });
-        setTimeout(() => {
-          if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] });
-        }, 3_000);
+        try {
+          push({ status: 'error', error: 'Ses alınamadı', suggestions: [] });
+          setTimeout(() => {
+            try {
+              if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] });
+            } catch { /* ignore */ }
+          }, 3_000);
+        } catch { /* ignore */ }
       });
+  } else {
+    // Web: push-to-talk — mikrofon yalnızca bu istek süresi kadar açık
+    startWebRec();
   }
 }
 
-/** Cancel an active listening session. */
+/** Cancel an active listening session and immediately close the mic. */
 export function stopListening(): void {
+  clearWebRec(); // Web mic'i hemen kapat
   if (_current.status === 'listening') push({ status: 'idle' });
 }
 
-/** Reset all voice state (e.g., on drawer open/close). */
+/** Reset all voice state and close any open mic stream. */
 export function clearVoiceState(): void {
+  clearWebRec();
   push({ ...INITIAL });
 }
 
@@ -190,6 +291,6 @@ export function useVoiceState(): VoiceState {
     setState(_current);
     _stateListeners.add(setState);
     return () => { _stateListeners.delete(setState); };
-  }, []);
+  }, [setState]);
   return state;
 }

@@ -81,13 +81,6 @@ function clearRestartTimer(): void {
   if (_restartTimer) { clearTimeout(_restartTimer); _restartTimer = null; }
 }
 
-function getSpeechAPI(): SpeechRecognitionAny {
-  if (typeof window === 'undefined') return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const W = window as any;
-  return W.SpeechRecognition ?? W.webkitSpeechRecognition ?? null;
-}
-
 function onWakeWordDetected(): void {
   push({ status: 'detected', lastTrigger: Date.now() });
   startListening();
@@ -96,70 +89,10 @@ function onWakeWordDetected(): void {
   }, 1500);
 }
 
-function startWebListening(): void {
-  const SR = getSpeechAPI();
-  if (!SR) {
-    push({ status: 'error', errorMsg: 'Tarayıcı ses tanımayı desteklemiyor' });
-    return;
-  }
-
-  if (_recognition) {
-    try { _recognition.abort(); } catch { /* noop */ }
-    _recognition = null;
-  }
-
-  const rec: SpeechRecognitionAny = new SR();
-  rec.continuous      = true;
-  rec.interimResults  = true;
-  rec.lang            = 'tr-TR';
-  rec.maxAlternatives = 1;
-
-  rec.onstart = () => {
-    push({ status: 'listening', errorMsg: null });
-  };
-
-  rec.onresult = (evt: SpeechRecognitionAny) => {
-    for (let i = evt.resultIndex; i < evt.results.length; i++) {
-      const transcript = evt.results[i][0].transcript;
-      if (matchesWakeWord(transcript, _state.wakeWord)) {
-        onWakeWordDetected();
-        return;
-      }
-    }
-  };
-
-  rec.onerror = (evt: SpeechRecognitionAny) => {
-    if (evt.error === 'not-allowed') {
-      push({ status: 'error', errorMsg: 'Mikrofon izni verilmedi' });
-      return;
-    }
-    // Geçici hata — 2 saniye sonra yeniden başlat
-    if (_state.enabled) {
-      clearRestartTimer();
-      _restartTimer = setTimeout(startWebListening, 2000);
-    }
-  };
-
-  rec.onend = () => {
-    if (_state.enabled && _state.status !== 'error') {
-      // Sürekli çalışma: bitti → hemen yeniden başlat
-      clearRestartTimer();
-      _restartTimer = setTimeout(startWebListening, 300);
-    }
-  };
-
-  _recognition = rec;
-  try {
-    rec.start();
-  } catch {
-    push({ status: 'error', errorMsg: 'Ses tanıma başlatılamadı' });
-  }
-}
-
 function stopWebListening(): void {
   clearRestartTimer();
   if (_recognition) {
-    try { _recognition.stop(); } catch { /* noop */ }
+    try { _recognition.abort(); } catch { /* noop */ }
     _recognition = null;
   }
 }
@@ -184,11 +117,11 @@ async function nativeLoop(): Promise<void> {
     }
     // Yeniden döngü
     if (_nativeLoopActive && _state.enabled) {
-      setTimeout(nativeLoop, 500);
+      setTimeout(() => { void nativeLoop(); }, 500);
     }
   } catch {
     if (_nativeLoopActive && _state.enabled) {
-      setTimeout(nativeLoop, 3000);
+      setTimeout(() => { void nativeLoop(); }, 3000);
     }
   }
 }
@@ -197,13 +130,16 @@ async function nativeLoop(): Promise<void> {
 
 export function enableWakeWord(word?: string): void {
   const wakeWord = word ?? _state.wakeWord;
-  push({ enabled: true, wakeWord, errorMsg: null });
 
   if (isNative) {
+    // Native Android: arka plan wake word döngüsü
+    push({ enabled: true, wakeWord, errorMsg: null });
     _nativeLoopActive = true;
     nativeLoop();
   } else {
-    startWebListening();
+    // Web: sürekli dinleme yok — push-to-talk yeterli
+    // Wake word toggle ayarları kayıt altında kalır ama web'de mikrofon açılmaz
+    push({ enabled: false, status: 'disabled', wakeWord, errorMsg: null });
   }
 }
 

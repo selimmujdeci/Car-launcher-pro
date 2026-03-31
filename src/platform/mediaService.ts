@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import type { NativeMediaInfo } from './nativePlugin';
+import { logError } from './crashLogger';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -166,7 +167,7 @@ export function useMediaState(): MediaState {
     setState(_current);
     _listeners.add(setState);
     return () => { _listeners.delete(setState); };
-  }, []);
+  }, [setState]);
 
   return state;
 }
@@ -210,41 +211,68 @@ const PACKAGE_LABEL: Record<string, string> = {
 };
 
 function applyNativeMediaInfo(info: NativeMediaInfo): void {
-  const pkg    = info.packageName ?? '';
-  const source: MediaSource = PACKAGE_SOURCE[pkg]
-    ?? (pkg.toLowerCase().includes('bluetooth') ? 'bluetooth' : 'unknown');
-  const appName   = PACKAGE_LABEL[pkg] || info.appName || 'Medya';
-  // Gerçek oturum var: başlık, sanatçı veya oynatma durumundan en az biri dolu
-  const hasSession = !!(info.title || info.artist || info.playing);
+  try {
+    // Guard against malformed plugin data
+    if (!info || typeof info !== 'object') return;
 
-  updateMediaState({
-    hasSession,
-    playing:       info.playing,
-    source,
-    activePackage: pkg,
-    activeAppName: appName,
-    track: {
-      title:       info.title       || _current.track.title,
-      artist:      info.artist      || _current.track.artist,
-      albumArt:    info.albumArt    ?? _current.track.albumArt,
-      durationSec: info.durationMs  > 0 ? Math.round(info.durationMs / 1000)  : _current.track.durationSec,
-      positionSec: info.positionMs  > 0 ? Math.round(info.positionMs / 1000)  : _current.track.positionSec,
-    },
-  });
+    const pkg    = info.packageName ?? '';
+    const source: MediaSource = PACKAGE_SOURCE[pkg]
+      ?? (pkg.toLowerCase().includes('bluetooth') ? 'bluetooth' : 'unknown');
+    const appName   = PACKAGE_LABEL[pkg] || info.appName || 'Medya';
+    // Gerçek oturum var: başlık, sanatçı veya oynatma durumundan en az biri dolu
+    const hasSession = !!(info.title || info.artist || info.playing);
+
+    // Skip update if key fields unchanged — prevents unnecessary listener churn
+    const incomingTitle  = info.title  || _current.track.title;
+    const incomingArtist = info.artist || _current.track.artist;
+    if (
+      incomingTitle  === _current.track.title   &&
+      incomingArtist === _current.track.artist  &&
+      info.playing   === _current.playing       &&
+      hasSession     === _current.hasSession
+    ) return;
+
+    updateMediaState({
+      hasSession,
+      playing:       info.playing,
+      source,
+      activePackage: pkg,
+      activeAppName: appName,
+      track: {
+        title:       incomingTitle,
+        artist:      incomingArtist,
+        albumArt:    info.albumArt    ?? _current.track.albumArt,
+        durationSec: info.durationMs  > 0 ? Math.round(info.durationMs / 1000)  : _current.track.durationSec,
+        positionSec: info.positionMs  > 0 ? Math.round(info.positionMs / 1000)  : _current.track.positionSec,
+      },
+    });
+  } catch (e) {
+    logError('Media:ApplyInfo', e);
+    // Degrade gracefully — don't crash the poll loop
+    try { updateMediaState({ hasSession: false }); } catch { /* ignore */ }
+  }
 }
 
 let _hubTimer:        ReturnType<typeof setInterval> | null = null;
 let _hubListenerStop: (() => void) | null = null;
+let _hubStarted       = false;
 
 export async function startMediaHub(): Promise<void> {
+  // Guard against duplicate calls
+  if (_hubStarted) return;
+  _hubStarted = true;
+
   if (isNative) {
     // Gerçek zamanlı event dinle
     try {
       const handle = await CarLauncher.addListener('mediaChanged', applyNativeMediaInfo);
-      _hubListenerStop = () => handle.remove();
-    } catch { /* plugin bu eventi desteklemiyor */ }
+      _hubListenerStop = () => { try { handle.remove(); } catch { /* ignore */ } };
+    } catch (e) {
+      logError('Media:Listener', e);
+      /* plugin bu eventi desteklemiyor — poll only mode */
+    }
 
-    // Her 2 sn'de bir poll et (event'ler arasındaki boşlukları doldurur)
+    // Poll to fill gaps between events
     const poll = async () => {
       try {
         const info = await CarLauncher.getMediaInfo();
@@ -255,38 +283,62 @@ export async function startMediaHub(): Promise<void> {
       }
     };
 
-    poll();
+    void poll();
     if (_hubTimer) clearInterval(_hubTimer);
-    _hubTimer = setInterval(poll, 2000);
+    _hubTimer = setInterval(() => { void poll(); }, 5000);
     return;
   }
 
   // Web: navigator.mediaSession varsa oku
   const pollWeb = () => {
-    const ms = navigator.mediaSession;
-    if (!ms?.metadata) return;
-    const m = ms.metadata;
-    updateMediaState({
-      playing:       ms.playbackState === 'playing',
-      source:        'unknown',
-      activePackage: '',
-      activeAppName: 'Tarayıcı',
-      track: {
-        title:       m.title  || _current.track.title,
-        artist:      m.artist || _current.track.artist,
-        albumArt:    m.artwork?.[0]?.src ?? _current.track.albumArt,
-        durationSec: _current.track.durationSec,
-        positionSec: _current.track.positionSec,
-      },
-    });
+    try {
+      const ms = navigator.mediaSession;
+      if (!ms?.metadata) return;
+      const m = ms.metadata;
+      updateMediaState({
+        playing:       ms.playbackState === 'playing',
+        source:        'unknown',
+        activePackage: '',
+        activeAppName: 'Tarayıcı',
+        track: {
+          title:       m.title  || _current.track.title,
+          artist:      m.artist || _current.track.artist,
+          albumArt:    m.artwork?.[0]?.src ?? _current.track.albumArt,
+          durationSec: _current.track.durationSec,
+          positionSec: _current.track.positionSec,
+        },
+      });
+    } catch (e) {
+      logError('Media:PollWeb', e);
+    }
   };
 
   pollWeb();
   if (_hubTimer) clearInterval(_hubTimer);
-  _hubTimer = setInterval(pollWeb, 2000);
+  _hubTimer = setInterval(pollWeb, 5000);
 }
 
 export function stopMediaHub(): void {
-  if (_hubTimer)        { clearInterval(_hubTimer);  _hubTimer = null; }
-  if (_hubListenerStop) { _hubListenerStop();         _hubListenerStop = null; }
+  _hubStarted = false;
+  if (_hubTimer) { clearInterval(_hubTimer); _hubTimer = null; }
+  if (_hubListenerStop) {
+    const stop = _hubListenerStop;
+    _hubListenerStop = null; // null first to prevent double-call
+    try { stop(); } catch (e) { logError('Media:StopHub', e); }
+  }
+}
+
+/**
+ * Anında tek seferlik media poll — uygulama resume olduğunda çağrılır.
+ * MediaHub'ın 5s poll beklememesini sağlar; launcher'a dönünce şarkı
+ * bilgisi hemen güncellenir.
+ */
+export function pollMediaNow(): void {
+  if (!isNative || !_hubStarted) return;
+  void CarLauncher.getMediaInfo()
+    .then(applyNativeMediaInfo)
+    .catch(() => {
+      // Aktif oturum yok — pasif moda geç
+      updateMediaState({ hasSession: false });
+    });
 }

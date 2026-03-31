@@ -64,7 +64,10 @@ async function findNearbyFuel(
   try {
     const q   = `[out:json][timeout:5];node[amenity=fuel](around:5000,${lat},${lon});out 1;`;
     const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5_000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
     const data = await res.json();
     if (!data.elements?.length) return null;
     const el = data.elements[0];
@@ -310,11 +313,11 @@ function QuickCard({
     <button
       onClick={onTap}
       disabled={disabled}
-      className="flex items-center gap-3 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-[#0f172a]/80 backdrop-blur-2xl border border-white/10 hover:border-white/20 active:scale-95 transition-all disabled:opacity-40 shadow-xl group"
+      className="flex items-center gap-2 h-8 px-3 rounded-xl bg-black/60 backdrop-blur-xl border border-white/[0.09] active:scale-95 transition-all disabled:opacity-35 shadow-md"
       style={{ color }}
     >
-      <div className="transition-transform group-hover:scale-125 duration-300">{icon}</div>
-      <span className="truncate max-w-[120px] text-white/90">{label}</span>
+      <span className="flex-shrink-0">{icon}</span>
+      <span className="text-[10px] font-black uppercase tracking-wider text-white/85 truncate max-w-[80px]">{label}</span>
     </button>
   );
 }
@@ -375,13 +378,13 @@ const QuickDestinations = memo(function QuickDestinations({
   }, [gpsLat, gpsLon, fuelLoading, navigate]);
 
   return (
-    <div className="absolute bottom-28 inset-x-6 z-30 pointer-events-auto animate-in slide-in-from-bottom-4 duration-1000">
-      <div className="flex gap-3 flex-wrap">
+    <div className="absolute left-4 bottom-36 z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400">
+      <div className="flex flex-col gap-1.5">
 
         {/* Ev */}
         {settings.homeLocation ? (
           <QuickCard
-            icon={<Home className="w-5 h-5" />}
+            icon={<Home className="w-4 h-4" />}
             label="EV"
             color="#3b82f6"
             onTap={() => navigate({
@@ -393,7 +396,7 @@ const QuickDestinations = memo(function QuickDestinations({
           />
         ) : (
           <QuickCard
-            icon={<Home className="w-5 h-5" />}
+            icon={<Home className="w-4 h-4" />}
             label="EV AYARLA"
             color="#475569"
             onTap={setHome}
@@ -404,7 +407,7 @@ const QuickDestinations = memo(function QuickDestinations({
         {/* İş */}
         {settings.workLocation ? (
           <QuickCard
-            icon={<Briefcase className="w-5 h-5" />}
+            icon={<Briefcase className="w-4 h-4" />}
             label="İŞ"
             color="#8b5cf6"
             onTap={() => navigate({
@@ -416,7 +419,7 @@ const QuickDestinations = memo(function QuickDestinations({
           />
         ) : (
           <QuickCard
-            icon={<Briefcase className="w-5 h-5" />}
+            icon={<Briefcase className="w-4 h-4" />}
             label="İŞ AYARLA"
             color="#475569"
             onTap={setWork}
@@ -428,7 +431,7 @@ const QuickDestinations = memo(function QuickDestinations({
         {(settings.recentDestinations ?? []).slice(0, 3).map((d, i) => (
           <QuickCard
             key={i}
-            icon={<Clock className="w-5 h-5" />}
+            icon={<Clock className="w-4 h-4" />}
             label={d.name}
             color="#94a3b8"
             onTap={() => navigate({
@@ -442,8 +445,8 @@ const QuickDestinations = memo(function QuickDestinations({
         {/* Yakın benzinlik */}
         <QuickCard
           icon={fuelLoading
-            ? <Loader2 className="w-5 h-5 animate-spin" />
-            : <Fuel className="w-5 h-5" />
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : <Fuel className="w-4 h-4" />
           }
           label="BENZİNLİK"
           color="#f59e0b"

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { logError } from './crashLogger';
 
 export interface GPSLocation {
   latitude: number;
@@ -28,6 +29,29 @@ const useGPSStore = create<GPSState>(() => ({
 }));
 
 let watchId: number | string | null = null;
+let _lastPositionMs = 0;
+const POSITION_THROTTLE_MS = 2000;
+
+// Auto-reconnect on consecutive errors
+let _consecutiveErrors = 0;
+let _reconnectTimer:    ReturnType<typeof setTimeout> | null = null;
+const MAX_GPS_ERRORS   = 3;
+const GPS_RECONNECT_MS = 8000;
+
+function _scheduleGPSReconnect(): void {
+  if (_reconnectTimer) return;
+  _reconnectTimer = setTimeout(async () => {
+    _reconnectTimer    = null;
+    _consecutiveErrors = 0;
+    // Full restart: clear old watch, then reattach
+    try {
+      await stopGPSTracking();
+      await startGPSTracking();
+    } catch (e) {
+      logError('GPS:Reconnect', e);
+    }
+  }, GPS_RECONNECT_MS);
+}
 
 /**
  * Detect if running on Capacitor native platform
@@ -62,18 +86,27 @@ async function startNativeGPSTracking(): Promise<void> {
   try {
     const { Geolocation } = await import('@capacitor/geolocation');
 
-    // Check/request permissions — wrapped individually since these can throw on some platforms
+    // Check/request permissions — timeout ile sarılı (eski cihazlarda sonsuz beklemeyi önler)
+    const GPS_PERMISSION_TIMEOUT_MS = 6000;
+    const withTimeout = <T>(promise: Promise<T>): Promise<T | null> =>
+      Promise.race([
+        promise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), GPS_PERMISSION_TIMEOUT_MS)),
+      ]);
+
     try {
-      const perms = await Geolocation.checkPermissions();
-      if (perms.location !== 'granted') {
-        const req = await Geolocation.requestPermissions();
-        if (req.location !== 'granted' && req.location !== 'prompt') {
-          useGPSStore.setState({ error: 'GPS permission denied' });
+      const perms = await withTimeout(Geolocation.checkPermissions());
+      if (perms === null) {
+        // Timeout — permission API yanıt vermedi, yine de devam et
+      } else if (perms.location !== 'granted') {
+        const req = await withTimeout(Geolocation.requestPermissions());
+        if (req !== null && req.location !== 'granted' && req.location !== 'prompt') {
+          useGPSStore.setState({ error: 'GPS permission denied', isTracking: false });
           return;
         }
       }
     } catch {
-      // Permission API may not be available, proceed anyway
+      // Permission API may not be available on some devices/versions, proceed anyway
     }
 
     watchId = await Geolocation.watchPosition(
@@ -84,7 +117,12 @@ async function startNativeGPSTracking(): Promise<void> {
       },
       (position, err) => {
         if (err) {
+          _consecutiveErrors++;
           useGPSStore.setState({ error: err.message });
+          logError('GPS', err);
+          if (_consecutiveErrors >= MAX_GPS_ERRORS) {
+            _scheduleGPSReconnect();
+          }
           return;
         }
 
@@ -94,7 +132,7 @@ async function startNativeGPSTracking(): Promise<void> {
       }
     );
   } catch (err) {
-    console.warn('Native GPS failed, falling back to web:', err);
+    logError('GPS:NativeFallback', err);
     startWebGPSTracking();
   }
 }
@@ -114,7 +152,12 @@ function startWebGPSTracking(): void {
         handlePosition(position.coords, position.timestamp);
       },
       (err) => {
+        _consecutiveErrors++;
         useGPSStore.setState({ error: err.message });
+        logError('GPS:Web', err);
+        if (_consecutiveErrors >= MAX_GPS_ERRORS) {
+          _scheduleGPSReconnect();
+        }
       },
       {
         enableHighAccuracy: true,
@@ -143,25 +186,46 @@ interface CoordsLike {
 }
 
 function handlePosition(coords: CoordsLike, timestamp: number): void {
+  const now = Date.now();
+  if (now - _lastPositionMs < POSITION_THROTTLE_MS) return;
+
+  // Validate — malformed native data should never propagate to UI
+  if (
+    !Number.isFinite(coords.latitude)  ||
+    !Number.isFinite(coords.longitude) ||
+    Math.abs(coords.latitude)  > 90    ||
+    Math.abs(coords.longitude) > 180
+  ) {
+    logError('GPS', new Error(`Invalid coords: ${coords.latitude},${coords.longitude}`));
+    return;
+  }
+
+  _lastPositionMs    = now;
+  _consecutiveErrors = 0; // reset on success
+
   const loc: GPSLocation = {
-    latitude: coords.latitude,
+    latitude:  coords.latitude,
     longitude: coords.longitude,
-    accuracy: coords.accuracy || 0,
-    altitude: coords.altitude ?? undefined,
-    heading: coords.heading ?? undefined,
-    speed: coords.speed ?? undefined,
+    accuracy:  Number.isFinite(coords.accuracy) ? coords.accuracy : 0,
+    altitude:  coords.altitude ?? undefined,
+    heading:   coords.heading  ?? undefined,
+    speed:     Number.isFinite(coords.speed ?? NaN) ? (coords.speed ?? undefined) : undefined,
     timestamp,
   };
 
   useGPSStore.setState({
-    location: loc,
-    heading: coords.heading ?? null,
+    location:   loc,
+    heading:    coords.heading ?? null,
     isTracking: true,
-    error: null,
+    error:      null,
   });
 }
 
 export async function stopGPSTracking(): Promise<void> {
+  // Cancel any pending reconnect so it doesn't fire after stop
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  _consecutiveErrors = 0;
+
   if (watchId == null) return;
 
   try {
@@ -195,6 +259,13 @@ export function useGPSAvailable() {
   return useGPSStore((s) => !s.unavailable);
 }
 
+/** Mevcut GPS hızını km/h olarak döner; yoksa null. */
+export function getGPSSpeedKmh(): number | null {
+  const loc = useGPSStore.getState().location;
+  if (!loc?.speed || !Number.isFinite(loc.speed) || loc.speed <= 0) return null;
+  return loc.speed * 3.6; // m/s → km/h
+}
+
 /**
  * Arka plan GPS servisinden gelen konum verisini store'a besle.
  * CarLauncherForegroundService → CarLauncherPlugin → backgroundLocation event → buraya.
@@ -207,6 +278,13 @@ export function feedBackgroundLocation(data: {
   bearing:  number;
   accuracy: number;
 }): void {
+  // Guard against null/undefined data from native background service
+  if (!data) return;
+  // Guard against malformed data from native background service
+  if (!Number.isFinite(data.lat) || !Number.isFinite(data.lng)) {
+    logError('GPS:Background', new Error(`Invalid coords: ${data.lat},${data.lng}`));
+    return;
+  }
   handlePosition(
     {
       latitude:  data.lat,

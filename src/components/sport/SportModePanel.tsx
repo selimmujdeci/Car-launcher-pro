@@ -163,7 +163,7 @@ const TestCard = memo(function TestCard({
       rounded-2xl border p-4 flex flex-col gap-3 transition-all duration-300
       ${isDone ? 'border-emerald-500/30 bg-emerald-500/5' :
         isRunning ? 'border-blue-400/30 bg-blue-500/5' :
-        'border-white/5 bg-white/[0.02]'}
+        'border-white/[0.1] bg-white/[0.05]'}
     `}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -242,7 +242,7 @@ const PeakCard = memo(function PeakCard({
   onReset: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+    <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-slate-500 text-[10px] uppercase tracking-widest">Oturum Rekoru</span>
         <button
@@ -294,7 +294,7 @@ export const SportModePanel = memo(function SportModePanel() {
   const handleCancelQM     = useCallback(() => cancelTest(), []);
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto bg-[#060d1a] text-white">
+    <div className="h-full flex flex-col overflow-y-auto bg-[#060d1a] text-white" data-editable="sport-mode" data-editable-type="card">
       {/* Başlık */}
       <div className="flex-shrink-0 px-6 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
@@ -362,7 +362,7 @@ export const SportModePanel = memo(function SportModePanel() {
         )}
 
         {/* Bilgi notu */}
-        <div className="text-slate-700 text-[10px] text-center px-4 pb-2 leading-relaxed">
+        <div className="text-slate-500 text-[10px] text-center px-4 pb-2 leading-relaxed">
           G-metre ve testler OBD + GPS verisi gerektirir.
           Güvenli, özel bir alanda test yapınız.
         </div>

@@ -102,6 +102,17 @@ function pruneIfStale(map: UsageMap): UsageMap {
   return pruned;
 }
 
+/* ── Usage cache — avoids repeated localStorage.getItem + JSON.parse ── */
+
+let _usageCache: UsageMap | null = null;
+
+function getCachedUsage(): UsageMap {
+  if (!_usageCache) {
+    _usageCache = pruneIfStale(loadUsage());
+  }
+  return _usageCache;
+}
+
 /* ── Usage change bus ────────────────────────────────────── */
 
 const _listeners = new Set<() => void>();
@@ -117,6 +128,7 @@ function notifyListeners(): void {
  * Updates localStorage and immediately notifies all `useSmartEngine` hooks.
  */
 export function trackLaunch(appId: string): void {
+  _usageCache = null; // invalidate cache so next buildSnapshot re-reads
   const map  = pruneIfStale(loadUsage());
   const prev = map[appId] ?? { count: 0, recentCount: 0, lastUsed: 0 };
   saveUsage({
@@ -436,7 +448,7 @@ type SmartParams = {
 };
 
 function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): SmartSnapshot {
-  const map = pruneIfStale(loadUsage());
+  const map = getCachedUsage();
   // OBD speed takes priority; GPS speed is the fallback.
   const effectiveSpeed = p.obdSpeed ?? (p.gpsSpeedKmh !== undefined ? p.gpsSpeedKmh : undefined);
   const drivingMode = detectDrivingMode(p.device, effectiveSpeed);
@@ -473,10 +485,15 @@ export function useSmartEngine(
     buildSnapshot({ device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating }),
   );
 
-  // Ref always holds latest params — avoids stale closures in the listener below
+  // Ref always holds latest params — avoids stale closures in the listener below.
+  // Spread paramsRef.current FIRST so OBD-callback-written obdSpeed is preserved
+  // across re-renders (obdSpeed is never a prop — only the OBD callback sets it).
   const paramsRef = useRef<SmartParams>({ device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating });
   useEffect(() => {
-    paramsRef.current = { device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating };
+    paramsRef.current = {
+      ...paramsRef.current, // preserve obdSpeed (set by OBD callback, not a prop)
+      device, favorites, defaultNav, defaultMusic, gpsSpeedKmh, isPlaying, isNavigating,
+    };
   });
 
   // Recompute when device signals, user preferences, or live context changes

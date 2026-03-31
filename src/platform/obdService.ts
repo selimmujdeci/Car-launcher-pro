@@ -16,6 +16,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import type { NativeOBDData, OBDStatusEvent } from './nativePlugin';
 import { getConfig, onPerformanceModeChange } from './performanceMode';
+import { logError } from './crashLogger';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -74,6 +75,10 @@ let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Listen for performance mode changes and restart mock with new interval
 onPerformanceModeChange(() => {
+  if (_reconnectTimer !== null) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
   if (_running && _current.source === 'mock' && _mockTimerId !== null) {
     clearInterval(_mockTimerId);
     _mockTimerId = null;
@@ -105,17 +110,22 @@ function _clamp(v: number, lo: number, hi: number): number {
 /* ── Mock simulation ─────────────────────────────────────── */
 
 function _tickMock(): void {
-  // Far simülasyonu: saat 20:00–06:00 arası açık, her 30 tick'te bir kontrol
-  const hour = new Date().getHours();
-  const headlights = hour >= 20 || hour < 6;
+  try {
+    // Far simülasyonu: saat 20:00–06:00 arası açık, her 30 tick'te bir kontrol
+    const hour = new Date().getHours();
+    const headlights = hour >= 20 || hour < 6;
 
-  _merge({
-    speed:      _clamp(Math.round(_current.speed      + (Math.random() * 14 - 7)),   0,   180),
-    rpm:        _clamp(Math.round(_current.rpm        + (Math.random() * 300 - 150)), 650, 4000),
-    engineTemp: _clamp(Math.round(_current.engineTemp + (Math.random() * 2  - 1)),   75,   105),
-    fuelLevel:  _clamp(Math.round(_current.fuelLevel  - Math.random() * 0.3),        0,   100),
-    headlights,
-  });
+    _merge({
+      speed:      _clamp(Math.round(_current.speed      + (Math.random() * 14 - 7)),   0,   180),
+      rpm:        _clamp(Math.round(_current.rpm        + (Math.random() * 300 - 150)), 650, 4000),
+      engineTemp: _clamp(Math.round(_current.engineTemp + (Math.random() * 2  - 1)),   75,   105),
+      fuelLevel:  _clamp(Math.round(_current.fuelLevel  - Math.random() * 0.3),        0,   100),
+      headlights,
+    });
+  } catch (e) {
+    // Never let a mock tick crash the interval
+    logError('OBD:MockTick', e);
+  }
 }
 
 function _startMock(): void {
@@ -171,7 +181,8 @@ function _scheduleReconnect(): void {
     _startNative().then(() => {
       // Success — reset counter
       _reconnectAttempts = 0;
-    }).catch(() => {
+    }).catch((e: unknown) => {
+      logError('OBD:Reconnect', e);
       void _removeNativeHandles();
       _scheduleReconnect();
     });
@@ -189,6 +200,8 @@ async function _removeNativeHandles(): Promise<void> {
 
 async function _startNative(): Promise<void> {
   _merge({ connectionState: 'scanning' });
+  // Clear any stale handles before starting fresh
+  _nativeHandles = [];
 
   // 1. Get paired Bluetooth devices
   const { devices } = await CarLauncher.scanOBD();
@@ -204,7 +217,7 @@ async function _startNative(): Promise<void> {
 
   _merge({ connectionState: 'connecting', deviceName: candidate.name });
 
-  // 2. Register disconnect / error listener — triggers exponential-backoff reconnect
+  // 2. Register disconnect / error listener — set handle immediately to ensure cleanup
   const statusHandle = await CarLauncher.addListener(
     'obdStatus',
     (_event: OBDStatusEvent) => {
@@ -212,22 +225,26 @@ async function _startNative(): Promise<void> {
       void _removeNativeHandles().then(() => _scheduleReconnect());
     },
   );
+  _nativeHandles = [statusHandle]; // track as soon as acquired
 
   // 3. Register data listener — throttled by the native 3 s polling interval
   const dataHandle = await CarLauncher.addListener(
     'obdData',
     (data: NativeOBDData) => {
-      const patch: Partial<OBDData> = {};
-      if (data.speed      >= 0) patch.speed      = data.speed;
-      if (data.rpm        >= 0) patch.rpm        = data.rpm;
-      if (data.engineTemp >= 0) patch.engineTemp = data.engineTemp;
-      if (data.fuelLevel  >= 0) patch.fuelLevel  = data.fuelLevel;
-      if (data.headlights !== undefined) patch.headlights = data.headlights;
-      if (Object.keys(patch).length) _merge(patch);
+      try {
+        const patch: Partial<OBDData> = {};
+        if (data.speed      >= 0) patch.speed      = data.speed;
+        if (data.rpm        >= 0) patch.rpm        = data.rpm;
+        if (data.engineTemp >= 0) patch.engineTemp = data.engineTemp;
+        if (data.fuelLevel  >= 0) patch.fuelLevel  = data.fuelLevel;
+        if (data.headlights !== undefined) patch.headlights = data.headlights;
+        if (Object.keys(patch).length) _merge(patch);
+      } catch (e) {
+        logError('OBD:DataHandler', e);
+      }
     },
   );
-
-  _nativeHandles = [statusHandle, dataHandle];
+  _nativeHandles = [statusHandle, dataHandle]; // track second handle too
 
   // 4. Connect — resolves when ELM327 init completes, rejects on failure
   await CarLauncher.connectOBD({ address: candidate.address });
@@ -265,19 +282,26 @@ export function startOBD(): void {
   _running = true;
 
   void (async () => {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        await _startNative();
-        return; // success — don't start mock
-      } catch {
-        // Native failed → fall through to mock
-        await _removeNativeHandles();
-        _merge({ connectionState: 'error', source: 'none', deviceName: '' });
-        // Brief pause so the UI can show the error state before switching to mock
-        await new Promise((r) => setTimeout(r, 1500));
+    try {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          await _startNative();
+          return; // success — don't start mock
+        } catch (e) {
+          // Native failed → log and fall through to mock
+          logError('OBD:StartNative', e);
+          await _removeNativeHandles();
+          _merge({ connectionState: 'error', source: 'none', deviceName: '' });
+          // Brief pause so the UI can show the error state before switching to mock
+          await new Promise((r) => setTimeout(r, 1500));
+        }
       }
+      _startMock();
+    } catch (e) {
+      // Outer guard — startMock itself should never throw but just in case
+      logError('OBD:StartOBD', e);
+      _merge({ connectionState: 'error', source: 'none' });
     }
-    _startMock();
   })();
 }
 

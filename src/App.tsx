@@ -1,15 +1,15 @@
 import MainLayout from './components/layout/MainLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { SetupWizard } from './components/modals/SetupWizard';
-import { useStore } from './store/useStore';
+import { InAppBrowser } from './components/common/InAppBrowser';
+import { EditController } from './components/edit/EditController';
 
 function App() {
-  const { settings } = useStore();
-
   return (
     <ErrorBoundary>
-      {!settings.hasCompletedSetup && <SetupWizard />}
-      <MainLayout />
+      <EditController>
+        <MainLayout />
+        <InAppBrowser />
+      </EditController>
     </ErrorBoundary>
   );
 }

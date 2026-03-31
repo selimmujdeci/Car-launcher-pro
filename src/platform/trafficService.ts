@@ -124,7 +124,9 @@ function computeSummary(lat?: number): TrafficSummary {
 function scheduleRefresh(): void {
   if (_refreshTimer) clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(() => {
-    push({ summary: computeSummary(_currentLat) });
+    try {
+      push({ summary: computeSummary(_currentLat) });
+    } catch { /* computeSummary failure must not break the loop */ }
     scheduleRefresh();
   }, 5 * 60 * 1000); // 5 dk'da bir güncelle
 }
@@ -155,6 +157,10 @@ export function setTrafficLayerVisible(visible: boolean): void {
 
 export function getTrafficState(): TrafficState { return _state; }
 
+export function stopTrafficService(): void {
+  if (_refreshTimer) { clearTimeout(_refreshTimer); _refreshTimer = null; }
+}
+
 export const TRAFFIC_COLORS: Record<TrafficLevel, string> = {
   free:       '#22c55e',
   moderate:   '#f59e0b',
@@ -177,6 +183,6 @@ export function useTrafficState(): TrafficState {
     setState(_state);
     _listeners.add(setState);
     return () => { _listeners.delete(setState); };
-  }, []);
+  }, [setState]);
   return state;
 }

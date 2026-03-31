@@ -1,5 +1,38 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, type StorageValue } from 'zustand/middleware';
+
+/* ── Güvenli localStorage sarmalayıcısı ──────────────────────
+ * setItem quota exception'ını yakalar; crash yerine sessiz hata.
+ * Eski kota dolduğunda eski verileri silerek yeniden dener.      */
+const safeStorage = {
+  getItem(name: string): StorageValue<unknown> | null {
+    try {
+      const v = localStorage.getItem(name);
+      return v ? (JSON.parse(v) as StorageValue<unknown>) : null;
+    } catch {
+      return null;
+    }
+  },
+  setItem(name: string, value: StorageValue<unknown>): void {
+    try {
+      localStorage.setItem(name, JSON.stringify(value));
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        // Kota doldu — eski geçici verileri temizle ve yeniden dene
+        const keysToEvict = ['car-trip-log', 'car-crash-log'];
+        keysToEvict.forEach((k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+        try {
+          localStorage.setItem(name, JSON.stringify(value));
+        } catch {
+          // İkinci denemede de başarısız — veri kaybedilmesi mevcut oturumu etkilemez
+        }
+      }
+    }
+  },
+  removeItem(name: string): void {
+    try { localStorage.removeItem(name); } catch { /* ignore */ }
+  },
+};
 
 export type ThemeStyle = 'glass' | 'neon' | 'minimal';
 export type WidgetStyle = 'elevated' | 'flat' | 'outlined';
@@ -48,11 +81,21 @@ export interface ParkingLocation {
   address?: string;
 }
 
+/** Dock'tan ana ekrana sabitlenmiş kart */
+export interface PinnedCard {
+  uid: string;
+  type: 'app' | 'tool';
+  id: string;
+  label: string;
+  icon: string;
+  color?: string;
+}
+
 export interface AppSettings {
   brightness: number;
   volume: number;
   volumeStyle: VolumeStyle;
-  theme: 'dark' | 'oled';
+  theme: 'dark' | 'oled' | 'light';
   themePack: ThemePack;
   themeStyle: ThemeStyle;
   widgetStyle: WidgetStyle;
@@ -69,10 +112,13 @@ export interface AppSettings {
   defaultMusic: string;
   sleepMode: boolean;
   offlineMap: boolean;
-  editMode: boolean;
   widgetVisible: Record<string, boolean>;
   /** Sağ panel alt satır widget sırası: ['music', 'notifications'] */
   widgetOrder: string[];
+  /** Her widget'ın boyut tercihi: small | medium | large */
+  widgetSizes: Record<string, 'small' | 'medium' | 'large'>;
+  /** Aktif harita kaynağı ID'si (local | cached | online) */
+  activeMapSourceId: string | null;
   hasCompletedSetup: boolean;
   performanceMode: boolean;
   maintenance: MaintenanceInfo;
@@ -97,6 +143,16 @@ export interface AppSettings {
   recentDestinations: { lat: number; lng: number; name: string; timestamp: number }[];
   /** Bağlam-farkındı akıllı launcher davranışları */
   smartContextEnabled: boolean;
+  /** Dock'tan ana ekrana sabitlenmiş kartlar */
+  pinnedCards: PinnedCard[];
+  /** Gece/gündüz modu */
+  dayNightMode: 'day' | 'night';
+  /** Widget düzenleme modu */
+  editMode: boolean;
+  /** OBD tabanlı otomatik uyku: RPM 0'da kaldığında uyku moduna geç */
+  obdAutoSleep: boolean;
+  /** OBD uyku gecikmesi (dakika) — RPM 0'dan bu süre sonra uyku moduna girer */
+  obdSleepDelayMin: number;
 }
 
 interface StoreState {
@@ -129,14 +185,15 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultMusic: 'spotify',
   sleepMode: false,
   offlineMap: true,
-  editMode: false,
   widgetVisible: {
     nav: true,
     media: true,
     shortcuts: true,
     obd: true,
   },
-  widgetOrder: ['music', 'notifications'],
+  widgetOrder: ['music', 'notifications', 'phone'],
+  widgetSizes: { media: 'medium', shortcuts: 'small' },
+  activeMapSourceId: null,
   hasCompletedSetup: false,
   performanceMode: false,
   maintenance: {
@@ -169,6 +226,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   workLocation: null,
   recentDestinations: [],
   smartContextEnabled: true,
+  pinnedCards: [],
+  dayNightMode: 'night',
+  editMode: false,
+  obdAutoSleep: false,
+  obdSleepDelayMin: 5,
 };
 
 export const useStore = create<StoreState>()(
@@ -201,6 +263,30 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'car-launcher-storage',
+      storage: safeStorage,
+      version: 4,
+      migrate: (persistedState: unknown, fromVersion: number) => {
+        // Her sürümde yeni alanlar DEFAULT_SETTINGS'ten gelir.
+        // Eski sürümlerde eksik alanları burada düzelt.
+        const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
+        const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
+
+        if (fromVersion < 2) {
+          // v2: pinnedCards eklendi
+          settings.pinnedCards = settings.pinnedCards ?? [];
+        }
+        if (fromVersion < 3) {
+          // v3: editMode eklendi
+          settings.editMode = false;
+        }
+        if (fromVersion < 4) {
+          // v4: dayNightMode eklendi
+          settings.dayNightMode = settings.dayNightMode ?? 'night';
+          // Oturum durumları sıfırla
+          settings.sleepMode = false;
+        }
+        return { ...ps, settings };
+      },
       // Ensure new default fields are merged into existing persisted storage
       merge: (persistedState: unknown, currentState) => {
         const ps = persistedState as Partial<typeof currentState> | null | undefined;
@@ -225,8 +311,14 @@ export const useStore = create<StoreState>()(
               ...(ps.settings?.widgetVisible || {}),
             },
             widgetOrder: ps.settings?.widgetOrder ?? currentState.settings.widgetOrder,
+            widgetSizes: { ...currentState.settings.widgetSizes, ...(ps.settings?.widgetSizes || {}) },
+            activeMapSourceId: ps.settings?.activeMapSourceId ?? currentState.settings.activeMapSourceId,
             hasCompletedSetup: ps.settings?.hasCompletedSetup ?? currentState.settings.hasCompletedSetup,
             performanceMode: ps.settings?.performanceMode ?? currentState.settings.performanceMode,
+            pinnedCards: ps.settings?.pinnedCards ?? currentState.settings.pinnedCards,
+            // Oturum durumları: her yeniden başlatmada sıfırla
+            sleepMode: false,
+            brightness: ps.settings?.brightness ?? currentState.settings.brightness,
           }
         };
       },

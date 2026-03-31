@@ -3,6 +3,7 @@ import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { registerOfflineServiceWorker } from './serviceWorkerManager';
 import { initializeMapSources, getMapStyle } from './mapSourceManager';
+import { logError } from './crashLogger';
 
 /**
  * Detect if running on Capacitor native platform
@@ -83,10 +84,11 @@ export async function initializeMap(
         const map = useMapStore.getState().mapInstance;
         if (map) {
           clearInterval(checkReady);
+          clearTimeout(timeoutHandle);
           resolve(map);
         }
-      }, 50);
-      setTimeout(() => {
+      }, 150);
+      const timeoutHandle = setTimeout(() => {
         clearInterval(checkReady);
         reject(new Error('Map init timeout'));
       }, 5000);
@@ -109,26 +111,20 @@ export async function initializeMap(
         try {
           const { initializeOfflineMapStorage, initializeTileInterceptor } = await import('./offlineMapService');
           const { initializeOfflineTileServer } = await import('./offlineTileServer');
-          try { await initializeOfflineMapStorage(); } catch (e) {
-            console.warn('Offline map storage init skipped:', e);
-          }
-          try { await initializeOfflineTileServer(); } catch (e) {
-            console.warn('Offline tile server init skipped:', e);
-          }
-          try { initializeTileInterceptor(); } catch (e) {
-            console.warn('Tile interceptor init skipped:', e);
-          }
+          try { await initializeOfflineMapStorage(); } catch { /* offline storage unavailable — continue */ }
+          try { await initializeOfflineTileServer(); } catch { /* tile server unavailable — continue */ }
+          try { initializeTileInterceptor(); } catch { /* interceptor unavailable — continue */ }
         } catch (e) {
-          console.warn('Native offline init skipped:', e);
+          logError('Map:OfflineInit', e);
         }
       }
 
       try { await initializeMapSources(); } catch (e) {
-        console.warn('Map sources init skipped:', e);
+        logError('Map:SourcesInit', e);
       }
 
       registerOfflineServiceWorker().catch((err) => {
-        console.warn('Service worker registration failed:', err);
+        logError('Map:ServiceWorker', err);
       });
 
       offlineInitialized = true;
@@ -169,7 +165,7 @@ export async function initializeMap(
         }
         return;
       }
-      console.warn('MapLibre error:', msg);
+      logError('Map:LibreError', new Error(msg));
     });
 
     // Reset tileError on successful tile load
@@ -182,10 +178,31 @@ export async function initializeMap(
       }
     });
 
+    // WebGL context loss — harita çökmesini yakala ve yeniden başlat
+    map.on('webglcontextlost', () => {
+      logError('Map:WebGLContextLost', new Error('WebGL context lost'));
+      useMapStore.setState({ isReady: false, tileError: true });
+
+      // 2 saniye sonra haritayı yeniden başlatmayı dene
+      setTimeout(() => {
+        const currentContainer = useMapStore.getState().mapInstance?.getContainer();
+        if (!currentContainer) return;
+        destroyMap();
+        initializeMap(currentContainer, getMapStyle()).catch((e: unknown) => {
+          logError('Map:WebGLRecoveryFailed', e);
+        });
+      }, 2000);
+    });
+
+    map.on('webglcontextrestored', () => {
+      useMapStore.setState({ tileError: false });
+      map.resize();
+    });
+
     useMapStore.setState({ mapInstance: map, error: null });
     return map;
   } catch (err) {
-    console.warn('Map init error, falling back to empty dark map:', err);
+    logError('Map:InitFallback', err);
 
     // Last-resort fallback: create a minimal dark map
     try {
@@ -248,7 +265,8 @@ function ensureHeadingImage(map: MapLibreMap) {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
   const cx = size / 2;
 
   // Upward-pointing direction cone with curved base
@@ -409,8 +427,9 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
   if (!map) return;
 
   const sourceId = 'user-location';
-  const source = map.getSource(sourceId) as GeoJSONSource;
-  if (!source) return;
+  const rawSource = map.getSource(sourceId);
+  if (!rawSource) return;
+  const source = rawSource as GeoJSONSource;
 
   const feature = {
     type: 'Feature' as const,

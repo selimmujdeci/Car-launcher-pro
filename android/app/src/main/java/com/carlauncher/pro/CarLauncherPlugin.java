@@ -1,5 +1,7 @@
 package com.carlauncher.pro;
 
+import android.app.ActivityManager;
+import android.util.DisplayMetrics;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
@@ -103,6 +105,22 @@ public class CarLauncherPlugin extends Plugin {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // ── App exit (launcher'ı arka plana al) ────────────────────────────────
+
+    /**
+     * Launcher'ı arka plana alır — kapatmaz.
+     * Çift geri basış sonrasında JS tarafından çağrılır.
+     * finishAffinity() yerine moveTaskToBack kullanılır — launcher kapanmasın,
+     * HOME tuşuyla veya son uygulamalardan tekrar açılabilsin.
+     */
+    @PluginMethod
+    public void exitApp(PluginCall call) {
+        call.resolve();
+        new Handler(Looper.getMainLooper()).post(() -> {
+            getActivity().moveTaskToBack(true);
+        });
+    }
+
     // ── App launch ──────────────────────────────────────────────────────────
 
     /**
@@ -122,7 +140,11 @@ public class CarLauncherPlugin extends Plugin {
                 call.reject("INVALID_ARGS", "Başlatılabilir hedef bulunamadı");
                 return;
             }
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            // FLAG_ACTIVITY_NEW_TASK        — her uygulama kendi task'ında açılsın
+            // FLAG_ACTIVITY_RESET_TASK_IF_NEEDED — varsa task'ı root activity'e sıfırla,
+            //   böylece kullanıcı geri tuşuyla launcher'a tek adımda döner
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                          | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
             getContext().startActivity(intent);
             call.resolve();
         } catch (Exception e) {
@@ -1438,6 +1460,138 @@ public class CarLauncherPlugin extends Plugin {
             + ".catch(function(){ec++;if(ec>3)sst('Ba\u011Flant\u0131 kesildi',1);});}"
             + "poll();setInterval(poll,2500);"
             + "</script></body></html>";
+    }
+
+    // ── Native Core: Device Profile ──────────────────────────────────────────
+
+    /**
+     * Returns hardware profile for automatic performance-mode detection.
+     * Fields: androidVersion, sdkInt, totalRamMb, screenWidth, screenHeight,
+     *         densityDpi, density, webViewVersion, deviceClass (low|mid|high),
+     *         isLowRamDevice
+     *
+     * deviceClass mapping:
+     *   low  — RAM < 1.5 GB  or  API < 21  (use lite performance mode)
+     *   mid  — RAM < 3 GB    or  API < 26  (use balanced performance mode)
+     *   high — otherwise                   (use premium performance mode)
+     */
+    @PluginMethod
+    public void getDeviceProfile(PluginCall call) {
+        try {
+            JSObject r = new JSObject();
+
+            // Android version
+            r.put("androidVersion", Build.VERSION.RELEASE);
+            r.put("sdkInt",         Build.VERSION.SDK_INT);
+
+            // RAM
+            ActivityManager am = (ActivityManager)
+                getContext().getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            long totalRamMb = mi.totalMem / (1024L * 1024L);
+            r.put("totalRamMb",      totalRamMb);
+            r.put("isLowRamDevice",  am.isLowRamDevice());
+
+            // Screen
+            DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
+            r.put("screenWidth",  dm.widthPixels);
+            r.put("screenHeight", dm.heightPixels);
+            r.put("densityDpi",   dm.densityDpi);
+            r.put("density",      dm.density);
+
+            // WebView version — read from PackageManager (no WebView instantiation)
+            String wvVersion = "";
+            String[] wvPackages = {
+                "com.google.android.webview",
+                "com.android.webview",
+                "com.samsung.android.webview"
+            };
+            for (String pkg : wvPackages) {
+                try {
+                    wvVersion = getContext().getPackageManager()
+                        .getPackageInfo(pkg, 0).versionName;
+                    if (wvVersion != null && !wvVersion.isEmpty()) break;
+                } catch (Exception ignored) {}
+            }
+            r.put("webViewVersion", safe(wvVersion));
+
+            // Device class
+            String deviceClass;
+            if (totalRamMb < 1536 || Build.VERSION.SDK_INT < 21) {
+                deviceClass = "low";
+            } else if (totalRamMb < 3072 || Build.VERSION.SDK_INT < 26) {
+                deviceClass = "mid";
+            } else {
+                deviceClass = "high";
+            }
+            r.put("deviceClass", deviceClass);
+
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("PROFILE_FAILED", e.getMessage());
+        }
+    }
+
+    // ── Native Core: Screen Metrics ──────────────────────────────────────────
+
+    /**
+     * Returns real screen dimensions from WindowManager.
+     * More reliable than JS window.screen on old head-unit WebViews.
+     * Fields: widthPx, heightPx, densityDpi, density, widthDp, heightDp
+     */
+    @PluginMethod
+    public void getScreenMetrics(PluginCall call) {
+        try {
+            DisplayMetrics dm = new DisplayMetrics();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.view.Display display = getActivity().getDisplay();
+                if (display != null) {
+                    display.getRealMetrics(dm);
+                } else {
+                    dm = getContext().getResources().getDisplayMetrics();
+                }
+            } else {
+                WindowManager wm = (WindowManager)
+                    getContext().getSystemService(Context.WINDOW_SERVICE);
+                wm.getDefaultDisplay().getRealMetrics(dm);
+            }
+            JSObject r = new JSObject();
+            r.put("widthPx",    dm.widthPixels);
+            r.put("heightPx",   dm.heightPixels);
+            r.put("densityDpi", dm.densityDpi);
+            r.put("density",    dm.density);
+            r.put("widthDp",    Math.round(dm.widthPixels  / dm.density));
+            r.put("heightDp",   Math.round(dm.heightPixels / dm.density));
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("METRICS_FAILED", e.getMessage());
+        }
+    }
+
+    // ── Native Core: Phone / Dialer Bridge ───────────────────────────────────
+
+    /**
+     * Open native dialer with number pre-filled (ACTION_DIAL — no extra permission).
+     * Does NOT auto-call; user must press the call button in the dialer.
+     * number: phone number string (e.g. "+905551234567" or "05551234567")
+     */
+    @PluginMethod
+    public void callNumber(PluginCall call) {
+        String number = call.getString("number", "");
+        if (!present(number)) {
+            call.reject("INVALID_NUMBER", "Telefon numarası boş");
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_DIAL,
+                Uri.parse("tel:" + Uri.encode(number)));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("DIAL_FAILED", e.getMessage());
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
  * Service Worker Manager
  * Handles registration and initialization of offline service worker
  */
+import { logError } from './crashLogger';
 
 let registrationReady = false;
 let serviceWorkerRegistration: ServiceWorkerRegistration | null = null;
@@ -10,17 +11,10 @@ let serviceWorkerRegistration: ServiceWorkerRegistration | null = null;
  * Register the offline service worker
  */
 export async function registerOfflineServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  // Service workers not available on this platform
-  if (!('serviceWorker' in navigator)) {
-    console.warn('Service workers not supported');
-    return null;
-  }
+  if (!('serviceWorker' in navigator)) return null;
 
-  // Skip on non-HTTPS and non-localhost environments
-  if (!globalThis.isSecureContext && !location.hostname.includes('localhost')) {
-    console.warn('Service workers require HTTPS or localhost');
-    return null;
-  }
+  // Skip on non-HTTPS and non-localhost environments (SW requirement)
+  if (!globalThis.isSecureContext && !location.hostname.includes('localhost')) return null;
 
   try {
     const registration = await navigator.serviceWorker.register('/serviceWorker.js', {
@@ -37,16 +31,13 @@ export async function registerOfflineServiceWorker(): Promise<ServiceWorkerRegis
       if (!newWorker) return;
 
       newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'activated') {
-          console.log('Service worker updated and activated');
-        }
+        // no-op: SW update is silent in production
       });
     });
 
-    console.log('Service worker registered:', registration);
     return registration;
   } catch (err) {
-    console.warn('Service worker registration failed:', err);
+    logError('SW:Registration', err);
     return null;
   }
 }
@@ -62,7 +53,7 @@ export async function unregisterOfflineServiceWorker(): Promise<void> {
     serviceWorkerRegistration = null;
     registrationReady = false;
   } catch (err) {
-    console.error('Service worker unregistration failed:', err);
+    logError('SW:Unregistration', err);
   }
 }
 
@@ -89,22 +80,12 @@ export async function cacheTileThroughServiceWorker(
   y: number,
   blob: Blob
 ): Promise<void> {
-  if (!serviceWorkerRegistration?.active) {
-    console.warn('Service worker not active');
-    return;
-  }
+  if (!serviceWorkerRegistration?.active) return;
 
   try {
-    // Send message to service worker to cache tile
-    serviceWorkerRegistration.active.postMessage({
-      type: 'CACHE_TILE',
-      z,
-      x,
-      y,
-      blob,
-    });
+    serviceWorkerRegistration.active.postMessage({ type: 'CACHE_TILE', z, x, y, blob });
   } catch (err) {
-    console.warn('Failed to cache tile through service worker:', err);
+    logError('SW:CacheTile', err);
   }
 }
 
@@ -123,7 +104,7 @@ export async function clearOfflineTileCache(): Promise<void> {
       req.onerror = () => reject(req.error);
     });
   } catch (err) {
-    console.error('Failed to clear tile cache:', err);
+    logError('SW:ClearCache', err);
   }
 }
 
@@ -152,7 +133,7 @@ export async function getTileCacheStats(): Promise<{
       req.onerror = () => reject(req.error);
     });
   } catch (err) {
-    console.error('Failed to get cache stats:', err);
+    logError('SW:CacheStats', err);
     return { totalTiles: 0, cacheSize: '0MB' };
   }
 }

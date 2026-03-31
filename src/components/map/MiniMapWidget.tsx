@@ -11,6 +11,7 @@ import {
   destroyMap,
   setMapHeading,
   switchMapStyle,
+  useMapState,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
 import { getMapStyle, useMapMode } from '../../platform/mapSourceManager';
@@ -34,6 +35,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
   const location = useGPSLocation();
   const heading = useGPSHeading();
   const mode = useMapMode();
+  const { tileError } = useMapState();
 
   // Sync refs safely outside of render
   useEffect(() => {
@@ -145,39 +147,46 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
   }, [location, heading, mapReady, styleKey]);
 
   return (
-    <div className="h-full bg-gradient-to-br from-[#0c1428] to-[#080e1c] rounded-3xl shadow-[0_8px_40px_rgba(0,0,0,0.5),0_0_40px_rgba(37,99,235,0.03)] border border-white/[0.08] p-3 flex flex-col overflow-hidden relative">
-      {/* Ambient glow in widget */}
+    <div className="w-full h-full min-h-0 min-w-0 bg-gradient-to-br from-[#0c1428] to-[#080e1c] rounded-3xl shadow-[0_8px_40px_rgba(0,0,0,0.5)] border border-white/[0.08] flex flex-col overflow-hidden relative">
+      {/* Ambient glow */}
       <div className="absolute -top-12 -left-12 w-32 h-32 bg-blue-600/[0.05] rounded-full blur-[40px] pointer-events-none" />
 
-      {/* Minimal header */}
-      <div className="flex items-center justify-between flex-shrink-0 px-2 pb-2.5 relative z-10">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/25 flex items-center justify-center flex-shrink-0">
-            <div className={`w-1.5 h-1.5 rounded-full ${location ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-blue-400 opacity-40'}`} />
+      {/* Header — flex-shrink-0 so it never grows or collapses the map */}
+      <div className="flex-shrink-0 flex items-center justify-between px-4 pt-4 pb-2 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-blue-600 border-2 border-blue-400 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
+            <div className={`w-2 h-2 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_8px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
           </div>
-          <div className="flex flex-col">
-            <span className="text-blue-400/60 text-[9px] tracking-[0.2em] uppercase font-black leading-none mb-0.5">Navigasyon</span>
-            <span className="text-white text-[11px] font-bold tracking-wide">Mini Harita</span>
+          <div className="flex flex-col leading-none">
+            <span className="text-blue-400 font-black text-[11px] tracking-[0.2em] uppercase mb-0.5">NAVİGASYON</span>
+            <span className="text-white text-[13px] font-black tracking-wide">MİNİ HARİTA</span>
           </div>
         </div>
         {onFullScreenClick && (
           <button
             onClick={onFullScreenClick}
-            className="w-8 h-8 rounded-xl bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.1] active:scale-90 transition-all duration-150"
+            className="w-10 h-10 rounded-2xl bg-white/10 border-2 border-white/20 flex items-center justify-center text-white hover:bg-white/20 active:scale-90 transition-all duration-150 flex-shrink-0 shadow-md"
             title="Tam ekran"
           >
-            <Maximize2 className="w-4 h-4" />
+            <Maximize2 className="w-5 h-5" />
           </button>
         )}
       </div>
 
-      {/* Map container — always rendered */}
+      {/* Map container — flex-1 + min-h-0 ensures it fills remaining space without overflow */}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 rounded-2xl overflow-hidden bg-[#05080f] border border-white/5 shadow-inner"
-        style={{ position: 'relative' }}
+        className="flex-1 min-h-0 min-w-0 mx-3 mb-3 rounded-2xl overflow-hidden bg-[#05080f] border border-white/5 relative"
       >
         <MapOverlay location={location} heading={heading} compact={true} />
+        {tileError && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl bg-black/70 border border-red-500/30 backdrop-blur-sm">
+              <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+              <span className="text-red-400 text-[9px] font-semibold tracking-wide uppercase">Harita yüklenemiyor</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

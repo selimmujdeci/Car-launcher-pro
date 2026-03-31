@@ -340,18 +340,34 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
       {/* ── Top controls ── */}
       <button
         onClick={onClose}
-        className={`absolute top-8 left-8 z-20 w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center transition-all duration-500 pointer-events-auto active:scale-95 shadow-lg ${
-          drivingMode
-            ? 'bg-black/20 border-white/5 text-white/30'
-            : 'bg-black/50 border-white/10 text-white/80 hover:bg-black/70'
-        }`}
+        style={{
+          position: 'fixed',
+          top: '16px',
+          right: '16px',
+          zIndex: 9999,
+          background: '#dc2626',
+          border: '3px solid #f87171',
+          borderRadius: '14px',
+          padding: '10px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          color: 'white',
+          fontWeight: 800,
+          fontSize: '14px',
+          cursor: 'pointer',
+          boxShadow: '0 0 24px rgba(220,38,38,0.6)',
+          letterSpacing: '0.05em',
+          pointerEvents: 'auto',
+        }}
       >
-        <X className="w-6 h-6" />
+        <X style={{ width: 18, height: 18, strokeWidth: 3 }} />
+        <span>Çıkış</span>
       </button>
 
       {/* ── Right-side controls ── */}
       <div className={`absolute right-8 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-4 pointer-events-auto transition-all duration-500 ${
-        drivingMode ? 'opacity-40 translate-x-2' : 'opacity-100'
+        drivingMode ? 'opacity-80 translate-x-2' : 'opacity-100'
       }`}>
         <div className="flex flex-col gap-2 p-1 bg-black/40 backdrop-blur-xl rounded-[1.5rem] border border-white/10 shadow-xl">
           <button
@@ -381,7 +397,7 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
           className={`w-14 h-14 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-95 transition-all duration-500 shadow-xl ${
             drivingMode
               ? 'bg-blue-500 border-blue-400 text-white'
-              : 'bg-black/50 border-white/10 text-white/40 hover:bg-black/70 hover:text-white/80'
+              : 'bg-black/50 border-white/30 text-white/85 hover:bg-black/70 hover:text-white'
           }`}
         >
           <Navigation2 className={`w-6 h-6 ${drivingMode ? 'fill-white' : ''}`} />
@@ -390,7 +406,7 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
 
       {/* ── Bottom controls ── */}
       <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-6 transition-all duration-500 ${
-        drivingMode || isPreview ? 'opacity-20 translate-y-4 pointer-events-none' : 'opacity-100'
+        drivingMode || isPreview ? 'opacity-60 translate-y-4 pointer-events-none' : 'opacity-100'
       }`}>
         {/* Map mode switcher */}
         <div className="flex items-center gap-1 bg-black/50 backdrop-blur-xl rounded-[1.25rem] p-1 border border-white/10 shadow-2xl">
@@ -401,7 +417,7 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black tracking-[0.15em] uppercase transition-all active:scale-95 ${
                 mode === m
                   ? 'bg-white/10 text-white shadow-inner'
-                  : 'text-white/30 hover:text-white/60'
+                  : 'text-white/75 hover:text-white'
               }`}
             >
               {m === 'road' && <Map className="w-4 h-4" />}
@@ -414,11 +430,11 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
 
         {/* Coordinates */}
         <div className={`flex items-center gap-4 bg-black/20 backdrop-blur-md rounded-full px-4 py-1.5 border border-white/5 transition-opacity ${location ? 'opacity-100' : 'opacity-0'}`}>
-          <span className="text-[9px] text-white/20 font-mono font-bold tracking-tight">
+          <span className="text-[9px] text-white/55 font-mono font-bold tracking-tight">
             {location?.latitude.toFixed(5)}°, {location?.longitude.toFixed(5)}°
           </span>
           {location?.altitude != null && (
-            <span className="text-[9px] text-blue-400/20 font-mono font-bold uppercase">
+            <span className="text-[9px] text-blue-400/60 font-mono font-bold uppercase">
               {Math.round(location.altitude)}m ALT
             </span>
           )}

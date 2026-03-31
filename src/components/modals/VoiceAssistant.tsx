@@ -50,6 +50,16 @@ const SuggestionChip = memo(function SuggestionChip({
   );
 });
 
+/* ── VoiceAssistant — Main Entry Point ─────────────────────── */
+
+export const VoiceAssistant = memo(function VoiceAssistant({ 
+  onClose 
+}: { 
+  onClose: () => void 
+}) {
+  return <VoiceOverlay onClose={onClose} />;
+});
+
 /* ── Overlay (dinleme / geri bildirim) ─────────────────────── */
 
 const VoiceOverlay = memo(function VoiceOverlay({
@@ -61,9 +71,10 @@ const VoiceOverlay = memo(function VoiceOverlay({
   const [demoText, setDemoText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isListening = voice.status === 'listening';
-  const isSuccess   = voice.status === 'success';
-  const isError     = voice.status === 'error';
+  const isListening  = voice.status === 'listening';
+  const isSuccess    = voice.status === 'success';
+  const isError      = voice.status === 'error';
+  const isThrottled  = voice.status === 'throttled';
 
   // Overlay kapanma — success durumunda 2.5s sonra otomatik kapat
   useEffect(() => {
@@ -101,14 +112,14 @@ const VoiceOverlay = memo(function VoiceOverlay({
       className="fixed inset-0 z-[70] flex items-end justify-center pb-24 pointer-events-none"
       onClick={(e) => { if (e.target === e.currentTarget) { stopListening(); onClose(); } }}
     >
-      {/* Backdrop */}
+      {/* Backdrop — hafif blur, çok şeffaf */}
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto"
+        className="absolute inset-0 bg-black/20 backdrop-blur-[2px] pointer-events-auto"
         onClick={() => { stopListening(); onClose(); }}
       />
 
-      {/* Panel */}
-      <div className="relative pointer-events-auto w-full max-w-lg mx-4 bg-[#0d1628]/95 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
+      {/* Panel — cam gibi şeffaf */}
+      <div className="relative pointer-events-auto w-full max-w-lg mx-4 bg-black/40 backdrop-blur-2xl border border-white/[0.08] rounded-3xl shadow-2xl overflow-hidden">
         {/* Üst parlama */}
         <div className="absolute top-0 left-1/4 right-1/4 h-px bg-gradient-to-r from-transparent via-blue-400/50 to-transparent" />
 
@@ -117,14 +128,16 @@ const VoiceOverlay = memo(function VoiceOverlay({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className={`relative w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                isListening ? 'bg-blue-400 animate-pulse' :
-                isSuccess   ? 'bg-emerald-400' :
-                isError     ? 'bg-red-400' : 'bg-slate-600'
+                isListening  ? 'bg-blue-400 animate-pulse' :
+                isSuccess    ? 'bg-emerald-400' :
+                isError      ? 'bg-red-400' :
+                isThrottled  ? 'bg-amber-400 animate-pulse' : 'bg-slate-600'
               }`} />
               <span className="text-white/70 text-xs font-bold uppercase tracking-[0.2em]">
-                {isListening ? 'Dinliyorum…' :
-                 isSuccess   ? 'Anlaşıldı' :
-                 isError     ? 'Anlaşılamadı' : 'Sesli Asistan'}
+                {isListening  ? 'Dinliyorum…' :
+                 isSuccess    ? 'Anlaşıldı' :
+                 isError      ? 'Anlaşılamadı' :
+                 isThrottled  ? 'Çok hızlı…' : 'Sesli Asistan'}
               </span>
             </div>
             <button
@@ -187,6 +200,17 @@ const VoiceOverlay = memo(function VoiceOverlay({
               </div>
             )}
 
+            {isThrottled && (
+              <div className="flex flex-col items-center gap-1.5 text-center">
+                <div className="text-amber-400 text-sm font-medium">
+                  {voice.error ?? 'Çok hızlı — biraz bekleyin'}
+                </div>
+                {voice.transcript && (
+                  <div className="text-slate-500 text-xs">"{voice.transcript}"</div>
+                )}
+              </div>
+            )}
+
             {isError && (
               <div className="flex flex-col items-center gap-3 w-full">
                 <div className="text-red-400 text-sm font-medium text-center">
@@ -230,18 +254,46 @@ const VoiceOverlay = memo(function VoiceOverlay({
   );
 });
 
-/* ── Mikrofon butonu ────────────────────────────────────────── */
+/* ── Ses dalgası animasyonu (floating için) ─────────────────── */
 
-export const VoiceMicButton = memo(function VoiceMicButton() {
-  const voice = useVoiceState();
+const SoundWave = memo(function SoundWave() {
+  const bars = [4, 7, 10, 6, 9, 5, 8, 4, 7];
+  return (
+    <div className="flex items-end gap-[2px] h-5">
+      {bars.map((h, i) => (
+        <div
+          key={i}
+          className="w-[2px] rounded-full bg-blue-400"
+          style={{
+            height: `${h * 2}px`,
+            animation: `car-pulse-subtle 600ms ease-in-out infinite`,
+            animationDelay: `${i * 60}ms`,
+          }}
+        />
+      ))}
+    </div>
+  );
+});
+
+/* ── Sabit (floating) mikrofon butonu ──────────────────────── */
+
+export const FloatingMicButton = memo(function FloatingMicButton({
+  isDriving = false,
+}: {
+  isDriving?: boolean;
+}) {
+  const voice   = useVoiceState();
   const [overlayOpen, setOverlayOpen] = useState(false);
 
-  const isListening = voice.status === 'listening';
-  const isActive    = isListening || voice.status === 'success' || voice.status === 'error';
+  const isListening  = voice.status === 'listening';
+  const isSuccess    = voice.status === 'success';
+  const isError      = voice.status === 'error';
+  const isThrottled  = voice.status === 'throttled';
 
   const handlePress = useCallback(() => {
     if (isListening) {
       stopListening();
+      setOverlayOpen(false);
       return;
     }
     setOverlayOpen(true);
@@ -253,14 +305,15 @@ export const VoiceMicButton = memo(function VoiceMicButton() {
     stopListening();
   }, []);
 
-  // Overlay'i status'a göre senkronize et
   useEffect(() => {
     if (voice.status === 'idle' && overlayOpen) {
-      // success/error kapandıktan sonra overlay'i kapat
       const id = setTimeout(() => setOverlayOpen(false), 100);
       return () => clearTimeout(id);
     }
   }, [voice.status, overlayOpen]);
+
+  const sizeClass = isDriving ? 'w-10 h-10' : 'w-12 h-12';
+  const iconSize  = isDriving ? 'w-4 h-4'   : 'w-5 h-5';
 
   return (
     <>
@@ -268,20 +321,221 @@ export const VoiceMicButton = memo(function VoiceMicButton() {
         onClick={handlePress}
         aria-label="Sesli asistan"
         className={`
+          fixed right-5 z-[62] flex items-center justify-center rounded-full
+          transition-all duration-300 ease-out active:scale-90
+          ${isDriving ? 'bottom-20' : 'bottom-24'}
+          ${sizeClass}
+          ${isListening
+            ? 'scale-110 shadow-[0_0_20px_4px_rgba(59,130,246,0.45)]'
+            : isThrottled
+            ? 'scale-95 shadow-[0_0_14px_3px_rgba(245,158,11,0.35)]'
+            : 'scale-95 shadow-[0_2px_10px_rgba(0,0,0,0.3)]'
+          }
+        `}
+        style={{ willChange: 'transform' }}
+      >
+        {/* Arka plan — yalnızca dinleme durumuna göre değişir */}
+        <div
+          className={`
+            absolute inset-0 rounded-full border transition-all duration-300 backdrop-blur-xl
+            ${isListening
+              ? 'bg-blue-500/25 border-blue-400/50 opacity-100'
+              : isSuccess
+              ? 'bg-emerald-500/15 border-emerald-400/30 opacity-100'
+              : isError
+              ? 'bg-red-500/15 border-red-400/30 opacity-100'
+              : isThrottled
+              ? 'bg-amber-500/20 border-amber-400/40 opacity-100'
+              : 'bg-white/[0.05] border-white/[0.09] hover:bg-white/[0.1] hover:border-white/[0.16] opacity-50 hover:opacity-80'
+            }
+          `}
+        />
+
+        {/* Animasyon halkaları — SADECE aktif dinleme sırasında */}
+        {isListening && (
+          <>
+            <span className="absolute inset-0 rounded-full bg-blue-500/15 animate-ping" />
+            <span className="absolute inset-[-5px] rounded-full border border-blue-400/20 animate-pulse" />
+          </>
+        )}
+
+        {/* İçerik */}
+        <div className="relative z-10 flex items-center justify-center">
+          {isListening && !isDriving ? (
+            <SoundWave />
+          ) : isListening ? (
+            <MicOff className={`${iconSize} text-blue-300`} />
+          ) : isSuccess ? (
+            <Mic className={`${iconSize} text-emerald-400`} />
+          ) : isError ? (
+            <MicOff className={`${iconSize} text-red-400`} />
+          ) : isThrottled ? (
+            <Mic className={`${iconSize} text-amber-400`} />
+          ) : (
+            <Mic className={`${iconSize} text-slate-500`} />
+          )}
+        </div>
+      </button>
+
+      {overlayOpen && <VoiceOverlay onClose={handleClose} />}
+    </>
+  );
+});
+
+/* ── Draggable Floating Mic Button ─────────────────────────── */
+
+export const VoiceMicButton = memo(function VoiceMicButton({ floating }: { floating?: boolean }) {
+  const voice = useVoiceState();
+  const [overlayOpen, setOverlayOpen] = useState(false);
+
+  const isListening  = voice.status === 'listening';
+  const isSuccess    = voice.status === 'success';
+  const isError      = voice.status === 'error';
+  const isThrottled  = voice.status === 'throttled';
+
+  // Sürükleme state'i
+  const posRef      = useRef({ x: 12, y: Math.round(window.innerHeight / 2) - 28 });
+  const [pos, setPos]       = useState(posRef.current);
+  const dragRef     = useRef<{ startX: number; startY: number; btnX: number; btnY: number } | null>(null);
+  const didDragRef  = useRef(false);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!floating) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    didDragRef.current = false;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      btnX: posRef.current.x,
+      btnY: posRef.current.y,
+    };
+  }, [floating]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDragRef.current = true;
+    const newX = Math.max(4, Math.min(window.innerWidth  - 60, dragRef.current.btnX + dx));
+    const newY = Math.max(4, Math.min(window.innerHeight - 60, dragRef.current.btnY + dy));
+    posRef.current = { x: newX, y: newY };
+    setPos({ x: newX, y: newY });
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    dragRef.current = null;
+  }, []);
+
+  const handlePress = useCallback(() => {
+    if (didDragRef.current) return; // sürüklediyse tıklamayı iptal et
+    if (isListening) {
+      stopListening();
+      setOverlayOpen(false);
+      return;
+    }
+    setOverlayOpen(true);
+    startListening();
+  }, [isListening]);
+
+  const handleClose = useCallback(() => {
+    setOverlayOpen(false);
+    stopListening();
+  }, []);
+
+  useEffect(() => {
+    if (voice.status === 'idle' && overlayOpen) {
+      const id = setTimeout(() => setOverlayOpen(false), 100);
+      return () => clearTimeout(id);
+    }
+  }, [voice.status, overlayOpen]);
+
+  /* ── Floating: sürüklenebilir yuvarlak buton ── */
+  if (floating) {
+    const btnColor = isListening
+      ? 'bg-blue-500/35 border-blue-400/70 shadow-[0_0_18px_4px_rgba(59,130,246,0.35)]'
+      : isSuccess
+      ? 'bg-emerald-500/25 border-emerald-400/50'
+      : isError
+      ? 'bg-red-500/25 border-red-400/50'
+      : isThrottled
+      ? 'bg-amber-500/25 border-amber-400/50 shadow-[0_0_12px_3px_rgba(245,158,11,0.3)]'
+      : 'bg-black/50 border-white/[0.13]';
+
+    return (
+      <>
+        <div
+          style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 46, touchAction: 'none', userSelect: 'none' }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onClick={handlePress}
+        >
+          <div
+            className={`relative w-14 h-14 rounded-full flex items-center justify-center
+              backdrop-blur-xl border-2 transition-all duration-200 cursor-grab active:cursor-grabbing
+              ${btnColor}
+            `}
+          >
+            <PulseRing active={isListening} />
+
+            {isListening ? (
+              <MicOff className="w-6 h-6 text-blue-300 relative z-10" />
+            ) : isSuccess ? (
+              <Mic className="w-6 h-6 text-emerald-300 relative z-10" />
+            ) : isError ? (
+              <MicOff className="w-6 h-6 text-red-300 relative z-10" />
+            ) : isThrottled ? (
+              <Mic className="w-6 h-6 text-amber-300 relative z-10" />
+            ) : (
+              <Mic className="w-6 h-6 text-white/50 relative z-10" />
+            )}
+          </div>
+        </div>
+
+        {overlayOpen && <VoiceOverlay onClose={handleClose} />}
+      </>
+    );
+  }
+
+  /* ── Dock mod: yatay bar içindeki kompakt buton ── */
+  return (
+    <>
+      <button
+        onClick={handlePress}
+        aria-label="Sesli asistan"
+        className={`
           flex-1 h-11 flex items-center justify-center gap-2 rounded-xl
-          active:scale-[0.95] transition-all duration-300 group relative
-          ${isActive
-            ? 'bg-blue-500/20 border border-blue-400/30'
-            : 'bg-white/[0.02] hover:bg-white/[0.08]'
+          active:scale-[0.95] transition-all duration-200 group relative border
+          ${isListening
+            ? 'bg-blue-500/20 border-blue-400/30'
+            : isSuccess
+            ? 'bg-emerald-500/10 border-emerald-500/20'
+            : isError
+            ? 'bg-red-500/10 border-red-500/20'
+            : isThrottled
+            ? 'bg-amber-500/10 border-amber-400/25'
+            : 'bg-transparent border-transparent hover:bg-white/[0.06] hover:border-white/[0.08]'
           }
         `}
       >
         <PulseRing active={isListening} />
-        {isListening
-          ? <MicOff className="w-5 h-5 text-blue-400 relative z-10" />
-          : <Mic className={`w-5 h-5 transition-colors relative z-10 ${isActive ? 'text-blue-400' : 'text-slate-500 group-hover:text-blue-400'}`} />
-        }
-        <span className={`text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block relative z-10 transition-colors ${isActive ? 'text-blue-400' : 'text-white/30 group-hover:text-blue-400'}`}>
+
+        {isListening ? (
+          <MicOff className="w-5 h-5 text-blue-400 relative z-10" />
+        ) : isSuccess ? (
+          <Mic className="w-5 h-5 text-emerald-400 relative z-10" />
+        ) : isError ? (
+          <MicOff className="w-5 h-5 text-red-400 relative z-10" />
+        ) : isThrottled ? (
+          <Mic className="w-5 h-5 text-amber-400 relative z-10" />
+        ) : (
+          <Mic className="w-5 h-5 text-slate-600 group-hover:text-slate-300 transition-colors relative z-10" />
+        )}
+
+        <span className={`
+          text-[10px] font-black uppercase tracking-[0.2em] hidden 2xl:block relative z-10 transition-colors
+          ${isListening ? 'text-blue-400' : isSuccess ? 'text-emerald-400' : isError ? 'text-red-400' : isThrottled ? 'text-amber-400' : 'text-white/25 group-hover:text-slate-300'}
+        `}>
           Ses
         </span>
       </button>

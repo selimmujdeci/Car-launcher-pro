@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
 import {
   Bluetooth, Wifi, WifiOff,
   BatteryFull, BatteryMedium, BatteryLow, BatteryCharging,
-  Bell, MapPin, GripVertical, Check,
+  Bell, MapPin, GripVertical,
   Search, Phone, User, Star,
 } from 'lucide-react';
 import {
@@ -18,6 +18,7 @@ import { registerCommandHandler } from '../../platform/voiceService';
 import type { ParsedCommand } from '../../platform/commandParser';
 import { startNavigation } from '../../platform/navigationService';
 import { getFavoriteAddresses } from '../../platform/addressBookService';
+import { useNotificationState } from '../../platform/notificationService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { FullMapView } from '../map/FullMapView';
 import { TPMSWidget } from '../obd/TPMSWidget';
@@ -110,10 +111,18 @@ function useClock() {
 
 /* ── Bildirim Alanı ──────────────────────────────────────── */
 const NotificationArea = memo(function NotificationArea() {
-  const [notifications] = useState([
-    { id: 1, app: 'WhatsApp', sender: 'Murat', text: 'Yola çıktın mı?', time: 'Şimdi' },
-    { id: 2, app: 'Takvim', sender: 'Hatırlatıcı', text: 'Araç muayenesi yaklaşıyor', time: '10 dk' },
-  ]);
+  const { notifications, unreadCount } = useNotificationState();
+
+  const displayed = useMemo(() => notifications.slice(0, 5), [notifications]);
+
+  function timeLabel(ts: number): string {
+    const diffMin = Math.round((Date.now() - ts) / 60000);
+    if (diffMin < 1)  return 'Şimdi';
+    if (diffMin < 60) return `${diffMin} dk`;
+    const diffH = Math.round(diffMin / 60);
+    if (diffH < 24)   return `${diffH} sa`;
+    return `${Math.round(diffH / 24)} gün`;
+  }
 
   return (
     <div className="flex flex-col gap-2 h-full bg-[#0d1628] rounded-2xl border border-white/5 p-4 overflow-hidden">
@@ -122,25 +131,35 @@ const NotificationArea = memo(function NotificationArea() {
           <Bell className="w-4 h-4 text-blue-400" />
           <span className="text-slate-500 text-xs tracking-widest uppercase">Bildirimler</span>
         </div>
-        <span className="bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">2</span>
+        {unreadCount > 0 && (
+          <span className="bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+            {unreadCount}
+          </span>
+        )}
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto pr-1">
-        {notifications.map((n) => (
-          <div key={n.id} className="bg-white/5 rounded-xl p-3 border border-white/5 animate-slide-up">
-            <div className="flex justify-between items-start mb-1">
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">{n.app}</span>
-              <span className="text-[9px] text-slate-600">{n.time}</span>
+        {displayed.length === 0 ? (
+          <div className="text-slate-600 text-[11px] text-center py-4">Yeni bildirim yok</div>
+        ) : (
+          displayed.map((n) => (
+            <div key={n.id} className="bg-white/5 rounded-xl p-3 border border-white/5 animate-slide-up">
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+                  {n.appIcon} {n.appName}
+                </span>
+                <span className="text-[9px] text-slate-400">{timeLabel(n.time)}</span>
+              </div>
+              <div className="text-[11px] font-bold text-white truncate">{n.sender}</div>
+              <div className="text-[11px] text-slate-400 truncate leading-tight mt-0.5">{n.text}</div>
             </div>
-            <div className="text-[11px] font-bold text-white truncate">{n.sender}</div>
-            <div className="text-[11px] text-slate-400 truncate leading-tight mt-0.5">{n.text}</div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
 });
 
-/* ── Saat + Tarih ────────────────────────────────────────── */
+/* ── Saat + Tarih — Larger for Driving ───────────────────── */
 const Clock = memo(function Clock({ use24Hour, showSeconds }: { use24Hour: boolean; showSeconds: boolean }) {
   const now = useClock();
   const rawH = now.getHours();
@@ -158,29 +177,29 @@ const Clock = memo(function Clock({ use24Hour, showSeconds }: { use24Hour: boole
 
   return (
     <div className="select-none">
-      <div className="flex items-end gap-2 leading-none">
+      <div className="flex items-end gap-3 leading-none">
         <span
-          className="text-[64px] font-thin tracking-tighter text-white tabular-nums"
-          style={{ textShadow: '0 0 80px rgba(59,130,246,0.35), 0 0 20px rgba(59,130,246,0.15)' }}
+          className="text-[72px] font-black tracking-tighter text-white tabular-nums"
+          style={{ textShadow: '0 0 60px rgba(59,130,246,0.4)' }}
         >
           {h}:{m}
         </span>
         {showSeconds && (
-          <span className="text-[32px] font-thin text-slate-600 tabular-nums mb-2.5">{s}</span>
+          <span className="text-[36px] font-bold text-slate-400 tabular-nums mb-3.5">{s}</span>
         )}
         {ampm && (
-          <span className="text-[20px] font-light text-slate-500 mb-3.5">{ampm}</span>
+          <span className="text-[24px] font-black text-slate-400 mb-4.5">{ampm}</span>
         )}
       </div>
-      <div className="flex items-baseline gap-2 mt-1.5">
-        <span className="text-slate-200 text-base font-medium">{dayStr},</span>
-        <span className="text-slate-500 text-sm font-light">{day} {month} {year}</span>
+      <div className="flex items-baseline gap-3 mt-2">
+        <span className="text-white text-xl font-black">{dayStr},</span>
+        <span className="text-slate-400 text-lg font-bold">{day} {month} {year}</span>
       </div>
     </div>
   );
 });
 
-/* ── Cihaz Durumu ────────────────────────────────────────── */
+/* ── Cihaz Durumu — High Contrast ────────────────────────── */
 const StatusChip = memo(function StatusChip({
   icon: Icon,
   label,
@@ -197,15 +216,15 @@ const StatusChip = memo(function StatusChip({
   bgClass: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-1.5 min-w-0">
-      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${active ? bgClass : 'bg-white/5'}`}>
-        <Icon className={`w-4 h-4 ${active ? colorClass : 'text-slate-600'}`} />
+    <div className="flex flex-col items-center gap-2 min-w-0">
+      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 border-2 ${active ? `${bgClass} border-white/20` : 'bg-white/10 border-white/5'}`}>
+        <Icon className={`w-5 h-5 ${active ? colorClass : 'text-slate-500'}`} />
       </div>
       <div className="min-w-0 w-full text-center">
-        <div className={`text-[11px] font-medium leading-tight truncate ${active ? 'text-slate-200' : 'text-slate-600'}`}>
+        <div className={`text-[13px] font-black leading-tight truncate ${active ? 'text-white' : 'text-slate-500'}`}>
           {value}
         </div>
-        <div className="text-slate-600 text-[10px] leading-tight mt-0.5">{label}</div>
+        <div className="text-slate-500 text-[11px] font-black uppercase tracking-wider mt-1">{label}</div>
       </div>
     </div>
   );
@@ -216,13 +235,13 @@ const DeviceStatus = memo(function DeviceStatus() {
 
   if (!s.ready) {
     return (
-      <div className="mt-3 pt-3 border-t border-white/5 grid grid-cols-3 gap-2">
+      <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-3 gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="flex flex-col items-center gap-1.5">
-            <div className="w-8 h-8 rounded-xl bg-white/5 animate-pulse" />
-            <div className="flex flex-col items-center gap-1 w-full">
-              <div className="h-2.5 w-10 rounded-sm bg-white/5 animate-pulse" />
-              <div className="h-2 w-7 rounded-sm bg-white/5 animate-pulse" />
+          <div key={i} className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-white/[0.07] border border-white/10 animate-pulse" />
+            <div className="flex flex-col items-center gap-1.5 w-full">
+              <div className="h-1.5 w-10 rounded-full bg-white/[0.07] animate-pulse" />
+              <div className="h-1 w-6 rounded-full bg-white/[0.05] animate-pulse" />
             </div>
           </div>
         ))}
@@ -285,23 +304,46 @@ const FavApps = memo(function FavApps({
   columns?: number;
 }) {
   const favApps = ids.map((id) => APP_MAP[id]).filter(Boolean) as AppItem[];
+  const maxApps = columns * 3;
   const COL_CLASS: Record<number, string> = { 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5' };
+  const displayApps = favApps.slice(0, maxApps);
+
+  /* Hiç favori yoksa yönlendirici empty state */
+  if (displayApps.length === 0) {
+    return (
+      <div className="h-full bg-[#0d1628]/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/[0.08] p-4 flex flex-col items-center justify-center gap-3">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+          <Star className="w-6 h-6 text-amber-400/70" />
+        </div>
+        <div className="text-center">
+          <div className="text-slate-300 text-[12px] font-bold uppercase tracking-widest">Henüz favori yok</div>
+          <div className="text-slate-500 text-[10px] mt-1 leading-tight">Uygulamalar'da ★ ile favorilere ekle</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="h-full bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-4 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <span className="text-slate-500 text-xs tracking-widest uppercase">Favoriler</span>
-        <span className="text-slate-700 text-xs tabular-nums">{favApps.length}</span>
+    <div className="h-full bg-[#0d1628]/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/5 p-4 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between mb-3.5 flex-shrink-0 px-1">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+          <span className="text-slate-200 text-[11px] font-black tracking-[0.15em] uppercase">Favoriler</span>
+        </div>
+        <span className="text-slate-500 text-[10px] font-bold tabular-nums">
+          {displayApps.length}/{maxApps}
+        </span>
       </div>
       <div className={`grid ${COL_CLASS[columns] ?? 'grid-cols-3'} gap-2.5 flex-1`}>
-        {favApps.slice(0, columns * 3).map((app) => (
+        {displayApps.map((app) => (
           <button
             key={app.id}
             onClick={() => onLaunch(app.id)}
-            className="flex flex-col items-center justify-center gap-2 py-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 active:scale-95 transition-transform overflow-hidden"
+            className="group relative flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.04] hover:bg-white/[0.08] hover:border-white/10 active:scale-90 transition-all duration-300 overflow-hidden shadow-lg"
           >
-            <span className="text-3xl leading-none">{app.icon}</span>
-            <span className="text-slate-300 text-xs font-medium truncate w-full text-center px-1 leading-tight">{app.name}</span>
+            <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            <span className="text-3xl leading-none z-10 filter drop-shadow-md transform group-hover:scale-110 transition-transform duration-300">{app.icon}</span>
+            <span className="text-slate-300 text-[10px] font-bold truncate w-full text-center px-1.5 leading-tight z-10 tracking-tight group-hover:text-white transition-colors">{app.name}</span>
           </button>
         ))}
       </div>
@@ -387,7 +429,7 @@ const PhonePanel = memo(function PhonePanel() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="bg-transparent border-none outline-none text-white text-sm w-full font-medium placeholder:text-slate-600"
+            className="bg-transparent border-none outline-none text-white text-sm w-full font-medium placeholder:text-slate-400"
             placeholder="Kişi veya numara ara…"
           />
         </div>
@@ -396,10 +438,10 @@ const PhonePanel = memo(function PhonePanel() {
       {/* Kişi listesi */}
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
         {state.loading && (
-          <div className="text-slate-600 text-xs text-center py-4">Yükleniyor…</div>
+          <div className="text-slate-400 text-xs text-center py-4">Yükleniyor…</div>
         )}
         {!state.loading && shown.length === 0 && (
-          <div className="text-slate-700 text-xs text-center py-4">Kişi bulunamadı</div>
+          <div className="text-slate-500 text-xs text-center py-4">Kişi bulunamadı</div>
         )}
         {shown.map((c) => {
           const phone = c.phones[0];
@@ -426,13 +468,16 @@ const PhonePanel = memo(function PhonePanel() {
                   {c.lastCalled ? ` · ${timeSince(c.lastCalled)}` : ''}
                 </div>
               </div>
-              <button
-                onClick={() => phone && handleCall(c.id, phone.number)}
-                disabled={!phone}
-                className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 disabled:opacity-30 active:scale-90 transition-all flex-shrink-0"
-              >
-                <Phone className="w-4 h-4 fill-current" />
-              </button>
+              {phone ? (
+                <button
+                  onClick={() => handleCall(c.id, phone.number)}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 active:scale-90 hover:bg-emerald-500/20"
+                >
+                  <Phone className="w-4 h-4 fill-current" />
+                </button>
+              ) : (
+                <div className="w-9 h-9 flex-shrink-0" />
+              )}
             </div>
           );
         })}
@@ -485,21 +530,7 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
     return cleanup;
   }, []);
 
-  /* ── Edit mode toggle — saat alanına uzun bas ────── */
-  const editTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleClockPointerDown = useCallback(() => {
-    editTimerRef.current = setTimeout(() => {
-      editTimerRef.current = null;
-      updateSettings({ editMode: true });
-    }, 800);
-  }, [updateSettings]);
-
-  const handleClockPointerUp = useCallback(() => {
-    if (editTimerRef.current) { clearTimeout(editTimerRef.current); editTimerRef.current = null; }
-  }, []);
-
-  /* ── Drag & Drop sıralama ─────────────────────────── */
+  /* ── Drag & Drop sıralama (her zaman aktif, kilit kapalıysa) ── */
   const handleReorder = useCallback((next: string[]) => {
     updateSettings({ widgetOrder: next });
   }, [updateSettings]);
@@ -508,10 +539,6 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
     settings.widgetOrder,
     handleReorder,
   );
-
-  const exitEditMode = useCallback(() => {
-    updateSettings({ editMode: false });
-  }, [updateSettings]);
 
   /* ── Sağ panel alt satır widget render ────────────── */
   const WIDGET_LABELS: Record<string, string> = {
@@ -538,35 +565,22 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
     return null;
   }, [defaultMusic, settings.parkingLocation]);
 
-  const editMode = settings.editMode;
-
   return (
     <>
       <div className="h-full overflow-hidden flex flex-col gap-3 p-4">
         <div className="flex gap-3 flex-1 min-h-0">
           {/* Sol panel */}
           <div className="w-[38%] min-w-0 flex flex-col gap-3">
-            <div
-              className="bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex-shrink-0 animate-slide-up select-none touch-none"
-              onPointerDown={handleClockPointerDown}
-              onPointerUp={handleClockPointerUp}
-              onPointerCancel={handleClockPointerUp}
-              title="Widget düzenlemek için 1 sn basılı tut"
-            >
+            <div className="bg-[#0d1628] rounded-2xl shadow-xl border border-white/5 p-5 flex-shrink-0 animate-slide-up select-none">
               <Clock use24Hour={use24Hour} showSeconds={showSeconds} />
               <DeviceStatus />
             </div>
-
-            {(settings.themePack === 'bmw' || settings.themePack === 'mercedes' || settings.themePack === 'big-cards') && (
-              <div className="flex-shrink-0 animate-slide-up" style={{ animationDelay: '40ms' }}>
-                <TPMSWidget />
-              </div>
-            )}
-
+            <div className="flex-shrink-0 animate-slide-up" style={{ animationDelay: '40ms' }}>
+              <TPMSWidget />
+            </div>
             <div className="flex-shrink-0 animate-slide-up" style={{ animationDelay: '50ms' }}>
               <VehicleReminderWidget onOpen={() => setReminderOpen(true)} />
             </div>
-
             <div className="flex-1 min-h-0 animate-slide-up" style={{ animationDelay: '60ms' }}>
               <FavApps ids={favorites} onLaunch={onLaunch} columns={3} />
             </div>
@@ -574,80 +588,69 @@ function HomeScreen({ favorites, recentApps, onLaunch, use24Hour, showSeconds, d
 
           {/* Sağ panel */}
           <div className="flex-1 min-w-0 flex flex-col gap-3">
-            <div className="flex-[1.2] min-h-0 animate-slide-up" style={{ animationDelay: '30ms' }}>
+            <div className="flex-[1.2] min-h-0 animate-slide-up rounded-2xl overflow-hidden" style={{ animationDelay: '30ms' }}>
               <MiniMapWidget onFullScreenClick={() => setFullMapOpen(true)} />
             </div>
 
-            {/* ── Alt satır: normal veya düzenleme modu ── */}
-            {editMode ? (
-              /* Düzenleme modu — dikey sürükle-bırak listesi */
-              <div className="flex-1 min-h-0 flex flex-col gap-2">
-                {/* Başlık */}
-                <div className="flex items-center justify-between px-1 flex-shrink-0">
-                  <span className="text-slate-500 text-[10px] uppercase tracking-widest">
-                    Widget Sırala
+            {/* ── Alt satır: sürükle-bırak sıralama ── */}
+            <div className="flex-1 min-h-0 flex flex-col gap-2">
+                <div className="flex items-center gap-2 px-1 flex-shrink-0">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500/50" />
+                  <span className="text-slate-600 text-[9px] font-bold uppercase tracking-widest">
+                    Basılı tut &amp; sürükle — sırala
                   </span>
-                  <button
-                    onClick={exitEditMode}
-                    className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold px-3 py-1.5 rounded-xl active:scale-95 transition-transform"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    Bitti
-                  </button>
                 </div>
 
-                {/* Sürüklenebilir widget kartları */}
                 {settings.widgetOrder.map((key, i) => {
-                  const isDragging  = dragIndex === i;
+                  const isDragging   = dragIndex === i;
                   const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
+                  const colorStyle = {};
 
                   return (
                     <div
                       key={key}
                       ref={(el) => { itemRefs.current[i] = el; }}
                       className={`
-                        flex-1 min-h-0 relative rounded-2xl border transition-all duration-150 touch-none select-none
+                        flex-1 min-h-0 relative rounded-2xl border transition-all duration-300 touch-none select-none overflow-hidden
                         ${isDragging
-                          ? 'scale-[1.02] shadow-2xl border-blue-400/40 z-10'
+                          ? 'scale-[1.02] shadow-[0_0_32px_rgba(59,130,246,0.4)] border-blue-400 bg-blue-500/10 z-10'
                           : isDropTarget
-                          ? 'border-blue-400/30 bg-blue-500/5'
-                          : 'border-transparent'
+                          ? 'border-blue-400/60 bg-blue-500/15 scale-[0.98]'
+                          : 'border-white/[0.12] bg-[#0c1929]/90 shadow-md shadow-black/30'
                         }
                       `}
+                      style={isDragging || isDropTarget ? {} : colorStyle}
                       {...getHandlers(i)}
                     >
-                      {/* Drag tutacağı */}
-                      <div className="absolute top-2 right-2 z-20 w-8 h-8 flex items-center justify-center rounded-xl bg-black/50 border border-white/10 text-slate-400 pointer-events-none">
+                      {isDragging && (
+                        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent pointer-events-none" />
+                      )}
+
+                      <div className={`
+                        absolute top-2 right-2 z-20 w-9 h-9 flex items-center justify-center rounded-xl transition-all
+                        ${isDragging ? 'bg-blue-500 text-white shadow-[0_0_14px_rgba(59,130,246,0.6)]' : 'bg-[#1a3050] text-blue-300 border-blue-800/60'}
+                        border backdrop-blur-md shadow-lg
+                      `}>
                         <GripVertical className="w-4 h-4" />
                       </div>
 
-                      {/* Widget adı etiketi */}
-                      <div className="absolute top-2 left-3 z-20 text-[10px] font-black text-slate-400 uppercase tracking-widest pointer-events-none">
-                        {WIDGET_LABELS[key] ?? key}
+                      <div className="absolute top-3 left-4 z-20 flex items-center gap-2 pointer-events-none">
+                        <div className={`w-1.5 h-1.5 rounded-full ${isDragging ? 'bg-blue-400' : 'bg-blue-400/50'}`} />
+                        <span className={`text-[11px] font-black uppercase tracking-[0.15em] ${isDragging ? 'text-white' : 'text-slate-300'}`}>
+                          {WIDGET_LABELS[key] ?? key}
+                        </span>
+                        {!isDragging && (
+                          <span className="text-[8px] text-slate-600 font-medium normal-case">#{i + 1}</span>
+                        )}
                       </div>
 
-                      {/* Widget içeriği (dim görünüm) */}
-                      <div className={`h-full transition-opacity ${isDragging ? 'opacity-70' : 'opacity-100'}`}>
+                      <div className={`h-full transition-all duration-300 ${isDragging ? 'opacity-40 blur-[2px] scale-95' : 'opacity-100'}`}>
                         {renderWidget(key)}
                       </div>
                     </div>
                   );
                 })}
-              </div>
-            ) : (
-              /* Normal mod — widgetOrder'a göre yan yana */
-              <div className="flex-1 min-h-0 flex gap-3">
-                {settings.widgetOrder.slice(0, 2).map((key, i) => (
-                  <div
-                    key={key}
-                    className={`min-h-0 animate-slide-up ${i === 0 ? 'flex-[1.5]' : 'flex-1'}`}
-                    style={{ animationDelay: `${90 + i * 30}ms` }}
-                  >
-                    {renderWidget(key)}
-                  </div>
-                ))}
-              </div>
-            )}
+            </div>
           </div>
         </div>
 

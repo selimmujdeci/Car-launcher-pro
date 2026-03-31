@@ -1,144 +1,1121 @@
-/* ════════════════════════════════════════════════════════════════ */
-/* FULL UI TRANSFORMATION SYSTEM — 20 Unique Visual Languages      */
-/* ════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════
+   THEME ENGINE — 23 Unique Worlds
+   Her tema: renk + layout boyutu + atmosfer + tipografi + hareket
+   ════════════════════════════════════════════════════════════════ */
 
+/* ── DEFAULT SYSTEM VARIABLES ── */
 :root {
-  /* Default System Constants */
-  --pack-accent: #3b82f6;
-  --pack-glow: rgba(59, 130, 246, 0.4);
-  --pack-bg: linear-gradient(180deg, #0f172a 0%, #020617 100%);
-  --pack-radius: 1.5rem;
-  --pack-spacing: 1.25rem;
-  --pack-border: 1px;
-  --pack-blur: 12px;
-  --pack-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  /* Color */
+  --pack-accent:    #3b82f6;
+  --pack-glow:      rgba(59,130,246,0.4);
+  --pack-bg:        linear-gradient(180deg,#0f172a 0%,#020617 100%);
+  --pack-radius:    1.5rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      12px;
+  --pack-shadow:    0 10px 40px rgba(0,0,0,0.4);
+  --pack-card-bg:   rgba(18,24,42,0.88);
+
+  /* Speedometer panel */
+  --speedo-w:           18rem;
+  --speedo-font:        6rem;
+  --speedo-color:       #ffffff;
+  --speedo-glow:        rgba(255,255,255,0.15);
+  --speedo-unit-font:   0.7rem;
+  --speedo-tracking:    0.5em;
+  --speedo-bg:          #02040a;
+  --speedo-border:      rgba(255,255,255,0.2);
+  --speedo-border-w:    2px;
+  --speedo-data-size:   1.5rem;
+  --speedo-shadow:      0 20px 60px rgba(0,0,0,0.8);
+
+  /* Header zone */
+  --header-h:       60px;
+  --header-bg:      rgba(0,0,0,0.2);
+  --header-border:  none;
+  --header-blur:    0px;
+
+  /* Dock zone */
+  --dock-h:         96px;
+  --dock-bg:        rgba(0,0,0,0.8);
+  --dock-border:    rgba(255,255,255,0.2);
+  --dock-radius:    3.2rem;
+  --dock-card-w:    120px;
+  --dock-card-h:    64px;
+  --dock-blur:      16px;
+
+  /* Map container */
+  --map-radius:     2.5rem;
+  --map-border:     rgba(255,255,255,0.2);
+  --map-border-w:   2px;
+  --map-shadow:     0 20px 60px rgba(0,0,0,0.8);
+
+  /* Motion */
+  --motion-dur:     0.3s;
+  --motion-ease:    cubic-bezier(0.23,1,0.32,1);
+
+  /* ── Layout Engine (flex/order per theme) ── */
+  --l-speedo-order:   0;     /* CSS order — speedometer */
+  --l-content-order:  1;     /* CSS order — main content */
+  --l-map-order:      2;     /* CSS order — map container */
+  --l-map-flex-basis: 42%;   /* map width (flex-basis) */
+  --l-map-min-w:      12rem; /* map minimum width */
+  --l-map-grow:       1;     /* map flex-grow */
 }
 
-/* 1. Tesla X Night — Ultra Minimalist, Sharp */
+/* ════════════════════════════════════════════════════════════════
+   1. TESLA — Harita Merkezi, Saf Minimal
+   Geniş map, ince speedo, sıfır gürültü, düz çizgiler
+   ════════════════════════════════════════════════════════════════ */
 [data-theme-pack="tesla"] {
-  --pack-accent: #ffffff;
-  --pack-glow: rgba(255, 255, 255, 0.1);
-  --pack-bg: #050505;
-  --pack-radius: 0.5rem;
-  --pack-spacing: 1rem;
-  --pack-border: 1px;
-  --pack-blur: 20px;
-  --pack-shadow: none;
+  --pack-accent:    #e8e8e8;
+  --pack-glow:      rgba(255,255,255,0.06);
+  --pack-bg:        #050505;
+  --pack-radius:    0.375rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    none;
+  --pack-card-bg:   rgba(12,12,12,0.96);
+
+  --speedo-w:         13rem;
+  --speedo-font:      5rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      rgba(255,255,255,0.04);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.65em;
+  --speedo-bg:        #000000;
+  --speedo-border:    rgba(255,255,255,0.08);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.25rem;
+  --speedo-shadow:    none;
+
+  --header-h:       50px;
+  --header-bg:      rgba(0,0,0,0.85);
+  --header-border:  none;
+
+  --dock-h:         84px;
+  --dock-bg:        rgba(0,0,0,0.92);
+  --dock-border:    rgba(255,255,255,0.1);
+  --dock-radius:    0.5rem;
+  --dock-card-w:    108px;
+  --dock-card-h:    58px;
+
+  --map-radius:     0.375rem;
+  --map-border:     rgba(255,255,255,0.08);
+  --map-border-w:   1px;
+  --map-shadow:     none;
+
+  --motion-dur: 0.2s;
+
+  /* Layout: map-first — harita dominant */
+  --l-map-flex-basis: 45%;
+  --l-map-min-w:      14rem;
+  --l-map-grow:       1;
 }
 
-/* 2. BMW M Sport — Aggressive, Angular */
+/* ════════════════════════════════════════════════════════════════
+   2. BMW M SPORT — Hız Egemen, Keskin Köşeler
+   Geniş speedo, mavi/beyaz agresif cockpit, sıfır köşe
+   ════════════════════════════════════════════════════════════════ */
 [data-theme-pack="bmw"] {
-  --pack-accent: #1d4ed8;
-  --pack-glow: rgba(29, 78, 216, 0.5);
-  --pack-bg: linear-gradient(135deg, #020617 0%, #1e1b4b 100%);
-  --pack-radius: 0rem;
-  --pack-spacing: 1.5rem;
-  --pack-border: 2px;
-  --pack-blur: 5px;
-  --pack-shadow: 10px 10px 0px rgba(29, 78, 216, 0.2);
+  --pack-accent:    #1d4ed8;
+  --pack-glow:      rgba(29,78,216,0.6);
+  --pack-bg:        linear-gradient(135deg,#010410 0%,#0a1240 100%);
+  --pack-radius:    0rem;
+  --pack-spacing:   1rem;
+  --pack-border:    2px;
+  --pack-blur:      0px;
+  --pack-shadow:    3px 3px 0px rgba(29,78,216,0.3);
+  --pack-card-bg:   rgba(2,6,24,0.98);
+
+  --speedo-w:         22rem;
+  --speedo-font:      7.5rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      rgba(29,78,216,0.5);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.4em;
+  --speedo-bg:        #000d2e;
+  --speedo-border:    rgba(29,78,216,0.7);
+  --speedo-border-w:  2px;
+  --speedo-data-size: 1.75rem;
+  --speedo-shadow:    0 0 40px rgba(29,78,216,0.2), 0 20px 60px rgba(0,0,0,0.9);
+
+  --header-h:       66px;
+  --header-bg:      rgba(0,4,20,0.95);
+  --header-border:  2px solid rgba(29,78,216,0.3);
+
+  --dock-h:         102px;
+  --dock-bg:        rgba(1,4,18,0.97);
+  --dock-border:    rgba(29,78,216,0.4);
+  --dock-radius:    0rem;
+  --dock-card-w:    130px;
+  --dock-card-h:    70px;
+
+  --map-radius:     0rem;
+  --map-border:     rgba(29,78,216,0.4);
+  --map-border-w:   2px;
+
+  --motion-dur: 0.15s;
+
+  /* Layout: cockpit — speedo dominant, map küçük */
+  --l-map-flex-basis: 26%;
+  --l-map-min-w:      9rem;
 }
 
-/* 3. Mercedes Luxury — Organic, Rounded, Soft */
+/* ════════════════════════════════════════════════════════════════
+   3. MERCEDES — Lüks Denge, Sıcak Altın
+   Premium yuvarlaklık, altın aksanlar, zengin cam efekti
+   ════════════════════════════════════════════════════════════════ */
 [data-theme-pack="mercedes"] {
-  --pack-accent: #d4af37;
-  --pack-glow: rgba(212, 175, 55, 0.3);
-  --pack-bg: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
-  --pack-radius: 3rem;
-  --pack-spacing: 2rem;
-  --pack-border: 1px;
-  --pack-blur: 30px;
-  --pack-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  --pack-accent:    #d4af37;
+  --pack-glow:      rgba(212,175,55,0.35);
+  --pack-bg:        radial-gradient(ellipse at 30% 0%,#1c1408 0%,#090907 60%,#000 100%);
+  --pack-radius:    2.5rem;
+  --pack-spacing:   1.125rem;
+  --pack-border:    1px;
+  --pack-blur:      16px;
+  --pack-shadow:    0 16px 48px rgba(0,0,0,0.8);
+  --pack-card-bg:   rgba(10,8,3,0.92);
+
+  --speedo-w:         18rem;
+  --speedo-font:      6rem;
+  --speedo-color:     #f5f0e8;
+  --speedo-glow:      rgba(212,175,55,0.25);
+  --speedo-unit-font: 0.7rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(8,5,2,0.96);
+  --speedo-border:    rgba(212,175,55,0.3);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.5rem;
+  --speedo-shadow:    0 0 0 1px rgba(212,175,55,0.1), 0 20px 60px rgba(0,0,0,0.9);
+
+  --header-h:       62px;
+  --header-bg:      rgba(4,3,1,0.9);
+  --header-border:  1px solid rgba(212,175,55,0.15);
+
+  --dock-h:         100px;
+  --dock-bg:        rgba(4,3,1,0.93);
+  --dock-border:    rgba(212,175,55,0.2);
+  --dock-radius:    2.5rem;
+  --dock-card-w:    124px;
+
+  --map-radius:     2.5rem;
+  --map-border:     rgba(212,175,55,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.4s;
 }
 
-/* 7. Cyberpunk Neon — Glitchy, Electric */
+/* ════════════════════════════════════════════════════════════════
+   4. AUDI — Teknik Hassasiyet, Net Grid
+   Düz çizgiler, yüksek kontrast, modüler yapı, soğuk ton
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="audi"] {
+  --pack-accent:    #c0392b;
+  --pack-glow:      rgba(192,57,43,0.5);
+  --pack-bg:        #030608;
+  --pack-radius:    0.25rem;
+  --pack-spacing:   1rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    0 4px 20px rgba(0,0,0,0.7);
+  --pack-card-bg:   rgba(5,8,12,0.99);
+
+  --speedo-w:         20rem;
+  --speedo-font:      6.5rem;
+  --speedo-color:     #f0f0f0;
+  --speedo-glow:      rgba(200,200,200,0.08);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.35em;
+  --speedo-bg:        #020508;
+  --speedo-border:    rgba(255,255,255,0.18);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.625rem;
+  --speedo-shadow:    0 4px 24px rgba(0,0,0,0.9);
+
+  --header-h:       60px;
+  --header-bg:      rgba(2,4,8,0.98);
+  --header-border:  1px solid rgba(255,255,255,0.08);
+
+  --dock-h:         92px;
+  --dock-bg:        rgba(2,4,8,0.99);
+  --dock-border:    rgba(255,255,255,0.12);
+  --dock-radius:    0.25rem;
+  --dock-card-w:    118px;
+
+  --map-radius:     0.25rem;
+  --map-border:     rgba(255,255,255,0.12);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.18s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   5. PORSCHE — Performans + Premium
+   Speedo ekrana hükümdar, büyük hız rakamı, dramatik odak
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="porsche"] {
+  --pack-accent:    #d4a227;
+  --pack-glow:      rgba(212,162,39,0.5);
+  --pack-bg:        #050505;
+  --pack-radius:    0.5rem;
+  --pack-spacing:   1rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    0 8px 30px rgba(0,0,0,0.9);
+  --pack-card-bg:   rgba(5,5,5,0.98);
+
+  --speedo-w:         24rem;
+  --speedo-font:      8rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      rgba(212,162,39,0.3);
+  --speedo-unit-font: 0.7rem;
+  --speedo-tracking:  0.4em;
+  --speedo-bg:        #060606;
+  --speedo-border:    rgba(212,162,39,0.25);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.875rem;
+  --speedo-shadow:    0 0 60px rgba(212,162,39,0.08), 0 20px 60px rgba(0,0,0,0.95);
+
+  --header-h:       56px;
+  --header-bg:      rgba(3,3,3,0.96);
+
+  --dock-h:         86px;
+  --dock-bg:        rgba(3,3,3,0.97);
+  --dock-border:    rgba(212,162,39,0.2);
+  --dock-radius:    0.5rem;
+  --dock-card-w:    112px;
+
+  --map-radius:     0.5rem;
+  --map-border:     rgba(212,162,39,0.15);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.22s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   6. CYBERPUNK / NEON — Gece Sürüşü, Elektrik
+   Neon kenarlar, siber renk dili, keskin ama okunabilir
+   ════════════════════════════════════════════════════════════════ */
 [data-theme-pack="cyberpunk"] {
-  --pack-accent: #d946ef;
-  --pack-glow: rgba(217, 70, 239, 0.8);
-  --pack-bg: #020617;
-  --pack-radius: 0.25rem;
-  --pack-spacing: 1.25rem;
-  --pack-border: 3px;
-  --pack-blur: 0px;
-  --pack-shadow: 0 0 20px rgba(217, 70, 239, 0.4), 4px 4px 0px #06b6d4;
+  --pack-accent:    #d946ef;
+  --pack-glow:      rgba(217,70,239,0.7);
+  --pack-bg:        #020617;
+  --pack-radius:    0.25rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    2px;
+  --pack-blur:      0px;
+  --pack-shadow:    0 0 20px rgba(217,70,239,0.3), 4px 4px 0px #06b6d4;
+  --pack-card-bg:   rgba(5,10,30,0.96);
+
+  --speedo-w:         16rem;
+  --speedo-font:      6rem;
+  --speedo-color:     #f0f0ff;
+  --speedo-glow:      rgba(217,70,239,0.5);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.45em;
+  --speedo-bg:        rgba(5,2,20,0.98);
+  --speedo-border:    rgba(217,70,239,0.8);
+  --speedo-border-w:  2px;
+  --speedo-data-size: 1.5rem;
+  --speedo-shadow:    0 0 20px rgba(217,70,239,0.4), inset 0 0 20px rgba(6,182,212,0.04), 4px 4px 0 rgba(6,182,212,0.3);
+
+  --header-h:       60px;
+  --header-bg:      rgba(2,4,20,0.96);
+  --header-border:  2px solid rgba(217,70,239,0.3);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(2,4,20,0.97);
+  --dock-border:    rgba(217,70,239,0.5);
+  --dock-radius:    0.25rem;
+
+  --map-radius:     0.25rem;
+  --map-border:     rgba(6,182,212,0.5);
+  --map-border-w:   2px;
+
+  --motion-dur: 0.12s;
 }
 
-/* 9. Glass Pro — Pure Frosted Glass */
+/* ════════════════════════════════════════════════════════════════
+   7. MIDNIGHT / GECE — Göz Dinlendirici, Hafif
+   Düşük parlaklık, sakin renkler, gece sürüşü için optimize
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="midnight"] {
+  --pack-accent:    #6366f1;
+  --pack-glow:      rgba(99,102,241,0.2);
+  --pack-bg:        #010105;
+  --pack-radius:    1.25rem;
+  --pack-spacing:   1.125rem;
+  --pack-border:    1px;
+  --pack-blur:      8px;
+  --pack-shadow:    0 8px 32px rgba(0,0,0,0.7);
+  --pack-card-bg:   rgba(8,8,16,0.96);
+
+  --speedo-w:         14rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #c0c8e0;
+  --speedo-glow:      rgba(99,102,241,0.12);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        #04040c;
+  --speedo-border:    rgba(99,102,241,0.2);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.25rem;
+  --speedo-shadow:    0 8px 32px rgba(0,0,0,0.8);
+
+  --header-h:       54px;
+  --header-bg:      rgba(2,2,10,0.95);
+
+  --dock-h:         86px;
+  --dock-bg:        rgba(2,2,10,0.96);
+  --dock-border:    rgba(99,102,241,0.15);
+  --dock-radius:    1.5rem;
+  --dock-card-w:    110px;
+
+  --map-radius:     1.5rem;
+  --map-border:     rgba(99,102,241,0.15);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.45s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   8. GLASS PRO / CAM PRO — Premium Buzlu Cam
+   Güçlü blur efekti, okunabilir şeffaflık, parlak kenarlık
+   ════════════════════════════════════════════════════════════════ */
 [data-theme-pack="glass-pro"] {
-  --pack-accent: #60a5fa;
-  --pack-glow: rgba(255,255,255,0.1);
-  --pack-bg: transparent;
-  --pack-radius: 2rem;
-  --pack-spacing: 1.5rem;
-  --pack-border: 1px;
-  --pack-blur: 40px;
-  --pack-shadow: inset 0 0 20px rgba(255,255,255,0.05);
+  --pack-accent:    #60a5fa;
+  --pack-glow:      rgba(255,255,255,0.14);
+  --pack-bg:        rgba(5,10,25,0.75);
+  --pack-radius:    2rem;
+  --pack-spacing:   1.375rem;
+  --pack-border:    1px;
+  --pack-blur:      40px;
+  --pack-shadow:    inset 0 0 20px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.5);
+  --pack-card-bg:   rgba(255,255,255,0.06);
+
+  --speedo-w:         18rem;
+  --speedo-font:      6rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      rgba(255,255,255,0.2);
+  --speedo-unit-font: 0.7rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(255,255,255,0.04);
+  --speedo-border:    rgba(255,255,255,0.18);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.5rem;
+  --speedo-shadow:    inset 0 0 40px rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.7);
+
+  --header-h:       60px;
+  --header-bg:      rgba(255,255,255,0.04);
+  --header-border:  1px solid rgba(255,255,255,0.1);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(255,255,255,0.05);
+  --dock-border:    rgba(255,255,255,0.15);
+  --dock-radius:    2rem;
+
+  --map-radius:     2rem;
+  --map-border:     rgba(255,255,255,0.12);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.4s;
 }
 
-/* 11. Redline — Dynamic, Performance */
-[data-theme-pack="redline"] {
-  --pack-accent: #ef4444;
-  --pack-glow: rgba(239, 68, 68, 0.5);
-  --pack-bg: linear-gradient(135deg, #1a0505 0%, #000 100%);
-  --pack-radius: 0.75rem;
-  --pack-spacing: 1.25rem;
-  --pack-border: 1px;
-  --pack-blur: 10px;
-  --pack-shadow: 0 0 30px rgba(239, 68, 68, 0.2);
+/* ════════════════════════════════════════════════════════════════
+   9. AMBIENT / ORTAM — Medya + Hava, Sakin Atmosfer
+   Harita küçülür, medya ve durum bilgileri öne çıkar
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="ambient"] {
+  --pack-accent:    #34d399;
+  --pack-glow:      rgba(52,211,153,0.25);
+  --pack-bg:        radial-gradient(ellipse at 50% 0%,#0a1a14 0%,#050f0a 100%);
+  --pack-radius:    2rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      20px;
+  --pack-shadow:    0 8px 32px rgba(0,0,0,0.6);
+  --pack-card-bg:   rgba(5,15,10,0.9);
+
+  --speedo-w:         12rem;
+  --speedo-font:      4.5rem;
+  --speedo-color:     #d0ffe8;
+  --speedo-glow:      rgba(52,211,153,0.2);
+  --speedo-unit-font: 0.6rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(4,12,8,0.96);
+  --speedo-border:    rgba(52,211,153,0.2);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.125rem;
+  --speedo-shadow:    0 0 40px rgba(52,211,153,0.08), 0 8px 32px rgba(0,0,0,0.7);
+
+  --header-h:       56px;
+  --header-bg:      rgba(4,10,7,0.9);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(4,10,7,0.93);
+  --dock-border:    rgba(52,211,153,0.15);
+  --dock-radius:    2.5rem;
+
+  --map-radius:     2rem;
+  --map-border:     rgba(52,211,153,0.15);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.5s;
 }
 
-/* 15. Minimal Light — Pristine, High-Key */
-[data-theme-pack="minimal-light"] {
-  --pack-accent: #2563eb;
-  --pack-glow: rgba(0,0,0,0.05);
-  --pack-bg: #f8fafc;
-  --pack-radius: 1.25rem;
-  --pack-spacing: 1rem;
-  --pack-border: 1px;
-  --pack-blur: 0px;
-  --pack-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-
-/* 20. Galaxy Flow — Ethereal, Fluid */
+/* ════════════════════════════════════════════════════════════════
+   10. GALAXY — Fütüristik, Derin Uzay
+   Mor/violet derinlik, yüzen paneller, uzay atmosferi
+   ════════════════════════════════════════════════════════════════ */
 [data-theme-pack="galaxy"] {
-  --pack-accent: #a855f7;
-  --pack-glow: rgba(168, 85, 247, 0.6);
-  --pack-bg: radial-gradient(circle at top right, #2e1065 0%, #020617 100%);
-  --pack-radius: 2.5rem;
-  --pack-spacing: 1.5rem;
-  --pack-border: 1px;
-  --pack-blur: 20px;
-  --pack-shadow: 0 0 50px rgba(168, 85, 247, 0.2);
+  --pack-accent:    #a855f7;
+  --pack-glow:      rgba(168,85,247,0.5);
+  --pack-bg:        radial-gradient(circle at top right,#1e0a40 0%,#0a0a1e 60%,#020617 100%);
+  --pack-radius:    2.5rem;
+  --pack-spacing:   1.375rem;
+  --pack-border:    1px;
+  --pack-blur:      20px;
+  --pack-shadow:    0 0 50px rgba(168,85,247,0.12), 0 8px 32px rgba(0,0,0,0.7);
+  --pack-card-bg:   rgba(10,4,28,0.88);
+
+  --speedo-w:         16rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #e0d0ff;
+  --speedo-glow:      rgba(168,85,247,0.4);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(10,4,24,0.96);
+  --speedo-border:    rgba(168,85,247,0.3);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.375rem;
+  --speedo-shadow:    0 0 60px rgba(168,85,247,0.18), 0 20px 60px rgba(0,0,0,0.9);
+
+  --header-h:       60px;
+  --header-bg:      rgba(8,4,20,0.88);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(8,4,20,0.9);
+  --dock-border:    rgba(168,85,247,0.25);
+  --dock-radius:    2.5rem;
+
+  --map-radius:     2.5rem;
+  --map-border:     rgba(168,85,247,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.5s;
 }
 
-/* ... existing logic for other 12 themes applied with similar variable logic ... */
+/* ════════════════════════════════════════════════════════════════
+   11. REDLINE — Maksimum Sport, Yarış Ruhu
+   Speedo ekrana hükmeder, devasa hız rakamı, kırmızı egemenlik
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="redline"] {
+  --pack-accent:    #ef4444;
+  --pack-glow:      rgba(239,68,68,0.6);
+  --pack-bg:        linear-gradient(135deg,#1a0505 0%,#030303 100%);
+  --pack-radius:    0.5rem;
+  --pack-spacing:   1rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    0 0 30px rgba(239,68,68,0.12);
+  --pack-card-bg:   rgba(10,2,2,0.98);
 
-/* ── Global UI Transformer ── */
+  --speedo-w:         28rem;
+  --speedo-font:      10rem;
+  --speedo-color:     #ff3333;
+  --speedo-glow:      rgba(255,0,0,0.6);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.3em;
+  --speedo-bg:        #0a0000;
+  --speedo-border:    rgba(239,68,68,0.5);
+  --speedo-border-w:  2px;
+  --speedo-data-size: 2rem;
+  --speedo-shadow:    0 0 60px rgba(255,0,0,0.15), 0 20px 60px rgba(0,0,0,0.95);
+
+  --header-h:       50px;
+  --header-bg:      rgba(8,0,0,0.98);
+  --header-border:  2px solid rgba(239,68,68,0.2);
+
+  --dock-h:         80px;
+  --dock-bg:        rgba(8,0,0,0.98);
+  --dock-border:    rgba(239,68,68,0.4);
+  --dock-radius:    0.5rem;
+  --dock-card-w:    110px;
+  --dock-card-h:    58px;
+
+  --map-radius:     0.5rem;
+  --map-border:     rgba(239,68,68,0.25);
+  --map-border-w:   2px;
+
+  --motion-dur: 0.1s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   12. ELECTRIC — EV Odaklı, Enerji Akışı
+   Yeşil enerji, batarya ve menzil öncelikli, akıllı tasarım
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="electric"] {
+  --pack-accent:    #22c55e;
+  --pack-glow:      rgba(34,197,94,0.4);
+  --pack-bg:        linear-gradient(160deg,#030f06 0%,#020a03 100%);
+  --pack-radius:    1rem;
+  --pack-spacing:   1.125rem;
+  --pack-border:    1px;
+  --pack-blur:      8px;
+  --pack-shadow:    0 8px 24px rgba(0,0,0,0.6);
+  --pack-card-bg:   rgba(4,12,5,0.95);
+
+  --speedo-w:         18rem;
+  --speedo-font:      6rem;
+  --speedo-color:     #ccffdd;
+  --speedo-glow:      rgba(34,197,94,0.35);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(3,10,4,0.98);
+  --speedo-border:    rgba(34,197,94,0.35);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.5rem;
+  --speedo-shadow:    0 0 40px rgba(34,197,94,0.08), 0 20px 60px rgba(0,0,0,0.8);
+
+  --header-h:       60px;
+  --header-bg:      rgba(2,8,3,0.96);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(2,8,3,0.96);
+  --dock-border:    rgba(34,197,94,0.25);
+  --dock-radius:    1rem;
+
+  --map-radius:     1rem;
+  --map-border:     rgba(34,197,94,0.25);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.28s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   13. CARBON / KARBON — Teknik Koyu, Fiber Dokusu
+   Gri/antrasit güç, keskin paneller, teknik his
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="carbon"] {
+  --pack-accent:    #9ca3af;
+  --pack-glow:      rgba(156,163,175,0.25);
+  --pack-bg:        #0a0a0a;
+  --pack-radius:    0.375rem;
+  --pack-spacing:   1rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    0 4px 16px rgba(0,0,0,0.9);
+  --pack-card-bg:   rgba(12,12,12,0.99);
+
+  --speedo-w:         20rem;
+  --speedo-font:      6.5rem;
+  --speedo-color:     #e8e8e8;
+  --speedo-glow:      rgba(200,200,200,0.08);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.4em;
+  --speedo-bg:        #080808;
+  --speedo-border:    rgba(255,255,255,0.1);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.625rem;
+  --speedo-shadow:    0 4px 24px rgba(0,0,0,0.95);
+
+  --header-h:       60px;
+  --header-bg:      rgba(6,6,6,0.99);
+  --header-border:  1px solid rgba(255,255,255,0.06);
+
+  --dock-h:         90px;
+  --dock-bg:        rgba(6,6,6,0.99);
+  --dock-border:    rgba(255,255,255,0.08);
+  --dock-radius:    0.375rem;
+  --dock-card-w:    116px;
+
+  --map-radius:     0.375rem;
+  --map-border:     rgba(255,255,255,0.08);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.18s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   14. NIGHT CITY / ŞEHİR — Kentsel Sürüş
+   Navigasyon + Telefon dominant, kompakt speedo, urban his
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="night-city"] {
+  --pack-accent:    #818cf8;
+  --pack-glow:      rgba(129,140,248,0.4);
+  --pack-bg:        #020408;
+  --pack-radius:    0.75rem;
+  --pack-spacing:   1rem;
+  --pack-border:    1px;
+  --pack-blur:      12px;
+  --pack-shadow:    0 8px 24px rgba(0,0,0,0.8);
+  --pack-card-bg:   rgba(4,6,14,0.96);
+
+  --speedo-w:         14rem;
+  --speedo-font:      5rem;
+  --speedo-color:     #c0c8ff;
+  --speedo-glow:      rgba(129,140,248,0.3);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(3,5,12,0.98);
+  --speedo-border:    rgba(129,140,248,0.3);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.25rem;
+  --speedo-shadow:    0 0 30px rgba(129,140,248,0.1), 0 20px 60px rgba(0,0,0,0.9);
+
+  --header-h:       60px;
+  --header-bg:      rgba(3,4,12,0.96);
+  --header-border:  1px solid rgba(129,140,248,0.1);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(3,4,12,0.96);
+  --dock-border:    rgba(129,140,248,0.25);
+  --dock-radius:    0.75rem;
+
+  --map-radius:     0.75rem;
+  --map-border:     rgba(129,140,248,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.25s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   15. RANGE ROVER — Uzun Yol, Seyahat Odağı
+   Yakıt/menzil önceliği, sıcak toprak tonları, konforlu his
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="range-rover"] {
+  --pack-accent:    #b45309;
+  --pack-glow:      rgba(180,83,9,0.35);
+  --pack-bg:        linear-gradient(160deg,#0d0906 0%,#070504 100%);
+  --pack-radius:    1.5rem;
+  --pack-spacing:   1.125rem;
+  --pack-border:    1px;
+  --pack-blur:      12px;
+  --pack-shadow:    0 12px 40px rgba(0,0,0,0.8);
+  --pack-card-bg:   rgba(10,7,4,0.94);
+
+  --speedo-w:         18rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #f5e8d0;
+  --speedo-glow:      rgba(180,83,9,0.2);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(8,5,3,0.98);
+  --speedo-border:    rgba(180,83,9,0.3);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.375rem;
+  --speedo-shadow:    0 12px 40px rgba(0,0,0,0.9);
+
+  --header-h:       60px;
+  --header-bg:      rgba(7,5,3,0.94);
+  --header-border:  1px solid rgba(180,83,9,0.12);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(7,5,3,0.96);
+  --dock-border:    rgba(180,83,9,0.2);
+  --dock-radius:    1.5rem;
+
+  --map-radius:     1.5rem;
+  --map-border:     rgba(180,83,9,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.4s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   16. MINIMAL DARK / KOYU — Güçlü Sadelik
+   Maksimum boşluk, güçlü tipografi, sıfır dekorasyon
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="minimal-dark"] {
+  --pack-accent:    #f1f5f9;
+  --pack-glow:      rgba(255,255,255,0.04);
+  --pack-bg:        #0a0a0a;
+  --pack-radius:    0.75rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    none;
+  --pack-card-bg:   rgba(16,16,16,0.99);
+
+  --speedo-w:         13rem;
+  --speedo-font:      5rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      none;
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.65em;
+  --speedo-bg:        #0a0a0a;
+  --speedo-border:    rgba(255,255,255,0.07);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.25rem;
+  --speedo-shadow:    none;
+
+  --header-h:       50px;
+  --header-bg:      rgba(10,10,10,0.99);
+  --header-border:  1px solid rgba(255,255,255,0.05);
+
+  --dock-h:         82px;
+  --dock-bg:        rgba(10,10,10,0.99);
+  --dock-border:    rgba(255,255,255,0.05);
+  --dock-radius:    0.75rem;
+  --dock-card-w:    108px;
+  --dock-card-h:    56px;
+
+  --map-radius:     0.75rem;
+  --map-border:     rgba(255,255,255,0.07);
+  --map-border-w:   1px;
+  --map-shadow:     none;
+
+  --motion-dur: 0.22s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   17. MINIMAL LIGHT / AÇIK — Temiz Açık Dünya
+   Light tema, kontrollü açıklık, premium beyaz
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="minimal-light"] {
+  --pack-accent:    #1d4ed8;
+  --pack-glow:      rgba(29,78,216,0.12);
+  --pack-bg:        #f0f4f8;
+  --pack-radius:    0.75rem;
+  --pack-spacing:   1.125rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    0 2px 8px rgba(0,0,0,0.06);
+  --pack-card-bg:   rgba(255,255,255,0.96);
+
+  --speedo-w:         14rem;
+  --speedo-font:      5rem;
+  --speedo-color:     #1e293b;
+  --speedo-glow:      rgba(29,78,216,0.08);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        #ffffff;
+  --speedo-border:    rgba(0,0,0,0.1);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.25rem;
+  --speedo-shadow:    0 4px 16px rgba(0,0,0,0.08);
+
+  --header-h:       54px;
+  --header-bg:      rgba(240,244,248,0.96);
+  --header-border:  1px solid rgba(0,0,0,0.08);
+
+  --dock-h:         86px;
+  --dock-bg:        rgba(240,244,248,0.96);
+  --dock-border:    rgba(0,0,0,0.08);
+  --dock-radius:    0.75rem;
+  --dock-card-w:    112px;
+  --dock-card-h:    58px;
+
+  --map-radius:     0.75rem;
+  --map-border:     rgba(0,0,0,0.08);
+  --map-border-w:   1px;
+  --map-shadow:     0 4px 16px rgba(0,0,0,0.08);
+
+  --motion-dur: 0.3s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   18. MONOCHROME / MONO — Tek Ton, Maksimum Okunabilirlik
+   Siyah-beyaz, teknik, göz yormuyor
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="monochrome"] {
+  --pack-accent:    #94a3b8;
+  --pack-glow:      rgba(148,163,184,0.15);
+  --pack-bg:        #050505;
+  --pack-radius:    0.25rem;
+  --pack-spacing:   1rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    none;
+  --pack-card-bg:   rgba(10,10,10,0.99);
+
+  --speedo-w:         18rem;
+  --speedo-font:      6rem;
+  --speedo-color:     #f0f0f0;
+  --speedo-glow:      rgba(200,200,200,0.06);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        #050505;
+  --speedo-border:    rgba(255,255,255,0.14);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.5rem;
+  --speedo-shadow:    none;
+
+  --header-h:       56px;
+  --header-bg:      rgba(5,5,5,0.99);
+  --header-border:  1px solid rgba(255,255,255,0.1);
+
+  --dock-h:         88px;
+  --dock-bg:        rgba(5,5,5,0.99);
+  --dock-border:    rgba(255,255,255,0.1);
+  --dock-radius:    0.25rem;
+
+  --map-radius:     0.25rem;
+  --map-border:     rgba(255,255,255,0.1);
+  --map-border-w:   1px;
+  --map-shadow:     none;
+
+  --motion-dur: 0.2s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   19. ARCTIC / ARKTİK — Ferah, Buz Mavisi
+   Serin tonlar, temiz boşluklar, taze his
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="arctic"] {
+  --pack-accent:    #7dd3fc;
+  --pack-glow:      rgba(125,211,252,0.3);
+  --pack-bg:        linear-gradient(180deg,#030f18 0%,#010a10 100%);
+  --pack-radius:    1.5rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      16px;
+  --pack-shadow:    0 8px 32px rgba(0,0,0,0.6);
+  --pack-card-bg:   rgba(5,15,25,0.92);
+
+  --speedo-w:         16rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #e0f7ff;
+  --speedo-glow:      rgba(125,211,252,0.25);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(4,12,20,0.97);
+  --speedo-border:    rgba(125,211,252,0.25);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.375rem;
+  --speedo-shadow:    0 0 40px rgba(125,211,252,0.08), 0 20px 60px rgba(0,0,0,0.8);
+
+  --header-h:       58px;
+  --header-bg:      rgba(3,10,18,0.94);
+  --header-border:  1px solid rgba(125,211,252,0.1);
+
+  --dock-h:         92px;
+  --dock-bg:        rgba(3,10,18,0.96);
+  --dock-border:    rgba(125,211,252,0.2);
+  --dock-radius:    1.5rem;
+
+  --map-radius:     1.5rem;
+  --map-border:     rgba(125,211,252,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.35s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   20. SUNSET / GÜNBATIMI — Altın Saat Atmosferi
+   Sıcak portakal/amber, premium akşam sürüşü hissi
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="sunset"] {
+  --pack-accent:    #f97316;
+  --pack-glow:      rgba(249,115,22,0.4);
+  --pack-bg:        linear-gradient(160deg,#1a0a00 0%,#0d0500 100%);
+  --pack-radius:    1.5rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      12px;
+  --pack-shadow:    0 8px 32px rgba(0,0,0,0.7);
+  --pack-card-bg:   rgba(14,7,0,0.94);
+
+  --speedo-w:         16rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #ffe8d0;
+  --speedo-glow:      rgba(249,115,22,0.3);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(12,5,0,0.98);
+  --speedo-border:    rgba(249,115,22,0.3);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.375rem;
+  --speedo-shadow:    0 0 40px rgba(249,115,22,0.08), 0 20px 60px rgba(0,0,0,0.9);
+
+  --header-h:       58px;
+  --header-bg:      rgba(10,4,0,0.94);
+  --header-border:  1px solid rgba(249,115,22,0.12);
+
+  --dock-h:         92px;
+  --dock-bg:        rgba(10,4,0,0.96);
+  --dock-border:    rgba(249,115,22,0.25);
+  --dock-radius:    1.5rem;
+
+  --map-radius:     1.5rem;
+  --map-border:     rgba(249,115,22,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.4s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   21. BIG CARDS — Büyük Kartlar, Dokunaklı UI
+   Her şey büyük, geniş dokunma alanları, kolay kullanım
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="big-cards"] {
+  --pack-accent:    #60a5fa;
+  --pack-glow:      rgba(96,165,250,0.4);
+  --pack-bg:        #040810;
+  --pack-radius:    2rem;
+  --pack-spacing:   1.5rem;
+  --pack-border:    1px;
+  --pack-blur:      16px;
+  --pack-shadow:    0 12px 40px rgba(0,0,0,0.6);
+  --pack-card-bg:   rgba(6,12,24,0.92);
+
+  --speedo-w:         22rem;
+  --speedo-font:      7rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      rgba(96,165,250,0.3);
+  --speedo-unit-font: 0.75rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(4,8,18,0.98);
+  --speedo-border:    rgba(96,165,250,0.25);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.75rem;
+  --speedo-shadow:    0 0 50px rgba(96,165,250,0.08), 0 20px 60px rgba(0,0,0,0.8);
+
+  --header-h:       66px;
+  --header-bg:      rgba(4,6,16,0.95);
+
+  --dock-h:         104px;
+  --dock-bg:        rgba(4,6,16,0.96);
+  --dock-border:    rgba(96,165,250,0.2);
+  --dock-radius:    2rem;
+  --dock-card-w:    140px;
+  --dock-card-h:    72px;
+
+  --map-radius:     2rem;
+  --map-border:     rgba(96,165,250,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.4s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   22. AI CENTER — Yapay Zeka Merkezi, Cyan Fütürizm
+   Yapay zeka yetenekleri öne çıkar, siyan renk dili
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="ai-center"] {
+  --pack-accent:    #06b6d4;
+  --pack-glow:      rgba(6,182,212,0.5);
+  --pack-bg:        radial-gradient(ellipse at 50% 30%,#002030 0%,#010810 100%);
+  --pack-radius:    1.5rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      20px;
+  --pack-shadow:    0 0 40px rgba(6,182,212,0.08), 0 8px 32px rgba(0,0,0,0.7);
+  --pack-card-bg:   rgba(0,16,24,0.9);
+
+  --speedo-w:         16rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #ccffff;
+  --speedo-glow:      rgba(6,182,212,0.4);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.5em;
+  --speedo-bg:        rgba(0,12,20,0.97);
+  --speedo-border:    rgba(6,182,212,0.35);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.375rem;
+  --speedo-shadow:    0 0 50px rgba(6,182,212,0.1), 0 20px 60px rgba(0,0,0,0.9);
+
+  --header-h:       60px;
+  --header-bg:      rgba(0,10,18,0.94);
+  --header-border:  1px solid rgba(6,182,212,0.15);
+
+  --dock-h:         96px;
+  --dock-bg:        rgba(0,10,18,0.95);
+  --dock-border:    rgba(6,182,212,0.25);
+  --dock-radius:    1.5rem;
+
+  --map-radius:     1.5rem;
+  --map-border:     rgba(6,182,212,0.2);
+  --map-border-w:   1px;
+
+  --motion-dur: 0.35s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   23. TESLA X NIGHT — Tesla Gece Modu, Kırmızı Egzotik
+   Tesla sadeliği + gece kırmızısı, en saf karanlık dünya
+   ════════════════════════════════════════════════════════════════ */
+[data-theme-pack="tesla-x-night"] {
+  --pack-accent:    #ef4444;
+  --pack-glow:      rgba(239,68,68,0.25);
+  --pack-bg:        #000000;
+  --pack-radius:    0.375rem;
+  --pack-spacing:   1.25rem;
+  --pack-border:    1px;
+  --pack-blur:      0px;
+  --pack-shadow:    none;
+  --pack-card-bg:   rgba(8,8,8,0.99);
+
+  --speedo-w:         13rem;
+  --speedo-font:      5.5rem;
+  --speedo-color:     #ffffff;
+  --speedo-glow:      rgba(239,68,68,0.15);
+  --speedo-unit-font: 0.65rem;
+  --speedo-tracking:  0.65em;
+  --speedo-bg:        #000000;
+  --speedo-border:    rgba(239,68,68,0.2);
+  --speedo-border-w:  1px;
+  --speedo-data-size: 1.25rem;
+  --speedo-shadow:    none;
+
+  --header-h:       50px;
+  --header-bg:      rgba(0,0,0,0.99);
+  --header-border:  1px solid rgba(239,68,68,0.1);
+
+  --dock-h:         82px;
+  --dock-bg:        rgba(0,0,0,0.99);
+  --dock-border:    rgba(239,68,68,0.2);
+  --dock-radius:    0.375rem;
+  --dock-card-w:    108px;
+  --dock-card-h:    56px;
+
+  --map-radius:     0.375rem;
+  --map-border:     rgba(239,68,68,0.15);
+  --map-border-w:   1px;
+  --map-shadow:     none;
+
+  --motion-dur: 0.18s;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   GLOBAL UI TRANSFORMER — Accent Color & Border Radius
+   ════════════════════════════════════════════════════════════════ */
 
 [data-theme-pack] {
-  background: var(--pack-bg) !important;
-  color: var(--minimal-light-text, #fff);
-  /* No transition here — theme overlay in themeTransitionService handles the dissolve */
+  /* --wallpaper-bg CSS değişkeni set edilmişse onu kullan, yoksa tema rengi */
+  background: var(--wallpaper-bg, var(--pack-bg)) !important;
+}
+
+/* Gündüz modu: tema rengini açık lacivert ile değiştir */
+[data-day-night="day"][data-theme-pack] {
+  background: var(--wallpaper-bg, linear-gradient(180deg, #1c3050 0%, #0f1e35 100%)) !important;
+}
+
+/* Duvar kağıdı aktifken tema arka planı şeffaf olsun */
+[data-has-wallpaper="true"][data-theme-pack] {
+  background: var(--wallpaper-bg) !important;
 }
 
 [data-theme-pack] .rounded-2xl,
 [data-theme-pack] .rounded-3xl,
+[data-theme-pack] .rounded-xl,
 [data-theme-pack] .rounded-\[1\.5rem\],
-[data-theme-pack] .rounded-\[2\.5rem\],
-[data-theme-pack] .rounded-xl {
+[data-theme-pack] .rounded-\[2\.5rem\] {
   border-radius: var(--pack-radius) !important;
   border-width: var(--pack-border) !important;
   backdrop-filter: blur(var(--pack-blur)) !important;
   box-shadow: var(--pack-shadow) !important;
-  padding: var(--pack-spacing) !important;
-  background: var(--pack-card-bg, rgba(255,255,255,0.03)) !important;
+  background: var(--pack-card-bg) !important;
 }
 
 [data-theme-pack] button {
   border-radius: calc(var(--pack-radius) * 0.7) !important;
   transition:
-    box-shadow     0.22s ease,
-    transform      0.15s ease,
-    border-radius  0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+    box-shadow    var(--motion-dur) ease,
+    transform     calc(var(--motion-dur) * 0.5) ease,
+    border-radius var(--motion-dur) cubic-bezier(0.34,1.56,0.64,1) !important;
 }
 
 [data-theme-pack] button:hover {
@@ -146,23 +1123,7 @@
   transform: translateY(-2px) !important;
 }
 
-/* Navigation & HUD Transformer */
-[data-theme-pack] .volume-overlay-root,
-[data-theme-pack] .navigation-hud-root,
-[data-theme-pack] .map-overlay-root {
-  --style-blur: var(--pack-blur);
-  --style-radius: var(--pack-radius);
-}
-
-/* Dock UI Transformer */
-[data-theme-pack] [data-dock="main"] {
-  border-radius: calc(var(--pack-radius) * 1.5) !important;
-  margin: var(--pack-spacing) !important;
-  background: var(--pack-card-bg, rgba(0,0,0,0.5)) !important;
-  backdrop-filter: blur(var(--pack-blur)) !important;
-}
-
-/* Typography & Accent Transformer */
+/* Accent color tokens */
 [data-theme-pack] .text-blue-400,
 [data-theme-pack] .text-blue-500,
 [data-theme-pack] .text-emerald-400 {
@@ -175,3 +1136,98 @@
 [data-theme-pack] .bg-emerald-500 {
   background-color: var(--pack-accent) !important;
 }
+
+/* Dock container styling */
+[data-theme-pack] [data-dock="main"],
+[data-theme-pack] .dock-inner {
+  border-radius: var(--dock-radius) !important;
+  background: var(--dock-bg) !important;
+  border-color: var(--dock-border) !important;
+  backdrop-filter: blur(var(--dock-blur)) !important;
+}
+
+/* Header zone */
+[data-theme-pack] [data-layout-zone="header"] {
+  height: var(--header-h) !important;
+  min-height: var(--header-h) !important;
+  background: var(--header-bg) !important;
+  border-bottom: var(--header-border, none) !important;
+  backdrop-filter: blur(var(--header-blur, 0px)) !important;
+}
+
+/* Dock zone height */
+[data-theme-pack] [data-layout-zone="dock"] {
+  height: var(--dock-h) !important;
+  min-height: var(--dock-h) !important;
+}
+
+/* Dock cards */
+[data-theme-pack] .dock-card {
+  min-width: var(--dock-card-w, 120px) !important;
+  height: var(--dock-card-h, 64px) !important;
+}
+
+/* Navigation & HUD */
+[data-theme-pack] .navigation-hud-root,
+[data-theme-pack] .map-overlay-root {
+  --style-blur:   var(--pack-blur);
+  --style-radius: var(--pack-radius);
+}
+
+/* Performance mode: lite — strip all GPU effects */
+[data-performance-mode="lite"] * {
+  filter: none !important;
+  text-shadow: none !important;
+  animation: none !important;
+  transition-duration: 100ms !important;
+}
+
+[data-performance-mode="lite"] button:hover,
+[data-performance-mode="lite"] button:focus {
+  box-shadow: none !important;
+  filter: brightness(1.05) !important;
+  transform: none !important;
+}
+
+[data-performance-mode="lite"] [data-theme-pack] .rounded-2xl,
+[data-performance-mode="lite"] [data-theme-pack] .rounded-xl {
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LAYOUT ENGINE — Per-Theme Flex/Order Overrides
+   map-first: harita dominant | cockpit: speedo dominant
+   glass: dengeli cam | sport: eşit/agresif
+   content: içerik odaklı | minimal: sade
+   (tesla + bmw overrides already set inline above)
+   ════════════════════════════════════════════════════════════════ */
+
+/* Mercedes: glass — dengeli, 38% map */
+[data-theme-pack="mercedes"]    { --l-map-flex-basis: 38%; --l-map-min-w: 12rem; }
+
+/* Audi: sport — keskin, 36% map */
+[data-theme-pack="audi"]        { --l-map-flex-basis: 36%; --l-map-min-w: 11rem; }
+
+/* Porsche: cockpit — speedo büyük, 28% map */
+[data-theme-pack="porsche"]     { --l-map-flex-basis: 28%; --l-map-min-w: 10rem; }
+
+/* Cyberpunk, Carbon: sport */
+[data-theme-pack="cyberpunk"]   { --l-map-flex-basis: 35%; --l-map-min-w: 11rem; }
+[data-theme-pack="carbon"]      { --l-map-flex-basis: 35%; --l-map-min-w: 11rem; }
+
+/* Redline, Electric: sport, speed-focused */
+[data-theme-pack="redline"]     { --l-map-flex-basis: 33%; --l-map-min-w: 10rem; }
+[data-theme-pack="electric"]    { --l-map-flex-basis: 34%; --l-map-min-w: 10rem; }
+
+/* Minimal themes: daha az harita */
+[data-theme-pack="minimal-dark"]  { --l-map-flex-basis: 38%; --l-map-min-w: 10rem; }
+[data-theme-pack="minimal-light"] { --l-map-flex-basis: 38%; --l-map-min-w: 10rem; }
+[data-theme-pack="monochrome"]    { --l-map-flex-basis: 40%; --l-map-min-w: 11rem; }
+
+/* Big Cards / AI Center: içerik odaklı, küçük harita */
+[data-theme-pack="big-cards"]     { --l-map-flex-basis: 30%; --l-map-min-w: 9rem; }
+[data-theme-pack="ai-center"]     { --l-map-flex-basis: 28%; --l-map-min-w: 8rem; }
+
+/* Tesla X Night: map-first, en geniş harita */
+[data-theme-pack="tesla-x-night"] { --l-map-flex-basis: 47%; --l-map-min-w: 15rem; }

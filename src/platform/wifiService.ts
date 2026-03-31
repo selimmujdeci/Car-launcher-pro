@@ -39,16 +39,18 @@ function push(partial: Partial<WifiState>): void {
 /* ── Core poll ───────────────────────────────────────────── */
 
 async function poll(): Promise<void> {
-  if (isNative) {
-    try {
-      const status = await CarLauncher.getDeviceStatus();
-      push({ connected: status.wifiConnected, ssid: status.wifiName });
-    } catch {
-      // Plugin erişilemez — mevcut durumu koru
+  try {
+    if (isNative) {
+      try {
+        const status = await CarLauncher.getDeviceStatus();
+        push({ connected: status.wifiConnected, ssid: status.wifiName });
+      } catch {
+        // Plugin erişilemez — mevcut durumu koru
+      }
+    } else {
+      push({ connected: navigator.onLine, ssid: '' });
     }
-  } else {
-    push({ connected: navigator.onLine, ssid: '' });
-  }
+  } catch { /* outer guard: push failure must not crash the poll */ }
 }
 
 /* ── Web event listeners (online/offline) ────────────────── */
@@ -58,10 +60,12 @@ let _onOffline: (() => void) | null = null;
 
 function attachWebEvents(): void {
   if (isNative || _onOnline) return;
-  _onOnline  = () => push({ connected: true });
-  _onOffline = () => push({ connected: false, ssid: '' });
-  window.addEventListener('online',  _onOnline);
-  window.addEventListener('offline', _onOffline);
+  _onOnline  = () => { try { push({ connected: true }); } catch { /* ignore */ } };
+  _onOffline = () => { try { push({ connected: false, ssid: '' }); } catch { /* ignore */ } };
+  try {
+    window.addEventListener('online',  _onOnline);
+    window.addEventListener('offline', _onOffline);
+  } catch { /* window.addEventListener failure must not crash service init */ }
 }
 
 function detachWebEvents(): void {
@@ -74,8 +78,8 @@ function detachWebEvents(): void {
 export function startWifiService(): void {
   if (_pollTimer !== null) return;
   push({ polling: true });
-  poll(); // anında ilk veriyi al
-  _pollTimer = setInterval(poll, 30_000);
+  void poll(); // anında ilk veriyi al
+  _pollTimer = setInterval(() => { void poll(); }, 30_000);
   attachWebEvents();
 }
 

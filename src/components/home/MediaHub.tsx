@@ -74,22 +74,22 @@ export const MediaHub = memo(function MediaHub({
   /* ── Pasif mod — aktif medya oturumu yok ─────────────────── */
   if (!hasSession) {
     return (
-      <div className="h-full bg-[#0d1628] rounded-2xl border border-white/5 flex flex-col items-center justify-center gap-4 p-6 animate-fade-in">
+      <div className="h-full bg-[#0d1628] rounded-2xl border border-white/[0.08] flex flex-col items-center justify-center gap-4 p-6 animate-fade-in">
         {/* İkon */}
         <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center"
+          className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"
           style={{
-            background:  `linear-gradient(135deg, ${srcMeta.color}15, ${srcMeta.color}06)`,
-            border:      `1px solid ${srcMeta.color}20`,
+            background:  `linear-gradient(135deg, ${srcMeta.color}22, ${srcMeta.color}0a)`,
+            border:      `1px solid ${srcMeta.color}30`,
           }}
         >
-          <Music2 className="w-7 h-7 text-slate-600" />
+          <Music2 className="w-8 h-8" style={{ color: `${srcMeta.color}cc` }} />
         </div>
 
         {/* Metin */}
         <div className="text-center">
-          <div className="text-slate-500 text-sm font-semibold">Müzik Çalmıyor</div>
-          <div className="text-slate-700 text-xs mt-1 leading-tight">
+          <div className="text-slate-300 text-sm font-bold">Müzik Çalmıyor</div>
+          <div className="text-slate-500 text-xs mt-1 leading-tight">
             Bir medya uygulaması başlatın
           </div>
         </div>
@@ -97,11 +97,11 @@ export const MediaHub = memo(function MediaHub({
         {/* Açma butonu */}
         <button
           onClick={handleOpen}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold active:scale-95"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
           style={{
-            backgroundColor: `${srcMeta.color}18`,
+            backgroundColor: `${srcMeta.color}20`,
             color:            srcMeta.color,
-            border:          `1px solid ${srcMeta.color}28`,
+            border:          `1px solid ${srcMeta.color}35`,
           }}
         >
           <span className="text-base leading-none">{fallbackApp.icon}</span>
@@ -113,7 +113,7 @@ export const MediaHub = memo(function MediaHub({
 
   /* ── Aktif mod ───────────────────────────────────────────── */
   return (
-    <div className="h-full rounded-2xl shadow-xl border border-white/5 flex flex-col overflow-hidden relative animate-fade-in">
+    <div className="h-full rounded-2xl shadow-xl border border-white/5 flex flex-col overflow-hidden relative animate-fade-in" data-editable="media-hub" data-editable-type="media">
 
       {/* Koyu taban */}
       <div className="absolute inset-0 bg-[#0d1628]" />
@@ -159,7 +159,7 @@ export const MediaHub = memo(function MediaHub({
         <div className="flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-1.5">
             <div
-              className={`w-1.5 h-1.5 rounded-full ${playing ? 'animate-pulse' : 'opacity-35'}`}
+              className={`w-1.5 h-1.5 rounded-full ${playing ? 'animate-pulse' : 'opacity-60'}`}
               style={{ backgroundColor: playing ? srcMeta.color : '#475569' }}
             />
             <span className="text-slate-600 text-[10px] tracking-widest uppercase font-bold">

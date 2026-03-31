@@ -37,7 +37,7 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
         </div>
         <button
           onClick={() => deleteTrip(trip.id)}
-          className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-700 hover:text-red-400 hover:bg-red-500/10 transition-colors active:scale-90"
+          className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors active:scale-90"
           title="Seyahati sil"
         >
           <Trash2 className="w-4 h-4" />
@@ -127,7 +127,7 @@ function TripLogViewInner() {
 
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6">
+    <div className="flex flex-col gap-4 p-4 pb-6" data-editable="trip-log" data-editable-type="card">
 
       {/* ── Title ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -138,7 +138,7 @@ function TripLogViewInner() {
         {trip.history.length > 0 && (
           <button
             onClick={handleClearAll}
-            className="text-slate-700 hover:text-red-400 text-[11px] uppercase tracking-widest transition-colors"
+            className="text-slate-500 hover:text-red-400 text-[11px] uppercase tracking-widest transition-colors"
           >
             Temizle
           </button>
@@ -203,11 +203,13 @@ function TripLogViewInner() {
 
         {trip.history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-            <AlertCircle className="w-12 h-12 text-slate-700" />
-            <div className="text-slate-600 font-bold text-sm">
+            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <AlertCircle className="w-8 h-8 text-blue-400/70" />
+            </div>
+            <div className="text-slate-300 font-bold text-sm">
               Henüz kayıtlı seyahat yok
             </div>
-            <div className="text-slate-700 text-xs leading-relaxed max-w-[240px]">
+            <div className="text-slate-500 text-xs leading-relaxed max-w-[240px]">
               OBD bağlantısı ile sürmeye başladığınızda seyahatler otomatik olarak kaydedilir
             </div>
           </div>

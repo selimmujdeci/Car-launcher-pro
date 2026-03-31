@@ -143,9 +143,55 @@ export interface NativeMediaInfo {
   positionMs:  number;  // 0 = bilinmiyor
 }
 
+/* ── Native Core types ───────────────────────────────────── */
+
+/**
+ * Hardware profile returned by getDeviceProfile().
+ * Used to auto-detect the correct performance mode on startup.
+ */
+export interface NativeDeviceProfile {
+  androidVersion: string;   // e.g. "9", "12"
+  sdkInt:         number;   // e.g. 28, 31
+  totalRamMb:     number;   // total physical RAM in MB
+  isLowRamDevice: boolean;  // ActivityManager.isLowRamDevice()
+  screenWidth:    number;   // pixels
+  screenHeight:   number;   // pixels
+  densityDpi:     number;
+  density:        number;   // e.g. 1.5, 2.0, 3.0
+  webViewVersion: string;   // Chrome version string or ""
+  /** 'low' | 'mid' | 'high' — mapped from RAM + SDK level */
+  deviceClass:    'low' | 'mid' | 'high';
+}
+
+/**
+ * Real screen dimensions from WindowManager.getRealMetrics().
+ * More accurate than JS window.screen on old head-unit WebViews.
+ */
+export interface NativeScreenMetrics {
+  widthPx:    number;
+  heightPx:   number;
+  densityDpi: number;
+  density:    number;
+  widthDp:    number;
+  heightDp:   number;
+}
+
+export interface CallNumberOptions {
+  number: string; // Phone number to open in dialer
+}
+
 /* ── Plugin interface ────────────────────────────────────── */
 
 export interface CarLauncherPlugin {
+  /** Native Core: hardware profile for performance-mode detection */
+  getDeviceProfile(): Promise<NativeDeviceProfile>;
+  /** Native Core: real screen dimensions from WindowManager */
+  getScreenMetrics(): Promise<NativeScreenMetrics>;
+  /** Native Core: open native dialer with number pre-filled */
+  callNumber(options: CallNumberOptions): Promise<void>;
+
+  /** Launcher'ı arka plana al — çift geri basış sonrası çağrılır */
+  exitApp(): Promise<void>;
   launchApp(options: LaunchAppOptions): Promise<void>;
   getApps(): Promise<GetAppsResult>;
   getDeviceStatus(): Promise<NativeDeviceStatus>;

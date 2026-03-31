@@ -55,19 +55,21 @@ let _stoppedAt: number | null = null;
 function startTicker(): void {
   if (_tickerId) return;
   _tickerId = setInterval(() => {
-    if (!_state.enabled || !_state.drivingStartedAt) return;
-    const elapsedMin = (Date.now() - _state.drivingStartedAt) / 60000;
-    push({ drivingElapsedMin: elapsedMin });
+    try {
+      if (!_state.enabled || !_state.drivingStartedAt) return;
+      const elapsedMin = (Date.now() - _state.drivingStartedAt) / 60000;
+      push({ drivingElapsedMin: elapsedMin });
 
-    if (!_state.alertVisible && elapsedMin >= _state.intervalMin) {
-      // Snooze kontrolü
-      const sinceSnooze = _state.lastDismissedAt
-        ? (Date.now() - _state.lastDismissedAt) / 60000
-        : Infinity;
-      if (sinceSnooze >= SNOOZE_MIN) {
-        push({ alertVisible: true });
+      if (!_state.alertVisible && elapsedMin >= _state.intervalMin) {
+        // Snooze kontrolü
+        const sinceSnooze = _state.lastDismissedAt
+          ? (Date.now() - _state.lastDismissedAt) / 60000
+          : Infinity;
+        if (sinceSnooze >= SNOOZE_MIN) {
+          push({ alertVisible: true });
+        }
       }
-    }
+    } catch { /* interval must never crash */ }
   }, 30000); // 30 sn'de bir kontrol
 }
 

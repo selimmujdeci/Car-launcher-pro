@@ -2,6 +2,9 @@ import { Capacitor } from '@capacitor/core';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../data/apps';
 import type { AppItem, NavOptionKey, MusicOptionKey } from '../data/apps';
 import { CarLauncher } from './nativePlugin';
+import { logError } from './crashLogger';
+import { showToast } from './errorBus';
+import { openInApp } from './inAppBrowser';
 
 /* ── Mode ─────────────────────────────────────────────────── */
 
@@ -20,29 +23,38 @@ export interface CarBridge {
   launchMusic(key: MusicOptionKey): void;
   launchSystemSettings(): void;
   launchBluetoothSettings(): void;
+  /** Open native dialer with number pre-filled. Falls back to tel: link on web. */
+  callNumber(number: string): void;
 }
 
 /* ── Demo implementation (web / local dev) ───────────────── */
 
 function _open(url: string) {
-  if (url) window.open(url, '_blank');
+  if (url) openInApp(url);
 }
 
 const demoBridge: CarBridge = {
   isNative: false,
   launchApp(app)             { _open(app.url); },
-  launchNavigation(key)      { _open(NAV_OPTIONS[key].url); },
-  launchMusic(key)           { _open(MUSIC_OPTIONS[key].url); },
+  launchNavigation(key)      { const opt = NAV_OPTIONS[key]; if (!opt) return; _open(opt.url); },
+  launchMusic(key)           { const opt = MUSIC_OPTIONS[key]; if (!opt) return; _open(opt.url); },
   launchSystemSettings()     { /* no browser equivalent */ },
   launchBluetoothSettings()  { /* no browser equivalent */ },
+  callNumber(number)         { _open(`tel:${number}`); },
 };
 
 /* ── Native implementation (Android / Capacitor) ─────────── */
 
 // Pass all available fields — plugin chains: package → action → category → url → Play Store
 function _nativeLaunch(packageName?: string, action?: string, data?: string, category?: string): void {
-  CarLauncher.launchApp({ packageName, action, data, category }).catch((e) => {
-    if (import.meta.env.DEV) console.warn('[CarLauncher] launchApp failed:', e);
+  CarLauncher.launchApp({ packageName, action, data, category }).catch((e: unknown) => {
+    logError('Bridge:Launch', e);
+    showToast({
+      type:     'error',
+      title:    'Uygulama açılamadı',
+      message:  'Uygulama yüklü olmayabilir veya açılma izni yok.',
+      duration: 4000,
+    });
   });
 }
 
@@ -60,13 +72,17 @@ const nativeBridge: CarBridge = {
   },
 
   launchNavigation(key) {
-    const opt = NAV_OPTIONS[key] as any;
-    _nativeLaunch(opt.androidPackage, opt.androidAction, opt.url, opt.androidCategory);
+    const opt = NAV_OPTIONS[key];
+    if (!opt) return;
+    const action = 'androidAction' in opt ? (opt as { androidAction?: string }).androidAction : undefined;
+    _nativeLaunch(opt.androidPackage, action, opt.url, opt.androidCategory);
   },
 
   launchMusic(key) {
-    const opt = MUSIC_OPTIONS[key] as any;
-    _nativeLaunch(opt.androidPackage, opt.androidAction, opt.url, opt.androidCategory);
+    const opt = MUSIC_OPTIONS[key];
+    if (!opt) return;
+    const action = 'androidAction' in opt ? (opt as { androidAction?: string }).androidAction : undefined;
+    _nativeLaunch(opt.androidPackage, action, opt.url, opt.androidCategory);
   },
 
   launchSystemSettings() {
@@ -75,6 +91,14 @@ const nativeBridge: CarBridge = {
 
   launchBluetoothSettings() {
     _nativeLaunch(undefined, 'android.settings.BLUETOOTH_SETTINGS');
+  },
+
+  callNumber(number) {
+    CarLauncher.callNumber({ number }).catch((e: unknown) => {
+      logError('Bridge:CallNumber', e);
+      // Fallback: open tel: via intent
+      _nativeLaunch(undefined, 'android.intent.action.DIAL', `tel:${number}`);
+    });
   },
 };
 

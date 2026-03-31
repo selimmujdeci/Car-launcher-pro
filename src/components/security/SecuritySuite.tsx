@@ -105,9 +105,9 @@ const PinPad = memo(function PinPad({
         </button>
       )}
 
-      {/* Mevcut PIN ipucu (ayar modunda) */}
-      {!state.pinLockEnabled && (
-        <div className="text-slate-700 text-xs">Mevcut PIN: {state.pinCode}</div>
+      {/* PIN durumu (kod gösterilmez) */}
+      {!state.pinLockEnabled && state.pinCode && (
+        <div className="text-slate-500 text-xs">PIN ayarlandı</div>
       )}
     </div>
   );
@@ -229,7 +229,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
   ];
 
   return (
-    <div className="h-full flex flex-col bg-[#060d1a] text-white overflow-hidden">
+    <div className="h-full flex flex-col bg-[#060d1a] text-white overflow-hidden" data-editable="security-suite" data-editable-type="card">
       {/* Başlık */}
       <div className="flex-shrink-0 px-6 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
@@ -295,7 +295,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {activeTab === 'geofence' && (
           <>
             {/* Durum kartı */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-white/70 text-sm font-bold">Sanal Çit</span>
                 <button
@@ -315,7 +315,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
             </div>
 
             {/* Yarıçap ayarı */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-slate-500 text-xs uppercase tracking-wider">Yarıçap</span>
                 <span className="text-white font-bold">{geo.radiusKm} km</span>
@@ -373,7 +373,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {/* ── Vale Modu sekmesi ────────────────────────────── */}
         {activeTab === 'vale' && (
           <>
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <div className="text-white text-sm font-bold">Vale Modu</div>
@@ -389,7 +389,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
             </div>
 
             {/* Hız limiti */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-slate-500 text-xs uppercase tracking-wider">Hız Limiti</span>
                 <span className="text-amber-400 font-black text-lg">{geo.valeSpeedLimit} km/h</span>
@@ -410,13 +410,13 @@ export const SecuritySuite = memo(function SecuritySuite() {
                   className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 active:scale-90 transition-all"
                 ><Plus className="w-4 h-4" /></button>
               </div>
-              <div className="flex justify-between text-slate-700 text-[10px] mt-1">
+              <div className="flex justify-between text-slate-500 text-[10px] mt-1">
                 <span>20</span><span>100</span><span>180</span>
               </div>
             </div>
 
             {/* İhlal kaydı */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-slate-500 text-xs uppercase tracking-wider">İhlal Kaydı</span>
                 <div className="flex items-center gap-2">
@@ -430,7 +430,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
               </div>
               <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
                 {geo.valeViolations.length === 0 ? (
-                  <div className="text-slate-700 text-xs text-center py-3">İhlal yok</div>
+                  <div className="text-slate-500 text-xs text-center py-3">İhlal yok</div>
                 ) : (
                   geo.valeViolations.slice().reverse().map((v, i) => (
                     <div key={i} className="flex items-center justify-between bg-red-500/5 border border-red-500/10 rounded-xl px-3 py-2">
@@ -451,7 +451,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {/* ── PIN Kilit sekmesi ────────────────────────────── */}
         {activeTab === 'pin' && (
           <>
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-white text-sm font-bold">PIN Kilidi</div>
@@ -469,7 +469,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
             <div className={`rounded-2xl border p-4 flex items-center gap-3 ${
               geo.pinLockEnabled
                 ? 'border-emerald-500/20 bg-emerald-500/5'
-                : 'border-white/5 bg-white/[0.02]'
+                : 'border-white/[0.1] bg-white/[0.05]'
             }`}>
               {geo.pinLockEnabled
                 ? <Lock className="w-5 h-5 text-emerald-400" />

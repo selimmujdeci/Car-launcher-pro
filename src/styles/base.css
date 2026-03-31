@@ -6,31 +6,31 @@
 }
 
 @keyframes car-slide-up {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
-  animation: car-fade-in 400ms ease-out forwards;
+  animation: car-fade-in 250ms ease-out forwards;
 }
 
 .animate-slide-up {
-  animation: car-slide-up 500ms cubic-bezier(0.23, 1, 0.320, 1) forwards;
+  animation: car-slide-up 350ms cubic-bezier(0.23, 1, 0.320, 1) forwards;
 }
 
-/* Custom scrollbar for notifications */
+/* Custom scrollbar - High visibility */
 .overflow-y-auto::-webkit-scrollbar {
-  width: 3px;
+  width: 6px;
 }
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.3);
-  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 12px;
 }
 
 @keyframes car-pulse-subtle {
-  0%   { transform: scale(1);    opacity: 0.8; }
-  50%  { transform: scale(1.05); opacity: 1;   }
-  100% { transform: scale(1);    opacity: 0.8; }
+  0%   { transform: scale(1);    opacity: 0.9; }
+  50%  { transform: scale(1.03); opacity: 1;   }
+  100% { transform: scale(1);    opacity: 0.9; }
 }
 
 @keyframes car-boot-bar {
@@ -38,48 +38,433 @@
   to   { width: 100%; }
 }
 
-/* ── Tailwind theme tokens ────────────────────────────────── */
+/* ── Tailwind theme tokens — DRIVING OPTIMIZED ───────────────── */
 
 @theme {
-  --animate-fade-in:  car-fade-in  0.2s ease-out both;
-  --animate-slide-up: car-slide-up 0.25s ease-out both;
+  --animate-fade-in:  car-fade-in  0.25s ease-out both;
+  --animate-slide-up: car-slide-up 0.3s ease-out both;
   --animate-boot-bar: car-boot-bar 0.75s cubic-bezier(0.4,0,0.2,1) forwards;
 
   --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-  --color-car-bg:          #0a0e1a;
-  --color-car-surface:     #131929;
-  --color-car-card:        #1a2235;
-  --color-car-card-hover:  #212d45;
-  --color-car-border:      #2a3555;
+  /* Solidified background colors for driving clarity */
+  --color-car-bg:          #060812;
+  --color-car-surface:     #0d1324;
+  --color-car-card:        #151c30;
+  --color-car-card-hover:  #1d2745;
+  --color-car-border:      #32406a;
   --color-car-accent:      #3b82f6;
   --color-car-accent-glow: #60a5fa;
   --color-car-success:     #22c55e;
   --color-car-warning:     #f59e0b;
   --color-car-danger:      #ef4444;
-  --color-car-text:        #e2e8f0;
-  --color-car-text-dim:    #64748b;
-  --color-car-text-bright: #f8fafc;
+  --color-car-text:        #f8fafc;
+  --color-car-text-dim:    #94a3b8;
+  --color-car-text-bright: #ffffff;
 }
 
-/* ── Global resets ───────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   CRITICAL LAYOUT RESET — FLEX/GRID SKELETON
+   Strict vertical orchestration: [Header] | [Content] | [Dock]
+   ══════════════════════════════════════════════════════════════ */
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-}
-
-html, body, #root {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
+#root {
+  position: fixed !important;
+  inset: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
   background: var(--color-car-bg);
-  color: var(--color-car-text);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 1. Header Zone (Top Bar) ── */
+[data-layout-zone="header"] {
+  height: 60px !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 1.5rem !important;
+  z-index: 40 !important;
+  background: rgba(0,0,0,0.2);
+}
+
+/* ── 2. Content Zone (Main Experience) ── */
+[data-layout-zone="content"] {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  position: relative !important;
+  padding: 0.5rem 1rem !important;
+}
+
+/* Main cockpit area — always fills remaining content space */
+[data-theme-layout="main"] {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ── 3. Dock Zone (Footer Controls) ── */
+[data-layout-zone="dock"] {
+  height: 96px !important;
+  display: flex !important;
+  align-items: stretch !important;
+  padding: 0.5rem 1rem !important;
+  flex-shrink: 0 !important;
+  z-index: 40 !important;
+}
+
+/* ── Global Component Protection ── */
+.speedometer-container, .map-container, .card-panel {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+/* ── Z-Index Registry — No More Wars ── */
+[data-layer="base"]      { z-index: 1; }
+[data-layer="content"]   { z-index: 10; }
+[data-layer="overlay"]   { z-index: 50; }
+[data-layer="critical"]  { z-index: 100; }
+
+/* ── Zero-Hack Reset ── */
+button {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Viewport bleed guard — block-level only, not flex/grid children */
+html, body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* ── Touch: High-precision buttons ──────────────────────── */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DRIVING CONTRAST SYSTEM — NO GHOST UI
+   Strict overrides to ensure visibility in all lighting conditions.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Minimum 90% opacity for all interactive text */
+button span, button div, [role="button"] span {
+  opacity: 1 !important;
+}
+
+/* Fix low-opacity utility classes in button context */
+button [class*="text-white/"], [role="button"] [class*="text-white/"] {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+button [class*="text-slate-"], [role="button"] [class*="text-slate-"] {
+  color: rgba(226, 232, 240, 1) !important; /* Force to slate-200 equivalent */
+}
+
+/* Solidify backgrounds — No more invisible buttons */
+button.bg-white\/\[0\.03\], button.bg-white\/\[0\.04\], button.bg-white\/5, 
+button.bg-white\/10, button.bg-white\/\[0\.08\] {
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* Border visibility — minimum 30% for cards */
+.border-white\/5, .border-white\/10, .border-white\/\[0\.06\], .border-white\/\[0\.12\] {
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+/* Container opacity fix */
+.opacity-20, .opacity-40, .opacity-60 {
+  opacity: 0.85 !important;
+}
+
+/* Icon visibility */
+button svg, [role="button"] svg {
+  opacity: 1 !important;
+  stroke-width: 2.5px !important; /* Thicker icons for driving */
+}
+
+/* Card typography — Minimum driving sizes (only on small screens, not tablets) */
+@media (max-width: 600px) {
+  .text-\[9px\], .text-\[10px\], .text-xs {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+  }
+  .text-sm {
+    font-size: 14px !important;
+  }
+}
+
+/* ── Wallpaper mode adjustment ── */
+[data-has-wallpaper="true"] .bg-\[\#0d1628\],
+[data-has-wallpaper="true"] .bg-\[\#0b1424\],
+[data-has-wallpaper="true"] .bg-\[\#0a0e1a\],
+[data-has-wallpaper="true"] .bg-\[\#131929\],
+[data-has-wallpaper="true"] .bg-\[\#060d1a\],
+[data-has-wallpaper="true"] .bg-\[\#02040a\],
+[data-has-wallpaper="true"] .bg-\[\#080d1a\],
+[data-has-wallpaper="true"] .bg-\[\#0c1929\]\/90,
+[data-has-wallpaper="true"] .bg-car-surface {
+  background-color: rgba(6, 8, 18, 0.82) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Wallpaper: harita ve tam siyah alanlar */
+[data-has-wallpaper="true"] .map-container,
+[data-has-wallpaper="true"] .speedometer-container {
+  background-color: rgba(2, 4, 10, 0.80) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+/* Wallpaper: header ve dock şeffaflığı */
+[data-has-wallpaper="true"] [data-layout-zone="header"] {
+  background: rgba(0, 0, 0, 0.50) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+}
+[data-has-wallpaper="true"] .dock-inner {
+  background: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+}
+
+/* ════════════════════════════════════════════════════════════
+   GÜNDÜZ MODU — Yüksek kontrast, parlak ortam için
+   ════════════════════════════════════════════════════════════ */
+
+[data-day-night="day"] {
+  background-color: #0f1e35 !important;
+}
+
+/* Kart arka planları — daha aydınlık lacivert */
+[data-day-night="day"] .bg-\[\#0d1628\],
+[data-day-night="day"] .bg-\[\#0b1424\],
+[data-day-night="day"] .bg-\[\#0a0e1a\],
+[data-day-night="day"] .bg-\[\#131929\],
+[data-day-night="day"] .bg-\[\#060d1a\],
+[data-day-night="day"] .bg-\[\#02040a\] {
+  background-color: rgba(15, 30, 55, 0.95) !important;
+}
+
+/* Speedo — gündüz kontrast */
+[data-day-night="day"] .speedometer-container {
+  background-color: #0f1e35 !important;
+  border-color: rgba(255,255,255,0.3) !important;
+}
+
+/* Map border gündüz */
+[data-day-night="day"] .map-container {
+  border-color: rgba(255,255,255,0.25) !important;
+}
+
+/* Header gündüz */
+[data-day-night="day"] [data-layout-zone="header"] {
+  background: rgba(10, 20, 38, 0.97) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.12) !important;
+}
+
+/* Dock gündüz */
+[data-day-night="day"] .dock-inner {
+  background: rgba(10, 20, 38, 0.97) !important;
+  border-color: rgba(255,255,255,0.2) !important;
+}
+
+/* Speedo rakam gündüz — daha beyaz/parlak */
+[data-day-night="day"] .speedo-value {
+  color: #ffffff !important;
+  text-shadow: 0 0 30px rgba(255,220,50,0.3), 0 0 60px rgba(255,200,0,0.15) !important;
+}
+[data-day-night="day"] .speedo-unit {
+  color: #fbbf24 !important;
+  text-shadow: 0 0 12px rgba(251,191,36,0.6) !important;
+}
+[data-day-night="day"] .speedo-rpm { color: #f8fafc !important; }
+[data-day-night="day"] .speedo-fuel { color: #4ade80 !important; }
+
+/* Yazı kontrast artışı gündüz */
+[data-day-night="day"] .text-slate-400 { color: #94a3b8 !important; }
+[data-day-night="day"] .text-slate-500 { color: #64748b !important; }
+
+/* ── Light Theme — Aydınlık / Ferah ─────────────────────── */
+[data-theme="light"] {
+  --card-bg:      rgba(255,255,255,0.75);
+  --card-border:  rgba(0,0,0,0.07);
+  --text-primary: #1e293b;
+  --text-muted:   #64748b;
+  --dock-bg:      rgba(255,255,255,0.82);
+}
+
+/* Kök zemin — #root'un dark var'ını eziyoruz */
+[data-theme="light"],
+[data-theme="light"] #root {
+  background: #e8edf5 !important;
+  color: #1e293b;
+}
+
+/* Layout zone arka planları */
+[data-theme="light"] [data-layout-zone="header"] {
+  background: rgba(255,255,255,0.92) !important;
+  border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+  backdrop-filter: blur(16px) !important;
+}
+[data-theme="light"] [data-layout-zone="content"] {
+  background: transparent !important;
+}
+[data-theme="light"] [data-layout-zone="dock"] {
+  background: transparent !important;
+}
+
+/* Kart ve panel arka planları — white opacity variants */
+[data-theme="light"] .bg-white\/\[0\.02\],
+[data-theme="light"] .bg-white\/\[0\.03\],
+[data-theme="light"] .bg-white\/\[0\.04\],
+[data-theme="light"] .bg-white\/\[0\.05\],
+[data-theme="light"] .bg-white\/\[0\.06\],
+[data-theme="light"] .bg-white\/\[0\.07\],
+[data-theme="light"] .bg-white\/\[0\.08\],
+[data-theme="light"] .bg-white\/10,
+[data-theme="light"] .bg-white\/15,
+[data-theme="light"] .bg-white\/20 {
+  background-color: rgba(255,255,255,0.70) !important;
+  border-color: rgba(0,0,0,0.07) !important;
+}
+
+/* Siyah opacity bileşenleri → beyaz */
+[data-theme="light"] .bg-black\/60,
+[data-theme="light"] .bg-black\/50,
+[data-theme="light"] .bg-black\/40,
+[data-theme="light"] .bg-black\/30,
+[data-theme="light"] .bg-black\/20,
+[data-theme="light"] .bg-black\/10,
+[data-theme="light"] .bg-black\/70,
+[data-theme="light"] .bg-black\/80 {
+  background-color: rgba(255,255,255,0.80) !important;
+}
+
+/* Yaygın dark hex değerleri — bileşenlerden toplanan */
+[data-theme="light"] .bg-\[\#0d1628\],
+[data-theme="light"] .bg-\[\#0d1628\]\/95,
+[data-theme="light"] .bg-\[\#0b1424\],
+[data-theme="light"] .bg-\[\#0a0e1a\],
+[data-theme="light"] .bg-\[\#131929\],
+[data-theme="light"] .bg-\[\#060d1a\],
+[data-theme="light"] .bg-\[\#02040a\],
+[data-theme="light"] .bg-\[\#080d1a\],
+[data-theme="light"] .bg-\[\#060812\],
+[data-theme="light"] .bg-\[\#0c1929\]\/90,
+[data-theme="light"] .bg-\[\#080f1e\],
+[data-theme="light"] .bg-\[\#0a1628\],
+[data-theme="light"] .bg-\[\#0f1930\] {
+  background-color: rgba(255,255,255,0.82) !important;
+}
+
+/* bg-car-* utility class'ları */
+[data-theme="light"] .bg-car-bg     { background-color: #e8edf5 !important; }
+[data-theme="light"] .bg-car-surface { background-color: #f1f5fb !important; }
+[data-theme="light"] .bg-car-card   { background-color: rgba(255,255,255,0.85) !important; }
+
+/* Dock */
+[data-theme="light"] [data-dock="main"] > div {
+  background: rgba(255,255,255,0.90) !important;
+  border-color: rgba(0,0,0,0.09) !important;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.10) !important;
+}
+
+/* Metin renkleri */
+[data-theme="light"] .text-white        { color: #1e293b !important; }
+[data-theme="light"] .text-white\/90    { color: #1e293b !important; }
+[data-theme="light"] .text-white\/80    { color: #334155 !important; }
+[data-theme="light"] .text-white\/70    { color: #475569 !important; }
+[data-theme="light"] .text-white\/60    { color: #64748b !important; }
+[data-theme="light"] .text-white\/50    { color: #64748b !important; }
+[data-theme="light"] .text-white\/40    { color: #94a3b8 !important; }
+[data-theme="light"] .text-white\/30    { color: #94a3b8 !important; }
+[data-theme="light"] .text-white\/25    { color: #94a3b8 !important; }
+[data-theme="light"] .text-white\/20    { color: #cbd5e1 !important; }
+[data-theme="light"] .text-slate-200    { color: #334155 !important; }
+[data-theme="light"] .text-slate-300    { color: #475569 !important; }
+[data-theme="light"] .text-slate-400    { color: #64748b !important; }
+[data-theme="light"] .text-slate-500    { color: #475569 !important; }
+[data-theme="light"] .text-slate-600    { color: #334155 !important; }
+
+/* Driving contrast zorlamasını light modda geri al */
+[data-theme="light"] button [class*="text-white\/"],
+[data-theme="light"] [role="button"] [class*="text-white\/"] {
+  color: #475569 !important;
+}
+[data-theme="light"] button [class*="text-slate-"],
+[data-theme="light"] [role="button"] [class*="text-slate-"] {
+  color: #475569 !important;
+}
+/* Driving contrast: button arkaplan zorlamasını geri al */
+[data-theme="light"] button.bg-white\/\[0\.03\],
+[data-theme="light"] button.bg-white\/\[0\.04\],
+[data-theme="light"] button.bg-white\/5,
+[data-theme="light"] button.bg-white\/10,
+[data-theme="light"] button.bg-white\/\[0\.08\] {
+  background-color: rgba(0,0,0,0.05) !important;
+  border-color: rgba(0,0,0,0.10) !important;
+}
+
+/* Border renkleri */
+[data-theme="light"] .border-white\/5,
+[data-theme="light"] .border-white\/\[0\.05\],
+[data-theme="light"] .border-white\/\[0\.06\],
+[data-theme="light"] .border-white\/\[0\.08\],
+[data-theme="light"] .border-white\/\[0\.09\],
+[data-theme="light"] .border-white\/10,
+[data-theme="light"] .border-white\/\[0\.12\],
+[data-theme="light"] .border-white\/15,
+[data-theme="light"] .border-white\/20 {
+  border-color: rgba(0,0,0,0.09) !important;
+}
+
+/* Backdrop blur'lu paneller (drawer, modal) */
+[data-theme="light"] .backdrop-blur-3xl,
+[data-theme="light"] .backdrop-blur-2xl {
+  --tw-backdrop-brightness: brightness(1.05);
+}
+
+/* Hover durumları */
+[data-theme="light"] .hover\:bg-white\/\[0\.06\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.08\]:hover,
+[data-theme="light"] .hover\:bg-white\/10:hover {
+  background-color: rgba(0,0,0,0.05) !important;
+}
+
+/* Opacity utility fix — driving contrast override zararını önle */
+[data-theme="light"] .opacity-20,
+[data-theme="light"] .opacity-40,
+[data-theme="light"] .opacity-60 {
+  opacity: 0.85 !important;
+}
+
+/* Border-white driving contrast override */
+[data-theme="light"] .border-white\/5,
+[data-theme="light"] .border-white\/10,
+[data-theme="light"] .border-white\/\[0\.06\],
+[data-theme="light"] .border-white\/\[0\.12\] {
+  border-color: rgba(0,0,0,0.09) !important;
+}
+
+/* ── OLED Theme — Pure contrast ── */
+[data-theme="oled"] .bg-\[\#0d1628\],
+[data-theme="oled"] .bg-car-card {
+  background-color: #0c0c0c !important;
+  border-color: #333 !important;
 }
 
 /* ── Custom Utilities ────────────────────────────────────── */
@@ -93,11 +478,27 @@ html, body, #root {
 }
 
 .mask-fade {
-  mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
 }
 
-/* OLED tema — kart arkaplanlarını siyaha çeker */
-[data-theme="oled"] .bg-\[\#0d1628\],
-[data-theme="oled"] .bg-\[\#0b1424\] {
-  background-color: #0a0a0a !important;
+/* ── Dock Cards ── */
+.dock-card {
+  flex: 0 0 auto;
+  min-width: 120px;
+  height: 64px;
+  padding: 0 1.25rem;
+  scroll-snap-align: start;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   HEAD UNIT COMPAT MODE
+   ══════════════════════════════════════════════════════════════════════ */
+
+html[data-compat-mode="true"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-duration: 0ms !important;
+  transition-duration: 100ms !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
 }

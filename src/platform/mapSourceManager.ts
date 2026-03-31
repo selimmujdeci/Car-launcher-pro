@@ -243,7 +243,7 @@ export async function initializeMapSources(): Promise<void> {
     useMapSourceStore.setState({
       sources,
       activeSourceId: activeId,
-      servingFrom: activeId === 'online' ? 'online' : activeId as any,
+      servingFrom: activeId as 'local' | 'cached' | 'online',
       initialized: true,
       isLoading: false,
       error: null,

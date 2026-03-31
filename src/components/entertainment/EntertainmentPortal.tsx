@@ -6,7 +6,7 @@
  */
 
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
-import { Coffee, Tv, Play, Check, Leaf } from 'lucide-react';
+import { Coffee, Tv, Play, Check } from 'lucide-react';
 import { openApp } from '../../platform/appLauncher';
 import { APP_MAP } from '../../data/apps';
 import {
@@ -79,45 +79,61 @@ const BreathingExercise = memo(function BreathingExercise() {
   const cfg = PHASES[phase];
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 flex flex-col items-center gap-4">
-      <div className="flex items-center gap-2">
-        <Leaf className="w-4 h-4 text-emerald-400" />
-        <span className="text-slate-500 text-[10px] uppercase tracking-widest">Nefes Egzersizi</span>
-        {rounds > 0 && <span className="text-slate-600 text-xs">{rounds} tur</span>}
+    <div className="rounded-3xl border border-emerald-500/15 bg-[#0d1628] backdrop-blur-xl p-6 flex flex-col items-center gap-6 shadow-2xl relative overflow-hidden group">
+      <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/6 to-transparent opacity-80" />
+      
+      <div className="flex items-center gap-2 z-10">
+        <div className="w-1.5 h-4 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)]" />
+        <span className="text-slate-300 text-[11px] font-black uppercase tracking-[0.2em]">Nefes Egzersizi</span>
+        {rounds > 0 && (
+          <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/20">
+            {rounds} Tur
+          </span>
+        )}
       </div>
 
       {/* Animasyon çemberi */}
-      <div className="relative flex items-center justify-center">
+      <div className="relative flex items-center justify-center z-10">
         <div
-          className="w-28 h-28 rounded-full border-4 flex items-center justify-center transition-all duration-1000"
+          className="w-36 h-36 rounded-full border-[6px] flex items-center justify-center transition-all duration-1000 shadow-[0_0_40px_rgba(0,0,0,0.3)]"
           style={{
-            borderColor: cfg.color,
-            boxShadow: phase !== 'idle' ? `0 0 24px ${cfg.color}40, inset 0 0 24px ${cfg.color}10` : 'none',
-            transform: phase === 'inhale' ? 'scale(1.12)' : phase === 'exhale' ? 'scale(0.88)' : 'scale(1)',
+            borderColor: `${cfg.color}30`,
+            borderTopColor: cfg.color,
+            boxShadow: phase !== 'idle' ? `0 0 30px ${cfg.color}20, inset 0 0 30px ${cfg.color}10` : 'none',
+            transform: phase === 'inhale' ? 'scale(1.15)' : phase === 'exhale' ? 'scale(0.85)' : 'scale(1)',
           }}
         >
           <div className="text-center">
-            <div className="text-white text-3xl font-black tabular-nums">{count || ''}</div>
-            <div className="text-[11px] font-bold" style={{ color: cfg.color }}>{cfg.label}</div>
+            <div className="text-white text-4xl font-black tabular-nums drop-shadow-lg">{count || '0'}</div>
+            <div className="text-[12px] font-black uppercase tracking-wider" style={{ color: cfg.color }}>{cfg.label}</div>
           </div>
         </div>
+        
+        {/* Dekoratif halkalar */}
+        <div className="absolute inset-[-12px] border border-white/5 rounded-full animate-pulse" />
+        {phase !== 'idle' && (
+           <div 
+             className="absolute inset-0 rounded-full animate-ping opacity-20" 
+             style={{ backgroundColor: cfg.color }}
+           />
+        )}
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex gap-4 z-10 w-full">
         {phase === 'idle' ? (
           <button
             onClick={startCycle}
-            className="px-6 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-bold active:scale-95 transition-all flex items-center gap-2"
+            className="flex-1 h-14 rounded-2xl bg-emerald-500 text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-3"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            Başlat
+            <Play className="w-4 h-4 fill-current" />
+            BAŞLAT
           </button>
         ) : (
           <button
             onClick={stop}
-            className="px-6 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-sm font-bold active:scale-95 transition-all"
+            className="flex-1 h-14 rounded-2xl bg-white/10 border border-white/10 text-white font-black text-sm uppercase tracking-widest hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 active:scale-95 transition-all"
           >
-            Durdur
+            DURDUR
           </button>
         )}
       </div>
@@ -136,12 +152,13 @@ const EntApps = memo(function EntApps() {
   ];
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Tv className="w-4 h-4 text-purple-400" />
-        <span className="text-slate-500 text-[10px] uppercase tracking-widest">Park Modu İçerik</span>
+    <div className="rounded-3xl border border-purple-500/15 bg-[#0d1628] backdrop-blur-xl p-5 shadow-xl relative overflow-hidden group">
+      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/8 to-transparent" />
+      <div className="flex items-center gap-2 mb-5 relative z-10">
+        <div className="w-1.5 h-4 rounded-full bg-purple-400 shadow-[0_0_10px_rgba(192,132,252,0.6)]" />
+        <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Eğlence</span>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-4 gap-3 relative z-10">
         {entApps.map((a) => {
           const appItem = APP_MAP[a.id];
           if (!appItem) return null;
@@ -149,10 +166,10 @@ const EntApps = memo(function EntApps() {
             <button
               key={a.id}
               onClick={() => openApp(appItem)}
-              className="flex flex-col items-center gap-2 py-3 rounded-xl bg-white/5 border border-white/5 active:scale-90 transition-transform hover:bg-white/10"
+              className="group flex flex-col items-center gap-3 py-5 rounded-2xl bg-white/[0.08] border border-white/[0.1] active:scale-90 transition-all hover:bg-purple-500/15 hover:border-purple-400/30 shadow-lg"
             >
-              <span className="text-2xl">{appItem.icon}</span>
-              <span className="text-slate-400 text-[10px] font-bold truncate w-full text-center">{appItem.name}</span>
+              <span className="text-3xl filter drop-shadow-md group-hover:scale-110 transition-transform">{appItem.icon}</span>
+              <span className="text-slate-200 text-[10px] font-black uppercase tracking-wider truncate w-full text-center px-1">{appItem.name}</span>
             </button>
           );
         })}
@@ -178,61 +195,66 @@ const BreakReminderManager = memo(function BreakReminderManager() {
   const pct        = br.intervalMin > 0 ? Math.min(100, (elapsedMin / br.intervalMin) * 100) : 0;
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-3xl border border-amber-500/15 bg-[#0d1628] backdrop-blur-xl p-5 shadow-xl relative overflow-hidden group">
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-500/6 to-transparent" />
+
+      <div className="flex items-center justify-between mb-6 relative z-10">
         <div className="flex items-center gap-2">
-          <Coffee className="w-4 h-4 text-amber-400" />
-          <span className="text-white/70 text-sm font-bold">Mola Hatırlatıcı</span>
+          <div className="w-1.5 h-4 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.6)]" />
+          <span className="text-slate-300 text-[11px] font-black uppercase tracking-[0.2em]">Mola Hatırlatıcı</span>
         </div>
         <button
           onClick={handleToggle}
-          className={`relative w-12 h-6 rounded-full transition-all ${br.enabled ? 'bg-amber-500' : 'bg-white/10'}`}
+          className={`relative w-14 h-7 rounded-full transition-all p-1 shadow-inner ${br.enabled ? 'bg-amber-500 shadow-amber-500/20' : 'bg-white/10'}`}
         >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${br.enabled ? 'left-7' : 'left-1'}`} />
+          <span className={`block w-5 h-5 rounded-full bg-white shadow-lg transition-all transform ${br.enabled ? 'translate-x-7' : 'translate-x-0'}`} />
         </button>
       </div>
 
       {/* Süre seçimi */}
-      <div className="flex gap-1.5 mb-4">
+      <div className="flex gap-2 mb-6 relative z-10">
         {intervals.map((min) => (
           <button
             key={min}
             onClick={() => setBreakInterval(min)}
             className={`
-              flex-1 h-8 rounded-xl text-xs font-bold transition-all active:scale-95
+              flex-1 h-10 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 shadow-md
               ${br.intervalMin === min
-                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400'
-                : 'bg-white/5 border border-white/5 text-slate-600 hover:text-white hover:bg-white/10'}
+                ? 'bg-amber-500 text-white border-transparent'
+                : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10'}
             `}
           >
-            {min < 60 ? `${min}d` : `${min / 60}s`}
+            {min < 60 ? `${min}D` : `${min / 60}S`}
           </button>
         ))}
       </div>
 
       {/* İlerleme */}
       {br.enabled && br.drivingStartedAt !== null && (
-        <div>
-          <div className="flex justify-between text-xs mb-1.5">
-            <span className="text-slate-500">Sürüş süresi</span>
-            <span className={`font-bold ${pct > 80 ? 'text-amber-400' : 'text-slate-300'}`}>
-              {elapsedMin} / {br.intervalMin} dk
+        <div className="relative z-10">
+          <div className="flex justify-between text-[11px] font-black uppercase tracking-wider mb-2">
+            <span className="text-slate-400">Sürüş Süresi</span>
+            <span className={pct > 80 ? 'text-amber-400' : 'text-slate-200'}>
+              {elapsedMin} / {br.intervalMin} DK
             </span>
           </div>
-          <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+          <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden p-0.5 border border-white/5">
             <div
-              className={`h-full rounded-full transition-all ${pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+              className={`h-full rounded-full transition-all shadow-[0_0_10px_rgba(0,0,0,0.5)] ${pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
               style={{ width: `${pct}%` }}
             />
           </div>
-          <div className="text-slate-600 text-[10px] mt-1.5">
+          <div className="text-slate-500 text-[10px] font-bold mt-2.5 flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${pct > 90 ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`} />
             {remainMin > 0 ? `${remainMin} dakika sonra mola hatırlatması` : 'Mola zamanı geldi!'}
           </div>
         </div>
       )}
 
       {br.enabled && br.drivingStartedAt === null && (
-        <div className="text-slate-700 text-xs text-center py-2">Araç hareket etmeyi bekliyor…</div>
+        <div className="text-slate-500 text-[11px] font-bold text-center py-2 bg-black/20 rounded-xl border border-white/5">
+          ARAÇ HAREKET ETMEYİ BEKLİYOR…
+        </div>
       )}
     </div>
   );
@@ -245,33 +267,36 @@ export const BreakAlertOverlay = memo(function BreakAlertOverlay() {
   if (!br.alertVisible) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className="mx-4 max-w-sm w-full bg-[#0d1628] border border-amber-500/30 rounded-3xl shadow-2xl overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
-        <div className="p-8 flex flex-col items-center gap-5 text-center">
-          <div className="w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-            <Coffee className="w-10 h-10 text-amber-400" />
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-md animate-fade-in px-6">
+      <div className="max-w-md w-full bg-[#0d1628] border border-amber-500/30 rounded-[2.5rem] shadow-[0_0_50px_rgba(245,158,11,0.2)] overflow-hidden">
+        <div className="h-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500" />
+        <div className="p-10 flex flex-col items-center gap-8 text-center">
+          <div className="w-24 h-24 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center relative">
+            <div className="absolute inset-0 rounded-full animate-ping bg-amber-500/10" />
+            <Coffee className="w-12 h-12 text-amber-400 z-10" />
           </div>
           <div>
-            <div className="text-white text-2xl font-bold">Mola Zamanı!</div>
-            <div className="text-slate-400 text-sm mt-2 leading-relaxed">
-              {Math.round(br.drivingElapsedMin)} dakika kesintisiz sürüş yaptın.<br />
-              Bir kahve molasına ne dersin?
+            <div className="text-white text-3xl font-black uppercase tracking-tight">MOLA ZAMANI!</div>
+            <div className="text-slate-400 text-base mt-4 leading-relaxed font-medium">
+              <span className="text-amber-400 font-bold">{Math.round(br.drivingElapsedMin)} dakika</span> kesintisiz sürüş yaptın.<br />
+              Güvenliğin için bir kahve molasına ne dersin?
             </div>
           </div>
-          <button
-            onClick={dismissBreakAlert}
-            className="w-full h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold text-base active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            <Check className="w-5 h-5" />
-            Anladım, 30 dk sonra hatırlat
-          </button>
-          <button
-            onClick={dismissBreakAlert}
-            className="text-slate-600 text-sm hover:text-white transition-colors"
-          >
-            Kapat
-          </button>
+          <div className="w-full flex flex-col gap-3">
+            <button
+              onClick={dismissBreakAlert}
+              className="w-full h-16 rounded-[1.25rem] bg-amber-500 text-white font-black text-base uppercase tracking-widest shadow-xl shadow-amber-500/30 active:scale-95 transition-all flex items-center justify-center gap-3"
+            >
+              <Check className="w-6 h-6" />
+              ANLADIM, 30 DK SONRA
+            </button>
+            <button
+              onClick={dismissBreakAlert}
+              className="h-14 rounded-[1.25rem] text-slate-500 font-bold text-sm uppercase tracking-widest hover:text-white transition-colors"
+            >
+              KAPAT
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -291,46 +316,43 @@ export const EntertainmentPortal = memo(function EntertainmentPortal() {
   const isParked = obd.speed === 0;
 
   return (
-    <div className="h-full flex flex-col bg-[#060d1a] text-white overflow-hidden">
+    <div className="h-full flex flex-col bg-[#060d1a] text-white overflow-hidden relative" data-editable="entertainment" data-editable-type="card">
+      <div className="absolute inset-0 bg-gradient-to-b from-blue-500/[0.02] to-transparent pointer-events-none" />
+      
       {/* Başlık */}
-      <div className="flex-shrink-0 px-6 py-5 border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-            <Tv className="w-5 h-5 text-purple-400" />
+      <div className="flex-shrink-0 px-8 py-7 border-b border-white/5 relative z-10 backdrop-blur-md bg-black/10">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-[1.25rem] bg-purple-500/15 border border-purple-500/30 flex items-center justify-center shadow-lg shadow-purple-500/10">
+            <Tv className="w-6 h-6 text-purple-400" />
           </div>
           <div>
-            <div className="text-white font-bold text-lg tracking-tight">Eğlence Portalı</div>
-            <div className="text-slate-500 text-xs">Park Modu & Mola Araçları</div>
+            <div className="text-white font-black text-xl tracking-tight uppercase">Eğlence Portalı</div>
+            <div className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.25em]">Park Modu & Sürüş Destek</div>
           </div>
           {isParked && (
-            <div className="ml-auto flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400 text-[10px] font-bold">Park</span>
+            <div className="ml-auto flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-4 py-1.5 shadow-inner">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">PARK</span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        {/* Park modunda içerik */}
-        {isParked ? (
-          <EntApps />
-        ) : (
-          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-6 text-center">
-            <div className="text-slate-600 text-sm">
-              İçerik kilidini açmak için aracı park edin
-            </div>
-            <div className="text-slate-700 text-xs mt-1">
-              Hız: {Math.round(obd.speed)} km/h
-            </div>
+      <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 relative z-10 custom-scrollbar">
+        {/* Sürüş uyarısı */}
+        {!isParked && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-6 py-4 flex items-center gap-4 animate-pulse">
+            <div className="w-3 h-3 rounded-full bg-amber-400 flex-shrink-0 shadow-[0_0_10px_rgba(251,191,36,0.8)]" />
+            <span className="text-amber-400 text-sm font-black uppercase tracking-wider">ARAÇ HAREKET EDİYOR — {Math.round(obd.speed)} KM/H</span>
           </div>
         )}
 
-        {/* Mola Hatırlatıcı */}
+        <EntApps />
         <BreakReminderManager />
-
-        {/* Nefes egzersizi (her zaman erişilebilir) */}
         <BreathingExercise />
+        
+        {/* Alt boşluk */}
+        <div className="h-4 flex-shrink-0" />
       </div>
     </div>
   );

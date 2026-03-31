@@ -102,7 +102,10 @@ export async function fetchRoute(
       `/${fromLon},${fromLat};${toLon},${toLat}` +
       `?steps=true&geometries=geojson&overview=full`;
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8_000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();

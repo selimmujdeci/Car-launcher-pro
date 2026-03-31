@@ -152,6 +152,7 @@ const INITIAL: NotificationState = {
 let _state: NotificationState = { ...INITIAL };
 const _listeners = new Set<(s: NotificationState) => void>();
 let _mockTimer: ReturnType<typeof setInterval> | null = null;
+let _nativeListenerStop: (() => void) | null = null;
 let _started = false;
 
 function _notify(): void {
@@ -236,9 +237,9 @@ async function _startNative(): Promise<void> {
       _setState({ hasPermission: true }); // assume granted if method missing
     }
 
-    // Listen for notification events
-    await (CarLauncher as unknown as {
-      addListener: (event: string, handler: (data: Record<string, string | number | boolean>) => void) => Promise<unknown>;
+    // Listen for notification events — store handle for cleanup
+    const handle = await (CarLauncher as unknown as {
+      addListener: (event: string, handler: (data: Record<string, string | number | boolean>) => void) => Promise<{ remove: () => void }>;
     }).addListener('notification', (data) => {
       _addNotification({
         packageName: String(data.packageName ?? ''),
@@ -248,6 +249,7 @@ async function _startNative(): Promise<void> {
         time: Number(data.time ?? Date.now()),
       });
     });
+    _nativeListenerStop = () => { try { handle.remove(); } catch { /* ignore */ } };
 
   } catch {
     // Fall back to mock if native not available
@@ -262,7 +264,11 @@ export function startNotificationService(): void {
   _started = true;
 
   if (Capacitor.isNativePlatform()) {
-    _startNative();
+    // Await via void + catch — prevents unhandled promise rejection
+    _startNative().catch(() => {
+      // _startNative already falls back to mock on failure; this is a safety net
+      _started = false; // allow retry
+    });
   } else {
     _setState({ hasPermission: true });
     _startMock();
@@ -271,6 +277,11 @@ export function startNotificationService(): void {
 
 export function stopNotificationService(): void {
   if (_mockTimer) { clearInterval(_mockTimer); _mockTimer = null; }
+  if (_nativeListenerStop) {
+    const stop = _nativeListenerStop;
+    _nativeListenerStop = null;
+    try { stop(); } catch { /* ignore */ }
+  }
   stopSpeaking();
   _started = false;
 }
@@ -311,8 +322,6 @@ export async function startVoiceReply(notifId: string): Promise<void> {
           replyToNotification: (opts: { id: string; text: string }) => Promise<void>;
         }).replyToNotification({ id: notifId, text: transcript });
       }
-      // On web, just log — real reply requires native
-      console.log(`[NotificationService] Voice reply: "${transcript}" → notif ${notifId}`);
     } catch {
       // ignore
     }

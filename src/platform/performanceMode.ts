@@ -119,3 +119,27 @@ export function onPerformanceModeChange(fn: (mode: PerformanceMode) => void): ()
   _modeListeners.add(fn);
   return () => _modeListeners.delete(fn);
 }
+
+/**
+ * Auto-set performance mode from native device profile.
+ * Only applies if the user has NOT manually overridden the mode
+ * (i.e. localStorage has no saved value).
+ *
+ * Mapping:
+ *   deviceClass 'low'  → lite
+ *   deviceClass 'mid'  → balanced
+ *   deviceClass 'high' → premium
+ */
+export function initFromDeviceProfile(deviceClass: 'low' | 'mid' | 'high'): void {
+  // Respect explicit user override
+  try {
+    if (localStorage.getItem(PERF_MODE_KEY) !== null) return;
+  } catch { /* ignore */ }
+
+  const modeMap: Record<'low' | 'mid' | 'high', PerformanceMode> = {
+    low:  'lite',
+    mid:  'balanced',
+    high: 'premium',
+  };
+  setPerformanceMode(modeMap[deviceClass]);
+}

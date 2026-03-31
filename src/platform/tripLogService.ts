@@ -253,15 +253,20 @@ function _onOBD(speed: number, fuelLevel: number): void {
 
 /* ── Public API ──────────────────────────────────────────── */
 
+let _obdUnsub: (() => void) | null = null;
+
 export function startTripLog(): void {
   if (_started) return;
   _started = true;
-  onOBDData((data) => _onOBD(data.speed, data.fuelLevel));
+  _obdUnsub = onOBDData((data) => {
+    try { _onOBD(data.speed, data.fuelLevel); } catch { /* OBD callback must never crash trip log */ }
+  });
 }
 
 export function stopTripLog(): void {
   if (!_started) return;
   _started = false;
+  if (_obdUnsub) { try { _obdUnsub(); } catch { /* ignore */ } _obdUnsub = null; }
   if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
   _endTrip();
 }

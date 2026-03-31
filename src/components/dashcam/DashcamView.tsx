@@ -47,7 +47,7 @@ function DashcamViewInner({ onClose }: Props) {
   }, [state.active]);
 
   return (
-    <div className="flex flex-col h-full bg-[#060d1a] text-white select-none">
+    <div className="flex flex-col h-full bg-[#060d1a] text-white select-none" data-editable="dashcam" data-editable-type="card">
 
       {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 flex-shrink-0">
@@ -83,7 +83,7 @@ function DashcamViewInner({ onClose }: Props) {
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-700">
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-500">
               <VideoOff className="w-16 h-16" />
               <div className="text-sm font-medium">Kamera kapalı</div>
               {state.hasPermission === false && (
@@ -196,7 +196,7 @@ function DashcamViewInner({ onClose }: Props) {
 
       {/* Info bar */}
       <div className="px-4 pb-3 flex-shrink-0">
-        <p className="text-slate-700 text-[10px] text-center leading-relaxed">
+        <p className="text-slate-500 text-[10px] text-center leading-relaxed">
           Döngüsel kayıt: son 6 dakika bellekte tutulur • G-Sensörü {SHAKE_THRESHOLD_DISPLAY}G üzerinde otomatik kilitler
         </p>
       </div>

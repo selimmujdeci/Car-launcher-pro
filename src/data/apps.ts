@@ -35,6 +35,7 @@ export const ALL_APPS: AppItem[] = [
   // Navigasyon
   { id: 'maps',       name: 'Google Maps',    icon: '🗺️', category: 'navigation',    url: 'https://maps.google.com',    androidPackage: 'com.google.android.apps.maps',                      androidCategory: 'android.intent.category.APP_MAPS', supportsFavorite: true,  supportsRecent: true  },
   { id: 'waze',       name: 'Waze',           icon: '🚗', category: 'navigation',    url: 'https://waze.com',           androidPackage: 'com.waze',                                          supportsFavorite: true,  supportsRecent: true  },
+  { id: 'yandex',     name: 'Yandex Harita',  icon: '🧭', category: 'navigation',    url: 'https://yandex.com.tr/maps', androidPackage: 'ru.yandex.yandexmaps',                              androidCategory: 'android.intent.category.APP_MAPS', supportsFavorite: true,  supportsRecent: true  },
 
   // Medya
   { id: 'spotify',    name: 'Spotify',        icon: '🎵', category: 'media',         url: 'https://open.spotify.com',   androidPackage: 'com.spotify.music',                                 androidCategory: 'android.intent.category.APP_MUSIC', supportsFavorite: true,  supportsRecent: true  },
@@ -66,8 +67,9 @@ export const APP_MAP = Object.fromEntries(ALL_APPS.map((a) => [a.id, a])) as Rec
 /* ── Settings: Varsayılan Uygulama Seçenekleri ───────────── */
 
 export const NAV_OPTIONS = {
-  maps: { name: 'Google Maps', icon: '🗺️', url: 'https://maps.google.com', androidPackage: 'com.google.android.apps.maps', androidCategory: 'android.intent.category.APP_MAPS' },
-  waze: { name: 'Waze',        icon: '🚗', url: 'https://waze.com',        androidPackage: 'com.waze',                     androidCategory: 'android.intent.category.APP_MAPS' },
+  maps:   { name: 'Google Maps',   icon: '🗺️', url: 'https://maps.google.com',    androidPackage: 'com.google.android.apps.maps', androidCategory: 'android.intent.category.APP_MAPS' },
+  waze:   { name: 'Waze',          icon: '🚗', url: 'https://waze.com',            androidPackage: 'com.waze',                     androidCategory: 'android.intent.category.APP_MAPS' },
+  yandex: { name: 'Yandex Harita', icon: '🧭', url: 'https://yandex.com.tr/maps',  androidPackage: 'ru.yandex.yandexmaps',         androidCategory: 'android.intent.category.APP_MAPS' },
 } as const;
 
 export const MUSIC_OPTIONS = {

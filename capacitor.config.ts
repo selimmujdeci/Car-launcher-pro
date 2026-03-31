@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Car Launcher Pro',
   webDir: 'dist',
   android: {
-    allowMixedContent: true,
+    allowMixedContent: process.env['NODE_ENV'] !== 'production',
     captureInput: true,
     // Enable remote WebView debugging during launcher test (chrome://inspect)
     // Set to false for production release
@@ -16,7 +16,7 @@ const config: CapacitorConfig = {
     appendUserAgent: 'CarLauncherPro/1.0',
   },
   server: {
-    androidScheme: 'https',
+    androidScheme: process.env['NODE_ENV'] === 'production' ? 'https' : 'http',
   },
 };
 
