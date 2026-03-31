@@ -179,8 +179,54 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
         className="flex-1 min-h-0 min-w-0 mx-3 mb-3 rounded-2xl overflow-hidden bg-[#05080f] border border-white/5 relative"
       >
         <MapOverlay location={location} heading={heading} compact={true} />
+
+        {/* GPS placeholder — MapLibre siyah canvas'ı tamamen örter */}
+        {!location && (
+          <div className="absolute inset-0 z-20 rounded-2xl overflow-hidden"
+            style={{ background: 'linear-gradient(135deg, #060d1f 0%, #0a1428 40%, #060d1f 100%)' }}
+          >
+            {/* Grid çizgileri — harita hissi */}
+            <svg className="absolute inset-0 w-full h-full opacity-[0.06]" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#60a5fa" strokeWidth="0.5"/>
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#grid)" />
+            </svg>
+
+            {/* Köşe koordinat etiketleri — harita hissi */}
+            <div className="absolute top-2 left-3 text-blue-400/20 text-[8px] font-mono">41.0°N</div>
+            <div className="absolute top-2 right-3 text-blue-400/20 text-[8px] font-mono">28.9°E</div>
+            <div className="absolute bottom-2 left-3 text-blue-400/20 text-[8px] font-mono">40.9°N</div>
+            <div className="absolute bottom-2 right-3 text-blue-400/20 text-[8px] font-mono">29.1°E</div>
+
+            {/* Merkez — radar pulse + pin */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              {/* Radar halkaları */}
+              <div className="absolute w-24 h-24 rounded-full border border-blue-500/20 animate-ping" style={{ animationDuration: '2s' }} />
+              <div className="absolute w-16 h-16 rounded-full border border-blue-500/25 animate-ping" style={{ animationDuration: '2s', animationDelay: '0.5s' }} />
+              <div className="absolute w-8  h-8  rounded-full border border-blue-500/30 animate-ping" style={{ animationDuration: '2s', animationDelay: '1s' }} />
+
+              {/* İkon + yazı kartı */}
+              <div className="relative flex flex-col items-center gap-2.5 z-10">
+                <div className="w-10 h-10 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.3)]">
+                  <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-blue-400" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                    <circle cx="12" cy="9" r="2.5" fill="currentColor" fillOpacity="0.4"/>
+                  </svg>
+                </div>
+                <div className="text-center">
+                  <div className="text-blue-300 text-[10px] font-black tracking-[0.25em] uppercase">GPS Aranıyor</div>
+                  <div className="text-slate-500 text-[8px] font-semibold tracking-wider mt-0.5">Sinyal bekleniyor…</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tileError && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
             <div className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl bg-black/70 border border-red-500/30 backdrop-blur-sm">
               <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
               <span className="text-red-400 text-[9px] font-semibold tracking-wide uppercase">Harita yüklenemiyor</span>

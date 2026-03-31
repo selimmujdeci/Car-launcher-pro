@@ -90,8 +90,8 @@ const NavHero = memo(function NavHero({
 
   return (
     <div
-      className="flex flex-col rounded-[2.5rem] border border-white/10 p-8 overflow-hidden relative min-h-0 w-full h-full group transition-all duration-300 shadow-[0_20px_60px_rgba(0,0,0,0.6)] hover:border-white/20 hover:shadow-[0_25px_70px_rgba(0,0,0,0.7)]"
-      style={{ background: 'linear-gradient(165deg, rgba(10,18,40,0.7) 0%, rgba(5,10,25,0.9) 100%)', backdropFilter: 'blur(50px)' }}
+      className="flex flex-col rounded-[2.5rem] border border-white/[0.14] p-8 overflow-hidden relative min-h-0 w-full h-full group transition-all duration-300 shadow-[0_12px_40px_rgba(0,0,0,0.4)] hover:border-white/25 hover:shadow-[0_16px_50px_rgba(0,0,0,0.5)]"
+      style={{ background: 'linear-gradient(165deg, rgba(20,34,62,0.9) 0%, rgba(14,24,46,0.97) 100%)', backdropFilter: 'blur(50px)' }}
     >
       <div className="flex items-center justify-between mb-10 flex-shrink-0 relative z-10">
         <div className="flex items-center gap-6">
@@ -135,8 +135,8 @@ const MediaPanel = memo(function MediaPanel({ defaultMusic }: { defaultMusic: Mu
 
   return (
     <div
-      className="flex flex-col rounded-[2.5rem] border border-white/10 p-8 min-h-0 w-full h-full overflow-hidden relative group transition-all duration-300 shadow-[0_20px_60px_rgba(0,0,0,0.6)] hover:border-white/20"
-      style={{ background: 'linear-gradient(165deg, rgba(10,18,40,0.7) 0%, rgba(5,10,25,0.9) 100%)', backdropFilter: 'blur(50px)' }}
+      className="flex flex-col rounded-[2.5rem] border border-white/[0.14] p-8 min-h-0 w-full h-full overflow-hidden relative group transition-all duration-300 shadow-[0_12px_40px_rgba(0,0,0,0.4)] hover:border-white/25"
+      style={{ background: 'linear-gradient(165deg, rgba(20,34,62,0.9) 0%, rgba(14,24,46,0.97) 100%)', backdropFilter: 'blur(50px)' }}
     >
       <div className="flex-1 flex flex-col justify-center min-h-0 relative z-10">
         <div className="text-white font-black leading-none truncate text-[2.2rem] tracking-tight mb-2 group-hover:text-blue-50 transition-colors duration-300">{track.title}</div>

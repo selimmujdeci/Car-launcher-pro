@@ -80,19 +80,19 @@
 
   --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-  /* Solidified background colors for driving clarity */
-  --color-car-bg:          #060812;
-  --color-car-surface:     #0d1324;
-  --color-car-card:        #151c30;
-  --color-car-card-hover:  #1d2745;
-  --color-car-border:      #32406a;
+  /* ── Surface hierarchy — Tesla/BMW-inspired contrast ── */
+  --color-car-bg:          #0a1628;   /* deep navy — no pure black */
+  --color-car-surface:     #111e35;   /* +1 level lighter */
+  --color-car-card:        #1a2a42;   /* +2 levels — clearly visible */
+  --color-car-card-hover:  #213350;   /* hover state */
+  --color-car-border:      rgba(255,255,255,0.14);
   --color-car-accent:      #3b82f6;
   --color-car-accent-glow: #60a5fa;
   --color-car-success:     #22c55e;
   --color-car-warning:     #f59e0b;
   --color-car-danger:      #ef4444;
-  --color-car-text:        #f8fafc;
-  --color-car-text-dim:    #94a3b8;
+  --color-car-text:        #ffffff;   /* primary = full white */
+  --color-car-text-dim:    #94a3b8;   /* secondary = slate-400 */
   --color-car-text-bright: #ffffff;
 }
 
@@ -119,7 +119,8 @@
   justify-content: space-between !important;
   padding: 0 1.5rem !important;
   z-index: 40 !important;
-  background: rgba(0,0,0,0.2);
+  background: rgba(10, 20, 40, 0.97) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
 }
 
 /* ── 2. Content Zone (Main Experience) ── */
@@ -498,6 +499,48 @@ button svg, [role="button"] svg {
 [data-theme="oled"] .bg-car-card {
   background-color: #0c0c0c !important;
   border-color: #333 !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SURFACE VISIBILITY SYSTEM — Kart arka planlarını güçlendir
+   bg-white/[0.04-0.08] değerleri yeterince görünür değil.
+   Bu kurallar minimal yüzey rengi garantiler.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Çok soluk kartları yüzey haline getir */
+.bg-white\/\[0\.02\],
+.bg-white\/\[0\.03\],
+.bg-white\/\[0\.04\],
+.bg-white\/\[0\.05\] {
+  background-color: rgba(255,255,255,0.07) !important;
+}
+
+.bg-white\/\[0\.06\],
+.bg-white\/\[0\.07\],
+.bg-white\/\[0\.08\] {
+  background-color: rgba(255,255,255,0.10) !important;
+}
+
+/* Border görünürlüğü — min %12 */
+.border-white\/\[0\.04\],
+.border-white\/\[0\.05\],
+.border-white\/\[0\.06\],
+.border-white\/\[0\.08\] {
+  border-color: rgba(255,255,255,0.12) !important;
+}
+
+/* Glow azaltma — dekoratif glow'lar %50 güç */
+:root {
+  --glow-blue-soft:  0 0 12px rgba(59, 130, 246, 0.20);
+  --glow-green-soft: 0 0 10px rgba(34, 197, 94,  0.20);
+  --glow-amber-soft: 0 0 10px rgba(245, 158, 11, 0.20);
+  --glow-red-soft:   0 0 10px rgba(239, 68,  68,  0.20);
+}
+
+/* Harita alanını arka plandan ayır — görünür border */
+.map-container {
+  border: 1.5px solid rgba(255,255,255,0.12) !important;
+  background-color: #0a1628 !important;
 }
 
 /* ── Custom Utilities ────────────────────────────────────── */

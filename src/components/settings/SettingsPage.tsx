@@ -57,7 +57,7 @@ const MapSourcePanel = memo(function MapSourcePanel() {
     <div className="flex flex-col gap-5 pt-5 border-t border-white/5">
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2.5">
-          <div className="w-1.5 h-4 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.6)]" />
+          <div className="w-1.5 h-4 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]" />
           <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Harita Kaynağı</span>
         </div>
         <div className="flex items-center gap-3">
@@ -188,7 +188,7 @@ const OfflineTilePanel = memo(function OfflineTilePanel() {
       {/* Başlık */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2.5">
-          <div className="w-1.5 h-4 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
+          <div className="w-1.5 h-4 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
           <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Çevrimdışı Harita İndir</span>
         </div>
         {cachedCount > 0 && (
@@ -285,14 +285,14 @@ function SectionTitle({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-center gap-3 mb-3">
       <div className="w-1 h-5 bg-blue-500 rounded-full" />
-      <span className="text-slate-500 text-xs font-medium tracking-widest uppercase">{children}</span>
+      <span className="text-slate-300 text-xs font-bold tracking-widest uppercase">{children}</span>
     </div>
   );
 }
 
 function Card({ children, className = "" }: { children: ReactNode, className?: string }) {
   return (
-    <div className={`bg-[#0d1628] rounded-2xl border border-white/5 shadow-xl p-5 ${className}`}>
+    <div className={`bg-[#162035] rounded-2xl border border-white/[0.12] shadow-xl p-5 ${className}`}>
       {children}
     </div>
   );
@@ -409,8 +409,8 @@ function ToggleRow({
       className="flex items-center justify-between pb-5 mb-5 border-b border-white/5 last:border-0 last:pb-0 last:mb-0 active:opacity-70 transition-opacity duration-100"
     >
       <div>
-        <div className="text-white text-base font-medium">{label}</div>
-        <div className="text-slate-500 text-sm mt-0.5">{desc}</div>
+        <div className="text-white text-base font-semibold">{label}</div>
+        <div className="text-slate-400 text-sm mt-0.5">{desc}</div>
       </div>
       <div
         className={`w-14 h-7 rounded-full relative transition-[background-color] duration-200 flex-shrink-0 pointer-events-none ${value ? 'bg-blue-600' : 'bg-white/10'}`}
@@ -487,7 +487,7 @@ function SettingsPageInner({ onOpenMap, onClose }: Props) {
 
 
   return (
-    <div className="h-full flex flex-col bg-[#0b1424]">
+    <div className="h-full flex flex-col bg-[#0c1a2e]">
       {/* ── Top Bar ── */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
         <button
@@ -506,7 +506,7 @@ function SettingsPageInner({ onOpenMap, onClose }: Props) {
         </button>
       </div>
       {/* Tabs */}
-      <div className="flex border-b border-white/5 px-6 pt-4 gap-6">
+      <div className="flex border-b border-white/[0.12] px-6 pt-4 gap-6">
         {[
           { id: 'general',     label: 'Genel',       icon: Smartphone },
           { id: 'appearance',  label: 'Tema',        icon: Palette    },
@@ -517,7 +517,7 @@ function SettingsPageInner({ onOpenMap, onClose }: Props) {
             key={t.id}
             onClick={() => setTab(t.id as any)}
             className={`flex items-center gap-2 pb-4 border-b-2 transition-all duration-200 ${
-              tab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-500'
+              tab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
             <t.icon className="w-4 h-4" />
