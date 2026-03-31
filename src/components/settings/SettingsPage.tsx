@@ -709,6 +709,42 @@ function SettingsPageInner({ onOpenMap, onClose }: Props) {
                   </div>
                 </div>
               </Card>
+
+              <SectionTitle>Hava Durumu Şehri</SectionTitle>
+              <Card>
+                <div className="text-slate-400 text-xs mb-3">GPS konum izni yokken kullanılacak varsayılan şehir</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { name: 'İstanbul', lat: 41.0082, lng: 28.9784 },
+                    { name: 'Ankara',   lat: 39.9334, lng: 32.8597 },
+                    { name: 'İzmir',    lat: 38.4189, lng: 27.1287 },
+                    { name: 'Bursa',    lat: 40.1885, lng: 29.0610 },
+                    { name: 'Antalya',  lat: 36.8969, lng: 30.7133 },
+                    { name: 'Adana',    lat: 37.0000, lng: 35.3213 },
+                    { name: 'Konya',    lat: 37.8713, lng: 32.4846 },
+                    { name: 'Kayseri',  lat: 38.7312, lng: 35.4787 },
+                  ] as const).map((city) => {
+                    const current = settings.weatherFallbackCity;
+                    const isActive =
+                      current
+                        ? Math.abs(current.lat - city.lat) < 0.01
+                        : city.name === 'İstanbul';
+                    return (
+                      <button
+                        key={city.name}
+                        onClick={() => updateSettings({ weatherFallbackCity: city })}
+                        className={`py-2.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                          isActive
+                            ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
+                            : 'bg-white/[0.03] border-white/[0.07] text-slate-500 hover:bg-white/[0.08]'
+                        }`}
+                      >
+                        {city.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Card>
             </>
           )}
 

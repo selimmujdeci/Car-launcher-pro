@@ -525,6 +525,8 @@ button svg, [role="button"] svg {
 
 /* ══════════════════════════════════════════════════════════════════════
    HEAD UNIT COMPAT MODE
+   backdrop-filter çalışmayan eski WebView / eski Android cihazlar için.
+   headUnitCompat.ts → data-compat-mode="true" → html etiketine eklenir.
    ══════════════════════════════════════════════════════════════════════ */
 
 html[data-compat-mode="true"] * {
@@ -534,4 +536,66 @@ html[data-compat-mode="true"] * {
   transition-duration: 100ms !important;
   box-shadow: none !important;
   text-shadow: none !important;
+}
+
+/* Solid opaque background fallback'leri
+ * Blur olmadan cam efektli elementler saydam görünür.
+ * Aşağıdaki kural tüm yarı saydam arka planları opak koyu renk yapar.
+ * Not: inline style'ları ezemez, sadece CSS sınıflarını ezer.        */
+html[data-compat-mode="true"] {
+  /* Theme CSS değişkenlerini tam opak versiyonlarına zorla */
+  --pack-blur: 0px !important;
+  --pack-card-bg: rgb(12, 17, 35) !important;
+  --header-bg: rgb(5, 8, 18) !important;
+  --header-blur: 0px !important;
+  --dock-bg: rgb(4, 6, 16) !important;
+  --dock-blur: 0px !important;
+}
+
+/* Dock ve header — en kritik UI elementleri */
+html[data-compat-mode="true"] [data-dock="main"] {
+  background: rgb(4, 6, 16) !important;
+}
+
+html[data-compat-mode="true"] [data-header] {
+  background: rgb(5, 8, 18) !important;
+}
+
+/* Drawer panel — tam opak */
+html[data-compat-mode="true"] [data-drawer] {
+  background: rgb(6, 10, 22) !important;
+}
+
+/* Tailwind backdrop-blur sınıfları — tümü kaldır */
+html[data-compat-mode="true"] .backdrop-blur-3xl,
+html[data-compat-mode="true"] .backdrop-blur-2xl,
+html[data-compat-mode="true"] .backdrop-blur-xl,
+html[data-compat-mode="true"] .backdrop-blur-lg,
+html[data-compat-mode="true"] .backdrop-blur-md,
+html[data-compat-mode="true"] .backdrop-blur-sm,
+html[data-compat-mode="true"] .backdrop-blur {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  /* Yarı saydam arka planı opaklaştır */
+  background-color: rgb(8, 13, 28) !important;
+}
+
+/* Glass/blur olan ve CSS sınıfıyla tanımlanmış kart elementleri */
+html[data-compat-mode="true"] .bg-white\/\[0\.03\],
+html[data-compat-mode="true"] .bg-white\/\[0\.05\],
+html[data-compat-mode="true"] .bg-white\/\[0\.08\],
+html[data-compat-mode="true"] .bg-black\/60,
+html[data-compat-mode="true"] .bg-black\/70,
+html[data-compat-mode="true"] .bg-black\/80 {
+  background-color: rgb(10, 15, 32) !important;
+}
+
+/* @supports ile W3C standart yol — tarayıcı destekliyorsa üst kuralları geçersiz kıl */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  html[data-compat-mode="true"] .backdrop-blur-3xl,
+  html[data-compat-mode="true"] .backdrop-blur-2xl,
+  html[data-compat-mode="true"] .backdrop-blur-xl {
+    /* backdrop-filter çalışıyor — CSS değişkenine bırak */
+    background-color: revert !important;
+  }
 }

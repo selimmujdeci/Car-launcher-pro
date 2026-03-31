@@ -42,28 +42,24 @@ export interface MediaState {
 
 /* ── Demo data ───────────────────────────────────────────── */
 
+/**
+ * Müzik notu SVG'si — offline ve izin gerektirmez.
+ * Gerçek cihazda Android MediaSession albumArt (base64) bu değeri ezer.
+ */
+const DEMO_ART =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+    '<rect width="100" height="100" fill="%230d1628"/>' +
+    '<circle cx="50" cy="50" r="30" fill="%231e3a5f" stroke="%233b82f6" stroke-width="2"/>' +
+    '<path d="M42 38v24l20-12z" fill="%233b82f6"/>' +
+    '</svg>',
+  );
+
 const DEMO_TRACKS: TrackInfo[] = [
-  { 
-    title: 'Blinding Lights',   
-    artist: 'The Weeknd',       
-    durationSec: 200, 
-    positionSec: 84,
-    albumArt: 'https://i.scdn.co/image/ab67616d0000b273c5113d961e6992d9e03d7c4b'
-  },
-  { 
-    title: 'As It Was',         
-    artist: 'Harry Styles',     
-    durationSec: 167, 
-    positionSec: 12,
-    albumArt: 'https://i.scdn.co/image/ab67616d0000b273b46f74097655d7f353caab14'
-  },
-  { 
-    title: 'Starboy',           
-    artist: 'The Weeknd',       
-    durationSec: 230, 
-    positionSec: 0,
-    albumArt: 'https://i.scdn.co/image/ab67616d0000b2734718e2b124f79258be7bc39d'
-  },
+  { title: 'Blinding Lights',   artist: 'The Weeknd',    durationSec: 200, positionSec: 84,  albumArt: DEMO_ART },
+  { title: 'As It Was',         artist: 'Harry Styles',  durationSec: 167, positionSec: 12,  albumArt: DEMO_ART },
+  { title: 'Starboy',           artist: 'The Weeknd',    durationSec: 230, positionSec: 0,   albumArt: DEMO_ART },
 ];
 
 let _demoIndex = 0;

@@ -153,6 +153,11 @@ export interface AppSettings {
   obdAutoSleep: boolean;
   /** OBD uyku gecikmesi (dakika) — RPM 0'dan bu süre sonra uyku moduna girer */
   obdSleepDelayMin: number;
+  /**
+   * GPS yokken hava durumu için varsayılan şehir koordinatları.
+   * Boş bırakılırsa İstanbul kullanılır.
+   */
+  weatherFallbackCity: { lat: number; lng: number; name: string } | null;
 }
 
 interface StoreState {
@@ -231,6 +236,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   editMode: false,
   obdAutoSleep: false,
   obdSleepDelayMin: 5,
+  weatherFallbackCity: null,
 };
 
 export const useStore = create<StoreState>()(

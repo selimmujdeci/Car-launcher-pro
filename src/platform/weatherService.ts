@@ -246,15 +246,28 @@ function _fetchFuel(lat: number, lng: number): void {
 
 /* ── GPS helpers ─────────────────────────────────────────── */
 
+/** GPS yoksa kullanılacak varsayılan koordinatlar — dışarıdan set edilebilir */
+let _fallbackLat = 41.0082;
+let _fallbackLng = 28.9784;
+
+/**
+ * GPS yokken kullanılacak fallback koordinatı ayarla.
+ * Kullanıcı şehir seçtiğinde (ayarlar ekranından) çağrılır.
+ */
+export function setWeatherFallback(lat: number, lng: number): void {
+  _fallbackLat = lat;
+  _fallbackLng = lng;
+}
+
 function _getCurrentPosition(): Promise<{ lat: number; lng: number }> {
   return new Promise((resolve) => {
     if (!('geolocation' in navigator)) {
-      resolve({ lat: 41.0082, lng: 28.9784 }); // Istanbul fallback
+      resolve({ lat: _fallbackLat, lng: _fallbackLng });
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      ()    => resolve({ lat: 41.0082, lng: 28.9784 }),
+      ()    => resolve({ lat: _fallbackLat, lng: _fallbackLng }),
       { timeout: 5_000, enableHighAccuracy: false },
     );
   });

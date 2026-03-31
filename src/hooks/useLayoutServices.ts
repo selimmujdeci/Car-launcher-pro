@@ -9,7 +9,7 @@ import { startTripLog } from '../platform/tripLogService';
 import {
   startNotificationService, stopNotificationService,
 } from '../platform/notificationService';
-import { startWeatherService, stopWeatherService } from '../platform/weatherService';
+import { startWeatherService, stopWeatherService, setWeatherFallback } from '../platform/weatherService';
 import { startSpeedLimitService, stopSpeedLimitService } from '../platform/speedLimitService';
 import {
   setBrightness,
@@ -110,6 +110,14 @@ export function useLayoutServices({
       updateAutoBrightnessLocation(location.latitude, location.longitude);
     }
   }, [location?.latitude, location?.longitude, settings.autoBrightnessEnabled]);
+
+  // Weather fallback city (GPS yokken kullanılacak şehir)
+  useEffect(() => {
+    if (settings.weatherFallbackCity) {
+      setWeatherFallback(settings.weatherFallbackCity.lat, settings.weatherFallbackCity.lng);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.weatherFallbackCity?.lat, settings.weatherFallbackCity?.lng]);
 
   // Speed limit, trip log, notifications, weather, brightness, headlight auto brightness
   useEffect(() => {

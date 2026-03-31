@@ -42,6 +42,23 @@ const useMapStore = create<MapState>(() => ({
 let initInProgress = false;
 let offlineInitialized = false;
 
+type PendingInit = {
+  resolve: (m: MapLibreMap) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+let _pendingInits: PendingInit[] = [];
+
+function _flushPending(map: MapLibreMap): void {
+  const pending = _pendingInits.splice(0);
+  pending.forEach(({ resolve, timer }) => { clearTimeout(timer); resolve(map); });
+}
+
+function _rejectPending(err: Error): void {
+  const pending = _pendingInits.splice(0);
+  pending.forEach(({ reject, timer }) => { clearTimeout(timer); reject(err); });
+}
+
 const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
   version: 8,
   name: 'OSM Online',
@@ -104,19 +121,12 @@ export async function initializeMap(
   }
 
   if (initInProgress) {
-    return new Promise((resolve, reject) => {
-      const checkReady = setInterval(() => {
-        const map = useMapStore.getState().mapInstance;
-        if (map) {
-          clearInterval(checkReady);
-          clearTimeout(timeoutHandle);
-          resolve(map);
-        }
-      }, 150);
-      const timeoutHandle = setTimeout(() => {
-        clearInterval(checkReady);
+    return new Promise<MapLibreMap>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        _pendingInits = _pendingInits.filter((p) => p.resolve !== resolve);
         reject(new Error('Map init timeout'));
       }, 5000);
+      _pendingInits.push({ resolve, reject, timer });
     });
   }
 
@@ -225,6 +235,7 @@ export async function initializeMap(
     });
 
     useMapStore.setState({ mapInstance: map, error: null });
+    _flushPending(map);
     return map;
   } catch (err) {
     logError('Map:InitFallback', err);
@@ -241,10 +252,12 @@ export async function initializeMap(
 
       fallbackMap.on('error', () => {}); // suppress all errors on fallback
       useMapStore.setState({ mapInstance: fallbackMap, error: null });
+      _flushPending(fallbackMap);
       return fallbackMap;
     } catch (fallbackErr) {
       const msg = fallbackErr instanceof Error ? fallbackErr.message : 'Map init failed';
       useMapStore.setState({ error: msg });
+      _rejectPending(new Error(msg));
       throw fallbackErr;
     }
   } finally {
