@@ -54,7 +54,7 @@ export const DockBar = memo(function DockBar({
             if (!app) return null;
             return (
               <button key={id} onClick={() => onLaunch(id)}
-                className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+                className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
                 <span className="text-xl leading-none group-hover:scale-110 transition-transform">{app.icon}</span>
                 <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">{app.name}</span>
               </button>
@@ -77,28 +77,28 @@ export const DockBar = memo(function DockBar({
 
           {/* Dashcam */}
           <button onClick={() => onOpenDrawer('dashcam')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center">
             <Camera className="w-5 h-5 text-red-400/60 group-hover:text-red-400 transition-colors" />
             <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em]">Dashcam</span>
           </button>
 
           {/* Trip Log */}
           <button onClick={() => onOpenDrawer('triplog')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <Route className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Seyir</span>
           </button>
 
           {/* DTC */}
           <button onClick={() => onOpenDrawer('dtc')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <ShieldAlert className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Arıza</span>
           </button>
 
           {/* Weather */}
           <button onClick={() => onOpenDrawer('weather')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <CloudSun className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Hava</span>
           </button>
@@ -111,21 +111,21 @@ export const DockBar = memo(function DockBar({
 
           {/* Apps */}
           <button onClick={onOpenApps}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group snap-center">
             <LayoutGrid className="w-5 h-5 text-blue-400 group-hover:text-blue-300 transition-colors" />
             <span className="text-blue-400/60 group-hover:text-blue-300 text-[10px] font-black uppercase tracking-[0.2em]">Menü</span>
           </button>
 
           {/* Split Screen */}
           <button onClick={onOpenSplit}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <span className="text-lg leading-none group-hover:scale-110 transition-transform">⊞</span>
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Split</span>
           </button>
 
           {/* Rear Camera */}
           <button onClick={onOpenRearCam}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <span className="text-lg leading-none group-hover:scale-110 transition-transform">📸</span>
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Arka Kam</span>
           </button>
@@ -143,35 +143,35 @@ export const DockBar = memo(function DockBar({
 
           {/* Sport */}
           <button onClick={() => onOpenDrawer('sport')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center">
             <span className="text-lg leading-none group-hover:scale-110 transition-transform">⚡</span>
             <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-widest">Sport</span>
           </button>
 
           {/* Security */}
           <button onClick={() => onOpenDrawer('security')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <Shield className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Vale</span>
           </button>
 
           {/* Entertainment */}
           <button onClick={() => onOpenDrawer('entertainment')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <span className="text-lg leading-none group-hover:scale-110 transition-transform">🎬</span>
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Eğlence</span>
           </button>
 
           {/* Passenger */}
           <button onClick={onOpenPassenger}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <Smartphone className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
             <span className="text-white/30 group-hover:text-blue-400 text-[10px] font-black uppercase tracking-[0.2em]">Yolcu</span>
           </button>
 
           {/* Settings */}
           <button onClick={onOpenSettings}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
+            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
             <SlidersHorizontal className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors" />
             <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Ayarlar</span>
           </button>

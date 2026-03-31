@@ -4,7 +4,7 @@
  * Değişiklikler anında uygulanır (no save needed).
  */
 import { memo, useState, useCallback } from 'react';
-import { X, RotateCcw, Globe, Monitor, EyeOff } from 'lucide-react';
+import { X, RotateCcw, Globe, Monitor, EyeOff, Undo2, Redo2 } from 'lucide-react';
 import {
   useEditStore,
   EDITABLE_REGISTRY,
@@ -134,7 +134,7 @@ function ColorRow({
 
 /* ── Ana Panel ──────────────────────────────────────────────── */
 export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) {
-  const { getStyle, updateElement, resetElement, updateGlobal } = useEditStore();
+  const { getStyle, updateElement, resetElement, updateGlobal, undo, redo, canUndo, canRedo } = useEditStore();
   const [tab, setTab] = useState<Tab>('Renk');
   const [scope, setScope] = useState<'local' | 'global'>('local');
 
@@ -193,6 +193,24 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               </span>
             </div>
             <div className="flex items-center gap-1.5">
+              {/* Undo */}
+              <button
+                onClick={undo}
+                disabled={!canUndo()}
+                title="Geri Al"
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Undo2 className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+              {/* Redo */}
+              <button
+                onClick={redo}
+                disabled={!canRedo()}
+                title="Yeniden Yap"
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <Redo2 className="w-3.5 h-3.5 text-slate-400" />
+              </button>
               <button
                 onClick={hide}
                 title="Gizle"
@@ -202,7 +220,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               </button>
               <button
                 onClick={reset}
-                title="Sıfırla"
+                title="Bu elemanı sıfırla"
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12"
               >
                 <RotateCcw className="w-3.5 h-3.5 text-slate-400" />

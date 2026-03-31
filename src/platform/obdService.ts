@@ -273,8 +273,19 @@ export async function connectOBD(address: string): Promise<void> {
 }
 
 /**
+ * Production build'de OBD mock'u devre dışı bırakmak için:
+ *   VITE_DISABLE_OBD_MOCK=true  (veya "1")
+ *
+ * Mock devre dışıyken ve native bağlantı kurulamazsa OBD paneli
+ * "bağlı değil" durumunda kalır; sahte veri gösterilmez.
+ */
+const MOCK_ENABLED = import.meta.env['VITE_DISABLE_OBD_MOCK'] !== 'true'
+  && import.meta.env['VITE_DISABLE_OBD_MOCK'] !== '1';
+
+/**
  * Start OBD.
- * Tries native Bluetooth first; silently falls back to mock on any failure.
+ * Tries native Bluetooth first; falls back to mock on any failure
+ * unless VITE_DISABLE_OBD_MOCK=true is set.
  * Idempotent — safe to call multiple times.
  */
 export function startOBD(): void {
@@ -288,15 +299,18 @@ export function startOBD(): void {
           await _startNative();
           return; // success — don't start mock
         } catch (e) {
-          // Native failed → log and fall through to mock
+          // Native failed → log and fall through to mock (unless disabled)
           logError('OBD:StartNative', e);
           await _removeNativeHandles();
           _merge({ connectionState: 'error', source: 'none', deviceName: '' });
+          if (!MOCK_ENABLED) return; // Production: bağlanamadı → idle kalır
           // Brief pause so the UI can show the error state before switching to mock
           await new Promise((r) => setTimeout(r, 1500));
         }
       }
-      _startMock();
+      if (MOCK_ENABLED) {
+        _startMock();
+      }
     } catch (e) {
       // Outer guard — startMock itself should never throw but just in case
       logError('OBD:StartOBD', e);

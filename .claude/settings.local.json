@@ -24,7 +24,8 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(grep -rn \"blur\\\\|backdrop\" src/styles/*.css)",
       "Bash(grep -rn \"setInterval\\\\|setTimeout\" src/platform/*.ts)",
-      "Bash(grep -rn \"localStorage\" src/platform/*.ts src/store/*.ts)"
+      "Bash(grep -rn \"localStorage\" src/platform/*.ts src/store/*.ts)",
+      "Bash(head -20 grep -n \"export\\\\|ParsedCommand\" \"C:\\\\Users\\\\selim\\\\Desktop\\\\car-launcher-pro\\\\src\\\\platform\\\\commandParser.ts\")"
     ]
   }
 }

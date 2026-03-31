@@ -1,7 +1,12 @@
 /**
- * Universal Edit System Store — v3
+ * Universal Edit System Store — v4
  * Ekranda görünen HER eleman düzenlenebilir.
  * Global tip stili + lokal element override + kalıcı localStorage.
+ *
+ * v4 yenilikleri:
+ *   - Undo stack (son 20 adım)
+ *   - Redo stack
+ *   - resetAll / resetElement fabrika değerlerine döner
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -86,11 +91,24 @@ export const EDITABLE_REGISTRY: Record<string, EditableInfo> = {
   'vehicle-reminder':  { id: 'vehicle-reminder',   type: 'card',     label: 'Araç Bakım'         },
 };
 
+/* ── Undo/Redo snapshot tipi ─────────────────────────────── */
+
+interface EditSnapshot {
+  elements: Record<string, Partial<ElementStyle>>;
+  globalTypes: Record<string, Partial<ElementStyle>>;
+}
+
+const MAX_UNDO = 20;
+
 interface EditStore {
   locked: boolean;
   editingId: string | null;
   elements: Record<string, Partial<ElementStyle>>;
   globalTypes: Record<string, Partial<ElementStyle>>;
+  /** Undo geçmişi — en son değişiklik sonda */
+  _undoStack: EditSnapshot[];
+  /** Redo geçmişi — undo sonrası geri alınanlar */
+  _redoStack: EditSnapshot[];
 
   toggleLock: () => void;
   setLocked: (v: boolean) => void;
@@ -100,6 +118,10 @@ interface EditStore {
   resetElement: (id: string) => void;
   updateGlobal: (type: string, patch: Partial<ElementStyle>) => void;
   resetAll: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
 }
 
 export const useEditStore = create<EditStore>()(
@@ -109,6 +131,8 @@ export const useEditStore = create<EditStore>()(
       editingId: null,
       elements: {},
       globalTypes: {},
+      _undoStack: [],
+      _redoStack: [],
 
       toggleLock: () => set((s) => ({ locked: !s.locked })),
       setLocked: (v) => set({ locked: v }),
@@ -123,33 +147,108 @@ export const useEditStore = create<EditStore>()(
       },
 
       updateElement: (id, patch) =>
-        set((s) => ({
-          elements: { ...s.elements, [id]: { ...(s.elements[id] ?? {}), ...patch } },
-        })),
+        set((s) => {
+          const snapshot: EditSnapshot = {
+            elements: { ...s.elements },
+            globalTypes: { ...s.globalTypes },
+          };
+          const undoStack = [...s._undoStack, snapshot].slice(-MAX_UNDO);
+          return {
+            elements: { ...s.elements, [id]: { ...(s.elements[id] ?? {}), ...patch } },
+            _undoStack: undoStack,
+            _redoStack: [], // yeni değişiklik redo'yu sıfırlar
+          };
+        }),
 
       resetElement: (id) =>
         set((s) => {
+          const snapshot: EditSnapshot = {
+            elements: { ...s.elements },
+            globalTypes: { ...s.globalTypes },
+          };
+          const undoStack = [...s._undoStack, snapshot].slice(-MAX_UNDO);
           const next = { ...s.elements };
           delete next[id];
-          return { elements: next };
+          return { elements: next, _undoStack: undoStack, _redoStack: [] };
         }),
 
       updateGlobal: (type, patch) =>
-        set((s) => ({
-          globalTypes: {
-            ...s.globalTypes,
-            [type]: { ...(s.globalTypes[type] ?? {}), ...patch },
-          },
-        })),
+        set((s) => {
+          const snapshot: EditSnapshot = {
+            elements: { ...s.elements },
+            globalTypes: { ...s.globalTypes },
+          };
+          const undoStack = [...s._undoStack, snapshot].slice(-MAX_UNDO);
+          return {
+            globalTypes: {
+              ...s.globalTypes,
+              [type]: { ...(s.globalTypes[type] ?? {}), ...patch },
+            },
+            _undoStack: undoStack,
+            _redoStack: [],
+          };
+        }),
 
-      resetAll: () => set({ elements: {}, globalTypes: {}, editingId: null }),
+      resetAll: () =>
+        set((s) => {
+          // Mevcut durumu undo stack'e ekle — resetAll de geri alınabilir
+          const snapshot: EditSnapshot = {
+            elements: { ...s.elements },
+            globalTypes: { ...s.globalTypes },
+          };
+          return {
+            elements: {},
+            globalTypes: {},
+            editingId: null,
+            _undoStack: [...s._undoStack, snapshot].slice(-MAX_UNDO),
+            _redoStack: [],
+          };
+        }),
+
+      undo: () =>
+        set((s) => {
+          if (!s._undoStack.length) return s;
+          const stack   = [...s._undoStack];
+          const prev    = stack.pop()!;
+          const redoSnap: EditSnapshot = {
+            elements: { ...s.elements },
+            globalTypes: { ...s.globalTypes },
+          };
+          return {
+            elements:    prev.elements,
+            globalTypes: prev.globalTypes,
+            _undoStack:  stack,
+            _redoStack:  [...s._redoStack, redoSnap].slice(-MAX_UNDO),
+          };
+        }),
+
+      redo: () =>
+        set((s) => {
+          if (!s._redoStack.length) return s;
+          const stack    = [...s._redoStack];
+          const next     = stack.pop()!;
+          const undoSnap: EditSnapshot = {
+            elements: { ...s.elements },
+            globalTypes: { ...s.globalTypes },
+          };
+          return {
+            elements:    next.elements,
+            globalTypes: next.globalTypes,
+            _undoStack:  [...s._undoStack, undoSnap].slice(-MAX_UNDO),
+            _redoStack:  stack,
+          };
+        }),
+
+      canUndo: () => get()._undoStack.length > 0,
+      canRedo: () => get()._redoStack.length > 0,
     }),
     {
-      name: 'car-edit-system-v3',
+      name: 'car-edit-system-v4',
       partialize: (s) => ({
-        elements: s.elements,
+        elements:    s.elements,
         globalTypes: s.globalTypes,
-        locked: s.locked,
+        locked:      s.locked,
+        // Undo/Redo stack'i persist etmiyoruz — uygulama kapanınca sıfırlanır
       }),
     }
   )

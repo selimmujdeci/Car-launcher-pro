@@ -6,7 +6,7 @@
  */
 
 import { memo, useCallback, useMemo } from 'react';
-import { Zap, Flag, RotateCcw, Play, X } from 'lucide-react';
+import { Zap, Flag, RotateCcw, Play, X, AlertTriangle } from 'lucide-react';
 import {
   usePerformanceState,
   usePerformanceBridge,
@@ -17,6 +17,7 @@ import {
   type SprintState,
   type QMState,
 } from '../../platform/performanceService';
+import { useOBDState } from '../../platform/obdService';
 
 /* ── Yardımcı ────────────────────────────────────────────── */
 
@@ -277,6 +278,7 @@ export const SportModePanel = memo(function SportModePanel() {
   usePerformanceBridge();
 
   const perf = usePerformanceState();
+  const obd  = useOBDState();
 
   const sprintExtra = useMemo(() => {
     if (!perf.sprintResult) return undefined;
@@ -306,6 +308,15 @@ export const SportModePanel = memo(function SportModePanel() {
             <div className="text-slate-500 text-xs">Performans & Yarış İstatistikleri</div>
           </div>
         </div>
+        {/* Simüle OBD uyarısı — veriler güvenilir değil */}
+        {obd.source === 'mock' && (
+          <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-amber-400/80 text-[10px] font-semibold">
+              OBD bağlı değil — performans verileri simüle edilmektedir, gerçeği yansıtmaz
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">

@@ -46,6 +46,8 @@ export interface FuelStation {
   lpgPrice?: number;        // TL/L
   isOpen: boolean;
   isCheapest: boolean;
+  /** Gerçek pompa fiyatı değil — EPDK ortalamasına dayalı tahmini fiyat */
+  isSimulated: true;
 }
 
 export interface WeatherState {
@@ -129,6 +131,7 @@ function _genStations(lat: number, lng: number): FuelStation[] {
       lpgPrice:      hasLpg ? Math.round((AVG_LPG_TL * (1 + variance())) * 100) / 100 : undefined,
       isOpen:        Math.random() > 0.1, // 90% open
       isCheapest:    false,
+      isSimulated:   true,
     });
   }
 

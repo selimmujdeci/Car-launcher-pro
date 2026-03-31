@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import {
   MapPin, Map as MapIcon,
   SkipBack, SkipForward, Play, Pause,
@@ -6,19 +6,9 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { VoiceMicButton } from '../modals/VoiceAssistant';
-import { enableWakeWord, disableWakeWord, useWakeWordState } from '../../platform/wakeWordService';
-import { startTrafficService, updateTrafficLocation } from '../../platform/trafficService';
-import { initializeContacts } from '../../platform/contactsService';
-import {
-  startAutoBrightness, stopAutoBrightness, updateAutoBrightnessLocation,
-} from '../../platform/autoBrightnessService';
+import { useWakeWordState } from '../../platform/wakeWordService';
 import { OBDPanel } from '../obd/OBDPanel';
 import { DigitalCluster } from '../obd/DigitalCluster';
-import { startTripLog } from '../../platform/tripLogService';
-import {
-  startNotificationService, stopNotificationService,
-} from '../../platform/notificationService';
-import { startWeatherService, stopWeatherService } from '../../platform/weatherService';
 import {
   NAV_OPTIONS, MUSIC_OPTIONS,
   type NavOptionKey, type MusicOptionKey, type AppItem,
@@ -26,27 +16,13 @@ import {
 import { openApp } from '../../platform/appLauncher';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import {
-  useMediaState, togglePlayPause, next, previous, pause, play,
+  useMediaState, togglePlayPause, next, previous,
 } from '../../platform/mediaService';
-import { toIntent, routeIntent } from '../../platform/intentEngine';
-import { registerCommandHandler } from '../../platform/voiceService';
-import type { ParsedCommand } from '../../platform/commandParser';
 import { useSmartEngine, trackLaunch } from '../../platform/smartEngine';
-import { setDrivingMode } from '../../platform/mapService';
 import { useNavigation } from '../../platform/navigationService';
-import { initializeAddressBook } from '../../platform/addressBookService';
 import { useApps } from '../../platform/appDiscovery';
-import { startSpeedLimitService, stopSpeedLimitService } from '../../platform/speedLimitService';
 import { useOBDState } from '../../platform/obdService';
-import {
-  setBrightness,
-  startHeadlightAutoBrightness, stopHeadlightAutoBrightness,
-} from '../../platform/systemSettingsService';
-import { useGPSLocation, feedBackgroundLocation } from '../../platform/gpsService';
-import { startWifiService, stopWifiService } from '../../platform/wifiService';
-import { isNative } from '../../platform/bridge';
-import { CarLauncher } from '../../platform/nativePlugin';
-import { showToast } from '../../platform/errorBus';
+import { useGPSLocation } from '../../platform/gpsService';
 import { ErrorToast } from '../common/ErrorToast';
 import { VolumeOverlay } from '../common/VolumeOverlay';
 import { GestureVolumeZone } from '../common/GestureVolumeZone';
@@ -62,11 +38,25 @@ import { DockBar, type DrawerType } from './DockBar';
 import { DrawerPanel } from './DrawerPanel';
 import { DriveHUD } from './DriveHUD';
 import { DraggableWidget } from './DraggableWidget';
+// ── Custom hooks ──────────────────────────────────────────────
+import { useLayoutServices } from '../../hooks/useLayoutServices';
+import { useOBDLifecycle } from '../../hooks/useOBDLifecycle';
+import { useDriveModeDetection } from '../../hooks/useDriveModeDetection';
+import { useVoiceCommandHandler } from '../../hooks/useVoiceCommandHandler';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
 function save(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+      // Kota doldu — geçici verileri temizle ve yeniden dene
+      try { localStorage.removeItem('car-trip-log'); } catch { /* ignore */ }
+      try { localStorage.removeItem('car-crash-log'); } catch { /* ignore */ }
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+    }
+  }
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -224,122 +214,13 @@ export default function MainLayout() {
   useWakeWordState();
 
   // ── Service initialisation ────────────────────────────────
+  useLayoutServices({ settings, updateSettings, location });
 
-  useEffect(() => {
-    if (settings.wakeWordEnabled) enableWakeWord(settings.wakeWord ?? 'hey car');
-    else disableWakeWord();
-    return () => { disableWakeWord(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.wakeWordEnabled]);
+  // ── OBD lifecycle (toasts, park save, auto sleep) ─────────
+  useOBDLifecycle({ obd, location, settings, updateSettings, updateParking });
 
-  useEffect(() => { initializeContacts(); }, []);
-
-  useEffect(() => {
-    const state = obd.connectionState;
-    if (state === 'error') {
-      showToast({ type: 'error', title: 'OBD Bağlantı Hatası', message: 'Simüle veri kullanılıyor.', duration: 5000 });
-    } else if (state === 'reconnecting') {
-      showToast({ type: 'warning', title: 'OBD Yeniden Bağlanıyor...', duration: 4000 });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obd.connectionState]);
-
-  useEffect(() => {
-    if (!location && isNative) {
-      const t = setTimeout(() => {
-        showToast({ type: 'warning', title: 'GPS İzni Gerekli', message: 'Konum izni verilmeden harita ve navigasyon çalışmaz.', duration: 8000 });
-      }, 5000);
-      return () => clearTimeout(t);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!isNative) return;
-    CarLauncher.startBackgroundService().catch(() => {
-      showToast({ type: 'warning', title: 'Arka Plan GPS', message: 'Foreground servis başlatılamadı.', duration: 5000 });
-    });
-    let handle:      { remove(): void } | null = null;
-    let breakHandle: { remove(): void } | null = null;
-    CarLauncher.addListener('backgroundLocation', (loc) => {
-      feedBackgroundLocation(loc);
-      if (settings.autoBrightnessEnabled) updateAutoBrightnessLocation(loc.lat, loc.lng);
-      updateTrafficLocation(loc.lat);
-    }).then((h) => { handle = h; }).catch(() => undefined);
-    CarLauncher.addListener('breakReminder', () => {
-      if (settings.breakReminderEnabled) {
-        showToast({ type: 'warning', title: 'Mola Zamanı', message: '2 saattir kesintisiz sürüş yapıyorsunuz.', duration: 0 });
-      }
-    }).then((h) => { breakHandle = h; }).catch(() => undefined);
-    return () => {
-      handle?.remove();
-      breakHandle?.remove();
-      CarLauncher.stopBackgroundService().catch(() => undefined);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => { startWifiService(); return () => { stopWifiService(); }; }, []);
-
-  useEffect(() => { startTrafficService(location?.latitude); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (location?.latitude) updateTrafficLocation(location.latitude); }, [location?.latitude]);
-
-  useEffect(() => {
-    if (settings.autoBrightnessEnabled && location?.latitude) {
-      startAutoBrightness({
-        lat: location.latitude, lng: location.longitude,
-        onThemeChange: settings.autoThemeEnabled ? (theme) => updateSettings({ theme }) : undefined,
-      });
-    } else {
-      stopAutoBrightness();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.autoBrightnessEnabled, settings.autoThemeEnabled]);
-
-  useEffect(() => {
-    if (settings.autoBrightnessEnabled && location?.latitude) {
-      updateAutoBrightnessLocation(location.latitude, location.longitude);
-    }
-  }, [location?.latitude, location?.longitude, settings.autoBrightnessEnabled]);
-
-  // Auto drive mode — 15 km/h üzeri 3 saniye devam ederse aktif
-  const autoDriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!settings.smartContextEnabled) return;
-    const speedKmh = location?.speed != null ? location.speed * 3.6 : 0;
-    if (speedKmh > 15) {
-      if (!autoDriveTimerRef.current) {
-        autoDriveTimerRef.current = setTimeout(() => { setDrivingMode(true); autoDriveTimerRef.current = null; }, 3000);
-      }
-    } else {
-      if (autoDriveTimerRef.current) { clearTimeout(autoDriveTimerRef.current); autoDriveTimerRef.current = null; }
-    }
-  }, [location?.speed, settings.smartContextEnabled]);
-
-  // Park konumu — RPM 0'a düşünce kaydet
-  const lastRpmRef = useRef(0);
-  useEffect(() => {
-    if (lastRpmRef.current > 0 && obd.rpm === 0 && location) {
-      updateParking({ lat: location.latitude, lng: location.longitude, timestamp: Date.now() });
-    }
-    lastRpmRef.current = obd.rpm;
-  }, [obd.rpm, location, updateParking]);
-
-  // OBD otomatik uyku — RPM=0 → N dakika sonra uyku; RPM>0 → uyandır
-  useEffect(() => {
-    if (!settings.obdAutoSleep) return;
-    if (obd.rpm > 0) {
-      if (settings.sleepMode) updateSettings({ sleepMode: false });
-      return;
-    }
-    // RPM = 0 ve henüz uyku modunda değil → geri sayım başlat
-    if (settings.sleepMode) return;
-    const timer = setTimeout(
-      () => updateSettings({ sleepMode: true }),
-      settings.obdSleepDelayMin * 60_000,
-    );
-    return () => clearTimeout(timer);
-  }, [obd.rpm, settings.obdAutoSleep, settings.sleepMode, settings.obdSleepDelayMin, updateSettings]);
+  // ── Auto drive mode detection ─────────────────────────────
+  useDriveModeDetection({ location, settings });
 
   // Geçersiz favorileri filtrele
   useEffect(() => {
@@ -350,22 +231,6 @@ export default function MainLayout() {
   }, [appsLoading, appMap, favorites]);
 
   useEffect(() => { return onPerformanceModeChange(setPerfMode); }, []);
-
-  useEffect(() => {
-    initializeAddressBook().catch(() => undefined);
-    startSpeedLimitService();
-    startTripLog();
-    startNotificationService();
-    startWeatherService();
-    setBrightness(useStore.getState().settings.brightness);
-    startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
-    return () => {
-      stopSpeedLimitService();
-      stopNotificationService();
-      stopWeatherService();
-      stopHeadlightAutoBrightness();
-    };
-  }, []);
 
   useEffect(() => {
     const t1 = setTimeout(() => setBootPhase('fade'), 850);
@@ -424,19 +289,7 @@ export default function MainLayout() {
   }, [dragId, dropId, settings.widgetOrder, updateSettings]);
 
   // ── Voice command handler ─────────────────────────────────
-  const voiceCtxRef = useRef({ settings, smart, handleLaunch, updateSettings, setDrawer });
-  useEffect(() => { voiceCtxRef.current = { settings, smart, handleLaunch, updateSettings, setDrawer }; });
-  useEffect(() => {
-    return registerCommandHandler((cmd: ParsedCommand) => {
-      const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open } = voiceCtxRef.current;
-      if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
-      const intent = toIntent(cmd, {
-        defaultNav: s.defaultNav, defaultMusic: s.defaultMusic,
-        recentAppId: sm.quickActions.find((a) => a.id.startsWith('last-'))?.appId,
-      });
-      routeIntent(intent, { launch, openDrawer: (t) => open(t as DrawerType), setTheme: (theme) => update({ theme }), playMedia: play, pauseMedia: pause });
-    });
-  }, []);
+  useVoiceCommandHandler({ settings, smart, handleLaunch, updateSettings, setDrawer });
 
   // ── Wallpaper ─────────────────────────────────────────────
   const wallpaperStyle = settings.wallpaper !== 'none' ? {

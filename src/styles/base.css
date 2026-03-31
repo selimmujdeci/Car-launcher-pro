@@ -1,3 +1,36 @@
+/* ── Z-index katman sistemi — merkezi tanım ──────────────────
+ * Tüm bileşenler bu değişkenleri kullanmalı; magic number kullanma.
+ * Katmanlar düşükten yükseğe:
+ *   10  Arkaplan widgetlar
+ *   20  Dock / Header bar
+ *   30  Drawer paneller
+ *   40  Floating butonlar (mic, settings)
+ *   50  Modaller, full-screen görünümler
+ *   55  OBD uyarı banner'ı
+ *   60  Edit mode banner / kritik uyarılar
+ *   70  Sleep overlay
+ *   80  Toast bildirimleri
+ *   88  Edit panel overlay
+ *   89  Edit panel
+ *   90  Boot splash
+ *   99  Çok kritik — üstüne hiçbir şey gelmesin
+ * ─────────────────────────────────────────────────────────── */
+:root {
+  --z-widgets:       10;
+  --z-dock:          20;
+  --z-drawer:        30;
+  --z-floating:      40;
+  --z-modal:         50;
+  --z-obd-banner:    55;
+  --z-edit-banner:   60;
+  --z-sleep:         70;
+  --z-toast:         80;
+  --z-edit-overlay:  88;
+  --z-edit-panel:    89;
+  --z-boot:          90;
+  --z-critical:      99;
+}
+
 /* ── Core keyframe animations ─────────────────────────────── */
 
 @keyframes car-fade-in {

@@ -74,10 +74,35 @@ const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
   ],
 });
 
+/**
+ * WebGL desteğini kontrol eder.
+ * Eski head unit'lerde (MediaTek/Allwinner GPU'suz) WebGL hiç olmayabilir.
+ * Returns: true → WebGL kullanılabilir, false → harita açılamaz.
+ */
+export function isWebGLAvailable(): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
+    if (!ctx) return false;
+    // Context'in gerçekten çalıştığını doğrula
+    const gl = ctx as WebGLRenderingContext;
+    return typeof gl.createShader === 'function';
+  } catch {
+    return false;
+  }
+}
+
 export async function initializeMap(
   container: HTMLElement,
   config: MapConfig = { offline: true }
 ): Promise<MapLibreMap> {
+  // WebGL olmayan cihazlarda harita açılamaz — erken hata ver
+  if (!isWebGLAvailable()) {
+    const msg = 'Bu cihazda WebGL desteklenmiyor. Harita görüntülenemiyor.';
+    useMapStore.setState({ error: msg, isReady: false });
+    throw new Error(msg);
+  }
+
   if (initInProgress) {
     return new Promise((resolve, reject) => {
       const checkReady = setInterval(() => {

@@ -186,7 +186,7 @@ export function formatEta(seconds: number): string {
 export async function navigateToAddress(text: string): Promise<boolean> {
   try {
     const q   = encodeURIComponent(text);
-    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=tr`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6_000);
     const res = await fetch(url, {

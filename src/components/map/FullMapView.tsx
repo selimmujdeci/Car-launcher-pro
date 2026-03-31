@@ -5,6 +5,7 @@ type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
 import { X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2 } from 'lucide-react';
 import {
   initializeMap,
+  isWebGLAvailable,
   setMapCenter,
   addUserMarker,
   updateUserMarker,
@@ -77,9 +78,13 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
     headingRef.current = heading;
   }, [location, heading]);
 
-  const [mapReady, setMapReady] = useState(false);
-  const [styleKey, setStyleKey] = useState(0);
+  const [mapReady, setMapReady]       = useState(false);
+  const [mapError, setMapError]       = useState<string | null>(null);
+  const [styleKey, setStyleKey]       = useState(0);
   const mapStyleReady = mapReady;
+
+  // WebGL kontrolü — eski head unit'lerde harita açılamaz
+  const webglSupported = isWebGLAvailable();
 
   // Init map — runs exactly once on mount, after container has dimensions
   useEffect(() => {
@@ -117,7 +122,9 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
 
           startGPSTracking().catch(() => {});
         } catch (err) {
-          console.error('FullMap init failed:', err);
+          if (!cancelled) {
+            setMapError(err instanceof Error ? err.message : 'Harita başlatılamadı');
+          }
         }
       })();
 
@@ -294,6 +301,31 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
       exitDrivingView(mapRef.current);
     }
   };
+
+  // WebGL yok — harita açılamaz, anlamlı hata ekranı göster
+  if (!webglSupported || mapError) {
+    return (
+      <div className="fixed inset-0 bg-[#060d1a] z-50 flex flex-col items-center justify-center gap-6 p-8">
+        <div className="w-20 h-20 rounded-3xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+          <Map className="w-10 h-10 text-red-400" />
+        </div>
+        <div className="text-center max-w-sm">
+          <div className="text-white font-black text-xl mb-2">Harita Açılamıyor</div>
+          <div className="text-slate-400 text-sm leading-relaxed">
+            {!webglSupported
+              ? 'Bu cihaz harita için gereken grafik hızlandırmasını (WebGL) desteklemiyor. Cihazın GPU sürücülerini güncelleyin.'
+              : mapError}
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="px-6 py-3 rounded-2xl bg-white/10 border border-white/20 text-white font-bold hover:bg-white/20 active:scale-95 transition-all"
+        >
+          Geri Dön
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black z-50">
