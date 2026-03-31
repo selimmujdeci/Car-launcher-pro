@@ -18,6 +18,7 @@ import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { getConfig } from './performanceMode';
+import { speakFeedback } from './ttsService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SpeechRecognitionAny = any;
@@ -174,6 +175,7 @@ function dispatch(cmd: ParsedCommand): void {
     error:       null,
     suggestions: [],
   });
+  speakFeedback(cmd.feedback);
   _commandHandlers.forEach((fn) => fn(cmd));
   const delays = getResetDelays();
   setTimeout(() => {

@@ -35,8 +35,8 @@ const DeviceStatusBar = memo(function DeviceStatusBar() {
   }
   return (
     <div className="flex items-center gap-2">
-      <StatusPill icon={Bluetooth} label={s.btConnected ? (s.btDevice || 'BT') : 'Bluetooth'} active={s.btConnected} />
-      <StatusPill icon={Wifi}      label={s.wifiConnected ? (s.wifiName || 'Wi-Fi') : 'Wi-Fi'} active={s.wifiConnected} />
+      <div data-status="bt"><StatusPill icon={Bluetooth} label={s.btConnected ? (s.btDevice || 'BT') : 'Bluetooth'} active={s.btConnected} /></div>
+      <div data-status="wifi"><StatusPill icon={Wifi}      label={s.wifiConnected ? (s.wifiName || 'Wi-Fi') : 'Wi-Fi'} active={s.wifiConnected} /></div>
       <StatusPill icon={s.charging ? BatteryCharging : Battery} label={`${s.battery}%`} active={s.battery > 20} />
     </div>
   );

@@ -159,6 +159,25 @@
   padding-bottom: 0.375rem !important;
 }
 
+/* ── DRIVING: Sürüş ergonomisi — dikkat dağıtıcı elementleri gizle ──── */
+
+/* Ayarlar + tema shortcut butonları (parkedken görünür, sürüşte gizli) */
+[data-drive-state="driving"] [data-drive-secondary] {
+  display: none !important;
+}
+
+/* Bluetooth + WiFi status pilleri (sürüşte sadece batarya kalır) */
+[data-drive-state="driving"] [data-status="bt"],
+[data-drive-state="driving"] [data-status="wifi"] {
+  display: none !important;
+}
+
+/* OBD simüle veri uyarı banner'ı — sürüşte dikkat dağıtır */
+[data-drive-state="driving"] [data-obd-sim-warn] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* ── NIGHT PHASE — additional dimming when autoBrightness detects dark ── */
 /* Activated via [data-night-phase] set dynamically in MainLayout.tsx       */
 

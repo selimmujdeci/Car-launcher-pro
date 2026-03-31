@@ -321,7 +321,7 @@ export default function MainLayout() {
 
       {/* OBD simüle veri uyarısı */}
       {obd.source === 'mock' && bootPhase === 'done' && (
-        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 backdrop-blur-sm pointer-events-none">
+        <div data-obd-sim-warn className="fixed top-2 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 backdrop-blur-sm pointer-events-none">
           <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
           <span className="text-amber-400 text-[10px] font-semibold tracking-wide uppercase">Simüle veri — OBD bağlı değil</span>
         </div>
@@ -330,12 +330,12 @@ export default function MainLayout() {
       <VoiceMicButton floating />
 
       {/* Settings shortcut */}
-      <button onClick={openSettings} className="fixed bottom-3 left-3 z-[45] group w-9 h-9 flex items-center justify-center rounded-xl bg-black/30 border border-white/[0.08] hover:bg-white/10 hover:border-white/20 active:scale-90 transition-all duration-200 opacity-40 hover:opacity-100" aria-label="Ayarlar">
+      <button data-drive-secondary onClick={openSettings} className="fixed bottom-3 left-3 z-[45] group w-9 h-9 flex items-center justify-center rounded-xl bg-black/30 border border-white/[0.08] hover:bg-white/10 hover:border-white/20 active:scale-90 transition-all duration-200 opacity-40 hover:opacity-100" aria-label="Ayarlar">
         <SlidersHorizontal className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />
       </button>
 
       {/* Theme toggle */}
-      <button onClick={() => updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })} className="fixed bottom-14 left-3 z-[45] w-9 h-9 flex items-center justify-center rounded-xl bg-black/30 border border-white/[0.08] hover:bg-white/10 active:scale-90 transition-all duration-200 opacity-40 hover:opacity-100" aria-label="Ekran modu" title={settings.theme === 'light' ? 'Karanlık moda geç' : 'Aydınlık moda geç'}>
+      <button data-drive-secondary onClick={() => updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })} className="fixed bottom-14 left-3 z-[45] w-9 h-9 flex items-center justify-center rounded-xl bg-black/30 border border-white/[0.08] hover:bg-white/10 active:scale-90 transition-all duration-200 opacity-40 hover:opacity-100" aria-label="Ekran modu" title={settings.theme === 'light' ? 'Karanlık moda geç' : 'Aydınlık moda geç'}>
         <span className="text-base leading-none select-none">{settings.theme === 'light' ? '🌙' : '☀️'}</span>
       </button>
 

@@ -29,6 +29,10 @@ export type IntentType =
   | 'OPEN_SETTINGS'
   | 'PLAY_MEDIA'
   | 'PAUSE_MEDIA'
+  | 'MEDIA_NEXT'
+  | 'MEDIA_PREV'
+  | 'VOLUME_UP'
+  | 'VOLUME_DOWN'
   | 'OPEN_FAVORITES'
   | 'ENABLE_NIGHT_MODE'
   | 'SET_THEME'
@@ -36,6 +40,7 @@ export type IntentType =
   | 'ENABLE_DRIVING_MODE'
   | 'TOGGLE_SLEEP_MODE'
   | 'OPEN_LAST_APP'
+  | 'SHOW_WEATHER'
   | 'UNKNOWN';
 
 export interface IntentPayload {
@@ -65,20 +70,30 @@ export interface IntentContext {
 
 /** Thin action interface — keeps intentEngine free of React / Settings imports. */
 export interface RouterContext {
-  launch:     (appId: string) => void;
-  openDrawer: (target: 'apps' | 'settings' | 'none') => void;
-  setTheme:   (theme: 'dark' | 'oled') => void;
-  playMedia:  () => void;
-  pauseMedia: () => void;
+  launch:      (appId: string) => void;
+  openDrawer:  (target: 'apps' | 'settings' | 'none') => void;
+  setTheme:    (theme: 'dark' | 'oled') => void;
+  playMedia:   () => void;
+  pauseMedia:  () => void;
+  nextTrack?:  () => void;
+  prevTrack?:  () => void;
+  volumeUp?:   () => void;
+  volumeDown?: () => void;
+  openWeather?: () => void;
 }
 
 /* ── CommandType → IntentType map ────────────────────────── */
 
 const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   navigate_home:      'OPEN_NAVIGATION',
+  navigate_work:      'OPEN_NAVIGATION',
   open_maps:          'OPEN_NAVIGATION',
   open_music:         'OPEN_MUSIC',
   stop_music:         'PAUSE_MEDIA',
+  music_next:         'MEDIA_NEXT',
+  music_prev:         'MEDIA_PREV',
+  volume_up:          'VOLUME_UP',
+  volume_down:        'VOLUME_DOWN',
   open_phone:         'OPEN_PHONE',
   open_settings:      'OPEN_SETTINGS',
   open_recent:        'OPEN_LAST_APP',
@@ -90,10 +105,11 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   music_youtube:      'SET_MUSIC',
   driving_mode:       'ENABLE_DRIVING_MODE',
   toggle_sleep_mode:  'TOGGLE_SLEEP_MODE',
-  vehicle_speed:       'UNKNOWN',
-  vehicle_fuel:        'UNKNOWN',
-  vehicle_temp:        'UNKNOWN',
-  vehicle_maintenance: 'UNKNOWN',
+  vehicle_speed:      'UNKNOWN',
+  vehicle_fuel:       'UNKNOWN',
+  vehicle_temp:       'UNKNOWN',
+  vehicle_maintenance:'UNKNOWN',
+  show_weather:       'SHOW_WEATHER',
 };
 
 /* ── toIntent ────────────────────────────────────────────── */
@@ -112,6 +128,10 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
     case 'navigate_home':
       payload.targetApp   = ctx.defaultNav;
       payload.destination = 'home';
+      break;
+    case 'navigate_work':
+      payload.targetApp   = ctx.defaultNav;
+      payload.destination = 'work';
       break;
     case 'open_maps':
       payload.targetApp = ctx.defaultNav;
@@ -192,9 +212,23 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'SET_MUSIC':
       if (intent.payload.targetApp) ctx.launch(intent.payload.targetApp);
       break;
+    case 'MEDIA_NEXT':
+      ctx.nextTrack?.();
+      break;
+    case 'MEDIA_PREV':
+      ctx.prevTrack?.();
+      break;
+    case 'VOLUME_UP':
+      ctx.volumeUp?.();
+      break;
+    case 'VOLUME_DOWN':
+      ctx.volumeDown?.();
+      break;
+    case 'SHOW_WEATHER':
+      ctx.openWeather?.();
+      break;
     case 'ENABLE_DRIVING_MODE':
       // Foundation: close all overlays for distraction-free focus
-      // Future: trigger driving-mode UI override via a dedicated context flag
       ctx.openDrawer('none');
       break;
     case 'TOGGLE_SLEEP_MODE':
@@ -211,9 +245,11 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
 /** All valid intent strings — used to validate AI output before trusting it. */
 const VALID_INTENTS = new Set<IntentType>([
   'OPEN_NAVIGATION', 'OPEN_MUSIC', 'OPEN_PHONE', 'OPEN_SETTINGS',
-  'PLAY_MEDIA', 'PAUSE_MEDIA', 'OPEN_FAVORITES',
+  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
+  'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
   'SET_THEME', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
-  'ENABLE_NIGHT_MODE', 'ENABLE_DRIVING_MODE', 'OPEN_LAST_APP', 'UNKNOWN',
+  'ENABLE_NIGHT_MODE', 'ENABLE_DRIVING_MODE', 'OPEN_LAST_APP',
+  'SHOW_WEATHER', 'UNKNOWN',
 ]);
 
 /**

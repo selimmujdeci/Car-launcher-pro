@@ -19,9 +19,14 @@
 
 export type CommandType =
   | 'navigate_home'
+  | 'navigate_work'
   | 'open_maps'
   | 'open_music'
   | 'stop_music'
+  | 'music_next'
+  | 'music_prev'
+  | 'volume_up'
+  | 'volume_down'
   | 'open_phone'
   | 'open_settings'
   | 'open_recent'
@@ -36,7 +41,8 @@ export type CommandType =
   | 'vehicle_speed'
   | 'vehicle_fuel'
   | 'vehicle_temp'
-  | 'vehicle_maintenance';
+  | 'vehicle_maintenance'
+  | 'show_weather';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -76,8 +82,15 @@ const PATTERNS: CommandPattern[] = [
     type: 'navigate_home', priority: 'critical',
     feedback: 'Eve gidiyoruz',
     label: 'Eve Git', example: 'eve git',
-    keywords: ['eve git', 'eve dön', 'eve gidelim', 'anasayfa', 'ana sayfa', 'home'],
-    tokens:   ['eve', 'home', 'anasayfa'],
+    keywords: ['eve git', 'eve dön', 'eve gidelim', 'eve götür', 'anasayfa', 'ana sayfa', 'home', 'evime git', 'eve al beni'],
+    tokens:   ['eve', 'home', 'anasayfa', 'evime'],
+  },
+  {
+    type: 'navigate_work', priority: 'critical',
+    feedback: 'İşe gidiyoruz',
+    label: 'İşe Git', example: 'işe git',
+    keywords: ['işe git', 'işe götür', 'işime git', 'ofise git', 'işyerine git', 'iş yerine git', 'work'],
+    tokens:   ['işe', 'iş', 'ofis', 'işyeri', 'work'],
   },
   {
     type: 'open_maps', priority: 'critical',
@@ -86,9 +99,10 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       'haritayı aç', 'harita aç', 'google maps', 'maps aç', 'waze aç',
       'navigasyonu aç', 'navigasyon aç', 'navigasyonu başlat', 'navigasyon başlat',
-      'map aç', 'yol tarifi', 'nereye git', 'rota başlat',
+      'map aç', 'yol tarifi', 'nereye git', 'rota başlat', 'yol göster',
+      'haritayı göster', 'rota oluştur', 'yol hesapla',
     ],
-    tokens: ['harita', 'maps', 'map', 'navigasyon', 'navigate', 'waze', 'rota'],
+    tokens: ['harita', 'maps', 'map', 'navigasyon', 'navigate', 'waze', 'rota', 'yol'],
   },
   {
     type: 'open_music', priority: 'high',
@@ -97,8 +111,9 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       'müziği aç', 'müzik aç', 'spotify aç', 'müzik çal', 'şarkı aç',
       'şarkı çal', 'müzik başlat', 'play music', 'music aç',
+      'müzik oynat', 'şarkı oynat', 'müziği başlat', 'playlist aç',
     ],
-    tokens: ['müzik', 'müziği', 'spotify', 'şarkı', 'music', 'çal'],
+    tokens: ['müzik', 'müziği', 'spotify', 'şarkı', 'music', 'çal', 'oynat', 'playlist'],
   },
   {
     type: 'stop_music', priority: 'high',
@@ -106,16 +121,60 @@ const PATTERNS: CommandPattern[] = [
     label: 'Müziği Durdur', example: 'müziği durdur',
     keywords: [
       'müziği durdur', 'müziği kapat', 'müzik kapat', 'müzik durdur',
-      'durdur', 'duraklat', 'pause', 'stop music',
+      'müziği duraklat', 'müzik duraklat', 'pause', 'stop music',
+      'şarkıyı durdur', 'çalmayı durdur',
     ],
-    tokens: ['durdur', 'duraklat', 'kapat', 'pause', 'stop'],
+    tokens: ['durdur', 'duraklat', 'pause', 'stop'],
+  },
+  {
+    type: 'music_next', priority: 'high',
+    feedback: 'Sonraki şarkı',
+    label: 'Sonraki Şarkı', example: 'sonraki şarkı',
+    keywords: [
+      'sonraki şarkı', 'sonraki parça', 'ileri sar', 'next şarkı', 'next',
+      'atla', 'geç', 'şarkıyı geç', 'başka şarkı',
+    ],
+    tokens: ['sonraki', 'next', 'ileri', 'atla', 'geç'],
+  },
+  {
+    type: 'music_prev', priority: 'high',
+    feedback: 'Önceki şarkı',
+    label: 'Önceki Şarkı', example: 'önceki şarkı',
+    keywords: [
+      'önceki şarkı', 'önceki parça', 'geri sar', 'previous', 'prev',
+      'öncekine dön', 'önceki',
+    ],
+    tokens: ['önceki', 'previous', 'prev', 'geri'],
+  },
+  {
+    type: 'volume_up', priority: 'high',
+    feedback: 'Ses artırıldı',
+    label: 'Sesi Artır', example: 'sesi aç',
+    keywords: [
+      'sesi aç', 'sesi artır', 'sesi yükselt', 'daha yüksek', 'sesi kaldır',
+      'volume aç', 'volume artır', 'louder', 'ses aç',
+    ],
+    tokens: ['louder', 'yükselt', 'artır'],
+  },
+  {
+    type: 'volume_down', priority: 'high',
+    feedback: 'Ses azaltıldı',
+    label: 'Sesi Azalt', example: 'sesi kıs',
+    keywords: [
+      'sesi kıs', 'sesi azalt', 'sesi düşür', 'daha alçak', 'ses kıs',
+      'volume kıs', 'volume azalt', 'quieter', 'sesi kapat',
+    ],
+    tokens: ['kıs', 'azalt', 'düşür', 'quieter'],
   },
   {
     type: 'open_phone', priority: 'critical',
     feedback: 'Telefon açılıyor',
     label: 'Telefonu Aç', example: 'telefonu aç',
-    keywords: ['telefonu aç', 'telefon aç', 'telefon', 'arama yap', 'call'],
-    tokens:   ['telefon', 'call', 'çevir'],
+    keywords: [
+      'telefonu aç', 'telefon aç', 'arama yap', 'call', 'telefon',
+      'birini ara', 'rehber', 'kişiler', 'contacts',
+    ],
+    tokens: ['telefon', 'call', 'ara', 'rehber', 'kişi'],
   },
   {
     type: 'open_settings', priority: 'normal',
@@ -218,6 +277,17 @@ const PATTERNS: CommandPattern[] = [
       'yağ değişimi ne zaman', 'yağ ne zaman', 'servis ne zaman',
     ],
     tokens: ['bakım', 'muayene', 'sigorta', 'kasko', 'servis'],
+  },
+  {
+    type: 'show_weather', priority: 'normal',
+    feedback: 'Hava durumu gösteriliyor',
+    label: 'Hava Durumunu Göster', example: 'hava nasıl',
+    keywords: [
+      'hava nasıl', 'hava durumu', 'hava durumunu göster', 'bugün hava nasıl',
+      'dışarıda hava nasıl', 'yağmur yağacak mı', 'hava sıcaklığı', 'sıcaklık kaç',
+      'weather', 'hava ne',
+    ],
+    tokens: ['hava', 'weather', 'sıcaklık', 'yağmur', 'bulut'],
   },
 ];
 
