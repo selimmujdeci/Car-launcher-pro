@@ -22,12 +22,14 @@ import {
   checkGeofence,
   getGeofenceState,
 } from '../platform/geofenceService';
+import { setupPin, clearPin } from '../platform/pinService';
 
 /* ── Her testten önce state'i sıfırla ──────────────────────── */
 
-beforeEach(() => {
-  // Pin kilidini kapat
-  setPinLock(false, '');
+beforeEach(async () => {
+  // Pin kilidini ve credential'ı sıfırla
+  await clearPin();
+  setPinLock(false);
   // Vale modunu kapat
   setValeMode(false);
   // Geofence'i kapat
@@ -39,33 +41,37 @@ beforeEach(() => {
 /* ── PIN kilit testleri ────────────────────────────────────── */
 
 describe('PIN kilit', () => {
-  it('doğru kod ile kilit açılır (true)', () => {
-    setPinLock(true, '1234');
-    expect(unlockPin('1234')).toBe(true);
+  it('doğru kod ile kilit açılır (true)', async () => {
+    await setupPin('1234');
+    setPinLock(true);
+    expect(await unlockPin('1234')).toBe(true);
   });
 
-  it('yanlış kod reddedilir (false)', () => {
-    setPinLock(true, '1234');
-    expect(unlockPin('0000')).toBe(false);
-    expect(unlockPin('9999')).toBe(false);
-    expect(unlockPin('123')).toBe(false);
+  it('yanlış kod reddedilir (false)', async () => {
+    await setupPin('1234');
+    setPinLock(true);
+    expect(await unlockPin('0000')).toBe(false);
+    expect(await unlockPin('9999')).toBe(false);
+    expect(await unlockPin('123')).toBe(false);
   });
 
-  it('kilit kapalıyken her kod kabul edilir', () => {
-    setPinLock(false, '');
-    expect(unlockPin('anything')).toBe(true);
+  it('kilit kapalıyken her kod kabul edilir', async () => {
+    setPinLock(false);
+    expect(await unlockPin('anything')).toBe(true);
   });
 
-  it('kod değiştirilince yeni kod çalışır', () => {
-    setPinLock(true, '1234');
-    setPinLock(true, '5678');
-    expect(unlockPin('1234')).toBe(false);
-    expect(unlockPin('5678')).toBe(true);
+  it('kod değiştirilince yeni kod çalışır', async () => {
+    await setupPin('1234');
+    setPinLock(true);
+    await setupPin('5678'); // PIN güncelle
+    expect(await unlockPin('1234')).toBe(false);
+    expect(await unlockPin('5678')).toBe(true);
   });
 
-  it('lockPin state güncellenmiş (pin kapalı)', () => {
-    setPinLock(true, '1234');
-    unlockPin('1234'); // pin açık
+  it('lockPin state güncellenmiş (pin kapalı)', async () => {
+    await setupPin('1234');
+    setPinLock(true);
+    await unlockPin('1234'); // pin açık
     lockPin();
     // Kilitlendikten sonra pinLocked state doğru
     const state = getGeofenceState();

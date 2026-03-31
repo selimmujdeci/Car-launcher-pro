@@ -20,48 +20,80 @@ import {
   dismissGeofenceAlert,
   checkGeofence,
 } from '../../platform/geofenceService';
+import { setupPin, clearPin, getLockoutState } from '../../platform/pinService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useOBDState } from '../../platform/obdService';
 
 /* ── PIN Girişi ──────────────────────────────────────────── */
 
 const PinPad = memo(function PinPad({
+  mode,
   onSuccess,
   onCancel,
   title,
 }: {
+  mode: 'set' | 'verify';
   onSuccess: () => void;
   onCancel?: () => void;
   title?: string;
 }) {
-  const [pin, setPin]     = useState('');
-  const [error, setError] = useState(false);
-  const state = useGeofenceState();
+  const [pin, setPin]           = useState('');
+  const [error, setError]       = useState(false);
+  const [busy, setBusy]         = useState(false);
+  const [locked, setLocked]     = useState(false);
+  const [remaining, setRemaining] = useState(0);
 
-  const handleDigit = useCallback((d: string) => {
-    if (pin.length >= 4) return;
+  // Kilit geri sayımı
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const ls = getLockoutState();
+      setLocked(ls.locked);
+      setRemaining(ls.remainingSec);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const handleDigit = useCallback(async (d: string) => {
+    if (locked || busy || pin.length >= 4) return;
     const next = pin + d;
     setPin(next);
     if (next.length === 4) {
-      if (unlockPin(next)) {
+      setBusy(true);
+      if (mode === 'set') {
+        await setupPin(next);
         onSuccess();
       } else {
-        setError(true);
-        setTimeout(() => { setError(false); setPin(''); }, 800);
+        const ok = await unlockPin(next);
+        if (ok) {
+          onSuccess();
+        } else {
+          const ls = getLockoutState();
+          setLocked(ls.locked);
+          setRemaining(ls.remainingSec);
+          setError(true);
+          setTimeout(() => { setError(false); setPin(''); setBusy(false); }, 800);
+          return;
+        }
       }
+      setBusy(false);
     }
-  }, [pin, onSuccess]);
+  }, [pin, onSuccess, mode, locked, busy]);
 
   const handleBackspace = useCallback(() => {
+    if (busy) return;
     setPin((p) => p.slice(0, -1));
     setError(false);
-  }, []);
+  }, [busy]);
 
   return (
     <div className="flex flex-col items-center gap-6 p-6">
       <div>
         <div className="text-white font-bold text-lg text-center">{title ?? 'PIN Gir'}</div>
-        <div className="text-slate-500 text-xs text-center mt-1">4 haneli PIN kodunu gir</div>
+        <div className="text-slate-500 text-xs text-center mt-1">
+          {locked
+            ? `Çok fazla hatalı deneme — ${remaining}s bekle`
+            : mode === 'set' ? 'Yeni 4 haneli PIN belirle' : '4 haneli PIN kodunu gir'}
+        </div>
       </div>
 
       {/* PIN noktaları */}
@@ -70,12 +102,21 @@ const PinPad = memo(function PinPad({
           <div
             key={i}
             className={`w-4 h-4 rounded-full border-2 transition-all ${
-              error ? 'border-red-500 bg-red-500' :
+              locked  ? 'border-red-500/40' :
+              error   ? 'border-red-500 bg-red-500' :
               i < pin.length ? 'border-blue-400 bg-blue-400' : 'border-white/20'
             }`}
           />
         ))}
       </div>
+
+      {/* Kilit uyarısı */}
+      {locked && (
+        <div className="flex items-center gap-2 text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          {remaining}s sonra tekrar dene
+        </div>
+      )}
 
       {/* Klavye */}
       <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
@@ -83,11 +124,11 @@ const PinPad = memo(function PinPad({
           <button
             key={i}
             onClick={() => d === '⌫' ? handleBackspace() : d ? handleDigit(d) : undefined}
-            disabled={!d}
+            disabled={!d || locked || busy}
             className={`
               h-14 rounded-2xl text-xl font-bold transition-all active:scale-90
               ${d === '⌫' ? 'bg-red-500/10 border border-red-500/20 text-red-400' :
-                d ? 'bg-white/5 border border-white/10 text-white hover:bg-white/10' :
+                d ? 'bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-30' :
                 'opacity-0 pointer-events-none'}
             `}
           >
@@ -103,11 +144,6 @@ const PinPad = memo(function PinPad({
         >
           İptal
         </button>
-      )}
-
-      {/* PIN durumu (kod gösterilmez) */}
-      {!state.pinLockEnabled && state.pinCode && (
-        <div className="text-slate-500 text-xs">PIN ayarlandı</div>
       )}
     </div>
   );
@@ -205,22 +241,23 @@ export const SecuritySuite = memo(function SecuritySuite() {
     setValeMode(!geo.valeModeActive);
   }, [geo.valeModeActive]);
 
-  const handleTogglePin = useCallback(() => {
+  const handleTogglePin = useCallback(async () => {
     if (geo.pinLockEnabled) {
-      setPinLock(false, geo.pinCode);
+      await clearPin();
+      setPinLock(false);
     } else {
       setSettingPin(true);
       setShowPinPad(true);
     }
-  }, [geo.pinLockEnabled, geo.pinCode]);
+  }, [geo.pinLockEnabled]);
 
-  // PIN ayarla — 2 aşamalı (giril → onay → kaydet)
+  // PIN ayarla — PinPad setupPin'i çağırır, burada sadece kilidi etkinleştir
   const handlePinSet = useCallback(() => {
     if (!settingPin) return;
-    setPinLock(true, geo.pinCode);
+    setPinLock(true);
     setShowPinPad(false);
     setSettingPin(false);
-  }, [settingPin, geo.pinCode]);
+  }, [settingPin]);
 
   const tabs = [
     { id: 'geofence' as const, label: 'Geofence', icon: Navigation },
@@ -267,6 +304,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
       {showPinPad && (
         <div className="absolute inset-0 z-50 bg-[#060d1a]/95 backdrop-blur-sm flex items-center justify-center">
           <PinPad
+            mode={settingPin ? 'set' : 'verify'}
             title={settingPin ? 'Yeni PIN Oluştur' : 'PIN Gir'}
             onSuccess={settingPin ? handlePinSet : () => setShowPinPad(false)}
             onCancel={() => { setShowPinPad(false); setSettingPin(false); }}

@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { verifyPin } from './pinService';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -44,7 +45,6 @@ export interface GeofenceState {
   valeViolations: ValeModeAlert[];
 
   pinLockEnabled: boolean;
-  pinCode:        string;       // 4 basamak
   pinUnlocked:    boolean;
 }
 
@@ -62,7 +62,6 @@ const INITIAL: GeofenceState = {
   valeAlert:      null,
   valeViolations: [],
   pinLockEnabled: false,
-  pinCode:        '1234',
   pinUnlocked:    true,
 };
 
@@ -152,20 +151,18 @@ export function setValeSpeedLimit(limit: number): void {
   push({ valeSpeedLimit: limit });
 }
 
-export function setPinLock(enabled: boolean, code: string): void {
-  push({ pinLockEnabled: enabled, pinCode: code, pinUnlocked: !enabled });
+export function setPinLock(enabled: boolean): void {
+  push({ pinLockEnabled: enabled, pinUnlocked: !enabled });
 }
 
-export function unlockPin(attempt: string): boolean {
+export async function unlockPin(attempt: string): Promise<boolean> {
   if (!_state.pinLockEnabled) {
     push({ pinUnlocked: true });
     return true;
   }
-  if (attempt === _state.pinCode) {
-    push({ pinUnlocked: true });
-    return true;
-  }
-  return false;
+  const ok = await verifyPin(attempt);
+  if (ok) push({ pinUnlocked: true });
+  return ok;
 }
 
 export function lockPin(): void {
