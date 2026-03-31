@@ -235,6 +235,21 @@ export interface CarLauncherPlugin {
   // Dashcam kayıt durumunu foreground servis bildirimine yansıt
   setDashcamActive(options: { active: boolean }): Promise<void>;
 
+  /**
+   * PIN güvenliği — Android Keystore + EncryptedSharedPreferences
+   *
+   * Java implementasyonu (CarLauncherPlugin.java):
+   *   setPinHash   → EncryptedSharedPreferences.putString("pin_hash", hash)
+   *   verifyPin    → hash(attempt).equals(prefs.getString("pin_hash"))
+   *   clearPin     → EncryptedSharedPreferences.remove("pin_hash")
+   *
+   * Bu metodlar TypeScript'te tanımlıdır; Java tarafı yoksa
+   * pinService.ts sessionStorage fallback'ine düşer.
+   */
+  setPinHash(options: { hash: string }): Promise<void>;
+  verifyPin(options: { attempt: string }): Promise<{ match: boolean }>;
+  clearPin(): Promise<void>;
+
   addListener(
     event: 'obdStatus',
     handler: (data: OBDStatusEvent) => void,
