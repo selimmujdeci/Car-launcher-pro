@@ -6,12 +6,12 @@ export const VolumeOverlay = memo(function VolumeOverlay() {
   const { settings } = useStore();
   const { volume, volumeStyle } = settings;
   const [visible, setVisible] = useState(false);
+  const [hasChanged, setHasChanged] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const firstRender = useRef(true);
 
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
+    if (!hasChanged) {
+      setHasChanged(true);
       return;
     }
 
@@ -26,7 +26,7 @@ export const VolumeOverlay = memo(function VolumeOverlay() {
     };
   }, [volume]);
 
-  if (!visible && !firstRender.current) return null;
+  if (!visible && hasChanged) return null;
 
   const getIcon = (size = "w-5 h-5") => {
     if (volume === 0) return <VolumeX className={size} />;
@@ -100,3 +100,5 @@ export const VolumeOverlay = memo(function VolumeOverlay() {
     </div>
   );
 });
+
+

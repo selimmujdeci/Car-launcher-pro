@@ -27,8 +27,11 @@ export interface AppItem {
 }
 
 export const ALL_APPS: AppItem[] = [
-  // İletişim — OEM paketleri yerine evrensel action/category kullan
+  // İletişim — head unit'lerde com.syu.bt / com.microntek.bluetooth vb. paketi kullanılır
+  // androidPackage burada YOK — bridge.ts platform tespitine göre paketi seçer
   { id: 'phone',      name: 'Telefon',        icon: '📞', category: 'communication', url: 'tel:',   androidAction: 'android.intent.action.DIAL',                                                            supportsFavorite: true,  supportsRecent: true  },
+  // Radyo — head unit'lerde com.syu.radio / com.microntek.radio paketi kullanılır
+  { id: 'radio',      name: 'Radyo',          icon: '📻', category: 'media',         url: '',       androidPackage: 'com.syu.radio',     androidAction: 'android.intent.action.MAIN',                      supportsFavorite: true,  supportsRecent: true  },
   { id: 'messages',   name: 'Mesajlar',       icon: '💬', category: 'communication', url: 'sms:',                                                          androidCategory: 'android.intent.category.APP_MESSAGING', supportsFavorite: true,  supportsRecent: true  },
   { id: 'contacts',   name: 'Kişiler',        icon: '👤', category: 'communication', url: '',                                                               androidCategory: 'android.intent.category.APP_CONTACTS',  supportsFavorite: true,  supportsRecent: true  },
 

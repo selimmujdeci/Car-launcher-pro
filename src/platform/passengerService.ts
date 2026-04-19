@@ -16,6 +16,7 @@ import {
   getMediaState,
   play, pause, next, previous,
 } from './mediaService';
+import { logError } from './crashLogger';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -47,7 +48,7 @@ function pushMediaState(): void {
     artist:  ms.track.artist,
     appName: ms.activeAppName,
     playing: ms.playing,
-  }).catch(() => {});
+  }).catch((e: unknown) => logError('passenger:updatePassengerState', e));
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -97,7 +98,7 @@ export async function stopPassenger(): Promise<void> {
   if (_cmdHandle)  { _cmdHandle.remove();         _cmdHandle  = null; }
 
   if (isNative) {
-    await CarLauncher.stopPassengerServer().catch(() => {});
+    await CarLauncher.stopPassengerServer().catch((e: unknown) => logError('passenger:stopPassengerServer', e));
   }
 
   push(null);

@@ -35,7 +35,7 @@ const StationCard = memo(function StationCard({ s }: { s: FuelStation }) {
               <Star className="w-3 h-3 text-emerald-400 fill-emerald-400" />
             )}
           </div>
-          <div className="text-white text-xs font-bold leading-snug">{s.name}</div>
+          <div className="text-primary text-xs font-bold leading-snug">{s.name}</div>
         </div>
         <div className="text-right flex-shrink-0">
           <div className="text-slate-500 text-[10px]">{s.distanceKm} km</div>
@@ -64,7 +64,7 @@ function PriceLine({
     <div className="flex items-center justify-between">
       <span className="text-slate-500 text-[10px]">{label}</span>
       <span className={`text-sm font-black tabular-nums ${
-        highlight ? 'text-emerald-400' : color === 'amber' ? 'text-amber-400' : 'text-white'
+        highlight ? 'text-emerald-400' : color === 'amber' ? 'text-amber-400' : 'text-primary'
       }`}>
         {price.toFixed(2)}₺
       </span>
@@ -93,14 +93,14 @@ function WeatherWidgetInner() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <CloudSun className="w-5 h-5 text-amber-400" />
-          <span className="text-white font-black text-base uppercase tracking-widest">
+          <span className="text-primary font-black text-base uppercase tracking-widest">
             Hava &amp; Yakıt
           </span>
         </div>
         <button
           onClick={handleRefresh}
           disabled={ws.isLoadingWeather}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors active:scale-90"
+          className="w-8 h-8 flex items-center justify-center rounded-full var(--panel-bg-secondary) hover:var(--panel-bg-secondary) text-slate-400 hover:text-primary transition-colors active:scale-90"
         >
           <RefreshCw className={`w-4 h-4 ${ws.isLoadingWeather ? 'animate-spin' : ''}`} />
         </button>
@@ -115,10 +115,16 @@ function WeatherWidgetInner() {
           style={{ background: 'linear-gradient(135deg, rgba(10,18,40,0.9) 0%, rgba(30,58,138,0.4) 100%)' }}
         >
           <div className="relative z-10">
-            {/* City */}
+            {/* City + location source */}
             <div className="flex items-center gap-1.5 mb-3">
               <MapPin className="w-3.5 h-3.5 text-blue-400" />
               <span className="text-blue-400 text-xs font-bold">{w.city}</span>
+              {ws.locationSource === 'gps' && (
+                <span className="text-emerald-400/80 text-[9px] border border-emerald-400/30 rounded px-1 py-0.5 uppercase tracking-wider font-bold">GPS</span>
+              )}
+              {ws.locationSource === 'user_city' && (
+                <span className="text-amber-400/80 text-[9px] border border-amber-400/30 rounded px-1 py-0.5 uppercase tracking-wider font-bold">Şehir</span>
+              )}
               {ws.lastUpdated && (
                 <span className="text-slate-600 text-[10px] ml-auto">
                   {new Date(ws.lastUpdated).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
@@ -129,7 +135,7 @@ function WeatherWidgetInner() {
             {/* Temp + emoji */}
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-white font-black text-5xl tabular-nums leading-none">
+                <div className="text-primary font-black text-5xl tabular-nums leading-none">
                   {w.temperature}°
                 </div>
                 <div className="text-slate-400 text-sm mt-1">{w.description}</div>
@@ -167,7 +173,7 @@ function WeatherWidgetInner() {
           <button
             onClick={handleRefreshFuel}
             disabled={ws.isLoadingFuel}
-            className="text-slate-600 hover:text-white text-[10px] uppercase tracking-widest transition-colors flex items-center gap-1"
+            className="text-slate-600 hover:text-primary text-[10px] uppercase tracking-widest transition-colors flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${ws.isLoadingFuel ? 'animate-spin' : ''}`} />
             Güncelle
@@ -221,7 +227,7 @@ function Detail({
       <Icon className={`w-3.5 h-3.5 ${color}`} />
       <div>
         <div className="text-slate-600 text-[9px] uppercase tracking-wide">{label}</div>
-        <div className="text-white text-xs font-bold">{value}</div>
+        <div className="text-primary text-xs font-bold">{value}</div>
       </div>
     </div>
   );
@@ -254,3 +260,5 @@ function WeatherEmpty({ onRetry, error }: { onRetry: () => void; error: string |
 }
 
 export const WeatherWidget = memo(WeatherWidgetInner);
+
+

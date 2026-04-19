@@ -16,10 +16,10 @@
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" /></noscript>
     <!-- Kritik fallback: font yüklenemese de sistem fontu devreye girer -->
     <style>
-      html, body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-      /* Güvenli başlangıç rengi — CSS yüklenmese bile siyah ekran olmaz */
+      html, body { font-family: 'Inter', system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; width: 100%; overflow: hidden; }
       body { background: #060d1a; color: #e2e8f0; }
-      #root { width: 100%; height: 100vh; background: #060d1a; }
+      #root { background: #060d1a; }
     </style>
   </head>
   <body style="background:#060d1a;margin:0;padding:0;overflow:hidden;">

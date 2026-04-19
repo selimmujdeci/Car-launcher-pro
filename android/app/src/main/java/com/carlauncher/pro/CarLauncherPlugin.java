@@ -43,9 +43,14 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.ContactsContract;
 import android.provider.Settings;
+import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.view.KeyEvent;
 import android.view.WindowManager;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -317,25 +322,65 @@ public class CarLauncherPlugin extends Plugin {
     // ── Media control ───────────────────────────────────────────────────────
 
     /**
-     * Dispatch a media key event to the currently active media session.
-     * Works system-wide without knowing which app is playing.
+     * Send a transport control command to the active MediaController.
+     *
+     * Öncelik sırası:
+     *   1. activeMediaController (getMediaInfo() ile zaten edinilmiş) — uygulamayı
+     *      foreground'a getirmeden doğrudan MediaSession'a komut gönderir.
+     *   2. MediaSessionManager.getActiveSessions() — bildirim erişimi varsa yeni al.
+     *   3. AudioManager.dispatchMediaKeyEvent() — fallback (eski Android / izin yok).
+     *
      * action: "play" | "pause" | "next" | "previous"
      */
     @PluginMethod
     public void sendMediaAction(PluginCall call) {
         String action = call.getString("action", "");
+
+        // 1 & 2: MediaController transport controls — uygulamayı açmaz
+        MediaController ctrl = activeMediaController;
+        if (ctrl == null) {
+            // activeMediaController henüz set edilmemiş, getActiveSessions ile dene
+            MediaListenerService svc = MediaListenerService.instance;
+            if (svc != null) {
+                try {
+                    MediaSessionManager msm = (MediaSessionManager)
+                        getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
+                    ComponentName cn = new ComponentName(getContext(), MediaListenerService.class);
+                    List<MediaController> controllers = msm.getActiveSessions(cn);
+                    if (!controllers.isEmpty()) {
+                        ctrl = controllers.get(0);
+                        ensureMediaCallback(ctrl);
+                    }
+                } catch (Exception ignored) { /* izin yoksa fallback'e geç */ }
+            }
+        }
+
+        if (ctrl != null) {
+            try {
+                MediaController.TransportControls tc = ctrl.getTransportControls();
+                switch (action) {
+                    case "play":     tc.play();     break;
+                    case "pause":    tc.pause();    break;
+                    case "next":     tc.skipToNext(); break;
+                    case "previous": tc.skipToPrevious(); break;
+                    default:
+                        call.reject("INVALID_ACTION", "Geçersiz aksiyon: " + action);
+                        return;
+                }
+                call.resolve();
+                return;
+            } catch (Exception e) {
+                // TransportControls başarısız — AudioManager fallback'e düş
+            }
+        }
+
+        // 3: Fallback — AudioManager.dispatchMediaKeyEvent (eski API / izin yok)
         int keyCode;
         switch (action) {
             case "play":
-            case "pause":
-                keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-                break;
-            case "next":
-                keyCode = KeyEvent.KEYCODE_MEDIA_NEXT;
-                break;
-            case "previous":
-                keyCode = KeyEvent.KEYCODE_MEDIA_PREVIOUS;
-                break;
+            case "pause":    keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE; break;
+            case "next":     keyCode = KeyEvent.KEYCODE_MEDIA_NEXT;       break;
+            case "previous": keyCode = KeyEvent.KEYCODE_MEDIA_PREVIOUS;   break;
             default:
                 call.reject("INVALID_ACTION", "Geçersiz aksiyon: " + action);
                 return;
@@ -383,10 +428,22 @@ public class CarLauncherPlugin extends Plugin {
                 return;
             }
 
+            // Kullanıcının tercih ettiği paketi önce ara, yoksa ilk aktif oturumu al
+            String preferred = call.getString("preferredPackage", "");
             MediaController ctrl = controllers.get(0);
+            if (preferred != null && !preferred.isEmpty()) {
+                for (MediaController c : controllers) {
+                    if (preferred.equals(c.getPackageName())) {
+                        ctrl = c;
+                        break;
+                    }
+                }
+            }
             ensureMediaCallback(ctrl);
 
-            call.resolve(buildMediaInfo(ctrl));
+            JSObject result = buildMediaInfo(ctrl);
+            result.put("sessionCount", controllers.size()); // debug
+            call.resolve(result);
 
         } catch (SecurityException e) {
             call.reject("PERMISSION_DENIED", "Bildirim erişim izni gerekli");
@@ -858,57 +915,104 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Speech recognition ───────────────────────────────────────────────────
 
-    private static final int REQUEST_SPEECH = 1001;
     private PluginCall savedSpeechCall = null;
+    private SpeechRecognizer speechRecognizer = null;
 
     /**
-     * Launch on-device SpeechRecognizer with EXTRA_PREFER_OFFLINE.
-     * Turkish offline language pack must be installed for truly offline operation.
+     * Headless on-device SpeechRecognizer — Google dialog göstermez.
+     * SpeechRecognizer API'sini direkt kullanır, startActivityForResult değil.
      */
     @PluginMethod
     public void startSpeechRecognition(PluginCall call) {
         savedSpeechCall = call;
-        boolean preferOffline = Boolean.TRUE.equals(call.getBoolean("preferOffline", true));
-        String  language      = call.getString("language", "tr-TR");
-        int     maxResults    = call.getInt("maxResults", 1);
+        String language = call.getString("language", "tr-TR");
+        int    maxResults = call.getInt("maxResults", 1);
 
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,      language);
-        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,   maxResults);
-        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
+        // Ana thread'de çalışması gerekiyor
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                // Önceki recognizer'ı temizle
+                if (speechRecognizer != null) {
+                    try { speechRecognizer.destroy(); } catch (Exception ignored) {}
+                    speechRecognizer = null;
+                }
 
-        try {
-            startActivityForResult(call, intent, REQUEST_SPEECH);
-        } catch (Exception e) {
-            savedSpeechCall = null;
-            call.reject("NO_RECOGNIZER",
-                "Ses tanıma uygulaması bulunamadı: " + e.getMessage());
-        }
+                if (!SpeechRecognizer.isRecognitionAvailable(getContext())) {
+                    if (savedSpeechCall != null) {
+                        savedSpeechCall.reject("NO_RECOGNIZER", "Cihazda ses tanıma mevcut değil");
+                        savedSpeechCall = null;
+                    }
+                    return;
+                }
+
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(getContext());
+
+                final int finalMaxResults = maxResults;
+                speechRecognizer.setRecognitionListener(new RecognitionListener() {
+                    @Override public void onReadyForSpeech(android.os.Bundle params) {}
+                    @Override public void onBeginningOfSpeech() {}
+                    @Override public void onRmsChanged(float rmsdB) {}
+                    @Override public void onBufferReceived(byte[] buffer) {}
+                    @Override public void onEndOfSpeech() {}
+                    @Override public void onPartialResults(android.os.Bundle partialResults) {}
+                    @Override public void onEvent(int eventType, android.os.Bundle params) {}
+
+                    @Override
+                    public void onResults(android.os.Bundle results) {
+                        PluginCall c = savedSpeechCall;
+                        savedSpeechCall = null;
+                        if (c == null) return;
+                        ArrayList<String> matches = results.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION);
+                        if (matches != null && !matches.isEmpty()) {
+                            JSObject r = new JSObject();
+                            r.put("transcript", matches.get(0));
+                            c.resolve(r);
+                        } else {
+                            c.reject("NO_RESULT", "Sonuç alınamadı");
+                        }
+                        destroySpeechRecognizer();
+                    }
+
+                    @Override
+                    public void onError(int error) {
+                        PluginCall c = savedSpeechCall;
+                        savedSpeechCall = null;
+                        if (c == null) return;
+                        String msg = error == SpeechRecognizer.ERROR_NO_MATCH ? "İptal edildi"
+                            : error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Zaman aşımı"
+                            : "Ses tanıma hatası: " + error;
+                        c.reject("NO_RESULT", msg);
+                        destroySpeechRecognizer();
+                    }
+                });
+
+                Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
+                intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, finalMaxResults);
+                intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+                intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,
+                    getContext().getPackageName());
+
+                speechRecognizer.startListening(intent);
+
+            } catch (Exception e) {
+                if (savedSpeechCall != null) {
+                    savedSpeechCall.reject("NO_RECOGNIZER", "Ses tanıma başlatılamadı: " + e.getMessage());
+                    savedSpeechCall = null;
+                }
+                destroySpeechRecognizer();
+            }
+        });
     }
 
-    @Override
-    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
-        super.handleOnActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_SPEECH || savedSpeechCall == null) return;
-
-        PluginCall call = savedSpeechCall;
-        savedSpeechCall = null;
-
-        if (resultCode == android.app.Activity.RESULT_OK && data != null) {
-            ArrayList<String> results =
-                data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if (results != null && !results.isEmpty()) {
-                JSObject r = new JSObject();
-                r.put("transcript", results.get(0));
-                call.resolve(r);
-                return;
-            }
+    private void destroySpeechRecognizer() {
+        if (speechRecognizer != null) {
+            try { speechRecognizer.destroy(); } catch (Exception ignored) {}
+            speechRecognizer = null;
         }
-        call.reject("NO_RESULT",
-            resultCode == android.app.Activity.RESULT_CANCELED
-                ? "İptal edildi" : "Sonuç alınamadı");
     }
 
     // ── Background service ───────────────────────────────────────────────────
@@ -953,6 +1057,58 @@ public class CarLauncherPlugin extends Plugin {
     public void stopBackgroundService(PluginCall call) {
         getContext().stopService(new Intent(getContext(), CarLauncherForegroundService.class));
         call.resolve();
+    }
+
+    // ── Android 13+ Runtime İzinleri ─────────────────────────────────────────
+
+    /**
+     * Android 12+ BLUETOOTH_CONNECT ve Android 13+ POST_NOTIFICATIONS için
+     * runtime izin diyaloğunu tetikler.
+     *
+     * Uygulama ilk açıldığında useLayoutServices.ts tarafından bir kez çağrılır.
+     * Zaten verilmiş izinler için sistem diyaloğu göstermez.
+     * ACCESS_BACKGROUND_LOCATION ayrıca istenmez — Geolocation eklentisi
+     * bunu ayrı bir adımda yönetir.
+     */
+    @PluginMethod
+    public void requestAndroid13Permissions(PluginCall call) {
+        java.util.List<String> needed = new java.util.ArrayList<>();
+
+        // Android 12+ (API 31) — Bluetooth paired device list + connect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(getContext(),
+                    android.Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.BLUETOOTH_CONNECT);
+            }
+            if (ContextCompat.checkSelfPermission(getContext(),
+                    android.Manifest.permission.BLUETOOTH_SCAN)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.BLUETOOTH_SCAN);
+            }
+        }
+
+        // Android 13+ (API 33) — Foreground service bildirimleri
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(getContext(),
+                    android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }
+
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(
+                getActivity(),
+                needed.toArray(new String[0]),
+                /* requestCode= */ 9001
+            );
+        }
+
+        // Hemen resolve et — kullanıcı diyaloğuna beklemiyoruz
+        JSObject r = new JSObject();
+        r.put("requested", needed.size());
+        call.resolve(r);
     }
 
     // ── System permissions ────────────────────────────────────────────────────

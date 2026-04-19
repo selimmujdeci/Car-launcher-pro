@@ -24,5 +24,8 @@ export function useDriveModeDetection({
     } else {
       if (autoDriveTimerRef.current) { clearTimeout(autoDriveTimerRef.current); autoDriveTimerRef.current = null; }
     }
+    return () => {
+      if (autoDriveTimerRef.current) { clearTimeout(autoDriveTimerRef.current); autoDriveTimerRef.current = null; }
+    };
   }, [location?.speed, settings.smartContextEnabled]);
 }

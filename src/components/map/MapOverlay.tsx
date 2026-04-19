@@ -67,7 +67,7 @@ export const MapOverlay = memo(function MapOverlay({
 
         {/* Source badge — top-right, küçük */}
         <div className="absolute top-2 right-2">
-          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/50 backdrop-blur-xl border ${badge.wrap} shadow-sm`}>
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl border ${badge.wrap} shadow-sm`}>
             <div className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
             <span className={`text-[8px] font-black tracking-widest uppercase ${badge.text}`}>{badge.label}</span>
           </div>
@@ -81,7 +81,7 @@ export const MapOverlay = memo(function MapOverlay({
                 <div className="absolute inset-0 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
                 <Navigation2 className="absolute inset-0 m-auto w-3.5 h-3.5 text-blue-400" />
               </div>
-              <span className="text-white text-[9px] font-black tracking-widest uppercase">
+              <span className="text-primary text-[9px] font-black tracking-widest uppercase">
                 {gpsUnavailable ? 'GPS HATASI' : 'GPS BEKLENİYOR'}
               </span>
             </div>
@@ -91,14 +91,14 @@ export const MapOverlay = memo(function MapOverlay({
         {/* Hız + yön — bottom-left, kompakt */}
         {location && (
           <div className="absolute bottom-2 left-2">
-            <div className="flex items-center gap-1.5 bg-black/55 backdrop-blur-xl rounded-xl border border-white/10 shadow-lg px-2.5 py-1.5">
-              <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-white'}`}>
+            <div className="flex items-center gap-1.5 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-xl border border-white/10 shadow-lg px-2.5 py-1.5">
+              <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-primary'}`}>
                 {Math.round(speed)}
               </span>
               <span className="text-[8px] font-black text-blue-400 uppercase leading-none">km/h</span>
               {hasHeading && (
                 <>
-                  <div className="w-px h-3 bg-white/10 mx-0.5" />
+                  <div className="w-px h-3 var(--panel-bg-secondary) mx-0.5" />
                   <svg
                     viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
                     className="w-3.5 h-3.5 text-blue-400"
@@ -125,7 +125,7 @@ export const MapOverlay = memo(function MapOverlay({
 
       {/* Source badge — top-right */}
       <div className={`absolute top-8 right-8 transition-all duration-700 ${isDriving ? 'opacity-30 scale-90 translate-x-4' : 'opacity-100'}`}>
-        <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
+        <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
           <div className={`w-2 h-2 rounded-full animate-pulse ${badge.dot}`} />
           <span className="text-[10px] font-black tracking-[0.2em] uppercase">{badge.label}</span>
         </div>
@@ -140,7 +140,7 @@ export const MapOverlay = memo(function MapOverlay({
               <Navigation2 className="absolute inset-0 m-auto w-7 h-7 text-blue-400 opacity-80" />
             </div>
             <div className="text-center">
-              <div className="text-white text-sm font-black tracking-[0.3em] uppercase mb-1">
+              <div className="text-primary text-sm font-black tracking-[0.3em] uppercase mb-1">
                 {gpsUnavailable ? 'GPS HATASI' : 'SİNYAL BEKLENİYOR'}
               </div>
               <div className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">
@@ -154,10 +154,10 @@ export const MapOverlay = memo(function MapOverlay({
       {/* Main HUD — bottom-left */}
       {location && (
         <div className={`absolute bottom-8 left-8 transition-all duration-700 ${isDriving ? 'scale-125 origin-bottom-left translate-x-2 -translate-y-2' : ''}`}>
-          <div className="flex items-stretch bg-black/60 backdrop-blur-3xl rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden p-1.5">
+          <div className="flex items-stretch var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-3xl rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden p-1.5">
             {/* Speed */}
-            <div className="px-8 py-5 flex items-baseline gap-3 bg-white/5 rounded-[2rem] border border-white/5 shadow-inner">
-              <span className={`text-6xl font-black font-mono tracking-tighter transition-colors duration-500 ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-white'}`}>
+            <div className="px-8 py-5 flex items-baseline gap-3 var(--panel-bg-secondary) rounded-[2rem] border border-white/5 shadow-inner">
+              <span className={`text-6xl font-black font-mono tracking-tighter transition-colors duration-500 ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-primary'}`}>
                 {Math.round(speed)}
               </span>
               <div className="flex flex-col">
@@ -180,7 +180,7 @@ export const MapOverlay = memo(function MapOverlay({
                   </svg>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-white font-mono text-2xl font-black leading-none tracking-tight">{Math.round(heading!)}°</span>
+                  <span className="text-primary font-mono text-2xl font-black leading-none tracking-tight">{Math.round(heading!)}°</span>
                   <span className="text-blue-400/70 text-[10px] font-black uppercase tracking-widest mt-1.5">{toCardinal(heading!)}</span>
                 </div>
               </div>
@@ -192,3 +192,5 @@ export const MapOverlay = memo(function MapOverlay({
     </div>
   );
 });
+
+

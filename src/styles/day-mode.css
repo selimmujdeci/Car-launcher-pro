@@ -1,0 +1,131 @@
+/* ═══════════════════════════════════════════════════════════
+   GÜNDÜZ MODU — Koyu mavi-gri automotive paleti
+   Tesla/BMW tarzı: hâlâ koyu, ama canlı ve uyumlu
+   Tetikleyici: <html data-day-night="day">
+   ═══════════════════════════════════════════════════════════ */
+
+html[data-day-night="day"] {
+  /* Ana arka plan — gece siyahından biraz daha açık koyu lacivert */
+  --pack-bg:            linear-gradient(160deg,#0f1623 0%,#131d2e 50%,#0d1520 100%);
+  --app-bg:             linear-gradient(160deg,#0f1623 0%,#131d2e 50%,#0d1520 100%);
+  --premium-bg:         linear-gradient(160deg,#0f1623 0%,#131d2e 50%,#0d1520 100%);
+
+  /* Kartlar — biraz daha görünür yüzey */
+  --pack-card-bg:       rgba(20,30,52,0.95);
+  --pack-border:        rgba(96,165,250,0.18);
+  --pack-shadow:        0 4px 24px rgba(0,0,0,0.5),0 1px 4px rgba(0,0,0,0.3);
+  --pack-glow:          rgba(59,130,246,0.15);
+
+  /* Header / Dock */
+  --header-bg:          rgba(12,18,32,0.98);
+  --dock-bg:            rgba(10,15,28,0.98);
+
+  /* Metin — gündüz için daha parlak beyaz */
+  --text-primary:       #f8faff;
+  --text-secondary:     #a8bbd4;
+  --text-muted:         #6b8299;
+  --premium-text:       #f8faff;
+  --premium-text-dim:   #8aa4be;
+
+  /* Panel */
+  --panel-bg:           rgba(18,26,46,0.96);
+  --panel-bg-secondary: rgba(14,20,38,0.94);
+  --panel-border:       rgba(96,165,250,0.15);
+  --panel-shadow:       0 4px 24px rgba(0,0,0,0.50);
+
+  /* Yüzey */
+  --surface-base:       #0f1623;
+  --surface-overlay:    rgba(12,18,32,0.99);
+
+  /* Vurgu renkleri gündüzde daha canlı */
+  --accent-blue:        #3b82f6;
+  --accent-purple:      #8b5cf6;
+  --accent-cyan:        #06b6d4;
+  --accent-emerald:     #10b981;
+  --premium-accent:     #3b82f6;
+
+  /* Ambient blob'lar daha belirgin */
+  --blob-1-color:       rgba(59,130,246,0.22);
+  --blob-2-color:       rgba(139,92,246,0.16);
+  --blob-3-color:       rgba(6,182,212,0.14);
+}
+
+/* ── Kök arka plan ── */
+html[data-day-night="day"] body,
+html[data-day-night="day"] #root,
+html[data-day-night="day"] .ultra-premium-root {
+  background: var(--app-bg) !important;
+  transition: background 0.6s ease;
+}
+
+/* ── Kartlar ── */
+html[data-day-night="day"] .glass-card,
+html[data-day-night="day"] .up-panel,
+html[data-day-night="day"] .premium-card {
+  background: rgba(20,30,52,0.96) !important;
+  border: 1px solid rgba(96,165,250,0.16) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.50), 0 0 0 1px rgba(96,165,250,0.05) !important;
+}
+
+/* ── ProLayout kök ── */
+html[data-day-night="day"] [data-layout="pro-main"] {
+  background: #0f1623 !important;
+}
+
+/* ── Dock ── */
+html[data-day-night="day"] [data-dock="main"] {
+  background: rgba(8,12,22,0.99) !important;
+  border-top: 1px solid rgba(96,165,250,0.20) !important;
+  box-shadow: 0 -2px 20px rgba(0,0,0,0.70) !important;
+}
+
+/* ── Drawer ── */
+html[data-day-night="day"] [data-drawer] {
+  background: rgba(12,18,32,0.99) !important;
+}
+
+/* ── ÖZEL: Gündüzde accent mavi border'ları parlat ── */
+html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.06)"],
+html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.07)"],
+html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.08)"],
+html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.09)"],
+html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.10)"] {
+  border-color: rgba(96,165,250,0.18) !important;
+}
+
+/* ── Gündüzde tailwind vurgu renkleri daha canlı ── */
+html[data-day-night="day"] .text-blue-400   { color: #60a5fa !important; filter: brightness(1.15); }
+html[data-day-night="day"] .text-emerald-400 { color: #34d399 !important; filter: brightness(1.1); }
+html[data-day-night="day"] .text-amber-400  { color: #fbbf24 !important; filter: brightness(1.1); }
+html[data-day-night="day"] .text-purple-400 { color: #a78bfa !important; filter: brightness(1.1); }
+html[data-day-night="day"] .text-cyan-400   { color: #22d3ee !important; filter: brightness(1.1); }
+
+/* ── bg-white/opacity gündüzde biraz daha görünür ── */
+html[data-day-night="day"] .bg-white\/\[0\.04\] { background: rgba(96,165,250,0.06) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.05\] { background: rgba(96,165,250,0.07) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.06\] { background: rgba(96,165,250,0.08) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.07\] { background: rgba(96,165,250,0.09) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.08\] { background: rgba(96,165,250,0.10) !important; }
+
+/* ── EntertainmentPortal kartlar ── */
+html[data-day-night="day"] [style*="background: rgba(255,255,255,0.05)"],
+html[data-day-night="day"] [style*="background: rgba(255,255,255,0.07)"],
+html[data-day-night="day"] [style*="background: rgba(255,255,255,0.08)"] {
+  background: rgba(96,165,250,0.08) !important;
+  border-color: rgba(96,165,250,0.15) !important;
+}
+
+/* ── Sunlight mode: güneş altında kontrast artır ── */
+html[data-day-night="day"].sunlight-mode {
+  --text-primary:  #ffffff;
+  --blob-1-color:  rgba(59,130,246,0.30);
+}
+
+html[data-day-night="day"].sunlight-mode [data-dock="main"] {
+  background: rgba(4,8,18,1) !important;
+  border-top-color: rgba(96,165,250,0.35) !important;
+}
+
+/* ── Geçiş ── */
+html[data-day-night] body,
+html[data-day-night] #root { transition: background 0.5s ease; }

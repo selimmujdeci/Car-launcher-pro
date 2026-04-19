@@ -1,0 +1,578 @@
+import { memo } from 'react';
+import {
+  SkipBack, SkipForward,
+  Grid3X3, Settings, Radio,
+} from 'lucide-react';
+import { useStore } from '../../store/useStore';
+import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
+import { useOBDState } from '../../platform/obdService';
+import { useGPSLocation } from '../../platform/gpsService';
+import { useClock } from '../../hooks/useClock';
+import { useDeviceStatus } from '../../platform/deviceApi';
+import { MiniMapWidget } from '../map/MiniMapWidget';
+import { APP_MAP, type AppItem } from '../../data/apps';
+
+/* ══════════════════════════════════════════════════════════════
+   COCKPIT THEME — Airbus A350 / Boeing 787 Glass Cockpit
+   Renk: Karanlık kokpit + Cyan (#00D4FF) + Amber (#FFB300)
+   ══════════════════════════════════════════════════════════════ */
+
+interface Props {
+  onOpenMap:      () => void;
+  onOpenApps:     () => void;
+  onOpenSettings: () => void;
+  onLaunch:       (id: string) => void;
+  appMap:         Record<string, AppItem>;
+  dockIds:        string[];
+  fullMapOpen?:   boolean;
+}
+
+const C_BG      = '#050A10';
+const C_CYAN    = '#00D4FF';
+const C_AMBER   = '#FFB300';
+const C_GREEN   = '#00E676';
+const C_RED     = '#FF3B30';
+const C_WHITE   = '#E8F0FF';
+const C_DIM     = '#3A4A5A';
+const C_DIM2    = '#5A6A7A';
+const C_PANEL   = 'rgba(6,12,20,0.98)';
+const C_BORDER  = `rgba(0,212,255,0.18)`;
+const C_BORDER2 = `rgba(0,212,255,0.08)`;
+
+/* ── Ortak panel çerçevesi ─────────────────────────────────── */
+function CPanel({ children, label, sublabel, accent = C_CYAN, style }: {
+  children: React.ReactNode;
+  label: string;
+  sublabel?: string;
+  accent?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div className="flex flex-col h-full overflow-hidden relative"
+      style={{
+        background: C_PANEL,
+        border: `1px solid ${C_BORDER}`,
+        borderRadius: 8,
+        boxShadow: `0 0 0 1px rgba(0,0,0,0.80), 0 8px 32px rgba(0,0,0,0.70), inset 0 1px 0 rgba(0,212,255,0.05)`,
+        ...style,
+      }}>
+      {/* Üst çizgi — renk kodu */}
+      <div style={{ height: 2, background: `linear-gradient(90deg, transparent 0%, ${accent} 30%, ${accent} 70%, transparent 100%)`, flexShrink: 0 }} />
+
+      {/* Panel başlık */}
+      <div className="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+        style={{ borderBottom: `1px solid ${C_BORDER2}`, background: 'rgba(0,212,255,0.03)' }}>
+        <span className="text-[9px] font-mono font-bold tracking-[0.35em] uppercase" style={{ color: accent }}>{label}</span>
+        {sublabel && <span className="text-[8px] font-mono" style={{ color: C_DIM2 }}>{sublabel}</span>}
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ── Glareshield (üst bar) ─────────────────────────────────── */
+const Glareshield = memo(function Glareshield({ onOpenApps, onOpenSettings }: { onOpenApps: () => void; onOpenSettings: () => void }) {
+  const { settings } = useStore();
+  const { time } = useClock(settings.use24Hour, true);
+  const device = useDeviceStatus();
+
+  return (
+    <div className="flex items-center justify-between px-4 py-2 flex-shrink-0"
+      style={{
+        background: 'linear-gradient(180deg, #0A0E14 0%, #060C14 100%)',
+        borderBottom: `1px solid rgba(0,212,255,0.12)`,
+        boxShadow: `0 2px 20px rgba(0,0,0,0.80)`,
+      }}>
+
+      {/* Sol: Uçuş numarası / sistem */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded flex items-center justify-center"
+            style={{ background: 'rgba(0,212,255,0.08)', border: `1px solid ${C_BORDER}` }}>
+            {/* Kokpit ikonu */}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L2 9l3 1-3 4h5l1 8h8l1-8h5l-3-4 3-1L12 2z" fill={C_CYAN} opacity="0.9"/>
+            </svg>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono font-bold tracking-[0.3em]" style={{ color: C_CYAN }}>CAR-LAUNCHER</div>
+            <div className="text-[8px] font-mono" style={{ color: C_DIM2 }}>GLASS COCKPIT v2.1</div>
+          </div>
+        </div>
+
+        {/* Status annunciators */}
+        <div className="flex items-center gap-1.5 ml-4">
+          <Annunciator label="GPS" active color={C_GREEN} />
+          <Annunciator label="OBD" active={device.ready} color={C_GREEN} />
+          <Annunciator label="BT" active={device.ready && device.btConnected} color={C_CYAN} />
+          <Annunciator label="WIFI" active={device.ready && device.wifiConnected} color={C_CYAN} />
+        </div>
+      </div>
+
+      {/* Orta: Dijital saat — kronometrik */}
+      <div className="flex flex-col items-center">
+        <div className="font-mono font-bold tabular-nums" style={{ fontSize: 28, color: C_WHITE, letterSpacing: '0.05em', textShadow: `0 0 20px rgba(0,212,255,0.30)` }}>
+          {time}
+        </div>
+        <div className="text-[8px] font-mono tracking-[0.5em] uppercase" style={{ color: C_DIM }}>UTC+03</div>
+      </div>
+
+      {/* Sağ: Kontrol butonları */}
+      <div className="flex items-center gap-2">
+        <GButton label="SYS" onClick={onOpenSettings}><Settings className="w-3.5 h-3.5" style={{ color: C_DIM2 }} /></GButton>
+        <GButton label="APPS" onClick={onOpenApps}><Grid3X3 className="w-3.5 h-3.5" style={{ color: C_DIM2 }} /></GButton>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded"
+          style={{ background: 'rgba(0,230,118,0.10)', border: `1px solid rgba(0,230,118,0.25)` }}>
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C_GREEN }} />
+          <span className="text-[9px] font-mono font-bold tracking-widest" style={{ color: C_GREEN }}>NORMAL OPS</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function Annunciator({ label, active, color }: { label: string; active: boolean; color: string }) {
+  return (
+    <div className="px-2 py-1 rounded text-[8px] font-mono font-bold tracking-wider"
+      style={{
+        background: active ? `${color}18` : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${active ? `${color}40` : C_DIM}`,
+        color: active ? color : C_DIM,
+      }}>
+      {label}
+    </div>
+  );
+}
+
+function GButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick}
+      className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded active:scale-95 transition-all"
+      style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C_DIM}` }}>
+      {children}
+      <span className="text-[7px] font-mono" style={{ color: C_DIM2 }}>{label}</span>
+    </button>
+  );
+}
+
+/* ── PFD: Primary Flight Display ───────────────────────────── */
+const PFD = memo(function PFD() {
+  const obd = useOBDState();
+  const gps = useGPSLocation();
+  const speedKmh = gps?.speed != null && gps.speed > 0 ? Math.round(gps.speed * 3.6) : (obd.speed ?? 0);
+  const heading = gps?.heading ?? 247;
+  const rpm = obd.rpm ?? 929;
+
+  const bankAngle = 0;
+  const pitchAngle = 2.5;
+
+  const W = 220, H = 240;
+  const cx = W / 2, cy = H / 2 - 10;
+
+  // Yapay ufuk hesaplama
+  const bankRad = (bankAngle * Math.PI) / 180;
+  const pitchPx = pitchAngle * 6; // 1 derece = 6px
+  const cosB = Math.cos(bankRad), sinB = Math.sin(bankRad);
+
+  // Ufuk çizgisi
+  const horizonLen = 180;
+  const hx1 = cx - (horizonLen / 2) * cosB - pitchPx * sinB;
+  const hy1 = cy + (horizonLen / 2) * sinB - pitchPx * cosB;
+  const hx2 = cx + (horizonLen / 2) * cosB + pitchPx * sinB;
+  const hy2 = cy - (horizonLen / 2) * sinB + pitchPx * cosB;
+
+  // Gökyüzü polygon (horizon üstü)
+  const skyPoints = `0,0 ${W},0 ${hx2},${hy2} ${hx1},${hy1}`;
+  // Zemin polygon
+  const groundPoints = `${hx1},${hy1} ${hx2},${hy2} ${W},${H} 0,${H}`;
+
+  // Hız tape — sol
+  const speedKnots = Math.round(speedKmh * 0.539957);
+
+  // Heading band
+  const hStart = heading - 30;
+
+  return (
+    <CPanel label="PFD" sublabel="PRIMARY FLIGHT DISPLAY" accent={C_CYAN}>
+      <div className="flex flex-col h-full">
+
+        {/* Yapay ufuk alanı */}
+        <div className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
+          <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <clipPath id="adi-clip">
+                <rect x="0" y="0" width={W} height={H} rx="4" />
+              </clipPath>
+            </defs>
+            <g clipPath="url(#adi-clip)">
+              {/* Gökyüzü */}
+              <polygon points={skyPoints} fill="#0A2547" />
+              {/* Zemin */}
+              <polygon points={groundPoints} fill="#3D2008" />
+              {/* Ufuk çizgisi */}
+              <line x1={hx1} y1={hy1} x2={hx2} y2={hy2} stroke="#FFFFFF" strokeWidth="2" />
+
+              {/* Pitch çizgileri */}
+              {[-10, -5, 5, 10].map(p => {
+                const py = pitchPx - p * 6;
+                const len = Math.abs(p) === 10 ? 60 : 40;
+                const px1 = cx - (len / 2) * cosB - py * sinB;
+                const py1 = cy + (len / 2) * sinB - py * cosB;
+                const px2 = cx + (len / 2) * cosB + py * sinB;
+                const py2 = cy - (len / 2) * sinB + py * cosB;
+                return (
+                  <g key={p}>
+                    <line x1={px1} y1={py1} x2={px2} y2={py2} stroke="rgba(255,255,255,0.50)" strokeWidth="1" />
+                    <text x={px1 - 18} y={py1 + 4} fill="rgba(255,255,255,0.50)" fontSize="9" fontFamily="monospace">{Math.abs(p)}</text>
+                  </g>
+                );
+              })}
+
+              {/* Bank açı göstergesi — üst */}
+              <g transform={`rotate(${bankAngle}, ${cx}, ${cy})`}>
+                <polygon points={`${cx},${cy - 95} ${cx - 6},${cy - 82} ${cx + 6},${cy - 82}`}
+                  fill={C_WHITE} opacity="0.8" />
+              </g>
+
+              {/* Merkezi uçak silüeti */}
+              <g>
+                {/* Gövde */}
+                <rect x={cx - 2} y={cy - 3} width={4} height={6} fill={C_AMBER} />
+                {/* Sol kanat */}
+                <rect x={cx - 28} y={cy} width={24} height={3} fill={C_AMBER} rx="1" />
+                {/* Sağ kanat */}
+                <rect x={cx + 4} y={cy} width={24} height={3} fill={C_AMBER} rx="1" />
+                {/* Kuyruk */}
+                <rect x={cx - 1} y={cy + 3} width={2} height={8} fill={C_AMBER} />
+              </g>
+
+              {/* Sol hız tape arka planı */}
+              <rect x="2" y={cy - 60} width="38" height="120" rx="3" fill="rgba(0,0,0,0.65)" stroke={C_BORDER} strokeWidth="0.5" />
+              {/* Hız değeri */}
+              <rect x="3" y={cy - 13} width="36" height="26" rx="2" fill="rgba(0,0,0,0.85)" stroke={C_CYAN} strokeWidth="1" />
+              <text x="21" y={cy + 6} textAnchor="middle" fill={C_WHITE} fontSize="14" fontWeight="bold" fontFamily="monospace">{speedKnots}</text>
+              <text x="21" y={cy + 22} textAnchor="middle" fill={C_DIM2} fontSize="7" fontFamily="monospace">KT</text>
+
+              {/* Sağ RPM tape */}
+              <rect x={W - 40} y={cy - 60} width="38" height="120" rx="3" fill="rgba(0,0,0,0.65)" stroke={C_BORDER} strokeWidth="0.5" />
+              <rect x={W - 39} y={cy - 13} width="36" height="26" rx="2" fill="rgba(0,0,0,0.85)" stroke={C_AMBER} strokeWidth="1" />
+              <text x={W - 21} y={cy + 6} textAnchor="middle" fill={C_WHITE} fontSize="12" fontWeight="bold" fontFamily="monospace">{Math.round(rpm / 100)}</text>
+              <text x={W - 21} y={cy + 22} textAnchor="middle" fill={C_DIM2} fontSize="7" fontFamily="monospace">×100</text>
+
+              {/* Heading band — alt */}
+              <rect x="0" y={H - 28} width={W} height="28" fill="rgba(0,0,0,0.70)" />
+              <rect x={cx - 20} y={H - 27} width="40" height="27" fill="rgba(0,0,0,0.90)" stroke={C_CYAN} strokeWidth="1" />
+              <text x={cx} y={H - 8} textAnchor="middle" fill={C_WHITE} fontSize="14" fontWeight="bold" fontFamily="monospace">{Math.round(heading)}°</text>
+
+              {/* Heading tick'leri */}
+              {[-3, -2, -1, 1, 2, 3].map(i => {
+                const hdg = (hStart + (i + 3) * 10) % 360;
+                const xPos = cx + i * 28 - 14;
+                return (
+                  <g key={i}>
+                    <line x1={xPos + 14} y1={H - 28} x2={xPos + 14} y2={H - 22} stroke={C_DIM2} strokeWidth="1" />
+                    <text x={xPos + 14} y={H - 16} textAnchor="middle" fill={C_DIM2} fontSize="7" fontFamily="monospace">
+                      {hdg < 1 ? 360 : hdg}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+          </svg>
+        </div>
+
+        {/* Alt hız / km satırı */}
+        <div className="flex-shrink-0 flex items-center justify-between px-3 py-2"
+          style={{ borderTop: `1px solid ${C_BORDER2}`, background: 'rgba(0,0,0,0.60)' }}>
+          <MonoValue label="IAS" value={`${speedKnots} KT`} color={C_CYAN} />
+          <MonoValue label="KM/H" value={`${speedKmh}`} color={C_WHITE} />
+          <MonoValue label="HDG" value={`${Math.round(heading)}°`} color={C_AMBER} />
+        </div>
+      </div>
+    </CPanel>
+  );
+});
+
+function MonoValue({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div className="text-center">
+      <div className="text-[8px] font-mono tracking-widest" style={{ color: C_DIM2 }}>{label}</div>
+      <div className="text-sm font-mono font-bold tabular-nums mt-0.5" style={{ color }}>{value}</div>
+    </div>
+  );
+}
+
+/* ── ND: Navigation Display ────────────────────────────────── */
+const ND = memo(function ND({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
+  const gps = useGPSLocation();
+  const heading = gps?.heading ?? 247;
+  const speedKmh = gps?.speed != null ? Math.round(gps.speed * 3.6) : 0;
+
+  return (
+    <CPanel label="ND" sublabel="NAVIGATION DISPLAY" accent={C_GREEN}>
+      <div className="flex flex-col h-full">
+
+        {/* Harita */}
+        <div className="flex-1 min-h-0 relative overflow-hidden">
+          {fullMapOpen
+            ? <div className="w-full h-full flex items-center justify-center" style={{ background: '#050A10' }}>
+                <span className="text-sm font-mono" style={{ color: C_DIM }}>FULL MAP ACTIVE</span>
+              </div>
+            : <MiniMapWidget onFullScreenClick={onOpenMap} />
+          }
+
+          {/* ND Overlay — heading arc */}
+          <div className="absolute top-2 left-2 right-2 pointer-events-none">
+            <svg width="100%" height="50" viewBox="0 0 300 50">
+              {/* Bearing arc */}
+              <path d="M 150,48 A 148,148 0 0,1 2,48" fill="none" stroke={C_GREEN} strokeWidth="1" opacity="0.30" />
+              {/* Heading pointer */}
+              <polygon points="150,4 146,16 154,16" fill={C_CYAN} />
+              {/* Track labels */}
+              <text x="8"  y="46" fill={C_DIM2} fontSize="9" fontFamily="monospace">W</text>
+              <text x="146" y="14" fill={C_CYAN} fontSize="9" fontFamily="monospace">{Math.round(heading)}°</text>
+              <text x="280" y="46" fill={C_DIM2} fontSize="9" fontFamily="monospace">E</text>
+            </svg>
+          </div>
+
+          {/* Hız / Range overlay — sağ alt */}
+          <div className="absolute bottom-2 right-2 pointer-events-none">
+            <div className="flex flex-col items-end gap-0.5">
+              <div className="px-2 py-1 rounded text-[9px] font-mono" style={{ background: 'rgba(0,0,0,0.70)', color: C_GREEN }}>
+                GS {speedKmh} KM/H
+              </div>
+              <div className="px-2 py-1 rounded text-[8px] font-mono" style={{ background: 'rgba(0,0,0,0.70)', color: C_DIM2 }}>
+                RANGE 20 NM
+              </div>
+            </div>
+          </div>
+
+          {/* Hedef overlay — sol alt */}
+          <div className="absolute bottom-2 left-2 pointer-events-none">
+            <div className="px-2 py-1 rounded text-[9px] font-mono" style={{ background: 'rgba(0,0,0,0.70)', color: C_AMBER }}>
+              DEST — ETA 18:45
+            </div>
+          </div>
+        </div>
+
+        {/* Arama */}
+        <div className="flex-shrink-0 px-3 py-2"
+          style={{ borderTop: `1px solid ${C_BORDER2}`, background: 'rgba(0,0,0,0.60)' }}>
+          <button onClick={onOpenMap}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded active:scale-[0.99] transition-all"
+            style={{ background: 'rgba(0,212,255,0.05)', border: `1px solid ${C_BORDER}` }}>
+            <span className="text-[9px] font-mono" style={{ color: C_DIM2 }}>▶</span>
+            <span className="text-[11px] font-mono" style={{ color: C_DIM2 }}>ENTER DESTINATION / DIRECT TO</span>
+          </button>
+        </div>
+      </div>
+    </CPanel>
+  );
+});
+
+/* ── EICAS: Engine Indication & Crew Alerting ──────────────── */
+const EICAS = memo(function EICAS({ appMap, onLaunch }: { appMap: Record<string, AppItem>; onLaunch: (id: string) => void }) {
+  const obd = useOBDState();
+  const rpm  = obd.rpm        ?? 929;
+  const temp = obd.engineTemp ?? 88;
+  const fuel = obd.fuelLevel  ?? 68;
+  const tempWarn = temp > 100;
+  const fuelWarn = fuel < 15;
+
+  const { playing, track } = useMediaState();
+
+  return (
+    <div className="flex flex-col gap-2 h-full min-h-0">
+
+      {/* Motor göstergesi */}
+      <CPanel label="EICAS" sublabel="ENGINE & SYSTEMS" accent={C_AMBER} style={{ flexShrink: 0 }}>
+        <div className="p-3 flex flex-col gap-2">
+
+          {/* N1 / RPM arc'ı */}
+          <div className="flex items-center gap-3">
+            <div style={{ position: 'relative', width: 70, height: 70 }}>
+              <svg width="70" height="70" viewBox="0 0 70 70">
+                <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="6" />
+                <circle cx="35" cy="35" r="28" fill="none" stroke={C_AMBER} strokeWidth="6"
+                  strokeDasharray={`${(rpm / 8000) * 176} 176`}
+                  strokeDashoffset="44"
+                  strokeLinecap="round"
+                  style={{ filter: `drop-shadow(0 0 4px ${C_AMBER}60)` }} />
+                <text x="35" y="38" textAnchor="middle" fill={C_WHITE} fontSize="12" fontWeight="bold" fontFamily="monospace">
+                  {Math.round(rpm / 10) / 100}
+                </text>
+                <text x="35" y="50" textAnchor="middle" fill={C_DIM2} fontSize="7" fontFamily="monospace">N1%</text>
+              </svg>
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1">
+              <EICASRow label="EGT" value={`${Math.round(temp + 480)}°C`} warn={tempWarn} max={1000} current={temp + 480} />
+              <EICASRow label="FF"  value="28 L/H"  warn={false}     max={100}  current={28} />
+              <EICASRow label="OIL" value="4.2 bar"  warn={false}    max={6}    current={4.2} />
+            </div>
+          </div>
+
+          {/* Yakıt + Sıcaklık */}
+          <div className="flex gap-2">
+            <EICASGauge label="FUEL" value={Math.round(fuel)} unit="%" warn={fuelWarn} color={fuelWarn ? C_RED : C_GREEN} />
+            <EICASGauge label="TEMP" value={Math.round(temp)} unit="°C" warn={tempWarn} color={tempWarn ? C_RED : C_AMBER} />
+            <EICASGauge label="VOLT" value="12.6" unit="V" warn={false} color={C_CYAN} />
+          </div>
+        </div>
+      </CPanel>
+
+      {/* Comms — Müzik */}
+      <CPanel label="COMMS" sublabel="AUDIO MANAGEMENT" accent={C_CYAN} style={{ flexShrink: 0 }}>
+        <div className="p-3">
+          <div className="flex items-center gap-2 mb-2.5">
+            <div className="w-10 h-10 rounded flex-shrink-0 flex items-center justify-center overflow-hidden"
+              style={{ background: 'rgba(0,212,255,0.08)', border: `1px solid ${C_BORDER}` }}>
+              {track.albumArt
+                ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
+                : <Radio className="w-4 h-4" style={{ color: C_CYAN }} />
+              }
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-mono font-bold truncate" style={{ color: C_WHITE }}>
+                {track.title || 'NO AUDIO SIGNAL'}
+              </div>
+              <div className="text-[9px] font-mono mt-0.5 truncate" style={{ color: C_DIM2 }}>
+                {track.artist || 'CHANNEL CLEAR'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <CommsBtn onClick={() => previous()}><SkipBack className="w-3.5 h-3.5" style={{ color: C_DIM2 }} /></CommsBtn>
+            <button onClick={() => togglePlayPause()}
+              className="px-4 py-1.5 rounded text-[10px] font-mono font-bold tracking-widest active:scale-90 transition-all"
+              style={{
+                background: playing ? 'rgba(0,212,255,0.15)' : 'rgba(0,212,255,0.08)',
+                border: `1px solid ${C_CYAN}`,
+                color: C_CYAN,
+                boxShadow: playing ? `0 0 12px rgba(0,212,255,0.30)` : 'none',
+              }}>
+              {playing ? '■ STOP' : '▶ PLAY'}
+            </button>
+            <CommsBtn onClick={() => next()}><SkipForward className="w-3.5 h-3.5" style={{ color: C_DIM2 }} /></CommsBtn>
+          </div>
+        </div>
+      </CPanel>
+
+      {/* Hızlı uygulamalar — FMC stili */}
+      <CPanel label="FMC" sublabel="FLIGHT MANAGEMENT" accent={C_GREEN} style={{ flex: 1 }}>
+        <div className="p-2 grid grid-cols-2 gap-1.5 h-full content-start">
+          {['maps', 'phone', 'youtube', 'settings'].map(id => {
+            const app = appMap[id] ?? APP_MAP[id];
+            if (!app) return null;
+            return (
+              <button key={id} onClick={() => onLaunch(id)}
+                className="flex items-center gap-2 px-2 py-2 rounded active:scale-90 transition-all"
+                style={{ background: 'rgba(0,230,118,0.04)', border: `1px solid rgba(0,230,118,0.12)` }}>
+                <span className="text-base leading-none">{app.icon}</span>
+                <span className="text-[9px] font-mono truncate" style={{ color: C_DIM2 }}>{app.name.toUpperCase()}</span>
+              </button>
+            );
+          })}
+        </div>
+      </CPanel>
+    </div>
+  );
+});
+
+function EICASRow({ label, value, warn, max, current }: { label: string; value: string; warn: boolean; max: number; current: number }) {
+  const pct = Math.min(current / max, 1);
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[8px] font-mono w-8 flex-shrink-0" style={{ color: C_DIM2 }}>{label}</span>
+      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct * 100}%`, background: warn ? C_RED : C_AMBER, boxShadow: warn ? `0 0 4px ${C_RED}` : 'none' }} />
+      </div>
+      <span className="text-[9px] font-mono w-14 text-right flex-shrink-0" style={{ color: warn ? C_RED : C_WHITE }}>{value}</span>
+    </div>
+  );
+}
+
+function EICASGauge({ label, value, unit, warn, color }: { label: string; value: number | string; unit: string; warn: boolean; color: string }) {
+  return (
+    <div className="flex-1 rounded px-2 py-1.5 text-center"
+      style={{ background: warn ? 'rgba(255,59,48,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${warn ? 'rgba(255,59,48,0.25)' : C_DIM}` }}>
+      <div className="text-[8px] font-mono mb-1" style={{ color: C_DIM2 }}>{label}</div>
+      <div className="text-sm font-mono font-bold tabular-nums" style={{ color }}>
+        {value}<span className="text-[9px] ml-0.5" style={{ color: C_DIM2 }}>{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function CommsBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick}
+      className="w-8 h-8 rounded flex items-center justify-center active:scale-90 transition-all"
+      style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C_DIM}` }}>
+      {children}
+    </button>
+  );
+}
+
+/* ── MIP: Mode Indicator Panel (dock) ──────────────────────── */
+const MIP = memo(function MIP({ appMap, dockIds, onLaunch }: { appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void }) {
+  const apps = dockIds.slice(0, 12).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
+  return (
+    <div className="flex-shrink-0"
+      style={{
+        background: 'linear-gradient(180deg, #060C14 0%, #040810 100%)',
+        borderTop: `1px solid rgba(0,212,255,0.12)`,
+        boxShadow: `0 -2px 20px rgba(0,0,0,0.80)`,
+      }}>
+      <div className="flex items-center overflow-x-auto no-scrollbar px-3 py-1.5 gap-1">
+        {apps.map(({ id, app }) => (
+          <button key={id} onClick={() => onLaunch(id)}
+            className="flex flex-col items-center gap-0.5 flex-shrink-0 px-2.5 py-1 rounded active:scale-90 transition-all min-w-[48px]"
+            style={{ background: 'rgba(0,212,255,0.04)', border: `1px solid ${C_DIM}` }}>
+            <span className="text-base leading-none">{app!.icon}</span>
+            <span className="text-[7px] font-mono uppercase tracking-wider truncate w-full text-center" style={{ color: C_DIM2 }}>{app!.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/* ── COCKPIT LAYOUT ────────────────────────────────────────── */
+export const CockpitLayout = memo(function CockpitLayout({
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
+}: Props) {
+  return (
+    <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: C_BG }}>
+
+      {/* CRT scan-line efekti */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        zIndex: 1,
+        background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)',
+      }} />
+
+      {/* Ambient glow */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
+        <div style={{ position: 'absolute', top: '10%', left: '30%', width: '40vw', height: '30vw', borderRadius: '50%', background: 'radial-gradient(circle,rgba(0,212,255,0.04) 0%,transparent 70%)', filter: 'blur(80px)' }} />
+      </div>
+
+      <div className="relative z-10 flex flex-col h-full">
+        {/* Glareshield */}
+        <Glareshield onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+
+        {/* Ana panel — 3 kolon */}
+        <div className="flex-1 min-h-0 grid gap-2 p-2 overflow-hidden"
+          style={{ gridTemplateColumns: '0.85fr 1.20fr 0.95fr' }}>
+          <PFD />
+          <ND onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+          <EICAS appMap={appMap} onLaunch={onLaunch} />
+        </div>
+
+        {/* MIP dock */}
+        <MIP appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
+      </div>
+    </div>
+  );
+});

@@ -15,25 +15,38 @@ export const SleepOverlay = memo(function SleepOverlay({ use24Hour, showSeconds,
 
   return (
     <div
-      className="sleep-overlay fixed inset-0 z-40 bg-black flex flex-col items-center justify-center cursor-pointer select-none"
+      className="ultra-premium-root fixed inset-0 z-[4000] flex flex-col items-center justify-center cursor-pointer select-none transition-all duration-1000"
       onClick={onWake}
     >
-      <div className="absolute w-96 h-96 rounded-full bg-blue-500/[0.04] blur-[100px] pointer-events-none" />
-      <div className="relative z-10 pointer-events-none mb-6">
+      <div className="up-ambient-blobs">
+        <div className="up-blob up-blob-1 !opacity-20" />
+        <div className="up-blob up-blob-2 !opacity-20" />
+      </div>
+
+      <div className="relative z-10 pointer-events-none mb-10 group">
         {clockStyle === 'analog' ? (
-          <AnalogClock size={240} hours={analog.hours} minutes={analog.minutes} seconds={analog.seconds} showSeconds={showSeconds} />
+          <div className="drop-shadow-[0_0_50px_rgba(59,130,246,0.3)]">
+            <AnalogClock size={320} hours={analog.hours} minutes={analog.minutes} seconds={analog.seconds} showSeconds={showSeconds} />
+          </div>
         ) : (
-          <div className="text-[110px] font-extralight tabular-nums tracking-tight text-white leading-none drop-shadow-[0_0_30px_rgba(255,255,255,0.08)]">
+          <div className="text-[160px] font-black tabular-nums tracking-tighter text-primary leading-none drop-shadow-[0_0_60px_rgba(255,255,255,0.15)] italic">
             {clk.time}
           </div>
         )}
       </div>
-      <div className="text-slate-600 text-base tracking-[0.35em] uppercase pointer-events-none z-10">
-        {clk.date}
+
+      <div className="relative z-10 px-8 py-3 rounded-2xl glass-card border-white/5 backdrop-blur-3xl shadow-2xl">
+        <div className="text-primary font-black text-xl tracking-[0.4em] uppercase text-center drop-shadow-md">
+          {clk.date}
+        </div>
       </div>
-      <div className="fixed bottom-8 text-white/20 text-[10px] tracking-[0.4em] pointer-events-none">
-        DOKUNUN
+
+      <div className="fixed bottom-12 flex flex-col items-center gap-4 animate-bounce">
+        <div className="text-secondary text-[10px] font-black tracking-[0.6em] uppercase">Sistemi Uyandır</div>
+        <div className="w-1 h-12 rounded-full bg-gradient-to-b from-blue-500 to-transparent shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
       </div>
     </div>
   );
 });
+
+

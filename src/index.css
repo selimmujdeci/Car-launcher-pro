@@ -2,13 +2,177 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 @import "./styles/base.css";
+@import "./styles/theme.css";
 @import "./styles/drive-states.css";
-@import "./styles/theme-packs.css";
 @import "./styles/widget-system.css";
 @import "./styles/transitions.css";
-@import "./styles/theme-styles.css";
 @import "./styles/theme-layouts.css";
 @import "./styles/volume-overlays.css";
+@import "./styles/day-mode.css";
+@import "./styles/theme-packs.css";
+
+/* ═══════════════════════════════════════════════════════════
+   TEMA BASE DEĞİŞKENLERİ — Her tema için garantili CSS vars
+   theme-packs.css daha detaylı override'lar sağlar
+   ═══════════════════════════════════════════════════════════ */
+
+/* Varsayılan (tema seçilmemişse) */
+:root {
+  --bg-primary:    #0a0c10;
+  --bg-card:       #12151d;
+  --bg-surface:    #1a1d28;
+  --accent:        #60a5fa;
+  --accent2:       #34d399;
+  --text:          #ffffff;
+  --border-color:  rgba(255,255,255,0.08);
+  --radius:        12px;
+  --radius-card:   16px;
+  --radius-btn:    12px;
+  --radius-tile:   0px;
+  --dock-bg:       #060810;
+  --dock-border-top: 1px solid rgba(255,255,255,0.10);
+  --divider-color: rgba(255,255,255,0.10);
+  --icon-color-1:  #60a5fa;
+  --icon-color-2:  #94a3b8;
+  --font-ui:       system-ui, sans-serif;
+  --font-weight-ui: 700;
+  --letter-spacing-ui: 0.05em;
+  --btn-glow:      none;
+  --tile-hover-bg: rgba(255,255,255,0.05);
+}
+
+[data-theme="pro"] {
+  --bg-primary:    #1C1C2E;
+  --bg-card:       rgba(35,35,58,0.97);
+  --bg-surface:    #2D2D44;
+  --accent:        #D4AF37;
+  --accent2:       #C0392B;
+  --text:          #F5F0E8;
+  --border-color:  rgba(212,175,55,0.30);
+  --radius:        4px;
+  --radius-card:   18px;
+  --radius-btn:    4px;
+  --radius-tile:   4px;
+  --dock-bg:       rgba(13,13,26,0.99);
+  --dock-border-top: 1px solid rgba(212,175,55,0.35);
+  --divider-color: rgba(212,175,55,0.18);
+  --icon-color-1:  #D4AF37;
+  --icon-color-2:  #C0392B;
+  --font-ui:       'Orbitron', monospace;
+  --font-weight-ui: 900;
+  --letter-spacing-ui: 2px;
+  --btn-glow:      0 0 12px rgba(212,175,55,0.35);
+  --tile-hover-bg: rgba(212,175,55,0.08);
+}
+
+[data-theme="tesla"] {
+  --bg-primary:    #141414;
+  --bg-card:       rgba(28,28,28,0.96);
+  --bg-surface:    #1E1E1E;
+  --accent:        #E31937;
+  --accent2:       #A8A9AD;
+  --text:          #F2F2F2;
+  --border-color:  rgba(255,255,255,0.07);
+  --radius:        50px;
+  --radius-card:   12px;
+  --radius-btn:    50px;
+  --radius-tile:   50px;
+  --dock-bg:       rgba(10,10,10,0.99);
+  --dock-border-top: 2px solid rgba(227,25,55,0.40);
+  --divider-color: rgba(255,255,255,0.06);
+  --icon-color-1:  #E31937;
+  --icon-color-2:  #A8A9AD;
+  --font-ui:       system-ui, -apple-system, sans-serif;
+  --font-weight-ui: 300;
+  --letter-spacing-ui: 0.08em;
+  --btn-glow:      none;
+  --tile-hover-bg: rgba(227,25,55,0.08);
+}
+
+[data-theme="cockpit"] {
+  --bg-primary:    #080F1E;
+  --bg-card:       rgba(10,22,45,0.92);
+  --bg-surface:    #0D2137;
+  --accent:        #00B4D8;
+  --accent2:       #90E0EF;
+  --text:          #E8F4FD;
+  --border-color:  rgba(0,180,216,0.35);
+  --radius:        8px;
+  --radius-card:   16px;
+  --radius-btn:    8px;
+  --radius-tile:   8px;
+  --dock-bg:       rgba(4,10,20,0.99);
+  --dock-border-top: 1px solid rgba(0,180,216,0.50);
+  --divider-color: rgba(0,180,216,0.25);
+  --icon-color-1:  #00B4D8;
+  --icon-color-2:  #90E0EF;
+  --font-ui:       'Courier New', monospace;
+  --font-weight-ui: 700;
+  --letter-spacing-ui: 0.08em;
+  --btn-glow:      0 0 10px rgba(0,180,216,0.45);
+  --tile-hover-bg: rgba(0,180,216,0.10);
+}
+
+[data-theme="mercedes"] {
+  --bg-primary:    #181818;
+  --bg-card:       rgba(30,30,30,0.97);
+  --bg-surface:    #2C2C2C;
+  --accent:        #C8A882;
+  --accent2:       #8C8C8C;
+  --text:          #EDE8E0;
+  --border-color:  rgba(200,168,130,0.25);
+  --radius:        6px;
+  --radius-card:   20px;
+  --radius-btn:    6px;
+  --radius-tile:   6px;
+  --dock-bg:       rgba(10,10,10,0.99);
+  --dock-border-top: 1px solid rgba(200,168,130,0.28);
+  --divider-color: rgba(200,168,130,0.15);
+  --icon-color-1:  #C8A882;
+  --icon-color-2:  #8C8C8C;
+  --font-ui:       system-ui, 'Helvetica Neue', sans-serif;
+  --font-weight-ui: 400;
+  --letter-spacing-ui: 3px;
+  --btn-glow:      none;
+  --tile-hover-bg: rgba(200,168,130,0.08);
+}
+
+[data-theme="audi"] {
+  --bg-primary:    #1E1E2C;
+  --bg-card:       rgba(32,32,48,0.97);
+  --bg-surface:    #2A2A3D;
+  --accent:        #BB0A21;
+  --accent2:       #D0D0D0;
+  --text:          #F0F0F2;
+  --border-color:  rgba(187,10,33,0.28);
+  --radius:        2px;
+  --radius-card:   10px;
+  --radius-btn:    2px;
+  --radius-tile:   2px;
+  --dock-bg:       rgba(12,12,18,0.99);
+  --dock-border-top: 2px solid rgba(187,10,33,0.55);
+  --divider-color: rgba(187,10,33,0.20);
+  --icon-color-1:  #BB0A21;
+  --icon-color-2:  #D0D0D0;
+  --font-ui:       system-ui, sans-serif;
+  --font-weight-ui: 900;
+  --letter-spacing-ui: 1.5px;
+  --btn-glow:      none;
+  --tile-hover-bg: rgba(187,10,33,0.10);
+}
+
+/* Gündüz varyantları için de aynı değişkenler */
+[data-theme="pro-day"]      { --bg-primary:#2D2D44; --bg-card:rgba(61,61,92,0.97); --bg-surface:#3D3D5C; --accent:#D4AF37; --accent2:#C0392B; --text:#F5F0E8; --border-color:rgba(212,175,55,0.32); --radius:4px; --radius-card:18px; --dock-bg:rgba(22,22,36,0.99); --dock-border-top:1px solid rgba(212,175,55,0.35); --divider-color:rgba(212,175,55,0.20); --icon-color-1:#D4AF37; --icon-color-2:#C0392B; --font-ui:'Orbitron',monospace; --font-weight-ui:900; --letter-spacing-ui:2px; --btn-glow:0 0 12px rgba(212,175,55,0.30); --tile-hover-bg:rgba(212,175,55,0.10); }
+[data-theme="tesla-day"]    { --bg-primary:#1E2A3A; --bg-card:rgba(38,48,64,0.97); --bg-surface:#263040; --accent:#E31937; --accent2:#A8A9AD; --text:#F0F2F5; --border-color:rgba(255,255,255,0.10); --radius:50px; --radius-card:12px; --dock-bg:rgba(12,18,28,0.99); --dock-border-top:2px solid rgba(227,25,55,0.40); --divider-color:rgba(255,255,255,0.08); --icon-color-1:#E31937; --icon-color-2:#A8A9AD; --font-ui:system-ui,sans-serif; --font-weight-ui:300; --letter-spacing-ui:0.08em; --btn-glow:none; --tile-hover-bg:rgba(227,25,55,0.08); }
+[data-theme="cockpit-day"]  { --bg-primary:#0D2137; --bg-card:rgba(15,42,69,0.97); --bg-surface:#0F2A45; --accent:#00B4D8; --accent2:#90E0EF; --text:#E8F4FD; --border-color:rgba(0,180,216,0.40); --radius:8px; --radius-card:16px; --dock-bg:rgba(6,16,30,0.99); --dock-border-top:1px solid rgba(0,180,216,0.55); --divider-color:rgba(0,180,216,0.28); --icon-color-1:#00B4D8; --icon-color-2:#90E0EF; --font-ui:'Courier New',monospace; --font-weight-ui:700; --letter-spacing-ui:0.08em; --btn-glow:0 0 10px rgba(0,180,216,0.45); --tile-hover-bg:rgba(0,180,216,0.12); }
+[data-theme="mercedes-day"] { --bg-primary:#2C2C3A; --bg-card:rgba(54,54,69,0.97); --bg-surface:#363645; --accent:#C8A882; --accent2:#8C8C8C; --text:#EDE8E0; --border-color:rgba(200,168,130,0.30); --radius:6px; --radius-card:20px; --dock-bg:rgba(18,18,26,0.99); --dock-border-top:1px solid rgba(200,168,130,0.30); --divider-color:rgba(200,168,130,0.18); --icon-color-1:#C8A882; --icon-color-2:#8C8C8C; --font-ui:system-ui,sans-serif; --font-weight-ui:400; --letter-spacing-ui:3px; --btn-glow:none; --tile-hover-bg:rgba(200,168,130,0.10); }
+[data-theme="audi-day"]     { --bg-primary:#1E1E2C; --bg-card:rgba(40,40,58,0.97); --bg-surface:#28283A; --accent:#BB0A21; --accent2:#D0D0D0; --text:#F0F0F2; --border-color:rgba(187,10,33,0.32); --radius:2px; --radius-card:10px; --dock-bg:rgba(10,10,18,0.99); --dock-border-top:2px solid rgba(187,10,33,0.55); --divider-color:rgba(187,10,33,0.22); --icon-color-1:#BB0A21; --icon-color-2:#D0D0D0; --font-ui:system-ui,sans-serif; --font-weight-ui:900; --letter-spacing-ui:1.5px; --btn-glow:none; --tile-hover-bg:rgba(187,10,33,0.12); }
+
+/* Layout Engine — fade-in when layout type changes */
+@keyframes layout-fadein {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: scale(1); }
+}
 
 /* Performance Mode Global Overrides */
 body.performance-mode * {

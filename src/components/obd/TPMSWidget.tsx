@@ -8,7 +8,7 @@ const Tire = ({ data, label, pos }: { data: TireData; label: string; pos: string
       data.status === 'high' ? 'border-yellow-500 bg-yellow-500/20' : 
       'border-blue-500/50 bg-blue-500/10'
     }`}>
-      <span className="text-[10px] font-bold text-white tabular-nums">{data.pressure}</span>
+      <span className="text-[10px] font-bold text-primary tabular-nums">{data.pressure}</span>
     </div>
     <div className="mt-1 flex flex-col items-center">
       <span className="text-[8px] text-slate-500 uppercase font-black tracking-tighter">{label}</span>
@@ -22,7 +22,7 @@ export const TPMSWidget = memo(() => {
   const { tpms } = settings;
 
   return (
-    <div className="relative w-48 h-64 bg-[#0d1628]/50 rounded-3xl border border-white/5 flex items-center justify-center overflow-hidden">
+    <div className="relative w-48 h-64 bg-[rgba(255,255,255,0.05)]/50 rounded-3xl border border-white/5 flex items-center justify-center overflow-hidden">
       {/* Car Body Outline */}
       <div className="relative w-24 h-44 border-2 border-slate-800 rounded-[2rem] opacity-50">
         <div className="absolute top-4 left-0 right-0 h-10 border-b border-slate-800" /> {/* Windshield */}
@@ -45,3 +45,5 @@ export const TPMSWidget = memo(() => {
 });
 
 TPMSWidget.displayName = 'TPMSWidget';
+
+

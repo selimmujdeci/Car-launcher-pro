@@ -1,22 +1,25 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+// Default to production-safe values when NODE_ENV is not explicitly set.
+// Run `NODE_ENV=development npx cap sync` for development builds.
+const isDev = process.env['NODE_ENV'] === 'development';
+
 const config: CapacitorConfig = {
   appId: 'com.carlauncher.pro',
   appName: 'Car Launcher Pro',
   webDir: 'dist',
   android: {
-    allowMixedContent: process.env['NODE_ENV'] !== 'production',
+    allowMixedContent: isDev,
     captureInput: true,
-    // Enable remote WebView debugging during launcher test (chrome://inspect)
-    // Set to false for production release
-    webContentsDebuggingEnabled: process.env['NODE_ENV'] !== 'production',
+    // Remote WebView debugging — only in explicit development mode (chrome://inspect)
+    webContentsDebuggingEnabled: isDev,
     backgroundColor: '#060d1a',
-    loggingBehavior: process.env['NODE_ENV'] !== 'production' ? 'debug' : 'none',
+    loggingBehavior: isDev ? 'debug' : 'none',
     initialFocus: false,
     appendUserAgent: 'CarLauncherPro/1.0',
   },
   server: {
-    androidScheme: process.env['NODE_ENV'] === 'production' ? 'https' : 'http',
+    androidScheme: isDev ? 'http' : 'https',
   },
 };
 

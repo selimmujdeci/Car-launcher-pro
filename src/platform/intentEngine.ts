@@ -24,7 +24,14 @@ import type { ParsedCommand, CommandType } from './commandParser';
 
 export type IntentType =
   | 'OPEN_NAVIGATION'
+  | 'NAVIGATE_ADDRESS'
+  | 'NAVIGATE_PLACE'
+  | 'FIND_NEARBY_GAS'
+  | 'FIND_NEARBY_PARKING'
   | 'OPEN_MUSIC'
+  | 'PLAY_MUSIC_SEARCH'
+  | 'PLAY_MUSIC_QUERY'
+  | 'ADD_MUSIC_FAVORITE'
   | 'OPEN_PHONE'
   | 'OPEN_SETTINGS'
   | 'PLAY_MEDIA'
@@ -49,6 +56,13 @@ export interface IntentPayload {
   mode?:        string;   // theme or driving mode value
   sourceText?:  string;   // original user input — for logging / feedback
   confidence?:  number;   // 0–1 — how certain the parser was
+  searchQuery?: string;   // music search query (e.g. "Blinding Lights")
+  // Music query fields (from play_music_query)
+  musicQuery?:    string;   // temizlenmiş arama sorgusu
+  musicQueryType?: string;  // 'artist' | 'track' | 'playlist' | 'generic' | 'shuffle'
+  musicSourcePkg?: string;  // Android package name of target music app
+  musicSearchUri?: string;  // ready-to-use search URI
+  musicAction?:    string;  // 'play' | 'shuffle' | 'add_favorite'
 }
 
 export interface AppIntent {
@@ -70,28 +84,51 @@ export interface IntentContext {
 
 /** Thin action interface — keeps intentEngine free of React / Settings imports. */
 export interface RouterContext {
-  launch:      (appId: string) => void;
-  openDrawer:  (target: 'apps' | 'settings' | 'none') => void;
-  setTheme:    (theme: 'dark' | 'oled') => void;
-  playMedia:   () => void;
-  pauseMedia:  () => void;
-  nextTrack?:  () => void;
-  prevTrack?:  () => void;
-  volumeUp?:   () => void;
-  volumeDown?: () => void;
-  openWeather?: () => void;
+  launch:           (appId: string) => void;
+  openDrawer:       (target: 'apps' | 'settings' | 'none') => void;
+  setTheme:         (theme: 'dark' | 'oled') => void;
+  playMedia:        () => void;
+  pauseMedia:       () => void;
+  nextTrack?:       () => void;
+  prevTrack?:       () => void;
+  volumeUp?:        () => void;
+  volumeDown?:      () => void;
+  openWeather?:     () => void;
+  /** Launch music app and search for a query (simple, key-based) */
+  playMusicSearch?: (appKey: string, query: string) => void;
+  /** Launch music with full query context (pkg + searchUri + type) */
+  playMusicQuery?:  (pkg: string, searchUri: string, queryType: string, fallbackKey: string) => void;
+  /** Add currently playing track to favorites */
+  addMusicFavorite?: () => void;
 }
 
 /* ── CommandType → IntentType map ────────────────────────── */
 
 const CMD_TO_INTENT: Record<CommandType, IntentType> = {
-  navigate_home:      'OPEN_NAVIGATION',
-  navigate_work:      'OPEN_NAVIGATION',
-  open_maps:          'OPEN_NAVIGATION',
-  open_music:         'OPEN_MUSIC',
-  stop_music:         'PAUSE_MEDIA',
-  music_next:         'MEDIA_NEXT',
-  music_prev:         'MEDIA_PREV',
+  navigate_home:        'OPEN_NAVIGATION',
+  navigate_work:        'OPEN_NAVIGATION',
+  navigate_address:     'NAVIGATE_ADDRESS',
+  navigate_place:       'NAVIGATE_PLACE',
+  find_nearby_gas:        'FIND_NEARBY_GAS',
+  find_nearby_parking:    'FIND_NEARBY_PARKING',
+  find_nearby_restaurant: 'UNKNOWN',
+  find_nearby_hospital:   'UNKNOWN',
+  show_traffic:           'OPEN_NAVIGATION',
+  open_dashcam:           'UNKNOWN',
+  toggle_bluetooth:       'UNKNOWN',
+  toggle_wifi:            'UNKNOWN',
+  screen_brightness_up:   'UNKNOWN',
+  screen_brightness_down: 'UNKNOWN',
+  call_contact:           'OPEN_PHONE',
+  open_camera:            'UNKNOWN',
+  open_maps:              'OPEN_NAVIGATION',
+  open_music:           'OPEN_MUSIC',
+  play_music_search:    'PLAY_MUSIC_SEARCH',
+  play_music_query:     'PLAY_MUSIC_QUERY',
+  add_music_favorite:   'ADD_MUSIC_FAVORITE',
+  stop_music:           'PAUSE_MEDIA',
+  music_next:           'MEDIA_NEXT',
+  music_prev:           'MEDIA_PREV',
   volume_up:          'VOLUME_UP',
   volume_down:        'VOLUME_DOWN',
   open_phone:         'OPEN_PHONE',
@@ -138,6 +175,18 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'open_music':
       payload.targetApp = ctx.defaultMusic;
+      break;
+    case 'play_music_search':
+      payload.targetApp   = ctx.defaultMusic;
+      payload.searchQuery = cmd.extra?.['query'];
+      break;
+    case 'play_music_query':
+      payload.targetApp       = ctx.defaultMusic;
+      payload.musicQuery      = cmd.extra?.['query']      ?? '';
+      payload.musicQueryType  = cmd.extra?.['queryType']  ?? 'generic';
+      payload.musicSourcePkg  = cmd.extra?.['sourcePkg']  ?? '';
+      payload.musicSearchUri  = cmd.extra?.['searchUri']  ?? '';
+      payload.musicAction     = cmd.extra?.['action']     ?? 'play';
       break;
     case 'open_phone':
       payload.targetApp = 'phone';
@@ -197,6 +246,24 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'OPEN_FAVORITES':
       ctx.openDrawer('apps');
       break;
+    case 'PLAY_MUSIC_SEARCH': {
+      const appKey = intent.payload.targetApp ?? 'spotify';
+      const query  = intent.payload.searchQuery ?? '';
+      if (query) ctx.playMusicSearch?.(appKey, query);
+      else if (appKey) ctx.launch(appKey);
+      break;
+    }
+    case 'PLAY_MUSIC_QUERY': {
+      const pkg        = intent.payload.musicSourcePkg ?? '';
+      const searchUri  = intent.payload.musicSearchUri ?? '';
+      const queryType  = intent.payload.musicQueryType ?? 'generic';
+      const fallback   = intent.payload.targetApp ?? 'spotify';
+      ctx.playMusicQuery?.(pkg, searchUri, queryType, fallback);
+      break;
+    }
+    case 'ADD_MUSIC_FAVORITE':
+      ctx.addMusicFavorite?.();
+      break;
     case 'PLAY_MEDIA':
       ctx.playMedia();
       break;
@@ -244,7 +311,9 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
 
 /** All valid intent strings — used to validate AI output before trusting it. */
 const VALID_INTENTS = new Set<IntentType>([
-  'OPEN_NAVIGATION', 'OPEN_MUSIC', 'OPEN_PHONE', 'OPEN_SETTINGS',
+  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
   'SET_THEME', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',

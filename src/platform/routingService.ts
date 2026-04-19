@@ -12,6 +12,8 @@
  * OSRM koordinatları [lon, lat] sırasındadır (GeoJSON standardı).
  */
 import { create } from 'zustand';
+import { isNative } from './bridge';
+import { tryLocalDaemon, computeOfflineRoute, straightLineRoute } from './offlineRoutingService';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -49,8 +51,13 @@ const useRouteStore = create<RouteState>(() => INITIAL);
 
 /**
  * Kullanılacak OSRM sunucuları — öncelik sırasıyla.
- * VITE_ROUTING_SERVER set edilmişse o ilk sırada gelir.
- * Kendi OSRM/Valhalla/GraphHopper sunucunuzu env'dan geçirebilirsiniz.
+ *
+ * Offline katman mimarisi:
+ *   Katman 0: localhost:5000 — native OSRM daemon (CarLauncherPlugin.startOsrmDaemon)
+ *   Katman 1: VITE_ROUTING_SERVER env (özel sunucu)
+ *   Katman 2: routing.openstreetmap.de, osrm.route.at (uzak OSRM)
+ *   Katman 3: WebWorker A* — /maps/routing-graph.bin (tam offline)
+ *   Katman 4: straight-line (son çare — gerçek navigasyon yok)
  */
 function getRoutingServers(): string[] {
   const custom = import.meta.env['VITE_ROUTING_SERVER'] as string | undefined;
@@ -164,9 +171,15 @@ async function _tryServer(
 /* ── Public API ──────────────────────────────────────────────── */
 
 /**
- * Rota çek — sunucular sırayla denenir, ilk başarılı sonuç kullanılır.
- * Tüm sunucular başarısız olursa error state set edilir; geometry null kalır.
- * Çağıran taraf straight-line fallback'e geçebilir.
+ * Rota çek — 4 katmanlı offline-first mimari.
+ *
+ *   Katman 0: localhost:5000 (native OSRM daemon — sadece native modda denenir)
+ *   Katman 1-2: Uzak OSRM sunucuları (online)
+ *   Katman 3: WebWorker A* — /maps/routing-graph.bin
+ *   Katman 4: Straight-line (her zaman başarılı — son çare)
+ *
+ * serverUsed alanı hangi katmanın kullanıldığını gösterir:
+ *   'localhost:5000' | 'routing.openstreetmap.de' | 'offline-worker' | 'straight-line'
  */
 export async function fetchRoute(
   fromLat: number,
@@ -176,13 +189,30 @@ export async function fetchRoute(
 ): Promise<void> {
   useRouteStore.setState({ ...INITIAL, loading: true });
 
-  const servers  = getRoutingServers();
-  let   lastErr  = 'Rota hesaplanamadı';
+  // ── Katman 0: Native OSRM daemon ────────────────────────────
+  if (isNative) {
+    const daemonResult = await tryLocalDaemon(fromLon, fromLat, toLon, toLat);
+    if (daemonResult) {
+      useRouteStore.setState({
+        loading: false,
+        error:   null,
+        geometry:             daemonResult.geometry,
+        steps:                [],   // daemon step parse — sonraki versiyon
+        totalDistanceMeters:  daemonResult.distanceM,
+        totalDurationSeconds: daemonResult.durationS,
+        currentStepIndex:     0,
+        distanceToNextTurnMeters: 0,
+        serverUsed:           'localhost:5000',
+      });
+      return;
+    }
+  }
 
+  // ── Katman 1-2: Uzak OSRM sunucuları ────────────────────────
+  const servers = getRoutingServers();
   for (const server of servers) {
     try {
       const result = await _tryServer(server, fromLon, fromLat, toLon, toLat);
-
       useRouteStore.setState({
         loading: false,
         error:   null,
@@ -194,17 +224,41 @@ export async function fetchRoute(
         distanceToNextTurnMeters: 0,
         serverUsed:           server,
       });
-      return; // başarılı — döngüden çık
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : 'Rota hesaplanamadı';
-      // Sonraki sunucuyu dene
+      return;
+    } catch {
+      // Sonraki katmana geç
     }
   }
 
-  // Tüm sunucular başarısız
+  // ── Katman 3: WebWorker A* (offline graph) ───────────────────
+  const offlineResult = await computeOfflineRoute(fromLat, fromLon, toLat, toLon);
+  if (offlineResult) {
+    useRouteStore.setState({
+      loading: false,
+      error:   null,
+      geometry:             offlineResult.geometry,
+      steps:                [],   // A* step üretimi — sonraki versiyon
+      totalDistanceMeters:  offlineResult.distanceM,
+      totalDurationSeconds: offlineResult.durationS,
+      currentStepIndex:     0,
+      distanceToNextTurnMeters: 0,
+      serverUsed:           offlineResult.source,
+    });
+    return;
+  }
+
+  // ── Katman 4: Straight-line (son çare) ───────────────────────
+  const sl = straightLineRoute(fromLat, fromLon, toLat, toLon);
   useRouteStore.setState({
-    ...INITIAL,
-    error: `Rota alınamadı: ${lastErr}. İnternet bağlantınızı kontrol edin.`,
+    loading: false,
+    error:   'Offline harita verisi yok — düz hat navigasyon aktif.',
+    geometry:             sl.geometry,
+    steps:                [],
+    totalDistanceMeters:  sl.distanceM,
+    totalDurationSeconds: sl.durationS,
+    currentStepIndex:     0,
+    distanceToNextTurnMeters: 0,
+    serverUsed:           'straight-line',
   });
 }
 

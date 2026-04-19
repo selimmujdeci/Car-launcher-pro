@@ -1,4 +1,5 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import type { FileInfo } from '@capacitor/filesystem';
 import { create } from 'zustand';
 
 export interface OfflineMapTile {
@@ -176,8 +177,8 @@ export async function listOfflineMaps(): Promise<string[]> {
     });
 
     return result.files
-      .filter((f: any) => f.type === 'directory' && f.name !== TILE_CACHE_DIR)
-      .map((f: any) => f.name);
+      .filter((f: FileInfo) => f.type === 'directory' && f.name !== TILE_CACHE_DIR)
+      .map((f: FileInfo) => f.name);
   } catch (err) {
     console.warn('Failed to list offline maps:', err);
     return [];
@@ -239,7 +240,7 @@ export function initializeTileInterceptor(): void {
 
       throw err;
     }
-  } as any;
+  } as typeof globalThis.fetch;
 }
 
 export function useOfflineMapState() {

@@ -1,8 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
 import { registerCommandHandler } from '../platform/voiceService';
-import { pause, play, next, previous } from '../platform/mediaService';
+import { pause, play, next, previous, getMediaState } from '../platform/mediaService';
+import { bridge } from '../platform/bridge';
+import { showToast } from '../platform/errorBus';
+import type { MusicOptionKey } from '../data/apps';
+import type { MusicFavorite } from '../store/useStore';
 import { useStore } from '../store/useStore';
+import { resolveAndNavigate } from '../platform/addressNavigationEngine';
+import { getGPSState } from '../platform/gpsService';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
 import type { AppSettings } from '../store/useStore';
@@ -32,6 +38,22 @@ export function useVoiceCommandHandler({
     return registerCommandHandler((cmd: ParsedCommand) => {
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
+
+      // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür
+      if (
+        cmd.type === 'navigate_address' ||
+        cmd.type === 'navigate_place'   ||
+        cmd.type === 'find_nearby_gas'  ||
+        cmd.type === 'find_nearby_parking'
+      ) {
+        const dest = cmd.extra?.destination ?? cmd.raw;
+        const gps  = getGPSState().location;
+        resolveAndNavigate(
+          dest,
+          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+        );
+        return;
+      }
       const intent = toIntent(cmd, {
         defaultNav: s.defaultNav, defaultMusic: s.defaultMusic,
         recentAppId: sm.quickActions.find((a) => a.id.startsWith('last-'))?.appId,
@@ -44,9 +66,32 @@ export function useVoiceCommandHandler({
         pauseMedia:  pause,
         nextTrack:   next,
         prevTrack:   previous,
-        volumeUp:    () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
-        volumeDown:  () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
-        openWeather: showWeather,
+        volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
+        volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
+        openWeather:      showWeather,
+        playMusicSearch: (appKey, query) =>
+          bridge.launchMusicSearch(appKey as MusicOptionKey, query),
+
+        playMusicQuery: (pkg, searchUri, _queryType, fallbackKey) =>
+          bridge.launchMusicQuery(pkg, searchUri, fallbackKey),
+
+        addMusicFavorite: () => {
+          const media   = getMediaState();
+          const { addMusicFavorite } = useStore.getState();
+          if (!media.hasSession || !media.track.title) {
+            showToast({ type: 'info', title: 'Çalan şarkı yok', message: 'Favorilere eklemek için önce bir şarkı çalmalı', duration: 3000 });
+            return;
+          }
+          const fav: MusicFavorite = {
+            title:    media.track.title,
+            artist:   media.track.artist,
+            albumArt: media.track.albumArt,
+            source:   media.source,
+            addedAt:  Date.now(),
+          };
+          addMusicFavorite(fav);
+          showToast({ type: 'success', title: 'Favorilere eklendi', message: `${media.track.title} — ${media.track.artist}`, duration: 3000 });
+        },
       });
     });
   }, []);

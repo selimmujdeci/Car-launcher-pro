@@ -14,11 +14,11 @@
 import { useState, useEffect, memo } from 'react';
 import {
   ChevronRight, ChevronLeft, Check,
-  Bluetooth, Palette, Rocket, Eye,
+  Bluetooth, Rocket, Eye,
   ShieldCheck, MapPin, Mic, BookUser, Camera,
   Music2, Loader2, Navigation,
 } from 'lucide-react';
-import { useStore, type ThemePack } from '../../store/useStore';
+import { useStore } from '../../store/useStore';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { isNative } from '../../platform/bridge';
 import { scanOBD, connectOBD } from '../../platform/obdService';
@@ -33,23 +33,11 @@ interface StepDef { id: string; title: string; icon: IconComp; }
 
 const STEPS: StepDef[] = [
   { id: 'welcome',     title: 'Hoş Geldiniz',   icon: Rocket      },
-  { id: 'theme',       title: 'Görünüm',         icon: Palette     },
   { id: 'apps',        title: 'Uygulamalar',     icon: Music2      },
   { id: 'permissions', title: 'İzinler',         icon: ShieldCheck },
   { id: 'obd',         title: 'OBD',             icon: Bluetooth   },
   { id: 'preview',     title: 'Hazır!',          icon: Eye         },
 ];
-
-/* ── Tema meta verisi ────────────────────────────────────── */
-
-const THEME_META: Partial<Record<ThemePack, { color: string; label: string; emoji: string }>> = {
-  tesla:           { color: '#3b82f6', label: 'Tesla',        emoji: '⚡' },
-  bmw:             { color: '#ef4444', label: 'BMW Sport',     emoji: '🏎️' },
-  mercedes:        { color: '#22c55e', label: 'Mercedes',      emoji: '🌿' },
-  'big-cards':     { color: '#f59e0b', label: 'Big Cards',     emoji: '🃏' },
-  'ai-center':     { color: '#8b5cf6', label: 'AI Center',     emoji: '🤖' },
-  'tesla-x-night': { color: '#0ea5e9', label: 'Tesla X Night', emoji: '🌙' },
-};
 
 const NAV_COLORS: Record<NavOptionKey, string> = {
   maps:   '#4285f4',
@@ -86,20 +74,20 @@ export const BootSplash = memo(function BootSplash({ phase }: { phase: 'idle' | 
   if (phase === 'ready') return null;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-[#060d1a] flex flex-col items-center justify-center animate-fade-in">
+    <div className="fixed inset-0 z-[200] bg-[var(--panel-bg)] flex flex-col items-center justify-center animate-fade-in">
       <div className="flex flex-col items-center gap-8">
         {/* Brand Icon */}
         <div className="w-24 h-24 rounded-[2rem] bg-blue-600 flex items-center justify-center shadow-[0_0_50px_rgba(37,99,235,0.3)] animate-pulse">
-          <Rocket className="w-12 h-12 text-white" />
+          <Rocket className="w-12 h-12 text-primary" />
         </div>
         
         <div className="flex flex-col items-center gap-2">
-          <h1 className="text-white text-3xl font-black tracking-[0.2em] uppercase">CAR LAUNCHER PRO</h1>
+          <h1 className="text-primary text-3xl font-black tracking-[0.2em] uppercase">CAR LAUNCHER PRO</h1>
           <p className="text-blue-400/60 text-xs font-bold tracking-[0.4em] uppercase">Professional Automotive UI</p>
         </div>
 
         {/* Loader bar */}
-        <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden mt-4">
+        <div className="w-48 h-1 var(--panel-bg-secondary) rounded-full overflow-hidden mt-4">
           <div 
             className="h-full bg-blue-600 rounded-full transition-all duration-1000 ease-out"
             style={{ width: phase === 'loading' ? '100%' : '0%' }}
@@ -118,10 +106,17 @@ export function SetupWizard() {
 
   const isLast   = step === STEPS.length - 1;
   const stepMeta = STEPS[step];
-  const accent   = THEME_META[settings.themePack]?.color ?? '#3b82f6';
+  const accent   = '#3b82f6';
 
   const goNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
   const goPrev = () => setStep((s) => Math.max(s - 1, 0));
+
+  // Android hardware back button — wizard adımları arasında geri git
+  useEffect(() => {
+    const handler = () => { if (step > 0) goPrev(); };
+    document.addEventListener('backbutton', handler);
+    return () => document.removeEventListener('backbutton', handler);
+  }, [step]);
   const finish = () => {
     updateSettings({ hasCompletedSetup: true });
     // Defensive fallback: ensure flag is persisted even if Zustand has a hiccup
@@ -143,7 +138,7 @@ export function SetupWizard() {
   const [writeAccess,  setWriteAccess]  = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (step !== 3 || !isNative) return;
+    if (step !== 2 || !isNative) return;
     CarLauncher.checkNotificationAccess()
       .then((r) => setMediaAccess(r.granted))
       .catch(() => setMediaAccess(false));
@@ -217,18 +212,26 @@ export function SetupWizard() {
   /* ── Render ──────────────────────────────────────────────── */
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#030810] flex items-center justify-center sm:p-4 animate-fade-in overflow-hidden">
+    <div
+      className="fixed inset-0 z-[100] bg-[#030810] flex items-center justify-center sm:p-4 animate-fade-in overflow-hidden"
+      style={{
+        paddingTop:    'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingLeft:   'env(safe-area-inset-left)',
+        paddingRight:  'env(safe-area-inset-right)',
+      }}
+    >
       <div
-        className="w-full h-full sm:h-auto sm:max-w-xl flex flex-col overflow-hidden sm:min-h-[580px]"
+        className="w-full sm:max-w-xl flex flex-col overflow-hidden"
         style={{
           background:   '#0a1020',
           borderRadius: window.innerWidth < 640 ? 0 : 32,
           border:       window.innerWidth < 640 ? 'none' : '1px solid rgba(255,255,255,0.06)',
           boxShadow:    window.innerWidth < 640 ? 'none' : `0 32px 80px rgba(0,0,0,0.8), 0 0 60px ${accent}14`,
-          paddingTop:   'env(safe-area-inset-top)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          paddingLeft:  'env(safe-area-inset-left)',
-          paddingRight: 'env(safe-area-inset-right)',
+          // JS hesaplaması — CSS min() eski WebView'da desteklenmez
+          height: window.innerWidth < 640
+            ? '100%'
+            : `${Math.min(700, Math.floor(window.innerHeight * 0.96))}px`,
         }}
       >
         {/* ── Adım göstergesi ────────────────────────────── */}
@@ -255,7 +258,7 @@ export function SetupWizard() {
         </div>
 
         {/* ── İçerik — key={step} ile her adımda animate-slide-up ── */}
-        <div key={step} className="flex-1 flex flex-col items-center px-6 sm:px-8 py-5 animate-slide-up overflow-y-auto no-scrollbar">
+        <div key={step} className="flex-1 min-h-0 flex flex-col items-center px-6 sm:px-8 py-5 animate-slide-up overflow-y-auto no-scrollbar">
 
           {/* Adım ikonu */}
           <div
@@ -272,7 +275,7 @@ export function SetupWizard() {
           {step === 0 && (
             <div className="w-full flex flex-col items-center gap-5 text-center">
               <div>
-                <h1 className="text-2xl font-bold text-white mb-2">Car Launcher Pro</h1>
+                <h1 className="text-2xl font-bold text-primary mb-2">Car Launcher Pro</h1>
                 <p className="text-slate-400 text-sm leading-relaxed max-w-sm px-2">
                   Aracınız için tasarlanmış dijital kokpit. Birkaç adımda
                   kişiselleştirin ve yola çıkın.
@@ -302,60 +305,11 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* ── Adım 1: Tema ─────────────────────────────── */}
+          {/* ── Adım 1: Varsayılan Uygulamalar ───────────── */}
           {step === 1 && (
-            <div className="w-full flex flex-col items-center gap-4">
-              <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">Tema Seçin</h2>
-                <p className="text-slate-500 text-sm">Daha sonra Ayarlar'dan değiştirilebilir.</p>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 w-full">
-                {(Object.entries(THEME_META) as [ThemePack, { color: string; label: string; emoji: string }][]).map(([id, meta]) => {
-                  const active = settings.themePack === id;
-                  return (
-                    <button
-                      type="button"
-                      key={id}
-                      onClick={() => updateSettings({ themePack: id })}
-                      className="flex flex-col items-center gap-2.5 p-3.5 rounded-2xl border active:scale-95"
-                      style={{
-                        backgroundColor: active ? `${meta.color}18` : 'rgba(255,255,255,0.04)',
-                        borderColor:     active ? meta.color : 'rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
-                        style={{
-                          backgroundColor: `${meta.color}22`,
-                          border:          `2px solid ${active ? meta.color : `${meta.color}50`}`,
-                        }}
-                      >
-                        {meta.emoji}
-                      </div>
-                      <div
-                        className="text-[11px] font-bold tracking-wide text-center leading-tight"
-                        style={{ color: active ? meta.color : '#475569' }}
-                      >
-                        {meta.label}
-                      </div>
-                      {active && (
-                        <div
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: meta.color }}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── Adım 2: Varsayılan Uygulamalar ───────────── */}
-          {step === 2 && (
             <div className="w-full flex flex-col gap-5">
               <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">Varsayılan Uygulamalar</h2>
+                <h2 className="text-xl font-bold text-primary mb-1">Varsayılan Uygulamalar</h2>
                 <p className="text-slate-500 text-sm">
                   Sesli komutlarda ve hızlı erişimde kullanılır.
                 </p>
@@ -385,7 +339,7 @@ export function SetupWizard() {
                       >
                         <span className="text-2xl leading-none flex-shrink-0">{opt.icon}</span>
                         <div className="min-w-0 flex-1">
-                          <div className="text-white text-sm font-bold truncate">{opt.name}</div>
+                          <div className="text-primary text-sm font-bold truncate">{opt.name}</div>
                           {active && (
                             <div className="text-[10px] font-bold mt-0.5" style={{ color: opt.color }}>
                               Seçili ✓
@@ -423,7 +377,7 @@ export function SetupWizard() {
                       >
                         <span className="text-2xl leading-none flex-shrink-0">{opt.icon}</span>
                         <div className="min-w-0 flex-1">
-                          <div className="text-white text-sm font-bold truncate">{opt.name}</div>
+                          <div className="text-primary text-sm font-bold truncate">{opt.name}</div>
                           {active && (
                             <div className="text-[10px] font-bold mt-0.5" style={{ color }}>
                               Seçili ✓
@@ -438,11 +392,11 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* ── Adım 3: İzinler ──────────────────────────── */}
-          {step === 3 && (
+          {/* ── Adım 2: İzinler ──────────────────────────── */}
+          {step === 2 && (
             <div className="w-full flex flex-col gap-3">
               <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">Uygulama İzinleri</h2>
+                <h2 className="text-xl font-bold text-primary mb-1">Uygulama İzinleri</h2>
                 <p className="text-slate-500 text-sm">
                   Tam deneyim için önerilen izinler.
                 </p>
@@ -469,7 +423,7 @@ export function SetupWizard() {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-white text-sm font-bold">{p.label}</span>
+                        <span className="text-primary text-sm font-bold">{p.label}</span>
                         {p.required && (
                           <span
                             className="text-[9px] font-bold px-1.5 py-0.5 rounded-md"
@@ -521,7 +475,7 @@ export function SetupWizard() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-white text-sm font-bold">Bildirim Erişimi</span>
+                        <span className="text-primary text-sm font-bold">Bildirim Erişimi</span>
                         <span
                           className="text-[9px] font-bold px-1.5 py-0.5 rounded-md"
                           style={{ backgroundColor: `${accent}18`, color: accent }}
@@ -561,7 +515,7 @@ export function SetupWizard() {
                       <ShieldCheck className="w-4 h-4" style={{ color: writeAccess ? '#22c55e' : '#64748b' }} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-white text-sm font-bold block">Parlaklık Kontrolü</span>
+                      <span className="text-primary text-sm font-bold block">Parlaklık Kontrolü</span>
                       <span className="text-slate-600 text-[11px]">Otomatik parlaklık için WRITE_SETTINGS</span>
                     </div>
                     {writeAccess
@@ -585,11 +539,11 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* ── Adım 4: OBD ──────────────────────────────── */}
-          {step === 4 && (
+          {/* ── Adım 3: OBD ──────────────────────────────── */}
+          {step === 3 && (
             <div className="w-full flex flex-col items-center gap-4">
               <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">OBD-II Entegrasyonu</h2>
+                <h2 className="text-xl font-bold text-primary mb-1">OBD-II Entegrasyonu</h2>
                 <p className="text-slate-400 text-sm leading-relaxed max-w-xs">
                   ELM327 Bluetooth adapteriniz varsa bağlayın.
                   Araç hız, RPM, sıcaklık ve yakıt verisi gösterilir.
@@ -619,7 +573,7 @@ export function SetupWizard() {
                     type="button"
                     onClick={handleScanOBD}
                     disabled={obdScanning}
-                    className="w-full py-3.5 text-white rounded-2xl font-bold flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50"
+                    className="w-full py-3.5 text-primary rounded-2xl font-bold flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50"
                     style={{
                       backgroundColor: accent,
                       boxShadow:       `0 4px 20px ${accent}35`,
@@ -646,10 +600,10 @@ export function SetupWizard() {
                           key={d.address}
                           onClick={() => handleConnectOBD(d.address)}
                           disabled={!!obdConnecting}
-                          className="w-full flex items-center justify-between bg-white/5 border border-white/5 rounded-xl p-3 text-left disabled:opacity-50 active:scale-95"
+                          className="w-full flex items-center justify-between var(--panel-bg-secondary) border border-white/5 rounded-xl p-3 text-left disabled:opacity-50 active:scale-95"
                         >
                           <div>
-                            <div className="text-white text-sm font-bold">{d.name}</div>
+                            <div className="text-primary text-sm font-bold">{d.name}</div>
                             <div className="text-slate-600 text-xs font-mono">{d.address}</div>
                           </div>
                           {obdConnecting === d.address
@@ -665,11 +619,11 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* ── Adım 5: Önizleme ─────────────────────────── */}
-          {step === 5 && (
+          {/* ── Adım 4: Önizleme ─────────────────────────── */}
+          {step === 4 && (
             <div className="w-full flex flex-col items-center gap-4">
               <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">Her Şey Hazır!</h2>
+                <h2 className="text-xl font-bold text-primary mb-1">Her Şey Hazır!</h2>
                 <p className="text-slate-500 text-sm">Ana ekranınızın önizlemesi.</p>
               </div>
 
@@ -689,10 +643,10 @@ export function SetupWizard() {
                     {/* Saat */}
                     <div
                       className="flex-1 rounded-xl p-2.5 flex flex-col justify-center border border-white/5"
-                      style={{ backgroundColor: '#0d1628' }}
+                      style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
                     >
                       <div
-                        className="text-white font-thin text-xl tabular-nums leading-none"
+                        className="text-primary font-thin text-xl tabular-nums leading-none"
                         style={{ textShadow: `0 0 20px ${accent}50` }}
                       >
                         {new Date().getHours().toString().padStart(2, '0')}
@@ -714,11 +668,11 @@ export function SetupWizard() {
                     {/* Favoriler */}
                     <div
                       className="flex-1 rounded-xl p-2 border border-white/5"
-                      style={{ backgroundColor: '#0d1628' }}
+                      style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
                     >
                       <div className="grid grid-cols-3 gap-1 h-full">
                         {['📞', '💬', '🗺️', '🎵', '🌐', '⚙️'].map((icon) => (
-                          <div key={icon} className="rounded-lg bg-white/5 flex items-center justify-center text-base">
+                          <div key={icon} className="rounded-lg var(--panel-bg-secondary) flex items-center justify-center text-base">
                             {icon}
                           </div>
                         ))}
@@ -751,7 +705,7 @@ export function SetupWizard() {
                     {/* Medya Hub */}
                     <div
                       className="flex-1 rounded-xl p-2.5 flex items-center gap-2.5 border border-white/5"
-                      style={{ backgroundColor: '#0d1628' }}
+                      style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
                     >
                       <div
                         className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-lg"
@@ -760,7 +714,7 @@ export function SetupWizard() {
                         {MUSIC_OPTIONS[musicKey]?.icon ?? '🎵'}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-white text-[10px] font-bold truncate">
+                        <div className="text-primary text-[10px] font-bold truncate">
                           {MUSIC_OPTIONS[musicKey]?.name ?? 'Müzik'}
                         </div>
                         <div
@@ -781,9 +735,8 @@ export function SetupWizard() {
               {/* Seçim özet chip'leri */}
               <div className="flex flex-wrap gap-2 justify-center">
                 {[
-                  { label: THEME_META[settings.themePack]?.label ?? settings.themePack, emoji: THEME_META[settings.themePack]?.emoji ?? '🎨' },
-                  { label: MUSIC_OPTIONS[musicKey]?.name ?? 'Müzik',                    emoji: '🎵' },
-                  { label: NAV_OPTIONS[navKey]?.name ?? 'Harita',                       emoji: '🗺️' },
+                  { label: MUSIC_OPTIONS[musicKey]?.name ?? 'Müzik',  emoji: '🎵' },
+                  { label: NAV_OPTIONS[navKey]?.name ?? 'Harita',      emoji: '🗺️' },
                 ].map((chip) => (
                   <div
                     key={chip.label}
@@ -821,7 +774,7 @@ export function SetupWizard() {
             <button
               type="button"
               onClick={finish}
-              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-white font-bold active:scale-95 transition-all"
+              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-primary font-bold active:scale-95 transition-all"
               style={{
                 backgroundColor: '#22c55e',
                 boxShadow:       '0 4px 24px rgba(34,197,94,0.4)',
@@ -834,7 +787,7 @@ export function SetupWizard() {
             <button
               type="button"
               onClick={goNext}
-              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-white font-bold active:scale-95 transition-all"
+              className="flex items-center gap-2 px-7 py-3 rounded-2xl text-primary font-bold active:scale-95 transition-all"
               style={{
                 backgroundColor: accent,
                 boxShadow:       `0 4px 20px ${accent}38`,
@@ -849,3 +802,5 @@ export function SetupWizard() {
     </div>
   );
 }
+
+

@@ -6,8 +6,11 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.WindowManager;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -49,6 +52,7 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // API 33
             perms.add(Manifest.permission.READ_MEDIA_VIDEO);
             perms.add(Manifest.permission.READ_MEDIA_IMAGES);
+            perms.add(Manifest.permission.POST_NOTIFICATIONS); // Bildirim izni — Kısıtlanmış ayar hatasını engeller
         } else if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
             perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
         }
@@ -92,6 +96,48 @@ public class MainActivity extends BridgeActivity {
 
         // ── Eksik izinleri bir seferde iste ──
         requestMissingPermissions();
+
+        // ── Foreground service'i hemen başlat ──
+        // GPS start bekleme — launcher her zaman arka planda çalışmalı
+        startForegroundServiceNow();
+
+        // ── Pil optimizasyonundan muafiyet iste (MIUI/HyperOS) ──
+        requestBatteryOptimizationExemption();
+    }
+
+    /**
+     * Foreground service'i uygulama açılır açılmaz başlatır.
+     * stopWithTask="false" ile uygulama arka plana alınsa bile servis çalışır.
+     */
+    private void startForegroundServiceNow() {
+        try {
+            Intent svcIntent = new Intent(this, CarLauncherForegroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(svcIntent);
+            } else {
+                startService(svcIntent);
+            }
+        } catch (Exception ignored) {
+            // Servis zaten çalışıyorsa veya başlatılamıyorsa sessizce devam et
+        }
+    }
+
+    /**
+     * MIUI/HyperOS ve diğer OEM'lerin agresif pil yönetimini devre dışı bırak.
+     * İlk çalıştırmada sistem izin ekranı açılır.
+     */
+    private void requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            }
+        } catch (Exception ignored) {
+            // Bazı OEM'lerde bu intent desteklenmiyor — sessizce geç
+        }
     }
 
     /** Henüz verilmemiş izinleri toplu olarak iste. */

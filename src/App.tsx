@@ -4,6 +4,8 @@ import { InAppBrowser } from './components/common/InAppBrowser';
 import { EditController } from './components/edit/EditController';
 
 function App() {
+
+
   return (
     <ErrorBoundary>
       <EditController>
@@ -15,3 +17,5 @@ function App() {
 }
 
 export default App;
+
+

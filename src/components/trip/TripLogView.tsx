@@ -30,7 +30,7 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div>
-          <div className="text-white font-bold text-sm">{fmtDate(trip.startTime)}</div>
+          <div className="text-primary font-bold text-sm">{fmtDate(trip.startTime)}</div>
           <div className="text-slate-500 text-xs mt-0.5">
             {fmtTime(trip.startTime)} → {fmtTime(trip.endTime)}
           </div>
@@ -105,7 +105,7 @@ function Stat({
   return (
     <div className={`flex flex-col items-center gap-1 rounded-xl p-2 border ${cfg.bg} ${cfg.border}`}>
       <Icon className={`w-4 h-4 ${cfg.icon}`} />
-      <span className="text-white font-black text-sm tabular-nums leading-none">{value}</span>
+      <span className="text-primary font-black text-sm tabular-nums leading-none">{value}</span>
       {unit && <span className="text-[9px] text-slate-600">{unit}</span>}
       <span className="text-[9px] text-slate-500 uppercase tracking-wide">{label}</span>
     </div>
@@ -133,7 +133,7 @@ function TripLogViewInner() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Route className="w-5 h-5 text-blue-400" />
-          <span className="text-white font-black text-base uppercase tracking-widest">Seyir Defteri</span>
+          <span className="text-primary font-black text-base uppercase tracking-widest">Seyir Defteri</span>
         </div>
         {trip.history.length > 0 && (
           <button
@@ -156,19 +156,19 @@ function TripLogViewInner() {
           </div>
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
-              <div className="text-white font-black text-2xl tabular-nums">
+              <div className="text-primary font-black text-2xl tabular-nums">
                 {trip.current.distanceKm.toFixed(1)}
               </div>
               <div className="text-slate-500 text-[10px] uppercase mt-0.5">km</div>
             </div>
             <div>
-              <div className="text-white font-black text-2xl">
+              <div className="text-primary font-black text-2xl">
                 {fmtDuration(liveDurationMin)}
               </div>
               <div className="text-slate-500 text-[10px] uppercase mt-0.5">süre</div>
             </div>
             <div>
-              <div className="text-white font-black text-2xl tabular-nums">
+              <div className="text-primary font-black text-2xl tabular-nums">
                 {trip.current.maxSpeedKmh}
               </div>
               <div className="text-slate-500 text-[10px] uppercase mt-0.5">max km/h</div>
@@ -243,7 +243,7 @@ function SummaryCard({
     <div className={`flex items-center gap-3 rounded-2xl p-4 border ${cfg.bg} ${cfg.border}`}>
       <Icon className={`w-8 h-8 flex-shrink-0 ${cfg.icon}`} />
       <div>
-        <div className="text-white font-black text-xl tabular-nums leading-none">
+        <div className="text-primary font-black text-xl tabular-nums leading-none">
           {value}{unit && <span className="text-sm font-normal text-slate-500 ml-1">{unit}</span>}
         </div>
         <div className="text-slate-500 text-xs mt-0.5">{label}</div>
@@ -253,3 +253,5 @@ function SummaryCard({
 }
 
 export const TripLogView = memo(TripLogViewInner);
+
+

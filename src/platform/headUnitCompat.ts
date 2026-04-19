@@ -13,6 +13,9 @@
 
 import { setPerformanceMode, getPerformanceMode } from './performanceMode';
 
+// Listener'ların tek seferlik kaydedilmesini sağlar — HMR / re-entry'ye karşı guard
+let _compatListenersAttached = false;
+
 export interface CompatProfile {
   isHeadUnit: boolean;
   supportsBackdropFilter: boolean;
@@ -204,11 +207,15 @@ export function applyCompatMode(): void {
   }
 
   // Tüm cihazlarda: izin diyaloğu / focus dönüşü için agresif repaint
-  const onVisible = () => { if (!document.hidden) forceRepaint(); };
-  document.addEventListener('visibilitychange', onVisible);
-  window.addEventListener('focus', forceRepaint);
-  // Capacitor resume eventi
-  document.addEventListener('resume', forceRepaint);
+  // Guard: main.tsx HMR ya da çift çağrı durumunda listener kümülenmesini engelle
+  if (!_compatListenersAttached) {
+    _compatListenersAttached = true;
+    const onVisible = () => { if (!document.hidden) forceRepaint(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', forceRepaint);
+    // Capacitor resume eventi
+    document.addEventListener('resume', forceRepaint);
+  }
 }
 
 /**

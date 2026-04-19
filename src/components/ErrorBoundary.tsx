@@ -25,9 +25,9 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', background: '#060d1a', color: '#fff', fontFamily: 'system-ui,sans-serif', userSelect: 'none' }} className="select-none">
+        <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', background: 'var(--panel-bg)', color: '#fff', fontFamily: 'system-ui,sans-serif', userSelect: 'none' }} className="select-none">
           <span className="text-5xl opacity-30">⚠</span>
-          <div className="text-white text-base font-semibold">Bir sorun oluştu</div>
+          <div className="text-primary text-base font-semibold">Bir sorun oluştu</div>
           {import.meta.env.DEV && this.state.errorMsg && (
             <div className="text-red-400 text-xs max-w-xs text-center px-4 opacity-70 font-mono">
               {this.state.errorMsg}
@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
           )}
           <button
             onClick={this.recover}
-            className="px-8 py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold active:scale-95 transition-[transform] duration-100 shadow-lg shadow-blue-600/25"
+            className="px-8 py-3 bg-blue-600 text-primary rounded-xl text-sm font-semibold active:scale-95 transition-[transform] duration-100 shadow-lg shadow-blue-600/25"
           >
             Tekrar Dene
           </button>
@@ -45,3 +45,5 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+

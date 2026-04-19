@@ -35,10 +35,10 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavor
     >
       <button
         onClick={handleLaunch}
-        className="w-full aspect-square flex flex-col items-center justify-center gap-4 rounded-[2.25rem] bg-[#02040a] border-2 border-white/10 shadow-xl hover:bg-[#0a0e1a] active:scale-[0.94] transition-all duration-100"
+        className="w-full aspect-square flex flex-col items-center justify-center gap-6 rounded-[3rem] glass-card border-white/10 hover:border-white/30 hover:scale-[1.03] active:scale-[0.92] transition-all duration-500 group shadow-lg"
       >
-        <span className="text-6xl leading-none drop-shadow-md">{app.icon}</span>
-        <span className="text-white text-lg font-black px-2 text-center leading-tight truncate w-full tracking-tight">
+        <span className="text-8xl leading-none drop-shadow-2xl transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3">{app.icon}</span>
+        <span className="text-primary text-[15px] font-black px-4 text-center leading-tight truncate w-full tracking-[0.05em] uppercase">
           {app.name}
         </span>
       </button>
@@ -46,13 +46,13 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavor
       {app.supportsFavorite && (
         <button
           onClick={handleFavorite}
-          className={`absolute top-3 right-3 w-12 h-12 flex items-center justify-center rounded-2xl transition-all duration-100 active:scale-90 shadow-lg ${
+          className={`absolute top-5 right-5 w-12 h-12 flex items-center justify-center rounded-[1.25rem] transition-all duration-300 active:scale-90 shadow-2xl glass-card ${
             isFav
-              ? 'text-yellow-400 bg-yellow-400/20 border-2 border-yellow-400/30'
-              : 'text-slate-400 bg-black/60 border-2 border-white/10'
+              ? 'text-yellow-500 border-yellow-400/40 shadow-[0_0_20px_rgba(250,204,21,0.3)] bg-yellow-500/10'
+              : 'text-secondary/20 border-white/5 hover:text-secondary/40'
           }`}
         >
-          <Star className={"w-5 h-5 " + (isFav ? 'fill-yellow-400' : '')} />
+          <Star className={"w-6 h-6 " + (isFav ? 'fill-yellow-500' : '')} />
         </button>
       )}
     </div>
@@ -61,19 +61,22 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavor
 
 export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden">
-      <div className="p-5 pb-8">
+    <div className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
+      <div className="p-8 pb-12">
 
         {/* Başlık */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-semibold text-white">Uygulamalar</h2>
-          <span className="text-[13px] text-slate-400 bg-white/[0.07] border border-white/[0.1] rounded-full px-3 py-1 tabular-nums">
-            {apps.length} uygulama
+        <div className="flex items-center justify-between mb-10 px-4">
+          <div>
+            <h2 className="text-4xl font-black text-primary uppercase tracking-[0.2em] drop-shadow-sm">Uygulamalar</h2>
+            <div className="h-1.5 w-16 bg-blue-500 rounded-full mt-3 shadow-[0_0_15px_rgba(59,130,246,0.6)]" />
+          </div>
+          <span className="text-[11px] font-black uppercase tracking-[0.3em] text-secondary opacity-50 glass-card px-5 py-2.5 border-white/10 shadow-sm">
+            {apps.length} TOPLAM SİSTEM
           </span>
         </div>
 
         {/* Grid */}
-        <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-4`}>
+        <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>
           {apps.map((app, index) => (
             <AppItemCard
               key={app.id}
@@ -90,3 +93,5 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
     </div>
   );
 });
+
+

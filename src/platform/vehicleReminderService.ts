@@ -48,14 +48,14 @@ function kmUrgency(kmLeft: number): ReminderUrgency {
 export function computeReminders(m: MaintenanceInfo): ReminderItem[] {
   const items: ReminderItem[] = [];
 
-  // Yağ değişimi (km bazlı)
-  const oilKmLeft = (m.nextOilChangeKm ?? 10000) - (m.lastOilChangeKm ?? 0);
+  // Yağ değişimi — lastOilChangeKm: son değişimdeki sayaç, nextOilChangeKm: aralık
+  const oilKmLeft = (m.lastOilChangeKm ?? 0) + (m.nextOilChangeKm ?? 10000) - (m.currentKm ?? 0);
   items.push({
     id: 'oil_change',
     label: 'Yağ Değişimi',
     urgency: kmUrgency(oilKmLeft),
     detail: oilKmLeft > 0
-      ? `${oilKmLeft.toLocaleString('tr-TR')} km kaldı`
+      ? `${Math.round(oilKmLeft).toLocaleString('tr-TR')} km kaldı`
       : 'Gecikmiş',
   });
 

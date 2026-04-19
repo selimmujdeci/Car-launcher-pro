@@ -1,1108 +1,1104 @@
-import { memo, type ReactNode, useState, useCallback, useRef, useEffect, type ComponentType } from 'react';
+import { memo, type ReactNode, useState, useCallback, useEffect, useRef } from 'react';
+import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import {
-  Sun, Smartphone, Zap, Palette, Layout, Image as ImageIcon, Check, Layers, PenTool as Tool, Volume2,
-  Plus, Monitor, Upload, Wifi, WifiOff, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
-  Download, Trash2, Moon,
+  Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
+  Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
+  Cpu, Thermometer, Shield, Gauge, Settings2, Lock,
+  Mic, Eye, EyeOff, CheckCircle, XCircle, Loader,
 } from 'lucide-react';
+import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
+import { openInApp } from '../../platform/inAppBrowser';
+import { Clipboard } from '@capacitor/clipboard';
+import { isNative } from '../../platform/bridge';
+import { PrivacyPolicy } from './PrivacyPolicy';
 import { useEditStore } from '../../store/useEditStore';
-import { useStore } from '../../store/useStore';
-import { NAV_OPTIONS, MUSIC_OPTIONS } from '../../data/apps';
-import { getPerformanceMode, setPerformanceMode } from '../../platform/performanceMode';
+import { useStore, type VehicleType } from '../../store/useStore';
+import {
+  getPerformanceMode, setPerformanceMode,
+  isAutoModeEnabled, enableAutoMode, disableAutoMode,
+} from '../../platform/performanceMode';
 import { setBrightness, setVolume } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
-import { triggerThemeTransition } from '../../platform/themeTransitionService';
 import {
-  useMapSources,
-  useMapNetworkStatus,
-  setActiveMapSource,
-  refreshMapSources,
-  type MapSource,
+  useMapSources, useMapNetworkStatus, setActiveMapSource,
+  refreshMapSources, type MapSource,
 } from '../../platform/mapSourceManager';
-import { LayoutPreview } from './LayoutPreview';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
-import {
-  TILE_PRESETS,
-  estimateTileCount,
-  downloadTileRegion,
-  cancelTileDownload,
-  clearCachedTiles,
-  getCachedTileCount,
-  subscribeDownloadState,
-  getDownloadState,
-  type DownloadState,
-} from '../../platform/offlineTileDownloader';
+import { setObdVehicleType } from '../../platform/obdService';
+import { useSensitiveKey } from '../../platform/sensitiveKeyStore';
 
-/* ── Harita Kaynak Seçimi ────────────────────────────────── */
-
-const MapSourcePanel = memo(function MapSourcePanel() {
-  const mapState     = useMapSources();
-  const sources: MapSource[] = Array.from(mapState.sources.values());
-  const activeId     = mapState.activeSourceId;
-  const { isOnline } = useMapNetworkStatus();
-  const { updateSettings } = useStore();
-  const [refreshing, setRefreshing] = useState(false);
-
-  const handleSelect = useCallback((id: string) => {
-    const ok = setActiveMapSource(id);
-    if (ok) updateSettings({ activeMapSourceId: id });
-  }, [updateSettings]);
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await refreshMapSources();
-    setRefreshing(false);
-  }, []);
-
+/* ════════════════════════════════════════
+   PREMIUM SLIDER
+════════════════════════════════════════ */
+function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
+  icon: typeof Sun; label: string; value: number; onChange: (v: number) => void;
+  colorA: string; colorB: string;
+}) {
   return (
-    <div className="flex flex-col gap-5 pt-5 border-t border-white/5">
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2.5">
-          <div className="w-1.5 h-4 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]" />
-          <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Harita Kaynağı</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border backdrop-blur-md transition-all ${isOnline ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'bg-red-500/10 text-red-400 border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.1)]'}`}>
-            {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            <span className="text-[10px] font-black uppercase tracking-widest">{isOnline ? 'ÇEVRİMİÇİ' : 'ÇEVRİMDIŞI'}</span>
+    <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${colorA}15` }}>
+            <Icon className="w-5 h-5" style={{ color: colorA }} />
           </div>
-          <button
-            onClick={handleRefresh}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center active:scale-90 transition-all hover:bg-white/10 hover:border-white/20 shadow-lg"
-            title="Kaynakları Yenile"
-          >
-            <RefreshCw className={`w-4 h-4 text-slate-300 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
+          <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{label}</span>
+        </div>
+        <div className="flex items-baseline gap-1">
+          <span className="font-black text-2xl tabular-nums" style={{ color: colorA }}>{value}</span>
+          <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>%</span>
         </div>
       </div>
+      <div className="relative h-2 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, background: `linear-gradient(90deg,${colorA},${colorB})` }} />
+        <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white pointer-events-none transition-[left] duration-75"
+          style={{ left: `calc(${value}% - 8px)`, boxShadow: `0 0 0 3px ${colorA}55, 0 2px 8px rgba(0,0,0,0.4)` }} />
+        <input type="range" min={0} max={100} value={value} onChange={e => onChange(Number(e.target.value))}
+          className="absolute inset-0 w-full opacity-0 cursor-pointer z-10" style={{ height: '100%', margin: 0 }} />
+      </div>
+    </div>
+  );
+}
 
-      {sources.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 rounded-[2rem] bg-white/[0.05] border border-white/10 transition-all">
-          <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden mb-4">
-             <div className="h-full bg-blue-500/70 rounded-full animate-boot-bar" />
-          </div>
-          <div className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">KAYNAKLAR TARANIYOR</div>
+/* ════════════════════════════════════════
+   PREMIUM TOGGLE
+════════════════════════════════════════ */
+function PremiumToggle({ label, desc, value, onChange, icon: Icon, accent = '#3b82f6' }: {
+  label: string; desc: string; value: boolean; onChange: (v: boolean) => void;
+  icon?: typeof Wifi; accent?: string;
+}) {
+  return (
+    <button onClick={() => onChange(!value)}
+      className="group w-full flex items-center gap-4 p-4 rounded-2xl text-left glass-card lux-noise"
+      style={value
+        ? { backgroundColor: `${accent}12`, borderColor: `${accent}35`, boxShadow: `0 0 0 1px ${accent}20, 0 0 24px ${accent}18, 0 8px 32px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)` }
+        : {}}>
+      {Icon && (
+        <div className="lux-icon-box w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-400"
+          style={value ? { backgroundColor: `${accent}18`, borderColor: `${accent}45`, boxShadow: `0 0 14px ${accent}30` } : {}}>
+          <Icon className="w-5 h-5 transition-all duration-400"
+            style={{ color: value ? accent : 'var(--text-secondary)', filter: value ? `drop-shadow(0 0 10px ${accent}) brightness(1.2)` : 'none' }} />
         </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {sources.map((src) => {
-            const isOfflineType = src.type === 'offline';
-            const isCached      = src.id === 'cached';
-            const Icon          = isOfflineType ? HardDrive : isCached ? Database : Cloud;
-            const isActive      = activeId === src.id;
-            
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-black tracking-[0.1em] uppercase transition-colors" style={{ color: 'var(--text-primary)' }}>{label}</div>
+        <div className="text-[11px] truncate mt-1.5 font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', opacity: 0.55 }}>{desc}</div>
+      </div>
+      {/* Toggle pill — neon glow aktifken */}
+      <div className="relative w-[66px] h-[36px] rounded-full flex-shrink-0 border"
+        style={value
+          ? { background: accent, borderColor: `${accent}50`, boxShadow: `0 0 18px ${accent}60, 0 0 36px ${accent}25, inset 0 1px 0 rgba(255,255,255,0.20)` }
+          : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.10)', boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.35)' }}>
+        <div className="lux-toggle-thumb absolute top-[5px] w-[24px] h-[24px] rounded-full bg-white"
+          style={{ left: value ? '36px' : '6px', transform: value ? 'scale(1.08)' : 'scale(1)', boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 0 8px rgba(255,255,255,0.15)' }} />
+      </div>
+    </button>
+  );
+}
+
+/* ════════════════════════════════════════
+   THEME PANEL — Ayarlar içi tema seçici
+════════════════════════════════════════ */
+const THEME_OPTIONS: { id: BaseTheme; label: string; sub: string; accent: string; nightBg: string; dayBg: string }[] = [
+  { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', nightBg: 'linear-gradient(135deg,#0a0c10,#12151d)', dayBg: 'linear-gradient(135deg,#2D2D44,#3D3D5C)' },
+  { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', nightBg: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)', dayBg: 'linear-gradient(135deg,#1E2A3A,#263040)' },
+  { id: 'cockpit',  label: 'COCKPIT',  sub: 'Glass Cockpit',    accent: '#00B4D8', nightBg: 'linear-gradient(135deg,#050a10,#0a1628)', dayBg: 'linear-gradient(135deg,#0D2137,#0F2A45)' },
+  { id: 'mercedes', label: 'MERCEDES', sub: 'MBUX',             accent: '#C8A882', nightBg: 'linear-gradient(135deg,#181818,#2c2c2c)', dayBg: 'linear-gradient(135deg,#2C2C3A,#363645)' },
+  { id: 'audi',     label: 'AUDI',     sub: 'Virtual Cockpit',  accent: '#BB0A21', nightBg: 'linear-gradient(135deg,#1E1E2C,#252535)', dayBg: 'linear-gradient(135deg,#1E1E2C,#28283A)' },
+];
+
+function ThemePanel() {
+  const { theme, setTheme } = useCarTheme();
+  const dayMode = isDay(theme);
+  const activeBase = baseOf(theme);
+
+  function selectBase(id: BaseTheme) {
+    setTheme(dayMode ? `${id}-day` as const : id);
+  }
+
+  function toggleDayNight() {
+    setTheme(dayMode ? toNight(theme) : toDay(theme));
+  }
+
+  return (
+    <div className="glass-card lux-panel lux-noise overflow-hidden" style={{ padding: 0 }}>
+      <div className="lux-accent-top" style={{ color: '#ff9800' }} />
+      <div className="p-5">
+        {/* Başlık + Gündüz/Gece toggle */}
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,152,0,0.12)', border: '1px solid rgba(255,152,0,0.25)' }}>
+              <Palette className="w-5 h-5" style={{ color: '#ff9800' }} />
+            </div>
+            <div>
+              <div className="text-sm font-black uppercase tracking-[0.15em]" style={{ color: '#fff' }}>Kokpit Teması</div>
+              <div className="text-[11px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Ana ekran görünümünü seç</div>
+            </div>
+          </div>
+          {/* Gündüz / Gece toggle */}
+          <button
+            onClick={toggleDayNight}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 active:scale-95 flex-shrink-0"
+            style={{
+              background: dayMode ? 'rgba(251,191,36,0.15)' : 'rgba(99,102,241,0.12)',
+              border: `1px solid ${dayMode ? 'rgba(251,191,36,0.40)' : 'rgba(99,102,241,0.30)'}`,
+              boxShadow: dayMode ? '0 0 16px rgba(251,191,36,0.12)' : 'none',
+            }}
+          >
+            <span style={{ fontSize: 16 }}>{dayMode ? '☀️' : '🌙'}</span>
+            <span className="text-[11px] font-black uppercase tracking-widest" style={{ color: dayMode ? '#fbbf24' : 'rgba(255,255,255,0.55)' }}>
+              {dayMode ? 'Gündüz' : 'Gece'}
+            </span>
+          </button>
+        </div>
+
+        {/* Tema kartları */}
+        <div className="grid grid-cols-5 gap-3">
+          {THEME_OPTIONS.map(t => {
+            const active = activeBase === t.id;
+            const preview = dayMode ? t.dayBg : t.nightBg;
             return (
               <button
-                key={src.id}
-                onClick={() => src.isAvailable && handleSelect(src.id)}
-                disabled={!src.isAvailable}
-                className={`group relative flex items-center gap-4 px-5 py-4 rounded-[1.5rem] border transition-all duration-300 overflow-hidden ${
-                  isActive
-                    ? 'bg-blue-600/15 border-blue-400/70 shadow-[0_0_24px_rgba(59,130,246,0.2)] ring-2 ring-blue-500/30'
-                    : src.isAvailable
-                      ? 'bg-white/[0.05] border-white/[0.1] text-slate-300 hover:bg-white/[0.08] hover:border-white/[0.18]'
-                      : 'bg-white/[0.03] border-white/[0.07] text-slate-600 cursor-not-allowed opacity-50'
-                }`}
+                key={t.id}
+                onClick={() => selectBase(t.id)}
+                className="flex flex-col items-center gap-2 p-3 rounded-2xl transition-all duration-300 active:scale-95"
+                style={{
+                  background: active ? `${t.accent}18` : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${active ? `${t.accent}55` : 'rgba(255,255,255,0.07)'}`,
+                  boxShadow: active ? `0 0 20px ${t.accent}25` : 'none',
+                }}
               >
-                {isActive && (
-                   <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent pointer-events-none" />
-                )}
-                
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 ${
-                  isActive ? 'bg-blue-600 text-white scale-105 shadow-blue-600/40' : src.isAvailable ? 'bg-white/[0.06] border border-white/10 text-slate-400 group-hover:text-blue-300 group-hover:border-blue-500/30' : 'bg-white/[0.04] border border-white/[0.06] text-slate-600'
-                }`}>
-                  <Icon className={`w-6 h-6 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
-                </div>
-
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className={`text-[13px] font-black uppercase tracking-wider truncate ${isActive ? 'text-white' : src.isAvailable ? 'text-slate-300' : 'text-slate-500'}`}>
-                      {src.name}
-                    </div>
-                    {isActive && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)] animate-pulse" />
-                    )}
-                  </div>
-                  <div className={`text-[10px] font-bold tracking-tight truncate leading-none ${isActive ? 'text-blue-400/80' : src.isAvailable ? 'text-slate-500' : 'text-slate-600'}`}>
-                    {src.description}
-                  </div>
-                  {src.tileCount != null && src.tileCount > 0 && src.isAvailable && (
-                    <div className="text-[10px] font-black text-slate-600 mt-2 flex items-center gap-1.5 bg-black/20 self-start px-2 py-0.5 rounded-md border border-white/5 uppercase tracking-tighter">
-                      <Database className="w-2.5 h-2.5" />
-                      {src.tileCount.toLocaleString()} Karo {src.cacheSize ? `· ${src.cacheSize}` : ''}
+                {/* Preview swatch - gündüz/gece rengini göster */}
+                <div className="relative w-full aspect-video rounded-xl overflow-hidden" style={{ background: preview }}>
+                  <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6, height: 3, background: `${t.accent}70`, borderRadius: 2 }} />
+                  <div style={{ position: 'absolute', top: 6, left: 6, width: 16, height: 3, background: `${t.accent}50`, borderRadius: 2 }} />
+                  {/* Gündüz göstergesi */}
+                  {dayMode && (
+                    <div style={{ position: 'absolute', top: 5, right: 6, fontSize: 10 }}>☀️</div>
+                  )}
+                  {active && (
+                    <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.30)' }}>
+                      <Check className="w-5 h-5" style={{ color: t.accent, filter: `drop-shadow(0 0 6px ${t.accent})` }} />
                     </div>
                   )}
                 </div>
-
-                <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                  isActive ? 'border-blue-400 bg-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/15 bg-white/[0.04] text-transparent'
-                }`}>
-                  <Check className="w-3.5 h-3.5 stroke-[3.5px]" />
-                </div>
-
-                {!src.isAvailable && (
-                  <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-slate-800/60 border border-white/10 text-slate-400 text-[8px] font-black uppercase tracking-widest">
-                    BAĞLANTI YOK
-                  </div>
-                )}
+                <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: active ? t.accent : 'rgba(255,255,255,0.45)' }}>{t.label}</div>
+                <div className="text-[9px] font-medium" style={{ color: 'rgba(255,255,255,0.28)' }}>{t.sub}</div>
               </button>
             );
           })}
         </div>
-      )}
+      </div>
     </div>
   );
-});
+}
 
-/* ── Çevrimdışı Tile İndirici ────────────────────────────── */
-
-const OfflineTilePanel = memo(function OfflineTilePanel() {
-  const [dl, setDl]             = useState<DownloadState>(getDownloadState());
-  const [cachedCount, setCached] = useState<number>(0);
-  const [clearing, setClearing]  = useState(false);
-
-  useEffect(() => {
-    getCachedTileCount().then(setCached).catch(() => undefined);
-  }, [dl.status]);
-
-  useEffect(() => {
-    return subscribeDownloadState(setDl);
-  }, []);
-
-  const handleDownload = useCallback((presetId: string) => {
-    if (dl.status === 'downloading') return;
-    downloadTileRegion(presetId).catch(() => undefined);
-  }, [dl.status]);
-
-  const handleClear = useCallback(async () => {
-    setClearing(true);
-    await clearCachedTiles();
-    setCached(0);
-    setClearing(false);
-  }, []);
-
-  const isDownloading = dl.status === 'downloading';
-  const pct = dl.total > 0 ? Math.round((dl.done / dl.total) * 100) : 0;
-
+/* ════════════════════════════════════════
+   PANEL CARD
+════════════════════════════════════════ */
+function Panel({ children, className = '', accent }: { children: ReactNode; className?: string; accent?: string }) {
   return (
-    <div className="flex flex-col gap-4 pt-5 border-t border-white/5">
-      {/* Başlık */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2.5">
-          <div className="w-1.5 h-4 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
-          <span className="text-slate-200 text-[11px] font-black uppercase tracking-[0.2em]">Çevrimdışı Harita İndir</span>
+    <div className={`glass-card lux-panel lux-noise overflow-hidden group transition-all duration-500 ${className}`}
+      style={{ padding: 0 }}>
+      {accent && (
+        <div className="lux-accent-top group-hover:opacity-100 transition-opacity" style={{ color: accent }} />
+      )}
+      <div className="p-5">{children}</div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   SECTION TITLE
+════════════════════════════════════════ */
+function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
+  icon: typeof Settings2; title: string; sub?: string; color?: string;
+}) {
+  return (
+    <div className="flex items-center gap-4 mb-5">
+      <div className="lux-icon-box rounded-xl flex items-center justify-center flex-shrink-0"
+        style={{ width: '2.5rem', height: '2.5rem', borderColor: `${color}35`, boxShadow: `0 0 14px ${color}20` }}>
+        <Icon className="w-5 h-5" style={{ color, filter: `drop-shadow(0 0 8px ${color}80)` }} />
+      </div>
+      <div>
+        <div className="text-[12px] font-black uppercase tracking-[0.2em]"
+          style={{ color: 'var(--text-primary)' }}>
+          {title}
         </div>
-        {cachedCount > 0 && (
-          <button
-            onClick={handleClear}
-            disabled={isDownloading || clearing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest active:scale-90 transition-all disabled:opacity-40"
-          >
-            <Trash2 className="w-3 h-3" />
-            {clearing ? 'Siliniyor…' : `${cachedCount.toLocaleString()} tile sil`}
-          </button>
+        {sub && (
+          <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)', opacity: 0.5 }}>{sub}</div>
         )}
       </div>
-
-      {/* Aktif indirme — ilerleme çubuğu */}
-      {isDownloading && (
-        <div className="flex flex-col gap-2 px-1">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs">{dl.presetName} indiriliyor…</span>
-            <span className="text-blue-400 text-xs font-bold tabular-nums">{dl.done}/{dl.total}</span>
-          </div>
-          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 rounded-full transition-[width] duration-300"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-slate-600 text-[10px]">
-              {dl.failedCount > 0 ? `${dl.failedCount} hata` : 'İndiriliyor…'}
-            </span>
-            <button
-              onClick={cancelTileDownload}
-              className="text-red-400 text-[10px] font-bold uppercase tracking-widest active:opacity-60"
-            >
-              İptal
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tamamlandı/Hata mesajı */}
-      {(dl.status === 'done' || dl.status === 'cancelled' || dl.status === 'error') && (
-        <div className={`px-4 py-3 rounded-xl border text-xs font-medium ${
-          dl.status === 'done' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
-          dl.status === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' :
-          'bg-slate-700/30 border-white/10 text-slate-400'
-        }`}>
-          {dl.status === 'done' && `✓ ${dl.presetName} indirildi — ${dl.done.toLocaleString()} tile`}
-          {dl.status === 'cancelled' && 'İndirme iptal edildi'}
-          {dl.status === 'error' && `Hata: ${dl.errorMsg ?? 'Bilinmiyor'}`}
-        </div>
-      )}
-
-      {/* Preset butonları */}
-      <div className="grid grid-cols-2 gap-2">
-        {TILE_PRESETS.map((preset) => {
-          const count     = estimateTileCount(preset);
-          const isActive  = dl.presetId === preset.id && isDownloading;
-          return (
-            <button
-              key={preset.id}
-              onClick={() => handleDownload(preset.id)}
-              disabled={isDownloading}
-              className={`flex flex-col gap-1.5 p-3.5 rounded-2xl border text-left transition-all active:scale-[0.97] disabled:opacity-50 ${
-                isActive
-                  ? 'bg-blue-600/20 border-blue-500/40'
-                  : 'bg-white/[0.04] border-white/8 hover:bg-white/[0.07] hover:border-white/15'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Download className={`w-4 h-4 ${isActive ? 'text-blue-400 animate-pulse' : 'text-slate-400'}`} />
-                <span className="text-white text-sm font-bold">{preset.name}</span>
-              </div>
-              <span className="text-slate-500 text-[10px]">
-                Z{preset.minZoom}–Z{preset.maxZoom} · ~{count.toLocaleString()} tile
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <p className="text-slate-700 text-[9px] px-1 leading-relaxed">
-        Tile'lar OpenStreetMap sunucusundan indirilir ve tarayıcı önbelleğine kaydedilir.
-        İnternet bağlantısı kesildiğinde bu bölgeler haritada çalışmaya devam eder.
-      </p>
-    </div>
-  );
-});
-
-/* ── Yardımcı bileşenler ─────────────────────────────────── */
-
-function SectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 mb-3">
-      <div className="w-1 h-5 bg-blue-500 rounded-full" />
-      <span className="text-slate-300 text-xs font-bold tracking-widest uppercase">{children}</span>
+      <div className="lux-section-line" style={{ '--tw-gradient-from': color } as React.CSSProperties} />
     </div>
   );
 }
 
-function Card({ children, className = "" }: { children: ReactNode, className?: string }) {
-  return (
-    <div className={`bg-[#162035] rounded-2xl border border-white/[0.12] shadow-xl p-5 ${className}`}>
-      {children}
-    </div>
-  );
-}
 
-function BigSlider({
-  icon: Icon,
-  label,
-  value,
-  onChange,
-}: {
-  icon: typeof Sun;
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Icon className="w-5 h-5 text-blue-400" />
-          <span className="text-white text-base font-medium">{label}</span>
-        </div>
-        <span className="text-blue-400 text-lg font-semibold tabular-nums w-10 text-right">{value}</span>
-      </div>
-      <div className="relative py-2">
-        <div className="h-3 bg-white/10 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 rounded-full transition-[width] duration-75"
-            style={{ width: `${value}%` }}
-          />
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-        />
-      </div>
-    </div>
-  );
-}
-
-function ChoiceCard({
-  active,
-  onClick,
-  icon: Icon,
-  label,
-  desc,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  desc?: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-2xl border transition-all duration-200 active:scale-[0.95] ${
-        active
-          ? 'bg-blue-600/20 border-blue-500/50 shadow-lg shadow-blue-500/10'
-          : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
-      }`}
-    >
-      <Icon className={`w-6 h-6 ${active ? 'text-blue-400' : 'text-slate-500'}`} />
-      <span className={`text-sm font-bold ${active ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-      {desc && <span className="text-[10px] text-slate-600 text-center leading-tight">{desc}</span>}
-    </button>
-  );
-}
-
-function ColButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 py-4 rounded-2xl text-base font-semibold transition-[transform,background-color,border-color,color] duration-150 active:scale-[0.97] border ${
-        active
-          ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/25 active:bg-blue-700'
-          : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:text-slate-200 hover:border-white/10'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ToggleRow({
-  label,
-  desc,
-  value,
-  onChange,
-}: {
-  label: string;
-  desc: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onChange(!value)}
-      className="flex items-center justify-between pb-5 mb-5 border-b border-white/5 last:border-0 last:pb-0 last:mb-0 active:opacity-70 transition-opacity duration-100"
-    >
-      <div>
-        <div className="text-white text-base font-semibold">{label}</div>
-        <div className="text-slate-400 text-sm mt-0.5">{desc}</div>
-      </div>
-      <div
-        className={`w-14 h-7 rounded-full relative transition-[background-color] duration-200 flex-shrink-0 pointer-events-none ${value ? 'bg-blue-600' : 'bg-white/10'}`}
-      >
-        <span
-          className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-[left] duration-200 ${value ? 'left-7' : 'left-0.5'}`}
-        />
-      </div>
-    </div>
-  );
-}
-
-const WALLPAPERS = [
-  { id: 'none', label: 'Klasik', url: 'none' },
-  { id: 'carbon', label: 'Karbon', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1200&q=80' },
-  { id: 'midnight', label: 'Gece', url: 'https://images.unsplash.com/photo-1614850523296-e8c041de4398?auto=format&fit=crop&w=1200&q=80' },
-  { id: 'minimal', label: 'Minimal', url: 'https://images.unsplash.com/photo-1550684376-efcbd6e3f031?auto=format&fit=crop&w=1200&q=80' },
-  { id: 'liquid', label: 'Sıvı', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80' },
-  { id: 'horizon', label: 'Ufuk', url: 'https://images.unsplash.com/photo-1519608487953-e999c86e74c0?auto=format&fit=crop&w=1200&q=80' },
-  { id: 'tech', label: 'Teknoloji', url: 'https://images.unsplash.com/photo-1504333638930-c8787321eee0?auto=format&fit=crop&w=1200&q=80' },
-  { id: 'deep', label: 'Derinlik', url: 'https://images.unsplash.com/photo-1439405326854-014607f694d7?auto=format&fit=crop&w=1200&q=80' },
-];
-
-/* ── Ana bileşen ─────────────────────────────────────────── */
-
-interface Props {
-  onOpenMap?: () => void;
-  onClose?: () => void;
-}
-
-function SettingsPageInner({ onOpenMap, onClose }: Props) {
+/* ════════════════════════════════════════
+   AI VOICE PANEL
+════════════════════════════════════════ */
+const AIVoicePanel = memo(function AIVoicePanel() {
   const { settings, updateSettings } = useStore();
-  const [tab, setTab] = useState<'general' | 'appearance' | 'performance' | 'maintenance'>('general');
-  const { locked: layoutLocked, toggleLock, resetAll: resetPersonalization } = useEditStore();
+  const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
+  const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
+  const [showGeminiKey, setShowGeminiKey]   = useState(false);
+  const [showHaikuKey,  setShowHaikuKey]    = useState(false);
+  const [testing,       setTesting]         = useState(false);
+  const [testResult,    setTestResult]      = useState<{ ok: boolean; message: string } | null>(null);
+  const [clipboardHint, setClipboardHint]   = useState<string | null>(null);
+  const [waitingClip,   setWaitingClip]     = useState(false);
+  const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // DOM'da data-layout attribute'unu tema değişince güncelle
-  useLayoutSync();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const provider     = settings.aiVoiceProvider ?? 'none';
+  const activeKey    = provider === 'gemini' ? geminiKey : haikuKey;
+  const envGeminiKey = getEnvGeminiKey();
+  const envHaikuKey  = getEnvHaikuKey();
 
-  const handleBrightness = useCallback((v: number) => {
-    updateSettings({ brightness: v });
-    setBrightness(v);
-  }, [updateSettings]);
+  /** Clipboard'u oku, key pattern'i varsa otomatik kaydet */
+  const checkClipboard = useCallback(async () => {
+    try {
+      let text = '';
+      if (isNative) {
+        const { value } = await Clipboard.read();
+        text = value ?? '';
+      } else {
+        text = await navigator.clipboard.readText().catch(() => '');
+      }
+      text = text.trim();
 
-  const handleVolume = useCallback((v: number) => {
-    updateSettings({ volume: v });
-    setVolume(v);
-  }, [updateSettings]);
+      const isGeminiKey = /^AIza[A-Za-z0-9_-]{35,}$/.test(text);
+      const isHaikuKey  = /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(text);
 
-  // ── Theme change wrappers — route through crossfade overlay ──
-  const applyThemePack = useCallback((pack: string) => {
-    triggerThemeTransition(() => updateSettings({ themePack: pack as import('../../store/useStore').ThemePack }), pack);
-  }, [updateSettings]);
+      if (isGeminiKey && provider === 'gemini') {
+        void setGeminiKey(text);
+        setClipboardHint('Key otomatik algılandı!');
+        setWaitingClip(false);
+      } else if (isHaikuKey && provider === 'haiku') {
+        void setHaikuKey(text);
+        setClipboardHint('Key otomatik algılandı!');
+        setWaitingClip(false);
+      }
+      if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
+      clipTimerRef.current = setTimeout(() => setClipboardHint(null), 4000);
+    } catch { /* clipboard izni yok */ }
+  }, [provider, updateSettings]);
 
-  const applyThemeStyle = useCallback((style: import('../../store/useStore').ThemeStyle) => {
-    triggerThemeTransition(() => updateSettings({ themeStyle: style }));
-  }, [updateSettings]);
+  /** Sayfa odağa döndüğünde clipboard kontrol et */
+  useEffect(() => {
+    if (!waitingClip) return;
+    const onFocus = () => checkClipboard();
+    const onVisibility = () => { if (document.visibilityState === 'visible') checkClipboard(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [waitingClip, checkClipboard]);
 
-  const applyWidgetStyle = useCallback((style: import('../../store/useStore').WidgetStyle) => {
-    triggerThemeTransition(() => updateSettings({ widgetStyle: style }));
-  }, [updateSettings]);
+  /** Linke tıkla → browser aç + clipboard beklemeye başla */
+  const handleOpenKeyPage = useCallback((url: string) => {
+    openInApp(url);
+    setWaitingClip(true);
+    setClipboardHint('Key\'i kopyalayıp geri dönün — otomatik algılanacak');
+  }, []);
 
-  const handleCustomWallpaper = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const url = event.target?.result as string;
-        updateSettings({ wallpaper: url });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  const handleTest = useCallback(async () => {
+    if (testing || provider === 'none' || !activeKey) return;
+    setTesting(true);
+    setTestResult(null);
+    const result = await testAIConnection(provider, activeKey);
+    setTesting(false);
+    setTestResult(result);
+    if (testTimerRef.current) clearTimeout(testTimerRef.current);
+    testTimerRef.current = setTimeout(() => setTestResult(null), 5000);
+  }, [testing, provider, activeKey]);
 
+  useEffect(() => () => {
+    if (testTimerRef.current) clearTimeout(testTimerRef.current);
+    if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
+  }, []);
+
+  const PROVIDERS: { id: AIProvider; label: string; sub: string; color: string; badge: string }[] = [
+    { id: 'none',   label: 'Kapalı',         sub: 'Sadece offline parser',    color: '#64748b', badge: 'ÜCRETSİZ' },
+    { id: 'gemini', label: 'Gemini Flash',   sub: 'Google AI — 1500 istek/gün ücretsiz', color: '#4285f4', badge: 'ÜCRETSİZ' },
+    { id: 'haiku',  label: 'Claude Haiku',   sub: 'Anthropic — ~$0.13/ay',    color: '#d97706', badge: 'DÜŞÜK MALİYET' },
+  ];
 
   return (
-    <div className="h-full flex flex-col bg-[#0c1a2e]">
-      {/* ── Top Bar ── */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
-        <button
-          onClick={onClose}
-          className="flex items-center gap-3 px-5 py-3 bg-white/10 border border-white/20 rounded-2xl active:scale-90 transition-transform hover:bg-white/20"
-        >
-          <ArrowLeft className="w-5 h-5 text-white" />
-          <span className="text-white text-sm font-black uppercase tracking-widest">Geri</span>
-        </button>
-        <span className="text-white text-base font-black uppercase tracking-[0.2em]">Ayarlar</span>
-        <button
-          onClick={onClose}
-          className="w-14 h-14 flex items-center justify-center bg-white/10 border border-white/20 rounded-2xl active:scale-90 transition-transform hover:bg-red-500/30 hover:border-red-400/40"
-        >
-          <X className="w-6 h-6 text-white" />
-        </button>
+    <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Mic className="w-4 h-4 text-purple-400" />
+        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-purple-400/70">AI Sesli Asistan</span>
+        <span className="ml-auto text-[9px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 font-mono">İnternet gerektirir</span>
       </div>
-      {/* Tabs */}
-      <div className="flex border-b border-white/[0.12] px-6 pt-4 gap-6">
-        {[
-          { id: 'general',     label: 'Genel',       icon: Smartphone },
-          { id: 'appearance',  label: 'Tema',        icon: Palette    },
-          { id: 'maintenance', label: 'Bakım',       icon: Tool       },
-          { id: 'performance', label: 'Performans',  icon: Zap        },
-        ].map((t) => (
+
+      {/* Provider selection */}
+      <div className="flex flex-col gap-2">
+        {PROVIDERS.map((p) => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id as any)}
-            className={`flex items-center gap-2 pb-4 border-b-2 transition-all duration-200 ${
-              tab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
-            }`}
+            key={p.id}
+            onClick={() => updateSettings({ aiVoiceProvider: p.id as AIProvider })}
+            className="flex items-center gap-4 p-4 rounded-2xl border transition-all active:scale-[0.98]"
+            style={provider === p.id
+              ? { backgroundColor: `${p.color}12`, borderColor: `${p.color}50` }
+              : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }
+            }
           >
-            <t.icon className="w-4 h-4" />
-            <span className="text-sm font-bold uppercase tracking-widest">{t.label}</span>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: `${p.color}18`, border: `1px solid ${p.color}30` }}>
+              <Mic className="w-5 h-5" style={{ color: provider === p.id ? p.color : 'rgba(255,255,255,0.3)' }} />
+            </div>
+            <div className="flex-1 text-left">
+              <div className="text-sm font-bold" style={{ color: provider === p.id ? p.color : 'rgba(255,255,255,0.7)' }}>{p.label}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">{p.sub}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black px-2 py-0.5 rounded"
+                style={{ backgroundColor: `${p.color}15`, color: p.color, border: `1px solid ${p.color}30` }}>
+                {p.badge}
+              </span>
+              {provider === p.id && (
+                <div className="w-5 h-5 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: p.color }}>
+                  <Check className="w-3 h-3 text-black stroke-[3px]" />
+                </div>
+              )}
+            </div>
           </button>
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
-        <div className="flex flex-col gap-6">
-          
-          {tab === 'maintenance' && (
-            <div className="max-w-3xl mx-auto w-full animate-fade-in">
-              <MaintenancePanel />
+      {/* API key inputs */}
+      {/* Clipboard hint */}
+      {clipboardHint && (
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border ${
+          clipboardHint.includes('algılandı')
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+        }`}>
+          {clipboardHint.includes('algılandı')
+            ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            : <Loader className="w-3.5 h-3.5 flex-shrink-0 animate-spin" />
+          }
+          {clipboardHint}
+        </div>
+      )}
+
+      {provider === 'gemini' && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gemini API Key</span>
+            {envGeminiKey && !geminiKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
+              : geminiKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
+              : null
+            }
+          </div>
+          {/* Ücretsiz key al butonu */}
+          <button
+            onClick={() => handleOpenKeyPage('https://aistudio.google.com/apikey')}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
+          >
+            <span>🔑</span>
+            Ücretsiz Key Al — aistudio.google.com
+          </button>
+          <p className="text-[10px] text-slate-600 text-center">Key'i kopyala → otomatik algılanacak</p>
+          <div className="relative">
+            <input
+              type={showGeminiKey ? 'text' : 'password'}
+              value={geminiKey}
+              onChange={(e) => { void setGeminiKey(e.target.value); }}
+              placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... (manuel giriş)'}
+              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-500 outline-none focus:border-blue-500/50 transition-all pr-10"
+            />
+            <button onClick={() => setShowGeminiKey((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+              {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {provider === 'haiku' && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Claude API Key</span>
+            {envHaikuKey && !haikuKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
+              : haikuKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
+              : null
+            }
+          </div>
+          {/* Key al butonu */}
+          <button
+            onClick={() => handleOpenKeyPage('https://console.anthropic.com/settings/keys')}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 text-sm font-bold hover:bg-amber-500/20 active:scale-[0.98] transition-all"
+          >
+            <span>🔑</span>
+            Key Al — console.anthropic.com
+          </button>
+          <p className="text-[10px] text-slate-600 text-center">Key'i kopyala → otomatik algılanacak</p>
+          <div className="relative">
+            <input
+              type={showHaikuKey ? 'text' : 'password'}
+              value={haikuKey}
+              onChange={(e) => { void setHaikuKey(e.target.value); }}
+              placeholder={envHaikuKey ? '● .env\'den otomatik' : 'sk-ant-... (manuel giriş)'}
+              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-500 outline-none focus:border-amber-500/50 transition-all pr-10"
+            />
+            <button onClick={() => setShowHaikuKey((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+              {showHaikuKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Test button */}
+      {provider !== 'none' && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleTest}
+            disabled={testing || !activeKey}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-bold transition-all active:scale-95 disabled:opacity-40"
+            style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}
+          >
+            {testing
+              ? <Loader className="w-4 h-4 animate-spin" />
+              : <Mic className="w-4 h-4" />
+            }
+            {testing ? 'Test ediliyor…' : 'Bağlantıyı Test Et'}
+          </button>
+
+          {testResult && (
+            <div className="flex items-center gap-1.5 text-xs font-medium">
+              {testResult.ok
+                ? <CheckCircle className="w-4 h-4 text-emerald-400" />
+                : <XCircle className="w-4 h-4 text-red-400" />
+              }
+              <span className={testResult.ok ? 'text-emerald-400' : 'text-red-400'}>
+                {testResult.message}
+              </span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Info box */}
+      <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[10px] text-slate-600 leading-relaxed">
+        <span className="text-slate-500 font-bold">Nasıl çalışır?</span>
+        {' '}Offline parser tanıyamadığında (%50 altı güven) AI devreye girer. İnternet yoksa otomatik olarak offline modda çalışır.
+        {' '}<span className="text-slate-500">API key cihazda şifrelenmiş olarak saklanır.</span>
+      </div>
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════
+   MAP SOURCE PANEL
+════════════════════════════════════════ */
+const MapSourcePanel = memo(function MapSourcePanel() {
+  const mapState = useMapSources();
+  const sources: MapSource[] = Array.from(mapState.sources.values());
+  const activeId = mapState.activeSourceId;
+  const { isOnline } = useMapNetworkStatus();
+  const { updateSettings } = useStore();
+  const [refreshing, setRefreshing] = useState(false);
+  return (
+    <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-4">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-secondary opacity-50">Harita Altyapısı</span>
+        <div className="flex gap-2.5">
+          <span className="flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest glass-card border-none !shadow-none var(--panel-bg-secondary)"
+            style={isOnline ? { color: '#10b981' } : { color: '#ef4444' }}>
+            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse shadow-[0_0_10px_#10b981]' : 'bg-red-500'}`} />
+            {isOnline ? 'Çevrimiçi' : 'Çevrimdışı'}
+          </span>
+          <button onClick={async () => { setRefreshing(true); await refreshMapSources(); setRefreshing(false); }}
+            className="w-10 h-10 rounded-2xl flex items-center justify-center var(--panel-bg-secondary) hover:var(--panel-bg-secondary) border border-white/10 transition-all active:rotate-180">
+            <RefreshCw className={`w-5 h-5 text-secondary ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+      {sources.map(src => {
+        const Icon = src.type === 'offline' ? HardDrive : src.id === 'cached' ? Database : Cloud;
+        const isActive = activeId === src.id;
+        return (
+          <button key={src.id} onClick={() => { if (src.isAvailable) { setActiveMapSource(src.id); updateSettings({ activeMapSourceId: src.id }); } }}
+            disabled={!src.isAvailable}
+            className="flex items-center gap-5 p-5 rounded-3xl transition-all duration-300 glass-card border-white/5 hover:border-white/20 shadow-md"
+            style={isActive ? { backgroundColor: 'rgba(59,130,246,0.08)', borderColor: 'rgba(59,130,246,0.4)' } : { opacity: src.isAvailable ? 1 : 0.4 }}>
+            <div className="w-12 h-12 rounded-[1.25rem] flex items-center justify-center var(--panel-bg-secondary) border border-white/10 shadow-inner"
+              style={isActive ? { backgroundColor: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.5)' } : {}}>
+              <Icon className="w-6 h-6 transition-colors" style={{ color: isActive ? 'var(--accent-blue)' : 'var(--text-secondary)' }} />
+            </div>
+            <div className="flex-1 text-left">
+              <div className="text-base font-black tracking-tight text-primary">{src.name}</div>
+              <div className="text-[11px] text-secondary font-bold uppercase tracking-widest mt-1 opacity-50">{src.description}</div>
+            </div>
+            {isActive && <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shadow-lg"><Check className="w-5 h-5 text-primary stroke-[4px]" /></div>}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════
+   PERFORMANCE CARD
+════════════════════════════════════════ */
+const PERF_MODES = {
+  lite: {
+    icon: '⚡',
+    label: 'Verimli',
+    sub: 'Minimum Yük',
+    color: '#fbbf24',
+    features: ['Düşük CPU önceliği', 'Animasyon kapalı', 'Uzun pil ömrü'],
+    cpu: 20,
+    gpu: 15,
+  },
+  balanced: {
+    icon: '◎',
+    label: 'Dengeli',
+    sub: 'Önerilen Mod',
+    color: '#60a5fa',
+    features: ['Otomatik optimizasyon', 'Tam animasyon', 'Smart Engine'],
+    cpu: 50,
+    gpu: 55,
+    recommended: true,
+  },
+  premium: {
+    icon: '◈',
+    label: 'Premium',
+    sub: 'Tam Performans',
+    color: '#a78bfa',
+    features: ['Maksimum CPU hızı', '60fps render', 'Tüm efektler aktif'],
+    cpu: 90,
+    gpu: 85,
+  },
+} as const;
+
+function PerfMiniBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)', width: '100%' }}>
+      <div className="h-full rounded-full transition-all duration-700"
+        style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}aa, ${color})` }} />
+    </div>
+  );
+}
+
+function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_MODES; active: boolean; isAuto?: boolean; onClick: () => void }) {
+  const m = PERF_MODES[mode];
+  return (
+    <button
+      onClick={onClick}
+      className="relative flex flex-col gap-0 rounded-[22px] overflow-hidden transition-all duration-400 active:scale-[0.97] text-left"
+      style={{
+        background: active
+          ? `linear-gradient(145deg, ${m.color}18 0%, ${m.color}08 100%)`
+          : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${active ? m.color + '45' : 'rgba(255,255,255,0.07)'}`,
+        boxShadow: active
+          ? `0 0 0 1px ${m.color}22, 0 12px 40px -8px ${m.color}30`
+          : 'none',
+        transform: active ? 'translateY(-2px)' : 'none',
+      }}
+    >
+      {/* Top accent stripe */}
+      <div className="h-[3px] w-full"
+        style={{ background: active ? `linear-gradient(90deg, transparent, ${m.color}, transparent)` : 'rgba(255,255,255,0.04)' }} />
+
+      {/* Badges */}
+      <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
+        {isAuto && (
+          <div className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-[0.15em]"
+            style={{ background: 'rgba(251,191,36,0.20)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.40)' }}>
+            🤖 Otomatik
+          </div>
+        )}
+        {'recommended' in m && m.recommended && !isAuto && (
+          <div className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-[0.15em]"
+            style={{ background: `${m.color}22`, color: m.color, border: `1px solid ${m.color}40` }}>
+            Önerilen
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-4 p-5">
+        {/* Icon + name */}
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-[14px] flex items-center justify-center text-2xl flex-shrink-0 transition-all duration-400"
+            style={{
+              background: active ? `${m.color}20` : 'rgba(255,255,255,0.06)',
+              boxShadow: active ? `0 0 20px ${m.color}30` : 'none',
+              color: m.color,
+            }}>
+            {m.icon}
+          </div>
+          <div>
+            <div className="font-black text-[15px] leading-tight tracking-tight transition-colors duration-300"
+              style={{ color: active ? m.color : 'rgba(255,255,255,0.75)' }}>
+              {m.label}
+            </div>
+            <div className="text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5"
+              style={{ color: active ? `${m.color}90` : 'rgba(255,255,255,0.28)' }}>
+              {m.sub}
+            </div>
+          </div>
+        </div>
+
+        {/* Resource bars */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>CPU</span>
+            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.25)' }}>{m.cpu}%</span>
+          </div>
+          <PerfMiniBar pct={active ? m.cpu : m.cpu * 0.5} color={m.color} />
+          <div className="flex items-center justify-between mt-1 mb-0.5">
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>GPU</span>
+            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.25)' }}>{m.gpu}%</span>
+          </div>
+          <PerfMiniBar pct={active ? m.gpu : m.gpu * 0.5} color={m.color} />
+        </div>
+
+        {/* Feature list */}
+        <div className="flex flex-col gap-1.5 pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          {m.features.map(f => (
+            <div key={f} className="flex items-center gap-2">
+              <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: active ? m.color : 'rgba(255,255,255,0.2)' }} />
+              <span className="text-[10px] font-semibold" style={{ color: active ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.35)' }}>{f}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Active indicator */}
+        <div className="flex items-center justify-center pt-1">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full transition-all duration-400"
+            style={{
+              background: active ? `${m.color}20` : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${active ? m.color + '50' : 'rgba(255,255,255,0.07)'}`,
+            }}>
+            <div className="w-1.5 h-1.5 rounded-full transition-all duration-400"
+              style={{ background: active ? m.color : 'rgba(255,255,255,0.2)', boxShadow: active ? `0 0 6px ${m.color}` : 'none' }} />
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]"
+              style={{ color: active ? m.color : 'rgba(255,255,255,0.25)' }}>
+              {active ? 'Aktif' : 'Seç'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/* ════════════════════════════════════════
+   LIVE STATS
+════════════════════════════════════════ */
+function LiveStatsRow() {
+  const [cpu, setCpu] = useState(14);
+  const [temp, setTemp] = useState(42);
+  useEffect(() => {
+    const id = setInterval(() => { setCpu(Math.floor(8 + Math.random() * 20)); setTemp(Math.floor(40 + Math.random() * 5)); }, 2500);
+    return () => clearInterval(id);
+  }, []);
+  const stats = [
+    { label: 'CPU',  val: `${cpu}%`,  color: '#3b82f6', Icon: Cpu         },
+    { label: 'TEMP', val: `${temp}°`, color: '#f97316', Icon: Thermometer },
+    { label: 'RAM',  val: '1.2G',     color: '#10b981', Icon: HardDrive   },
+    { label: 'NET',  val: '12ms',     color: '#8b5cf6', Icon: Gauge       },
+  ];
+  return (
+    <>
+      {stats.map(s => (
+        <div key={s.label} className="glass-card flex items-center gap-2 px-3 py-1.5 rounded-xl"
+          style={{ borderColor: `${s.color}20` }}>
+          <s.Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: s.color }} />
+          <div className="leading-none">
+            <div className="text-[8px] uppercase tracking-widest font-black" style={{ color: 'var(--text-muted)', opacity: 0.45 }}>{s.label}</div>
+            <div className="text-[12px] font-black tabular-nums mt-0.5" style={{ color: s.color }}>{s.val}</div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/* ════════════════════════════════════════
+   MAIN COMPONENT
+════════════════════════════════════════ */
+interface Props { onOpenMap?: () => void; onClose?: () => void; }
+
+function SettingsPageInner({ onClose }: Props) {
+  const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile } = useStore();
+  type Tab = 'general' | 'appearance' | 'performance' | 'maintenance';
+  const [tab, setTab] = useState<Tab>('general');
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const { locked: layoutLocked, toggleLock } = useEditStore();
+  const [perfMode, setPerfMode] = useState(() => getPerformanceMode());
+  const [autoMode, setAutoMode] = useState(() => isAutoModeEnabled());
+
+  useLayoutSync();
+
+  const handleBrightness = useCallback((v: number) => { updateSettings({ brightness: v }); setBrightness(v); }, [updateSettings]);
+  const handleVolume     = useCallback((v: number) => { updateSettings({ volume: v }); setVolume(v); }, [updateSettings]);
+  const applyPerf = useCallback((m: 'lite' | 'balanced' | 'premium') => {
+    disableAutoMode();
+    setPerformanceMode(m);
+    setPerfMode(m);
+    setAutoMode(false);
+  }, []);
+
+  const applyAutoPerf = useCallback(() => {
+    const detected = enableAutoMode();
+    setPerfMode(detected);
+    setAutoMode(true);
+  }, []);
+
+  const TABS = [
+    { id: 'general'     as Tab, label: 'Sistem',     Icon: Smartphone, color: '#60a5fa' },
+    { id: 'appearance'  as Tab, label: 'Arayüz',     Icon: Palette,    color: '#e879f9' },
+    { id: 'maintenance' as Tab, label: 'Bakım',      Icon: Tool,       color: '#34d399' },
+    { id: 'performance' as Tab, label: 'Performans', Icon: Zap,        color: '#fbbf24' },
+  ];
+
+  const WALLPAPERS: Array<{ id: string; label: string; url: string; preview?: string; type: 'gradient' | 'photo' }> = [
+    { id: 'none',     label: 'Varsayılan', url: 'none',              type: 'gradient' },
+    { id: 'midnight-blue',  label: 'Gece Mavisi', url: 'linear-gradient(135deg,#020617 0%,#0f172a 40%,#1e3a8a 100%)', type: 'gradient' },
+    { id: 'aurora', label: 'Aurora', url: 'linear-gradient(135deg,#042f2e 0%,#064e3b 35%,#1e1b4b 65%,#312e81 100%)', type: 'gradient' },
+    { id: 'neon-sunset', label: 'Neon Sunset', url: 'linear-gradient(135deg,#1a0533 0%,#4a1a6b 30%,#b91c1c 65%,#dc2626 100%)', type: 'gradient' },
+    { id: 'ocean-deep', label: 'Derin Okyanus', url: 'linear-gradient(160deg,#020617 0%,#0c4a6e 50%,#0369a1 100%)', type: 'gradient' },
+    { id: 'carbon-dark', label: 'Carbon Siyah', url: 'linear-gradient(135deg,#0a0a0a 0%,#1a1a1a 50%,#111827 100%)', type: 'gradient' },
+    { id: 'road-night', label: 'Gece Yolu', url: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=400&q=70&auto=format&fit=crop', type: 'photo' },
+    { id: 'city-neon', label: 'Neon Şehir', url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&q=70&auto=format&fit=crop', type: 'photo' },
+    { id: 'galaxy', label: 'Galaksi', url: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=400&q=70&auto=format&fit=crop', type: 'photo' },
+  ];
+
+  const wallpaperBg = (settings.wallpaper && settings.wallpaper !== 'none')
+    ? (settings.wallpaper.startsWith('linear-gradient') ? settings.wallpaper : `url(${settings.wallpaper}) center/cover`)
+    : 'linear-gradient(160deg, #08090e 0%, #0a0c12 40%, #090b10 70%, #070810 100%)';
+
+  return (
+    <div
+      className="flex-1 flex flex-col min-h-0 ultra-premium-root"
+      data-theme-pack={settings.themePack}
+      data-theme-style={settings.themeStyle}
+      data-day-night={settings.dayNightMode}
+      style={{ background: wallpaperBg } as React.CSSProperties}
+    >
+
+      {/* ═══ HEADER — compact single strip ═══ */}
+      <div className="flex-shrink-0 relative z-20 px-5 py-2"
+        style={{ background: 'rgba(10,16,30,0.75)', backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)' }}>
+        <div className="max-w-[1600px] mx-auto flex items-center gap-3">
+
+          {/* Geri */}
+          <button onClick={onClose}
+            className="lux-accent-btn group flex items-center gap-2 px-4 py-2 rounded-xl glass-card transition-all active:scale-95 flex-shrink-0">
+            <ArrowLeft className="w-4 h-4 transition-all group-hover:-translate-x-0.5" style={{ color: 'rgba(255,255,255,0.45)' }} />
+            <span className="text-[11px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>Geri</span>
+          </button>
+
+          <div className="w-px h-6 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.10)' }} />
+
+          {/* Başlık */}
+          <div className="flex-shrink-0">
+            <span className="text-sm font-black uppercase tracking-wide text-white/80">Ayarlar</span>
+          </div>
+
+          <div className="w-px h-6 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.10)' }} />
+
+          {/* Tabs — inline */}
+          <div className="flex gap-2 overflow-x-auto no-scrollbar flex-1">
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className="group relative flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-300 active:scale-95 flex-shrink-0 glass-card"
+                style={tab === t.id ? {
+                  backgroundColor: `${t.color}18`,
+                  borderColor: `${t.color}45`,
+                  boxShadow: `0 0 12px ${t.color}20`,
+                } : {
+                  borderColor: 'rgba(255,255,255,0.06)',
+                  backgroundColor: 'rgba(255,255,255,0.02)',
+                }}>
+                <t.Icon className="w-4 h-4" style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.25)' }} />
+                <span className="text-[12px] font-black uppercase tracking-[0.15em]"
+                  style={{ color: tab === t.id ? '#fff' : 'rgba(255,255,255,0.25)' }}>{t.label}</span>
+                {tab === t.id && (
+                  <div className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-t-full"
+                    style={{ backgroundColor: t.color }} />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Live stats — küçük */}
+          <div className="flex gap-2 flex-shrink-0">
+            <LiveStatsRow />
+          </div>
+
+          {/* Kapat */}
+          <button onClick={onClose}
+            className="lux-accent-btn w-9 h-9 flex items-center justify-center rounded-xl glass-card transition-all group active:scale-90 flex-shrink-0">
+            <X className="w-4 h-4 transition-all duration-500 group-hover:rotate-90" style={{ color: 'rgba(255,255,255,0.35)' }} />
+          </button>
+        </div>
+
+        {/* Bottom glow line */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: '1px',
+          background: 'linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.35) 30%, rgba(139,92,246,0.25) 70%, transparent 100%)',
+        }} />
+      </div>
+
+      {/* ═══ CONTENT ═══ */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-5 py-5 z-10" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="max-w-[1600px] mx-auto flex flex-col gap-4">
 
           {tab === 'general' && (
-            <>
-              <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Panel accent="#3b82f6">
+                <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="#3b82f6" />
                 <div className="flex flex-col gap-6">
-                  <SectionTitle>Temel Ayarlar</SectionTitle>
-                  <Card>
-                    <ToggleRow 
-                      label="24 Saat Formatı" 
-                      desc="Saat görünümünü değiştirir" 
-                      value={settings.use24Hour} 
-                      onChange={(v) => updateSettings({ use24Hour: v })}
-                    />
-                    <ToggleRow 
-                      label="Saniyeleri Göster" 
-                      desc="Dijital saatte saniyeleri göster" 
-                      value={settings.showSeconds} 
-                      onChange={(v) => updateSettings({ showSeconds: v })}
-                    />
-                    <ToggleRow
-                      label="Çevrimdışı Harita"
-                      desc="Ana ekranda mini harita göster"
-                      value={settings.offlineMap}
-                      onChange={(v) => updateSettings({ offlineMap: v })}
-                    />
-                    {settings.offlineMap && <MapSourcePanel />}
-                    {settings.offlineMap && <OfflineTilePanel />}
-                    <ToggleRow
-                      label="Düşük Güç Modu"
-                      desc="Animasyonları kapatır, performansı artırır"
-                      value={settings.performanceMode}
-                      onChange={(v) => {
-                        updateSettings({ performanceMode: v });
-                        setPerformanceMode(v ? 'lite' : 'balanced');
-                      }}
-                    />
-                    <ToggleRow
-                      label="Uyandırma Kelimesi"
-                      desc='"Hey Car" diyerek asistanı aktif et'
-                      value={settings.wakeWordEnabled ?? false}
-                      onChange={(v) => updateSettings({ wakeWordEnabled: v })}
-                    />
-                    {(settings.wakeWordEnabled) && (
-                      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20 -mt-2 mb-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0 shadow-[0_0_6px_rgba(251,191,36,0.8)]" />
-                        <span className="text-amber-400/80 text-[10px] font-bold leading-tight">Mikrofon arka planda sürekli dinliyor</span>
-                      </div>
-                    )}
-                    <ToggleRow
-                      label="Mola Hatırlatıcı"
-                      desc="Uzun sürüşlerde kahve molası öner"
-                      value={settings.breakReminderEnabled ?? false}
-                      onChange={(v) => updateSettings({ breakReminderEnabled: v })}
-                    />
-                    <ToggleRow
-                      label="Akıllı Bağlam"
-                      desc="Hıza, müziğe ve rotaya göre arayüzü otomatik uyarla"
-                      value={settings.smartContextEnabled ?? true}
-                      onChange={(v) => updateSettings({ smartContextEnabled: v })}
-                    />
-                    <ToggleRow
-                      label="Otomatik Parlaklık"
-                      desc="Gün doğumu/batımına göre parlaklık ayarla"
-                      value={settings.autoBrightnessEnabled ?? false}
-                      onChange={(v) => updateSettings({ autoBrightnessEnabled: v })}
-                    />
-                    <ToggleRow
-                      label="Otomatik Tema (Gün/Gece)"
-                      desc="Gece OLED, gündüz koyu temaya geç"
-                      value={settings.autoThemeEnabled ?? false}
-                      onChange={(v) => updateSettings({ autoThemeEnabled: v })}
-                    />
+                  <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="#f59e0b" colorB="#f97316" />
+                  <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="#3b82f6" colorB="#06b6d4" />
+                </div>
+              </Panel>
 
-                    {/* Ekran Modu — Karanlık / Aydınlık / OLED */}
-                    <div className="flex flex-col gap-2">
-                      <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Ekran Modu</span>
-                      <div className="grid grid-cols-3 gap-2">
-                        {([
-                          { id: 'dark',  icon: '🌙', label: 'Karanlık' },
-                          { id: 'light', icon: '☀️', label: 'Aydınlık' },
-                          { id: 'oled',  icon: '⬛', label: 'OLED' },
-                        ] as const).map(({ id, icon, label }) => (
-                          <button
-                            key={id}
-                            onClick={() => updateSettings({ theme: id })}
-                            className={`
-                              flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all duration-200 active:scale-95
-                              ${settings.theme === id
-                                ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
-                                : 'bg-white/[0.03] border-white/[0.07] text-slate-500 hover:bg-white/[0.08]'
-                              }
-                            `}
-                          >
-                            <span className="text-xl">{icon}</span>
-                            <span className="text-[10px] font-black uppercase tracking-wider">{label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {onOpenMap && (
-                      <button
-                        onClick={onOpenMap}
-                        className="w-full mt-2 py-3 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-600/30 active:scale-[0.97] transition-all duration-150"
-                      >
-                        TAM EKRAN HARİTAYI AÇ
-                      </button>
-                    )}
-                  </Card>
+              <Panel accent="#60a5fa">
+                <SectionTitle icon={Wifi} title="Akıllı Servisler" sub="Bağlam duyarlı özellikler" color="#60a5fa" />
+                <div className="flex flex-col gap-3">
+                  <PremiumToggle icon={Layout}   label="Hızlı Harita" desc="Açılışta otomatik navigasyon" value={settings.autoNavOnStart ?? true} onChange={v => updateSettings({ autoNavOnStart: v })} accent="#60a5fa" />
+                  <PremiumToggle icon={Smartphone} label="Voice Assistant" desc='"Hey Araba" komut desteği' value={settings.wakeWordEnabled ?? false} onChange={v => updateSettings({ wakeWordEnabled: v })} accent="#a78bfa" />
+                  <PremiumToggle icon={Cpu} label="Smart Engine" desc="Yapay zeka tabanlı sürüş modları" value={settings.smartContextEnabled ?? true} onChange={v => updateSettings({ smartContextEnabled: v })} accent="#34d399" />
+                  <PremiumToggle icon={HardDrive} label="Offline Map HUD" desc="Gömülü vektör harita motoru" value={settings.offlineMap} onChange={v => updateSettings({ offlineMap: v })} accent="#22d3ee" />
                 </div>
-                <div className="flex flex-col gap-6">
-                  <SectionTitle>Kontroller</SectionTitle>
-                  <Card className="flex flex-col gap-6">
-                    <BigSlider
-                      icon={Sun}
-                      label="Parlaklık"
-                      value={settings.brightness}
-                      onChange={handleBrightness}
-                    />
-                    <BigSlider
-                      icon={Volume2}
-                      label="Ses"
-                      value={settings.volume}
-                      onChange={handleVolume}
-                    />
-                    <div className="mt-2">
-                      <SectionTitle>Uygulama Düzeni</SectionTitle>
-                      <div className="flex gap-2">
-                        {[3, 4, 5].map(n => (
-                          <ColButton 
-                            key={n} 
-                            active={settings.gridColumns === n} 
-                            onClick={() => updateSettings({ gridColumns: n })}
-                          >
-                            {n} Kolon
-                          </ColButton>
-                        ))}
-                      </div>
-                    </div>
-                  </Card>
-                </div>
-              </div>
-              
-              <SectionTitle>Varsayılan Uygulamalar</SectionTitle>
-              <Card>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <div className="text-white text-sm font-medium mb-3">Navigasyon</div>
-                    <div className="flex gap-2">
-                      {Object.entries(NAV_OPTIONS).map(([id, app]) => (
-                        <ChoiceCard 
-                          key={id}
-                          active={settings.defaultNav === id}
-                          onClick={() => updateSettings({ defaultNav: id })}
-                          icon={() => <span className="text-xl">{app.icon}</span>}
-                          label={app.name}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-white text-sm font-medium mb-3">Müzik</div>
-                    <div className="flex gap-2">
-                      {Object.entries(MUSIC_OPTIONS).map(([id, app]) => (
-                        <ChoiceCard 
-                          key={id}
-                          active={settings.defaultMusic === id}
-                          onClick={() => updateSettings({ defaultMusic: id })}
-                          icon={() => <span className="text-xl">{app.icon}</span>}
-                          label={app.name}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              <SectionTitle>Hava Durumu Şehri</SectionTitle>
-              <Card>
-                <div className="text-slate-400 text-xs mb-3">GPS konum izni yokken kullanılacak varsayılan şehir</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {([
-                    { name: 'İstanbul', lat: 41.0082, lng: 28.9784 },
-                    { name: 'Ankara',   lat: 39.9334, lng: 32.8597 },
-                    { name: 'İzmir',    lat: 38.4189, lng: 27.1287 },
-                    { name: 'Bursa',    lat: 40.1885, lng: 29.0610 },
-                    { name: 'Antalya',  lat: 36.8969, lng: 30.7133 },
-                    { name: 'Adana',    lat: 37.0000, lng: 35.3213 },
-                    { name: 'Konya',    lat: 37.8713, lng: 32.4846 },
-                    { name: 'Kayseri',  lat: 38.7312, lng: 35.4787 },
-                  ] as const).map((city) => {
-                    const current = settings.weatherFallbackCity;
-                    const isActive =
-                      current
-                        ? Math.abs(current.lat - city.lat) < 0.01
-                        : city.name === 'İstanbul';
-                    return (
-                      <button
-                        key={city.name}
-                        onClick={() => updateSettings({ weatherFallbackCity: city })}
-                        className={`py-2.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all active:scale-95 ${
-                          isActive
-                            ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
-                            : 'bg-white/[0.03] border-white/[0.07] text-slate-500 hover:bg-white/[0.08]'
-                        }`}
-                      >
-                        {city.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </Card>
-            </>
+                {settings.offlineMap && <MapSourcePanel />}
+                <AIVoicePanel />
+              </Panel>
+            </div>
           )}
 
           {tab === 'appearance' && (
             <>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="flex flex-col gap-6">
-                  <SectionTitle>Tema Paketi</SectionTitle>
-                  <Card className="flex flex-col gap-6">
-                    {/* ── Layout önizleme — aktif temayı gösterir ── */}
-                    <LayoutPreview pack={settings.themePack} />
+              {/* ── Tema Seçici ── */}
+              <ThemePanel />
 
-                    <div>
-                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Marka & Stil</div>
-                      <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'tesla'} onClick={() => applyThemePack('tesla')} icon={Layout} label="Tesla" />
-                        <ChoiceCard active={settings.themePack === 'bmw'} onClick={() => applyThemePack('bmw')} icon={Palette} label="BMW" />
-                        <ChoiceCard active={settings.themePack === 'mercedes'} onClick={() => applyThemePack('mercedes')} icon={Smartphone} label="Mercedes" />
-                        <ChoiceCard active={settings.themePack === 'audi'} onClick={() => applyThemePack('audi')} icon={Layers} label="Audi" />
-                        <ChoiceCard active={settings.themePack === 'porsche'} onClick={() => applyThemePack('porsche')} icon={Zap} label="Porsche" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Atmosfer & Neon</div>
-                      <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'cyberpunk'} onClick={() => applyThemePack('cyberpunk')} icon={Zap} label="Neon" />
-                        <ChoiceCard active={settings.themePack === 'midnight'} onClick={() => applyThemePack('midnight')} icon={ImageIcon} label="Gece" />
-                        <ChoiceCard active={settings.themePack === 'glass-pro'} onClick={() => applyThemePack('glass-pro')} icon={Layers} label="Cam Pro" />
-                        <ChoiceCard active={settings.themePack === 'ambient'} onClick={() => applyThemePack('ambient')} icon={Sun} label="Ortam" />
-                        <ChoiceCard active={settings.themePack === 'galaxy'} onClick={() => applyThemePack('galaxy')} icon={Zap} label="Galaksi" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Sport & Teknik</div>
-                      <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'redline'} onClick={() => applyThemePack('redline')} icon={Zap} label="Redline" />
-                        <ChoiceCard active={settings.themePack === 'electric'} onClick={() => applyThemePack('electric')} icon={Zap} label="Elektrik" />
-                        <ChoiceCard active={settings.themePack === 'carbon'} onClick={() => applyThemePack('carbon')} icon={Layers} label="Karbon" />
-                        <ChoiceCard active={settings.themePack === 'night-city'} onClick={() => applyThemePack('night-city')} icon={Layout} label="Şehir" />
-                        <ChoiceCard active={settings.themePack === 'range-rover'} onClick={() => applyThemePack('range-rover')} icon={Smartphone} label="Range" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">Minimal & Soft</div>
-                      <div className="grid grid-cols-5 gap-2">
-                        <ChoiceCard active={settings.themePack === 'minimal-dark'} onClick={() => applyThemePack('minimal-dark')} icon={Smartphone} label="Koyu" />
-                        <ChoiceCard active={settings.themePack === 'minimal-light'} onClick={() => applyThemePack('minimal-light')} icon={Sun} label="Açık" />
-                        <ChoiceCard active={settings.themePack === 'monochrome'} onClick={() => applyThemePack('monochrome')} icon={Palette} label="Mono" />
-                        <ChoiceCard active={settings.themePack === 'arctic'} onClick={() => applyThemePack('arctic')} icon={ImageIcon} label="Arktik" />
-                        <ChoiceCard active={settings.themePack === 'sunset'} onClick={() => applyThemePack('sunset')} icon={Sun} label="Günbatımı" />
-                      </div>
-                    </div>
-                  </Card>
-
-                  <SectionTitle>Panel Stili</SectionTitle>
-                  <Card className="grid grid-cols-3 gap-3">
-                    <ChoiceCard
-                      active={settings.themeStyle === 'glass'}
-                      onClick={() => applyThemeStyle('glass')}
-                      icon={ImageIcon}
-                      label="Cam"
-                    />
-                    <ChoiceCard
-                      active={settings.themeStyle === 'neon'}
-                      onClick={() => applyThemeStyle('neon')}
-                      icon={Zap}
-                      label="Neon"
-                    />
-                    <ChoiceCard
-                      active={settings.themeStyle === 'minimal'}
-                      onClick={() => applyThemeStyle('minimal')}
-                      icon={Smartphone}
-                      label="Minimal"
-                    />
-                  </Card>
-
-                  <SectionTitle>Ses Paneli Stili</SectionTitle>
-                  <Card className="grid grid-cols-5 gap-2">
-                    <ChoiceCard
-                      active={settings.volumeStyle === 'minimal_pro'}
-                      onClick={() => updateSettings({ volumeStyle: 'minimal_pro' })}
-                      icon={Smartphone}
-                      label="Minimal Pro"
-                    />
-                    <ChoiceCard
-                      active={settings.volumeStyle === 'tesla_ultra'}
-                      onClick={() => updateSettings({ volumeStyle: 'tesla_ultra' })}
-                      icon={Zap}
-                      label="Tesla Ultra"
-                    />
-                    <ChoiceCard
-                      active={settings.volumeStyle === 'bmw_polished'}
-                      onClick={() => updateSettings({ volumeStyle: 'bmw_polished' })}
-                      icon={Layout}
-                      label="BMW M"
-                    />
-                    <ChoiceCard
-                      active={settings.volumeStyle === 'glass_orb'}
-                      onClick={() => updateSettings({ volumeStyle: 'glass_orb' })}
-                      icon={Layers}
-                      label="Glass Orb"
-                    />
-                    <ChoiceCard
-                      active={settings.volumeStyle === 'ambient_line'}
-                      onClick={() => updateSettings({ volumeStyle: 'ambient_line' })}
-                      icon={Sun}
-                      label="Ambient"
-                    />
-                  </Card>
-
-                  <SectionTitle>Swipe Ses Kontrolü</SectionTitle>
-                  <Card>
-                    <p className="text-slate-500 text-xs mb-3 leading-relaxed">
-                      Ekran kenarından yukarı/aşağı kaydırarak sisteme sesi değiştir.
-                      Sürüş sırasında butona basmadan ses kontrolü sağlar.
-                    </p>
-                    <div className="flex gap-2">
-                      {(
-                        [
-                          { value: 'off',   label: 'Kapalı'    },
-                          { value: 'left',  label: 'Sol Kenar' },
-                          { value: 'right', label: 'Sağ Kenar' },
-                        ] as const
-                      ).map(({ value, label }) => (
-                        <button
-                          key={value}
-                          onClick={() => updateSettings({ gestureVolumeSide: value })}
-                          className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
-                            settings.gestureVolumeSide === value
-                              ? 'bg-blue-500 text-white shadow-[0_2px_12px_rgba(59,130,246,0.4)]'
-                              : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
-                          }`}
-                        >
-                          {label}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Panel accent="#06b6d4">
+                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub="Dinamik arka plan katmanları" color="#06b6d4" />
+                  <div className="grid grid-cols-3 gap-3">
+                    {WALLPAPERS.map(w => {
+                      const isActive = settings.wallpaper === w.url || (w.id === 'none' && (!settings.wallpaper || settings.wallpaper === 'none'));
+                      return (
+                        <button key={w.id} onClick={() => updateSettings({ wallpaper: w.url })}
+                          className="group relative aspect-video rounded-3xl overflow-hidden transition-all duration-500 active:scale-95 glass-card"
+                          style={isActive ? { borderColor: '#22d3ee', boxShadow: '0 0 30px rgba(6,182,212,0.4)', transform: 'scale(1.05) translateY(-3px)', zIndex: 1 } : { opacity: 0.5 }}>
+                          {w.type === 'photo' ? (
+                            <img src={w.preview ?? w.url} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={w.label} />
+                          ) : (
+                            <div className="w-full h-full" style={{ background: w.url !== 'none' ? w.url : 'linear-gradient(135deg,#111827,#000)' }} />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                          <div className="absolute bottom-3 left-4 text-[10px] font-black uppercase tracking-widest text-primary">{w.label}</div>
+                          {isActive && (
+                            <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-[#22d3ee] flex items-center justify-center shadow-lg"><Check className="w-3.5 h-3.5 text-black stroke-[4px]" /></div>
+                          )}
                         </button>
-                      ))}
-                    </div>
-                  </Card>
-                </div>
+                      );
+                    })}
+                  </div>
+                </Panel>
 
-                <div className="flex flex-col gap-6">
-                  <SectionTitle>Widget Tarzı</SectionTitle>
-                  <Card className="grid grid-cols-3 gap-3">
-                    <ChoiceCard
-                      active={settings.widgetStyle === 'elevated'}
-                      onClick={() => applyWidgetStyle('elevated')}
-                      icon={Layers}
-                      label="Gölgeli"
-                    />
-                    <ChoiceCard
-                      active={settings.widgetStyle === 'flat'}
-                      onClick={() => applyWidgetStyle('flat')}
-                      icon={Layout}
-                      label="Düz"
-                    />
-                    <ChoiceCard
-                      active={settings.widgetStyle === 'outlined'}
-                      onClick={() => applyWidgetStyle('outlined')}
-                      icon={Smartphone}
-                      label="Çizgisel"
-                    />
-                  </Card>
-
-                </div>
+                <Panel accent="#a78bfa">
+                  <SectionTitle icon={Settings2} title="Kişiselleştirme" sub="Sürüş odaklı arayüz ayarları" color="#a78bfa" />
+                  <div className="flex flex-col gap-3">
+                    <PremiumToggle icon={Lock} label="Layout Lock" desc="Widget düzenleme modunu kilitle" value={layoutLocked} onChange={toggleLock} accent="#a78bfa" />
+                  </div>
+                </Panel>
               </div>
-
-              <SectionTitle>Düzenleme Kilidi</SectionTitle>
-              <Card>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-white text-sm font-bold mb-0.5">Düzen Kilidi</div>
-                    <div className="text-slate-500 text-[11px] leading-relaxed">
-                      Kilitliyken ana ekranda hiçbir widget düzenlenemez veya taşınamaz.
-                      Sürüş sırasında yanlışlıkla değişikliği önler.
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2 ml-4">
-                    <button
-                      onClick={toggleLock}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-[12px] uppercase tracking-widest transition-all active:scale-95 border ${
-                        layoutLocked
-                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                          : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                      }`}
-                    >
-                      {layoutLocked ? '🔒 Kilitli' : '🔓 Açık'}
-                    </button>
-                    <button
-                      onClick={resetPersonalization}
-                      className="text-slate-600 text-[10px] font-bold hover:text-slate-400 transition-colors active:scale-95"
-                    >
-                      Widget'ları sıfırla
-                    </button>
-                  </div>
-                </div>
-              </Card>
-
-              <SectionTitle>Duvar Kağıdı</SectionTitle>
-              <Card>
-                <div className="grid grid-cols-4 lg:grid-cols-5 gap-4">
-                  {/* Hazır Duvar Kağıtları */}
-                  {WALLPAPERS.map((w) => (
-                    <button
-                      key={w.id}
-                      onClick={() => updateSettings({ wallpaper: w.url })}
-                      className={`group relative aspect-video rounded-2xl overflow-hidden border-2 transition-all duration-300 ${
-                        settings.wallpaper === w.url 
-                          ? 'border-blue-500 scale-105 shadow-lg shadow-blue-500/20' 
-                          : 'border-white/5 opacity-50 hover:opacity-100 hover:border-white/20'
-                      }`}
-                    >
-                      {w.url === 'none' ? (
-                        <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center gap-2">
-                          <Monitor className="w-6 h-6 text-slate-700 group-hover:text-blue-500 transition-colors" />
-                          <span className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">Orijinal</span>
-                        </div>
-                      ) : (
-                        <>
-                          <img src={w.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={w.label} />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
-                          <div className="absolute bottom-2 left-3">
-                            <span className="text-[10px] font-black text-white uppercase tracking-widest drop-shadow-md">{w.label}</span>
-                          </div>
-                        </>
-                      )}
-                      
-                      {settings.wallpaper === w.url && (
-                        <div className="absolute top-2 right-2 bg-blue-500 shadow-lg rounded-full p-1 animate-in zoom-in duration-300">
-                          <Check className="w-3 h-3 text-white" />
-                        </div>
-                      )}
-                    </button>
-                  ))}
-
-                  {/* Özel Duvar Kağıdı Yükle */}
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`group relative aspect-video rounded-2xl overflow-hidden border-2 border-dashed transition-all duration-300 ${
-                      settings.wallpaper.startsWith('data:') 
-                        ? 'border-blue-500 scale-105 shadow-lg shadow-blue-500/20' 
-                        : 'border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5'
-                    }`}
-                  >
-                    {settings.wallpaper.startsWith('data:') ? (
-                      <>
-                        <img src={settings.wallpaper} className="w-full h-full object-cover" alt="Custom" />
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Upload className="w-6 h-6 text-white" />
-                        </div>
-                        <div className="absolute bottom-2 left-3">
-                          <span className="text-[10px] font-black text-white uppercase tracking-widest drop-shadow-md">Özel Görsel</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                        <Plus className="w-6 h-6 text-slate-500 group-hover:text-blue-400 transition-colors" />
-                        <span className="text-[10px] text-slate-500 group-hover:text-blue-400 font-bold uppercase tracking-wider">Kendi Görselin</span>
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      className="hidden"
-                      accept="image/*"
-                      onChange={handleCustomWallpaper}
-                    />
-                    {settings.wallpaper.startsWith('data:') && (
-                      <div className="absolute top-2 right-2 bg-blue-500 shadow-lg rounded-full p-1">
-                        <Check className="w-3 h-3 text-white" />
-                      </div>
-                    )}
-                  </button>
-                </div>
-              </Card>
             </>
           )}
 
-          {tab === 'performance' && (
-            <div className="flex flex-col gap-6">
-              <SectionTitle>Sistem Performansı</SectionTitle>
-              <Card>
-                <div className="space-y-4">
-                  {(['lite', 'balanced', 'premium'] as const).map((mode) => {
-                    const isSelected = getPerformanceMode() === mode;
-                    return (
-                      <button
-                        key={mode}
-                        onClick={() => { setPerformanceMode(mode); updateSettings({}); }}
-                        className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all ${
-                          isSelected ? 'bg-blue-600/20 border-blue-500 shadow-lg shadow-blue-500/10' : 'bg-white/5 border-white/5 opacity-60'
-                        }`}
-                      >
-                        <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center text-2xl">
-                          {mode === 'lite' ? '⚡' : mode === 'balanced' ? '⚙️' : '🚀'}
-                        </div>
-                        <div className="flex-1 text-left">
-                          <div className="text-white font-bold capitalize">{mode === 'lite' ? 'Hafif' : mode === 'balanced' ? 'Dengeli' : 'Premium'}</div>
-                          <div className="text-xs text-slate-500">
-                            {mode === 'lite' ? 'Düşük donanım için optimize edildi.' : mode === 'balanced' ? 'Çoğu cihaz için önerilen mod.' : 'En iyi görsel kalite ve sık veri güncellemesi.'}
+          {tab === 'maintenance' && (
+            <div className="flex flex-col gap-4">
+
+              {/* ── Araç Profilleri ── */}
+              <Panel accent="#60a5fa">
+                <SectionTitle icon={Gauge} title="Araç Profilleri" sub="Her araç için tahrik tipi ve OBD yapılandırması" color="#60a5fa" />
+                {settings.vehicleProfiles.length === 0 ? (
+                  <div className="text-center py-8 text-white/30 text-sm">
+                    Henüz araç profili yok. Kurulum sihirbazından ekleyin.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {settings.vehicleProfiles.map((profile) => {
+                      const isActive = profile.id === settings.activeVehicleProfileId;
+                      const VEHICLE_TYPES: { value: VehicleType; label: string; color: string }[] = [
+                        { value: 'ice',    label: '⛽ Benzin',   color: '#60a5fa' },
+                        { value: 'diesel', label: '🛢 Dizel',    color: '#fbbf24' },
+                        { value: 'ev',     label: '⚡ Elektrik', color: '#34d399' },
+                        { value: 'hybrid', label: '♻️ Hybrid',   color: '#22d3ee' },
+                        { value: 'phev',   label: '🔋 P-Hybrid', color: '#a78bfa' },
+                      ];
+                      return (
+                        <div key={profile.id}
+                          className="flex items-center gap-4 p-4 rounded-2xl glass-card transition-all"
+                          style={isActive ? { borderColor: 'rgba(96,165,250,0.4)', backgroundColor: 'rgba(59,130,246,0.06)' } : {}}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-bold text-sm text-white truncate">{profile.name}</span>
+                              {isActive && (
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">AKTİF</span>
+                              )}
+                            </div>
+                            {/* Araç tipi seçici */}
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {VEHICLE_TYPES.map(({ value, label, color }) => (
+                                <button key={value}
+                                  onClick={() => { updateVehicleProfile(profile.id, { vehicleType: value }); if (isActive) setObdVehicleType(value); }}
+                                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all active:scale-95"
+                                  style={profile.vehicleType === value
+                                    ? { backgroundColor: `${color}20`, borderColor: `${color}60`, color }
+                                    : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}>
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
+                          {!isActive && (
+                            <button onClick={() => setActiveVehicleProfile(profile.id)}
+                              className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all active:scale-95">
+                              Seç
+                            </button>
+                          )}
                         </div>
-                        {isSelected && <Check className="w-5 h-5 text-blue-500" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </Card>
-              <SectionTitle>Güç Yönetimi</SectionTitle>
-              <Card>
-                <ToggleRow
-                  label="Uyku Modu"
-                  desc="Ekranı kapatarak güç tasarrufu sağlar"
-                  value={settings.sleepMode}
-                  onChange={(v) => updateSettings({ sleepMode: v })}
-                />
-                <ToggleRow
-                  label="OBD Otomatik Uyku"
-                  desc="Motor durursa (RPM = 0) ekran otomatik kapanır"
-                  value={settings.obdAutoSleep ?? false}
-                  onChange={(v) => updateSettings({ obdAutoSleep: v })}
-                />
-                {settings.obdAutoSleep && (
-                  <div className="mt-2 flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Moon className="w-4 h-4 text-blue-400" />
-                        <span className="text-white text-sm font-medium">Uyku Gecikmesi</span>
-                      </div>
-                      <span className="text-blue-400 text-sm font-bold tabular-nums">
-                        {settings.obdSleepDelayMin ?? 5} dk
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      {[1, 2, 5, 10, 15].map((min) => (
-                        <button
-                          key={min}
-                          onClick={() => updateSettings({ obdSleepDelayMin: min })}
-                          className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
-                            (settings.obdSleepDelayMin ?? 5) === min
-                              ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/25'
-                              : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:text-slate-200'
-                          }`}
-                        >
-                          {min}dk
-                        </button>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
                 )}
-              </Card>
+              </Panel>
+
+              {/* ── OBD Sağlık Sistemi ── */}
+              <Panel accent="#34d399">
+                <SectionTitle icon={Tool} title="Araç Sağlık Sistemi" sub="OBD-II telemetri ve servis takibi" color="#34d399" />
+                <div className="glass-card p-4">
+                  <MaintenancePanel />
+                </div>
+              </Panel>
             </div>
           )}
+
+          {tab === 'performance' && (
+            <div className="flex flex-col gap-4">
+              <Panel accent="#fbbf24">
+                <div className="flex items-center justify-between mb-4">
+                  <SectionTitle icon={Zap} title="Sistem Güç Profili" sub="İşlemci ve görsel kalite optimizasyonu" color="#fbbf24" />
+                  {/* Otomatik mod toggle */}
+                  <button
+                    onClick={autoMode ? undefined : applyAutoPerf}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 active:scale-95 flex-shrink-0"
+                    style={{
+                      background: autoMode ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${autoMode ? 'rgba(251,191,36,0.45)' : 'rgba(255,255,255,0.10)'}`,
+                      boxShadow: autoMode ? '0 0 16px rgba(251,191,36,0.15)' : 'none',
+                      cursor: autoMode ? 'default' : 'pointer',
+                    }}
+                  >
+                    <span style={{ fontSize: 15 }}>🤖</span>
+                    <div>
+                      <div className="text-[11px] font-black uppercase tracking-widest"
+                        style={{ color: autoMode ? '#fbbf24' : 'rgba(255,255,255,0.45)' }}>
+                        {autoMode ? 'Otomatik Aktif' : 'Otomatik'}
+                      </div>
+                      {autoMode && (
+                        <div className="text-[9px] font-medium" style={{ color: 'rgba(251,191,36,0.60)' }}>
+                          {navigator.hardwareConcurrency ?? '?'} çekirdek · {Math.round(((navigator as { deviceMemory?: number }).deviceMemory ?? 2))}GB RAM
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {(['lite','balanced','premium'] as const).map(m => (
+                    <PerfCard
+                      key={m}
+                      mode={m}
+                      active={perfMode === m}
+                      isAuto={autoMode && perfMode === m}
+                      onClick={() => applyPerf(m)}
+                    />
+                  ))}
+                </div>
+              </Panel>
+
+              <Panel>
+                <SectionTitle icon={Cpu} title="Donanım Analizi" sub="Gerçek zamanlı sistem verileri" color="#60a5fa" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Platform',    value: 'Android Auto', Icon: Smartphone,  color: '#60a5fa', pct: null   },
+                    { label: 'WebView',     value: 'Chromium 114', Icon: HardDrive,   color: '#34d399', pct: null   },
+                    { label: 'Core Temp',   value: '42°C',         Icon: Thermometer, color: '#fb923c', pct: 42     },
+                    { label: 'Unit Status', value: 'Certified',    Icon: Check,       color: '#a78bfa', pct: null   },
+                  ].map(s => (
+                    <div key={s.label}
+                      className="relative flex flex-col gap-3 p-4 rounded-[18px] overflow-hidden"
+                      style={{
+                        background: `linear-gradient(145deg, ${s.color}10 0%, ${s.color}05 100%)`,
+                        border: `1px solid ${s.color}25`,
+                      }}>
+                      {/* Top accent */}
+                      <div className="absolute top-0 left-4 right-4 h-px"
+                        style={{ background: `linear-gradient(90deg, transparent, ${s.color}50, transparent)` }} />
+
+                      <div className="flex items-center justify-between">
+                        <div className="w-9 h-9 rounded-[12px] flex items-center justify-center"
+                          style={{ background: `${s.color}18`, border: `1px solid ${s.color}35` }}>
+                          <s.Icon className="w-4 h-4" style={{ color: s.color }} />
+                        </div>
+                        <div className="w-2 h-2 rounded-full" style={{ background: s.color, boxShadow: `0 0 6px ${s.color}` }} />
+                      </div>
+
+                      <div>
+                        <div className="text-[8px] font-black uppercase tracking-[0.25em]" style={{ color: `${s.color}80` }}>{s.label}</div>
+                        <div className="text-[13px] font-black tracking-tight mt-0.5" style={{ color: 'rgba(255,255,255,0.85)' }}>{s.value}</div>
+                      </div>
+
+                      {s.pct !== null && (
+                        <div className="h-0.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
+                          <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          )}
+
+          {/* Privacy */}
+          <div className="flex justify-center py-10">
+            <button onClick={() => setShowPrivacy(true)}
+              className="flex items-center gap-3 px-8 py-4 rounded-2xl glass-card border-white/5 hover:var(--panel-bg-secondary) transition-all group active:scale-95">
+              <Shield className="w-4 h-4 text-primary/20 group-hover:text-primary/60 transition-colors" />
+              <span className="text-[10px] font-black uppercase tracking-[0.5em] text-primary/20 group-hover:text-primary/60 transition-all">Gizlilik ve Güvenlik</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      {showPrivacy && (
+        <div className="absolute inset-0 z-[1100]">
+          <PrivacyPolicy onBack={() => setShowPrivacy(false)} />
+        </div>
+      )}
     </div>
   );
 }
+
 export const SettingsPage = memo(SettingsPageInner);
+
+

@@ -1,9 +1,77 @@
 import { create } from 'zustand';
 import { persist, type StorageValue } from 'zustand/middleware';
+import type { MusicOptionKey } from '../data/apps';
+import { setObdVehicleType } from '../platform/obdService';
 
-/* ── Güvenli localStorage sarmalayıcısı ──────────────────────
- * setItem quota exception'ını yakalar; crash yerine sessiz hata.
- * Eski kota dolduğunda eski verileri silerek yeniden dener.      */
+/**
+ * Shallow merge helper — plain objeleri recursive merge eder.
+ * Yeni eklenen alan varsayılan değerini korur, eski persist verisi üzerine yazar.
+ * Array'ler ve primitive'ler persisted değeri (varsa) tutar.
+ */
+function deepMergeSettings<T extends Record<string, unknown>>(defaults: T, persisted: Partial<T>): T {
+  const result = { ...defaults };
+  for (const key in persisted) {
+    const d = defaults[key];
+    const p = persisted[key];
+    if (p !== undefined && d !== null && typeof d === 'object' && !Array.isArray(d) &&
+        p !== null && typeof p === 'object' && !Array.isArray(p)) {
+      (result as Record<string, unknown>)[key] = deepMergeSettings(
+        d as Record<string, unknown>,
+        p as Record<string, unknown>,
+      );
+    } else if (p !== undefined) {
+      (result as Record<string, unknown>)[key] = p;
+    }
+  }
+  return result;
+}
+
+/* ── Güvenli localStorage sarmalayıcısı — LRU Eviction ──────────────────
+ *
+ * Araç ekranları günlerce açık kalır; localStorage dolması kaçınılmazdır.
+ * LRU stratejisi: kota dolduğunda en eski "geçici" verileri silerek yer açar.
+ *
+ * Eviction Öncelik Sırası (önce silinir → sona kalır):
+ *   1. car-crash-log-*   (hata logları — en sık büyür)
+ *   2. car-trip-*        (geçmiş rotalar)
+ *   3. car-cache-*       (geçici önbellek verileri)
+ *   4. car-glyph-*       (harita glyph önbellek)
+ *   5. car-gps-*         (GPS geçmiş — last_known korunur istisnai olarak)
+ *
+ * Korunan anahtarlar: 'car-launcher-storage' (Zustand ana state)
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/** Geçici veri önekleri — LRU eviction sırası (index küçük = önce silinir) */
+const LRU_EVICT_PREFIXES = [
+  'car-crash-log',
+  'car-trip-',
+  'car-cache-',
+  'car-glyph-',
+];
+
+/** Silinmemesi gereken kritik anahtarlar */
+const LRU_PROTECTED = new Set(['car-launcher-storage', 'car-gps-last-known', 'cl_usageMap', 'cl_usagePruneTs']);
+
+/**
+ * LRU eviction — öneklerine göre eskiden yeniye siler.
+ * @returns Silinen anahtar sayısı
+ */
+function lruEvict(): number {
+  let evicted = 0;
+  for (const prefix of LRU_EVICT_PREFIXES) {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && !LRU_PROTECTED.has(k) && k.startsWith(prefix)) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => { try { localStorage.removeItem(k); evicted++; } catch { /* ignore */ } });
+    if (evicted > 0) break; // İlk kategoride yer açıldıysa dur
+  }
+  return evicted;
+}
+
 const safeStorage = {
   getItem(name: string): StorageValue<unknown> | null {
     try {
@@ -14,18 +82,30 @@ const safeStorage = {
     }
   },
   setItem(name: string, value: StorageValue<unknown>): void {
+    const serialized = JSON.stringify(value);
     try {
-      localStorage.setItem(name, JSON.stringify(value));
+      localStorage.setItem(name, serialized);
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        // Kota doldu — eski geçici verileri temizle ve yeniden dene
-        const keysToEvict = ['car-trip-log', 'car-crash-log'];
-        keysToEvict.forEach((k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+      if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+        // Kota doldu — LRU eviction ile yer aç, sonra yeniden dene
+        let freed = lruEvict();
         try {
-          localStorage.setItem(name, JSON.stringify(value));
+          localStorage.setItem(name, serialized);
+          return; // Başarılı
         } catch {
-          // İkinci denemede de başarısız — veri kaybedilmesi mevcut oturumu etkilemez
+          // İlk eviction yetmedi — tüm kategorileri temizle
+          for (const prefix of LRU_EVICT_PREFIXES) {
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+              const k = localStorage.key(i);
+              if (k && !LRU_PROTECTED.has(k) && k.startsWith(prefix)) {
+                try { localStorage.removeItem(k); freed++; } catch { /* ignore */ }
+              }
+            }
+          }
+          // Son deneme — yine de başarısız olursa sessizce geç
+          try { localStorage.setItem(name, serialized); } catch { /* quota tamamen doldu */ }
         }
+        void freed; // TypeScript unused var uyarısını bastır
       }
     }
   },
@@ -91,6 +171,54 @@ export interface PinnedCard {
   color?: string;
 }
 
+/** Araç tahrik tipi */
+export type VehicleType = 'ice' | 'diesel' | 'ev' | 'hybrid' | 'phev';
+
+/** Araç bağlantı profili — bir araç ile ilgili tüm tercihler */
+export interface VehicleProfile {
+  id: string;
+  name: string;
+  /** Araç tahrik tipi: ICE (benzin) | Diesel | EV (elektrik) | Hybrid | PHEV */
+  vehicleType?: VehicleType;
+  /** Yakıt deposu / batarya kapasitesi */
+  fuelTankL?: number;         // ICE/Diesel: litre
+  batteryCapacityKwh?: number; // EV/Hybrid: kWh
+  /** Motor hacmi (ICE/Diesel) */
+  engineCapacityL?: number;
+  /** Motor gücü (kW) */
+  motorPowerKw?: number;
+  /** Toplam araç ağırlığı — ticari araç desteği için (kg) */
+  vehicleMassKg?: number;
+  /** Hız göstergesi maksimumu (varsayılan 240) */
+  maxSpeedKmh?: number;
+  /** RPM maksimumu (varsayılan 8000) */
+  maxRpm?: number;
+  /** Bluetooth cihaz adında aranacak anahtar kelime (ör. "OBD" veya "Samsung Galaxy") */
+  btDeviceName?: string;
+  /** Araç Wi-Fi SSID'si (kısmi eşleşme) */
+  wifiSSID?: string;
+  /** OBD Bluetooth adaptör MAC adresi */
+  obdDeviceAddress?: string;
+  /** OBD adaptör adı */
+  obdDeviceName?: string;
+  /**
+   * Ortalama yakıt tüketimi (L/100 km) — ICE/Diesel/Hybrid.
+   * obdService bunu fuelRemainingL → estimatedRangeKm hesabında kullanır.
+   * Varsayılan: 8.0 L/100 km (ortalama binek araç değeri).
+   */
+  avgConsumptionL100?: number;
+  /** Profil aktivasyonunda uygulanacak tema */
+  themePack?: ThemePack;
+  /** Profil aktivasyonunda uygulanacak varsayılan navigasyon */
+  defaultNav?: string;
+  /** Profil aktivasyonunda uygulanacak varsayılan müzik uygulaması */
+  defaultMusic?: MusicOptionKey;
+  /** Profil aktivasyonunda dock'ta gösterilecek uygulama ID'leri */
+  dockAppIds?: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export interface AppSettings {
   brightness: number;
   volume: number;
@@ -100,7 +228,6 @@ export interface AppSettings {
   themeStyle: ThemeStyle;
   widgetStyle: WidgetStyle;
   wallpaper: string;
-  favorites: string[];
   hiddenApps: string[];
   appOrder: string[];
   folders: Record<string, { name: string; icon: string; appIds: string[] }>;
@@ -109,7 +236,7 @@ export interface AppSettings {
   clockStyle: ClockStyle;
   gridColumns: number;
   defaultNav: string;
-  defaultMusic: string;
+  defaultMusic: MusicOptionKey;
   sleepMode: boolean;
   offlineMap: boolean;
   widgetVisible: Record<string, boolean>;
@@ -158,6 +285,30 @@ export interface AppSettings {
    * Boş bırakılırsa İstanbul kullanılır.
    */
   weatherFallbackCity: { lat: number; lng: number; name: string } | null;
+  /** Kayıtlı araç profilleri */
+  vehicleProfiles: VehicleProfile[];
+  /** Şu an aktif araç profili ID'si; eşleşme yoksa null */
+  activeVehicleProfileId: string | null;
+  /** Uygulama açılışında haritayı otomatik aç (Tesla davranışı) */
+  autoNavOnStart: boolean;
+  /** Media Hub'da seçili/tercih edilen kaynak anahtarı */
+  activeMediaSourceKey: string;
+  /** Sesli komutla veya manuel favorilere eklenen şarkılar */
+  musicFavorites: MusicFavorite[];
+  /** AI sesli asistan sağlayıcısı */
+  aiVoiceProvider: 'gemini' | 'haiku' | 'none';
+  /** Gemini API key (aistudio.google.com'dan ücretsiz) */
+  geminiApiKey: string;
+  /** Claude Haiku API key (console.anthropic.com) */
+  claudeHaikuApiKey: string;
+}
+
+export interface MusicFavorite {
+  title:     string;
+  artist:    string;
+  albumArt?: string;
+  source:    string;   // 'spotify' | 'youtube_music' | vb.
+  addedAt:   number;   // Date.now()
 }
 
 interface StoreState {
@@ -167,18 +318,23 @@ interface StoreState {
   updateTPMS: (partial: Partial<TPMSData>) => void;
   updateParking: (location: ParkingLocation | null) => void;
   resetSettings: () => void;
+  addVehicleProfile: (profile: VehicleProfile) => void;
+  updateVehicleProfile: (id: string, partial: Partial<VehicleProfile>) => void;
+  removeVehicleProfile: (id: string) => void;
+  setActiveVehicleProfile: (id: string | null) => void;
+  addMusicFavorite: (fav: MusicFavorite) => void;
+  removeMusicFavorite: (title: string, artist: string) => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
   brightness: 100,
   volume: 60,
   volumeStyle: 'minimal_pro',
-  theme: 'dark',
-  themePack: 'tesla',
+  theme: 'light',
+  themePack: 'glass-pro',
   themeStyle: 'glass',
   widgetStyle: 'elevated',
   wallpaper: 'none',
-  favorites: [],
   hiddenApps: [],
   appOrder: [],
   folders: {},
@@ -196,7 +352,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     shortcuts: true,
     obd: true,
   },
-  widgetOrder: ['music', 'notifications', 'phone'],
+  widgetOrder: ['nav', 'speed', 'media'],
   widgetSizes: { media: 'medium', shortcuts: 'small' },
   activeMapSourceId: null,
   hasCompletedSetup: false,
@@ -223,20 +379,28 @@ const DEFAULT_SETTINGS: AppSettings = {
   breakReminderEnabled: false,
   breakReminderIntervalMin: 120,
   autoBrightnessEnabled: false,
-  autoThemeEnabled: false,
+  autoThemeEnabled: true,
   autoBrightnessMin: 15,
   autoBrightnessMax: 100,
   gestureVolumeSide: 'left',
   homeLocation: null,
   workLocation: null,
   recentDestinations: [],
-  smartContextEnabled: true,
+  smartContextEnabled: false,
   pinnedCards: [],
-  dayNightMode: 'night',
+  dayNightMode: 'day',
   editMode: false,
   obdAutoSleep: false,
   obdSleepDelayMin: 5,
   weatherFallbackCity: null,
+  vehicleProfiles: [],
+  activeVehicleProfileId: null,
+  autoNavOnStart: false,
+  activeMediaSourceKey: 'spotify',
+  musicFavorites: [],
+  aiVoiceProvider: 'gemini',
+  geminiApiKey: '',
+  claudeHaikuApiKey: '',
 };
 
 export const useStore = create<StoreState>()(
@@ -266,11 +430,72 @@ export const useStore = create<StoreState>()(
           settings: { ...state.settings, parkingLocation: location },
         })),
       resetSettings: () => set({ settings: DEFAULT_SETTINGS }),
+      addVehicleProfile: (profile) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            vehicleProfiles: [...state.settings.vehicleProfiles, profile],
+          },
+        })),
+      updateVehicleProfile: (id, partial) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            vehicleProfiles: state.settings.vehicleProfiles.map((p) =>
+              p.id === id ? { ...p, ...partial } : p,
+            ),
+          },
+        })),
+      removeVehicleProfile: (id) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            vehicleProfiles: state.settings.vehicleProfiles.filter((p) => p.id !== id),
+            activeVehicleProfileId:
+              state.settings.activeVehicleProfileId === id
+                ? null
+                : state.settings.activeVehicleProfileId,
+          },
+        })),
+      setActiveVehicleProfile: (id) =>
+        set((state) => {
+          // Araç tipini OBD servisine bildir — mock/real veri buna göre şekillensin
+          if (id !== null) {
+            const profile = state.settings.vehicleProfiles.find((p) => p.id === id);
+            if (profile?.vehicleType) {
+              setObdVehicleType(profile.vehicleType);
+            }
+          }
+          return { settings: { ...state.settings, activeVehicleProfileId: id } };
+        }),
+      addMusicFavorite: (fav) =>
+        set((state) => {
+          // Aynı şarkı zaten var mı kontrol et
+          const exists = state.settings.musicFavorites.some(
+            (f) => f.title === fav.title && f.artist === fav.artist,
+          );
+          if (exists) return state;
+          return {
+            settings: {
+              ...state.settings,
+              musicFavorites: [fav, ...state.settings.musicFavorites].slice(0, 100),
+            },
+          };
+        }),
+      removeMusicFavorite: (title, artist) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            musicFavorites: state.settings.musicFavorites.filter(
+              (f) => !(f.title === title && f.artist === artist),
+            ),
+          },
+        })),
     }),
     {
       name: 'car-launcher-storage',
       storage: safeStorage,
-      version: 4,
+      version: 8,
       migrate: (persistedState: unknown, fromVersion: number) => {
         // Her sürümde yeni alanlar DEFAULT_SETTINGS'ten gelir.
         // Eski sürümlerde eksik alanları burada düzelt.
@@ -286,47 +511,47 @@ export const useStore = create<StoreState>()(
           settings.editMode = false;
         }
         if (fromVersion < 4) {
-          // v4: dayNightMode eklendi
-          settings.dayNightMode = settings.dayNightMode ?? 'night';
+          // v4: dayNightMode eklendi — saate göre başlat
+          const h = new Date().getHours();
+          settings.dayNightMode = settings.dayNightMode ?? (h >= 7 && h < 19 ? 'day' : 'night');
           // Oturum durumları sıfırla
           settings.sleepMode = false;
         }
+        if (fromVersion < 5) {
+          // v5: araç profil sistemi eklendi
+          settings.vehicleProfiles = settings.vehicleProfiles ?? [];
+          settings.activeVehicleProfileId = settings.activeVehicleProfileId ?? null;
+        }
+        if (fromVersion < 6) {
+          // v6: startup banner ve otomatik nav devre dışı — kullanıcı isteği
+          settings.smartContextEnabled = false;
+          settings.autoNavOnStart = false;
+        }
+        if (fromVersion < 7) {
+          // v7: autoThemeEnabled varsayılan true + saate göre dayNightMode
+          settings.autoThemeEnabled = true;
+          const h = new Date().getHours();
+          settings.dayNightMode = h >= 7 && h < 19 ? 'day' : 'night';
+        }
+        if (fromVersion < 8) {
+          // v8: tek tema — BalancedLayout kullanan glass-pro'ya geç
+          settings.themePack = 'glass-pro';
+        }
         return { ...ps, settings };
       },
-      // Ensure new default fields are merged into existing persisted storage
+      // Yeni ayar alanları eklendiğinde otomatik olarak varsayılan değerini alır.
+      // deepMergeSettings tüm iç içe objeleri recursive merge eder.
       merge: (persistedState: unknown, currentState) => {
         const ps = persistedState as Partial<typeof currentState> | null | undefined;
         if (!ps) return currentState;
-        return {
-          ...currentState,
-          ...ps,
-          settings: {
-            ...currentState.settings,
-            ...(ps.settings || {}),
-            // Explicitly merge objects that might be missing in older versions
-            maintenance: {
-              ...currentState.settings.maintenance,
-              ...(ps.settings?.maintenance || {}),
-            },
-            tpms: {
-              ...currentState.settings.tpms,
-              ...(ps.settings?.tpms || {}),
-            },
-            widgetVisible: {
-              ...currentState.settings.widgetVisible,
-              ...(ps.settings?.widgetVisible || {}),
-            },
-            widgetOrder: ps.settings?.widgetOrder ?? currentState.settings.widgetOrder,
-            widgetSizes: { ...currentState.settings.widgetSizes, ...(ps.settings?.widgetSizes || {}) },
-            activeMapSourceId: ps.settings?.activeMapSourceId ?? currentState.settings.activeMapSourceId,
-            hasCompletedSetup: ps.settings?.hasCompletedSetup ?? currentState.settings.hasCompletedSetup,
-            performanceMode: ps.settings?.performanceMode ?? currentState.settings.performanceMode,
-            pinnedCards: ps.settings?.pinnedCards ?? currentState.settings.pinnedCards,
-            // Oturum durumları: her yeniden başlatmada sıfırla
-            sleepMode: false,
-            brightness: ps.settings?.brightness ?? currentState.settings.brightness,
-          }
-        };
+        const merged = deepMergeSettings(
+          currentState.settings as unknown as Record<string, unknown>,
+          (ps.settings || {}) as Record<string, unknown>,
+        ) as unknown as typeof currentState.settings;
+        // Oturum durumları: her yeniden başlatmada sıfırla
+        merged.sleepMode = false;
+        merged.editMode  = false;
+        return { ...currentState, ...ps, settings: merged };
       },
     }
   )

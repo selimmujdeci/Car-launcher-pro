@@ -20,7 +20,7 @@ export const VehicleReminderWidget = memo(function VehicleReminderWidget({
   return (
     <button
       onClick={onOpen}
-      className="w-full flex items-center gap-3 bg-[#0d1628] rounded-2xl border border-white/5 px-4 py-3 hover:bg-white/[0.03] active:scale-[0.98] transition-all"
+      className="w-full flex items-center gap-3 bg-[rgba(255,255,255,0.05)] rounded-2xl border border-white/5 px-4 py-3 hover:bg-white/[0.03] active:scale-[0.98] transition-all"
     >
       {/* İkon */}
       <div
@@ -39,7 +39,7 @@ export const VehicleReminderWidget = memo(function VehicleReminderWidget({
 
       {/* Metin */}
       <div className="flex-1 min-w-0 text-left">
-        <div className="text-white text-xs font-bold leading-tight">Araç Bakım</div>
+        <div className="text-primary text-xs font-bold leading-tight">Araç Bakım</div>
         <div
           className={`text-[10px] leading-tight ${
             urgent
@@ -78,3 +78,5 @@ export const VehicleReminderWidget = memo(function VehicleReminderWidget({
     </button>
   );
 });
+
+

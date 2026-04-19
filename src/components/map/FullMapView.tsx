@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
-import { X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2 } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2, ArrowLeft } from 'lucide-react';
 import {
   initializeMap,
   isWebGLAvailable,
@@ -13,6 +13,7 @@ import {
   switchMapStyle,
   setDrivingView,
   exitDrivingView,
+  enterNavigationView,
   setDrivingMode,
   useDrivingMode,
   setRouteGeometry,
@@ -20,13 +21,16 @@ import {
   setTurnFocus,
   clearTurnFocus,
 } from '../../platform/mapService';
-import { useGPSLocation, useGPSHeading, startGPSTracking } from '../../platform/gpsService';
+import { useGPSLocation, useGPSHeading } from '../../platform/gpsService';
 import {
   getMapStyle,
   setMapMode,
   useMapMode,
+  useTileRenderMode,
+  notifyNavigationRender,
   type MapMode,
 } from '../../platform/mapSourceManager';
+import { useVisionStore } from '../../platform/visionEngine';
 import { useNavigation, updateNavigationProgress } from '../../platform/navigationService';
 import {
   fetchRoute,
@@ -37,9 +41,13 @@ import {
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { MapOverlay } from './MapOverlay';
 import { NavigationHUD } from './NavigationHUD';
+import { VisionOverlay } from './VisionOverlay';
+import { useNavMode } from '../../platform/modeController';
 
 interface FullMapViewProps {
   onClose: () => void;
+  /** Navigasyon alt çubuğundan başka sekmeleri açmak için */
+  onOpenDrawer?: (type: 'music' | 'phone' | 'apps' | 'settings') => void;
 }
 
 const MODE_LABELS: Record<MapMode, string> = {
@@ -48,7 +56,7 @@ const MODE_LABELS: Record<MapMode, string> = {
   satellite: 'Uydu',
 };
 
-export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewProps) {
+export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: FullMapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef | null>(null);
   const initDone = useRef(false);
@@ -61,6 +69,9 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
   const prevStepIndexRef  = useRef(0);
+  /** True while a style switch is in-flight — drives the anti-flicker overlay. */
+  const [isSwitchingStyle, setIsSwitchingStyle] = useState(false);
+  const renderInitRef = useRef(false);
 
   const location = useGPSLocation();
   const heading = useGPSHeading();
@@ -68,7 +79,10 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
   const route = useRouteState();
   const autoBrightness = useAutoBrightnessState();
   const mode = useMapMode();
+  const tileRender = useTileRenderMode();
   const drivingMode = useDrivingMode();
+  const navMode = useNavMode();
+  const arState = useVisionStore((s) => s.state);
 
   const isNight = autoBrightness.phase === 'night' || autoBrightness.phase === 'evening' || autoBrightness.phase === 'dawn';
 
@@ -120,7 +134,7 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
             });
           }
 
-          startGPSTracking().catch(() => {});
+          // GPS useLayoutServices'te merkezi olarak başlatılıyor
         } catch (err) {
           if (!cancelled) {
             setMapError(err instanceof Error ? err.message : 'Harita başlatılamadı');
@@ -202,16 +216,41 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
     return () => clearTimeout(t);
   }, [isPreview]);
 
-  // Map mode change — switch tile style and re-add marker after load
+  // Map mode change (road/satellite/hybrid) — switch tile style
   useEffect(() => {
     if (!modeInitRef.current) {
       modeInitRef.current = true;
       return;
     }
     if (!mapRef.current) return;
-    const map = mapRef.current;
+    _doStyleSwitch(mapRef.current, false);
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tile render mode change (raster ↔ vector) — auto-driven by navigation/AR state
+  useEffect(() => {
+    if (!renderInitRef.current) {
+      renderInitRef.current = true;
+      return;
+    }
+    if (!mapRef.current) return;
+    // Raster switch (nav start): no fade, no delay — immediate for safety.
+    // Vector switch (idle): soft fade-in from dark background.
+    const instant = tileRender === 'raster';
+    _doStyleSwitch(mapRef.current, !instant);
+  }, [tileRender]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Navigation + AR state → notify auto-switch engine
+  useEffect(() => {
+    const arActive = arState === 'active' || arState === 'degraded';
+    notifyNavigationRender(isNavigating, arActive);
+  }, [isNavigating, arState]);
+
+  /** Shared style-switch helper — avoids duplicating the marker/route restore logic. */
+  function _doStyleSwitch(map: MapRef, withFadeOverlay: boolean): void {
     const loc = locationRef.current;
     const hdg = headingRef.current;
+
+    if (withFadeOverlay) setIsSwitchingStyle(true);
 
     map._fullMapInitialized = false;
     switchMapStyle(map, getMapStyle());
@@ -222,13 +261,16 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
         setMapCenter(map, [loc.longitude, loc.latitude], undefined, false);
         map._fullMapInitialized = true;
       }
-      // Restore route line after style change
       if (routeGeometryRef.current) {
         setRouteGeometry(map, routeGeometryRef.current);
       }
       setStyleKey((k) => k + 1);
+      // Brief delay so the first tile batch renders before removing overlay
+      if (withFadeOverlay) {
+        setTimeout(() => setIsSwitchingStyle(false), 150);
+      }
     });
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   // Location updates — normal tracking or driving view
   useEffect(() => {
@@ -275,13 +317,29 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
     }
   }, [location, heading, destination, mapStyleReady, styleKey, drivingMode]);
 
-  const handleNavStart  = useCallback(() => setIsPreview(false), []);
+  const handleNavStart  = useCallback(() => {
+    setIsPreview(false);
+    setDrivingMode(true);
+
+    // Giriş animasyonu: tilt 0→45°, zoom →17, bearing = rota/GPS yönü
+    if (mapRef.current) {
+      const loc = locationRef.current;
+      const bear = headingRef.current ?? 0;
+      const h    = containerRef.current?.offsetHeight ?? 600;
+      if (loc) {
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+      }
+    }
+  }, []);
   const handleNavCancel = useCallback(() => {
     setIsPreview(false);
-    if (mapRef.current) clearRouteGeometry(mapRef.current);
+    setDrivingMode(false);
+    if (mapRef.current) {
+      clearRouteGeometry(mapRef.current);
+      exitDrivingView(mapRef.current);
+    }
     clearRoute();
     routeGeometryRef.current = null;
-    // stopNavigation is handled inside NavigationHUD cancel
   }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();
@@ -305,22 +363,46 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
   // WebGL yok — harita açılamaz, anlamlı hata ekranı göster
   if (!webglSupported || mapError) {
     return (
-      <div className="fixed inset-0 bg-[#060d1a] z-50 flex flex-col items-center justify-center gap-6 p-8">
-        <div className="w-20 h-20 rounded-3xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-          <Map className="w-10 h-10 text-red-400" />
+      <div
+        className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-8 p-10"
+        style={{ background: 'linear-gradient(160deg,#08090e,#0a0c12)' }}
+      >
+        {/* Kapatma — sol üst */}
+        <button
+          onClick={onClose}
+          className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all"
+          style={{
+            position: 'fixed', top: 16, left: 16, zIndex: 9999,
+            padding: '12px 20px',
+            background: '#ef4444', border: '3px solid white',
+            color: '#fff', fontWeight: 900, fontSize: 15,
+            cursor: 'pointer', boxShadow: '0 4px 20px rgba(239,68,68,0.5)',
+            overflow: 'visible',
+          }}
+        >
+          <X className="w-5 h-5 text-white stroke-[3px]" />
+          <span style={{ color: '#fff', fontWeight: 900 }}>KAPAT</span>
+        </button>
+
+        <div className="w-24 h-24 rounded-[2.5rem] flex items-center justify-center animate-pulse"
+          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+          <Map className="w-12 h-12 text-red-400" />
         </div>
-        <div className="text-center max-w-sm">
-          <div className="text-white font-black text-xl mb-2">Harita Açılamıyor</div>
-          <div className="text-slate-400 text-sm leading-relaxed">
+        <div className="text-center max-w-md">
+          <div className="font-black text-3xl mb-4 tracking-tighter uppercase text-white">Harita Devre Dışı</div>
+          <div className="text-base leading-relaxed font-bold uppercase tracking-widest px-4"
+            style={{ color: 'rgba(255,255,255,0.45)' }}>
             {!webglSupported
-              ? 'Bu cihaz harita için gereken grafik hızlandırmasını (WebGL) desteklemiyor. Cihazın GPU sürücülerini güncelleyin.'
+              ? 'Bu cihazda WebGL desteği bulunamadı. GPU sürücülerini kontrol edin veya Chrome ayarlarında donanım hızlandırmayı etkinleştirin.'
               : mapError}
           </div>
         </div>
         <button
           onClick={onClose}
-          className="px-6 py-3 rounded-2xl bg-white/10 border border-white/20 text-white font-bold hover:bg-white/20 active:scale-95 transition-all"
+          className="flex items-center gap-3 px-10 py-4 rounded-2xl active:scale-90 transition-all"
+          style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontWeight: 700 }}
         >
+          <ArrowLeft className="w-5 h-5" />
           Geri Dön
         </button>
       </div>
@@ -328,16 +410,39 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
   }
 
   return (
-    <div className="fixed inset-0 bg-black z-50">
-      {/* Full-screen map container */}
+    <div className="fixed inset-0 glass-card border-none !shadow-none z-50">
+      {!mapReady && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center animate-spin-slow">
+            <Globe className="w-8 h-8 text-blue-400/60" />
+          </div>
+        </div>
+      )}
+      {/* Full-screen map container — dims when AR camera feed is active */}
       <div
         ref={containerRef}
         className="absolute inset-0"
         style={{
           width: '100%',
           height: '100%',
+          opacity: navMode === 'HYBRID_AR_NAVIGATION' ? 0.2 : 1,
           filter: isNight ? 'brightness(0.72) saturate(0.65)' : 'none',
-          transition: 'filter 5s ease',
+          transition: 'opacity 500ms ease, filter 5s ease',
+        }}
+      />
+
+      {/* Style-switch anti-flicker overlay.
+          Fades in over the map (dark fill) while vector↔raster transition is
+          in-flight, then fades out once first tiles have rendered.
+          Not used for raster→raster switches (nav start) — those are instant. */}
+      <div
+        className="absolute inset-0 pointer-events-none z-[45]"
+        style={{
+          background: '#0d1117',
+          opacity: isSwitchingStyle ? 1 : 0,
+          transition: isSwitchingStyle
+            ? 'opacity 80ms ease-in'   // snap dark quickly before tiles clear
+            : 'opacity 300ms ease-out', // fade away slowly as new tiles appear
         }}
       />
 
@@ -361,57 +466,65 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
         />
       )}
 
+      {/* Vision AR overlay — camera feed + lane/sign detection */}
+      <VisionOverlay
+        isNavigating={isNavigating && !isPreview}
+        currentLat={location?.latitude ?? null}
+        currentLon={location?.longitude ?? null}
+        headingDeg={heading ?? 0}
+        routeGeometry={route.geometry}
+        currentStepIndex={route.currentStepIndex}
+      />
+
       {/* Navigation HUD */}
       <NavigationHUD
         isPreview={isPreview}
         onStart={handleNavStart}
         onCancel={handleNavCancel}
         speedKmh={location?.speed != null ? location.speed * 3.6 : 0}
+        onNavTab={(id) => {
+          if (id === 'media')    { onClose(); onOpenDrawer?.('music');    return; }
+          if (id === 'phone')    { onClose(); onOpenDrawer?.('phone');    return; }
+          if (id === 'apps')     { onClose(); onOpenDrawer?.('apps');     return; }
+          if (id === 'settings') { onClose(); onOpenDrawer?.('settings'); return; }
+        }}
       />
 
-      {/* ── Top controls ── */}
+      {/* ── Kapatma butonu — sol üst, her zaman görünür ── */}
       <button
         onClick={onClose}
+        aria-label="Haritayı kapat"
+        className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all shadow-2xl"
         style={{
-          position: 'fixed',
-          top: '16px',
-          right: '16px',
-          zIndex: 9999,
-          background: '#dc2626',
-          border: '3px solid #f87171',
-          borderRadius: '14px',
-          padding: '10px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          color: 'white',
-          fontWeight: 800,
-          fontSize: '14px',
-          cursor: 'pointer',
-          boxShadow: '0 0 24px rgba(220,38,38,0.6)',
-          letterSpacing: '0.05em',
-          pointerEvents: 'auto',
+          position: 'fixed', top: 16, left: 16, zIndex: 9999,
+          padding: '12px 20px',
+          background: '#ef4444', border: '3px solid white',
+          color: '#fff', fontWeight: 900, fontSize: 15,
+          letterSpacing: '0.05em', cursor: 'pointer',
+          boxShadow: '0 4px 24px rgba(239,68,68,0.55)',
+          overflow: 'visible',
         }}
       >
-        <X style={{ width: 18, height: 18, strokeWidth: 3 }} />
-        <span>Çıkış</span>
+        <X className="w-6 h-6 text-white stroke-[3px]" />
+        <span style={{ color: '#fff', fontWeight: 900 }}>KAPAT</span>
       </button>
 
-      {/* ── Right-side controls ── */}
-      <div className={`absolute right-8 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-4 pointer-events-auto transition-all duration-500 ${
-        drivingMode ? 'opacity-80 translate-x-2' : 'opacity-100'
+      {/* ── Sağ kontroller — aktif navigasyonda gizle (SpeedPanel + LeftButtons yeterli) ── */}
+      <div className={`absolute right-4 top-[30%] -translate-y-1/2 z-20 flex flex-col gap-3 pointer-events-auto transition-all duration-500 ${
+        isNavigating ? 'opacity-0 pointer-events-none translate-x-4' :
+        drivingMode  ? 'opacity-80 translate-x-2' : 'opacity-100'
       }`}>
-        <div className="flex flex-col gap-2 p-1 bg-black/40 backdrop-blur-xl rounded-[1.5rem] border border-white/10 shadow-xl">
+        <div className="flex flex-col gap-2 p-1 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-[1.5rem] border border-white/10 shadow-xl">
           <button
             onClick={handleZoomIn}
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-white/80 hover:bg-white/10 active:scale-90 transition-all"
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-primary/80 hover:var(--panel-bg-secondary) active:scale-90 transition-all"
           >
             <ZoomIn className="w-5 h-5" />
           </button>
-          <div className="mx-3 h-px bg-white/5" />
+          <div className="mx-3 h-px var(--panel-bg-secondary)" />
           <button
             onClick={handleZoomOut}
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-white/80 hover:bg-white/10 active:scale-90 transition-all"
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-primary/80 hover:var(--panel-bg-secondary) active:scale-90 transition-all"
           >
             <ZoomOut className="w-5 h-5" />
           </button>
@@ -428,28 +541,28 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
           onClick={handleToggleDrivingMode}
           className={`w-14 h-14 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-95 transition-all duration-500 shadow-xl ${
             drivingMode
-              ? 'bg-blue-500 border-blue-400 text-white'
-              : 'bg-black/50 border-white/30 text-white/85 hover:bg-black/70 hover:text-white'
+              ? 'bg-blue-500 border-blue-400 text-primary'
+              : 'var(--panel-bg-secondary) backdrop-blur-md border-white/30 text-primary/85 hover:var(--panel-bg-secondary) backdrop-blur-md hover:text-primary'
           }`}
         >
           <Navigation2 className={`w-6 h-6 ${drivingMode ? 'fill-white' : ''}`} />
         </button>
       </div>
 
-      {/* ── Bottom controls ── */}
-      <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-6 transition-all duration-500 ${
-        drivingMode || isPreview ? 'opacity-60 translate-y-4 pointer-events-none' : 'opacity-100'
+      {/* ── Alt kontroller — dock üzerinde: bottom-[136px] ── */}
+      <div className={`absolute bottom-[136px] left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4 transition-all duration-500 ${
+        isNavigating || drivingMode || isPreview ? 'opacity-0 translate-y-4 pointer-events-none' : 'opacity-100'
       }`}>
         {/* Map mode switcher */}
-        <div className="flex items-center gap-1 bg-black/50 backdrop-blur-xl rounded-[1.25rem] p-1 border border-white/10 shadow-2xl">
+        <div className="flex items-center gap-1 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-[1.25rem] p-1 border border-white/10 shadow-2xl">
           {(['road', 'hybrid', 'satellite'] as MapMode[]).map((m) => (
             <button
               key={m}
               onClick={() => setMapMode(m)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black tracking-[0.15em] uppercase transition-all active:scale-95 ${
                 mode === m
-                  ? 'bg-white/10 text-white shadow-inner'
-                  : 'text-white/75 hover:text-white'
+                  ? 'var(--panel-bg-secondary) text-primary shadow-inner'
+                  : 'text-primary/75 hover:text-primary'
               }`}
             >
               {m === 'road' && <Map className="w-4 h-4" />}
@@ -460,18 +573,17 @@ export const FullMapView = memo(function FullMapView({ onClose }: FullMapViewPro
           ))}
         </div>
 
-        {/* Coordinates */}
-        <div className={`flex items-center gap-4 bg-black/20 backdrop-blur-md rounded-full px-4 py-1.5 border border-white/5 transition-opacity ${location ? 'opacity-100' : 'opacity-0'}`}>
-          <span className="text-[9px] text-white/55 font-mono font-bold tracking-tight">
-            {location?.latitude.toFixed(5)}°, {location?.longitude.toFixed(5)}°
-          </span>
-          {location?.altitude != null && (
-            <span className="text-[9px] text-blue-400/60 font-mono font-bold uppercase">
-              {Math.round(location.altitude)}m ALT
+        {/* Coordinates — kompakt, sadece lat/lng */}
+        {location && (
+          <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1 border border-white/8">
+            <span className="text-[9px] text-white/45 font-mono tracking-tight">
+              {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
 });
+
+

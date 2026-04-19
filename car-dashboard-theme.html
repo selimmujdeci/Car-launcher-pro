@@ -1,0 +1,1967 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>Car Launcher Pro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 800px;
+    overflow: hidden;
+    background: #0a0c10;
+    font-family: 'Exo 2', sans-serif;
+    color: #fff;
+    display: flex;
+    user-select: none;
+  }
+
+  /* ─── SIDEBAR ─────────────────────────────────────────── */
+  .sidebar {
+    width: 72px;
+    height: 800px;
+    background: #0a0c10;
+    border-right: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    gap: 6px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+
+  .sidebar-icon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: rgba(255,255,255,0.4);
+    position: relative;
+  }
+
+  .sidebar-icon:hover {
+    color: rgba(255,255,255,0.8);
+    background: rgba(255,255,255,0.06);
+  }
+
+  .sidebar-icon.active {
+    color: #ff9800;
+  }
+
+  .hex-border {
+    position: absolute;
+    inset: -3px;
+  }
+
+  .sidebar-icon svg { width: 22px; height: 22px; }
+
+  .sidebar-spacer { flex: 1; }
+
+  /* ─── MAIN WRAPPER ─────────────────────────────────────── */
+  .main-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 800px;
+    overflow: hidden;
+  }
+
+  /* ─── TOP BAR ──────────────────────────────────────────── */
+  .top-bar {
+    height: 64px;
+    background: #0a0c10;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 0;
+    flex-shrink: 0;
+  }
+
+  .time-block { flex-shrink: 0; }
+
+  .time-display {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: 2px;
+  }
+
+  .date-display {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    margin-top: 2px;
+    font-weight: 400;
+  }
+
+  .sun-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .sun-times {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+  }
+
+  .sun-time-item { display: flex; align-items: center; gap: 4px; }
+  .sun-time-item span:first-child { font-size: 14px; }
+
+  .sun-progress {
+    width: 220px;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .sun-progress-fill {
+    height: 100%;
+    width: 64%;
+    background: linear-gradient(90deg, #ff9800, #ffeb3b, #4fc3f7);
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .sun-progress-fill::after {
+    content: '';
+    position: absolute;
+    right: -4px;
+    top: -3px;
+    width: 10px;
+    height: 10px;
+    background: #ffeb3b;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #ffeb3b;
+  }
+
+  .status-icons {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  .status-icons svg { width: 18px; height: 18px; color: rgba(255,255,255,0.7); }
+
+  .temp-display {
+    font-family: 'Orbitron', monospace;
+    font-size: 14px;
+    color: #4fc3f7;
+    font-weight: 600;
+  }
+
+  /* ─── CONTENT ──────────────────────────────────────────── */
+  .content {
+    flex: 1;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: hidden;
+  }
+
+  /* ─── TOP ROW ──────────────────────────────────────────── */
+  .top-row {
+    display: flex;
+    gap: 12px;
+    height: 300px;
+    flex-shrink: 0;
+  }
+
+  /* ─── SPEEDOMETER CARD ─────────────────────────────────── */
+  .speed-card {
+    flex: 1;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.06);
+    overflow: hidden;
+    position: relative;
+    background:
+      linear-gradient(180deg,
+        rgba(10,12,16,0.1) 0%,
+        rgba(10,12,16,0.3) 60%,
+        rgba(10,12,16,0.85) 100%),
+      /* Road scene */
+      radial-gradient(ellipse 80% 40% at 50% 100%, #c8860a 0%, transparent 60%),
+      radial-gradient(ellipse 120% 60% at 50% 85%, #7b3f00 0%, transparent 50%),
+      linear-gradient(180deg,
+        #1a0a2e 0%,
+        #2d1b4e 15%,
+        #4a2060 25%,
+        #6b3a1f 40%,
+        #8b5a0a 50%,
+        #5c3d0a 60%,
+        #2a1a0a 75%,
+        #0a0806 100%);
+    box-shadow: 0 4px 32px rgba(0,0,0,0.6);
+  }
+
+  /* Mountain silhouettes */
+  .speed-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      /* Left mountain */
+      polygon(0% 100%, 0% 55%, 15% 30%, 30% 50%, 45% 25%, 55% 45%, 65% 15%, 80% 40%, 100% 30%, 100% 100%);
+    /* Use SVG mountains overlay */
+  }
+
+  .mountains-svg {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    opacity: 0.9;
+    pointer-events: none;
+  }
+
+  .road-svg {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    pointer-events: none;
+  }
+
+  .car-svg {
+    position: absolute;
+    bottom: 65px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    pointer-events: none;
+  }
+
+  .speed-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+  }
+
+  .speed-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .speed-limit {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    z-index: 2;
+  }
+
+  .speed-limit-circle {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 3px solid #f44336;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(244,67,54,0.12);
+    box-shadow: 0 0 16px rgba(244,67,54,0.4);
+  }
+
+  .speed-limit-num {
+    font-family: 'Orbitron', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: #f44336;
+  }
+
+  .speed-limit-label {
+    font-size: 10px;
+    color: rgba(255,255,255,0.6);
+    text-align: center;
+  }
+
+  .drive-mode {
+    text-align: right;
+    z-index: 2;
+  }
+
+  .drive-letter {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .drive-mode-label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 2px;
+  }
+
+  .gauge-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -46%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 5;
+  }
+
+  .speed-num {
+    font-family: 'Orbitron', monospace;
+    font-size: 80px;
+    font-weight: 900;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 0 40px rgba(255,255,255,0.3);
+    letter-spacing: -2px;
+  }
+
+  .speed-unit {
+    font-family: 'Orbitron', monospace;
+    font-size: 14px;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 3px;
+    margin-top: -4px;
+  }
+
+  .gauge-svg-wrap {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    width: 260px;
+    height: 260px;
+    z-index: 3;
+  }
+
+  .speed-bottom {
+    position: absolute;
+    bottom: 16px;
+    left: 20px;
+    right: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 5;
+  }
+
+  .speed-info-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.7);
+  }
+
+  .speed-info-item svg { width: 16px; height: 16px; opacity: 0.7; }
+
+  .glow-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #4fc3f7, transparent);
+    box-shadow: 0 0 12px #4fc3f7;
+  }
+
+  /* ─── MUSIC CARD ───────────────────────────────────────── */
+  .music-card {
+    width: 340px;
+    flex-shrink: 0;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: #12151d;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.6);
+  }
+
+  .vinyl-section {
+    flex: 1;
+    position: relative;
+    background: radial-gradient(ellipse at center, #1a1a2e 0%, #0d0d16 60%, #0a0c10 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .eq-icon {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 32px;
+    height: 32px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+  }
+
+  .vinyl-record {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at center, #1a1a1a 0%, #0d0d0d 30%, #1a1a1a 31%, #111 35%, #1a1a1a 36%, #111 50%, #1a1a1a 51%, #0d0d0d 100%);
+    position: relative;
+    box-shadow: 0 0 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.5);
+    animation: vinylSpin 4s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes vinylSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .vinyl-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 72px;
+    height: 72px;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  }
+
+  .vinyl-label-bg {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #4a1942 0%, #8b4513 30%, #c0392b 50%, #e67e22 70%, #f39c12 100%);
+    position: relative;
+  }
+
+  .vinyl-label-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 30% 70%, rgba(255,100,0,0.5) 0%, transparent 40%),
+      radial-gradient(circle at 70% 30%, rgba(150,0,100,0.5) 0%, transparent 40%);
+  }
+
+  .tonearm {
+    position: absolute;
+    right: 16px;
+    top: -8px;
+    width: 60px;
+    height: 100px;
+    pointer-events: none;
+  }
+
+  .music-info {
+    padding: 14px 16px;
+    background: #12151d;
+  }
+
+  .song-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 2px;
+  }
+
+  .song-artist {
+    font-size: 13px;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 10px;
+  }
+
+  .progress-container { margin-bottom: 8px; }
+
+  .progress-bar {
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, #f44336, #e91e63);
+    border-radius: 2px;
+  }
+
+  .progress-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    font-family: 'Orbitron', monospace;
+  }
+
+  .music-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 4px 0 6px;
+  }
+
+  .ctrl-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255,255,255,0.6);
+    display: flex;
+    transition: all 0.2s;
+    padding: 6px;
+  }
+
+  .ctrl-btn:hover { color: #fff; transform: scale(1.1); }
+  .ctrl-btn svg { width: 22px; height: 22px; }
+
+  .ctrl-btn.play-btn {
+    width: 48px;
+    height: 48px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(255,255,255,0.2);
+    color: #fff;
+    padding: 0;
+  }
+
+  .ctrl-btn.play-btn:hover {
+    background: rgba(255,255,255,0.2);
+    box-shadow: 0 0 20px rgba(255,255,255,0.2);
+  }
+
+  /* ─── BOTTOM ROW ───────────────────────────────────────── */
+  .bottom-row {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .mini-card {
+    flex: 1;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: #12151d;
+    padding: 14px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+  }
+
+  .mini-card:hover {
+    border-color: rgba(255,255,255,0.12);
+    background: #161a24;
+    transform: translateY(-1px);
+  }
+
+  .mini-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.8);
+    margin-bottom: 4px;
+  }
+
+  /* ─── NAV CARD ─────────────────────────────────────────── */
+  .nav-card {
+    background: #0e1119;
+  }
+
+  .nav-map-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 16px;
+  }
+
+  .nav-map-svg {
+    width: 100%;
+    height: 100%;
+    opacity: 0.6;
+  }
+
+  .nav-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .nav-expand {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .nav-expand svg { width: 14px; height: 14px; color: rgba(255,255,255,0.7); }
+
+  .nav-arrow {
+    width: 32px;
+    height: 32px;
+    background: rgba(79,195,247,0.2);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+
+  .nav-arrow svg { width: 18px; height: 18px; color: #4fc3f7; }
+
+  .nav-street {
+    font-size: 15px;
+    font-weight: 700;
+    color: #ff9800;
+    line-height: 1.1;
+  }
+
+  .nav-dist {
+    font-size: 12px;
+    color: #4fc3f7;
+    margin-bottom: 8px;
+  }
+
+  .nav-bottom {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nav-eta {
+    font-size: 18px;
+    font-weight: 700;
+    color: #4caf50;
+    font-family: 'Orbitron', monospace;
+  }
+
+  .nav-details {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+  }
+
+  /* ─── PHONE CARD ───────────────────────────────────────── */
+  .phone-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #4caf50;
+    box-shadow: 0 0 8px #4caf50;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .status-text {
+    font-size: 12px;
+    color: #4caf50;
+    font-weight: 600;
+  }
+
+  .phone-icon-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .phone-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(76,175,80,0.15);
+    border: 2px solid rgba(76,175,80,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 20px rgba(76,175,80,0.3);
+  }
+
+  .phone-circle svg { width: 28px; height: 28px; color: #4caf50; }
+
+  .phone-actions {
+    display: flex;
+    justify-content: space-around;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .phone-action {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.05);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .phone-action:hover { background: rgba(255,255,255,0.1); }
+  .phone-action svg { width: 16px; height: 16px; color: rgba(255,255,255,0.5); }
+
+  /* ─── WEATHER CARD ─────────────────────────────────────── */
+  .weather-card {
+    background: #12151d;
+    overflow: hidden;
+  }
+
+  .weather-bg {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg,
+      rgba(180,80,20,0.35) 0%,
+      rgba(120,40,60,0.3) 40%,
+      rgba(20,20,40,0.9) 100%);
+    pointer-events: none;
+  }
+
+  .weather-content { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; }
+
+  .weather-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .weather-temp {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .weather-desc {
+    font-size: 11px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 1px;
+  }
+
+  .weather-city {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 8px;
+  }
+
+  .weather-forecast {
+    display: flex;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .forecast-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .forecast-time { font-size: 10px; color: rgba(255,255,255,0.4); }
+  .forecast-icon { font-size: 14px; }
+  .forecast-temp { font-size: 11px; color: rgba(255,255,255,0.8); font-weight: 600; }
+
+  /* ─── APPS CARD ────────────────────────────────────────── */
+  .apps-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .app-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 4px;
+    border-radius: 8px;
+  }
+
+  .app-item:hover {
+    background: rgba(255,255,255,0.06);
+    transform: scale(1.05);
+  }
+
+  .app-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    overflow: hidden;
+  }
+
+  .app-label {
+    font-size: 9px;
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+    line-height: 1.1;
+  }
+
+  .app-yt { background: #ff0000; }
+  .app-sp { background: #1db954; }
+
+  .app-chrome {
+    background: #fff;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .app-maps { background: linear-gradient(135deg, #34a853, #4285f4); }
+  .app-ps { background: linear-gradient(135deg, #01875f, #34a853); }
+
+  .app-news {
+    background: #1565c0;
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    color: #fff;
+    flex-direction: column;
+    line-height: 1;
+  }
+
+  /* ─── VEHICLE CARD ─────────────────────────────────────── */
+  .vehicle-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2px;
+  }
+
+  .vehicle-status {
+    font-size: 12px;
+    color: #4caf50;
+    font-weight: 600;
+  }
+
+  .car-scene {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .vehicle-actions {
+    display: flex;
+    justify-content: space-around;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .veh-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .veh-btn:hover { background: rgba(255,255,255,0.12); }
+  .veh-btn svg { width: 14px; height: 14px; color: rgba(255,255,255,0.6); }
+
+  /* ─── BOTTOM BAR ───────────────────────────────────────── */
+  .bottom-bar {
+    height: 62px;
+    background: #0d1018;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .climate-temp {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 56px;
+  }
+
+  .climate-temp-num {
+    font-family: 'Orbitron', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .climate-temp-label {
+    font-size: 10px;
+    color: rgba(255,255,255,0.4);
+  }
+
+  .climate-arrow {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: rgba(255,255,255,0.3);
+  }
+
+  .climate-arrow svg { width: 16px; height: 16px; }
+
+  .climate-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+  }
+
+  .climate-btn {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+    font-family: 'Exo 2', sans-serif;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .climate-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  .climate-btn svg { width: 14px; height: 14px; }
+  .climate-btn .dot-red { width: 6px; height: 6px; border-radius: 50%; background: #f44336; }
+  .climate-btn .dot-orange { width: 6px; height: 6px; border-radius: 50%; background: #ff9800; }
+
+  .mic-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #1a237e, #283593);
+    border: 2px solid rgba(100,120,255,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow:
+      0 0 20px rgba(79,195,247,0.4),
+      0 0 40px rgba(79,195,247,0.15),
+      inset 0 0 20px rgba(79,195,247,0.1);
+    transition: all 0.2s;
+    animation: micGlow 3s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes micGlow {
+    0%, 100% { box-shadow: 0 0 20px rgba(79,195,247,0.4), 0 0 40px rgba(79,195,247,0.15); }
+    50% { box-shadow: 0 0 30px rgba(79,195,247,0.6), 0 0 60px rgba(79,195,247,0.25); }
+  }
+
+  .mic-btn:hover { transform: scale(1.05); }
+  .mic-btn svg { width: 22px; height: 22px; color: #4fc3f7; }
+
+  .cam-btn {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    color: rgba(255,255,255,0.6);
+    font-family: 'Exo 2', sans-serif;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .cam-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  .cam-btn svg { width: 14px; height: 14px; }
+
+  /* ─── SIGNAL BARS ──────────────────────────────────────── */
+  .signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 16px;
+  }
+
+  .signal-bar {
+    width: 3px;
+    background: rgba(255,255,255,0.7);
+    border-radius: 1px;
+  }
+
+  .signal-bar:nth-child(1) { height: 4px; }
+  .signal-bar:nth-child(2) { height: 7px; }
+  .signal-bar:nth-child(3) { height: 10px; }
+  .signal-bar:nth-child(4) { height: 14px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ SIDEBAR ═══════════════ -->
+<div class="sidebar">
+  <!-- Home (active) -->
+  <div class="sidebar-icon active" title="Ana Sayfa">
+    <svg class="hex-border" viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M27 2 L49 14.5 L49 39.5 L27 52 L5 39.5 L5 14.5 Z"
+        stroke="#ff9800" stroke-width="1.5" fill="none"
+        stroke-linejoin="round"/>
+    </svg>
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+    </svg>
+  </div>
+
+  <!-- Navigation -->
+  <div class="sidebar-icon" title="Navigasyon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+    </svg>
+  </div>
+
+  <!-- Music -->
+  <div class="sidebar-icon" title="Müzik">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M9 18V5l12-2v13"/>
+      <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+    </svg>
+  </div>
+
+  <!-- Phone -->
+  <div class="sidebar-icon" title="Telefon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.09 9.8 19.79 19.79 0 01.05 1.15 2 2 0 012 .02h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92z"/>
+    </svg>
+  </div>
+
+  <!-- Car -->
+  <div class="sidebar-icon" title="Araç">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v9a2 2 0 01-2 2h-2"/>
+      <circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
+      <path d="M8 11V8h8l1.5 3H8z"/>
+    </svg>
+  </div>
+
+  <div class="sidebar-spacer"></div>
+
+  <!-- Apps -->
+  <div class="sidebar-icon" title="Uygulamalar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+  </div>
+
+  <!-- Settings -->
+  <div class="sidebar-icon" title="Ayarlar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+    </svg>
+  </div>
+
+  <!-- Power -->
+  <div class="sidebar-icon" title="Kapat" style="margin-top:6px; color: rgba(244,67,54,0.6);">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>
+    </svg>
+  </div>
+</div>
+
+<!-- ═══════════════ MAIN WRAPPER ═══════════════ -->
+<div class="main-wrapper">
+
+  <!-- ═══ TOP BAR ═══ -->
+  <div class="top-bar">
+    <div class="time-block">
+      <div class="time-display" id="clock">10:30</div>
+      <div class="date-display" id="date-display">24 Mayıs 2025 Cumartesi</div>
+    </div>
+
+    <div class="sun-block">
+      <div class="sun-times">
+        <div class="sun-time-item">
+          <span>☀️</span>
+          <span>05:42</span>
+        </div>
+        <div style="width:180px; position:relative;">
+          <div class="sun-progress">
+            <div class="sun-progress-fill"></div>
+          </div>
+        </div>
+        <div class="sun-time-item">
+          <span>🌙</span>
+          <span>20:15</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-icons">
+      <!-- Bluetooth -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/>
+      </svg>
+
+      <!-- Signal bars -->
+      <div class="signal-bars">
+        <div class="signal-bar"></div>
+        <div class="signal-bar"></div>
+        <div class="signal-bar"></div>
+        <div class="signal-bar"></div>
+      </div>
+
+      <!-- WiFi -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/>
+        <path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>
+      </svg>
+
+      <span class="temp-display">22°C</span>
+    </div>
+  </div>
+
+  <!-- ═══ CONTENT ═══ -->
+  <div class="content">
+
+    <!-- ═══ TOP ROW ═══ -->
+    <div class="top-row">
+
+      <!-- SPEEDOMETER CARD -->
+      <div class="speed-card">
+        <!-- Scene background SVGs -->
+        <svg class="mountains-svg" viewBox="0 0 870 200" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Sky glow -->
+          <defs>
+            <radialGradient id="skyGlow" cx="50%" cy="80%" r="60%">
+              <stop offset="0%" stop-color="#c85a00" stop-opacity="0.8"/>
+              <stop offset="40%" stop-color="#8b3400" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="#2d1b4e" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <rect width="870" height="200" fill="url(#skyGlow)"/>
+          <!-- Far mountains -->
+          <path d="M0,160 L80,80 L140,110 L200,50 L260,90 L320,30 L380,70 L440,20 L500,60 L560,40 L620,80 L680,30 L740,70 L800,50 L870,90 L870,200 L0,200Z"
+            fill="#1a0a2e" opacity="0.9"/>
+          <!-- Near mountains -->
+          <path d="M0,180 L60,130 L120,155 L180,110 L240,140 L300,100 L360,130 L420,90 L480,120 L540,100 L600,130 L660,105 L720,135 L780,115 L870,145 L870,200 L0,200Z"
+            fill="#0d0618" opacity="0.95"/>
+        </svg>
+
+        <!-- Road -->
+        <svg class="road-svg" viewBox="0 0 870 130" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="roadGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+              <stop offset="0%" stop-color="#1a1008"/>
+              <stop offset="100%" stop-color="#0a0806"/>
+            </linearGradient>
+            <linearGradient id="laneGlow" x1="50%" y1="0%" x2="50%" y2="100%">
+              <stop offset="0%" stop-color="#6ad4ff" stop-opacity="0.9"/>
+              <stop offset="100%" stop-color="#4fc3f7" stop-opacity="0.2"/>
+            </linearGradient>
+          </defs>
+          <!-- Road surface -->
+          <path d="M320,0 L550,0 L870,130 L0,130Z" fill="url(#roadGrad)"/>
+          <!-- Road glow lines -->
+          <path d="M385,0 L395,0 L870,130 L850,130Z" fill="url(#laneGlow)" opacity="0.15"/>
+          <path d="M505,0 L515,0 L870,130 L870,120Z" fill="url(#laneGlow)" opacity="0.1"/>
+          <!-- Center lane -->
+          <path d="M430,0 L440,0 L480,130 L460,130Z" fill="#c85a00" opacity="0.3"/>
+          <!-- Purple edge glow left -->
+          <path d="M320,0 L340,0 L60,130 L0,100Z" fill="#7b2fff" opacity="0.12"/>
+          <!-- Purple edge glow right -->
+          <path d="M530,0 L550,0 L870,110 L870,90Z" fill="#7b2fff" opacity="0.08"/>
+        </svg>
+
+        <!-- Car silhouette -->
+        <svg class="car-svg" viewBox="0 0 120 55" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="carBody" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#2a2a3a"/>
+              <stop offset="100%" stop-color="#0d0d14"/>
+            </linearGradient>
+            <radialGradient id="headlight" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#c8d4ff" stop-opacity="1"/>
+              <stop offset="100%" stop-color="#4060ff" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <!-- Body -->
+          <path d="M8,38 L8,28 C8,28 20,8 35,6 L85,6 C96,6 110,20 112,28 L112,38 Z" fill="url(#carBody)"/>
+          <!-- Roof -->
+          <path d="M28,6 L35,0 L85,0 L90,6Z" fill="#1a1a28"/>
+          <!-- Windows -->
+          <path d="M30,6 L36,1 L60,1 L60,6Z" fill="rgba(79,195,247,0.2)" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>
+          <path d="M62,1 L84,1 L88,6 L62,6Z" fill="rgba(79,195,247,0.2)" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>
+          <!-- Wheels -->
+          <circle cx="28" cy="39" r="9" fill="#111" stroke="#333" stroke-width="2"/>
+          <circle cx="28" cy="39" r="5" fill="#222"/>
+          <circle cx="92" cy="39" r="9" fill="#111" stroke="#333" stroke-width="2"/>
+          <circle cx="92" cy="39" r="5" fill="#222"/>
+          <!-- Headlights -->
+          <ellipse cx="113" cy="32" rx="6" ry="4" fill="url(#headlight)" opacity="0.9"/>
+          <!-- Taillights -->
+          <rect x="6" y="26" width="4" height="8" rx="2" fill="#f44336" opacity="0.8"/>
+          <rect x="7" y="27" width="2" height="6" rx="1" fill="#ff6060"/>
+          <!-- Ground reflection -->
+          <ellipse cx="60" cy="50" rx="45" ry="5" fill="rgba(79,195,247,0.08)"/>
+        </svg>
+
+        <!-- Speed content overlay -->
+        <div class="speed-content">
+          <div class="speed-top">
+            <div class="speed-limit">
+              <div class="speed-limit-circle">
+                <span class="speed-limit-num">90</span>
+              </div>
+              <span class="speed-limit-label">Hız Limiti</span>
+            </div>
+            <div class="drive-mode">
+              <div class="drive-letter">D</div>
+              <div class="drive-mode-label">NORMAL</div>
+            </div>
+          </div>
+
+          <!-- Gauge Arc SVG -->
+          <div class="gauge-svg-wrap">
+            <svg viewBox="0 0 260 260" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#4fc3f7"/>
+                  <stop offset="50%" stop-color="#7c4dff"/>
+                  <stop offset="100%" stop-color="#f44336"/>
+                </linearGradient>
+              </defs>
+              <!-- Background arc -->
+              <path d="M 35,200 A 100,100 0 1,1 225,200"
+                fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="8"
+                stroke-linecap="round"/>
+              <!-- Active arc (87/240 of full range) -->
+              <path id="gaugeArc" d="M 35,200 A 100,100 0 1,1 225,200"
+                fill="none" stroke="url(#arcGrad)" stroke-width="8"
+                stroke-linecap="round"
+                stroke-dasharray="0 500"
+                style="transition: stroke-dasharray 1s ease"/>
+              <!-- Tick marks -->
+              <g stroke="rgba(255,255,255,0.25)" stroke-width="1">
+                <!-- Generate ticks via JS -->
+              </g>
+              <!-- Needle -->
+              <g id="gaugeNeedle" transform="rotate(-225, 130, 130)">
+                <line x1="130" y1="130" x2="130" y2="45"
+                  stroke="rgba(255,255,255,0.9)" stroke-width="2"
+                  stroke-linecap="round"/>
+                <circle cx="130" cy="130" r="6" fill="rgba(255,255,255,0.3)"
+                  stroke="rgba(255,255,255,0.8)" stroke-width="2"/>
+              </g>
+            </svg>
+          </div>
+
+          <!-- Speed number -->
+          <div class="gauge-center">
+            <span class="speed-num" id="speedNum">87</span>
+            <span class="speed-unit">km/h</span>
+          </div>
+
+          <!-- Bottom info -->
+          <div class="speed-bottom">
+            <div class="speed-info-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="22" x2="21" y2="22"/>
+                <path d="M4 22V7l8-5 8 5v15"/>
+                <path d="M9 22V12h6v10"/>
+                <rect x="3" y="14" width="4" height="4"/>
+                <rect x="17" y="14" width="4" height="4"/>
+              </svg>
+              <span>520 km</span>
+            </div>
+            <div class="speed-info-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/>
+              </svg>
+              <span>90°C</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="glow-line"></div>
+      </div>
+
+      <!-- MUSIC CARD -->
+      <div class="music-card">
+        <div class="vinyl-section">
+          <div class="eq-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2">
+              <path d="M9 19V5m6 11V3M3 17V9m18 4V9"/>
+            </svg>
+          </div>
+
+          <div style="position:relative; display:flex; align-items:center; justify-content:center;">
+            <div class="vinyl-record">
+              <div class="vinyl-label" style="animation: none;">
+                <div class="vinyl-label-bg"></div>
+              </div>
+            </div>
+
+            <!-- Tonearm -->
+            <svg class="tonearm" viewBox="0 0 60 100" xmlns="http://www.w3.org/2000/svg">
+              <line x1="50" y1="5" x2="20" y2="80"
+                stroke="rgba(255,220,100,0.8)" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="50" cy="5" r="5" fill="#333" stroke="rgba(255,220,100,0.6)" stroke-width="1.5"/>
+              <circle cx="50" cy="5" r="3" fill="rgba(255,220,100,0.8)"/>
+              <circle cx="20" cy="80" r="3" fill="rgba(255,220,100,0.5)"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="music-info">
+          <div class="song-title">Into The Light</div>
+          <div class="song-artist">The Weeknd</div>
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill" id="musicProgress"></div>
+            </div>
+            <div class="progress-times">
+              <span id="musicCurrent">1:32</span>
+              <span>3:48</span>
+            </div>
+          </div>
+          <div class="music-controls">
+            <button class="ctrl-btn" title="Önceki">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn play-btn" title="Duraklat">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn" title="Sonraki">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ BOTTOM ROW ═══ -->
+    <div class="bottom-row">
+
+      <!-- NAV CARD -->
+      <div class="mini-card nav-card">
+        <div class="nav-map-bg">
+          <svg class="nav-map-svg" viewBox="0 0 230 160" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="mapBg" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0d1520"/>
+                <stop offset="100%" stop-color="#0a1018"/>
+              </linearGradient>
+              <linearGradient id="routeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#4fc3f7" stop-opacity="0.9"/>
+                <stop offset="100%" stop-color="#4fc3f7" stop-opacity="0.3"/>
+              </linearGradient>
+            </defs>
+            <rect width="230" height="160" fill="url(#mapBg)"/>
+            <!-- City blocks -->
+            <g fill="none" stroke="rgba(79,195,247,0.12)" stroke-width="0.8">
+              <rect x="10" y="10" width="25" height="18" rx="2"/>
+              <rect x="42" y="10" width="18" height="25" rx="2"/>
+              <rect x="68" y="10" width="30" height="15" rx="2"/>
+              <rect x="10" y="36" width="15" height="22" rx="2"/>
+              <rect x="32" y="42" width="22" height="16" rx="2"/>
+              <rect x="62" y="32" width="20" height="25" rx="2"/>
+              <rect x="90" y="10" width="25" height="20" rx="2"/>
+              <rect x="122" y="15" width="18" height="28" rx="2"/>
+              <rect x="148" y="10" width="30" height="18" rx="2"/>
+              <rect x="185" y="8" width="25" height="22" rx="2"/>
+              <!-- More blocks -->
+              <rect x="10" y="66" width="28" height="18" rx="2"/>
+              <rect x="45" y="66" width="20" height="25" rx="2"/>
+              <rect x="72" y="65" width="25" height="20" rx="2"/>
+              <rect x="105" y="60" width="22" height="28" rx="2"/>
+              <rect x="135" y="62" width="28" height="18" rx="2"/>
+              <rect x="170" y="58" width="22" height="25" rx="2"/>
+              <rect x="200" y="60" width="20" height="20" rx="2"/>
+              <!-- Buildings further down -->
+              <rect x="10" y="95" width="22" height="20" rx="2"/>
+              <rect x="40" y="98" width="28" height="16" rx="2"/>
+              <rect x="76" y="92" width="20" height="24" rx="2"/>
+              <rect x="104" y="95" width="25" height="18" rx="2"/>
+              <rect x="138" y="90" width="20" height="28" rx="2"/>
+              <rect x="165" y="93" width="30" height="20" rx="2"/>
+              <rect x="202" y="90" width="18" height="22" rx="2"/>
+            </g>
+            <!-- Route line -->
+            <path d="M115,155 C115,130 120,110 110,90 C100,70 90,65 95,45 C100,25 115,20 130,15"
+              fill="none" stroke="url(#routeGrad)" stroke-width="4" stroke-linecap="round"/>
+            <!-- Route glow -->
+            <path d="M115,155 C115,130 120,110 110,90 C100,70 90,65 95,45 C100,25 115,20 130,15"
+              fill="none" stroke="#4fc3f7" stroke-width="8" stroke-linecap="round" opacity="0.15"/>
+            <!-- Direction arrow at bottom -->
+            <polygon points="108,148 115,158 122,148 115,155" fill="#4fc3f7" opacity="0.9"/>
+          </svg>
+        </div>
+
+        <div class="nav-content">
+          <div class="nav-expand">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+            </svg>
+          </div>
+          <div class="nav-arrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </div>
+          <div class="nav-street">Çalışmalar Cd.</div>
+          <div class="nav-dist">2.4 km</div>
+          <div class="nav-bottom">
+            <div class="nav-eta">16 dk</div>
+            <div class="nav-details">9.8 km • 10:46</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PHONE CARD -->
+      <div class="mini-card">
+        <div class="mini-card-title">Telefon</div>
+        <div class="phone-status">
+          <div class="status-dot"></div>
+          <span class="status-text">Bağlı</span>
+        </div>
+        <div class="phone-icon-wrap">
+          <div class="phone-circle">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="phone-actions">
+          <div class="phone-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <div class="phone-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </div>
+          <div class="phone-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- WEATHER CARD -->
+      <div class="mini-card weather-card">
+        <div class="weather-bg"></div>
+        <div class="weather-content">
+          <div class="mini-card-title">Hava Durumu</div>
+          <div class="weather-main">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5">
+              <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/>
+            </svg>
+            <span class="weather-temp">22°C</span>
+          </div>
+          <div class="weather-desc">Parçalı Bulutlu</div>
+          <div class="weather-city">İstanbul</div>
+          <div class="weather-forecast">
+            <div class="forecast-item">
+              <span class="forecast-time">12:00</span>
+              <span class="forecast-icon">☀️</span>
+              <span class="forecast-temp">23°</span>
+            </div>
+            <div class="forecast-item">
+              <span class="forecast-time">15:00</span>
+              <span class="forecast-icon">🌤️</span>
+              <span class="forecast-temp">22°</span>
+            </div>
+            <div class="forecast-item">
+              <span class="forecast-time">18:00</span>
+              <span class="forecast-icon">☁️</span>
+              <span class="forecast-temp">21°</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- APPS CARD -->
+      <div class="mini-card">
+        <div class="mini-card-title">Uygulamalar</div>
+        <div class="apps-grid">
+          <!-- YouTube -->
+          <div class="app-item">
+            <div class="app-icon app-yt">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M23 7s-.3-2-1.2-2.8c-1.1-1.2-2.4-1.2-3-1.3C16.6 2.8 12 2.8 12 2.8s-4.6 0-6.8.2c-.6 0-1.9.1-3 1.3C1.3 5 1 7 1 7S.7 9.2.7 11.5v2.2c0 2.2.3 4.4.3 4.4s.3 2 1.2 2.8c1.1 1.2 2.6 1.1 3.3 1.2 2.4.2 10.2.3 10.2.3s4.6 0 6.8-.3c.6-.1 1.9-.2 3-1.3.9-.8 1.2-2.8 1.2-2.8s.3-2.2.3-4.4v-2.1C23.3 9.2 23 7 23 7zM9.7 15.5V8.3l8.1 3.6-8.1 3.6z"/>
+              </svg>
+            </div>
+            <span class="app-label">YouTube</span>
+          </div>
+          <!-- Spotify -->
+          <div class="app-item">
+            <div class="app-icon app-sp">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+              </svg>
+            </div>
+            <span class="app-label">Spotify</span>
+          </div>
+          <!-- Chrome -->
+          <div class="app-item">
+            <div class="app-icon app-chrome">
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="5" fill="#4285f4"/>
+                <path d="M12 7h10.4A12 12 0 0 0 2.3 5.6L7.4 14A5 5 0 0 1 12 7z" fill="#ea4335"/>
+                <path d="M12 17a5 5 0 0 1-4.6-3L2.3 5.6A12 12 0 0 0 12 24z" fill="#34a853"/>
+                <path d="M21.7 7H12a5 5 0 0 1 4.6 7l5.1-8.4z" fill="#fbbc05"/>
+                <circle cx="12" cy="12" r="3.5" fill="white"/>
+              </svg>
+            </div>
+            <span class="app-label">Chrome</span>
+          </div>
+          <!-- Maps -->
+          <div class="app-item">
+            <div class="app-icon app-maps">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+              </svg>
+            </div>
+            <span class="app-label">Haritalar</span>
+          </div>
+          <!-- Play Store -->
+          <div class="app-item">
+            <div class="app-icon app-ps">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M3 20.5v-17c0-.83.94-1.3 1.6-.8l15 8.5c.6.35.6 1.25 0 1.6l-15 8.5c-.66.5-1.6.03-1.6-.8z"/>
+              </svg>
+            </div>
+            <span class="app-label">Play Store</span>
+          </div>
+          <!-- News -->
+          <div class="app-item">
+            <div class="app-icon app-news">
+              <span style="font-family:'Orbitron',monospace; font-size:11px; font-weight:700; color:#fff; line-height:1; display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;">
+                <span style="font-size:13px;">08</span>
+              </span>
+            </div>
+            <span class="app-label">Haberler</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- VEHICLE CARD -->
+      <div class="mini-card">
+        <div class="vehicle-header">
+          <div>
+            <div class="mini-card-title">Araç Durumu <span style="color:rgba(255,255,255,0.3);font-size:11px;">›</span></div>
+            <div class="vehicle-status">Mükemmel</div>
+          </div>
+        </div>
+
+        <div class="car-scene">
+          <!-- Luxury car SVG -->
+          <svg viewBox="0 0 200 90" width="190" height="85" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="luxBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#2a2a3e"/>
+                <stop offset="40%" stop-color="#1a1a28"/>
+                <stop offset="100%" stop-color="#0d0d14"/>
+              </linearGradient>
+              <linearGradient id="luxRoofGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#3a3a52"/>
+                <stop offset="100%" stop-color="#1a1a28"/>
+              </linearGradient>
+              <radialGradient id="groundRefl" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="rgba(79,195,247,0.15)"/>
+                <stop offset="100%" stop-color="rgba(79,195,247,0)"/>
+              </radialGradient>
+            </defs>
+
+            <!-- Ground reflection -->
+            <ellipse cx="100" cy="82" rx="80" ry="8" fill="url(#groundRefl)"/>
+
+            <!-- Body lower -->
+            <path d="M15,62 L15,50 C15,50 28,28 48,24 L152,24 C170,24 185,42 185,50 L185,62 Z"
+              fill="url(#luxBodyGrad)"/>
+
+            <!-- Side skirts -->
+            <path d="M15,60 L185,60 L188,68 L12,68 Z" fill="#111118"/>
+
+            <!-- Roof -->
+            <path d="M55,24 L65,10 L135,10 L145,24 Z" fill="url(#luxRoofGrad)"/>
+
+            <!-- Windshield -->
+            <path d="M58,24 L67,12 L100,12 L100,24 Z"
+              fill="rgba(79,195,247,0.18)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+            <!-- Rear window -->
+            <path d="M100,24 L100,12 L133,12 L143,24 Z"
+              fill="rgba(79,195,247,0.18)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+
+            <!-- Door lines -->
+            <line x1="100" y1="24" x2="100" y2="60" stroke="rgba(255,255,255,0.08)" stroke-width="0.8"/>
+            <path d="M30,55 C50,48 80,45 100,45 C120,45 150,48 170,55"
+              fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
+
+            <!-- Door handles -->
+            <rect x="70" y="46" width="12" height="2.5" rx="1.2" fill="rgba(255,255,255,0.15)"/>
+            <rect x="118" y="46" width="12" height="2.5" rx="1.2" fill="rgba(255,255,255,0.15)"/>
+
+            <!-- Headlights (slanted) -->
+            <path d="M168,42 L183,46 L183,50 L166,48 Z" fill="rgba(200,220,255,0.5)"/>
+            <path d="M168,42 L183,46 L183,50 L166,48 Z" fill="rgba(200,220,255,0.2)"
+              stroke="rgba(200,220,255,0.3)" stroke-width="0.5"/>
+            <!-- Headlight glow -->
+            <ellipse cx="183" cy="47" rx="4" ry="2" fill="rgba(200,220,255,0.4)"/>
+
+            <!-- Taillights -->
+            <path d="M17,42 L16,50 L20,52 L22,44 Z" fill="#c0392b" opacity="0.8"/>
+            <path d="M17,42 L16,50 L20,52 L22,44 Z" fill="#ff6060" opacity="0.5"/>
+
+            <!-- Wheels -->
+            <circle cx="50" cy="68" r="14" fill="#0a0a12" stroke="#2a2a3a" stroke-width="2.5"/>
+            <circle cx="50" cy="68" r="9" fill="#111120"/>
+            <circle cx="50" cy="68" r="5" fill="#1a1a28"/>
+            <g stroke="rgba(255,255,255,0.15)" stroke-width="1.2">
+              <line x1="50" y1="60" x2="50" y2="76"/>
+              <line x1="42" y1="68" x2="58" y2="68"/>
+              <line x1="44.3" y1="62.3" x2="55.7" y2="73.7"/>
+              <line x1="44.3" y1="73.7" x2="55.7" y2="62.3"/>
+            </g>
+
+            <circle cx="150" cy="68" r="14" fill="#0a0a12" stroke="#2a2a3a" stroke-width="2.5"/>
+            <circle cx="150" cy="68" r="9" fill="#111120"/>
+            <circle cx="150" cy="68" r="5" fill="#1a1a28"/>
+            <g stroke="rgba(255,255,255,0.15)" stroke-width="1.2">
+              <line x1="150" y1="60" x2="150" y2="76"/>
+              <line x1="142" y1="68" x2="158" y2="68"/>
+              <line x1="144.3" y1="62.3" x2="155.7" y2="73.7"/>
+              <line x1="144.3" y1="73.7" x2="155.7" y2="62.3"/>
+            </g>
+
+            <!-- Grille -->
+            <path d="M175,50 L183,52 L183,58 L174,56 Z" fill="rgba(255,255,255,0.06)"/>
+
+            <!-- Accent line -->
+            <path d="M22,44 L168,44" stroke="rgba(79,195,247,0.25)" stroke-width="0.8"/>
+          </svg>
+        </div>
+
+        <div class="vehicle-actions">
+          <div class="veh-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+          <div class="veh-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <div class="veh-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          </div>
+          <div class="veh-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /bottom-row -->
+  </div><!-- /content -->
+
+  <!-- ═══ BOTTOM BAR ═══ -->
+  <div class="bottom-bar">
+    <!-- Driver climate -->
+    <div class="climate-temp">
+      <span class="climate-temp-num">21.0°</span>
+      <span class="climate-temp-label">Sürücü</span>
+    </div>
+    <div class="climate-arrow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </div>
+
+    <div class="climate-controls">
+      <!-- Seat heat -->
+      <div class="climate-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+          <path d="M14 14c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/>
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+        <div class="dot-red"></div>
+        <div class="dot-orange"></div>
+      </div>
+
+      <!-- Fan -->
+      <div class="climate-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+          <path d="M12 2a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-5-5 5 5 0 015-5M7 12a5 5 0 01-5 5 5 5 0 015 5 5 5 0 015-5 5 5 0 01-5-5M17 12a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-5-5 5 5 0 015-5"/>
+        </svg>
+        <span>3</span>
+      </div>
+    </div>
+
+    <!-- Center mic -->
+    <div class="mic-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+        <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    </div>
+
+    <div class="climate-controls" style="justify-content:center; gap:8px;">
+      <!-- Front cam -->
+      <div class="cam-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+          <path d="M23 7l-7 5 7 5V7z"/>
+          <rect x="1" y="5" width="15" height="14" rx="2"/>
+        </svg>
+        <span>Ön Cam</span>
+      </div>
+
+      <!-- Rear cam -->
+      <div class="cam-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+          <rect x="1" y="5" width="15" height="14" rx="2"/>
+          <path d="M16 7l7 5-7 5V7z"/>
+        </svg>
+        <span>Arka Cam</span>
+      </div>
+
+      <!-- Heated rear -->
+      <div class="climate-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+          <path d="M14 14c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/>
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+        <div class="dot-red"></div>
+        <div class="dot-orange"></div>
+      </div>
+
+      <!-- Passenger seat heat -->
+      <div class="cam-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="climate-arrow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </div>
+
+    <!-- Passenger climate -->
+    <div class="climate-temp">
+      <span class="climate-temp-num">20.0°</span>
+      <span class="climate-temp-label">Yolcu</span>
+    </div>
+  </div>
+
+</div><!-- /main-wrapper -->
+
+<script>
+  // ── Live Clock ──────────────────────────────────────────
+  const DAYS = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+  const MONTHS = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran',
+                  'Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+
+  function updateClock() {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2,'0');
+    const m = String(now.getMinutes()).padStart(2,'0');
+    document.getElementById('clock').textContent = h + ':' + m;
+
+    const day = DAYS[now.getDay()];
+    const d = now.getDate();
+    const mon = MONTHS[now.getMonth()];
+    const y = now.getFullYear();
+    document.getElementById('date-display').textContent =
+      `${d} ${mon} ${y} ${day}`;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ── Speedometer ─────────────────────────────────────────
+  let currentSpeed = 87;
+  let targetSpeed = 87;
+
+  function speedToAngle(speed, maxSpeed = 240) {
+    // Arc goes from -225° to +45° (270° total)
+    return -225 + (speed / maxSpeed) * 270;
+  }
+
+  function updateGauge(speed) {
+    const maxArcLen = 439; // approx circumference of the gauge arc path
+    const pct = speed / 240;
+    const len = pct * maxArcLen;
+    const arc = document.getElementById('gaugeArc');
+    if (arc) {
+      arc.style.strokeDasharray = `${len} ${maxArcLen}`;
+    }
+
+    const needle = document.getElementById('gaugeNeedle');
+    if (needle) {
+      const angle = speedToAngle(speed);
+      needle.setAttribute('transform', `rotate(${angle}, 130, 130)`);
+    }
+
+    document.getElementById('speedNum').textContent = Math.round(speed);
+  }
+
+  // Animated approach to target speed
+  let displaySpeed = 87;
+  function animateSpeed() {
+    if (Math.abs(displaySpeed - targetSpeed) > 0.3) {
+      displaySpeed += (targetSpeed - displaySpeed) * 0.05;
+      updateGauge(displaySpeed);
+    }
+    requestAnimationFrame(animateSpeed);
+  }
+
+  // Initialize gauge
+  updateGauge(87);
+  animateSpeed();
+
+  // Subtle speed fluctuation for realism
+  setInterval(() => {
+    targetSpeed = 85 + Math.random() * 6;
+  }, 3000);
+
+  // ── Music Progress ───────────────────────────────────────
+  let musicSec = 92; // 1:32
+  const totalSec = 228; // 3:48
+
+  function fmtTime(s) {
+    return Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
+  }
+
+  setInterval(() => {
+    musicSec = (musicSec + 1) % totalSec;
+    const pct = (musicSec / totalSec) * 100;
+    document.getElementById('musicProgress').style.width = pct + '%';
+    document.getElementById('musicCurrent').textContent = fmtTime(musicSec);
+  }, 1000);
+
+  // ── Sun progress auto ────────────────────────────────────
+  function updateSunProgress() {
+    const now = new Date();
+    const sunrise = 5 * 60 + 42; // 342 min
+    const sunset  = 20 * 60 + 15; // 1215 min
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const pct = Math.max(0, Math.min(100,
+      ((cur - sunrise) / (sunset - sunrise)) * 100));
+    const fill = document.querySelector('.sun-progress-fill');
+    if (fill) fill.style.width = pct + '%';
+  }
+  updateSunProgress();
+  setInterval(updateSunProgress, 60000);
+
+  // ── Interactive hover pulse on mic ───────────────────────
+  const micBtn = document.querySelector('.mic-btn');
+  if (micBtn) {
+    micBtn.addEventListener('mousedown', () => {
+      micBtn.style.transform = 'scale(0.95)';
+      micBtn.style.boxShadow = '0 0 50px rgba(79,195,247,0.8), 0 0 100px rgba(79,195,247,0.4)';
+    });
+    micBtn.addEventListener('mouseup', () => {
+      micBtn.style.transform = '';
+      micBtn.style.boxShadow = '';
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,9 +1,8 @@
 import { memo, useEffect, useState } from 'react';
 import {
-  Home, Navigation, Music, Phone, Car, Grid3X3, Settings, Power,
-  ChevronRight, SkipBack, SkipForward, Pause, Play,
+  SkipBack, SkipForward, Pause, Play,
   Thermometer, Fuel, Camera, Maximize2, User, Monitor,
-  Star, Clock, Bluetooth, Wifi, MapPin,
+  Star, Clock, Bluetooth, Wifi, MapPin, Phone, Settings,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
@@ -19,7 +18,7 @@ import { APP_MAP, type AppItem } from '../../data/apps';
    Exact replica of the premium car infotainment design
    ════════════════════════════════════════════════════════════ */
 
-const SIDEBAR_W = 72;
+const SIDEBAR_W = 80;
 
 interface Props {
   onOpenMap:       () => void;
@@ -34,102 +33,185 @@ interface Props {
 }
 
 /* ─── SIDEBAR ─────────────────────────────────────────────────── */
-const Sidebar = memo(function Sidebar({
-  onOpenMap, onOpenSettings, onOpenApps, onLaunch,
-}: {
-  onOpenMap: () => void;
-  onOpenSettings: () => void;
-  onOpenApps: () => void;
-  onLaunch: (id: string) => void;
-}) {
-  const [active, setActive] = useState<number>(0);
-  const { updateSettings } = useStore();
+/* ─── RPM BAR ──────────────────────────────────────────────────── */
+const RPM_MAX = 7000;
 
-  const items: { icon: React.ReactNode; label: string; action: () => void }[] = [
-    { icon: <Home className="w-5 h-5" />,       label: 'Ana Sayfa',  action: () => {} },
-    { icon: <Navigation className="w-5 h-5" />, label: 'Navigasyon', action: onOpenMap },
-    { icon: <Music className="w-5 h-5" />,       label: 'Müzik',     action: () => onLaunch('spotify') },
-    { icon: <Phone className="w-5 h-5" />,       label: 'Telefon',   action: () => onLaunch('phone') },
-    { icon: <Car className="w-5 h-5" />,         label: 'Araç',      action: onOpenSettings },
-  ];
+const RpmBar = memo(function RpmBar() {
+  const obd = useOBDState();
+  const rpm = obd.rpm >= 0 ? obd.rpm : 0;
+  const throttle = obd.throttle >= 0 ? obd.throttle : 0;
+
+  /* Smooth lerp toward target RPM */
+  const [displayRpm, setDisplayRpm] = useState(rpm);
+  useEffect(() => {
+    let frame: number;
+    const step = () => {
+      setDisplayRpm(prev => {
+        const diff = rpm - prev;
+        if (Math.abs(diff) < 8) return rpm;
+        return prev + diff * 0.14;
+      });
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [rpm]);
+
+  const pct = Math.min(displayRpm / RPM_MAX, 1);
+  const isRedline = pct > 0.82;
+  const isHot     = pct > 0.55;
+
+  /* Liquid color gradient stops */
+  const liquidTop    = isRedline ? '#ff3b30' : isHot ? '#f59e0b' : '#00e5ff';
+  const liquidBottom = isRedline ? '#b91c1c' : isHot ? '#b45309' : '#0284c7';
+  const glowColor    = isRedline ? 'rgba(239,68,68,0.55)' : isHot ? 'rgba(245,158,11,0.4)' : 'rgba(0,229,255,0.35)';
+
+  /* Fill height % from bottom */
+  const fillPct = pct * 100;
 
   return (
     <div
-      data-pro-sidebar
-      className="flex flex-col items-center py-4 gap-1 flex-shrink-0"
+      data-pro-rpmbar
       style={{
         width: SIDEBAR_W,
-        background: 'var(--bg-primary, #0a0c10)',
-        borderRight: '1px solid var(--divider-color, rgba(255,255,255,0.05))',
-        transition: 'background 0.4s ease',
-        zIndex: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        flexShrink: 0,
+        background: 'linear-gradient(180deg, rgba(5,7,13,0.98) 0%, rgba(8,10,18,0.98) 100%)',
+        borderRight: '1px solid rgba(255,255,255,0.04)',
+        padding: '14px 0 10px',
+        position: 'relative',
+        gap: 6,
       }}
     >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          onClick={() => { setActive(i); item.action(); }}
-          title={item.label}
-          className="relative flex items-center justify-center transition-all active:scale-90"
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            color: active === i ? 'var(--accent-primary, #ff9800)' : 'rgba(255,255,255,0.38)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          {/* Orange hex border for active */}
-          {active === i && (
-            <svg
-              style={{ position: 'absolute', inset: -3, width: 54, height: 54, pointerEvents: 'none' }}
-              viewBox="0 0 54 54"
-            >
-              <path
-                d="M27 3 L49 15.5 L49 38.5 L27 51 L5 38.5 L5 15.5 Z"
-                stroke="var(--accent-primary, #ff9800)"
-                strokeWidth="1.5"
-                fill="none"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-          {item.icon}
-        </button>
-      ))}
+      {/* RPM label */}
+      <div style={{
+        fontFamily: '"Orbitron", monospace',
+        fontSize: 8,
+        fontWeight: 700,
+        letterSpacing: '0.14em',
+        color: 'rgba(255,255,255,0.28)',
+      }}>RPM</div>
 
-      {/* Spacer */}
-      <div style={{ flex: 1 }} />
+      {/* 7k marker */}
+      <div style={{
+        fontFamily: '"Orbitron", monospace',
+        fontSize: 7,
+        color: 'rgba(239,68,68,0.6)',
+        letterSpacing: '0.06em',
+        marginBottom: -2,
+      }}>7k</div>
 
-      {/* Apps */}
-      <button
-        onClick={onOpenApps}
-        className="flex items-center justify-center transition-all active:scale-90"
-        style={{ width: 48, height: 48, borderRadius: 12, color: 'rgba(255,255,255,0.38)', border: 'none', background: 'none', cursor: 'pointer' }}
-      >
-        <Grid3X3 className="w-5 h-5" />
-      </button>
+      {/* Glass tube */}
+      <div style={{
+        position: 'relative',
+        width: 22,
+        flex: 1,
+        borderRadius: 11,
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: `inset 0 0 12px rgba(0,0,0,0.6), 0 0 16px ${glowColor}`,
+        overflow: 'hidden',
+        transition: 'box-shadow 0.3s ease',
+      }}>
+        {/* Liquid fill — rises from bottom */}
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: `${fillPct}%`,
+          background: `linear-gradient(180deg, ${liquidTop} 0%, ${liquidBottom} 100%)`,
+          transition: 'height 0.12s ease-out, background 0.4s ease',
+          borderRadius: '0 0 10px 10px',
+        }}>
+          {/* Wave at surface */}
+          <div style={{
+            position: 'absolute',
+            top: -4,
+            left: -8,
+            right: -8,
+            height: 8,
+            borderRadius: '50%',
+            background: `${liquidTop}cc`,
+            animation: 'rpmWave 1.8s ease-in-out infinite',
+          }} />
+          {/* Inner shine */}
+          <div style={{
+            position: 'absolute',
+            top: 0, bottom: 0,
+            left: 3, width: 4,
+            borderRadius: 2,
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, transparent 100%)',
+          }} />
+        </div>
 
-      {/* Settings */}
-      <button
-        onClick={onOpenSettings}
-        className="flex items-center justify-center transition-all active:scale-90"
-        style={{ width: 48, height: 48, borderRadius: 12, color: 'rgba(255,255,255,0.38)', border: 'none', background: 'none', cursor: 'pointer' }}
-      >
-        <Settings className="w-5 h-5" />
-      </button>
+        {/* Tick marks */}
+        {[0.25, 0.5, 0.75].map(t => (
+          <div key={t} style={{
+            position: 'absolute',
+            bottom: `${t * 100}%`,
+            left: 0, right: 0,
+            height: 1,
+            background: 'rgba(255,255,255,0.08)',
+            pointerEvents: 'none',
+          }} />
+        ))}
 
-      {/* Power */}
-      <button
-        onClick={() => updateSettings({ sleepMode: true })}
-        title="Uyku Modu"
-        className="flex items-center justify-center transition-all active:scale-90 mt-1"
-        style={{ width: 48, height: 48, borderRadius: 12, color: 'rgba(244,67,54,0.55)', border: 'none', background: 'none', cursor: 'pointer' }}
-      >
-        <Power className="w-5 h-5" />
-      </button>
+        {/* Glass glare overlay */}
+        <div style={{
+          position: 'absolute',
+          top: 0, bottom: 0,
+          left: 1, width: 6,
+          borderRadius: '6px 0 0 6px',
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 60%)',
+          pointerEvents: 'none',
+        }} />
+      </div>
+
+      {/* 0 marker */}
+      <div style={{
+        fontFamily: '"Orbitron", monospace',
+        fontSize: 7,
+        color: 'rgba(0,229,255,0.45)',
+        letterSpacing: '0.06em',
+        marginTop: -2,
+      }}>0</div>
+
+      {/* RPM value */}
+      <div style={{
+        fontFamily: '"Orbitron", monospace',
+        fontSize: 9,
+        fontWeight: 700,
+        color: isRedline ? '#ff3b30' : 'rgba(255,255,255,0.65)',
+        letterSpacing: '0.03em',
+        textShadow: isRedline ? '0 0 10px rgba(255,59,48,0.9)' : 'none',
+        transition: 'color 0.25s, text-shadow 0.25s',
+        textAlign: 'center',
+        lineHeight: 1.2,
+      }}>
+        {(Math.round(displayRpm / 100) * 100).toLocaleString()}
+      </div>
+
+      {/* Throttle label + bar */}
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, paddingBottom: 2 }}>
+        <div style={{ fontSize: 7, fontFamily: '"Orbitron", monospace', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.1em' }}>GZ</div>
+        <div style={{
+          width: 28, height: 3, borderRadius: 2,
+          background: 'rgba(255,255,255,0.06)',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            height: '100%',
+            width: `${throttle}%`,
+            background: `linear-gradient(90deg, ${liquidBottom}, ${liquidTop})`,
+            borderRadius: 2,
+            transition: 'width 0.12s ease',
+            boxShadow: `0 0 4px ${liquidTop}`,
+          }} />
+        </div>
+      </div>
     </div>
   );
 });
@@ -611,75 +693,38 @@ function MiniCard({ children, onClick }: { children: React.ReactNode; onClick?: 
 const NavMiniCard = memo(function NavMiniCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   return (
     <div
-      className="relative overflow-hidden flex flex-col transition-all active:scale-[0.99]"
       style={{
-        flex: 1, borderRadius: 'var(--radius-card, 16px)',
+        flex: 1,
+        borderRadius: 'var(--radius-card, 16px)',
         border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
         background: 'var(--bg-card, #0e1119)',
         boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
-        cursor: 'pointer',
         overflow: 'hidden',
+        position: 'relative',
+        cursor: 'pointer',
         transition: 'background 0.4s ease, border-color 0.4s ease',
       }}
       onClick={onOpenMap}
     >
-      {/* Map background */}
-      <div style={{ position: 'absolute', inset: 0 }}>
-        {fullMapOpen
-          ? <div style={{
-              width: '100%', height: '100%',
-              background: 'linear-gradient(160deg,#06101f,#0d1e38)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <MapPin className="w-8 h-8" style={{ color: '#4fc3f7', opacity: 0.5 }} />
-            </div>
-          : (
-            <div style={{ width: '100%', height: '100%', opacity: 0.65 }}>
-              <MiniMapWidget onFullScreenClick={onOpenMap} />
-            </div>
-          )
-        }
-        {/* Route overlay */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} viewBox="0 0 230 160" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="proRouteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#4fc3f7" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#4fc3f7" stopOpacity="0.2" />
-            </linearGradient>
-          </defs>
-          <path d="M115,155 C115,130 120,110 110,90 C100,70 90,65 95,45 C100,25 115,20 130,15"
-            fill="none" stroke="url(#proRouteGrad)" strokeWidth="3.5" strokeLinecap="round" />
-          <path d="M115,155 C115,130 120,110 110,90 C100,70 90,65 95,45 C100,25 115,20 130,15"
-            fill="none" stroke="currentColor" strokeWidth="7" strokeLinecap="round" opacity="0.15" />
-        </svg>
-        {/* Gradient overlay for readability */}
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(14,17,25,0.2) 0%, rgba(14,17,25,0.75) 100%)', pointerEvents: 'none' }} />
-      </div>
-
-      {/* Content */}
-      <div style={{ position: 'relative', zIndex: 2, height: '100%', display: 'flex', flexDirection: 'column', padding: 14 }}>
-        {/* Expand icon */}
-        <div style={{ position: 'absolute', top: 10, right: 10, width: 28, height: 28, background: 'rgba(0,0,0,0.5)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Maximize2 className="w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.65)' }} />
-        </div>
-
-        {/* Arrow */}
+      {fullMapOpen ? (
         <div style={{
-          width: 32, height: 32, borderRadius: 8,
-          background: 'rgba(79,195,247,0.18)',
+          width: '100%', height: '100%',
+          background: 'linear-gradient(160deg,#06101f,#0d1e38)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          marginBottom: 4,
         }}>
-          <ChevronRight className="w-5 h-5" style={{ color: 'var(--accent, #4fc3f7)' }} />
+          <MapPin className="w-8 h-8" style={{ color: '#4fc3f7', opacity: 0.5 }} />
         </div>
-
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent, #ff9800)', lineHeight: 1.1 }}>Çalışmalar Cd.</div>
-        <div style={{ fontSize: 12, color: 'var(--accent2, #4fc3f7)', marginBottom: 8 }}>2.4 km</div>
-
-        <div style={{ marginTop: 'auto' }}>
-          <div style={{ fontFamily: '"Orbitron", monospace', fontSize: 18, fontWeight: 700, color: '#4caf50' }}>16 dk</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>9.8 km • 10:46</div>
-        </div>
+      ) : (
+        <MiniMapWidget onFullScreenClick={onOpenMap} />
+      )}
+      {/* Expand button overlay */}
+      <div style={{
+        position: 'absolute', top: 8, right: 8, zIndex: 10,
+        width: 28, height: 28, background: 'rgba(0,0,0,0.55)',
+        borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        pointerEvents: 'none',
+      }}>
+        <Maximize2 className="w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.7)' }} />
       </div>
     </div>
   );
@@ -901,6 +946,12 @@ const KEYFRAMES = `
     0%, 100% { box-shadow: 0 0 20px rgba(79,195,247,0.4), 0 0 40px rgba(79,195,247,0.15); }
     50% { box-shadow: 0 0 30px rgba(79,195,247,0.65), 0 0 60px rgba(79,195,247,0.28); }
   }
+  @keyframes rpmWave {
+    0%   { transform: scaleX(1)   translateY(0px); }
+    30%  { transform: scaleX(1.1) translateY(-2px); }
+    60%  { transform: scaleX(0.95) translateY(1px); }
+    100% { transform: scaleX(1)   translateY(0px); }
+  }
 `;
 
 let styleInjected = false;
@@ -914,7 +965,7 @@ function injectStyles() {
 
 /* ─── ROOT LAYOUT ──────────────────────────────────────────────── */
 export const ProLayout = memo(function ProLayout({
-  onOpenMap, onOpenApps, onOpenSettings, onLaunch, fullMapOpen,
+  onOpenMap, onOpenApps: _onOpenApps, onOpenSettings, onLaunch, fullMapOpen,
   onOpenRearCam,
 }: Props) {
   injectStyles();
@@ -925,13 +976,8 @@ export const ProLayout = memo(function ProLayout({
       data-layout="pro-main"
       style={{ width: '100%', height: '100%', background: 'var(--bg-primary, #0a0c10)', transition: 'background 0.4s ease' }}
     >
-      {/* Sidebar */}
-      <Sidebar
-        onOpenMap={onOpenMap}
-        onOpenApps={onOpenApps}
-        onOpenSettings={onOpenSettings}
-        onLaunch={onLaunch}
-      />
+      {/* RPM Bar */}
+      <RpmBar />
 
       {/* Right: top bar + content + bottom bar */}
       <div className="flex flex-col flex-1 overflow-hidden">

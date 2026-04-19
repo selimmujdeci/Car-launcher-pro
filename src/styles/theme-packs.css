@@ -1,1233 +1,843 @@
-/* ════════════════════════════════════════════════════════════════
-   THEME ENGINE — 23 Unique Worlds
-   Her tema: renk + layout boyutu + atmosfer + tipografi + hareket
-   ════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   AUTOMOTIVE TEMA PAKETLERİ — 5 Premium Tema
+   Tetikleyici: <html data-theme="pro|tesla|cockpit|mercedes|audi">
+   ═══════════════════════════════════════════════════════════════════ */
 
-/* ── DEFAULT SYSTEM VARIABLES ── */
-:root {
-  /* Color */
-  --pack-accent:    #3b82f6;
-  --pack-glow:      rgba(59,130,246,0.4);
-  --pack-bg:        linear-gradient(180deg,#0f172a 0%,#020617 100%);
-  --pack-radius:    1.5rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      12px;
-  --pack-shadow:    0 10px 40px rgba(0,0,0,0.4);
-  --pack-card-bg:   rgba(18,24,42,0.88);
+/* ──────────────────────────────────────────────────────────────────
+   1. PRO — Lamborghini / Ferrari Pit Lane Estetiği
+   Karbon fiber, altın vurgular, derin mürekkep mavisi
+────────────────────────────────────────────────────────────────── */
+:root[data-theme="pro"],
+html[data-theme="pro"] {
+  --bg-primary:      #1C1C2E;
+  --bg-secondary:    #24243E;
+  --bg-surface:      #2D2D44;
+  --bg-card:         rgba(35,35,58,0.96);
+  --accent-primary:  #D4AF37;
+  --accent-secondary:#C0392B;
+  --accent-glow:     rgba(212,175,55,0.25);
+  --text-primary:    #F5F0E8;
+  --text-secondary:  #B8A89A;
+  --text-muted:      #7A6E66;
+  --border-color:    rgba(212,175,55,0.30);
+  --border-subtle:   rgba(212,175,55,0.12);
+  --shadow-color:    rgba(0,0,0,0.70);
+  --gradient-start:  #1C1C2E;
+  --gradient-end:    #2D2D44;
+  --dock-bg:         rgba(14,14,24,0.98);
+  --dock-border:     rgba(212,175,55,0.25);
+  --card-blur:       blur(16px) saturate(1.4);
+  --radius-card:     18px;
+  --radius-dock:     0px;
+  --pack-bg:         linear-gradient(160deg,#1C1C2E 0%,#24243E 50%,#1A1A2C 100%);
+  --pack-card-bg:    rgba(35,35,58,0.96);
+  --pack-border:     rgba(212,175,55,0.28);
+  --pack-glow:       rgba(212,175,55,0.15);
+  --pack-accent:     #D4AF37;
+  --pack-accent-rgb: 212,175,55;
+  --header-bg:       rgba(14,14,24,0.98);
+  --dock-bg-var:     rgba(12,12,20,0.99);
+  --text-primary-var:#F5F0E8;
+  --text-secondary-var:#B8A89A;
+  --premium-accent:  #D4AF37;
+  --accent-blue:     #D4AF37;
+  --accent-emerald:  #2ECC71;
+  --accent-red:      #C0392B;
 
-  /* Speedometer panel */
-  --speedo-w:           18rem;
-  --speedo-font:        6rem;
-  --speedo-color:       #ffffff;
-  --speedo-glow:        rgba(255,255,255,0.15);
-  --speedo-unit-font:   0.7rem;
-  --speedo-tracking:    0.5em;
-  --speedo-bg:          #02040a;
-  --speedo-border:      rgba(255,255,255,0.2);
-  --speedo-border-w:    2px;
-  --speedo-data-size:   1.5rem;
-  --speedo-shadow:      0 20px 60px rgba(0,0,0,0.8);
+  /* ── Yapısal kimlik: PRO ── */
+  --radius-btn:        4px;
+  --radius-tile:       4px;
+  --font-ui:           'Orbitron', monospace;
+  --font-weight-ui:    900;
+  --letter-spacing-ui: 2px;
+  --btn-glow:          0 0 12px rgba(212,175,55,0.35);
+  --icon-color-1:      #D4AF37;
+  --icon-color-2:      #C0392B;
+  --icon-color-nav:    #D4AF37;
+  --icon-color-media:  #2ECC71;
+  --dock-icon-color:   #D4AF37;
+  --divider-color:     rgba(212,175,55,0.18);
+  --dock-border-top:   1px solid rgba(212,175,55,0.35);
+  --tile-hover-bg:     rgba(212,175,55,0.08);
 
-  /* Header zone */
-  --header-h:       60px;
-  --header-bg:      rgba(0,0,0,0.2);
-  --header-border:  none;
-  --header-blur:    0px;
-
-  /* Dock zone */
-  --dock-h:         96px;
-  --dock-bg:        rgba(0,0,0,0.8);
-  --dock-border:    rgba(255,255,255,0.2);
-  --dock-radius:    3.2rem;
-  --dock-card-w:    120px;
-  --dock-card-h:    64px;
-  --dock-blur:      16px;
-
-  /* Map container */
-  --map-radius:     2.5rem;
-  --map-border:     rgba(255,255,255,0.2);
-  --map-border-w:   2px;
-  --map-shadow:     0 20px 60px rgba(0,0,0,0.8);
-
-  /* Motion */
-  --motion-dur:     0.3s;
-  --motion-ease:    cubic-bezier(0.23,1,0.32,1);
-
-  /* ── Layout Engine (flex/order per theme) ── */
-  --l-speedo-order:   0;     /* CSS order — speedometer */
-  --l-content-order:  1;     /* CSS order — main content */
-  --l-map-order:      2;     /* CSS order — map container */
-  --l-map-flex-basis: 42%;   /* map width (flex-basis) */
-  --l-map-min-w:      12rem; /* map minimum width */
-  --l-map-grow:       1;     /* map flex-grow */
+  /* Karbon fiber doku */
+  --carbon-texture:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px,
+      transparent 1px, transparent 6px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px,
+      transparent 1px, transparent 6px
+    );
 }
 
-/* ════════════════════════════════════════════════════════════════
-   1. TESLA — Harita Merkezi, Saf Minimal
-   Geniş map, ince speedo, sıfır gürültü, düz çizgiler
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="tesla"] {
-  --pack-accent:    #e8e8e8;
-  --pack-glow:      rgba(255,255,255,0.06);
-  --pack-bg:        #050505;
-  --pack-radius:    0.375rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    none;
-  --pack-card-bg:   rgba(12,12,12,0.96);
-
-  --speedo-w:         13rem;
-  --speedo-font:      5rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      rgba(255,255,255,0.04);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.65em;
-  --speedo-bg:        #000000;
-  --speedo-border:    rgba(255,255,255,0.08);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.25rem;
-  --speedo-shadow:    none;
-
-  --header-h:       50px;
-  --header-bg:      rgba(0,0,0,0.85);
-  --header-border:  none;
-
-  --dock-h:         84px;
-  --dock-bg:        rgba(0,0,0,0.92);
-  --dock-border:    rgba(255,255,255,0.1);
-  --dock-radius:    0.5rem;
-  --dock-card-w:    108px;
-  --dock-card-h:    58px;
-
-  --map-radius:     0.375rem;
-  --map-border:     rgba(255,255,255,0.08);
-  --map-border-w:   1px;
-  --map-shadow:     none;
-
-  --motion-dur: 0.2s;
-
-  /* Layout: map-first — harita dominant */
-  --l-map-flex-basis: 45%;
-  --l-map-min-w:      14rem;
-  --l-map-grow:       1;
+html[data-theme="pro"] body,
+html[data-theme="pro"] #root,
+html[data-theme="pro"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+  color: var(--text-primary) !important;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   2. BMW M SPORT — Hız Egemen, Keskin Köşeler
-   Geniş speedo, mavi/beyaz agresif cockpit, sıfır köşe
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="bmw"] {
-  --pack-accent:    #1d4ed8;
-  --pack-glow:      rgba(29,78,216,0.6);
-  --pack-bg:        linear-gradient(135deg,#010410 0%,#0a1240 100%);
-  --pack-radius:    0rem;
-  --pack-spacing:   1rem;
-  --pack-border:    2px;
-  --pack-blur:      0px;
-  --pack-shadow:    3px 3px 0px rgba(29,78,216,0.3);
-  --pack-card-bg:   rgba(2,6,24,0.98);
-
-  --speedo-w:         22rem;
-  --speedo-font:      7.5rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      rgba(29,78,216,0.5);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.4em;
-  --speedo-bg:        #000d2e;
-  --speedo-border:    rgba(29,78,216,0.7);
-  --speedo-border-w:  2px;
-  --speedo-data-size: 1.75rem;
-  --speedo-shadow:    0 0 40px rgba(29,78,216,0.2), 0 20px 60px rgba(0,0,0,0.9);
-
-  --header-h:       66px;
-  --header-bg:      rgba(0,4,20,0.95);
-  --header-border:  2px solid rgba(29,78,216,0.3);
-
-  --dock-h:         102px;
-  --dock-bg:        rgba(1,4,18,0.97);
-  --dock-border:    rgba(29,78,216,0.4);
-  --dock-radius:    0rem;
-  --dock-card-w:    130px;
-  --dock-card-h:    70px;
-
-  --map-radius:     0rem;
-  --map-border:     rgba(29,78,216,0.4);
-  --map-border-w:   2px;
-
-  --motion-dur: 0.15s;
-
-  /* Layout: cockpit — speedo dominant, map küçük */
-  --l-map-flex-basis: 26%;
-  --l-map-min-w:      9rem;
+html[data-theme="pro"] .glass-card,
+html[data-theme="pro"] .up-panel,
+html[data-theme="pro"] .premium-card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 4px 32px var(--shadow-color), 0 0 0 1px var(--border-subtle),
+              inset 0 1px 0 rgba(212,175,55,0.08) !important;
+  backdrop-filter: var(--card-blur) !important;
+  background-image: var(--carbon-texture) !important;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   3. MERCEDES — Lüks Denge, Sıcak Altın
-   Premium yuvarlaklık, altın aksanlar, zengin cam efekti
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="mercedes"] {
-  --pack-accent:    #d4af37;
-  --pack-glow:      rgba(212,175,55,0.35);
-  --pack-bg:        radial-gradient(ellipse at 30% 0%,#1c1408 0%,#090907 60%,#000 100%);
-  --pack-radius:    2.5rem;
-  --pack-spacing:   1.125rem;
-  --pack-border:    1px;
-  --pack-blur:      16px;
-  --pack-shadow:    0 16px 48px rgba(0,0,0,0.8);
-  --pack-card-bg:   rgba(10,8,3,0.92);
-
-  --speedo-w:         18rem;
-  --speedo-font:      6rem;
-  --speedo-color:     #f5f0e8;
-  --speedo-glow:      rgba(212,175,55,0.25);
-  --speedo-unit-font: 0.7rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(8,5,2,0.96);
-  --speedo-border:    rgba(212,175,55,0.3);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.5rem;
-  --speedo-shadow:    0 0 0 1px rgba(212,175,55,0.1), 0 20px 60px rgba(0,0,0,0.9);
-
-  --header-h:       62px;
-  --header-bg:      rgba(4,3,1,0.9);
-  --header-border:  1px solid rgba(212,175,55,0.15);
-
-  --dock-h:         100px;
-  --dock-bg:        rgba(4,3,1,0.93);
-  --dock-border:    rgba(212,175,55,0.2);
-  --dock-radius:    2.5rem;
-  --dock-card-w:    124px;
-
-  --map-radius:     2.5rem;
-  --map-border:     rgba(212,175,55,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.4s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   4. AUDI — Teknik Hassasiyet, Net Grid
-   Düz çizgiler, yüksek kontrast, modüler yapı, soğuk ton
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="audi"] {
-  --pack-accent:    #c0392b;
-  --pack-glow:      rgba(192,57,43,0.5);
-  --pack-bg:        #030608;
-  --pack-radius:    0.25rem;
-  --pack-spacing:   1rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    0 4px 20px rgba(0,0,0,0.7);
-  --pack-card-bg:   rgba(5,8,12,0.99);
-
-  --speedo-w:         20rem;
-  --speedo-font:      6.5rem;
-  --speedo-color:     #f0f0f0;
-  --speedo-glow:      rgba(200,200,200,0.08);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.35em;
-  --speedo-bg:        #020508;
-  --speedo-border:    rgba(255,255,255,0.18);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.625rem;
-  --speedo-shadow:    0 4px 24px rgba(0,0,0,0.9);
-
-  --header-h:       60px;
-  --header-bg:      rgba(2,4,8,0.98);
-  --header-border:  1px solid rgba(255,255,255,0.08);
-
-  --dock-h:         92px;
-  --dock-bg:        rgba(2,4,8,0.99);
-  --dock-border:    rgba(255,255,255,0.12);
-  --dock-radius:    0.25rem;
-  --dock-card-w:    118px;
-
-  --map-radius:     0.25rem;
-  --map-border:     rgba(255,255,255,0.12);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.18s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   5. PORSCHE — Performans + Premium
-   Speedo ekrana hükümdar, büyük hız rakamı, dramatik odak
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="porsche"] {
-  --pack-accent:    #d4a227;
-  --pack-glow:      rgba(212,162,39,0.5);
-  --pack-bg:        #050505;
-  --pack-radius:    0.5rem;
-  --pack-spacing:   1rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    0 8px 30px rgba(0,0,0,0.9);
-  --pack-card-bg:   rgba(5,5,5,0.98);
-
-  --speedo-w:         24rem;
-  --speedo-font:      8rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      rgba(212,162,39,0.3);
-  --speedo-unit-font: 0.7rem;
-  --speedo-tracking:  0.4em;
-  --speedo-bg:        #060606;
-  --speedo-border:    rgba(212,162,39,0.25);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.875rem;
-  --speedo-shadow:    0 0 60px rgba(212,162,39,0.08), 0 20px 60px rgba(0,0,0,0.95);
-
-  --header-h:       56px;
-  --header-bg:      rgba(3,3,3,0.96);
-
-  --dock-h:         86px;
-  --dock-bg:        rgba(3,3,3,0.97);
-  --dock-border:    rgba(212,162,39,0.2);
-  --dock-radius:    0.5rem;
-  --dock-card-w:    112px;
-
-  --map-radius:     0.5rem;
-  --map-border:     rgba(212,162,39,0.15);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.22s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   6. CYBERPUNK / NEON — Gece Sürüşü, Elektrik
-   Neon kenarlar, siber renk dili, keskin ama okunabilir
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="cyberpunk"] {
-  --pack-accent:    #d946ef;
-  --pack-glow:      rgba(217,70,239,0.7);
-  --pack-bg:        #020617;
-  --pack-radius:    0.25rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    2px;
-  --pack-blur:      0px;
-  --pack-shadow:    0 0 20px rgba(217,70,239,0.3), 4px 4px 0px #06b6d4;
-  --pack-card-bg:   rgba(5,10,30,0.96);
-
-  --speedo-w:         16rem;
-  --speedo-font:      6rem;
-  --speedo-color:     #f0f0ff;
-  --speedo-glow:      rgba(217,70,239,0.5);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.45em;
-  --speedo-bg:        rgba(5,2,20,0.98);
-  --speedo-border:    rgba(217,70,239,0.8);
-  --speedo-border-w:  2px;
-  --speedo-data-size: 1.5rem;
-  --speedo-shadow:    0 0 20px rgba(217,70,239,0.4), inset 0 0 20px rgba(6,182,212,0.04), 4px 4px 0 rgba(6,182,212,0.3);
-
-  --header-h:       60px;
-  --header-bg:      rgba(2,4,20,0.96);
-  --header-border:  2px solid rgba(217,70,239,0.3);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(2,4,20,0.97);
-  --dock-border:    rgba(217,70,239,0.5);
-  --dock-radius:    0.25rem;
-
-  --map-radius:     0.25rem;
-  --map-border:     rgba(6,182,212,0.5);
-  --map-border-w:   2px;
-
-  --motion-dur: 0.12s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   7. MIDNIGHT / GECE — Göz Dinlendirici, Hafif
-   Düşük parlaklık, sakin renkler, gece sürüşü için optimize
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="midnight"] {
-  --pack-accent:    #6366f1;
-  --pack-glow:      rgba(99,102,241,0.2);
-  --pack-bg:        #010105;
-  --pack-radius:    1.25rem;
-  --pack-spacing:   1.125rem;
-  --pack-border:    1px;
-  --pack-blur:      8px;
-  --pack-shadow:    0 8px 32px rgba(0,0,0,0.7);
-  --pack-card-bg:   rgba(8,8,16,0.96);
-
-  --speedo-w:         14rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #c0c8e0;
-  --speedo-glow:      rgba(99,102,241,0.12);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        #04040c;
-  --speedo-border:    rgba(99,102,241,0.2);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.25rem;
-  --speedo-shadow:    0 8px 32px rgba(0,0,0,0.8);
-
-  --header-h:       54px;
-  --header-bg:      rgba(2,2,10,0.95);
-
-  --dock-h:         86px;
-  --dock-bg:        rgba(2,2,10,0.96);
-  --dock-border:    rgba(99,102,241,0.15);
-  --dock-radius:    1.5rem;
-  --dock-card-w:    110px;
-
-  --map-radius:     1.5rem;
-  --map-border:     rgba(99,102,241,0.15);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.45s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   8. GLASS PRO / CAM PRO — Premium Buzlu Cam
-   Güçlü blur efekti, okunabilir şeffaflık, parlak kenarlık
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="glass-pro"] {
-  --pack-accent:    #60a5fa;
-  --pack-glow:      rgba(255,255,255,0.14);
-  --pack-bg:        rgba(5,10,25,0.75);
-  --pack-radius:    2rem;
-  --pack-spacing:   1.375rem;
-  --pack-border:    1px;
-  --pack-blur:      40px;
-  --pack-shadow:    inset 0 0 20px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.5);
-  --pack-card-bg:   rgba(255,255,255,0.06);
-
-  --speedo-w:         18rem;
-  --speedo-font:      6rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      rgba(255,255,255,0.2);
-  --speedo-unit-font: 0.7rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(255,255,255,0.04);
-  --speedo-border:    rgba(255,255,255,0.18);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.5rem;
-  --speedo-shadow:    inset 0 0 40px rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.7);
-
-  --header-h:       60px;
-  --header-bg:      rgba(255,255,255,0.04);
-  --header-border:  1px solid rgba(255,255,255,0.1);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(255,255,255,0.05);
-  --dock-border:    rgba(255,255,255,0.15);
-  --dock-radius:    2rem;
-
-  --map-radius:     2rem;
-  --map-border:     rgba(255,255,255,0.12);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.4s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   9. AMBIENT / ORTAM — Medya + Hava, Sakin Atmosfer
-   Harita küçülür, medya ve durum bilgileri öne çıkar
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="ambient"] {
-  --pack-accent:    #34d399;
-  --pack-glow:      rgba(52,211,153,0.25);
-  --pack-bg:        radial-gradient(ellipse at 50% 0%,#0a1a14 0%,#050f0a 100%);
-  --pack-radius:    2rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      20px;
-  --pack-shadow:    0 8px 32px rgba(0,0,0,0.6);
-  --pack-card-bg:   rgba(5,15,10,0.9);
-
-  --speedo-w:         12rem;
-  --speedo-font:      4.5rem;
-  --speedo-color:     #d0ffe8;
-  --speedo-glow:      rgba(52,211,153,0.2);
-  --speedo-unit-font: 0.6rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(4,12,8,0.96);
-  --speedo-border:    rgba(52,211,153,0.2);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.125rem;
-  --speedo-shadow:    0 0 40px rgba(52,211,153,0.08), 0 8px 32px rgba(0,0,0,0.7);
-
-  --header-h:       56px;
-  --header-bg:      rgba(4,10,7,0.9);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(4,10,7,0.93);
-  --dock-border:    rgba(52,211,153,0.15);
-  --dock-radius:    2.5rem;
-
-  --map-radius:     2rem;
-  --map-border:     rgba(52,211,153,0.15);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.5s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   10. GALAXY — Fütüristik, Derin Uzay
-   Mor/violet derinlik, yüzen paneller, uzay atmosferi
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="galaxy"] {
-  --pack-accent:    #a855f7;
-  --pack-glow:      rgba(168,85,247,0.5);
-  --pack-bg:        radial-gradient(circle at top right,#1e0a40 0%,#0a0a1e 60%,#020617 100%);
-  --pack-radius:    2.5rem;
-  --pack-spacing:   1.375rem;
-  --pack-border:    1px;
-  --pack-blur:      20px;
-  --pack-shadow:    0 0 50px rgba(168,85,247,0.12), 0 8px 32px rgba(0,0,0,0.7);
-  --pack-card-bg:   rgba(10,4,28,0.88);
-
-  --speedo-w:         16rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #e0d0ff;
-  --speedo-glow:      rgba(168,85,247,0.4);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(10,4,24,0.96);
-  --speedo-border:    rgba(168,85,247,0.3);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.375rem;
-  --speedo-shadow:    0 0 60px rgba(168,85,247,0.18), 0 20px 60px rgba(0,0,0,0.9);
-
-  --header-h:       60px;
-  --header-bg:      rgba(8,4,20,0.88);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(8,4,20,0.9);
-  --dock-border:    rgba(168,85,247,0.25);
-  --dock-radius:    2.5rem;
-
-  --map-radius:     2.5rem;
-  --map-border:     rgba(168,85,247,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.5s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   11. REDLINE — Maksimum Sport, Yarış Ruhu
-   Speedo ekrana hükmeder, devasa hız rakamı, kırmızı egemenlik
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="redline"] {
-  --pack-accent:    #ef4444;
-  --pack-glow:      rgba(239,68,68,0.6);
-  --pack-bg:        linear-gradient(135deg,#1a0505 0%,#030303 100%);
-  --pack-radius:    0.5rem;
-  --pack-spacing:   1rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    0 0 30px rgba(239,68,68,0.12);
-  --pack-card-bg:   rgba(10,2,2,0.98);
-
-  --speedo-w:         28rem;
-  --speedo-font:      10rem;
-  --speedo-color:     #ff3333;
-  --speedo-glow:      rgba(255,0,0,0.6);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.3em;
-  --speedo-bg:        #0a0000;
-  --speedo-border:    rgba(239,68,68,0.5);
-  --speedo-border-w:  2px;
-  --speedo-data-size: 2rem;
-  --speedo-shadow:    0 0 60px rgba(255,0,0,0.15), 0 20px 60px rgba(0,0,0,0.95);
-
-  --header-h:       50px;
-  --header-bg:      rgba(8,0,0,0.98);
-  --header-border:  2px solid rgba(239,68,68,0.2);
-
-  --dock-h:         80px;
-  --dock-bg:        rgba(8,0,0,0.98);
-  --dock-border:    rgba(239,68,68,0.4);
-  --dock-radius:    0.5rem;
-  --dock-card-w:    110px;
-  --dock-card-h:    58px;
-
-  --map-radius:     0.5rem;
-  --map-border:     rgba(239,68,68,0.25);
-  --map-border-w:   2px;
-
-  --motion-dur: 0.1s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   12. ELECTRIC — EV Odaklı, Enerji Akışı
-   Yeşil enerji, batarya ve menzil öncelikli, akıllı tasarım
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="electric"] {
-  --pack-accent:    #22c55e;
-  --pack-glow:      rgba(34,197,94,0.4);
-  --pack-bg:        linear-gradient(160deg,#030f06 0%,#020a03 100%);
-  --pack-radius:    1rem;
-  --pack-spacing:   1.125rem;
-  --pack-border:    1px;
-  --pack-blur:      8px;
-  --pack-shadow:    0 8px 24px rgba(0,0,0,0.6);
-  --pack-card-bg:   rgba(4,12,5,0.95);
-
-  --speedo-w:         18rem;
-  --speedo-font:      6rem;
-  --speedo-color:     #ccffdd;
-  --speedo-glow:      rgba(34,197,94,0.35);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(3,10,4,0.98);
-  --speedo-border:    rgba(34,197,94,0.35);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.5rem;
-  --speedo-shadow:    0 0 40px rgba(34,197,94,0.08), 0 20px 60px rgba(0,0,0,0.8);
-
-  --header-h:       60px;
-  --header-bg:      rgba(2,8,3,0.96);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(2,8,3,0.96);
-  --dock-border:    rgba(34,197,94,0.25);
-  --dock-radius:    1rem;
-
-  --map-radius:     1rem;
-  --map-border:     rgba(34,197,94,0.25);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.28s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   13. CARBON / KARBON — Teknik Koyu, Fiber Dokusu
-   Gri/antrasit güç, keskin paneller, teknik his
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="carbon"] {
-  --pack-accent:    #9ca3af;
-  --pack-glow:      rgba(156,163,175,0.25);
-  --pack-bg:        #0a0a0a;
-  --pack-radius:    0.375rem;
-  --pack-spacing:   1rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    0 4px 16px rgba(0,0,0,0.9);
-  --pack-card-bg:   rgba(12,12,12,0.99);
-
-  --speedo-w:         20rem;
-  --speedo-font:      6.5rem;
-  --speedo-color:     #e8e8e8;
-  --speedo-glow:      rgba(200,200,200,0.08);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.4em;
-  --speedo-bg:        #080808;
-  --speedo-border:    rgba(255,255,255,0.1);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.625rem;
-  --speedo-shadow:    0 4px 24px rgba(0,0,0,0.95);
-
-  --header-h:       60px;
-  --header-bg:      rgba(6,6,6,0.99);
-  --header-border:  1px solid rgba(255,255,255,0.06);
-
-  --dock-h:         90px;
-  --dock-bg:        rgba(6,6,6,0.99);
-  --dock-border:    rgba(255,255,255,0.08);
-  --dock-radius:    0.375rem;
-  --dock-card-w:    116px;
-
-  --map-radius:     0.375rem;
-  --map-border:     rgba(255,255,255,0.08);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.18s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   14. NIGHT CITY / ŞEHİR — Kentsel Sürüş
-   Navigasyon + Telefon dominant, kompakt speedo, urban his
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="night-city"] {
-  --pack-accent:    #818cf8;
-  --pack-glow:      rgba(129,140,248,0.4);
-  --pack-bg:        #020408;
-  --pack-radius:    0.75rem;
-  --pack-spacing:   1rem;
-  --pack-border:    1px;
-  --pack-blur:      12px;
-  --pack-shadow:    0 8px 24px rgba(0,0,0,0.8);
-  --pack-card-bg:   rgba(4,6,14,0.96);
-
-  --speedo-w:         14rem;
-  --speedo-font:      5rem;
-  --speedo-color:     #c0c8ff;
-  --speedo-glow:      rgba(129,140,248,0.3);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(3,5,12,0.98);
-  --speedo-border:    rgba(129,140,248,0.3);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.25rem;
-  --speedo-shadow:    0 0 30px rgba(129,140,248,0.1), 0 20px 60px rgba(0,0,0,0.9);
-
-  --header-h:       60px;
-  --header-bg:      rgba(3,4,12,0.96);
-  --header-border:  1px solid rgba(129,140,248,0.1);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(3,4,12,0.96);
-  --dock-border:    rgba(129,140,248,0.25);
-  --dock-radius:    0.75rem;
-
-  --map-radius:     0.75rem;
-  --map-border:     rgba(129,140,248,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.25s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   15. RANGE ROVER — Uzun Yol, Seyahat Odağı
-   Yakıt/menzil önceliği, sıcak toprak tonları, konforlu his
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="range-rover"] {
-  --pack-accent:    #b45309;
-  --pack-glow:      rgba(180,83,9,0.35);
-  --pack-bg:        linear-gradient(160deg,#0d0906 0%,#070504 100%);
-  --pack-radius:    1.5rem;
-  --pack-spacing:   1.125rem;
-  --pack-border:    1px;
-  --pack-blur:      12px;
-  --pack-shadow:    0 12px 40px rgba(0,0,0,0.8);
-  --pack-card-bg:   rgba(10,7,4,0.94);
-
-  --speedo-w:         18rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #f5e8d0;
-  --speedo-glow:      rgba(180,83,9,0.2);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(8,5,3,0.98);
-  --speedo-border:    rgba(180,83,9,0.3);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.375rem;
-  --speedo-shadow:    0 12px 40px rgba(0,0,0,0.9);
-
-  --header-h:       60px;
-  --header-bg:      rgba(7,5,3,0.94);
-  --header-border:  1px solid rgba(180,83,9,0.12);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(7,5,3,0.96);
-  --dock-border:    rgba(180,83,9,0.2);
-  --dock-radius:    1.5rem;
-
-  --map-radius:     1.5rem;
-  --map-border:     rgba(180,83,9,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.4s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   16. MINIMAL DARK / KOYU — Güçlü Sadelik
-   Maksimum boşluk, güçlü tipografi, sıfır dekorasyon
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="minimal-dark"] {
-  --pack-accent:    #f1f5f9;
-  --pack-glow:      rgba(255,255,255,0.04);
-  --pack-bg:        #0a0a0a;
-  --pack-radius:    0.75rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    none;
-  --pack-card-bg:   rgba(16,16,16,0.99);
-
-  --speedo-w:         13rem;
-  --speedo-font:      5rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      none;
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.65em;
-  --speedo-bg:        #0a0a0a;
-  --speedo-border:    rgba(255,255,255,0.07);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.25rem;
-  --speedo-shadow:    none;
-
-  --header-h:       50px;
-  --header-bg:      rgba(10,10,10,0.99);
-  --header-border:  1px solid rgba(255,255,255,0.05);
-
-  --dock-h:         82px;
-  --dock-bg:        rgba(10,10,10,0.99);
-  --dock-border:    rgba(255,255,255,0.05);
-  --dock-radius:    0.75rem;
-  --dock-card-w:    108px;
-  --dock-card-h:    56px;
-
-  --map-radius:     0.75rem;
-  --map-border:     rgba(255,255,255,0.07);
-  --map-border-w:   1px;
-  --map-shadow:     none;
-
-  --motion-dur: 0.22s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   17. MINIMAL LIGHT / AÇIK — Temiz Açık Dünya
-   Light tema, kontrollü açıklık, premium beyaz
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="minimal-light"] {
-  --pack-accent:    #1d4ed8;
-  --pack-glow:      rgba(29,78,216,0.12);
-  --pack-bg:        #f0f4f8;
-  --pack-radius:    0.75rem;
-  --pack-spacing:   1.125rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    0 2px 8px rgba(0,0,0,0.06);
-  --pack-card-bg:   rgba(255,255,255,0.96);
-
-  --speedo-w:         14rem;
-  --speedo-font:      5rem;
-  --speedo-color:     #1e293b;
-  --speedo-glow:      rgba(29,78,216,0.08);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        #ffffff;
-  --speedo-border:    rgba(0,0,0,0.1);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.25rem;
-  --speedo-shadow:    0 4px 16px rgba(0,0,0,0.08);
-
-  --header-h:       54px;
-  --header-bg:      rgba(240,244,248,0.96);
-  --header-border:  1px solid rgba(0,0,0,0.08);
-
-  --dock-h:         86px;
-  --dock-bg:        rgba(240,244,248,0.96);
-  --dock-border:    rgba(0,0,0,0.08);
-  --dock-radius:    0.75rem;
-  --dock-card-w:    112px;
-  --dock-card-h:    58px;
-
-  --map-radius:     0.75rem;
-  --map-border:     rgba(0,0,0,0.08);
-  --map-border-w:   1px;
-  --map-shadow:     0 4px 16px rgba(0,0,0,0.08);
-
-  --motion-dur: 0.3s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   18. MONOCHROME / MONO — Tek Ton, Maksimum Okunabilirlik
-   Siyah-beyaz, teknik, göz yormuyor
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="monochrome"] {
-  --pack-accent:    #94a3b8;
-  --pack-glow:      rgba(148,163,184,0.15);
-  --pack-bg:        #050505;
-  --pack-radius:    0.25rem;
-  --pack-spacing:   1rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    none;
-  --pack-card-bg:   rgba(10,10,10,0.99);
-
-  --speedo-w:         18rem;
-  --speedo-font:      6rem;
-  --speedo-color:     #f0f0f0;
-  --speedo-glow:      rgba(200,200,200,0.06);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        #050505;
-  --speedo-border:    rgba(255,255,255,0.14);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.5rem;
-  --speedo-shadow:    none;
-
-  --header-h:       56px;
-  --header-bg:      rgba(5,5,5,0.99);
-  --header-border:  1px solid rgba(255,255,255,0.1);
-
-  --dock-h:         88px;
-  --dock-bg:        rgba(5,5,5,0.99);
-  --dock-border:    rgba(255,255,255,0.1);
-  --dock-radius:    0.25rem;
-
-  --map-radius:     0.25rem;
-  --map-border:     rgba(255,255,255,0.1);
-  --map-border-w:   1px;
-  --map-shadow:     none;
-
-  --motion-dur: 0.2s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   19. ARCTIC / ARKTİK — Ferah, Buz Mavisi
-   Serin tonlar, temiz boşluklar, taze his
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="arctic"] {
-  --pack-accent:    #7dd3fc;
-  --pack-glow:      rgba(125,211,252,0.3);
-  --pack-bg:        linear-gradient(180deg,#030f18 0%,#010a10 100%);
-  --pack-radius:    1.5rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      16px;
-  --pack-shadow:    0 8px 32px rgba(0,0,0,0.6);
-  --pack-card-bg:   rgba(5,15,25,0.92);
-
-  --speedo-w:         16rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #e0f7ff;
-  --speedo-glow:      rgba(125,211,252,0.25);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(4,12,20,0.97);
-  --speedo-border:    rgba(125,211,252,0.25);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.375rem;
-  --speedo-shadow:    0 0 40px rgba(125,211,252,0.08), 0 20px 60px rgba(0,0,0,0.8);
-
-  --header-h:       58px;
-  --header-bg:      rgba(3,10,18,0.94);
-  --header-border:  1px solid rgba(125,211,252,0.1);
-
-  --dock-h:         92px;
-  --dock-bg:        rgba(3,10,18,0.96);
-  --dock-border:    rgba(125,211,252,0.2);
-  --dock-radius:    1.5rem;
-
-  --map-radius:     1.5rem;
-  --map-border:     rgba(125,211,252,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.35s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   20. SUNSET / GÜNBATIMI — Altın Saat Atmosferi
-   Sıcak portakal/amber, premium akşam sürüşü hissi
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="sunset"] {
-  --pack-accent:    #f97316;
-  --pack-glow:      rgba(249,115,22,0.4);
-  --pack-bg:        linear-gradient(160deg,#1a0a00 0%,#0d0500 100%);
-  --pack-radius:    1.5rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      12px;
-  --pack-shadow:    0 8px 32px rgba(0,0,0,0.7);
-  --pack-card-bg:   rgba(14,7,0,0.94);
-
-  --speedo-w:         16rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #ffe8d0;
-  --speedo-glow:      rgba(249,115,22,0.3);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(12,5,0,0.98);
-  --speedo-border:    rgba(249,115,22,0.3);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.375rem;
-  --speedo-shadow:    0 0 40px rgba(249,115,22,0.08), 0 20px 60px rgba(0,0,0,0.9);
-
-  --header-h:       58px;
-  --header-bg:      rgba(10,4,0,0.94);
-  --header-border:  1px solid rgba(249,115,22,0.12);
-
-  --dock-h:         92px;
-  --dock-bg:        rgba(10,4,0,0.96);
-  --dock-border:    rgba(249,115,22,0.25);
-  --dock-radius:    1.5rem;
-
-  --map-radius:     1.5rem;
-  --map-border:     rgba(249,115,22,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.4s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   21. BIG CARDS — Büyük Kartlar, Dokunaklı UI
-   Her şey büyük, geniş dokunma alanları, kolay kullanım
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="big-cards"] {
-  --pack-accent:    #60a5fa;
-  --pack-glow:      rgba(96,165,250,0.4);
-  --pack-bg:        #040810;
-  --pack-radius:    2rem;
-  --pack-spacing:   1.5rem;
-  --pack-border:    1px;
-  --pack-blur:      16px;
-  --pack-shadow:    0 12px 40px rgba(0,0,0,0.6);
-  --pack-card-bg:   rgba(6,12,24,0.92);
-
-  --speedo-w:         22rem;
-  --speedo-font:      7rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      rgba(96,165,250,0.3);
-  --speedo-unit-font: 0.75rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(4,8,18,0.98);
-  --speedo-border:    rgba(96,165,250,0.25);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.75rem;
-  --speedo-shadow:    0 0 50px rgba(96,165,250,0.08), 0 20px 60px rgba(0,0,0,0.8);
-
-  --header-h:       66px;
-  --header-bg:      rgba(4,6,16,0.95);
-
-  --dock-h:         104px;
-  --dock-bg:        rgba(4,6,16,0.96);
-  --dock-border:    rgba(96,165,250,0.2);
-  --dock-radius:    2rem;
-  --dock-card-w:    140px;
-  --dock-card-h:    72px;
-
-  --map-radius:     2rem;
-  --map-border:     rgba(96,165,250,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.4s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   22. AI CENTER — Yapay Zeka Merkezi, Cyan Fütürizm
-   Yapay zeka yetenekleri öne çıkar, siyan renk dili
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="ai-center"] {
-  --pack-accent:    #06b6d4;
-  --pack-glow:      rgba(6,182,212,0.5);
-  --pack-bg:        radial-gradient(ellipse at 50% 30%,#002030 0%,#010810 100%);
-  --pack-radius:    1.5rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      20px;
-  --pack-shadow:    0 0 40px rgba(6,182,212,0.08), 0 8px 32px rgba(0,0,0,0.7);
-  --pack-card-bg:   rgba(0,16,24,0.9);
-
-  --speedo-w:         16rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #ccffff;
-  --speedo-glow:      rgba(6,182,212,0.4);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.5em;
-  --speedo-bg:        rgba(0,12,20,0.97);
-  --speedo-border:    rgba(6,182,212,0.35);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.375rem;
-  --speedo-shadow:    0 0 50px rgba(6,182,212,0.1), 0 20px 60px rgba(0,0,0,0.9);
-
-  --header-h:       60px;
-  --header-bg:      rgba(0,10,18,0.94);
-  --header-border:  1px solid rgba(6,182,212,0.15);
-
-  --dock-h:         96px;
-  --dock-bg:        rgba(0,10,18,0.95);
-  --dock-border:    rgba(6,182,212,0.25);
-  --dock-radius:    1.5rem;
-
-  --map-radius:     1.5rem;
-  --map-border:     rgba(6,182,212,0.2);
-  --map-border-w:   1px;
-
-  --motion-dur: 0.35s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   23. TESLA X NIGHT — Tesla Gece Modu, Kırmızı Egzotik
-   Tesla sadeliği + gece kırmızısı, en saf karanlık dünya
-   ════════════════════════════════════════════════════════════════ */
-[data-theme-pack="tesla-x-night"] {
-  --pack-accent:    #ef4444;
-  --pack-glow:      rgba(239,68,68,0.25);
-  --pack-bg:        #000000;
-  --pack-radius:    0.375rem;
-  --pack-spacing:   1.25rem;
-  --pack-border:    1px;
-  --pack-blur:      0px;
-  --pack-shadow:    none;
-  --pack-card-bg:   rgba(8,8,8,0.99);
-
-  --speedo-w:         13rem;
-  --speedo-font:      5.5rem;
-  --speedo-color:     #ffffff;
-  --speedo-glow:      rgba(239,68,68,0.15);
-  --speedo-unit-font: 0.65rem;
-  --speedo-tracking:  0.65em;
-  --speedo-bg:        #000000;
-  --speedo-border:    rgba(239,68,68,0.2);
-  --speedo-border-w:  1px;
-  --speedo-data-size: 1.25rem;
-  --speedo-shadow:    none;
-
-  --header-h:       50px;
-  --header-bg:      rgba(0,0,0,0.99);
-  --header-border:  1px solid rgba(239,68,68,0.1);
-
-  --dock-h:         82px;
-  --dock-bg:        rgba(0,0,0,0.99);
-  --dock-border:    rgba(239,68,68,0.2);
-  --dock-radius:    0.375rem;
-  --dock-card-w:    108px;
-  --dock-card-h:    56px;
-
-  --map-radius:     0.375rem;
-  --map-border:     rgba(239,68,68,0.15);
-  --map-border-w:   1px;
-  --map-shadow:     none;
-
-  --motion-dur: 0.18s;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   GLOBAL UI TRANSFORMER — Accent Color & Border Radius
-   ════════════════════════════════════════════════════════════════ */
-
-[data-theme-pack] {
-  /* --wallpaper-bg CSS değişkeni set edilmişse onu kullan, yoksa tema rengi */
-  background: var(--wallpaper-bg, var(--pack-bg)) !important;
-}
-
-/* Gündüz modu: tema rengini açık lacivert ile değiştir */
-[data-day-night="day"][data-theme-pack] {
-  background: var(--wallpaper-bg, linear-gradient(180deg, #1c3050 0%, #0f1e35 100%)) !important;
-}
-
-/* Duvar kağıdı aktifken tema arka planı şeffaf olsun */
-[data-has-wallpaper="true"][data-theme-pack] {
-  background: var(--wallpaper-bg) !important;
-}
-
-[data-theme-pack] .rounded-2xl,
-[data-theme-pack] .rounded-3xl,
-[data-theme-pack] .rounded-xl,
-[data-theme-pack] .rounded-\[1\.5rem\],
-[data-theme-pack] .rounded-\[2\.5rem\] {
-  border-radius: var(--pack-radius) !important;
-  border-width: var(--pack-border) !important;
-  backdrop-filter: blur(var(--pack-blur)) !important;
-  box-shadow: var(--pack-shadow) !important;
-  background: var(--pack-card-bg) !important;
-}
-
-[data-theme-pack] button {
-  border-radius: calc(var(--pack-radius) * 0.7) !important;
-  transition:
-    box-shadow    var(--motion-dur) ease,
-    transform     calc(var(--motion-dur) * 0.5) ease,
-    border-radius var(--motion-dur) cubic-bezier(0.34,1.56,0.64,1) !important;
-}
-
-[data-theme-pack] button:hover {
-  box-shadow: 0 0 20px var(--pack-glow) !important;
-  transform: translateY(-2px) !important;
-}
-
-/* Accent color tokens */
-[data-theme-pack] .text-blue-400,
-[data-theme-pack] .text-blue-500,
-[data-theme-pack] .text-emerald-400 {
-  color: var(--pack-accent) !important;
-  text-shadow: 0 0 10px var(--pack-glow);
-}
-
-[data-theme-pack] .bg-blue-500,
-[data-theme-pack] .bg-blue-600,
-[data-theme-pack] .bg-emerald-500 {
-  background-color: var(--pack-accent) !important;
-}
-
-/* Dock container styling */
-[data-theme-pack] [data-dock="main"],
-[data-theme-pack] .dock-inner {
-  border-radius: var(--dock-radius) !important;
+html[data-theme="pro"] [data-dock="main"] {
   background: var(--dock-bg) !important;
-  border-color: var(--dock-border) !important;
-  backdrop-filter: blur(var(--dock-blur)) !important;
+  border-top: 1px solid var(--dock-border) !important;
+  box-shadow: 0 -4px 32px rgba(212,175,55,0.08), 0 -1px 0 rgba(212,175,55,0.15) !important;
 }
 
-/* Header zone */
-[data-theme-pack] [data-layout-zone="header"] {
-  height: var(--header-h) !important;
-  min-height: var(--header-h) !important;
-  background: var(--header-bg) !important;
-  border-bottom: var(--header-border, none) !important;
-  backdrop-filter: blur(var(--header-blur, 0px)) !important;
+html[data-theme="pro"] [data-layout="pro-main"],
+html[data-theme="pro"] [data-pro-sidebar],
+html[data-theme="pro"] [data-pro-topbar],
+html[data-theme="pro"] [data-pro-bottombar] {
+  background: #1C1C2E !important;
+  border-color: rgba(212,175,55,0.20) !important;
 }
 
-/* Dock zone height */
-[data-theme-pack] [data-layout-zone="dock"] {
-  height: var(--dock-h) !important;
-  min-height: var(--dock-h) !important;
+html[data-theme="pro"] .text-blue-400,
+html[data-theme="pro"] [style*="color: #60a5fa"] { color: #D4AF37 !important; }
+
+html[data-theme="pro"] .text-emerald-400 { color: #2ECC71 !important; }
+
+/* ──────────────────────────────────────────────────────────────────
+   2. TESLA — Silicon Valley Minimalizmi
+   Matte koyu yüzeyler, ince kırmızı çizgiler, cam panel efekti
+────────────────────────────────────────────────────────────────── */
+:root[data-theme="tesla"],
+html[data-theme="tesla"] {
+  --bg-primary:      #141414;
+  --bg-secondary:    #1E1E1E;
+  --bg-surface:      #252525;
+  --bg-card:         rgba(28,28,28,0.94);
+  --accent-primary:  #E31937;
+  --accent-secondary:#A8A9AD;
+  --accent-glow:     rgba(227,25,55,0.20);
+  --text-primary:    #F2F2F2;
+  --text-secondary:  #A8A9AD;
+  --text-muted:      #666;
+  --border-color:    rgba(227,25,55,0.22);
+  --border-subtle:   rgba(255,255,255,0.07);
+  --shadow-color:    rgba(0,0,0,0.75);
+  --gradient-start:  #141414;
+  --gradient-end:    #1E1E1E;
+  --dock-bg:         rgba(10,10,10,0.99);
+  --dock-border:     rgba(227,25,55,0.30);
+  --card-blur:       blur(20px) saturate(1.2);
+  --radius-card:     12px;
+  --pack-bg:         linear-gradient(160deg,#141414 0%,#1A1A1A 50%,#121212 100%);
+  --pack-card-bg:    rgba(28,28,28,0.95);
+  --pack-border:     rgba(227,25,55,0.20);
+  --pack-glow:       rgba(227,25,55,0.12);
+  --pack-accent:     #E31937;
+  --pack-accent-rgb: 227,25,55;
+  --header-bg:       rgba(8,8,8,0.99);
+  --premium-accent:  #E31937;
+  --accent-blue:     #E31937;
+  --accent-emerald:  #3DDC84;
+  --accent-red:      #E31937;
+
+  /* ── Yapısal kimlik: TESLA ── */
+  --radius-btn:        50px;
+  --radius-tile:       50px;
+  --font-ui:           system-ui, -apple-system, sans-serif;
+  --font-weight-ui:    300;
+  --letter-spacing-ui: 0.08em;
+  --btn-glow:          none;
+  --icon-color-1:      #E31937;
+  --icon-color-2:      #A8A9AD;
+  --icon-color-nav:    #E31937;
+  --icon-color-media:  #3DDC84;
+  --dock-icon-color:   #E31937;
+  --divider-color:     rgba(255,255,255,0.06);
+  --dock-border-top:   2px solid rgba(227,25,55,0.40);
+  --tile-hover-bg:     rgba(227,25,55,0.08);
 }
 
-/* Dock cards */
-[data-theme-pack] .dock-card {
-  min-width: var(--dock-card-w, 120px) !important;
-  height: var(--dock-card-h, 64px) !important;
+html[data-theme="tesla"] body,
+html[data-theme="tesla"] #root,
+html[data-theme="tesla"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+  color: var(--text-primary) !important;
 }
 
-/* Navigation & HUD */
-[data-theme-pack] .navigation-hud-root,
-[data-theme-pack] .map-overlay-root {
-  --style-blur:   var(--pack-blur);
-  --style-radius: var(--pack-radius);
+html[data-theme="tesla"] .glass-card,
+html[data-theme="tesla"] .up-panel,
+html[data-theme="tesla"] .premium-card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-bottom: 1px solid rgba(227,25,55,0.18) !important;
+  box-shadow: 0 8px 32px var(--shadow-color), 0 1px 0 rgba(255,255,255,0.05) inset !important;
+  backdrop-filter: var(--card-blur) !important;
+  border-radius: var(--radius-card) !important;
 }
 
-/* Performance mode: lite — strip all GPU effects */
-[data-performance-mode="lite"] * {
-  filter: none !important;
-  text-shadow: none !important;
-  animation: none !important;
-  transition-duration: 100ms !important;
+html[data-theme="tesla"] [data-dock="main"] {
+  background: var(--dock-bg) !important;
+  border-top: 2px solid rgba(227,25,55,0.35) !important;
+  box-shadow: 0 -4px 24px rgba(227,25,55,0.10) !important;
 }
 
-[data-performance-mode="lite"] button:hover,
-[data-performance-mode="lite"] button:focus {
-  box-shadow: none !important;
-  filter: brightness(1.05) !important;
-  transform: none !important;
+html[data-theme="tesla"] [data-layout="pro-main"],
+html[data-theme="tesla"] [data-pro-sidebar],
+html[data-theme="tesla"] [data-pro-topbar],
+html[data-theme="tesla"] [data-pro-bottombar] {
+  background: #141414 !important;
+  border-color: rgba(255,255,255,0.05) !important;
 }
 
-[data-performance-mode="lite"] [data-theme-pack] .rounded-2xl,
-[data-performance-mode="lite"] [data-theme-pack] .rounded-xl {
-  backdrop-filter: none !important;
-  box-shadow: none !important;
+html[data-theme="tesla"] .text-blue-400 { color: #E31937 !important; }
+html[data-theme="tesla"] .text-emerald-400 { color: #3DDC84 !important; }
+
+/* ──────────────────────────────────────────────────────────────────
+   3. COCKPIT — Glass Cockpit / Airbus A380 Aviyonik
+   HUD mavi, backdrop blur cam efekti, neon kenarlıklar
+────────────────────────────────────────────────────────────────── */
+:root[data-theme="cockpit"],
+html[data-theme="cockpit"] {
+  --bg-primary:      #080F1E;
+  --bg-secondary:    #0A1628;
+  --bg-surface:      #0D2137;
+  --bg-card:         rgba(10,22,45,0.88);
+  --accent-primary:  #00B4D8;
+  --accent-secondary:#90E0EF;
+  --accent-glow:     rgba(0,180,216,0.30);
+  --text-primary:    #E8F4FD;
+  --text-secondary:  #90C8E0;
+  --text-muted:      #4A7A94;
+  --border-color:    rgba(0,180,216,0.35);
+  --border-subtle:   rgba(0,180,216,0.15);
+  --shadow-color:    rgba(0,0,0,0.80);
+  --gradient-start:  #080F1E;
+  --gradient-end:    #0D2137;
+  --dock-bg:         rgba(4,10,20,0.99);
+  --dock-border:     rgba(0,180,216,0.40);
+  --card-blur:       blur(20px) saturate(1.6);
+  --radius-card:     16px;
+  --pack-bg:         linear-gradient(160deg,#080F1E 0%,#0A1628 50%,#060D1A 100%);
+  --pack-card-bg:    rgba(10,22,45,0.88);
+  --pack-border:     rgba(0,180,216,0.30);
+  --pack-glow:       rgba(0,180,216,0.18);
+  --pack-accent:     #00B4D8;
+  --pack-accent-rgb: 0,180,216;
+  --header-bg:       rgba(4,10,20,0.99);
+  --premium-accent:  #00B4D8;
+  --accent-blue:     #00B4D8;
+  --accent-cyan:     #90E0EF;
+  --accent-emerald:  #00E5A0;
+  --accent-red:      #FF4B6E;
+
+  /* ── Yapısal kimlik: COCKPIT ── */
+  --radius-btn:        8px;
+  --radius-tile:       8px;
+  --font-ui:           'Courier New', 'Courier', monospace;
+  --font-weight-ui:    700;
+  --letter-spacing-ui: 0.08em;
+  --btn-glow:          0 0 10px rgba(0,180,216,0.45), 0 0 20px rgba(0,180,216,0.20);
+  --icon-color-1:      #00B4D8;
+  --icon-color-2:      #90E0EF;
+  --icon-color-nav:    #00B4D8;
+  --icon-color-media:  #00E5A0;
+  --dock-icon-color:   #00B4D8;
+  --divider-color:     rgba(0,180,216,0.25);
+  --dock-border-top:   1px solid rgba(0,180,216,0.50);
+  --tile-hover-bg:     rgba(0,180,216,0.10);
+
+  /* HUD çizgi efektleri */
+  --hud-line: rgba(0,180,216,0.12);
+  --hud-grid:
+    repeating-linear-gradient(0deg, transparent, transparent 39px, var(--hud-line) 39px, var(--hud-line) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, var(--hud-line) 39px, var(--hud-line) 40px);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   LAYOUT ENGINE — Per-Theme Flex/Order Overrides
-   map-first: harita dominant | cockpit: speedo dominant
-   glass: dengeli cam | sport: eşit/agresif
-   content: içerik odaklı | minimal: sade
-   (tesla + bmw overrides already set inline above)
-   ════════════════════════════════════════════════════════════════ */
+html[data-theme="cockpit"] body,
+html[data-theme="cockpit"] #root,
+html[data-theme="cockpit"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+  color: var(--text-primary) !important;
+  background-image: var(--hud-grid) !important;
+  background-size: 40px 40px !important;
+}
 
-/* Mercedes: glass — dengeli, 38% map */
-[data-theme-pack="mercedes"]    { --l-map-flex-basis: 38%; --l-map-min-w: 12rem; }
+html[data-theme="cockpit"] .glass-card,
+html[data-theme="cockpit"] .up-panel,
+html[data-theme="cockpit"] .premium-card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 4px 32px var(--shadow-color),
+              0 0 20px rgba(0,180,216,0.08),
+              inset 0 1px 0 rgba(0,180,216,0.12) !important;
+  backdrop-filter: var(--card-blur) !important;
+  border-radius: var(--radius-card) !important;
+}
 
-/* Audi: sport — keskin, 36% map */
-[data-theme-pack="audi"]        { --l-map-flex-basis: 36%; --l-map-min-w: 11rem; }
+html[data-theme="cockpit"] [data-dock="main"] {
+  background: var(--dock-bg) !important;
+  border-top: 1px solid var(--dock-border) !important;
+  box-shadow: 0 -4px 32px rgba(0,180,216,0.12) !important;
+}
 
-/* Porsche: cockpit — speedo büyük, 28% map */
-[data-theme-pack="porsche"]     { --l-map-flex-basis: 28%; --l-map-min-w: 10rem; }
+html[data-theme="cockpit"] [data-layout="pro-main"],
+html[data-theme="cockpit"] [data-pro-sidebar],
+html[data-theme="cockpit"] [data-pro-topbar],
+html[data-theme="cockpit"] [data-pro-bottombar] {
+  background: #080F1E !important;
+  border-color: rgba(0,180,216,0.20) !important;
+}
 
-/* Cyberpunk, Carbon: sport */
-[data-theme-pack="cyberpunk"]   { --l-map-flex-basis: 35%; --l-map-min-w: 11rem; }
-[data-theme-pack="carbon"]      { --l-map-flex-basis: 35%; --l-map-min-w: 11rem; }
+html[data-theme="cockpit"] .text-blue-400 { color: #00B4D8 !important; }
+html[data-theme="cockpit"] .text-emerald-400 { color: #00E5A0 !important; }
+html[data-theme="cockpit"] [style*="color: #60a5fa"] { color: #00B4D8 !important; }
 
-/* Redline, Electric: sport, speed-focused */
-[data-theme-pack="redline"]     { --l-map-flex-basis: 33%; --l-map-min-w: 10rem; }
-[data-theme-pack="electric"]    { --l-map-flex-basis: 34%; --l-map-min-w: 10rem; }
+/* ──────────────────────────────────────────────────────────────────
+   4. MERCEDES — MBUX S-Class Lüksü
+   Alman mühendisliği soğukluğu, amber/krem vurgular
+────────────────────────────────────────────────────────────────── */
+:root[data-theme="mercedes"],
+html[data-theme="mercedes"] {
+  --bg-primary:      #181818;
+  --bg-secondary:    #222222;
+  --bg-surface:      #2C2C2C;
+  --bg-card:         rgba(30,30,30,0.97);
+  --accent-primary:  #C8A882;
+  --accent-secondary:#8C8C8C;
+  --accent-glow:     rgba(200,168,130,0.20);
+  --text-primary:    #EDE8E0;
+  --text-secondary:  #B0A898;
+  --text-muted:      #6A6460;
+  --border-color:    rgba(200,168,130,0.25);
+  --border-subtle:   rgba(200,168,130,0.10);
+  --shadow-color:    rgba(0,0,0,0.80);
+  --gradient-start:  #181818;
+  --gradient-end:    #2C2C2C;
+  --dock-bg:         rgba(10,10,10,0.99);
+  --dock-border:     rgba(200,168,130,0.22);
+  --card-blur:       blur(24px) saturate(1.3);
+  --radius-card:     20px;
+  --pack-bg:         linear-gradient(160deg,#181818 0%,#202020 50%,#161616 100%);
+  --pack-card-bg:    rgba(30,30,30,0.97);
+  --pack-border:     rgba(200,168,130,0.22);
+  --pack-glow:       rgba(200,168,130,0.12);
+  --pack-accent:     #C8A882;
+  --pack-accent-rgb: 200,168,130;
+  --header-bg:       rgba(10,10,10,0.99);
+  --premium-accent:  #C8A882;
+  --accent-blue:     #C8A882;
+  --accent-emerald:  #6EBF8B;
+  --accent-red:      #C0392B;
 
-/* Minimal themes: daha az harita */
-[data-theme-pack="minimal-dark"]  { --l-map-flex-basis: 38%; --l-map-min-w: 10rem; }
-[data-theme-pack="minimal-light"] { --l-map-flex-basis: 38%; --l-map-min-w: 10rem; }
-[data-theme-pack="monochrome"]    { --l-map-flex-basis: 40%; --l-map-min-w: 11rem; }
+  /* ── Yapısal kimlik: MERCEDES ── */
+  --radius-btn:        6px;
+  --radius-tile:       6px;
+  --font-ui:           system-ui, 'Helvetica Neue', sans-serif;
+  --font-weight-ui:    400;
+  --letter-spacing-ui: 3px;
+  --btn-glow:          none;
+  --icon-color-1:      #C8A882;
+  --icon-color-2:      #8C8C8C;
+  --icon-color-nav:    #C8A882;
+  --icon-color-media:  #6EBF8B;
+  --dock-icon-color:   #C8A882;
+  --divider-color:     rgba(200,168,130,0.15);
+  --dock-border-top:   1px solid rgba(200,168,130,0.28);
+  --tile-hover-bg:     rgba(200,168,130,0.08);
 
-/* Big Cards / AI Center: içerik odaklı, küçük harita */
-[data-theme-pack="big-cards"]     { --l-map-flex-basis: 30%; --l-map-min-w: 9rem; }
-[data-theme-pack="ai-center"]     { --l-map-flex-basis: 28%; --l-map-min-w: 8rem; }
+  /* Fırçalanmış metal efekti */
+  --brushed-metal:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255,255,255,0.012) 0px,
+      rgba(255,255,255,0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  --letter-spacing-title: 0.22em;
+}
 
-/* Tesla X Night: map-first, en geniş harita */
-[data-theme-pack="tesla-x-night"] { --l-map-flex-basis: 47%; --l-map-min-w: 15rem; }
+html[data-theme="mercedes"] body,
+html[data-theme="mercedes"] #root,
+html[data-theme="mercedes"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme="mercedes"] .glass-card,
+html[data-theme="mercedes"] .up-panel,
+html[data-theme="mercedes"] .premium-card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 8px 40px var(--shadow-color), inset 0 1px 0 rgba(200,168,130,0.10) !important;
+  backdrop-filter: var(--card-blur) !important;
+  border-radius: var(--radius-card) !important;
+  background-image: var(--brushed-metal) !important;
+}
+
+html[data-theme="mercedes"] [data-dock="main"] {
+  background: var(--dock-bg) !important;
+  border-top: 1px solid var(--dock-border) !important;
+  box-shadow: 0 -4px 24px rgba(200,168,130,0.06) !important;
+}
+
+/* MBUX — başlıklarda geniş letter-spacing */
+html[data-theme="mercedes"] .font-black,
+html[data-theme="mercedes"] .font-bold {
+  letter-spacing: var(--letter-spacing-title) !important;
+}
+
+html[data-theme="mercedes"] [data-layout="pro-main"],
+html[data-theme="mercedes"] [data-pro-sidebar],
+html[data-theme="mercedes"] [data-pro-topbar],
+html[data-theme="mercedes"] [data-pro-bottombar] {
+  background: #181818 !important;
+  border-color: rgba(200,168,130,0.15) !important;
+}
+
+html[data-theme="mercedes"] .text-blue-400 { color: #C8A882 !important; }
+html[data-theme="mercedes"] .text-emerald-400 { color: #6EBF8B !important; }
+html[data-theme="mercedes"] [style*="color: #60a5fa"] { color: #C8A882 !important; }
+
+/* ──────────────────────────────────────────────────────────────────
+   5. AUDI — Virtual Cockpit / RS Serisi Agresif Premium
+   Keskin açılar, Audi kırmızısı, platin yüzeyler
+────────────────────────────────────────────────────────────────── */
+:root[data-theme="audi"],
+html[data-theme="audi"] {
+  --bg-primary:      #1E1E2C;
+  --bg-secondary:    #252535;
+  --bg-surface:      #2A2A3D;
+  --bg-card:         rgba(32,32,48,0.97);
+  --accent-primary:  #BB0A21;
+  --accent-secondary:#D0D0D0;
+  --accent-glow:     rgba(187,10,33,0.22);
+  --text-primary:    #F0F0F2;
+  --text-secondary:  #A8A8B8;
+  --text-muted:      #606070;
+  --border-color:    rgba(187,10,33,0.28);
+  --border-subtle:   rgba(208,208,208,0.10);
+  --shadow-color:    rgba(0,0,0,0.75);
+  --gradient-start:  #1E1E2C;
+  --gradient-end:    #2A2A3D;
+  --dock-bg:         rgba(12,12,18,0.99);
+  --dock-border:     rgba(187,10,33,0.35);
+  --card-blur:       blur(18px) saturate(1.4);
+  --radius-card:     10px;   /* Audi angular design */
+  --pack-bg:         linear-gradient(160deg,#1E1E2C 0%,#252535 50%,#1A1A28 100%);
+  --pack-card-bg:    rgba(32,32,48,0.97);
+  --pack-border:     rgba(187,10,33,0.25);
+  --pack-glow:       rgba(187,10,33,0.14);
+  --pack-accent:     #BB0A21;
+  --pack-accent-rgb: 187,10,33;
+  --header-bg:       rgba(12,12,18,0.99);
+  --premium-accent:  #BB0A21;
+  --accent-blue:     #BB0A21;
+  --accent-cyan:     #4FC3F7;
+  --accent-emerald:  #00C853;
+  --accent-red:      #BB0A21;
+  --letter-spacing-title: 0.16em;
+
+  /* ── Yapısal kimlik: AUDI ── */
+  --radius-btn:        2px;
+  --radius-tile:       2px;
+  --font-ui:           system-ui, 'Arial Narrow', sans-serif;
+  --font-weight-ui:    900;
+  --letter-spacing-ui: 1.5px;
+  --btn-glow:          none;
+  --icon-color-1:      #BB0A21;
+  --icon-color-2:      #D0D0D0;
+  --icon-color-nav:    #BB0A21;
+  --icon-color-media:  #00C853;
+  --dock-icon-color:   #BB0A21;
+  --divider-color:     rgba(187,10,33,0.20);
+  --dock-border-top:   2px solid rgba(187,10,33,0.55);
+  --tile-hover-bg:     rgba(187,10,33,0.10);
+}
+
+html[data-theme="audi"] body,
+html[data-theme="audi"] #root,
+html[data-theme="audi"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme="audi"] .glass-card,
+html[data-theme="audi"] .up-panel,
+html[data-theme="audi"] .premium-card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-bottom: 2px solid rgba(187,10,33,0.40) !important;
+  box-shadow: 0 4px 28px var(--shadow-color), 0 1px 0 rgba(208,208,208,0.06) inset !important;
+  backdrop-filter: var(--card-blur) !important;
+  border-radius: var(--radius-card) !important;
+}
+
+/* Audi kırmızı alt çizgi vurgusu */
+html[data-theme="audi"] .glass-card::after,
+html[data-theme="audi"] .premium-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 12%; right: 12%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #BB0A21, transparent);
+  border-radius: 0 0 2px 2px;
+  pointer-events: none;
+}
+
+html[data-theme="audi"] [data-dock="main"] {
+  background: var(--dock-bg) !important;
+  border-top: 2px solid rgba(187,10,33,0.40) !important;
+  box-shadow: 0 -4px 24px rgba(187,10,33,0.10) !important;
+}
+
+html[data-theme="audi"] [data-layout="pro-main"],
+html[data-theme="audi"] [data-pro-sidebar],
+html[data-theme="audi"] [data-pro-topbar],
+html[data-theme="audi"] [data-pro-bottombar] {
+  background: #1E1E2C !important;
+  border-color: rgba(187,10,33,0.18) !important;
+}
+
+html[data-theme="audi"] .text-blue-400 { color: #BB0A21 !important; }
+html[data-theme="audi"] .text-emerald-400 { color: #00C853 !important; }
+html[data-theme="audi"] [style*="color: #60a5fa"] { color: #BB0A21 !important; }
+
+/* Audi angular tipografi */
+html[data-theme="audi"] .font-black,
+html[data-theme="audi"] .font-bold { letter-spacing: var(--letter-spacing-title) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   GÜNDÜZ VARYANTLARİ — Her tema için açık/aydınlık versiyonlar
+   Tetikleyici: html[data-theme="pro-day"] vb.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. PRO Gündüz ── */
+html[data-theme="pro-day"] {
+  --bg-primary:      #2D2D44;
+  --bg-secondary:    #363654;
+  --bg-surface:      #3D3D5C;
+  --bg-card:         rgba(61,61,92,0.97);
+  --accent-primary:  #D4AF37;
+  --accent-secondary:#F0C040;
+  --accent-glow:     rgba(212,175,55,0.30);
+  --text-primary:    #F5F0E8;
+  --text-secondary:  #C8B898;
+  --text-muted:      #9080A0;
+  --border-color:    rgba(212,175,55,0.35);
+  --border-subtle:   rgba(212,175,55,0.18);
+  --shadow-color:    rgba(0,0,0,0.45);
+  --dock-bg:         rgba(22,22,36,0.99);
+  --dock-border:     rgba(212,175,55,0.30);
+  --card-blur:       blur(16px) saturate(1.5);
+  --radius-card:     18px;
+  --pack-bg:         linear-gradient(160deg,#2D2D44 0%,#363654 50%,#28283C 100%);
+  --pack-card-bg:    rgba(61,61,92,0.97);
+  --pack-border:     rgba(212,175,55,0.32);
+  --pack-glow:       rgba(212,175,55,0.20);
+  --pack-accent:     #D4AF37;
+  --header-bg:       rgba(20,20,34,0.99);
+  --premium-accent:  #D4AF37;
+  --accent-blue:     #D4AF37;
+  --carbon-texture:
+    repeating-linear-gradient(45deg,rgba(255,255,255,0.025) 0px,rgba(255,255,255,0.025) 1px,transparent 1px,transparent 6px),
+    repeating-linear-gradient(-45deg,rgba(255,255,255,0.025) 0px,rgba(255,255,255,0.025) 1px,transparent 1px,transparent 6px);
+}
+
+html[data-theme="pro-day"] body,
+html[data-theme="pro-day"] #root,
+html[data-theme="pro-day"] .ultra-premium-root {
+  background: linear-gradient(160deg,#2D2D44 0%,#363654 50%,#28283C 100%) !important;
+  color: #F5F0E8 !important;
+}
+
+html[data-theme="pro-day"] .glass-card,
+html[data-theme="pro-day"] .up-panel,
+html[data-theme="pro-day"] .premium-card {
+  background: rgba(61,61,92,0.97) !important;
+  border: 1px solid rgba(212,175,55,0.32) !important;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.40), inset 0 1px 0 rgba(212,175,55,0.12) !important;
+  backdrop-filter: blur(16px) saturate(1.5) !important;
+}
+
+html[data-theme="pro-day"] [data-layout="pro-main"],
+html[data-theme="pro-day"] [data-pro-sidebar],
+html[data-theme="pro-day"] [data-pro-topbar],
+html[data-theme="pro-day"] [data-pro-bottombar] {
+  background: #2D2D44 !important;
+  border-color: rgba(212,175,55,0.20) !important;
+}
+
+html[data-theme="pro-day"] [data-dock="main"] {
+  background: rgba(22,22,36,0.99) !important;
+  border-top: 1px solid rgba(212,175,55,0.30) !important;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.40) !important;
+}
+
+/* ── 2. Tesla Gündüz ── */
+html[data-theme="tesla-day"] {
+  --bg-primary:      #1E2A3A;
+  --bg-secondary:    #243245;
+  --bg-surface:      #263040;
+  --bg-card:         rgba(38,48,64,0.97);
+  --accent-primary:  #E31937;
+  --accent-glow:     rgba(227,25,55,0.28);
+  --text-primary:    #F0F2F5;
+  --text-secondary:  #A8B8C8;
+  --text-muted:      #607080;
+  --border-color:    rgba(227,25,55,0.28);
+  --border-subtle:   rgba(255,255,255,0.10);
+  --shadow-color:    rgba(0,0,0,0.50);
+  --dock-bg:         rgba(12,18,28,0.99);
+  --dock-border:     rgba(227,25,55,0.40);
+  --card-blur:       blur(20px) saturate(1.3);
+  --radius-card:     12px;
+  --pack-bg:         linear-gradient(160deg,#1E2A3A 0%,#243245 50%,#1A2535 100%);
+  --pack-accent:     #E31937;
+  --header-bg:       rgba(14,20,30,0.99);
+  --premium-accent:  #E31937;
+  --accent-blue:     #E31937;
+}
+
+html[data-theme="tesla-day"] body,
+html[data-theme="tesla-day"] #root,
+html[data-theme="tesla-day"] .ultra-premium-root {
+  background: linear-gradient(160deg,#1E2A3A 0%,#243245 50%,#1A2535 100%) !important;
+  color: #F0F2F5 !important;
+}
+
+html[data-theme="tesla-day"] .glass-card,
+html[data-theme="tesla-day"] .up-panel,
+html[data-theme="tesla-day"] .premium-card {
+  background: rgba(38,48,64,0.97) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-bottom: 1px solid rgba(227,25,55,0.25) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45) !important;
+  backdrop-filter: blur(20px) saturate(1.3) !important;
+  border-radius: 12px !important;
+}
+
+html[data-theme="tesla-day"] [data-layout="pro-main"],
+html[data-theme="tesla-day"] [data-pro-sidebar],
+html[data-theme="tesla-day"] [data-pro-topbar],
+html[data-theme="tesla-day"] [data-pro-bottombar] {
+  background: #1E2A3A !important;
+  border-color: rgba(227,25,55,0.15) !important;
+}
+
+html[data-theme="tesla-day"] [data-dock="main"] {
+  background: rgba(12,18,28,0.99) !important;
+  border-top: 2px solid rgba(227,25,55,0.40) !important;
+  box-shadow: 0 -4px 24px rgba(227,25,55,0.12) !important;
+}
+
+/* ── 3. Cockpit Gündüz ── */
+html[data-theme="cockpit-day"] {
+  --bg-primary:      #0D2137;
+  --bg-secondary:    #0F2A45;
+  --bg-surface:      #123050;
+  --bg-card:         rgba(15,42,69,0.97);
+  --accent-primary:  #00B4D8;
+  --accent-glow:     rgba(0,180,216,0.35);
+  --text-primary:    #E8F4FD;
+  --text-secondary:  #80C8E8;
+  --text-muted:      #3A7A9A;
+  --border-color:    rgba(0,180,216,0.40);
+  --border-subtle:   rgba(0,180,216,0.20);
+  --shadow-color:    rgba(0,0,0,0.55);
+  --dock-bg:         rgba(6,16,30,0.99);
+  --dock-border:     rgba(0,180,216,0.50);
+  --card-blur:       blur(20px) saturate(1.8);
+  --radius-card:     16px;
+  --pack-bg:         linear-gradient(160deg,#0D2137 0%,#0F2A45 50%,#0A1C30 100%);
+  --pack-accent:     #00B4D8;
+  --header-bg:       rgba(6,16,30,0.99);
+  --premium-accent:  #00B4D8;
+  --accent-blue:     #00B4D8;
+  --hud-line:        rgba(0,180,216,0.20);
+  --hud-grid:
+    repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(0,180,216,0.20) 39px,rgba(0,180,216,0.20) 40px),
+    repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(0,180,216,0.20) 39px,rgba(0,180,216,0.20) 40px);
+}
+
+html[data-theme="cockpit-day"] body,
+html[data-theme="cockpit-day"] #root,
+html[data-theme="cockpit-day"] .ultra-premium-root {
+  background: linear-gradient(160deg,#0D2137 0%,#0F2A45 50%,#0A1C30 100%) !important;
+  color: #E8F4FD !important;
+  background-image: var(--hud-grid) !important;
+  background-size: 40px 40px !important;
+}
+
+html[data-theme="cockpit-day"] .glass-card,
+html[data-theme="cockpit-day"] .up-panel,
+html[data-theme="cockpit-day"] .premium-card {
+  background: rgba(15,42,69,0.97) !important;
+  border: 1px solid rgba(0,180,216,0.35) !important;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.50), 0 0 20px rgba(0,180,216,0.12) !important;
+  backdrop-filter: blur(20px) saturate(1.8) !important;
+  border-radius: 16px !important;
+}
+
+html[data-theme="cockpit-day"] [data-layout="pro-main"],
+html[data-theme="cockpit-day"] [data-pro-sidebar],
+html[data-theme="cockpit-day"] [data-pro-topbar],
+html[data-theme="cockpit-day"] [data-pro-bottombar] {
+  background: #0D2137 !important;
+  border-color: rgba(0,180,216,0.25) !important;
+}
+
+html[data-theme="cockpit-day"] [data-dock="main"] {
+  background: rgba(6,16,30,0.99) !important;
+  border-top: 1px solid rgba(0,180,216,0.50) !important;
+  box-shadow: 0 -4px 32px rgba(0,180,216,0.15) !important;
+}
+
+/* ── 4. Mercedes Gündüz ── */
+html[data-theme="mercedes-day"] {
+  --bg-primary:      #2C2C3A;
+  --bg-secondary:    #363645;
+  --bg-surface:      #363645;
+  --bg-card:         rgba(54,54,69,0.97);
+  --accent-primary:  #C8A882;
+  --accent-glow:     rgba(200,168,130,0.28);
+  --text-primary:    #EDE8E0;
+  --text-secondary:  #B0A090;
+  --text-muted:      #706860;
+  --border-color:    rgba(200,168,130,0.32);
+  --border-subtle:   rgba(200,168,130,0.15);
+  --shadow-color:    rgba(0,0,0,0.45);
+  --dock-bg:         rgba(18,18,26,0.99);
+  --dock-border:     rgba(200,168,130,0.28);
+  --card-blur:       blur(24px) saturate(1.4);
+  --radius-card:     20px;
+  --pack-bg:         linear-gradient(160deg,#2C2C3A 0%,#363645 50%,#282836 100%);
+  --pack-accent:     #C8A882;
+  --header-bg:       rgba(20,20,28,0.99);
+  --premium-accent:  #C8A882;
+  --accent-blue:     #C8A882;
+  --brushed-metal:
+    repeating-linear-gradient(90deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 3px);
+  --letter-spacing-title: 0.22em;
+}
+
+html[data-theme="mercedes-day"] body,
+html[data-theme="mercedes-day"] #root,
+html[data-theme="mercedes-day"] .ultra-premium-root {
+  background: linear-gradient(160deg,#2C2C3A 0%,#363645 50%,#282836 100%) !important;
+  color: #EDE8E0 !important;
+}
+
+html[data-theme="mercedes-day"] .glass-card,
+html[data-theme="mercedes-day"] .up-panel,
+html[data-theme="mercedes-day"] .premium-card {
+  background: rgba(54,54,69,0.97) !important;
+  border: 1px solid rgba(200,168,130,0.30) !important;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.40), inset 0 1px 0 rgba(200,168,130,0.12) !important;
+  backdrop-filter: blur(24px) saturate(1.4) !important;
+  border-radius: 20px !important;
+  background-image: var(--brushed-metal) !important;
+}
+
+html[data-theme="mercedes-day"] [data-layout="pro-main"],
+html[data-theme="mercedes-day"] [data-pro-sidebar],
+html[data-theme="mercedes-day"] [data-pro-topbar],
+html[data-theme="mercedes-day"] [data-pro-bottombar] {
+  background: #2C2C3A !important;
+  border-color: rgba(200,168,130,0.18) !important;
+}
+
+html[data-theme="mercedes-day"] [data-dock="main"] {
+  background: rgba(18,18,26,0.99) !important;
+  border-top: 1px solid rgba(200,168,130,0.28) !important;
+  box-shadow: 0 -4px 24px rgba(200,168,130,0.08) !important;
+}
+
+html[data-theme="mercedes-day"] .font-black,
+html[data-theme="mercedes-day"] .font-bold { letter-spacing: 0.22em !important; }
+
+/* ── 5. Audi Gündüz ── */
+html[data-theme="audi-day"] {
+  --bg-primary:      #1E1E2C;
+  --bg-secondary:    #26263A;
+  --bg-surface:      #28283A;
+  --bg-card:         rgba(40,40,58,0.97);
+  --accent-primary:  #BB0A21;
+  --accent-glow:     rgba(187,10,33,0.28);
+  --text-primary:    #F0F0F2;
+  --text-secondary:  #A0A0B8;
+  --text-muted:      #585870;
+  --border-color:    rgba(187,10,33,0.32);
+  --border-subtle:   rgba(220,220,220,0.12);
+  --shadow-color:    rgba(0,0,0,0.50);
+  --dock-bg:         rgba(10,10,18,0.99);
+  --dock-border:     rgba(187,10,33,0.42);
+  --card-blur:       blur(18px) saturate(1.5);
+  --radius-card:     10px;
+  --pack-bg:         linear-gradient(160deg,#1E1E2C 0%,#26263A 50%,#1A1A28 100%);
+  --pack-accent:     #BB0A21;
+  --header-bg:       rgba(12,12,20,0.99);
+  --premium-accent:  #BB0A21;
+  --accent-blue:     #BB0A21;
+  --letter-spacing-title: 0.16em;
+}
+
+html[data-theme="audi-day"] body,
+html[data-theme="audi-day"] #root,
+html[data-theme="audi-day"] .ultra-premium-root {
+  background: linear-gradient(160deg,#1E1E2C 0%,#26263A 50%,#1A1A28 100%) !important;
+  color: #F0F0F2 !important;
+}
+
+html[data-theme="audi-day"] .glass-card,
+html[data-theme="audi-day"] .up-panel,
+html[data-theme="audi-day"] .premium-card {
+  background: rgba(40,40,58,0.97) !important;
+  border: 1px solid rgba(220,220,220,0.12) !important;
+  border-bottom: 2px solid rgba(187,10,33,0.42) !important;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.45) !important;
+  backdrop-filter: blur(18px) saturate(1.5) !important;
+  border-radius: 10px !important;
+}
+
+html[data-theme="audi-day"] [data-layout="pro-main"],
+html[data-theme="audi-day"] [data-pro-sidebar],
+html[data-theme="audi-day"] [data-pro-topbar],
+html[data-theme="audi-day"] [data-pro-bottombar] {
+  background: #1E1E2C !important;
+  border-color: rgba(187,10,33,0.18) !important;
+}
+
+html[data-theme="audi-day"] [data-dock="main"] {
+  background: rgba(10,10,18,0.99) !important;
+  border-top: 2px solid rgba(187,10,33,0.42) !important;
+  box-shadow: 0 -4px 24px rgba(187,10,33,0.12) !important;
+}
+
+html[data-theme="audi-day"] .font-black,
+html[data-theme="audi-day"] .font-bold { letter-spacing: 0.16em !important; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   ORTAK — Tüm temalarda geçerli smooth transition
+   ═══════════════════════════════════════════════════════════════════ */
+
+html[data-theme] body,
+html[data-theme] #root,
+html[data-theme] .glass-card,
+html[data-theme] .up-panel,
+html[data-theme] [data-dock="main"],
+html[data-theme] [data-layout-zone="header"] {
+  transition:
+    background 0.35s ease,
+    border-color 0.35s ease,
+    box-shadow 0.35s ease,
+    color 0.25s ease !important;
+}

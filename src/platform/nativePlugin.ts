@@ -44,7 +44,19 @@ export interface OBDScanResult {
 }
 
 export interface OBDConnectOptions {
-  address: string; // MAC address of the OBD adapter
+  address: string;    // MAC address of the OBD adapter
+  /**
+   * SAE J1979 Mode 01 PID listesi — native taraf bu PID'leri ELM327'ye sırayla gönderir.
+   * Boş bırakılırsa native kendi varsayılan setini kullanır.
+   *
+   * EV'de ICE PID'leri dahil etme: 0x0C/0x05/0x2F her biri 200 ms NO-DATA timeout
+   * yiyor; 3 PID × 200 ms = 600 ms kayıp / döngü. ISO 15031-5 §6.3.3.
+   *
+   * Örnekler:
+   *   ICE/Diesel: ['0x0D', '0x0C', '0x05', '0x2F', '0x11', '0x0F']
+   *   EV:         ['0x0D']   ← sadece hız; batarya OEM-specific komutlarla
+   */
+  pids?: string[];
 }
 
 /**
@@ -58,14 +70,41 @@ export interface OBDStatusEvent {
 
 /**
  * Per-frame OBD data pushed by the native plugin.
- * A value of -1 means the vehicle does not support that PID.
+ * A value of -1 means the vehicle does not support that PID (unsupported PID).
+ *
+ * Standard PIDs (SAE J1979 / ISO 15031-5):
+ *   0x0C → rpm          0x0D → speed       0x05 → engineTemp
+ *   0x2F → fuelLevel    0x0F → intakeTemp  0x11 → throttle
+ *   0x10 → maf          0x0B → manifoldPressure
+ *
+ * EV / Extended (OEM-specific, varies by manufacturer):
+ *   batteryLevel, batteryTemp, range, chargingState, chargingPower, motorPower
+ *
+ * Diesel extra:
+ *   boostPressure (manifold/turbo), egt (exhaust gas temperature)
  */
 export interface NativeOBDData {
-  speed: number;        // km/h  or -1
-  rpm: number;          // RPM   or -1
-  engineTemp: number;   // °C    or -1
-  fuelLevel: number;    // 0–100 or -1
-  headlights?: boolean; // far durumu (opsiyonel — destekleyen araçlarda gelir)
+  // ── Universal (OBD-II standard) ──────────────────────────
+  speed: number;        // PID 0x0D — km/h   (-1 = not supported)
+  rpm: number;          // PID 0x0C — RPM    (-1 = EV / not supported)
+  engineTemp: number;   // PID 0x05 — °C     (-1 = EV / not supported)
+  fuelLevel: number;    // PID 0x2F — 0–100% (-1 = EV / not supported)
+  headlights?: boolean; // Manufacturer-specific — optional
+  throttle?: number;    // PID 0x11 — 0–100% (-1 = not supported)
+  intakeTemp?: number;  // PID 0x0F — °C     (-1 = not supported)
+  maf?: number;         // PID 0x10 — g/s    (-1 = not supported)
+
+  // ── EV / Hybrid ─────────────────────────────────────────
+  batteryLevel?: number;      // % SoC (0–100)         (-1 = not supported)
+  batteryTemp?: number;       // °C HV battery pack    (-1 = not supported)
+  range?: number;             // km remaining           (-1 = not supported)
+  chargingState?: 'not_charging' | 'charging' | 'fast_charging' | 'unknown';
+  chargingPower?: number;     // kW AC/DC              (-1 = not supported)
+  motorPower?: number;        // kW output (can be neg for regen) (-1 = not supported)
+
+  // ── Diesel / Turbo extra ─────────────────────────────────
+  boostPressure?: number;     // kPa turbo boost        (-1 = not supported)
+  egt?: number;               // °C exhaust gas temp    (-1 = not supported)
 }
 
 export interface MediaActionOptions {
@@ -224,8 +263,14 @@ export interface CarLauncherPlugin {
   checkNotificationAccess():  Promise<{ granted: boolean }>;
   requestNotificationAccess(): Promise<void>;
 
+  /**
+   * Android 12+ BLUETOOTH_CONNECT ve Android 13+ POST_NOTIFICATIONS için
+   * runtime izin diyaloğunu tetikler. Uygulama başlangıcında bir kez çağrılır.
+   */
+  requestAndroid13Permissions(): Promise<{ requested: number }>;
+
   // Active media session (Android MediaSessionManager)
-  getMediaInfo(): Promise<NativeMediaInfo>;
+  getMediaInfo(options?: { preferredPackage?: string }): Promise<NativeMediaInfo>;
 
   // Camera2 API — geri görüş kamerası (CAMERA permission required)
   openCamera(options: { facing: 'back' | 'front' }): Promise<{ cameraId: string }>;

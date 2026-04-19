@@ -18,11 +18,11 @@ export const MaintenancePanel = memo(() => {
   const oilLifePct = Math.max(0, Math.min(100, (1 - (maintenance.lastOilChangeKm || 0) / nextKm) * 100));
 
   return (
-    <div className="flex flex-col gap-6 p-6 bg-[#0d1628] rounded-3xl border border-white/5 shadow-2xl">
+    <div className="flex flex-col gap-6 p-6 bg-[rgba(255,255,255,0.05)] rounded-3xl border border-white/5 shadow-2xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Tool className="w-6 h-6 text-blue-400" />
-          <h2 className="text-xl font-bold text-white uppercase tracking-tight">Araç Bakım & Durum</h2>
+          <h2 className="text-xl font-bold text-primary uppercase tracking-tight">Araç Bakım & Durum</h2>
         </div>
         <div className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase">
           Aktif
@@ -31,16 +31,16 @@ export const MaintenancePanel = memo(() => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Oil Life */}
-        <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+        <div className="var(--panel-bg-secondary) rounded-2xl p-4 border border-white/5">
           <div className="flex items-center gap-3 mb-3">
             <Droplets className="w-5 h-5 text-blue-400" />
             <span className="text-sm font-medium text-slate-400">Yağ Ömrü</span>
           </div>
           <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-3xl font-bold text-white">{Math.round(oilLifePct)}%</span>
+            <span className="text-3xl font-bold text-primary">{Math.round(oilLifePct)}%</span>
             <span className="text-xs text-slate-500">Kalan</span>
           </div>
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-1.5 var(--panel-bg-secondary) rounded-full overflow-hidden">
             <div 
               className={`h-full transition-all duration-500 ${oilLifePct < 15 ? 'bg-red-500' : 'bg-blue-500'}`}
               style={{ width: `${oilLifePct}%` }}
@@ -52,16 +52,16 @@ export const MaintenancePanel = memo(() => {
         </div>
 
         {/* Fuel Consumption */}
-        <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+        <div className="var(--panel-bg-secondary) rounded-2xl p-4 border border-white/5">
           <div className="flex items-center gap-3 mb-3">
             <Fuel className="w-5 h-5 text-emerald-400" />
             <span className="text-sm font-medium text-slate-400">Ort. Yakıt</span>
           </div>
           <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-3xl font-bold text-white">{maintenance.fuelConsumptionAvg || 0}</span>
+            <span className="text-3xl font-bold text-primary">{maintenance.fuelConsumptionAvg || 0}</span>
             <span className="text-xs text-slate-500">L / 100km</span>
           </div>
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-1.5 var(--panel-bg-secondary) rounded-full overflow-hidden">
             <div 
               className="h-full bg-emerald-500"
               style={{ width: '65%' }}
@@ -81,7 +81,7 @@ export const MaintenancePanel = memo(() => {
           Servisi Sıfırla
         </button>
         <button 
-          className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-xs font-bold uppercase tracking-widest hover:bg-white/10 transition-all active:scale-95"
+          className="flex-1 py-3 rounded-xl var(--panel-bg-secondary) border border-white/10 text-slate-400 text-xs font-bold uppercase tracking-widest hover:var(--panel-bg-secondary) transition-all active:scale-95"
         >
           Kayıtlar
         </button>
@@ -91,3 +91,5 @@ export const MaintenancePanel = memo(() => {
 });
 
 MaintenancePanel.displayName = 'MaintenancePanel';
+
+

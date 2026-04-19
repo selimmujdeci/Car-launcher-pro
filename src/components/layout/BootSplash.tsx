@@ -29,23 +29,38 @@ export const BootSplash = memo(function BootSplash({ phase }: { phase: BootPhase
   if (phase === 'done') return null;
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center transition-opacity duration-300 pointer-events-none ${
-        phase === 'fade' ? 'opacity-0' : 'opacity-100'
+      className={`ultra-premium-root fixed inset-0 z-[5000] flex flex-col items-center justify-center transition-all duration-700 pointer-events-none ${
+        phase === 'fade' ? 'opacity-0 scale-110 blur-2xl' : 'opacity-100 scale-100'
       }`}
-      style={{ background: '#060d1a' }}
     >
-      <div className="flex flex-col items-center mb-10 select-none">
-        <div className="relative mb-5">
-          <div className="absolute inset-0 bg-blue-500/15 rounded-full blur-xl scale-150" />
-          <SteeringWheel size={64} />
-        </div>
-        <div className="text-xl font-bold tracking-[0.2em] uppercase text-white">Car Launcher</div>
-        <div className="text-[11px] font-semibold tracking-[0.45em] uppercase text-blue-500 mt-1">Pro</div>
-        <div className="text-[9px] font-medium tracking-[0.3em] uppercase text-slate-600 mt-2">Araç Kontrol Merkezi</div>
+      <div className="up-ambient-blobs">
+        <div className="up-blob up-blob-1" />
+        <div className="up-blob up-blob-2" />
       </div>
-      <div className="w-28 h-px bg-white/5 rounded-full overflow-hidden">
-        <div className="h-full bg-blue-500 rounded-full animate-boot-bar" />
+
+      <div className="relative flex flex-col items-center select-none z-10">
+        <div className="relative mb-10">
+          <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-[60px] animate-pulse scale-150" />
+          <SteeringWheel size={120} />
+        </div>
+        
+        <div className="text-4xl font-black tracking-[0.4em] uppercase text-primary drop-shadow-2xl">
+          CAR LAUNCHER
+        </div>
+        <div className="flex items-center gap-4 mt-2">
+          <div className="h-px w-12 bg-gradient-to-r from-transparent to-blue-500" />
+          <div className="text-sm font-black tracking-[0.8em] uppercase text-blue-400">PLATINUM</div>
+          <div className="h-px w-12 bg-gradient-to-l from-transparent to-blue-500" />
+        </div>
+        
+        <div className="text-[10px] font-black tracking-[0.5em] uppercase text-secondary mt-8">Sistem Başlatılıyor</div>
+      </div>
+
+      <div className="absolute bottom-20 w-64 h-1 var(--panel-bg-secondary) rounded-full overflow-hidden backdrop-blur-md border border-white/5">
+        <div className="h-full bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 rounded-full animate-boot-bar shadow-[0_0_15px_#3b82f6]" />
       </div>
     </div>
   );
 });
+
+

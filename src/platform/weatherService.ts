@@ -57,6 +57,8 @@ export interface WeatherState {
   isLoadingFuel: boolean;
   lastUpdated: number | null;
   error: string | null;
+  /** Aktif konum kaynağı — debug ve UI etiketleri için */
+  locationSource: 'gps' | 'user_city' | 'none';
 }
 
 /* ── WMO weather code → Turkish + emoji ─────────────────── */
@@ -152,6 +154,7 @@ const INITIAL: WeatherState = {
   isLoadingFuel: false,
   lastUpdated: null,
   error: null,
+  locationSource: 'none',
 };
 
 let _state: WeatherState = { ...INITIAL };
@@ -170,8 +173,19 @@ function _setState(partial: Partial<WeatherState>): void {
 
 /* ── Fetch helpers ───────────────────────────────────────── */
 
+/* ── Nominatim rate limit — shared with geocodingService ────── */
+let _lastNominatimMs = 0;
+const NOMINATIM_GAP  = 1_100;
+async function _waitNominatim(): Promise<void> {
+  const now  = Date.now();
+  const wait = NOMINATIM_GAP - (now - _lastNominatimMs);
+  if (wait > 0) await new Promise<void>((res) => setTimeout(res, wait));
+  _lastNominatimMs = Date.now();
+}
+
 async function _fetchCity(lat: number, lng: number): Promise<string> {
   try {
+    await _waitNominatim();
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=tr`,
       { headers: { 'User-Agent': 'CarLauncherPro/1.0' } },
@@ -246,9 +260,14 @@ function _fetchFuel(lat: number, lng: number): void {
 
 /* ── GPS helpers ─────────────────────────────────────────── */
 
-/** GPS yoksa kullanılacak varsayılan koordinatlar — dışarıdan set edilebilir */
-let _fallbackLat = 41.0082;
-let _fallbackLng = 28.9784;
+/** Kullanıcının ayarlardan seçtiği şehir koordinatları (GPS yokken fallback) */
+let _fallbackLat = 0;
+let _fallbackLng = 0;
+let _userFallbackSet = false;
+
+/** Capacitor GPS servisinden beslenen anlık GPS koordinatları (gerçek konum) */
+let _activeGPSLat: number | null = null;
+let _activeGPSLng: number | null = null;
 
 /**
  * GPS yokken kullanılacak fallback koordinatı ayarla.
@@ -257,33 +276,61 @@ let _fallbackLng = 28.9784;
 export function setWeatherFallback(lat: number, lng: number): void {
   _fallbackLat = lat;
   _fallbackLng = lng;
+  _userFallbackSet = true;
 }
 
-function _getCurrentPosition(): Promise<{ lat: number; lng: number }> {
-  return new Promise((resolve) => {
-    if (!('geolocation' in navigator)) {
-      resolve({ lat: _fallbackLat, lng: _fallbackLng });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      ()    => resolve({ lat: _fallbackLat, lng: _fallbackLng }),
-      { timeout: 5_000, enableHighAccuracy: false },
-    );
-  });
+/**
+ * Gerçek GPS koordinatını weather servisine besle.
+ * gpsService.ts / backgroundLocation olayından useLayoutServices tarafından çağrılır.
+ * İlk GPS fix'inde otomatik weather refresh tetiklenir.
+ */
+export function feedGPSLocation(lat: number, lng: number): void {
+  const firstFix = _activeGPSLat === null;
+  _activeGPSLat = lat;
+  _activeGPSLng = lng;
+  // İlk gerçek konum fix'inde weather'ı hemen güncelle
+  if (firstFix) {
+    refreshWeather().catch(() => undefined);
+  }
+}
+
+/** Aktif konum kaynağını döner — GPS > kullanıcı şehri > yok */
+function _getCurrentPosition(): { lat: number; lng: number; source: 'gps' | 'user_city' } | null {
+  if (_activeGPSLat !== null && _activeGPSLng !== null) {
+    return { lat: _activeGPSLat, lng: _activeGPSLng, source: 'gps' };
+  }
+  if (_userFallbackSet) {
+    return { lat: _fallbackLat, lng: _fallbackLng, source: 'user_city' };
+  }
+  return null;
 }
 
 /* ── Public API ──────────────────────────────────────────── */
 
 export async function refreshWeather(): Promise<void> {
-  const { lat, lng } = await _getCurrentPosition();
-  await _fetchWeather(lat, lng);
-  _fetchFuel(lat, lng);
+  const pos = _getCurrentPosition();
+  if (!pos) {
+    // Gerçek GPS yok, kullanıcı şehri de seçilmemiş — veri gösterme
+    _setState({
+      weather: null,
+      stations: [],
+      isLoadingWeather: false,
+      isLoadingFuel: false,
+      error: 'Konum alınamadı — GPS bekleniyor',
+      locationSource: 'none',
+    });
+    return;
+  }
+  _setState({ locationSource: pos.source });
+  await _fetchWeather(pos.lat, pos.lng);
+  _fetchFuel(pos.lat, pos.lng);
 }
 
 export async function refreshFuelPrices(): Promise<void> {
-  const { lat, lng } = await _getCurrentPosition();
-  _fetchFuel(lat, lng);
+  const pos = _getCurrentPosition();
+  if (!pos) return;
+  _setState({ locationSource: pos.source });
+  _fetchFuel(pos.lat, pos.lng);
 }
 
 export function startWeatherService(): void {

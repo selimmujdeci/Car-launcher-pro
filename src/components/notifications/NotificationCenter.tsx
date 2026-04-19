@@ -48,7 +48,7 @@ const IncomingCallCard = memo(function IncomingCallCard({ notif, onDismiss }: { 
           <Phone className="w-5 h-5 text-emerald-400" />
         </div>
         <div>
-          <div className="text-white font-black text-base">{notif.sender}</div>
+          <div className="text-primary font-black text-base">{notif.sender}</div>
           <div className="text-emerald-400 text-xs font-medium uppercase tracking-widest">Gelen Arama</div>
         </div>
         <div className="ml-auto flex items-center gap-1.5 text-emerald-400">
@@ -114,7 +114,7 @@ const NotificationCard = memo(function NotificationCard({
       {/* Header */}
       <div className="flex items-start gap-3">
         {/* App icon */}
-        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-xl flex-shrink-0">
+        <div className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-xl flex-shrink-0">
           {notif.appIcon}
         </div>
 
@@ -125,7 +125,7 @@ const NotificationCard = memo(function NotificationCard({
             <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">{notif.appName}</span>
             <span className="ml-auto text-slate-700 text-[10px] tabular-nums flex-shrink-0">{timeStr}</span>
           </div>
-          <div className="text-white font-bold text-sm truncate">{notif.sender}</div>
+          <div className="text-primary font-bold text-sm truncate">{notif.sender}</div>
           <div className="text-slate-400 text-xs leading-relaxed mt-0.5 line-clamp-2">{notif.text}</div>
         </div>
 
@@ -162,7 +162,7 @@ const NotificationCard = memo(function NotificationCard({
           className={`flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 border ${
             isSpeaking
               ? 'bg-amber-500/20 border-amber-500/30 text-amber-400 hover:bg-amber-500/30'
-              : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
+              : 'var(--panel-bg-secondary) border-white/5 text-slate-400 hover:var(--panel-bg-secondary) hover:text-primary'
           }`}
         >
           {isSpeaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -220,9 +220,9 @@ function NotificationCenterInner() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Bell className="w-5 h-5 text-blue-400" />
-          <span className="text-white font-black text-base uppercase tracking-widest">Bildirimler</span>
+          <span className="text-primary font-black text-base uppercase tracking-widest">Bildirimler</span>
           {ns.unreadCount > 0 && (
-            <span className="bg-blue-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+            <span className="bg-blue-500 text-primary text-[10px] font-black px-2 py-0.5 rounded-full">
               {ns.unreadCount}
             </span>
           )}
@@ -230,7 +230,7 @@ function NotificationCenterInner() {
         {ns.notifications.length > 0 && (
           <button
             onClick={markAllRead}
-            className="flex items-center gap-1.5 text-slate-500 hover:text-white text-[11px] uppercase tracking-widest transition-colors"
+            className="flex items-center gap-1.5 text-slate-500 hover:text-primary text-[11px] uppercase tracking-widest transition-colors"
           >
             <CheckCheck className="w-3.5 h-3.5" />
             Tümünü Oku
@@ -251,7 +251,7 @@ function NotificationCenterInner() {
               className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 rounded-2xl border text-xs font-bold transition-all active:scale-95 ${
                 ns.autoRead === value
                   ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
-                  : 'bg-white/5 border-white/5 text-slate-500 hover:bg-white/10'
+                  : 'var(--panel-bg-secondary) border-white/5 text-slate-500 hover:var(--panel-bg-secondary)'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -327,3 +327,5 @@ function NotificationCenterInner() {
 }
 
 export const NotificationCenter = memo(NotificationCenterInner);
+
+

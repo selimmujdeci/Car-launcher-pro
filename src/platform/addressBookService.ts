@@ -46,7 +46,7 @@ export async function initializeAddressBook(): Promise<void> {
       const recentAddresses = Array.from(addresses.values())
         .filter((a) => a.type === 'history')
         .sort((a, b) => (b.lastVisited || 0) - (a.lastVisited || 0))
-        .slice(0, 5);
+        .slice(0, 50);
 
       useAddressBookStore.setState({
         addresses,
@@ -181,6 +181,14 @@ export function recordVisit(
       visitCount: 1,
     };
     addresses.set(id, existing);
+  }
+
+  // Trim history to 50 most recent entries
+  const historyEntries = Array.from(addresses.entries())
+    .filter(([, a]) => a.type === 'history')
+    .sort(([, a], [, b]) => (b.lastVisited || 0) - (a.lastVisited || 0));
+  if (historyEntries.length > 50) {
+    historyEntries.slice(50).forEach(([id]) => addresses.delete(id));
   }
 
   useAddressBookStore.setState({ addresses });

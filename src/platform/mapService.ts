@@ -2,16 +2,22 @@ import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-
 import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { registerOfflineServiceWorker } from './serviceWorkerManager';
-import { initializeMapSources, getMapStyle } from './mapSourceManager';
+import { initializeMapSources, getMapStyle, handleSatelliteTileError } from './mapSourceManager';
 import { logError } from './crashLogger';
+
+declare global {
+  interface Window {
+    Capacitor?: { isNativePlatform(): boolean };
+  }
+}
 
 /**
  * Detect if running on Capacitor native platform
  */
 function isNativePlatform(): boolean {
   try {
-    const cap = (window as any).Capacitor;
-    return typeof cap?.isNativePlatform === 'function' && cap.isNativePlatform();
+    return typeof window.Capacitor?.isNativePlatform === 'function'
+      && window.Capacitor.isNativePlatform();
   } catch {
     return false;
   }
@@ -131,8 +137,17 @@ export async function initializeMap(
   }
 
   const existing = useMapStore.getState().mapInstance;
-  if (existing && existing.getContainer() === container) {
-    return existing;
+  if (existing) {
+    if (existing.getContainer() === container) {
+      // Aynı container — mevcut instance'ı döndür
+      return existing;
+    }
+    // FARKLI container → eski instance'ı yok et (zombi önleme)
+    // MapLibre.remove() WebGL context + worker thread + tile cache'i serbest bırakır
+    try {
+      existing.remove();
+    } catch { /* canvas zaten yoksa sessizce geç */ }
+    useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
   }
 
   initInProgress = true;
@@ -189,11 +204,17 @@ export async function initializeMap(
     });
 
     let tileFailCount = 0;
+    let _satelliteFailCount = 0;
     map.on('error', (e) => {
       const msg = e.error?.message || '';
       // Track tile load failures for UI feedback
       if (msg.includes('404') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('403')) {
         tileFailCount++;
+        // If satellite/hybrid tiles fail repeatedly → auto-fallback to road
+        if (msg.includes('arcgisonline') || msg.includes('arcgis')) {
+          _satelliteFailCount++;
+          if (_satelliteFailCount >= 3) { _satelliteFailCount = 0; handleSatelliteTileError(); }
+        }
         // After multiple tile failures, flag it so UI can show a message
         if (tileFailCount >= 4 && !useMapStore.getState().tileError) {
           useMapStore.setState({ tileError: true });
@@ -223,7 +244,7 @@ export async function initializeMap(
         const currentContainer = useMapStore.getState().mapInstance?.getContainer();
         if (!currentContainer) return;
         destroyMap();
-        initializeMap(currentContainer, getMapStyle()).catch((e: unknown) => {
+        initializeMap(currentContainer).catch((e: unknown) => {
           logError('Map:WebGLRecoveryFailed', e);
         });
       }, 2000);
@@ -503,13 +524,19 @@ export function switchMapStyle(map: MapLibreMap, style: any) {
 
 // ── Driving mode ─────────────────────────────────────────────
 
-/** km/h → zoom level (smooth car-optimized curve) */
+/** km/h → zoom level (sokak görünümü öncelikli)
+ *
+ *  0-30 km/h  : 17.0 — tek tek binalar, şeritler net
+ *  30-60 km/h : 16.5-15.5 — şehir içi sokaklar
+ *  60-100 km/h: 15.0-14.0 — ana yollar
+ *  100+ km/h  : 13.5 — otoyol/bölge
+ */
 function speedToZoom(speedKmh: number): number {
-  // 0-40 km/h: detailed street view (16.5-15.5)
-  // 40-100 km/h: city/district view (15.5-13.5)
-  // 100+ km/h: highway/regional view (13.5-12.0)
-  if (speedKmh <= 0) return 16.5;
-  return Math.max(12.0, Math.min(16.5, 16.5 - (speedKmh * 0.045)));
+  if (speedKmh <= 0)  return 17.0;
+  if (speedKmh <= 30) return 17.0 - (speedKmh / 30) * 0.5;   // 17.0 → 16.5
+  if (speedKmh <= 60) return 16.5 - ((speedKmh - 30) / 30) * 1.0; // 16.5 → 15.5
+  if (speedKmh <= 100) return 15.5 - ((speedKmh - 60) / 40) * 1.5; // 15.5 → 14.0
+  return Math.max(13.0, 14.0 - (speedKmh - 100) * 0.01);    // 14.0 → 13.0+
 }
 
 let _lastDrivingZoom = 15.5;
@@ -571,6 +598,48 @@ export function setDrivingView(
     pitch,
     padding:  { top: topPad, bottom: 0, left: 0, right: 0 },
     duration: approaching ? 1200 : 1000,
+    essential: true,
+  });
+}
+
+/**
+ * Navigation entry animation — called ONCE when the user taps "Başlat".
+ * Smoothly transitions from the current free-browse view to a 3D driving
+ * perspective: tilt 0→45°, zoom →17, bearing aligned to the route.
+ *
+ * @param bearing  Initial bearing in degrees (first route step direction or GPS heading)
+ */
+export function enterNavigationView(
+  map: MapLibreMap,
+  lat: number,
+  lng: number,
+  bearing: number,
+  containerHeight: number,
+) {
+  if (!map || !map.isStyleLoaded()) return;
+
+  const TARGET_ZOOM    = 17;
+  const TARGET_PITCH   = 45;
+  const DURATION_MS    = 500;
+
+  // Look-ahead offset so road ahead is visible, not just the car icon
+  const lookAheadDeg = 30 / 111_320; // ~30 m forward
+  const headRad      = (bearing * Math.PI) / 180;
+  const cosLat       = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
+  const centerLat    = lat + lookAheadDeg * Math.cos(headRad);
+  const centerLng    = lng + lookAheadDeg * Math.sin(headRad) / cosLat;
+
+  const topPad = Math.round(containerHeight * 0.42);
+
+  _lastDrivingZoom = TARGET_ZOOM;
+
+  map.easeTo({
+    center:  [centerLng, centerLat],
+    bearing,
+    zoom:    TARGET_ZOOM,
+    pitch:   TARGET_PITCH,
+    padding: { top: topPad, bottom: 0, left: 0, right: 0 },
+    duration: DURATION_MS,
     essential: true,
   });
 }
@@ -732,7 +801,43 @@ export function clearTurnFocus(): void {
 export function destroyMap() {
   const map = useMapStore.getState().mapInstance;
   if (map) {
-    map.remove();
+    try { map.remove(); } catch { /* canvas zaten kaldırıldıysa sessizce geç */ }
   }
-  useMapStore.setState({ mapInstance: null, isReady: false });
+  useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
+}
+
+/**
+ * Zombi harita tespiti — WebGL context'in hâlâ geçerli olup olmadığını kontrol eder.
+ * Android 9 düşük bellek durumunda GPU driver WebGL context'i sessizce öldürebilir.
+ * Context kaybolmuşsa destroyMap() çağrılır; bileşen yeniden mount edilince
+ * initializeMap() taze bir instance oluşturur.
+ *
+ * Kullanım: MiniMapWidget içinde useEffect + interval ile çağrılır.
+ * @returns true → context sağlıklı, false → zombi tespit edildi, harita yok edildi
+ */
+export function checkAndHealMapContext(): boolean {
+  const map = useMapStore.getState().mapInstance;
+  if (!map) return false;
+
+  try {
+    const canvas = map.getCanvas();
+    if (!canvas) { destroyMap(); return false; }
+
+    // WebGL context kaybı kontrolü
+    const gl = canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
+    if (!gl) { destroyMap(); return false; }
+
+    const webgl = gl as WebGLRenderingContext;
+    if (webgl.isContextLost()) {
+      logError('Map:ZombieGuard', new Error('WebGL context lost — yeniden başlatılıyor'));
+      destroyMap();
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    logError('Map:ZombieGuard', e);
+    destroyMap();
+    return false;
+  }
 }

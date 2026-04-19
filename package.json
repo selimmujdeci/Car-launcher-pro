@@ -18,6 +18,7 @@
   "dependencies": {
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
+    "@capacitor/clipboard": "^8.0.1",
     "@capacitor/core": "^8.2.0",
     "@capacitor/filesystem": "^7.0.0",
     "@capacitor/geolocation": "^7.0.0",
@@ -45,6 +46,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
+    "puppeteer": "^24.40.0",
     "regenerator-runtime": "^0.14.1",
     "terser": "^5.46.1",
     "typescript": "~5.9.3",

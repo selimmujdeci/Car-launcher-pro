@@ -1,17 +1,13 @@
 /**
  * Voice Service — central state and dispatch for voice commands.
  *
- * Architecture: module-level push pattern (same as deviceApi / mediaService).
- * Components subscribe via `useVoiceState()`; commands route via
- * `registerCommandHandler()`.
+ * Google-free architecture: no cloud STT, no Google Assistant dependency.
+ *   - Native: CarLauncher.startSpeechRecognition({ preferOffline: true })
+ *     → Android on-device STT (no data sent to Google)
+ *   - Web/demo: text-input only (no webkitSpeechRecognition)
  *
- * Current mode: text-input demo — no microphone required.
- *
- * Native migration path:
- *   startListening() → CarLauncher.startSpeechRecognition()
- *     .then(transcript => processTextCommand(transcript))
- *   The rest of the pipeline (ParsedCommand, CommandHandler, feedback) is
- *   identical in both modes — only the input source changes.
+ * Pipeline: text input → parseCommandFull() → dispatch → TTS feedback
+ * Session context: last MAX_HISTORY commands tracked for UI history panel.
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
@@ -19,32 +15,34 @@ import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { getConfig } from './performanceMode';
 import { speakFeedback } from './ttsService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SpeechRecognitionAny = any;
-
-function getWebSpeechAPI(): SpeechRecognitionAny {
-  if (typeof window === 'undefined') return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const W = window as any;
-  return W.SpeechRecognition ?? W.webkitSpeechRecognition ?? null;
-}
+import { askAI, resolveApiKey, type AIProvider, type VehicleContext } from './aiVoiceService';
+import { fromAIResponse } from './intentEngine';
 
 /* ── Types ───────────────────────────────────────────────── */
 
 export type VoiceStatus =
   | 'idle'        // waiting for input
-  | 'listening'   // mic active (native) or demo listening
+  | 'listening'   // mic active (native) or text-input mode
+  | 'processing'  // AI call in progress (low offline confidence, online fallback)
   | 'success'     // command dispatched — feedback visible
   | 'error'       // input unrecognised — suggestions visible
   | 'throttled';  // lite mode: too soon after last command
 
+export interface HistoryEntry {
+  command:   ParsedCommand;
+  timestamp: number;
+}
+
 export interface VoiceState {
   status:      VoiceStatus;
-  lastCommand: ParsedCommand | null;   // last successfully parsed command
-  transcript:  string;                 // last raw input
-  error:       string | null;          // user-facing error label
-  suggestions: ParseSuggestion[];      // "Did you mean?" entries on error
+  lastCommand: ParsedCommand | null;
+  transcript:  string;
+  error:       string | null;
+  suggestions: ParseSuggestion[];
+  /** Last MAX_HISTORY dispatched commands — newest first */
+  history:     HistoryEntry[];
+  /** Whether mic is available on this platform without Google */
+  micAvailable: boolean;
 }
 
 /** Receives every successfully dispatched command. */
@@ -52,12 +50,19 @@ export type CommandHandler = (cmd: ParsedCommand) => void;
 
 /* ── Module-level state ──────────────────────────────────── */
 
+const MAX_HISTORY = 5;
+
+/** True only on native Android where offline STT is available. */
+const MIC_AVAILABLE = isNative;
+
 const INITIAL: VoiceState = {
-  status:      'idle',
-  lastCommand: null,
-  transcript:  '',
-  error:       null,
-  suggestions: [],
+  status:       'idle',
+  lastCommand:  null,
+  transcript:   '',
+  error:        null,
+  suggestions:  [],
+  history:      [],
+  micAvailable: MIC_AVAILABLE,
 };
 
 let _current: VoiceState = { ...INITIAL };
@@ -65,78 +70,15 @@ const _stateListeners  = new Set<(s: VoiceState) => void>();
 const _commandHandlers = new Set<CommandHandler>();
 let _lastCommandTime = 0;
 
-/* ── Web push-to-talk state ──────────────────────────────── */
-let _webRec: SpeechRecognitionAny = null;
-let _webTimeout: ReturnType<typeof setTimeout> | null = null;
-
-function clearWebRec(): void {
-  if (_webTimeout) { clearTimeout(_webTimeout); _webTimeout = null; }
-  if (_webRec) {
-    try { _webRec.abort(); } catch { /* noop */ }
-    _webRec = null;
-  }
-}
-
-/** Push-to-talk: opens mic once, closes on first result or timeout. */
-function startWebRec(): void {
-  const SR = getWebSpeechAPI();
-  if (!SR) return; // Tarayıcı desteği yok — text-input fallback çalışmaya devam eder
-
-  clearWebRec();
-
-  const rec: SpeechRecognitionAny = new SR();
-  rec.continuous      = false; // Tek seferlik — sürekli dinleme yok
-  rec.interimResults  = false; // Sadece nihai sonuç — mikrofon süresi minimum
-  rec.lang            = 'tr-TR';
-  rec.maxAlternatives = 1;
-
-  rec.onresult = (evt: SpeechRecognitionAny) => {
-    const transcript: string = evt.results?.[0]?.[0]?.transcript ?? '';
-    clearWebRec();
-    if (transcript.trim()) {
-      processTextCommand(transcript.trim());
-    } else {
-      push({ status: 'idle' });
-    }
-  };
-
-  rec.onerror = (evt: SpeechRecognitionAny) => {
-    clearWebRec();
-    if (evt.error === 'aborted') return; // stopListening() tarafından kapatıldı
-    if (evt.error === 'no-speech') {
-      push({ status: 'idle' });
-    } else {
-      push({ status: 'error', error: 'Ses algılanamadı', suggestions: [] });
-      setTimeout(() => {
-        try { if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] }); } catch { /* noop */ }
-      }, 2500);
-    }
-  };
-
-  rec.onend = () => {
-    clearWebRec();
-    if (_current.status === 'listening') push({ status: 'idle' });
-  };
-
-  _webRec = rec;
-
-  // 8 saniye hard timeout — mikrofon asla açık kalmaz
-  _webTimeout = setTimeout(() => {
-    clearWebRec();
-    if (_current.status === 'listening') push({ status: 'idle' });
-  }, 8000);
-
-  try {
-    rec.start();
-  } catch {
-    clearWebRec();
-    push({ status: 'idle' });
-  }
-}
-
 function push(partial: Partial<VoiceState>): void {
   _current = { ..._current, ...partial };
   _stateListeners.forEach((fn) => fn(_current));
+}
+
+function pushHistory(cmd: ParsedCommand): void {
+  const entry: HistoryEntry = { command: cmd, timestamp: Date.now() };
+  const history = [entry, ..._current.history].slice(0, MAX_HISTORY);
+  push({ history });
 }
 
 /* ── Command handler registry ────────────────────────────── */
@@ -175,6 +117,7 @@ function dispatch(cmd: ParsedCommand): void {
     error:       null,
     suggestions: [],
   });
+  pushHistory(cmd);
   speakFeedback(cmd.feedback);
   _commandHandlers.forEach((fn) => fn(cmd));
   const delays = getResetDelays();
@@ -185,19 +128,68 @@ function dispatch(cmd: ParsedCommand): void {
   }, delays[cmd.priority] ?? 2500);
 }
 
+/**
+ * Sürüş modu dispatch — Safety-First, TTS-only.
+ *
+ * NHTSA Distracted Driving Guidelines + ISO 15008:
+ *   Araç hareket halindeyken ekranda komut metni / başarı durumu
+ *   göstermek sürücünün dikkatini ekrana çeker. Bu versiyon:
+ *     1. Yalnızca TTS seslendirir (ekran değişmez)
+ *     2. Status 'idle' kalır (kart animasyonu tetiklenmez)
+ *     3. Komut handlers'lara iletilir (navigasyon/müzik çalışır)
+ */
+function dispatchDriving(cmd: ParsedCommand): void {
+  speakFeedback(cmd.feedback);      // Sadece ses
+  pushHistory(cmd);                 // Geçmişe ekle (sessizce)
+  _commandHandlers.forEach((fn) => fn(cmd)); // Routing çalışır
+  // Status değişmez → ekranda hiçbir şey titremez
+}
+
 /* ── Public API ──────────────────────────────────────────── */
 
+/* ── AI settings reader (lazy import avoids circular dep) ──── */
+
+interface AISettings { provider: AIProvider; geminiKey: string; haikuKey: string }
+
+function getAISettings(): AISettings {
+  try {
+    // Provider ayarını Zustand store'dan oku
+    const raw = localStorage.getItem('car-launcher-storage');
+    const provider = raw
+      ? ((JSON.parse(raw) as { state?: { settings?: { aiVoiceProvider?: AIProvider } } })
+          ?.state?.settings?.aiVoiceProvider ?? 'none')
+      : 'none';
+    // API anahtarları sensitiveKeyStore'dan okunur (async) —
+    // senkron erişim için şifrelenmiş blobu decode etmeden önce
+    // VITE_ env fallback'i yeterli; gerçek değer processTextCommand içindeki
+    // async akışta resolveApiKey tarafından beklenerek elde edilir.
+    return { provider, geminiKey: '', haikuKey: '' };
+  } catch {
+    return { provider: 'none', geminiKey: '', haikuKey: '' };
+  }
+}
+
+/** AI confidence threshold — below this, AI is tried if available. */
+const AI_FALLBACK_THRESHOLD = 0.50;
+
 /**
- * Process text as a voice command (demo input or native speech transcript).
- * Parsing is synchronous — critical commands feel instantaneous.
- * Lite mode: throttles command processing to prevent excessive updates.
- * Returns `true` if a command was recognised and dispatched.
+ * Process text as a voice command.
+ *
+ * Pipeline:
+ *   1. Offline parser (always, instant)
+ *   2. If confidence < threshold AND internet + API key → AI fallback (async)
+ *   3. If AI unavailable / fails → show offline error
+ *
+ * @param text  Kullanıcı komutu (serbest metin)
+ * @param ctx   Araç bağlamı — sürüş modunda TTS-only dispatch ve kısa AI yanıtı için
+ *
+ * Returns a Promise so callers can await, but fire-and-forget is also safe.
  */
-export function processTextCommand(text: string): boolean {
+export async function processTextCommand(text: string, ctx?: VehicleContext): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
-  // Throttle in lite mode (no recommendations = lite mode)
+  // Throttle in lite mode
   const cfg = getConfig();
   const now = Date.now();
   if (!cfg.enableRecommendations && (now - _lastCommandTime < 1500)) {
@@ -207,17 +199,85 @@ export function processTextCommand(text: string): boolean {
     return false;
   }
 
+  // ── 1. Offline parser ────────────────────────────────────
   const result = parseCommandFull(trimmed);
 
-  if (result.command) {
+  if (result.command && result.command.confidence >= AI_FALLBACK_THRESHOLD) {
     _lastCommandTime = now;
-    dispatch(result.command);
+    // Sürüş modunda TTS-only — ekranda feedback titremesi yok
+    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
     return true;
   }
 
+  // ── 2. AI fallback (if internet + provider configured) ───
+  const ai = getAISettings();
+  // API anahtarlarını şifreli depodan oku (async — processTextCommand zaten async)
+  const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
+  const [geminiKey, haikuKey] = await Promise.all([
+    sks.get('geminiApiKey'),
+    sks.get('claudeHaikuApiKey'),
+  ]);
+  const rawKey = ai.provider === 'gemini' ? geminiKey : haikuKey;
+  // resolveApiKey checks settings key first, then VITE_ env var as fallback
+  const apiKey = resolveApiKey(ai.provider, rawKey);
+  const hasNet = typeof navigator !== 'undefined' && navigator.onLine;
+
+  if (ai.provider !== 'none' && apiKey && hasNet) {
+    push({ status: 'processing', transcript: trimmed, error: null, suggestions: [] });
+
+    const aiResult = await askAI(trimmed, ai.provider, apiKey, ctx);
+    if (aiResult) {
+      const intent = fromAIResponse(aiResult, trimmed);
+      if (intent && intent.type !== 'UNKNOWN') {
+        // Build a synthetic ParsedCommand so dispatch() works uniformly
+        const syntheticCmd: ParsedCommand = {
+          type:       (intent.type.toLowerCase().replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())) as ParsedCommand['type'],
+          raw:        trimmed,
+          confidence: aiResult.confidence,
+          feedback:   aiResult.feedback,
+          priority:   intent.priority,
+        };
+        _lastCommandTime = Date.now();
+        if (ctx?.isDriving) {
+          // Sürüş modu: TTS-only — ekran değişmez, sadece ses + routing
+          dispatchDriving(syntheticCmd);
+        } else {
+          // Normal mod: tam visual feedback
+          push({
+            status:      'success',
+            lastCommand: syntheticCmd,
+            transcript:  trimmed,
+            error:       null,
+            suggestions: [],
+          });
+          pushHistory(syntheticCmd);
+          speakFeedback(aiResult.feedback);
+          _commandHandlers.forEach((fn) => fn(syntheticCmd));
+        }
+        const delays: Record<string, number> = { critical: 2000, high: 2500, normal: 2500 };
+        setTimeout(() => {
+          try { if (_current.status === 'success') push({ status: 'idle' }); } catch { /* noop */ }
+        }, delays[intent.priority] ?? 2500);
+        return true;
+      }
+    }
+    // AI returned null or UNKNOWN — fall through to error
+  }
+
+  // ── 3. Low-confidence offline match — dispatch anyway ────
+  if (result.command) {
+    _lastCommandTime = now;
+    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    return true;
+  }
+
+  // ── 4. No match ──────────────────────────────────────────
+  const offlineOnly = ai.provider === 'none' || !apiKey || !hasNet;
   push({
     status:      'error',
-    error:       `"${trimmed}" anlaşılamadı`,
+    error:       offlineOnly
+      ? `"${trimmed}" anlaşılamadı`
+      : `"${trimmed}" anlaşılamadı — AI de yanıt vermedi`,
     transcript:  trimmed,
     suggestions: result.suggestions,
   });
@@ -231,9 +291,10 @@ export function processTextCommand(text: string): boolean {
 
 /**
  * Push-to-talk: opens mic for a single utterance then closes it.
- * Native: CarLauncher.startSpeechRecognition() — one-shot Android STT.
- * Web: SpeechRecognition API, continuous=false — mic closes after first result.
- *      Falls back to text-input if SpeechRecognition unavailable.
+ *
+ * Native only — uses Android on-device STT (Google-free, preferOffline: true).
+ * Web/demo mode: text-input is the primary interface; calling startListening()
+ * in web mode simply activates the text input overlay (no mic, no Google API).
  */
 export function startListening(): void {
   if (_current.status === 'listening') {
@@ -244,7 +305,7 @@ export function startListening(): void {
   push({ status: 'listening', error: null, suggestions: [] });
 
   if (isNative) {
-    // Native: tek seferlik Android STT — doğal olarak biter
+    // Native: Android on-device STT — preferOffline ensures no Google cloud calls
     CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
       .then((result) => {
         try {
@@ -259,7 +320,7 @@ export function startListening(): void {
       })
       .catch(() => {
         try {
-          push({ status: 'error', error: 'Ses alınamadı', suggestions: [] });
+          push({ status: 'error', error: 'Ses alınamadı — cihaz mikrofonu kontrol edin', suggestions: [] });
           setTimeout(() => {
             try {
               if (_current.status === 'error') push({ status: 'idle', error: null, suggestions: [] });
@@ -267,22 +328,24 @@ export function startListening(): void {
           }, 3_000);
         } catch { /* ignore */ }
       });
-  } else {
-    // Web: push-to-talk — mikrofon yalnızca bu istek süresi kadar açık
-    startWebRec();
   }
+  // Web mode: overlay shows text input — no action needed here
+  // (UI component handles input and calls processTextCommand directly)
 }
 
 /** Cancel an active listening session and immediately close the mic. */
 export function stopListening(): void {
-  clearWebRec(); // Web mic'i hemen kapat
   if (_current.status === 'listening') push({ status: 'idle' });
 }
 
-/** Reset all voice state and close any open mic stream. */
+/** Reset all voice state. */
 export function clearVoiceState(): void {
-  clearWebRec();
-  push({ ...INITIAL });
+  push({ ...INITIAL, history: _current.history });
+}
+
+/** Clear command history. */
+export function clearVoiceHistory(): void {
+  push({ history: [] });
 }
 
 /* ── React hook ──────────────────────────────────────────── */

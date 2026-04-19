@@ -66,7 +66,7 @@ const GMeter = memo(function GMeter({
         <defs>
           <radialGradient id="gmBg" cx="50%" cy="50%" r="50%">
             <stop offset="0%"   stopColor="#1e3a5f" stopOpacity="0.6" />
-            <stop offset="100%" stopColor="#060d1a" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="var(--panel-bg)" stopOpacity="0.9" />
           </radialGradient>
           <filter id="glow">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -115,7 +115,7 @@ const GMeter = memo(function GMeter({
       {/* G değerleri */}
       <div className="flex gap-6 text-center">
         <div>
-          <div className="text-white text-lg font-black tabular-nums">
+          <div className="text-primary text-lg font-black tabular-nums">
             {Math.abs(longG).toFixed(2)}<span className="text-slate-500 text-xs">g</span>
           </div>
           <div className="text-slate-600 text-[10px] uppercase tracking-wider">
@@ -123,7 +123,7 @@ const GMeter = memo(function GMeter({
           </div>
         </div>
         <div>
-          <div className="text-white text-lg font-black tabular-nums">
+          <div className="text-primary text-lg font-black tabular-nums">
             {Math.abs(latG).toFixed(2)}<span className="text-slate-500 text-xs">g</span>
           </div>
           <div className="text-slate-600 text-[10px] uppercase tracking-wider">
@@ -169,12 +169,12 @@ const TestCard = memo(function TestCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon className={`w-4 h-4 ${isDone ? 'text-emerald-400' : isRunning ? 'text-blue-400' : 'text-slate-500'}`} />
-          <span className="text-white/70 text-xs font-bold uppercase tracking-wider">{title}</span>
+          <span className="text-primary/70 text-xs font-bold uppercase tracking-wider">{title}</span>
         </div>
         {isRunning && (
           <button
             onClick={onCancel}
-            className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-slate-500 hover:text-red-400 transition-colors"
+            className="w-6 h-6 rounded-lg var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-red-400 transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -193,7 +193,7 @@ const TestCard = memo(function TestCard({
           </div>
         )}
         {state === 'running' && (
-          <div className="text-4xl font-black tabular-nums text-white">
+          <div className="text-4xl font-black tabular-nums text-primary">
             {fmtMs(elapsedMs)}
             <span className="text-slate-500 text-lg font-light ml-1">s</span>
           </div>
@@ -219,7 +219,7 @@ const TestCard = memo(function TestCard({
             h-10 rounded-xl text-sm font-bold flex items-center justify-center gap-2
             active:scale-95 transition-all
             ${isDone
-              ? 'bg-white/5 border border-white/10 text-slate-400'
+              ? 'var(--panel-bg-secondary) border border-white/10 text-slate-400'
               : 'bg-blue-500/20 border border-blue-400/30 text-blue-400'}
           `}
         >
@@ -248,7 +248,7 @@ const PeakCard = memo(function PeakCard({
         <span className="text-slate-500 text-[10px] uppercase tracking-widest">Oturum Rekoru</span>
         <button
           onClick={onReset}
-          className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-colors"
+          className="w-6 h-6 rounded-lg var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-primary transition-colors"
         >
           <RotateCcw className="w-3 h-3" />
         </button>
@@ -296,7 +296,7 @@ export const SportModePanel = memo(function SportModePanel() {
   const handleCancelQM     = useCallback(() => cancelTest(), []);
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto bg-[#060d1a] text-white" data-editable="sport-mode" data-editable-type="card">
+    <div className="h-full flex flex-col overflow-y-auto glass-card text-primary border-none !shadow-none" data-editable="sport-mode" data-editable-type="card">
       {/* Başlık */}
       <div className="flex-shrink-0 px-6 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
@@ -304,7 +304,7 @@ export const SportModePanel = memo(function SportModePanel() {
             <Zap className="w-5 h-5 text-red-400" />
           </div>
           <div>
-            <div className="text-white font-bold text-lg tracking-tight">Sport Mod Pro</div>
+            <div className="text-primary font-bold text-lg tracking-tight">Sport Mod Pro</div>
             <div className="text-slate-500 text-xs">Performans & Yarış İstatistikleri</div>
           </div>
         </div>
@@ -321,7 +321,7 @@ export const SportModePanel = memo(function SportModePanel() {
 
       <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
         {/* G-Metre */}
-        <div className="bg-[#0d1628] rounded-2xl border border-white/5 p-4 flex justify-center">
+        <div className="glass-card border border-white/5 p-4 flex justify-center !shadow-none">
           <GMeter longG={perf.longitudinalG} latG={perf.lateralG} />
         </div>
 
@@ -358,12 +358,12 @@ export const SportModePanel = memo(function SportModePanel() {
 
         {/* 400m mesafe göstergesi (test sırasında) */}
         {perf.qmState === 'running' && (
-          <div className="rounded-xl bg-white/5 border border-white/5 p-3">
+          <div className="rounded-xl var(--panel-bg-secondary) border border-white/5 p-3">
             <div className="flex justify-between items-center mb-2">
               <span className="text-slate-500 text-xs">Mesafe</span>
-              <span className="text-white font-bold tabular-nums">{Math.round(perf.qmDistanceM)} / 400 m</span>
+              <span className="text-primary font-bold tabular-nums">{Math.round(perf.qmDistanceM)} / 400 m</span>
             </div>
-            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+            <div className="w-full h-2 var(--panel-bg-secondary) rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all"
                 style={{ width: `${Math.min(100, (perf.qmDistanceM / 402.336) * 100)}%` }}
@@ -383,3 +383,5 @@ export const SportModePanel = memo(function SportModePanel() {
 });
 
 export default SportModePanel;
+
+

@@ -54,10 +54,12 @@ export const DraggableWidget = memo(function DraggableWidget({
     >
       {children}
       {editMode && (
-        <div className="absolute top-3 left-3 z-50 bg-black/60 backdrop-blur-sm rounded-xl p-1.5 text-slate-400">
+        <div className="absolute top-3 left-3 z-50 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-sm rounded-xl p-1.5 text-slate-400">
           <GripVertical className="w-4 h-4" />
         </div>
       )}
     </div>
   );
 });
+
+

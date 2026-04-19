@@ -184,16 +184,15 @@ export function formatEta(seconds: number): string {
  * Başarısız olursa false döner (ağ yok / adres bulunamadı).
  */
 export async function navigateToAddress(text: string): Promise<boolean> {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6_000);
   try {
     const q   = encodeURIComponent(text);
     const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6_000);
     const res = await fetch(url, {
       headers: { 'User-Agent': 'CarLauncherPro/1.0' },
       signal: ctrl.signal,
     });
-    clearTimeout(timer);
     const data = await res.json() as Array<{ display_name: string; lat: string; lon: string }>;
     if (!data.length) return false;
     const r = data[0];
@@ -207,6 +206,8 @@ export async function navigateToAddress(text: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

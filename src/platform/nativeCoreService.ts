@@ -11,11 +11,11 @@
  * All methods are safe to call on web/demo mode — they fall back gracefully.
  */
 
+import { useSyncExternalStore } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import type { NativeDeviceProfile, NativeScreenMetrics } from './nativePlugin';
 import { initFromDeviceProfile } from './performanceMode';
-import { useState, useEffect } from 'react';
 
 /* ── Module state ─────────────────────────────────────────── */
 
@@ -89,21 +89,23 @@ export function getScreenMetrics(): NativeScreenMetrics | null {
 /* ── React hooks ──────────────────────────────────────────── */
 
 export function useDeviceProfile(): NativeDeviceProfile | null {
-  const [profile, setProfile] = useState<NativeDeviceProfile | null>(_profile);
-  useEffect(() => {
-    setProfile(_profile);
-    _profileListeners.add(setProfile);
-    return () => { _profileListeners.delete(setProfile); };
-  }, []);
-  return profile;
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      _profileListeners.add(onStoreChange as any);
+      return () => { _profileListeners.delete(onStoreChange as any); };
+    },
+    () => _profile,
+    () => _profile,
+  );
 }
 
 export function useScreenMetrics(): NativeScreenMetrics | null {
-  const [metrics, setMetrics] = useState<NativeScreenMetrics | null>(_screenMetrics);
-  useEffect(() => {
-    setMetrics(_screenMetrics);
-    _metricsListeners.add(setMetrics);
-    return () => { _metricsListeners.delete(setMetrics); };
-  }, []);
-  return metrics;
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      _metricsListeners.add(onStoreChange as any);
+      return () => { _metricsListeners.delete(onStoreChange as any); };
+    },
+    () => _screenMetrics,
+    () => _screenMetrics,
+  );
 }

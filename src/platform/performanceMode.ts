@@ -89,6 +89,15 @@ const PERF_MODE_KEY = 'cl_performanceMode';
 
 function loadPerformanceMode(): PerformanceMode {
   try {
+    // Otomatik mod aktifse donanım tespitine bırak, kayıtlı değeri kullanma
+    if (localStorage.getItem('cl_performanceMode_auto') === '1') {
+      const cores = navigator.hardwareConcurrency ?? 2;
+      const memGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 2;
+      const memMb = Math.max(512, memGb * 1024);
+      if (cores > 4 && memMb > 2048) return 'premium';
+      if (cores < 2 || memMb < 1024) return 'lite';
+      return 'balanced';
+    }
     const saved = localStorage.getItem(PERF_MODE_KEY);
     if (saved && (saved === 'lite' || saved === 'balanced' || saved === 'premium')) {
       return saved;
@@ -142,4 +151,43 @@ export function initFromDeviceProfile(deviceClass: 'low' | 'mid' | 'high'): void
     high: 'premium',
   };
   setPerformanceMode(modeMap[deviceClass]);
+}
+
+/* ── Otomatik Mod ──────────────────────────────────────── */
+
+const AUTO_KEY = 'cl_performanceMode_auto';
+
+export function isAutoModeEnabled(): boolean {
+  try { return localStorage.getItem(AUTO_KEY) === '1'; } catch { return false; }
+}
+
+/**
+ * Donanım tespitine göre otomatik mod aktifleştir.
+ * Manuel override'ı siler — initFromDeviceProfile artık çalışır.
+ */
+export function enableAutoMode(): PerformanceMode {
+  try {
+    localStorage.removeItem(PERF_MODE_KEY);
+    localStorage.setItem(AUTO_KEY, '1');
+  } catch { /* ignore */ }
+
+  // Tarayıcı tarafında donanım tespiti yap
+  const cores  = navigator.hardwareConcurrency ?? 2;
+  const memGb  = (navigator as { deviceMemory?: number }).deviceMemory ?? 2;
+  const memMb  = Math.max(512, memGb * 1024);
+
+  let mode: PerformanceMode = 'balanced';
+  if (cores > 4 && memMb > 2048) {
+    mode = 'premium';
+  } else if (cores < 2 || memMb < 1024) {
+    mode = 'lite';
+  }
+
+  setPerformanceMode(mode);
+  return mode;
+}
+
+/** Kullanıcı manuel mod seçtiğinde oto modu iptal et. */
+export function disableAutoMode(): void {
+  try { localStorage.removeItem(AUTO_KEY); } catch { /* ignore */ }
 }

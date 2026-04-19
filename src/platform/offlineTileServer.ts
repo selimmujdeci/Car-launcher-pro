@@ -1,4 +1,5 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { logError } from './crashLogger';
 
 export interface TileSource {
   name: string;
@@ -22,19 +23,23 @@ let activeTileSource: TileSource | null = null;
  */
 export async function initializeOfflineTileServer(): Promise<void> {
   try {
-    // Create offline tiles directory
+    // Create offline tiles directory (already-exists error is expected, ignore it)
     await Filesystem.mkdir({
       path: OFFLINE_TILES_DIR,
       directory: Directory.Documents,
       recursive: true,
-    }).catch(() => {});
+    }).catch((e: unknown) => {
+      // "Directory exists" hataları normaldir; diğerlerini logla
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.toLowerCase().includes('exist')) logError('offlineTileServer:mkdir', e);
+    });
 
     // Register custom protocol handler
     registerTileProtocolHandler();
 
     tileServerReady = true;
   } catch (err) {
-    console.error('Offline tile server init failed:', err);
+    logError('offlineTileServer:initialize', err);
   }
 }
 
@@ -46,7 +51,8 @@ function registerTileProtocolHandler(): void {
   // Monkey-patch fetch for tile:// protocol
   const originalFetch = globalThis.fetch;
 
-  (globalThis as any).fetch = async function (
+  // globalThis.fetch monkey-patch — TypeScript fetch override
+  (globalThis as typeof globalThis & { fetch: typeof fetch }).fetch = async function (
     input: RequestInfo | URL,
     init?: RequestInit
   ): Promise<Response> {

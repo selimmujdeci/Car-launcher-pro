@@ -61,7 +61,7 @@ export const PassengerQRModal = memo(function PassengerQRModal({
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-sm"
         onClick={handleClose}
       />
 
@@ -75,13 +75,13 @@ export const PassengerQRModal = memo(function PassengerQRModal({
               <Music2 className="w-5 h-5 text-blue-400" />
             </div>
             <div>
-              <div className="text-white font-bold text-sm">Yolcu Kontrolü</div>
+              <div className="text-primary font-bold text-sm">Yolcu Kontrolü</div>
               <div className="text-slate-500 text-[10px]">QR kodu okut · Müziği kontrol et</div>
             </div>
           </div>
           <button
             onClick={handleClose}
-            className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-colors active:scale-90"
+            className="w-8 h-8 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-primary transition-colors active:scale-90"
           >
             <X className="w-4 h-4" />
           </button>
@@ -125,14 +125,14 @@ export const PassengerQRModal = memo(function PassengerQRModal({
 
               {/* Aktif parça önizlemesi */}
               {media.track.title && (
-                <div className="w-full bg-white/5 rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="w-full var(--panel-bg-secondary) rounded-xl px-4 py-3 flex items-center gap-3">
                   <div
                     className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                       media.playing ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
                     }`}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="text-white text-xs font-bold truncate">{media.track.title}</div>
+                    <div className="text-primary text-xs font-bold truncate">{media.track.title}</div>
                     <div className="text-slate-500 text-[10px] truncate">{media.track.artist}</div>
                   </div>
                   <div className="text-slate-600 text-[10px] flex-shrink-0">
@@ -149,7 +149,7 @@ export const PassengerQRModal = memo(function PassengerQRModal({
           <div className="px-5 pb-5">
             <button
               onClick={handleClose}
-              className="w-full py-3 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-sm font-bold hover:bg-white/10 transition-all active:scale-95"
+              className="w-full py-3 rounded-xl var(--panel-bg-secondary) border border-white/10 text-slate-400 text-sm font-bold hover:var(--panel-bg-secondary) transition-all active:scale-95"
             >
               Kapat
             </button>
@@ -159,3 +159,5 @@ export const PassengerQRModal = memo(function PassengerQRModal({
     </div>
   );
 });
+
+

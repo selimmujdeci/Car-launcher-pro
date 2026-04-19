@@ -47,13 +47,13 @@ function DashcamViewInner({ onClose }: Props) {
   }, [state.active]);
 
   return (
-    <div className="flex flex-col h-full bg-[#060d1a] text-white select-none" data-editable="dashcam" data-editable-type="card">
+    <div className="flex flex-col h-full glass-card border-none !shadow-none text-primary select-none" data-editable="dashcam" data-editable-type="card">
 
       {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-3">
           <Camera className="w-5 h-5 text-red-400" />
-          <span className="text-white font-black text-sm uppercase tracking-widest">Araç Kamerası</span>
+          <span className="text-primary font-black text-sm uppercase tracking-widest">Araç Kamerası</span>
           {state.active && (
             <div className="flex items-center gap-1.5 bg-red-500/15 border border-red-500/30 px-2.5 py-1 rounded-full">
               <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
@@ -63,7 +63,7 @@ function DashcamViewInner({ onClose }: Props) {
         </div>
         <button
           onClick={onClose}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors active:scale-90"
+          className="w-8 h-8 flex items-center justify-center rounded-full var(--panel-bg-secondary) hover:var(--panel-bg-secondary) text-slate-400 hover:text-primary transition-colors active:scale-90"
         >
           <X className="w-4 h-4" />
         </button>
@@ -73,7 +73,7 @@ function DashcamViewInner({ onClose }: Props) {
       <div className="flex-1 flex gap-4 p-4 min-h-0">
 
         {/* Camera preview */}
-        <div className="flex-[2] min-h-0 relative bg-black rounded-2xl overflow-hidden border border-white/10">
+        <div className="flex-[2] min-h-0 relative var(--panel-bg-secondary) rounded-2xl overflow-hidden border border-white/10">
           {state.active ? (
             <video
               ref={videoRef}
@@ -96,7 +96,7 @@ function DashcamViewInner({ onClose }: Props) {
 
           {/* G-force overlay */}
           {state.active && (
-            <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2">
+            <div className="absolute top-3 left-3 var(--panel-bg-secondary) backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2">
               <AlertTriangle className={`w-4 h-4 ${gForceColor(state.gForce)}`} />
               <span className={`text-sm font-black tabular-nums ${gForceColor(state.gForce)}`}>
                 {state.gForce.toFixed(1)}<span className="text-[10px] ml-0.5 opacity-60">G</span>
@@ -108,16 +108,16 @@ function DashcamViewInner({ onClose }: Props) {
           {state.locked && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="bg-amber-500 rounded-2xl px-8 py-5 flex items-center gap-3 shadow-2xl">
-                <Lock className="w-8 h-8 text-white" />
-                <span className="text-white font-black text-xl">KİLİTLENDİ!</span>
+                <Lock className="w-8 h-8 text-primary" />
+                <span className="text-primary font-black text-xl">KİLİTLENDİ!</span>
               </div>
             </div>
           )}
 
           {/* Segment duration */}
           {state.active && (
-            <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-sm rounded-xl px-3 py-1.5">
-              <span className="text-white text-sm font-black tabular-nums">
+            <div className="absolute bottom-3 right-3 var(--panel-bg-secondary) backdrop-blur-sm rounded-xl px-3 py-1.5">
+              <span className="text-primary text-sm font-black tabular-nums">
                 {fmtDuration(state.currentDurationSec)}
               </span>
             </div>
@@ -162,11 +162,11 @@ function DashcamViewInner({ onClose }: Props) {
 
           {/* Stats */}
           <div className="mt-auto flex flex-col gap-2">
-            <div className="bg-white/5 border border-white/5 rounded-xl p-3 text-center">
+            <div className="var(--panel-bg-secondary) border border-white/5 rounded-xl p-3 text-center">
               <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Buffer</div>
-              <div className="text-white font-black text-lg">{state.segments}<span className="text-slate-600 text-xs font-normal">/3</span></div>
+              <div className="text-primary font-black text-lg">{state.segments}<span className="text-slate-600 text-xs font-normal">/3</span></div>
             </div>
-            <div className="bg-white/5 border border-white/5 rounded-xl p-3 text-center">
+            <div className="var(--panel-bg-secondary) border border-white/5 rounded-xl p-3 text-center">
               <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Kilitli</div>
               <div className="text-amber-400 font-black text-lg">{state.lockedCount}</div>
             </div>
@@ -207,3 +207,5 @@ function DashcamViewInner({ onClose }: Props) {
 const SHAKE_THRESHOLD_DISPLAY = 15;
 
 export const DashcamView = memo(DashcamViewInner);
+
+

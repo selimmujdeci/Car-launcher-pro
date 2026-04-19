@@ -15,6 +15,7 @@
 
 import { useState, useEffect } from 'react';
 import { setBrightness } from './systemSettingsService';
+import { onOBDData } from './obdService';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -165,8 +166,12 @@ function push(partial: Partial<AutoBrightnessState>): void {
   _listeners.forEach((fn) => fn(_state));
 }
 
-let _tickerId:  ReturnType<typeof setInterval> | null = null;
-let _onThemeChange: ((theme: 'dark' | 'oled') => void) | null = null;
+let _tickerId:        ReturnType<typeof setInterval> | null = null;
+let _onThemeChange:   ((theme: 'dark' | 'oled') => void) | null = null;
+let _obdUnsubscribe:  (() => void) | null = null;
+let _prevHeadlights:  boolean | null = null;
+/** Tünel modunda mı? OBD far sinyaline göre gündüz içi tünel geçişlerini tespit eder. */
+let _tunnelMode = false;
 
 function applyBrightness(): void {
   try {
@@ -188,6 +193,43 @@ function applyBrightness(): void {
   } catch { /* Never let a brightness tick crash the interval */ }
 }
 
+/* ── Tünel tespiti ───────────────────────────────────────── */
+
+/**
+ * OBD far sinyali değiştiğinde çağrılır.
+ *
+ * Gündüz farlar açılırsa → tünel geçişi tahmin edilir:
+ *   - Ekran parlaklığı anında gece minimumuna düşürülür (göz kamaşması engeli)
+ *   - autoTheme aktifse OLED temaya geçilir
+ *
+ * Tünel çıkışında (farlar kapanır) → gündüz parlaklık eğrisi yeniden hesaplanır.
+ *
+ * Gerçek gece (phase === 'night') için harekete geçilmez — sadece gündüz tünelleri.
+ */
+export function notifyHeadlightChange(headlightsOn: boolean): void {
+  if (!_state.enabled || !_state.sunTimes) return;
+
+  const min   = nowMinutes();
+  const phase = calcPhase(_state.sunTimes, min);
+  const isDaytime = phase === 'morning' || phase === 'afternoon';
+
+  if (headlightsOn && isDaytime && !_tunnelMode) {
+    // Tünel girişi — anında karart
+    _tunnelMode = true;
+    // Gece minimumunun %120'si — sürücü ekranı görsün ama kamaşmasın
+    const tunnelBright = Math.min(100, Math.round(_state.minNight * 1.2));
+    setBrightness(tunnelBright);
+    push({ currentBrightness: tunnelBright });
+    if (_state.autoTheme && _onThemeChange) {
+      try { _onThemeChange('oled'); } catch { /* callback hatası parlaklığı durdurmaz */ }
+    }
+  } else if (!headlightsOn && _tunnelMode) {
+    // Tünel çıkışı — gündüz parlaklık eğrisini geri yükle
+    _tunnelMode = false;
+    applyBrightness();
+  }
+}
+
 /* ── Public API ──────────────────────────────────────────── */
 
 export function startAutoBrightness(opts: {
@@ -196,6 +238,8 @@ export function startAutoBrightness(opts: {
   onThemeChange?: (theme: 'dark' | 'oled') => void;
 }): void {
   _onThemeChange = opts.onThemeChange ?? null;
+  _tunnelMode    = false;
+  _prevHeadlights = null;
 
   const sunTimes = calcSunTimes(opts.lat, opts.lng, new Date());
   push({ enabled: true, sunTimes, overridden: false });
@@ -203,10 +247,23 @@ export function startAutoBrightness(opts: {
 
   if (_tickerId) clearInterval(_tickerId);
   _tickerId = setInterval(applyBrightness, 60_000);
+
+  // OBD far sinyalini dinle — tünel geçişleri için
+  if (!_obdUnsubscribe) {
+    _obdUnsubscribe = onOBDData((d) => {
+      if (d.headlights !== _prevHeadlights) {
+        _prevHeadlights = d.headlights;
+        notifyHeadlightChange(d.headlights);
+      }
+    });
+  }
 }
 
 export function stopAutoBrightness(): void {
   if (_tickerId) { clearInterval(_tickerId); _tickerId = null; }
+  if (_obdUnsubscribe) { _obdUnsubscribe(); _obdUnsubscribe = null; }
+  _prevHeadlights = null;
+  _tunnelMode     = false;
   if (_state.enabled) {
     // Stale brightness filter'ı temizle — aksi halde ekran karanlık kalır
     setBrightness(100);

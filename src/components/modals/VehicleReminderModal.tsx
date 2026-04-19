@@ -39,12 +39,12 @@ function NumberField({
   return (
     <div className="flex flex-col gap-1.5">
       <FieldLabel>{label}</FieldLabel>
-      <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 focus-within:border-blue-500/50 transition-colors">
+      <div className="flex items-center gap-2 var(--panel-bg-secondary) border border-white/10 rounded-xl px-3 py-2.5 focus-within:border-blue-500/50 transition-colors">
         <input
           type="number"
           value={value || ''}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="bg-transparent border-none outline-none text-white text-sm flex-1 min-w-0"
+          className="bg-transparent border-none outline-none text-primary text-sm flex-1 min-w-0"
           min={0}
         />
         <span className="text-slate-500 text-xs flex-shrink-0">{unit}</span>
@@ -69,7 +69,7 @@ function DateField({
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-blue-500/50 transition-colors [color-scheme:dark] w-full"
+        className="var(--panel-bg-secondary) border border-white/10 rounded-xl px-3 py-2.5 text-primary text-sm outline-none focus:border-blue-500/50 transition-colors [color-scheme:dark] w-full"
       />
     </div>
   );
@@ -120,7 +120,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-sm"
         onClick={onClose}
       />
 
@@ -134,13 +134,13 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
               <Wrench className="w-5 h-5 text-blue-400" />
             </div>
             <div>
-              <div className="text-white font-bold text-sm">Araç Hatırlatıcıları</div>
+              <div className="text-primary font-bold text-sm">Araç Hatırlatıcıları</div>
               <div className="text-slate-500 text-[10px]">Bakım ve belgeler</div>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-colors active:scale-90"
+            className="w-8 h-8 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-primary transition-colors active:scale-90"
           >
             <X className="w-4 h-4" />
           </button>
@@ -167,7 +167,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <Droplets className="w-4 h-4 text-blue-400" />
-              <span className="text-white text-xs font-bold">Yağ Değişimi</span>
+              <span className="text-primary text-xs font-bold">Yağ Değişimi</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <NumberField
@@ -177,7 +177,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
                 onChange={(v) => setField('nextOilChangeKm', v)}
               />
               <NumberField
-                label="Son değişimden (km)"
+                label="Son değişimdeki sayaç"
                 value={form.lastOilChangeKm}
                 unit="km"
                 onChange={(v) => setField('lastOilChangeKm', v)}
@@ -189,7 +189,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <Car className="w-4 h-4 text-emerald-400" />
-              <span className="text-white text-xs font-bold">Araç Muayenesi</span>
+              <span className="text-primary text-xs font-bold">Araç Muayenesi</span>
             </div>
             <DateField
               label="Sonraki muayene tarihi"
@@ -202,7 +202,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-purple-400" />
-              <span className="text-white text-xs font-bold">Sigorta & Kasko</span>
+              <span className="text-primary text-xs font-bold">Sigorta & Kasko</span>
             </div>
             <DateField
               label="Sigorta bitiş tarihi"
@@ -220,7 +220,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-400" />
-              <span className="text-white text-xs font-bold">Araç Kilometresi</span>
+              <span className="text-primary text-xs font-bold">Araç Kilometresi</span>
             </div>
             <NumberField
               label="Güncel kilometre"
@@ -235,13 +235,13 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
         <div className="flex gap-2 p-5 border-t border-white/5 flex-shrink-0">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-sm font-bold hover:bg-white/10 transition-all active:scale-95"
+            className="flex-1 py-3 rounded-xl var(--panel-bg-secondary) border border-white/10 text-slate-400 text-sm font-bold hover:var(--panel-bg-secondary) transition-all active:scale-95"
           >
             İptal
           </button>
           <button
             onClick={handleSave}
-            className="flex-[2] py-3 rounded-xl bg-blue-600 text-white text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-500 transition-all active:scale-95"
+            className="flex-[2] py-3 rounded-xl bg-blue-600 text-primary text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-500 transition-all active:scale-95"
           >
             <Save className="w-4 h-4" />
             Kaydet
@@ -251,3 +251,5 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
     </div>
   );
 });
+
+

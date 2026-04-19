@@ -88,7 +88,7 @@ const PinPad = memo(function PinPad({
   return (
     <div className="flex flex-col items-center gap-6 p-6">
       <div>
-        <div className="text-white font-bold text-lg text-center">{title ?? 'PIN Gir'}</div>
+        <div className="text-primary font-bold text-lg text-center">{title ?? 'PIN Gir'}</div>
         <div className="text-slate-500 text-xs text-center mt-1">
           {locked
             ? `Çok fazla hatalı deneme — ${remaining}s bekle`
@@ -128,7 +128,7 @@ const PinPad = memo(function PinPad({
             className={`
               h-14 rounded-2xl text-xl font-bold transition-all active:scale-90
               ${d === '⌫' ? 'bg-red-500/10 border border-red-500/20 text-red-400' :
-                d ? 'bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-30' :
+                d ? 'var(--panel-bg-secondary) border border-white/10 text-primary hover:var(--panel-bg-secondary) disabled:opacity-30' :
                 'opacity-0 pointer-events-none'}
             `}
           >
@@ -140,7 +140,7 @@ const PinPad = memo(function PinPad({
       {onCancel && (
         <button
           onClick={onCancel}
-          className="text-slate-500 text-sm hover:text-white transition-colors"
+          className="text-slate-500 text-sm hover:text-primary transition-colors"
         >
           İptal
         </button>
@@ -164,7 +164,7 @@ const GeofenceMap = memo(function GeofenceMap({
 }) {
   if (!center) {
     return (
-      <div className="w-full h-32 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+      <div className="w-full h-32 rounded-xl var(--panel-bg-secondary) border border-white/10 flex items-center justify-center">
         <div className="text-slate-600 text-sm text-center">
           <MapPin className="w-6 h-6 mx-auto mb-2" />
           Merkez belirlenmedi
@@ -177,11 +177,11 @@ const GeofenceMap = memo(function GeofenceMap({
   const color = isOutside ? '#ef4444' : pct > 80 ? '#f59e0b' : '#22c55e';
 
   return (
-    <div className="w-full rounded-xl bg-[#0d1628] border border-white/5 p-4">
+    <div className="w-full rounded-xl var(--panel-bg-secondary) border border-white/5 p-4">
       {/* Merkez konum */}
       <div className="flex items-center gap-2 mb-3">
         <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0" />
-        <span className="text-white text-xs font-medium truncate">
+        <span className="text-primary text-xs font-medium truncate">
           {center.lat.toFixed(4)}, {center.lng.toFixed(4)}
         </span>
       </div>
@@ -193,7 +193,7 @@ const GeofenceMap = memo(function GeofenceMap({
           {currentDistKm.toFixed(2)} / {radiusKm} km
         </span>
       </div>
-      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+      <div className="w-full h-2 var(--panel-bg-secondary) rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${pct}%`, backgroundColor: color }}
@@ -266,35 +266,35 @@ export const SecuritySuite = memo(function SecuritySuite() {
   ];
 
   return (
-    <div className="h-full flex flex-col bg-[#060d1a] text-white overflow-hidden" data-editable="security-suite" data-editable-type="card">
+    <div className="h-full flex flex-col glass-card border-none !shadow-none text-primary overflow-hidden" data-editable="security-suite" data-editable-type="card">
       {/* Başlık */}
-      <div className="flex-shrink-0 px-6 py-5 border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-amber-400" />
+      <div className="flex-shrink-0 px-8 py-6 border-b border-white/5">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-[1.25rem] bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shadow-lg">
+            <Shield className="w-6 h-6 text-amber-500" />
           </div>
           <div>
-            <div className="text-white font-bold text-lg tracking-tight">Güvenlik Paketi</div>
-            <div className="text-slate-500 text-xs">Vale & Güvenlik Modu</div>
+            <div className="text-primary font-black text-xl tracking-tight uppercase">Güvenlik Paketi</div>
+            <div className="text-secondary text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Vale & Güvenlik Modu</div>
           </div>
         </div>
       </div>
 
       {/* Sekmeler */}
-      <div className="flex-shrink-0 flex gap-1 p-3 border-b border-white/5">
+      <div className="flex-shrink-0 flex gap-2.5 p-4 var(--panel-bg-secondary) border-b border-white/5">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
             className={`
-              flex-1 h-9 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5
-              transition-all active:scale-95
+              flex-1 h-11 rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2
+              transition-all active:scale-95 shadow-sm
               ${activeTab === t.id
-                ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
-                : 'bg-white/5 text-slate-500 hover:text-white hover:bg-white/10'}
+                ? 'bg-amber-500 text-primary border-transparent shadow-[0_8px_20px_rgba(245,158,11,0.3)]'
+                : 'var(--panel-bg-secondary) text-secondary hover:text-primary hover:var(--panel-bg-secondary)'}
             `}
           >
-            <t.icon className="w-3.5 h-3.5" />
+            <t.icon className="w-4 h-4" />
             {t.label}
           </button>
         ))}
@@ -302,7 +302,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
       {/* PIN pad overlay */}
       {showPinPad && (
-        <div className="absolute inset-0 z-50 bg-[#060d1a]/95 backdrop-blur-sm flex items-center justify-center">
+        <div className="absolute inset-0 z-50 glass-card border-none !shadow-none/95 backdrop-blur-sm flex items-center justify-center">
           <PinPad
             mode={settingPin ? 'set' : 'verify'}
             title={settingPin ? 'Yeni PIN Oluştur' : 'PIN Gir'}
@@ -316,9 +316,9 @@ export const SecuritySuite = memo(function SecuritySuite() {
       {geo.valeAlert && (
         <div className="absolute inset-x-4 top-24 z-40 bg-red-500/95 backdrop-blur-sm rounded-2xl p-4 shadow-2xl border border-red-400/50 animate-fade-in">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-6 h-6 text-white flex-shrink-0 mt-0.5 animate-pulse" />
+            <AlertTriangle className="w-6 h-6 text-primary flex-shrink-0 mt-0.5 animate-pulse" />
             <div>
-              <div className="text-white font-bold text-base">Hız Sınırı Aşıldı!</div>
+              <div className="text-primary font-bold text-base">Hız Sınırı Aşıldı!</div>
               <div className="text-red-100 text-sm mt-0.5">
                 {Math.round(geo.valeAlert.speedKmh)} km/h — Limit: {geo.valeAlert.limitKmh} km/h
               </div>
@@ -335,10 +335,10 @@ export const SecuritySuite = memo(function SecuritySuite() {
             {/* Durum kartı */}
             <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-4">
-                <span className="text-white/70 text-sm font-bold">Sanal Çit</span>
+                <span className="text-primary/70 text-sm font-bold">Sanal Çit</span>
                 <button
                   onClick={handleToggleGeofence}
-                  className={`relative w-12 h-6 rounded-full transition-all ${geo.enabled ? 'bg-emerald-500' : 'bg-white/10'}`}
+                  className={`relative w-12 h-6 rounded-full transition-all ${geo.enabled ? 'bg-emerald-500' : 'var(--panel-bg-secondary)'}`}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${geo.enabled ? 'left-7' : 'left-1'}`} />
                 </button>
@@ -356,14 +356,14 @@ export const SecuritySuite = memo(function SecuritySuite() {
             <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-slate-500 text-xs uppercase tracking-wider">Yarıçap</span>
-                <span className="text-white font-bold">{geo.radiusKm} km</span>
+                <span className="text-primary font-bold">{geo.radiusKm} km</span>
               </div>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setGeofenceRadius(Math.max(0.5, geo.radiusKm - 0.5))}
-                  className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
                 ><Minus className="w-4 h-4" /></button>
-                <div className="flex-1 h-2 bg-white/10 rounded-full">
+                <div className="flex-1 h-2 var(--panel-bg-secondary) rounded-full">
                   <div
                     className="h-full bg-blue-500 rounded-full transition-all"
                     style={{ width: `${Math.min(100, (geo.radiusKm / 20) * 100)}%` }}
@@ -371,7 +371,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
                 </div>
                 <button
                   onClick={() => setGeofenceRadius(Math.min(20, geo.radiusKm + 0.5))}
-                  className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
                 ><Plus className="w-4 h-4" /></button>
               </div>
             </div>
@@ -400,7 +400,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
                     {new Date(geo.lastAlert.timestamp).toLocaleTimeString('tr-TR')} · {geo.lastAlert.distanceKm.toFixed(2)} km
                   </div>
                 </div>
-                <button onClick={dismissGeofenceAlert} className="text-slate-600 hover:text-white">
+                <button onClick={dismissGeofenceAlert} className="text-slate-600 hover:text-primary">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -414,12 +414,12 @@ export const SecuritySuite = memo(function SecuritySuite() {
             <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <div className="text-white text-sm font-bold">Vale Modu</div>
+                  <div className="text-primary text-sm font-bold">Vale Modu</div>
                   <div className="text-slate-500 text-xs mt-0.5">Hız limiti aşılınca uyarı</div>
                 </div>
                 <button
                   onClick={handleToggleVale}
-                  className={`relative w-12 h-6 rounded-full transition-all ${geo.valeModeActive ? 'bg-amber-500' : 'bg-white/10'}`}
+                  className={`relative w-12 h-6 rounded-full transition-all ${geo.valeModeActive ? 'bg-amber-500' : 'var(--panel-bg-secondary)'}`}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${geo.valeModeActive ? 'left-7' : 'left-1'}`} />
                 </button>
@@ -435,9 +435,9 @@ export const SecuritySuite = memo(function SecuritySuite() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setValeSpeedLimit(Math.max(20, geo.valeSpeedLimit - 5))}
-                  className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
                 ><Minus className="w-4 h-4" /></button>
-                <div className="flex-1 h-2 bg-white/10 rounded-full">
+                <div className="flex-1 h-2 var(--panel-bg-secondary) rounded-full">
                   <div
                     className="h-full bg-amber-500 rounded-full transition-all"
                     style={{ width: `${((geo.valeSpeedLimit - 20) / 160) * 100}%` }}
@@ -445,7 +445,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
                 </div>
                 <button
                   onClick={() => setValeSpeedLimit(Math.min(180, geo.valeSpeedLimit + 5))}
-                  className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
                 ><Plus className="w-4 h-4" /></button>
               </div>
               <div className="flex justify-between text-slate-500 text-[10px] mt-1">
@@ -492,12 +492,12 @@ export const SecuritySuite = memo(function SecuritySuite() {
             <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-white text-sm font-bold">PIN Kilidi</div>
+                  <div className="text-primary text-sm font-bold">PIN Kilidi</div>
                   <div className="text-slate-500 text-xs mt-0.5">Ayarlara giriş koruması</div>
                 </div>
                 <button
                   onClick={handleTogglePin}
-                  className={`relative w-12 h-6 rounded-full transition-all ${geo.pinLockEnabled ? 'bg-emerald-500' : 'bg-white/10'}`}
+                  className={`relative w-12 h-6 rounded-full transition-all ${geo.pinLockEnabled ? 'bg-emerald-500' : 'var(--panel-bg-secondary)'}`}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${geo.pinLockEnabled ? 'left-7' : 'left-1'}`} />
                 </button>
@@ -527,7 +527,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
               <>
                 <button
                   onClick={() => { setShowPinPad(true); setSettingPin(false); }}
-                  className="h-12 rounded-2xl bg-white/5 border border-white/10 text-slate-300 text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
+                  className="h-12 rounded-2xl var(--panel-bg-secondary) border border-white/10 text-slate-300 text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
                 >
                   <Lock className="w-4 h-4" />
                   PIN'i Test Et
@@ -549,3 +549,5 @@ export const SecuritySuite = memo(function SecuritySuite() {
 });
 
 export default SecuritySuite;
+
+

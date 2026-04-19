@@ -4,6 +4,7 @@
  * Pure function module: no state, no side effects.
  *
  * Matching strategy (three-tier, first tier to pass wins):
+ *   0. Pre-check: tryParseNavAddress() — serbest adres navigasyonu (yüksek öncelik)
  *   1. Exact substring  — confidence 1.00  (fast path)
  *   2. Token exact      — confidence 0.82  (any significant input word matches)
  *   3. Fuzzy token      — confidence 0.49–0.72  (edit-distance ≤ 35 %)
@@ -15,13 +16,68 @@
  * the `ParsedCommand` / `ParseResult` interfaces stay unchanged.
  */
 
+import { tryParseNavAddress } from './addressParser';
+import { tryParseMusicCommand } from './musicCommandParser';
+
+/* ── Music search pre-check ──────────────────────────────── */
+
+/**
+ * Detects "X çal / X'i çal / X oynat" patterns and extracts the search query.
+ * Returns null if the query is a generic word (müzik, şarkı, spotify, …).
+ *
+ * Examples:
+ *   "Blinding Lights çal"  → { query: "Blinding Lights" }
+ *   "Starboy'u çal"        → { query: "Starboy" }
+ *   "şarkı çal"            → null  (generic)
+ *   "spotify çal"          → null  (app name — handled elsewhere)
+ */
+function tryParseMusicSearch(raw: string): { query: string } | null {
+  const SKIP = new Set([
+    'muzik', 'muzigi', 'sarki', 'sarkiyi', 'playlist', 'ses', 'music', 'song', 'audio',
+    'spotify', 'youtube', 'deezer', 'tidal', 'soundcloud', 'amazon', 'apple',
+  ]);
+
+  // Match: <query>[suffix] çal/oynat
+  const pattern = /^(.+?)(?:'[a-zğüşıöçA-ZĞÜŞİÖÇ]*)?\s+(?:cal(?:iver)?|oynat|calsin)$/i;
+  const normalizedRaw = raw.trim()
+    .toLowerCase()
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g');
+
+  const match = normalizedRaw.match(pattern);
+  if (!match) return null;
+
+  const normalizedQuery = match[1].trim();
+  if (normalizedQuery.length < 2) return null;
+
+  // Reject if every token is a generic / app-name word
+  const tokens = normalizedQuery.split(/\s+/);
+  if (tokens.every((t) => SKIP.has(t))) return null;
+
+  // Extract query from ORIGINAL input (preserve casing)
+  // Find where the verb starts to trim it
+  const verbMatch = raw.trim().match(/^(.+?)(?:'[^\s]*)?\s+(?:çal(?:ıver)?|oynat|çalsın)$/i);
+  const query = verbMatch ? verbMatch[1].trim() : raw.trim();
+
+  return { query };
+}
+
 /* ── Types ───────────────────────────────────────────────── */
 
 export type CommandType =
   | 'navigate_home'
   | 'navigate_work'
+  | 'navigate_address'
+  | 'navigate_place'
+  | 'find_nearby_gas'
+  | 'find_nearby_parking'
+  | 'find_nearby_restaurant'
+  | 'find_nearby_hospital'
   | 'open_maps'
   | 'open_music'
+  | 'play_music_search'
+  | 'play_music_query'
+  | 'add_music_favorite'
   | 'stop_music'
   | 'music_next'
   | 'music_prev'
@@ -42,7 +98,15 @@ export type CommandType =
   | 'vehicle_fuel'
   | 'vehicle_temp'
   | 'vehicle_maintenance'
-  | 'show_weather';
+  | 'show_weather'
+  | 'show_traffic'
+  | 'open_dashcam'
+  | 'toggle_bluetooth'
+  | 'toggle_wifi'
+  | 'screen_brightness_up'
+  | 'screen_brightness_down'
+  | 'call_contact'
+  | 'open_camera';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -52,6 +116,8 @@ export interface ParsedCommand {
   confidence: number;        // 0–1
   feedback:   string;        // "Harita açılıyor" — shown in Voice UI
   priority:   CommandPriority;
+  /** Ek yük alanı — navigate_address için destination vb. */
+  extra?:     Record<string, string>;
 }
 
 /** Shown in the UI when no command matches, as "Did you mean?" chips. */
@@ -289,6 +355,83 @@ const PATTERNS: CommandPattern[] = [
     ],
     tokens: ['hava', 'weather', 'sıcaklık', 'yağmur', 'bulut'],
   },
+  {
+    type: 'add_music_favorite', priority: 'normal',
+    feedback: 'Şarkı favorilere ekleniyor',
+    label: 'Favorilere Ekle', example: 'bu şarkıyı favorilere ekle',
+    keywords: ['bu şarkıyı favorilere ekle', 'favorilere ekle', 'favorime ekle'],
+    tokens:   ['favori', 'favorilere', 'ekle'],
+  },
+  {
+    type: 'show_traffic', priority: 'normal',
+    feedback: 'Trafik bilgisi gösteriliyor',
+    label: 'Trafiği Göster', example: 'trafik nasıl',
+    keywords: ['trafik nasıl', 'trafik durumu', 'yol durumu', 'trafiği göster', 'trafik var mı', 'tıkanıklık var mı'],
+    tokens:   ['trafik', 'yol', 'tıkanıklık', 'traffic'],
+  },
+  {
+    type: 'open_dashcam', priority: 'normal',
+    feedback: 'Dashcam açılıyor',
+    label: 'Dashcam Aç', example: 'dashcamı aç',
+    keywords: ['dashcamı aç', 'dashcam aç', 'araç kamerasını aç', 'kamera aç', 'yol kamerası'],
+    tokens:   ['dashcam', 'kamera', 'araç'],
+  },
+  {
+    type: 'toggle_bluetooth', priority: 'normal',
+    feedback: 'Bluetooth değiştirildi',
+    label: 'Bluetooth Aç/Kapat', example: 'bluetoothu aç',
+    keywords: ['bluetoothu aç', 'bluetooth aç', 'bluetooth kapat', 'bluetoothu kapat', 'bluetooth toggle'],
+    tokens:   ['bluetooth', 'bt'],
+  },
+  {
+    type: 'toggle_wifi', priority: 'normal',
+    feedback: 'WiFi değiştirildi',
+    label: 'WiFi Aç/Kapat', example: 'wifiyi aç',
+    keywords: ['wifiyi aç', 'wifi aç', 'wifi kapat', 'wifiyi kapat', 'wi-fi aç'],
+    tokens:   ['wifi', 'wi-fi', 'internet'],
+  },
+  {
+    type: 'screen_brightness_up', priority: 'normal',
+    feedback: 'Parlaklık artırıldı',
+    label: 'Parlaklığı Artır', example: 'parlaklığı artır',
+    keywords: ['parlaklığı artır', 'ekranı parlat', 'daha parlak', 'parlaklık aç', 'brightness aç'],
+    tokens:   ['parlaklık', 'brightness', 'parlat'],
+  },
+  {
+    type: 'screen_brightness_down', priority: 'normal',
+    feedback: 'Parlaklık azaltıldı',
+    label: 'Parlaklığı Azalt', example: 'parlaklığı azalt',
+    keywords: ['parlaklığı azalt', 'ekranı karart', 'daha karanlık', 'parlaklık kıs', 'brightness kıs'],
+    tokens:   ['karart', 'azalt', 'dim'],
+  },
+  {
+    type: 'find_nearby_restaurant', priority: 'normal',
+    feedback: 'Yakın restoranlar aranıyor',
+    label: 'Restoran Bul', example: 'yakınımda restoran var mı',
+    keywords: ['yakınımda restoran', 'restoran bul', 'yemek yeri bul', 'cafe bul', 'yakında ne var'],
+    tokens:   ['restoran', 'yemek', 'cafe', 'lokanta'],
+  },
+  {
+    type: 'find_nearby_hospital', priority: 'critical',
+    feedback: 'Yakın hastane aranıyor',
+    label: 'Hastane Bul', example: 'en yakın hastane',
+    keywords: ['en yakın hastane', 'hastane bul', 'acil servis', 'yakınımda hastane', 'doktor bul'],
+    tokens:   ['hastane', 'acil', 'doktor', 'hospital'],
+  },
+  {
+    type: 'call_contact', priority: 'critical',
+    feedback: 'Arama başlatılıyor',
+    label: 'Kişiyi Ara', example: 'ahmet\'i ara',
+    keywords: ['\'ı ara', '\'yi ara', '\'ü ara', '\'u ara', 'ara beni', 'arama yap'],
+    tokens:   ['ara', 'call', 'phone'],
+  },
+  {
+    type: 'open_camera', priority: 'normal',
+    feedback: 'Kamera açılıyor',
+    label: 'Kamerayı Aç', example: 'kamerayı aç',
+    keywords: ['kamerayı aç', 'kamera aç', 'arka kamera', 'geri kamera', 'rear camera'],
+    tokens:   ['kamera', 'camera'],
+  },
 ];
 
 /* ── Text normalisation ──────────────────────────────────── */
@@ -386,9 +529,79 @@ function scorePattern(
  * Use this everywhere; `parseCommand` is a thin compatibility wrapper.
  */
 export function parseCommandFull(input: string): ParseResult {
-  const normalized   = normalizeText(input);
+  const trimmed = input.trim();
+  if (!trimmed) return { command: null, suggestions: [] };
+
+  // Ön kontrol: gelişmiş müzik komutları (source + query + action)
+  const musicCmd = tryParseMusicCommand(trimmed);
+  if (musicCmd) {
+    if (musicCmd.action === 'add_favorite') {
+      return {
+        command: {
+          type:       'add_music_favorite',
+          raw:        trimmed,
+          confidence: 0.95,
+          feedback:   musicCmd.feedback,
+          priority:   'high',
+        },
+        suggestions: [],
+      };
+    }
+    return {
+      command: {
+        type:       'play_music_query',
+        raw:        trimmed,
+        confidence: 0.93,
+        feedback:   musicCmd.feedback,
+        priority:   'high',
+        extra: {
+          query:      musicCmd.query,
+          queryType:  musicCmd.queryType,
+          sourcePkg:  musicCmd.source?.pkg      ?? '',
+          sourceName: musicCmd.source?.name     ?? '',
+          searchUri:  musicCmd.query ? (musicCmd.source?.searchUri(musicCmd.query) ?? '') : '',
+          action:     musicCmd.action,
+        },
+      },
+      suggestions: [],
+    };
+  }
+
+  // Ön kontrol: serbest adres navigasyonu (keyword matching'den önce)
+  const navMatch = tryParseNavAddress(trimmed);
+  if (navMatch) {
+    return {
+      command: {
+        type:       navMatch.intent as CommandType,
+        raw:        trimmed,
+        confidence: 0.90,
+        feedback:   navMatch.feedback,
+        priority:   'critical',
+        extra:      { destination: navMatch.destination },
+      },
+      suggestions: [],
+    };
+  }
+
+  // Ön kontrol: müzik arama (örn: "Blinding Lights çal")
+  const musicSearch = tryParseMusicSearch(trimmed);
+  if (musicSearch) {
+    return {
+      command: {
+        type:       'play_music_search',
+        raw:        trimmed,
+        confidence: 0.92,
+        feedback:   `"${musicSearch.query}" aranıyor`,
+        priority:   'high',
+        extra:      { query: musicSearch.query },
+      },
+      suggestions: [],
+    };
+  }
+
+  const normalized  = normalizeText(trimmed);
   if (!normalized) return { command: null, suggestions: [] };
-  const inputTokens  = normalized.split(' ').filter((t) => t.length > 0);
+  const inputTokens = normalized.split(' ').filter((t) => t.length > 0);
 
   const scored = NORM_PATTERNS.map((p) => ({
     pattern: p,

@@ -120,6 +120,12 @@
          İZİNLER
          ══════════════════════════════════════════════════════════════ -->
 
+    <!-- Android 13+ (API 33) — bildirim gönderme izni (POST_NOTIFICATIONS) -->
+    <!-- NotificationListenerService izin sayfasının kısıtlanmış ayar hatası vermemesi için gerekli -->
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"
+        android:minSdkVersion="33" />
+
     <!-- Temel ağ -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -175,5 +181,8 @@
     <!-- Ön plan servisi — arka planda GPS/dashcam -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Pil optimizasyonu muafiyeti — MIUI/HyperOS arka plan öldürmesini önler -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
 </manifest>

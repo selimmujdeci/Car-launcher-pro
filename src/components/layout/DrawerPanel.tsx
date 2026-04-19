@@ -1,6 +1,6 @@
-import { memo } from 'react';
+import { memo, lazy, Suspense } from 'react';
 import { DrawerShell } from './DrawerShell';
-import { useTrafficState, TRAFFIC_COLORS } from '../../platform/trafficService';
+import { TrafficPanel } from '../traffic/TrafficPanel';
 import { AppGrid } from '../apps/AppGrid';
 import { SettingsPage } from '../settings/SettingsPage';
 import { DTCPanel } from '../obd/DTCPanel';
@@ -8,19 +8,25 @@ import { NotificationCenter } from '../notifications/NotificationCenter';
 import { TripLogView } from '../trip/TripLogView';
 import { WeatherWidget } from '../weather/WeatherWidget';
 import { SportModePanel } from '../sport/SportModePanel';
-import { SecuritySuite } from '../security/SecuritySuite';
-import { EntertainmentPortal, BreakAlertOverlay } from '../entertainment/EntertainmentPortal';
-import { DashcamView } from '../dashcam/DashcamView';
-import { SplitScreen } from '../split/SplitScreen';
-import { RearViewCamera } from '../camera/RearViewCamera';
-import { FullMapView } from '../map/FullMapView';
-import { PassengerQRModal } from '../modals/PassengerQRModal';
-import type { AppItem } from '../../data/apps';
+import { MediaScreen } from '../media/MediaScreen';
+import { PhoneScreen } from '../phone/PhoneScreen';
+import type { AppItem, MusicOptionKey } from '../../data/apps';
 import type { DrawerType } from './DockBar';
+
+// Ağır paneller — ilk render'da yüklenmez, ilk açılışta indir
+const SecuritySuite      = lazy(() => import('../security/SecuritySuite').then((m) => ({ default: m.SecuritySuite })));
+const EntertainmentPortal = lazy(() => import('../entertainment/EntertainmentPortal').then((m) => ({ default: m.EntertainmentPortal })));
+const BreakAlertOverlay   = lazy(() => import('../entertainment/EntertainmentPortal').then((m) => ({ default: m.BreakAlertOverlay })));
+const DashcamView        = lazy(() => import('../dashcam/DashcamView').then((m) => ({ default: m.DashcamView })));
+const SplitScreen        = lazy(() => import('../split/SplitScreen').then((m) => ({ default: m.SplitScreen })));
+const RearViewCamera     = lazy(() => import('../camera/RearViewCamera').then((m) => ({ default: m.RearViewCamera })));
+const FullMapView        = lazy(() => import('../map/FullMapView').then((m) => ({ default: m.FullMapView })));
+const PassengerQRModal   = lazy(() => import('../modals/PassengerQRModal').then((m) => ({ default: m.PassengerQRModal })));
 
 interface Props {
   drawer:         DrawerType;
   onClose:        () => void;
+  defaultMusic:   MusicOptionKey;
   allApps:        AppItem[];
   favorites:      string[];
   gridColumns:    3 | 4 | 5;
@@ -35,63 +41,15 @@ interface Props {
   onCloseMap:     () => void;
   passengerOpen:  boolean;
   onClosePassenger: () => void;
-}
-
-const LEVEL_LABELS: Record<string, string> = {
-  free: 'Akıcı', moderate: 'Orta', heavy: 'Yoğun', standstill: 'Tıkalı',
-};
-
-function TrafficPanel() {
-  const traffic = useTrafficState();
-  const s = traffic.summary;
-  return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-white text-xl font-bold">Trafik Durumu</h2>
-        <span className="text-[10px] text-amber-400/70 border border-amber-400/30 rounded px-2 py-0.5 uppercase tracking-widest font-bold">
-          Simülasyon
-        </span>
-      </div>
-      {!s ? (
-        <p className="text-white/40 text-sm">Trafik verisi yükleniyor…</p>
-      ) : (
-        <>
-          <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/5">
-            <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: TRAFFIC_COLORS[s.level] }} />
-            <div>
-              <p className="text-white font-semibold text-lg">{LEVEL_LABELS[s.level] ?? s.level}</p>
-              {s.delayMin > 0 && (
-                <p className="text-white/50 text-sm">Tahmini gecikme: ~{s.delayMin} dk</p>
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            {s.segments.map((seg, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: TRAFFIC_COLORS[seg.level] }} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-white/80 text-sm font-medium truncate">{seg.label}</p>
-                  <p className="text-white/40 text-xs truncate">{seg.direction}</p>
-                </div>
-                {seg.delayMin > 0 && (
-                  <span className="text-white/50 text-xs flex-shrink-0">+{seg.delayMin} dk</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <p className="text-white/25 text-xs text-center pt-2">
-            Gerçek trafik verisi değildir — saat bazlı simülasyon
-          </p>
-        </>
-      )}
-    </div>
-  );
+  /** Navigasyon alt çubuğundan drawer açma — FullMapView'e iletilir */
+  onOpenDrawerFromMap?: (type: 'music' | 'phone' | 'apps' | 'settings') => void;
 }
 
 export const DrawerPanel = memo(function DrawerPanel({
-  drawer, onClose, allApps, favorites, gridColumns, onToggleFav, onLaunch,
+  drawer, onClose, defaultMusic, allApps, favorites, gridColumns, onToggleFav, onLaunch,
   onOpenMap, splitOpen, onCloseSplit, rearCamOpen, onCloseRearCam,
   fullMapOpen, onCloseMap, passengerOpen, onClosePassenger,
+  onOpenDrawerFromMap,
 }: Props) {
   return (
     <>
@@ -124,30 +82,67 @@ export const DrawerPanel = memo(function DrawerPanel({
       </DrawerShell>
 
       <DrawerShell open={drawer === 'security'} onClose={onClose}>
-        <SecuritySuite />
+        <Suspense fallback={null}>
+          <SecuritySuite />
+        </Suspense>
       </DrawerShell>
 
       <DrawerShell open={drawer === 'entertainment'} onClose={onClose}>
-        <EntertainmentPortal />
+        <Suspense fallback={null}>
+          <EntertainmentPortal />
+        </Suspense>
       </DrawerShell>
 
       <DrawerShell open={drawer === 'traffic'} onClose={onClose}>
         <TrafficPanel />
       </DrawerShell>
 
-      <BreakAlertOverlay />
+      <DrawerShell open={drawer === 'music'} onClose={onClose}>
+        <MediaScreen defaultMusic={defaultMusic} />
+      </DrawerShell>
 
-      {splitOpen    && <SplitScreen onClose={onCloseSplit} />}
-      {rearCamOpen  && <RearViewCamera onClose={onCloseRearCam} />}
+      <DrawerShell open={drawer === 'phone'} onClose={onClose}>
+        <PhoneScreen />
+      </DrawerShell>
+
+      <Suspense fallback={null}>
+        <BreakAlertOverlay />
+      </Suspense>
+
+      {splitOpen && (
+        <Suspense fallback={null}>
+          <SplitScreen onClose={onCloseSplit} />
+        </Suspense>
+      )}
+      {rearCamOpen && (
+        <Suspense fallback={null}>
+          <RearViewCamera onClose={onCloseRearCam} />
+        </Suspense>
+      )}
 
       {drawer === 'dashcam' && (
-        <div className="fixed inset-0 z-40 bg-[#060d1a]">
-          <DashcamView onClose={onClose} />
+        <div className="fixed inset-4 bottom-20 top-10 z-[1000] rounded-[32px] overflow-hidden glass-card">
+          <Suspense fallback={null}>
+            <DashcamView onClose={onClose} />
+          </Suspense>
         </div>
       )}
 
-      {fullMapOpen   && <FullMapView onClose={onCloseMap} />}
-      {passengerOpen && <PassengerQRModal onClose={onClosePassenger} />}
+      {fullMapOpen && (
+        <Suspense fallback={null}>
+          <FullMapView
+            onClose={onCloseMap}
+            onOpenDrawer={onOpenDrawerFromMap}
+          />
+        </Suspense>
+      )}
+      {passengerOpen && (
+        <Suspense fallback={null}>
+          <PassengerQRModal onClose={onClosePassenger} />
+        </Suspense>
+      )}
     </>
   );
 });
+
+

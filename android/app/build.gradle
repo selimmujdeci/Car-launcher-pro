@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def keyPropertiesFile = rootProject.file("key.properties")
+def keyProperties = new Properties()
+if (keyPropertiesFile.exists()) {
+    keyPropertiesFile.withReader('UTF-8') { reader -> keyProperties.load(reader) }
+}
+
 android {
     namespace = "com.carlauncher.pro"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,10 +22,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keyProperties['RELEASE_STORE_FILE']) {
+                storeFile     file(keyProperties['RELEASE_STORE_FILE'])
+                storePassword keyProperties['RELEASE_STORE_PASSWORD']
+                keyAlias      keyProperties['RELEASE_KEY_ALIAS']
+                keyPassword   keyProperties['RELEASE_KEY_PASSWORD']
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+            debuggable true
         }
     }
 }

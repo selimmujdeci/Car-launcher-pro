@@ -107,7 +107,7 @@ function ColorRow({
             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
           />
           {!isCustom && (
-            <span className="text-[11px] font-black text-white drop-shadow z-10 pointer-events-none">
+            <span className="text-[11px] font-black text-primary drop-shadow z-10 pointer-events-none">
               +
             </span>
           )}
@@ -122,7 +122,7 @@ function ColorRow({
               const v = e.target.value;
               if (/^#[0-9a-fA-F]{0,6}$/.test(v) && v.length === 7) onChange(v);
             }}
-            className="w-20 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-[10px] font-mono text-white uppercase tracking-widest focus:outline-none focus:border-blue-500 flex-shrink-0"
+            className="w-20 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-[10px] font-mono text-primary uppercase tracking-widest focus:outline-none focus:border-blue-500 flex-shrink-0"
             maxLength={7}
             spellCheck={false}
           />
@@ -185,7 +185,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 className="w-3 h-3 rounded-full border border-white/30 flex-shrink-0 transition-colors duration-150"
                 style={{ backgroundColor: indicatorColor }}
               />
-              <span className="text-white text-sm font-black uppercase tracking-[0.12em]">
+              <span className="text-primary text-sm font-black uppercase tracking-[0.12em]">
                 {info?.label ?? elementId}
               </span>
               <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
@@ -237,11 +237,11 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
           {/* ── Scope + Tab bar ── */}
           <div className="flex items-center gap-2 px-4 pt-2.5 pb-2 border-b border-white/5">
             {/* Lokal / Global toggle */}
-            <div className="flex items-center gap-0.5 bg-white/5 rounded-xl p-0.5 flex-shrink-0 border border-white/8">
+            <div className="flex items-center gap-0.5 var(--panel-bg-secondary) rounded-xl p-0.5 flex-shrink-0 border border-white/8">
               <button
                 onClick={() => setScope('local')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
-                  scope === 'local' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'
+                  scope === 'local' ? 'bg-blue-600 text-primary shadow-sm' : 'text-slate-400 hover:text-slate-300'
                 }`}
               >
                 <Monitor className="w-2.5 h-2.5" />
@@ -250,7 +250,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               <button
                 onClick={() => setScope('global')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
-                  scope === 'global' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'
+                  scope === 'global' ? 'bg-violet-600 text-primary shadow-sm' : 'text-slate-400 hover:text-slate-300'
                 }`}
               >
                 <Globe className="w-2.5 h-2.5" />
@@ -258,7 +258,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               </button>
             </div>
 
-            <div className="w-px h-5 bg-white/10 flex-shrink-0" />
+            <div className="w-px h-5 var(--panel-bg-secondary) flex-shrink-0" />
 
             {/* Tab'lar */}
             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
@@ -268,7 +268,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                   onClick={() => setTab(t)}
                   className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex-shrink-0 transition-all ${
                     tab === t
-                      ? 'bg-white/14 text-white'
+                      ? 'bg-white/14 text-primary'
                       : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
@@ -296,7 +296,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                       <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
                         Arka Plan Yoğunluğu
                       </span>
-                      <span className="text-white text-[10px] font-black tabular-nums">
+                      <span className="text-primary text-[10px] font-black tabular-nums">
                         {style.bgOpacity}%
                       </span>
                     </div>
@@ -349,7 +349,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ fontWeight: w ?? null })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all active:scale-95 ${
                           style.fontWeight === w
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-primary'
                             : 'bg-white/6 text-slate-400 hover:bg-white/12'
                         }`}
                         style={{ fontWeight: w ?? undefined }}
@@ -365,7 +365,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                     <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
                       Yazı Boyutu
                     </span>
-                    <span className="text-white text-[10px] font-black tabular-nums">
+                    <span className="text-primary text-[10px] font-black tabular-nums">
                       {Math.round((style.fontScale ?? 1) * 100)}%
                     </span>
                   </div>
@@ -397,7 +397,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ size: sz })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all active:scale-95 ${
                           style.size === sz
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-primary'
                             : 'bg-white/6 text-slate-400 hover:bg-white/12'
                         }`}
                       >
@@ -419,7 +419,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ borderWidth: w })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.borderWidth === w
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-primary'
                             : 'bg-white/6 text-slate-400 hover:bg-white/12'
                         }`}
                       >
@@ -449,7 +449,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ borderRadius: r })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.borderRadius === r
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-primary'
                             : 'bg-white/6 text-slate-400 hover:bg-white/12'
                         }`}
                         style={{ borderRadius: `${r * 6}px` }}
@@ -466,7 +466,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                     <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
                       Saydamlık
                     </span>
-                    <span className="text-white text-[10px] font-black tabular-nums">
+                    <span className="text-primary text-[10px] font-black tabular-nums">
                       {style.opacity}%
                     </span>
                   </div>
@@ -501,7 +501,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ glowLevel: lvl })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.glowLevel === lvl
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-primary'
                             : 'bg-white/6 text-slate-400 hover:bg-white/12'
                         }`}
                       >
@@ -529,7 +529,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ shadowLevel: lvl })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.shadowLevel === lvl
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-primary'
                             : 'bg-white/6 text-slate-400 hover:bg-white/12'
                         }`}
                       >
@@ -561,3 +561,5 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
 
 // Şu an saklı olan tüm varsayılanlar
 export { STYLE_DEFAULTS };
+
+

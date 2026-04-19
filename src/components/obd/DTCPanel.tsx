@@ -50,7 +50,7 @@ const DTCCodeCard = memo(function DTCCodeCard({ code }: { code: DTCCode }) {
           </div>
 
           {/* Description */}
-          <div className="text-white text-sm font-semibold leading-snug mb-2">
+          <div className="text-primary text-sm font-semibold leading-snug mb-2">
             {code.description}
           </div>
 
@@ -65,7 +65,7 @@ const DTCCodeCard = memo(function DTCCodeCard({ code }: { code: DTCCode }) {
                 {code.possibleCauses.map((cause, i) => (
                   <span
                     key={i}
-                    className="text-[10px] text-slate-400 bg-white/5 border border-white/[0.06] px-2 py-0.5 rounded-full"
+                    className="text-[10px] text-slate-400 var(--panel-bg-secondary) border border-white/[0.06] px-2 py-0.5 rounded-full"
                   >
                     {cause}
                   </span>
@@ -94,103 +94,117 @@ function DTCPanelInner() {
     : null;
 
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-5 p-6 glass-card border-none !shadow-none min-h-full">
 
       {/* ── Title row ──────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-5 h-5 text-amber-400" />
-            <span className="text-white font-black text-base uppercase tracking-widest">Arıza Teşhisi</span>
-          </div>
-          {lastReadStr && (
-            <div className="text-slate-600 text-[11px] mt-0.5 ml-7">
-              Son tarama: {lastReadStr}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <ShieldAlert className="w-6 h-6 text-amber-500" />
             </div>
-          )}
+            <div>
+              <span className="text-primary font-black text-lg uppercase tracking-widest">Arıza Teşhisi</span>
+              {lastReadStr && (
+                <div className="text-secondary text-[11px] font-bold uppercase tracking-wider mt-0.5 opacity-60">
+                  Son tarama: {lastReadStr}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Severity counters */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {criticalCount > 0 && (
-            <div className="bg-red-500/15 border border-red-500/30 rounded-full px-2.5 py-1 text-red-400 text-xs font-black">
-              {criticalCount} Kritik
+            <div className="bg-red-500/15 border border-red-500/30 rounded-full px-3 py-1.5 text-red-500 text-[10px] font-black uppercase tracking-wider shadow-sm">
+              {criticalCount} KRİTİK
             </div>
           )}
           {warningCount > 0 && (
-            <div className="bg-amber-500/15 border border-amber-500/30 rounded-full px-2.5 py-1 text-amber-400 text-xs font-black">
-              {warningCount} Uyarı
+            <div className="bg-amber-500/15 border border-amber-500/30 rounded-full px-3 py-1.5 text-amber-500 text-[10px] font-black uppercase tracking-wider shadow-sm">
+              {warningCount} UYARI
             </div>
           )}
         </div>
       </div>
 
       {/* ── Action buttons ─────────────────────────────── */}
-      <div className="flex gap-3">
+      <div className="flex gap-4">
         <button
           onClick={readDTCCodes}
           disabled={dtc.isReading}
-          className="flex-1 flex items-center justify-center gap-2 bg-blue-500/15 border border-blue-500/30 text-blue-400 rounded-2xl py-3.5 font-bold text-sm hover:bg-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+          className="flex-1 h-14 flex items-center justify-center gap-3 bg-blue-500/10 border border-blue-500/25 text-blue-600 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
         >
-          <RefreshCw className={`w-4 h-4 ${dtc.isReading ? 'animate-spin' : ''}`} />
-          {dtc.isReading ? 'Okunuyor…' : 'Hataları Oku'}
+          <RefreshCw className={`w-5 h-5 ${dtc.isReading ? 'animate-spin' : ''}`} />
+          {dtc.isReading ? 'OKUNUYOR…' : 'TARAMAYI BAŞLAT'}
         </button>
 
         <button
           onClick={clearDTCCodes}
           disabled={dtc.isClearing || dtc.codes.length === 0}
-          className="flex-1 flex items-center justify-center gap-2 bg-red-500/15 border border-red-500/30 text-red-400 rounded-2xl py-3.5 font-bold text-sm hover:bg-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+          className="flex-1 h-14 flex items-center justify-center gap-3 bg-red-500/10 border border-red-500/25 text-red-600 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
         >
-          <Trash2 className={`w-4 h-4 ${dtc.isClearing ? 'animate-spin' : ''}`} />
-          {dtc.isClearing ? 'Siliniyor…' : 'Hata Kodlarını Sil'}
+          <Trash2 className={`w-5 h-5 ${dtc.isClearing ? 'animate-spin' : ''}`} />
+          {dtc.isClearing ? 'SİLİNİYOR…' : 'HAFIZAYI TEMİZLE'}
         </button>
       </div>
 
       {/* ── Codes / empty state ────────────────────────── */}
-      {dtc.codes.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-4">
-          {dtc.lastReadAt ? (
-            <>
-              <CheckCircle2 className="w-14 h-14 text-emerald-400" />
-              <div className="text-emerald-400 font-black text-lg">Arıza Kodu Yok</div>
-              <div className="text-slate-600 text-sm text-center">
-                Araç sistemleri normal çalışıyor
-              </div>
-            </>
-          ) : (
-            <>
-              <AlertTriangle className="w-14 h-14 text-slate-700" />
-              <div className="text-slate-500 font-bold text-base">Henüz tarama yapılmadı</div>
-              <div className="text-slate-700 text-sm">
-                «Hataları Oku» butonuna basarak OBD taraması başlatın
-              </div>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {/* Sort: critical first */}
-          {[...dtc.codes]
-            .sort((a, b) => {
-              const order: Record<DTCSeverity, number> = { critical: 0, warning: 1, info: 2 };
-              return order[a.severity] - order[b.severity];
-            })
-            .map((code) => (
-              <DTCCodeCard key={code.code} code={code} />
-            ))}
-        </div>
-      )}
+      <div className="flex-1">
+        {dtc.codes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-5 glass-card border-none !shadow-none var(--panel-bg-secondary)">
+            {dtc.lastReadAt ? (
+              <>
+                <div className="w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                </div>
+                <div className="text-center">
+                  <div className="text-emerald-600 font-black text-xl uppercase tracking-widest">SİSTEM TEMİZ</div>
+                  <div className="text-secondary text-sm font-bold mt-2 opacity-70 uppercase tracking-wider">
+                    Araç sistemleri normal çalışıyor
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-20 h-20 rounded-full var(--panel-bg-secondary) flex items-center justify-center border border-white/10">
+                  <AlertTriangle className="w-10 h-10 text-secondary opacity-40" />
+                </div>
+                <div className="text-center">
+                  <div className="text-secondary font-black text-lg uppercase tracking-widest opacity-60">HENÜZ TARAMA YAPILMADI</div>
+                  <div className="text-secondary text-[11px] font-bold mt-2 opacity-40 uppercase tracking-widest">
+                    OBD TARAMASI İÇİN BUTONA BASIN
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {/* Sort: critical first */}
+            {[...dtc.codes]
+              .sort((a, b) => {
+                const order: Record<DTCSeverity, number> = { critical: 0, warning: 1, info: 2 };
+                return order[a.severity] - order[b.severity];
+              })
+              .map((code) => (
+                <DTCCodeCard key={code.code} code={code} />
+              ))}
+          </div>
+        )}
+      </div>
 
       {/* ── Error ─────────────────────────────────────── */}
       {dtc.error && (
-        <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 text-red-400 text-sm flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-5 text-red-600 text-sm font-bold flex items-start gap-3 shadow-lg">
+          <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
           {dtc.error}
         </div>
       )}
 
       {/* Disclaimer */}
-      <p className="text-slate-700 text-[10px] text-center leading-relaxed">
+      <p className="text-secondary text-[10px] font-bold text-center leading-relaxed opacity-40 uppercase tracking-[0.1em] px-8">
         Tanımlamalar genel OBD-II standartlarına dayanmaktadır.
         Kesin teşhis için yetkili servise başvurun.
       </p>
@@ -199,3 +213,5 @@ function DTCPanelInner() {
 }
 
 export const DTCPanel = memo(DTCPanelInner);
+
+

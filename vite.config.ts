@@ -111,8 +111,18 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: false,
+        drop_console: true,
         drop_debugger: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/maplibre-gl'))        return 'vendor-maplibre';
+          if (id.includes('node_modules/react-dom'))          return 'vendor-react';
+          if (id.includes('node_modules/react/'))             return 'vendor-react';
+          if (id.includes('node_modules/zustand'))            return 'vendor-zustand';
+        },
       },
     },
   },

@@ -16,8 +16,8 @@ import {
   stopMediaHub,
 } from '../../platform/mediaService';
 import type { MediaSource } from '../../platform/mediaService';
-import { openMusic, openApp } from '../../platform/appLauncher';
-import { APP_MAP, MUSIC_OPTIONS } from '../../data/apps';
+import { MUSIC_OPTIONS } from '../../data/apps';
+import { bridge, isNative } from '../../platform/bridge';
 import type { MusicOptionKey } from '../../data/apps';
 
 /* ── Kaynak meta ─────────────────────────────────────────── */
@@ -37,11 +37,6 @@ const SOURCE_META: Record<MediaSource, SourceMeta> = {
   unknown:       { label: 'Medya',     color: '#64748b', Icon: Radio     },
 };
 
-const SOURCE_APP_ID: Partial<Record<MediaSource, string>> = {
-  spotify: 'spotify',
-  youtube: 'youtube',
-};
-
 /* ── Bileşen ─────────────────────────────────────────────── */
 
 export const MediaHub = memo(function MediaHub({
@@ -57,24 +52,21 @@ export const MediaHub = memo(function MediaHub({
   const { playing, track, source, activeAppName, hasSession } = useMediaState();
 
   const srcMeta     = SOURCE_META[source] ?? SOURCE_META.unknown;
-  const appId       = SOURCE_APP_ID[source];
   const fallbackApp = MUSIC_OPTIONS[defaultMusic];
 
   const progressPct = track.durationSec > 0
     ? Math.min(100, Math.round((track.positionSec / track.durationSec) * 100))
     : 0;
 
-  const handleOpen = useCallback(() => {
-    if (appId && APP_MAP[appId]) openApp(APP_MAP[appId]);
-    else openMusic(defaultMusic);
-  }, [appId, defaultMusic]);
+  // Widget'a tıklama → müzik uygulamasını aç
+  const handleOpen = useCallback(() => bridge.launchMusic(defaultMusic), [defaultMusic]);
 
   const displayName = activeAppName || srcMeta.label;
 
   /* ── Pasif mod — aktif medya oturumu yok ─────────────────── */
   if (!hasSession) {
     return (
-      <div className="h-full bg-[#0d1628] rounded-2xl border border-white/[0.08] flex flex-col items-center justify-center gap-4 p-6 animate-fade-in">
+      <div className="h-full glass-card border-none !shadow-none flex flex-col items-center justify-center gap-5 p-6 animate-fade-in">
         {/* İkon */}
         <div
           className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"
@@ -88,24 +80,24 @@ export const MediaHub = memo(function MediaHub({
 
         {/* Metin */}
         <div className="text-center">
-          <div className="text-slate-300 text-sm font-bold">Müzik Çalmıyor</div>
-          <div className="text-slate-500 text-xs mt-1 leading-tight">
+          <div className="text-primary text-base font-bold">Müzik Çalmıyor</div>
+          <div className="text-secondary text-xs mt-1.5 leading-tight font-medium">
             Bir medya uygulaması başlatın
           </div>
         </div>
 
-        {/* Açma butonu */}
+        {/* Müzik uygulamasını aç */}
         <button
           onClick={handleOpen}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
+          className="flex items-center gap-2.5 px-6 py-3 rounded-xl text-sm font-black active:scale-95 transition-all shadow-md"
           style={{
             backgroundColor: `${srcMeta.color}20`,
             color:            srcMeta.color,
             border:          `1px solid ${srcMeta.color}35`,
           }}
         >
-          <span className="text-base leading-none">{fallbackApp.icon}</span>
-          {fallbackApp.name} Aç
+          <span className="text-lg leading-none">{fallbackApp.icon}</span>
+          {fallbackApp.name.toUpperCase()} AÇ
         </button>
       </div>
     );
@@ -113,12 +105,12 @@ export const MediaHub = memo(function MediaHub({
 
   /* ── Aktif mod ───────────────────────────────────────────── */
   return (
-    <div className="h-full rounded-2xl shadow-xl border border-white/5 flex flex-col overflow-hidden relative animate-fade-in" data-editable="media-hub" data-editable-type="media">
+    <div className="h-full glass-card border-none !shadow-none flex flex-col overflow-hidden relative animate-fade-in premium-card" data-editable="media-hub" data-editable-type="media">
+      
+      {/* Premium Aura */}
+      <div className="media-aura" style={{ '--premium-accent-glow': `${srcMeta.color}44` } as any} />
 
-      {/* Koyu taban */}
-      <div className="absolute inset-0 bg-[#0d1628]" />
-
-      {/* Album kapağı blur arka planı — key değişince animate-fade-in tetiklenir */}
+      {/* Album kapağı blur arka planı — lower opacity for text contrast */}
       {track.albumArt && (
         <div
           key={track.albumArt}
@@ -127,139 +119,130 @@ export const MediaHub = memo(function MediaHub({
             backgroundImage:    `url(${track.albumArt})`,
             backgroundSize:     'cover',
             backgroundPosition: 'center',
-            opacity:            0.28,
-            filter:             'blur(30px)',
-            transform:          'scale(1.15)',
+            opacity:            0.12,
+            filter:             'blur(60px)',
+            transform:          'scale(1.2)',
           }}
         />
       )}
 
-      {/* Okunabilirlik için koyu gradient */}
+      {/* Okunabilirlik için gradient */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
-          background: 'linear-gradient(to bottom, rgba(13,22,40,0.45) 0%, rgba(13,22,40,0.72) 38%, rgba(13,22,40,0.97) 78%)',
+          background: 'linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.2) 100%)',
         }}
       />
 
-      {/* Çalıyorken üst kenar glow çizgisi */}
-      {playing && (
-        <div
-          className="absolute inset-x-0 top-0 h-px pointer-events-none"
-          style={{
-            background: `linear-gradient(90deg, transparent 0%, ${srcMeta.color}55 50%, transparent 100%)`,
-          }}
-        />
-      )}
-
       {/* İçerik katmanı */}
-      <div className="relative flex-1 p-4 flex flex-col gap-3 min-h-0">
+      <div className="relative flex-1 p-6 flex flex-col gap-5 min-h-0" onClick={handleOpen}>
 
         {/* Üst satır: gösterge noktası + kaynak rozeti */}
         <div className="flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <div
-              className={`w-1.5 h-1.5 rounded-full ${playing ? 'animate-pulse' : 'opacity-60'}`}
-              style={{ backgroundColor: playing ? srcMeta.color : '#475569' }}
+              className={`w-2 h-2 rounded-full ${playing ? 'animate-pulse shadow-[0_0_8px_currentColor]' : 'opacity-60'}`}
+              style={{ backgroundColor: playing ? srcMeta.color : 'var(--text-muted)' }}
             />
-            <span className="text-slate-600 text-[10px] tracking-widest uppercase font-bold">
-              Medya Hub
+            <span className="text-secondary text-[10px] tracking-[0.2em] uppercase font-black opacity-80">
+              MEDYA HUB
             </span>
           </div>
 
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm border"
             style={{
-              backgroundColor: `${srcMeta.color}18`,
-              border:          `1px solid ${srcMeta.color}35`,
+              backgroundColor: `${srcMeta.color}15`,
+              borderColor:     `${srcMeta.color}30`,
               color:            srcMeta.color,
             }}
           >
-            <srcMeta.Icon className="w-3 h-3" />
+            <srcMeta.Icon className="w-3.5 h-3.5" />
             {displayName}
           </div>
         </div>
 
-        {/* Album kapağı + parça bilgisi — tıklayınca uygulamayı aç */}
-        <button
-          onClick={handleOpen}
-          className="flex items-center gap-4 flex-shrink-0 w-full text-left active:opacity-70"
-        >
+        {/* Album kapağı + parça bilgisi */}
+        <div className="flex items-center gap-5 flex-shrink-0 w-full text-left">
           {track.albumArt ? (
             <img
               key={track.albumArt}
               src={track.albumArt}
               alt="Kapak"
-              className="w-16 h-16 rounded-xl flex-shrink-0 object-cover border border-white/10 animate-fade-in"
-              style={{ boxShadow: `0 0 22px ${srcMeta.color}42` }}
+              className="w-20 h-20 rounded-2xl flex-shrink-0 object-cover border border-black/5 animate-fade-in shadow-lg"
             />
           ) : (
             <div
-              className="w-16 h-16 rounded-xl flex-shrink-0 flex items-center justify-center text-3xl border border-white/10"
-              style={{ background: `linear-gradient(135deg, ${srcMeta.color}bb, ${srcMeta.color}44)` }}
+              className="w-20 h-20 rounded-2xl flex-shrink-0 flex items-center justify-center text-4xl border border-black/5 shadow-md glass-inner-focus"
             >
               {fallbackApp.icon}
             </div>
           )}
 
           <div className="min-w-0 flex-1">
-            <div className="text-white text-base font-bold truncate leading-tight tracking-tight">
-              {track.title || 'Bilinmiyor'}
+            <div className="text-primary text-xl font-black truncate leading-tight tracking-tight">
+              {track.title || 'Müzik Çalmıyor'}
             </div>
-            <div className="text-slate-400 text-[13px] truncate mt-1 leading-tight font-medium">
+            <div className="text-secondary text-[15px] truncate mt-1.5 leading-tight font-bold">
               {track.artist || '—'}
             </div>
           </div>
-        </button>
+        </div>
 
         {/* İlerleme çubuğu */}
         <div className="flex-shrink-0 mt-auto">
-          <div className="w-full h-[3px] bg-white/10 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-black/5 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-[width] duration-700 ease-out"
               style={{
                 width:      `${progressPct}%`,
-                background: `linear-gradient(90deg, ${srcMeta.color}80, ${srcMeta.color})`,
+                background: `linear-gradient(90deg, ${srcMeta.color}cc, ${srcMeta.color})`,
+                boxShadow:  `0 0 10px ${srcMeta.color}44`
               }}
             />
           </div>
-          <div className="flex justify-between text-slate-600 text-[10px] mt-1.5 font-bold tabular-nums tracking-tight">
+          <div className="flex justify-between text-secondary text-[11px] mt-2.5 font-black tabular-nums tracking-wider">
             <span>{fmtTime(track.positionSec)}</span>
             <span>{fmtTime(track.durationSec)}</span>
           </div>
         </div>
 
-        {/* Kontrol butonları */}
-        <div className="flex gap-2.5 flex-shrink-0 h-11">
+        {/* Kontrol butonları — sadece native modda aktif */}
+        <div className="flex gap-3 flex-shrink-0 h-14 mt-1" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={previous}
-            className="flex-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center justify-center active:scale-95"
+            disabled={!isNative}
+            className="flex-1 rounded-2xl rgba(255,255,255,0.4) border border-black/5 text-primary flex items-center justify-center active:scale-90 disabled:opacity-30 transition-all hover:bg-white/60 shadow-sm"
           >
-            <SkipBack className="w-5 h-5" />
+            <SkipBack className="w-6 h-6 fill-current" />
           </button>
 
           <button
             onClick={togglePlayPause}
-            className="flex-[2] rounded-xl text-white flex items-center justify-center active:scale-95"
+            disabled={!isNative}
+            className="flex-[2.5] rounded-2xl text-white flex items-center justify-center active:scale-95 disabled:opacity-40 transition-all shadow-md"
             style={{
               backgroundColor: srcMeta.color,
-              boxShadow:       `0 2px 18px ${srcMeta.color}52`,
+              boxShadow:       isNative ? `0 8px 20px ${srcMeta.color}44` : 'none',
             }}
           >
             {playing
-              ? <Pause className="w-5 h-5 fill-current" />
-              : <Play  className="w-5 h-5 fill-current" />
+              ? <Pause className="w-7 h-7 fill-current" />
+              : <Play  className="w-7 h-7 fill-current" />
             }
           </button>
 
           <button
             onClick={next}
-            className="flex-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center justify-center active:scale-95"
+            disabled={!isNative}
+            className="flex-1 rounded-2xl rgba(255,255,255,0.4) border border-black/5 text-primary flex items-center justify-center active:scale-90 disabled:opacity-30 transition-all hover:bg-white/60 shadow-sm"
           >
-            <SkipForward className="w-5 h-5" />
+            <SkipForward className="w-6 h-6 fill-current" />
           </button>
         </div>
       </div>
     </div>
   );
 });
+
+

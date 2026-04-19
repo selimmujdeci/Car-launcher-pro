@@ -156,7 +156,7 @@
 /* Dock compacts: reduce padding, slightly taller buttons for fat fingers */
 [data-drive-state="driving"] [data-dock="main"] {
   padding-top:    0.375rem !important;
-  padding-bottom: 0.375rem !important;
+  padding-bottom: 0 !important;
 }
 
 /* ── DRIVING: Sürüş ergonomisi — dikkat dağıtıcı elementleri gizle ──── */

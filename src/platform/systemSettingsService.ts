@@ -11,6 +11,7 @@
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { onOBDData } from './obdService';
+import { logError } from './crashLogger';
 
 /* ── Debounce helper ─────────────────────────────────────── */
 
@@ -30,7 +31,7 @@ function debounce<T extends unknown[]>(
 /** percent: 0–100  →  native 0–255 */
 function _applyBrightnessNative(percent: number): void {
   const value = Math.round((percent / 100) * 255);
-  CarLauncher.setBrightness({ value }).catch(() => undefined);
+  CarLauncher.setBrightness({ value }).catch((e: unknown) => logError('systemSettings:setBrightness', e));
 }
 
 /** Web fallback: apply brightness via CSS filter on the root element */
@@ -62,7 +63,7 @@ export function setBrightness(percent: number): void {
 /** percent: 0–100  →  Android stream index 0–15 */
 function _applyVolumeNative(percent: number): void {
   const value = Math.round((percent / 100) * 15);
-  CarLauncher.setVolume({ value }).catch(() => undefined);
+  CarLauncher.setVolume({ value }).catch((e: unknown) => logError('systemSettings:setVolume', e));
 }
 
 const _applyVolumeDebounced = debounce((percent: number) => {

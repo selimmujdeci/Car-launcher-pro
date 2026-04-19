@@ -13,7 +13,7 @@
  *     updateDeviceStatus({ btConnected: true, btDevice: d.name ?? 'Bağlı Cihaz' })
  *   );
  */
-import { useState, useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import { showToast } from './errorBus';
@@ -98,21 +98,23 @@ export function updateDeviceStatus(partial: Partial<DeviceStatus>): void {
 /* ── React hook ──────────────────────────────────────────── */
 
 export function useDeviceStatus(): DeviceStatus {
-  const [status, setStatus] = useState<DeviceStatus>(_current);
+  const status = useSyncExternalStore(
+    (onStoreChange) => {
+      _listeners.add(onStoreChange as any);
+      return () => { _listeners.delete(onStoreChange as any); };
+    },
+    () => _current,
+    () => _current,
+  );
 
   useEffect(() => {
-    setStatus(_current);
-    _listeners.add(setStatus);
-
     // Native: fetch real device state on mount; mark ready regardless of outcome
-    if (isNative) {
+    if (isNative && !status.ready) {
       CarLauncher.getDeviceStatus()
         .then((s) => { try { updateDeviceStatus({ ...s, ready: true }); } catch { /* ignore */ } })
         .catch(() => { try { updateDeviceStatus({ ready: true }); } catch { /* ignore */ } });
     }
-
-    return () => { _listeners.delete(setStatus); };
-  }, []);
+  }, [status.ready]);
 
   return status;
 }

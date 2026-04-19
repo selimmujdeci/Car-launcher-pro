@@ -50,7 +50,7 @@ export function logError(ctx: string, error: unknown): void {
   try {
     _ensureLoaded();
     const msg   = error instanceof Error ? error.message : String(error);
-    const stack = error instanceof Error ? error.stack   : undefined;
+    const stack = error instanceof Error ? error.stack?.slice(0, 1024) : undefined;
     _log.push({ ts: Date.now(), ctx, msg, stack });
     _persist();
   } catch {

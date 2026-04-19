@@ -1,0 +1,14 @@
+# Car Launcher Pro — Release Keystore Configuration
+# Bu dosyayı kopyalayıp "key.properties" olarak kaydedin.
+# key.properties .gitignore'da tutulur — asla commit etmeyin.
+#
+# Keystore oluşturmak için:
+#   keytool -genkey -v -keystore release.keystore -alias car-launcher-pro \
+#           -keyalg RSA -keysize 2048 -validity 10000
+#
+# Oluşturulan dosyayı android/app/ klasörüne koyun.
+
+RELEASE_STORE_FILE=app/release.keystore
+RELEASE_STORE_PASSWORD=your_keystore_password
+RELEASE_KEY_ALIAS=car-launcher-pro
+RELEASE_KEY_PASSWORD=your_key_password

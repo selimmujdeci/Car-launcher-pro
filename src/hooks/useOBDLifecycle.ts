@@ -24,7 +24,17 @@ export function useOBDLifecycle({
   useEffect(() => {
     const state = obd.connectionState;
     if (state === 'error') {
-      showToast({ type: 'error', title: 'OBD Bağlantı Hatası', message: 'Simüle veri kullanılıyor.', duration: 5000 });
+      // Fix 4: stale data nedeniyle kesilen bağlantıyı ayırt et
+      const isStale = obd.source === 'real' && obd.lastSeenMs > 0
+        && Date.now() - obd.lastSeenMs > 10_000;
+      showToast({
+        type: 'error',
+        title: isStale ? 'OBD Verisi Kesildi' : 'OBD Bağlantı Hatası',
+        message: isStale
+          ? 'Adaptör yanıt vermiyor, yeniden bağlanılıyor.'
+          : 'Simüle veri kullanılıyor.',
+        duration: 5000,
+      });
     } else if (state === 'reconnecting') {
       showToast({ type: 'warning', title: 'OBD Yeniden Bağlanıyor...', duration: 4000 });
     }
