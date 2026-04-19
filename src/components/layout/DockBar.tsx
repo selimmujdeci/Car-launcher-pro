@@ -1,181 +1,220 @@
 import { memo } from 'react';
 import {
-  LayoutGrid, SlidersHorizontal,
-  Camera, Route, ShieldAlert, Shield, Bell, CloudSun, Smartphone,
+  LayoutGrid, SlidersHorizontal, Camera, Route, ShieldAlert,
+  Bell, Music2, Phone, Cloud, Shield, Tv2, AlertTriangle,
+  Wrench, Zap, SplitSquareHorizontal,
 } from 'lucide-react';
-import { VoiceMicButton } from '../modals/VoiceAssistant';
 import { useNotificationState } from '../../platform/notificationService';
-import { useTrafficState, TRAFFIC_COLORS } from '../../platform/trafficService';
 import { useDragScroll } from '../../hooks/useDragScroll';
 import type { AppItem } from '../../data/apps';
 import type { useSmartEngine } from '../../platform/smartEngine';
 
 export type DrawerType =
   | 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc'
-  | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment' | 'traffic';
+  | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment'
+  | 'traffic' | 'music' | 'phone' | 'vehicle-reminder';
 
 interface Props {
-  smart:          ReturnType<typeof useSmartEngine>;
-  appMap:         Record<string, AppItem>;
-  onLaunch:       (id: string) => void;
-  onOpenDrawer:   (d: DrawerType) => void;
-  onOpenApps:     () => void;
+  smart: ReturnType<typeof useSmartEngine>;
+  appMap: Record<string, AppItem>;
+  onLaunch: (id: string) => void;
+  onOpenDrawer: (d: DrawerType) => void;
+  onOpenApps: () => void;
   onOpenSettings: () => void;
-  onOpenSplit:    () => void;
-  onOpenRearCam:  () => void;
-  onOpenPassenger:() => void;
+  onOpenSplit: () => void;
+  onOpenRearCam: () => void;
+}
+
+const SKIP_IDS = new Set(['phone', 'spotify', 'music', 'contacts']);
+
+/* Tema-duyarlı tile bileşeni */
+function T({ fn, label, color, icon, badge }: {
+  fn: () => void; label: string; color: string;
+  icon: React.ReactNode; badge?: number;
+}) {
+  return (
+    <button
+      onClick={fn}
+      style={{
+        flexShrink: 0,
+        width: 72,
+        height: 68,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        position: 'relative',
+        borderRadius: 'var(--radius-tile, 0)',
+        transition: 'background 0.2s ease',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--tile-hover-bg, rgba(255,255,255,0.05))')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+    >
+      <div style={{
+        color,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        filter: 'var(--btn-glow, none)',
+      }}>
+        {icon}
+      </div>
+      <span style={{
+        fontSize: 10,
+        fontWeight: 'var(--font-weight-ui, 700)' as React.CSSProperties['fontWeight'],
+        fontFamily: 'var(--font-ui, system-ui)',
+        color: 'rgba(255,255,255,0.55)',
+        textTransform: 'uppercase',
+        letterSpacing: 'var(--letter-spacing-ui, 0.05em)',
+        lineHeight: 1,
+      }}>
+        {label}
+      </span>
+      {!!badge && (
+        <span style={{
+          position: 'absolute', top: 8, right: 10,
+          minWidth: 16, height: 16,
+          background: 'var(--accent-primary, #3b82f6)',
+          color: '#fff', fontSize: 9, fontWeight: 900,
+          borderRadius: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '0 3px',
+        }}>
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* Tema-duyarlı bölücü */
+function D() {
+  return (
+    <div style={{
+      flexShrink: 0,
+      width: 1,
+      height: 32,
+      background: 'var(--divider-color, rgba(255,255,255,0.10))',
+      margin: '0 2px',
+    }} />
+  );
 }
 
 export const DockBar = memo(function DockBar({
-  smart, appMap, onLaunch, onOpenDrawer, onOpenApps, onOpenSettings,
-  onOpenSplit, onOpenRearCam, onOpenPassenger,
+  smart, appMap, onLaunch, onOpenDrawer, onOpenApps, onOpenSettings, onOpenSplit, onOpenRearCam,
 }: Props) {
-  const notifState  = useNotificationState();
-  const traffic     = useTrafficState();
-  const dockScroll  = useDragScroll();
+  const n = useNotificationState();
+  const s = useDragScroll();
+
+  const apps = smart.dockIds
+    .filter(id => !SKIP_IDS.has(id))
+    .slice(0, 4)
+    .map(id => appMap[id])
+    .filter(Boolean) as AppItem[];
+
+  /* Tema-duyarlı ikon renkleri (CSS değişkenleri çalışmadığında fallback) */
+  const c1  = 'var(--icon-color-1, #60a5fa)';   /* ana vurgu */
+  const c2  = 'var(--icon-color-2, #94a3b8)';   /* ikincil */
+  const nav = 'var(--icon-color-nav, #60a5fa)';  /* navigasyon */
+  const med = 'var(--icon-color-media, #34d399)'; /* medya */
 
   return (
-    <div data-dock="main" className="flex items-center justify-center px-6 py-3 flex-shrink-0 relative z-20 overflow-hidden">
-      <div className="flex items-center gap-2 p-1 rounded-[2rem] bg-black/60 backdrop-blur-3xl border border-white/5 shadow-[0_15px_40px_rgba(0,0,0,0.7)] max-w-5xl w-full relative overflow-hidden group">
-        <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
+    <div
+      data-dock="main"
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        /* Üstten içeriğe doğru eriyen gradient — yapıştırma hissi yok */
+        background: 'linear-gradient(to bottom, transparent 0%, var(--dock-bg, rgba(6,8,16,0.92)) 28%)',
+        backdropFilter: 'blur(28px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(28px) saturate(1.5)',
+        borderTop: 'none',
+        paddingTop: 12,
+        transition: 'background 0.4s ease',
+      }}
+    >
+      {/* Tema renkli ince çizgi — kenar değil, vurgu */}
+      <div style={{
+        position: 'absolute',
+        top: 12,
+        left: '8%',
+        right: '8%',
+        height: 1,
+        background: 'linear-gradient(90deg, transparent, var(--accent-primary, rgba(255,255,255,0.12)), transparent)',
+        opacity: 0.5,
+        pointerEvents: 'none',
+      }} />
+      <div
+        ref={s.ref}
+        onPointerDown={s.onPointerDown}
+        onPointerMove={s.onPointerMove}
+        onPointerUp={s.onPointerUp}
+        onPointerCancel={s.onPointerUp}
+        onClick={s.onClick}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          height: 68,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          paddingLeft: 4,
+          paddingRight: 4,
+          scrollbarWidth: 'none',
+        }}
+      >
+        {/* Dinamik uygulama kısayolları */}
+        {apps.map(a => (
+          <T
+            key={a.id}
+            fn={() => onLaunch(a.id)}
+            label={a.name}
+            color={c1}
+            icon={<span style={{ fontSize: 22 }}>{a.icon}</span>}
+          />
+        ))}
+        <D />
 
-        <div
-          ref={dockScroll.ref}
-          onPointerDown={dockScroll.onPointerDown}
-          onPointerMove={dockScroll.onPointerMove}
-          onPointerUp={dockScroll.onPointerUp}
-          onPointerCancel={dockScroll.onPointerUp}
-          onClick={dockScroll.onClick}
-          className="flex items-center gap-2 overflow-x-auto overflow-y-hidden snap-x snap-mandatory no-scrollbar scroll-smooth px-2 py-1 w-full mask-fade select-none"
-        >
-          {/* Smart dock apps */}
-          {smart.dockIds.slice(0, 5).map((id) => {
-            const app = appMap[id];
-            if (!app) return null;
-            return (
-              <button key={id} onClick={() => onLaunch(id)}
-                className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-                <span className="text-xl leading-none group-hover:scale-110 transition-transform">{app.icon}</span>
-                <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">{app.name}</span>
-              </button>
-            );
-          })}
+        {/* İletişim */}
+        <T fn={() => onOpenDrawer('phone')} label="Telefon" color={nav}  icon={<Phone size={24} />} />
+        <T fn={() => onOpenDrawer('music')} label="Müzik"   color={med}  icon={<Music2 size={24} />} />
+        <T
+          fn={() => onOpenDrawer('notifications')}
+          label="Bildirim"
+          color={n.unreadCount > 0 ? c1 : c2}
+          icon={<Bell size={24} />}
+          badge={n.unreadCount}
+        />
+        <D />
 
-          <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
+        {/* Sürüş bilgileri */}
+        <T fn={() => onOpenDrawer('weather')} label="Hava"    color="var(--icon-color-1, #38bdf8)" icon={<Cloud size={24} />} />
+        <T fn={() => onOpenDrawer('traffic')} label="Trafik"  color="var(--icon-color-2, #fb923c)" icon={<AlertTriangle size={24} />} />
+        <T fn={() => onOpenDrawer('dashcam')} label="Dashcam" color="var(--accent-red, #f87171)"   icon={<Camera size={24} />} />
+        <T fn={() => onOpenDrawer('triplog')} label="Seyir"   color={med}                          icon={<Route size={24} />} />
+        <D />
 
-          {/* Notifications */}
-          <button onClick={() => onOpenDrawer('notifications')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative snap-center">
-            <Bell className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
-            {notifState.unreadCount > 0 && (
-              <span className="absolute top-1.5 right-2.5 min-w-[16px] h-4 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 leading-none">
-                {notifState.unreadCount > 9 ? '9+' : notifState.unreadCount}
-              </span>
-            )}
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Bildirim</span>
-          </button>
+        {/* Araç bakım */}
+        <T fn={() => onOpenDrawer('dtc')}              label="Arıza"    color="var(--icon-color-2, #fbbf24)" icon={<ShieldAlert size={24} />} />
+        <T fn={() => onOpenDrawer('vehicle-reminder')} label="Bakım"    color={c2}                           icon={<Wrench size={24} />} />
+        <T fn={() => onOpenDrawer('security')}         label="Güvenlik" color={med}                          icon={<Shield size={24} />} />
+        <T fn={() => onOpenDrawer('entertainment')}    label="Eğlence"  color={c1}                           icon={<Tv2 size={24} />} />
+        <T fn={() => onOpenDrawer('sport')}            label="Sport"    color="var(--accent-red, #f87171)"   icon={<Zap size={24} />} />
+        <D />
 
-          {/* Dashcam */}
-          <button onClick={() => onOpenDrawer('dashcam')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center">
-            <Camera className="w-5 h-5 text-red-400/60 group-hover:text-red-400 transition-colors" />
-            <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em]">Dashcam</span>
-          </button>
-
-          {/* Trip Log */}
-          <button onClick={() => onOpenDrawer('triplog')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <Route className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Seyir</span>
-          </button>
-
-          {/* DTC */}
-          <button onClick={() => onOpenDrawer('dtc')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <ShieldAlert className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Arıza</span>
-          </button>
-
-          {/* Weather */}
-          <button onClick={() => onOpenDrawer('weather')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <CloudSun className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Hava</span>
-          </button>
-
-          <div className="w-px h-6 bg-white/5 mx-1 flex-shrink-0" />
-
-          <div className="flex-shrink-0 snap-center">
-            <VoiceMicButton />
-          </div>
-
-          {/* Apps */}
-          <button onClick={onOpenApps}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/20 active:scale-[0.95] transition-all duration-300 group snap-center">
-            <LayoutGrid className="w-5 h-5 text-blue-400 group-hover:text-blue-300 transition-colors" />
-            <span className="text-blue-400/60 group-hover:text-blue-300 text-[10px] font-black uppercase tracking-[0.2em]">Menü</span>
-          </button>
-
-          {/* Split Screen */}
-          <button onClick={onOpenSplit}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">⊞</span>
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Split</span>
-          </button>
-
-          {/* Rear Camera */}
-          <button onClick={onOpenRearCam}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">📸</span>
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Arka Kam</span>
-          </button>
-
-          {/* Traffic */}
-          <button onClick={() => onOpenDrawer('traffic')}
-            className="flex-shrink-0 min-w-[100px] h-11 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group relative snap-center">
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">🚦</span>
-            {traffic.summary && (
-              <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full border border-black/40"
-                style={{ backgroundColor: TRAFFIC_COLORS[traffic.summary.level] }} />
-            )}
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Trafik</span>
-          </button>
-
-          {/* Sport */}
-          <button onClick={() => onOpenDrawer('sport')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/15 active:scale-[0.95] transition-all duration-300 group snap-center">
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">⚡</span>
-            <span className="text-red-400/40 group-hover:text-red-400 text-[10px] font-black uppercase tracking-widest">Sport</span>
-          </button>
-
-          {/* Security */}
-          <button onClick={() => onOpenDrawer('security')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <Shield className="w-5 h-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Vale</span>
-          </button>
-
-          {/* Entertainment */}
-          <button onClick={() => onOpenDrawer('entertainment')}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <span className="text-lg leading-none group-hover:scale-110 transition-transform">🎬</span>
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Eğlence</span>
-          </button>
-
-          {/* Passenger */}
-          <button onClick={onOpenPassenger}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <Smartphone className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
-            <span className="text-white/30 group-hover:text-blue-400 text-[10px] font-black uppercase tracking-[0.2em]">Yolcu</span>
-          </button>
-
-          {/* Settings */}
-          <button onClick={onOpenSettings}
-            className="flex-shrink-0 min-w-[108px] h-14 flex items-center justify-center gap-2 rounded-xl bg-white/[0.02] hover:bg-white/[0.08] active:scale-[0.95] transition-all duration-300 group snap-center">
-            <SlidersHorizontal className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors" />
-            <span className="text-white/30 group-hover:text-white/80 text-[10px] font-black uppercase tracking-[0.2em]">Ayarlar</span>
-          </button>
-        </div>
+        {/* Sistem */}
+        <T fn={onOpenApps}     label="Menü"    color={c1} icon={<LayoutGrid size={24} />} />
+        <T fn={onOpenRearCam}  label="Kamera"  color={c2} icon={<Camera size={24} />} />
+        <T fn={onOpenSplit}    label="Split"   color={c2} icon={<SplitSquareHorizontal size={24} />} />
+        <T fn={onOpenSettings} label="Ayarlar" color={c2} icon={<SlidersHorizontal size={24} />} />
       </div>
     </div>
   );
