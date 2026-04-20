@@ -6,7 +6,7 @@ import {
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation } from '../../platform/gpsService';
+import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
@@ -27,14 +27,15 @@ interface Props {
   fullMapOpen?:   boolean;
 }
 
-const A_BG     = 'linear-gradient(180deg, #0d0d0d 0%, #111111 50%, #0a0a0a 100%)';
-const A_RED    = '#CC0000';
-const A_SILVER = '#A8A9AD';
-const A_CARD   = 'rgba(20,20,20,0.95)';
-const A_BORDER = 'rgba(168,169,173,0.12)';
-const A_TEXT   = '#FFFFFF';
-const A_DIM    = '#6B7280';
-const A_DIM2   = '#9CA3AF';
+/* Tema renkleri CSS custom property — index.css [data-theme="audi"] */
+const A_BG     = 'var(--bg-primary, #0d0d0d)';
+const A_RED    = 'var(--accent, #CC0000)';
+const A_SILVER = 'var(--accent2, #A8A9AD)';
+const A_CARD   = 'var(--bg-card, rgba(20,20,20,0.95))';
+const A_BORDER = 'var(--border-color, rgba(168,169,173,0.13))';
+const A_TEXT   = 'var(--text, #FFFFFF)';
+const A_DIM    = 'var(--text-dim, #8A9AAA)';
+const A_DIM2   = 'var(--text-dim2, #B4BDC6)';
 
 /* ─── AUDI HEADER ─────────────────────────────────────────────── */
 const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpenMap }: { onOpenApps: () => void; onOpenSettings: () => void; onOpenMap: () => void }) {
@@ -43,50 +44,52 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
   const device = useDeviceStatus();
 
   return (
-    <div className="flex items-center justify-between px-6 py-3 flex-shrink-0"
+    <div className="flex items-center justify-between px-6 flex-shrink-0"
       style={{
+        height: 56,
         background: 'rgba(8,8,8,0.99)',
         borderBottom: `1px solid ${A_BORDER}`,
-        boxShadow: `0 1px 0 rgba(204,0,0,0.20)`,
+        boxShadow: `0 1px 0 rgba(204,0,0,0.18)`,
       }}>
 
       {/* Sol: Audi rings + zaman */}
       <div className="flex items-center gap-4">
         {/* Audi 4 halka */}
-        <div className="flex items-center">
+        <div className="flex items-center flex-shrink-0">
           {[0,1,2,3].map(i => (
-            <div key={i} className="w-7 h-7 rounded-full flex-shrink-0"
+            <div key={i} className="w-7 h-7 rounded-full"
               style={{
                 border: `2px solid ${A_SILVER}`,
                 marginLeft: i === 0 ? 0 : -10,
                 background: 'transparent',
-                boxShadow: `0 0 8px rgba(168,169,173,0.15)`,
+                boxShadow: `0 0 6px rgba(168,169,173,0.12)`,
               }} />
           ))}
         </div>
         <div>
-          <div className="font-light tabular-nums" style={{ fontSize: 30, color: A_TEXT, letterSpacing: '-0.5px' }}>{time}</div>
-          <div className="text-[9px] uppercase tracking-widest font-light" style={{ color: A_DIM }}>{date}</div>
+          <div className="font-light tabular-nums" style={{ fontSize: 'var(--lp-font-2xl, 32px)', color: A_TEXT, letterSpacing: '-0.5px' }}>{time}</div>
+          <div className="uppercase font-light" style={{ fontSize: 9, color: A_DIM, letterSpacing: '0.18em' }}>{date}</div>
         </div>
       </div>
 
-      {/* Orta: Araç verisi */}
-      <div className="flex items-center gap-1">
+      {/* Orta: Araç verisi — COMPACT'ta gizlenir */}
+      <div data-header-center className="flex items-center">
         <AStatus label="MENZIL" value="380 km" />
-        <div className="w-px h-6 mx-2" style={{ background: A_BORDER }} />
+        <div className="w-px h-5 mx-3" style={{ background: A_BORDER }} />
         <AStatus label="BATARYA" value={device.ready ? `${device.battery}%` : '—'} />
-        <div className="w-px h-6 mx-2" style={{ background: A_BORDER }} />
+        <div className="w-px h-5 mx-3" style={{ background: A_BORDER }} />
         <AStatus label="DIŞ SICAKLIK" value="21°C" />
       </div>
 
       {/* Sağ */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <AIconBtn onClick={onOpenSettings}><Settings className="w-4 h-4" style={{ color: A_DIM2 }} /></AIconBtn>
         <AIconBtn onClick={onOpenApps}><Grid3X3 className="w-4 h-4" style={{ color: A_DIM2 }} /></AIconBtn>
-        <button onClick={onOpenMap} className="flex items-center gap-1.5 px-3 py-2 rounded-lg active:scale-95 transition-all"
-          style={{ background: A_RED, boxShadow: `0 4px 16px rgba(204,0,0,0.35)` }}>
+        <button onClick={onOpenMap}
+          className="flex items-center gap-1.5 px-4 h-11 rounded-xl active:scale-95 transition-all"
+          style={{ background: A_RED, boxShadow: `0 3px 14px rgba(204,0,0,0.32)` }}>
           <Navigation2 className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />
-          <span className="text-[11px] font-semibold" style={{ color: '#ffffff' }}>GİT</span>
+          <span className="font-semibold" style={{ fontSize: 11, color: '#ffffff' }}>GİT</span>
         </button>
       </div>
     </div>
@@ -96,8 +99,8 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
 function AStatus({ label, value }: { label: string; value: string }) {
   return (
     <div className="text-center">
-      <div className="text-sm font-light tabular-nums" style={{ color: A_TEXT }}>{value}</div>
-      <div className="text-[8px] uppercase tracking-[0.25em] mt-0.5" style={{ color: A_DIM }}>{label}</div>
+      <div className="font-medium tabular-nums" style={{ fontSize: 13, color: A_TEXT }}>{value}</div>
+      <div className="uppercase font-medium mt-0.5" style={{ fontSize: 10, color: A_DIM, letterSpacing: '0.15em' }}>{label}</div>
     </div>
   );
 }
@@ -105,7 +108,7 @@ function AStatus({ label, value }: { label: string; value: string }) {
 function AIconBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick}
-      className="w-9 h-9 rounded-lg flex items-center justify-center active:scale-95 transition-all"
+      className="w-11 h-11 rounded-xl flex items-center justify-center active:scale-95 transition-all"
       style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${A_BORDER}` }}>
       {children}
     </button>
@@ -116,7 +119,7 @@ function AIconBtn({ onClick, children }: { onClick: () => void; children: React.
 const AudiCockpit = memo(function AudiCockpit() {
   const obd = useOBDState();
   const gps = useGPSLocation();
-  const speedKmh = gps?.speed != null && gps.speed > 0 ? Math.round(gps.speed * 3.6) : (obd.speed ?? 0);
+  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const rpm  = obd.rpm        ?? 929;
   const temp = obd.engineTemp ?? 88;
   const fuel = obd.fuelLevel  ?? 68;
@@ -145,48 +148,48 @@ const AudiCockpit = memo(function AudiCockpit() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20 }}>
+      style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
 
       {/* Kırmızı üst çizgi */}
       <div style={{ height: 3, background: A_RED, flexShrink: 0, borderRadius: '20px 20px 0 0' }} />
 
       {/* Ana Gösterge */}
       <div className="flex-1 flex items-center justify-center relative min-h-0">
-        <div style={{ position: 'absolute', top: 8, left: 8, right: 8 }}>
-          <div className="text-[9px] uppercase tracking-[0.45em] font-medium text-center"
-            style={{ color: A_RED }}>AUDI VIRTUAL COCKPIT</div>
+        <div style={{ position: 'absolute', top: 10, left: 0, right: 0, textAlign: 'center' }}>
+          <div className="uppercase font-medium tracking-[0.4em]"
+            style={{ fontSize: 10, color: A_RED }}>AUDI VIRTUAL COCKPIT</div>
         </div>
 
-        <div style={{ width: 260, height: 260, position: 'relative' }}>
+        <div style={{ width: 'min(260px, 90%)', height: 'min(260px, 90%)', position: 'relative' }}>
           <svg width="260" height="280" viewBox="0 0 260 280">
             {/* Dış halka */}
-            <circle cx="130" cy="140" r="120" fill="none" stroke="rgba(168,169,173,0.06)" strokeWidth="1" />
+            <circle cx="130" cy="140" r="120" fill="none" stroke="rgba(168,169,173,0.05)" strokeWidth="1" />
             {/* Hız track */}
             <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="butt" />
             {/* Hız fill */}
             {pct > 0.01 && (
               <path d={arc(135, fillAngle)} fill="none" stroke={A_RED} strokeWidth="14" strokeLinecap="butt"
-                style={{ filter: `drop-shadow(0 0 6px ${A_RED}60)` }} />
+                style={{ filter: `drop-shadow(0 0 6px rgba(204,0,0,0.55))` }} />
             )}
             {/* RPM track */}
             <path d={rArc(rStart, rStart + rSpan)} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="8" strokeLinecap="butt" />
             {/* RPM fill */}
             {rPct > 0.01 && (
-              <path d={rArc(rStart, rStart + rPct * rSpan)} fill="none" stroke="rgba(168,169,173,0.60)" strokeWidth="8" strokeLinecap="butt" />
+              <path d={rArc(rStart, rStart + rPct * rSpan)} fill="none" stroke="rgba(168,169,173,0.55)" strokeWidth="8" strokeLinecap="butt" />
             )}
             {/* Merkezi çember */}
-            <circle cx="130" cy="140" r="60" fill="rgba(0,0,0,0.80)" stroke="rgba(168,169,173,0.10)" strokeWidth="1" />
+            <circle cx="130" cy="140" r="60" fill="rgba(0,0,0,0.80)" stroke="rgba(168,169,173,0.09)" strokeWidth="1" />
           </svg>
 
           <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 12 }}>
             <div className="font-thin tabular-nums leading-none"
-              style={{ fontSize: 58, color: A_TEXT, letterSpacing: '-2px' }}>
+              style={{ fontSize: 'var(--lp-speed-font, 58px)', color: A_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
               {speedKmh}
             </div>
-            <div className="text-[10px] font-light tracking-[0.5em] mt-1" style={{ color: A_SILVER, textTransform: 'uppercase' }}>
+            <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: A_SILVER, letterSpacing: '0.45em' }}>
               km/h
             </div>
-            <div className="text-[10px] font-light mt-2" style={{ color: A_DIM }}>
+            <div className="font-light mt-2" style={{ fontSize: 10, color: A_DIM }}>
               {rpm.toLocaleString()} rpm
             </div>
           </div>
@@ -205,14 +208,14 @@ const AudiCockpit = memo(function AudiCockpit() {
 
 function ADataCell({ Icon, label, value, warn }: { Icon: typeof Gauge; label: string; value: string; warn: boolean }) {
   return (
-    <div className="flex-1 rounded-xl p-3 text-center"
+    <div className="flex-1 rounded-xl p-3.5 text-center"
       style={{
-        background: warn ? 'rgba(204,0,0,0.10)' : 'rgba(255,255,255,0.03)',
-        border: `1px solid ${warn ? 'rgba(204,0,0,0.25)' : A_BORDER}`,
+        background: warn ? 'rgba(204,0,0,0.09)' : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${warn ? 'rgba(204,0,0,0.22)' : A_BORDER}`,
       }}>
-      <Icon className="w-3.5 h-3.5 mx-auto mb-1.5" style={{ color: warn ? A_RED : A_SILVER }} />
-      <div className="text-[8px] uppercase tracking-widest mb-1" style={{ color: A_DIM }}>{label}</div>
-      <div className="font-medium text-sm tabular-nums" style={{ color: warn ? A_RED : A_TEXT }}>{value}</div>
+      <Icon className="w-4 h-4 mx-auto mb-2" style={{ color: warn ? A_RED : A_SILVER }} />
+      <div className="uppercase font-medium mb-1" style={{ fontSize: 10, color: A_DIM, letterSpacing: '0.10em' }}>{label}</div>
+      <div className="font-semibold tabular-nums" style={{ fontSize: 14, color: warn ? A_RED : A_TEXT }}>{value}</div>
     </div>
   );
 }
@@ -221,28 +224,28 @@ function ADataCell({ Icon, label, value, warn }: { Icon: typeof Gauge; label: st
 const AudiMap = memo(function AudiMap({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20 }}>
+      style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
       <div style={{ height: 3, background: A_RED, flexShrink: 0, borderRadius: '20px 20px 0 0' }} />
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: '#0a0a0a' }}>
-              <span className="text-sm font-light" style={{ color: A_DIM }}>Harita açık</span>
+              <span className="font-light" style={{ fontSize: 13, color: A_DIM }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
         }
       </div>
-      <div className="flex-shrink-0 flex items-center gap-2 p-3"
+      <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2.5"
         style={{ background: 'rgba(8,8,8,0.95)', borderTop: `1px solid ${A_BORDER}` }}>
         <button onClick={onOpenMap}
-          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg active:scale-[0.99] transition-all"
+          className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl active:scale-[0.99] transition-all"
           style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${A_BORDER}` }}>
           <Search className="w-3.5 h-3.5" style={{ color: A_DIM }} />
-          <span className="text-sm font-light" style={{ color: A_DIM }}>Hedef ara...</span>
+          <span className="font-light" style={{ fontSize: 13, color: A_DIM }}>Hedef ara...</span>
         </button>
-        <div className="rounded-lg px-3 py-2 text-center"
-          style={{ background: `rgba(204,0,0,0.10)`, border: `1px solid rgba(204,0,0,0.20)` }}>
-          <div className="text-[9px] font-light" style={{ color: A_DIM }}>MESAFE</div>
-          <div className="text-sm font-medium tabular-nums" style={{ color: A_TEXT }}>128 km</div>
+        <div className="rounded-xl px-3 py-2.5 text-center"
+          style={{ background: 'rgba(204,0,0,0.08)', border: `1px solid rgba(204,0,0,0.18)` }}>
+          <div className="font-light" style={{ fontSize: 9, color: A_DIM, letterSpacing: '0.1em' }}>MESAFE</div>
+          <div className="font-semibold tabular-nums mt-0.5" style={{ fontSize: 13, color: A_TEXT }}>128 km</div>
         </div>
       </div>
     </div>
@@ -260,41 +263,41 @@ const AudiSide = memo(function AudiSide({ appMap, onLaunch }: { appMap: Record<s
 
       {/* Müzik */}
       <div className="overflow-hidden"
-        style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20, flexShrink: 0 }}>
+        style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20, flexShrink: 0, boxShadow: '0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40)' }}>
         <div style={{ height: 3, background: A_RED, borderRadius: '20px 20px 0 0' }} />
-        <div className="p-3">
-          <div className="text-[9px] uppercase tracking-[0.4em] font-light mb-2" style={{ color: A_DIM }}>MMI MÜZİK</div>
-          <div className="flex items-center gap-3 mb-3">
+        <div className="p-3.5">
+          <div className="uppercase font-medium mb-3" style={{ fontSize: 10, color: A_DIM, letterSpacing: '0.28em' }}>MMI MÜZİK</div>
+          <div className="flex items-center gap-3 mb-3.5">
             <div className="w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center overflow-hidden"
-              style={{ background: 'rgba(204,0,0,0.12)', border: `1px solid rgba(204,0,0,0.22)` }}>
+              style={{ background: 'rgba(204,0,0,0.10)', border: `1px solid rgba(204,0,0,0.20)` }}>
               {track.albumArt
                 ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
                 : <span className="text-xl">🎵</span>
               }
             </div>
-            <div className="min-w-0">
-              <div className="font-medium text-sm leading-tight truncate" style={{ color: A_TEXT }}>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium leading-tight truncate" style={{ fontSize: 13, color: A_TEXT }}>
                 {track.title || 'Seçilmedi'}
               </div>
-              <div className="text-xs font-light mt-0.5 truncate" style={{ color: A_DIM }}>
+              <div className="font-light mt-0.5 truncate" style={{ fontSize: 11, color: A_DIM }}>
                 {track.artist || 'MMI Müzik'}
               </div>
             </div>
           </div>
-          <div className="flex items-center justify-center gap-4">
-            <button onClick={() => previous()} className="active:scale-90 transition-all p-1.5">
-              <SkipBack className="w-4 h-4" style={{ color: A_DIM2 }} />
+          <div className="flex items-center justify-center gap-5">
+            <button onClick={() => previous()} className="active:scale-90 transition-all p-2">
+              <SkipBack className="w-4.5 h-4.5" style={{ color: A_DIM2 }} />
             </button>
             <button onClick={() => togglePlayPause()}
-              className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
-              style={{ background: A_RED, boxShadow: `0 4px 14px rgba(204,0,0,0.40)` }}>
+              className="w-11 h-11 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+              style={{ background: A_RED, boxShadow: `0 3px 12px rgba(204,0,0,0.38)` }}>
               {playing
-                ? <Pause className="w-4 h-4" style={{ color: '#ffffff' }} />
-                : <Play  className="w-4 h-4 ml-0.5" style={{ color: '#ffffff' }} />
+                ? <Pause className="w-5 h-5" style={{ color: '#ffffff' }} />
+                : <Play  className="w-5 h-5 ml-0.5" style={{ color: '#ffffff' }} />
               }
             </button>
-            <button onClick={() => next()} className="active:scale-90 transition-all p-1.5">
-              <SkipForward className="w-4 h-4" style={{ color: A_DIM2 }} />
+            <button onClick={() => next()} className="active:scale-90 transition-all p-2">
+              <SkipForward className="w-4.5 h-4.5" style={{ color: A_DIM2 }} />
             </button>
           </div>
         </div>
@@ -304,15 +307,15 @@ const AudiSide = memo(function AudiSide({ appMap, onLaunch }: { appMap: Record<s
       <div className="flex-1 overflow-hidden"
         style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20 }}>
         <div style={{ height: 3, background: A_RED, borderRadius: '20px 20px 0 0' }} />
-        <div className="p-3">
-          <div className="text-[9px] uppercase tracking-[0.4em] font-light mb-2" style={{ color: A_DIM }}>MMI UYGULAMALAR</div>
+        <div className="p-3.5">
+          <div className="uppercase font-medium mb-3" style={{ fontSize: 10, color: A_DIM, letterSpacing: '0.28em' }}>MMI UYGULAMALAR</div>
           <div className="grid grid-cols-2 gap-2">
             {apps.map(({ id, app }) => (
               <button key={id} onClick={() => onLaunch(id)}
-                className="flex flex-col items-center gap-1.5 py-3 rounded-xl active:scale-90 transition-all"
+                className="flex flex-col items-center gap-1.5 py-3.5 rounded-xl active:scale-90 transition-all"
                 style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${A_BORDER}` }}>
                 <span className="text-xl leading-none">{app!.icon}</span>
-                <span className="text-[9px] font-light" style={{ color: A_DIM }}>{app!.name}</span>
+                <span className="font-light" style={{ fontSize: 10, color: A_DIM }}>{app!.name}</span>
               </button>
             ))}
           </div>
@@ -327,13 +330,14 @@ const AudiDock = memo(function AudiDock({ appMap, dockIds, onLaunch }: { appMap:
   const apps = dockIds.slice(0, 12).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
   return (
     <div className="flex-shrink-0"
-      style={{ background: 'rgba(8,8,8,0.99)', borderTop: `1px solid ${A_BORDER}`, boxShadow: `0 -1px 0 rgba(204,0,0,0.15)` }}>
-      <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar px-4 py-2">
+      style={{ background: 'rgba(8,8,8,0.99)', borderTop: `1px solid ${A_BORDER}`, boxShadow: `0 -1px 0 rgba(204,0,0,0.12)` }}>
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
         {apps.map(({ id, app }) => (
           <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-1 flex-shrink-0 px-2.5 py-1.5 rounded-xl active:scale-90 transition-all min-w-[52px]">
+            className="flex flex-col items-center gap-1.5 flex-shrink-0 px-3 py-2.5 rounded-xl active:scale-90 transition-all"
+            style={{ minWidth: 'var(--lp-tile-w, 56px)' }}>
             <span className="text-xl leading-none">{app!.icon}</span>
-            <span className="text-[8px] font-light truncate w-full text-center" style={{ color: A_DIM }}>{app!.name}</span>
+            <span className="font-medium truncate w-full text-center" style={{ fontSize: 10, color: A_DIM }}>{app!.name}</span>
           </button>
         ))}
       </div>
@@ -350,7 +354,7 @@ export const AudiLayout = memo(function AudiLayout({
       <AudiHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenMap={onOpenMap} />
 
       <div className="flex-1 min-h-0 grid gap-2.5 p-2.5 overflow-hidden"
-        style={{ gridTemplateColumns: '1fr 1.1fr 0.85fr' }}>
+        style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.1fr) minmax(0,0.85fr)' }}>
 
         {/* Sol: Harita */}
         <AudiMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />

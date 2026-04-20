@@ -102,7 +102,7 @@
 
 /* Theme-specific overrides */
 [data-drive-state="driving"] [data-theme-style="glass"] button {
-  backdrop-filter: blur(4px);
+  backdrop-filter: none;
   box-shadow: none !important;
 }
 

@@ -26,7 +26,7 @@ import { useFusedSpeed } from '../../platform/speedFusion';
 import { useOBDHeadlights } from '../../platform/obdService';
 
 export const DriveHUD = memo(function DriveHUD() {
-  const { displaySpeed, data } = useFusedSpeed();
+  const { data } = useFusedSpeed();
   const hudMedia      = useMediaState();
   const autoBrightness = useAutoBrightnessState();
   const headlights    = useOBDHeadlights();
@@ -41,28 +41,24 @@ export const DriveHUD = memo(function DriveHUD() {
 
   return (
     <div data-drive-hud="main" className="flex-shrink-0 relative z-25 px-3">
-      <div className="mb-1.5 px-4 py-2.5 rounded-2xl border border-white/[0.08] flex items-center gap-3"
-        style={{ background: 'rgba(5,8,18,0.96)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
-      >
+      <div className="mb-1.5 px-4 py-2.5 rounded-2xl border border-white/[0.08] flex items-center gap-3 bg-[rgba(5,8,18,0.96)] backdrop-blur-[12px]">
 
         {/* ── Z-Odak 1: HIZ — Birincil Odak Noktası ────── */}
-        {/* Sürücünün ilk baktığı yer; maksimum boyut ve kontrast */}
+        {/* Sayı: data.speed (anlık raw) — lerp KULLANILMAZ */}
         <div
           data-z-focus="speed"
           className="flex items-baseline gap-1 flex-shrink-0 min-w-[80px]"
-          aria-label={`Hız: ${displaySpeed} km/h`}
+          aria-label={`Hız: ${data.speed} km/h`}
         >
           <span
             data-z-focus="speed"
-            className="font-black text-white tabular-nums leading-none"
-            style={{ fontSize: 'clamp(2rem, 4vw, 2.5rem)', letterSpacing: '-1px' }}
+            className="font-black text-white tabular-nums leading-none text-[clamp(2rem,4vw,2.5rem)] tracking-[-1px]"
           >
-            {displaySpeed}
+            {data.speed}
           </span>
           <span
             data-z-focus="unit"
-            className="text-blue-400 font-bold uppercase tracking-wide self-end mb-0.5"
-            style={{ fontSize: '0.6rem' }}
+            className="text-blue-400 font-bold uppercase tracking-wide self-end mb-0.5 text-[0.6rem]"
           >
             km/h
           </span>
@@ -96,8 +92,7 @@ export const DriveHUD = memo(function DriveHUD() {
             <div className="flex-1 min-w-0">
               <div
                 data-z-focus="track-title"
-                className="text-white font-bold truncate leading-tight"
-                style={{ fontSize: 'clamp(0.75rem, 1.8vw, 0.875rem)' }}
+                className="text-white font-bold truncate leading-tight text-[clamp(0.75rem,1.8vw,0.875rem)]"
               >
                 {hudMedia.track.title}
               </div>
@@ -121,8 +116,7 @@ export const DriveHUD = memo(function DriveHUD() {
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
             onClick={previous}
-            className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
-            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.10)' }}
+            className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform bg-white/[0.07] border border-white/10"
             aria-label="Önceki parça"
           >
             <SkipBack className="w-3.5 h-3.5 text-slate-300" />
@@ -148,8 +142,7 @@ export const DriveHUD = memo(function DriveHUD() {
 
           <button
             onClick={next}
-            className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
-            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.10)' }}
+            className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform bg-white/[0.07] border border-white/10"
             aria-label="Sonraki parça"
           >
             <SkipForward className="w-3.5 h-3.5 text-slate-300" />

@@ -23,8 +23,7 @@ import {
   MapPin, Navigation2, Home, Briefcase, Fuel,
   Play, X, Loader2, AlertCircle,
   Volume2, VolumeX, AlertTriangle, MoreHorizontal,
-  Music2, Phone, Grid2X2, Settings, ChevronDown,
-  Menu as MenuIcon,
+  ChevronDown, Menu as MenuIcon,
 } from 'lucide-react';
 import {
   useNavigation,
@@ -111,12 +110,11 @@ const TurnPanel = memo(function TurnPanel({
   const isArrive = step.maneuverType === 'arrive';
 
   return (
-    <div className="absolute top-5 left-5 z-30 pointer-events-none flex flex-col gap-2"
-      style={{ maxWidth: 360 }}>
+    <div className="absolute left-4 z-30 pointer-events-none flex flex-col gap-2"
+      style={{ top: 'calc(var(--sat, 0px) + 14px)', maxWidth: 340 }}>
       {/* Ana dönüş kartı */}
       <div
-        className="flex items-stretch rounded-[1.75rem] overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
-        style={{ background: 'rgba(10,14,26,0.88)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.10)' }}
+        className="flex items-stretch rounded-[1.75rem] overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.7)] bg-[rgba(10,14,26,0.88)] backdrop-blur-[24px] border border-white/10"
       >
         {/* Ok alanı */}
         <div
@@ -134,12 +132,11 @@ const TurnPanel = memo(function TurnPanel({
         {/* Metin alanı */}
         <div className="px-5 py-4 flex flex-col justify-center min-w-0">
           <div
-            className="text-white font-black leading-none mb-1 tabular-nums"
-            style={{ fontSize: 36, letterSpacing: '-0.02em' }}
+            className="text-white font-black leading-none mb-1 tabular-nums text-[36px] tracking-[-0.02em]"
           >
             {isArrive ? '—' : fmtTurn(distToTurn)}
           </div>
-          <div className="text-white font-bold text-lg leading-tight truncate" style={{ opacity: 0.95 }}>
+          <div className="text-white font-bold text-lg leading-tight truncate opacity-[0.95]">
             {toTurkish(step.maneuverModifier, step.maneuverType)}
           </div>
           {step.streetName && (
@@ -153,8 +150,7 @@ const TurnPanel = memo(function TurnPanel({
       {/* Sonraki adım kartı */}
       {nextStep && !isArrive && (
         <div
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
-          style={{ background: 'rgba(10,14,26,0.80)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}
+          className="flex items-center gap-3 px-4 py-3 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-[rgba(10,14,26,0.80)] backdrop-blur-[20px] border border-white/[0.08]"
         >
           <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
             <TurnArrow mod={nextStep.maneuverModifier} type={nextStep.maneuverType} size="sm" />
@@ -187,15 +183,11 @@ const RoadSignsPanel = memo(function RoadSignsPanel({
   if (!currentStreet && !nextStreet) return null;
 
   return (
-    <div className="absolute top-5 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex gap-2.5">
+    <div className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none flex gap-2.5"
+      style={{ top: 'calc(var(--sat, 0px) + 14px)' }}>
       {currentStreet && (
         <div
-          className="flex flex-col items-center px-5 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
-          style={{
-            background: 'linear-gradient(160deg,#1e3a8a,#1d4ed8)',
-            border: '2px solid rgba(255,255,255,0.18)',
-            minWidth: 130,
-          }}
+          className="flex flex-col items-center px-5 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] bg-gradient-to-bl from-blue-900 to-blue-700 border-2 border-white/[0.18] min-w-[130px]"
         >
           <span className="text-white font-black text-sm uppercase tracking-wider leading-tight text-center">
             {currentStreet}
@@ -205,12 +197,7 @@ const RoadSignsPanel = memo(function RoadSignsPanel({
       )}
       {nextStreet && (
         <div
-          className="flex flex-col items-center px-5 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
-          style={{
-            background: 'linear-gradient(160deg,#1e3a8a,#1d4ed8)',
-            border: '2px solid rgba(255,255,255,0.18)',
-            minWidth: 130,
-          }}
+          className="flex flex-col items-center px-5 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] bg-gradient-to-bl from-blue-900 to-blue-700 border-2 border-white/[0.18] min-w-[130px]"
         >
           <span className="text-white font-black text-sm uppercase tracking-wider leading-tight text-center">
             {nextStreet}
@@ -235,8 +222,7 @@ const LeftButtons = memo(function LeftButtons({
     <div className="absolute left-5 top-1/2 -translate-y-1/2 z-30 pointer-events-auto flex flex-col gap-3">
       {/* Navigasyon - aktif (kırmızı/dolu) */}
       <button
-        className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-[0_4px_20px_rgba(239,68,68,0.45)] active:scale-90 transition-all"
-        style={{ background: 'linear-gradient(135deg,#ef4444,#dc2626)', border: '1px solid rgba(255,255,255,0.15)' }}
+        className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-[0_4px_20px_rgba(239,68,68,0.45)] active:scale-90 transition-all bg-gradient-to-br from-red-500 to-red-600 border border-white/[0.15]"
       >
         <Navigation2 className="w-5 h-5 text-white fill-white" />
       </button>
@@ -244,8 +230,7 @@ const LeftButtons = memo(function LeftButtons({
       {/* Ses */}
       <button
         onClick={onToggleMute}
-        className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
-        style={{ background: 'rgba(10,14,26,0.80)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}
+        className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all bg-[rgba(10,14,26,0.80)] backdrop-blur-[20px] border border-white/[0.12]"
       >
         {muted
           ? <VolumeX className="w-5 h-5 text-slate-300" />
@@ -255,16 +240,14 @@ const LeftButtons = memo(function LeftButtons({
 
       {/* Uyarı */}
       <button
-        className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
-        style={{ background: 'rgba(10,14,26,0.80)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}
+        className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all bg-[rgba(10,14,26,0.80)] backdrop-blur-[20px] border border-white/[0.12]"
       >
         <AlertTriangle className="w-5 h-5 text-amber-400" />
       </button>
 
       {/* Menü */}
       <button
-        className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
-        style={{ background: 'rgba(10,14,26,0.80)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}
+        className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all bg-[rgba(10,14,26,0.80)] backdrop-blur-[20px] border border-white/[0.12]"
       >
         <MoreHorizontal className="w-5 h-5 text-white" />
       </button>
@@ -288,14 +271,9 @@ const SpeedPanel = memo(function SpeedPanel({
     <div className="absolute right-5 top-1/2 -translate-y-1/2 z-30 pointer-events-none flex flex-col items-center gap-3">
       {/* Hız limiti tabelası — trafik işareti görünümü */}
       <div
-        className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.5)]"
-        style={{
-          background: '#ffffff',
-          border: '5px solid #dc2626',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(220,38,38,0.15)',
-        }}
+        className="w-16 h-16 rounded-full flex items-center justify-center bg-white border-[5px] border-red-600 shadow-[0_4px_24px_rgba(0,0,0,0.5),inset_0_0_0_2px_rgba(220,38,38,0.15)]"
       >
-        <span className="text-black font-black" style={{ fontSize: 22, letterSpacing: '-0.03em' }}>
+        <span className="text-black font-black text-[22px] tracking-[-0.03em]">
           {speedLimitKmh}
         </span>
       </div>
@@ -312,8 +290,7 @@ const SpeedPanel = memo(function SpeedPanel({
       >
         {/* Küçük limit rozeti */}
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center mb-1"
-          style={{ background: '#fff', border: '3px solid #dc2626' }}
+          className="w-8 h-8 rounded-full flex items-center justify-center mb-1 bg-white border-[3px] border-red-600"
         >
           <span className="text-black font-black text-[11px]">{speedLimitKmh}</span>
         </div>
@@ -328,7 +305,7 @@ const SpeedPanel = memo(function SpeedPanel({
         >
           {roundedSpeed}
         </span>
-        <span className="text-slate-400 font-bold uppercase tracking-widest mt-0.5" style={{ fontSize: 11 }}>
+        <span className="text-slate-400 font-bold uppercase tracking-widest mt-0.5 text-[11px]">
           km/h
         </span>
       </div>
@@ -348,14 +325,10 @@ function LaneIcon({ dir }: { dir: Lane['dir'] }) {
 
 const LaneGuidance = memo(function LaneGuidance({ lanes }: { lanes: Lane[] }) {
   return (
-    <div className="absolute bottom-[192px] left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+    <div className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none"
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 88px)' }}>
       <div
-        className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.7)]"
-        style={{
-          background: 'rgba(10,14,26,0.88)',
-          backdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255,255,255,0.10)',
-        }}
+        className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.7)] bg-[rgba(10,14,26,0.88)] backdrop-blur-[24px] border border-white/10"
       >
         {lanes.map((lane, i) => (
           <div
@@ -395,20 +368,14 @@ const NavInfoBar = memo(function NavInfoBar({
 
   return (
     <div
-      className="absolute bottom-[136px] inset-x-0 z-30 pointer-events-auto"
-      style={{
-        background: 'rgba(8,12,22,0.94)',
-        backdropFilter: 'blur(24px)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: '0 -20px 60px rgba(0,0,0,0.6)',
-      }}
+      className="absolute inset-x-0 z-30 pointer-events-auto bg-[rgba(8,12,22,0.94)] backdrop-blur-[24px] border-t border-white/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
+      style={{ bottom: 'var(--lp-dock-h, 68px)' }}
     >
       <div className="flex items-stretch px-3 py-1">
         {/* X butonu */}
         <button
           onClick={onStop}
-          className="flex items-center justify-center w-14 h-14 rounded-2xl my-1.5 active:scale-90 transition-all flex-shrink-0"
-          style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.25)' }}
+          className="flex items-center justify-center w-14 h-14 rounded-2xl my-1.5 active:scale-90 transition-all flex-shrink-0 bg-red-500/[0.15] border border-red-500/25"
         >
           <X className="w-6 h-6 text-red-400" />
         </button>
@@ -426,15 +393,14 @@ const NavInfoBar = memo(function NavInfoBar({
 
         {/* Menü */}
         <button
-          className="flex items-center justify-center w-14 h-14 rounded-2xl my-1.5 active:scale-90 transition-all flex-shrink-0 ml-1"
-          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
+          className="flex items-center justify-center w-14 h-14 rounded-2xl my-1.5 active:scale-90 transition-all flex-shrink-0 ml-1 bg-white/[0.06] border border-white/10"
         >
           <MenuIcon className="w-6 h-6 text-white" />
         </button>
       </div>
 
       {/* İlerleme çubuğu */}
-      <div className="relative h-1.5 mx-4 mb-2 rounded-full overflow-visible" style={{ background: 'rgba(255,255,255,0.10)' }}>
+      <div className="relative h-1.5 mx-4 mb-2 rounded-full overflow-visible bg-white/10">
         <div
           className="h-full rounded-full transition-all duration-1000"
           style={{
@@ -462,13 +428,10 @@ const NavInfoBar = memo(function NavInfoBar({
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center py-3">
-      <span
-        className="text-white font-black tabular-nums leading-none"
-        style={{ fontSize: 28, letterSpacing: '-0.03em' }}
-      >
+      <span className="text-white font-black tabular-nums leading-none text-[28px] tracking-[-0.03em]">
         {value}
       </span>
-      <span className="text-slate-500 font-bold uppercase tracking-wider mt-1.5" style={{ fontSize: 10 }}>
+      <span className="text-slate-500 font-bold uppercase tracking-wider mt-1.5 text-[10px]">
         {label}
       </span>
     </div>
@@ -477,73 +440,10 @@ function InfoCell({ label, value }: { label: string; value: string }) {
 
 function InfoDivider() {
   return (
-    <div className="w-px my-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.10)' }} />
+    <div className="w-px my-4 flex-shrink-0 bg-white/10" />
   );
 }
 
-/* ══════════════════════════════════════════════════════════ */
-/* ── BottomNavBar (en alt) ────────────────────────────────── */
-/* ══════════════════════════════════════════════════════════ */
-
-interface NavTab { id: string; label: string; icon: ReactNode; }
-
-const BottomNavBar = memo(function BottomNavBar({
-  onTab,
-}: {
-  onTab: (id: string) => void;
-}) {
-  const tabs: NavTab[] = [
-    { id: 'nav',      label: 'Navigasyon', icon: <Navigation2 className="w-5 h-5" /> },
-    { id: 'media',    label: 'Medya',      icon: <Music2      className="w-5 h-5" /> },
-    { id: 'phone',    label: 'Telefon',    icon: <Phone       className="w-5 h-5" /> },
-    { id: 'apps',     label: 'Uygulamalar',icon: <Grid2X2     className="w-5 h-5" /> },
-    { id: 'settings', label: 'Ayarlar',    icon: <Settings    className="w-5 h-5" /> },
-  ];
-
-  return (
-    <div
-      className="absolute bottom-0 inset-x-0 z-30 pointer-events-auto flex items-stretch"
-      style={{
-        height: 60,
-        background: 'rgba(8,12,22,0.97)',
-        backdropFilter: 'blur(24px)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-      }}
-    >
-      {tabs.map((tab) => {
-        const isActive = tab.id === 'nav';
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onTab(tab.id)}
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 relative active:opacity-70 transition-opacity"
-          >
-            {/* Aktif göstergesi */}
-            {isActive && (
-              <div
-                className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full"
-                style={{ background: '#3b82f6' }}
-              />
-            )}
-            <span style={{ color: isActive ? '#3b82f6' : 'rgba(255,255,255,0.45)' }}>
-              {tab.icon}
-            </span>
-            <span
-              className="font-bold leading-none"
-              style={{
-                fontSize: 10,
-                color: isActive ? '#3b82f6' : 'rgba(255,255,255,0.40)',
-                letterSpacing: '0.02em',
-              }}
-            >
-              {tab.label}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-});
 
 /* ══════════════════════════════════════════════════════════ */
 /* ── PreviewCard ─────────────────────────────────────────── */
@@ -559,17 +459,11 @@ const PreviewCard = memo(function PreviewCard({
   return (
     <div className="absolute bottom-6 inset-x-6 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500">
       <div
-        className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[0_40px_80px_rgba(0,0,0,0.7)]"
-        style={{
-          background: 'rgba(8,12,22,0.95)',
-          backdropFilter: 'blur(28px)',
-          border: '1px solid rgba(255,255,255,0.10)',
-        }}
+        className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[0_40px_80px_rgba(0,0,0,0.7)] bg-[rgba(8,12,22,0.95)] backdrop-blur-[28px] border border-white/10"
       >
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 rounded-t-[2.5rem]" />
         <div className="flex items-start gap-4 mb-6">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.25)' }}>
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-blue-500/10 border border-blue-500/25">
             <MapPin className="w-7 h-7 text-blue-400" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
@@ -598,15 +492,13 @@ const PreviewCard = memo(function PreviewCard({
         <div className="flex gap-4">
           <button
             onClick={onCancel}
-            className="flex-1 py-4 rounded-2xl text-slate-400 font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
-            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
+            className="flex-1 py-4 rounded-2xl text-slate-400 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
           >
             Vazgeç
           </button>
           <button
             onClick={onStart}
-            className="flex-[2] py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_10px_30px_rgba(37,99,235,0.4)]"
-            style={{ background: 'linear-gradient(135deg,#2563eb,#1d4ed8)' }}
+            className="flex-[2] py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_10px_30px_rgba(37,99,235,0.4)] bg-gradient-to-br from-blue-600 to-blue-700"
           >
             <Play className="w-5 h-5 fill-current" />
             Navigasyonu Başlat
@@ -628,13 +520,8 @@ function QuickCard({ icon, label, color, onTap, disabled = false }: {
     <button
       onClick={onTap}
       disabled={disabled}
-      className="flex items-center gap-2 h-8 px-3 rounded-xl active:scale-95 transition-all disabled:opacity-35 shadow-md"
-      style={{
-        background: 'rgba(10,14,26,0.80)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.09)',
-        color,
-      }}
+      className="flex items-center gap-2 h-8 px-3 rounded-xl active:scale-95 transition-all disabled:opacity-35 shadow-md bg-[rgba(10,14,26,0.80)] backdrop-blur-[20px] border border-white/[0.09]"
+      style={{ color }}
     >
       <span className="flex-shrink-0">{icon}</span>
       <span className="text-[10px] font-black uppercase tracking-wider text-slate-300 truncate max-w-[80px]">{label}</span>
@@ -705,7 +592,8 @@ const QuickDestinations = memo(function QuickDestinations({
   }, [gpsLat, gpsLon, fuelLoading, navigate]);
 
   return (
-    <div className="absolute left-3 bottom-[136px] z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400">
+    <div className="absolute left-3 z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400"
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 10px)' }}>
       <div className="flex flex-col gap-1">
         {settings.homeLocation ? (
           <QuickCard icon={<Home className="w-3.5 h-3.5" />} label="Ev" color="#3b82f6"
@@ -737,7 +625,7 @@ export interface NavigationHUDProps {
   onCancel:     () => void;
   speedKmh?:    number;
   speedLimitKmh?: number;
-  /** Bottom nav bar sekmesi — 'nav' aktif; diğerleri haritayı kapatır */
+  /** Harita sekme geçişleri için callback — ileride kullanılabilir */
   onNavTab?: (id: string) => void;
 }
 
@@ -747,7 +635,6 @@ export const NavigationHUD = memo(function NavigationHUD({
   onCancel,
   speedKmh = 0,
   speedLimitKmh = 50,
-  onNavTab,
 }: NavigationHUDProps) {
   const location = useGPSLocation();
   const { isNavigating, destination, distanceMeters, etaSeconds } = useNavigation();
@@ -760,10 +647,6 @@ export const NavigationHUD = memo(function NavigationHUD({
     onCancel(); // kamera reset + FullMapView cleanup
   }, [onCancel]);
 
-  const handleTab = useCallback((id: string) => {
-    if (id === 'nav') return; // zaten buradayız
-    onNavTab?.(id);
-  }, [onNavTab]);
 
   const isActiveNav   = isNavigating && !isPreview;
   const currentStep   = route.steps[route.currentStepIndex];
@@ -805,16 +688,13 @@ export const NavigationHUD = memo(function NavigationHUD({
           {/* Alt orta: şerit rehberi */}
           {lanes && <LaneGuidance lanes={lanes} />}
 
-          {/* Alt bilgi çubuğu */}
+          {/* Alt bilgi çubuğu — DockBar'ın hemen üstünde */}
           <NavInfoBar
             etaSeconds={displayEta}
             remainingMeters={distanceMeters ?? 0}
             totalMeters={route.totalDistanceMeters}
             onStop={handleStop}
           />
-
-          {/* En alt: navigasyon çubuğu */}
-          <BottomNavBar onTab={handleTab} />
         </>
       )}
 

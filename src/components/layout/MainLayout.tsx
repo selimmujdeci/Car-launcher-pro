@@ -37,6 +37,7 @@ import { useAddressNavState, clearOpenMapFlag } from '../../platform/addressNavi
 import { AddressNavCard } from '../common/AddressNavCard';
 import { useDayNightManager } from '../../hooks/useDayNightManager';
 import { VehicleReminderModal } from '../modals/VehicleReminderModal';
+import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
@@ -293,7 +294,11 @@ export default function MainLayout() {
       <AddressNavCard />
 
       {/* New Home Layout */}
-      <div className="flex-1 min-h-0 overflow-hidden relative z-10" style={{ paddingBottom: 20 }} onContextMenu={(e) => e.preventDefault()}>
+      <div
+        className="flex-1 min-h-0 overflow-hidden relative z-10"
+        style={{ paddingBottom: 'calc(var(--lp-dock-h, 68px) + 12px)' }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <NewHomeLayout
           onOpenMap={() => setFullMapOpen(true)}
           onOpenApps={openApps}
@@ -306,6 +311,9 @@ export default function MainLayout() {
           onOpenDashcam={() => setDrawer('dashcam')}
         />
       </div>
+
+      {/* Gelen arama overlay */}
+      <IncomingCallOverlay />
 
       {/* Bakım hatırlatıcı modal — Smart Recommendation banner'dan açılır */}
       {drawer === 'vehicle-reminder' && (

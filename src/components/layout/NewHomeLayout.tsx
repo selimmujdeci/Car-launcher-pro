@@ -1,4 +1,4 @@
-import { memo, useState, lazy, Suspense } from 'react';
+import { memo, useState, lazy, Suspense, useRef, useCallback } from 'react';
 import {
   Search, Grid3X3, Navigation,
   SkipBack, SkipForward, Play, Pause, MapPin,
@@ -8,12 +8,13 @@ const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => (
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation } from '../../platform/gpsService';
+import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
 import { useCarTheme, baseOf } from '../../store/useCarTheme';
+import { resolveAndNavigate } from '../../platform/addressNavigationEngine';
 import { TeslaLayout } from '../themes/TeslaLayout';
 import { AudiLayout } from '../themes/AudiLayout';
 import { MercedesLayout } from '../themes/MercedesLayout';
@@ -31,8 +32,8 @@ const GLASS_CARD: React.CSSProperties = {
   background: 'rgba(14,24,44,0.82)',
   backdropFilter: 'blur(28px) saturate(1.4)',
   WebkitBackdropFilter: 'blur(28px) saturate(1.4)',
-  border: '1px solid rgba(96,165,250,0.14)',
-  boxShadow: '0 16px 56px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)',
+  border: '1px solid rgba(96,165,250,0.18)',
+  boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07)',
   borderRadius: 28,
 };
 
@@ -72,7 +73,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
         </div>
         <div>
           <div className="font-black tabular-nums leading-none" style={{ fontSize: 28, color: '#ffffff', letterSpacing: '-1px', textShadow: '0 0 40px rgba(96,165,250,0.30)' }}>{time}</div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.3em] mt-0.5" style={{ color: '#475569' }}>{date}</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.3em] mt-0.5" style={{ color: '#7A8899' }}>{date}</div>
         </div>
       </div>
 
@@ -99,7 +100,7 @@ function HPill({ emoji, value, label }: { emoji: string; value: string; label: s
       <span className="text-sm leading-none">{emoji}</span>
       <div>
         <div className="text-sm font-black tabular-nums leading-none" style={{ color: '#ffffff' }}>{value}</div>
-        <div className="text-[9px] font-bold leading-none mt-0.5 uppercase tracking-wide" style={{ color: '#475569' }}>{label}</div>
+        <div className="text-[10px] font-bold leading-none mt-0.5 uppercase tracking-wide" style={{ color: '#7A8899' }}>{label}</div>
       </div>
     </div>
   );
@@ -116,7 +117,20 @@ function HBtn({ onClick, children }: { onClick: () => void; children: React.Reac
 }
 
 /* ─── NAV CARD ───────────────────────────────────────────────── */
-const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
+const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onOpenMap: () => void; fullMapOpen?: boolean; onVoice: () => void }) {
+  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const gps = useGPSLocation();
+
+  const handleSubmit = useCallback(() => {
+    const q = query.trim();
+    if (!q) return;
+    const loc = gps?.latitude != null ? { lat: gps.latitude, lng: gps.longitude! } : undefined;
+    resolveAndNavigate(q, loc);
+    setQuery('');
+    inputRef.current?.blur();
+  }, [query, gps]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden relative"
       style={{ borderRadius: 28, border: '1px solid rgba(96,165,250,0.16)', boxShadow: '0 16px 56px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35)' }}>
@@ -127,21 +141,50 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
           ? <div className="w-full h-full flex flex-col items-center justify-center gap-3"
               style={{ background: 'linear-gradient(160deg,#06101f,#0d1e38)' }}>
               <MapPin className="w-12 h-12" style={{ color: '#1d4ed8' }} />
-              <span className="text-sm font-bold" style={{ color: '#475569' }}>Harita açık</span>
+              <span className="text-sm font-bold" style={{ color: '#7A8899' }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
         }
       </div>
 
-      {/* Alt bar: Arama + ETA */}
-      <div className="flex-shrink-0 flex flex-col gap-1.5 p-2"
+      {/* Alt bar: Arama + Mikrofon + ETA */}
+      <div className="flex-shrink-0 flex flex-col gap-2 p-2.5"
         style={{ background: 'rgba(4,8,18,0.90)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(96,165,250,0.10)' }}>
-        <button onClick={onOpenMap}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl active:scale-[0.99] transition-all"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#475569' }} />
-          <span className="text-sm font-medium" style={{ color: '#475569' }}>Nereye gidiyorsunuz?</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Metin giriş alanı */}
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#7A8899' }} />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+              placeholder="Nereye gidiyorsunuz?"
+              className="flex-1 bg-transparent outline-none text-sm font-medium"
+              style={{ color: query ? '#e2e8f0' : '#7A8899' }}
+            />
+            {query.length > 0 && (
+              <button onClick={handleSubmit} className="flex-shrink-0 active:scale-90 transition-all">
+                <Navigation className="w-3.5 h-3.5" style={{ color: '#60a5fa' }} />
+              </button>
+            )}
+          </div>
+          {/* Mikrofon butonu */}
+          <button
+            onClick={onVoice}
+            className="flex items-center justify-center rounded-xl transition-all active:scale-95 flex-shrink-0"
+            style={{
+              width: 'var(--lp-tile-h, 40px)', height: 'var(--lp-tile-h, 40px)',
+              background: 'rgba(96,165,250,0.13)',
+              border: '1px solid rgba(96,165,250,0.28)',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(96,165,250,0.26)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(96,165,250,0.13)')}
+          >
+            <Mic className="w-4 h-4" style={{ color: '#60a5fa' }} />
+          </button>
+        </div>
         <div className="flex gap-1.5">
           <ETACell label="Varış" value="18:45" sub="2s 14dk" />
           <ETACell label="Mesafe" value="128" sub="km" />
@@ -155,9 +198,9 @@ function ETACell({ label, value, sub }: { label: string; value: string; sub: str
   return (
     <div className="flex-1 rounded-xl px-3 py-2"
       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <div className="text-[8px] font-bold uppercase tracking-wide" style={{ color: '#475569' }}>{label}</div>
+      <div className="text-[9px] font-bold uppercase tracking-wide" style={{ color: '#7A8899' }}>{label}</div>
       <div className="font-black leading-tight tabular-nums" style={{ fontSize: 16, color: '#ffffff' }}>
-        {value} <span style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>{sub}</span>
+        {value} <span style={{ fontSize: 11, color: '#7A8899', fontWeight: 700 }}>{sub}</span>
       </div>
     </div>
   );
@@ -168,7 +211,7 @@ const SpeedCard = memo(function SpeedCard() {
   const obd = useOBDState();
   const gps = useGPSLocation();
 
-  const speedKmh = gps?.speed != null && gps.speed > 0 ? Math.round(gps.speed * 3.6) : (obd.speed ?? 0);
+  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const rpm  = obd.rpm        ?? 929;
   const temp = obd.engineTemp ?? 88;
   const fuel = obd.fuelLevel  ?? 68;
@@ -200,7 +243,7 @@ const SpeedCard = memo(function SpeedCard() {
       <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0 relative z-10"
         style={{ borderBottom: '1px solid rgba(96,165,250,0.08)' }}>
         <div>
-          <div className="text-[9px] font-black uppercase tracking-[0.45em]" style={{ color: '#60a5fa' }}>SÜRÜŞ BİLGİLERİ</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: '#60a5fa' }}>SÜRÜŞ BİLGİLERİ</div>
           <div className="text-sm font-black mt-0.5" style={{ color: '#ffffff' }}>CANLI VERİLER</div>
         </div>
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
@@ -212,8 +255,8 @@ const SpeedCard = memo(function SpeedCard() {
 
       {/* Speedo */}
       <div className="flex-1 flex items-center justify-center relative z-10">
-        <div style={{ width: 230, height: 230, position: 'relative' }}>
-          <svg width="230" height="230" viewBox="0 0 230 240" style={{ overflow: 'visible' }}>
+        <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
+          <svg width="100%" height="100%" viewBox="0 0 230 240" style={{ overflow: 'visible' }}>
             {/* Outer glow ring */}
             <circle cx="115" cy="120" r="108" fill="none" stroke={arcColor} strokeWidth="1" opacity="0.10" />
             {/* Track */}
@@ -226,7 +269,7 @@ const SpeedCard = memo(function SpeedCard() {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 10 }}>
             <div className="font-black tabular-nums leading-none"
-              style={{ fontSize: 58, color: '#ffffff', letterSpacing: '-2px', textShadow: `0 0 60px ${arcColor}, 0 4px 12px rgba(0,0,0,0.80)` }}>
+              style={{ fontSize: 'var(--lp-speed-font, 58px)', color: '#ffffff', letterSpacing: '-2px', textShadow: `0 0 60px ${arcColor}, 0 4px 12px rgba(0,0,0,0.80)` }}>
               {speedKmh}
             </div>
             <div className="font-black tracking-[0.5em] mt-1.5" style={{ fontSize: 10, color: arcColor, textShadow: `0 0 20px ${arcColor}` }}>
@@ -250,16 +293,16 @@ function DataChip({ Icon, label, value, color, warn }: {
   Icon: typeof Gauge; label: string; value: string; color: string; warn: boolean;
 }) {
   return (
-    <div className="flex-1 rounded-2xl p-3 text-center"
+    <div className="flex-1 rounded-2xl p-3.5 text-center"
       style={{
         background: warn ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.04)',
         border: `1px solid ${warn ? 'rgba(239,68,68,0.28)' : 'rgba(255,255,255,0.07)'}`,
       }}>
-      <div className="flex items-center justify-center mb-1.5">
-        <Icon className="w-3.5 h-3.5" style={{ color, opacity: 0.70 }} />
+      <div className="flex items-center justify-center mb-2">
+        <Icon className="w-4 h-4" style={{ color, opacity: 0.80 }} />
       </div>
-      <div className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: '#475569' }}>{label}</div>
-      <div className="font-black tabular-nums" style={{ color, fontSize: 16, textShadow: `0 0 20px ${color}60` }}>{value}</div>
+      <div className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: '#7A8899' }}>{label}</div>
+      <div className="font-black tabular-nums" style={{ color, fontSize: 15, textShadow: `0 0 20px ${color}60` }}>{value}</div>
     </div>
   );
 }
@@ -277,7 +320,7 @@ const MusicCard = memo(function MusicCard() {
       <div className="flex items-center justify-between px-4 pt-4 pb-3 flex-shrink-0"
         style={{ borderBottom: '1px solid rgba(168,85,247,0.10)' }}>
         <div>
-          <div className="text-[9px] font-black uppercase tracking-[0.45em]" style={{ color: '#a855f7' }}>MÜZİK</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: '#a855f7' }}>MÜZİK</div>
           <div className="text-base font-black mt-0.5 tracking-tight truncate max-w-[130px]" style={{ color: '#ffffff' }}>
             {track.title ? (track.artist || 'Bilinmeyen') : 'SEÇİLMEDİ'}
           </div>
@@ -289,13 +332,13 @@ const MusicCard = memo(function MusicCard() {
       <div className="flex-1 flex flex-col items-center justify-center gap-3 min-h-0 px-4">
         <div className="rounded-3xl overflow-hidden flex-shrink-0 flex items-center justify-center relative"
           style={{
-            width: 90, height: 90,
+            width: 'var(--lp-album, 52px)', height: 'var(--lp-album, 52px)',
             background: 'linear-gradient(135deg,#7c3aed,#1d4ed8)',
             boxShadow: '0 16px 40px rgba(124,58,237,0.50), 0 4px 12px rgba(0,0,0,0.40)',
           }}>
           {track.albumArt
             ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
-            : <span className="text-4xl">🎵</span>
+            : <span style={{ fontSize: 'var(--lp-font-xl, 22px)' }}>🎵</span>
           }
           <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg,rgba(255,255,255,0.18) 0%,transparent 55%)' }} />
         </div>
@@ -304,7 +347,7 @@ const MusicCard = memo(function MusicCard() {
           <div className="font-black leading-tight truncate" style={{ fontSize: 15, color: '#ffffff' }}>
             {track.title || 'Harika bir gün!'}
           </div>
-          <div className="text-xs mt-0.5 truncate font-medium" style={{ color: '#64748b' }}>
+          <div className="text-xs mt-0.5 truncate font-medium" style={{ color: '#7A8899' }}>
             {track.artist || 'En sevdiğin müzikleri dinle'}
           </div>
         </div>
@@ -344,20 +387,20 @@ const QuickAccess = memo(function QuickAccess({ appMap, onLaunch }: { appMap: Re
   const apps = ids.map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
 
   return (
-    <div className="flex-shrink-0 overflow-hidden relative" style={{ ...GLASS_CARD, padding: 16 }}>
+    <div className="flex-shrink-0 overflow-hidden relative" style={{ ...GLASS_CARD, padding: 'var(--lp-space-lg, 16px)' }}>
       <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(6,182,212,0.25),transparent)' }} />
-      <div className="text-[9px] font-black uppercase tracking-[0.45em] mb-0.5" style={{ color: '#22d3ee' }}>HIZLI ERİŞİM</div>
+      <div className="text-[9px] font-black uppercase tracking-[0.40em] mb-0.5" style={{ color: '#22d3ee' }}>HIZLI ERİŞİM</div>
       <div className="text-sm font-black mb-3 tracking-tight" style={{ color: '#ffffff' }}>KISAYOLLAR</div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-4 gap-2.5">
         {apps.map(({ id, app }) => (
           <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-1.5 py-2 rounded-2xl active:scale-90 transition-all"
+            className="flex flex-col items-center gap-2 py-2.5 rounded-2xl active:scale-90 transition-all"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
               style={{ background: 'rgba(255,255,255,0.07)', boxShadow: '0 4px 12px rgba(0,0,0,0.30)' }}>
               <span className="text-2xl leading-none">{app!.icon}</span>
             </div>
-            <span className="text-[9px] font-bold text-center leading-tight px-1" style={{ color: '#64748b' }}>{app!.name}</span>
+            <span className="text-[10px] font-bold text-center leading-tight px-1" style={{ color: '#7A8899' }}>{app!.name}</span>
           </button>
         ))}
       </div>
@@ -375,7 +418,7 @@ const Dock = memo(function Dock({ appMap, dockIds, onLaunch }: { appMap: Record<
     <>
       {voiceOpen && (
         <Suspense fallback={null}>
-          <VoiceAssistant onClose={() => setVoiceOpen(false)} autoStart />
+          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
         </Suspense>
       )}
       <div className="flex-shrink-0"
@@ -386,25 +429,29 @@ const Dock = memo(function Dock({ appMap, dockIds, onLaunch }: { appMap: Record<
           borderTop: '1px solid rgba(96,165,250,0.10)',
           boxShadow: '0 -4px 24px rgba(0,0,0,0.50)',
         }}>
-        <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar px-3 py-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
           {apps.map(({ id, app }) => (
             <button key={id} onClick={() => onLaunch(id)}
-              className="flex flex-col items-center gap-1 flex-shrink-0 px-2 py-1.5 rounded-2xl active:scale-90 transition-all min-w-[58px]">
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: '0 4px 12px rgba(0,0,0,0.30)' }}>
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 px-2 py-2 rounded-2xl active:scale-90 transition-all"
+              style={{ minWidth: 'var(--lp-tile-w, 58px)' }}>
+              <div className="rounded-2xl flex items-center justify-center"
+                style={{ width: 'var(--lp-dock-icon, 44px)', height: 'var(--lp-dock-icon, 44px)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: '0 4px 12px rgba(0,0,0,0.30)' }}>
                 <span className="text-xl leading-none">{app!.icon}</span>
               </div>
-              <span className="text-[9px] font-bold truncate w-full text-center" style={{ color: '#475569' }}>{app!.name}</span>
+              <span className="text-[10px] font-bold truncate w-full text-center" style={{ color: '#7A8899' }}>{app!.name}</span>
             </button>
           ))}
 
           {/* Mic button */}
           <button
             onClick={() => setVoiceOpen(true)}
-            className="flex flex-col items-center gap-1 flex-shrink-0 px-2 py-1.5 rounded-2xl active:scale-90 transition-all min-w-[58px]"
+            className="flex flex-col items-center gap-1 flex-shrink-0 px-2 py-1.5 rounded-2xl active:scale-90 transition-all"
+            style={{ minWidth: 'var(--lp-tile-w, 58px)' }}
           >
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+            <div className="rounded-2xl flex items-center justify-center"
               style={{
+                width: 'var(--lp-dock-icon, 44px)',
+                height: 'var(--lp-dock-icon, 44px)',
                 background: 'linear-gradient(135deg,rgba(29,78,216,0.35),rgba(59,130,246,0.20))',
                 border: '1px solid rgba(96,165,250,0.30)',
                 boxShadow: '0 0 14px rgba(96,165,250,0.20)',
@@ -425,6 +472,7 @@ export const NewHomeLayout = memo(function NewHomeLayout({
   onOpenRearCam, onOpenDashcam,
 }: Props) {
   const { theme } = useCarTheme();
+  const [voiceOpenFallback, setVoiceOpenFallback] = useState(false);
 
   const base = baseOf(theme);
 
@@ -447,14 +495,16 @@ export const NewHomeLayout = memo(function NewHomeLayout({
   // fallback — original dark premium layout
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: BG }}>
-      <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
-        <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: '60vw', height: '60vw', borderRadius: '50%', background: 'radial-gradient(circle,rgba(29,78,216,0.10) 0%,transparent 65%)', filter: 'blur(60px)' }} />
-        <div style={{ position: 'absolute', bottom: '-15%', right: '-10%', width: '50vw', height: '50vw', borderRadius: '50%', background: 'radial-gradient(circle,rgba(124,58,237,0.08) 0%,transparent 65%)', filter: 'blur(60px)' }} />
-      </div>
+      {voiceOpenFallback && (
+        <Suspense fallback={null}>
+          <VoiceAssistant onClose={() => setVoiceOpenFallback(false)} minimal />
+        </Suspense>
+      )}
+      {/* Dekoratif blob'lar — ambient-blobs ile sağlanıyor, burada gereksiz */}
       <div className="relative z-10 flex flex-col h-full">
         <Header onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
         <div className="flex-1 min-h-0 grid gap-3 p-3 overflow-hidden" style={{ gridTemplateColumns: '0.90fr 1.20fr 0.90fr' }}>
-          <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+          <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} onVoice={() => setVoiceOpenFallback(true)} />
           <SpeedCard />
           <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
             <div className="flex-1 min-h-0"><MusicCard /></div>

@@ -6,7 +6,7 @@ import {
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation } from '../../platform/gpsService';
+import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
@@ -27,17 +27,18 @@ interface Props {
   fullMapOpen?:   boolean;
 }
 
-const C_BG      = '#050A10';
-const C_CYAN    = '#00D4FF';
-const C_AMBER   = '#FFB300';
+/* Tema renkleri CSS custom property — index.css [data-theme="cockpit"] */
+const C_BG      = 'var(--bg-primary, #050A10)';
+const C_CYAN    = 'var(--accent, #00D4FF)';
+const C_AMBER   = 'var(--accent2, #FFB300)';
 const C_GREEN   = '#00E676';
 const C_RED     = '#FF3B30';
-const C_WHITE   = '#E8F0FF';
-const C_DIM     = '#3A4A5A';
-const C_DIM2    = '#5A6A7A';
-const C_PANEL   = 'rgba(6,12,20,0.98)';
-const C_BORDER  = `rgba(0,212,255,0.18)`;
-const C_BORDER2 = `rgba(0,212,255,0.08)`;
+const C_WHITE   = 'var(--text, #E8F0FF)';
+const C_DIM     = 'var(--text-dim, #4C6070)';
+const C_DIM2    = 'var(--text-dim2, #7A8E9A)';
+const C_PANEL   = 'var(--bg-card, rgba(6,12,20,0.98))';
+const C_BORDER  = 'var(--border-color, rgba(0,212,255,0.18))';
+const C_BORDER2 = 'rgba(0,212,255,0.08)';
 
 /* ── Ortak panel çerçevesi ─────────────────────────────────── */
 function CPanel({ children, label, sublabel, accent = C_CYAN, style }: {
@@ -60,10 +61,10 @@ function CPanel({ children, label, sublabel, accent = C_CYAN, style }: {
       <div style={{ height: 2, background: `linear-gradient(90deg, transparent 0%, ${accent} 30%, ${accent} 70%, transparent 100%)`, flexShrink: 0 }} />
 
       {/* Panel başlık */}
-      <div className="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0"
         style={{ borderBottom: `1px solid ${C_BORDER2}`, background: 'rgba(0,212,255,0.03)' }}>
-        <span className="text-[9px] font-mono font-bold tracking-[0.35em] uppercase" style={{ color: accent }}>{label}</span>
-        {sublabel && <span className="text-[8px] font-mono" style={{ color: C_DIM2 }}>{sublabel}</span>}
+        <span className="text-[10px] font-mono font-bold tracking-[0.30em] uppercase" style={{ color: accent }}>{label}</span>
+        {sublabel && <span className="text-[9px] font-mono" style={{ color: C_DIM2 }}>{sublabel}</span>}
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
@@ -114,10 +115,10 @@ const Glareshield = memo(function Glareshield({ onOpenApps, onOpenSettings }: { 
 
       {/* Orta: Dijital saat — kronometrik */}
       <div className="flex flex-col items-center">
-        <div className="font-mono font-bold tabular-nums" style={{ fontSize: 28, color: C_WHITE, letterSpacing: '0.05em', textShadow: `0 0 20px rgba(0,212,255,0.30)` }}>
+        <div className="font-mono font-bold tabular-nums" style={{ fontSize: 'var(--lp-font-xl, 23px)', color: C_WHITE, letterSpacing: '0.05em', textShadow: `0 0 20px rgba(0,212,255,0.30)` }}>
           {time}
         </div>
-        <div className="text-[8px] font-mono tracking-[0.5em] uppercase" style={{ color: C_DIM }}>UTC+03</div>
+        <div className="text-[9px] font-mono tracking-[0.4em] uppercase" style={{ color: C_DIM }}>UTC+03</div>
       </div>
 
       {/* Sağ: Kontrol butonları */}
@@ -136,7 +137,7 @@ const Glareshield = memo(function Glareshield({ onOpenApps, onOpenSettings }: { 
 
 function Annunciator({ label, active, color }: { label: string; active: boolean; color: string }) {
   return (
-    <div className="px-2 py-1 rounded text-[8px] font-mono font-bold tracking-wider"
+    <div className="px-2.5 py-1.5 rounded text-[9px] font-mono font-bold tracking-wider"
       style={{
         background: active ? `${color}18` : 'rgba(255,255,255,0.03)',
         border: `1px solid ${active ? `${color}40` : C_DIM}`,
@@ -150,10 +151,10 @@ function Annunciator({ label, active, color }: { label: string; active: boolean;
 function GButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick}
-      className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded active:scale-95 transition-all"
+      className="flex flex-col items-center gap-1 px-3 py-2 rounded active:scale-95 transition-all"
       style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C_DIM}` }}>
       {children}
-      <span className="text-[7px] font-mono" style={{ color: C_DIM2 }}>{label}</span>
+      <span className="text-[8px] font-mono" style={{ color: C_DIM2 }}>{label}</span>
     </button>
   );
 }
@@ -162,7 +163,7 @@ function GButton({ label, onClick, children }: { label: string; onClick: () => v
 const PFD = memo(function PFD() {
   const obd = useOBDState();
   const gps = useGPSLocation();
-  const speedKmh = gps?.speed != null && gps.speed > 0 ? Math.round(gps.speed * 3.6) : (obd.speed ?? 0);
+  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const heading = gps?.heading ?? 247;
   const rpm = obd.rpm ?? 929;
 
@@ -299,7 +300,7 @@ const PFD = memo(function PFD() {
 function MonoValue({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div className="text-center">
-      <div className="text-[8px] font-mono tracking-widest" style={{ color: C_DIM2 }}>{label}</div>
+      <div className="text-[9px] font-mono tracking-widest" style={{ color: C_DIM2 }}>{label}</div>
       <div className="text-sm font-mono font-bold tabular-nums mt-0.5" style={{ color }}>{value}</div>
     </div>
   );
@@ -309,7 +310,7 @@ function MonoValue({ label, value, color }: { label: string; value: string; colo
 const ND = memo(function ND({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const gps = useGPSLocation();
   const heading = gps?.heading ?? 247;
-  const speedKmh = gps?.speed != null ? Math.round(gps.speed * 3.6) : 0;
+  const speedKmh = resolveSpeedKmh(gps, 0);
 
   return (
     <CPanel label="ND" sublabel="NAVIGATION DISPLAY" accent={C_GREEN}>
@@ -485,20 +486,20 @@ function EICASRow({ label, value, warn, max, current }: { label: string; value: 
   const pct = Math.min(current / max, 1);
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[8px] font-mono w-8 flex-shrink-0" style={{ color: C_DIM2 }}>{label}</span>
+      <span className="text-[9px] font-mono w-8 flex-shrink-0" style={{ color: C_DIM2 }}>{label}</span>
       <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
         <div className="h-full rounded-full transition-all" style={{ width: `${pct * 100}%`, background: warn ? C_RED : C_AMBER, boxShadow: warn ? `0 0 4px ${C_RED}` : 'none' }} />
       </div>
-      <span className="text-[9px] font-mono w-14 text-right flex-shrink-0" style={{ color: warn ? C_RED : C_WHITE }}>{value}</span>
+      <span className="text-[10px] font-mono w-14 text-right flex-shrink-0" style={{ color: warn ? C_RED : C_WHITE }}>{value}</span>
     </div>
   );
 }
 
 function EICASGauge({ label, value, unit, warn, color }: { label: string; value: number | string; unit: string; warn: boolean; color: string }) {
   return (
-    <div className="flex-1 rounded px-2 py-1.5 text-center"
+    <div className="flex-1 rounded px-2.5 py-2 text-center"
       style={{ background: warn ? 'rgba(255,59,48,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${warn ? 'rgba(255,59,48,0.25)' : C_DIM}` }}>
-      <div className="text-[8px] font-mono mb-1" style={{ color: C_DIM2 }}>{label}</div>
+      <div className="text-[9px] font-mono mb-1" style={{ color: C_DIM2 }}>{label}</div>
       <div className="text-sm font-mono font-bold tabular-nums" style={{ color }}>
         {value}<span className="text-[9px] ml-0.5" style={{ color: C_DIM2 }}>{unit}</span>
       </div>
@@ -526,13 +527,13 @@ const MIP = memo(function MIP({ appMap, dockIds, onLaunch }: { appMap: Record<st
         borderTop: `1px solid rgba(0,212,255,0.12)`,
         boxShadow: `0 -2px 20px rgba(0,0,0,0.80)`,
       }}>
-      <div className="flex items-center overflow-x-auto no-scrollbar px-3 py-1.5 gap-1">
+      <div className="flex items-center overflow-x-auto no-scrollbar px-3 py-2 gap-1.5">
         {apps.map(({ id, app }) => (
           <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-0.5 flex-shrink-0 px-2.5 py-1 rounded active:scale-90 transition-all min-w-[48px]"
+            className="flex flex-col items-center gap-1 flex-shrink-0 px-2.5 py-2 rounded active:scale-90 transition-all min-w-[52px]"
             style={{ background: 'rgba(0,212,255,0.04)', border: `1px solid ${C_DIM}` }}>
             <span className="text-base leading-none">{app!.icon}</span>
-            <span className="text-[7px] font-mono uppercase tracking-wider truncate w-full text-center" style={{ color: C_DIM2 }}>{app!.name}</span>
+            <span className="text-[8px] font-mono uppercase tracking-wider truncate w-full text-center" style={{ color: C_DIM2 }}>{app!.name}</span>
           </button>
         ))}
       </div>
@@ -553,10 +554,7 @@ export const CockpitLayout = memo(function CockpitLayout({
         background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)',
       }} />
 
-      {/* Ambient glow */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
-        <div style={{ position: 'absolute', top: '10%', left: '30%', width: '40vw', height: '30vw', borderRadius: '50%', background: 'radial-gradient(circle,rgba(0,212,255,0.04) 0%,transparent 70%)', filter: 'blur(80px)' }} />
-      </div>
+      {/* Ambient glow — up-blob sistemi ile sağlanıyor */}
 
       <div className="relative z-10 flex flex-col h-full">
         {/* Glareshield */}
@@ -564,9 +562,11 @@ export const CockpitLayout = memo(function CockpitLayout({
 
         {/* Ana panel — 3 kolon */}
         <div className="flex-1 min-h-0 grid gap-2 p-2 overflow-hidden"
-          style={{ gridTemplateColumns: '0.85fr 1.20fr 0.95fr' }}>
+          style={{ gridTemplateColumns: 'minmax(0,0.85fr) minmax(0,1.20fr) minmax(0,0.95fr)' }}>
           <PFD />
-          <ND onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+          <div data-cockpit-nd className="min-h-0 overflow-hidden">
+            <ND onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+          </div>
           <EICAS appMap={appMap} onLaunch={onLaunch} />
         </div>
 

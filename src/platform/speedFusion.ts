@@ -4,7 +4,7 @@
  * Mimari:
  *  - OBD: 3 s push (ELM327 polling loop) → obdService.onOBDData()
  *  - GPS: ~2 s push (platform geolocation) → gpsService.onGPSLocation()
- *  - Çıktı: max 2 Hz, EMA düzeltmeli tek hız akımı
+ *  - Çıktı: max 2 Hz, anlık (EMA yok) tek hız akımı
  *
  * Füzyon Stratejisi:
  *  1. OBD "real" bağlı + GPS geçerli:
@@ -12,16 +12,15 @@
  *         Uyuşmazlık yoksa: 0.75 OBD + 0.25 GPS (complementary filter)
  *         Uyuşmazlık varsa: GPS'e geç (sensör arızası şüphesi)
  *  2. OBD "real" bağlı, GPS yok:
- *       → Saf OBD; EMA ile yumuşatılmış
+ *       → Saf OBD, ham değer
  *  3. OBD mock/none:
- *       → Saf GPS; EMA ile yumuşatılmış
+ *       → Saf GPS, ham değer
  *  4. İkisi de yok:
  *       → 0 km/h, source='none'
  *
- * Neden Complementary Filter?
- *  OBD CAN/OBD-II hız verisi tekerlek dönüşünden türetilir — anlık, ama
- *  ELM327 3 s gecikmeli. GPS Doppler hızı anlık ve bağımsız — düşük hızlarda
- *  %5 hata payı var. İkisini birleştirince hem gecikme hem gürültü azalır.
+ * NOT: EMA kaldırıldı — sayısal hız her zaman anlık raw değerdir.
+ *  Görsel yumuşatma (gauge/arc) useFusedSpeed() hook'u içindeki
+ *  RAF lerp ile yalnızca ibre animasyonuna uygulanır.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -32,9 +31,6 @@ import type { OBDData }   from './obdService';
 import type { GPSLocation } from './gpsService';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
-
-/** EMA yumuşatma katsayısı — 0=tam düz, 1=ham veri */
-const EMA_ALPHA = 0.38;
 
 /** km/h cinsinden OBD-GPS uyuşmazlık eşiği */
 const PLAUSIBILITY_KMH = 20;
@@ -69,7 +65,6 @@ let _fused: FusedSpeedData = {
 };
 
 const _listeners = new Set<(d: FusedSpeedData) => void>();
-let _ema          = 0;
 let _lastObd      = 0;
 let _obdSource: OBDData['source'] = 'none';
 let _lastGpsKmh: number | null    = null;
@@ -122,14 +117,8 @@ function _computeAndNotify(): void {
     _mismatchCnt = 0;
   }
 
-  // OBD bağlantısı kesilince EMA'yı mevcut GPS hızına sıfırla (sıçramayı önle)
-  if (!obdReal && _obdSource !== 'mock') {
-    _ema = _lastGpsKmh ?? 0;
-  }
-
-  // Exponential Moving Average
-  _ema = _ema + EMA_ALPHA * (raw - _ema);
-  const smoothed = Math.max(0, Math.round(_ema));
+  // Ham değer — EMA yok, anlık hız
+  const smoothed = Math.max(0, Math.round(raw));
 
   const prev = _fused;
   _fused = { speed: smoothed, source, obdRaw: _lastObd, gpsRaw: _lastGpsKmh, plausibilityWarning: warn };
@@ -167,7 +156,7 @@ function _init(): void {
 
   _cleanupGps = onGPSLocation((loc: GPSLocation | null) => {
     const ms = loc?.speed;
-    _lastGpsKmh = (ms != null && Number.isFinite(ms) && ms > 0) ? ms * 3.6 : null;
+    _lastGpsKmh = (ms != null && Number.isFinite(ms) && ms >= 0) ? ms * 3.6 : null;
     _computeAndNotify();
   });
 }

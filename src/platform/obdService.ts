@@ -135,7 +135,12 @@ function _getMockBase(type: VehicleType) {
 let _mockBase = MOCK_BASE_ICE;
 
 let _current: OBDData        = { ...INITIAL };
-const _listeners             = new Set<(d: OBDData) => void>();
+// Two-set listener pattern — avoids `as any` casts for useSyncExternalStore.
+// Data consumers (onOBDData) receive the full snapshot; React hooks only need a notify ping.
+const _dataListeners         = new Set<(d: OBDData) => void>();
+const _storeListeners        = new Set<() => void>();
+/** @deprecated internal alias kept for _tickMock idle-skip guard */
+const _listeners             = { get size() { return _dataListeners.size + _storeListeners.size; } };
 let _mockTimerId: ReturnType<typeof setInterval> | null = null;
 let _nativeHandles: PluginListenerHandle[] = [];
 let _running                 = false;
@@ -170,6 +175,20 @@ let _lastKnownAddress: string | null = null;
 let _fuelTankL        = 0;   // 0 = not configured
 let _avgConsumL100    = 0;   // 0 = not configured (L per 100 km)
 
+// ── Sensor sanity bounds (ISO 15031-5 §6.3 + SAE J1979) ──────
+// Physically impossible readings → ELM327 glitch / adapter failure.
+// RPM jump guard: ELM327 polls every 3s; >5000 RPM change in one cycle
+// is impossible in any production engine (max realistic blip: ~2000 RPM/s).
+const _BOUNDS = {
+  speed:       [0,   300] as const,  // km/h
+  rpm:         [0, 8_000] as const,  // RPM — covers all ICE/hybrid
+  engineTemp:  [-40, 130] as const,  // °C — NTC sensor range
+  fuelLevel:   [0,   100] as const,  // %
+} as const;
+const RPM_JUMP_LIMIT = 5_000;  // RPM/sample
+
+let _prevRpm: number | null = null;
+
 // Listen for performance mode changes and restart mock with new interval
 onPerformanceModeChange(() => {
   if (_reconnectTimer !== null) {
@@ -192,7 +211,8 @@ function _notify(): void {
   if (now - _lastNotifyTime < debounceMs) return;
   _lastNotifyTime = now;
   const snap = { ..._current };
-  _listeners.forEach((fn) => fn(snap));
+  _dataListeners.forEach((fn) => fn(snap));
+  _storeListeners.forEach((fn) => fn());
 }
 
 /** ISO 15031-5 §6.3: Fuel Tank Level (PID 0x2F) → litres + range */
@@ -217,6 +237,63 @@ function _merge(partial: Partial<OBDData>): void {
 
 function _clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * Sanitize a raw native OBD packet before merging into state.
+ *
+ * Each field is validated against ISO 15031-5 physical bounds.
+ * RPM additionally checked for impossible inter-sample jumps.
+ * Returns null if no valid field was found (discard entire packet).
+ */
+function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null {
+  const patch: Partial<OBDData> = {};
+  let accepted = false;
+
+  if (data.speed !== undefined && data.speed >= 0) {
+    const [lo, hi] = _BOUNDS.speed;
+    if (data.speed <= hi && data.speed >= lo) {
+      patch.speed = data.speed;
+      accepted = true;
+    } else {
+      logError('OBD:Sanitize', new Error(`speed=${data.speed} km/h out of bounds [${lo},${hi}]`));
+    }
+  }
+
+  if (data.rpm !== undefined && data.rpm >= 0) {
+    const [lo, hi] = _BOUNDS.rpm;
+    const jump = _prevRpm !== null ? Math.abs(data.rpm - _prevRpm) : 0;
+    if (data.rpm >= lo && data.rpm <= hi && jump < RPM_JUMP_LIMIT) {
+      patch.rpm = data.rpm;
+      _prevRpm  = data.rpm;
+      accepted  = true;
+    } else {
+      logError('OBD:Sanitize', new Error(`rpm=${data.rpm} invalid (prev=${_prevRpm ?? 'none'}, jump=${jump})`));
+    }
+  }
+
+  if (data.engineTemp !== undefined && data.engineTemp >= 0) {
+    const [lo, hi] = _BOUNDS.engineTemp;
+    if (data.engineTemp >= lo && data.engineTemp <= hi) {
+      patch.engineTemp = data.engineTemp;
+      accepted = true;
+    }
+  }
+
+  if (data.fuelLevel !== undefined && data.fuelLevel >= 0) {
+    const [lo, hi] = _BOUNDS.fuelLevel;
+    if (data.fuelLevel >= lo && data.fuelLevel <= hi) {
+      patch.fuelLevel = data.fuelLevel;
+      accepted = true;
+    }
+  }
+
+  if (data.headlights !== undefined) {
+    patch.headlights = data.headlights;
+    accepted = true;
+  }
+
+  return accepted ? patch : null;
 }
 
 /* ── Mock simulation ─────────────────────────────────────── */
@@ -490,16 +567,9 @@ async function _startNative(): Promise<void> {
     (data: NativeOBDData) => {
       if (!_running || _nativeGeneration !== myGen) return;
       try {
-        // Fix 1: lastSeenMs güncelle — watchdog bu değeri izler
         _lastRealDataMs = Date.now();
-
-        const patch: Partial<OBDData> = { lastSeenMs: _lastRealDataMs };
-        if (data.speed      >= 0) patch.speed      = data.speed;
-        if (data.rpm        >= 0) patch.rpm        = data.rpm;
-        if (data.engineTemp >= 0) patch.engineTemp = data.engineTemp;
-        if (data.fuelLevel  >= 0) patch.fuelLevel  = data.fuelLevel;
-        if (data.headlights !== undefined) patch.headlights = data.headlights;
-        if (Object.keys(patch).length > 1) _merge(patch);
+        const sanitized = _sanitizeNative(data);
+        if (sanitized) _merge({ ...sanitized, lastSeenMs: _lastRealDataMs });
       } catch (e) {
         logError('OBD:DataHandler', e);
       }
@@ -606,6 +676,7 @@ export function stopOBD(): void {
   _running = false;
   _nativeGeneration++; // invalidate any in-flight _startNative() continuations
   _lastNotifyTime = 0; // debounce sıfırla — sonraki bildirim her zaman geçer
+  _prevRpm = null;     // jump-detection sıfırla — reconnect'te stale eşik kalmasın
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _reconnectAttempts = 0;
   // Fix 4: stale watchdog'u durdur — uzun sürüş sonrası unmount'ta sızıntı önle
@@ -623,12 +694,8 @@ export function stopOBD(): void {
  * Push live data directly from the native plugin (alternative to listener pattern).
  */
 export function updateOBDData(partial: Partial<NativeOBDData>): void {
-  const patch: Partial<OBDData> = { source: 'real', connectionState: 'connected' };
-  if (partial.speed      !== undefined && partial.speed      >= 0) patch.speed      = partial.speed;
-  if (partial.rpm        !== undefined && partial.rpm        >= 0) patch.rpm        = partial.rpm;
-  if (partial.engineTemp !== undefined && partial.engineTemp >= 0) patch.engineTemp = partial.engineTemp;
-  if (partial.fuelLevel  !== undefined && partial.fuelLevel  >= 0) patch.fuelLevel  = partial.fuelLevel;
-  _merge(patch);
+  const sanitized = _sanitizeNative(partial);
+  if (sanitized) _merge({ ...sanitized, source: 'real', connectionState: 'connected' });
 }
 
 /* ── External subscription ───────────────────────────────── */
@@ -638,13 +705,13 @@ export function updateOBDData(partial: Partial<NativeOBDData>): void {
  * Returns a cleanup function. Used by obdAlerts.ts.
  */
 export function onOBDData(fn: (d: OBDData) => void): () => void {
-  _listeners.add(fn as Parameters<typeof _listeners.add>[0]);
-  return () => _listeners.delete(fn as Parameters<typeof _listeners.delete>[0]);
+  _dataListeners.add(fn);
+  return () => _dataListeners.delete(fn);
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => { stopOBD(); _listeners.clear(); });
+  import.meta.hot.dispose(() => { stopOBD(); _dataListeners.clear(); _storeListeners.clear(); });
 }
 
 /* ── React hook ──────────────────────────────────────────── */
@@ -652,8 +719,8 @@ if (import.meta.hot) {
 export function useOBDState(): OBDData {
   return useSyncExternalStore(
     (onStoreChange) => {
-      _listeners.add(onStoreChange as any);
-      return () => { _listeners.delete(onStoreChange as any); };
+      _storeListeners.add(onStoreChange);
+      return () => { _storeListeners.delete(onStoreChange); };
     },
     () => _current,
     () => INITIAL,
@@ -669,8 +736,8 @@ export function useOBDState(): OBDData {
 function useOBDField<K extends keyof OBDData>(field: K): OBDData[K] {
   return useSyncExternalStore(
     (onStoreChange) => {
-      _listeners.add(onStoreChange as any);
-      return () => { _listeners.delete(onStoreChange as any); };
+      _storeListeners.add(onStoreChange);
+      return () => { _storeListeners.delete(onStoreChange); };
     },
     () => _current[field],
     () => INITIAL[field],
@@ -679,15 +746,22 @@ function useOBDField<K extends keyof OBDData>(field: K): OBDData[K] {
 
 /**
  * OBD hız hook'u — RAF linear interpolation ile 60 fps akıcılığı.
+ * SADECE gösterge iğnesi (SVG arc, needle) için kullan.
+ * Sayısal ekran için useOBDSpeedRaw() kullan — animasyon gecikme yaratır.
  *
  * lerpFactor=0.15: OBD 3 Hz poll rate'te bile gösterge iğnesi gibi kayar.
- * Formül (her frame): display += (target − display) × 0.15
- *
- * Not: Görsel değer döner. Füzyon hesaplamalarında onOBDData() kullan.
  */
 export function useOBDSpeed(): number {
   const raw = useOBDField('speed');
   return useRafSmoothed(raw, 0.15);
+}
+
+/**
+ * OBD anlık hız — animasyonsuz, gecikmesiz.
+ * Sayısal hız ekranı bu hook'u kullanmalı.
+ */
+export function useOBDSpeedRaw(): number {
+  return useOBDField('speed');
 }
 
 /** Only re-renders on connection state changes. */

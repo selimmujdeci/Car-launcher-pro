@@ -83,11 +83,10 @@ const Waveform = memo(function Waveform({ active }: { active: boolean }) {
       {bars.map((h, i) => (
         <div
           key={i}
-          className={`rounded-full transition-all duration-300 ${
+          className={`w-[3px] rounded-full transition-all duration-300 ${
             active ? 'bg-blue-400' : 'bg-slate-700'
           }`}
           style={{
-            width: '3px',
             height: active ? `${h * 3}px` : '4px',
             animation: active ? `car-pulse-subtle ${400 + i * 40}ms ease-in-out infinite alternate` : 'none',
             animationDelay: `${i * 50}ms`,
@@ -436,9 +435,79 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
   );
 });
 
+/* ── Drive Mode — minimal floating pill (no big card) ────────── */
+
+const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () => void }) {
+  const voice = useVoiceState();
+  const isListening  = voice.status === 'listening';
+  const isProcessing = voice.status === 'processing';
+  const isSuccess    = voice.status === 'success';
+  const isError      = voice.status === 'error';
+
+  // Auto-start on mount
+  useEffect(() => { startListening(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-close after result
+  useEffect(() => {
+    if (isSuccess || isError) {
+      const id = setTimeout(() => { stopListening(); onClose(); }, 1800);
+      return () => clearTimeout(id);
+    }
+  }, [isSuccess, isError, onClose]);
+
+  const label =
+    isListening  ? 'Dinliyorum…' :
+    isProcessing ? 'İşleniyor…' :
+    isSuccess    ? (voice.lastCommand?.feedback ?? 'Anlaşıldı') :
+    isError      ? 'Anlaşılamadı' : 'Hazır';
+
+  const accent =
+    isListening  ? 'rgba(96,165,250,1)'   :
+    isProcessing ? 'rgba(167,139,250,1)'  :
+    isSuccess    ? 'rgba(52,211,153,1)'   :
+    isError      ? 'rgba(248,113,113,1)'  : 'rgba(148,163,184,1)';
+
+  return (
+    <div
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-[9500] flex items-center gap-2.5 py-2.5 pr-5 pl-3.5 rounded-full bg-[rgba(6,10,24,0.92)] backdrop-blur-xl"
+      style={{
+        border: `1px solid ${accent}44`,
+        boxShadow: `0 4px 24px rgba(0,0,0,0.55), 0 0 0 1px ${accent}22`,
+      }}
+      onClick={() => { stopListening(); onClose(); }}
+    >
+      {/* Animated mic dot */}
+      <div className="relative w-8 h-8 flex-shrink-0">
+        {isListening && (
+          <>
+            <span className="absolute inset-0 rounded-full opacity-[0.15] animate-ping" style={{ background: accent }} />
+            <span className="absolute inset-1 rounded-full border opacity-40 animate-pulse" style={{ borderColor: accent }} />
+          </>
+        )}
+        <div
+          className="absolute inset-1 rounded-full flex items-center justify-center"
+          style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}
+        >
+          <Mic className="w-3.5 h-3.5" style={{ color: accent }} />
+        </div>
+      </div>
+      <span className="text-[13px] font-semibold text-slate-200 tracking-[-0.2px] max-w-[240px] whitespace-nowrap overflow-hidden text-ellipsis">
+        {label}
+      </span>
+      <button
+        onClick={(e) => { e.stopPropagation(); stopListening(); onClose(); }}
+        className="ml-1 bg-white/[0.06] border border-white/10 rounded-full w-[22px] h-[22px] flex items-center justify-center cursor-pointer text-slate-400"
+      >
+        <X className="w-2.5 h-2.5" />
+      </button>
+    </div>
+  );
+});
+
 /* ── Public exports ─────────────────────────────────────────── */
 
-export const VoiceAssistant = memo(function VoiceAssistant({ onClose, autoStart }: { onClose: () => void; autoStart?: boolean }) {
+export const VoiceAssistant = memo(function VoiceAssistant({ onClose, autoStart, minimal }: { onClose: () => void; autoStart?: boolean; minimal?: boolean }) {
+  if (minimal) return <VoiceDrivePill onClose={onClose} />;
   return <VoiceOverlay onClose={onClose} autoStart={autoStart} />;
 });
 
@@ -512,7 +581,7 @@ export const FloatingMicButton = memo(function FloatingMicButton({
         aria-label="Sesli asistan"
         className={`
           fixed right-5 z-[62] flex items-center justify-center rounded-full
-          transition-all duration-300 ease-out active:scale-90
+          will-change-transform transition-all duration-300 ease-out active:scale-90
           ${isDriving ? 'bottom-20' : 'bottom-24'}
           ${sizeClass}
           ${isListening
@@ -522,7 +591,6 @@ export const FloatingMicButton = memo(function FloatingMicButton({
             : 'scale-95 shadow-[0_2px_10px_rgba(0,0,0,0.3)]'
           }
         `}
-        style={{ willChange: 'transform' }}
       >
         <div
           className={`
@@ -633,7 +701,8 @@ export const VoiceMicButton = memo(function VoiceMicButton({ floating }: { float
     return (
       <>
         <div
-          style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 46, touchAction: 'none', userSelect: 'none' }}
+          className="fixed z-[46] touch-none select-none"
+          style={{ left: pos.x, top: pos.y }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

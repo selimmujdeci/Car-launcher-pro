@@ -46,21 +46,30 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
     headingRef.current = heading;
   }, [location, heading]);
 
-  // Init map — runs exactly once when container is available and has dimensions
+  // Init map — waits for container to have actual pixel dimensions
   useEffect(() => {
     if (!containerRef.current || initDone.current) return;
 
     const el = containerRef.current;
-    if (el.offsetWidth === 0 || el.offsetHeight === 0) {
-      const raf = requestAnimationFrame(() => {
-        if (!initDone.current && el.offsetWidth > 0 && el.offsetHeight > 0) {
-          doInit(el);
-        }
-      });
-      return () => cancelAnimationFrame(raf);
+    let observer: ResizeObserver | null = null;
+
+    function tryInit() {
+      if (initDone.current) return;
+      if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
+      observer?.disconnect();
+      doInit(el);
     }
 
-    doInit(el);
+    if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+      doInit(el);
+    } else {
+      // ResizeObserver fires as soon as the container gets real dimensions —
+      // more reliable than rAF on slow Android head units where layout takes >1 frame.
+      observer = new ResizeObserver(tryInit);
+      observer.observe(el);
+      // rAF as secondary safety net
+      requestAnimationFrame(tryInit);
+    }
 
     function doInit(container: HTMLElement) {
       initDone.current = true;
@@ -79,10 +88,10 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
               if (!cancelled) setMapReady(true);
             });
           }
-
-          // GPS useLayoutServices'te merkezi olarak başlatılıyor
         } catch (err) {
           console.error('MiniMap init failed:', err);
+          // Reset so a subsequent layout change can retry
+          if (!cancelled) initDone.current = false;
         }
       })();
 
@@ -97,6 +106,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
     }
 
     return () => {
+      observer?.disconnect();
       cleanupRef.current?.();
     };
   }, []);
@@ -254,9 +264,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
 
             {/* Merkez yükleme göstergesi */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-              <div className="w-8 h-8 rounded-full border-2 border-blue-500/40 border-t-blue-400"
-                style={{ animation: 'spin 1s linear infinite' }}
-              />
+              <div className="w-8 h-8 rounded-full border-2 border-blue-500/40 border-t-blue-400 animate-spin" />
               <span className="text-[9px] font-black tracking-[0.25em] uppercase text-blue-400/60">
                 Harita Yükleniyor
               </span>
@@ -266,9 +274,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
 
         {/* GPS placeholder — konum yokken MapLibre siyah canvas'ı örter */}
         {!location && (
-          <div className="absolute inset-0 z-20 rounded-2xl overflow-hidden"
-            style={{ background: 'rgba(255, 255, 255, 0.1)' }}
-          >
+          <div className="absolute inset-0 z-20 rounded-2xl overflow-hidden bg-white/10">
             {/* Grid çizgileri — harita hissi */}
             <svg className="absolute inset-0 w-full h-full opacity-[0.08]" xmlns="http://www.w3.org/2000/svg">
               <defs>
@@ -296,9 +302,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
             {/* Merkez — radar pulse + pin */}
             <div className="absolute inset-0 flex items-center justify-center">
               {/* Radar halkaları */}
-              <div className="absolute w-24 h-24 rounded-full border border-blue-500/20 animate-ping" style={{ animationDuration: '2s' }} />
-              <div className="absolute w-16 h-16 rounded-full border border-blue-500/25 animate-ping" style={{ animationDuration: '2s', animationDelay: '0.5s' }} />
-              <div className="absolute w-8  h-8  rounded-full border border-blue-500/30 animate-ping" style={{ animationDuration: '2s', animationDelay: '1s' }} />
+              <div className="absolute w-24 h-24 rounded-full border border-blue-500/20 animate-ping [animation-duration:2s]" />
+              <div className="absolute w-16 h-16 rounded-full border border-blue-500/25 animate-ping [animation-duration:2s] [animation-delay:0.5s]" />
+              <div className="absolute w-8  h-8  rounded-full border border-blue-500/30 animate-ping [animation-duration:2s] [animation-delay:1s]" />
 
               {/* İkon + yazı kartı */}
               <div className="relative flex flex-col items-center gap-2.5 z-10">

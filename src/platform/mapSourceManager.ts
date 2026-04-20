@@ -879,26 +879,19 @@ export async function refreshMapSources(): Promise<void> {
 /**
  * Get the tile URL(s) for the currently active source.
  *
- * When local tiles are detected, uses the `smart-tile://` custom protocol
- * which tries local first then falls back to online per-tile.
+ * ALWAYS returns smart-tile:// so all fetches go through our JS protocol
+ * handler instead of MapLibre's internal XHR.  MapLibre's XHR is blocked by
+ * Capacitor Android WebView's CORS/mixed-content policy when the origin is
+ * capacitor:// or file://.  Our smart-tile handler uses the JS fetch() API
+ * which Capacitor's native bridge does allow for same-session requests.
  *
- * When no local tiles: 'cached' and 'online' use standard OSM URLs.
+ * Priority chain inside registerSmartTileProtocol():
+ *   1. Capacitor Filesystem (SD card / internal storage)
+ *   2. /maps/{z}/{x}/{y}.png  (APK asset)
+ *   3. tile.openstreetmap.org (online fallback)
  */
 export function getActiveTileUrls(): string[] {
-  const { activeSourceId, sources } = useMapSourceStore.getState();
-  const hasLocal = sources.get('local')?.isAvailable === true;
-
-  // Smart protocol: local-first with online fallback per tile
-  if (hasLocal || activeSourceId === 'local') {
-    return ['smart-tile://{z}/{x}/{y}'];
-  }
-
-  // Pure online (cached relies on service worker intercepting OSM URLs)
-  return [
-    'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  ];
+  return ['smart-tile://{z}/{x}/{y}'];
 }
 
 // ── Private style builders ───────────────────────────────────
@@ -928,7 +921,7 @@ function buildVectorStyle(): StyleSpecification {
   } else if (customUrl) {
     vectorTiles = [customUrl];
   } else {
-    // No vector source available — fall back silently to raster
+    // No vector source → fall back to raster (smart-tile handles online OSM)
     return buildRoadStyle();
   }
 

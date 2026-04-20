@@ -30,15 +30,16 @@ export interface TripRecord {
 }
 
 interface ActiveTrip {
-  startTime: number;
+  startTime: number;    // Date.now()        — display/storage timestamp only
+  startPerfMs: number;  // performance.now() — monotonic trip duration source
   distanceKm: number;
   maxSpeedKmh: number;
   speedSum: number;
   speedCount: number;
   fuelAtStart: number;
-  lastUpdateTime: number;
-  lastSpeed: number;         // for acceleration delta calculation
-  harshEvents: number;       // sudden speed changes > 15 km/h per sample
+  lastPerfMs: number;   // performance.now() — monotonic delta for distance calc
+  lastSpeed: number;    // for acceleration delta calculation
+  harshEvents: number;  // sudden speed changes > 15 km/h per sample
 }
 
 export interface TripState {
@@ -128,7 +129,7 @@ function _notify(): void {
     current: _active
       ? {
           ..._active,
-          liveDurationMin: Math.floor((Date.now() - _active.startTime) / 60_000),
+          liveDurationMin: Math.floor((performance.now() - _active.startPerfMs) / 60_000),
         }
       : null,
   };
@@ -143,15 +144,17 @@ function _setState(partial: Partial<TripState>): void {
 function _startTrip(speed: number, fuelLevel: number): void {
   if (_active) return;
 
+  const perfNow = performance.now();
   _active = {
-    startTime: Date.now(),
-    distanceKm: 0,
+    startTime:   Date.now(),
+    startPerfMs: perfNow,
+    distanceKm:  0,
     maxSpeedKmh: speed,
-    speedSum: speed,
-    speedCount: 1,
+    speedSum:    speed,
+    speedCount:  1,
     fuelAtStart: fuelLevel,
-    lastUpdateTime: Date.now(),
-    lastSpeed: speed,
+    lastPerfMs:  perfNow,
+    lastSpeed:   speed,
     harshEvents: 0,
   };
 
@@ -166,7 +169,8 @@ function _endTrip(): void {
   if (!_active) return;
 
   const now = Date.now();
-  const durationMs  = now - _active.startTime;
+  // performance.now() delta — immune to system clock jumps (battery reconnect, NTP sync)
+  const durationMs  = performance.now() - _active.startPerfMs;
   const durationMin = Math.round(durationMs / 60_000);
 
   // Discard trips shorter than 1 min or 100 m
@@ -216,7 +220,9 @@ function _endTrip(): void {
 }
 
 function _onOBD(speed: number, fuelLevel: number): void {
-  const now = Date.now();
+  // Reject physically impossible values — OBD sensor glitch / adapter bug protection
+  if (speed < 0 || speed > 300) return;
+  if (fuelLevel < -1 || fuelLevel > 100) return;
 
   if (speed > TRIP_START_SPEED_KMH) {
     // Clear idle timer
@@ -225,11 +231,12 @@ function _onOBD(speed: number, fuelLevel: number): void {
     if (!_active) {
       _startTrip(speed, fuelLevel);
     } else {
-      // Update running trip
-      const dtHours = (now - _active.lastUpdateTime) / 3_600_000;
+      // Update running trip — monotonic delta protects against Date.now() clock jumps
+      const perfNow = performance.now();
+      const dtHours = (perfNow - _active.lastPerfMs) / 3_600_000;
       const deltKm  = speed * dtHours;
 
-      // Sanity check: skip if delta > 1 km (corrupt sample or clock jump)
+      // Sanity check: skip if delta > 1 km (resume after backgrounding or stale sample)
       if (deltKm >= 0 && deltKm < 1) {
         _active.distanceKm   += deltKm;
         _active.maxSpeedKmh   = Math.max(_active.maxSpeedKmh, speed);
@@ -241,7 +248,7 @@ function _onOBD(speed: number, fuelLevel: number): void {
         }
         _active.lastSpeed = speed;
       }
-      _active.lastUpdateTime = now;
+      _active.lastPerfMs = perfNow;
       _notify();
     }
 

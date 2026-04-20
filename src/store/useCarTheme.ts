@@ -43,7 +43,13 @@ export const useCarTheme = create<CarThemeState>()(
     {
       name: 'car-launcher-theme',
       onRehydrateStorage: () => (state) => {
-        if (state) applyTheme(state.theme);
+        if (!state) return;
+        const VALID: CarTheme[] = [
+          'tesla','audi','mercedes','cockpit','pro',
+          'tesla-day','audi-day','mercedes-day','cockpit-day','pro-day',
+        ];
+        if (!VALID.includes(state.theme)) state.theme = 'tesla';
+        applyTheme(state.theme);
       },
     }
   )

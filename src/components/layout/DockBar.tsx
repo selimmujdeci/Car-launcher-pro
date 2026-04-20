@@ -27,7 +27,7 @@ interface Props {
 
 const SKIP_IDS = new Set(['phone', 'spotify', 'music', 'contacts']);
 
-/* Tema-duyarlı tile bileşeni */
+/* Dock tile — Tailwind sınıf tabanlı */
 function T({ fn, label, color, icon, badge }: {
   fn: () => void; label: string; color: string;
   icon: React.ReactNode; badge?: number;
@@ -35,57 +35,34 @@ function T({ fn, label, color, icon, badge }: {
   return (
     <button
       onClick={fn}
+      onPointerDown={e => (e.currentTarget.style.transform = 'scale(0.95)')}
+      onPointerUp={e => (e.currentTarget.style.transform = '')}
+      onPointerCancel={e => (e.currentTarget.style.transform = '')}
+      className="relative flex flex-col items-center justify-center gap-[5px] flex-shrink-0 bg-transparent border-0 cursor-pointer rounded-[var(--radius-tile,0)] transition-[background,transform] duration-[150ms,120ms] ease-out hover:bg-[var(--tile-hover-bg,rgba(255,255,255,0.06))] active:opacity-80"
       style={{
-        flexShrink: 0,
-        width: 72,
-        height: 68,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 5,
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        position: 'relative',
-        borderRadius: 'var(--radius-tile, 0)',
-        transition: 'background 0.2s ease',
+        width: 'var(--lp-tile-w, 64px)',
+        height: 'var(--lp-dock-h, 68px)',
       }}
-      onMouseEnter={e => (e.currentTarget.style.background = 'var(--tile-hover-bg, rgba(255,255,255,0.05))')}
-      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
     >
-      <div style={{
-        color,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 28,
-        height: 28,
-        filter: 'var(--btn-glow, none)',
-      }}>
+      <div
+        className="flex items-center justify-center"
+        style={{
+          color,
+          width: 'var(--lp-dock-icon, 24px)',
+          height: 'var(--lp-dock-icon, 24px)',
+          filter: 'var(--btn-glow, none)',
+        }}
+      >
         {icon}
       </div>
-      <span style={{
-        fontSize: 10,
-        fontWeight: 'var(--font-weight-ui, 700)' as React.CSSProperties['fontWeight'],
-        fontFamily: 'var(--font-ui, system-ui)',
-        color: 'rgba(255,255,255,0.55)',
-        textTransform: 'uppercase',
-        letterSpacing: 'var(--letter-spacing-ui, 0.05em)',
-        lineHeight: 1,
-      }}>
+      <span
+        className="uppercase leading-none text-[length:var(--lp-font-xs,10px)] font-[number:var(--font-weight-ui,700)] tracking-[var(--letter-spacing-ui,0.05em)] text-white/65"
+        style={{ fontFamily: 'var(--font-ui, system-ui)' }}
+      >
         {label}
       </span>
       {!!badge && (
-        <span style={{
-          position: 'absolute', top: 8, right: 10,
-          minWidth: 16, height: 16,
-          background: 'var(--accent-primary, #3b82f6)',
-          color: '#fff', fontSize: 9, fontWeight: 900,
-          borderRadius: 8,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '0 3px',
-        }}>
+        <span className="absolute top-2 right-2.5 min-w-4 h-4 bg-[var(--accent-primary,#3b82f6)] text-white text-[9px] font-black rounded-lg flex items-center justify-center px-[3px]">
           {badge > 9 ? '9+' : badge}
         </span>
       )}
@@ -93,16 +70,10 @@ function T({ fn, label, color, icon, badge }: {
   );
 }
 
-/* Tema-duyarlı bölücü */
+/* Bölücü */
 function D() {
   return (
-    <div style={{
-      flexShrink: 0,
-      width: 1,
-      height: 32,
-      background: 'var(--divider-color, rgba(255,255,255,0.10))',
-      margin: '0 2px',
-    }} />
+    <div className="flex-shrink-0 w-px h-8 mx-0.5 bg-[var(--divider-color,rgba(255,255,255,0.13))]" />
   );
 }
 
@@ -118,41 +89,28 @@ export const DockBar = memo(function DockBar({
     .map(id => appMap[id])
     .filter(Boolean) as AppItem[];
 
-  /* Tema-duyarlı ikon renkleri (CSS değişkenleri çalışmadığında fallback) */
-  const c1  = 'var(--icon-color-1, #60a5fa)';   /* ana vurgu */
-  const c2  = 'var(--icon-color-2, #94a3b8)';   /* ikincil */
-  const nav = 'var(--icon-color-nav, #60a5fa)';  /* navigasyon */
-  const med = 'var(--icon-color-media, #34d399)'; /* medya */
+  const c1  = 'var(--icon-color-1, #60a5fa)';
+  const c2  = 'var(--icon-color-2, #94a3b8)';
+  const nav = 'var(--icon-color-nav, #60a5fa)';
+  const med = 'var(--icon-color-media, #34d399)';
 
   return (
     <div
       data-dock="main"
+      className="fixed bottom-0 left-0 right-0 z-[100] pt-3 transition-[background] duration-400 ease-out"
       style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 100,
-        /* Üstten içeriğe doğru eriyen gradient — yapıştırma hissi yok */
         background: 'linear-gradient(to bottom, transparent 0%, var(--dock-bg, rgba(6,8,16,0.92)) 28%)',
-        backdropFilter: 'blur(28px) saturate(1.5)',
-        WebkitBackdropFilter: 'blur(28px) saturate(1.5)',
-        borderTop: 'none',
-        paddingTop: 12,
-        transition: 'background 0.4s ease',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
       }}
     >
-      {/* Tema renkli ince çizgi — kenar değil, vurgu */}
-      <div style={{
-        position: 'absolute',
-        top: 12,
-        left: '8%',
-        right: '8%',
-        height: 1,
-        background: 'linear-gradient(90deg, transparent, var(--accent-primary, rgba(255,255,255,0.12)), transparent)',
-        opacity: 0.5,
-        pointerEvents: 'none',
-      }} />
+      {/* Vurgu çizgisi — temaya göre renk alır */}
+      <div
+        aria-hidden
+        className="absolute top-3 left-[8%] right-[8%] h-px opacity-50 pointer-events-none"
+        style={{ background: 'linear-gradient(90deg, transparent, var(--accent-primary, rgba(255,255,255,0.12)), transparent)' }}
+      />
+
       <div
         ref={s.ref}
         onPointerDown={s.onPointerDown}
@@ -160,30 +118,20 @@ export const DockBar = memo(function DockBar({
         onPointerUp={s.onPointerUp}
         onPointerCancel={s.onPointerUp}
         onClick={s.onClick}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          height: 68,
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          paddingLeft: 4,
-          paddingRight: 4,
-          scrollbarWidth: 'none',
-        }}
+        className="flex items-center overflow-x-auto overflow-y-hidden px-1 scrollbar-none"
+        style={{ height: 'var(--lp-dock-h, 68px)' }}
       >
-        {/* Dinamik uygulama kısayolları */}
         {apps.map(a => (
           <T
             key={a.id}
             fn={() => onLaunch(a.id)}
             label={a.name}
             color={c1}
-            icon={<span style={{ fontSize: 22 }}>{a.icon}</span>}
+            icon={<span className="text-[22px]">{a.icon}</span>}
           />
         ))}
         <D />
 
-        {/* İletişim */}
         <T fn={() => onOpenDrawer('phone')} label="Telefon" color={nav}  icon={<Phone size={24} />} />
         <T fn={() => onOpenDrawer('music')} label="Müzik"   color={med}  icon={<Music2 size={24} />} />
         <T
@@ -195,14 +143,12 @@ export const DockBar = memo(function DockBar({
         />
         <D />
 
-        {/* Sürüş bilgileri */}
         <T fn={() => onOpenDrawer('weather')} label="Hava"    color="var(--icon-color-1, #38bdf8)" icon={<Cloud size={24} />} />
         <T fn={() => onOpenDrawer('traffic')} label="Trafik"  color="var(--icon-color-2, #fb923c)" icon={<AlertTriangle size={24} />} />
         <T fn={() => onOpenDrawer('dashcam')} label="Dashcam" color="var(--accent-red, #f87171)"   icon={<Camera size={24} />} />
         <T fn={() => onOpenDrawer('triplog')} label="Seyir"   color={med}                          icon={<Route size={24} />} />
         <D />
 
-        {/* Araç bakım */}
         <T fn={() => onOpenDrawer('dtc')}              label="Arıza"    color="var(--icon-color-2, #fbbf24)" icon={<ShieldAlert size={24} />} />
         <T fn={() => onOpenDrawer('vehicle-reminder')} label="Bakım"    color={c2}                           icon={<Wrench size={24} />} />
         <T fn={() => onOpenDrawer('security')}         label="Güvenlik" color={med}                          icon={<Shield size={24} />} />
@@ -210,7 +156,6 @@ export const DockBar = memo(function DockBar({
         <T fn={() => onOpenDrawer('sport')}            label="Sport"    color="var(--accent-red, #f87171)"   icon={<Zap size={24} />} />
         <D />
 
-        {/* Sistem */}
         <T fn={onOpenApps}     label="Menü"    color={c1} icon={<LayoutGrid size={24} />} />
         <T fn={onOpenRearCam}  label="Kamera"  color={c2} icon={<Camera size={24} />} />
         <T fn={onOpenSplit}    label="Split"   color={c2} icon={<SplitSquareHorizontal size={24} />} />

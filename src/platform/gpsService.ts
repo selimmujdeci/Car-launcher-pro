@@ -40,7 +40,8 @@ const useGPSStore = create<GPSState>(() => ({
 
 let watchId: number | string | null = null;
 let _lastPositionMs = 0;
-const POSITION_THROTTLE_MS = 2000;
+// 500ms throttle — GPS Doppler speed her 1s'de güncellenir; 2s çok geç
+const POSITION_THROTTLE_MS = 500;
 
 // Auto-reconnect on consecutive errors
 let _consecutiveErrors = 0;
@@ -200,26 +201,18 @@ function _blendHeading(gpsBearing: number | null, speedMs: number): number | nul
 
 // ── GPS hız filtresi ─────────────────────────────────────────
 //
-// Problem: GPS Doppler hız ölçümü ±1-2 km/h jitter üretir. Araç tam durmuşken
-//          hız 0 ile 1 km/h arasında sürekli salınır. speedFusion'a gelen gürültü
-//          EMA ile kısmen bastırılsa da kökte çözmek daha temiz.
+// GPS Doppler hız ölçümü (coords.speed) zaten donanım seviyesinde filtreli;
+// yazılım EMA eklemek sadece gecikme yaratır. Örnek: α=0.40 @2s tick →
+// araç 50 km/h'deyken ekranda ~32 görünür, durduğunda ~10s geç sıfırlanır.
 //
-// Çözüm:
-//   1. Deadzone  < GPS_SPEED_DEADZONE_KMH → 0 say (durağan jitter bastırma)
-//   2. EMA       α = GPS_SPEED_EMA_ALPHA  → ani sıçramaları yumuşat (alçak geçiren filtre)
+// Çözüm: EMA yok. Sadece deadzone (durağan jitter bastırma).
+//   < GPS_SPEED_DEADZONE_KMH → 0 (araç durmuş, GPS Doppler noise yok say)
+//   Timestamp freshness: > GPS_SPEED_MAX_AGE_MS → speed undefined (stale fix)
 //
-// Neden EMA @ 0.40?
-//   α = 0.40 @2 s GPS tick → ~3-4 güncelleme sonra gerçek hıza %90 yaklaşır.
-//   α = 0.20 çok yavaş (şehir trafiğinde ani fren/hızlanma geç yansır).
-//   α = 0.70 orijinal gürültüyü çok geçirir.
-//
-/** EMA düzeltme katsayısı — GPS hız gürültüsü için alçak geçiren filtre */
-const GPS_SPEED_EMA_ALPHA    = 0.40;
 /** Durağan araç jitter bastırma eşiği (km/h) — altındaki değerler 0 sayılır */
-const GPS_SPEED_DEADZONE_KMH = 1.0;
-
-/** EMA durum değişkeni — startGPSTracking öncesi null, her fix'te güncellenir */
-let _speedEmaKmh: number | null = null;
+const GPS_SPEED_DEADZONE_KMH = 2.0;
+/** Bu süreden eski GPS fix'inden gelen hız kabul edilmez */
+const GPS_SPEED_MAX_AGE_MS   = 4000;
 
 // ── Speed from position delta ─────────────────────────────
 let _prevForSpeed: { lat: number; lng: number; ts: number } | null = null;
@@ -332,7 +325,7 @@ async function startNativeGPSTracking(): Promise<void> {
       {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 3000,
+        maximumAge: 1000, // max 1s eski veri — durduğunda eski hız kalmasın
       },
       (position, err) => {
         if (err) {
@@ -383,7 +376,7 @@ function startWebGPSTracking(): void {
       {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 3000,
+        maximumAge: 1000, // max 1s eski veri — durduğunda eski hız kalmasın
       }
     );
     watchId = id;
@@ -429,16 +422,21 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   const gpsSpeed = Number.isFinite(coords.speed ?? NaN) ? (coords.speed ?? undefined) : undefined;
   const rawSpeed = gpsSpeed ?? _calcSpeedFromDelta(coords.latitude, coords.longitude, timestamp ?? now);
 
-  // ── Hız filtresi: Deadzone + EMA (alçak geçiren filtre) ─────────────
-  // Hedef: ham GPS Doppler/delta gürültüsünü bastır, gerçek hız değişimini koru.
+  // ── Hız filtresi: Sadece deadzone (EMA yok — gecikme kaynağıydı) ────
+  // GPS Doppler speed donanım seviyesinde zaten doğru; EMA sadece gecikme ekler.
+  // Deadzone: < 2 km/h → 0 (durağan araç jitter bastırma).
+  // Timestamp freshness: > GPS_SPEED_MAX_AGE_MS → hız geçersiz say.
   let filteredSpeed: number | undefined;
   if (rawSpeed != null) {
-    const rawKmh    = rawSpeed * 3.6;
-    const deadzoned = rawKmh < GPS_SPEED_DEADZONE_KMH ? 0 : rawKmh; // durağan jitter → 0
-    _speedEmaKmh    = _speedEmaKmh === null
-      ? deadzoned
-      : _speedEmaKmh + GPS_SPEED_EMA_ALPHA * (deadzoned - _speedEmaKmh);
-    filteredSpeed   = _speedEmaKmh / 3.6; // km/h → m/s (GPSLocation standardı)
+    const dataAge = Math.abs(now - (timestamp ?? now));
+    if (dataAge > GPS_SPEED_MAX_AGE_MS) {
+      // Stale fix — pozisyonu güncelle ama hız verisini gösterme
+      filteredSpeed = undefined;
+    } else {
+      const rawKmh  = rawSpeed * 3.6;
+      // Deadzone: durağan araç jitter'ı bastır, ama 0'a HEMEN düş
+      filteredSpeed = (rawKmh < GPS_SPEED_DEADZONE_KMH ? 0 : rawKmh) / 3.6;
+    }
   }
 
   // GPS course: Geolocation spec → null/NaN when stationary; safe-guard before blend
@@ -476,7 +474,6 @@ export async function stopGPSTracking(): Promise<void> {
   _stopCompassListener();
   _prevForSpeed    = null;
   _smoothedHeading = null;
-  _speedEmaKmh     = null; // EMA sıfırla — yeniden başlatmada eski değerle kirlenme
   _consecutiveErrors = 0;
   _lastPositionMs = 0; // reset throttle — next position always accepted after restart
 
@@ -526,6 +523,31 @@ export function useGPSAvailable() {
 /** Debug: aktif GPS kaynak bilgisi (native / web / last_known / default / null) */
 export function useGPSSource() {
   return useGPSStore((s) => s.source);
+}
+
+/**
+ * GPS ve OBD'den anlık hız karar ağacı — tüm speedometre bileşenlerinde kullan.
+ *
+ * Öncelik sırası:
+ *   1. GPS Doppler hızı (taze fix, < maxAgeMs)
+ *   2. OBD hızı (GPS yoksa veya stale)
+ *
+ * gps.speed >= 0 kontrolü: araç durmuşsa 0 geçerli — OBD'ye düşme.
+ * gps.speed > 0 (eski) hatalıydı: durduğunda GPS 0 döner ama OBD mock
+ * hâlâ 42 km/h gösteriyordu, GPS 0'ı atlayarak OBD'ye geçiyordu.
+ */
+export function resolveSpeedKmh(
+  gps: GPSLocation | null,
+  obdSpeedKmh: number,
+  maxAgeMs = 4000,
+): number {
+  if (gps?.speed != null && Number.isFinite(gps.speed)) {
+    const age = Date.now() - gps.timestamp;
+    if (age <= maxAgeMs) {
+      return Math.round(gps.speed * 3.6);
+    }
+  }
+  return obdSpeedKmh;
 }
 
 /** Mevcut GPS hızını km/h olarak döner; yoksa null. */

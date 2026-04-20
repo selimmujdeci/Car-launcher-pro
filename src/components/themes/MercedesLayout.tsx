@@ -8,7 +8,7 @@ import {
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation } from '../../platform/gpsService';
+import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
@@ -29,13 +29,14 @@ interface Props {
   fullMapOpen?:   boolean;
 }
 
-const M_BG     = 'linear-gradient(135deg, #090909 0%, #0e0e0e 40%, #0b0b0b 70%, #080808 100%)';
-const M_GOLD   = '#C8A96E';
-const M_CARD   = 'rgba(16,14,14,0.97)';
-const M_BORDER = 'rgba(200,169,110,0.12)';
-const M_TEXT   = '#F5F0EB';
-const M_DIM    = '#6B6560';
-const M_DIM2   = '#9B9590';
+/* Tema renkleri CSS custom property — index.css [data-theme="mercedes"] */
+const M_BG     = 'var(--bg-primary, #0e0e0e)';
+const M_GOLD   = 'var(--accent, #C8A96E)';
+const M_CARD   = 'var(--bg-card, rgba(16,14,14,0.97))';
+const M_BORDER = 'var(--border-color, rgba(200,169,110,0.13))';
+const M_TEXT   = 'var(--text, #F5F0EB)';
+const M_DIM    = 'var(--text-dim, #9E9893)';
+const M_DIM2   = 'var(--text-dim2, #B5B0AB)';
 
 /* ─── MERCEDES HEADER ─────────────────────────────────────────── */
 const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void }) {
@@ -44,31 +45,32 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
   const device = useDeviceStatus();
 
   return (
-    <div className="flex items-center justify-between px-6 py-3 flex-shrink-0"
+    <div className="flex items-center justify-between px-6 flex-shrink-0"
       style={{
+        height: 56,
         background: 'rgba(6,5,5,0.99)',
         borderBottom: `1px solid ${M_BORDER}`,
-        boxShadow: `0 1px 0 rgba(200,169,110,0.08), 0 4px 20px rgba(0,0,0,0.60)`,
+        boxShadow: `0 1px 0 rgba(200,169,110,0.07), 0 4px 20px rgba(0,0,0,0.55)`,
       }}>
 
       {/* Sol: Mercedes yıldızı + saat */}
       <div className="flex items-center gap-4">
-        <div className="w-10 h-10 rounded-full flex items-center justify-center"
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
           style={{
-            background: 'linear-gradient(135deg, rgba(200,169,110,0.20), rgba(200,169,110,0.08))',
-            border: `1px solid rgba(200,169,110,0.30)`,
-            boxShadow: `0 4px 16px rgba(200,169,110,0.15), inset 0 1px 0 rgba(255,255,255,0.05)`,
+            background: 'linear-gradient(135deg, rgba(200,169,110,0.18), rgba(200,169,110,0.07))',
+            border: `1px solid rgba(200,169,110,0.28)`,
+            boxShadow: `0 3px 12px rgba(200,169,110,0.12)`,
           }}>
-          <Star className="w-5 h-5" style={{ color: M_GOLD, fill: M_GOLD }} />
+          <Star className="w-4.5 h-4.5" style={{ color: M_GOLD, fill: M_GOLD }} />
         </div>
         <div>
-          <div className="font-extralight tabular-nums" style={{ fontSize: 30, color: M_TEXT, letterSpacing: '0.5px' }}>{time}</div>
-          <div className="text-[9px] uppercase tracking-[0.35em] font-light mt-0.5" style={{ color: M_DIM }}>{date}</div>
+          <div className="font-extralight tabular-nums" style={{ fontSize: 'var(--lp-font-2xl, 32px)', color: M_TEXT, letterSpacing: '0.3px' }}>{time}</div>
+          <div className="uppercase tracking-[0.3em] font-light mt-0.5" style={{ fontSize: 9, color: M_DIM }}>{date}</div>
         </div>
       </div>
 
-      {/* Orta: Durum */}
-      <div className="flex items-center gap-6">
+      {/* Orta: Durum — COMPACT'ta gizlenir */}
+      <div data-mbux-status data-header-center className="flex items-center gap-5">
         <MStatus label="MENZIL" value="450 km" />
         <div className="w-px h-5" style={{ background: M_BORDER }} />
         <MStatus label="ENERJI" value={device.ready ? `${device.battery}%` : '—'} />
@@ -77,15 +79,17 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
       </div>
 
       {/* Sağ */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <MIconBtn onClick={onOpenSettings}><Settings className="w-4 h-4" style={{ color: M_DIM2 }} /></MIconBtn>
         <MIconBtn onClick={onOpenApps}><Grid3X3 className="w-4 h-4" style={{ color: M_DIM2 }} /></MIconBtn>
-        <button onClick={onVoice} className="px-4 py-2 rounded-2xl text-[11px] font-light tracking-widest active:scale-95 transition-all uppercase"
+        <button onClick={onVoice}
+          className="px-4 h-11 rounded-2xl font-light tracking-widest active:scale-95 transition-all uppercase"
           style={{
-            background: 'linear-gradient(135deg, rgba(200,169,110,0.20), rgba(200,169,110,0.10))',
-            border: `1px solid rgba(200,169,110,0.35)`,
+            fontSize: 11,
+            background: 'linear-gradient(135deg, rgba(200,169,110,0.18), rgba(200,169,110,0.08))',
+            border: `1px solid rgba(200,169,110,0.32)`,
             color: M_GOLD,
-            boxShadow: `0 4px 16px rgba(200,169,110,0.10)`,
+            boxShadow: `0 3px 14px rgba(200,169,110,0.08)`,
           }}>
           HEY MERCEDES
         </button>
@@ -97,8 +101,8 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
 function MStatus({ label, value }: { label: string; value: string }) {
   return (
     <div className="text-center">
-      <div className="text-sm font-light" style={{ color: M_TEXT }}>{value}</div>
-      <div className="text-[8px] uppercase tracking-[0.3em] mt-0.5 font-light" style={{ color: M_DIM }}>{label}</div>
+      <div className="font-medium tabular-nums" style={{ fontSize: 13, color: M_TEXT }}>{value}</div>
+      <div className="uppercase font-medium mt-0.5" style={{ fontSize: 10, color: M_DIM, letterSpacing: '0.22em' }}>{label}</div>
     </div>
   );
 }
@@ -106,7 +110,7 @@ function MStatus({ label, value }: { label: string; value: string }) {
 function MIconBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick}
-      className="w-9 h-9 rounded-2xl flex items-center justify-center active:scale-95 transition-all"
+      className="w-11 h-11 rounded-2xl flex items-center justify-center active:scale-95 transition-all"
       style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${M_BORDER}` }}>
       {children}
     </button>
@@ -117,41 +121,41 @@ function MIconBtn({ onClick, children }: { onClick: () => void; children: React.
 const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.60), inset 0 1px 0 rgba(200,169,110,0.06)` }}>
+      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
 
       {/* Altın üst çizgi */}
-      <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, flexShrink: 0, borderRadius: '24px 24px 0 0' }} />
+      <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, flexShrink: 0, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
 
       {/* Başlık */}
-      <div className="flex-shrink-0 px-4 pt-3 pb-2 flex items-center justify-between"
+      <div className="flex-shrink-0 px-4 pt-3 pb-2.5 flex items-center justify-between"
         style={{ borderBottom: `1px solid ${M_BORDER}` }}>
         <div>
-          <div className="text-[8px] uppercase tracking-[0.45em] font-light" style={{ color: M_GOLD }}>MBUX NAVİGASYON</div>
-          <div className="text-sm font-light mt-0.5" style={{ color: M_TEXT }}>Harita</div>
+          <div className="uppercase font-medium" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.32em' }}>MBUX NAVİGASYON</div>
+          <div className="font-light mt-0.5" style={{ fontSize: 13, color: M_TEXT }}>Harita</div>
         </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: '#080808' }}>
-              <span className="text-sm font-light" style={{ color: M_DIM }}>Harita açık</span>
+              <span className="font-light" style={{ fontSize: 13, color: M_DIM }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
         }
       </div>
 
-      <div className="flex-shrink-0 flex items-center gap-2 p-3"
+      <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2.5"
         style={{ background: 'rgba(4,4,4,0.95)', borderTop: `1px solid ${M_BORDER}` }}>
         <button onClick={onOpenMap}
-          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-2xl active:scale-[0.99] transition-all"
+          className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl active:scale-[0.99] transition-all"
           style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${M_BORDER}` }}>
           <Search className="w-3.5 h-3.5" style={{ color: M_DIM }} />
-          <span className="text-sm font-extralight" style={{ color: M_DIM }}>Hedef belirle...</span>
+          <span className="font-extralight" style={{ fontSize: 13, color: M_DIM }}>Hedef belirle...</span>
         </button>
-        <div className="rounded-2xl px-3 py-2 text-center"
-          style={{ background: 'rgba(200,169,110,0.08)', border: `1px solid rgba(200,169,110,0.18)` }}>
-          <div className="text-[9px] font-light" style={{ color: M_DIM }}>ETA</div>
-          <div className="text-sm font-light tabular-nums" style={{ color: M_GOLD }}>18:45</div>
+        <div className="rounded-2xl px-3 py-2.5 text-center"
+          style={{ background: 'rgba(200,169,110,0.07)', border: `1px solid rgba(200,169,110,0.16)` }}>
+          <div className="font-light" style={{ fontSize: 9, color: M_DIM, letterSpacing: '0.1em' }}>ETA</div>
+          <div className="font-normal tabular-nums mt-0.5" style={{ fontSize: 13, color: M_GOLD }}>18:45</div>
         </div>
       </div>
     </div>
@@ -162,7 +166,7 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
 const MercedesCockpit = memo(function MercedesCockpit() {
   const obd = useOBDState();
   const gps = useGPSLocation();
-  const speedKmh = gps?.speed != null && gps.speed > 0 ? Math.round(gps.speed * 3.6) : (obd.speed ?? 0);
+  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const rpm  = obd.rpm        ?? 929;
   const temp = obd.engineTemp ?? 88;
   const fuel = obd.fuelLevel  ?? 68;
@@ -181,29 +185,29 @@ const MercedesCockpit = memo(function MercedesCockpit() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.60), inset 0 1px 0 rgba(200,169,110,0.06)` }}>
+      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
 
-      <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, flexShrink: 0, borderRadius: '24px 24px 0 0' }} />
+      <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, flexShrink: 0, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
 
-      <div className="flex-shrink-0 px-4 pt-3 pb-2"
+      <div className="flex-shrink-0 px-4 pt-3 pb-2.5"
         style={{ borderBottom: `1px solid ${M_BORDER}` }}>
-        <div className="text-[8px] uppercase tracking-[0.45em] font-light" style={{ color: M_GOLD }}>MERCEDES-AMG</div>
-        <div className="text-sm font-light mt-0.5" style={{ color: M_TEXT }}>Dijital Gösterge</div>
+        <div className="uppercase font-medium" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.32em' }}>MERCEDES-AMG</div>
+        <div className="font-light mt-0.5" style={{ fontSize: 13, color: M_TEXT }}>Dijital Gösterge</div>
       </div>
 
       <div className="flex-1 flex items-center justify-center relative min-h-0">
-        <div style={{ width: 240, height: 240, position: 'relative' }}>
-          <svg width="240" height="260" viewBox="0 0 240 260">
-            {/* Dış dekoratif halkalar */}
-            <circle cx="120" cy="130" r="112" fill="none" stroke="rgba(200,169,110,0.05)" strokeWidth="1" />
-            <circle cx="120" cy="130" r="106" fill="none" stroke="rgba(200,169,110,0.08)" strokeWidth="0.5" />
+        <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
+          <svg width="100%" height="100%" viewBox="0 0 240 260">
+            {/* Dekoratif halkalar */}
+            <circle cx="120" cy="130" r="112" fill="none" stroke="rgba(200,169,110,0.04)" strokeWidth="1" />
+            <circle cx="120" cy="130" r="106" fill="none" stroke="rgba(200,169,110,0.07)" strokeWidth="0.5" />
             {/* Track */}
-            <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="12" strokeLinecap="round" />
+            <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="12" strokeLinecap="round" />
             {/* Altın fill */}
             {pct > 0.01 && (
               <path d={arc(135, fillAngle)} fill="none"
-                stroke={`url(#goldGrad)`} strokeWidth="12" strokeLinecap="round"
-                style={{ filter: `drop-shadow(0 0 8px rgba(200,169,110,0.50))` }} />
+                stroke="url(#goldGrad)" strokeWidth="12" strokeLinecap="round"
+                style={{ filter: `drop-shadow(0 0 7px rgba(200,169,110,0.45))` }} />
             )}
             <defs>
               <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -212,15 +216,15 @@ const MercedesCockpit = memo(function MercedesCockpit() {
               </linearGradient>
             </defs>
             {/* Merkezi daire */}
-            <circle cx="120" cy="130" r="52" fill="rgba(0,0,0,0.85)" stroke="rgba(200,169,110,0.12)" strokeWidth="1" />
+            <circle cx="120" cy="130" r="52" fill="rgba(0,0,0,0.82)" stroke="rgba(200,169,110,0.10)" strokeWidth="1" />
           </svg>
 
           <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 10 }}>
-            <div className="font-thin tabular-nums leading-none"
-              style={{ fontSize: 54, color: M_TEXT, letterSpacing: '-1px' }}>
+            <div className="font-extralight tabular-nums leading-none"
+              style={{ fontSize: 'var(--lp-speed-font, 58px)', color: M_TEXT, letterSpacing: '-1px', textShadow: '0 0 20px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.50)' }}>
               {speedKmh}
             </div>
-            <div className="text-[10px] font-light tracking-[0.5em] mt-1" style={{ color: M_GOLD, textTransform: 'uppercase' }}>
+            <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.45em' }}>
               km/h
             </div>
           </div>
@@ -239,14 +243,14 @@ const MercedesCockpit = memo(function MercedesCockpit() {
 
 function MDataCell({ Icon, label, value, warn }: { Icon: typeof Gauge; label: string; value: string; warn: boolean }) {
   return (
-    <div className="flex-1 rounded-2xl p-3 text-center"
+    <div className="flex-1 rounded-2xl p-3.5 text-center"
       style={{
-        background: warn ? 'rgba(204,50,50,0.08)' : 'rgba(200,169,110,0.04)',
-        border: `1px solid ${warn ? 'rgba(204,50,50,0.20)' : 'rgba(200,169,110,0.10)'}`,
+        background: warn ? 'rgba(204,50,50,0.07)' : 'rgba(200,169,110,0.04)',
+        border: `1px solid ${warn ? 'rgba(204,50,50,0.18)' : 'rgba(200,169,110,0.09)'}`,
       }}>
-      <Icon className="w-3.5 h-3.5 mx-auto mb-1.5" style={{ color: warn ? '#EF4444' : M_GOLD }} />
-      <div className="text-[8px] uppercase tracking-widest mb-1 font-light" style={{ color: M_DIM }}>{label}</div>
-      <div className="font-light text-sm tabular-nums" style={{ color: warn ? '#EF4444' : M_TEXT }}>{value}</div>
+      <Icon className="w-4 h-4 mx-auto mb-2" style={{ color: warn ? '#EF4444' : M_GOLD }} />
+      <div className="uppercase font-medium mb-1" style={{ fontSize: 10, color: M_DIM, letterSpacing: '0.10em' }}>{label}</div>
+      <div className="font-medium tabular-nums" style={{ fontSize: 14, color: warn ? '#EF4444' : M_TEXT }}>{value}</div>
     </div>
   );
 }
@@ -262,49 +266,50 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
 
       {/* Müzik */}
       <div className="overflow-hidden flex-shrink-0"
-        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.50), inset 0 1px 0 rgba(200,169,110,0.06)` }}>
-        <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, borderRadius: '24px 24px 0 0' }} />
-        <div className="p-3">
-          <div className="text-[8px] uppercase tracking-[0.45em] font-light mb-2.5" style={{ color: M_GOLD }}>BURMESTER MÜZİK</div>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-14 h-14 rounded-2xl flex-shrink-0 flex items-center justify-center overflow-hidden"
+        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
+        <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
+        <div className="p-3.5">
+          <div className="uppercase font-medium mb-3" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.32em' }}>BURMESTER MÜZİK</div>
+          <div className="flex items-center gap-3 mb-3.5">
+            <div className="rounded-2xl flex-shrink-0 flex items-center justify-center overflow-hidden"
               style={{
-                background: 'linear-gradient(135deg, rgba(200,169,110,0.15), rgba(200,169,110,0.05))',
-                border: `1px solid rgba(200,169,110,0.20)`,
+                width: 'var(--lp-album, 52px)', height: 'var(--lp-album, 52px)',
+                background: 'linear-gradient(135deg, rgba(200,169,110,0.13), rgba(200,169,110,0.05))',
+                border: `1px solid rgba(200,169,110,0.18)`,
               }}>
               {track.albumArt
                 ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
-                : <span className="text-2xl">🎵</span>
+                : <span style={{ fontSize: 'var(--lp-font-xl, 22px)' }}>🎵</span>
               }
             </div>
             <div className="min-w-0 flex-1">
-              <div className="font-light text-sm leading-tight truncate" style={{ color: M_TEXT }}>
+              <div className="font-normal leading-tight truncate" style={{ fontSize: 13, color: M_TEXT }}>
                 {track.title || 'Seçili parça yok'}
               </div>
-              <div className="text-xs font-light mt-0.5 truncate" style={{ color: M_DIM }}>
+              <div className="font-light mt-0.5 truncate" style={{ fontSize: 11, color: M_DIM }}>
                 {track.artist || 'Burmester Surround'}
               </div>
             </div>
           </div>
 
           <div className="flex items-center justify-center gap-5">
-            <button onClick={() => previous()} className="active:scale-90 transition-all p-1.5">
-              <SkipBack className="w-4 h-4" style={{ color: M_DIM2 }} />
+            <button onClick={() => previous()} className="active:scale-90 transition-all p-2">
+              <SkipBack className="w-4.5 h-4.5" style={{ color: M_DIM2 }} />
             </button>
             <button onClick={() => togglePlayPause()}
               className="w-11 h-11 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
               style={{
-                background: 'linear-gradient(135deg, rgba(200,169,110,0.25), rgba(200,169,110,0.12))',
-                border: `1px solid rgba(200,169,110,0.35)`,
-                boxShadow: `0 4px 16px rgba(200,169,110,0.20)`,
+                background: 'linear-gradient(135deg, rgba(200,169,110,0.22), rgba(200,169,110,0.10))',
+                border: `1px solid rgba(200,169,110,0.32)`,
+                boxShadow: `0 4px 14px rgba(200,169,110,0.16)`,
               }}>
               {playing
                 ? <Pause className="w-5 h-5" style={{ color: M_GOLD }} />
                 : <Play  className="w-5 h-5 ml-0.5" style={{ color: M_GOLD }} />
               }
             </button>
-            <button onClick={() => next()} className="active:scale-90 transition-all p-1.5">
-              <SkipForward className="w-4 h-4" style={{ color: M_DIM2 }} />
+            <button onClick={() => next()} className="active:scale-90 transition-all p-2">
+              <SkipForward className="w-4.5 h-4.5" style={{ color: M_DIM2 }} />
             </button>
           </div>
         </div>
@@ -312,20 +317,20 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
 
       {/* Uygulamalar */}
       <div className="flex-1 overflow-hidden"
-        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.50), inset 0 1px 0 rgba(200,169,110,0.06)` }}>
-        <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, borderRadius: '24px 24px 0 0' }} />
-        <div className="p-3">
-          <div className="text-[8px] uppercase tracking-[0.45em] font-light mb-2.5" style={{ color: M_GOLD }}>MBUX UYGULAMALAR</div>
+        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
+        <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
+        <div className="p-3.5">
+          <div className="uppercase font-medium mb-3" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.32em' }}>MBUX UYGULAMALAR</div>
           <div className="grid grid-cols-2 gap-2">
             {apps.map(({ id, app }) => (
               <button key={id} onClick={() => onLaunch(id)}
-                className="flex flex-col items-center gap-1.5 py-3 rounded-2xl active:scale-90 transition-all"
+                className="flex flex-col items-center gap-1.5 py-3.5 rounded-2xl active:scale-90 transition-all"
                 style={{
                   background: 'rgba(200,169,110,0.04)',
                   border: `1px solid rgba(200,169,110,0.09)`,
                 }}>
                 <span className="text-xl leading-none">{app!.icon}</span>
-                <span className="text-[9px] font-light" style={{ color: M_DIM }}>{app!.name}</span>
+                <span className="font-light" style={{ fontSize: 10, color: M_DIM }}>{app!.name}</span>
               </button>
             ))}
           </div>
@@ -343,14 +348,15 @@ const MercedesDock = memo(function MercedesDock({ appMap, dockIds, onLaunch }: {
       style={{
         background: 'rgba(4,4,4,0.99)',
         borderTop: `1px solid ${M_BORDER}`,
-        boxShadow: `0 -1px 0 rgba(200,169,110,0.08)`,
+        boxShadow: `0 -1px 0 rgba(200,169,110,0.07)`,
       }}>
-      <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar px-4 py-2">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
         {apps.map(({ id, app }) => (
           <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-1 flex-shrink-0 px-2.5 py-1.5 rounded-2xl active:scale-90 transition-all min-w-[52px]">
+            className="flex flex-col items-center gap-1.5 flex-shrink-0 px-3 py-2.5 rounded-2xl active:scale-90 transition-all"
+            style={{ minWidth: 'var(--lp-tile-w, 56px)' }}>
             <span className="text-xl leading-none">{app!.icon}</span>
-            <span className="text-[8px] font-light truncate w-full text-center" style={{ color: M_DIM }}>{app!.name}</span>
+            <span className="font-medium truncate w-full text-center" style={{ fontSize: 10, color: M_DIM }}>{app!.name}</span>
           </button>
         ))}
       </div>
@@ -367,19 +373,20 @@ export const MercedesLayout = memo(function MercedesLayout({
     <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: M_BG }}>
       {voiceOpen && (
         <Suspense fallback={null}>
-          <VoiceAssistant onClose={() => setVoiceOpen(false)} autoStart />
+          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
         </Suspense>
       )}
-      {/* Ambient gold glow */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
-        <div style={{ position: 'absolute', top: '-30%', left: '20%', width: '60vw', height: '60vw', borderRadius: '50%', background: 'radial-gradient(circle,rgba(200,169,110,0.04) 0%,transparent 70%)', filter: 'blur(80px)' }} />
-      </div>
 
       <div className="relative z-10 flex flex-col h-full">
         <MercedesHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
 
-        <div className="flex-1 min-h-0 grid gap-2.5 p-2.5 overflow-hidden"
-          style={{ gridTemplateColumns: '1fr 1fr 0.85fr' }}>
+        <div className="flex-1 min-h-0 grid gap-2.5 overflow-hidden"
+          style={{
+            gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,0.85fr)',
+            padding: 'var(--lp-space-sm, 8px)',
+            paddingLeft: 'calc(var(--lp-space-sm, 8px) + var(--lp-side-pad, 0px))',
+            paddingRight: 'calc(var(--lp-space-sm, 8px) + var(--lp-side-pad, 0px))',
+          }}>
           <MercedesMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
           <MercedesCockpit />
           <MercedesSide appMap={appMap} onLaunch={onLaunch} />

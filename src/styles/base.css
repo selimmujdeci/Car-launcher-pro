@@ -29,6 +29,65 @@
   --z-edit-panel:    89;
   --z-boot:          90;
   --z-critical:      99;
+
+  /* ── Adaptive Layout Profile — set by LayoutContext.tsx ─────
+   * Fallback values match NORMAL profile (1024×600 baseline).
+   * JS overrides these at runtime based on actual screen size.
+   * ──────────────────────────────────────────────────────────── */
+  --lp-dock-h:      68px;
+  --lp-tile-w:      64px;
+  --lp-tile-h:      60px;
+  --lp-dock-icon:   24px;
+  --lp-header-h:    52px;
+  --lp-icon:        22px;
+  --lp-icon-sm:     16px;
+
+  /* Fonts */
+  --lp-font-xs:     10px;
+  --lp-font-sm:     12px;
+  --lp-font-base:   14px;
+  --lp-font-lg:     17px;
+  --lp-font-xl:     23px;
+  --lp-font-2xl:    36px;
+  --lp-speed-font:  58px; /* speedoSize(175) × 0.33 — overridden by LayoutContext */
+
+  /* Spacing */
+  --lp-space-xs:    3px;
+  --lp-space-sm:    6px;
+  --lp-space-md:    10px;
+  --lp-space-lg:    16px;
+  --lp-space-xl:    24px;
+
+  /* Radius */
+  --lp-radius-sm:   6px;
+  --lp-radius-md:   10px;
+  --lp-radius-lg:   16px;
+
+  /* Components */
+  --lp-speedo:       175px;
+  --lp-album:        52px;
+  --lp-right-panel:  200px;
+  --lp-music-card:   155px;
+
+  /* Ultra-wide */
+  --lp-max-w:        100%;
+  --lp-side-pad:     0px;
+
+  /* Safe area insets (overridden by LayoutContext.tsx) */
+  --sat: 0px;
+  --sab: 0px;
+  --sal: 0px;
+  --sar: 0px;
+
+  /* ── Premium design tokens ──────────────────────────────── */
+  --car-shadow-sm: 0 2px 12px rgba(0,0,0,0.50), 0 1px 3px rgba(0,0,0,0.35);
+  --car-shadow-md: 0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.05);
+  --car-shadow-lg: 0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07);
+  --car-r-sm: 8px; --car-r-md: 12px; --car-r-lg: 16px;
+  --car-r-xl: 20px; --car-r-2xl: 24px; --car-r-3xl: 28px;
+  --car-dim-1: rgba(255,255,255,0.62);
+  --car-dim-2: rgba(255,255,255,0.40);
+  --car-dim-3: rgba(255,255,255,0.25);
 }
 
 /* ── Core keyframe animations ─────────────────────────────── */

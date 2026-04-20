@@ -109,23 +109,26 @@
 .up-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.75;
+  filter: blur(40px);
+  opacity: 0.45;
+  transform: translateZ(0);
+  contain: strict;
+  will-change: transform;
 }
 .up-blob-1 {
-  width: 65vw; height: 65vw;
+  width: 45vw; height: 45vw;
   background: radial-gradient(circle, var(--blob-1-color) 0%, transparent 70%);
-  top: -15%; left: -10%;
+  top: -10%; left: -8%;
 }
 .up-blob-2 {
-  width: 55vw; height: 55vw;
+  width: 38vw; height: 38vw;
   background: radial-gradient(circle, var(--blob-2-color) 0%, transparent 70%);
-  bottom: -10%; right: -8%;
+  bottom: -8%; right: -6%;
 }
 .up-blob-3 {
-  width: 40vw; height: 40vw;
+  width: 28vw; height: 28vw;
   background: radial-gradient(circle, var(--blob-3-color) 0%, transparent 70%);
-  top: 30%; right: -12%;
+  top: 30%; right: -10%;
 }
 
 /* ── GLASS KART SİSTEMİ ─────────────────────────────────────── */
@@ -153,31 +156,31 @@
 /* ── HEADER BAR ─────────────────────────────────────────────── */
 [data-layout-zone="header"], .header-bar {
   background: var(--header-bg) !important;
-  backdrop-filter: blur(24px) saturate(1.6) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.6) !important;
-  border-bottom: 1px solid rgba(0,0,0,0.07) !important;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.06) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) !important;
 }
 
 /* ── DOCK ────────────────────────────────────────────────────── */
 .up-navbar, .dock-bar, [data-section="dock"], [data-dock="main"] {
   background: var(--dock-bg) !important;
-  backdrop-filter: blur(28px) saturate(1.6) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(1.6) !important;
-  border-top: 1px solid rgba(0,0,0,0.07) !important;
-  box-shadow: 0 -4px 16px rgba(0,0,0,0.05) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-top: 1px solid rgba(255,255,255,0.07) !important;
+  box-shadow: none !important;
 }
 
 /* ── NAV ITEM ────────────────────────────────────────────────── */
 .up-nav-item {
   border-radius: calc(var(--pack-radius, 24px) * 0.7) !important;
-  transition: all 200ms ease !important;
+  transition: background 150ms ease, transform 120ms ease !important;
 }
 .up-nav-item:hover {
   background: var(--pack-glow, rgba(59,130,246,0.08)) !important;
 }
 .up-nav-item:active {
-  transform: scale(0.91) !important;
+  transform: scale(0.95) !important;
 }
 
 /* ── HARİTA CONTAINER ───────────────────────────────────────── */
@@ -192,7 +195,34 @@
   backdrop-filter: none !important;
 }
 
-/* ── DARK MODE — border/bg override'lar kaldırıldı ─────────── */
+/* ── PREMİUM POLİSH ─────────────────────────────────────────── */
+
+/* Micro-interaction: tüm butonlar */
+button:active {
+  opacity: 0.80;
+}
+
+/* Card depth utility */
+[data-card-depth] {
+  position: relative;
+  box-shadow: var(--car-shadow-md) !important;
+}
+[data-card-depth]::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 12%; right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  border-radius: 100%;
+  pointer-events: none;
+}
+
+/* Speed number glow — automotive focus */
+[data-z-focus="speed"] {
+  text-shadow: 0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50);
+}
+
+/* DARK MODE — border/bg override'lar kaldırıldı ─────────────── */
 
 /* ── OBD UYARI BANNER'I ─────────────────────────────────────── */
 [data-obd-sim-warn] {

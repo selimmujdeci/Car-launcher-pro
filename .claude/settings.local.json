@@ -27,7 +27,10 @@
       "Bash(/tmp/scan_clickables.sh)",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(keytool -list -v -keystore android/app/release.keystore -storepass carlauncher2026)",
+      "Bash(java -version)",
+      "Bash(./gradlew assembleRelease)"
     ]
   }
 }

@@ -39,6 +39,9 @@
   --letter-spacing-ui: 0.05em;
   --btn-glow:      none;
   --tile-hover-bg: rgba(255,255,255,0.05);
+  --text-dim:      #8A9AAA;
+  --text-dim2:     #B4BDC6;
+  --bg-card2:      rgba(24,24,28,0.90);
 }
 
 [data-theme="pro"] {
@@ -67,14 +70,17 @@
 
 [data-theme="tesla"] {
   --bg-primary:    #141414;
-  --bg-card:       rgba(28,28,28,0.96);
+  --bg-card:       rgba(18,18,18,0.95);
+  --bg-card2:      rgba(24,24,24,0.90);
   --bg-surface:    #1E1E1E;
   --accent:        #E31937;
   --accent2:       #A8A9AD;
-  --text:          #F2F2F2;
+  --text:          #FFFFFF;
+  --text-dim:      #8A9AAA;
+  --text-dim2:     #B4BDC6;
   --border-color:  rgba(255,255,255,0.07);
   --radius:        50px;
-  --radius-card:   12px;
+  --radius-card:   16px;
   --radius-btn:    50px;
   --radius-tile:   50px;
   --dock-bg:       rgba(10,10,10,0.99);
@@ -90,13 +96,15 @@
 }
 
 [data-theme="cockpit"] {
-  --bg-primary:    #080F1E;
-  --bg-card:       rgba(10,22,45,0.92);
+  --bg-primary:    #050A10;
+  --bg-card:       rgba(6,12,20,0.98);
   --bg-surface:    #0D2137;
-  --accent:        #00B4D8;
-  --accent2:       #90E0EF;
-  --text:          #E8F4FD;
-  --border-color:  rgba(0,180,216,0.35);
+  --accent:        #00D4FF;
+  --accent2:       #FFB300;
+  --text:          #E8F0FF;
+  --text-dim:      #4C6070;
+  --text-dim2:     #7A8E9A;
+  --border-color:  rgba(0,212,255,0.18);
   --radius:        8px;
   --radius-card:   16px;
   --radius-btn:    8px;
@@ -115,12 +123,14 @@
 
 [data-theme="mercedes"] {
   --bg-primary:    #181818;
-  --bg-card:       rgba(30,30,30,0.97);
+  --bg-card:       rgba(16,14,14,0.97);
   --bg-surface:    #2C2C2C;
-  --accent:        #C8A882;
+  --accent:        #C8A96E;
   --accent2:       #8C8C8C;
-  --text:          #EDE8E0;
-  --border-color:  rgba(200,168,130,0.25);
+  --text:          #F5F0EB;
+  --text-dim:      #9E9893;
+  --text-dim2:     #B5B0AB;
+  --border-color:  rgba(200,169,110,0.13);
   --radius:        6px;
   --radius-card:   20px;
   --radius-btn:    6px;
@@ -139,12 +149,14 @@
 
 [data-theme="audi"] {
   --bg-primary:    #1E1E2C;
-  --bg-card:       rgba(32,32,48,0.97);
+  --bg-card:       rgba(20,20,20,0.95);
   --bg-surface:    #2A2A3D;
-  --accent:        #BB0A21;
-  --accent2:       #D0D0D0;
-  --text:          #F0F0F2;
-  --border-color:  rgba(187,10,33,0.28);
+  --accent:        #CC0000;
+  --accent2:       #A8A9AD;
+  --text:          #FFFFFF;
+  --text-dim:      #8A9AAA;
+  --text-dim2:     #B4BDC6;
+  --border-color:  rgba(168,169,173,0.13);
   --radius:        2px;
   --radius-card:   10px;
   --radius-btn:    2px;

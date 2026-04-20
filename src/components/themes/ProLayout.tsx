@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from 'react';
+import { useLayout } from '../../context/LayoutContext';
 import {
   SkipBack, SkipForward, Pause, Play,
   Thermometer, Fuel, Camera, Maximize2, User, Monitor,
@@ -8,7 +9,7 @@ import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation } from '../../platform/gpsService';
+import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
@@ -18,7 +19,8 @@ import { APP_MAP, type AppItem } from '../../data/apps';
    Exact replica of the premium car infotainment design
    ════════════════════════════════════════════════════════════ */
 
-const SIDEBAR_W = 80;
+// Sidebar genişliği profilden — dockIconSize × 2.8, COMPACT'ta gizlenir
+const getSidebarW = (iconSize: number) => Math.max(iconSize * 2.8 | 0, 50);
 
 interface Props {
   onOpenMap:       () => void;
@@ -36,7 +38,7 @@ interface Props {
 /* ─── RPM BAR ──────────────────────────────────────────────────── */
 const RPM_MAX = 7000;
 
-const RpmBar = memo(function RpmBar() {
+const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
   const obd = useOBDState();
   const rpm = obd.rpm >= 0 ? obd.rpm : 0;
   const throttle = obd.throttle >= 0 ? obd.throttle : 0;
@@ -73,7 +75,7 @@ const RpmBar = memo(function RpmBar() {
     <div
       data-pro-rpmbar
       style={{
-        width: SIDEBAR_W,
+        width,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -217,7 +219,7 @@ const RpmBar = memo(function RpmBar() {
 });
 
 /* ─── TOP BAR ──────────────────────────────────────────────────── */
-const TopBar = memo(function TopBar() {
+const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }: { headerH?: number; font2xl?: number; fontSm?: number }) {
   const { settings } = useStore();
   const { time, date } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
@@ -242,7 +244,7 @@ const TopBar = memo(function TopBar() {
       data-pro-topbar
       className="flex items-center flex-shrink-0"
       style={{
-        height: 64,
+        height: headerH,
         background: 'var(--header-bg, #0a0c10)',
         borderBottom: '1px solid var(--divider-color, rgba(255,255,255,0.05))',
         transition: 'background 0.4s ease',
@@ -255,7 +257,7 @@ const TopBar = memo(function TopBar() {
         <div
           style={{
             fontFamily: '"Orbitron", monospace',
-            fontSize: 28,
+            fontSize: font2xl,
             fontWeight: 700,
             color: '#fff',
             lineHeight: 1,
@@ -264,16 +266,16 @@ const TopBar = memo(function TopBar() {
         >
           {time}
         </div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, fontWeight: 400 }}>
+        <div style={{ fontSize: fontSm, color: 'rgba(255,255,255,0.45)', marginTop: 2, fontWeight: 400 }}>
           {date}
         </div>
       </div>
 
-      {/* Sun progress — center */}
-      <div className="flex flex-col items-center gap-1" style={{ flex: 1 }}>
+      {/* Sun progress — center — COMPACT'ta gizlenir */}
+      <div data-sun-bar data-header-center className="flex flex-col items-center gap-1" style={{ flex: 1 }}>
         <div className="flex items-center gap-3" style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
           <span className="flex items-center gap-1"><span>☀️</span><span>05:42</span></span>
-          <div style={{ position: 'relative', width: 200, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'visible' }}>
+          <div style={{ position: 'relative', width: 'clamp(120px, 15vw, 200px)', height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'visible' }}>
             <div style={{
               height: '100%',
               width: `${sunPct}%`,
@@ -295,7 +297,7 @@ const TopBar = memo(function TopBar() {
       </div>
 
       {/* Status icons */}
-      <div className="flex items-center gap-4" style={{ flexShrink: 0 }}>
+      <div data-header-status className="flex items-center gap-4" style={{ flexShrink: 0 }}>
         <Bluetooth className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.65)' }} />
 
         {/* Signal bars */}
@@ -316,12 +318,10 @@ const TopBar = memo(function TopBar() {
 });
 
 /* ─── SPEED CARD ───────────────────────────────────────────────── */
-const SpeedCard = memo(function SpeedCard() {
+const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { gaugeSize?: number; spaceMd?: number }) {
   const obd = useOBDState();
   const gps = useGPSLocation();
-  const speedKmh = gps?.speed != null && gps.speed > 0
-    ? Math.round(gps.speed * 3.6)
-    : (obd.speed ?? 87);
+  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const temp = obd.engineTemp ?? 90;
   const fuel = obd.fuelLevel ?? 68;
   const fuelRange = Math.round((fuel / 100) * 750);
@@ -360,7 +360,7 @@ const SpeedCard = memo(function SpeedCard() {
     >
       {/* Mountain silhouettes */}
       <svg
-        style={{ position: 'absolute', bottom: 60, left: 0, right: 0, width: '100%', pointerEvents: 'none' }}
+        className="absolute bottom-[60px] inset-x-0 w-full pointer-events-none"
         viewBox="0 0 870 180"
         preserveAspectRatio="none"
       >
@@ -377,7 +377,7 @@ const SpeedCard = memo(function SpeedCard() {
 
       {/* Road */}
       <svg
-        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, width: '100%', pointerEvents: 'none' }}
+        className="absolute bottom-0 inset-x-0 w-full pointer-events-none"
         viewBox="0 0 870 130"
         preserveAspectRatio="none"
       >
@@ -398,7 +398,7 @@ const SpeedCard = memo(function SpeedCard() {
 
       {/* Car silhouette */}
       <svg
-        style={{ position: 'absolute', bottom: 58, left: '50%', transform: 'translateX(-50%)', width: 130, pointerEvents: 'none' }}
+        className="absolute bottom-[58px] left-1/2 -translate-x-1/2 w-[130px] pointer-events-none"
         viewBox="0 0 130 58"
       >
         <defs>
@@ -421,21 +421,21 @@ const SpeedCard = memo(function SpeedCard() {
       </svg>
 
       {/* Content overlay */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 20 }}>
+      <div className="absolute inset-0 flex flex-col p-5">
         {/* Top row */}
         <div className="flex justify-between items-start">
           {/* Speed limit */}
           <div className="flex flex-col items-center gap-1" style={{ zIndex: 2 }}>
             <div style={{
-              width: 54, height: 54, borderRadius: '50%',
+              width: Math.max(gaugeSize * 0.2, 36), height: Math.max(gaugeSize * 0.2, 36), borderRadius: '50%',
               border: '3px solid #f44336',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: 'rgba(244,67,54,0.12)',
               boxShadow: '0 0 16px rgba(244,67,54,0.4)',
             }}>
-              <span style={{ fontFamily: '"Orbitron", monospace', fontSize: 20, fontWeight: 700, color: '#f44336' }}>90</span>
+              <span style={{ fontFamily: '"Orbitron", monospace', fontSize: Math.max(gaugeSize * 0.074, 13), fontWeight: 700, color: '#f44336' }}>90</span>
             </div>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>Hız Limiti</span>
+            <span style={{ fontSize: spaceMd - 1, color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>Hız Limiti</span>
           </div>
 
           {/* Drive mode */}
@@ -446,7 +446,7 @@ const SpeedCard = memo(function SpeedCard() {
         </div>
 
         {/* Gauge — center */}
-        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -52%)', width: 260, height: 260, zIndex: 3 }}>
+        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -52%)', width: gaugeSize, height: gaugeSize, zIndex: 3 }}>
           <svg viewBox="0 0 260 260" style={{ overflow: 'visible' }}>
             <defs>
               <linearGradient id="proArcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -470,14 +470,10 @@ const SpeedCard = memo(function SpeedCard() {
             )}
           </svg>
           {/* Speed number */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            paddingTop: 8,
-          }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
             <span style={{
               fontFamily: '"Orbitron", monospace',
-              fontSize: 76,
+              fontSize: Math.round(gaugeSize * 0.29),
               fontWeight: 900,
               color: '#fff',
               lineHeight: 1,
@@ -521,7 +517,7 @@ const SpeedCard = memo(function SpeedCard() {
 });
 
 /* ─── MUSIC CARD ───────────────────────────────────────────────── */
-const MusicCard = memo(function MusicCard() {
+const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
   const { playing, track } = useMediaState();
   const [elapsed, setElapsed] = useState(92); // 1:32
   const total = 228; // 3:48
@@ -539,7 +535,7 @@ const MusicCard = memo(function MusicCard() {
     <div
       className="flex flex-col overflow-hidden"
       style={{
-        width: 340,
+        width,
         flexShrink: 0,
         borderRadius: 'var(--radius-card, 16px)',
         border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
@@ -668,17 +664,19 @@ const MusicCard = memo(function MusicCard() {
 });
 
 /* ─── MINI CARD WRAPPER ────────────────────────────────────────── */
-function MiniCard({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function MiniCard({ children, onClick, spaceMd = 10 }: { children: React.ReactNode; onClick?: () => void; spaceMd?: number }) {
   return (
     <div
+      data-mini-card
       onClick={onClick}
       className="relative overflow-hidden flex flex-col transition-all active:scale-[0.99]"
       style={{
         flex: 1,
+        minWidth: 0,
         borderRadius: 'var(--radius-card, 16px)',
         border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
         background: 'var(--bg-card, #12151d)',
-        padding: 14,
+        padding: spaceMd + 4,
         boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'background 0.4s ease, border-color 0.4s ease',
@@ -731,9 +729,9 @@ const NavMiniCard = memo(function NavMiniCard({ onOpenMap, fullMapOpen }: { onOp
 });
 
 /* ─── PHONE MINI CARD ──────────────────────────────────────────── */
-const PhoneMiniCard = memo(function PhoneMiniCard({ onLaunch }: { onLaunch: (id: string) => void }) {
+const PhoneMiniCard = memo(function PhoneMiniCard({ onLaunch, spaceMd }: { onLaunch: (id: string) => void; spaceMd?: number }) {
   return (
-    <MiniCard onClick={() => onLaunch('phone')}>
+    <MiniCard spaceMd={spaceMd} onClick={() => onLaunch('phone')}>
       <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 4 }}>Telefon</div>
       <div className="flex items-center gap-1.5" style={{ marginBottom: 4 }}>
         <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#4caf50', boxShadow: '0 0 8px #4caf50', animation: 'proPulse 2s infinite' }} />
@@ -768,9 +766,9 @@ const PhoneMiniCard = memo(function PhoneMiniCard({ onLaunch }: { onLaunch: (id:
 });
 
 /* ─── WEATHER MINI CARD ────────────────────────────────────────── */
-const WeatherMiniCard = memo(function WeatherMiniCard() {
+const WeatherMiniCard = memo(function WeatherMiniCard({ spaceMd }: { spaceMd?: number }) {
   return (
-    <MiniCard>
+    <MiniCard spaceMd={spaceMd}>
       {/* Sunset bg */}
       <div style={{
         position: 'absolute', inset: 0,
@@ -807,7 +805,7 @@ const WeatherMiniCard = memo(function WeatherMiniCard() {
 });
 
 /* ─── APPS MINI CARD ───────────────────────────────────────────── */
-const AppsMiniCard = memo(function AppsMiniCard({ onLaunch }: { onLaunch: (id: string) => void }) {
+const AppsMiniCard = memo(function AppsMiniCard({ onLaunch, spaceMd }: { onLaunch: (id: string) => void; spaceMd?: number }) {
   const apps = [
     { id: 'youtube', icon: '▶️', label: 'YouTube', bg: '#ff0000' },
     { id: 'spotify', icon: '🎵', label: 'Spotify', bg: '#1db954' },
@@ -818,7 +816,7 @@ const AppsMiniCard = memo(function AppsMiniCard({ onLaunch }: { onLaunch: (id: s
   ];
 
   return (
-    <MiniCard>
+    <MiniCard spaceMd={spaceMd}>
       <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 8 }}>Uygulamalar</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, flex: 1 }}>
         {apps.map((app) => {
@@ -851,8 +849,8 @@ const AppsMiniCard = memo(function AppsMiniCard({ onLaunch }: { onLaunch: (id: s
 
 /* ─── VEHICLE MINI CARD ────────────────────────────────────────── */
 const VehicleMiniCard = memo(function VehicleMiniCard({
-  onOpenSettings, onOpenRearCam, onLaunch,
-}: { onOpenSettings: () => void; onOpenRearCam?: () => void; onLaunch: (id: string) => void }) {
+  onOpenSettings, onOpenRearCam, onLaunch, spaceMd,
+}: { onOpenSettings: () => void; onOpenRearCam?: () => void; onLaunch: (id: string) => void; spaceMd?: number }) {
   const vehicleBtns = [
     { Icon: Camera,   action: onOpenRearCam ?? onOpenSettings },
     { Icon: User,     action: onOpenSettings },
@@ -860,7 +858,7 @@ const VehicleMiniCard = memo(function VehicleMiniCard({
     { Icon: Settings, action: onOpenSettings },
   ];
   return (
-    <MiniCard onClick={onOpenSettings}>
+    <MiniCard spaceMd={spaceMd} onClick={onOpenSettings}>
       <div className="flex justify-between items-start" style={{ marginBottom: 2 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', lineHeight: 1.2 }}>
@@ -969,6 +967,26 @@ export const ProLayout = memo(function ProLayout({
   onOpenRearCam,
 }: Props) {
   injectStyles();
+  const { screen, profile } = useLayout();
+
+  // Sidebar genişliği: dockIconSize tabanlı, COMPACT'ta gizlenecek
+  const sidebarW = getSidebarW(profile.dockIconSize);
+
+  // Structural sizes — widget row always visible, proportions adapt to screen height
+  const dockTotal  = profile.dockHeight + 12;
+  const contentH   = Math.max(screen.height - profile.headerHeight - dockTotal - 24, 200);
+  // Music card: ekran genişliğinin %33'ü, sidebarW çıkarılır
+  const musicCardW = Math.max(Math.min(Math.floor((screen.width - sidebarW) * 0.33), 400), 200);
+
+  // Widget row: 120px min, 220px max — whatever fits after top row
+  const widgetH    = Math.min(Math.max(contentH - 296 - 11, 120), 220);
+  // Top row: takes remaining space after widget row, minimum 180px
+  const topRowH    = Math.max(contentH - widgetH - 11, 180);
+  // Final widget height after top row is clamped
+  const widgetRowH = contentH - topRowH - 11;
+  // Gauge size scales with top row height; cap at screen category-based maximum
+  const gaugeMax   = screen.category === 'COMPACT' ? 200 : screen.category === 'WIDE' ? 300 : 260;
+  const gaugeSize  = Math.min(Math.floor(topRowH * 0.92), gaugeMax);
 
   return (
     <div
@@ -976,18 +994,19 @@ export const ProLayout = memo(function ProLayout({
       data-layout="pro-main"
       style={{ width: '100%', height: '100%', background: 'var(--bg-primary, #0a0c10)', transition: 'background 0.4s ease' }}
     >
-      {/* RPM Bar */}
-      <RpmBar />
+      {/* RPM Bar — COMPACT'ta CSS ile gizlenir */}
+      <RpmBar width={sidebarW} />
 
-      {/* Right: top bar + content + bottom bar */}
+      {/* Right: top bar + content */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar />
+        <TopBar headerH={profile.headerHeight} font2xl={profile.font2xl} fontSm={profile.fontSm} />
 
         {/* Content */}
         <div
           style={{
             flex: 1,
-            padding: '12px 14px 68px',
+            padding: '12px 14px',
+            paddingBottom: `${dockTotal + 12}px`,
             display: 'flex',
             flexDirection: 'column',
             gap: 11,
@@ -995,19 +1014,19 @@ export const ProLayout = memo(function ProLayout({
             minHeight: 0,
           }}
         >
-          {/* Top row */}
-          <div style={{ display: 'flex', gap: 12, height: 296, flexShrink: 0 }}>
-            <SpeedCard />
-            <MusicCard />
+          {/* Top row: speedo + music */}
+          <div style={{ display: 'flex', gap: profile.spaceSm, height: topRowH, flexShrink: 0, overflow: 'hidden' }}>
+            <SpeedCard gaugeSize={gaugeSize} spaceMd={profile.spaceMd} />
+            <MusicCard width={musicCardW} />
           </div>
 
-          {/* Bottom row */}
-          <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0 }}>
+          {/* Widget row: always visible, height adapts, COMPACT'ta yatay scroll */}
+          <div data-widget-row style={{ display: 'flex', gap: profile.spaceSm, height: widgetRowH, flexShrink: 0, overflow: 'hidden' }}>
             <NavMiniCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
-            <PhoneMiniCard onLaunch={onLaunch} />
-            <WeatherMiniCard />
-            <AppsMiniCard onLaunch={onLaunch} />
-            <VehicleMiniCard onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} onLaunch={onLaunch} />
+            <PhoneMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
+            <WeatherMiniCard spaceMd={profile.spaceMd} />
+            <AppsMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
+            <VehicleMiniCard onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} onLaunch={onLaunch} spaceMd={profile.spaceMd} />
           </div>
         </div>
 

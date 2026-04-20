@@ -49,6 +49,14 @@ export function attachAccelerometer(): void {
   window.addEventListener('devicemotion', _handleDeviceMotion, { passive: true });
 }
 
+/** Accelerometer'ı ayır — HMR cleanup ve app teardown için. */
+export function detachAccelerometer(): void {
+  if (!_accelAttached || typeof window === 'undefined') return;
+  window.removeEventListener('devicemotion', _handleDeviceMotion);
+  _accelAttached  = false;
+  _accelMagnitude = 0;
+}
+
 /* ── Hız kademesi tahmini (Speed decay) ──────────────────────
  *
  * OBD veya GPS bağlantısı kesildiğinde son bilinen hız zamanla azaltılır.
@@ -194,17 +202,19 @@ function notifyListeners(): void {
  * Updates localStorage and immediately notifies all `useSmartEngine` hooks.
  */
 export function trackLaunch(appId: string): void {
-  _usageCache = null; // invalidate cache so next buildSnapshot re-reads
-  const map  = pruneIfStale(loadUsage());
-  const prev = map[appId] ?? { count: 0, recentCount: 0, lastUsed: 0 };
-  saveUsage({
+  // getCachedUsage() ile cache warm tutulur — her launch'da localStorage re-read olmaz
+  const map    = getCachedUsage();
+  const prev   = map[appId] ?? { count: 0, recentCount: 0, lastUsed: 0 };
+  const updated: UsageMap = {
     ...map,
     [appId]: {
       count:       prev.count + 1,
       recentCount: prev.recentCount + 1,
       lastUsed:    Date.now(),
     },
-  });
+  };
+  saveUsage(updated);
+  _usageCache = updated;  // cache'i güncel tut — sonraki buildSnapshot localStorage okumaz
   notifyListeners();
 }
 
@@ -275,13 +285,13 @@ interface RecommendationCandidate {
   score: number;
 }
 
-let _lastRecommendationTime = 0;
+// performance.now() kullan — Date.now() saat atlarsa cooldown sıfırlanır
+let _lastRecommendationPerfMs = 0;
 
 function shouldGenerateNow(): boolean {
   const cfg = getConfig();
   if (!cfg.enableRecommendations) return false;
-  const elapsed = Date.now() - _lastRecommendationTime;
-  return elapsed >= cfg.recCooldownMs;
+  return performance.now() - _lastRecommendationPerfMs >= cfg.recCooldownMs;
 }
 
 /**
@@ -404,7 +414,7 @@ function generateRecommendation(
   // Only return if confidence high enough
   if (best.rec.confidence < 0.4) return;
 
-  _lastRecommendationTime = Date.now();
+  _lastRecommendationPerfMs = performance.now();
   return best.rec;
 }
 
@@ -799,4 +809,13 @@ export function useSmartEngine(
   }, [setStableSnapshot]);
 
   return snapshot;
+}
+
+/* ── HMR cleanup — dev'de accelerometer ve listener sızıntısını önle ── */
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    detachAccelerometer();
+    _listeners.clear();
+    _usageCache = null;
+  });
 }

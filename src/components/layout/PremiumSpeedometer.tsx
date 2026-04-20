@@ -90,10 +90,9 @@ const DataRow = memo(function DataRow() {
         { label: 'YKT', value: `${Math.round(displayFuel)}%`,        warn: fuelLevel < 15 },
       ] as const).map(({ label, value, warn }) => (
         <div key={label}
-          className="flex flex-col items-center gap-0.5 py-2 rounded-xl"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}
+          className="flex flex-col items-center gap-0.5 py-2 rounded-xl bg-white/[0.05] border border-white/[0.08] backdrop-blur-[12px]"
         >
-          <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.40)' }}>{label}</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-white/40">{label}</span>
           <span className={`text-base font-black tabular-nums leading-none ${warn ? 'text-red-400' : 'text-white'}`}>{value}</span>
         </div>
       ))}
@@ -210,7 +209,7 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
           <MajorTicks />
           {!isLite && <MinorTicks />}
 
-          {/* Hız rakamı */}
+          {/* Hız rakamı — data.speed (anlık raw), lerp KULLANILMAZ */}
           <text
             x="150" y={textY}
             textAnchor="middle" dominantBaseline="middle"
@@ -218,7 +217,7 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             letterSpacing="-2"
             fontFamily="system-ui,-apple-system,sans-serif"
           >
-            {displaySpeed}
+            {data.speed}
           </text>
 
           {/* km/h etiketi */}

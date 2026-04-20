@@ -136,3 +136,27 @@ Android WebView settings: mixed content allowed, remote debugging enabled in dev
 | `vite.config.ts` | Build configuration |
 | `OFFLINE_TILES_SETUP.md` | How to configure offline map tiles |
 | `SERVICE_WORKER_OFFLINE.md` | Service worker caching strategy |
+
+---
+
+## 🛡️ Automotive Grade Engineering Standards (CRITICAL)
+
+To ensure "Car Launcher Pro" meets industrial-grade reliability, all code modifications MUST adhere to these standards:
+
+### 1. Zero-Leak Memory Management
+- **Cleanup Responsibility:** Every `useEffect`, `setInterval`, or `eventListener` MUST have a corresponding cleanup function.
+- **Reference Management:** Avoid global variable leakage; use React refs or Zustand for persistent state.
+- **Resource Disposal:** Explicitly destroy MapLibre instances and WebGL contexts on unmount.
+
+### 2. Sensor Resiliency (Self-Healing)
+- **Input Sanitization:** Reject "impossible" sensor data (e.g., speed > 300km/h, RPM jumps > 5000 in 1ms).
+- **Graceful Fallback:** If a sensor (OBD/GPS) fails, the UI must remain functional (fail-soft).
+- **Hysteresis:** Implement threshold-based logic for mode switches to prevent UI flickering in stop-and-go traffic.
+
+### 3. Performance & I/O Optimization
+- **Write Throttling:** Never write to `localStorage` or disk more than once every 5-10 seconds for high-frequency data (like KM counters).
+- **Render Control:** Throttle state updates for high-frequency data (RPM/Speed) to 10Hz-20Hz to save CPU/GPU cycles.
+- **Atomic Persistence:** Use the `safeStorage` wrapper for all persistence to handle quota and corruption errors.
+
+### 4. Data Integrity
+- **Clock Jump Protection:** Never rely on absolute system time for duration calculations (Trips); use monotonic deltas (delta-time) to handle battery reconnections or system clock resets.

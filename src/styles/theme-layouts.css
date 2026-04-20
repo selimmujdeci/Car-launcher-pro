@@ -130,18 +130,36 @@
 [data-performance-mode="lite"] .speedometer-container::before,
 [data-performance-mode="lite"] .speedometer-container::after { display: none; }
 
-/* Global performans modu */
+/* Global performans modu — TÜM blur/animasyon kapalı */
 [data-performance-mode="lite"] * {
-  filter:              none !important;
-  text-shadow:         none !important;
-  animation:           none !important;
-  transition-duration: 100ms !important;
+  filter:                  none !important;
+  backdrop-filter:         none !important;
+  -webkit-backdrop-filter: none !important;
+  text-shadow:             none !important;
+  animation:               none !important;
+  transition-duration:     50ms !important;
+  will-change:             auto !important;
+}
+[data-performance-mode="lite"] .up-ambient-blobs {
+  display: none !important;
 }
 [data-performance-mode="lite"] button:hover,
 [data-performance-mode="lite"] button:focus {
   box-shadow: none !important;
   filter:     brightness(1.05) !important;
   transform:  none !important;
+}
+
+/* Balanced mod — backdrop-filter değerlerini kısalt */
+[data-performance-mode="balanced"] * {
+  backdrop-filter:         none !important;
+  -webkit-backdrop-filter: none !important;
+}
+[data-performance-mode="balanced"] .up-blob {
+  filter: blur(40px) !important;
+}
+[data-performance-mode="balanced"] .up-ambient-blobs {
+  opacity: 0.4 !important;
 }
 
 /* will-change hint */
@@ -289,3 +307,190 @@ button, [role="button"], .dock-card, .up-nav-item, .glass-card > button {
 [data-drive-state="driving"] [class*="RecommendationCard"] {
   display: none !important;
 }
+
+
+/* ════════════════════════════════════════════════════════════════
+   DATA-LAYOUT — Kategori bazlı responsive kurallar
+   LayoutContext.tsx → <html data-layout="compact|normal|wide|ultra_wide">
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── Fluid typography — clamp() ile kategoriler arası geçiş ─────
+   JS değerleri override eder; bunlar CSS-only fallback için.       */
+:root {
+  --fluid-font-xs:   clamp(9px,  1.0vw, 11px);
+  --fluid-font-sm:   clamp(11px, 1.2vw, 13px);
+  --fluid-font-base: clamp(12px, 1.4vw, 15px);
+  --fluid-font-lg:   clamp(15px, 1.7vw, 19px);
+  --fluid-font-xl:   clamp(20px, 2.2vw, 26px);
+  --fluid-font-2xl:  clamp(28px, 3.2vw, 42px);
+  --fluid-speed:     clamp(42px, 5.5vw, 77px);
+}
+
+/* ── Genel taşma ve metin güvenliği ─────────────────────────── */
+[data-layout] {
+  /* Tüm kart başlıkları taşmaz */
+}
+[data-layout] [data-card-title],
+[data-layout] .card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Widget mini kartlar — minimum genişlik kısıtı; taşma yok */
+[data-widget-row] > * {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Scroll yardımcıları */
+.scroll-x-auto { overflow-x: auto; scrollbar-width: none; }
+.scroll-x-auto::-webkit-scrollbar { display: none; }
+.no-scrollbar   { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Yardımcı utility sınıflar */
+[data-layout="compact"]    .hide-compact     { display: none !important; }
+[data-layout="normal"]     .hide-normal      { display: none !important; }
+[data-layout="wide"]       .show-compact-only { display: none !important; }
+[data-layout="ultra_wide"] .show-compact-only { display: none !important; }
+
+/* ── COMPACT (7" budget HU — ≤900×480) ─────────────────────── */
+
+/* RPM bar gizle — alan dar */
+[data-layout="compact"] [data-pro-rpmbar] {
+  display: none !important;
+}
+
+/* Güneş progress bar gizle — başlık dar */
+[data-layout="compact"] [data-sun-bar] {
+  display: none !important;
+}
+
+/* Header center bölümü gizle */
+[data-layout="compact"] [data-header-center] {
+  display: none !important;
+}
+
+/* Header status kısmı sıkıştır */
+[data-layout="compact"] [data-header-status] {
+  gap: 6px !important;
+}
+
+/* Widget satırı — dar ekranda yatay kaydır */
+[data-layout="compact"] [data-widget-row] {
+  overflow-x: auto !important;
+  flex-wrap:  nowrap !important;
+  scrollbar-width: none;
+}
+[data-layout="compact"] [data-widget-row]::-webkit-scrollbar { display: none; }
+[data-layout="compact"] [data-widget-row] > * {
+  flex-shrink: 0 !important;
+  min-width:   clamp(90px, 18vw, 130px) !important;
+  max-width:   clamp(90px, 22vw, 150px) !important;
+}
+
+/* Tesla sağ panel — COMPACT'ta daha dar */
+[data-layout="compact"] [data-tesla-right] {
+  width: clamp(140px, 30vw, 185px) !important;
+}
+[data-layout="compact"] [data-tesla-music] {
+  height: clamp(90px, 18vh, 120px) !important;
+}
+
+/* Mercedes header — COMPACT'ta logo gizle */
+[data-layout="compact"] [data-mbux-logo] {
+  display: none !important;
+}
+
+/* Dock butonları — sürüş modunda minimum dokunma hedefi */
+[data-layout="compact"] [data-dock="main"] [data-tile] {
+  min-height: 40px !important;
+}
+
+/* ── NORMAL (10" standard — 1024-1280×600-720) — baseline ───── */
+/* Override gerekmez; base.css varsayılanları burada geçerli.     */
+
+/* ── WIDE (12-14" premium — 1440×768+) ─────────────────────── */
+
+[data-layout="wide"] [data-tesla-right] {
+  width: clamp(220px, 20vw, 280px) !important;
+}
+[data-layout="wide"] [data-tesla-music] {
+  height: clamp(155px, 20vh, 195px) !important;
+}
+[data-layout="wide"] [data-pro-musiccard] {
+  min-width: clamp(240px, 26vw, 360px) !important;
+}
+[data-layout="wide"] [data-widget-row] > * {
+  min-width: clamp(120px, 14vw, 200px) !important;
+}
+
+/* ── ULTRA_WIDE (17-21" — aspect > 2.4) ────────────────────── */
+
+/* İçerik alanı merkeze al, maksimum genişlik sınırla */
+[data-layout="ultra_wide"] .ultra-premium-root {
+  max-width:    var(--lp-max-w, 100%);
+  margin-left:  auto;
+  margin-right: auto;
+}
+[data-layout="ultra_wide"] [data-tesla-right] {
+  width: clamp(240px, 18vw, 320px) !important;
+}
+[data-layout="ultra_wide"] [data-pro-musiccard] {
+  min-width: clamp(280px, 24vw, 420px) !important;
+}
+[data-layout="ultra_wide"] [data-widget-row] > * {
+  min-width: clamp(140px, 12vw, 220px) !important;
+}
+
+/* RPM bar ultra-wide'da göster */
+[data-layout="ultra_wide"] [data-pro-rpmbar] {
+  width: clamp(64px, 5vw, 90px) !important;
+}
+
+/* ── Tüm layoutlarda kart metni taşmaz ─────────────────────── */
+[data-layout] [data-mini-card] {
+  overflow: hidden;
+  min-width: 0;
+}
+[data-layout] [data-mini-card] span,
+[data-layout] [data-mini-card] div:not([style*="position: absolute"]) {
+  max-width: 100%;
+}
+
+/* Geniş + ultra-wide: kartlarda extra padding */
+[data-layout="wide"]       [data-mini-card] { padding: clamp(10px, 1.2vw, 18px) !important; }
+[data-layout="ultra_wide"] [data-mini-card] { padding: clamp(12px, 1.4vw, 22px) !important; }
+
+/* ── Mercedes MBUX — layout uyarlamaları ────────────────────── */
+[data-layout="compact"] [data-mbux-status] > :not(:first-child):not(:last-child) {
+  display: none !important; /* Orta status öğelerini gizle */
+}
+
+/* ── Audi — layout uyarlamaları ─────────────────────────────── */
+[data-layout="compact"] [data-audi-footer] {
+  display: none !important;
+}
+
+/* ── Cockpit — PFD/ND panel compact ────────────────────────── */
+[data-layout="compact"] [data-cockpit-nd] {
+  display: none !important; /* ND paneli dar ekranda gizle */
+}
+
+/* ── Genel kart yüksekliği kısıtlamaları ────────────────────── */
+/* Kart içeriğinin dock'un arkasına geçmesini önle */
+[data-layout] [data-content-area] {
+  padding-bottom: calc(var(--lp-dock-h, 68px) + 12px);
+}
+
+/* Dikey taşma önleme — tüm tema kart alanları */
+[data-layout] .card-scroll-area {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+[data-layout] .card-scroll-area::-webkit-scrollbar { width: 3px; }
+[data-layout] .card-scroll-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
