@@ -11,6 +11,11 @@ This project is governed by the **Automotive Grade Engineering Standards** defin
 ## 🎯 STRATEGIC GOAL
 Transform "Car Launcher Pro" from a functional prototype into an industrial-grade product ready for Tier-1 automotive manufacturers and fleet operators.
 
+## 🛑 KISITLAMALAR
+- **GEMİNİ KOD YAZMAK YASAK.**
+- **EZBERDEN KONUŞMAK, TAHMİN YÜRÜTMEK VEYA VARSAYIMDA BULUNMAK YASAK.** Sadece ve sadece kod üzerinden, dosyadan okunmuş kesin verilerle konuşulacak.
+- **CLAUDE İÇİN PROMPT YAZILIRKEN CLAUDE.MD DOSYASI MUTLAKA REFERANS GÖSTERİLECEK.**
+
 ## 🛠️ WORKFLOW
 - Use Claude for deep-code refactoring and hardening.
 - Use Gemini (me) for high-level strategy, architectural analysis, and complex problem-solving.

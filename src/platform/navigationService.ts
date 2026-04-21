@@ -92,12 +92,13 @@ export function updateNavigationProgress(
   );
 
   // Calculate heading to destination
-  const heading = calculateHeading(
+  const rawHeading = calculateHeading(
     currentLat,
     currentLon,
     destination.latitude,
     destination.longitude
   );
+  const heading = Number.isFinite(rawHeading) ? rawHeading : 0;
 
   useNavigationStore.getState().updateDistance(distance);
   useNavigationStore.getState().updateHeading(heading);
@@ -169,12 +170,10 @@ export function formatDistance(meters: number): string {
  * Format ETA for display
  */
 export function formatEta(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  const hours   = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
+  if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
 

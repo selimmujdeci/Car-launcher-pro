@@ -30,7 +30,9 @@
       "Bash(git commit -m ' *)",
       "Bash(keytool -list -v -keystore android/app/release.keystore -storepass carlauncher2026)",
       "Bash(java -version)",
-      "Bash(./gradlew assembleRelease)"
+      "Bash(./gradlew assembleRelease)",
+      "Bash(npm install *)",
+      "Bash(./node_modules/.bin/next build *)"
     ]
   }
 }

@@ -100,6 +100,8 @@ export interface RouterContext {
   playMusicQuery?:  (pkg: string, searchUri: string, queryType: string, fallbackKey: string) => void;
   /** Add currently playing track to favorites */
   addMusicFavorite?: () => void;
+  /** Serbest adres / yer araması — resolveAndNavigate wrapper'ı */
+  navigateToPlace?: (query: string) => void;
 }
 
 /* ── CommandType → IntentType map ────────────────────────── */
@@ -238,6 +240,21 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;
       if (appId) ctx.launch(appId);
+      break;
+    }
+    case 'NAVIGATE_ADDRESS':
+    case 'NAVIGATE_PLACE': {
+      const query = intent.payload.destination ?? intent.payload.sourceText ?? '';
+      if (query) ctx.navigateToPlace?.(query);
+      else ctx.launch(intent.payload.targetApp ?? 'maps');
+      break;
+    }
+    case 'FIND_NEARBY_GAS': {
+      ctx.navigateToPlace?.('yakın benzinlik');
+      break;
+    }
+    case 'FIND_NEARBY_PARKING': {
+      ctx.navigateToPlace?.('yakın park yeri');
       break;
     }
     case 'OPEN_SETTINGS':

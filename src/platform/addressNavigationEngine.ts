@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react';
 import { geocodeAddress, searchNearby, type GeoResult } from './geocodingService';
 import { startNavigation } from './navigationService';
 import { logError } from './crashLogger';
+import { searchOffline, saveSearchQuery } from './offlineSearchService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -66,6 +67,15 @@ function _confirmResult(result: GeoResult): void {
     longitude: result.lng,
     type:      'history',
   });
+
+  // Offline arama veritabanına kaydet — gelecek offline sorguları için
+  saveSearchQuery(_state.query, {
+    name:    result.name,
+    address: result.fullName,
+    lat:     result.lat,
+    lng:     result.lng,
+  }).catch(() => { /* IndexedDB erişim hatası — sessizce devam */ });
+
   _push({
     phase:        'confirmed',
     selected:     result,
@@ -106,6 +116,40 @@ export function resolveAndNavigate(
   });
 
   const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__';
+
+  // ── Offline-first lookup: internet yoksa IndexedDB'den anında cevap ────
+  if (!isNearby && !navigator.onLine) {
+    searchOffline(destination, 3).then((offlineHits) => {
+      if (gen !== _searchGeneration) return;
+      if (offlineHits.length > 0 && offlineHits[0].score >= 0.65) {
+        const best = offlineHits[0].location;
+        const result: GeoResult = {
+          id:       best.id,
+          name:     best.name,
+          fullName: best.address ?? best.name,
+          lat:      best.lat,
+          lng:      best.lng,
+          type:     'address',
+        };
+        _push({ results: [result] });
+        _confirmResult(result);
+        return;
+      }
+      // Sonuç yok veya düşük güven → offline hata göster
+      _push({
+        phase:        'error',
+        errorMessage: 'İnternet yok — bu adres geçmişte aranmadı',
+        suggestions:  [],
+      });
+      setTimeout(() => {
+        if (gen === _searchGeneration) _push({ phase: 'idle' });
+      }, 5_000);
+    }).catch(() => {
+      if (gen !== _searchGeneration) return;
+      _push({ phase: 'error', errorMessage: 'Çevrimdışı arama hatası', suggestions: [] });
+    });
+    return;
+  }
 
   const fetch = isNearby
     ? (location

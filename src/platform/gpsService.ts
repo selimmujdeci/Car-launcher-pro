@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { logError } from './crashLogger';
+import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -53,16 +54,12 @@ const GPS_RECONNECT_MS = 8000;
 const LAST_KNOWN_KEY = 'car-gps-last-known';
 
 function _saveLastKnown(loc: GPSLocation): void {
-  try {
-    localStorage.setItem(LAST_KNOWN_KEY, JSON.stringify({
-      lat: loc.latitude, lng: loc.longitude,
-    }));
-  } catch { /* ignore */ }
+  safeSetRaw(LAST_KNOWN_KEY, JSON.stringify({ lat: loc.latitude, lng: loc.longitude }));
 }
 
 function _loadLastKnown(): { lat: number; lng: number } | null {
   try {
-    const v = localStorage.getItem(LAST_KNOWN_KEY);
+    const v = safeGetRaw(LAST_KNOWN_KEY);
     if (!v) return null;
     const p = JSON.parse(v) as { lat?: number; lng?: number };
     if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return null;
@@ -213,6 +210,17 @@ function _blendHeading(gpsBearing: number | null, speedMs: number): number | nul
 const GPS_SPEED_DEADZONE_KMH = 2.0;
 /** Bu süreden eski GPS fix'inden gelen hız kabul edilmez */
 const GPS_SPEED_MAX_AGE_MS   = 4000;
+/** GPS Doppler spike / uydu lock jitter: bu değerin üstü fiziksel olarak imkansız */
+const GPS_SPEED_MAX_KMH      = 280;
+/**
+ * Accuracy filtresi — tünel-güvenli:
+ * İlk fix yoksa 8000m'ye kadar kabul et (kaba konum daha iyidir).
+ * Fix varsa 1500m üstünü reddet — ama son geçerli fix > 20s eskiyse tekrar kabul et
+ * (tünel çıkışında pozisyon dondurulmasın).
+ */
+const GPS_ACCURACY_FIRST_FIX_M  = 8000;
+const GPS_ACCURACY_UPDATE_M     = 1500;
+const GPS_ACCURACY_STALE_MS     = 20_000;
 
 // ── Speed from position delta ─────────────────────────────
 let _prevForSpeed: { lat: number; lng: number; ts: number } | null = null;
@@ -414,6 +422,17 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     return;
   }
 
+  // Accuracy filter — tünel-güvenli: çok kötü fix gelirse sadece son iyi fix eskiyse kabul et
+  if (Number.isFinite(coords.accuracy) && coords.accuracy > 0) {
+    const prevLoc = useGPSStore.getState().location;
+    const prevAge = prevLoc ? now - prevLoc.timestamp : Infinity;
+    const threshold = prevLoc ? GPS_ACCURACY_UPDATE_M : GPS_ACCURACY_FIRST_FIX_M;
+    if (coords.accuracy > threshold && prevAge < GPS_ACCURACY_STALE_MS) {
+      // Son geçerli fix taze — bu çok kötü ölçümü at (tünel içi jitter, multi-path)
+      return;
+    }
+  }
+
   _lastPositionMs    = now;
   _consecutiveErrors = 0; // reset on success
   _clearFirstFixTimer(); // gerçek fix geldi, fallback iptal
@@ -434,8 +453,13 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
       filteredSpeed = undefined;
     } else {
       const rawKmh  = rawSpeed * 3.6;
-      // Deadzone: durağan araç jitter'ı bastır, ama 0'a HEMEN düş
-      filteredSpeed = (rawKmh < GPS_SPEED_DEADZONE_KMH ? 0 : rawKmh) / 3.6;
+      if (rawKmh > GPS_SPEED_MAX_KMH) {
+        // Fiziksel olarak imkansız hız — GPS uydu lock jitter veya antenna spike
+        filteredSpeed = undefined;
+      } else {
+        // Deadzone: durağan araç jitter'ı bastır, ama 0'a HEMEN düş
+        filteredSpeed = (rawKmh < GPS_SPEED_DEADZONE_KMH ? 0 : rawKmh) / 3.6;
+      }
     }
   }
 
@@ -606,7 +630,167 @@ export function feedBackgroundLocation(data: {
   );
 }
 
+/* ── Dead Reckoning (Tünel Modu) ─────────────────────────────────────
+ *
+ * GPS sinyali koptuğunda (örn. tünel, otopark), son bilinen hız ve yön
+ * kullanılarak konum tahmini yapılır.
+ *
+ * Fizik: düz hat projeksiyon (küçük mesafeler için geçerli)
+ *   Δlat = (speed_ms * cos(bearing_rad) * Δt) / 111320
+ *   Δlng = (speed_ms * sin(bearing_rad) * Δt) / (111320 * cos(lat_rad))
+ *
+ * Kısıtlar:
+ *   - Yalnızca speed ≥ 2 km/h iken aktif (durakta drift yok)
+ *   - Max DR_MAX_DURATION_MS (45s) sonra devre dışı kalır
+ *   - GPS yeniden gelince anında durur
+ *   - Histerezis: DR_THRESHOLD_MS (2s) GPS sessizliği gerekir
+ */
+
+const DR_THRESHOLD_MS   = 2_000;  // GPS'in kaç ms susması gerekiyor
+const DR_TICK_MS        = 500;    // projeksiyon güncelleme aralığı
+const DR_MAX_DURATION_MS = 45_000; // maksimum DR süresi
+const DR_MIN_SPEED_MS   = 2 / 3.6; // 2 km/h (m/s)
+
+interface DeadReckoningState {
+  active:         boolean;
+  lat:            number;
+  lng:            number;
+  speedMs:        number;
+  bearingDeg:     number;
+  startedAt:      number;
+  lastProjectedAt: number;
+}
+
+let _dr: DeadReckoningState | null    = null;
+let _drTimer: ReturnType<typeof setInterval> | null = null;
+let _lastGPSPerf = 0; // performance.now() — clock-jump immune
+let _drLocUnsub: (() => void) | null = null;
+
+function _stopDeadReckoning(): void {
+  if (_drTimer !== null) { clearInterval(_drTimer); _drTimer = null; }
+  if (_dr) _dr.active = false;
+}
+
+function _startDeadReckoning(): void {
+  if (!_dr || _dr.active) return;
+  if (_dr.speedMs < DR_MIN_SPEED_MS) return; // araç durmuşsa DR başlatma
+
+  _dr.active    = true;
+  _dr.startedAt       = performance.now();
+  _dr.lastProjectedAt = performance.now();
+
+  _drTimer = setInterval(() => {
+    if (!_dr?.active) { _stopDeadReckoning(); return; }
+
+    const nowPerf = performance.now();
+    const nowMs   = Date.now(); // display only — not used for duration math
+    const elapsed = nowPerf - _dr.startedAt;
+
+    if (elapsed > DR_MAX_DURATION_MS) {
+      _stopDeadReckoning();
+      return;
+    }
+
+    const Δt  = (nowPerf - _dr.lastProjectedAt) / 1000; // saniye — clock-jump immune
+    _dr.lastProjectedAt = nowPerf;
+
+    const rad   = (_dr.bearingDeg * Math.PI) / 180;
+    const cosLat = Math.cos((_dr.lat  * Math.PI) / 180);
+
+    _dr.lat += (_dr.speedMs * Math.cos(rad) * Δt) / 111_320;
+    _dr.lng += (_dr.speedMs * Math.sin(rad) * Δt) / (111_320 * Math.max(0.001, cosLat));
+
+    // Store'a tahmini konumu yaz (heading ve speed korunur)
+    const prev = useGPSStore.getState().location;
+    useGPSStore.setState({
+      location: {
+        latitude:  _dr.lat,
+        longitude: _dr.lng,
+        accuracy:  50 + elapsed / 1000, // belirsizlik zamanla artar
+        altitude:  prev?.altitude,
+        heading:   _dr.bearingDeg,
+        speed:     _dr.speedMs,
+        timestamp: nowMs, // display timestamp — wall clock
+      },
+      source: 'last_known',
+    });
+  }, DR_TICK_MS);
+}
+
+/**
+ * GPS sessizliği izleme — startGPSTracking() başladıktan sonra çağrılır.
+ *
+ * GPS konumu değiştiğinde:
+ *   - _lastGPSMs güncellenir
+ *   - DR aktifse durdurulur (GPS geri geldi)
+ *   - Son bilinen hız/yön saklanır (DR için)
+ *
+ * Periyodik kontrol: GPS_THRESHOLD_MS sessizliği varsa DR başlatılır.
+ * Cleanup fonksiyonu döner — tüm listener + interval cleanup edilir.
+ */
+export function startDeadReckoningGuard(): () => void {
+  // GPS location store'u izle
+  let _prevLoc = useGPSStore.getState().location;
+  _lastGPSPerf  = performance.now();
+
+  _drLocUnsub = useGPSStore.subscribe((state) => {
+    const loc = state.location;
+    if (!loc || loc === _prevLoc) return;
+    _prevLoc     = loc;
+    _lastGPSPerf = performance.now();
+
+    if (_dr?.active) {
+      // GPS geri geldi → DR durdur
+      _stopDeadReckoning();
+    }
+
+    // Son bilinen hız/yönü güncelle
+    if ((loc.speed ?? 0) >= DR_MIN_SPEED_MS) {
+      _dr = {
+        active:          false,
+        lat:             loc.latitude,
+        lng:             loc.longitude,
+        speedMs:         loc.speed ?? 0,
+        bearingDeg:      loc.heading ?? 0,
+        startedAt:       0,
+        lastProjectedAt: Date.now(),
+      };
+    }
+  });
+
+  // Sessizlik kontrolü: DR_THRESHOLD_MS suskunluk → DR başlat
+  const silenceChecker = setInterval(() => {
+    const silentMs = performance.now() - _lastGPSPerf;
+    const { isTracking } = useGPSStore.getState();
+
+    if (!isTracking || !_dr || _dr.active) return;
+    if (silentMs >= DR_THRESHOLD_MS) {
+      _startDeadReckoning();
+    }
+  }, DR_THRESHOLD_MS);
+
+  return () => {
+    clearInterval(silenceChecker);
+    _drLocUnsub?.();
+    _drLocUnsub = null;
+    _stopDeadReckoning();
+  };
+}
+
+/**
+ * Dead Reckoning'in aktif olup olmadığını döndür.
+ * NavigationHUD bu flag ile "Tünel modu" göstergesi açabilir.
+ */
+export function isDeadReckoningActive(): boolean {
+  return _dr?.active === true;
+}
+
 /* ── HMR cleanup — dev modda Hot Reload'da watchId sızıntısını önle ─ */
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => { stopGPSTracking().catch(() => undefined); });
+  import.meta.hot.dispose(() => {
+    stopGPSTracking().catch(() => undefined);
+    _stopDeadReckoning();
+    _drLocUnsub?.();
+    _drLocUnsub = null;
+  });
 }

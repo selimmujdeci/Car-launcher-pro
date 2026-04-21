@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import { onOBDData } from './obdService';
 import { useStore } from '../store/useStore';
+import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -50,6 +51,28 @@ export interface TripState {
   totalTrips: number;
 }
 
+/* ── Monotonic Trip ID ────────────────────────────────────── */
+
+/**
+ * Çarpışmaya dayanıklı Trip ID üreteci.
+ *
+ * crypto.randomUUID() (Chrome 92+ / Android WebView 92+):
+ *   → gerçek UUID v4 — Date.now() sıfırlamalarından bağımsız
+ *
+ * Fallback (eski WebView):
+ *   → monotonic counter + Date.now() + rastgele sonek
+ *   Saat zıplamalarına karşı `_tripSeq` her seferinde artar.
+ */
+let _tripSeq = performance.now(); // monotonik başlangıç
+
+function generateTripId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `trip-${crypto.randomUUID()}`;
+  }
+  _tripSeq += 1;
+  return `trip-${Math.floor(_tripSeq)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 /* ── Config ──────────────────────────────────────────────── */
 
 const STORAGE_KEY              = 'car-launcher-trip-log';
@@ -63,7 +86,7 @@ const FUEL_PRICE_TL_PER_L      = 45;    // avg pump price (TL)
 
 function _load(): TripRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeGetRaw(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as TripRecord[]) : [];
   } catch {
     return [];
@@ -71,11 +94,7 @@ function _load(): TripRecord[] {
 }
 
 function _save(records: TripRecord[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records.slice(0, MAX_STORED_TRIPS)));
-  } catch {
-    // storage quota exceeded — ignore
-  }
+  safeSetRaw(STORAGE_KEY, JSON.stringify(records.slice(0, MAX_STORED_TRIPS)));
 }
 
 /* ── Module state ────────────────────────────────────────── */
@@ -187,7 +206,7 @@ function _endTrip(): void {
   const drivingScore     = _calcScore(_active.maxSpeedKmh, _active.harshEvents, avgSpeed);
 
   const record: TripRecord = {
-    id: `trip-${_active.startTime}`,
+    id: generateTripId(),
     startTime: _active.startTime,
     endTime: now,
     distanceKm: Math.round(_active.distanceKm * 10) / 10,

@@ -131,6 +131,34 @@
   top: 30%; right: -10%;
 }
 
+/* ── GPU KOMPOZİSYON KATMANI (Mali-400 donanım hızlandırma) ────────── */
+/*
+ * translate3d(0,0,0) → GPU'ya bu elemanı ayrı bir compositor layer'a al.
+ * Mali-400: çok fazla layer performansı düşürür — yalnızca transition/animation
+ * içeren kritik elemanlar için kullan.
+ */
+.glass-card,
+.up-panel,
+.premium-card,
+.up-nav-item {
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;    /* çift taraflı render'ı önle */
+  -webkit-backface-visibility: hidden;
+}
+
+/* Ambient blob'lar zaten animasyonlu — GPU layer kesinlikle gerekli */
+.up-blob {
+  transform: translate3d(0, 0, 0) !important;
+  will-change: transform !important;
+}
+
+/* Tema geçiş overlay'i — GPU layer ile daha akıcı fade */
+#theme-crossfade-overlay {
+  transform: translate3d(0, 0, 0);
+  will-change: opacity;
+}
+
 /* ── GLASS KART SİSTEMİ ─────────────────────────────────────── */
 .glass-card, .up-panel, .premium-card {
   background: rgba(12,18,32,0.97) !important;
@@ -250,18 +278,19 @@ html[data-compat-mode="true"] * {
 }
 html[data-compat-mode="true"] {
   --pack-blur: 0px !important;
-  --pack-card-bg: rgb(245,248,255) !important;
-  --header-bg: rgb(255,255,255) !important;
-  --dock-bg: rgb(255,255,255) !important;
+  --pack-card-bg: rgb(10,14,26) !important;
+  --header-bg: rgb(6,8,16) !important;
+  --dock-bg: rgb(6,8,16) !important;
 }
 html[data-compat-mode="true"] [data-dock="main"] {
-  background: rgb(255,255,255) !important;
+  background: rgb(6,8,16) !important;
+  border-top: 1px solid rgba(255,255,255,0.08) !important;
 }
 html[data-compat-mode="true"] [data-header] {
-  background: rgb(255,255,255) !important;
+  background: rgb(8,10,18) !important;
 }
 html[data-compat-mode="true"] [data-drawer] {
-  background: rgb(245,248,255) !important;
+  background: rgb(10,14,26) !important;
 }
 
 /* @supports backdrop-filter uygulanabilir — normal mod */

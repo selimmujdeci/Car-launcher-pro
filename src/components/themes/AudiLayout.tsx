@@ -1,8 +1,10 @@
-import { memo } from 'react';
+import { memo, useState, lazy, Suspense } from 'react';
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
-  Gauge, Thermometer, Fuel, Settings, Navigation2,
+  Gauge, Thermometer, Fuel, Settings, Navigation2, Box,
 } from 'lucide-react';
+
+const Vehicle3DViewer = lazy(() => import('../camera/Vehicle3DViewer').then(m => ({ default: m.Vehicle3DViewer })));
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
@@ -11,6 +13,8 @@ import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
+import type { SmartSnapshot } from '../../platform/smartEngine';
+import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ══════════════════════════════════════════
    AUDI THEME — Virtual Cockpit RS Style
@@ -25,6 +29,7 @@ interface Props {
   appMap:         Record<string, AppItem>;
   dockIds:        string[];
   fullMapOpen?:   boolean;
+  smart?:         SmartSnapshot;
 }
 
 /* Tema renkleri CSS custom property — index.css [data-theme="audi"] */
@@ -88,8 +93,8 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
         <button onClick={onOpenMap}
           className="flex items-center gap-1.5 px-4 h-11 rounded-xl active:scale-95 transition-all"
           style={{ background: A_RED, boxShadow: `0 3px 14px rgba(204,0,0,0.32)` }}>
-          <Navigation2 className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />
-          <span className="font-semibold" style={{ fontSize: 11, color: '#ffffff' }}>GİT</span>
+          <Navigation2 className="w-3.5 h-3.5 text-white" />
+          <span className="font-semibold text-[11px] text-white">GİT</span>
         </button>
       </div>
     </div>
@@ -115,16 +120,17 @@ function AIconBtn({ onClick, children }: { onClick: () => void; children: React.
   );
 }
 
-/* ─── AUDI VIRTUAL COCKPIT (Merkezi Hız) ─────────────────────── */
-const AudiCockpit = memo(function AudiCockpit() {
+/* ─── AUDI VIRTUAL COCKPIT (Merkezi Hız + 3D mod) ────────────── */
+const AudiSpeed = memo(function AudiSpeed() {
   const obd = useOBDState();
   const gps = useGPSLocation();
   const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
-  const rpm  = obd.rpm        ?? 929;
-  const temp = obd.engineTemp ?? 88;
-  const fuel = obd.fuelLevel  ?? 68;
+  const rpm  = obd.rpm        ?? 0;
+  const temp = obd.engineTemp ?? 0;
+  const fuel = obd.fuelLevel  ?? 0;
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
+  const [show3D, setShow3D] = useState(false);
 
   const R = 105, cx = 130, cy = 140;
   const pct = Math.min(speedKmh / 240, 1);
@@ -150,53 +156,63 @@ const AudiCockpit = memo(function AudiCockpit() {
     <div className="flex flex-col h-full overflow-hidden"
       style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
 
-      {/* Kırmızı üst çizgi */}
-      <div style={{ height: 3, background: A_RED, flexShrink: 0, borderRadius: '20px 20px 0 0' }} />
+      {/* Kırmızı üst çizgi + 3D toggle */}
+      <div className="flex items-center flex-shrink-0" style={{ height: 3, background: A_RED, borderRadius: '20px 20px 0 0' }} />
+      <div className="flex items-center justify-between px-3 pt-2 pb-0 flex-shrink-0">
+        <div className="uppercase font-medium tracking-[0.4em]"
+          style={{ fontSize: 9, color: A_RED }}>{show3D ? '3D ARAÇ' : 'VIRTUAL COCKPIT'}</div>
+        <button
+          onClick={() => setShow3D(v => !v)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-all"
+          style={{
+            background: show3D ? 'rgba(204,0,0,0.12)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${show3D ? 'rgba(204,0,0,0.30)' : A_BORDER}`,
+          }}>
+          <Box className="w-3.5 h-3.5" style={{ color: show3D ? A_RED : A_SILVER }} />
+        </button>
+      </div>
 
-      {/* Ana Gösterge */}
-      <div className="flex-1 flex items-center justify-center relative min-h-0">
-        <div style={{ position: 'absolute', top: 10, left: 0, right: 0, textAlign: 'center' }}>
-          <div className="uppercase font-medium tracking-[0.4em]"
-            style={{ fontSize: 10, color: A_RED }}>AUDI VIRTUAL COCKPIT</div>
+      {show3D ? (
+        /* 3D Viewer modu */
+        <div className="flex-1 min-h-0">
+          <Suspense fallback={
+            <div className="w-full h-full flex items-center justify-center">
+              <div style={{ fontSize: 11, color: A_DIM }}>Yükleniyor…</div>
+            </div>
+          }>
+            <Vehicle3DViewer accentColor="#CC0000" fps={30} autoRotate />
+          </Suspense>
         </div>
-
-        <div style={{ width: 'min(260px, 90%)', height: 'min(260px, 90%)', position: 'relative' }}>
-          <svg width="260" height="280" viewBox="0 0 260 280">
-            {/* Dış halka */}
-            <circle cx="130" cy="140" r="120" fill="none" stroke="rgba(168,169,173,0.05)" strokeWidth="1" />
-            {/* Hız track */}
-            <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="butt" />
-            {/* Hız fill */}
-            {pct > 0.01 && (
-              <path d={arc(135, fillAngle)} fill="none" stroke={A_RED} strokeWidth="14" strokeLinecap="butt"
-                style={{ filter: `drop-shadow(0 0 6px rgba(204,0,0,0.55))` }} />
-            )}
-            {/* RPM track */}
-            <path d={rArc(rStart, rStart + rSpan)} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="8" strokeLinecap="butt" />
-            {/* RPM fill */}
-            {rPct > 0.01 && (
-              <path d={rArc(rStart, rStart + rPct * rSpan)} fill="none" stroke="rgba(168,169,173,0.55)" strokeWidth="8" strokeLinecap="butt" />
-            )}
-            {/* Merkezi çember */}
-            <circle cx="130" cy="140" r="60" fill="rgba(0,0,0,0.80)" stroke="rgba(168,169,173,0.09)" strokeWidth="1" />
-          </svg>
-
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 12 }}>
-            <div className="font-thin tabular-nums leading-none"
-              style={{ fontSize: 'var(--lp-speed-font, 58px)', color: A_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
-              {speedKmh}
-            </div>
-            <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: A_SILVER, letterSpacing: '0.45em' }}>
-              km/h
-            </div>
-            <div className="font-light mt-2" style={{ fontSize: 10, color: A_DIM }}>
-              {rpm.toLocaleString()} rpm
+      ) : (
+        /* Virtual Cockpit modu */
+        <div className="flex-1 flex items-center justify-center relative min-h-0">
+          <div className="w-[min(260px,90%)] h-[min(260px,90%)] relative">
+            <svg width="260" height="280" viewBox="0 0 260 280">
+              <circle cx="130" cy="140" r="120" fill="none" stroke="rgba(168,169,173,0.05)" strokeWidth="1" />
+              <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="butt" />
+              {pct > 0.01 && (
+                <path d={arc(135, fillAngle)} fill="none" stroke={A_RED} strokeWidth="14" strokeLinecap="butt"
+                  style={{ filter: `drop-shadow(0 0 6px rgba(204,0,0,0.55))` }} />
+              )}
+              <path d={rArc(rStart, rStart + rSpan)} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="8" strokeLinecap="butt" />
+              {rPct > 0.01 && (
+                <path d={rArc(rStart, rStart + rPct * rSpan)} fill="none" stroke="rgba(168,169,173,0.55)" strokeWidth="8" strokeLinecap="butt" />
+              )}
+              <circle cx="130" cy="140" r="60" fill="rgba(0,0,0,0.80)" stroke="rgba(168,169,173,0.09)" strokeWidth="1" />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pt-3">
+              <div className="font-thin tabular-nums leading-none"
+                style={{ fontSize: 'var(--lp-speed-font, 58px)', color: A_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
+                {speedKmh}
+              </div>
+              <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: A_SILVER, letterSpacing: '0.45em' }}>km/h</div>
+              <div className="font-light mt-2" style={{ fontSize: 10, color: A_DIM }}>{rpm.toLocaleString()} rpm</div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Alt veri çubukları */}
+      {/* Alt veri çubukları — her iki modda da gösterilir */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0">
         <ADataCell Icon={Thermometer} label="MOTOR" value={`${Math.round(temp)}°C`} warn={tempWarn} />
         <ADataCell Icon={Fuel}        label="YAKIT" value={`${Math.round(fuel)}%`}  warn={fuelWarn} />
@@ -228,7 +244,7 @@ const AudiMap = memo(function AudiMap({ onOpenMap, fullMapOpen }: { onOpenMap: (
       <div style={{ height: 3, background: A_RED, flexShrink: 0, borderRadius: '20px 20px 0 0' }} />
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
-          ? <div className="w-full h-full flex items-center justify-center" style={{ background: '#0a0a0a' }}>
+          ? <div className="w-full h-full flex items-center justify-center bg-[#0a0a0a]">
               <span className="font-light" style={{ fontSize: 13, color: A_DIM }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
@@ -292,8 +308,8 @@ const AudiSide = memo(function AudiSide({ appMap, onLaunch }: { appMap: Record<s
               className="w-11 h-11 rounded-xl flex items-center justify-center active:scale-90 transition-all"
               style={{ background: A_RED, boxShadow: `0 3px 12px rgba(204,0,0,0.38)` }}>
               {playing
-                ? <Pause className="w-5 h-5" style={{ color: '#ffffff' }} />
-                : <Play  className="w-5 h-5 ml-0.5" style={{ color: '#ffffff' }} />
+                ? <Pause className="w-5 h-5 text-white" />
+                : <Play  className="w-5 h-5 ml-0.5 text-white" />
               }
             </button>
             <button onClick={() => next()} className="active:scale-90 transition-all p-2">
@@ -347,24 +363,30 @@ const AudiDock = memo(function AudiDock({ appMap, dockIds, onLaunch }: { appMap:
 
 /* ─── AUDI LAYOUT ─────────────────────────────────────────────── */
 export const AudiLayout = memo(function AudiLayout({
-  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen, smart,
 }: Props) {
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: A_BG }}>
       <AudiHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenMap={onOpenMap} />
 
       <div className="flex-1 min-h-0 grid gap-2.5 p-2.5 overflow-hidden"
-        style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.1fr) minmax(0,0.85fr)' }}>
+        style={{ gridTemplateColumns: 'var(--l-grid-cols, minmax(0,1fr) minmax(0,1.1fr) minmax(0,0.85fr))' }}>
 
         {/* Sol: Harita */}
         <AudiMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
 
         {/* Orta: Virtual Cockpit */}
-        <AudiCockpit />
+        <AudiSpeed />
 
         {/* Sağ: Müzik + Uygulamalar */}
         <AudiSide appMap={appMap} onLaunch={onLaunch} />
       </div>
+
+      {smart && smart.predictions.length > 0 && (
+        <div className="px-2.5 pb-1.5">
+          <MagicContextCard smart={smart} variant="audi" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+        </div>
+      )}
 
       <AudiDock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
     </div>

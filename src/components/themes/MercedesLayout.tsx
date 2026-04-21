@@ -13,6 +13,8 @@ import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
+import type { SmartSnapshot } from '../../platform/smartEngine';
+import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ══════════════════════════════════════════
    MERCEDES THEME — MBUX Hyperscreen Style
@@ -27,6 +29,7 @@ interface Props {
   appMap:         Record<string, AppItem>;
   dockIds:        string[];
   fullMapOpen?:   boolean;
+  smart?:         SmartSnapshot;
 }
 
 /* Tema renkleri CSS custom property — index.css [data-theme="mercedes"] */
@@ -137,7 +140,7 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
 
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
-          ? <div className="w-full h-full flex items-center justify-center" style={{ background: '#080808' }}>
+          ? <div className="w-full h-full flex items-center justify-center bg-[#080808]">
               <span className="font-light" style={{ fontSize: 13, color: M_DIM }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
@@ -155,21 +158,21 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
         <div className="rounded-2xl px-3 py-2.5 text-center"
           style={{ background: 'rgba(200,169,110,0.07)', border: `1px solid rgba(200,169,110,0.16)` }}>
           <div className="font-light" style={{ fontSize: 9, color: M_DIM, letterSpacing: '0.1em' }}>ETA</div>
-          <div className="font-normal tabular-nums mt-0.5" style={{ fontSize: 13, color: M_GOLD }}>18:45</div>
-        </div>
-      </div>
-    </div>
-  );
-});
+          <div className="font-normal tabular-nums mt-0.5" style={{ fontSize: 13, color: M_GOLD }}>--:--</div>
+          </div>
+          </div>
+          </div>
+          );
+          });
 
-/* ─── MERCEDES SPEED / COCKPIT ────────────────────────────────── */
-const MercedesCockpit = memo(function MercedesCockpit() {
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
-  const rpm  = obd.rpm        ?? 929;
-  const temp = obd.engineTemp ?? 88;
-  const fuel = obd.fuelLevel  ?? 68;
+          /* ─── MERCEDES SPEED ─────────────────────────────────────────── */
+          const MercedesSpeed = memo(function MercedesSpeed() {
+          const obd = useOBDState();
+          const gps = useGPSLocation();
+          const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
+          const rpm  = obd.rpm        ?? 0;
+          const temp = obd.engineTemp ?? 0;
+          const fuel = obd.fuelLevel  ?? 0;
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
 
@@ -219,7 +222,7 @@ const MercedesCockpit = memo(function MercedesCockpit() {
             <circle cx="120" cy="130" r="52" fill="rgba(0,0,0,0.82)" stroke="rgba(200,169,110,0.10)" strokeWidth="1" />
           </svg>
 
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 10 }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pt-2.5">
             <div className="font-extralight tabular-nums leading-none"
               style={{ fontSize: 'var(--lp-speed-font, 58px)', color: M_TEXT, letterSpacing: '-1px', textShadow: '0 0 20px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.50)' }}>
               {speedKmh}
@@ -366,7 +369,7 @@ const MercedesDock = memo(function MercedesDock({ appMap, dockIds, onLaunch }: {
 
 /* ─── MERCEDES LAYOUT ─────────────────────────────────────────── */
 export const MercedesLayout = memo(function MercedesLayout({
-  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen, smart,
 }: Props) {
   const [voiceOpen, setVoiceOpen] = useState(false);
   return (
@@ -382,15 +385,21 @@ export const MercedesLayout = memo(function MercedesLayout({
 
         <div className="flex-1 min-h-0 grid gap-2.5 overflow-hidden"
           style={{
-            gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,0.85fr)',
+            gridTemplateColumns: 'var(--l-grid-cols, minmax(0,1fr) minmax(0,1fr) minmax(0,0.85fr))',
             padding: 'var(--lp-space-sm, 8px)',
             paddingLeft: 'calc(var(--lp-space-sm, 8px) + var(--lp-side-pad, 0px))',
             paddingRight: 'calc(var(--lp-space-sm, 8px) + var(--lp-side-pad, 0px))',
           }}>
           <MercedesMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
-          <MercedesCockpit />
+          <MercedesSpeed />
           <MercedesSide appMap={appMap} onLaunch={onLaunch} />
         </div>
+
+        {smart && smart.predictions.length > 0 && (
+          <div className="px-2.5 pb-1.5">
+            <MagicContextCard smart={smart} variant="mercedes" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+          </div>
+        )}
 
         <MercedesDock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
       </div>

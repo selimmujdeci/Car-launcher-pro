@@ -7,53 +7,61 @@
  * Layout variants:
  *   map-first  — Tesla: harita dominan, speedo ince sol
  *   cockpit    — BMW/Porsche: speedo büyük sol, harita sağ küçük
- *   glass      — Mercedes: dengeli 2-sütun, geniş radius
- *   sport      — Audi/Redline: eşit sütunlar, keskin köşeler
- *   content    — BigCards/AI: içerik merkezi, harita küçük
- *   minimal    — Minimal temalar: sade, az hareket
- *   balanced   — Diğer atmosferik temalar için
+ *   glass      — Mercedes/Pro: dengeli 2-sütun, geniş radius
+ *   sport      — Audi: eşit sütunlar, keskin köşeler
  *
- * CSS variables applied per layout variant (see theme-packs.css):
- *   --l-map-flex-basis   map container genişliği (flex-basis)
- *   --l-map-min-w        map minimum genişlik
- *   --l-speedo-order     speedo CSS order
- *   --l-content-order    content CSS order
- *   --l-map-order        map CSS order
+ * CSS variables applied per layout variant + screen ratio:
+ *   --l-flex-dir     container flex direction (row / column)
+ *   --l-map-flex     flex shorthand for map panel (e.g. "1.8 1 0%")
+ *   --l-right-panel  right panel width in row mode
+ *   --l-grid-cols    grid-template-columns string for 3-col layouts
+ *   --l-map-basis    map-first için map flex-basis
  */
 
 import type { ThemePack } from '../store/useStore';
 import { useStore } from '../store/useStore';
 import { useEffect } from 'react';
+import { useScreenSense } from '../hooks/useScreenSense';
+import type { ScreenRatio } from '../hooks/useScreenSense';
 
 /* ── Types ────────────────────────────────────────────────── */
 
 export type LayoutVariant =
   | 'map-first'  // Tesla: harita dominan
-  | 'cockpit'    // BMW, Porsche: speedo dominan
+  | 'cockpit'    // BMW: speedo dominan
   | 'glass'      // Mercedes, Glass Pro: dengeli cam
-  | 'sport'      // Audi, Redline, Electric: agresif eşit
-  | 'content'    // Big Cards, AI Center: içerik odaklı
-  | 'minimal'    // Minimal Dark/Light, Monochrome
-  | 'balanced';  // Default diğerleri
+  | 'sport';     // Audi: agresif eşit
+
+export interface LayoutRatioConfig {
+  /** Container flex-direction ('row' | 'column') */
+  flexDir?:    string;
+  /** Flex shorthand for map panel — used in map-first (Tesla) */
+  mapFlex?:    string;
+  /** Width of right/side panel in row mode */
+  rightPanel?: string;
+  /** grid-template-columns — used in cockpit/glass/sport (BMW/Mercedes/Audi) */
+  gridCols?:   string;
+}
 
 export interface LayoutConfig {
   variant:     LayoutVariant;
   label:       string;
   description: string;
-  /** Map flex-basis percentage (e.g. "45%") */
+  /** Map flex-basis percentage (e.g. "45%") — legacy ref */
   mapBasis:    string;
-  /** Speedometer basis / rem width hint */
+  /** Speedometer basis / rem width hint — legacy ref */
   speedoBasis: string;
   /** Preview accent color (theme primary) */
   accentHex:   string;
   /** Preview theme background */
   bgHex:       string;
+  /** Per-ratio CSS var overrides */
+  ratioOverrides?: Partial<Record<ScreenRatio, LayoutRatioConfig>>;
 }
 
-/* ── Theme → Layout map (all 23 packs) ───────────────────── */
+/* ── Theme → Layout map (Active 5 themes) ───────────────────── */
 
 export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
-  // ── Otomobil markaları ─────────────────────────────────
   tesla: {
     variant:     'map-first',
     label:       'Tesla',
@@ -62,6 +70,12 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
     speedoBasis: '13rem',
     accentHex:   '#e8e8e8',
     bgHex:       '#050505',
+    ratioOverrides: {
+      portrait:     { flexDir: 'column', mapFlex: '1 1 52%', rightPanel: '100%' },
+      square:       { flexDir: 'row',    mapFlex: '1 1 48%', rightPanel: '180px' },
+      // wide: default (no override needed)
+      'ultra-wide': { flexDir: 'row',    mapFlex: '1 1 62%', rightPanel: '240px' },
+    },
   },
   bmw: {
     variant:     'cockpit',
@@ -71,6 +85,12 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
     speedoBasis: '22rem',
     accentHex:   '#1d4ed8',
     bgHex:       '#010410',
+    ratioOverrides: {
+      portrait:     { flexDir: 'column', gridCols: '1fr' },
+      square:       { flexDir: 'row',    gridCols: 'minmax(0,1fr) minmax(0,1fr)' },
+      // wide: default (no override)
+      'ultra-wide': { flexDir: 'row',    gridCols: 'minmax(0,0.75fr) minmax(0,1.45fr) minmax(0,0.80fr)' },
+    },
   },
   mercedes: {
     variant:     'glass',
@@ -80,6 +100,11 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
     speedoBasis: '18rem',
     accentHex:   '#d4af37',
     bgHex:       '#090907',
+    ratioOverrides: {
+      portrait:     { flexDir: 'column', gridCols: '1fr' },
+      square:       { flexDir: 'row',    gridCols: 'minmax(0,1fr) minmax(0,1fr)' },
+      'ultra-wide': { flexDir: 'row',    gridCols: 'minmax(0,1.15fr) minmax(0,1.15fr) minmax(0,0.70fr)' },
+    },
   },
   audi: {
     variant:     'sport',
@@ -89,44 +114,11 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
     speedoBasis: '20rem',
     accentHex:   '#c0392b',
     bgHex:       '#030608',
-  },
-  porsche: {
-    variant:     'cockpit',
-    label:       'Porsche',
-    description: 'Speedo ekrana hükümdar',
-    mapBasis:    '28%',
-    speedoBasis: '24rem',
-    accentHex:   '#d4a227',
-    bgHex:       '#050505',
-  },
-  'range-rover': {
-    variant:     'glass',
-    label:       'Range Rover',
-    description: 'Lüks denge, toprak tonları',
-    mapBasis:    '40%',
-    speedoBasis: '17rem',
-    accentHex:   '#8b7355',
-    bgHex:       '#0a0804',
-  },
-
-  // ── Atmosfer & Neon ────────────────────────────────────
-  cyberpunk: {
-    variant:     'sport',
-    label:       'Cyberpunk',
-    description: 'Neon ızgara, dijital cockpit',
-    mapBasis:    '35%',
-    speedoBasis: '19rem',
-    accentHex:   '#06b6d4',
-    bgHex:       '#010611',
-  },
-  midnight: {
-    variant:     'balanced',
-    label:       'Gece',
-    description: 'Derin gece, sıcak parıltı',
-    mapBasis:    '42%',
-    speedoBasis: '17rem',
-    accentHex:   '#6366f1',
-    bgHex:       '#040212',
+    ratioOverrides: {
+      portrait:     { flexDir: 'column', gridCols: '1fr' },
+      square:       { flexDir: 'row',    gridCols: 'minmax(0,1fr) minmax(0,1fr)' },
+      'ultra-wide': { flexDir: 'row',    gridCols: 'minmax(0,1fr) minmax(0,1.25fr) minmax(0,0.75fr)' },
+    },
   },
   'glass-pro': {
     variant:     'glass',
@@ -136,151 +128,32 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
     speedoBasis: '18rem',
     accentHex:   '#38bdf8',
     bgHex:       '#050a14',
-  },
-  ambient: {
-    variant:     'balanced',
-    label:       'Ortam',
-    description: 'Hafif nefes alan ambians',
-    mapBasis:    '42%',
-    speedoBasis: '17rem',
-    accentHex:   '#34d399',
-    bgHex:       '#020a06',
-  },
-  galaxy: {
-    variant:     'balanced',
-    label:       'Galaksi',
-    description: 'Uzay derinliği, derin siyah',
-    mapBasis:    '42%',
-    speedoBasis: '17rem',
-    accentHex:   '#818cf8',
-    bgHex:       '#03020f',
-  },
-
-  // ── Performans ─────────────────────────────────────────
-  redline: {
-    variant:     'sport',
-    label:       'Redline',
-    description: 'Kırmızı çizgi, tam gaz',
-    mapBasis:    '33%',
-    speedoBasis: '21rem',
-    accentHex:   '#ef4444',
-    bgHex:       '#080202',
-  },
-  electric: {
-    variant:     'sport',
-    label:       'Elektrik',
-    description: 'EV enerjisi, yeşil vurgu',
-    mapBasis:    '34%',
-    speedoBasis: '20rem',
-    accentHex:   '#22c55e',
-    bgHex:       '#010a04',
-  },
-  carbon: {
-    variant:     'sport',
-    label:       'Karbon',
-    description: 'Karbon fiber doku',
-    mapBasis:    '35%',
-    speedoBasis: '19rem',
-    accentHex:   '#94a3b8',
-    bgHex:       '#070707',
-  },
-  'night-city': {
-    variant:     'balanced',
-    label:       'Şehir Geceleri',
-    description: 'Kentsel ışıklar, hareket',
-    mapBasis:    '42%',
-    speedoBasis: '17rem',
-    accentHex:   '#f59e0b',
-    bgHex:       '#05040a',
-  },
-
-  // ── Minimal ────────────────────────────────────────────
-  'minimal-dark': {
-    variant:     'minimal',
-    label:       'Koyu Minimal',
-    description: 'Saf minimal, sıfır gürültü',
-    mapBasis:    '38%',
-    speedoBasis: '15rem',
-    accentHex:   '#64748b',
-    bgHex:       '#080808',
-  },
-  'minimal-light': {
-    variant:     'minimal',
-    label:       'Açık Minimal',
-    description: 'Gündüz modu, sade',
-    mapBasis:    '38%',
-    speedoBasis: '15rem',
-    accentHex:   '#475569',
-    bgHex:       '#f8fafc',
-  },
-  monochrome: {
-    variant:     'minimal',
-    label:       'Monokrom',
-    description: 'Siyah-beyaz, net kontrast',
-    mapBasis:    '40%',
-    speedoBasis: '16rem',
-    accentHex:   '#e2e8f0',
-    bgHex:       '#050505',
-  },
-  arctic: {
-    variant:     'glass',
-    label:       'Arktik',
-    description: 'Soğuk buz mavisi, kristal',
-    mapBasis:    '40%',
-    speedoBasis: '17rem',
-    accentHex:   '#7dd3fc',
-    bgHex:       '#020d14',
-  },
-  sunset: {
-    variant:     'balanced',
-    label:       'Günbatımı',
-    description: 'Turuncu altın ışık',
-    mapBasis:    '42%',
-    speedoBasis: '17rem',
-    accentHex:   '#fb923c',
-    bgHex:       '#0a0302',
-  },
-
-  // ── Özel Layout ────────────────────────────────────────
-  'big-cards': {
-    variant:     'content',
-    label:       'Büyük Kartlar',
-    description: 'İçerik merkezi, harita küçük',
-    mapBasis:    '30%',
-    speedoBasis: '16rem',
-    accentHex:   '#6366f1',
-    bgHex:       '#04040e',
-  },
-  'ai-center': {
-    variant:     'content',
-    label:       'AI Merkezi',
-    description: 'Yapay zeka odaklı, asistan büyük',
-    mapBasis:    '28%',
-    speedoBasis: '15rem',
-    accentHex:   '#06b6d4',
-    bgHex:       '#020812',
-  },
-  'tesla-x-night': {
-    variant:     'map-first',
-    label:       'Tesla X Gece',
-    description: 'Tesla karanlık, harita dominant',
-    mapBasis:    '47%',
-    speedoBasis: '12rem',
-    accentHex:   '#3b82f6',
-    bgHex:       '#020202',
+    ratioOverrides: {
+      portrait:     { flexDir: 'column' },
+      'ultra-wide': { flexDir: 'row' },
+    },
   },
 };
 
 /* ── Default fallback ─────────────────────────────────────── */
 
 const DEFAULT_LAYOUT: LayoutConfig = {
-  variant:     'balanced',
-  label:       'Dengeli',
-  description: 'Varsayılan dengeli düzen',
-  mapBasis:    '42%',
+  variant:     'glass',
+  label:       'Glass Pro',
+  description: 'Dengeli modern cam arayüzü',
+  mapBasis:    '40%',
   speedoBasis: '18rem',
-  accentHex:   '#3b82f6',
-  bgHex:       '#0f172a',
+  accentHex:   '#38bdf8',
+  bgHex:       '#050a14',
+};
+
+/* ── Default ratio config per variant ────────────────────── */
+
+const VARIANT_DEFAULTS: Record<LayoutVariant, LayoutRatioConfig> = {
+  'map-first': { flexDir: 'row', mapFlex: '1.8 1 0%', rightPanel: 'var(--lp-right-panel, 200px)' },
+  cockpit:     { flexDir: 'row', gridCols: 'minmax(0,0.85fr) minmax(0,1.20fr) minmax(0,0.95fr)' },
+  glass:       { flexDir: 'row', gridCols: 'minmax(0,1fr) minmax(0,1fr) minmax(0,0.85fr)' },
+  sport:       { flexDir: 'row', gridCols: 'minmax(0,1fr) minmax(0,1.1fr) minmax(0,0.85fr)' },
 };
 
 /* ── Public API ───────────────────────────────────────────── */
@@ -299,13 +172,28 @@ export function useThemeLayout(): LayoutConfig {
 }
 
 /**
- * React hook — syncs theme pack changes to the DOM data-layout attribute.
+ * React hook — syncs theme pack + screen ratio changes to the DOM.
+ * Injects CSS custom properties:
+ *   --l-flex-dir, --l-map-flex, --l-right-panel, --l-grid-cols
  * Mount once at the app root level (e.g. in MainLayout or App).
  */
 export function useLayoutSync(): void {
-  const pack = useStore((s) => s.settings.themePack);
+  const pack  = useStore((s) => s.settings.themePack);
+  const sense = useScreenSense();
+
   useEffect(() => {
-    const config = getLayoutConfig(pack);
-    document.documentElement.setAttribute('data-layout', config.variant);
-  }, [pack]);
+    const config  = getLayoutConfig(pack);
+    const base    = VARIANT_DEFAULTS[config.variant];
+    const override = config.ratioOverrides?.[sense.ratio] ?? {};
+    const effective: LayoutRatioConfig = { ...base, ...override };
+
+    const root = document.documentElement;
+    root.setAttribute('data-layout', config.variant);
+    // data-screen-ratio is managed by useScreenSense — no double-write needed
+
+    root.style.setProperty('--l-flex-dir',    effective.flexDir    ?? 'row');
+    root.style.setProperty('--l-map-flex',    effective.mapFlex    ?? '1.8 1 0%');
+    root.style.setProperty('--l-right-panel', effective.rightPanel ?? 'var(--lp-right-panel, 200px)');
+    root.style.setProperty('--l-grid-cols',   effective.gridCols   ?? '');
+  }, [pack, sense.ratio]);
 }

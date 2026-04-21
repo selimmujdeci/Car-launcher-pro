@@ -20,6 +20,7 @@ import { AudiLayout } from '../themes/AudiLayout';
 import { MercedesLayout } from '../themes/MercedesLayout';
 import { CockpitLayout } from '../themes/CockpitLayout';
 import { ProLayout } from '../themes/ProLayout';
+import type { SmartSnapshot } from '../../platform/smartEngine';
 
 /* ══════════════════════════════════════════
    ULTRA PREMIUM — Lüks Araba Kokpiti
@@ -47,6 +48,7 @@ interface Props {
   fullMapOpen?:    boolean;
   onOpenRearCam?:  () => void;
   onOpenDashcam?:  () => void;
+  smart?:          SmartSnapshot;
 }
 
 /* ─── HEADER ─────────────────────────────────────────────────── */
@@ -186,7 +188,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
           </button>
         </div>
         <div className="flex gap-1.5">
-          <ETACell label="Varış" value="18:45" sub="2s 14dk" />
+          <ETACell label="Varış" value="--:--" sub="--:--" />
           <ETACell label="Mesafe" value="128" sub="km" />
         </div>
       </div>
@@ -469,7 +471,7 @@ const Dock = memo(function Dock({ appMap, dockIds, onLaunch }: { appMap: Record<
 /* ─── LAYOUT ─────────────────────────────────────────────────── */
 export const NewHomeLayout = memo(function NewHomeLayout({
   onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
-  onOpenRearCam, onOpenDashcam,
+  onOpenRearCam, onOpenDashcam, smart,
 }: Props) {
   const { theme } = useCarTheme();
   const [voiceOpenFallback, setVoiceOpenFallback] = useState(false);
@@ -477,19 +479,19 @@ export const NewHomeLayout = memo(function NewHomeLayout({
   const base = baseOf(theme);
 
   if (base === 'tesla') {
-    return <TeslaLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} />;
+    return <TeslaLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
   if (base === 'audi') {
-    return <AudiLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} />;
+    return <AudiLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
   if (base === 'mercedes') {
-    return <MercedesLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} />;
+    return <MercedesLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
   if (base === 'cockpit') {
-    return <CockpitLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} />;
+    return <CockpitLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
   if (base === 'pro') {
-    return <ProLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} onOpenRearCam={onOpenRearCam} onOpenDashcam={onOpenDashcam} />;
+    return <ProLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} onOpenRearCam={onOpenRearCam} onOpenDashcam={onOpenDashcam} smart={smart} />;
   }
 
   // fallback — original dark premium layout

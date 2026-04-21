@@ -96,16 +96,97 @@ const _listeners = new Set<(s: MediaState) => void>();
 const FOCUS_LOCK_MS = 5_000;
 let _focusLockUntil = 0;
 
-/* ── Issue 2: albumArt hash cache ───────────────────────────── */
+/* ── albumArt hash cache ─────────────────────────────────── */
 let _lastArtHash = 0;
 
-/* ── Issue 5: Session grace period — otomotiv standardı ─────
+/* ── Session grace period — otomotiv standardı ───────────────
  * ISO 15008 / Android Auto: oturum kapanınca ekran anında boşalmamalı.
  * 3 saniyelik grace penceresi arada-sırada kapanan/açılan oturumların
  * (parça değişimi, sistem geçişleri) boş ekran flaşını engeller.
  */
 const SESSION_GRACE_MS = 3_000;
 let _sessionFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+/* ── Linear Interpolation Engine ─────────────────────────────
+ * Problem: 5 saniyelik poll periyodu progress-bar'da 5s'de-bir takılmaya
+ * neden olur. Çözüm: playing=true iken her 100ms positionSec'i sanal
+ * olarak artır. Gerçek veri gelince sarsıntısız senkronize et.
+ *
+ * Senkronizasyon kuralı (POSITION_DRIFT_S eşiği):
+ *   |native_pos - interp_pos| ≤ 2s → interpolated değeri koru (animasyon düzgün)
+ *   |native_pos - interp_pos| >  2s → snap (kullanıcı seek etti / parça değişti)
+ *
+ * Session Grace Period ve Focus Lock ile entegrasyon:
+ *   - Grace timer tetiklendiğinde interpolasyon durdurulur.
+ *   - Focus Lock interpolasyonu etkilemez — zaten aynı session.
+ */
+const INTERP_TICK_MS   = 100;   // 10 Hz — pürüzsüz progress için yeterli
+const POSITION_DRIFT_S = 2.0;   // Bu eşiğin üstünde native pozisyona snap yap
+
+let _interpTimer: ReturnType<typeof setInterval> | null = null;
+
+function _startInterpolation(): void {
+  if (_interpTimer) return;
+  _interpTimer = setInterval(() => {
+    if (!_current.playing || !_current.hasSession) return;
+    const dur = _current.track.durationSec;
+    const cap = dur > 0 ? dur : Infinity;
+    const next = Math.min(_current.track.positionSec + INTERP_TICK_MS / 1000, cap);
+    if (next === _current.track.positionSec) return; // dur sınırına dayandık
+    _current = { ..._current, track: { ..._current.track, positionSec: next } };
+    _listeners.forEach((fn) => fn(_current));
+  }, INTERP_TICK_MS);
+}
+
+function _stopInterpolation(): void {
+  if (_interpTimer) { clearInterval(_interpTimer); _interpTimer = null; }
+}
+
+/* ── Metadata Resilience — Sanitizer Katmanı ─────────────────
+ * Bluetooth ve düşük kaliteli kaynaklardan gelen null / "Unknown"
+ * metadata değerleri için akıllı fallback metinleri üretir.
+ * Paket adından anlamlı uygulama adı türetilir (ör: "Spotify Sinyali").
+ *
+ * Session Grace Period entegrasyonu: bu katman applyNativeMediaInfo
+ * içinde Focus Lock ve Grace kontrolünden SONRA çalışır — mimariyi bozmaz.
+ */
+
+/** Temiz olmayan değer tespiti */
+const BAD_METADATA = new Set(['', 'unknown', 'null', 'undefined', '<unknown>', 'none', '-']);
+function _isBadMeta(v: string | undefined | null): boolean {
+  if (!v) return true;
+  const t = v.trim().toLowerCase();
+  return BAD_METADATA.has(t) || t.startsWith('<') || v.trim().length < 2;
+}
+
+/** Paket adından insan-okunabilir uygulama adı çıkar (PACKAGE_LABEL yoksa) */
+function _deriveAppLabel(pkg: string): string {
+  if (!pkg) return 'Medya';
+  const known = PACKAGE_LABEL[pkg];
+  if (known) return known;
+  // com.spotify.music → ['com','spotify','music'] → 'Spotify'
+  const parts = pkg.split('.');
+  const skip  = new Set(['com', 'org', 'net', 'android', 'google', 'app', 'apps', 'mobile', 'music', 'player', 'audio']);
+  const word  = parts.find((p) => p.length > 2 && !skip.has(p));
+  return word ? word.charAt(0).toUpperCase() + word.slice(1) : 'Medya';
+}
+
+/** Metadata sanitizer — akıllı fallback ile title/artist döner */
+function _sanitizeMetadata(
+  rawTitle:  string | undefined | null,
+  rawArtist: string | undefined | null,
+  pkg:       string,
+): { title: string; artist: string } {
+  const title  = _isBadMeta(rawTitle)  ? null : rawTitle!.trim();
+  const artist = _isBadMeta(rawArtist) ? null : rawArtist!.trim();
+  if (title && artist) return { title, artist };
+
+  const label = _deriveAppLabel(pkg);
+  return {
+    title:  title  ?? `${label} Sinyali`,
+    artist: artist ?? label,
+  };
+}
 
 /* ── Push API ────────────────────────────────────────────── */
 
@@ -115,6 +196,15 @@ export function updateMediaState(partial: Partial<MediaState>): void {
     ...partial,
     track: partial.track ? { ..._current.track, ...partial.track } : _current.track,
   };
+
+  // Interpolation lifecycle: playing && hasSession ise başlat, aksi hâlde durdur.
+  // stopMediaHub() da _stopInterpolation() çağırır — sızıntı riski yok.
+  if (_current.playing && _current.hasSession) {
+    _startInterpolation();
+  } else {
+    _stopInterpolation();
+  }
+
   _listeners.forEach((fn) => fn(_current));
 }
 
@@ -336,10 +426,14 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
       _sessionFallbackTimer = null;
     }
 
-    const incomingTitle  = info.title  || _current.track.title;
-    const incomingArtist = info.artist || _current.track.artist;
+    /* ── Metadata Sanitizer ─────────────────────────────────────────
+     * Focus Lock ve Grace kontrolünden geçtikten sonra çalışır.
+     * null/"Unknown" değerleri akıllı paket-tabanlı metinlerle doldurur.
+     */
+    const { title: incomingTitle, artist: incomingArtist } =
+      _sanitizeMetadata(info.title, info.artist, pkg);
 
-    /* ── Issue 2: albumArt Memoization ──────────────────────────────
+    /* ── albumArt Memoization ───────────────────────────────────────
      * Base64 kapak ~20–80 KB. Poll döngüsünde aynı kapağı tekrar
      * bridge'den state'e taşımak gereksiz GC baskısı yaratır.
      * DJB2 hash karşılaştırması: sadece parça değişince güncelle.
@@ -351,8 +445,18 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
         _lastArtHash = incomingHash;
         albumArt     = info.albumArt;
       }
-      // Hash aynıysa: albumArt referansını koru — string kopyalama yok
     }
+
+    /* ── Smooth Position Sync (Interpolation Engine) ────────────────
+     * 5s poll'dan gelen native pozisyon ile 100ms interpolasyonlu
+     * pozisyon arasındaki farkı değerlendir:
+     *   ≤ POSITION_DRIFT_S → interpolated değeri koru (pürüzsüz animasyon)
+     *   > POSITION_DRIFT_S → native pozisyona snap (seek / parça değişimi)
+     */
+    const nativePos   = info.positionMs > 0 ? info.positionMs / 1000 : _current.track.positionSec;
+    const drift       = Math.abs(nativePos - _current.track.positionSec);
+    const positionSec = drift <= POSITION_DRIFT_S ? _current.track.positionSec : nativePos;
+    const durationSec = info.durationMs > 0 ? info.durationMs / 1000 : _current.track.durationSec;
 
     // Hiçbir anlamlı değişiklik yoksa listener'ları tetikleme
     if (
@@ -370,11 +474,11 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
       activePackage: pkg,
       activeAppName: appName,
       track: {
-        title:       incomingTitle,
-        artist:      incomingArtist,
+        title:  incomingTitle,
+        artist: incomingArtist,
         albumArt,
-        durationSec: info.durationMs > 0 ? Math.round(info.durationMs / 1000) : _current.track.durationSec,
-        positionSec: info.positionMs > 0 ? Math.round(info.positionMs / 1000) : _current.track.positionSec,
+        durationSec,
+        positionSec,
       },
     });
   } catch (e) {
@@ -471,8 +575,9 @@ export function stopMediaHub(): void {
     _hubListenerStop = null;
     try { stop(); } catch (e) { logError('Media:StopHub', e); }
   }
-  // Grace timer temizle — unmount sonrası stale state update olmasın
+  // Grace timer + interpolation temizle — unmount sonrası stale update olmasın
   if (_sessionFallbackTimer) { clearTimeout(_sessionFallbackTimer); _sessionFallbackTimer = null; }
+  _stopInterpolation();
   _focusLockUntil = 0;
   _lastArtHash    = 0;
 }

@@ -84,7 +84,12 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
           if (map.isStyleLoaded()) {
             setMapReady(true);
           } else {
+            // B39: style.load timeout — style hiç gelmezse sonsuza bekleme
+            const styleTimeout = setTimeout(() => {
+              if (!cancelled) setMapReady(true);
+            }, 8000);
             map.once('style.load', () => {
+              clearTimeout(styleTimeout);
               if (!cancelled) setMapReady(true);
             });
           }

@@ -7,6 +7,8 @@
  * - getErrorLog() for debug screen / support exports
  */
 
+import { safeGetRaw, safeSetRawImmediate, safeRemoveRaw, safeLruEvict } from '../utils/safeStorage';
+
 const LOG_KEY    = 'cl_crash_log';
 const MAX_ENTRIES = 50;
 
@@ -24,7 +26,7 @@ function _ensureLoaded(): void {
   if (_loaded) return;
   _loaded = true;
   try {
-    const raw = localStorage.getItem(LOG_KEY);
+    const raw = safeGetRaw(LOG_KEY);
     if (raw) _log = JSON.parse(raw) as CrashEntry[];
   } catch {
     _log = [];
@@ -34,12 +36,19 @@ function _ensureLoaded(): void {
 function _persist(): void {
   try {
     const trimmed = _log.slice(-MAX_ENTRIES);
-    localStorage.setItem(LOG_KEY, JSON.stringify(trimmed));
+    const serialized = JSON.stringify(trimmed);
+    // Bypass debounce — crash log must land on disk immediately
+    try {
+      safeSetRawImmediate(LOG_KEY, serialized);
+    } catch {
+      // Quota exceeded — evict low-priority data and retry once
+      safeLruEvict();
+      try { safeSetRawImmediate(LOG_KEY, serialized); } catch { /* give up */ }
+    }
     _log = trimmed;
   } catch {
-    // localStorage quota exhausted — reset silently
     _log = [];
-    try { localStorage.removeItem(LOG_KEY); } catch { /* ignore */ }
+    try { safeRemoveRaw(LOG_KEY); } catch { /* ignore */ }
   }
 }
 
@@ -73,5 +82,5 @@ export function getErrorLog(): CrashEntry[] {
  */
 export function clearErrorLog(): void {
   _log = [];
-  try { localStorage.removeItem(LOG_KEY); } catch { /* ignore */ }
+  safeRemoveRaw(LOG_KEY);
 }

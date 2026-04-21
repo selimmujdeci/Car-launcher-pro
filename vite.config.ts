@@ -93,6 +93,19 @@ function removeLayers(css: string): string {
 }
 
 export default defineConfig({
+  optimizeDeps: {
+    // Vite 8/rolldown CJS interop fix: react-i18next → use-sync-external-store/shim
+    // require("react") çağrısı React chunk'u hazır olmadan çalıştığında null döner.
+    // include listesi bu paketleri React ile aynı pre-bundle oturumuna çeker.
+    include: [
+      'react',
+      'react-dom',
+      'react-i18next',
+      'i18next',
+      'i18next-browser-languagedetector',
+      'use-sync-external-store/shim',
+    ],
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -116,6 +129,10 @@ export default defineConfig({
       },
     },
     rollupOptions: {
+      input: {
+        main:  'index.html',
+        admin: 'admin.html',
+      },
       output: {
         manualChunks(id: string) {
           if (id.includes('node_modules/maplibre-gl'))        return 'vendor-maplibre';

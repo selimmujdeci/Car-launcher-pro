@@ -1,9 +1,12 @@
 import { memo, useState, lazy, Suspense, useRef, useCallback } from 'react';
+import type { CSSProperties } from 'react';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
+const Vehicle3DViewer = lazy(() => import('../camera/Vehicle3DViewer').then(m => ({ default: m.Vehicle3DViewer })));
+
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
-  Gauge, Thermometer, Fuel, Mic, Settings, Navigation,
+  Gauge, Thermometer, Fuel, Mic, Settings, Navigation, Box,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
@@ -14,6 +17,8 @@ import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { resolveAndNavigate } from '../../platform/addressNavigationEngine';
 import { APP_MAP, type AppItem } from '../../data/apps';
+import type { SmartSnapshot } from '../../platform/smartEngine';
+import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ══════════════════════════════════════════
    TESLA THEME — Model S Plaid Cockpit
@@ -28,6 +33,7 @@ interface Props {
   appMap:         Record<string, AppItem>;
   dockIds:        string[];
   fullMapOpen?:   boolean;
+  smart?:         SmartSnapshot;
 }
 
 /* Tema sabitleri CSS custom property olarak index.css [data-theme="tesla"]'da tanımlı.
@@ -48,12 +54,8 @@ const TeslaHeader = memo(function TeslaHeader({ onOpenApps, onOpenSettings, onVo
   const device = useDeviceStatus();
 
   return (
-    <div className="flex items-center justify-between px-6 flex-shrink-0"
-      style={{
-        height: 56,
-        background: 'rgba(0,0,0,0.98)',
-        borderBottom: `1px solid ${T_BORDER}`,
-      }}>
+    <div className="flex items-center justify-between px-6 flex-shrink-0 h-14 bg-black/[0.98]"
+      style={{ borderBottom: `1px solid ${T_BORDER}` }}>
 
       {/* Sol: Tesla logo + saat */}
       <div className="flex items-center gap-5">
@@ -128,8 +130,7 @@ const TeslaMap = memo(function TeslaMap({ onOpenMap, fullMapOpen, onVoice }: { o
 
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
-          ? <div className="w-full h-full flex flex-col items-center justify-center gap-3"
-              style={{ background: '#0a0a0a' }}>
+          ? <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[#0a0a0a]">
               <div className="text-sm font-light" style={{ color: T_DIM }}>Harita açık</div>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
@@ -159,14 +160,14 @@ const TeslaMap = memo(function TeslaMap({ onOpenMap, fullMapOpen, onVoice }: { o
         </div>
         <button
           onClick={onVoice}
-          className="flex items-center justify-center rounded-xl transition-all active:scale-95 flex-shrink-0"
-          style={{ width: 44, height: 44, background: 'rgba(227,25,55,0.12)', border: '1px solid rgba(227,25,55,0.28)' }}
+          className="w-11 h-11 flex items-center justify-center rounded-xl transition-all active:scale-95 flex-shrink-0"
+          style={{ background: 'rgba(227,25,55,0.12)', border: '1px solid rgba(227,25,55,0.28)' }}
         >
           <Mic className="w-4 h-4" style={{ color: T_RED }} />
         </button>
         <div className="px-3 py-2 rounded-xl text-center" style={{ background: 'rgba(227,25,55,0.08)', border: `1px solid rgba(227,25,55,0.18)` }}>
           <div style={{ fontSize: 9, color: T_DIM, letterSpacing: '0.1em', textTransform: 'uppercase' }}>ETA</div>
-          <div className="font-medium tabular-nums mt-0.5" style={{ fontSize: 13, color: T_TEXT }}>18:45</div>
+          <div className="font-medium tabular-nums mt-0.5" style={{ fontSize: 13, color: T_TEXT }}>--:--</div>
         </div>
       </div>
     </div>
@@ -178,11 +179,12 @@ const TeslaSpeed = memo(function TeslaSpeed() {
   const obd = useOBDState();
   const gps = useGPSLocation();
   const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
-  const rpm  = obd.rpm        ?? 929;
-  const temp = obd.engineTemp ?? 88;
-  const fuel = obd.fuelLevel  ?? 68;
+  const rpm  = obd.rpm        ?? 0;
+  const temp = obd.engineTemp ?? 0;
+  const fuel = obd.fuelLevel  ?? 0;
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
+  const [show3D, setShow3D] = useState(false);
 
   const R = 78, cx = 100, cy = 105;
   const pct = Math.min(speedKmh / 200, 1);
@@ -198,28 +200,57 @@ const TeslaSpeed = memo(function TeslaSpeed() {
     <div className="flex flex-col h-full overflow-hidden"
       style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}>
 
-      {/* Hız göstergesi */}
-      <div className="flex-1 flex items-center justify-center relative">
-        <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
-          <svg width="100%" height="100%" viewBox="0 0 200 210">
-            <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="10" strokeLinecap="round" />
-            {pct > 0.01 && (
-              <path d={arc(135, fillAngle)} fill="none" stroke={T_RED} strokeWidth="10" strokeLinecap="round"
-                style={{ filter: `drop-shadow(0 0 7px rgba(227,25,55,0.55))` }} />
-            )}
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 8 }}>
-            <div className="font-light tabular-nums leading-none" style={{ fontSize: 'var(--lp-speed-font, 58px)', color: T_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
-              {speedKmh}
+      {/* 3D / Gösterge toggle başlık */}
+      <div className="flex items-center justify-between px-3 pt-2 pb-1 flex-shrink-0">
+        <div style={{ fontSize: 9, color: T_DIM, letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 600 }}>
+          {show3D ? '3D ARAÇ' : 'HIZ GÖSTERGESİ'}
+        </div>
+        <button
+          onClick={() => setShow3D(v => !v)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-all"
+          style={{
+            background: show3D ? 'rgba(227,25,55,0.15)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${show3D ? 'rgba(227,25,55,0.35)' : T_BORDER}`,
+          }}>
+          <Box className="w-3.5 h-3.5" style={{ color: show3D ? T_RED : T_DIM }} />
+        </button>
+      </div>
+
+      {show3D ? (
+        /* 3D Viewer modu */
+        <div className="flex-1 min-h-0">
+          <Suspense fallback={
+            <div className="w-full h-full flex items-center justify-center">
+              <div style={{ fontSize: 11, color: T_DIM }}>Yükleniyor…</div>
             </div>
-            <div className="font-light mt-1.5 uppercase" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.45em' }}>
-              km/h
+          }>
+            <Vehicle3DViewer accentColor="#E31937" fps={30} autoRotate />
+          </Suspense>
+        </div>
+      ) : (
+        /* Klasik hız göstergesi */
+        <div className="flex-1 flex items-center justify-center relative">
+          <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
+            <svg width="100%" height="100%" viewBox="0 0 200 210">
+              <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="10" strokeLinecap="round" />
+              {pct > 0.01 && (
+                <path d={arc(135, fillAngle)} fill="none" stroke={T_RED} strokeWidth="10" strokeLinecap="round"
+                  style={{ filter: `drop-shadow(0 0 7px rgba(227,25,55,0.55))` }} />
+              )}
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
+              <div className="font-light tabular-nums leading-none" style={{ fontSize: 'var(--lp-speed-font, 58px)', color: T_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
+                {speedKmh}
+              </div>
+              <div className="font-light mt-1.5 uppercase" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.45em' }}>
+                km/h
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Veri çubukları */}
+      {/* Veri çubukları — her iki modda da gösterilir */}
       <div className="flex flex-shrink-0 gap-2 pb-4 px-4">
         <TDataRow Icon={Gauge}       label="RPM"   value={rpm.toLocaleString()} warn={false} />
         <TDataRow Icon={Thermometer} label="ISIL"  value={`${Math.round(temp)}°`} warn={tempWarn} />
@@ -281,8 +312,8 @@ const TeslaMusic = memo(function TeslaMusic() {
           className="w-12 h-12 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
           style={{ background: T_RED, boxShadow: `0 4px 18px rgba(227,25,55,0.38)` }}>
           {playing
-            ? <Pause className="w-5 h-5" style={{ color: '#ffffff' }} />
-            : <Play  className="w-5 h-5 ml-0.5" style={{ color: '#ffffff' }} />
+            ? <Pause className="w-5 h-5 text-white" />
+            : <Play  className="w-5 h-5 ml-0.5 text-white" />
           }
         </button>
         <button onClick={() => next()} className="active:scale-90 transition-all p-2.5">
@@ -315,11 +346,8 @@ const TeslaApps = memo(function TeslaApps({ appMap, onLaunch }: { appMap: Record
 const TeslaDock = memo(function TeslaDock({ appMap, dockIds, onLaunch }: { appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void }) {
   const apps = dockIds.slice(0, 12).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
   return (
-    <div className="flex-shrink-0"
-      style={{
-        background: 'rgba(0,0,0,0.98)',
-        borderTop: `1px solid ${T_BORDER}`,
-      }}>
+    <div className="flex-shrink-0 bg-black/[0.98]"
+      style={{ borderTop: `1px solid ${T_BORDER}` }}>
       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
         {apps.map(({ id, app }) => (
           <button key={id} onClick={() => onLaunch(id)}
@@ -336,7 +364,7 @@ const TeslaDock = memo(function TeslaDock({ appMap, dockIds, onLaunch }: { appMa
 
 /* ─── TESLA LAYOUT ────────────────────────────────────────────── */
 export const TeslaLayout = memo(function TeslaLayout({
-  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen, smart,
 }: Props) {
   const [voiceOpen, setVoiceOpen] = useState(false);
   return (
@@ -350,19 +378,26 @@ export const TeslaLayout = memo(function TeslaLayout({
 
       <div className="flex-1 min-h-0 flex overflow-hidden"
         style={{
+          flexDirection: 'var(--l-flex-dir, row)' as CSSProperties['flexDirection'],
           gap: 'var(--lp-space-sm, 8px)',
           padding: 'var(--lp-space-sm, 8px)',
           paddingLeft: 'calc(var(--lp-space-sm, 8px) + var(--lp-side-pad, 0px))',
           paddingRight: 'calc(var(--lp-space-sm, 8px) + var(--lp-side-pad, 0px))',
         }}>
 
-        {/* Sol — Harita (büyük) */}
-        <div className="flex-[1.8] min-w-0 min-h-0">
+        {/* Sol/Üst — Harita + Magic Card overlay */}
+        <div className="min-w-0 min-h-0 relative" style={{ flex: 'var(--l-map-flex, 1.8 1 0%)' }}>
           <TeslaMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} onVoice={() => setVoiceOpen(true)} />
+          {smart && smart.predictions.length > 0 && (
+            <div className="absolute bottom-14 left-2 right-2 z-20">
+              <MagicContextCard smart={smart} variant="tesla" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+            </div>
+          )}
         </div>
 
-        {/* Sağ — Hız + Müzik */}
-        <div data-tesla-right className="flex flex-col gap-2 min-h-0" style={{ width: 'var(--lp-right-panel, 200px)', flexShrink: 0 }}>
+        {/* Sağ/Alt — Hız + Müzik */}
+        <div data-tesla-right className="flex flex-col gap-2 min-h-0"
+          style={{ width: 'var(--l-right-panel, var(--lp-right-panel, 200px))', flexShrink: 0 }}>
           <div className="flex-1 min-h-0">
             <TeslaSpeed />
           </div>

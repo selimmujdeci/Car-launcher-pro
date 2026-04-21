@@ -69,6 +69,9 @@ let _lastObd      = 0;
 let _obdSource: OBDData['source'] = 'none';
 let _lastGpsKmh: number | null    = null;
 let _mismatchCnt  = 0;
+let _lastMismatchMs = 0;
+/** B34: ardışık uyuşmazlık bu süreden uzun aralıklıysa "consecutive" sayılmaz */
+const MISMATCH_WINDOW_MS = 10_000;
 let _lastNotifyMs = 0;
 let _initialized  = false;
 
@@ -86,7 +89,10 @@ function _computeAndNotify(): void {
     if (gpsOk) {
       const diff = Math.abs(_lastObd - _lastGpsKmh!);
       if (diff > PLAUSIBILITY_KMH) {
+        // B34: pencere dışındaki eski uyuşmazlık "consecutive" değil — sıfırla
+        if (Date.now() - _lastMismatchMs > MISMATCH_WINDOW_MS) _mismatchCnt = 0;
         _mismatchCnt++;
+        _lastMismatchMs = Date.now();
         if (_mismatchCnt >= PLAUSIBILITY_LIMIT) {
           // OBD şüpheli — GPS'e geç
           raw    = _lastGpsKmh!;

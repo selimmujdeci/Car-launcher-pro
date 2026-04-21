@@ -309,6 +309,7 @@ export default function MainLayout() {
           fullMapOpen={fullMapOpen}
           onOpenRearCam={() => setRearCamOpen(true)}
           onOpenDashcam={() => setDrawer('dashcam')}
+          smart={smart}
         />
       </div>
 

@@ -165,13 +165,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
   }, [drivingMode]);
 
-  // Fetch route when navigation starts
+  // Fetch route when navigation starts or destination changes during active navigation
   useEffect(() => {
     if (isNavigating && destination) {
       const loc = locationRef.current;
-      const fromLat = loc?.latitude  ?? destination.latitude;
-      const fromLon = loc?.longitude ?? destination.longitude;
-      fetchRoute(fromLat, fromLon, destination.latitude, destination.longitude);
+      // B1: Konum null ise destination'ı origin olarak kullanma — hatalı rota üretir.
+      // GPS henüz gelmemişse rota isteğini atla; konum gelince locationRef güncellenecek.
+      if (!loc) return;
+      fetchRoute(loc.latitude, loc.longitude, destination.latitude, destination.longitude);
       setIsPreview(true);
     } else if (!isNavigating) {
       setIsPreview(false);
@@ -179,7 +180,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       clearRoute();
       routeGeometryRef.current = null;
     }
-  }, [isNavigating]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isNavigating, destination]); // B5: destination bağımlılığı — reroute'da yeni rota fetch edilsin
 
   // Draw / update route line on map when geometry arrives
   useEffect(() => {

@@ -11,6 +11,8 @@ import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
+import type { SmartSnapshot } from '../../platform/smartEngine';
+import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ══════════════════════════════════════════════════════════════
    COCKPIT THEME — Airbus A350 / Boeing 787 Glass Cockpit
@@ -25,6 +27,7 @@ interface Props {
   appMap:         Record<string, AppItem>;
   dockIds:        string[];
   fullMapOpen?:   boolean;
+  smart?:         SmartSnapshot;
 }
 
 /* Tema renkleri CSS custom property — index.css [data-theme="cockpit"] */
@@ -201,7 +204,7 @@ const PFD = memo(function PFD() {
       <div className="flex flex-col h-full">
 
         {/* Yapay ufuk alanı */}
-        <div className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
+        <div className="flex-1 relative overflow-hidden min-h-0">
           <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
             <defs>
               <clipPath id="adi-clip">
@@ -319,7 +322,7 @@ const ND = memo(function ND({ onOpenMap, fullMapOpen }: { onOpenMap: () => void;
         {/* Harita */}
         <div className="flex-1 min-h-0 relative overflow-hidden">
           {fullMapOpen
-            ? <div className="w-full h-full flex items-center justify-center" style={{ background: '#050A10' }}>
+            ? <div className="w-full h-full flex items-center justify-center bg-[#050A10]">
                 <span className="text-sm font-mono" style={{ color: C_DIM }}>FULL MAP ACTIVE</span>
               </div>
             : <MiniMapWidget onFullScreenClick={onOpenMap} />
@@ -354,7 +357,7 @@ const ND = memo(function ND({ onOpenMap, fullMapOpen }: { onOpenMap: () => void;
           {/* Hedef overlay — sol alt */}
           <div className="absolute bottom-2 left-2 pointer-events-none">
             <div className="px-2 py-1 rounded text-[9px] font-mono" style={{ background: 'rgba(0,0,0,0.70)', color: C_AMBER }}>
-              DEST — ETA 18:45
+              DEST — ETA --:--
             </div>
           </div>
         </div>
@@ -377,9 +380,9 @@ const ND = memo(function ND({ onOpenMap, fullMapOpen }: { onOpenMap: () => void;
 /* ── EICAS: Engine Indication & Crew Alerting ──────────────── */
 const EICAS = memo(function EICAS({ appMap, onLaunch }: { appMap: Record<string, AppItem>; onLaunch: (id: string) => void }) {
   const obd = useOBDState();
-  const rpm  = obd.rpm        ?? 929;
-  const temp = obd.engineTemp ?? 88;
-  const fuel = obd.fuelLevel  ?? 68;
+  const rpm  = obd.rpm        ?? 0;
+  const temp = obd.engineTemp ?? 0;
+  const fuel = obd.fuelLevel  ?? 0;
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
 
@@ -394,7 +397,7 @@ const EICAS = memo(function EICAS({ appMap, onLaunch }: { appMap: Record<string,
 
           {/* N1 / RPM arc'ı */}
           <div className="flex items-center gap-3">
-            <div style={{ position: 'relative', width: 70, height: 70 }}>
+            <div className="relative w-[70px] h-[70px]">
               <svg width="70" height="70" viewBox="0 0 70 70">
                 <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="6" />
                 <circle cx="35" cy="35" r="28" fill="none" stroke={C_AMBER} strokeWidth="6"
@@ -543,14 +546,13 @@ const MIP = memo(function MIP({ appMap, dockIds, onLaunch }: { appMap: Record<st
 
 /* ── COCKPIT LAYOUT ────────────────────────────────────────── */
 export const CockpitLayout = memo(function CockpitLayout({
-  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen, smart,
 }: Props) {
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: C_BG }}>
 
       {/* CRT scan-line efekti */}
-      <div className="absolute inset-0 pointer-events-none" style={{
-        zIndex: 1,
+      <div className="absolute inset-0 pointer-events-none z-[1]" style={{
         background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)',
       }} />
 
@@ -560,15 +562,22 @@ export const CockpitLayout = memo(function CockpitLayout({
         {/* Glareshield */}
         <Glareshield onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
 
-        {/* Ana panel — 3 kolon */}
+        {/* Ana panel — 3 kolon (ratio-aware) */}
         <div className="flex-1 min-h-0 grid gap-2 p-2 overflow-hidden"
-          style={{ gridTemplateColumns: 'minmax(0,0.85fr) minmax(0,1.20fr) minmax(0,0.95fr)' }}>
+          style={{ gridTemplateColumns: 'var(--l-grid-cols, minmax(0,0.85fr) minmax(0,1.20fr) minmax(0,0.95fr))' }}>
           <PFD />
           <div data-cockpit-nd className="min-h-0 overflow-hidden">
             <ND onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
           </div>
           <EICAS appMap={appMap} onLaunch={onLaunch} />
         </div>
+
+        {/* Magic Context Card — hız göstergesi ekranının alt kısmı */}
+        {smart && smart.predictions.length > 0 && (
+          <div className="px-2 pb-1">
+            <MagicContextCard smart={smart} variant="cockpit" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+          </div>
+        )}
 
         {/* MIP dock */}
         <MIP appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />

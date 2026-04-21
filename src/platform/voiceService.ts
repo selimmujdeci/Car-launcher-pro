@@ -15,8 +15,7 @@ import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { getConfig } from './performanceMode';
 import { speakFeedback } from './ttsService';
-import { askAI, resolveApiKey, type AIProvider, type VehicleContext } from './aiVoiceService';
-import { fromAIResponse } from './intentEngine';
+import { askAI, resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -48,6 +47,9 @@ export interface VoiceState {
 /** Receives every successfully dispatched command. */
 export type CommandHandler = (cmd: ParsedCommand) => void;
 
+/** Receives AI results before they're dispatched — commandExecutor bağlantı noktası. */
+export type AIResultHandler = (result: AIVoiceResult, ctx?: VehicleContext) => void;
+
 /* ── Module-level state ──────────────────────────────────── */
 
 const MAX_HISTORY = 5;
@@ -68,6 +70,7 @@ const INITIAL: VoiceState = {
 let _current: VoiceState = { ...INITIAL };
 const _stateListeners  = new Set<(s: VoiceState) => void>();
 const _commandHandlers = new Set<CommandHandler>();
+const _aiHandlers      = new Set<AIResultHandler>();
 let _lastCommandTime = 0;
 
 function push(partial: Partial<VoiceState>): void {
@@ -90,6 +93,15 @@ function pushHistory(cmd: ParsedCommand): void {
 export function registerCommandHandler(handler: CommandHandler): () => void {
   _commandHandlers.add(handler);
   return () => { _commandHandlers.delete(handler); };
+}
+
+/**
+ * AI sonuçlarını doğrudan alan handler'ı kaydet.
+ * commandExecutor.executeAIResult() buradan tetiklenir.
+ */
+export function registerAIResultHandler(handler: AIResultHandler): () => void {
+  _aiHandlers.add(handler);
+  return () => { _aiHandlers.delete(handler); };
 }
 
 /* ── Core dispatch ───────────────────────────────────────── */
@@ -226,42 +238,21 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     push({ status: 'processing', transcript: trimmed, error: null, suggestions: [] });
 
     const aiResult = await askAI(trimmed, ai.provider, apiKey, ctx);
-    if (aiResult) {
-      const intent = fromAIResponse(aiResult, trimmed);
-      if (intent && intent.type !== 'UNKNOWN') {
-        // Build a synthetic ParsedCommand so dispatch() works uniformly
-        const syntheticCmd: ParsedCommand = {
-          type:       (intent.type.toLowerCase().replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())) as ParsedCommand['type'],
-          raw:        trimmed,
-          confidence: aiResult.confidence,
-          feedback:   aiResult.feedback,
-          priority:   intent.priority,
-        };
-        _lastCommandTime = Date.now();
-        if (ctx?.isDriving) {
-          // Sürüş modu: TTS-only — ekran değişmez, sadece ses + routing
-          dispatchDriving(syntheticCmd);
-        } else {
-          // Normal mod: tam visual feedback
-          push({
-            status:      'success',
-            lastCommand: syntheticCmd,
-            transcript:  trimmed,
-            error:       null,
-            suggestions: [],
-          });
-          pushHistory(syntheticCmd);
-          speakFeedback(aiResult.feedback);
-          _commandHandlers.forEach((fn) => fn(syntheticCmd));
-        }
-        const delays: Record<string, number> = { critical: 2000, high: 2500, normal: 2500 };
+    if (aiResult && aiResult.intent !== 'UNKNOWN' && aiResult.confidence >= 0.45) {
+      _lastCommandTime = Date.now();
+      // commandExecutor handler'larına ilet — TTS + dispatch orada yapılır
+      _aiHandlers.forEach((fn) => fn(aiResult, ctx));
+      if (!ctx?.isDriving) {
+        // Visual feedback: success card göster (TTS commandExecutor'da)
+        push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
+        const delay = aiResult.confidence >= 0.8 ? 2000 : 2500;
         setTimeout(() => {
           try { if (_current.status === 'success') push({ status: 'idle' }); } catch { /* noop */ }
-        }, delays[intent.priority] ?? 2500);
-        return true;
+        }, delay);
       }
+      return true;
     }
-    // AI returned null or UNKNOWN — fall through to error
+    // AI returned null, UNKNOWN, or low confidence — fall through to error
   }
 
   // ── 3. Low-confidence offline match — dispatch anyway ────

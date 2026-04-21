@@ -65,6 +65,23 @@ export interface OBDData {
   fuelRemainingL: number;
   /** Tahmini menzil (km) — ortalama tüketim + kalan yakıt; -1 = hesaplanamadı */
   estimatedRangeKm: number;
+
+  // ── Body status (CAN bus / extended OBD) ──────
+  /** Kapı açıklık durumu — CAN bus kaynaklı; undefined = desteklenmiyor */
+  doors?: {
+    fl:    boolean;  // ön-sol (sürücü)
+    fr:    boolean;  // ön-sağ (yolcu)
+    rl:    boolean;  // arka-sol
+    rr:    boolean;  // arka-sağ
+    trunk: boolean;  // bagaj
+  };
+  /** TPMS lastik basınçları (kPa) — undefined = sensör yok */
+  tpms?: {
+    fl: number;  // ön-sol
+    fr: number;  // ön-sağ
+    rl: number;  // arka-sol
+    rr: number;  // arka-sağ
+  };
 }
 
 /* ── Module state ────────────────────────────────────────── */
@@ -96,6 +113,9 @@ const INITIAL: OBDData = {
   // Computed
   fuelRemainingL: -1,
   estimatedRangeKm: -1,
+  // Body status — undefined until CAN bus data arrives
+  doors: undefined,
+  tpms:  undefined,
 };
 
 // ICE mock starting values
@@ -105,6 +125,8 @@ const MOCK_BASE_ICE = {
   batteryLevel: -1, batteryTemp: -1, range: -1,
   chargingState: 'not_charging' as const, chargingPower: -1, motorPower: -1,
   headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
+  doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
+  tpms:  { fl: 235, fr: 233, rl: 230, rr: 232 },
 };
 
 // EV mock starting values
@@ -114,6 +136,8 @@ const MOCK_BASE_EV = {
   batteryLevel: 74, batteryTemp: 28, range: 185,
   chargingState: 'not_charging' as const, chargingPower: -1, motorPower: 35,
   headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
+  doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
+  tpms:  { fl: 240, fr: 238, rl: 236, rr: 237 },
 };
 
 // Hybrid mock starting values
@@ -123,6 +147,8 @@ const MOCK_BASE_HYBRID = {
   batteryLevel: 48, batteryTemp: 32, range: 290,
   chargingState: 'not_charging' as const, chargingPower: -1, motorPower: 18,
   headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
+  doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
+  tpms:  { fl: 233, fr: 231, rl: 228, rr: 230 },
 };
 
 function _getMockBase(type: VehicleType) {

@@ -71,6 +71,7 @@ function TurnArrow({ mod, type, size = 'lg' }: { mod: string; type: string; size
 /* ── Mesafe formatlayıcı ─────────────────────────────────── */
 
 function fmtTurn(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return '—';
   if (m <  20)   return 'ŞİMDİ';
   if (m < 100)   return `${Math.round(m / 10) * 10} m`;
   if (m < 1000)  return `${Math.round(m / 50) * 50} m`;

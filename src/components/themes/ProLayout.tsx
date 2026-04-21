@@ -1,4 +1,6 @@
 import { memo, useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLayout } from '../../context/LayoutContext';
 import {
   SkipBack, SkipForward, Pause, Play,
@@ -13,6 +15,8 @@ import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
+import type { SmartSnapshot } from '../../platform/smartEngine';
+import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ════════════════════════════════════════════════════════════
    PRO LAYOUT — Dark Automotive Dashboard
@@ -32,6 +36,7 @@ interface Props {
   fullMapOpen?:    boolean;
   onOpenRearCam?:  () => void;
   onOpenDashcam?:  () => void;
+  smart?:          SmartSnapshot;
 }
 
 /* ─── SIDEBAR ─────────────────────────────────────────────────── */
@@ -39,6 +44,7 @@ interface Props {
 const RPM_MAX = 7000;
 
 const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
+  const { t } = useTranslation();
   const obd = useOBDState();
   const rpm = obd.rpm >= 0 ? obd.rpm : 0;
   const throttle = obd.throttle >= 0 ? obd.throttle : 0;
@@ -94,7 +100,7 @@ const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
         fontWeight: 700,
         letterSpacing: '0.14em',
         color: 'rgba(255,255,255,0.28)',
-      }}>RPM</div>
+      }}>{t('common.rpm')}</div>
 
       {/* 7k marker */}
       <div style={{
@@ -140,13 +146,7 @@ const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
             animation: 'rpmWave 1.8s ease-in-out infinite',
           }} />
           {/* Inner shine */}
-          <div style={{
-            position: 'absolute',
-            top: 0, bottom: 0,
-            left: 3, width: 4,
-            borderRadius: 2,
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, transparent 100%)',
-          }} />
+          <div className="absolute inset-y-0 left-[3px] w-1 rounded-sm" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, transparent 100%)' }} />
         </div>
 
         {/* Tick marks */}
@@ -162,14 +162,7 @@ const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
         ))}
 
         {/* Glass glare overlay */}
-        <div style={{
-          position: 'absolute',
-          top: 0, bottom: 0,
-          left: 1, width: 6,
-          borderRadius: '6px 0 0 6px',
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 60%)',
-          pointerEvents: 'none',
-        }} />
+        <div className="absolute inset-y-0 left-px w-1.5 rounded-tl-[6px] rounded-bl-[6px] pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 60%)' }} />
       </div>
 
       {/* 0 marker */}
@@ -197,7 +190,7 @@ const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
       </div>
 
       {/* Throttle label + bar */}
-      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, paddingBottom: 2 }}>
+      <div className="w-full flex flex-col items-center gap-[3px] pb-0.5">
         <div style={{ fontSize: 7, fontFamily: '"Orbitron", monospace', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.1em' }}>GZ</div>
         <div style={{
           width: 28, height: 3, borderRadius: 2,
@@ -224,14 +217,14 @@ const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }:
   const { time, date } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
 
-  // Sun progress (05:42 sunrise → 20:15 sunset)
+  // Sun progress (Adaptive sun calculation - mock fallbacks removed)
   const [sunPct, setSunPct] = useState(0);
   useEffect(() => {
     const calc = () => {
       const now = new Date();
       const cur = now.getHours() * 60 + now.getMinutes();
-      const rise = 5 * 60 + 42;
-      const set_ = 20 * 60 + 15;
+      const rise = 6 * 60;  // 06:00 avg
+      const set_ = 19 * 60; // 19:00 avg
       setSunPct(Math.max(0, Math.min(100, ((cur - rise) / (set_ - rise)) * 100)));
     };
     calc();
@@ -253,7 +246,7 @@ const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }:
       }}
     >
       {/* Time + Date */}
-      <div style={{ flexShrink: 0 }}>
+      <div className="flex-shrink-0">
         <div
           style={{
             fontFamily: '"Orbitron", monospace',
@@ -272,45 +265,36 @@ const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }:
       </div>
 
       {/* Sun progress — center — COMPACT'ta gizlenir */}
-      <div data-sun-bar data-header-center className="flex flex-col items-center gap-1" style={{ flex: 1 }}>
-        <div className="flex items-center gap-3" style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
-          <span className="flex items-center gap-1"><span>☀️</span><span>05:42</span></span>
-          <div style={{ position: 'relative', width: 'clamp(120px, 15vw, 200px)', height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'visible' }}>
-            <div style={{
-              height: '100%',
-              width: `${sunPct}%`,
-              background: 'linear-gradient(90deg, #ff9800, #ffeb3b, #4fc3f7)',
-              borderRadius: 2,
-              position: 'relative',
-            }}>
-              <div style={{
-                position: 'absolute', right: -5, top: -3,
-                width: 10, height: 10,
-                background: '#ffeb3b',
-                borderRadius: '50%',
-                boxShadow: '0 0 8px #ffeb3b',
-              }} />
+      <div data-sun-bar data-header-center className="flex flex-col items-center gap-1 flex-1">
+        <div className="flex items-center gap-3 text-xs text-white/55">
+          <span className="flex items-center gap-1"><span>☀️</span><span>--:--</span></span>
+          <div className="relative w-[clamp(120px,15vw,200px)] h-1 bg-white/10 rounded-sm overflow-visible">
+            <div
+              className="h-full rounded-sm relative"
+              style={{ width: `${sunPct}%`, background: 'linear-gradient(90deg, #ff9800, #ffeb3b, #4fc3f7)' }}
+            >
+              <div className="absolute -right-[5px] -top-[3px] w-2.5 h-2.5 bg-[#ffeb3b] rounded-full" style={{ boxShadow: '0 0 8px #ffeb3b' }} />
             </div>
           </div>
-          <span className="flex items-center gap-1"><span>🌙</span><span>20:15</span></span>
+          <span className="flex items-center gap-1"><span>🌙</span><span>--:--</span></span>
         </div>
       </div>
 
       {/* Status icons */}
-      <div data-header-status className="flex items-center gap-4" style={{ flexShrink: 0 }}>
-        <Bluetooth className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.65)' }} />
+      <div data-header-status className="flex items-center gap-4 flex-shrink-0">
+        <Bluetooth className="w-4 h-4 text-white/65" />
 
         {/* Signal bars */}
-        <div className="flex items-end gap-0.5" style={{ height: 16 }}>
+        <div className="flex items-end gap-0.5 h-4">
           {[4, 7, 10, 14].map((h, i) => (
             <div key={i} style={{ width: 3, height: h, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
           ))}
         </div>
 
-        <Wifi className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.65)' }} />
+        <Wifi className="w-4 h-4 text-white/65" />
 
-        <span style={{ fontFamily: '"Orbitron", monospace', fontSize: 14, color: '#4fc3f7', fontWeight: 600 }}>
-          {device.ready ? `${device.battery}%` : '22°C'}
+        <span className="text-[14px] text-[#4fc3f7] font-semibold" style={{ fontFamily: '"Orbitron", monospace' }}>
+          {device.ready ? `${device.battery}%` : '--°C'}
         </span>
       </div>
     </div>
@@ -319,11 +303,12 @@ const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }:
 
 /* ─── SPEED CARD ───────────────────────────────────────────────── */
 const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { gaugeSize?: number; spaceMd?: number }) {
+  const { t } = useTranslation();
   const obd = useOBDState();
   const gps = useGPSLocation();
   const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
-  const temp = obd.engineTemp ?? 90;
-  const fuel = obd.fuelLevel ?? 68;
+  const temp = obd.engineTemp ?? 0;
+  const fuel = obd.fuelLevel ?? 0;
   const fuelRange = Math.round((fuel / 100) * 750);
 
   // Gauge arc
@@ -425,29 +410,33 @@ const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { g
         {/* Top row */}
         <div className="flex justify-between items-start">
           {/* Speed limit */}
-          <div className="flex flex-col items-center gap-1" style={{ zIndex: 2 }}>
-            <div style={{
-              width: Math.max(gaugeSize * 0.2, 36), height: Math.max(gaugeSize * 0.2, 36), borderRadius: '50%',
-              border: '3px solid #f44336',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(244,67,54,0.12)',
-              boxShadow: '0 0 16px rgba(244,67,54,0.4)',
-            }}>
-              <span style={{ fontFamily: '"Orbitron", monospace', fontSize: Math.max(gaugeSize * 0.074, 13), fontWeight: 700, color: '#f44336' }}>90</span>
+          <div className="flex flex-col items-center gap-1 z-[2]">
+            <div
+              className="rounded-full border-[3px] border-[#f44336] flex items-center justify-center bg-[rgba(244,67,54,0.12)]"
+              style={{
+                width: Math.max(gaugeSize * 0.2, 36),
+                height: Math.max(gaugeSize * 0.2, 36),
+                boxShadow: '0 0 16px rgba(244,67,54,0.4)',
+              }}
+            >
+              <span
+                className="font-bold text-[#f44336]"
+                style={{ fontFamily: '"Orbitron", monospace', fontSize: Math.max(gaugeSize * 0.074, 13) }}
+              >90</span>
             </div>
-            <span style={{ fontSize: spaceMd - 1, color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>Hız Limiti</span>
+            <span className="text-center text-white/55" style={{ fontSize: spaceMd - 1 }}>{t('common.limit')}</span>
           </div>
 
           {/* Drive mode */}
-          <div style={{ textAlign: 'right', zIndex: 2 }}>
-            <div style={{ fontFamily: '"Orbitron", monospace', fontSize: 28, fontWeight: 700, color: '#fff' }}>D</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 2 }}>NORMAL</div>
+          <div className="text-right z-[2]">
+            <div className="text-[28px] font-bold text-white" style={{ fontFamily: '"Orbitron", monospace' }}>D</div>
+            <div className="text-[11px] text-white/50 tracking-[2px]">NORMAL</div>
           </div>
         </div>
 
         {/* Gauge — center */}
         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -52%)', width: gaugeSize, height: gaugeSize, zIndex: 3 }}>
-          <svg viewBox="0 0 260 260" style={{ overflow: 'visible' }}>
+          <svg viewBox="0 0 260 260" className="overflow-visible">
             <defs>
               <linearGradient id="proArcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#4fc3f7" />
@@ -491,15 +480,12 @@ const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { g
         </div>
 
         {/* Bottom info */}
-        <div style={{
-          position: 'absolute', bottom: 14, left: 20, right: 20,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 5,
-        }}>
-          <div className="flex items-center gap-1.5" style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
+        <div className="absolute bottom-3.5 left-5 right-5 flex justify-between items-center z-[5]">
+          <div className="flex items-center gap-1.5 text-[13px] text-white/70">
             <Fuel className="w-4 h-4 opacity-70" />
             <span>{fuelRange} km</span>
           </div>
-          <div className="flex items-center gap-1.5" style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
+          <div className="flex items-center gap-1.5 text-[13px] text-white/70">
             <Thermometer className="w-4 h-4 opacity-70" />
             <span>{Math.round(temp)}°C</span>
           </div>
@@ -507,17 +493,17 @@ const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { g
       </div>
 
       {/* Bottom glow line */}
-      <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: 2,
-        background: 'linear-gradient(90deg, transparent, #4fc3f7, transparent)',
-        boxShadow: '0 0 12px #4fc3f7',
-      }} />
+      <div
+        className="absolute bottom-0 inset-x-0 h-0.5"
+        style={{ background: 'linear-gradient(90deg, transparent, #4fc3f7, transparent)', boxShadow: '0 0 12px #4fc3f7' }}
+      />
     </div>
   );
 });
 
 /* ─── MUSIC CARD ───────────────────────────────────────────────── */
 const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
+  const { t } = useTranslation();
   const { playing, track } = useMediaState();
   const [elapsed, setElapsed] = useState(92); // 1:32
   const total = 228; // 3:48
@@ -533,10 +519,9 @@ const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
 
   return (
     <div
-      className="flex flex-col overflow-hidden"
+      className="flex flex-col overflow-hidden flex-shrink-0"
       style={{
         width,
-        flexShrink: 0,
         borderRadius: 'var(--radius-card, 16px)',
         border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
         background: 'var(--bg-card, #12151d)',
@@ -546,30 +531,18 @@ const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
     >
       {/* Vinyl section */}
       <div
-        className="relative flex items-center justify-center overflow-hidden"
-        style={{
-          flex: 1,
-          background: 'var(--bg-primary, #0d0d16)',
-          minHeight: 0,
-          transition: 'background 0.4s ease',
-        }}
+        className="relative flex items-center justify-center overflow-hidden flex-1 min-h-0"
+        style={{ background: 'var(--bg-primary, #0d0d16)', transition: 'background 0.4s ease' }}
       >
         {/* EQ icon */}
-        <div style={{
-          position: 'absolute', top: 12, left: 12,
-          width: 32, height: 32,
-          background: 'rgba(255,255,255,0.08)',
-          borderRadius: 8,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 5,
-        }}>
+        <div className="absolute top-3 left-3 w-8 h-8 bg-white/[0.08] rounded-lg flex items-center justify-center z-[5]">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="2">
             <path d="M9 19V5m6 11V3M3 17V9m18 4V9" />
           </svg>
         </div>
 
         {/* Vinyl record */}
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="relative flex items-center justify-center">
           <div style={{
             width: 180, height: 180, borderRadius: '50%',
             background: 'radial-gradient(circle at center, #1a1a1a 0%, #0d0d0d 30%, #1a1a1a 31%, #111 35%, #1a1a1a 36%, #111 50%, #1a1a1a 51%, #0d0d0d 100%)',
@@ -577,28 +550,18 @@ const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
             animation: playing ? 'proVinylSpin 4s linear infinite' : 'none',
           }}>
             {/* Album label */}
-            <div style={{
-              position: 'absolute', top: '50%', left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: 70, height: 70,
-              borderRadius: 4,
-              overflow: 'hidden',
-              boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
-            }}>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70px] h-[70px] rounded overflow-hidden" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>
               {track.albumArt
-                ? <img src={track.albumArt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
                 : (
-                  <div style={{
-                    width: '100%', height: '100%',
-                    background: 'linear-gradient(135deg, #4a1942 0%, #8b4513 30%, #c0392b 50%, #e67e22 70%, #f39c12 100%)',
-                  }} />
+                  <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, #4a1942 0%, #8b4513 30%, #c0392b 50%, #e67e22 70%, #f39c12 100%)' }} />
                 )
               }
             </div>
           </div>
 
           {/* Tonearm */}
-          <svg style={{ position: 'absolute', right: 10, top: -10, width: 60, height: 100, pointerEvents: 'none' }} viewBox="0 0 60 100">
+          <svg className="absolute right-2.5 -top-2.5 w-[60px] h-[100px] pointer-events-none" viewBox="0 0 60 100">
             <line x1="50" y1="5" x2="20" y2="82" stroke="rgba(255,220,100,0.75)" strokeWidth="2.5" strokeLinecap="round" />
             <circle cx="50" cy="5" r="5" fill="#333" stroke="rgba(255,220,100,0.6)" strokeWidth="1.5" />
             <circle cx="50" cy="5" r="3" fill="rgba(255,220,100,0.8)" />
@@ -607,17 +570,17 @@ const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
       </div>
 
       {/* Music info */}
-      <div style={{ padding: '14px 16px', background: 'var(--bg-surface, #12151d)', transition: 'background 0.4s ease' }}>
-        <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', marginBottom: 2 }}>
-          {track.title || 'Into The Light'}
+      <div className="px-4 py-3.5" style={{ background: 'var(--bg-surface, #12151d)', transition: 'background 0.4s ease' }}>
+        <div className="text-[17px] font-bold text-white mb-0.5">
+          {track.title || t('common.not_playing')}
         </div>
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginBottom: 10 }}>
-          {track.artist || 'The Weeknd'}
+        <div className="text-[13px] text-white/45 mb-2.5">
+          {track.artist || t('common.no_signal')}
         </div>
 
         {/* Progress */}
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ height: 3, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
+        <div className="mb-2">
+          <div className="h-[3px] bg-white/10 rounded-sm overflow-hidden mb-1">
             <div style={{
               height: '100%',
               width: `${(elapsed / total) * 100}%`,
@@ -626,7 +589,7 @@ const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
               transition: 'width 1s linear',
             }} />
           </div>
-          <div className="flex justify-between" style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', fontFamily: '"Orbitron", monospace' }}>
+          <div className="flex justify-between text-[11px] text-white/[0.38]" style={{ fontFamily: '"Orbitron", monospace' }}>
             <span>{fmt(elapsed)}</span>
             <span>{fmt(total)}</span>
           </div>
@@ -635,26 +598,18 @@ const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
         {/* Controls */}
         <div className="flex items-center justify-center gap-6">
           <button onClick={() => previous()}
-            className="flex items-center justify-center active:scale-90 transition-all"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.55)', padding: 6 }}>
+            className="flex items-center justify-center active:scale-90 transition-all bg-transparent border-none cursor-pointer text-white/55 p-1.5">
             <SkipBack className="w-5 h-5" />
           </button>
           <button onClick={() => togglePlayPause()}
-            className="flex items-center justify-center active:scale-90 transition-all"
-            style={{
-              width: 48, height: 48, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.12)',
-              border: '2px solid rgba(255,255,255,0.2)',
-              cursor: 'pointer', color: '#fff',
-            }}>
+            className="flex items-center justify-center active:scale-90 transition-all w-12 h-12 rounded-full bg-white/[0.12] border-2 border-white/20 cursor-pointer text-white">
             {playing
               ? <Pause className="w-5 h-5 fill-white" />
               : <Play className="w-5 h-5 fill-white ml-0.5" />
             }
           </button>
           <button onClick={() => next()}
-            className="flex items-center justify-center active:scale-90 transition-all"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.55)', padding: 6 }}>
+            className="flex items-center justify-center active:scale-90 transition-all bg-transparent border-none cursor-pointer text-white/55 p-1.5">
             <SkipForward className="w-5 h-5" />
           </button>
         </div>
@@ -669,16 +624,13 @@ function MiniCard({ children, onClick, spaceMd = 10 }: { children: React.ReactNo
     <div
       data-mini-card
       onClick={onClick}
-      className="relative overflow-hidden flex flex-col transition-all active:scale-[0.99]"
+      className={`relative overflow-hidden flex flex-col flex-1 min-w-0 transition-all active:scale-[0.99] ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
       style={{
-        flex: 1,
-        minWidth: 0,
         borderRadius: 'var(--radius-card, 16px)',
         border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
         background: 'var(--bg-card, #12151d)',
         padding: spaceMd + 4,
         boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
-        cursor: onClick ? 'pointer' : 'default',
         transition: 'background 0.4s ease, border-color 0.4s ease',
       }}
     >
@@ -691,38 +643,28 @@ function MiniCard({ children, onClick, spaceMd = 10 }: { children: React.ReactNo
 const NavMiniCard = memo(function NavMiniCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   return (
     <div
+      className="flex-1 overflow-hidden relative cursor-pointer"
       style={{
-        flex: 1,
         borderRadius: 'var(--radius-card, 16px)',
         border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
         background: 'var(--bg-card, #0e1119)',
         boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
-        overflow: 'hidden',
-        position: 'relative',
-        cursor: 'pointer',
         transition: 'background 0.4s ease, border-color 0.4s ease',
       }}
       onClick={onOpenMap}
     >
       {fullMapOpen ? (
-        <div style={{
-          width: '100%', height: '100%',
-          background: 'linear-gradient(160deg,#06101f,#0d1e38)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <MapPin className="w-8 h-8" style={{ color: '#4fc3f7', opacity: 0.5 }} />
+        <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(160deg,#06101f,#0d1e38)' }}>
+          <MapPin className="w-8 h-8 opacity-50 text-[#4fc3f7]" />
         </div>
       ) : (
         <MiniMapWidget onFullScreenClick={onOpenMap} />
       )}
       {/* Expand button overlay */}
-      <div style={{
-        position: 'absolute', top: 8, right: 8, zIndex: 10,
-        width: 28, height: 28, background: 'rgba(0,0,0,0.55)',
-        borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        pointerEvents: 'none',
-      }}>
-        <Maximize2 className="w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.7)' }} />
+      <div
+        className="absolute top-2 right-2 z-10 w-7 h-7 bg-black/55 rounded-lg flex items-center justify-center pointer-events-none"
+      >
+        <Maximize2 className="w-3.5 h-3.5 text-white/70" />
       </div>
     </div>
   );
@@ -730,34 +672,24 @@ const NavMiniCard = memo(function NavMiniCard({ onOpenMap, fullMapOpen }: { onOp
 
 /* ─── PHONE MINI CARD ──────────────────────────────────────────── */
 const PhoneMiniCard = memo(function PhoneMiniCard({ onLaunch, spaceMd }: { onLaunch: (id: string) => void; spaceMd?: number }) {
+  const { t } = useTranslation();
   return (
     <MiniCard spaceMd={spaceMd} onClick={() => onLaunch('phone')}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 4 }}>Telefon</div>
-      <div className="flex items-center gap-1.5" style={{ marginBottom: 4 }}>
-        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#4caf50', boxShadow: '0 0 8px #4caf50', animation: 'proPulse 2s infinite' }} />
-        <span style={{ fontSize: 12, color: '#4caf50', fontWeight: 600 }}>Bağlı</span>
+      <div className="text-[13px] font-semibold text-white/80 mb-1">{t('common.phone')}</div>
+      <div className="flex items-center gap-1.5 mb-1">
+        <div className="w-[7px] h-[7px] rounded-full bg-[#4caf50]" style={{ boxShadow: '0 0 8px #4caf50', animation: 'proPulse 2s infinite' }} />
+        <span className="text-xs text-[#4caf50] font-semibold">{t('common.connected')}</span>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: '50%',
-          background: 'rgba(76,175,80,0.12)',
-          border: '2px solid rgba(76,175,80,0.35)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 0 20px rgba(76,175,80,0.25)',
-        }}>
-          <Phone className="w-6 h-6" style={{ color: '#4caf50' }} />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(76,175,80,0.12)', border: '2px solid rgba(76,175,80,0.35)', boxShadow: '0 0 20px rgba(76,175,80,0.25)' }}>
+          <Phone className="w-6 h-6 text-[#4caf50]" />
         </div>
       </div>
-      <div className="flex justify-around" style={{ paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}
+      <div className="flex justify-around pt-2 border-t border-white/[0.06]"
         onClick={e => e.stopPropagation()}>
         {[User, Star, Clock].map((Icon, i) => (
-          <button key={i} onClick={() => onLaunch('phone')} style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: 'rgba(255,255,255,0.05)',
-            border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Icon className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.45)' }} />
+          <button key={i} onClick={() => onLaunch('phone')} className="w-8 h-8 rounded-lg bg-white/[0.05] border-none cursor-pointer flex items-center justify-center">
+            <Icon className="w-4 h-4 text-white/45" />
           </button>
         ))}
       </div>
@@ -767,35 +699,34 @@ const PhoneMiniCard = memo(function PhoneMiniCard({ onLaunch, spaceMd }: { onLau
 
 /* ─── WEATHER MINI CARD ────────────────────────────────────────── */
 const WeatherMiniCard = memo(function WeatherMiniCard({ spaceMd }: { spaceMd?: number }) {
+  const { t } = useTranslation();
   return (
     <MiniCard spaceMd={spaceMd}>
       {/* Sunset bg */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'linear-gradient(135deg, rgba(180,80,20,0.32) 0%, rgba(120,40,60,0.28) 40%, rgba(20,20,40,0.88) 100%)',
-        borderRadius: 16,
-        pointerEvents: 'none',
-      }} />
-      <div style={{ position: 'relative', zIndex: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 6 }}>Hava Durumu</div>
-        <div className="flex items-center gap-2" style={{ marginBottom: 2 }}>
+      <div
+        className="absolute inset-0 rounded-2xl pointer-events-none"
+        style={{ background: 'linear-gradient(135deg, rgba(180,80,20,0.32) 0%, rgba(120,40,60,0.28) 40%, rgba(20,20,40,0.88) 100%)' }}
+      />
+      <div className="relative z-[2] h-full flex flex-col">
+        <div className="text-[13px] font-semibold text-white/80 mb-1.5">{t('common.weather')}</div>
+        <div className="flex items-center gap-2 mb-0.5">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="1.5">
             <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" />
           </svg>
-          <span style={{ fontFamily: '"Orbitron", monospace', fontSize: 26, fontWeight: 700, color: '#fff' }}>22°C</span>
+          <span className="text-[26px] font-bold text-white" style={{ fontFamily: '"Orbitron", monospace' }}>--°C</span>
         </div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 1 }}>Parçalı Bulutlu</div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 8 }}>İstanbul</div>
-        <div className="flex justify-between" style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="text-[11px] text-white/55 mb-px">{t('common.weather')}</div>
+        <div className="text-[11px] text-white/35 mb-2">Konum belirleniyor...</div>
+        <div className="flex justify-between mt-auto pt-2 border-t border-white/[0.06]">
           {[
-            { t: '12:00', icon: '☀️', temp: '23°' },
-            { t: '15:00', icon: '🌤️', temp: '22°' },
-            { t: '18:00', icon: '☁️', temp: '21°' },
+            { t: '12:00', icon: '☀️', temp: '--°' },
+            { t: '15:00', icon: '🌤️', temp: '--°' },
+            { t: '18:00', icon: '☁️', temp: '--°' },
           ].map((f, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>{f.t}</span>
-              <span style={{ fontSize: 14 }}>{f.icon}</span>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>{f.temp}</span>
+              <span className="text-[10px] text-white/[0.38]">{f.t}</span>
+              <span className="text-sm">{f.icon}</span>
+              <span className="text-[11px] text-white/75 font-semibold">{f.temp}</span>
             </div>
           ))}
         </div>
@@ -806,6 +737,7 @@ const WeatherMiniCard = memo(function WeatherMiniCard({ spaceMd }: { spaceMd?: n
 
 /* ─── APPS MINI CARD ───────────────────────────────────────────── */
 const AppsMiniCard = memo(function AppsMiniCard({ onLaunch, spaceMd }: { onLaunch: (id: string) => void; spaceMd?: number }) {
+  const { t } = useTranslation();
   const apps = [
     { id: 'youtube', icon: '▶️', label: 'YouTube', bg: '#ff0000' },
     { id: 'spotify', icon: '🎵', label: 'Spotify', bg: '#1db954' },
@@ -817,26 +749,23 @@ const AppsMiniCard = memo(function AppsMiniCard({ onLaunch, spaceMd }: { onLaunc
 
   return (
     <MiniCard spaceMd={spaceMd}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 8 }}>Uygulamalar</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, flex: 1 }}>
+      <div className="text-[13px] font-semibold text-white/80 mb-2">{t('common.apps')}</div>
+      <div className="grid grid-cols-3 gap-2 flex-1">
         {apps.map((app) => {
           const nativeApp = APP_MAP[app.id];
           return (
             <button
               key={app.id}
               onClick={() => onLaunch(app.id)}
-              className="flex flex-col items-center gap-1 py-1 rounded-lg active:scale-90 transition-all"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 2px' }}
+              className="flex flex-col items-center gap-1 rounded-lg active:scale-90 transition-all bg-transparent border-none cursor-pointer px-0.5 py-1"
             >
-              <div style={{
-                width: 34, height: 34, borderRadius: 8,
-                background: app.bg,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 16,
-              }}>
+              <div
+                className="w-[34px] h-[34px] rounded-lg flex items-center justify-center text-base"
+                style={{ background: app.bg }}
+              >
                 <span>{nativeApp?.icon || app.icon}</span>
               </div>
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', textAlign: 'center', lineHeight: 1.2 }}>
+              <span className="text-[9px] text-white/45 text-center leading-tight">
                 {nativeApp?.name || app.label}
               </span>
             </button>
@@ -859,17 +788,17 @@ const VehicleMiniCard = memo(function VehicleMiniCard({
   ];
   return (
     <MiniCard spaceMd={spaceMd} onClick={onOpenSettings}>
-      <div className="flex justify-between items-start" style={{ marginBottom: 2 }}>
+      <div className="flex justify-between items-start mb-0.5">
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', lineHeight: 1.2 }}>
-            Araç Durumu <span style={{ color: 'rgba(255,255,255,0.28)', fontSize: 11 }}>›</span>
+          <div className="text-[13px] font-semibold text-white/80 leading-tight">
+            Araç Durumu <span className="text-white/28 text-[11px]">›</span>
           </div>
-          <div style={{ fontSize: 12, color: '#4caf50', fontWeight: 600 }}>Mükemmel</div>
+          <div className="text-xs text-[#4caf50] font-semibold">Mükemmel</div>
         </div>
       </div>
 
       {/* Car illustration */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="flex-1 flex items-center justify-center">
         <svg viewBox="0 0 200 90" width="190" height="80">
           <defs>
             <linearGradient id="proVehBody" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -912,16 +841,11 @@ const VehicleMiniCard = memo(function VehicleMiniCard({
       </div>
 
       {/* Action buttons */}
-      <div className="flex justify-around" style={{ paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}
+      <div className="flex justify-around pt-2 border-t border-white/[0.06]"
         onClick={e => e.stopPropagation()}>
         {vehicleBtns.map(({ Icon, action }, i) => (
-          <button key={i} onClick={action} style={{
-            width: 30, height: 30, borderRadius: 8,
-            background: 'rgba(255,255,255,0.05)',
-            border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Icon className="w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.5)' }} />
+          <button key={i} onClick={action} className="w-[30px] h-[30px] rounded-lg bg-white/[0.05] border-none cursor-pointer flex items-center justify-center">
+            <Icon className="w-3.5 h-3.5 text-white/50" />
           </button>
         ))}
       </div>
@@ -964,7 +888,7 @@ function injectStyles() {
 /* ─── ROOT LAYOUT ──────────────────────────────────────────────── */
 export const ProLayout = memo(function ProLayout({
   onOpenMap, onOpenApps: _onOpenApps, onOpenSettings, onLaunch, fullMapOpen,
-  onOpenRearCam,
+  onOpenRearCam, smart,
 }: Props) {
   injectStyles();
   const { screen, profile } = useLayout();
@@ -990,9 +914,13 @@ export const ProLayout = memo(function ProLayout({
 
   return (
     <div
-      className="flex overflow-hidden"
+      className="flex overflow-hidden w-full h-full"
       data-layout="pro-main"
-      style={{ width: '100%', height: '100%', background: 'var(--bg-primary, #0a0c10)', transition: 'background 0.4s ease' }}
+      style={{
+        flexDirection: 'var(--l-flex-dir, row)' as CSSProperties['flexDirection'],
+        background: 'var(--bg-primary, #0a0c10)',
+        transition: 'background 0.4s ease',
+      }}
     >
       {/* RPM Bar — COMPACT'ta CSS ile gizlenir */}
       <RpmBar width={sidebarW} />
@@ -1003,31 +931,28 @@ export const ProLayout = memo(function ProLayout({
 
         {/* Content */}
         <div
-          style={{
-            flex: 1,
-            padding: '12px 14px',
-            paddingBottom: `${dockTotal + 12}px`,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 11,
-            overflow: 'hidden',
-            minHeight: 0,
-          }}
+          className="flex-1 flex flex-col overflow-hidden min-h-0"
+          style={{ padding: '12px 14px', paddingBottom: `${dockTotal + 12}px`, gap: 11 }}
         >
           {/* Top row: speedo + music */}
-          <div style={{ display: 'flex', gap: profile.spaceSm, height: topRowH, flexShrink: 0, overflow: 'hidden' }}>
+          <div className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: topRowH }}>
             <SpeedCard gaugeSize={gaugeSize} spaceMd={profile.spaceMd} />
             <MusicCard width={musicCardW} />
           </div>
 
           {/* Widget row: always visible, height adapts, COMPACT'ta yatay scroll */}
-          <div data-widget-row style={{ display: 'flex', gap: profile.spaceSm, height: widgetRowH, flexShrink: 0, overflow: 'hidden' }}>
+          <div data-widget-row className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: widgetRowH }}>
             <NavMiniCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
             <PhoneMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
             <WeatherMiniCard spaceMd={profile.spaceMd} />
             <AppsMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
             <VehicleMiniCard onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} onLaunch={onLaunch} spaceMd={profile.spaceMd} />
           </div>
+
+          {/* Magic Context Card — widget sırasının altında, dock üzerinde */}
+          {smart && smart.predictions.length > 0 && (
+            <MagicContextCard smart={smart} variant="pro" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+          )}
         </div>
 
       </div>

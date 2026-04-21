@@ -24,7 +24,7 @@ export const PRESET_VEHICLE_PROFILES: Record<string, Omit<VehicleProfile, 'id' |
     name:          'Fiat Doblo (Hiworld)',
     btDeviceName:  'HIWORLD',          // H1W0FT ünitesinin BT yayın adı
     wifiSSID:      'HIWORLD',          // WiFi hotspot adı (varsa)
-    themePack:     'midnight',         // Düşük güçlü ARM — en hafif tema paketi
+    themePack:     'glass-pro',         // Düşük güçlü ARM — en hafif tema paketi
     defaultNav:    'maps',
     defaultMusic:  'spotify',
     dockAppIds:    ['phone', 'radio', 'navigation'],
@@ -33,7 +33,7 @@ export const PRESET_VEHICLE_PROFILES: Record<string, Omit<VehicleProfile, 'id' |
   fyt_generic: {
     name:         'FYT / SYU Ünite',
     btDeviceName: 'SYU',
-    themePack:    'ambient',
+    themePack:    'glass-pro',
     defaultNav:   'maps',
     defaultMusic: 'spotify',
   },
@@ -41,7 +41,7 @@ export const PRESET_VEHICLE_PROFILES: Record<string, Omit<VehicleProfile, 'id' |
   microntek_generic: {
     name:         'Microntek Ünite',
     btDeviceName: 'MTCD',
-    themePack:    'ambient',
+    themePack:    'glass-pro',
     defaultNav:   'maps',
     defaultMusic: 'spotify',
   },

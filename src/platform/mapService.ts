@@ -234,24 +234,68 @@ export async function initializeMap(
       }
     });
 
-    // WebGL context loss — harita çökmesini yakala ve yeniden başlat
-    map.on('webglcontextlost', () => {
+    // WebGL context loss — sessiz yeniden başlatma (Mali-400 ısınma koruması)
+    let _ctxLostTimer: ReturnType<typeof setTimeout> | null = null;
+    let _ctxRecoveryAttempts = 0;
+    const MAX_RECOVERY_ATTEMPTS = 3;
+
+    map.on('webglcontextlost', (e) => {
+      // Tarayıcının otomatik context restore denemesine izin ver
+      if (e && typeof (e as unknown as { preventDefault?: () => void }).preventDefault === 'function') {
+        (e as unknown as { preventDefault: () => void }).preventDefault();
+      }
       logError('Map:WebGLContextLost', new Error('WebGL context lost'));
       useMapStore.setState({ isReady: false, tileError: true });
 
-      // 2 saniye sonra haritayı yeniden başlatmayı dene
-      setTimeout(() => {
-        const currentContainer = useMapStore.getState().mapInstance?.getContainer();
-        if (!currentContainer) return;
-        destroyMap();
-        initializeMap(currentContainer).catch((e: unknown) => {
-          logError('Map:WebGLRecoveryFailed', e);
-        });
-      }, 2000);
+      // Map state'ini yok etmeden önce kaydet
+      const savedCenter  = map.getCenter();
+      const savedZoom    = map.getZoom();
+      const savedBearing = map.getBearing();
+      const savedPitch   = map.getPitch();
+      const container    = map.getContainer();
+
+      // contextrestored gelirse timer'ı iptal et
+      _ctxLostTimer = setTimeout(() => {
+        _ctxLostTimer = null;
+        if (_ctxRecoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
+          // Maksimum deneme — kullanıcıya bildir, sessiz kal
+          logError('Map:WebGLRecoveryGiveUp', new Error('Max recovery attempts reached'));
+          return;
+        }
+
+        // Üstel geri çekilme: 2s, 4s, 8s
+        _ctxRecoveryAttempts++;
+        const backoffMs = Math.pow(2, _ctxRecoveryAttempts) * 1000;
+
+        setTimeout(() => {
+          if (!container || !document.body.contains(container)) return;
+          destroyMap();
+          initializeMap(container, config).then((newMap) => {
+            // Önceki konuma döndür
+            newMap.once('style.load', () => {
+              newMap.jumpTo({
+                center:  savedCenter,
+                zoom:    savedZoom,
+                bearing: savedBearing,
+                pitch:   savedPitch,
+              });
+              _ctxRecoveryAttempts = 0;
+            });
+          }).catch((e: unknown) => {
+            logError('Map:WebGLRecoveryFailed', e);
+          });
+        }, backoffMs);
+      }, 1500); // 1.5s — tarayıcının otomatik restore penceresi
     });
 
     map.on('webglcontextrestored', () => {
-      useMapStore.setState({ tileError: false });
+      // Tarayıcı context'i kendi restore etti — timer'ı iptal et
+      if (_ctxLostTimer !== null) {
+        clearTimeout(_ctxLostTimer);
+        _ctxLostTimer = null;
+      }
+      _ctxRecoveryAttempts = 0;
+      useMapStore.setState({ tileError: false, isReady: true });
       map.resize();
     });
 
@@ -487,7 +531,11 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
 
   const sourceId = 'user-location';
   const rawSource = map.getSource(sourceId);
-  if (!rawSource) return;
+  // B38: WebGL context loss sonrası yeni haritada source yok — yeniden ekle
+  if (!rawSource) {
+    if (map.isStyleLoaded()) addUserMarker(map, latitude, longitude, heading);
+    return;
+  }
   const source = rawSource as GeoJSONSource;
 
   const feature = {

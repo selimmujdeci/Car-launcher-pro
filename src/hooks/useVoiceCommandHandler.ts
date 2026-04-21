@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
-import { registerCommandHandler } from '../platform/voiceService';
+import { registerCommandHandler, registerAIResultHandler } from '../platform/voiceService';
 import { pause, play, next, previous, getMediaState } from '../platform/mediaService';
 import { bridge } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
@@ -13,6 +13,7 @@ import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
 import type { AppSettings } from '../store/useStore';
 import type { DrawerType } from '../components/layout/DockBar';
+import { executeAIResult } from '../platform/commandExecutor';
 
 interface UseVoiceCommandHandlerParams {
   settings: AppSettings;
@@ -33,6 +34,21 @@ export function useVoiceCommandHandler({
 }: UseVoiceCommandHandlerParams): void {
   const voiceCtxRef = useRef({ settings, smart, handleLaunch, updateSettings, setDrawer, openWeather });
   useEffect(() => { voiceCtxRef.current = { settings, smart, handleLaunch, updateSettings, setDrawer, openWeather }; });
+
+  useEffect(() => {
+    return registerAIResultHandler((aiResult, vehicleCtx) => {
+      const { settings: s, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
+      executeAIResult(aiResult, {
+        vehicleCtx: vehicleCtx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false },
+        defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
+        defaultMusic: s.defaultMusic,
+        launch,
+        setTheme:    (theme) => update({ theme }),
+        openDrawer:  (t) => open(t as DrawerType),
+        openWeather: showWeather,
+      });
+    });
+  }, []);
 
   useEffect(() => {
     return registerCommandHandler((cmd: ParsedCommand) => {
@@ -69,6 +85,10 @@ export function useVoiceCommandHandler({
         volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
         volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
         openWeather:      showWeather,
+        navigateToPlace: (query) => {
+          const gps = getGPSState().location;
+          resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+        },
         playMusicSearch: (appKey, query) =>
           bridge.launchMusicSearch(appKey as MusicOptionKey, query),
 
