@@ -23,7 +23,7 @@ export const PrivacyPolicy = memo(function PrivacyPolicy({ onBack }: Props) {
           </div>
           <div>
             <span className="text-primary text-3xl font-black uppercase tracking-tight">Gizlilik Politikası</span>
-            <div className="text-secondary text-[10px] font-black uppercase tracking-[0.4em] opacity-50 mt-1">Car Launcher Güvenlik Merkezi</div>
+            <div className="text-secondary text-[10px] font-black uppercase tracking-[0.4em] opacity-50 mt-1">Caros Güvenlik Merkezi</div>
           </div>
         </div>
       </div>

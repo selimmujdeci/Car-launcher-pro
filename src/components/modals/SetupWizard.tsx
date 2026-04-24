@@ -82,7 +82,7 @@ export const BootSplash = memo(function BootSplash({ phase }: { phase: 'idle' | 
         </div>
         
         <div className="flex flex-col items-center gap-2">
-          <h1 className="text-primary text-3xl font-black tracking-[0.2em] uppercase">CAR LAUNCHER PRO</h1>
+          <h1 className="text-primary text-3xl font-black tracking-[0.2em] uppercase">Caros Pro</h1>
           <p className="text-blue-400/60 text-xs font-bold tracking-[0.4em] uppercase">Professional Automotive UI</p>
         </div>
 

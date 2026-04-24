@@ -49,7 +49,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
       {/* Title */}
       <div className="flex-1 min-w-0">
         <h1 className="text-sm font-semibold text-white leading-none truncate">{title}</h1>
-        <p className="text-[10px] text-white/30 mt-0.5 hidden sm:block">Car Launcher Pro — Yönetim Paneli</p>
+        <p className="text-[10px] text-white/30 mt-0.5 hidden sm:block">Caros Pro — Yönetim Paneli</p>
       </div>
 
       {/* Right side */}

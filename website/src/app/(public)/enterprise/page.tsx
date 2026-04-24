@@ -3,7 +3,7 @@ import Button from '@/components/Button';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Kurumsal Çözümler — Car Launcher Pro',
+  title: 'Kurumsal Çözümler — Caros Pro',
   description: 'Filo yönetimi, kamu kurumları ve şirket araç takibi için kurumsal platform.',
 };
 

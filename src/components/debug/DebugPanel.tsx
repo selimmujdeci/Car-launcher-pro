@@ -53,7 +53,7 @@ export const DebugPanel = memo(function DebugPanel({ onClose }: { onClose: () =>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700 bg-gray-900 shrink-0">
         <span className="text-green-400 text-sm font-bold tracking-widest">
-          ◈ CAR LAUNCHER DEBUG
+          ◈ Caros DEBUG
         </span>
         <span className="text-gray-600 text-xs">read-only · technician</span>
         <div className="ml-auto flex items-center gap-2">

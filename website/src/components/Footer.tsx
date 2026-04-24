@@ -39,7 +39,7 @@ export default function Footer() {
                   <path d="M8 5v3l2 1.5" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
               </div>
-              <span className="font-semibold text-sm">Car Launcher <span className="text-accent">Pro</span></span>
+              <span className="font-semibold text-sm">Caros <span className="text-accent">Pro</span></span>
             </div>
             <p className="text-white/40 text-sm leading-relaxed max-w-[200px]">
               Araç içi yazılım platformu. Filo yönetimi ve kurumsal çözümler.
@@ -68,7 +68,7 @@ export default function Footer() {
         {/* Bottom */}
         <div className="pt-8 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-white/25 text-xs">
-            © {new Date().getFullYear()} Car Launcher Pro. Tüm hakları saklıdır.
+            © {new Date().getFullYear()} Caros Pro. Tüm hakları saklıdır.
           </p>
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-slow" />

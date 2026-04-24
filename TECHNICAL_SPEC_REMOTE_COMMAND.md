@@ -5,7 +5,7 @@
 **Reference Standards:** Automotive Grade Engineering (Memory, Performance, Data Integrity)
 
 ## 1. Executive Summary
-This document specifies the implementation of a background listener service for the 'Car Launcher Pro' application. The service will subscribe to real-time command events via Supabase, parse incoming JSON into actionable `AppIntent` objects, execute them via the existing `commandExecutor`, and report the execution status back to the cloud.
+This document specifies the implementation of a background listener service for the 'Caros Pro' application. The service will subscribe to real-time command events via Supabase, parse incoming JSON into actionable `AppIntent` objects, execute them via the existing `commandExecutor`, and report the execution status back to the cloud.
 
 ## 2. Strategic Goal
 Enable remote vehicle control (e.g., door locks, climate, navigation pre-load, diagnostics) with < 200ms latency from cloud-to-car, ensuring zero memory leaks and robust error handling.

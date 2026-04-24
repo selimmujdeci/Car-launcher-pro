@@ -141,7 +141,7 @@ Android WebView settings: mixed content allowed, remote debugging enabled in dev
 
 ## 🛡️ Automotive Grade Engineering Standards (CRITICAL)
 
-To ensure "Car Launcher Pro" meets industrial-grade reliability, all code modifications MUST adhere to these standards:
+To ensure "Caros Pro" meets industrial-grade reliability, all code modifications MUST adhere to these standards:
 
 ### 1. Zero-Leak Memory Management
 - **Cleanup Responsibility:** Every `useEffect`, `setInterval`, or `eventListener` MUST have a corresponding cleanup function.

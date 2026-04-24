@@ -34,7 +34,7 @@ export function Sidebar() {
       <div className="flex items-center gap-2 px-4 py-5" style={{ borderBottom: '1px solid var(--adm-border)' }}>
         <Car size={20} style={{ color: 'var(--adm-accent)' }} />
         <span className="font-semibold text-sm tracking-wide" style={{ color: 'var(--adm-text)' }}>
-          Car Launcher
+          Caros
         </span>
       </div>
 

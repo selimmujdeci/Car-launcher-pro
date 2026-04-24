@@ -3,7 +3,7 @@ import './globals.css';
 import PWARegistration from '@/components/layout/PWARegistration';
 
 export const metadata: Metadata = {
-  title: 'Car Launcher Pro — Araç İçi Yazılım Platformu',
+  title: 'Caros Pro — Araç İçi Yazılım Platformu',
   description: 'Filo yönetimi, araç verisi entegrasyonu ve kurumsal kontrol paneli.',
   keywords: 'araç yazılımı, filo yönetimi, OBD, navigasyon, kurumsal',
   manifest: '/manifest.webmanifest',

@@ -147,7 +147,7 @@ export function LinkVehicleModal({ open, onClose, onLinked }: Props) {
                style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
             <Link2 className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
             <p className="text-xs leading-relaxed" style={{ color: 'var(--adm-muted)' }}>
-              Araçtaki Car Launcher uygulamasında <strong className="text-blue-400">Ayarlar → Araç Bağla</strong>{' '}
+              Araçtaki Caros uygulamasında <strong className="text-blue-400">Ayarlar → Araç Bağla</strong>{' '}
               menüsünü açın ve gösterilen 6 haneli kodu buraya girin.{' '}
               <span className="opacity-70">Kod 60 saniye geçerlidir.</span>
             </p>

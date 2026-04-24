@@ -1,7 +1,7 @@
-# 🏛️ CAR LAUNCHER PRO — SİSTEM MANİFESTOSU (ARCHITECTURE)
+# 🏛️ Caros Pro — SİSTEM MANİFESTOSU (ARCHITECTURE)
 
 ## 1. MİMARİ VİZYON (THE NORTH STAR)
-"Car Launcher Pro", otomotiv sınıfı (Automotive-Grade) güvenilirlik, siber güvenlik ve kullanıcı deneyimini tek bir hibrit ekosistemde (Cihaz + Bulut + Mobil) birleştirmeyi hedefler.
+"Caros Pro", otomotiv sınıfı (Automotive-Grade) güvenilirlik, siber güvenlik ve kullanıcı deneyimini tek bir hibrit ekosistemde (Cihaz + Bulut + Mobil) birleştirmeyi hedefler.
 
 ---
 
@@ -67,4 +67,4 @@
 
 ---
 
-*Bu belge, Car Launcher Pro projesinin anayasasıdır. Herhangi bir kod değişikliği bu belgedeki prensiplerle çelişemez.*
+*Bu belge, Caros Pro projesinin anayasasıdır. Herhangi bir kod değişikliği bu belgedeki prensiplerle çelişemez.*

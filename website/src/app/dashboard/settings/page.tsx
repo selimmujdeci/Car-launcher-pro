@@ -8,7 +8,7 @@ export default function SettingsPage() {
           {[
             { label: 'Ad Soyad', placeholder: 'Admin Kullanıcı', type: 'text' },
             { label: 'E-posta', placeholder: 'admin@carlauncher.pro', type: 'email' },
-            { label: 'Şirket', placeholder: 'Car Launcher Pro Ltd.', type: 'text' },
+            { label: 'Şirket', placeholder: 'Caros Pro Ltd.', type: 'text' },
           ].map(({ label, placeholder, type }) => (
             <div key={label}>
               <label className="block text-[11px] text-white/30 mb-1.5 font-medium">{label}</label>

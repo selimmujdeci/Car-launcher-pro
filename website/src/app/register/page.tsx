@@ -81,7 +81,7 @@ function RegisterForm() {
               </svg>
             </div>
             <span className="font-semibold text-base">
-              Car Launcher <span className="text-accent">Pro</span>
+              Caros <span className="text-accent">Pro</span>
             </span>
           </Link>
           <p className="text-white/35 text-sm mt-4">Yeni hesap oluştur</p>

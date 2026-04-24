@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Admin Panel — Car Launcher Pro',
+  title: 'Admin Panel — Caros Pro',
 };
 
 export default function AdminRedirect() {

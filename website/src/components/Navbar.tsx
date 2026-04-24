@@ -41,7 +41,7 @@ export default function Navbar() {
             </svg>
           </div>
           <span className="font-semibold text-sm tracking-tight">
-            Car Launcher <span className="text-accent">Pro</span>
+            Caros <span className="text-accent">Pro</span>
           </span>
         </Link>
 

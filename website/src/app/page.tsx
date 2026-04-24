@@ -85,7 +85,7 @@ export default function Home() {
           </h1>
 
           <p className="text-white/50 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
-            Car Launcher Pro — navigasyon, araç verisi, medya ve filo yönetimini
+            Caros Pro — navigasyon, araç verisi, medya ve filo yönetimini
             tek platformda birleştiren profesyonel araç içi yazılım.
           </p>
 

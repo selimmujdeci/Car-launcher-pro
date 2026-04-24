@@ -101,7 +101,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
             </svg>
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-white leading-none">Car Launcher</p>
+            <p className="text-xs font-semibold text-white leading-none">Caros</p>
             <p className="text-[10px] text-accent leading-none mt-0.5">Pro Panel</p>
           </div>
         </div>

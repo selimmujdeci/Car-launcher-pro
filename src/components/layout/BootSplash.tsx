@@ -45,7 +45,7 @@ export const BootSplash = memo(function BootSplash({ phase }: { phase: BootPhase
         </div>
         
         <div className="text-4xl font-black tracking-[0.4em] uppercase text-primary drop-shadow-2xl">
-          CAR LAUNCHER
+          Caros
         </div>
         <div className="flex items-center gap-4 mt-2">
           <div className="h-px w-12 bg-gradient-to-r from-transparent to-blue-500" />

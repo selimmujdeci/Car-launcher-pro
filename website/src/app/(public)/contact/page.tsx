@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Button from '@/components/Button';
 
 export const metadata: Metadata = {
-  title: 'İletişim — Car Launcher Pro',
+  title: 'İletişim — Caros Pro',
   description: 'Kurumsal demo ve destek için iletişime geçin.',
 };
 

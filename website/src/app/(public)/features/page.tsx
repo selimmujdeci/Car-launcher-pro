@@ -3,7 +3,7 @@ import FeatureCard from '@/components/FeatureCard';
 import Button from '@/components/Button';
 
 export const metadata: Metadata = {
-  title: 'Özellikler — Car Launcher Pro',
+  title: 'Özellikler — Caros Pro',
   description: 'Navigasyon, OBD entegrasyonu, Diagnostic AI ve web kontrol paneli.',
 };
 

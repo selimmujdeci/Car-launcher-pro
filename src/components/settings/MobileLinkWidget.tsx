@@ -250,7 +250,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
 
       <p className="text-[9px] text-white/20 text-center max-w-[220px] leading-relaxed">
         Kod 60 sn geçerlidir ve tek kullanımlıktır.
-        Telefonun Car Launcher uygulamasında eşleşme ekranını aç.
+        Telefonun Caros uygulamasında eşleşme ekranını aç.
       </p>
     </div>
   );
