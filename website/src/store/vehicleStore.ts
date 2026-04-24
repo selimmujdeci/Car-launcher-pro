@@ -1,8 +1,27 @@
 import { create } from 'zustand';
 import { mockVehicles } from '@/lib/mockData';
 import { formatLastSeen } from '@/lib/utils';
-import { TIMING } from '@/lib/constants';
+import { TIMING, ALERT_THRESHOLDS } from '@/lib/constants';
 import type { LiveVehicle, VehicleUpdate, ConnectionStatus } from '@/types/realtime';
+
+// ── Automotive grade: render throttle (20Hz cap) ─────────────────────────────
+// Module-level map — outside Zustand state to avoid triggering re-renders
+const _lastRenderMs = new Map<string, number>();
+
+// ── Sensor resiliency: reject physically impossible data ──────────────────────
+function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
+  // Absolute bounds
+  if (u.speed < 0 || u.speed > 300) return false;
+  if (u.rpm < 0 || u.rpm > 10_000) return false;
+  if (u.engineTemp < -40 || u.engineTemp > 150) return false;
+  if (u.fuel < 0 || u.fuel > 100) return false;
+
+  // Delta bounds — reject impossible jumps (sensor glitch / clock skew)
+  if (Math.abs(u.speed - existing.speed) > 80) return false;
+  if (Math.abs(u.rpm - existing.rpm) > 5_000) return false;
+
+  return true;
+}
 
 // Initial lat/lng per vehicle ID (matches MockRealtimeEngine INITIAL_SIM)
 const INIT_POSITIONS: Record<string, { lat: number; lng: number }> = {
@@ -49,31 +68,33 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
 
   applyUpdate: (update: VehicleUpdate) => {
     const { vehicleId, lat, lng, speed, fuel, engineTemp, rpm, timestamp } = update;
+    const now = Date.now();
 
-    set((state) => {
-      const existing = state.vehicles[vehicleId];
-      if (!existing) return state; // unknown vehicle — ignore
+    // 20Hz throttle — skip update if last render was < RENDER_THROTTLE_MS ago
+    const lastMs = _lastRenderMs.get(vehicleId) ?? 0;
+    if (now - lastMs < TIMING.RENDER_THROTTLE_MS) return;
 
-      const isAlarm = engineTemp > 100 || speed > 90;
+    // Sensor resiliency — reject before touching state
+    const existing = get().vehicles[vehicleId];
+    if (!existing) return;
+    if (!isValidSensorData(update, existing)) return;
 
-      return {
-        vehicles: {
-          ...state.vehicles,
-          [vehicleId]: {
-            ...existing,
-            lat,
-            lng,
-            speed,
-            fuel,
-            engineTemp,
-            rpm,
-            status: isAlarm ? 'alarm' : 'online',
-            lastSeen: formatLastSeen(timestamp),
-            lastTimestamp: timestamp,
-          },
+    _lastRenderMs.set(vehicleId, now);
+
+    const isAlarm = engineTemp > ALERT_THRESHOLDS.ENGINE_TEMP_HIGH_C || speed > ALERT_THRESHOLDS.SPEED_LIMIT_KMH;
+
+    set((state) => ({
+      vehicles: {
+        ...state.vehicles,
+        [vehicleId]: {
+          ...state.vehicles[vehicleId],
+          lat, lng, speed, fuel, engineTemp, rpm,
+          status: isAlarm ? 'alarm' : 'online',
+          lastSeen: formatLastSeen(timestamp),
+          lastTimestamp: timestamp,
         },
-      };
-    });
+      },
+    }));
   },
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),

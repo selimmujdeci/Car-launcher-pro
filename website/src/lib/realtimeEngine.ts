@@ -124,46 +124,56 @@ export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private channel: any = null;
   private vehicleIds: string[] = [];
+  // Zero-leak: prevents connect() promise from completing after disconnect()
+  private _alive = false;
 
   /** Pass the vehicleIds the current user is subscribed to. */
   setVehicleIds(ids: string[]) { this.vehicleIds = ids; }
 
   connect(): void {
+    this._alive = true;
+    this.cb.onConnectionChange('connecting');
+
     // Dynamic import avoids pulling supabase-js into mock-mode bundles
     import('@/lib/supabase').then(({ supabaseBrowser }) => {
+      // Guard: disconnect() may have been called before promise resolved
+      if (!this._alive) return;
+
       if (!supabaseBrowser) {
         this.cb.onConnectionChange('error');
         return;
       }
 
-      this.cb.onConnectionChange('connecting');
-
       this.channel = supabaseBrowser.channel('vehicle-updates');
 
-      // Subscribe to every vehicle the user owns
       for (const id of this.vehicleIds) {
         this.channel.on('broadcast', { event: `v:${id}` }, ({ payload }: { payload: unknown }) => {
+          if (!this._alive) return; // discard late events after disconnect
           const update = payload as import('@/types/realtime').VehicleUpdate;
           this.cb.onUpdate(update);
         });
       }
 
-      this.channel
-        .subscribe((status: string) => {
-          if (status === 'SUBSCRIBED') this.cb.onConnectionChange('connected');
-          if (status === 'CHANNEL_ERROR') this.cb.onConnectionChange('error');
-          if (status === 'CLOSED') this.cb.onConnectionChange('disconnected');
-        });
+      this.channel.subscribe((status: string) => {
+        if (!this._alive) return;
+        if (status === 'SUBSCRIBED')    this.cb.onConnectionChange('connected');
+        if (status === 'CHANNEL_ERROR') this.cb.onConnectionChange('error');
+        if (status === 'CLOSED')        this.cb.onConnectionChange('disconnected');
+      });
     });
   }
 
   disconnect(): void {
+    this._alive = false; // blocks any in-flight connect() from completing
+
     if (this.channel) {
-      import('@/lib/supabase').then(({ supabaseBrowser }) => {
-        supabaseBrowser?.removeChannel(this.channel!);
-      });
+      const ch = this.channel;
       this.channel = null;
+      import('@/lib/supabase').then(({ supabaseBrowser }) => {
+        supabaseBrowser?.removeChannel(ch);
+      });
     }
+
     this.cb.onConnectionChange('disconnected');
   }
 }

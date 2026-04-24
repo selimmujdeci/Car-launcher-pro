@@ -13,6 +13,8 @@ export const TIMING = {
   ALERT_DEBOUNCE_MS: 30_000, // same alert type won't re-fire per vehicle for 30s
   MOCK_UPDATE_INTERVAL_MS: 1_500,
   MAP_THROTTLE_MS: 500,
+  // Automotive grade: cap UI re-renders at 20Hz to protect Mali-400 GPU
+  RENDER_THROTTLE_MS: 50,
 } as const;
 
 // Default geofence — covers Istanbul + surroundings (Kocaeli, Bursa)

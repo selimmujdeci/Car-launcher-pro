@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
-export default function Login() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect') ?? '/dashboard';
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -21,10 +25,45 @@ export default function Login() {
     }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 600));
 
-    localStorage.setItem('auth', 'true');
-    router.push('/dashboard');
+    try {
+      if (isSupabaseConfigured) {
+        // ── Supabase auth — session stored in HttpOnly cookies via @supabase/ssr
+        const { createBrowserClient } = await import('@supabase/ssr');
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        );
+        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        if (authError) {
+          setError('E-posta veya şifre hatalı.');
+          return;
+        }
+      } else {
+        // ── Mock mode: set a cookie so middleware can read it server-side
+        await new Promise((r) => setTimeout(r, 400));
+        document.cookie = 'mock_auth=true; path=/; max-age=86400; SameSite=Lax';
+      }
+
+      router.push(redirect);
+    } catch {
+      setError('Giriş sırasında bir hata oluştu.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSSOLogin = async () => {
+    if (!isSupabaseConfigured) return;
+    const { createBrowserClient } = await import('@supabase/ssr');
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
   };
 
   return (
@@ -84,7 +123,6 @@ export default function Login() {
               />
             </div>
 
-            {/* Error */}
             {error && (
               <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/[0.08] border border-red-500/20 rounded-xl px-3 py-2.5">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
@@ -94,11 +132,6 @@ export default function Login() {
                 {error}
               </div>
             )}
-
-            <div className="flex items-center gap-2.5">
-              <div className="w-4 h-4 rounded-md border border-white/[0.15] bg-white/[0.04] flex-shrink-0 cursor-pointer hover:border-accent/40 transition-colors" />
-              <span className="text-xs text-white/35">Beni hatırla</span>
-            </div>
 
             <button
               type="submit"
@@ -127,7 +160,9 @@ export default function Login() {
 
           <button
             type="button"
-            className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05] transition-colors text-sm text-white/50 hover:text-white/70"
+            onClick={handleSSOLogin}
+            disabled={!isSupabaseConfigured}
+            className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm text-white/50 hover:text-white/70"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="1" y="4" width="14" height="9" rx="2" stroke="currentColor" strokeWidth="1.2"/>
@@ -144,13 +179,22 @@ export default function Login() {
           </Link>
         </p>
 
-        {/* Demo hint */}
-        <div className="mt-4 p-3 rounded-xl border border-accent/15 bg-accent/[0.04] text-center">
-          <p className="text-[11px] text-white/30">
-            Demo: herhangi bir e-posta + şifre ile giriş yapabilirsiniz
-          </p>
-        </div>
+        {!isSupabaseConfigured && (
+          <div className="mt-4 p-3 rounded-xl border border-accent/15 bg-accent/[0.04] text-center">
+            <p className="text-[11px] text-white/30">
+              Demo: herhangi bir e-posta + şifre ile giriş yapabilirsiniz
+            </p>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+export default function Login() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
