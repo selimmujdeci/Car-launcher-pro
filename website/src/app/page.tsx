@@ -3,6 +3,8 @@ import FeatureCard from '@/components/FeatureCard';
 import Button from '@/components/Button';
 import MockDashboard from '@/components/MockDashboard';
 import PWAInstallButton from '@/components/PWAInstallButton';
+import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 
 const features = [
   {
@@ -63,6 +65,7 @@ const stats = [
 export default function Home() {
   return (
     <>
+      <Navbar />
       {/* ── Hero ── */}
       <section className="relative min-h-screen flex flex-col items-center pt-16 overflow-hidden">
         <div className="absolute inset-0 grid-bg" />
@@ -273,6 +276,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      <Footer />
     </>
   );
 }
