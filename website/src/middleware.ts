@@ -1,4 +1,3 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -9,23 +8,23 @@ export async function middleware(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   if (!isProtected) return NextResponse.next();
 
-  // Clone response so we can forward refreshed auth cookies downstream
-  const response = NextResponse.next({ request: { headers: request.headers } });
-
   const url  = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // ── Demo / mock mode (no Supabase env vars) ───────────────────────────────
   if (!url || !anon) {
+    // Mock mode: cookie check
     if (request.cookies.get('mock_auth')?.value !== 'true') {
       const dest = new URL('/login', request.url);
       dest.searchParams.set('redirect', pathname);
       return NextResponse.redirect(dest);
     }
-    return response;
+    return NextResponse.next();
   }
 
-  // ── Supabase SSR — HttpOnly cookie session ────────────────────────────────
+  // Supabase SSR — dynamic import keeps @supabase/ssr out of edge bundle
+  const { createServerClient } = await import('@supabase/ssr');
+  const response = NextResponse.next({ request: { headers: request.headers } });
+
   const supabase = createServerClient(url, anon, {
     cookies: {
       getAll: () => request.cookies.getAll(),
@@ -38,9 +37,7 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // getUser() validates the JWT server-side — never trust getSession() alone
   const { data: { user } } = await supabase.auth.getUser();
-
   if (!user) {
     const dest = new URL('/login', request.url);
     dest.searchParams.set('redirect', pathname);
