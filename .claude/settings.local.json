@@ -38,7 +38,11 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(npx next *)",
       "Bash(echo \"BUILD_EXIT:$?\")",
-      "Bash(grep -v \"//.*icon\\\\|loadIcon\\\\|adaptive\\\\|imagereader\\\\|camera\\\\|media\\\\|album\")"
+      "Bash(grep -v \"//.*icon\\\\|loadIcon\\\\|adaptive\\\\|imagereader\\\\|camera\\\\|media\\\\|album\")",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git stash *)",
+      "Bash(npx vercel *)"
     ]
   }
 }

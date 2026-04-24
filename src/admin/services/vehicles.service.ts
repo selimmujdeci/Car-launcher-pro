@@ -14,9 +14,6 @@
 import { supabase }             from '../lib/supabaseClient'
 import { listLinkedVehicles }   from './vehicleLinking.service'
 import type { Vehicle, FuelType, VehicleStatus } from '../types'
-import { MOCK_VEHICLES }        from './mock.data'
-
-const USE_SUPABASE = Boolean(import.meta.env.VITE_SUPABASE_URL)
 
 /* ── DB row shape ────────────────────────────────────────────── */
 
@@ -73,10 +70,6 @@ function toPatch(patch: Partial<Vehicle>): Record<string, unknown> {
   return db
 }
 
-/* ── Mock fallback store ─────────────────────────────────────── */
-
-let _mockStore: Vehicle[] = [...MOCK_VEHICLES]
-
 /* ── Public API ─────────────────────────────────────────────── */
 
 /**
@@ -87,8 +80,6 @@ let _mockStore: Vehicle[] = [...MOCK_VEHICLES]
  *                   Omit to let RLS filter automatically (returns all companies).
  */
 export async function listVehicles(companyId?: string): Promise<Vehicle[]> {
-  if (!USE_SUPABASE) return [..._mockStore]
-
   // ── Company vehicles ──────────────────────────────────────
   let q = supabase
     .from('vehicles')
@@ -123,13 +114,6 @@ export async function listVehicles(companyId?: string): Promise<Vehicle[]> {
  * Returns the updated Vehicle with joined driver/company data.
  */
 export async function updateVehicle(id: string, patch: Partial<Vehicle>): Promise<Vehicle> {
-  if (!USE_SUPABASE) {
-    const idx = _mockStore.findIndex((v) => v.id === id)
-    if (idx === -1) throw new Error('Araç bulunamadı')
-    _mockStore[idx] = { ..._mockStore[idx], ...patch }
-    return _mockStore[idx]
-  }
-
   const { data, error } = await supabase
     .from('vehicles')
     .update(toPatch(patch))
@@ -150,11 +134,6 @@ export async function updateVehicle(id: string, patch: Partial<Vehicle>): Promis
  * Delete vehicle. Supabase RLS requires admin+ role.
  */
 export async function deleteVehicle(id: string): Promise<void> {
-  if (!USE_SUPABASE) {
-    _mockStore = _mockStore.filter((v) => v.id !== id)
-    return
-  }
-
   const { error } = await supabase.from('vehicles').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }

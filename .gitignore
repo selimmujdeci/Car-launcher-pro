@@ -25,6 +25,7 @@ dist-ssr
 # Next.js build output
 website/.next/
 website/out/
+website/website/
 
 # Editor directories and files
 .vscode/*
@@ -36,3 +37,4 @@ website/out/
 *.njsproj
 *.sln
 *.sw?
+.vercel
