@@ -32,12 +32,13 @@ function RegisterForm() {
         return;
       }
       const supabase = getSupabaseBrowserClient();
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
       const { error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: fullName.trim() },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${siteUrl}/auth/callback`,
         },
       });
       if (authError) {
