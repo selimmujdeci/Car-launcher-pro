@@ -34,7 +34,7 @@ export async function fetchVehicles(): Promise<LiveVehicle[]> {
     .from('vehicles')
     .select('id, plate, name, driver_name, odometer_km, company_id')
     .order('created_at', { ascending: false });
-  if (vehiclesError) throw vehiclesError;
+  if (vehiclesError) throw new Error(vehiclesError.message ?? 'vehicles sorgusu başarısız');
 
   const rows = (vehicles ?? []) as VehicleRow[];
   const ids = rows.map((v) => v.id);
@@ -52,8 +52,8 @@ export async function fetchVehicles(): Promise<LiveVehicle[]> {
       .in('vehicle_id', ids),
   ]);
 
-  if (locationsError) throw locationsError;
-  if (telemetryError) throw telemetryError;
+  if (locationsError) throw new Error(locationsError.message ?? 'vehicle_locations sorgusu başarısız');
+  if (telemetryError) throw new Error(telemetryError.message ?? 'vehicle_telemetry sorgusu başarısız');
 
   const latestLocationByVehicle = new Map<string, LocationRow>();
   for (const location of (locations ?? []) as LocationRow[]) {

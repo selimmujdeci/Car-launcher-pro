@@ -1,24 +1,26 @@
-# PROJECT PROGRESS CHECKPOINT — 22 Nisan 2026 (Saat 21:15)
+# 📈 Proje İlerleme Durumu ve Stratejik Yol Haritası
 
-## Mevcut Durum (Status Quo) - RELEASE CANDIDATE (RC1) 🚀
-- **System Integrity:** Araç, Bulut ve Mobil üçgeni otomotiv standartlarında (Zero-Leak, Sensor Resiliency, Write Throttling) %100 bağlı ve sertleştirilmiş.
-- **Personalization:** Live Design Studio ve Dinamik Duvar Kağıdı motoru aktif.
-- **Stability:** Kritik disk I/O ve geofence flooding sorunları giderildi.
+## ✅ TAMAMLANANLAR (Phase 1: App)
+- [x] PWA ve Dashboard altyapısı (Next.js 14).
+- [x] Supabase Prodüksiyon Entegrasyonu (Auth, RLS, Realtime).
+- [x] "Arabam Cebimde" bireysel kullanıcı mimarisi.
+- [x] Uzaktan Komut Motoru (Route Send, Lock, Unlock, etc.).
+- [x] Detaylı Durum Takibi (Accepted, Executing, Completed timestamps).
+- [x] Haptic & Audio Feedback entegrasyonu.
 
-## Tamamlanan Kritik Dosyalar (Son 4 Saat)
-- `src/platform/geofenceService.ts` (Geofence 2.0: Multi-zone, Polygon, Hysteresis/Flooding Protection)
-- `src/platform/navigationService.ts` (Offline Search Fallback: 50-item fuzzy search history)
-- `src/store/useStore.ts` (Write Throttling: eMMC Life Protection - 4s debounce persist)
-- `website/src/app/manifest.ts` & `PWARegistration.tsx` (PWA Infrastructure & Mobile Polish)
-- `src/components/settings/MobileLinkWidget.tsx` (QR Render Visibility Fix)
-- `src/components/obd/MaintenancePanel.tsx` (Maintenance 2.0: AI Assessment & Real Odometer Integration)
+## 🚀 ŞU ANKİ ODAK (Phase 2: System Integration)
+- **Hedef:** Uygulama katmanından Sistem katmanına geçiş.
+- [ ] **Native Command Service:** Android tarafında WebView'dan bağımsız çalışan servis.
+- [ ] **Push-to-Wake:** Akü tasarrufu için FCM entegrasyonu (WebSocket yerine).
+- [ ] **Hardware Bridge:** Android Serial API ile CAN-BUS/OBD-II derin entegrasyonu.
+- [ ] **E2E Encryption:** Komut payload'larının cihaz bazlı AES-256 ile şifrelenmesi.
 
-## Teknik Başarılar (Milestones)
-- **Offline-First Navigation:** İnternet kopsa dahi geçmiş verilerle anında navigasyon başlatma kabiliyeti.
-- **Hardware Longevity:** eMMC ömrünü koruyan akıllı yazma algoritması (4s buffer).
-- **Sensor Resiliency:** GPS jitter ve veri selini önleyen Hysteresis mantığı.
-- **Digital Twin:** Mobil PWA artık tam ekran ikonik uygulama deneyimi sunuyor.
+## 🏰 GELECEK VİZYONU (Phase 3: ROM / AOSP)
+- **Hedef:** Tam Bağımsızlık.
+- [ ] **AOSP Kernel Customization:** Gereksiz servislerin temizlenmiş olduğu özel Android çekirdeği.
+- [ ] **System UI Replacement:** Android'in kendi status bar ve navigasyonunu iptal edip tamamen "Arabam Cebimde" kabuğuna bürünmesi.
+- [ ] **Deep Integration:** Aracın HVAC (Klima) ve ADAS (Sürüş Destek) sistemlerine doğrudan hükmetme.
 
-## Teknik Anayasa
-- **Mühendislik:** Zero-Leak, Sensor Resiliency, Write Throttling.
-- **Siber Güvenlik:** VAPID Auth + Bearer Key Validation + AES-256 Storage.
+---
+**Son Güncelleme:** 24 Nisan 2026
+**Durum:** System Phase'e Geçiş Başladı
