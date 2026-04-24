@@ -2,9 +2,9 @@ import { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Car Launcher Pro — Dashboard',
-    short_name: 'CLP Dashboard',
-    description: 'Car Launcher Pro — Automotive Dashboard & Fleet Control',
+    name: 'Arabam Cebimde',
+    short_name: 'Arabam',
+    description: 'Arabam Cebimde — Aracınızı avucunuzun içinden yönetin',
     start_url: '/dashboard',
     display: 'standalone',
     orientation: 'portrait',

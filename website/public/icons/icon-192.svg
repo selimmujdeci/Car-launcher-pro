@@ -1,6 +1,32 @@
 <svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="192" height="192" rx="40" fill="black"/>
-  <path d="M40 100L96 44L152 100L96 156L40 100Z" stroke="#22D3EE" stroke-width="8" stroke-linejoin="round"/>
-  <circle cx="96" cy="100" r="20" fill="#22D3EE"/>
-  <path d="M60 100H132" stroke="#22D3EE" stroke-width="4" stroke-linecap="round"/>
+  <!-- App background -->
+  <rect width="192" height="192" rx="44" fill="#060D1A"/>
+  <!-- Subtle grid -->
+  <rect width="192" height="192" rx="44" fill="url(#grid)" opacity="0.06"/>
+  <!-- Glow -->
+  <ellipse cx="96" cy="88" rx="60" ry="48" fill="#3B82F6" opacity="0.08"/>
+  <!-- Car body -->
+  <path d="M42 110 L56 82 Q60 74 70 72 L122 72 Q132 74 136 82 L150 110 L150 124 Q150 130 144 130 L48 130 Q42 130 42 124 Z" fill="#0F1E35" stroke="#3B82F6" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Windshield -->
+  <path d="M66 72 L76 92 L116 92 L126 72 Z" fill="#1E3A5F" stroke="#3B82F6" stroke-width="1.5" stroke-linejoin="round" opacity="0.8"/>
+  <!-- Wheels -->
+  <circle cx="70" cy="130" r="16" fill="#060D1A" stroke="#3B82F6" stroke-width="2.5"/>
+  <circle cx="70" cy="130" r="7" fill="#3B82F6" opacity="0.6"/>
+  <circle cx="122" cy="130" r="16" fill="#060D1A" stroke="#3B82F6" stroke-width="2.5"/>
+  <circle cx="122" cy="130" r="7" fill="#3B82F6" opacity="0.6"/>
+  <!-- Headlights -->
+  <rect x="44" y="104" width="16" height="6" rx="3" fill="#60A5FA" opacity="0.9"/>
+  <rect x="132" y="104" width="16" height="6" rx="3" fill="#60A5FA" opacity="0.9"/>
+  <!-- Signal lines -->
+  <path d="M36 108 L28 104 M36 113 L26 113 M36 118 L28 122" stroke="#3B82F6" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+  <path d="M156 108 L164 104 M156 113 L166 113 M156 118 L164 122" stroke="#3B82F6" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+  <!-- Lock icon center -->
+  <rect x="84" y="88" width="24" height="18" rx="3" fill="#3B82F6" opacity="0.9"/>
+  <path d="M89 88 L89 84 Q89 79 96 79 Q103 79 103 84 L103 88" stroke="#3B82F6" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <circle cx="96" cy="97" r="2.5" fill="#060D1A"/>
+  <defs>
+    <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
+      <path d="M 12 0 L 0 0 0 12" fill="none" stroke="white" stroke-width="0.5"/>
+    </pattern>
+  </defs>
 </svg>

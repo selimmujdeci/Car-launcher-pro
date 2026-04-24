@@ -1,6 +1,23 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="100" fill="black"/>
-  <path d="M100 260L256 104L412 260L256 416L100 260Z" stroke="#22D3EE" stroke-width="20" stroke-linejoin="round"/>
-  <circle cx="256" cy="260" r="50" fill="#22D3EE"/>
-  <path d="M150 260H362" stroke="#22D3EE" stroke-width="10" stroke-linecap="round"/>
+  <rect width="512" height="512" rx="112" fill="#060D1A"/>
+  <ellipse cx="256" cy="230" rx="160" ry="128" fill="#3B82F6" opacity="0.07"/>
+  <path d="M100 292 L148 212 Q158 192 178 188 L334 188 Q354 192 364 212 L412 292 L412 332 Q412 348 396 348 L116 348 Q100 348 100 332 Z" fill="#0F1E35" stroke="#3B82F6" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M174 188 L200 244 L312 244 L338 188 Z" fill="#1E3A5F" stroke="#3B82F6" stroke-width="4" stroke-linejoin="round" opacity="0.8"/>
+  <circle cx="180" cy="348" r="44" fill="#060D1A" stroke="#3B82F6" stroke-width="6"/>
+  <circle cx="180" cy="348" r="19" fill="#3B82F6" opacity="0.6"/>
+  <circle cx="332" cy="348" r="44" fill="#060D1A" stroke="#3B82F6" stroke-width="6"/>
+  <circle cx="332" cy="348" r="19" fill="#3B82F6" opacity="0.6"/>
+  <rect x="108" y="275" width="44" height="16" rx="8" fill="#60A5FA" opacity="0.9"/>
+  <rect x="360" y="275" width="44" height="16" rx="8" fill="#60A5FA" opacity="0.9"/>
+  <path d="M92 280 L70 272 M92 296 L66 296 M92 312 L70 320" stroke="#3B82F6" stroke-width="4.5" stroke-linecap="round" opacity="0.5"/>
+  <path d="M420 280 L442 272 M420 296 L446 296 M420 312 L442 320" stroke="#3B82F6" stroke-width="4.5" stroke-linecap="round" opacity="0.5"/>
+  <rect x="218" y="228" width="76" height="58" rx="10" fill="#3B82F6" opacity="0.9"/>
+  <path d="M232 228 L232 212 Q232 194 256 194 Q280 194 280 212 L280 228" stroke="#3B82F6" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <circle cx="256" cy="257" r="8" fill="#060D1A"/>
+  <rect width="512" height="512" rx="112" fill="url(#g512)" opacity="0.04"/>
+  <defs>
+    <pattern id="g512" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="white" stroke-width="1"/>
+    </pattern>
+  </defs>
 </svg>
