@@ -22,6 +22,10 @@ dist-ssr
 *.jsk
 *.keystore
 
+# Next.js build output
+website/.next/
+website/out/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
