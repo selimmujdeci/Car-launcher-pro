@@ -28,7 +28,7 @@ export default function KumandaPage() {
 
   return (
     <div
-      className="min-h-screen flex flex-col overflow-hidden"
+      className="min-h-[100dvh] flex flex-col"
       style={{ background: '#060d1a' }}
     >
       {/* Ambient glow */}

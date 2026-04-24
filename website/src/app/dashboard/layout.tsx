@@ -11,7 +11,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-[#060d1a] overflow-hidden">
+    <div className="flex h-[100dvh] bg-[#060d1a] overflow-hidden">
       {/* Mobile drawer backdrop */}
       <div
         className={`fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden transition-opacity duration-300 ${
