@@ -177,7 +177,7 @@ describe('(b) Offline Komut Zaman Aşımı', () => {
     );
 
     // Realtime 'completed' eventi simüle et
-    capturedCallback?.({ new: { status: 'completed' } });
+    (capturedCallback as ((arg: { new: Record<string, unknown> }) => void) | null)?.({ new: { status: 'completed' } });
 
     // 10s ileri sar — timeout gelmemeli
     vi.advanceTimersByTime(10_001);
