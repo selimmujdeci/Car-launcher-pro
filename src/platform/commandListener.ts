@@ -24,8 +24,8 @@ async function getSupabase() {
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
 export type CommandType =
-  | 'lock' | 'unlock' | 'horn' | 'alarm'
-  | 'route_send' | 'navigation_start' | 'theme_change';
+  | 'lock' | 'unlock' | 'horn' | 'alarm_on' | 'alarm_off'
+  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change';
 
 interface VehicleCommand {
   id:         string;
@@ -77,8 +77,16 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
         await nativeCoreService.honkHorn?.();
         return 'completed';
 
-      case 'alarm':
+      case 'alarm_on':
         await nativeCoreService.triggerAlarm?.();
+        return 'completed';
+
+      case 'alarm_off':
+        await nativeCoreService.stopAlarm?.();
+        return 'completed';
+
+      case 'lights_on':
+        await nativeCoreService.flashLights?.();
         return 'completed';
 
       case 'route_send':
@@ -114,8 +122,14 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
 
       case 'theme_change': {
         const theme = String(payload.theme ?? 'dark');
+        const themeVars = payload.themeVars as Record<string, string> | undefined;
         // Tema motoru entegrasyonu
         document.documentElement.setAttribute('data-theme', theme);
+        if (themeVars && typeof themeVars === 'object') {
+          Object.entries(themeVars).forEach(([k, v]) => {
+            document.documentElement.style.setProperty(k, String(v));
+          });
+        }
         localStorage.setItem('theme', theme);
         return 'completed';
       }
@@ -138,9 +152,17 @@ async function updateCommandStatus(
 ): Promise<void> {
   const supabase = await getSupabase();
   if (!supabase) return;
+
+  const now = new Date().toISOString();
+  const updates: Record<string, unknown> = { status, updated_at: now };
+
+  if (status === 'accepted')                                        updates.accepted_at = now;
+  if (status === 'executing')                                       updates.executed_at = now;
+  if (status === 'completed' || status === 'failed' || status === 'rejected') updates.finished_at = now;
+
   const { error } = await supabase
     .from('vehicle_commands')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq('id', commandId);
   if (error) console.error('[CommandListener] Status güncelleme hatası:', error.message);
 }
@@ -235,7 +257,7 @@ export class CommandListener {
   private async handleCommand(cmd: VehicleCommand): Promise<void> {
     // 1. TTL kontrolü
     if (new Date(cmd.ttl) < new Date()) {
-      await updateCommandStatus(cmd.id, 'rejected');
+      await updateCommandStatus(cmd.id, 'failed');
       return;
     }
 

@@ -20,16 +20,19 @@
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    height: 100%;
-    overflow: hidden;
+    min-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
   }
   body {
     background-color: #000000;
     color: #ffffff;
     font-family: 'Inter', system-ui, sans-serif;
-    height: 100%;
-    overflow: hidden;
+    min-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
     padding: var(--sat) var(--sar) var(--sab) var(--sal);
+    position: relative !important;
   }
   ::selection {
     background-color: rgba(59, 130, 246, 0.3);

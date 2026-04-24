@@ -162,8 +162,9 @@ export async function sendAndTrack(
   type:      CommandType,
   payload:   CommandPayload,
   onStatus:  (ev: StatusEvent) => void,
+  options:   SendCommandOptions = {},
 ): Promise<{ unsubscribe: () => void; result: SendResult }> {
-  const result = await sendCommand(vehicleId, type, payload, {});
+  const result = await sendCommand(vehicleId, type, payload, options);
   if (!result.ok || !result.commandId) {
     return { unsubscribe: () => {}, result };
   }

@@ -1,31 +1,37 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import MobileCarControl from '@/components/dashboard/MobileCarControl';
+import PairingScreen from '@/components/pwa/PairingScreen';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useRealtime } from '@/hooks/useRealtime';
 
 export default function KumandaPage() {
   useRealtime();
-  const loading = useVehicleStore((s) => s.loading);
-  const error = useVehicleStore((s) => s.error);
+  const loading  = useVehicleStore((s) => s.loading);
+  const error    = useVehicleStore((s) => s.error);
   const vehicles = useVehicleStore((s) => s.getList());
+
   const vehicle = useMemo(
     () => vehicles.find((v) => v.status === 'online') ?? vehicles[0] ?? null,
     [vehicles],
   );
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     void useVehicleStore.getState().initializeFromSupabase();
   }, []);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const noPairedVehicle = !loading && !error && vehicles.length === 0;
 
   return (
     <div
       className="min-h-screen flex flex-col overflow-hidden"
       style={{ background: '#060d1a' }}
     >
-      {/* Glow */}
+      {/* Ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-64 rounded-full bg-blue-500/[0.06] blur-[80px]" />
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-80 h-48 rounded-full bg-blue-600/[0.04] blur-[60px]" />
@@ -56,7 +62,9 @@ export default function KumandaPage() {
           </div>
           <div>
             <p className="text-white font-bold text-sm leading-none">Arabam Cebimde</p>
-            <p className="text-white/30 text-[10px] mt-0.5">Canli Baglanti</p>
+            <p className="text-white/30 text-[10px] mt-0.5">
+              {noPairedVehicle ? 'Araç Eşleştir' : 'Canlı Bağlantı'}
+            </p>
           </div>
         </div>
 
@@ -79,9 +87,25 @@ export default function KumandaPage() {
           }}
         >
           {loading ? (
-            <div className="text-sm text-white/60">Arac verileri yukleniyor...</div>
+            <div className="flex items-center justify-center gap-3 py-10 text-sm text-white/50">
+              <svg className="animate-spin w-5 h-5" viewBox="0 0 20 20" fill="none">
+                <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
+                <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              Araç verileri yükleniyor…
+            </div>
           ) : error ? (
-            <div className="text-sm text-red-300/80">Supabase baglanti hatasi: {error}</div>
+            <div className="py-6 text-center">
+              <p className="text-sm text-red-300/80">Bağlantı hatası: {error}</p>
+              <button
+                onClick={reload}
+                className="mt-3 text-xs text-blue-400/70 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/[0.06]"
+              >
+                Tekrar Dene
+              </button>
+            </div>
+          ) : noPairedVehicle ? (
+            <PairingScreen onPaired={reload} />
           ) : (
             <MobileCarControl vehicle={vehicle} />
           )}
@@ -96,7 +120,7 @@ export default function KumandaPage() {
         <div className="flex items-center justify-around py-2">
           {[
             {
-              label: 'Kumanda', active: true,
+              label: 'Kumanda', active: !noPairedVehicle,
               icon: (
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                   <rect x="4" y="9" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5"/>
@@ -106,7 +130,7 @@ export default function KumandaPage() {
               ),
             },
             {
-              label: 'Harita', active: false,
+              label: 'Eşleştir', active: noPairedVehicle,
               icon: (
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                   <path d="M10 2C7.24 2 5 4.24 5 7c0 3.75 5 11 5 11s5-7.25 5-11c0-2.76-2.24-5-5-5z" stroke="currentColor" strokeWidth="1.5"/>
@@ -124,7 +148,7 @@ export default function KumandaPage() {
                 </svg>
               ),
             },
-          ].map(({ label, active, href, icon }) => (
+          ].map(({ label, active, href, icon }) =>
             href ? (
               <Link key={label} href={href} className="flex flex-col items-center gap-1 py-1 px-4 text-white/30">
                 {icon}
@@ -140,7 +164,7 @@ export default function KumandaPage() {
                 <span className="text-[9px] font-semibold">{label}</span>
               </button>
             )
-          ))}
+          )}
         </div>
       </nav>
     </div>
