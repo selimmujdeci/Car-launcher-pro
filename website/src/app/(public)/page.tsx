@@ -2,6 +2,7 @@ import Link from 'next/link';
 import FeatureCard from '@/components/FeatureCard';
 import Button from '@/components/Button';
 import MockDashboard from '@/components/MockDashboard';
+import PWAInstallButton from '@/components/PWAInstallButton';
 
 const features = [
   {
@@ -85,7 +86,7 @@ export default function Home() {
             tek platformda birleştiren profesyonel araç içi yazılım.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-14">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-6">
             <Button href="/login" size="lg">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
@@ -99,6 +100,11 @@ export default function Home() {
                 <path d="M3 7h8M7 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </Button>
+          </div>
+
+          {/* PWA install — Arabam Cebimde */}
+          <div className="flex justify-center mb-14">
+            <PWAInstallButton />
           </div>
 
           {/* Stats */}

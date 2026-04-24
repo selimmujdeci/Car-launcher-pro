@@ -8,7 +8,6 @@ import VehicleModal from '@/components/dashboard/VehicleModal';
 import LiveMap from '@/components/map/LiveMap';
 import { GeofenceAlertsPanel } from '@/components/dashboard/GeofenceAlertsPanel';
 import { RemoteCommandPanel } from '@/components/dashboard/RemoteCommandPanel';
-import MobileCarControl from '@/components/dashboard/MobileCarControl';
 import type { LiveVehicle } from '@/types/realtime';
 
 /* ── Status Pulse ─────────────────────────────────────────── */
@@ -263,41 +262,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-
-      {/* ── Mobil: Araç Kumandası (sadece küçük ekranlarda) ── */}
-      <div className="md:hidden">
-        <div
-          className="rounded-3xl p-5"
-          style={{
-            background: 'linear-gradient(145deg, #0a1628 0%, #060d1a 100%)',
-            border: '1px solid rgba(59,130,246,0.15)',
-            boxShadow: '0 0 40px rgba(59,130,246,0.08), 0 20px 60px rgba(0,0,0,0.6)',
-          }}
-        >
-          {/* Key-fob header */}
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.4em] text-white/25 mb-1">Araç Kumandası</p>
-              <p className="text-sm font-bold text-white">Arabam Cebimde</p>
-            </div>
-            <div
-              className="w-10 h-10 rounded-2xl flex items-center justify-center"
-              style={{
-                background: 'rgba(59,130,246,0.12)',
-                border: '1px solid rgba(59,130,246,0.25)',
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M4 13L6 8Q7 6 9 6H11Q13 6 14 8L16 13V15Q16 16 15 16H5Q4 16 4 15Z" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round"/>
-                <circle cx="7" cy="16" r="2" stroke="#3b82f6" strokeWidth="1.5"/>
-                <circle cx="13" cy="16" r="2" stroke="#3b82f6" strokeWidth="1.5"/>
-                <rect x="7" y="9" width="6" height="4" rx="1.5" stroke="#3b82f6" strokeWidth="1.2"/>
-              </svg>
-            </div>
-          </div>
-          <MobileCarControl vehicle={focusedVehicle} />
-        </div>
-      </div>
 
       {/* ── Stat kartları ── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">

@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Arabam Cebimde',
     short_name: 'Arabam',
     description: 'Arabam Cebimde — Aracınızı avucunuzun içinden yönetin',
-    start_url: '/dashboard',
+    start_url: '/kumanda',
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#000000',
