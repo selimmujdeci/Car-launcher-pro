@@ -248,7 +248,17 @@ const CarIcon = () => (
 export default function DashboardPage() {
   const vehicles         = useVehicleStore((s) => s.getList());
   const connectionStatus = useVehicleStore((s) => s.connectionStatus);
+  const loading          = useVehicleStore((s) => s.loading);
+  const error            = useVehicleStore((s) => s.error);
   const [selected, setSelected] = useState<LiveVehicle | null>(null);
+
+  if (loading) {
+    return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/60">Araç verileri yükleniyor...</div>;
+  }
+
+  if (error) {
+    return <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-6 text-sm text-red-300/90">Supabase bağlantı hatası: {error}</div>;
+  }
 
   const stats = useMemo(() => {
     const online = vehicles.filter((v) => v.status === 'online');

@@ -1,87 +1,131 @@
--- ─────────────────────────────────────────────────────────────────
--- Car Launcher Pro — Database Schema
--- ─────────────────────────────────────────────────────────────────
+create extension if not exists pgcrypto;
 
--- vehicles: one row per Android device
+create table if not exists companies (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
+  full_name text,
+  role text not null default 'member' check (role in ('admin', 'member')),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists vehicles (
-  id           uuid primary key default gen_random_uuid(),
-  name         text not null,
-  device_id    text unique not null,
-  api_key_hash text not null,            -- SHA-256 of raw apiKey (never stored raw)
-  created_at   timestamptz default now() not null
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  plate text,
+  name text not null,
+  driver_name text,
+  odometer_km integer not null default 0,
+  api_key_hash text,
+  created_at timestamptz not null default now()
 );
 
--- vehicle_users: user ↔ vehicle many-to-many
-create table if not exists vehicle_users (
-  id         uuid primary key default gen_random_uuid(),
-  user_id    uuid not null references auth.users(id) on delete cascade,
+create table if not exists vehicle_locations (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
   vehicle_id uuid not null references vehicles(id) on delete cascade,
-  role       text not null default 'owner' check (role in ('owner', 'viewer')),
-  created_at timestamptz default now() not null,
-  unique (user_id, vehicle_id)
+  lat double precision not null,
+  lng double precision not null,
+  heading_deg real,
+  created_at timestamptz not null default now()
 );
 
--- linking_codes: ephemeral 6-digit codes (60 s TTL, single-use)
-create table if not exists linking_codes (
-  id         uuid primary key default gen_random_uuid(),
+create table if not exists telemetry_events (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
   vehicle_id uuid not null references vehicles(id) on delete cascade,
-  code       text unique not null,
-  expires_at timestamptz not null,
-  used_at    timestamptz,               -- null = unused
-  created_at timestamptz default now() not null
+  speed_kmh real not null default 0,
+  fuel_pct real not null default 0,
+  engine_temp_c real not null default 0,
+  rpm integer not null default 0,
+  created_at timestamptz not null default now()
 );
 
--- events: high-frequency telemetry (vehicle pushes here)
-create table if not exists events (
-  id          uuid primary key default gen_random_uuid(),
-  vehicle_id  uuid not null references vehicles(id) on delete cascade,
-  lat         double precision,
-  lng         double precision,
-  speed       real,
-  fuel        real,
-  engine_temp real,
-  rpm         integer,
-  created_at  timestamptz default now() not null
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  vehicle_id uuid references vehicles(id) on delete set null,
+  profile_id uuid references profiles(id) on delete set null,
+  title text not null,
+  message text not null,
+  severity text not null check (severity in ('info', 'warning', 'critical')),
+  read_at timestamptz,
+  created_at timestamptz not null default now()
 );
 
--- ─── Indexes ──────────────────────────────────────────────────────
-create index if not exists idx_vehicle_users_user    on vehicle_users(user_id);
-create index if not exists idx_vehicle_users_vehicle on vehicle_users(vehicle_id);
-create index if not exists idx_linking_codes_code    on linking_codes(code);
-create index if not exists idx_events_vehicle        on events(vehicle_id, created_at desc);
+create index if not exists idx_profiles_company_id on profiles(company_id);
+create index if not exists idx_vehicles_company_id on vehicles(company_id);
+create index if not exists idx_vehicle_locations_vehicle_created on vehicle_locations(vehicle_id, created_at desc);
+create index if not exists idx_vehicle_locations_company_id on vehicle_locations(company_id);
+create index if not exists idx_telemetry_events_vehicle_created on telemetry_events(vehicle_id, created_at desc);
+create index if not exists idx_telemetry_events_company_id on telemetry_events(company_id);
+create index if not exists idx_notifications_company_created on notifications(company_id, created_at desc);
 
--- ─── Row Level Security ───────────────────────────────────────────
-alter table vehicles      enable row level security;
-alter table vehicle_users enable row level security;
-alter table linking_codes enable row level security;
-alter table events        enable row level security;
+alter table companies enable row level security;
+alter table profiles enable row level security;
+alter table vehicles enable row level security;
+alter table vehicle_locations enable row level security;
+alter table telemetry_events enable row level security;
+alter table notifications enable row level security;
 
--- vehicles: user sees only vehicles they're linked to
-create policy "user_sees_linked_vehicles"
+create or replace function auth_company_id()
+returns uuid
+language sql
+stable
+as $$
+  select p.company_id from profiles p where p.id = auth.uid()
+$$;
+
+create policy "company_isolation_select_companies"
+  on companies for select
+  using (id = auth_company_id());
+
+create policy "company_isolation_select_profiles"
+  on profiles for select
+  using (company_id = auth_company_id());
+
+create policy "company_isolation_mutate_profiles"
+  on profiles for all
+  using (company_id = auth_company_id())
+  with check (company_id = auth_company_id());
+
+create policy "company_isolation_select_vehicles"
   on vehicles for select
-  using (
-    id in (
-      select vehicle_id from vehicle_users where user_id = auth.uid()
-    )
-  );
+  using (company_id = auth_company_id());
 
--- vehicle_users: user sees only their own links
-create policy "user_sees_own_links"
-  on vehicle_users for select
-  using (user_id = auth.uid());
+create policy "company_isolation_mutate_vehicles"
+  on vehicles for all
+  using (company_id = auth_company_id())
+  with check (company_id = auth_company_id());
 
--- events: user sees events for their vehicles (for Realtime subscriptions)
-create policy "user_sees_linked_events"
-  on events for select
-  using (
-    vehicle_id in (
-      select vehicle_id from vehicle_users where user_id = auth.uid()
-    )
-  );
+create policy "company_isolation_select_vehicle_locations"
+  on vehicle_locations for select
+  using (company_id = auth_company_id());
 
--- linking_codes: no direct client access (API only via service_role)
+create policy "company_isolation_mutate_vehicle_locations"
+  on vehicle_locations for all
+  using (company_id = auth_company_id())
+  with check (company_id = auth_company_id());
 
--- ─── Auto-expire cleanup (optional cron via pg_cron) ─────────────
--- select cron.schedule('expire-linking-codes', '* * * * *',
---   $$delete from linking_codes where expires_at < now() - interval '5 minutes'$$
--- );
+create policy "company_isolation_select_telemetry_events"
+  on telemetry_events for select
+  using (company_id = auth_company_id());
+
+create policy "company_isolation_mutate_telemetry_events"
+  on telemetry_events for all
+  using (company_id = auth_company_id())
+  with check (company_id = auth_company_id());
+
+create policy "company_isolation_select_notifications"
+  on notifications for select
+  using (company_id = auth_company_id());
+
+create policy "company_isolation_mutate_notifications"
+  on notifications for all
+  using (company_id = auth_company_id())
+  with check (company_id = auth_company_id());

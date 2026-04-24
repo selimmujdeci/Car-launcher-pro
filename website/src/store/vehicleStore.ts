@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { mockVehicles } from '@/lib/mockData';
+import { fetchVehicles } from '@/lib/vehicles.service';
 import { formatLastSeen } from '@/lib/utils';
 import { TIMING, ALERT_THRESHOLDS } from '@/lib/constants';
 import type { LiveVehicle, VehicleUpdate, ConnectionStatus } from '@/types/realtime';
@@ -23,35 +23,12 @@ function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
   return true;
 }
 
-// Initial lat/lng per vehicle ID (matches MockRealtimeEngine INITIAL_SIM)
-const INIT_POSITIONS: Record<string, { lat: number; lng: number }> = {
-  '1': { lat: 40.9897, lng: 29.0269 },
-  '2': { lat: 41.0426, lng: 29.0054 },
-  '3': { lat: 39.9334, lng: 32.8597 },
-  '4': { lat: 38.4237, lng: 27.1428 },
-  '5': { lat: 40.7978, lng: 29.4249 },
-  '6': { lat: 40.1980, lng: 29.0610 },
-};
-
-// Build initial LiveVehicle record from mock data
-const buildInitial = (): Record<string, LiveVehicle> => {
-  const out: Record<string, LiveVehicle> = {};
-  for (const v of mockVehicles) {
-    const pos = INIT_POSITIONS[v.id] ?? { lat: 0, lng: 0 };
-    out[v.id] = {
-      ...v,
-      lat: pos.lat,
-      lng: pos.lng,
-      // offline vehicles get an old timestamp so watchdog marks them offline
-      lastTimestamp: v.status === 'offline' ? Date.now() - 20_000 : Date.now() - 1_000,
-    };
-  }
-  return out;
-};
-
 interface VehicleStoreState {
   vehicles: Record<string, LiveVehicle>;
   connectionStatus: ConnectionStatus;
+  loading: boolean;
+  error: string | null;
+  initializeFromSupabase: () => Promise<void>;
   applyUpdate: (update: VehicleUpdate) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
   startWatchdog: () => () => void; // returns cleanup fn
@@ -63,8 +40,27 @@ interface VehicleStoreState {
 }
 
 export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
-  vehicles: buildInitial(),
+  vehicles: {},
   connectionStatus: 'disconnected',
+  loading: true,
+  error: null,
+
+  initializeFromSupabase: async () => {
+    set({ loading: true, error: null });
+    try {
+      const vehicles = await fetchVehicles();
+      const map: Record<string, LiveVehicle> = {};
+      for (const vehicle of vehicles) {
+        map[vehicle.id] = vehicle;
+      }
+      set({ vehicles: map, loading: false });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : 'Araçlar yüklenemedi.',
+      });
+    }
+  },
 
   applyUpdate: (update: VehicleUpdate) => {
     const { vehicleId, lat, lng, speed, fuel, engineTemp, rpm, timestamp } = update;
@@ -81,14 +77,21 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
 
     _lastRenderMs.set(vehicleId, now);
 
-    const isAlarm = engineTemp > ALERT_THRESHOLDS.ENGINE_TEMP_HIGH_C || speed > ALERT_THRESHOLDS.SPEED_LIMIT_KMH;
+    const nextSpeed = Number.isFinite(speed) ? speed : existing.speed;
+    const nextEngineTemp = Number.isFinite(engineTemp) ? engineTemp : existing.engineTemp;
+    const isAlarm = nextEngineTemp > ALERT_THRESHOLDS.ENGINE_TEMP_HIGH_C || nextSpeed > ALERT_THRESHOLDS.SPEED_LIMIT_KMH;
 
     set((state) => ({
       vehicles: {
         ...state.vehicles,
         [vehicleId]: {
           ...state.vehicles[vehicleId],
-          lat, lng, speed, fuel, engineTemp, rpm,
+          lat: Number.isFinite(lat) ? lat : state.vehicles[vehicleId].lat,
+          lng: Number.isFinite(lng) ? lng : state.vehicles[vehicleId].lng,
+          speed: Number.isFinite(speed) ? speed : state.vehicles[vehicleId].speed,
+          fuel: Number.isFinite(fuel) ? fuel : state.vehicles[vehicleId].fuel,
+          engineTemp: Number.isFinite(engineTemp) ? engineTemp : state.vehicles[vehicleId].engineTemp,
+          rpm: Number.isFinite(rpm) ? rpm : state.vehicles[vehicleId].rpm,
           status: isAlarm ? 'alarm' : 'online',
           lastSeen: formatLastSeen(timestamp),
           lastTimestamp: timestamp,

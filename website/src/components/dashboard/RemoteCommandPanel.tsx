@@ -14,14 +14,14 @@
  */
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { supabaseBrowser } from '@/lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import { sendCommand as enqueueCommand, subscribeCommandStatus } from '@/lib/commandService';
+import { verifyCriticalCommand } from '@/lib/criticalAuth';
 
 /* ── Types ──────────────────────────────────────────────── */
 
-type CommandType = 'lock' | 'unlock' | 'navigate' | 'honk' | 'alarm';
+type CommandType = 'lock' | 'unlock' | 'route_send' | 'horn' | 'alarm_on';
 type LockStatus  = 'unknown' | 'locked' | 'unlocked';
-type AckStatus   = 'pending' | 'executed' | 'failed' | 'timeout';
+type AckStatus   = 'pending' | 'completed' | 'failed' | 'timeout';
 interface CommandResult { ok: boolean; msg: string; commandId?: string }
 
 interface Props { vehicleId: string }
@@ -33,58 +33,36 @@ async function sendCommand(
   type: CommandType,
   payload: Record<string, unknown> = {},
 ): Promise<CommandResult> {
-  if (!supabaseBrowser) {
-    await new Promise((r) => setTimeout(r, 800));
-    return { ok: true, msg: `${type} komutu gönderildi (demo)` };
+  const isCritical = type === 'unlock';
+  if (isCritical) {
+    const verified = await verifyCriticalCommand();
+    if (!verified) return { ok: false, msg: 'Kritik komut için PIN doğrulaması başarısız.' };
   }
-  const { data, error } = await supabaseBrowser
-    .from('vehicle_commands')
-    .insert({ vehicle_id: vehicleId, type, payload, status: 'pending' })
-    .select('id')
-    .single();
-  if (error) return { ok: false, msg: error.message };
-  return { ok: true, msg: 'Komut sıraya alındı', commandId: (data as { id: string } | null)?.id };
+
+  const result = await enqueueCommand(vehicleId, type, payload, { requireCriticalAuth: isCritical });
+  if (!result.ok) return { ok: false, msg: result.error ?? 'Komut gönderilemedi.' };
+  return {
+    ok: true,
+    msg: result.queued ? 'Araç çevrimdışı. Komut kuyruğa alındı.' : 'Komut sıraya alındı.',
+    commandId: result.commandId,
+  };
 }
 
 /* ── Realtime ACK subscription ───────────────────────────── */
 
 function subscribeACK(
   commandId: string,
-  onAck: (status: 'executed' | 'failed' | 'timeout', reason?: string) => void,
+  onAck: (status: 'completed' | 'failed' | 'timeout', reason?: string) => void,
 ): () => void {
-  if (!supabaseBrowser) return () => {};
-
-  const timeoutId = setTimeout(() => onAck('timeout'), 15_000);
-  let resolved = false;
-
-  const channel: RealtimeChannel = supabaseBrowser
-    .channel(`cmd-ack:${commandId}`)
-    .on(
-      'postgres_changes',
-      {
-        event:  'UPDATE',
-        schema: 'public',
-        table:  'vehicle_commands',
-        filter: `id=eq.${commandId}`,
-      },
-      (evt) => {
-        if (resolved) return;
-        const row = evt.new as Record<string, unknown>;
-        const s   = row['status'] as string;
-        if (s === 'executed' || s === 'failed') {
-          resolved = true;
-          clearTimeout(timeoutId);
-          onAck(s as 'executed' | 'failed', s === 'failed' ? (row['error_msg'] as string | undefined) : undefined);
-          void channel.unsubscribe();
-        }
-      },
-    )
-    .subscribe();
-
-  return () => {
-    if (!resolved) { resolved = true; clearTimeout(timeoutId); }
-    void channel.unsubscribe();
-  };
+  return subscribeCommandStatus(
+    commandId,
+    (event) => {
+      if (event.status === 'completed') onAck('completed');
+      else if (event.status === 'failed' || event.status === 'rejected') onAck('failed', event.status);
+      else if (event.status === 'expired') onAck('timeout');
+    },
+    15_000,
+  );
 }
 
 /* ── SVG icons (inline, no dep) ──────────────────────────── */
@@ -111,7 +89,7 @@ const CommandButton = memo(function CommandButton({
       key={type}
       onClick={onClick}
       disabled={disabled}
-      className="flex flex-col items-center gap-2 py-4 rounded-2xl transition-all duration-200 active:scale-95 disabled:opacity-60 group"
+      className="flex flex-col items-center justify-center gap-2.5 py-5 rounded-2xl transition-all duration-200 active:scale-95 disabled:opacity-60 group min-h-[64px]"
       style={{ background: bgColor, border: `1px solid ${borderColor}`, boxShadow }}
     >
       {isPending
@@ -169,9 +147,8 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
     if (type === 'lock')   setLockStatus('locked');
     if (type === 'unlock') setLockStatus('unlocked');
 
-    if (!res.commandId || !supabaseBrowser) {
-      // Demo mode — no real ACK
-      setCmdState((prev) => ({ ...prev, [type]: 'executed' }));
+    if (!res.commandId) {
+      setCmdState((prev) => ({ ...prev, [type]: 'failed' }));
       setResult(res);
       clearCmdState(type);
       return;
@@ -182,17 +159,17 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
     cleanupFn = subscribeACK(res.commandId, (ackStatus, reason) => {
       if (cleanupFn) { cleanupSet.current.delete(cleanupFn); cleanupFn = null; }
       if (!mountedRef.current) return;
-      if (ackStatus !== 'executed') {
+      if (ackStatus !== 'completed') {
         // Revert optimistic lock on failure/timeout
         if (type === 'lock' || type === 'unlock') setLockStatus('unknown');
       }
-      const ackMsg = ackStatus === 'executed'
+      const ackMsg = ackStatus === 'completed'
         ? `${type} komutu başarıyla uygulandı`
         : ackStatus === 'timeout'
         ? 'Araç yanıt vermedi (15s zaman aşımı)'
         : `Komut başarısız: ${reason ?? 'bilinmeyen hata'}`;
       setCmdState((prev) => ({ ...prev, [type]: ackStatus }));
-      setResult({ ok: ackStatus === 'executed', msg: ackMsg });
+      setResult({ ok: ackStatus === 'completed', msg: ackMsg });
       clearCmdState(type);
     });
     cleanupSet.current.add(cleanupFn);
@@ -200,7 +177,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
 
   const handleNav = useCallback(() => {
     if (!navDest.trim()) return;
-    void dispatch('navigate', { destination: navDest.trim() });
+    void dispatch('route_send', { route: { address_name: navDest.trim() } });
     setNavDest('');
     setShowNav(false);
   }, [navDest, dispatch]);
@@ -233,15 +210,15 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
       </div>
 
       {/* Kilitle / Aç / Korna */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {([
           { type: 'lock'   as CommandType, label: 'Kilitle', Icon: LockIcon,   accent: '#ef4444' },
           { type: 'unlock' as CommandType, label: 'Aç',      Icon: UnlockIcon, accent: '#34d399' },
-          { type: 'honk'   as CommandType, label: 'Korna',   Icon: HornIcon,   accent: '#fbbf24' },
+          { type: 'horn'   as CommandType, label: 'Korna',   Icon: HornIcon,   accent: '#fbbf24' },
         ]).map(({ type, label, Icon, accent }) => {
           const ack          = cmdState[type];
           const isPending    = ack === 'pending';
-          const isExecuted   = ack === 'executed';
+          const isExecuted   = ack === 'completed';
           const isFailed     = ack === 'failed' || ack === 'timeout';
           const isLockActive = !ack && ((type === 'lock' && lockStatus === 'locked') || (type === 'unlock' && lockStatus === 'unlocked'));
 
@@ -272,15 +249,15 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
       <div className="flex flex-col gap-2">
         <button
           onClick={() => setShowNav((v) => !v)}
-          disabled={cmdState['navigate'] === 'pending'}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-150 active:scale-[0.98] disabled:opacity-40 group"
+          disabled={cmdState['route_send'] === 'pending'}
+          className="flex items-center gap-3 px-4 py-4 rounded-xl transition-all duration-150 active:scale-[0.98] disabled:opacity-40 group min-h-[56px]"
           style={{
             background: showNav ? 'rgba(96,165,250,0.12)' : 'rgba(96,165,250,0.07)',
             border:     `1px solid rgba(96,165,250,${showNav ? '0.35' : '0.18'})`,
             boxShadow:  showNav ? '0 0 20px rgba(96,165,250,0.12)' : 'none',
           }}
         >
-          {cmdState['navigate'] === 'pending' ? <SpinIcon /> : <NavIcon />}
+          {cmdState['route_send'] === 'pending' ? <SpinIcon /> : <NavIcon />}
           <span className="text-[11px] font-black uppercase tracking-[0.28em] text-blue-400">
             Navigasyon Gönder
           </span>
@@ -303,12 +280,12 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
               onChange={(e) => setNavDest(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleNav()}
               placeholder="Hedef adres veya yer adı…"
-              className="flex-1 px-4 py-2.5 rounded-xl text-sm text-white/80 placeholder:text-white/20 bg-white/[0.04] border border-white/[0.08] focus:border-blue-500/40 focus:outline-none transition-colors"
+              className="flex-1 px-4 py-3.5 rounded-xl text-sm text-white/80 placeholder:text-white/20 bg-white/[0.04] border border-white/[0.08] focus:border-blue-500/40 focus:outline-none transition-colors min-h-[52px]"
             />
             <button
               onClick={handleNav}
-              disabled={!navDest.trim() || cmdState['navigate'] === 'pending'}
-              className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-400 disabled:opacity-40 transition-all active:scale-95"
+              disabled={!navDest.trim() || cmdState['route_send'] === 'pending'}
+              className="px-4 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-400 disabled:opacity-40 transition-all active:scale-95 min-h-[52px]"
               style={{
                 background: 'rgba(96,165,250,0.1)',
                 border:     '1px solid rgba(96,165,250,0.22)',

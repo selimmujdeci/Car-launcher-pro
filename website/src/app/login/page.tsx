@@ -3,7 +3,7 @@
 import { useState, FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabaseBrowser';
 
 function LoginForm() {
   const router = useRouter();
@@ -27,22 +27,15 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      if (isSupabaseConfigured) {
-        // ── Supabase auth — session stored in HttpOnly cookies via @supabase/ssr
-        const { createBrowserClient } = await import('@supabase/ssr');
-        const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        );
-        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-        if (authError) {
-          setError('E-posta veya şifre hatalı.');
-          return;
-        }
-      } else {
-        // ── Mock mode: set a cookie so middleware can read it server-side
-        await new Promise((r) => setTimeout(r, 400));
-        document.cookie = 'mock_auth=true; path=/; max-age=86400; SameSite=Lax';
+      if (!isSupabaseConfigured) {
+        setError('Kimlik doğrulama servisi yapılandırılmamış.');
+        return;
+      }
+      const supabase = getSupabaseBrowserClient();
+      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      if (authError) {
+        setError('E-posta veya şifre hatalı.');
+        return;
       }
 
       router.push(redirect);
@@ -55,11 +48,7 @@ function LoginForm() {
 
   const handleSSOLogin = async () => {
     if (!isSupabaseConfigured) return;
-    const { createBrowserClient } = await import('@supabase/ssr');
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    const supabase = getSupabaseBrowserClient();
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
@@ -180,9 +169,9 @@ function LoginForm() {
         </p>
 
         {!isSupabaseConfigured && (
-          <div className="mt-4 p-3 rounded-xl border border-accent/15 bg-accent/[0.04] text-center">
-            <p className="text-[11px] text-white/30">
-              Demo: herhangi bir e-posta + şifre ile giriş yapabilirsiniz
+          <div className="mt-4 p-3 rounded-xl border border-red-500/20 bg-red-500/[0.06] text-center">
+            <p className="text-[11px] text-red-300/80">
+              Supabase ortam değişkenleri eksik. Giriş devre dışı.
             </p>
           </div>
         )}

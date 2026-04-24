@@ -1,6 +1,7 @@
 import { TIMING } from './constants';
 import { clamp, lerp } from './utils';
 import type { VehicleUpdate, ConnectionStatus } from '@/types/realtime';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 export interface RealtimeCallbacks {
   onUpdate: (update: VehicleUpdate) => void;
@@ -11,6 +12,7 @@ export interface RealtimeCallbacks {
 export abstract class BaseRealtimeEngine {
   protected cb: RealtimeCallbacks;
   constructor(callbacks: RealtimeCallbacks) { this.cb = callbacks; }
+  setVehicleIds(_ids: string[]): void {}
   abstract connect(): void;
   abstract disconnect(): void;
 }
@@ -121,14 +123,13 @@ export class MockRealtimeEngine extends BaseRealtimeEngine {
 // events named 'v:{vehicleId}' that are emitted by /api/vehicle/update.
 
 export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private channel: any = null;
+  private channels: RealtimeChannel[] = [];
   private vehicleIds: string[] = [];
   // Zero-leak: prevents connect() promise from completing after disconnect()
   private _alive = false;
 
   /** Pass the vehicleIds the current user is subscribed to. */
-  setVehicleIds(ids: string[]) { this.vehicleIds = ids; }
+  override setVehicleIds(ids: string[]) { this.vehicleIds = ids; }
 
   connect(): void {
     this._alive = true;
@@ -144,33 +145,77 @@ export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
         return;
       }
 
-      this.channel = supabaseBrowser.channel('vehicle-updates');
+      const locationsChannel = supabaseBrowser
+        .channel('vehicle-locations')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'vehicle_locations',
+            filter: this.vehicleIds.length > 0 ? `vehicle_id=in.(${this.vehicleIds.join(',')})` : undefined,
+          },
+          ({ new: row }: { new: Record<string, unknown> }) => {
+            if (!this._alive) return;
+            this.cb.onUpdate({
+              vehicleId: String(row.vehicle_id ?? ''),
+              lat: Number(row.lat ?? 0),
+              lng: Number(row.lng ?? 0),
+              speed: Number.NaN,
+              fuel: Number.NaN,
+              engineTemp: Number.NaN,
+              rpm: Number.NaN,
+              timestamp: Date.parse(String(row.created_at ?? new Date().toISOString())),
+            });
+          },
+        )
+        .subscribe();
 
-      for (const id of this.vehicleIds) {
-        this.channel.on('broadcast', { event: `v:${id}` }, ({ payload }: { payload: unknown }) => {
-          if (!this._alive) return; // discard late events after disconnect
-          const update = payload as import('@/types/realtime').VehicleUpdate;
-          this.cb.onUpdate(update);
+      const telemetryChannel = supabaseBrowser
+        .channel('vehicle-telemetry')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'vehicle_telemetry',
+            filter: this.vehicleIds.length > 0 ? `vehicle_id=in.(${this.vehicleIds.join(',')})` : undefined,
+          },
+          ({ new: row }: { new: Record<string, unknown> }) => {
+            if (!this._alive) return;
+            this.cb.onUpdate({
+              vehicleId: String(row.vehicle_id ?? ''),
+              lat: Number.NaN,
+              lng: Number.NaN,
+              speed: Number(row.speed ?? 0),
+              fuel: Number(row.fuel ?? 0),
+              engineTemp: Number(row.temp ?? 0),
+              rpm: Number(row.rpm ?? 0),
+              timestamp: Date.parse(String(row.updated_at ?? new Date().toISOString())),
+            });
+          },
+        )
+        .subscribe((status: string) => {
+          if (!this._alive) return;
+          if (status === 'SUBSCRIBED') this.cb.onConnectionChange('connected');
+          if (status === 'CHANNEL_ERROR') this.cb.onConnectionChange('error');
+          if (status === 'CLOSED') this.cb.onConnectionChange('disconnected');
         });
-      }
 
-      this.channel.subscribe((status: string) => {
-        if (!this._alive) return;
-        if (status === 'SUBSCRIBED')    this.cb.onConnectionChange('connected');
-        if (status === 'CHANNEL_ERROR') this.cb.onConnectionChange('error');
-        if (status === 'CLOSED')        this.cb.onConnectionChange('disconnected');
-      });
+      this.channels = [locationsChannel, telemetryChannel];
     });
   }
 
   disconnect(): void {
     this._alive = false; // blocks any in-flight connect() from completing
 
-    if (this.channel) {
-      const ch = this.channel;
-      this.channel = null;
+    if (this.channels.length > 0) {
+      const channels = [...this.channels];
+      this.channels = [];
       import('@/lib/supabase').then(({ supabaseBrowser }) => {
-        supabaseBrowser?.removeChannel(ch);
+        channels.forEach((channel) => {
+          supabaseBrowser?.removeChannel(channel);
+        });
       });
     }
 
@@ -184,13 +229,6 @@ export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
 
 export function createRealtimeEngine(
   callbacks: RealtimeCallbacks,
-  vehicleIds?: string[],
 ): BaseRealtimeEngine {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (url) {
-    const engine = new SupabaseRealtimeEngine(callbacks);
-    engine.setVehicleIds(vehicleIds ?? []);
-    return engine;
-  }
-  return new MockRealtimeEngine(callbacks);
+  return new SupabaseRealtimeEngine(callbacks);
 }

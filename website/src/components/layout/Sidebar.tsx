@@ -42,7 +42,7 @@ const navItems = [
   {
     href: '/dashboard/notifications',
     label: 'Bildirimler',
-    badge: true, // dynamic — reads from store
+    badge: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <path d="M9 2a5 5 0 015 5v3l1.5 2H2.5L4 10V7a5 5 0 015-5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
@@ -72,13 +72,17 @@ const navItems = [
   },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export default function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const unreadCount = useNotificationStore((s) => s.unreadCount());
 
-  const handleLogout = () => {
-    localStorage.removeItem('auth');
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
   };
 
@@ -86,21 +90,33 @@ export default function Sidebar() {
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href);
 
   return (
-    <aside className="w-56 flex-shrink-0 h-full bg-[#070e1c] border-r border-white/[0.06] flex flex-col">
-      {/* Logo */}
+    <aside className="w-60 flex-shrink-0 h-full bg-[#070e1c] border-r border-white/[0.06] flex flex-col">
+      {/* Logo + mobile close button */}
       <div className="h-16 flex items-center px-5 border-b border-white/[0.06] flex-shrink-0">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-accent/20 border border-accent/30 flex items-center justify-center flex-shrink-0">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 1C4.791 1 3 2.791 3 5c0 2.917 4 7 4 7s4-4.083 4-7c0-2.209-1.791-4-4-4z" stroke="#3b82f6" strokeWidth="1.3"/>
               <circle cx="7" cy="5" r="1.4" stroke="#3b82f6" strokeWidth="1.3"/>
             </svg>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-semibold text-white leading-none">Car Launcher</p>
             <p className="text-[10px] text-accent leading-none mt-0.5">Pro Panel</p>
           </div>
         </div>
+
+        {/* Close button — mobile drawer only */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="lg:hidden w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.07] transition-all flex-shrink-0 ml-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Nav */}
@@ -112,6 +128,7 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={onClose}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative ${
                 active
                   ? 'bg-accent/15 text-accent'
@@ -146,7 +163,7 @@ export default function Sidebar() {
         </div>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-white/35 hover:text-red-400 hover:bg-red-500/[0.08] transition-all duration-150"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-white/35 hover:text-red-400 hover:bg-red-500/[0.08] transition-all duration-150 min-h-[44px]"
         >
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
             <path d="M9 2H5a2 2 0 00-2 2v7a2 2 0 002 2h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>

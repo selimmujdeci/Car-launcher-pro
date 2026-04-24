@@ -1,4 +1,4 @@
-import type { VehicleStatus } from '@/lib/mockData';
+export type VehicleStatus = 'online' | 'offline' | 'alarm';
 
 // Raw telemetry packet from vehicle
 export interface VehicleUpdate {

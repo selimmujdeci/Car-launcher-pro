@@ -2,22 +2,22 @@
 
 import { memo, useCallback, useState } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
-import { supabaseBrowser } from '@/lib/supabase';
+import { sendCommand } from '@/lib/commandService';
+import { verifyCriticalCommand } from '@/lib/criticalAuth';
 
-type CommandType = 'lock' | 'unlock' | 'honk' | 'alarm';
+type CommandType = 'lock' | 'unlock' | 'horn' | 'alarm_on';
 type CmdState    = 'idle' | 'pending' | 'ok' | 'err';
 
 interface Props { vehicle: LiveVehicle | null }
 
 async function sendCmd(vehicleId: string, type: CommandType): Promise<boolean> {
-  if (!supabaseBrowser) {
-    await new Promise((r) => setTimeout(r, 600));
-    return true;
+  const isCritical = type === 'unlock';
+  if (isCritical) {
+    const verified = await verifyCriticalCommand();
+    if (!verified) return false;
   }
-  const { error } = await supabaseBrowser
-    .from('vehicle_commands')
-    .insert({ vehicle_id: vehicleId, type, payload: {}, status: 'pending' });
-  return !error;
+  const result = await sendCommand(vehicleId, type, {}, { requireCriticalAuth: isCritical });
+  return result.ok;
 }
 
 function haptic(ms = 50) {
@@ -176,8 +176,8 @@ export default function MobileCarControl({ vehicle }: Props) {
         <SmallBtn
           label="Korna" color="#fbbf24"
           bgColor="rgba(251,191,36,0.07)" borderColor="rgba(251,191,36,0.22)"
-          state={cmds.honk ?? 'idle'}
-          onClick={() => dispatch('honk', 100)}
+          state={cmds.horn ?? 'idle'}
+          onClick={() => dispatch('horn', 100)}
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M6 9H4a1 1 0 000 2h2m0-2v2m0-2l6-4.5v12L6 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -189,8 +189,8 @@ export default function MobileCarControl({ vehicle }: Props) {
         <SmallBtn
           label="Alarm" color="#a78bfa"
           bgColor="rgba(167,139,250,0.07)" borderColor="rgba(167,139,250,0.22)"
-          state={cmds.alarm ?? 'idle'}
-          onClick={() => dispatch('alarm', 200)}
+          state={cmds.alarm_on ?? 'idle'}
+          onClick={() => dispatch('alarm_on', 200)}
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M12 3L21 19H3L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>

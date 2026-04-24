@@ -1,19 +1,5 @@
 import { create } from 'zustand';
-import { mockNotifications } from '@/lib/mockData';
-import type { NotificationEvent, NotificationType, NotificationSeverity } from '@/types/realtime';
-
-// Seed from legacy mock notifications
-const seedNotifications = (): NotificationEvent[] =>
-  mockNotifications.map((n, i) => ({
-    id: `seed-${i}`,
-    vehicleId: '',
-    plate: n.message.split(' — ')[0] ?? '',
-    type: (n.type === 'alarm' ? 'speed' : n.type === 'warning' ? 'fuel' : 'speed') as NotificationType,
-    message: n.message,
-    severity: (n.type === 'alarm' ? 'critical' : n.type === 'warning' ? 'warning' : 'info') as NotificationSeverity,
-    timestamp: Date.now() - (n.read ? 3_600_000 : 60_000) + i * -30_000,
-    read: n.read,
-  }));
+import type { NotificationEvent } from '@/types/realtime';
 
 interface NotificationStoreState {
   notifications: NotificationEvent[];
@@ -24,7 +10,7 @@ interface NotificationStoreState {
 }
 
 export const useNotificationStore = create<NotificationStoreState>((set, get) => ({
-  notifications: seedNotifications(),
+  notifications: [],
 
   addNotifications: (events) => {
     if (events.length === 0) return;

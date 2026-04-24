@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabaseBrowser } from '@/lib/supabase';
+import { sendCommand } from '@/lib/commandService';
 
 interface Props { vehicleId: string }
 
@@ -29,13 +29,8 @@ function useStyleSender(vehicleId: string, delayMs = 150) {
     timer.current = setTimeout(async () => {
       timer.current = null;
       const snapshot = latest.current;
-      if (!supabaseBrowser || !vehicleId) return;
-      await supabaseBrowser.from('vehicle_commands').insert({
-        vehicle_id: vehicleId,
-        type:       'set_style',
-        payload:    { vars: snapshot },
-        status:     'pending',
-      });
+      if (!vehicleId) return;
+      await sendCommand(vehicleId, 'theme_change', { themeVars: snapshot });
     }, delayMs);
   }, [vehicleId, delayMs]);
 

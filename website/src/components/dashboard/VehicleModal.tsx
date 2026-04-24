@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Vehicle } from '@/lib/mockData';
+import type { LiveVehicle } from '@/types/realtime';
 
 interface VehicleModalProps {
-  vehicle: Vehicle;
+  vehicle: LiveVehicle;
   onClose: () => void;
 }
 
@@ -25,14 +25,20 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg bg-[#0a1628] border border-white/[0.1] rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.8)] overflow-hidden">
+      <div className="relative w-full sm:max-w-lg bg-[#0a1628] border border-white/[0.1] rounded-t-3xl sm:rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.8)] overflow-hidden max-h-[92dvh] sm:max-h-[85vh] flex flex-col">
+
+        {/* Drag handle — mobile only */}
+        <div className="sm:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-white/20" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.07]">
+        <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-white/[0.07] flex-shrink-0">
           <div>
             <div className="flex items-center gap-3">
               <p className="font-mono text-base font-semibold text-white">{v.plate}</p>
@@ -45,7 +51,7 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.08] transition-all"
+            className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.08] transition-all"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -53,16 +59,16 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
           </button>
         </div>
 
-        {/* Content */}
-        <div className="px-6 py-5 flex flex-col gap-5">
+        {/* Scrollable content */}
+        <div className="overflow-y-auto flex-1 px-5 py-5 sm:px-6 flex flex-col gap-4">
           {/* Metrics */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2.5">
             {[
               { label: 'Hız', value: `${v.speed} km/h`, warn: false },
               { label: 'RPM', value: v.rpm.toLocaleString(), warn: v.rpm > 3000 },
-              { label: 'Motor Isısı', value: `${v.engineTemp}°C`, warn: v.engineTemp > 100 },
+              { label: 'Motor °C', value: `${v.engineTemp}°`, warn: v.engineTemp > 100 },
             ].map(({ label, value, warn }) => (
-              <div key={label} className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+              <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center">
                 <p className={`text-base font-bold font-mono ${warn ? 'text-red-400' : 'text-white/85'}`}>{value}</p>
                 <p className="text-[10px] text-white/30 mt-0.5">{label}</p>
               </div>
@@ -70,14 +76,14 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
           </div>
 
           {/* Details */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             {[
               { label: 'Sürücü', value: v.driver },
               { label: 'Konum', value: v.location },
               { label: 'Son Görülme', value: v.lastSeen },
               { label: 'Kilometre', value: `${v.odometer.toLocaleString()} km` },
             ].map(({ label, value }) => (
-              <div key={label} className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div key={label} className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
                 <p className="text-[10px] text-white/25 mb-1">{label}</p>
                 <p className="text-sm text-white/70 font-medium truncate">{value}</p>
               </div>
@@ -85,16 +91,16 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
           </div>
 
           {/* Fuel bar */}
-          <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-            <div className="flex items-center justify-between mb-2">
+          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+            <div className="flex items-center justify-between mb-2.5">
               <span className="text-xs text-white/35">Yakıt Seviyesi</span>
               <span className={`text-sm font-mono font-semibold ${v.fuel < 20 ? 'text-red-400' : v.fuel < 35 ? 'text-amber-400' : 'text-emerald-400'}`}>
                 {v.fuel}%
               </span>
             </div>
-            <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+            <div className="h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${v.fuel < 20 ? 'bg-red-400' : v.fuel < 35 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                className={`h-full rounded-full transition-all duration-700 ${v.fuel < 20 ? 'bg-red-400' : v.fuel < 35 ? 'bg-amber-400' : 'bg-emerald-400'}`}
                 style={{ width: `${v.fuel}%` }}
               />
             </div>
@@ -102,6 +108,9 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
               <p className="text-[11px] text-red-400/80 mt-2">⚠ Yakıt ikmali gerekiyor</p>
             )}
           </div>
+
+          {/* Safe bottom padding for mobile */}
+          <div className="sm:hidden h-2" />
         </div>
       </div>
     </div>

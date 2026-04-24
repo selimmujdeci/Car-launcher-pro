@@ -1,47 +1,23 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import MobileCarControl from '@/components/dashboard/MobileCarControl';
-import type { LiveVehicle } from '@/types/realtime';
-
-// Demo araç — login gerektirmez, tamamen client-side simülasyon
-const BASE_VEHICLE: LiveVehicle = {
-  id:            'demo',
-  plate:         '34 ARA 2024',
-  name:          'Demo Araç',
-  driver:        'Siz',
-  status:        'online',
-  lat:           41.015137,
-  lng:           28.979530,
-  speed:         0,
-  fuel:          74,
-  engineTemp:    87,
-  rpm:           0,
-  odometer:      48_320,
-  location:      'İstanbul',
-  lastSeen:      'Şimdi',
-  lastTimestamp: Date.now(),
-};
+import { useVehicleStore } from '@/store/vehicleStore';
+import { useRealtime } from '@/hooks/useRealtime';
 
 export default function KumandaPage() {
-  const [vehicle, setVehicle] = useState<LiveVehicle>(BASE_VEHICLE);
-  const tickRef = useRef(0);
+  useRealtime();
+  const loading = useVehicleStore((s) => s.loading);
+  const error = useVehicleStore((s) => s.error);
+  const vehicles = useVehicleStore((s) => s.getList());
+  const vehicle = useMemo(
+    () => vehicles.find((v) => v.status === 'online') ?? vehicles[0] ?? null,
+    [vehicles],
+  );
 
-  // Basit demo simülasyonu — gece sürüşü gibi hafif titreşim
   useEffect(() => {
-    const id = setInterval(() => {
-      tickRef.current++;
-      setVehicle((v) => ({
-        ...v,
-        speed:       Math.max(0, v.speed + (Math.random() - 0.48) * 3),
-        engineTemp:  +(v.engineTemp + (Math.random() - 0.5) * 0.4).toFixed(1),
-        rpm:         Math.max(0, Math.round(v.rpm + (Math.random() - 0.48) * 120)),
-        lastSeen:    'Şimdi',
-        lastTimestamp: Date.now(),
-      }));
-    }, 1500);
-    return () => clearInterval(id);
+    void useVehicleStore.getState().initializeFromSupabase();
   }, []);
 
   return (
@@ -80,15 +56,15 @@ export default function KumandaPage() {
           </div>
           <div>
             <p className="text-white font-bold text-sm leading-none">Arabam Cebimde</p>
-            <p className="text-white/30 text-[10px] mt-0.5">Demo Modu</p>
+            <p className="text-white/30 text-[10px] mt-0.5">Canli Baglanti</p>
           </div>
         </div>
 
         <Link
-          href="/login"
+          href="/dashboard"
           className="text-[11px] font-semibold text-blue-400/70 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/[0.06]"
         >
-          Panele Gir →
+          Panele Git →
         </Link>
       </header>
 
@@ -102,20 +78,13 @@ export default function KumandaPage() {
             boxShadow: '0 0 40px rgba(59,130,246,0.06), 0 20px 60px rgba(0,0,0,0.5)',
           }}
         >
-          <MobileCarControl vehicle={vehicle} />
-        </div>
-
-        {/* Demo uyarısı */}
-        <div
-          className="rounded-2xl px-4 py-3 text-center mb-4"
-          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <p className="text-[11px] text-white/30 leading-relaxed">
-            Demo modundasınız — komutlar simüle edilir.{' '}
-            <Link href="/login" className="text-blue-400/70 hover:text-blue-400 transition-colors underline underline-offset-2">
-              Gerçek araç bağlamak için giriş yapın.
-            </Link>
-          </p>
+          {loading ? (
+            <div className="text-sm text-white/60">Arac verileri yukleniyor...</div>
+          ) : error ? (
+            <div className="text-sm text-red-300/80">Supabase baglanti hatasi: {error}</div>
+          ) : (
+            <MobileCarControl vehicle={vehicle} />
+          )}
         </div>
       </main>
 

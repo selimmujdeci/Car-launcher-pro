@@ -1,8 +1,8 @@
-import { Vehicle } from '@/lib/mockData';
+import type { LiveVehicle } from '@/types/realtime';
 
 interface VehicleCardProps {
-  vehicle: Vehicle;
-  onClick: (v: Vehicle) => void;
+  vehicle: LiveVehicle;
+  onClick: (v: LiveVehicle) => void;
 }
 
 const statusConfig = {

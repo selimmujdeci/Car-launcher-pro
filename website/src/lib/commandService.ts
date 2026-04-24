@@ -13,7 +13,7 @@ import { supabaseBrowser, isSupabaseConfigured } from './supabase';
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
 export type CommandType =
-  | 'lock' | 'unlock' | 'horn' | 'alarm'
+  | 'lock' | 'unlock' | 'horn' | 'alarm_on' | 'alarm_off' | 'lights_on'
   | 'route_send' | 'navigation_start' | 'theme_change';
 
 export type CommandStatus =
@@ -38,6 +38,10 @@ export interface SendResult {
   commandId?: string;
   queued?:    boolean;  // true: araç offline, komut sıraya alındı
   error?:     string;
+}
+
+export interface SendCommandOptions {
+  requireCriticalAuth?: boolean;
 }
 
 export interface StatusEvent {
@@ -65,11 +69,10 @@ export async function sendCommand(
   vehicleId: string,
   type: CommandType,
   payload: CommandPayload = {},
+  options: SendCommandOptions = {},
 ): Promise<SendResult> {
-  // Demo / offline mod
   if (!isSupabaseConfigured || !supabaseBrowser) {
-    await new Promise((r) => setTimeout(r, 600));
-    return { ok: true, commandId: `demo-${Date.now()}`, queued: false };
+    return { ok: false, error: 'Supabase yapılandırması eksik.' };
   }
 
   // Araç çevrimdışı uyarısı — komut sıraya girer (TTL sayesinde araç gelince alır)
@@ -79,12 +82,14 @@ export async function sendCommand(
     .from('vehicle_commands')
     .insert({
       vehicle_id: vehicleId,
-      sender_id:  (await supabaseBrowser.auth.getUser()).data.user?.id,
+      created_by: (await supabaseBrowser.auth.getUser()).data.user?.id,
       type,
       payload,
       // Nonce: timestamp + random — server-side DEFAULT yeterli ama
       // client nonce ekleyerek double-submit koruması
       nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ttl: new Date(Date.now() + 5 * 60_000).toISOString(),
+      critical_auth_verified: options.requireCriticalAuth === true,
     })
     .select('id')
     .single();
@@ -158,7 +163,7 @@ export async function sendAndTrack(
   payload:   CommandPayload,
   onStatus:  (ev: StatusEvent) => void,
 ): Promise<{ unsubscribe: () => void; result: SendResult }> {
-  const result = await sendCommand(vehicleId, type, payload);
+  const result = await sendCommand(vehicleId, type, payload, {});
   if (!result.ok || !result.commandId) {
     return { unsubscribe: () => {}, result };
   }

@@ -16,7 +16,11 @@ const pageTitles: Record<string, string> = {
   '/dashboard/settings': 'Ayarlar',
 };
 
-export default function Topbar() {
+interface TopbarProps {
+  onMenuClick?: () => void;
+}
+
+export default function Topbar({ onMenuClick }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const title = pageTitles[pathname] ?? 'Panel';
@@ -30,11 +34,22 @@ export default function Topbar() {
   };
 
   return (
-    <header className="h-16 flex-shrink-0 flex items-center justify-between px-6 border-b border-white/[0.06] bg-[#070e1c]/80 backdrop-blur-sm">
+    <header className="h-14 lg:h-16 flex-shrink-0 flex items-center gap-3 px-4 lg:px-6 border-b border-white/[0.06] bg-[#070e1c]/80 backdrop-blur-sm">
+      {/* Hamburger — mobile only */}
+      <button
+        onClick={onMenuClick}
+        className="lg:hidden w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.07] transition-all flex-shrink-0"
+        aria-label="Menüyü aç"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+      </button>
+
       {/* Title */}
-      <div>
-        <h1 className="text-sm font-semibold text-white">{title}</h1>
-        <p className="text-[11px] text-white/30 mt-0.5">Car Launcher Pro — Yönetim Paneli</p>
+      <div className="flex-1 min-w-0">
+        <h1 className="text-sm font-semibold text-white leading-none truncate">{title}</h1>
+        <p className="text-[10px] text-white/30 mt-0.5 hidden sm:block">Car Launcher Pro — Yönetim Paneli</p>
       </div>
 
       {/* Right side */}
@@ -42,7 +57,7 @@ export default function Topbar() {
         {/* Push notification widget */}
         <PushNotificationWidget />
 
-        {/* Connection status pill */}
+        {/* Connection status pill — sm+ only */}
         <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
           connectionStatus === 'connected'
             ? 'bg-emerald-500/[0.08] border border-emerald-500/20'
@@ -63,17 +78,17 @@ export default function Topbar() {
             : 'text-red-400'
           }`}>
             {connectionStatus === 'connected'
-              ? `${onlineCount} araç aktif`
+              ? `${onlineCount} araç`
               : connectionStatus === 'connecting'
               ? 'Bağlanıyor…'
-              : 'Bağlantı kopuk'}
+              : 'Kopuk'}
           </span>
         </div>
 
-        {/* Notifications */}
+        {/* Notifications — hidden on mobile (in bottom nav) */}
         <Link
           href="/dashboard/notifications"
-          className="relative w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.07] transition-all"
+          className="hidden lg:flex relative w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.07] items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.07] transition-all"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M8 1.5a4.5 4.5 0 014.5 4.5v2.5l1.25 1.75H2.25L3.5 8.5V6A4.5 4.5 0 018 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
