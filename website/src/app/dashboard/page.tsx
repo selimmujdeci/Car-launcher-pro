@@ -8,6 +8,7 @@ import VehicleModal from '@/components/dashboard/VehicleModal';
 import LiveMap from '@/components/map/LiveMap';
 import { GeofenceAlertsPanel } from '@/components/dashboard/GeofenceAlertsPanel';
 import { RemoteCommandPanel } from '@/components/dashboard/RemoteCommandPanel';
+import { ProGate } from '@/components/plan/ProGate';
 import type { LiveVehicle } from '@/types/realtime';
 
 /* ── Status Pulse ─────────────────────────────────────────── */
@@ -332,6 +333,7 @@ export default function DashboardPage() {
 
       {/* ── Canlı harita ── */}
       <div className="relative rounded-2xl overflow-hidden h-52 card-enter" style={{ animationDelay: '0.18s' }}>
+        <ProGate feature="live_location">
         <LiveMap
           vehicles={mapVehicles}
           onSelect={(id) => setSelected(vehicles.find((v) => v.id === id) ?? null)}
@@ -366,6 +368,7 @@ export default function DashboardPage() {
             animation: 'scanLine 6s linear infinite',
           }}
         />
+        </ProGate>
       </div>
 
       {/* ── İki kolonlu panel ── */}
@@ -393,7 +396,9 @@ export default function DashboardPage() {
                 />
                 {/* badge is rendered in header, no duplicate needed */}
                 <div className="mt-1">
-                  <TelemetryStrip vehicle={focusedVehicle} />
+                  <ProGate feature="telemetry">
+                    <TelemetryStrip vehicle={focusedVehicle} />
+                  </ProGate>
                 </div>
               </div>
 
@@ -403,7 +408,9 @@ export default function DashboardPage() {
                 style={{ animationDelay: '0.25s' }}
               >
                 <PanelHeader icon={<TerminalIcon />} title="Uzaktan Kontrol" color="#a78bfa" />
-                <RemoteCommandPanel vehicleId={focusedVehicle.id} />
+                <ProGate feature="remote_commands">
+                  <RemoteCommandPanel vehicleId={focusedVehicle.id} />
+                </ProGate>
               </div>
             </>
           ) : (
@@ -422,7 +429,9 @@ export default function DashboardPage() {
           style={{ animationDelay: '0.28s' }}
         >
           <PanelHeader icon={<ShieldIcon />} title="Hırsız Savar — İhlal Geçmişi" color="#ef4444" />
-          <GeofenceAlertsPanel vehicleId={focusedVehicle?.id} />
+          <ProGate feature="geofence_alerts">
+            <GeofenceAlertsPanel vehicleId={focusedVehicle?.id} />
+          </ProGate>
         </div>
       </div>
 

@@ -54,13 +54,20 @@ function urlBase64ToArrayBuffer(base64: string): ArrayBuffer {
 /* ── Supabase persistence ────────────────────────────────────── */
 
 async function saveToDB(sub: PushSubscription): Promise<void> {
-  const json    = sub.toJSON();
+  const json     = sub.toJSON();
   const endpoint = json.endpoint ?? '';
 
   if (supabaseBrowser) {
     try {
+      // user_id required by RLS policy "user_manage_own_subs"
+      const { data: { user } } = await supabaseBrowser.auth.getUser();
       await supabaseBrowser.from('push_subscriptions').upsert(
-        { endpoint, subscription: json, updated_at: new Date().toISOString() },
+        {
+          endpoint,
+          subscription: json,
+          user_id:      user?.id ?? null,
+          updated_at:   new Date().toISOString(),
+        },
         { onConflict: 'endpoint' },
       );
     } catch { /* non-critical — localStorage fallback below */ }

@@ -2,24 +2,33 @@
  * Car Launcher Pro — Service Worker
  *
  * Responsibilities:
- *   1. push        → self.registration.showNotification (app-closed support)
- *   2. notificationclick → focus existing tab or open /dashboard
- *   3. activate    → clients.claim() — take control immediately (no reload needed)
+ *   1. install      → skipWaiting() — yeni SW hemen aktifleşir
+ *   2. activate     → clients.claim() — açık tabları hemen kontrol al
+ *   3. push         → showNotification (uygulama kapalıyken de çalışır)
+ *   4. notificationclick → ilgili sayfayı aç veya odaklan
  *
- * Zero-Leak: no caches opened; stateless — all data comes from push payload.
+ * Zero-Leak: no caches; stateless — all data from push payload.
  */
 
 'use strict';
 
-const APP_URL = '/dashboard';
+const APP_URL  = '/dashboard';
+const ICON_URL = '/icons/icon-192.svg';
+const BADGE_URL = '/icons/badge-72.svg';
 
-/* ── Activate: claim all clients immediately ─────────────────── */
+/* ── Install: skip waiting so new SW activates immediately ──── */
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+/* ── Activate: claim all clients ────────────────────────────── */
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-/* ── Push: parse payload and show notification ───────────────── */
+/* ── Push: parse payload and show notification ──────────────── */
 
 self.addEventListener('push', (event) => {
   let data = {};
@@ -28,23 +37,26 @@ self.addEventListener('push', (event) => {
     catch { data = { body: event.data.text() }; }
   }
 
+  // Edge Function sends flat object: { title, body, icon, badge, tag, url, urgent }
   const title   = data.title   ?? 'Car Launcher Pro';
   const body    = data.body    ?? 'Araç uyarısı alındı';
-  const tag     = data.tag     ?? 'clp-alarm';
+  const icon    = data.icon    ?? ICON_URL;
+  const badge   = data.badge   ?? BADGE_URL;
+  const tag     = data.tag     ?? 'clp-default';
+  // url is at top-level (not nested in data.data)
   const url     = data.url     ?? APP_URL;
   const urgent  = data.urgent  ?? false;
 
   const options = {
     body,
-    icon:               '/icons/icon-192.png',
-    badge:              '/icons/badge-72.png',
+    icon,
+    badge,
     tag,
+    renotify:           true,
     data:               { url },
     vibrate:            urgent ? [300, 100, 300, 100, 600] : [200, 100, 200],
     requireInteraction: urgent,
     silent:             false,
-    // OLED-friendly dark notification (Android)
-    // color is applied as notification accent on supported platforms
   };
 
   event.waitUntil(
@@ -52,23 +64,27 @@ self.addEventListener('push', (event) => {
   );
 });
 
-/* ── Notification click: focus or open dashboard ─────────────── */
+/* ── Notification click: focus tab or open URL ──────────────── */
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  // url stored in notification.data.url (set above)
   const targetUrl = event.notification.data?.url ?? APP_URL;
 
   event.waitUntil(
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        // Focus existing tab if already open
+        // Focus any open tab whose path starts with the target
+        const target = new URL(targetUrl, self.location.origin);
         for (const client of clientList) {
-          if (new URL(client.url).pathname.startsWith('/dashboard') && 'focus' in client) {
-            return client.focus();
-          }
+          try {
+            const clientPath = new URL(client.url).pathname;
+            if (clientPath.startsWith(target.pathname) && 'focus' in client) {
+              return client.focus();
+            }
+          } catch { /* invalid URL — skip */ }
         }
-        // Open new tab
         return self.clients.openWindow(targetUrl);
       })
   );

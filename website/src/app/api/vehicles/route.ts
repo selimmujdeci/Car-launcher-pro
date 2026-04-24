@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { mockVehicles } from '@/lib/mockData';
 
 async function getUserId(req: NextRequest): Promise<string | null> {
-  if (!isSupabaseConfigured) return 'mock-user';
+  if (!isSupabaseConfigured) return 'demo-user';
 
   const auth  = req.headers.get('Authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!isSupabaseConfigured) {
-    // Demo mode: return mock vehicles
+    // Demo mode: static fixture data (no Supabase)
     return NextResponse.json({ vehicles: mockVehicles });
   }
 
@@ -41,10 +41,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Araçlar getirilemedi.' }, { status: 500 });
   }
 
-  const vehicles = (data ?? []).map((row: any) => ({
-    ...row.vehicle,
-    role: row.role,
-  }));
+  type VehicleRow = { role: string; vehicle: { id: string; name: string; device_id: string; created_at: string } | { id: string; name: string; device_id: string; created_at: string }[] };
+  const vehicles = (data as VehicleRow[] ?? []).map((row) => {
+    const v = Array.isArray(row.vehicle) ? row.vehicle[0] : row.vehicle;
+    return { ...v, role: row.role };
+  });
 
   return NextResponse.json({ vehicles });
 }

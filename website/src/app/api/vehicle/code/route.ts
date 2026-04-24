@@ -3,9 +3,9 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { verifyApiKey, generateLinkingCode, hashApiKey } from '@/lib/crypto';
 
-// Mock store
-const mockApiKeys   = new Map<string, string>(); // vehicleId → apiKeyHash
-const mockCodes     = new Map<string, { vehicleId: string; expiresAt: number; used: boolean }>();
+// Demo mode: in-process stores (valid only for the lifetime of the Node.js process)
+const demoApiKeys = new Map<string, string>(); // vehicleId → apiKeyHash
+const demoCodes   = new Map<string, { vehicleId: string; expiresAt: number; used: boolean }>();
 
 function extractRawKey(req: NextRequest): string | null {
   const auth = req.headers.get('Authorization') ?? '';
@@ -21,14 +21,14 @@ export async function POST(req: NextRequest) {
   try {
     if (!isSupabaseConfigured) {
       // ── Demo mode ──────────────────────────────────────────────
-      const vehicleId = Array.from(mockApiKeys.entries()).find(
+      const vehicleId = Array.from(demoApiKeys.entries()).find(
         ([, h]) => verifyApiKey(rawKey, h)
       )?.[0];
       if (!vehicleId) return NextResponse.json({ error: 'Geçersiz API anahtarı.' }, { status: 401 });
 
       const code      = generateLinkingCode();
       const expiresAt = Date.now() + 60_000;
-      mockCodes.set(code, { vehicleId, expiresAt, used: false });
+      demoCodes.set(code, { vehicleId, expiresAt, used: false });
       return NextResponse.json({ code, expiresAt });
     }
 

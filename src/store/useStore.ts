@@ -148,6 +148,8 @@ export interface AppSettings {
   aiVoiceProvider: 'gemini' | 'haiku' | 'none';
   geminiApiKey: string;
   claudeHaikuApiKey: string;
+  /** Araç başlangıcında telefon hotspot bağlantı davranışı */
+  hotspotMode: 'auto' | 'ask' | 'off';
 }
 
 export interface MusicFavorite {
@@ -240,6 +242,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   aiVoiceProvider: 'gemini',
   geminiApiKey: '',
   claudeHaikuApiKey: '',
+  hotspotMode: 'ask',
 };
 
 export const useStore = create<StoreState>()(

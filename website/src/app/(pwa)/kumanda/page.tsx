@@ -6,6 +6,7 @@ import MobileCarControl from '@/components/dashboard/MobileCarControl';
 import PairingScreen from '@/components/pwa/PairingScreen';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useRealtime } from '@/hooks/useRealtime';
+import { ProGate } from '@/components/plan/ProGate';
 
 export default function KumandaPage() {
   useRealtime();
@@ -107,7 +108,9 @@ export default function KumandaPage() {
           ) : noPairedVehicle ? (
             <PairingScreen onPaired={reload} />
           ) : (
-            <MobileCarControl vehicle={vehicle} />
+            <ProGate feature="remote_commands">
+              <MobileCarControl vehicle={vehicle} />
+            </ProGate>
           )}
         </div>
       </main>

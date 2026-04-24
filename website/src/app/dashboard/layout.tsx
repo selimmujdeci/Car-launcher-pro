@@ -5,9 +5,12 @@ import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
 import BottomNav from '@/components/layout/BottomNav';
 import { useRealtime } from '@/hooks/useRealtime';
+import { usePlan } from '@/hooks/usePlan';
+import { TrialBanner } from '@/components/plan/TrialBanner';
 
 function DashboardInner({ children }: { children: React.ReactNode }) {
   useRealtime();
+  usePlan(); // plan store'u initialize et
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
@@ -32,6 +35,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Topbar onMenuClick={() => setDrawerOpen(true)} />
+        <TrialBanner />
         <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
           <div className="p-4 lg:p-6">{children}</div>
         </main>

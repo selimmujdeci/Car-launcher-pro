@@ -3,8 +3,8 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { generateApiKey, hashApiKey } from '@/lib/crypto';
 
-// Mock store for demo mode (lives only for server process lifetime)
-const mockVehicles = new Map<string, { id: string; name: string; apiKeyHash: string }>();
+// Demo mode: in-process store (lives only for the lifetime of the Node.js process)
+const demoVehicles = new Map<string, { id: string; name: string; apiKeyHash: string }>();
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,11 +20,11 @@ export async function POST(req: NextRequest) {
 
     if (!isSupabaseConfigured) {
       // ── Demo mode ──────────────────────────────────────────────
-      if (Array.from(mockVehicles.values()).some((v) => v.name === deviceId)) {
+      if (Array.from(demoVehicles.values()).some((v) => v.name === deviceId)) {
         return NextResponse.json({ error: 'Cihaz zaten kayıtlı.' }, { status: 409 });
       }
-      const vehicleId = `mock-${Date.now()}`;
-      mockVehicles.set(deviceId, { id: vehicleId, name, apiKeyHash });
+      const vehicleId = `demo-${Date.now()}`;
+      demoVehicles.set(deviceId, { id: vehicleId, name, apiKeyHash });
       return NextResponse.json({ vehicleId, apiKey: rawApiKey });
     }
 

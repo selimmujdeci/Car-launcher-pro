@@ -2,6 +2,7 @@
 
 import { useNotificationStore } from '@/store/notificationStore';
 import { formatLastSeen } from '@/lib/utils';
+import { ProGate } from '@/components/plan/ProGate';
 
 const typeLabel: Record<string, string> = {
   speed: 'Hız',
@@ -16,7 +17,7 @@ const severityStyle = {
   info:     { bg: 'bg-white/[0.03]',      border: 'border-white/[0.07]',  dot: 'bg-blue-400',   badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20'   },
 };
 
-export default function NotificationsPage() {
+function NotificationsContent() {
   const { notifications, markRead, markAllRead, unreadCount } = useNotificationStore();
   const unread = unreadCount();
 
@@ -79,5 +80,13 @@ export default function NotificationsPage() {
         </div>
       ) : null}
     </>
+  );
+}
+
+export default function NotificationsPage() {
+  return (
+    <ProGate feature="notifications">
+      <NotificationsContent />
+    </ProGate>
   );
 }

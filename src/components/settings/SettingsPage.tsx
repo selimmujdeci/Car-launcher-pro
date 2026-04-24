@@ -9,7 +9,7 @@ import {
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
 import { Clipboard } from '@capacitor/clipboard';
-import { isNative } from '../../platform/bridge';
+import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { useEditStore } from '../../store/useEditStore';
 import { useStore, type VehicleType } from '../../store/useStore';
@@ -879,6 +879,67 @@ function SettingsPageInner({ onClose }: Props) {
                 </div>
                 {settings.offlineMap && <MapSourcePanel />}
                 <AIVoicePanel />
+              </Panel>
+
+              {/* ── Hotspot / İnternet Bağlantısı ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={Wifi} title="Bluetooth İnternet" sub="Telefondan Bluetooth ile internet paylaşımı" color="#22d3ee" />
+
+                {/* Mode seçici */}
+                <div className="flex flex-col gap-2 mb-4">
+                  {(
+                    [
+                      { val: 'auto', label: 'Otomatik Aç',       sub: 'Uygulama açılınca Bluetooth ayarlarına git', color: '#34d399' },
+                      { val: 'ask',  label: 'Her Seferinde Sor', sub: 'Açılışta sor, ben karar vereyim',             color: '#60a5fa' },
+                      { val: 'off',  label: 'Kapalı',         sub: 'Bildirim gösterme',                                color: '#6b7280' },
+                    ] as const
+                  ).map(({ val, label, sub, color }) => {
+                    const active = (settings.hotspotMode ?? 'ask') === val;
+                    return (
+                      <button
+                        key={val}
+                        onClick={() => updateSettings({ hotspotMode: val })}
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 active:scale-[0.98] text-left"
+                        style={{
+                          background: active ? `${color}12` : 'rgba(255,255,255,0.03)',
+                          border: `1.5px solid ${active ? `${color}40` : 'rgba(255,255,255,0.07)'}`,
+                          boxShadow: active ? `0 0 16px ${color}14` : 'none',
+                        }}
+                      >
+                        {/* Radio dot */}
+                        <div
+                          className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
+                          style={{
+                            border: `2px solid ${active ? color : 'rgba(255,255,255,0.2)'}`,
+                            background: active ? color : 'transparent',
+                          }}
+                        >
+                          {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold" style={{ color: active ? '#fff' : 'rgba(255,255,255,0.55)' }}>{label}</p>
+                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'rgba(255,255,255,0.25)' }}>{sub}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Manuel aç butonu */}
+                {isNative && (
+                  <button
+                    onClick={() => bridge.launchHotspotSettings()}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-95"
+                    style={{
+                      background: 'rgba(34,211,238,0.08)',
+                      border: '1px solid rgba(34,211,238,0.25)',
+                      color: '#22d3ee',
+                    }}
+                  >
+                    <Wifi size={15} />
+                    Bluetooth Ayarlarını Şimdi Aç
+                  </button>
+                )}
               </Panel>
             </div>
           )}

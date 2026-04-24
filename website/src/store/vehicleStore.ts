@@ -10,13 +10,24 @@ const _lastRenderMs = new Map<string, number>();
 
 // ── Sensor resiliency: reject physically impossible data ──────────────────────
 function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
+  // NaN values pass through here — applyUpdate uses Number.isFinite() to
+  // fall back to the last known good value, preserving sensor continuity.
+  if (!Number.isFinite(u.speed))      return true;
+  if (!Number.isFinite(u.rpm))        return true;
+  if (!Number.isFinite(u.engineTemp)) return true;
+  if (!Number.isFinite(u.fuel))       return true;
+
   // Absolute bounds
   if (u.speed < 0 || u.speed > 300) return false;
   if (u.rpm < 0 || u.rpm > 10_000) return false;
   if (u.engineTemp < -40 || u.engineTemp > 150) return false;
   if (u.fuel < 0 || u.fuel > 100) return false;
 
-  // Delta bounds — reject impossible jumps (sensor glitch / clock skew)
+  // Ghost Jump: physically impossible speed change in <100 ms (sensor glitch / GPS bounce)
+  const timeDelta = u.timestamp - existing.lastTimestamp;
+  if (timeDelta > 0 && timeDelta < 100 && Math.abs(u.speed - existing.speed) > 40) return false;
+
+  // Delta bounds — reject large jumps beyond plausible acceleration
   if (Math.abs(u.speed - existing.speed) > 80) return false;
   if (Math.abs(u.rpm - existing.rpm) > 5_000) return false;
 
@@ -103,6 +114,10 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   setConnectionStatus: (status) => set({ connectionStatus: status }),
 
   startWatchdog: () => {
+    const PUSH_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+      ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/push-notify`
+      : null;
+
     const interval = setInterval(() => {
       const now = Date.now();
       set((state) => {
@@ -119,6 +134,19 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
               lastSeen: formatLastSeen(v.lastTimestamp),
             };
             changed = true;
+
+            // Araç offline geçince push bildirim tetikle (fire-and-forget)
+            if (PUSH_URL) {
+              fetch(PUSH_URL, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({
+                  event:     'vehicle_offline',
+                  vehicleId: id,
+                  payload:   { plate: v.plate, vehicle_name: v.name },
+                }),
+              }).catch(() => { /* best-effort */ });
+            }
           }
         }
 

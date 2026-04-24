@@ -2,17 +2,19 @@
  * commandListener.ts — Launcher Realtime Komut Dinleyici
  *
  * Automotive Grade:
- * - Zero-Leak: _alive flag ile async connect/disconnect race önlenir
- * - Idempotency: executedNonces set ile aynı komut iki kez çalışmaz
- * - TTL Guard: 5 dakikadan eski komutları reddeder
- * - Tehlikeli komut koruması: sürüş sırasında lock reddi
- * - Offline recovery: bağlantı kopunca 3s bekleyip yeniden bağlanır
+ * - Zero-Leak:        _alive flag ile async connect/disconnect race önlenir
+ * - Idempotency:      executedIds (command ID bazlı) ile aynı komut iki kez çalışmaz
+ * - TTL Guard:        5 dakikadan eski komutları reddeder
+ * - Retry + Backoff:  max 3 retry, exponential backoff (1s → 2s → 4s)
+ * - Tehlikeli komut:  sürüş sırasında lock/unlock reddi (>5 km/h)
+ * - Offline recovery: reconnect'te pending komutları FIFO sırayla işler
+ * - Push notify:      tamamlanan komutlar için Edge Function tetiklenir
  */
 
 import { Capacitor } from '@capacitor/core';
-import { App } from '@capacitor/app';
+import { App }       from '@capacitor/app';
 import { nativeCoreService } from './nativeCoreService';
-import { buildNavIntent } from '../../website/src/lib/routeEngine';
+import { buildNavIntent }    from '../../website/src/lib/routeEngine';
 
 // ── Supabase client (launcher kendi session ile auth yapar) ──────────────────
 
@@ -21,6 +23,14 @@ async function getSupabase() {
   return supabaseBrowser;
 }
 
+// ── Sabitler ─────────────────────────────────────────────────────────────────
+
+const MAX_RETRY         = 3;
+const RECONNECT_DELAY   = 3_000;   // ms — bağlantı kopunca bekleme
+const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefined)
+  ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notify`
+  : null;
+
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
 export type CommandType =
@@ -28,20 +38,23 @@ export type CommandType =
   | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change';
 
 interface VehicleCommand {
-  id:         string;
-  vehicle_id: string;
-  type:       CommandType;
-  payload:    Record<string, unknown>;
-  status:     string;
-  nonce:      string;
-  ttl:        string;
-  created_at: string;
+  id:              string;
+  vehicle_id:      string;
+  type:            CommandType;
+  payload:         Record<string, unknown>;
+  status:          string;
+  nonce:           string;
+  ttl:             string;
+  created_at:      string;
+  retry_count?:    number;
+  last_attempt_at?: string | null;
+  error_reason?:   string | null;
 }
 
 // ── Tehlikeli komut koruması ──────────────────────────────────────────────────
 
 const DANGEROUS_WHILE_MOVING: CommandType[] = ['lock', 'unlock'];
-const SPEED_THRESHOLD_KMH = 5; // bu hızın üstünde kapı açma/kapatma reddi
+const SPEED_THRESHOLD_KMH = 5;
 
 let currentSpeedKmh = 0;
 export function updateCurrentSpeed(speedKmh: number): void {
@@ -52,42 +65,24 @@ function isDangerousWhileMoving(type: CommandType): boolean {
   return DANGEROUS_WHILE_MOVING.includes(type) && currentSpeedKmh > SPEED_THRESHOLD_KMH;
 }
 
-// ── Executor — komut → Android Intent / Native API ───────────────────────────
+// ── Executor ─────────────────────────────────────────────────────────────────
 
 async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejected' | 'failed'> {
-  const payload = cmd.payload as Record<string, unknown>;
+  const payload = cmd.payload;
 
-  // Tehlikeli komut kontrolü
   if (isDangerousWhileMoving(cmd.type)) {
-    console.warn(`[CommandListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
+    console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
     return 'rejected';
   }
 
   try {
     switch (cmd.type) {
-      case 'lock':
-        await nativeCoreService.lockDoors?.();
-        return 'completed';
-
-      case 'unlock':
-        await nativeCoreService.unlockDoors?.();
-        return 'completed';
-
-      case 'horn':
-        await nativeCoreService.honkHorn?.();
-        return 'completed';
-
-      case 'alarm_on':
-        await nativeCoreService.triggerAlarm?.();
-        return 'completed';
-
-      case 'alarm_off':
-        await nativeCoreService.stopAlarm?.();
-        return 'completed';
-
-      case 'lights_on':
-        await nativeCoreService.flashLights?.();
-        return 'completed';
+      case 'lock':            await nativeCoreService.lockDoors?.();    return 'completed';
+      case 'unlock':          await nativeCoreService.unlockDoors?.();  return 'completed';
+      case 'horn':            await nativeCoreService.honkHorn?.();     return 'completed';
+      case 'alarm_on':        await nativeCoreService.triggerAlarm?.(); return 'completed';
+      case 'alarm_off':       await nativeCoreService.stopAlarm?.();    return 'completed';
+      case 'lights_on':       await nativeCoreService.flashLights?.();  return 'completed';
 
       case 'route_send':
       case 'navigation_start': {
@@ -98,32 +93,24 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
         };
         const lat  = Number(route.lat);
         const lng  = Number(route.lng);
-        const addr = route.address_name ?? '';
-        const prov = (route.provider_intent ?? 'google_maps') as
-          'google_maps' | 'yandex' | 'waze' | 'apple_maps';
-
-        // Koordinat sınır kontrolü (Sensor Resiliency)
         if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
             !Number.isFinite(lng) || lng < -180 || lng > 180) {
-          console.error('[CommandListener] Geçersiz koordinat:', lat, lng);
+          console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
           return 'failed';
         }
-
-        const intentUri = buildNavIntent(lat, lng, addr, prov);
-
+        const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
+          (route.provider_intent ?? 'google_maps') as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
         if (Capacitor.isNativePlatform()) {
           await App.openUrl({ url: intentUri });
         } else {
-          // Web/dev modu
           window.open(intentUri, '_blank');
         }
         return 'completed';
       }
 
       case 'theme_change': {
-        const theme = String(payload.theme ?? 'dark');
+        const theme     = String(payload.theme ?? 'dark');
         const themeVars = payload.themeVars as Record<string, string> | undefined;
-        // Tema motoru entegrasyonu
         document.documentElement.setAttribute('data-theme', theme);
         if (themeVars && typeof themeVars === 'object') {
           Object.entries(themeVars).forEach(([k, v]) => {
@@ -135,11 +122,11 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
       }
 
       default:
-        console.warn('[CommandListener] Bilinmeyen komut tipi:', cmd.type);
+        console.warn('[CmdListener] Bilinmeyen komut tipi:', cmd.type);
         return 'rejected';
     }
   } catch (err) {
-    console.error('[CommandListener] Execute hatası:', err);
+    console.error('[CmdListener] Execute hatası:', err);
     return 'failed';
   }
 }
@@ -147,24 +134,56 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
 // ── Durum güncelleme ─────────────────────────────────────────────────────────
 
 async function updateCommandStatus(
-  commandId: string,
-  status: 'accepted' | 'executing' | 'completed' | 'failed' | 'rejected',
+  commandId:   string,
+  status:      'accepted' | 'executing' | 'completed' | 'failed' | 'rejected',
+  errorReason?: string,
 ): Promise<void> {
   const supabase = await getSupabase();
   if (!supabase) return;
 
-  const now = new Date().toISOString();
-  const updates: Record<string, unknown> = { status, updated_at: now };
+  const now     = new Date().toISOString();
+  const updates: Record<string, unknown> = { status };
 
-  if (status === 'accepted')                                        updates.accepted_at = now;
-  if (status === 'executing')                                       updates.executed_at = now;
-  if (status === 'completed' || status === 'failed' || status === 'rejected') updates.finished_at = now;
+  if (status === 'accepted')  updates.accepted_at = now;
+  if (status === 'executing') updates.last_attempt_at = now;
+  if (['completed', 'failed', 'rejected'].includes(status)) updates.finished_at = now;
+  if (errorReason) updates.error_reason = errorReason;
 
   const { error } = await supabase
     .from('vehicle_commands')
     .update(updates)
     .eq('id', commandId);
-  if (error) console.error('[CommandListener] Status güncelleme hatası:', error.message);
+
+  if (error) console.error('[CmdListener] Status güncelleme hatası:', error.message);
+}
+
+// ── Retry increment (RPC üzerinden — atomik) ─────────────────────────────────
+
+async function incrementRetry(commandId: string, errorReason: string): Promise<void> {
+  const supabase = await getSupabase();
+  if (!supabase) return;
+  // increment_command_retry RPC: retry_count artırır, max 3'te failed'a çeker
+  await supabase.rpc('increment_command_retry', {
+    p_command_id: commandId,
+    p_error:      errorReason,
+  });
+}
+
+// ── Push bildirim — Edge Function tetikle ────────────────────────────────────
+
+async function triggerPushNotify(
+  event:     string,
+  vehicleId: string,
+  payload:   Record<string, unknown>,
+): Promise<void> {
+  if (!PUSH_EDGE_FN_URL) return;
+  try {
+    await fetch(PUSH_EDGE_FN_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ event, vehicleId, payload }),
+    });
+  } catch { /* fire-and-forget — bildirim hatası ana akışı etkilemez */ }
 }
 
 // ── Ana Listener Sınıfı ───────────────────────────────────────────────────────
@@ -173,8 +192,9 @@ export class CommandListener {
   private vehicleId:      string;
   private _alive =        false;
   private channel:        ReturnType<Awaited<ReturnType<typeof getSupabase>>['channel']> | null = null;
-  private executedNonces: Set<string> = new Set();
+  private executedIds:    Set<string> = new Set(); // ID bazlı dedup (nonce değil)
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimers:    Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   constructor(vehicleId: string) {
     this.vehicleId = vehicleId;
@@ -185,7 +205,7 @@ export class CommandListener {
     const supabase = await getSupabase();
     if (!supabase || !this._alive) return;
 
-    // Başlangıçta bekleyen komutları işle (offline recovery)
+    // Reconnect'te bekleyen + retry-eligible komutları işle
     await this.processPendingCommands(supabase);
 
     this.channel = supabase
@@ -206,7 +226,6 @@ export class CommandListener {
       .subscribe((status: string) => {
         if (!this._alive) return;
         if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
-          // Zero-leak recovery: 3s bekleyip yeniden bağlan
           this.scheduleReconnect();
         }
       });
@@ -218,6 +237,10 @@ export class CommandListener {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    // Bekleyen retry timer'ları temizle
+    this.retryTimers.forEach((t) => clearTimeout(t));
+    this.retryTimers.clear();
+
     if (this.channel) {
       const ch = this.channel;
       this.channel = null;
@@ -229,60 +252,119 @@ export class CommandListener {
     if (this.reconnectTimer || !this._alive) return;
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
-      if (this._alive) {
-        await this.connect();
-      }
-    }, 3_000);
+      if (this._alive) await this.connect();
+    }, RECONNECT_DELAY);
   }
 
-  // Offline recovery: araç internete girince pending komutları yakala
+  // ── Offline recovery ────────────────────────────────────────────────────────
+  // Bağlantı kurulunca:
+  //   1. TTL'i geçmemiş pending komutları çek
+  //   2. retry_count < MAX_RETRY olanları dahil et
+  //   3. FIFO sırayla işle
+
   private async processPendingCommands(
     supabase: NonNullable<Awaited<ReturnType<typeof getSupabase>>>,
   ): Promise<void> {
+    const now = new Date().toISOString();
+
     const { data: cmds } = await supabase
       .from('vehicle_commands')
       .select('*')
       .eq('vehicle_id', this.vehicleId)
       .eq('status', 'pending')
-      .gt('ttl', new Date().toISOString()) // sadece TTL geçmemiş olanlar
+      .gt('ttl', now)                         // TTL geçmemiş
+      .lt('retry_count', MAX_RETRY)           // max retry aşılmamış
       .order('created_at', { ascending: true })
       .limit(10);
 
     for (const cmd of cmds ?? []) {
       if (!this._alive) break;
+      // ID dedup: zaten bu session'da işlenmiş olanları atla
+      if (this.executedIds.has(cmd.id as string)) continue;
       await this.handleCommand(cmd as VehicleCommand);
     }
   }
 
+  // ── Komut işleyici ──────────────────────────────────────────────────────────
+
   private async handleCommand(cmd: VehicleCommand): Promise<void> {
     // 1. TTL kontrolü
-    if (new Date(cmd.ttl) < new Date()) {
-      await updateCommandStatus(cmd.id, 'failed');
+    if (cmd.ttl && new Date(cmd.ttl) < new Date()) {
+      await updateCommandStatus(cmd.id, 'failed', 'TTL aşıldı');
       return;
     }
 
-    // 2. Idempotency — aynı nonce tekrar işlenmez
-    if (this.executedNonces.has(cmd.nonce)) {
-      console.log('[CommandListener] Tekrarlayan nonce atlandı:', cmd.nonce);
-      return;
-    }
-    this.executedNonces.add(cmd.nonce);
+    // 2. Idempotency — aynı komut ID'si bu session'da tekrar işlenmez
+    if (this.executedIds.has(cmd.id)) return;
+    this.executedIds.add(cmd.id);
 
-    // Nonce set'i çok büyümesin (max 500 kayıt)
-    if (this.executedNonces.size > 500) {
-      const first = this.executedNonces.values().next().value;
-      this.executedNonces.delete(first);
+    // Set büyümesin (max 500 kayıt)
+    if (this.executedIds.size > 500) {
+      const first = this.executedIds.values().next().value;
+      if (first) this.executedIds.delete(first);
     }
 
-    // 3. Kabul et
+    // 3. Kabul et → yürüt
     await updateCommandStatus(cmd.id, 'accepted');
-
-    // 4. Yürüt
     await updateCommandStatus(cmd.id, 'executing');
+
     const outcome = await executeCommand(cmd);
 
-    // 5. Sonuç
-    await updateCommandStatus(cmd.id, outcome);
+    if (outcome === 'completed') {
+      await updateCommandStatus(cmd.id, 'completed');
+      // Push bildirim: komut tamamlandı
+      void triggerPushNotify('command_completed', cmd.vehicle_id, {
+        command_id:    cmd.id,
+        command_label: cmd.type,
+      });
+      return;
+    }
+
+    if (outcome === 'rejected') {
+      // Güvenlik reddi — retry yok
+      await updateCommandStatus(cmd.id, 'rejected', 'Sürüş güvenliği: komut reddedildi');
+      return;
+    }
+
+    // 'failed' — retry değerlendirmesi
+    const retryCount = cmd.retry_count ?? 0;
+
+    if (retryCount < MAX_RETRY) {
+      // Exponential backoff: 2^retry saniye (1s, 2s, 4s)
+      const backoffMs = Math.pow(2, retryCount) * 1_000;
+      console.log(`[CmdListener] Retry ${retryCount + 1}/${MAX_RETRY} — ${backoffMs}ms sonra: ${cmd.id}`);
+
+      // DB'yi güncelle (retry_count++ ve status pending kalır)
+      await incrementRetry(cmd.id, `Attempt ${retryCount + 1} failed`);
+
+      // ID dedup'tan çıkar — bir sonraki retry'da tekrar işlenebilsin
+      this.executedIds.delete(cmd.id);
+
+      // Timer ile retry — araç online'sa bu session'da dene
+      const timer = setTimeout(async () => {
+        this.retryTimers.delete(cmd.id);
+        if (!this._alive) return;
+        // Güncel cmd'yi DB'den çek (retry_count güncellenmiş olabilir)
+        const supabase = await getSupabase();
+        if (!supabase) return;
+        const { data } = await supabase
+          .from('vehicle_commands')
+          .select('*')
+          .eq('id', cmd.id)
+          .eq('status', 'pending')
+          .single();
+        if (data) await this.handleCommand(data as VehicleCommand);
+      }, backoffMs);
+
+      this.retryTimers.set(cmd.id, timer);
+    } else {
+      // Max retry aşıldı → kalıcı failed
+      await updateCommandStatus(cmd.id, 'failed', `${MAX_RETRY} denemede başarısız`);
+      void triggerPushNotify('command_failed', cmd.vehicle_id, {
+        command_id:   cmd.id,
+        error_reason: `${MAX_RETRY} denemede başarısız`,
+      });
+    }
   }
 }
 

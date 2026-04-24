@@ -7,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 const demoCodes = new Map<string, { vehicleId: string; expiresAt: number; used: boolean }>();
 const demoLinks = new Map<string, string[]>(); // userId → vehicleId[]
 
-// Demo vehicles that can be linked (mock)
+// Demo vehicles for Supabase-free testing
 const DEMO_VEHICLES: Record<string, { id: string; name: string; plate: string }> = {
   'demo-v1': { id: 'demo-v1', name: 'Demo Araç 1', plate: '34 DEMO 01' },
   'demo-v2': { id: 'demo-v2', name: 'Demo Araç 2', plate: '34 DEMO 02' },

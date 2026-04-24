@@ -11,19 +11,28 @@ import { ReverseOverlay } from './components/camera/ReverseOverlay';
 import { DisclaimerBanner } from './components/legal/DisclaimerBanner';
 import { usePermission } from './platform/roleSystem';
 import { DEBUG_ENABLED } from './platform/debug';
+import { HotspotPromptModal } from './components/modals/HotspotPromptModal';
+import { isAlreadyConnected, openHotspotSettings } from './platform/tetherService';
+import { isNative } from './platform/bridge';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
 );
 
+// Uygulama oturumu başına yalnızca bir kez sor (state değil module-level flag)
+let _hotspotChecked = false;
+
 function App() {
   const { i18n } = useTranslation();
-  const language = useStore((s) => s.settings.language);
-  const canDebug = usePermission('canDebug');
+  const language    = useStore((s) => s.settings.language);
+  const hotspotMode = useStore((s) => s.settings.hotspotMode);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const canDebug    = usePermission('canDebug');
 
-  const [debugOpen, setDebugOpen] = useState(false);
-  const tapCountRef  = useRef(0);
-  const tapTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debugOpen, setDebugOpen]         = useState(false);
+  const [showHotspotPrompt, setShowPrompt] = useState(false);
+  const tapCountRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (i18n.language !== language) {
@@ -34,6 +43,26 @@ function App() {
   useEffect(() => {
     return startVehicleDataLayer();
   }, []);
+
+  /* ── Hotspot kontrolü — sadece native Android'de, oturum başına 1x ── */
+  useEffect(() => {
+    if (!isNative || _hotspotChecked || hotspotMode === 'off') return;
+    _hotspotChecked = true;
+
+    // Zaten bağlıysa hiçbir şey yapma
+    if (isAlreadyConnected()) return;
+
+    if (hotspotMode === 'auto') {
+      // Kısa gecikme: uygulama UI'ı tam yüklendikten sonra aç
+      const t = setTimeout(() => openHotspotSettings(), 1200);
+      return () => clearTimeout(t);
+    }
+
+    if (hotspotMode === 'ask') {
+      const t = setTimeout(() => setShowPrompt(true), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [hotspotMode]);
 
   function handleDebugTap() {
     if (!DEBUG_ENABLED || !canDebug) return;
@@ -55,6 +84,17 @@ function App() {
         </EditController>
         <ReverseOverlay />
         <DisclaimerBanner />
+
+        {/* Hotspot bağlantı sorusu */}
+        {showHotspotPrompt && (
+          <HotspotPromptModal
+            onDismiss={() => setShowPrompt(false)}
+            onAutoEnable={() => {
+              updateSettings({ hotspotMode: 'auto' });
+              setShowPrompt(false);
+            }}
+          />
+        )}
 
         {/* Hidden 5-tap debug trigger — top-right corner */}
         {DEBUG_ENABLED && canDebug && (

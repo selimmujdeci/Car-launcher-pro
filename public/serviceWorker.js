@@ -197,3 +197,55 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
+
+// ── Web Push — bildirim göster ────────────────────────────────────────────────
+
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  let data = {};
+  try { data = event.data.json(); } catch { return; }
+
+  const {
+    title = 'CockpitOS',
+    body  = '',
+    icon  = '/icons/icon-192.png',
+    tag   = 'cockpitos',
+    renotify = false,
+    data: notifData = {},
+  } = data;
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon,
+      badge:    '/icons/badge-72.png',
+      tag,
+      renotify,
+      vibrate:  [100, 50, 100],
+      data:     notifData,
+      actions:  notifData.url ? [{ action: 'open', title: 'Aç' }] : [],
+    })
+  );
+});
+
+// ── Bildirime tıklandığında ilgili sayfayı aç ─────────────────────────────────
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const url = event.notification.data?.url ?? '/kumanda';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Açık pencere varsa oraya odaklan
+      for (const client of clients) {
+        if (client.url.includes(new URL(url, self.location.origin).pathname)) {
+          return client.focus();
+        }
+      }
+      // Yoksa yeni sekme aç
+      return self.clients.openWindow(url);
+    })
+  );
+});

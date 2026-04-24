@@ -48,6 +48,7 @@ export interface CarBridge {
   launchMusicQuery(pkg: string, searchUri: string, fallbackKey: string): void;
   launchSystemSettings(): void;
   launchBluetoothSettings(): void;
+  launchHotspotSettings(): void;
   /** Open native dialer with number pre-filled. Falls back to tel: link on web. */
   callNumber(number: string): void;
 }
@@ -76,6 +77,7 @@ const demoBridge: CarBridge = {
   },
   launchSystemSettings()     { /* no browser equivalent */ },
   launchBluetoothSettings()  { /* no browser equivalent */ },
+  launchHotspotSettings()    { /* no browser equivalent */ },
   callNumber(number)         { _open(`tel:${sanitizePhoneNumber(number)}`); },
 };
 
@@ -164,6 +166,12 @@ const nativeBridge: CarBridge = {
   },
 
   launchBluetoothSettings() {
+    _nativeLaunch(undefined, 'android.settings.BLUETOOTH_SETTINGS');
+  },
+
+  launchHotspotSettings() {
+    // Bluetooth Ayarları: tüm Android versiyonlarında (API 5+) garantili çalışır.
+    // Kullanıcı eşleşmiş telefona tıklar → "İnternet erişimi" toggle → açık.
     _nativeLaunch(undefined, 'android.settings.BLUETOOTH_SETTINGS');
   },
 
