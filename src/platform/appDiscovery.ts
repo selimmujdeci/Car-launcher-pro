@@ -61,7 +61,8 @@ export function useApps(): AppDiscoveryResult {
           .map(na => ({
             id: `native-${na.packageName}`,
             name: na.name,
-            icon: guessIcon(na),
+            // Native Base64 ikon varsa emoji'yi bypass et
+            icon: na.icon ?? guessIcon(na),
             category: (na.isSystemApp ? 'system' : 'utility') as AppCategory,
             url: '',
             androidPackage: na.packageName,

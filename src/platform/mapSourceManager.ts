@@ -317,14 +317,14 @@ async function probeLocalTiles(): Promise<boolean> {
 // Böylece tile'lar APK içine paketlenmez — APK boyutu ~%80 azalır.
 //
 // Harici tile yolu önceliği:
-//   1. ExternalStorage/Android/data/com.carlauncher.pro/maps/  (SD kart)
+//   1. ExternalStorage/Android/data/com.cockpitos.pro/maps/  (SD kart)
 //   2. Data/maps/                                               (iç depo)
 //   3. /maps/ (APK public/ asset — fallback)
 //
 // Tile dosya ismi: {z}/{x}/{y}.png (aynı yapı)
 
 const NATIVE_MAPS_SUBDIRS = [
-  'Android/data/com.carlauncher.pro/maps', // ExternalStorage
+  'Android/data/com.cockpitos.pro/maps', // ExternalStorage
   'maps',                                  // Data directory
 ];
 

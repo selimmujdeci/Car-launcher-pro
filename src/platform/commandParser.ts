@@ -106,7 +106,9 @@ export type CommandType =
   | 'screen_brightness_up'
   | 'screen_brightness_down'
   | 'call_contact'
-  | 'open_camera';
+  | 'open_camera'
+  | 'vehicle_health_check'
+  | 'vehicle_clear_dtc';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -431,6 +433,20 @@ const PATTERNS: CommandPattern[] = [
     label: 'Kamerayı Aç', example: 'kamerayı aç',
     keywords: ['kamerayı aç', 'kamera aç', 'arka kamera', 'geri kamera', 'rear camera'],
     tokens:   ['kamera', 'camera'],
+  },
+  {
+    type: 'vehicle_health_check', priority: 'normal',
+    feedback: 'Araç sistemleri taranıyor',
+    label: 'Araç Sağlık Kontrolü', example: 'arıza var mı',
+    keywords: ['nesi var', 'arıza var mı', 'check engine', 'sorun var mı', 'sağlık durumu'],
+    tokens:   ['arıza', 'sorun', 'check', 'sağlık', 'tarama'],
+  },
+  {
+    type: 'vehicle_clear_dtc', priority: 'normal',
+    feedback: 'Arıza kayıtları siliniyor',
+    label: 'Arıza Kodlarını Sil', example: 'hataları sil',
+    keywords: ['hataları sil', 'arıza ışığını söndür', 'kodları temizle'],
+    tokens:   ['hata', 'sil', 'arıza', 'kod', 'temizle'],
   },
 ];
 

@@ -1,5 +1,5 @@
 /**
- * Native Core Service — startup orchestration for Car Launcher Pro.
+ * Native Core Service — startup orchestration for CockpitOS.
  *
  * Responsibilities:
  *   1. Read device hardware profile from native layer (getDeviceProfile)

@@ -7,10 +7,10 @@ if (keyPropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.carlauncher.pro"
+    namespace = "com.cockpitos.pro"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.carlauncher.pro"
+        applicationId "com.cockpitos.pro"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

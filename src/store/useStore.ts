@@ -41,7 +41,6 @@ export interface MaintenanceInfo {
   nextOilChangeKm: number;
   lastServiceDate: string;
   fuelConsumptionAvg: number;
-  currentKm: number;
   inspectionDate: string;
   insuranceExpiry: string;
   kaskoExpiry: string;
@@ -203,7 +202,6 @@ const DEFAULT_SETTINGS: AppSettings = {
     nextOilChangeKm: 10000,
     lastServiceDate: new Date().toISOString().split('T')[0],
     fuelConsumptionAvg: 8.5,
-    currentKm: 0,
     inspectionDate: '',
     insuranceExpiry: '',
     kaskoExpiry: '',
@@ -288,7 +286,11 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'car-launcher-storage',
-      storage: createJSONStorage(() => safeStorage),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => safeStorage.getItem(name),
+        setItem: (name, value) => safeStorage.setItem(name, value),
+        removeItem: (name) => safeStorage.removeItem(name),
+      })),
       version: 9,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};

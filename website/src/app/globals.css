@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    --sat: env(safe-area-inset-top);
+    --sar: env(safe-area-inset-right);
+    --sab: env(safe-area-inset-bottom);
+    --sal: env(safe-area-inset-left);
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    background-color: #000000;
+    color: #ffffff;
+    font-family: 'Inter', system-ui, sans-serif;
+    height: 100%;
+    overflow: hidden;
+    padding: var(--sat) var(--sar) var(--sab) var(--sal);
+  }
+  ::selection {
+    background-color: rgba(59, 130, 246, 0.3);
+    color: #fff;
+  }
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #060d1a;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+}
+
+/* ── Neon glow utilities ─────────────────────────────────────── */
+.neon-online {
+  animation: neonPulse 2.4s ease-in-out infinite;
+}
+.neon-alarm {
+  animation: alarmPulse 0.9s ease-in-out infinite;
+}
+@keyframes neonPulse {
+  0%, 100% { box-shadow: 0 0 4px #34d399, 0 0 10px rgba(52,211,153,0.25); }
+  50%       { box-shadow: 0 0 12px #34d399, 0 0 28px rgba(52,211,153,0.5), 0 0 48px rgba(52,211,153,0.18); }
+}
+@keyframes alarmPulse {
+  0%, 100% { box-shadow: 0 0 4px #ef4444, 0 0 12px rgba(239,68,68,0.4); }
+  50%       { box-shadow: 0 0 14px #ef4444, 0 0 32px rgba(239,68,68,0.55); }
+}
+@keyframes glowRing {
+  0%, 100% { opacity: 0.5; transform: scale(1);    }
+  50%       { opacity: 1;   transform: scale(1.25); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes barFill {
+  from { width: 0; }
+}
+
+/* ── Glassmorphism panel ─────────────────────────────────────── */
+.glass-panel {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 1rem;
+}
+.glass-panel-neon {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  border-radius: 1rem;
+  box-shadow: 0 0 0 1px rgba(52,211,153,0.06) inset, 0 8px 32px rgba(0,0,0,0.6);
+}
+
+/* ── OLED card entry animation ───────────────────────────────── */
+.card-enter {
+  animation: slideUp 0.35s ease-out both;
+}
+.card-enter-1 { animation-delay: 0.04s; }
+.card-enter-2 { animation-delay: 0.08s; }
+.card-enter-3 { animation-delay: 0.12s; }
+.card-enter-4 { animation-delay: 0.16s; }
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.72) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-blue {
+    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 45%, #818cf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.035);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+}

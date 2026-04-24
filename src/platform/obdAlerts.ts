@@ -127,14 +127,14 @@ function _evaluate(data: OBDData): void {
       // Condition cleared?
       if (rule.resolved(data)) {
         _alerts  = _alerts.filter((a) => a.id !== rule.id);
-        _clearedAt.set(rule.id, Date.now());
+        _clearedAt.set(rule.id, performance.now());
         changed  = true;
       }
     } else {
       // Condition newly met?
       if (rule.active(data)) {
         const lastCleared = _clearedAt.get(rule.id) ?? 0;
-        const offCooldown = Date.now() - lastCleared > COOLDOWN_MS;
+        const offCooldown = performance.now() - lastCleared > COOLDOWN_MS;
         if (offCooldown) {
           _alerts = [
             ..._alerts,

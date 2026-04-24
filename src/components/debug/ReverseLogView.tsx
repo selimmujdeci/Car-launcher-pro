@@ -1,0 +1,71 @@
+import { memo, useEffect, useRef } from 'react';
+import { useDebugStore } from '../../platform/debug';
+
+function fmtTs(ts: number): string {
+  const d = new Date(ts);
+  return [
+    String(d.getHours()).padStart(2, '0'),
+    String(d.getMinutes()).padStart(2, '0'),
+    String(d.getSeconds()).padStart(2, '0'),
+  ].join(':') + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+export const ReverseLogView = memo(function ReverseLogView() {
+  const log       = useDebugStore((s) => s.reverseLog);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [log]);
+
+  return (
+    <div className="flex flex-col h-full gap-2">
+      <div className="flex items-center gap-2 px-1">
+        <button
+          onClick={() => useDebugStore.getState().clearReverseLog()}
+          className="px-3 py-1 rounded text-xs font-mono border border-gray-600 text-gray-400 hover:bg-gray-800"
+        >
+          CLEAR
+        </button>
+        <span className="ml-auto text-xs font-mono text-gray-500">{log.length} / 500</span>
+      </div>
+
+      <div className="grid grid-cols-[9rem_4rem_5rem_5rem_1fr] gap-x-2 px-2 pb-1 border-b border-gray-700 text-gray-500 text-xs font-mono uppercase">
+        <span>Time</span>
+        <span>Source</span>
+        <span>Value</span>
+        <span>Guard</span>
+        <span>Reason</span>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {log.length === 0 ? (
+          <p className="text-gray-600 text-xs font-mono px-2 py-4">
+            No reverse events yet
+          </p>
+        ) : (
+          log.map((entry, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-[9rem_4rem_5rem_5rem_1fr] gap-x-2 px-2 py-0.5 text-xs font-mono hover:bg-gray-800/50 even:bg-gray-900/30"
+            >
+              <span className="text-gray-400">{fmtTs(entry.ts)}</span>
+              <span className={entry.source === 'CAN' ? 'text-green-400' : 'text-blue-400'}>
+                {entry.source}
+              </span>
+              <span className={entry.value ? 'text-orange-400' : 'text-gray-400'}>
+                {entry.value ? 'true' : 'false'}
+              </span>
+              <span className={entry.guardResult === 'accepted' ? 'text-green-400' : 'text-red-400'}>
+                {entry.guardResult}
+              </span>
+              <span className="text-gray-300 truncate">{entry.reason}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+});

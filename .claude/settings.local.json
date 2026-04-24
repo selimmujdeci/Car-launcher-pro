@@ -32,7 +32,13 @@
       "Bash(java -version)",
       "Bash(./gradlew assembleRelease)",
       "Bash(npm install *)",
-      "Bash(./node_modules/.bin/next build *)"
+      "Bash(./node_modules/.bin/next build *)",
+      "Bash(echo \"EXIT_CODE: $?\")",
+      "Bash(./gradlew :app:packageRelease)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npx next *)",
+      "Bash(echo \"BUILD_EXIT:$?\")",
+      "Bash(grep -v \"//.*icon\\\\|loadIcon\\\\|adaptive\\\\|imagereader\\\\|camera\\\\|media\\\\|album\")"
     ]
   }
 }

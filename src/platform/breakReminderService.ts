@@ -22,10 +22,10 @@ const SNOOZE_MIN           = 30;   // dismiss sonrası gecikme
 export interface BreakReminderState {
   enabled:            boolean;
   intervalMin:        number;
-  drivingStartedAt:   number | null;  // epoch ms
+  drivingStartedAt:   number | null;  // performance.now() — clock-jump immune
   drivingElapsedMin:  number;
   alertVisible:       boolean;
-  lastDismissedAt:    number | null;
+  lastDismissedAt:    number | null;  // performance.now()
 }
 
 /* ── Modül durumu ────────────────────────────────────────── */
@@ -57,13 +57,13 @@ function startTicker(): void {
   _tickerId = setInterval(() => {
     try {
       if (!_state.enabled || !_state.drivingStartedAt) return;
-      const elapsedMin = (Date.now() - _state.drivingStartedAt) / 60000;
+      const elapsedMin = (performance.now() - _state.drivingStartedAt) / 60000;
       push({ drivingElapsedMin: elapsedMin });
 
       if (!_state.alertVisible && elapsedMin >= _state.intervalMin) {
         // Snooze kontrolü
         const sinceSnooze = _state.lastDismissedAt
-          ? (Date.now() - _state.lastDismissedAt) / 60000
+          ? (performance.now() - _state.lastDismissedAt) / 60000
           : Infinity;
         if (sinceSnooze >= SNOOZE_MIN) {
           push({ alertVisible: true });
@@ -90,15 +90,15 @@ export function updateBreakReminder(speedKmh: number): void {
   if (moving) {
     _stoppedAt = null;
     if (!_state.drivingStartedAt) {
-      push({ drivingStartedAt: Date.now(), drivingElapsedMin: 0 });
+      push({ drivingStartedAt: performance.now(), drivingElapsedMin: 0 });
       startTicker();
     }
   } else {
     // Araç durdu — STOP_RESET_MIN sonra sayaç sıfırla
     if (_state.drivingStartedAt && _stoppedAt === null) {
-      _stoppedAt = Date.now();
+      _stoppedAt = performance.now();
     }
-    if (_stoppedAt && (Date.now() - _stoppedAt) / 60000 >= STOP_RESET_MIN) {
+    if (_stoppedAt && (performance.now() - _stoppedAt) / 60000 >= STOP_RESET_MIN) {
       _stoppedAt = null;
       stopTicker();
       push({
@@ -130,7 +130,7 @@ export function setBreakInterval(minutes: number): void {
 }
 
 export function dismissBreakAlert(): void {
-  push({ alertVisible: false, lastDismissedAt: Date.now() });
+  push({ alertVisible: false, lastDismissedAt: performance.now() });
 }
 
 export function getBreakReminderState(): BreakReminderState { return _state; }

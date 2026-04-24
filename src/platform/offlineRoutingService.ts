@@ -42,7 +42,7 @@ export interface OfflineRouteResult {
  *
  * Native tarafta yapılacaklar:
  *   - Android Service olarak çalıştır (foreground service)
- *   - /data/data/com.carlauncher.pro/files/osrm/ dizininden .osrm binary oku
+ *   - /data/data/com.cockpitos.pro/files/osrm/ dizininden .osrm binary oku
  *   - NanoHTTPD ile 5000 portunda OSRM HTTP API sun
  *
  * Bu fonksiyon, daemon ayakta ise rota döner; değilse null döner.

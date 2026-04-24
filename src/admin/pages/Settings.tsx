@@ -12,7 +12,7 @@ export function Settings() {
   const { user }    = useAuth()
   const { can, company } = useRole()
   const [saved, setSaved] = useState(false)
-  const [appName, setAppName]       = useState('Car Launcher Pro')
+  const [appName, setAppName]       = useState('CockpitOS')
   const [maxSpeed, setMaxSpeed]     = useState('300')
   const [sessionTtl, setSessionTtl] = useState('480')
 

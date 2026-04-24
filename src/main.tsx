@@ -8,11 +8,15 @@ import { applyCompatMode } from './platform/headUnitCompat.ts'
 import { initNativeCore } from './platform/nativeCoreService.ts'
 import { initPlatformDetection } from './platform/headUnitPlatform.ts'
 import { isNative } from './platform/bridge.ts'
+import { initGeofence } from './platform/geofenceService.ts'
 
 /* ── Bootstrap Launcher ── */
 try {
   /* ── Head unit / eski WebView uyumluluk modu — React öncesi çağrılmalı ── */
   applyCompatMode();
+
+  /* ── Geofence: Sanal çit + vale modu ayarlarını yükle ── */
+  initGeofence().catch((e) => console.error('[GeofenceInit]', e));
 
   /* ── Native Core: cihaz profili + ekran ölçüleri + performans modu ── */
   initNativeCore().catch((e) => console.error('[NativeCore]', e));

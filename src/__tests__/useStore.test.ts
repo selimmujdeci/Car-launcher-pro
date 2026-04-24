@@ -175,10 +175,10 @@ describe('useStore — updateMaintenance', () => {
 
   it('kısmi bakım güncellemesi', () => {
     const { updateMaintenance } = useStore.getState();
-    updateMaintenance({ currentKm: 50000 });
+    updateMaintenance({ lastOilChangeKm: 50000 });
 
     const { maintenance } = useStore.getState().settings;
-    expect(maintenance.currentKm).toBe(50000);
+    expect(maintenance.lastOilChangeKm).toBe(50000);
     expect(maintenance.nextOilChangeKm).toBe(10000); // değişmedi
   });
 });

@@ -38,6 +38,8 @@ import { AddressNavCard } from '../common/AddressNavCard';
 import { useDayNightManager } from '../../hooks/useDayNightManager';
 import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
+import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
+import type { CommandContext } from '../../platform/commandExecutor';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
@@ -213,6 +215,45 @@ export default function MainLayout() {
     return () => unregisterMusicDrawerHandler();
   }, []);
 
+
+  // ── Remote Command Context Bridge ─────────────────────────
+  // Ref her render'da güncellenir → stale closure riski sıfır (voiceCtxRef pattern).
+  // setRemoteCommandContext mount'ta bir kez çağrılır; getter'lar her zaman
+  // güncel ref değerini okur — Zero-Leak, CLAUDE.md §1.
+  const _remoteRef = useRef<{
+    settings:       typeof settings;
+    smart:          typeof smart;
+    location:       typeof location;
+    handleLaunch:   typeof handleLaunch;
+    updateSettings: typeof updateSettings;
+    setDrawer:      typeof setDrawer;
+  }>({ settings, smart, location, handleLaunch, updateSettings, setDrawer });
+  useEffect(() => {
+    _remoteRef.current = { settings, smart, location, handleLaunch, updateSettings, setDrawer };
+  });
+  useEffect(() => {
+    const ctx: CommandContext = {
+      get vehicleCtx() {
+        const { location: loc, smart: sm } = _remoteRef.current;
+        return {
+          speedKmh:    loc?.speed != null ? loc.speed * 3.6 : 0,
+          drivingMode: sm.drivingMode,
+          isDriving:   sm.drivingMode === 'driving',
+        };
+      },
+      get defaultNav()   { return _remoteRef.current.settings.defaultNav   as NavOptionKey;   },
+      get defaultMusic() { return _remoteRef.current.settings.defaultMusic as MusicOptionKey; },
+      get recentAppId()  {
+        return _remoteRef.current.smart.quickActions.find((a) => a.id.startsWith('last-'))?.appId;
+      },
+      launch:     (id)    => _remoteRef.current.handleLaunch(id),
+      setTheme:   (theme) => _remoteRef.current.updateSettings({ theme }),
+      openDrawer: (t)     => _remoteRef.current.setDrawer(t as DrawerType),
+    };
+    setRemoteCommandContext(ctx);
+    // Temizlik: stopRemoteCommands() zaten App.tsx → vehicleDataLayer cleanup
+    // zincirinde çağrılır; burada ek bir işlem gerekmez.
+  }, []); // mount-only — ctx getter'ları ref üzerinden her zaman güncel kalır
 
   // ── Voice command handler ─────────────────────────────────
   useVoiceCommandHandler({ settings, smart, handleLaunch, updateSettings, setDrawer });

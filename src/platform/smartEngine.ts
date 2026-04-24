@@ -1,5 +1,5 @@
 /**
- * Smart Engine — local AI-like intelligence for Car Launcher Pro.
+ * Smart Engine — local AI-like intelligence for CockpitOS.
  *
  * 100 % local — no external services or network calls.
  *
@@ -55,6 +55,11 @@ export function detachAccelerometer(): void {
   window.removeEventListener('devicemotion', _handleDeviceMotion);
   _accelAttached  = false;
   _accelMagnitude = 0;
+}
+
+// HMR cleanup — hot reload'da listener çoğalmasını önler
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => detachAccelerometer());
 }
 
 /* ── Hız kademesi tahmini (Speed decay) ──────────────────────

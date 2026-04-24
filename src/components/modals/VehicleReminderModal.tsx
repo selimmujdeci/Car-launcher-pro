@@ -1,6 +1,7 @@
 import { memo, useState, useCallback } from 'react';
-import { X, Wrench, Calendar, Shield, Droplets, Save, Car } from 'lucide-react';
+import { X, Wrench, Shield, Droplets, Save, Car } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { useVehicleStore } from '../../platform/vehicleDataLayer/VehicleStateStore';
 import { computeReminders, type ReminderUrgency } from '../../platform/vehicleReminderService';
 import type { MaintenanceInfo } from '../../store/useStore';
 
@@ -79,7 +80,7 @@ function DateField({
 
 type FormState = Pick<
   MaintenanceInfo,
-  'lastOilChangeKm' | 'nextOilChangeKm' | 'inspectionDate' | 'insuranceExpiry' | 'kaskoExpiry' | 'currentKm'
+  'lastOilChangeKm' | 'nextOilChangeKm' | 'inspectionDate' | 'insuranceExpiry' | 'kaskoExpiry'
 >;
 
 /* ── Modal ───────────────────────────────────────────────── */
@@ -91,9 +92,9 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
 }) {
   const { settings, updateMaintenance } = useStore();
   const m = settings.maintenance;
+  const odometer = useVehicleStore((state) => state.odometer);
 
   const [form, setForm] = useState<FormState>({
-    currentKm:       m.currentKm       ?? 0,
     lastOilChangeKm: m.lastOilChangeKm ?? 0,
     nextOilChangeKm: m.nextOilChangeKm ?? 10000,
     inspectionDate:  m.inspectionDate  ?? '',
@@ -102,7 +103,7 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
   });
 
   // Canlı durum hesabı (kaydetmeden önce önizleme)
-  const reminders = computeReminders({ ...m, ...form });
+  const reminders = computeReminders({ ...m, ...form }, odometer);
 
   const setField = useCallback(
     <K extends keyof FormState>(key: K, val: FormState[K]) => {
@@ -216,19 +217,6 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
             />
           </div>
 
-          {/* Güncel kilometre (bilgi amaçlı) */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-slate-400" />
-              <span className="text-primary text-xs font-bold">Araç Kilometresi</span>
-            </div>
-            <NumberField
-              label="Güncel kilometre"
-              value={form.currentKm}
-              unit="km"
-              onChange={(v) => setField('currentKm', v)}
-            />
-          </div>
         </div>
 
         {/* Footer */}

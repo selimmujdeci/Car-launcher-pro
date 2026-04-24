@@ -48,6 +48,11 @@ export type IntentType =
   | 'TOGGLE_SLEEP_MODE'
   | 'OPEN_LAST_APP'
   | 'SHOW_WEATHER'
+  | 'CHECK_VEHICLE_HEALTH'
+  | 'CLEAR_DTC_CODES'
+  | 'CHECK_MAINTENANCE'
+  | 'OPEN_APPOINTMENT_LINK'
+  | 'SET_STYLE'
   | 'UNKNOWN';
 
 export interface IntentPayload {
@@ -63,6 +68,7 @@ export interface IntentPayload {
   musicSourcePkg?: string;  // Android package name of target music app
   musicSearchUri?: string;  // ready-to-use search URI
   musicAction?:    string;  // 'play' | 'shuffle' | 'add_favorite'
+  styleVars?:      Record<string, string>; // CSS custom properties for SET_STYLE
 }
 
 export interface AppIntent {
@@ -144,11 +150,13 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   music_youtube:      'SET_MUSIC',
   driving_mode:       'ENABLE_DRIVING_MODE',
   toggle_sleep_mode:  'TOGGLE_SLEEP_MODE',
-  vehicle_speed:      'UNKNOWN',
-  vehicle_fuel:       'UNKNOWN',
-  vehicle_temp:       'UNKNOWN',
-  vehicle_maintenance:'UNKNOWN',
-  show_weather:       'SHOW_WEATHER',
+  vehicle_speed:        'UNKNOWN',
+  vehicle_fuel:         'UNKNOWN',
+  vehicle_temp:         'UNKNOWN',
+  vehicle_maintenance:  'CHECK_MAINTENANCE',
+  vehicle_health_check: 'CHECK_VEHICLE_HEALTH',
+  vehicle_clear_dtc:    'CLEAR_DTC_CODES',
+  show_weather:         'SHOW_WEATHER',
 };
 
 /* ── toIntent ────────────────────────────────────────────── */
@@ -318,6 +326,10 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'TOGGLE_SLEEP_MODE':
       // Handled in MainLayout registerCommandHandler
       break;
+    case 'CHECK_VEHICLE_HEALTH':
+    case 'CLEAR_DTC_CODES':
+      // Async DTC operations — handled by commandExecutor.dispatchIntent
+      break;
     case 'UNKNOWN':
       // Safe fallback — take no action; voice UI already shows the error state
       break;
@@ -335,7 +347,10 @@ const VALID_INTENTS = new Set<IntentType>([
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
   'SET_THEME', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
   'ENABLE_NIGHT_MODE', 'ENABLE_DRIVING_MODE', 'OPEN_LAST_APP',
-  'SHOW_WEATHER', 'UNKNOWN',
+  'SHOW_WEATHER', 'CHECK_VEHICLE_HEALTH', 'CLEAR_DTC_CODES',
+  'CHECK_MAINTENANCE', 'OPEN_APPOINTMENT_LINK',
+  'SET_STYLE',
+  'UNKNOWN',
 ]);
 
 /**

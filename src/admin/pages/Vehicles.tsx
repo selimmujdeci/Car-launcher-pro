@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2, Link2 } from 'lucide-react'
 import { PageHeader } from '../components/shared/PageHeader'
 import { DataTable, type ColDef } from '../components/shared/DataTable'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
+import { LinkVehicleModal } from '../components/vehicles/LinkVehicleModal'
 import { useTable } from '../hooks/useTable'
 import { useModal } from '../hooks/useModal'
 import { useRole } from '../hooks/useRole'
 import { listVehicles, updateVehicle, deleteVehicle } from '../services/vehicles.service'
-import type { Vehicle, VehicleStatus } from '../types'
+import type { Vehicle, VehicleStatus, LinkResult } from '../types'
 
 const STATUS_BADGE: Record<VehicleStatus, 'success' | 'default' | 'warning' | 'danger'> = {
   active:      'success',
@@ -26,19 +27,38 @@ const STATUS_LABEL: Record<VehicleStatus, string> = {
 }
 
 export function Vehicles() {
-  const { can } = useRole()
+  const { can, company } = useRole()
   const [all,     setAll]     = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Vehicle | null>(null)
   const [toDelete, setToDelete] = useState<Vehicle | null>(null)
   const editModal   = useModal()
   const deleteModal = useModal()
+  const linkModal   = useModal()
 
   useEffect(() => {
-    listVehicles()
+    setLoading(true)
+    listVehicles(company?.id)
       .then(setAll)
+      .catch(() => setAll([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [company?.id])
+
+  const handleLinked = (result: LinkResult) => {
+    // Optimistically add the newly linked vehicle shell; full data arrives on next list fetch
+    const shell: Vehicle = {
+      id:         result.vehicle_id,
+      plate:      result.plate ?? '—',
+      brand:      result.brand ?? '—',
+      model:      result.model ?? '',
+      year:       new Date().getFullYear(),
+      fuel_type:  'diesel',
+      status:     'offline',
+      current_km: 0,
+      created_at: new Date().toISOString(),
+    }
+    setAll((prev) => prev.some((v) => v.id === shell.id) ? prev : [shell, ...prev])
+  }
 
   const table = useTable<Vehicle>({
     data:       all,
@@ -107,7 +127,12 @@ export function Vehicles() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Araçlar" description={`${all.length} araç`} />
+      <PageHeader title="Araçlar" description={`${all.length} araç`}>
+        <Button onClick={() => linkModal.show()} size="sm">
+          <Link2 className="h-3.5 w-3.5 mr-1.5" />
+          Araç Bağla
+        </Button>
+      </PageHeader>
 
       <DataTable<Vehicle>
         data={table.rows}
@@ -170,6 +195,12 @@ export function Vehicles() {
           </div>
         )}
       </Modal>
+
+      <LinkVehicleModal
+        open={linkModal.open}
+        onClose={linkModal.hide}
+        onLinked={handleLinked}
+      />
 
       <Modal
         open={deleteModal.open}

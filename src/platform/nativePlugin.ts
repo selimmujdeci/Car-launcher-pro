@@ -17,6 +17,8 @@ export interface NativeApp {
   packageName: string;
   className: string;
   isSystemApp: boolean;
+  /** Base64 PNG data URI (96×96) — native taraftan gelirse emoji bypass */
+  icon?: string;
 }
 
 export interface GetAppsResult {
@@ -332,6 +334,24 @@ export interface CarLauncherPlugin {
     event: 'breakReminder',
     handler: (data: { drivingMinutes: number }) => void,
   ): Promise<PluginListenerHandle>;
+
+  startCanBus?(): Promise<void>;
+  stopCanBus?(): Promise<void>;
+
+  /** CAN bus araç sinyalleri — read-only, native katmandan gelir */
+  addListener(
+    event: 'canData',
+    handler: (data: CanData) => void,
+  ): Promise<PluginListenerHandle>;
+}
+
+export interface CanData {
+  speed?:        number;    // km/h
+  reverse?:      boolean;
+  fuel?:         number;    // 0–100 %
+  doorOpen?:     boolean;
+  headlightsOn?: boolean;
+  tpms?:         number[];  // [fl, fr, rl, rr] kPa
 }
 
 // Plugin is resolved by Capacitor on native; undefined on web (bridge handles fallback)

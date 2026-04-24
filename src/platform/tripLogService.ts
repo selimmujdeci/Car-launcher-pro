@@ -11,7 +11,6 @@
 
 import { useState, useEffect } from 'react';
 import { onOBDData } from './obdService';
-import { useStore } from '../store/useStore';
 import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
 
 /* ── Types ───────────────────────────────────────────────── */
@@ -232,10 +231,6 @@ function _endTrip(): void {
     totalDistanceKm: _sumDistance(newHistory),
     totalTrips: newHistory.length,
   });
-
-  // Kilometre sayacını güncelle — bakım hesapları için
-  const { settings, updateMaintenance } = useStore.getState();
-  updateMaintenance({ currentKm: settings.maintenance.currentKm + record.distanceKm });
 }
 
 function _onOBD(speed: number, fuelLevel: number): void {

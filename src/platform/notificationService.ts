@@ -259,6 +259,20 @@ async function _startNative(): Promise<void> {
 
 /* ── Public API ──────────────────────────────────────────── */
 
+export function addSystemNotification(sender: string, text: string, isPriority = false): void {
+  _addNotification({
+    packageName: 'com.android.systemui',
+    appName: 'Sistem',
+    sender,
+    text,
+    time: Date.now(),
+  });
+  if (isPriority) {
+    // Priority notifications are already handled by _addNotification for auto-read
+    // but we can ensure immediate feedback if needed.
+  }
+}
+
 export function startNotificationService(): void {
   if (_started) return;
   _started = true;

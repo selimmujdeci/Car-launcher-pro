@@ -33,7 +33,7 @@ export const PrivacyPolicy = memo(function PrivacyPolicy({ onBack }: Props) {
         <div className="max-w-5xl mx-auto flex flex-col gap-10">
           <Section title="1. Veri Toplama">
             <p>
-              Car Launcher Pro, cihazınızda yerel olarak çalışır. Uygulama; GPS konumu,
+              CockpitOS, cihazınızda yerel olarak çalışır. Uygulama; GPS konumu,
               OBD araç verileri ve trip logları gibi bilgileri <strong className="text-primary">yalnızca cihazınızda</strong> saklar.
               Bu veriler hiçbir sunucuya gönderilmez.
             </p>
@@ -72,7 +72,7 @@ export const PrivacyPolicy = memo(function PrivacyPolicy({ onBack }: Props) {
 
           <div className="mt-10 py-10 border-t border-white/5 text-center">
             <p className="text-secondary text-[11px] font-black uppercase tracking-[0.5em] opacity-30">
-              Son güncelleme: Nisan 2026 · Car Launcher Pro v5.0 Platinum
+              Son güncelleme: Nisan 2026 · CockpitOS v5.0 Platinum
             </p>
           </div>
         </div>

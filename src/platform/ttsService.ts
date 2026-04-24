@@ -33,10 +33,20 @@ function _getTurkishVoice(): SpeechSynthesisVoice | null {
 }
 
 // Voices may not be loaded immediately — refresh cache on voiceschanged
+function _onVoicesChanged() {
+  _cachedVoice = null;
+  _getTurkishVoice(); // prime cache
+}
 if (isTTSAvailable()) {
-  window.speechSynthesis.addEventListener('voiceschanged', () => {
-    _cachedVoice = null;
-    _getTurkishVoice(); // prime cache
+  window.speechSynthesis.addEventListener('voiceschanged', _onVoicesChanged);
+}
+
+// HMR cleanup — prevents duplicate listeners across hot reloads
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (isTTSAvailable()) {
+      window.speechSynthesis.removeEventListener('voiceschanged', _onVoicesChanged);
+    }
   });
 }
 

@@ -359,9 +359,9 @@ const LaneGuidance = memo(function LaneGuidance({ lanes }: { lanes: Lane[] }) {
 /* ══════════════════════════════════════════════════════════ */
 
 const NavInfoBar = memo(function NavInfoBar({
-  etaSeconds, remainingMeters, totalMeters, onStop,
+  etaSeconds, remainingMeters, totalMeters, onStop, isOffline,
 }: {
-  etaSeconds: number; remainingMeters: number; totalMeters: number; onStop: () => void;
+  etaSeconds: number; remainingMeters: number; totalMeters: number; onStop: () => void; isOffline?: boolean;
 }) {
   const arrival    = new Date(Date.now() + etaSeconds * 1_000);
   const arrivalStr = `${arrival.getHours().toString().padStart(2, '0')}:${arrival.getMinutes().toString().padStart(2, '0')}`;
@@ -372,6 +372,12 @@ const NavInfoBar = memo(function NavInfoBar({
       className="absolute inset-x-0 z-30 pointer-events-auto bg-[rgba(8,12,22,0.94)] backdrop-blur-[24px] border-t border-white/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
       style={{ bottom: 'var(--lp-dock-h, 68px)' }}
     >
+      {isOffline && (
+        <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-amber-500/90 backdrop-blur-md px-4 py-0.5 rounded-t-xl border-t border-x border-white/20 flex items-center gap-2 shadow-lg">
+          <AlertCircle className="w-3.5 h-3.5 text-white" />
+          <span className="text-[10px] text-white font-black uppercase tracking-[0.1em]">Çevrimdışı Mod</span>
+        </div>
+      )}
       <div className="flex items-stretch px-3 py-1">
         {/* X butonu */}
         <button
@@ -638,7 +644,7 @@ export const NavigationHUD = memo(function NavigationHUD({
   speedLimitKmh = 50,
 }: NavigationHUDProps) {
   const location = useGPSLocation();
-  const { isNavigating, destination, distanceMeters, etaSeconds } = useNavigation();
+  const { isNavigating, destination, distanceMeters, etaSeconds, isOfflineResult } = useNavigation();
   const route = useRouteState();
   const [muted, setMuted] = useState(false);
 
@@ -695,6 +701,7 @@ export const NavigationHUD = memo(function NavigationHUD({
             remainingMeters={distanceMeters ?? 0}
             totalMeters={route.totalDistanceMeters}
             onStop={handleStop}
+            isOffline={isOfflineResult}
           />
         </>
       )}

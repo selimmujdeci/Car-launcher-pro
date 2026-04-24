@@ -19,6 +19,7 @@ import {
 } from '../../platform/performanceMode';
 import { setBrightness, setVolume } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
+import { MobileLinkWidget } from './MobileLinkWidget';
 import {
   useMapSources, useMapNetworkStatus, setActiveMapSource,
   refreshMapSources, type MapSource,
@@ -980,6 +981,12 @@ function SettingsPageInner({ onClose }: Props) {
                     })}
                   </div>
                 )}
+              </Panel>
+
+              {/* ── Mobil Cihaz Eşleştirme ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={Smartphone} title="Mobil Cihaz Eşleştirme" sub="Telefon uygulamasıyla araç bağlantısı — QR veya 6 haneli kod" color="#22d3ee" />
+                <MobileLinkWidget />
               </Panel>
 
               {/* ── OBD Sağlık Sistemi ── */}

@@ -19,6 +19,10 @@ import { setVolume }                    from './systemSettingsService';
 import { speakFeedback, speakAlert }    from './ttsService';
 import { showToast }                    from './errorBus';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
+import { readDTCCodes, clearDTCCodes, onDTCState, type DTCState } from './dtcService';
+import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
+import { openInApp } from './inAppBrowser';
+import { applyLiveStyle } from './liveStyleEngine';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -52,6 +56,43 @@ function _speak(text: string, isDriving: boolean): void {
 function _error(msg: string): void {
   speakAlert(msg);
   showToast({ type: 'error', title: 'Komut Hatası', message: msg, duration: 3000 });
+}
+
+/** Anlık DTC durumunu senkron olarak alır (onDTCState hemen çağırır). */
+function _getDTCSnapshot(): DTCState {
+  let snap!: DTCState;
+  const unsub = onDTCState((s) => { snap = s; });
+  unsub();
+  return snap;
+}
+
+/**
+ * DTC sonucunu ISO 15008 (≤ 8 kelime) kuralına uygun TTS metnine çevirir.
+ * Sürücünün anlayacağı, güvenlik öncelikli dil kullanır.
+ */
+function _buildDTCSpeech(state: DTCState, isDriving: boolean): string {
+  if (state.codes.length === 0) return 'Araç sistemleri temiz, sorun yok';
+
+  const critical = state.codes.filter((c) => c.severity === 'critical');
+  const warnings = state.codes.filter((c) => c.severity === 'warning');
+  const count    = state.codes.length;
+
+  if (isDriving) {
+    if (critical.length > 0) return 'Kritik arıza var, hemen dur ve servisi ara';
+    if (warnings.length > 0) return 'Araç uyarısı var, servis önerilir';
+    return `${count} bilgi kodu tespit edildi`;
+  }
+
+  if (critical.length > 0) {
+    const top = critical[0];
+    return `Kritik arıza: ${top.description}. Hemen servise uğramanı öneririm.`;
+  }
+  if (warnings.length > 0) {
+    const top = warnings[0];
+    if (count > 1) return `${count} arıza bulundu. En önemlisi: ${top.description}. Müsait zamanda servise uğra.`;
+    return `Uyarı: ${top.description}. Müsait zamanda servise uğramanı öneririm.`;
+  }
+  return `${count} bilgi kodu bulundu. Müsait zamanda servise uğrayabilirsin.`;
 }
 
 /* ── Core dispatcher ──────────────────────────────────────── */
@@ -212,6 +253,48 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       case 'SHOW_WEATHER': {
         ctx.openWeather?.();
         _speak('Hava durumu açılıyor', isDriving);
+        break;
+      }
+
+      /* ── Araç Teşhis (AI Doctor) ────────────────────────── */
+      case 'CHECK_VEHICLE_HEALTH': {
+        _speak('Araç sistemleri taranıyor', isDriving);
+        await readDTCCodes();
+        const healthSnap = _getDTCSnapshot();
+        _speak(_buildDTCSpeech(healthSnap, isDriving), isDriving);
+        break;
+      }
+      case 'CLEAR_DTC_CODES': {
+        const clearSnap = _getDTCSnapshot();
+        if (clearSnap.codes.length === 0) {
+          _speak('Temizlenecek arıza kodu yok', isDriving);
+          break;
+        }
+        _speak('Arıza kayıtları siliniyor', isDriving);
+        await clearDTCCodes();
+        _speak('Arıza kayıtları silindi', isDriving);
+        break;
+      }
+
+      /* ── Araç Bakım ─────────────────────────────────────── */
+      case 'CHECK_MAINTENANCE': {
+        _speak('Araç bakım durumu kontrol ediliyor', isDriving);
+        const summary = await getMaintenanceSummaryText();
+        _speak(summary, isDriving);
+        break;
+      }
+      case 'OPEN_APPOINTMENT_LINK': {
+        _speak('Muayene randevu sayfası açılıyor', isDriving);
+        // TÜVTÜRK randevu sayfası — plaka parametresi varsa eklenebilir
+        // Gelecekte payload'dan plaka alınabilir
+        openInApp('https://www.tuvturk.com.tr/randevu-al.aspx');
+        break;
+      }
+
+      /* ── Canlı Stil ─────────────────────────────────────── */
+      case 'SET_STYLE': {
+        const styles = intent.payload.styleVars;
+        if (styles) applyLiveStyle(styles);
         break;
       }
 

@@ -44,12 +44,13 @@ function kmUrgency(kmLeft: number): ReminderUrgency {
 /**
  * MaintenanceInfo'dan tüm hatırlatıcıları hesaplar.
  * Tarih girilmemiş alanlar listeye eklenmez.
+ * currentKm — useVehicleStore.odometer'dan beslenir, yoksa 0.
  */
-export function computeReminders(m: MaintenanceInfo): ReminderItem[] {
+export function computeReminders(m: MaintenanceInfo, currentKm = 0): ReminderItem[] {
   const items: ReminderItem[] = [];
 
   // Yağ değişimi — lastOilChangeKm: son değişimdeki sayaç, nextOilChangeKm: aralık
-  const oilKmLeft = (m.lastOilChangeKm ?? 0) + (m.nextOilChangeKm ?? 10000) - (m.currentKm ?? 0);
+  const oilKmLeft = (m.lastOilChangeKm ?? 0) + (m.nextOilChangeKm ?? 10000) - currentKm;
   items.push({
     id: 'oil_change',
     label: 'Yağ Değişimi',
@@ -96,8 +97,8 @@ export function computeReminders(m: MaintenanceInfo): ReminderItem[] {
 }
 
 /** Sesli asistan için kısa özet metin döner. */
-export function getMaintenanceSummary(m: MaintenanceInfo): string {
-  const items = computeReminders(m);
+export function getMaintenanceSummary(m: MaintenanceInfo, currentKm = 0): string {
+  const items = computeReminders(m, currentKm);
   const issues = items.filter((i) => i.urgency !== 'ok');
   if (issues.length === 0) return 'Tüm bakımlar güncel, sorun yok.';
   return issues.map((i) => `${i.label}: ${i.detail}`).join('. ');

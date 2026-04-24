@@ -2,6 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- ── Donanım özellikleri (Play Store filtre + şeffaflık) ──────────
+         required="false" → kamera/BT/GPS olmayan cihazlara da yüklenir.
+         Uygulama bu donanımları OKUMA AMAÇLI kullanır, kontrol etmez.
+    ─────────────────────────────────────────────────────────────────── -->
+    <uses-feature android:name="android.hardware.camera"            android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus"  android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth"         android:required="false" />
+    <uses-feature android:name="android.hardware.location"          android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps"      android:required="false" />
+    <uses-feature android:name="android.hardware.microphone"        android:required="false" />
+
     <!-- ── Sorgu bildirimleri (API 30+ paket görünürlüğü) ─────────────── -->
     <queries>
         <intent>
@@ -89,7 +100,7 @@
             android:stopWithTask="false" />
 
         <!-- ── Media oturumu okuma için NotificationListenerService ─────
-             Kullanıcı Ayarlar → Bildirim Erişimi → Car Launcher Pro'yu
+             Kullanıcı Ayarlar → Bildirim Erişimi → CockpitOS'u
              etkinleştirdiğinde bu servis bağlanır ve MediaSessionManager
              üzerinden aktif medya oturumuna erişim sağlar.
         ──────────────────────────────────────────────────────────────── -->

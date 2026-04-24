@@ -5,8 +5,8 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const isDev = process.env['NODE_ENV'] === 'development';
 
 const config: CapacitorConfig = {
-  appId: 'com.carlauncher.pro',
-  appName: 'Car Launcher Pro',
+  appId: 'com.cockpitos.pro',
+  appName: 'CockpitOS',
   webDir: 'dist',
   android: {
     allowMixedContent: isDev,
@@ -16,7 +16,7 @@ const config: CapacitorConfig = {
     backgroundColor: '#060d1a',
     loggingBehavior: isDev ? 'debug' : 'none',
     initialFocus: false,
-    appendUserAgent: 'CarLauncherPro/1.0',
+    appendUserAgent: 'CockpitOS/1.0',
   },
   server: {
     androidScheme: isDev ? 'http' : 'https',

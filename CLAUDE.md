@@ -1,10 +1,10 @@
-# Car Launcher Pro — CLAUDE.md
+# CockpitOS — CLAUDE.md
 
 ## Project Overview
 
-An Android in-car infotainment launcher built with React + TypeScript + Capacitor. Optimized for automotive displays with offline-first maps, GPS tracking, OBD integration, and native app launching.
+An Android in-car infotainment OS built with React + TypeScript + Capacitor. Optimized for automotive displays with offline-first maps, GPS tracking, OBD integration, and native app launching.
 
-**App ID:** `com.carlauncher.pro`
+**App ID:** `com.cockpitos.pro`
 **Primary branch:** `master`
 
 ---

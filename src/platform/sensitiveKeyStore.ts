@@ -25,7 +25,20 @@ const PBKDF2_ITERS     = 100_000;
 /** Legacy Zustand persist key — used for one-time migration only. */
 const LEGACY_STORE_KEY = 'car-launcher-storage';
 
-export type SensitiveKey = 'geminiApiKey' | 'claudeHaikuApiKey';
+export type SensitiveKey =
+  | 'geminiApiKey'
+  | 'claudeHaikuApiKey'
+  | 'veh_device_id'
+  | 'veh_api_key'
+  | 'veh_vehicle_id'
+  | 'geofence_center'
+  | 'geofence_radius'
+  | 'geofence_vale_active'
+  | 'geofence_vale_limit'
+  | 'maint_inspection_date'
+  | 'maint_oil_change_km'
+  | 'maint_insurance_date'
+  | 'nav_history';
 
 /* ── Crypto ──────────────────────────────────────────────── */
 
@@ -109,7 +122,8 @@ async function _migrateLegacy(): Promise<void> {
     const store = _loadRaw();
     let needsSave = false;
 
-    for (const key of (['geminiApiKey', 'claudeHaikuApiKey'] as SensitiveKey[])) {
+    type LegacyKey = 'geminiApiKey' | 'claudeHaikuApiKey';
+    for (const key of (['geminiApiKey', 'claudeHaikuApiKey'] as LegacyKey[])) {
       const plaintext = s[key];
       if (plaintext && !store[key]) {
         store[key] = await _encrypt(plaintext);

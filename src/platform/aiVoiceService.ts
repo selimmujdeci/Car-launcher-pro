@@ -12,6 +12,7 @@
  */
 
 import type { IntentType } from './intentEngine';
+import type { MaintenanceAssessment } from './vehicleMaintenanceService';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -39,6 +40,10 @@ export interface VehicleContext {
   drivingMode: 'idle' | 'normal' | 'driving';
   /** true ise yanıt ≤ 8 kelime, saf TTS formatı */
   isDriving:   boolean;
+  /** Aktif DTC arıza kodları — AI teşhis bağlamı için */
+  activeDTCCodes?: any[];
+  /** Bakım durumu — vehicleMaintenanceService'den gelen gerçek tip */
+  maintenanceAssessments?: MaintenanceAssessment[];
 }
 
 /* ── System prompt ─────────────────────────────────────────── */
@@ -50,7 +55,9 @@ const INTENT_LIST = [
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
   'ENABLE_NIGHT_MODE', 'SET_THEME', 'ENABLE_DRIVING_MODE',
-  'TOGGLE_SLEEP_MODE', 'SHOW_WEATHER', 'UNKNOWN',
+  'TOGGLE_SLEEP_MODE', 'SHOW_WEATHER',
+  'CHECK_VEHICLE_HEALTH', 'CLEAR_DTC_CODES', 'CHECK_MAINTENANCE', 'OPEN_APPOINTMENT_LINK',
+  'UNKNOWN',
 ].join(' | ');
 
 const BASE_SYSTEM_PROMPT = `Sen bir araç içi sesli asistan komut ayrıştırıcısısın.
@@ -76,7 +83,7 @@ JSON formatı:
 - "biraz yoruldum mola versem" → {"intent":"FIND_NEARBY_PARKING","payload":{},"confidence":0.82,"feedback":"Yakın dinlenme alanı aranıyor"}`;
 
 /**
- * Anlık araç bağlamını system prompt'a enjekte eder.
+ * Anlık araç bağlamını + DTC teşhis verisini system prompt'a enjekte eder.
  *
  * Sürüş modunda sürücünün dikkatini dağıtmamak için AI'ya
  * kısa TTS yanıt formatı zorunlu kılınır (NHTSA §3.4 uyumlu).
@@ -97,6 +104,42 @@ function buildSystemPrompt(ctx?: VehicleContext): string {
     );
   }
 
+  if (ctx.activeDTCCodes && ctx.activeDTCCodes.length > 0) {
+    contextLines.push(`\n[ARAÇ TEŞHİS KAYITLARI]`);
+    contextLines.push(`Aktif arıza kodları (${ctx.activeDTCCodes.length} adet):`);
+    for (const dtc of ctx.activeDTCCodes) {
+      const sev = dtc.severity === 'critical' ? 'KRİTİK' : dtc.severity === 'warning' ? 'UYARI' : 'BİLGİ';
+      contextLines.push(`  - ${dtc.code} | ${dtc.system} | ${sev}: ${dtc.description}`);
+    }
+    contextLines.push(
+      ``,
+      `AKILLI DOKTOR KURALI:`,
+      `- Teknik jargon kullanma. "Katalitik konvertör verimliliği düşük" yerine "Egzoz sistemi sorunlu" de.`,
+      `- Sürüş güvenliğini önceliklendir: KRİTİK → "Hemen dur, motoru söndür" / UYARI → "Müsait zamanda servise uğra".`,
+      `- Kullanıcı "arabanın nesi var?" veya "arıza var mı?" sorarsa bu kodlara dayanarak yanıt ver.`,
+      `- intent: CHECK_VEHICLE_HEALTH olarak döndür.`,
+    );
+  } else if (ctx.activeDTCCodes !== undefined) {
+    contextLines.push(`\n[ARAÇ TEŞHİS KAYITLARI]`);
+    contextLines.push(`Aktif arıza kodu yok — araç sistemleri temiz.`);
+  }
+
+  if (ctx.maintenanceAssessments && ctx.maintenanceAssessments.length > 0) {
+    contextLines.push(`\n[BAKIM VE SERVİS DURUMU]`);
+    for (const maint of ctx.maintenanceAssessments) {
+      contextLines.push(`- ${maint.label}: ${maint.message} (Statü: ${maint.status})`);
+      if (maint.appointmentSuggestion) {
+        contextLines.push(`  → ${maint.appointmentSuggestion}`);
+      }
+    }
+    contextLines.push(
+      ``,
+      `KURAL: Kullanıcı araç bakımıyla ilgili soru sorarsa yukarıdaki verileri baz al.`,
+      `- KRİTİK durumlar için randevu önerisini doğrudan söyle (ör: "Yağ bakımına 200 km kaldı, servise randevu oluşturayım mı?").`,
+      `- Randevu için intent: OPEN_APPOINTMENT_LINK döndür.`,
+    );
+  }
+
   return BASE_SYSTEM_PROMPT + contextLines.join('\n');
 }
 
@@ -109,7 +152,9 @@ const VALID_INTENTS = new Set<string>([
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
   'ENABLE_NIGHT_MODE', 'SET_THEME', 'ENABLE_DRIVING_MODE',
-  'TOGGLE_SLEEP_MODE', 'SHOW_WEATHER', 'UNKNOWN',
+  'TOGGLE_SLEEP_MODE', 'SHOW_WEATHER',
+  'CHECK_VEHICLE_HEALTH', 'CLEAR_DTC_CODES', 'CHECK_MAINTENANCE', 'OPEN_APPOINTMENT_LINK',
+  'UNKNOWN',
 ]);
 
 function parseAIJson(text: string): AIVoiceResult | null {

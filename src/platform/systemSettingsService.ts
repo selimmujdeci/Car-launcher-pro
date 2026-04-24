@@ -12,6 +12,7 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { onOBDData } from './obdService';
 import { logError } from './crashLogger';
+import { showToast } from './errorBus';
 
 /* ── Debounce helper ─────────────────────────────────────── */
 
@@ -28,25 +29,26 @@ function debounce<T extends unknown[]>(
 
 /* ── Brightness ──────────────────────────────────────────── */
 
-/** percent: 0–100  →  native 0–255 */
-function _applyBrightnessNative(percent: number): void {
-  const value = Math.round((percent / 100) * 255);
-  CarLauncher.setBrightness({ value }).catch((e: unknown) => logError('systemSettings:setBrightness', e));
-}
-
-/** Web fallback: apply brightness via CSS filter on the root element */
-function _applyBrightnessWeb(percent: number): void {
-  const brightness = 0.3 + (percent / 100) * 0.7; // clamp between 0.3–1.0
-  document.documentElement.style.filter = percent < 100
-    ? `brightness(${brightness.toFixed(2)})`
-    : '';
+/** percent: 0–100  →  native 0–255, with WRITE_SETTINGS permission guard */
+async function _applyBrightnessNative(percent: number): Promise<void> {
+  try {
+    const { granted } = await CarLauncher.checkWriteSettings();
+    if (!granted) {
+      await CarLauncher.requestWriteSettings();
+      return; // User will need to retry after granting
+    }
+    const value = Math.round((percent / 100) * 255);
+    await CarLauncher.setBrightness({ value });
+  } catch (e: unknown) {
+    logError('systemSettings:setBrightness', e);
+  }
 }
 
 const _applyBrightnessDebounced = debounce((percent: number) => {
   if (Capacitor.isNativePlatform()) {
-    _applyBrightnessNative(percent);
+    void _applyBrightnessNative(percent);
   } else {
-    _applyBrightnessWeb(percent);
+    showToast({ type: 'info', title: 'Bilgi', message: 'Parlaklık kontrolü yalnızca cihazda kullanılabilir', duration: 2500 });
   }
 }, 80);
 
@@ -69,8 +71,9 @@ function _applyVolumeNative(percent: number): void {
 const _applyVolumeDebounced = debounce((percent: number) => {
   if (Capacitor.isNativePlatform()) {
     _applyVolumeNative(percent);
+  } else {
+    showToast({ type: 'info', title: 'Bilgi', message: 'Sistem ses kontrolü tarayıcıda desteklenmiyor', duration: 2500 });
   }
-  // Web: no standard API to set system volume; skip silently
 }, 80);
 
 /**

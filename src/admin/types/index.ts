@@ -53,6 +53,7 @@ export type CreateUserDTO = Pick<User, 'full_name' | 'email' | 'role'> & {
 // ── Vehicle ────────────────────────────────────────────────────
 export type VehicleStatus = 'active' | 'idle' | 'maintenance' | 'offline'
 export type FuelType      = 'diesel' | 'gasoline' | 'electric' | 'hybrid'
+export type VehicleLinkRole = 'owner' | 'viewer'
 
 export interface Vehicle {
   id:             string
@@ -69,4 +70,40 @@ export interface Vehicle {
   last_seen?:     string
   ins_expiry?:    string
   created_at:     string
+}
+
+// ── Device Linking ─────────────────────────────────────────────
+
+export interface VehicleUser {
+  id:         string
+  user_id:    string
+  vehicle_id: string
+  role:       VehicleLinkRole
+  created_at: string
+}
+
+/** Returned by link_vehicle RPC on success. */
+export interface LinkResult {
+  vehicle_id: string
+  name:       string
+  plate?:     string
+  brand?:     string
+  model?:     string
+  device_id?: string
+}
+
+/** Returned by register_vehicle RPC on first launch. */
+export interface RegisterResult {
+  vehicle_id:    string
+  api_key:       string
+  linking_code:  string
+  expires_at:    string
+}
+
+export interface VehicleEvent {
+  id:         string
+  vehicle_id: string
+  type:       string
+  payload:    Record<string, unknown>
+  created_at: string
 }

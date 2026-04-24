@@ -18,6 +18,8 @@
  */
 
 import { useState, useEffect } from 'react';
+import { getSupabaseClient } from './supabaseClient';
+import { logError } from './crashLogger';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -90,59 +92,51 @@ function _wmoDesc(code: number, isDay: boolean): WeatherDesc {
   return { text: 'Belirsiz', emoji: '🌡️' };
 }
 
-/* ── Fuel brands ─────────────────────────────────────────── */
+/* ── Fuel price cache ────────────────────────────────────── */
 
-const FUEL_BRANDS = [
-  { name: 'Petrol Ofisi', emoji: '🟠' },
-  { name: 'Shell',        emoji: '🔴' },
-  { name: 'Opet',         emoji: '🟡' },
-  { name: 'BP',           emoji: '🟢' },
-  { name: 'Total',        emoji: '🔵' },
-  { name: 'Türkiye Petrolleri', emoji: '⚪' },
-  { name: 'Lukoil',       emoji: '🟤' },
-];
+const FUEL_CACHE_KEY = 'clp_fuel_cache';
+const FUEL_CACHE_TTL = 60 * 60_000; // 60 minutes
 
-// Turkey average fuel prices (TL/L) — update periodically
-const AVG_GASOLINE_TL = 47.50;
-const AVG_DIESEL_TL   = 46.20;
-const AVG_LPG_TL      = 22.80;
+interface FuelCache { stations: FuelStation[]; ts: number }
 
-function _genStations(lat: number, lng: number): FuelStation[] {
-  const count = 5 + Math.floor(Math.random() * 4); // 5-8 stations
-  const stations: FuelStation[] = [];
+function _loadFuelCache(): FuelStation[] | null {
+  try {
+    const raw = localStorage.getItem(FUEL_CACHE_KEY);
+    if (!raw) return null;
+    const cache = JSON.parse(raw) as FuelCache;
+    if (Date.now() - cache.ts > FUEL_CACHE_TTL) return null;
+    return cache.stations;
+  } catch { return null; }
+}
 
-  const shuffled = [...FUEL_BRANDS].sort(() => Math.random() - 0.5);
+function _saveFuelCache(stations: FuelStation[]): void {
+  try {
+    localStorage.setItem(FUEL_CACHE_KEY, JSON.stringify({ stations, ts: Date.now() } satisfies FuelCache));
+  } catch { /* QuotaExceeded — ignore */ }
+}
 
-  for (let i = 0; i < count; i++) {
-    const brand       = shuffled[i % shuffled.length];
-    const distanceKm  = Math.round((0.3 + Math.random() * 4.5) * 10) / 10;
-    const variance    = () => (Math.random() * 0.1 - 0.05); // ±5%
-    const hasLpg      = Math.random() > 0.5;
+/* ── Dynamic fuel prices via Supabase Edge Function ─────── */
 
-    // Simulate slightly different position per station
-    void lat; void lng;
+interface FuelAPIResponse { stations: FuelStation[] }
 
-    stations.push({
-      id: `station-${i}`,
-      name: `${brand.name} - ${['Merkez', 'Kuzey', 'Güney', 'Doğu', 'Batı'][i % 5]}`,
-      brand: brand.name,
-      emoji: brand.emoji,
-      distanceKm,
-      gasolinePrice: Math.round((AVG_GASOLINE_TL * (1 + variance())) * 100) / 100,
-      dieselPrice:   Math.round((AVG_DIESEL_TL   * (1 + variance())) * 100) / 100,
-      lpgPrice:      hasLpg ? Math.round((AVG_LPG_TL * (1 + variance())) * 100) / 100 : undefined,
-      isOpen:        Math.random() > 0.1, // 90% open
-      isCheapest:    false,
-      isSimulated:   true,
+async function _fetchFuelFromAPI(lat: number, lng: number): Promise<FuelStation[] | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+
+  try {
+    const url = `${(import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''}/functions/v1/get-fuel-prices`;
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '' },
+      body:    JSON.stringify({ lat, lng }),
     });
+    if (!res.ok) return null;
+    const data = await res.json() as FuelAPIResponse;
+    return data.stations ?? null;
+  } catch (e) {
+    logError('weatherService:fetchFuel', e);
+    return null;
   }
-
-  // Sort by distance, then mark cheapest gasoline
-  stations.sort((a, b) => a.distanceKm - b.distanceKm);
-  const minGas  = Math.min(...stations.map((s) => s.gasolinePrice));
-  stations.forEach((s) => { s.isCheapest = s.gasolinePrice === minGas; });
-
-  return stations;
 }
 
 /* ── Module state ────────────────────────────────────────── */
@@ -249,13 +243,26 @@ async function _fetchWeather(lat: number, lng: number): Promise<void> {
   }
 }
 
-function _fetchFuel(lat: number, lng: number): void {
+async function _fetchFuel(lat: number, lng: number): Promise<void> {
   _setState({ isLoadingFuel: true });
-  // Simulate network delay
-  setTimeout(() => {
-    const stations = _genStations(lat, lng);
-    _setState({ stations, isLoadingFuel: false });
-  }, 800 + Math.random() * 600);
+
+  // Try API first
+  const apiStations = await _fetchFuelFromAPI(lat, lng);
+  if (apiStations) {
+    _saveFuelCache(apiStations);
+    _setState({ stations: apiStations, isLoadingFuel: false });
+    return;
+  }
+
+  // Fallback: use cached data if available
+  const cached = _loadFuelCache();
+  if (cached) {
+    _setState({ stations: cached, isLoadingFuel: false });
+    return;
+  }
+
+  // No data available — clear stations
+  _setState({ stations: [], isLoadingFuel: false });
 }
 
 /* ── GPS helpers ─────────────────────────────────────────── */
@@ -323,14 +330,14 @@ export async function refreshWeather(): Promise<void> {
   }
   _setState({ locationSource: pos.source });
   await _fetchWeather(pos.lat, pos.lng);
-  _fetchFuel(pos.lat, pos.lng);
+  void _fetchFuel(pos.lat, pos.lng);
 }
 
 export async function refreshFuelPrices(): Promise<void> {
   const pos = _getCurrentPosition();
   if (!pos) return;
   _setState({ locationSource: pos.source });
-  _fetchFuel(pos.lat, pos.lng);
+  await _fetchFuel(pos.lat, pos.lng);
 }
 
 export function startWeatherService(): void {

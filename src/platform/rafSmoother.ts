@@ -27,6 +27,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { getPerformanceMode } from './performanceMode';
 
+// Mali-400 / düşük sınıf GPU'larda 60fps → ekran kasması.
+// 20Hz (50ms) tüm sensor gauge animasyonları için yeterli ve akıcıdır.
+const FRAME_BUDGET_MS = 50;
+
 /**
  * useRafSmoothed — sensor değerini 60fps'de akıcı bir görsel değere çevirir.
  *
@@ -63,8 +67,17 @@ export function useRafSmoothed(target: number, alpha = 0.15): number {
     // Çalışan tick() her frame'de targetRef.current'ı okur → otomatik yönelir.
     if (rafRef.current !== 0) return;
 
-    // RAF tick — React render döngüsünden bağımsız
-    function tick() {
+    let _lastFrameTs = 0;
+
+    // RAF tick — 20Hz cap (FRAME_BUDGET_MS=50ms), Mali-400 uyumlu
+    function tick(ts: number) {
+      // Frame bütçesi dolmadıysa render'ı atla — GPU yükü düşer
+      if (ts - _lastFrameTs < FRAME_BUDGET_MS) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      _lastFrameTs = ts;
+
       const diff = targetRef.current - displayRef.current;
 
       if (Math.abs(diff) < 0.5) {
@@ -75,7 +88,7 @@ export function useRafSmoothed(target: number, alpha = 0.15): number {
         return;
       }
 
-      // Lerp: her frame alfa kadar ilerle
+      // Lerp: 20Hz'deki frame'de alfa kadar ilerle
       displayRef.current = displayRef.current + diff * alphaRef.current;
       setDisplay(Math.round(displayRef.current));
       rafRef.current = requestAnimationFrame(tick);

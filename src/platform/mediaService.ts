@@ -395,7 +395,7 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
      * Tercih edilen paketin kendi event'leri her zaman geçer.
      */
     if (
-      _focusLockUntil > Date.now() &&
+      _focusLockUntil > performance.now() &&
       _preferredPackage &&
       pkg !== _preferredPackage
     ) return;
@@ -498,7 +498,7 @@ export function setMediaPreferredPackage(pkg: string): void {
   _preferredPackage = pkg;
   // Issue 1: kullanıcı aktif olarak kaynak seçti — 5 saniyelik focus lock başlat.
   // Bu pencere içinde gelen sistem session event'leri (başka paket) reddedilir.
-  _focusLockUntil = Date.now() + FOCUS_LOCK_MS;
+  _focusLockUntil = performance.now() + FOCUS_LOCK_MS;
   if (_hubStarted && isNative) void _pollNative();
 }
 

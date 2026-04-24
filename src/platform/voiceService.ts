@@ -16,6 +16,8 @@ import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './co
 import { getConfig } from './performanceMode';
 import { speakFeedback } from './ttsService';
 import { askAI, resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+import { onDTCState } from './dtcService';
+import { getMaintenanceAssessment } from './vehicleMaintenanceService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -185,6 +187,32 @@ function getAISettings(): AISettings {
 const AI_FALLBACK_THRESHOLD = 0.50;
 
 /**
+ * DTC + bakım verisiyle zenginleştirilmiş VehicleContext üretir.
+ * Caller ctx sağlamadıysa minimal idle context oluşturur.
+ * Zero-Leak: geçici DTC aboneliği hemen temizlenir.
+ */
+async function _buildEnrichedCtx(ctx?: VehicleContext): Promise<VehicleContext> {
+  const base: VehicleContext = ctx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false };
+
+  // DTC snapshot — anlık abonelik+temizlik (commandExecutor pattern)
+  let dtcCodes: VehicleContext['activeDTCCodes'] = base.activeDTCCodes;
+  try {
+    let snap: { codes: VehicleContext['activeDTCCodes'] } | undefined;
+    const unsub = onDTCState((s) => { snap = s; });
+    unsub();
+    if (snap) dtcCodes = snap.codes;
+  } catch { /* sensör hatası — mevcut değeri koru */ }
+
+  // Bakım durumu — vehicleMaintenanceService'den gerçek tip
+  let maintenanceAssessments: VehicleContext['maintenanceAssessments'] = base.maintenanceAssessments;
+  try {
+    maintenanceAssessments = await getMaintenanceAssessment();
+  } catch { /* storage hatası — mevcut değeri koru */ }
+
+  return { ...base, activeDTCCodes: dtcCodes, maintenanceAssessments };
+}
+
+/**
  * Process text as a voice command.
  *
  * Pipeline:
@@ -237,7 +265,9 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   if (ai.provider !== 'none' && apiKey && hasNet) {
     push({ status: 'processing', transcript: trimmed, error: null, suggestions: [] });
 
-    const aiResult = await askAI(trimmed, ai.provider, apiKey, ctx);
+    // DTC ve bakım verisini AI context'ine otomatik enjekte et (fire-and-forget safe)
+    const enrichedCtx = await _buildEnrichedCtx(ctx);
+    const aiResult = await askAI(trimmed, ai.provider, apiKey, enrichedCtx);
     if (aiResult && aiResult.intent !== 'UNKNOWN' && aiResult.confidence >= 0.45) {
       _lastCommandTime = Date.now();
       // commandExecutor handler'larına ilet — TTS + dispatch orada yapılır

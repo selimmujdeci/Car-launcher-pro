@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { logError } from './crashLogger';
 import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
+import { checkGeofence } from './geofenceService';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -40,9 +41,15 @@ const useGPSStore = create<GPSState>(() => ({
 }));
 
 let watchId: number | string | null = null;
-let _lastPositionMs = 0;
+let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
 // 500ms throttle — GPS Doppler speed her 1s'de güncellenir; 2s çok geç
 const POSITION_THROTTLE_MS = 500;
+
+// Geofence throttle: 5s veya 10m değişim
+let _lastGeofenceCheckTime = 0;
+let _lastGeofenceCheckPos: { lat: number; lng: number } | null = null;
+const GEOFENCE_THROTTLE_MS = 5000;
+const GEOFENCE_THROTTLE_METERS = 10;
 
 // Auto-reconnect on consecutive errors
 let _consecutiveErrors = 0;
@@ -51,9 +58,14 @@ const MAX_GPS_ERRORS   = 3;
 const GPS_RECONNECT_MS = 8000;
 
 // ── Son bilinen konum (localStorage) ─────────────────────
-const LAST_KNOWN_KEY = 'car-gps-last-known';
+const LAST_KNOWN_KEY      = 'car-gps-last-known';
+const SAVE_LAST_KNOWN_MS  = 5_000; // 2 Hz GPS → max 5s'de-bir yaz
+let _lastSavePerf         = 0;
 
 function _saveLastKnown(loc: GPSLocation): void {
+  const now = performance.now();
+  if (now - _lastSavePerf < SAVE_LAST_KNOWN_MS) return;
+  _lastSavePerf = now;
   safeSetRaw(LAST_KNOWN_KEY, JSON.stringify({ lat: loc.latitude, lng: loc.longitude }));
 }
 
@@ -408,8 +420,9 @@ interface CoordsLike {
 }
 
 function handlePosition(coords: CoordsLike, timestamp: number): void {
-  const now = Date.now();
-  if (now - _lastPositionMs < POSITION_THROTTLE_MS) return;
+  const now     = Date.now();
+  const perfNow = performance.now();
+  if (perfNow - _lastPositionPerf < POSITION_THROTTLE_MS) return;
 
   // Validate — malformed native data should never propagate to UI
   if (
@@ -433,7 +446,7 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     }
   }
 
-  _lastPositionMs    = now;
+  _lastPositionPerf  = perfNow;
   _consecutiveErrors = 0; // reset on success
   _clearFirstFixTimer(); // gerçek fix geldi, fallback iptal
 
@@ -478,6 +491,22 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     timestamp,
   };
 
+  // ── Geofence 2.0 Kontrolü (Performans Throttling) ────
+  const distChange = _lastGeofenceCheckPos
+    ? _haversineMeters(_lastGeofenceCheckPos.lat, _lastGeofenceCheckPos.lng, loc.latitude, loc.longitude)
+    : Infinity;
+  const timeChange = now - _lastGeofenceCheckTime;
+
+  if (timeChange >= GEOFENCE_THROTTLE_MS || distChange >= GEOFENCE_THROTTLE_METERS) {
+    _lastGeofenceCheckTime = now;
+    _lastGeofenceCheckPos = { lat: loc.latitude, lng: loc.longitude };
+
+    // Hız geçerliyse (veya 0 ise) kontrolü tetikle
+    if (filteredSpeed != null) {
+      checkGeofence(loc.latitude, loc.longitude, filteredSpeed * 3.6);
+    }
+  }
+
   _saveLastKnown(loc);
 
   const source = isNativePlatform() ? 'native' : 'web';
@@ -499,7 +528,7 @@ export async function stopGPSTracking(): Promise<void> {
   _prevForSpeed    = null;
   _smoothedHeading = null;
   _consecutiveErrors = 0;
-  _lastPositionMs = 0; // reset throttle — next position always accepted after restart
+  _lastPositionPerf = 0; // reset throttle — next position always accepted after restart
 
   if (watchId == null) {
     useGPSStore.setState({ isTracking: false, location: null, error: null });
