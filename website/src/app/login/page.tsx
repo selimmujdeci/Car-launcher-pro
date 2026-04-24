@@ -163,8 +163,8 @@ function LoginForm() {
 
         <p className="text-center text-white/20 text-xs mt-8">
           Hesabınız yok mu?{' '}
-          <Link href="/contact" className="text-accent/60 hover:text-accent transition-colors">
-            Kurumsal teklif alın
+          <Link href="/register" className="text-accent/60 hover:text-accent transition-colors">
+            Kayıt Ol
           </Link>
         </p>
 
