@@ -131,6 +131,8 @@ const AudiSpeed = memo(function AudiSpeed() {
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
   const [show3D, setShow3D] = useState(false);
+  const obdReady = obd.connectionState === 'connected' || obd.source === 'mock';
+  const hasData  = obdReady || speedKmh > 0;
 
   const R = 105, cx = 130, cy = 140;
   const pct = Math.min(speedKmh / 240, 1);
@@ -186,37 +188,55 @@ const AudiSpeed = memo(function AudiSpeed() {
       ) : (
         /* Virtual Cockpit modu */
         <div className="flex-1 flex items-center justify-center relative min-h-0">
-          <div className="w-[min(260px,90%)] h-[min(260px,90%)] relative">
-            <svg width="260" height="280" viewBox="0 0 260 280">
-              <circle cx="130" cy="140" r="120" fill="none" stroke="rgba(168,169,173,0.05)" strokeWidth="1" />
-              <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="butt" />
-              {pct > 0.01 && (
-                <path d={arc(135, fillAngle)} fill="none" stroke={A_RED} strokeWidth="14" strokeLinecap="butt"
-                  style={{ filter: `drop-shadow(0 0 6px rgba(204,0,0,0.55))` }} />
-              )}
-              <path d={rArc(rStart, rStart + rSpan)} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="8" strokeLinecap="butt" />
-              {rPct > 0.01 && (
-                <path d={rArc(rStart, rStart + rPct * rSpan)} fill="none" stroke="rgba(168,169,173,0.55)" strokeWidth="8" strokeLinecap="butt" />
-              )}
-              <circle cx="130" cy="140" r="60" fill="rgba(0,0,0,0.80)" stroke="rgba(168,169,173,0.09)" strokeWidth="1" />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pt-3">
-              <div className="font-thin tabular-nums leading-none"
-                style={{ fontSize: 'var(--lp-speed-font, 58px)', color: A_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
-                {speedKmh}
+          {!hasData ? (
+            /* OBD bağlı değil — bekleme placeholder'ı */
+            <div className="flex flex-col items-center justify-center gap-3">
+              <div className="relative w-20 h-20">
+                <div className="absolute inset-0 rounded-full border border-[rgba(204,0,0,0.20)] animate-ping [animation-duration:2.4s]" />
+                <div className="absolute inset-2 rounded-full border border-[rgba(204,0,0,0.28)] animate-ping [animation-duration:2.4s] [animation-delay:0.6s]" />
+                <div className="absolute inset-4 rounded-full border border-[rgba(204,0,0,0.38)] animate-ping [animation-duration:2.4s] [animation-delay:1.2s]" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Gauge className="w-6 h-6" style={{ color: 'rgba(204,0,0,0.55)' }} />
+                </div>
               </div>
-              <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: A_SILVER, letterSpacing: '0.45em' }}>km/h</div>
-              <div className="font-light mt-2" style={{ fontSize: 10, color: A_DIM }}>{rpm.toLocaleString()} rpm</div>
+              <div className="text-center">
+                <div className="font-medium uppercase" style={{ fontSize: 9, color: A_RED, letterSpacing: '0.3em' }}>Sinyal Bekleniyor</div>
+                <div className="font-light mt-1" style={{ fontSize: 10, color: A_DIM }}>OBD · GPS</div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="w-[min(260px,90%)] h-[min(260px,90%)] relative">
+              <svg width="260" height="280" viewBox="0 0 260 280">
+                <circle cx="130" cy="140" r="120" fill="none" stroke="rgba(168,169,173,0.05)" strokeWidth="1" />
+                <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="butt" />
+                {pct > 0.01 && (
+                  <path d={arc(135, fillAngle)} fill="none" stroke={A_RED} strokeWidth="14" strokeLinecap="butt"
+                    style={{ filter: `drop-shadow(0 0 6px rgba(204,0,0,0.55))` }} />
+                )}
+                <path d={rArc(rStart, rStart + rSpan)} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="8" strokeLinecap="butt" />
+                {rPct > 0.01 && (
+                  <path d={rArc(rStart, rStart + rPct * rSpan)} fill="none" stroke="rgba(168,169,173,0.55)" strokeWidth="8" strokeLinecap="butt" />
+                )}
+                <circle cx="130" cy="140" r="60" fill="rgba(0,0,0,0.80)" stroke="rgba(168,169,173,0.09)" strokeWidth="1" />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pt-3">
+                <div className="font-thin tabular-nums leading-none"
+                  style={{ fontSize: 'var(--lp-speed-font, 58px)', color: A_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
+                  {speedKmh}
+                </div>
+                <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: A_SILVER, letterSpacing: '0.45em' }}>km/h</div>
+                <div className="font-light mt-2" style={{ fontSize: 10, color: A_DIM }}>{rpm.toLocaleString()} rpm</div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Alt veri çubukları — her iki modda da gösterilir */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0">
-        <ADataCell Icon={Thermometer} label="MOTOR" value={`${Math.round(temp)}°C`} warn={tempWarn} />
-        <ADataCell Icon={Fuel}        label="YAKIT" value={`${Math.round(fuel)}%`}  warn={fuelWarn} />
-        <ADataCell Icon={Gauge}       label="TORK"  value="320 Nm"                  warn={false} />
+        <ADataCell Icon={Thermometer} label="MOTOR" value={hasData ? `${Math.round(temp)}°C` : '--'} warn={tempWarn} />
+        <ADataCell Icon={Fuel}        label="YAKIT" value={hasData ? `${Math.round(fuel)}%`  : '--'} warn={fuelWarn} />
+        <ADataCell Icon={Gauge}       label="TORK"  value={hasData ? '320 Nm'                : '--'} warn={false} />
       </div>
     </div>
   );

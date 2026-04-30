@@ -201,7 +201,7 @@ async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Pr
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(6000),
+    signal: AbortSignal.timeout(3000),
   });
 
   if (!resp.ok) return null;
@@ -234,7 +234,7 @@ async function askHaiku(text: string, apiKey: string, ctx?: VehicleContext): Pro
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(6000),
+    signal: AbortSignal.timeout(3000),
   });
 
   if (!resp.ok) return null;

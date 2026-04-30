@@ -1,11 +1,11 @@
 /**
- * Security Suite — Vale Modu, Geofencing ve Uygulama Kilidi.
+ * Security Suite — Vale Modu, Geofencing, Uygulama Kilidi ve Sentry Mode 2.0.
  */
 
 import { memo, useState, useCallback, useEffect } from 'react';
 import {
   Shield, MapPin, Lock, Unlock, AlertTriangle,
-  Plus, Minus, X, Navigation, ChevronRight,
+  Plus, Minus, X, Navigation, ChevronRight, Eye, Video, Upload, Wifi,
 } from 'lucide-react';
 import {
   useGeofenceState,
@@ -23,6 +23,12 @@ import {
 import { setupPin, clearPin, getLockoutState } from '../../platform/pinService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useOBDState } from '../../platform/obdService';
+import {
+  useSentryState,
+  armSentry,
+  disarmSentry,
+  clearSentryAlerts,
+} from '../../platform/security/sentryEngine';
 
 /* ── PIN Girişi ──────────────────────────────────────────── */
 
@@ -213,11 +219,12 @@ const GeofenceMap = memo(function GeofenceMap({
 /* ── Ana Panel ───────────────────────────────────────────── */
 
 export const SecuritySuite = memo(function SecuritySuite() {
-  const geo = useGeofenceState();
-  const gps = useGPSLocation();
-  const obd = useOBDState();
+  const geo    = useGeofenceState();
+  const gps    = useGPSLocation();
+  const obd    = useOBDState();
+  const sentry = useSentryState();
 
-  const [activeTab, setActiveTab] = useState<'geofence' | 'vale' | 'pin'>('geofence');
+  const [activeTab, setActiveTab] = useState<'geofence' | 'vale' | 'pin' | 'sentry'>('geofence');
   const [showPinPad, setShowPinPad]  = useState(false);
   const [settingPin, setSettingPin]  = useState(false);
 
@@ -229,7 +236,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
   const handleSetCurrentLocation = useCallback(() => {
     if (gps?.latitude) {
-      setGeofenceCenter({ lat: gps.latitude, lng: gps.longitude, label: 'Mevcut Konum' });
+      setGeofenceCenter({ lat: gps.latitude, lng: gps.longitude });
     }
   }, [gps]);
 
@@ -259,10 +266,19 @@ export const SecuritySuite = memo(function SecuritySuite() {
     setSettingPin(false);
   }, [settingPin]);
 
+  const handleToggleSentry = useCallback(() => {
+    if (sentry.status !== 'idle') {
+      disarmSentry();
+    } else {
+      void armSentry();
+    }
+  }, [sentry.status]);
+
   const tabs = [
-    { id: 'geofence' as const, label: 'Geofence', icon: Navigation },
-    { id: 'vale'     as const, label: 'Vale Modu', icon: Shield },
-    { id: 'pin'      as const, label: 'PIN Kilit', icon: Lock },
+    { id: 'geofence' as const, label: 'Geofence',  icon: Navigation },
+    { id: 'vale'     as const, label: 'Vale Modu',  icon: Shield },
+    { id: 'pin'      as const, label: 'PIN Kilit',  icon: Lock },
+    { id: 'sentry'   as const, label: 'Gözcü',      icon: Eye },
   ];
 
   return (
@@ -275,8 +291,16 @@ export const SecuritySuite = memo(function SecuritySuite() {
           </div>
           <div>
             <div className="text-primary font-black text-xl tracking-tight uppercase">Güvenlik Paketi</div>
-            <div className="text-secondary text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Vale & Güvenlik Modu</div>
+            <div className="text-secondary text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Vale & Gözcü Modu</div>
           </div>
+          {sentry.status !== 'idle' && (
+            <div className="ml-auto flex items-center gap-1.5 bg-red-500/20 border border-red-500/30 rounded-xl px-3 py-1.5">
+              <div className={`w-2 h-2 rounded-full bg-red-400 ${sentry.status === 'triggered' ? 'animate-ping' : 'animate-pulse'}`} />
+              <span className="text-red-400 text-[10px] font-black tracking-wider">
+                {sentry.status === 'triggered' ? 'DARBE!' : 'GÖZCÜ AKTİF'}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -478,6 +502,133 @@ export const SecuritySuite = memo(function SecuritySuite() {
                       <span className="text-red-400 text-xs font-bold">
                         {Math.round(v.speedKmh)} km/h
                       </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Gözcü (Sentry) sekmesi ──────────────────────── */}
+        {activeTab === 'sentry' && (
+          <>
+            {/* Arm/Disarm toggle */}
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-primary text-sm font-bold">Gözcü Modu</div>
+                  <div className="text-slate-500 text-xs mt-0.5">
+                    {sentry.videoAvailable ? 'Video + G-Sensör aktif' : 'Yalnızca G-Sensör (kamera yok)'}
+                  </div>
+                </div>
+                <button
+                  onClick={handleToggleSentry}
+                  className={`relative w-12 h-6 rounded-full transition-all ${
+                    sentry.status !== 'idle' ? 'bg-red-500' : 'var(--panel-bg-secondary)'
+                  }`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${
+                    sentry.status !== 'idle' ? 'left-7' : 'left-1'
+                  }`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Tesla tarzı "Gözcü Aktif" banner */}
+            {sentry.status !== 'idle' && (
+              <div className={`rounded-2xl border p-4 flex items-center gap-3 ${
+                sentry.status === 'triggered'
+                  ? 'border-red-400/50 bg-red-500/20 shadow-[0_0_24px_rgba(239,68,68,0.3)]'
+                  : 'border-red-500/20 bg-red-500/5'
+              }`}>
+                <div className="relative flex-shrink-0">
+                  <Eye className={`w-8 h-8 ${sentry.status === 'triggered' ? 'text-red-400 animate-pulse' : 'text-red-500'}`} />
+                  {sentry.videoAvailable && (
+                    <Video className="w-3.5 h-3.5 text-red-400 absolute -bottom-1 -right-1" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className={`font-black text-sm tracking-wide ${sentry.status === 'triggered' ? 'text-red-300' : 'text-red-400'}`}>
+                    {sentry.status === 'triggered'
+                      ? 'DARBE TESPİT EDİLDİ — KAYIT ALINIYOR'
+                      : 'GÖZCÜ AKTİF — KAYIT ALINIYOR'}
+                  </div>
+                  <div className="text-slate-500 text-xs mt-0.5">
+                    G-Kuvvet: {sentry.lastImpactG.toFixed(1)} m/s²
+                    {sentry.pendingUploads > 0 && (
+                      <span className="text-amber-400 ml-2">
+                        · {sentry.pendingUploads} klip yüklenecek
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bekleyen yüklemeler */}
+            {sentry.pendingUploads > 0 && (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 flex items-center gap-3">
+                <Wifi className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span className="text-amber-400 text-xs">
+                  {sentry.pendingUploads} klip çevrimiçi olunca yüklenecek
+                </span>
+              </div>
+            )}
+
+            {/* Alert geçmişi */}
+            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-slate-500 text-xs uppercase tracking-wider">Olaylar</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-600 text-xs">{sentry.alerts.length} olay</span>
+                  {sentry.alerts.length > 0 && (
+                    <button onClick={clearSentryAlerts} className="text-slate-600 hover:text-red-400 transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 max-h-56 overflow-y-auto">
+                {sentry.alerts.length === 0 ? (
+                  <div className="text-slate-500 text-xs text-center py-4">
+                    {sentry.status === 'idle' ? 'Gözcü kapalı' : 'Henüz olay yok'}
+                  </div>
+                ) : (
+                  sentry.alerts.slice().reverse().map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center gap-3 bg-red-500/5 border border-red-500/10 rounded-xl px-3 py-2.5"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-primary text-xs font-bold">
+                          {new Date(a.triggeredAt).toLocaleTimeString('tr-TR')}
+                          <span className="text-slate-500 font-normal ml-1.5">
+                            {a.impactG.toFixed(1)} m/s²
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        {a.uploadStatus === 'done' && a.clipUrl && (
+                          <a href={a.clipUrl} target="_blank" rel="noopener noreferrer">
+                            <Video className="w-3.5 h-3.5 text-emerald-400" />
+                          </a>
+                        )}
+                        {a.uploadStatus === 'done' && !a.clipUrl && (
+                          <span className="text-emerald-400 text-[10px]">✓</span>
+                        )}
+                        {a.uploadStatus === 'uploading' && (
+                          <Upload className="w-3.5 h-3.5 text-blue-400 animate-bounce" />
+                        )}
+                        {a.uploadStatus === 'failed' && (
+                          <Wifi className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        {a.uploadStatus === 'pending' && (
+                          <div className="w-2 h-2 rounded-full bg-slate-500" />
+                        )}
+                      </div>
                     </div>
                   ))
                 )}

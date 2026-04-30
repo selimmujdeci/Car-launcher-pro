@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
+import { supabaseBrowser } from '@/lib/supabase';
 
 interface VehicleModalProps {
   vehicle: LiveVehicle;
   onClose: () => void;
+  onRemove?: (id: string) => void;
 }
 
 const statusConfig = {
@@ -14,14 +16,35 @@ const statusConfig = {
   alarm: { label: 'Alarm', dot: 'bg-red-400 animate-pulse', text: 'text-red-400' },
 };
 
-export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps) {
+export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleModalProps) {
   const s = statusConfig[v.status];
+  const [removing, setRemoving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  async function handleRemove() {
+    if (!confirmRemove) { setConfirmRemove(true); return; }
+    setRemoving(true);
+    try {
+      const token = (await supabaseBrowser?.auth.getSession())?.data.session?.access_token;
+      const res = await fetch(`/api/vehicles/${v.id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        onRemove?.(v.id);
+        onClose();
+      }
+    } finally {
+      setRemoving(false);
+      setConfirmRemove(false);
+    }
+  }
 
   return (
     <div
@@ -112,6 +135,23 @@ export default function VehicleModal({ vehicle: v, onClose }: VehicleModalProps)
           {/* Safe bottom padding for mobile */}
           <div className="sm:hidden h-2" />
         </div>
+
+        {/* Footer — remove button */}
+        {onRemove && (
+          <div className="flex-shrink-0 px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-white/[0.07]">
+            <button
+              onClick={handleRemove}
+              disabled={removing}
+              className={`w-full py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                confirmRemove
+                  ? 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25'
+                  : 'bg-white/[0.03] border-white/[0.07] text-white/40 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/[0.07]'
+              }`}
+            >
+              {removing ? 'Kaldırılıyor…' : confirmRemove ? 'Emin misin? Tekrar tıkla' : 'Aracı Listeden Kaldır'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

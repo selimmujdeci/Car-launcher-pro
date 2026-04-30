@@ -11,9 +11,17 @@ This project is governed by the **Automotive Grade Engineering Standards** defin
 ## 🎯 STRATEGIC GOAL
 Transform "Caros Pro" from a functional prototype into an industrial-grade product ready for Tier-1 automotive manufacturers and fleet operators.
 
+## 📏 CERRAHİ PROMPT STANDARTI (CLAUDE İÇİN)
+Claude'a verilecek talimatlar ASLA laf kalabalığı içermeyecek. Sadece teknik veri ve dosya hedefli olacak:
+- **Dosya Yolları:** Net belirtilecek.
+- **Değişim Özeti:** "X fonksiyonu Y ile değiştirilecek" şeklinde net olacak.
+- **Kritik Kriter:** (Örn: 10Hz, Atomic, Hysteresis)
+- **Gereksiz Metin YASAK:** "Lütfen yap", "Harika iş" gibi ifadeler kullanılmayacak.
+
 ## 🛑 KISITLAMALAR
 - **GEMİNİ KOD YAZMAK YASAK.**
 - **EZBERDEN KONUŞMAK, TAHMİN YÜRÜTMEK VEYA VARSAYIMDA BULUNMAK YASAK.** Sadece ve sadece kod üzerinden, dosyadan okunmuş kesin verilerle konuşulacak.
+- **KODLARI KONTROL ETMEDEN CEVAP VERMEK YASAK.** Kodlara bakılmadan verilen cevaplar kabul edilmez, sayılmaz.
 - **CLAUDE İÇİN PROMPT YAZILIRKEN CLAUDE.MD DOSYASI MUTLAKA REFERANS GÖSTERİLECEK.**
 
 ## 🛠️ WORKFLOW

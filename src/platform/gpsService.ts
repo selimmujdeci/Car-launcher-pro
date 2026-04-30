@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { logError } from './crashLogger';
 import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -42,8 +43,28 @@ const useGPSStore = create<GPSState>(() => ({
 
 let watchId: number | string | null = null;
 let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
-// 500ms throttle — GPS Doppler speed her 1s'de güncellenir; 2s çok geç
-const POSITION_THROTTLE_MS = 500;
+// 200ms throttle — 1s GPS interval'de her fix'i işle
+const POSITION_THROTTLE_MS = 200;
+
+// ── Adaptive Runtime GPS interval ────────────────────────────
+// RuntimeEngine mod değişiminde gpsUpdateMs güncellenir.
+// Yeni değer startGPSTracking() sonraki çağrısında veya soft-restart'ta uygulanır.
+let _gpsUpdateMs: number = runtimeManager.getConfig().gpsUpdateMs;
+
+/** runtimeManager değişince _gpsUpdateMs güncelle + gerekirse soft-restart */
+const _unsubRuntimeGPS = runtimeManager.subscribe((_mode, config) => {
+  const newMs = config.gpsUpdateMs;
+  if (newMs === _gpsUpdateMs) return;
+  _gpsUpdateMs = newMs;
+
+  // GPS aktif ise yeniden başlat — hem native (minimumUpdateInterval) hem
+  // web (maximumAge) seçenekleri yeni config değeriyle kurulur.
+  if (watchId !== null) {
+    void stopGPSTracking().then(() => startGPSTracking()).catch((e: unknown) => {
+      logError('GPS:RuntimeRestart', e);
+    });
+  }
+});
 
 // Geofence throttle: 5s veya 10m değişim
 let _lastGeofenceCheckTime = 0;
@@ -331,9 +352,10 @@ async function startNativeGPSTracking(): Promise<void> {
       } else if (perms.location !== 'granted') {
         const req = await withTimeout(Geolocation.requestPermissions());
         if (req !== null && req.location !== 'granted' && req.location !== 'prompt') {
-          // İzin reddedildi — web geolocation ile son kez dene
-          useGPSStore.setState({ error: 'GPS izni reddedildi — web konumu deneniyor', isTracking: false });
-          startWebGPSTracking();
+          // İzin kesin olarak reddedildi — kullanıcı "bir daha sorma" seçti.
+          // Web geolocation fallback'i ÇAĞIRMA: native platform'da navigator.geolocation
+          // desteklenmeyebilir ve farklı bir hata mesajı yazarak gerçek nedeni gizler.
+          useGPSStore.setState({ error: 'GPS permission denied', isTracking: false });
           return;
         }
       }
@@ -345,8 +367,11 @@ async function startNativeGPSTracking(): Promise<void> {
       {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 1000, // max 1s eski veri — durduğunda eski hız kalmasın
-      },
+        maximumAge: Math.min(_gpsUpdateMs, 500), // en az 500ms taze veri
+        // Android: FusedLocationProvider update interval (ms) — RuntimeEngine'den gelir
+        // PERFORMANCE: 500ms | BALANCED: 1000ms | BASIC_JS: 2000ms | SAFE_MODE: 5000ms
+        ...({ minimumUpdateInterval: _gpsUpdateMs } as object),
+      } as Parameters<typeof Geolocation.watchPosition>[0],
       (position, err) => {
         if (err) {
           _consecutiveErrors++;
@@ -396,7 +421,8 @@ function startWebGPSTracking(): void {
       {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 1000, // max 1s eski veri — durduğunda eski hız kalmasın
+        // RuntimeEngine config'e bağlı — SAFE_MODE'da 5s, PERFORMANCE'ta 500ms
+        maximumAge: _gpsUpdateMs,
       }
     );
     watchId = id;
@@ -525,10 +551,12 @@ export async function stopGPSTracking(): Promise<void> {
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _clearFirstFixTimer();
   _stopCompassListener();
-  _prevForSpeed    = null;
-  _smoothedHeading = null;
-  _consecutiveErrors = 0;
-  _lastPositionPerf = 0; // reset throttle — next position always accepted after restart
+  _prevForSpeed             = null;
+  _smoothedHeading          = null;
+  _consecutiveErrors        = 0;
+  _lastPositionPerf         = 0; // reset throttle — next position always accepted after restart
+  _lastGeofenceCheckTime    = 0; // geofence throttle sıfırla
+  _lastGeofenceCheckPos     = null;
 
   if (watchId == null) {
     useGPSStore.setState({ isTracking: false, location: null, error: null });
@@ -694,6 +722,8 @@ let _dr: DeadReckoningState | null    = null;
 let _drTimer: ReturnType<typeof setInterval> | null = null;
 let _lastGPSPerf = 0; // performance.now() — clock-jump immune
 let _drLocUnsub: (() => void) | null = null;
+// Tüm DR guard cleanup (silenceChecker + _drLocUnsub) — HMR ve çoklu çağrı koruması
+let _drGuardCleanup: (() => void) | null = null;
 
 function _stopDeadReckoning(): void {
   if (_drTimer !== null) { clearInterval(_drTimer); _drTimer = null; }
@@ -726,8 +756,11 @@ function _startDeadReckoning(): void {
     const rad   = (_dr.bearingDeg * Math.PI) / 180;
     const cosLat = Math.cos((_dr.lat  * Math.PI) / 180);
 
-    _dr.lat += (_dr.speedMs * Math.cos(rad) * Δt) / 111_320;
-    _dr.lng += (_dr.speedMs * Math.sin(rad) * Δt) / (111_320 * Math.max(0.001, cosLat));
+    const deltaLat = (_dr.speedMs * Math.cos(rad) * Δt) / 111_320;
+    const deltaLng = (_dr.speedMs * Math.sin(rad) * Δt) / (111_320 * Math.max(0.001, cosLat));
+
+    _dr.lat += deltaLat;
+    _dr.lng += deltaLng;
 
     // Store'a tahmini konumu yaz (heading ve speed korunur)
     const prev = useGPSStore.getState().location;
@@ -758,6 +791,10 @@ function _startDeadReckoning(): void {
  * Cleanup fonksiyonu döner — tüm listener + interval cleanup edilir.
  */
 export function startDeadReckoningGuard(): () => void {
+  // Önceki guard varsa temizle — çoklu çağrı koruması (silenceChecker sızıntısı önlenir)
+  _drGuardCleanup?.();
+  _drGuardCleanup = null;
+
   // GPS location store'u izle
   let _prevLoc = useGPSStore.getState().location;
   _lastGPSPerf  = performance.now();
@@ -798,12 +835,15 @@ export function startDeadReckoningGuard(): () => void {
     }
   }, DR_THRESHOLD_MS);
 
-  return () => {
+  const cleanup = () => {
     clearInterval(silenceChecker);
     _drLocUnsub?.();
     _drLocUnsub = null;
     _stopDeadReckoning();
+    if (_drGuardCleanup === cleanup) _drGuardCleanup = null; // dangle ref temizle
   };
+  _drGuardCleanup = cleanup;
+  return cleanup;
 }
 
 /**
@@ -818,8 +858,9 @@ export function isDeadReckoningActive(): boolean {
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     stopGPSTracking().catch(() => undefined);
-    _stopDeadReckoning();
-    _drLocUnsub?.();
-    _drLocUnsub = null;
+    _unsubRuntimeGPS();       // runtime listener temizle — Zero-Leak
+    // _drGuardCleanup: silenceChecker interval + _drLocUnsub + DR timer'ı birlikte temizler
+    _drGuardCleanup?.();
+    _drGuardCleanup = null;
   });
 }

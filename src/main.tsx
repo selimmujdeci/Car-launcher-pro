@@ -9,11 +9,38 @@ import { initNativeCore } from './platform/nativeCoreService.ts'
 import { initPlatformDetection } from './platform/headUnitPlatform.ts'
 import { isNative } from './platform/bridge.ts'
 import { initGeofence } from './platform/geofenceService.ts'
+import { initSafeStorageAsync } from './utils/safeStorage.ts'
+import { signalReverse } from './platform/cameraService.ts'
+import { CarLauncher } from './platform/nativePlugin.ts'
 
 /* ── Bootstrap Launcher ── */
+(async () => {
 try {
   /* ── Head unit / eski WebView uyumluluk modu — React öncesi çağrılmalı ── */
   applyCompatMode();
+
+  /* ── Safe Storage: Filesystem cache'ini React öncesi yükle (native) ── */
+  /* Zustand store'ları ilk render'da safeGetRaw çağırır; _fsCache hazır olmalı. */
+  if (isNative) await initSafeStorageAsync().catch((e) => console.error('[SafeStorage]', e));
+
+  /* ── R-7 Boot-Split: React yüklenmeden geri vites tespiti ── */
+  /* CAN ve OBD verisi dinlenir; reverse sinyali gelirse kamera anında açılır.        */
+  /* window.__INITIAL_REVERSE__ = true → ReversePriorityOverlay ilk render'da aktif. */
+  if (isNative) {
+    // CAN bus — reverse boolean'ı doğrudan taşır (birincil kaynak)
+    void CarLauncher.addListener('canData', (data) => {
+      if (typeof data.reverse === 'boolean') {
+        if (data.reverse) window.__INITIAL_REVERSE__ = true;
+        signalReverse(data.reverse);
+      }
+    }).catch(() => {});
+
+    // OBD — doğrudan reverse field'ı yok; ileride hız-çapraz-kontrol için açık
+    // Sinyal cameraService içinde canData'ya dayanır; bu listener cross-check yeridir
+    void CarLauncher.addListener('obdData', () => {
+      // Placeholder: OBD'de reverse PID yok (SAE J1979); canData asıl kaynak
+    }).catch(() => {});
+  }
 
   /* ── Geofence: Sanal çit + vale modu ayarlarını yükle ── */
   initGeofence().catch((e) => console.error('[GeofenceInit]', e));
@@ -47,5 +74,4 @@ try {
     rootEl.replaceChildren(div);
   }
 }
-
-
+})();

@@ -177,36 +177,45 @@ export default function PairingScreen({ onPaired }: Props) {
       if (!mountedRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
       streamRef.current = stream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      // scanning=true ile video elementi DOM'a girer, sonra srcObject atanır
       setScanning(true);
-
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-
-      const loop = async () => {
-        if (!videoRef.current || !streamRef.current || !mountedRef.current) return;
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0) {
-            const parsed = parseQRValue(codes[0].rawValue);
-            if (parsed) {
-              setQrFound(true);
-              stopCamera();
-              await doPair(parsed);
-              return;
-            }
-          }
-        } catch { /* video frame not ready yet */ }
-        rafRef.current = requestAnimationFrame(() => void loop());
-      };
-      rafRef.current = requestAnimationFrame(() => void loop());
     } catch {
       setCameraErr('Kamera izni verilmedi veya kullanılamıyor.');
       setMode('pin');
     }
-  }, [doPair, stopCamera]);
+  }, [stopCamera]);
+
+  // stream hazır + video elementi DOM'da → srcObject ata ve QR döngüsü başlat
+  useEffect(() => {
+    if (!scanning || !streamRef.current || !videoRef.current) return;
+
+    const video = videoRef.current;
+    video.srcObject = streamRef.current;
+    void video.play().catch(() => {});
+
+    if (!('BarcodeDetector' in window)) return;
+    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+
+    const loop = async () => {
+      if (!videoRef.current || !streamRef.current || !mountedRef.current) return;
+      try {
+        const codes = await detector.detect(videoRef.current);
+        if (codes.length > 0) {
+          const parsed = parseQRValue(codes[0].rawValue);
+          if (parsed) {
+            setQrFound(true);
+            stopCamera();
+            await doPair(parsed);
+            return;
+          }
+        }
+      } catch { /* frame not ready */ }
+      rafRef.current = requestAnimationFrame(() => void loop());
+    };
+    rafRef.current = requestAnimationFrame(() => void loop());
+
+    return () => { cancelAnimationFrame(rafRef.current); };
+  }, [scanning, doPair, stopCamera]);
 
   /* ── PIN input handlers ─────────────────────────────────── */
   const focusAt = useCallback((idx: number) => {

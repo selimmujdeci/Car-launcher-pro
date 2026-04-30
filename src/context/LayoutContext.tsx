@@ -2,10 +2,13 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { analyzeScreen, type ScreenProfile } from '../platform/screenAnalyzer';
 import { getLayoutProfile, type LayoutProfile } from '../hooks/useLayoutProfile';
 import { initScale } from '../utils/scale';
+import { useSystemStore } from '../store/useSystemStore';
 
 interface LayoutContextValue {
   screen: ScreenProfile;
   profile: LayoutProfile;
+  /** Geri vites aktifken true — ağır widget'lar render skip için kullanabilir */
+  reverseActive: boolean;
 }
 
 const LayoutContext = createContext<LayoutContextValue | null>(null);
@@ -88,7 +91,8 @@ function applyCSSVars(p: LayoutProfile, s: ScreenProfile) {
 
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const [screen, setScreen] = useState<ScreenProfile>(() => analyzeScreen());
-  const profile = getLayoutProfile(screen.category);
+  const profile        = getLayoutProfile(screen.category);
+  const reverseActive  = useSystemStore((s) => s.isReverseActive);
   const rafRef = useRef<number | null>(null);
 
   const handleResize = useCallback(() => {
@@ -125,7 +129,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   }, [handleResize]);
 
   return (
-    <LayoutContext.Provider value={{ screen, profile }}>
+    <LayoutContext.Provider value={{ screen, profile, reverseActive }}>
       {children}
     </LayoutContext.Provider>
   );

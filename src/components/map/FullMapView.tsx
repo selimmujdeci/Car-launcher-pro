@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
@@ -28,9 +28,10 @@ import {
   useMapMode,
   useTileRenderMode,
   notifyNavigationRender,
+  useMapNetworkStatus,
   type MapMode,
 } from '../../platform/mapSourceManager';
-import { useVisionStore } from '../../platform/visionEngine';
+import { useVisionStore } from '../../platform/visionStore';
 import { useNavigation, updateNavigationProgress } from '../../platform/navigationService';
 import {
   fetchRoute,
@@ -41,8 +42,14 @@ import {
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { MapOverlay } from './MapOverlay';
 import { NavigationHUD } from './NavigationHUD';
-import { VisionOverlay } from './VisionOverlay';
+// VisionOverlay lazy — kamera/AR katmanı yalnızca vision aktifken yüklenir.
+// Bu import zinciri: VisionOverlay → visionEngine.ts (2280 satır WebGL/CV kodu)
+// Başlangıç bundle'ından dışarı alınır; HomeScreen normal çalışmayı etkilemez.
+const VisionOverlay = lazy(() =>
+  import('./VisionOverlay').then((m) => ({ default: m.VisionOverlay })),
+);
 import { useNavMode } from '../../platform/modeController';
+import { useRadarMapLayer } from '../../hooks/useRadarMapLayer';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -96,6 +103,45 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [mapError, setMapError]       = useState<string | null>(null);
   const [styleKey, setStyleKey]       = useState(0);
   const mapStyleReady = mapReady;
+
+  // ── Tesla/Mercedes auto-hide kontroller ──
+  const [ctrlVisible, setCtrlVisible] = useState(true);
+  const ctrlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showControls = useCallback(() => {
+    setCtrlVisible(true);
+    if (ctrlTimerRef.current) clearTimeout(ctrlTimerRef.current);
+    ctrlTimerRef.current = setTimeout(() => setCtrlVisible(false), 3500);
+  }, []);
+  useEffect(() => {
+    showControls();
+    return () => { if (ctrlTimerRef.current) clearTimeout(ctrlTimerRef.current); };
+  }, [showControls]);
+
+  // Online durumu değişince (hotspot geç bağlandıysa) harita stilini yenile
+  const { isOnline } = useMapNetworkStatus();
+  const prevOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    if (isOnline && !prevOnlineRef.current && mapRef.current) {
+      // Offline → Online geçişi: style'ı yenile → tile'lar yeniden çekilir
+      mapRef.current.setStyle(getMapStyle());
+    }
+    prevOnlineRef.current = isOnline;
+  }, [isOnline]);
+
+  // Eagle Eye: render radar / speed-camera icons on the map
+  useRadarMapLayer(mapRef, mapStyleReady);
+
+  // Haritaya tıklanınca kontrolleri göster (MapLibre canvas olayları)
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    map.on('mousedown', showControls);
+    map.on('touchstart', showControls);
+    return () => {
+      map.off('mousedown', showControls);
+      map.off('touchstart', showControls);
+    };
+  }, [mapReady, showControls]);
 
   // WebGL kontrolü — eski head unit'lerde harita açılamaz
   const webglSupported = isWebGLAvailable();
@@ -472,15 +518,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         />
       )}
 
-      {/* Vision AR overlay — camera feed + lane/sign detection */}
-      <VisionOverlay
-        isNavigating={isNavigating && !isPreview}
-        currentLat={location?.latitude ?? null}
-        currentLon={location?.longitude ?? null}
-        headingDeg={heading ?? 0}
-        routeGeometry={route.geometry}
-        currentStepIndex={route.currentStepIndex}
-      />
+      {/* Vision AR overlay — lazy loaded, kamera/CV kodu yalnızca gerektiğinde indirilir */}
+      <Suspense fallback={null}>
+        <VisionOverlay
+          isNavigating={isNavigating && !isPreview}
+          currentLat={location?.latitude ?? null}
+          currentLon={location?.longitude ?? null}
+          headingDeg={heading ?? 0}
+          routeGeometry={route.geometry}
+          currentStepIndex={route.currentStepIndex}
+        />
+      </Suspense>
 
       {/* Navigation HUD */}
       <NavigationHUD
@@ -496,7 +544,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }}
       />
 
-      {/* ── Kapatma butonu — sağ üst, kompakt ── */}
+      {/* ── KAPAT — her zaman tam görünür (güvenlik) ── */}
       <button
         onClick={onClose}
         aria-label="Haritayı kapat"
@@ -506,90 +554,106 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           padding: '10px 16px',
           background: 'rgba(239,68,68,0.92)',
           backdropFilter: 'blur(12px)',
-          border: '1.5px solid rgba(255,255,255,0.30)',
+          border: '1.5px solid rgba(255,255,255,0.25)',
           color: '#fff', fontWeight: 800, fontSize: 13,
           letterSpacing: '0.04em', cursor: 'pointer',
-          boxShadow: '0 4px 20px rgba(239,68,68,0.45)',
+          boxShadow: '0 4px 20px rgba(239,68,68,0.40)',
         }}
       >
         <X className="w-4 h-4 text-white stroke-[2.5px]" />
         <span style={{ color: '#fff' }}>KAPAT</span>
       </button>
 
-      {/* ── Sağ kontroller — aktif navigasyonda gizle (SpeedPanel + LeftButtons yeterli) ── */}
-      <div className={`absolute right-4 z-20 flex flex-col gap-3 pointer-events-auto transition-all duration-500 ${
-        isNavigating ? 'opacity-0 pointer-events-none translate-x-4' :
-        drivingMode  ? 'opacity-80 translate-x-2' : 'opacity-100'
-      }`} style={{ top: '28%' }}>
-        <div className="flex flex-col gap-2 p-1 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-[1.5rem] border border-white/10 shadow-xl">
+      {/* ── SAĞ ALT: Mercedes MBUX tarzı — her zaman yerinde, aktifken parlıyor ── */}
+      <div
+        className="absolute right-4 z-20 flex flex-col items-center gap-2.5"
+        style={{
+          bottom: 'calc(var(--lp-dock-h,68px) + 18px)',
+          opacity: isNavigating ? 0 : ctrlVisible ? 1 : 0.32,
+          transform: isNavigating ? 'translateX(56px)' : 'translateX(0)',
+          pointerEvents: isNavigating ? 'none' : 'auto',
+          transition: 'opacity 500ms cubic-bezier(0.4,0,0.2,1), transform 400ms cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
+        {/* Sürüş modu toggle */}
+        <button
+          onClick={() => { handleToggleDrivingMode(); showControls(); }}
+          className={`w-12 h-12 rounded-2xl border flex items-center justify-center active:scale-95 transition-colors duration-300 backdrop-blur-xl ${
+            drivingMode
+              ? 'bg-blue-500 border-blue-400/50 text-white'
+              : 'bg-black/60 border-white/15 text-slate-400 hover:text-white hover:border-white/25'
+          }`}
+          style={{ boxShadow: drivingMode ? '0 0 20px rgba(59,130,246,0.5), 0 4px 16px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
+        >
+          <Navigation2 className={`w-5 h-5 ${drivingMode ? 'fill-white' : ''}`} />
+        </button>
+
+        {/* Konuma dön */}
+        <button
+          onClick={() => { handleRecenter(); showControls(); }}
+          className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 flex items-center justify-center text-slate-400 hover:text-blue-300 hover:border-blue-400/35 active:scale-90 transition-colors"
+          style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
+        >
+          <Crosshair className="w-5 h-5" />
+        </button>
+
+        {/* Zoom pill */}
+        <div
+          className="flex flex-col bg-black/60 backdrop-blur-xl rounded-2xl border border-white/15 overflow-hidden"
+          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
+        >
           <button
-            onClick={handleZoomIn}
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-primary/80 hover:var(--panel-bg-secondary) active:scale-90 transition-all"
+            onClick={() => { handleZoomIn(); showControls(); }}
+            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
           >
             <ZoomIn className="w-5 h-5" />
           </button>
-          <div className="mx-3 h-px var(--panel-bg-secondary)" />
+          <div className="h-px bg-white/12 mx-2.5" />
           <button
-            onClick={handleZoomOut}
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-primary/80 hover:var(--panel-bg-secondary) active:scale-90 transition-all"
+            onClick={() => { handleZoomOut(); showControls(); }}
+            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
           >
             <ZoomOut className="w-5 h-5" />
           </button>
         </div>
-
-        <button
-          onClick={handleRecenter}
-          className="w-14 h-14 rounded-2xl bg-blue-500/20 backdrop-blur-xl border border-blue-400/20 flex items-center justify-center text-blue-400 hover:bg-blue-500/30 active:scale-90 transition-all shadow-lg"
-        >
-          <Crosshair className="w-6 h-6" />
-        </button>
-
-        <button
-          onClick={handleToggleDrivingMode}
-          className={`w-14 h-14 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-95 transition-all duration-500 shadow-xl ${
-            drivingMode
-              ? 'bg-blue-500 border-blue-400 text-primary'
-              : 'var(--panel-bg-secondary) backdrop-blur-md border-white/30 text-primary/85 hover:var(--panel-bg-secondary) backdrop-blur-md hover:text-primary'
-          }`}
-        >
-          <Navigation2 className={`w-6 h-6 ${drivingMode ? 'fill-white' : ''}`} />
-        </button>
       </div>
 
-      {/* ── Alt kontroller — dock üzerinde ── */}
+      {/* ── ALT MERKEZ: Harita katman seçici — nav/preview'da kaybolur, idle'da soluklaşır ── */}
       <div
-        className={`absolute left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4 transition-all duration-500 ${
-          isNavigating || drivingMode || isPreview ? 'opacity-0 translate-y-4 pointer-events-none' : 'opacity-100'
-        }`}
-        style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 12px)' }}
+        className="absolute left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2"
+        style={{
+          bottom: 'calc(var(--lp-dock-h,68px) + 14px)',
+          opacity: (isNavigating || isPreview) ? 0 : ctrlVisible ? 1 : 0.28,
+          transform: (isNavigating || isPreview) ? 'translateY(16px)' : 'translateY(0)',
+          pointerEvents: (isNavigating || isPreview) ? 'none' : 'auto',
+          transition: 'opacity 500ms cubic-bezier(0.4,0,0.2,1), transform 400ms cubic-bezier(0.4,0,0.2,1)',
+        }}
       >
-        {/* Map mode switcher */}
-        <div className="flex items-center gap-1 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-[1.25rem] p-1 border border-white/10 shadow-2xl">
+        <div
+          className="flex items-center gap-0.5 bg-black/60 backdrop-blur-xl rounded-2xl p-1 border border-white/15"
+          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
+        >
           {(['road', 'hybrid', 'satellite'] as MapMode[]).map((m) => (
             <button
               key={m}
-              onClick={() => setMapMode(m)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black tracking-[0.15em] uppercase transition-all active:scale-95 ${
+              onClick={() => { setMapMode(m); showControls(); }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 active:scale-95 ${
                 mode === m
-                  ? 'var(--panel-bg-secondary) text-primary shadow-inner'
-                  : 'text-primary/75 hover:text-primary'
+                  ? 'bg-white/18 text-white'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/8'
               }`}
             >
-              {m === 'road' && <Map className="w-4 h-4" />}
-              {m === 'hybrid' && <Layers className="w-4 h-4" />}
-              {m === 'satellite' && <Globe className="w-4 h-4" />}
-              <span className="hidden sm:block">{MODE_LABELS[m]}</span>
+              {m === 'road' && <Map className="w-3.5 h-3.5" />}
+              {m === 'hybrid' && <Layers className="w-3.5 h-3.5" />}
+              {m === 'satellite' && <Globe className="w-3.5 h-3.5" />}
+              <span>{MODE_LABELS[m]}</span>
             </button>
           ))}
         </div>
-
-        {/* Coordinates — kompakt, sadece lat/lng */}
         {location && (
-          <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1 border border-white/8">
-            <span className="text-[9px] text-white/45 font-mono tracking-tight">
-              {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
-            </span>
-          </div>
+          <span className="text-[9px] text-white/25 font-mono tracking-tight">
+            {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
+          </span>
         )}
       </div>
     </div>

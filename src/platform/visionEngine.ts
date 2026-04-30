@@ -18,83 +18,28 @@
  *   UI render (lane lines + AR arrows) runs every RAF at 60fps, separate from detection.
  */
 
-import { create } from 'zustand';
 import { logError } from './crashLogger';
 
-/* ─────────────────────────────────────────────────────────────── */
-/* TYPES                                                           */
-/* ─────────────────────────────────────────────────────────────── */
+// Store + types live in visionStore.ts so consumers that only need
+// the Zustand state (modeController, FullMapView) don't pull the
+// full 2280-line compute module into the initial bundle.
+export {
+  useVisionStore,
+  useVisionState,
+  useLatestVisionFrame,
+  useVisionConfidence,
+} from './visionStore';
+export type {
+  VisionState,
+  ConfidenceLevel,
+  LaneLine,
+  DetectedSign,
+  VisionFrame,
+  VisionStore,
+} from './visionStore';
 
-export type VisionState =
-  | 'idle'          // not initialized
-  | 'checking'      // enumerating devices
-  | 'requesting'    // awaiting getUserMedia permission
-  | 'initializing'  // stream acquired, waiting for first frame
-  | 'active'        // camera + detection running normally
-  | 'degraded'      // camera active but detection failing (use last valid frame)
-  | 'disabled'      // user disabled or device has no camera
-  | 'error';        // unrecoverable (stream lost, WebRTC error)
-
-/**
- * Confidence-gated AR rendering level.
- *   full     (≥ 0.8) — all overlays: lanes + route arrows + sign bboxes
- *   degraded (0.5–0.8) — lanes only, reduced alpha
- *   off      (< 0.5) — AR hidden, map shown at full opacity
- */
-export type ConfidenceLevel = 'full' | 'degraded' | 'off';
-
-export interface LaneLine {
-  /** Coordinates in VisionOverlay canvas space (0–canvasW, 0–canvasH) */
-  x1: number; y1: number;
-  x2: number; y2: number;
-  side: 'left' | 'right';
-  confidence: number;  // 0–1
-}
-
-export interface DetectedSign {
-  type: 'speed_limit' | 'stop' | 'turn_warning';
-  speedValue?: number;    // km/h, only for speed_limit
-  confidence: number;     // 0–1
-  /** Bounding box in processing-frame coords (PROC_W × PROC_H) */
-  bbox: { x: number; y: number; w: number; h: number };
-  timestamp: number;
-}
-
-export interface VisionFrame {
-  lanes: LaneLine[];
-  signs: DetectedSign[];
-  /** Estimated lateral offset from lane center, metres. null if no lane pair found. */
-  lateralOffsetM: number | null;
-  /** CV processing time of this frame in ms */
-  processingMs: number;
-  timestamp: number;
-}
-
-export interface VisionStore {
-  state: VisionState;
-  error: string | null;
-  hasCamera: boolean;
-  permissionGranted: boolean;
-  frame: VisionFrame | null;
-  /** Composite confidence score (0–1), EMA-smoothed over last 20 detection frames */
-  confidence: number;
-  /** Threshold-gated rendering level derived from confidence */
-  confidenceLevel: ConfidenceLevel;
-}
-
-/* ─────────────────────────────────────────────────────────────── */
-/* STORE                                                           */
-/* ─────────────────────────────────────────────────────────────── */
-
-export const useVisionStore = create<VisionStore>(() => ({
-  state: 'idle',
-  error: null,
-  hasCamera: false,
-  permissionGranted: false,
-  frame: null,
-  confidence: 0,
-  confidenceLevel: 'off',
-}));
+import { useVisionStore } from './visionStore';
+import type { VisionState, VisionStore, VisionFrame, ConfidenceLevel, LaneLine, DetectedSign } from './visionStore';
 
 function _set(patch: Partial<VisionStore>): void {
   useVisionStore.setState(patch);
@@ -2249,23 +2194,7 @@ export function onVisionFrame(fn: (f: VisionFrame) => void): () => void {
  */
 export function getLastFrame(): VisionFrame { return _lastFrame; }
 
-/* ─────────────────────────────────────────────────────────────── */
-/* REACT HOOKS                                                     */
-/* ─────────────────────────────────────────────────────────────── */
-
-export function useVisionState(): VisionStore {
-  return useVisionStore();
-}
-
-export function useLatestVisionFrame(): VisionFrame | null {
-  return useVisionStore((s) => s.frame);
-}
-
-export function useVisionConfidence(): { confidence: number; level: ConfidenceLevel } {
-  const confidence      = useVisionStore((s) => s.confidence);
-  const confidenceLevel = useVisionStore((s) => s.confidenceLevel);
-  return { confidence, level: confidenceLevel };
-}
+// React hooks re-exported from visionStore.ts (see top-level exports above)
 
 /* ─────────────────────────────────────────────────────────────── */
 /* HMR CLEANUP                                                     */

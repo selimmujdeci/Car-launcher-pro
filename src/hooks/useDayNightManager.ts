@@ -32,6 +32,8 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { onOBDData } from '../platform/obdService';
+import { useCarTheme, autoApplyOledVariant } from '../store/useCarTheme';
+import { isUserOverrideActive } from '../platform/system/SystemOrchestrator';
 
 /* ── Eşikler ─────────────────────────────────────────────── */
 
@@ -66,13 +68,20 @@ declare global {
 
 /* ── Sunlight-Mode DOM uygulayıcı ────────────────────────── */
 
+let _applySunlightCallback: ((on: boolean) => void) | null = null;
+let _lastHour = -1; // hour-boundary trigger; -1 forces evaluation on first checkTime call
+
 function applySunlightMode(on: boolean): void {
+  // Manuel kullanıcı kararı aktifken otomatik tema/parlaklık değişikliğini engelle
+  if (isUserOverrideActive()) return;
   const root = document.documentElement;
   if (on) {
     root.classList.add('sunlight-mode');
   } else {
     root.classList.remove('sunlight-mode');
   }
+  // Hook içindeki setTheme callback'ini çağır
+  _applySunlightCallback?.(on);
 }
 
 function applyDayNightDOM(mode: 'day' | 'night'): void {
@@ -85,10 +94,27 @@ function applyDayNightDOM(mode: 'day' | 'night'): void {
 
 export function useDayNightManager(): void {
   const { settings, updateSettings } = useStore();
+  const { theme: carTheme, setTheme: setCarTheme } = useCarTheme();
 
-  // Mevcut far ve ALS durumunu ref ile tut (render tetiklemeden)
   const headlightsRef  = useRef(false);
-  const alsActiveRef   = useRef(false);   // gerçek ALS kullanılıyor mu?
+  const alsActiveRef   = useRef(false);
+  const prevThemeRef   = useRef(carTheme);
+
+  // Callback'i güncelle: sunlight on/off → CarTheme store'a yaz
+  useEffect(() => {
+    _applySunlightCallback = (on: boolean) => {
+      if (on) {
+        if (carTheme !== 'sunlight') prevThemeRef.current = carTheme;
+        setCarTheme('sunlight');
+      } else {
+        // Önceki temaya geri dön (sunlight değilse)
+        if (carTheme === 'sunlight') {
+          setCarTheme(prevThemeRef.current === 'sunlight' ? 'tesla' : prevThemeRef.current);
+        }
+      }
+    };
+    return () => { _applySunlightCallback = null; };
+  }, [carTheme, setCarTheme]);
 
   /* ── Katman 1: AmbientLightSensor ─────────────────────── */
   useEffect(() => {
@@ -169,8 +195,9 @@ export function useDayNightManager(): void {
   useEffect(() => {
     const h = new Date().getHours();
     const target = h >= DAY_START_H && h < DAY_END_H ? 'day' : 'night';
-    applyDayNightDOM(target);
-    if (settings.dayNightMode !== target) {
+    applyDayNightDOM(target); // DOM sync her zaman çalışır
+    // Otomatik store güncellemesi override aktifken yapılmaz
+    if (!isUserOverrideActive() && settings.dayNightMode !== target) {
       updateSettings({ dayNightMode: target, theme: target === 'day' ? 'light' : 'dark' });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,6 +217,14 @@ export function useDayNightManager(): void {
     }
 
     const checkTime = () => {
+      // Manuel kullanıcı kararı aktifken otomatik gün/gece geçişi yapma
+      if (isUserOverrideActive()) return;
+      const currentHour = new Date().getHours();
+      if (currentHour !== _lastHour) {
+        _lastHour = currentHour;
+        autoApplyOledVariant();
+      }
+
       const hour       = new Date().getHours();
       const isDayHour  = hour >= DAY_START_H && hour < DAY_END_H;
       const isNight    = !isDayHour;

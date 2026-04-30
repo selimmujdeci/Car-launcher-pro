@@ -180,6 +180,14 @@ function _addNotification(raw: Omit<AppNotification, 'id' | 'appIcon' | 'categor
     isPriority,
   };
 
+  // Silence Gate (CLAUDE.md §2.3): manevra/ivme kilidi aktifse TTS ve UI popup bypass.
+  // Bildirim listeye sessizce eklenir; _notify() çağrılmaz → React subscriber'lar tetiklenmez.
+  if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) {
+    _state.notifications = [notif, ..._state.notifications].slice(0, 50);
+    _state.unreadCount   = _state.notifications.filter((n) => !n.isRead).length;
+    return;
+  }
+
   const notifications = [notif, ..._state.notifications].slice(0, 50);
   const unreadCount   = notifications.filter((n) => !n.isRead).length;
 

@@ -841,3 +841,32 @@ html[data-theme] [data-layout-zone="header"] {
     box-shadow 0.35s ease,
     color 0.25s ease !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   DUVAR KAĞIDI MOD — Tüm tema kurallarından sonra gelir (cascade sonu)
+   Wallpaper aktifken glass-card'lar yarı saydam → duvar kağıdı görünür
+   ═══════════════════════════════════════════════════════════════════ */
+html[data-has-wallpaper="1"] .glass-card,
+html[data-has-wallpaper="1"] .up-panel,
+html[data-has-wallpaper="1"] .premium-card,
+html[data-has-wallpaper="1"] .glass-inner-focus {
+  background: rgba(6, 10, 20, 0.58) !important;
+  backdrop-filter: blur(20px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.50), 0 1px 4px rgba(0,0,0,0.30) !important;
+}
+
+/* Dock ve header da wallpaper modunda şeffaflaşsın */
+html[data-has-wallpaper="1"] [data-dock="main"] {
+  background: linear-gradient(to bottom, transparent 0%, rgba(4,6,14,0.72) 28%) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+html[data-has-wallpaper="1"] [data-layout-zone="header"] {
+  background: rgba(4, 6, 14, 0.65) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.10) !important;
+}

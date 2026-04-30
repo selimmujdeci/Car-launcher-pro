@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-04-28T16:40:10.979Z",
+  "totalTests": 4,
+  "totalPassed": 4,
+  "deadReckoning": [
+    {
+      "scenarios": [
+        {
+          "speedKmh": 0,
+          "headingDeg": 0,
+          "gpsLossDurationMs": 10000,
+          "estimatedLat": 41,
+          "estimatedLng": 29,
+          "gpsRecoveredLat": null,
+          "gpsRecoveredLng": null,
+          "errorMeters": null
+        },
+        {
+          "speedKmh": 5,
+          "headingDeg": 0,
+          "gpsLossDurationMs": 10000,
+          "estimatedLat": 41.00012476544097,
+          "estimatedLng": 29,
+          "gpsRecoveredLat": null,
+          "gpsRecoveredLng": null,
+          "errorMeters": null
+        },
+        {
+          "speedKmh": 50,
+          "headingDeg": 90,
+          "gpsLossDurationMs": 10000,
+          "estimatedLat": 41,
+          "estimatedLng": 29.001653158304073,
+          "gpsRecoveredLat": null,
+          "gpsRecoveredLng": null,
+          "errorMeters": null
+        },
+        {
+          "speedKmh": 72,
+          "headingDeg": 0,
+          "gpsLossDurationMs": 10000,
+          "estimatedLat": 41.001796622349985,
+          "estimatedLng": 29,
+          "gpsRecoveredLat": null,
+          "gpsRecoveredLng": null,
+          "errorMeters": null
+        },
+        {
+          "speedKmh": 90,
+          "headingDeg": 45,
+          "gpsLossDurationMs": 30000,
+          "estimatedLat": 41.00476401442589,
+          "estimatedLng": 29.006312381014805,
+          "gpsRecoveredLat": null,
+          "gpsRecoveredLng": null,
+          "errorMeters": null
+        }
+      ],
+      "passed": true,
+      "note": "Gerçek araç/GPS testi yapılmadı. estimatedPosition algoritma çıktısıdır, ölçüm değildir."
+    }
+  ],
+  "safeStorage": [
+    {
+      "scenario": "CRITICAL — immediate write (car-gps-last-known)",
+      "totalWriteRequests": 1,
+      "actualDiskWrites": 1,
+      "writeReductionPercent": 0,
+      "corruptionCount": 0,
+      "recoveryTimeMs": null,
+      "passed": true,
+      "note": "Web modu (localStorage). Native Android Filesystem testi yapılmadı."
+    },
+    {
+      "scenario": "NORMAL — 10 rapid writes debounced",
+      "totalWriteRequests": 10,
+      "actualDiskWrites": 1,
+      "writeReductionPercent": 90,
+      "corruptionCount": 0,
+      "recoveryTimeMs": null,
+      "passed": true,
+      "note": "Web modu (localStorage). Native Android Filesystem testi yapılmadı."
+    },
+    {
+      "scenario": "Corruption recovery — localStorage fallback",
+      "totalWriteRequests": 0,
+      "actualDiskWrites": 0,
+      "writeReductionPercent": null,
+      "corruptionCount": 1,
+      "recoveryTimeMs": null,
+      "passed": true,
+      "note": "Bozulma simülasyon ile tetiklendi, gerçek disk hatası değil. recoveryTimeMs fake timer ortamında ölçülemez."
+    }
+  ]
+}

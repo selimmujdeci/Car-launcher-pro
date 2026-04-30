@@ -19,6 +19,8 @@ import { GestureVolumeZone } from '../common/GestureVolumeZone';
 import {
   getPerformanceMode, onPerformanceModeChange, type PerformanceMode,
 } from '../../platform/performanceMode';
+import { RuntimeMode } from '../../core/runtime/runtimeTypes';
+import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 // ── Extracted layout components ──────────────────────────────
 import { BootSplash, type BootPhase } from './BootSplash';
 import { SleepOverlay } from './SleepOverlay';
@@ -40,6 +42,9 @@ import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
 import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
 import type { CommandContext } from '../../platform/commandExecutor';
+import { useSystemStore } from '../../store/useSystemStore';
+import { TripSummaryBanner }  from '../trip/TripSummaryBanner';
+import { TheaterOverlay }     from '../theater/TheaterOverlay';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
@@ -77,10 +82,17 @@ export default function MainLayout() {
   const [drawer,        setDrawer]        = useState<DrawerType>('none');
   const [favorites,     setFavorites]     = useState<string[]>(() => load<string[]>('favorites', []));
   const [perfMode,      setPerfMode]      = useState<PerformanceMode>(() => getPerformanceMode());
+  const [runtimeMode,   setRuntimeMode]   = useState(() => runtimeManager.getMode());
   const [fullMapOpen,   setFullMapOpen]   = useState(false);
   const [splitOpen,     setSplitOpen]     = useState(false);
   const [rearCamOpen,   setRearCamOpen]   = useState(false);
   const [passengerOpen, setPassengerOpen] = useState(false);
+
+  // SystemStore — Orchestrator tarafından yazılan kararlı durumlar
+  const showTripSummary  = useSystemStore((s) => s.showTripSummary);
+  const lastCompletedTrip = useSystemStore((s) => s.lastCompletedTrip);
+  const navOpenTrigger   = useSystemStore((s) => s.navOpenTrigger);
+  const navOpenSeenRef   = useRef(navOpenTrigger);
 
 
   const { isNavigating } = useNavigation();
@@ -107,6 +119,7 @@ export default function MainLayout() {
   }, [appsLoading, appMap, favorites]);
 
   useEffect(() => { return onPerformanceModeChange(setPerfMode); }, []);
+  useEffect(() => runtimeManager.subscribe((mode) => setRuntimeMode(mode)), []);
 
   // Preload DrawerPanel during idle time so first open is instant
   useEffect(() => {
@@ -134,6 +147,15 @@ export default function MainLayout() {
     autoNavFiredRef.current = true;
     setFullMapOpen(true);
   }, [bootPhase, settings.autoNavOnStart]);
+
+  // ── Orchestrator'dan gelen harita açma sinyali ───────────
+  // navOpenTrigger her artışı bir kez "aç" komutudur
+  useEffect(() => {
+    if (navOpenTrigger !== navOpenSeenRef.current) {
+      navOpenSeenRef.current = navOpenTrigger;
+      setFullMapOpen(true);
+    }
+  }, [navOpenTrigger]);
 
   useEffect(() => {
     document.body.classList.toggle('performance-mode', !!settings.performanceMode);
@@ -267,10 +289,38 @@ export default function MainLayout() {
     }
   }, [addressNavState.shouldOpenMap]);
 
+  // Wallpaper: html elementine CSS değişkeni + data attr. Tüm day/night/tema kurallarını geçersiz kılar.
+  useEffect(() => {
+    const html = document.documentElement;
+    const wp = settings.wallpaper;
+    if (wp && wp !== 'none') {
+      const isGradient = wp.startsWith('linear-gradient') || wp.startsWith('radial-gradient') || wp.startsWith('conic-gradient');
+      const val = isGradient ? wp : `url("${wp}") center/cover no-repeat`;
+      html.style.setProperty('--pack-bg', val);
+      html.setAttribute('data-has-wallpaper', '1');
+    } else {
+      html.style.removeProperty('--pack-bg');
+      html.removeAttribute('data-has-wallpaper');
+    }
+    return () => {
+      html.style.removeProperty('--pack-bg');
+      html.removeAttribute('data-has-wallpaper');
+    };
+  }, [settings.wallpaper]);
+
+  const isSafeMode     = runtimeMode === RuntimeMode.SAFE_MODE;
+  const isTheaterActive = useSystemStore((s) => s.isTheaterModeActive);
+
+  // Theater mode: nav/widget'lar gizlenir; içerik alanı serbest kalır.
+  // Giriş: 400ms fade-out (görsel geçiş).
+  // Çıkış: 100ms fade-in (güvenlik — araç hareket etti, arayüz anında erişilebilir).
+  const theaterHide = isTheaterActive
+    ? { opacity: 0, pointerEvents: 'none' as const, transition: 'opacity 400ms ease' }
+    : { transition: 'opacity 100ms ease' };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <div
-      data-theme="light"
       data-theme-pack={settings.themePack}
       data-drive-state={smart.drivingMode}
       data-performance-mode={perfMode}
@@ -278,18 +328,15 @@ export default function MainLayout() {
       data-media-active={String(smart.mediaProminent)}
       data-nav-active={String(smart.mapPriority)}
       className="ultra-premium-root flex flex-col h-full w-full overflow-hidden"
-      style={{
-        '--pack-bg': (settings.wallpaper && settings.wallpaper !== 'none')
-          ? (settings.wallpaper.startsWith('linear-gradient') ? settings.wallpaper : `url(${settings.wallpaper})`)
-          : undefined,
-      } as any}
     >
-      {/* Ultra Premium Ambient Blobs */}
-      <div className="up-ambient-blobs">
-        <div className="up-blob up-blob-1" />
-        <div className="up-blob up-blob-2" />
-        <div className="up-blob up-blob-3" />
-      </div>
+      {/* Ultra Premium Ambient Blobs — SAFE_MODE'da devre dışı (GPU tasarrufu) */}
+      {!isSafeMode && (
+        <div className="up-ambient-blobs">
+          <div className="up-blob up-blob-1" />
+          <div className="up-blob up-blob-2" />
+          <div className="up-blob up-blob-3" />
+        </div>
+      )}
 
       <BootSplash phase={bootPhase} />
       <ErrorToast />
@@ -297,28 +344,30 @@ export default function MainLayout() {
 
       {/* OBD simüle veri uyarısı */}
       {obd.source === 'mock' && bootPhase === 'done' && (
-        <div data-obd-sim-warn className="fixed top-2 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 backdrop-blur-sm pointer-events-none">
+        <div data-obd-sim-warn className="fixed top-2 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 heavy-blur pointer-events-none">
           <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
           <span className="text-amber-400 text-[10px] font-semibold tracking-wide uppercase">Simüle veri — OBD bağlı değil</span>
         </div>
       )}
 
-      {/* 2-sıralı özellik dock'u */}
-      <DockBar
-        smart={smart}
-        appMap={appMap}
-        onLaunch={handleLaunch}
-        onOpenDrawer={setDrawer}
-        onOpenApps={openApps}
-        onOpenSettings={openSettings}
-        onOpenSplit={() => {}}
-        onOpenRearCam={() => setRearCamOpen(true)}
-      />
-
-      {/* Settings ve theme toggle dock'a taşındı */}
+      {/* 2-sıralı özellik dock'u — theater modda gizlenir */}
+      <div style={theaterHide}>
+        <DockBar
+          smart={smart}
+          appMap={appMap}
+          onLaunch={handleLaunch}
+          onOpenDrawer={setDrawer}
+          onOpenApps={openApps}
+          onOpenSettings={openSettings}
+          onOpenSplit={() => {}}
+          onOpenRearCam={() => setRearCamOpen(true)}
+        />
+      </div>
 
       {settings.gestureVolumeSide !== 'off' && (
-        <GestureVolumeZone side={settings.gestureVolumeSide} volume={settings.volume} onVolumeChange={(v) => updateSettings({ volume: v })} />
+        <div style={theaterHide}>
+          <GestureVolumeZone side={settings.gestureVolumeSide} volume={settings.volume} onVolumeChange={(v) => updateSettings({ volume: v })} />
+        </div>
       )}
 
 
@@ -331,13 +380,15 @@ export default function MainLayout() {
         />
       )}
 
-      {/* Adres navigasyon kartı */}
-      <AddressNavCard />
+      {/* Adres navigasyon kartı — theater modda gizlenir */}
+      <div style={theaterHide}>
+        <AddressNavCard />
+      </div>
 
-      {/* New Home Layout */}
+      {/* New Home Layout — theater modda gizlenir (overlay tam ekranı kaplar) */}
       <div
         className="flex-1 min-h-0 overflow-hidden relative z-10"
-        style={{ paddingBottom: 'calc(var(--lp-dock-h, 68px) + 12px)' }}
+        style={theaterHide}
         onContextMenu={(e) => e.preventDefault()}
       >
         <NewHomeLayout
@@ -353,9 +404,29 @@ export default function MainLayout() {
           smart={smart}
         />
       </div>
+      {/* DockBar yüksekliği kadar boşluk — fixed DockBar'ın arkasına içerik kaymasını önler.
+          paddingBottom yerine sibling spacer kullanılır: Android WebView'da h-full çocuklar
+          padding-bottom dahil yüksekliği alır (percentage-height bug), sibling spacer güvenli. */}
+      <div
+        aria-hidden
+        className="flex-shrink-0 pointer-events-none"
+        style={{ height: 'calc(var(--lp-dock-h, 68px) + 12px + env(safe-area-inset-bottom, 0px))' }}
+      />
+
+      {/* Yolculuk özet banner — Orchestrator tetikler, store yönetir */}
+      {showTripSummary && lastCompletedTrip && (
+        <TripSummaryBanner
+          trip={lastCompletedTrip}
+          onClose={() => useSystemStore.getState().closeTripSummary()}
+          onViewDetails={() => setDrawer('triplog')}
+        />
+      )}
 
       {/* Gelen arama overlay */}
       <IncomingCallOverlay />
+
+      {/* Theater Mode — araç dururken medya odaklı tam ekran (z-9990) */}
+      <TheaterOverlay />
 
       {/* Bakım hatırlatıcı modal — Smart Recommendation banner'dan açılır */}
       {drawer === 'vehicle-reminder' && (

@@ -11,7 +11,8 @@
  * When VITE_SUPABASE_URL is not set → demo mode (mock codes, no network).
  */
 
-import { sensitiveKeyStore } from './sensitiveKeyStore';
+import { sensitiveKeyStore }      from './sensitiveKeyStore';
+import { connectivityService }    from './connectivityService';
 
 const SK_DEVICE_ID  = 'veh_device_id'  as const;
 const SK_API_KEY    = 'veh_api_key'    as const;
@@ -77,6 +78,19 @@ async function _getOrCreateDeviceId(): Promise<string> {
 
 /* ── Public API ─────────────────────────────────────────────── */
 
+/**
+ * Returns a stable anonymous device identifier for community features
+ * (radar reports, traffic data). Does NOT require vehicle registration —
+ * the ID is created and persisted on first call.
+ *
+ * Used by radarCommunityService to:
+ *   a) Attribute outgoing reports (spam prevention on the server)
+ *   b) Suppress Realtime echoes of our own inserts
+ */
+export async function getReporterDeviceId(): Promise<string> {
+  return _getOrCreateDeviceId();
+}
+
 /** Returns cached identity from SecureStorage, or null if not yet registered. */
 export async function getVehicleIdentity(): Promise<VehicleIdentity | null> {
   if (_identity) return _identity;
@@ -101,24 +115,29 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
 
   if (!RPC_BASE) return _mockCode();
 
-  const data = await _rpc('register_vehicle', { p_device_id: deviceId, p_name: name }) as {
-    vehicle_id:    string;
-    api_key?:      string;
-    linking_code?: string;
-    expires_at?:   string;
-  };
+  try {
+    const data = await _rpc('register_vehicle', { p_device_id: deviceId, p_name: name }) as {
+      vehicle_id:    string;
+      api_key?:      string;
+      linking_code?: string;
+      expires_at?:   string;
+    };
 
-  await sensitiveKeyStore.set(SK_VEHICLE_ID, data.vehicle_id);
-  if (data.api_key) {
-    await sensitiveKeyStore.set(SK_API_KEY, data.api_key);
-    _apiKey = data.api_key;
+    await sensitiveKeyStore.set(SK_VEHICLE_ID, data.vehicle_id);
+    if (data.api_key) {
+      await sensitiveKeyStore.set(SK_API_KEY, data.api_key);
+      _apiKey = data.api_key;
+    }
+    _identity = { vehicleId: data.vehicle_id, deviceId };
+
+    return {
+      code:      data.linking_code ?? _mockCode().code,
+      expiresAt: data.expires_at ? new Date(data.expires_at).getTime() : Date.now() + 60_000,
+    };
+  } catch {
+    // Sunucu ulaşılamıyor veya RPC hatası → çevrimdışı mod, mock kod göster
+    return _mockCode();
   }
-  _identity = { vehicleId: data.vehicle_id, deviceId };
-
-  return {
-    code:      data.linking_code ?? _mockCode().code,
-    expiresAt: data.expires_at ? new Date(data.expires_at).getTime() : Date.now() + 60_000,
-  };
 }
 
 /**
@@ -129,53 +148,97 @@ export async function refreshLinkingCode(): Promise<LinkingCodeInfo> {
   if (!RPC_BASE) return _mockCode();
 
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
-  if (!apiKey) throw new Error('Araç kayıtlı değil — önce registerVehicle() çağrın');
+  if (!apiKey) return _mockCode();
 
-  const data = await _rpc('refresh_linking_code', { p_api_key: apiKey }) as {
-    linking_code: string;
-    expires_at:   string;
-  };
-
-  return {
-    code:      data.linking_code,
-    expiresAt: new Date(data.expires_at).getTime(),
-  };
+  try {
+    const data = await _rpc('refresh_linking_code', { p_api_key: apiKey }) as {
+      linking_code: string;
+      expires_at:   string;
+    };
+    return {
+      code:      data.linking_code,
+      expiresAt: new Date(data.expires_at).getTime(),
+    };
+  } catch {
+    return _mockCode();
+  }
 }
 
 /**
  * Remote komut işlenince durumu günceller. Fire-and-forget — hatalar sessizce yutulur.
  * Spec §3.4: push_vehicle_event ile aynı api_key auth pattern'ini kullanır.
  */
+/**
+ * Komut yaşam döngüsü durumları:
+ *   accepted  : araç komutu aldı, sıraya koydu
+ *   executing : executeIntent() başladı
+ *   completed : komut başarıyla icra edildi (kapı kilitlendi vb.)
+ *   failed    : yürütme hatası — error mesajı ile birlikte
+ *   rejected  : güvenlik reddi (sürüş sırasında lock/unlock vb.)
+ */
+export type CommandLifecycleStatus =
+  | 'accepted'
+  | 'executing'
+  | 'completed'
+  | 'failed'
+  | 'rejected';
+
 export async function updateRemoteCommandStatus(
   commandId: string,
-  status:    'executed' | 'failed',
+  status:    CommandLifecycleStatus,
   error?:    string,
 ): Promise<void> {
-  if (!RPC_BASE) return;
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) return;
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
   if (!apiKey) return;
-  _rpc('update_command_status', {
+
+  const now = new Date().toISOString();
+
+  // Durum → timestamp eşlemesi
+  const body: Record<string, unknown> = {
     p_api_key:    apiKey,
     p_command_id: commandId,
     p_status:     status,
-    p_executed_at: new Date().toISOString(),
-    ...(error ? { p_error: error } : {}),
-  }).catch(() => {});
+  };
+  if (status === 'accepted')                          body.p_accepted_at  = now;
+  if (status === 'executing')                         body.p_executed_at  = now;
+  if (status === 'completed' || status === 'failed' ||
+      status === 'rejected')                          body.p_finished_at  = now;
+  if (error)                                          body.p_error        = error;
+
+  // Yüksek öncelik — at-least-once garantisi (connectivityService kuyruğu)
+  await connectivityService.enqueue(
+    `${RPC_BASE}/update_command_status`,
+    'POST',
+    { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+    body,
+    'high',
+    `cmd_status_${commandId}`,  // Benzersiz dedup key: aynı komut birden fazla kez queue'a girmez
+  );
 }
 
 /**
- * Push a telemetry event to Supabase. Fire-and-forget — network errors are silently swallowed.
- * Authenticated by api_key; does NOT require user login.
+ * Push a telemetry event to Supabase.
+ * Artık fire-and-forget değil — connectivityService kuyruğu aracılığıyla at-least-once.
  */
 export async function pushVehicleEvent(
   type: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  if (!RPC_BASE) return;
-
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) return;
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
   if (!apiKey) return;
 
-  _rpc('push_vehicle_event', { p_api_key: apiKey, p_type: type, p_payload: payload })
-    .catch(() => { /* best-effort telemetry — never throw */ });
+  // Alarm/kaza eventi kritik — önce işlenir
+  const isCritical = type === 'alarm' || type === 'crash' || type === 'sos';
+  const priority   = isCritical ? 'critical' : 'normal';
+
+  await connectivityService.enqueue(
+    `${RPC_BASE}/push_vehicle_event`,
+    'POST',
+    { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+    { p_api_key: apiKey, p_type: type, p_payload: payload },
+    priority,
+    'telemetry',
+  );
 }

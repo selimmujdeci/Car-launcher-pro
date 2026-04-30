@@ -157,8 +157,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         break;
       }
       case 'ADD_MUSIC_FAVORITE': {
-        // Caller-side action (mediaService has no native favorite API)
-        _speak('Favorilere eklendi', isDriving);
+        _speak('Bu özellik şu an desteklenmiyor', isDriving);
         break;
       }
       case 'SET_MUSIC': {
@@ -285,8 +284,6 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       }
       case 'OPEN_APPOINTMENT_LINK': {
         _speak('Muayene randevu sayfası açılıyor', isDriving);
-        // TÜVTÜRK randevu sayfası — plaka parametresi varsa eklenebilir
-        // Gelecekte payload'dan plaka alınabilir
         openInApp('https://www.tuvturk.com.tr/randevu-al.aspx');
         break;
       }

@@ -139,6 +139,13 @@ export function tryParseNavAddress(rawText: string): ParsedNavAddress | null {
   const destRaw = stripDative(raw.substring(0, triggerStart).trim());
   if (!destRaw || destRaw.length < 2) return null;
 
+  // Ev / iş hedefleri — commandParser'ın navigate_home / navigate_work
+  // keyword matching'i daha yüksek güven skoruyla yakalamalı; adres parser'ı
+  // bu kelimeleri "serbest adres" olarak ele almamalı.
+  const destNorm = norm(destRaw);
+  const HOME_WORK_EXACT = /^(ev|eve|evime|anasayfa|home|is|ise|isyeri|ofis|ofise|work)$/;
+  if (HOME_WORK_EXACT.test(destNorm)) return null;
+
   return buildResult(destRaw);
 }
 

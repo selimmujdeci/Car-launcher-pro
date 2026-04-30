@@ -207,7 +207,7 @@ self.addEventListener('push', (event) => {
   try { data = event.data.json(); } catch { return; }
 
   const {
-    title = 'CockpitOS',
+    title = 'Caros Pro',
     body  = '',
     icon  = '/icons/icon-192.png',
     tag   = 'cockpitos',

@@ -114,6 +114,29 @@
             </intent-filter>
         </service>
 
+        <!-- ── H-4 Native Command Service: FCM arka plan komut alıcısı ─
+             WebView kapalıyken FCM push alır, MCU komutlarını doğrudan
+             CanBusManager üzerinden çalıştırır. E2E şifre çözme için
+             NativeCryptoManager (ECDH-P256 + HKDF-SHA256 + AES-GCM).
+        ──────────────────────────────────────────────────────────────── -->
+        <service
+            android:name=".CommandService"
+            android:exported="false"
+            android:stopWithTask="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- ── CommandService local broadcast receiver ───────────────── -->
+        <receiver
+            android:name=".CommandBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.cockpitos.pro.COMMAND_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
         <!-- ── FileProvider (dashcam, çekim kayıtları için) ─────────── -->
         <provider
             android:name="androidx.core.content.FileProvider"

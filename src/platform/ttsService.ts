@@ -66,6 +66,8 @@ interface SpeakOptions {
   pitch?: number;
   /** Devam eden sesi kesmeden önce kuyruğa ekle */
   queue?: boolean;
+  /** Seslendirme tamamlandığında çağrılır — Audio Ducking restore için kullanılır */
+  onEnd?: () => void;
 }
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
@@ -83,6 +85,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   utter.rate         = opts.rate  ?? 1.05;
   utter.pitch        = opts.pitch ?? 1.0;
   utter.volume       = 1.0;
+  if (opts.onEnd)    utter.onend = opts.onEnd;
 
   const voice = _getTurkishVoice();
   if (voice) utter.voice = voice;
@@ -99,15 +102,91 @@ export function ttsCancel(): void {
 
 /** Sesli komut tanındığında geri bildirim sesi */
 export function speakFeedback(feedback: string): void {
-  ttsSpeak(feedback, { rate: 1.1 });
+  if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
+  ttsSpeak(feedback, { rate: 1.05 });
 }
 
-/** Navigasyon yönlendirme duyurusu (biraz daha yavaş, net anlaşılsın) */
+/**
+ * Manevra mesajının kritik olup olmadığını belirler.
+ * SAFETY_LOCK aktifken yalnızca kritik talimatlar geçer.
+ *
+ * İzin verilenler: dönüş talimatları, mesafe uyarıları, rota kaybı/yeniden hesap.
+ * Engellenenler: trafik bilgisi, alternatif rota, tahmini varış, genel bilgi.
+ */
+function isCriticalNavigationMessage(msg: string): boolean {
+  const n = msg.toLowerCase();
+  return (
+    n.includes('sağa')    || n.includes('sola')    ||  // dönüş
+    n.includes('dön')     || n.includes('çevir')   ||
+    n.includes('right')   || n.includes('left')    ||
+    n.includes('turn')    ||
+    n.includes('100m')    || n.includes('200m')    ||  // mesafe
+    n.includes('metre')   || n.includes('meter')   ||
+    n.includes('yakında') || n.includes('soon')    ||
+    n.includes('kaçırdın')|| n.includes('missed')  ||  // rota kaybı
+    n.includes('rota yeniden') || n.includes('rerouting') ||
+    n.includes('hesaplanıyor') || n.includes('recalcul')
+  );
+}
+
+/** Navigasyon yönlendirme duyurusu — net, yavaş, sürücü odaklı */
 export function speakNavigation(instruction: string): void {
-  ttsSpeak(instruction, { rate: 0.95, queue: false });
+  if (
+    typeof window !== 'undefined' &&
+    (window as unknown as Record<string, unknown>).__SAFETY_LOCK__ &&
+    !isCriticalNavigationMessage(instruction)
+  ) return;
+  ttsSpeak(instruction, { rate: 0.92, queue: false });
 }
 
-/** Uyarı / hata mesajı */
+/** Uyarı / hata mesajı — biraz yüksek pitch ile dikkat çeker */
 export function speakAlert(message: string): void {
-  ttsSpeak(message, { rate: 1.0, pitch: 1.1 });
+  if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
+  ttsSpeak(message, { rate: 0.98, pitch: 1.15 });
+}
+
+/* ── T-12: Donanım komut geri bildirimleri ──────────────── */
+
+/**
+ * Donanım komutu başarıyla gönderildiğinde.
+ * ISO 15008: araç içi sesli geri bildirim kısa ve net olmalı.
+ */
+export function speakHardwareConfirm(action: string): void {
+  ttsSpeak(action, { rate: 1.0, queue: false });
+}
+
+/**
+ * Donanım komutu başarısız — MCU bağlı değil veya hata.
+ */
+export function speakHardwareError(): void {
+  ttsSpeak('Bağlantı kurulamadı. Tekrar deneyin.', { rate: 0.95, pitch: 1.1, queue: false });
+}
+
+/**
+ * Araç durum özeti — CAN verisini okunabilir cümleye çevirir.
+ * Veri yoksa CLAUDE.md §2 gereği "Veri alınamıyor" der.
+ */
+export function speakVehicleStatus(opts: {
+  speedKmh?: number;
+  fuelPct?:  number;
+  tempC?:    number;
+}): void {
+  const { speedKmh, fuelPct, tempC } = opts;
+
+  if (speedKmh === undefined && fuelPct === undefined && tempC === undefined) {
+    ttsSpeak('Araç verisi alınamıyor. OBD bağlantısını kontrol edin.', { rate: 0.95, queue: false });
+    return;
+  }
+
+  const parts: string[] = [];
+  if (speedKmh !== undefined) parts.push(`Hız ${Math.round(speedKmh)} kilometre`);
+  if (fuelPct  !== undefined) {
+    const fuelText = fuelPct < 15
+      ? `Yakıt %${Math.round(fuelPct)}, az kaldı`
+      : `Yakıt %${Math.round(fuelPct)}`;
+    parts.push(fuelText);
+  }
+  if (tempC !== undefined) parts.push(`Motor sıcaklığı ${Math.round(tempC)} derece`);
+
+  ttsSpeak(parts.join('. ') + '.', { rate: 0.95, queue: false });
 }

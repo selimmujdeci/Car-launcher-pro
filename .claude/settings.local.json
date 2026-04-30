@@ -42,7 +42,11 @@
       "Bash(git commit *)",
       "Bash(git push *)",
       "Bash(git stash *)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(npx vitest *)",
+      "Bash(git remote *)",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/main.yml'\\)\\); print\\('YAML valid'\\)\")"
     ]
   }
 }

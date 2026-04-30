@@ -108,7 +108,18 @@ export type CommandType =
   | 'call_contact'
   | 'open_camera'
   | 'vehicle_health_check'
-  | 'vehicle_clear_dtc';
+  | 'vehicle_clear_dtc'
+  // T-12: Donanım komutları — offline regex, internet gerektirmez
+  | 'hw_lock_doors'
+  | 'hw_unlock_doors'
+  | 'hw_honk_horn'
+  | 'hw_flash_lights'
+  | 'hw_alarm_on'
+  | 'hw_alarm_off'
+  | 'hw_rear_camera'
+  | 'hw_lights_off'
+  | 'hw_screen_off'
+  | 'vehicle_status';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -129,8 +140,13 @@ export interface ParseSuggestion {
 }
 
 export interface ParseResult {
-  command:     ParsedCommand | null;
-  suggestions: ParseSuggestion[];  // up to 3, ordered by relevance
+  command:       ParsedCommand | null;
+  suggestions:   ParseSuggestion[];  // up to 3, ordered by relevance
+  /**
+   * true  → eşleşme tam değil (confidence < 1.0); semanticAiService önerilir.
+   * false → ya exact-match ya da hiç eşleşme yok (suggestion listesi doldu).
+   */
+  needsSemantic: boolean;
 }
 
 /* ── Pattern definitions ─────────────────────────────────── */
@@ -403,8 +419,8 @@ const PATTERNS: CommandPattern[] = [
     type: 'screen_brightness_down', priority: 'normal',
     feedback: 'Parlaklık azaltıldı',
     label: 'Parlaklığı Azalt', example: 'parlaklığı azalt',
-    keywords: ['parlaklığı azalt', 'ekranı karart', 'daha karanlık', 'parlaklık kıs', 'brightness kıs'],
-    tokens:   ['karart', 'azalt', 'dim'],
+    keywords: ['parlaklığı azalt', 'ekranı karart', 'daha karanlık', 'parlaklık kıs', 'brightness kıs', 'gece modu yap'],
+    tokens:   ['karart', 'azalt', 'dim', 'gece'],
   },
   {
     type: 'find_nearby_restaurant', priority: 'normal',
@@ -431,7 +447,7 @@ const PATTERNS: CommandPattern[] = [
     type: 'open_camera', priority: 'normal',
     feedback: 'Kamera açılıyor',
     label: 'Kamerayı Aç', example: 'kamerayı aç',
-    keywords: ['kamerayı aç', 'kamera aç', 'arka kamera', 'geri kamera', 'rear camera'],
+    keywords: ['kamerayı aç', 'kamera aç', 'arka kamera', 'geri kamera', 'rear camera', 'arka kamerayı aç', 'kamerayı göster'],
     tokens:   ['kamera', 'camera'],
   },
   {
@@ -447,6 +463,78 @@ const PATTERNS: CommandPattern[] = [
     label: 'Arıza Kodlarını Sil', example: 'hataları sil',
     keywords: ['hataları sil', 'arıza ışığını söndür', 'kodları temizle'],
     tokens:   ['hata', 'sil', 'arıza', 'kod', 'temizle'],
+  },
+
+  // ── T-12: Donanım Komutları (Offline Regex — internet gerektirmez) ──────
+  {
+    type: 'hw_lock_doors', priority: 'high',
+    feedback: 'Kapılar kilitleniyor',
+    label: 'Kapıları Kilitle', example: 'kapıları kilitle',
+    keywords: ['kapıları kilitle', 'kilitle', 'kapıyı kilitle', 'arabayı kilitle', 'lock'],
+    tokens:   ['kilitle', 'kapat', 'lock', 'kapi'],
+  },
+  {
+    type: 'hw_unlock_doors', priority: 'high',
+    feedback: 'Kapılar açılıyor',
+    label: 'Kapıları Aç', example: 'kapıları aç',
+    keywords: ['kapıları aç', 'kilidi aç', 'arabayı aç', 'unlock', 'kapı aç'],
+    tokens:   ['ac', 'kilid', 'unlock', 'kapi'],
+  },
+  {
+    type: 'hw_honk_horn', priority: 'normal',
+    feedback: 'Korna çalınıyor',
+    label: 'Korna Çal', example: 'korna çal',
+    keywords: ['korna çal', 'bip yap', 'korna', 'bip'],
+    tokens:   ['korna', 'bip', 'ses', 'cal'],
+  },
+  {
+    type: 'hw_flash_lights', priority: 'normal',
+    feedback: 'Farlar yanıp sönüyor',
+    label: 'Farları Yak', example: 'farları yak',
+    keywords: ['farları yak', 'far yak', 'ışıkları yak', 'farları flaşla', 'flash', 'selam ver'],
+    tokens:   ['far', 'isik', 'yak', 'flash', 'selam'],
+  },
+  {
+    type: 'hw_alarm_on', priority: 'critical',
+    feedback: 'Alarm aktifleştiriliyor',
+    label: 'Alarmı Aç', example: 'alarmı aç',
+    keywords: ['alarmı aç', 'alarmı aktif et', 'alarm aç'],
+    tokens:   ['alarm', 'ac', 'aktif'],
+  },
+  {
+    type: 'hw_alarm_off', priority: 'critical',
+    feedback: 'Alarm durduruluyor',
+    label: 'Alarmı Kapat', example: 'alarmı kapat',
+    keywords: ['alarmı kapat', 'alarmı durdur', 'alarm kapat', 'alarm iptal'],
+    tokens:   ['alarm', 'kapat', 'durdur', 'iptal'],
+  },
+  {
+    type: 'hw_rear_camera', priority: 'critical',
+    feedback: 'Arka kamera açılıyor',
+    label: 'Arka Kamerayı Aç', example: 'arka kamerayı aç',
+    keywords: ['arka kamerayı aç', 'arka kamera aç', 'geri kamera aç', 'geri kameraya bak', 'arka kameraya geç', 'reverse kamera'],
+    tokens:   ['arka', 'geri', 'kamera', 'camera', 'rear'],
+  },
+  {
+    type: 'hw_lights_off', priority: 'normal',
+    feedback: 'Işıklar kapatılıyor',
+    label: 'Işıkları Kapat', example: 'ışıkları kapat',
+    keywords: ['ışıkları kapat', 'farları kapat', 'ışığı söndür', 'farı söndür', 'lights off', 'ışık söndür'],
+    tokens:   ['isik', 'far', 'kapat', 'sondur', 'lights'],
+  },
+  {
+    type: 'hw_screen_off', priority: 'normal',
+    feedback: 'Ekran kapatılıyor',
+    label: 'Ekranı Kapat', example: 'ekranı kapat',
+    keywords: ['ekranı kapat', 'ekranı söndür', 'ekranı koy', 'display kapat', 'ekranı kapat tamamen'],
+    tokens:   ['ekran', 'screen', 'display', 'sondur'],
+  },
+  {
+    type: 'vehicle_status', priority: 'normal',
+    feedback: 'Araç durumu okunuyor',
+    label: 'Araç Durumu', example: 'arabanın durumu nasıl',
+    keywords: ['arabanın durumu', 'araç durumu nasıl', 'hız kaç', 'yakıt ne kadar', 'durum nasıl'],
+    tokens:   ['durum', 'nasil', 'hiz', 'yakıt', 'sicaklik', 'status'],
   },
 ];
 
@@ -509,33 +597,51 @@ function scorePattern(
   inputTokens:  string[],
   pattern:      NormalizedPattern,
 ): number {
+  let score = 0;
+
   // Tier 1 — exact substring
   for (const kw of pattern.keywords) {
     if (normalized.includes(kw) || (kw.length >= 4 && kw.includes(normalized))) {
-      return EXACT_SCORE;
+      score = EXACT_SCORE;
+      break;
     }
   }
 
   // Tier 2 — token exact / substring
-  for (const tok of inputTokens) {
-    if (tok.length < 2) continue;
-    for (const pt of pattern.tokens) {
-      if (tok === pt || tok.includes(pt) || pt.includes(tok)) return TOKEN_SCORE;
+  if (score === 0) {
+    outer: for (const tok of inputTokens) {
+      if (tok.length < 2) continue;
+      for (const pt of pattern.tokens) {
+        if (tok === pt || tok.includes(pt) || pt.includes(tok)) { score = TOKEN_SCORE; break outer; }
+      }
     }
   }
 
   // Tier 3 — fuzzy token matching via Levenshtein
-  let best = 0;
-  for (const tok of inputTokens) {
-    if (tok.length < 3) continue;
-    for (const pt of pattern.tokens) {
-      if (pt.length < 3) continue;
-      const dist = levenshtein(tok, pt);
-      const sim  = 1 - dist / Math.max(tok.length, pt.length);
-      if (sim >= FUZZY_MIN) best = Math.max(best, sim * FUZZY_SCALE);
+  if (score === 0) {
+    for (const tok of inputTokens) {
+      if (tok.length < 3) continue;
+      for (const pt of pattern.tokens) {
+        if (pt.length < 3) continue;
+        const dist = levenshtein(tok, pt);
+        const sim  = 1 - dist / Math.max(tok.length, pt.length);
+        if (sim >= FUZZY_MIN) score = Math.max(score, sim * FUZZY_SCALE);
+      }
     }
   }
-  return best;
+
+  // Contextual Boost (R-5 / CLAUDE.md §2): araç geri vitesteyse open_camera +0.1 bonus.
+  // Hard cap: context boost tek başına confidence'ı 0.9'un üzerine çıkaramaz.
+  if (
+    score > 0 &&
+    pattern.type === 'open_camera' &&
+    typeof window !== 'undefined' &&
+    !!(window as unknown as Record<string, unknown>).__PRIORITY_REVERSE__
+  ) {
+    score = Math.min(0.9, score + 0.1);
+  }
+
+  return score;
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -546,7 +652,7 @@ function scorePattern(
  */
 export function parseCommandFull(input: string): ParseResult {
   const trimmed = input.trim();
-  if (!trimmed) return { command: null, suggestions: [] };
+  if (!trimmed) return { command: null, suggestions: [], needsSemantic: false };
 
   // Ön kontrol: gelişmiş müzik komutları (source + query + action)
   const musicCmd = tryParseMusicCommand(trimmed);
@@ -560,7 +666,25 @@ export function parseCommandFull(input: string): ParseResult {
           feedback:   musicCmd.feedback,
           priority:   'high',
         },
-        suggestions: [],
+        suggestions:   [],
+        needsSemantic: false,
+      };
+    }
+    if (!musicCmd.query) {
+      return {
+        command: {
+          type:       'open_music',
+          raw:        trimmed,
+          confidence: 0.93,
+          feedback:   musicCmd.feedback,
+          priority:   'high',
+          extra: {
+            sourcePkg:  musicCmd.source?.pkg  ?? '',
+            sourceName: musicCmd.source?.name ?? '',
+          },
+        },
+        suggestions:   [],
+        needsSemantic: false,
       };
     }
     return {
@@ -579,7 +703,8 @@ export function parseCommandFull(input: string): ParseResult {
           action:     musicCmd.action,
         },
       },
-      suggestions: [],
+      suggestions:   [],
+      needsSemantic: false,
     };
   }
 
@@ -595,7 +720,8 @@ export function parseCommandFull(input: string): ParseResult {
         priority:   'critical',
         extra:      { destination: navMatch.destination },
       },
-      suggestions: [],
+      suggestions:   [],
+      needsSemantic: false,
     };
   }
 
@@ -611,18 +737,20 @@ export function parseCommandFull(input: string): ParseResult {
         priority:   'high',
         extra:      { query: musicSearch.query },
       },
-      suggestions: [],
+      suggestions:   [],
+      needsSemantic: false,
     };
   }
 
   const normalized  = normalizeText(trimmed);
-  if (!normalized) return { command: null, suggestions: [] };
+  if (!normalized) return { command: null, suggestions: [], needsSemantic: false };
   const inputTokens = normalized.split(' ').filter((t) => t.length > 0);
 
   const scored = NORM_PATTERNS.map((p) => ({
     pattern: p,
     score:   scorePattern(normalized, inputTokens, p),
   }));
+
   scored.sort((a, b) => b.score - a.score);
 
   const best = scored[0];
@@ -635,17 +763,20 @@ export function parseCommandFull(input: string): ParseResult {
         feedback:   best.pattern.feedback,
         priority:   best.pattern.priority,
       },
-      suggestions: [],
+      suggestions:   [],
+      // Exact-match (score 1.0) → semantic lookup gereksiz
+      needsSemantic: best.score < EXACT_SCORE,
     };
   }
 
-  // No match — return top 3 as suggestions
+  // No match — return top 3 as suggestions; semantic lookup önerilir
   return {
-    command: null,
-    suggestions: scored.slice(0, 3).map(({ pattern }) => ({
+    command:       null,
+    suggestions:   scored.slice(0, 3).map(({ pattern }) => ({
       label:   pattern.label,
       example: pattern.example,
     })),
+    needsSemantic: true,
   };
 }
 

@@ -72,33 +72,69 @@ let _offlineHandler: (() => void) | null = null;
  */
 let _forcedDowngradeFrom: MapMode | null = null;
 
-function attachNetworkListeners(): void {
-  if (networkListenersAttached || typeof window === 'undefined') return;
-  networkListenersAttached = true;
+/**
+ * Gerçek internet bağlantısı testi — navigator.onLine Android WebView'da
+ * güvenilmez (hotspot sonradan bağlanırsa false kalır).
+ * OSM tile sunucusuna küçük bir HEAD isteği atar; 3s timeout.
+ */
+async function _pingOnline(): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3_000);
+    const r = await fetch('https://a.tile.openstreetmap.org/0/0/0.png', {
+      method: 'HEAD',
+      signal: ctrl.signal,
+      cache:  'no-store',
+    });
+    clearTimeout(t);
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
 
-  _onlineHandler = () => {
+let _pingTimer: ReturnType<typeof setInterval> | null = null;
+
+function _setOnline(online: boolean): void {
+  const { mapMode } = useMapSourceStore.getState();
+  if (online) {
     useMapSourceStore.setState({ isOnline: true });
-    // Restore the user's pre-offline mode preference (satellite or hybrid)
     if (_forcedDowngradeFrom && _forcedDowngradeFrom !== 'road') {
       useMapSourceStore.setState({ mapMode: _forcedDowngradeFrom });
       _forcedDowngradeFrom = null;
     }
-  };
-
-  _offlineHandler = () => {
-    const { mapMode } = useMapSourceStore.getState();
-    // Satellite/hybrid require network — fall back to road when offline
+  } else {
     if (mapMode === 'satellite' || mapMode === 'hybrid') {
-      _forcedDowngradeFrom = mapMode; // remember user preference for restore
+      _forcedDowngradeFrom = mapMode;
       useMapSourceStore.setState({ mapMode: 'road' });
     }
     useMapSourceStore.setState({ isOnline: false });
-  };
+  }
+}
+
+function attachNetworkListeners(): void {
+  if (networkListenersAttached || typeof window === 'undefined') return;
+  networkListenersAttached = true;
+
+  _onlineHandler  = () => _setOnline(true);
+  _offlineHandler = () => _setOnline(false);
 
   window.addEventListener('online',  _onlineHandler);
   window.addEventListener('offline', _offlineHandler);
-  // App kapanırken otomatik temizle
   window.addEventListener('beforeunload', detachNetworkListeners, { once: true });
+
+  // ── Ping tabanlı bağlantı kontrol (Android WebView güvencesi) ──
+  // navigator.onLine hotspot bağlantılarında false kalabilir.
+  // Her 8 saniyede bir gerçek fetch ile durum güncellenir.
+  const checkAndUpdate = () => {
+    void _pingOnline().then((online) => {
+      const current = useMapSourceStore.getState().isOnline;
+      if (online !== current) _setOnline(online);
+    });
+  };
+  // İlk kontrol: 1 saniye gecikmeyle (uygulama açılır açılmaz değil)
+  setTimeout(checkAndUpdate, 1_000);
+  _pingTimer = setInterval(checkAndUpdate, 8_000);
 }
 
 /**
@@ -112,6 +148,7 @@ export function detachNetworkListeners(): void {
   _onlineHandler  = null;
   _offlineHandler = null;
   networkListenersAttached = false;
+  if (_pingTimer !== null) { clearInterval(_pingTimer); _pingTimer = null; }
 }
 
 // ── Local tile probing ──────────────────────────────────────
@@ -1143,18 +1180,18 @@ function buildRoadStyle(): StyleSpecification {
         type: 'background', 
         paint: { 'background-color': '#020408' } 
       },
-      { 
-        id: 'tiles-layer', 
-        type: 'raster', 
-        source: 'map-tiles', 
-        paint: { 
-          'raster-opacity': 0.92,
-          'raster-contrast': 0.55,
+      {
+        id: 'tiles-layer',
+        type: 'raster',
+        source: 'map-tiles',
+        paint: {
+          'raster-opacity': 1,
+          'raster-contrast': 0.7,
           'raster-brightness-min': 0,
-          'raster-brightness-max': 0.9,
-          'raster-saturation': -0.85,
-          'raster-hue-rotate': 20
-        } 
+          'raster-brightness-max': 0.22,
+          'raster-saturation': -1,
+          'raster-hue-rotate': 195,
+        }
       },
     ],
   };

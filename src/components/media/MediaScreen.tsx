@@ -405,7 +405,7 @@ function PermissionView() {
               1. Telefon Ayarları → Uygulamalar
             </div>
             <div className="text-primary font-bold">
-              2. CockpitOS → Özel uygulama erişimi
+              2. Caros Pro → Özel uygulama erişimi
             </div>
             <div className="text-primary font-bold">
               3. Bildirim erişimi → Aç ✓

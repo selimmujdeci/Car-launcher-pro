@@ -23,6 +23,7 @@ import type { ParsedCommand, CommandType } from './commandParser';
 /* ── Intent types ────────────────────────────────────────── */
 
 export type IntentType =
+  | 'SEARCH_POI'         // Semantik POI araması (restoran, benzin, eczane …)
   | 'OPEN_NAVIGATION'
   | 'NAVIGATE_ADDRESS'
   | 'NAVIGATE_PLACE'
@@ -53,6 +54,17 @@ export type IntentType =
   | 'CHECK_MAINTENANCE'
   | 'OPEN_APPOINTMENT_LINK'
   | 'SET_STYLE'
+  // T-12: Donanım intent'leri
+  | 'HARDWARE_LOCK'
+  | 'HARDWARE_UNLOCK'
+  | 'HARDWARE_HORN'
+  | 'HARDWARE_FLASH'
+  | 'HARDWARE_ALARM_ON'
+  | 'HARDWARE_ALARM_OFF'
+  | 'HARDWARE_REAR_CAMERA'
+  | 'HARDWARE_LIGHTS_OFF'
+  | 'HARDWARE_SCREEN_OFF'
+  | 'VEHICLE_STATUS'
   | 'UNKNOWN';
 
 export interface IntentPayload {
@@ -69,6 +81,9 @@ export interface IntentPayload {
   musicSearchUri?: string;  // ready-to-use search URI
   musicAction?:    string;  // 'play' | 'shuffle' | 'add_favorite'
   styleVars?:      Record<string, string>; // CSS custom properties for SET_STYLE
+  // SEARCH_POI fields (from semanticAiService)
+  poiCategory?:   string;  // 'RESTAURANT' | 'GAS_STATION' | … (PoiCategory)
+  poiQuery?:      string;  // normalize edilmiş arama terimi ("kebap", "benzin" …)
 }
 
 export interface AppIntent {
@@ -108,6 +123,15 @@ export interface RouterContext {
   addMusicFavorite?: () => void;
   /** Serbest adres / yer araması — resolveAndNavigate wrapper'ı */
   navigateToPlace?: (query: string) => void;
+  // T-12: Donanım komutları — CarLauncherPlugin metodları
+  hwLockDoors?:   () => void;
+  hwUnlockDoors?: () => void;
+  hwHonkHorn?:    () => void;
+  hwFlashLights?: () => void;
+  hwAlarmOn?:     () => void;
+  hwAlarmOff?:    () => void;
+  /** Araç durumu: hız, yakıt, sıcaklık — TTS ile okur */
+  speakVehicleStatus?: () => void;
 }
 
 /* ── CommandType → IntentType map ────────────────────────── */
@@ -157,6 +181,17 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   vehicle_health_check: 'CHECK_VEHICLE_HEALTH',
   vehicle_clear_dtc:    'CLEAR_DTC_CODES',
   show_weather:         'SHOW_WEATHER',
+  // T-12: Donanım
+  hw_lock_doors:   'HARDWARE_LOCK',
+  hw_unlock_doors: 'HARDWARE_UNLOCK',
+  hw_honk_horn:    'HARDWARE_HORN',
+  hw_flash_lights: 'HARDWARE_FLASH',
+  hw_alarm_on:     'HARDWARE_ALARM_ON',
+  hw_alarm_off:    'HARDWARE_ALARM_OFF',
+  hw_rear_camera:  'HARDWARE_REAR_CAMERA',
+  hw_lights_off:   'HARDWARE_LIGHTS_OFF',
+  hw_screen_off:   'HARDWARE_SCREEN_OFF',
+  vehicle_status:  'VEHICLE_STATUS',
 };
 
 /* ── toIntent ────────────────────────────────────────────── */
@@ -257,6 +292,13 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
       else ctx.launch(intent.payload.targetApp ?? 'maps');
       break;
     }
+    case 'SEARCH_POI': {
+      const query = intent.payload.poiQuery
+        ? `yakın ${intent.payload.poiQuery}`
+        : 'yakın yer';
+      ctx.navigateToPlace?.(query);
+      break;
+    }
     case 'FIND_NEARBY_GAS': {
       ctx.navigateToPlace?.('yakın benzinlik');
       break;
@@ -330,6 +372,29 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'CLEAR_DTC_CODES':
       // Async DTC operations — handled by commandExecutor.dispatchIntent
       break;
+    // T-12: Donanım komutları — offline, internet gerektirmez
+    case 'HARDWARE_LOCK':
+      ctx.hwLockDoors?.();
+      break;
+    case 'HARDWARE_UNLOCK':
+      // Güvenlik: hız kontrolü → sürüş sırasında kapı açma engeli
+      ctx.hwUnlockDoors?.();
+      break;
+    case 'HARDWARE_HORN':
+      ctx.hwHonkHorn?.();
+      break;
+    case 'HARDWARE_FLASH':
+      ctx.hwFlashLights?.();
+      break;
+    case 'HARDWARE_ALARM_ON':
+      ctx.hwAlarmOn?.();
+      break;
+    case 'HARDWARE_ALARM_OFF':
+      ctx.hwAlarmOff?.();
+      break;
+    case 'VEHICLE_STATUS':
+      ctx.speakVehicleStatus?.();
+      break;
     case 'UNKNOWN':
       // Safe fallback — take no action; voice UI already shows the error state
       break;
@@ -340,6 +405,7 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
 
 /** All valid intent strings — used to validate AI output before trusting it. */
 const VALID_INTENTS = new Set<IntentType>([
+  'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_SETTINGS',
@@ -352,6 +418,40 @@ const VALID_INTENTS = new Set<IntentType>([
   'SET_STYLE',
   'UNKNOWN',
 ]);
+
+/* ── fromSemanticResult — Semantic NLP bridge ────────────────── */
+
+import type { SemanticResult } from './ai/semanticAiService';
+import { buildPoiSearchQuery } from './ai/semanticAiService';
+
+/**
+ * Semantik NLP servisinden gelen `SemanticResult`'ı `AppIntent`'e dönüştürür.
+ * Offline fallback (intent === 'UNKNOWN') → null döner.
+ */
+export function fromSemanticResult(result: SemanticResult, sourceText: string): AppIntent | null {
+  if (result.intent === 'UNKNOWN' || result.confidence < 0.45) return null;
+
+  const payload: IntentPayload = {
+    sourceText,
+    confidence: result.confidence,
+  };
+
+  const intentType = result.intent as IntentType;
+
+  if (intentType === 'SEARCH_POI') {
+    payload.poiCategory = result.category;
+    payload.poiQuery    = result.query ?? buildPoiSearchQuery(result).replace('yakın ', '');
+  } else if (result.destination) {
+    payload.destination = result.destination;
+    payload.targetApp   = 'maps';
+  }
+
+  return {
+    type:     intentType,
+    payload,
+    priority: intentType === 'SEARCH_POI' ? 'normal' : 'normal',
+  };
+}
 
 /**
  * Converts raw AI/Gemini JSON output into an AppIntent.

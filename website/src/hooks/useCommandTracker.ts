@@ -32,6 +32,10 @@ const CMD_LABELS: Record<CommandType, string> = {
   route_send:        'Rota Araca İletildi',
   navigation_start:  'Navigasyon Başlatıldı',
   theme_change:      'Tema Değiştirildi',
+  read_dtc:          'Arıza Kodları Okundu',
+  clear_dtc:         'Arıza Kodları Temizlendi',
+  read_voltage:      'Akü Voltajı Okundu',
+  set_speed_alert:   'Hız Uyarısı Güncellendi',
 };
 
 const CRITICAL_CMDS: CommandType[] = ['unlock'];
@@ -90,10 +94,12 @@ export function useCommandTracker(vehicleId: string | null) {
     if (!vehicleId) return;
     if (BUSY.includes(phases[type] ?? 'idle')) return;
 
-    // Critical auth gate (unlock)
+    // Critical auth gate — PIN hash al
+    let pinHash: string | undefined;
     if (CRITICAL_CMDS.includes(type)) {
-      const verified = await verifyCriticalCommand();
-      if (!verified) return;
+      const hash = await verifyCriticalCommand();
+      if (!hash) return;
+      pinHash = hash;
     }
 
     const startMs = Date.now();
@@ -135,7 +141,7 @@ export function useCommandTracker(vehicleId: string | null) {
           }
         }
       },
-      { requireCriticalAuth: CRITICAL_CMDS.includes(type) },
+      { requireCriticalAuth: CRITICAL_CMDS.includes(type), pinHash },
     );
 
     cleanups.current.add(unsubscribe);

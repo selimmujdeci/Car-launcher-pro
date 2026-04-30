@@ -253,14 +253,7 @@ export default function DashboardPage() {
   const error            = useVehicleStore((s) => s.error);
   const [selected, setSelected] = useState<LiveVehicle | null>(null);
 
-  if (loading) {
-    return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/60">Araç verileri yükleniyor...</div>;
-  }
-
-  if (error) {
-    return <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-6 text-sm text-red-300/90">Supabase bağlantı hatası: {error}</div>;
-  }
-
+  // Hooks must be called before any early returns
   const stats = useMemo(() => {
     const online = vehicles.filter((v) => v.status === 'online');
     const alarm  = vehicles.filter((v) => v.status === 'alarm');
@@ -270,6 +263,14 @@ export default function DashboardPage() {
 
   const mapVehicles    = vehicles.filter((v) => v.status !== 'offline' && v.lat !== 0);
   const focusedVehicle = selected ?? vehicles.find((v) => v.status === 'online') ?? null;
+
+  if (loading) {
+    return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/60">Araç verileri yükleniyor...</div>;
+  }
+
+  if (error) {
+    return <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-6 text-sm text-red-300/90">Supabase bağlantı hatası: {error}</div>;
+  }
 
   return (
     <div className="space-y-5">

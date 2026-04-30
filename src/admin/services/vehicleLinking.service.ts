@@ -56,10 +56,17 @@ export async function linkVehicleByCode(code: string): Promise<LinkResult> {
   const { data, error } = await supabase.rpc('link_vehicle', {
     p_linking_code: trimmed,
     p_user_id:      user.id,
-    p_role:         'owner',
   })
   if (error) throw new Error(error.message)
-  return data as LinkResult
+  const res = data as { vehicle_id: string; name: string; plate?: string; brand?: string; model?: string; device_id?: string }
+  return {
+    vehicle_id: res.vehicle_id,
+    name:       res.name ?? 'Araç',
+    plate:      res.plate,
+    brand:      res.brand,
+    model:      res.model,
+    device_id:  res.device_id,
+  }
 }
 
 /**

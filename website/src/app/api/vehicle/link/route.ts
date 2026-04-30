@@ -62,48 +62,73 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Supabase mode ──────────────────────────────────────────────
-    // 1. Find valid, unused, unexpired code
-    const { data: linkingCode, error: codeErr } = await supabaseAdmin
-      .from('linking_codes')
-      .select('id, vehicle_id, expires_at, used_at')
-      .eq('code', code)
-      .is('used_at', null)
+    const upperCode = code.toUpperCase();
+    let vehicleId: string | null = null;
+
+    const { data: tempCode, error: tempErr } = await supabaseAdmin
+      .from('vehicle_linking_codes')
+      .select('vehicle_id')
+      .eq('code', upperCode)
       .gt('expires_at', new Date().toISOString())
       .maybeSingle();
 
-    if (codeErr || !linkingCode) {
-      return NextResponse.json({ error: 'Kod geçersiz veya süresi dolmuş.' }, { status: 400 });
+    console.log('[link] code=%s userId=%s tempCode=%s tempErr=%s',
+      upperCode, userId, JSON.stringify(tempCode), tempErr?.message);
+
+    if (tempCode) {
+      vehicleId = tempCode.vehicle_id as string;
+      await supabaseAdmin.from('vehicle_linking_codes').delete().eq('vehicle_id', vehicleId);
+    } else {
+      const { data: byPermanent, error: permErr } = await supabaseAdmin
+        .from('vehicles')
+        .select('id')
+        .eq('pairing_code', upperCode)
+        .is('owner_id', null)
+        .maybeSingle();
+
+      console.log('[link] byPermanent=%s permErr=%s', JSON.stringify(byPermanent), permErr?.message);
+      if (byPermanent) vehicleId = (byPermanent as { id: string }).id;
     }
 
-    // 2. Mark code as used (atomic — prevent race condition)
-    const { error: markErr } = await supabaseAdmin
-      .from('linking_codes')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', linkingCode.id)
-      .is('used_at', null); // double-check still null
-
-    if (markErr) {
-      return NextResponse.json({ error: 'Kod zaten kullanıldı.' }, { status: 409 });
+    if (!vehicleId) {
+      const msg = tempErr
+        ? `DB hatası: ${tempErr.message}`
+        : `Kod bulunamadı (${upperCode}) - geçersiz veya süresi dolmuş`;
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    // 3. Link user ↔ vehicle (upsert to handle re-links gracefully)
-    const { error: linkErr } = await supabaseAdmin
-      .from('vehicle_users')
-      .upsert({ user_id: userId, vehicle_id: linkingCode.vehicle_id, role: 'owner' });
+    // 3. Claim ownership
+    await supabaseAdmin
+      .from('vehicles')
+      .update({ owner_id: userId })
+      .eq('id', vehicleId);
 
-    if (linkErr) {
-      console.error('vehicle/link insert:', linkErr);
-      return NextResponse.json({ error: 'Bağlama başarısız.' }, { status: 500 });
+    // 4. Upsert vehicle_pairings
+    const { error: pairErr } = await supabaseAdmin
+      .from('vehicle_pairings')
+      .upsert({ user_id: userId, vehicle_id: vehicleId, role: 'owner' },
+               { onConflict: 'user_id,vehicle_id' });
+
+    if (pairErr) {
+      console.error('vehicle/link upsert:', pairErr);
+      return NextResponse.json({ error: 'Bağlama kaydedilemedi.' }, { status: 500 });
     }
 
-    // 4. Return vehicle info
+    // 5. Return vehicle info
     const { data: vehicle } = await supabaseAdmin
       .from('vehicles')
-      .select('id, name, device_id, created_at')
-      .eq('id', linkingCode.vehicle_id)
-      .single();
+      .select('id, name, device_name, created_at')
+      .eq('id', vehicleId)
+      .maybeSingle();
 
-    return NextResponse.json({ vehicle });
+    return NextResponse.json({
+      vehicle: {
+        id:         vehicleId,
+        name:       (vehicle as { name?: string } | null)?.name ?? 'Araç',
+        device_id:  (vehicle as { device_name?: string } | null)?.device_name,
+        created_at: (vehicle as { created_at?: string } | null)?.created_at ?? new Date().toISOString(),
+      },
+    });
   } catch (err) {
     console.error('vehicle/link:', err);
     return NextResponse.json({ error: 'Sunucu hatası.' }, { status: 500 });

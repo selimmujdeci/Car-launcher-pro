@@ -252,6 +252,19 @@ export interface CarLauncherPlugin {
   connectOBD(options: OBDConnectOptions): Promise<void>;
   disconnectOBD(): Promise<void>;
 
+  // Uygulama içi OBD cihaz tarama (pair gerektirmeden keşfeder)
+  startOBDDiscovery(): Promise<void>;
+  stopOBDDiscovery(): Promise<void>;
+
+  addListener(
+    event: 'obdDeviceFound',
+    handler: (data: { name: string; address: string; bonded: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    event: 'obdDiscoveryFinished',
+    handler: (data: { finished: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
+
   // Android contacts (READ_CONTACTS permission required)
   getContacts(): Promise<GetContactsResult>;
 
@@ -337,6 +350,22 @@ export interface CarLauncherPlugin {
 
   startCanBus?(): Promise<void>;
   stopCanBus?(): Promise<void>;
+
+  // H-4 MCU komutları — CAN bus üzerinden araç kontrolü
+  lockDoors():    Promise<void>;
+  unlockDoors():  Promise<void>;
+  honkHorn():     Promise<void>;
+  flashLights():  Promise<void>;
+  triggerAlarm(): Promise<void>;
+  stopAlarm():    Promise<void>;
+
+  // H-4 Native Command Service — CommandService.java kuyruk okuma
+  /** CommandService.java'nın WebView yokken biriktirdiği komut kuyruğunu okur (JSON) */
+  getQueuedNativeCommands?(): Promise<{ commands: string }>;
+  /** MCU sonuç listesini okur — startup'ta Supabase status sync için */
+  getNativeCommandResults?(): Promise<{ results: string }>;
+  /** Hem komut kuyruğunu hem sonuç listesini temizler */
+  clearNativeCommandQueue?(): Promise<void>;
 
   /** CAN bus araç sinyalleri — read-only, native katmandan gelir */
   addListener(

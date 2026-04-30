@@ -58,7 +58,32 @@ html[data-day-night="day"] .ultra-premium-root {
   transition: background 0.6s ease;
 }
 
-/* ── Kartlar ── */
+/* ── Kartlar — Gece modu (varsayılan koyu arka plan) ── */
+html[data-day-night="night"] .glass-card,
+html[data-day-night="night"] .up-panel,
+html[data-day-night="night"] .premium-card {
+  background: rgba(12,18,32,0.97) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.55), 0 1px 4px rgba(0,0,0,0.35) !important;
+}
+
+/* ── Gece modu kök arka plan ── */
+html[data-day-night="night"] body,
+html[data-day-night="night"] #root,
+html[data-day-night="night"] .ultra-premium-root {
+  background: var(--pack-bg, linear-gradient(160deg,#06060e 0%,#0a0c14 50%,#060810 100%)) !important;
+  color: var(--text-primary, #f2f2f2) !important;
+}
+
+/* ── Kullanıcı duvar kağıdı — day/night/tema kurallarından üst öncelikli ── */
+html[data-has-wallpaper="1"] body,
+html[data-has-wallpaper="1"] #root,
+html[data-has-wallpaper="1"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+}
+
+
+/* ── Kartlar — Gündüz modu ── */
 html[data-day-night="day"] .glass-card,
 html[data-day-night="day"] .up-panel,
 html[data-day-night="day"] .premium-card {

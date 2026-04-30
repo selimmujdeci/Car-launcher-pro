@@ -1,51 +1,81 @@
--- Uzaktan Komut ve Rota Sistemi Migration
--- Dosya: website/supabase/migrations/002_remote_commands.sql
+-- ═══════════════════════════════════════════════════════
+-- 002_remote_commands.sql — Komut veriyolu tabloları
+-- Idempotent: defalarca çalıştırılabilir
+-- ═══════════════════════════════════════════════════════
 
--- Komut Durumları Enum
-DO $$ BEGIN
-    CREATE TYPE command_status AS ENUM ('pending', 'accepted', 'executing', 'completed', 'failed', 'expired');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Araç Komutları Tablosu
-CREATE TABLE IF NOT EXISTS vehicle_commands (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
-    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    issuer_id UUID REFERENCES auth.users(id),
-    type TEXT NOT NULL, -- 'lock', 'unlock', 'route_send', 'horn', etc.
-    payload JSONB DEFAULT '{}'::jsonb,
-    status command_status DEFAULT 'pending',
-    nonce TEXT UNIQUE, -- Idempotency koruması
-    ttl TIMESTAMPTZ NOT NULL, -- Komutun son kullanma tarihi
-    error_message TEXT,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
+-- ── vehicle_commands ──────────────────────────────────────
+create table if not exists vehicle_commands (
+  id                    uuid primary key default gen_random_uuid(),
+  vehicle_id            uuid not null references vehicles(id) on delete cascade,
+  company_id            uuid references companies(id) on delete cascade,
+  sender_id             uuid references auth.users(id) on delete set null,
+  created_by            uuid references auth.users(id) on delete set null,
+  type                  text not null,
+  payload               jsonb not null default '{}'::jsonb,
+  status                text not null default 'pending'
+                          check (status in (
+                            'pending','accepted','executing',
+                            'completed','failed','expired','rejected'
+                          )),
+  nonce                 text not null default gen_random_uuid()::text,
+  ttl                   timestamptz not null default (now() + interval '5 minutes'),
+  error_message         text,
+  critical_auth_verified boolean not null default false,
+  accepted_at           timestamptz,
+  executed_at           timestamptz,
+  finished_at           timestamptz,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now(),
+  constraint nonce_vehicle_unique unique (vehicle_id, nonce)
 );
 
--- Rota Komutları Detay Tablosu (Specialized for route_send)
-CREATE TABLE IF NOT EXISTS route_commands (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    command_id UUID NOT NULL REFERENCES vehicle_commands(id) ON DELETE CASCADE,
-    lat DOUBLE PRECISION NOT NULL,
-    lng DOUBLE PRECISION NOT NULL,
-    address_name TEXT,
-    provider_intent TEXT, -- 'google_maps', 'yandex', etc.
-    created_at TIMESTAMPTZ DEFAULT now()
+alter table vehicle_commands enable row level security;
+
+drop trigger if exists trg_commands_updated_at on vehicle_commands;
+create trigger trg_commands_updated_at
+  before update on vehicle_commands
+  for each row execute function fn_set_updated_at();
+
+create index if not exists idx_vcmd_vehicle_status on vehicle_commands(vehicle_id, status);
+create index if not exists idx_vcmd_ttl            on vehicle_commands(ttl);
+
+-- ── route_commands ────────────────────────────────────────
+create table if not exists route_commands (
+  id              uuid primary key default gen_random_uuid(),
+  command_id      uuid references vehicle_commands(id) on delete cascade,
+  vehicle_id      uuid not null references vehicles(id) on delete cascade,
+  lat             double precision not null check (lat between -90 and 90),
+  lng             double precision not null check (lng between -180 and 180),
+  address_name    text,
+  provider_intent text not null default 'google_maps'
+                    check (provider_intent in ('google_maps','yandex','waze','apple_maps')),
+  created_at      timestamptz not null default now()
 );
 
--- RLS Politikaları
-ALTER TABLE vehicle_commands ENABLE ROW LEVEL SECURITY;
-ALTER TABLE route_commands ENABLE ROW LEVEL SECURITY;
+alter table route_commands enable row level security;
 
--- Sadece kendi şirketinin komutlarını gör/yaz
-CREATE POLICY "Company Isolation for Commands" ON vehicle_commands
-    FOR ALL USING (company_id = (SELECT company_id FROM profiles WHERE id = auth.uid()));
+-- ── command_logs ──────────────────────────────────────────
+create table if not exists command_logs (
+  id         uuid primary key default gen_random_uuid(),
+  command_id uuid references vehicle_commands(id) on delete set null,
+  vehicle_id uuid references vehicles(id) on delete set null,
+  actor_id   uuid references auth.users(id) on delete set null,
+  event      text not null,
+  details    jsonb,
+  created_at timestamptz not null default now()
+);
 
-CREATE POLICY "Company Isolation for Route Details" ON route_commands
-    FOR ALL USING (command_id IN (SELECT id FROM vehicle_commands));
+alter table command_logs enable row level security;
 
--- Indexler
-CREATE INDEX IF NOT EXISTS idx_vcmd_vehicle_status ON vehicle_commands(vehicle_id, status);
-CREATE INDEX IF NOT EXISTS idx_vcmd_ttl ON vehicle_commands(ttl);
+-- ── Stale komutları expire et ─────────────────────────────
+create or replace function expire_stale_commands()
+returns integer language plpgsql security definer set search_path = public as $$
+declare cnt integer;
+begin
+  update vehicle_commands
+  set status = 'expired', updated_at = now()
+  where status in ('pending','accepted','executing') and ttl < now();
+  get diagnostics cnt = row_count;
+  return cnt;
+end;
+$$;

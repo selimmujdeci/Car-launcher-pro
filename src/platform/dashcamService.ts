@@ -27,10 +27,13 @@ export interface DashcamState {
 
 /* ── Config ──────────────────────────────────────────────── */
 
-const SEGMENT_DURATION_MS = 2 * 60 * 1000; // 2 minutes
-const MAX_SEGMENTS        = 3;              // 6-minute rolling buffer
-const SHAKE_THRESHOLD     = 15;            // m/s² — typical minor impact
-const LOCK_COOLDOWN_MS    = 5_000;
+const SEGMENT_DURATION_MS  = 2 * 60 * 1000; // 2 minutes
+const MAX_SEGMENTS         = 3;              // 6-minute rolling buffer
+const SHAKE_THRESHOLD      = 15;            // m/s² — typical minor impact
+const LOCK_COOLDOWN_MS     = 5_000;
+
+// Sentry pre-buffer: 12s ring-buffer → 10s öncesi + 2s margin
+const PRE_BUFFER_SEC       = 12;
 
 /* ── Module state ────────────────────────────────────────── */
 
@@ -60,6 +63,14 @@ let _lockFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
 let _lastLockTime    = 0;
 let _segmentStart    = 0;
+
+/* ── Sentry pre-buffer (dashcam'den bağımsız, park modu) ────── */
+
+let _preBufferRecorder: MediaRecorder | null = null;
+let _preBufferStream:   MediaStream | null   = null;
+let _preBufferActive                         = false;
+interface TimestampedChunk { blob: Blob; t: number; }
+let _preBufferChunks: TimestampedChunk[]     = [];
 
 /* ── Core helpers ────────────────────────────────────────── */
 
@@ -234,4 +245,108 @@ export function useDashcamState(): DashcamState {
   const [s, setS] = useState<DashcamState>({ ..._state });
   useEffect(() => onDashcamState(setS), []);
   return s;
+}
+
+/* ── Sentry Pre-Buffer API ───────────────────────────────────── */
+
+/**
+ * Arka planda sessiz bir pre-buffer kaydı başlatır (UI state güncellenmez).
+ * Kamera izni yoksa veya cihaz desteklemiyorsa false döner (G-Sensor only moda geçilir).
+ */
+export async function startSentryPreBuffer(): Promise<boolean> {
+  if (_preBufferActive) return true;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true,
+    });
+
+    _preBufferStream = stream;
+    _preBufferChunks = [];
+
+    let mimeType = 'video/webm';
+    for (const m of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) {
+      if (MediaRecorder.isTypeSupported(m)) { mimeType = m; break; }
+    }
+
+    const mr = new MediaRecorder(stream, { mimeType });
+    _preBufferRecorder = mr;
+
+    mr.ondataavailable = (e) => {
+      if (!e.data || e.data.size === 0) return;
+      const now = Date.now();
+      _preBufferChunks.push({ blob: e.data, t: now });
+      // (PRE_BUFFER_SEC + 2)s üzeri chunk'ları at
+      const cutoff = now - (PRE_BUFFER_SEC + 2) * 1_000;
+      while (_preBufferChunks.length > 0 && _preBufferChunks[0].t < cutoff) {
+        _preBufferChunks.shift();
+      }
+    };
+
+    mr.start(500); // 500 ms dilimler → ince taneli ring buffer
+    _preBufferActive = true;
+    return true;
+  } catch {
+    return false; // İzin yok veya kamera meşgul
+  }
+}
+
+/** Pre-buffer'ı durdurur ve belleği temizler. */
+export function stopSentryPreBuffer(): void {
+  if (!_preBufferActive) return;
+  _preBufferActive = false;
+
+  if (_preBufferRecorder && _preBufferRecorder.state !== 'inactive') {
+    _preBufferRecorder.ondataavailable = null; // son flush'u yok say
+    _preBufferRecorder.stop();
+    _preBufferRecorder = null;
+  }
+
+  _preBufferStream?.getTracks().forEach((t) => t.stop());
+  _preBufferStream = null;
+  _preBufferChunks = [];
+}
+
+/**
+ * Darbe anında çağrılır.
+ * Ring buffer'daki son PRE_BUFFER_SEC saniyelik chunk'ları alır,
+ * postDurationSec saniye daha kaydeder ve Blob döner.
+ *
+ * Not: Bu çağrı sonrası startSentryPreBuffer() ile buffer'ı yeniden başlat.
+ */
+export function captureEmergencyClip(postDurationSec = 20): Promise<Blob> {
+  return new Promise((resolve) => {
+    const preBlobs = _preBufferChunks.map((c) => c.blob);
+    const mimeType = _preBufferRecorder?.mimeType ?? 'video/webm';
+
+    // Pre-buffer kaydediciyi kapat (son chunk'ı yoksay, postRecorder devralır)
+    if (_preBufferRecorder && _preBufferRecorder.state !== 'inactive') {
+      _preBufferRecorder.ondataavailable = null;
+      _preBufferRecorder.stop();
+      _preBufferRecorder = null;
+    }
+    _preBufferActive = false;
+
+    if (!_preBufferStream) {
+      resolve(new Blob(preBlobs, { type: 'video/webm' }));
+      return;
+    }
+
+    const postChunks: Blob[] = [];
+    const postRecorder = new MediaRecorder(_preBufferStream, { mimeType });
+
+    postRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) postChunks.push(e.data);
+    };
+
+    postRecorder.onstop = () => {
+      resolve(new Blob([...preBlobs, ...postChunks], { type: mimeType }));
+    };
+
+    postRecorder.start(500);
+    setTimeout(() => {
+      if (postRecorder.state !== 'inactive') postRecorder.stop();
+    }, postDurationSec * 1_000);
+  });
 }

@@ -2,7 +2,11 @@ import { memo, lazy, Suspense } from 'react';
 import { DrawerShell } from './DrawerShell';
 import { TrafficPanel } from '../traffic/TrafficPanel';
 import { AppGrid } from '../apps/AppGrid';
-import { SettingsPage } from '../settings/SettingsPage';
+// SettingsPage lazy — 1172 satır bileşen + AIVoicePanel + MapSourcePanel bağımlılıkları
+// yalnızca ayarlar sekmesi ilk açıldığında indirilir; normal sürüş sırasında yüklenmez.
+const SettingsPage = lazy(() =>
+  import('../settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
 import { DTCPanel } from '../obd/DTCPanel';
 import { NotificationCenter } from '../notifications/NotificationCenter';
 import { TripLogView } from '../trip/TripLogView';
@@ -58,7 +62,9 @@ export const DrawerPanel = memo(function DrawerPanel({
       </DrawerShell>
 
       <DrawerShell open={drawer === 'settings'} onClose={onClose}>
-        <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} />
+        <Suspense fallback={null}>
+          <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} />
+        </Suspense>
       </DrawerShell>
 
       <DrawerShell open={drawer === 'dtc'} onClose={onClose}>

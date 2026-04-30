@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-04-29T05:39:56.230Z",
+  "status": "SKIPPED",
+  "results": [
+    {
+      "test": "Düşük hız — 30 s (~10 km/h)",
+      "durationSec": 30,
+      "speedKmh": null,
+      "startGps": null,
+      "estimatedPosition": null,
+      "endGps": null,
+      "errorMeters": null,
+      "driftPerSecond": null,
+      "skipped": true,
+      "skipReason": "Gerçek GPS gerektirir — jsdom/CI ortamında çalışıyor"
+    },
+    {
+      "test": "Normal hız — 60 s (~40 km/h)",
+      "durationSec": 60,
+      "speedKmh": null,
+      "startGps": null,
+      "estimatedPosition": null,
+      "endGps": null,
+      "errorMeters": null,
+      "driftPerSecond": null,
+      "skipped": true,
+      "skipReason": "Gerçek GPS gerektirir — jsdom/CI ortamında çalışıyor"
+    },
+    {
+      "test": "Yüksek hız — 60 s (~80 km/h)",
+      "durationSec": 60,
+      "speedKmh": null,
+      "startGps": null,
+      "estimatedPosition": null,
+      "endGps": null,
+      "errorMeters": null,
+      "driftPerSecond": null,
+      "skipped": true,
+      "skipReason": "Gerçek GPS gerektirir — jsdom/CI ortamında çalışıyor"
+    }
+  ]
+}

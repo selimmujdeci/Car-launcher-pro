@@ -20,13 +20,16 @@ import {
 import { setBrightness, setVolume } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { MobileLinkWidget } from './MobileLinkWidget';
+import { OBDConnectModal } from '../obd/OBDConnectModal';
 import {
   useMapSources, useMapNetworkStatus, setActiveMapSource,
   refreshMapSources, type MapSource,
 } from '../../platform/mapSourceManager';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
+import { useScreenSense } from '../../hooks/useScreenSense';
 import { setObdVehicleType } from '../../platform/obdService';
 import { useSensitiveKey } from '../../platform/sensitiveKeyStore';
+import { useSystemStore } from '../../store/useSystemStore';
 
 /* ════════════════════════════════════════
    PREMIUM SLIDER
@@ -114,10 +117,12 @@ function ThemePanel() {
 
   function selectBase(id: BaseTheme) {
     setTheme(dayMode ? `${id}-day` as const : id);
+    useSystemStore.getState().setUserOverride(120_000);
   }
 
   function toggleDayNight() {
     setTheme(dayMode ? toNight(theme) : toDay(theme));
+    useSystemStore.getState().setUserOverride(120_000);
   }
 
   return (
@@ -703,7 +708,10 @@ function LiveStatsRow() {
   const [cpu, setCpu] = useState(14);
   const [temp, setTemp] = useState(42);
   useEffect(() => {
-    const id = setInterval(() => { setCpu(Math.floor(8 + Math.random() * 20)); setTemp(Math.floor(40 + Math.random() * 5)); }, 2500);
+    const id = setInterval(() => {
+      setCpu(Math.floor(8 + Math.random() * 20));
+      setTemp(Math.floor(40 + Math.random() * 5));
+    }, 2500);
     return () => clearInterval(id);
   }, []);
   const stats = [
@@ -715,12 +723,16 @@ function LiveStatsRow() {
   return (
     <>
       {stats.map(s => (
-        <div key={s.label} className="glass-card flex items-center gap-2 px-3 py-1.5 rounded-xl"
-          style={{ borderColor: `${s.color}20` }}>
-          <s.Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: s.color }} />
+        <div key={s.label}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl flex-shrink-0"
+          style={{
+            background: `${s.color}10`,
+            border: `1px solid ${s.color}25`,
+          }}>
+          <s.Icon className="w-3 h-3 flex-shrink-0" style={{ color: s.color }} />
           <div className="leading-none">
-            <div className="text-[8px] uppercase tracking-widest font-black" style={{ color: 'var(--text-muted)', opacity: 0.45 }}>{s.label}</div>
-            <div className="text-[12px] font-black tabular-nums mt-0.5" style={{ color: s.color }}>{s.val}</div>
+            <div className="text-[7px] uppercase tracking-[0.2em] font-black" style={{ color: `${s.color}90` }}>{s.label}</div>
+            <div className="text-[11px] font-black tabular-nums" style={{ color: s.color }}>{s.val}</div>
           </div>
         </div>
       ))}
@@ -734,17 +746,25 @@ function LiveStatsRow() {
 interface Props { onOpenMap?: () => void; onClose?: () => void; }
 
 function SettingsPageInner({ onClose }: Props) {
-  const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile } = useStore();
+  const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile, addVehicleProfile, removeVehicleProfile } = useStore();
   type Tab = 'general' | 'appearance' | 'performance' | 'maintenance';
   const [tab, setTab] = useState<Tab>('general');
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showOBDConnect, setShowOBDConnect] = useState(false);
   const { locked: layoutLocked, toggleLock } = useEditStore();
   const [perfMode, setPerfMode] = useState(() => getPerformanceMode());
   const [autoMode, setAutoMode] = useState(() => isAutoModeEnabled());
 
   useLayoutSync();
+  const sense = useScreenSense();
+  // Telefon/kompakt ekran tespiti: yükseklik < 500 veya genişlik < 800
+  const isCompactScreen = sense.height < 500 || sense.width < 800;
 
-  const handleBrightness = useCallback((v: number) => { updateSettings({ brightness: v }); setBrightness(v); }, [updateSettings]);
+  const handleBrightness = useCallback((v: number) => {
+    updateSettings({ brightness: v });
+    setBrightness(v);
+    useSystemStore.getState().setUserOverride(120_000);
+  }, [updateSettings]);
   const handleVolume     = useCallback((v: number) => { updateSettings({ volume: v }); setVolume(v); }, [updateSettings]);
   const applyPerf = useCallback((m: 'lite' | 'balanced' | 'premium') => {
     disableAutoMode();
@@ -766,16 +786,36 @@ function SettingsPageInner({ onClose }: Props) {
     { id: 'performance' as Tab, label: 'Performans', Icon: Zap,        color: '#fbbf24' },
   ];
 
-  const WALLPAPERS: Array<{ id: string; label: string; url: string; preview?: string; type: 'gradient' | 'photo' }> = [
-    { id: 'none',     label: 'Varsayılan', url: 'none',              type: 'gradient' },
-    { id: 'midnight-blue',  label: 'Gece Mavisi', url: 'linear-gradient(135deg,#020617 0%,#0f172a 40%,#1e3a8a 100%)', type: 'gradient' },
-    { id: 'aurora', label: 'Aurora', url: 'linear-gradient(135deg,#042f2e 0%,#064e3b 35%,#1e1b4b 65%,#312e81 100%)', type: 'gradient' },
-    { id: 'neon-sunset', label: 'Neon Sunset', url: 'linear-gradient(135deg,#1a0533 0%,#4a1a6b 30%,#b91c1c 65%,#dc2626 100%)', type: 'gradient' },
-    { id: 'ocean-deep', label: 'Derin Okyanus', url: 'linear-gradient(160deg,#020617 0%,#0c4a6e 50%,#0369a1 100%)', type: 'gradient' },
-    { id: 'carbon-dark', label: 'Carbon Siyah', url: 'linear-gradient(135deg,#0a0a0a 0%,#1a1a1a 50%,#111827 100%)', type: 'gradient' },
-    { id: 'road-night', label: 'Gece Yolu', url: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=400&q=70&auto=format&fit=crop', type: 'photo' },
-    { id: 'city-neon', label: 'Neon Şehir', url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&q=70&auto=format&fit=crop', type: 'photo' },
-    { id: 'galaxy', label: 'Galaksi', url: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=400&q=70&auto=format&fit=crop', type: 'photo' },
+  const WALLPAPERS: Array<{ id: string; label: string; url: string; preview?: string; type: 'gradient' | 'photo'; online?: boolean }> = [
+    // ── Varsayılan ──
+    { id: 'none', label: 'Varsayılan', url: 'none', type: 'gradient' },
+
+    // ── Premium Koyu Gradyanlar (offline) ──
+    { id: 'midnight-blue',  label: 'Gece Mavisi',   url: 'linear-gradient(135deg,#020617 0%,#0f172a 40%,#1e3a8a 100%)',                         type: 'gradient' },
+    { id: 'carbon-dark',    label: 'Carbon Siyah',  url: 'linear-gradient(160deg,#080808 0%,#141414 45%,#0d0d0d 100%)',                         type: 'gradient' },
+    { id: 'ocean-deep',     label: 'Derin Okyanus', url: 'linear-gradient(160deg,#010b14 0%,#0c3a5e 55%,#0369a1 100%)',                         type: 'gradient' },
+    { id: 'aurora',         label: 'Aurora',        url: 'linear-gradient(135deg,#021a12 0%,#054d30 35%,#1a1040 65%,#2e1f6e 100%)',             type: 'gradient' },
+    { id: 'neon-sunset',    label: 'Neon Gün Batımı',url:'linear-gradient(145deg,#0d0117 0%,#3b0764 35%,#9f1239 70%,#c2410c 100%)',             type: 'gradient' },
+    { id: 'ferrari-red',    label: 'Ferrari',       url: 'linear-gradient(145deg,#0c0101 0%,#3b0000 40%,#7f1d1d 75%,#991b1b 100%)',             type: 'gradient' },
+    { id: 'bugatti',        label: 'Bugatti Gece',  url: 'linear-gradient(135deg,#020417 0%,#0a0f3d 40%,#1a0a3d 70%,#2d1b69 100%)',             type: 'gradient' },
+    { id: 'lamborghini',    label: 'Lamborghini',   url: 'linear-gradient(150deg,#0a0500 0%,#1a0800 35%,#431407 65%,#7c2d12 100%)',             type: 'gradient' },
+    { id: 'mclaren',        label: 'McLaren',       url: 'linear-gradient(145deg,#0a0400 0%,#291200 35%,#7c2d12 65%,#c2410c 100%)',             type: 'gradient' },
+    { id: 'asfalt',         label: 'Asfalt Gri',    url: 'linear-gradient(160deg,#0a0a0a 0%,#1c1c1e 40%,#2c2c2e 75%,#1c1c1e 100%)',            type: 'gradient' },
+    { id: 'akgam-altin',    label: 'Akşam Altını',  url: 'linear-gradient(145deg,#0c0700 0%,#1c1100 30%,#431c00 60%,#78350f 85%,#92400e 100%)', type: 'gradient' },
+    { id: 'polar',          label: 'Polar Gece',    url: 'linear-gradient(135deg,#010b14 0%,#023047 40%,#054d60 70%,#0e7490 100%)',             type: 'gradient' },
+    { id: 'uzay',           label: 'Uzay Siyahı',   url: 'radial-gradient(ellipse at 30% 40%, #0d1b2a 0%, #020407 55%, #000000 100%)',           type: 'gradient' },
+    { id: 'kan-kirmizi',    label: 'Kan Kırmızı',   url: 'radial-gradient(ellipse at 50% 20%, #3b0000 0%, #0c0000 60%, #000000 100%)',           type: 'gradient' },
+    { id: 'elektrik',       label: 'Elektrik',      url: 'radial-gradient(ellipse at 20% 50%, #0c0a2e 0%, #050318 50%, #000000 100%)',           type: 'gradient' },
+    { id: 'moka',           label: 'Moka',          url: 'linear-gradient(145deg,#0c0804 0%,#1e1008 35%,#3d1f0d 65%,#5c2d1a 100%)',             type: 'gradient' },
+    { id: 'titanium',       label: 'Titanyum',      url: 'linear-gradient(145deg,#0a0a0a 0%,#1a1a1a 30%,#262626 55%,#1a1a1a 80%,#0f0f0f 100%)', type: 'gradient' },
+    { id: 'karanlık-orman', label: 'Karanlık Orman',url: 'linear-gradient(145deg,#020d04 0%,#0a1f0c 40%,#14381a 70%,#1a4521 100%)',             type: 'gradient' },
+    { id: 'neon-cyber',     label: 'Cyber Neon',    url: 'radial-gradient(ellipse at 70% 30%, #001a0f 0%, #000d08 40%, #000000 100%)',            type: 'gradient' },
+    { id: 'amethyst',       label: 'Ametist',       url: 'radial-gradient(ellipse at 40% 30%, #1a0a2e 0%, #0d0518 55%, #000000 100%)',           type: 'gradient' },
+
+    // ── Fotoğraf (internet gerektirir) ──
+    { id: 'road-night', label: 'Gece Yolu 🌐',   url: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=400&q=70&auto=format&fit=crop', type: 'photo', online: true },
+    { id: 'city-neon',  label: 'Neon Şehir 🌐',  url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&q=70&auto=format&fit=crop', type: 'photo', online: true },
+    { id: 'galaxy',     label: 'Galaksi 🌐',     url: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=90&auto=format&fit=crop', preview: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=400&q=70&auto=format&fit=crop', type: 'photo', online: true },
   ];
 
   const wallpaperBg = (settings.wallpaper && settings.wallpaper !== 'none')
@@ -791,73 +831,76 @@ function SettingsPageInner({ onClose }: Props) {
       style={{ background: wallpaperBg } as React.CSSProperties}
     >
 
-      {/* ═══ HEADER — compact single strip ═══ */}
-      <div className="flex-shrink-0 relative z-20 px-5 py-2"
-        style={{ background: 'rgba(10,16,30,0.75)', backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)' }}>
-        <div className="max-w-[1600px] mx-auto flex items-center gap-3">
+      {/* ═══ HEADER — 2 satır: üst (nav+stats), alt (sekmeler) ═══ */}
+      <div className="flex-shrink-0 relative z-20"
+        style={{ background: 'rgba(8,12,24,0.92)', backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
 
-          {/* Geri */}
+        {/* Satır 1: Navigasyon + Live Stats */}
+        <div className={`flex items-center gap-2 px-4 ${isCompactScreen ? 'py-1.5' : 'pt-3 pb-2'}`}>
           <button onClick={onClose}
-            className="lux-accent-btn group flex items-center gap-2 px-4 py-2 rounded-xl glass-card transition-all active:scale-95 flex-shrink-0">
-            <ArrowLeft className="w-4 h-4 transition-all group-hover:-translate-x-0.5" style={{ color: 'rgba(255,255,255,0.45)' }} />
-            <span className="text-[11px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>Geri</span>
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 transition-all flex-shrink-0"
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)' }}>
+            <ArrowLeft className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.55)' }} />
+            <span className="text-[11px] font-black uppercase tracking-widest hidden sm:inline" style={{ color: 'rgba(255,255,255,0.45)' }}>Geri</span>
           </button>
 
-          <div className="w-px h-6 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.10)' }} />
-
-          {/* Başlık */}
-          <div className="flex-shrink-0">
-            <span className="text-sm font-black uppercase tracking-wide text-white/80">Ayarlar</span>
+          <div className="flex flex-col leading-none flex-shrink-0 ml-1">
+            <span className="text-[13px] font-black uppercase tracking-[0.15em]" style={{ color: '#fff' }}>Ayarlar</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.28)' }}>
+              {TABS.find(t => t.id === tab)?.label ?? ''}
+            </span>
           </div>
 
-          <div className="w-px h-6 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.10)' }} />
+          {/* Live stats — yalnızca geniş ekranlarda (HU / tablet) */}
+          {!isCompactScreen && (
+            <div className="flex-1 flex items-center justify-end gap-1.5 overflow-x-auto no-scrollbar">
+              <LiveStatsRow />
+            </div>
+          )}
 
-          {/* Tabs — inline */}
-          <div className="flex gap-2 overflow-x-auto no-scrollbar flex-1">
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className="group relative flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-300 active:scale-95 flex-shrink-0 glass-card"
-                style={tab === t.id ? {
-                  backgroundColor: `${t.color}18`,
-                  borderColor: `${t.color}45`,
-                  boxShadow: `0 0 12px ${t.color}20`,
-                } : {
-                  borderColor: 'rgba(255,255,255,0.06)',
-                  backgroundColor: 'rgba(255,255,255,0.02)',
-                }}>
-                <t.Icon className="w-4 h-4" style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.25)' }} />
-                <span className="text-[12px] font-black uppercase tracking-[0.15em]"
-                  style={{ color: tab === t.id ? '#fff' : 'rgba(255,255,255,0.25)' }}>{t.label}</span>
-                {tab === t.id && (
-                  <div className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-t-full"
-                    style={{ backgroundColor: t.color }} />
-                )}
-              </button>
-            ))}
-          </div>
+          {/* Kompakt ekranda boşluk doldurucu */}
+          {isCompactScreen && <div className="flex-1" />}
 
-          {/* Live stats — küçük */}
-          <div className="flex gap-2 flex-shrink-0">
-            <LiveStatsRow />
-          </div>
-
-          {/* Kapat */}
           <button onClick={onClose}
-            className="lux-accent-btn w-9 h-9 flex items-center justify-center rounded-xl glass-card transition-all group active:scale-90 flex-shrink-0">
-            <X className="w-4 h-4 transition-all duration-500 group-hover:rotate-90" style={{ color: 'rgba(255,255,255,0.35)' }} />
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl active:scale-90 transition-all ml-1"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <X className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.40)' }} />
           </button>
+        </div>
+
+        {/* Satır 2: Sekmeler — tam genişlik */}
+        <div className={`flex px-4 pb-0 gap-1 ${isCompactScreen ? 'pb-0' : ''}`}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`relative flex-1 flex flex-col items-center gap-1 ${isCompactScreen ? 'py-1.5' : 'py-2.5'} rounded-t-xl transition-all duration-200 active:scale-95`}
+              style={{
+                background: tab === t.id ? `${t.color}12` : 'transparent',
+                borderTop: tab === t.id ? `1px solid ${t.color}30` : '1px solid transparent',
+                borderLeft: tab === t.id ? `1px solid ${t.color}20` : '1px solid transparent',
+                borderRight: tab === t.id ? `1px solid ${t.color}20` : '1px solid transparent',
+                borderBottom: 'none',
+              }}>
+              <t.Icon className="w-4 h-4" style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.22)' }} />
+              <span className="text-[10px] font-black uppercase tracking-[0.08em]"
+                style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.25)' }}>{t.label}</span>
+              {tab === t.id && (
+                <div className="absolute bottom-0 left-[15%] right-[15%] h-[2px] rounded-t-full"
+                  style={{ background: `linear-gradient(90deg, transparent, ${t.color}, transparent)` }} />
+              )}
+            </button>
+          ))}
         </div>
 
         {/* Bottom glow line */}
         <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0, height: '1px',
-          background: 'linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.35) 30%, rgba(139,92,246,0.25) 70%, transparent 100%)',
+          height: '1px',
+          background: 'linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.30) 30%, rgba(139,92,246,0.20) 70%, transparent 100%)',
         }} />
       </div>
 
       {/* ═══ CONTENT ═══ */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-5 py-5 z-10" style={{ WebkitOverflowScrolling: 'touch' }}>
-        <div className="max-w-[1600px] mx-auto flex flex-col gap-4">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 z-10" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
           {tab === 'general' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -949,30 +992,36 @@ function SettingsPageInner({ onClose }: Props) {
               {/* ── Tema Seçici ── */}
               <ThemePanel />
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <Panel accent="#06b6d4">
-                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub="Dinamik arka plan katmanları" color="#06b6d4" />
-                  <div className="grid grid-cols-3 gap-3">
+                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub={`${WALLPAPERS.length - 1} premium tema · offline kullanılabilir`} color="#06b6d4" />
+                  <div className="grid grid-cols-4 gap-2.5">
                     {WALLPAPERS.map(w => {
                       const isActive = settings.wallpaper === w.url || (w.id === 'none' && (!settings.wallpaper || settings.wallpaper === 'none'));
                       return (
                         <button key={w.id} onClick={() => updateSettings({ wallpaper: w.url })}
-                          className="group relative aspect-video rounded-3xl overflow-hidden transition-all duration-500 active:scale-95 glass-card"
-                          style={isActive ? { borderColor: '#22d3ee', boxShadow: '0 0 30px rgba(6,182,212,0.4)', transform: 'scale(1.05) translateY(-3px)', zIndex: 1 } : { opacity: 0.5 }}>
+                          className="group relative aspect-video rounded-2xl overflow-hidden transition-all duration-300 active:scale-95"
+                          style={isActive
+                            ? { border: '2px solid #22d3ee', boxShadow: '0 0 20px rgba(6,182,212,0.5)', transform: 'scale(1.04)', zIndex: 1 }
+                            : { border: '1px solid rgba(255,255,255,0.08)', opacity: 0.65 }
+                          }>
                           {w.type === 'photo' ? (
-                            <img src={w.preview ?? w.url} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={w.label} />
+                            <img src={w.preview ?? w.url} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={w.label} />
                           ) : (
                             <div className="w-full h-full" style={{ background: w.url !== 'none' ? w.url : 'linear-gradient(135deg,#111827,#000)' }} />
                           )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                          <div className="absolute bottom-3 left-4 text-[10px] font-black uppercase tracking-widest text-primary">{w.label}</div>
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                          <div className="absolute bottom-1.5 left-2 right-2 text-[9px] font-black uppercase tracking-wider text-white/90 leading-tight">{w.label}</div>
                           {isActive && (
-                            <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-[#22d3ee] flex items-center justify-center shadow-lg"><Check className="w-3.5 h-3.5 text-black stroke-[4px]" /></div>
+                            <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#22d3ee] flex items-center justify-center shadow-lg">
+                              <Check className="w-3 h-3 text-black stroke-[4px]" />
+                            </div>
                           )}
                         </button>
                       );
                     })}
                   </div>
+                  <p className="text-[9px] text-white/30 mt-2 leading-relaxed">🌐 işaretli temalar internet bağlantısı gerektirir.</p>
                 </Panel>
 
                 <Panel accent="#a78bfa">
@@ -990,10 +1039,25 @@ function SettingsPageInner({ onClose }: Props) {
 
               {/* ── Araç Profilleri ── */}
               <Panel accent="#60a5fa">
-                <SectionTitle icon={Gauge} title="Araç Profilleri" sub="Her araç için tahrik tipi ve OBD yapılandırması" color="#60a5fa" />
+                <div className="flex items-center justify-between mb-3">
+                  <SectionTitle icon={Gauge} title="Araç Profilleri" sub="Her araç için tahrik tipi ve OBD yapılandırması" color="#60a5fa" />
+                  <button
+                    onClick={() => {
+                      const now = Date.now();
+                      const id = `vp-${now}`;
+                      const name = `Araç ${settings.vehicleProfiles.length + 1}`;
+                      addVehicleProfile({ id, name, vehicleType: 'ice', createdAt: new Date(now).toISOString(), lastUsedAt: new Date(now).toISOString() });
+                      if (settings.vehicleProfiles.length === 0) setActiveVehicleProfile(id);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 shrink-0"
+                    style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa' }}
+                  >
+                    + Ekle
+                  </button>
+                </div>
                 {settings.vehicleProfiles.length === 0 ? (
-                  <div className="text-center py-8 text-white/30 text-sm">
-                    Henüz araç profili yok. Kurulum sihirbazından ekleyin.
+                  <div className="text-center py-6 text-white/30 text-sm">
+                    Henüz araç profili yok. Yukarıdan ekleyin.
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3">
@@ -1012,9 +1076,15 @@ function SettingsPageInner({ onClose }: Props) {
                           style={isActive ? { borderColor: 'rgba(96,165,250,0.4)', backgroundColor: 'rgba(59,130,246,0.06)' } : {}}>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-bold text-sm text-white truncate">{profile.name}</span>
+                              {/* İsim düzenlenebilir */}
+                              <input
+                                defaultValue={profile.name}
+                                onBlur={(e) => updateVehicleProfile(profile.id, { name: e.target.value || profile.name })}
+                                className="font-bold text-sm text-white bg-transparent border-none outline-none truncate w-full max-w-[140px]"
+                                style={{ caretColor: '#60a5fa' }}
+                              />
                               {isActive && (
-                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">AKTİF</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">AKTİF</span>
                               )}
                             </div>
                             {/* Araç tipi seçici */}
@@ -1031,12 +1101,18 @@ function SettingsPageInner({ onClose }: Props) {
                               ))}
                             </div>
                           </div>
-                          {!isActive && (
-                            <button onClick={() => setActiveVehicleProfile(profile.id)}
-                              className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all active:scale-95">
-                              Seç
+                          <div className="flex flex-col gap-1.5 shrink-0">
+                            {!isActive && (
+                              <button onClick={() => setActiveVehicleProfile(profile.id)}
+                                className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all active:scale-95">
+                                Seç
+                              </button>
+                            )}
+                            <button onClick={() => { removeVehicleProfile(profile.id); }}
+                              className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-500/20 text-red-400/50 hover:text-red-400 hover:border-red-500/40 transition-all active:scale-95">
+                              Sil
                             </button>
-                          )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1048,6 +1124,28 @@ function SettingsPageInner({ onClose }: Props) {
               <Panel accent="#22d3ee">
                 <SectionTitle icon={Smartphone} title="Mobil Cihaz Eşleştirme" sub="Telefon uygulamasıyla araç bağlantısı — QR veya 6 haneli kod" color="#22d3ee" />
                 <MobileLinkWidget />
+              </Panel>
+
+              {/* ── OBD Cihaz Bağlantısı ── */}
+              <Panel accent="#38bdf8">
+                <SectionTitle icon={Wifi} title="OBD Cihaz Bağlantısı" sub="iCar 3 / ELM327 Bluetooth adaptörü bağla" color="#38bdf8" />
+                <div className="glass-card p-4">
+                  <p className="text-[11px] text-white/40 mb-3 leading-relaxed">
+                    OBD adaptörünüzü araca takın, ardından aşağıdan tarayıp doğrudan bağlanın. Android Bluetooth ayarlarına girmenize gerek yok.
+                  </p>
+                  <button
+                    onClick={() => setShowOBDConnect(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-95"
+                    style={{
+                      background: 'rgba(56,189,248,0.12)',
+                      border: '1px solid rgba(56,189,248,0.3)',
+                      color: '#38bdf8',
+                    }}
+                  >
+                    <Wifi className="w-4 h-4" />
+                    OBD Cihazı Tara ve Bağlan
+                  </button>
+                </div>
               </Panel>
 
               {/* ── OBD Sağlık Sistemi ── */}
@@ -1163,6 +1261,11 @@ function SettingsPageInner({ onClose }: Props) {
           <PrivacyPolicy onBack={() => setShowPrivacy(false)} />
         </div>
       )}
+
+      <OBDConnectModal
+        open={showOBDConnect}
+        onClose={() => setShowOBDConnect(false)}
+      />
     </div>
   );
 }

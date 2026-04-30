@@ -1,4 +1,6 @@
-# React + TypeScript + Vite
+# CockpitOS — Car Launcher Pro
+
+[![CI](https://github.com/selimmujdeci/Car-launcher-pro/actions/workflows/main.yml/badge.svg)](https://github.com/selimmujdeci/Car-launcher-pro/actions/workflows/main.yml)
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

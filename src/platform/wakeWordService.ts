@@ -75,6 +75,7 @@ type SpeechRecognitionAny = any;
 
 let _recognition: SpeechRecognitionAny = null;
 let _restartTimer: ReturnType<typeof setTimeout> | null = null;
+let _detectedTimer: ReturnType<typeof setTimeout> | null = null; // onWakeWordDetected gecikmesi
 let _nativeLoopActive = false;
 
 function clearRestartTimer(): void {
@@ -84,7 +85,10 @@ function clearRestartTimer(): void {
 function onWakeWordDetected(): void {
   push({ status: 'detected', lastTrigger: Date.now() });
   startListening();
-  setTimeout(() => {
+  // Önceki timer varsa iptal et (hızlı art arda tetiklenme koruması)
+  if (_detectedTimer) { clearTimeout(_detectedTimer); }
+  _detectedTimer = setTimeout(() => {
+    _detectedTimer = null;
     if (_state.status === 'detected') push({ status: 'listening' });
   }, 1500);
 }
@@ -104,6 +108,8 @@ async function nativeLoop(): Promise<void> {
 
   try {
     const { CarLauncher } = await import('./nativePlugin');
+    // Offline-First (R-5): internet bağlantısı olsa bile yerel STT motoru her zaman
+    // öncelikli — on-device tanıma <100ms, bulut STT ise ağ gecikme ekler.
     const result = await CarLauncher.startSpeechRecognition({
       preferOffline: true,
       language:      'tr-TR',
@@ -145,6 +151,7 @@ export function enableWakeWord(word?: string): void {
 
 export function disableWakeWord(): void {
   _nativeLoopActive = false;
+  if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   push({ enabled: false, status: 'disabled' });
   stopWebListening();
 }
@@ -154,6 +161,16 @@ export function setWakeWord(word: string): void {
 }
 
 export function getWakeWordState(): WakeWordState { return _state; }
+
+/* ── HMR cleanup — dev modda Recognition/timer sızıntısını önle ─── */
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    _nativeLoopActive = false;                                      // nativeLoop döngüsünü kes
+    if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
+    stopWebListening();                                             // SpeechRecognition.abort() + _restartTimer iptal
+    _listeners.clear();                                            // stale React setState callback'leri temizle
+  });
+}
 
 /* ── React hook ──────────────────────────────────────────── */
 

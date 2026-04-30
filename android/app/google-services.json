@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "144345850012",
+    "project_id": "caros-pro",
+    "storage_bucket": "caros-pro.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:144345850012:android:772d787833b5a6a72acd59",
+        "android_client_info": {
+          "package_name": "com.cockpitos.pro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBo_ZhAlSv0jVaOuI4hzeO_GZqmtx172bA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

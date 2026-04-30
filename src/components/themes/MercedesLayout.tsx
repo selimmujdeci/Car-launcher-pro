@@ -175,6 +175,8 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
           const fuel = obd.fuelLevel  ?? 0;
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
+  const obdReady = obd.connectionState === 'connected' || obd.source === 'mock';
+  const hasData  = obdReady || speedKmh > 0;
 
   const R = 95, cx = 120, cy = 130;
   const pct = Math.min(speedKmh / 280, 1);
@@ -199,46 +201,60 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
       </div>
 
       <div className="flex-1 flex items-center justify-center relative min-h-0">
-        <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
-          <svg width="100%" height="100%" viewBox="0 0 240 260">
-            {/* Dekoratif halkalar */}
-            <circle cx="120" cy="130" r="112" fill="none" stroke="rgba(200,169,110,0.04)" strokeWidth="1" />
-            <circle cx="120" cy="130" r="106" fill="none" stroke="rgba(200,169,110,0.07)" strokeWidth="0.5" />
-            {/* Track */}
-            <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="12" strokeLinecap="round" />
-            {/* Altın fill */}
-            {pct > 0.01 && (
-              <path d={arc(135, fillAngle)} fill="none"
-                stroke="url(#goldGrad)" strokeWidth="12" strokeLinecap="round"
-                style={{ filter: `drop-shadow(0 0 7px rgba(200,169,110,0.45))` }} />
-            )}
-            <defs>
-              <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#C8A96E" />
-                <stop offset="100%" stopColor="#E8C98E" />
-              </linearGradient>
-            </defs>
-            {/* Merkezi daire */}
-            <circle cx="120" cy="130" r="52" fill="rgba(0,0,0,0.82)" stroke="rgba(200,169,110,0.10)" strokeWidth="1" />
-          </svg>
-
-          <div className="absolute inset-0 flex flex-col items-center justify-center pt-2.5">
-            <div className="font-extralight tabular-nums leading-none"
-              style={{ fontSize: 'var(--lp-speed-font, 58px)', color: M_TEXT, letterSpacing: '-1px', textShadow: '0 0 20px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.50)' }}>
-              {speedKmh}
+        {!hasData ? (
+          /* OBD bağlı değil — bekleme placeholder'ı */
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="relative w-20 h-20">
+              <div className="absolute inset-0 rounded-full border border-[rgba(200,169,110,0.18)] animate-ping [animation-duration:2.4s]" />
+              <div className="absolute inset-2 rounded-full border border-[rgba(200,169,110,0.25)] animate-ping [animation-duration:2.4s] [animation-delay:0.6s]" />
+              <div className="absolute inset-4 rounded-full border border-[rgba(200,169,110,0.35)] animate-ping [animation-duration:2.4s] [animation-delay:1.2s]" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Gauge className="w-6 h-6" style={{ color: 'rgba(200,169,110,0.5)' }} />
+              </div>
             </div>
-            <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.45em' }}>
-              km/h
+            <div className="text-center">
+              <div className="font-medium uppercase" style={{ fontSize: 9, color: M_GOLD, letterSpacing: '0.3em' }}>Sinyal Bekleniyor</div>
+              <div className="font-light mt-1" style={{ fontSize: 10, color: M_DIM }}>OBD · GPS</div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
+            <svg width="100%" height="100%" viewBox="0 0 240 260">
+              <circle cx="120" cy="130" r="112" fill="none" stroke="rgba(200,169,110,0.04)" strokeWidth="1" />
+              <circle cx="120" cy="130" r="106" fill="none" stroke="rgba(200,169,110,0.07)" strokeWidth="0.5" />
+              <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="12" strokeLinecap="round" />
+              {pct > 0.01 && (
+                <path d={arc(135, fillAngle)} fill="none"
+                  stroke="url(#goldGrad)" strokeWidth="12" strokeLinecap="round"
+                  style={{ filter: `drop-shadow(0 0 7px rgba(200,169,110,0.45))` }} />
+              )}
+              <defs>
+                <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#C8A96E" />
+                  <stop offset="100%" stopColor="#E8C98E" />
+                </linearGradient>
+              </defs>
+              <circle cx="120" cy="130" r="52" fill="rgba(0,0,0,0.82)" stroke="rgba(200,169,110,0.10)" strokeWidth="1" />
+            </svg>
+
+            <div className="absolute inset-0 flex flex-col items-center justify-center pt-2.5">
+              <div className="font-extralight tabular-nums leading-none"
+                style={{ fontSize: 'var(--lp-speed-font, 58px)', color: M_TEXT, letterSpacing: '-1px', textShadow: '0 0 20px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.50)' }}>
+                {speedKmh}
+              </div>
+              <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.45em' }}>
+                km/h
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Veri */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0">
-        <MDataCell Icon={Gauge}       label="TORK"  value={`${rpm.toLocaleString()}`} warn={false} />
-        <MDataCell Icon={Thermometer} label="MOTOR" value={`${Math.round(temp)}°C`}  warn={tempWarn} />
-        <MDataCell Icon={Fuel}        label="YAKIT" value={`${Math.round(fuel)}%`}   warn={fuelWarn} />
+        <MDataCell Icon={Gauge}       label="TORK"  value={hasData ? `${rpm.toLocaleString()}` : '--'}     warn={false} />
+        <MDataCell Icon={Thermometer} label="MOTOR" value={hasData ? `${Math.round(temp)}°C` : '--'}       warn={tempWarn} />
+        <MDataCell Icon={Fuel}        label="YAKIT" value={hasData ? `${Math.round(fuel)}%`  : '--'}       warn={fuelWarn} />
       </div>
     </div>
   );

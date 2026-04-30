@@ -78,20 +78,21 @@ async function _processCommand(row: Record<string, unknown>): Promise<void> {
     if (vars && typeof vars === 'object') {
       applyVars(vars);
     }
-    await updateRemoteCommandStatus(commandId, 'executed');
+    await updateRemoteCommandStatus(commandId, 'completed');
     return;
   }
 
+  // ── Faz 1: Kabul ACK — komut alındı, işleme başlıyor ────────────────────
+  // "Komut alındı" bilgisi PWA ekranında anlık gösterilir.
+  await updateRemoteCommandStatus(commandId, 'accepted');
+
   const ctx = _ctxRef.current;
   if (!ctx) {
-    // Context henüz set edilmedi — hata olarak kaydet
     await updateRemoteCommandStatus(commandId, 'failed', 'CommandContext not ready');
     return;
   }
 
   // Spec §3.3: fromAIResponse ile AppIntent'e dönüştür
-  // DB payload.new doğrudan fromAIResponse'a geçirilir:
-  //   { intent: IntentType, payload: {...}, confidence?: number }
   const intent = fromAIResponse(row, (row['intent'] as string | undefined) ?? 'Remote Command');
 
   if (!intent) {
@@ -100,14 +101,25 @@ async function _processCommand(row: Record<string, unknown>): Promise<void> {
     return;
   }
 
+  // ── Faz 2: Executing ACK — native intent çağrısı başlıyor ────────────────
+  // PWA "yürütülüyor…" spinner'ı gösterebilir.
+  await updateRemoteCommandStatus(commandId, 'executing');
+
   try {
-    // Spec §5 Performance: durum güncellemesi executeIntent'i BEKLEMEz
-    const execPromise = executeIntent(intent, ctx);
-    // Status'u önceden 'executed' olarak işaretle (non-blocking UX)
-    await updateRemoteCommandStatus(commandId, 'executed');
-    // Gerçek yürütme hatasını yakala ve logla
-    await execPromise;
+    // ── Faz 3: executeIntent bekle → gerçek sonuç ────────────────────────
+    // NOT: Önceki implementasyon 'executed' ACK'i executeIntent'i beklemeden
+    // gönderiyordu ("fire-and-forget" anti-pattern). Bu sürümde AWAIT yapılır;
+    // PWA yalnızca gerçek yürütme tamamlandığında 'completed' görür.
+    await executeIntent(intent, ctx);
+
+    // ── Faz 3a: Başarı ACK ────────────────────────────────────────────────
+    await updateRemoteCommandStatus(commandId, 'completed');
+    await pushVehicleEvent('remote_command_completed', {
+      commandId,
+      intent: (row['intent'] as string | undefined) ?? 'unknown',
+    });
   } catch (err) {
+    // ── Faz 3b: Hata ACK — somut hata mesajıyla ──────────────────────────
     const msg = err instanceof Error ? err.message : String(err);
     await updateRemoteCommandStatus(commandId, 'failed', msg);
     await pushVehicleEvent('remote_command_error', { commandId, error: msg });

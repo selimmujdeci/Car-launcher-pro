@@ -99,7 +99,7 @@ function LoginForm() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-white/40 font-medium tracking-wide">Şifre</label>
-                <Link href="#" className="text-xs text-accent/70 hover:text-accent transition-colors">
+                <Link href="/forgot-password" className="text-xs text-accent/70 hover:text-accent transition-colors">
                   Şifremi unuttum
                 </Link>
               </div>

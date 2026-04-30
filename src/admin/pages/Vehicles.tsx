@@ -115,7 +115,7 @@ export function Vehicles() {
           <Button variant="ghost" size="icon" onClick={() => { setEditing({ ...v }); editModal.show() }}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          {can('super_admin') && (
+          {can('admin') && (
             <Button variant="ghost" size="icon" onClick={() => { setToDelete(v); deleteModal.show() }}>
               <Trash2 className="h-3.5 w-3.5 text-red-400" />
             </Button>

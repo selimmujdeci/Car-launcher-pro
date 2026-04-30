@@ -29,6 +29,7 @@ export interface LiveVehicle {
   location: string;
   lastSeen: string;     // formatted string for display
   lastTimestamp: number; // raw ms for offline detection
+  batteryVoltage?: number; // OBD akü voltajı (V)
 }
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';

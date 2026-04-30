@@ -11,16 +11,29 @@
  * - Push notify:      tamamlanan komutlar için Edge Function tetiklenir
  */
 
-import { Capacitor } from '@capacitor/core';
-import { App }       from '@capacitor/app';
-import { nativeCoreService } from './nativeCoreService';
-import { buildNavIntent }    from '../../website/src/lib/routeEngine';
+import {
+  isE2EPayload, decryptE2EPayload, getCarPrivateKey, loadOrCreateDeviceKey,
+  isEncryptedPayload, decryptPayload,
+} from './commandCrypto';
+import { sensitiveKeyStore }                       from './sensitiveKeyStore';
+import { connectivityService }                     from './connectivityService';
+import { executeMcuCommand }                       from './nativeCommandBridge';
 
-// ── Supabase client (launcher kendi session ile auth yapar) ──────────────────
+// Lazy imports — native modüller sadece runtime'da yüklenir
+let _buildNavIntent:  typeof import('../../website/src/lib/routeEngine').buildNavIntent | null = null;
 
-async function getSupabase() {
-  const { supabaseBrowser } = await import('./supabaseClient');
-  return supabaseBrowser;
+async function getBuildNavIntent() {
+  if (!_buildNavIntent) _buildNavIntent = (await import('../../website/src/lib/routeEngine')).buildNavIntent;
+  return _buildNavIntent;
+}
+
+// ── Supabase client — statik import (dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler)
+// remoteCommandService ve weatherService zaten statik import yaptığı için
+// bu modül de aynı chunk'a düşmeli.
+import { getSupabaseClient } from './supabaseClient';
+
+function getSupabase() {
+  return getSupabaseClient();
 }
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
@@ -67,8 +80,46 @@ function isDangerousWhileMoving(type: CommandType): boolean {
 
 // ── Executor ─────────────────────────────────────────────────────────────────
 
-async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejected' | 'failed'> {
-  const payload = cmd.payload;
+async function executeCommand(
+  cmd: VehicleCommand,
+): Promise<'completed' | 'rejected' | 'failed' | 'crypto_failed'> {
+  let payload = cmd.payload;
+
+  // ── E2E (ECDH) deşifreleme — yeni yol, önce kontrol edilir ──────────────────
+  if (isE2EPayload(payload)) {
+    const privKey = getCarPrivateKey();
+    if (!privKey) {
+      // Anahtar henüz yüklenmemiş — bu kritik bir başlangıç sorunudur
+      console.error('[CmdListener] E2E private key yüklenmemiş; komut reddedildi.');
+      return 'crypto_failed';
+    }
+    try {
+      payload = await decryptE2EPayload(payload, privKey);
+    } catch (err) {
+      // Zero-Plaintext: hata mesajını logla, komutu ASLA icra etme
+      const reason = err instanceof Error ? err.message : 'Decryption Error';
+      console.error(`[CmdListener] E2E deşifreleme başarısız: ${reason}`);
+      return 'crypto_failed';
+    }
+
+  // ── Legacy PBKDF2 deşifreleme — geriye dönük uyumluluk ──────────────────────
+  } else if (isEncryptedPayload(payload)) {
+    try {
+      const apiKey = await sensitiveKeyStore.get('veh_api_key');
+      if (apiKey) {
+        payload = await decryptPayload(
+          payload as unknown as import('./commandCrypto').EncryptedPayload,
+          apiKey,
+        );
+      } else {
+        console.warn('[CmdListener] Şifreli payload alındı fakat api_key bulunamadı.');
+        return 'rejected';
+      }
+    } catch (err) {
+      console.error('[CmdListener] PBKDF2 deşifreleme başarısız:', err);
+      return 'failed';
+    }
+  }
 
   if (isDangerousWhileMoving(cmd.type)) {
     console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
@@ -77,12 +128,14 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
 
   try {
     switch (cmd.type) {
-      case 'lock':            await nativeCoreService.lockDoors?.();    return 'completed';
-      case 'unlock':          await nativeCoreService.unlockDoors?.();  return 'completed';
-      case 'horn':            await nativeCoreService.honkHorn?.();     return 'completed';
-      case 'alarm_on':        await nativeCoreService.triggerAlarm?.(); return 'completed';
-      case 'alarm_off':       await nativeCoreService.stopAlarm?.();    return 'completed';
-      case 'lights_on':       await nativeCoreService.flashLights?.();  return 'completed';
+      case 'lock':
+      case 'unlock':
+      case 'horn':
+      case 'alarm_on':
+      case 'alarm_off':
+      case 'lights_on':
+        // H-4: nativeCommandBridge → CarLauncherPlugin → McuCommandFactory → CAN bus
+        return await executeMcuCommand(cmd.type);
 
       case 'route_send':
       case 'navigation_start': {
@@ -98,13 +151,11 @@ async function executeCommand(cmd: VehicleCommand): Promise<'completed' | 'rejec
           console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
           return 'failed';
         }
-        const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
+        const buildNav = await getBuildNavIntent();
+        const intentUri = buildNav(lat, lng, route.address_name ?? '',
           (route.provider_intent ?? 'google_maps') as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
-        if (Capacitor.isNativePlatform()) {
-          await App.openUrl({ url: intentUri });
-        } else {
-          window.open(intentUri, '_blank');
-        }
+        // Android'de intent URI'yi window.open ile aç
+        window.open(intentUri, '_blank');
         return 'completed';
       }
 
@@ -138,23 +189,32 @@ async function updateCommandStatus(
   status:      'accepted' | 'executing' | 'completed' | 'failed' | 'rejected',
   errorReason?: string,
 ): Promise<void> {
-  const supabase = await getSupabase();
-  if (!supabase) return;
+  const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
+  const SUPABASE_ANON    = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON) return;
 
   const now     = new Date().toISOString();
   const updates: Record<string, unknown> = { status };
-
   if (status === 'accepted')  updates.accepted_at = now;
   if (status === 'executing') updates.last_attempt_at = now;
   if (['completed', 'failed', 'rejected'].includes(status)) updates.finished_at = now;
   if (errorReason) updates.error_reason = errorReason;
 
-  const { error } = await supabase
-    .from('vehicle_commands')
-    .update(updates)
-    .eq('id', commandId);
-
-  if (error) console.error('[CmdListener] Status güncelleme hatası:', error.message);
+  // Komut durumu kritik — kuyruğa al, at-least-once garantisi
+  await connectivityService.enqueue(
+    `${SUPABASE_URL}/rest/v1/vehicle_commands?id=eq.${commandId}`,
+    'PATCH',
+    {
+      'Content-Type':  'application/json',
+      'apikey':        SUPABASE_ANON,
+      'Authorization': `Bearer ${SUPABASE_ANON}`,
+      'Prefer':        'return=minimal',
+    },
+    updates,
+    'high',
+    'cmd_status',
+  );
 }
 
 // ── Retry increment (RPC üzerinden — atomik) ─────────────────────────────────
@@ -191,7 +251,8 @@ async function triggerPushNotify(
 export class CommandListener {
   private vehicleId:      string;
   private _alive =        false;
-  private channel:        ReturnType<Awaited<ReturnType<typeof getSupabase>>['channel']> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private channel:        any = null;
   private executedIds:    Set<string> = new Set(); // ID bazlı dedup (nonce değil)
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimers:    Map<string, ReturnType<typeof setTimeout>> = new Map();
@@ -204,6 +265,24 @@ export class CommandListener {
     this._alive = true;
     const supabase = await getSupabase();
     if (!supabase || !this._alive) return;
+
+    // ── E2E Anahtar Init + Supabase'e Public Key Yayını ─────────────────────
+    // loadOrCreateDeviceKey RAM'i önbelleğe alır; ilk çağrı ~10–20ms, sonraki <1 μs.
+    // Bağlantı kurulmadan önce anahtar hazır olmalı — komutlar gelmeden önce init tam olsun.
+    try {
+      const { pubKeyB64 } = await loadOrCreateDeviceKey();
+      // vehicles tablosuna e2e_public_key yaz — telefon bu key ile şifreler
+      await supabase
+        .from('vehicles')
+        .upsert({
+          id:             this.vehicleId,
+          e2e_public_key: pubKeyB64,
+          e2e_key_alg:    'ECDH-P256-AES-GCM-256',
+        });
+    } catch (e) {
+      // Non-fatal: anahtar publish başarısız olursa eski key ile devam
+      console.warn('[CmdListener] E2E public key publish başarısız:', e);
+    }
 
     // Reconnect'te bekleyen + retry-eligible komutları işle
     await this.processPendingCommands(supabase);
@@ -220,7 +299,7 @@ export class CommandListener {
         },
         ({ new: row }: { new: Record<string, unknown> }) => {
           if (!this._alive) return;
-          void this.handleCommand(row as VehicleCommand);
+          void this.handleCommand(row as unknown as VehicleCommand);
         },
       )
       .subscribe((status: string) => {
@@ -229,6 +308,17 @@ export class CommandListener {
           this.scheduleReconnect();
         }
       });
+  }
+
+  /**
+   * Bekleyen komutları DB'den anlık çeker — Realtime gap koruması için.
+   * Push-to-Wake sinyali geldiğinde, listener zaten canlıyken çağrılır.
+   */
+  async triggerPendingPoll(): Promise<void> {
+    if (!this._alive) return;
+    const supabase = await getSupabase();
+    if (!supabase) return;
+    await this.processPendingCommands(supabase);
   }
 
   disconnect(): void {
@@ -244,7 +334,7 @@ export class CommandListener {
     if (this.channel) {
       const ch = this.channel;
       this.channel = null;
-      getSupabase().then((sb) => sb?.removeChannel(ch));
+      getSupabase()?.removeChannel(ch);
     }
   }
 
@@ -281,7 +371,7 @@ export class CommandListener {
       if (!this._alive) break;
       // ID dedup: zaten bu session'da işlenmiş olanları atla
       if (this.executedIds.has(cmd.id as string)) continue;
-      await this.handleCommand(cmd as VehicleCommand);
+      await this.handleCommand(cmd as unknown as VehicleCommand);
     }
   }
 
@@ -326,6 +416,12 @@ export class CommandListener {
       return;
     }
 
+    if (outcome === 'crypto_failed') {
+      // E2E deşifreleme hatası — retry yok, komut kalıcı olarak geçersiz
+      await updateCommandStatus(cmd.id, 'failed', 'Decryption Error: komut reddedildi');
+      return;
+    }
+
     // 'failed' — retry değerlendirmesi
     const retryCount = cmd.retry_count ?? 0;
 
@@ -353,7 +449,7 @@ export class CommandListener {
           .eq('id', cmd.id)
           .eq('status', 'pending')
           .single();
-        if (data) await this.handleCommand(data as VehicleCommand);
+        if (data) await this.handleCommand(data as unknown as VehicleCommand);
       }, backoffMs);
 
       this.retryTimers.set(cmd.id, timer);
@@ -382,4 +478,17 @@ export function startCommandListener(vehicleId: string): () => void {
 export function stopCommandListener(): void {
   _instance?.disconnect();
   _instance = null;
+}
+
+/** Listener canlı mı? pushService wake kararı için. */
+export function isCommandListenerActive(): boolean {
+  return _instance !== null;
+}
+
+/**
+ * Aktif listener üzerinde DB poll'u anında tetikler.
+ * Push-to-Wake: listener canlıysa Realtime gap'ını kapatmak için çağrılır.
+ */
+export function triggerPendingPoll(): void {
+  void _instance?.triggerPendingPoll();
 }

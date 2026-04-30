@@ -9,8 +9,11 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.WindowManager;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -60,6 +63,23 @@ public class MainActivity extends BridgeActivity {
         REQUIRED_PERMISSIONS = perms.toArray(new String[0]);
     }
 
+    private static final String TAG = "MainActivity";
+
+    // ── ANR Watchdog ───────────────────────────────────────────────────────
+    /** WebView'ın yanıt verip vermediğini bu sürede kontrol et (ms) */
+    private static final long ANR_CHECK_INTERVAL_MS = 5_000L;
+    /** Bu sürede UI thread yanıt vermezse restart tetikle (ms) */
+    private static final long ANR_TIMEOUT_MS        = 15_000L;
+
+    private final Handler  anrHandler  = new Handler(Looper.getMainLooper());
+    private final Handler  bgHandler   = new Handler(
+        android.os.HandlerThread.class.cast(
+            new android.os.HandlerThread("AnrWatchdog") {{ start(); }}
+        ).getLooper()
+    );
+    private volatile long  lastUiPing  = 0;
+    private volatile boolean anrRunning = false;
+
     private ActivityResultLauncher<String[]> permissionLauncher;
 
     @Override
@@ -103,6 +123,9 @@ public class MainActivity extends BridgeActivity {
 
         // ── Pil optimizasyonundan muafiyet iste (MIUI/HyperOS) ──
         requestBatteryOptimizationExemption();
+
+        // ── ANR Watchdog başlat ──
+        startAnrWatchdog();
     }
 
     /**
@@ -155,9 +178,17 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onDestroy() {
+        stopAnrWatchdog();
+        super.onDestroy();
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
         applyImmersive();
+        // UI thread aktif — watchdog'a bildir
+        lastUiPing = System.currentTimeMillis();
     }
 
     @Override
@@ -228,6 +259,70 @@ public class MainActivity extends BridgeActivity {
             android.os.Process.killProcess(android.os.Process.myPid());
             System.exit(1);
         });
+    }
+
+    // ── ANR Watchdog ───────────────────────────────────────────────────────
+
+    /**
+     * Background thread'den UI thread'e ping gönderir.
+     * UI thread zamanında yanıt vermezse uygulamayı yeniden başlatır.
+     *
+     * Akış:
+     *   [bgThread] → anrHandler.post(ping) → [uiThread] lastUiPing = now
+     *   [bgThread] → ANR_TIMEOUT_MS sonra lastUiPing kontrol et
+     *   → Eski ise → crash recovery ile restart
+     */
+    private void startAnrWatchdog() {
+        if (anrRunning) return;
+        anrRunning  = true;
+        lastUiPing  = System.currentTimeMillis();
+
+        bgHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!anrRunning) return;
+
+                // UI thread'e ping gönder
+                anrHandler.post(() -> lastUiPing = System.currentTimeMillis());
+
+                // ANR_TIMEOUT_MS sonra kontrol et
+                bgHandler.postDelayed(() -> {
+                    if (!anrRunning) return;
+                    long elapsed = System.currentTimeMillis() - lastUiPing;
+                    if (elapsed > ANR_TIMEOUT_MS) {
+                        Log.e(TAG, "ANR tespit edildi (" + elapsed + "ms) — restart tetikleniyor");
+                        triggerRestart();
+                    } else {
+                        // Bir sonraki check'i planla
+                        bgHandler.postDelayed(this, ANR_CHECK_INTERVAL_MS);
+                    }
+                }, ANR_TIMEOUT_MS);
+
+                bgHandler.postDelayed(this, ANR_CHECK_INTERVAL_MS);
+            }
+        });
+    }
+
+    private void stopAnrWatchdog() {
+        anrRunning = false;
+        bgHandler.removeCallbacksAndMessages(null);
+        anrHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void triggerRestart() {
+        try {
+            Context ctx = getApplicationContext();
+            Intent restart = new Intent(ctx, MainActivity.class);
+            restart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = PendingIntent.FLAG_ONE_SHOT |
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+            PendingIntent pi = PendingIntent.getActivity(ctx, 1, restart, flags);
+            AlarmManager am  = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+            if (am != null) am.set(AlarmManager.RTC, System.currentTimeMillis() + 1_000L, pi);
+        } catch (Exception e) {
+            Log.e(TAG, "Restart tetiklenemedi: " + e.getMessage());
+        }
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     private void applyImmersive() {

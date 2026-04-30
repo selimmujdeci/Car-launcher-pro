@@ -121,4 +121,14 @@ export const RELEASE_CHECKLIST: CheckGroup[] = [
       { id: 'native-wakelock',   label: 'Screen stays on while launcher is active',            how: 'Idle device for 1 min, verify no sleep'        },
     ],
   },
+  {
+    group: 'Industrial Hardening (R-Series)',
+    items: [
+      { id: 'r-persistence',   label: 'Atomic Persistence: CAN data survives WebView crash',  how: 'Reload page, verify speed/fuel loads instantly' },
+      { id: 'r-stale-logic',   label: 'Stale Data: 30s+ old speed resets to 0 on boot',      how: 'Set old timestamp in storage, reload'           },
+      { id: 'r-lazy-load',     label: 'Module Decomposition: Settings/Vision are lazy',     how: 'Check Network tab for chunk loading on demand'  },
+      { id: 'r-ram-pressure',  label: 'Memory: Initial heap usage < 50MB (Target)',         how: 'Inspect Memory tab in DevTools'                },
+      { id: 'r-io-throttle',   label: 'I/O Throttling: No UI lag during heavy OBD flow',     how: 'Monitor Main Thread while receiving 100+ PID/s'},
+    ],
+  },
 ];

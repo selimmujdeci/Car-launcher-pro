@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { MusicOptionKey } from '../data/apps';
+import type { RuntimeOverride } from '../core/runtime/runtimeTypes';
+import { RuntimeMode }           from '../core/runtime/runtimeTypes';
+import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
 import { setObdVehicleType } from '../platform/obdService';
 import { safeStorage } from '../utils/safeStorage';
 
@@ -28,9 +31,28 @@ function deepMergeSettings<T extends Record<string, unknown>>(defaults: T, persi
 }
 
 
+/* ── SmartCard (runtime, persist edilmez) ──────────────────── */
+
+export interface SmartCard {
+  id:       string;
+  kind:     string;
+  title:    string;
+  subtitle: string;
+  color:    string;   // hex renk
+  priority: number;   // 0–100
+  eta?:     string;   // "~12 dk"
+  badge?:   string;   // "ACİL" | "%12" vb.
+  cta:      string;   // CTA buton etiketi
+  action:
+    | { type: 'navigate';    destination: string }
+    | { type: 'launch';      appId: string }
+    | { type: 'open-drawer'; drawer: string }
+    | { type: 'search-poi';  query: string };
+}
+
 export type ThemeStyle = 'glass' | 'neon' | 'minimal';
 export type WidgetStyle = 'elevated' | 'flat' | 'outlined';
-export type ThemePack = 'tesla' | 'bmw' | 'mercedes' | 'audi' | 'glass-pro';
+export type ThemePack = 'tesla' | 'bmw' | 'mercedes' | 'audi' | 'glass-pro' | 'oled-pro';
 export type ClockStyle = 'digital' | 'analog';
 export type VolumeStyle = 'bmw_polished' | 'tesla_ultra' | 'glass_orb' | 'ambient_line' | 'minimal_pro';
 export type GestureVolumeSide = 'left' | 'right' | 'off';
@@ -66,6 +88,8 @@ export interface PinnedCard {
 
 export type VehicleType = 'ice' | 'diesel' | 'ev' | 'hybrid' | 'phev';
 
+export type OilType = 'conventional' | 'synthetic' | 'long-life';
+
 export interface VehicleProfile {
   id: string;
   name: string;
@@ -88,6 +112,14 @@ export interface VehicleProfile {
   dockAppIds?: string[];
   createdAt: string;
   lastUsedAt: string | null;
+  /** Araç boşta devir sayısı (rpm) — varsayılan 700 */
+  idleRpm?: number;
+  /** Motor normal çalışma sıcaklığı (°C) — varsayılan 90 */
+  normalTemp?: number;
+  /** Kullanılan yağ tipi — yağ ömrü hesabını etkiler */
+  oilType?: OilType;
+  /** İkinci el araç için başlangıç aşınma oranı (0–1); 0 = sıfır km */
+  initialWearOffset?: number;
 }
 
 export interface AppSettings {
@@ -150,6 +182,12 @@ export interface AppSettings {
   claudeHaikuApiKey: string;
   /** Araç başlangıcında telefon hotspot bağlantı davranışı */
   hotspotMode: 'auto' | 'ask' | 'off';
+  /**
+   * Adaptive Runtime Engine mod seçimi.
+   * 'AUTO' → cihaz metriğine göre otomatik algılama.
+   * RuntimeMode değeri → kullanıcı zorlaması (ayarlar ekranı).
+   */
+  runtimeOverride: RuntimeOverride;
 }
 
 export interface MusicFavorite {
@@ -169,6 +207,33 @@ interface StoreState {
   setActiveVehicleProfile: (id: string | null) => void;
   addMusicFavorite: (fav: MusicFavorite) => void;
   removeMusicFavorite: (title: string, artist: string) => void;
+  // ── Runtime state (persist edilmez, oturum sonunda sıfırlanır) ──
+  activeSmartCards:       SmartCard[];
+  _dismissedCardIds:      string[];
+  setSmartCards:         (cards: SmartCard[]) => void;
+  dismissSmartCard:      (id: string) => void;
+  /** fuelAdvisorService tarafından enjekte edilen istasyon önerisi kartı */
+  fuelSuggestionCard:       SmartCard | null;
+  setFuelSuggestionCard:    (card: SmartCard | null) => void;
+  /** theaterModeService tarafından enjekte edilen Theater Mode öneri kartı */
+  theaterSuggestionCard:    SmartCard | null;
+  setTheaterSuggestionCard: (card: SmartCard | null) => void;
+  /** Theater Mode aktif mi? Araç dururken medya odaklı tam ekran mod. */
+  isTheaterModeActive:      boolean;
+  setIsTheaterModeActive:   (v: boolean) => void;
+  /** Termal koruma veya kullanıcı seçimiyle düşük güç/kaynak modu */
+  isEcoMode:                boolean;
+  setIsEcoMode:             (v: boolean) => void;
+  /** Global hedef FPS kısıtlaması (0 = kısıtlama yok) */
+  targetFPS:                number;
+  setTargetFPS:             (v: number) => void;
+  /**
+   * Adaptive Runtime Engine'nin anlık aktif modu.
+   * Persist edilmez — runtimeManager.subscribe() ile senkronize tutulur.
+   * Bileşenler bu değeri okuyarak UI kararları alabilir (ör. blur göster/gizle).
+   */
+  runtimeMode:              RuntimeMode;
+  setRuntimeMode:           (mode: RuntimeMode) => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -178,7 +243,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   volume: 60,
   volumeStyle: 'minimal_pro',
   theme: 'light',
-  themePack: 'glass-pro',
+  themePack: 'tesla',
   themeStyle: 'glass',
   widgetStyle: 'elevated',
   wallpaper: 'none',
@@ -215,11 +280,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     rr: { pressure: 31, temp: 25, status: 'normal' },
   },
   parkingLocation: null,
-  wakeWordEnabled: false,
+  wakeWordEnabled: true,         // Sesli asistan varsayılan açık
   wakeWord: 'hey car',
   breakReminderEnabled: false,
   breakReminderIntervalMin: 120,
-  autoBrightnessEnabled: false,
+  autoBrightnessEnabled: true,   // Otomatik parlaklık varsayılan açık
   autoThemeEnabled: true,
   autoBrightnessMin: 15,
   autoBrightnessMax: 100,
@@ -227,7 +292,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   homeLocation: null,
   workLocation: null,
   recentDestinations: [],
-  smartContextEnabled: false,
+  smartContextEnabled: true,     // Smart Engine varsayılan açık
   pinnedCards: [],
   dayNightMode: 'day',
   editMode: false,
@@ -243,16 +308,50 @@ const DEFAULT_SETTINGS: AppSettings = {
   geminiApiKey: '',
   claudeHaikuApiKey: '',
   hotspotMode: 'ask',
+  runtimeOverride: 'AUTO',
 };
 
 export const useStore = create<StoreState>()(
   persist(
     (set) => ({
       settings: DEFAULT_SETTINGS,
+      // Runtime smart card state
+      activeSmartCards:       [],
+      _dismissedCardIds:      [],
+      fuelSuggestionCard:       null,
+      theaterSuggestionCard:    null,
+      isTheaterModeActive:      false,
+      setSmartCards:            (cards) => set({ activeSmartCards: cards }),
+      setFuelSuggestionCard:    (card)  => set({ fuelSuggestionCard: card }),
+      setTheaterSuggestionCard: (card)  => set({ theaterSuggestionCard: card }),
+      setIsTheaterModeActive:   (v)     => set({ isTheaterModeActive: v }),
+      dismissSmartCard: (id) =>
+        set((state) => ({
+          activeSmartCards:  state.activeSmartCards.filter((c) => c.id !== id),
+          _dismissedCardIds: [...state._dismissedCardIds, id],
+        })),
       updateSettings: (partial) =>
-        set((state) => ({ settings: { ...state.settings, ...partial } })),
+        set((state) => {
+          // Negative Delta Guard (CLAUDE.md §4): maintenance km değerleri geri gidemez
+          if (partial.maintenance !== undefined) {
+            const cur = state.settings.maintenance;
+            if (
+              (partial.maintenance.lastOilChangeKm !== undefined &&
+               partial.maintenance.lastOilChangeKm < cur.lastOilChangeKm) ||
+              (partial.maintenance.nextOilChangeKm !== undefined &&
+               partial.maintenance.nextOilChangeKm < cur.lastOilChangeKm)
+            ) return state; // saat atlama / veri bozulması — reddet
+          }
+          return { settings: { ...state.settings, ...partial } };
+        }),
       updateMaintenance: (partial) =>
-        set((state) => ({ settings: { ...state.settings, maintenance: { ...state.settings.maintenance, ...partial } } })),
+        set((state) => {
+          const cur = state.settings.maintenance;
+          // Negative Delta Guard (CLAUDE.md §4): km kayıtları monoton artan olmalı
+          if (partial.lastOilChangeKm !== undefined &&
+              partial.lastOilChangeKm < cur.lastOilChangeKm) return state;
+          return { settings: { ...state.settings, maintenance: { ...cur, ...partial } } };
+        }),
       updateTPMS: (partial) =>
         set((state) => ({ settings: { ...state.settings, tpms: { ...state.settings.tpms, ...partial } } })),
       updateParking: (location) =>
@@ -286,6 +385,13 @@ export const useStore = create<StoreState>()(
         }),
       removeMusicFavorite: (title, artist) =>
         set((state) => ({ settings: { ...state.settings, musicFavorites: state.settings.musicFavorites.filter((f) => !(f.title === title && f.artist === artist)) } })),
+      isEcoMode:    false,
+      setIsEcoMode: (v) => set({ isEcoMode: v }),
+      targetFPS:    0,
+      setTargetFPS: (v) => set({ targetFPS: v }),
+      // Açılışta runtimeManager'ın capability-detected modunu al
+      runtimeMode:     runtimeManager.getMode(),
+      setRuntimeMode:  (mode) => set({ runtimeMode: mode }),
     }),
     {
       name: 'car-launcher-storage',
@@ -294,13 +400,25 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 9,
+      version: 11,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
+        const persisted = (ps.settings ?? {}) as Record<string, unknown>;
+
         if (fromVersion < 9) {
-          settings.language = settings.language ?? 'tr';
-          settings.unitSystem = settings.unitSystem ?? 'metric';
+          settings.language    = settings.language    ?? 'tr';
+          settings.unitSystem  = settings.unitSystem  ?? 'metric';
+        }
+        if (fromVersion < 10) {
+          // v10: akıllı servisler varsayılan açık
+          if (persisted['wakeWordEnabled']      === undefined) settings.wakeWordEnabled      = true;
+          if (persisted['autoBrightnessEnabled'] === undefined) settings.autoBrightnessEnabled = true;
+          if (persisted['smartContextEnabled']   === undefined) settings.smartContextEnabled   = true;
+        }
+        if (fromVersion < 11) {
+          // v11: Adaptive Runtime Engine — yeni alan, varsayılan 'AUTO'
+          if (persisted['runtimeOverride'] === undefined) settings.runtimeOverride = 'AUTO';
         }
         return { ...ps, settings };
       },
@@ -310,7 +428,18 @@ export const useStore = create<StoreState>()(
         const merged = deepMergeSettings(currentState.settings as unknown as Record<string, unknown>, (ps.settings || {}) as Record<string, unknown>) as unknown as typeof currentState.settings;
         merged.sleepMode = false;
         merged.editMode = false;
-        return { ...currentState, ...ps, settings: merged };
+        return {
+          ...currentState, ...ps, settings: merged,
+          // Runtime state — oturum başında her zaman sıfırla
+          activeSmartCards:      [],
+          _dismissedCardIds:     [],
+          fuelSuggestionCard:    null,
+          theaterSuggestionCard: null,
+          isTheaterModeActive:   false,
+          isEcoMode:             false,
+          targetFPS:             0,
+          runtimeMode:           runtimeManager.getMode(), // persist değil — manager'dan al
+        };
       },
     }
   )

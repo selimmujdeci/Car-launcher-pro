@@ -7,6 +7,7 @@ import BottomNav from '@/components/layout/BottomNav';
 import { useRealtime } from '@/hooks/useRealtime';
 import { usePlan } from '@/hooks/usePlan';
 import { TrialBanner } from '@/components/plan/TrialBanner';
+import { PinDialog } from '@/components/dashboard/PinDialog';
 
 function DashboardInner({ children }: { children: React.ReactNode }) {
   useRealtime();
@@ -43,6 +44,9 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
 
       {/* Bottom navigation — mobile only */}
       <BottomNav />
+
+      {/* PIN diyaloğu — kritik komutlar için */}
+      <PinDialog />
     </div>
   );
 }

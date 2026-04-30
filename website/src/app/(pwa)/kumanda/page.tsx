@@ -1,33 +1,139 @@
 'use client';
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useState, lazy, Suspense } from 'react';
 import Link from 'next/link';
 import MobileCarControl from '@/components/dashboard/MobileCarControl';
 import PairingScreen from '@/components/pwa/PairingScreen';
+import { PwaErrorBoundary } from '@/components/pwa/PwaErrorBoundary';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useRealtime } from '@/hooks/useRealtime';
-import { ProGate } from '@/components/plan/ProGate';
+import { clearLocalVehicle } from '@/lib/pairingService';
+
+const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
+const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
+const RecordsPanel       = lazy(() => import('@/components/pwa/RecordsPanel'));
+
+type Tab = 'kumanda' | 'eslestir' | 'harita' | 'teshis' | 'kayitlar' | 'panel';
 
 export default function KumandaPage() {
   useRealtime();
+
   const loading  = useVehicleStore((s) => s.loading);
   const error    = useVehicleStore((s) => s.error);
   const vehicles = useVehicleStore((s) => s.getList());
+
+  const [activeTab, setActiveTab] = useState<Tab>('kumanda');
 
   const vehicle = useMemo(
     () => vehicles.find((v) => v.status === 'online') ?? vehicles[0] ?? null,
     [vehicles],
   );
 
+  const hasPairedVehicle = vehicles.length > 0;
+
+  // Auto-switch to pairing screen when no vehicle
+  useEffect(() => {
+    if (!loading && !hasPairedVehicle && activeTab === 'kumanda') {
+      setActiveTab('eslestir');
+    }
+  }, [loading, hasPairedVehicle, activeTab]);
+
   const reload = useCallback(() => {
     void useVehicleStore.getState().initializeFromSupabase();
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  const handlePaired = useCallback(() => {
+    useVehicleStore.getState().initializeFromLocal();
+    setActiveTab('kumanda');
+  }, []);
 
-  const noPairedVehicle = !loading && !error && vehicles.length === 0;
+  const handleUnpair = useCallback(() => {
+    clearLocalVehicle();
+    useVehicleStore.getState().setVehicles([]);
+    setActiveTab('eslestir');
+  }, []);
+
+  const lazySpinner = (
+    <div className="flex items-center justify-center gap-2 py-10 text-sm text-white/30">
+      <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"
+          strokeDasharray="28" strokeDashoffset="9" opacity="0.4"/>
+        <path d="M8 2a6 6 0 016 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+      Yükleniyor…
+    </div>
+  );
+
+  // ── Render content per tab ────────────────────────────────────────────────
+  function renderMain() {
+    if (activeTab === 'eslestir') {
+      return <PairingScreen onPaired={handlePaired} />;
+    }
+
+    if (activeTab === 'kumanda') {
+      if (loading) {
+        return (
+          <div className="flex items-center justify-center gap-3 py-10 text-sm text-white/50">
+            <svg className="animate-spin w-5 h-5" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
+                strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
+              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            Araç verileri yükleniyor…
+          </div>
+        );
+      }
+
+      if (error && !hasPairedVehicle) {
+        return (
+          <div className="py-6 text-center">
+            <p className="text-sm text-red-300/80">Bağlantı hatası: {error}</p>
+            <button
+              onClick={reload}
+              className="mt-3 text-xs text-blue-400/70 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/[0.06]"
+            >
+              Tekrar Dene
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <>
+          <MobileCarControl vehicle={vehicle} />
+          {hasPairedVehicle && (
+            <button
+              onClick={handleUnpair}
+              className="mt-4 w-full text-xs text-white/20 hover:text-red-400/60 transition-colors py-2"
+            >
+              Araç bağlantısını kes
+            </button>
+          )}
+        </>
+      );
+    }
+
+    if (activeTab === 'teshis') {
+      return (
+        <Suspense fallback={lazySpinner}>
+          <DiagnosticsPanel vehicle={vehicle} />
+        </Suspense>
+      );
+    }
+
+    if (activeTab === 'kayitlar') {
+      return (
+        <Suspense fallback={lazySpinner}>
+          <RecordsPanel vehicle={vehicle} />
+        </Suspense>
+      );
+    }
+
+    return null;
+  }
 
   return (
+    <PwaErrorBoundary>
     <div
       className="min-h-[100dvh] flex flex-col"
       style={{ background: '#060d1a' }}
@@ -64,7 +170,7 @@ export default function KumandaPage() {
           <div>
             <p className="text-white font-bold text-sm leading-none">Arabam Cebimde</p>
             <p className="text-white/30 text-[10px] mt-0.5">
-              {noPairedVehicle ? 'Araç Eşleştir' : 'Canlı Bağlantı'}
+              {hasPairedVehicle ? 'Canlı Bağlantı' : 'Araç Eşleştir'}
             </p>
           </div>
         </div>
@@ -78,42 +184,36 @@ export default function KumandaPage() {
       </header>
 
       {/* Main */}
-      <main className="relative z-10 flex-1 px-4 py-4 overflow-y-auto">
-        <div
-          className="rounded-3xl p-5 mb-4"
-          style={{
-            background: 'linear-gradient(145deg, #0c1a2e 0%, #070f1d 100%)',
-            border: '1px solid rgba(59,130,246,0.12)',
-            boxShadow: '0 0 40px rgba(59,130,246,0.06), 0 20px 60px rgba(0,0,0,0.5)',
-          }}
-        >
-          {loading ? (
-            <div className="flex items-center justify-center gap-3 py-10 text-sm text-white/50">
-              <svg className="animate-spin w-5 h-5" viewBox="0 0 20 20" fill="none">
-                <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
-                <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      {activeTab === 'harita' ? (
+        <main className="relative z-10 flex-1" style={{ minHeight: 0 }}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full gap-2 text-white/30 text-sm">
+              <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"
+                  strokeDasharray="28" strokeDashoffset="9" opacity="0.4"/>
+                <path d="M8 2a6 6 0 016 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
-              Araç verileri yükleniyor…
+              Harita yükleniyor…
             </div>
-          ) : error ? (
-            <div className="py-6 text-center">
-              <p className="text-sm text-red-300/80">Bağlantı hatası: {error}</p>
-              <button
-                onClick={reload}
-                className="mt-3 text-xs text-blue-400/70 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/[0.06]"
-              >
-                Tekrar Dene
-              </button>
-            </div>
-          ) : noPairedVehicle ? (
-            <PairingScreen onPaired={reload} />
-          ) : (
-            <ProGate feature="remote_commands">
-              <MobileCarControl vehicle={vehicle} />
-            </ProGate>
-          )}
-        </div>
-      </main>
+          }>
+            <VehicleMapView vehicle={vehicle} />
+          </Suspense>
+        </main>
+      ) : (
+        <main className="relative z-10 flex-1 px-4 py-4 overflow-y-auto">
+          <div
+            className="rounded-3xl p-5 mb-4"
+            style={{
+              background: 'linear-gradient(145deg, #0c1a2e 0%, #070f1d 100%)',
+              border: '1px solid rgba(59,130,246,0.12)',
+              boxShadow: '0 0 40px rgba(59,130,246,0.06), 0 20px 60px rgba(0,0,0,0.5)',
+            }}
+          >
+            {renderMain()}
+          </div>
+        </main>
+      )}
+
 
       {/* Bottom nav */}
       <nav
@@ -121,55 +221,76 @@ export default function KumandaPage() {
         style={{ background: 'rgba(6,13,26,0.9)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.06)' }}
       >
         <div className="flex items-center justify-around py-2">
-          {[
-            {
-              label: 'Kumanda', active: !noPairedVehicle,
-              icon: (
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <rect x="4" y="9" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M6 9V7a4 4 0 018 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  <circle cx="10" cy="13" r="1.5" fill="currentColor"/>
-                </svg>
-              ),
-            },
-            {
-              label: 'Eşleştir', active: noPairedVehicle,
-              icon: (
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M10 2C7.24 2 5 4.24 5 7c0 3.75 5 11 5 11s5-7.25 5-11c0-2.76-2.24-5-5-5z" stroke="currentColor" strokeWidth="1.5"/>
-                  <circle cx="10" cy="7" r="2" stroke="currentColor" strokeWidth="1.5"/>
-                </svg>
-              ),
-            },
-            {
-              label: 'Panel', active: false,
-              href: '/login',
-              icon: (
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M2 8h16" stroke="currentColor" strokeWidth="1.5"/>
-                </svg>
-              ),
-            },
-          ].map(({ label, active, href, icon }) =>
-            href ? (
-              <Link key={label} href={href} className="flex flex-col items-center gap-1 py-1 px-4 text-white/30">
-                {icon}
-                <span className="text-[9px] font-semibold">{label}</span>
-              </Link>
-            ) : (
-              <button
-                key={label}
-                className="flex flex-col items-center gap-1 py-1 px-4 transition-colors"
-                style={{ color: active ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
-              >
-                {icon}
-                <span className="text-[9px] font-semibold">{label}</span>
-              </button>
-            )
-          )}
+          {/* Kumanda */}
+          <button
+            onClick={() => setActiveTab('kumanda')}
+            className="flex flex-col items-center gap-1 py-1 px-3 transition-colors"
+            style={{ color: activeTab === 'kumanda' ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="4" y="9" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M6 9V7a4 4 0 018 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="10" cy="13" r="1.5" fill="currentColor"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Kumanda</span>
+          </button>
+
+          {/* Eşleştir */}
+          <button
+            onClick={() => setActiveTab('eslestir')}
+            className="flex flex-col items-center gap-1 py-1 px-3 transition-colors"
+            style={{ color: activeTab === 'eslestir' ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M10 2C7.24 2 5 4.24 5 7c0 3.75 5 11 5 11s5-7.25 5-11c0-2.76-2.24-5-5-5z"
+                stroke="currentColor" strokeWidth="1.5"/>
+              <circle cx="10" cy="7" r="2" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Eşleştir</span>
+          </button>
+
+          {/* Harita */}
+          <button
+            onClick={() => setActiveTab('harita')}
+            className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
+            style={{ color: activeTab === 'harita' ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M2 5l5.5-2.5 5 2.5 5-2.5V15l-5 2.5-5-2.5-5.5 2.5V5z"
+                stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d="M7.5 2.5V15M12.5 5V17.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Harita</span>
+          </button>
+
+          {/* Teşhis */}
+          <button
+            onClick={() => setActiveTab('teshis')}
+            className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
+            style={{ color: activeTab === 'teshis' ? '#fbbf24' : 'rgba(255,255,255,0.3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M10 2L18 16H2L10 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d="M10 8v4M10 13.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Teşhis</span>
+          </button>
+
+          {/* Kayıtlar */}
+          <button
+            onClick={() => setActiveTab('kayitlar')}
+            className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
+            style={{ color: activeTab === 'kayitlar' ? '#34d399' : 'rgba(255,255,255,0.3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M4 5h12M4 9h8M4 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <rect x="2" y="2" width="16" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Kayıtlar</span>
+          </button>
         </div>
       </nav>
     </div>
+    </PwaErrorBoundary>
   );
 }

@@ -34,11 +34,21 @@ function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
   return true;
 }
 
+// ── localStorage keys (must match pairingService.ts) ────────────────────────
+const LOCAL_KEYS = {
+  VEHICLE_ID:    'caros_pair_vehicle_id',
+  API_KEY:       'caros_pair_api_key',
+  VEHICLE_NAME:  'caros_pair_vehicle_name',
+  VEHICLE_PLATE: 'caros_pair_vehicle_plate',
+} as const;
+
 interface VehicleStoreState {
   vehicles: Record<string, LiveVehicle>;
   connectionStatus: ConnectionStatus;
   loading: boolean;
   error: string | null;
+  /** Instant load from localStorage — no network, no auth. Call first. */
+  initializeFromLocal: () => void;
   initializeFromSupabase: () => Promise<void>;
   applyUpdate: (update: VehicleUpdate) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
@@ -48,6 +58,8 @@ interface VehicleStoreState {
   setVehicles: (vehicles: LiveVehicle[]) => void;
   /** Add or upsert a single vehicle (used after linking a new device). */
   addVehicle: (vehicle: LiveVehicle) => void;
+  /** Remove a vehicle by id (used after unlinking). */
+  removeVehicle: (id: string) => void;
 }
 
 export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
@@ -55,6 +67,36 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   connectionStatus: 'disconnected',
   loading: true,
   error: null,
+
+  initializeFromLocal: () => {
+    try {
+      const id    = localStorage.getItem(LOCAL_KEYS.VEHICLE_ID);
+      const key   = localStorage.getItem(LOCAL_KEYS.API_KEY);
+      if (!id || !key) { set({ loading: false }); return; }
+
+      const existing = get().vehicles[id];
+      if (existing) return; // already loaded (Supabase may have beaten us)
+
+      const vehicle: LiveVehicle = {
+        id,
+        plate:         localStorage.getItem(LOCAL_KEYS.VEHICLE_PLATE) ?? id,
+        name:          localStorage.getItem(LOCAL_KEYS.VEHICLE_NAME)  ?? 'Araç',
+        driver:        '—',
+        status:        'offline',
+        lat:           0,
+        lng:           0,
+        speed:         0,
+        fuel:          0,
+        engineTemp:    0,
+        rpm:           0,
+        odometer:      0,
+        location:      '—',
+        lastSeen:      '—',
+        lastTimestamp: 0,
+      };
+      set({ vehicles: { [id]: vehicle }, loading: false });
+    } catch { set({ loading: false }); }
+  },
 
   initializeFromSupabase: async () => {
     set({ loading: true, error: null });
@@ -169,5 +211,13 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
     set((state) => ({
       vehicles: { ...state.vehicles, [vehicle.id]: vehicle },
     }));
+  },
+
+  removeVehicle: (id: string) => {
+    set((state) => {
+      const next = { ...state.vehicles };
+      delete next[id];
+      return { vehicles: next };
+    });
   },
 }));

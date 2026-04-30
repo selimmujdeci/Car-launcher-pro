@@ -78,7 +78,7 @@ const NEAR_RADIUS_KM = 2.0;  // 2 km  → "yakınında"
 
 /* ── Konum bağlamı ───────────────────────────────────────── */
 
-function getLocationCtx(
+export function getLocationCtx(
   location: GPSLocation | null,
   home:     { lat: number; lng: number } | null,
   work:     { lat: number; lng: number } | null,
@@ -101,7 +101,7 @@ function getLocationCtx(
 
 /* ── Zaman bağlamı ───────────────────────────────────────── */
 
-function getTimeCtx(): TimeCtx {
+export function getTimeCtx(): TimeCtx {
   const h = new Date().getHours();
   if (h >= 6  && h < 12) return 'morning';
   if (h >= 12 && h < 18) return 'afternoon';

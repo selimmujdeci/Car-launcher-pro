@@ -82,12 +82,17 @@ const DataRow = memo(function DataRow() {
   const displayTemp = useRafSmoothed(engineTemp, 0.06); // termal kütle — çok yavaş
   const displayFuel = useRafSmoothedPercent(fuelLevel); // titreme bastırma
 
+  // -1 = ELM327 henüz bağlanmadı → "---" göster (sahte değer yok)
+  const rpmStr  = rpm < 0        ? '---' : rpm.toLocaleString();
+  const tempStr = engineTemp < 0 ? '---' : `${Math.round(displayTemp)}°`;
+  const fuelStr = fuelLevel  < 0 ? '---' : `${Math.round(displayFuel)}%`;
+
   return (
     <div className="grid grid-cols-3 gap-2 w-full px-3 pb-2 flex-shrink-0">
       {([
-        { label: 'RPM', value: rpm.toLocaleString(),                 warn: false },
-        { label: '°C',  value: `${Math.round(displayTemp)}°`,        warn: engineTemp > 100 },
-        { label: 'YKT', value: `${Math.round(displayFuel)}%`,        warn: fuelLevel < 15 },
+        { label: 'RPM', value: rpmStr,  warn: false },
+        { label: '°C',  value: tempStr, warn: engineTemp >= 0 && engineTemp > 100 },
+        { label: 'YKT', value: fuelStr, warn: fuelLevel  >= 0 && fuelLevel  < 15  },
       ] as const).map(({ label, value, warn }) => (
         <div key={label}
           className="flex flex-col items-center gap-0.5 py-2 rounded-xl bg-white/[0.05] border border-white/[0.08] backdrop-blur-[12px]"
@@ -108,8 +113,9 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
   numSize = 'lg',
 }: Props) {
   const { displaySpeed, data } = useFusedSpeed();
-  const perfMode = getPerformanceMode();
-  const isLite   = perfMode === 'lite';
+  const perfMode  = getPerformanceMode();
+  const isLite    = perfMode === 'lite';
+  const noSignal  = data.source === 'none'; // ELM327 bağlı değil + GPS fix yok
 
   // SVG arc offset — RAF displaySpeed ile hesaplanır → animasyon CSS transition'sız
   const spdOffset = useMemo(
@@ -177,18 +183,20 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             transform="rotate(135 150 150)"
           />
 
-          {/* Speed arc — RAF-driven, CSS transition YOK (RAF zaten interpole ediyor) */}
-          <circle
-            cx="150" cy="150" r={RADIUS}
-            fill="none"
-            stroke={arcColor}
-            strokeWidth="14"
-            strokeDasharray={`${ARC} ${CIRC}`}
-            strokeDashoffset={spdOffset}
-            strokeLinecap="round"
-            transform="rotate(135 150 150)"
-            style={glowFilter ? { filter: glowFilter } : undefined}
-          />
+          {/* Speed arc — sinyal yoksa gizli; RAF-driven, CSS transition YOK */}
+          {!noSignal && (
+            <circle
+              cx="150" cy="150" r={RADIUS}
+              fill="none"
+              stroke={arcColor}
+              strokeWidth="14"
+              strokeDasharray={`${ARC} ${CIRC}`}
+              strokeDashoffset={spdOffset}
+              strokeLinecap="round"
+              transform="rotate(135 150 150)"
+              style={glowFilter ? { filter: glowFilter } : undefined}
+            />
+          )}
 
           {/* Inner thin ring (premium/balanced only) */}
           {!isLite && (
@@ -210,30 +218,46 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
           {!isLite && <MinorTicks />}
 
           {/* Hız rakamı — data.speed (anlık raw), lerp KULLANILMAZ */}
-          <text
-            x="150" y={textY}
-            textAnchor="middle" dominantBaseline="middle"
-            fontSize={fSize} fontWeight="900" fill="var(--speedo-color,#1e293b)"
-            letterSpacing="-2"
-            fontFamily="system-ui,-apple-system,sans-serif"
-          >
-            {data.speed}
-          </text>
+          {!noSignal && (
+            <text
+              x="150" y={textY}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={fSize} fontWeight="900" fill="var(--speedo-color,#1e293b)"
+              letterSpacing="-2"
+              fontFamily="system-ui,-apple-system,sans-serif"
+            >
+              {data.speed}
+            </text>
+          )}
 
           {/* km/h etiketi */}
           <text
             x="150" y={kmhY}
             textAnchor="middle"
             fontSize="11" fontWeight="900"
-            fill={arcColor}
+            fill={noSignal ? 'rgba(255,255,255,0.25)' : arcColor}
             letterSpacing="5"
             fontFamily="system-ui,-apple-system,sans-serif"
           >
             KM/H
           </text>
 
+          {/* Sinyal bekleniyorsa merkeze uyarı metni */}
+          {noSignal && (
+            <text
+              x="150" y={textY}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize="13" fontWeight="700"
+              fill="rgba(255,255,255,0.35)"
+              letterSpacing="1"
+              fontFamily="system-ui,-apple-system,sans-serif"
+            >
+              SİNYAL BEKLENİYOR
+            </text>
+          )}
+
           {/* Kaynak göstergesi — GPS/OBD/Fused (compact modda gizli) */}
-          {!compact && data.source !== 'none' && (
+          {!compact && !noSignal && (
             <text
               x="150" y="240"
               textAnchor="middle"

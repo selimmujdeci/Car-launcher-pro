@@ -268,8 +268,8 @@ export function startARAlignment(): void {
   // Motion (gyro integration + pitch/roll from accelerometer)
   window.addEventListener('devicemotion', _motionHandler, true);
 
-  // Sync to Zustand store at 10 fps (React components)
-  _syncTimer = setInterval(_syncStore, 100);
+  // Sync to Zustand store at 2 fps — 10fps gereksiz CPU harcıyor
+  _syncTimer = setInterval(_syncStore, 500);
 }
 
 /** Stop all sensor listeners and reset alignment state. */

@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-04-28T16:09:56.618Z",
+  "deadReckoning": [
+    {
+      "scenarios": 5,
+      "errorMetersMax": 0,
+      "errorMetersAvg": 0,
+      "driftPerSecond": 0,
+      "summary": "5 farklı hız/yön/süre kombinasyonunda test edilen algoritma 0.000 m maksimum, 0.000 m ortalama hata ile deterministik konum projeksiyonu üretir; matematiksel drift sıfırdır.",
+      "passed": true
+    }
+  ],
+  "safeStorage": [
+    {
+      "scenario": "CRITICAL — immediate write (car-gps-last-known)",
+      "totalWriteAttempts": 1,
+      "actualDiskWrites": 1,
+      "writeReductionPercent": 0,
+      "dataCorrupted": false,
+      "recoverySucceeded": null,
+      "summary": "Kritik anahtar debounce bypass ile anında diske yazıldı: 1 deneme → 1 disk yazması (%0 azalma). Verify-read: BAŞARILI.",
+      "passed": true
+    },
+    {
+      "scenario": "NORMAL — 10 rapid writes debounced to 1",
+      "totalWriteAttempts": 10,
+      "actualDiskWrites": 1,
+      "writeReductionPercent": 90,
+      "dataCorrupted": false,
+      "recoverySucceeded": null,
+      "summary": "10 hızlı yazma isteği debounce ile tek disk operasyonuna indirgendi: %90 eMMC yazma azalması. Son değer korundu: true.",
+      "passed": true
+    },
+    {
+      "scenario": "Corruption recovery — localStorage self-heal",
+      "totalWriteAttempts": 0,
+      "actualDiskWrites": 0,
+      "writeReductionPercent": 0,
+      "dataCorrupted": true,
+      "recoverySucceeded": true,
+      "summary": "Filesystem bozulma simülasyonunda sistem localStorage yedekten 0 ms içinde kurtarma yaptı. Veri bütünlüğü korundu: true.",
+      "passed": true
+    }
+  ],
+  "totalTests": 4,
+  "totalPassed": 4
+}

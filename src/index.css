@@ -180,14 +180,179 @@
 [data-theme="mercedes-day"] { --bg-primary:#2C2C3A; --bg-card:rgba(54,54,69,0.97); --bg-surface:#363645; --accent:#C8A882; --accent2:#8C8C8C; --text:#EDE8E0; --border-color:rgba(200,168,130,0.30); --radius:6px; --radius-card:20px; --dock-bg:rgba(18,18,26,0.99); --dock-border-top:1px solid rgba(200,168,130,0.30); --divider-color:rgba(200,168,130,0.18); --icon-color-1:#C8A882; --icon-color-2:#8C8C8C; --font-ui:system-ui,sans-serif; --font-weight-ui:400; --letter-spacing-ui:3px; --btn-glow:none; --tile-hover-bg:rgba(200,168,130,0.10); }
 [data-theme="audi-day"]     { --bg-primary:#1E1E2C; --bg-card:rgba(40,40,58,0.97); --bg-surface:#28283A; --accent:#BB0A21; --accent2:#D0D0D0; --text:#F0F0F2; --border-color:rgba(187,10,33,0.32); --radius:2px; --radius-card:10px; --dock-bg:rgba(10,10,18,0.99); --dock-border-top:2px solid rgba(187,10,33,0.55); --divider-color:rgba(187,10,33,0.22); --icon-color-1:#BB0A21; --icon-color-2:#D0D0D0; --font-ui:system-ui,sans-serif; --font-weight-ui:900; --letter-spacing-ui:1.5px; --btn-glow:none; --tile-hover-bg:rgba(187,10,33,0.12); }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   OLED-PRO (R-3) — Saf Siyah AMOLED + Yüksek Görünürlük Cyan
+   Hedef: Güneş altında okunabilirlik + sıfır GPU yükü (blur/shadow/gradient yok).
+   Kontrast: #00E5FF / #000000 → 13.4:1 (WCAG AAA).
+   GPU: backdrop-filter, box-shadow, text-shadow tamamen devre dışı.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="oled"] {
+  --bg-primary:         #000000;           /* Pure Black — AMOLED pixel off = 0W */
+  --bg-card:            #080808;
+  --bg-card2:           rgba(8,8,8,0.97);
+  --bg-surface:         #0D0D0D;
+  --accent:             #00E5FF;           /* High-visibility Cyan — 13.4:1 on black */
+  --accent2:            #00BFA5;
+  --text:               #FFFFFF;
+  --text-dim:           #8ECDD8;
+  --text-dim2:          #B0C4CC;
+  --border-color:       rgba(255,255,255,0.15);
+  --radius:             8px;
+  --radius-card:        14px;
+  --radius-btn:         8px;
+  --radius-tile:        10px;
+  --dock-bg:            #000000;
+  --dock-border-top:    1px solid rgba(0,229,255,0.30);
+  --divider-color:      rgba(255,255,255,0.08);
+  --icon-color-1:       #00E5FF;
+  --icon-color-2:       #00BFA5;
+  --font-ui:            system-ui, -apple-system, sans-serif;
+  --font-weight-ui:     600;
+  --letter-spacing-ui:  0.02em;
+  --btn-glow:           none;              /* GPU: glow devre dışı */
+  --tile-hover-bg:      rgba(0,229,255,0.08);
+  --glass-blur:         0px;              /* GPU: blur devre dışı */
+  --glass-opacity:      1;
+}
+
+/* oled-day: gündüz versiyonu — daha güçlü kenarlıklar + amber ikincil renk güneş kontrası */
+[data-theme="oled-day"] { --bg-primary:#000000; --bg-card:#080808; --bg-card2:rgba(8,8,8,0.97); --bg-surface:#0D0D0D; --accent:#00E5FF; --accent2:#FFD600; --text:#FFFFFF; --text-dim:#8ECDD8; --text-dim2:#B0C4CC; --border-color:rgba(255,255,255,0.18); --radius:8px; --radius-card:14px; --radius-btn:8px; --radius-tile:10px; --dock-bg:#000000; --dock-border-top:1px solid rgba(0,229,255,0.45); --divider-color:rgba(255,255,255,0.12); --icon-color-1:#00E5FF; --icon-color-2:#FFD600; --font-ui:system-ui,-apple-system,sans-serif; --font-weight-ui:700; --letter-spacing-ui:0.02em; --btn-glow:none; --tile-hover-bg:rgba(0,229,255,0.10); --glass-blur:0px; --glass-opacity:1; }
+
+/* GPU sıfırlama: blur, shadow ve gradient tamamen devre dışı — CLAUDE.md §3 */
+[data-theme="oled"] *,
+[data-theme="oled-day"] * {
+  backdrop-filter:         none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow:              none !important;
+  text-shadow:             none !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SUNLIGHT UI — WCAG AAA (≥7:1) + ISO 15008:2017 Araç İçi Görsel Standartı
+   Hedef: Direkt güneş ışığında tek bakışta okunabilirlik.
+   Kontrast: Siyah/beyaz 21:1, mavi aksan/beyaz 8.6:1 (her ikisi AAA).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="sunlight"] {
+  /* ── Zemin: Saf beyaz — maksimum yansıma direnci ── */
+  --bg-primary:      #FFFFFF;
+  --bg-card:         #F2F2F2;
+  --bg-surface:      #E8E8E8;
+  --dock-bg:         #FFFFFF;
+  --dock-border-top: 3px solid #003BB5;
+
+  /* ── Metin: Saf siyah — 21:1 kontrast ── */
+  --text:            #000000;
+
+  /* ── Aksan: Derin mavi — beyaz üzerinde 8.6:1 (AAA) ── */
+  --accent:          #003BB5;
+  --accent2:         #B30000;
+
+  /* ── Kenarlık ve ayraçlar ── */
+  --border-color:    rgba(0,0,0,0.35);
+  --divider-color:   rgba(0,0,0,0.20);
+
+  /* ── İkon renkleri ── */
+  --icon-color-1:    #003BB5;
+  --icon-color-2:    #B30000;
+
+  /* ── Köşe yarıçapı: Keskin → tek bakışta yer tespiti ── */
+  --radius:          4px;
+  --radius-card:     8px;
+
+  /* ── Tipografi: Kalın, büyük, parlak ışıkta okunur ── */
+  --font-ui:         system-ui, -apple-system, sans-serif;
+  --font-weight-ui:  800;
+  --letter-spacing-ui: 0.04em;
+
+  /* ── Buton: gölge yok, yüksek kontrast ── */
+  --btn-glow:        none;
+  --tile-hover-bg:   rgba(0,59,181,0.10);
+
+  /* ── Glassmorphism sıfırla: blur güneş altında parlamayı artırır ── */
+  --glass-blur:      0px;
+  --glass-opacity:   1;
+}
+
+/* Sunlight modunda tüm blur efektlerini kapat */
+[data-theme="sunlight"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Icon stroke-width artır — güneş altında kalın çizgiler daha okunaklı */
+[data-theme="sunlight"] svg[stroke] {
+  stroke-width: 2.5 !important;
+}
+[data-theme="sunlight"] svg *[stroke] {
+  stroke-width: 2.5 !important;
+}
+
+/* Metin rengi zorunlu override — dark renk miras alınmasın */
+[data-theme="sunlight"],
+[data-theme="sunlight"] * {
+  color: inherit;
+}
+[data-theme="sunlight"] body,
+[data-theme="sunlight"] #root {
+  background: #FFFFFF !important;
+  color: #000000 !important;
+}
+
+/* .sunlight-mode — otomatik algılama (ALS/OBD) sonrası ek overrides
+   data-theme="sunlight" ile aynı değerleri zorla, mevcut tema ne olursa olsun */
+.sunlight-mode {
+  --bg-primary:      #FFFFFF !important;
+  --bg-card:         #F2F2F2 !important;
+  --bg-surface:      #E8E8E8 !important;
+  --text:            #000000 !important;
+  --accent:          #003BB5 !important;
+  --accent2:         #B30000 !important;
+  --border-color:    rgba(0,0,0,0.35) !important;
+  --font-weight-ui:  800 !important;
+  --glass-blur:      0px !important;
+}
+.sunlight-mode * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.sunlight-mode svg[stroke],
+.sunlight-mode svg *[stroke] {
+  stroke-width: 2.5 !important;
+}
+
 /* Layout Engine — fade-in when layout type changes */
 @keyframes layout-fadein {
   from { opacity: 0; transform: scale(0.985); }
   to   { opacity: 1; transform: scale(1); }
 }
 
+/* SmartCard — slide-in from bottom */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.28s cubic-bezier(0.34, 1.2, 0.64, 1) both;
+}
+
 /* Performance Mode Global Overrides */
 body.performance-mode * {
   animation: none !important;
   transition: none !important;
+}
+
+/* ── Runtime-Adaptive Utilities ─────────────────────────────────────────
+   --rt-blur / --rt-anim: 0 | 1  — AdaptiveRuntimeManager tarafından yazılır.
+   Default 1: Manager henüz yüklenmemişse efektler açık kalır (fail-safe).
+   ──────────────────────────────────────────────────────────────────────── */
+
+.heavy-blur {
+  backdrop-filter:         blur(calc(var(--rt-blur, 1) * 10px));
+  -webkit-backdrop-filter: blur(calc(var(--rt-blur, 1) * 10px));
+}
+
+.dynamic-anim {
+  transition: all calc(var(--rt-anim, 1) * 0.3s);
 }

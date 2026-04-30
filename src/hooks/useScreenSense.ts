@@ -28,6 +28,9 @@ function classifyRatio(w: number, h: number): ScreenRatio {
   if (ar < 1.0) return 'portrait';
   if (ar < 1.4) return 'square';
   if (ar < 2.0) return 'wide';
+  // Telefon landscape (küçük yükseklik + geniş ar) → ultra-wide HU ile karıştırma.
+  // Gerçek ultra-wide HU h ≥ 480 (7"+ ekran); telefon landscape h < 480.
+  if (h < 480) return 'wide';
   return 'ultra-wide';
 }
 

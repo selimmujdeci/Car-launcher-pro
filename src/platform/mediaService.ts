@@ -60,6 +60,10 @@ export interface MediaState {
   repeat:             'off' | 'one' | 'all';
   /** Bildirim erişim izni verilmemiş */
   permissionRequired: boolean;
+  /** Albüm kapağından çıkarılan dominant renk — CSS rgb bileşenleri "R, G, B" formatında.
+   *  TheaterOverlay ve MusicHub ambient efektleri için merkezi kaynak.
+   *  --album-accent-rgb CSS değişkeni olarak :root'a da uygulanır. */
+  albumAccentRgb: string;
 }
 
 /* ── Boş track — gerçek veri gelene kadar ───────────────── */
@@ -80,10 +84,11 @@ let _current: MediaState = {
   track:              { ...EMPTY_TRACK },
   activePackage:      '',
   activeAppName:      '',
-  hasSession:         false,  // Her zaman false ile başla — gerçek session gelince değişir
+  hasSession:         false,
   shuffle:            false,
   repeat:             'off',
   permissionRequired: false,
+  albumAccentRgb:     '139, 92, 246', // varsayılan: mor
 };
 
 const _listeners = new Set<(s: MediaState) => void>();
@@ -98,6 +103,74 @@ let _focusLockUntil = 0;
 
 /* ── albumArt hash cache ─────────────────────────────────── */
 let _lastArtHash = 0;
+
+/* ── Albüm Rengi (Music Hub 2.0 — Ambient Sync) ─────────────
+ * Albüm kapağından dominant rengi asenkron çeker; CSS değişkeni +
+ * MediaState.albumAccentRgb güncellenir.
+ * DJB2 hash: aynı kapak için tekrar ekstraksiyonu önler.
+ */
+const ACCENT_DEFAULT = '139, 92, 246';
+let _lastAccentHash = 0;
+
+function _extractAndApplyAccent(albumArt: string): void {
+  const hash = _djb2(albumArt);
+  if (hash === _lastAccentHash) return;
+  _lastAccentHash = hash;
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 16; // küçük örnekleme — hız+doğruluk dengesi
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, 16, 16);
+      const d = ctx.getImageData(0, 0, 16, 16).data;
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+      const n   = d.length / 4;
+      const rgb = `${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)}`;
+      // CSS değişkeni → tüm uygulama vurgu rengi
+      if (typeof document !== 'undefined') {
+        document.documentElement.style.setProperty('--album-accent-rgb', rgb);
+        document.documentElement.style.setProperty('--album-accent',     `rgb(${rgb})`);
+      }
+      updateMediaState({ albumAccentRgb: rgb });
+    } catch { /* tainted canvas veya CORS — önceki renk korunur */ }
+  };
+  img.onerror = () => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--album-accent-rgb', ACCENT_DEFAULT);
+      document.documentElement.style.setProperty('--album-accent',     `rgb(${ACCENT_DEFAULT})`);
+    }
+    updateMediaState({ albumAccentRgb: ACCENT_DEFAULT });
+  };
+  img.src = albumArt;
+}
+
+/* ── MediaSession API — sistem donanım tuşlarını yakala ─────
+ * Android WebView'da navigator.mediaSession mevcutsa, Bluetooth
+ * kulaklık / bildirim panel butonları (Next/Prev/Play/Pause) bu
+ * handler'lara yönlendirilir. isNative guard: harici komutlar
+ * Capacitor plugin üzerinden gider.
+ */
+function _setupMediaSession(): void {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  const ms = navigator.mediaSession;
+  ms.setActionHandler('play',          () => { play(); });
+  ms.setActionHandler('pause',         () => { pause(); });
+  ms.setActionHandler('nexttrack',     () => { next(); });
+  ms.setActionHandler('previoustrack', () => { previous(); });
+}
+
+function _teardownMediaSession(): void {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  const ms = navigator.mediaSession;
+  (['play', 'pause', 'nexttrack', 'previoustrack'] as MediaSessionAction[]).forEach((a) => {
+    try { ms.setActionHandler(a, null); } catch { /* bazı tarayıcılar hata fırlatır */ }
+  });
+}
 
 /* ── Session grace period — otomotiv standardı ───────────────
  * ISO 15008 / Android Auto: oturum kapanınca ekran anında boşalmamalı.
@@ -444,6 +517,8 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
       if (incomingHash !== _lastArtHash) {
         _lastArtHash = incomingHash;
         albumArt     = info.albumArt;
+        // Yeni albüm kapağı → ambient renk güncelle (async, sızıntısız)
+        _extractAndApplyAccent(info.albumArt);
       }
     }
 
@@ -538,6 +613,9 @@ export async function startMediaHub(): Promise<void> {
   if (_hubStarted) return;
   _hubStarted = true;
 
+  // MediaSession API: sistem donanım tuşlarını her zaman kaydet (native + web)
+  _setupMediaSession();
+
   // WEB MODU: tamamen pasif — fake polling yok
   if (!isNative) return;
 
@@ -569,6 +647,7 @@ export async function startMediaHub(): Promise<void> {
 
 export function stopMediaHub(): void {
   _hubStarted = false;
+  _teardownMediaSession();
   if (_hubTimer) { clearInterval(_hubTimer); _hubTimer = null; }
   if (_hubListenerStop) {
     const stop = _hubListenerStop;

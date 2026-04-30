@@ -22,6 +22,7 @@ export default function VehiclesPage() {
   const vehicles = useVehicleStore((s) => s.getList());
   const loading = useVehicleStore((s) => s.loading);
   const error = useVehicleStore((s) => s.error);
+  const removeVehicle = useVehicleStore((s) => s.removeVehicle);
   const [filter, setFilter] = useState<VehicleStatus | 'all'>('all');
   const [selected, setSelected] = useState<LiveVehicle | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -88,7 +89,13 @@ export default function VehiclesPage() {
         )}
       </div>
 
-      {selected && <VehicleModal vehicle={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <VehicleModal
+          vehicle={selected}
+          onClose={() => setSelected(null)}
+          onRemove={(id) => { removeVehicle(id); setSelected(null); }}
+        />
+      )}
       {showAddModal && <AddVehicleModal onClose={() => setShowAddModal(false)} />}
     </>
   );

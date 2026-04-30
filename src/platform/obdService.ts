@@ -14,10 +14,19 @@ import { useSyncExternalStore } from 'react';
 import { Capacitor } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
-import type { NativeOBDData, OBDStatusEvent } from './nativePlugin';
+import type { NativeOBDData } from './nativePlugin';
 import { getConfig, onPerformanceModeChange } from './performanceMode';
+import { runtimeManager }                     from '../core/runtime/AdaptiveRuntimeManager';
 import { logError } from './crashLogger';
 import { useRafSmoothed } from './rafSmoother';
+import { parseBinaryOBDFrame, hasBinaryFrame } from './obdBinaryParser';
+import {
+  hydrateCanSnapshotSync,
+  hydrateCanSnapshotAsync,
+  scheduleCanSnapshot,
+  flushCanSnapshotNow,
+  stopCanSnapshot,
+} from './canSnapshotService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -95,10 +104,10 @@ const INITIAL: OBDData = {
   // Universal
   speed: 0,
   headlights: false,
-  // ICE / Diesel
-  rpm: 750,
-  engineTemp: 88,
-  fuelLevel: 65,
+  // ICE / Diesel — tüm değerler -1: ELM327 bağlanana kadar sensör verisi yok
+  rpm: -1,
+  engineTemp: -1,
+  fuelLevel: -1,
   throttle: -1,
   intakeTemp: -1,
   boostPressure: -1,
@@ -160,7 +169,10 @@ function _getMockBase(type: VehicleType) {
 // Active mock base (set when mock starts)
 let _mockBase = MOCK_BASE_ICE;
 
-let _current: OBDData        = { ...INITIAL };
+// Tier 1 (sync): localStorage'dan anlık hydration — sıfır gecikme.
+let _current: OBDData = { ...INITIAL, ...hydrateCanSnapshotSync() };
+let _asyncHydrated = false; // Tier 2 hydration'ın tek sefer çalışmasını garantiler
+
 // Two-set listener pattern — avoids `as any` casts for useSyncExternalStore.
 // Data consumers (onOBDData) receive the full snapshot; React hooks only need a notify ping.
 const _dataListeners         = new Set<(d: OBDData) => void>();
@@ -215,18 +227,22 @@ const RPM_JUMP_LIMIT = 5_000;  // RPM/sample
 
 let _prevRpm: number | null = null;
 
-// Listen for performance mode changes and restart mock with new interval
-onPerformanceModeChange(() => {
+// performanceMode değişiminde yalnızca reconnect timer'ı iptal et.
+// Mock interval yönetimi merkezi RuntimeEngine (_unsubRuntime) tarafından yapılır.
+const _unsubPerfMode = onPerformanceModeChange(() => {
   if (_reconnectTimer !== null) {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
-  if (_running && _current.source === 'mock' && _mockTimerId !== null) {
-    clearInterval(_mockTimerId);
-    _mockTimerId = null;
-    const pollMs = getConfig().obdPollInterval;
-    _mockTimerId = setInterval(_tickMock, pollMs);
-  }
+});
+
+// RuntimeEngine mod değişimini dinle — obdPollingMs mock interval'ını güncelle.
+// Zero-Leak: HMR dispose'da _unsubRuntime çağrılır.
+const _unsubRuntime = runtimeManager.subscribe((_mode, config) => {
+  if (!_running || _current.source !== 'mock' || _mockTimerId === null) return;
+  // Merkezi runtime config'den gelen polling hızı → mock timer'ı yeniden kur
+  clearInterval(_mockTimerId);
+  _mockTimerId = setInterval(_tickMock, config.obdPollingMs);
 });
 
 /* ── Core helpers ────────────────────────────────────────── */
@@ -239,6 +255,9 @@ function _notify(): void {
   const snap = { ..._current };
   _dataListeners.forEach((fn) => fn(snap));
   _storeListeners.forEach((fn) => fn());
+  // Gerçek CAN verisi geldiğinde WebView çökmesine karşı snapshot al.
+  // scheduleCanSnapshot içeride 4s debounce ile safeStorage'a yazar.
+  if (_current.source === 'real') scheduleCanSnapshot(_current);
 }
 
 /** ISO 15031-5 §6.3: Fuel Tank Level (PID 0x2F) → litres + range */
@@ -392,6 +411,7 @@ function _tickMock(): void {
 }
 
 function _startMock(): void {
+  if (!MOCK_ENABLED) return;  // mock kapalıysa asla sahte veri başlatma
   if (_mockTimerId !== null) return;
   _mockBase = _getMockBase(_current.vehicleType);
   _merge({
@@ -400,8 +420,8 @@ function _startMock(): void {
     deviceName: '',
     ..._mockBase,
   });
-  const pollMs = getConfig().obdPollInterval;
-  _mockTimerId = setInterval(_tickMock, pollMs);
+  // Merkezi RuntimeEngine config — getConfig().obdPollInterval yerine
+  _mockTimerId = setInterval(_tickMock, runtimeManager.getConfig().obdPollingMs);
 }
 
 /**
@@ -472,20 +492,25 @@ function _stopStaleWatchdog(): void {
 function _scheduleReconnect(): void {
   if (!_running) return;
 
+  // OBD disconnect → RuntimeEngine'e bildir (bir adım downgrade — hysteresis bypass)
+  runtimeManager.reportFailure('OBD');
+
   if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    // Exhausted all attempts — switch permanently to mock
     _reconnectAttempts = 0;
-    _startMock();
+    if (MOCK_ENABLED) {
+      _startMock();
+    } else {
+      _merge({ connectionState: 'error', source: 'none' });
+    }
     return;
   }
 
   const delayMs = Math.pow(2, _reconnectAttempts) * 1_000; // 1 s, 2 s, 4 s, 8 s, 16 s
   _reconnectAttempts++;
 
-  _merge({ connectionState: 'reconnecting', source: 'mock', deviceName: '' });
-
-  // Keep mock running during the wait so UI has live data
-  _startMock();
+  // source: mock yalnızca mock aktifse; aksi halde 'none' göster (sahte veri yok)
+  _merge({ connectionState: 'reconnecting', source: MOCK_ENABLED ? 'mock' : 'none', deviceName: '' });
+  _startMock(); // MOCK_ENABLED=false ise no-op
 
   if (_reconnectTimer) clearTimeout(_reconnectTimer);
   _reconnectTimer = setTimeout(() => {
@@ -565,7 +590,7 @@ async function _startNative(): Promise<void> {
     if (_stale()) { void _removeNativeHandles(); return; }
 
     candidate =
-      devices.find((d) => /obd|elm|vlink|obdii|kw|veepeak/i.test(d.name)) ??
+      devices.find((d) => /obd|elm|vlink|obdii|kw|veepeak|icar|vgate/i.test(d.name)) ??
       devices[0] ??
       null;
 
@@ -578,7 +603,7 @@ async function _startNative(): Promise<void> {
   // 2. Register disconnect / error listener — set handle immediately to ensure cleanup
   const statusHandle = await CarLauncher.addListener(
     'obdStatus',
-    (_event: OBDStatusEvent) => {
+    () => {
       if (!_running || _nativeGeneration !== myGen) return;
       void _removeNativeHandles().then(() => _scheduleReconnect());
     },
@@ -594,6 +619,22 @@ async function _startNative(): Promise<void> {
       if (!_running || _nativeGeneration !== myGen) return;
       try {
         _lastRealDataMs = Date.now();
+
+        // ── Binary Fast-Path ────────────────────────────────────────────────
+        // Native plugin binary frame gönderirse JSON.parse tamamen atlanır.
+        // DataView ile 16-byte sabit çerçeve direkt parse edilir.
+        // parseBinaryOBDFrame() null döndürürse JSON fallback devreye girer.
+        if (hasBinaryFrame(data)) {
+          const binaryPatch = parseBinaryOBDFrame(data.binaryFrame);
+          if (binaryPatch) {
+            _merge({ ...binaryPatch, lastSeenMs: _lastRealDataMs, source: 'real' });
+            _lastRealDataMs = Date.now();
+            return; // JSON path atlandı
+          }
+          // Binary parse başarısız → JSON fallback ile devam et
+        }
+
+        // ── JSON Fallback Path ──────────────────────────────────────────────
         const sanitized = _sanitizeNative(data);
         if (sanitized) _merge({ ...sanitized, lastSeenMs: _lastRealDataMs });
       } catch (e) {
@@ -649,14 +690,12 @@ export async function connectOBD(address: string): Promise<void> {
 }
 
 /**
- * Production build'de OBD mock'u devre dışı bırakmak için:
- *   VITE_DISABLE_OBD_MOCK=true  (veya "1")
- *
- * Mock devre dışıyken ve native bağlantı kurulamazsa OBD paneli
- * "bağlı değil" durumunda kalır; sahte veri gösterilmez.
+ * Mock varsayılan olarak KAPALI — otomotiv dürüstlüğü ilkesi.
+ * Yalnızca geliştirme kolaylığı için VITE_ENABLE_OBD_MOCK=true ile açılır.
+ * Gerçek ELM327 bağlı değilken kullanıcı asla sahte 42 km/h görmemeli.
  */
-const MOCK_ENABLED = import.meta.env['VITE_DISABLE_OBD_MOCK'] !== 'true'
-  && import.meta.env['VITE_DISABLE_OBD_MOCK'] !== '1';
+const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true'
+  || import.meta.env['VITE_ENABLE_OBD_MOCK'] === '1';
 
 /**
  * Start OBD.
@@ -667,6 +706,18 @@ const MOCK_ENABLED = import.meta.env['VITE_DISABLE_OBD_MOCK'] !== 'true'
 export function startOBD(): void {
   if (_running) return;
   _running = true;
+
+  // Tier 2 async hydration — bir kez çalışır, BT bağlantısıyla yarışmaz.
+  // Filesystem okuma (~50-150ms) tamamlandığında gerçek veri henüz yoksa patch uygular.
+  if (!_asyncHydrated) {
+    _asyncHydrated = true;
+    hydrateCanSnapshotAsync().then((patch) => {
+      if (Object.keys(patch).length === 0) return;
+      if (_current.source !== 'none') return; // gerçek veri zaten aktıysa dokunma
+      _current = { ..._current, ...patch };
+      _storeListeners.forEach((fn) => fn()); // React hook'larını tetikle
+    }).catch(() => { /* Tier 1 localStorage fallback yeterli */ });
+  }
 
   void (async () => {
     try {
@@ -699,6 +750,11 @@ export function startOBD(): void {
  * Stop all OBD activity and reset state.
  */
 export function stopOBD(): void {
+  // Son gerçek CAN verisini native storage'a atomik olarak flush et
+  // (bağlantı kesilmeden önce en güncel değerler korunur).
+  if (_current.source === 'real') flushCanSnapshotNow(_current);
+  stopCanSnapshot(); // Filesystem throttle timer'ı temizle (bellek sızıntısı önleme)
+
   _running = false;
   _nativeGeneration++; // invalidate any in-flight _startNative() continuations
   _lastNotifyTime = 0; // debounce sıfırla — sonraki bildirim her zaman geçer
@@ -737,7 +793,13 @@ export function onOBDData(fn: (d: OBDData) => void): () => void {
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => { stopOBD(); _dataListeners.clear(); _storeListeners.clear(); });
+  import.meta.hot.dispose(() => {
+    stopOBD();
+    _unsubPerfMode();           // modül-seviyesi performans modu listener'ı temizle
+    _unsubRuntime();            // modül-seviyesi runtime listener'ı temizle
+    _dataListeners.clear();
+    _storeListeners.clear();
+  });
 }
 
 /* ── React hook ──────────────────────────────────────────── */

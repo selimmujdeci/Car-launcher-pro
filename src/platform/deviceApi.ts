@@ -118,3 +118,31 @@ export function useDeviceStatus(): DeviceStatus {
 
   return status;
 }
+
+/* ── Accelerometer (G-Sensor) subscription ───────────────────── */
+
+/**
+ * DeviceMotionEvent'i dinler ve ham ivme vektörünü (x, y, z m/s²) + toplam
+ * büyüklüğü callback'e iletir. Cleanup için dönen fonksiyonu çağır.
+ *
+ * iOS 13+ için izin gerektirir; tarayıcı desteklemiyorsa sessizce no-op döner.
+ */
+export function subscribeToAccelerometer(
+  callback: (x: number, y: number, z: number, total: number) => void,
+): () => void {
+  if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) {
+    return () => undefined;
+  }
+
+  const handler = (e: DeviceMotionEvent): void => {
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
+    const x = a.x ?? 0;
+    const y = a.y ?? 0;
+    const z = a.z ?? 0;
+    callback(x, y, z, Math.sqrt(x * x + y * y + z * z));
+  };
+
+  window.addEventListener('devicemotion', handler);
+  return () => window.removeEventListener('devicemotion', handler);
+}

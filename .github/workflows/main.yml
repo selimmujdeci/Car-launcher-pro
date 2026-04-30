@@ -1,0 +1,193 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caros Pro CI — Automotive Grade Quality Gate
+#
+# CLAUDE.md §Automotive Grade Engineering Standards — Zero-Defect Deployment
+#
+# Triggers : push → main, dev  |  pull_request → main, dev
+# Jobs     : lint-typecheck → test → build  (serial fail-fast)
+#
+# Automotive Critical Tests (must pass):
+#   src/__tests__/geofence.test.ts
+#   src/__tests__/obdService.test.ts
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+# Cancel in-flight runs for the same branch/PR to save minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  # Placeholder values — vitest mocks supabase; only real builds need live creds
+  VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL      || 'https://placeholder.supabase.co' }}
+  VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
+  VITE_DISABLE_OBD_MOCK:  'false'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 1 — Lint & Type-Check
+#   Fast static analysis gate. Must pass before test or build can run.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  lint_typecheck:
+    name: Lint & Type-Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm            # caches ~/.npm keyed on package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript — composite build check
+        # tsc -b honours tsconfig.json references (app + node)
+        # Fails on any type error — same gate as `npm run build`
+        run: npx tsc -b --noEmit
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 2 — Unit Tests (Vitest / jsdom)
+#   Automotive Critical: geofence.test.ts + obdService.test.ts must be green.
+#   Runs only after lint_typecheck succeeds (fail-fast).
+# ─────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    needs: lint_typecheck
+    runs-on: ubuntu-latest
+
+    permissions:
+      checks: write          # required by test-reporter to post Check annotations
+      pull-requests: write   # required to post PR comments with test summary
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Create reports directory
+        run: mkdir -p reports
+
+      - name: Vitest — full suite
+        # --reporter=default   → human-readable terminal output
+        # --reporter=junit     → machine-readable XML for test-reporter action
+        # --outputFile.junit   → path for the JUnit reporter only
+        # --passWithNoTests=false → CI fails if test discovery finds 0 tests
+        run: |
+          npx vitest run \
+            --reporter=default \
+            --reporter=junit \
+            --outputFile.junit=reports/junit.xml \
+            --passWithNoTests=false
+        env:
+          CI: true
+
+      - name: Verify automotive-critical tests ran
+        # Ensure the two safety-critical test files were discovered and reported.
+        # If vitest skips/misses them the XML will lack their suite entries.
+        if: always()
+        shell: bash
+        run: |
+          for suite in "geofence" "obdService"; do
+            if ! grep -q "classname=\"${suite}" reports/junit.xml 2>/dev/null; then
+              echo "::error::Automotive critical test suite '${suite}' not found in JUnit report. Build blocked."
+              exit 1
+            fi
+          done
+          echo "✓ Automotive critical suites confirmed: geofence, obdService"
+
+      - name: Publish test results
+        # Posts inline annotations and a summary table to the PR / commit check.
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name:              Unit Test Results
+          path:              reports/junit.xml
+          reporter:          java-junit
+          fail-on-error:     true
+          fail-on-empty:     true
+
+      - name: Upload JUnit artifact
+        if: always()           # preserve report even on failure for post-mortem
+        uses: actions/upload-artifact@v4
+        with:
+          name:            test-results-${{ github.run_number }}
+          path:            reports/junit.xml
+          retention-days:  30
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 3 — Production Build
+#   Verifies `tsc -b && vite build` completes without error.
+#   Runs only after both lint_typecheck AND test pass.
+# ─────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Production Build
+    needs: [lint_typecheck, test]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      # Cache Vite/Rolldown transform cache between builds on the same branch
+      - name: Restore Vite build cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vite
+          key:  vite-${{ runner.os }}-${{ hashFiles('package-lock.json', 'vite.config.*') }}
+          restore-keys: |
+            vite-${{ runner.os }}-
+
+      - name: Build
+        run: npm run build
+        env:
+          CI: true
+
+      - name: Verify dist output
+        # Confirm the entry point was emitted — guards against silent Vite failures
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html not found — build may have silently failed."
+            exit 1
+          fi
+          echo "✓ dist/index.html present"
+          du -sh dist/
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name:            dist-${{ github.sha }}
+          path:            dist/
+          retention-days:  7

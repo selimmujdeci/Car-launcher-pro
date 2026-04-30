@@ -133,6 +133,19 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
       'ultra-wide': { flexDir: 'row' },
     },
   },
+  'oled-pro': {
+    variant:     'glass',
+    label:       'OLED Pro',
+    description: 'Saf siyah AMOLED, sıfır GPU yükü',
+    mapBasis:    '42%',
+    speedoBasis: '18rem',
+    accentHex:   '#00E5FF',
+    bgHex:       '#000000',
+    ratioOverrides: {
+      portrait:     { flexDir: 'column' },
+      'ultra-wide': { flexDir: 'row' },
+    },
+  },
 };
 
 /* ── Default fallback ─────────────────────────────────────── */

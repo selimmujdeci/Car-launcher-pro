@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import { initFcmService }           from '../platform/fcmService';
+import { initConnectivityService }  from '../platform/connectivityService';
 import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
 import { enableWakeWord, disableWakeWord } from '../platform/wakeWordService';
 import { startTrafficService, updateTrafficLocation } from '../platform/trafficService';
@@ -27,6 +29,9 @@ import { initializeAddressBook } from '../platform/addressBookService';
 import { useStore } from '../store/useStore';
 import type { GPSLocation } from '../platform/gpsService';
 import type { AppSettings } from '../store/useStore';
+import { startThermalWatchdog, stopThermalWatchdog } from '../platform/thermalWatchdog';
+import { runtimeManager }                    from '../core/runtime/AdaptiveRuntimeManager';
+import { RuntimeMode }                       from '../core/runtime/runtimeTypes';
 
 interface UseLayoutServicesParams {
   settings: AppSettings;
@@ -39,6 +44,32 @@ export function useLayoutServices({
   updateSettings,
   location,
 }: UseLayoutServicesParams): void {
+  // Adaptive Runtime Engine — ThermalWatchdog + store override sync
+  useEffect(() => {
+    startThermalWatchdog();
+    return () => { stopThermalWatchdog(); };
+  }, []);
+
+  useEffect(() => {
+    const override = settings.runtimeOverride;
+    if (override !== 'AUTO') {
+      runtimeManager.setMode(override as RuntimeMode, 'user');
+    }
+    // 'AUTO' → açılışta _detectCapabilities() zaten doğru modu belirledi
+  }, [settings.runtimeOverride]);
+
+  // Connectivity Service — çevrimdışı kuyruk başlat
+  useEffect(() => {
+    void initConnectivityService();
+  }, []);
+
+  // FCM Push-to-Wake — token kayıt ve push dinleyici
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    initFcmService().then((fn) => { cleanup = fn; });
+    return () => cleanup?.();
+  }, []);
+
   // GPS tracking — tek merkezden başlat/durdur
   useEffect(() => {
     startGPSTracking().catch((e: unknown) => {

@@ -6,7 +6,7 @@ const isDev = process.env['NODE_ENV'] === 'development';
 
 const config: CapacitorConfig = {
   appId: 'com.cockpitos.pro',
-  appName: 'CockpitOS',
+  appName: 'Caros Pro',
   webDir: 'dist',
   android: {
     allowMixedContent: isDev,
@@ -16,7 +16,7 @@ const config: CapacitorConfig = {
     backgroundColor: '#060d1a',
     loggingBehavior: isDev ? 'debug' : 'none',
     initialFocus: false,
-    appendUserAgent: 'CockpitOS/1.0',
+    appendUserAgent: 'CarosPro/1.0',
   },
   server: {
     androidScheme: isDev ? 'http' : 'https',

@@ -14,9 +14,12 @@ import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { getConfig } from './performanceMode';
 import { speakFeedback } from './ttsService';
-import { askAI, resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+import { askAI, resolveApiKey, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+import { classifySemantic, enrichBackground } from './ai/semanticAiService';
+import { fromSemanticResult } from './intentEngine';
 import { onDTCState } from './dtcService';
 import { getMaintenanceAssessment } from './vehicleMaintenanceService';
+import { onOBDData } from './obdService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -181,6 +184,8 @@ function dispatchDriving(cmd: ParsedCommand): void {
 
 async function _buildEnrichedCtx(ctx?: VehicleContext): Promise<VehicleContext> {
   const base: VehicleContext = ctx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false };
+
+  // ── DTC kodları ──────────────────────────────────────────
   let dtcCodes: VehicleContext['activeDTCCodes'] = base.activeDTCCodes;
   try {
     let snap: { codes: VehicleContext['activeDTCCodes'] } | undefined;
@@ -189,12 +194,61 @@ async function _buildEnrichedCtx(ctx?: VehicleContext): Promise<VehicleContext> 
     if (snap) dtcCodes = snap.codes;
   } catch { /* ignore */ }
 
+  // ── Bakım değerlendirmesi ─────────────────────────────────
   let maintenanceAssessments: VehicleContext['maintenanceAssessments'] = base.maintenanceAssessments;
   try {
     maintenanceAssessments = await getMaintenanceAssessment();
   } catch { /* ignore */ }
 
-  return { ...base, activeDTCCodes: dtcCodes, maintenanceAssessments };
+  // ── T-12: CAN-BUS / OBD canlı verisi ─────────────────────
+  // "Arabanın durumu nasıl?" sorusuna AI güncel hız/yakıt/sıcaklık bilgisiyle cevap verebilsin.
+  // §2 Sensor Resiliency: veri alınamazsa mevcut context'i bozmaz.
+  let canSpeed: number | undefined;
+  let canFuel:  number | undefined;
+  let canTemp:  number | undefined;
+  try {
+    let obdSnap: { speedKmh: number; fuelLevel: number; engineTemp: number } | undefined;
+    const unsub = onOBDData((d) => {
+      obdSnap = { speedKmh: d.speed, fuelLevel: d.fuelLevel, engineTemp: d.engineTemp };
+    });
+    unsub(); // tek anlık snapshot — sürekli abone olmuyoruz
+    if (obdSnap) {
+      canSpeed = obdSnap.speedKmh;
+      canFuel  = obdSnap.fuelLevel;
+      canTemp  = obdSnap.engineTemp;
+    }
+  } catch { /* CAN verisi yoksa zarifçe devam et */ }
+
+  // speedKmh: ctx'ten gelen değer varsa öncelikli, yoksa CAN
+  const speedKmh  = base.speedKmh || canSpeed || 0;
+  const isDriving = speedKmh > 2;
+
+  return {
+    ...base,
+    speedKmh,
+    isDriving,
+    activeDTCCodes:        dtcCodes,
+    maintenanceAssessments,
+    // CAN verisini AI sistem mesajına gömülü gönder (VehicleContext'e extra alan)
+    ...(canFuel  !== undefined ? { fuelLevelPct:   canFuel  } : {}),
+    ...(canTemp  !== undefined ? { engineTempC:     canTemp  } : {}),
+  };
+}
+
+/* ── Ara TTS geri bildirimleri ────────────────────────────────── */
+
+const THINKING_PHRASES = [
+  'Bakıyorum hemen...',
+  'Anlıyorum...',
+  'Düşünüyorum...',
+  'Bir saniye...',
+  'Kontrol ediyorum...',
+  'Tabii, bakayım...',
+];
+
+function _speakThinking(): void {
+  const phrase = THINKING_PHRASES[Math.floor(Math.random() * THINKING_PHRASES.length)];
+  speakFeedback(phrase);
 }
 
 /* ── Processing ───────────────────────────────────────────── */
@@ -212,16 +266,9 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return false;
   }
 
-  const result = parseCommandFull(trimmed);
-  if (result.command && result.command.confidence >= 0.5) {
-    _lastCommandTime = now;
-    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
-    return true;
-  }
-
-  const rawKey = localStorage.getItem('car-launcher-storage'); // simplification for logic
-  const provider = rawKey ? JSON.parse(rawKey)?.state?.settings?.aiVoiceProvider : 'none';
-  
+  // ── API anahtarlarını al (AI fallback için gerekli) ─────────
+  const rawKey  = localStorage.getItem('car-launcher-storage');
+  const provider = rawKey ? (JSON.parse(rawKey)?.state?.settings?.aiVoiceProvider ?? 'none') : 'none';
   const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
   const [geminiKey, haikuKey] = await Promise.all([
     sks.get('geminiApiKey'),
@@ -230,21 +277,107 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   const apiKey = resolveApiKey(provider, provider === 'gemini' ? geminiKey : haikuKey);
   const hasNet = typeof navigator !== 'undefined' && navigator.onLine;
 
-  if (provider !== 'none' && apiKey && hasNet) {
-    push({ status: 'processing', transcript: trimmed, error: null, suggestions: [] });
+  // ── Yerel parser ────────────────────────────────────────────
+  const result = parseCommandFull(trimmed);
+
+  // Exact match (confidence 1.0) → anında dispatch, AI çağrısı yok
+  if (result.command && result.command.confidence >= 1.0) {
+    _lastCommandTime = now;
+    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    return true;
+  }
+
+  // Fuzzy match (0.5–0.99) → yerel dispatch + arka plan proaktif log
+  if (result.command && result.command.confidence >= 0.5) {
+    _lastCommandTime = now;
+    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    // Proaktif bağlam — sonucu beklemiyoruz, UI etkilenmiyor
+    if (result.needsSemantic && provider !== 'none' && apiKey && hasNet) {
+      enrichBackground(trimmed, provider, apiKey, ctx);
+    }
+    return true;
+  }
+
+  // ── Hiç eşleşme yok → Semantic NLP devreye giriyor ─────────
+  if (provider !== 'none' && apiKey) {
+    if (!hasNet) {
+      // Çevrimdışı bilgilendirme
+      speakFeedback('İnternet yok, temel komutları kullanabilirsin');
+      push({
+        status:      'error',
+        error:       'İnternet bağlantısı yok',
+        transcript:  trimmed,
+        suggestions: result.suggestions,
+      });
+      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3500);
+      return false;
+    }
+
+    // Ara sesli geri bildirim — AI yanıtını beklerken yerel öneriler hazırda tut (R-5 Hybrid)
+    push({ status: 'processing', transcript: trimmed, error: null, suggestions: result.suggestions });
+    _speakThinking();
+
     const enrichedCtx = await _buildEnrichedCtx(ctx);
+
+    // ── Semantik NLP (POI + bağlamsal anlama) ───────────────
+    const semanticResult = await classifySemantic(trimmed, provider, apiKey, enrichedCtx);
+
+    if (semanticResult.source !== 'offline' && semanticResult.confidence >= 0.45) {
+      const intent = fromSemanticResult(semanticResult, trimmed);
+      if (intent) {
+        _lastCommandTime = Date.now();
+        // semanticResult'ı mevcut AI handler zincirine ilet (VoiceAssistant, commandExecutor vb.)
+        const aiCompat: AIVoiceResult = {
+          intent:     intent.type as AIVoiceResult['intent'],
+          payload:    intent.payload as Record<string, unknown>,
+          confidence: semanticResult.confidence,
+          feedback:   semanticResult.feedback,
+        };
+        _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
+        speakFeedback(semanticResult.feedback);
+        if (!ctx?.isDriving) {
+          push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
+          setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2000);
+        }
+        return true;
+      }
+    }
+
+    // Semantik anlamlandıramadıysa — genel AI'ı dene (mevcut aiVoiceService)
     const aiResult = await askAI(trimmed, provider, apiKey, enrichedCtx);
     if (aiResult && aiResult.intent !== 'UNKNOWN' && aiResult.confidence >= 0.45) {
       _lastCommandTime = Date.now();
       _aiHandlers.forEach((fn) => fn(aiResult, ctx));
+      speakFeedback(aiResult.feedback);
       if (!ctx?.isDriving) {
         push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
         setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2000);
       }
       return true;
     }
+
+    // AI null döndü (timeout / abort / invalid) — yerel parser açık fallback (CLAUDE.md §2).
+    // Local parser result of truth; AI sadece zenginleştirici, asla tek yetkili değil.
+    if (result.command) {
+      _lastCommandTime = now;
+      if (result.suggestions.length > 0) speakFeedback('İnternet yavaş, şunu mu demek istediniz?');
+      if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+      return true;
+    }
+    if (result.suggestions.length > 0) {
+      speakFeedback('İnternet yavaş, şunu mu demek istediniz?');
+      push({
+        status:      'error',
+        error:       'İnternet yavaş, şunu mu demek istediniz?',
+        transcript:  trimmed,
+        suggestions: result.suggestions,
+      });
+      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 4000);
+      return false;
+    }
   }
 
+  // Düşük güvenlikli yerel eşleşme varsa son çare olarak kullan
   if (result.command) {
     _lastCommandTime = now;
     if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }

@@ -298,7 +298,7 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
                   </span>
                 </div>
               ) : (
-                <Waveform active={isListening} volume={voice.volumeLevel} />
+                <Waveform active={isListening} />
               )}
             </div>
 

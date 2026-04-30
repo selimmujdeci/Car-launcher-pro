@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react';
-import { PenTool as Tool, Droplets, Fuel, ShieldCheck, ClipboardCheck } from 'lucide-react';
+import { PenTool as Tool, Droplets, ShieldCheck, ClipboardCheck } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useVehicleStore } from '../../platform/vehicleDataLayer/VehicleStateStore';
 import { getMaintenanceAssessment, type MaintenanceAssessment } from '../../platform/vehicleMaintenanceService';

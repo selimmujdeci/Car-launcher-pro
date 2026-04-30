@@ -92,7 +92,14 @@ const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
       id: 'osm-layer',
       type: 'raster' as const,
       source: 'osm-tiles',
-      paint: { 'raster-opacity': 1 },
+      paint: {
+        'raster-opacity': 1,
+        'raster-contrast': 0.7,
+        'raster-brightness-min': 0,
+        'raster-brightness-max': 0.22,
+        'raster-saturation': -1,
+        'raster-hue-rotate': 195,
+      },
     },
   ],
 });

@@ -52,6 +52,11 @@ import android.view.WindowManager;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+
+import android.content.SharedPreferences;
+
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -646,6 +651,96 @@ public class CarLauncherPlugin extends Plugin {
     private volatile OutputStream    obdOutput  = null;
     private volatile boolean         obdRunning = false;
 
+    // ── Aktif BT Tarama (uygulama içi OBD eşleştirme) ──────────────────────
+
+    private android.content.BroadcastReceiver _discoveryReceiver = null;
+
+    @PluginMethod
+    public void startOBDDiscovery(PluginCall call) {
+        BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
+        if (bt == null || !bt.isEnabled()) {
+            call.reject("BT_DISABLED", "Bluetooth kapalı");
+            return;
+        }
+
+        // Önceki receiver varsa kaldır
+        stopOBDDiscoveryInternal();
+
+        _discoveryReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context ctx, android.content.Intent intent) {
+                String action = intent.getAction();
+                if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                    BluetoothDevice dev = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                    if (dev == null) return;
+                    String name = null;
+                    try { name = dev.getName(); } catch (SecurityException ignored) {}
+                    if (name == null || name.isEmpty()) name = dev.getAddress();
+
+                    JSObject event = new JSObject();
+                    event.put("name",    name);
+                    event.put("address", dev.getAddress());
+                    event.put("bonded",  dev.getBondState() == BluetoothDevice.BOND_BONDED);
+                    notifyListeners("obdDeviceFound", event);
+
+                } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                    JSObject event = new JSObject();
+                    event.put("finished", true);
+                    notifyListeners("obdDiscoveryFinished", event);
+                }
+            }
+        };
+
+        android.content.IntentFilter filter = new android.content.IntentFilter();
+        filter.addAction(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        getContext().registerReceiver(_discoveryReceiver, filter);
+
+        try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
+        try {
+            bt.startDiscovery();
+        } catch (SecurityException e) {
+            call.reject("PERM_DENIED", "Bluetooth tarama izni yok");
+            return;
+        }
+
+        // Bonded cihazları da hemen gönder (zaten pair edilmiş OBD'ler)
+        try {
+            java.util.Set<BluetoothDevice> bonded = bt.getBondedDevices();
+            if (bonded != null) {
+                for (BluetoothDevice dev : bonded) {
+                    String name = null;
+                    try { name = dev.getName(); } catch (SecurityException ignored) {}
+                    if (name == null || name.isEmpty()) name = dev.getAddress();
+                    JSObject event = new JSObject();
+                    event.put("name",    name);
+                    event.put("address", dev.getAddress());
+                    event.put("bonded",  true);
+                    notifyListeners("obdDeviceFound", event);
+                }
+            }
+        } catch (SecurityException ignored) {}
+
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void stopOBDDiscovery(PluginCall call) {
+        stopOBDDiscoveryInternal();
+        call.resolve();
+    }
+
+    private void stopOBDDiscoveryInternal() {
+        if (_discoveryReceiver != null) {
+            try { getContext().unregisterReceiver(_discoveryReceiver); } catch (Exception ignored) {}
+            _discoveryReceiver = null;
+        }
+        BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
+        if (bt != null) {
+            try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
+        }
+    }
+
     @PluginMethod
     public void scanOBD(PluginCall call) {
         try {
@@ -692,13 +787,35 @@ public class CarLauncherPlugin extends Plugin {
                 if (bt == null) throw new IOException("Bluetooth desteklenmiyor");
 
                 BluetoothDevice device = bt.getRemoteDevice(address);
-                BluetoothSocket socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-                obdSocket = socket;
 
                 try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
 
-                socket.connect();
+                // Önce secure RFCOMM dene; bazı head unit'lerde çalışmaz
+                // → insecure RFCOMM fallback (iCar 3 / ELM327 klonlar için gerekli)
+                BluetoothSocket socket = null;
+                Exception lastErr = null;
 
+                try {
+                    socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                    socket.connect();
+                } catch (Exception secureEx) {
+                    lastErr = secureEx;
+                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                    socket = null;
+                    // Insecure fallback — pairing PIN gerektirmez, head unit uyumsuzluğunu aşar
+                    try {
+                        socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+                        socket.connect();
+                        lastErr = null; // başarılı
+                    } catch (Exception insecureEx) {
+                        try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                        socket = null;
+                        // Her iki yol da başarısız — orijinal hatayı fırlat
+                        throw secureEx;
+                    }
+                }
+
+                obdSocket = socket;
                 obdInput  = socket.getInputStream();
                 obdOutput = socket.getOutputStream();
 
@@ -1525,7 +1642,7 @@ public class CarLauncherPlugin extends Plugin {
             + ".st{text-align:center;font-size:11px;color:rgba(255,255,255,.2);letter-spacing:.12em}"
             + ".st.e{color:#fca5a5}"
             + "</style></head><body>"
-            + "<div class='hdr'><span class='d'></span>CockpitOS &#183; Yolcu Kontrolü</div>"
+            + "<div class='hdr'><span class='d'></span>Caros Pro &#183; Yolcu Kontrolü</div>"
             + "<div class='card'>"
             + "<div class='t1' id='ti'>Bağlanıyor…</div>"
             + "<div class='t2' id='ar'></div>"
@@ -1688,6 +1805,41 @@ public class CarLauncherPlugin extends Plugin {
     private final ReverseSignalGuard reverseGuard     = new ReverseSignalGuard();
     private       NativeToJsBridge  canJsBridge;
 
+    // ── Industrial-Grade Secure Storage ──────────────────────────────────────
+    // Android Keystore + EncryptedSharedPreferences.
+    // APP_SECRET JS tarafında YOK — şifreleme anahtarı donanımda.
+    private volatile SharedPreferences _securePrefs = null;
+    private static final String SECURE_PREFS_FILE = "caros_secure_v1";
+
+    private SharedPreferences getSecurePrefs() {
+        if (_securePrefs != null) return _securePrefs;
+        try {
+            // AES256_GCM: Android Keystore backed (hardware-backed on API 23+)
+            MasterKey masterKey = new MasterKey.Builder(getContext())
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build();
+            _securePrefs = EncryptedSharedPreferences.create(
+                getContext(),
+                SECURE_PREFS_FILE,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "EncryptedSharedPreferences açılamadı: " + e.getMessage());
+            // Fallback: normal SharedPreferences (degraded mode, logged)
+            _securePrefs = getContext().getSharedPreferences(SECURE_PREFS_FILE + "_fallback",
+                android.content.Context.MODE_PRIVATE);
+        }
+        return _securePrefs;
+    }
+
+    @Override
+    public void load() {
+        // CanBusManager'ı ForegroundService watchdog'a inject et
+        CarLauncherForegroundService.setCanBusManager(canBusManager);
+    }
+
     @PluginMethod
     public void startCanBus(PluginCall call) {
         if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
@@ -1716,6 +1868,327 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void stopCanBus(PluginCall call) {
         canBusManager.stop();
+        call.resolve();
+    }
+
+    // T-7: JS'e sürekli CAN veri akışı ──────────────────────────────────────
+
+    /** JS tarafının CAN veri akışına abone olması için. */
+    @PluginMethod(returnType = PluginMethod.RETURN_CALLBACK)
+    public void startCanBusUpdates(PluginCall call) {
+        call.setKeepAlive(true);
+
+        if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
+
+        // Seri port bilgisini döndür
+        JSObject info = new JSObject();
+        info.put("port",    canBusManager.openPortPath() != null
+                            ? canBusManager.openPortPath() : "none");
+        info.put("running", true);
+        call.resolve(info);
+
+        canBusManager.start((frame) -> {
+            java.util.List<CanFrameDecoder.CanSignal> signals = canFrameDecoder.decode(frame);
+            VehicleCanData data = canSignalMapper.process(signals);
+            if (data == null) return;
+
+            if (data.speed != null) reverseGuard.updateSpeed(data.speed);
+
+            VehicleCanData filtered = data;
+            if (Boolean.TRUE.equals(data.reverse) && !reverseGuard.isValid(true)) {
+                filtered = new VehicleCanData.Builder()
+                    .speed(data.speed != null ? data.speed : 0f)
+                    .reverse(false)
+                    .build();
+            }
+
+            // JS'e event olarak ilet
+            canJsBridge.emit(filtered);
+        });
+    }
+
+    /** CAN veri akışını durdurur. */
+    @PluginMethod
+    public void stopCanBusUpdates(PluginCall call) {
+        canBusManager.stop();
+        call.resolve();
+    }
+
+    // ── T-5: Background Service Hardening ─────────────────────────────────────
+
+    /**
+     * JS → Native: Servisi 30 saniye IMPORTANCE_HIGH moda çeker.
+     * FCM push geldiğinde veya kritik komut işlenirken çağrılır.
+     */
+    @PluginMethod
+    public void wakeUpService(PluginCall call) {
+        CarLauncherForegroundService svc = CarLauncherForegroundService.instance;
+        if (svc != null) {
+            svc.wakeUp();
+            call.resolve();
+        } else {
+            // Servis ölmüşse yeniden başlat
+            try {
+                Context ctx = getContext();
+                android.content.Intent intent =
+                    new android.content.Intent(ctx, CarLauncherForegroundService.class);
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(intent);
+                } else {
+                    ctx.startService(intent);
+                }
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("Servis başlatılamadı: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * JS → Native: Çevrimdışı JSON veriyi native tampona gönder.
+     */
+    @PluginMethod
+    public void enqueueOfflineData(PluginCall call) {
+        String payload = call.getString("payload", "");
+        CarLauncherForegroundService svc = CarLauncherForegroundService.instance;
+        if (svc != null && payload != null && !payload.isEmpty()) {
+            svc.enqueueData(payload);
+        }
+        call.resolve();
+    }
+
+    /**
+     * JS → Native: Native tamponu boşalt, verileri JS'e geri ver.
+     */
+    @PluginMethod
+    public void drainOfflineBuffer(PluginCall call) {
+        CarLauncherForegroundService svc = CarLauncherForegroundService.instance;
+        JSObject result = new JSObject();
+        if (svc != null) {
+            String[] items = svc.drainDataBuffer();
+            JSArray  arr   = new JSArray();
+            for (String item : items) arr.put(item);
+            result.put("items", arr);
+            result.put("count", items.length);
+        } else {
+            result.put("items", new JSArray());
+            result.put("count", 0);
+        }
+        call.resolve(result);
+    }
+
+    // ── T-8: Hardware Bridge — MCU Komutları ──────────────────────────────────
+
+    /**
+     * MCU'ya komut gönderir. SerialPortHandler açıksa gerçek donanıma,
+     * kapalıysa log mesajı bırakır (graceful degradation).
+     */
+    private boolean sendMcuCommand(byte[] packet, String label) {
+        if (packet == null) {
+            android.util.Log.e("CarLauncherPlugin", label + ": geçersiz paket (whitelist reddi)");
+            return false;
+        }
+        boolean ok = canBusManager.sendCommand(packet);
+        if (ok) android.util.Log.i("CarLauncherPlugin", label + ": MCU'ya gönderildi");
+        else    android.util.Log.w("CarLauncherPlugin", label + ": MCU bağlı değil");
+        return ok;
+    }
+
+    @PluginMethod
+    public void lockDoors(PluginCall call) {
+        boolean ok = sendMcuCommand(
+            com.cockpitos.pro.can.McuCommandFactory.lockDoors(), "lockDoors");
+        JSObject res = new JSObject();
+        res.put("sent", ok);
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void unlockDoors(PluginCall call) {
+        boolean ok = sendMcuCommand(
+            com.cockpitos.pro.can.McuCommandFactory.unlockDoors(), "unlockDoors");
+        JSObject res = new JSObject();
+        res.put("sent", ok);
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void honkHorn(PluginCall call) {
+        boolean ok = sendMcuCommand(
+            com.cockpitos.pro.can.McuCommandFactory.honkHorn(), "honkHorn");
+        JSObject res = new JSObject();
+        res.put("sent", ok);
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void flashLights(PluginCall call) {
+        boolean ok = sendMcuCommand(
+            com.cockpitos.pro.can.McuCommandFactory.flashLights(), "flashLights");
+        JSObject res = new JSObject();
+        res.put("sent", ok);
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void triggerAlarm(PluginCall call) {
+        boolean ok = sendMcuCommand(
+            com.cockpitos.pro.can.McuCommandFactory.alarmOn(), "triggerAlarm");
+        JSObject res = new JSObject();
+        res.put("sent", ok);
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void stopAlarm(PluginCall call) {
+        boolean ok = sendMcuCommand(
+            com.cockpitos.pro.can.McuCommandFactory.alarmOff(), "stopAlarm");
+        JSObject res = new JSObject();
+        res.put("sent", ok);
+        call.resolve(res);
+    }
+
+    // ── H-4 Native Command Queue API ─────────────────────────────────────
+
+    /**
+     * CommandService.java'nın WebView yokken biriktirdiği bekleyen komut
+     * ID'lerini döner. JS tarafı açılınca bu ID'lerle Supabase'den komut detayını
+     * çeker ve commandListener üzerinden işler.
+     * returns: { commands: JSON string of QueuedNativeCommand[] }
+     */
+    @PluginMethod
+    public void getQueuedNativeCommands(PluginCall call) {
+        String json = CommandService.getQueuedCommands(getContext());
+        JSObject res = new JSObject();
+        res.put("commands", json);
+        call.resolve(res);
+    }
+
+    /**
+     * CommandService.java'nın offline çalıştırdığı MCU komutlarının
+     * sonuç listesini döner. JS tarafı bu sonuçları Supabase'e PATCH eder.
+     * returns: { results: JSON string of NativeCommandResult[] }
+     */
+    @PluginMethod
+    public void getNativeCommandResults(PluginCall call) {
+        String json = CommandService.getCommandResults(getContext());
+        JSObject res = new JSObject();
+        res.put("results", json);
+        call.resolve(res);
+    }
+
+    /**
+     * Komut kuyruğunu ve sonuç listesini temizler.
+     * JS tarafı drainNativeCommandQueue() tamamladıktan sonra çağırır.
+     */
+    @PluginMethod
+    public void clearNativeCommandQueue(PluginCall call) {
+        CommandService.clearAll(getContext());
+        call.resolve();
+    }
+
+    // ── Command Service Durum API ─────────────────────────────────────────
+
+    /**
+     * JS → Native: CommandService (FCM) ve CarLauncherForegroundService
+     * çalışma durumunu döner.
+     *
+     * returns: { running: boolean, fgServiceRunning: boolean }
+     *
+     * Not: CommandService bir FirebaseMessagingService'dir — sistem tarafından
+     * yönetilir, doğrudan "çalışıyor" kontrolü yapılamaz. FCM token'ının
+     * kayıtlı olup olmadığı ve ForegroundService durumu birlikte raporlanır.
+     */
+    @PluginMethod
+    public void getCommandServiceStatus(PluginCall call) {
+        boolean fgRunning = CarLauncherForegroundService.getInstance() != null;
+
+        // FCM kaydı: token mevcutsa servis kayıtlı demektir
+        android.content.SharedPreferences prefs =
+            getContext().getSharedPreferences("fcm_token_cache", android.content.Context.MODE_PRIVATE);
+        boolean fcmRegistered = prefs.contains("fcm_token");
+
+        JSObject res = new JSObject();
+        res.put("running",         fcmRegistered); // FCM servisi OS tarafından yönetilir
+        res.put("fgServiceRunning", fgRunning);
+        call.resolve(res);
+    }
+
+    // ── Secure Storage API ────────────────────────────────────────────────
+
+    /**
+     * JS → Native: Hassas veriyi Android Keystore şifreli deposuna yazar.
+     * JS tarafında APP_SECRET veya şifreleme anahtarı YOKTUR.
+     * params: { key: string, value: string }
+     */
+    @PluginMethod
+    public void secureStoreSet(PluginCall call) {
+        String key   = call.getString("key",   "");
+        String value = call.getString("value", "");
+        if (key == null || key.isEmpty()) { call.reject("key gerekli"); return; }
+        try {
+            SharedPreferences prefs = getSecurePrefs();
+            SharedPreferences.Editor editor = prefs.edit();
+            if (value == null || value.isEmpty()) {
+                editor.remove(key);
+            } else {
+                editor.putString(key, value);
+            }
+            editor.apply();
+            call.resolve();
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "secureStoreSet hatası: " + e.getMessage());
+            call.reject("Güvenli depolama yazma hatası: " + e.getMessage());
+        }
+    }
+
+    /**
+     * JS → Native: Android Keystore şifreli deposundan veri okur.
+     * params: { key: string }
+     * returns: { value: string | null }
+     */
+    @PluginMethod
+    public void secureStoreGet(PluginCall call) {
+        String key = call.getString("key", "");
+        if (key == null || key.isEmpty()) { call.reject("key gerekli"); return; }
+        try {
+            SharedPreferences prefs = getSecurePrefs();
+            String value = prefs.getString(key, null);
+            JSObject result = new JSObject();
+            result.put("value", value);
+            call.resolve(result);
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "secureStoreGet hatası: " + e.getMessage());
+            call.reject("Güvenli depolama okuma hatası: " + e.getMessage());
+        }
+    }
+
+    /**
+     * JS → Native: Anahtarı siler.
+     * params: { key: string }
+     */
+    @PluginMethod
+    public void secureStoreRemove(PluginCall call) {
+        String key = call.getString("key", "");
+        if (key == null || key.isEmpty()) { call.reject("key gerekli"); return; }
+        try {
+            getSecurePrefs().edit().remove(key).apply();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Silme hatası: " + e.getMessage());
+        }
+    }
+
+    /**
+     * JS → Native: Supabase yapılandırmasını native heartbeat için sakla.
+     * Uygulama açılışında bir kez çağrılır.
+     */
+    @PluginMethod
+    public void setSupabaseConfig(PluginCall call) {
+        String url       = call.getString("url", "");
+        String anonKey   = call.getString("anonKey", "");
+        String vehicleId = call.getString("vehicleId", "");
+        CarLauncherForegroundService.setSupabaseConfig(url, anonKey, vehicleId);
         call.resolve();
     }
 

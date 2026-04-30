@@ -105,6 +105,15 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
   // Canlı durum hesabı (kaydetmeden önce önizleme)
   const reminders = computeReminders({ ...m, ...form }, odometer);
 
+  // Zero Mock filtresi: yalnızca gerçek veriye dayanan, aksiyon gerektiren satırlar gösterilir.
+  // 'ok' → aksiyon gerekmez, summary barını kirletir.
+  // oil_change + lastOilChangeKm===0 → kullanıcı baseline girmemiş, hesap anlamsız.
+  const visibleReminders = reminders.filter((r) => {
+    if (r.urgency === 'ok') return false;
+    if (r.id === 'oil_change' && (form.lastOilChangeKm ?? 0) === 0) return false;
+    return true;
+  });
+
   const setField = useCallback(
     <K extends keyof FormState>(key: K, val: FormState[K]) => {
       setForm((f) => ({ ...f, [key]: val }));
@@ -149,16 +158,22 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
 
         {/* Durum özeti */}
         <div className="flex gap-2 px-5 py-3 border-b border-white/5 overflow-x-auto flex-shrink-0">
-          {reminders.map((r) => (
-            <div
-              key={r.id}
-              className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border ${URGENCY_STYLE[r.urgency]}`}
-            >
-              <span className="text-[9px] font-bold uppercase tracking-wider">{r.label}</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider opacity-60">{URGENCY_LABEL[r.urgency]}</span>
-              <span className="text-[10px] font-medium">{r.detail}</span>
-            </div>
-          ))}
+          {visibleReminders.length === 0 ? (
+            <span className="text-emerald-400 text-[11px] font-medium py-2">
+              Tüm bakımlar güncel
+            </span>
+          ) : (
+            visibleReminders.map((r) => (
+              <div
+                key={r.id}
+                className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border ${URGENCY_STYLE[r.urgency]}`}
+              >
+                <span className="text-[9px] font-bold uppercase tracking-wider">{r.label}</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider opacity-60">{URGENCY_LABEL[r.urgency]}</span>
+                <span className="text-[10px] font-medium">{r.detail}</span>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Form */}

@@ -31,7 +31,7 @@ const throttledStorage = createJSONStorage(() => ({
 export const useVehicleStore = create<VehicleStore>()(
   persist(
     (set, get) => ({
-      speed: 0,
+      speed: null,    // null = sensör bağlantısı yok; 0 = bağlı + araç duruyor
       reverse: false,
       fuel: null,
       heading: null,

@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-04-28T16:27:47.148Z",
+  "totalTests": 4,
+  "totalPassed": 4,
+  "deadReckoning": [
+    {
+      "scenarios": 5,
+      "errorMetersMax": null,
+      "errorMetersAvg": null,
+      "driftPerSecond": null,
+      "distancesMeters": [
+        0,
+        13.88888888888889,
+        138.88888888888889,
+        200,
+        750
+      ],
+      "passed": true,
+      "summary": "5 hız/yön/süre kombinasyonunda algoritma hatasız çalıştı. Hesaplanan mesafe aralığı: 0.0–750.0 m. Hata metrikleri (errorMeters, driftPerSecond) gerçek GPS ground-truth gerektirdiğinden N/A."
+    }
+  ],
+  "safeStorage": [
+    {
+      "scenario": "CRITICAL — immediate write (car-gps-last-known)",
+      "totalWriteAttempts": 1,
+      "actualDiskWrites": 1,
+      "writeReductionPercent": 0,
+      "dataCorrupted": false,
+      "recoverySucceeded": null,
+      "passed": true,
+      "summary": "1 safeSetRaw çağrısı → 1 disk yazması. Verify-read: BAŞARILI."
+    },
+    {
+      "scenario": "NORMAL — 10 rapid writes debounced",
+      "totalWriteAttempts": 10,
+      "actualDiskWrites": 1,
+      "writeReductionPercent": 90,
+      "dataCorrupted": false,
+      "recoverySucceeded": null,
+      "passed": true,
+      "summary": "10 safeSetRaw çağrısı → 1 disk yazması. Debounce öncesi disk yazması: 0. Son değer korundu: true."
+    },
+    {
+      "scenario": "Corruption recovery — localStorage self-heal",
+      "totalWriteAttempts": 0,
+      "actualDiskWrites": 0,
+      "writeReductionPercent": null,
+      "dataCorrupted": true,
+      "recoverySucceeded": true,
+      "passed": true,
+      "summary": "Filesystem bozulma simülasyonu sonrası localStorage yedekten kurtarma: BAŞARILI. Yazma denemesi yapılmadı."
+    }
+  ]
+}

@@ -275,7 +275,7 @@ export function SetupWizard() {
           {step === 0 && (
             <div className="w-full flex flex-col items-center gap-5 text-center">
               <div>
-                <h1 className="text-2xl font-bold text-primary mb-2">CockpitOS</h1>
+                <h1 className="text-2xl font-bold text-primary mb-2">Caros Pro</h1>
                 <p className="text-slate-400 text-sm leading-relaxed max-w-sm px-2">
                   Aracınız için tasarlanmış dijital kokpit. Birkaç adımda
                   kişiselleştirin ve yola çıkın.

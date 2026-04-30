@@ -189,6 +189,11 @@ function pruneIfStale(map: UsageMap): UsageMap {
 let _usageCache: UsageMap | null = null;
 
 function getCachedUsage(): UsageMap {
+  if (_usageCache) {
+    // localStorage dışarıdan temizlendiyse (test teardown, OS kota temizliği,
+    // safeStorage LRU eviction) cache'i geçersizleştir — stale veri önlenir.
+    if (!localStorage.getItem(USAGE_KEY)) _usageCache = null;
+  }
   if (!_usageCache) {
     _usageCache = pruneIfStale(loadUsage());
   }
@@ -681,10 +686,6 @@ export function detectDrivingMode(
     (gpsSpeed !== undefined && gpsSpeed > 5) ||
     (decayed  !== undefined && decayed  > 5);
 
-  // En güvenilir mevcut hızı decay kaydına al
-  const speedToRecord = obdSpeed ?? gpsSpeed;
-  if (speedToRecord !== undefined) _recordSpeed(speedToRecord);
-
   // ── Kademe 1: OBD hızı (CAN bus / tekerlek enkoderi — en güvenilir) ─
   if (obdSpeed !== undefined) {
     if (obdSpeed < 1 && !isDefinitelyMoving) return 'idle';
@@ -770,7 +771,11 @@ type SmartParams = {
  * "Navigation UI must not be replaced by entertainment content while vehicle is moving."
  */
 function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): SmartSnapshot {
-  const map         = getCachedUsage();
+  const map = getCachedUsage();
+  // Hız kaydı: buildSnapshot gerçek sensör verisiyle çağrılır — decay için kaydet.
+  // detectDrivingMode artık _recordSpeed çağırmaz (pure function); kayıt buradan yapılır.
+  const speedForRecord = p.obdSpeed ?? p.gpsSpeedKmh;
+  if (speedForRecord !== undefined) _recordSpeed(speedForRecord);
   // OBD ve GPS ayrı ayrı iletilir — detectDrivingMode kendi hiyerarşisini uygular
   const drivingMode = detectDrivingMode(p.device, p.obdSpeed, p.gpsSpeedKmh);
   const timeContext = getTimeContext();
@@ -902,6 +907,7 @@ export function useSmartEngine(
         return;
       }
       lastNotifiedSpeed = d.speed;
+      _recordSpeed(d.speed); // decay için gerçek OBD hızını kaydet
       const newMode: DrivingMode = detectDrivingMode({ btConnected: false, charging: false }, d.speed);
       const modeChanged = newMode !== prevModeRef.current;
       if (modeChanged) {
@@ -938,6 +944,7 @@ export function useSmartEngine(
     if (paramsRef.current.obdSpeed !== undefined) return; // Kademe 1 önceliği: OBD
 
     const prev    = paramsRef.current;
+    _recordSpeed(gpsSpeedKmh); // decay için gerçek GPS hızını kaydet
     // detectDrivingMode'a OBD=undefined, GPS=gpsSpeedKmh iletilir (hiyerarşi korunur)
     const oldMode = detectDrivingMode(prev.device, undefined, prev.gpsSpeedKmh);
     const newMode = detectDrivingMode(prev.device, undefined, gpsSpeedKmh);

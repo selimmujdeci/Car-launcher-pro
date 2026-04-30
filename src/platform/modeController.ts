@@ -21,7 +21,7 @@
 
 import { create } from 'zustand';
 import { useEffect } from 'react';
-import { useVisionStore, type VisionState } from './visionEngine';
+import { useVisionStore, type VisionState } from './visionStore';
 
 /* ─────────────────────────────────────────────────────────────── */
 /* TYPES                                                           */

@@ -20,6 +20,7 @@
 import type { VehicleState }         from './vehicleDataLayer/types';
 import type { VehicleSignalResolver } from './vehicleDataLayer/VehicleSignalResolver';
 import { pushVehicleEvent }           from './vehicleIdentityService';
+import { getFusedSpeed }              from './speedFusion';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -27,6 +28,8 @@ import { pushVehicleEvent }           from './vehicleIdentityService';
 const HEARTBEAT_MS    = 10_000;
 /** Anlık push için minimum hız değişimi (km/h) */
 const SPEED_DELTA_KMH = 10;
+/** OBD timeout sonrası ani spike'ı yumuşatma penceresi (ms) */
+const OBD_SMOOTHING_MS = 500;
 /** Anlık push için minimum konum değişimi (metre) */
 const POS_DELTA_M     = 50;
 
@@ -41,17 +44,19 @@ type TelemetryEventType =
   | 'valet_alert';
 
 interface TelemetryPayload {
-  speed:    number;
-  reverse:  boolean;
-  fuel:     number | null;
-  heading:  number | null;
-  lat:      number | null;
-  lng:      number | null;
-  accuracy: number | null;
+  speed:           number;
+  reverse:         boolean;
+  fuel:            number | null;
+  heading:         number | null;
+  lat:             number | null;
+  lng:             number | null;
+  accuracy:        number | null;
+  /** Güven skoru 0.0–1.0: push anındaki speedFusion confidence değeri */
+  speedConfidence: number;
   /** Monotonic Δms — saat atlama (clock-jump) güvenli */
-  ts:       number;
-  event:    TelemetryEventType;
-  metadata?: Record<string, unknown>;
+  ts:              number;
+  event:           TelemetryEventType;
+  metadata?:       Record<string, unknown>;
 }
 
 /* ── Yardımcı: Haversine mesafesi (metre) ───────────────────── */
@@ -86,6 +91,11 @@ export class TelemetryService {
 
   /** performance.now() başlangıç noktası — monotonic Δ için */
   private _origin = 0;
+
+  /** OBD smoothing: ani spike'ları yumuşatmak için son sıfır-öncesi hız */
+  private _lastNonZeroSpeed = 0;
+  /** OBD smoothing: hız 0'a düştüğünde başlayan pencere (Date.now, ms) */
+  private _zeroStartTs = 0;
 
   private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private _unsub: (() => void) | null = null;
@@ -135,10 +145,31 @@ export class TelemetryService {
 
   private _onPatch(patch: Partial<VehicleState>): void {
     // Canlı state'i birleştir (spread zinciri yerine tek tek atama — daha az GC)
-    if ('speed'    in patch) this._state.speed    = patch.speed    ?? 0;
+    if ('speed' in patch) {
+      const raw = patch.speed ?? 0;
+      const safe = Number.isFinite(raw) ? raw : 0; // NaN / Infinity koruma
+      // OBD timeout smoothing: ani 0-spike'ı OBD_SMOOTHING_MS içinde lineer interpolasyonla
+      if (safe === 0 && this._lastNonZeroSpeed > 5) {
+        if (this._zeroStartTs === 0) this._zeroStartTs = Date.now();
+        const elapsed = Date.now() - this._zeroStartTs;
+        this._state.speed = elapsed < OBD_SMOOTHING_MS
+          ? Math.round(this._lastNonZeroSpeed * (1 - elapsed / OBD_SMOOTHING_MS))
+          : 0;
+      } else {
+        this._zeroStartTs = 0;
+        if (safe > 0) this._lastNonZeroSpeed = safe;
+        this._state.speed = safe;
+      }
+    }
     if ('reverse'  in patch) this._state.reverse  = patch.reverse  ?? false;
-    if ('fuel'     in patch) this._state.fuel     = patch.fuel     ?? null;
-    if ('heading'  in patch) this._state.heading  = patch.heading  ?? null;
+    if ('fuel'     in patch) {
+      const v = patch.fuel;
+      this._state.fuel = (v != null && Number.isFinite(v)) ? v : null; // NaN / Infinity koruma
+    }
+    if ('heading'  in patch) {
+      const v = patch.heading;
+      this._state.heading = (v != null && Number.isFinite(v)) ? v : null; // NaN / Infinity koruma
+    }
     if ('location' in patch) this._state.location = patch.location ?? null;
 
     /* 1 ── REVERSE: event-driven — değişim milisaniyesinde push */
@@ -149,7 +180,7 @@ export class TelemetryService {
 
     /* 2 ── HIZ DELTA: >10 km/h sıçrama → throttle bypass */
     if ('speed' in patch && patch.speed != null) {
-      if (Math.abs(patch.speed - this._lastSent.speed) > SPEED_DELTA_KMH) {
+      if (Math.abs(patch.speed - (this._lastSent.speed ?? 0)) > SPEED_DELTA_KMH) {
         this._push('speed_delta');
         return;
       }
@@ -180,15 +211,16 @@ export class TelemetryService {
     };
 
     const payload: TelemetryPayload = {
-      speed:    this._state.speed,
-      reverse:  this._state.reverse,
-      fuel:     this._state.fuel,
-      heading:  this._state.heading,
-      lat:      this._state.location?.lat      ?? null,
-      lng:      this._state.location?.lng      ?? null,
-      accuracy: this._state.location?.accuracy ?? null,
+      speed:           this._state.speed ?? 0,
+      reverse:         this._state.reverse,
+      fuel:            this._state.fuel,
+      heading:         this._state.heading,
+      lat:             this._state.location?.lat      ?? null,
+      lng:             this._state.location?.lng      ?? null,
+      accuracy:        this._state.location?.accuracy ?? null,
+      speedConfidence: getFusedSpeed().confidence,
       // Monotonic Δ — Date.now() yerine performance.now() ile saat atlaması engeli
-      ts:       Math.round(performance.now() - this._origin),
+      ts:              Math.round(performance.now() - this._origin),
       event,
       metadata,
     };

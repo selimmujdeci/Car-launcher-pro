@@ -94,7 +94,9 @@ function loadPerformanceMode(): PerformanceMode {
       const cores = navigator.hardwareConcurrency ?? 2;
       const memGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 2;
       const memMb = Math.max(512, memGb * 1024);
-      if (cores > 4 && memMb > 2048) return 'premium';
+      // Aftermarket head unit tuzağı: yüksek RAM ama zayıf CPU.
+      // Hem core hem RAM yüksek olmalı; RAM tek başına yeterli değil.
+      if (cores > 6 && memMb > 3072) return 'premium';
       if (cores < 2 || memMb < 1024) return 'lite';
       return 'balanced';
     }

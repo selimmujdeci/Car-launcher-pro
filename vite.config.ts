@@ -92,7 +92,15 @@ function removeLayers(css: string): string {
   return result;
 }
 
+// SharedArrayBuffer için zorunlu: COOP + COEP → crossOriginIsolated = true
+const _coopCoepHeaders = {
+  'Cross-Origin-Opener-Policy':   'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
 export default defineConfig({
+  server:  { headers: _coopCoepHeaders },
+  preview: { headers: _coopCoepHeaders },
   optimizeDeps: {
     // Vite 8/rolldown CJS interop fix: react-i18next → use-sync-external-store/shim
     // require("react") çağrısı React chunk'u hazır olmadan çalıştığında null döner.

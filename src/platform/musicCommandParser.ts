@@ -133,7 +133,11 @@ function detectSource(normalized: string, raw: string): { source: MusicSource; r
 
     // Eşleşen alanı raw'da da bul (büyük/küçük harf korunsun)
     // Basit: raw içinde normalized match'e karşılık gelen segment'i sil
-    const rawMatch = raw.match(new RegExp(match[0].replace(/\s+/g, '\\s+') + SUFFIX_PATTERN.source + '?', 'i'));
+    // SUFFIX_PATTERN.source sonu '$' içerdiğinden doğrudan '?' ile değiştirilemez:
+    // /...ten)$?/i → "Nothing to repeat" hatası ($ anchor sayısal değil, niceleyici alamaz).
+    // Çözüm: '$' kaldırılıp gruba '?' eklenir → /...ten)?/i
+    const suffixOptional = SUFFIX_PATTERN.source.replace(/\$$/, '') + '?';
+    const rawMatch = raw.match(new RegExp(match[0].replace(/\s+/g, '\\s+') + suffixOptional, 'i'));
     let remaining  = rawMatch ? raw.replace(rawMatch[0], '').trim() : raw;
 
     // "Spotify'dan ... aç" → "dan" önce boşluk + kaynak vardı
@@ -168,8 +172,8 @@ const PLAY_VERBS = [
   'baslat', 'goster', 'yukle',
 ];
 
-// Fiil çekim ekleriyle biten pattern
-const VERB_SUFFIX = /\s+(?:çal(?:ıver)?|oynat|aç|dinle|başlat|göster|yükle|çalsın)(?:\s+bana)?$/i;
+// Fiil çekim ekleriyle biten pattern (hem aksan'lı hem aksan'sız form — "aç"/"ac", "çal"/"cal" vb.)
+const VERB_SUFFIX = /\s+(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle|başlat|baslat|göster|goster|yükle|yukle|çalsın|calsin)(?:\s+bana)?$/i;
 
 const ADD_FAVORITE_PATTERN = /(?:bu\s+şarkıyı?\s+)?favor[iı](?:ler)?(?:ime|e)?\s+ekle/i;
 const SHUFFLE_PATTERN      = /karışık(?:\s+(?:aç|çal|oynat|başlat))?|shuffle(?:\s+(?:aç|çal|oynat))?/i;
@@ -198,10 +202,30 @@ const GENERIC_WORDS = new Set([
   'bir', 've', 'ile', 'bana', 'benim', 'de', 'da', 'en', 'bir',
 ]);
 
+/**
+ * "aç" fiili tek başına müzik anlamına gelmez.
+ * "haritayı aç", "ayarları aç", "kamerayı aç" gibi komutlar
+ * müzik parser'ına girip yanlış query oluşturmasın.
+ * Kaynak yokken (source=null) bu kelimelerin olduğu query'ler reddedilir.
+ */
+const NON_MUSIC_TARGETS = new Set([
+  'harita', 'haritayi', 'haritaya', 'maps', 'navigasyon', 'navigasyonu',
+  'ayar', 'ayarlari', 'ayarlara', 'settings',
+  'kamera', 'kamerayi', 'galeri', 'galeriyi',
+  'telefon', 'telefonu', 'arama', 'mesaj', 'mesaji',
+  'alarm', 'alarmı', 'alarmi', 'takvim', 'takvimi',
+  'uygulama', 'uygulamayi', 'sistem',
+]);
+
+// Tek başına kalan fiil — öncesinde boşluk olmaksızın tam eşleşme.
+// Kaynak çıkarımından sonra queryRaw="aç" gibi kalıntı fiilin temizlenmesi için.
+const STANDALONE_VERB = /^(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle|başlat|baslat|göster|goster|yükle|yukle|çalsın|calsin)(?:\s+bana)?$/i;
+
 function cleanQuery(q: string): string {
   return q
-    .replace(VERB_SUFFIX, '')              // fiil kaldır
-    .replace(/^(?:bir\s+)?/i, '')          // "bir" kelimesi başta
+    .replace(VERB_SUFFIX, '')       // " aç" gibi sondaki fiil + boşluk
+    .replace(STANDALONE_VERB, '')   // tek başına kalan "aç"/"ac" kalıntısı
+    .replace(/^(?:bir\s+)?/i, '')   // "bir" kelimesi başta
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -284,6 +308,10 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
   // Generic word kontrolü — tek generic kelime varsa skip
   const queryTokens = normalizeForDetection(query).split(' ').filter(t => t.length > 1);
   if (queryTokens.length === 1 && GENERIC_WORDS.has(queryTokens[0])) return null;
+
+  // UI hedef kontrolü — kaynak yokken "haritayı", "ayarları" gibi UI bileşen isimleri
+  // müzik sorgusu DEĞİLDİR: "haritayı aç" → open_maps, "ayarları aç" → open_settings.
+  if (!source && queryTokens.every(t => NON_MUSIC_TARGETS.has(t))) return null;
 
   /* ── 6. Query type inference ─────────────────── */
   const queryType = inferQueryType(query, trimmed);

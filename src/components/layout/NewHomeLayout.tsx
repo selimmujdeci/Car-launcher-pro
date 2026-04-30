@@ -493,6 +493,9 @@ export const NewHomeLayout = memo(function NewHomeLayout({
   if (base === 'pro') {
     return <ProLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} onOpenRearCam={onOpenRearCam} onOpenDashcam={onOpenDashcam} smart={smart} />;
   }
+  if (base === 'oled') {
+    return <ProLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} onOpenRearCam={onOpenRearCam} onOpenDashcam={onOpenDashcam} smart={smart} />;
+  }
 
   // fallback — original dark premium layout
   return (
