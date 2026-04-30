@@ -33,6 +33,10 @@ import { useSystemStore }          from './store/useSystemStore';
 import { startGeofenceService, stopGeofenceService } from './platform/security/geofenceService';
 import { GeofenceAlarmOverlay }    from './components/security/GeofenceAlarmOverlay';
 import { runtimeManager }          from './core/runtime/AdaptiveRuntimeManager';
+import { startNativeGuardBridge }  from './platform/native/NativeGuardBridge';
+import { restoreOdometer }         from './platform/vehicleDataLayer';
+import { useVehicleStore }         from './platform/vehicleDataLayer/VehicleStateStore';
+import { CarLauncher }             from './platform/nativePlugin';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -64,6 +68,33 @@ function App() {
   // Runtime Engine — crash recovery + ilk mod logu (tüm servislerden önce)
   useEffect(() => {
     runtimeManager.start();
+  }, []);
+
+  // Native Guard Bridge — heartbeat + odo persist + mode sync (native only)
+  useEffect(() => {
+    return startNativeGuardBridge();
+  }, []);
+
+  // Crash Recovery — WebView önceki oturumda çöktüyse native'den odometer kurtar
+  // vehicleDataLayer başlamadan önce store güncellenir; async tamamlanınca
+  // çalışan worker'a da restoreOdometer() ile iletilir.
+  useEffect(() => {
+    if (!isNative) return;
+    void (async () => {
+      try {
+        const result = await CarLauncher.getPersistedOdometer?.();
+        if (!result) return;
+        const nativeKm = result.km;
+        if (!Number.isFinite(nativeKm) || nativeKm <= 0) return;
+        const storeKm = useVehicleStore.getState().odometer ?? 0;
+        // 100m tolerans: küçük fark gürültüdür (4s safeStorage debounce)
+        if (nativeKm > storeKm + 0.1) {
+          useVehicleStore.getState().updateVehicle({ odometer: nativeKm });
+          restoreOdometer(nativeKm); // çalışan worker'ın _odoKm'ini de güncelle
+          console.info(`[App] Crash recovery: odo ${storeKm.toFixed(3)} → ${nativeKm.toFixed(3)} km`);
+        }
+      } catch { /* native metot henüz implement edilmemişse sessizce geç */ }
+    })();
   }, []);
 
   useEffect(() => {

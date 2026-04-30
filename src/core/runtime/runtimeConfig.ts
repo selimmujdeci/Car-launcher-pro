@@ -63,6 +63,23 @@ const BASIC_JS_CONFIG: RuntimeConfig = Object.freeze({
 } as const);
 
 /**
+ * POWER_SAVE — Akü Koruma Modu (11.8 V–12.0 V arası voltaj)
+ *
+ * Amacı: şarj sistemi çalışmıyorken ya da araç uzun süre beklemedeyken
+ * akünün tamamen boşalmasını önlemek.
+ * Internet polling 5 dakikaya çekilir (BatteryProtectionService yönetir).
+ * GPS/OBD minimum frekans, animasyon sıfır.
+ */
+const POWER_SAVE_CONFIG: RuntimeConfig = Object.freeze({
+  gpsUpdateMs:      8_000,    // 0.125 Hz — konum güncellemesi minimuma indirildi
+  obdPollingMs:     15_000,   // ~0.067 Hz — bağlantı stabilitesi önceklikli
+  uiFpsTarget:      15,       // 15fps — yeterli ama düşük
+  enableBlur:       false,
+  enableAnimations: false,
+  loggingLevel:     'silent', // eMMC yazma koruması
+} as const);
+
+/**
  * SAFE_MODE — Kritik kurtarma / çok eski donanım (<200 MHz, Mali-200)
  *
  * Minimum kaynak kullanımı. Uygulama çalışıyor ama sadece temel
@@ -88,6 +105,7 @@ export const RUNTIME_CONFIGS: Readonly<Record<RuntimeMode, RuntimeConfig>> = Obj
   [RuntimeMode.PERFORMANCE]: PERFORMANCE_CONFIG,
   [RuntimeMode.BALANCED]:    BALANCED_CONFIG,
   [RuntimeMode.BASIC_JS]:    BASIC_JS_CONFIG,
+  [RuntimeMode.POWER_SAVE]:  POWER_SAVE_CONFIG,
   [RuntimeMode.SAFE_MODE]:   SAFE_MODE_CONFIG,
 } as const);
 

@@ -26,6 +26,14 @@ export function updateGeofenceZones(zones: WorkerGeofenceZone[]): void {
 }
 
 /**
+ * Crash recovery: native storage'dan kurtarılan km değerini çalışan worker'a ilet.
+ * VehicleSignalResolver henüz başlamamışsa sessizce yok sayılır.
+ */
+export function restoreOdometer(km: number): void {
+  _activeResolver?.restoreOdometer(km);
+}
+
+/**
  * startVehicleDataLayer — OBD/GPS/CAN veri hattını, telemetri push'unu
  * ve uzaktan komut kanalını başlatır.
  *

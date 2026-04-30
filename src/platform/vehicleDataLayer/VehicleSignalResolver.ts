@@ -118,6 +118,14 @@ export class VehicleSignalResolver {
     this._send({ type: 'UPDATE_GEOFENCE', zones });
   }
 
+  /**
+   * Crash recovery: native storage'dan kurtarılan km değerini worker'a ilet.
+   * Worker yalnızca mevcut _odoKm'den büyükse uygular (Strict Monotonicity).
+   */
+  restoreOdometer(km: number): void {
+    this._send({ type: 'RESTORE_ODO', km });
+  }
+
   // ── SAB polling (RAF-based, ~60fps) ────────────────────────────────────
   //
   // Worker tek-yazardır; Atomics.store gen counter → release fence.

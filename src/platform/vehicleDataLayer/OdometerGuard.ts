@@ -102,6 +102,26 @@ export class OdometerGuard {
     this._refLng = lng;
   }
 
+  /**
+   * Güvenilir bir kaynaktan (crash recovery / native storage) başlangıç km
+   * değeri bildir. Startup guard hızlandırılır: ilk 3 GPS fix beklenmez.
+   * Bir sonraki GPS fix doğrudan jump guard'dan geçer (ref null olduğu için pass).
+   *
+   * Sadece OdometerGuard'ın GPS sanity mantığını etkiler; _odoKm worker'ın
+   * kendi state'inde güncellenmeli (RESTORE_ODO mesajıyla).
+   *
+   * @param km  Native storage'dan gelen güvenilir km değeri (sadece log için saklanır)
+   */
+  setInitialValue(km: number): void {
+    // Startup guard'ı geç — native'den gelen değer güvenilir
+    this._startupDone  = true;
+    this._startupCount = STARTUP_SKIP;
+    // Lat/Lng referansı sıfır kalır: bir sonraki GPS fix'te jump guard pas geçer
+    this._refLat = null;
+    this._refLng = null;
+    void km; // lint: parametre acknowledged, dahili km takibi worker'da
+  }
+
   /** Guard'ı başlangıç durumuna döndür (yeni oturum / test teardown). */
   reset(): void {
     this._startupCount = 0;

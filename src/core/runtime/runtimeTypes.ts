@@ -27,6 +27,8 @@ export const RuntimeMode = {
   PERFORMANCE: 'PERFORMANCE',
   BALANCED:    'BALANCED',
   BASIC_JS:    'BASIC_JS',
+  /** Akü koruma modu — düşük voltajda sistem kaynaklarını minimize et (11.8V–12.0V arası) */
+  POWER_SAVE:  'POWER_SAVE',
   SAFE_MODE:   'SAFE_MODE',
 } as const;
 

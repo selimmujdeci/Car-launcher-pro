@@ -29,9 +29,10 @@ import { safeGetRaw, safeSetRaw }          from '../../utils/safeStorage';
 
 const MODE_RANK: Readonly<Record<RuntimeMode, number>> = {
   [RuntimeMode.SAFE_MODE]:   0,
-  [RuntimeMode.BASIC_JS]:    1,
-  [RuntimeMode.BALANCED]:    2,
-  [RuntimeMode.PERFORMANCE]: 3,
+  [RuntimeMode.POWER_SAVE]:  1,  // akü koruma — BASIC_JS'den bir adım aşağı
+  [RuntimeMode.BASIC_JS]:    2,  // eski 1 → 2
+  [RuntimeMode.BALANCED]:    3,  // eski 2 → 3
+  [RuntimeMode.PERFORMANCE]: 4,  // eski 3 → 4
 } as const;
 
 /* ── Sabitler ────────────────────────────────────────────────────── */
@@ -86,6 +87,9 @@ class AdaptiveRuntimeManager {
   /** start() idempotency guard — birden fazla çağrıya karşı. */
   private _started = false;
 
+  /** Akü voltaj tavanı — bu mod üstüne çıkış engellenir; null = kısıtlama yok. */
+  private _powerCeiling: RuntimeMode | null = null;
+
   private readonly _listeners = new Set<ModeChangeListener>();
 
   /* ── Constructor ────────────────────────────────────────────── */
@@ -137,6 +141,11 @@ class AdaptiveRuntimeManager {
    * @param reason   Değişikliği tetikleyen kaynak (ör. 'thermal', 'user', 'auto')
    */
   setMode(newMode: RuntimeMode, reason: ModeReason): void {
+    // Power ceiling (akü koruma): voltaj düşükse yüksek moda çıkmayı engelle
+    if (this._powerCeiling !== null && MODE_RANK[newMode] > MODE_RANK[this._powerCeiling]) {
+      newMode = this._powerCeiling;
+    }
+
     if (newMode === this._mode) {
       // Hedef zaten aktif mod — bekleyen upgrade'i de iptal et (stabilize oldu)
       this._cancelUpgrade();
@@ -244,6 +253,32 @@ class AdaptiveRuntimeManager {
   }
 
   /* ══════════════════════════════════════════════════════════════
+     Power Ceiling API (Akü Koruma)
+  ══════════════════════════════════════════════════════════════ */
+
+  /**
+   * Akü voltajı bazlı mod tavanı.
+   *
+   * ceiling !== null olduğunda setMode() bu modun üstüne çıkamaz.
+   * Mevcut mod tavan üstündeyse anlık downgrade uygulanır (güvenlik).
+   *
+   * @param ceiling  Maksimum izin verilen RuntimeMode; null = kısıtlama yok
+   */
+  setPowerCeiling(ceiling: RuntimeMode | null): void {
+    this._powerCeiling = ceiling;
+    if (ceiling !== null && MODE_RANK[this._mode] > MODE_RANK[ceiling]) {
+      // Mevcut mod tavan üstünde — bekleyen upgrade iptal, anlık downgrade
+      this._cancelUpgrade();
+      this._commit(ceiling, 'power-ceiling');
+    }
+  }
+
+  /** Aktif güç tavanını döner (null = kısıtlama yok). */
+  getPowerCeiling(): RuntimeMode | null {
+    return this._powerCeiling;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
      Public Read API
   ══════════════════════════════════════════════════════════════ */
 
@@ -270,6 +305,7 @@ class AdaptiveRuntimeManager {
   reportFailure(component: string): void {
     const rankOrder: RuntimeMode[] = [
       RuntimeMode.SAFE_MODE,
+      RuntimeMode.POWER_SAVE,  // akü koruma basamağı
       RuntimeMode.BASIC_JS,
       RuntimeMode.BALANCED,
       RuntimeMode.PERFORMANCE,
@@ -325,7 +361,8 @@ class AdaptiveRuntimeManager {
     this._cancelUpgrade();
     this._listeners.clear();
 
-    this._started = false;
+    this._started       = false;
+    this._powerCeiling  = null;
 
     if (typeof document === 'undefined') return;
     const root = document.documentElement;

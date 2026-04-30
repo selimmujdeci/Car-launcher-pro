@@ -351,6 +351,16 @@ export interface CarLauncherPlugin {
   startCanBus?(): Promise<void>;
   stopCanBus?(): Promise<void>;
 
+  // ── Native Guard Bridge ───────────────────────────────────────────────
+  /** WebView yaşıyor sinyali — native taraf 3s heartbeat görmezse WebView crashed kabul eder */
+  sendHeartbeat?():                                  Promise<void>;
+  /** RuntimeMode değişimini native taraf bildirimine yansıt */
+  setNativeMode?(opts: { mode: string }):            Promise<void>;
+  /** Odometer km değerini Android SharedPreferences'a atomik yaz */
+  persistOdometer?(opts: { km: number }):            Promise<void>;
+  /** Son persist edilen odometer değerini oku — crash sonrası kurtarma için */
+  getPersistedOdometer?():                           Promise<{ km: number }>;
+
   // H-4 MCU komutları — CAN bus üzerinden araç kontrolü
   lockDoors():    Promise<void>;
   unlockDoors():  Promise<void>;

@@ -28,6 +28,9 @@ export type WorkerInMessage =
   | { type: 'OBD_DATA';         payload: ObdAdapterData }
   | { type: 'GPS_DATA';         payload: GpsAdapterData }
   | { type: 'UPDATE_GEOFENCE';  zones: WorkerGeofenceZone[] }
+  /** Crash recovery: native storage'dan kurtarılan km değeri.
+   *  Strict Monotonicity: yalnızca _odoKm'den büyükse uygulanır. */
+  | { type: 'RESTORE_ODO';      km: number }
   | { type: 'STOP' };
 
 export type WorkerOutMessage =
@@ -789,6 +792,19 @@ self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
       _gfInsideMap.clear();
       _gfExitCount.clear();
       _gfExitFirstMs.clear();
+      break;
+    }
+
+    case 'RESTORE_ODO': {
+      // Strict Monotonicity: native'den gelen değer yalnızca mevcut _odoKm'den
+      // büyükse uygulanır — crash recovery sırasında geriye gidiş olmaz.
+      if (Number.isFinite(msg.km) && msg.km > _odoKm) {
+        _odoKm            = msg.km;
+        _lastPersistedOdo = msg.km; // persist eşiğini senkronize et
+        _odoGuard.setInitialValue(msg.km); // startup guard geç
+        if (_sabEnabled && _sabF64) _sabF64[SAB_ODO] = _odoKm;
+        console.info('[ODO] Crash recovery: restored to', msg.km.toFixed(3), 'km');
+      }
       break;
     }
 

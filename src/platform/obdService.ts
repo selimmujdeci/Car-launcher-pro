@@ -75,6 +75,11 @@ export interface OBDData {
   /** Tahmini menzil (km) — ortalama tüketim + kalan yakıt; -1 = hesaplanamadı */
   estimatedRangeKm: number;
 
+  // ── 12V Akü (tüm araç tipleri) ───────────────
+  /** 12V kurşun-asit akü voltajı (V) — PID 0x42 System Voltage / CAN bus.
+   *  -1 = desteklenmiyor; undefined = henüz okunmadı. */
+  batteryVoltage?: number;
+
   // ── Body status (CAN bus / extended OBD) ──────
   /** Kapı açıklık durumu — CAN bus kaynaklı; undefined = desteklenmiyor */
   doors?: {
@@ -136,6 +141,7 @@ const MOCK_BASE_ICE = {
   headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
   doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
   tpms:  { fl: 235, fr: 233, rl: 230, rr: 232 },
+  batteryVoltage: 13.8, // alternator şarj ediyor
 };
 
 // EV mock starting values
@@ -147,6 +153,7 @@ const MOCK_BASE_EV = {
   headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
   doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
   tpms:  { fl: 240, fr: 238, rl: 236, rr: 237 },
+  batteryVoltage: 13.8,
 };
 
 // Hybrid mock starting values
@@ -158,6 +165,7 @@ const MOCK_BASE_HYBRID = {
   headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
   doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
   tpms:  { fl: 233, fr: 231, rl: 228, rr: 230 },
+  batteryVoltage: 13.8,
 };
 
 function _getMockBase(type: VehicleType) {
@@ -396,13 +404,18 @@ function _tickMock(): void {
     } else {
       // ICE (benzin) — default
       _merge({
-        speed:      _clamp(Math.round(_current.speed + (Math.random() * 14 - 7)), 0, 180),
-        rpm:        _clamp(Math.round(_current.rpm + (Math.random() * 300 - 150)), 650, 7000),
-        engineTemp: _clamp(Math.round(_current.engineTemp + (Math.random() * 2 - 1)), 75, 105),
-        fuelLevel:  _clamp(_current.fuelLevel - Math.random() * 0.3, 0, 100),
-        throttle:   _clamp(Math.round(_current.throttle + (Math.random() * 10 - 5)), 0, 100),
-        intakeTemp: _clamp(Math.round(_current.intakeTemp + (Math.random() * 3 - 1.5)), 10, 55),
+        speed:          _clamp(Math.round(_current.speed + (Math.random() * 14 - 7)), 0, 180),
+        rpm:            _clamp(Math.round(_current.rpm + (Math.random() * 300 - 150)), 650, 7000),
+        engineTemp:     _clamp(Math.round(_current.engineTemp + (Math.random() * 2 - 1)), 75, 105),
+        fuelLevel:      _clamp(_current.fuelLevel - Math.random() * 0.3, 0, 100),
+        throttle:       _clamp(Math.round(_current.throttle + (Math.random() * 10 - 5)), 0, 100),
+        intakeTemp:     _clamp(Math.round(_current.intakeTemp + (Math.random() * 3 - 1.5)), 10, 55),
         headlights,
+        // 12V akü voltajı: alternator şarj → 13.6–14.4V arası küçük dalgalanma
+        batteryVoltage: parseFloat(_clamp(
+          (_current.batteryVoltage ?? 13.8) + (Math.random() * 0.16 - 0.08),
+          13.2, 14.6,
+        ).toFixed(2)),
       });
     }
   } catch (e) {
