@@ -32,7 +32,7 @@ import {
   type DetectedSign,
   type VisionFrame,
   type ConfidenceLevel,
-} from '../../platform/visionEngine';
+} from '../../platform/vision';
 import {
   useNavMode,
   useTransitioning,
