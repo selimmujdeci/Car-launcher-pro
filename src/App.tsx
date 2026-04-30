@@ -1,42 +1,27 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStore } from './store/useStore';
-import MainLayout from './components/layout/MainLayout';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { InAppBrowser } from './components/common/InAppBrowser';
-import { EditController } from './components/edit/EditController';
-import { LayoutProvider } from './context/LayoutContext';
-import { startVehicleDataLayer } from './platform/vehicleDataLayer';
-import { ReverseOverlay } from './components/camera/ReverseOverlay';
-import { DisclaimerBanner } from './components/legal/DisclaimerBanner';
-import { usePermission } from './platform/roleSystem';
-import { DEBUG_ENABLED } from './platform/debug';
+import { useStore }           from './store/useStore';
+import MainLayout             from './components/layout/MainLayout';
+import { ErrorBoundary }      from './components/ErrorBoundary';
+import { InAppBrowser }       from './components/common/InAppBrowser';
+import { EditController }     from './components/edit/EditController';
+import { LayoutProvider }     from './context/LayoutContext';
+import { ReverseOverlay }     from './components/camera/ReverseOverlay';
+import { DisclaimerBanner }   from './components/legal/DisclaimerBanner';
+import { usePermission }      from './platform/roleSystem';
+import { DEBUG_ENABLED }      from './platform/debug';
 import { HotspotPromptModal } from './components/modals/HotspotPromptModal';
 import { isAlreadyConnected, openHotspotSettings } from './platform/tetherService';
-import { isNative } from './platform/bridge';
-import { startRadarEngine, stopRadarEngine } from './platform/radar/radarEngine';
-import { turkiyeStaticRadars } from './platform/radar/staticRadarData';
-import { useRadarSystem } from './hooks/useRadarSystem';
-import { RadarAlertHUD } from './components/layout/RadarAlertHUD';
-import { SentryOverlay } from './components/security/SentryOverlay';
-import { startSmartCardEngine, stopSmartCardEngine } from './platform/ai/smartCardEngine';
-import { initPushService }                          from './platform/pushService';
-import { GlobalAlert } from './components/common/GlobalAlert';
-import { startSystemOrchestrator }  from './platform/system/SystemOrchestrator';
-import { startMaintenanceBrain }    from './platform/diagnostic/maintenanceBrain';
-import { startFuelAdvisor }         from './platform/diagnostic/fuelAdvisorService';
-import { startTheaterService }      from './platform/theaterModeService';
-import { startBlackBox }           from './platform/security/blackBoxService';
-import { signalReverse }           from './platform/cameraService';
-import { ReversePriorityOverlay }  from './components/layout/ReversePriorityOverlay';
-import { useSystemStore }          from './store/useSystemStore';
-import { startGeofenceService, stopGeofenceService } from './platform/security/geofenceService';
-import { GeofenceAlarmOverlay }    from './components/security/GeofenceAlarmOverlay';
-import { runtimeManager }          from './core/runtime/AdaptiveRuntimeManager';
-import { startNativeGuardBridge }  from './platform/native/NativeGuardBridge';
-import { restoreOdometer }         from './platform/vehicleDataLayer';
-import { useVehicleStore }         from './platform/vehicleDataLayer/VehicleStateStore';
-import { CarLauncher }             from './platform/nativePlugin';
+import { isNative }           from './platform/bridge';
+import { useRadarSystem }     from './hooks/useRadarSystem';
+import { RadarAlertHUD }      from './components/layout/RadarAlertHUD';
+import { SentryOverlay }      from './components/security/SentryOverlay';
+import { GlobalAlert }        from './components/common/GlobalAlert';
+import { signalReverse }      from './platform/cameraService';
+import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
+import { useSystemStore }     from './store/useSystemStore';
+import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
+import { systemBoot }         from './platform/system/SystemBoot';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -46,130 +31,48 @@ const DebugPanel = lazy(() =>
 let _hotspotChecked = false;
 
 function App() {
-  const { i18n } = useTranslation();
-  const language    = useStore((s) => s.settings.language);
-  const hotspotMode = useStore((s) => s.settings.hotspotMode);
-  const updateSettings = useStore((s) => s.updateSettings);
-  const canDebug    = usePermission('canDebug');
-  // R-7: VehicleDataLayer reverse sinyalini cameraService'e ilet (post-React yolu)
-  const storeReverse = useSystemStore((s) => s.isReverseActive);
+  const { i18n }        = useTranslation();
+  const language        = useStore((s) => s.settings.language);
+  const hotspotMode     = useStore((s) => s.settings.hotspotMode);
+  const updateSettings  = useStore((s) => s.updateSettings);
+  const canDebug        = usePermission('canDebug');
+  const storeReverse    = useSystemStore((s) => s.isReverseActive);
 
-  const [debugOpen, setDebugOpen]         = useState(false);
+  const [debugOpen,        setDebugOpen]  = useState(false);
   const [showHotspotPrompt, setShowPrompt] = useState(false);
   const tapCountRef = useRef(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Dil değişimi ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (i18n.language !== language) {
-      i18n.changeLanguage(language);
-    }
+    if (i18n.language !== language) i18n.changeLanguage(language);
   }, [language, i18n]);
 
-  // Runtime Engine — crash recovery + ilk mod logu (tüm servislerden önce)
+  // ── SystemBoot: tüm servisleri dalgalar halinde başlat ────────────────────
+  // Wave 1 (Core) → Wave 2 (Backbone) → Wave 3 (Intelligence) → Wave 4 (UI)
+  // Her dalga bir sonrakinin tamamlanmasını bekler; stop() LIFO sırasıyla temizler.
   useEffect(() => {
-    runtimeManager.start();
+    void systemBoot.start();
+    return () => systemBoot.stop();
   }, []);
 
-  // Native Guard Bridge — heartbeat + odo persist + mode sync (native only)
-  useEffect(() => {
-    return startNativeGuardBridge();
-  }, []);
-
-  // Crash Recovery — WebView önceki oturumda çöktüyse native'den odometer kurtar
-  // vehicleDataLayer başlamadan önce store güncellenir; async tamamlanınca
-  // çalışan worker'a da restoreOdometer() ile iletilir.
-  useEffect(() => {
-    if (!isNative) return;
-    void (async () => {
-      try {
-        const result = await CarLauncher.getPersistedOdometer?.();
-        if (!result) return;
-        const nativeKm = result.km;
-        if (!Number.isFinite(nativeKm) || nativeKm <= 0) return;
-        const storeKm = useVehicleStore.getState().odometer ?? 0;
-        // 100m tolerans: küçük fark gürültüdür (4s safeStorage debounce)
-        if (nativeKm > storeKm + 0.1) {
-          useVehicleStore.getState().updateVehicle({ odometer: nativeKm });
-          restoreOdometer(nativeKm); // çalışan worker'ın _odoKm'ini de güncelle
-          console.info(`[App] Crash recovery: odo ${storeKm.toFixed(3)} → ${nativeKm.toFixed(3)} km`);
-        }
-      } catch { /* native metot henüz implement edilmemişse sessizce geç */ }
-    })();
-  }, []);
-
-  useEffect(() => {
-    return startVehicleDataLayer();
-  }, []);
-
-  // SystemOrchestrator — VehicleDataLayer başladıktan sonra, aynı tick'te devreye girer
-  useEffect(() => {
-    return startSystemOrchestrator();
-  }, []);
-
-  // MaintenanceBrain — OBD verisi üzerinden sağlık skoru + yağ ömrü hesabı
-  useEffect(() => {
-    return startMaintenanceBrain();
-  }, []);
-
-  // BlackBox — 60s rolling buffer + darbe algılama kara kutusu
-  useEffect(() => {
-    return startBlackBox();
-  }, []);
-
-  // Smart Fuel Advisor — LOW_FUEL olayında yakın istasyon önerisi
-  useEffect(() => {
-    return startFuelAdvisor();
-  }, []);
-
-  // Theater Mode — araç 30s durduğunda medya odaklı mod önerisi
-  useEffect(() => {
-    return startTheaterService();
-  }, []);
-
-  // Push-to-Wake (S-2) — FCM token kaydı + CommandListener wake entegrasyonu
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    void initPushService().then((fn) => { cleanup = fn; });
-    return () => { cleanup?.(); };
-  }, []);
-
-  // R-7: Store → cameraService köprüsü (VehicleDataLayer kaynaklı sinyal)
-  // main.tsx boot-path'in gözden kaçırdığı post-React reverse olaylarını iletir
+  // ── R-7: Store → cameraService köprüsü ───────────────────────────────────
+  // VehicleDataLayer kaynaklı reverse sinyalini cameraService'e ilet
   useEffect(() => {
     signalReverse(storeReverse);
   }, [storeReverse]);
 
-  useEffect(() => {
-    startSmartCardEngine();
-    return () => { stopSmartCardEngine(); };
-  }, []);
-
-  // Geofence güvenlik servisi — araç bağlıysa Supabase'den zona çeker
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    void startGeofenceService().then((fn) => { cleanup = fn; });
-    return () => { cleanup ? cleanup() : stopGeofenceService(); };
-  }, []);
-
-  // Eagle Eye radar engine — starts community sync + loads Turkish static data
-  useEffect(() => {
-    startRadarEngine(turkiyeStaticRadars);
-    return () => { stopRadarEngine(); };
-  }, []);
-
-  // GPS subscription + TTS voice alerts (must run at app root, not in FullMapView)
+  // ── GPS radar sistemi (hook — React bileşen içinde kalmalı) ───────────────
   useRadarSystem();
 
-  /* ── Hotspot kontrolü — sadece native Android'de, oturum başına 1x ── */
+  // ── Hotspot kontrolü — sadece native Android, oturum başına 1x ───────────
   useEffect(() => {
     if (!isNative || _hotspotChecked || hotspotMode === 'off') return;
     _hotspotChecked = true;
 
-    // Zaten bağlıysa hiçbir şey yapma
     if (isAlreadyConnected()) return;
 
     if (hotspotMode === 'auto') {
-      // Kısa gecikme: uygulama UI'ı tam yüklendikten sonra aç
       const t = setTimeout(() => openHotspotSettings(), 1200);
       return () => clearTimeout(t);
     }
@@ -180,6 +83,7 @@ function App() {
     }
   }, [hotspotMode]);
 
+  // ── 5-parmak debug tetikleyici ─────────────────────────────────────────────
   function handleDebugTap() {
     if (!DEBUG_ENABLED || !canDebug) return;
     tapCountRef.current += 1;
@@ -193,7 +97,7 @@ function App() {
 
   return (
     <LayoutProvider>
-      {/* R-7: Sıfır gecikmeli geri vites overlay — z-9999, Zustand/Context bağımlı değil */}
+      {/* R-7: Sıfır gecikmeli geri vites overlay — z-9999 */}
       <ReversePriorityOverlay />
       <ErrorBoundary>
         {/* R-7: Geri vites aktifken MainLayout GPU bütçesini kameraya bırakır */}
@@ -210,7 +114,6 @@ function App() {
         <SentryOverlay />
         <GeofenceAlarmOverlay />
 
-        {/* Hotspot bağlantı sorusu */}
         {showHotspotPrompt && (
           <HotspotPromptModal
             onDismiss={() => setShowPrompt(false)}
@@ -221,7 +124,6 @@ function App() {
           />
         )}
 
-        {/* Hidden 5-tap debug trigger — top-right corner */}
         {DEBUG_ENABLED && canDebug && (
           <div
             onClick={handleDebugTap}
@@ -230,7 +132,6 @@ function App() {
           />
         )}
 
-        {/* Debug panel — lazy mounted, only when open */}
         {debugOpen && DEBUG_ENABLED && canDebug && (
           <Suspense fallback={null}>
             <DebugPanel onClose={() => setDebugOpen(false)} />
