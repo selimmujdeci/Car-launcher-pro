@@ -280,7 +280,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     rr: { pressure: 31, temp: 25, status: 'normal' },
   },
   parkingLocation: null,
-  wakeWordEnabled: true,         // Sesli asistan varsayılan açık
+  wakeWordEnabled: false,        // Telefon uyumluluğu: kullanıcı açana kadar mikrofon kapalı
   wakeWord: 'hey car',
   breakReminderEnabled: false,
   breakReminderIntervalMin: 120,
@@ -400,7 +400,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 11,
+      version: 12,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -419,6 +419,10 @@ export const useStore = create<StoreState>()(
         if (fromVersion < 11) {
           // v11: Adaptive Runtime Engine — yeni alan, varsayılan 'AUTO'
           if (persisted['runtimeOverride'] === undefined) settings.runtimeOverride = 'AUTO';
+        }
+        if (fromVersion < 12) {
+          // v12: Mikrofon varsayılan kapalı — telefon uyumluluğu için zorla sıfırla
+          settings.wakeWordEnabled = false;
         }
         return { ...ps, settings };
       },

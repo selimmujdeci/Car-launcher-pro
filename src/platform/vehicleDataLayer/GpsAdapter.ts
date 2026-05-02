@@ -4,7 +4,7 @@ import { dbgIncGps } from '../debug';
 
 type Callback = (data: GpsAdapterData) => void;
 
-const THROTTLE_MS = 500;
+const THROTTLE_MS = 200;
 const SPEED_DEADZONE_KMH = 2;
 
 export class GpsAdapter {

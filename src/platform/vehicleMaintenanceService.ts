@@ -9,7 +9,7 @@
  */
 
 import { sensitiveKeyStore } from './sensitiveKeyStore';
-import { useVehicleStore } from './vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { addSystemNotification } from './notificationService';
 import { speakAlert } from './ttsService';
 

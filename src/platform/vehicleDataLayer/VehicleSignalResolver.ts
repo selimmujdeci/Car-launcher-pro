@@ -15,7 +15,8 @@ import type { CanAdapter } from './CanAdapter';
 import type { ObdAdapter } from './ObdAdapter';
 import type { GpsAdapter } from './GpsAdapter';
 import type { VehicleState, WorkerGeofenceZone } from './types';
-import { useVehicleStore } from './VehicleStateStore';
+import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
+import { initSABChannel, clearSABChannel } from './sabChannel';
 import { dispatchFromWorker } from './VehicleEventHub';
 import type { WorkerInMessage, WorkerOutMessage } from './VehicleCompute.worker';
 
@@ -64,7 +65,7 @@ export class VehicleSignalResolver {
     if (this._started) return;
     this._started = true;
 
-    const odoKm = useVehicleStore.getState().odometer ?? 0;
+    const odoKm = useUnifiedVehicleStore.getState().odometer ?? 0;
 
     // SAB desteği: crossOriginIsolated (COOP+COEP) + SharedArrayBuffer varlığı
     // Mali-400 gibi eski WebView'larda bu kontrol false döner → postMessage fallback
@@ -76,6 +77,7 @@ export class VehicleSignalResolver {
       this._sab    = new SharedArrayBuffer(SAB_BYTES);
       this._sabF64 = new Float64Array(this._sab);
       this._sabI32 = new Int32Array(this._sab);
+      initSABChannel(this._sabF64, this._sabI32); // gauge bileşenlerine aç
       this._send({ type: 'INIT', odoKm, sab: this._sab });
       this._startSabPolling();
     } else {
@@ -97,6 +99,7 @@ export class VehicleSignalResolver {
 
   stop(): void {
     this._started = false;
+    clearSABChannel();
     this._stopSabPolling();
     this.can.stop();
     this.obd.stop();
@@ -198,7 +201,7 @@ export class VehicleSignalResolver {
         this._listeners.forEach((fn) => fn(msg.patch));
         break;
       case 'ODO_UPDATE':
-        useVehicleStore.getState().updateVehicle({ odometer: msg.odoKm });
+        useUnifiedVehicleStore.getState().updateVehicleState({ odometer: msg.odoKm });
         break;
       case 'VEHICLE_EVENT':
         dispatchFromWorker(msg.event);

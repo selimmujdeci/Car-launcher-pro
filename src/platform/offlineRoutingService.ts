@@ -87,40 +87,79 @@ export async function tryLocalDaemon(
 
 /* ── WebWorker A* ────────────────────────────────────────────── */
 
-/**
- * Routing graph cache — bir kez yüklenir, Worker ömrü boyunca saklanır.
- * Ayrı module-level değişken çünkü Worker context'te global state yeterli.
- */
-const GRAPH_URL = '/maps/routing-graph.bin';
+const GRAPH_URL        = '/maps/routing-graph.bin';
 const GRAPH_TIMEOUT_MS = 5_000;
+
+// Binary format version magic: 'RTG2' as little-endian u32.
+// v1 (legacy): [nodeCount:u32][nodes...][edgeCount:u32][edges × 12B: from,to,costM]
+// v2 (current): [GRAPH_MAGIC_V2:u32][nodeCount:u32][nodes...][edgeCount:u32][edges × 13B: from,to,costM,flags]
+//   flags bit 0 = oneway (1 → forward only, no reverse edge inserted)
+const GRAPH_MAGIC_V2 = 0x32475452; // 'RTG2' LE
 
 interface GraphNode { lat: number; lon: number; }
 
-interface RoutingGraph {
-  nodes:     GraphNode[];
-  adjacency: Map<number, Array<{ to: number; costM: number }>>;
+interface GraphEdge {
+  to:     number;
+  costM:  number;
+  oneway: boolean; // stored for graph inspection; A* reads adjacency which already encodes directionality
 }
 
-let _cachedGraph: RoutingGraph | null = null;
-let _graphLoadAttempted = false;
+interface RoutingGraph {
+  nodes:     GraphNode[];
+  adjacency: Map<number, GraphEdge[]>;
+  version:   1 | 2;
+}
+
+// Dynamic A* closed-set limit — scales with device RAM (navigator.deviceMemory, Chrome/WebView API).
+// Prevents OOM on 1GB head units while allowing deeper search on 4GB+ devices.
+function _computeMaxClosed(): number {
+  const mem = typeof navigator !== 'undefined'
+    ? (navigator as { deviceMemory?: number }).deviceMemory
+    : undefined;
+  if (!mem || mem <= 1) return 30_000;
+  if (mem <= 2)         return 50_000;
+  if (mem <= 4)         return 100_000;
+  return 200_000;
+}
+const MAX_CLOSED_SET_SIZE = _computeMaxClosed();
+
+// WeakRef-based cache: allows GC to reclaim the graph under memory pressure.
+// The strong reference lives only inside computeOfflineRoute's call frame (pinned
+// for the duration of A*), then becomes eligible for collection once routing completes.
+// If GC collects it, the next call transparently reloads from the binary file.
+// _graphLoadFailed stays true only for permanent errors (HTTP 4xx/5xx / parse failure)
+// so transient network timeouts allow a retry on the next navigation request.
+let _graphWeakRef:  WeakRef<RoutingGraph> | null = null;
+let _graphLoadFailed = false;
 
 async function loadRoutingGraph(): Promise<RoutingGraph | null> {
-  if (_cachedGraph)          return _cachedGraph;
-  if (_graphLoadAttempted)   return null;
-  _graphLoadAttempted = true;
+  // Prefer the WeakRef-cached instance — reuse while still alive in memory
+  const cached = _graphWeakRef?.deref();
+  if (cached) return cached;
+
+  // Permanent load failure (404 / parse error) — don't retry
+  if (_graphLoadFailed) return null;
 
   try {
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), GRAPH_TIMEOUT_MS);
     const res   = await fetch(GRAPH_URL, { signal: ctrl.signal });
     clearTimeout(timer);
-    if (!res.ok) return null;
+
+    if (!res.ok) {
+      _graphLoadFailed = true; // HTTP error → file absent, no retry
+      return null;
+    }
 
     const buf  = await res.arrayBuffer();
     const view = new DataView(buf);
     let   off  = 0;
 
-    const nodeCount = view.getUint32(off, true); off += 4;
+    // Version detection: v2 starts with GRAPH_MAGIC_V2; v1 starts with nodeCount directly
+    const firstWord = view.getUint32(off, true); off += 4;
+    const version: 1 | 2 = firstWord === GRAPH_MAGIC_V2 ? 2 : 1;
+    const nodeCount = version === 2 ? (off += 4, view.getUint32(off - 4, true)) : firstWord;
+
     const nodes: GraphNode[] = [];
     for (let i = 0; i < nodeCount; i++) {
       const lat = view.getFloat32(off, true); off += 4;
@@ -130,22 +169,31 @@ async function loadRoutingGraph(): Promise<RoutingGraph | null> {
     }
 
     const edgeCount = view.getUint32(off, true); off += 4;
-    const adjacency = new Map<number, Array<{ to: number; costM: number }>>();
+    const adjacency = new Map<number, GraphEdge[]>();
+
     for (let i = 0; i < edgeCount; i++) {
       const from  = view.getUint32(off, true); off += 4;
       const to    = view.getUint32(off, true); off += 4;
       const costM = view.getUint32(off, true); off += 4;
 
+      // v2: flags byte — bit 0 = oneway (1 = forward only)
+      // v1: all edges assumed bidirectional (OSM oneway:no default)
+      const oneway = version === 2 ? ((view.getUint8(off++) & 0x01) === 1) : false;
+
       if (!adjacency.has(from)) adjacency.set(from, []);
-      adjacency.get(from)!.push({ to, costM });
-      // Çift yönlü — OSM oneway:no varsayımı (basit versiyon)
-      if (!adjacency.has(to)) adjacency.set(to, []);
-      adjacency.get(to)!.push({ to: from, costM });
+      adjacency.get(from)!.push({ to, costM, oneway });
+
+      if (!oneway) {
+        if (!adjacency.has(to)) adjacency.set(to, []);
+        adjacency.get(to)!.push({ to: from, costM, oneway: false });
+      }
     }
 
-    _cachedGraph = { nodes, adjacency };
-    return _cachedGraph;
+    const graph: RoutingGraph = { nodes, adjacency, version };
+    _graphWeakRef = new WeakRef(graph);
+    return graph;
   } catch {
+    // Network / parse error — allow retry (transient failure)
     return null;
   }
 }
@@ -262,8 +310,8 @@ function aStar(
       }
     }
 
-    // Erken çıkış: 50k düğüm sınırı (head unit güvenliği)
-    if (closed.size > 50_000) return null;
+    // Early exit: dynamic limit scaled to device RAM (30k–200k nodes)
+    if (closed.size > MAX_CLOSED_SET_SIZE) return null;
   }
 
   return null; // Rota bulunamadı
@@ -349,6 +397,6 @@ export function straightLineRoute(
 /* ── Graph önbellekten temizle (bellek baskısı) ──────────────── */
 
 export function resetRoutingGraphCache(): void {
-  _cachedGraph = null;
-  _graphLoadAttempted = false;
+  _graphWeakRef    = null;
+  _graphLoadFailed = false;
 }

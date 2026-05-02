@@ -40,6 +40,18 @@ function App() {
 
   const [debugOpen,        setDebugOpen]  = useState(false);
   const [showHotspotPrompt, setShowPrompt] = useState(false);
+
+  // ── Portrait mod tespiti — araç ekranları her zaman yatay ────────────────
+  const [isPortrait, setIsPortrait] = useState(() => window.innerHeight > window.innerWidth);
+  useEffect(() => {
+    const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
+    window.addEventListener('resize', check);
+    window.addEventListener('orientationchange', check);
+    return () => {
+      window.removeEventListener('resize', check);
+      window.removeEventListener('orientationchange', check);
+    };
+  }, []);
   const tapCountRef = useRef(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -97,8 +109,6 @@ function App() {
 
   return (
     <LayoutProvider>
-      {/* R-7: Sıfır gecikmeli geri vites overlay — z-9999 */}
-      <ReversePriorityOverlay />
       <ErrorBoundary>
         {/* R-7: Geri vites aktifken MainLayout GPU bütçesini kameraya bırakır */}
         <div style={storeReverse ? { display: 'none' } : undefined}>
@@ -108,13 +118,48 @@ function App() {
           </EditController>
         </div>
         <ReverseOverlay />
-        <GlobalAlert />
-        <DisclaimerBanner />
-        <RadarAlertHUD />
-        <SentryOverlay />
-        <GeofenceAlarmOverlay />
 
-        {showHotspotPrompt && (
+        {/*
+         * ── Z-Index Hiyerarşi Kuralı ─────────────────────────────────────────
+         * ReversePriorityOverlay: z-[100000] — mutlak zirve, hiçbir şey binemez.
+         * Tüm global alert/modal/bildirimler geri vites aktifken programatik
+         * olarak bastırılır (conditional render). Kamera görüntüsü kesinlikle
+         * temiz kalır — CLAUDE.md §Safety First.
+         */}
+        {!storeReverse && <GlobalAlert />}
+        {!storeReverse && <DisclaimerBanner />}
+        {!storeReverse && <RadarAlertHUD />}
+        {!storeReverse && <SentryOverlay />}
+        {!storeReverse && <GeofenceAlarmOverlay />}
+
+        {/* Portrait mod uyarısı — geri vites aktifken gösterme */}
+        {isPortrait && !storeReverse && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(5,10,20,0.97)',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            gap: '1.5rem', color: '#fff', fontFamily: 'system-ui,sans-serif',
+          }}>
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="7" y="2" width="10" height="18" rx="2"/>
+              <path d="M12 18v.01"/>
+              <path d="M5 8l-2 2 2 2" opacity="0.5"/>
+              <path d="M19 8l2 2-2 2" opacity="0.5"/>
+              <path d="M3 10h4M17 10h4" opacity="0.5"/>
+            </svg>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                Telefonu Yatay Tutun
+              </div>
+              <div style={{ fontSize: '0.8rem', opacity: 0.5, maxWidth: 200 }}>
+                CockpitOS araç ekranı için tasarlanmıştır
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showHotspotPrompt && !storeReverse && (
           <HotspotPromptModal
             onDismiss={() => setShowPrompt(false)}
             onAutoEnable={() => {
@@ -138,6 +183,18 @@ function App() {
           </Suspense>
         )}
       </ErrorBoundary>
+
+      {/*
+       * ── Mutlak Zirve: Geri Vites Kamerası ───────────────────────────────
+       * z-[100000] → kendi yalıtılmış stacking context'i oluşturur.
+       * ErrorBoundary dışında: hata durumunda bile kamera görüntüsü çalışır.
+       * pointer-events-none wrapper → kamera dışı alanda yanlışlıkla dokunma engeli.
+       */}
+      <div className="fixed inset-0 z-[100000] pointer-events-none">
+        <div className="pointer-events-auto size-full">
+          <ReversePriorityOverlay />
+        </div>
+      </div>
     </LayoutProvider>
   );
 }

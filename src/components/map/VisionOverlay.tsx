@@ -287,40 +287,45 @@ const VisionBadge = memo(function VisionBadge({
   onToggle,
   confidence,
   confidenceLevel,
+  isHybrid,
 }: {
   visionState: string;
   frame: VisionFrame | null;
   onToggle: () => void;
   confidence: number;
   confidenceLevel: ConfidenceLevel;
+  isHybrid: boolean;
 }) {
   const isActive   = visionState === 'active';
   const isDegraded = visionState === 'degraded';
 
-  // Colour tokens per confidence level
-  const levelColor = confidenceLevel === 'full'
+  // Colour tokens — detay sadece AR aktif (isHybrid) iken gösterilir
+  const levelColor = isHybrid && confidenceLevel === 'full'
     ? '#34d399'   // emerald
-    : confidenceLevel === 'degraded'
+    : isHybrid && confidenceLevel === 'degraded'
     ? '#fbbf24'   // amber
-    : '#64748b';  // slate (off / disabled)
+    : '#64748b';  // slate — AR kapalı veya pasif
 
-  const bgColor = confidenceLevel === 'full'
+  const bgColor = isHybrid && confidenceLevel === 'full'
     ? 'rgba(16,185,129,0.15)'
-    : confidenceLevel === 'degraded'
+    : isHybrid && confidenceLevel === 'degraded'
     ? 'rgba(245,158,11,0.15)'
     : 'rgba(10,14,26,0.80)';
 
-  const borderColor = confidenceLevel === 'full'
+  const borderColor = isHybrid && confidenceLevel === 'full'
     ? 'rgba(16,185,129,0.35)'
-    : confidenceLevel === 'degraded'
+    : isHybrid && confidenceLevel === 'degraded'
     ? 'rgba(245,158,11,0.35)'
     : 'rgba(255,255,255,0.10)';
 
-  const label = confidenceLevel === 'full'
+  // Label: AR kapalıyken sade "AR", açıkken durum detayı
+  const label = !isHybrid
+    ? 'AR'
+    : confidenceLevel === 'full'
     ? 'AR FULL'
     : confidenceLevel === 'degraded'
     ? 'AR DEGRADED'
-    : 'AR OFF';
+    : 'AR';
 
   const pct = Math.round(confidence * 100);
 
@@ -336,8 +341,10 @@ const VisionBadge = memo(function VisionBadge({
       }}
     >
       <div className="flex items-center gap-2">
-        {/* Icon: pulse dot for FULL, triangle for DEGRADED, eye-off for OFF */}
-        {confidenceLevel === 'full'
+        {/* Icon: AR kapalı → Camera (aç), açık → durum ikonları */}
+        {!isHybrid
+          ? <Camera className="w-4 h-4 text-slate-400" />
+          : confidenceLevel === 'full'
           ? <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#34d399', flexShrink: 0 }} />
           : confidenceLevel === 'degraded'
           ? <AlertTriangle className="w-4 h-4 text-amber-400" />
@@ -701,6 +708,7 @@ export const VisionOverlay = memo(function VisionOverlay({
               frame={vision.frame}
               onToggle={handleToggle}
               confidence={confidence}
+              isHybrid={isHybrid}
               confidenceLevel={confidenceLevel}
             />
           </div>

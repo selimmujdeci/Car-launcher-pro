@@ -41,9 +41,25 @@ export interface CommandContext {
   setTheme?:    (theme: 'dark' | 'oled') => void;
   openDrawer?:  (target: 'apps' | 'settings' | 'none') => void;
   openWeather?: () => void;
+  /** Araç kapı kilidi — CAN bus sinyali, native plugin tarafından sağlanır */
+  hwLockDoors?:   () => void;
+  /** Araç kapı kilidi açma — güvenlik: sürüş sırasında engellenir */
+  hwUnlockDoors?: () => void;
+  /** Kontak açık mı? (OBD PID 0x01) — remoteCommandService occupancy kontrolünde kullanılır */
+  ignitionOn?: boolean;
+  /** True ise komut Supabase kanalından geldi; false/undefined = lokal ses komutu */
+  isRemote?: boolean;
 }
 
 /* ── Internal helpers ─────────────────────────────────────── */
+
+/**
+ * Araçta kullanıcı var mı? (Kontak açık VEYA hareket halinde)
+ * Uzaktan gelen kritik komutlara (kapı/klima) karşı güvenlik bariyeri.
+ */
+function _isOccupied(ctx: CommandContext): boolean {
+  return ctx.vehicleCtx.isDriving || (ctx.ignitionOn ?? false);
+}
 
 /** TTS ile geri bildirim. isDriving=true → ≤ 8 kelimeye kısalt. */
 function _speak(text: string, isDriving: boolean): void {
@@ -285,6 +301,34 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       case 'OPEN_APPOINTMENT_LINK': {
         _speak('Muayene randevu sayfası açılıyor', isDriving);
         openInApp('https://www.tuvturk.com.tr/randevu-al.aspx');
+        break;
+      }
+
+      /* ── Araç Donanım (CAN Bus) ──────────────────────────── */
+      case 'HARDWARE_LOCK': {
+        // Manuel müdahale önceliği: araçta kullanıcı varken uzaktan kilit komutu engellenir.
+        // Sürücü güvenliği — birisi içerideyken kapı kilitlenmesi panik yaratabilir.
+        if (ctx.isRemote && _isOccupied(ctx)) {
+          _speak('Araçta kullanıcı var, uzaktan kilit engellendi', isDriving);
+          throw new Error('SafetyReject: remote LOCK blocked — vehicle occupied');
+        }
+        ctx.hwLockDoors?.();
+        _speak('Kapılar kilitleniyor', isDriving);
+        break;
+      }
+      case 'HARDWARE_UNLOCK': {
+        // Önce sürüş güvenliği (hız > 0 → kesin engel)
+        if (isDriving) {
+          _speak('Sürüşte kapı açma engellendi', isDriving);
+          throw new Error('Safety reject: HARDWARE_UNLOCK while driving');
+        }
+        // Uzaktan komut + kontak açık (araçta kullanıcı var) → engel
+        if (ctx.isRemote && _isOccupied(ctx)) {
+          _speak('Araçta kullanıcı var, uzaktan açma engellendi', isDriving);
+          throw new Error('SafetyReject: remote UNLOCK blocked — vehicle occupied');
+        }
+        ctx.hwUnlockDoors?.();
+        _speak('Kapılar açılıyor', isDriving);
         break;
       }
 

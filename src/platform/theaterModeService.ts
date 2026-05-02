@@ -11,7 +11,7 @@
  *   isTheaterModeActive: false →  setNormalAudioProfile()
  */
 
-import { useVehicleStore }                              from './vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore }    from './vehicleDataLayer/UnifiedVehicleStore';
 import { getMediaState }                                from './mediaService';
 import { setCinemaAudioProfile, setNormalAudioProfile } from './audioService';
 import { useSystemStore }                               from '../store/useSystemStore';

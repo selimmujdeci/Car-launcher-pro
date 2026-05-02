@@ -85,6 +85,10 @@ let _prevSpeedKmh  = 0;
 let _prevTimestamp = 0;
 let _prevHeading   = 0;
 
+// 2 Hz throttle — Mali-400 CPU koruması
+const UPDATE_THROTTLE_MS = 500;
+let   _lastUpdateMs      = 0;
+
 let _sprintStartMs  = 0;
 let _sprintRafId: ReturnType<typeof setInterval> | null = null;
 
@@ -152,7 +156,9 @@ export function updatePerformance(params: {
   heading?: number;
   rpm?: number;
 }): void {
-  const now     = Date.now();
+  const now = Date.now();
+  if (now - _lastUpdateMs < UPDATE_THROTTLE_MS) return;
+  _lastUpdateMs = now;
   const { speedKmh, lat, lng, heading, rpm } = params;
 
   if (_prevTimestamp === 0) {

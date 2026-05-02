@@ -55,7 +55,7 @@ const NeonGauge = ({ speed }: { speed: number }) => {
       <div className="absolute flex flex-col items-center z-10">
         <div className="relative">
             <span className="text-[160px] font-black text-primary leading-none tracking-tighter italic drop-shadow-2xl">
-                {speed}
+                {Math.round(speed || 0)}
             </span>
             <div className="absolute -top-6 -right-12 px-4 py-1 bg-cyan-500 text-primary text-xs font-black uppercase tracking-[0.3em] italic skew-x-[-20deg] shadow-[0_0_20px_rgba(6,182,212,0.5)]">
                 TURBO

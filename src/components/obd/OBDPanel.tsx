@@ -69,7 +69,7 @@ function SpeedBlock({ speed, maxSpeed }: { speed: number; maxSpeed: number }) {
     <div className="flex-1 flex flex-col justify-center p-5 rounded-2xl bg-white/[0.04] border border-white/10 relative overflow-hidden">
       <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
       <div className="flex items-baseline gap-2.5">
-        <span className="text-6xl font-black text-white tracking-tighter tabular-nums">{speed}</span>
+        <span className="text-6xl font-black text-white tracking-tighter tabular-nums">{Math.round(speed || 0)}</span>
         <span className="text-blue-400 font-black text-[12px] uppercase tracking-widest">KM/H</span>
       </div>
       <div className="mt-3 h-1.5 bg-white/5 rounded-full overflow-hidden">

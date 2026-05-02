@@ -16,6 +16,7 @@ import {
   checkAndHealMapContext,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
+import { useFusedSpeed } from '../../platform/speedFusion';
 import { getMapStyle, useMapMode } from '../../platform/mapSourceManager';
 import { MapOverlay } from './MapOverlay';
 
@@ -39,6 +40,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
   const gpsState = useGPSState();
   const mode = useMapMode();
   const { tileError } = useMapState();
+  const { displaySpeed: fusedSpeedKmh } = useFusedSpeed();
 
   // Sync refs safely outside of render
   useEffect(() => {
@@ -192,10 +194,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
     }
   }, [location, heading, mapReady, styleKey]);
 
-  // GPS hızını km/h olarak hesapla (location.speed m/s cinsinden depolanır)
-  const speedKmh = location?.speed != null && Number.isFinite(location.speed) && location.speed > 0
-    ? location.speed * 3.6
-    : 0;
+  // Hız: PremiumSpeedometer ile aynı kaynak (CAN→OBD→GPS füzyon)
+  const speedKmh = fusedSpeedKmh;
 
   return (
     <div className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">

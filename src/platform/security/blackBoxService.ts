@@ -33,7 +33,7 @@
  *   Sistem saati atlamalarında buffer kronolojisi bozulmaz (CLAUDE.md §4).
  */
 
-import { useVehicleStore }         from '../vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { dispatchCrashDetected }   from '../vehicleDataLayer';
 import {
   safeSetRawImmediate,
@@ -262,8 +262,8 @@ function _sampleVehicleState(): void {
   slot.rpm      = _lastOBDRpm;
   slot.brake    = brake;
   slot.heading  = vs.heading  ?? 0;
-  slot.lat      = vs.location ? vs.location.lat : 0;
-  slot.lng      = vs.location ? vs.location.lng : 0;
+  slot.lat      = vs.location ? vs.location.latitude  : 0;
+  slot.lng      = vs.location ? vs.location.longitude : 0;
   slot.fuel     = vs.fuel     ?? -1;
   slot.gForce   = Math.sqrt(_lastGx ** 2 + _lastGy ** 2 + _lastGz ** 2);
   slot.gx       = _lastGx;

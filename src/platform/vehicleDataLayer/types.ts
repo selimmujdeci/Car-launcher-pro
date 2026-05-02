@@ -1,3 +1,18 @@
+/**
+ * Rich GPS fix — gpsService'ten gelen tam nesne.
+ * UnifiedVehicleStore.location, geofence servisi ve harita bileşenleri bu tipi kullanır.
+ * speed: m/s (GPS Doppler hız)
+ */
+export interface GPSLocation {
+  latitude:  number;
+  longitude: number;
+  accuracy:  number;
+  altitude?: number;
+  heading?:  number;
+  speed?:    number;    // m/s
+  timestamp: number;
+}
+
 export interface CanAdapterData {
   speed?: number;
   reverse?: boolean;

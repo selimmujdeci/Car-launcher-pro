@@ -212,9 +212,11 @@ let _lastRealDataMs        = 0;
 let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Direct-reconnect: last known BT MAC ─────────────────────
-// Skips full BT INQUIRY scan on reconnect — reduces GPS jitter
-// and A2DP dropout caused by 10-30 s BT inquiry scan contention.
-let _lastKnownAddress: string | null = null;
+// Persisted to localStorage so app restart skips full BT INQUIRY scan.
+// BT INQUIRY = 10-30 s contention → GPS ±15 m jitter + A2DP glitch every ~10 s.
+const OBD_ADDRESS_KEY = 'obd:lastAddress';
+let _lastKnownAddress: string | null =
+  (() => { try { return localStorage.getItem(OBD_ADDRESS_KEY); } catch { return null; } })();
 
 // ── Fuel computation config ──────────────────────────────────
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
@@ -300,6 +302,12 @@ function _clamp(v: number, lo: number, hi: number): number {
  * Returns null if no valid field was found (discard entire packet).
  */
 function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null {
+  // Safety Gate: non-finite veya fiziksel sınırı aşan hız → tüm paketi reddet
+  if (data.speed !== undefined && (!Number.isFinite(data.speed) || data.speed > 300)) {
+    console.warn('[SafetyGate] Rejected Speed:', data.speed);
+    return null;
+  }
+
   const patch: Partial<OBDData> = {};
   let accepted = false;
 
@@ -508,6 +516,15 @@ function _scheduleReconnect(): void {
   // OBD disconnect → RuntimeEngine'e bildir (bir adım downgrade — hysteresis bypass)
   runtimeManager.reportFailure('OBD');
 
+  // Guard: BT INQUIRY scan reconnect sırasında yasak — GPS jitter + A2DP kesintisi.
+  // Kayıtlı MAC yoksa kullanıcı manuel olarak OBDConnectModal'dan cihaz seçmelidir.
+  if (!_lastKnownAddress) {
+    _reconnectAttempts = 0;
+    _merge({ connectionState: 'error', source: 'none' });
+    if (MOCK_ENABLED) _startMock();
+    return;
+  }
+
   if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     _reconnectAttempts = 0;
     if (MOCK_ENABLED) {
@@ -675,8 +692,9 @@ async function _startNative(): Promise<void> {
 
   if (_stale()) { void _removeNativeHandles(); return; }
 
-  // 5. Mark as live — Fix 3: başarılı MAC adresini sakla (sonraki reconnect'te scan atlanır)
+  // 5. Mark as live — persist MAC so next app restart skips BT INQUIRY scan entirely
   _lastKnownAddress = candidate.address;
+  try { localStorage.setItem(OBD_ADDRESS_KEY, candidate.address); } catch { /* quota */ }
   _merge({ connectionState: 'connected', source: 'real' });
 
   // Fix 1: stale-data watchdog'u başlat
@@ -714,10 +732,39 @@ const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true'
  * Start OBD.
  * Tries native Bluetooth first; falls back to mock on any failure
  * unless VITE_DISABLE_OBD_MOCK=true is set.
- * Idempotent — safe to call multiple times.
+ *
+ * @param address — optional MAC address (from OBDConnectModal device selection).
+ *   Provided → address is persisted and BT INQUIRY scan is skipped entirely;
+ *   direct connectOBD() is attempted immediately (<3 s).
+ *   If the service is already running but not yet connected, the in-flight
+ *   scan/connect is cancelled and restarted with the given address.
+ *   Omitted → uses _lastKnownAddress from localStorage (also skips scan);
+ *   only falls back to full scan if no address was ever saved.
  */
-export function startOBD(): void {
-  if (_running) return;
+export function startOBD(address?: string): void {
+  if (address) {
+    _lastKnownAddress = address;
+    try { localStorage.setItem(OBD_ADDRESS_KEY, address); } catch { /* quota */ }
+  }
+
+  if (_running) {
+    // address provided while service is already running but not connected:
+    // cancel the in-flight operation (scan / failed connect) and direct-connect.
+    if (address && _current.connectionState !== 'connected') {
+      if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+      _reconnectAttempts = 0;
+      _nativeGeneration++; // invalidate any stale _startNative() continuation
+      void _removeNativeHandles().then(() => {
+        if (!_running) return;
+        void _startNative().catch(async (e: unknown) => {
+          logError('OBD:DirectConnect', e);
+          await _removeNativeHandles();
+          _merge({ connectionState: 'error', source: 'none' });
+        });
+      });
+    }
+    return;
+  }
   _running = true;
 
   // Tier 2 async hydration — bir kez çalışır, BT bağlantısıyla yarışmaz.

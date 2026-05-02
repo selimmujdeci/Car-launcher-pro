@@ -131,4 +131,14 @@ export const RELEASE_CHECKLIST: CheckGroup[] = [
       { id: 'r-io-throttle',   label: 'I/O Throttling: No UI lag during heavy OBD flow',     how: 'Monitor Main Thread while receiving 100+ PID/s'},
     ],
   },
+  {
+    group: 'Navigation & Routing',
+    items: [
+      { id: 'nav-tesla-fmt', label: 'Tesla-grade distance/duration formatting (Space separator + Turkish units)', how: 'Start nav, verify "24.6 km" and "4 sa 38 dk" in HUD' },
+      { id: 'nav-reroute',   label: 'Off-route deviation detection (100m threshold)', how: 'Simulate driving 100m+ away from route, verify "Yeniden Rotalanıyor" banner' },
+      { id: 'nav-perf',      label: 'Adaptive performance mode (FPS < 20 triggers low-perf UI)', how: 'Force low FPS in DevTools, verify blur/animations disable' },
+      { id: 'nav-safearea',  label: 'Safe-area top/bottom compliance (Notch/Dock protection)', how: 'Inspect HUD on mobile/emulator, verify TurnPanel doesn\'t hit notch' },
+      { id: 'nav-status',    label: 'Central State Machine (IDLE ↔ PREVIEW ↔ ACTIVE ↔ ARRIVED)', how: 'Verify UI transitions for each navigation phase' },
+    ],
+  },
 ];

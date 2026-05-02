@@ -200,8 +200,8 @@ export function unduckMedia(): void {
 function _startSpeedSubscription(): void {
   if (_unsubSpeed) return;
 
-  void import('./vehicleDataLayer/VehicleStateStore')
-    .then(({ useVehicleStore }) => {
+  void import('./vehicleDataLayer/UnifiedVehicleStore')
+    .then(({ useUnifiedVehicleStore: useVehicleStore }) => {
       if (_unsubSpeed) return; // çift abonelik önle (race condition)
       _unsubSpeed = useVehicleStore.subscribe((state) => {
         const kmh = state.speed;

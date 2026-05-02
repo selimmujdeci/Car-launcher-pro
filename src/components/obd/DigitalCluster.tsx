@@ -53,7 +53,7 @@ export const DigitalCluster = memo(() => {
               <SpeedLimitSign limit={speedLimit.limit} isOverSpeed={speedLimit.isOverSpeed} />
             </div>
             
-            <span className="text-[10rem] font-black text-primary tracking-tighter leading-none drop-shadow-xl">{speed}</span>
+            <span className="text-[10rem] font-black text-primary tracking-tighter leading-none drop-shadow-xl">{Math.round(speed || 0)}</span>
             <span className="text-sm font-black text-blue-500 uppercase tracking-[0.4em] mt-2">km/h</span>
             <span className="text-[11px] font-black text-secondary mt-1 uppercase tracking-[0.2em] opacity-60">{speedLimit.roadName}</span>
           </div>
@@ -121,7 +121,7 @@ export const DigitalCluster = memo(() => {
           </div>
 
           <div className="flex flex-col items-center gap-0">
-            <span className="text-[11rem] font-extralight text-primary leading-none tracking-tighter drop-shadow-[0_0_40px_rgba(6,182,212,0.25)]">{speed}</span>
+            <span className="text-[11rem] font-extralight text-primary leading-none tracking-tighter drop-shadow-[0_0_40px_rgba(6,182,212,0.25)]">{Math.round(speed || 0)}</span>
             <span className="text-xs font-black text-cyan-500 uppercase tracking-[0.5em] -mt-4">KILOMETERS PER HOUR</span>
             <span className="text-[11px] font-black text-cyan-500/40 mt-2 uppercase tracking-[0.4em]">{speedLimit.roadName}</span>
           </div>
@@ -150,7 +150,7 @@ export const DigitalCluster = memo(() => {
         <SpeedLimitSign limit={speedLimit.limit} isOverSpeed={speedLimit.isOverSpeed} />
       </div>
       <div className="flex flex-col items-end">
-        <span className="text-9xl font-black text-primary leading-none tracking-tighter">{speed}</span>
+        <span className="text-9xl font-black text-primary leading-none tracking-tighter">{Math.round(speed || 0)}</span>
         <span className="text-base font-black text-secondary uppercase tracking-[0.3em] mt-2">KM/H</span>
       </div>
       <div className="w-px h-24 bg-primary/10" />

@@ -25,14 +25,38 @@ import type { GPSLocation }   from './gpsService';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
-/** km/h cinsinden OBD-GPS uyuşmazlık eşiği */
+/** km/h cinsinden OBD-GPS uyuşmazlık nominal eşiği */
 const PLAUSIBILITY_KMH = 15;
 
 /** Kaç ardışık uyuşmazlık sonrası GPS'e geçilsin */
-const PLAUSIBILITY_LIMIT = 2;
+const PLAUSIBILITY_LIMIT = 4; // 2→4: daha az tetiklenme, ibre titremesi azalır
 
-/** Listener bildirim aralığı (ms) — max çıktı frekansı: 500ms = 2 Hz */
-const NOTIFY_THROTTLE_MS = 500;
+/**
+ * Histerezis dead zone (km/h) — eşik çevresinde kaynak salınımını önler.
+ *
+ * GPS kilidi YOK iken kaynak değiştirme eşiği: PLAUSIBILITY_KMH + HYSTERESIS_KMH = 20
+ * GPS kilidi VAR iken geri dönme   eşiği:      PLAUSIBILITY_KMH - HYSTERESIS_KMH = 10
+ *
+ * Olmadan: 15 km/h eşiği çevresinde her GPS güncellemesinde OBD↔GPS geçişi olur.
+ * Olunca:  GPS'e geçmek için 20 km/h fark lazım, geri dönmek için 10'un altı gerekli.
+ */
+const HYSTERESIS_KMH = 5;
+
+/**
+ * Kalibrasyon öğrenmesi — OBD-GPS sabit offset tespiti (lastik çapı farkı vb.).
+ *
+ * Pencerenin OFFSET_STABILITY oranı aynı yönde ise ve offset
+ * [OFFSET_MIN_KMH, OFFSET_MAX_KMH] aralığındaysa OBD hızı kalibre edilir.
+ * Böylece fuze modu, gerçek arıza yerine lastik boyutu gibi sabit sapmaları
+ * hata olarak işaretlemek yerine otomatik düzeltir.
+ */
+const OFFSET_WINDOW    = 10;  // kalibrasyon kararı için gereken örnek sayısı
+const OFFSET_MIN_KMH   = 3;   // bu değerin altında gürültü sayılır, kalibrasyon yok
+const OFFSET_MAX_KMH   = 25;  // bu değerin üstü gerçek arıza, kalibrasyon yok
+const OFFSET_STABILITY = 0.75; // pencerenin %75'i aynı yönde olmalı
+
+/** Listener bildirim aralığı (ms) — max çıktı frekansı: 200ms = 5 Hz */
+const NOTIFY_THROTTLE_MS = 200;
 
 /* ── Tip tanımları ──────────────────────────────────────────── */
 
@@ -51,18 +75,26 @@ export interface FusedSpeedData {
   plausibilityWarning: boolean;
   /** Güven skoru 0.0–1.0: fused=0.9 | obd=0.7 | gps=0.6 | spike=0.3 | geçersiz=0.0 */
   confidence: number;
+  /**
+   * Öğrenilmiş OBD kalibrasyon sapması (km/h).
+   * Pozitif → OBD yüksek okuyor (büyük lastik veya yanlış sensör).
+   * Negatif → OBD düşük okuyor.
+   * 0 → kalibrasyon yok (offset yeterince sabit değil veya çok küçük).
+   */
+  calibrationOffset: number;
 }
 
 /* ── Sabitler (staleness timeout) ───────────────────────────── */
 
 const CAN_TIMEOUT_MS = 3_000;
-const OBD_TIMEOUT_MS = 10_000;
+const OBD_TIMEOUT_MS = 2_000;  // OBD ~300-1000ms günceller; 2s'de stale say → hızlı GPS fallback
 const GPS_TIMEOUT_MS = 5_000;
 
 /* ── Modül-düzey durum ──────────────────────────────────────── */
 
 let _fused: FusedSpeedData = {
-  speed: 0, source: 'none', obdRaw: 0, gpsRaw: null, plausibilityWarning: false, confidence: 0,
+  speed: 0, source: 'none', obdRaw: 0, gpsRaw: null,
+  plausibilityWarning: false, confidence: 0, calibrationOffset: 0,
 };
 
 const _listeners = new Set<(d: FusedSpeedData) => void>();
@@ -87,6 +119,14 @@ let _lastMismatchMs = 0;
 const MISMATCH_WINDOW_MS = 10_000;
 let _lastNotifyMs   = 0;
 let _initialized    = false;
+
+// ── Histerezis & Kalibrasyon durumu ──────────────────────────────────────
+/** true iken GPS kaynak kilidinde — geri dönmek için düşük eşik gerekli */
+let _gpsSourceLock  = false;
+/** Son OFFSET_WINDOW kadar OBD-GPS imzalı fark geçmişi (km/h) */
+let _diffHistory: number[] = [];
+/** Öğrenilmiş OBD kalibrasyon sapması (km/h); 0 = kalibrasyon yok */
+let _calibOffset    = 0;
 
 /* ── Füzyon hesabı ──────────────────────────────────────────── */
 
@@ -127,28 +167,64 @@ function _computeAndNotify(): void {
     _mismatchCnt = 0;
   } else if (obdReal) {
     if (gpsOk) {
-      const diff = Math.abs(_lastObd - _lastGpsKmh!);
-      if (diff > PLAUSIBILITY_KMH) {
+      // ── Kalibrasyon Öğrenmesi: sabit offset tespiti ────────────────────
+      // İmzalı fark: pozitif → OBD yüksek, negatif → OBD düşük
+      const signedDiff = _lastObd - _lastGpsKmh!;
+      _diffHistory.push(signedDiff);
+      if (_diffHistory.length > OFFSET_WINDOW) _diffHistory.shift();
+
+      if (_diffHistory.length >= OFFSET_WINDOW) {
+        const avg    = _diffHistory.reduce((a, b) => a + b, 0) / _diffHistory.length;
+        const avgAbs = Math.abs(avg);
+        // Pencerenin kaçı aynı yönde?
+        const sameDir = _diffHistory.filter((d) => Math.sign(d) === Math.sign(avg)).length
+                        / _diffHistory.length;
+
+        if (sameDir >= OFFSET_STABILITY && avgAbs >= OFFSET_MIN_KMH && avgAbs <= OFFSET_MAX_KMH) {
+          // Sabit yönlü offset → lastik çapı / sensör kalibrasyonu sorunu
+          _calibOffset = avg;
+        } else if (avgAbs < OFFSET_MIN_KMH) {
+          _calibOffset = 0; // offset ortadan kalktı
+        }
+        // avgAbs > OFFSET_MAX_KMH → gerçek arıza, mevcut kalibrasyonu koru
+      }
+
+      // OBD kalibre edilmiş hız
+      const obdCalib = _lastObd - _calibOffset;
+      const absDiff  = Math.abs(obdCalib - _lastGpsKmh!);
+
+      // ── Histerezis: kaynak geçişini stabilize et ──────────────────────
+      // GPS kilitli değil → geçmek için PLAUSIBILITY + HYSTERESIS gerekli (20 km/h)
+      // GPS kilitli      → dönmek için PLAUSIBILITY - HYSTERESIS gerekli (10 km/h)
+      const threshold = _gpsSourceLock
+        ? PLAUSIBILITY_KMH - HYSTERESIS_KMH  // 10 km/h → GPS'ten çık
+        : PLAUSIBILITY_KMH + HYSTERESIS_KMH; // 20 km/h → GPS'e gir
+
+      if (absDiff > threshold) {
         if (now - _lastMismatchMs > MISMATCH_WINDOW_MS) _mismatchCnt = 0;
         _mismatchCnt++;
         _lastMismatchMs = now;
         if (_mismatchCnt >= PLAUSIBILITY_LIMIT) {
+          _gpsSourceLock = true;
           raw    = _lastGpsKmh!;
           source = 'gps';
           warn   = true;
         } else {
-          raw    = _lastObd;
+          raw    = obdCalib;
           source = 'obd';
         }
       } else {
-        _mismatchCnt = 0;
-        raw    = _lastObd * 0.75 + _lastGpsKmh! * 0.25;
+        _mismatchCnt   = 0;
+        _gpsSourceLock = false;
+        // Kalibre edilmiş OBD + GPS füzyonu
+        raw    = obdCalib * 0.75 + _lastGpsKmh! * 0.25;
         source = 'fused';
       }
     } else {
-      raw    = _lastObd;
+      raw    = _lastObd - _calibOffset; // tek kaynak: kalibre edilmiş OBD
       source = 'obd';
-      _mismatchCnt = 0;
+      _mismatchCnt   = 0;
+      _gpsSourceLock = false;
     }
   } else if (gpsOk) {
     raw    = _lastGpsKmh!;
@@ -174,7 +250,10 @@ function _computeAndNotify(): void {
   const smoothed = Math.max(0, Math.round(raw));
 
   const prev = _fused;
-  _fused = { speed: smoothed, source, obdRaw: _lastObd, gpsRaw: _lastGpsKmh, plausibilityWarning: warn, confidence };
+  _fused = {
+    speed: smoothed, source, obdRaw: _lastObd, gpsRaw: _lastGpsKmh,
+    plausibilityWarning: warn, confidence, calibrationOffset: _calibOffset,
+  };
 
   // Throttle: listener'ları max 2 Hz'de bilgilendir
   if (now - _lastNotifyMs < NOTIFY_THROTTLE_MS) return;
@@ -255,7 +334,10 @@ if (import.meta.hot) {
     _cleanupObd?.();
     _cleanupGps?.();
     _listeners.clear();
-    _initialized = false;
+    _initialized   = false;
+    _gpsSourceLock = false;
+    _diffHistory   = [];
+    _calibOffset   = 0;
   });
 }
 

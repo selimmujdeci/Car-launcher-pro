@@ -31,7 +31,7 @@ export const MapOverlay = memo(function MapOverlay({
   const { unavailable: gpsUnavailable } = useGPSState();
   const isDriving = useDrivingMode();
   
-  const speed = speedKmh ?? location?.speed ?? 0;
+  const speed = speedKmh ?? (location?.speed != null ? location.speed * 3.6 : 0);
   const hasHeading = heading != null && isFinite(heading);
 
   // Source badge — contextual color per serving mode
@@ -88,9 +88,9 @@ export const MapOverlay = memo(function MapOverlay({
           </div>
         )}
 
-        {/* Hız + yön — bottom-left, kompakt */}
+        {/* Hız + yön — bottom-right, kompakt */}
         {location && (
-          <div className="absolute bottom-2 left-2">
+          <div className="absolute bottom-2 right-2">
             <div className="flex items-center gap-1.5 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-xl border border-white/10 shadow-lg px-2.5 py-1.5">
               <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-primary'}`}>
                 {Math.round(speed)}
@@ -153,7 +153,7 @@ export const MapOverlay = memo(function MapOverlay({
 
       {/* Main HUD — bottom-left */}
       {location && (
-        <div className={`absolute bottom-8 left-8 transition-all duration-700 ${isDriving ? 'scale-125 origin-bottom-left translate-x-2 -translate-y-2' : ''}`}>
+        <div className={`absolute bottom-24 right-6 transition-all duration-700 ${isDriving ? 'scale-110 origin-bottom-right' : ''}`}>
           <div className="flex items-stretch var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-3xl rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden p-1.5">
             {/* Speed */}
             <div className="px-8 py-5 flex items-baseline gap-3 var(--panel-bg-secondary) rounded-[2rem] border border-white/5 shadow-inner">

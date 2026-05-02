@@ -50,10 +50,10 @@ const ODO_JUMP_MAX_KM         = 0.2;   // GPS tek tick max delta (Haversine sani
 const ODO_OBD_JUMP_MAX_KM     = 5;     // OBD ani sıçrama eşiği (ilk sync hariç)
 const ODO_PERSIST_THRESHOLD_KM = 0.5;  // Disk yazma eşiği: 500 m birikince persist et
 const DR_JITTER_KMH        = 3;     // GPS < 3 km/h → konum kayması gürültüsü
-const DR_MAX_INTERVAL_MS   = 200;   // dead reckoning max Δt (timer jitter toleransı)
+const DR_MAX_INTERVAL_MS   = 500;   // dead reckoning max Δt — SPEED_INTERVAL_MS=300 üstünde olmalı
 
 const SRC_TIMEOUT_CAN_MS   = 3_000;
-const SRC_TIMEOUT_OBD_MS   = 10_000;
+const SRC_TIMEOUT_OBD_MS   = 2_000;  // OBD 300-1000ms günceller; 2s stale = kesildi → GPS'e geç
 const SRC_TIMEOUT_GPS_MS   = 5_000;
 const WATCHDOG_INTERVAL_MS = 1_000;
 
@@ -79,9 +79,10 @@ const _gps: GpsAdapterData & { speed?: number; heading?: number; location?: type
 
 // ── Tazelik takibi (performance.now() monotonic) ────────────────────────
 
-let _canLastSeen = 0;
-let _obdLastSeen = 0;
-let _gpsLastSeen = 0;
+let _canLastSeen    = 0;
+let _obdLastSeen    = 0;
+let _gpsLastSeen    = 0;
+let _prevGpsUpdateAt = 0; // önceki GPS_DATA zamanı — Doppler Δt hesabı için
 
 // ── Hız durumu ────────────────────────────────────────────────────────────
 
@@ -435,20 +436,25 @@ function _checkGeofences(lat: number, lng: number): void {
   }
 }
 
-// ── Odometer (GPS Haversine delta) ───────────────────────────────────────
+// ── Odometer (Google Maps mantığı: Doppler speed × Δt, Haversine fallback) ──────
+//
+// Öncelik 1 — GPS Doppler speed × Δt:
+//   coords.speed (m/s) donanım seviyesinde Doppler ile ölçülür; konum hatasından
+//   bağımsız ve çok daha kararlıdır. Google Maps ile aynı mantık.
+//   Avantaj: accuracy > 30m olsa bile (şehir içi, tünel çıkışı) doğru km birikir.
+//
+// Öncelik 2 — Haversine konum delta (fallback):
+//   GPS speed yoksa (eski cihaz, NMEA-only) iki ardışık fix arası mesafe.
+//   Gerektirdiği koşul: accuracy ≤ GPS_ACCURACY_MAX_M.
 
-function _updateOdometerGps(): void {
+function _updateOdometerGps(dtMs: number): void {
   if (!_gpsLocActive) return;
   const loc = _gps.location!;
 
-  if (loc.accuracy > GPS_ACCURACY_MAX_M) return; // jitter guard
-
-  // ── OdometerGuard: startup skip (ilk 3 fix) + 100 km jump protection ──
+  // ── OdometerGuard: startup skip + 100 km jump protection ──────────────
   const guardResult = _odoGuard.check(loc.lat, loc.lng);
 
   if (guardResult === 'skip') {
-    // Startup penceresi: referansı ilerlet ama delta hesaplama.
-    // Pencere kapandığında delta doğru başlangıç noktasından ölçülür.
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
     _prevOdoActive  = true;
@@ -456,44 +462,60 @@ function _updateOdometerGps(): void {
   }
 
   if (guardResult === 'invalid') {
-    // 100 km sıçrama: bu konum güvenilmez, _prevOdo referansını sıfırla.
-    // Sonraki geçerli okuma yeni baseline oluşturur (double-counting yok).
     _prevOdoActive = false;
     return;
   }
 
-  // guardResult === 'ok' → normal delta hesapla ───────────────────────────
-
-  if (!_prevOdoActive) {
-    // İlk geçerli GPS noktası — referans kaydet, delta yok
-    _prevOdoBuf.lat  = loc.lat;
-    _prevOdoBuf.lng  = loc.lng;
-    _prevOdoActive   = true;
+  // Jitter guard: < 3 km/h → araç durmuş / sürünüyor; konum kayması biriktirme
+  const speedKmh = _gps.speed ?? 0; // GpsAdapter zaten km/h'e çevirdi, deadzone uyguladı
+  if (speedKmh < DR_JITTER_KMH) {
+    _prevOdoBuf.lat = loc.lat;
+    _prevOdoBuf.lng = loc.lng;
+    _prevOdoActive  = true;
     return;
   }
 
-  // Jitter filtresi: < 3 km/h'de GPS konum kayması gürültüsünü biriktirme
-  if (_lastKnownSpeed < DR_JITTER_KMH) {
+  // ── Yöntem 1: GPS Doppler speed × Δt ─────────────────────────────────
+  // GPS speed mevcut ve Δt geçerliyse bunu kullan (konum hatasından bağımsız).
+  if (_gps.speed != null && dtMs >= 100 && dtMs < 3_000) {
+    const deltaKm = (speedKmh / 3_600) * (dtMs / 1_000);
+    if (deltaKm > 0 && deltaKm <= ODO_JUMP_MAX_KM) {
+      _odoKm += deltaKm;
+      _postOdoUpdate(false);
+      _prevOdoBuf.lat = loc.lat;
+      _prevOdoBuf.lng = loc.lng;
+      _prevOdoActive  = true;
+      return; // Haversine'e gerek yok
+    }
+  }
+
+  // ── Yöntem 2: Haversine konum delta (GPS speed yoksa) ────────────────
+  if (loc.accuracy > GPS_ACCURACY_MAX_M) {
+    // Kötü accuracy + speed yok → referans ilerlet, biriktirme
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
     return;
   }
 
-  const deltaKm = _haversineKm(_prevOdoBuf.lat, _prevOdoBuf.lng, loc.lat, loc.lng);
+  if (!_prevOdoActive) {
+    _prevOdoBuf.lat = loc.lat;
+    _prevOdoBuf.lng = loc.lng;
+    _prevOdoActive  = true;
+    return;
+  }
 
-  // Referansı her durumda güncelle; sonra per-tick sanity guard'ı uygula
+  const deltaKm = _haversineKm(_prevOdoBuf.lat, _prevOdoBuf.lng, loc.lat, loc.lng);
   _prevOdoBuf.lat = loc.lat;
   _prevOdoBuf.lng = loc.lng;
 
-  // Tek GPS tick'te 200m'den fazla → sıçrama; hata bus'ı için debug
   if (deltaKm > ODO_JUMP_MAX_KM) {
-    console.debug('[ODO] GPS jump rejected: delta=', deltaKm.toFixed(3), 'km');
+    console.debug('[ODO] Haversine jump rejected:', deltaKm.toFixed(3), 'km');
     return;
   }
 
   if (deltaKm > 0) {
     _odoKm += deltaKm;
-    _postOdoUpdate(false); // 500 m eşiği kontrolü
+    _postOdoUpdate(false);
   }
 }
 
@@ -752,7 +774,11 @@ self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
 
     case 'GPS_DATA': {
       const d = msg.payload;
-      _gpsLastSeen  = performance.now();
+      const _nowGps = performance.now();
+      // Δt: önceki GPS güncellemesinden bu yana geçen süre (Doppler × Δt odometer için)
+      const dtMs = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
+      _prevGpsUpdateAt = _nowGps;
+      _gpsLastSeen     = _nowGps;
       _gps.speed    = d.speed;
       _gps.heading  = d.heading;
 
@@ -768,7 +794,7 @@ self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
         _gpsLocActive = false;
       }
 
-      _updateOdometerGps();
+      _updateOdometerGps(dtMs);
 
       // Geofence kontrolü — yalnızca araç hareket halindeyken ve konum geçerliyse
       if (_gfActive && _gpsLocActive && _lastKnownSpeed > 0) {

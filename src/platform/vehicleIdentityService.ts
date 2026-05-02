@@ -177,11 +177,14 @@ export async function refreshLinkingCode(): Promise<LinkingCodeInfo> {
  *   rejected  : güvenlik reddi (sürüş sırasında lock/unlock vb.)
  */
 export type CommandLifecycleStatus =
-  | 'accepted'
-  | 'executing'
-  | 'completed'
-  | 'failed'
-  | 'rejected';
+  | 'received'   // araç komutu aldı — TTL kontrolünden önce
+  | 'accepted'   // (legacy alias — received ile eş anlamlı, backward compat)
+  | 'executing'  // executeIntent() başladı
+  | 'completed'  // komut başarıyla icra edildi
+  | 'expired'    // TTL aşıldı, komut çalıştırılmadı
+  | 'queued'     // çevrimdışı — kritik komut retry kuyruğunda bekliyor
+  | 'failed'     // yürütme hatası
+  | 'rejected';  // güvenlik reddi (sürüş sırasında lock/unlock vb.)
 
 export async function updateRemoteCommandStatus(
   commandId: string,
@@ -200,10 +203,10 @@ export async function updateRemoteCommandStatus(
     p_command_id: commandId,
     p_status:     status,
   };
-  if (status === 'accepted')                          body.p_accepted_at  = now;
-  if (status === 'executing')                         body.p_executed_at  = now;
+  if (status === 'received' || status === 'accepted')  body.p_accepted_at  = now;
+  if (status === 'executing')                          body.p_executed_at  = now;
   if (status === 'completed' || status === 'failed' ||
-      status === 'rejected')                          body.p_finished_at  = now;
+      status === 'rejected'  || status === 'expired')  body.p_finished_at  = now;
   if (error)                                          body.p_error        = error;
 
   // Yüksek öncelik — at-least-once garantisi (connectivityService kuyruğu)

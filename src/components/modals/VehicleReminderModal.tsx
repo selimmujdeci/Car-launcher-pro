@@ -1,7 +1,7 @@
 import { memo, useState, useCallback } from 'react';
 import { X, Wrench, Shield, Droplets, Save, Car } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { useVehicleStore } from '../../platform/vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { computeReminders, type ReminderUrgency } from '../../platform/vehicleReminderService';
 import type { MaintenanceInfo } from '../../store/useStore';
 

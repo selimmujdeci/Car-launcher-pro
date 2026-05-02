@@ -28,7 +28,7 @@
  * CLAUDE.md §3 (Performance): poll 8s, subscribe callback O(1) field assign.
  */
 
-import { useVehicleStore }        from '../vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { onVehicleEvent }         from '../vehicleDataLayer/VehicleEventHub';
 import { computeReminders }       from '../vehicleReminderService';
 import { getLocationCtx, getTimeCtx } from '../contextEngine';
@@ -281,8 +281,8 @@ export function startSmartCardEngine(): void {
   _vehicle = {
     speedKmh: vs.speed ?? 0,
     fuelPct:  vs.fuel,
-    lat:      vs.location?.lat ?? null,
-    lng:      vs.location?.lng ?? null,
+    lat:      vs.location?.latitude  ?? null,
+    lng:      vs.location?.longitude ?? null,
   };
 
   // Merkezi araç durumu aboneliği — O(1) field assign, compute tetiklemez
@@ -291,8 +291,8 @@ export function startSmartCardEngine(): void {
     _vehicle = {
       speedKmh: state.speed ?? 0,
       fuelPct:  state.fuel,
-      lat:      state.location?.lat ?? null,
-      lng:      state.location?.lng ?? null,
+      lat:      state.location?.latitude  ?? null,
+      lng:      state.location?.longitude ?? null,
     };
   });
 

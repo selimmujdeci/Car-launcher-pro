@@ -12,12 +12,50 @@
 @import "./styles/theme-packs.css";
 
 /* ═══════════════════════════════════════════════════════════
+   SUNLIGHT MODE — autoBrightnessService.ts tarafından yönetilir
+   Gündüz (morning/afternoon) fazında documentElement'e eklenir.
+
+   GPU relief (Mali-400): backdrop-filter blur efektleri anlık
+   olarak sıfırlanır → WebGL harita frame hızı korunur.
+   Geçiş requestAnimationFrame içinden yapılır → sıfır reflow.
+   ═══════════════════════════════════════════════════════════ */
+
+:root.sunlight-mode * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ADAPTIVE PERFORMANCE CLASSES
+   Mali-400 / düşük GPU koruması:
+     perf-low → FPS < 20 veya aktif sürüş (blur, animasyon yok)
+     perf-med → FPS 20-40 (animasyonlar yavaşlatılır)
+   ═══════════════════════════════════════════════════════════ */
+
+.perf-low * {
+  animation: none !important;
+  transition-duration: 0.1s !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+.perf-med * {
+  animation-duration: 0.5s !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
    TEMA BASE DEĞİŞKENLERİ — Her tema için garantili CSS vars
    theme-packs.css daha detaylı override'lar sağlar
    ═══════════════════════════════════════════════════════════ */
 
 /* Varsayılan (tema seçilmemişse) */
 :root {
+  /* Safe-area inset'leri — iOS çentik / Android punch-hole koruma */
+  --sat: env(safe-area-inset-top,    0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left,   0px);
+  --sar: env(safe-area-inset-right,  0px);
+
   --bg-primary:    #0a0c10;
   --bg-card:       #12151d;
   --bg-surface:    #1a1d28;

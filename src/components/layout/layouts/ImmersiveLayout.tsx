@@ -57,7 +57,7 @@ export const ImmersiveLayout = memo(function ImmersiveLayout({
           boxShadow: `0 8px 32px rgba(0,0,0,0.4), 0 0 30px rgba(${accentRgb},0.08)`,
         }}
       >
-        <DataPill label="HIZ" value={`${speed}`} unit="km/h" accent={accent} accentRgb={accentRgb} />
+        <DataPill label="HIZ" value={`${Math.round(speed || 0)}`} unit="km/h" accent={accent} accentRgb={accentRgb} />
         <div className="w-full h-px opacity-10" style={{ background: accent }} />
         <DataPill
           label="MOTOR"

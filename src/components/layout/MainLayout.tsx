@@ -194,7 +194,7 @@ export default function MainLayout() {
     device, favorites,
     settings.defaultNav as NavOptionKey,
     settings.defaultMusic as MusicOptionKey,
-    location?.speed != null ? location.speed * 3.6 : undefined,
+    location?.speed != null ? Math.round(location.speed * 3.6) : undefined,
     hudMedia.playing,
     isNavigating,
   );
@@ -258,7 +258,7 @@ export default function MainLayout() {
       get vehicleCtx() {
         const { location: loc, smart: sm } = _remoteRef.current;
         return {
-          speedKmh:    loc?.speed != null ? loc.speed * 3.6 : 0,
+          speedKmh:    loc?.speed != null ? Math.round(loc.speed * 3.6) : 0,
           drivingMode: sm.drivingMode,
           isDriving:   sm.drivingMode === 'driving',
         };

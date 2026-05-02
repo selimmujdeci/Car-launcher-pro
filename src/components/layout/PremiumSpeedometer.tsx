@@ -1,42 +1,46 @@
 /**
- * PremiumSpeedometer — Optimized Automotive Speedometer
+ * PremiumSpeedometer — SAB-Exclusive Gauge (PROMPT 4)
  *
  * Performans mimarisi:
- *  - Hız: useFusedSpeed() — tek subscription, OBD+GPS sensor fusion + RAF animasyon
- *  - RPM/Sıcaklık/Yakıt: dar seçici hook'lar (useOBDRPM, useOBDEngineTemp, useOBDFuelLevel)
- *    → her biri yalnızca kendi alanı değişince re-render tetikler
- *  - SVG arc: displaySpeed (RAF interpole) ile hesaplanır — React state ile değil
- *  - Lite mod (2 GB RAM): GPU efektleri kapalı, RAF interpolasyon yok, glow filter yok
+ *  - Hız sayısı + hız arc + RPM arc: SAB Atomics.load → doğrudan DOM ref mutasyonu
+ *    → React render döngüsünden TAMAMEN ayrık, 60 FPS, sıfır re-render maliyeti
+ *  - noSignal / source / plausibilityWarning: useFusedSpeed() metadata-only
+ *    → saniyeler mertebesinde değişir, re-render etkisi ihmal edilebilir
+ *  - Sıcaklık / yakıt: dar seçici hook'lar (DataRow) — OBD frekansı ~300ms
+ *  - Lite mod (2 GB RAM): GPU efektleri kapalı, glow filter yok
+ *
+ * Kritik kural: speedTextRef / speedArcRef / rpmArcRef null kontrolü her
+ * onFrame callback'inde zorunludur — noSignal durumunda element DOM'da olmaz.
  */
-import { memo, useMemo } from 'react';
-import { useFusedSpeed }   from '../../platform/speedFusion';
+
+import { memo, useRef, useMemo } from 'react';
+import { useFusedSpeed }          from '../../platform/speedFusion';
 import { useOBDRPM, useOBDEngineTemp, useOBDFuelLevel } from '../../platform/obdService';
-import { getPerformanceMode } from '../../platform/performanceMode';
+import { getPerformanceMode }     from '../../platform/performanceMode';
 import { useRafSmoothed, useRafSmoothedPercent } from '../../platform/rafSmoother';
+import { useSABDirectUpdate, SAB_IDX } from '../../hooks/useSABDirectUpdate';
 
 /* ── Props ──────────────────────────────────────────────────── */
 
 interface Props {
   className?: string;
-  compact?: boolean;
-  numSize?: 'sm' | 'md' | 'lg' | 'xl';
+  compact?:   boolean;
+  numSize?:   'sm' | 'md' | 'lg' | 'xl';
 }
 
-/* ── SVG sabitler (değişmez → useMemo dışında) ─────────────── */
+/* ── SVG sabitler ───────────────────────────────────────────── */
 
-const RADIUS   = 108;
-const CIRC     = 2 * Math.PI * RADIUS;   // ≈ 678.6
-const ARC      = CIRC * 0.75;            // 270° ≈ 508.9
-const MAX_SPD  = 240;
-const MAX_RPM  = 8000;
+const RADIUS  = 108;
+const CIRC    = 2 * Math.PI * RADIUS;
+const ARC     = CIRC * 0.75;
+const MAX_SPD = 240;
+const MAX_RPM = 8000;
 
 const FONT_SIZE: Record<string, number> = { sm: 54, md: 66, lg: 78, xl: 96 };
 
 const TICK_MAJOR = [0, 60, 120, 180, 240];
 const TICK_MINOR = Array.from({ length: 27 }, (_, i) => (i / 26) * MAX_SPD)
   .filter((s) => !TICK_MAJOR.some((m) => Math.abs(s - m) < 5));
-
-/* ── Yardımcılar ────────────────────────────────────────────── */
 
 function tickCoords(spd: number, rOuter: number, rInner: number) {
   const angle = (135 + (spd / MAX_SPD) * 270) * (Math.PI / 180);
@@ -46,7 +50,8 @@ function tickCoords(spd: number, rOuter: number, rInner: number) {
   };
 }
 
-/* ── Tick SVG grupları (sabit, re-render yok) ───────────────── */
+/* ── Tick grupları (sabit — memo ile re-render yok) ─────────── */
+
 const MajorTicks = memo(function MajorTicks() {
   return (
     <>
@@ -71,18 +76,16 @@ const MinorTicks = memo(function MinorTicks() {
   );
 });
 
-/* ── Data row — her biri kendi narrow hook'unu kullanır ─────── */
+/* ── DataRow — OBD frekansında güncellenır (not 60 FPS) ─────── */
+
 const DataRow = memo(function DataRow() {
-  // useOBDRPM() artık dahili RAF α=0.20 ile akıcı — tekrar sarmaya gerek yok
   const rpm        = useOBDRPM();
   const engineTemp = useOBDEngineTemp();
   const fuelLevel  = useOBDFuelLevel();
 
-  // Sıcaklık ve yakıt için rafSmoother: obdService hook'ları bunları sarmalamıyor
-  const displayTemp = useRafSmoothed(engineTemp, 0.06); // termal kütle — çok yavaş
-  const displayFuel = useRafSmoothedPercent(fuelLevel); // titreme bastırma
+  const displayTemp = useRafSmoothed(engineTemp, 0.06);
+  const displayFuel = useRafSmoothedPercent(fuelLevel);
 
-  // -1 = ELM327 henüz bağlanmadı → "---" göster (sahte değer yok)
   const rpmStr  = rpm < 0        ? '---' : rpm.toLocaleString();
   const tempStr = engineTemp < 0 ? '---' : `${Math.round(displayTemp)}°`;
   const fuelStr = fuelLevel  < 0 ? '---' : `${Math.round(displayFuel)}%`;
@@ -109,25 +112,20 @@ const DataRow = memo(function DataRow() {
 
 export const PremiumSpeedometer = memo(function PremiumSpeedometer({
   className = '',
-  compact = false,
-  numSize = 'lg',
+  compact   = false,
+  numSize   = 'lg',
 }: Props) {
-  const { displaySpeed, data } = useFusedSpeed();
+  // ── Metadata: saniyeler mertebesinde değişen durum değerleri ──────────────
+  // Bunlar 60 FPS'de değil; React render maliyeti ihmal edilebilir.
+  const { data }  = useFusedSpeed();
   const perfMode  = getPerformanceMode();
   const isLite    = perfMode === 'lite';
-  const noSignal  = data.source === 'none'; // ELM327 bağlı değil + GPS fix yok
-
-  // SVG arc offset — RAF displaySpeed ile hesaplanır → animasyon CSS transition'sız
-  const spdOffset = useMemo(
-    () => ARC - Math.min(displaySpeed / MAX_SPD, 1) * ARC,
-    [displaySpeed],
-  );
+  const noSignal  = data.source === 'none';
 
   const textY  = numSize === 'xl' ? 158 : numSize === 'lg' ? 152 : 148;
   const kmhY   = numSize === 'xl' ? 186 : numSize === 'lg' ? 181 : 176;
   const fSize  = FONT_SIZE[numSize];
 
-  // Lite modda glow/blur filtreler devre dışı — GPU belleği tasarrufu
   const glowFilter = isLite
     ? undefined
     : 'drop-shadow(0 0 12px var(--pack-accent, #3b82f6))';
@@ -135,10 +133,43 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
     ? undefined
     : 'drop-shadow(0 0 32px var(--pack-glow, rgba(59,130,246,0.35)))';
 
-  // Plausibility uyarısı rengi
   const arcColor = data.plausibilityWarning
     ? 'var(--pack-warn, #f59e0b)'
     : 'var(--pack-accent, #3b82f6)';
+
+  // ── DOM Refs — SAB onFrame callback'leri bunlara yazar ───────────────────
+  // React render döngüsü dışında mutasyon — sıfır yeniden render
+  const speedTextRef = useRef<SVGTextElement>(null);
+  const speedArcRef  = useRef<SVGCircleElement>(null);
+  const rpmArcRef    = useRef<SVGCircleElement>(null);
+
+  // ── İlk render için statik dashoffset — SAB devreye girene kadar ─────────
+  const initSpdOffset = useMemo(
+    () => ARC - Math.min((data.speed ?? 0) / MAX_SPD, 1) * ARC,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [], // sadece ilk render — sonrasını SAB yönetir
+  );
+
+  // ── SAB → Hız rakamı + hız arc (60 FPS, sıfır re-render) ─────────────────
+  useSABDirectUpdate(SAB_IDX.SPEED, (_raw, smoothed) => {
+    // Rakam: EMA-smoothed → her frame kademeli değişim (Google Maps gibi)
+    if (speedTextRef.current) {
+      speedTextRef.current.textContent = String(Math.max(0, Math.round(smoothed)));
+    }
+    // Arc: EMA-smoothed → akıcı iğne hareketi
+    const offset = ARC - Math.min(smoothed / MAX_SPD, 1) * ARC;
+    if (speedArcRef.current) {
+      speedArcRef.current.setAttribute('stroke-dashoffset', String(offset));
+    }
+  }, 0.30);
+
+  // ── SAB → RPM arc (60 FPS, sıfır re-render) ──────────────────────────────
+  useSABDirectUpdate(SAB_IDX.RPM, (_raw, smoothed) => {
+    const offset = ARC - Math.min(smoothed / MAX_RPM, 1) * ARC * 0.7;
+    if (rpmArcRef.current) {
+      rpmArcRef.current.setAttribute('stroke-dashoffset', String(offset));
+    }
+  }, 0.25);
 
   return (
     <div className={`flex flex-col items-center justify-center w-full h-full select-none ${className}`}>
@@ -148,7 +179,6 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
           className="w-full h-full max-w-[320px] max-h-[320px]"
           style={{ filter: outerGlow, overflow: 'visible' }}
         >
-          {/* ── Defs (lite modda glow filter yok) ── */}
           {!isLite && (
             <defs>
               <filter id="speedo-glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -161,7 +191,6 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             </defs>
           )}
 
-          {/* Ambient glow (premium/balanced only) */}
           {!isLite && (
             <circle cx="150" cy="150" r="130"
               fill="none"
@@ -171,7 +200,6 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             />
           )}
 
-          {/* Outer ring border */}
           <circle cx="150" cy="150" r={RADIUS + 10}
             fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1"
           />
@@ -183,43 +211,43 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             transform="rotate(135 150 150)"
           />
 
-          {/* Speed arc — sinyal yoksa gizli; RAF-driven, CSS transition YOK */}
+          {/* Hız arc — SAB ref ile doğrudan güncellenir; React useMemo YOK */}
           {!noSignal && (
             <circle
+              ref={speedArcRef}
               cx="150" cy="150" r={RADIUS}
               fill="none"
               stroke={arcColor}
               strokeWidth="14"
               strokeDasharray={`${ARC} ${CIRC}`}
-              strokeDashoffset={spdOffset}
+              strokeDashoffset={initSpdOffset}
               strokeLinecap="round"
               transform="rotate(135 150 150)"
               style={glowFilter ? { filter: glowFilter } : undefined}
             />
           )}
 
-          {/* Inner thin ring (premium/balanced only) */}
-          {!isLite && (
+          {!isLite && !noSignal && (
             <circle
               cx="150" cy="150" r={RADIUS - 20}
               fill="none"
               stroke={arcColor}
               strokeWidth="3"
               strokeDasharray={`${ARC} ${CIRC}`}
-              strokeDashoffset={spdOffset}
+              strokeDashoffset={initSpdOffset}
               strokeLinecap="round"
               transform="rotate(135 150 150)"
               opacity="0.3"
             />
           )}
 
-          {/* Ticks — memo ile sabit, re-render yok */}
           <MajorTicks />
           {!isLite && <MinorTicks />}
 
-          {/* Hız rakamı — data.speed (anlık raw), lerp KULLANILMAZ */}
+          {/* Hız rakamı — SAB ref ile doğrudan güncellenir */}
           {!noSignal && (
             <text
+              ref={speedTextRef}
               x="150" y={textY}
               textAnchor="middle" dominantBaseline="middle"
               fontSize={fSize} fontWeight="900" fill="var(--speedo-color,#1e293b)"
@@ -230,7 +258,6 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             </text>
           )}
 
-          {/* km/h etiketi */}
           <text
             x="150" y={kmhY}
             textAnchor="middle"
@@ -242,7 +269,6 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             KM/H
           </text>
 
-          {/* Sinyal bekleniyorsa merkeze uyarı metni */}
           {noSignal && (
             <text
               x="150" y={textY}
@@ -256,7 +282,6 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             </text>
           )}
 
-          {/* Kaynak göstergesi — GPS/OBD/Fused (compact modda gizli) */}
           {!compact && !noSignal && (
             <text
               x="150" y="240"
@@ -270,13 +295,29 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
             </text>
           )}
 
-          {/* RPM micro arc (premium/balanced only) */}
+          {/* RPM micro arc — SAB ref ile doğrudan güncellenir */}
           {!compact && !isLite && (
-            <RpmArc />
+            <>
+              <circle
+                cx="150" cy="150" r={RADIUS - 30}
+                fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5"
+                strokeDasharray={`${ARC * 0.7} ${CIRC}`} strokeLinecap="round"
+                transform="rotate(165 150 150)"
+              />
+              <circle
+                ref={rpmArcRef}
+                cx="150" cy="150" r={RADIUS - 30}
+                fill="none" stroke="var(--pack-accent, #3b82f6)" strokeWidth="4"
+                strokeDasharray={`${ARC * 0.7} ${CIRC}`}
+                strokeDashoffset={ARC * 0.7} // başlangıç: 0 RPM
+                strokeLinecap="round"
+                transform="rotate(165 150 150)"
+                opacity="0.45"
+              />
+            </>
           )}
         </svg>
 
-        {/* Ambient center glow (lite modda yok) */}
         {!isLite && (
           <div
             className="absolute inset-0 rounded-full pointer-events-none"
@@ -287,35 +328,7 @@ export const PremiumSpeedometer = memo(function PremiumSpeedometer({
         )}
       </div>
 
-      {/* Data row — ayrı memo bileşen, kendi narrow hook'larını kullanıyor */}
       {!compact && <DataRow />}
     </div>
-  );
-});
-
-/* ── RPM arc — ayrı memo → sadece RPM değişince render ──────── */
-const RpmArc = memo(function RpmArc() {
-  // useOBDRPM() dahili RAF α=0.20 — SVG arc doğrudan akıcı değeri alır
-  const rpm       = useOBDRPM();
-  const rpmOffset = ARC - Math.min(rpm / MAX_RPM, 1) * ARC * 0.7;
-
-  return (
-    <>
-      <circle
-        cx="150" cy="150" r={RADIUS - 30}
-        fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5"
-        strokeDasharray={`${ARC * 0.7} ${CIRC}`} strokeLinecap="round"
-        transform="rotate(165 150 150)"
-      />
-      <circle
-        cx="150" cy="150" r={RADIUS - 30}
-        fill="none" stroke="var(--pack-accent, #3b82f6)" strokeWidth="4"
-        strokeDasharray={`${ARC * 0.7} ${CIRC}`}
-        strokeDashoffset={rpmOffset}
-        strokeLinecap="round"
-        transform="rotate(165 150 150)"
-        opacity="0.45"
-      />
-    </>
   );
 });

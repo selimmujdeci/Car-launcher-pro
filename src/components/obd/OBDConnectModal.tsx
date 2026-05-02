@@ -8,9 +8,9 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
-import { startOBD } from '../../platform/obdService';
+import { startOBD, useOBDConnectionState } from '../../platform/obdService';
 
 interface DiscoveredDevice {
   name:    string;
@@ -34,6 +34,35 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
   const handlesRef = useRef<Array<{ remove: () => void }>>([]);
 
+  // OBD service state — reactive: no direct CarLauncher calls from modal
+  const obdConnectionState = useOBDConnectionState();
+
+  // Watch OBD service for connection result while a connect attempt is in flight.
+  // 'connected' → success animation then close; 'error' → show failure message.
+  useEffect(() => {
+    if (!connecting) return;
+    if (obdConnectionState === 'connected') {
+      setConnected(connecting);
+      setConnecting(null);
+      const t = setTimeout(onClose, 1500);
+      return () => clearTimeout(t);
+    }
+    if (obdConnectionState === 'error') {
+      setConnecting(null);
+      setError('Adaptör bağlantısı kurulamadı. Bluetooth Ayarları > cihazı eşleyin (PIN: 1234 veya 0000), ardından tekrar deneyin.');
+    }
+  }, [obdConnectionState, connecting, onClose]);
+
+  // 35 s connection timeout guard — mirrors CONNECT_TIMEOUT_MS in obdService
+  useEffect(() => {
+    if (!connecting) return;
+    const t = setTimeout(() => {
+      setConnecting(null);
+      setError('Bağlantı zaman aşımına uğradı (35 s). Adaptörün açık ve yakında olduğundan emin olun.');
+    }, 35_000);
+    return () => clearTimeout(t);
+  }, [connecting]);
+
   const cleanup = useCallback(() => {
     handlesRef.current.forEach((h) => { try { h.remove(); } catch { /* ignore */ } });
     handlesRef.current = [];
@@ -56,6 +85,20 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setConnecting(null);
     setConnected(null);
     setScanning(true);
+
+    // Android 12+ BLUETOOTH_SCAN + BLUETOOTH_CONNECT izinleri olmadan
+    // hem discovery hem RFCOMM bağlantısı CONNECT_FAILED atar.
+    try {
+      await CarLauncher.requestAndroid13Permissions();
+    } catch (e) {
+      const msg = (e as Error)?.message ?? '';
+      if (/denied|permission|bluetooth/i.test(msg)) {
+        setError('Bluetooth tarama izni reddedildi. Ayarlar > Uygulama İzinleri bölümünden Yakındaki Cihazlar iznini verin.');
+        setScanning(false);
+        return;
+      }
+      // İzin API bu Android sürümünde yoksa sessizce devam et
+    }
 
     try {
       // Cihaz bulunca listeye ekle (duplicate'leri filtrele)
@@ -97,21 +140,14 @@ export function OBDConnectModal({ open, onClose }: Props) {
     return cleanup;
   }, [open, startScan, cleanup]);
 
-  const handleConnect = async (dev: DiscoveredDevice) => {
+  // Bağlantı sorumluluğu tamamen servise devredildi:
+  //   startOBD(address) → _lastKnownAddress güncellenir + localStorage'a kaydedilir
+  //                      → scan atlanır, doğrudan connectOBD() çağrılır (<3 s)
+  // Sonuç izleme: useEffect (obdConnectionState) reaktif olarak yakalar.
+  const handleConnect = (dev: DiscoveredDevice) => {
     setConnecting(dev.address);
     setError(null);
-    try {
-      await CarLauncher.connectOBD({ address: dev.address });
-      setConnected(dev.address);
-      setConnecting(null);
-      // OBD servisini yeniden başlat
-      startOBD();
-      // 1.5s sonra modal'ı kapat
-      setTimeout(onClose, 1500);
-    } catch (e) {
-      setConnecting(null);
-      setError(`${dev.name}: ${(e as Error).message ?? 'Bağlantı başarısız'}`);
-    }
+    startOBD(dev.address);
   };
 
   if (!open) return null;
@@ -163,10 +199,24 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
           {/* Hata */}
           {error && (
-            <div className="flex items-start gap-2 px-3 py-2 mb-3 rounded-xl"
+            <div className="flex flex-col gap-2 px-3 py-2.5 mb-3 rounded-xl"
               style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <span className="text-[11px] text-red-400 leading-relaxed">{error}</span>
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span className="text-[11px] text-red-400 leading-relaxed whitespace-pre-line">{error}</span>
+              </div>
+              {/bağlanamadı/i.test(error) && (
+                <button
+                  onClick={() => {
+                    CarLauncher.launchApp({ action: 'android.settings.BLUETOOTH_SETTINGS' }).catch(() => {});
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all active:scale-95"
+                  style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                >
+                  <Settings className="w-3 h-3" />
+                  Android Bluetooth Ayarlarını Aç
+                </button>
+              )}
             </div>
           )}
 

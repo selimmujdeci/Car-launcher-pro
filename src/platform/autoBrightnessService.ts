@@ -173,20 +173,69 @@ let _prevHeadlights:  boolean | null = null;
 /** Tünel modunda mı? OBD far sinyaline göre gündüz içi tünel geçişlerini tespit eder. */
 let _tunnelMode = false;
 
+// ── RAF Reflow Optimizasyonu ──────────────────────────────────────────────
+//
+// Tema geçişleri (oled↔dark) ve sunlight-mode CSS sınıfı değişimleri DOM
+// üzerinde layout hesaplamaları tetikler. Bunlar requestAnimationFrame içine
+// alınarak render döngüsüyle senkronize edilir — harita (MapLibre WebGL) ve
+// araç göstergesi (Mali-400 GPU) donmaz.
+//
+// sunlight-mode CSS sınıfı: documentElement'e eklenir.
+//   .sunlight-mode * { backdrop-filter: none !important }  (index.css)
+//   Bu kural tüm blur efektlerini tek frame'de sıfırlar — GPU yükü anlık olarak düşer.
+
+let _rafId:             number | null = null;
+let _sunlightModeActive = false;
+
+/** Bekleyen RAF'ı iptal edip yeni bir RAF kuyruğa ekle (Zero-Leak) */
+function _queueRAF(fn: () => void): void {
+  if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+  _rafId = requestAnimationFrame(() => {
+    _rafId = null;
+    fn();
+  });
+}
+
+/**
+ * document.documentElement'e sunlight-mode class'ını ekler/kaldırır.
+ * RAF içinden çağrılır — doğrudan render döngüsünde tek reflow.
+ * GPU backdrop-filter yükü: sıfır (index.css .sunlight-mode * { backdrop-filter: none })
+ */
+function _setSunlightModeClass(active: boolean): void {
+  if (active === _sunlightModeActive) return; // değişmedi — reflow tetikleme
+  _sunlightModeActive = active;
+  const root = document.documentElement;
+  if (active) {
+    root.classList.add('sunlight-mode');
+    // CSS custom property: bileşenler bu değişkeni okuyarak blur'u kendi devre dışı bırakabilir
+    root.style.setProperty('--cockpit-backdrop-filter', 'none');
+  } else {
+    root.classList.remove('sunlight-mode');
+    root.style.removeProperty('--cockpit-backdrop-filter');
+  }
+}
+
 function applyBrightness(): void {
   try {
     if (!_state.enabled || _state.overridden) return;
     if (!_state.sunTimes) return;
 
-    const min    = nowMinutes();
-    const phase  = calcPhase(_state.sunTimes, min);
-    const bright = calcBrightness(_state.sunTimes, min, _state.minNight, _state.maxDay);
+    const min        = nowMinutes();
+    const phase      = calcPhase(_state.sunTimes, min);
+    const bright     = calcBrightness(_state.sunTimes, min, _state.minNight, _state.maxDay);
+    const isNight    = phase === 'night' || phase === 'evening' || phase === 'dusk';
+    const isSunlight = phase === 'morning' || phase === 'afternoon';
 
-    const isNight = phase === 'night' || phase === 'evening' || phase === 'dusk';
-
-    if (_state.autoTheme && _onThemeChange) {
-      try { _onThemeChange(isNight ? 'oled' : 'dark'); } catch { /* callback failure must not stop brightness */ }
-    }
+    // ── DOM değişikliklerini RAF içinde toplu uygula ─────────────────────
+    // React setTheme çağrısı + classList değişimi tek frame'de → sıfır ara reflow
+    const themeTarget   = isNight ? 'oled' : 'dark';
+    const themeCallback = _state.autoTheme ? _onThemeChange : null;
+    _queueRAF(() => {
+      if (themeCallback) {
+        try { themeCallback(themeTarget); } catch { /* callback failure must not stop brightness */ }
+      }
+      _setSunlightModeClass(isSunlight);
+    });
 
     setBrightness(bright);
     push({ phase, currentBrightness: bright });
@@ -216,13 +265,17 @@ export function notifyHeadlightChange(headlightsOn: boolean): void {
   if (headlightsOn && isDaytime && !_tunnelMode) {
     // Tünel girişi — anında karart
     _tunnelMode = true;
-    // Gece minimumunun %120'si — sürücü ekranı görsün ama kamaşmasın
     const tunnelBright = Math.min(100, Math.round(_state.minNight * 1.2));
     setBrightness(tunnelBright);
     push({ currentBrightness: tunnelBright });
-    if (_state.autoTheme && _onThemeChange) {
-      try { _onThemeChange('oled'); } catch { /* callback hatası parlaklığı durdurmaz */ }
-    }
+    // Tema + sunlight-mode değişimi RAF içinde — tünel girişinde harita donması önlenir
+    const themeCallback = _state.autoTheme ? _onThemeChange : null;
+    _queueRAF(() => {
+      if (themeCallback) {
+        try { themeCallback('oled'); } catch { /* callback hatası parlaklığı durdurmaz */ }
+      }
+      _setSunlightModeClass(false); // tünel içinde sunlight-mode yok
+    });
   } else if (!headlightsOn && _tunnelMode) {
     // Tünel çıkışı — gündüz parlaklık eğrisini geri yükle
     _tunnelMode = false;
@@ -260,8 +313,11 @@ export function startAutoBrightness(opts: {
 }
 
 export function stopAutoBrightness(): void {
-  if (_tickerId) { clearInterval(_tickerId); _tickerId = null; }
+  if (_tickerId)  { clearInterval(_tickerId); _tickerId = null; }
   if (_obdUnsubscribe) { _obdUnsubscribe(); _obdUnsubscribe = null; }
+  // Zero-Leak: bekleyen RAF'ı iptal et + sunlight-mode CSS'i temizle
+  if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+  _setSunlightModeClass(false);
   _prevHeadlights = null;
   _tunnelMode     = false;
   if (_state.enabled) {

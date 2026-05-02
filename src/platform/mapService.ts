@@ -2,7 +2,7 @@ import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-
 import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { registerOfflineServiceWorker } from './serviceWorkerManager';
-import { initializeMapSources, getMapStyle, handleSatelliteTileError } from './mapSourceManager';
+import { initializeMapSources, getMapStyle, handleSatelliteTileError, setActiveMapSource, hasOfflineMapData } from './mapSourceManager';
 import { logError } from './crashLogger';
 
 declare global {
@@ -45,25 +45,9 @@ const useMapStore = create<MapState>(() => ({
   drivingMode: false,
 }));
 
-let initInProgress = false;
 let offlineInitialized = false;
-
-type PendingInit = {
-  resolve: (m: MapLibreMap) => void;
-  reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
-let _pendingInits: PendingInit[] = [];
-
-function _flushPending(map: MapLibreMap): void {
-  const pending = _pendingInits.splice(0);
-  pending.forEach(({ resolve, timer }) => { clearTimeout(timer); resolve(map); });
-}
-
-function _rejectPending(err: Error): void {
-  const pending = _pendingInits.splice(0);
-  pending.forEach(({ reject, timer }) => { clearTimeout(timer); reject(err); });
-}
+let _initPromise:    Promise<MapLibreMap> | null = null;
+let _initContainer:  HTMLElement | null          = null; // container being initialised
 
 const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
   version: 8,
@@ -122,7 +106,7 @@ export function isWebGLAvailable(): boolean {
   }
 }
 
-export async function initializeMap(
+export function initializeMap(
   container: HTMLElement,
   config: MapConfig = { offline: true }
 ): Promise<MapLibreMap> {
@@ -130,40 +114,49 @@ export async function initializeMap(
   if (!isWebGLAvailable()) {
     const msg = 'Bu cihazda WebGL desteklenmiyor. Harita görüntülenemiyor.';
     useMapStore.setState({ error: msg, isReady: false });
-    throw new Error(msg);
+    return Promise.reject(new Error(msg));
   }
 
-  if (initInProgress) {
-    return new Promise<MapLibreMap>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        _pendingInits = _pendingInits.filter((p) => p.resolve !== resolve);
-        reject(new Error('Map init timeout'));
-      }, 5000);
-      _pendingInits.push({ resolve, reject, timer });
-    });
+  // ── Idempotency ──────────────────────────────────────────────────────────
+  if (_initPromise) {
+    // Same container requested again — share the in-flight promise
+    if (_initContainer === container) return _initPromise;
+    // Different container — wait for current init to settle, then re-enter
+    return _initPromise.then(() => initializeMap(container, config));
   }
 
   const existing = useMapStore.getState().mapInstance;
   if (existing) {
     if (existing.getContainer() === container) {
-      // Aynı container — mevcut instance'ı döndür
-      return existing;
+      // Already initialised for this container — return immediately
+      return Promise.resolve(existing);
     }
-    // FARKLI container → eski instance'ı yok et (zombi önleme)
-    // MapLibre.remove() WebGL context + worker thread + tile cache'i serbest bırakır
-    try {
-      existing.remove();
-    } catch { /* canvas zaten yoksa sessizce geç */ }
-    useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
+    // Different container: destroy old instance (zombie prevention)
+    destroyMap();
   }
 
-  initInProgress = true;
+  _initContainer  = container;
 
+  _initPromise = Promise.race<MapLibreMap>([
+    _initCore(container, config),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Map init timeout (12s)')), 12_000)
+    ),
+  ]).finally(() => {
+    _initPromise    = null;
+    _initContainer  = null;
+  });
+
+  return _initPromise;
+}
+
+async function _initCore(
+  container: HTMLElement,
+  config: MapConfig,
+): Promise<MapLibreMap> {
   try {
     // Initialize offline systems on first use
     if (config.offline && !offlineInitialized) {
-      // Only run Capacitor-dependent offline init on native platform
-      // On web, these monkey-patch fetch with Filesystem calls that always fail
       if (isNativePlatform()) {
         try {
           const { initializeOfflineMapStorage, initializeTileInterceptor } = await import('./offlineMapService');
@@ -187,11 +180,12 @@ export async function initializeMap(
       offlineInitialized = true;
     }
 
-    // Use resolved tile source: local > cached > online
-    // After initializeMapSources() the active source is determined
-    const style = getMapStyle() as maplibregl.StyleSpecification;
+    // Offline tile yoksa (telefon/ilk kurulum) direkt online'a geç — siyah ekran önlenir
+    if (!hasOfflineMapData()) {
+      setActiveMapSource('online');
+    }
 
-    // Default: Turkey center
+    const style = getMapStyle() as maplibregl.StyleSpecification;
     const TURKEY_CENTER: [number, number] = [35, 39];
     const TURKEY_ZOOM = 6;
 
@@ -214,24 +208,26 @@ export async function initializeMap(
     let _satelliteFailCount = 0;
     map.on('error', (e) => {
       const msg = e.error?.message || '';
-      // Track tile load failures for UI feedback
       if (msg.includes('404') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('403')) {
         tileFailCount++;
-        // If satellite/hybrid tiles fail repeatedly → auto-fallback to road
         if (msg.includes('arcgisonline') || msg.includes('arcgis')) {
           _satelliteFailCount++;
           if (_satelliteFailCount >= 3) { _satelliteFailCount = 0; handleSatelliteTileError(); }
         }
-        // After multiple tile failures, flag it so UI can show a message
         if (tileFailCount >= 4 && !useMapStore.getState().tileError) {
           useMapStore.setState({ tileError: true });
+          setTimeout(() => {
+            if (setActiveMapSource('online')) {
+              switchMapStyle(map, getMapStyle());
+              tileFailCount = 0;
+            }
+          }, 3_000);
         }
         return;
       }
       logError('Map:LibreError', new Error(msg));
     });
 
-    // Reset tileError on successful tile load
     map.on('data', (e) => {
       if (e.dataType === 'source' && map.isSourceLoaded('map-tiles')) {
         if (useMapStore.getState().tileError) {
@@ -247,38 +243,32 @@ export async function initializeMap(
     const MAX_RECOVERY_ATTEMPTS = 3;
 
     map.on('webglcontextlost', (e) => {
-      // Tarayıcının otomatik context restore denemesine izin ver
       if (e && typeof (e as unknown as { preventDefault?: () => void }).preventDefault === 'function') {
         (e as unknown as { preventDefault: () => void }).preventDefault();
       }
       logError('Map:WebGLContextLost', new Error('WebGL context lost'));
       useMapStore.setState({ isReady: false, tileError: true });
 
-      // Map state'ini yok etmeden önce kaydet
-      const savedCenter  = map.getCenter();
-      const savedZoom    = map.getZoom();
-      const savedBearing = map.getBearing();
-      const savedPitch   = map.getPitch();
-      const container    = map.getContainer();
+      const savedCenter   = map.getCenter();
+      const savedZoom     = map.getZoom();
+      const savedBearing  = map.getBearing();
+      const savedPitch    = map.getPitch();
+      const recoveryEl    = map.getContainer(); // param 'container' gizlemesini önle
 
-      // contextrestored gelirse timer'ı iptal et
       _ctxLostTimer = setTimeout(() => {
         _ctxLostTimer = null;
         if (_ctxRecoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
-          // Maksimum deneme — kullanıcıya bildir, sessiz kal
           logError('Map:WebGLRecoveryGiveUp', new Error('Max recovery attempts reached'));
           return;
         }
 
-        // Üstel geri çekilme: 2s, 4s, 8s
         _ctxRecoveryAttempts++;
         const backoffMs = Math.pow(2, _ctxRecoveryAttempts) * 1000;
 
         setTimeout(() => {
-          if (!container || !document.body.contains(container)) return;
+          if (!recoveryEl || !document.body.contains(recoveryEl)) return;
           destroyMap();
-          initializeMap(container, config).then((newMap) => {
-            // Önceki konuma döndür
+          initializeMap(recoveryEl, config).then((newMap) => {
             newMap.once('style.load', () => {
               newMap.jumpTo({
                 center:  savedCenter,
@@ -292,11 +282,10 @@ export async function initializeMap(
             logError('Map:WebGLRecoveryFailed', e);
           });
         }, backoffMs);
-      }, 1500); // 1.5s — tarayıcının otomatik restore penceresi
+      }, 1500);
     });
 
     map.on('webglcontextrestored', () => {
-      // Tarayıcı context'i kendi restore etti — timer'ı iptal et
       if (_ctxLostTimer !== null) {
         clearTimeout(_ctxLostTimer);
         _ctxLostTimer = null;
@@ -307,12 +296,11 @@ export async function initializeMap(
     });
 
     useMapStore.setState({ mapInstance: map, error: null });
-    _flushPending(map);
     return map;
   } catch (err) {
     logError('Map:InitFallback', err);
 
-    // Last-resort fallback: create a minimal dark map
+    // Son çare fallback: minimal koyu harita
     try {
       const fallbackMap = new MapLibreMap({
         container,
@@ -322,18 +310,14 @@ export async function initializeMap(
         attributionControl: false,
       });
 
-      fallbackMap.on('error', () => {}); // suppress all errors on fallback
+      fallbackMap.on('error', () => {});
       useMapStore.setState({ mapInstance: fallbackMap, error: null });
-      _flushPending(fallbackMap);
       return fallbackMap;
     } catch (fallbackErr) {
       const msg = fallbackErr instanceof Error ? fallbackErr.message : 'Map init failed';
       useMapStore.setState({ error: msg });
-      _rejectPending(new Error(msg));
       throw fallbackErr;
     }
-  } finally {
-    initInProgress = false;
   }
 }
 
@@ -569,12 +553,32 @@ export function useMapState() {
 }
 
 /**
- * Switch the map to a new style. Caller must re-add user marker after
- * the 'style.load' event fires (all sources/layers are removed on setStyle).
+ * Switch the map to a new style.
+ * setStyle() removes ALL sources and layers. After style.load fires:
+ *   - isReady is reset to true via the persistent style.load listener in _initCore
+ *   - _cachedRoute is replayed automatically here so the route survives style switches
+ * Caller is still responsible for re-adding the user marker.
  */
-export function switchMapStyle(map: MapLibreMap, style: any) {
+export function switchMapStyle(map: MapLibreMap, style: any, retryCount = 0) {
   if (!map) return;
+  useMapStore.setState({ isReady: false });
+
+  const onError = (e: any) => {
+    logError('Map:StyleSwitchError', e.error || new Error('Style load failed'));
+    if (retryCount < 1) {
+      setTimeout(() => switchMapStyle(map, style, retryCount + 1), 2000);
+    }
+  };
+
+  map.once('error', onError);
   map.setStyle(style);
+  map.once('style.load', () => {
+    map.off('error', onError);
+    useMapStore.setState({ isReady: true });
+    if (_cachedRoute) {
+      _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts);
+    }
+  });
 }
 
 // ── Driving mode ─────────────────────────────────────────────
@@ -724,40 +728,166 @@ export function useDrivingMode() {
 
 /* ── Rota çizgisi ───────────────────────────────────────────── */
 
-const ROUTE_SRC  = 'car-route';
-const ROUTE_GLOW = 'car-route-glow';
-const ROUTE_CASE = 'car-route-casing';
-const ROUTE_FILL = 'car-route-fill';
+const ROUTE_SRC   = 'car-route';
+const ROUTE_GLOW  = 'car-route-glow';
+const ROUTE_CASE  = 'car-route-casing';
+const ROUTE_FILL  = 'car-route-fill';
+const ALT_SRC     = 'car-route-alt';
+const ALT_FILL    = 'car-route-alt-fill';
+const DEBUG_SRC   = 'car-route-debug';
+const DEBUG_LAYER = 'car-route-debug-line';
+
+// Module-level cache — harita style sıfırlandığında re-apply için
+let _cachedRoute: { coords: [number, number][]; alts: [number, number][][] } | null = null;
 
 /**
- * Haritada premium rota çizgisi göster ya da güncelle.
- * Beyaz dış casing + mavi iç çizgi — GPS marker'ının altında durur.
+ * Haritada rota çizgisi göster ya da güncelle (hardened).
+ *
+ * Render pipeline korumaları:
+ *   - style yüklü değilse → 'styledata' olayında kuyrukla
+ *   - source varsa sadece setData (yeniden addSource/addLayer yok)
+ *   - layer sırası: ALT_FILL → ROUTE_GLOW → ROUTE_CASE → ROUTE_FILL (fill en üstte)
+ *   - style sıfırlansa bile cached geometry ile yeniden çizilir
+ *   - addLayer/addSource hata verirse → debug kırmızı çizgi (failsafe)
  */
 export function setRouteGeometry(
-  map:         MapLibreMap,
-  coordinates: [number, number][],
+  map:          MapLibreMap,
+  coordinates:  [number, number][],
+  alternatives: [number, number][][] = [],
 ): void {
-  if (!map?.isStyleLoaded() || !coordinates.length) return;
+  if (!map || !coordinates.length) return;
 
-  const data = {
+  console.log('[ROUTE] coords length:', coordinates.length);
+  console.log('[ROUTE] source exists:', !!map.getSource('car-route'));
+  console.log('[ROUTE] layer exists:',  !!map.getLayer('car-route-fill'));
+  console.log('[ROUTE] style loaded:',  map.isStyleLoaded());
+
+  _cachedRoute = { coords: coordinates, alts: alternatives };
+
+  if (!map.isStyleLoaded()) {
+    // style.load fires exactly once when the full style is ready for addSource/addLayer.
+    // styledata fires multiple times during loading and is too early for layer operations.
+    map.once('style.load', () => {
+      if (_cachedRoute) {
+        _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts);
+      }
+    });
+    return;
+  }
+
+  _applyRouteGeometry(map, coordinates, alternatives);
+}
+
+function _buildGeoJSON(coordinates: [number, number][]) {
+  return {
     type: 'Feature' as const,
     geometry: { type: 'LineString' as const, coordinates },
     properties: {},
   };
+}
 
-  // Kaynak zaten varsa sadece veri güncelle
-  if (map.getSource(ROUTE_SRC)) {
-    (map.getSource(ROUTE_SRC) as GeoJSONSource).setData(data);
+function _buildAltGeoJSON(alternatives: [number, number][][]) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: alternatives.map(coords => ({
+      type: 'Feature' as const,
+      geometry: { type: 'LineString' as const, coordinates: coords },
+      properties: {},
+    })),
+  };
+}
+
+function _safeEnsureSource(
+  map:  MapLibreMap,
+  id:   string,
+  data: object,
+): boolean {
+  if (!map.getSource(id)) {
+    try {
+      map.addSource(id, { type: 'geojson', data } as any);
+      return true;
+    } catch (e) {
+      console.error('[ROUTE] SOURCE CREATE FAILED', id, e);
+      return false;
+    }
+  }
+  // Source var — veriyi güncelle; hata gelirse hard-reset
+  try {
+    (map.getSource(id) as GeoJSONSource).setData(data as any);
+    return true;
+  } catch {
+    console.warn('[ROUTE] Source bozuk, hard-reset:', id);
+    try { map.removeSource(id); } catch { /* ignore */ }
+    try {
+      map.addSource(id, { type: 'geojson', data } as any);
+      return true;
+    } catch (e2) {
+      console.error('[ROUTE] SOURCE CREATE FAILED after reset', id, e2);
+      return false;
+    }
+  }
+}
+
+/**
+ * Idempotent layer add — stilden bağımsız, saf güvenli.
+ * Mevcut katman varsa önce kaldırılır, ardından yeniden eklenir.
+ * Bu sayede:
+ *   - Stil geçişlerinde (Day→Night, vector↔raster) eski layer kalıntıları temizlenir.
+ *   - Z-order (moveLayer) her seferinde doğru yeniden kurulur.
+ *   - setRouteGeometry zaten FullMapView tarafından hash+styleKey ile dedup edildiğinden
+ *     bu fonksiyon navigasyon sırasında gereksiz yere çağrılmaz — flash riski yok.
+ */
+function _safeAddLayer(map: MapLibreMap, layer: Parameters<MapLibreMap['addLayer']>[0]): void {
+  if (map.getLayer(layer.id)) {
+    try { map.removeLayer(layer.id); } catch { /* stale — ignore, attempt fresh add */ }
+  }
+  try { map.addLayer(layer); } catch (e) { console.error('[ROUTE] addLayer failed:', layer.id, e); }
+}
+
+function _applyRouteGeometry(
+  map:          MapLibreMap,
+  coordinates:  [number, number][],
+  alternatives: [number, number][][],
+): void {
+  if (coordinates.length < 2) {
+    logError('MapRoute:InvalidGeometry', new Error(`Geometri reddedildi: ${coordinates.length} nokta (min 2)`));
     return;
   }
 
-  map.addSource(ROUTE_SRC, { type: 'geojson', data });
+  // Style must be fully loaded before addSource/addLayer — queue if not
+  if (!map.isStyleLoaded()) {
+    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives));
+    return;
+  }
 
-  // Alt glow katmanı — daha geniş ve yumuşak neon hale efekti (32px, blur 8)
-  map.addLayer({
-    id: ROUTE_GLOW,
-    type: 'line',
-    source: ROUTE_SRC,
+  const mainData = _buildGeoJSON(coordinates);
+  const altData  = _buildAltGeoJSON(alternatives);
+
+  // ── 1) SOURCE GUARANTEE — her iki source önce oluşturulur / güncellenir ──
+  const altOk  = _safeEnsureSource(map, ALT_SRC,   altData);
+  const mainOk = _safeEnsureSource(map, ROUTE_SRC, mainData);
+
+  if (!mainOk) {
+    console.error('[ROUTE] SOURCE CREATE FAILED — fallback debug line');
+    _drawDebugLine(map, coordinates);
+    return;
+  }
+
+  // ── 2) LAYER GUARANTEE — source sonrası, eksik layer'lar eklenir ──
+  if (altOk) {
+    _safeAddLayer(map, {
+      id: ALT_FILL, type: 'line', source: ALT_SRC,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': '#64748b',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 16, 4, 20, 5],
+        'line-opacity': 0.5,
+      },
+    });
+  }
+
+  _safeAddLayer(map, {
+    id: ROUTE_GLOW, type: 'line', source: ROUTE_SRC,
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: {
       'line-color': '#3b82f6',
@@ -767,11 +897,8 @@ export function setRouteGeometry(
     },
   });
 
-  // Dış beyaz/cam casing (14px)
-  map.addLayer({
-    id: ROUTE_CASE,
-    type: 'line',
-    source: ROUTE_SRC,
+  _safeAddLayer(map, {
+    id: ROUTE_CASE, type: 'line', source: ROUTE_SRC,
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: {
       'line-color': '#ffffff',
@@ -780,37 +907,73 @@ export function setRouteGeometry(
     },
   });
 
-  // İç ana premium çizgi (8px) — canlı mavi
-  map.addLayer({
-    id: ROUTE_FILL,
-    type: 'line',
-    source: ROUTE_SRC,
+  _safeAddLayer(map, {                    // beforeId YOK — FILL her zaman en üstte
+    id: ROUTE_FILL, type: 'line', source: ROUTE_SRC,
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: {
       'line-color': '#2563eb',
       'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 8, 20, 12],
       'line-opacity': 1,
     },
-  }, ROUTE_CASE);
+  });
 
-  // Kullanıcı marker'ının altına taşı: GLOW → CASE → FILL → car-accuracy
-  try {
-    if (map.getLayer('car-accuracy')) {
-      map.moveLayer(ROUTE_GLOW, 'car-accuracy');
-      map.moveLayer(ROUTE_CASE, 'car-accuracy');
-      map.moveLayer(ROUTE_FILL, 'car-accuracy');
+  // ── 3) Z-order: rota katmanları user-marker'ın altına taşınır ──
+  const firstUserLayer = USER_LAYERS.find(id => map.getLayer(id));
+  if (firstUserLayer) {
+    try { map.moveLayer(ALT_FILL,   firstUserLayer); } catch { /* ignore */ }
+    try { map.moveLayer(ROUTE_GLOW, firstUserLayer); } catch { /* ignore */ }
+    try { map.moveLayer(ROUTE_CASE, firstUserLayer); } catch { /* ignore */ }
+    try { map.moveLayer(ROUTE_FILL, firstUserLayer); } catch { /* ignore */ }
+  }
+
+  // ── 4) FAILSAFE: anlık + 800ms ──
+  const fillOk = !!map.getLayer(ROUTE_FILL);
+  console.log('[ROUTE] fill layer after setup:', fillOk);
+  if (!fillOk) {
+    console.error('[ROUTE] FAILSAFE: fill layer eksik — kırmızı debug çizgi çiziliyor');
+    _drawDebugLine(map, coordinates);
+  }
+
+  setTimeout(() => {
+    if (_cachedRoute && !map.getSource(ROUTE_SRC)) {
+      console.error('[ROUTE] SOURCE CREATE FAILED — 800ms sonra kayboldu');
+      _drawDebugLine(map, coordinates);
     }
-  } catch { /* best effort */ }
+  }, 800);
 }
 
-/** Rota çizgisini ve kaynağını haritadan kaldır. */
+/** Failsafe: kırmızı debug çizgisi — normal render başarısız olduğunda. */
+function _drawDebugLine(map: MapLibreMap, coordinates: [number, number][]): void {
+  try {
+    if (map.getLayer(DEBUG_LAYER)) map.removeLayer(DEBUG_LAYER);
+    if (map.getSource(DEBUG_SRC))  map.removeSource(DEBUG_SRC);
+    map.addSource(DEBUG_SRC, {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} },
+    });
+    map.addLayer({
+      id: DEBUG_LAYER,
+      type: 'line',
+      source: DEBUG_SRC,
+      paint: { 'line-color': '#ef4444', 'line-width': 6, 'line-opacity': 0.9 },
+    });
+    console.warn('[MapRoute] Debug (red) line rendered — investigate render pipeline');
+  } catch { /* son çare de başarısız */ }
+}
+
+/** Rota çizgilerini (ana + alternatifler + debug) ve cache'i temizle. */
 export function clearRouteGeometry(map: MapLibreMap): void {
+  _cachedRoute = null;
   if (!map) return;
   try {
-    if (map.getLayer(ROUTE_FILL)) map.removeLayer(ROUTE_FILL);
-    if (map.getLayer(ROUTE_CASE)) map.removeLayer(ROUTE_CASE);
-    if (map.getLayer(ROUTE_GLOW)) map.removeLayer(ROUTE_GLOW);
-    if (map.getSource(ROUTE_SRC)) map.removeSource(ROUTE_SRC);
+    if (map.getLayer(DEBUG_LAYER)) map.removeLayer(DEBUG_LAYER);
+    if (map.getSource(DEBUG_SRC))  map.removeSource(DEBUG_SRC);
+    if (map.getLayer(ROUTE_FILL))  map.removeLayer(ROUTE_FILL);
+    if (map.getLayer(ROUTE_CASE))  map.removeLayer(ROUTE_CASE);
+    if (map.getLayer(ROUTE_GLOW))  map.removeLayer(ROUTE_GLOW);
+    if (map.getSource(ROUTE_SRC))  map.removeSource(ROUTE_SRC);
+    if (map.getLayer(ALT_FILL))    map.removeLayer(ALT_FILL);
+    if (map.getSource(ALT_SRC))    map.removeSource(ALT_SRC);
   } catch { /* ignore — style may already be reset */ }
   clearTurnFocus();
 }
@@ -854,9 +1017,18 @@ export function clearTurnFocus(): void {
 }
 
 export function destroyMap() {
+  // Clear init state first — prevents in-flight _initCore from writing to store
+  _initPromise   = null;
+  _initContainer = null;
+
   const map = useMapStore.getState().mapInstance;
   if (map) {
-    try { map.remove(); } catch { /* canvas zaten kaldırıldıysa sessizce geç */ }
+    try {
+      // Force WebGL context release to prevent memory leaks/zombie instances
+      const extension = map.getCanvas().getContext('webgl')?.getExtension('WEBGL_lose_context');
+      if (extension) extension.loseContext();
+      map.remove();
+    } catch { /* canvas already removed */ }
   }
   useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
 }

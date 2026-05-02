@@ -75,6 +75,26 @@ vi.mock('../platform/rafSmoother', () => ({
   useRafSmoothed: vi.fn((val: number) => val),
 }));
 
+/* ── AdaptiveRuntimeManager mock ────────────────────────────── */
+// BALANCED modda obdPollingMs=3000 → waitForOBDData(500) timeout atar.
+// Test ortamında 50ms hızlı tick kullanılır.
+
+vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
+  runtimeManager: {
+    getConfig:     vi.fn(() => ({
+      obdPollingMs:     50,
+      gpsUpdateMs:      200,
+      uiFpsTarget:      60,
+      enableBlur:       false,
+      enableAnimations: false,
+      loggingLevel:     'silent',
+    })),
+    subscribe:     vi.fn(() => () => {}),
+    reportFailure: vi.fn(),
+  },
+  AdaptiveRuntimeManager: { getInstance: vi.fn() },
+}));
+
 /* ── crashLogger mock ───────────────────────────────────────── */
 
 vi.mock('../platform/crashLogger', () => ({

@@ -24,8 +24,16 @@ import { getFusedSpeed }              from './speedFusion';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
-/** Keep-alive gönderi aralığı (ms) */
-const HEARTBEAT_MS    = 10_000;
+/** Adaptive Heartbeat aralıkları (ms) — araç durumuna göre seçilir */
+const HEARTBEAT_DRIVING_MS    =     5_000; //  5 saniye  — aktif sürüş
+const HEARTBEAT_PARKED_MS     =   600_000; // 10 dakika  — park/rölanti
+const HEARTBEAT_DEEP_SLEEP_MS = 3_600_000; //  1 saat    — derin uyku (akü kritik)
+
+/** Derin uyku voltaj eşiği — bu değerin altında telemetri kısıtlanır (V) */
+const DEEP_SLEEP_VOLTAGE_V = 11.8;
+/** Sürüş tespiti için minimum hız eşiği (km/h) — hysteresis önleme */
+const DRIVING_THRESHOLD_KMH = 2;
+
 /** Anlık push için minimum hız değişimi (km/h) */
 const SPEED_DELTA_KMH = 10;
 /** OBD timeout sonrası ani spike'ı yumuşatma penceresi (ms) */
@@ -42,6 +50,15 @@ type TelemetryEventType =
   | 'location_delta'
   | 'geofence_alert'
   | 'valet_alert';
+
+/** Araç durumuna göre belirlenen telemetri gönderim modu */
+type HeartbeatMode = 'driving' | 'parked' | 'deep_sleep';
+
+function _heartbeatIntervalMs(mode: HeartbeatMode): number {
+  if (mode === 'driving')    return HEARTBEAT_DRIVING_MS;
+  if (mode === 'deep_sleep') return HEARTBEAT_DEEP_SLEEP_MS;
+  return HEARTBEAT_PARKED_MS;
+}
 
 interface TelemetryPayload {
   speed:           number;
@@ -101,6 +118,11 @@ export class TelemetryService {
   private _unsub: (() => void) | null = null;
   private _running = false;
 
+  /** OBD'den beslenen akü voltajı (V); null = OBD bağlı değil veya henüz raporlanmadı */
+  private _batteryVoltage: number | null = null;
+  /** Anlık heartbeat modu — mod değişince interval yeniden kurulur */
+  private _heartbeatMode: HeartbeatMode = 'parked';
+
   /* ── Yaşam Döngüsü ────────────────────────────────────────── */
 
   /**
@@ -116,10 +138,8 @@ export class TelemetryService {
     // Resolver patch akışına abone ol
     this._unsub = resolver.onResolved((patch) => this._onPatch(patch));
 
-    // Heartbeat: veri değişsin ya da değişmesin, 10s'de bir tam paket
-    this._heartbeatTimer = setInterval(() => {
-      this._push('heartbeat');
-    }, HEARTBEAT_MS);
+    // Adaptive Heartbeat: başlangıç moduna göre interval kurulur
+    this._scheduleHeartbeat();
   }
 
   /**
@@ -138,6 +158,65 @@ export class TelemetryService {
     if (this._unsub !== null) {
       this._unsub();
       this._unsub = null;
+    }
+  }
+
+  /* ── Adaptive Heartbeat ───────────────────────────────────── */
+
+  /** Anlık voltaj ve hıza göre heartbeat modunu belirler. */
+  private _getHeartbeatMode(): HeartbeatMode {
+    if (this._batteryVoltage !== null && this._batteryVoltage < DEEP_SLEEP_VOLTAGE_V) {
+      return 'deep_sleep';
+    }
+    return (this._state.speed ?? 0) >= DRIVING_THRESHOLD_KMH ? 'driving' : 'parked';
+  }
+
+  /**
+   * Heartbeat interval'ını mevcut moda göre yeniden kurar.
+   * Mod değişiminde:
+   *   1. Eski interval iptal edilir
+   *   2. Anında bir heartbeat push'u gönderilir (geçiş anını kaybet)
+   *   3. Yeni interval başlatılır
+   */
+  private _scheduleHeartbeat(): void {
+    if (this._heartbeatTimer !== null) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+    if (!this._running) return;
+
+    const mode      = this._getHeartbeatMode();
+    const changed   = mode !== this._heartbeatMode;
+    this._heartbeatMode = mode;
+
+    if (changed) {
+      // Mod geçişini anında bildir — interval bekleme süresini atla
+      this._push('heartbeat', { mode, transition: true });
+    }
+
+    const intervalMs = _heartbeatIntervalMs(mode);
+    this._heartbeatTimer = setInterval(() => {
+      const current = this._getHeartbeatMode();
+      if (current !== this._heartbeatMode) {
+        // Mod değişti (ör. araç hareket etmeye başladı) — yeniden kur
+        this._scheduleHeartbeat();
+        return;
+      }
+      this._push('heartbeat');
+    }, intervalMs);
+  }
+
+  /**
+   * Akü voltajını güncelle — OBD servisi her voltaj ölçümünde çağırır.
+   * 11.8V eşik geçişinde heartbeat modu otomatik olarak yeniden hesaplanır.
+   */
+  setVoltage(voltage: number): void {
+    if (!Number.isFinite(voltage) || voltage <= 0) return;
+    this._batteryVoltage = voltage;
+    // Eşik geçişini kontrol et — sadece mod değişiminde interval yeniden kurulur
+    const newMode = this._getHeartbeatMode();
+    if (newMode !== this._heartbeatMode && this._running) {
+      this._scheduleHeartbeat();
     }
   }
 
@@ -171,6 +250,12 @@ export class TelemetryService {
       this._state.heading = (v != null && Number.isFinite(v)) ? v : null; // NaN / Infinity koruma
     }
     if ('location' in patch) this._state.location = patch.location ?? null;
+
+    // ── Heartbeat mod kontrolü: hız sürüş/park eşiğini geçtiyse yeniden kur ─
+    if ('speed' in patch && this._running) {
+      const newMode = this._getHeartbeatMode();
+      if (newMode !== this._heartbeatMode) this._scheduleHeartbeat();
+    }
 
     /* 1 ── REVERSE: event-driven — değişim milisaniyesinde push */
     if ('reverse' in patch && patch.reverse !== this._lastSent.reverse) {

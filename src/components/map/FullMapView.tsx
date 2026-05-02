@@ -28,16 +28,21 @@ import {
   useMapMode,
   useTileRenderMode,
   notifyNavigationRender,
+  notifyLowFPS,
   useMapNetworkStatus,
   type MapMode,
 } from '../../platform/mapSourceManager';
 import { useVisionStore } from '../../platform/visionStore';
-import { useNavigation, updateNavigationProgress } from '../../platform/navigationService';
+import {
+  useNavigation, updateNavigationProgress,
+  setNavStatus, activateNavigation, NavStatus,
+} from '../../platform/navigationService';
 import {
   fetchRoute,
   useRouteState,
   updateRouteProgress,
   clearRoute,
+  notifyStyleChange,
 } from '../../platform/routingService';
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { MapOverlay } from './MapOverlay';
@@ -63,26 +68,64 @@ const MODE_LABELS: Record<MapMode, string> = {
   satellite: 'Uydu',
 };
 
+// ── setDrivingView throttle yardımcıları ─────────────────────────────────
+// Flat-earth yaklaşımı: küçük mesafeler (< 100 m) için hatasız, haversine'den hızlı.
+function _distM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dlat = (lat2 - lat1) * 111_320;
+  const dlng = (lng2 - lng1) * 111_320 * Math.cos(lat1 * (Math.PI / 180));
+  return Math.sqrt(dlat * dlat + dlng * dlng);
+}
+
+function _headingDiff(a: number, b: number): number {
+  const d = Math.abs((b - a + 360) % 360);
+  return d > 180 ? 360 - d : d;
+}
+
+/** Stable hash of a route geometry — first point + last point + length. */
+function _routeHash(geometry: [number, number][] | null | undefined): string {
+  if (!geometry || geometry.length < 2) return '';
+  const f = geometry[0];
+  const l = geometry[geometry.length - 1];
+  return `${geometry.length}:${f[0].toFixed(5)},${f[1].toFixed(5)}:${l[0].toFixed(5)},${l[1].toFixed(5)}`;
+}
+
 export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: FullMapViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapRef | null>(null);
-  const initDone = useRef(false);
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const modeInitRef = useRef(false);
-  const locationRef = useRef<ReturnType<typeof useGPSLocation>>(null);
-  const headingRef = useRef<number | null>(null);
+  const outerDivRef   = useRef<HTMLDivElement>(null);
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const mapRef        = useRef<MapRef | null>(null);
+  const initDone      = useRef(false);
+  const cleanupRef    = useRef<(() => void) | null>(null);
+  const modeInitRef   = useRef(false);
+  const navStatusRef  = useRef<string>(NavStatus.IDLE); // FPS loop içinden okunur
+  const locationRef        = useRef<ReturnType<typeof useGPSLocation>>(null);
+  const headingRef         = useRef<number | null>(null);
+  const lastDrivingPosRef  = useRef<{ lat: number; lng: number; heading: number } | null>(null);
+  // unmount guard — prevents async style.load callbacks from touching React state after cleanup
+  const mountedRef         = useRef(true);
+  // dedup: skip setRouteGeometry when hash+styleKey are identical (same geometry, no style switch)
+  const lastAppliedRef     = useRef<{ hash: string; styleKey: number } | null>(null);
+  const commandQueueRef    = useRef<Array<() => void>>([]);
+
+  // Tracks destination.id of the last fetch we initiated in this nav session.
+  // Prevents duplicate fetches when location ticks while already routing,
+  // and enables GPS-fix-late retry: if location was null at nav start, adding
+  // location to the effect deps re-runs the effect once GPS arrives.
+  const lastFetchedRef    = useRef<string | null>(null);
 
   const [isPreview, setIsPreview] = useState(false);
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
+  const routeAltRef       = useRef<[number, number][][] >([]);
   const prevStepIndexRef  = useRef(0);
   /** True while a style switch is in-flight — drives the anti-flicker overlay. */
   const [isSwitchingStyle, setIsSwitchingStyle] = useState(false);
   const renderInitRef = useRef(false);
+  /** True while a MapLibre style reload is in-flight — blocks setRouteGeometry and fetchRoute store writes. */
+  const styleChangingRef = useRef(false);
 
   const location = useGPSLocation();
   const heading = useGPSHeading();
-  const { isNavigating, destination } = useNavigation();
+  const { isNavigating, destination, status: navStatus } = useNavigation();
   const route = useRouteState();
   const autoBrightness = useAutoBrightnessState();
   const mode = useMapMode();
@@ -99,10 +142,98 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     headingRef.current = heading;
   }, [location, heading]);
 
-  const [mapReady, setMapReady]       = useState(false);
+  const [mapStatus, setMapStatus]     = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [mapError, setMapError]       = useState<string | null>(null);
   const [styleKey, setStyleKey]       = useState(0);
-  const mapStyleReady = mapReady;
+  const mapStyleReady = mapStatus === 'READY';
+
+  const runOrQueue = useCallback((cmd: () => void) => {
+    if (mapStatus === 'READY' && mapRef.current) {
+      cmd();
+    } else {
+      commandQueueRef.current.push(cmd);
+    }
+  }, [mapStatus]);
+
+  useEffect(() => {
+    if (mapStatus === 'READY' && commandQueueRef.current.length > 0) {
+      commandQueueRef.current.forEach(cmd => cmd());
+      commandQueueRef.current = [];
+    }
+  }, [mapStatus]);
+
+  // Unmount guard — mount-once, sets false on cleanup
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // navStatusRef'i her render sonrası güncelle (rAF loop closure'ı için)
+  useEffect(() => { navStatusRef.current = navStatus; }, [navStatus]);
+
+  // ── Adaptive Performance — FPS monitörü ─────────────────────────────
+  // Sürüş (ACTIVE/REROUTING) her zaman perf-low → blur yok.
+  // Sürüş dışında FPS < 20 → perf-low, FPS 20-40 → perf-med.
+  // Unmount'ta rAF temizlenir ve thermal lock kaldırılır (Zero-Leak).
+  const lastLowFPSRef = useRef(false);
+
+  useEffect(() => {
+    const el = outerDivRef.current;
+    if (!el) return;
+
+    let frameCount  = 0;
+    let lastT       = performance.now();
+    let rafId:      number;
+    let activeClass = '';
+
+    const applyClass = (cls: string) => {
+      if (cls === activeClass) return;
+      if (activeClass) el.classList.remove(activeClass);
+      if (cls)         el.classList.add(cls);
+      activeClass = cls;
+    };
+
+    const tick = () => {
+      frameCount++;
+      const now = performance.now();
+
+      if (now - lastT >= 1000) {
+        const fps = frameCount;
+        frameCount = 0;
+        lastT      = now;
+
+        const isActiveDriving =
+          navStatusRef.current === NavStatus.ACTIVE ||
+          navStatusRef.current === NavStatus.REROUTING;
+
+        // CSS sınıfı — her ölçümde güncellenir
+        if (fps < 20 || isActiveDriving) {
+          applyClass('perf-low');
+        } else if (fps < 40) {
+          applyClass('perf-med');
+        } else {
+          applyClass('');
+        }
+
+        // Thermal lock — sadece high↔low geçişinde çağrılır (her saniye değil)
+        const fpsIsLow = fps < 20;
+        if (fpsIsLow !== lastLowFPSRef.current) {
+          lastLowFPSRef.current = fpsIsLow;
+          notifyLowFPS(fpsIsLow);
+        }
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafId);
+      applyClass('');      // sınıfı temizle
+      lastLowFPSRef.current = false;
+      notifyLowFPS(false); // thermal lock'u kaldır
+    };
+  }, []); // mount-once; navStatusRef ref olduğu için dep'e girmez
 
   // ── Tesla/Mercedes auto-hide kontroller ──
   const [ctrlVisible, setCtrlVisible] = useState(true);
@@ -122,18 +253,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const prevOnlineRef = useRef(isOnline);
   useEffect(() => {
     if (isOnline && !prevOnlineRef.current && mapRef.current) {
-      // Offline → Online geçişi: style'ı yenile → tile'lar yeniden çekilir
-      mapRef.current.setStyle(getMapStyle());
+      // Offline → Online geçişi: _doStyleSwitch ile yenile — mutex + marker/route restore dahil
+      _doStyleSwitch(mapRef.current, false);
     }
     prevOnlineRef.current = isOnline;
-  }, [isOnline]);
+  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Eagle Eye: render radar / speed-camera icons on the map
   useRadarMapLayer(mapRef, mapStyleReady);
 
   // Haritaya tıklanınca kontrolleri göster (MapLibre canvas olayları)
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
+    if (mapStatus !== 'READY' || !mapRef.current) return;
     const map = mapRef.current;
     map.on('mousedown', showControls);
     map.on('touchstart', showControls);
@@ -141,7 +272,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       map.off('mousedown', showControls);
       map.off('touchstart', showControls);
     };
-  }, [mapReady, showControls]);
+  }, [mapStatus, showControls]);
 
   // WebGL kontrolü — eski head unit'lerde harita açılamaz
   const webglSupported = isWebGLAvailable();
@@ -170,6 +301,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
     function doInit(container: HTMLElement) {
       initDone.current = true;
+      setMapStatus('LOADING');
       let cancelled = false;
 
       (async () => {
@@ -178,15 +310,23 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           if (cancelled) return;
           mapRef.current = map;
 
-          if (map.isStyleLoaded()) {
-            setMapReady(true);
+          // READY = style.load AND data idle (tile pipeline boş)
+          const markReady = () => { if (!cancelled) setMapStatus('READY'); };
+
+          if (map.isStyleLoaded() && map.loaded()) {
+            markReady();
+          } else if (map.isStyleLoaded()) {
+            map.once('idle', markReady);
           } else {
             map.once('style.load', () => {
-              if (!cancelled) setMapReady(true);
+              if (cancelled) return;
+              if (map.loaded()) { markReady(); }
+              else { map.once('idle', markReady); }
             });
           }
         } catch (err) {
           if (!cancelled) {
+            setMapStatus('ERROR');
             setMapError(err instanceof Error ? err.message : 'Harita başlatılamadı');
           }
         }
@@ -194,6 +334,19 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       cleanupRef.current = () => {
         cancelled = true;
+        // Mutex release on unmount — prevents fetchRoute deadlock if style was in-flight
+        if (styleChangingRef.current) {
+          styleChangingRef.current = false;
+          notifyStyleChange(false);
+        }
+        // Zero-Leak: WebGL context + worker + tile cache'i serbest bırak
+        if (mapRef.current) {
+          try {
+            const extension = mapRef.current.getCanvas().getContext('webgl')?.getExtension('WEBGL_lose_context');
+            if (extension) extension.loseContext();
+            mapRef.current.remove();
+          } catch { /* canvas zaten kaldırıldıysa geç */ }
+        }
         mapRef.current = null;
       };
     }
@@ -207,34 +360,62 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Exit driving view when driving mode turns off
   useEffect(() => {
     if (!drivingMode && mapRef.current) {
+      lastDrivingPosRef.current = null; // throttle sıfırla — sonraki aktivasyonda hemen çalışsın
       exitDrivingView(mapRef.current);
     }
   }, [drivingMode]);
 
-  // Fetch route when navigation starts or destination changes during active navigation
+  // Fetch route when navigation starts, destination changes, or GPS fix arrives after nav start.
+  // location is in deps so that if GPS was unavailable at nav-start the effect retries
+  // automatically on first fix — eliminating the "nav stuck with no route" deadlock.
+  // lastFetchedRef dedups the fetch so normal GPS ticks (location changing every second
+  // while driving) don't re-trigger it; mid-route rerouting is handled exclusively by
+  // routingService._triggerReroute via updateRouteProgress.
   useEffect(() => {
     if (isNavigating && destination) {
       const loc = locationRef.current;
-      // B1: Konum null ise destination'ı origin olarak kullanma — hatalı rota üretir.
-      // GPS henüz gelmemişse rota isteğini atla; konum gelince locationRef güncellenecek.
+      // GPS not yet fixed — wait; this effect re-runs when location becomes non-null.
       if (!loc) return;
+
+      // Same destination already fetched this session — skip.
+      if (lastFetchedRef.current === destination.id) return;
+
+      lastFetchedRef.current = destination.id;
+      setNavStatus(NavStatus.ROUTING);
       fetchRoute(loc.latitude, loc.longitude, destination.latitude, destination.longitude);
       setIsPreview(true);
     } else if (!isNavigating) {
+      lastFetchedRef.current = null;
       setIsPreview(false);
       if (mapRef.current) clearRouteGeometry(mapRef.current);
       clearRoute();
       routeGeometryRef.current = null;
+      routeAltRef.current      = [];
     }
-  }, [isNavigating, destination]); // B5: destination bağımlılığı — reroute'da yeni rota fetch edilsin
+  }, [isNavigating, destination, location]); // location dep: retry once GPS fix arrives
 
-  // Draw / update route line on map when geometry arrives
+  // ROUTING → PREVIEW: rota yüklenince PreviewCard'a dön
   useEffect(() => {
-    if (route.geometry && mapRef.current && mapRef.current.isStyleLoaded()) {
-      setRouteGeometry(mapRef.current, route.geometry);
-      routeGeometryRef.current = route.geometry;
+    if (!route.loading && navStatus === NavStatus.ROUTING) {
+      setNavStatus(NavStatus.PREVIEW);
     }
-  }, [route.geometry]);
+  }, [route.loading, navStatus]);
+
+  // Draw / update route line — only when READY and style is not reloading.
+  // styleChangingRef guard: MapLibre wipes all sources/layers on setStyle(); applying
+  // route geometry before style.load completes throws "source does not exist" errors.
+  // notifyStyleChange(false) → styleKey increments → this effect re-runs automatically.
+  useEffect(() => {
+    if (!route.geometry || !mapRef.current || mapStatus !== 'READY') return;
+    if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
+    const hash = _routeHash(route.geometry);
+    const last = lastAppliedRef.current;
+    if (last && last.hash === hash && last.styleKey === styleKey) return;
+    lastAppliedRef.current = { hash, styleKey };
+    setRouteGeometry(mapRef.current, route.geometry, route.alternatives);
+    routeGeometryRef.current = route.geometry;
+    routeAltRef.current      = route.alternatives;
+  }, [route.geometry, route.alternatives, mapStatus, styleKey]);
 
   // Turn focus: highlight next turn when approaching, clear on step advance
   useEffect(() => {
@@ -299,27 +480,50 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   /** Shared style-switch helper — avoids duplicating the marker/route restore logic. */
   function _doStyleSwitch(map: MapRef, withFadeOverlay: boolean): void {
-    const loc = locationRef.current;
-    const hdg = headingRef.current;
-
     if (withFadeOverlay) setIsSwitchingStyle(true);
 
     map._fullMapInitialized = false;
+    // Reset dedup — style switch wipes all sources/layers, so next route apply must run
+    lastAppliedRef.current = null;
+
+    // ── routingService mutex: hold fetchRoute store writes until layers are rebuilt ─
+    // notifyStyleChange(true) → fetchRoute awaits _waitForStyleReady() before setState.
+    // Released unconditionally in style.load to prevent deadlock on cancelled mounts.
+    styleChangingRef.current = true;
+    notifyStyleChange(true);
+
+    setMapStatus('LOADING');
     switchMapStyle(map, getMapStyle());
 
     map.once('style.load', () => {
+      // Release mutex unconditionally — prevents fetchRoute deadlock even if unmounted
+      styleChangingRef.current = false;
+      notifyStyleChange(false);
+
+      if (!mountedRef.current) return;
+      if (map.loaded()) {
+        setMapStatus('READY');
+      } else {
+        map.once('idle', () => {
+          if (mountedRef.current) setMapStatus('READY');
+        });
+      }
+    });
+
+    runOrQueue(() => {
+      const loc = locationRef.current;
+      const hdg = headingRef.current;
       if (loc) {
         addUserMarker(map, loc.latitude, loc.longitude, hdg || 0);
         setMapCenter(map, [loc.longitude, loc.latitude], undefined, false);
         map._fullMapInitialized = true;
       }
       if (routeGeometryRef.current) {
-        setRouteGeometry(map, routeGeometryRef.current);
+        setRouteGeometry(map, routeGeometryRef.current, routeAltRef.current);
       }
       setStyleKey((k) => k + 1);
-      // Brief delay so the first tile batch renders before removing overlay
       if (withFadeOverlay) {
-        setTimeout(() => setIsSwitchingStyle(false), 150);
+        setTimeout(() => { if (mountedRef.current) setIsSwitchingStyle(false); }, 150);
       }
     });
   }
@@ -339,6 +543,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       addUserMarker(mapRef.current, latitude, longitude, bear);
       if (drivingMode) {
         const h = containerRef.current?.offsetHeight ?? 600;
+        lastDrivingPosRef.current = { lat: latitude, lng: longitude, heading: bear };
         setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
       } else {
         setMapCenter(mapRef.current, [longitude, latitude], 15, true);
@@ -348,8 +553,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       updateUserMarker(latitude, longitude, bear);
 
       if (drivingMode) {
-        const h = containerRef.current?.offsetHeight ?? 600;
-        setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
+        const h    = containerRef.current?.offsetHeight ?? 600;
+        const last = lastDrivingPosRef.current;
+        const moved = !last
+          || _distM(last.lat, last.lng, latitude, longitude) > 2
+          || _headingDiff(last.heading, bear) > 3;
+        if (moved) {
+          lastDrivingPosRef.current = { lat: latitude, lng: longitude, heading: bear };
+          setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
+        }
       } else {
         const currentCenter = mapRef.current.getCenter();
         const dx = longitude - currentCenter.lng;
@@ -364,7 +576,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
 
     if (destination) {
-      updateNavigationProgress(latitude, longitude, bear);
+      updateNavigationProgress(latitude, longitude, bear, routeGeometryRef.current ?? undefined);
       updateRouteProgress(latitude, longitude);
     }
   }, [location, heading, destination, mapStyleReady, styleKey, drivingMode]);
@@ -372,6 +584,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const handleNavStart  = useCallback(() => {
     setIsPreview(false);
     setDrivingMode(true);
+    activateNavigation(); // PREVIEW/ROUTING → ACTIVE
 
     // Giriş animasyonu: tilt 0→45°, zoom →17, bearing = rota/GPS yönü
     if (mapRef.current) {
@@ -392,6 +605,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
     clearRoute();
     routeGeometryRef.current = null;
+    routeAltRef.current      = [];
   }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();
@@ -412,8 +626,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
   };
 
-  // WebGL yok — harita açılamaz, anlamlı hata ekranı göster
-  if (!webglSupported || mapError) {
+  // WebGL yok veya init hatası — anlamlı hata ekranı göster
+  if (!webglSupported || mapStatus === 'ERROR') {
     return (
       <div
         className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-8 p-10"
@@ -424,7 +638,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           onClick={onClose}
           className="flex items-center gap-1.5 rounded-2xl active:scale-90 transition-all"
           style={{
-            position: 'fixed', top: 14, right: 14, zIndex: 9999,
+            position: 'fixed',
+            top: 'calc(var(--sat) + 14px)', right: 'calc(var(--sar) + 14px)',
+            zIndex: 9999,
             padding: '10px 16px',
             background: 'rgba(239,68,68,0.92)', backdropFilter: 'blur(12px)',
             border: '1.5px solid rgba(255,255,255,0.30)',
@@ -462,8 +678,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   }
 
   return (
-    <div className="fixed inset-0 glass-card border-none !shadow-none z-50">
-      {!mapReady && (
+    <div ref={outerDivRef} className="fixed inset-0 glass-card border-none !shadow-none z-50">
+      {mapStatus !== 'READY' && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center animate-spin-slow">
             <Globe className="w-8 h-8 text-blue-400/60" />
@@ -532,7 +748,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       {/* Navigation HUD */}
       <NavigationHUD
-        isPreview={isPreview}
         onStart={handleNavStart}
         onCancel={handleNavCancel}
         speedKmh={location?.speed != null ? location.speed * 3.6 : 0}
@@ -550,7 +765,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         aria-label="Haritayı kapat"
         className="flex items-center gap-1.5 rounded-2xl active:scale-90 transition-all"
         style={{
-          position: 'fixed', top: 14, right: 14, zIndex: 9999,
+          position: 'fixed',
+          top: 'calc(var(--sat) + 14px)', right: 'calc(var(--sar) + 14px)',
+          zIndex: 9999,
           padding: '10px 16px',
           background: 'rgba(239,68,68,0.92)',
           backdropFilter: 'blur(12px)',

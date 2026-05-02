@@ -23,7 +23,7 @@ import { initSafeStorageAsync }    from '../../utils/safeStorage';
 import { isNative }                from '../bridge';
 import { CarLauncher }             from '../nativePlugin';
 import { startNativeGuardBridge }  from '../native/NativeGuardBridge';
-import { useVehicleStore }         from '../vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
   startVehicleDataLayer,
   restoreOdometer,
@@ -49,6 +49,7 @@ import {
 import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { logError }                from '../crashLogger';
+import { healthMonitor }           from './SystemHealthMonitor';
 
 // ── Yardımcılar ───────────────────────────────────────────────────────────────
 
@@ -63,14 +64,53 @@ function _log(msg: string): void {
 
 class SystemBoot {
 
-  private _started  = false;
-  private _cleanups: Cleanup[] = [];
+  private _started       = false;
+  private _cleanups:     Cleanup[] = [];
+  /** İsimli servis cleanup'ları — restart mekanizması için */
+  private _namedCleanups = new Map<string, Cleanup>();
 
   // ── Cleanup kaydı ─────────────────────────────────────────────────────────
 
   /** Cleanup thunk'ı LIFO stack'ine ekle. */
   private _reg(fn: Cleanup | void | undefined): void {
     if (typeof fn === 'function') this._cleanups.push(fn);
+  }
+
+  /** İsimli servis cleanup'ı — LIFO stack + named map'e ekle. */
+  private _regNamed(name: string, fn: Cleanup | void | undefined): void {
+    if (typeof fn !== 'function') return;
+    this._cleanups.push(fn);
+    this._namedCleanups.set(name, fn);
+  }
+
+  /**
+   * İsimli servisi durdur ve yeniden başlat.
+   * HealthMonitor'ın restartFn'i bu metodu çağırır.
+   * Bilinmeyen isim → no-op.
+   */
+  async restartService(name: string): Promise<void> {
+    _log(`Restarting service: ${name}`);
+
+    // Mevcut cleanup'ı çalıştır
+    const cleanup = this._namedCleanups.get(name);
+    if (cleanup) {
+      try { cleanup(); } catch (e) { logError(`SystemBoot:Restart:cleanup:${name}`, e); }
+      this._namedCleanups.delete(name);
+      const idx = this._cleanups.indexOf(cleanup);
+      if (idx >= 0) this._cleanups.splice(idx, 1);
+    }
+
+    // Kısa bekleme — cleanup settle
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+    switch (name) {
+      case 'VehicleDataLayer':
+        this._regNamed('VehicleDataLayer', startVehicleDataLayer());
+        _log(`  › VehicleDataLayer restarted`);
+        break;
+      default:
+        _log(`  › Unknown service for restart: ${name}`);
+    }
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -102,12 +142,14 @@ class SystemBoot {
    */
   stop(): void {
     _log('Stopping all services (LIFO)...');
+    healthMonitor.stop();
     // LIFO: son başlayan ilk durur — bağımlılık zincirine saygı
     for (let i = this._cleanups.length - 1; i >= 0; i--) {
       try { this._cleanups[i]!(); } catch (e) { logError('SystemBoot:stop', e); }
     }
-    this._cleanups = [];
-    this._started  = false;
+    this._cleanups     = [];
+    this._namedCleanups.clear();
+    this._started      = false;
   }
 
   // ── Wave 1: Core ──────────────────────────────────────────────────────────
@@ -130,6 +172,10 @@ class SystemBoot {
     // Crash recovery: native odo > Zustand odo → worker'a gönder
     await this._crashRecovery();
 
+    // SystemHealthMonitor: tüm servislerden önce başlat
+    _log('  › SystemHealthMonitor');
+    healthMonitor.start();
+
     _log('Wave 1 ready ✓');
   }
 
@@ -140,7 +186,25 @@ class SystemBoot {
 
     // VehicleDataLayer: OBD / GPS / CAN worker (SAB zero-copy)
     _log('  › VehicleDataLayer');
-    this._reg(startVehicleDataLayer());
+    this._regNamed('VehicleDataLayer', startVehicleDataLayer());
+
+    healthMonitor.register({
+      name:        'VehicleDataLayer',
+      criticality: 'critical',
+      deadlineMs:  15_000,
+      alertTitle:  'Sistem Limitli Modda',
+      alertMsg:    'Sensör verisi dondu — OBD/GPS bağlantısı kontrol edin.',
+      restartFn:   () => this.restartService('VehicleDataLayer'),
+      maxRestarts: 2,
+    });
+
+    healthMonitor.register({
+      name:        'GPS',
+      criticality: 'warning',
+      deadlineMs:  20_000,
+      alertTitle:  'GPS Sinyali Yok',
+      alertMsg:    'Konum verisi alınamıyor — tünel veya sinyal kesintisi.',
+    });
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
     _log('  › SystemOrchestrator');
@@ -217,7 +281,7 @@ class SystemBoot {
       if (!Number.isFinite(nativeKm) || nativeKm <= 0) return;
       const storeKm = useVehicleStore.getState().odometer ?? 0;
       if (nativeKm > storeKm + 0.1) { // 100m tolerans
-        useVehicleStore.getState().updateVehicle({ odometer: nativeKm });
+        useVehicleStore.getState().updateVehicleState({ odometer: nativeKm });
         restoreOdometer(nativeKm); // çalışan worker'a da bildir
         _log(`  › Crash recovery: odo ${storeKm.toFixed(3)} → ${nativeKm.toFixed(3)} km`);
       }

@@ -269,10 +269,10 @@ const SpeedCard = memo(function SpeedCard() {
                 style={{ filter: `drop-shadow(0 0 10px ${arcColor}) drop-shadow(0 0 20px ${arcColor}60)` }} />
             )}
           </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 10 }}>
+      <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 10 }}>
             <div className="font-black tabular-nums leading-none"
               style={{ fontSize: 'var(--lp-speed-font, 58px)', color: '#ffffff', letterSpacing: '-2px', textShadow: `0 0 60px ${arcColor}, 0 4px 12px rgba(0,0,0,0.80)` }}>
-              {speedKmh}
+              {Math.round(speedKmh || 0)}
             </div>
             <div className="font-black tracking-[0.5em] mt-1.5" style={{ fontSize: 10, color: arcColor, textShadow: `0 0 20px ${arcColor}` }}>
               KM/H
@@ -283,7 +283,7 @@ const SpeedCard = memo(function SpeedCard() {
 
       {/* Data row */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0 relative z-10">
-        <DataChip Icon={Gauge}       label="RPM"      value={rpm.toLocaleString()}      color="#60a5fa" warn={false} />
+        <DataChip Icon={Gauge}       label="RPM"      value={Math.round(rpm).toLocaleString()}      color="#60a5fa" warn={false} />
         <DataChip Icon={Thermometer} label="SICAKLIK" value={`${Math.round(temp)}°C`}  color={tempWarn ? '#ef4444' : '#fb923c'} warn={tempWarn} />
         <DataChip Icon={Fuel}        label="YAKIT"    value={`${Math.round(fuel)}%`}   color={fuelWarn ? '#ef4444' : '#34d399'} warn={fuelWarn} />
       </div>

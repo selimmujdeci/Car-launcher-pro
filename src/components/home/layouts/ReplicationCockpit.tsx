@@ -39,7 +39,7 @@ const SpeedGauge = memo(({ speed, isNight }: { speed: number, isNight: boolean }
 
       <div className="flex flex-col items-center z-10">
         <span className={`text-[var(--lp-speed-font,120px)] font-bold leading-none tracking-tighter tabular-nums ${isNight ? 'text-slate-200' : 'text-slate-800'}`}>
-          {speed}
+          {Math.round(speed || 0)}
         </span>
         <span className={`text-sm font-black tracking-[0.4em] uppercase -mt-2 ${isNight ? 'text-blue-400/60' : 'text-blue-500/80'}`}>
           KM / H

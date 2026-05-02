@@ -3,6 +3,7 @@ import { logError } from './crashLogger';
 import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -11,15 +12,9 @@ declare global {
   }
 }
 
-export interface GPSLocation {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-  altitude?: number;
-  heading?: number;
-  speed?: number;
-  timestamp: number;
-}
+// GPSLocation tipi vehicleDataLayer/types.ts'te tanımlıdır.
+import type { GPSLocation } from './vehicleDataLayer/types';
+export type { GPSLocation } from './vehicleDataLayer/types';
 
 interface GPSState {
   location: GPSLocation | null;
@@ -41,19 +36,41 @@ const useGPSStore = create<GPSState>(() => ({
   source: null,
 }));
 
+// ── UnifiedVehicleStore mirror ──────────────────────────────────────────────
+// useGPSStore değişimlerini UnifiedVehicleStore'a yansıt.
+// Tüm setState çağrıları (handlePosition, DR, fallback) otomatik olarak
+// UnifiedVehicleStore.updateGPSState'i tetikler — her çağrı noktası değiştirilmez.
+useGPSStore.subscribe((state) => {
+  useUnifiedVehicleStore.getState().updateGPSState({
+    location:    state.location,
+    heading:     state.heading,
+    isTracking:  state.isTracking,
+    error:       state.error,
+    unavailable: state.unavailable,
+    source:      state.source,
+  });
+});
+
 let watchId: number | string | null = null;
 let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
 // 200ms throttle — 1s GPS interval'de her fix'i işle
 const POSITION_THROTTLE_MS = 200;
 
+// ── Navigasyon GPS taban aralığı ─────────────────────────────
+// RuntimeEngine SAFE_MODE (5s) / POWER_SAVE (8s) / BASIC_JS (2s) modlarında
+// GPS interval'i çok uzar → hız göstergesi 2-8s'de bir güncellenir.
+// Araç uygulamasında navigasyon her zaman en az 1 Hz GPS gerektirir.
+// Bu taban değer tüm modlar için zorunlu alt sınırdır.
+const GPS_NAV_MAX_INTERVAL_MS = 500; // 2 Hz — Google Maps seviyesi (500ms)
+
 // ── Adaptive Runtime GPS interval ────────────────────────────
 // RuntimeEngine mod değişiminde gpsUpdateMs güncellenir.
 // Yeni değer startGPSTracking() sonraki çağrısında veya soft-restart'ta uygulanır.
-let _gpsUpdateMs: number = runtimeManager.getConfig().gpsUpdateMs;
+let _gpsUpdateMs: number = Math.min(runtimeManager.getConfig().gpsUpdateMs, GPS_NAV_MAX_INTERVAL_MS);
 
 /** runtimeManager değişince _gpsUpdateMs güncelle + gerekirse soft-restart */
 const _unsubRuntimeGPS = runtimeManager.subscribe((_mode, config) => {
-  const newMs = config.gpsUpdateMs;
+  const newMs = Math.min(config.gpsUpdateMs, GPS_NAV_MAX_INTERVAL_MS);
   if (newMs === _gpsUpdateMs) return;
   _gpsUpdateMs = newMs;
 
@@ -582,60 +599,71 @@ export async function stopGPSTracking(): Promise<void> {
  * Non-React / test-friendly snapshot of the current GPS state.
  */
 export function getGPSState(): GPSState {
-  return useGPSStore.getState();
+  const s = useUnifiedVehicleStore.getState();
+  return {
+    location:    s.location,
+    heading:     s.heading,
+    isTracking:  s.gpsTracking,
+    error:       s.gpsError,
+    unavailable: s.gpsUnavailable,
+    source:      s.gpsSource,
+  };
 }
 
+// ── React hooks — UnifiedVehicleStore'dan okur (tek kaynak) ─────────────────
+
 export function useGPSLocation() {
-  return useGPSStore((s) => s.location);
+  return useUnifiedVehicleStore((s) => s.location);
 }
 
 export function useGPSHeading() {
-  return useGPSStore((s) => s.heading);
-}
-
-export function useGPSState() {
-  return useGPSStore();
-}
-
-export function useGPSAvailable() {
-  return useGPSStore((s) => !s.unavailable);
-}
-
-/** Debug: aktif GPS kaynak bilgisi (native / web / last_known / default / null) */
-export function useGPSSource() {
-  return useGPSStore((s) => s.source);
+  return useUnifiedVehicleStore((s) => s.heading);
 }
 
 /**
- * GPS ve OBD'den anlık hız karar ağacı — tüm speedometre bileşenlerinde kullan.
+ * Backward-compat shape: { location, heading, isTracking, error, unavailable, source }
  *
- * Öncelik sırası:
- *   1. GPS Doppler hızı (taze fix, < maxAgeMs)
- *   2. OBD hızı (GPS yoksa veya stale)
- *
- * gps.speed >= 0 kontrolü: araç durmuşsa 0 geçerli — OBD'ye düşme.
- * gps.speed > 0 (eski) hatalıydı: durduğunda GPS 0 döner ama OBD mock
- * hâlâ 42 km/h gösteriyordu, GPS 0'ı atlayarak OBD'ye geçiyordu.
+ * Her alan ayrı sabit selector ile okunur.
+ * Inline obje `(s) => ({ ... })` React 19 useSyncExternalStore tutarlılık
+ * kontrolünde her render'da farklı referans döndürdüğünden #185 hatasına
+ * (Cannot update while rendering) neden oluyordu.
+ */
+export function useGPSState(): GPSState {
+  const location    = useUnifiedVehicleStore((s) => s.location);
+  const heading     = useUnifiedVehicleStore((s) => s.heading);
+  const isTracking  = useUnifiedVehicleStore((s) => s.gpsTracking);
+  const error       = useUnifiedVehicleStore((s) => s.gpsError);
+  const unavailable = useUnifiedVehicleStore((s) => s.gpsUnavailable);
+  const source      = useUnifiedVehicleStore((s) => s.gpsSource);
+  return { location, heading, isTracking, error, unavailable, source };
+}
+
+export function useGPSAvailable() {
+  return useUnifiedVehicleStore((s) => !s.gpsUnavailable);
+}
+
+/** Debug: aktif GPS kaynak bilgisi */
+export function useGPSSource() {
+  return useUnifiedVehicleStore((s) => s.gpsSource);
+}
+
+/**
+ * UnifiedVehicleStore tek yetkili hız kaynağı olduğundan parametre kullanılmaz.
+ * İmza korundu — mevcut bileşenler derlemek için tekrar yazılmak zorunda kalmaz.
  */
 export function resolveSpeedKmh(
-  gps: GPSLocation | null,
+  _gps: GPSLocation | null,
   obdSpeedKmh: number,
-  maxAgeMs = 4000,
+  _maxAgeMs = 4000,
 ): number {
-  if (gps?.speed != null && Number.isFinite(gps.speed)) {
-    const age = Date.now() - gps.timestamp;
-    if (age <= maxAgeMs) {
-      return Math.round(gps.speed * 3.6);
-    }
-  }
-  return obdSpeedKmh;
+  return useUnifiedVehicleStore.getState().speed ?? obdSpeedKmh;
 }
 
 /** Mevcut GPS hızını km/h olarak döner; yoksa null. */
 export function getGPSSpeedKmh(): number | null {
-  const loc = useGPSStore.getState().location;
+  const loc = useUnifiedVehicleStore.getState().location;
   if (!loc?.speed || !Number.isFinite(loc.speed) || loc.speed <= 0) return null;
-  return loc.speed * 3.6; // m/s → km/h
+  return loc.speed * 3.6;
 }
 
 /**
@@ -644,9 +672,9 @@ export function getGPSSpeedKmh(): number | null {
  * Cleanup fonksiyonu döner.
  */
 export function onGPSLocation(fn: (loc: GPSLocation | null) => void): () => void {
-  let prevLoc = useGPSStore.getState().location;
+  let prevLoc = useUnifiedVehicleStore.getState().location;
   fn(prevLoc); // anlık senkronizasyon
-  const unsub = useGPSStore.subscribe((state) => {
+  const unsub = useUnifiedVehicleStore.subscribe((state) => {
     if (state.location !== prevLoc) {
       prevLoc = state.location;
       fn(state.location);
@@ -742,27 +770,38 @@ function _startDeadReckoning(): void {
     if (!_dr?.active) { _stopDeadReckoning(); return; }
 
     const nowPerf = performance.now();
-    const nowMs   = Date.now(); // display only — not used for duration math
+    const nowMs   = Date.now();
     const elapsed = nowPerf - _dr.startedAt;
 
-    if (elapsed > DR_MAX_DURATION_MS) {
-      _stopDeadReckoning();
-      return;
-    }
+    if (elapsed > DR_MAX_DURATION_MS) { _stopDeadReckoning(); return; }
 
-    const Δt  = (nowPerf - _dr.lastProjectedAt) / 1000; // saniye — clock-jump immune
+    // ── Dynamic speed: OBD/fused speed keeps projection accurate in tunnel ─
+    // DR init zamanındaki donmuş GPS hızı yerine canlı UnifiedVehicleStore hızı
+    // kullanılır — OBD tünelde hala veri verir, GPS vermez.
+    const { speed: liveSpeedMs } = useUnifiedVehicleStore.getState();
+    const currentSpeedMs = liveSpeedMs ?? _dr.speedMs;
+
+    // Ghost movement guard: araç durmuşsa DR anında durdur, konum kaydırma
+    if (currentSpeedMs < DR_MIN_SPEED_MS) { _stopDeadReckoning(); return; }
+
+    // ── Heading: compass tünelde çalışmaya devam eder ─────────────────────
+    // GPS course (coords.heading) sinyal kopunca null olur; pusula manyetik
+    // kuzeyi ölçmeye devam eder ve tünel içi dönüşleri doğru yansıtır.
+    if (_compassHeading !== null) _dr.bearingDeg = _compassHeading;
+
+    const Δt  = (nowPerf - _dr.lastProjectedAt) / 1000; // clock-jump immune
     _dr.lastProjectedAt = nowPerf;
 
-    const rad   = (_dr.bearingDeg * Math.PI) / 180;
+    const rad    = (_dr.bearingDeg * Math.PI) / 180;
     const cosLat = Math.cos((_dr.lat  * Math.PI) / 180);
 
-    const deltaLat = (_dr.speedMs * Math.cos(rad) * Δt) / 111_320;
-    const deltaLng = (_dr.speedMs * Math.sin(rad) * Δt) / (111_320 * Math.max(0.001, cosLat));
+    const deltaLat = (currentSpeedMs * Math.cos(rad) * Δt) / 111_320;
+    const deltaLng = (currentSpeedMs * Math.sin(rad) * Δt) / (111_320 * Math.max(0.001, cosLat));
 
-    _dr.lat += deltaLat;
-    _dr.lng += deltaLng;
+    _dr.lat     += deltaLat;
+    _dr.lng     += deltaLng;
+    _dr.speedMs  = currentSpeedMs; // DR durumunu canlı hızla senkronize tut
 
-    // Store'a tahmini konumu yaz (heading ve speed korunur)
     const prev = useGPSStore.getState().location;
     useGPSStore.setState({
       location: {
@@ -772,7 +811,7 @@ function _startDeadReckoning(): void {
         altitude:  prev?.altitude,
         heading:   _dr.bearingDeg,
         speed:     _dr.speedMs,
-        timestamp: nowMs, // display timestamp — wall clock
+        timestamp: nowMs,
       },
       source: 'last_known',
     });

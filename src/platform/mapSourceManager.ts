@@ -1373,6 +1373,28 @@ export function useMapMode(): MapMode {
  */
 let _toVectorTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Thermal lock — FPS < 20 tespit edildiğinde raster modunu kilitler
+let _thermalLock = false;
+
+/**
+ * FullMapView FPS monitöründen çağrılır.
+ * isLow=true  → raster'ı kilitle, bekleyen vector geçişini iptal et.
+ * isLow=false → kilidi aç (vector geçişine tekrar izin ver).
+ */
+export function notifyLowFPS(isLow: boolean): void {
+  _thermalLock = isLow;
+  if (isLow) {
+    if (_toVectorTimer !== null) {
+      clearTimeout(_toVectorTimer);
+      _toVectorTimer = null;
+    }
+    const { mapMode } = useMapSourceStore.getState();
+    if (mapMode === 'road') {
+      useMapSourceStore.setState({ tileRender: 'raster' });
+    }
+  }
+}
+
 /**
  * Call this whenever navigation or AR active state changes.
  * Manages the raster ↔ vector switch automatically:
@@ -1386,19 +1408,22 @@ export function notifyNavigationRender(isNavigating: boolean, arActive: boolean)
   const { mapMode } = useMapSourceStore.getState();
   if (mapMode !== 'road') return;
 
-  if (isNavigating || arActive) {
-    // Cancel any pending idle→vector switch
+  if (isNavigating || arActive || _thermalLock) {
+    // Cancel any pending idle→vector switch; hold on raster
     if (_toVectorTimer !== null) {
       clearTimeout(_toVectorTimer);
       _toVectorTimer = null;
     }
     useMapSourceStore.setState({ tileRender: 'raster' });
   } else {
-    // Debounce: wait 2500ms of confirmed idle before switching to vector
+    // Debounce: wait 2500ms of confirmed idle before switching to vector.
+    // Only if thermal lock is clear at fire time.
     if (_toVectorTimer !== null) return; // already scheduled
     _toVectorTimer = setTimeout(() => {
       _toVectorTimer = null;
-      useMapSourceStore.setState({ tileRender: 'vector' });
+      if (!_thermalLock) {
+        useMapSourceStore.setState({ tileRender: 'vector' });
+      }
     }, 2500);
   }
 }

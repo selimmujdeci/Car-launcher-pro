@@ -27,7 +27,7 @@
  */
 
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
-import { useVehicleStore } from '../vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { CarLauncher }     from '../nativePlugin';
 import { isNative }        from '../bridge';
 import { logError }        from '../crashLogger';

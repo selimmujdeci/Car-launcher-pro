@@ -16,7 +16,7 @@
  */
 
 import { onVehicleEvent }      from '../vehicleDataLayer/VehicleEventHub';
-import { useVehicleStore }     from '../vehicleDataLayer/VehicleStateStore';
+import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { useStore, type SmartCard } from '../../store/useStore';
 import { safeGetRaw, safeSetRaw }   from '../../utils/safeStorage';
 import { runtimeManager }           from '../../core/runtime/AdaptiveRuntimeManager';
@@ -176,7 +176,7 @@ async function _onLowFuel(): Promise<void> {
   // 6. Overpass API'den istasyonları çek
   let stations: NearbyStation[];
   try {
-    stations = await _fetchStations(loc.lat, loc.lng);
+    stations = await _fetchStations(loc.latitude, loc.longitude);
   } catch {
     return; // ağ hatası — sessizce bekle
   }

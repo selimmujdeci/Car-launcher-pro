@@ -56,7 +56,7 @@ export const MapFocusLayout = memo(function MapFocusLayout({
 
       {/* ── LAYER 2: top OBD data pill — kompakt ── */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-4 px-5 py-2 rounded-full glass-card border-white/8 pointer-events-none shadow-lg">
-        <Pill label="HIZ" value={`${speed}`} unit="km/h" />
+        <Pill label="HIZ" value={`${Math.round(speed || 0)}`} unit="km/h" />
         <div className="w-px h-6 bg-white/10" />
         <Pill label="MOTOR" value={`${engineTemp}`} unit="°C" warn={engineTemp > 100} />
         <div className="w-px h-6 bg-white/10" />
