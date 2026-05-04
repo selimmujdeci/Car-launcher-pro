@@ -146,6 +146,12 @@ export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
+    // Startup grace: record activation time and start position.
+    // Arrival checks are blocked until ARRIVAL_GRACE_MS has elapsed
+    // OR vehicle has moved ARRIVAL_GRACE_MOVE_M from this point.
+    _navActivatedAtMs = Date.now();
+    _navStartLat      = _drLat;
+    _navStartLon      = _drLon;
     _startDeadReckoning(); // Zero-Leak: stopped in stopNavigation()
   }
 }
@@ -178,6 +184,9 @@ export function stopNavigation(): void {
   _drLon               = null;
   _lastGpsMs           = 0;
   _lastHeadingDeg      = 0;
+  _navActivatedAtMs    = 0;
+  _navStartLat         = null;
+  _navStartLon         = null;
 }
 
 /**
@@ -214,6 +223,9 @@ let _stopStartMs: number | null = null;
 
 // Monotonic remaining-distance: distance may only decrease along a single route geometry.
 // Resets automatically when geometry changes (new route / reroute).
+// CLAMP_SLACK_M: maximum upward correction allowed per GPS tick.
+// Prevents freeze after Dead Reckoning while still rejecting large GPS spikes.
+const CLAMP_SLACK_M      = 50; // metres
 let _lastRouteDistanceM  = Infinity;
 let _lastGeoHash         = '';
 // Windowed-search position tracker: last known closest segment index.
@@ -227,7 +239,14 @@ let _lastClosestSegIdx   = -1;
 // güncellenir.  Mesafe güncellemesi yapılır, varış kesinlikle tetiklenmez.
 const DR_GPS_STALE_MS = 2_000; // GPS bu kadar susarsa DR devreye girer (ms)
 const DR_INTERVAL_MS  = 500;   // DR güncelleme aralığı — GPS polling'in yarısı
-const ARRIVAL_SPEED_GUARD_KMH = 10; // varış için maksimum hız eşiği
+const ARRIVAL_SPEED_GUARD_KMH = 10;   // varış için maksimum hız eşiği
+const ARRIVAL_GRACE_MS        = 8_000; // activateNavigation'dan sonra varış kilidi (ms)
+const ARRIVAL_GRACE_MOVE_M    = 30;    // VEYA başlangıç noktasından ≥30m hareket
+
+// Başlangıç grace state — activateNavigation() tarafından set edilir, stopNavigation() temizler
+let _navActivatedAtMs: number  = 0;
+let _navStartLat: number | null = null;
+let _navStartLon: number | null = null;
 
 let _drLat:      number | null = null; // son bilinen / DR ile ilerletilen konum
 let _drLon:      number | null = null;
@@ -253,6 +272,11 @@ export function updateNavigationProgress(
   if (state.status !== NavStatus.ACTIVE && state.status !== NavStatus.REROUTING) return;
 
   // ── Dead Reckoning anchor — GPS geldiğinde hemen güncelle ───────────────────
+  // If GPS was stale (DR was active), force a full O(N) segment rescan so the
+  // windowed search does not start from the DR-advanced index.
+  const _gpsWasStale = (Date.now() - _lastGpsMs) >= DR_GPS_STALE_MS;
+  if (_gpsWasStale) _lastClosestSegIdx = -1;
+
   _lastGpsMs = Date.now();
   _drLat     = currentLat;
   _drLon     = currentLon;
@@ -264,20 +288,40 @@ export function updateNavigationProgress(
     ? calculateRouteDistance(currentLat, currentLon, routeGeometry, cumulativeDistances)
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);
 
-  // ── Varış tespiti (zırhlanmış) ─────────────────────────────────────────────
-  // Sadece mesafe yetmez — GPS gürültüsü veya yakın geçiş yanlış varış verir.
-  // Koşul: mesafe < 20m AND (hız < 10 km/h OR son rota adımına ulaşıldı)
-  if (distance < ARRIVAL_THRESHOLD_M) {
-    const { speed: _rawArrSpd }  = useUnifiedVehicleStore.getState();
-    const speedAtArrival         = (_rawArrSpd ?? 0) * 3.6;
-    const { steps, currentStepIndex } = getRouteState();
-    const atFinalStep = steps.length > 0 && currentStepIndex >= steps.length - 1;
+  // ── Varış tespiti — katı AND koşulları ────────────────────────────────────
+  // Tüm koşullar aynı anda sağlanmalıdır:
+  //   1. status === ACTIVE (transitionToArrived içinde)
+  //   2. geçerli rota geometrisi (geometry.length >= 2) — Haversine fallback'te varış yok
+  //   3. mesafe < ARRIVAL_THRESHOLD_M
+  //   4. hız < ARRIVAL_SPEED_GUARD_KMH
+  //   5. grace süresi geçmiş (8s) VEYA başlangıçtan >= 30m hareket
+  {
+    const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
+    const speedAtArrival        = (_rawArrSpd ?? 0) * 3.6;
+    const activeMs              = _navActivatedAtMs > 0 ? Date.now() - _navActivatedAtMs : 0;
+    const movedFromStart        = (_navStartLat !== null && _navStartLon !== null)
+      ? calculateDistance(currentLat, currentLon, _navStartLat, _navStartLon)
+      : 0;
+    const graceExpired          = activeMs >= ARRIVAL_GRACE_MS || movedFromStart >= ARRIVAL_GRACE_MOVE_M;
+    const hasValidGeometry      = !!routeGeometry && routeGeometry.length >= 2;
+    const allowed               = distance < ARRIVAL_THRESHOLD_M
+      && hasValidGeometry
+      && speedAtArrival < ARRIVAL_SPEED_GUARD_KMH
+      && graceExpired;
 
-    if (speedAtArrival < ARRIVAL_SPEED_GUARD_KMH || atFinalStep) {
+    console.log('[ARRIVAL CHECK]', {
+      status: state.status,
+      distanceToDestination: Math.round(distance),
+      speedKmh:      Math.round(speedAtArrival * 10) / 10,
+      activeMs:      Math.round(activeMs),
+      movedFromStart: Math.round(movedFromStart),
+      allowed,
+    });
+
+    if (allowed) {
       transitionToArrived();
       return;
     }
-    // Hız yüksek ve son adımda değil — GPS gürültüsü olabilir; devam et
   }
 
   // Heading
@@ -407,8 +451,9 @@ function calculateRouteDistance(
     ? partialM + cumDist[suffixIdx]
     : partialM + _sumRemainingSegments(geometry, suffixIdx);
 
-  // Monotonic clamp: reject upward jitter on the same geometry
-  const clamped       = Math.min(remaining, _lastRouteDistanceM);
+  // Soft clamp: allow up to CLAMP_SLACK_M upward correction per tick (DR recovery),
+  // while still rejecting large GPS spikes (> 50 m sudden jump).
+  const clamped       = Math.min(remaining, _lastRouteDistanceM + CLAMP_SLACK_M);
   _lastRouteDistanceM = clamped;
   return clamped;
 }

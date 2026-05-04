@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { logError } from './crashLogger';
-import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
+import { safeSetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
@@ -107,20 +107,8 @@ function _saveLastKnown(loc: GPSLocation): void {
   safeSetRaw(LAST_KNOWN_KEY, JSON.stringify({ lat: loc.latitude, lng: loc.longitude }));
 }
 
-function _loadLastKnown(): { lat: number; lng: number } | null {
-  try {
-    const v = safeGetRaw(LAST_KNOWN_KEY);
-    if (!v) return null;
-    const p = JSON.parse(v) as { lat?: number; lng?: number };
-    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return null;
-    return { lat: p.lat!, lng: p.lng! };
-  } catch { return null; }
-}
-
 // ── İlk fix fallback (5 saniye) ──────────────────────────
 const GPS_FIRST_FIX_MS = 5000;
-// Türkiye merkezi: Adana (coğrafi merkeze yakın, iyi bilinen şehir)
-const TURKEY_DEFAULT: [number, number] = [37.0, 35.3];
 let _firstFixTimer: ReturnType<typeof setTimeout> | null = null;
 
 function _clearFirstFixTimer(): void {
@@ -132,16 +120,16 @@ function _startFirstFixFallback(): void {
   _firstFixTimer = setTimeout(() => {
     _firstFixTimer = null;
     // Gerçek GPS fix zaten geldiyse dokunma
-    if (useGPSStore.getState().location && useGPSStore.getState().source !== 'last_known' && useGPSStore.getState().source !== 'default') return;
-    const last = _loadLastKnown();
-    const [lat, lng] = last ? [last.lat, last.lng] : TURKEY_DEFAULT;
-    const source = last ? 'last_known' : 'default';
-    const errorMsg = last ? 'Son konum kullanılıyor' : 'GPS alınamadı — Çevrimdışı mod';
+    if (useGPSStore.getState().source === 'native' || useGPSStore.getState().source === 'web') return;
+    // location is intentionally NOT set — fallback/last_known coords must never
+    // enter navigation state. Route fetch, origin, and geometry guards all rely
+    // on location===null to block invalid routing.
+    console.warn('[GPS] no real fix after timeout — location stays null, GPS state marked unavailable');
     useGPSStore.setState({
-      location: { latitude: lat, longitude: lng, accuracy: last ? 500 : 99999, timestamp: Date.now() },
-      error: errorMsg,
-      source,
+      location:   null,
+      error:      'GPS alınamadı — Sinyal bekleniyor',
       isTracking: false,
+      source:     null,
     });
   }, GPS_FIRST_FIX_MS);
 }
@@ -262,15 +250,6 @@ const GPS_SPEED_DEADZONE_KMH = 2.0;
 const GPS_SPEED_MAX_AGE_MS   = 4000;
 /** GPS Doppler spike / uydu lock jitter: bu değerin üstü fiziksel olarak imkansız */
 const GPS_SPEED_MAX_KMH      = 280;
-/**
- * Accuracy filtresi — tünel-güvenli:
- * İlk fix yoksa 8000m'ye kadar kabul et (kaba konum daha iyidir).
- * Fix varsa 1500m üstünü reddet — ama son geçerli fix > 20s eskiyse tekrar kabul et
- * (tünel çıkışında pozisyon dondurulmasın).
- */
-const GPS_ACCURACY_FIRST_FIX_M  = 8000;
-const GPS_ACCURACY_UPDATE_M     = 1500;
-const GPS_ACCURACY_STALE_MS     = 20_000;
 
 // ── Speed from position delta ─────────────────────────────
 let _prevForSpeed: { lat: number; lng: number; ts: number } | null = null;
@@ -355,7 +334,7 @@ async function startNativeGPSTracking(): Promise<void> {
     const { Geolocation } = await import('@capacitor/geolocation');
 
     // Check/request permissions — timeout ile sarılı (eski cihazlarda sonsuz beklemeyi önler)
-    const GPS_PERMISSION_TIMEOUT_MS = 6000;
+    const GPS_PERMISSION_TIMEOUT_MS = 12000;
     const withTimeout = <T>(promise: Promise<T>): Promise<T | null> =>
       Promise.race([
         promise,
@@ -372,13 +351,19 @@ async function startNativeGPSTracking(): Promise<void> {
           // İzin kesin olarak reddedildi — kullanıcı "bir daha sorma" seçti.
           // Web geolocation fallback'i ÇAĞIRMA: native platform'da navigator.geolocation
           // desteklenmeyebilir ve farklı bir hata mesajı yazarak gerçek nedeni gizler.
-          useGPSStore.setState({ error: 'GPS permission denied', isTracking: false });
+          useGPSStore.setState({ error: 'GPS permission denied', isTracking: false, unavailable: true });
           return;
         }
       }
     } catch {
       // Permission API may not be available on some devices/versions, proceed anyway
     }
+
+    // Warm start: immediate fix before watchPosition fires (reduces GPS cold-start delay)
+    try {
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      if (pos?.coords) handlePosition(pos.coords, pos.timestamp);
+    } catch { /* watchPosition will handle it */ }
 
     watchId = await Geolocation.watchPosition(
       {
@@ -467,31 +452,20 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   const perfNow = performance.now();
   if (perfNow - _lastPositionPerf < POSITION_THROTTLE_MS) return;
 
-  // Validate — malformed native data should never propagate to UI
-  if (
-    !Number.isFinite(coords.latitude)  ||
-    !Number.isFinite(coords.longitude) ||
-    Math.abs(coords.latitude)  > 90    ||
-    Math.abs(coords.longitude) > 180
-  ) {
+  if (!isFinite(coords.latitude) || !isFinite(coords.longitude)) {
     logError('GPS', new Error(`Invalid coords: ${coords.latitude},${coords.longitude}`));
     return;
   }
 
-  // Accuracy filter — tünel-güvenli: çok kötü fix gelirse sadece son iyi fix eskiyse kabul et
-  if (Number.isFinite(coords.accuracy) && coords.accuracy > 0) {
-    const prevLoc = useGPSStore.getState().location;
-    const prevAge = prevLoc ? now - prevLoc.timestamp : Infinity;
-    const threshold = prevLoc ? GPS_ACCURACY_UPDATE_M : GPS_ACCURACY_FIRST_FIX_M;
-    if (coords.accuracy > threshold && prevAge < GPS_ACCURACY_STALE_MS) {
-      // Son geçerli fix taze — bu çok kötü ölçümü at (tünel içi jitter, multi-path)
-      return;
-    }
-  }
+  // Valid coords arrived — cancel fallback timer immediately, before accuracy check
+  _clearFirstFixTimer();
 
   _lastPositionPerf  = perfNow;
-  _consecutiveErrors = 0; // reset on success
-  _clearFirstFixTimer(); // gerçek fix geldi, fallback iptal
+  _consecutiveErrors = 0;
+
+  const _src = isNativePlatform() ? 'native' : 'web';
+  console.log(`[GPS] source:${_src} lat:${coords.latitude.toFixed(6)} lon:${coords.longitude.toFixed(6)} acc:${coords.accuracy?.toFixed(0)}m ts:${timestamp ?? now}`);
+  console.log('[GPS]', { lat: coords.latitude, lon: coords.longitude, accuracy: coords.accuracy, source: _src });
 
   // GPS speed yoksa pozisyon delta'sından hesapla
   const gpsSpeed = Number.isFinite(coords.speed ?? NaN) ? (coords.speed ?? undefined) : undefined;
@@ -527,7 +501,7 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   const loc: GPSLocation = {
     latitude:  coords.latitude,
     longitude: coords.longitude,
-    accuracy:  Number.isFinite(coords.accuracy) ? coords.accuracy : 0,
+    accuracy:  Number.isFinite(coords.accuracy) ? coords.accuracy : 999,
     altitude:  coords.altitude ?? undefined,
     heading:   heading ?? undefined,
     speed:     filteredSpeed, // ← filtreli hız (deadzone + EMA)
@@ -552,7 +526,17 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
 
   _saveLastKnown(loc);
 
-  const source = isNativePlatform() ? 'native' : 'web';
+  const source: GPSState['source'] = isNativePlatform() ? 'native' : 'web';
+
+  console.log('[GPS_DECISION]', {
+    lat:       coords.latitude,
+    lon:       coords.longitude,
+    accuracy:  coords.accuracy,
+    ageMs:     Math.abs(now - (timestamp ?? now)),
+    gpsSource: source,
+    valid:     true,
+    reason:    'handlePosition_accepted',
+  });
 
   useGPSStore.setState({
     location:   loc,
@@ -813,7 +797,6 @@ function _startDeadReckoning(): void {
         speed:     _dr.speedMs,
         timestamp: nowMs,
       },
-      source: 'last_known',
     });
   }, DR_TICK_MS);
 }

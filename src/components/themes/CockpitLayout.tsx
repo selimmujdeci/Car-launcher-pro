@@ -1,8 +1,16 @@
-import { memo } from 'react';
+import { memo, useState, lazy, Suspense } from 'react';
 import {
   SkipBack, SkipForward,
-  Grid3X3, Settings, Radio,
+  Grid3X3, Settings, Radio, Mic,
+  Phone, Music2, Bell, LayoutGrid, SlidersHorizontal,
+  ChevronUp, ChevronDown, Cloud, AlertTriangle, Camera,
+  Route, ShieldAlert, Wrench, Shield, Tv2,
 } from 'lucide-react';
+import { openMusicDrawer } from '../../platform/mediaUi';
+import { openDrawer } from '../../platform/drawerBus';
+import { useNotificationState } from '../../platform/notificationService';
+
+const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
@@ -78,7 +86,7 @@ function CPanel({ children, label, sublabel, accent = C_CYAN, style }: {
 }
 
 /* ── Glareshield (üst bar) ─────────────────────────────────── */
-const Glareshield = memo(function Glareshield({ onOpenApps, onOpenSettings }: { onOpenApps: () => void; onOpenSettings: () => void }) {
+const Glareshield = memo(function Glareshield({ onOpenApps, onOpenSettings, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void }) {
   const { settings } = useStore();
   const { time } = useClock(settings.use24Hour, true);
   const device = useDeviceStatus();
@@ -128,6 +136,7 @@ const Glareshield = memo(function Glareshield({ onOpenApps, onOpenSettings }: { 
       <div className="flex items-center gap-2">
         <GButton label="SYS" onClick={onOpenSettings}><Settings className="w-3.5 h-3.5" style={{ color: C_DIM2 }} /></GButton>
         <GButton label="APPS" onClick={onOpenApps}><Grid3X3 className="w-3.5 h-3.5" style={{ color: C_DIM2 }} /></GButton>
+        <GButton label="MIC" onClick={onVoice}><Mic className="w-3.5 h-3.5" style={{ color: C_GREEN }} /></GButton>
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded"
           style={{ background: 'rgba(0,230,118,0.10)', border: `1px solid rgba(0,230,118,0.25)` }}>
           <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C_GREEN }} />
@@ -521,8 +530,34 @@ function CommsBtn({ onClick, children }: { onClick: () => void; children: React.
 }
 
 /* ── MIP: Mode Indicator Panel (dock) ──────────────────────── */
-const MIP = memo(function MIP({ appMap, dockIds, onLaunch }: { appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void }) {
-  const apps = dockIds.slice(0, 12).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
+const MIP = memo(function MIP({ appMap, dockIds, onLaunch, onOpenApps, onOpenSettings }: {
+  appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void;
+  onOpenApps: () => void; onOpenSettings: () => void;
+}) {
+  const { unreadCount } = useNotificationState();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const BTN_W = 90, BTN_H = 90, BTN_R = 16, ICON = 26;
+
+  function MipBtn({ fn, label, color, children, badge }: {
+    fn: () => void; label: string; color: string; children: React.ReactNode; badge?: number;
+  }) {
+    return (
+      <button onClick={fn}
+        className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all relative"
+        style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(0,212,255,0.05)', border: `1px solid ${C_DIM}` }}>
+        <div style={{ color, width: ICON, height: ICON, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {children}
+        </div>
+        <span className="font-mono uppercase tracking-wider leading-none" style={{ fontSize: 9, color: C_DIM2 }}>{label}</span>
+        {!!badge && (
+          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 bg-cyan-500 text-black text-[9px] font-black rounded-full flex items-center justify-center px-1">
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <div className="flex-shrink-0"
       style={{
@@ -530,15 +565,49 @@ const MIP = memo(function MIP({ appMap, dockIds, onLaunch }: { appMap: Record<st
         borderTop: `1px solid rgba(0,212,255,0.12)`,
         boxShadow: `0 -2px 20px rgba(0,0,0,0.80)`,
       }}>
-      <div className="flex items-center overflow-x-auto no-scrollbar px-3 py-2 gap-1.5">
-        {apps.map(({ id, app }) => (
-          <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-1 flex-shrink-0 px-2.5 py-2 rounded active:scale-90 transition-all min-w-[52px]"
-            style={{ background: 'rgba(0,212,255,0.04)', border: `1px solid ${C_DIM}` }}>
-            <span className="text-base leading-none">{app!.icon}</span>
-            <span className="text-[8px] font-mono uppercase tracking-wider truncate w-full text-center" style={{ color: C_DIM2 }}>{app!.name}</span>
-          </button>
-        ))}
+      {moreOpen && (
+        <div className="flex items-center justify-center gap-3 px-3 py-2 overflow-x-auto no-scrollbar"
+          style={{ borderBottom: `1px solid ${C_DIM}` }}>
+          {([
+            { label: 'Hava',     color: '#38bdf8', icon: <Cloud    size={20} />, fn: () => { openDrawer('weather');      setMoreOpen(false); } },
+            { label: 'Trafik',   color: '#fb923c', icon: <AlertTriangle size={20} />, fn: () => { openDrawer('traffic'); setMoreOpen(false); } },
+            { label: 'Dashcam',  color: '#f87171', icon: <Camera   size={20} />, fn: () => { openDrawer('dashcam');      setMoreOpen(false); } },
+            { label: 'Seyir',    color: '#34d399', icon: <Route    size={20} />, fn: () => { openDrawer('triplog');      setMoreOpen(false); } },
+            { label: 'Arıza',    color: '#fbbf24', icon: <ShieldAlert size={20} />, fn: () => { openDrawer('dtc');       setMoreOpen(false); } },
+            { label: 'Bakım',    color: '#94a3b8', icon: <Wrench   size={20} />, fn: () => { openDrawer('vehicle-reminder'); setMoreOpen(false); } },
+            { label: 'Güvenlik', color: '#34d399', icon: <Shield   size={20} />, fn: () => { openDrawer('security');    setMoreOpen(false); } },
+            { label: 'Eğlence',  color: '#60a5fa', icon: <Tv2     size={20} />, fn: () => { openDrawer('entertainment'); setMoreOpen(false); } },
+          ] as const).map((item, i) => (
+            <button key={i} onClick={item.fn}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-90 transition-all px-2.5 py-2 rounded"
+              style={{ background: 'rgba(0,212,255,0.04)', border: `1px solid ${C_DIM}` }}>
+              <div style={{ color: item.color }}>{item.icon}</div>
+              <span className="text-[8px] font-mono uppercase tracking-wider" style={{ color: C_DIM2 }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center justify-center overflow-x-auto no-scrollbar px-3 py-2 gap-3">
+        {dockIds.slice(0, 2).map(id => {
+          const app = appMap[id] ?? APP_MAP[id];
+          if (!app) return null;
+          return (
+            <MipBtn key={id} fn={() => onLaunch(id)} label={app.name} color={C_CYAN}>
+              <span style={{ fontSize: ICON }}>{app.icon}</span>
+            </MipBtn>
+          );
+        })}
+        <MipBtn fn={() => openDrawer('phone')}         label="Telefon"  color={C_CYAN}><Phone           size={ICON} /></MipBtn>
+        <MipBtn fn={() => openMusicDrawer()}           label="Müzik"    color={C_CYAN}><Music2          size={ICON} /></MipBtn>
+        <MipBtn fn={() => openDrawer('notifications')} label="Bildirim" color={C_CYAN} badge={unreadCount}><Bell size={ICON} /></MipBtn>
+        <MipBtn fn={onOpenApps}                        label="Menü"     color={C_CYAN}><LayoutGrid      size={ICON} /></MipBtn>
+        <MipBtn fn={onOpenSettings}                    label="Ayarlar"  color={C_DIM2}><SlidersHorizontal size={ICON} /></MipBtn>
+        <button onClick={() => setMoreOpen(o => !o)}
+          className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
+          style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(0,212,255,0.03)', border: `1px solid ${C_DIM}` }}>
+          {moreOpen ? <ChevronDown size={ICON} style={{ color: C_DIM2 }} /> : <ChevronUp size={ICON} style={{ color: C_DIM2 }} />}
+          <span className="font-mono uppercase tracking-wider" style={{ fontSize: 9, color: C_DIM2 }}>{moreOpen ? 'Kapat' : 'Daha'}</span>
+        </button>
       </div>
     </div>
   );
@@ -548,8 +617,14 @@ const MIP = memo(function MIP({ appMap, dockIds, onLaunch }: { appMap: Record<st
 export const CockpitLayout = memo(function CockpitLayout({
   onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen, smart,
 }: Props) {
+  const [voiceOpen, setVoiceOpen] = useState(false);
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: C_BG }}>
+      {voiceOpen && (
+        <Suspense fallback={null}>
+          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
+        </Suspense>
+      )}
 
       {/* CRT scan-line efekti */}
       <div className="absolute inset-0 pointer-events-none z-[1]" style={{
@@ -560,7 +635,7 @@ export const CockpitLayout = memo(function CockpitLayout({
 
       <div className="relative z-10 flex flex-col h-full">
         {/* Glareshield */}
-        <Glareshield onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <Glareshield onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
 
         {/* Ana panel — 3 kolon (ratio-aware) */}
         <div className="flex-1 min-h-0 grid gap-2 p-2 overflow-hidden"
@@ -580,7 +655,7 @@ export const CockpitLayout = memo(function CockpitLayout({
         )}
 
         {/* MIP dock */}
-        <MIP appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
+        <MIP appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

@@ -31,6 +31,7 @@ const WATCHDOG_INTERVAL_MS = 5_000;   // watchdog tick aralığı
 const ALERT_COOLDOWN_MS    = 60_000;  // aynı servis için uyarı yenileme süresi
 const RESTART_COOLDOWN_MS  = 10_000;  // restart denemeleri arası minimum bekleme
 const MAX_RESTARTS_DEFAULT = 2;
+const STARTUP_GRACE_MS     = 45_000;  // uygulama açılışta GPS fix almadan önce uyarı basılmaz
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -70,9 +71,10 @@ interface WatchEntry extends Required<Pick<ServiceConfig, 'maxRestarts'>> {
 // ── SystemHealthMonitor ────────────────────────────────────────────────────────
 
 class SystemHealthMonitor {
-  private _registry = new Map<string, WatchEntry>();
-  private _timer:    ReturnType<typeof setInterval> | null = null;
-  private _unsubs:   Array<() => void> = [];
+  private _registry  = new Map<string, WatchEntry>();
+  private _timer:      ReturnType<typeof setInterval> | null = null;
+  private _unsubs:     Array<() => void> = [];
+  private _startedAt = 0;
 
   /**
    * Bir servisi izleme listesine ekle.
@@ -115,6 +117,7 @@ class SystemHealthMonitor {
   /** Watchdog ve pasif izleyicileri başlat. start() → stop() idempotent. */
   start(): void {
     if (this._timer) return;
+    this._startedAt = performance.now();
     this._setupPassiveMonitoring();
     this._timer = setInterval(() => { this._tick(); }, WATCHDOG_INTERVAL_MS);
   }
@@ -171,6 +174,9 @@ class SystemHealthMonitor {
   private _tick(): void {
     const now = performance.now();
 
+    // Startup grace: GPS cold-start takes up to 45s — no alerts during this window
+    if (now - this._startedAt < STARTUP_GRACE_MS) return;
+
     for (const entry of this._registry.values()) {
       const elapsed = now - entry.lastBeat;
       const isDead  = elapsed > entry.deadlineMs;
@@ -179,6 +185,35 @@ class SystemHealthMonitor {
 
       // GPS intentionally unavailable → uyarı sustur
       if (entry.name === 'GPS' && useUnifiedVehicleStore.getState().gpsUnavailable) continue;
+
+      // B: Suppress GPS alert when native GPS has a fresh fix — passive monitor may have missed ticks
+      // (e.g. fallback fired once then went static, but real GPS is actually delivering)
+      if (entry.name === 'GPS') {
+        const { location } = useUnifiedVehicleStore.getState();
+        if (
+          location &&
+          Number.isFinite(location.latitude) &&
+          Number.isFinite(location.longitude) &&
+          (Date.now() - location.timestamp) < 30_000
+        ) {
+          entry.lastBeat = now;
+          continue;
+        }
+      }
+
+      // C: VehicleDataLayer — GPS fresh = data layer alive. OBD missing alone must not block.
+      if (entry.name === 'VehicleDataLayer') {
+        const { location } = useUnifiedVehicleStore.getState();
+        if (
+          location &&
+          Number.isFinite(location.latitude) &&
+          Number.isFinite(location.longitude) &&
+          (Date.now() - location.timestamp) < 30_000
+        ) {
+          entry.lastBeat = now;
+          continue;
+        }
+      }
 
       // Aktif uyarı ve cooldown süresi dolmadıysa → sessiz kal
       if (entry.alertId && (now - entry.alertedAt) < ALERT_COOLDOWN_MS) continue;

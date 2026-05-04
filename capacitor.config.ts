@@ -9,10 +9,9 @@ const config: CapacitorConfig = {
   appName: 'Caros Pro',
   webDir: 'dist',
   android: {
-    allowMixedContent: isDev,
+    allowMixedContent: true,
     captureInput: true,
-    // Remote WebView debugging — only in explicit development mode (chrome://inspect)
-    webContentsDebuggingEnabled: isDev,
+    webContentsDebuggingEnabled: true,
     backgroundColor: '#060d1a',
     loggingBehavior: isDev ? 'debug' : 'none',
     initialFocus: false,

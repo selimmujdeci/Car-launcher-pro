@@ -154,8 +154,8 @@ describe('normalizeCoords', () => {
     expect(result[1]).toEqual([120.1, 5.1]);
   });
 
-  it('boş dizi döner', () => {
-    expect(normalizeCoords([])).toEqual([]);
+  it('boş dizi geçilince hata fırlatır', () => {
+    expect(() => normalizeCoords([])).toThrow('EMPTY_GEOMETRY');
   });
 
   it('Türkiye koordinatlarını ([lon≈34, lat≈36]) bozmaz', () => {

@@ -17,16 +17,14 @@ import {
   previous,
   fmtTime,
 } from '../../platform/mediaService';
-import { openMusic } from '../../platform/appLauncher';
-import { useStore } from '../../store/useStore';
+import { openMusicDrawer } from '../../platform/mediaUi';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 
 /* ── Müzik paneli ────────────────────────────────────────── */
 
 const SplitMusicPanel = memo(function SplitMusicPanel() {
   const { playing, track } = useMediaState();
-  const { settings }       = useStore();
-  const launch = useCallback(() => openMusic(settings.defaultMusic), [settings.defaultMusic]);
+  const launch = useCallback(() => openMusicDrawer(), []);
 
   const pct = track.durationSec > 0
     ? Math.min(100, (track.positionSec / track.durationSec) * 100)

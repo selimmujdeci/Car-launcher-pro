@@ -549,7 +549,7 @@ export const VisionOverlay = memo(function VisionOverlay({
     const canvas = arCanvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     // Resize canvas to match element dimensions (DPR-aware)

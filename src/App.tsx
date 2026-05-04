@@ -191,7 +191,7 @@ function App() {
        * pointer-events-none wrapper → kamera dışı alanda yanlışlıkla dokunma engeli.
        */}
       <div className="fixed inset-0 z-[100000] pointer-events-none">
-        <div className="pointer-events-auto size-full">
+        <div className="pointer-events-none size-full">
           <ReversePriorityOverlay />
         </div>
       </div>

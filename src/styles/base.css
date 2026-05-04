@@ -35,6 +35,12 @@
    * JS overrides these at runtime based on actual screen size.
    * ──────────────────────────────────────────────────────────── */
   --lp-dock-h:      68px;
+
+  /* Safe area aliases — çentik/notch koruması */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
   --lp-tile-w:      64px;
   --lp-tile-h:      60px;
   --lp-dock-icon:   24px;

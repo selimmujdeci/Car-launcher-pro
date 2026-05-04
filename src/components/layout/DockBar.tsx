@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import {
   LayoutGrid, SlidersHorizontal, Camera, Route, ShieldAlert,
   Bell, Music2, Phone, Cloud, Shield, Tv2, AlertTriangle,
@@ -79,6 +79,20 @@ export const DockBar = memo(function DockBar({
 }: Props) {
   const n = useNotificationState();
   const [expanded, setExpanded] = useState(false);
+  const dockRef = useRef<HTMLDivElement>(null);
+
+  // Dynamically set --lp-dock-h so spacer always matches actual dock height
+  useEffect(() => {
+    if (!dockRef.current) return;
+    const update = () => {
+      const h = dockRef.current?.offsetHeight ?? 68;
+      document.documentElement.style.setProperty('--lp-dock-h', `${h}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(dockRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const apps = smart.dockIds
     .filter(id => !SKIP_IDS.has(id))
@@ -125,6 +139,7 @@ export const DockBar = memo(function DockBar({
 
       {/* Ana dock */}
       <div
+        ref={dockRef}
         data-dock="main"
         className="fixed bottom-0 left-0 right-0 z-[100] pt-3 transition-[background] duration-400 ease-out"
         style={{

@@ -18,6 +18,12 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!_instance) {
     _instance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        headers: {
+          // Capacitor runs on https://localhost — tell Supabase to allow it
+          'X-Client-Info': 'capacitor-android',
+        },
+      },
     });
   }
   return _instance;

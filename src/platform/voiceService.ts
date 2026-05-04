@@ -420,12 +420,24 @@ export function startListening(): void {
   _startVolumeMeter();
 
   if (isNative) {
+    // Failsafe: if STT hangs or is dismissed silently, force idle after 10 s.
+    // Prevents "Hazır" from staying on screen indefinitely.
+    const _sttFailsafe = setTimeout(() => {
+      if (_current.status === 'listening') {
+        console.warn('[Voice] STT timeout (10s) — forcing idle');
+        _stopVolumeMeter();
+        push({ status: 'idle' });
+      }
+    }, 10_000);
+
     CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
       .then((result) => {
+        clearTimeout(_sttFailsafe);
         if (result.transcript) processTextCommand(result.transcript);
         else push({ status: 'idle' });
       })
       .catch((err) => {
+        clearTimeout(_sttFailsafe);
         console.error('Native Speech Error:', err);
         push({ status: 'error', error: 'Ses algılanamadı. Çevrimdışı dil paketi (TR) yüklü mü?', suggestions: [] });
         setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);

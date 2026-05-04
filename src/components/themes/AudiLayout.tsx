@@ -1,8 +1,10 @@
 import { memo, useState, lazy, Suspense } from 'react';
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
-  Gauge, Thermometer, Fuel, Settings, Navigation2, Box,
+  Gauge, Thermometer, Fuel, Settings, Navigation2, Box, Mic,
 } from 'lucide-react';
+
+const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
 const Vehicle3DViewer = lazy(() => import('../camera/Vehicle3DViewer').then(m => ({ default: m.Vehicle3DViewer })));
 import { useStore } from '../../store/useStore';
@@ -43,7 +45,7 @@ const A_DIM    = 'var(--text-dim, #8A9AAA)';
 const A_DIM2   = 'var(--text-dim2, #B4BDC6)';
 
 /* ─── AUDI HEADER ─────────────────────────────────────────────── */
-const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpenMap }: { onOpenApps: () => void; onOpenSettings: () => void; onOpenMap: () => void }) {
+const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpenMap, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onOpenMap: () => void; onVoice: () => void }) {
   const { settings } = useStore();
   const { time, date } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
@@ -90,6 +92,7 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
       <div className="flex items-center gap-1.5">
         <AIconBtn onClick={onOpenSettings}><Settings className="w-4 h-4" style={{ color: A_DIM2 }} /></AIconBtn>
         <AIconBtn onClick={onOpenApps}><Grid3X3 className="w-4 h-4" style={{ color: A_DIM2 }} /></AIconBtn>
+        <AIconBtn onClick={onVoice}><Mic className="w-4 h-4" style={{ color: A_RED }} /></AIconBtn>
         <button onClick={onOpenMap}
           className="flex items-center gap-1.5 px-4 h-11 rounded-xl active:scale-95 transition-all"
           style={{ background: A_RED, boxShadow: `0 3px 14px rgba(204,0,0,0.32)` }}>
@@ -385,9 +388,15 @@ const AudiDock = memo(function AudiDock({ appMap, dockIds, onLaunch }: { appMap:
 export const AudiLayout = memo(function AudiLayout({
   onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen, smart,
 }: Props) {
+  const [voiceOpen, setVoiceOpen] = useState(false);
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: A_BG }}>
-      <AudiHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenMap={onOpenMap} />
+      {voiceOpen && (
+        <Suspense fallback={null}>
+          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
+        </Suspense>
+      )}
+      <AudiHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenMap={onOpenMap} onVoice={() => setVoiceOpen(true)} />
 
       <div className="flex-1 min-h-0 grid gap-2.5 p-2.5 overflow-hidden"
         style={{ gridTemplateColumns: 'var(--l-grid-cols, minmax(0,1fr) minmax(0,1.1fr) minmax(0,0.85fr))' }}>

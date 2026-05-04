@@ -24,7 +24,8 @@ import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 // ── Extracted layout components ──────────────────────────────
 import { BootSplash, type BootPhase } from './BootSplash';
 import { SleepOverlay } from './SleepOverlay';
-import { DockBar, type DrawerType } from './DockBar';
+import type { DrawerType } from './DockBar';
+import { registerDrawerHandler } from '../../platform/drawerBus';
 // DriveHUD kaldırıldı
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazy(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
@@ -237,6 +238,11 @@ export default function MainLayout() {
     return () => unregisterMusicDrawerHandler();
   }, []);
 
+  // Drawer bus kaydı — tüm tema dockları buradan setDrawer çağırır
+  useEffect(() => {
+    registerDrawerHandler(setDrawer);
+  }, []);
+
 
   // ── Remote Command Context Bridge ─────────────────────────
   // Ref her render'da güncellenir → stale closure riski sıfır (voiceCtxRef pattern).
@@ -327,7 +333,8 @@ export default function MainLayout() {
       data-edit-mode={settings.editMode}
       data-media-active={String(smart.mediaProminent)}
       data-nav-active={String(smart.mapPriority)}
-      className="ultra-premium-root flex flex-col h-full w-full overflow-hidden"
+      className="ultra-premium-root flex flex-col w-full overflow-hidden"
+      style={{ height: '100dvh' }}
     >
       {/* Ultra Premium Ambient Blobs — SAFE_MODE'da devre dışı (GPU tasarrufu) */}
       {!isSafeMode && (
@@ -349,20 +356,6 @@ export default function MainLayout() {
           <span className="text-amber-400 text-[10px] font-semibold tracking-wide uppercase">Simüle veri — OBD bağlı değil</span>
         </div>
       )}
-
-      {/* 2-sıralı özellik dock'u — theater modda gizlenir */}
-      <div style={theaterHide}>
-        <DockBar
-          smart={smart}
-          appMap={appMap}
-          onLaunch={handleLaunch}
-          onOpenDrawer={setDrawer}
-          onOpenApps={openApps}
-          onOpenSettings={openSettings}
-          onOpenSplit={() => {}}
-          onOpenRearCam={() => setRearCamOpen(true)}
-        />
-      </div>
 
       {settings.gestureVolumeSide !== 'off' && (
         <div style={theaterHide}>
@@ -404,14 +397,6 @@ export default function MainLayout() {
           smart={smart}
         />
       </div>
-      {/* DockBar yüksekliği kadar boşluk — fixed DockBar'ın arkasına içerik kaymasını önler.
-          paddingBottom yerine sibling spacer kullanılır: Android WebView'da h-full çocuklar
-          padding-bottom dahil yüksekliği alır (percentage-height bug), sibling spacer güvenli. */}
-      <div
-        aria-hidden
-        className="flex-shrink-0 pointer-events-none"
-        style={{ height: 'calc(var(--lp-dock-h, 68px) + 12px + env(safe-area-inset-bottom, 0px))' }}
-      />
 
       {/* Yolculuk özet banner — Orchestrator tetikler, store yönetir */}
       {showTripSummary && lastCompletedTrip && (

@@ -1,5 +1,9 @@
 # CockpitOS — CLAUDE.md
 
+## 🌐 DİL KURALI (ZORUNLU)
+
+**Tüm yanıtlar Türkçe olacak.** Kod dışındaki her şey — açıklamalar, sorular, öneriler, hata mesajları, yorumlar — Türkçe yazılacak. İstisna yok.
+
 ## Project Overview
 
 An Android in-car infotainment OS built with React + TypeScript + Capacitor. Optimized for automotive displays with offline-first maps, GPS tracking, OBD integration, and native app launching.
@@ -160,3 +164,15 @@ To ensure "Caros Pro" meets industrial-grade reliability, all code modifications
 
 ### 4. Data Integrity
 - **Clock Jump Protection:** Never rely on absolute system time for duration calculations (Trips); use monotonic deltas (delta-time) to handle battery reconnections or system clock resets.
+
+---
+
+## 🔒 AI EXECUTION RULES
+This project MUST follow `AI.md` strictly.
+- Never perform multi-system refactors.
+- Always use atomic patches.
+- Never leave partial logic.
+- Always maintain system stability.
+
+If a conflict exists: **`AI.md` rules take absolute priority.**
+

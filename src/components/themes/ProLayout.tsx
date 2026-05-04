@@ -6,7 +6,13 @@ import {
   SkipBack, SkipForward, Pause, Play,
   Thermometer, Fuel, Camera, Maximize2, User, Monitor,
   Star, Clock, Bluetooth, Wifi, MapPin, Phone, Settings,
+  Music2, Bell, LayoutGrid, SlidersHorizontal,
+  ChevronUp, ChevronDown, Cloud, AlertTriangle,
+  Route, ShieldAlert, Wrench, Shield, Tv2,
 } from 'lucide-react';
+import { openMusicDrawer } from '../../platform/mediaUi';
+import { openDrawer } from '../../platform/drawerBus';
+import { useNotificationState } from '../../platform/notificationService';
 import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
@@ -885,20 +891,105 @@ function injectStyles() {
   document.head.appendChild(el);
 }
 
+/* ─── PRO DOCK ─────────────────────────────────────────────────── */
+const ProDock = memo(function ProDock({ appMap, dockIds, onLaunch, onOpenApps, onOpenSettings }: {
+  appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void;
+  onOpenApps: () => void; onOpenSettings: () => void;
+}) {
+  const { unreadCount } = useNotificationState();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const BTN_W = 90, BTN_H = 90, BTN_R = 18, ICON = 24;
+  const C_ACC = 'var(--accent, #00e5ff)';
+  const C_DIM = 'rgba(255,255,255,0.30)';
+
+  function PBtn({ fn, label, color, children, badge }: {
+    fn: () => void; label: string; color: string; children: React.ReactNode; badge?: number;
+  }) {
+    return (
+      <button onClick={fn}
+        className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all relative"
+        style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
+        <div style={{ color, width: ICON, height: ICON, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {children}
+        </div>
+        <span style={{ fontSize: 9, color: C_DIM, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em' }}>{label}</span>
+        {!!badge && (
+          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1"
+            style={{ background: C_ACC }}>
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex-shrink-0"
+      style={{ background: 'linear-gradient(180deg,rgba(5,7,14,0.97) 0%,rgba(6,9,18,0.99) 100%)', borderTop: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 -4px 24px rgba(0,0,0,0.60)' }}>
+      {moreOpen && (
+        <div className="flex items-center justify-center gap-3 px-4 py-2 overflow-x-auto no-scrollbar"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {([
+            { label: 'Hava',     color: '#38bdf8', icon: <Cloud    size={20} />, fn: () => { openDrawer('weather');      setMoreOpen(false); } },
+            { label: 'Trafik',   color: '#fb923c', icon: <AlertTriangle size={20} />, fn: () => { openDrawer('traffic'); setMoreOpen(false); } },
+            { label: 'Dashcam',  color: '#f87171', icon: <Camera   size={20} />, fn: () => { openDrawer('dashcam');      setMoreOpen(false); } },
+            { label: 'Seyir',    color: '#34d399', icon: <Route    size={20} />, fn: () => { openDrawer('triplog');      setMoreOpen(false); } },
+            { label: 'Arıza',    color: '#fbbf24', icon: <ShieldAlert size={20} />, fn: () => { openDrawer('dtc');       setMoreOpen(false); } },
+            { label: 'Bakım',    color: '#94a3b8', icon: <Wrench   size={20} />, fn: () => { openDrawer('vehicle-reminder'); setMoreOpen(false); } },
+            { label: 'Güvenlik', color: '#34d399', icon: <Shield   size={20} />, fn: () => { openDrawer('security');    setMoreOpen(false); } },
+            { label: 'Eğlence',  color: '#60a5fa', icon: <Tv2     size={20} />, fn: () => { openDrawer('entertainment'); setMoreOpen(false); } },
+          ] as const).map((item, i) => (
+            <button key={i} onClick={item.fn}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-90 transition-all px-3 py-2 rounded-2xl"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ color: item.color }}>{item.icon}</div>
+              <span style={{ fontSize: 9, color: C_DIM, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em' }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center justify-center gap-3 overflow-x-auto no-scrollbar px-4 py-3">
+        {dockIds.slice(0, 2).map(id => {
+          const app = appMap[id] ?? APP_MAP[id];
+          if (!app) return null;
+          return (
+            <PBtn key={id} fn={() => onLaunch(id)} label={app.name} color={C_ACC}>
+              <span style={{ fontSize: ICON }}>{app.icon}</span>
+            </PBtn>
+          );
+        })}
+        <PBtn fn={() => openDrawer('phone')}         label="Telefon"  color={C_ACC}><Phone           size={ICON} /></PBtn>
+        <PBtn fn={() => openMusicDrawer()}           label="Müzik"    color={C_ACC}><Music2          size={ICON} /></PBtn>
+        <PBtn fn={() => openDrawer('notifications')} label="Bildirim" color={C_ACC} badge={unreadCount}><Bell size={ICON} /></PBtn>
+        <PBtn fn={onOpenApps}                        label="Menü"     color={C_ACC}><LayoutGrid      size={ICON} /></PBtn>
+        <PBtn fn={onOpenSettings}                    label="Ayarlar"  color={C_DIM}><SlidersHorizontal size={ICON} /></PBtn>
+        <button onClick={() => setMoreOpen(o => !o)}
+          className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
+          style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+          {moreOpen ? <ChevronDown size={ICON} style={{ color: C_DIM }} /> : <ChevronUp size={ICON} style={{ color: C_DIM }} />}
+          <span style={{ fontSize: 9, color: C_DIM, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em' }}>{moreOpen ? 'Kapat' : 'Daha'}</span>
+        </button>
+      </div>
+    </div>
+  );
+});
+
 /* ─── ROOT LAYOUT ──────────────────────────────────────────────── */
 export const ProLayout = memo(function ProLayout({
-  onOpenMap, onOpenApps: _onOpenApps, onOpenSettings, onLaunch, fullMapOpen,
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
   onOpenRearCam, smart,
 }: Props) {
   injectStyles();
   const { screen, profile } = useLayout();
 
+  const isPortrait = screen.height > screen.width;
+
   // Sidebar genişliği: dockIconSize tabanlı, COMPACT'ta gizlenecek
   const sidebarW = getSidebarW(profile.dockIconSize);
 
   // Structural sizes — widget row always visible, proportions adapt to screen height
-  const dockTotal  = profile.dockHeight + 12;
-  const contentH   = Math.max(screen.height - profile.headerHeight - dockTotal - 24, 200);
+  // dockTotal removed — MainLayout spacer handles dock gap
+  const contentH   = Math.max(screen.height - profile.headerHeight - 24, 200);
   // Music card: ekran genişliğinin %33'ü, sidebarW çıkarılır
   const musicCardW = Math.max(Math.min(Math.floor((screen.width - sidebarW) * 0.33), 400), 200);
 
@@ -917,7 +1008,7 @@ export const ProLayout = memo(function ProLayout({
       className="flex overflow-hidden w-full h-full"
       data-layout="pro-main"
       style={{
-        flexDirection: 'var(--l-flex-dir, row)' as CSSProperties['flexDirection'],
+        flexDirection: isPortrait ? 'column' : ('var(--l-flex-dir, row)' as CSSProperties['flexDirection']),
         background: 'var(--bg-primary, #0a0c10)',
         transition: 'background 0.4s ease',
       }}
@@ -932,7 +1023,7 @@ export const ProLayout = memo(function ProLayout({
         {/* Content */}
         <div
           className="flex-1 flex flex-col overflow-hidden min-h-0"
-          style={{ padding: '12px 14px', paddingBottom: `${dockTotal + 12}px`, gap: 11 }}
+          style={{ padding: '12px 14px', gap: 11 }}
         >
           {/* Top row: speedo + music */}
           <div className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: topRowH }}>
@@ -955,6 +1046,8 @@ export const ProLayout = memo(function ProLayout({
           )}
         </div>
 
+        {/* Pro Dock — tam genişlik shortcut satırı */}
+        <ProDock appMap={appMap ?? {}} dockIds={dockIds ?? []} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

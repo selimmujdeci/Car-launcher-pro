@@ -111,8 +111,8 @@ function buildPayload(event: PushEvent, data: Record<string, unknown>): PushPayl
 serve(async (req: Request): Promise<Response> => {
   const corsHeaders = {
     'Access-Control-Allow-Origin':  '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
   };
 
   if (req.method === 'OPTIONS') {

@@ -17,7 +17,8 @@ import {
 } from '../../platform/mediaService';
 import type { MediaSource } from '../../platform/mediaService';
 import { MUSIC_OPTIONS } from '../../data/apps';
-import { bridge, isNative } from '../../platform/bridge';
+import { isNative } from '../../platform/bridge';
+import { openMusicDrawer } from '../../platform/mediaUi';
 import type { MusicOptionKey } from '../../data/apps';
 
 /* ── Kaynak meta ─────────────────────────────────────────── */
@@ -58,8 +59,7 @@ export const MediaHub = memo(function MediaHub({
     ? Math.min(100, Math.round((track.positionSec / track.durationSec) * 100))
     : 0;
 
-  // Widget'a tıklama → müzik uygulamasını aç
-  const handleOpen = useCallback(() => bridge.launchMusic(defaultMusic), [defaultMusic]);
+  const handleOpen = useCallback(() => openMusicDrawer(), []);
 
   const displayName = activeAppName || srcMeta.label;
 

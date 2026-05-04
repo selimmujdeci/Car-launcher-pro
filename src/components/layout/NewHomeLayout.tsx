@@ -3,7 +3,13 @@ import {
   Search, Grid3X3, Navigation,
   SkipBack, SkipForward, Play, Pause, MapPin,
   Gauge, Thermometer, Fuel, Zap, Mic,
+  Phone, Music2, Bell, LayoutGrid, SlidersHorizontal,
+  ChevronUp, ChevronDown, Cloud, AlertTriangle, Camera,
+  Route, ShieldAlert, Wrench, Shield, Tv2,
 } from 'lucide-react';
+import { openMusicDrawer } from '../../platform/mediaUi';
+import { openDrawer } from '../../platform/drawerBus';
+import { useNotificationState } from '../../platform/notificationService';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
@@ -412,9 +418,39 @@ const QuickAccess = memo(function QuickAccess({ appMap, onLaunch }: { appMap: Re
 
 
 /* ─── DOCK ───────────────────────────────────────────────────── */
-const Dock = memo(function Dock({ appMap, dockIds, onLaunch }: { appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void }) {
-  const apps = dockIds.slice(0, 16).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
+const Dock = memo(function Dock({ appMap, dockIds, onLaunch, onOpenApps, onOpenSettings }: {
+  appMap: Record<string, AppItem>;
+  dockIds: string[];
+  onLaunch: (id: string) => void;
+  onOpenApps: () => void;
+  onOpenSettings: () => void;
+}) {
+  const { unreadCount } = useNotificationState();
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const BTN_W = 90, BTN_H = 90, BTN_R = 20, ICON = 28;
+
+  function DockBtn({ fn, label, color, children, badge }: {
+    fn: () => void; label: string; color: string;
+    children: React.ReactNode; badge?: number;
+  }) {
+    return (
+      <button onClick={fn}
+        className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all relative"
+        style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}>
+        <div style={{ color, width: ICON, height: ICON, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {children}
+        </div>
+        <span className="font-bold uppercase tracking-wider leading-none" style={{ fontSize: 10, color: '#7A8899' }}>{label}</span>
+        {!!badge && (
+          <span className="absolute top-2 right-2 min-w-4 h-4 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1">
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
+      </button>
+    );
+  }
 
   return (
     <>
@@ -423,44 +459,74 @@ const Dock = memo(function Dock({ appMap, dockIds, onLaunch }: { appMap: Record<
           <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
         </Suspense>
       )}
+
+      {/* Secondary "Daha" panel */}
+      {moreOpen && (
+        <div className="flex-shrink-0 flex items-center justify-center gap-4 px-4 py-2 overflow-x-auto no-scrollbar"
+          style={{ background: 'rgba(4,8,18,0.98)', borderTop: '1px solid rgba(96,165,250,0.08)' }}>
+          {([
+            { label: 'Hava',     color: '#38bdf8', icon: <Cloud    size={22} />, fn: () => { openDrawer('weather');      setMoreOpen(false); } },
+            { label: 'Trafik',   color: '#fb923c', icon: <AlertTriangle size={22} />, fn: () => { openDrawer('traffic'); setMoreOpen(false); } },
+            { label: 'Dashcam',  color: '#f87171', icon: <Camera   size={22} />, fn: () => { openDrawer('dashcam');      setMoreOpen(false); } },
+            { label: 'Seyir',    color: '#34d399', icon: <Route    size={22} />, fn: () => { openDrawer('triplog');      setMoreOpen(false); } },
+            { label: 'Arıza',    color: '#fbbf24', icon: <ShieldAlert size={22} />, fn: () => { openDrawer('dtc');       setMoreOpen(false); } },
+            { label: 'Bakım',    color: '#94a3b8', icon: <Wrench   size={22} />, fn: () => { openDrawer('vehicle-reminder'); setMoreOpen(false); } },
+            { label: 'Güvenlik', color: '#34d399', icon: <Shield   size={22} />, fn: () => { openDrawer('security');    setMoreOpen(false); } },
+            { label: 'Eğlence',  color: '#60a5fa', icon: <Tv2     size={22} />, fn: () => { openDrawer('entertainment'); setMoreOpen(false); } },
+          ] as const).map((item, i) => (
+            <button key={i} onClick={item.fn}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-90 transition-all px-3 py-2 rounded-2xl"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ color: item.color }}>{item.icon}</div>
+              <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: '#7A8899' }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Ana dock satırı */}
       <div className="flex-shrink-0"
         style={{
-          background: 'rgba(4,8,18,0.96)',
+          background: 'rgba(4,8,18,0.97)',
           backdropFilter: 'blur(32px)',
           WebkitBackdropFilter: 'blur(32px)',
           borderTop: '1px solid rgba(96,165,250,0.10)',
           boxShadow: '0 -4px 24px rgba(0,0,0,0.50)',
         }}>
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
-          {apps.map(({ id, app }) => (
-            <button key={id} onClick={() => onLaunch(id)}
-              className="flex flex-col items-center gap-1.5 flex-shrink-0 px-2 py-2 rounded-2xl active:scale-90 transition-all"
-              style={{ minWidth: 'var(--lp-tile-w, 58px)' }}>
-              <div className="rounded-2xl flex items-center justify-center"
-                style={{ width: 'var(--lp-dock-icon, 44px)', height: 'var(--lp-dock-icon, 44px)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: '0 4px 12px rgba(0,0,0,0.30)' }}>
-                <span className="text-xl leading-none">{app!.icon}</span>
-              </div>
-              <span className="text-[10px] font-bold truncate w-full text-center" style={{ color: '#7A8899' }}>{app!.name}</span>
-            </button>
-          ))}
+        <div className="flex items-center justify-center gap-4 overflow-x-auto no-scrollbar px-4 py-3"
+          style={{ overflowX: 'auto' }}>
 
-          {/* Mic button */}
-          <button
-            onClick={() => setVoiceOpen(true)}
-            className="flex flex-col items-center gap-1 flex-shrink-0 px-2 py-1.5 rounded-2xl active:scale-90 transition-all"
-            style={{ minWidth: 'var(--lp-tile-w, 58px)' }}
-          >
-            <div className="rounded-2xl flex items-center justify-center"
-              style={{
-                width: 'var(--lp-dock-icon, 44px)',
-                height: 'var(--lp-dock-icon, 44px)',
-                background: 'linear-gradient(135deg,rgba(29,78,216,0.35),rgba(59,130,246,0.20))',
-                border: '1px solid rgba(96,165,250,0.30)',
-                boxShadow: '0 0 14px rgba(96,165,250,0.20)',
-              }}>
-              <Mic className="w-5 h-5" style={{ color: '#60a5fa' }} />
-            </div>
-            <span className="text-[9px] font-bold" style={{ color: '#60a5fa' }}>Ses</span>
+          {/* Dinamik app kısayolları (dockIds'den ilk 2) */}
+          {dockIds.slice(0, 2).map(id => {
+            const app = appMap[id] ?? APP_MAP[id];
+            if (!app) return null;
+            return (
+              <DockBtn key={id} fn={() => onLaunch(id)} label={app.name} color="#60a5fa">
+                <span style={{ fontSize: ICON }}>{app.icon}</span>
+              </DockBtn>
+            );
+          })}
+
+          <DockBtn fn={() => openDrawer('phone')}         label="Telefon"  color="#60a5fa"><Phone           size={ICON} /></DockBtn>
+          <DockBtn fn={() => openMusicDrawer()}           label="Müzik"    color="#34d399"><Music2          size={ICON} /></DockBtn>
+          <DockBtn fn={() => openDrawer('notifications')} label="Bildirim" color="#60a5fa" badge={unreadCount}><Bell size={ICON} /></DockBtn>
+          <DockBtn fn={onOpenApps}                        label="Menü"     color="#60a5fa"><LayoutGrid      size={ICON} /></DockBtn>
+          <DockBtn fn={onOpenSettings}                    label="Ayarlar"  color="#94a3b8"><SlidersHorizontal size={ICON} /></DockBtn>
+
+          {/* Ses (mikrofon) */}
+          <button onClick={() => setVoiceOpen(true)}
+            className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
+            style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'linear-gradient(135deg,rgba(29,78,216,0.30),rgba(59,130,246,0.15))', border: '1px solid rgba(96,165,250,0.30)' }}>
+            <Mic size={ICON} style={{ color: '#60a5fa' }} />
+            <span className="font-bold uppercase tracking-wider" style={{ fontSize: 10, color: '#60a5fa' }}>Ses</span>
+          </button>
+
+          {/* Daha */}
+          <button onClick={() => setMoreOpen(o => !o)}
+            className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
+            style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            {moreOpen ? <ChevronDown size={ICON} style={{ color: '#94a3b8' }} /> : <ChevronUp size={ICON} style={{ color: '#94a3b8' }} />}
+            <span className="font-bold uppercase tracking-wider" style={{ fontSize: 10, color: '#94a3b8' }}>{moreOpen ? 'Kapat' : 'Daha'}</span>
           </button>
         </div>
       </div>
@@ -516,7 +582,7 @@ export const NewHomeLayout = memo(function NewHomeLayout({
             <QuickAccess appMap={appMap} onLaunch={onLaunch} />
           </div>
         </div>
-        <Dock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
+        <Dock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

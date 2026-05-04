@@ -447,13 +447,22 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
   // Auto-start on mount
   useEffect(() => { startListening(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-close after result
+  // Auto-close after result OR when STT ends without output (idle after listening).
+  // Prevents "Hazır" from persisting after the STT dialog is dismissed.
+  const hadListened = useRef(false);
+  useEffect(() => { if (isListening) hadListened.current = true; }, [isListening]);
+
   useEffect(() => {
     if (isSuccess || isError) {
       const id = setTimeout(() => { stopListening(); onClose(); }, 1800);
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, onClose]);
+    // If we were listening and status returned to idle (no result), close promptly.
+    if (hadListened.current && voice.status === 'idle') {
+      const id = setTimeout(() => { onClose(); }, 300);
+      return () => clearTimeout(id);
+    }
+  }, [isSuccess, isError, voice.status, isListening, onClose]);
 
   const label =
     isListening  ? 'Dinliyorum…' :

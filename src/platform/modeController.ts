@@ -44,7 +44,7 @@ interface ModeStore {
 const useModeStore = create<ModeStore>(() => ({
   mode: 'STANDARD_NAVIGATION',
   transitioning: false,
-  userPreference: 'auto',
+  userPreference: 'standard',
 }));
 
 /* ─────────────────────────────────────────────────────────────── */

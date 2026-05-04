@@ -48,7 +48,11 @@
       "Bash(git remote *)",
       "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/main.yml'\\)\\); print\\('YAML valid'\\)\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in ['scripts','devDependencies','dependencies'] if k in d}, indent=2\\)\\)\")",
-      "PowerShell(Get-ChildItem \"C:\\\\Temp\\\\carlauncher\" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match \"\\\\.\\(jsk|keystore|jks\\)$\" } | Select-Object FullName)"
+      "PowerShell(Get-ChildItem \"C:\\\\Temp\\\\carlauncher\" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match \"\\\\.\\(jsk|keystore|jks\\)$\" } | Select-Object FullName)",
+      "Bash(cmd *)",
+      "Bash(Get-Content *)",
+      "Bash(grep -v \"^--$\")",
+      "Bash(awk '/^function |^export.*function |^async function |^  function / {print NR\": \"$0}' \"/c/Users/selim/Desktop/caros pro/src/platform/routingService.ts\")"
     ]
   }
 }

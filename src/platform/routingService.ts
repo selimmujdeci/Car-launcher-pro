@@ -32,7 +32,10 @@ interface RouteState {
   loading:                  boolean;
   error:                    string | null;
   geometry:                 [number, number][] | null;   // Tam rota [lon,lat][]
-  alternatives:             [number, number][][];         // Alternatif rotalar
+  alternatives:             [number, number][][];         // Alternatif rotalar (sadece koordinat — harita çizimi için)
+  altDistances:             number[];                     // Alternatif mesafeler (metre)
+  altDurations:             number[];                     // Alternatif süreler (saniye)
+  selectedAltIndex:         number;                       // 0=ana, 1+=alternatif
   steps:                    RouteStep[];
   totalDistanceMeters:      number;
   totalDurationSeconds:     number;
@@ -55,7 +58,9 @@ interface RouteState {
 }
 
 const INITIAL: RouteState = {
-  loading: false, error: null, geometry: null, alternatives: [], steps: [],
+  loading: false, error: null, geometry: null,
+  alternatives: [], altDistances: [], altDurations: [], selectedAltIndex: 0,
+  steps: [],
   totalDistanceMeters: 0, totalDurationSeconds: 0,
   currentStepIndex: 0, distanceToNextTurnMeters: 0,
   serverUsed: null,
@@ -80,6 +85,7 @@ let _rerouteCtx:      { toLat: number; toLon: number } | null = null;
 let _lastRerouteMs  = 0;
 let _deviationCounter = 0;
 let _reroutingCb:   ((isRerouting: boolean) => void) | null = null;
+let _isFetchingRoute = false;
 
 /** Navigasyon başladığında hedefe ait bağlamı kaydet. */
 export function setRerouteContext(toLat: number, toLon: number): void {
@@ -239,10 +245,28 @@ async function _tryServer(
   baseUrl: string,
   fromLon: number, fromLat: number,
   toLon: number,   toLat: number,
-): Promise<{ steps: RouteStep[]; geometry: [number, number][]; alternatives: [number, number][][]; distance: number; duration: number }> {
-  const url =
-    `${baseUrl}/${fromLon},${fromLat};${toLon},${toLat}` +
-    `?steps=true&geometries=geojson&overview=full&alternatives=true`;
+): Promise<{ steps: RouteStep[]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; distance: number; duration: number }> {
+  // Dump raw coords before any transformation
+  console.log('ROUTE REQUEST RAW', {
+    origin: { lat: fromLat, lon: fromLon },
+    dest:   { lat: toLat,   lon: toLon  },
+  });
+
+  // Coordinate validation
+  if (!Number.isFinite(fromLat) || Math.abs(fromLat) > 90)  throw new Error(`INVALID_COORDS: origin lat=${fromLat}`);
+  if (!Number.isFinite(fromLon) || Math.abs(fromLon) > 180) throw new Error(`INVALID_COORDS: origin lon=${fromLon}`);
+  if (!Number.isFinite(toLat)   || Math.abs(toLat)   > 90)  throw new Error(`INVALID_COORDS: dest lat=${toLat}`);
+  if (!Number.isFinite(toLon)   || Math.abs(toLon)   > 180) throw new Error(`INVALID_COORDS: dest lon=${toLon}`);
+
+  // OSRM expects [longitude, latitude] — GeoJSON order
+  const originCoords = [fromLon, fromLat] as const;  // [lon, lat]
+  const destCoords   = [toLon,   toLat  ] as const;  // [lon, lat]
+  console.log('FINAL ORIGIN', originCoords);  // [fromLon, fromLat]
+  console.log('FINAL DEST',   destCoords);    // [toLon, toLat]
+
+  const coordStr = `${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}`;
+  const url      = `${baseUrl}/${coordStr}?steps=true&geometries=geojson&overview=full&alternatives=true`;
+  console.log('ROUTE REQUEST URL', url);
 
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10_000);
@@ -266,10 +290,39 @@ async function _tryServer(
       }>;
     };
 
-    if (data.code !== 'Ok' || !data.routes?.length)
-      throw new Error('Rota bulunamadı');
+    console.log('ROUTE RESPONSE', data);
+    console.log('OSRM RAW', {
+      code:          data?.code,
+      message:       (data as Record<string, unknown>)?.message,
+      routesLength:  data?.routes?.length,
+      geometryType:  typeof data?.routes?.[0]?.geometry,
+      geometryKeys:  data?.routes?.[0]?.geometry ? Object.keys(data.routes[0].geometry) : null,
+      coordsLength:  data?.routes?.[0]?.geometry?.coordinates?.length,
+      firstCoord:    data?.routes?.[0]?.geometry?.coordinates?.[0],
+      url,
+    });
+
+    if (data.code !== 'Ok')
+      throw new Error(`Rota bulunamadı (code=${data.code})`);
+
+    if (!data.routes || data.routes.length === 0) {
+      throw new Error('NO_ROUTES');
+    }
 
     const route = data.routes[0];
+
+    const coords = route.geometry?.coordinates;
+
+    if (!coords || coords.length === 0) {
+      throw new Error('EMPTY_GEOMETRY');
+    }
+
+    console.log('RAW ROUTE COORDS LENGTH', coords.length);
+
+    const normalized = normalizeCoords(coords as [number, number][], fromLon, fromLat);
+    if (normalized.length < 2)
+      throw new Error(`geometry_normalize_failed: ${normalized.length} point(s) after normalize`);
+
     const steps: RouteStep[] = route.legs[0].steps.map(st => ({
       instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? ''),
       streetName:       st.name ?? '',
@@ -280,14 +333,17 @@ async function _tryServer(
       coordinate:       st.geometry.coordinates[0] as [number, number],
     }));
 
-    const alternatives = (data.routes ?? [])
-      .slice(1)
-      .map(r => r.geometry.coordinates as [number, number][]);
+    const altRouteData = (data.routes ?? []).slice(1);
+    const alternatives = altRouteData.map(r =>
+      normalizeCoords(r.geometry.coordinates as [number, number][], fromLon, fromLat),
+    );
 
     return {
       steps,
-      geometry:     normalizeCoords(route.geometry.coordinates as [number, number][], fromLon, fromLat),
-      alternatives: alternatives.map(alt => normalizeCoords(alt, fromLon, fromLat)),
+      geometry:     normalized,
+      alternatives,
+      altDistances: altRouteData.map(r => r.distance),
+      altDurations: altRouteData.map(r => r.duration),
       distance:     route.distance,
       duration:     route.duration,
     };
@@ -328,9 +384,8 @@ export function normalizeCoords(
   hintLon?: number,  // expected first-point longitude — pass OSRM origin fromLon
   hintLat?: number,  // expected first-point latitude  — pass OSRM origin fromLat
 ): [number, number][] {
-  if (coords.length < 2) {
-    console.warn(`[Route] normalizeCoords: rejected — length ${coords.length} (min 2)`);
-    return [];
+  if (!coords || coords.length < 2) {
+    throw new Error(`EMPTY_GEOMETRY: coords.length=${coords?.length ?? 0} (min 2 required)`);
   }
 
   const [a, b] = coords[0];
@@ -388,10 +443,63 @@ export function notifyStyleChange(active: boolean): void {
   }
 }
 
-/** Stil değişimi aktifse tamamlanmasını bekle; aksi hâlde anında resolve eder. */
+/** Stil değişimi aktifse tamamlanmasını bekle; aksi hâlde anında resolve eder.
+ *  8s timeout: style.load hiç gelmezse (map hata, unmount) fetchRoute sonsuz bloke olmaz. */
+const _STYLE_WAIT_TIMEOUT_MS = 8_000;
 function _waitForStyleReady(): Promise<void> {
   if (!_styleChangePending) return Promise.resolve();
-  return new Promise<void>(resolve => _styleReadyCallbacks.push(resolve));
+  return new Promise<void>(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    const id = setTimeout(finish, _STYLE_WAIT_TIMEOUT_MS);
+    _styleReadyCallbacks.push(() => { clearTimeout(id); finish(); });
+  });
+}
+
+/* ── Alternatif Rota Seçimi ──────────────────────────────────── */
+
+interface _StoredRoute {
+  geometry:  [number, number][];
+  distanceM: number;
+  durationS: number;
+  steps:     RouteStep[];
+}
+let _allRoutes: _StoredRoute[] = [];
+
+function _storeAllRoutes(
+  mainGeom:     [number, number][],
+  altGeoms:     [number, number][][],
+  altDistances: number[],
+  altDurations: number[],
+  steps:        RouteStep[],
+  mainDist:     number,
+  mainDur:      number,
+): void {
+  _allRoutes = [
+    { geometry: mainGeom, distanceM: mainDist, durationS: mainDur, steps },
+    ...altGeoms.map((g, i) => ({ geometry: g, distanceM: altDistances[i] ?? 0, durationS: altDurations[i] ?? 0, steps: [] as RouteStep[] })),
+  ];
+}
+
+/** Yandex tarzı rota seçimi — 0=ana rota, 1+=alternatif. */
+export function selectAltRoute(index: number): void {
+  if (index < 0 || index >= _allRoutes.length) return;
+  const picked = _allRoutes[index];
+  // Update the main geometry entry with current main distance/duration before switching
+  if (_allRoutes[0]) {
+    const cur = useRouteStore.getState();
+    _allRoutes[0] = { ..._allRoutes[0], distanceM: cur.totalDistanceMeters, durationS: cur.totalDurationSeconds };
+  }
+  useRouteStore.setState({
+    geometry:             picked.geometry,
+    cumulativeDistances:  buildCumulativeDistances(picked.geometry),
+    totalDistanceMeters:  picked.distanceM,
+    totalDurationSeconds: picked.durationS,
+    steps:                picked.steps,
+    selectedAltIndex:     index,
+    currentStepIndex:     0,
+    distanceToNextTurnMeters: 0,
+  });
 }
 
 /* ── Public API ──────────────────────────────────────────────── */
@@ -413,27 +521,38 @@ export async function fetchRoute(
   toLat:   number,
   toLon:   number,
 ): Promise<void> {
+  console.log(`[ROUTE] fetchRoute: (${fromLat.toFixed(6)}, ${fromLon.toFixed(6)}) → (${toLat.toFixed(6)}, ${toLon.toFixed(6)})`);
+  console.log('[ROUTE] request', { origin: { lat: fromLat, lon: fromLon }, destination: { lat: toLat, lon: toLon } });
+
+  // Preserve currentStepIndex during loading so UI keeps the active turn instruction.
+  // It will be overwritten to 0 once the new route geometry arrives.
+  const { currentStepIndex: _prevStepIdx } = useRouteStore.getState();
   // ...INITIAL spreads cumulativeDistances: null → önceki Float64Array GC'ye serbest bırakılır.
-  useRouteStore.setState({ ...INITIAL, loading: true });
+  useRouteStore.setState({ ...INITIAL, loading: true, currentStepIndex: _prevStepIdx });
 
   // ── Katman 0: Native OSRM daemon ────────────────────────────
   if (isNative) {
     const daemonResult = await tryLocalDaemon(fromLon, fromLat, toLon, toLat);
     if (daemonResult) {
-      await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
-      useRouteStore.setState({
-        loading: false,
-        error:   null,
-        geometry:             daemonResult.geometry,
-        cumulativeDistances:  buildCumulativeDistances(daemonResult.geometry),
-        steps:                [],   // daemon step parse — sonraki versiyon
-        totalDistanceMeters:  daemonResult.distanceM,
-        totalDurationSeconds: daemonResult.durationS,
-        currentStepIndex:     0,
-        distanceToNextTurnMeters: 0,
-        serverUsed:           'localhost:5000',
-      });
-      return;
+      if (!daemonResult.geometry || daemonResult.geometry.length < 2) {
+        console.error('[ROUTE] Layer 0: daemon returned NO_GEOMETRY — falling through', { pts: daemonResult.geometry?.length ?? 0 });
+      } else {
+        console.log(`[ROUTE] provider: localhost:5000 | dist: ${daemonResult.distanceM.toFixed(0)}m | pts: ${daemonResult.geometry.length} | first3: ${JSON.stringify(daemonResult.geometry.slice(0, 3))}`);
+        await _waitForStyleReady();
+        useRouteStore.setState({
+          loading: false,
+          error:   null,
+          geometry:             daemonResult.geometry,
+          cumulativeDistances:  buildCumulativeDistances(daemonResult.geometry),
+          steps:                [],
+          totalDistanceMeters:  daemonResult.distanceM,
+          totalDurationSeconds: daemonResult.durationS,
+          currentStepIndex:     0,
+          distanceToNextTurnMeters: 0,
+          serverUsed:           'localhost:5000',
+        });
+        return;
+      }
     }
   }
 
@@ -442,13 +561,19 @@ export async function fetchRoute(
   for (const server of servers) {
     try {
       const result = await _tryServer(server, fromLon, fromLat, toLon, toLat);
+      console.log(`[ROUTE] provider: ${server} | dist: ${result.distance.toFixed(0)}m | dur: ${result.duration.toFixed(0)}s | pts: ${result.geometry.length} | first3: ${JSON.stringify(result.geometry.slice(0, 3))}`);
+      console.log('[ROUTE] result', { distance: result.distance, duration: result.duration, pts: result.geometry.length, first: result.geometry[0] });
       await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
+      _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.steps, result.distance, result.duration);
       useRouteStore.setState({
         loading: false,
         error:   null,
         geometry:             result.geometry,
         cumulativeDistances:  buildCumulativeDistances(result.geometry),
         alternatives:         result.alternatives,
+        altDistances:         result.altDistances,
+        altDurations:         result.altDurations,
+        selectedAltIndex:     0,
         steps:                result.steps,
         totalDistanceMeters:  result.distance,
         totalDurationSeconds: result.duration,
@@ -457,32 +582,39 @@ export async function fetchRoute(
         serverUsed:           server,
       });
       return;
-    } catch {
-      // Sonraki katmana geç
+    } catch (e) {
+      console.warn(`[ROUTE] server ${server} failed:`, e instanceof Error ? e.message : e);
     }
   }
 
   // ── Katman 3: WebWorker A* (offline graph) ───────────────────
   const offlineResult = await computeOfflineRoute(fromLat, fromLon, toLat, toLon);
   if (offlineResult) {
-    await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
-    useRouteStore.setState({
-      loading: false,
-      error:   null,
-      geometry:             offlineResult.geometry,
-      cumulativeDistances:  buildCumulativeDistances(offlineResult.geometry),
-      steps:                [],   // A* step üretimi — sonraki versiyon
-      totalDistanceMeters:  offlineResult.distanceM,
-      totalDurationSeconds: offlineResult.durationS,
-      currentStepIndex:     0,
-      distanceToNextTurnMeters: 0,
-      serverUsed:           offlineResult.source,
-    });
-    return;
+    if (!offlineResult.geometry || offlineResult.geometry.length < 2) {
+      console.error('[ROUTE] Layer 3: offline A* returned NO_GEOMETRY — falling through to straight-line', { pts: offlineResult.geometry?.length ?? 0 });
+    } else {
+      console.log(`[ROUTE] provider: ${offlineResult.source} | dist: ${offlineResult.distanceM.toFixed(0)}m | pts: ${offlineResult.geometry.length}`);
+      await _waitForStyleReady();
+      useRouteStore.setState({
+        loading: false,
+        error:   null,
+        geometry:             offlineResult.geometry,
+        cumulativeDistances:  buildCumulativeDistances(offlineResult.geometry),
+        steps:                [],
+        totalDistanceMeters:  offlineResult.distanceM,
+        totalDurationSeconds: offlineResult.durationS,
+        currentStepIndex:     0,
+        distanceToNextTurnMeters: 0,
+        serverUsed:           offlineResult.source,
+      });
+      return;
+    }
   }
 
   // ── Katman 4: Straight-line (son çare) ───────────────────────
+  console.warn('[ROUTE] All OSRM layers failed — using straight-line fallback. Route line will be a direct line, not road-following.');
   const sl = straightLineRoute(fromLat, fromLon, toLat, toLon);
+  console.log('[ROUTE] result', { distance: sl.distanceM, duration: sl.durationS, pts: sl.geometry.length, first: sl.geometry[0] });
   await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
   useRouteStore.setState({
     loading: false,
@@ -584,9 +716,10 @@ export function updateRouteProgress(lat: number, lon: number): void {
     if (d < minPtDist) { minPtDist = d; closestIdx = i; }
   }
 
-  // Merkez çevresindeki DEVIATION_WINDOW segmentini hassas kontrol et
-  const wStart = Math.max(0, closestIdx - DEVIATION_WINDOW);
-  const wEnd   = Math.min(geometry.length - 2, closestIdx + DEVIATION_WINDOW);
+  // Merkez çevresindeki DEVIATION_WINDOW segmentini hassas kontrol et.
+  // sampleStep padding: coarse scan'da iki örnek arası boşluğu (sampleStep-1 nokta) kapatır.
+  const wStart = Math.max(0, closestIdx - DEVIATION_WINDOW - sampleStep);
+  const wEnd   = Math.min(geometry.length - 2, closestIdx + DEVIATION_WINDOW + sampleStep);
   let minSegDist = Infinity;
   for (let i = wStart; i <= wEnd; i++) {
     const d = pointToSegmentDist(
@@ -615,10 +748,13 @@ async function _triggerReroute(
   fromLat: number, fromLon: number,
   toLat:   number, toLon:   number,
 ): Promise<void> {
+  if (_isFetchingRoute) return;
+  _isFetchingRoute = true;
   _reroutingCb?.(true);
   try {
     await fetchRoute(fromLat, fromLon, toLat, toLon);
   } finally {
+    _isFetchingRoute = false;
     _reroutingCb?.(false);
   }
 }
@@ -628,6 +764,7 @@ async function _triggerReroute(
 export function clearRoute(): void {
   useRouteStore.setState(INITIAL);
   _deviationCounter = 0;
+  _allRoutes = [];
 }
 
 /** Snapshot (non-hook) — test ve non-React context için. */

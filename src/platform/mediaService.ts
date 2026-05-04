@@ -597,7 +597,9 @@ async function _pollNative(): Promise<void> {
     applyNativeMediaInfo(info);
   } catch (e: unknown) {
     if (_isPermissionError(e)) {
-      updateMediaState({ hasSession: false, permissionRequired: true });
+      // Bildirim erişimi yok — Music Hub'ı bloke etme, sadece session'ı kapat.
+      // Yerel müzik ve kaynak listesi çalışmaya devam eder.
+      if (_current.hasSession) updateMediaState({ hasSession: false });
     } else {
       // Session yok veya başka hata — izin var ama müzik çalmıyor
       if (_current.hasSession) updateMediaState({ hasSession: false });
@@ -618,14 +620,6 @@ export async function startMediaHub(): Promise<void> {
 
   // WEB MODU: tamamen pasif — fake polling yok
   if (!isNative) return;
-
-  // Bildirim erişimini kontrol et
-  try {
-    const { granted } = await CarLauncher.checkNotificationAccess();
-    if (!granted) {
-      updateMediaState({ hasSession: false, permissionRequired: true });
-    }
-  } catch { /* checkNotificationAccess desteklenmiyorsa devam et */ }
 
   // Gerçek zamanlı MediaSession event dinle
   try {

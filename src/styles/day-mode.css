@@ -58,6 +58,16 @@ html[data-day-night="day"] .ultra-premium-root {
   transition: background 0.6s ease;
 }
 
+/* ── Gece modu global token'ları ── */
+html[data-day-night="night"] {
+  --bg-main:   #05070d;
+  --bg-panel:  #0b1220;
+  --bg-card:   #101827;
+  --text-main: #ffffff;
+  --text-muted:#9ca3af;
+  --border:    rgba(255,255,255,0.12);
+}
+
 /* ── Kartlar — Gece modu (varsayılan koyu arka plan) ── */
 html[data-day-night="night"] .glass-card,
 html[data-day-night="night"] .up-panel,
@@ -65,6 +75,80 @@ html[data-day-night="night"] .premium-card {
   background: rgba(12,18,32,0.97) !important;
   border: 1px solid rgba(255,255,255,0.08) !important;
   box-shadow: 0 4px 24px rgba(0,0,0,0.55), 0 1px 4px rgba(0,0,0,0.35) !important;
+  color: var(--text-main, #ffffff) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GECE MODU SUNLIGHT KORUMASI
+   Sorun: .sunlight-mode class'ı "--bg-card: #F2F2F2 !important" set eder.
+   theme-packs.css glass-card kuralları "background: var(--bg-card) !important"
+   kullandığından bu değişken beyaz arka plan üretir.
+   Çözüm: Gece temalarında (data-theme'de -day bulunmayan) .sunlight-mode'u geçersiz kıl.
+   ═══════════════════════════════════════════════════════════ */
+
+/* -- Gece data-day-night + sunlight-mode aktifken CSS değişkenlerini karart -- */
+html[data-day-night="night"].sunlight-mode {
+  --bg-card:    rgba(12,18,32,0.97) !important;
+  --bg-primary: #06080f !important;
+  --bg-surface: #0a1020 !important;
+  --bg-main:    #05070d !important;
+  --bg-panel:   #0b1220 !important;
+  --text:       #f2f2f2 !important;
+  --text-main:  #f2f2f2 !important;
+  --border-color: rgba(255,255,255,0.10) !important;
+}
+html[data-day-night="night"].sunlight-mode .glass-card,
+html[data-day-night="night"].sunlight-mode .up-panel,
+html[data-day-night="night"].sunlight-mode .premium-card {
+  background: rgba(12,18,32,0.97) !important;
+  color: #f2f2f2 !important;
+}
+
+/* -- Gece tema varyantları + sunlight-mode: tema renklerini koru, beyaz gösterme -- */
+html[data-theme="pro"].sunlight-mode      { --bg-card: rgba(35,35,58,0.97) !important; --bg-primary:#1C1C2E !important; --text:#F5F0E8 !important; }
+html[data-theme="tesla"].sunlight-mode    { --bg-card: rgba(18,18,18,0.97) !important; --bg-primary:#141414 !important; --text:#FFFFFF !important; }
+html[data-theme="cockpit"].sunlight-mode  { --bg-card: rgba(6,12,20,0.98) !important;  --bg-primary:#050A10 !important; --text:#E8F0FF !important; }
+html[data-theme="mercedes"].sunlight-mode { --bg-card: rgba(30,30,30,0.97) !important; --bg-primary:#181818 !important; --text:#F5F0EB !important; }
+html[data-theme="audi"].sunlight-mode     { --bg-card: rgba(20,20,20,0.97) !important; --bg-primary:#1E1E2C !important; --text:#FFFFFF !important; }
+html[data-theme="oled"].sunlight-mode     { --bg-card: #080808 !important;             --bg-primary:#000000 !important; --text:#FFFFFF !important; }
+
+html[data-theme="pro"].sunlight-mode .glass-card,
+html[data-theme="tesla"].sunlight-mode .glass-card,
+html[data-theme="cockpit"].sunlight-mode .glass-card,
+html[data-theme="mercedes"].sunlight-mode .glass-card,
+html[data-theme="audi"].sunlight-mode .glass-card,
+html[data-theme="oled"].sunlight-mode .glass-card,
+html[data-theme="pro"].sunlight-mode .up-panel,
+html[data-theme="tesla"].sunlight-mode .up-panel,
+html[data-theme="cockpit"].sunlight-mode .up-panel,
+html[data-theme="mercedes"].sunlight-mode .up-panel,
+html[data-theme="audi"].sunlight-mode .up-panel,
+html[data-theme="oled"].sunlight-mode .up-panel,
+html[data-theme="pro"].sunlight-mode .premium-card,
+html[data-theme="tesla"].sunlight-mode .premium-card,
+html[data-theme="cockpit"].sunlight-mode .premium-card,
+html[data-theme="mercedes"].sunlight-mode .premium-card,
+html[data-theme="audi"].sunlight-mode .premium-card,
+html[data-theme="oled"].sunlight-mode .premium-card {
+  background: var(--bg-card) !important;
+  color: var(--text, #f2f2f2) !important;
+}
+
+/* -- body/root arka planı da karart -- */
+html[data-theme="pro"].sunlight-mode body,
+html[data-theme="tesla"].sunlight-mode body,
+html[data-theme="cockpit"].sunlight-mode body,
+html[data-theme="mercedes"].sunlight-mode body,
+html[data-theme="audi"].sunlight-mode body,
+html[data-theme="oled"].sunlight-mode body,
+html[data-theme="pro"].sunlight-mode #root,
+html[data-theme="tesla"].sunlight-mode #root,
+html[data-theme="cockpit"].sunlight-mode #root,
+html[data-theme="mercedes"].sunlight-mode #root,
+html[data-theme="audi"].sunlight-mode #root,
+html[data-theme="oled"].sunlight-mode #root {
+  background: var(--pack-bg, var(--bg-primary)) !important;
+  color: var(--text, #f2f2f2) !important;
 }
 
 /* ── Gece modu kök arka plan ── */

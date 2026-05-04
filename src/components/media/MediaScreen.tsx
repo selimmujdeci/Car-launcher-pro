@@ -9,18 +9,17 @@
  */
 import { memo, useEffect, useCallback, useState, useRef } from 'react';
 import {
-  SkipBack, SkipForward, Play, Pause, ExternalLink,
+  SkipBack, SkipForward, Play, Pause,
   Music2, Bluetooth, Radio, Shuffle, Repeat, Repeat1,
-  Heart, Layers, Check, ChevronRight, Bell,
+  Heart, Layers, Check, ChevronRight,
 } from 'lucide-react';
 import {
   useMediaState, togglePlayPause, next, previous,
   fmtTime, startMediaHub, toggleShuffle, cycleRepeat,
-  setMediaPreferredPackage, openMediaPermissionSettings, pollMediaNow,
+  setMediaPreferredPackage, pollMediaNow,
 } from '../../platform/mediaService';
 import type { MediaSource } from '../../platform/mediaService';
 import { isNative } from '../../platform/bridge';
-import { CarLauncher } from '../../platform/nativePlugin';
 import { useStore } from '../../store/useStore';
 import type { MusicOptionKey } from '../../data/apps';
 
@@ -87,7 +86,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
   }, []);
 
   const media = useMediaState();
-  const { playing, track, source, activeAppName, hasSession, shuffle, repeat, permissionRequired } = media;
+  const { playing, track, source, activeAppName, hasSession, shuffle, repeat } = media;
 
   const srcMeta     = SOURCE_META[source] ?? SOURCE_META.unknown;
   const displayName = activeAppName || srcMeta.label;
@@ -95,42 +94,12 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
     ? Math.min(100, (track.positionSec / track.durationSec) * 100)
     : 0;
 
-  const handleOpenInApp = useCallback(() => {
-    if (!isNative) return; // browser/demo modda harici sekme açma
-    const src = KNOWN_SOURCES.find((s) => s.key === activeSourceKey);
-    if (!src?.pkg) return;
-    CarLauncher.launchApp({ packageName: src.pkg }).catch(() => {
-      // Uygulama yüklü değil — Play Store'a yönlendir
-      CarLauncher.launchApp({
-        action: 'android.intent.action.VIEW',
-        data: `market://details?id=${src.pkg}`,
-      }).catch(() => {
-        // Play Store da yoksa web'e git
-        window.open(`https://play.google.com/store/apps/details?id=${src.pkg}`, '_blank');
-      });
-    });
-  }, [activeSourceKey]);
-
   const handleSelectSource = useCallback((src: KnownSource) => {
-    // Varsayılan müzik kaynağını kaydet (musicKey varsa defaultMusic da güncelle)
     updateSettings({
       activeMediaSourceKey: src.key,
       ...(src.musicKey ? { defaultMusic: src.musicKey } : {}),
     });
-    // MediaHub'a tercih bildir — getMediaInfo() bu paketi önceliklendirir
     if (src.pkg) setMediaPreferredPackage(src.pkg);
-    // Native'de kaynak seçince uygulamayı direkt aç
-    if (src.pkg && isNative) {
-      CarLauncher.launchApp({ packageName: src.pkg }).catch(() => {
-        // Yüklü değil — Play Store'a yönlendir
-        CarLauncher.launchApp({
-          action: 'android.intent.action.VIEW',
-          data: `market://details?id=${src.pkg}`,
-        }).catch(() => {
-          window.open(`https://play.google.com/store/apps/details?id=${src.pkg}`, '_blank');
-        });
-      });
-    }
   }, [updateSettings]);
 
   /* ── İçerik ─────────────────────────────────────────────── */
@@ -141,7 +110,6 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
         {tab === 'player'
           ? <PlayerView
               hasSession={hasSession}
-              permissionRequired={permissionRequired}
               playing={playing}
               track={track}
               source={source}
@@ -151,7 +119,6 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
               shuffle={shuffle}
               repeat={repeat}
               activeSourceKey={activeSourceKey}
-              onOpenInApp={handleOpenInApp}
               onTabSources={() => setTab('sources')}
             />
           : <SourcesView
@@ -194,7 +161,6 @@ function TabBtn({ active, icon, label, onClick }: { active: boolean; icon: React
 
 interface PlayerViewProps {
   hasSession:         boolean;
-  permissionRequired: boolean;
   playing:        boolean;
   track:          ReturnType<typeof useMediaState>['track'];
   source:         MediaSource;
@@ -204,18 +170,15 @@ interface PlayerViewProps {
   shuffle:        boolean;
   repeat:         'off' | 'one' | 'all';
   activeSourceKey:string;
-  onOpenInApp:    () => void;
   onTabSources:   () => void;
 }
 
 function PlayerView({
-  hasSession, permissionRequired, playing, track, srcMeta, displayName, progressPct,
-  shuffle, repeat, activeSourceKey, onOpenInApp, onTabSources,
+  hasSession, playing, track, srcMeta, displayName, progressPct,
+  shuffle, repeat, activeSourceKey, onTabSources,
 }: PlayerViewProps) {
   const progressRef = useRef<HTMLDivElement>(null);
-
-  if (permissionRequired) return <PermissionView />;
-  if (!hasSession) return <NoSessionView onTabSources={onTabSources} onOpenInApp={onOpenInApp} activeSourceKey={activeSourceKey} />;
+  if (!hasSession) return <NoSessionView onTabSources={onTabSources} activeSourceKey={activeSourceKey} />;
 
   return (
     <div className="relative h-full flex flex-col overflow-hidden bg-transparent">
@@ -240,19 +203,14 @@ function PlayerView({
 
       <div className="relative z-10 flex-1 flex flex-col px-8 pt-6 pb-4 min-h-0">
 
-        {/* Üst: kaynak badge + open in app */}
-        <div className="flex items-center justify-between flex-shrink-0 mb-6">
+        {/* Üst: kaynak badge */}
+        <div className="flex items-center flex-shrink-0 mb-6">
           <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] glass-card"
             style={{ color: srcMeta.color, borderColor: `${srcMeta.color}40` }}>
             <srcMeta.Icon className="w-4 h-4" />
             {displayName}
             {playing && <span className="w-2 h-2 rounded-full animate-pulse ml-0.5 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: srcMeta.color }} />}
           </div>
-          <button onClick={onOpenInApp}
-            className="flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] text-secondary glass-card hover:text-primary hover:var(--panel-bg-secondary) active:scale-95 transition-all">
-            <ExternalLink className="w-4 h-4" />
-            Uygulamada Aç
-          </button>
         </div>
 
         {/* Albüm kapağı */}
@@ -351,89 +309,19 @@ function PlayerView({
   );
 }
 
-/* ── Bildirim izni gerekli ───────────────────────────────── */
-
-function PermissionView() {
-  const [showManual, setShowManual] = useState(false);
-
-  const handleGrant = useCallback(() => {
-    openMediaPermissionSettings();
-    // Android 13+ sideloaded apps may show "Kısıtlanmış Ayar" dialog.
-    // Show manual instructions after a short delay so the user has fallback guidance.
-    setTimeout(() => setShowManual(true), 1500);
-  }, []);
-
-  useEffect(() => {
-    const onFocus = () => { pollMediaNow(); };
-    window.addEventListener('focus', onFocus);
-    return () => { window.removeEventListener('focus', onFocus); };
-  }, []);
-
-  return (
-    <div className="h-full flex flex-col items-center justify-center gap-6 px-8 text-center bg-transparent overflow-y-auto py-6">
-      <div className="w-20 h-20 rounded-[2rem] flex items-center justify-center glass-card border-amber-500/30 flex-shrink-0"
-        style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(245,158,11,0.05))' }}>
-        <Bell className="w-9 h-9 text-amber-400 drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]" />
-      </div>
-
-      <div>
-        <div className="text-primary text-xl font-black mb-2 tracking-tight">Bildirim Erişimi Gerekli</div>
-        <div className="text-secondary text-sm leading-relaxed max-w-[320px] font-medium">
-          Müzik bilgilerini göstermek için
-          <span className="text-amber-400 font-black"> Bildirim Erişimi </span>
-          izni gerekli.
-        </div>
-      </div>
-
-      <button
-        onClick={handleGrant}
-        className="up-button flex items-center gap-3 px-7 py-3.5 !rounded-2xl !text-sm shadow-[0_10px_40px_-5px_#d9770660] !bg-gradient-to-br from-amber-400 to-amber-600 flex-shrink-0">
-        <Bell className="w-5 h-5" />
-        Ayarları Aç
-      </button>
-
-      {/* Android 13+ "Kısıtlanmış Ayar" — manual guide */}
-      {showManual && (
-        <div className="rounded-2xl p-5 text-left max-w-[340px] flex-shrink-0"
-          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
-          <div className="text-amber-400 text-xs font-black uppercase tracking-widest mb-3">
-            ⚠️ Kısıtlanmış Ayar mı çıktı?
-          </div>
-          <div className="text-secondary text-xs leading-relaxed space-y-1.5">
-            <div>Android 13+ güvenlik kısıtlaması. Manuel olarak izin verin:</div>
-            <div className="text-primary font-bold">
-              1. Telefon Ayarları → Uygulamalar
-            </div>
-            <div className="text-primary font-bold">
-              2. Caros Pro → Özel uygulama erişimi
-            </div>
-            <div className="text-primary font-bold">
-              3. Bildirim erişimi → Aç ✓
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ── Oturum yok — premium boş durum ─────────────────────── */
 
 function NoSessionView({
   onTabSources,
-  onOpenInApp,
   activeSourceKey,
 }: {
   onTabSources: () => void;
-  onOpenInApp:  () => void;
   activeSourceKey: string;
 }) {
   const src      = KNOWN_SOURCES.find((s) => s.key === activeSourceKey);
   const srcColor = src?.color ?? '#3b82f6';
   const srcEmoji = src?.emoji ?? '🎵';
   const srcName  = src?.name  ?? 'Müzik';
-  const hasLaunchableApp = !!src?.pkg && isNative;
-  const isLocalOrBt = !src?.pkg; // local_files / bluetooth — başlatılabilir uygulama yok
 
   return (
     <div className="h-full flex flex-col items-center justify-center gap-8 px-10 bg-transparent">
@@ -449,34 +337,14 @@ function NoSessionView({
       <div className="text-center">
         <div className="text-primary text-2xl font-black mb-2 tracking-tight">{srcName} Hazır</div>
         <div className="text-secondary text-sm leading-relaxed max-w-[280px] font-medium">
-          {isLocalOrBt
-            ? 'Telefondaki müzik uygulamasından çalmaya başla. Kontroller burada belirecek.'
-            : hasLaunchableApp
-            ? 'Uygulamayı aç, bir şarkı başlat — kontroller burada belirecek.'
-            : 'Uygulamayı Android cihazda aç. Çalan parça bilgileri burada belirecek.'
-          }
+          Parça kaynağı bulunamadı — telefondaki bir müzik uygulaması çalmaya başlarsa kontroller burada belirecek.
         </div>
       </div>
-
-      {/* CTA — sadece native + pkg olan kaynaklarda */}
-      {hasLaunchableApp && (
-        <button
-          onClick={onOpenInApp}
-          className="up-button flex items-center gap-4 px-10 py-5 !rounded-3xl !text-lg !font-black !tracking-tight"
-          style={{
-            background: `linear-gradient(135deg, ${srcColor}, ${srcColor}aa)`,
-            boxShadow: `0 20px 50px -10px ${srcColor}60`
-          }}
-        >
-          <span className="text-2xl leading-none drop-shadow-md">{srcEmoji}</span>
-          Uygulamayı Aç
-        </button>
-      )}
 
       {/* Kaynak değiştir */}
       <button
         onClick={onTabSources}
-        className={`flex items-center gap-2 text-secondary text-xs font-black uppercase tracking-[0.2em] hover:text-secondary transition-all ${isLocalOrBt ? '' : 'mt-4'}`}>
+        className="flex items-center gap-2 text-secondary text-xs font-black uppercase tracking-[0.2em] hover:text-secondary transition-all">
         <Layers className="w-4 h-4" />
         Kaynak Değiştir
         <ChevronRight className="w-4 h-4" />

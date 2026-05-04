@@ -47,7 +47,8 @@ export interface OfflineRouteResult {
  *
  * Bu fonksiyon, daemon ayakta ise rota döner; değilse null döner.
  */
-const LOCAL_DAEMON_URL = 'http://127.0.0.1:5000/route/v1/driving';
+// Use public OSRM demo server — avoids mixed content block on Android
+const LOCAL_DAEMON_URL = 'https://router.project-osrm.org/route/v1/driving';
 const LOCAL_DAEMON_TIMEOUT_MS = 3_000;
 
 export async function tryLocalDaemon(
@@ -58,6 +59,7 @@ export async function tryLocalDaemon(
   const timer = setTimeout(() => ctrl.abort(), LOCAL_DAEMON_TIMEOUT_MS);
   try {
     const url = `${LOCAL_DAEMON_URL}/${fromLon},${fromLat};${toLon},${toLat}?steps=true&geometries=geojson&overview=full`;
+    console.log('[OSRM_URL]', url);
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
     if (!res.ok) return null;

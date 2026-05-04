@@ -494,3 +494,62 @@ button, [role="button"], .dock-card, .up-nav-item, .glass-card > button {
 }
 [data-layout] .card-scroll-area::-webkit-scrollbar { width: 3px; }
 [data-layout] .card-scroll-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+/* ════════════════════════════════════════════════════════════════
+   PORTRAIT / PHONE ADAPTIVE — Dikey mod ve küçük ekran uyumu
+   ════════════════════════════════════════════════════════════════ */
+
+@media (orientation: portrait) {
+  /* Dock yüksekliğini küçült */
+  :root { --lp-dock-h: 56px; }
+
+  /* Speedometer tam genişlik */
+  .speedometer-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* 3 sütunlu grid → tek sütun */
+  [data-layout="pro-main"],
+  [data-layout] .grid-cols-3,
+  [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tüm flex-row → flex-col */
+  [data-layout="pro-main"] {
+    flex-direction: column !important;
+  }
+
+  /* Kart yazı tipleri clamp ile ölçekle */
+  :root {
+    --lp-font-base: clamp(11px, 3.5vw, 14px);
+    --lp-font-lg:   clamp(13px, 4vw,  17px);
+    --lp-font-xl:   clamp(16px, 5vw,  23px);
+    --lp-font-2xl:  clamp(24px, 7vw,  36px);
+  }
+}
+
+/* Safe area (çentik) koruması — tüm fixed/absolute kartlar */
+@media (orientation: portrait) {
+  [data-dock="main"],
+  .nav-hud-card,
+  [class*="fixed"],
+  [class*="absolute"] {
+    padding-left:  max(var(--sal, 0px), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--sar, 0px), env(safe-area-inset-right, 0px));
+  }
+}
+
+/* Phone küçük ekran (w < 600px) — compact grid */
+@media (max-width: 600px) {
+  :root { --lp-dock-h: 52px; }
+
+  .speedometer-container { width: 100% !important; }
+
+  [data-widget-row] {
+    flex-wrap: wrap;
+    height: auto !important;
+  }
+}

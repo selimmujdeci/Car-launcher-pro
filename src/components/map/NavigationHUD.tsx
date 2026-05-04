@@ -34,6 +34,7 @@ import {
 import {
   useRouteState,
   clearRoute,
+  selectAltRoute,
 } from '../../platform/routingService';
 import type { RouteStep } from '../../platform/routingService';
 import { useStore } from '../../store/useStore';
@@ -284,7 +285,7 @@ const NavInfoBar = memo(function NavInfoBar({
   return (
     <div
       className="absolute inset-x-0 z-30 pointer-events-auto"
-      style={{ bottom: 'var(--lp-dock-h, 68px)' }}
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + env(safe-area-inset-bottom, 0px))' }}
     >
       {isOffline && (
         <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-amber-500/90 backdrop-blur-md px-3 py-0.5 rounded-t-lg border-t border-x border-white/20 flex items-center gap-1.5 shadow-lg">
@@ -436,12 +437,18 @@ function ErrorOverlay({ message, onClose }: { message: string; onClose: () => vo
 /* ══════════════════════════════════════════════════════════ */
 
 const PreviewCard = memo(function PreviewCard({
-  destName, distMeters, durSeconds, loading, error, onStart, onCancel,
+  destName, distMeters, durSeconds, loading, error, onStart, onCancel, routeReady, gpsValid,
 }: {
   destName: string; distMeters: number; durSeconds: number;
   loading: boolean; error: string | null;
   onStart: () => void; onCancel: () => void;
+  routeReady: boolean; gpsValid: boolean;
 }) {
+  const { altDistances, altDurations, selectedAltIndex } = useRouteState();
+  const hasAlts = altDistances.length > 0;
+
+  const chipLabels = ['En Hızlı', 'Alternatif 1', 'Alternatif 2'];
+
   return (
     <div
       className="absolute inset-x-4 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
@@ -478,6 +485,37 @@ const PreviewCard = memo(function PreviewCard({
             )}
           </div>
         </div>
+        {/* Yandex tarzı rota seçici — sadece alternatif varsa */}
+        {hasAlts && !loading && (
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+            {[distMeters, ...altDistances].map((dist, i) => {
+              const dur = i === 0 ? durSeconds : altDurations[i - 1];
+              const selected = selectedAltIndex === i;
+              return (
+                <button
+                  key={i}
+                  onClick={() => selectAltRoute(i)}
+                  className={`flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border transition-all active:scale-95 ${
+                    selected
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-[0_4px_16px_rgba(37,99,235,0.5)]'
+                      : 'bg-white/[0.06] border-white/10 text-slate-400'
+                  }`}
+                >
+                  <span className="text-[11px] font-black uppercase tracking-widest opacity-70">
+                    {chipLabels[i] ?? `Alternatif ${i}`}
+                  </span>
+                  <span className={`text-sm font-black mt-0.5 ${selected ? 'text-white' : 'text-slate-200'}`}>
+                    {formatDistance(dist)}
+                  </span>
+                  <span className={`text-[11px] font-bold ${selected ? 'text-blue-200' : 'text-slate-500'}`}>
+                    {formatEta(dur)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row gap-3">
           <button
             onClick={onCancel}
@@ -487,10 +525,16 @@ const PreviewCard = memo(function PreviewCard({
           </button>
           <button
             onClick={onStart}
-            className="flex-[2] py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_10px_30px_rgba(37,99,235,0.4)] bg-gradient-to-br from-blue-600 to-blue-700"
+            disabled={!routeReady || !gpsValid}
+            className="flex-[2] py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_10px_30px_rgba(37,99,235,0.4)] bg-gradient-to-br from-blue-600 to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
           >
-            <Play className="w-5 h-5 fill-current" />
-            Navigasyonu Başlat
+            {!gpsValid ? (
+              <><AlertCircle className="w-4 h-4" />GPS Sinyali Yok</>
+            ) : routeReady ? (
+              <><Play className="w-5 h-5 fill-current" />Navigasyonu Başlat</>
+            ) : (
+              <><Loader2 className="w-4 h-4 animate-spin" />Rota hazırlanıyor...</>
+            )}
           </button>
         </div>
       </div>
@@ -611,15 +655,19 @@ const QuickDestinations = memo(function QuickDestinations({
 export interface NavigationHUDProps {
   onStart:      () => void;
   onCancel:     () => void;
+  routeReady:   boolean;
+  /** GPS fix geçerli mi — false ise Start butonu disabled + "GPS Sinyali Yok" */
+  gpsValid?:    boolean;
   speedKmh?:    number;
   speedLimitKmh?: number;
-  /** Harita sekme geçişleri için callback — ileride kullanılabilir */
   onNavTab?: (id: string) => void;
 }
 
 export const NavigationHUD = memo(function NavigationHUD({
   onStart,
   onCancel,
+  routeReady,
+  gpsValid = true,
   speedKmh = 0,
   speedLimitKmh = 50,
 }: NavigationHUDProps) {
@@ -645,11 +693,14 @@ export const NavigationHUD = memo(function NavigationHUD({
   const currentStep   = route.steps[route.currentStepIndex];
   const nextStep      = route.steps[route.currentStepIndex + 1];
 
-  const displayEta = route.steps.length > 0
-    ? Math.round(
-        route.totalDurationSeconds *
-        Math.min(1, (distanceMeters ?? 0) / Math.max(1, route.totalDistanceMeters)),
-      )
+  // distanceMeters=0 on first GPS tick — fall back to total route distance so NavInfoBar
+  // never shows "0 m / 0 dk" right after navigation starts.
+  const effectiveDist = (distanceMeters && distanceMeters > 10)
+    ? distanceMeters
+    : route.totalDistanceMeters;
+
+  const displayEta = route.totalDurationSeconds > 0
+    ? Math.round(route.totalDurationSeconds * Math.min(1, effectiveDist / Math.max(1, route.totalDistanceMeters)))
     : (etaSeconds ?? 0);
 
   const lanes = currentStep ? buildLanes(currentStep.maneuverModifier) : null;
@@ -677,7 +728,7 @@ export const NavigationHUD = memo(function NavigationHUD({
           )}
           <NavInfoBar
             etaSeconds={displayEta}
-            remainingMeters={distanceMeters ?? 0}
+            remainingMeters={effectiveDist}
             totalMeters={route.totalDistanceMeters}
             onStop={handleStop}
             isOffline={isOfflineResult}
@@ -695,6 +746,8 @@ export const NavigationHUD = memo(function NavigationHUD({
           error={route.error}
           onStart={onStart}
           onCancel={onCancel}
+          routeReady={routeReady}
+          gpsValid={gpsValid}
         />
       )}
 
