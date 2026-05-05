@@ -35,7 +35,8 @@ interface RouteState {
   alternatives:             [number, number][][];         // Alternatif rotalar (sadece koordinat — harita çizimi için)
   altDistances:             number[];                     // Alternatif mesafeler (metre)
   altDurations:             number[];                     // Alternatif süreler (saniye)
-  selectedAltIndex:         number;                       // 0=ana, 1+=alternatif
+  altRealIndices:           number[];                     // alternatives[i] → _allRoutes[altRealIndices[i]]
+  selectedAltIndex:         number;                       // seçili _allRoutes indeksi
   steps:                    RouteStep[];
   totalDistanceMeters:      number;
   totalDurationSeconds:     number;
@@ -59,7 +60,7 @@ interface RouteState {
 
 const INITIAL: RouteState = {
   loading: false, error: null, geometry: null,
-  alternatives: [], altDistances: [], altDurations: [], selectedAltIndex: 0,
+  alternatives: [], altDistances: [], altDurations: [], altRealIndices: [], selectedAltIndex: 0,
   steps: [],
   totalDistanceMeters: 0, totalDurationSeconds: 0,
   currentStepIndex: 0, distanceToNextTurnMeters: 0,
@@ -481,15 +482,16 @@ function _storeAllRoutes(
   ];
 }
 
-/** Yandex tarzı rota seçimi — 0=ana rota, 1+=alternatif. */
+/**
+ * Rota seçimi — index = _allRoutes dizisindeki indeks (0=ilk OSRM rotası).
+ * Seçilen rota ana (thick) çizgi olur; geri kalanlar alternatif (muted) olarak
+ * haritaya yeniden çizilir ve altRealIndices güncellenir (harita tap için).
+ */
 export function selectAltRoute(index: number): void {
   if (index < 0 || index >= _allRoutes.length) return;
-  const picked = _allRoutes[index];
-  // Update the main geometry entry with current main distance/duration before switching
-  if (_allRoutes[0]) {
-    const cur = useRouteStore.getState();
-    _allRoutes[0] = { ..._allRoutes[0], distanceM: cur.totalDistanceMeters, durationS: cur.totalDurationSeconds };
-  }
+  const picked       = _allRoutes[index];
+  const otherIndices = _allRoutes.map((_, i) => i).filter(i => i !== index);
+  const otherRoutes  = otherIndices.map(i => _allRoutes[i]);
   useRouteStore.setState({
     geometry:             picked.geometry,
     cumulativeDistances:  buildCumulativeDistances(picked.geometry),
@@ -499,6 +501,10 @@ export function selectAltRoute(index: number): void {
     selectedAltIndex:     index,
     currentStepIndex:     0,
     distanceToNextTurnMeters: 0,
+    alternatives:         otherRoutes.map(r => r.geometry),
+    altDistances:         otherRoutes.map(r => r.distanceM),
+    altDurations:         otherRoutes.map(r => r.durationS),
+    altRealIndices:       otherIndices,
   });
 }
 
@@ -573,6 +579,7 @@ export async function fetchRoute(
         alternatives:         result.alternatives,
         altDistances:         result.altDistances,
         altDurations:         result.altDurations,
+        altRealIndices:       result.alternatives.map((_, i) => i + 1),
         selectedAltIndex:     0,
         steps:                result.steps,
         totalDistanceMeters:  result.distance,

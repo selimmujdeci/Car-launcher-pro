@@ -59,10 +59,8 @@
             android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="stateAlwaysHidden|adjustNothing"
             android:immersive="true"
-            android:excludeFromRecents="true"
+            android:excludeFromRecents="false"
             android:alwaysRetainTaskState="true"
-            android:taskAffinity=""
-            android:clearTaskOnLaunch="true"
             android:showOnLockScreen="true">
 
             <!-- Launcher + Home ekranı olarak kaydet -->

@@ -55,8 +55,9 @@ const useMapStore = create<MapState>(() => ({
 }));
 
 // offlineInitialized removed — offline tile server disabled
-let _initPromise: Promise<MapLibreMap> | null = null;
-let _initGen      = 0;                           // incremented on every destroyMap
+let _initPromise:       Promise<MapLibreMap> | null = null;
+let _initGen            = 0;               // incremented on every destroyMap
+let _currentContainer:  HTMLElement | null = null; // hangi container için init açık
 
 const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
   version: 8,
@@ -102,15 +103,23 @@ const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
  * Eski head unit'lerde (MediaTek/Allwinner GPU'suz) WebGL hiç olmayabilir.
  * Returns: true → WebGL kullanılabilir, false → harita açılamaz.
  */
+// Bir kez hesapla, sakla — her render'da yeni WebGL context AÇMA
+let _webglAvailableCache: boolean | null = null;
+
 export function isWebGLAvailable(): boolean {
+  if (_webglAvailableCache !== null) return _webglAvailableCache;
   try {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
-    if (!ctx) return false;
-    // Context'in gerçekten çalıştığını doğrula
+    if (!ctx) { _webglAvailableCache = false; return false; }
     const gl = ctx as WebGLRenderingContext;
-    return typeof gl.createShader === 'function';
+    const ok = typeof gl.createShader === 'function';
+    // Kontrol canvas'ını hemen serbest bırak — context slotunu tıkama
+    try { (gl.getExtension('WEBGL_lose_context') as any)?.loseContext(); } catch { /* ignore */ }
+    _webglAvailableCache = ok;
+    return ok;
   } catch {
+    _webglAvailableCache = false;
     return false;
   }
 }
@@ -126,20 +135,28 @@ export function initializeMap(
     return Promise.reject(new Error(msg));
   }
 
-  // ── Idempotency ──────────────────────────────────────────────────────────
+  // ── Idempotency + container guard ────────────────────────────────────────
   if (_initPromise) {
-    // Any concurrent call while init is in-flight — return the same promise
-    return _initPromise;
+    if (_currentContainer === container) {
+      // Aynı container, aynı init in-flight → bekle
+      return _initPromise;
+    }
+    // Farklı container (ör. FullMap açıldı, MiniMap init devam ediyor) →
+    // mevcut init'i iptal et (_initGen++ → _initCore erken çıkar), sıfırla
+    console.log('[MAP_INIT] different container — cancelling in-flight init');
+    _initGen++;
+    _initPromise = null;
+    _currentContainer = null;
   }
 
   const existing = useMapStore.getState().mapInstance;
   if (existing) {
-    // Always destroy before creating new — prevents WebGL context accumulation
     console.log('[MAP_DESTROY] clearing existing instance before re-init');
     destroyMap();
   }
 
-  const myGen  = _initGen;
+  _currentContainer = container;
+  const myGen = _initGen;
 
   _initPromise = Promise.race<MapLibreMap>([
     _initCore(container, config, myGen),
@@ -148,7 +165,8 @@ export function initializeMap(
     ),
   ]).finally(() => {
     if (_initGen === myGen) {
-      _initPromise = null;
+      _initPromise    = null;
+      _currentContainer = null;
     }
   });
 
@@ -185,32 +203,11 @@ async function _initCore(
       useMapStore.setState({ isReady: true });
       console.log('[MAP_READY]');
       if (_cachedRoute && _cachedRoute.coords?.length > 2) {
-        _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts);
+        _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx);
         console.log('[ROUTE_LAYER_RECREATED] after style.load');
       }
     });
 
-    // Canvas-level WebGL context loss — more reliable than map.on()
-    try {
-      const canvas = map.getCanvas();
-      canvas.addEventListener('webglcontextlost', (e: Event) => {
-        e.preventDefault();
-        console.error('[MAP_WEBGL_ERROR] WebGL context lost');
-        useMapStore.setState({ isReady: false, tileError: true });
-      });
-      canvas.addEventListener('webglcontextrestored', () => {
-        console.warn('[MAP] WEBGL_CONTEXT_RESTORED — reapplying route');
-        useMapStore.setState({ tileError: false });
-        if (_cachedRoute?.coords?.length) {
-          map.once('style.load', () => {
-            if (_cachedRoute) {
-              _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts);
-              console.log('[ROUTE_LAYER_RECREATED] after WebGL restore');
-            }
-          });
-        }
-      });
-    } catch { /* canvas not yet available */ }
 
     let tileFailCount = 0;
     let _satelliteFailCount = 0;
@@ -245,11 +242,9 @@ async function _initCore(
       }
     });
 
-    // WebGL context loss — just mark store as not ready, let FullMapView handle re-init
-    map.on('webglcontextlost', (e) => {
-      if (e && typeof (e as unknown as { preventDefault?: () => void }).preventDefault === 'function') {
-        (e as unknown as { preventDefault: () => void }).preventDefault();
-      }
+    // WebGL context loss — mark store as not ready, let FullMapView handle re-init
+    // NOTE: preventDefault() intentionally omitted — letting Chrome reclaim contexts prevents overflow
+    map.on('webglcontextlost', () => {
       console.error('[MAP_WEBGL_ERROR] context lost');
       useMapStore.setState({ isReady: false, tileError: true });
     });
@@ -558,7 +553,7 @@ export function switchMapStyle(map: MapLibreMap, style: any, retryCount = 0) {
     _isStyleChanging = false;
     useMapStore.setState({ isReady: true });
     if (_pendingRouteGeometry) {
-      _applyRouteGeometry(map, _pendingRouteGeometry.coords, _pendingRouteGeometry.alts);
+      _applyRouteGeometry(map, _pendingRouteGeometry.coords, _pendingRouteGeometry.alts, _pendingRouteGeometry.altIdx);
     }
   });
 }
@@ -718,10 +713,12 @@ const ALT_SRC     = 'car-route-alt';
 const ALT_FILL    = 'car-route-alt-fill';
 const DEBUG_SRC   = 'car-route-debug';
 const DEBUG_LAYER = 'car-route-debug-line';
+const SEL_SRC     = 'selected-route-source';
+const SEL_LAYER   = 'selected-route-layer';
 
 // Module-level cache — harita style sıfırlandığında re-apply için
-let _cachedRoute: { coords: [number, number][]; alts: [number, number][][] } | null = null;
-let _pendingRouteGeometry: { coords: [number, number][]; alts: [number, number][][] } | null = null;
+let _cachedRoute: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[] } | null = null;
+let _pendingRouteGeometry: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[] } | null = null;
 let _isStyleChanging = false;
 
 
@@ -736,150 +733,160 @@ let _isStyleChanging = false;
  *   - addLayer/addSource hata verirse → debug kırmızı çizgi (failsafe)
  */
 export function setRouteGeometry(
-  map:          MapLibreMap,
-  coordinates:  [number, number][],
-  alternatives: [number, number][][] = [],
+  map:             MapLibreMap,
+  coordinates:     [number, number][],
+  alternatives:    [number, number][][] = [],
+  altRealIndices?: number[],
 ): void {
   if (!map || !coordinates.length) return;
 
-  // Coord order guard: [lat,lng] → [lng,lat] if first point looks like Turkey latitude
-  if (coordinates.length > 0) {
-    const [a] = coordinates[0];
-    if (a > 30 && a < 50) {
-      coordinates = coordinates.map(([lat, lng]) => [lng, lat]);
-    }
-  }
+  console.log('[ROUTE_RENDER_START]', { pts: coordinates.length, first: coordinates[0], alts: alternatives.length });
+  console.log('[ROUTE_GEOMETRY_COORDS_COUNT]', coordinates.length);
 
-  _cachedRoute = { coords: coordinates, alts: alternatives };
-  _pendingRouteGeometry = { coords: coordinates, alts: alternatives };
+  // routingService.normalizeCoords() already ensures [lon, lat] (GeoJSON standard).
+  // Do NOT swap here — Turkey's longitude (26-45) overlaps with latitude range and any
+  // heuristic guard incorrectly re-swaps already-correct coords for central/east Turkey.
+
+  _cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices };
+  _pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices };
 
   if (_isStyleChanging) return;
 
   if (!map.isStyleLoaded()) {
-    // style.load fires exactly once when the full style is ready for addSource/addLayer.
-    // styledata fires multiple times during loading and is too early for layer operations.
     map.once('style.load', () => {
       if (_cachedRoute) {
-        _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts);
+        _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx);
       }
     });
     return;
   }
 
-  _applyRouteGeometry(map, coordinates, alternatives);
+  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices);
 }
 
 
 function _applyRouteGeometry(
-  map:          MapLibreMap,
-  coordinates:  [number, number][],
-  alternatives: [number, number][][],
+  map:             MapLibreMap,
+  coordinates:     [number, number][],
+  alternatives:    [number, number][][],
+  altRealIndices?: number[],
 ): void {
   if (!map) return;
 
   if (!map.isStyleLoaded()) {
-    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives));
+    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices));
     return;
   }
 
   try {
+    // ── TEMP TEST: Katman mı bozuk, koordinat mı? ────────────────────────────
+    // FORCE_TEST_LINE = true → Mersin kıyısı sabit çizgi çizer.
+    //   Görünürse → layer/source sağlam, sorun route koordinatlarında.
+    //   Görünmezse → source/layer kurulum problemi var.
+    // Tanı sonrası false yap.
+    const FORCE_TEST_LINE = true;
+    const coords: [number, number][] = FORCE_TEST_LINE
+      ? ([[34.99, 36.80], [35.00, 36.81]] as [number, number][])
+      : coordinates.map(([a, b]): [number, number] => {
+          // |a| <= 90 && |b| <= 180 → [lat,lng] sırası → [lng,lat]'a çevir
+          if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+            return [b, a];
+          }
+          return [a, b];
+        });
+    console.log('[FINAL_COORDS]', coords.slice(0, 5));
+
+    // ── debug logs ────────────────────────────────────────────────
+    console.log('[ROUTE_DEBUG] coordsCount', coords?.length);
+    console.log('[ROUTE_DEBUG] first', coords?.[0]);
+    console.log('[ROUTE_DEBUG] last', coords?.[coords.length - 1]);
+    console.log('[ROUTE_DEBUG] sourceExists', !!map.getSource(SEL_SRC));
+    console.log('[ROUTE_DEBUG] layerExists', !!map.getLayer(SEL_LAYER));
+
     // ── Alternatif rotalar (gri, arkada) ─────────────────────────
-    const altFeatures = alternatives.map((coords) => ({
+    const fixedAlts = FORCE_TEST_LINE ? [] : alternatives.map((altCoords) =>
+      altCoords.map(([a, b]): [number, number] => {
+        if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return [b, a];
+        return [a, b];
+      })
+    );
+    const altFeatures = fixedAlts.map((altCoords, i) => ({
       type: 'Feature' as const,
-      geometry: { type: 'LineString' as const, coordinates: coords },
-      properties: {},
+      geometry: { type: 'LineString' as const, coordinates: altCoords },
+      properties: { altRealIdx: altRealIndices?.[i] ?? (i + 1) },
     }));
-
+    const altData = { type: 'FeatureCollection' as const, features: altFeatures };
     if (!map.getSource(ALT_SRC)) {
-      map.addSource(ALT_SRC, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: altFeatures },
-      } as any);
+      map.addSource(ALT_SRC, { type: 'geojson', data: altData } as any);
     } else {
-      (map.getSource(ALT_SRC) as any).setData({
-        type: 'FeatureCollection', features: altFeatures,
-      });
+      (map.getSource(ALT_SRC) as any).setData(altData);
     }
-
+    console.log('[ROUTE_ALTERNATIVES_SOURCE_SET]', { count: fixedAlts.length, first: fixedAlts[0]?.[0] });
     if (!map.getLayer(ALT_FILL)) {
       map.addLayer({
         id: ALT_FILL,
         type: 'line',
         source: ALT_SRC,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#6B7DB3', 'line-width': 6, 'line-opacity': 0.65 },
+        paint: { 'line-color': '#64748b', 'line-width': 5, 'line-opacity': 0.55 },
       } as any);
+      console.log('[ROUTE_LAYER_ADDED]', { id: ALT_FILL });
     }
 
-    // ── Ana rota (mavi, önde) ─────────────────────────────────────
-    const mainData = {
-      type: 'Feature' as const,
-      geometry: { type: 'LineString' as const, coordinates },
-      properties: {},
-    };
-
-    if (!map.getSource(ROUTE_SRC)) {
-      map.addSource(ROUTE_SRC, { type: 'geojson', data: mainData } as any);
+    // ── Step 3: force source/layer creation ──────────────────────
+    if (!map.getSource(SEL_SRC)) {
+      map.addSource(SEL_SRC, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      } as any);
+    }
+    if (!map.getLayer(SEL_LAYER)) {
+      map.addLayer({
+        id: SEL_LAYER,
+        type: 'line',
+        source: SEL_SRC,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#ff0000', 'line-width': 12, 'line-opacity': 1 },
+      } as any);
     } else {
-      (map.getSource(ROUTE_SRC) as any).setData(mainData);
+      map.setPaintProperty(SEL_LAYER, 'line-color', '#ff0000');
+      map.setPaintProperty(SEL_LAYER, 'line-width', 12);
+      map.setPaintProperty(SEL_LAYER, 'line-opacity', 1);
     }
 
-    if (!map.getLayer(ROUTE_GLOW)) {
-      map.addLayer({
-        id: ROUTE_GLOW,
-        type: 'line',
-        source: ROUTE_SRC,
-        paint: { 'line-color': '#3B82F6', 'line-width': 18, 'line-opacity': 0.18, 'line-blur': 6 },
-      } as any);
-    }
+    // ── Step 4: set data ─────────────────────────────────────────
+    const routeFeature = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: coords },
+    };
+    (map.getSource(SEL_SRC) as any).setData(routeFeature);
+    console.log('[ROUTE_SELECTED_SOURCE_SET]', { pts: coords.length, first: coords[0] });
 
-    if (!map.getLayer(ROUTE_CASE)) {
-      map.addLayer({
-        id: ROUTE_CASE,
-        type: 'line',
-        source: ROUTE_SRC,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#1D4ED8', 'line-width': 12 },
-      } as any);
-    }
+    // ── Step 5: move layer to top ─────────────────────────────────
+    try { map.moveLayer(ALT_FILL); } catch(e) { console.warn('[ROUTE_DEBUG] moveLayer ALT_FILL err:', e instanceof Error ? e.message : e); }
+    try {
+      map.moveLayer(SEL_LAYER);
+    } catch(e) { console.warn('[ROUTE_DEBUG] moveLayer failed', e); }
 
-    if (!map.getLayer(ROUTE_FILL)) {
-      map.addLayer({
-        id: ROUTE_FILL,
-        type: 'line',
-        source: ROUTE_SRC,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#60A5FA', 'line-width': 7 },
-      } as any);
-      console.log('[ROUTE_LAYER_READY]');
-    }
+    // ── Step 6: fit bounds ────────────────────────────────────────
+    try {
+      if (coords.length >= 2) {
+        const bounds = coords.reduce(
+          (b, c) => b.extend(c as [number, number]),
+          new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]),
+        );
+        map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
+        console.log('[ROUTE_DEBUG] fitBounds applied');
+      }
+    } catch(e) { console.warn('[ROUTE_DEBUG] fitBounds err:', e instanceof Error ? e.message : e); }
 
-    // Ensure route layers are always on top
-    try { map.moveLayer(ROUTE_GLOW); } catch { /* layer may not exist yet */ }
-    try { map.moveLayer(ROUTE_CASE); } catch { /* layer may not exist yet */ }
-    try { map.moveLayer(ROUTE_FILL); } catch { /* layer may not exist yet */ }
-
-    // Remove legacy patch layers
-    try { if (map.getLayer('route-layer')) map.removeLayer('route-layer'); } catch { /* ignore */ }
-    try { if (map.getSource('route-source')) map.removeSource('route-source'); } catch { /* ignore */ }
-
-    console.log('[ROUTE_SETDATA_OK]', { pts: coordinates.length });
+    console.log('[ROUTE_RENDER_DONE]', { pts: coords.length, alts: fixedAlts.length });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[MAP_WEBGL_ERROR]', msg);
-
-    // WebGL veya style hatası — tüm route layer'ları temizle, style.load'da yeniden dene
-    try {
-      if (map.getLayer(ROUTE_FILL))  map.removeLayer(ROUTE_FILL);
-      if (map.getLayer(ROUTE_CASE))  map.removeLayer(ROUTE_CASE);
-      if (map.getLayer(ROUTE_GLOW))  map.removeLayer(ROUTE_GLOW);
-      if (map.getSource(ROUTE_SRC))  map.removeSource(ROUTE_SRC);
-      if (map.getLayer(ALT_FILL))    map.removeLayer(ALT_FILL);
-      if (map.getSource(ALT_SRC))    map.removeSource(ALT_SRC);
-    } catch { /* ignore cleanup errors */ }
-
-    console.warn('[ROUTE_LAYER_RECREATED] scheduled after style.load');
-    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives));
+    console.error('[MAP_WEBGL_ERROR]', msg, '| stack:', e instanceof Error ? e.stack?.split('\n')[1] : '');
+    console.warn('[ROUTE_LAYER_RECREATED] retry in 300ms');
+    setTimeout(() => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices), 300);
     return;
   }
 
@@ -899,9 +906,11 @@ export function clearRouteGeometry(map: MapLibreMap): void {
     if (map.getLayer(ROUTE_CASE))     map.removeLayer(ROUTE_CASE);
     if (map.getLayer(ROUTE_GLOW))     map.removeLayer(ROUTE_GLOW);
     if (map.getSource(ROUTE_SRC))     map.removeSource(ROUTE_SRC);
-    if (map.getLayer(ALT_FILL))       map.removeLayer(ALT_FILL);
-    if (map.getSource(ALT_SRC))       map.removeSource(ALT_SRC);
-    if (map.getLayer('route-layer'))  map.removeLayer('route-layer');
+    if (map.getLayer(ALT_FILL))        map.removeLayer(ALT_FILL);
+    if (map.getSource(ALT_SRC))        map.removeSource(ALT_SRC);
+    if (map.getLayer(SEL_LAYER))       map.removeLayer(SEL_LAYER);
+    if (map.getSource(SEL_SRC))        map.removeSource(SEL_SRC);
+    if (map.getLayer('route-layer'))   map.removeLayer('route-layer');
     if (map.getSource('route-source')) map.removeSource('route-source');
   } catch { /* ignore — style may already be reset */ }
   clearTurnFocus();
@@ -947,21 +956,44 @@ export function clearTurnFocus(): void {
 
 export function destroyMap() {
   console.log('[MAP_DESTROY]');
-  // Invalidate any in-flight _initCore and reset all init/style flags
   _initGen++;
-  _isStyleChanging = false;
-  _initPromise = null;
+  _isStyleChanging  = false;
+  _initPromise      = null;
+  _currentContainer = null;
 
   const map = useMapStore.getState().mapInstance;
   if (map) {
     try {
-      // Force WebGL context release to prevent memory leaks/zombie instances
-      const extension = map.getCanvas().getContext('webgl')?.getExtension('WEBGL_lose_context');
-      if (extension) extension.loseContext();
       map.remove();
     } catch { /* canvas already removed */ }
   }
   useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
+}
+
+/**
+ * Sahiplik doğrulamalı yıkım — yalnızca çağıran instance hâlâ store'daki
+ * instance ile eşleşiyorsa global destroyMap() çağrılır.
+ * Eşleşmiyorsa (FullMapView sahipliği almışsa) sadece DOM'dan kaldırılır.
+ * Bu sayede MiniMap cleanup FullMapView'in haritasını yanlışlıkla yıkamaz.
+ */
+export function destroyOwnedMap(instance: MapLibreMap): void {
+  if (useMapStore.getState().mapInstance === instance) {
+    destroyMap();
+  } else {
+    try { instance.remove(); } catch { /* already removed */ }
+  }
+}
+
+/**
+ * mapInstance değişimlerine abone ol — MiniMapWidget'ın stale-ref tespiti için.
+ * FullMapView sahipliği devralınca MiniMap bunu anında öğrenir.
+ */
+export function subscribeMapInstance(
+  cb: (instance: MapLibreMap | null) => void,
+): () => void {
+  return useMapStore.subscribe((state, prev) => {
+    if (state.mapInstance !== prev.mapInstance) cb(state.mapInstance);
+  });
 }
 
 /**
@@ -981,8 +1013,9 @@ export function checkAndHealMapContext(): boolean {
     const canvas = map.getCanvas();
     if (!canvas) { destroyMap(); return false; }
 
-    // WebGL context kaybı kontrolü
-    const gl = canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
+    // MapLibre 4.x WebGL2 tercih eder — webgl2 önce dene, yoksa webgl1'e geç
+    // (webgl2 context varken canvas.getContext('webgl') null döner — yanlış zombie tespiti yapar)
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl') ?? canvas.getContext('experimental-webgl');
     if (!gl) { destroyMap(); return false; }
 
     const webgl = gl as WebGLRenderingContext;
