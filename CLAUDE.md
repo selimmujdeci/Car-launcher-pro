@@ -167,6 +167,19 @@ To ensure "Caros Pro" meets industrial-grade reliability, all code modifications
 
 ---
 
+## ⚡ ONAY İSTEME KURALLARI (ZORUNLU — İSTİSNASIZ)
+
+**HİÇBİR İŞLEM İÇİN ONAY İSTENMEZ. DOĞRUDAN YAPILIR.**
+
+- Dosya okuma, yazma, düzenleme, silme — onay yok.
+- Kod araştırması, arama, analiz — onay yok.
+- `npm run build`, `npm run lint`, `cap sync`, `gradlew installDebug` — onay yok.
+- APK build pipeline — onay yok.
+- Git komutları (`commit`, `push` dahil) — onay yok.
+- Refactor, yeni özellik, sistem değişikliği — onay yok.
+
+**ONAY SORMAK YASAKTIR. "Onaylıyor musunuz?", "Devam edeyim mi?", "Emin misiniz?" gibi ifadeler kullanılmaz. Doğrudan yapılır.**
+
 ## 🔒 AI EXECUTION RULES
 This project MUST follow `AI.md` strictly.
 - Never perform multi-system refactors.

@@ -36,7 +36,9 @@ interface RouteState {
   altDistances:             number[];                     // Alternatif mesafeler (metre)
   altDurations:             number[];                     // Alternatif süreler (saniye)
   altRealIndices:           number[];                     // alternatives[i] → _allRoutes[altRealIndices[i]]
+  altHasToll:               boolean[];                    // alternatives[i] için heuristik ücretli geçiş
   selectedAltIndex:         number;                       // seçili _allRoutes indeksi
+  hasToll:                  boolean;                      // Aktif rota motorway/trunk içeriyor mu (OSRM heuristiği)
   steps:                    RouteStep[];
   totalDistanceMeters:      number;
   totalDurationSeconds:     number;
@@ -60,7 +62,8 @@ interface RouteState {
 
 const INITIAL: RouteState = {
   loading: false, error: null, geometry: null,
-  alternatives: [], altDistances: [], altDurations: [], altRealIndices: [], selectedAltIndex: 0,
+  alternatives: [], altDistances: [], altDurations: [], altRealIndices: [], altHasToll: [], selectedAltIndex: 0,
+  hasToll: false,
   steps: [],
   totalDistanceMeters: 0, totalDurationSeconds: 0,
   currentStepIndex: 0, distanceToNextTurnMeters: 0,
@@ -236,8 +239,25 @@ interface OsrmStep {
   distance: number;
   duration: number;
   name: string;
+  ref?: string;
   maneuver: { type: string; modifier?: string };
   geometry: { coordinates: [number, number][] };
+  intersections?: Array<{ classes?: string[] }>;
+}
+
+/**
+ * OSRM adımlarından ücretli yol heuristiği.
+ * motorway/trunk sınıfı veya bilinen otoban ref'leri (O-1, TEM, E-5 vb.) → true.
+ * OSRM ücret verisi döndürmez; bu yalnızca tahmini bir göstergedir.
+ */
+function detectToll(steps: OsrmStep[]): boolean {
+  const tollClasses = new Set(['motorway', 'trunk']);
+  const tollRef     = /\b(O-?\d+|TEM|E-?\d+|D-?\d{3})\b/i;
+  for (const st of steps) {
+    if (st.ref && tollRef.test(st.ref)) return true;
+    if (st.intersections?.some(ix => ix.classes?.some(c => tollClasses.has(c)))) return true;
+  }
+  return false;
 }
 
 /* ── Tek sunucudan rota isteği ───────────────────────────────── */
@@ -246,7 +266,7 @@ async function _tryServer(
   baseUrl: string,
   fromLon: number, fromLat: number,
   toLon: number,   toLat: number,
-): Promise<{ steps: RouteStep[]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; distance: number; duration: number }> {
+): Promise<{ steps: RouteStep[]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; altHasToll: boolean[]; distance: number; duration: number; hasToll: boolean }> {
   // Dump raw coords before any transformation
   console.log('ROUTE REQUEST RAW', {
     origin: { lat: fromLat, lon: fromLon },
@@ -324,6 +344,19 @@ async function _tryServer(
     if (normalized.length < 2)
       throw new Error(`geometry_normalize_failed: ${normalized.length} point(s) after normalize`);
 
+    // ── [ROUTE_VALIDATION] route origin must be near GPS (< 200 m) ──────────
+    const firstLon = normalized[0][0];
+    const firstLat = normalized[0][1];
+    const distToOrigin = hav(fromLat, fromLon, firstLat, firstLon);
+    console.log('[ROUTE_VALIDATION]', {
+      first: normalized[0],
+      gps: { lat: fromLat, lon: fromLon },
+      distanceM: Math.round(distToOrigin),
+    });
+    if (distToOrigin > 200) {
+      throw new Error(`ROUTE_ORIGIN_TOO_FAR: first point ${distToOrigin.toFixed(0)}m from GPS (max 200m) — normalizeCoords may have wrong order`);
+    }
+
     const steps: RouteStep[] = route.legs[0].steps.map(st => ({
       instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? ''),
       streetName:       st.name ?? '',
@@ -345,8 +378,10 @@ async function _tryServer(
       alternatives,
       altDistances: altRouteData.map(r => r.distance),
       altDurations: altRouteData.map(r => r.duration),
+      altHasToll:   altRouteData.map(r => detectToll(r.legs[0].steps as OsrmStep[])),
       distance:     route.distance,
       duration:     route.duration,
+      hasToll:      detectToll(route.legs[0].steps as OsrmStep[]),
     };
   } catch (e) {
     clearTimeout(timer);
@@ -464,6 +499,7 @@ interface _StoredRoute {
   distanceM: number;
   durationS: number;
   steps:     RouteStep[];
+  hasToll:   boolean;
 }
 let _allRoutes: _StoredRoute[] = [];
 
@@ -472,13 +508,15 @@ function _storeAllRoutes(
   altGeoms:     [number, number][][],
   altDistances: number[],
   altDurations: number[],
+  altHasToll:   boolean[],
   steps:        RouteStep[],
   mainDist:     number,
   mainDur:      number,
+  mainHasToll:  boolean,
 ): void {
   _allRoutes = [
-    { geometry: mainGeom, distanceM: mainDist, durationS: mainDur, steps },
-    ...altGeoms.map((g, i) => ({ geometry: g, distanceM: altDistances[i] ?? 0, durationS: altDurations[i] ?? 0, steps: [] as RouteStep[] })),
+    { geometry: mainGeom, distanceM: mainDist, durationS: mainDur, steps, hasToll: mainHasToll },
+    ...altGeoms.map((g, i) => ({ geometry: g, distanceM: altDistances[i] ?? 0, durationS: altDurations[i] ?? 0, steps: [] as RouteStep[], hasToll: altHasToll[i] ?? false })),
   ];
 }
 
@@ -498,12 +536,14 @@ export function selectAltRoute(index: number): void {
     totalDistanceMeters:  picked.distanceM,
     totalDurationSeconds: picked.durationS,
     steps:                picked.steps,
+    hasToll:              picked.hasToll,
     selectedAltIndex:     index,
     currentStepIndex:     0,
     distanceToNextTurnMeters: 0,
     alternatives:         otherRoutes.map(r => r.geometry),
     altDistances:         otherRoutes.map(r => r.distanceM),
     altDurations:         otherRoutes.map(r => r.durationS),
+    altHasToll:           otherRoutes.map(r => r.hasToll),
     altRealIndices:       otherIndices,
   });
 }
@@ -570,7 +610,7 @@ export async function fetchRoute(
       console.log(`[ROUTE] provider: ${server} | dist: ${result.distance.toFixed(0)}m | dur: ${result.duration.toFixed(0)}s | pts: ${result.geometry.length} | first3: ${JSON.stringify(result.geometry.slice(0, 3))}`);
       console.log('[ROUTE] result', { distance: result.distance, duration: result.duration, pts: result.geometry.length, first: result.geometry[0] });
       await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
-      _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.steps, result.distance, result.duration);
+      _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.altHasToll, result.steps, result.distance, result.duration, result.hasToll);
       useRouteStore.setState({
         loading: false,
         error:   null,
@@ -579,8 +619,10 @@ export async function fetchRoute(
         alternatives:         result.alternatives,
         altDistances:         result.altDistances,
         altDurations:         result.altDurations,
+        altHasToll:           result.altHasToll,
         altRealIndices:       result.alternatives.map((_, i) => i + 1),
         selectedAltIndex:     0,
+        hasToll:              result.hasToll,
         steps:                result.steps,
         totalDistanceMeters:  result.distance,
         totalDurationSeconds: result.duration,

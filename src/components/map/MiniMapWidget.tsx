@@ -8,12 +8,13 @@ import {
   setMapCenter,
   addUserMarker,
   updateUserMarker,
-  destroyMap,
+  destroyOwnedMap,
   switchMapStyle,
   setDrivingView,
   exitDrivingView,
   useMapState,
   checkAndHealMapContext,
+  subscribeMapInstance,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
 import { useFusedSpeed } from '../../platform/speedFusion';
@@ -28,6 +29,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef | null>(null);
   const initDone = useRef(false);
+  const initializedRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
   const modeInitRef = useRef(false);
   const locationRef = useRef<ReturnType<typeof useGPSLocation>>(null);
@@ -35,6 +37,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
 
   const [mapReady, setMapReady] = useState(false);
   const [styleKey, setStyleKey] = useState(0);
+  // Her artışta init effect yeniden çalışır — zombie recovery + ownership takeover sonrası
+  const [reinitKey, setReinitKey] = useState(0);
   const location = useGPSLocation();
   const heading = useGPSHeading();
   const gpsState = useGPSState();
@@ -48,7 +52,30 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
     headingRef.current = heading;
   }, [location, heading]);
 
-  // Init map — waits for container to have actual pixel dimensions
+  // Store instance değişimini izle — stale ref ve re-init yönetimi.
+  //
+  // Durum A — FullMap sahipliği devraldı (active = FullMap instance, mapRef = MiniMap instance):
+  //   Stale ref temizle. Re-init YAPMA — FullMap hâlâ haritayı kullanıyor;
+  //   initializeMap çağırmak destroyMap tetikler ve FullMap'i çökertir.
+  //
+  // Durum B — store boşaldı (active = null) ve bizim initDone = false:
+  //   FullMap kapandı ve singleton serbest kaldı. Güvenli re-init yapılabilir.
+  useEffect(() => {
+    return subscribeMapInstance((active) => {
+      if (active !== null && mapRef.current && active !== mapRef.current) {
+        // Durum A: FullMap devralındı — stale ref temizle, re-init beklemeye al
+        mapRef.current   = null;
+        initDone.current = false;
+        setMapReady(false);
+      } else if (active === null && !initDone.current) {
+        // Durum B: singleton serbest kaldı — yeniden init tetikle
+        setReinitKey((k) => k + 1);
+      }
+    });
+  }, []);
+
+  // Init map — waits for container to have actual pixel dimensions.
+  // reinitKey dep'i: zombie recovery veya FullMap ownership takeover sonrası yeniden çalışır.
   useEffect(() => {
     if (!containerRef.current || initDone.current) return;
 
@@ -65,28 +92,35 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
     if (el.offsetWidth > 0 && el.offsetHeight > 0) {
       doInit(el);
     } else {
-      // ResizeObserver fires as soon as the container gets real dimensions —
-      // more reliable than rAF on slow Android head units where layout takes >1 frame.
       observer = new ResizeObserver(tryInit);
       observer.observe(el);
-      // rAF as secondary safety net
       requestAnimationFrame(tryInit);
     }
 
     function doInit(container: HTMLElement) {
+      if (mapRef.current) {
+        console.log('[MAP_INIT_BLOCKED] MiniMap — already exists');
+        return;
+      }
+      if (initializedRef.current) {
+        console.log('[MAP_INIT_BLOCKED] MiniMap — initializedRef');
+        return;
+      }
+      initializedRef.current = true;
       initDone.current = true;
       let cancelled = false;
+      console.log('[MAP_INIT_START] MiniMap');
 
       (async () => {
         try {
           const map = await initializeMap(container, { offline: true });
           if (cancelled) return;
           mapRef.current = map;
+          console.log('[MAP_INIT_DONE] MiniMap');
 
           if (map.isStyleLoaded()) {
             setMapReady(true);
           } else {
-            // B39: style.load timeout — style hiç gelmezse sonsuza bekleme
             const styleTimeout = setTimeout(() => {
               if (!cancelled) setMapReady(true);
             }, 8000);
@@ -97,7 +131,6 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
           }
         } catch (err) {
           console.error('MiniMap init failed:', err);
-          // Reset so a subsequent layout change can retry
           if (!cancelled) initDone.current = false;
         }
       })();
@@ -105,10 +138,11 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
       cleanupRef.current = () => {
         cancelled = true;
         initDone.current = false;
-        if (mapRef.current) {
-          destroyMap();
-          mapRef.current = null;
-        }
+        initializedRef.current = false;
+        const map = mapRef.current;
+        mapRef.current = null;
+        console.log('[MAP_DESTROY] MiniMap');
+        if (map) destroyOwnedMap(map);
       };
     }
 
@@ -116,17 +150,18 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
       observer?.disconnect();
       cleanupRef.current?.();
     };
-  }, []);
+  }, [reinitKey]);
 
-  // Zombi WebGL context guard — Android 9 düşük bellek durumunda GPU
-  // context'i sessizce ölebilir. 30 s'de bir kontrol et; kayıpsa haritayı yeniden başlat.
+  // Zombi WebGL context guard — Android 9 düşük bellek durumunda GPU context sessizce ölebilir.
+  // checkAndHealMapContext false döndürünce reinitKey arttırılır → init effect yeniden çalışır.
   useEffect(() => {
     if (!mapReady) return;
     const id = setInterval(() => {
       if (!checkAndHealMapContext()) {
-        // Context öldü → initDone sıfırla, sonraki GPS effect yeniden mount eder
         initDone.current = false;
         mapRef.current   = null;
+        setMapReady(false);
+        setReinitKey((k) => k + 1);
       }
     }, 30_000);
     return () => clearInterval(id);

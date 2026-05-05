@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
 
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
 import { X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2, ArrowLeft, Camera, CameraOff } from 'lucide-react';
@@ -14,6 +14,7 @@ import {
   switchMapStyle,
   setDrivingView,
   exitDrivingView,
+  enterNavigationView,
   setDrivingMode,
   useDrivingMode,
   setRouteGeometry,
@@ -34,7 +35,7 @@ import {
 import { useVisionStore } from '../../platform/visionStore';
 import {
   useNavigation, updateNavigationProgress,
-  setNavStatus, NavStatus, activateNavigation,
+  setNavStatus, NavStatus, activateNavigation, stopNavigation,
 } from '../../platform/navigationService';
 import {
   fetchRoute,
@@ -42,6 +43,7 @@ import {
   updateRouteProgress,
   clearRoute,
   notifyStyleChange,
+  selectAltRoute,
 } from '../../platform/routingService';
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { MapOverlay } from './MapOverlay';
@@ -93,6 +95,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<MapRef | null>(null);
   const initDone      = useRef(false);
+  const initializedRef = useRef(false);
   const cleanupRef    = useRef<(() => void) | null>(null);
   const modeInitRef   = useRef(false);
   const navStatusRef  = useRef<string>(NavStatus.IDLE); // FPS loop içinden okunur
@@ -115,7 +118,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
-  const routeAltRef       = useRef<[number, number][][] >([]);
+  const routeAltRef       = useRef<[number, number][][]>([]);
+  const routeAltIdxRef    = useRef<number[]>([]);
   const prevStepIndexRef  = useRef(0);
   /** True while a style switch is in-flight — drives the anti-flicker overlay. */
   const [isSwitchingStyle, setIsSwitchingStyle] = useState(false);
@@ -267,6 +271,29 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Eagle Eye: render radar / speed-camera icons on the map
   useRadarMapLayer(mapRef, mapStyleReady);
 
+  // Alternatif rota harita tap — seçili rotayı değiştirir, MapLibre yeniden oluşturulmaz
+  useEffect(() => {
+    if (mapStatus !== 'READY' || !mapRef.current) return;
+    const map = mapRef.current;
+    const onAltClick = (e: MapLayerMouseEvent) => {
+      const props = e.features?.[0]?.properties;
+      if (props?.altRealIdx !== undefined) {
+        console.log('[ROUTE_ALT_CLICK]', { altRealIdx: props.altRealIdx });
+        selectAltRoute(Number(props.altRealIdx));
+      }
+    };
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    map.on('click',      'car-route-alt-fill', onAltClick);
+    map.on('mouseenter', 'car-route-alt-fill', onEnter);
+    map.on('mouseleave', 'car-route-alt-fill', onLeave);
+    return () => {
+      map.off('click',      'car-route-alt-fill', onAltClick);
+      map.off('mouseenter', 'car-route-alt-fill', onEnter);
+      map.off('mouseleave', 'car-route-alt-fill', onLeave);
+    };
+  }, [mapStatus]);
+
   // Haritaya tıklanınca kontrolleri göster (MapLibre canvas olayları)
   useEffect(() => {
     if (mapStatus !== 'READY' || !mapRef.current) return;
@@ -307,14 +334,19 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     function doInit(container: HTMLElement) {
       // SINGLE INSTANCE GUARANTEE — never create a second WebGL context
       if (mapRef.current) {
-        console.warn('[MAP_INIT] skipped — instance already alive');
+        console.log('[MAP_INIT_BLOCKED] already exists');
         setMapStatus('READY');
         return;
       }
+      if (initializedRef.current) {
+        console.log('[MAP_INIT_BLOCKED] initializedRef');
+        return;
+      }
+      initializedRef.current = true;
       initDone.current = true;
       setMapStatus('LOADING');
       let cancelled = false;
-      console.log('[MAP_INIT] start');
+      console.log('[MAP_INIT_START]');
 
       (async () => {
         try {
@@ -325,7 +357,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             return;
           }
           mapRef.current = map;
-          console.log('[MAP_INIT] done');
+          console.log('[MAP_INIT_DONE]');
 
           const markReady = () => { if (!cancelled) { console.log('[MAP_READY]'); setMapStatus('READY'); } };
 
@@ -352,21 +384,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           styleChangingRef.current = false;
           notifyStyleChange(false);
         }
-        console.log('[MAP_REMOVE]');
-        // HARD DESTROY: force WebGL context loss first, then remove
-        if (mapRef.current) {
-          try {
-            const canvas = mapRef.current.getCanvas();
-            const gl = canvas?.getContext('webgl');
-            if (gl) {
-              const ext = gl.getExtension('WEBGL_lose_context');
-              ext?.loseContext();
-            }
-          } catch { /* ignore */ }
-          try { mapRef.current.remove(); } catch { /* ignore */ }
-          mapRef.current = null;
-        }
-        try { destroyMap(); } catch { /* ignore */ }
+        console.log('[MAP_DESTROY]');
+        mapRef.current = null;
+        initializedRef.current = false;
+        try { destroyMap(); } catch (e) { console.warn('[MAP_DESTROY_FAILED]', e); }
       };
     }
 
@@ -401,10 +422,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       lastFetchedRef.current = destination.id;
       setNavStatus(NavStatus.ROUTING);
       setRouteReady(false);
+      console.log('[ROUTE_REQUEST]', {
+        gps: { lat: loc.latitude, lon: loc.longitude, accuracy: loc.accuracy },
+        destination: { lat: destination.latitude, lon: destination.longitude, name: destination.name },
+        requestString: `${loc.longitude},${loc.latitude};${destination.longitude},${destination.latitude}`,
+      });
       fetchRoute(loc.latitude, loc.longitude, destination.latitude, destination.longitude);
       setIsPreview(true);
     } else if (!isNavigating) {
       lastFetchedRef.current = null;
+      lastAppliedRef.current = null; // dedup sıfırla — aynı rota tekrar çizilsin
       setIsPreview(false);
       setRouteReady(false);
       if (mapRef.current) clearRouteGeometry(mapRef.current);
@@ -414,12 +441,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
   }, [isNavigating, destination, location]);
 
-  // ROUTING → PREVIEW: rota yüklenince PreviewCard'a dön
+  // ROUTING → PREVIEW_READY veya ERROR: rota tamamlanınca sonuca göre geç
   useEffect(() => {
     if (!route.loading && navStatus === NavStatus.ROUTING) {
-      setNavStatus(NavStatus.PREVIEW);
+      const failed = route.error && !route.geometry; // error + no geometry = true failure
+      if (failed) {
+        setNavStatus(NavStatus.ERROR, 'Rota oluşturulamadı');
+      } else if (!route.loading) {
+        setNavStatus(NavStatus.PREVIEW);
+      }
     }
-  }, [route.loading, navStatus]);
+  }, [route.loading, navStatus, route.error, route.geometry]);
 
   // PREVIEW/ROUTING → ACTIVE: isPreview kapat
   useEffect(() => {
@@ -464,11 +496,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const last = lastAppliedRef.current;
     if (last && last.hash === hash && last.styleKey === styleKey) return;
     lastAppliedRef.current = { hash, styleKey };
-    setRouteGeometry(mapRef.current, route.geometry, route.alternatives);
+    setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices);
     pushDebug('ROUTE_GEOMETRY_SET', { pts: route.geometry?.length, first: route.geometry?.[0] });
     routeGeometryRef.current = route.geometry;
     routeAltRef.current      = route.alternatives;
-  }, [route.geometry, route.alternatives, mapStatus, styleKey]);
+    routeAltIdxRef.current   = route.altRealIndices;
+  }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey]);
 
   // Turn focus: highlight next turn when approaching, clear on step advance
   useEffect(() => {
@@ -568,7 +601,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         map._fullMapInitialized = true;
       }
       if (routeGeometryRef.current) {
-        setRouteGeometry(map, routeGeometryRef.current, routeAltRef.current);
+        setRouteGeometry(map, routeGeometryRef.current, routeAltRef.current, routeAltIdxRef.current);
       }
       setStyleKey((k) => k + 1);
       if (withFadeOverlay) {
@@ -631,11 +664,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   const handleNavStart  = useCallback(() => {
     activateNavigation();
+    setDrivingMode(true);
+    const loc  = locationRef.current;
+    const bear = headingRef.current ?? 0;
+    const h    = containerRef.current?.offsetHeight ?? 600;
+    if (mapRef.current && loc) {
+      enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+    }
   }, []);
   const handleNavCancel = useCallback(() => {
+    stopNavigation();
     setIsPreview(false);
     setDrivingMode(false);
     setRouteReady(false);
+    lastAppliedRef.current = null; // dedup sıfırla
     if (mapRef.current) {
       clearRouteGeometry(mapRef.current);
       exitDrivingView(mapRef.current);
@@ -643,6 +685,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     clearRoute();
     routeGeometryRef.current = null;
     routeAltRef.current      = [];
+    routeAltIdxRef.current   = [];
   }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();

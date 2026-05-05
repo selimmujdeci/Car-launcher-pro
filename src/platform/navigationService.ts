@@ -118,6 +118,8 @@ let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
 function transitionToArrived(): void {
   const { status } = useNavigationStore.getState();
   if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return;
+  // Çift güvenlik: activateNavigation() çağrılmadan ARRIVED asla tetiklenemez.
+  if (!_navigationStarted) return;
 
   clearRerouteContext(); // artık sapma tespiti yapma
   useNavigationStore.getState()._setStatus(NavStatus.ARRIVED);
@@ -139,19 +141,21 @@ export function startNavigation(destination: Address, isOffline = false): void {
 }
 
 /**
- * "Başlat" butonuna basıldı — ACTIVE durumuna geç.
+ * "NAVİGASYONU BAŞLAT" butonuna basıldı — ACTIVE durumuna geç.
  * FullMapView'daki handleNavStart tarafından çağrılır.
  */
 export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
-    // Startup grace: record activation time and start position.
-    // Arrival checks are blocked until ARRIVAL_GRACE_MS has elapsed
-    // OR vehicle has moved ARRIVAL_GRACE_MOVE_M from this point.
-    _navActivatedAtMs = Date.now();
-    _navStartLat      = _drLat;
-    _navStartLon      = _drLon;
+    _navActivatedAtMs       = Date.now();
+    // Başlangıç konumu _drLat/_drLon değil: updateNavigationProgress'deki
+    // ilk GPS tick'inde null-check ile yakalanır (önceki session artığı önlenir).
+    _navStartLat            = null;
+    _navStartLon            = null;
+    _navigationStarted      = true;
+    _arrivalLowSpeedStartMs = null;
+    console.log('[NAV_STARTED]', { ts: _navActivatedAtMs, status });
     _startDeadReckoning(); // Zero-Leak: stopped in stopNavigation()
   }
 }
@@ -159,9 +163,10 @@ export function activateNavigation(): void {
 /**
  * Dış callerlar (FullMapView) için ham durum değiştirici.
  * Kullanım: ROUTING başlatmak için fetchRoute'tan önce çağrılır.
+ * errorMessage: ERROR durumuna geçerken gösterilecek mesaj.
  */
-export function setNavStatus(status: NavStatus): void {
-  useNavigationStore.getState()._setStatus(status);
+export function setNavStatus(status: NavStatus, errorMessage?: string): void {
+  useNavigationStore.getState()._setStatus(status, errorMessage ? { errorMessage } : undefined);
 }
 
 /**
@@ -174,19 +179,21 @@ export function stopNavigation(): void {
   // Zero-Leak: DR timer durdur
   _stopDeadReckoning();
   // Reset per-session tracking state so next navigation starts clean
-  _speedHistory.length = 0;
-  _stopStartMs         = null;
-  _lastEtaUpdateMs     = 0;
-  _lastRouteDistanceM  = Infinity;
-  _lastGeoHash         = '';
-  _lastClosestSegIdx   = -1;
-  _drLat               = null;
-  _drLon               = null;
-  _lastGpsMs           = 0;
-  _lastHeadingDeg      = 0;
-  _navActivatedAtMs    = 0;
-  _navStartLat         = null;
-  _navStartLon         = null;
+  _speedHistory.length    = 0;
+  _stopStartMs            = null;
+  _lastEtaUpdateMs        = 0;
+  _lastRouteDistanceM     = Infinity;
+  _lastGeoHash            = '';
+  _lastClosestSegIdx      = -1;
+  _drLat                  = null;
+  _drLon                  = null;
+  _lastGpsMs              = 0;
+  _lastHeadingDeg         = 0;
+  _navActivatedAtMs       = 0;
+  _navStartLat            = null;
+  _navStartLon            = null;
+  _navigationStarted      = false;
+  _arrivalLowSpeedStartMs = null;
 }
 
 /**
@@ -239,14 +246,19 @@ let _lastClosestSegIdx   = -1;
 // güncellenir.  Mesafe güncellemesi yapılır, varış kesinlikle tetiklenmez.
 const DR_GPS_STALE_MS = 2_000; // GPS bu kadar susarsa DR devreye girer (ms)
 const DR_INTERVAL_MS  = 500;   // DR güncelleme aralığı — GPS polling'in yarısı
-const ARRIVAL_SPEED_GUARD_KMH = 10;   // varış için maksimum hız eşiği
-const ARRIVAL_GRACE_MS        = 8_000; // activateNavigation'dan sonra varış kilidi (ms)
-const ARRIVAL_GRACE_MOVE_M    = 30;    // VEYA başlangıç noktasından ≥30m hareket
+const ARRIVAL_SPEED_GUARD_KMH          = 10;    // varış için maksimum hız eşiği
+const ARRIVAL_MIN_MOVE_M               = 50;    // navigasyon başından bu yana minimum hareket (m)
+const ARRIVAL_CONSECUTIVE_LOW_SPEED_MS = 5_000; // düşük hız için zorunlu sürekli süre (ms)
 
-// Başlangıç grace state — activateNavigation() tarafından set edilir, stopNavigation() temizler
-let _navActivatedAtMs: number  = 0;
-let _navStartLat: number | null = null;
-let _navStartLon: number | null = null;
+// Aktivasyon state — activateNavigation() set eder, stopNavigation() temizler
+let _navActivatedAtMs:      number        = 0;
+let _navStartLat:           number | null = null;
+let _navStartLon:           number | null = null;
+// navigationStarted: ACTIVE geçişi activateNavigation() üzerinden mi yapıldı?
+// false iken ARRIVED asla tetiklenmez.
+let _navigationStarted:     boolean       = false;
+// Sürekli düşük hız takibi: hız < ARRIVAL_SPEED_GUARD_KMH olan ilk anın timestamp'i.
+let _arrivalLowSpeedStartMs: number | null = null;
 
 let _drLat:      number | null = null; // son bilinen / DR ile ilerletilen konum
 let _drLon:      number | null = null;
@@ -269,7 +281,12 @@ export function updateNavigationProgress(
   if (!state.destination) return;
 
   // Progress tracking only meaningful while driving — PREVIEW/ROUTING have no live route yet
-  if (state.status !== NavStatus.ACTIVE && state.status !== NavStatus.REROUTING) return;
+  if (state.status !== NavStatus.ACTIVE && state.status !== NavStatus.REROUTING) {
+    if (state.destination) {
+      console.log('[ARRIVAL_CHECK_SKIPPED]', { reason: 'not_active', status: state.status });
+    }
+    return;
+  }
 
   // ── Dead Reckoning anchor — GPS geldiğinde hemen güncelle ───────────────────
   // If GPS was stale (DR was active), force a full O(N) segment rescan so the
@@ -288,39 +305,69 @@ export function updateNavigationProgress(
     ? calculateRouteDistance(currentLat, currentLon, routeGeometry, cumulativeDistances)
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);
 
+  // ── Başlangıç konumu — ilk GPS tick'inde yakala (session artığı önlenir) ──
+  if (_navStartLat === null) {
+    _navStartLat = currentLat;
+    _navStartLon = currentLon;
+  }
+
+  // ── Sürekli düşük hız takibi ──────────────────────────────────────────────
+  const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
+  const speedAtArrival = (_rawArrSpd ?? 0) * 3.6;
+  if (speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
+    _arrivalLowSpeedStartMs = null; // hız yüksek → süreç sıfırla
+  } else if (_arrivalLowSpeedStartMs === null) {
+    _arrivalLowSpeedStartMs = Date.now(); // ilk düşük hız anı
+  }
+
   // ── Varış tespiti — katı AND koşulları ────────────────────────────────────
-  // Tüm koşullar aynı anda sağlanmalıdır:
-  //   1. status === ACTIVE (transitionToArrived içinde)
-  //   2. geçerli rota geometrisi (geometry.length >= 2) — Haversine fallback'te varış yok
-  //   3. mesafe < ARRIVAL_THRESHOLD_M
-  //   4. hız < ARRIVAL_SPEED_GUARD_KMH
-  //   5. grace süresi geçmiş (8s) VEYA başlangıçtan >= 30m hareket
+  //   1. status === ACTIVE veya REROUTING (yukarıda sağlandı)
+  //   2. _navigationStarted === true (activateNavigation() çağrıldı)
+  //   3. Hedef koordinatları geçerli
+  //   4. Rota geometrisi >= 2 nokta (Haversine fallback'te varış yok)
+  //   5. Başlangıçtan >= 50m hareket
+  //   6. Hedefe mesafe < 20m
+  //   7. Hız < 10 km/h en az 5 saniyedir
   {
-    const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
-    const speedAtArrival        = (_rawArrSpd ?? 0) * 3.6;
-    const activeMs              = _navActivatedAtMs > 0 ? Date.now() - _navActivatedAtMs : 0;
-    const movedFromStart        = (_navStartLat !== null && _navStartLon !== null)
+    const movedFromStart    = (_navStartLat !== null && _navStartLon !== null)
       ? calculateDistance(currentLat, currentLon, _navStartLat, _navStartLon)
       : 0;
-    const graceExpired          = activeMs >= ARRIVAL_GRACE_MS || movedFromStart >= ARRIVAL_GRACE_MOVE_M;
-    const hasValidGeometry      = !!routeGeometry && routeGeometry.length >= 2;
-    const allowed               = distance < ARRIVAL_THRESHOLD_M
-      && hasValidGeometry
-      && speedAtArrival < ARRIVAL_SPEED_GUARD_KMH
-      && graceExpired;
+    const lowSpeedMs        = _arrivalLowSpeedStartMs !== null ? Date.now() - _arrivalLowSpeedStartMs : 0;
+    const hasValidGeometry  = !!routeGeometry && routeGeometry.length >= 2;
+    const hasValidDest      = !!(state.destination
+      && Number.isFinite(state.destination.latitude)
+      && Number.isFinite(state.destination.longitude));
 
-    console.log('[ARRIVAL CHECK]', {
-      status: state.status,
-      distanceToDestination: Math.round(distance),
-      speedKmh:      Math.round(speedAtArrival * 10) / 10,
-      activeMs:      Math.round(activeMs),
-      movedFromStart: Math.round(movedFromStart),
-      allowed,
-    });
+    if (!_navigationStarted) {
+      console.log('[ARRIVAL_CHECK_SKIPPED]', { reason: 'not_started', status: state.status });
+    } else {
+      const allowed = hasValidDest
+        && hasValidGeometry
+        && movedFromStart >= ARRIVAL_MIN_MOVE_M
+        && distance < ARRIVAL_THRESHOLD_M
+        && lowSpeedMs >= ARRIVAL_CONSECUTIVE_LOW_SPEED_MS;
 
-    if (allowed) {
-      transitionToArrived();
-      return;
+      console.log('[ARRIVAL_CHECK_ACTIVE]', {
+        status:          state.status,
+        hasValidDest,
+        hasValidGeometry,
+        distanceM:       Math.round(distance),
+        speedKmh:        Math.round(speedAtArrival * 10) / 10,
+        movedFromStartM: Math.round(movedFromStart),
+        lowSpeedMs:      Math.round(lowSpeedMs),
+        allowed,
+      });
+
+      if (allowed) {
+        console.log('[ARRIVAL_TRIGGERED]', {
+          dest:       state.destination?.name,
+          movedM:     Math.round(movedFromStart),
+          distM:      Math.round(distance),
+          lowSpeedMs: Math.round(lowSpeedMs),
+        });
+        transitionToArrived();
+        return;
+      }
     }
   }
 

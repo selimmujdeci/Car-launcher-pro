@@ -16,7 +16,7 @@
  *   QuickDestinations — hızlı hedef kartları
  */
 import {
-  memo, useState, useCallback, useEffect, type ReactNode,
+  memo, useState, useCallback, useEffect, useRef, type ReactNode,
 } from 'react';
 import {
   ArrowLeft, ArrowRight, ArrowUp, RotateCcw, RefreshCw,
@@ -444,8 +444,20 @@ const PreviewCard = memo(function PreviewCard({
   onStart: () => void; onCancel: () => void;
   routeReady: boolean; gpsValid: boolean;
 }) {
-  const { altDistances, altDurations, selectedAltIndex } = useRouteState();
+  const { altDistances, altDurations, altRealIndices, hasToll } = useRouteState();
   const hasAlts = altDistances.length > 0;
+
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const altsRef  = useRef<HTMLDivElement | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    if (toastRef.current) clearTimeout(toastRef.current);
+    toastRef.current = setTimeout(() => setToastMsg(null), 2500);
+  }, []);
+
+  useEffect(() => () => { if (toastRef.current) clearTimeout(toastRef.current); }, []);
 
   const chipLabels = ['En Hızlı', 'Alternatif 1', 'Alternatif 2'];
 
@@ -454,16 +466,26 @@ const PreviewCard = memo(function PreviewCard({
       className="absolute inset-x-4 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
       style={{ bottom: 'calc(var(--lp-dock-h, 68px) + var(--sab, 0px) + 12px)' }}
     >
+      {/* Toast bildirimi */}
+      {toastMsg && (
+        <div className="mb-3 mx-auto w-fit px-4 py-2 rounded-2xl bg-[rgba(20,28,48,0.97)] border border-white/10 shadow-lg backdrop-blur-[20px] animate-in fade-in zoom-in-95 duration-200">
+          <span className="text-white font-bold text-sm">{toastMsg}</span>
+        </div>
+      )}
+
       <div
         className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[0_40px_80px_rgba(0,0,0,0.7)] bg-[rgba(8,12,22,0.95)] backdrop-blur-[28px] border border-white/10"
       >
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 rounded-t-[2.5rem]" />
-        <div className="flex items-start gap-4 mb-6">
+
+        {/* Hedef başlığı */}
+        <div className="flex items-start gap-4 mb-4">
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-blue-500/10 border border-blue-500/25">
             <MapPin className="w-7 h-7 text-blue-400" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="text-white font-black text-2xl truncate leading-tight tracking-tight">{destName}</div>
+
             {loading && (
               <div className="flex items-center gap-2 text-blue-400/60 text-sm mt-2 font-bold uppercase tracking-widest">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -484,59 +506,113 @@ const PreviewCard = memo(function PreviewCard({
               </div>
             )}
           </div>
+          {/* X — her zaman görünür iptal butonu */}
+          <button
+            onClick={onCancel}
+            aria-label="Navigasyonu iptal et"
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.06] border border-white/10 mt-0.5"
+          >
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
         </div>
-        {/* Yandex tarzı rota seçici — sadece alternatif varsa */}
-        {hasAlts && !loading && (
-          <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
-            {[distMeters, ...altDistances].map((dist, i) => {
-              const dur = i === 0 ? durSeconds : altDurations[i - 1];
-              const selected = selectedAltIndex === i;
-              return (
-                <button
-                  key={i}
-                  onClick={() => selectAltRoute(i)}
-                  className={`flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border transition-all active:scale-95 ${
-                    selected
-                      ? 'bg-blue-600 border-blue-500 text-white shadow-[0_4px_16px_rgba(37,99,235,0.5)]'
-                      : 'bg-white/[0.06] border-white/10 text-slate-400'
-                  }`}
-                >
-                  <span className="text-[11px] font-black uppercase tracking-widest opacity-70">
-                    {chipLabels[i] ?? `Alternatif ${i}`}
-                  </span>
-                  <span className={`text-sm font-black mt-0.5 ${selected ? 'text-white' : 'text-slate-200'}`}>
-                    {formatDistance(dist)}
-                  </span>
-                  <span className={`text-[11px] font-bold ${selected ? 'text-blue-200' : 'text-slate-500'}`}>
-                    {formatEta(dur)}
-                  </span>
-                </button>
-              );
-            })}
+
+        {/* Ücretli geçiş — OSRM heuristiği (motorway/trunk tespiti) */}
+        {!loading && (
+          <div className="mb-4">
+            {hasToll ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-black uppercase tracking-widest">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Olası ücretli geçiş (OGS/HGS)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-500 text-xs font-black uppercase tracking-widest">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Ücret bilgisi yok (OSRM)
+              </span>
+            )}
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3">
+        {/* Rota seçenekleri */}
+        {hasAlts && !loading && (
+          <div ref={altsRef} className="mb-4">
+            <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Rota Seçenekleri</div>
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {/* Seçili (birincil) rota */}
+              <div
+                className="flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border bg-blue-600 border-blue-500 shadow-[0_4px_16px_rgba(37,99,235,0.5)]"
+              >
+                <span className="text-[11px] font-black uppercase tracking-widest text-blue-100 opacity-80">
+                  {chipLabels[0]}
+                </span>
+                <span className="text-sm font-black mt-0.5 text-white">
+                  {formatDistance(distMeters)}
+                </span>
+                <span className="text-[11px] font-bold text-blue-200">
+                  {formatEta(durSeconds)}
+                </span>
+              </div>
+              {/* Alternatif rotalar — altRealIndices ile doğru _allRoutes indeksi */}
+              {altDistances.map((dist, j) => (
+                <button
+                  key={altRealIndices[j] ?? j}
+                  onClick={() => selectAltRoute(altRealIndices[j] ?? (j + 1))}
+                  className="flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border transition-all active:scale-95 bg-white/[0.06] border-white/10"
+                >
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                    {chipLabels[j + 1] ?? `Alternatif ${j + 1}`}
+                  </span>
+                  <span className="text-sm font-black mt-0.5 text-slate-200">
+                    {formatDistance(dist)}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-500">
+                    {formatEta(altDurations[j])}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ROTA SEÇ + DURAK EKLE satırı */}
+        <div className="flex gap-3 mb-3">
+          {hasAlts ? (
+            <button
+              onClick={() => altsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
+              className="flex-1 py-3.5 rounded-2xl text-slate-300 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
+            >
+              Rota Seç
+            </button>
+          ) : (
+            <button
+              onClick={onCancel}
+              className="flex-1 py-3.5 rounded-2xl text-slate-400 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
+            >
+              Vazgeç
+            </button>
+          )}
           <button
-            onClick={onCancel}
-            className="flex-1 py-4 rounded-2xl text-slate-400 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
+            onClick={() => showToast('Durak ekleme yakında')}
+            className="flex-1 py-3.5 rounded-2xl text-slate-300 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
           >
-            Vazgeç
-          </button>
-          <button
-            onClick={onStart}
-            disabled={!routeReady || !gpsValid}
-            className="flex-[2] py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_10px_30px_rgba(37,99,235,0.4)] bg-gradient-to-br from-blue-600 to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
-          >
-            {!gpsValid ? (
-              <><AlertCircle className="w-4 h-4" />GPS Sinyali Yok</>
-            ) : routeReady ? (
-              <><Play className="w-5 h-5 fill-current" />Navigasyonu Başlat</>
-            ) : (
-              <><Loader2 className="w-4 h-4 animate-spin" />Rota hazırlanıyor...</>
-            )}
+            Durak Ekle
           </button>
         </div>
+
+        {/* Navigasyonu başlat */}
+        <button
+          onClick={onStart}
+          disabled={!routeReady || !gpsValid}
+          className="w-full py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_10px_30px_rgba(37,99,235,0.4)] bg-gradient-to-br from-blue-600 to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+        >
+          {!gpsValid ? (
+            <><AlertCircle className="w-4 h-4" />GPS Sinyali Yok</>
+          ) : routeReady ? (
+            <><Play className="w-5 h-5 fill-current" />NAVİGASYONU BAŞLAT</>
+          ) : (
+            <><Loader2 className="w-4 h-4 animate-spin" />Rota hazırlanıyor...</>
+          )}
+        </button>
       </div>
     </div>
   );

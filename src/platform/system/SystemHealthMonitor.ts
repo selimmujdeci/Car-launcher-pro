@@ -71,10 +71,12 @@ interface WatchEntry extends Required<Pick<ServiceConfig, 'maxRestarts'>> {
 // ── SystemHealthMonitor ────────────────────────────────────────────────────────
 
 class SystemHealthMonitor {
-  private _registry  = new Map<string, WatchEntry>();
-  private _timer:      ReturnType<typeof setInterval> | null = null;
-  private _unsubs:     Array<() => void> = [];
-  private _startedAt = 0;
+  private _registry    = new Map<string, WatchEntry>();
+  private _timer:        ReturnType<typeof setInterval> | null = null;
+  private _unsubs:       Array<() => void> = [];
+  private _startedAt   = 0;
+  /** Hiç heartbeat almamış servisler — cold-start false-alarm koruması */
+  private _neverBeaten = new Set<string>();
 
   /**
    * Bir servisi izleme listesine ekle.
@@ -95,12 +97,17 @@ class SystemHealthMonitor {
       restartCount:  0,
       lastRestartAt: 0,
     });
+    // Servis kaydedilince "henüz hiç beat almadı" listesine ekle
+    this._neverBeaten.add(config.name);
   }
 
   /** Servisten "yaşıyorum" sinyali — lastBeat güncellenir, aktif alert varsa kapatılır. */
   beat(name: string): void {
     const entry = this._registry.get(name);
     if (!entry) return;
+
+    // İlk beat: cold-start korumasından çıkar
+    this._neverBeaten.delete(name);
 
     entry.lastBeat = performance.now();
 
@@ -132,6 +139,7 @@ class SystemHealthMonitor {
     for (const entry of this._registry.values()) {
       if (entry.alertId) { dismissToast(entry.alertId); entry.alertId = null; }
     }
+    this._neverBeaten.clear();
   }
 
   // ── Pasif İzleyiciler ────────────────────────────────────────────────────────
@@ -182,6 +190,10 @@ class SystemHealthMonitor {
       const isDead  = elapsed > entry.deadlineMs;
 
       if (!isDead) continue;
+
+      // Cold-start koruması: servis hiç heartbeat göndermemişse (donanım hiç bağlanmadı)
+      // → alert basma. Sadece bağlıyken kopan servisler için alert tetiklenir.
+      if (this._neverBeaten.has(entry.name)) continue;
 
       // GPS intentionally unavailable → uyarı sustur
       if (entry.name === 'GPS' && useUnifiedVehicleStore.getState().gpsUnavailable) continue;

@@ -779,37 +779,12 @@ function _applyRouteGeometry(
   }
 
   try {
-    // ── TEMP TEST: Katman mı bozuk, koordinat mı? ────────────────────────────
-    // FORCE_TEST_LINE = true → Mersin kıyısı sabit çizgi çizer.
-    //   Görünürse → layer/source sağlam, sorun route koordinatlarında.
-    //   Görünmezse → source/layer kurulum problemi var.
-    // Tanı sonrası false yap.
-    const FORCE_TEST_LINE = true;
-    const coords: [number, number][] = FORCE_TEST_LINE
-      ? ([[34.99, 36.80], [35.00, 36.81]] as [number, number][])
-      : coordinates.map(([a, b]): [number, number] => {
-          // |a| <= 90 && |b| <= 180 → [lat,lng] sırası → [lng,lat]'a çevir
-          if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
-            return [b, a];
-          }
-          return [a, b];
-        });
-    console.log('[FINAL_COORDS]', coords.slice(0, 5));
-
-    // ── debug logs ────────────────────────────────────────────────
-    console.log('[ROUTE_DEBUG] coordsCount', coords?.length);
-    console.log('[ROUTE_DEBUG] first', coords?.[0]);
-    console.log('[ROUTE_DEBUG] last', coords?.[coords.length - 1]);
-    console.log('[ROUTE_DEBUG] sourceExists', !!map.getSource(SEL_SRC));
-    console.log('[ROUTE_DEBUG] layerExists', !!map.getLayer(SEL_LAYER));
+    // routingService.normalizeCoords() already guarantees [lon, lat] order.
+    const coords: [number, number][] = coordinates;
+    console.log('[ROUTE_RENDER] pts:', coords.length, 'first:', coords[0], 'last:', coords[coords.length - 1]);
 
     // ── Alternatif rotalar (gri, arkada) ─────────────────────────
-    const fixedAlts = FORCE_TEST_LINE ? [] : alternatives.map((altCoords) =>
-      altCoords.map(([a, b]): [number, number] => {
-        if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return [b, a];
-        return [a, b];
-      })
-    );
+    const fixedAlts = alternatives;
     const altFeatures = fixedAlts.map((altCoords, i) => ({
       type: 'Feature' as const,
       geometry: { type: 'LineString' as const, coordinates: altCoords },
@@ -840,17 +815,26 @@ function _applyRouteGeometry(
         data: { type: 'FeatureCollection', features: [] },
       } as any);
     }
+    if (!map.getLayer('car-route-casing')) {
+      map.addLayer({
+        id: 'car-route-casing',
+        type: 'line',
+        source: SEL_SRC,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 14, 'line-opacity': 0.9 },
+      } as any);
+    }
     if (!map.getLayer(SEL_LAYER)) {
       map.addLayer({
         id: SEL_LAYER,
         type: 'line',
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#ff0000', 'line-width': 12, 'line-opacity': 1 },
+        paint: { 'line-color': '#2563eb', 'line-width': 9, 'line-opacity': 1 },
       } as any);
     } else {
-      map.setPaintProperty(SEL_LAYER, 'line-color', '#ff0000');
-      map.setPaintProperty(SEL_LAYER, 'line-width', 12);
+      map.setPaintProperty(SEL_LAYER, 'line-color', '#2563eb');
+      map.setPaintProperty(SEL_LAYER, 'line-width', 9);
       map.setPaintProperty(SEL_LAYER, 'line-opacity', 1);
     }
 
@@ -864,10 +848,9 @@ function _applyRouteGeometry(
     console.log('[ROUTE_SELECTED_SOURCE_SET]', { pts: coords.length, first: coords[0] });
 
     // ── Step 5: move layer to top ─────────────────────────────────
-    try { map.moveLayer(ALT_FILL); } catch(e) { console.warn('[ROUTE_DEBUG] moveLayer ALT_FILL err:', e instanceof Error ? e.message : e); }
-    try {
-      map.moveLayer(SEL_LAYER);
-    } catch(e) { console.warn('[ROUTE_DEBUG] moveLayer failed', e); }
+    try { map.moveLayer(ALT_FILL); } catch { /* ignore */ }
+    try { map.moveLayer('car-route-casing'); } catch { /* ignore */ }
+    try { map.moveLayer(SEL_LAYER); } catch { /* ignore */ }
 
     // ── Step 6: fit bounds ────────────────────────────────────────
     try {
@@ -908,8 +891,9 @@ export function clearRouteGeometry(map: MapLibreMap): void {
     if (map.getSource(ROUTE_SRC))     map.removeSource(ROUTE_SRC);
     if (map.getLayer(ALT_FILL))        map.removeLayer(ALT_FILL);
     if (map.getSource(ALT_SRC))        map.removeSource(ALT_SRC);
-    if (map.getLayer(SEL_LAYER))       map.removeLayer(SEL_LAYER);
-    if (map.getSource(SEL_SRC))        map.removeSource(SEL_SRC);
+    if (map.getLayer('car-route-casing')) map.removeLayer('car-route-casing');
+    if (map.getLayer(SEL_LAYER))          map.removeLayer(SEL_LAYER);
+    if (map.getSource(SEL_SRC))           map.removeSource(SEL_SRC);
     if (map.getLayer('route-layer'))   map.removeLayer('route-layer');
     if (map.getSource('route-source')) map.removeSource('route-source');
   } catch { /* ignore — style may already be reset */ }
