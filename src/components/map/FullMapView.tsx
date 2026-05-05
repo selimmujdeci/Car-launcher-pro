@@ -119,7 +119,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
   const [isFollowing, setIsFollowing] = useState(true);
-  const isFollowingRef = useRef(true);
+  const isFollowingRef  = useRef(true);
+  const drivingModeRef  = useRef(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
   const routeAltRef       = useRef<[number, number][][]>([]);
   const routeAltIdxRef    = useRef<number[]>([]);
@@ -155,8 +156,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Sync refs safely outside of render
   useEffect(() => {
     locationRef.current = location;
-    headingRef.current = heading;
+    headingRef.current  = heading;
   }, [location, heading]);
+
+  useEffect(() => { drivingModeRef.current = drivingMode; }, [drivingMode]);
 
   const [mapStatus, setMapStatus]     = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [mapError, setMapError]       = useState<string | null>(null);
@@ -309,7 +312,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     };
   }, [mapStatus, showControls]);
 
-  // Kullanıcı haritayı sürüklediğinde takibi durdur (Google Maps davranışı)
+  // Kullanıcı haritayı sürüklediğinde takibi durdur (navigasyon aktif olsa bile)
   useEffect(() => {
     if (mapStatus !== 'READY' || !mapRef.current) return;
     const map = mapRef.current;
@@ -323,11 +326,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     return () => { map.off('dragstart', onDrag); };
   }, [mapStatus]);
 
-  // Sürüş modu açılınca takibi yeniden başlat
+  // Sürüş modu açılınca takibi yeniden başlat + haritayı hemen 3D nav görünümüne al
   useEffect(() => {
     if (drivingMode) {
-      isFollowingRef.current = true;
+      isFollowingRef.current   = true;
       setIsFollowing(true);
+      lastDrivingPosRef.current = null; // throttle sıfırla → sonraki GPS tick'inde kesinlikle setDrivingView çalışır
+      const loc  = locationRef.current;
+      const bear = headingRef.current ?? 0;
+      const h    = containerRef.current?.offsetHeight ?? 600;
+      if (mapRef.current && loc && mapRef.current.isStyleLoaded()) {
+        enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+      }
     }
   }, [drivingMode]);
 
@@ -485,6 +495,21 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
   }, [navStatus]);
 
+  // ACTIVE/REROUTING: sürüş modunu garantile + haritayı 3D nav görünümüne al
+  // handleNavStart bunu zaten çağırır; bu effect rerouting & edge case'leri kapatır
+  useEffect(() => {
+    if (navStatus !== NavStatus.ACTIVE && navStatus !== NavStatus.REROUTING) return;
+    setDrivingMode(true);
+    isFollowingRef.current = true;
+    setIsFollowing(true);
+    const loc  = locationRef.current;
+    const bear = headingRef.current ?? 0;
+    const h    = containerRef.current?.offsetHeight ?? 600;
+    if (mapRef.current && loc) {
+      enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+    }
+  }, [navStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // D: Detect fetch failure — loading stopped but no geometry (e.g. _waitForStyleReady deadlock released)
   // Guard: navStatus === ROUTING means we are mid-fetch (fetchRoute sets loading:true synchronously,
   // but this effect captures render-time values — so the very first render after isNavigating becomes
@@ -618,11 +643,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       setMapStatus('READY');
 
       // Center to GPS after style loads — guaranteed correct timing
+      // Driving mode açıksa 3D nav görünümüne al; değilse düz ortalama
       const loc = locationRef.current;
       const hdg = headingRef.current;
       if (loc) {
         addUserMarker(map, loc.latitude, loc.longitude, hdg || 0);
-        setMapCenter(map, [loc.longitude, loc.latitude], 15, false);
+        if (drivingModeRef.current) {
+          const h = containerRef.current?.offsetHeight ?? 600;
+          lastDrivingPosRef.current = null;
+          enterNavigationView(map, loc.latitude, loc.longitude, hdg || 0, h);
+        } else {
+          setMapCenter(map, [loc.longitude, loc.latitude], 15, false);
+        }
         map._fullMapInitialized = true;
       }
       if (routeGeometryRef.current) {
@@ -664,7 +696,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const moved = !last
           || _distM(last.lat, last.lng, latitude, longitude) > 2
           || _headingDiff(last.heading, bear) > 3;
-        if (moved) {
+        // Fail-safe: harita yanlışlıkla 2D'ye düştüyse her tick'te 3D'ye döndür
+        const isFlat = mapRef.current.getPitch() < 5;
+        if (isFollowing && (moved || isFlat)) {
           lastDrivingPosRef.current = { lat: latitude, lng: longitude, heading: bear };
           setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
         }
@@ -720,9 +754,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     isFollowingRef.current = true;
     setIsFollowing(true);
     if (mapRef.current && location) {
-      setMapCenter(mapRef.current, [location.longitude, location.latitude], 15, true);
+      if (drivingMode) {
+        const bear = headingRef.current ?? 0;
+        const h = containerRef.current?.offsetHeight ?? 600;
+        enterNavigationView(mapRef.current, location.latitude, location.longitude, bear, h);
+      } else {
+        setMapCenter(mapRef.current, [location.longitude, location.latitude], 15, true);
+      }
     }
-  }, [location]);
+  }, [location, drivingMode]);
 
   const handleToggleDrivingMode = () => {
     const nextMode = !drivingMode;
@@ -890,14 +930,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         <span style={{ color: '#fff' }}>KAPAT</span>
       </button>
 
-      {/* ── GOOGLE MAPS TARZ RE-CENTER: Harita sürüklenince çıkar, takip durduğunda gösterilir ── */}
-      {!isFollowing && !isNavigating && (
+      {/* ── GOOGLE MAPS TARZ RE-CENTER: Harita sürüklenince çıkar, navigasyonda da gösterilir ── */}
+      {!isFollowing && (
         <button
           onClick={() => { handleRecenter(); showControls(); }}
           aria-label="Konuma dön"
           style={{
             position: 'absolute',
-            bottom: 'calc(var(--lp-dock-h,68px) + 80px)',
+            bottom: isNavigating
+              ? 'calc(var(--lp-dock-h,68px) + 92px)'
+              : 'calc(var(--lp-dock-h,68px) + 80px)',
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 30,

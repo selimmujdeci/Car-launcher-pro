@@ -77,8 +77,8 @@ const useRouteStore = create<RouteState>(() => INITIAL);
 /* ── Deviation detection — module-level state ────────────────── */
 
 // Distance hierarchy (must stay consistent with navigationService):
-//   ARRIVAL_THRESHOLD_M (20) < STEP_ADVANCE_THRESHOLD_M (30) < MANEUVER_STACK_THRESHOLD_M (50) < REROUTE_THRESHOLD_M (100)
-export const REROUTE_THRESHOLD_M        = 100; // metre — route-line deviation triggers reroute
+//   ARRIVAL_THRESHOLD_M (20) < STEP_ADVANCE_THRESHOLD_M (30) < MANEUVER_STACK_THRESHOLD_M (50) = REROUTE_THRESHOLD_M (50)
+export const REROUTE_THRESHOLD_M        = 50; // metre — route-line deviation triggers reroute
 export const STEP_ADVANCE_THRESHOLD_M   = 30;  // metre — advance to next turn instruction
 export const MANEUVER_STACK_THRESHOLD_M = 50;  // metre — back-to-back turns shown together
 
@@ -266,7 +266,7 @@ async function _tryServer(
   baseUrl: string,
   fromLon: number, fromLat: number,
   toLon: number,   toLat: number,
-): Promise<{ steps: RouteStep[]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; altHasToll: boolean[]; distance: number; duration: number; hasToll: boolean }> {
+): Promise<{ steps: RouteStep[]; altSteps: RouteStep[][]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; altHasToll: boolean[]; distance: number; duration: number; hasToll: boolean }> {
   // Dump raw coords before any transformation
   console.log('ROUTE REQUEST RAW', {
     origin: { lat: fromLat, lon: fromLon },
@@ -371,9 +371,21 @@ async function _tryServer(
     const alternatives = altRouteData.map(r =>
       normalizeCoords(r.geometry.coordinates as [number, number][], fromLon, fromLat),
     );
+    const altSteps: RouteStep[][] = altRouteData.map(r =>
+      (r.legs[0].steps as OsrmStep[]).map(st => ({
+        instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? ''),
+        streetName:       st.name ?? '',
+        distance:         st.distance,
+        duration:         st.duration,
+        maneuverType:     st.maneuver.type,
+        maneuverModifier: st.maneuver.modifier ?? 'straight',
+        coordinate:       st.geometry.coordinates[0] as [number, number],
+      }))
+    );
 
     return {
       steps,
+      altSteps,
       geometry:     normalized,
       alternatives,
       altDistances: altRouteData.map(r => r.distance),
@@ -509,6 +521,7 @@ function _storeAllRoutes(
   altDistances: number[],
   altDurations: number[],
   altHasToll:   boolean[],
+  altSteps:     RouteStep[][],
   steps:        RouteStep[],
   mainDist:     number,
   mainDur:      number,
@@ -516,7 +529,7 @@ function _storeAllRoutes(
 ): void {
   _allRoutes = [
     { geometry: mainGeom, distanceM: mainDist, durationS: mainDur, steps, hasToll: mainHasToll },
-    ...altGeoms.map((g, i) => ({ geometry: g, distanceM: altDistances[i] ?? 0, durationS: altDurations[i] ?? 0, steps: [] as RouteStep[], hasToll: altHasToll[i] ?? false })),
+    ...altGeoms.map((g, i) => ({ geometry: g, distanceM: altDistances[i] ?? 0, durationS: altDurations[i] ?? 0, steps: altSteps[i] ?? [], hasToll: altHasToll[i] ?? false })),
   ];
 }
 
@@ -590,7 +603,7 @@ export async function fetchRoute(
           error:   null,
           geometry:             daemonResult.geometry,
           cumulativeDistances:  buildCumulativeDistances(daemonResult.geometry),
-          steps:                [],
+          steps:                daemonResult.steps,
           totalDistanceMeters:  daemonResult.distanceM,
           totalDurationSeconds: daemonResult.durationS,
           currentStepIndex:     0,
@@ -610,7 +623,7 @@ export async function fetchRoute(
       console.log(`[ROUTE] provider: ${server} | dist: ${result.distance.toFixed(0)}m | dur: ${result.duration.toFixed(0)}s | pts: ${result.geometry.length} | first3: ${JSON.stringify(result.geometry.slice(0, 3))}`);
       console.log('[ROUTE] result', { distance: result.distance, duration: result.duration, pts: result.geometry.length, first: result.geometry[0] });
       await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
-      _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.altHasToll, result.steps, result.distance, result.duration, result.hasToll);
+      _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.altHasToll, result.altSteps, result.steps, result.distance, result.duration, result.hasToll);
       useRouteStore.setState({
         loading: false,
         error:   null,
@@ -644,12 +657,15 @@ export async function fetchRoute(
     } else {
       console.log(`[ROUTE] provider: ${offlineResult.source} | dist: ${offlineResult.distanceM.toFixed(0)}m | pts: ${offlineResult.geometry.length}`);
       await _waitForStyleReady();
+      const offlineSteps = offlineResult.steps.length > 0
+        ? offlineResult.steps
+        : [_makeSentinelStep(toLon, toLat, offlineResult.distanceM, offlineResult.durationS)];
       useRouteStore.setState({
         loading: false,
         error:   null,
         geometry:             offlineResult.geometry,
         cumulativeDistances:  buildCumulativeDistances(offlineResult.geometry),
-        steps:                [],
+        steps:                offlineSteps,
         totalDistanceMeters:  offlineResult.distanceM,
         totalDurationSeconds: offlineResult.durationS,
         currentStepIndex:     0,
@@ -670,7 +686,7 @@ export async function fetchRoute(
     error:   'Offline harita verisi yok — düz hat navigasyon aktif.',
     geometry:             sl.geometry,
     cumulativeDistances:  buildCumulativeDistances(sl.geometry),
-    steps:                [],
+    steps:                [_makeSentinelStep(toLon, toLat, sl.distanceM, sl.durationS)],
     totalDistanceMeters:  sl.distanceM,
     totalDurationSeconds: sl.durationS,
     currentStepIndex:     0,
@@ -806,6 +822,31 @@ async function _triggerReroute(
     _isFetchingRoute = false;
     _reroutingCb?.(false);
   }
+}
+
+/** Offline/straight-line modda HUD'un boş kalmaması için minimum tek adım üretir. */
+function _makeSentinelStep(toLon: number, toLat: number, distanceM: number, durationS: number): RouteStep {
+  return {
+    instruction:      'Hedefe doğru ilerleyin',
+    streetName:       '',
+    distance:         distanceM,
+    duration:         durationS,
+    maneuverType:     'arrive',
+    maneuverModifier: 'straight',
+    coordinate:       [toLon, toLat],
+  };
+}
+
+/**
+ * Steps dizisi boşsa (offline/daemon modlar) hedef koordinatlarından sentinel adım enjekte eder.
+ * activateNavigation() tarafından çağrılır — HUD'un undefined currentStep ile gizlenmesini önler.
+ */
+export function injectSentinelStepIfEmpty(toLat: number, toLon: number): void {
+  const state = useRouteStore.getState();
+  if (state.steps.length > 0) return;
+  useRouteStore.setState({
+    steps: [_makeSentinelStep(toLon, toLat, state.totalDistanceMeters, state.totalDurationSeconds)],
+  });
 }
 
 /** Rota state'ini başlangıca döndür.

@@ -61,7 +61,7 @@ export const DrawerPanel = memo(function DrawerPanel({
         <AppGrid apps={allApps} favorites={favorites} onToggleFavorite={onToggleFav} onLaunch={onLaunch} gridColumns={gridColumns} />
       </DrawerShell>
 
-      <DrawerShell open={drawer === 'settings'} onClose={onClose}>
+      <DrawerShell open={drawer === 'settings'} onClose={onClose} fullscreen>
         <Suspense fallback={null}>
           <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} />
         </Suspense>
