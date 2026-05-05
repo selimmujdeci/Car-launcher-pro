@@ -117,6 +117,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [isPreview, setIsPreview] = useState(false);
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(true);
+  const isFollowingRef = useRef(true);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
   const routeAltRef       = useRef<[number, number][][]>([]);
   const routeAltIdxRef    = useRef<number[]>([]);
@@ -305,6 +307,28 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       map.off('touchstart', showControls);
     };
   }, [mapStatus, showControls]);
+
+  // Kullanıcı haritayı sürüklediğinde takibi durdur (Google Maps davranışı)
+  useEffect(() => {
+    if (mapStatus !== 'READY' || !mapRef.current) return;
+    const map = mapRef.current;
+    const onDrag = () => {
+      if (isFollowingRef.current) {
+        isFollowingRef.current = false;
+        setIsFollowing(false);
+      }
+    };
+    map.on('dragstart', onDrag);
+    return () => { map.off('dragstart', onDrag); };
+  }, [mapStatus]);
+
+  // Sürüş modu açılınca takibi yeniden başlat
+  useEffect(() => {
+    if (drivingMode) {
+      isFollowingRef.current = true;
+      setIsFollowing(true);
+    }
+  }, [drivingMode]);
 
   // WebGL kontrolü — eski head unit'lerde harita açılamaz
   const webglSupported = isWebGLAvailable();
@@ -643,7 +667,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           lastDrivingPosRef.current = { lat: latitude, lng: longitude, heading: bear };
           setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
         }
-      } else {
+      } else if (isFollowing) {
         const currentCenter = mapRef.current.getCenter();
         const dx = longitude - currentCenter.lng;
         const dy = latitude - currentCenter.lat;
@@ -660,7 +684,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       updateNavigationProgress(latitude, longitude, bear, routeGeometryRef.current ?? undefined);
       updateRouteProgress(latitude, longitude);
     }
-  }, [location, heading, destination, mapStyleReady, styleKey, drivingMode]);
+  }, [location, heading, destination, mapStyleReady, styleKey, drivingMode, isFollowing]);
 
   const handleNavStart  = useCallback(() => {
     activateNavigation();
@@ -691,11 +715,13 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
 
-  const handleRecenter = () => {
+  const handleRecenter = useCallback(() => {
+    isFollowingRef.current = true;
+    setIsFollowing(true);
     if (mapRef.current && location) {
       setMapCenter(mapRef.current, [location.longitude, location.latitude], 15, true);
     }
-  };
+  }, [location]);
 
   const handleToggleDrivingMode = () => {
     const nextMode = !drivingMode;
@@ -862,6 +888,39 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         <X className="w-4 h-4 text-white stroke-[2.5px]" />
         <span style={{ color: '#fff' }}>KAPAT</span>
       </button>
+
+      {/* ── GOOGLE MAPS TARZ RE-CENTER: Harita sürüklenince çıkar, takip durduğunda gösterilir ── */}
+      {!isFollowing && !isNavigating && (
+        <button
+          onClick={() => { handleRecenter(); showControls(); }}
+          aria-label="Konuma dön"
+          style={{
+            position: 'absolute',
+            bottom: 'calc(var(--lp-dock-h,68px) + 80px)',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 30,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 20px',
+            background: 'rgba(10,14,26,0.92)',
+            backdropFilter: 'blur(16px)',
+            border: '1.5px solid rgba(59,130,246,0.55)',
+            borderRadius: '999px',
+            color: '#60a5fa',
+            fontWeight: 700,
+            fontSize: 13,
+            letterSpacing: '0.04em',
+            cursor: 'pointer',
+            boxShadow: '0 4px 24px rgba(59,130,246,0.35), 0 2px 8px rgba(0,0,0,0.6)',
+            animation: 'fadeSlideUp 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards',
+          }}
+        >
+          <Crosshair className="w-4 h-4" style={{ color: '#60a5fa' }} />
+          <span>Konuma Dön</span>
+        </button>
+      )}
 
       {/* ── SAĞ ALT: Mercedes MBUX tarzı — her zaman yerinde, aktifken parlıyor ── */}
       <div
