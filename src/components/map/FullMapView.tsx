@@ -104,8 +104,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const lastDrivingPosRef  = useRef<{ lat: number; lng: number; heading: number } | null>(null);
   // unmount guard — prevents async style.load callbacks from touching React state after cleanup
   const mountedRef         = useRef(true);
-  // dedup: skip setRouteGeometry when hash+styleKey are identical (same geometry, no style switch)
-  const lastAppliedRef     = useRef<{ hash: string; styleKey: number } | null>(null);
+  // dedup: skip setRouteGeometry when hash+styleKey+navStatus are identical
+  // navStatus dahil edildi: PREVIEW→ACTIVE geçişinde aynı hash olsa bile yeniden çizilsin
+  const lastAppliedRef     = useRef<{ hash: string; styleKey: number; navStatus: string } | null>(null);
   const commandQueueRef    = useRef<Array<() => void>>([]);
 
   // Tracks destination.id of the last fetch we initiated in this nav session.
@@ -518,14 +519,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
     const hash = _routeHash(route.geometry);
     const last = lastAppliedRef.current;
-    if (last && last.hash === hash && last.styleKey === styleKey) return;
-    lastAppliedRef.current = { hash, styleKey };
+    if (last && last.hash === hash && last.styleKey === styleKey && last.navStatus === navStatus) return;
+    lastAppliedRef.current = { hash, styleKey, navStatus };
     setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices);
     pushDebug('ROUTE_GEOMETRY_SET', { pts: route.geometry?.length, first: route.geometry?.[0] });
     routeGeometryRef.current = route.geometry;
     routeAltRef.current      = route.alternatives;
     routeAltIdxRef.current   = route.altRealIndices;
-  }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey]);
+  }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey, navStatus]);
 
   // Turn focus: highlight next turn when approaching, clear on step advance
   useEffect(() => {

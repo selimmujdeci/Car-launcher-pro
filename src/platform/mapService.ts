@@ -852,17 +852,19 @@ function _applyRouteGeometry(
     try { map.moveLayer('car-route-casing'); } catch { /* ignore */ }
     try { map.moveLayer(SEL_LAYER); } catch { /* ignore */ }
 
-    // ── Step 6: fit bounds ────────────────────────────────────────
-    try {
-      if (coords.length >= 2) {
-        const bounds = coords.reduce(
-          (b, c) => b.extend(c as [number, number]),
-          new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]),
-        );
-        map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
-        console.log('[ROUTE_DEBUG] fitBounds applied');
-      }
-    } catch(e) { console.warn('[ROUTE_DEBUG] fitBounds err:', e instanceof Error ? e.message : e); }
+    // ── Step 6: fit bounds (sadece preview modda — driving modda setDrivingView ile çatışır) ───
+    if (!useMapStore.getState().drivingMode) {
+      try {
+        if (coords.length >= 2) {
+          const bounds = coords.reduce(
+            (b, c) => b.extend(c as [number, number]),
+            new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]),
+          );
+          map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
+          console.log('[ROUTE_DEBUG] fitBounds applied');
+        }
+      } catch(e) { console.warn('[ROUTE_DEBUG] fitBounds err:', e instanceof Error ? e.message : e); }
+    }
 
     console.log('[ROUTE_RENDER_DONE]', { pts: coords.length, alts: fixedAlts.length });
   } catch (e) {
