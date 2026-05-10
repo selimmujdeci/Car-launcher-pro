@@ -1,7 +1,5 @@
 
-car-launcher-pro
 
-Advanced Android automotive launcher focused on adaptive runtime systems, thermal intelligence and high-performance in-car UX.
 
 android
 automotive
