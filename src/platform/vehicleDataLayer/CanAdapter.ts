@@ -2,6 +2,7 @@ import { isNative } from '../bridge';
 import { CarLauncher } from '../nativePlugin';
 import type { CanAdapterData } from './types';
 import { dbgPushCanRaw, dbgUpdateCanExtras } from '../debug';
+import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 
 // READ-ONLY: CAN bus'tan yalnızca veri okunur.
 // Araç sistemlerine hiçbir yazma veya kontrol komutu gönderilemez.
@@ -20,32 +21,55 @@ export class CanAdapter implements ICanAdapter {
 
   // Pre-allocated data object — her CAN frame'de yeni nesne yaratmak yerine
   // mevcut nesne mutate edilir. GC baskısı 0.
-  // TPMS array: ayrıca pre-allocate edilir — 4 elemanlı sabit boyutlu dizi.
   private readonly _data: CanAdapterData = {};
   private readonly _tpmsBuffer: [number, number, number, number] = [0, 0, 0, 0];
 
   start(): void {
-    if (this._unsub) return; // double-init guard
-    if (!isNative) return;   // web modda CAN verisi yok
+    if (this._unsub) return;
+    if (!isNative) return;
+
+    CarLauncher.addListener('canStatus', (status) => {
+      console.info('[CAN]', status.mode, status.port, status.connected ? '✓' : '✗');
+    }).catch(() => {});
 
     CarLauncher.addListener('canData', (raw) => {
-      // Zero-allocation: her alana direkt yaz, kontrol koşullu
-      if (raw.speed        != null) { this._data.speed        = raw.speed;        }
-      else                          { this._data.speed        = undefined;        }
+      // ── Temel sürüş ──────────────────────────────────────────────────────
+      this._data.speed        = raw.speed        ?? undefined;
+      this._data.reverse      = raw.reverse      ?? undefined;
+      this._data.fuel         = raw.fuel         ?? undefined;
 
-      if (raw.reverse      != null) { this._data.reverse      = raw.reverse;      }
-      else                          { this._data.reverse      = undefined;        }
+      // ── Motor ─────────────────────────────────────────────────────────────
+      this._data.rpm          = raw.rpm          ?? undefined;
+      this._data.coolantTemp  = raw.coolantTemp  ?? undefined;
+      this._data.oilTemp      = raw.oilTemp      ?? undefined;
+      this._data.throttle     = raw.throttle     ?? undefined;
 
-      if (raw.fuel         != null) { this._data.fuel         = raw.fuel;         }
-      else                          { this._data.fuel         = undefined;        }
+      // ── Elektrik ──────────────────────────────────────────────────────────
+      this._data.batteryVolt  = raw.batteryVolt  ?? undefined;
 
-      if (raw.doorOpen     != null) { this._data.doorOpen     = raw.doorOpen;     }
-      else                          { this._data.doorOpen     = undefined;        }
+      // ── Vites ─────────────────────────────────────────────────────────────
+      this._data.gearPos      = raw.gearPos      ?? undefined;
 
-      if (raw.headlightsOn != null) { this._data.headlightsOn = raw.headlightsOn; }
-      else                          { this._data.headlightsOn = undefined;        }
+      // ── Çevre ─────────────────────────────────────────────────────────────
+      this._data.ambientTemp  = raw.ambientTemp  ?? undefined;
 
-      // TPMS: pre-allocate 4-element array — raw.tpms yeni dizi yerine buffer'a kopyalanır
+      // ── Kapı / aydınlatma ─────────────────────────────────────────────────
+      this._data.doorOpen     = raw.doorOpen     ?? undefined;
+      this._data.headlightsOn = raw.headlightsOn ?? undefined;
+
+      // ── Şasi güvenliği ────────────────────────────────────────────────────
+      this._data.abs              = raw.abs              ?? undefined;
+      this._data.tractionControl  = raw.tractionControl  ?? undefined;
+      this._data.stabilityControl = raw.stabilityControl ?? undefined;
+
+      // ── Gövde / konfor ────────────────────────────────────────────────────
+      this._data.parkingBrake  = raw.parkingBrake  ?? undefined;
+      this._data.seatbelt      = raw.seatbelt      ?? undefined;
+      this._data.wipers        = raw.wipers        ?? undefined;
+      this._data.airCondition  = raw.airCondition  ?? undefined;
+      this._data.cruiseControl = raw.cruiseControl ?? undefined;
+
+      // ── TPMS (pre-allocated buffer) ───────────────────────────────────────
       if (raw.tpms != null && raw.tpms.length === 4) {
         this._tpmsBuffer[0] = raw.tpms[0]!;
         this._tpmsBuffer[1] = raw.tpms[1]!;
@@ -64,10 +88,9 @@ export class CanAdapter implements ICanAdapter {
         tpms:         this._data.tpms,
       });
     }).then((handle) => {
-      this._unsub = () => handle.remove();
+      this._unsub = () => { handle.remove(); };
     });
 
-    // Native CAN okumayı başlat
     CarLauncher.startCanBus?.();
   }
 
@@ -75,9 +98,12 @@ export class CanAdapter implements ICanAdapter {
     this._unsub?.();
     this._unsub = null;
     this._listeners.clear();
+    // CAN transport kesilince stale veri UI'da donmasın — anında sıfırla
+    useUnifiedVehicleStore.getState().resetCanData();
     // Pre-allocated nesneyi temizle
-    this._data.speed = this._data.reverse = this._data.fuel = undefined;
-    this._data.doorOpen = this._data.headlightsOn = this._data.tpms = undefined;
+    Object.keys(this._data).forEach(k => {
+      (this._data as Record<string, unknown>)[k] = undefined;
+    });
     if (isNative) CarLauncher.stopCanBus?.();
   }
 

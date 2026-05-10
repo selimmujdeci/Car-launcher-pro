@@ -4,6 +4,9 @@ import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
 import { X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2, ArrowLeft, Camera, CameraOff } from 'lucide-react';
 import {
+  interpolateNavPoint, type NavPoint
+} from '../../utils/interpolation';
+import {
   initializeMap,
   destroyMap,
   isWebGLAvailable,
@@ -17,6 +20,7 @@ import {
   enterNavigationView,
   setDrivingMode,
   useDrivingMode,
+  updateDrivingLayers,
   setRouteGeometry,
   clearRouteGeometry,
   setTurnFocus,
@@ -34,8 +38,8 @@ import {
 } from '../../platform/mapSourceManager';
 import { useVisionStore } from '../../platform/visionStore';
 import {
-  useNavigation, updateNavigationProgress,
-  setNavStatus, NavStatus, activateNavigation, stopNavigation,
+  useNavigation, updateNavigationProgress, getSnappedMarkerPosition,
+  setNavStatus, NavStatus, activateNavigation, stopNavigation, startNavigation,
 } from '../../platform/navigationService';
 import {
   fetchRoute,
@@ -56,6 +60,7 @@ const VisionOverlay = lazy(() =>
 );
 import { useNavMode, setUserVisionPreference } from '../../platform/modeController';
 import { useRadarMapLayer } from '../../hooks/useRadarMapLayer';
+import { useOBDState } from '../../platform/obdService';
 
 interface FullMapViewProps {
   onClose: () => void;
@@ -68,19 +73,6 @@ const MODE_LABELS: Record<MapMode, string> = {
   hybrid: 'Hibrit',
   satellite: 'Uydu',
 };
-
-// ── setDrivingView throttle yardımcıları ─────────────────────────────────
-// Flat-earth yaklaşımı: küçük mesafeler (< 100 m) için hatasız, haversine'den hızlı.
-function _distM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const dlat = (lat2 - lat1) * 111_320;
-  const dlng = (lng2 - lng1) * 111_320 * Math.cos(lat1 * (Math.PI / 180));
-  return Math.sqrt(dlat * dlat + dlng * dlng);
-}
-
-function _headingDiff(a: number, b: number): number {
-  const d = Math.abs((b - a + 360) % 360);
-  return d > 180 ? 360 - d : d;
-}
 
 /** Stable hash of a route geometry — first point + last point + length. */
 function _routeHash(geometry: [number, number][] | null | undefined): string {
@@ -102,6 +94,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const locationRef        = useRef<ReturnType<typeof useGPSLocation>>(null);
   const headingRef         = useRef<number | null>(null);
   const lastDrivingPosRef  = useRef<{ lat: number; lng: number; heading: number } | null>(null);
+  const navPointsRef       = useRef<NavPoint[]>([]);
+  const interpolatedStateRef = useRef<NavPoint | null>(null);
   // unmount guard — prevents async style.load callbacks from touching React state after cleanup
   const mountedRef         = useRef(true);
   // dedup: skip setRouteGeometry when hash+styleKey+navStatus are identical
@@ -120,6 +114,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [routeReady, setRouteReady] = useState(false);
   const [isFollowing, setIsFollowing] = useState(true);
   const isFollowingRef  = useRef(true);
+  const autoFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drivingModeRef  = useRef(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
   const routeAltRef       = useRef<[number, number][][]>([]);
@@ -153,6 +148,19 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   const isValidGPS = !!(location && Number.isFinite(location.accuracy) && location.accuracy < 1000);
 
+  // ── Dead Reckoning refs — rAF loop içinde kullanılır, React state tetiklemez ──
+  const obdSpeedRef     = useRef(0);           // OBD hız (km/h) — DR fallback için
+  const gpsLostTsRef    = useRef<number | null>(null); // GPS kayıp zamanı
+  const drWarnTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [gpsLostWarn, setGpsLostWarn] = useState(false);
+  const gpsLostWarnRef  = useRef(false); // stale closure'dan kaçınmak için
+
+  // OBD hız ref'ini reactive olarak güncelle (render tetiklemeden)
+  const obdState = useOBDState();
+  useEffect(() => { obdSpeedRef.current = obdState.speed ?? 0; }, [obdState.speed]);
+  // gpsLostWarn ref sync — tick closure stale okuma önlemi
+  useEffect(() => { gpsLostWarnRef.current = gpsLostWarn; }, [gpsLostWarn]);
+
   // Sync refs safely outside of render
   useEffect(() => {
     locationRef.current = location;
@@ -175,6 +183,35 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       commandQueueRef.current.forEach(cmd => cmd());
       commandQueueRef.current = [];
     }
+  }, [mapStatus]);
+
+  // Stuck-LOADING guard — style.load Android WebView'da bazen hiç gelmez.
+  // Resize pump: 300ms aralıkla MapLibre'ye container boyutunu hatırlat (siyah ekran önleme).
+  // 5s sonra hâlâ LOADING ise READY'e zorla.
+  useEffect(() => {
+    if (mapStatus !== 'LOADING') return;
+
+    // Resize pump — MapLibre boyutu sıfır sanıyorsa bu kurtarır
+    const pumpId = setInterval(() => {
+      const container = containerRef.current;
+      if (mapRef.current && container && container.offsetWidth > 0 && container.offsetHeight > 0) {
+        try { mapRef.current.resize(); } catch { /* ignore */ }
+      }
+    }, 300);
+
+    const t = setTimeout(() => {
+      clearInterval(pumpId);
+      if (mountedRef.current) {
+        console.warn('[MAP] style.load timeout — forcing READY');
+        if (containerRef.current?.offsetWidth ?? 0 > 0) {
+          try { mapRef.current?.resize(); } catch { /* ignore */ }
+        }
+        setMapStatus('READY');
+        notifyStyleChange(false);
+      }
+    }, 5_000);
+
+    return () => { clearTimeout(t); clearInterval(pumpId); };
   }, [mapStatus]);
 
   // Unmount guard — mount-once, sets false on cleanup
@@ -208,10 +245,118 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       activeClass = cls;
     };
 
-    const tick = () => {
-      frameCount++;
-      const now = performance.now();
+    let lastCameraUpdate = 0;
+    let isPerfLowCached  = false; // DOM classList sorgusunu önler — applyClass'la senkronize
 
+    const tick = (now: number) => {
+      // ── Dead Reckoning — GPS koptuysa OBD hız + son heading ile konum hesapla ──
+      // Sadece: navigasyon ACTIVE + GPS geçersiz → CPU sıfır yük normal durumda
+      const isActiveNav = navStatusRef.current === NavStatus.ACTIVE || navStatusRef.current === NavStatus.REROUTING;
+      const gpsOk = !!(locationRef.current && Number.isFinite(locationRef.current.accuracy) && locationRef.current.accuracy < 1000);
+
+      if (isActiveNav && !gpsOk && navPointsRef.current.length > 0) {
+        const lastKnown = navPointsRef.current[navPointsRef.current.length - 1];
+        const obdKmh    = obdSpeedRef.current;
+
+        // GPS kayıp zamanını ilk kez kaydet
+        if (gpsLostTsRef.current === null) gpsLostTsRef.current = now;
+        const lostMs = now - gpsLostTsRef.current;
+
+        // 30s GPS yok + OBD hızı 0 → "Konum Kayboldu" uyarısı (bir kez tetiklenir)
+        if (lostMs > 30_000 && obdKmh < 1 && !gpsLostWarnRef.current) {
+          if (!drWarnTimerRef.current) {
+            drWarnTimerRef.current = setTimeout(() => {
+              if (mountedRef.current) setGpsLostWarn(true);
+            }, 0);
+          }
+        }
+
+        // perf-low modda DR hesaplama sıklığını azalt (her 500ms)
+        const isPerfLow = isPerfLowCached;
+        const drInterval = isPerfLow ? 500 : 16;
+
+        if (mapRef.current && mapStyleReady && (now - lastCameraUpdate > drInterval)) {
+          // Dead Reckoning: s = v × t, kartezyen tahmini
+          const dtSec    = Math.min((now - lastKnown.ts) / 1000, 5); // max 5s DR penceresi
+          const distDeg  = (obdKmh / 3.6) * dtSec / 111_320;
+          const headRad  = (lastKnown.heading * Math.PI) / 180;
+          const cosLat   = Math.max(0.001, Math.cos((lastKnown.lat * Math.PI) / 180));
+          const drLat    = lastKnown.lat + distDeg * Math.cos(headRad);
+          const drLng    = lastKnown.lng + distDeg * Math.sin(headRad) / cosLat;
+
+          updateUserMarker(drLat, drLng, lastKnown.heading);
+          if (isFollowingRef.current) {
+            const h = containerRef.current?.offsetHeight ?? 600;
+            setDrivingView(mapRef.current, drLat, drLng, lastKnown.heading, obdKmh, h);
+            lastCameraUpdate = now;
+          }
+        }
+      } else {
+        // GPS geri geldi — DR state ve uyarıyı temizle
+        if (gpsLostTsRef.current !== null) {
+          gpsLostTsRef.current = null;
+          if (drWarnTimerRef.current) { clearTimeout(drWarnTimerRef.current); drWarnTimerRef.current = null; }
+          if (gpsLostWarnRef.current && mountedRef.current) setGpsLostWarn(false);
+        }
+      }
+
+      // 1. Interpolation Mantığı — 60 FPS Araç Hareketi
+      const buffer = navPointsRef.current;
+      if (buffer.length >= 2 && mapRef.current && mapStyleReady) {
+        const p1 = buffer[0];
+        const p2 = buffer[1];
+        const interpolated = interpolateNavPoint(p1, p2, now);
+        interpolatedStateRef.current = interpolated;
+
+        const { lat, lng, heading: bear } = interpolated;
+        // GPS hız sıfırsa OBD fallback — speed-adaptive zoom/pitch için
+        const gpsSpeedKmh = (locationRef.current?.speed ?? 0) * 3.6;
+        const speedKmh    = gpsSpeedKmh > 0.5 ? gpsSpeedKmh : obdSpeedRef.current;
+        const turnDist = route.steps.length ? route.distanceToNextTurnMeters : undefined;
+
+        // A — Araç işaretçisi + Visual Snapping (60 FPS)
+        // ACTIVE: snap → rota yoluna kilitle, GPS zıplamalarını gizle
+        // Kamera da snapped koordinatı kullanır → sürücü rota dışı görünmez
+        const _snap = navStatusRef.current === NavStatus.ACTIVE
+          ? getSnappedMarkerPosition()
+          : null;
+        const displayLat = _snap?.lat ?? lat;
+        const displayLng = _snap?.lon ?? lng;
+        updateUserMarker(displayLat, displayLng, bear);
+
+        const isPreviewTracking =
+          (navStatusRef.current === NavStatus.PREVIEW || navStatusRef.current === NavStatus.ROUTING) &&
+          !!routeGeometryRef.current;
+        const isActiveNavigation =
+          navStatusRef.current === NavStatus.ACTIVE ||
+          navStatusRef.current === NavStatus.REROUTING;
+        const wantDrivingView = drivingModeRef.current || isPreviewTracking || isActiveNavigation;
+
+        if (wantDrivingView) {
+          const h = containerRef.current?.offsetHeight ?? 600;
+          // Hız sıfırken kamera 500ms'de bir güncellenir — pil tasarrufu
+          const cameraThrottleMs = speedKmh < 1 ? 500 : 16;
+          if (isFollowingRef.current && (now - lastCameraUpdate > cameraThrottleMs)) {
+            // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
+            setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current);
+            lastCameraUpdate = now;
+          }
+        } else if (isFollowingRef.current) {
+          // Nav dışı takip modu (2D) — 500ms'de bir merkezle
+          if (now - lastCameraUpdate > 500) {
+            setMapCenter(mapRef.current, [lng, lat], 15, false);
+            setMapHeading(mapRef.current, bear);
+            lastCameraUpdate = now;
+          }
+        }
+      } else if (buffer.length === 1 && mapRef.current && mapStyleReady) {
+        // Tek nokta varsa (başlangıç) doğrudan oraya git
+        const p = buffer[0];
+        updateUserMarker(p.lat, p.lng, p.heading);
+      }
+
+      // 2. FPS & Performance Monitörü
+      frameCount++;
       if (now - lastT >= 1000) {
         const fps = frameCount;
         frameCount = 0;
@@ -221,13 +366,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           navStatusRef.current === NavStatus.ACTIVE ||
           navStatusRef.current === NavStatus.REROUTING;
 
-        // CSS sınıfı — her ölçümde güncellenir
+        // CSS sınıfı — her ölçümde güncellenir; isPerfLowCached ile RAF'taki DOM sorgusu kaldırıldı
         if (fps < 20 || isActiveDriving) {
           applyClass('perf-low');
+          isPerfLowCached = true;
         } else if (fps < 40) {
           applyClass('perf-med');
+          isPerfLowCached = false;
         } else {
           applyClass('');
+          isPerfLowCached = false;
         }
 
         // Thermal lock — sadece high↔low geçişinde çağrılır (her saniye değil)
@@ -312,18 +460,57 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     };
   }, [mapStatus, showControls]);
 
-  // Kullanıcı haritayı sürüklediğinde takibi durdur (navigasyon aktif olsa bile)
+  // Haritaya uzun basış (sağ tık / contextmenu) → o noktayı hedef seç
   useEffect(() => {
     if (mapStatus !== 'READY' || !mapRef.current) return;
     const map = mapRef.current;
+    const onLongPress = (e: { lngLat: { lng: number; lat: number } }) => {
+      const { lng, lat } = e.lngLat;
+      startNavigation({
+        id: `map-${Date.now()}`,
+        name: 'Haritadan Seçilen Nokta',
+        latitude: lat,
+        longitude: lng,
+        type: 'history',
+      });
+    };
+    map.on('contextmenu', onLongPress);
+    return () => { map.off('contextmenu', onLongPress); };
+  }, [mapStatus]);
+
+  // Kullanıcı haritayı sürüklediğinde takibi durdur — 10 saniye sonra otomatik yeniden başlat
+  useEffect(() => {
+    if (mapStatus !== 'READY' || !mapRef.current) return;
+    const map = mapRef.current;
+    const scheduleAutoFollow = () => {
+      if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
+      const isNav = navStatusRef.current === NavStatus.ACTIVE || navStatusRef.current === NavStatus.REROUTING;
+      autoFollowTimerRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+        isFollowingRef.current = true;
+        setIsFollowing(true);
+        const loc  = locationRef.current;
+        const bear = headingRef.current ?? 0;
+        const h    = containerRef.current?.offsetHeight ?? 600;
+        if (mapRef.current && loc && mapRef.current.isStyleLoaded()) {
+          if (drivingModeRef.current || isNav) {
+            enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
+          }
+        }
+      }, isNav ? 3_000 : 10_000);
+    };
     const onDrag = () => {
       if (isFollowingRef.current) {
         isFollowingRef.current = false;
         setIsFollowing(false);
       }
+      scheduleAutoFollow();
     };
     map.on('dragstart', onDrag);
-    return () => { map.off('dragstart', onDrag); };
+    return () => {
+      map.off('dragstart', onDrag);
+      if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
+    };
   }, [mapStatus]);
 
   // Sürüş modu açılınca takibi yeniden başlat + haritayı hemen 3D nav görünümüne al
@@ -344,27 +531,82 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // WebGL kontrolü — eski head unit'lerde harita açılamaz
   const webglSupported = isWebGLAvailable();
 
-  // Init map — waits for container to have actual pixel dimensions
+  // Init map — waits for container to have stable pixel dimensions (min 3 rAF frames)
   useEffect(() => {
     if (!containerRef.current || initDone.current) return;
 
     const el = containerRef.current;
     let observer: ResizeObserver | null = null;
 
-    function tryInit() {
-      if (initDone.current) return;
-      if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
-      observer?.disconnect();
-      doInit(el);
+    let resizeRafId:  number | null = null;
+    let settleRafId:  number | null = null;
+    let settleCount   = 0;
+    let lastW         = 0;
+    let lastH         = 0;
+    const SETTLE_FRAMES = 3; // min 3 frame boyunca aynı boyut → init güvenli
+
+    function scheduleSettle() {
+      if (settleRafId !== null) cancelAnimationFrame(settleRafId);
+      settleRafId = requestAnimationFrame(() => {
+        settleRafId = null;
+        if (initDone.current) return;
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        if (w === 0 || h === 0) { settleCount = 0; return; } // 0×0 → ResizeObserver bekle
+        if (w === lastW && h === lastH) {
+          settleCount++;
+        } else {
+          settleCount = 1;
+          lastW = w;
+          lastH = h;
+        }
+        if (settleCount >= SETTLE_FRAMES) {
+          doInit(el);
+        } else {
+          scheduleSettle(); // bir frame daha bekle
+        }
+      });
     }
 
+    function tryInit() {
+      if (initDone.current) {
+        if (el.offsetWidth > 0 && el.offsetHeight > 0 && mapRef.current) {
+          if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+          resizeRafId = requestAnimationFrame(() => {
+            resizeRafId = null;
+            mapRef.current?.resize();
+          });
+        }
+        return;
+      }
+      if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
+      // ResizeObserver tetiklendi → settle sayacını sıfırla, yeniden başlat
+      settleCount = 0;
+      lastW = 0;
+      lastH = 0;
+      scheduleSettle();
+    }
+
+    observer = new ResizeObserver(tryInit);
+    observer.observe(el);
+
+    // İlk mount'ta boyut varsa hemen settle döngüsünü başlat
     if (el.offsetWidth > 0 && el.offsetHeight > 0) {
-      doInit(el);
+      scheduleSettle();
     } else {
-      observer = new ResizeObserver(tryInit);
-      observer.observe(el);
       requestAnimationFrame(tryInit);
     }
+
+    const onTransitionEnd = () => {
+      if (mapRef.current && el.offsetWidth > 0 && el.offsetHeight > 0) {
+        requestAnimationFrame(() => {
+          if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+            try { mapRef.current?.resize(); } catch { /* ignore */ }
+          }
+        });
+      }
+    };
+    el.addEventListener('transitionend', onTransitionEnd);
 
     function doInit(container: HTMLElement) {
       // SINGLE INSTANCE GUARANTEE — never create a second WebGL context
@@ -428,6 +670,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
     return () => {
       observer?.disconnect();
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+      if (settleRafId !== null) cancelAnimationFrame(settleRafId);
+      el.removeEventListener('transitionend', onTransitionEnd);
       cleanupRef.current?.();
     };
   }, []);
@@ -493,6 +738,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (navStatus === NavStatus.ACTIVE || navStatus === NavStatus.REROUTING) {
       setIsPreview(false);
     }
+  }, [navStatus]);
+
+  // PREVIEW: rota hazır → haritayı takip moduna al (kullanıcı sürüklemiş olsa bile)
+  useEffect(() => {
+    if (navStatus !== NavStatus.PREVIEW) return;
+    isFollowingRef.current = true;
+    setIsFollowing(true);
+    lastDrivingPosRef.current = null; // throttle sıfırla → hemen setDrivingView çalışır
   }, [navStatus]);
 
   // ACTIVE/REROUTING: sürüş modunu garantile + haritayı 3D nav görünümüne al
@@ -628,6 +881,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     styleChangingRef.current = true;
     notifyStyleChange(true);
 
+    try { map.resize(); } catch { /* container may be transitioning */ }
     setMapStatus('LOADING');
     switchMapStyle(map, {
       version: 8,
@@ -635,15 +889,19 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
     } as any);
 
-    map.once('style.load', () => {
+    let _styleSwitchFired = false;
+    const _onStyleReady = () => {
+      if (_styleSwitchFired) return;
+      _styleSwitchFired = true;
+      clearTimeout(_styleSwitchTimeout);
+
       styleChangingRef.current = false;
       notifyStyleChange(false);
       if (!mountedRef.current) return;
 
       setMapStatus('READY');
+      map.resize();
 
-      // Center to GPS after style loads — guaranteed correct timing
-      // Driving mode açıksa 3D nav görünümüne al; değilse düz ortalama
       const loc = locationRef.current;
       const hdg = headingRef.current;
       if (loc) {
@@ -664,66 +922,46 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       if (withFadeOverlay) {
         setTimeout(() => { if (mountedRef.current) setIsSwitchingStyle(false); }, 150);
       }
-    });
+    };
+
+    // 5s fallback — style.load bazen Android WebView'da gelmez
+    const _styleSwitchTimeout = setTimeout(_onStyleReady, 5_000);
+    map.once('style.load', _onStyleReady);
   }
 
-  // Location updates — normal tracking or driving view
+  // Location updates — buffer data for 60fps interpolation
   useEffect(() => {
-    if (!mapRef.current || !location || !mapStyleReady) return;
+    if (!location || !mapStyleReady) return;
 
-    const { latitude, longitude } = location;
-    const speedKmh = (location.speed ?? 0) * 3.6;
-    const bear = heading || 0;
+    const newPoint: NavPoint = {
+      lat: location.latitude,
+      lng: location.longitude,
+      heading: heading || 0,
+      ts: performance.now(),
+    };
 
-    const turnDist = route.steps.length ? route.distanceToNextTurnMeters : undefined;
+    const buffer = navPointsRef.current;
+    buffer.push(newPoint);
+    if (buffer.length > 2) buffer.shift();
 
-    if (!mapRef.current._fullMapInitialized) {
-      addUserMarker(mapRef.current, latitude, longitude, bear);
-      if (drivingMode) {
-        const h = containerRef.current?.offsetHeight ?? 600;
-        lastDrivingPosRef.current = { lat: latitude, lng: longitude, heading: bear };
-        setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
-      } else {
-        setMapCenter(mapRef.current, [longitude, latitude], 15, true);
-      }
-      mapRef.current._fullMapInitialized = true;
-    } else {
-      updateUserMarker(latitude, longitude, bear);
-
-      if (drivingMode) {
-        const h    = containerRef.current?.offsetHeight ?? 600;
-        const last = lastDrivingPosRef.current;
-        const moved = !last
-          || _distM(last.lat, last.lng, latitude, longitude) > 2
-          || _headingDiff(last.heading, bear) > 3;
-        // Fail-safe: harita yanlışlıkla 2D'ye düştüyse her tick'te 3D'ye döndür
-        const isFlat = mapRef.current.getPitch() < 5;
-        if (isFollowing && (moved || isFlat)) {
-          lastDrivingPosRef.current = { lat: latitude, lng: longitude, heading: bear };
-          setDrivingView(mapRef.current, latitude, longitude, bear, speedKmh, h, turnDist);
-        }
-      } else if (isFollowing) {
-        const currentCenter = mapRef.current.getCenter();
-        const dx = longitude - currentCenter.lng;
-        const dy = latitude - currentCenter.lat;
-        if (Math.sqrt(dx * dx + dy * dy) > 0.005) {
-          setMapCenter(mapRef.current, [longitude, latitude], 15, false);
-        }
-        if (heading && isFinite(heading)) {
-          setMapHeading(mapRef.current, heading);
-        }
-      }
-    }
-
+    // Rota ilerlemesini gerçek GPS tick'inde güncelle (mantık ve OSRM verisi için)
     if (destination) {
-      updateNavigationProgress(latitude, longitude, bear, routeGeometryRef.current ?? undefined);
-      updateRouteProgress(latitude, longitude);
+      updateNavigationProgress(location.latitude, location.longitude, heading || 0, routeGeometryRef.current ?? undefined);
+      updateRouteProgress(location.latitude, location.longitude);
     }
-  }, [location, heading, destination, mapStyleReady, styleKey, drivingMode, isFollowing]);
+
+    // Hız bazlı katman gizleme + POI proximity glow — GPS tick'te (~1–3s), rAF'ta değil
+    if (mapRef.current) {
+      const spd = (location.speed ?? 0) * 3.6;
+      updateDrivingLayers(mapRef.current, spd, location.latitude, location.longitude);
+    }
+  }, [location, heading, destination, mapStyleReady]);
 
   const handleNavStart  = useCallback(() => {
     activateNavigation();
     setDrivingMode(true);
+    isFollowingRef.current = true;
+    setIsFollowing(true);
     const loc  = locationRef.current;
     const bear = headingRef.current ?? 0;
     const h    = containerRef.current?.offsetHeight ?? 600;
@@ -751,6 +989,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const handleZoomOut = () => mapRef.current?.zoomOut();
 
   const handleRecenter = useCallback(() => {
+    if (autoFollowTimerRef.current) { clearTimeout(autoFollowTimerRef.current); autoFollowTimerRef.current = null; }
     isFollowingRef.current = true;
     setIsFollowing(true);
     if (mapRef.current && location) {
@@ -893,6 +1132,37 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         />
       </Suspense>
 
+      {/* ── Cadde Adı Barı — Mercedes-Benz tarzı, navigasyon aktifken ── */}
+      {isNavigating && (() => {
+        const street = route.steps[route.currentStepIndex]?.streetName;
+        return street ? (
+          <div
+            className="absolute z-20 pointer-events-none"
+            style={{ bottom: 'calc(var(--nav-bar-h, 72px) + 8px)', left: '50%', transform: 'translateX(-50%)' }}
+          >
+            <div
+              className="futurist-glass px-5 py-2 rounded-2xl flex items-center gap-2"
+              style={{ border: '1px solid rgba(255,255,255,0.12)', minWidth: 160, maxWidth: 320 }}
+            >
+              <span className="text-white font-black text-sm tracking-wide truncate">{street}</span>
+            </div>
+          </div>
+        ) : null;
+      })()}
+
+      {/* GPS Kayıp Uyarısı — 30s GPS yok + OBD hız 0 */}
+      {gpsLostWarn && isNavigating && (
+        <div
+          className="absolute z-[9998] pointer-events-none"
+          style={{ top: 'calc(var(--sat, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)' }}
+        >
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl"
+            style={{ background: 'rgba(239,68,68,0.18)', border: '1.5px solid rgba(239,68,68,0.45)', backdropFilter: 'blur(12px)' }}>
+            <span className="text-red-400 text-xs font-black uppercase tracking-widest">⚠ Konum Kayboldu — GPS Sinyali Yok</span>
+          </div>
+        </div>
+      )}
+
       {/* Navigation HUD */}
       <NavigationHUD
         onStart={handleNavStart}
@@ -912,26 +1182,26 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       <button
         onClick={onClose}
         aria-label="Haritayı kapat"
-        className="flex items-center gap-1.5 rounded-2xl active:scale-90 transition-all"
+        className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
         style={{
           position: 'fixed',
-          top: 'calc(var(--sat) + 14px)', right: 'calc(var(--sar) + 14px)',
+          top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
           zIndex: 9999,
-          padding: '10px 16px',
-          background: 'rgba(239,68,68,0.92)',
-          backdropFilter: 'blur(12px)',
-          border: '1.5px solid rgba(255,255,255,0.25)',
-          color: '#fff', fontWeight: 800, fontSize: 13,
-          letterSpacing: '0.04em', cursor: 'pointer',
-          boxShadow: '0 4px 20px rgba(239,68,68,0.40)',
+          padding: '12px 20px',
+          background: 'rgba(239,68,68,0.18)',
+          backdropFilter: 'blur(20px)',
+          border: '1.5px solid rgba(239,68,68,0.4)',
+          color: '#f87171', fontWeight: 900, fontSize: 13,
+          letterSpacing: '0.1em', cursor: 'pointer',
+          boxShadow: '0 8px 32px rgba(239,68,68,0.25)',
         }}
       >
-        <X className="w-4 h-4 text-white stroke-[2.5px]" />
-        <span style={{ color: '#fff' }}>KAPAT</span>
+        <X className="w-4 h-4 text-red-400 stroke-[3px]" />
+        <span className="uppercase tracking-widest">KAPAT</span>
       </button>
 
-      {/* ── GOOGLE MAPS TARZ RE-CENTER: Harita sürüklenince çıkar, navigasyonda da gösterilir ── */}
-      {!isFollowing && (
+      {/* ── GOOGLE MAPS TARZ RE-CENTER: Navigasyonda gizli, nav dışında sürüklenince çıkar ── */}
+      {!isFollowing && !isNavigating && (
         <button
           onClick={() => { handleRecenter(); showControls(); }}
           aria-label="Konuma dön"
@@ -965,7 +1235,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         </button>
       )}
 
-      {/* ── SAĞ ALT: Mercedes MBUX tarzı — her zaman yerinde, aktifken parlıyor ── */}
+      {/* ── SAĞ: Nav dışı kontroller — sürüş modunda gizle ── */}
       <div
         className="absolute right-4 z-20 flex flex-col items-center gap-2.5"
         style={{
@@ -1031,6 +1301,45 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           </button>
         </div>
       </div>
+
+      {/* ── SAĞ: Navigasyon zoom + pusula — nav modunda görünür ── */}
+      {isNavigating && (
+        <div
+          className="absolute right-4 z-20 flex flex-col items-center gap-2"
+          style={{ bottom: 'calc(var(--lp-dock-h,68px) + 96px)' }}
+        >
+          {/* Pusula — bearing'e göre döner */}
+          <button
+            onClick={() => { handleRecenter(); showControls(); }}
+            className="w-11 h-11 rounded-full flex items-center justify-center bg-black/70 backdrop-blur-xl border border-white/15 active:scale-90 transition-all"
+            style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.55)' }}
+          >
+            <Navigation2
+              className="w-5 h-5 text-white"
+              style={{ transform: `rotate(${-(heading ?? 0)}deg)`, transition: 'transform 0.3s ease' }}
+            />
+          </button>
+          {/* Zoom pill */}
+          <div
+            className="flex flex-col bg-black/70 backdrop-blur-xl rounded-2xl border border-white/15 overflow-hidden"
+            style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
+          >
+            <button
+              onClick={() => { handleZoomIn(); showControls(); }}
+              className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
+            >
+              <ZoomIn className="w-4.5 h-4.5" />
+            </button>
+            <div className="h-px bg-white/12 mx-2" />
+            <button
+              onClick={() => { handleZoomOut(); showControls(); }}
+              className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
+            >
+              <ZoomOut className="w-4.5 h-4.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── ALT MERKEZ: Harita katman seçici — nav/preview'da kaybolur, idle'da soluklaşır ── */}
       <div

@@ -173,17 +173,24 @@ export async function readDTCCodes(): Promise<void> {
 
   try {
     if (Capacitor.isNativePlatform()) {
+      // Native cihazda gerçek ECU okuma — mock'a asla düşme
       try {
-        const result = await (CarLauncher as unknown as Record<string, (a?: unknown) => Promise<{ codes: string[] }>>).readDTC();
+        const result = await CarLauncher.readDTC();
         const codes = (result.codes ?? []).map(_lookupCode);
         _setState({ codes, isReading: false, lastReadAt: Date.now() });
-        return;
       } catch {
-        // fall through to mock
+        // OBD okuyucu bağlı değil veya ECU yanıt vermiyor — boş liste, hata mesajı
+        _setState({
+          codes: [],
+          isReading: false,
+          lastReadAt: Date.now(),
+          error: 'OBD okuyucu bağlı değil veya ECU yanıt vermiyor',
+        });
       }
+      return;
     }
 
-    // Mock / web fallback
+    // Yalnızca web/demo modda simüle veri
     await new Promise<void>((r) => setTimeout(r, 1_500));
     _setState({ codes: _getMockCodes(), isReading: false, lastReadAt: Date.now() });
 
@@ -202,7 +209,7 @@ export async function clearDTCCodes(): Promise<void> {
   try {
     if (Capacitor.isNativePlatform()) {
       try {
-        await (CarLauncher as unknown as Record<string, () => Promise<void>>).clearDTC();
+        await CarLauncher.clearDTC();
       } catch {
         // ignore if plugin doesn't support clearDTC yet
       }

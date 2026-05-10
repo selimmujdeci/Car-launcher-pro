@@ -1,6 +1,7 @@
 import { memo, useCallback } from 'react';
 import { Star } from 'lucide-react';
 import type { AppItem } from '../../data/apps';
+import { getNativeIcon } from '../../platform/appDiscovery';
 
 interface Props {
   apps: AppItem[];
@@ -24,20 +25,65 @@ const COL_CLASS: Record<number, string> = {
   5: 'grid-cols-5',
 };
 
+/**
+ * Üç ikon kaynağını sırayla dener:
+ *   1. Native Android PNG (_iconCache'den Base64 URI)
+ *   2. SVG sembol referansı (/icons.svg#id)
+ *   3. Metin fallback (henüz migrate edilmemiş küratörlü app ikonları için)
+ */
+const AppIcon = memo(function AppIcon({ app }: { app: AppItem }) {
+  const nativeSrc = getNativeIcon(app.androidPackage ?? '');
+
+  if (nativeSrc) {
+    return (
+      <img
+        src={nativeSrc}
+        alt=""
+        draggable={false}
+        className="w-20 h-20 rounded-2xl object-contain drop-shadow-2xl transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3"
+      />
+    );
+  }
+
+  if (app.icon.startsWith('/icons.svg#')) {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-20 h-20 text-blue-300 drop-shadow-2xl transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3"
+      >
+        <use href={app.icon} />
+      </svg>
+    );
+  }
+
+  // Metin fallback — küratörlü ALL_APPS emoji ikonları için geçici uyumluluk katmanı
+  return (
+    <span className="text-8xl leading-none drop-shadow-2xl transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3">
+      {app.icon}
+    </span>
+  );
+});
+
 const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavorite, onLaunch }: AppItemProps) {
-  const handleLaunch = useCallback(() => onLaunch(app.id), [app.id, onLaunch]);
+  const handleLaunch   = useCallback(() => onLaunch(app.id), [app.id, onLaunch]);
   const handleFavorite = useCallback(() => onToggleFavorite(app.id), [app.id, onToggleFavorite]);
 
   return (
     <div
       className="relative animate-slide-up"
-      style={{ animationDelay: (Math.min(index, 5) * 15) + "ms" }}
+      style={{ animationDelay: (Math.min(index, 5) * 15) + 'ms' }}
     >
       <button
         onClick={handleLaunch}
         className="w-full aspect-square flex flex-col items-center justify-center gap-6 rounded-[3rem] glass-card border-white/10 hover:border-white/30 hover:scale-[1.03] active:scale-[0.92] transition-all duration-500 group shadow-lg"
       >
-        <span className="text-8xl leading-none drop-shadow-2xl transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3">{app.icon}</span>
+        <AppIcon app={app} />
         <span className="text-primary text-[15px] font-black px-4 text-center leading-tight truncate w-full tracking-[0.05em] uppercase">
           {app.name}
         </span>
@@ -52,7 +98,7 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavor
               : 'text-secondary/20 border-white/5 hover:text-secondary/40'
           }`}
         >
-          <Star className={"w-6 h-6 " + (isFav ? 'fill-yellow-500' : '')} />
+          <Star className={'w-6 h-6 ' + (isFav ? 'fill-yellow-500' : '')} />
         </button>
       )}
     </div>
@@ -93,5 +139,3 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
     </div>
   );
 });
-
-

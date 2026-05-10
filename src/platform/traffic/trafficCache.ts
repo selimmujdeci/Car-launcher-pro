@@ -11,6 +11,7 @@
  */
 
 import type { SegmentTrafficState, HourlyPrediction } from './trafficTypes';
+import { registerCachePurge } from '../memoryWatchdog';
 
 /* ── LRU Node ────────────────────────────────────────────────── */
 
@@ -198,11 +199,18 @@ export function getCacheStats(): { segments: number; predictions: number } {
 /**
  * Tüm cache'i temizle.
  * App unmount / HMR sırasında çağrılır.
+ * memoryWatchdog CRITICAL seviyesinde de tetikler.
  */
-export function disposeTrafficCache(): void {
+export function clearCache(): void {
   _segmentCache.clear();
   _predictionCache.clear();
 }
+
+/** @deprecated disposeTrafficCache → clearCache olarak yeniden adlandırıldı */
+export function disposeTrafficCache(): void { clearCache(); }
+
+// RAM krizi: memoryWatchdog cache temizleme sinyaline kaydol
+registerCachePurge(clearCache);
 
 /* ── HMR cleanup ─────────────────────────────────────────────── */
 

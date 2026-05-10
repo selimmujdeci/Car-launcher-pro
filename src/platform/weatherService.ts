@@ -7,9 +7,9 @@
  * Geocoding: Nominatim/OpenStreetMap (free, no API key)
  *   https://nominatim.openstreetmap.org/
  *
- * Fuel Prices: Turkey EPDK average + simulated nearby station variance.
- *   Real pump-price APIs are commercial; this service uses current Turkish
- *   averages (updated manually) with ±5% random station variance.
+ * Fuel Prices: Supabase Edge Function → get-fuel-prices → gerçek EPDK verisi.
+ *   API başarısız olursa: taze cache → stale cache → fuelPending=true (UI bekleme).
+ *   isSimulated her zaman false — simüle veri dönmez.
  *
  * Architecture:
  *  - Module-level push state
@@ -48,8 +48,7 @@ export interface FuelStation {
   lpgPrice?: number;        // TL/L
   isOpen: boolean;
   isCheapest: boolean;
-  /** Gerçek pompa fiyatı değil — EPDK ortalamasına dayalı tahmini fiyat */
-  isSimulated: true;
+  isSimulated: false;
 }
 
 export interface WeatherState {
@@ -57,6 +56,8 @@ export interface WeatherState {
   stations: FuelStation[];
   isLoadingWeather: boolean;
   isLoadingFuel: boolean;
+  /** true = API + cache ikisi de başarısız; UI "Veri Bekleniyor" göstermeli */
+  fuelPending: boolean;
   lastUpdated: number | null;
   error: string | null;
   /** Aktif konum kaynağı — debug ve UI etiketleri için */
@@ -99,13 +100,28 @@ const FUEL_CACHE_TTL = 60 * 60_000; // 60 minutes
 
 interface FuelCache { stations: FuelStation[]; ts: number }
 
+function _normalizeCached(stations: FuelStation[]): FuelStation[] {
+  return stations.map(s => ({ ...s, isSimulated: false as const }));
+}
+
 function _loadFuelCache(): FuelStation[] | null {
   try {
     const raw = localStorage.getItem(FUEL_CACHE_KEY);
     if (!raw) return null;
     const cache = JSON.parse(raw) as FuelCache;
     if (Date.now() - cache.ts > FUEL_CACHE_TTL) return null;
-    return cache.stations;
+    return _normalizeCached(cache.stations);
+  } catch { return null; }
+}
+
+/** TTL'e bakmaksızın son başarılı cache'i döner — API hatası sonrası stale fallback */
+function _loadFuelCacheStale(): FuelStation[] | null {
+  try {
+    const raw = localStorage.getItem(FUEL_CACHE_KEY);
+    if (!raw) return null;
+    const cache = JSON.parse(raw) as FuelCache;
+    if (!Array.isArray(cache.stations) || cache.stations.length === 0) return null;
+    return _normalizeCached(cache.stations);
   } catch { return null; }
 }
 
@@ -123,16 +139,22 @@ async function _fetchFuelFromAPI(lat: number, lng: number): Promise<FuelStation[
   const supabase = getSupabaseClient();
   if (!supabase) return null;
 
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '';
+  const anonKey     = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
+  if (!supabaseUrl || !anonKey) return null;
+
   try {
-    const url = `${(import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''}/functions/v1/get-fuel-prices`;
-    const res = await fetch(url, {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-fuel-prices`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '' },
+      headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
       body:    JSON.stringify({ lat, lng }),
+      signal:  AbortSignal.timeout(10_000), // 10s timeout — araç ağı yavaş olabilir
     });
     if (!res.ok) return null;
     const data = await res.json() as FuelAPIResponse;
-    return data.stations ?? null;
+    if (!Array.isArray(data.stations) || data.stations.length === 0) return null;
+    // Gerçek EPDK verisi — isSimulated her zaman false
+    return data.stations.map(s => ({ ...s, isSimulated: false as const }));
   } catch (e) {
     logError('weatherService:fetchFuel', e);
     return null;
@@ -146,6 +168,7 @@ const INITIAL: WeatherState = {
   stations: [],
   isLoadingWeather: false,
   isLoadingFuel: false,
+  fuelPending: false,
   lastUpdated: null,
   error: null,
   locationSource: 'none',
@@ -244,25 +267,32 @@ async function _fetchWeather(lat: number, lng: number): Promise<void> {
 }
 
 async function _fetchFuel(lat: number, lng: number): Promise<void> {
-  _setState({ isLoadingFuel: true });
+  _setState({ isLoadingFuel: true, fuelPending: false });
 
-  // Try API first
+  // 1. Supabase Edge Function → gerçek EPDK verisi
   const apiStations = await _fetchFuelFromAPI(lat, lng);
   if (apiStations) {
     _saveFuelCache(apiStations);
-    _setState({ stations: apiStations, isLoadingFuel: false });
+    _setState({ stations: apiStations, isLoadingFuel: false, fuelPending: false });
     return;
   }
 
-  // Fallback: use cached data if available
-  const cached = _loadFuelCache();
-  if (cached) {
-    _setState({ stations: cached, isLoadingFuel: false });
+  // 2. API başarısız → taze cache (TTL içinde)
+  const freshCache = _loadFuelCache();
+  if (freshCache) {
+    _setState({ stations: freshCache, isLoadingFuel: false, fuelPending: false });
     return;
   }
 
-  // No data available — clear stations
-  _setState({ stations: [], isLoadingFuel: false });
+  // 3. Taze cache yok → stale cache (eski ama var)
+  const staleCache = _loadFuelCacheStale();
+  if (staleCache) {
+    _setState({ stations: staleCache, isLoadingFuel: false, fuelPending: false });
+    return;
+  }
+
+  // 4. Hiç veri yok → UI "Veri Bekleniyor" durumuna geç
+  _setState({ stations: [], isLoadingFuel: false, fuelPending: true });
 }
 
 /* ── GPS helpers ─────────────────────────────────────────── */
@@ -365,4 +395,37 @@ export function useWeatherState(): WeatherState {
   const [s, setS] = useState<WeatherState>({ ..._state, stations: [..._state.stations] });
   useEffect(() => onWeatherState(setS), []);
   return s;
+}
+
+/**
+ * WeatherState'i akıcı bir Türkçe cümleye dönüştürür — TTS için optimize edilmiştir.
+ * Veri yoksa kısa bir hata metni döner.
+ *
+ * Örnek çıktı:
+ *   "Mersin'de hava açık ve güneşli, sıcaklık 28 derece,
+ *    hissedilen 26, rüzgar 14 kilometre."
+ */
+export function getWeatherNarrative(state?: WeatherState): string {
+  const w = (state ?? _state).weather;
+  if (!w) return 'Hava durumu verisi henüz alınamadı.';
+
+  const parts: string[] = [];
+
+  if (w.city && w.city !== 'Bilinmeyen') {
+    parts.push(`${w.city}'de hava ${w.description}`);
+  } else {
+    parts.push(`Hava ${w.description}`);
+  }
+
+  parts.push(`sıcaklık ${w.temperature} derece`);
+
+  if (Math.abs(w.feelsLike - w.temperature) >= 2) {
+    parts.push(`hissedilen ${w.feelsLike}`);
+  }
+
+  if (w.windSpeed > 5) {
+    parts.push(`rüzgar ${w.windSpeed} kilometre`);
+  }
+
+  return parts.join(', ') + '.';
 }

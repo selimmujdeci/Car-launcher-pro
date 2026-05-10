@@ -47,6 +47,18 @@ const PERSIST_KEY = 'rt-last-mode';
 /** setMode() çağrısının hangi kaynaktan geldiğini belirtir. */
 export type ModeReason = string;
 
+/**
+ * Worker kritiklik sınıfı:
+ *   CRITICAL  — VehicleCompute: her koşulda çalışır, bellek baskısında dokunulmaz.
+ *   OPTIONAL  — VisionCompute, NavigationCompute: MODERATE/CRITICAL'da askıya alınır.
+ */
+export type WorkerCriticality = 'CRITICAL' | 'OPTIONAL';
+
+interface WorkerEntry {
+  worker:       Worker | null;
+  criticality:  WorkerCriticality;
+}
+
 /** subscribe() callback imzası. */
 export type ModeChangeListener = (
   mode:   RuntimeMode,
@@ -92,6 +104,9 @@ class AdaptiveRuntimeManager {
 
   private readonly _listeners = new Set<ModeChangeListener>();
 
+  /** Worker registry: key → {worker, criticality} */
+  private readonly _workers = new Map<string, WorkerEntry>();
+
   /* ── Constructor ────────────────────────────────────────────── */
 
   private constructor() {
@@ -112,8 +127,12 @@ class AdaptiveRuntimeManager {
    * Her ikisi var → BALANCED (termal ve kullanıcı sinyalleri daha sonra ayarlar)
    */
   private _detectCapabilities(): RuntimeMode {
-    const hasWorker = typeof Worker            !== 'undefined';
-    const hasSAB    = typeof SharedArrayBuffer !== 'undefined';
+    const hasWorker = typeof Worker !== 'undefined';
+    // typeof tek başına yetmez: SAB yalnızca crossOriginIsolated=true (COOP+COEP)
+    // ortamında gerçekten kullanılabilir; aksi halde runtime'da hata fırlatır.
+    const hasSAB =
+      typeof SharedArrayBuffer !== 'undefined' &&
+      typeof self !== 'undefined' && self.crossOriginIsolated === true;
 
     if (!hasWorker || !hasSAB) {
       return RuntimeMode.BASIC_JS;
@@ -357,9 +376,80 @@ class AdaptiveRuntimeManager {
    * Singleton sıfırlama için `_resetForTest()` kullan;
    * bu metod sadece uygulama kapatma / test teardown için.
    */
+  /* ══════════════════════════════════════════════════════════════
+     Worker Lifecycle Registry
+  ══════════════════════════════════════════════════════════════ */
+
+  /**
+   * Worker'ı kayıt altına al.
+   * null worker da kabul edilir (crash sonrası referans temizliği için).
+   *
+   * @param key           Benzersiz isim ('VisionCompute', 'NavigationCompute', …)
+   * @param worker        Worker instance veya null
+   * @param criticality   CRITICAL = her zaman çalışır; OPTIONAL = RAM baskısında sonlandırılır
+   */
+  registerWorker(key: string, worker: Worker | null, criticality: WorkerCriticality): void {
+    this._workers.set(key, { worker, criticality });
+  }
+
+  /** Worker kaydını kaldır. stopVision / stopNavigation çağrılarında kullanılır. */
+  unregisterWorker(key: string): void {
+    this._workers.delete(key);
+  }
+
+  /**
+   * Kayıtlı worker'ların salt okunur görünümü.
+   * Yüklenebilirlik farkındalığı için termal watchdog tarafından sorgulanır.
+   * worker=null ise o worker crash etmiş veya RAM baskısında sonlandırılmıştır.
+   */
+  getWorkers(): ReadonlyMap<string, { readonly worker: Worker | null; readonly criticality: WorkerCriticality }> {
+    return this._workers;
+  }
+
+  /**
+   * Bellek baskısı bildirimi — memoryWatchdog tarafından çağrılır.
+   * (Döngüsel bağımlılığı önlemek için memoryWatchdog buraya import yapılmaz;
+   *  memoryWatchdog runtimeManager referansını alıp bu metodu çağırır.)
+   *
+   * MODERATE → OPTIONAL worker'ları sonlandır (VisionCompute vb.)
+   * CRITICAL → tüm OPTIONAL + NavigationCompute sonlandır; sadece CRITICAL hayatta kalır
+   */
+  handleMemoryPressure(level: 'MODERATE' | 'CRITICAL'): void {
+    console.warn(`[Runtime] memory pressure: ${level} — adjusting worker lifecycle`);
+
+    for (const [key, entry] of this._workers.entries()) {
+      if (entry.criticality === 'CRITICAL') continue; // VehicleCompute korunur
+
+      if (level === 'MODERATE' || level === 'CRITICAL') {
+        this._terminateWorkerEntry(key, entry);
+      }
+    }
+  }
+
+  private _terminateWorkerEntry(key: string, entry: WorkerEntry): void {
+    if (!entry.worker) return;
+    try {
+      entry.worker.postMessage({ type: 'STOP' }); // Temiz kapatma denemesi
+      // Gerekirse zorla terminate — crash veya yavaş kapanma için
+      setTimeout(() => {
+        try { entry.worker?.terminate(); } catch { /* zaten kapanmış */ }
+      }, 500);
+    } catch {
+      try { entry.worker.terminate(); } catch { /* noop */ }
+    }
+    this._workers.set(key, { ...entry, worker: null }); // referansı null yap
+    console.info(`[Runtime] Worker terminated under memory pressure: ${key}`);
+  }
+
   destroy(): void {
     this._cancelUpgrade();
     this._listeners.clear();
+
+    // Tüm worker'ları temizle
+    for (const [key, entry] of this._workers.entries()) {
+      this._terminateWorkerEntry(key, entry);
+    }
+    this._workers.clear();
 
     this._started       = false;
     this._powerCeiling  = null;

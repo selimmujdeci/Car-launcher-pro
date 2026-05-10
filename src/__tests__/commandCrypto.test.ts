@@ -25,16 +25,23 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-/* ── safeStorage mock (commandCrypto persistent key yönetimi) ── */
+/* ── safeStorage mock (commandCrypto persistent key yönetimi) ──────────────
+ *
+ * _store modül dışında tanımlanır → vi.resetModules() çağrılsa da Map referansı
+ * korunur. Bu sayede "restart sonrası nonce persist" testi çalışır:
+ *   1. İlk import: decrypt → nonce _store'a yazılır
+ *   2. vi.resetModules() → modül cache temizlenir ama _store ayakta
+ *   3. Yeni import: _loadPersistedNonces() → _store'dan nonce geri yüklenir
+ *   4. Replay denemesi → "Replay Attack" hatası ✓
+ * ────────────────────────────────────────────────────────────────────────── */
+const _store = new Map<string, string>();
 
-vi.mock('../utils/safeStorage', () => {
-  const _store = new Map<string, string>();
-  return {
-    safeGetRaw:         vi.fn((k: string) => _store.get(k) ?? null),
-    safeSetRawImmediate: vi.fn(async (k: string, v: string) => { _store.set(k, v); }),
-    __store:            _store,          // test içi erişim
-  };
-});
+vi.mock('../utils/safeStorage', () => ({
+  safeGetRaw:          vi.fn((k: string) => _store.get(k) ?? null),
+  safeSetRawImmediate: vi.fn(async (k: string, v: string) => { _store.set(k, v); }),
+  safeSetRaw:          vi.fn((k: string, v: string) => { _store.set(k, v); }),
+  __store:             _store,           // test içi doğrudan erişim
+}));
 
 /* ── Imports (mock'lardan sonra) ───────────────────────────── */
 
@@ -345,5 +352,76 @@ describe('loadOrCreateDeviceKey — ECDH anahtar yönetimi', () => {
   it('getCarPrivateKey() → loadOrCreateDeviceKey sonrası null değil', async () => {
     await loadOrCreateDeviceKey();
     expect(getCarPrivateKey()).not.toBeNull();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   9. NONCE PERSIST — RESTART SONRASI REPLAY ENGELİ
+═══════════════════════════════════════════════════════════════ */
+
+describe('Nonce persistency — restart sonrası replay attack engeli', () => {
+  /**
+   * Senaryo:
+   *   1. Araç ilk çalışmada bir komutu şifreler + deşifreler (nonce RAM + storage'a yazılır).
+   *   2. Uygulama yeniden başlar (vi.resetModules() ile simüle edilir):
+   *      - RAM state sıfırlanır (_usedNonces Map boşalır).
+   *      - Modül yeniden yüklenince _loadPersistedNonces() _store'dan nonce'ları geri okur.
+   *   3. Saldırgan aynı şifreli paketi tekrar gönderiyor → "Replay Attack" beklenir.
+   *
+   * Mock Notu: _store (modül dışı Map) vi.resetModules() sonrasında da ayakta kalır,
+   *            böylece "disk" persistence simüle edilir.
+   */
+  it('persist edilen nonce, modül yeniden yüklendikten sonra da replay engeller', async () => {
+    // 1. Anahtar çifti
+    const pair = await makeKeyPair();
+    const spki = await crypto.subtle.exportKey('spki', pair.publicKey);
+    const pub  = b64enc(new Uint8Array(spki));
+
+    // 2. İlk "session" — modülü dinamik import et
+    const { encryptE2EPayload: enc1, decryptE2EPayload: dec1 } =
+      await import('../platform/commandCrypto');
+
+    const packet = await enc1({ cmd: 'lock' }, pub);
+
+    // Deşifre: nonce RAM'e eklenir + safeSetRawImmediate ile _store'a yazılır
+    await dec1(packet, pair.privateKey);
+
+    // _store'un nonce verisini aldığını doğrula
+    expect(_store.has('car-nonce-store-v1')).toBe(true);
+    const stored = JSON.parse(_store.get('car-nonce-store-v1')!);
+    expect(Array.isArray(stored)).toBe(true);
+    expect(stored.length).toBeGreaterThan(0);
+
+    // 3. "Restart" — modül cache'ini sıfırla; _store ayakta kalır
+    vi.resetModules();
+
+    // 4. Yeni "session" — modül yeniden yüklenince _loadPersistedNonces() çalışır
+    const { decryptE2EPayload: dec2 } = await import('../platform/commandCrypto');
+
+    // 5. Aynı paket → RAM temizlendi ama storage'dan yüklenen nonce engellemelidir
+    await expect(dec2(packet, pair.privateKey)).rejects.toThrow('Replay Attack');
+  });
+
+  it('süresi dolmuş nonce storage\'dan yüklenmez (GC)', async () => {
+    // Süresi geçmiş nonce'ları doğrudan _store'a yaz
+    const expiredNonces: Array<[string, number]> = [
+      ['expired-nonce-1', Date.now() - 10_000],  // 10s önce dolmuş
+      ['expired-nonce-2', Date.now() - 70_000],  // 70s önce dolmuş (NONCE_WINDOW_MS=60s)
+    ];
+    _store.set('car-nonce-store-v1', JSON.stringify(expiredNonces));
+
+    // Modülü yeniden yükle → _loadPersistedNonces GC'si süresi dolmuşları atar
+    vi.resetModules();
+    const { decryptE2EPayload: dec } = await import('../platform/commandCrypto');
+
+    // Yeni bir şifreli paket oluştur (bu test'in kendi pair'i)
+    const pair2 = await makeKeyPair();
+    const spki2 = await crypto.subtle.exportKey('spki', pair2.publicKey);
+    const pub2  = b64enc(new Uint8Array(spki2));
+    const { encryptE2EPayload: enc2 } = await import('../platform/commandCrypto');
+    const packet2 = await enc2({ cmd: 'test' }, pub2);
+
+    // Taze paket başarıyla deşifrelenmeli (süresi dolmuş nonce'lar engel çıkarmaz)
+    await expect(dec(packet2, pair2.privateKey)).resolves.toBeDefined();
   });
 });

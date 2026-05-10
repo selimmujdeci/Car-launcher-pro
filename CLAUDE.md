@@ -189,3 +189,38 @@ This project MUST follow `AI.md` strictly.
 
 If a conflict exists: **`AI.md` rules take absolute priority.**
 
+---
+
+## 🎯 LOCAL SCOPE INTEGRITY RULE
+
+When working on a task:
+
+1. Do not scan the entire project unless explicitly requested.
+2. Stay focused on the current feature/file/scope.
+3. However, while working inside that scope:
+   - do not ignore visible errors
+   - do not ignore broken logic
+   - do not ignore related runtime failures
+   - do not leave partially broken flows
+
+4. Never claim success if:
+   - the requested feature still fails
+   - the UI still does not appear
+   - runtime errors still exist
+   - the same action breaks on second attempt
+
+5. If you discover a directly related issue in the same flow/file:
+   fix it before stopping.
+
+6. Do not expand into unrelated systems/modules.
+
+7. Prefer minimal complete fixes over superficial patches.
+
+8. Build success alone is not proof.
+   The actual feature behavior must match the user request.
+
+9. If something is uncertain:
+   explicitly say what still needs testing.
+
+10. Never fake completion.
+

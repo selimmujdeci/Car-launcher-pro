@@ -14,6 +14,39 @@ import { onOBDData } from './obdService';
 import { logError } from './crashLogger';
 import { showToast } from './errorBus';
 
+/* ── Platform capability flag ────────────────────────────── */
+
+/**
+ * Parlaklık ve ses kontrolünün gerçekten çalışıp çalışmadığını döner.
+ * Capacitor native platform'da true, web/PWA'da false.
+ * UI bileşenleri bu flag ile işlevsiz kontrollerini gizler.
+ */
+export function isSystemControlSupported(): boolean {
+  return Capacitor.isNativePlatform();
+}
+
+/* ── Thermal Brightness Lock ─────────────────────────────── */
+
+/**
+ * Termal izin verilen maksimum parlaklık (0–100).
+ * null = kısıtlama yok (L0/L1).
+ * thermalWatchdog.ts tarafından set/clear edilir — döngüsel import önlenmiş.
+ */
+let _thermalBrightnessCap: number | null = null;
+
+/**
+ * Termal koruma kilidini etkinleştirir.
+ * thermalWatchdog L2/L3 girişinde çağırır — SET SONRA değil, applyBrightness'tan ÖNCE.
+ */
+export function setThermalBrightnessLock(maxPercent: number): void {
+  _thermalBrightnessCap = Math.max(0, Math.min(100, maxPercent));
+}
+
+/** Termal koruma kilidini kaldırır — L1/L0'a inerken çağırılır. */
+export function clearThermalBrightnessLock(): void {
+  _thermalBrightnessCap = null;
+}
+
 /* ── Debounce helper ─────────────────────────────────────── */
 
 function debounce<T extends unknown[]>(
@@ -47,17 +80,73 @@ async function _applyBrightnessNative(percent: number): Promise<void> {
 const _applyBrightnessDebounced = debounce((percent: number) => {
   if (Capacitor.isNativePlatform()) {
     void _applyBrightnessNative(percent);
-  } else {
-    showToast({ type: 'info', title: 'Bilgi', message: 'Parlaklık kontrolü yalnızca cihazda kullanılabilir', duration: 2500 });
   }
+  // web: sessiz no-op — UI sliders isSystemControlSupported() ile zaten gizlenir
 }, 80);
 
+/* ── Manual Override Hysteresis (Far otomasyonu) ─────────── */
+
 /**
- * Set screen brightness.
+ * Far açıkken kullanıcı manuel ayar yaptıktan sonra otomasyonun
+ * kaç ms boyunca yeniden kısmaması gerektiği.
+ */
+const MANUAL_HYSTERESIS_MS = 60_000; // 60 saniye
+
+/** Farlar açıkken son manuel parlaklık değişiminin zamanı (Date.now). */
+let _headlightManualOverrideTs = 0;
+
+/**
+ * Sistem kaynaklı parlaklık uygulama (far otomasyonu, termal watchdog).
+ *   - Termal kapa sessizce clamp eder (toast yok, blok yok).
+ *   - Manuel override takibini ATLAR — histerezisi bozmaz.
+ *
+ * Dışa açılır çünkü thermalWatchdog.ts bu yolu kullanır.
+ */
+export function setBrightnessAuto(percent: number): void {
+  const clamped   = Math.max(0, Math.min(100, percent));
+  const effective = _thermalBrightnessCap !== null
+    ? Math.min(clamped, _thermalBrightnessCap)
+    : clamped;
+  _applyBrightnessDebounced(effective);
+}
+
+/**
+ * Set screen brightness — KULLANICI ÇAĞRISI.
  * @param percent 0–100 (matches store value)
+ *
+ * Termal Override Guard: _thermalBrightnessCap aktifken cap üstü talepler
+ * reddedilir ve toast uyarısı verilir.
+ *
+ * Headlight Manual Override: farlar açıkken çağrılırsa manuel override
+ * kaydedilir; otomasyon bir sonraki headlight-ON döngüsünde MANUAL_HYSTERESIS_MS
+ * boyunca yeniden kısmaz ve kaydedilen restorasyon değeri güncellenir.
  */
 export function setBrightness(percent: number): void {
-  _applyBrightnessDebounced(Math.max(0, Math.min(100, percent)));
+  const clamped = Math.max(0, Math.min(100, percent));
+
+  // ── Termal kap kontrolü ─────────────────────────────────────────────────
+  if (_thermalBrightnessCap !== null && clamped > _thermalBrightnessCap) {
+    showToast({
+      type:     'warning',
+      title:    'Termal Koruma',
+      message:  `Termal koruma aktif, parlaklık kısıtlandı (maks. ${_thermalBrightnessCap}%)`,
+      duration: 3000,
+    });
+    return;
+  }
+
+  // ── Headlight Manual Override takibi ───────────────────────────────────
+  // Farlar açıkken kullanıcı değiştirirse:
+  //   1. Histerezis başlatılır (otomasyon 60s boyunca yeniden kısmaz)
+  //   2. Restorasyon değeri güncellenir (far söndüğünde kullanıcının tercihi geri yüklenir)
+  if (_lastHeadlightState) {
+    _headlightManualOverrideTs = Date.now();
+    if (_brightnessBeforeHeadlights !== null) {
+      _brightnessBeforeHeadlights = clamped; // kullanıcı tercihi kayıt
+    }
+  }
+
+  _applyBrightnessDebounced(clamped);
 }
 
 /* ── Volume ──────────────────────────────────────────────── */
@@ -71,9 +160,8 @@ function _applyVolumeNative(percent: number): void {
 const _applyVolumeDebounced = debounce((percent: number) => {
   if (Capacitor.isNativePlatform()) {
     _applyVolumeNative(percent);
-  } else {
-    showToast({ type: 'info', title: 'Bilgi', message: 'Sistem ses kontrolü tarayıcıda desteklenmiyor', duration: 2500 });
   }
+  // web: sessiz no-op — UI sliders isSystemControlSupported() ile zaten gizlenir
 }, 80);
 
 /**
@@ -101,6 +189,11 @@ let _lastHeadlightState: boolean | null = null;
  * OBD far verisini izlemeye başlar.
  * Far açıldığında parlaklığı kısıltır; kapandığında önceki değere döner.
  *
+ * Manual Override Hysteresis:
+ *   Kullanıcı farlar açıkken parlaklığı manuel değiştirirse, bir sonraki
+ *   headlight-ON döngüsünde MANUAL_HYSTERESIS_MS boyunca otomatik kısma yapılmaz.
+ *   Restorasyon değeri de kullanıcı tercihine güncellenir.
+ *
  * @param getUserBrightness  Şu anki kullanıcı parlaklığını döndüren fonksiyon (0–100)
  */
 export function startHeadlightAutoBrightness(getUserBrightness: () => number): void {
@@ -108,29 +201,37 @@ export function startHeadlightAutoBrightness(getUserBrightness: () => number): v
 
   _headlightUnsub = onOBDData((data) => {
     const headlightsOn = data.headlights;
-    if (headlightsOn === _lastHeadlightState) return; // değişme yok
+    if (headlightsOn === _lastHeadlightState) return; // durum değişmedi
     _lastHeadlightState = headlightsOn;
 
     if (headlightsOn) {
-      // Kullanıcının mevcut parlaklığını kaydet
+      // Mevcut parlaklığı her zaman kaydet (manual override olsa bile — restorasyon için)
       _brightnessBeforeHeadlights = getUserBrightness();
-      // Yalnızca parlaklık hedefin üstündeyse kıs
+
+      // ── Manual Override Hysteresis ───────────────────────────────────────
+      // Kullanıcı son MANUAL_HYSTERESIS_MS içinde farlar açıkken değiştirdiyse,
+      // bu döngüde otomatik kısma yapma.
+      if (Date.now() - _headlightManualOverrideTs < MANUAL_HYSTERESIS_MS) return;
+
+      // Yalnızca parlaklık hedefin üstündeyse kıs (sistem çağrısı → setBrightnessAuto)
       if (_brightnessBeforeHeadlights > HEADLIGHT_DIM_PERCENT) {
-        setBrightness(HEADLIGHT_DIM_PERCENT);
+        setBrightnessAuto(HEADLIGHT_DIM_PERCENT);
       }
     } else {
-      // Far söndü — önceki parlaklığa geri dön
+      // Far söndü — kullanıcının tercihine geri dön (sistem çağrısı → setBrightnessAuto)
+      // _brightnessBeforeHeadlights; setBrightness() tarafından kullanıcı değişiminde güncellenir
       const restore = _brightnessBeforeHeadlights ?? getUserBrightness();
       _brightnessBeforeHeadlights = null;
-      setBrightness(restore);
+      setBrightnessAuto(restore);
     }
   });
 }
 
-/** Headlight otomasyon aboneliğini durdurur. */
+/** Headlight otomasyon aboneliğini durdurur ve histerezis durumunu sıfırlar. */
 export function stopHeadlightAutoBrightness(): void {
   _headlightUnsub?.();
-  _headlightUnsub = null;
+  _headlightUnsub           = null;
   _brightnessBeforeHeadlights = null;
-  _lastHeadlightState = null;
+  _lastHeadlightState         = null;
+  _headlightManualOverrideTs  = 0;
 }

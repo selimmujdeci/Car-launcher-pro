@@ -21,6 +21,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
     }
     // Build to a temp path to avoid antivirus locking Desktop project files
     buildDir = new File("C:/Temp/carlauncher/${project.name}/build")

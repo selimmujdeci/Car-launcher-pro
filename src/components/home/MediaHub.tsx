@@ -4,7 +4,7 @@
  * Aktif session: album kapağı blur+gradient arka plan, renk glow, smooth fade geçişleri.
  * Pasif mod: hiçbir medya oturumu yokken zarif boş durum gösterir.
  */
-import { memo, useEffect, useCallback } from 'react';
+import { memo, useEffect, useCallback, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Music2, Bluetooth, Radio } from 'lucide-react';
 import {
   useMediaState,
@@ -14,12 +14,31 @@ import {
   fmtTime,
   startMediaHub,
   stopMediaHub,
+  setMediaPreferredPackage,
+  pollMediaNow,
 } from '../../platform/mediaService';
 import type { MediaSource } from '../../platform/mediaService';
 import { MUSIC_OPTIONS } from '../../data/apps';
 import { isNative } from '../../platform/bridge';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import type { MusicOptionKey } from '../../data/apps';
+import { useStore } from '../../store/useStore';
+import { getPerformanceMode, onPerformanceModeChange } from '../../platform/performanceMode';
+import { NeuralVisualizer } from '../media/NeuralVisualizer';
+
+// Kaynak seçeneği → Android paket adı eşleşmesi
+const MEDIA_SOURCE_PKGS: Record<string, string> = {
+  spotify:       'com.spotify.music',
+  youtube:       'com.google.android.youtube',
+  youtube_music: 'com.google.android.apps.youtube.music',
+  soundcloud:    'com.soundcloud.android',
+  amazon:        'com.amazon.music',
+  deezer:        'com.deezer.android.app',
+  tidal:         'com.tidal.android',
+  poweramp:      'com.maxmpz.audioplayer',
+  vlc:           'org.videolan.vlc',
+  ymusic:        'com.kapp.youtube.music',
+};
 
 /* ── Kaynak meta ─────────────────────────────────────────── */
 
@@ -45,12 +64,27 @@ export const MediaHub = memo(function MediaHub({
 }: {
   defaultMusic: MusicOptionKey;
 }) {
+  const { settings } = useStore();
+
   useEffect(() => {
     startMediaHub();
+    // Kayıtlı tercih uygulanmadan önce native poll boş kalır.
+    // Uygulama açılışında ayarlardaki kaynağı hemen uygula.
+    const key = settings.activeMediaSourceKey ?? defaultMusic;
+    const pkg = MEDIA_SOURCE_PKGS[key];
+    if (pkg) {
+      setMediaPreferredPackage(pkg);
+      pollMediaNow();
+    }
     return () => stopMediaHub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { playing, track, source, activeAppName, hasSession } = useMediaState();
+
+  // Thermal guard — 'lite' modunda GPU tasarrufu için visualizer kapatılır
+  const [thermalLite, setThermalLite] = useState(() => getPerformanceMode() === 'lite');
+  useEffect(() => onPerformanceModeChange((m) => setThermalLite(m === 'lite')), []);
 
   const srcMeta     = SOURCE_META[source] ?? SOURCE_META.unknown;
   const fallbackApp = MUSIC_OPTIONS[defaultMusic];
@@ -134,8 +168,13 @@ export const MediaHub = memo(function MediaHub({
         }}
       />
 
-      {/* İçerik katmanı */}
-      <div className="relative flex-1 p-6 flex flex-col gap-5 min-h-0" onClick={handleOpen}>
+      {/* Neural Visualizer — albüm kapağının arkasında (z-index:1), thermal-lite'da gizli */}
+      {!thermalLite && (
+        <NeuralVisualizer playing={playing} color={srcMeta.color} />
+      )}
+
+      {/* İçerik katmanı — pt-4 pb-2 px-4: butonlar LuxuryCockpit scale-110'da kesilmez */}
+      <div className="relative flex-1 pt-4 pb-2 px-4 flex flex-col gap-3 min-h-0" onClick={handleOpen}>
 
         {/* Üst satır: gösterge noktası + kaynak rozeti */}
         <div className="flex items-center justify-between flex-shrink-0">
@@ -163,17 +202,32 @@ export const MediaHub = memo(function MediaHub({
         </div>
 
         {/* Album kapağı + parça bilgisi */}
-        <div className="flex items-center gap-5 flex-shrink-0 w-full text-left">
+        <div className="flex items-center gap-4 flex-shrink-0 w-full text-left">
           {track.albumArt ? (
-            <img
-              key={track.albumArt}
-              src={track.albumArt}
-              alt="Kapak"
-              className="w-20 h-20 rounded-2xl flex-shrink-0 object-cover border border-black/5 animate-fade-in shadow-lg"
-            />
+            <div className="relative flex-shrink-0">
+              {/* Glow Pulse — çalarken nefes alan ışık halkası */}
+              {playing && (
+                <div
+                  className="absolute -inset-1.5 rounded-[1.5rem] animate-pulse"
+                  style={{
+                    background:  `radial-gradient(circle, ${srcMeta.color}55 0%, ${srcMeta.color}00 70%)`,
+                    filter:      'blur(6px)',
+                    zIndex:      0,
+                  }}
+                />
+              )}
+              <img
+                key={track.albumArt}
+                src={track.albumArt}
+                alt="Kapak"
+                className="relative w-18 h-18 rounded-2xl object-cover border border-black/5 animate-fade-in shadow-lg"
+                style={{ width: 72, height: 72, zIndex: 1 }}
+              />
+            </div>
           ) : (
             <div
-              className="w-20 h-20 rounded-2xl flex-shrink-0 flex items-center justify-center text-4xl border border-black/5 shadow-md glass-inner-focus"
+              className="w-18 h-18 rounded-2xl flex-shrink-0 flex items-center justify-center text-4xl border border-black/5 shadow-md glass-inner-focus"
+              style={{ width: 72, height: 72 }}
             >
               {fallbackApp.icon}
             </div>
@@ -191,15 +245,26 @@ export const MediaHub = memo(function MediaHub({
 
         {/* İlerleme çubuğu */}
         <div className="flex-shrink-0 mt-auto">
-          <div className="w-full h-2 bg-black/5 rounded-full overflow-hidden">
+          <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.08)' }}>
             <div
-              className="h-full rounded-full transition-[width] duration-700 ease-out"
+              className="h-full rounded-full transition-[width] duration-700 ease-out relative overflow-hidden"
               style={{
                 width:      `${progressPct}%`,
                 background: `linear-gradient(90deg, ${srcMeta.color}cc, ${srcMeta.color})`,
-                boxShadow:  `0 0 10px ${srcMeta.color}44`
+                boxShadow:  `0 0 10px ${srcMeta.color}44`,
               }}
-            />
+            >
+              {/* Mikro hareket: çalarken sağa kayan parlak şerit */}
+              {playing && (
+                <span
+                  className="absolute inset-y-0 w-8 opacity-40"
+                  style={{
+                    background:  'linear-gradient(90deg, transparent, rgba(255,255,255,0.85), transparent)',
+                    animation:   'progressShimmer 1.8s ease-in-out infinite',
+                  }}
+                />
+              )}
+            </div>
           </div>
           <div className="flex justify-between text-secondary text-[11px] mt-2.5 font-black tabular-nums tracking-wider">
             <span>{fmtTime(track.positionSec)}</span>
@@ -207,14 +272,14 @@ export const MediaHub = memo(function MediaHub({
           </div>
         </div>
 
-        {/* Kontrol butonları — sadece native modda aktif */}
-        <div className="flex gap-3 flex-shrink-0 h-14 mt-1" onClick={(e) => e.stopPropagation()}>
+        {/* Kontrol butonları — z-20: visualizer üzerinde, scale-110'da görünür */}
+        <div className="flex gap-3 flex-shrink-0 h-12 mb-1 z-20 relative" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={previous}
             disabled={!isNative}
-            className="flex-1 rounded-2xl rgba(255,255,255,0.4) border border-black/5 text-primary flex items-center justify-center active:scale-90 disabled:opacity-30 transition-all hover:bg-white/60 shadow-sm"
+            className="flex-1 rounded-2xl bg-white/10 hover:bg-white/20 border border-black/5 text-primary flex items-center justify-center active:scale-90 disabled:opacity-30 transition-all shadow-sm"
           >
-            <SkipBack className="w-6 h-6 fill-current" />
+            <SkipBack className="w-5 h-5 fill-current" />
           </button>
 
           <button
@@ -223,21 +288,21 @@ export const MediaHub = memo(function MediaHub({
             className="flex-[2.5] rounded-2xl text-white flex items-center justify-center active:scale-95 disabled:opacity-40 transition-all shadow-md"
             style={{
               backgroundColor: srcMeta.color,
-              boxShadow:       isNative ? `0 8px 20px ${srcMeta.color}44` : 'none',
+              boxShadow:       isNative ? `0 6px 18px ${srcMeta.color}44` : 'none',
             }}
           >
             {playing
-              ? <Pause className="w-7 h-7 fill-current" />
-              : <Play  className="w-7 h-7 fill-current" />
+              ? <Pause className="w-6 h-6 fill-current" />
+              : <Play  className="w-6 h-6 fill-current" />
             }
           </button>
 
           <button
             onClick={next}
             disabled={!isNative}
-            className="flex-1 rounded-2xl rgba(255,255,255,0.4) border border-black/5 text-primary flex items-center justify-center active:scale-90 disabled:opacity-30 transition-all hover:bg-white/60 shadow-sm"
+            className="flex-1 rounded-2xl bg-white/10 hover:bg-white/20 border border-black/5 text-primary flex items-center justify-center active:scale-90 disabled:opacity-30 transition-all shadow-sm"
           >
-            <SkipForward className="w-6 h-6 fill-current" />
+            <SkipForward className="w-5 h-5 fill-current" />
           </button>
         </div>
       </div>

@@ -65,6 +65,8 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
     implementation 'com.google.firebase:firebase-messaging:24.1.1'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    // USB-to-serial: CH340, CP2102, FTDI, CDC ACM desteği (CAN bus USB adaptörleri)
+    implementation 'com.github.mik3y:usb-serial-for-android:3.8.0'
 }
 
 apply from: 'capacitor.build.gradle'

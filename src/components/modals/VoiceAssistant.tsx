@@ -444,31 +444,38 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
   const isSuccess    = voice.status === 'success';
   const isError      = voice.status === 'error';
 
-  // Auto-start on mount
-  useEffect(() => { startListening(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  // Auto-close after result OR when STT ends without output (idle after listening).
-  // Prevents "Hazır" from persisting after the STT dialog is dismissed.
-  const hadListened = useRef(false);
-  useEffect(() => { if (isListening) hadListened.current = true; }, [isListening]);
-
+  // Buton tıklamasında startListening() önceden çağrılmış olmalı.
+  // Eğer henüz başlamadıysa (durum hâlâ idle) başlat.
   useEffect(() => {
+    if (voice.status !== 'listening') startListening();
+    // Max 10s güvenlik — hiçbir koşulda ekranda asılı kalmaz
+    const safety = setTimeout(() => { stopListening(); onCloseRef.current(); }, 10_000);
+    return () => clearTimeout(safety);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // idle → hemen kapat (görünmeden önce kapansın)
+  useEffect(() => {
+    if (voice.status === 'idle') {
+      const id = setTimeout(() => { onCloseRef.current(); }, 80);
+      return () => clearTimeout(id);
+    }
     if (isSuccess || isError) {
-      const id = setTimeout(() => { stopListening(); onClose(); }, 1800);
+      const id = setTimeout(() => { stopListening(); onCloseRef.current(); }, 1800);
       return () => clearTimeout(id);
     }
-    // If we were listening and status returned to idle (no result), close promptly.
-    if (hadListened.current && voice.status === 'idle') {
-      const id = setTimeout(() => { onClose(); }, 300);
-      return () => clearTimeout(id);
-    }
-  }, [isSuccess, isError, voice.status, isListening, onClose]);
+  }, [isSuccess, isError, voice.status]);
+
+  // idle iken hiçbir şey render etme — "Hazır" görüntüsü yok
+  if (voice.status === 'idle') return null;
 
   const label =
     isListening  ? 'Dinliyorum…' :
     isProcessing ? 'İşleniyor…' :
     isSuccess    ? (voice.lastCommand?.feedback ?? 'Anlaşıldı') :
-    isError      ? 'Anlaşılamadı' : 'Hazır';
+    isError      ? 'Anlaşılamadı' : '';
 
   const accent =
     isListening  ? 'rgba(96,165,250,1)'   :

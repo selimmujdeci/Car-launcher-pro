@@ -10,6 +10,7 @@
 @import "./styles/volume-overlays.css";
 @import "./styles/day-mode.css";
 @import "./styles/theme-packs.css";
+@import "./styles/ultra-premium-global.css";
 
 /* ═══════════════════════════════════════════════════════════
    SUNLIGHT MODE — autoBrightnessService.ts tarafından yönetilir
@@ -405,4 +406,179 @@ body.performance-mode * {
 
 .dynamic-anim {
   transition: all calc(var(--rt-anim, 1) * 0.3s);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPAT MODE — headUnitCompat.ts tarafından yönetilir
+   data-compat-mode="true" → düşük donanımlı head unit'lerde GPU yükü sıfırlanır.
+   backdrop-filter, box-shadow, filter:blur ve karmaşık geçişler devre dışı.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+[data-compat-mode="true"] * {
+  backdrop-filter:         none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow:              none !important;
+  filter:                  none !important;
+  /* Karmaşık geçişleri compositor-only (opacity/transform) ile sınırla */
+  transition-property:     opacity, transform !important;
+  transition-duration:     0.1s !important;
+  animation-duration:      0.1s !important;
+}
+
+/* ── MediaHub: progress shimmer ─────────────────────────────── */
+@keyframes progressShimmer {
+  0%   { left: -2rem; }
+  100% { left: 110%;  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ADAPTIVE UI TOKEN SYSTEM
+   Tüm bileşenler --lp-* değişkenlerini kullanarak her ekranda
+   otomatik ölçeklenir. LayoutContext.tsx runtime'da bunları
+   ekran boyutuna göre ayarlar (COMPACT/NORMAL/WIDE/ULTRA_WIDE).
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Bütün modal/dialog'lar için adaptive genişlik */
+.car-modal {
+  width: min(calc(100vw - 2 * var(--lp-space-xl, 24px)), clamp(320px, 55vw, 640px));
+  border-radius: var(--lp-radius-lg, 16px);
+  background: linear-gradient(135deg, rgba(15,23,42,0.98), rgba(7,11,24,0.99));
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 24px 56px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* Temel kart bileşeni — her ekranda ölçeklenir */
+.car-card {
+  padding: var(--lp-space-md, 10px) var(--lp-space-lg, 16px);
+  border-radius: var(--lp-radius-lg, 16px);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.055);
+}
+
+.car-card-accent {
+  padding: var(--lp-space-md, 10px) var(--lp-space-lg, 16px);
+  border-radius: var(--lp-radius-lg, 16px);
+  background: rgba(var(--accent-rgb, 96,165,250), 0.08);
+  border: 1px solid rgba(var(--accent-rgb, 96,165,250), 0.2);
+}
+
+/* Tipografi token'ları */
+.car-label {
+  font-size: var(--lp-font-xs, 10px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.38);
+}
+
+.car-sublabel {
+  font-size: var(--lp-font-xs, 10px);
+  color: rgba(255,255,255,0.28);
+}
+
+.car-value {
+  font-size: var(--lp-font-lg, 17px);
+  font-weight: 900;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.car-value-xl {
+  font-size: var(--lp-font-xl, 23px);
+  font-weight: 900;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.car-body {
+  font-size: var(--lp-font-sm, 12px);
+  color: rgba(255,255,255,0.65);
+}
+
+/* İkon container — ölçeklenebilir */
+.car-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: calc(var(--lp-icon-sm, 16px) + 14px);
+  height: calc(var(--lp-icon-sm, 16px) + 14px);
+  border-radius: var(--lp-radius-sm, 6px);
+}
+
+.car-icon-box-lg {
+  width: calc(var(--lp-icon, 22px) + 16px);
+  height: calc(var(--lp-icon, 22px) + 16px);
+  border-radius: var(--lp-radius-md, 10px);
+}
+
+/* Butonlar — automotive dokunma hedefi minimum 44px */
+.car-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--lp-space-md, 10px) var(--lp-space-lg, 16px);
+  border-radius: var(--lp-radius-md, 10px);
+  font-size: var(--lp-font-sm, 12px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.12s, opacity 0.12s;
+  cursor: pointer;
+}
+
+.car-btn:active { transform: scale(0.97); }
+.car-btn:disabled { opacity: 0.35; cursor: default; }
+
+.car-btn-primary {
+  background: rgba(56,189,248,0.12);
+  border: 1px solid rgba(56,189,248,0.28);
+  color: #38bdf8;
+}
+
+.car-btn-ghost {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.45);
+}
+
+/* Divider */
+.car-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* Drawer/panel section başlıkları */
+.car-section-title {
+  font-size: var(--lp-font-xs, 10px);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.22);
+  margin-bottom: var(--lp-space-sm, 6px);
+}
+
+/* Küçük ekranlarda (telefon portrait veya 7" araç ekranı) padding azalt */
+[data-layout="compact"] .car-card,
+[data-layout="compact"] .car-modal {
+  padding: var(--lp-space-sm, 6px) var(--lp-space-md, 10px);
+}
+
+/* Büyük ekranlarda (12-14" araç) daha geniş */
+[data-layout="wide"] .car-modal,
+[data-layout="ultra_wide"] .car-modal {
+  width: min(calc(100vw - 2 * var(--lp-space-xl, 24px)), clamp(480px, 45vw, 720px));
+}
+
+[data-layout="wide"] .car-btn,
+[data-layout="ultra_wide"] .car-btn {
+  min-height: 48px;
+}
+
+/* Çok geniş (21"+) ekranlarda maksimum içerik genişliği */
+[data-layout="ultra_wide"] .car-card {
+  max-width: var(--lp-max-w, 100%);
 }

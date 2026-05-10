@@ -108,7 +108,7 @@ function NumberPicker({
 /* ── Ana bileşen ─────────────────────────────────────────── */
 
 export const PhoneScreen = memo(function PhoneScreen() {
-  const { contacts, loading } = useContactsState();
+  const { contacts, loading, error } = useContactsState();
   const [query, setQuery] = useState('');
   const [picking, setPicking] = useState<{ name: string; phones: { number: string; label: string }[] } | null>(null);
 
@@ -188,6 +188,12 @@ export const PhoneScreen = memo(function PhoneScreen() {
           {!query && <div className="text-slate-600 text-[10px] font-black uppercase tracking-widest mb-2 px-1">Tüm Kişiler</div>}
           {loading ? (
             <div className="flex items-center justify-center py-16 text-slate-600 text-sm">Kişiler yükleniyor…</div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <User className="w-10 h-10 text-red-700" />
+              <div className="text-red-500 text-sm text-center">{error}</div>
+              <div className="text-slate-600 text-xs text-center">Ayarlar → Uygulama İzinleri → Kişiler</div>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <User className="w-10 h-10 text-slate-700" />

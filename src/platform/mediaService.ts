@@ -193,7 +193,7 @@ let _sessionFallbackTimer: ReturnType<typeof setTimeout> | null = null;
  *   - Grace timer tetiklendiğinde interpolasyon durdurulur.
  *   - Focus Lock interpolasyonu etkilemez — zaten aynı session.
  */
-const INTERP_TICK_MS   = 100;   // 10 Hz — pürüzsüz progress için yeterli
+const INTERP_TICK_MS   = 500;   // 2 Hz — pil tasarrufu; CSS transition progress düzgünlüğünü sağlar
 const POSITION_DRIFT_S = 2.0;   // Bu eşiğin üstünde native pozisyona snap yap
 
 let _interpTimer: ReturnType<typeof setInterval> | null = null;
@@ -201,9 +201,14 @@ let _interpTimer: ReturnType<typeof setInterval> | null = null;
 function _startInterpolation(): void {
   if (_interpTimer) return;
   _interpTimer = setInterval(() => {
-    if (!_current.playing || !_current.hasSession) return;
-    const dur = _current.track.durationSec;
-    const cap = dur > 0 ? dur : Infinity;
+    // Guard: playing veya session yoksa timer kendini durdurur (defense-in-depth).
+    // _merge() zaten _stopInterpolation çağırır; bu satır stale callback'e karşı ikinci hat.
+    if (!_current.playing || !_current.hasSession) {
+      _stopInterpolation();
+      return;
+    }
+    const dur  = _current.track.durationSec;
+    const cap  = dur > 0 ? dur : Infinity;
     const next = Math.min(_current.track.positionSec + INTERP_TICK_MS / 1000, cap);
     if (next === _current.track.positionSec) return; // dur sınırına dayandık
     _current = { ..._current, track: { ..._current.track, positionSec: next } };
@@ -367,7 +372,12 @@ export function pause(): void {
 }
 
 export function togglePlayPause(): void {
-  if (!isNative) return; // Web: no-op
+  if (!isNative) return;
+  // Yerel müzik aktifse localMusicService'e yönlendir (circular import önlemek için lazy import)
+  if (_current.activePackage === 'com.cockpitos.pro') {
+    import('./localMusicService').then(({ localTogglePlayPause }) => localTogglePlayPause()).catch(() => {});
+    return;
+  }
   _current.playing ? pause() : play();
 }
 
@@ -386,17 +396,21 @@ export function cycleRepeat(): void {
 }
 
 export function next(): void {
-  if (!isNative) return; // Web: no-op
-  CarLauncher.sendMediaAction({ action: 'next' }).catch((e) => {
-    logError('Media:Next', e);
-  });
+  if (!isNative) return;
+  if (_current.activePackage === 'com.cockpitos.pro') {
+    import('./localMusicService').then(({ localNext }) => localNext()).catch(() => {});
+    return;
+  }
+  CarLauncher.sendMediaAction({ action: 'next' }).catch((e) => { logError('Media:Next', e); });
 }
 
 export function previous(): void {
-  if (!isNative) return; // Web: no-op
-  CarLauncher.sendMediaAction({ action: 'previous' }).catch((e) => {
-    logError('Media:Prev', e);
-  });
+  if (!isNative) return;
+  if (_current.activePackage === 'com.cockpitos.pro') {
+    import('./localMusicService').then(({ localPrev }) => localPrev()).catch(() => {});
+    return;
+  }
+  CarLauncher.sendMediaAction({ action: 'previous' }).catch((e) => { logError('Media:Prev', e); });
 }
 
 /* ── React hook ──────────────────────────────────────────── */
@@ -472,6 +486,14 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
       _preferredPackage &&
       pkg !== _preferredPackage
     ) return;
+
+    /* ── Çakışma önleme: Exclusive Source Lock ──────────────────────
+     * Native kaynak çalmaya başladıysa yerel müzik aktifse durdur.
+     * Circular import: lazy import ile çözülür (localMusicService → mediaService zaten var).
+     */
+    if (info.playing && pkg && pkg !== 'com.cockpitos.pro' && _current.activePackage === 'com.cockpitos.pro') {
+      import('./localMusicService').then(({ stopLocalMusic }) => stopLocalMusic()).catch(() => {});
+    }
 
     const source: MediaSource = PACKAGE_SOURCE[pkg]
       ?? (pkg.toLowerCase().includes('bluetooth') ? 'bluetooth' : 'unknown');
@@ -569,6 +591,14 @@ let _hubListenerStop: (() => void) | null = null;
 let _hubStarted       = false;
 let _preferredPackage = '';
 
+// Ön plana dönünce anında poll — Android WebView arka planda JS'yi askıya alır,
+// setInterval kaçırılır. visibilitychange garantili ilk fırsatta çalışır.
+function _handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible' && _hubStarted && isNative) {
+    void _pollNative();
+  }
+}
+
 export function setMediaPreferredPackage(pkg: string): void {
   _preferredPackage = pkg;
   // Issue 1: kullanıcı aktif olarak kaynak seçti — 5 saniyelik focus lock başlat.
@@ -597,9 +627,8 @@ async function _pollNative(): Promise<void> {
     applyNativeMediaInfo(info);
   } catch (e: unknown) {
     if (_isPermissionError(e)) {
-      // Bildirim erişimi yok — Music Hub'ı bloke etme, sadece session'ı kapat.
-      // Yerel müzik ve kaynak listesi çalışmaya devam eder.
-      if (_current.hasSession) updateMediaState({ hasSession: false });
+      // Bildirim erişimi yok — permissionRequired bayrağını set et
+      updateMediaState({ hasSession: false, permissionRequired: true });
     } else {
       // Session yok veya başka hata — izin var ama müzik çalmıyor
       if (_current.hasSession) updateMediaState({ hasSession: false });
@@ -618,6 +647,11 @@ export async function startMediaHub(): Promise<void> {
   // MediaSession API: sistem donanım tuşlarını her zaman kaydet (native + web)
   _setupMediaSession();
 
+  // Ön plan/arka plan geçişinde anında poll
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', _handleVisibilityChange);
+  }
+
   // WEB MODU: tamamen pasif — fake polling yok
   if (!isNative) return;
 
@@ -633,15 +667,18 @@ export async function startMediaHub(): Promise<void> {
     // Plugin event desteği yok — poll only mode
   }
 
-  // 5s poll — event'ler arası boşlukları doldurur
+  // 5s poll — event'ler arası boşlukları doldurur; 3s'den artırıldı (pil tasarrufu)
   void _pollNative();
   if (_hubTimer) clearInterval(_hubTimer);
-  _hubTimer = setInterval(() => { void _pollNative(); }, 5000);
+  _hubTimer = setInterval(() => { void _pollNative(); }, 5_000);
 }
 
 export function stopMediaHub(): void {
   _hubStarted = false;
   _teardownMediaSession();
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', _handleVisibilityChange);
+  }
   if (_hubTimer) { clearInterval(_hubTimer); _hubTimer = null; }
   if (_hubListenerStop) {
     const stop = _hubListenerStop;

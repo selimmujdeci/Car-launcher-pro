@@ -7,6 +7,8 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { connectivityService } from './connectivityService';
+import { sensitiveKeyStore }   from './sensitiveKeyStore';
 
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -139,29 +141,45 @@ export async function uploadSentryClip(
 }
 
 /**
- * `vehicle_events` tablosuna tek bir kayıt atar.
+ * `vehicle_events` tablosuna kayıt ekler.
  *
- * Altyapı notu: Tablo şeması:
- *   id UUID PRIMARY KEY DEFAULT gen_random_uuid()
- *   vehicle_id TEXT
- *   type TEXT NOT NULL         -- 'sentry_alert', 'geofence_exit', vb.
- *   metadata JSONB
- *   created_at TIMESTAMPTZ DEFAULT now()
+ * Mimari: Zero-leak — doğrudan .insert() KULLANILMAZ.
+ *   • api_key varsa  → push_vehicle_event RPC, connectivityService kuyruğu (at-least-once)
+ *   • api_key yoksa  → doğrudan insert (cihaz henüz kayıtlı değil, fallback)
  *
- * Başarısız olursa sessizce yutulur (fire-and-forget).
+ * api_key asla client log veya GET parametrelerine sızmaz.
  */
 export async function insertVehicleEvent(
   vehicleId: string | null,
   type: string,
   metadata: Record<string, unknown>,
 ): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+
+  // api_key güvenli depoda var mı?
+  let apiKey: string | null = null;
+  try { apiKey = await sensitiveKeyStore.get('veh_api_key'); } catch { /* ok */ }
+
+  if (apiKey) {
+    // Tercih edilen yol: RPC → connectivityService at-least-once kuyruğu
+    await connectivityService.enqueue(
+      `${SUPABASE_URL}/rest/v1/rpc/push_vehicle_event`,
+      'POST',
+      { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+      { p_api_key: apiKey, p_type: type, p_payload: { vehicle_id: vehicleId, ...metadata } },
+      'normal',
+      `veh_event_${type}_${Date.now()}`,
+    );
+    return;
+  }
+
+  // Fallback: cihaz kayıtlı değil / api_key yok → doğrudan insert
   const supabase = getSupabaseClient();
   if (!supabase) return;
-
   await supabase.from('vehicle_events').insert({
-    vehicle_id:  vehicleId,
+    vehicle_id: vehicleId,
     type,
     metadata,
-    created_at:  new Date().toISOString(),
+    created_at: new Date().toISOString(),
   });
 }

@@ -1,4 +1,4 @@
-import { memo, useState, lazy, Suspense, useRef, useCallback } from 'react';
+import { memo, useState, lazy, Suspense, useRef, useCallback, useMemo } from 'react';
 import {
   Search, Grid3X3, Navigation,
   SkipBack, SkipForward, Play, Pause, MapPin,
@@ -226,15 +226,23 @@ const SpeedCard = memo(function SpeedCard() {
 
   const R = 90, cx = 115, cy = 120;
   const start = 135, span = 270;
-  const pct = Math.min(speedKmh / 200, 1);
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const pt  = (a: number) => ({ x: cx + R * Math.cos(rad(a)), y: cy + R * Math.sin(rad(a)) });
-  const arc = (a1: number, a2: number) => {
-    const s = pt(a1), e = pt(a2), large = a2 - a1 > 180 ? 1 : 0;
-    return `M${s.x} ${s.y} A${R} ${R} 0 ${large} 1 ${e.x} ${e.y}`;
-  };
-  const fillAngle = start + pct * span;
-  const arcColor = speedKmh < 60 ? '#22c55e' : speedKmh < 100 ? '#eab308' : speedKmh < 140 ? '#f97316' : '#ef4444';
+
+  // SVG arc hesapları memoize — gereksiz Math.cos/sin önleme
+  const { arcTrack, arcFill, arcColor } = useMemo(() => {
+    const pct = Math.min(speedKmh / 200, 1);
+    const rad = (d: number) => (d * Math.PI) / 180;
+    const pt  = (a: number) => ({ x: cx + R * Math.cos(rad(a)), y: cy + R * Math.sin(rad(a)) });
+    const buildArc = (a1: number, a2: number) => {
+      const s = pt(a1), e = pt(a2), large = a2 - a1 > 180 ? 1 : 0;
+      return `M${s.x} ${s.y} A${R} ${R} 0 ${large} 1 ${e.x} ${e.y}`;
+    };
+    return {
+      arcTrack: buildArc(start, start + span),
+      arcFill:  pct > 0.01 ? buildArc(start, start + pct * span) : null,
+      arcColor: speedKmh < 60 ? '#22c55e' : speedKmh < 100 ? '#eab308' : speedKmh < 140 ? '#f97316' : '#ef4444',
+    };
+  }, [speedKmh, cx, R, start, span]);
+
   const tempWarn = temp > 100;
   const fuelWarn = fuel < 15;
 
@@ -268,10 +276,10 @@ const SpeedCard = memo(function SpeedCard() {
             {/* Outer glow ring */}
             <circle cx="115" cy="120" r="108" fill="none" stroke={arcColor} strokeWidth="1" opacity="0.10" />
             {/* Track */}
-            <path d={arc(start, start + span)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="12" strokeLinecap="round" />
+            <path d={arcTrack} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="12" strokeLinecap="round" />
             {/* Fill */}
-            {pct > 0.01 && (
-              <path d={arc(start, fillAngle)} fill="none" stroke={arcColor} strokeWidth="12" strokeLinecap="round"
+            {arcFill && (
+              <path d={arcFill} fill="none" stroke={arcColor} strokeWidth="12" strokeLinecap="round"
                 style={{ filter: `drop-shadow(0 0 10px ${arcColor}) drop-shadow(0 0 20px ${arcColor}60)` }} />
             )}
           </svg>
@@ -317,7 +325,7 @@ function DataChip({ Icon, label, value, color, warn }: {
 
 /* ─── MUSIC CARD ─────────────────────────────────────────────── */
 const MusicCard = memo(function MusicCard() {
-  const { playing, track } = useMediaState();
+  const { playing, track, permissionRequired } = useMediaState();
 
   return (
     <div className="flex flex-col overflow-hidden h-full relative" style={GLASS_CARD}>
@@ -329,8 +337,8 @@ const MusicCard = memo(function MusicCard() {
         style={{ borderBottom: '1px solid rgba(168,85,247,0.10)' }}>
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: '#a855f7' }}>MÜZİK</div>
-          <div className="text-base font-black mt-0.5 tracking-tight truncate max-w-[130px]" style={{ color: '#ffffff' }}>
-            {track.title ? (track.artist || 'Bilinmeyen') : 'SEÇİLMEDİ'}
+          <div className="text-base font-black mt-0.5 tracking-tight truncate max-w-[130px]" style={{ color: permissionRequired ? '#f87171' : '#ffffff' }}>
+            {permissionRequired ? 'İZİN GEREKLİ' : track.title ? (track.artist || 'Bilinmeyen') : 'SEÇİLMEDİ'}
           </div>
         </div>
         <Zap className="w-4 h-4 opacity-40" style={{ color: '#a855f7' }} />
@@ -340,13 +348,13 @@ const MusicCard = memo(function MusicCard() {
       <div className="flex-1 flex flex-col items-center justify-center gap-3 min-h-0 px-4">
         <div className="rounded-3xl overflow-hidden flex-shrink-0 flex items-center justify-center relative"
           style={{
-            width: 'var(--lp-album, 52px)', height: 'var(--lp-album, 52px)',
+            width: 'var(--lp-album, 120px)', height: 'var(--lp-album, 120px)',
             background: 'linear-gradient(135deg,#7c3aed,#1d4ed8)',
             boxShadow: '0 16px 40px rgba(124,58,237,0.50), 0 4px 12px rgba(0,0,0,0.40)',
           }}>
           {track.albumArt
             ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
-            : <span style={{ fontSize: 'var(--lp-font-xl, 22px)' }}>🎵</span>
+            : <span style={{ fontSize: 'var(--lp-font-xl, 48px)' }}>🎵</span>
           }
           <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(135deg,rgba(255,255,255,0.18) 0%,transparent 55%)' }} />
         </div>
@@ -384,33 +392,6 @@ const MusicCard = memo(function MusicCard() {
           style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.20)' }}>
           <SkipForward className="w-4 h-4" style={{ color: '#c084fc' }} />
         </button>
-      </div>
-    </div>
-  );
-});
-
-/* ─── QUICK ACCESS ───────────────────────────────────────────── */
-const QuickAccess = memo(function QuickAccess({ appMap, onLaunch }: { appMap: Record<string, AppItem>; onLaunch: (id: string) => void }) {
-  const ids = ['maps', 'phone', 'youtube', 'settings'];
-  const apps = ids.map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
-
-  return (
-    <div className="flex-shrink-0 overflow-hidden relative" style={{ ...GLASS_CARD, padding: 'var(--lp-space-lg, 16px)' }}>
-      <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(6,182,212,0.25),transparent)' }} />
-      <div className="text-[9px] font-black uppercase tracking-[0.40em] mb-0.5" style={{ color: '#22d3ee' }}>HIZLI ERİŞİM</div>
-      <div className="text-sm font-black mb-3 tracking-tight" style={{ color: '#ffffff' }}>KISAYOLLAR</div>
-      <div className="grid grid-cols-4 gap-2.5">
-        {apps.map(({ id, app }) => (
-          <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-2 py-2.5 rounded-2xl active:scale-90 transition-all"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
-              style={{ background: 'rgba(255,255,255,0.07)', boxShadow: '0 4px 12px rgba(0,0,0,0.30)' }}>
-              <span className="text-2xl leading-none">{app!.icon}</span>
-            </div>
-            <span className="text-[10px] font-bold text-center leading-tight px-1" style={{ color: '#7A8899' }}>{app!.name}</span>
-          </button>
-        ))}
       </div>
     </div>
   );
@@ -577,9 +558,8 @@ export const NewHomeLayout = memo(function NewHomeLayout({
         <div className="flex-1 min-h-0 grid gap-3 p-3 overflow-hidden" style={{ gridTemplateColumns: '0.90fr 1.20fr 0.90fr' }}>
           <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} onVoice={() => setVoiceOpenFallback(true)} />
           <SpeedCard />
-          <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
+          <div className="flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 min-h-0"><MusicCard /></div>
-            <QuickAccess appMap={appMap} onLaunch={onLaunch} />
           </div>
         </div>
         <Dock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />

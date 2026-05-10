@@ -1,4 +1,5 @@
-import { memo, type ReactNode, useState, useCallback, useEffect, useRef } from 'react';
+import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
+const ThemeStudio = lazy(() => import('../themes/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
@@ -17,8 +18,9 @@ import {
   getPerformanceMode, setPerformanceMode,
   isAutoModeEnabled, enableAutoMode, disableAutoMode,
 } from '../../platform/performanceMode';
-import { setBrightness, setVolume } from '../../platform/systemSettingsService';
+import { setBrightness, setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
+import { CanDiagPanel } from './CanDiagPanel';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import {
@@ -30,6 +32,10 @@ import { useScreenSense } from '../../hooks/useScreenSense';
 import { setObdVehicleType } from '../../platform/obdService';
 import { useSensitiveKey } from '../../platform/sensitiveKeyStore';
 import { useSystemStore } from '../../store/useSystemStore';
+import {
+  getAGCEnabled, setAGCEnabled,
+  getDriverFocusEnabled, setDriverFocus,
+} from '../../platform/audioService';
 
 /* ════════════════════════════════════════
    PREMIUM SLIDER
@@ -751,14 +757,18 @@ function SettingsPageInner({ onClose }: Props) {
   const [tab, setTab] = useState<Tab>('general');
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showOBDConnect, setShowOBDConnect] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
   const { locked: layoutLocked, toggleLock } = useEditStore();
-  const [perfMode, setPerfMode] = useState(() => getPerformanceMode());
-  const [autoMode, setAutoMode] = useState(() => isAutoModeEnabled());
+  const [perfMode, setPerfMode]         = useState(() => getPerformanceMode());
+  const [autoMode, setAutoMode]         = useState(() => isAutoModeEnabled());
+  const [agcOn,    setAgcOn]            = useState(() => getAGCEnabled());
+  const [focusOn,  setFocusOn]          = useState(() => getDriverFocusEnabled());
 
   useLayoutSync();
   const sense = useScreenSense();
   // Telefon/kompakt ekran tespiti: yükseklik < 500 veya genişlik < 800
-  const isCompactScreen = sense.height < 500 || sense.width < 800;
+  const isCompactScreen   = sense.height < 500 || sense.width < 800;
+  const nativeControls    = isSystemControlSupported();
 
   const handleBrightness = useCallback((v: number) => {
     updateSettings({ brightness: v });
@@ -828,7 +838,7 @@ function SettingsPageInner({ onClose }: Props) {
       data-theme-pack={settings.themePack}
       data-theme-style={settings.themeStyle}
       data-day-night={settings.dayNightMode}
-      style={{ background: wallpaperBg } as React.CSSProperties}
+      style={{ background: wallpaperBg, width: '100%', maxWidth: '100%', minHeight: 0 } as React.CSSProperties}
     >
 
       {/* ═══ HEADER — 2 satır: üst (nav+stats), alt (sekmeler) ═══ */}
@@ -899,16 +909,41 @@ function SettingsPageInner({ onClose }: Props) {
       </div>
 
       {/* ═══ CONTENT ═══ */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 z-10" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 z-10" style={{ WebkitOverflowScrolling: 'touch', overflowY: 'scroll', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
         <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
           {tab === 'general' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Panel accent="#3b82f6">
-                <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="#3b82f6" />
-                <div className="flex flex-col gap-6">
-                  <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="#f59e0b" colorB="#f97316" />
-                  <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="#3b82f6" colorB="#06b6d4" />
+              {nativeControls && (
+                <Panel accent="#3b82f6">
+                  <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="#3b82f6" />
+                  <div className="flex flex-col gap-6">
+                    <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="#f59e0b" colorB="#f97316" />
+                    <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="#3b82f6" colorB="#06b6d4" />
+                  </div>
+                </Panel>
+              )}
+
+              {/* ── Crystal Cabin DSP v3 ── */}
+              <Panel accent="#8b5cf6">
+                <SectionTitle icon={Volume2} title="Crystal Cabin DSP" sub="Otomotiv sınıfı ses işleme" color="#8b5cf6" />
+                <div className="flex flex-col gap-3">
+                  <PremiumToggle
+                    icon={Volume2}
+                    label="Akıllı Ses Dengeleme"
+                    desc="YouTube, Spotify gibi kaynaklar arasında ses eşitler (AGC)"
+                    value={agcOn}
+                    onChange={(v) => { setAgcOn(v); setAGCEnabled(v); }}
+                    accent="#8b5cf6"
+                  />
+                  <PremiumToggle
+                    icon={Cpu}
+                    label="Sürücü Odaklı Ses"
+                    desc="Ses sürücü tarafına odaklanır — Haas Effect (15ms)"
+                    value={focusOn}
+                    onChange={(v) => { setFocusOn(v); setDriverFocus(v); }}
+                    accent="#a78bfa"
+                  />
                 </div>
               </Panel>
 
@@ -989,6 +1024,28 @@ function SettingsPageInner({ onClose }: Props) {
 
           {tab === 'appearance' && (
             <>
+              {/* ── Tema Stüdyo ── */}
+              <Suspense fallback={null}>
+                {studioOpen && <ThemeStudio onClose={() => setStudioOpen(false)} />}
+              </Suspense>
+              <button
+                onClick={() => setStudioOpen(true)}
+                className="w-full flex items-center justify-between rounded-2xl px-5 py-4 transition-all active:scale-[0.98]"
+                style={{ background: 'linear-gradient(135deg,rgba(139,92,246,0.18),rgba(6,182,212,0.12))', border: '1px solid rgba(139,92,246,0.35)' }}>
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}>
+                    <Palette className="w-5 h-5" style={{ color: '#a78bfa' }} />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-black text-sm text-white">Tema Stüdyo</div>
+                    <div className="text-[11px] font-medium mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Her detayı özelleştir · Canlı önizleme</div>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}>
+                  <ArrowLeft className="w-4 h-4 rotate-180" style={{ color: '#a78bfa' }} />
+                </div>
+              </button>
+
               {/* ── Tema Seçici ── */}
               <ThemePanel />
 
@@ -1154,6 +1211,12 @@ function SettingsPageInner({ onClose }: Props) {
                 <div className="glass-card p-4">
                   <MaintenancePanel />
                 </div>
+              </Panel>
+
+              {/* ── CAN Bus Teşhis ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={Cpu} title="CAN Bus Teşhis" sub="CAN ID yapılandırması ve sniffer — araç sinyallerini tanımla" color="#22d3ee" />
+                <CanDiagPanel />
               </Panel>
             </div>
           )}

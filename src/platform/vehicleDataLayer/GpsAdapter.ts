@@ -5,7 +5,10 @@ import { dbgIncGps } from '../debug';
 type Callback = (data: GpsAdapterData) => void;
 
 const THROTTLE_MS = 200;
-const SPEED_DEADZONE_KMH = 2;
+
+// GpsAdapter artık birim dönüşümü YAPMAZ.
+// m/s → km/h dönüşümü + deadzone uygulaması SignalNormalizer.fromGPS()'e taşındı.
+// `data.speed` ham m/s değeri içerir (VAL mimarisi: SignalNormalizer standart birim garantisi sağlar).
 
 export class GpsAdapter {
   private _listeners = new Set<Callback>();
@@ -24,11 +27,8 @@ export class GpsAdapter {
       };
 
       if (loc.heading != null) data.heading = loc.heading;
-
-      if (loc.speed != null) {
-        const kmh = loc.speed * 3.6;
-        data.speed = kmh < SPEED_DEADZONE_KMH ? 0 : kmh;
-      }
+      // Ham m/s — SignalNormalizer.fromGPS() km/h'e çevirir
+      if (loc.speed != null) data.speed = loc.speed;
 
       this._listeners.forEach((fn) => fn(data));
       dbgIncGps();

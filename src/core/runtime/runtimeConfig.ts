@@ -29,6 +29,7 @@ const PERFORMANCE_CONFIG: RuntimeConfig = Object.freeze({
   enableBlur:       true,     // hardware accelerated
   enableAnimations: true,
   loggingLevel:     'warn',
+  suspendWorkers:   false,
 } as const);
 
 /**
@@ -44,6 +45,7 @@ const BALANCED_CONFIG: RuntimeConfig = Object.freeze({
   enableBlur:       true,     // orta sınıf GPU destekler
   enableAnimations: true,
   loggingLevel:     'warn',
+  suspendWorkers:   false,
 } as const);
 
 /**
@@ -60,6 +62,7 @@ const BASIC_JS_CONFIG: RuntimeConfig = Object.freeze({
   enableBlur:       false,    // Mali-400 uyarısı — GPU stall
   enableAnimations: false,    // JS animation loop CPU maliyetini kaldır
   loggingLevel:     'error',  // sadece hatalar — eMMC yazma azalt
+  suspendWorkers:   false,
 } as const);
 
 /**
@@ -77,6 +80,7 @@ const POWER_SAVE_CONFIG: RuntimeConfig = Object.freeze({
   enableBlur:       false,
   enableAnimations: false,
   loggingLevel:     'silent', // eMMC yazma koruması
+  suspendWorkers:   false,
 } as const);
 
 /**
@@ -93,6 +97,7 @@ const SAFE_MODE_CONFIG: RuntimeConfig = Object.freeze({
   enableBlur:       false,
   enableAnimations: false,
   loggingLevel:     'silent', // sıfır log — eMMC ömrü koruması
+  suspendWorkers:   true,     // RAM krizi: VehicleCompute Worker durdurulur
 } as const);
 
 /* ── Config haritası ─────────────────────────────────────────── */

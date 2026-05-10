@@ -6,6 +6,7 @@ import { telemetryService }    from '../telemetryService';
 import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 import { startRemoteCommands, stopRemoteCommands } from '../remoteCommandService';
 import { startLiveStyleEngine }                    from '../liveStyleEngine';
+import { updateGpsSpeedForValidation }             from '../obdService';
 import type { VehicleState, WorkerGeofenceZone }   from './types';
 
 export { useUnifiedVehicleStore }                 from './UnifiedVehicleStore';
@@ -99,6 +100,46 @@ export function startVehicleDataLayer(): () => void {
     _scheduleFlush();
   });
 
+  // CAN extras — worker'a gerek yok, doğrudan store'a yaz
+  // Tüm sinyaller (kapı/far/TPMS/motor/güvenlik/konfor) düşük frekanslı; RAF batch gerekmez.
+  const unsubCanExtras = can.onData((d) => {
+    useUnifiedVehicleStore.getState().updateCanExtras({
+      // Kapı / aydınlatma
+      doorOpen:          d.doorOpen,
+      headlightsOn:      d.headlightsOn,
+      tpms:              d.tpms?.length === 4
+                           ? (d.tpms as [number, number, number, number])
+                           : undefined,
+      // Motor
+      rpm:               d.rpm         ?? null,
+      coolantTemp:       d.coolantTemp ?? null,
+      oilTemp:           d.oilTemp     ?? null,
+      throttle:          d.throttle    ?? null,
+      // Elektrik / vites / çevre
+      batteryVolt:       d.batteryVolt ?? null,
+      gearPos:           d.gearPos     ?? null,
+      ambientTemp:       d.ambientTemp ?? null,
+      // Şasi güvenliği
+      abs:               d.abs,
+      tractionControl:   d.tractionControl,
+      stabilityControl:  d.stabilityControl,
+      // Gövde / konfor
+      parkingBrake:      d.parkingBrake,
+      seatbelt:          d.seatbelt,
+      wipers:            d.wipers,
+      airCondition:      d.airCondition,
+      cruiseControl:     d.cruiseControl,
+    });
+  });
+
+  // ValidationGuard GPS beslemesi — GPS hızını obdService'e ilet (döngüsel import olmadan)
+  const unsubGpsValidation = gps.onData((d) => {
+    if (d.speed != null) {
+      // GpsAdapterData.speed ham m/s — km/h'e çevir (deadzone uygulamadan)
+      updateGpsSpeedForValidation(d.speed * 3.6);
+    }
+  });
+
   // Telemetri push hattı — cloud push için gecikme kabul edilemez; RAF dışı
   telemetryService.start(resolver);
 
@@ -113,6 +154,8 @@ export function startVehicleDataLayer(): () => void {
   return () => {
     if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
     _hasPending = false;
+    unsubCanExtras();
+    unsubGpsValidation();
 
     _activeResolver = null;
     stopRemoteCommands();

@@ -19,6 +19,7 @@ import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 import { initSABChannel, clearSABChannel } from './sabChannel';
 import { dispatchFromWorker } from './VehicleEventHub';
 import type { WorkerInMessage, WorkerOutMessage } from './VehicleCompute.worker';
+import { SignalNormalizer } from '../../core/val/SignalNormalizer';
 
 type Callback = (patch: Partial<VehicleState>) => void;
 
@@ -67,11 +68,11 @@ export class VehicleSignalResolver {
 
     const odoKm = useUnifiedVehicleStore.getState().odometer ?? 0;
 
-    // SAB desteği: crossOriginIsolated (COOP+COEP) + SharedArrayBuffer varlığı
-    // Mali-400 gibi eski WebView'larda bu kontrol false döner → postMessage fallback
+    // SAB desteği: typeof yeterli değil — crossOriginIsolated (COOP+COEP) zorunlu.
+    // Mali-400 / Android eski WebView'larda SAB tanımlı olsa bile engellenebilir.
     const sabSupported =
       typeof SharedArrayBuffer !== 'undefined' &&
-      (typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : false);
+      self.crossOriginIsolated === true;
 
     if (sabSupported) {
       this._sab    = new SharedArrayBuffer(SAB_BYTES);
@@ -81,15 +82,31 @@ export class VehicleSignalResolver {
       this._send({ type: 'INIT', odoKm, sab: this._sab });
       this._startSabPolling();
     } else {
-      this._send({ type: 'INIT', odoKm });
+      // crossOriginIsolated=false → SAB kullanılamaz; postMessage fallback (Zero-Crash)
+      this._send({ type: 'INIT_FALLBACK', odoKm });
     }
 
-    // Adaptör callback'leri → worker postMessage
-    // Not: CanAdapter pre-allocated _data nesnesini geçirir; postMessage onu klonlar.
+    // ── VAL yolu: SignalNormalizer → VEHICLE_DATA ────────────────────────
+    // Adaptör ham verisi önce normalize edilir; worker NormalizedVehicleData alır.
+    // Birim dönüşümü (GpsAdapter: m/s→km/h, deadzone) SignalNormalizer'da yapılır.
+    // GpsAdapterData.speed artık ham m/s içerir (GpsAdapter dönüşüm yapmaz).
     this._unsubs.push(
-      this.can.onData((d) => this._send({ type: 'CAN_DATA', payload: d })),
-      this.obd.onData((d) => this._send({ type: 'OBD_DATA', payload: d })),
-      this.gps.onData((d) => this._send({ type: 'GPS_DATA', payload: d })),
+      this.can.onData((d) => {
+        const signals = SignalNormalizer.fromCAN(d, Date.now());
+        this._send({ type: 'VEHICLE_DATA', source: 'CAN', signals });
+      }),
+      this.obd.onData((d) => {
+        const signals = SignalNormalizer.fromOBD(d, Date.now());
+        this._send({ type: 'VEHICLE_DATA', source: 'OBD', signals });
+      }),
+      this.gps.onData((d) => {
+        // GpsAdapterData.speed ham m/s — RawGpsData formatına çevir
+        const signals = SignalNormalizer.fromGPS(
+          { speedMs: d.speed, heading: d.heading, location: d.location },
+          Date.now(),
+        );
+        this._send({ type: 'VEHICLE_DATA', source: 'GPS', signals });
+      }),
     );
 
     this.can.start();

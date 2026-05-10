@@ -100,7 +100,7 @@ export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; on
         {/* CENTER: The Scenic Map */}
         <div className="flex-1 flex flex-col gap-10">
           <div className="flex-1 extreme-card rounded-[5rem] overflow-hidden relative shadow-[0_50px_120px_-30px_rgba(0,0,0,1)] group border-white/10">
-             <MiniMapWidget />
+             <MiniMapWidget hideHeader={true} hideOverlay={true} />
              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 opacity-70 pointer-events-none" />
              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(59,130,246,0.1),transparent_50%)] pointer-events-none" />
              

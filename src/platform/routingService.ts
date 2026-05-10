@@ -15,6 +15,7 @@ import { create } from 'zustand';
 import { isNative } from './bridge';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { tryLocalDaemon, computeOfflineRoute, straightLineRoute } from './offlineRoutingService';
+import { speakNavigation } from './ttsService';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -78,11 +79,13 @@ const useRouteStore = create<RouteState>(() => INITIAL);
 
 // Distance hierarchy (must stay consistent with navigationService):
 //   ARRIVAL_THRESHOLD_M (20) < STEP_ADVANCE_THRESHOLD_M (30) < MANEUVER_STACK_THRESHOLD_M (50) = REROUTE_THRESHOLD_M (50)
-export const REROUTE_THRESHOLD_M        = 50; // metre — route-line deviation triggers reroute
+export const REROUTE_THRESHOLD_M        = 35; // metre — route-line deviation triggers reroute
 export const STEP_ADVANCE_THRESHOLD_M   = 30;  // metre — advance to next turn instruction
 export const MANEUVER_STACK_THRESHOLD_M = 50;  // metre — back-to-back turns shown together
 
-const REROUTE_THROTTLE_MS = 10_000; // 10 s — API spam koruması
+const REROUTE_THROTTLE_MS  = 5_000; // 5 s — API spam koruması
+const HEADERS_TIMEOUT_MS   = 2_000; // Fail-Fast: headers alınamazsa offline katmana geç
+const BODY_TIMEOUT_MS      = 5_000; // Otomotiv standardı: maksimum 5s route indirme bekleme
 const DEVIATION_WINDOW    = 20;     // kontrol edilecek segment penceresi
 
 let _rerouteCtx:      { toLat: number; toLon: number } | null = null;
@@ -286,22 +289,38 @@ async function _tryServer(
   console.log('FINAL DEST',   destCoords);    // [toLon, toLat]
 
   const coordStr = `${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}`;
-  const url      = `${baseUrl}/${coordStr}?steps=true&geometries=geojson&overview=full&alternatives=true`;
+  const url      = `${baseUrl}/${coordStr}?steps=true&geometries=geojson&overview=full&alternatives=3&annotations=duration,distance&continue_straight=default`;
   console.log('ROUTE REQUEST URL', url);
 
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10_000);
+  const ctrl = new AbortController();
 
+  // ── Phase 1: Headers (Fail-Fast) ─────────────────────────────────────────
+  // HEADERS_TIMEOUT_MS içinde sunucu yanıt vermezse → HEADERS_TIMEOUT hatası.
+  // fetchRoute bu mesajı yakalayarak kalan tüm sunucuları keser ve offline'a geçer.
+  let headersTimer: ReturnType<typeof setTimeout> | null =
+    setTimeout(() => ctrl.abort(), HEADERS_TIMEOUT_MS);
+
+  let _res: Response;
   try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
+    _res = await fetch(url, {
+      signal:  ctrl.signal,
       headers: { 'User-Agent': 'CarLauncherPro/1.0' },
     });
-    clearTimeout(timer);
+    clearTimeout(headersTimer!); headersTimer = null;
+  } catch (e) {
+    if (headersTimer !== null) { clearTimeout(headersTimer); headersTimer = null; }
+    // ctrl.signal.aborted → bizim timer'ımız tetikledi → Fail-Fast sinyali
+    throw ctrl.signal.aborted ? new Error('HEADERS_TIMEOUT') : (e as Error);
+  }
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!_res.ok) throw new Error(`HTTP ${_res.status}`);
 
-    const data = await res.json() as {
+  // ── Phase 2: Body (otomotiv standardı 5s) ────────────────────────────────
+  // Sunucu ulaşılabilir kanıtlandı; body transferine daha geniş süre tanı.
+  const bodyTimer = setTimeout(() => ctrl.abort(), BODY_TIMEOUT_MS);
+
+  try {
+    const data = await _res.json() as {
       code: string;
       routes?: Array<{
         distance: number;
@@ -396,8 +415,9 @@ async function _tryServer(
       hasToll:      detectToll(route.legs[0].steps as OsrmStep[]),
     };
   } catch (e) {
-    clearTimeout(timer);
     throw e;
+  } finally {
+    clearTimeout(bodyTimer);
   }
 }
 
@@ -615,37 +635,50 @@ export async function fetchRoute(
     }
   }
 
-  // ── Katman 1-2: Uzak OSRM sunucuları ────────────────────────
-  const servers = getRoutingServers();
-  for (const server of servers) {
-    try {
-      const result = await _tryServer(server, fromLon, fromLat, toLon, toLat);
-      console.log(`[ROUTE] provider: ${server} | dist: ${result.distance.toFixed(0)}m | dur: ${result.duration.toFixed(0)}s | pts: ${result.geometry.length} | first3: ${JSON.stringify(result.geometry.slice(0, 3))}`);
-      console.log('[ROUTE] result', { distance: result.distance, duration: result.duration, pts: result.geometry.length, first: result.geometry[0] });
-      await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
-      _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.altHasToll, result.altSteps, result.steps, result.distance, result.duration, result.hasToll);
-      useRouteStore.setState({
-        loading: false,
-        error:   null,
-        geometry:             result.geometry,
-        cumulativeDistances:  buildCumulativeDistances(result.geometry),
-        alternatives:         result.alternatives,
-        altDistances:         result.altDistances,
-        altDurations:         result.altDurations,
-        altHasToll:           result.altHasToll,
-        altRealIndices:       result.alternatives.map((_, i) => i + 1),
-        selectedAltIndex:     0,
-        hasToll:              result.hasToll,
-        steps:                result.steps,
-        totalDistanceMeters:  result.distance,
-        totalDurationSeconds: result.duration,
-        currentStepIndex:     0,
-        distanceToNextTurnMeters: 0,
-        serverUsed:           server,
-      });
-      return;
-    } catch (e) {
-      console.warn(`[ROUTE] server ${server} failed:`, e instanceof Error ? e.message : e);
+  // ── Katman 1-2: Uzak OSRM (Fail-Fast) ──────────────────────────────────────
+  // navigator.onLine=false → uzak sunucu denemesi yapmadan offline katmana geç.
+  // İlk OSRM isteği HEADERS_TIMEOUT_MS içinde yanıt vermezse → tüm sunucular kesilir,
+  // anında Katman 3'e (A* Worker) düşülür. Kullanıcı "Hesaplanıyor..." ekranında beklemez.
+  if (!navigator.onLine) {
+    console.warn('[ROUTE] Fail-Fast: navigator.onLine=false → offline katmana geç');
+  } else {
+    const servers = getRoutingServers();
+    for (const server of servers) {
+      try {
+        const result = await _tryServer(server, fromLon, fromLat, toLon, toLat);
+        console.log(`[ROUTE] provider: ${server} | dist: ${result.distance.toFixed(0)}m | dur: ${result.duration.toFixed(0)}s | pts: ${result.geometry.length} | first3: ${JSON.stringify(result.geometry.slice(0, 3))}`);
+        console.log('[ROUTE] result', { distance: result.distance, duration: result.duration, pts: result.geometry.length, first: result.geometry[0] });
+        await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
+        _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.altHasToll, result.altSteps, result.steps, result.distance, result.duration, result.hasToll);
+        useRouteStore.setState({
+          loading: false,
+          error:   null,
+          geometry:             result.geometry,
+          cumulativeDistances:  buildCumulativeDistances(result.geometry),
+          alternatives:         result.alternatives,
+          altDistances:         result.altDistances,
+          altDurations:         result.altDurations,
+          altHasToll:           result.altHasToll,
+          altRealIndices:       result.alternatives.map((_, i) => i + 1),
+          selectedAltIndex:     0,
+          hasToll:              result.hasToll,
+          steps:                result.steps,
+          totalDistanceMeters:  result.distance,
+          totalDurationSeconds: result.duration,
+          currentStepIndex:     0,
+          distanceToNextTurnMeters: 0,
+          serverUsed:           server,
+        });
+        return;
+      } catch (e) {
+        const _errMsg = e instanceof Error ? e.message : String(e);
+        if (_errMsg === 'HEADERS_TIMEOUT') {
+          // Ağ yavaş — kalan sunucuları deneme, anında offline'a geç
+          console.warn(`[ROUTE] Fail-Fast: ${server} ${HEADERS_TIMEOUT_MS}ms içinde yanıt vermedi → offline katmana geç`);
+          break;
+        }
+        console.warn(`[ROUTE] server ${server} failed:`, _errMsg);
+      }
     }
   }
 
@@ -678,6 +711,7 @@ export async function fetchRoute(
 
   // ── Katman 4: Straight-line (son çare) ───────────────────────
   console.warn('[ROUTE] All OSRM layers failed — using straight-line fallback. Route line will be a direct line, not road-following.');
+  speakNavigation('İnternet bağlantısı yok. Düz hat navigasyon aktif.');
   const sl = straightLineRoute(fromLat, fromLon, toLat, toLon);
   console.log('[ROUTE] result', { distance: sl.distanceM, duration: sl.durationS, pts: sl.geometry.length, first: sl.geometry[0] });
   await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
@@ -761,7 +795,7 @@ export function updateRouteProgress(lat: number, lon: number): void {
   // Bu sonsuz döngüyü kırar: straight-line → sapma → reroute → yine straight-line → …
   if (useRouteStore.getState().serverUsed === 'straight-line') return;
 
-  const now = Date.now();
+  const now = performance.now();
   if (now - _lastRerouteMs < REROUTE_THROTTLE_MS) return;
 
   // ── Navigasyon Histerezisi ───────────────────────────────────
@@ -769,7 +803,7 @@ export function updateRouteProgress(lat: number, lon: number): void {
   const speedKmh = (speed ?? 0) * 3.6;
   const accuracy = location?.accuracy ?? 999;
 
-  if (speedKmh < 5) return;   // Dururken jitter önleme (Sensor Resiliency)
+  if (speedKmh < 3) return;   // Dururken jitter önleme (Sensor Resiliency)
   if (accuracy > 50) return;  // Zayıf sinyal koruması (Sensor Resiliency)
 
   // Performans: geometry'yi seyrek örnekle, merkezi bul
@@ -797,8 +831,8 @@ export function updateRouteProgress(lat: number, lon: number): void {
 
   if (minSegDist > REROUTE_THRESHOLD_M) {
     _deviationCounter++;
-    // Sapma en az 3 ardışık GPS tick'i boyunca sürerse reroute yap
-    if (_deviationCounter >= 3) {
+    // Sapma en az 2 ardışık GPS tick'i boyunca sürerse reroute yap
+    if (_deviationCounter >= 2) {
       _deviationCounter = 0;
       _lastRerouteMs = now; // throttle'ı hemen set et
       void _triggerReroute(lat, lon, _rerouteCtx.toLat, _rerouteCtx.toLon);
@@ -814,6 +848,7 @@ async function _triggerReroute(
   toLat:   number, toLon:   number,
 ): Promise<void> {
   if (_isFetchingRoute) return;
+  console.log('[REROUTE] triggered — fetching new route', { fromLat, fromLon, toLat, toLon });
   _isFetchingRoute = true;
   _reroutingCb?.(true);
   try {

@@ -61,13 +61,23 @@ const ENGINE_TEMP_MAX_RAW = 170;    // 170 - 40 = 130°C max
 const FUEL_MAX_RAW        = 250;    // 250 × 0.4 = 100%
 const BATTERY_MAX_RAW     = 250;
 
+/* ── T507 Parçalı Paket Birikimi ─────────────────────────────────────────── */
+// T507 adaptörü 16-byte çerçeveyi 8+8 byte olarak iki ayrı BT paketi halinde
+// gönderebilir. Yeterli boyuta ulaşana kadar biriktir.
+let _partialBuffer: Uint8Array | null = null;
+
+/** Reconnect ve stopOBD'de birikmiş fragment tamponunu temizler (sızıntı önleme). */
+export function clearAccumulatedBuffer(): void {
+  _partialBuffer = null;
+}
+
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 /**
  * 16-byte binary CAN çerçevesini parse eder, OBDData patch olarak döner.
  *
  * Başarısızlık koşulları (null döner):
- *   - Buffer çok küçük (< 16 byte)
+ *   - Buffer yeterli boyuta ulaşmadı (biriktirildi, sonraki paket bekleniyor)
  *   - Magic byte yanlış
  *   - Bilinmeyen format versiyonu
  *
@@ -77,20 +87,35 @@ const BATTERY_MAX_RAW     = 250;
  * @param buffer - ArrayBuffer veya Uint8Array — sıfır kopyalama, direkt erişim
  */
 export function parseBinaryOBDFrame(buffer: ArrayBuffer | Uint8Array): Partial<OBDData> | null {
-  // ── Bounds: minimum boyut kontrolü ──────────────────────────────────────
-  const ab = buffer instanceof Uint8Array ? buffer.buffer : buffer;
-  const offset = buffer instanceof Uint8Array ? buffer.byteOffset : 0;
-  const length = buffer instanceof Uint8Array ? buffer.byteLength : buffer.byteLength;
+  // ── T507 Parçalı Paket Birleştirme ──────────────────────────────────────
+  const incoming = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  let workBuffer: Uint8Array;
 
-  if (length < FRAME_SIZE) {
-    // Truncated frame — discard silently (no log: may occur on BT reconnect)
+  if (_partialBuffer !== null) {
+    const combined = new Uint8Array(_partialBuffer.length + incoming.length);
+    combined.set(_partialBuffer, 0);
+    combined.set(incoming, _partialBuffer.length);
+    _partialBuffer = null;
+    workBuffer = combined;
+  } else {
+    workBuffer = incoming;
+  }
+
+  // Bozuk veya binary olmayan akışta sınırsız büyümeyi engelle
+  if (workBuffer.length > FRAME_SIZE * 8) {
+    _partialBuffer = null;
+    return null;
+  }
+
+  if (workBuffer.length < FRAME_SIZE) {
+    _partialBuffer = workBuffer; // sonraki paketi bekle
     return null;
   }
 
   // ── DataView: tek referans, sıfır kopya ─────────────────────────────────
   let view: DataView;
   try {
-    view = new DataView(ab, offset, length);
+    view = new DataView(workBuffer.buffer, workBuffer.byteOffset, workBuffer.byteLength);
   } catch {
     return null; // detached buffer guard
   }

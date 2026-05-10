@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
 import { registerCommandHandler, registerAIResultHandler } from '../platform/voiceService';
-import { pause, play, next, previous, getMediaState } from '../platform/mediaService';
+import { pause, play, next, previous, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
 import { bridge } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
 import type { MusicOptionKey } from '../data/apps';
@@ -92,8 +92,10 @@ export function useVoiceCommandHandler({
         playMusicSearch: (appKey, query) =>
           bridge.launchMusicSearch(appKey as MusicOptionKey, query),
 
-        playMusicQuery: (pkg, searchUri, _queryType, fallbackKey) =>
-          bridge.launchMusicQuery(pkg, searchUri, fallbackKey),
+        playMusicQuery: (pkg, searchUri, _queryType, fallbackKey) => {
+          if (pkg) setMediaPreferredPackage(pkg);
+          bridge.launchMusicQuery(pkg, searchUri, fallbackKey);
+        },
 
         addMusicFavorite: () => {
           const media   = getMediaState();

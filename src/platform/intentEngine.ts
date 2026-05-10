@@ -19,6 +19,7 @@
  *    confidence: 0.0–1.0"
  */
 import type { ParsedCommand, CommandType } from './commandParser';
+import type { CommandResult } from './bridge';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -123,9 +124,9 @@ export interface RouterContext {
   addMusicFavorite?: () => void;
   /** Serbest adres / yer araması — resolveAndNavigate wrapper'ı */
   navigateToPlace?: (query: string) => void;
-  // T-12: Donanım komutları — CarLauncherPlugin metodları
-  hwLockDoors?:   () => void;
-  hwUnlockDoors?: () => void;
+  // T-12: Donanım komutları — L2 ACK Promise döner (bridge → VehicleCommandQueue)
+  hwLockDoors?:   () => Promise<CommandResult>;
+  hwUnlockDoors?: () => Promise<CommandResult>;
   hwHonkHorn?:    () => void;
   hwFlashLights?: () => void;
   hwAlarmOn?:     () => void;
@@ -218,9 +219,21 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
     case 'open_maps':
       payload.targetApp = ctx.defaultNav;
       break;
-    case 'open_music':
+    case 'open_music': {
+      const srcPkg = cmd.extra?.['sourcePkg'] as string | undefined;
+      if (srcPkg) {
+        // Belirli bir kaynak istendi → PLAY_MUSIC_QUERY ile aç (boş query = sadece başlat)
+        payload.targetApp      = ctx.defaultMusic;
+        payload.musicSourcePkg = srcPkg;
+        payload.musicSearchUri = '';
+        payload.musicQuery     = '';
+        payload.musicQueryType = 'generic';
+        payload.musicAction    = 'play';
+        return { type: 'PLAY_MUSIC_QUERY', payload, priority: 'high' };
+      }
       payload.targetApp = ctx.defaultMusic;
       break;
+    }
     case 'play_music_search':
       payload.targetApp   = ctx.defaultMusic;
       payload.searchQuery = cmd.extra?.['query'];
@@ -275,7 +288,7 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
  * Single entry point for all intent dispatch.
  * Works identically whether the AppIntent came from toIntent() or fromAIResponse().
  */
-export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
+export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<void> {
   switch (intent.type) {
     case 'OPEN_NAVIGATION':
     case 'OPEN_MUSIC':
@@ -372,13 +385,13 @@ export function routeIntent(intent: AppIntent, ctx: RouterContext): void {
     case 'CLEAR_DTC_CODES':
       // Async DTC operations — handled by commandExecutor.dispatchIntent
       break;
-    // T-12: Donanım komutları — offline, internet gerektirmez
+    // T-12: Donanım komutları — L2 ACK beklenir; fire-and-forget değil
     case 'HARDWARE_LOCK':
-      ctx.hwLockDoors?.();
+      await ctx.hwLockDoors?.();
       break;
     case 'HARDWARE_UNLOCK':
-      // Güvenlik: hız kontrolü → sürüş sırasında kapı açma engeli
-      ctx.hwUnlockDoors?.();
+      // Güvenlik: hız kontrolü → sürüş sırasında kapı açma engeli (commandExecutor'da)
+      await ctx.hwUnlockDoors?.();
       break;
     case 'HARDWARE_HORN':
       ctx.hwHonkHorn?.();

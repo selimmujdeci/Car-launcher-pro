@@ -5,6 +5,7 @@ import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicle
 import { enableWakeWord, disableWakeWord } from '../platform/wakeWordService';
 import { startTrafficService, updateTrafficLocation } from '../platform/trafficService';
 import { initializeContacts } from '../platform/contactsService';
+import { startMediaHub } from '../platform/mediaService';
 import {
   startAutoBrightness, stopAutoBrightness, updateAutoBrightnessLocation,
 } from '../platform/autoBrightnessService';
@@ -24,6 +25,7 @@ import { startWifiService, stopWifiService } from '../platform/wifiService';
 import { isNative } from '../platform/bridge';
 import { CarLauncher } from '../platform/nativePlugin';
 import { showToast } from '../platform/errorBus';
+import { updateDeviceStatus } from '../platform/deviceApi';
 import { logError } from '../platform/crashLogger';
 import { initializeAddressBook } from '../platform/addressBookService';
 import { useStore } from '../store/useStore';
@@ -113,6 +115,9 @@ export function useLayoutServices({
   // Contacts
   useEffect(() => { initializeContacts(); }, []);
 
+  // Media polling — uygulama başlangıcında bir kez başlat (idempotent)
+  useEffect(() => { startMediaHub().catch(() => {}); }, []);
+
   // GPS warning (native only, once)
   useEffect(() => {
     if (!location && isNative) {
@@ -182,6 +187,39 @@ export function useLayoutServices({
 
   // Wifi service
   useEffect(() => { startWifiService(); return () => { stopWifiService(); }; }, []);
+
+  // Bluetooth araç entegrasyonu — bağlantı değişikliklerini dinle
+  useEffect(() => {
+    if (!isNative) return;
+    let handle: { remove(): void } | null = null;
+    let unmounted = false;
+    CarLauncher.addListener('btChanged', (evt) => {
+      updateDeviceStatus({ btConnected: evt.connected, btDevice: evt.deviceName });
+      if (evt.connected) {
+        showToast({
+          type:     'success',
+          title:    `Araç Bağlandı${evt.deviceName ? ': ' + evt.deviceName : ''}`,
+          message:  'Caros Pro aktif — iyi yolculuklar!',
+          duration: 4000,
+        });
+      } else {
+        showToast({
+          type:     'info',
+          title:    'Araç Bağlantısı Kesildi',
+          message:  'Bluetooth bağlantısı sonlandı.',
+          duration: 3000,
+        });
+      }
+    }).then((h) => {
+      if (unmounted) { h.remove(); return; }
+      handle = h;
+    }).catch(() => {});
+    return () => {
+      unmounted = true;
+      handle?.remove();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Araç profil algılama
   useEffect(() => {

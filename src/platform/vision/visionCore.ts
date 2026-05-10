@@ -18,10 +18,12 @@ import {
   PROC_W,
   PROC_H,
   DETECT_INTERVAL,
-  runDetection,
   computeAndPublishConfidence,
   resetConfidenceHistory,
 } from './visionImageProcess';
+import {
+  initVisionSAB, clearVisionSAB, writeVisionSAB,
+} from '../vehicleDataLayer/sabChannel';
 
 // ── Modül state ───────────────────────────────────────────────────────────────
 
@@ -34,6 +36,66 @@ let _procCtx:   OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | n
 let _rafId:     number | null = null;
 let _running    = false;
 let _tick       = 0;
+
+// ── VisionCompute Worker ──────────────────────────────────────────────────────
+// OffscreenCanvas.transferToImageBitmap() → postMessage([bitmap]) → worker hesaplar.
+// Worker mevcut değilse (SAB yoksa veya worker crash) → no-op frame (lanes: []).
+
+let _visionWorker: Worker | null = null;
+let _workerBusy   = false; // bir frame zaten işleniyorsa yeni frame atlanır
+let _vsabGen      = 0;     // Vision SAB generation sayacı
+
+function _createVisionWorker(): Worker | null {
+  try {
+    const w = new Worker(
+      new URL('./VisionCompute.worker.ts', import.meta.url),
+      { type: 'module', name: 'VisionCompute' },
+    );
+    w.onmessage = (e: MessageEvent) => {
+      _workerBusy = false;
+      const msg = e.data as { type: string; frame?: VisionFrame; message?: string };
+      if (msg.type === 'RESULT' && msg.frame) {
+        _lastFrame = msg.frame;
+        _frameListeners.forEach(fn => fn(_lastFrame));
+        _newFrameReady = true;
+
+        // Vision SAB'a yaz (crossOriginIsolated=true ortamında sıfır kopya)
+        const frame = msg.frame;
+        const ll = frame.lanes.find(l => l.side === 'left');
+        const rl = frame.lanes.find(l => l.side === 'right');
+        const avgLaneConf = frame.lanes.length > 0
+          ? frame.lanes.reduce((s, l) => s + l.confidence, 0) / frame.lanes.length
+          : 0;
+        const sign = frame.signs[0];
+        writeVisionSAB(
+          frame.lateralOffsetM, avgLaneConf,
+          ll?.x2 ?? -1, rl?.x2 ?? -1,
+          sign ? 1 : 0, sign?.speedValue ?? 0,
+          _vsabGen++,
+        );
+
+        if (useVisionStore.getState().state === 'degraded') _pendingState = 'active';
+      } else if (msg.type === 'ERROR') {
+        logError('VisionCompute:worker', new Error(msg.message ?? 'Worker error'));
+        if (useVisionStore.getState().state === 'active') _pendingState = 'degraded';
+      }
+    };
+    w.onerror = (err) => {
+      logError('VisionCompute:onerror', new Error(err.message ?? 'Worker crash'));
+      runtimeManager.reportFailure('VisionCompute');
+      _workerBusy  = false;
+      _visionWorker = null; // Stability Guard: crash sonrası null bırak
+    };
+    w.onmessageerror = () => {
+      logError('VisionCompute:messageerror', new Error('Deserialize failed'));
+      _workerBusy = false;
+    };
+    return w;
+  } catch (e) {
+    logError('VisionCompute:create', e);
+    return null;
+  }
+}
 
 let _lastFrame: VisionFrame = { lanes: [], signs: [], lateralOffsetM: null, processingMs: 0, timestamp: 0 };
 const _frameListeners = new Set<(f: VisionFrame) => void>();
@@ -78,22 +140,26 @@ function _loop(): void {
       _tick++;
 
       // ── AdaptiveRuntime throttle ────────────────────────────────────────────
-      const mode      = runtimeManager.getMode();
-      const isSafe    = mode === RuntimeMode.SAFE_MODE;
-      const isLowPow  = mode === RuntimeMode.POWER_SAVE || mode === RuntimeMode.BASIC_JS;
-      // SAFE_MODE: tespit yok; POWER_SAVE/BASIC_JS: 2× yavaşlatılmış; diğerleri: normal
-      const interval  = isSafe ? 0 : isLowPow ? DETECT_INTERVAL * 2 : DETECT_INTERVAL;
+      const mode     = runtimeManager.getMode();
+      const isSafe   = mode === RuntimeMode.SAFE_MODE;
+      const isLowPow = mode === RuntimeMode.POWER_SAVE || mode === RuntimeMode.BASIC_JS;
+      const interval = isSafe ? 0 : isLowPow ? DETECT_INTERVAL * 2 : DETECT_INTERVAL;
 
       if (interval > 0 && _tick % interval === 0) {
-        try {
-          _lastFrame = runDetection(_procCtx);
-          _frameListeners.forEach((fn) => fn(_lastFrame));
-          _newFrameReady = true;
-          if (useVisionStore.getState().state === 'degraded') _pendingState = 'active';
-        } catch (detErr) {
-          logError('VisionCore:detect', detErr);
-          if (useVisionStore.getState().state === 'active') _pendingState = 'degraded';
+        if (_visionWorker && !_workerBusy && _procCanvas instanceof OffscreenCanvas) {
+          // ── Worker path: OffscreenCanvas → transferToImageBitmap → postMessage ──
+          // bitmap transferable: ana thread'de kopya yok, GPU bellek transferi.
+          try {
+            const bitmap = _procCanvas.transferToImageBitmap();
+            _workerBusy = true;
+            _visionWorker.postMessage({ type: 'DETECT', bitmap }, [bitmap]);
+          } catch (transferErr) {
+            logError('VisionCore:transfer', transferErr);
+            _workerBusy = false;
+          }
         }
+        // Worker yoksa (SAB eksik veya crash): frame atlanır, degraded state'e geç
+        // sonraki tick'te yeniden denenebilir; servisi durdurmaz
       }
     }
   } catch (frameErr) {
@@ -155,8 +221,19 @@ export async function startVision(videoEl: HTMLVideoElement): Promise<void> {
       _set({ state: 'error', error: 'Kamera akışı kesildi' });
     });
 
+    // ── Vision Worker başlat ───────────────────────────────────────────────────
+    _visionWorker = _createVisionWorker();
+    // AdaptiveRuntimeManager'a OPTIONAL worker olarak kaydet
+    runtimeManager.registerWorker('VisionCompute', _visionWorker, 'OPTIONAL');
+
+    // ── Vision SAB başlat (crossOriginIsolated=true ortamında) ────────────────
+    if (typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated) {
+      initVisionSAB(new SharedArrayBuffer(128));
+    }
+
     _set({ state: 'active', error: null });
     _tick  = 0;
+    _vsabGen = 0;
     _startStateSync();
     _rafId = requestAnimationFrame(_loop);
 
@@ -177,6 +254,16 @@ export function stopVision(): void {
   if (_stream) { _stream.getTracks().forEach((t) => t.stop()); _stream = null; }
   if (_videoEl) { _videoEl.srcObject = null; _videoEl = null; }
   _procCtx = null; _procCanvas = null; _tick = 0;
+
+  // Worker'ı durdur ve kaydını sil
+  if (_visionWorker) {
+    runtimeManager.unregisterWorker('VisionCompute');
+    _visionWorker.postMessage({ type: 'STOP' });
+    _visionWorker = null;
+  }
+  _workerBusy = false;
+  clearVisionSAB();
+
   resetConfidenceHistory();
   _set({ state: 'idle', frame: null, error: null, confidence: 0, confidenceLevel: 'off' });
 }

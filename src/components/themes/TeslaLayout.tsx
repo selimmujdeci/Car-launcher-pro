@@ -1,4 +1,4 @@
-import { memo, useState, lazy, Suspense, useRef, useCallback } from 'react';
+import { memo, useState, lazy, Suspense, useRef, useCallback, useEffect } from 'react';
 import type { CSSProperties } from 'react';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
@@ -9,7 +9,7 @@ import {
   Gauge, Thermometer, Fuel, Mic, Settings, Navigation, Box,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
@@ -240,7 +240,7 @@ const TeslaSpeed = memo(function TeslaSpeed() {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
               <div className="font-light tabular-nums leading-none" style={{ fontSize: 'var(--lp-speed-font, 58px)', color: T_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
-                {speedKmh}
+                {Math.round(speedKmh)}
               </div>
               <div className="font-light mt-1.5 uppercase" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.45em' }}>
                 km/h
@@ -274,6 +274,11 @@ function TDataRow({ Icon, label, value, warn }: { Icon: typeof Gauge; label: str
 /* ─── TESLA MUSIC ─────────────────────────────────────────────── */
 const TeslaMusic = memo(function TeslaMusic() {
   const { playing, track } = useMediaState();
+
+  useEffect(() => {
+    startMediaHub();
+    return () => stopMediaHub();
+  }, []);
   return (
     <div className="flex flex-col h-full overflow-hidden"
       style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}>

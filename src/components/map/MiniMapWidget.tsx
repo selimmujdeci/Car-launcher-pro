@@ -9,6 +9,7 @@ import {
   addUserMarker,
   updateUserMarker,
   destroyOwnedMap,
+  getMapInstance,
   switchMapStyle,
   setDrivingView,
   exitDrivingView,
@@ -23,9 +24,17 @@ import { MapOverlay } from './MapOverlay';
 
 interface MiniMapWidgetProps {
   onFullScreenClick?: () => void;
+  /** true → header (NAVİGASYON / MİNİ HARİTA) tamamen gizlenir, harita tüm kartı kaplar */
+  hideHeader?:  boolean;
+  /** true → MapOverlay (hız/yön yazıları) render edilmez */
+  hideOverlay?: boolean;
 }
 
-export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: MiniMapWidgetProps) {
+export const MiniMapWidget = memo(function MiniMapWidget({
+  onFullScreenClick,
+  hideHeader  = false,
+  hideOverlay = false,
+}: MiniMapWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef | null>(null);
   const initDone = useRef(false);
@@ -82,18 +91,29 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
     const el = containerRef.current;
     let observer: ResizeObserver | null = null;
 
+    let resizeRafId: number | null = null;
+
     function tryInit() {
-      if (initDone.current) return;
+      if (initDone.current) {
+        if (el.offsetWidth > 0 && el.offsetHeight > 0 && mapRef.current) {
+          if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+          resizeRafId = requestAnimationFrame(() => {
+            resizeRafId = null;
+            mapRef.current?.resize();
+          });
+        }
+        return;
+      }
       if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
-      observer?.disconnect();
       doInit(el);
     }
+
+    observer = new ResizeObserver(tryInit);
+    observer.observe(el);
 
     if (el.offsetWidth > 0 && el.offsetHeight > 0) {
       doInit(el);
     } else {
-      observer = new ResizeObserver(tryInit);
-      observer.observe(el);
       requestAnimationFrame(tryInit);
     }
 
@@ -123,7 +143,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
           } else {
             const styleTimeout = setTimeout(() => {
               if (!cancelled) setMapReady(true);
-            }, 8000);
+            }, 3000);
             map.once('style.load', () => {
               clearTimeout(styleTimeout);
               if (!cancelled) setMapReady(true);
@@ -142,12 +162,27 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
         const map = mapRef.current;
         mapRef.current = null;
         console.log('[MAP_DESTROY] MiniMap');
-        if (map) destroyOwnedMap(map);
+        if (!map) return;
+
+        const storeInstance = getMapInstance();
+        if (storeInstance !== null && storeInstance !== map) {
+          // FullMapView sahipliği devraldı — WebGL context'i yok ETME.
+          // FullMap'in initializeMap() zaten destroyMap() → _freeContext() çağırdı;
+          // canvas DOM'dan zaten ayrıldı. Burada yalnızca artık kalıntı varsa temizle.
+          try {
+            const canvas = map.getCanvas();
+            if (canvas?.parentElement) canvas.parentElement.removeChild(canvas);
+          } catch { /* already detached */ }
+        } else {
+          // Biz hâlâ sahibiz veya store boş — tam yıkım
+          destroyOwnedMap(map);
+        }
       };
     }
 
     return () => {
       observer?.disconnect();
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       cleanupRef.current?.();
     };
   }, [reinitKey]);
@@ -237,41 +272,49 @@ export const MiniMapWidget = memo(function MiniMapWidget({ onFullScreenClick }: 
       {/* Ambient glow */}
       <div className="absolute -top-12 -left-12 w-32 h-32 bg-blue-600/[0.05] rounded-full blur-[40px] pointer-events-none" />
 
-      {/* Header — flex-shrink-0 so it never grows or collapses the map */}
-      <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 border-2 border-blue-400 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
-            <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
+      {/* Header — hideHeader=true ise tamamen gizlenir, harita tüm alanı kaplar */}
+      {!hideHeader && (
+        <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 border-2 border-blue-400 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
+              <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
+            </div>
+            <div className="flex flex-col leading-none">
+              <span className="text-blue-500 font-black text-[10px] tracking-[0.2em] uppercase mb-0.5">NAVİGASYON</span>
+              <span className="text-primary text-[14px] font-black tracking-tight">MİNİ HARİTA</span>
+            </div>
           </div>
-          <div className="flex flex-col leading-none">
-            <span className="text-blue-500 font-black text-[10px] tracking-[0.2em] uppercase mb-0.5">NAVİGASYON</span>
-            <span className="text-primary text-[14px] font-black tracking-tight">MİNİ HARİTA</span>
-          </div>
+          {onFullScreenClick && (
+            <button
+              onClick={onFullScreenClick}
+              className="w-11 h-11 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-primary hover:bg-white/20 active:scale-90 transition-all duration-150 flex-shrink-0 shadow-md"
+              title="Tam ekran"
+            >
+              <Maximize2 className="w-5 h-5" />
+            </button>
+          )}
         </div>
-        {onFullScreenClick && (
-          <button
-            onClick={onFullScreenClick}
-            className="w-11 h-11 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-primary hover:bg-white/20 active:scale-90 transition-all duration-150 flex-shrink-0 shadow-md"
-            title="Tam ekran"
-          >
-            <Maximize2 className="w-5 h-5" />
-          </button>
-        )}
-      </div>
+      )}
 
-      {/* Map container — flex-1 + min-h-0 ensures it fills remaining space without overflow */}
+      {/* Map container — hideHeader=true → margin yok, rounded-[inherit] ile parent köşesini devralır */}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 min-w-0 mx-4 mb-4 rounded-[20px] overflow-hidden glass-inner-focus relative"
+        className={`flex-1 min-h-0 min-w-0 overflow-hidden relative ${
+          hideHeader
+            ? 'rounded-[inherit]'                         // tüm kartı kapla, köşeyi devral
+            : 'mx-4 mb-4 rounded-[2rem] glass-inner-focus' // normal mod
+        }`}
       >
-        <MapOverlay location={location} heading={heading} compact={true} speedKmh={speedKmh} />
+        {!hideOverlay && (
+          <MapOverlay location={location} heading={heading} compact={true} speedKmh={speedKmh} />
+        )}
 
         {/* ── Skeletal Loading — harita tile'ları yüklenene kadar AGAMA-tarzı placeholder ──
          *  mapReady=false: MapLibre canvas siyah gösterir; bu overlay boş ekranı saklar.
          *  cubic-bezier(0.4,0,0.2,1) geçişi: Tesla UI motion tasarım dili uyumlu.       */}
         {!mapReady && (
           <div
-            className="absolute inset-0 z-10 rounded-[20px] overflow-hidden"
+            className="absolute inset-0 z-10 rounded-[inherit] overflow-hidden"
             style={{
               background: 'linear-gradient(160deg, rgba(8,12,28,0.97) 0%, rgba(14,20,42,0.97) 100%)',
               transition: 'opacity 400ms cubic-bezier(0.4,0,0.2,1)',

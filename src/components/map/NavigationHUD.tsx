@@ -1,27 +1,22 @@
 /**
- * NavigationHUD — Resimle birebir eşleşen premium araç navigasyon overlay'i.
+ * NavigationHUD — Mercedes MBUX Futurist Design Language
  *
- * Aktif navigasyon sırasında gösterilen bileşenler:
- *   TurnPanel        — üst sol: dönüş talimatı (ok + mesafe + sokak)
- *   NextStepChip     — üst sol (alt): sonraki manevra
- *   RoadSignsPanel   — üst orta: yol tabelaları
- *   LeftButtons      — sol dikey: navigasyon / ses / uyarı / menü
- *   SpeedPanel       — sağ: hız limiti + mevcut hız
- *   LaneGuidance     — alt orta: şerit rehberi
- *   NavInfoBar       — alt bilgi çubuğu: süre / mesafe / varış + ilerleme
- *   BottomNavBar     — en alt: Navigasyon / Medya / Telefon / Uygulamalar / Ayarlar
- *
- * Navigasyon yokken:
- *   PreviewCard      — rota önizlemesi + başlat/iptal
+ * Bileşenler:
+ *   TurnPanel        — üst sol: futurist-glass + SVG ok + mesafe + sokak
+ *   RoadSignsPanel   — üst orta: yol tabelası (futurist-gradient-blue)
+ *   LaneGuidance     — alt orta: manevra tipine göre dinamik şerit rehberi
+ *   SpeedPanel       — sağ: futurist-glass, limit aşımında glow-red + pulse
+ *   NavInfoBar       — alt: futurist-gradient-dark, glowing progress bar
+ *   PreviewCard      — rota önizlemesi
  *   QuickDestinations — hızlı hedef kartları
  */
+import '../../styles/ultra-premium-global.css';
 import {
   memo, useState, useCallback, useEffect, useRef, type ReactNode,
 } from 'react';
 import {
-  ArrowLeft, ArrowRight, ArrowUp, RotateCcw, RefreshCw,
-  MapPin, Home, Briefcase, Fuel,
-  Navigation, Play, X, Loader2, AlertCircle, CheckCircle2,
+  MapPin, Home, Briefcase, Fuel, ChevronDown,
+  Play, X, Loader2, AlertCircle, CheckCircle2, GitBranch,
 } from 'lucide-react';
 import {
   useNavigation,
@@ -39,7 +34,54 @@ import {
 import type { RouteStep } from '../../platform/routingService';
 import { useStore } from '../../store/useStore';
 import { useGPSLocation } from '../../platform/gpsService';
+import { speakNavigation } from '../../platform/ttsService';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
+
+/* ── Dinamik hız sınırı — Overpass API (maxspeed) ──────────────
+ * Her 200 m'de bir mevcut yolun maxspeed etiketini sorgular.
+ */
+function useSpeedLimit(lat: number | null, lon: number | null): number {
+  const [limit, setLimit]   = useState(50);
+  const prevPosRef          = useRef<{ lat: number; lon: number } | null>(null);
+  const timerRef            = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!lat || !lon) return;
+    if (prevPosRef.current) {
+      const dlat = (lat - prevPosRef.current.lat) * 111_320;
+      const dlon = (lon - prevPosRef.current.lon) * 111_320 * Math.cos(lat * (Math.PI / 180));
+      if (Math.sqrt(dlat * dlat + dlon * dlon) < 200) return;
+    }
+    prevPosRef.current = { lat, lon };
+
+    let cancelled = false;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      try {
+        const q    = `[out:json][timeout:3];way[highway][maxspeed](around:30,${lat},${lon});out tags 1;`;
+        const url  = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
+        const ctrl = new AbortController();
+        const t    = setTimeout(() => ctrl.abort(), 4_000);
+        const res  = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(t);
+        if (cancelled) return;
+        const data = await res.json() as { elements?: Array<{ tags?: { maxspeed?: string } }> };
+        const ms   = data.elements?.[0]?.tags?.maxspeed;
+        if (ms) {
+          const n = parseInt(ms, 10);
+          if (Number.isFinite(n) && n > 0 && n <= 300) setLimit(n);
+        }
+      } catch { /* ağ hatası → önceki limit korunur */ }
+    }, 800);
+
+    return () => { cancelled = true; };
+  }, [lat, lon]);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  return limit;
+}
 
 /* ── Türkçe talimat ────────────────────────────────────────── */
 
@@ -55,20 +97,75 @@ function toTurkish(mod: string, type: string): string {
   return 'Düz devam edin';
 }
 
-/* ── Dönüş ok ikonu ───────────────────────────────────────── */
+/* ── Mercedes MBUX Futurist SVG Okları ───────────────────── */
 
-function TurnArrow({ mod, type, size = 'lg' }: { mod: string; type: string; size?: 'lg' | 'md' | 'sm' | 'xs' }) {
-  const cls = size === 'lg' ? 'w-14 h-14' : size === 'md' ? 'w-9 h-9' : size === 'sm' ? 'w-5 h-5' : 'w-4 h-4';
-  if (type === 'arrive')                           return <MapPin      className={cls} />;
-  if (type === 'depart')                           return <Navigation  className={`${cls} fill-current`} />;
-  if (type === 'roundabout' || type === 'rotary')  return <RefreshCw   className={cls} />;
-  if (mod === 'uturn')                             return <RotateCcw   className={cls} />;
-  if (mod.includes('right'))                       return <ArrowRight  className={cls} />;
-  if (mod.includes('left'))                        return <ArrowLeft   className={cls} />;
-  return <ArrowUp className={cls} />;
+function FuturistArrow({ mod, type, size = 'lg' }: {
+  mod: string; type: string; size?: 'lg' | 'md' | 'sm' | 'xs';
+}) {
+  const dim = size === 'lg' ? 48 : size === 'md' ? 34 : size === 'sm' ? 22 : 16;
+  const sw  = size === 'lg' ? 3.5 : size === 'md' ? 3.0 : 2.5;
+  const swB = sw + 0.6; // arrowhead stroke
+
+  const base = {
+    width: dim, height: dim,
+    viewBox: '0 0 24 24',
+    fill: 'none' as const,
+    stroke: 'currentColor',
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+
+  if (type === 'arrive') return (
+    <svg {...base}>
+      <circle cx="12" cy="12" r="7" strokeWidth={sw} />
+      <circle cx="12" cy="12" r="2.5" fill="currentColor" strokeWidth={0} />
+    </svg>
+  );
+
+  if (type === 'depart') return (
+    <svg {...base} fill="currentColor" stroke="none">
+      <path d="M12 2.5L21 19.5H3L12 2.5Z" />
+    </svg>
+  );
+
+  if (type === 'roundabout' || type === 'rotary') return (
+    <svg {...base}>
+      <path d="M12 5.5A6.5 6.5 0 1 1 5.5 12" strokeWidth={sw} />
+      <path d="M5.5 8.5V5.5h3" strokeWidth={swB} />
+    </svg>
+  );
+
+  if (mod === 'uturn') return (
+    <svg {...base}>
+      <path d="M7 20l-3-4 3-4" strokeWidth={swB} />
+      <path d="M4 16h9a4.5 4.5 0 0 0 0-9h-1" strokeWidth={sw} />
+    </svg>
+  );
+
+  if (mod.includes('right')) return (
+    <svg {...base}>
+      <path d="M5 20V13a6 6 0 0 1 6-6h8" strokeWidth={sw} />
+      <path d="M14.5 3.5l5 4-5 4" strokeWidth={swB} />
+    </svg>
+  );
+
+  if (mod.includes('left')) return (
+    <svg {...base}>
+      <path d="M19 20V13a6 6 0 0 0-6-6H5" strokeWidth={sw} />
+      <path d="M9.5 3.5L4.5 7.5l5 4" strokeWidth={swB} />
+    </svg>
+  );
+
+  // straight
+  return (
+    <svg {...base}>
+      <path d="M12 21V5" strokeWidth={sw} />
+      <path d="M6 10.5L12 4.5 18 10.5" strokeWidth={swB} />
+    </svg>
+  );
 }
 
-/* ── Mesafe formatlayıcı ─────────────────────────────────── */
+/* ── Dönüş mesafe formatlayıcı ──────────────────────────── */
 
 function fmtTurn(m: number): string {
   if (!Number.isFinite(m) || m < 0) return '—';
@@ -78,29 +175,9 @@ function fmtTurn(m: number): string {
   return `${(m / 1000).toFixed(1)} km`;
 }
 
-/* ── Şerit türetici ─────────────────────────────────────────
- * OSRM adım modifier'ından 4 şeritlik rehber üretir.
- * Aktif indeksler mavi, pasifler şeffaf görünür.
- */
-type Lane = { dir: 'left' | 'straight' | 'right'; active: boolean };
-
-function buildLanes(mod: string): Lane[] {
-  const L: Lane['dir'] = 'left';
-  const S: Lane['dir'] = 'straight';
-  const R: Lane['dir'] = 'right';
-  if (mod.includes('sharp left') || mod === 'uturn')
-    return [{ dir: L, active: true }, { dir: L, active: true }, { dir: S, active: false }, { dir: R, active: false }];
-  if (mod.includes('left'))
-    return [{ dir: L, active: true }, { dir: S, active: false }, { dir: S, active: false }, { dir: R, active: false }];
-  if (mod.includes('sharp right'))
-    return [{ dir: L, active: false }, { dir: S, active: false }, { dir: R, active: true }, { dir: R, active: true }];
-  if (mod.includes('right'))
-    return [{ dir: L, active: false }, { dir: S, active: false }, { dir: S, active: false }, { dir: R, active: true }];
-  return [{ dir: L, active: false }, { dir: S, active: true }, { dir: S, active: true }, { dir: R, active: false }];
-}
 
 /* ══════════════════════════════════════════════════════════ */
-/* ── TurnPanel (üst sol) ──────────────────────────────────── */
+/* ── TurnPanel — Mercedes MBUX Futurist ─────────────────── */
 /* ══════════════════════════════════════════════════════════ */
 
 const TurnPanel = memo(function TurnPanel({
@@ -111,58 +188,54 @@ const TurnPanel = memo(function TurnPanel({
   const isArrive = step.maneuverType === 'arrive';
 
   return (
-    <div className="absolute left-4 z-30 pointer-events-none flex flex-col gap-1.5"
-      style={{ top: 'calc(var(--sat) + 14px)', maxWidth: 300 }}>
-      {/* Ana dönüş kartı — minimalist */}
-      <div
-        className="flex items-stretch rounded-2xl overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,0.65)] bg-[rgba(10,14,26,0.82)] backdrop-blur-[32px] border border-white/[0.07]"
-      >
-        {/* Ok alanı */}
+    <div
+      className="absolute left-4 z-30 pointer-events-none flex flex-col gap-2"
+      style={{ top: 'calc(var(--sat) + 16px)', maxWidth: 320 }}
+    >
+      {/* Ana dönüş kartı — Mercedes MBUX Style */}
+      <div className="futurist-glass futurist-glow-blue flex items-stretch rounded-[2rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] border-white/20">
+        {/* Ok alanı — daha geniş ve ikonik */}
         <div
-          className="flex items-center justify-center px-4 flex-shrink-0"
+          className="flex items-center justify-center px-6 flex-shrink-0"
           style={{
             background: isArrive
               ? 'linear-gradient(160deg,#10b981,#059669)'
-              : 'linear-gradient(160deg,#3b82f6,#1d4ed8)',
-            minWidth: 72,
+              : 'linear-gradient(160deg,#2563eb,#1e40af)',
+            minWidth: 85,
           }}
         >
-          <TurnArrow mod={step.maneuverModifier} type={step.maneuverType} size="md" />
+          <FuturistArrow mod={step.maneuverModifier} type={step.maneuverType} size="md" />
         </div>
 
-        {/* Metin alanı */}
-        <div className="px-4 py-3 flex flex-col justify-center min-w-0">
-          <div className="text-white font-black leading-none mb-0.5 tabular-nums text-[26px] tracking-[-0.02em]">
+        {/* Metin alanı — zengin tipografi */}
+        <div className="px-5 py-4 flex flex-col justify-center min-w-0">
+          <div className="futurist-text-glow text-white font-black leading-none mb-1 tabular-nums text-[32px] tracking-tight">
             {isArrive ? '—' : fmtTurn(distToTurn)}
           </div>
-          <div className="text-white font-semibold text-sm leading-tight truncate opacity-90">
+          <div className="text-white font-extrabold text-[12px] leading-tight truncate uppercase tracking-[0.15em] opacity-90">
             {toTurkish(step.maneuverModifier, step.maneuverType)}
           </div>
           {step.streetName && (
-            <div className="text-blue-400 font-bold text-xs truncate mt-0.5 uppercase tracking-wide">
+            <div className="text-blue-300/90 font-bold text-[11px] truncate mt-1 uppercase tracking-wider">
               {step.streetName}
             </div>
           )}
         </div>
       </div>
 
-      {/* Sonraki adım — ince ikincil kart */}
+      {/* Sonraki adım — Floating Mini Card */}
       {nextStep && !isArrive && (
-        <div
-          className="flex items-center gap-2 px-3 py-2 rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.4)] bg-[rgba(10,14,26,0.72)] backdrop-blur-[24px] border border-white/[0.06]"
-        >
-          <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-            <TurnArrow mod={nextStep.maneuverModifier} type={nextStep.maneuverType} size="xs" />
+        <div className="futurist-glass flex items-center gap-3 px-4 py-2.5 rounded-2xl border-white/10 ml-2 scale-95 origin-left">
+          <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0 border border-white/5">
+            <FuturistArrow mod={nextStep.maneuverModifier} type={nextStep.maneuverType} size="xs" />
           </div>
           <div className="min-w-0">
-            <div className="text-white font-bold text-xs truncate leading-tight">
+            <div className="text-white font-black text-[10px] truncate leading-none uppercase tracking-widest opacity-60">
+              SONRAKİ
+            </div>
+            <div className="text-white font-bold text-xs truncate mt-1 uppercase tracking-wide">
               {nextStep.streetName || toTurkish(nextStep.maneuverModifier, nextStep.maneuverType)}
             </div>
-            {nextStep.distance > 0 && (
-              <div className="text-slate-500 text-[10px] font-bold mt-0.5">
-                {formatDistance(nextStep.distance)}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -172,96 +245,84 @@ const TurnPanel = memo(function TurnPanel({
 
 
 /* ══════════════════════════════════════════════════════════ */
-/* ── SpeedPanel (sağ) ────────────────────────────────────── */
+/* ── RoadSignsPanel — üst orta yol tabelası ─────────────── */
 /* ══════════════════════════════════════════════════════════ */
 
-const SpeedPanel = memo(function SpeedPanel({
-  speedKmh, speedLimitKmh = 50,
-}: {
-  speedKmh: number; speedLimitKmh?: number;
-}) {
-  const overSpeed = speedKmh > speedLimitKmh + 5;
-  const roundedSpeed = Math.round(speedKmh);
+const RoadSignsPanel = memo(function RoadSignsPanel({
+  streetName, destName,
+}: { streetName?: string; destName?: string; }) {
+  const label = streetName || destName;
+  if (!label) return null;
 
   return (
-    <div className="absolute right-5 top-1/2 -translate-y-1/2 z-30 pointer-events-none flex flex-col items-center gap-3">
-      {/* Hız limiti tabelası — trafik işareti görünümü */}
+    <div
+      className="absolute z-30 pointer-events-none"
+      style={{ top: 'calc(var(--sat, 0px) + 14px)', left: '50%', transform: 'translateX(-50%)' }}
+    >
       <div
-        className="w-16 h-16 rounded-full flex items-center justify-center bg-white border-[5px] border-red-600 shadow-[0_4px_24px_rgba(0,0,0,0.5),inset_0_0_0_2px_rgba(220,38,38,0.15)]"
-      >
-        <span className="text-black font-black text-[22px] tracking-[-0.03em]">
-          {speedLimitKmh}
-        </span>
-      </div>
-
-      {/* Mevcut hız kartı */}
-      <div
-        className="flex flex-col items-center px-4 py-3 rounded-[1.5rem] shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
+        className="flex flex-col items-center rounded-[14px] overflow-hidden"
         style={{
-          background: 'rgba(10,14,26,0.88)',
-          backdropFilter: 'blur(24px)',
-          border: `1px solid ${overSpeed ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.10)'}`,
-          minWidth: 88,
+          background: 'linear-gradient(155deg,#1e3a8a,#1e40af)',
+          minWidth: 140,
+          padding: '8px 20px 6px',
+          boxShadow: '0 6px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.18), inset 0 1px 0 rgba(255,255,255,0.15)',
         }}
       >
-        {/* Küçük limit rozeti */}
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center mb-1 bg-white border-[3px] border-red-600"
-        >
-          <span className="text-black font-black text-[11px]">{speedLimitKmh}</span>
-        </div>
-        {/* Hız */}
         <span
-          className="font-black tabular-nums leading-none"
-          style={{
-            fontSize: 44,
-            color: overSpeed ? '#f87171' : '#ffffff',
-            letterSpacing: '-0.04em',
-          }}
+          className="text-white font-black uppercase tracking-widest leading-tight text-center truncate"
+          style={{ fontSize: 13, maxWidth: 180 }}
         >
-          {roundedSpeed}
+          {label}
         </span>
-        <span className="text-slate-400 font-bold uppercase tracking-widest mt-0.5 text-[11px]">
-          km/h
-        </span>
+        <ChevronDown className="w-4 h-4 text-white mt-1" style={{ opacity: 0.85 }} />
       </div>
     </div>
   );
 });
 
+
 /* ══════════════════════════════════════════════════════════ */
-/* ── LaneGuidance (alt orta) ─────────────────────────────── */
+/* ── LaneGuidance — dinamik şerit rehberi ────────────────── */
 /* ══════════════════════════════════════════════════════════ */
 
-function LaneIcon({ dir }: { dir: Lane['dir'] }) {
-  if (dir === 'left')  return <ArrowLeft  className="w-5 h-5" />;
-  if (dir === 'right') return <ArrowRight className="w-5 h-5" />;
-  return <ArrowUp className="w-5 h-5" />;
+function getLaneActive(mod: string): [boolean, boolean, boolean] {
+  if (mod.includes('left'))  return [true,  false, false];
+  if (mod.includes('right')) return [false, false, true];
+  return [false, true, false]; // straight / default
 }
 
-const LaneGuidance = memo(function LaneGuidance({ lanes }: { lanes: Lane[] }) {
+const LANE_ARROWS = ['←', '↑', '→'] as const;
+
+const LaneGuidance = memo(function LaneGuidance({
+  maneuverModifier, distToTurn,
+}: { maneuverModifier: string; distToTurn: number; }) {
+  // 400 m'ye yaklaşınca göster
+  if (!Number.isFinite(distToTurn) || distToTurn > 400 || distToTurn <= 0) return null;
+
+  const active = getLaneActive(maneuverModifier);
+
   return (
-    <div className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none"
-      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 88px)' }}>
-      <div
-        className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.7)] bg-[rgba(10,14,26,0.88)] backdrop-blur-[24px] border border-white/10"
-      >
-        {lanes.map((lane, i) => (
+    <div
+      className="absolute inset-x-0 z-30 pointer-events-none flex justify-center"
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 115px)' }}
+    >
+      <div className="futurist-glass rounded-[2rem] px-8 py-4 flex items-end gap-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)] border-white/20">
+        {active.map((on, i) => (
           <div
             key={i}
-            className="w-14 h-12 rounded-xl flex items-center justify-center transition-all"
-            style={{
-              background: lane.active
-                ? 'linear-gradient(160deg,#3b82f6,#1d4ed8)'
-                : 'rgba(255,255,255,0.07)',
-              border: lane.active
-                ? '1px solid rgba(96,165,250,0.5)'
-                : '1px solid rgba(255,255,255,0.08)',
-              color: lane.active ? '#ffffff' : 'rgba(255,255,255,0.35)',
-              boxShadow: lane.active ? '0 4px 16px rgba(59,130,246,0.4)' : 'none',
-            }}
+            className={`flex flex-col items-center gap-2 transition-all duration-500 ${on ? 'scale-110 opacity-100' : 'opacity-20 blur-[1px]'}`}
           >
-            <LaneIcon dir={lane.dir} />
+            <div
+              className="w-7 rounded-t-md transition-all duration-500"
+              style={{
+                height: 52,
+                background: on ? 'linear-gradient(to top, #2563eb, #60a5fa)' : 'rgba(255,255,255,0.1)',
+                boxShadow: on ? '0 0 25px rgba(96,165,250,0.8)' : 'none',
+              }}
+            />
+            <span className={`text-lg font-black leading-none ${on ? 'text-blue-400 futurist-text-glow' : 'text-white/20'}`}>
+              {LANE_ARROWS[i]}
+            </span>
           </div>
         ))}
       </div>
@@ -269,8 +330,59 @@ const LaneGuidance = memo(function LaneGuidance({ lanes }: { lanes: Lane[] }) {
   );
 });
 
+
 /* ══════════════════════════════════════════════════════════ */
-/* ── NavInfoBar (alt bilgi çubuğu — kompakt tek satır) ───── */
+/* ── SpeedPanel — futurist-glass, dynamic glow ───────────── */
+/* ══════════════════════════════════════════════════════════ */
+
+const SpeedPanel = memo(function SpeedPanel({
+  speedKmh, speedLimitKmh = 50,
+}: {
+  speedKmh: number; speedLimitKmh?: number;
+}) {
+  const overSpeed    = speedKmh > speedLimitKmh + 5;
+  const roundedSpeed = Math.round(speedKmh);
+
+  return (
+    <div
+      className="absolute right-4 z-30 pointer-events-none flex flex-col items-center gap-3"
+      style={{ top: 'calc(var(--sat, 0px) + 85px)' }}
+    >
+      {/* Hız göstergesi — futurist-glass + dinamik glow */}
+      <div
+        className={`futurist-glass flex flex-col items-center px-5 py-3 rounded-[1.5rem] ${
+          overSpeed ? 'futurist-glow-red animate-futurist-pulse' : 'futurist-glow-blue'
+        }`}
+        style={{ minWidth: 90 }}
+      >
+        <span
+          className="font-black tabular-nums leading-none futurist-text-glow"
+          style={{
+            fontSize: 48,
+            color: overSpeed ? '#f87171' : '#ffffff',
+            letterSpacing: '-0.05em',
+          }}
+        >
+          {roundedSpeed}
+        </span>
+        <span className="text-slate-400 font-black uppercase tracking-[0.2em] text-[10px] mt-1 opacity-60">
+          KM/H
+        </span>
+      </div>
+
+      {/* Hız limiti tabelası */}
+      <div className="w-16 h-16 rounded-full flex items-center justify-center bg-white border-[6px] border-red-600 shadow-[0_8px_32px_rgba(0,0,0,0.6)] border-glow-red">
+        <span className="text-black font-black text-[22px] tracking-[-0.02em]">
+          {speedLimitKmh}
+        </span>
+      </div>
+    </div>
+  );
+});
+
+
+/* ══════════════════════════════════════════════════════════ */
+/* ── NavInfoBar — futurist-gradient-dark, glowing progress ─ */
 /* ══════════════════════════════════════════════════════════ */
 
 const NavInfoBar = memo(function NavInfoBar({
@@ -281,48 +393,88 @@ const NavInfoBar = memo(function NavInfoBar({
   const arrival    = new Date(Date.now() + etaSeconds * 1_000);
   const arrivalStr = `${arrival.getHours().toString().padStart(2, '0')}:${arrival.getMinutes().toString().padStart(2, '0')}`;
   const progress   = totalMeters > 0 ? Math.max(0, Math.min(1, 1 - remainingMeters / totalMeters)) : 0;
+  const fuelPct    = useUnifiedVehicleStore(s => s.fuel);
+
+  const fuelColor = fuelPct == null ? null
+    : fuelPct > 25 ? '#22c55e'
+    : fuelPct > 10 ? '#f59e0b'
+    : '#ef4444';
 
   return (
     <div
-      className="absolute inset-x-0 z-30 pointer-events-auto"
-      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + env(safe-area-inset-bottom, 0px))' }}
+      className="absolute inset-x-4 z-30 pointer-events-auto rounded-[2rem] overflow-hidden futurist-glass border border-white/10 shadow-[0_-20px_50px_rgba(0,0,0,0.4)]"
+      style={{ bottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
-      {isOffline && (
-        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-amber-500/90 backdrop-blur-md px-3 py-0.5 rounded-t-lg border-t border-x border-white/20 flex items-center gap-1.5 shadow-lg">
-          <AlertCircle className="w-3 h-3 text-white" />
-          <span className="text-[9px] text-white font-black uppercase tracking-[0.1em]">Çevrimdışı</span>
-        </div>
-      )}
-
-      {/* Tek satır bilgi çubuğu */}
-      <div className="flex items-center px-3 py-2.5 bg-[rgba(8,12,22,0.92)] backdrop-blur-[28px] border-t border-white/[0.06] shadow-[0_-10px_32px_rgba(0,0,0,0.5)]">
-        {/* Durdur */}
-        <button
-          onClick={onStop}
-          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-red-500/[0.12] border border-red-500/20"
-        >
-          <X className="w-5 h-5 text-red-400" />
-        </button>
-
-        {/* Süre · Mesafe · Varış — tek yatay satır */}
-        <div className="flex-1 flex items-center justify-center gap-4 px-2">
-          <NavStat label="Süre"    value={formatEta(etaSeconds)} />
-          <span className="text-white/[0.18] text-base select-none">·</span>
-          <NavStat label="Mesafe"  value={formatDistance(remainingMeters)} />
-          <span className="text-white/[0.18] text-base select-none">·</span>
-          <NavStat label="Varış"   value={arrivalStr} accent />
-        </div>
-      </div>
-
-      {/* İlerleme çubuğu — ince */}
-      <div className="h-[3px] bg-white/[0.07]">
+      {/* Glowing progress bar */}
+      <div className="h-[4px] bg-white/[0.04] relative overflow-hidden">
         <div
-          className="h-full transition-all duration-1000"
+          className="h-full transition-all duration-1000 relative z-10"
           style={{
             width: `${progress * 100}%`,
             background: 'linear-gradient(90deg,#2563eb,#60a5fa)',
+            boxShadow: '0 0 15px rgba(59,130,246,0.6)',
           }}
         />
+        {/* Progress bar background glow */}
+        <div 
+          className="absolute inset-0 opacity-20"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent)' }}
+        />
+      </div>
+
+      {/* Offline rozeti */}
+      {isOffline && (
+        <div className="flex justify-center pt-2">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-400/30">
+            <AlertCircle className="w-3 h-3 text-amber-400" />
+            <span className="text-[9px] text-amber-400 font-black uppercase tracking-[0.1em]">Çevrimdışı Mod</span>
+          </div>
+        </div>
+      )}
+
+      {/* İçerik satırı */}
+      <div className="flex items-center gap-4 px-6 py-4">
+        {/* Süre | Mesafe | Varış */}
+        <div className="flex-1 flex items-center justify-around">
+          <NavStat label="SÜRE"   value={formatEta(etaSeconds)} />
+          <div className="w-px h-8 bg-white/10" />
+          <NavStat label="MESAFE" value={formatDistance(remainingMeters)} />
+          <div className="w-px h-8 bg-white/10" />
+          <NavStat label="VARIŞ"  value={arrivalStr} accent />
+          
+          {fuelPct != null && (
+            <>
+              <div className="w-px h-8 bg-white/10" />
+              <div className="flex items-center gap-3">
+                <div
+                  className="relative flex flex-col-reverse rounded-full overflow-hidden"
+                  style={{ width: 8, height: 32, background: 'rgba(255,255,255,0.05)', border: `1px solid ${fuelColor ?? '#22c55e'}22` }}
+                >
+                  <div style={{ height: `${fuelPct}%`, background: fuelColor ?? '#22c55e', boxShadow: `0 0 10px ${fuelColor ?? '#22c55e'}66`, transition: 'height 1.2s ease' }} />
+                </div>
+                <div className="flex flex-col">
+                   <span className="font-black tabular-nums text-sm leading-none" style={{ color: fuelColor ?? '#22c55e' }}>
+                    {Math.round(fuelPct)}%
+                  </span>
+                  <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-1">YAKIT</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="w-px h-10 bg-white/10 mx-2" />
+
+        {/* Navigasyonu sonlandır */}
+        <button
+          onClick={onStop}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl flex-shrink-0 active:scale-90 transition-all bg-red-500/10 border border-red-500/20 hover:bg-red-500/20"
+        >
+          <X className="w-4 h-4 text-red-400" />
+          <span className="text-red-400 font-black text-[10px] uppercase tracking-widest leading-none">
+            SONLANDIR
+          </span>
+        </button>
       </div>
     </div>
   );
@@ -347,12 +499,15 @@ function NavStat({ label, value, accent = false }: { label: string; value: strin
 /* ══════════════════════════════════════════════════════════ */
 
 function ReroutingBanner() {
+  useEffect(() => {
+    speakNavigation('Rota yeniden hesaplanıyor');
+  }, []);
   return (
     <div
       className="absolute left-4 z-30 pointer-events-none"
       style={{ top: 'calc(var(--sat, 0px) + 14px)' }}
     >
-      <div className="flex items-center gap-4 px-5 py-4 rounded-[1.75rem] shadow-[0_20px_60px_rgba(0,0,0,0.7)] bg-[rgba(10,14,26,0.88)] backdrop-blur-[24px] border border-white/10">
+      <div className="futurist-glass futurist-glow-blue flex items-center gap-4 px-5 py-4 rounded-[1.75rem]">
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
           style={{ background: 'linear-gradient(160deg,#3b82f6,#1d4ed8)' }}
@@ -360,7 +515,7 @@ function ReroutingBanner() {
           <Loader2 className="w-8 h-8 text-white animate-spin" />
         </div>
         <div className="flex flex-col justify-center">
-          <span className="text-white font-black text-[22px] leading-tight tracking-[-0.02em]">
+          <span className="text-white font-black text-[22px] leading-tight tracking-[-0.02em] uppercase tracking-widest">
             Yeniden Rotalanıyor…
           </span>
           <span className="text-blue-400 font-bold text-sm mt-0.5">Yeni rota hesaplanıyor</span>
@@ -380,7 +535,6 @@ function ArrivalOverlay({ destName }: { destName: string }) {
       <div
         className="flex flex-col items-center gap-5 px-10 py-8 rounded-[2.5rem] shadow-[0_40px_80px_rgba(0,0,0,0.85)] bg-[rgba(8,12,22,0.96)] backdrop-blur-[28px] border border-emerald-500/20 animate-in zoom-in-95 fade-in duration-500"
       >
-        {/* Yeşil onay ikonu */}
         <div
           className="w-20 h-20 rounded-full flex items-center justify-center"
           style={{ background: 'rgba(16,185,129,0.12)', border: '1.5px solid rgba(16,185,129,0.3)', boxShadow: '0 0 40px rgba(16,185,129,0.2)' }}
@@ -388,7 +542,7 @@ function ArrivalOverlay({ destName }: { destName: string }) {
           <CheckCircle2 className="w-11 h-11 text-emerald-400" />
         </div>
         <div className="text-center">
-          <div className="text-white font-black text-[28px] tracking-[-0.02em] leading-tight">
+          <div className="text-white font-black text-[28px] tracking-[-0.02em] leading-tight uppercase tracking-widest">
             Hedefe Vardınız
           </div>
           <div className="text-emerald-400 font-bold text-base mt-2 max-w-[260px] truncate">
@@ -410,7 +564,8 @@ function ErrorOverlay({ message, onClose }: { message: string; onClose: () => vo
       className="absolute left-4 z-30 pointer-events-auto"
       style={{ top: 'calc(var(--sat, 0px) + 14px)' }}
     >
-      <div className="flex items-center gap-4 px-5 py-4 rounded-[1.75rem] shadow-[0_20px_60px_rgba(0,0,0,0.7)] bg-[rgba(10,14,26,0.88)] backdrop-blur-[24px] border border-red-500/25 max-w-sm">
+      <div className="futurist-glass flex items-center gap-4 px-5 py-4 rounded-[1.75rem] max-w-sm"
+        style={{ borderColor: 'rgba(239,68,68,0.35)' }}>
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
           style={{ background: 'linear-gradient(160deg,rgba(239,68,68,0.25),rgba(185,28,28,0.18))' }}
@@ -418,7 +573,7 @@ function ErrorOverlay({ message, onClose }: { message: string; onClose: () => vo
           <AlertCircle className="w-7 h-7 text-red-400" />
         </div>
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-white font-black text-base leading-tight">Navigasyon Hatası</span>
+          <span className="text-white font-black text-base leading-tight uppercase tracking-widest">Navigasyon Hatası</span>
           <span className="text-red-300 text-sm mt-0.5 line-clamp-2">{message}</span>
         </div>
         <button
@@ -464,28 +619,23 @@ const PreviewCard = memo(function PreviewCard({
   return (
     <div
       className="absolute inset-x-4 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
-      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + var(--sab, 0px) + 12px)' }}
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 20px)' }}
     >
-      {/* Toast bildirimi */}
       {toastMsg && (
         <div className="mb-3 mx-auto w-fit px-4 py-2 rounded-2xl bg-[rgba(20,28,48,0.97)] border border-white/10 shadow-lg backdrop-blur-[20px] animate-in fade-in zoom-in-95 duration-200">
           <span className="text-white font-bold text-sm">{toastMsg}</span>
         </div>
       )}
 
-      <div
-        className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[0_40px_80px_rgba(0,0,0,0.7)] bg-[rgba(8,12,22,0.95)] backdrop-blur-[28px] border border-white/10"
-      >
+      <div className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[0_40px_80px_rgba(0,0,0,0.7)] bg-[rgba(8,12,22,0.95)] backdrop-blur-[28px] border border-white/10">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 rounded-t-[2.5rem]" />
 
-        {/* Hedef başlığı */}
         <div className="flex items-start gap-4 mb-4">
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-blue-500/10 border border-blue-500/25">
             <MapPin className="w-7 h-7 text-blue-400" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="text-white font-black text-2xl truncate leading-tight tracking-tight">{destName}</div>
-
             {loading && (
               <div className="flex items-center gap-2 text-blue-400/60 text-sm mt-2 font-bold uppercase tracking-widest">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -506,7 +656,6 @@ const PreviewCard = memo(function PreviewCard({
               </div>
             )}
           </div>
-          {/* X — her zaman görünür iptal butonu */}
           <button
             onClick={onCancel}
             aria-label="Navigasyonu iptal et"
@@ -516,7 +665,6 @@ const PreviewCard = memo(function PreviewCard({
           </button>
         </div>
 
-        {/* Ücretli geçiş — OSRM heuristiği (motorway/trunk tespiti) */}
         {!loading && (
           <div className="mb-4">
             {hasToll ? (
@@ -533,26 +681,15 @@ const PreviewCard = memo(function PreviewCard({
           </div>
         )}
 
-        {/* Rota seçenekleri */}
         {hasAlts && !loading && (
           <div ref={altsRef} className="mb-4">
             <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Rota Seçenekleri</div>
             <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-              {/* Seçili (birincil) rota */}
-              <div
-                className="flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border bg-blue-600 border-blue-500 shadow-[0_4px_16px_rgba(37,99,235,0.5)]"
-              >
-                <span className="text-[11px] font-black uppercase tracking-widest text-blue-100 opacity-80">
-                  {chipLabels[0]}
-                </span>
-                <span className="text-sm font-black mt-0.5 text-white">
-                  {formatDistance(distMeters)}
-                </span>
-                <span className="text-[11px] font-bold text-blue-200">
-                  {formatEta(durSeconds)}
-                </span>
+              <div className="flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border bg-blue-600 border-blue-500 shadow-[0_4px_16px_rgba(37,99,235,0.5)]">
+                <span className="text-[11px] font-black uppercase tracking-widest text-blue-100 opacity-80">{chipLabels[0]}</span>
+                <span className="text-sm font-black mt-0.5 text-white">{formatDistance(distMeters)}</span>
+                <span className="text-[11px] font-bold text-blue-200">{formatEta(durSeconds)}</span>
               </div>
-              {/* Alternatif rotalar — altRealIndices ile doğru _allRoutes indeksi */}
               {altDistances.map((dist, j) => (
                 <button
                   key={altRealIndices[j] ?? j}
@@ -562,19 +699,14 @@ const PreviewCard = memo(function PreviewCard({
                   <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
                     {chipLabels[j + 1] ?? `Alternatif ${j + 1}`}
                   </span>
-                  <span className="text-sm font-black mt-0.5 text-slate-200">
-                    {formatDistance(dist)}
-                  </span>
-                  <span className="text-[11px] font-bold text-slate-500">
-                    {formatEta(altDurations[j])}
-                  </span>
+                  <span className="text-sm font-black mt-0.5 text-slate-200">{formatDistance(dist)}</span>
+                  <span className="text-[11px] font-bold text-slate-500">{formatEta(altDurations[j])}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* ROTA SEÇ + DURAK EKLE satırı */}
         <div className="flex gap-3 mb-3">
           {hasAlts ? (
             <button
@@ -599,7 +731,6 @@ const PreviewCard = memo(function PreviewCard({
           </button>
         </div>
 
-        {/* Navigasyonu başlat */}
         <button
           onClick={onStart}
           disabled={!routeReady || !gpsValid}
@@ -640,11 +771,11 @@ function QuickCard({ icon, label, color, onTap, disabled = false }: {
 
 async function findNearbyFuel(lat: number, lon: number): Promise<{ name: string; lat: number; lon: number } | null> {
   try {
-    const q   = `[out:json][timeout:5];node[amenity=fuel](around:5000,${lat},${lon});out 1;`;
-    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
+    const q    = `[out:json][timeout:5];node[amenity=fuel](around:5000,${lat},${lon});out 1;`;
+    const url  = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5_000);
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res  = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
     const data = await res.json();
     if (!data.elements?.length) return null;
@@ -701,8 +832,10 @@ const QuickDestinations = memo(function QuickDestinations({
   }, [gpsLat, gpsLon, fuelLoading, navigate]);
 
   return (
-    <div className="absolute left-3 z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400"
-      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 10px)' }}>
+    <div
+      className="absolute left-3 z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400"
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 10px)' }}
+    >
       <div className="flex flex-col gap-1">
         {settings.homeLocation ? (
           <QuickCard icon={<Home className="w-3.5 h-3.5" />} label="Ev" color="#3b82f6"
@@ -724,19 +857,19 @@ const QuickDestinations = memo(function QuickDestinations({
   );
 });
 
+
 /* ══════════════════════════════════════════════════════════ */
 /* ── NavigationHUD (ana export) ──────────────────────────── */
 /* ══════════════════════════════════════════════════════════ */
 
 export interface NavigationHUDProps {
-  onStart:      () => void;
-  onCancel:     () => void;
-  routeReady:   boolean;
-  /** GPS fix geçerli mi — false ise Start butonu disabled + "GPS Sinyali Yok" */
-  gpsValid?:    boolean;
-  speedKmh?:    number;
-  speedLimitKmh?: number;
-  onNavTab?: (id: string) => void;
+  onStart:    () => void;
+  onCancel:   () => void;
+  routeReady: boolean;
+  /** GPS fix geçerli mi — false ise Start butonu disabled */
+  gpsValid?:  boolean;
+  speedKmh?:  number;
+  onNavTab?:  (id: string) => void;
 }
 
 export const NavigationHUD = memo(function NavigationHUD({
@@ -745,9 +878,12 @@ export const NavigationHUD = memo(function NavigationHUD({
   routeReady,
   gpsValid = true,
   speedKmh = 0,
-  speedLimitKmh = 50,
 }: NavigationHUDProps) {
   const location = useGPSLocation();
+  const dynamicLimit = useSpeedLimit(
+    location?.latitude  ?? null,
+    location?.longitude ?? null,
+  );
   const {
     status, destination, distanceMeters, etaSeconds,
     isOfflineResult, isRerouting, errorMessage,
@@ -760,17 +896,29 @@ export const NavigationHUD = memo(function NavigationHUD({
     onCancel();
   }, [onCancel]);
 
-  // ── Durum türetmeleri ─────────────────────────────────────────
+  const [showAlts, setShowAlts] = useState(false);
+
+  // Sesli yönlendirme — adım değiştiğinde konuş
+  useEffect(() => {
+    if (isActiveNav && currentStep && !isRerouting) {
+      const distance = Math.round(route.distanceToNextTurnMeters);
+      if (distance > 0) {
+        speakNavigation(`${distance} metre sonra ${currentStep.instruction}`);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.currentStepIndex, isRerouting]);
+
+  // Durum türetmeleri
   const isActiveNav   = status === NavStatus.ACTIVE || status === NavStatus.REROUTING;
   const isShowPreview = status === NavStatus.PREVIEW || status === NavStatus.ROUTING;
   const isShowArrived = status === NavStatus.ARRIVED;
   const isShowError   = status === NavStatus.ERROR;
 
-  const currentStep   = route.steps[route.currentStepIndex];
-  const nextStep      = route.steps[route.currentStepIndex + 1];
+  const currentStep = route.steps[route.currentStepIndex];
+  const nextStep    = route.steps[route.currentStepIndex + 1];
 
-  // distanceMeters=0 on first GPS tick — fall back to total route distance so NavInfoBar
-  // never shows "0 m / 0 dk" right after navigation starts.
+  // İlk GPS tick'inde distanceMeters=0 olabilir — toplam mesafeye fallback
   const effectiveDist = (distanceMeters && distanceMeters > 10)
     ? distanceMeters
     : route.totalDistanceMeters;
@@ -779,14 +927,13 @@ export const NavigationHUD = memo(function NavigationHUD({
     ? Math.round(route.totalDurationSeconds * Math.min(1, effectiveDist / Math.max(1, route.totalDistanceMeters)))
     : (etaSeconds ?? 0);
 
-  const lanes = currentStep ? buildLanes(currentStep.maneuverModifier) : null;
-
   return (
     <>
-      {/* ═══ ACTIVE / REROUTING — navigasyon overlay'leri ═══ */}
+      {/* ═══ ACTIVE / REROUTING ═══ */}
       {isActiveNav && (
         <>
           {isRerouting && <ReroutingBanner />}
+
           {!isRerouting && currentStep && (
             <>
               <TurnPanel
@@ -794,14 +941,80 @@ export const NavigationHUD = memo(function NavigationHUD({
                 distToTurn={route.distanceToNextTurnMeters}
                 nextStep={nextStep}
               />
-              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={speedLimitKmh} />
-              {lanes &&
-               route.distanceToNextTurnMeters > 0 &&
-               route.distanceToNextTurnMeters < 250 && (
-                <LaneGuidance lanes={lanes} />
-              )}
+              <RoadSignsPanel
+                streetName={currentStep.streetName}
+                destName={destination?.name}
+              />
+              <LaneGuidance
+                maneuverModifier={currentStep.maneuverModifier}
+                distToTurn={route.distanceToNextTurnMeters}
+              />
+              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
             </>
           )}
+
+          {/* Steps boş (local daemon / düz çizgi) → yedek TurnPanel */}
+          {!isRerouting && !currentStep && destination && (
+            <>
+              <TurnPanel
+                step={{
+                  instruction:      'Devam Edin',
+                  streetName:       destination.name,
+                  distance:         effectiveDist,
+                  duration:         displayEta,
+                  maneuverType:     'straight',
+                  maneuverModifier: 'straight',
+                  coordinate:       [destination.longitude, destination.latitude],
+                }}
+                distToTurn={effectiveDist}
+              />
+              <RoadSignsPanel destName={destination.name} />
+              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
+            </>
+          )}
+
+          {/* Alternatif rotalar butonu + paneli */}
+          {!isRerouting && route.alternatives.length > 0 && (
+            <div
+              className="absolute z-30 pointer-events-auto"
+              style={{ left: 16, bottom: 'calc(var(--lp-dock-h, 68px) + 96px)' }}
+            >
+              {showAlts && (
+                <div className="mb-2 flex flex-col gap-1.5 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                  {route.alternatives.map((_, i) => {
+                    const realIdx = route.altRealIndices[i];
+                    return (
+                      <button
+                        key={realIdx ?? i}
+                        onClick={() => { selectAltRoute(realIdx ?? (i + 1)); setShowAlts(false); }}
+                        className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left futurist-glass active:scale-95 transition-all"
+                      >
+                        <div className="w-8 h-8 rounded-xl bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                          <GitBranch className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-white font-black text-sm">Alternatif {i + 1}</span>
+                          <span className="text-slate-400 text-xs font-bold">
+                            {formatDistance(route.altDistances[i])} · {formatEta(route.altDurations[i])}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <button
+                onClick={() => setShowAlts(v => !v)}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl futurist-glass active:scale-95 transition-all"
+              >
+                <GitBranch className="w-4 h-4 text-blue-400" />
+                <span className="text-white font-bold text-xs uppercase tracking-wide">
+                  Alternatifler ({route.alternatives.length})
+                </span>
+              </button>
+            </div>
+          )}
+
           <NavInfoBar
             etaSeconds={displayEta}
             remainingMeters={effectiveDist}
@@ -812,7 +1025,7 @@ export const NavigationHUD = memo(function NavigationHUD({
         </>
       )}
 
-      {/* ═══ PREVIEW / ROUTING — rota önizlemesi ═══ */}
+      {/* ═══ PREVIEW / ROUTING ═══ */}
       {isShowPreview && destination && (
         <PreviewCard
           destName={destination.name}
@@ -827,12 +1040,12 @@ export const NavigationHUD = memo(function NavigationHUD({
         />
       )}
 
-      {/* ═══ ARRIVED — hedefe varış overlay'i (5 s) ═══ */}
+      {/* ═══ ARRIVED ═══ */}
       {isShowArrived && destination && (
         <ArrivalOverlay destName={destination.name} />
       )}
 
-      {/* ═══ ERROR — hata overlay'i ═══ */}
+      {/* ═══ ERROR ═══ */}
       {isShowError && (
         <ErrorOverlay
           message={errorMessage ?? 'Navigasyon başarısız oldu.'}
@@ -843,6 +1056,14 @@ export const NavigationHUD = memo(function NavigationHUD({
       {/* ═══ IDLE — hızlı hedefler ═══ */}
       {status === NavStatus.IDLE && (
         <QuickDestinationsDelayed
+          gpsLat={location?.latitude  ?? null}
+          gpsLon={location?.longitude ?? null}
+        />
+      )}
+
+      {/* ═══ ACTIVE NAV — sol kompakt kısayollar ═══ */}
+      {isActiveNav && (
+        <QuickDestinations
           gpsLat={location?.latitude  ?? null}
           gpsLon={location?.longitude ?? null}
         />

@@ -186,7 +186,7 @@ export function SportCockpit() {
       {/* RIGHT: TACTICAL VIEW */}
       <div className="w-[32%] flex flex-col gap-8 z-10">
         <div className="h-[48%] rounded-[4rem] overflow-hidden border-2 border-white/10 relative shadow-2xl group skew-x-[-2deg]">
-           <MiniMapWidget />
+           <MiniMapWidget hideHeader={true} hideOverlay={true} />
            <div className="absolute inset-0 bg-gradient-to-t from-white/20 via-transparent to-transparent opacity-40 pointer-events-none" />
            <div className="absolute bottom-10 left-10 flex items-center gap-6">
               <div className="w-20 h-20 bg-cyan-500 rounded-[2rem] flex items-center justify-center shadow-[0_10px_40px_rgba(6,182,212,0.4)] skew-x-[4deg]">

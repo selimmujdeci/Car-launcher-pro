@@ -2,6 +2,9 @@ import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-
 import type { LngLatLike } from 'maplibre-gl';
 import { create } from 'zustand';
 import { handleSatelliteTileError, setActiveMapSource } from './mapSourceManager';
+import { searchOffline } from './offlineSearchService';
+import type { StoredLocation } from './offlineSearchService';
+import { searchGlobal }  from './poi/offlinePoiService';
 
 // Single tile source — no smart-tile, no offline
 // Real street map style using OSM raster tiles
@@ -58,6 +61,35 @@ const useMapStore = create<MapState>(() => ({
 let _initPromise:       Promise<MapLibreMap> | null = null;
 let _initGen            = 0;               // incremented on every destroyMap
 let _currentContainer:  HTMLElement | null = null; // hangi container için init açık
+
+// ── Initialization Mutex ─────────────────────────────────────────────────────
+// Android WebView WebGL context limiti (1-2) aşılmasını önler.
+// destroyMap() sonrası WEBGL_lose_context ile GPU slot serbest bırakılır,
+// ardından 2 rAF frame beklenerek yeni context talebi güvenli hale gelir.
+let _destroyLock: Promise<void> = Promise.resolve();
+
+async function _freeContext(map: MapLibreMap): Promise<void> {
+  // Canvas ve GL referansını remove() öncesinde al — sonrasında erişilemeyebilir
+  let gl: WebGLRenderingContext | null = null;
+  try {
+    const canvas = map.getCanvas();
+    gl = (
+      canvas.getContext('webgl2') ??
+      canvas.getContext('webgl') ??
+      canvas.getContext('experimental-webgl')
+    ) as WebGLRenderingContext | null;
+  } catch { /* ignore */ }
+
+  try { map.remove(); } catch { /* canvas already removed */ }
+
+  // GPU'ya context kaybını bildir — slot hemen serbest kalır
+  try { gl?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* ignore */ }
+
+  // 2 rAF frame: GPU sürücüsünün context'i işlemesi için minimum bekleme
+  await new Promise<void>(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+}
 
 const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
   version: 8,
@@ -178,6 +210,20 @@ async function _initCore(
   _config: MapConfig,
   gen: number,
 ): Promise<MapLibreMap> {
+  // ── Mutex: önceki context tamamen serbest kalana kadar bekle ──────────────
+  await _destroyLock;
+  if (gen !== _initGen) throw new Error('Map init cancelled');
+
+  // ── Dimension guard: 0×0 container'da WebGL context asla talep edilmez ───
+  if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+    // Tek rAF daha bekle — CSS transition henüz bitmemiş olabilir
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    if (gen !== _initGen) throw new Error('Map init cancelled');
+    if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+      throw new Error('Container has zero dimensions — WebGL context refused');
+    }
+  }
+
   try {
     // Offline tile server DISABLED — device has no tiles, interceptor causes 404 spam
     // offlineInitialized stays false intentionally
@@ -242,17 +288,46 @@ async function _initCore(
       }
     });
 
-    // WebGL context loss — mark store as not ready, let FullMapView handle re-init
-    // NOTE: preventDefault() intentionally omitted — letting Chrome reclaim contexts prevents overflow
+    // WebGL context loss — permanent loss detection + heal attempt
+    let _contextLossTimer: ReturnType<typeof setTimeout> | null = null;
+
     map.on('webglcontextlost', () => {
       console.error('[MAP_WEBGL_ERROR] context lost');
       useMapStore.setState({ isReady: false, tileError: true });
+
+      // 5s içinde restore gelmezse → kalıcı kayıp → destroyMap + re-init sinyali
+      _contextLossTimer = setTimeout(() => {
+        _contextLossTimer = null;
+        if (useMapStore.getState().mapInstance === map) {
+          console.error('[MAP_WEBGL_ERROR] context lost permanently — destroying instance');
+          destroyMap();
+        }
+      }, 5_000);
     });
 
     map.on('webglcontextrestored', () => {
+      if (_contextLossTimer !== null) {
+        clearTimeout(_contextLossTimer);
+        _contextLossTimer = null;
+      }
       console.warn('[MAP] WebGL context restored');
       useMapStore.setState({ tileError: false });
-      map.resize();
+
+      const healMap = () => {
+        requestAnimationFrame(() => {
+          try { map.resize(); } catch { /* ignore */ }
+        });
+        if (_cachedRoute && _cachedRoute.coords?.length > 2) {
+          _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx);
+        }
+        useMapStore.setState({ isReady: true });
+      };
+
+      if (map.isStyleLoaded()) {
+        healMap();
+      } else {
+        map.once('style.load', healMap);
+      }
     });
 
     if (gen !== _initGen) {
@@ -314,11 +389,7 @@ export function setMapHeading(map: MapLibreMap, heading: number) {
 
 const HEADING_IMAGE_ID = 'heading-cone';
 const USER_LAYERS = [
-  'user-accuracy',
   'user-heading-cone',
-  'user-glow-outer',
-  'user-glow',
-  'user-glow-core',
   'user-marker',
   'user-dot',
 ];
@@ -334,19 +405,33 @@ function ensureHeadingImage(map: MapLibreMap) {
   if (!ctx) return;
   const cx = size / 2;
 
-  // Upward-pointing direction cone with curved base
+  // Glow halo behind the arrow
+  const halo = ctx.createRadialGradient(cx, cx, 0, cx, cx, 44);
+  halo.addColorStop(0,   'rgba(26,115,232,0.40)');
+  halo.addColorStop(0.6, 'rgba(26,115,232,0.12)');
+  halo.addColorStop(1,   'rgba(26,115,232,0.00)');
   ctx.beginPath();
-  ctx.moveTo(cx, 6);
-  ctx.lineTo(cx + 22, size * 0.58);
-  ctx.quadraticCurveTo(cx, size * 0.46, cx - 22, size * 0.58);
+  ctx.arc(cx, cx, 44, 0, Math.PI * 2);
+  ctx.fillStyle = halo;
+  ctx.fill();
+
+  // Solid Google Maps–style navigation arrow (pointing up = heading 0°)
+  ctx.beginPath();
+  ctx.moveTo(cx,      7);           // tip
+  ctx.lineTo(cx + 22, cx + 20);    // right wing tip
+  ctx.lineTo(cx + 11, cx + 12);    // right inner notch
+  ctx.lineTo(cx + 11, cx + 34);    // right base
+  ctx.lineTo(cx - 11, cx + 34);    // left base
+  ctx.lineTo(cx - 11, cx + 12);    // left inner notch
+  ctx.lineTo(cx - 22, cx + 20);    // left wing tip
   ctx.closePath();
 
-  const grad = ctx.createLinearGradient(cx, 6, cx, size * 0.58);
-  grad.addColorStop(0, 'rgba(96, 165, 250, 0.95)');
-  grad.addColorStop(0.5, 'rgba(59, 130, 246, 0.45)');
-  grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-  ctx.fillStyle = grad;
+  ctx.fillStyle = '#1A73E8';
   ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
 
   const imgData = ctx.getImageData(0, 0, size, size);
   map.addImage(HEADING_IMAGE_ID, {
@@ -390,68 +475,14 @@ export function addUserMarker(
     data: { type: 'FeatureCollection', features: [feature] },
   } as any);
 
-  // 1. Accuracy ring — subtle, zoom-adaptive
-  map.addLayer({
-    id: 'user-accuracy',
-    type: 'circle',
-    source: sourceId,
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 20, 14, 50, 18, 85],
-      'circle-color': '#60a5fa',
-      'circle-opacity': 0.08,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': '#60a5fa',
-      'circle-stroke-opacity': 0.15,
-    },
-  });
-
-  // 2. Ultra Outer Bloom — very soft, wide glow
-  map.addLayer({
-    id: 'user-glow-outer',
-    type: 'circle',
-    source: sourceId,
-    paint: {
-      'circle-radius': 48,
-      'circle-color': '#3b82f6',
-      'circle-opacity': 0.15,
-      'circle-blur': 1.8,
-    },
-  });
-
-  // 3. Inner Bloom — strong neon glow
-  map.addLayer({
-    id: 'user-glow',
-    type: 'circle',
-    source: sourceId,
-    paint: {
-      'circle-radius': 24,
-      'circle-color': '#60a5fa',
-      'circle-opacity': 0.35,
-      'circle-blur': 0.8,
-    },
-  });
-
-  // 4. Core Neon Glow — sharp center glow
-  map.addLayer({
-    id: 'user-glow-core',
-    type: 'circle',
-    source: sourceId,
-    paint: {
-      'circle-radius': 14,
-      'circle-color': '#93c5fd',
-      'circle-opacity': 0.6,
-      'circle-blur': 0.2,
-    },
-  });
-
-  // 5. Heading cone — rotated symbol, larger for visibility
+  // 1. Heading cone — rotated symbol, larger for visibility
   map.addLayer({
     id: 'user-heading-cone',
     type: 'symbol',
     source: sourceId,
     layout: {
       'icon-image': HEADING_IMAGE_ID,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 14, 0.78, 18, 1.1],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.90, 18, 1.30],
       'icon-rotate': ['get', 'heading'],
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap': true,
@@ -547,11 +578,19 @@ export function switchMapStyle(map: MapLibreMap, style: any, retryCount = 0) {
 
   map.once('error', onError);
   _isStyleChanging = true;
+  try { map.resize(); } catch { /* container may be transitioning */ }
   map.setStyle(style);
   map.once('style.load', () => {
     map.off('error', onError);
     _isStyleChanging = false;
     useMapStore.setState({ isReady: true });
+    // rAF içinde resize — container 0×0 ise atla
+    requestAnimationFrame(() => {
+      const canvas = map.getCanvas();
+      if (canvas && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+        try { map.resize(); } catch { /* ignore */ }
+      }
+    });
     if (_pendingRouteGeometry) {
       _applyRouteGeometry(map, _pendingRouteGeometry.coords, _pendingRouteGeometry.alts, _pendingRouteGeometry.altIdx);
     }
@@ -560,23 +599,26 @@ export function switchMapStyle(map: MapLibreMap, style: any, retryCount = 0) {
 
 // ── Driving mode ─────────────────────────────────────────────
 
-/** km/h → zoom level (sokak görünümü öncelikli)
+/** km/h → zoom level (Google Maps standartları)
  *
- *  0-30 km/h  : 17.0 — tek tek binalar, şeritler net
- *  30-60 km/h : 16.5-15.5 — şehir içi sokaklar
- *  60-100 km/h: 15.0-14.0 — ana yollar
- *  100+ km/h  : 13.5 — otoyol/bölge
+ *  0 km/h    : 18.2 — sokak içi detay
+ *  60 km/h   : 16.5 — şehir içi akış
+ *  100 km/h  : 15.2 — otoyol perspektifi
+ *  100+ km/h : 15.2'den devam azalır
  */
 function speedToZoom(speedKmh: number): number {
-  if (speedKmh <= 0)  return 17.0;
-  if (speedKmh <= 30) return 17.0 - (speedKmh / 30) * 0.5;   // 17.0 → 16.5
-  if (speedKmh <= 60) return 16.5 - ((speedKmh - 30) / 30) * 1.0; // 16.5 → 15.5
-  if (speedKmh <= 100) return 15.5 - ((speedKmh - 60) / 40) * 1.5; // 15.5 → 14.0
-  return Math.max(13.0, 14.0 - (speedKmh - 100) * 0.01);    // 14.0 → 13.0+
+  if (speedKmh <= 0)   return 18.5;
+  if (speedKmh <= 30)  return 18.5  - (speedKmh / 30) * 1.0;          // 18.5 → 17.5
+  if (speedKmh <= 60)  return 17.5  - ((speedKmh - 30) / 30) * 0.8;   // 17.5 → 16.7
+  if (speedKmh <= 100) return 16.7  - ((speedKmh - 60) / 40) * 1.2;   // 16.7 → 15.5
+  return Math.max(14.5, 15.5 - (speedKmh - 100) * 0.013);             // 15.5 → 14.5+
 }
 
 let _lastDrivingZoom = 15.5;
 let _inTurnApproach  = false;
+// Movement hysteresis — 5 km/h altında küçük titremeleri önler
+let _lastJumpLat = 0;
+let _lastJumpLng = 0;
 
 /**
  * Navigation (driving) view: vehicle offset lower on screen, map rotates with
@@ -593,12 +635,16 @@ export function setDrivingView(
   speedKmh: number,
   containerHeight: number,
   turnApproachM?: number,
+  obdSpeedKmh?: number,    // GPS hız null → OBD fallback
 ) {
   if (!map || !map.isStyleLoaded()) return;
 
+  // ── Dead Reckoning speed fusion — GPS hız sıfırsa OBD'ye geç ────────────
+  const effectiveSpeed = speedKmh > 0 ? speedKmh : (obdSpeedKmh ?? 0);
+
   // ── Base zoom (speed-adaptive) with hysteresis ────────────
-  const baseZoom = speedToZoom(speedKmh);
-  const smoothed = Math.abs(baseZoom - _lastDrivingZoom) > 0.15 ? baseZoom : _lastDrivingZoom;
+  const baseZoom = speedToZoom(effectiveSpeed);
+  const smoothed = Math.abs(baseZoom - _lastDrivingZoom) > 0.05 ? baseZoom : _lastDrivingZoom;
 
   // ── Turn approach zoom-in ──────────────────────────────────
   // Boost zoom by up to +1.8 levels as we close within 180 m of the next turn.
@@ -614,27 +660,49 @@ export function setDrivingView(
   }
   _lastDrivingZoom = targetZoom;
 
-  // ── Look-ahead offset (camera sees road ahead, not just car) ──
-  // Shift center forward along heading: 0 m at rest → 55 m at 110 km/h
-  const lookAheadM   = Math.min(55, speedKmh * 0.5);
+  // ── Movement Hysteresis — 5 km/h altında mikro titremeleri filtrele ─────
+  if (effectiveSpeed < 5) {
+    const dLat = (lat - _lastJumpLat) * 111_320;
+    const dLng = (lng - _lastJumpLng) * 111_320 * Math.cos((lat * Math.PI) / 180);
+    const movedM = Math.sqrt(dLat * dLat + dLng * dLng);
+    if (movedM < 0.8) return;
+  }
+  _lastJumpLat = lat;
+  _lastJumpLng = lng;
+
+  // ── Logaritmik look-ahead — otoyol kalibrasyonu ──────────────────────────
+  // Otoyolda çok daha ilerisini gör: 0→0 m, 60→85 m, 120→115 m
+  const lookAheadM   = Math.min(115, Math.log1p(effectiveSpeed * 0.5) * 38);
   const lookAheadDeg = lookAheadM / 111_320;
   const headRad      = (heading * Math.PI) / 180;
   const cosLat       = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
   const centerLat    = lat + lookAheadDeg * Math.cos(headRad);
   const centerLng    = lng + lookAheadDeg * Math.sin(headRad) / cosLat;
 
-  // ── Pitch & padding ───────────────────────────────────────
-  const topPad = Math.round(containerHeight * 0.42);
-  const pitch  = Math.min(65, 45 + speedKmh * 0.15);
+  // ── Adaptive Pitch — 45°-72° otoyol sürüş kalibrasyonu ───────────────────
+  // Hız arttıkça ufuk çizgisi daha fazla yatar (Tesla/Mercedes stili)
+  const pitchFactor = Math.min(1, effectiveSpeed / 120);
+  let pitch = 45 + (pitchFactor * 27); // 45° → 72°
 
-  map.easeTo({
+  // Kavşağa yaklaşınca pitch azalt — kesişimi görmek için
+  if (turnApproachM !== undefined && turnApproachM > 0 && turnApproachM < 150) {
+    const closeFactor = Math.max(0, (150 - turnApproachM) / 150);
+    pitch             = Math.max(25, pitch * (1 - closeFactor * 0.6));
+    targetZoom        = Math.min(18.5, targetZoom + closeFactor * 1.5);
+    _lastDrivingZoom  = targetZoom;
+  }
+
+  // topPad: hızla araç alt kısma kayar — otoyolda daha fazla ön yol
+  const topPad = Math.round(containerHeight * Math.min(0.68, 0.50 + effectiveSpeed * 0.0015));
+
+  // jumpTo: anlık güncelleme (60fps rAF zaten smooth gösteriyor)
+  // easeTo 1000ms + 200ms interval = animasyon yarıda kesiliyor, pitch asla ulaşamıyor
+  map.jumpTo({
     center:  [centerLng, centerLat],
     bearing: heading,
     zoom:    targetZoom,
     pitch,
-    padding:  { top: topPad, bottom: 0, left: 0, right: 0 },
-    duration: approaching ? 1200 : 1000,
-    essential: true,
+    padding: { top: topPad, bottom: 0, left: 0, right: 0 },
   });
 }
 
@@ -654,18 +722,17 @@ export function enterNavigationView(
 ) {
   if (!map || !map.isStyleLoaded()) return;
 
-  const TARGET_ZOOM    = 17;
-  const TARGET_PITCH   = 45;
-  const DURATION_MS    = 500;
+  const TARGET_ZOOM    = 18.5; // Yakın yol detayı
+  const TARGET_PITCH   = 55;   // Google Maps sürüş perspektifi
+  const DURATION_MS    = 1200; // Yumuşak giriş animasyonu
 
-  // Look-ahead offset so road ahead is visible, not just the car icon
-  const lookAheadDeg = 30 / 111_320; // ~30 m forward
+  const lookAheadDeg = 40 / 111_320;
   const headRad      = (bearing * Math.PI) / 180;
   const cosLat       = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
   const centerLat    = lat + lookAheadDeg * Math.cos(headRad);
   const centerLng    = lng + lookAheadDeg * Math.sin(headRad) / cosLat;
 
-  const topPad = Math.round(containerHeight * 0.42);
+  const topPad = Math.round(containerHeight * 0.55);
 
   _lastDrivingZoom = TARGET_ZOOM;
 
@@ -803,7 +870,7 @@ function _applyRouteGeometry(
         type: 'line',
         source: ALT_SRC,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#64748b', 'line-width': 5, 'line-opacity': 0.55 },
+        paint: { 'line-color': '#94a3b8', 'line-width': 6, 'line-opacity': 0.50 },
       } as any);
       console.log('[ROUTE_LAYER_ADDED]', { id: ALT_FILL });
     }
@@ -815,13 +882,23 @@ function _applyRouteGeometry(
         data: { type: 'FeatureCollection', features: [] },
       } as any);
     }
+    // Glow layer — mavi ışıma (casing'in altında)
+    if (!map.getLayer('car-route-glow-sel')) {
+      map.addLayer({
+        id: 'car-route-glow-sel',
+        type: 'line',
+        source: SEL_SRC,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#4285f4', 'line-width': 24, 'line-opacity': 0.18, 'line-blur': 4 },
+      } as any);
+    }
     if (!map.getLayer('car-route-casing')) {
       map.addLayer({
         id: 'car-route-casing',
         type: 'line',
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#ffffff', 'line-width': 14, 'line-opacity': 0.9 },
+        paint: { 'line-color': '#ffffff', 'line-width': 16, 'line-opacity': 0.95 },
       } as any);
     }
     if (!map.getLayer(SEL_LAYER)) {
@@ -830,11 +907,11 @@ function _applyRouteGeometry(
         type: 'line',
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#2563eb', 'line-width': 9, 'line-opacity': 1 },
+        paint: { 'line-color': '#1A73E8', 'line-width': 10, 'line-opacity': 1 },
       } as any);
     } else {
-      map.setPaintProperty(SEL_LAYER, 'line-color', '#2563eb');
-      map.setPaintProperty(SEL_LAYER, 'line-width', 9);
+      map.setPaintProperty(SEL_LAYER, 'line-color', '#1A73E8');
+      map.setPaintProperty(SEL_LAYER, 'line-width', 10);
       map.setPaintProperty(SEL_LAYER, 'line-opacity', 1);
     }
 
@@ -847,8 +924,9 @@ function _applyRouteGeometry(
     (map.getSource(SEL_SRC) as any).setData(routeFeature);
     console.log('[ROUTE_SELECTED_SOURCE_SET]', { pts: coords.length, first: coords[0] });
 
-    // ── Step 5: move layer to top ─────────────────────────────────
+    // ── Step 5: move layer to top (sıra: alt→üst) ──────────────────
     try { map.moveLayer(ALT_FILL); } catch { /* ignore */ }
+    try { map.moveLayer('car-route-glow-sel'); } catch { /* ignore */ }
     try { map.moveLayer('car-route-casing'); } catch { /* ignore */ }
     try { map.moveLayer(SEL_LAYER); } catch { /* ignore */ }
 
@@ -893,6 +971,7 @@ export function clearRouteGeometry(map: MapLibreMap): void {
     if (map.getSource(ROUTE_SRC))     map.removeSource(ROUTE_SRC);
     if (map.getLayer(ALT_FILL))        map.removeLayer(ALT_FILL);
     if (map.getSource(ALT_SRC))        map.removeSource(ALT_SRC);
+    if (map.getLayer('car-route-glow-sel')) map.removeLayer('car-route-glow-sel');
     if (map.getLayer('car-route-casing')) map.removeLayer('car-route-casing');
     if (map.getLayer(SEL_LAYER))          map.removeLayer(SEL_LAYER);
     if (map.getSource(SEL_SRC))           map.removeSource(SEL_SRC);
@@ -948,12 +1027,14 @@ export function destroyMap() {
   _currentContainer = null;
 
   const map = useMapStore.getState().mapInstance;
-  if (map) {
-    try {
-      map.remove();
-    } catch { /* canvas already removed */ }
-  }
   useMapStore.setState({ mapInstance: null, isReady: false, drivingMode: false });
+
+  if (map) {
+    // _destroyLock: WEBGL_lose_context + 2 rAF bekleme — yeni context talep edilmeden önce çözülür
+    _destroyLock = _freeContext(map);
+  } else {
+    _destroyLock = Promise.resolve();
+  }
 }
 
 /**
@@ -1016,5 +1097,160 @@ export function checkAndHealMapContext(): boolean {
     logError('Map:ZombieGuard', e);
     destroyMap();
     return false;
+  }
+}
+
+// ── Driving Layer Updater ────────────────────────────────────────────────────
+// GPS update useEffect'inden çağrılır (~1–3s arası, rAF değil → CPU dostu)
+let _lastSpeedHide = false;
+
+/**
+ * Hız ve konuma göre harita katmanlarını dinamik güncelle:
+ *  • > 80 km/h → 3D binalar ve sokak etiketleri gizlenir (dikkat dağınıklığı önleme)
+ *  • POI'lara < 500m → ilgili katman ön plana çıkar (glow)
+ */
+/* ── Unified Place Search ───────────────────────────────────────────────────
+ * Katmanlı offline-önce arama:
+ *   1. offlineSearchService  — IndexedDB geçmiş/favoriler (<10ms)
+ *   2. offlinePoiService     — SQLite FTS5 global POI DB (offline)
+ *   3. Nominatim geocoder    — OSM online (son çare, internet gerekli)
+ *
+ * Tüm sonuçlar StoredLocation[] olarak döner; çakışan koordinatlar deduplicate edilir.
+ */
+
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_UA  = 'CockpitOS/1.0 (aybarsselimaybars@gmail.com)';
+
+async function _nominatimSearch(
+  query:      string,
+  maxResults: number,
+): Promise<StoredLocation[]> {
+  try {
+    const params = new URLSearchParams({
+      q:              query,
+      format:         'jsonv2',
+      limit:          String(maxResults),
+      addressdetails: '1',
+    });
+    const res = await fetch(`${NOMINATIM_URL}?${params}`, {
+      headers: { 'User-Agent': NOMINATIM_UA },
+      signal:  AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return [];
+
+    const data = await res.json() as Array<{
+      place_id: number;
+      display_name: string;
+      lat: string;
+      lon: string;
+      address?: { road?: string; city?: string; country?: string };
+    }>;
+
+    return data.map((item): StoredLocation => ({
+      id:        `nominatim_${item.place_id}`,
+      name:      item.display_name.split(',')[0]?.trim() ?? item.display_name,
+      address:   item.display_name,
+      lat:       parseFloat(item.lat),
+      lng:       parseFloat(item.lon),
+      source:    'search',
+      timestamp: Date.now(),
+      useCount:  0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function _dedup(list: StoredLocation[]): StoredLocation[] {
+  const seen = new Set<string>();
+  return list.filter((loc) => {
+    const key = `${loc.lat.toFixed(4)}_${loc.lng.toFixed(4)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Unified yer arama: IndexedDB → SQLite POI → Nominatim geocoder.
+ *
+ * @param query      Kullanıcı arama metni
+ * @param userLat    Mevcut konum (mesafe sıralaması + Nominatim bias için)
+ * @param userLng    Mevcut konum
+ * @param maxResults Toplam maksimum sonuç (varsayılan 8)
+ */
+export async function searchPlaces(
+  query:      string,
+  userLat?:   number,
+  userLng?:   number,
+  maxResults: number = 8,
+): Promise<StoredLocation[]> {
+  if (!query.trim()) return [];
+
+  const combined: StoredLocation[] = [];
+
+  // 1 — IndexedDB geçmiş/favoriler
+  const offlineHits = await searchOffline(query, maxResults);
+  for (const hit of offlineHits) combined.push(hit.location);
+
+  if (combined.length >= maxResults) return _dedup(combined).slice(0, maxResults);
+
+  // 2 — SQLite FTS5 global POI DB
+  const poiHits = await searchGlobal(query, userLat, userLng, maxResults - combined.length);
+  combined.push(...poiHits);
+
+  if (combined.length >= maxResults) return _dedup(combined).slice(0, maxResults);
+
+  // 3 — Nominatim online geocoder (son çare)
+  const onlineHits = await _nominatimSearch(query, maxResults - combined.length);
+  combined.push(...onlineHits);
+
+  return _dedup(combined).slice(0, maxResults);
+}
+
+export function updateDrivingLayers(
+  map: MapLibreMap,
+  speedKmh: number,
+  lat: number,
+  lng: number,
+): void {
+  if (!map || !map.isStyleLoaded()) return;
+
+  // ── Hız bazlı katman gizleme ─────────────────────────────
+  const hideHighSpeed = speedKmh > 80;
+  if (hideHighSpeed !== _lastSpeedHide) {
+    _lastSpeedHide = hideHighSpeed;
+    if (map.getLayer('building-3d')) {
+      map.setPaintProperty('building-3d', 'fill-extrusion-opacity', hideHighSpeed ? 0 : 0.4);
+    }
+    if (map.getLayer('road-label')) {
+      map.setPaintProperty('road-label', 'text-opacity', hideHighSpeed ? 0.25 : 1);
+    }
+  }
+
+  // ── POI Proximity Glow — queryRenderedFeatures (~500m yarıçap) ───────────
+  const poiLayers = ['poi-gas', 'poi-parking', 'poi-hospital', 'poi-police'];
+  const visiblePOI = poiLayers.filter((l) => map.getLayer(l));
+  if (visiblePOI.length === 0) return;
+
+  const center = map.project([lng, lat]);
+  const R_PX   = 120; // ~300–500m at nav zoom 17-18
+  const nearby = map.queryRenderedFeatures(
+    [[center.x - R_PX, center.y - R_PX], [center.x + R_PX, center.y + R_PX]],
+    { layers: visiblePOI },
+  );
+  const nearbyByLayer = new Set(nearby.map((f) => f.layer.id));
+
+  const glowStroke: Record<string, string> = {
+    'poi-gas':      '#fde68a',
+    'poi-parking':  '#93c5fd',
+    'poi-hospital': '#fca5a5',
+    'poi-police':   '#c4b5fd',
+  };
+  for (const layer of visiblePOI) {
+    const hot = nearbyByLayer.has(layer);
+    map.setPaintProperty(layer, 'circle-stroke-width', hot ? 3.5 : 1.5);
+    map.setPaintProperty(layer, 'circle-opacity',      hot ? 1.0 : 0.55);
+    if (hot) map.setPaintProperty(layer, 'circle-stroke-color', glowStroke[layer] ?? '#ffffff');
   }
 }

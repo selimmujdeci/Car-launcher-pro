@@ -42,6 +42,11 @@ import {
   listKeysWithPrefix,
 }                                  from '../../utils/safeStorage';
 import { onOBDData }               from '../obdService';
+import { runtimeManager }          from '../../core/runtime/AdaptiveRuntimeManager';
+import { getThermalLevel }         from '../thermalWatchdog';
+import { onMemoryPressure }        from '../memoryWatchdog';
+import { getLastIntent }           from '../commandExecutor';
+import { registerBlackBoxGetter }  from '../crashLogger';
 
 /* ── Sabitler ────────────────────────────────────────────────── */
 
@@ -51,6 +56,112 @@ const CRASH_G_THRESHOLD = 6.0;   // G birimi — 6G gerçek darbe, 3.5G false-po
 const G_TO_MS2          = 9.80665;
 const CRASH_COOLDOWN_MS = 10_000;
 const CRASH_KEY_PREFIX  = 'crash-log-';
+
+/* ══════════════════════════════════════════════════════════════════
+   CRASH REPLAY BUFFER — 1Hz / 60 Entry Ring (Post-Mortem Analysis)
+   10Hz G-force buffer'dan ayrı; yalnızca logError anında diske yazılır.
+   GİZLİLİK: Bu buffer'da lat/lng/adres alanı YOKTUR.
+══════════════════════════════════════════════════════════════════ */
+
+/**
+ * 1Hz sistem durumu anlık görüntüsü.
+ * Gizlilik zorunlu: location asla eklenmez.
+ */
+export interface BlackBoxSample {
+  ts:      number;
+  signals: {
+    spd:  number | null;
+    rpm:  number | null;
+    gear: number | null;   // sayısal vites pozisyonu, bilinmiyorsa null
+    fuel: number | null;
+  };
+  workers:  Record<string, 'active' | 'dead'>;
+  env: {
+    therm: number;           // ThermalLevel 0–3
+    mem:   'OK' | 'MOD' | 'CRIT';
+  };
+  lastCmd?: string;          // Son tetiklenen intent type
+}
+
+const REPLAY_RING_SIZE = 60;   // 60 saniye @ 1Hz
+const _replayRing      = new Array<BlackBoxSample>(REPLAY_RING_SIZE);
+let   _rHead           = 0;    // sonraki yazma pozisyonu
+let   _rCount          = 0;    // yazılan toplam (max REPLAY_RING_SIZE)
+
+function _replayPush(sample: BlackBoxSample): void {
+  _replayRing[_rHead] = sample;
+  _rHead = (_rHead + 1) % REPLAY_RING_SIZE;
+  if (_rCount < REPLAY_RING_SIZE) _rCount++;
+}
+
+/* ── Replay: bellek baskı izleme ─────────────────────────────── */
+
+let _replayMemLevel: 'OK' | 'MOD' | 'CRIT' = 'OK';
+let _replayMemUnsub: (() => void) | null    = null;
+let _replayTimer:    ReturnType<typeof setInterval> | null = null;
+
+/* ── Replay: 1Hz örnekleyici ─────────────────────────────────── */
+
+function _takeReplaySample(): void {
+  try {
+    const vs = useVehicleStore.getState();
+
+    // PRIVACY: lat/lng/location.address asla eklenmez
+    const signals: BlackBoxSample['signals'] = {
+      spd:  typeof vs.speed === 'number' ? vs.speed : null,
+      rpm:  typeof vs.rpm   === 'number' ? vs.rpm   : null,
+      gear: vs.canGearPos ?? null,
+      fuel: typeof vs.fuel  === 'number' ? vs.fuel  : null,
+    };
+
+    const workersMap = runtimeManager.getWorkers();
+    const workers: Record<string, 'active' | 'dead'> = {};
+    for (const [key, entry] of workersMap) {
+      workers[key] = entry.worker !== null ? 'active' : 'dead';
+    }
+
+    _replayPush({
+      ts:      Date.now(),
+      signals,
+      workers,
+      env:     { therm: getThermalLevel(), mem: _replayMemLevel },
+      lastCmd: getLastIntent(),
+    });
+  } catch {
+    // Örnekleme asla crash'e yol açmamalı
+  }
+}
+
+function _scheduleReplaySample(): void {
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(_takeReplaySample, { timeout: 1500 });
+  } else {
+    setTimeout(_takeReplaySample, 0);
+  }
+}
+
+/* ── Replay public API ────────────────────────────────────────── */
+
+/**
+ * Son 60 saniyeye ait 1Hz snapshot'ları kronolojik sırayla döndürür.
+ * Disk yazma YOK — yalnızca bellek okuma.
+ * logError() tarafından CrashEntry.replayBuffer alanına eklenir.
+ */
+export function getReplayData(): BlackBoxSample[] {
+  if (_rCount === 0) return [];
+
+  if (_rCount < REPLAY_RING_SIZE) {
+    return _replayRing.slice(0, _rCount).filter(Boolean);
+  }
+
+  // Tampon doldu — head'den başlayarak (en eski → en yeni)
+  const out: BlackBoxSample[] = [];
+  for (let i = 0; i < REPLAY_RING_SIZE; i++) {
+    const s = _replayRing[(_rHead + i) % REPLAY_RING_SIZE];
+    if (s) out.push(s);
+  }
+  return out;
+}
 
 /* ── Monotonic zaman referansı ───────────────────────────────── */
 
@@ -300,14 +411,30 @@ export function startBlackBox(): () => void {
   _lastGx = _lastGy = _lastGz = 0;
   _lastOBDSpeed = _lastOBDRpm = _lastOBDThrottle = -1;
 
+  // 10Hz G-force + araç state örnekleyicisi
   _sampleTimer = setInterval(_sampleVehicleState, SAMPLE_INTERVAL);
   _accelUnsub  = _startAccelerometer();
   _obdUnsub    = _startOBDListener();
 
+  // 1Hz Post-Mortem replay buffer — UI thread'i yük altında bırakmaz
+  _rHead  = 0;
+  _rCount = 0;
+  _replayMemLevel = 'OK';
+  _replayMemUnsub = onMemoryPressure((evt) => {
+    _replayMemLevel = evt.level === 'CRITICAL' ? 'CRIT' : 'MOD';
+  });
+  _scheduleReplaySample(); // İlk örnek hemen
+  _replayTimer = setInterval(_scheduleReplaySample, 1000);
+
+  // crashLogger'a replay getter'ı kaydet (döngüsel bağımlılık olmadan)
+  registerBlackBoxGetter(getReplayData);
+
   return () => {
-    if (_sampleTimer !== null) { clearInterval(_sampleTimer); _sampleTimer = null; }
-    _accelUnsub?.();  _accelUnsub = null;
-    _obdUnsub?.();    _obdUnsub   = null;
+    if (_sampleTimer  !== null) { clearInterval(_sampleTimer);  _sampleTimer  = null; }
+    if (_replayTimer  !== null) { clearInterval(_replayTimer);  _replayTimer  = null; }
+    _accelUnsub?.();      _accelUnsub     = null;
+    _obdUnsub?.();        _obdUnsub       = null;
+    _replayMemUnsub?.();  _replayMemUnsub = null;
     if (_safetyUnlockTimer !== null) { clearTimeout(_safetyUnlockTimer); _safetyUnlockTimer = null; }
   };
 }
@@ -350,9 +477,11 @@ export function deleteCrashLog(key: string): void {
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    if (_sampleTimer !== null) { clearInterval(_sampleTimer); _sampleTimer = null; }
-    _accelUnsub?.(); _accelUnsub = null;
-    _obdUnsub?.();   _obdUnsub   = null;
+    if (_sampleTimer  !== null) { clearInterval(_sampleTimer);  _sampleTimer  = null; }
+    if (_replayTimer  !== null) { clearInterval(_replayTimer);  _replayTimer  = null; }
+    _accelUnsub?.();      _accelUnsub     = null;
+    _obdUnsub?.();        _obdUnsub       = null;
+    _replayMemUnsub?.();  _replayMemUnsub = null;
     if (_safetyUnlockTimer !== null) { clearTimeout(_safetyUnlockTimer); _safetyUnlockTimer = null; }
   });
 }

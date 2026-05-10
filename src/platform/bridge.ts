@@ -51,6 +51,15 @@ export interface CarBridge {
   launchHotspotSettings(): void;
   /** Open native dialer with number pre-filled. Falls back to tel: link on web. */
   callNumber(number: string): void;
+  /**
+   * Araç kapı kilidi — VehicleCommandQueue üzerinden CAN bus komutu gönderir.
+   * L2 ACK onaylanınca resolve olur; timeout/hata durumunda 'rejected'/'failed' döner.
+   * Her iki taraf (web/native) vehicleCommandQueue.enqueue() kullanır; demo modda
+   * 60 ms simüle round-trip ile aynı sözleşmeyi uygular.
+   */
+  hwLockDoors(): Promise<CommandResult>;
+  /** Araç kapı kilidi açma — hwLockDoors ile aynı kuyruk sözleşmesi. */
+  hwUnlockDoors(): Promise<CommandResult>;
 }
 
 /* ── Demo implementation (web / local dev) ───────────────── */
@@ -79,6 +88,8 @@ const demoBridge: CarBridge = {
   launchBluetoothSettings()  { /* no browser equivalent */ },
   launchHotspotSettings()    { /* no browser equivalent */ },
   callNumber(number)         { _open(`tel:${sanitizePhoneNumber(number)}`); },
+  hwLockDoors()              { return vehicleCommandQueue.enqueue('LOCK_DOORS'); },
+  hwUnlockDoors()            { return vehicleCommandQueue.enqueue('UNLOCK_DOORS'); },
 };
 
 /* ── Native implementation (Android / Capacitor) ─────────── */
@@ -201,6 +212,8 @@ const nativeBridge: CarBridge = {
       _nativeLaunch(phonePkg, 'android.intent.action.DIAL', telUri);
     });
   },
+  hwLockDoors()   { return vehicleCommandQueue.enqueue('LOCK_DOORS'); },
+  hwUnlockDoors() { return vehicleCommandQueue.enqueue('UNLOCK_DOORS'); },
 };
 
 /* ── Active bridge — auto-detected at runtime ─────────────── */
@@ -216,3 +229,146 @@ export const isNative = bridge.isNative;
 export const isDemo   = !bridge.isNative;
 
 export { nativeBridge, demoBridge };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * VehicleCommandQueue — FIFO Command-Ack mimarisi
+ *
+ * Akış: enqueue() → FIFO sıra → _executeNative() → 500 ms ACK penceresi
+ *       → completed | rejected | failed → caller Supabase durumunu günceller
+ *
+ * TASARIM KARARLARI:
+ *   • Promise her zaman resolve edilir (reject değil) — UI try/catch yerine
+ *     CommandResult.status kontrolü yapar.
+ *   • Kapı kilidi için ayrı atomic flag (_lockPending): LOCK/UNLOCK çakışmasını
+ *     önler, diğer komutlar (HORN, FLASH) kuyrukta paralel bekleyebilir.
+ *   • Web/demo modda 60 ms simüle gecikme → gerçek cihaz davranışını taklit eder.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+const COMMAND_TIMEOUT_MS = 500;
+
+export type VehicleCommandType =
+  | 'LOCK_DOORS'
+  | 'UNLOCK_DOORS'
+  | 'HONK_HORN'
+  | 'FLASH_LIGHTS'
+  | 'ALARM_ON'
+  | 'ALARM_OFF';
+
+export interface CommandResult {
+  commandId: string;
+  type:      VehicleCommandType;
+  /** completed = ACK alındı; rejected = timeout/race; failed = native hata */
+  status:    'completed' | 'rejected' | 'failed';
+  error?:    string;
+}
+
+interface QueuedCommand {
+  commandId:  string;
+  type:       VehicleCommandType;
+  resolve:    (result: CommandResult) => void;
+  enqueuedAt: number; // performance.now() — debug/telemetry
+}
+
+function _cmdId(): string {
+  return `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+class VehicleCommandQueue {
+  private readonly _queue: QueuedCommand[] = [];
+  private _executing  = false;
+  /** Kapı kilidi atomic flag — LOCK/UNLOCK aynı anda kuyrukta olmamalı. */
+  private _lockPending = false;
+
+  /**
+   * Komutu kuyruğa ekle; sonuç için Promise döner.
+   * commandId: Supabase komut UUID'si — sağlanmazsa otomatik üretilir.
+   */
+  enqueue(type: VehicleCommandType, commandId?: string): Promise<CommandResult> {
+    const id = commandId ?? _cmdId();
+
+    // Atomic gate: bir kapı kilidi işlemi tamamlanmadan yenisi reddedilir
+    if ((type === 'LOCK_DOORS' || type === 'UNLOCK_DOORS') && this._lockPending) {
+      return Promise.resolve({
+        commandId: id,
+        type,
+        status:    'rejected',
+        error:     'Lock operation already in progress',
+      });
+    }
+    if (type === 'LOCK_DOORS' || type === 'UNLOCK_DOORS') {
+      this._lockPending = true;
+    }
+
+    return new Promise(resolve => {
+      this._queue.push({ commandId: id, type, resolve, enqueuedAt: performance.now() });
+      this._processNext();
+    });
+  }
+
+  /** Kuyruk derinliği (yürütülen dahil) — izleme için. */
+  get size(): number {
+    return this._queue.length + (this._executing ? 1 : 0);
+  }
+
+  private _processNext(): void {
+    if (this._executing || this._queue.length === 0) return;
+
+    const cmd = this._queue.shift()!;
+    this._executing = true;
+    let settled = false;
+
+    const finish = (result: CommandResult): void => {
+      if (settled) return;
+      settled = true;
+      this._executing = false;
+      if (cmd.type === 'LOCK_DOORS' || cmd.type === 'UNLOCK_DOORS') {
+        this._lockPending = false;
+      }
+      cmd.resolve(result);
+      this._processNext(); // sıradaki komutu tetikle
+    };
+
+    // 500 ms ACK penceresi — araçtan yanıt gelmezse REJECTED
+    const timer = setTimeout(() => {
+      finish({
+        commandId: cmd.commandId,
+        type:      cmd.type,
+        status:    'rejected',
+        error:     'Hardware ACK timeout (500 ms)',
+      });
+    }, COMMAND_TIMEOUT_MS);
+
+    this._executeNative(cmd.type)
+      .then(() => {
+        clearTimeout(timer);
+        finish({ commandId: cmd.commandId, type: cmd.type, status: 'completed' });
+      })
+      .catch((err: unknown) => {
+        clearTimeout(timer);
+        finish({
+          commandId: cmd.commandId,
+          type:      cmd.type,
+          status:    'failed',
+          error:     err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
+
+  private _executeNative(type: VehicleCommandType): Promise<void> {
+    // Web/demo modu: 60 ms donanım round-trip simülasyonu
+    if (!Capacitor.isNativePlatform()) {
+      return new Promise(res => setTimeout(res, 60));
+    }
+    switch (type) {
+      case 'LOCK_DOORS':   return CarLauncher.lockDoors();
+      case 'UNLOCK_DOORS': return CarLauncher.unlockDoors();
+      case 'HONK_HORN':    return CarLauncher.honkHorn();
+      case 'FLASH_LIGHTS': return CarLauncher.flashLights();
+      case 'ALARM_ON':     return CarLauncher.triggerAlarm();
+      case 'ALARM_OFF':    return CarLauncher.stopAlarm();
+    }
+  }
+}
+
+/** Uygulama geneli singleton — tüm araç komutları bu kuyruktan geçer. */
+export const vehicleCommandQueue = new VehicleCommandQueue();

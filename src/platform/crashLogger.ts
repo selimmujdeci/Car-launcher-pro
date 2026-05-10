@@ -17,6 +17,20 @@ export interface CrashEntry {
   ctx:   string;    // e.g. 'GPS', 'OBD', 'Media', 'Bridge', 'React'
   msg:   string;    // human-readable error message
   stack?: string;   // stack trace when available
+  /** Son 60 saniyeye ait 1Hz araç durumu anlık görüntüleri (kara kutu verisi). */
+  replayBuffer?: unknown[];
+}
+
+/* ── Kara kutu kayıt deseni (döngüsel bağımlılık önleme) ───────────────── */
+
+/**
+ * BlackBoxService başladığında kendi getReplayData() fonksiyonunu buraya kaydeder.
+ * crashLogger, blackBoxService'i doğrudan import etmez → döngüsel dep yok.
+ */
+let _replayGetter: (() => unknown[]) | null = null;
+
+export function registerBlackBoxGetter(getter: () => unknown[]): void {
+  _replayGetter = getter;
 }
 
 let _log: CrashEntry[] = [];
@@ -54,13 +68,28 @@ function _persist(): void {
 
 /**
  * Record an error. Safe to call from any context — never throws.
+ *
+ * Kara kutu entegrasyonu:
+ *   Her hata anında getReplayData() çağrılır → son 60s araç durumu CrashEntry'ye eklenir.
+ *   replayBuffer disk'e safeSetRawImmediate ile anında yazılır (uygulama ölmeden önce).
  */
 export function logError(ctx: string, error: unknown): void {
   try {
     _ensureLoaded();
     const msg   = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack?.slice(0, 1024) : undefined;
-    _log.push({ ts: Date.now(), ctx, msg, stack });
+
+    const entry: CrashEntry = { ts: Date.now(), ctx, msg, stack };
+
+    // Kara kutu replay verisi — kayıtlı getter varsa çağır
+    try {
+      const replay = _replayGetter?.();
+      if (replay && replay.length > 0) entry.replayBuffer = replay;
+    } catch {
+      // Getter başarısız → sessiz, log yine de yazılır
+    }
+
+    _log.push(entry);
     _persist();
   } catch {
     // Even the logger itself must not crash

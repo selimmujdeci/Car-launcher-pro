@@ -36,18 +36,25 @@ const useGPSStore = create<GPSState>(() => ({
   source: null,
 }));
 
+// DEV-only: GPS durum override — null = gerçek GPS aktif
+let _gpsTestOverride: Partial<GPSState> | null = null;
+
 // ── UnifiedVehicleStore mirror ──────────────────────────────────────────────
 // useGPSStore değişimlerini UnifiedVehicleStore'a yansıt.
 // Tüm setState çağrıları (handlePosition, DR, fallback) otomatik olarak
 // UnifiedVehicleStore.updateGPSState'i tetikler — her çağrı noktası değiştirilmez.
 useGPSStore.subscribe((state) => {
+  // DEV: override varsa merge et; production'da _gpsTestOverride her zaman null
+  const eff = (import.meta.env.DEV && _gpsTestOverride)
+    ? { ...state, ..._gpsTestOverride }
+    : state;
   useUnifiedVehicleStore.getState().updateGPSState({
-    location:    state.location,
-    heading:     state.heading,
-    isTracking:  state.isTracking,
-    error:       state.error,
-    unavailable: state.unavailable,
-    source:      state.source,
+    location:    eff.location,
+    heading:     eff.heading,
+    isTracking:  eff.isTracking,
+    error:       eff.error,
+    unavailable: eff.unavailable,
+    source:      eff.source,
   });
 });
 
@@ -88,6 +95,13 @@ let _lastGeofenceCheckTime = 0;
 let _lastGeofenceCheckPos: { lat: number; lng: number } | null = null;
 const GEOFENCE_THROTTLE_MS = 5000;
 const GEOFENCE_THROTTLE_METERS = 10;
+
+// ── GPS Fusion Smoothing: tünel çıkışı stabilizasyonu ─────────────────────
+let _transitionStartPerf: number | null = null;
+let _drLastPos: { lat: number; lng: number } | null = null;
+const FUSION_RAMP_MS        = 3_000;   // DR→GPS geçiş yumuşatma süresi (ms)
+const JUMP_GUARD_METERS     = 100;     // maksimum kabul edilebilir fix atlama (m)
+const JUMP_GUARD_ACCURACY_M = 30;      // accuracy bu değerin üstündeyse jump guard aktif
 
 // Auto-reconnect on consecutive errors
 let _consecutiveErrors = 0;
@@ -163,18 +177,24 @@ function _clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
+// Compass throttle: 60Hz → 10Hz (100ms) — pil tasarrufu
+let _compassLastMs = 0;
+const COMPASS_THROTTLE_MS = 100;
+
 function _onDeviceOrientation(e: DeviceOrientationEvent): void {
+  const now = performance.now();
+  if (now - _compassLastMs < COMPASS_THROTTLE_MS) return;
+  _compassLastMs = now;
+
   let deg: number | null = null;
   const ev = e as DeviceOrientationEvent & { webkitCompassHeading?: number };
 
   if (typeof ev.webkitCompassHeading === 'number' && Number.isFinite(ev.webkitCompassHeading)) {
-    // iOS Safari: heading = webkitCompassHeading (clockwise from magnetic north)
     deg = ev.webkitCompassHeading;
   } else if (e.absolute && e.alpha !== null && Number.isFinite(e.alpha)) {
-    // Android Chrome (deviceorientationabsolute): alpha = CCW from north → convert to CW
     deg = (360 - e.alpha) % 360;
   } else {
-    return; // relative orientation — pusulaya güvenemeyiz
+    return;
   }
 
   _compassHeading = _compassHeading === null
@@ -244,8 +264,9 @@ function _blendHeading(gpsBearing: number | null, speedMs: number): number | nul
 //   < GPS_SPEED_DEADZONE_KMH → 0 (araç durmuş, GPS Doppler noise yok say)
 //   Timestamp freshness: > GPS_SPEED_MAX_AGE_MS → speed undefined (stale fix)
 //
-/** Durağan araç jitter bastırma eşiği (km/h) — altındaki değerler 0 sayılır */
-const GPS_SPEED_DEADZONE_KMH = 2.0;
+/** Durağan araç jitter bastırma eşiği (km/h) — altındaki değerler 0 sayılır.
+ *  0.8 km/h: trafik sürünmesi Doppler'den geçer; park/otopark GPS kaymasını bastırır. */
+const GPS_SPEED_DEADZONE_KMH = 0.8;
 /** Bu süreden eski GPS fix'inden gelen hız kabul edilmez */
 const GPS_SPEED_MAX_AGE_MS   = 4000;
 /** GPS Doppler spike / uydu lock jitter: bu değerin üstü fiziksel olarak imkansız */
@@ -463,6 +484,28 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _lastPositionPerf  = perfNow;
   _consecutiveErrors = 0;
 
+  // ── Jump Guard: tünel çıkışı gürültülü ilk fix koruması ─────────────────
+  // >100m atlama VE accuracy >30m ise bu fix muhtemelen noisy — reddet
+  const _drActiveNow = isDeadReckoningActive();
+  const _prevLoc     = useGPSStore.getState().location;
+  if (_prevLoc && coords.accuracy > JUMP_GUARD_ACCURACY_M) {
+    const jumpM = _haversineMeters(
+      _prevLoc.latitude, _prevLoc.longitude,
+      coords.latitude,   coords.longitude,
+    );
+    if (jumpM > JUMP_GUARD_METERS) {
+      console.warn(`[GPS] JumpGuard: ${jumpM.toFixed(0)}m atlama reddedildi (accuracy:${coords.accuracy.toFixed(0)}m)`);
+      return;
+    }
+  }
+
+  // ── Fusion Ramp başlatıcı: DR aktifken gelen ilk gerçek GPS fix'i ─────────
+  // DR true→false geçişi bu noktada yakalanır; 3s blend başlatılır
+  if (_drActiveNow && _prevLoc) {
+    _transitionStartPerf = performance.now();
+    _drLastPos = { lat: _prevLoc.latitude, lng: _prevLoc.longitude };
+  }
+
   const _src = isNativePlatform() ? 'native' : 'web';
   console.log(`[GPS] source:${_src} lat:${coords.latitude.toFixed(6)} lon:${coords.longitude.toFixed(6)} acc:${coords.accuracy?.toFixed(0)}m ts:${timestamp ?? now}`);
   console.log('[GPS]', { lat: coords.latitude, lon: coords.longitude, accuracy: coords.accuracy, source: _src });
@@ -498,9 +541,25 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   // Heading blend: filteredSpeed kullan — ham gürültü pusula/GPS ağırlık hesabını bozmasın
   const heading   = _blendHeading(gpsCourse, filteredSpeed ?? 0);
 
+  // ── Fusion Ramp: DR→GPS weighted blend (3 saniyelik yumuşak geçiş) ────────
+  // finalPos = LastDRPos*(1-α) + NewGPSPos*α  →  araç haritada "akarak" geçer, zıplamaz
+  let _fusedLat = coords.latitude;
+  let _fusedLng = coords.longitude;
+  if (_transitionStartPerf !== null && _drLastPos !== null) {
+    const _elapsed = performance.now() - _transitionStartPerf;
+    if (_elapsed < FUSION_RAMP_MS) {
+      const _alpha = _elapsed / FUSION_RAMP_MS;
+      _fusedLat = _drLastPos.lat * (1 - _alpha) + coords.latitude  * _alpha;
+      _fusedLng = _drLastPos.lng * (1 - _alpha) + coords.longitude * _alpha;
+    } else {
+      _transitionStartPerf = null;
+      _drLastPos           = null;
+    }
+  }
+
   const loc: GPSLocation = {
-    latitude:  coords.latitude,
-    longitude: coords.longitude,
+    latitude:  _fusedLat,
+    longitude: _fusedLng,
     accuracy:  Number.isFinite(coords.accuracy) ? coords.accuracy : 999,
     altitude:  coords.altitude ?? undefined,
     heading:   heading ?? undefined,
@@ -555,6 +614,8 @@ export async function stopGPSTracking(): Promise<void> {
   _prevForSpeed             = null;
   _smoothedHeading          = null;
   _consecutiveErrors        = 0;
+  _transitionStartPerf      = null;
+  _drLastPos                = null;
   _lastPositionPerf         = 0; // reset throttle — next position always accepted after restart
   _lastGeofenceCheckTime    = 0; // geofence throttle sıfırla
   _lastGeofenceCheckPos     = null;
@@ -650,6 +711,30 @@ export function getGPSSpeedKmh(): number | null {
   return loc.speed * 3.6;
 }
 
+/* ── DEV: Fault injection hook ───────────────────────────────────── */
+
+/**
+ * GPS durumunun üzerine test değerleri yaz (DEV only).
+ * `null` geçmek override'ı kaldırır ve gerçek GPS'e döner.
+ *
+ * Production APK'da no-op — import.meta.env.DEV tree-shaking ile elenir.
+ */
+export function setGPSTestOverride(data: Partial<GPSState> | null): void {
+  if (!import.meta.env.DEV) return;
+  _gpsTestOverride = data;
+  // Mevcut GPS store'una override uygulayarak anında emit et
+  const current = useGPSStore.getState();
+  const eff     = data ? { ...current, ...data } : current;
+  useUnifiedVehicleStore.getState().updateGPSState({
+    location:    eff.location,
+    heading:     eff.heading,
+    isTracking:  eff.isTracking,
+    error:       eff.error,
+    unavailable: eff.unavailable,
+    source:      eff.source,
+  });
+}
+
 /**
  * Non-React GPS konum aboneliği — speedFusion gibi modül-düzey servisler için.
  * Konum nesnesi referans olarak değiştiğinde çağrılır (her GPS tick'inde).
@@ -715,10 +800,8 @@ export function feedBackgroundLocation(data: {
  *   - Histerezis: DR_THRESHOLD_MS (2s) GPS sessizliği gerekir
  */
 
-const DR_THRESHOLD_MS   = 2_000;  // GPS'in kaç ms susması gerekiyor
-const DR_TICK_MS        = 500;    // projeksiyon güncelleme aralığı
-const DR_MAX_DURATION_MS = 45_000; // maksimum DR süresi
-const DR_MIN_SPEED_MS   = 2 / 3.6; // 2 km/h (m/s)
+const DR_THRESHOLD_MS   = 2_000;  // GPS sessizlik eşiği (guard için korundu)
+const DR_MIN_SPEED_MS   = 2 / 3.6; // 2 km/h (m/s) — guard hız eşiği
 
 interface DeadReckoningState {
   active:         boolean;
@@ -743,62 +826,10 @@ function _stopDeadReckoning(): void {
 }
 
 function _startDeadReckoning(): void {
-  if (!_dr || _dr.active) return;
-  if (_dr.speedMs < DR_MIN_SPEED_MS) return; // araç durmuşsa DR başlatma
-
-  _dr.active    = true;
-  _dr.startedAt       = performance.now();
-  _dr.lastProjectedAt = performance.now();
-
-  _drTimer = setInterval(() => {
-    if (!_dr?.active) { _stopDeadReckoning(); return; }
-
-    const nowPerf = performance.now();
-    const nowMs   = Date.now();
-    const elapsed = nowPerf - _dr.startedAt;
-
-    if (elapsed > DR_MAX_DURATION_MS) { _stopDeadReckoning(); return; }
-
-    // ── Dynamic speed: OBD/fused speed keeps projection accurate in tunnel ─
-    // DR init zamanındaki donmuş GPS hızı yerine canlı UnifiedVehicleStore hızı
-    // kullanılır — OBD tünelde hala veri verir, GPS vermez.
-    const { speed: liveSpeedMs } = useUnifiedVehicleStore.getState();
-    const currentSpeedMs = liveSpeedMs ?? _dr.speedMs;
-
-    // Ghost movement guard: araç durmuşsa DR anında durdur, konum kaydırma
-    if (currentSpeedMs < DR_MIN_SPEED_MS) { _stopDeadReckoning(); return; }
-
-    // ── Heading: compass tünelde çalışmaya devam eder ─────────────────────
-    // GPS course (coords.heading) sinyal kopunca null olur; pusula manyetik
-    // kuzeyi ölçmeye devam eder ve tünel içi dönüşleri doğru yansıtır.
-    if (_compassHeading !== null) _dr.bearingDeg = _compassHeading;
-
-    const Δt  = (nowPerf - _dr.lastProjectedAt) / 1000; // clock-jump immune
-    _dr.lastProjectedAt = nowPerf;
-
-    const rad    = (_dr.bearingDeg * Math.PI) / 180;
-    const cosLat = Math.cos((_dr.lat  * Math.PI) / 180);
-
-    const deltaLat = (currentSpeedMs * Math.cos(rad) * Δt) / 111_320;
-    const deltaLng = (currentSpeedMs * Math.sin(rad) * Δt) / (111_320 * Math.max(0.001, cosLat));
-
-    _dr.lat     += deltaLat;
-    _dr.lng     += deltaLng;
-    _dr.speedMs  = currentSpeedMs; // DR durumunu canlı hızla senkronize tut
-
-    const prev = useGPSStore.getState().location;
-    useGPSStore.setState({
-      location: {
-        latitude:  _dr.lat,
-        longitude: _dr.lng,
-        accuracy:  50 + elapsed / 1000, // belirsizlik zamanla artar
-        altitude:  prev?.altitude,
-        heading:   _dr.bearingDeg,
-        speed:     _dr.speedMs,
-        timestamp: nowMs,
-      },
-    });
-  }, DR_TICK_MS);
+  // DR Centralization (Packet 4 Hardening): yerel konum projeksiyonu devre dışı.
+  // Tüm sistem VehicleCompute.worker.ts'den gelen füzyonlanmış konumu tüketir.
+  // startDeadReckoningGuard() GPS sessizliğini izlemeye devam eder; ancak
+  // bu fonksiyon hiçbir zaman setInterval başlatmaz → isDeadReckoningActive() = false.
 }
 
 /**

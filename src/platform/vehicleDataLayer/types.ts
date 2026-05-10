@@ -14,11 +14,35 @@ export interface GPSLocation {
 }
 
 export interface CanAdapterData {
+  // ── Temel sürüş ──────────────────────────────────────────────────────────
   speed?: number;
   reverse?: boolean;
   fuel?: number;
+  // ── Motor ─────────────────────────────────────────────────────────────────
+  rpm?: number;
+  coolantTemp?: number;   // °C
+  oilTemp?: number;       // °C
+  throttle?: number;      // 0–100 %
+  // ── Elektrik ──────────────────────────────────────────────────────────────
+  batteryVolt?: number;   // 12V akü V
+  // ── Vites ─────────────────────────────────────────────────────────────────
+  gearPos?: number;       // -1=R, 0=N/P, 1–8=ileri
+  // ── Çevre ─────────────────────────────────────────────────────────────────
+  ambientTemp?: number;   // dış hava °C
+  // ── Kapı / aydınlatma ─────────────────────────────────────────────────────
   doorOpen?: boolean;
   headlightsOn?: boolean;
+  // ── Şasi güvenliği ────────────────────────────────────────────────────────
+  abs?: boolean;
+  tractionControl?: boolean;
+  stabilityControl?: boolean;
+  // ── Gövde / konfor ────────────────────────────────────────────────────────
+  parkingBrake?: boolean;
+  seatbelt?: boolean;
+  wipers?: boolean;
+  airCondition?: boolean;
+  cruiseControl?: boolean;
+  // ── TPMS ──────────────────────────────────────────────────────────────────
   tpms?: number[];
 }
 

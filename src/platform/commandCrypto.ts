@@ -90,13 +90,47 @@ export function isEncryptedPayload(payload: Record<string, unknown>): boolean {
 
 // ── Nonce deduplication ───────────────────────────────────────────────────────
 
+const NONCE_STORAGE_KEY = 'car-nonce-store-v1';
+
 const _usedNonces = new Map<string, number>(); // nonce → expiry ms
+
+/**
+ * Aktif (süresi dolmamış) nonce'ları safeStorage'a yazar.
+ * _checkAndMarkNonce her yeni nonce'dan sonra çağırır → restart sonrası da replay engellenir.
+ */
+function _persistNonces(): void {
+  const now    = Date.now();
+  const active: Array<[string, number]> = [];
+  _usedNonces.forEach((exp, n) => { if (exp > now) active.push([n, exp]); });
+  void safeSetRawImmediate(NONCE_STORAGE_KEY, JSON.stringify(active));
+}
+
+/**
+ * Uygulama başlangıcında kalıcı depodan nonce'ları yükler.
+ * Süresi dolmuş olanlar filtrelenir (GC).
+ * Modül yüklendiğinde otomatik çağrılır (aşağıda).
+ */
+function _loadPersistedNonces(): void {
+  const raw = safeGetRaw(NONCE_STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const arr = JSON.parse(raw) as Array<[string, number]>;
+    const now = Date.now();
+    for (const [n, exp] of arr) {
+      if (exp > now) _usedNonces.set(n, exp); // sadece aktif nonce'ları yükle
+    }
+  } catch { /* bozuk JSON — sessiz geç, yeni liste başlar */ }
+}
+
+// Uygulama yeniden başladığında önceki nonce'ları geri yükle
+_loadPersistedNonces();
 
 function _checkAndMarkNonce(nonce: string): boolean {
   const now = Date.now();
   _usedNonces.forEach((exp, n) => { if (exp < now) _usedNonces.delete(n); }); // GC
   if (_usedNonces.has(nonce)) return false; // replay
   _usedNonces.set(nonce, now + NONCE_WINDOW_MS);
+  _persistNonces(); // kalıcı yaz — crash/restart sonrası da geçerli
   return true;
 }
 

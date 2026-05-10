@@ -11,23 +11,32 @@
  *   ≤ 8 kelimeye kısaltılır. Bu kural sürücü dikkatini korur.
  */
 
-import { bridge }                       from './bridge';
+import { bridge, type CommandResult }   from './bridge';
 import { fromAIResponse, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 import { play, pause, next, previous }  from './mediaService';
 import { setVolume }                    from './systemSettingsService';
-import { speakFeedback, speakAlert }    from './ttsService';
+import { speakFeedback, speakAlert } from './ttsService';
 import { showToast }                    from './errorBus';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
 import { readDTCCodes, clearDTCCodes, onDTCState, type DTCState } from './dtcService';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { openInApp } from './inAppBrowser';
 import { applyLiveStyle } from './liveStyleEngine';
+import { getWeatherNarrative } from './weatherService';
+import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
 // Module-level volume tracker (0-100). Initial mid-level default.
 let _currentVolume = 60;
+
+/* ── Intent tracking (BlackBoxService için) ────────────────── */
+
+let _lastIntent: string | undefined;
+
+/** Son tetiklenen intent type'ını döner. BlackBoxService tarafından okunur. */
+export function getLastIntent(): string | undefined { return _lastIntent; }
 
 /* ── Public context ───────────────────────────────────────── */
 
@@ -41,10 +50,10 @@ export interface CommandContext {
   setTheme?:    (theme: 'dark' | 'oled') => void;
   openDrawer?:  (target: 'apps' | 'settings' | 'none') => void;
   openWeather?: () => void;
-  /** Araç kapı kilidi — CAN bus sinyali, native plugin tarafından sağlanır */
-  hwLockDoors?:   () => void;
-  /** Araç kapı kilidi açma — güvenlik: sürüş sırasında engellenir */
-  hwUnlockDoors?: () => void;
+  /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */
+  hwLockDoors?:   () => Promise<CommandResult>;
+  /** Araç kapı kilidi açma — güvenlik: sürüş sırasında engellenir; L2 ACK ile resolve */
+  hwUnlockDoors?: () => Promise<CommandResult>;
   /** Kontak açık mı? (OBD PID 0x01) — remoteCommandService occupancy kontrolünde kullanılır */
   ignitionOn?: boolean;
   /** True ise komut Supabase kanalından geldi; false/undefined = lokal ses komutu */
@@ -115,6 +124,9 @@ function _buildDTCSpeech(state: DTCState, isDriving: boolean): string {
 
 async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<void> {
   const { isDriving } = ctx.vehicleCtx;
+
+  // Kara kutu: her dispatch anında son intent'i kaydet
+  _lastIntent = intent.type;
 
   try {
     switch (intent.type) {
@@ -267,7 +279,37 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       }
       case 'SHOW_WEATHER': {
         ctx.openWeather?.();
-        _speak('Hava durumu açılıyor', isDriving);
+        _speak(getWeatherNarrative(), isDriving);
+        break;
+      }
+
+      /* ── Araç Durumu Özeti ─────────────────────────────── */
+      case 'VEHICLE_STATUS': {
+        const { speed, fuel } = useUnifiedVehicleStore.getState();
+        const _vctx   = ctx.vehicleCtx as unknown as Record<string, unknown>;
+        const speedKmh = ctx.vehicleCtx.speedKmh || (speed ?? undefined);
+        const fuelPct  = (_vctx['fuelLevelPct'] as number | undefined) ?? (fuel != null ? fuel : undefined);
+        const tempC    = _vctx['engineTempC'] as number | undefined;
+
+        const parts: string[] = [];
+        if (speedKmh !== undefined) parts.push(`Hızın ${Math.round(speedKmh)} kilometre`);
+        if (fuelPct !== undefined) {
+          parts.push(fuelPct < 15
+            ? `Yakıtın yüzde ${Math.round(fuelPct)}, az kaldı`
+            : `Yakıtın yüzde ${Math.round(fuelPct)}`);
+        }
+        if (tempC !== undefined) {
+          parts.push(`Motor sıcaklığı ${tempC > 100 ? 'yüksek, dikkat' : 'normal'}`);
+        }
+
+        if (parts.length === 0) {
+          _speak('Araç verisi alınamıyor, OBD bağlantısını kontrol et', isDriving);
+          break;
+        }
+
+        const maintenance = await getMaintenanceSummaryText();
+        parts.push(maintenance);
+        speakFeedback(parts.join('. ') + '.');
         break;
       }
 
@@ -312,8 +354,18 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           _speak('Araçta kullanıcı var, uzaktan kilit engellendi', isDriving);
           throw new Error('SafetyReject: remote LOCK blocked — vehicle occupied');
         }
-        ctx.hwLockDoors?.();
-        _speak('Kapılar kilitleniyor', isDriving);
+        if (!ctx.hwLockDoors) {
+          _error('Kapı kilidi donanımı bağlı değil');
+          break;
+        }
+        // L2 ACK beklenir — TTS/toast yalnızca donanım onayından sonra tetiklenir
+        const lockResult = await ctx.hwLockDoors();
+        if (lockResult.status === 'completed') {
+          _speak('Kapılar kilitlendi', isDriving);
+          showToast({ type: 'success', title: 'Kapılar Kilitlendi', message: 'Tüm kapılar başarıyla kilitlendi', duration: 3000 });
+        } else {
+          _error('Kapı kilidi başarısız: ' + (lockResult.error ?? lockResult.status));
+        }
         break;
       }
       case 'HARDWARE_UNLOCK': {
@@ -327,8 +379,18 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           _speak('Araçta kullanıcı var, uzaktan açma engellendi', isDriving);
           throw new Error('SafetyReject: remote UNLOCK blocked — vehicle occupied');
         }
-        ctx.hwUnlockDoors?.();
-        _speak('Kapılar açılıyor', isDriving);
+        if (!ctx.hwUnlockDoors) {
+          _error('Kapı kilidi donanımı bağlı değil');
+          break;
+        }
+        // L2 ACK beklenir — TTS/toast yalnızca donanım onayından sonra tetiklenir
+        const unlockResult = await ctx.hwUnlockDoors();
+        if (unlockResult.status === 'completed') {
+          _speak('Kapılar açıldı', isDriving);
+          showToast({ type: 'success', title: 'Kapılar Açıldı', message: 'Tüm kapılar başarıyla açıldı', duration: 3000 });
+        } else {
+          _error('Kapı açma başarısız: ' + (unlockResult.error ?? unlockResult.status));
+        }
         break;
       }
 

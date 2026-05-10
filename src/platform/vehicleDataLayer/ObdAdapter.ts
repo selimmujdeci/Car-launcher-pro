@@ -28,9 +28,15 @@ export class ObdAdapter {
         this._data.fuel = undefined;
       }
 
-      // Geri vites: OBD source'ta -1 = desteklenmiyor, 0 = ileri, 1 = geri
-      // undefined bırakılırsa VehicleSignalResolver bu alanı işlemez
-      this._data.reverse = obd.rpm === 0 ? undefined : undefined; // CAN'dan gelir, OBD'de yok
+      // RPM — EV'de -1 gelir; negatif değerler yok sayılır
+      if (obd.rpm >= 0) {
+        this._data.rpm = obd.rpm;
+      } else {
+        this._data.rpm = undefined;
+      }
+
+      // reverse: CAN bus'tan gelir, OBD'de yok
+      this._data.reverse = undefined;
 
       this._listeners.forEach((fn) => fn(this._data));
       dbgIncObd();
@@ -44,6 +50,7 @@ export class ObdAdapter {
     // Pre-allocated nesneyi temizle — bir sonraki start() için hazırla
     this._data.speed   = undefined;
     this._data.fuel    = undefined;
+    this._data.rpm     = undefined;
     this._data.reverse = undefined;
   }
 

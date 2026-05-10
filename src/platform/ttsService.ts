@@ -10,6 +10,14 @@
  *   ttsCancel()                                — devam eden seslendirmeyi kes
  */
 
+import { duckMedia, unduckMedia } from './audioService';
+import { Capacitor } from '@capacitor/core';
+import { CarLauncher } from './nativePlugin';
+
+/* ── Platform detection ──────────────────────────────────── */
+
+const _isNative = Capacitor.isNativePlatform();
+
 /* ── Availability check ──────────────────────────────────── */
 
 function isTTSAvailable(): boolean {
@@ -57,6 +65,9 @@ let _lastSpokenText = '';
 let _lastSpokenAt   = 0;
 const MIN_REPEAT_MS = 3_000;
 
+/** Aktif bir duckMedia çağrısı var mı — çakışan duck çağrısını önler */
+let _ttsDucking = false;
+
 /* ── Core speak ──────────────────────────────────────────── */
 
 interface SpeakOptions {
@@ -71,21 +82,45 @@ interface SpeakOptions {
 }
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
-  if (!isTTSAvailable() || !text.trim()) return;
+  if (!text.trim()) return;
 
   const now = Date.now();
   if (text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) return;
   _lastSpokenText = text;
   _lastSpokenAt   = now;
 
+  // ── Native path: Android TextToSpeech (güvenilir, Türkçe destekli) ──
+  if (_isNative) {
+    if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
+    CarLauncher.speak({ text, rate: opts.rate ?? 1.0 })
+      .then(() => { _ttsDucking = false; unduckMedia(); opts.onEnd?.(); })
+      .catch(() => { _ttsDucking = false; unduckMedia(); });
+    return;
+  }
+
+  // ── Web fallback: SpeechSynthesis API ──────────────────────────────
+  if (!isTTSAvailable()) return;
+
   if (!opts.queue) window.speechSynthesis.cancel();
 
-  const utter        = new SpeechSynthesisUtterance(text);
-  utter.lang         = 'tr-TR';
-  utter.rate         = opts.rate  ?? 1.05;
-  utter.pitch        = opts.pitch ?? 1.0;
-  utter.volume       = 1.0;
-  if (opts.onEnd)    utter.onend = opts.onEnd;
+  // duckMedia() TTS engine init'inden ÖNCE çağrılır — gain ramp başlangıç avantajı.
+  // SpeechSynthesisUtterance oluşturma ve ses seçimi ~birkaç ms alabilir;
+  // bu sürede gain zaten düşmeye başlamış olur → örtüşme (overlap) sıfır.
+  // _ttsDucking guard: önceki TTS henüz bitmeden yeni çağrı gelirse çift duck önlenir.
+  if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
+
+  const utter    = new SpeechSynthesisUtterance(text);
+  utter.lang     = 'tr-TR';
+  utter.rate     = opts.rate  ?? 1.05;
+  utter.pitch    = opts.pitch ?? 1.0;
+  utter.volume   = 1.0;
+
+  const userOnEnd = opts.onEnd;
+  utter.onend = () => {
+    _ttsDucking = false;
+    unduckMedia();
+    userOnEnd?.();
+  };
 
   const voice = _getTurkishVoice();
   if (voice) utter.voice = voice;
@@ -95,7 +130,16 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
-  if (isTTSAvailable()) window.speechSynthesis.cancel();
+  if (_isNative) {
+    CarLauncher.ttsStop()
+      .then(() => { if (_ttsDucking) { _ttsDucking = false; unduckMedia(); } })
+      .catch(() => { if (_ttsDucking) { _ttsDucking = false; unduckMedia(); } });
+    return;
+  }
+  if (isTTSAvailable()) {
+    if (_ttsDucking) { _ttsDucking = false; unduckMedia(); }
+    window.speechSynthesis.cancel();
+  }
 }
 
 /* ── Semantic helpers ────────────────────────────────────── */

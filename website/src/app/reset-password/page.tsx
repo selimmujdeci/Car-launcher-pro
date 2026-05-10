@@ -26,6 +26,10 @@ function ResetPasswordForm() {
         return;
       }
       const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        setError('Kimlik doğrulama servisi başlatılamadı.');
+        return;
+      }
       const { error: authError } = await supabase.auth.updateUser({ password });
       if (authError) {
         setError('Şifre güncellenemedi. Bağlantı süresi dolmuş olabilir.');

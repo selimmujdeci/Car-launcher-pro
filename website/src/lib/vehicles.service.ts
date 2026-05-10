@@ -29,6 +29,7 @@ interface TelemetryRow {
 
 export async function fetchVehicles(): Promise<LiveVehicle[]> {
   const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
 
   const { data: vehicles, error: vehiclesError } = await supabase
     .from('vehicles')

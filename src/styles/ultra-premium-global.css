@@ -1,1 +1,58 @@
-/* Ultra premium global kaldırıldı — tek tema: theme.css */
+/* ── Mercedes Futurist / MBUX Design System ── */
+
+.futurist-glass {
+  background: rgba(8, 14, 28, 0.82);
+  backdrop-filter: blur(32px) saturate(1.8);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.6),
+    0 0 20px rgba(37, 99, 235, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+.futurist-glow-blue {
+  box-shadow: 0 0 25px rgba(37, 99, 235, 0.45);
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.futurist-glow-red {
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.45);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.futurist-gradient-blue {
+  background: linear-gradient(155deg, #2563eb, #1e3a8a, #1e40af);
+}
+
+.futurist-gradient-dark {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.95), rgba(8, 12, 24, 0.98));
+}
+
+.futurist-text-glow {
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
+}
+
+@keyframes futuristPulse {
+  0% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 0.8; transform: scale(1); }
+}
+
+.animate-futurist-pulse {
+  animation: futuristPulse 2s infinite ease-in-out;
+}
+
+/* ── Thermal GPU Guard ─────────────────────────────────────────────────────
+   is-thermal-throttling (L2/L3 ≥55°C) aktifken backdrop-filter blur'u kaldır.
+   GPU yükü %40 azalır; düz renk zemin yerine geçer.
+─────────────────────────────────────────────────────────────────────────── */
+.is-thermal-throttling .futurist-glass {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(8, 14, 28, 0.92) !important;
+}
+
+.is-thermal-throttling [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.content.ComponentCallbacks2;
 import android.util.Log;
 import android.view.WindowManager;
 
@@ -323,6 +324,30 @@ public class MainActivity extends BridgeActivity {
             Log.e(TAG, "Restart tetiklenemedi: " + e.getMessage());
         }
         android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    // ── LMK Memory Pressure ────────────────────────────────────────────────
+    /**
+     * Android LMK (Low Memory Killer) sisteminin bellek baskısı sinyallerini yakalar.
+     * TRIM_MEMORY_RUNNING_CRITICAL → JS'e "CRITICAL" seviyesi iletilir.
+     * TRIM_MEMORY_MODERATE         → JS'e "MODERATE" seviyesi iletilir.
+     *
+     * CarLauncherPlugin.broadcastMemoryPressure() JS tarafındaki memoryWatchdog dinleyicisini
+     * tetikler; orası runtimeManager.setMode(SAFE_MODE) ve cache temizleme işlerini yapar.
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        String pressureLevel = null;
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            pressureLevel = "CRITICAL";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            pressureLevel = "MODERATE";
+        }
+        if (pressureLevel != null) {
+            Log.w(TAG, "onTrimMemory level=" + level + " → " + pressureLevel);
+            CarLauncherPlugin.broadcastMemoryPressure(pressureLevel);
+        }
     }
 
     private void applyImmersive() {

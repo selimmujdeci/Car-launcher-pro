@@ -15,6 +15,7 @@ export async function fetchMyPlan(): Promise<PlanState> {
 
   try {
     const supabase = getSupabaseBrowserClient();
+    if (!supabase) return DEMO_PLAN;
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { plan: 'free', trialEndsAt: null, effective: 'free', isPro: false, daysLeft: 0, loaded: true };

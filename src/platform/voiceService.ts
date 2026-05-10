@@ -10,10 +10,13 @@
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
+import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
 import { speakFeedback } from './ttsService';
+import { duckMedia, unduckMedia } from './audioService';
 import { askAI, resolveApiKey, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
@@ -80,6 +83,15 @@ let _stream: MediaStream | null = null;
 let _analyser: AnalyserNode | null = null;
 let _animationFrame: number | null = null;
 
+// Native STT: gerçek AudioContext yok — sentetik dalga ile görsel geri bildirim
+let _volumeSimTimer: ReturnType<typeof setInterval> | null = null;
+// Native RMS event listener handle (gerçek mikrofon seviyesi)
+let _rmsListenerHandle: { remove: () => Promise<void> } | null = null;
+// T507 ısınma: STT başlamadan önce bekletme zamanlayıcısı
+let _nativeSttWarmupTimer: ReturnType<typeof setTimeout> | null = null;
+// Ardışık boş transcript sayacı — 1. boşta hata basma, 2.'de bas
+let _consecutiveEmptyCount = 0;
+
 function _stopVolumeMeter(): void {
   if (_animationFrame) cancelAnimationFrame(_animationFrame);
   if (_stream) _stream.getTracks().forEach(t => t.stop());
@@ -118,6 +130,31 @@ function _startVolumeMeter(): void {
     console.warn('Volume meter failed:', e);
     // Silent fail for meter, but still listening
   });
+}
+
+function _stopVolumeSimulation(): void {
+  if (_volumeSimTimer !== null) {
+    clearInterval(_volumeSimTimer);
+    _volumeSimTimer = null;
+  }
+  push({ volumeLevel: 0 });
+}
+
+function _startNativeVolumeListener(): void {
+  if (_rmsListenerHandle) return;
+  (CarLauncher as any).addListener('rmsData', (data: { value: number }) => {
+    push({ volumeLevel: data.value });
+  }).then((handle: { remove: () => Promise<void> }) => {
+    _rmsListenerHandle = handle;
+  }).catch(() => {});
+}
+
+function _stopNativeVolumeListener(): void {
+  if (_rmsListenerHandle) {
+    _rmsListenerHandle.remove().catch(() => {});
+    _rmsListenerHandle = null;
+  }
+  push({ volumeLevel: 0 });
 }
 
 function push(partial: Partial<VoiceState>): void {
@@ -178,6 +215,13 @@ function dispatchDriving(cmd: ParsedCommand): void {
   speakFeedback(cmd.feedback);
   pushHistory(cmd);
   _commandHandlers.forEach((fn) => fn(cmd));
+}
+
+/** Sohbet yanıtı — komut dispatch yok, sadece TTS + UI güncelleme. */
+function _dispatchConversation(response: string, raw: string): void {
+  speakFeedback(response);
+  push({ status: 'success', transcript: raw, error: null, suggestions: [], lastCommand: null });
+  setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 3500);
 }
 
 /* ── AI Context Building ──────────────────────────────────── */
@@ -298,11 +342,19 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
-  // ── Hiç eşleşme yok → Semantic NLP devreye giriyor ─────────
+  // ── Hiç komut eşleşmesi yok → önce offline sohbet motoru ─────
+  const convResult = tryOfflineConversation(trimmed, ctx?.isDriving, ctx?.speedKmh);
+  if (convResult.handled) {
+    _lastCommandTime = now;
+    _dispatchConversation(convResult.response, trimmed);
+    return true;
+  }
+
+  // ── Sohbet da eşleşmedi → Semantic NLP devreye giriyor ───────
   if (provider !== 'none' && apiKey) {
     if (!hasNet) {
-      // Çevrimdışı bilgilendirme
-      speakFeedback('İnternet yok, temel komutları kullanabilirsin');
+      // Çevrimdışı — ne yapabileceğini söyle
+      speakFeedback('Bunu anlayamadım. Komut veya soru söyle.');
       push({
         status:      'error',
         error:       'İnternet bağlantısı yok',
@@ -416,33 +468,83 @@ export function startListening(): void {
     return;
   }
 
-  push({ status: 'listening', error: null, suggestions: [] });
-  _startVolumeMeter();
+  push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
 
   if (isNative) {
-    // Failsafe: if STT hangs or is dismissed silently, force idle after 10 s.
-    // Prevents "Hazır" from staying on screen indefinitely.
-    const _sttFailsafe = setTimeout(() => {
+    // T507 ısınma süresi: tüm native cihazlarda 500ms — mikrofon donanım açılışı beklenir.
+    // Ses simülasyonu da warmup sonrası başlar — animasyon gerçek açılışla eşlenir.
+    const warmupMs = isLowEndDevice() ? 500 : 300;
+
+    const sttFailsafe = setTimeout(() => {
       if (_current.status === 'listening') {
         console.warn('[Voice] STT timeout (10s) — forcing idle');
-        _stopVolumeMeter();
+        _stopNativeVolumeListener();
+        unduckMedia();
         push({ status: 'idle' });
       }
     }, 10_000);
 
-    CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
-      .then((result) => {
-        clearTimeout(_sttFailsafe);
-        if (result.transcript) processTextCommand(result.transcript);
-        else push({ status: 'idle' });
-      })
-      .catch((err) => {
-        clearTimeout(_sttFailsafe);
-        console.error('Native Speech Error:', err);
-        push({ status: 'error', error: 'Ses algılanamadı. Çevrimdışı dil paketi (TR) yüklü mü?', suggestions: [] });
-        setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
-      });
+    const doSTT = () => {
+      _startNativeVolumeListener();
+      duckMedia();
+
+      CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
+        .then((result) => {
+          clearTimeout(sttFailsafe);
+          _stopNativeVolumeListener();
+          unduckMedia();
+          // Boş transcript: ilk boşta sessizce idle, 2. ardışık boşta bilgilendirme göster
+          const transcript = result.transcript?.trim() ?? '';
+          if (transcript) {
+            _consecutiveEmptyCount = 0;
+            void processTextCommand(transcript);
+          } else {
+            _consecutiveEmptyCount++;
+            if (_consecutiveEmptyCount >= 2) {
+              _consecutiveEmptyCount = 0;
+              push({ status: 'error', error: 'Ses algılanamadı. Daha yüksek sesle konuşun.', suggestions: [] });
+              setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 2500);
+            } else {
+              push({ status: 'idle' });
+            }
+          }
+        })
+        .catch((err: unknown) => {
+          clearTimeout(sttFailsafe);
+          _stopNativeVolumeListener();
+          unduckMedia();
+          const msg = err instanceof Error ? err.message : String(err ?? '');
+          // T507 anlık cancel/abort/timeout → kullanıcıya gösterme, sessizce idle
+          if (/cancel|abort|timeout/i.test(msg)) {
+            _consecutiveEmptyCount = 0;
+            push({ status: 'idle' });
+            return;
+          }
+          console.error('Native Speech Error:', err);
+          // Sadece ciddi hatalar (izin eksikliği) UI'da gösterilir
+          const isPermission = /permission|denied|not.?allowed/i.test(msg);
+          push({
+            status: 'error',
+            error: isPermission
+              ? 'Mikrofon izni verilmemiş.'
+              : 'Ses algılanamadı. Çevrimdışı dil paketi (TR) yüklü mü?',
+            suggestions: [],
+          });
+          setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+        });
+    };
+
+    if (warmupMs > 0) {
+      _nativeSttWarmupTimer = setTimeout(() => {
+        _nativeSttWarmupTimer = null;
+        if (_current.status !== 'listening') return; // kullanıcı iptal etti
+        doSTT();
+      }, warmupMs);
+    } else {
+      doSTT();
+    }
   } else {
+    _startVolumeMeter();
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) {
       push({ status: 'error', error: 'Tarayıcı ses tanımayı desteklemiyor.' });
@@ -457,8 +559,8 @@ export function startListening(): void {
     _webRecognition.maxAlternatives = 1;
 
     _webRecognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      if (transcript) processTextCommand(transcript);
+      const transcript = (event.results[0][0].transcript as string)?.trim();
+      if (transcript) void processTextCommand(transcript);
     };
 
     _webRecognition.onerror = (event: any) => {
@@ -472,14 +574,25 @@ export function startListening(): void {
       if (_current.status === 'listening') push({ status: 'idle' });
     };
 
-    try { _webRecognition.start(); } catch (e) { push({ status: 'idle' }); }
+    try { _webRecognition.start(); } catch { push({ status: 'idle' }); }
   }
 }
 
 export function stopListening(): void {
   if (_current.status === 'listening') {
+    // Warmup timer iptal — kullanıcı STT açılmadan iptal etmiş olabilir
+    if (_nativeSttWarmupTimer !== null) {
+      clearTimeout(_nativeSttWarmupTimer);
+      _nativeSttWarmupTimer = null;
+    }
     if (!isNative) _stopWebRecognition();
     _stopVolumeMeter();
+    if (isNative) {
+      _stopNativeVolumeListener();
+    } else {
+      _stopVolumeSimulation();
+    }
+    unduckMedia();
     push({ status: 'idle' });
   }
 }

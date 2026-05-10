@@ -12,11 +12,13 @@ import java.io.OutputStream;
 /**
  * SerialPortHandler — Industrial-grade UART okuyucu/yazıcı.
  *
- * Hardening (Industrial-Grade):
- *   - BufferedInputStream: kernel buffer → uygulama buffer → sıfır kayıp
- *   - CircularBuffer: yüksek hız (115200 baud) veri taşmasına karşı
- *   - readNextFrame(): sadece tam, doğrulanmış frame'leri döner
- *   - writeCommand(): 3 katmanlı whitelist doğrulaması (T-8'den)
+ * Android head unit'lerde /dev/ttyS* portları genellikle root/system yetkisi
+ * gerektirir. Bu sınıf açılış öncesinde iki yöntem dener:
+ *
+ *   1. "su -c chmod 666 <port>"  — rooted cihazlar (çoğu aftermarket head unit)
+ *   2. "chmod 666 <port>"        — zaten yetki varsa veya sistem app olarak kuruluysa
+ *
+ * Port tarama sırası: önce yaygın head unit yolları, sonra USB serial.
  *
  * Frame protokolü (binary):
  *   [0xAA][ID_HIGH][ID_LOW][DLC][D0..DN][XOR_CRC][0x55]
@@ -27,9 +29,33 @@ public final class SerialPortHandler {
 
     private static final String TAG = "SerialPortHandler";
 
+    /**
+     * Head unit'lerde yaygın UART port yolları.
+     * Sıralama önemli: önce en yaygın head unit portları dene.
+     *
+     * Allwinner (A64/H6):     ttyS1, ttyS2, ttyS3
+     * Rockchip (RK3399/3288): ttyS1, ttyS4, ttyS5
+     * MediaTek (MT8167/8183): ttyMT1, ttyMT2
+     * Qualcomm Snapdragon:    ttyHS0, ttyHS1
+     * Generic Linux/UART:     ttyS0..ttyS4
+     * USB-to-serial (fallback): ttyUSB0..ttyUSB3, ttyACM0
+     */
     private static final String[] PORT_CANDIDATES = {
-        "/dev/ttyS0", "/dev/ttyS1", "/dev/ttyS2",
-        "/dev/ttyUSB0", "/dev/ttyACM0",
+        "/dev/ttyS1",
+        "/dev/ttyS2",
+        "/dev/ttyS0",
+        "/dev/ttyS3",
+        "/dev/ttyS4",
+        "/dev/ttyMT1",
+        "/dev/ttyMT2",
+        "/dev/ttyMT0",
+        "/dev/ttyHS0",
+        "/dev/ttyHS1",
+        "/dev/ttyHS2",
+        "/dev/ttyAMA0",
+        "/dev/ttyUSB0",
+        "/dev/ttyUSB1",
+        "/dev/ttyACM0",
     };
 
     public static final int BAUD_38400  = 38400;
@@ -40,30 +66,29 @@ public final class SerialPortHandler {
     private static final byte FRAME_END   = (byte) 0x55;
     private static final int  MAX_DLC     = 8;
 
-    // BufferedInputStream: 8 KB buffer — 115200 baud'da ~70ms tampon
-    private static final int BUF_SIZE = 8_192;
+    private static final int BUF_SIZE    = 8_192;
+    private static final int CB_CAPACITY = 65_536;
 
-    // ── Circular Buffer ──────────────────────────────────────────────────
-    // Yüksek hızda gelen veriyi taşırmadan saklar; paket ayrıştırıcı
-    // async okurken veri kaybolmaz.
-    private static final int  CB_CAPACITY = 65_536; // 64 KB
+    // Circular Buffer
     private final byte[]  _cb     = new byte[CB_CAPACITY];
-    private volatile int  _cbHead = 0; // yazma pozisyonu
-    private volatile int  _cbTail = 0; // okuma pozisyonu
+    private volatile int  _cbHead = 0;
+    private volatile int  _cbTail = 0;
     private final Object  _cbLock = new Object();
 
     private volatile BufferedInputStream _bis       = null;
     private volatile OutputStream        _outStream = null;
     private volatile String              _openPort  = null;
 
-    // Circular buffer okuma thread'i
-    private volatile Thread  _fillThread = null;
+    private volatile Thread  _fillThread  = null;
     private volatile boolean _fillRunning = false;
 
-    // ── Bağlantı ────────────────────────────────────────────────────────
+    // ── Bağlantı ────────────────────────────────────────────────────────────
 
     public boolean open(int baudRate) {
         for (String port : PORT_CANDIDATES) {
+            // İzin bypass — root varsa chmod, yoksa doğrudan dene
+            tryGrantAccess(port);
+
             if (tryOpen(port, baudRate)) {
                 _openPort = port;
                 startFillThread();
@@ -71,7 +96,7 @@ public final class SerialPortHandler {
                 return true;
             }
         }
-        Log.w(TAG, "Seri port bulunamadı — stub mod");
+        Log.w(TAG, "Hiçbir seri port açılamadı — stub mod");
         return false;
     }
 
@@ -80,14 +105,40 @@ public final class SerialPortHandler {
         try { if (_bis       != null) { _bis.close();       _bis       = null; } } catch (IOException ignored) {}
         try { if (_outStream != null) { _outStream.close(); _outStream = null; } } catch (IOException ignored) {}
         _openPort = null;
-        synchronized (_cbLock) { _cbHead = 0; _cbTail = 0; } // tampon sıfırla
+        synchronized (_cbLock) { _cbHead = 0; _cbTail = 0; }
         Log.d(TAG, "Port kapatıldı");
     }
 
     public boolean isOpen()   { return _bis != null; }
     public String  openPort() { return _openPort; }
 
-    // ── Fill Thread: kernel → Circular Buffer ───────────────────────────
+    // ── İzin bypass ─────────────────────────────────────────────────────────
+
+    /**
+     * Portu okuma-yazma için erişilebilir yapar.
+     *
+     * 1. su ile chmod (rooted cihaz — çoğu aftermarket head unit)
+     * 2. chmod'u doğrudan (sistem app veya zaten izinli)
+     *
+     * Her iki yöntem de sessizce başarısız olabilir — tryOpen() zaten test eder.
+     */
+    private static void tryGrantAccess(String portPath) {
+        // Yöntem 1: root ile chmod
+        runSilent(new String[]{ "su", "-c", "chmod 666 " + portPath });
+        // Yöntem 2: root olmadan chmod (sistem uygulaması veya önceden izinli)
+        runSilent(new String[]{ "chmod", "666", portPath });
+    }
+
+    private static void runSilent(String[] cmd) {
+        try {
+            Process p = Runtime.getRuntime().exec(cmd);
+            p.waitFor();
+        } catch (Exception ignored) {
+            // Sessizce geç — başarısız olursa tryOpen() zaten reddeder
+        }
+    }
+
+    // ── Fill Thread: kernel → Circular Buffer ───────────────────────────────
 
     private void startFillThread() {
         _fillRunning = true;
@@ -95,11 +146,14 @@ public final class SerialPortHandler {
             byte[] tmp = new byte[512];
             while (_fillRunning && !Thread.currentThread().isInterrupted()) {
                 BufferedInputStream bis = _bis;
-                if (bis == null) { try { Thread.sleep(50); } catch (InterruptedException e) { break; } continue; }
+                if (bis == null) {
+                    try { Thread.sleep(50); } catch (InterruptedException e) { break; }
+                    continue;
+                }
                 try {
                     int n = bis.read(tmp, 0, tmp.length);
                     if (n > 0) cbWrite(tmp, n);
-                    else if (n == -1) break; // EOF — port kapandı
+                    else if (n == -1) break;
                 } catch (IOException e) {
                     Log.w(TAG, "Fill hatası: " + e.getMessage());
                     break;
@@ -118,16 +172,14 @@ public final class SerialPortHandler {
         if (_fillThread != null) { _fillThread.interrupt(); _fillThread = null; }
     }
 
-    // ── Circular Buffer yazma/okuma ──────────────────────────────────────
+    // ── Circular Buffer ──────────────────────────────────────────────────────
 
     private void cbWrite(byte[] data, int len) throws InterruptedException {
         synchronized (_cbLock) {
             for (int i = 0; i < len; i++) {
                 int nextHead = (_cbHead + 1) % CB_CAPACITY;
                 if (nextHead == _cbTail) {
-                    // Taşma: en eski byte'ı at (FIFO drop)
                     _cbTail = (_cbTail + 1) % CB_CAPACITY;
-                    Log.v(TAG, "CB taşma — eski veri atıldı");
                 }
                 _cb[_cbHead] = data[i];
                 _cbHead = nextHead;
@@ -150,14 +202,8 @@ public final class SerialPortHandler {
         }
     }
 
-    // ── Frame okuma ──────────────────────────────────────────────────────
+    // ── Frame okuma ──────────────────────────────────────────────────────────
 
-    /**
-     * Bir sonraki geçerli CAN frame'ini okur.
-     * BufferedInputStream + CircularBuffer sayesinde 115200 baud'da kayıp olmaz.
-     *
-     * @return [ ID_HIGH, ID_LOW, D0..DN ] veya null (timeout/hata)
-     */
     public byte[] readNextFrame() throws InterruptedException {
         if (!isOpen() && _fillThread == null) {
             Thread.sleep(500);
@@ -165,7 +211,6 @@ public final class SerialPortHandler {
         }
 
         try {
-            // Start byte'ı bekle (3s timeout)
             int b;
             do {
                 b = cbRead(3_000);
@@ -173,7 +218,6 @@ public final class SerialPortHandler {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             } while ((byte) b != FRAME_START);
 
-            // Frame içi baytlar: 200ms per-byte timeout (115200 baud'da yeterli)
             int idHigh = cbRead(200); if (idHigh < 0) return null;
             int idLow  = cbRead(200); if (idLow  < 0) return null;
             int dlc    = cbRead(200); if (dlc    < 0 || dlc > MAX_DLC) return null;
@@ -188,7 +232,6 @@ public final class SerialPortHandler {
             int crc = cbRead(200); if (crc < 0) return null;
             int end = cbRead(200); if ((byte) end != FRAME_END) return null;
 
-            // XOR checksum doğrula
             byte expected = (byte) ((idHigh ^ idLow ^ dlc) & 0xFF);
             for (byte db : data) expected ^= db;
             if ((byte) crc != expected) { Log.v(TAG, "CRC mismatch"); return null; }
@@ -206,30 +249,23 @@ public final class SerialPortHandler {
         }
     }
 
-    // ── Komut yazma ──────────────────────────────────────────────────────
+    // ── Komut yazma ──────────────────────────────────────────────────────────
 
     public boolean writeCommand(byte[] data) {
-        if (data == null || data.length == 0) { Log.w(TAG, "writeCommand: boş paket"); return false; }
+        if (data == null || data.length == 0) return false;
         if (data[0] != McuCommandFactory.FRAME_START || data[data.length - 1] != McuCommandFactory.FRAME_END) {
-            Log.e(TAG, "writeCommand: geçersiz frame — güvenlik reddi"); return false;
+            Log.e(TAG, "writeCommand: geçersiz frame"); return false;
         }
         if (data.length >= 2 && !McuCommandFactory.isAllowed(data[1])) {
             Log.e(TAG, "writeCommand: whitelist dışı komut"); return false;
         }
         OutputStream out = _outStream;
-        if (out == null) { Log.w(TAG, "writeCommand: çıkış kapalı"); return false; }
-        try {
-            out.write(data);
-            out.flush();
-            Log.d(TAG, String.format("writeCommand: CMD=0x%02X gönderildi", data[1]));
-            return true;
-        } catch (IOException e) {
-            Log.e(TAG, "writeCommand: yazma hatası: " + e.getMessage());
-            return false;
-        }
+        if (out == null) return false;
+        try { out.write(data); out.flush(); return true; }
+        catch (IOException e) { Log.e(TAG, "writeCommand hatası: " + e.getMessage()); return false; }
     }
 
-    // ── Private ──────────────────────────────────────────────────────────
+    // ── Private ──────────────────────────────────────────────────────────────
 
     private boolean tryOpen(String portPath, int baudRate) {
         try {
@@ -237,18 +273,17 @@ public final class SerialPortHandler {
             InputStream raw = new FileInputStream(portPath);
             _bis = new BufferedInputStream(raw, BUF_SIZE);
             try { _outStream = new FileOutputStream(portPath, false); }
-            catch (Exception e) { Log.w(TAG, portPath + " yazma açılamadı: " + e.getMessage()); _outStream = null; }
+            catch (Exception e) { _outStream = null; }
             return true;
-        } catch (SecurityException e) { Log.d(TAG, portPath + " erişim reddedildi: " + e.getMessage()); }
-          catch (IOException e)        { Log.d(TAG, portPath + " açılamadı: " + e.getMessage()); }
+        } catch (SecurityException e) { Log.d(TAG, portPath + " erişim reddedildi"); }
+          catch (IOException e)        { Log.d(TAG, portPath + " açılamadı"); }
         return false;
     }
 
     private void configureBaud(String portPath, int baudRate) {
-        try {
-            String[] cmd = { "stty", "-F", portPath, String.valueOf(baudRate), "raw", "-echo", "cs8", "-cstopb" };
-            Process proc = Runtime.getRuntime().exec(cmd);
-            proc.waitFor();
-        } catch (Exception e) { Log.d(TAG, "stty atlandı: " + e.getMessage()); }
+        // stty önce su ile dene (rooted), sonra doğrudan
+        String sttyCmd = "stty -F " + portPath + " " + baudRate + " raw -echo cs8 -cstopb";
+        runSilent(new String[]{"su", "-c", sttyCmd});
+        runSilent(new String[]{"sh", "-c", sttyCmd});
     }
 }

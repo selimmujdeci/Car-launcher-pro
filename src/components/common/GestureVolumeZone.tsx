@@ -10,7 +10,7 @@
  * değişince otomatik görünür — burada ayrıca overlay yönetimi gerekmez.
  */
 import { memo, useRef, useCallback, useEffect } from 'react';
-import { setVolume } from '../../platform/systemSettingsService';
+import { setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 
 /* ── Sabitler ─────────────────────────────────────────────── */
 
@@ -34,7 +34,16 @@ interface Props {
   onVolumeChange: (v: number) => void;
 }
 
-export const GestureVolumeZone = memo(function GestureVolumeZone({
+/**
+ * Platform guard — hooks kuralını ihlal etmeden native-only render.
+ * Web/PWA'da null döner: dokunma alanı DOM'dan tamamen çıkar.
+ */
+export const GestureVolumeZone = memo(function GestureVolumeZone(props: Props) {
+  if (!isSystemControlSupported()) return null;
+  return <GestureVolumeZoneCore {...props} />;
+});
+
+const GestureVolumeZoneCore = memo(function GestureVolumeZoneCore({
   side,
   volume,
   onVolumeChange,

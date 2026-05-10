@@ -122,6 +122,36 @@ export function supportsBackdropFilter(): boolean {
   return getCompatProfile().supportsBackdropFilter;
 }
 
+/* ── Dynamic Scaling Engine ─────────────────────────────────── */
+// Cihaz ekran genişliğine göre piecewise-linear --scale-factor hesaplar:
+//   ≤ 800 px → 0.8  |  1280 px → 1.0  |  ≥ 1920 px → 1.5
+// html font-size bu değerle ayarlanır; rem/em tabanlı tüm ölçüler otomatik uyar.
+
+function _computeScaleFactor(width: number): number {
+  if (width <= 800)  return 0.8;
+  if (width <= 1280) return 0.8 + ((width - 800)  / 480) * 0.2;
+  if (width <= 1920) return 1.0 + ((width - 1280) / 640) * 0.5;
+  return 1.5;
+}
+
+function _applyScaleFactor(): void {
+  var width = window.innerWidth || document.documentElement.clientWidth;
+  var scale = _computeScaleFactor(width);
+  document.documentElement.style.setProperty('--scale-factor', scale.toFixed(3));
+  // rem tabanlı ölçekleme: 1rem = 16px × scale-factor
+  document.documentElement.style.fontSize = (16 * scale).toFixed(2) + 'px';
+}
+
+var _scaleListenerAttached = false;
+
+function _startDynamicScaling(): void {
+  _applyScaleFactor();
+  if (!_scaleListenerAttached) {
+    _scaleListenerAttached = true;
+    window.addEventListener('resize', _applyScaleFactor, { passive: true });
+  }
+}
+
 /* ── Repaint helper — izin diyaloğu sonrası siyah ekran fix ── */
 
 function forceRepaint(): void {
@@ -180,6 +210,9 @@ function applyCompatThemeDefaults(): void {
 }
 
 export function applyCompatMode(): void {
+  // Dinamik ölçekleme — compat/normal tüm cihazlarda çalışır
+  _startDynamicScaling();
+
   const profile = getCompatProfile();
 
   if (profile.isHeadUnit) {
@@ -216,6 +249,12 @@ export function applyCompatMode(): void {
     // Capacitor resume eventi
     document.addEventListener('resume', forceRepaint);
   }
+
+  // Force Resize: bazı head unit'ler ilk açılışta WebView boyutunu yanlış hesaplar.
+  // 500ms sonra resize zorla → layout yeniden hesaplanır, siyah ekran düzelir.
+  setTimeout(function() {
+    try { window.dispatchEvent(new Event('resize')); } catch { /* ignore */ }
+  }, 500);
 }
 
 /**

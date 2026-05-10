@@ -2,7 +2,7 @@ import { memo, useState, useRef, useEffect } from 'react';
 import {
   LayoutGrid, SlidersHorizontal, Camera, Route, ShieldAlert,
   Bell, Music2, Phone, Cloud, Shield, Tv2, AlertTriangle,
-  Wrench, Zap, SplitSquareHorizontal, ChevronUp, ChevronDown,
+  Wrench, Zap, SplitSquareHorizontal, ChevronUp, ChevronDown, Wind,
 } from 'lucide-react';
 import { useNotificationState } from '../../platform/notificationService';
 import type { AppItem } from '../../data/apps';
@@ -11,7 +11,7 @@ import type { useSmartEngine } from '../../platform/smartEngine';
 export type DrawerType =
   | 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc'
   | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment'
-  | 'traffic' | 'music' | 'phone' | 'vehicle-reminder';
+  | 'traffic' | 'music' | 'phone' | 'vehicle-reminder' | 'climate';
 
 interface Props {
   smart: ReturnType<typeof useSmartEngine>;
@@ -122,6 +122,7 @@ export const DockBar = memo(function DockBar({
           paddingRight: '8px',
         }}
       >
+        <T fn={() => { onOpenDrawer('climate');      setExpanded(false); }} label="Klima"   color="var(--accent, #60a5fa)"       icon={<Wind size={22} />} />
         <T fn={() => { onOpenDrawer('weather');      setExpanded(false); }} label="Hava"    color="var(--icon-color-1, #38bdf8)" icon={<Cloud size={22} />} />
         <T fn={() => { onOpenDrawer('traffic');      setExpanded(false); }} label="Trafik"  color="var(--icon-color-2, #fb923c)" icon={<AlertTriangle size={22} />} />
         <T fn={() => { onOpenDrawer('dashcam');      setExpanded(false); }} label="Dashcam" color="var(--accent-red, #f87171)"   icon={<Camera size={22} />} />

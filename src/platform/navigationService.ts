@@ -8,8 +8,10 @@ import {
   getRouteState,
   pointToSegmentDist,
   projectOnSegment,
+  injectSentinelStepIfEmpty,
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { speakNavigation } from './ttsService';
 
 /* ── Navigasyon Durum Makinesi ───────────────────────────────── */
 
@@ -148,15 +150,20 @@ export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
-    _navActivatedAtMs       = Date.now();
-    // Başlangıç konumu _drLat/_drLon değil: updateNavigationProgress'deki
-    // ilk GPS tick'inde null-check ile yakalanır (önceki session artığı önlenir).
+    _navActivatedAtMs       = performance.now();
     _navStartLat            = null;
     _navStartLon            = null;
     _navigationStarted      = true;
     _arrivalLowSpeedStartMs = null;
+    _arrivalDistanceBelow   = 0;
+    _proximityAlertFired    = false;
     console.log('[NAV_STARTED]', { ts: _navActivatedAtMs, status });
-    _startDeadReckoning(); // Zero-Leak: stopped in stopNavigation()
+    // HUD güvencesi: offline/daemon modda steps boş gelebilir — sentinel enjekte et
+    const { destination } = useNavigationStore.getState();
+    if (destination) {
+      injectSentinelStepIfEmpty(destination.latitude, destination.longitude);
+    }
+    // Konum merkezi kaynaktan gelir (useUnifiedVehicleStore) — yerel DR yok
   }
 }
 
@@ -176,24 +183,24 @@ export function stopNavigation(): void {
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
-  // Zero-Leak: DR timer durdur
-  _stopDeadReckoning();
-  // Reset per-session tracking state so next navigation starts clean
+  // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
   _speedHistory.length    = 0;
   _stopStartMs            = null;
-  _lastEtaUpdateMs        = 0;
+  _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
+  _lastStoredEtaS         = 0;
   _lastRouteDistanceM     = Infinity;
   _lastGeoHash            = '';
   _lastClosestSegIdx      = -1;
-  _drLat                  = null;
-  _drLon                  = null;
-  _lastGpsMs              = 0;
-  _lastHeadingDeg         = 0;
   _navActivatedAtMs       = 0;
   _navStartLat            = null;
   _navStartLon            = null;
   _navigationStarted      = false;
   _arrivalLowSpeedStartMs = null;
+  _arrivalDistanceBelow   = 0;
+  _proximityAlertFired    = false;
+  _lastSnappedLat         = null;
+  _lastSnappedLon         = null;
+  _lastOffRouteM          = Infinity;
 }
 
 /**
@@ -216,6 +223,7 @@ export function getNavigationState(): NavigationState {
 
 // ETA hysteresis — prevents UI flickering from second-to-second speed jitter
 let _lastEtaUpdateMs    = 0;
+let _lastStoredEtaS     = 0;
 const ETA_HYSTERESIS_MS = 5_000;
 
 // 30-second rolling speed window (sampled at ETA_HYSTERESIS_MS cadence)
@@ -240,15 +248,28 @@ let _lastGeoHash         = '';
 // Subsequent calls use O(W) window search (W ≈ 52 segments ≈ ≤1.5 km ahead).
 let _lastClosestSegIdx   = -1;
 
-// ── Dead Reckoning ──────────────────────────────────────────────────────────
-// Tünel veya sinyal kaybı sırasında aracın son GPS konumundan OBD hızı + yön
-// ile ilerletilmiş tahmini konumunu tutar.  GPS gelince anında gerçek konumla
-// güncellenir.  Mesafe güncellemesi yapılır, varış kesinlikle tetiklenmez.
-const DR_GPS_STALE_MS = 2_000; // GPS bu kadar susarsa DR devreye girer (ms)
-const DR_INTERVAL_MS  = 500;   // DR güncelleme aralığı — GPS polling'in yarısı
+// ── Visual Snapping state ────────────────────────────────────────────────────
+// calculateRouteDistance günceller; getSnappedMarkerPosition() dışa açar.
+// FullMapView RAF döngüsü bu verilerle marker'ı rota üzerinde gösterir.
+let _lastSnappedLat: number | null = null;
+let _lastSnappedLon: number | null = null;
+let _lastOffRouteM: number         = Infinity; // en yakın segment mesafesi (m)
+
 const ARRIVAL_SPEED_GUARD_KMH          = 10;    // varış için maksimum hız eşiği
 const ARRIVAL_MIN_MOVE_M               = 50;    // navigasyon başından bu yana minimum hareket (m)
 const ARRIVAL_CONSECUTIVE_LOW_SPEED_MS = 5_000; // düşük hız için zorunlu sürekli süre (ms)
+
+// ── Varış Histerezisi — GPS spike koruması ───────────────────────────────────
+// Tünel çıkışında GPS sıçraması tek tick'te eşik altına düşebilir.
+// Sahte varış (false-positive) engellemek için ardışık okuma sayısı zorunlu.
+const ARRIVAL_HYSTERESIS_COUNT  = 3; // soft trigger: kaç ardışık GPS tick < eşik
+const ARRIVAL_HARD_HYSTERESIS   = 2; // hard trigger (5m): minimum ardışık sayısı
+
+// 500m yakınlık sesli uyarısı — hedefe yaklaşıldığında tek seferlik TTS
+const PROXIMITY_ALERT_M         = 500;
+
+// ETA trafik histerezisi — araç durduğunda güncelleme hızlandırılır
+const ETA_TRAFFIC_HYSTERESIS_MS = 2_000;
 
 // Aktivasyon state — activateNavigation() set eder, stopNavigation() temizler
 let _navActivatedAtMs:      number        = 0;
@@ -259,12 +280,12 @@ let _navStartLon:           number | null = null;
 let _navigationStarted:     boolean       = false;
 // Sürekli düşük hız takibi: hız < ARRIVAL_SPEED_GUARD_KMH olan ilk anın timestamp'i.
 let _arrivalLowSpeedStartMs: number | null = null;
+// Varış histerezisi: ARRIVAL_THRESHOLD_M altında ardışık GPS tick sayısı.
+// GPS sıçraması (1 tick) sayacı sıfırlar → sahte varış tetiklenmez.
+let _arrivalDistanceBelow  = 0;
+// 500m yakınlık uyarısı: her navigasyon session'ında bir kez tetiklenir.
+let _proximityAlertFired   = false;
 
-let _drLat:      number | null = null; // son bilinen / DR ile ilerletilen konum
-let _drLon:      number | null = null;
-let _lastGpsMs:  number        = 0;   // son GPS güncellemesinin monotonic timestamp'i
-let _lastHeadingDeg: number    = 0;   // son bilinen araç yönü (derece, kuzey = 0)
-let _drTimerId:  ReturnType<typeof setInterval> | null = null;
 
 /**
  * Update navigation progress (distance, ETA, heading).
@@ -274,7 +295,7 @@ let _drTimerId:  ReturnType<typeof setInterval> | null = null;
 export function updateNavigationProgress(
   currentLat: number,
   currentLon: number,
-  currentHeading: number,
+  _currentHeading: number,  // API uyumluluğu için korundu; yön hedefe olan bearing'den hesaplanır
   routeGeometry?: [number, number][]
 ): void {
   const state = useNavigationStore.getState();
@@ -288,22 +309,22 @@ export function updateNavigationProgress(
     return;
   }
 
-  // ── Dead Reckoning anchor — GPS geldiğinde hemen güncelle ───────────────────
-  // If GPS was stale (DR was active), force a full O(N) segment rescan so the
-  // windowed search does not start from the DR-advanced index.
-  const _gpsWasStale = (Date.now() - _lastGpsMs) >= DR_GPS_STALE_MS;
-  if (_gpsWasStale) _lastClosestSegIdx = -1;
-
-  _lastGpsMs = Date.now();
-  _drLat     = currentLat;
-  _drLon     = currentLon;
-  if (Number.isFinite(currentHeading)) _lastHeadingDeg = currentHeading;
+  // Konum useUnifiedVehicleStore'dan FullMapView üzerinden gelir (fused position).
+  // Yerel DR projeksiyonu kaldırıldı — kaynak her zaman merkezden beslenir.
 
   // Rota geometrisi varsa üzerindeki mesafeyi kullan; yoksa Haversine fallback
   const { cumulativeDistances } = getRouteState();
   const distance = routeGeometry && routeGeometry.length >= 2
     ? calculateRouteDistance(currentLat, currentLon, routeGeometry, cumulativeDistances)
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);
+
+  // ── 500m Yakınlık Uyarısı (TTS) ─────────────────────────────────────────
+  // Hedefe ilk kez 500m altına girildiğinde tek seferlik sesli uyarı.
+  // _proximityAlertFired: session başında sıfırlanır — tekrar tetiklenmez.
+  if (!_proximityAlertFired && distance > 0 && distance < PROXIMITY_ALERT_M) {
+    _proximityAlertFired = true;
+    speakNavigation('Hedefiniz 500 metrede, hazır olun.');
+  }
 
   // ── Başlangıç konumu — ilk GPS tick'inde yakala (session artığı önlenir) ──
   if (_navStartLat === null) {
@@ -317,7 +338,16 @@ export function updateNavigationProgress(
   if (speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
     _arrivalLowSpeedStartMs = null; // hız yüksek → süreç sıfırla
   } else if (_arrivalLowSpeedStartMs === null) {
-    _arrivalLowSpeedStartMs = Date.now(); // ilk düşük hız anı
+    _arrivalLowSpeedStartMs = performance.now(); // ilk düşük hız anı
+  }
+
+  // ── Varış Histerezisi: GPS spike koruması ────────────────────────────────
+  // Tünel çıkışında GPS sıçraması tek tick'te eşik altına düşebilir.
+  // Sayaç her "eşik altı" tick'te artar, eşik üstüne çıkınca sıfırlanır.
+  if (distance < ARRIVAL_THRESHOLD_M) {
+    _arrivalDistanceBelow++;
+  } else {
+    _arrivalDistanceBelow = 0; // eşik üstüne çıktı — sayacı sıfırla (GPS spike resetlendi)
   }
 
   // ── Varış tespiti — katı AND koşulları ────────────────────────────────────
@@ -326,35 +356,44 @@ export function updateNavigationProgress(
   //   3. Hedef koordinatları geçerli
   //   4. Rota geometrisi >= 2 nokta (Haversine fallback'te varış yok)
   //   5. Başlangıçtan >= 50m hareket
-  //   6. Hedefe mesafe < 20m
+  //   6. Hedefe mesafe < eşik VE ardışık sayı yeterli (histerezis)
   //   7. Hız < 10 km/h en az 5 saniyedir
   {
-    const movedFromStart    = (_navStartLat !== null && _navStartLon !== null)
+    const movedFromStart   = (_navStartLat !== null && _navStartLon !== null)
       ? calculateDistance(currentLat, currentLon, _navStartLat, _navStartLon)
       : 0;
-    const lowSpeedMs        = _arrivalLowSpeedStartMs !== null ? Date.now() - _arrivalLowSpeedStartMs : 0;
-    const hasValidGeometry  = !!routeGeometry && routeGeometry.length >= 2;
-    const hasValidDest      = !!(state.destination
+    const lowSpeedMs       = _arrivalLowSpeedStartMs !== null ? performance.now() - _arrivalLowSpeedStartMs : 0;
+    const hasValidGeometry = !!routeGeometry && routeGeometry.length >= 2;
+    const hasValidDest     = !!(state.destination
       && Number.isFinite(state.destination.latitude)
       && Number.isFinite(state.destination.longitude));
 
     if (!_navigationStarted) {
       console.log('[ARRIVAL_CHECK_SKIPPED]', { reason: 'not_started', status: state.status });
     } else {
+      // Hard-trigger: 5m + HARD_HYSTERESIS ardışık okuma (GPS jitter, yavaş kapanma)
+      // Tek GPS spike'ı (1 tick) tetikleme yapmaz — tünel çıkışı koruması.
+      const hardTrigger = distance < 5 && _arrivalDistanceBelow >= ARRIVAL_HARD_HYSTERESIS;
+      // Soft-trigger: 20m + HYSTERESIS_COUNT ardışık okuma + 5s düşük hız
+      const softTrigger = distance < ARRIVAL_THRESHOLD_M
+        && _arrivalDistanceBelow >= ARRIVAL_HYSTERESIS_COUNT
+        && lowSpeedMs >= ARRIVAL_CONSECUTIVE_LOW_SPEED_MS;
       const allowed = hasValidDest
         && hasValidGeometry
         && movedFromStart >= ARRIVAL_MIN_MOVE_M
-        && distance < ARRIVAL_THRESHOLD_M
-        && lowSpeedMs >= ARRIVAL_CONSECUTIVE_LOW_SPEED_MS;
+        && (hardTrigger || softTrigger);
 
       console.log('[ARRIVAL_CHECK_ACTIVE]', {
-        status:          state.status,
+        status:            state.status,
         hasValidDest,
         hasValidGeometry,
-        distanceM:       Math.round(distance),
-        speedKmh:        Math.round(speedAtArrival * 10) / 10,
-        movedFromStartM: Math.round(movedFromStart),
-        lowSpeedMs:      Math.round(lowSpeedMs),
+        distanceM:         Math.round(distance),
+        speedKmh:          Math.round(speedAtArrival * 10) / 10,
+        movedFromStartM:   Math.round(movedFromStart),
+        lowSpeedMs:        Math.round(lowSpeedMs),
+        belowCount:        _arrivalDistanceBelow,
+        hardTrigger,
+        softTrigger,
         allowed,
       });
 
@@ -364,6 +403,7 @@ export function updateNavigationProgress(
           movedM:     Math.round(movedFromStart),
           distM:      Math.round(distance),
           lowSpeedMs: Math.round(lowSpeedMs),
+          belowCount: _arrivalDistanceBelow,
         });
         transitionToArrived();
         return;
@@ -382,7 +422,7 @@ export function updateNavigationProgress(
   useNavigationStore.getState().updateHeading(heading);
 
   // ── ETA ────────────────────────────────────────────────────────────────
-  const now = Date.now();
+  const now = performance.now();
 
   // Stop tracking at GPS frequency for accurate standstill duration
   const { speed: _rawSpd } = useUnifiedVehicleStore.getState();
@@ -393,8 +433,11 @@ export function updateNavigationProgress(
     _stopStartMs = null;
   }
 
-  // ETA update gate — 5 s hysteresis prevents UI flickering
-  if (now - _lastEtaUpdateMs >= ETA_HYSTERESIS_MS) {
+  // ETA güncelleme kapısı — dinamik histerezis.
+  // Normal sürüş: 5s (saniye bazlı hız jitter'ından UI'ı korur).
+  // Trafik durağı: 2s (trafik buffer birikimi hızlı yansıtılır, ETA güncel kalır).
+  const _etaHysteresisMs = _stopStartMs !== null ? ETA_TRAFFIC_HYSTERESIS_MS : ETA_HYSTERESIS_MS;
+  if (now - _lastEtaUpdateMs >= _etaHysteresisMs) {
     _lastEtaUpdateMs = now;
 
     // Populate 30-second rolling speed window (evict stale samples)
@@ -425,8 +468,13 @@ export function updateNavigationProgress(
     const stopDurationS  = _stopStartMs !== null ? (now - _stopStartMs) / 1000 : 0;
     const trafficBufferS = Math.round(stopDurationS * TRAFFIC_DELAY_RATIO);
     const movementEtaS   = Math.round((distance / 1000 / effectiveKmh) * 3600);
+    const newEtaS        = movementEtaS + trafficBufferS;
 
-    useNavigationStore.getState().updateEta(movementEtaS + trafficBufferS);
+    // Value-based hysteresis: only update if change > 5s
+    if (Math.abs(newEtaS - _lastStoredEtaS) > 5) {
+      _lastStoredEtaS = newEtaS;
+      useNavigationStore.getState().updateEta(newEtaS);
+    }
   }
 }
 
@@ -457,6 +505,8 @@ function calculateRouteDistance(
     _lastGeoHash        = geoHash;
     _lastRouteDistanceM = Infinity;
     _lastClosestSegIdx  = -1;   // force full O(N) scan on first tick of new geometry
+    // Clamp delay önleme: stale mesafeyi hemen temizle, yeni hesap aynı tick'te store'u günceller
+    useNavigationStore.setState({ distanceMeters: undefined });
   }
 
   // ── Step 1: find closest segment ─────────────────────────────────────
@@ -472,13 +522,24 @@ function calculateRouteDistance(
       if (d < minSegDist) { minSegDist = d; closestSegIdx = i; }
     }
   } else {
-    const wStart = Math.max(0,                  _lastClosestSegIdx - 2);
+    const wStart = Math.max(0,                  _lastClosestSegIdx - 20);
     const wEnd   = Math.min(geometry.length - 2, _lastClosestSegIdx + 50);
     closestSegIdx = wStart;
     for (let i = wStart; i <= wEnd; i++) {
       const d = pointToSegmentDist(lat, lon,
         geometry[i][1], geometry[i][0], geometry[i + 1][1], geometry[i + 1][0]);
       if (d < minSegDist) { minSegDist = d; closestSegIdx = i; }
+    }
+    // Pencere sonucu zayıfsa (araç pencere dışına çıktı) — tam tarama yap
+    if (minSegDist > 100) {
+      _lastClosestSegIdx = -1;
+      minSegDist = Infinity;
+      closestSegIdx = 0;
+      for (let i = 0; i < geometry.length - 1; i++) {
+        const d = pointToSegmentDist(lat, lon,
+          geometry[i][1], geometry[i][0], geometry[i + 1][1], geometry[i + 1][0]);
+        if (d < minSegDist) { minSegDist = d; closestSegIdx = i; }
+      }
     }
   }
   _lastClosestSegIdx = closestSegIdx;
@@ -489,6 +550,12 @@ function calculateRouteDistance(
   const t    = projectOnSegment(lat, lon, aLat, aLon, bLat, bLon);
   const pLat = aLat + t * (bLat - aLat);
   const pLon = aLon + t * (bLon - aLon);
+
+  // Visual Snapping: snapped koordinatı ve rota sapma mesafesini kaydet.
+  // getSnappedMarkerPosition() bu değerleri dışa açar; FullMapView RAF'ı tüketir.
+  _lastSnappedLat = pLat;
+  _lastSnappedLon = pLon;
+  _lastOffRouteM  = minSegDist;
 
   // ── Step 3: remaining = |P'→B| + suffix-sum from B ─────────────────
   // O(1) with precomputed cumDist; O(N) fallback when unavailable (should not occur).
@@ -515,65 +582,6 @@ function _sumRemainingSegments(geometry: [number, number][], fromIdx: number): n
     );
   }
   return sum;
-}
-
-/**
- * Dead Reckoning tick — DR_INTERVAL_MS'de bir çalışır.
- * GPS _lastGpsMs'den DR_GPS_STALE_MS+ kadar sessizse OBD hızı + yön ile
- * _drLat/_drLon ilerletilir ve kalan mesafe store'a yazılır.
- * Varış ASLA DR'den tetiklenmez — GPS onayı zorunlu (tünel çıkışı senaryosu).
- */
-function _tickDeadReckoning(): void {
-  const navState = useNavigationStore.getState();
-  if (navState.status !== NavStatus.ACTIVE && navState.status !== NavStatus.REROUTING) return;
-  if (!navState.destination) return;
-
-  const lat = _drLat;
-  const lon = _drLon;
-  if (lat === null || lon === null) return;
-
-  if (Date.now() - _lastGpsMs < DR_GPS_STALE_MS) return; // GPS taze — DR gerekli değil
-
-  const { speed: rawSpd } = useUnifiedVehicleStore.getState();
-  const speedMs = rawSpd ?? 0;
-  if (speedMs <= 0) return; // araç duruyorsa konum değişmez
-
-  // ── Heading: gpsService DR pusula verisiyle store'u günceller; tünelde de çalışır ─
-  // GPS koptuğunda _lastHeadingDeg donardı; UnifiedVehicleStore.heading gpsService'in
-  // pusula-karıştırmasını (blending) yansıtır ve tünel içi dönüşlerde güncellenir.
-  const liveHeading = useUnifiedVehicleStore.getState().heading;
-  if (liveHeading !== null && Number.isFinite(liveHeading)) _lastHeadingDeg = liveHeading;
-
-  // Flat-earth dead reckoning (< 2 km aralık için doğru; baş-birim: kuzey=0 saat yönü)
-  const headRad = (_lastHeadingDeg * Math.PI) / 180;
-  const distM   = speedMs * (DR_INTERVAL_MS / 1000);
-  const newLat  = lat + (distM * Math.cos(headRad)) / 111_320;
-  const newLon  = lon + (distM * Math.sin(headRad)) / (111_320 * Math.cos(lat * Math.PI / 180));
-
-  _drLat = newLat;
-  _drLon = newLon;
-
-  const { geometry, cumulativeDistances } = getRouteState();
-  const distance = geometry && geometry.length >= 2
-    ? calculateRouteDistance(newLat, newLon, geometry, cumulativeDistances)
-    : calculateDistance(newLat, newLon, navState.destination.latitude, navState.destination.longitude);
-
-  // Varışı DR üzerinden tetikleme — GPS onayı zorunlu (tünel çıkışında geri sıçrama önlenir)
-  if (distance >= ARRIVAL_THRESHOLD_M) {
-    useNavigationStore.getState().updateDistance(distance);
-  }
-}
-
-function _startDeadReckoning(): void {
-  if (_drTimerId !== null) return;
-  _drTimerId = setInterval(_tickDeadReckoning, DR_INTERVAL_MS);
-}
-
-function _stopDeadReckoning(): void {
-  if (_drTimerId !== null) {
-    clearInterval(_drTimerId);
-    _drTimerId = null;
-  }
 }
 
 /** Linearly weighted average of the 30-second speed history.
@@ -637,10 +645,33 @@ function calculateHeading(
 }
 
 /**
+ * Navigasyon ACTIVE/REROUTING iken rota üzerindeki snapped marker konumunu döner.
+ *
+ * FullMapView RAF döngüsü bu pozisyonu `updateUserMarker` çağrısında kullanır:
+ *   - Araç rota üzerindeyse (offRoute ≤ REROUTE_THRESHOLD_M): snapped lat/lon
+ *   - Araç rotadan saptıysa veya rota geometrisi yoksa: null (ham GPS'e geri dön)
+ *   - Navigasyon ACTIVE değilse: null
+ *
+ * Kural: Kullanıcı navigasyon çizgisi üzerinde milimetrik sürüş deneyimi görmeli.
+ */
+/** Görsel stabilite eşiği — bu mesafeye kadar ikon rotaya yapışık kalır.
+ *  Reroute eşiği (REROUTE_THRESHOLD_M=35m) ile kasıtlı ayrıldı:
+ *  20m içinde kullanıcı "yoldan çıktım" görmez; 35m'de reroute tetiklenir. */
+const SNAP_VISUAL_THRESHOLD_M = 20;
+
+export function getSnappedMarkerPosition(): { lat: number; lon: number } | null {
+  const status = useNavigationStore.getState().status;
+  if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
+  if (_lastSnappedLat === null || _lastSnappedLon === null) return null;
+  if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
+  return { lat: _lastSnappedLat, lon: _lastSnappedLon };
+}
+
+/**
  * Format distance for display — Tesla style with space separator
  */
 export function formatDistance(meters: number): string {
-  if (meters < 1000) {
+  if (Math.round(meters) < 1000) {
     return `${Math.round(meters)} m`;
   }
   return `${(meters / 1000).toFixed(1)} km`;
@@ -651,9 +682,15 @@ export function formatDistance(meters: number): string {
  */
 export function formatEta(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '—';
-  const hours   = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours} sa ${minutes} dk`;
+  const totalMinutes = Math.ceil(seconds / 60);
+  if (totalMinutes === 0) return '0 dk';
+  
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  
+  if (hours > 0) {
+    return minutes > 0 ? `${hours} sa ${minutes} dk` : `${hours} sa`;
+  }
   return `${minutes} dk`;
 }
 

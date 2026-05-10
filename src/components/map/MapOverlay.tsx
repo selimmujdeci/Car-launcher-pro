@@ -151,43 +151,6 @@ export const MapOverlay = memo(function MapOverlay({
         </div>
       )}
 
-      {/* Main HUD — bottom-left */}
-      {location && (
-        <div className={`absolute bottom-24 right-6 transition-all duration-700 ${isDriving ? 'scale-110 origin-bottom-right' : ''}`}>
-          <div className="flex items-stretch var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-3xl rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden p-1.5">
-            {/* Speed */}
-            <div className="px-8 py-5 flex items-baseline gap-3 var(--panel-bg-secondary) rounded-[2rem] border border-white/5 shadow-inner">
-              <span className={`text-6xl font-black font-mono tracking-tighter transition-colors duration-500 ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-primary'}`}>
-                {Math.round(speed)}
-              </span>
-              <div className="flex flex-col">
-                <span className="text-[11px] font-black text-blue-400 uppercase tracking-widest leading-none">KM/H</span>
-                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mt-1">HIZ</span>
-              </div>
-            </div>
-
-            {/* Heading */}
-            {hasHeading && (
-              <div className="flex items-center gap-5 px-8">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-blue-500/10 blur-xl rounded-full" />
-                  <svg
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                    className="w-10 h-10 text-blue-400 relative z-10"
-                    style={{ transform: `rotate(${heading}deg)`, transition: 'transform 1.2s cubic-bezier(0.2, 0, 0, 1)' }}
-                  >
-                    <path d="M12 2L19 21L12 17L5 21L12 2Z" fill="currentColor" fillOpacity="0.3" />
-                  </svg>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-primary font-mono text-2xl font-black leading-none tracking-tight">{Math.round(heading!)}°</span>
-                  <span className="text-blue-400/70 text-[10px] font-black uppercase tracking-widest mt-1.5">{toCardinal(heading!)}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
     </div>
   );

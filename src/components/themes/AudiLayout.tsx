@@ -1,4 +1,4 @@
-import { memo, useState, lazy, Suspense } from 'react';
+import { memo, useState, lazy, Suspense, useEffect } from 'react';
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
   Gauge, Thermometer, Fuel, Settings, Navigation2, Box, Mic,
@@ -8,7 +8,7 @@ const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => (
 
 const Vehicle3DViewer = lazy(() => import('../camera/Vehicle3DViewer').then(m => ({ default: m.Vehicle3DViewer })));
 import { useStore } from '../../store/useStore';
-import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
@@ -225,7 +225,7 @@ const AudiSpeed = memo(function AudiSpeed() {
               <div className="absolute inset-0 flex flex-col items-center justify-center pt-3">
                 <div className="font-thin tabular-nums leading-none"
                   style={{ fontSize: 'var(--lp-speed-font, 58px)', color: A_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
-                  {speedKmh}
+                  {Math.round(speedKmh)}
                 </div>
                 <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: A_SILVER, letterSpacing: '0.45em' }}>km/h</div>
                 <div className="font-light mt-2" style={{ fontSize: 10, color: A_DIM }}>{rpm.toLocaleString()} rpm</div>
@@ -294,6 +294,11 @@ const AudiMap = memo(function AudiMap({ onOpenMap, fullMapOpen }: { onOpenMap: (
 /* ─── AUDI MÜZIK + UYGULAMALAR ────────────────────────────────── */
 const AudiSide = memo(function AudiSide({ appMap, onLaunch }: { appMap: Record<string, AppItem>; onLaunch: (id: string) => void }) {
   const { playing, track } = useMediaState();
+
+  useEffect(() => {
+    startMediaHub();
+    return () => stopMediaHub();
+  }, []);
   const ids = ['maps', 'phone', 'youtube', 'settings'];
   const apps = ids.map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
 

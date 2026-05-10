@@ -196,10 +196,18 @@ describe('Navigation Logic & State Machine', () => {
 
   it('should transition to ARRIVED when close to destination', () => {
     const dest = { id: '1', name: 'Test Dest', latitude: 41.0, longitude: 29.0, type: 'history' as const };
+    const routeGeometry: [number, number][] = [[29.001, 41.001], [29.0, 41.0]]; // 29.001, 41.001'den 29.0, 41.0'a rota
+    
     startNavigation(dest);
     activateNavigation();
 
-    updateNavigationProgress(41.00001, 29.00001, 0);
+    // 1. Başlangıç noktası (50m hareket şartı için uzak bir yer)
+    updateNavigationProgress(41.001, 29.001, 0, routeGeometry);
+    expect(getNavigationState().status).toBe(NavStatus.ACTIVE);
+
+    // 2. Hedefe yaklaş (5m altına inince hard-trigger çalışmalı)
+    // 41.0, 29.0 koordinatlarına çok yakın
+    updateNavigationProgress(41.0, 29.0, 0, routeGeometry);
 
     const state = getNavigationState();
     expect(state.status).toBe(NavStatus.ARRIVED);

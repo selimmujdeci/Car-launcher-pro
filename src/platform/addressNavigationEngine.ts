@@ -50,6 +50,7 @@ const INITIAL: AddressNavState = {
 let _state: AddressNavState = { ...INITIAL };
 const _listeners            = new Set<(s: AddressNavState) => void>();
 let   _searchGeneration     = 0; // arama iptali için nesil sayacı
+let   _activeTimerId: ReturnType<typeof setTimeout> | null = null; // Zero-Leak: tek aktif auto-dismiss timer
 
 /* ── Internal helpers ────────────────────────────────────── */
 
@@ -60,6 +61,9 @@ function _push(partial: Partial<AddressNavState>): void {
 }
 
 function _confirmResult(result: GeoResult): void {
+  // Uçuştaki tüm asenkron aramaları iptal et — onay anında gen sıfırla
+  _searchGeneration++;
+
   startNavigation({
     id:        result.id,
     name:      result.name,
@@ -82,8 +86,11 @@ function _confirmResult(result: GeoResult): void {
     shouldOpenMap: true,
   });
 
+  // Zero-Leak: önceki auto-dismiss timer'ı temizle
+  if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
   // Kart 4 saniye sonra kapanır
-  setTimeout(() => {
+  _activeTimerId = setTimeout(() => {
+    _activeTimerId = null;
     _push({ phase: 'idle', shouldOpenMap: false });
   }, 4_000);
 }
@@ -141,7 +148,9 @@ export function resolveAndNavigate(
         errorMessage: 'İnternet yok — bu adres geçmişte aranmadı',
         suggestions:  [],
       });
-      setTimeout(() => {
+      if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
+      _activeTimerId = setTimeout(() => {
+        _activeTimerId = null;
         if (gen === _searchGeneration) _push({ phase: 'idle' });
       }, 5_000);
     }).catch(() => {
@@ -177,7 +186,9 @@ export function resolveAndNavigate(
           ],
         });
         // Hata kartı 6 saniye sonra kapanır
-        setTimeout(() => {
+        if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
+        _activeTimerId = setTimeout(() => {
+          _activeTimerId = null;
           if (gen === _searchGeneration) _push({ phase: 'idle' });
         }, 6_000);
         return;
@@ -201,7 +212,9 @@ export function resolveAndNavigate(
         errorMessage: 'Bağlantı hatası — ağ bağlantısını kontrol edin',
         suggestions:  [],
       });
-      setTimeout(() => {
+      if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
+      _activeTimerId = setTimeout(() => {
+        _activeTimerId = null;
         if (gen === _searchGeneration) _push({ phase: 'idle' });
       }, 6_000);
     });
@@ -221,6 +234,7 @@ export function selectAddressResult(index: number): void {
  */
 export function dismissAddressNav(): void {
   _searchGeneration++; // uçuştaki arama iptal
+  if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
   _push({ ...INITIAL });
 }
 

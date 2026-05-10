@@ -80,7 +80,9 @@ let _forcedDowngradeFrom: MapMode | null = null;
 async function _pingOnline(): Promise<boolean> {
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 3_000);
+    // 5 s timeout — 2G/EDGE bağlantılarında 3 s zaman aşımı çok agresifti;
+    // yavaş ağda sahte "offline" tetiklemesini önler.
+    const t = setTimeout(() => ctrl.abort(), 5_000);
     const r = await fetch('https://a.tile.openstreetmap.org/0/0/0.png', {
       method: 'HEAD',
       signal: ctrl.signal,
@@ -94,6 +96,11 @@ async function _pingOnline(): Promise<boolean> {
 }
 
 let _pingTimer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Son başarılı tile fetch zamanı (Date.now()).
+ * Tile akışı varsa redundant HEAD isteği gönderilmez — veri tasarrufu.
+ */
+let _lastSuccessfulFetch = 0;
 
 function _setOnline(online: boolean): void {
   const { mapMode } = useMapSourceStore.getState();
@@ -125,8 +132,15 @@ function attachNetworkListeners(): void {
 
   // ── Ping tabanlı bağlantı kontrol (Android WebView güvencesi) ──
   // navigator.onLine hotspot bağlantılarında false kalabilir.
-  // Her 8 saniyede bir gerçek fetch ile durum güncellenir.
+  // Periyot 30 s — tile akışı varsa ping zaten atlanır (bant genişliği korunur).
   const checkAndUpdate = () => {
+    const { isOnline } = useMapSourceStore.getState();
+    const timeSinceSuccess = Date.now() - _lastSuccessfulFetch;
+
+    // Tile akıyorsa bağlantı sağlıklıdır: gereksiz HEAD isteğini atla.
+    // İstisna: isOnline=false ise offline kurtarma için hemen ping at.
+    if (isOnline && timeSinceSuccess < 120_000) return;
+
     void _pingOnline().then((online) => {
       const current = useMapSourceStore.getState().isOnline;
       if (online !== current) _setOnline(online);
@@ -134,7 +148,7 @@ function attachNetworkListeners(): void {
   };
   // İlk kontrol: 1 saniye gecikmeyle (uygulama açılır açılmaz değil)
   setTimeout(checkAndUpdate, 1_000);
-  _pingTimer = setInterval(checkAndUpdate, 8_000);
+  _pingTimer = setInterval(checkAndUpdate, 30_000);
 }
 
 /**
@@ -579,6 +593,8 @@ function registerSmartTileProtocol() {
           { signal: abortController.signal },
         );
         if (onlineResp.ok) {
+          // Tile başarıyla alındı — ping askıya alma penceresini yenile
+          _lastSuccessfulFetch = Date.now();
           onlineHits++;
           updateServingStatus();
           const data = await onlineResp.arrayBuffer();
@@ -979,7 +995,20 @@ function buildVectorStyle(): StyleSpecification {
         maxzoom: 14,
         attribution: '© OpenMapTiles © OpenStreetMap contributors',
       },
+      // ── Terrain DEM — rgb-terrarium encoding (Mapzen/AWS) ──────────────────
+      // 3D yüzey render'ı için: fill-extrusion + hill-shade
+      // Android WebView WebGL2 desteği varsa aktif olur; yoksa sessizce atlanır.
+      'terrain-rgb': {
+        type: 'raster-dem',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        encoding: 'terrarium' as 'terrarium',
+        maxzoom: 14,
+        attribution: '© Mapzen',
+      },
     },
+    // terrain opsiyonu — WebGL2 varsa arazi yüksekliği aktif
+    terrain: { source: 'terrain-rgb', exaggeration: 1.2 },
     layers: [
       // ── Base ──────────────────────────────────────────────
       { id: 'background',
@@ -1019,6 +1048,19 @@ function buildVectorStyle(): StyleSpecification {
         'source-layer': 'building',
         minzoom: 13,
         paint: { 'fill-color': '#15202e', 'fill-outline-color': '#1c2d40' } },
+
+      // ── 3D Buildings — fill-extrusion z15+, automotive dark ──
+      { id: 'building-3d',
+        type: 'fill-extrusion',
+        source: 'omv',
+        'source-layer': 'building',
+        minzoom: 15,
+        paint: {
+          'fill-extrusion-color': '#1c2d40',
+          'fill-extrusion-opacity': 0.4,
+          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
+          'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+        } } as LayerSpecification,
 
       // ── Roads: casings (outlines) ─────────────────────────
       { id: 'road-motorway-casing',
@@ -1096,6 +1138,61 @@ function buildVectorStyle(): StyleSpecification {
           'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 14, 2.5],
         } },
 
+      // ── Situational POIs — automotive kritik noktalar ─────
+      // OMT schema: poi source-layer, class değerleri
+      { id: 'poi-gas',
+        type: 'circle',
+        source: 'omv',
+        'source-layer': 'poi',
+        minzoom: 14,
+        filter: ['in', ['get', 'class'], ['literal', ['fuel', 'gas_station', 'petrol_station']]],
+        paint: {
+          'circle-color':        '#f59e0b',
+          'circle-radius':       6,
+          'circle-opacity':      0.85,
+          'circle-stroke-color': '#fbbf24',
+          'circle-stroke-width': 1.5,
+        } } as LayerSpecification,
+      { id: 'poi-parking',
+        type: 'circle',
+        source: 'omv',
+        'source-layer': 'poi',
+        minzoom: 14,
+        filter: ['in', ['get', 'class'], ['literal', ['parking', 'parking_garage']]],
+        paint: {
+          'circle-color':        '#3b82f6',
+          'circle-radius':       5,
+          'circle-opacity':      0.8,
+          'circle-stroke-color': '#60a5fa',
+          'circle-stroke-width': 1.5,
+        } } as LayerSpecification,
+      { id: 'poi-hospital',
+        type: 'circle',
+        source: 'omv',
+        'source-layer': 'poi',
+        minzoom: 13,
+        filter: ['in', ['get', 'class'], ['literal', ['hospital', 'clinic', 'pharmacy']]],
+        paint: {
+          'circle-color':        '#ef4444',
+          'circle-radius':       6,
+          'circle-opacity':      0.85,
+          'circle-stroke-color': '#f87171',
+          'circle-stroke-width': 1.5,
+        } } as LayerSpecification,
+      { id: 'poi-police',
+        type: 'circle',
+        source: 'omv',
+        'source-layer': 'poi',
+        minzoom: 13,
+        filter: ['in', ['get', 'class'], ['literal', ['police', 'fire_station']]],
+        paint: {
+          'circle-color':        '#8b5cf6',
+          'circle-radius':       5,
+          'circle-opacity':      0.8,
+          'circle-stroke-color': '#a78bfa',
+          'circle-stroke-width': 1.5,
+        } } as LayerSpecification,
+
       // ── Labels (online only) ──────────────────────────────
       ...(includeLabels ? ([
         { id: 'road-label',
@@ -1106,15 +1203,17 @@ function buildVectorStyle(): StyleSpecification {
           layout: {
             'text-field': ['coalesce', ['get', 'name:tr'], ['get', 'name']],
             'text-font': ['Noto Sans Regular'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 14, 13],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 14, 14],
             'symbol-placement': 'line',
             'text-max-angle': 30,
-            'text-padding': 2,
+            'text-padding': 4,
+            'text-letter-spacing': 0.06,
           },
           paint: {
-            'text-color': '#94a3b8',
-            'text-halo-color': '#0d1117',
-            'text-halo-width': 1.5,
+            'text-color': '#c8d6e8',      // Daha parlak — gün ışığında okunabilir
+            'text-halo-color': '#060c14',
+            'text-halo-width': 2.2,        // Daha kalın halo → gün ışığı kontrast
+            'text-halo-blur': 0.5,
           } },
         { id: 'place-town',
           type: 'symbol',
@@ -1124,13 +1223,15 @@ function buildVectorStyle(): StyleSpecification {
           layout: {
             'text-field': ['coalesce', ['get', 'name:tr'], ['get', 'name']],
             'text-font': ['Noto Sans Regular'],
-            'text-size': 12,
+            'text-size': 13,
             'text-anchor': 'center',
+            'text-letter-spacing': 0.04,
           },
           paint: {
-            'text-color': '#cbd5e1',
-            'text-halo-color': '#0d1117',
-            'text-halo-width': 2,
+            'text-color': '#e2eaf5',
+            'text-halo-color': '#060c14',
+            'text-halo-width': 2.5,
+            'text-halo-blur': 0.5,
           } },
         { id: 'place-city',
           type: 'symbol',
@@ -1140,13 +1241,15 @@ function buildVectorStyle(): StyleSpecification {
           layout: {
             'text-field': ['coalesce', ['get', 'name:tr'], ['get', 'name']],
             'text-font': ['Noto Sans Bold'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 6, 13, 12, 18],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 6, 14, 12, 20],
             'text-anchor': 'center',
+            'text-letter-spacing': 0.06,
           },
           paint: {
-            'text-color': '#f1f5f9',
-            'text-halo-color': '#0d1117',
-            'text-halo-width': 2.5,
+            'text-color': '#ffffff',
+            'text-halo-color': '#060c14',
+            'text-halo-width': 3.0,
+            'text-halo-blur': 0.5,
           } },
       ] as LayerSpecification[]) : []),
     ],
@@ -1408,13 +1511,14 @@ export function notifyNavigationRender(isNavigating: boolean, arActive: boolean)
   const { mapMode } = useMapSourceStore.getState();
   if (mapMode !== 'road') return;
 
-  if (isNavigating || arActive || _thermalLock) {
-    // Cancel any pending idle→vector switch; hold on raster
-    if (_toVectorTimer !== null) {
-      clearTimeout(_toVectorTimer);
-      _toVectorTimer = null;
-    }
+  if (arActive || _thermalLock) {
+    // AR ve thermal lock: raster (kamera overlay + performans)
+    if (_toVectorTimer !== null) { clearTimeout(_toVectorTimer); _toVectorTimer = null; }
     useMapSourceStore.setState({ tileRender: 'raster' });
+  } else if (isNavigating) {
+    // Navigasyon: vector zorla — 3D binalar + POI + okunaklı etiketler
+    if (_toVectorTimer !== null) { clearTimeout(_toVectorTimer); _toVectorTimer = null; }
+    useMapSourceStore.setState({ tileRender: 'vector' });
   } else {
     // Debounce: wait 2500ms of confirmed idle before switching to vector.
     // Only if thermal lock is clear at fire time.

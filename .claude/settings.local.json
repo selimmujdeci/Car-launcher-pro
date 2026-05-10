@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
@@ -52,7 +53,15 @@
       "Bash(cmd *)",
       "Bash(Get-Content *)",
       "Bash(grep -v \"^--$\")",
-      "Bash(awk '/^function |^export.*function |^async function |^  function / {print NR\": \"$0}' \"/c/Users/selim/Desktop/caros pro/src/platform/routingService.ts\")"
+      "Bash(awk '/^function |^export.*function |^async function |^  function / {print NR\": \"$0}' \"/c/Users/selim/Desktop/caros pro/src/platform/routingService.ts\")",
+      "Bash(Select-String -Pattern \"scripts\" -A 20)",
+      "PowerShell(java *)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\src\" -Recurse -File | Select-Object FullName | Where-Object { $_.FullName -match \"Map|map\" })",
+      "Bash(/mnt/c/Users/selim/AppData/Local/Android/Sdk/platform-tools/adb.exe devices *)",
+      "Bash(cmd.exe *)",
+      "PowerShell($env:JAVA_HOME = 'C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr'; Set-Location \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\android\"; & \".\\\\gradlew.bat\" assembleDebug 2>&1 | Select-Object -Last 30)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\android\\\\app\\\\release\" | ForEach-Object { \"$\\($_.Name\\) | $\\($_.Length\\) bytes\" })",
+      "PowerShell(npm run *)"
     ]
   }
 }

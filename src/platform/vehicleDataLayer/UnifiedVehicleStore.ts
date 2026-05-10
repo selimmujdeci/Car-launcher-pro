@@ -32,6 +32,35 @@ export interface GPSStatePatch {
   source?:      'native' | 'web' | 'last_known' | 'default' | null;
 }
 
+export interface CanExtrasPatch {
+  // Kapı / aydınlatma
+  doorOpen?:          boolean;
+  headlightsOn?:      boolean;
+  // TPMS
+  tpms?:              [number, number, number, number]; // [fl,fr,rl,rr] kPa
+  // Motor
+  rpm?:               number | null;
+  coolantTemp?:       number | null;
+  oilTemp?:           number | null;
+  throttle?:          number | null;
+  // Elektrik
+  batteryVolt?:       number | null;
+  // Vites
+  gearPos?:           number | null;
+  // Çevre
+  ambientTemp?:       number | null;
+  // Şasi güvenliği
+  abs?:               boolean;
+  tractionControl?:   boolean;
+  stabilityControl?:  boolean;
+  // Gövde / konfor
+  parkingBrake?:      boolean;
+  seatbelt?:          boolean;
+  wipers?:            boolean;
+  airCondition?:      boolean;
+  cruiseControl?:     boolean;
+}
+
 export interface UnifiedVehicleState {
   // ── Worker / OBD / CAN sinyalleri ────────────────────────────────────
   speed:    number | null;   // km/h, fused; null = sensör yok
@@ -39,6 +68,34 @@ export interface UnifiedVehicleState {
   fuel:     number | null;   // 0–100 %
   odometer: number;          // km (persisted)
   reverse:  boolean;
+
+  // ── CAN extras: kapı / far / TPMS ────────────────────────────────────────
+  canDoorOpen:   boolean;
+  canHeadlights: boolean;
+  canTpmsKpa:    readonly [number, number, number, number] | null;
+
+  // ── CAN extras: motor ─────────────────────────────────────────────────────
+  canRpm:         number | null;
+  canCoolantTemp: number | null;
+  canOilTemp:     number | null;
+  canThrottle:    number | null;
+
+  // ── CAN extras: elektrik / vites / çevre ──────────────────────────────────
+  canBatteryVolt: number | null;
+  canGearPos:     number | null;   // -1=R, 0=N/P, 1–8=ileri
+  canAmbientTemp: number | null;
+
+  // ── CAN extras: güvenlik ──────────────────────────────────────────────────
+  canAbs:              boolean;
+  canTractionControl:  boolean;
+  canStabilityControl: boolean;
+  canParkingBrake:     boolean;
+  canSeatbelt:         boolean;
+
+  // ── CAN extras: konfor ────────────────────────────────────────────────────
+  canWipers:       boolean;
+  canAirCondition: boolean;
+  canCruiseControl:boolean;
 
   // ── GPS sinyalleri (gpsService → updateGPSState) ──────────────────────
   heading:  number | null;   // blended GPS+compass (°)
@@ -56,6 +113,9 @@ export interface UnifiedVehicleState {
   // ── Actions ────────────────────────────────────────────────────────────
   updateVehicleState: (patch: Partial<VehicleState>) => void;
   updateGPSState:     (patch: GPSStatePatch) => void;
+  updateCanExtras:    (patch: CanExtrasPatch) => void;
+  /** CAN transport kesildiğinde tüm CAN-kaynaklı alanları sıfırlar. GPS/konum etkilenmez. */
+  resetCanData:       () => void;
 }
 
 // ── 4s write throttle — eMMC write protection ────────────────────────────
@@ -88,6 +148,24 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
       fuel:           null,
       odometer:       0,
       reverse:        false,
+      canDoorOpen:    false,
+      canHeadlights:  false,
+      canTpmsKpa:     null,
+      canRpm:         null,
+      canCoolantTemp: null,
+      canOilTemp:     null,
+      canThrottle:    null,
+      canBatteryVolt: null,
+      canGearPos:     null,
+      canAmbientTemp: null,
+      canAbs:              false,
+      canTractionControl:  false,
+      canStabilityControl: false,
+      canParkingBrake:     false,
+      canSeatbelt:         false,
+      canWipers:           false,
+      canAirCondition:     false,
+      canCruiseControl:    false,
       heading:        null,
       location:       null,
       gpsTracking:    false,
@@ -176,6 +254,84 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         }
 
         if (dirty) set(u as Partial<UnifiedVehicleState>);
+      },
+
+      // ── CAN extras update (tüm CAN sinyalleri) ───────────────────────────
+
+      updateCanExtras(patch) {
+        const cur = get();
+        const u: Partial<UnifiedVehicleState> = {};
+        let dirty = false;
+
+        function chk<K extends keyof UnifiedVehicleState>(
+          key: K, val: UnifiedVehicleState[K] | undefined | null,
+        ) {
+          if (val == null) return;
+          if (val !== cur[key]) { (u as Record<string, unknown>)[key] = val; dirty = true; }
+        }
+        function chkBool(key: keyof UnifiedVehicleState, val: boolean | undefined) {
+          if (val == null) return;
+          if (!!val !== !!(cur[key] as boolean)) {
+            (u as Record<string, unknown>)[key] = val; dirty = true;
+          }
+        }
+
+        // Kapı / aydınlatma
+        if (patch.doorOpen     != null) chkBool('canDoorOpen',   patch.doorOpen);
+        if (patch.headlightsOn != null) chkBool('canHeadlights', patch.headlightsOn);
+        if (patch.tpms != null)         { u.canTpmsKpa = patch.tpms; dirty = true; }
+
+        // Motor
+        chk('canRpm',         patch.rpm);
+        chk('canCoolantTemp', patch.coolantTemp);
+        chk('canOilTemp',     patch.oilTemp);
+        chk('canThrottle',    patch.throttle);
+
+        // Elektrik / vites / çevre
+        chk('canBatteryVolt', patch.batteryVolt);
+        chk('canGearPos',     patch.gearPos);
+        chk('canAmbientTemp', patch.ambientTemp);
+
+        // Şasi güvenliği
+        if (patch.abs              != null) chkBool('canAbs',              patch.abs);
+        if (patch.tractionControl  != null) chkBool('canTractionControl',  patch.tractionControl);
+        if (patch.stabilityControl != null) chkBool('canStabilityControl', patch.stabilityControl);
+
+        // Gövde / konfor
+        if (patch.parkingBrake  != null) chkBool('canParkingBrake',  patch.parkingBrake);
+        if (patch.seatbelt      != null) chkBool('canSeatbelt',      patch.seatbelt);
+        if (patch.wipers        != null) chkBool('canWipers',        patch.wipers);
+        if (patch.airCondition  != null) chkBool('canAirCondition',  patch.airCondition);
+        if (patch.cruiseControl != null) chkBool('canCruiseControl', patch.cruiseControl);
+
+        if (dirty) set(u as Partial<UnifiedVehicleState>);
+      },
+
+      // ── CAN data reset (transport disconnect) ─────────────────────────────
+
+      resetCanData() {
+        set({
+          // Numerik CAN sinyalleri
+          canRpm:         null,
+          canCoolantTemp: null,
+          canOilTemp:     null,
+          canThrottle:    null,
+          canBatteryVolt: null,
+          canGearPos:     null,
+          canAmbientTemp: null,
+          canTpmsKpa:     null,
+          // Boolean CAN sinyalleri — bilinmiyor → güvenli varsayılan
+          canDoorOpen:         false,
+          canHeadlights:       false,
+          canAbs:              false,
+          canTractionControl:  false,
+          canStabilityControl: false,
+          canParkingBrake:     false,
+          canSeatbelt:         false,
+          canWipers:           false,
+          canAirCondition:     false,
+          canCruiseControl:    false,
+        });
       },
     }),
     {

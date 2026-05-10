@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useStore } from '../../store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useWakeWordState } from '../../platform/wakeWordService';
 import {
   type NavOptionKey, type MusicOptionKey,
@@ -43,6 +44,7 @@ import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
 import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
 import type { CommandContext } from '../../platform/commandExecutor';
+import { bridge } from '../../platform/bridge';
 import { useSystemStore } from '../../store/useSystemStore';
 import { TripSummaryBanner }  from '../trip/TripSummaryBanner';
 import { TheaterOverlay }     from '../theater/TheaterOverlay';
@@ -74,7 +76,10 @@ function load<T>(key: string, fallback: T): T {
 /* ── MainLayout ──────────────────────────────────────────── */
 
 export default function MainLayout() {
-  const { settings, updateSettings, updateParking } = useStore();
+  // useShallow: runtime state değişimlerinde (isEcoMode, runtimeMode, smartCards) MainLayout re-render olmaz
+  const { settings, updateSettings, updateParking } = useStore(
+    useShallow((s) => ({ settings: s.settings, updateSettings: s.updateSettings, updateParking: s.updateParking }))
+  );
   const { apps: allApps, appMap, loading: appsLoading } = useApps();
   const obd      = useOBDState();
   const location = useGPSLocation();
@@ -97,7 +102,8 @@ export default function MainLayout() {
 
 
   const { isNavigating } = useNavigation();
-  const hudMedia = useMediaState();
+  // Sadece playing alanı — şarkı metadata/position değişimlerinde MainLayout re-render olmasın
+  const hudMedia = { playing: useMediaState().playing };
   useWakeWordState();
 
   // ── Service initialisation ────────────────────────────────
@@ -256,9 +262,11 @@ export default function MainLayout() {
     updateSettings: typeof updateSettings;
     setDrawer:      typeof setDrawer;
   }>({ settings, smart, location, handleLaunch, updateSettings, setDrawer });
+  // Intentional: dep array yok — her render'dan sonra ref güncellenir.
+  // Remote command handler bu ref'i okur; dep array eklemek stale closure'a neden olur.
   useEffect(() => {
     _remoteRef.current = { settings, smart, location, handleLaunch, updateSettings, setDrawer };
-  });
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const ctx: CommandContext = {
       get vehicleCtx() {
@@ -274,9 +282,11 @@ export default function MainLayout() {
       get recentAppId()  {
         return _remoteRef.current.smart.quickActions.find((a) => a.id.startsWith('last-'))?.appId;
       },
-      launch:     (id)    => _remoteRef.current.handleLaunch(id),
-      setTheme:   (theme) => _remoteRef.current.updateSettings({ theme }),
-      openDrawer: (t)     => _remoteRef.current.setDrawer(t as DrawerType),
+      launch:         (id)    => _remoteRef.current.handleLaunch(id),
+      setTheme:       (theme) => _remoteRef.current.updateSettings({ theme }),
+      openDrawer:     (t)     => _remoteRef.current.setDrawer(t as DrawerType),
+      hwLockDoors:    ()      => bridge.hwLockDoors(),
+      hwUnlockDoors:  ()      => bridge.hwUnlockDoors(),
     };
     setRemoteCommandContext(ctx);
     // Temizlik: stopRemoteCommands() zaten App.tsx → vehicleDataLayer cleanup
@@ -294,6 +304,13 @@ export default function MainLayout() {
       clearOpenMapFlag();
     }
   }, [addressNavState.shouldOpenMap]);
+
+  // ── Navigasyon başlarsa veya harita açılırsa trip banner'ı kapat ──
+  useEffect(() => {
+    if ((isNavigating || fullMapOpen) && showTripSummary) {
+      useSystemStore.getState().closeTripSummary();
+    }
+  }, [isNavigating, fullMapOpen, showTripSummary]);
 
   // Wallpaper: html elementine CSS değişkeni + data attr. Tüm day/night/tema kurallarını geçersiz kılar.
   useEffect(() => {
@@ -373,9 +390,11 @@ export default function MainLayout() {
         />
       )}
 
-      {/* Adres navigasyon kartı — theater modda gizlenir */}
-      <div style={theaterHide}>
-        <AddressNavCard />
+      {/* Adres navigasyon kartı — fixed z-[9500]: harita tam ekranında da görünür */}
+      <div className="fixed inset-x-0 top-2 z-[9500] pointer-events-none" style={theaterHide}>
+        <div className="pointer-events-auto">
+          <AddressNavCard />
+        </div>
       </div>
 
       {/* New Home Layout — theater modda gizlenir (overlay tam ekranı kaplar) */}
@@ -398,8 +417,8 @@ export default function MainLayout() {
         />
       </div>
 
-      {/* Yolculuk özet banner — Orchestrator tetikler, store yönetir */}
-      {showTripSummary && lastCompletedTrip && (
+      {/* Yolculuk özet banner — navigasyon veya tam ekran harita açıkken gizle */}
+      {showTripSummary && lastCompletedTrip && !isNavigating && !fullMapOpen && (
         <TripSummaryBanner
           trip={lastCompletedTrip}
           onClose={() => useSystemStore.getState().closeTripSummary()}

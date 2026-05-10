@@ -1,10 +1,13 @@
 import { memo } from 'react';
 import {
   Thermometer, Fuel, Zap, Battery, BatteryCharging,
-  Gauge, Wind, Flame, type LucideIcon,
+  Gauge, Wind, Flame, DoorOpen, Lightbulb, type LucideIcon,
+  ShieldAlert, Navigation, Snowflake, ParkingSquare,
+  UserCheck, Droplets, Cpu, CircleDot,
 } from 'lucide-react';
 import { useOBDState, type VehicleType } from '../../platform/obdService';
 import { useStore } from '../../store/useStore';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 
 /* ── Metric card ─────────────────────────────────────────── */
 
@@ -14,35 +17,100 @@ const MetricCard = ({
   icon: LucideIcon; label: string; value: string | number;
   unit: string; color: string; percent?: number; warn?: boolean;
 }) => (
-  <div className={`flex-1 flex flex-col gap-2 p-3 rounded-2xl border transition-all duration-300
-    ${warn
-      ? 'bg-red-500/10 border-red-500/30'
-      : 'bg-white/[0.03] border-white/[0.05] hover:bg-white/[0.06] hover:border-white/[0.1]'
-    } group/metric`}>
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-lg bg-${color}-500/10 border border-${color}-500/20 text-${color}-400 group-hover/metric:scale-110 transition-transform`}>
-          <Icon className="w-3.5 h-3.5" />
+  <div
+    className="flex-1 flex flex-col gap-2 transition-all duration-300 group/metric"
+    style={{
+      padding: 'var(--lp-space-md, 10px)',
+      borderRadius: 'var(--lp-radius-lg, 16px)',
+      background: warn ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.03)',
+      border: `1px solid ${warn ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.055)'}`,
+    }}
+  >
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <div
+          className="flex items-center justify-center shrink-0 group-hover/metric:scale-110 transition-transform"
+          style={{
+            width: 'calc(var(--lp-icon-sm, 16px) + 12px)',
+            height: 'calc(var(--lp-icon-sm, 16px) + 12px)',
+            borderRadius: 'var(--lp-radius-sm, 6px)',
+            background: warn ? 'rgba(239,68,68,0.12)' : `${color}12`,
+            border: `1px solid ${warn ? 'rgba(239,68,68,0.2)' : `${color}22`}`,
+          }}
+        >
+          <Icon
+            style={{
+              width: 'var(--lp-icon-sm, 16px)',
+              height: 'var(--lp-icon-sm, 16px)',
+              color: warn ? '#ef4444' : color,
+            }}
+          />
         </div>
-        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</span>
+        <span
+          className="font-bold text-slate-500 uppercase tracking-widest truncate"
+          style={{ fontSize: 'var(--lp-font-xs, 10px)' }}
+        >
+          {label}
+        </span>
       </div>
-      <div className="flex items-baseline gap-0.5">
-        <span className={`text-sm font-black tabular-nums ${warn ? 'text-red-400' : 'text-white'}`}>{value}</span>
-        <span className="text-[9px] font-bold text-slate-600 uppercase">{unit}</span>
+      <div className="flex items-baseline gap-0.5 shrink-0">
+        <span
+          className={`font-black tabular-nums ${warn ? 'text-red-400' : 'text-white'}`}
+          style={{ fontSize: 'var(--lp-font-lg, 17px)' }}
+        >
+          {value}
+        </span>
+        <span
+          className="font-bold text-slate-600 uppercase"
+          style={{ fontSize: 'var(--lp-font-xs, 10px)' }}
+        >
+          {unit}
+        </span>
       </div>
     </div>
     {percent !== undefined && (
-      <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+      <div className="bg-white/5 rounded-full overflow-hidden" style={{ height: '3px' }}>
         <div
-          className={`h-full transition-all duration-500 ${
-            warn ? 'bg-red-500' : `bg-${color}-500`
-          }`}
-          style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
+          className="h-full transition-all duration-500"
+          style={{
+            width: `${Math.max(0, Math.min(100, percent))}%`,
+            background: warn ? '#ef4444' : color,
+          }}
         />
       </div>
     )}
   </div>
 );
+
+/* ── Status badge ─────────────────────────────────────────── */
+
+const StatusBadge = ({
+  icon: Icon, label, color, warn = false,
+}: { icon: LucideIcon; label: string; color: string; warn?: boolean }) => (
+  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border`}
+    style={{
+      background: warn ? 'rgba(239,68,68,0.12)' : `${color}12`,
+      borderColor: warn ? 'rgba(239,68,68,0.35)' : `${color}35`,
+      color: warn ? '#ef4444' : color,
+    }}>
+    <Icon className="w-3 h-3" />
+    {label}
+  </div>
+);
+
+/* ── Gear display ─────────────────────────────────────────── */
+
+function GearBadge({ gearPos }: { gearPos: number }) {
+  const label = gearPos === -1 ? 'R' : gearPos === 0 ? 'N' : `D${gearPos}`;
+  const color = gearPos === -1 ? '#ef4444' : gearPos === 0 ? '#94a3b8' : '#60a5fa';
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border"
+      style={{ background: `${color}12`, borderColor: `${color}35`, color }}>
+      <CircleDot className="w-3 h-3" />
+      VİTES {label}
+    </div>
+  );
+}
 
 /* ── Vehicle type badge ──────────────────────────────────── */
 
@@ -84,10 +152,19 @@ function SpeedBlock({ speed, maxSpeed }: { speed: number; maxSpeed: number }) {
 
 /* ── ICE / Diesel main view ──────────────────────────────── */
 
-function ICEView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm: number }) {
-  const rpmPercent = obd.rpm > 0 ? (obd.rpm / maxRpm) * 100 : 0;
-  const tempWarn   = obd.engineTemp > 100;
-  const fuelWarn   = obd.fuelLevel > 0 && obd.fuelLevel < 12;
+function ICEView({ obd, maxRpm, canRpm, canCoolant, canThrottle }: {
+  obd: ReturnType<typeof useOBDState>;
+  maxRpm: number;
+  canRpm: number | null;
+  canCoolant: number | null;
+  canThrottle: number | null;
+}) {
+  const rpm         = canRpm ?? (obd.rpm > 0 ? obd.rpm : null);
+  const coolant     = canCoolant ?? (obd.engineTemp > 0 ? obd.engineTemp : null);
+  const throttle    = canThrottle ?? (obd.throttle > 0 ? obd.throttle : null);
+  const rpmPercent  = rpm ? (rpm / maxRpm) * 100 : 0;
+  const tempWarn    = (coolant ?? 0) > 100;
+  const fuelWarn    = obd.fuelLevel > 0 && obd.fuelLevel < 12;
 
   return (
     <div className="flex flex-col lg:flex-row gap-5 w-full">
@@ -96,7 +173,7 @@ function ICEView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm:
         <div className="flex-1 flex flex-col justify-center p-5 rounded-2xl bg-white/[0.04] border border-white/10 relative overflow-hidden">
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tighter tabular-nums">
-              {obd.rpm > 0 ? obd.rpm : '—'}
+              {rpm ? Math.round(rpm) : '—'}
             </span>
             <span className="text-purple-400 font-black text-[10px] uppercase tracking-widest">RPM</span>
           </div>
@@ -106,7 +183,6 @@ function ICEView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm:
               style={{ width: `${rpmPercent}%` }}
             />
           </div>
-          {/* Diesel: boost basıncı */}
           {obd.boostPressure > 0 && (
             <div className="mt-2 flex items-center gap-1">
               <Wind className="w-3 h-3 text-cyan-400" />
@@ -119,9 +195,9 @@ function ICEView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm:
       <div className="flex-1 grid grid-cols-2 gap-4">
         <MetricCard
           icon={Thermometer} label="MOTOR" unit="°C"
-          value={obd.engineTemp > 0 ? obd.engineTemp : '—'}
+          value={coolant != null ? Math.round(coolant) : '—'}
           color={tempWarn ? 'red' : 'orange'}
-          percent={obd.engineTemp > 0 ? ((obd.engineTemp - 40) / 80) * 100 : undefined}
+          percent={coolant != null ? ((coolant - 40) / 80) * 100 : undefined}
           warn={tempWarn}
         />
         <MetricCard
@@ -131,19 +207,11 @@ function ICEView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm:
           percent={obd.fuelLevel > 0 ? obd.fuelLevel : undefined}
           warn={fuelWarn}
         />
-        {obd.throttle > 0 && (
-          <MetricCard
-            icon={Gauge} label="GAZ" unit="%"
-            value={obd.throttle} color="cyan"
-            percent={obd.throttle}
-          />
+        {throttle != null && (
+          <MetricCard icon={Gauge} label="GAZ" unit="%" value={Math.round(throttle)} color="cyan" percent={throttle} />
         )}
         {obd.egt > 0 && (
-          <MetricCard
-            icon={Flame} label="EGT" unit="°C"
-            value={obd.egt} color="red"
-            warn={obd.egt > 650}
-          />
+          <MetricCard icon={Flame} label="EGT" unit="°C" value={obd.egt} color="red" warn={obd.egt > 650} />
         )}
       </div>
     </div>
@@ -152,26 +220,25 @@ function ICEView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm:
 
 /* ── EV main view ────────────────────────────────────────── */
 
-function EVView({ obd }: { obd: ReturnType<typeof useOBDState> }) {
-  const battWarn  = obd.batteryLevel >= 0 && obd.batteryLevel < 15;
-  const tempWarn  = obd.batteryTemp > 42;
-  const charging  = obd.chargingState === 'charging' || obd.chargingState === 'fast_charging';
-  const isRegen   = obd.motorPower < 0;
+function EVView({ obd, canThrottle }: {
+  obd: ReturnType<typeof useOBDState>;
+  canThrottle: number | null;
+}) {
+  const throttle = canThrottle ?? (obd.throttle > 0 ? obd.throttle : null);
+  const battWarn = obd.batteryLevel >= 0 && obd.batteryLevel < 15;
+  const tempWarn = obd.batteryTemp > 42;
+  const charging = obd.chargingState === 'charging' || obd.chargingState === 'fast_charging';
+  const isRegen  = obd.motorPower < 0;
 
   return (
     <div className="flex flex-col lg:flex-row gap-5 w-full">
       <div className="flex-[2] flex gap-4">
         <SpeedBlock speed={obd.speed} maxSpeed={240} />
-
-        {/* Batarya büyük gösterge */}
         <div className={`flex-1 flex flex-col justify-center p-5 rounded-2xl border relative overflow-hidden ${
           charging ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/[0.04] border-white/10'
         }`}>
           <div className="flex items-center gap-2 mb-1">
-            {charging
-              ? <BatteryCharging className="w-4 h-4 text-emerald-400" />
-              : <Battery className="w-4 h-4 text-emerald-400" />
-            }
+            {charging ? <BatteryCharging className="w-4 h-4 text-emerald-400" /> : <Battery className="w-4 h-4 text-emerald-400" />}
             <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">
               {charging ? (obd.chargingState === 'fast_charging' ? 'HIZLI ŞRJ' : 'ŞARJ') : 'BATARYA'}
             </span>
@@ -184,10 +251,8 @@ function EVView({ obd }: { obd: ReturnType<typeof useOBDState> }) {
           </div>
           {obd.batteryLevel >= 0 && (
             <div className="mt-2 h-1.5 bg-white/5 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${battWarn ? 'bg-red-500' : charging ? 'bg-emerald-400' : 'bg-emerald-600'}`}
-                style={{ width: `${obd.batteryLevel}%` }}
-              />
+              <div className={`h-full transition-all duration-500 ${battWarn ? 'bg-red-500' : charging ? 'bg-emerald-400' : 'bg-emerald-600'}`}
+                style={{ width: `${obd.batteryLevel}%` }} />
             </div>
           )}
           {charging && obd.chargingPower > 0 && (
@@ -195,34 +260,17 @@ function EVView({ obd }: { obd: ReturnType<typeof useOBDState> }) {
           )}
         </div>
       </div>
-
       <div className="flex-1 grid grid-cols-2 gap-4">
-        {obd.range >= 0 && (
-          <MetricCard
-            icon={Gauge} label="MENZİL" unit="KM"
-            value={Math.round(obd.range)} color="blue"
-          />
-        )}
+        {obd.range >= 0 && <MetricCard icon={Gauge} label="MENZİL" unit="KM" value={Math.round(obd.range)} color="blue" />}
         {obd.motorPower !== -1 && (
-          <MetricCard
-            icon={Zap} label={isRegen ? 'REGEN' : 'GÜÇ'} unit="KW"
-            value={Math.abs(Math.round(obd.motorPower))}
-            color={isRegen ? 'emerald' : 'yellow'}
-          />
+          <MetricCard icon={Zap} label={isRegen ? 'REGEN' : 'GÜÇ'} unit="KW"
+            value={Math.abs(Math.round(obd.motorPower))} color={isRegen ? 'emerald' : 'yellow'} />
         )}
         {obd.batteryTemp > 0 && (
-          <MetricCard
-            icon={Thermometer} label="BAT. ISI" unit="°C"
-            value={obd.batteryTemp} color={tempWarn ? 'red' : 'orange'}
-            warn={tempWarn}
-          />
+          <MetricCard icon={Thermometer} label="BAT. ISI" unit="°C" value={obd.batteryTemp} color={tempWarn ? 'red' : 'orange'} warn={tempWarn} />
         )}
-        {obd.throttle > 0 && (
-          <MetricCard
-            icon={Gauge} label="PEDAL" unit="%"
-            value={obd.throttle} color="cyan"
-            percent={obd.throttle}
-          />
+        {throttle != null && (
+          <MetricCard icon={Gauge} label="PEDAL" unit="%" value={Math.round(throttle)} color="cyan" percent={throttle} />
         )}
       </div>
     </div>
@@ -231,20 +279,21 @@ function EVView({ obd }: { obd: ReturnType<typeof useOBDState> }) {
 
 /* ── Hybrid main view ────────────────────────────────────── */
 
-function HybridView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxRpm: number }) {
+function HybridView({ obd, maxRpm, canRpm }: {
+  obd: ReturnType<typeof useOBDState>;
+  maxRpm: number;
+  canRpm: number | null;
+}) {
   const fuelWarn = obd.fuelLevel > 0 && obd.fuelLevel < 12;
   const battWarn = obd.batteryLevel >= 0 && obd.batteryLevel < 15;
+  const rpm      = canRpm ?? (obd.rpm > 0 ? obd.rpm : null);
 
   return (
     <div className="flex flex-col lg:flex-row gap-5 w-full">
       <div className="flex-[2] flex gap-4">
         <SpeedBlock speed={obd.speed} maxSpeed={240} />
-
-        {/* Batarya + yakıt ikili */}
         <div className="flex-1 flex flex-col gap-2">
-          <div className={`flex-1 flex flex-col justify-center px-4 py-3 rounded-xl border ${
-            battWarn ? 'bg-red-500/10 border-red-500/25' : 'bg-emerald-500/10 border-emerald-500/20'
-          }`}>
+          <div className={`flex-1 flex flex-col justify-center px-4 py-3 rounded-xl border ${battWarn ? 'bg-red-500/10 border-red-500/25' : 'bg-emerald-500/10 border-emerald-500/20'}`}>
             <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest mb-0.5">BATARYA</span>
             <div className="flex items-baseline gap-1">
               <span className={`text-2xl font-black tabular-nums ${battWarn ? 'text-red-400' : 'text-white'}`}>
@@ -254,14 +303,11 @@ function HybridView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxR
             </div>
             {obd.batteryLevel >= 0 && (
               <div className="mt-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                <div className={`h-full ${battWarn ? 'bg-red-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${obd.batteryLevel}%` }} />
+                <div className={`h-full ${battWarn ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${obd.batteryLevel}%` }} />
               </div>
             )}
           </div>
-          <div className={`flex-1 flex flex-col justify-center px-4 py-3 rounded-xl border ${
-            fuelWarn ? 'bg-red-500/10 border-red-500/25' : 'bg-blue-500/10 border-blue-500/20'
-          }`}>
+          <div className={`flex-1 flex flex-col justify-center px-4 py-3 rounded-xl border ${fuelWarn ? 'bg-red-500/10 border-red-500/25' : 'bg-blue-500/10 border-blue-500/20'}`}>
             <span className="text-[8px] font-bold text-blue-400 uppercase tracking-widest mb-0.5">YAKIT</span>
             <div className="flex items-baseline gap-1">
               <span className={`text-2xl font-black tabular-nums ${fuelWarn ? 'text-red-400' : 'text-white'}`}>
@@ -271,34 +317,89 @@ function HybridView({ obd, maxRpm }: { obd: ReturnType<typeof useOBDState>; maxR
             </div>
             {obd.fuelLevel > 0 && (
               <div className="mt-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                <div className={`h-full ${fuelWarn ? 'bg-red-500' : 'bg-blue-500'}`}
-                  style={{ width: `${obd.fuelLevel}%` }} />
+                <div className={`h-full ${fuelWarn ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${obd.fuelLevel}%` }} />
               </div>
             )}
           </div>
         </div>
       </div>
-
       <div className="flex-1 grid grid-cols-2 gap-3">
-        {obd.range >= 0 && (
-          <MetricCard icon={Gauge} label="MENZİL" unit="KM"
-            value={Math.round(obd.range)} color="blue" />
-        )}
-        {obd.motorPower !== -1 && (
-          <MetricCard icon={Zap} label="ELK. GÜÇ" unit="KW"
-            value={Math.abs(Math.round(obd.motorPower))} color="emerald" />
-        )}
-        {obd.engineTemp > 0 && (
-          <MetricCard icon={Thermometer} label="MOTOR ISI" unit="°C"
-            value={obd.engineTemp} color="orange"
-            warn={obd.engineTemp > 100} />
-        )}
-        {obd.rpm > 0 && maxRpm > 0 && (
-          <MetricCard icon={Gauge} label="RPM" unit=""
-            value={obd.rpm} color="purple"
-            percent={(obd.rpm / maxRpm) * 100} />
-        )}
+        {obd.range >= 0 && <MetricCard icon={Gauge} label="MENZİL" unit="KM" value={Math.round(obd.range)} color="blue" />}
+        {obd.motorPower !== -1 && <MetricCard icon={Zap} label="ELK. GÜÇ" unit="KW" value={Math.abs(Math.round(obd.motorPower))} color="emerald" />}
+        {obd.engineTemp > 0 && <MetricCard icon={Thermometer} label="MOTOR ISI" unit="°C" value={obd.engineTemp} color="orange" warn={obd.engineTemp > 100} />}
+        {rpm != null && rpm > 0 && maxRpm > 0 && <MetricCard icon={Gauge} label="RPM" unit="" value={Math.round(rpm)} color="purple" percent={(rpm / maxRpm) * 100} />}
       </div>
+    </div>
+  );
+}
+
+/* ── CAN Extras Panel ────────────────────────────────────── */
+
+function CanExtrasPanel() {
+  const s = useUnifiedVehicleStore((st) => ({
+    oilTemp:     st.canOilTemp,
+    battVolt:    st.canBatteryVolt,
+    ambient:     st.canAmbientTemp,
+    abs:         st.canAbs,
+    tcs:         st.canTractionControl,
+    esc:         st.canStabilityControl,
+    parkBrake:   st.canParkingBrake,
+    seatbelt:    st.canSeatbelt,
+    wipers:      st.canWipers,
+    ac:          st.canAirCondition,
+    cruise:      st.canCruiseControl,
+    gearPos:     st.canGearPos,
+    speed:       st.speed,
+  }));
+
+  const hasMetrics  = s.oilTemp != null || s.battVolt != null || s.ambient != null;
+  const seatbeltOff = s.seatbelt === false && (s.speed ?? 0) > 5;
+  const hasBadges   = s.abs || s.tcs || s.esc || s.parkBrake || seatbeltOff || s.wipers || s.ac || s.cruise || s.gearPos != null;
+
+  if (!hasMetrics && !hasBadges) return null;
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+
+      {/* Durum rozetleri */}
+      {hasBadges && (
+        <div className="flex flex-wrap gap-2">
+          {/* Vites */}
+          {s.gearPos != null && <GearBadge gearPos={s.gearPos} />}
+
+          {/* Güvenlik uyarıları */}
+          {s.abs      && <StatusBadge icon={ShieldAlert}   label="ABS"     color="#ef4444" warn />}
+          {s.tcs      && <StatusBadge icon={ShieldAlert}   label="TCS"     color="#f59e0b" warn />}
+          {s.esc      && <StatusBadge icon={ShieldAlert}   label="ESC"     color="#f59e0b" warn />}
+          {s.parkBrake&& <StatusBadge icon={ParkingSquare} label="EL FRENİ"color="#ef4444" warn />}
+          {seatbeltOff&& <StatusBadge icon={UserCheck}     label="KEMER YOK" color="#ef4444" warn />}
+
+          {/* Konfor durumu */}
+          {s.wipers   && <StatusBadge icon={Droplets}  label="SİLECEK"  color="#60a5fa" />}
+          {s.ac       && <StatusBadge icon={Snowflake}  label="KLİMA"    color="#22d3ee" />}
+          {s.cruise   && <StatusBadge icon={Navigation} label="SEYIR"    color="#a78bfa" />}
+        </div>
+      )}
+
+      {/* Sayısal ek veriler */}
+      {hasMetrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {s.oilTemp != null && (
+            <MetricCard icon={Droplets} label="YAĞ ISI" unit="°C"
+              value={Math.round(s.oilTemp)} color={s.oilTemp > 130 ? 'red' : 'amber'}
+              warn={s.oilTemp > 130} />
+          )}
+          {s.battVolt != null && (
+            <MetricCard icon={Cpu} label="AKÜ" unit="V"
+              value={s.battVolt.toFixed(1)} color={s.battVolt < 11.5 ? 'red' : 'emerald'}
+              warn={s.battVolt < 11.5} />
+          )}
+          {s.ambient != null && (
+            <MetricCard icon={Thermometer} label="DIŞ HAVA" unit="°C"
+              value={Math.round(s.ambient)} color="sky" />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -309,10 +410,14 @@ function OBDPanelInner() {
   const obd = useOBDState();
   const { settings } = useStore();
 
-  // Aktif araç profilinden araç tipini al
-  const activeProfile = settings.vehicleProfiles.find(
-    (p) => p.id === settings.activeVehicleProfileId,
-  );
+  // Mevcut CAN extras
+  const canDoorOpen   = useUnifiedVehicleStore((s) => s.canDoorOpen);
+  const canHeadlights = useUnifiedVehicleStore((s) => s.canHeadlights);
+  const canRpm        = useUnifiedVehicleStore((s) => s.canRpm);
+  const canCoolant    = useUnifiedVehicleStore((s) => s.canCoolantTemp);
+  const canThrottle   = useUnifiedVehicleStore((s) => s.canThrottle);
+
+  const activeProfile = settings.vehicleProfiles.find((p) => p.id === settings.activeVehicleProfileId);
   const vehicleType: VehicleType = activeProfile?.vehicleType ?? obd.vehicleType;
   const maxRpm   = activeProfile?.maxRpm ?? 8000;
   const typeColor = TYPE_COLORS[vehicleType];
@@ -329,34 +434,60 @@ function OBDPanelInner() {
           <span className="text-white/20 text-[10px]">|</span>
           <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">VERİ PANELİ</span>
         </div>
-
-        {/* Bağlantı durumu */}
         <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-colors ${
           obd.connectionState === 'connected'
             ? 'bg-green-500/10 border-green-500/25 text-emerald-400'
-            : 'bg-amber-500/10 border-amber-500/25 text-amber-400'
+            : obd.connectionState === 'error'
+              ? 'bg-red-500/10 border-red-500/25 text-red-400'
+              : obd.connectionState === 'initializing'
+                ? 'bg-sky-500/10 border-sky-500/25 text-sky-400'
+                : 'bg-amber-500/10 border-amber-500/25 text-amber-400'
         }`}>
           <div className={`w-1.5 h-1.5 rounded-full ${
             obd.connectionState === 'connected'
               ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]'
-              : 'bg-amber-500'
+              : obd.connectionState === 'error' ? 'bg-red-500'
+              : obd.connectionState === 'initializing' ? 'bg-sky-400 animate-pulse'
+              : 'bg-amber-500 animate-pulse'
           }`} />
           {obd.connectionState === 'connected'
             ? (obd.source === 'real' ? 'CAN-BUS' : 'DEMO')
+            : obd.connectionState === 'error'     ? 'BAĞLANTI YOK'
+            : obd.connectionState === 'initializing' ? 'EL SIKIŞILIYOR'
+            : obd.connectionState === 'reconnecting' ? 'YENİDEN BAĞL.'
             : 'BAĞLANILIYOR'}
         </div>
       </div>
 
-      {/* Vehicle-type-specific content */}
-      {(vehicleType === 'ev') && (
-        <EVView obd={obd} />
+      {/* Kapı / Far rozetleri */}
+      {(canDoorOpen || canHeadlights) && (
+        <div className="flex items-center gap-3 mb-4">
+          {canDoorOpen && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest">
+              <DoorOpen className="w-3 h-3" />KAPI AÇIK
+            </div>
+          )}
+          {canHeadlights && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-400/15 border border-yellow-400/30 text-yellow-400 text-[10px] font-black uppercase tracking-widest">
+              <Lightbulb className="w-3 h-3" />FARLAR AÇIK
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Araç tipine göre ana görünüm */}
+      {vehicleType === 'ev' && (
+        <EVView obd={obd} canThrottle={canThrottle} />
       )}
       {(vehicleType === 'hybrid' || vehicleType === 'phev') && (
-        <HybridView obd={obd} maxRpm={maxRpm} />
+        <HybridView obd={obd} maxRpm={maxRpm} canRpm={canRpm} />
       )}
       {(vehicleType === 'ice' || vehicleType === 'diesel') && (
-        <ICEView obd={obd} maxRpm={maxRpm} />
+        <ICEView obd={obd} maxRpm={maxRpm} canRpm={canRpm} canCoolant={canCoolant} canThrottle={canThrottle} />
       )}
+
+      {/* CAN Ekstra Veriler (güvenlik + konfor + ek metrikler) */}
+      <CanExtrasPanel />
     </div>
   );
 }

@@ -39,6 +39,7 @@ import { fromAIResponse }                      from './intentEngine';
 import { executeIntent }                       from './commandExecutor';
 import type { CommandContext }                  from './commandExecutor';
 import { applyVars }                           from './liveStyleEngine';
+import { isE2EPayload }                        from './commandCrypto';
 import { safeGetRaw, safeSetRaw }              from '../utils/safeStorage';
 
 // ── TTL Sabitleri ─────────────────────────────────────────────────────────
@@ -203,6 +204,24 @@ async function _drainRetryQueue(): Promise<void> {
   }
 }
 
+// ── Command-ID De-duplication ─────────────────────────────────────────────
+//
+// Realtime INSERT eventi ile _fetchMissedCommands() aynı anda tetiklenirse
+// aynı commandId iki kez _processCommand'a gidebilir.
+// Bu Map, 2 dakikalık bir pencerede işlenen ID'leri kaydeder.
+
+const _processedIds = new Map<string, number>(); // commandId → processedAt ms
+const DEDUP_WINDOW_MS = 120_000;
+
+function _isDuplicate(commandId: string): boolean {
+  const now = Date.now();
+  // GC: süresi dolmuş kayıtları temizle
+  _processedIds.forEach((ts, id) => { if (now - ts > DEDUP_WINDOW_MS) _processedIds.delete(id); });
+  if (_processedIds.has(commandId)) return true;
+  _processedIds.set(commandId, now);
+  return false;
+}
+
 // ── Deferred UI context ───────────────────────────────────────────────────
 
 const _ctxRef: { current: CommandContext | null } = { current: null };
@@ -221,6 +240,15 @@ async function _processCommand(
   const status    = row['status'] as string | undefined;
 
   if (!commandId) return;
+
+  // ── De-duplication: aynı commandId iki kez işlenmesin ─────────────────
+  // Realtime + fetchMissedCommands yarış koşulu veya ağ yeniden iletimi.
+  if (_isDuplicate(commandId)) {
+    if (import.meta.env.DEV) {
+      console.warn('[RemoteCommand] Duplicate suppressed:', commandId);
+    }
+    return;
+  }
 
   // Idempotent guard — yalnızca pending/queued komutları işle
   if (!fromQueue && status !== 'pending') return;
@@ -248,9 +276,30 @@ async function _processCommand(
     return;
   }
 
-  // ── Critical command + çevrimdışı → RetryQueue ──────────────────────────
+  // ── Kritik donanım komutları → E2E şifreleme zorunluluğu ─────────────────
+  // lock/unlock gibi fiziksel komutlar yalnızca decryptE2EPayload üzerinden
+  // gelmelidir. Payload `ecdh_v1` formatında değilse → güvenlik reddi.
+  // Bu önlem commandListener ↔ remoteCommandService çift kanal karmaşasını giderir:
+  // iki servis de aynı DB satırını işleyebilir; E2E kontrolü burada da tekrar yapılır.
   const intentType = row['intent'] as string | undefined;
   const isCritical = CRITICAL_TYPES.has(rowType ?? '') || CRITICAL_TYPES.has(intentType ?? '');
+
+  if (isCritical) {
+    const payloadField = row['payload'] as unknown;
+    if (!isE2EPayload(payloadField)) {
+      const msg = 'Security: critical command requires E2E encryption (ecdh_v1)';
+      await updateRemoteCommandStatus(commandId, 'rejected', msg).catch(() => {});
+      await pushVehicleEvent('remote_command_rejected', {
+        commandId,
+        reason: 'e2e_required',
+        rowType,
+      }).catch(() => {});
+      if (import.meta.env.DEV) {
+        console.error('[RemoteCommand] SECURITY BLOCK — unencrypted critical cmd:', commandId);
+      }
+      return;
+    }
+  }
 
   if (!navigator.onLine && !fromQueue) {
     if (isCritical) {

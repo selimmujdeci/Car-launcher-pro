@@ -12,6 +12,8 @@
     <uses-feature android:name="android.hardware.location"          android:required="false" />
     <uses-feature android:name="android.hardware.location.gps"      android:required="false" />
     <uses-feature android:name="android.hardware.microphone"        android:required="false" />
+    <!-- USB Host — CAN bus USB-to-serial adaptörleri (CH340, CP2102, FTDI, CDC ACM) -->
+    <uses-feature android:name="android.hardware.usb.host"         android:required="false" />
 
     <!-- ── Sorgu bildirimleri (API 30+ paket görünürlüğü) ─────────────── -->
     <queries>
@@ -40,6 +42,8 @@
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -70,6 +74,14 @@
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+
+            <!-- USB serial cihaz bağlandığında otomatik başlat + izin iste -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
 
         </activity>
 
@@ -204,6 +216,7 @@
     <!-- API 33+ (Android 13) — granular media permissions -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- Sistem ayarları — ekran parlaklığı (WRITE_SETTINGS) -->
     <!-- Uygulama normal WRITE_SETTINGS talep edebilir;

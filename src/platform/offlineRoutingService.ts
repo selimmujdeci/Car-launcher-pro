@@ -24,6 +24,9 @@
  */
 
 import { logError } from './crashLogger';
+import { registerCachePurge } from './memoryWatchdog';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import type { RouteStep } from './routingService';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -31,7 +34,27 @@ export interface OfflineRouteResult {
   geometry:  [number, number][];  // [lon, lat][] — OSRM ile aynı format
   distanceM: number;
   durationS: number;              // tahmini (30 km/h ortalama)
+  steps:     RouteStep[];
   source:    'offline-worker' | 'offline-daemon' | 'straight-line';
+}
+
+/* ── OSRM maneuver → Türkçe (daemon için yerel kopya) ─────────── */
+
+function _toTR(type: string, mod: string, name: string): string {
+  const s = name ? ` (${name})` : '';
+  if (type === 'depart')                            return `Yola çıkın${s}`;
+  if (type === 'arrive')                            return 'Hedefinize ulaştınız';
+  if (type === 'roundabout' || type === 'rotary')   return 'Dönel kavşakta devam edin';
+  if (type === 'end of road')                       return 'Yol sonunda dönün';
+  if (mod  === 'uturn')                             return 'U dönüşü yapın';
+  if (mod  === 'sharp right')                       return `Sert sağa dönün${s}`;
+  if (mod  === 'right')                             return `Sağa dönün${s}`;
+  if (mod  === 'slight right')                      return `Hafif sağa dönün${s}`;
+  if (mod  === 'straight')                          return `Düz devam edin${s}`;
+  if (mod  === 'slight left')                       return `Hafif sola dönün${s}`;
+  if (mod  === 'left')                              return `Sola dönün${s}`;
+  if (mod  === 'sharp left')                        return `Sert sola dönün${s}`;
+  return `Devam edin${s}`;
 }
 
 /* ── Local daemon (native OSRM) ──────────────────────────────── */
@@ -64,21 +87,40 @@ export async function tryLocalDaemon(
     clearTimeout(timer);
     if (!res.ok) return null;
 
+    interface _DaemonOsrmStep {
+      distance: number;
+      duration: number;
+      name: string;
+      maneuver: { type: string; modifier?: string };
+      geometry: { coordinates: [number, number][] };
+    }
     const data = await res.json() as {
       code: string;
       routes?: Array<{
         distance: number;
         duration: number;
         geometry: { coordinates: [number, number][] };
+        legs: Array<{ steps: _DaemonOsrmStep[] }>;
       }>;
     };
     if (data.code !== 'Ok' || !data.routes?.length) return null;
 
     const r = data.routes[0];
+    const steps: RouteStep[] = (r.legs?.[0]?.steps ?? []).map(st => ({
+      instruction:      _toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? ''),
+      streetName:       st.name ?? '',
+      distance:         st.distance,
+      duration:         st.duration,
+      maneuverType:     st.maneuver.type,
+      maneuverModifier: st.maneuver.modifier ?? 'straight',
+      coordinate:       st.geometry.coordinates[0] as [number, number],
+    }));
+
     return {
       geometry:  r.geometry.coordinates as [number, number][],
       distanceM: r.distance,
       durationS: r.duration,
+      steps,
       source:    'offline-daemon',
     };
   } catch {
@@ -134,7 +176,7 @@ const MAX_CLOSED_SET_SIZE = _computeMaxClosed();
 let _graphWeakRef:  WeakRef<RoutingGraph> | null = null;
 let _graphLoadFailed = false;
 
-async function loadRoutingGraph(): Promise<RoutingGraph | null> {
+export async function loadRoutingGraph(): Promise<RoutingGraph | null> {
   // Prefer the WeakRef-cached instance — reuse while still alive in memory
   const cached = _graphWeakRef?.deref();
   if (cached) return cached;
@@ -216,7 +258,7 @@ function havM(lat1: number, lon1: number, lat2: number, lon2: number): number {
 
 /* ── En yakın düğüm ──────────────────────────────────────────── */
 
-function nearestNode(graph: RoutingGraph, lat: number, lon: number): number {
+export function nearestNode(graph: RoutingGraph, lat: number, lon: number): number {
   let bestIdx  = 0;
   let bestDist = Infinity;
   for (let i = 0; i < graph.nodes.length; i++) {
@@ -232,7 +274,7 @@ function nearestNode(graph: RoutingGraph, lat: number, lon: number): number {
  * Basit A* — ikili heap (priority queue) ile O((V+E) log V).
  * Heuristic: Haversine mesafesi (admissible — asla overestimate etmez).
  */
-function aStar(
+export function aStar(
   graph: RoutingGraph,
   startIdx: number,
   goalIdx:  number,
@@ -321,14 +363,87 @@ function aStar(
 
 /* ── Public: WebWorker offline routing ───────────────────────── */
 
+/* ── NavigationCompute Worker (A* off-main-thread) ───────────────────────── */
+
+let _navWorker:   Worker | null = null;
+let _reqCounter   = 0;
+
+/** Bekleyen istek listesi: requestId → {resolve, reject, timer} */
+const _pending = new Map<string, {
+  resolve: (r: OfflineRouteResult | null) => void;
+  reject:  (e: Error) => void;
+  timer:   ReturnType<typeof setTimeout>;
+}>();
+
+const NAV_WORKER_TIMEOUT_MS = 8_000; // 8s — büyük graph + yavaş cihaz
+
+function _getOrCreateNavWorker(): Worker | null {
+  if (_navWorker) return _navWorker;
+  try {
+    const w = new Worker(
+      new URL('./navigation/NavigationCompute.worker.ts', import.meta.url),
+      { type: 'module', name: 'NavigationCompute' },
+    );
+
+    w.onmessage = (e: MessageEvent) => {
+      const msg = e.data as {
+        type: string;
+        requestId?: string;
+        geometry?: [number, number][];
+        distanceM?: number;
+        durationS?: number;
+        steps?: RouteStep[];
+        reason?: string;
+      };
+      const req = msg.requestId ? _pending.get(msg.requestId) : undefined;
+      if (!req) return;
+      clearTimeout(req.timer);
+      _pending.delete(msg.requestId!);
+
+      if (msg.type === 'ROUTE_RESULT') {
+        req.resolve({
+          geometry:  msg.geometry  ?? [],
+          distanceM: msg.distanceM ?? 0,
+          durationS: msg.durationS ?? 0,
+          steps:     msg.steps     ?? [],
+          source:    'offline-worker',
+        });
+      } else {
+        req.resolve(null); // ROUTE_ERROR → null (fallback zinciri devam eder)
+      }
+    };
+
+    w.onerror = (err) => {
+      logError('NavigationCompute:onerror', new Error(err.message ?? 'crash'));
+      runtimeManager.reportFailure('NavigationCompute');
+      // Bekleyen tüm istekleri reddet
+      for (const [id, req] of _pending.entries()) {
+        clearTimeout(req.timer);
+        req.resolve(null);
+        _pending.delete(id);
+      }
+      _navWorker = null; // Stability Guard
+    };
+
+    w.onmessageerror = () => {
+      logError('NavigationCompute:messageerror', new Error('Deserialize failed'));
+    };
+
+    _navWorker = w;
+    runtimeManager.registerWorker('NavigationCompute', w, 'OPTIONAL');
+    return w;
+  } catch (e) {
+    logError('NavigationCompute:create', e);
+    return null;
+  }
+}
+
 /**
- * Offline A* rota hesaplama.
- * /maps/routing-graph.bin yoksa → null döner.
- * Varsa → yol ağı üzerinden gerçek rota döner.
+ * Offline A* rota hesaplama — NavigationCompute Worker üzerinden.
  *
- * Dikkat: Bu fonksiyon ~100-500ms blocking olabilir.
- * Üretimde bir SharedWorker içine taşınmalıdır.
- * Şimdilik Ana Thread'de çalışır — rota UI güncellemesi zaten async.
+ * Ana thread bloklama sıfır; A* (~100–300ms) ve binary parse (~50ms)
+ * tamamen worker thread'de çalışır.
+ * Worker crash'ta Stability Guard devreye girer, null döner.
  */
 export async function computeOfflineRoute(
   fromLat: number,
@@ -336,47 +451,21 @@ export async function computeOfflineRoute(
   toLat:   number,
   toLon:   number,
 ): Promise<OfflineRouteResult | null> {
-  const graph = await loadRoutingGraph();
-  if (!graph) return null;
+  const w = _getOrCreateNavWorker();
+  if (!w) return null;
 
-  try {
-    const startIdx = nearestNode(graph, fromLat, fromLon);
-    const goalIdx  = nearestNode(graph, toLat, toLon);
+  const requestId = `r${++_reqCounter}`;
 
-    if (startIdx === goalIdx) {
-      return {
-        geometry:  [[fromLon, fromLat], [toLon, toLat]],
-        distanceM: havM(fromLat, fromLon, toLat, toLon),
-        durationS: havM(fromLat, fromLon, toLat, toLon) / (30 / 3.6),
-        source:    'offline-worker',
-      };
-    }
+  return new Promise<OfflineRouteResult | null>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      _pending.delete(requestId);
+      logError('NavigationCompute:timeout', new Error(`Request ${requestId} timed out`));
+      resolve(null);
+    }, NAV_WORKER_TIMEOUT_MS);
 
-    const path = aStar(graph, startIdx, goalIdx);
-    if (!path) return null;
-
-    const geometry: [number, number][] = path.map(idx =>
-      [graph.nodes[idx].lon, graph.nodes[idx].lat]
-    );
-
-    // Toplam mesafe
-    let distanceM = 0;
-    for (let i = 1; i < path.length; i++) {
-      const a = graph.nodes[path[i - 1]];
-      const b = graph.nodes[path[i]];
-      distanceM += havM(a.lat, a.lon, b.lat, b.lon);
-    }
-
-    return {
-      geometry,
-      distanceM,
-      durationS: distanceM / (30 / 3.6), // 30 km/h tahmini
-      source:    'offline-worker',
-    };
-  } catch (e) {
-    logError('OfflineRouting:A*', e);
-    return null;
-  }
+    _pending.set(requestId, { resolve, reject, timer });
+    w.postMessage({ type: 'COMPUTE_ROUTE', requestId, fromLat, fromLon, toLat, toLon });
+  });
 }
 
 /* ── Straight-line fallback (son çare) ───────────────────────── */
@@ -392,6 +481,7 @@ export function straightLineRoute(
     geometry:  [[fromLon, fromLat], [toLon, toLat]],
     distanceM,
     durationS: distanceM / (40 / 3.6), // 40 km/h kestirme tahmini
+    steps:     [],
     source:    'straight-line',
   };
 }
@@ -402,3 +492,16 @@ export function resetRoutingGraphCache(): void {
   _graphWeakRef    = null;
   _graphLoadFailed = false;
 }
+
+/**
+ * RAM krizi sırasında A* routing graph'ını bellekten düşür.
+ * WeakRef zaten GC'ye izin verir; bu çağrı referansı açıkça sıfırlar.
+ * Bir sonraki rota isteğinde graph dosyadan yeniden yüklenir.
+ */
+export function clearCache(): void {
+  _graphWeakRef    = null;
+  // _graphLoadFailed sıfırlanmaz: kalıcı hata → yeniden yükleme çabası olmaz
+}
+
+// RAM krizi: memoryWatchdog cache temizleme sinyaline kaydol
+registerCachePurge(clearCache);

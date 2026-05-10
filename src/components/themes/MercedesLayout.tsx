@@ -1,4 +1,4 @@
-import { memo, useState, lazy, Suspense } from 'react';
+import { memo, useState, lazy, Suspense, useEffect } from 'react';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
@@ -12,7 +12,7 @@ import { openMusicDrawer } from '../../platform/mediaUi';
 import { openDrawer } from '../../platform/drawerBus';
 import { useNotificationState } from '../../platform/notificationService';
 import { useStore } from '../../store/useStore';
-import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
@@ -246,7 +246,7 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-2.5">
               <div className="font-extralight tabular-nums leading-none"
                 style={{ fontSize: 'var(--lp-speed-font, 58px)', color: M_TEXT, letterSpacing: '-1px', textShadow: '0 0 20px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.50)' }}>
-                {speedKmh}
+                {Math.round(speedKmh)}
               </div>
               <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.45em' }}>
                 km/h
@@ -283,6 +283,11 @@ function MDataCell({ Icon, label, value, warn }: { Icon: typeof Gauge; label: st
 /* ─── MERCEDES SAĞ PANEL (Müzik + Uygulamalar) ───────────────── */
 const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: Record<string, AppItem>; onLaunch: (id: string) => void }) {
   const { playing, track } = useMediaState();
+
+  useEffect(() => {
+    startMediaHub();
+    return () => stopMediaHub();
+  }, []);
   const ids = ['maps', 'phone', 'youtube', 'settings'];
   const apps = ids.map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
 

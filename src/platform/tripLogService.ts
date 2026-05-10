@@ -192,9 +192,9 @@ function _startTrip(speedKmh: number, fuelLevel: number): void {
     lastGPSTs:   null,
   };
 
-  // Live clock: 1s — kullanıcı canlı km artışını görsün
+  // Live clock: 5s — 1s'de pil tüketimi artıyor, 5s yeterli görünürlük sağlar
   if (_liveClock) clearInterval(_liveClock);
-  _liveClock = setInterval(_notify, 1_000);
+  _liveClock = setInterval(_notify, 5_000);
 
   _setState({ active: true });
 }

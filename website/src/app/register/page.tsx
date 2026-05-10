@@ -32,6 +32,10 @@ function RegisterForm() {
         return;
       }
       const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        setError('Kimlik doğrulama servisi başlatılamadı.');
+        return;
+      }
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
       const { error: authError } = await supabase.auth.signUp({
         email,
@@ -58,6 +62,7 @@ function RegisterForm() {
   const handleGoogle = async () => {
     if (!isSupabaseConfigured) return;
     const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },

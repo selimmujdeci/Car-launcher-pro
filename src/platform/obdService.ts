@@ -19,7 +19,7 @@ import { getConfig, onPerformanceModeChange } from './performanceMode';
 import { runtimeManager }                     from '../core/runtime/AdaptiveRuntimeManager';
 import { logError } from './crashLogger';
 import { useRafSmoothed } from './rafSmoother';
-import { parseBinaryOBDFrame, hasBinaryFrame } from './obdBinaryParser';
+import { parseBinaryOBDFrame, hasBinaryFrame, clearAccumulatedBuffer } from './obdBinaryParser';
 import {
   hydrateCanSnapshotSync,
   hydrateCanSnapshotAsync,
@@ -27,6 +27,10 @@ import {
   flushCanSnapshotNow,
   stopCanSnapshot,
 } from './canSnapshotService';
+import { buildHandshakeResult } from '../core/val/OBDHandshake';
+import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
+import type { IVehicleProfile }   from '../core/val/VehicleProfile';
+import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -34,6 +38,7 @@ export type OBDConnectionState =
   | 'idle'
   | 'scanning'
   | 'connecting'
+  | 'initializing'   // connectOBD resolve → ECU handshake ısınma penceresi
   | 'connected'
   | 'reconnecting'   // exponential-backoff retry in progress
   | 'error';
@@ -202,6 +207,11 @@ let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 // state after a stop/restart cycle. Each startOBD() call increments this.
 let _nativeGeneration = 0;
 
+// stopOBD() + startOBD() arasındaki native disconnect/connect race'ini önler.
+// _startNative() bu promise'i await ederek önceki disconnectOBD() tamamlanmadan
+// connectOBD() çağrısına girmez.
+let _pendingDisconnect: Promise<void> | null = null;
+
 // ── Stale-data watchdog ──────────────────────────────────────
 // ISO 15031-5 §6.3.3: ECU response timeout ≤ 50 ms per frame;
 // ELM327 poll cycle ≤ 3 s. After 12 s without a real frame the
@@ -211,12 +221,37 @@ const WATCHDOG_INTERVAL_MS = 5_000;
 let _lastRealDataMs        = 0;
 let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
+// ── Data Validation Gate ─────────────────────────────────────
+// connectOBD resolve + 2s ısınma sonrası ilk geçerli PID (hız veya RPM)
+// gelene kadar 'connected'/'real' state'e geçilmez.
+// 10s boyunca PID akışı başlamazsa bağlantı bozuk sayılır → reconnect.
+const DATA_GATE_TIMEOUT_MS = 10_000;
+let _dataGateTimer: ReturnType<typeof setTimeout> | null = null;
+let _dataGatePassed = false;
+
 // ── Direct-reconnect: last known BT MAC ─────────────────────
 // Persisted to localStorage so app restart skips full BT INQUIRY scan.
 // BT INQUIRY = 10-30 s contention → GPS ±15 m jitter + A2DP glitch every ~10 s.
 const OBD_ADDRESS_KEY = 'obd:lastAddress';
 let _lastKnownAddress: string | null =
   (() => { try { return localStorage.getItem(OBD_ADDRESS_KEY); } catch { return null; } })();
+let _lastKnownPin: string | null = null; // session-only, güvenlik için localStorage'a yazılmaz
+
+// ── Vehicle Profile Auto-Detection ──────────────────────────
+const OBD_PROFILE_KEY = 'obd:detectedProfile'; // safeStorage anahtarı
+let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
+  safeGetRaw(OBD_PROFILE_KEY) ?? '',
+) ?? vehicleProfileRegistry.getById('standard')!;
+
+// ValidationGuard: profil EV olarak ayarlandı ama OBD hız verisi gelmiyor
+// iken GPS hızı > 10 km/h → StandardProfile'e geri dön.
+// _validationMisses: ardışık "OBD speed=0 iken GPS>10" sayacı
+const VALIDATION_THRESHOLD = 5;     // ardışık miss sayısı
+const VALIDATION_GPS_KMH   = 10;    // GPS eşiği
+let _validationMisses       = 0;
+let _validationEnabled      = false; // Yalnızca EV profil seçilince aktif
+// GPS hız cache — gpsService'ten beslenir, main thread döngüsünde güncellenir
+let _lastKnownGpsSpeed      = 0;    // km/h
 
 // ── Fuel computation config ──────────────────────────────────
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
@@ -257,12 +292,18 @@ const _unsubRuntime = runtimeManager.subscribe((_mode, config) => {
 
 /* ── Core helpers ────────────────────────────────────────── */
 
+// DEV-only test override — production'da _testOBDOverride her zaman null'dur.
+let _testOBDOverride: Partial<OBDData> | null = null;
+
 function _notify(): void {
   const now = Date.now();
   const debounceMs = getConfig().obdListenerDebounce;
   if (now - _lastNotifyTime < debounceMs) return;
   _lastNotifyTime = now;
-  const snap = { ..._current };
+  // DEV: override varsa merge et, production build'de tree-shaked
+  const snap: OBDData = (import.meta.env.DEV && _testOBDOverride)
+    ? { ..._current, ..._testOBDOverride }
+    : { ..._current };
   _dataListeners.forEach((fn) => fn(snap));
   _storeListeners.forEach((fn) => fn());
   // Gerçek CAN verisi geldiğinde WebView çökmesine karşı snapshot al.
@@ -503,6 +544,81 @@ function _stopStaleWatchdog(): void {
   }
 }
 
+/* ── Data Validation Gate ────────────────────────────────── */
+
+function _clearDataGate(): void {
+  if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
+  _dataGatePassed = false;
+}
+
+/**
+ * connectOBD + ısınma süresinden sonra çağrılır.
+ * İlk geçerli hız/RPM verisi geldiğinde 'connected'/'real' state'e geçilir.
+ * DATA_GATE_TIMEOUT_MS içinde PID akışı başlamazsa reconnect tetiklenir.
+ */
+function _startDataValidationGate(gen: number): void {
+  _stopStaleWatchdog(); // ısınma sırasında erken gelen veri watchdog başlatmış olabilir
+  _clearDataGate();
+  _dataGateTimer = setTimeout(() => {
+    _dataGateTimer = null;
+    if (!_running || _nativeGeneration !== gen) return;
+    if (!_dataGatePassed) {
+      logError('OBD:DataGate', new Error(`Bağlandı fakat ${DATA_GATE_TIMEOUT_MS / 1000}s içinde PID verisi alınamadı (Stale bağlantı)`));
+      _stopStaleWatchdog();
+      void _removeNativeHandles().then(() => _scheduleReconnect());
+    }
+  }, DATA_GATE_TIMEOUT_MS);
+}
+
+/**
+ * Native veri olayı için merkezi yönlendirici.
+ * Gate geçilmemişse: hız veya RPM içeren ilk pakette 'connected'/'real'e geç.
+ * Gate geçildikten sonra: tüm patch'ler doğrudan merge edilir.
+ *
+ * ValidationGuard: EV profili aktifken OBD speed=0 ama GPS speed>10 durumu
+ * VALIDATION_THRESHOLD kez tekrar ederse StandardProfile'e döner.
+ */
+function _onRealData(patch: Partial<OBDData>): void {
+  _lastRealDataMs = Date.now();
+  if (!_dataGatePassed) {
+    if (patch.speed !== undefined || patch.rpm !== undefined) {
+      _dataGatePassed = true;
+      if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
+      _merge({ ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real' });
+      _startStaleWatchdog();
+    }
+    return; // gate geçilmemişse diğer PID'ler ısınma dönemi boyunca görmezden gelinir
+  }
+
+  // ── ValidationGuard ────────────────────────────────────────────────────────
+  // EV profili seçildiyse, OBD'den hız sinyali beklenmez (PID 0x0D listede olmayabilir).
+  // Ancak OBD speed=0 gelirken GPS speed>10 km/h → profil yanlış seçilmiş.
+  // VALIDATION_THRESHOLD ardışık tutarsızlıkta StandardProfile'e geri dön.
+  if (_validationEnabled && patch.speed !== undefined && patch.speed === 0) {
+    // GPS hızına useUnifiedVehicleStore olmadan eriş: _current.speed GPS füzyonundan gelir
+    // obdService store'u kendi içinde tutar; GPS hızı için OBD speed'i GPS ile kıyaslarız.
+    // Burada _current.speed OBD source'tan gelen 0 — GPS hızı için
+    // window event veya module-level GPS speed cache kullanılır.
+    const gpsSpeed = _lastKnownGpsSpeed;
+    if (gpsSpeed > VALIDATION_GPS_KMH) {
+      _validationMisses++;
+      if (_validationMisses >= VALIDATION_THRESHOLD) {
+        console.warn('[OBD:ValidationGuard] EV profili geçersiz: OBD speed=0 iken GPS speed=',
+          gpsSpeed.toFixed(1), 'km/h →  StandardProfile\'e geri dönülüyor');
+        _validationMisses  = 0;
+        _validationEnabled = false;
+        _applyDetectedProfile(vehicleProfileRegistry.getById('standard')!);
+      }
+    } else {
+      _validationMisses = 0; // GPS de yavaş → tutarsızlık yok
+    }
+  } else if (_validationEnabled && patch.speed !== undefined && patch.speed > 0) {
+    _validationMisses = 0; // OBD speed geliyor → geçerli
+  }
+
+  _merge({ ...patch, lastSeenMs: _lastRealDataMs });
+}
+
 /* ── Exponential back-off reconnect ──────────────────────── */
 
 /**
@@ -513,21 +629,28 @@ function _stopStaleWatchdog(): void {
 function _scheduleReconnect(): void {
   if (!_running) return;
 
+  clearAccumulatedBuffer(); // T507: parçalı paket tamponunu temizle
+  _clearDataGate();         // önceki gate/timer sızıntısını önle
+
   // OBD disconnect → RuntimeEngine'e bildir (bir adım downgrade — hysteresis bypass)
   runtimeManager.reportFailure('OBD');
+
+  // Gerçek cihazda (native) sahte veri göstermek yasak — dürüst error state.
+  // Mock sadece tarayıcı geliştirme modunda (MOCK_ENABLED=true, non-native) kullanılır.
+  const nativePlatform = Capacitor.isNativePlatform();
 
   // Guard: BT INQUIRY scan reconnect sırasında yasak — GPS jitter + A2DP kesintisi.
   // Kayıtlı MAC yoksa kullanıcı manuel olarak OBDConnectModal'dan cihaz seçmelidir.
   if (!_lastKnownAddress) {
     _reconnectAttempts = 0;
     _merge({ connectionState: 'error', source: 'none' });
-    if (MOCK_ENABLED) _startMock();
+    if (MOCK_ENABLED && !nativePlatform) _startMock();
     return;
   }
 
   if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     _reconnectAttempts = 0;
-    if (MOCK_ENABLED) {
+    if (MOCK_ENABLED && !nativePlatform) {
       _startMock();
     } else {
       _merge({ connectionState: 'error', source: 'none' });
@@ -538,9 +661,10 @@ function _scheduleReconnect(): void {
   const delayMs = Math.pow(2, _reconnectAttempts) * 1_000; // 1 s, 2 s, 4 s, 8 s, 16 s
   _reconnectAttempts++;
 
-  // source: mock yalnızca mock aktifse; aksi halde 'none' göster (sahte veri yok)
-  _merge({ connectionState: 'reconnecting', source: MOCK_ENABLED ? 'mock' : 'none', deviceName: '' });
-  _startMock(); // MOCK_ENABLED=false ise no-op
+  // Native platformda reconnect bekleme süresi boyunca 'reconnecting' + source: 'none'
+  // (sahte veri yok). Web geliştirme modunda mock akışı sürdürülür.
+  _merge({ connectionState: 'reconnecting', source: (MOCK_ENABLED && !nativePlatform) ? 'mock' : 'none', deviceName: '' });
+  if (!nativePlatform) _startMock(); // web dev modu: mock no-op eğer MOCK_ENABLED=false
 
   if (_reconnectTimer) clearTimeout(_reconnectTimer);
   _reconnectTimer = setTimeout(() => {
@@ -599,6 +723,13 @@ async function _startNative(): Promise<void> {
   const myGen = ++_nativeGeneration;
   const _stale = () => !_running || _nativeGeneration !== myGen;
 
+  // Önceki stopOBD() disconnect'inin native tarafta tamamlanmasını bekle.
+  // disconnectOBD() bitmeden connectOBD() gönderilirse BLE/TCP stack yarış yaşar.
+  if (_pendingDisconnect) {
+    await _pendingDisconnect;
+    if (_stale()) return;
+  }
+
   _nativeHandles = [];
 
   // ── Fix 3: Direct reconnect — BT INQUIRY scan atla ──────────
@@ -620,7 +751,7 @@ async function _startNative(): Promise<void> {
     if (_stale()) { void _removeNativeHandles(); return; }
 
     candidate =
-      devices.find((d) => /obd|elm|vlink|obdii|kw|veepeak|icar|vgate/i.test(d.name)) ??
+      devices.find((d) => /obd|elm|v.?link|obdii|kw|veepeak|icar|vgate/i.test(d.name)) ??
       devices[0] ??
       null;
 
@@ -648,25 +779,21 @@ async function _startNative(): Promise<void> {
     (data: NativeOBDData) => {
       if (!_running || _nativeGeneration !== myGen) return;
       try {
-        _lastRealDataMs = Date.now();
-
-        // ── Binary Fast-Path ────────────────────────────────────────────────
-        // Native plugin binary frame gönderirse JSON.parse tamamen atlanır.
-        // DataView ile 16-byte sabit çerçeve direkt parse edilir.
-        // parseBinaryOBDFrame() null döndürürse JSON fallback devreye girer.
+        // ── Binary Fast-Path ──────────────────────────────────────────────
+        // parseBinaryOBDFrame içinde T507 parçalı paket birikimi yapılır;
+        // null dönerse ya fragment bekleniyor (→ bekle) ya da JSON fallback.
         if (hasBinaryFrame(data)) {
           const binaryPatch = parseBinaryOBDFrame(data.binaryFrame);
           if (binaryPatch) {
-            _merge({ ...binaryPatch, lastSeenMs: _lastRealDataMs, source: 'real' });
-            _lastRealDataMs = Date.now();
+            _onRealData(binaryPatch);
             return; // JSON path atlandı
           }
-          // Binary parse başarısız → JSON fallback ile devam et
+          // null: fragment birikmede veya magic/version hatası → JSON fallback
         }
 
-        // ── JSON Fallback Path ──────────────────────────────────────────────
+        // ── JSON Fallback Path ────────────────────────────────────────────
         const sanitized = _sanitizeNative(data);
-        if (sanitized) _merge({ ...sanitized, lastSeenMs: _lastRealDataMs });
+        if (sanitized) _onRealData(sanitized);
       } catch (e) {
         logError('OBD:DataHandler', e);
       }
@@ -677,11 +804,19 @@ async function _startNative(): Promise<void> {
   _nativeHandles = [statusHandle, dataHandle];
 
   // 4. Connect — resolves when ELM327 init completes, rejects on failure.
-  //    Fix 2: araç tipine göre PID listesi iletilir — EV'de ICE PID'leri atlanır.
+  //    Araç tipine göre PID listesi iletilir — EV'de ICE PID'leri atlanır.
+  //    T507 protokol zorlama: ilk denemede ATSP0 (otomatik); başarısız olunca
+  //    _reconnectAttempts >= 1'de ISO 15765-4 CAN (protokol '6') zorlanır.
   //    Race against a 30 s timeout so a non-responsive BT device doesn't hang.
   const pidList = _getPidList(_current.vehicleType);
+  const forceCanProtocol = _reconnectAttempts >= 1; // ikinci denemeden itibaren CAN zorla
   await Promise.race([
-    CarLauncher.connectOBD({ address: candidate.address, pids: pidList }),
+    CarLauncher.connectOBD({
+      address: candidate.address,
+      pids: pidList,
+      ...(forceCanProtocol ? { protocol: '6' } : {}),
+      ...(_lastKnownPin ? { pin: _lastKnownPin } : {}),
+    }),
     new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error(`OBD bağlantısı zaman aşımına uğradı (${CONNECT_TIMEOUT_MS / 1000}s): ${candidate.name}`)),
@@ -692,13 +827,67 @@ async function _startNative(): Promise<void> {
 
   if (_stale()) { void _removeNativeHandles(); return; }
 
-  // 5. Mark as live — persist MAC so next app restart skips BT INQUIRY scan entirely
+  // 5. MAC'i kaydet ve ısınma (warm-up) periyoduna gir.
+  //    ELM327 initstring tamamlandı; T507 uyumu için ECU–adaptör el sıkışması
+  //    gecikmeli olabilir. 2 saniye boyunca 'initializing' state'inde kal.
   _lastKnownAddress = candidate.address;
   try { localStorage.setItem(OBD_ADDRESS_KEY, candidate.address); } catch { /* quota */ }
-  _merge({ connectionState: 'connected', source: 'real' });
+  _merge({ connectionState: 'initializing', source: 'none' });
 
-  // Fix 1: stale-data watchdog'u başlat
-  _startStaleWatchdog();
+  await new Promise<void>((r) => setTimeout(r, 2_000));
+  if (_stale()) { void _removeNativeHandles(); return; }
+
+  // 6. OBD Handshake — VIN ve desteklenen PID tespiti.
+  //    performHandshake() opsiyoneldir; eski plugin versiyonlarında yoktur → try/catch.
+  //    Hata oluşursa ya da native mevcut değilse varsayılan profil korunur.
+  try {
+    if (CarLauncher.performHandshake) {
+      const { raw09, raw0100 } = await CarLauncher.performHandshake();
+      if (_stale()) { void _removeNativeHandles(); return; }
+
+      const result  = buildHandshakeResult(raw09, raw0100);
+      const profile = vehicleProfileRegistry.findBestMatch(result.vin, result.supportedPids);
+
+      _applyDetectedProfile(profile);
+
+      if (result.vin) {
+        console.info('[OBD:Handshake] VIN:', result.vin,
+          '| Üretici:', vehicleProfileRegistry /* decodeWMI */ && result.vin.slice(0, 3),
+          '| Profil:', profile.name,
+        );
+      } else {
+        console.info('[OBD:Handshake] VIN alınamadı, PID heuristic → profil:', profile.name);
+      }
+    }
+  } catch (err) {
+    // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
+    console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
+  }
+
+  // 7. Veri kapısı: ilk geçerli hız veya RPM geldiğinde 'connected'/'real'e geçilir.
+  //    DATA_GATE_TIMEOUT_MS içinde PID alınamazsa bağlantı bozuk → reconnect.
+  //    (Stale watchdog kapı geçilince _onRealData içinden başlatılır.)
+  _startDataValidationGate(myGen);
+}
+
+/* ── Profil uygulama ─────────────────────────────────────────────────────── */
+
+/**
+ * Tespit edilen profili aktif olarak ayarlar.
+ *  • safeStorage'a yazar (4s debounce — normal yazım yolu)
+ *  • vehicleType'ı günceller (bir sonraki reconnect doğru PID listesi kullanır)
+ *  • EV profil seçilince ValidationGuard'ı aktif eder
+ */
+function _applyDetectedProfile(profile: IVehicleProfile): void {
+  _activeProfile = profile;
+  safeSetRaw(OBD_PROFILE_KEY, profile.id);
+
+  // vehicleType state'ini güncelle — bir sonraki reconnect'te _getPidList() bunu kullanır
+  _merge({ vehicleType: profile.vehicleType });
+
+  // ValidationGuard: yalnızca kısıtlayıcı EV profili seçilince aktif
+  _validationMisses   = 0;
+  _validationEnabled  = profile.vehicleType === 'ev';
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -741,11 +930,12 @@ const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true'
  *   Omitted → uses _lastKnownAddress from localStorage (also skips scan);
  *   only falls back to full scan if no address was ever saved.
  */
-export function startOBD(address?: string): void {
+export function startOBD(address?: string, pin?: string): void {
   if (address) {
     _lastKnownAddress = address;
     try { localStorage.setItem(OBD_ADDRESS_KEY, address); } catch { /* quota */ }
   }
+  if (pin !== undefined) _lastKnownPin = pin || null; // boş string → null (PIN'siz)
 
   if (_running) {
     // address provided while service is already running but not connected:
@@ -786,15 +976,15 @@ export function startOBD(address?: string): void {
           await _startNative();
           return; // success — don't start mock
         } catch (e) {
-          // Native failed → log and fall through to mock (unless disabled)
+          // Native failed → dürüst error state, mock YOK.
+          // Kullanıcı gerçek cihazda sahte 42 km/h görmemeli.
           logError('OBD:StartNative', e);
           await _removeNativeHandles();
           _merge({ connectionState: 'error', source: 'none', deviceName: '' });
-          if (!MOCK_ENABLED) return; // Production: bağlanamadı → idle kalır
-          // Brief pause so the UI can show the error state before switching to mock
-          await new Promise((r) => setTimeout(r, 1500));
+          return; // native platformda hata sonrası mock'a düşme
         }
       }
+      // Tarayıcı / geliştirme modu: mock akışı başlat
       if (MOCK_ENABLED) {
         _startMock();
       }
@@ -821,14 +1011,15 @@ export function stopOBD(): void {
   _prevRpm = null;     // jump-detection sıfırla — reconnect'te stale eşik kalmasın
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _reconnectAttempts = 0;
-  // Fix 4: stale watchdog'u durdur — uzun sürüş sonrası unmount'ta sızıntı önle
   _stopStaleWatchdog();
+  _clearDataGate();
+  clearAccumulatedBuffer();
   _stopMock();
-  void _removeNativeHandles().then(() => {
+  _pendingDisconnect = _removeNativeHandles().then(() => {
     if (Capacitor.isNativePlatform()) {
-      CarLauncher.disconnectOBD().catch(() => { /* ignore */ });
+      return CarLauncher.disconnectOBD().catch(() => {});
     }
-  });
+  }).finally(() => { _pendingDisconnect = null; });
   _merge({ connectionState: 'idle', source: 'none', deviceName: '', lastSeenMs: 0 });
 }
 
@@ -840,6 +1031,25 @@ export function updateOBDData(partial: Partial<NativeOBDData>): void {
   if (sanitized) _merge({ ...sanitized, source: 'real', connectionState: 'connected' });
 }
 
+/**
+ * ValidationGuard GPS hız beslemesi.
+ * gpsService'i doğrudan import etmek döngüsel bağımlılık yaratır;
+ * index.ts (vehicleDataLayer) bu fonksiyonu GPS güncellemelerinde çağırır.
+ *
+ * @param speedKmh  GPS Doppler hızı (km/h) — SignalNormalizer.fromGPS() çıktısı
+ */
+export function updateGpsSpeedForValidation(speedKmh: number): void {
+  _lastKnownGpsSpeed = speedKmh;
+}
+
+/**
+ * Aktif tespit edilen OBD araç profilini döner.
+ * OBD panelleri ve ayarlar ekranı tarafından okunabilir.
+ */
+export function getActiveOBDProfile(): IVehicleProfile {
+  return _activeProfile;
+}
+
 /* ── External subscription ───────────────────────────────── */
 
 /**
@@ -849,6 +1059,23 @@ export function updateOBDData(partial: Partial<NativeOBDData>): void {
 export function onOBDData(fn: (d: OBDData) => void): () => void {
   _dataListeners.add(fn);
   return () => _dataListeners.delete(fn);
+}
+
+/* ── DEV: Fault injection hook ───────────────────────────────────── */
+
+/**
+ * OBD verisinin üzerine anlık test değerleri yaz (DEV only).
+ * `null` geçmek override'ı kaldırır ve gerçek veriye döner.
+ *
+ * Production APK'da no-op — import.meta.env.DEV tree-shaking ile elenir.
+ */
+export function setOBDTestOverride(data: Partial<OBDData> | null): void {
+  if (!import.meta.env.DEV) return;
+  _testOBDOverride = data;
+  // Override'ı hemen yayınla (debounce'u atla — test anında görünmeli)
+  const snap: OBDData = data ? { ..._current, ...data } : { ..._current };
+  _dataListeners.forEach((fn) => fn(snap));
+  _storeListeners.forEach((fn) => fn());
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */

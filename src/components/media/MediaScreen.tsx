@@ -11,8 +11,9 @@ import { memo, useEffect, useCallback, useState, useRef } from 'react';
 import {
   SkipBack, SkipForward, Play, Pause,
   Music2, Bluetooth, Radio, Shuffle, Repeat, Repeat1,
-  Heart, Layers, Check, ChevronRight,
+  Heart, Layers, Check, ChevronRight, HardDrive,
 } from 'lucide-react';
+import { LocalMusicBrowser } from './LocalMusicBrowser';
 import {
   useMediaState, togglePlayPause, next, previous,
   fmtTime, startMediaHub, toggleShuffle, cycleRepeat,
@@ -62,7 +63,7 @@ const KNOWN_SOURCES: KnownSource[] = [
 
 /* ── Tab tipi ─────────────────────────────────────────────── */
 
-type Tab = 'player' | 'sources';
+type Tab = 'player' | 'sources' | 'library';
 
 /* ── Ana bileşen ─────────────────────────────────────────── */
 
@@ -107,32 +108,36 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
     <div className="h-full flex flex-col overflow-hidden bg-transparent">
       {/* ── Aktif sayfa ─────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === 'player'
-          ? <PlayerView
-              hasSession={hasSession}
-              playing={playing}
-              track={track}
-              source={source}
-              srcMeta={srcMeta}
-              displayName={displayName}
-              progressPct={progressPct}
-              shuffle={shuffle}
-              repeat={repeat}
-              activeSourceKey={activeSourceKey}
-              onTabSources={() => setTab('sources')}
-            />
-          : <SourcesView
-              activeSourceKey={activeSourceKey}
-              activeSession={hasSession ? source : null}
-              onSelectSource={handleSelectSource}
-            />
-        }
+        {tab === 'player' && (
+          <PlayerView
+            hasSession={hasSession}
+            playing={playing}
+            track={track}
+            source={source}
+            srcMeta={srcMeta}
+            displayName={displayName}
+            progressPct={progressPct}
+            shuffle={shuffle}
+            repeat={repeat}
+            activeSourceKey={activeSourceKey}
+            onTabSources={() => setTab('sources')}
+          />
+        )}
+        {tab === 'sources' && (
+          <SourcesView
+            activeSourceKey={activeSourceKey}
+            activeSession={hasSession ? source : null}
+            onSelectSource={handleSelectSource}
+          />
+        )}
+        {tab === 'library' && <LocalMusicBrowser />}
       </div>
 
       {/* ── Tab bar ─────────────────────────────────────────── */}
       <div className="flex-shrink-0 flex border-t border-white/10 var(--panel-bg-secondary) backdrop-blur-md rounded-b-[32px] overflow-hidden">
-        <TabBtn active={tab === 'player'}  icon={<Music2 className="w-5 h-5" />}  label="Çalıyor"   onClick={() => setTab('player')}  />
-        <TabBtn active={tab === 'sources'} icon={<Layers className="w-5 h-5" />} label="Kaynaklar" onClick={() => setTab('sources')} />
+        <TabBtn active={tab === 'player'}  icon={<Music2     className="w-5 h-5" />} label="Çalıyor"   onClick={() => setTab('player')}  />
+        <TabBtn active={tab === 'library'} icon={<HardDrive  className="w-5 h-5" />} label="Cihaz"     onClick={() => setTab('library')} />
+        <TabBtn active={tab === 'sources'} icon={<Layers     className="w-5 h-5" />} label="Kaynaklar" onClick={() => setTab('sources')} />
       </div>
     </div>
   );

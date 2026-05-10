@@ -36,6 +36,15 @@ const VERIFICATION_RADIUS_M    = 50;
 /** Per-radar minimum interval between TTS alerts — prevents re-alerting on U-turns */
 const RADAR_TTS_COOLDOWN_MS    = 5 * 60 * 1_000; // 5 minutes
 
+/** LRU kapasite sınırı — sonsuz büyümeyi engeller (Zero-Leak) */
+const TTS_HISTORY_MAX_SIZE     = 100;
+
+/** 24 saatten eski kayıtlar stale sayılır ve periyodik purge'de silinir */
+const TTS_HISTORY_STALE_MS     = 24 * 60 * 60_000;
+
+/** Saatlik stale-purge aralığı */
+const TTS_HISTORY_PURGE_INTERVAL_MS = 60 * 60_000;
+
 /** How much to lower volume (0-100 scale) during TTS ducking */
 const DUCK_REDUCTION           = 35;
 
@@ -49,6 +58,9 @@ let _alertCb: AlertCallback | null = null;
 
 /** radarId → performance.now() of last TTS fire — persists across threat lifecycle */
 const _radarTtsHistory = new Map<string, number>();
+
+/** Periyodik stale-purge timer — startRadarEngine başlatır, stopRadarEngine temizler */
+let _ttsHistoryPurgeTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Alert callback (external extension point) ─────────────────────────────────
 
@@ -104,7 +116,7 @@ function _fireVoiceAlert(threat: ThreatEntry): boolean {
   // ── Per-radar anti-spam (5 min cooldown) ─────────────────────────────────
   const lastFired = _radarTtsHistory.get(radarId);
   if (lastFired !== undefined && (now - lastFired) < RADAR_TTS_COOLDOWN_MS) return false;
-  _radarTtsHistory.set(radarId, now);
+  _ttsHistorySet(radarId, now); // LRU-bounded set — kapasite + insertion order güncellenir
 
   const text = _buildAlertText(threat);
 
@@ -130,12 +142,58 @@ export function loadStaticRadars(points: RadarPoint[]): void {
   useRadarStore.getState().setRadars(points);
 }
 
+// ── TTS History — LRU-bounded Map (Zero-Leak) ────────────────────────────────
+
+/**
+ * Map'e LRU tarzı kayıt ekler.
+ *
+ * - Mevcut radar tekrar ateşlenirse (cooldown sona erdi): eski kaydı sil + sona ekle
+ *   → Map iteration sırası "en son ateşleme zamanına" göre güncellenir.
+ * - Yeni radar + kapasite dolu: ilk kaydı (en eski LRU) sil, sonra ekle.
+ * - Böylece Map'in boyutu asla TTS_HISTORY_MAX_SIZE'ı geçmez.
+ */
+function _ttsHistorySet(radarId: string, ts: number): void {
+  const isNew = !_radarTtsHistory.has(radarId);
+
+  // Mevcut giriş varsa sil — sonra sona eklenerek "en son güncellenen" olur
+  _radarTtsHistory.delete(radarId);
+
+  // Yeni kayıt + kapasite aşılacak → en eski (baştaki) girişi çıkar
+  if (isNew && _radarTtsHistory.size >= TTS_HISTORY_MAX_SIZE) {
+    const oldest = _radarTtsHistory.keys().next().value;
+    if (oldest !== undefined) _radarTtsHistory.delete(oldest);
+  }
+
+  _radarTtsHistory.set(radarId, ts);
+}
+
+/**
+ * TTS_HISTORY_STALE_MS'den eski kayıtları siler.
+ * Map insertion-order korunur (LRU sırası); baştaki kayıtlar en eskidir.
+ * İlk fresh kaydı görünce loop'tan çıkar (O(stale_count)).
+ */
+function _purgeStaleHistory(): void {
+  const staleTs = performance.now() - TTS_HISTORY_STALE_MS;
+  for (const [id, ts] of _radarTtsHistory) {
+    if (ts < staleTs) {
+      _radarTtsHistory.delete(id);
+    } else {
+      break; // Daha sonraki kayıtlar daha yeni — erken çık
+    }
+  }
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 /** Start the engine: load static points, begin community sync. Idempotent. */
 export async function startRadarEngine(staticPoints: RadarPoint[] = []): Promise<void> {
   loadStaticRadars(staticPoints);
   await startCommunitySync();
+
+  // Saatlik stale-purge — 12+ saatlik oturumda 24h öncesi kayıtları temizler
+  if (_ttsHistoryPurgeTimer === null) {
+    _ttsHistoryPurgeTimer = setInterval(_purgeStaleHistory, TTS_HISTORY_PURGE_INTERVAL_MS);
+  }
 }
 
 /**
@@ -144,7 +202,8 @@ export async function startRadarEngine(staticPoints: RadarPoint[] = []): Promise
  * Zero-Leak checklist:
  *   ✓ Supabase Realtime channel removed (via stopCommunitySync)
  *   ✓ Decay setInterval cleared (via stopCommunitySync)
- *   ✓ _radarTtsHistory Map cleared
+ *   ✓ _radarTtsHistory Map cleared (LRU-bounded, max 100 entries)
+ *   ✓ Stale-purge setInterval cleared
  *   ✓ Alert callback deregistered
  *   ✓ Store threats + live reports purged
  */
@@ -152,6 +211,10 @@ export function stopRadarEngine(): void {
   stopCommunitySync();
   setRadarAlertCallback(null);
   _radarTtsHistory.clear();
+  if (_ttsHistoryPurgeTimer !== null) {
+    clearInterval(_ttsHistoryPurgeTimer);
+    _ttsHistoryPurgeTimer = null;
+  }
   useRadarStore.getState().clearAll();
 }
 

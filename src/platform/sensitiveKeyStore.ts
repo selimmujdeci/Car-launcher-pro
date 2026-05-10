@@ -39,6 +39,29 @@ export type SensitiveKey =
 
 const _isNative = Capacitor.isNativePlatform();
 
+/**
+ * Reinstall/güncelleme sonrası API anahtarlarını kurtarmak için ikincil depo.
+ * EncryptedSharedPreferences Keystore anahtarıyla birlikte silinir;
+ * bu depo Android Auto Backup ile Google Drive'a yedeklenir ve geri gelir.
+ * Yalnızca geminiApiKey ve claudeHaikuApiKey bu depoya yazılır.
+ */
+const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey'];
+
+async function _recoverySet(key: SensitiveKey, value: string): Promise<void> {
+  if (!_isNative || !RECOVERY_KEYS.includes(key)) return;
+  try {
+    await CarLauncher.saveRecoveryKey({ key, value });
+  } catch { /* non-critical */ }
+}
+
+async function _recoveryGet(key: SensitiveKey): Promise<string> {
+  if (!_isNative || !RECOVERY_KEYS.includes(key)) return '';
+  try {
+    const res = await CarLauncher.loadRecoveryKey({ key });
+    return res?.value ?? '';
+  } catch { return ''; }
+}
+
 async function nativeGet(key: string): Promise<string> {
   try {
     const result = await (CarLauncher as unknown as {
@@ -151,13 +174,28 @@ async function _migrateToNative(): Promise<void> {
 export const sensitiveKeyStore = {
   async get(key: SensitiveKey): Promise<string> {
     await _migrateToNative();
-    if (_isNative) return nativeGet(key);
+    if (_isNative) {
+      const val = await nativeGet(key);
+      if (val) return val;
+      // EncryptedSharedPreferences boş — reinstall sonrası recovery'den geri yükle
+      const recovered = await _recoveryGet(key);
+      if (recovered) {
+        // Bulundu → EncryptedSharedPreferences'a geri yaz (bir sonraki okumada hızlı)
+        await nativeSet(key, recovered).catch(() => {});
+      }
+      return recovered;
+    }
     return _webGet(key);
   },
 
   async set(key: SensitiveKey, value: string): Promise<void> {
     await _migrateToNative();
-    if (_isNative) { await nativeSet(key, value); return; }
+    if (_isNative) {
+      await nativeSet(key, value);
+      // Recovery store'a da yaz — reinstall/güncelleme sonrası kaybolmasın
+      await _recoverySet(key, value);
+      return;
+    }
     await _webSet(key, value);
   },
 

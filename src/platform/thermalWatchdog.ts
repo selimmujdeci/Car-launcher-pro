@@ -24,7 +24,9 @@
 
 import { useSyncExternalStore }                         from 'react';
 import { onOBDData }                                    from './obdService';
-import { setBrightness }                                from './systemSettingsService';
+import { setBrightnessAuto,
+         setThermalBrightnessLock,
+         clearThermalBrightnessLock }                   from './systemSettingsService';
 import { stopCommunitySync, startCommunitySync,
          isCommunitySync }                              from './radar/radarCommunityService';
 import { showToast }                                    from './errorBus';
@@ -62,6 +64,13 @@ const RESTORE_TTL = 5 * 60_000;  // Eski snapshot'ı yoksay (5 dk)
 const ENTER: readonly [number, number, number] = [45, 55, 65];
 const EXIT:  readonly [number, number, number] = [40, 50, 60];
 
+// Tahminsel ısı motoru sabitleri
+const HISTORY_MAX         = 10;          // Kayar pencere örnekleri (maks)
+const HISTORY_SPAN_MS     = 5 * 60_000;  // Pencere genişliği (5 dk)
+const PREDICT_HORIZON_MIN = 3.0;         // Kaç dakika ilerisi tahmin edilir
+const WORKLOAD_BIAS_C     = 2.5;         // Aktif worker yükü sıcaklık önyargısı (°C)
+const EARLY_WARN_REAL_MAX = 42;          // Erken uyarı: gerçek sıcaklık bu altında olmalı
+
 /* ══════════════════════════════════════════════════════════════════════════
    Modül state
 ══════════════════════════════════════════════════════════════════════════ */
@@ -78,6 +87,19 @@ let _savedBrightness:   number | null = null;
 let _lastPersistLevel:  number = -1;   // ilk yazmayı zorla
 /** runtimeManager.subscribe cleanup — Zero-Leak */
 let _runtimeUnsub:      (() => void) | null = null;
+
+// Upward-debounce state: ısınma geçişleri 2 s boyunca sürdürülmedikçe uygulanmaz
+let _pendingLevel:  ThermalLevel | null                    = null;
+let _debounceTimer: ReturnType<typeof setTimeout> | null   = null;
+
+// ── Tahminsel ısı motoru state ────────────────────────────────────────────────
+interface _ThermalSample { temp: number; ts: number; }
+/** Kayar pencere — eğim hesabı için son HISTORY_MAX/HISTORY_SPAN_MS örneği tutar */
+const _thermalHistory: _ThermalSample[] = [];
+/** Erken uyarı (L0.5) aktif mi? Radar sync'ini sessizce durdurur. */
+let _earlyWarningActive      = false;
+/** Erken uyarı tarafından durdurulmuş radar sync — L2/L3 flag'inden bağımsız */
+let _earlyWarningRadarPaused = false;
 
 // useSyncExternalStore için
 let _storeSnap: ThermalSnapshot = { level: 0, tempC: NaN, source: 'unknown', ts: 0 };
@@ -97,6 +119,79 @@ interface BatteryManager {
 
 interface NavigatorWithBattery extends Navigator {
   getBattery(): Promise<BatteryManager>;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Tahminsel ısı motoru — Trend analizi + iş yükü farkındalığı
+══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Sıcaklık örneğini kayar pencereye ekler.
+ * Kapasite (HISTORY_MAX) ve zaman penceresi (HISTORY_SPAN_MS) dışındaki örnekler atılır.
+ */
+function _pushHistory(tempC: number): void {
+  const now = Date.now();
+  _thermalHistory.push({ temp: tempC, ts: now });
+  const cutoff = now - HISTORY_SPAN_MS;
+  while (_thermalHistory.length > HISTORY_MAX || (_thermalHistory[0]?.ts ?? Infinity) < cutoff) {
+    _thermalHistory.shift();
+  }
+}
+
+/**
+ * Penceredeki ilk ve son örnek arasındaki eğim (°C / dakika).
+ * Negatif → soğuma, pozitif → ısınma, 0 → stabil.
+ * Pencere çok kısa (<2 örnek veya <10 s) ise 0 döner.
+ */
+function _calculateSlopeDegPerMin(): number {
+  if (_thermalHistory.length < 2) return 0;
+  const oldest = _thermalHistory[0];
+  const newest = _thermalHistory[_thermalHistory.length - 1];
+  const deltaMs = newest.ts - oldest.ts;
+  if (deltaMs < 10_000) return 0; // 10s altı pencere güvenilmez
+  return ((newest.temp - oldest.temp) / deltaMs) * 60_000;
+}
+
+/**
+ * Aktif worker'lara göre iş yükü önyargısı (°C).
+ * VisionCompute veya NavigationCompute çalışıyorsa +2.5°C ek yük tahmini eklenir.
+ */
+function _getWorkloadBias(): number {
+  const workers = runtimeManager.getWorkers();
+  const visionActive = (workers.get('VisionCompute')?.worker ?? null) !== null;
+  const navActive    = (workers.get('NavigationCompute')?.worker ?? null) !== null;
+  return (visionActive || navActive) ? WORKLOAD_BIAS_C : 0;
+}
+
+/**
+ * Erken uyarı (L0.5) kontrolü.
+ * Tahmin ≥ L1 eşiği (45°C) VE gerçek sıcaklık < 42°C ise
+ * arka plan sync'lerini sessizce durdur — kullanıcıya bildirim yok.
+ */
+function _checkEarlyWarning(predictedTemp: number, realTemp: number): void {
+  const shouldWarn = predictedTemp >= ENTER[0] && realTemp < EARLY_WARN_REAL_MAX;
+
+  if (shouldWarn && !_earlyWarningActive) {
+    _earlyWarningActive = true;
+    if (isCommunitySync()) {
+      _earlyWarningRadarPaused = true;
+      stopCommunitySync();
+    }
+    if (import.meta.env.DEV) {
+      console.info(
+        `[Thermal] EarlyWarn: predicted=${predictedTemp.toFixed(1)}°C ≥ L1 threshold, real=${realTemp.toFixed(1)}°C`,
+      );
+    }
+  } else if (!shouldWarn && _earlyWarningActive) {
+    _earlyWarningActive = false;
+    // Erken uyarı geçti → sync'i geri başlat (L2/L3 baskısı yoksa)
+    if (_earlyWarningRadarPaused && _level < 2) {
+      _earlyWarningRadarPaused = false;
+      void startCommunitySync();
+    } else {
+      _earlyWarningRadarPaused = false;
+    }
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -163,6 +258,12 @@ function _setCSSLevel(level: ThermalLevel): void {
   } else {
     root.style.setProperty('--thermal-level', String(level));
   }
+  // GPU Guard: HOT (L2) / CRITICAL (L3) → backdrop-filter blur kaldır (%40 GPU yük azalması)
+  if (level >= 2) {
+    root.classList.add('is-thermal-throttling');
+  } else {
+    root.classList.remove('is-thermal-throttling');
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -180,9 +281,10 @@ function _onEnter(level: ThermalLevel): void {
       break;
 
     case 2: {
-      // Parlaklık %50'ye sabitle
+      // Parlaklık %50'ye sabitle (cap ayarlanmadan ÖNCE — termal sistem kendi çağrısı serbest)
       _savedBrightness = useStore.getState().settings.brightness ?? 80;
-      setBrightness(50);
+      setBrightnessAuto(50);
+      setThermalBrightnessLock(50); // Kullanıcı %50 üstüne çıkamasın
 
       // Radar Community Sync duraklat (ağ trafiği → CPU/ısı azalır)
       if (isCommunitySync()) {
@@ -204,7 +306,8 @@ function _onEnter(level: ThermalLevel): void {
       if (_savedBrightness === null) {
         _savedBrightness = useStore.getState().settings.brightness ?? 80;
       }
-      setBrightness(30);
+      setBrightnessAuto(30);
+      setThermalBrightnessLock(30); // Kullanıcı %30 üstüne çıkamasın
 
       // Radar zaten L2'de durdurulmuş olabilir; değilse şimdi durdur
       if (!_radarWasPaused && isCommunitySync()) {
@@ -227,9 +330,15 @@ function _onEnter(level: ThermalLevel): void {
 function _onExit(fromLevel: ThermalLevel, toLevel: ThermalLevel): void {
   _setCSSLevel(toLevel);
 
+  // L3→L2 geçişi: kap L2 seviyesine gevşet (30% → 50%)
+  if (fromLevel === 3 && toLevel === 2) {
+    setThermalBrightnessLock(50);
+  }
+
   // Parlaklığı geri yükle (L2/L3'ten L1 veya L0'a düşünce)
   if (fromLevel >= 2 && toLevel < 2 && _savedBrightness !== null) {
-    setBrightness(_savedBrightness);
+    clearThermalBrightnessLock();          // Önce kilidi kaldır — sonra uygula
+    setBrightnessAuto(_savedBrightness);   // Sistem geri yüklemesi — manual override takibini tetikleme
     _savedBrightness = null;
   }
 
@@ -239,15 +348,11 @@ function _onExit(fromLevel: ThermalLevel, toLevel: ThermalLevel): void {
     void startCommunitySync();
   }
 
-  // Soğuma bildirimi (yalnızca L0'a dönüşte)
+  // L0'a dönüş: CSS sinyalini kaldır; bildirim gösterilmez (soğuma sessiz).
+  // L2/L3 uyarısı kullanıcıya zaten gösterilmişti; her soğuma için tekrar
+  // "Normal" toast'u dikkat dağıtıcı olduğundan kaldırıldı.
   if (toLevel === 0) {
     _setCSSLevel(0);
-    showToast({
-      type:     'success',
-      title:    'Termal Normal',
-      message:  'Cihaz sıcaklığı güvenli sınıra döndü.',
-      duration: 4000,
-    });
   }
 }
 
@@ -255,14 +360,12 @@ function _onExit(fromLevel: ThermalLevel, toLevel: ThermalLevel): void {
    Seviye geçiş koordinatörü
 ══════════════════════════════════════════════════════════════════════════ */
 
-function _applyTemp(tempC: number, source: ThermalSnapshot['source']): void {
-  _tempC  = tempC;
-  _source = source;
-
-  const next = _computeLevel(tempC, _level);
-  if (next === _level) return;
-
-  const prev  = _level;
+/**
+ * Seviye geçişini uygular, bildirim zincirini ve persistence'ı tetikler.
+ * Yalnızca debounce timer'ı veya anlık soğuma aksiyonu tarafından çağrılır.
+ */
+function _commitLevel(next: ThermalLevel): void {
+  const prev = _level;
   _level = next;
 
   if (next > prev) {
@@ -279,15 +382,82 @@ function _applyTemp(tempC: number, source: ThermalSnapshot['source']): void {
     _lastPersistLevel = _level;
     safeSetRaw(
       STORAGE_KEY,
-      JSON.stringify({ level: _level, tempC: isFinite(tempC) ? tempC : null, ts: Date.now() }),
+      JSON.stringify({ level: _level, tempC: isFinite(_tempC) ? _tempC : null, ts: Date.now() }),
     );
   }
 
   // Subscriber bildirimi
-  const snap: ThermalSnapshot = { level: _level, tempC, source, ts: Date.now() };
+  const snap: ThermalSnapshot = { level: _level, tempC: _tempC, source: _source, ts: Date.now() };
   _storeSnap = snap;
   _storeListeners.forEach(l => l());
   _thermalCallbacks.forEach(cb => cb(snap));
+}
+
+function _applyTemp(tempC: number, source: ThermalSnapshot['source']): void {
+  _tempC  = tempC;
+  _source = source;
+
+  // ── Tahminsel ısı motoru ──────────────────────────────────────────────────
+  _pushHistory(tempC);
+  const slope = _calculateSlopeDegPerMin();
+
+  // Safety Guard: soğuma trendinde tahmin devre dışı (soğumayı geciktirme)
+  let predictedTemp: number;
+  if (slope < 0) {
+    predictedTemp = tempC; // negatif eğim → gerçek sıcaklığı kullan
+  } else {
+    const workloadBias = _getWorkloadBias();
+    predictedTemp = tempC + (slope * PREDICT_HORIZON_MIN) + workloadBias;
+  }
+
+  // Erken uyarı (L0.5): tahmin ≥ 45°C ama gerçek < 42°C → sessiz ön-aksiyon
+  _checkEarlyWarning(predictedTemp, tempC);
+
+  // Tahmin: L1 geçişi için kullan; L2/L3 için hard limit (ham sıcaklık zorunlu)
+  const nextFromPredicted = _computeLevel(predictedTemp, _level);
+  const nextFromReal      = _computeLevel(tempC, _level);
+
+  // Karar mantığı:
+  //   Soğuma → her zaman gerçek sıcaklık (ani downgrade — güvenlik öncelikli)
+  //   L2/L3 yükseltme → gerçek sıcaklık onayı zorunlu (kritik eşikler manipüle edilemesin)
+  //   L1 yükseltme → tahmin yeterli (erken müdahale)
+  let next: ThermalLevel;
+  if (nextFromReal < _level) {
+    // Soğuma: gerçek sıcaklık seviyeyi düşürüyor → anında uygula
+    next = nextFromReal;
+  } else if (nextFromPredicted >= 2) {
+    // L2/L3 hard limit: tahmin yeterli değil, gerçek sıcaklık da bu seviyeyi desteklemeli
+    next = nextFromReal;
+  } else {
+    // L0→L1: tahminsel geçiş izin verilir (erken müdahale)
+    next = nextFromPredicted;
+  }
+
+  // ── Seviye değişmedi ───────────────────────────────────────────────────
+  if (next === _level) {
+    if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; _pendingLevel = null; }
+    return;
+  }
+
+  // ── Isınma (next > _level) ────────────────────────────────────────────
+  // 2 s sürdürülmesi gerekir (ping-pong önlemi)
+  if (next > _level) {
+    if (next === _pendingLevel) return;
+    if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; }
+    _pendingLevel  = next;
+    _debounceTimer = setTimeout(() => {
+      _debounceTimer = null;
+      const target  = _pendingLevel!;
+      _pendingLevel = null;
+      _commitLevel(target);
+    }, 2_000);
+    return;
+  }
+
+  // ── Soğuma (next < _level) ────────────────────────────────────────────
+  // Güvenlik önceliği: soğuma anında uygulanır.
+  if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; _pendingLevel = null; }
+  _commitLevel(next);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -327,7 +497,9 @@ async function _pollBatteryAPI(): Promise<void> {
     // Heuristic: hızlı şarj + düşük batarya seviyesi → olası ısınma sinyali.
     // Düşük güven — sadece başka kaynak yoksa kullanılır ve yalnızca L1 için.
     if (battery.charging && battery.level < 0.25) {
-      _applyTemp(43, 'battery_heuristic'); // L1 giriş eşiğine yakın, L2 altında
+      // 46°C: L1 giriş eşiği 45°C'nin 1°C üzerinde → debounce ile L1'i gerçekten tetikleyebilir.
+      // Önceki değer 43°C idi ve histerezis bandının altında kalıyordu (L1 girmek için ≥45 gerekir).
+      _applyTemp(46, 'battery_heuristic');
     }
   } catch {
     // Battery API erişim hatası — sessiz geç
@@ -388,6 +560,10 @@ export function stopThermalWatchdog(): void {
 
   if (_tickTimer !== null) { clearInterval(_tickTimer); _tickTimer = null; }
 
+  // Upward-debounce — Zero-Leak: bekleyen timer'ı temizle
+  if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; }
+  _pendingLevel = null;
+
   _thermalCallbacks.clear();
   _setCSSLevel(0);
 
@@ -395,9 +571,13 @@ export function stopThermalWatchdog(): void {
   _level = 0;
   _tempC = NaN;
   _source = 'unknown';
-  _injectedPriority = false;
-  _savedBrightness  = null;
-  _radarWasPaused   = false;
+  _injectedPriority    = false;
+  _savedBrightness     = null;
+  _radarWasPaused      = false;
+  // Tahminsel motor sıfırla
+  _thermalHistory.length   = 0;
+  _earlyWarningActive      = false;
+  _earlyWarningRadarPaused = false;
 }
 
 /**
@@ -408,7 +588,8 @@ export function stopThermalWatchdog(): void {
  *   CarLauncher.addListener('thermalStatus', e => injectDeviceTemp(e.cpuTempC));
  */
 export function injectDeviceTemp(celsius: number): void {
-  if (!_running) return;
+  // DEV modda native platform'da bile enjeksiyon izni (senaryo testi için)
+  if (!_running && !import.meta.env.DEV) return;
   _injectedPriority = true;
   _applyTemp(celsius, 'injected');
 }

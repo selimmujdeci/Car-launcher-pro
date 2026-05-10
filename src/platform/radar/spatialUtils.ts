@@ -48,13 +48,23 @@ export function bearingDeg(
 }
 
 /**
- * Shortest angular difference between two headings (wrap-safe).
+ * Shortest angular difference between two headings (wrap-safe, GPS-noise-safe).
  *
- * angularDiffAbs(350, 10) === 20
- * angularDiffAbs(10, 350) === 20
+ * angularDiffAbs(350, 10)  === 20
+ * angularDiffAbs(10, 350)  === 20
+ * angularDiffAbs(-0.1, 0)  === 0.1   ← GPS milimetrik salınım koruması
+ * angularDiffAbs(0, -0.1)  === 0.1
  *
  * @returns Degrees in [0, 180]
+ *
+ * Neden double-modulo:
+ *   JavaScript % operatörü matematiksel modülo değil, remainder'dır.
+ *   Negatif operandlarda negatif sonuç verir: (-1 % 360 === -1, 359 değil).
+ *   +540 offset normal GPS aralığı [0, 360) için yeterliydi ama GPS
+ *   gürültüsü veya compass-blend pipeline'ı zaman zaman negatif veya >360
+ *   değerler üretebilir. ((x % n + n) % n) her girdi için gerçek matematiksel
+ *   modülo davranışını garantiler ve [0, n) sonuç verir.
  */
 export function angularDiffAbs(a: number, b: number): number {
-  return Math.abs(((a - b + 540) % 360) - 180);
+  return Math.abs((((a - b + 180) % 360 + 360) % 360) - 180);
 }

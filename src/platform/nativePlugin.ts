@@ -59,6 +59,17 @@ export interface OBDConnectOptions {
    *   EV:         ['0x0D']   ← sadece hız; batarya OEM-specific komutlarla
    */
   pids?: string[];
+  /**
+   * ELM327 AT SP (Set Protocol) protokol numarası.
+   * '0' = otomatik (ATSP0, varsayılan), '6' = ISO 15765-4 CAN 11-bit/500k.
+   * T507 gibi ATSP0'da başarısız olan adaptörler için retry denemesinde '6' zorla.
+   */
+  protocol?: string;
+  /**
+   * Bluetooth PIN kodu — cihaz eşleştirilmemiş (BOND_NONE) iken silent pairing için.
+   * V-LINK, bazı ELM327 klonları: '0000' veya '1234'.
+   */
+  pin?: string;
 }
 
 /**
@@ -184,6 +195,44 @@ export interface NativeMediaInfo {
   positionMs:  number;  // 0 = bilinmiyor
 }
 
+/* ── Local music types ───────────────────────────────────── */
+
+/** MediaStore'dan gelen tek şarkı kaydı */
+export interface LocalMusicTrack {
+  id:          string;
+  uri:         string;   // content://media/external/audio/media/<id>
+  title:       string;
+  artist:      string;
+  album:       string;
+  albumArtUri: string;   // content://media/external/audio/albumart/<albumId>
+  durationMs:  number;
+}
+
+export interface GetMusicTracksResult {
+  tracks: LocalMusicTrack[];
+}
+
+export interface LocalMusicProgressEvent {
+  positionMs: number;
+  durationMs: number;
+  playing:    boolean;
+}
+
+/* ── Local video types ───────────────────────────────────── */
+
+/** MediaStore.Video.Media'dan gelen tek video kaydı */
+export interface LocalVideoTrack {
+  id:         string;
+  uri:        string;   // content://media/external/video/media/<id>
+  title:      string;
+  durationMs: number;
+  sizeBytes:  number;
+}
+
+export interface GetVideoTracksResult {
+  videos: LocalVideoTrack[];
+}
+
 /* ── Native Core types ───────────────────────────────────── */
 
 /**
@@ -221,6 +270,36 @@ export interface CallNumberOptions {
   number: string; // Phone number to open in dialer
 }
 
+/* ── OBD Bluetooth Auto-Pair types ──────────────────────── */
+
+export type OBDBtState =
+  | 'IDLE'
+  | 'SCANNING'
+  | 'CANDIDATE_FOUND'
+  | 'TRY_KNOWN_DEVICE'
+  | 'TRY_SILENT_PAIR_PIN_0000'
+  | 'TRY_SILENT_PAIR_PIN_1234'
+  | 'TRY_SILENT_PAIR_PIN_1111'
+  | 'TRY_SILENT_PAIR_PIN_6789'
+  | 'WAIT_BOND_RESULT'
+  | 'OPEN_SPP_SOCKET'
+  | 'ELM_DETECT'
+  | 'CONNECTED'
+  | 'FALLBACK_USER_ACTION_REQUIRED'
+  | 'FAILED';
+
+export interface OBDBtStateEvent {
+  state:      OBDBtState;
+  deviceName: string | null;
+  mac:        string | null;
+  info:       string | null;
+}
+
+export interface SavedOBDDevice {
+  mac:  string;
+  name: string;
+}
+
 /* ── Plugin interface ────────────────────────────────────── */
 
 export interface CarLauncherPlugin {
@@ -251,10 +330,18 @@ export interface CarLauncherPlugin {
   scanOBD(): Promise<OBDScanResult>;
   connectOBD(options: OBDConnectOptions): Promise<void>;
   disconnectOBD(): Promise<void>;
+  readDTC(): Promise<{ codes: string[] }>;
+  clearDTC(): Promise<void>;
 
   // Uygulama içi OBD cihaz tarama (pair gerektirmeden keşfeder)
   startOBDDiscovery(): Promise<void>;
   stopOBDDiscovery(): Promise<void>;
+
+  // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
+  addListener(
+    event: 'btChanged',
+    handler: (data: { connected: boolean; deviceName: string }) => void,
+  ): Promise<PluginListenerHandle>;
 
   addListener(
     event: 'obdDeviceFound',
@@ -265,7 +352,16 @@ export interface CarLauncherPlugin {
     handler: (data: { finished: boolean }) => void,
   ): Promise<PluginListenerHandle>;
 
+  // Recovery key store — Android Auto Backup ile yedeklenir, reinstall sonrası geri gelir
+  saveRecoveryKey(options: { key: string; value: string }): Promise<void>;
+  loadRecoveryKey(options: { key: string }): Promise<{ value: string }>;
+
+  // Native TTS — Android TextToSpeech API (WebView speechSynthesis'den daha güvenilir)
+  speak(options: { text: string; rate?: number }): Promise<void>;
+  ttsStop(): Promise<void>;
+
   // Android contacts (READ_CONTACTS permission required)
+  requestContactsPermission(): Promise<{ contacts: 'granted' | 'denied' | 'prompt' }>;
   getContacts(): Promise<GetContactsResult>;
 
   // Background GPS + break reminder foreground service
@@ -286,6 +382,28 @@ export interface CarLauncherPlugin {
 
   // Active media session (Android MediaSessionManager)
   getMediaInfo(options?: { preferredPackage?: string }): Promise<NativeMediaInfo>;
+
+  // Yerel müzik — cihaz depolamasından MediaPlayer ile çalma
+  getMusicTracks(): Promise<GetMusicTracksResult>;
+  playLocalTrack(options: { uri: string }): Promise<void>;
+  pauseLocalTrack(): Promise<void>;
+  resumeLocalTrack(): Promise<void>;
+  stopLocalTrack(): Promise<void>;
+  seekLocalTrack(options: { positionMs: number }): Promise<void>;
+  getLocalTrackPosition(): Promise<{ positionMs: number; durationMs: number; playing: boolean }>;
+  addListener(event: 'localMusicProgress', handler: (data: LocalMusicProgressEvent) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'localMusicStarted',  handler: (data: { durationMs: number; playing: boolean }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'localMusicCompleted',handler: (data: Record<string, never>) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'localMusicError',    handler: (data: { error: string }) => void): Promise<PluginListenerHandle>;
+
+  // Yerel video — cihaz depolamasından native VideoView overlay ile oynatma
+  getVideoTracks(): Promise<GetVideoTracksResult>;
+  playVideoNative(options: { uri: string; title?: string }): Promise<void>;
+  closeVideoNative(): Promise<void>;
+  addListener(event: 'videoStarted',   handler: (data: { durationMs: number }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'videoCompleted', handler: (data: Record<string, never>) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'videoError',     handler: (data: { error: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'videoClosed',    handler: (data: Record<string, never>) => void): Promise<PluginListenerHandle>;
 
   // Camera2 API — geri görüş kamerası (CAMERA permission required)
   openCamera(options: { facing: 'back' | 'front' }): Promise<{ cameraId: string }>;
@@ -348,8 +466,36 @@ export interface CarLauncherPlugin {
     handler: (data: { drivingMinutes: number }) => void,
   ): Promise<PluginListenerHandle>;
 
+  // ── OBD Bluetooth Auto-Pair ──────────────────────────────────────────────
+  /**
+   * OBD BT otomatik eşleştirme ve bağlantı sürecini başlatır.
+   * userConfirmed=true → silent PIN pairing etkin (kullanıcı onayladı).
+   * userConfirmed=false → yalnızca bilinen + bonded cihaz denenir.
+   */
+  startOBDBluetooth?(opts: { userConfirmed: boolean }): Promise<void>;
+  stopOBDBluetooth?(): Promise<void>;
+  /** FALLBACK_USER_ACTION_REQUIRED durumunda kullanıcı "Bağlan" butonuna bastı. */
+  userConnectOBD?(): Promise<void>;
+  /** Kayıtlı OBD cihaz bilgisini döner (mac + name). Kayıt yoksa boş obje. */
+  getSavedOBDDevice?(): Promise<Partial<SavedOBDDevice>>;
+  clearSavedOBD?(): Promise<void>;
+
+  addListener(
+    event: 'obdBtState',
+    handler: (data: OBDBtStateEvent) => void,
+  ): Promise<PluginListenerHandle>;
+
   startCanBus?(): Promise<void>;
   stopCanBus?(): Promise<void>;
+  /** USB serial adaptörler için izin ister (CH340, CP2102, FTDI, CDC ACM) */
+  requestUsbCanPermission?(): Promise<{ requested: number }>;
+
+  /** Araç CAN ID yapılandırmasını günceller ve SharedPreferences'a kalıcı yazar. */
+  setCanIds?(ids: Partial<CanIdConfig>): Promise<void>;
+  /** Mevcut CAN ID yapılandırmasını döner. */
+  getCanIds?(): Promise<CanIdConfig>;
+  /** CAN sniffer'ı açar/kapatır — aktifken her frame `canRawFrame` olarak emit edilir. */
+  setCanSnifferEnabled?(options: { enabled: boolean }): Promise<void>;
 
   // ── Native Guard Bridge ───────────────────────────────────────────────
   /** WebView yaşıyor sinyali — native taraf 3s heartbeat görmezse WebView crashed kabul eder */
@@ -377,20 +523,116 @@ export interface CarLauncherPlugin {
   /** Hem komut kuyruğunu hem sonuç listesini temizler */
   clearNativeCommandQueue?(): Promise<void>;
 
+  /**
+   * OBD El Sıkışması — bağlantı ısınma sonrası çağrılır.
+   * Native katman iki komut gönderir:
+   *   • `09 02` → SAE J1979 Mode 09 PID 02 — VIN (ASCII)
+   *   • `01 00` → SAE J1979 Mode 01 PID 00 — Desteklenen PID bitmask
+   *
+   * @returns raw09   — ELM327 `09 02` ham ASCII yanıtı
+   *          raw0100 — ELM327 `01 00` ham ASCII yanıtı
+   *
+   * Opsiyonel (`?`): eski plugin versiyonlarında graceful degrade için.
+   * Eğer çağrı başarısız olursa obdService try/catch ile yakalayıp devam eder.
+   */
+  performHandshake?(): Promise<{ raw09: string; raw0100: string }>;
+
   /** CAN bus araç sinyalleri — read-only, native katmandan gelir */
   addListener(
     event: 'canData',
     handler: (data: CanData) => void,
   ): Promise<PluginListenerHandle>;
+
+  /** CAN bus bağlantı durumu — port açıldı/kapandı bilgisi */
+  addListener(
+    event: 'canStatus',
+    handler: (data: CanStatus) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /** CAN sniffer — her CAN frame'ini ham olarak iletir (teşhis için) */
+  addListener(
+    event: 'canRawFrame',
+    handler: (data: CanRawFrame) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /** Android bellek baskısı — system trim callback (CRITICAL / MODERATE) */
+  addListener(
+    event: 'memoryPressure',
+    handler: (data: { level?: string }) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 export interface CanData {
-  speed?:        number;    // km/h
-  reverse?:      boolean;
-  fuel?:         number;    // 0–100 %
-  doorOpen?:     boolean;
-  headlightsOn?: boolean;
-  tpms?:         number[];  // [fl, fr, rl, rr] kPa
+  // ── Temel sürüş ──────────────────────────────────────────────────────────
+  speed?:            number;    // km/h
+  reverse?:          boolean;
+  fuel?:             number;    // 0–100 %
+  // ── Motor ─────────────────────────────────────────────────────────────────
+  rpm?:              number;    // devir/dak
+  coolantTemp?:      number;    // soğutucu °C
+  oilTemp?:          number;    // motor yağı °C
+  throttle?:         number;    // gaz pedalı 0–100 %
+  // ── Elektrik ──────────────────────────────────────────────────────────────
+  batteryVolt?:      number;    // 12V akü gerilimi (V)
+  // ── Vites ─────────────────────────────────────────────────────────────────
+  gearPos?:          number;    // -1=R, 0=N/P, 1–8=ileri vitesler
+  // ── Çevre ─────────────────────────────────────────────────────────────────
+  ambientTemp?:      number;    // dış hava °C
+  // ── Kapı / aydınlatma ─────────────────────────────────────────────────────
+  doorOpen?:         boolean;
+  headlightsOn?:     boolean;
+  // ── Şasi güvenliği ────────────────────────────────────────────────────────
+  abs?:              boolean;
+  tractionControl?:  boolean;
+  stabilityControl?: boolean;
+  // ── Gövde / konfor ────────────────────────────────────────────────────────
+  parkingBrake?:     boolean;
+  seatbelt?:         boolean;
+  wipers?:           boolean;
+  airCondition?:     boolean;
+  cruiseControl?:    boolean;
+  // ── TPMS ──────────────────────────────────────────────────────────────────
+  tpms?:             number[];  // [fl, fr, rl, rr] kPa
+}
+
+export interface CanStatus {
+  connected: boolean;
+  mode:      'uart' | 'usb' | 'bluetooth' | 'none'; // dahili UART, USB serial, BT RFCOMM, bağlı değil
+  port:      string;                                 // açık port adı veya cihaz tanımı
+}
+
+/** Her CAN sinyalinin ağ üzerindeki ID'si. Araç başına yapılandırılır. */
+export interface CanIdConfig {
+  // Temel sürüş
+  speed:    number;  // Hız       (varsayılan: 0x0C9)
+  gear:     number;  // Vites yön (varsayılan: 0x0E8)
+  fuel:     number;  // Yakıt     (varsayılan: 0x145)
+  // Motor
+  rpm:      number;  // Motor devri  (varsayılan: 0x316)
+  coolant:  number;  // Soğutucu     (varsayılan: 0x294)
+  oilTemp:  number;  // Yağ sıcaklığı(varsayılan: 0x280)
+  throttle: number;  // Gaz pedalı   (varsayılan: 0x201)
+  // Elektrik
+  battVolt: number;  // Akü gerilimi (varsayılan: 0x3A0)
+  // Vites pozisyonu
+  gearPos:  number;  // Vites konum  (varsayılan: 0x1D0)
+  // Çevre
+  ambient:  number;  // Dış hava     (varsayılan: 0x350)
+  // Kapı / far / TPMS
+  doors:    number;  // Kapı bitmask (varsayılan: 0x3B0)
+  lights:   number;  // Far bitmask  (varsayılan: 0x1A0)
+  tpms:     number;  // TPMS kPa     (varsayılan: 0x385)
+  // Şasi bayrakları (ABS/TCS/ESC)
+  chassis:  number;  // Şasi bayrak  (varsayılan: 0x0C0)
+  // Gövde bayrakları (el freni/kemer/silecek/klima/seyir)
+  body:     number;  // Gövde bayrak (varsayılan: 0x3D0)
+}
+
+/** CAN sniffer'dan gelen ham frame — teşhis/yapılandırma için */
+export interface CanRawFrame {
+  id:   number;  // integer CAN ID
+  hex:  string;  // örn. "0x1A0"
+  data: string;  // hex baytlar, örn. "04 00 FF 00"
 }
 
 // Plugin is resolved by Capacitor on native; undefined on web (bridge handles fallback)

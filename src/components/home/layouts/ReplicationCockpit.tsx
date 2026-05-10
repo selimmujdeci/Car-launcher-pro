@@ -105,14 +105,13 @@ export function ReplicationCockpit({ favorites: _favorites, onLaunch }: { favori
       <div className="flex-1 flex gap-6 min-h-0 z-10">
         <div className="w-[30%] flex flex-col gap-6">
           <div className={`flex-1 rounded-[2.5rem] border overflow-hidden flex flex-col relative ${cardClasses}`}>
-            <div className="absolute top-6 left-6 right-6 z-20">
-               <div className={`flex items-center gap-4 px-6 py-4 rounded-2xl border ${isNight ? 'bg-slate-900/80 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
-                  <Search className="w-5 h-5 opacity-40" />
-                  <span className="text-sm font-medium opacity-40">Nereye gidiyorsunuz?</span>
-               </div>
+            {/* Arama çubuğu: harita kutusunun DIŞINDA, üst kart kenarlığında */}
+            <div className={`flex-shrink-0 flex items-center gap-4 px-5 py-3 border-b ${isNight ? 'bg-slate-900/60 border-white/5' : 'bg-slate-50/80 border-slate-200'}`}>
+               <Search className="w-4 h-4 opacity-40" />
+               <span className="text-sm font-medium opacity-40">Nereye gidiyorsunuz?</span>
             </div>
-            <div className="flex-1 w-full relative">
-               <MiniMapWidget />
+            <div className="flex-1 w-full relative min-h-0">
+               <MiniMapWidget hideHeader={true} />
             </div>
             <div className="p-6 grid grid-cols-2 gap-4">
                <div className={`p-5 rounded-3xl border ${isNight ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>

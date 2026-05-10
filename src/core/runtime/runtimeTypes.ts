@@ -90,6 +90,13 @@ export interface RuntimeConfig {
    * crashLogger ve intentEngine bu değere göre filtreleme yapar.
    */
   readonly loggingLevel: LoggingLevel;
+
+  /**
+   * RAM krizi bayrağı: true ise VehicleCompute ve diğer Worker'lar durdurulur.
+   * memoryWatchdog CRITICAL seviyede bu bayrağı okur; Worker'lar SAFE_MODE config
+   * alınca `terminate()` çağrısı yapar.
+   */
+  readonly suspendWorkers: boolean;
 }
 
 /* ── Store override tipi ─────────────────────────────────────── */

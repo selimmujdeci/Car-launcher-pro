@@ -18,7 +18,7 @@ import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
-import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { APP_MAP, type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
@@ -474,7 +474,7 @@ const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { g
               lineHeight: 1,
               letterSpacing: -2,
               textShadow: '0 0 40px rgba(255,255,255,0.25)',
-            }}>{speedKmh}</span>
+            }}>{Math.round(speedKmh)}</span>
             <span style={{
               fontFamily: '"Orbitron", monospace',
               fontSize: 13,
@@ -511,6 +511,11 @@ const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { g
 const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
   const { t } = useTranslation();
   const { playing, track } = useMediaState();
+
+  useEffect(() => {
+    startMediaHub();
+    return () => stopMediaHub();
+  }, []);
   const [elapsed, setElapsed] = useState(92); // 1:32
   const total = 228; // 3:48
 

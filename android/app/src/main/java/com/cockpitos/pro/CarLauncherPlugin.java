@@ -10,6 +10,7 @@ import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -22,15 +23,19 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CameraCaptureSession;
+import android.content.ContentUris;
+import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaPlayer;
 import android.util.Base64;
 import android.view.Surface;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
+import android.provider.MediaStore;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -47,7 +52,11 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.view.KeyEvent;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.RelativeLayout;
+import android.widget.VideoView;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -59,13 +68,17 @@ import android.content.SharedPreferences;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import com.cockpitos.pro.can.CanBusManager;
 import com.cockpitos.pro.can.CanFrameDecoder;
 import com.cockpitos.pro.can.VehicleSignalMapper;
+import com.cockpitos.pro.obd.OBDBluetoothManager;
 import com.cockpitos.pro.can.ReverseSignalGuard;
 import com.cockpitos.pro.can.NativeToJsBridge;
 import com.cockpitos.pro.can.VehicleCanData;
@@ -116,10 +129,62 @@ import java.util.concurrent.Executors;
  *   mediaChanged   { packageName, appName, title, artist, albumArt?, playing,
  *                    durationMs, positionMs }
  */
-@CapacitorPlugin(name = "CarLauncher")
+@CapacitorPlugin(
+    name = "CarLauncher",
+    permissions = {
+        @Permission(strings = { android.Manifest.permission.READ_CONTACTS }, alias = "contacts"),
+        @Permission(strings = { android.Manifest.permission.RECORD_AUDIO }, alias = "microphone")
+    }
+)
 public class CarLauncherPlugin extends Plugin {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // ── Static instance — LMK memory pressure bridge ─────────────────────────
+    // MainActivity.onTrimMemory → broadcastMemoryPressure() → notifyListeners → JS
+    private static CarLauncherPlugin _instance = null;
+
+    @Override
+    public void load() {
+        super.load();
+        _instance = this;
+    }
+
+    /**
+     * Android LMK seviyesini JS memoryWatchdog'a iletir.
+     * MainActivity.onTrimMemory tarafından çağrılır.
+     * @param level "CRITICAL" | "MODERATE"
+     */
+    public static void broadcastMemoryPressure(String level) {
+        final CarLauncherPlugin inst = _instance;
+        if (inst == null) return;
+        inst.mainHandler.post(() -> {
+            try {
+                JSObject data = new JSObject();
+                data.put("level", level);
+                inst.notifyListeners("memoryPressure", data);
+            } catch (Exception ignored) { /* plugin unmounted */ }
+        });
+    }
+
+    // Plugin da kendi Activity'sinden onTrimMemory alabilir — çift güvence
+    @Override
+    protected void handleOnTrimMemory(int level) {
+        String pressureLevel = null;
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            pressureLevel = "CRITICAL";
+        } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            pressureLevel = "MODERATE";
+        }
+        if (pressureLevel != null) broadcastMemoryPressure(pressureLevel);
+    }
+
+    // ── TextToSpeech ──────────────────────────────────────────────────────────
+    private android.speech.tts.TextToSpeech ttsEngine = null;
+    private boolean ttsReady = false;
+
+    // ── Bluetooth connect/disconnect receiver ─────────────────────────────────
+    private BroadcastReceiver btStateReceiver = null;
 
     // ── App exit (launcher'ı arka plana al) ────────────────────────────────
 
@@ -555,6 +620,25 @@ public class CarLauncherPlugin extends Plugin {
     // ── Contacts ────────────────────────────────────────────────────────────
 
     @PluginMethod
+    public void requestContactsPermission(PluginCall call) {
+        if (getPermissionState("contacts") == PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("contacts", "granted");
+            call.resolve(result);
+        } else {
+            requestPermissionForAlias("contacts", call, "contactsPermissionCallback");
+        }
+    }
+
+    @PermissionCallback
+    private void contactsPermissionCallback(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("contacts",
+            getPermissionState("contacts") == PermissionState.GRANTED ? "granted" : "denied");
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void getContacts(PluginCall call) {
         try {
             ContentResolver cr = getContext().getContentResolver();
@@ -774,6 +858,7 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void connectOBD(PluginCall call) {
         String address = call.getString("address");
+        String pin     = call.getString("pin");   // opsiyonel — V-LINK / PIN gerektiren adaptörler
         if (!present(address)) {
             call.reject("INVALID_ARGS", "address gerekli");
             return;
@@ -789,6 +874,28 @@ public class CarLauncherPlugin extends Plugin {
                 BluetoothDevice device = bt.getRemoteDevice(address);
 
                 try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
+
+                // ── Silent PIN Pairing ────────────────────────────────────
+                // Cihaz eşleştirilmemiş (BOND_NONE) ve PIN sağlanmışsa
+                // Android'in sistem diyaloğu göstermeden sessizce eşleştir.
+                if (present(pin) && device.getBondState() != BluetoothDevice.BOND_BONDED) {
+                    try {
+                        device.setPin(pin.getBytes());
+                        device.createBond();
+                        // Eşleştirme tamamlanana kadar bekle — max 15 s
+                        int waited = 0;
+                        while (device.getBondState() != BluetoothDevice.BOND_BONDED && waited < 15_000) {
+                            Thread.sleep(300);
+                            waited += 300;
+                        }
+                        if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+                            android.util.Log.w("OBD", "Silent pairing timeout — bağlantı yine de deneniyor");
+                        }
+                    } catch (Exception pairEx) {
+                        // Eşleştirme başarısız olsa da RFCOMM insecure fallback denenecek
+                        android.util.Log.w("OBD", "Silent pairing hatası: " + pairEx.getMessage());
+                    }
+                }
 
                 // Önce secure RFCOMM dene; bazı head unit'lerde çalışmaz
                 // → insecure RFCOMM fallback (iCar 3 / ELM327 klonlar için gerekli)
@@ -1042,7 +1149,12 @@ public class CarLauncherPlugin extends Plugin {
                 speechRecognizer.setRecognitionListener(new RecognitionListener() {
                     @Override public void onReadyForSpeech(android.os.Bundle params) {}
                     @Override public void onBeginningOfSpeech() {}
-                    @Override public void onRmsChanged(float rmsdB) {}
+                    @Override public void onRmsChanged(float rmsdB) {
+                        float normalized = Math.max(0f, Math.min(1f, (rmsdB + 2.0f) / 10.0f));
+                        JSObject data = new JSObject();
+                        data.put("value", normalized);
+                        notifyListeners("rmsData", data);
+                    }
                     @Override public void onBufferReceived(byte[] buffer) {}
                     @Override public void onEndOfSpeech() {}
                     @Override public void onPartialResults(android.os.Bundle partialResults) {}
@@ -1070,7 +1182,8 @@ public class CarLauncherPlugin extends Plugin {
                         PluginCall c = savedSpeechCall;
                         savedSpeechCall = null;
                         if (c == null) return;
-                        String msg = error == SpeechRecognizer.ERROR_NO_MATCH ? "İptal edildi"
+                        String msg = error == SpeechRecognizer.ERROR_NO_MATCH ? "No speech detected"
+                            : error == SpeechRecognizer.ERROR_NETWORK ? "Check internet connection"
                             : error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Zaman aşımı"
                             : "Ses tanıma hatası: " + error;
                         c.reject("NO_RESULT", msg);
@@ -1797,6 +1910,60 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    // ── OBD Bluetooth Auto-Pair ───────────────────────────────────────────────
+
+    private OBDBluetoothManager _obdBtManager;
+
+    private OBDBluetoothManager.Listener _obdBtListener = (state, deviceName, mac, info) -> {
+        JSObject evt = new JSObject();
+        evt.put("state",      state.name());
+        evt.put("deviceName", deviceName != null ? deviceName : JSObject.NULL);
+        evt.put("mac",        mac        != null ? mac        : JSObject.NULL);
+        evt.put("info",       info       != null ? info       : JSObject.NULL);
+        notifyListeners("obdBtState", evt);
+    };
+
+    @PluginMethod
+    public void startOBDBluetooth(PluginCall call) {
+        boolean userConfirmed = Boolean.TRUE.equals(call.getBoolean("userConfirmed", false));
+        if (_obdBtManager == null) _obdBtManager = new OBDBluetoothManager(getContext());
+        _obdBtManager.start(_obdBtListener, userConfirmed);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void stopOBDBluetooth(PluginCall call) {
+        if (_obdBtManager != null) _obdBtManager.stop();
+        call.resolve();
+    }
+
+    /** Kullanıcı FALLBACK ekranında "Bağlan" butonuna bastı. */
+    @PluginMethod
+    public void userConnectOBD(PluginCall call) {
+        if (_obdBtManager != null) _obdBtManager.userRequestConnect();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getSavedOBDDevice(PluginCall call) {
+        if (_obdBtManager == null) _obdBtManager = new OBDBluetoothManager(getContext());
+        String mac  = _obdBtManager.getSavedMac();
+        String name = _obdBtManager.getSavedName();
+        JSObject res = new JSObject();
+        if (mac != null) {
+            res.put("mac",  mac);
+            res.put("name", name != null ? name : "OBD Adapter");
+        }
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void clearSavedOBD(PluginCall call) {
+        if (_obdBtManager == null) _obdBtManager = new OBDBluetoothManager(getContext());
+        _obdBtManager.clearSavedDevice();
+        call.resolve();
+    }
+
     // ── CAN Bus ───────────────────────────────────────────────────────────────
 
     private final CanBusManager     canBusManager     = new CanBusManager();
@@ -1804,6 +1971,8 @@ public class CarLauncherPlugin extends Plugin {
     private final VehicleSignalMapper canSignalMapper = new VehicleSignalMapper();
     private final ReverseSignalGuard reverseGuard     = new ReverseSignalGuard();
     private       NativeToJsBridge  canJsBridge;
+    private volatile boolean _canSnifferActive = false;
+    private static final String PREFS_CAN_IDS  = "can_ids";
 
     // ── Industrial-Grade Secure Storage ──────────────────────────────────────
     // Android Keystore + EncryptedSharedPreferences.
@@ -1838,36 +2007,129 @@ public class CarLauncherPlugin extends Plugin {
     public void load() {
         // CanBusManager'ı ForegroundService watchdog'a inject et
         CarLauncherForegroundService.setCanBusManager(canBusManager);
+        // Kayıtlı CAN ID yapılandırmasını yükle
+        loadCanIds();
+
+        // Bluetooth bağlantı olaylarını dinle — bağlan/bağlantı kes push event
+        btStateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                String action = intent.getAction();
+                if (action == null) return;
+                android.bluetooth.BluetoothDevice dev = null;
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE, android.bluetooth.BluetoothDevice.class);
+                } else {
+                    //noinspection deprecation
+                    dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+                }
+                JSObject event = new JSObject();
+                if (android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
+                    String name = "";
+                    try { name = dev != null ? dev.getName() : ""; } catch (SecurityException ignored) {}
+                    event.put("connected", true);
+                    event.put("deviceName", name != null ? name : "Araç");
+                    notifyListeners("btChanged", event);
+                } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
+                    event.put("connected", false);
+                    event.put("deviceName", "");
+                    notifyListeners("btChanged", event);
+                }
+            }
+        };
+        IntentFilter btFilter = new IntentFilter();
+        btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
+        btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        getContext().registerReceiver(btStateReceiver, btFilter);
+
+        // TextToSpeech motoru başlat
+        ttsEngine = new android.speech.tts.TextToSpeech(getContext(), status -> {
+            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                int result = ttsEngine.setLanguage(new java.util.Locale("tr", "TR"));
+                ttsReady = (result != android.speech.tts.TextToSpeech.LANG_MISSING_DATA
+                         && result != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED);
+                if (!ttsReady) {
+                    // Türkçe dil paketi yoksa sistem dilini dene
+                    ttsEngine.setLanguage(java.util.Locale.getDefault());
+                    ttsReady = true;
+                }
+            }
+        });
     }
+
+    @PluginMethod
+    public void speak(PluginCall call) {
+        String text = call.getString("text", "");
+        float  rate = call.getFloat("rate", 1.0f);
+        if (text == null || text.trim().isEmpty()) { call.resolve(); return; }
+        if (!ttsReady || ttsEngine == null) { call.reject("TTS_NOT_READY"); return; }
+        ttsEngine.setSpeechRate(rate);
+        ttsEngine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "cockpitos_tts");
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void ttsStop(PluginCall call) {
+        if (ttsEngine != null && ttsReady) ttsEngine.stop();
+        call.resolve();
+    }
+
+    /** CAN bağlantı durumunu JS'e gönderir. */
+    private void emitCanStatus() {
+        if (canJsBridge == null) return;
+        CanBusManager.ConnectionMode mode = canBusManager.getConnectionMode();
+        JSObject status = new JSObject();
+        status.put("connected", mode != CanBusManager.ConnectionMode.NONE);
+        status.put("mode",      mode.name().toLowerCase());
+        status.put("port",      canBusManager.openPortPath() != null
+                                ? canBusManager.openPortPath() : "none");
+        notifyListeners("canStatus", status);
+    }
+
+    private final CanBusManager.FrameListener _canFrameListener = (frame) -> {
+        java.util.List<CanFrameDecoder.CanSignal> signals = canFrameDecoder.decode(frame);
+
+        // Sniffer aktifse ham frame'i JS'e gönder (teşhis/yapılandırma için)
+        if (_canSnifferActive && !signals.isEmpty()) {
+            CanFrameDecoder.CanSignal s = signals.get(0);
+            JSObject raw = new JSObject();
+            raw.put("id",  s.canId);
+            raw.put("hex", String.format("0x%03X", s.canId));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : s.data) sb.append(String.format("%02X ", b));
+            raw.put("data", sb.toString().trim());
+            notifyListeners("canRawFrame", raw);
+        }
+
+        VehicleCanData data = canSignalMapper.process(signals);
+        if (data == null) return;
+
+        if (data.speed != null) reverseGuard.updateSpeed(data.speed);
+
+        VehicleCanData filtered = data;
+        if (Boolean.TRUE.equals(data.reverse) && !reverseGuard.isValid(true)) {
+            filtered = new VehicleCanData.Builder()
+                .speed(data.speed != null ? data.speed : 0f)
+                .reverse(false)
+                .build();
+        }
+
+        if (canJsBridge != null) canJsBridge.emit(filtered);
+    };
 
     @PluginMethod
     public void startCanBus(PluginCall call) {
         if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
-
-        canBusManager.start((frame) -> {
-            java.util.List<CanFrameDecoder.CanSignal> signals = canFrameDecoder.decode(frame);
-            VehicleCanData data = canSignalMapper.process(signals);
-            if (data == null) return;
-
-            if (data.speed != null) reverseGuard.updateSpeed(data.speed);
-
-            VehicleCanData filtered = data;
-            if (Boolean.TRUE.equals(data.reverse) && !reverseGuard.isValid(true)) {
-                filtered = new VehicleCanData.Builder()
-                    .speed(data.speed != null ? data.speed : 0f)
-                    .reverse(false)
-                    .build();
-            }
-
-            canJsBridge.emit(filtered);
-        });
-
+        canBusManager.start(_canFrameListener, getContext(), canSignalMapper::reset);
+        // 3s sonra bağlantı durumunu JS'e bildir (transport connect denemesi için süre)
+        new Handler(Looper.getMainLooper()).postDelayed(this::emitCanStatus, 3_000);
         call.resolve();
     }
 
     @PluginMethod
     public void stopCanBus(PluginCall call) {
         canBusManager.stop();
+        emitCanStatus();
         call.resolve();
     }
 
@@ -1880,37 +2142,93 @@ public class CarLauncherPlugin extends Plugin {
 
         if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
 
-        // Seri port bilgisini döndür
+        canBusManager.start(_canFrameListener, getContext(), canSignalMapper::reset);
+
         JSObject info = new JSObject();
         info.put("port",    canBusManager.openPortPath() != null
                             ? canBusManager.openPortPath() : "none");
+        info.put("mode",    canBusManager.getConnectionMode().name().toLowerCase());
         info.put("running", true);
         call.resolve(info);
-
-        canBusManager.start((frame) -> {
-            java.util.List<CanFrameDecoder.CanSignal> signals = canFrameDecoder.decode(frame);
-            VehicleCanData data = canSignalMapper.process(signals);
-            if (data == null) return;
-
-            if (data.speed != null) reverseGuard.updateSpeed(data.speed);
-
-            VehicleCanData filtered = data;
-            if (Boolean.TRUE.equals(data.reverse) && !reverseGuard.isValid(true)) {
-                filtered = new VehicleCanData.Builder()
-                    .speed(data.speed != null ? data.speed : 0f)
-                    .reverse(false)
-                    .build();
-            }
-
-            // JS'e event olarak ilet
-            canJsBridge.emit(filtered);
-        });
     }
 
     /** CAN veri akışını durdurur. */
     @PluginMethod
     public void stopCanBusUpdates(PluginCall call) {
         canBusManager.stop();
+        call.resolve();
+    }
+
+    /** Kaydedilmiş CAN ID yapılandırmasını VehicleSignalMapper'a uygular. */
+    private void loadCanIds() {
+        android.content.SharedPreferences p = getContext()
+            .getSharedPreferences(PREFS_CAN_IDS, android.content.Context.MODE_PRIVATE);
+        canSignalMapper.configure(
+            p.getInt("speed",    0x0C9),
+            p.getInt("gear",     0x0E8),
+            p.getInt("fuel",     0x145),
+            p.getInt("rpm",      0x316),
+            p.getInt("coolant",  0x294),
+            p.getInt("oilTemp",  0x280),
+            p.getInt("throttle", 0x201),
+            p.getInt("battVolt", 0x3A0),
+            p.getInt("gearPos",  0x1D0),
+            p.getInt("ambient",  0x350),
+            p.getInt("doors",    0x3B0),
+            p.getInt("lights",   0x1A0),
+            p.getInt("tpms",     0x385),
+            p.getInt("chassis",  0x0C0),
+            p.getInt("body",     0x3D0)
+        );
+    }
+
+    /** JS'ten araç CAN ID'lerini günceller ve kalıcı olarak saklar. */
+    @PluginMethod
+    public void setCanIds(PluginCall call) {
+        android.content.SharedPreferences.Editor ed = getContext()
+            .getSharedPreferences(PREFS_CAN_IDS, android.content.Context.MODE_PRIVATE).edit();
+        String[] keys = { "speed","gear","fuel","rpm","coolant","oilTemp","throttle",
+                          "battVolt","gearPos","ambient","doors","lights","tpms","chassis","body" };
+        int[]  defs  = { 0x0C9, 0x0E8, 0x145, 0x316, 0x294, 0x280, 0x201,
+                         0x3A0, 0x1D0, 0x350, 0x3B0, 0x1A0, 0x385, 0x0C0, 0x3D0 };
+        for (int i = 0; i < keys.length; i++) {
+            final String k = keys[i]; final int def = defs[i];
+            try { if (call.getData().has(k)) ed.putInt(k, call.getInt(k, def)); }
+            catch (Exception ignored) {}
+        }
+        ed.apply();
+        loadCanIds();
+        call.resolve();
+    }
+
+    /** Mevcut CAN ID yapılandırmasını döner. */
+    @PluginMethod
+    public void getCanIds(PluginCall call) {
+        android.content.SharedPreferences p = getContext()
+            .getSharedPreferences(PREFS_CAN_IDS, android.content.Context.MODE_PRIVATE);
+        JSObject obj = new JSObject();
+        obj.put("speed",    p.getInt("speed",    0x0C9));
+        obj.put("gear",     p.getInt("gear",     0x0E8));
+        obj.put("fuel",     p.getInt("fuel",     0x145));
+        obj.put("rpm",      p.getInt("rpm",      0x316));
+        obj.put("coolant",  p.getInt("coolant",  0x294));
+        obj.put("oilTemp",  p.getInt("oilTemp",  0x280));
+        obj.put("throttle", p.getInt("throttle", 0x201));
+        obj.put("battVolt", p.getInt("battVolt", 0x3A0));
+        obj.put("gearPos",  p.getInt("gearPos",  0x1D0));
+        obj.put("ambient",  p.getInt("ambient",  0x350));
+        obj.put("doors",    p.getInt("doors",    0x3B0));
+        obj.put("lights",   p.getInt("lights",   0x1A0));
+        obj.put("tpms",     p.getInt("tpms",     0x385));
+        obj.put("chassis",  p.getInt("chassis",  0x0C0));
+        obj.put("body",     p.getInt("body",     0x3D0));
+        call.resolve(obj);
+    }
+
+    /** CAN sniffer'ı açar/kapatır — sniffer aktifken her frame `canRawFrame` olarak emit edilir. */
+    @PluginMethod
+    public void setCanSnifferEnabled(PluginCall call) {
+        _canSnifferActive = Boolean.TRUE.equals(call.getBoolean("enabled", false));
         call.resolve();
     }
 
@@ -2179,6 +2497,48 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    // ── Recovery Store (Plain SharedPreferences — Android Auto Backup) ──────
+    //
+    // EncryptedSharedPreferences silinmeden önce (uygulama kaldırma / Android Keystore
+    // yenilemesi) API anahtarlarını kalıcı kılmak için ikincil yedek depo.
+    // Bu dosya backup_rules.xml ve data_extraction_rules.xml ile Google Drive'a
+    // yedeklenir; reinstall veya güncelleme sonrasında otomatik geri yüklenir.
+    // Sadece geminiApiKey ve claudeHaikuApiKey bu depoya yazılır.
+
+    private static final String RECOVERY_PREFS = "cockpitos_recovery";
+
+    @PluginMethod
+    public void saveRecoveryKey(PluginCall call) {
+        String key   = call.getString("key",   "");
+        String value = call.getString("value", "");
+        if (key == null || key.isEmpty()) { call.reject("key gerekli"); return; }
+        try {
+            getContext().getSharedPreferences(RECOVERY_PREFS, android.content.Context.MODE_PRIVATE)
+                .edit().putString(key, value).apply();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("saveRecoveryKey hatası: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void loadRecoveryKey(PluginCall call) {
+        String key = call.getString("key", "");
+        if (key == null || key.isEmpty()) { call.reject("key gerekli"); return; }
+        try {
+            String value = getContext()
+                .getSharedPreferences(RECOVERY_PREFS, android.content.Context.MODE_PRIVATE)
+                .getString(key, "");
+            JSObject result = new JSObject();
+            result.put("value", value != null ? value : "");
+            call.resolve(result);
+        } catch (Exception e) {
+            JSObject result = new JSObject();
+            result.put("value", "");
+            call.resolve(result);
+        }
+    }
+
     /**
      * JS → Native: Supabase yapılandırmasını native heartbeat için sakla.
      * Uygulama açılışında bir kez çağrılır.
@@ -2192,6 +2552,419 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve();
     }
 
+    // ── Yerel müzik çalma (MediaPlayer) ──────────────────────────────────────
+
+    private volatile MediaPlayer localMediaPlayer = null;
+    private final Handler        localProgressHandler = new Handler(Looper.getMainLooper());
+    private Runnable             localProgressRunnable = null;
+
+    private void stopLocalProgressTimer() {
+        if (localProgressRunnable != null) {
+            localProgressHandler.removeCallbacks(localProgressRunnable);
+            localProgressRunnable = null;
+        }
+    }
+
+    private void startLocalProgressTimer() {
+        stopLocalProgressTimer();
+        localProgressRunnable = new Runnable() {
+            @Override public void run() {
+                MediaPlayer mp = localMediaPlayer;
+                if (mp == null) return;
+                try {
+                    boolean playing = mp.isPlaying();
+                    JSObject data = new JSObject();
+                    data.put("positionMs", mp.getCurrentPosition());
+                    data.put("durationMs", mp.getDuration());
+                    data.put("playing", playing);
+                    notifyListeners("localMusicProgress", data);
+                    if (playing) localProgressHandler.postDelayed(this, 1000);
+                } catch (Exception ignored) {}
+            }
+        };
+        localProgressHandler.postDelayed(localProgressRunnable, 1000);
+    }
+
+    private void releaseLocalPlayer() {
+        stopLocalProgressTimer();
+        MediaPlayer mp = localMediaPlayer;
+        localMediaPlayer = null;
+        if (mp != null) {
+            try { if (mp.isPlaying()) mp.stop(); } catch (Exception ignored) {}
+            try { mp.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** MediaStore'dan cihaz müziklerini listele. */
+    @PluginMethod
+    public void getMusicTracks(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String[] projection = {
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.ALBUM,
+                    MediaStore.Audio.Media.ALBUM_ID,
+                    MediaStore.Audio.Media.DURATION,
+                };
+                String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+                String sortOrder = MediaStore.Audio.Media.TITLE + " ASC";
+
+                ContentResolver cr = getContext().getContentResolver();
+                Cursor cursor = cr.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    projection, selection, null, sortOrder
+                );
+
+                JSArray tracks = new JSArray();
+                if (cursor != null) {
+                    int idCol       = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+                    int titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
+                    int artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
+                    int albumCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
+                    int albumIdCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
+                    int durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
+
+                    while (cursor.moveToNext()) {
+                        long   id       = cursor.getLong(idCol);
+                        String title    = cursor.getString(titleCol);
+                        String artist   = cursor.getString(artistCol);
+                        String album    = cursor.getString(albumCol);
+                        long   albumId  = cursor.getLong(albumIdCol);
+                        long   duration = cursor.getLong(durationCol);
+
+                        Uri contentUri  = ContentUris.withAppendedId(
+                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id);
+                        Uri albumArtUri = Uri.parse(
+                            "content://media/external/audio/albumart/" + albumId);
+
+                        JSObject track = new JSObject();
+                        track.put("id",          String.valueOf(id));
+                        track.put("uri",         contentUri.toString());
+                        track.put("title",       title  != null ? title  : "Bilinmiyor");
+                        track.put("artist",      artist != null ? artist : "Bilinmiyor");
+                        track.put("album",       album  != null ? album  : "");
+                        track.put("albumArtUri", albumArtUri.toString());
+                        track.put("durationMs",  duration);
+                        tracks.put(track);
+                    }
+                    cursor.close();
+                }
+
+                JSObject result = new JSObject();
+                result.put("tracks", tracks);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("MEDIA_QUERY_FAILED", e.getMessage());
+            }
+        }).start();
+    }
+
+    /** Belirtilen content:// URI'yi çal. */
+    @PluginMethod
+    public void playLocalTrack(PluginCall call) {
+        String uri = call.getString("uri", "");
+        if (uri == null || uri.isEmpty()) {
+            call.reject("URI_REQUIRED", "uri parametresi gerekli");
+            return;
+        }
+        releaseLocalPlayer();
+        String finalUri = uri;
+        localProgressHandler.post(() -> {
+            try {
+                MediaPlayer mp = new MediaPlayer();
+                localMediaPlayer = mp;
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    mp.setAudioAttributes(new AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build());
+                } else {
+                    mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
+                }
+
+                mp.setDataSource(getContext(), Uri.parse(finalUri));
+
+                mp.setOnPreparedListener(prepared -> {
+                    prepared.start();
+                    startLocalProgressTimer();
+                    JSObject data = new JSObject();
+                    data.put("durationMs", prepared.getDuration());
+                    data.put("playing", true);
+                    notifyListeners("localMusicStarted", data);
+                });
+
+                mp.setOnCompletionListener(done -> {
+                    stopLocalProgressTimer();
+                    notifyListeners("localMusicCompleted", new JSObject());
+                });
+
+                mp.setOnErrorListener((errMp, what, extra) -> {
+                    stopLocalProgressTimer();
+                    JSObject err = new JSObject();
+                    err.put("error", "MediaPlayer error " + what + "/" + extra);
+                    notifyListeners("localMusicError", err);
+                    return true;
+                });
+
+                mp.prepareAsync();
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("PLAY_FAILED", e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void pauseLocalTrack(PluginCall call) {
+        localProgressHandler.post(() -> {
+            MediaPlayer mp = localMediaPlayer;
+            if (mp != null) {
+                try { if (mp.isPlaying()) mp.pause(); } catch (Exception ignored) {}
+                stopLocalProgressTimer();
+                try {
+                    JSObject data = new JSObject();
+                    data.put("positionMs", mp.getCurrentPosition());
+                    data.put("durationMs", mp.getDuration());
+                    data.put("playing", false);
+                    notifyListeners("localMusicProgress", data);
+                } catch (Exception ignored) {}
+            }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void resumeLocalTrack(PluginCall call) {
+        localProgressHandler.post(() -> {
+            MediaPlayer mp = localMediaPlayer;
+            if (mp != null) {
+                try { if (!mp.isPlaying()) mp.start(); } catch (Exception ignored) {}
+                startLocalProgressTimer();
+            }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void stopLocalTrack(PluginCall call) {
+        localProgressHandler.post(() -> {
+            releaseLocalPlayer();
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void seekLocalTrack(PluginCall call) {
+        int positionMs = call.getInt("positionMs", 0);
+        localProgressHandler.post(() -> {
+            MediaPlayer mp = localMediaPlayer;
+            if (mp != null) {
+                try { mp.seekTo(positionMs); } catch (Exception ignored) {}
+            }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void getLocalTrackPosition(PluginCall call) {
+        JSObject result = new JSObject();
+        MediaPlayer mp = localMediaPlayer;
+        if (mp != null) {
+            try {
+                result.put("positionMs", mp.getCurrentPosition());
+                result.put("durationMs", mp.getDuration());
+                result.put("playing",    mp.isPlaying());
+            } catch (Exception e) {
+                result.put("positionMs", 0);
+                result.put("durationMs", 0);
+                result.put("playing",    false);
+            }
+        } else {
+            result.put("positionMs", 0);
+            result.put("durationMs", 0);
+            result.put("playing",    false);
+        }
+        call.resolve(result);
+    }
+
+    // ── Video oynatma (VideoView overlay — aynı Activity içinde) ───────────────
+
+    private RelativeLayout videoOverlay = null;
+    private VideoView      nativeVideoView = null;
+
+    /** MediaStore.Video.Media'dan cihaz videolarını listele. */
+    @PluginMethod
+    public void getVideoTracks(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String[] projection = {
+                    MediaStore.Video.Media._ID,
+                    MediaStore.Video.Media.TITLE,
+                    MediaStore.Video.Media.DURATION,
+                    MediaStore.Video.Media.SIZE,
+                    MediaStore.Video.Media.DATE_MODIFIED,
+                };
+                String selection = MediaStore.Video.Media.SIZE + " > 0";
+                String sortOrder = MediaStore.Video.Media.DATE_MODIFIED + " DESC";
+
+                ContentResolver cr = getContext().getContentResolver();
+                Cursor cursor = cr.query(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    projection, selection, null, sortOrder
+                );
+
+                JSArray videos = new JSArray();
+                if (cursor != null) {
+                    int idCol       = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID);
+                    int titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.TITLE);
+                    int durationCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION);
+                    int sizeCol     = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE);
+
+                    while (cursor.moveToNext()) {
+                        long   id       = cursor.getLong(idCol);
+                        String title    = cursor.getString(titleCol);
+                        long   duration = cursor.getLong(durationCol);
+                        long   size     = cursor.getLong(sizeCol);
+
+                        Uri contentUri = ContentUris.withAppendedId(
+                            MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id);
+
+                        JSObject video = new JSObject();
+                        video.put("id",         String.valueOf(id));
+                        video.put("uri",        contentUri.toString());
+                        video.put("title",      title != null ? title : "Video " + id);
+                        video.put("durationMs", duration);
+                        video.put("sizeBytes",  size);
+                        videos.put(video);
+                    }
+                    cursor.close();
+                }
+
+                JSObject result = new JSObject();
+                result.put("videos", videos);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("VIDEO_QUERY_FAILED", e.getMessage());
+            }
+        }).start();
+    }
+
+    /**
+     * Videoyu aynı Activity içinde tam ekran native VideoView ile oynat.
+     * Ayrı uygulama açılmaz; KAPAT butonu basılınca overlay kaldırılır.
+     */
+    @PluginMethod
+    public void playVideoNative(PluginCall call) {
+        String uri   = call.getString("uri", "");
+        String title = call.getString("title", "Video");
+
+        if (uri == null || uri.isEmpty()) {
+            call.reject("URI_REQUIRED", "uri parametresi gerekli");
+            return;
+        }
+        final String finalUri   = uri;
+        final String finalTitle = title;
+
+        getActivity().runOnUiThread(() -> {
+            // Önceki oynatıcıyı kapat
+            closeVideoNativeInternal();
+
+            // Tam ekran koyu overlay
+            videoOverlay = new RelativeLayout(getContext());
+            videoOverlay.setBackgroundColor(0xFF000000);
+            videoOverlay.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ));
+
+            // VideoView
+            nativeVideoView = new VideoView(getContext());
+            RelativeLayout.LayoutParams vp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
+            );
+            vp.addRule(RelativeLayout.CENTER_IN_PARENT);
+            nativeVideoView.setLayoutParams(vp);
+            nativeVideoView.setVideoURI(Uri.parse(finalUri));
+
+            android.widget.MediaController mc = new android.widget.MediaController(getContext());
+            mc.setAnchorView(nativeVideoView);
+            nativeVideoView.setMediaController(mc);
+
+            nativeVideoView.setOnPreparedListener(mp -> {
+                mp.start();
+                JSObject data = new JSObject();
+                data.put("durationMs", mp.getDuration());
+                notifyListeners("videoStarted", data);
+            });
+
+            nativeVideoView.setOnCompletionListener(mp -> {
+                notifyListeners("videoCompleted", new JSObject());
+                // Tamamlanınca overlay kaldır
+                getActivity().runOnUiThread(this::closeVideoNativeInternal);
+            });
+
+            nativeVideoView.setOnErrorListener((mp, what, extra) -> {
+                JSObject err = new JSObject();
+                err.put("error", "Video oynatma hatası: " + what + "/" + extra);
+                notifyListeners("videoError", err);
+                return false;
+            });
+
+            videoOverlay.addView(nativeVideoView);
+
+            // KAPAT butonu — sağ üst köşe
+            Button closeBtn = new Button(getContext());
+            closeBtn.setText("✕  KAPAT");
+            closeBtn.setTextSize(14f);
+            closeBtn.setTextColor(0xFFFFFFFF);
+            closeBtn.setBackgroundColor(0xCC1a1a2e);
+            closeBtn.setPadding(32, 16, 32, 16);
+            RelativeLayout.LayoutParams cp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT
+            );
+            cp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            cp.addRule(RelativeLayout.ALIGN_PARENT_END);
+            cp.setMargins(0, 60, 40, 0);
+            closeBtn.setLayoutParams(cp);
+            closeBtn.setOnClickListener(v -> {
+                closeVideoNativeInternal();
+                notifyListeners("videoClosed", new JSObject());
+            });
+            videoOverlay.addView(closeBtn);
+
+            // Activity penceresi içine ekle (WebView'ın üstünde)
+            ((ViewGroup) getActivity().getWindow().getDecorView()).addView(videoOverlay);
+            call.resolve();
+        });
+    }
+
+    /** Aktif video overlay'ini kapat ve kaynakları serbest bırak. */
+    @PluginMethod
+    public void closeVideoNative(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            closeVideoNativeInternal();
+            call.resolve();
+        });
+    }
+
+    private void closeVideoNativeInternal() {
+        if (nativeVideoView != null) {
+            try { nativeVideoView.stopPlayback(); } catch (Exception ignored) {}
+            nativeVideoView = null;
+        }
+        if (videoOverlay != null) {
+            try {
+                ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(videoOverlay);
+            } catch (Exception ignored) {}
+            videoOverlay = null;
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static boolean present(String s) { return s != null && !s.isEmpty(); }
@@ -2201,6 +2974,13 @@ public class CarLauncherPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        if (btStateReceiver != null) {
+            try { getContext().unregisterReceiver(btStateReceiver); } catch (Exception ignored) {}
+            btStateReceiver = null;
+        }
+        if (ttsEngine != null) { ttsEngine.stop(); ttsEngine.shutdown(); ttsEngine = null; }
+        ttsReady = false;
+        releaseLocalPlayer();
         canBusManager.stop();
         disconnectOBDInternal();
         obdExecutor.shutdownNow();

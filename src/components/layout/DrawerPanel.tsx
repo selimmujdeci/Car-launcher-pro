@@ -1,6 +1,7 @@
 import { memo, lazy, Suspense } from 'react';
 import { DrawerShell } from './DrawerShell';
 import { TrafficPanel } from '../traffic/TrafficPanel';
+import { ClimateScreen } from '../climate/ClimateScreen';
 import { AppGrid } from '../apps/AppGrid';
 // SettingsPage lazy — 1172 satır bileşen + AIVoicePanel + MapSourcePanel bağımlılıkları
 // yalnızca ayarlar sekmesi ilk açıldığında indirilir; normal sürüş sırasında yüklenmez.
@@ -101,6 +102,10 @@ export const DrawerPanel = memo(function DrawerPanel({
 
       <DrawerShell open={drawer === 'traffic'} onClose={onClose}>
         <TrafficPanel />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'climate'} onClose={onClose} fullscreen>
+        <ClimateScreen />
       </DrawerShell>
 
       <DrawerShell open={drawer === 'music'} onClose={onClose}>

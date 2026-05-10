@@ -32,6 +32,10 @@ function LoginForm() {
         return;
       }
       const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        setError('Kimlik doğrulama servisi başlatılamadı.');
+        return;
+      }
       const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
       if (authError) {
         setError('E-posta veya şifre hatalı.');
@@ -49,6 +53,7 @@ function LoginForm() {
   const handleSSOLogin = async () => {
     if (!isSupabaseConfigured) return;
     const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
     await supabase.auth.signInWithOAuth({
       provider: 'google',

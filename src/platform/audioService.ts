@@ -1,22 +1,34 @@
 /**
- * audioService.ts — Crystal Cabin DSP Engine v2
+ * audioService.ts — Crystal Cabin DSP Engine v3 + SVC + AGC + 3D Spatializer
  *
  * Signal chain:
- *   connectSource(node) → eq[0] → … → eq[9] → masterGain → ctx.destination
- *                                                       └──→ analyser (opt-in)
+ *   connectSource(node)
+ *     → eq[0] → … → eq[9]
+ *     → compressor (AGC — DynamicsCompressorNode)
+ *     → channelSplitter[L,R]
+ *         L ──────────────────────────→ channelMerger[L]
+ *         R → haasDelay (0–20ms) ──────→ channelMerger[R]
+ *     → panner (StereoPannerNode, Driver Focus)
+ *     → masterGain → ctx.destination
+ *                 └──→ analyser (opt-in)
  *
- * Özellikler:
- *   · 10-bant EQ (31–16 kHz) — preset + per-band override, safeStorage kalıcı
- *   · SVC (Speed Volume Compensation) — her 20 km/h +%3, maks %15 tavan
- *     Tüm gain değişimleri exponentialRampToValueAtTime (ses patlaması yok)
- *   · AnalyserNode lazy-created — fftSize=256 (görselleştirme istenmezse sıfır maliyet)
+ * SVC (Speed Volume Compensation):
+ *   < 40 km/h  : etki yok
+ *   40–120 km/h: lineer dB rampı 0 → +6 dB
+ *   > 120 km/h : sabit +6 dB (~2× kazanç)
+ *   Hysteresis : ±3 km/h Schmidt trigger — anlık dalgalanmaları filtreler
+ *   Native     : STREAM_MUSIC Android sistem sesi de senkronize edilir
+ *
+ * Audio Ducking (ISO 22262 uyumlu):
+ *   TTS/navigasyon sırasında müziği %30 seviyeye indirir.
+ *   Referans sayacı (_duckCount): çakışan duck çağrıları düzgün işlenir.
  *
  * Zero-Leak:
- *   · destroy() tüm AudioNode bağlantılarını keser + AudioContext.close()
- *   · _unsubSpeed thunk destroy()+HMR dispose'da temizlenir
- *   · connectSource() disconnect thunk döner
+ *   destroy() → _unsubSpeed iptal → AudioNode bağlantıları kes → ctx.close()
  */
 
+import { Capacitor } from '@capacitor/core';
+import { CarLauncher } from './nativePlugin';
 import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
 
 /* ── Tipler ──────────────────────────────────────────────────────────────── */
@@ -26,27 +38,45 @@ export type AudioProfile = 'flat' | 'cinema' | 'speech' | 'dynamic' | 'classic';
 export interface PresetInfo {
   id:    AudioProfile;
   label: string;
-  /** 10 kazanç değeri (dB), BAND_FREQS sırasıyla: 31–62–125–250–500–1k–2k–4k–8k–16k */
   bands: readonly [number, number, number, number, number, number, number, number, number, number];
 }
 
 /* ── EQ sabitleri ────────────────────────────────────────────────────────── */
 
 const BAND_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16_000] as const;
-const BAND_Q     = 1.41;    // peaking bantlar — √2 ≈ bir oktav bant genişliği
+const BAND_Q     = 1.41;
 
 /* ── Gain ramp sabitleri ─────────────────────────────────────────────────── */
 
-const GAIN_CLICK_RAMP_S = 0.05;  // slider anti-click geçiş süresi (sn)
-const SVC_RAMP_S        = 1.5;   // SVC kabin gürültüsü kompanzasyonu (sn)
-const DUCK_RAMP_S       = 0.30;  // Audio duck: navigasyon/uyarı hızlı bastır
-const UNDUCK_RAMP_S     = 0.80;  // Audio unduck: yavaş geri aç (doğal geçiş)
-const DUCK_LEVEL        = 0.20;  // Duck hedefi: master gain'in %20'si
+const GAIN_CLICK_RAMP_S = 0.05;
+const SVC_RAMP_S        = 1.5;
+/** Duck geçişi: 0.10 s — <20ms hardware buffer ile algılanabilir örtüşme sıfır */
+const DUCK_RAMP_S       = 0.10;
+/** Unduck geçişi: 0.40 s — TTS bitti, müziği yumuşakça geri getir */
+const UNDUCK_RAMP_S     = 0.40;
+/** ISO 22262: TTS sırasında müzik %30 seviyeye iner */
+const DUCK_LEVEL        = 0.30;
+
+/* ── SVC algoritma sabitleri ─────────────────────────────────────────────── */
+
+/** Bu hızın altında SVC devreye girmez */
+const SVC_SPEED_LOW_KMH  = 40;
+/** Bu hızın üstünde maksimum boost uygulanır */
+const SVC_SPEED_HIGH_KMH = 120;
+/** Maksimum kazanç artışı — +6 dB = 10^(6/20) ≈ ×2.0 */
+const SVC_MAX_DB         = 6;
+/**
+ * Schmidt trigger eşiği — küçük hız dalgalanmalarını filtreler.
+ * Yalnızca |Δhız| ≥ 3 km/h ise SVC yeniden hesaplanır.
+ */
+const SVC_HYSTERESIS_KMH = 3;
 
 /* ── Persistence anahtarları ─────────────────────────────────────────────── */
 
-const EQ_PERSIST_KEY  = 'audio-eq-bands';
-const SVC_PERSIST_KEY = 'audio-svc-enabled';
+const EQ_PERSIST_KEY    = 'audio-eq-bands';
+const SVC_PERSIST_KEY   = 'audio-svc-enabled';
+const AGC_PERSIST_KEY   = 'audio-agc-enabled';
+const FOCUS_PERSIST_KEY = 'audio-driver-focus';
 
 /* ── Preset tablosu ──────────────────────────────────────────────────────── */
 //    Frekanslar:  31   62  125  250  500  1k   2k   4k   8k  16k
@@ -61,25 +91,46 @@ export const PRESETS: readonly PresetInfo[] = [
 
 /* ── Modül state ─────────────────────────────────────────────────────────── */
 
-let _ctx:      AudioContext | null = null;
-let _eqNodes:  BiquadFilterNode[]  = [];
-let _gainNode: GainNode | null     = null;
-let _analyser: AnalyserNode | null = null;
-let _profile:  AudioProfile        = 'flat';
-let _volume    = 1.0;               // 0.0–1.0, kullanıcı base volume
+let _ctx:        AudioContext | null          = null;
+let _eqNodes:    BiquadFilterNode[]          = [];
+let _gainNode:   GainNode | null             = null;
+let _analyser:   AnalyserNode | null         = null;
+let _profile:    AudioProfile                = 'flat';
+let _volume      = 1.0;
 
-// 10-bant EQ dB değerleri — preset veya per-band override ile güncellenir
+// AGC — DynamicsCompressorNode
+let _compressor: DynamicsCompressorNode | null = null;
+let _agcEnabled  = true;
+
+// 3D Spatializer — Driver Focus (Haas Effect)
+let _panner:    StereoPannerNode | null    = null;
+let _splitter:  ChannelSplitterNode | null = null;
+let _merger:    ChannelMergerNode | null   = null;
+let _haasDelay: DelayNode | null           = null;
+let _driverFocusEnabled = false;
+
+// Termal koruma bayrağı — thermal lock aktifken AGC gevşetilir
+let _thermalLow = false;
+
 let _eqBands: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-// SVC (Speed Volume Compensation)
-let _svcEnabled  = true;  // varsayılan açık
-let _svcSpeedKmh = 0;     // son bilinen hız
+// SVC state
+let _svcEnabled         = true;
+let _svcSpeedKmh        = 0;
+/** Son SVC uygulamasındaki hız — Schmidt trigger referansı */
+let _svcLastAppliedKmh  = 0;
 
-// Hız aboneliği cleanup thunk — Zero-Leak
+// Native sistem sesi entegrasyonu
+/** Kullanıcının seçtiği baz sistem ses yüzdesi (0–100); null = henüz ayarlanmadı */
+let _baseSystemVolumePct: number | null = null;
+
+// Zero-Leak: hız aboneliği cleanup thunk
 let _unsubSpeed: (() => void) | null = null;
 
-// Audio Ducking — navigasyon/uyarı sırasında müziği bastır
-let _isDucked = false;
+// Audio Ducking referans sayacı
+// Birden fazla TTS/uyarı aynı anda isteyebilir; sayaç sıfıra inince unduck yapılır
+let _isDucked  = false;
+let _duckCount = 0;
 
 /* ── AudioContext fabrikası ──────────────────────────────────────────────── */
 
@@ -100,7 +151,6 @@ function _saveEqBands(): void {
 }
 
 function _loadPersistedState(): void {
-  // EQ bands
   const eqRaw = safeGetRaw(EQ_PERSIST_KEY);
   if (eqRaw) {
     try {
@@ -115,159 +165,248 @@ function _loadPersistedState(): void {
     } catch { /* bozuk JSON — varsayılan (flat) korunur */ }
   }
 
-  // SVC enabled
-  const svcRaw = safeGetRaw(SVC_PERSIST_KEY);
+  const svcRaw   = safeGetRaw(SVC_PERSIST_KEY);
   if (svcRaw !== null) _svcEnabled = svcRaw !== 'false';
+
+  const agcRaw   = safeGetRaw(AGC_PERSIST_KEY);
+  if (agcRaw !== null) _agcEnabled = agcRaw !== 'false';
+
+  const focusRaw = safeGetRaw(FOCUS_PERSIST_KEY);
+  if (focusRaw !== null) _driverFocusEnabled = focusRaw === 'true';
 }
 
 /* ── SVC hesaplama ve uygulama ───────────────────────────────────────────── */
 
 /**
- * Hıza göre SVC çarpanı.
- * Her 20 km/h için +%3 (lineer ölçekleme), maks %15 tavan.
- * Araç yavaşladığında çarpan doğal olarak azalır.
+ * Hıza göre SVC kazanç çarpanını döndürür (linear).
+ *
+ *   40 km/h  → +0.0 dB → ×1.00
+ *   80 km/h  → +3.0 dB → ×1.41 (√2)
+ *  120 km/h  → +6.0 dB → ×1.995 (~2×)
  */
 function _computeSvcMultiplier(speedKmh: number): number {
   if (!_svcEnabled) return 1.0;
-  return 1.0 + Math.min((speedKmh / 20) * 0.03, 0.15); // 1.00–1.15
+  if (speedKmh <= SVC_SPEED_LOW_KMH) return 1.0;
+
+  const t  = Math.min(1.0, (speedKmh - SVC_SPEED_LOW_KMH) / (SVC_SPEED_HIGH_KMH - SVC_SPEED_LOW_KMH));
+  const dB = t * SVC_MAX_DB;
+  return Math.pow(10, dB / 20);  // dB → linear amplitude
 }
 
 /**
- * Master gain'i SVC + base volume ile hedef değere taşır.
- *
- * exponentialRampToValueAtTime kullanımı:
- *   · Logaritmik ses algısıyla uyumlu eğri (insan kulağı için doğal)
- *   · Ses patlaması (click/pop) imkansız — her anda türevi sınırlı
- *   · Önceki bekleyen rampler cancelScheduledValues ile iptal edilir
- *
- * @param rampS  Geçiş süresi saniye cinsinden
+ * Web Audio master gain'i SVC + base volume ile hedef değere taşır.
+ * Duck aktifken çağrı görmezden gelinir — unduck sonrası gain kendi güncelleşir.
  */
 function _applySvcGain(rampS = SVC_RAMP_S): void {
-  if (_isDucked) return; // Duck aktifken SVC/volume değişikliği gain'e yansımasın
+  if (_isDucked) return;
   if (!_gainNode || !_ctx || _ctx.state === 'closed') return;
 
-  const svcMul  = _computeSvcMultiplier(_svcSpeedKmh);
-  // exponentialRampToValueAtTime: hedef 0 olamaz — 0.0001 (~-80 dB) pratikte sessiz
-  const target  = Math.max(0.0001, _volume * svcMul);
-  const now     = _ctx.currentTime;
+  const svcMul = _computeSvcMultiplier(_svcSpeedKmh);
+  const target = Math.max(0.0001, _volume * svcMul);
+  const now    = _ctx.currentTime;
 
   _gainNode.gain.cancelScheduledValues(now);
-  // setValueAtTime: rampın başlangıç noktasını sabitler (anlık sıçrama yok)
   _gainNode.gain.setValueAtTime(Math.max(0.0001, _gainNode.gain.value), now);
   _gainNode.gain.exponentialRampToValueAtTime(target, now + rampS);
 }
 
 /**
- * Navigasyon anonsu veya sistem uyarısı başladığında müziği bastırır.
- * linearRampToValueAtTime kullanımı: duck değeri 0'a ulaşabilir (kaybolma izlenimine izin).
- * Arka arkaya çağrı güvenli — idempotent.
+ * Android STREAM_MUSIC (0–15 adım) ses düzeyini SVC ile senkronize eder.
+ * Yalnızca native platform + SVC aktif + baz ses ayarlandığında çalışır.
+ * Duck aktifken sessizce ertelenir; unduck sonrası tekrar çağrılır.
+ */
+function _applySvcSystemVolume(): void {
+  if (!Capacitor.isNativePlatform()) return;
+  if (!_svcEnabled || _isDucked) return;
+  if (_baseSystemVolumePct === null) return;
+
+  const mul       = _computeSvcMultiplier(_svcSpeedKmh);
+  const pct       = Math.min(100, Math.round(_baseSystemVolumePct * mul));
+  const streamIdx = Math.round((pct / 100) * 15);  // 0–15 STREAM_MUSIC index
+
+  CarLauncher.setVolume({ value: streamIdx }).catch(() => {/* non-fatal */});
+}
+
+/* ── Audio Ducking ───────────────────────────────────────────────────────── */
+
+/**
+ * Navigasyon anonsu / sistem uyarısı başladığında müziği %30 seviyeye indirir.
+ *
+ * Referans sayacı: birden fazla TTS kaynağı aynı anda duck isteyebilir.
+ * Kazanç yalnızca ilk duck çağrısında değişir; sayaç negatife düşmez.
  */
 export function duckMedia(): void {
-  if (_isDucked) return;
+  _duckCount++;
+  if (_duckCount > 1) return;  // zaten duck'landı
   _isDucked = true;
+
   if (!_gainNode || !_ctx || _ctx.state === 'closed') return;
+
+  // Suspended context'te gain rampi işlemez — önce resume et
+  if (_ctx.state === 'suspended') void _ctx.resume();
+
   const svcMul = _computeSvcMultiplier(_svcSpeedKmh);
-  const target = Math.max(0, _volume * svcMul * DUCK_LEVEL);
+  // Exponential ramp sıfıra/sıfırdan gidemez — 0.0001 floor zorunlu
+  const target = Math.max(0.0001, _volume * svcMul * DUCK_LEVEL);
   const now    = _ctx.currentTime;
+
   _gainNode.gain.cancelScheduledValues(now);
-  _gainNode.gain.setValueAtTime(_gainNode.gain.value, now);
-  _gainNode.gain.linearRampToValueAtTime(target, now + DUCK_RAMP_S);
+  _gainNode.gain.setValueAtTime(Math.max(0.0001, _gainNode.gain.value), now);
+  _gainNode.gain.exponentialRampToValueAtTime(target, now + DUCK_RAMP_S);
 }
 
 /**
- * Navigasyon anonsu veya sistem uyarısı bitti — müziği geri aç.
- * SVC çarpanı dahil edilir; unduck sonrası gain doğru konumda kalır.
+ * Navigasyon anonsu / sistem uyarısı bitti — müziği geri aç.
+ *
+ * Sayaç sıfıra inince unduck yapılır; önceki her duck için bir unduck gerekir.
+ * Çift unduck çağrısı güvenli (guard: sayaç 0'ın altına düşmez).
+ * SVC çarpanı unduck anındaki güncel hıza göre hesaplanır.
  */
 export function unduckMedia(): void {
-  if (!_isDucked) return;
+  if (_duckCount === 0) return;
+  _duckCount = Math.max(0, _duckCount - 1);
+  if (_duckCount > 0) return;
+
   _isDucked = false;
+
   if (!_gainNode || !_ctx || _ctx.state === 'closed') return;
+
   const svcMul = _computeSvcMultiplier(_svcSpeedKmh);
-  const target = Math.max(0, _volume * svcMul);
+  // Exponential ramp sıfıra/sıfırdan gidemez — 0.0001 floor zorunlu
+  const target = Math.max(0.0001, _volume * svcMul);
   const now    = _ctx.currentTime;
+
   _gainNode.gain.cancelScheduledValues(now);
-  _gainNode.gain.setValueAtTime(_gainNode.gain.value, now);
-  _gainNode.gain.linearRampToValueAtTime(target, now + UNDUCK_RAMP_S);
+  _gainNode.gain.setValueAtTime(Math.max(0.0001, _gainNode.gain.value), now);
+  _gainNode.gain.exponentialRampToValueAtTime(target, now + UNDUCK_RAMP_S);
+  // Sayaç uyuşmazlığında bile final gain kesin olarak doğru değere sabitlenir.
+  // Float precision drift'ini ve yarım kalan ramp'ları engeller.
+  _gainNode.gain.setValueAtTime(target, now + UNDUCK_RAMP_S + 0.001);
+
+  // Duck süresince hız değişmiş olabilir — sistem sesini güncelle
+  _applySvcSystemVolume();
 }
 
-/* ── Hız aboneliği (VehicleStateStore, dynamic import) ──────────────────── */
+/* ── Hız aboneliği (dynamic import — döngüsel bağımlılık önlemi) ─────────── */
 
 /**
- * VehicleStateStore'u dinamik import ederek hız değişimlerini dinler.
- * Dynamic import: audioService → vehicleDataLayer döngüsel bağımlılığını önler.
- * Abonelik ilk initAudio() çağrısında kurulur; destroy()+HMR dispose'da iptal edilir.
+ * Zustand store'a abone olur; Schmidt trigger ile her hız güncellemesinde
+ * Web Audio gain ve Android sistem sesini günceller.
+ * İlk initAudio() çağrısında başlatılır; destroy()+HMR dispose'da iptal edilir.
  */
 function _startSpeedSubscription(): void {
   if (_unsubSpeed) return;
 
   void import('./vehicleDataLayer/UnifiedVehicleStore')
     .then(({ useUnifiedVehicleStore: useVehicleStore }) => {
-      if (_unsubSpeed) return; // çift abonelik önle (race condition)
+      if (_unsubSpeed) return;
       _unsubSpeed = useVehicleStore.subscribe((state) => {
         const kmh = state.speed;
-        if (kmh == null || kmh === _svcSpeedKmh) return;
-        _svcSpeedKmh = kmh;
-        if (_svcEnabled && _gainNode) _applySvcGain();
+        if (kmh == null) return;
+
+        // Schmidt trigger: ±3 km/h bant içini yoksay
+        if (Math.abs(kmh - _svcLastAppliedKmh) < SVC_HYSTERESIS_KMH) return;
+
+        _svcSpeedKmh       = kmh;
+        _svcLastAppliedKmh = kmh;
+
+        if (_svcEnabled && _gainNode) {
+          _applySvcGain();
+          _applySvcSystemVolume();
+        }
       });
     })
-    .catch(() => {
-      // VehicleStateStore yüklenemedi — notifySpeed() yedek yol olarak çalışır
-    });
+    .catch(() => {/* notifySpeed() yedek yol olarak çalışır */});
 }
 
-/* ── İç inşa fonksiyonları ───────────────────────────────────────────────── */
+/* ── DSP zincir kurulumu ─────────────────────────────────────────────────── */
 
 function _buildChain(ctx: AudioContext): void {
-  // 10-band EQ: lowshelf | peaking×8 | highshelf
+  // ── 1. EQ bant dizisi ──────────────────────────────────────────────────────
   _eqNodes = (BAND_FREQS as readonly number[]).map((freq, i) => {
     const node = ctx.createBiquadFilter();
-    if (i === 0) {
-      node.type = 'lowshelf';
-    } else if (i === BAND_FREQS.length - 1) {
-      node.type = 'highshelf';
-    } else {
-      node.type = 'peaking';
-      node.Q.value = BAND_Q;
-    }
+    if (i === 0)                          node.type = 'lowshelf';
+    else if (i === BAND_FREQS.length - 1) node.type = 'highshelf';
+    else { node.type = 'peaking'; node.Q.value = BAND_Q; }
     node.frequency.value = freq;
     node.gain.value      = 0;
     return node;
   });
+  for (let i = 0; i < _eqNodes.length - 1; i++) _eqNodes[i].connect(_eqNodes[i + 1]);
 
-  // EQ zinciri: eq[0] → eq[1] → … → eq[9]
-  for (let i = 0; i < _eqNodes.length - 1; i++) {
-    _eqNodes[i].connect(_eqNodes[i + 1]);
-  }
+  // ── 2. AGC — DynamicsCompressorNode ───────────────────────────────────────
+  // Leveling mode: threshold -24dB, knee 30, ratio 3:1
+  // Farklı kaynakları (YouTube, Spotify) sürücüye hissettirmeden eşitler.
+  _compressor = ctx.createDynamicsCompressor();
+  _compressor.threshold.value = _agcEnabled ? -24 : 0;   // 0 = etkin sıkıştırma yok
+  _compressor.knee.value      = 30;
+  _compressor.ratio.value     = _agcEnabled ? 3 : 1;     // 1:1 = bypass
+  _compressor.attack.value    = 0.003;
+  _compressor.release.value   = 0.25;
+  _eqNodes[_eqNodes.length - 1].connect(_compressor);
 
-  // Master gain → destination
+  // ── 3. Haas Effect — ChannelSplitter → DelayNode(R) → ChannelMerger ───────
+  // Sol kanal (sürücü) gecikme yok; sağ kanala 15ms gecikme → ses sürücü önünde odaklanır.
+  _splitter  = ctx.createChannelSplitter(2);
+  _merger    = ctx.createChannelMerger(2);
+  _haasDelay = ctx.createDelay(0.1);   // max 100ms buffer
+  _haasDelay.delayTime.value = _driverFocusEnabled ? 0.015 : 0; // 15ms Haas / bypass
+
+  _compressor.connect(_splitter);
+  _splitter.connect(_merger, 0, 0);        // L → merger[0]
+  _splitter.connect(_haasDelay, 1);        // R → delay
+  _haasDelay.connect(_merger, 0, 1);       // delay → merger[1]
+
+  // ── 4. StereoPanner — Driver Focus kaydırması ──────────────────────────────
+  _panner = ctx.createStereoPanner();
+  _panner.pan.value = _driverFocusEnabled ? -0.2 : 0; // -0.2 = hafif sol (direksiyon tarafı)
+  _merger.connect(_panner);
+
+  // ── 5. Master Gain ─────────────────────────────────────────────────────────
   _gainNode = ctx.createGain();
   _gainNode.gain.value = Math.max(0.0001, _volume);
-  _eqNodes[_eqNodes.length - 1].connect(_gainNode);
+  _panner.connect(_gainNode);
   _gainNode.connect(ctx.destination);
 
-  // Kalıcı EQ değerlerini (preset veya custom) uygula
   _writeEQ(_eqBands);
 }
 
-function _writeEQ(bands: readonly number[]): void {
-  _eqNodes.forEach((node, i) => {
-    node.gain.value = bands[i] ?? 0;
-  });
+/** AGC compressor parametrelerini mevcut moda göre uygula (smooth ramp). */
+function _applyAGCParams(): void {
+  if (!_compressor || !_ctx || _ctx.state === 'closed') return;
+  const now = _ctx.currentTime;
+  const RAMP = 0.1; // 100ms smooth geçiş — çatlama önleme
+
+  if (_agcEnabled && !_thermalLow) {
+    // Normal leveling mode
+    _compressor.threshold.exponentialRampToValueAtTime(-24 + 0.001, now + RAMP);
+    _compressor.ratio.exponentialRampToValueAtTime(3, now + RAMP);
+  } else if (_agcEnabled && _thermalLow) {
+    // Termal koruma: AGC gevşetilir (ratio düşer, threshold yükselir → daha az işlem)
+    _compressor.threshold.exponentialRampToValueAtTime(-12 + 0.001, now + RAMP);
+    _compressor.ratio.exponentialRampToValueAtTime(1.5, now + RAMP);
+  } else {
+    // AGC kapalı — 1:1 oranı = bypass efekti
+    _compressor.ratio.exponentialRampToValueAtTime(1, now + RAMP);
+  }
 }
 
-/* ── Lazy init ───────────────────────────────────────────────────────────── */
+function _writeEQ(bands: readonly number[]): void {
+  _eqNodes.forEach((node, i) => { node.gain.value = bands[i] ?? 0; });
+}
 
 function _getOrInit(): AudioContext | null {
   if (_ctx && _ctx.state !== 'closed') return _ctx;
 
-  // Kalıcı EQ ve SVC ayarlarını yükle (AudioContext öncesinde — buildChain kullanır)
   _loadPersistedState();
 
   const AC = _resolveAC();
   if (!AC) return null;
 
   try {
-    _ctx = new AC({ latencyHint: 'playback' });
+    // 'interactive' → minimum hardware buffer (≤20ms) — gain değişimleri anlık hissedilir.
+    // 'playback' geniş buffer kullanır ve duck rampi kulağa geç gelirdi.
+    _ctx = new AC({ latencyHint: 'interactive' });
   } catch {
     return null;
   }
@@ -289,13 +428,8 @@ export function initAudio(): AudioContext | null {
   return _getOrInit();
 }
 
-/**
- * Suspended context'i devam ettirir.
- */
 export async function resumeAudio(): Promise<void> {
-  if (_ctx?.state === 'suspended') {
-    await _ctx.resume();
-  }
+  if (_ctx?.state === 'suspended') await _ctx.resume();
 }
 
 /**
@@ -304,30 +438,18 @@ export async function resumeAudio(): Promise<void> {
  */
 export function connectSource(source: AudioNode): () => void {
   const ctx = _getOrInit();
-  if (!ctx || _eqNodes.length === 0) return () => { /* DSP yok, no-op */ };
+  if (!ctx || _eqNodes.length === 0) return () => {/* DSP yok */};
 
   source.connect(_eqNodes[0]);
-
-  return () => {
-    try { source.disconnect(_eqNodes[0]); } catch { /* zaten kesilmiş */ }
-  };
+  return () => { try { source.disconnect(_eqNodes[0]); } catch {/* zaten kesilmiş */} };
 }
 
-/**
- * EQ preset uygular — tüm 10 bandı preset değerleriyle günceller ve kalıcı kaydeder.
- * Context henüz açılmamışsa profil saklanır; init() sonrasında otomatik uygulanır.
- */
 export function setPreset(profile: AudioProfile): void {
-  _profile = profile;
+  _profile  = profile;
   const preset = PRESETS.find(p => p.id === profile) ?? PRESETS[0];
+  _eqBands  = [...preset.bands];
 
-  // Preset değerlerini _eqBands'e kopyala (tek kaynak of truth)
-  _eqBands = [...preset.bands];
-
-  if (_ctx && _ctx.state !== 'closed' && _eqNodes.length > 0) {
-    _writeEQ(_eqBands);
-  }
-
+  if (_ctx && _ctx.state !== 'closed' && _eqNodes.length > 0) _writeEQ(_eqBands);
   _saveEqBands();
 
   if (profile === 'flat') {
@@ -337,85 +459,72 @@ export function setPreset(profile: AudioProfile): void {
   }
 }
 
-/** Aktif preset adını döner. */
-export function getPreset(): AudioProfile {
-  return _profile;
-}
+export function getPreset(): AudioProfile   { return _profile; }
+export function getPresets(): readonly PresetInfo[] { return PRESETS; }
 
-/** Tüm preset tanımlarını döner (EQ UI için). */
-export function getPresets(): readonly PresetInfo[] {
-  return PRESETS;
-}
-
-/**
- * Tek bir EQ bandını ayarlar.
- * @param index  0–9 (BAND_FREQS sırasıyla: 31 Hz → 16 kHz)
- * @param db     Kazanç dB — [-12, +12] aralığında kısıtlanır
- */
 export function setEqBand(index: number, db: number): void {
   if (index < 0 || index >= 10 || !Number.isFinite(db)) return;
   _eqBands[index] = Math.max(-12, Math.min(12, db));
   if (_eqNodes[index] && _ctx && _ctx.state !== 'closed') {
-    // EQ band: doğrudan set — ramp gerekmez (EQ değişimi perceptual click yaratmaz)
     _eqNodes[index].gain.value = _eqBands[index];
   }
   _saveEqBands();
 }
 
-/** Tüm 10 bant dB değerlerini döner (preset veya custom). */
-export function getEqBands(): readonly number[] {
-  return _eqBands;
-}
+export function getEqBands(): readonly number[] { return _eqBands; }
 
 /**
  * DSP master gain (0–100 %).
- * exponentialRamp uygulanır — slider burst'larında tık/patlama önlenir.
- *
- * Not: Sistem ses seviyesi için systemSettingsService.setVolume() kullan.
- * Bu fonksiyon yalnızca WebView audio zincirindeki GainNode'u etkiler.
+ * exponentialRamp: slider hızlı sürüklenirken ses patlaması olmaz.
  */
 export function setDSPVolume(percent: number): void {
   _volume = Math.max(0, Math.min(100, percent)) / 100;
-  _applySvcGain(GAIN_CLICK_RAMP_S); // hızlı anti-click ramp; SVC çarpanı dahil
+  _applySvcGain(GAIN_CLICK_RAMP_S);
 }
 
-/** Mevcut DSP volume değerini 0–100 aralığında döner. */
-export function getDSPVolume(): number {
-  return Math.round(_volume * 100);
-}
+export function getDSPVolume(): number { return Math.round(_volume * 100); }
 
-/**
- * SVC (Speed Volume Compensation) aktif/pasif.
- * Pasife alındığında masterGain base volume'e yavaşça döner.
- * Ayar safeStorage'a kalıcı olarak yazılır.
- */
 export function setSvcEnabled(enabled: boolean): void {
   _svcEnabled = enabled;
   safeSetRaw(SVC_PERSIST_KEY, String(enabled));
+  // SVC kapatılınca _svcLastAppliedKmh sıfırla — tekrar açılınca hemen hesaplansın
+  if (!enabled) _svcLastAppliedKmh = -SVC_HYSTERESIS_KMH * 2;
   _applySvcGain(SVC_RAMP_S);
+  _applySvcSystemVolume();
 }
 
-/** SVC etkin mi? */
-export function getSvcEnabled(): boolean {
-  return _svcEnabled;
+export function getSvcEnabled(): boolean { return _svcEnabled; }
+
+/**
+ * Native platform için SVC baz sistem sesini ayarlar (0–100).
+ * Bu değer kullanıcının Settings'te seçtiği seviye olmalıdır.
+ * SVC bu değer üzerine hıza göre boost uygular; max ×2.0 (120 km/h).
+ */
+export function setSvcBaseSystemVolume(pct: number): void {
+  _baseSystemVolumePct = Math.max(0, Math.min(100, pct));
+  _applySvcSystemVolume();
 }
 
 /**
- * Harici hız besleme — VehicleStateStore aboneliği kurulamadığında veya
- * bağımsız test senaryolarında SVC'yi manuel beslemek için.
- * Zustand aboneliği aktifse çakışmaz (aynı deduplication kontrolü geçerli).
+ * Harici hız besleme — VehicleStateStore aboneliği kurulamazsa veya test için.
+ * Schmidt trigger burada da uygulanır.
  */
 export function notifySpeed(kmh: number): void {
   const safeKmh = Math.max(0, kmh);
-  if (safeKmh === _svcSpeedKmh) return;
-  _svcSpeedKmh = safeKmh;
-  if (_svcEnabled && _gainNode) _applySvcGain();
+  if (Math.abs(safeKmh - _svcLastAppliedKmh) < SVC_HYSTERESIS_KMH) return;
+
+  _svcSpeedKmh       = safeKmh;
+  _svcLastAppliedKmh = safeKmh;
+
+  if (_svcEnabled && _gainNode) {
+    _applySvcGain();
+    _applySvcSystemVolume();
+  }
 }
 
 /**
  * Opt-in AnalyserNode — görselleştirme bileşenleri için.
- * İlk çağrıda lazy oluşturulur; kullanılmıyorsa sıfır CPU maliyeti vardır.
- * Mali-400: fftSize=256, smoothing=0.85 → minimum FFT yükü.
+ * Lazy oluşturulur; kullanılmıyorsa sıfır CPU maliyeti.
  */
 export function getOrCreateAnalyser(): AnalyserNode | null {
   const ctx = _getOrInit();
@@ -423,27 +532,18 @@ export function getOrCreateAnalyser(): AnalyserNode | null {
 
   if (!_analyser) {
     _analyser = ctx.createAnalyser();
-    _analyser.fftSize              = 256;
+    _analyser.fftSize               = 256;
     _analyser.smoothingTimeConstant = 0.85;
     _gainNode.connect(_analyser);
   }
   return _analyser;
 }
 
-/** Raw AudioContext erişimi (harici Web Audio işlemleri için). */
-export function getAudioContext(): AudioContext | null {
-  return _ctx;
-}
+export function getAudioContext(): AudioContext | null { return _ctx; }
 
 /**
- * Tüm kaynakları serbest bırakır.
- *
- * Zero-Leak garantisi:
- *   1. Hız aboneliği iptal edilir (_unsubSpeed)
- *   2. AnalyserNode bağlantısı kesilir
- *   3. GainNode bağlantısı kesilir
- *   4. Tüm EQ BiquadFilterNode bağlantıları kesilir
- *   5. AudioContext kapatılır (asenkron, GC'ye bırakılır)
+ * Tüm kaynakları serbest bırakır (Zero-Leak).
+ * Sıra: abonelik → analyser → gain → EQ → context.close()
  */
 export function destroy(): void {
   if (!_ctx || _ctx.state === 'closed') return;
@@ -451,19 +551,76 @@ export function destroy(): void {
   _unsubSpeed?.();
   _unsubSpeed = null;
 
-  _analyser?.disconnect();
-  _analyser = null;
-
-  _gainNode?.disconnect();
-  _gainNode = null;
+  _analyser?.disconnect();    _analyser   = null;
+  _gainNode?.disconnect();    _gainNode   = null;
+  _panner?.disconnect();      _panner     = null;
+  _haasDelay?.disconnect();   _haasDelay  = null;
+  _merger?.disconnect();      _merger     = null;
+  _splitter?.disconnect();    _splitter   = null;
+  _compressor?.disconnect();  _compressor = null;
 
   for (const node of _eqNodes) {
-    try { node.disconnect(); } catch { /* zaten bağlantısız */ }
+    try { node.disconnect(); } catch {/* zaten bağlantısız */}
   }
   _eqNodes = [];
 
+  _isDucked  = false;
+  _duckCount = 0;
+
   void _ctx.close();
   _ctx = null;
+}
+
+/* ── AGC & Driver Focus API ──────────────────────────────────────────────── */
+
+/**
+ * Akıllı Ses Dengeleme (AGC) açar/kapatır.
+ * exponentialRamp: 100ms geçiş → patlama yok.
+ */
+export function setAGCEnabled(enabled: boolean): void {
+  _agcEnabled = enabled;
+  safeSetRaw(AGC_PERSIST_KEY, String(enabled));
+  _applyAGCParams();
+}
+
+export function getAGCEnabled(): boolean { return _agcEnabled; }
+
+/**
+ * Sürücü Odaklı Ses (Driver Focus) — Haas Effect + StereoPanner.
+ * - Etkin: sesi hafifçe sürücü tarafına (L) kaydırır, sağ hoparlöre 15ms gecikme ekler.
+ * - Pasif: center pan, sıfır gecikme.
+ */
+export function setDriverFocus(enabled: boolean): void {
+  _driverFocusEnabled = enabled;
+  safeSetRaw(FOCUS_PERSIST_KEY, String(enabled));
+
+  if (!_ctx || _ctx.state === 'closed') return;
+  const now  = _ctx.currentTime;
+  const RAMP = 0.12; // 120ms smooth geçiş
+
+  if (_panner) {
+    _panner.pan.cancelScheduledValues(now);
+    _panner.pan.setValueAtTime(_panner.pan.value, now);
+    _panner.pan.linearRampToValueAtTime(enabled ? -0.2 : 0, now + RAMP);
+  }
+
+  if (_haasDelay) {
+    _haasDelay.delayTime.cancelScheduledValues(now);
+    _haasDelay.delayTime.setValueAtTime(_haasDelay.delayTime.value, now);
+    _haasDelay.delayTime.linearRampToValueAtTime(enabled ? 0.015 : 0, now + RAMP);
+  }
+}
+
+export function getDriverFocusEnabled(): boolean { return _driverFocusEnabled; }
+
+/**
+ * Termal mod bildirimi — L2/L3 thermal'da AGC gevşetilir.
+ * FullMapView → AdaptiveRuntimeManager'dan çağrılır.
+ */
+export function notifyThermalLow(isLow: boolean): void {
+  if (_thermalLow === isLow) return;
+  _thermalLow = isLow;
+  _applyAGCParams();
 }
 
 /* ── Backward compat — theaterModeService API ────────────────────────────── */
@@ -472,7 +629,7 @@ export function setCinemaAudioProfile(): void  { setPreset('cinema'); }
 export function setNormalAudioProfile():  void  { setPreset('flat');   }
 export function getAudioProfile():        AudioProfile { return _profile; }
 
-/* ── HMR cleanup — dev modda Hot Reload'da AudioContext + abonelik sızıntısını önle ── */
+/* ── HMR cleanup ─────────────────────────────────────────────────────────── */
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _unsubSpeed?.();

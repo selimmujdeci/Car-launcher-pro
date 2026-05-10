@@ -245,3 +245,111 @@ export async function pushVehicleEvent(
     'telemetry',
   );
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ELM327 Komut Sekansları — OBD2 / UDS araç kontrol placeholder'ları
+ *
+ * ELM327 adapter üzerinden araç kontrolü iki katmanda çalışır:
+ *   1. Standart OBD2 (J1979 Mode 01): rpm, speed, coolant — evrensel
+ *   2. UDS (ISO 14229-1) via broadcast 7DF: lock/unlock — manufacturer-specific
+ *
+ * lock/unlock sekansları PLACEHOLDER'dır. Gerçek araç entegrasyonu için
+ * OEM DBC / ODX veritabanından InputOutputControlByIdentifier (2Fh)
+ * parametreleri alınıp override edilmelidir.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Tek bir ELM327 komut sekansının metadata'sı */
+export interface Elm327Sequence {
+  /** Adapter'a sırayla gönderilecek AT veya OBD2 hex komutları */
+  commands:  readonly string[];
+  /**
+   * true → her komutun yanıtı 'OK' içermeli (AT komutları için).
+   * false → numeric response beklenir (OBD2 PID yanıtları).
+   */
+  expectOk:  boolean;
+  /** Komut başına maksimum bekleme süresi (ms) */
+  timeoutMs: number;
+}
+
+export type Elm327CommandRole =
+  | 'init'     // adapter sıfırlama + protokol kurulumu
+  | 'rpm'      // motor devir sayısı (OBD2 PID 01 0C)
+  | 'speed'    // araç hızı (OBD2 PID 01 0D)
+  | 'coolant'  // soğutucu sıcaklığı (OBD2 PID 01 05)
+  | 'lock'     // kapı kilitleme (UDS 2Fh — manufacturer-specific)
+  | 'unlock';  // kapı açma   (UDS 2Fh — manufacturer-specific)
+
+/**
+ * Uygulama geneli ELM327 sekans tablosu.
+ *
+ * Komut formatları:
+ *   AT*  → ELM327 konfigürasyon komutu (adapter kendi işler)
+ *   010C → OBD2: mode 01 (show current data), PID 0Ch (Engine RPM)
+ *   7DF  → J1979 functional broadcast CAN ID (tüm ECU'lar yanıtlar)
+ *   2F   → UDS Service: InputOutputControlByIdentifier (ISO 14229-1 §11)
+ *   10   → UDS Service: DiagnosticSessionControl (ISO 14229-1 §9.4)
+ */
+export const ELM327_SEQUENCES: Readonly<Record<Elm327CommandRole, Elm327Sequence>> = {
+
+  // ── Adapter kurulumu ────────────────────────────────────────────────────
+  // ATZ   : full reset (ELM327 §4.1)
+  // ATE0  : echo off — yanıt gürültüsünü azaltır
+  // ATL0  : line feeds off
+  // ATSP0 : auto-detect protocol (ATSP 0 = J1979 otomatik)
+  // ATH1  : headers on — CAN ID'yi yanıta ekle
+  // ATCAF1: CAN auto-format on — 8-byte CAN frame'i OBD2 biçiminde gönder
+  init: {
+    commands:  ['ATZ', 'ATE0', 'ATL0', 'ATSP0', 'ATH1', 'ATCAF1'],
+    expectOk:  true,
+    timeoutMs: 1000,
+  },
+
+  // ── Standart OBD2 PID'leri (J1979 / ISO 15031-5) ───────────────────────
+  // Format: <mode_hex><pid_hex> — boşluksuz
+  // Yanıt: 4X <pid> <byte_A> [<byte_B>] — X = mode+0x40
+  rpm: {
+    commands:  ['010C'], // Motor RPM: (byteA * 256 + byteB) / 4
+    expectOk:  false,
+    timeoutMs: 500,
+  },
+  speed: {
+    commands:  ['010D'], // Araç hızı km/h: byteA
+    expectOk:  false,
+    timeoutMs: 500,
+  },
+  coolant: {
+    commands:  ['0105'], // Soğutucu sıcaklığı: byteA - 40 (°C)
+    expectOk:  false,
+    timeoutMs: 500,
+  },
+
+  // ── Kapı kilidi — ISO 14229-1 UDS placeholder ──────────────────────────
+  // 1. AT SH 7DF   : header = J1979 functional broadcast (tüm ECU'lar)
+  // 2. 02 10 03    : DiagnosticSessionControl → extendedDiagnosticSession
+  //                  (bazı ECU'lar 2Fh için extended session gerektirir)
+  // 3. 04 2F 20 03 01 : InputOutputControlByIdentifier
+  //                     dataIdentifier=0x2003 (kapı kontrol — OEM-specific)
+  //                     controlParameter=0x03 shortTermAdjustment
+  //                     controlState=0x01 LOCKED
+  // 4. 02 10 01    : DiagnosticSessionControl → defaultSession (oturumu kapat)
+  //
+  // ⚠ BU KOMUTLAR PLACEHOLDER'DIR. Gerçek değerler OEM ODX/DBC'den alınır.
+  lock: {
+    commands:  ['AT SH 7DF', '02 10 03', '04 2F 20 03 01', '02 10 01'],
+    expectOk:  false,
+    timeoutMs: 500,
+  },
+  unlock: {
+    commands:  ['AT SH 7DF', '02 10 03', '04 2F 20 03 00', '02 10 01'],
+    expectOk:  false,
+    timeoutMs: 500,
+  },
+} as const;
+
+/**
+ * Belirtilen rol için ELM327 sekansını döndürür.
+ * İleride araç VIN'ine göre manufacturer-specific override burada yapılır.
+ */
+export function getElm327Sequence(role: Elm327CommandRole): Elm327Sequence {
+  return ELM327_SEQUENCES[role];
+}

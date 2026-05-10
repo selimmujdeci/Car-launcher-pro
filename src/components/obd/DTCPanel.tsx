@@ -94,7 +94,11 @@ function DTCPanelInner() {
     : null;
 
   return (
-    <div className="flex flex-col gap-5 p-6 glass-card border-none !shadow-none min-h-full">
+    <div
+      className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' } as React.CSSProperties}
+    >
+    <div className="flex flex-col gap-5 p-6 glass-card border-none !shadow-none">
 
       {/* ── Title row ──────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -154,7 +158,7 @@ function DTCPanelInner() {
       <div className="flex-1">
         {dtc.codes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-5 glass-card border-none !shadow-none var(--panel-bg-secondary)">
-            {dtc.lastReadAt ? (
+            {dtc.lastReadAt && !dtc.error ? (
               <>
                 <div className="w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
                   <CheckCircle2 className="w-10 h-10 text-emerald-500" />
@@ -208,6 +212,7 @@ function DTCPanelInner() {
         Tanımlamalar genel OBD-II standartlarına dayanmaktadır.
         Kesin teşhis için yetkili servise başvurun.
       </p>
+    </div>
     </div>
   );
 }

@@ -11,35 +11,67 @@ interface Props {
 // Normal drawer (yarı saydam arka plan + içerik paneli)
 function NormalDrawer({ open, onClose, children }: Omit<Props, 'fullscreen'>) {
   return (
-    <div className={`fixed inset-0 z-[1000] transition-all duration-500 ${
-      open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-    }`}>
+    <div
+      style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0, bottom: 0,
+        width: '100%', height: '100%',
+        zIndex: 1000,
+        opacity: open ? 1 : 0,
+        pointerEvents: open ? 'auto' : 'none',
+        transition: 'opacity 0.5s',
+      }}
+    >
+      {/* Backdrop */}
       <div
-        className="absolute inset-0 backdrop-blur-md"
-        style={{ background: 'rgba(4,8,18,0.65)' }}
+        style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(4,8,18,0.65)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+        }}
         onClick={onClose}
       />
+      {/* Panel */}
       <div
-        style={{ position: 'absolute', inset: '12px 24px 24px 24px' }}
-        className={`rounded-[40px] overflow-hidden flex flex-col border-none !shadow-none transition-all duration-700 ${
-          open ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'
-        }`}
+        style={{
+          position: 'absolute',
+          top: '12px', right: '24px', bottom: '24px', left: '24px',
+          borderRadius: '40px',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          transform: open ? 'translateY(0)' : 'translateY(100%)',
+          opacity: open ? 1 : 0,
+          transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1), opacity 0.5s ease',
+          willChange: 'transform, opacity',
+        }}
       >
         {/* Sürükle tutacağı */}
         <div
-          className="flex justify-center pt-5 pb-2 flex-shrink-0 cursor-pointer"
           style={{
+            display: 'flex',
+            justifyContent: 'center',
+            paddingTop: '20px',
+            paddingBottom: '8px',
+            flexShrink: 0,
+            cursor: 'pointer',
             background: 'rgba(7,12,24,0.98)',
             backdropFilter: 'blur(32px)',
             WebkitBackdropFilter: 'blur(32px)',
           }}
           onClick={onClose}
         >
-          <div className="w-20 h-2 rounded-full opacity-25 transition-all hover:opacity-45" style={{ background: '#94a3b8' }} />
+          <div style={{ width: '80px', height: '8px', borderRadius: '9999px', opacity: 0.25, background: '#94a3b8' }} />
         </div>
         <div
-          className="flex-1 min-h-0 flex flex-col overflow-hidden"
           style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
             background: 'rgba(7,12,24,0.98)',
             backdropFilter: 'blur(32px)',
             WebkitBackdropFilter: 'blur(32px)',
@@ -53,24 +85,29 @@ function NormalDrawer({ open, onClose, children }: Omit<Props, 'fullscreen'>) {
 }
 
 // Fullscreen drawer — createPortal ile body'e mount edilir.
-// Android WebView'larda overflow:hidden veya backdrop-filter olan
-// ata elementler position:fixed'ı kısıtlayabilir; portal bunu önler.
+// Android WebView'larda position:fixed + inset:0 bazen viewport'u tam kaplamaz;
+// explicit top/left/right/bottom + width/height ile garantiye alınır.
 function FullscreenDrawer({ open, children }: Omit<Props, 'fullscreen'>) {
   const content = (
     <div
-      className={`transition-all duration-500 ${
-        open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-      }`}
       style={{
         position: 'fixed',
-        inset: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100%',
+        height: '100%',
         zIndex: 9999,
         display: 'flex',
         flexDirection: 'column',
         background: 'rgba(7,12,24,0.98)',
         overflow: 'hidden',
+        opacity: open ? 1 : 0,
+        pointerEvents: open ? 'auto' : 'none',
         transform: open ? 'translateY(0)' : 'translateY(100%)',
         transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease',
+        willChange: 'transform, opacity',
       }}
     >
       {children}

@@ -15,6 +15,21 @@
 import { create } from 'zustand';
 import { Capacitor } from '@capacitor/core';
 import { logError }  from './crashLogger';
+import {
+  getCurrentVersionId,
+  nextVersionId,
+  writeTileToVersion,
+  copyTileToStaging,
+  commitUpdate,
+  garbageCollectOldVersions,
+} from './offlineTileServer';
+import {
+  loadManifest,
+  computeDelta,
+  generateLocalManifest,
+  parseTileKey,
+} from './maps/MapManifestService';
+import type { TileManifest, ManifestDelta } from './maps/MapManifestService';
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -37,6 +52,11 @@ export interface DownloadState {
   error:            string | null;
   startedAt:        number | null;
   completedAt:      number | null;
+  /** Delta mode: kaç tile indirildi / kaç tile kopyalandı */
+  deltaDownloaded?: number;
+  deltaCopied?:     number;
+  /** Aktif versiyon ID'si (commit sonrası güncellenir) */
+  activeVersionId?: string | null;
 }
 
 export interface DownloadOptions {
@@ -48,6 +68,21 @@ export interface DownloadOptions {
   /** Max parallel fetch+write ops. Default 3 (Mali-400 safe). */
   maxConcurrent?: number;
   onProgress?:   (state: DownloadState) => void;
+  /**
+   * Delta mode: sadece değişen tile'ları indir, değişmeyenleri kopyala.
+   * true olduğunda remoteManifest verilmeli.
+   */
+  deltaMode?:       boolean;
+  /**
+   * Uzak sunucudan alınan yeni versiyon manifest'i.
+   * deltaMode=true ise zorunludur.
+   */
+  remoteManifest?:  TileManifest;
+  /**
+   * İndirilecek bölgenin ID'si (manifest ve GC için).
+   * Varsayılan: regionName'den türetilir.
+   */
+  regionId?:        string;
 }
 
 interface TileCoord { z: number; x: number; y: number; }
@@ -96,6 +131,9 @@ const INITIAL: DownloadState = {
   error:           null,
   startedAt:       null,
   completedAt:     null,
+  deltaDownloaded: 0,
+  deltaCopied:     0,
+  activeVersionId: null,
 };
 
 const useDownloadStore = create<DownloadState>(() => ({ ...INITIAL }));
@@ -134,35 +172,36 @@ async function fetchTile(
 /* ── Filesystem write ─────────────────────────────────────── */
 
 async function writeTileToFilesystem(
-  tile:   TileCoord,
-  buf:    ArrayBuffer,
-  format: 'png' | 'pbf',
+  tile:       TileCoord,
+  buf:        ArrayBuffer,
+  format:     'png' | 'pbf',
+  versionId?: string,  // sağlanırsa versiyonlu path kullan
 ): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
+
+  if (versionId) {
+    await writeTileToVersion(versionId, tile.z, tile.x, tile.y, buf, true);
+    return;
+  }
 
   const { Filesystem, Directory } = await import('@capacitor/filesystem');
   const path = `maps/${tile.z}/${tile.x}/${tile.y}.${format}`;
 
-  // ArrayBuffer → base64
   const bytes  = new Uint8Array(buf);
   let   binary = '';
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   const data = btoa(binary);
 
-  await Filesystem.writeFile({
-    path,
-    data,
-    directory:  Directory.Data,
-    recursive:  true,
-  });
+  await Filesystem.writeFile({ path, data, directory: Directory.Data, recursive: true });
 }
 
 /* ── Batch write (throttle) ───────────────────────────────── */
 
 interface PendingTile {
-  tile:   TileCoord;
-  buf:    ArrayBuffer;
-  format: 'png' | 'pbf';
+  tile:       TileCoord;
+  buf:        ArrayBuffer;
+  format:     'png' | 'pbf';
+  versionId?: string;
 }
 
 const BATCH_SIZE        = 20;
@@ -176,9 +215,9 @@ async function flushPendingWrites(): Promise<void> {
   const batch = _pendingWrites.splice(0, BATCH_SIZE);
 
   // Sequential writes within the batch — avoid Filesystem overload
-  for (const { tile, buf, format } of batch) {
+  for (const { tile, buf, format, versionId } of batch) {
     try {
-      await writeTileToFilesystem(tile, buf, format);
+      await writeTileToFilesystem(tile, buf, format, versionId);
     } catch (e) {
       logError('MapDownload:write', e);
     }
@@ -263,13 +302,12 @@ export function startDownload(opts: DownloadOptions): AbortController {
 
   const format      = opts.tileFormat ?? 'png';
   const concurrency = Math.min(opts.maxConcurrent ?? 3, 5); // en fazla 5
-
-  const tiles = buildTileList(opts.bbox, opts.minZoom, opts.maxZoom);
+  const allTiles    = buildTileList(opts.bbox, opts.minZoom, opts.maxZoom);
 
   useDownloadStore.setState({
     status:          'downloading',
     regionName:      opts.regionName,
-    totalTiles:      tiles.length,
+    totalTiles:      allTiles.length,
     completedTiles:  0,
     failedTiles:     0,
     progressPercent: 0,
@@ -277,12 +315,21 @@ export function startDownload(opts: DownloadOptions): AbortController {
     error:           null,
     startedAt:       Date.now(),
     completedAt:     null,
+    deltaDownloaded: 0,
+    deltaCopied:     0,
+    activeVersionId: null,
   });
 
-  // Fire-and-forget — caller interacts via state / AbortController
-  _runDownload(tiles, format, concurrency, abort, opts.onProgress).catch(
-    (e) => logError('MapDownload:run', e),
-  );
+  if (opts.deltaMode && opts.remoteManifest) {
+    // Delta mode: manifest'e göre minimum ağ trafiği
+    _runDeltaDownload(allTiles, format, concurrency, abort, opts).catch(
+      (e) => logError('MapDownload:delta', e),
+    );
+  } else {
+    _runDownload(allTiles, format, concurrency, abort, opts.onProgress).catch(
+      (e) => logError('MapDownload:run', e),
+    );
+  }
 
   return abort;
 }
@@ -293,6 +340,7 @@ async function _runDownload(
   concurrency: number,
   abort:       AbortController,
   onProgress?: (s: DownloadState) => void,
+  versionId?:  string,
 ): Promise<void> {
   let completed = 0;
   let failed    = 0;
@@ -305,7 +353,7 @@ async function _runDownload(
     const buf = await fetchTile(tile, format, abort.signal);
     if (buf) {
       bytes += buf.byteLength;
-      enqueueTileWrite({ tile, buf, format });
+      enqueueTileWrite({ tile, buf, format, versionId });
       completed++;
     } else {
       failed++;
@@ -348,6 +396,157 @@ async function _runDownload(
   };
   useDownloadStore.setState(finalState);
   onProgress?.({ ...useDownloadStore.getState(), ...finalState });
+}
+
+/* ── Delta download ───────────────────────────────────────────────────────── */
+
+async function _runDeltaDownload(
+  _allTiles:   TileCoord[],
+  format:      'png' | 'pbf',
+  concurrency: number,
+  abort:       AbortController,
+  opts:        DownloadOptions,
+): Promise<void> {
+  const remote      = opts.remoteManifest!;
+  const regionId    = opts.regionId ?? opts.regionName;
+  const currentVId  = await getCurrentVersionId();
+  const newVId      = nextVersionId(currentVId);
+
+  // Yerel manifest yükle (yoksa tam indirme moduna geç)
+  let delta: ManifestDelta | null = null;
+  if (currentVId) {
+    let localManifest = await loadManifest(currentVId);
+    if (!localManifest) {
+      // Manifest yok ama dizin var → tarayarak oluştur
+      localManifest = await generateLocalManifest(regionId, currentVId);
+    }
+    delta = computeDelta(localManifest, remote);
+    console.info(
+      `[DELTA] indir: ${delta.toDownload.length}, kopyala: ${delta.toKeep.length}, sil: ${delta.toDelete.length}`,
+    );
+  }
+
+  // Delta yoksa (ilk indirme) tüm tile'ları indir
+  if (!delta) {
+    const allTiles: TileCoord[] = Object.keys(remote.tiles).flatMap((k) => {
+      const c = parseTileKey(k);
+      return c ? [c] : [];
+    });
+    await _runDownload(allTiles, format, concurrency, abort, opts.onProgress, newVId);
+    return _finalizeDelta(newVId, opts.onProgress, abort, 0, 0);
+  }
+
+  const toDownload = delta.toDownload.flatMap((k) => {
+    const c = parseTileKey(k);
+    return c ? [c] : [];
+  });
+
+  const total = delta.toDownload.length + delta.toKeep.length;
+  useDownloadStore.setState({ totalTiles: total });
+
+  let copied      = 0;
+  let downloaded  = 0;
+  let failed      = 0;
+  let bytes       = 0;
+
+  // ── Aşama 1: Değişmeyen tile'ları mevcut versiyondan kopyala ────────────
+  const copyTasks = delta.toKeep.map((key) => async () => {
+    await _waitIfPaused();
+    if (abort.signal.aborted) return;
+    if (!currentVId) return;
+
+    const c = parseTileKey(key);
+    if (!c) return;
+    const ok = await copyTileToStaging(currentVId, newVId, c.z, c.x, c.y);
+    if (ok) copied++;
+
+    const done = copied + downloaded + failed;
+    useDownloadStore.setState({
+      completedTiles:  done,
+      progressPercent: Math.round((done / total) * 100),
+      deltaCopied:     copied,
+    });
+  });
+
+  // Kopyalama concurrent olmaz — disk I/O düz sıralı daha güvenli
+  for (const task of copyTasks) {
+    await task();
+    if (abort.signal.aborted) break;
+  }
+
+  // ── Aşama 2: Yeni ve değişen tile'ları ağdan indir ───────────────────────
+  const downloadTasks = toDownload.map((tile) => async () => {
+    await _waitIfPaused();
+    if (abort.signal.aborted) return null;
+
+    const buf = await fetchTile(tile, format, abort.signal);
+    if (buf) {
+      bytes += buf.byteLength;
+      enqueueTileWrite({ tile, buf, format, versionId: newVId });
+      downloaded++;
+    } else {
+      failed++;
+    }
+
+    const done = copied + downloaded + failed;
+    const partial: Partial<DownloadState> = {
+      completedTiles:  done,
+      failedTiles:     failed,
+      progressPercent: Math.round((done / total) * 100),
+      downloadedBytes: bytes,
+      deltaDownloaded: downloaded,
+    };
+    useDownloadStore.setState(partial);
+    opts.onProgress?.({ ...useDownloadStore.getState(), ...partial });
+
+    if (done % 10 === 0) await new Promise<void>((r) => setTimeout(r, 0));
+    return buf;
+  });
+
+  await runConcurrent(downloadTasks, concurrency, abort.signal);
+
+  if (_flushTimer !== null) { clearTimeout(_flushTimer); _flushTimer = null; }
+  await flushPendingWrites();
+
+  if (abort.signal.aborted) {
+    useDownloadStore.setState({ status: 'cancelled', completedAt: Date.now() });
+    return;
+  }
+
+  await _finalizeDelta(newVId, opts.onProgress, abort, downloaded, copied);
+}
+
+async function _finalizeDelta(
+  newVId:      string,
+  onProgress?: (s: DownloadState) => void,
+  abort?:      AbortController,
+  downloaded:  number = 0,
+  copied:      number = 0,
+): Promise<void> {
+  if (abort?.signal.aborted) return;
+
+  try {
+    await commitUpdate(newVId);
+    // GC: eski versiyonları temizle (N-1 dışındakiler)
+    garbageCollectOldVersions(2).catch((e) => logError('MapDownload:gc', e));
+
+    const finalState: Partial<DownloadState> = {
+      status:          'completed',
+      completedAt:     Date.now(),
+      error:           null,
+      activeVersionId: newVId,
+      deltaDownloaded: downloaded,
+      deltaCopied:     copied,
+    };
+    useDownloadStore.setState(finalState);
+    onProgress?.({ ...useDownloadStore.getState(), ...finalState });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Delta commit başarısız';
+    logError('MapDownload:commit', err);
+    const failState: Partial<DownloadState> = { status: 'error', completedAt: Date.now(), error: msg };
+    useDownloadStore.setState(failState);
+    onProgress?.({ ...useDownloadStore.getState(), ...failState });
+  }
 }
 
 /** İndirmeyi duraklat (mevcut tile biter, yenisi başlamaz). */

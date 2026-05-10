@@ -94,6 +94,12 @@ const SOURCES: Record<string, MusicSource> = {
     bridgeKey: 'generic',
     searchUri: (q) => `music://search?term=${encodeURIComponent(q)}`,
   },
+  ymusic: {
+    pkg:       'com.kapp.youtube.music',
+    name:      'YMusic',
+    bridgeKey: 'generic',
+    searchUri: (q) => `https://music.youtube.com/search?q=${encodeURIComponent(q)}`,
+  },
   local: {
     pkg:       '',
     name:      'Dahili Müzik',
@@ -107,6 +113,7 @@ const SOURCES: Record<string, MusicSource> = {
 // Uzundan kısaya — ilk eşleşme kazanır
 const SOURCE_KEYWORDS: [RegExp, string][] = [
   [/youtube\s*music|yt\s*music|youtube\s*müzik/i, 'youtube_music'],
+  [/y\s*m[üu]zik|ymusic|y\s*music/i,  'ymusic'],
   [/youtube/i,        'youtube'],
   [/spotify/i,        'spotify'],
   [/poweramp/i,       'poweramp'],
@@ -193,7 +200,7 @@ function normalizeForDetection(s: string): string {
 /* ── Keyword gates ───────────────────────────────────────── */
 
 // Bu kelimelerden biri varsa → müzik komutu olabilir
-const MUSIC_GATE = /(?:çal|oynat|aç|dinle|başlat|müzik|şarkı|sanatçı|playlist|karışık|favorilere|spotify|youtube|poweramp|soundcloud|deezer|tidal|amazon|apple|dahili|yerel)/i;
+const MUSIC_GATE = /(?:çal|oynat|aç|dinle|başlat|müzik|şarkı|sanatçı|playlist|karışık|favorilere|spotify|youtube|poweramp|soundcloud|deezer|tidal|amazon|apple|dahili|yerel|ymusic|y\s*müzik)/i;
 
 /* ── Generic/app words — query'den atla ─────────────────── */
 
@@ -305,9 +312,15 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
     };
   }
 
-  // Generic word kontrolü — tek generic kelime varsa skip
+  // Generic word kontrolü — tüm tokenlar generic kelimeyse
   const queryTokens = normalizeForDetection(query).split(' ').filter(t => t.length > 1);
-  if (queryTokens.length === 1 && GENERIC_WORDS.has(queryTokens[0])) return null;
+  if (queryTokens.length >= 1 && queryTokens.every(t => GENERIC_WORDS.has(t))) {
+    // Kaynak tespit edildiyse sadece uygulamayı aç; yoksa müzik komutu değil
+    if (source) {
+      return { action: 'play', source, query: '', queryType: 'generic', feedback: `${source.name} açılıyor`, raw: trimmed };
+    }
+    return null;
+  }
 
   // UI hedef kontrolü — kaynak yokken "haritayı", "ayarları" gibi UI bileşen isimleri
   // müzik sorgusu DEĞİLDİR: "haritayı aç" → open_maps, "ayarları aç" → open_settings.

@@ -182,11 +182,11 @@ function loadFromStorage(): Contact[] {
       }));
     }
   } catch { /* ignore */ }
-  return DEMO_CONTACTS.map((c) => ({
-    ...c,
-    _searchKey: buildSearchKey(c.name, c.phones),
-  }));
+  return [];
 }
+
+/** Demo ID'lerle eşleşen kayıtlar — native modda storage'dan temizlenir */
+const DEMO_IDS = new Set(DEMO_CONTACTS.map((c) => c.id));
 
 function saveToStorage(contacts: Contact[]): void {
   try {
@@ -249,27 +249,36 @@ async function processContactsInChunks(
 }
 
 /**
- * BT bağlantı durumunu kontrol ederek native rehberi çeker.
+ * Android ContactsContract'tan cihaz rehberini çeker.
  *
- * Neden BT durumu önemli:
- *   - Rehber boşsa: "telefon bağlı değil" veya "gerçekten boş" farkı UI için kritik
- *   - getDeviceStatus() → btConnected flag'i bunu çözer
- *   - getDeviceStatus() hata verirse: 'unknown' döner (izin yok, WebView kısıtı)
+ * BT durumu artık kontrol edilmez — cihaz rehberi BT'den bağımsız.
+ * BT state yalnızca bilgi amaçlı sorgulanır (UI için "telefon bağlı mı?" sorusu).
+ *
+ * İzin akışı:
+ *   1. requestContactsPermission() → 'granted' / 'denied'
+ *   2. 'denied' ise boş döner (rehber izni yoksa data yok)
+ *   3. 'granted' ise getContacts() çağrılır
  */
 async function syncFromNative(storedMap: Map<string, Contact>): Promise<{
   contacts: Contact[];
   btState:  BtSyncState;
+  permissionDenied?: boolean;
 }> {
-  // 1. BT bağlantı durumunu sorgula
+  // BT durumunu bilgi amaçlı sorgula — başarısız olursa 'unknown' kalır
   let btState: BtSyncState = 'unknown';
   try {
     const status = await CarLauncher.getDeviceStatus();
     btState = status.btConnected ? 'connected' : 'disconnected';
-  } catch { /* getDeviceStatus yoksa veya izin yoksa unknown kalır */ }
+  } catch { /* unknown */ }
 
-  // 2. BT bağlı değilse rehber çekmeyi deneme — zaman kaybı
-  if (btState === 'disconnected') {
-    return { contacts: [], btState };
+  // Runtime izin kontrolü + istek
+  try {
+    const perm = await CarLauncher.requestContactsPermission();
+    if (perm.contacts !== 'granted') {
+      return { contacts: [], btState, permissionDenied: true };
+    }
+  } catch {
+    // Plugin izin metodunu desteklemiyorsa yine de dene (eski build uyumu)
   }
 
   try {
@@ -279,7 +288,7 @@ async function syncFromNative(storedMap: Map<string, Contact>): Promise<{
     }
 
     const contacts = await processContactsInChunks(result.contacts, storedMap);
-    return { contacts, btState: btState === 'unknown' ? 'connected' : btState };
+    return { contacts, btState };
   } catch {
     return { contacts: [], btState };
   }
@@ -291,26 +300,46 @@ export async function initializeContacts(): Promise<void> {
   try {
     push({ loading: true, error: null });
 
-    // 1. localStorage'dan anında yükle — kullanıcı ilk frame'de kişileri görür
-    const stored = loadFromStorage();
-    push({ contacts: stored });
-
-    if (isNative) {
-      const storedMap = new Map(stored.map((c) => [c.id, c]));
-      const { contacts: native, btState } = await syncFromNative(storedMap);
-
-      if (native.length > 0) {
-        saveToStorage(native);
-        push({ contacts: native, loading: false, synced: true, lastSyncAt: Date.now(), btState });
-        return;
-      }
-
-      // Native boş döndü — BT durumunu yansıt
-      push({ loading: false, synced: false, btState });
+    if (!isNative) {
+      // Web / demo modda: storage boşsa demo veri göster
+      const stored = loadFromStorage();
+      const contacts = stored.length > 0 ? stored : DEMO_CONTACTS.map((c) => ({
+        ...c,
+        _searchKey: buildSearchKey(c.name, c.phones),
+      }));
+      push({ contacts, loading: false, synced: false, btState: 'unknown' });
       return;
     }
 
-    push({ loading: false, synced: false, btState: 'unknown' });
+    // ── Native (Android) modu ──────────────────────────────────────────────
+
+    // localStorage'da demo veri varsa temizle (önceki sürüm kalıntısı)
+    const stored = loadFromStorage();
+    const hasDemoOnly = stored.length > 0 && stored.every((c) => DEMO_IDS.has(c.id));
+    if (hasDemoOnly) {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+
+    // Cache'den anında göster (gerçek kişiler varsa)
+    const cachedContacts = hasDemoOnly ? [] : stored;
+    push({ contacts: cachedContacts });
+
+    const storedMap = new Map(cachedContacts.map((c) => [c.id, c]));
+    const { contacts: native, btState, permissionDenied } = await syncFromNative(storedMap);
+
+    if (permissionDenied) {
+      push({ loading: false, synced: false, btState, error: 'READ_CONTACTS izni reddedildi' });
+      return;
+    }
+
+    if (native.length > 0) {
+      saveToStorage(native);
+      push({ contacts: native, loading: false, synced: true, lastSyncAt: Date.now(), btState });
+      return;
+    }
+
+    // ContactsContract boş döndü — cache'i koru, hata gösterme
+    push({ loading: false, synced: true, btState });
   } catch {
     push({ loading: false, synced: false, error: 'Kişiler yüklenemedi', btState: 'unknown' });
   }

@@ -204,3 +204,37 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
+
+/* ── SVC System Integrity — hız mesaj rölesi ──────────────────────────────
+ * Otomasyon split-screen senaryolarında (aynı anda iki WebView bağlamı)
+ * OBD hızı yalnızca bir bağlamda gelir. SW bu mesajı diğer açık istemcilere
+ * yönlendirerek tüm bağlamlarda SVC senkronizasyonunu sağlar.
+ *
+ * Ana thread kullanımı:
+ *   navigator.serviceWorker.controller?.postMessage({
+ *     type: 'SVC_SPEED_UPDATE', kmh: currentSpeedKmh
+ *   });
+ * ─────────────────────────────────────────────────────────────────────── */
+
+interface SvcSpeedMessage {
+  type: 'SVC_SPEED_UPDATE';
+  kmh:  number;
+}
+
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  const msg = event.data as SvcSpeedMessage | null;
+  if (!msg || msg.type !== 'SVC_SPEED_UPDATE') return;
+  if (typeof msg.kmh !== 'number' || !Number.isFinite(msg.kmh)) return;
+
+  // Kaynak istemci dışındaki tüm açık window istemcilerine hızı yayınla
+  void self.clients
+    .matchAll({ includeUncontrolled: false, type: 'window' })
+    .then((clients) => {
+      const srcId = (event.source as { id?: string } | null)?.id;
+      for (const client of clients) {
+        if (client.id !== srcId) {
+          client.postMessage({ type: 'SVC_SPEED_RELAY', kmh: msg.kmh });
+        }
+      }
+    });
+});

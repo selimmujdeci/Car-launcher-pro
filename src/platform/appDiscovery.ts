@@ -161,38 +161,43 @@ export function useApps(): AppDiscoveryResult {
 }
 
 /**
- * Emoji fallback — native ikon yokken veya web modunda kullanılır.
- * guessIcon artık sadece yedek; öncelik _iconCache'deki native ikona verilir.
+ * Paket adına göre public/icons.svg sembol ID'sini döner.
+ * Emoji kullanımı tamamen kaldırıldı — tüm ikonlar SVG sembol referansıdır.
+ *
+ * Öncelik sırası (appDiscovery genelinde):
+ *   1. _iconCache → native Android Base64 PNG (en yüksek öncelik)
+ *   2. guessIcon  → /icons.svg#<id> sembol referansı
+ *   3. /icons.svg#icon-app → Generic App sembolü (hiçbir eşleşme yoksa)
  */
 function guessIcon(app: NativeApp): string {
-  const pkg = app.packageName.toLowerCase();
+  const pkg  = app.packageName.toLowerCase();
   const name = app.name.toLowerCase();
 
-  if (pkg.includes('clock') || pkg.includes('alarm')) return '⏰';
-  if (pkg.includes('calculator')) return '🧮';
-  if (pkg.includes('camera')) return '📷';
-  if (pkg.includes('gallery') || pkg.includes('photos')) return '🖼️';
-  if (pkg.includes('music') || pkg.includes('player') || pkg.includes('audio')) return '🎵';
-  if (pkg.includes('video') || pkg.includes('movie')) return '🎬';
-  if (pkg.includes('file') || pkg.includes('manager') || pkg.includes('explorer')) return '📁';
-  if (pkg.includes('mail')) return '📧';
-  if (pkg.includes('calendar')) return '📅';
-  if (pkg.includes('contact')) return '👤';
-  if (pkg.includes('phone') || pkg.includes('dialer')) return '📞';
-  if (pkg.includes('sms') || pkg.includes('mms') || pkg.includes('message')) return '💬';
-  if (pkg.includes('map') || pkg.includes('nav')) return '🗺️';
-  if (pkg.includes('weather')) return '⛅';
-  if (pkg.includes('browser') || pkg.includes('chrome') || pkg.includes('firefox')) return '🌐';
-  if (pkg.includes('setting')) return '⚙️';
-  if (pkg.includes('tool') || pkg.includes('fix')) return '🔧';
-  if (pkg.includes('radio')) return '📻';
-  if (pkg.includes('market') || pkg.includes('store') || pkg.includes('vending')) return '🛍️';
+  if (pkg.includes('clock') || pkg.includes('alarm'))                          return '/icons.svg#icon-clock';
+  if (pkg.includes('calculator'))                                               return '/icons.svg#icon-calculator';
+  if (pkg.includes('camera'))                                                   return '/icons.svg#icon-camera';
+  if (pkg.includes('gallery') || pkg.includes('photos'))                       return '/icons.svg#icon-gallery';
+  if (pkg.includes('music') || pkg.includes('player') || pkg.includes('audio')) return '/icons.svg#icon-music';
+  if (pkg.includes('video') || pkg.includes('movie'))                          return '/icons.svg#icon-video';
+  if (pkg.includes('file') || pkg.includes('manager') || pkg.includes('explorer')) return '/icons.svg#icon-files';
+  if (pkg.includes('mail'))                                                     return '/icons.svg#icon-mail';
+  if (pkg.includes('calendar'))                                                 return '/icons.svg#icon-calendar';
+  if (pkg.includes('contact'))                                                  return '/icons.svg#icon-contact';
+  if (pkg.includes('phone') || pkg.includes('dialer'))                         return '/icons.svg#icon-phone';
+  if (pkg.includes('sms') || pkg.includes('mms') || pkg.includes('message'))   return '/icons.svg#icon-message';
+  if (pkg.includes('map') || pkg.includes('nav'))                              return '/icons.svg#icon-map';
+  if (pkg.includes('weather'))                                                  return '/icons.svg#icon-weather';
+  if (pkg.includes('browser') || pkg.includes('chrome') || pkg.includes('firefox')) return '/icons.svg#icon-browser';
+  if (pkg.includes('setting'))                                                  return '/icons.svg#icon-settings';
+  if (pkg.includes('tool') || pkg.includes('fix'))                             return '/icons.svg#icon-tools';
+  if (pkg.includes('radio'))                                                    return '/icons.svg#icon-radio';
+  if (pkg.includes('market') || pkg.includes('store') || pkg.includes('vending')) return '/icons.svg#icon-store';
 
-  // Name-based fallbacks
-  if (name.includes('müzik') || name.includes('music')) return '🎵';
-  if (name.includes('harita') || name.includes('map')) return '🗺️';
+  // İsim bazlı eşleşmeler
+  if (name.includes('müzik') || name.includes('music'))  return '/icons.svg#icon-music';
+  if (name.includes('harita') || name.includes('map'))   return '/icons.svg#icon-map';
 
-  // Generic icons
-  if (app.isSystemApp) return '⚙️';
-  return '📱';
+  // Sistem uygulaması → CPU ikonu; diğerleri → Generic App
+  if (app.isSystemApp) return '/icons.svg#icon-system';
+  return '/icons.svg#icon-app';
 }
