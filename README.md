@@ -279,6 +279,76 @@ Contributions from automotive engineers, embedded developers and performance ent
 - Automotive fail-safe runtime model
 - Memory pressure aware degradation system
 
+## Automotive Constraints
+
+CarosPro is engineered specifically for unstable automotive environments and low-power Android head units.
+
+Unlike traditional mobile applications, the runtime is designed to survive real-world vehicle conditions such as:
+
+* Sudden power loss
+* Unstable voltage fluctuations
+* Low-end ARM Mali GPUs
+* Thermal throttling
+* Weak eMMC endurance
+* Intermittent GPS availability
+* Abrupt process termination
+* Long-term offline operation
+
+The system prioritizes deterministic runtime behavior, graceful degradation and fail-safe recovery under constrained hardware conditions.
+
+---
+
+## SafeStorage Runtime
+
+CarosPro includes a custom automotive-grade persistence layer called **SafeStorage**.
+
+SafeStorage is responsible for protecting application integrity and storage reliability inside unstable in-vehicle environments.
+
+### Core Capabilities
+
+* Atomic write protection
+* Power-loss-safe transactions
+* eMMC wear reduction
+* Adaptive write throttling
+* Dual-backend persistence
+* Self-healing recovery system
+* Low-end hardware optimization
+* Fail-safe storage recovery
+
+### Why It Exists
+
+Vehicle infotainment systems often run on low-cost eMMC storage with limited write endurance and unstable power delivery.
+
+Traditional storage systems can corrupt application data during:
+
+* ignition shutdown
+* battery voltage drops
+* abrupt Android process kills
+* filesystem instability
+
+SafeStorage prevents these failures through a layered persistence strategy.
+
+### Runtime Strategy
+
+1. Non-critical writes are throttled and buffered in memory.
+2. Data is first written to temporary atomic files.
+3. Integrity validation is performed before replacement.
+4. Data is mirrored across Filesystem + LocalStorage.
+5. Recovery systems automatically restore corrupted state sources.
+
+### Engineering Goals
+
+| Problem               | CarosPro Solution            |
+| --------------------- | ---------------------------- |
+| Sudden power loss     | Atomic temp-file persistence |
+| Weak eMMC lifespan    | Adaptive write throttling    |
+| Filesystem corruption | Dual-backend recovery        |
+| Low-end GPU lag       | Runtime render degradation   |
+| GPS signal loss       | Dead reckoning navigation    |
+| Sensor instability    | Outlier filtering & fusion   |
+| Thermal overload      | Adaptive workload scaling    |
+
+SafeStorage is designed as a resilient persistence runtime optimized for automotive-grade reliability.
 
  
 Distributed under the MIT License.
