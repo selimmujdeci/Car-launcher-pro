@@ -108,6 +108,19 @@ The main UI thread is reserved exclusively for rendering. Heavy operations such 
 
 Sub-millisecond synchronization between workers and UI is achieved using SharedArrayBuffer and Atomics to eliminate structured clone overhead.
 
+## AI Engineering Workflow
+
+This repository uses a multi-agent engineering workflow:
+
+- Claude → deep refactoring and hardening
+- Gemini → architecture and systems analysis
+- Human review → final validation
+
+All AI operations are governed by:
+- `CLAUDE.md`
+- `GEMINI.md`
+- `AI.md`
+
 ### Predictive Thermal Management
 
 The runtime proactively reduces rendering pressure and telemetry load before thermal throttling occurs.
