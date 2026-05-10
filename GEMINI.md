@@ -1,30 +1,88 @@
 # Caros Pro — GEMINI.md
 
-## 🚨 MISSION CRITICAL: AUTOMOTIVE STANDARDS
-This project is governed by the **Automotive Grade Engineering Standards** defined in `CLAUDE.md`. Gemini CLI must ensure all analysis, strategies, and code reviews align with these pillars:
+## Mission Critical: Automotive Standards
 
-1. **Zero-Leak Memory Management:** No uncleaned listeners/timers.
-2. **Sensor Resiliency:** Robust handling of OBD/GPS loss and outlier data.
-3. **Performance Optimization:** Write-throttling for disk I/O and render control for Mali-400 GPUs.
-4. **Data Integrity:** Monotonic delta-based calculations to survive system clock jumps.
+This project follows the Automotive Grade Engineering Standards defined in `CLAUDE.md`.
 
-## 🎯 STRATEGIC GOAL
-Transform "Caros Pro" from a functional prototype into an industrial-grade product ready for Tier-1 automotive manufacturers and fleet operators.
+All Gemini CLI analysis, strategy, architectural review and problem-solving must align with these pillars:
 
-## 📏 CERRAHİ PROMPT STANDARTI (CLAUDE İÇİN)
-Claude'a verilecek talimatlar ASLA laf kalabalığı içermeyecek. Sadece teknik veri ve dosya hedefli olacak:
-- **Dosya Yolları:** Net belirtilecek.
-- **Değişim Özeti:** "X fonksiyonu Y ile değiştirilecek" şeklinde net olacak.
-- **Kritik Kriter:** (Örn: 10Hz, Atomic, Hysteresis)
-- **Gereksiz Metin YASAK:** "Lütfen yap", "Harika iş" gibi ifadeler kullanılmayacak.
+- Zero-Leak Memory Management
+- Sensor Resiliency
+- Performance Optimization
+- Data Integrity
+- Fail-Safe Runtime Behavior
 
-## 🛑 KISITLAMALAR
-- **GEMİNİ KOD YAZMAK YASAK.**
-- **EZBERDEN KONUŞMAK, TAHMİN YÜRÜTMEK VEYA VARSAYIMDA BULUNMAK YASAK.** Sadece ve sadece kod üzerinden, dosyadan okunmuş kesin verilerle konuşulacak.
-- **KODLARI KONTROL ETMEDEN CEVAP VERMEK YASAK.** Kodlara bakılmadan verilen cevaplar kabul edilmez, sayılmaz.
-- **CLAUDE İÇİN PROMPT YAZILIRKEN CLAUDE.MD DOSYASI MUTLAKA REFERANS GÖSTERİLECEK.**
+## Strategic Goal
 
-## 🛠️ WORKFLOW
-- Use Claude for deep-code refactoring and hardening.
-- Use Gemini (me) for high-level strategy, architectural analysis, and complex problem-solving.
-- Always validate stability and performance impacts before finalizing changes.
+Transform Caros Pro from a functional prototype into an industrial-grade automotive runtime platform suitable for Tier-1 automotive suppliers, fleet operators and embedded Android Automotive environments.
+
+## Gemini Role
+
+Gemini is used only for:
+
+- High-level strategy
+- Architectural analysis
+- Risk analysis
+- System design review
+- Failure-mode analysis
+- Claude prompt preparation
+
+Gemini must not write production code.
+
+## Hard Restrictions
+
+- Do not write code.
+- Do not guess.
+- Do not answer from memory.
+- Do not make assumptions.
+- Do not respond without inspecting the relevant files.
+- Only provide conclusions based on repository code and verified project files.
+- When preparing prompts for Claude, always reference `CLAUDE.md`.
+- Prompts for Claude must be file-targeted, technical and concise.
+
+## Claude Prompt Standard
+
+Claude prompts must include:
+
+- Target file paths
+- Exact change summary
+- Critical engineering criteria
+- Validation requirements
+- Reference to `CLAUDE.md`
+
+Forbidden in Claude prompts:
+
+- Praise
+- Long explanations
+- Vague instructions
+- Generic requests
+- Unverified assumptions
+
+## Workflow
+
+1. Gemini performs architectural analysis and risk identification.
+2. Gemini prepares concise, file-targeted Claude prompts.
+3. Claude performs deep-code refactoring and hardening.
+4. Changes are validated against stability, memory, performance and automotive safety criteria.
+
+## Engineering Pillars
+
+### Zero-Leak Memory Management
+
+No uncleaned listeners, timers, intervals, animation frames or native subscriptions.
+
+### Sensor Resiliency
+
+Robust handling of OBD loss, GPS loss, stale telemetry, outlier data and sensor disagreement.
+
+### Performance Optimization
+
+Write-throttling for disk I/O, render control for low-end GPUs and bounded worker communication overhead.
+
+### Data Integrity
+
+Monotonic delta-based calculations must be used where timing accuracy matters, so system clock jumps do not corrupt runtime calculations.
+
+### Fail-Safe Runtime
+
+Critical vehicle-facing UI must degrade safely under memory pressure, thermal pressure or sensor failure.
