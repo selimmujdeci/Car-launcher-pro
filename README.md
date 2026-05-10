@@ -1,16 +1,7 @@
 
 
 
-android
-automotive
-car-launcher
-typescript
-react
-performance
-thermal-management
-offline-navigation
-ai
-vehicle-ui
+
 
 # README.md
 
