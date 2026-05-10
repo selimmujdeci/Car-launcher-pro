@@ -30,6 +30,7 @@ Modern automotive interfaces often suffer from UI jitter and thermal throttling 
 
 ## Architecture Overview
 
+
 ```mermaid
 graph TD
 
