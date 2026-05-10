@@ -279,6 +279,30 @@ Contributions from automotive engineers, embedded developers and performance ent
 - Automotive fail-safe runtime model
 - Memory pressure aware degradation system
 
+## Core Technologies
+
+### SafeStorage Runtime
+
+Automotive-grade persistence layer with atomic writes, adaptive throttling, dual-backend recovery and power-loss-safe transactions designed for unstable in-vehicle environments.
+
+### Dead Reckoning Navigation
+
+Tunnel-safe navigation system using GPS loss detection, heading blending, Haversine projection and uncertainty-aware position estimation for continuous navigation without live GPS signal.
+
+### Zero-Trust Remote Command Engine
+
+End-to-end encrypted remote vehicle command infrastructure using ECDH P-256, AES-256-GCM, replay-attack prevention and nonce-based validation.
+
+### Adaptive Thermal Runtime
+
+Thermal-aware workload scaling and graceful degradation system optimized for low-power Android Automotive hardware and Mali-class GPUs.
+
+### Worker-Centric Telemetry Pipeline
+
+SharedArrayBuffer + Atomics powered zero-copy telemetry architecture designed for low-latency UI updates and isolated heavy computation workloads.
+
+
+
 ## Automotive Constraints
 
 CarosPro is engineered specifically for unstable automotive environments and low-power Android head units.
