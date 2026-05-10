@@ -7,7 +7,7 @@
 
 # Car Launcher Pro
 
-![Dashboard Preview](./docs/dashboard-preview.png)
+
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
