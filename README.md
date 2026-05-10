@@ -1,7 +1,4 @@
-
-
-
-
+Built for Android Automotive OS with a worker-centric high performance runtime architecture.
 
 # README.md
 
