@@ -8,7 +8,6 @@
 # Car Launcher Pro
 
 
-
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
