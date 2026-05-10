@@ -186,6 +186,111 @@ Contributions from automotive engineers, embedded developers and performance ent
 4. Submit detailed pull request descriptions
 
 ---
+Sayın meslektaşım, CarosPro projesinin teknik anatomisi, modern otomotiv yazılım mühendisliği prensipleri üzerine inşa
+  edilmiş, deterministik performans ve "fail-safe" çalışma modelini merkezine alan hibrit bir yapıdır.
+
+  Aşağıda, sistemin mimari derinliğini senior architect seviyesinde analiz eden teknik döküm yer almaktadır.
+
+  ---
+
+  1. Sistem Mimarisi ve Topoloji (The Hybrid Core)
+  CarosPro, tek bir "monolitik" web uygulaması değil, Distributed System prensibiyle çalışan bir çalışma zamanı
+  (runtime) ekosistemidir.
+
+   * Layer 1 (UI/UX): React 19 (Concurrent Mode) + CSS Variable Engine. UI katmanı sadece "presentational" state'i
+     yönetir; ağır veriyi işlemez.
+   * Layer 2 (Core Computation): Web Worker tabanlı VehicleCompute. Tüm sensör füzyonu, mesafe hesaplamaları ve event
+     detection bu izole thread'de gerçekleşir.
+   * Layer 3 (Hardware Bridge): Capacitor tabanlı native eklentiler. Android Automotive OS (AAOS) ve araç CAN-Bus hattı
+     ile CarLauncherPlugin üzerinden haberleşir.
+   * Layer 4 (Backend/Cloud): Supabase (PostgreSQL + Realtime). Komut zinciri ve telemetri için E2E şifreli bir backbone
+     görevi görür.
+
+  ---
+
+  2. Worker & Thread Modeli (Zero-Copy Data Pipeline)
+  Projenin en kritik inovasyonu, ana thread'i (UI) I/O yükünden tamamen kurtaran SharedArrayBuffer (SAB) mimarisidir.
+
+   * Shared Memory: Sensör verileri (Speed, RPM, Fuel) bir SharedArrayBuffer üzerinde ham binary olarak tutulur.
+   * Atomics: Worker, veriyi güncellediğinde Atomics.store ile bir "generation counter" artırır. UI tarafındaki Gauge
+     bileşenleri, React render döngüsüne girmeden, requestAnimationFrame (RAF) içinde bu counter'ı kontrol eder. Eğer
+     counter değişmişse, Float64Array üzerinden veriyi doğrudan okur.
+   * Neden? Bu yöntem, binlerce sensör güncellemesinin yarattığı "Structured Clone" maliyetini (postMessage overhead)
+     sıfıra indirir ve düşük donanımlı (Mali-400 GPU gibi) ünitelerde bile 60 FPS akıcılık sağlar.
+
+  ---
+
+  3. Adaptive Runtime & Thermal Intelligence
+  Sistem, donanım sağlığına göre kendini dinamik olarak yeniden yapılandıran bir State-Aware Engine'e sahiptir.
+
+   * Hysteresis Modeli: Sıcaklık veya RAM baskısı oluştuğunda sistem anında "Downgrade" (ör. Performance -> Basic JS)
+     yapar. Ancak "Upgrade" işlemi, sistemin stabil olduğunu doğrulamak için 30 saniyelik bir bekleme penceresine
+     (UPGRADE_DELAY_MS) sahiptir.
+   * Thermal Watchdog: L1, L2 ve L3 seviyelerinde throttling uygular.
+       * L1 (45°C): Harita FPS'i düşürülür.
+       * L2 (55°C): Parlaklık %50'ye kilitlenir, ağır arka plan senkronizasyonları durdurulur.
+       * L3 (65°C): "Minimum Load" modu. Sadece kritik navigasyon ve hız göstergesi çalışır.
+   * GPU Guard: --rt-blur CSS değişkeni üzerinden, eski GPU'ları zorlayan backdrop-filter: blur efektleri tek bir global
+     switch ile devre dışı bırakılır.
+
+  ---
+
+  4. Sensör Füzyonu ve Navigasyon Pipeline
+  Hız ve konum verisi, Priority-based Fusion algoritmasıyla işlenir.
+
+   * Hız Hiyerarşisi: CAN Bus > OBD-II > GPS. CAN verisi geliyorsa en güvenilir odur. OBD ve GPS arasında 15 km/h'den
+     fazla fark oluşursa (Plausibility Check), sistem sensör hatası tespit eder ve güven skoru yüksek olan kaynağa
+     (genelde GPS) fallback yapar.
+   * Dead Reckoning (Tünel Modu): GPS sinyali koptuğunda, son bilinen hız ve vektör üzerinden Haversine projeksiyonu ile
+     araç konumu 45 saniyeye kadar tahmin edilmeye devam edilir.
+   * Navigation O(W) Search: 500 km'lik bir rotada mesafe hesaplamak CPU maliyetlidir. CarosPro, rota geometrisi
+     üzerinde bir "Windowed Search" (O(W)) yaparak sadece aracın 1.5 km önündeki segmentleri tarar, bu da hesaplama
+     maliyetini sabit tutar.
+   * Visual Snapping: Araç marker'ı, ham GPS koordinatına değil, rota üzerindeki en yakın segmente "snap" edilir.
+     Böylece haritada ikonun yoldan kayması engellenir (Reroute threshold: 35m).
+
+  ---
+
+  5. Audio / DSP Engine (Crystal Cabin v3)
+  Web Audio API üzerinde koşan tam kapsamlı bir sinyal zinciri (signal chain) mevcuttur.
+
+   * Signal Chain: Source -> 10-band EQ -> DynamicsCompressor (AGC) -> Haas Delay -> Panner -> Master Gain.
+   * Speed Volume Compensation (SVC): Aracın hızına göre (40-120 km/h arası) sesi lineer dB rampasıyla artırır. 3
+     km/h'lik bir Schmidt Trigger histerezisi ile anlık hız dalgalanmalarının seste titreme yapması önlenir.
+   * ISO 22262 Audio Ducking: Navigasyon anonsu başladığında müzik %30 seviyesine (DUCK_LEVEL) "exponential ramp" ile
+     indirilir ve anons bitince yumuşak bir şekilde geri yükseltilir.
+
+  ---
+
+  6. Güvenlik Modeli (Zero-Trust Remote Command)
+  Araç komutları (kapı kilidi, korna vb.) Supabase üzerinden geçerken asla "plaintext" değildir.
+
+   * ECDH (P-256) Encryption: Araç ve telefon arasında asimetrik anahtar değişimi yapılır. Supabase sadece şifreli
+     (base64) ciphertext'i görür.
+   * Anti-Replay: Her komut bir _ts (timestamp) ve _nonce içerir. Araç, daha önce gördüğü veya 30 saniyeden eski olan
+     komutları şifreyi çözmeden reddeder.
+   * Hardware ACK: Komut icra edildiğinde, native katmandan donanım onayı (ACK) beklenir. 500ms içinde ACK gelmezse
+     komut "Rejected" sayılır.
+
+  ---
+
+  7. Veri Bütünlüğü ve Fail-Safe
+   * eMMC Yazma Koruması: Otomotiv ünitelerindeki eMMC ömrünü korumak için tüm depolama işlemleri (Settings, Odometer) 4
+     saniyelik bir debounce (throttledStorage) ile yazılır.
+   * Odometer Guard: GPS sıçramalarını (jump) engellemek için her okuma bir "Velocity-Time Check"ten geçer. Işık hızında
+     (mantıksız) hareketler odometer'a yansımaz.
+   * Memory Pressure Management: Android onTrimMemory sinyali alındığında, sistem "Optional" olan worker'ları (Vision,
+     Radar) sonlandırır ve cache'leri temizleyerek kritik fonksiyonların (Navigation, Speed) hayatta kalmasını sağlar.
+
+  ---
+
+  8. Gelecek Roadmap
+   * VAL (Vehicle Abstraction Layer) Genişlemesi: J2534 ve ELM327 sürücülerinin native katmanda standartlaştırılması.
+   * Vision AR Integration: Three.js üzerinden şerit takip ve sanal navigasyon oklarının (AR HUD) entegrasyonu.
+   * Predictive Maintenance: OBD verileri üzerinden ML tabanlı arıza kestirimi.
+
+  Bu mimari, CarosPro'yu basit bir dashboard'dan öteye taşıyıp, gerçek bir Automotive Compute Platform haline
+  getirmektedir. Her teknik karar, sürüş güvenliğini ve sistem kararlılığını önceler.
 
 ## 📄 License
 
