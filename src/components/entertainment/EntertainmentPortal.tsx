@@ -128,7 +128,7 @@ const EntApps = memo(function EntApps() {
 const BreakReminderManager = memo(function BreakReminderManager() {
   const br = useBreakReminderState();
   const intervals = [60, 90, 120, 150, 180];
-  const handleToggle = useCallback(() => { br.enabled ? disableBreakReminder() : enableBreakReminder(); }, [br.enabled]);
+  const handleToggle = useCallback(() => { if (br.enabled) { disableBreakReminder(); } else { enableBreakReminder(); } }, [br.enabled]);
   const elapsedMin = Math.round(br.drivingElapsedMin);
   const remainMin = Math.max(0, br.intervalMin - elapsedMin);
   const pct = br.intervalMin > 0 ? Math.min(100, (elapsedMin / br.intervalMin) * 100) : 0;

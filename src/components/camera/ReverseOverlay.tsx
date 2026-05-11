@@ -17,10 +17,10 @@ export const ReverseOverlay = memo(function ReverseOverlay() {
   // getUserMedia (web kamerası) çakışması ve kaynak israfı önlenir.
   // isNative derleme zamanında sabit — iç bileşen ayrımı Rules of Hooks'u sağlar.
   if (isNative) return null;
-  return <_WebReverseOverlay />;
+  return <WebReverseOverlayInner />;
 });
 
-function _WebReverseOverlay() {
+function WebReverseOverlayInner() {
   const isReverseActive = useSystemStore((s) => s.isReverseActive);
   const canSeeCamera    = usePermission('reverseCamera');
   const [dismissed, setDismissed] = useState(false);

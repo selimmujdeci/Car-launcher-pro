@@ -11,8 +11,6 @@ import {
 } from '../platform/navigationService';
 import {
   fetchRoute,
-  updateRouteProgress,
-  registerReroutingCallback,
   normalizeCoords,
   getRouteState,
 } from '../platform/routingService';

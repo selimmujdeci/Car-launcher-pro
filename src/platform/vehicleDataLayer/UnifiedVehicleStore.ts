@@ -181,7 +181,7 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
 
         // Güvenlik kritik: reverse → anında kamera tetikle (RAF'ı beklemez)
         if ('reverse' in patch && !!patch.reverse !== cur.reverse) {
-          patch.reverse ? openRearCamera() : closeRearCamera();
+          if (patch.reverse) { openRearCamera(); } else { closeRearCamera(); }
         }
 
         const u: Partial<UnifiedVehicleState> = {};

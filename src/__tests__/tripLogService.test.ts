@@ -112,9 +112,10 @@ function waitForState(predicate: (s: TripState) => boolean, timeoutMs = 1_500): 
       if (!resolved) reject(new Error('waitForState timeout'));
     }, timeoutMs);
 
-    // eslint-disable-next-line prefer-const
+     
+    // unsub önce let olmalı — callback kendi içinde unsub'a referans ediyor (closure)
     let unsub: (() => void) | undefined;
-
+    // eslint-disable-next-line prefer-const
     unsub = onTripState((s) => {
       if (!resolved && predicate(s)) {
         resolved = true;

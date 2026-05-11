@@ -422,8 +422,6 @@ async function _tryServer(
       duration:     route.duration,
       hasToll:      detectToll(route.legs[0].steps as OsrmStep[]),
     };
-  } catch (e) {
-    throw e;
   } finally {
     clearTimeout(bodyTimer);
   }

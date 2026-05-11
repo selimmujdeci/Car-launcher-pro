@@ -115,11 +115,11 @@ export const ReversePriorityOverlay = memo(function ReversePriorityOverlay() {
   // Web modunda bu bileşen hiç render edilmez — ReverseOverlay/getUserMedia devralır
   if (!isNative) return null;
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  return <_NativeReverseOverlay />;
+   
+  return <NativeReverseOverlayInner />;
 });
 
-function _NativeReverseOverlay() {
+function NativeReverseOverlayInner() {
   // window.__INITIAL_REVERSE__ → React öncesi geri vites tespit edildi; anında aç
   const [active, setActive] = useState<boolean>(
     () => window.__INITIAL_REVERSE__ === true,

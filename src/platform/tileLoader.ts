@@ -80,7 +80,7 @@ export async function importTilePackage(
                     await cacheTile(zLevel, x, y, bytes.buffer);
                     tilesCached++;
                   }
-                } catch (err) {
+                } catch {
                   errors++;
                 }
               }
@@ -162,7 +162,7 @@ export async function preCacheTilesForArea(
         } else {
           failed++;
         }
-      } catch (err) {
+      } catch {
         failed++;
       }
     }
@@ -179,8 +179,8 @@ export async function getTileCacheStats(): Promise<{
   cacheSize: string;
 }> {
   try {
-    let totalTiles = 0;
-    let totalSize = 0;
+    const totalTiles = 0;
+    const totalSize = 0;
 
     // This is a simplified implementation
     // In production, you'd walk the cache directory structure

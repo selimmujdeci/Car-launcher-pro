@@ -738,7 +738,7 @@ export async function initializeMapSources(): Promise<void> {
       isLoading: false,
       error: null,
     });
-  } catch (err) {
+  } catch {
     // Even on total failure, ensure online source is always available
     const fallbackSources = new Map<string, MapSource>();
     fallbackSources.set('online', {
@@ -924,7 +924,7 @@ export async function refreshMapSources(): Promise<void> {
       else if (sources.has('cached')) setActiveMapSource('cached');
       else setActiveMapSource('online');
     }
-  } catch (err) {
+  } catch {
     useMapSourceStore.setState({ isLoading: false });
   }
 }
@@ -1002,7 +1002,7 @@ function buildVectorStyle(): StyleSpecification {
         type: 'raster-dem',
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         tileSize: 256,
-        encoding: 'terrarium' as 'terrarium',
+        encoding: 'terrarium' as const,
         maxzoom: 14,
         attribution: '© Mapzen',
       },

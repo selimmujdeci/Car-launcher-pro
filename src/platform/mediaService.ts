@@ -378,7 +378,7 @@ export function togglePlayPause(): void {
     import('./localMusicService').then(({ localTogglePlayPause }) => localTogglePlayPause()).catch(() => {});
     return;
   }
-  _current.playing ? pause() : play();
+  if (_current.playing) { pause(); } else { play(); }
 }
 
 export function toggleShuffle(): void {

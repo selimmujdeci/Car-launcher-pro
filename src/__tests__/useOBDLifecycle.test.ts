@@ -24,7 +24,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useRef } from 'react';
 
 /* ── showToast mock ─────────────────────────────────────────── */
 

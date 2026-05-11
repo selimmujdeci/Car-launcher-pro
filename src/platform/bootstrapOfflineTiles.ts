@@ -135,7 +135,7 @@ export async function preCacheRegion(
       } finally {
         clearTimeout(timeout);
       }
-    } catch (err) {
+    } catch {
       failed++;
     }
 

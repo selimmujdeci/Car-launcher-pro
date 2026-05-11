@@ -3,7 +3,7 @@
  *
  * Erişim: Sol alt köşeye 1.5 saniyelik uzun basış → panel açılır.
  * Production'da no-op: import.meta.env.DEV = false → Vite ternary'i sabitler,
- * _DevPanel ve tüm test import'ları tree-shaked edilir.
+ * DevPanelInner ve tüm test import'ları tree-shaked edilir.
  *
  * Özellikler:
  *  • Senaryo seçici (tunnel-escape / overheat / obd-fault)
@@ -158,7 +158,7 @@ function ReplaySection() {
       const text    = ev.target?.result as string;
       const samples = parseReplayJson(text);
       if (samples.length === 0) {
-        // eslint-disable-next-line no-alert
+         
         alert('[ReplayService] Geçerli BlackBox örneği bulunamadı.');
         return;
       }
@@ -255,7 +255,7 @@ function Panel({ onClose }: { onClose: () => void }) {
 
 /* ── Trigger + Dev wrapper ────────────────────────────────────────────────── */
 
-function _DevPanel() {
+function DevPanelInner() {
   const [open, setOpen]   = useState(false);
   const timerRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -292,8 +292,8 @@ function _DevPanel() {
 
 /**
  * Dışarıya açılan bileşen — production'da null döner (import.meta.env.DEV = false).
- * Vite bu ternary'i sabitler; _DevPanel ve test import'ları tree-shaked edilir.
+ * Vite bu ternary'i sabitler; DevPanelInner ve test import'ları tree-shaked edilir.
  */
 export default function TestControlPanel() {
-  return import.meta.env.DEV ? <_DevPanel /> : null;
+  return import.meta.env.DEV ? <DevPanelInner /> : null;
 }
