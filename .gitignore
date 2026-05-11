@@ -38,3 +38,11 @@ website/website/
 *.sln
 *.sw?
 .vercel
+
+# Claude Code session artifacts
+.claude/*.lock
+.claude/scheduled_tasks.lock
+
+# Screenshots / local captures
+Ekran görüntüsü*.png
+Ekran g*.png
