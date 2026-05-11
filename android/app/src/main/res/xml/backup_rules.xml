@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 ve altı için Auto Backup kuralları -->
+<full-backup-content>
+    <!-- API anahtarları yedeklenir — reinstall/güncelleme sonrası geri gelir -->
+    <include domain="sharedpref" path="cockpitos_recovery.xml"/>
+</full-backup-content>

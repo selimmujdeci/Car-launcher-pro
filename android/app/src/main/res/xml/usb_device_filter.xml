@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  USB Serial Cihaz Filtresi — CAN bus adaptörleri için
+
+  Desteklenen chip'ler:
+    CP2102/CP2104 (Silicon Labs) — VID 0x10C4 — yaygın Arduino klonları
+    CH340/CH341 (WCH)            — VID 0x1A86 — çok ucuz Çin klonları
+    FTDI FT232   (FTDI)          — VID 0x0403 — profesyonel adaptörler
+    CDC ACM      (standart)      — class 0x02/0x0A — Arduino Leonardo, STM32 CDC
+    Prolific PL2303              — VID 0x067B — bazı eski adaptörler
+-->
+<resources>
+    <!-- CP2102 / CP2104 — Silicon Labs -->
+    <usb-device vendor-id="4292" product-id="60000" />  <!-- 0x10C4:0xEA60 -->
+    <usb-device vendor-id="4292" product-id="60001" />  <!-- 0x10C4:0xEA61 -->
+
+    <!-- CH340 / CH341 — WCH -->
+    <usb-device vendor-id="6790" product-id="29987" />  <!-- 0x1A86:0x7523 -->
+    <usb-device vendor-id="6790" product-id="21824" />  <!-- 0x1A86:0x5523 -->
+
+    <!-- FTDI FT232 -->
+    <usb-device vendor-id="1027" product-id="24577" />  <!-- 0x0403:0x6001 -->
+    <usb-device vendor-id="1027" product-id="24592" />  <!-- 0x0403:0x6010 -->
+    <usb-device vendor-id="1027" product-id="24593" />  <!-- 0x0403:0x6011 -->
+
+    <!-- Prolific PL2303 -->
+    <usb-device vendor-id="1659" product-id="8963" />   <!-- 0x067B:0x2303 -->
+
+    <!-- CDC ACM — class tabanlı (Arduino Leonardo, STM32 CDC, ESP32 CDC) -->
+    <!-- Bunlar class bazlı eşleşir, VID/PID filtre gerektirmez; -->
+    <!-- usb-serial-for-android kütüphanesi class bazlı tespiti otomatik yapar. -->
+</resources>
