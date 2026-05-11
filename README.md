@@ -10,6 +10,16 @@ CockpitOS Pro is an automotive-grade application runtime and high-performance da
 
 ---
 
+## 📸 Screenshots
+
+![Dashboard](docs/dashboard.png.jpg)
+*Main dashboard — Navigation, Performance monitor, Vehicle Stats*
+
+![Navigation](docs/navigation.png.jpg)
+*Full-screen navigation — Turn-by-turn HUD, AR overlay, live routing*
+
+---
+
 ## 🏎️ Vision & Philosophy
 
 Modern automotive interfaces often suffer from UI jitter and thermal throttling due to inefficient resource management. CockpitOS Pro is built on the principle of **Zero-Fluff Engineering** — every byte of memory and every CPU cycle is accounted for, ensuring that navigation, media, and vehicle telemetry remain fluid even under extreme hardware stress.
