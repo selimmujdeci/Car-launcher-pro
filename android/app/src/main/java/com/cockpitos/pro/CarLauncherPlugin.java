@@ -148,6 +148,56 @@ public class CarLauncherPlugin extends Plugin {
     public void load() {
         super.load();
         _instance = this;
+
+        // CanBusManager'ı ForegroundService watchdog'a inject et
+        CarLauncherForegroundService.setCanBusManager(canBusManager);
+        // Kayıtlı CAN ID yapılandırmasını yükle
+        loadCanIds();
+
+        // Bluetooth bağlantı olaylarını dinle — bağlan/bağlantı kes push event
+        btStateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                String action = intent.getAction();
+                if (action == null) return;
+                android.bluetooth.BluetoothDevice dev = null;
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE, android.bluetooth.BluetoothDevice.class);
+                } else {
+                    //noinspection deprecation
+                    dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+                }
+                JSObject event = new JSObject();
+                if (android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
+                    String name = "";
+                    try { name = dev != null ? dev.getName() : ""; } catch (SecurityException ignored) {}
+                    event.put("connected", true);
+                    event.put("deviceName", name != null ? name : "Araç");
+                    notifyListeners("btChanged", event);
+                } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
+                    event.put("connected", false);
+                    event.put("deviceName", "");
+                    notifyListeners("btChanged", event);
+                }
+            }
+        };
+        IntentFilter btFilter = new IntentFilter();
+        btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
+        btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        getContext().registerReceiver(btStateReceiver, btFilter);
+
+        // TextToSpeech motoru başlat
+        ttsEngine = new android.speech.tts.TextToSpeech(getContext(), status -> {
+            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                int result = ttsEngine.setLanguage(new java.util.Locale("tr", "TR"));
+                ttsReady = (result != android.speech.tts.TextToSpeech.LANG_MISSING_DATA
+                         && result != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED);
+                if (!ttsReady) {
+                    ttsEngine.setLanguage(java.util.Locale.getDefault());
+                    ttsReady = true;
+                }
+            }
+        });
     }
 
     /**
@@ -168,7 +218,6 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     // Plugin da kendi Activity'sinden onTrimMemory alabilir — çift güvence
-    @Override
     protected void handleOnTrimMemory(int level) {
         String pressureLevel = null;
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
@@ -2001,60 +2050,6 @@ public class CarLauncherPlugin extends Plugin {
                 android.content.Context.MODE_PRIVATE);
         }
         return _securePrefs;
-    }
-
-    @Override
-    public void load() {
-        // CanBusManager'ı ForegroundService watchdog'a inject et
-        CarLauncherForegroundService.setCanBusManager(canBusManager);
-        // Kayıtlı CAN ID yapılandırmasını yükle
-        loadCanIds();
-
-        // Bluetooth bağlantı olaylarını dinle — bağlan/bağlantı kes push event
-        btStateReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context ctx, Intent intent) {
-                String action = intent.getAction();
-                if (action == null) return;
-                android.bluetooth.BluetoothDevice dev = null;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE, android.bluetooth.BluetoothDevice.class);
-                } else {
-                    //noinspection deprecation
-                    dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
-                }
-                JSObject event = new JSObject();
-                if (android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
-                    String name = "";
-                    try { name = dev != null ? dev.getName() : ""; } catch (SecurityException ignored) {}
-                    event.put("connected", true);
-                    event.put("deviceName", name != null ? name : "Araç");
-                    notifyListeners("btChanged", event);
-                } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
-                    event.put("connected", false);
-                    event.put("deviceName", "");
-                    notifyListeners("btChanged", event);
-                }
-            }
-        };
-        IntentFilter btFilter = new IntentFilter();
-        btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
-        btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
-        getContext().registerReceiver(btStateReceiver, btFilter);
-
-        // TextToSpeech motoru başlat
-        ttsEngine = new android.speech.tts.TextToSpeech(getContext(), status -> {
-            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
-                int result = ttsEngine.setLanguage(new java.util.Locale("tr", "TR"));
-                ttsReady = (result != android.speech.tts.TextToSpeech.LANG_MISSING_DATA
-                         && result != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED);
-                if (!ttsReady) {
-                    // Türkçe dil paketi yoksa sistem dilini dene
-                    ttsEngine.setLanguage(java.util.Locale.getDefault());
-                    ttsReady = true;
-                }
-            }
-        });
     }
 
     @PluginMethod
