@@ -772,21 +772,22 @@ export function useDrivingMode() {
 
 /* ── Rota çizgisi ───────────────────────────────────────────── */
 
-const ROUTE_SRC   = 'car-route';
-const ROUTE_GLOW  = 'car-route-glow';
-const ROUTE_CASE  = 'car-route-casing';
-const ROUTE_FILL  = 'car-route-fill';
-const ALT_SRC     = 'car-route-alt';
-const ALT_FILL    = 'car-route-alt-fill';
-const DEBUG_SRC   = 'car-route-debug';
-const DEBUG_LAYER = 'car-route-debug-line';
-const SEL_SRC     = 'selected-route-source';
-const SEL_LAYER   = 'selected-route-layer';
+const ROUTE_CASE      = 'car-route-casing';
+const ROUTE_GLOW_SEL  = 'car-route-glow-sel';
+const ALT_SRC         = 'car-route-alt';
+const ALT_FILL        = 'car-route-alt-fill';
+const ALT_BADGE_SRC   = 'car-route-alt-badge';
+const ALT_BADGE_LAYER = 'car-route-alt-badge-labels';
+const DEBUG_SRC       = 'car-route-debug';
+const DEBUG_LAYER     = 'car-route-debug-line';
+const SEL_SRC         = 'selected-route-source';
+const SEL_LAYER       = 'selected-route-layer';
 
 // Module-level cache — harita style sıfırlandığında re-apply için
-let _cachedRoute: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[] } | null = null;
-let _pendingRouteGeometry: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[] } | null = null;
+let _cachedRoute: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[]; altDurs?: number[]; mainDur?: number } | null = null;
+let _pendingRouteGeometry: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[]; altDurs?: number[]; mainDur?: number } | null = null;
 let _isStyleChanging = false;
+let _routeQueuePending = false; // tek style.load listener garantisi
 
 
 /**
@@ -804,6 +805,8 @@ export function setRouteGeometry(
   coordinates:     [number, number][],
   alternatives:    [number, number][][] = [],
   altRealIndices?: number[],
+  altDurations?:   number[],
+  mainDuration?:   number,
 ): void {
   if (!map || !coordinates.length) return;
 
@@ -814,21 +817,25 @@ export function setRouteGeometry(
   // Do NOT swap here — Turkey's longitude (26-45) overlaps with latitude range and any
   // heuristic guard incorrectly re-swaps already-correct coords for central/east Turkey.
 
-  _cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices };
-  _pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices };
+  _cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
+  _pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
 
   if (_isStyleChanging) return;
 
   if (!map.isStyleLoaded()) {
-    map.once('style.load', () => {
-      if (_cachedRoute) {
-        _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx);
-      }
-    });
+    if (!_routeQueuePending) {
+      _routeQueuePending = true;
+      map.once('style.load', () => {
+        _routeQueuePending = false;
+        if (_cachedRoute) {
+          _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx, 0, _cachedRoute.altDurs, _cachedRoute.mainDur);
+        }
+      });
+    }
     return;
   }
 
-  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices);
+  _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration);
 }
 
 
@@ -837,11 +844,14 @@ function _applyRouteGeometry(
   coordinates:     [number, number][],
   alternatives:    [number, number][][],
   altRealIndices?: number[],
+  retryCount       = 0,
+  altDurations?:   number[],
+  mainDuration?:   number,
 ): void {
   if (!map) return;
 
   if (!map.isStyleLoaded()) {
-    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices));
+    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, retryCount));
     return;
   }
 
@@ -858,13 +868,11 @@ function _applyRouteGeometry(
       properties: { altRealIdx: altRealIndices?.[i] ?? (i + 1) },
     }));
     const altData = { type: 'FeatureCollection' as const, features: altFeatures };
-    if (!map.getSource(ALT_SRC)) {
+    // Robust: source orphan veya layer silinmiş → ikisini birden yeniden oluştur
+    if (!map.getSource(ALT_SRC) || !map.getLayer(ALT_FILL)) {
+      try { if (map.getLayer(ALT_FILL)) map.removeLayer(ALT_FILL); } catch { /* ignore */ }
+      try { if (map.getSource(ALT_SRC)) map.removeSource(ALT_SRC); } catch { /* ignore */ }
       map.addSource(ALT_SRC, { type: 'geojson', data: altData } as any);
-    } else {
-      (map.getSource(ALT_SRC) as any).setData(altData);
-    }
-    console.log('[ROUTE_ALTERNATIVES_SOURCE_SET]', { count: fixedAlts.length, first: fixedAlts[0]?.[0] });
-    if (!map.getLayer(ALT_FILL)) {
       map.addLayer({
         id: ALT_FILL,
         type: 'line',
@@ -873,35 +881,80 @@ function _applyRouteGeometry(
         paint: { 'line-color': '#94a3b8', 'line-width': 6, 'line-opacity': 0.50 },
       } as any);
       console.log('[ROUTE_LAYER_ADDED]', { id: ALT_FILL });
+    } else {
+      (map.getSource(ALT_SRC) as any).setData(altData);
+    }
+    console.log('[ROUTE_ALTERNATIVES_SOURCE_SET]', { count: fixedAlts.length, first: fixedAlts[0]?.[0] });
+
+    // ── Alternatif rota zaman etiketleri (midpoint badge) ────────────────────
+    const badgeFeatures = fixedAlts.map((altCoords, i) => {
+      const mid = altCoords[Math.floor(altCoords.length / 2)] ?? altCoords[0];
+      const altDur  = altDurations?.[i];
+      const diffSec = altDur !== undefined && mainDuration !== undefined ? altDur - mainDuration : null;
+      let label = '';
+      if (diffSec !== null) {
+        const mins = Math.round(Math.abs(diffSec) / 60);
+        label = diffSec > 0 ? `+${mins} dk` : mins === 0 ? '' : `-${mins} dk`;
+      }
+      return {
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: mid },
+        properties: { label },
+      };
+    }).filter(f => (f.properties.label as string).length > 0);
+    const badgeData = { type: 'FeatureCollection' as const, features: badgeFeatures };
+    if (!map.getSource(ALT_BADGE_SRC) || !map.getLayer(ALT_BADGE_LAYER)) {
+      try { if (map.getLayer(ALT_BADGE_LAYER)) map.removeLayer(ALT_BADGE_LAYER); } catch { /* ignore */ }
+      try { if (map.getSource(ALT_BADGE_SRC)) map.removeSource(ALT_BADGE_SRC); } catch { /* ignore */ }
+      map.addSource(ALT_BADGE_SRC, { type: 'geojson', data: badgeData } as any);
+      map.addLayer({
+        id: ALT_BADGE_LAYER,
+        type: 'symbol',
+        source: ALT_BADGE_SRC,
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 12,
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-anchor': 'center',
+          'text-allow-overlap': true,
+        },
+        paint: {
+          'text-color': '#e2e8f0',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 2,
+        },
+      } as any);
+    } else {
+      (map.getSource(ALT_BADGE_SRC) as any).setData(badgeData);
     }
 
-    // ── Step 3: force source/layer creation ──────────────────────
-    if (!map.getSource(SEL_SRC)) {
+    // ── Step 3: source + layer re-creation (robust) ───────────────────────────
+    // Source orphan ya da herhangi bir layer silinmiş → tamamını yeniden oluştur
+    const _selSrcOk   = !!map.getSource(SEL_SRC);
+    const _selLayersOk = !!map.getLayer(ROUTE_GLOW_SEL) && !!map.getLayer(ROUTE_CASE) && !!map.getLayer(SEL_LAYER);
+    if (!_selSrcOk || !_selLayersOk) {
+      try { if (map.getLayer(SEL_LAYER))      map.removeLayer(SEL_LAYER);      } catch { /* ignore */ }
+      try { if (map.getLayer(ROUTE_CASE))     map.removeLayer(ROUTE_CASE);     } catch { /* ignore */ }
+      try { if (map.getLayer(ROUTE_GLOW_SEL)) map.removeLayer(ROUTE_GLOW_SEL); } catch { /* ignore */ }
+      try { if (map.getSource(SEL_SRC))       map.removeSource(SEL_SRC);       } catch { /* ignore */ }
       map.addSource(SEL_SRC, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       } as any);
-    }
-    // Glow layer — mavi ışıma (casing'in altında)
-    if (!map.getLayer('car-route-glow-sel')) {
       map.addLayer({
-        id: 'car-route-glow-sel',
+        id: ROUTE_GLOW_SEL,
         type: 'line',
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#4285f4', 'line-width': 24, 'line-opacity': 0.18, 'line-blur': 4 },
       } as any);
-    }
-    if (!map.getLayer('car-route-casing')) {
       map.addLayer({
-        id: 'car-route-casing',
+        id: ROUTE_CASE,
         type: 'line',
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#ffffff', 'line-width': 16, 'line-opacity': 0.95 },
       } as any);
-    }
-    if (!map.getLayer(SEL_LAYER)) {
       map.addLayer({
         id: SEL_LAYER,
         type: 'line',
@@ -924,11 +977,16 @@ function _applyRouteGeometry(
     (map.getSource(SEL_SRC) as any).setData(routeFeature);
     console.log('[ROUTE_SELECTED_SOURCE_SET]', { pts: coords.length, first: coords[0] });
 
-    // ── Step 5: move layer to top (sıra: alt→üst) ──────────────────
-    try { map.moveLayer(ALT_FILL); } catch { /* ignore */ }
-    try { map.moveLayer('car-route-glow-sel'); } catch { /* ignore */ }
-    try { map.moveLayer('car-route-casing'); } catch { /* ignore */ }
-    try { map.moveLayer(SEL_LAYER); } catch { /* ignore */ }
+    // ── Step 5: z-ordering — rota alt→üst, araç marker hepsinin üstünde ─────
+    try { map.moveLayer(ALT_FILL); }        catch { /* ignore */ }
+    try { map.moveLayer(ALT_BADGE_LAYER); } catch { /* ignore */ }
+    try { map.moveLayer(ROUTE_GLOW_SEL); } catch { /* ignore */ }
+    try { map.moveLayer(ROUTE_CASE); }     catch { /* ignore */ }
+    try { map.moveLayer(SEL_LAYER); }      catch { /* ignore */ }
+    // Araç marker'ı rota çizgisini örtmesin
+    try { map.moveLayer('user-heading-cone'); } catch { /* ignore */ }
+    try { map.moveLayer('user-marker'); }       catch { /* ignore */ }
+    try { map.moveLayer('user-dot'); }          catch { /* ignore */ }
 
     // ── Step 6: fit bounds (sadece preview modda — driving modda setDrivingView ile çatışır) ───
     if (!useMapStore.getState().drivingMode) {
@@ -948,8 +1006,12 @@ function _applyRouteGeometry(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[MAP_WEBGL_ERROR]', msg, '| stack:', e instanceof Error ? e.stack?.split('\n')[1] : '');
-    console.warn('[ROUTE_LAYER_RECREATED] retry in 300ms');
-    setTimeout(() => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices), 300);
+    if (retryCount < 1) {
+      console.warn('[ROUTE_LAYER_RECREATED] one-shot self-heal in 500ms');
+      setTimeout(() => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 1, altDurations, mainDuration), 500);
+    } else {
+      console.error('[ROUTE_LAYER_RECREATED] self-heal failed — giving up');
+    }
     return;
   }
 
@@ -959,24 +1021,23 @@ function _applyRouteGeometry(
 
 /** Rota çizgilerini (ana + alternatifler + debug) ve cache'i temizle. */
 export function clearRouteGeometry(map: MapLibreMap): void {
-  _cachedRoute = null;
+  _cachedRoute          = null;
   _pendingRouteGeometry = null;
-  if (!map) return;
+  _routeQueuePending    = false;
+  // Stil değişimi sürerken MapLibre tüm layer'ları otomatik siliyor.
+  // Layer kaldırma işlemi hem gereksiz hem de hata fırlatabilir — yoksay.
+  if (!map || _isStyleChanging) return;
   try {
-    if (map.getLayer(DEBUG_LAYER))    map.removeLayer(DEBUG_LAYER);
-    if (map.getSource(DEBUG_SRC))     map.removeSource(DEBUG_SRC);
-    if (map.getLayer(ROUTE_FILL))     map.removeLayer(ROUTE_FILL);
-    if (map.getLayer(ROUTE_CASE))     map.removeLayer(ROUTE_CASE);
-    if (map.getLayer(ROUTE_GLOW))     map.removeLayer(ROUTE_GLOW);
-    if (map.getSource(ROUTE_SRC))     map.removeSource(ROUTE_SRC);
-    if (map.getLayer(ALT_FILL))        map.removeLayer(ALT_FILL);
-    if (map.getSource(ALT_SRC))        map.removeSource(ALT_SRC);
-    if (map.getLayer('car-route-glow-sel')) map.removeLayer('car-route-glow-sel');
-    if (map.getLayer('car-route-casing')) map.removeLayer('car-route-casing');
-    if (map.getLayer(SEL_LAYER))          map.removeLayer(SEL_LAYER);
-    if (map.getSource(SEL_SRC))           map.removeSource(SEL_SRC);
-    if (map.getLayer('route-layer'))   map.removeLayer('route-layer');
-    if (map.getSource('route-source')) map.removeSource('route-source');
+    if (map.getLayer(DEBUG_LAYER))     map.removeLayer(DEBUG_LAYER);
+    if (map.getSource(DEBUG_SRC))      map.removeSource(DEBUG_SRC);
+    if (map.getLayer(SEL_LAYER))       map.removeLayer(SEL_LAYER);
+    if (map.getLayer(ROUTE_CASE))      map.removeLayer(ROUTE_CASE);
+    if (map.getLayer(ROUTE_GLOW_SEL))  map.removeLayer(ROUTE_GLOW_SEL);
+    if (map.getSource(SEL_SRC))        map.removeSource(SEL_SRC);
+    if (map.getLayer(ALT_FILL))         map.removeLayer(ALT_FILL);
+    if (map.getSource(ALT_SRC))         map.removeSource(ALT_SRC);
+    if (map.getLayer(ALT_BADGE_LAYER))  map.removeLayer(ALT_BADGE_LAYER);
+    if (map.getSource(ALT_BADGE_SRC))   map.removeSource(ALT_BADGE_SRC);
   } catch { /* ignore — style may already be reset */ }
   clearTurnFocus();
 }

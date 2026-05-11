@@ -27,6 +27,10 @@ const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
 );
 
+const DevInspector = lazy(() =>
+  import('./components/debug/devInspector/DevInspector').then((m) => ({ default: m.DevInspector })),
+);
+
 // Uygulama oturumu başına yalnızca bir kez sor (state değil module-level flag)
 let _hotspotChecked = false;
 
@@ -182,6 +186,11 @@ function App() {
             <DebugPanel onClose={() => setDebugOpen(false)} />
           </Suspense>
         )}
+
+        {/* DevInspector — dev builds only, tree-shaked in prod */}
+        <Suspense fallback={null}>
+          <DevInspector />
+        </Suspense>
       </ErrorBoundary>
 
       {/*

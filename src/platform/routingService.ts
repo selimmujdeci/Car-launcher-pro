@@ -88,24 +88,28 @@ const HEADERS_TIMEOUT_MS   = 2_000; // Fail-Fast: headers alınamazsa offline ka
 const BODY_TIMEOUT_MS      = 5_000; // Otomotiv standardı: maksimum 5s route indirme bekleme
 const DEVIATION_WINDOW    = 20;     // kontrol edilecek segment penceresi
 
-let _rerouteCtx:      { toLat: number; toLon: number } | null = null;
-let _lastRerouteMs  = 0;
+let _rerouteCtx:       { toLat: number; toLon: number } | null = null;
+let _lastRerouteMs   = 0;
 let _deviationCounter = 0;
-let _reroutingCb:   ((isRerouting: boolean) => void) | null = null;
+let _reroutingCb:    ((isRerouting: boolean) => void) | null = null;
 let _isFetchingRoute = false;
+// Navigasyon başlangıcı — ilk 3s GPS kararsız, reroute engellenir
+let _navContextStartMs = 0;
 
 /** Navigasyon başladığında hedefe ait bağlamı kaydet. */
 export function setRerouteContext(toLat: number, toLon: number): void {
-  _rerouteCtx   = { toLat, toLon };
-  _lastRerouteMs = 0; // yeni navigasyonda throttle sıfırla
-  _deviationCounter = 0;
+  _rerouteCtx        = { toLat, toLon };
+  _lastRerouteMs     = 0;
+  _deviationCounter  = 0;
+  _navContextStartMs = performance.now(); // startup guard başlat
 }
 
 /** Navigasyon durduğunda bağlamı temizle. */
 export function clearRerouteContext(): void {
-  _rerouteCtx   = null;
-  _lastRerouteMs = 0;
-  _deviationCounter = 0;
+  _rerouteCtx        = null;
+  _lastRerouteMs     = 0;
+  _deviationCounter  = 0;
+  _navContextStartMs = 0;
 }
 
 /** isRerouting değişikliklerini dinleyen callback'i kaydet (navigationService tarafından çağrılır). */
@@ -174,8 +178,9 @@ function _hasPassedManeuver(
  * cum[n-1] === 0.  fetchRoute sırasında bir kez hesaplanır (O(N)), GPS tick'inde O(1) okunur.
  */
 function buildCumulativeDistances(geometry: [number, number][]): Float64Array {
+  if (!geometry || geometry.length < 2) return new Float64Array(geometry?.length ?? 0);
   const n   = geometry.length;
-  const cum = new Float64Array(n); // cum[n-1] = 0 (default)
+  const cum = new Float64Array(n);
   for (let i = n - 2; i >= 0; i--) {
     cum[i] = cum[i + 1] + hav(
       geometry[i][1],     geometry[i][0],
@@ -359,7 +364,7 @@ async function _tryServer(
 
     console.log('RAW ROUTE COORDS LENGTH', coords.length);
 
-    const normalized = normalizeCoords(coords as [number, number][], fromLon, fromLat);
+    const normalized = normalizeCoords(coords as [number, number][], fromLon, fromLat, toLon, toLat);
     if (normalized.length < 2)
       throw new Error(`geometry_normalize_failed: ${normalized.length} point(s) after normalize`);
 
@@ -372,8 +377,11 @@ async function _tryServer(
       gps: { lat: fromLat, lon: fromLon },
       distanceM: Math.round(distToOrigin),
     });
-    if (distToOrigin > 200) {
-      throw new Error(`ROUTE_ORIGIN_TOO_FAR: first point ${distToOrigin.toFixed(0)}m from GPS (max 200m) — normalizeCoords may have wrong order`);
+    // 2000m: Android GPS ~5-20m doğruluk için çok geniş ama browser/desktop IP-GPS
+    // 500-2000m doğrulukta çalışır. Koordinat takası hatasını yakalamak için yeterli —
+    // Türkiye'de lon/lat takası ~2500km fark üretir, bu 2000m'i geçer.
+    if (distToOrigin > 2000) {
+      throw new Error(`ROUTE_ORIGIN_TOO_FAR: first point ${distToOrigin.toFixed(0)}m from GPS (max 2000m) — normalizeCoords may have wrong order`);
     }
 
     const steps: RouteStep[] = route.legs[0].steps.map(st => ({
@@ -388,7 +396,7 @@ async function _tryServer(
 
     const altRouteData = (data.routes ?? []).slice(1);
     const alternatives = altRouteData.map(r =>
-      normalizeCoords(r.geometry.coordinates as [number, number][], fromLon, fromLat),
+      normalizeCoords(r.geometry.coordinates as [number, number][], fromLon, fromLat, toLon, toLat),
     );
     const altSteps: RouteStep[][] = altRouteData.map(r =>
       (r.legs[0].steps as OsrmStep[]).map(st => ({
@@ -448,9 +456,11 @@ async function _tryServer(
  *   and fails globally for any city in the lon 36–42 band (Tbilisi, Yerevan, etc.).
  */
 export function normalizeCoords(
-  coords:  [number, number][],
+  coords:   [number, number][],
   hintLon?: number,  // expected first-point longitude — pass OSRM origin fromLon
   hintLat?: number,  // expected first-point latitude  — pass OSRM origin fromLat
+  destLon?: number,  // destination longitude — enables end-point disambiguation
+  destLat?: number,  // destination latitude
 ): [number, number][] {
   if (!coords || coords.length < 2) {
     throw new Error(`EMPTY_GEOMETRY: coords.length=${coords?.length ?? 0} (min 2 required)`);
@@ -480,7 +490,26 @@ export function normalizeCoords(
     return coords;
   }
 
-  // Rule 3: ambiguous, no hint — trust OSRM [lon, lat] standard
+  // Rule 3: destination-proximity hint — son nokta hedefe ne kadar yakın?
+  // Türkiye (lon 26-45, lat 36-42) çakışması nedeniyle magnitude tek başına yeterli değil.
+  // as-is [lon=a, lat=b] vs swapped [lat=a, lon=b] için hedef mesafeleri karşılaştır.
+  // 10x fark varsa kesin karar ver; daha küçük farkta OSRM standardına güven.
+  if (destLon !== undefined && destLat !== undefined) {
+    const last  = coords[coords.length - 1];
+    const [la, lb] = last;
+    const distAsIs = hav(lb, la, destLat, destLon);   // [lon=la, lat=lb] → hedef
+    const distSwap = hav(la, lb, destLat, destLon);   // [lat=la, lon=lb] → hedef
+    if (distSwap < distAsIs / 10) {
+      console.warn(`[Route] dest-hint: [lat,lon] (swap=${distSwap.toFixed(0)}m asIs=${distAsIs.toFixed(0)}m) — swapping`);
+      return coords.map(([x, y]) => [y, x]);
+    }
+    if (distAsIs < distSwap / 10) {
+      console.log(`[Route] dest-hint: confirmed [lon,lat] (asIs=${distAsIs.toFixed(0)}m swap=${distSwap.toFixed(0)}m)`);
+      return coords;
+    }
+  }
+
+  // Rule 4: ambiguous, no hint — trust OSRM [lon, lat] standard
   console.log(`[Route] first coord: [${a.toFixed(5)}, ${b.toFixed(5)}] (lon, lat) — hint absent`);
   return coords;
 }
@@ -514,14 +543,15 @@ export function notifyStyleChange(active: boolean): void {
 /** Stil değişimi aktifse tamamlanmasını bekle; aksi hâlde anında resolve eder.
  *  8s timeout: style.load hiç gelmezse (map hata, unmount) fetchRoute sonsuz bloke olmaz. */
 const _STYLE_WAIT_TIMEOUT_MS = 8_000;
-function _waitForStyleReady(): Promise<void> {
-  if (!_styleChangePending) return Promise.resolve();
-  return new Promise<void>(resolve => {
-    let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
-    const id = setTimeout(finish, _STYLE_WAIT_TIMEOUT_MS);
-    _styleReadyCallbacks.push(() => { clearTimeout(id); finish(); });
-  });
+async function _waitForStyleReady(): Promise<void> {
+  while (_styleChangePending) {
+    await new Promise<void>(resolve => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      const id = setTimeout(finish, _STYLE_WAIT_TIMEOUT_MS);
+      _styleReadyCallbacks.push(() => { clearTimeout(id); finish(); });
+    });
+  }
 }
 
 /* ── Alternatif Rota Seçimi ──────────────────────────────────── */
@@ -673,9 +703,9 @@ export async function fetchRoute(
       } catch (e) {
         const _errMsg = e instanceof Error ? e.message : String(e);
         if (_errMsg === 'HEADERS_TIMEOUT') {
-          // Ağ yavaş — kalan sunucuları deneme, anında offline'a geç
-          console.warn(`[ROUTE] Fail-Fast: ${server} ${HEADERS_TIMEOUT_MS}ms içinde yanıt vermedi → offline katmana geç`);
-          break;
+          // Tek sunucu yavaş → diğerlerini de dene, hepsi timeout'a girerse offline'a geç
+          console.warn(`[ROUTE] Fail-Fast: ${server} ${HEADERS_TIMEOUT_MS}ms içinde yanıt vermedi → sonraki sunucuya geç`);
+          continue;
         }
         console.warn(`[ROUTE] server ${server} failed:`, _errMsg);
       }
@@ -796,6 +826,9 @@ export function updateRouteProgress(lat: number, lon: number): void {
   if (useRouteStore.getState().serverUsed === 'straight-line') return;
 
   const now = performance.now();
+  // Startup guard: navigasyon başından itibaren ilk 3s GPS henüz stabilize olmamıştır.
+  // Anlık sapma tespiti, rota yeni çizilmişken yanlış reroute tetikleyebilir.
+  if (_navContextStartMs > 0 && now - _navContextStartMs < 3_000) return;
   if (now - _lastRerouteMs < REROUTE_THROTTLE_MS) return;
 
   // ── Navigasyon Histerezisi ───────────────────────────────────
@@ -900,4 +933,24 @@ export function getRouteState(): RouteState {
 /** React hook — NavigationHUD ve FullMapView için. */
 export function useRouteState(): RouteState {
   return useRouteStore(s => s);
+}
+
+/** ACTIVE navigasyona geçildiğinde alternatif rotaları store'dan kaldır (CPU tasarrufu). */
+export function clearAltRoutes(): void {
+  useRouteStore.setState({
+    alternatives:   [],
+    altDistances:   [],
+    altDurations:   [],
+    altHasToll:     [],
+    altRealIndices: [],
+  });
+}
+
+/**
+ * Tahmini yakıt tüketimi (Litre).
+ * Heuristik: 7.5L/100km — araç profil verisi yoksa genel binek otomobil ortalaması.
+ */
+export function computeFuelEstimate(distanceM: number): number {
+  const L_PER_100KM = 7.5;
+  return Math.round((distanceM / 1_000 / 100) * L_PER_100KM * 10) / 10;
 }

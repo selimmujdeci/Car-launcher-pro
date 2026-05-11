@@ -9,6 +9,7 @@ import {
   pointToSegmentDist,
   projectOnSegment,
   injectSentinelStepIfEmpty,
+  clearAltRoutes,
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
@@ -158,6 +159,8 @@ export function activateNavigation(): void {
     _arrivalDistanceBelow   = 0;
     _proximityAlertFired    = false;
     console.log('[NAV_STARTED]', { ts: _navActivatedAtMs, status });
+    // Alternatif rotalar ACTIVE modda gereksiz — CPU tasarrufu için temizle
+    clearAltRoutes();
     // HUD güvencesi: offline/daemon modda steps boş gelebilir — sentinel enjekte et
     const { destination } = useNavigationStore.getState();
     if (destination) {

@@ -30,6 +30,7 @@ import {
   useRouteState,
   clearRoute,
   selectAltRoute,
+  computeFuelEstimate,
 } from '../../platform/routingService';
 import type { RouteStep } from '../../platform/routingService';
 import { useStore } from '../../store/useStore';
@@ -599,7 +600,7 @@ const PreviewCard = memo(function PreviewCard({
   onStart: () => void; onCancel: () => void;
   routeReady: boolean; gpsValid: boolean;
 }) {
-  const { altDistances, altDurations, altRealIndices, hasToll } = useRouteState();
+  const { altDistances, altDurations, altRealIndices, altHasToll, hasToll, totalDurationSeconds: mainDurS } = useRouteState();
   const hasAlts = altDistances.length > 0;
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -685,24 +686,54 @@ const PreviewCard = memo(function PreviewCard({
           <div ref={altsRef} className="mb-4">
             <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Rota Seçenekleri</div>
             <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-              <div className="flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border bg-blue-600 border-blue-500 shadow-[0_4px_16px_rgba(37,99,235,0.5)]">
-                <span className="text-[11px] font-black uppercase tracking-widest text-blue-100 opacity-80">{chipLabels[0]}</span>
-                <span className="text-sm font-black mt-0.5 text-white">{formatDistance(distMeters)}</span>
+              {/* Ana rota kartı */}
+              <div className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-2.5 rounded-2xl border min-w-[110px] bg-blue-600 border-blue-500 shadow-[0_4px_16px_rgba(37,99,235,0.5)]">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-100/80">{chipLabels[0]}</span>
+                  {hasToll && <AlertCircle className="w-3 h-3 text-amber-300 flex-shrink-0" />}
+                </div>
+                <span className="text-sm font-black text-white leading-tight">{formatDistance(distMeters)}</span>
                 <span className="text-[11px] font-bold text-blue-200">{formatEta(durSeconds)}</span>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Fuel className="w-3 h-3 text-blue-300 flex-shrink-0" />
+                  <span className="text-[10px] font-bold text-blue-200">{computeFuelEstimate(distMeters)} L</span>
+                </div>
               </div>
-              {altDistances.map((dist, j) => (
-                <button
-                  key={altRealIndices[j] ?? j}
-                  onClick={() => selectAltRoute(altRealIndices[j] ?? (j + 1))}
-                  className="flex-shrink-0 flex flex-col items-start px-3 py-2 rounded-2xl border transition-all active:scale-95 bg-white/[0.06] border-white/10"
-                >
-                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                    {chipLabels[j + 1] ?? `Alternatif ${j + 1}`}
-                  </span>
-                  <span className="text-sm font-black mt-0.5 text-slate-200">{formatDistance(dist)}</span>
-                  <span className="text-[11px] font-bold text-slate-500">{formatEta(altDurations[j])}</span>
-                </button>
-              ))}
+              {/* Alternatif rota kartları */}
+              {altDistances.map((dist, j) => {
+                const altDur   = altDurations[j] ?? 0;
+                const diffSec  = altDur - (mainDurS || durSeconds);
+                const diffMins = Math.round(Math.abs(diffSec) / 60);
+                const diffLabel = diffMins === 0 ? null : diffSec > 0 ? `+${diffMins} dk` : `-${diffMins} dk`;
+                const toll     = altHasToll[j] ?? false;
+                return (
+                  <button
+                    key={altRealIndices[j] ?? j}
+                    onClick={() => selectAltRoute(altRealIndices[j] ?? (j + 1))}
+                    className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-2.5 rounded-2xl border min-w-[110px] transition-all active:scale-95 bg-white/[0.06] border-white/10"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        {chipLabels[j + 1] ?? `Alternatif ${j + 1}`}
+                      </span>
+                      {toll && <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />}
+                    </div>
+                    <span className="text-sm font-black text-slate-200 leading-tight">{formatDistance(dist)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-400">{formatEta(altDur)}</span>
+                      {diffLabel && (
+                        <span className={`text-[10px] font-black ${diffSec > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {diffLabel}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Fuel className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                      <span className="text-[10px] font-bold text-slate-500">{computeFuelEstimate(dist)} L</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

@@ -44,6 +44,7 @@ import {
 import {
   fetchRoute,
   useRouteState,
+  getRouteState,
   updateRouteProgress,
   clearRoute,
   notifyStyleChange,
@@ -119,6 +120,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
   const routeAltRef       = useRef<[number, number][][]>([]);
   const routeAltIdxRef    = useRef<number[]>([]);
+  const routeAltDursRef   = useRef<number[]>([]);
+  const routeMainDurRef   = useRef<number>(0);
   const prevStepIndexRef  = useRef(0);
   /** True while a style switch is in-flight — drives the anti-flicker overlay. */
   const [isSwitchingStyle, setIsSwitchingStyle] = useState(false);
@@ -793,17 +796,24 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // route geometry before style.load completes throws "source does not exist" errors.
   // notifyStyleChange(false) → styleKey increments → this effect re-runs automatically.
   useEffect(() => {
-    if (!route.geometry || !mapRef.current || mapStatus !== 'READY') return;
+    if (!route.geometry) return;
+    // Ref'leri mapStatus'ten bağımsız her zaman güncelle.
+    // _onStyleReady ve webglcontextrestored callback'leri bu ref'lerden okur;
+    // harita LOADING iken gelen yeni geometri kaybolmamalı.
+    routeGeometryRef.current = route.geometry;
+    routeAltRef.current      = route.alternatives;
+    routeAltIdxRef.current   = route.altRealIndices;
+    routeAltDursRef.current  = route.altDurations;
+    routeMainDurRef.current  = route.totalDurationSeconds;
+
+    if (!mapRef.current || mapStatus !== 'READY') return;
     if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
     const hash = _routeHash(route.geometry);
     const last = lastAppliedRef.current;
     if (last && last.hash === hash && last.styleKey === styleKey && last.navStatus === navStatus) return;
     lastAppliedRef.current = { hash, styleKey, navStatus };
-    setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices);
+    setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices, route.altDurations, route.totalDurationSeconds);
     pushDebug('ROUTE_GEOMETRY_SET', { pts: route.geometry?.length, first: route.geometry?.[0] });
-    routeGeometryRef.current = route.geometry;
-    routeAltRef.current      = route.alternatives;
-    routeAltIdxRef.current   = route.altRealIndices;
   }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey, navStatus]);
 
   // Turn focus: highlight next turn when approaching, clear on step advance
@@ -915,8 +925,13 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }
         map._fullMapInitialized = true;
       }
-      if (routeGeometryRef.current) {
-        setRouteGeometry(map, routeGeometryRef.current, routeAltRef.current, routeAltIdxRef.current);
+      // Ref boşsa bile store'daki geometriyi yedek olarak kullan.
+      // fetchRoute, style değişimi sırasında store'a yazmış olabilir ama
+      // routeGeometryRef henüz güncellenmemiş olabilir (effect tetiklenmedi).
+      const _storeGeom = getRouteState().geometry;
+      const _geomToRender = routeGeometryRef.current ?? _storeGeom;
+      if (_geomToRender && map.isStyleLoaded()) {
+        setRouteGeometry(map, _geomToRender, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current);
       }
       setStyleKey((k) => k + 1);
       if (withFadeOverlay) {
