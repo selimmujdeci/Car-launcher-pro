@@ -46,3 +46,8 @@ website/website/
 # Screenshots / local captures
 Ekran görüntüsü*.png
 Ekran g*.png
+
+# Tool specific
+.opencode/
+.claude/settings.json
+scratchpad.md

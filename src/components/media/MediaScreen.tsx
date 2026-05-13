@@ -16,7 +16,7 @@ import {
 import { LocalMusicBrowser } from './LocalMusicBrowser';
 import {
   useMediaState, togglePlayPause, next, previous,
-  fmtTime, startMediaHub, toggleShuffle, cycleRepeat,
+  fmtTime, startMediaHub, stopMediaHub, toggleShuffle, cycleRepeat,
   setMediaPreferredPackage, pollMediaNow,
 } from '../../platform/mediaService';
 import type { MediaSource } from '../../platform/mediaService';
@@ -83,6 +83,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
     if (src?.pkg) setMediaPreferredPackage(src.pkg);
     // Drawer açılınca anında poll — 5s beklemesin
     pollMediaNow();
+    return () => stopMediaHub();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

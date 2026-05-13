@@ -38,51 +38,7 @@ import { useGPSLocation } from '../../platform/gpsService';
 import { speakNavigation } from '../../platform/ttsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
-
-/* ── Dinamik hız sınırı — Overpass API (maxspeed) ──────────────
- * Her 200 m'de bir mevcut yolun maxspeed etiketini sorgular.
- */
-function useSpeedLimit(lat: number | null, lon: number | null): number {
-  const [limit, setLimit]   = useState(50);
-  const prevPosRef          = useRef<{ lat: number; lon: number } | null>(null);
-  const timerRef            = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!lat || !lon) return;
-    if (prevPosRef.current) {
-      const dlat = (lat - prevPosRef.current.lat) * 111_320;
-      const dlon = (lon - prevPosRef.current.lon) * 111_320 * Math.cos(lat * (Math.PI / 180));
-      if (Math.sqrt(dlat * dlat + dlon * dlon) < 200) return;
-    }
-    prevPosRef.current = { lat, lon };
-
-    let cancelled = false;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      try {
-        const q    = `[out:json][timeout:3];way[highway][maxspeed](around:30,${lat},${lon});out tags 1;`;
-        const url  = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
-        const ctrl = new AbortController();
-        const t    = setTimeout(() => ctrl.abort(), 4_000);
-        const res  = await fetch(url, { signal: ctrl.signal });
-        clearTimeout(t);
-        if (cancelled) return;
-        const data = await res.json() as { elements?: Array<{ tags?: { maxspeed?: string } }> };
-        const ms   = data.elements?.[0]?.tags?.maxspeed;
-        if (ms) {
-          const n = parseInt(ms, 10);
-          if (Number.isFinite(n) && n > 0 && n <= 300) setLimit(n);
-        }
-      } catch { /* ağ hatası → önceki limit korunur */ }
-    }, 800);
-
-    return () => { cancelled = true; };
-  }, [lat, lon]);
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
-
-  return limit;
-}
+import { useSpeedLimitByLocation } from '../../platform/speedLimitService';
 
 /* ── Türkçe talimat ────────────────────────────────────────── */
 
@@ -800,19 +756,60 @@ function QuickCard({ icon, label, color, onTap, disabled = false }: {
   );
 }
 
-async function findNearbyFuel(lat: number, lon: number): Promise<{ name: string; lat: number; lon: number } | null> {
+/* ── Benzinlik önbellek ──────────────────────────────────────── */
+
+const _FUEL_KEY    = 'caros-fuel-cache';
+const _FUEL_MAX_MS = 7 * 24 * 60 * 60 * 1000; // 7 gün
+
+interface _FuelItem { name: string; lat: number; lon: number; }
+interface _FuelCache { items: _FuelItem[]; cachedAt: number; }
+
+function _fuelHav(la1: number, lo1: number, la2: number, lo2: number): number {
+  const R = 6_371_000;
+  const dLa = (la2 - la1) * Math.PI / 180;
+  const dLo = (lo2 - lo1) * Math.PI / 180;
+  const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * Math.PI / 180) * Math.cos(la2 * Math.PI / 180) * Math.sin(dLo / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function _saveFuelCache(items: _FuelItem[]): void {
+  try { localStorage.setItem(_FUEL_KEY, JSON.stringify({ items, cachedAt: Date.now() } satisfies _FuelCache)); } catch { /* quota */ }
+}
+
+function _nearestCached(lat: number, lon: number): (_FuelItem & { fromCache: true }) | null {
   try {
-    const q    = `[out:json][timeout:5];node[amenity=fuel](around:5000,${lat},${lon});out 1;`;
+    const raw = localStorage.getItem(_FUEL_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw) as _FuelCache;
+    if (!c.items?.length || Date.now() - c.cachedAt > _FUEL_MAX_MS) return null;
+    const best = c.items.reduce((a, b) =>
+      _fuelHav(lat, lon, a.lat, a.lon) <= _fuelHav(lat, lon, b.lat, b.lon) ? a : b,
+    );
+    return { ...best, fromCache: true as const };
+  } catch { return null; }
+}
+
+async function findNearbyFuel(
+  lat: number, lon: number,
+): Promise<{ name: string; lat: number; lon: number; fromCache?: boolean } | null> {
+  try {
+    const q    = `[out:json][timeout:5];node[amenity=fuel](around:5000,${lat},${lon});out 5;`;
     const url  = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5_000);
     const res  = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
-    const data = await res.json();
-    if (!data.elements?.length) return null;
-    const el = data.elements[0];
-    return { name: el.tags?.name || 'Benzin İstasyonu', lat: el.lat, lon: el.lon };
-  } catch { return null; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json() as { elements?: Array<{ tags?: { name?: string }; lat: number; lon: number }> };
+    if (!data.elements?.length) return _nearestCached(lat, lon);
+    const items: _FuelItem[] = data.elements.slice(0, 5).map(el => ({
+      name: el.tags?.name || 'Benzin İstasyonu', lat: el.lat, lon: el.lon,
+    }));
+    _saveFuelCache(items);
+    return items.reduce((a, b) => _fuelHav(lat, lon, a.lat, a.lon) <= _fuelHav(lat, lon, b.lat, b.lon) ? a : b);
+  } catch {
+    return _nearestCached(lat, lon);
+  }
 }
 
 const QuickDestinationsDelayed = memo(function QuickDestinationsDelayed({
@@ -832,6 +829,7 @@ const QuickDestinations = memo(function QuickDestinations({
 }: { gpsLat: number | null; gpsLon: number | null }) {
   const { settings, updateSettings } = useStore();
   const [fuelLoading, setFuelLoading] = useState(false);
+  const [fuelError, setFuelError]     = useState('');
 
   const navigate = useCallback((dest: Address) => {
     startNavigation(dest);
@@ -857,9 +855,19 @@ const QuickDestinations = memo(function QuickDestinations({
   const handleFuel = useCallback(async () => {
     if (!gpsLat || !gpsLon || fuelLoading) return;
     setFuelLoading(true);
+    setFuelError('');
     const result = await findNearbyFuel(gpsLat, gpsLon);
     setFuelLoading(false);
-    if (result) navigate({ id: `fuel-${Date.now()}`, name: result.name, latitude: result.lat, longitude: result.lon, type: 'history' });
+    if (result) {
+      navigate({ id: `fuel-${Date.now()}`, name: result.name, latitude: result.lat, longitude: result.lon, type: 'history' });
+      if (result.fromCache) {
+        setFuelError('Önbellek kullanıldı');
+        setTimeout(() => setFuelError(''), 2500);
+      }
+    } else {
+      setFuelError('Önbellek yok — internet gerekli');
+      setTimeout(() => setFuelError(''), 3000);
+    }
   }, [gpsLat, gpsLon, fuelLoading, navigate]);
 
   return (
@@ -883,6 +891,15 @@ const QuickDestinations = memo(function QuickDestinations({
         <QuickCard
           icon={fuelLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Fuel className="w-3.5 h-3.5" />}
           label="Benzinlik" color="#f59e0b" onTap={handleFuel} disabled={!gpsLat || fuelLoading} />
+        {fuelError && (
+          <div className={`px-2 py-1 rounded-lg text-[10px] font-mono text-center ${
+            fuelError.startsWith('Önbellek kullanıldı')
+              ? 'bg-amber-900/80 border border-amber-700/60 text-amber-300'
+              : 'bg-red-900/80 border border-red-700/60 text-red-300'
+          }`}>
+            {fuelError}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -911,7 +928,7 @@ export const NavigationHUD = memo(function NavigationHUD({
   speedKmh = 0,
 }: NavigationHUDProps) {
   const location = useGPSLocation();
-  const dynamicLimit = useSpeedLimit(
+  const dynamicLimit = useSpeedLimitByLocation(
     location?.latitude  ?? null,
     location?.longitude ?? null,
   );

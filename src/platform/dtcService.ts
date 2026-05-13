@@ -30,6 +30,8 @@ export interface DTCState {
   isClearing: boolean;
   lastReadAt: number | null;
   error: string | null;
+  /** true → son okuma başarısız; codes bir önceki başarılı okumanın verisini korur */
+  isStale: boolean;
 }
 
 /* ── DTC Database (Turkish) ──────────────────────────────── */
@@ -121,6 +123,7 @@ let _state: DTCState = {
   isClearing: false,
   lastReadAt: null,
   error: null,
+  isStale: false,
 };
 
 const _listeners = new Set<(s: DTCState) => void>();
@@ -177,13 +180,14 @@ export async function readDTCCodes(): Promise<void> {
       try {
         const result = await CarLauncher.readDTC();
         const codes = (result.codes ?? []).map(_lookupCode);
-        _setState({ codes, isReading: false, lastReadAt: Date.now() });
+        _setState({ codes, isReading: false, lastReadAt: Date.now(), isStale: false });
       } catch {
-        // OBD okuyucu bağlı değil veya ECU yanıt vermiyor — boş liste, hata mesajı
+        // Fix 4: hata durumunda mevcut codes listesi korunur, isStale=true ile işaretlenir.
+        // UI "hata okunamadı" ile "hata yok" arasındaki farkı isStale üzerinden ayırt eder.
         _setState({
-          codes: [],
           isReading: false,
           lastReadAt: Date.now(),
+          isStale: true,
           error: 'OBD okuyucu bağlı değil veya ECU yanıt vermiyor',
         });
       }
@@ -192,11 +196,13 @@ export async function readDTCCodes(): Promise<void> {
 
     // Yalnızca web/demo modda simüle veri
     await new Promise<void>((r) => setTimeout(r, 1_500));
-    _setState({ codes: _getMockCodes(), isReading: false, lastReadAt: Date.now() });
+    _setState({ codes: _getMockCodes(), isReading: false, lastReadAt: Date.now(), isStale: false });
 
   } catch (err) {
+    // Fix 4: beklenmedik hata — codes listesi korunur, isStale=true işaretlenir
     _setState({
       isReading: false,
+      isStale: true,
       error: err instanceof Error ? err.message : 'Okuma sırasında hata oluştu',
     });
   }

@@ -14,6 +14,63 @@ import { geocodeAddress, searchNearby, type GeoResult } from './geocodingService
 import { startNavigation } from './navigationService';
 import { logError } from './crashLogger';
 import { searchOffline, saveSearchQuery } from './offlineSearchService';
+import { searchOfflinePlaces } from './offlineDataService';
+
+/* ── Geocoding önbellek (offline fallback) ───────────────── */
+
+const _GEO_CACHE_KEY     = 'caros-geo-cache';
+const _GEO_CACHE_MAX     = 120;
+const _GEO_CACHE_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 gün
+
+interface _GeoCacheEntry { query: string; results: GeoResult[]; savedAt: number; }
+
+const _TR: Record<string, string> = {
+  'İ':'i','ı':'i','Ş':'s','ş':'s','Ğ':'g','ğ':'g','Ü':'u','ü':'u','Ö':'o','ö':'o','Ç':'c','ç':'c',
+};
+function _norm(s: string): string {
+  return s.toLowerCase().replace(/[İışŞğĞüÜöÖçÇ]/g, c => _TR[c] ?? c).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function _dice(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const tg = (t: string) => { const s = new Set<string>(); const p = `  ${t}  `; for (let i = 0; i < p.length - 2; i++) s.add(p.slice(i, i + 3)); return s; };
+  const ta = tg(a); const tb = tg(b);
+  let ix = 0; for (const t of ta) { if (tb.has(t)) ix++; }
+  return (2 * ix) / (ta.size + tb.size);
+}
+
+function _saveGeoCache(query: string, results: GeoResult[]): void {
+  if (!results.length) return;
+  try {
+    const raw: _GeoCacheEntry[] = JSON.parse(localStorage.getItem(_GEO_CACHE_KEY) ?? '[]');
+    const q = _norm(query);
+    const filtered = raw.filter(e => e.query !== q && Date.now() - e.savedAt < _GEO_CACHE_MAX_AGE);
+    filtered.unshift({ query: q, results, savedAt: Date.now() });
+    localStorage.setItem(_GEO_CACHE_KEY, JSON.stringify(filtered.slice(0, _GEO_CACHE_MAX)));
+  } catch { /* quota */ }
+}
+
+function _searchGeoCache(query: string): GeoResult[] {
+  try {
+    const raw: _GeoCacheEntry[] = JSON.parse(localStorage.getItem(_GEO_CACHE_KEY) ?? '[]');
+    const q = _norm(query);
+    const valid = raw.filter(e => Date.now() - e.savedAt < _GEO_CACHE_MAX_AGE);
+    // Exact / prefix / substring önce
+    for (const e of valid) {
+      if (e.query === q || e.query.startsWith(q) || q.startsWith(e.query) || e.query.includes(q) || q.includes(e.query)) {
+        return e.results;
+      }
+    }
+    // Fuzzy (Dice ≥ 0.5)
+    let best: _GeoCacheEntry | null = null;
+    let bestSc = 0;
+    for (const e of valid) {
+      const sc = _dice(q, e.query);
+      if (sc > bestSc) { bestSc = sc; best = e; }
+    }
+    return bestSc >= 0.5 && best ? best.results : [];
+  } catch { return []; }
+}
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -124,28 +181,62 @@ export function resolveAndNavigate(
 
   const isNearby = destination === '__nearby_gas__' || destination === '__nearby_parking__';
 
-  // ── Offline-first lookup: internet yoksa IndexedDB'den anında cevap ────
+  // ── Offline-first lookup: internet yoksa önbellek + IndexedDB ────
   if (!isNearby && !navigator.onLine) {
-    searchOffline(destination, 3).then((offlineHits) => {
+    Promise.all([
+      searchOffline(destination, 3),
+      Promise.resolve(_searchGeoCache(destination)),
+      searchOfflinePlaces(destination, 5),
+    ]).then(([offlineHits, cacheHits, poiHits]) => {
       if (gen !== _searchGeneration) return;
-      if (offlineHits.length > 0 && offlineHits[0].score >= 0.65) {
+
+      // 1. IndexedDB geçmiş — daha önce navigasyon başlatılan yerler
+      if (offlineHits.length > 0 && offlineHits[0].score >= 0.55) {
         const best = offlineHits[0].location;
         const result: GeoResult = {
-          id:       best.id,
-          name:     best.name,
+          id: best.id, name: best.name,
           fullName: best.address ?? best.name,
-          lat:      best.lat,
-          lng:      best.lng,
-          type:     'address',
+          lat: best.lat, lng: best.lng, type: 'address',
         };
         _push({ results: [result] });
         _confirmResult(result);
         return;
       }
-      // Sonuç yok veya düşük güven → offline hata göster
+
+      // 2. Türkiye POI veritabanı — offlineDataService'ten indirilen mahalle/POI
+      if (poiHits.length > 0) {
+        const results: GeoResult[] = poiHits.map(p => ({
+          id:       p.id,
+          name:     p.name,
+          fullName: p.name,
+          lat:      p.lat,
+          lng:      p.lon,
+          type:     'address' as const,
+        }));
+        if (results.length === 1) {
+          _push({ results });
+          _confirmResult(results[0]);
+        } else {
+          _push({ phase: 'selecting', results });
+        }
+        return;
+      }
+
+      // 3. Geocoding cache — daha önce online'da arama yapılan yerler
+      if (cacheHits.length > 0) {
+        if (cacheHits.length === 1) {
+          _push({ results: cacheHits });
+          _confirmResult(cacheHits[0]);
+        } else {
+          _push({ phase: 'selecting', results: cacheHits });
+        }
+        return;
+      }
+
+      // Hiçbir önbellekte yok
       _push({
         phase:        'error',
-        errorMessage: 'İnternet yok — bu adres geçmişte aranmadı',
+        errorMessage: 'İnternet yok — önbellekte bulunamadı',
         suggestions:  [],
       });
       if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
@@ -174,6 +265,9 @@ export function resolveAndNavigate(
   fetch
     .then((results) => {
       if (gen !== _searchGeneration) return; // iptal edildi
+
+      // Başarılı Nominatim sonuçlarını cache'e yaz (offline fallback için)
+      if (!isNearby && results.length) _saveGeoCache(destination, results);
 
       if (!results.length) {
         _push({

@@ -22,6 +22,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { logError } from './crashLogger';
 import { verifyIntegrity } from './maps/MapManifestService';
 import type { IntegrityReport } from './maps/MapManifestService';
+import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
 
@@ -216,7 +217,11 @@ async function _serveTileFromLocal(url: string): Promise<Response> {
 
 function _onTileError(): void {
   _consecutiveTileErrors++;
-  if (_consecutiveTileErrors >= MAX_TILE_ERRORS && !_rollbackInProgress) {
+  if (
+    _consecutiveTileErrors >= MAX_TILE_ERRORS &&
+    !_rollbackInProgress &&
+    isFeatureEnabled('offlineTileAutoRollback')
+  ) {
     console.warn('[TILE_SERVER] 10 ardışık hata → otomatik rollback');
     rollbackToPreviousVersion().catch((e) => logError('offlineTileServer:autoRollback', e));
   }
@@ -348,6 +353,7 @@ export async function rollbackToPreviousVersion(): Promise<boolean> {
 
     _consecutiveTileErrors = 0;
     console.info(`[TILE_SERVER] rollback: ${current ?? '?'} → ${previous}`);
+    recordFault('TILE_ROLLBACK');
     return true;
   } catch (e) {
     logError('offlineTileServer:rollback', e);

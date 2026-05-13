@@ -1,8 +1,18 @@
+import { useEffect } from 'react';
 import { useSystemStore } from '../../store/useSystemStore';
+
+const AUTO_DISMISS_MS = 60_000; // Kullanıcı "Tamam" basmazsa 60s sonra otomatik kapat
 
 export function GeofenceAlarmOverlay() {
   const alarm      = useSystemStore((s) => s.geofenceAlarm);
   const clearAlarm = useSystemStore((s) => s.setGeofenceAlarm);
+
+  // Auto-dismiss: kritik overlay süresiz ekranda kalmamalı
+  useEffect(() => {
+    if (!alarm) return;
+    const t = setTimeout(() => clearAlarm(null), AUTO_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [alarm, clearAlarm]);
 
   if (!alarm) return null;
 
@@ -10,7 +20,7 @@ export function GeofenceAlarmOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-[9995] flex items-center justify-center"
+      className="fixed inset-0 z-[100000] flex items-center justify-center"
       style={{ background: 'rgba(220,38,38,0.18)', backdropFilter: 'blur(6px)' }}
     >
       {/* Kırmızı alarm kutusu */}

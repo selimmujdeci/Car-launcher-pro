@@ -15,6 +15,7 @@ import {
   ChevronRight, X, Clock,
 } from 'lucide-react';
 import { useStore, type SmartCard } from '../../store/useStore';
+import { useSystemStore } from '../../store/useSystemStore';
 import { startNavigation }  from '../../platform/navigationService';
 import { getFavoriteAddresses } from '../../platform/addressBookService';
 import { Tv2 } from 'lucide-react';
@@ -174,7 +175,7 @@ export const SmartCardStack = memo(function SmartCardStack({
       case 'open-drawer':
         if (action.drawer === 'theater') {
           // Theater Mode: prop zinciri gerekmez — store üzerinden direkt aktivasyon
-          useStore.getState().setIsTheaterModeActive(true);
+          useSystemStore.getState().setTheaterMode(true);
         } else {
           onOpenDrawer?.(action.drawer);
         }

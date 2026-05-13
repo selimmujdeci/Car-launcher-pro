@@ -18,6 +18,7 @@ import type { IntentType } from '../intentEngine';
 import type { VehicleContext } from '../aiVoiceService';
 import { resolveApiKey, type AIProvider } from '../aiVoiceService';
 import { callProcessIntent } from '../supabaseClient';
+import { buildPidRegistryIntegrityPromptBlock } from './pidDescriptionGate';
 
 /* ── POI Kategorileri ────────────────────────────────────────── */
 
@@ -95,7 +96,8 @@ JSON FORMATI:
 - "abim nerede oturur bilmiyorum" → {"intent":"UNKNOWN","feedback":"Anlayamadım","confidence":0.3}`;
 
 function buildContextPrompt(ctx?: VehicleContext): string {
-  if (!ctx) return BASE_SYSTEM_PROMPT;
+  const pidBlock = `\n\n${buildPidRegistryIntegrityPromptBlock()}`;
+  if (!ctx) return BASE_SYSTEM_PROMPT + pidBlock;
 
   const lines = [`\n\n[ARAÇ BAĞLAMI]`, `Hız: ${ctx.speedKmh} km/h`];
 
@@ -105,7 +107,7 @@ function buildContextPrompt(ctx?: VehicleContext): string {
     );
   }
 
-  return BASE_SYSTEM_PROMPT + lines.join('\n');
+  return BASE_SYSTEM_PROMPT + lines.join('\n') + pidBlock;
 }
 
 /* ── JSON ayrıştırıcı ────────────────────────────────────────── */

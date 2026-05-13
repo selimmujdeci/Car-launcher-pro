@@ -15,6 +15,7 @@ import { logError } from './crashLogger';
 import { useStore } from '../store/useStore';
 import type { VehicleProfile, AppSettings } from '../store/useStore';
 import type { HeadUnitPlatform } from './headUnitPlatform';
+import { setHandshakeVin } from './safety/vinContext';
 
 /* ── Preset araç profilleri — platforma göre otomatik oluşturulur ── */
 
@@ -198,6 +199,21 @@ export function seedDefaultProfile(platform: HeadUnitPlatform): void {
 }
 
 /* ── Public API ──────────────────────────────────────────── */
+
+/**
+ * OBD el sıkışmasından gelen VIN'i bellek + aktif araç profiline yazar (geçerli ISO VIN ise).
+ */
+export function persistHandshakeVin(vin: string | null): void {
+  setHandshakeVin(vin);
+  const n = vin?.trim().toUpperCase() ?? '';
+  if (!n || !/^[A-HJ-NPR-Z0-9]{17}$/.test(n)) return;
+  const { settings, updateVehicleProfile } = useStore.getState();
+  const { activeVehicleProfileId, vehicleProfiles } = settings;
+  if (!activeVehicleProfileId) return;
+  const p = vehicleProfiles.find((x) => x.id === activeVehicleProfileId);
+  if (!p || p.vin === n) return;
+  updateVehicleProfile(activeVehicleProfileId, { vin: n });
+}
 
 /**
  * Araç algılama servisini başlat.

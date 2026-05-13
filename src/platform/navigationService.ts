@@ -13,6 +13,7 @@ import {
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
+import { corridorSync } from '../core/navigation/CorridorSyncEngine';
 
 /* ── Navigasyon Durum Makinesi ───────────────────────────────── */
 
@@ -116,6 +117,7 @@ export const ARRIVAL_THRESHOLD_M = 20;
 
 // 5 s ARRIVED → IDLE timer
 let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
+let _unregisterReroutingCb: (() => void) | null = null;
 
 /** Hedefe varış — ARRIVED durumuna geç ve 5 s sonra IDLE'a dön. */
 function transitionToArrived(): void {
@@ -140,7 +142,10 @@ function transitionToArrived(): void {
 export function startNavigation(destination: Address, isOffline = false): void {
   useNavigationStore.getState().setDestination(destination, isOffline);
   setRerouteContext(destination.latitude, destination.longitude);
-  registerReroutingCallback((val) => useNavigationStore.getState().setRerouting(val));
+  _unregisterReroutingCb?.();  // önceki navigasyondan kalan callback'i temizle
+  _unregisterReroutingCb = registerReroutingCallback(
+    (val) => useNavigationStore.getState().setRerouting(val),
+  );
 }
 
 /**
@@ -151,16 +156,16 @@ export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
-    _navActivatedAtMs       = performance.now();
     _navStartLat            = null;
     _navStartLon            = null;
     _navigationStarted      = true;
     _arrivalLowSpeedStartMs = null;
     _arrivalDistanceBelow   = 0;
     _proximityAlertFired    = false;
-    console.log('[NAV_STARTED]', { ts: _navActivatedAtMs, status });
     // Alternatif rotalar ACTIVE modda gereksiz — CPU tasarrufu için temizle
     clearAltRoutes();
+    // Koridor önbellekleme: tünel/sinyal kesintisi öncesi veri hazırla
+    corridorSync.activate();
     // HUD güvencesi: offline/daemon modda steps boş gelebilir — sentinel enjekte et
     const { destination } = useNavigationStore.getState();
     if (destination) {
@@ -184,6 +189,7 @@ export function setNavStatus(status: NavStatus, errorMessage?: string): void {
  */
 export function stopNavigation(): void {
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
+  _unregisterReroutingCb?.(); _unregisterReroutingCb = null;
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
@@ -194,7 +200,6 @@ export function stopNavigation(): void {
   _lastRouteDistanceM     = Infinity;
   _lastGeoHash            = '';
   _lastClosestSegIdx      = -1;
-  _navActivatedAtMs       = 0;
   _navStartLat            = null;
   _navStartLon            = null;
   _navigationStarted      = false;
@@ -204,6 +209,7 @@ export function stopNavigation(): void {
   _lastSnappedLat         = null;
   _lastSnappedLon         = null;
   _lastOffRouteM          = Infinity;
+  corridorSync.stop();
 }
 
 /**
@@ -275,7 +281,6 @@ const PROXIMITY_ALERT_M         = 500;
 const ETA_TRAFFIC_HYSTERESIS_MS = 2_000;
 
 // Aktivasyon state — activateNavigation() set eder, stopNavigation() temizler
-let _navActivatedAtMs:      number        = 0;
 let _navStartLat:           number | null = null;
 let _navStartLon:           number | null = null;
 // navigationStarted: ACTIVE geçişi activateNavigation() üzerinden mi yapıldı?
@@ -306,9 +311,6 @@ export function updateNavigationProgress(
 
   // Progress tracking only meaningful while driving — PREVIEW/ROUTING have no live route yet
   if (state.status !== NavStatus.ACTIVE && state.status !== NavStatus.REROUTING) {
-    if (state.destination) {
-      console.log('[ARRIVAL_CHECK_SKIPPED]', { reason: 'not_active', status: state.status });
-    }
     return;
   }
 
@@ -371,9 +373,7 @@ export function updateNavigationProgress(
       && Number.isFinite(state.destination.latitude)
       && Number.isFinite(state.destination.longitude));
 
-    if (!_navigationStarted) {
-      console.log('[ARRIVAL_CHECK_SKIPPED]', { reason: 'not_started', status: state.status });
-    } else {
+    if (_navigationStarted) {
       // Hard-trigger: 5m + HARD_HYSTERESIS ardışık okuma (GPS jitter, yavaş kapanma)
       // Tek GPS spike'ı (1 tick) tetikleme yapmaz — tünel çıkışı koruması.
       const hardTrigger = distance < 5 && _arrivalDistanceBelow >= ARRIVAL_HARD_HYSTERESIS;
@@ -386,32 +386,17 @@ export function updateNavigationProgress(
         && movedFromStart >= ARRIVAL_MIN_MOVE_M
         && (hardTrigger || softTrigger);
 
-      console.log('[ARRIVAL_CHECK_ACTIVE]', {
-        status:            state.status,
-        hasValidDest,
-        hasValidGeometry,
-        distanceM:         Math.round(distance),
-        speedKmh:          Math.round(speedAtArrival * 10) / 10,
-        movedFromStartM:   Math.round(movedFromStart),
-        lowSpeedMs:        Math.round(lowSpeedMs),
-        belowCount:        _arrivalDistanceBelow,
-        hardTrigger,
-        softTrigger,
-        allowed,
-      });
-
       if (allowed) {
-        console.log('[ARRIVAL_TRIGGERED]', {
-          dest:       state.destination?.name,
-          movedM:     Math.round(movedFromStart),
-          distM:      Math.round(distance),
-          lowSpeedMs: Math.round(lowSpeedMs),
-          belowCount: _arrivalDistanceBelow,
-        });
         transitionToArrived();
         return;
       }
     }
+  }
+
+  // Koridor önbellekleme — rota geometrisi alındıkça motoru güncelle
+  if (routeGeometry && routeGeometry.length >= 2) {
+    const { speed: _cspd } = useUnifiedVehicleStore.getState();
+    corridorSync.onGeometryUpdate(routeGeometry, (_cspd ?? 0) * 3.6);
   }
 
   // Heading
@@ -658,8 +643,8 @@ function calculateHeading(
  * Kural: Kullanıcı navigasyon çizgisi üzerinde milimetrik sürüş deneyimi görmeli.
  */
 /** Görsel stabilite eşiği — bu mesafeye kadar ikon rotaya yapışık kalır.
- *  Reroute eşiği (REROUTE_THRESHOLD_M=35m) ile kasıtlı ayrıldı:
- *  20m içinde kullanıcı "yoldan çıktım" görmez; 35m'de reroute tetiklenir. */
+ *  Reroute eşiği (REROUTE_THRESHOLD_M=55m) ile kasıtlı ayrıldı:
+ *  20m içinde kullanıcı "yoldan çıktım" görmez; 55m'de reroute tetiklenir. */
 const SNAP_VISUAL_THRESHOLD_M = 20;
 
 export function getSnappedMarkerPosition(): { lat: number; lon: number } | null {

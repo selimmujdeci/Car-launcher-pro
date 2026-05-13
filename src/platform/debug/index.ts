@@ -11,10 +11,11 @@ export type {
   FallbackStatus,
   LiveSignal,
   CanExtras,
+  CacheStats,
 } from './debugStore';
 
 import { useDebugStore, _incCan, _incObd, _incGps } from './debugStore';
-import type { SignalSource, CanExtras } from './debugStore';
+import type { SignalSource, CanExtras, CacheStats } from './debugStore';
 
 // ── CAN raw frame push ──────────────────────────────────────────────────────
 export function dbgPushCanRaw(signals: Record<string, unknown>): void {
@@ -120,6 +121,12 @@ export function dbgIncrementDropped(source: 'CAN' | 'OBD' | 'GPS'): void {
     source === 'CAN' ? 'canDropped' : source === 'OBD' ? 'obdDropped' : 'gpsDropped';
   const cur = useDebugStore.getState().perf[key];
   useDebugStore.getState().updatePerf({ [key]: cur + 1 });
+}
+
+// ── Tile cache stats ────────────────────────────────────────────────────────
+export function dbgUpdateCacheStats(stats: CacheStats): void {
+  if (!DEBUG_ENABLED) return;
+  useDebugStore.getState().updateCacheStats(stats);
 }
 
 // ── Generic error log ───────────────────────────────────────────────────────

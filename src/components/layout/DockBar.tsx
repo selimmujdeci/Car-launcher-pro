@@ -1,12 +1,13 @@
-import { memo, useState, useRef, useEffect } from 'react';
+import { memo, useRef, useEffect } from 'react';
 import {
   LayoutGrid, SlidersHorizontal, Camera, Route, ShieldAlert,
   Bell, Music2, Phone, Cloud, Shield, Tv2, AlertTriangle,
-  Wrench, Zap, SplitSquareHorizontal, ChevronUp, ChevronDown, Wind,
+  Wrench, Zap, SplitSquareHorizontal, Wind,
 } from 'lucide-react';
 import { useNotificationState } from '../../platform/notificationService';
+import { openDrawer } from '../../platform/drawerBus';
+import { openMusicDrawer } from '../../platform/mediaUi';
 import type { AppItem } from '../../data/apps';
-import type { useSmartEngine } from '../../platform/smartEngine';
 
 export type DrawerType =
   | 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc'
@@ -14,87 +15,179 @@ export type DrawerType =
   | 'traffic' | 'music' | 'phone' | 'vehicle-reminder' | 'climate';
 
 interface Props {
-  smart: ReturnType<typeof useSmartEngine>;
   appMap: Record<string, AppItem>;
+  dockIds: string[];
   onLaunch: (id: string) => void;
-  onOpenDrawer: (d: DrawerType) => void;
   onOpenApps: () => void;
   onOpenSettings: () => void;
-  onOpenSplit: () => void;
-  onOpenRearCam: () => void;
+  onOpenSplit?: () => void;
+  onOpenRearCam?: () => void;
 }
 
 const SKIP_IDS = new Set(['phone', 'spotify', 'music', 'contacts']);
 
-function T({ fn, label, color, icon, badge }: {
-  fn: () => void; label: string; color: string;
-  icon: React.ReactNode; badge?: number;
+/* ── Dock item ─────────────────────────────────────────────── */
+function Btn({ fn, label, color, icon, badge }: {
+  fn: () => void;
+  label: string;
+  color: string;
+  icon: React.ReactNode;
+  badge?: number;
 }) {
   return (
-    <button
-      onClick={fn}
-      onPointerDown={e => (e.currentTarget.style.transform = 'scale(0.95)')}
-      onPointerUp={e => (e.currentTarget.style.transform = '')}
-      onPointerCancel={e => (e.currentTarget.style.transform = '')}
-      className="relative flex flex-col items-center justify-center gap-[5px] flex-shrink-0 bg-transparent border-0 cursor-pointer rounded-[var(--radius-tile,0)] transition-[background,transform] duration-[150ms,120ms] ease-out hover:bg-[var(--tile-hover-bg,rgba(255,255,255,0.06))] active:opacity-80"
+    <div
+      data-dock-item
       style={{
-        width: 'var(--lp-tile-w, 64px)',
-        height: 'var(--lp-dock-h, 68px)',
+        flexShrink: 0,
+        scrollSnapAlign: 'center',
+        willChange: 'transform',
+        display: 'flex',
       }}
     >
-      <div
-        className="flex items-center justify-center"
+      <button
+        onClick={fn}
+        onPointerDown={e => { e.currentTarget.style.filter = 'brightness(1.4)'; }}
+        onPointerUp={e => { e.currentTarget.style.filter = ''; }}
+        onPointerCancel={e => { e.currentTarget.style.filter = ''; }}
         style={{
-          color,
-          width: 'var(--lp-dock-icon, 24px)',
-          height: 'var(--lp-dock-icon, 24px)',
-          filter: 'var(--btn-glow, none)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 'var(--dock-gap, 8px)',
+          width: 'var(--dock-tile-w, 64px)',
+          height: 'var(--dock-h, 72px)',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          borderRadius: 'var(--radius-tile, 0)',
+          position: 'relative',
+          padding: 0,
+          transition: 'filter 80ms ease-out',
         }}
       >
-        {icon}
-      </div>
-      <span
-        className="uppercase leading-none text-[length:var(--lp-font-xs,10px)] font-[number:var(--font-weight-ui,700)] tracking-[var(--letter-spacing-ui,0.05em)] text-white/65"
-        style={{ fontFamily: 'var(--font-ui, system-ui)' }}
-      >
-        {label}
-      </span>
-      {!!badge && (
-        <span className="absolute top-2 right-2.5 min-w-4 h-4 bg-[var(--accent,#3b82f6)] text-white text-[9px] font-black rounded-lg flex items-center justify-center px-[3px]">
-          {badge > 9 ? '9+' : badge}
+        <div style={{
+          color,
+          width: 'var(--dock-icon, 28px)',
+          height: 'var(--dock-icon, 28px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          filter: 'var(--btn-glow, none)',
+          flexShrink: 0,
+        }}>
+          {icon}
+        </div>
+        <span style={{
+          fontSize: 'var(--dock-font, 11px)',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: 'var(--letter-spacing-ui, 0.05em)',
+          color: 'rgba(255,255,255,0.60)',
+          fontFamily: 'var(--font-ui, system-ui)',
+          lineHeight: 1,
+          whiteSpace: 'nowrap',
+        }}>
+          {label}
         </span>
-      )}
-    </button>
+        {!!badge && (
+          <span style={{
+            position: 'absolute',
+            top: 8,
+            right: 6,
+            minWidth: 16,
+            height: 16,
+            background: 'var(--accent, #3b82f6)',
+            color: '#fff',
+            fontSize: 9,
+            fontWeight: 900,
+            borderRadius: 8,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 3px',
+          }}>
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
+      </button>
+    </div>
   );
 }
 
-function D() {
+/* ── Divider ───────────────────────────────────────────────── */
+function Div() {
   return (
-    <div className="flex-shrink-0 w-px h-8 mx-0.5 bg-[var(--divider-color,rgba(255,255,255,0.13))]" />
+    <div style={{
+      flexShrink: 0,
+      width: 1,
+      height: 28,
+      margin: '0 4px',
+      alignSelf: 'center',
+      background: 'var(--divider-color, rgba(255,255,255,0.13))',
+    }} />
   );
 }
 
+/* ── DockBar ───────────────────────────────────────────────── */
 export const DockBar = memo(function DockBar({
-  smart, appMap, onLaunch, onOpenDrawer, onOpenApps, onOpenSettings, onOpenSplit, onOpenRearCam,
+  appMap, dockIds, onLaunch, onOpenApps, onOpenSettings, onOpenSplit, onOpenRearCam,
 }: Props) {
   const n = useNotificationState();
-  const [expanded, setExpanded] = useState(false);
-  const dockRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const dockRef   = useRef<HTMLDivElement>(null);
 
-  // Dynamically set --lp-dock-h so spacer always matches actual dock height
+  /* Fisheye scroll effect — throttled via rAF */
   useEffect(() => {
-    if (!dockRef.current) return;
-    const update = () => {
-      const h = dockRef.current?.offsetHeight ?? 68;
-      document.documentElement.style.setProperty('--lp-dock-h', `${h}px`);
+    const el = scrollRef.current;
+    if (!el) return;
+
+    let ticking = false;
+
+    const applyFisheye = () => {
+      const containerCenter = el.scrollLeft + el.clientWidth / 2;
+      const maxDist = el.clientWidth / 2;
+      const items = el.querySelectorAll<HTMLElement>('[data-dock-item]');
+      items.forEach(item => {
+        const center = item.offsetLeft + item.offsetWidth / 2;
+        const dist   = Math.abs(containerCenter - center);
+        const ratio  = Math.min(dist / (maxDist || 1), 1);
+        const scale  = (1.15 - ratio * 0.30).toFixed(3);
+        const opacity = Math.max(0.40, 1 - ratio * 0.60).toFixed(3);
+        item.style.transform = `translate3d(0,0,0) scale(${scale})`;
+        item.style.opacity   = opacity;
+      });
+      ticking = false;
     };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(dockRef.current);
+
+    const onScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(applyFisheye);
+        ticking = true;
+      }
+    };
+
+    applyFisheye();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', applyFisheye, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', applyFisheye);
+    };
+  }, []);
+
+  /* Sync --lp-dock-h so content spacer stays accurate */
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--lp-dock-h', `${el.offsetHeight}px`);
+    });
+    ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const apps = smart.dockIds
+  const dynamicApps = dockIds
     .filter(id => !SKIP_IDS.has(id))
     .slice(0, 2)
     .map(id => appMap[id])
@@ -102,122 +195,94 @@ export const DockBar = memo(function DockBar({
 
   const c1  = 'var(--accent, #60a5fa)';
   const c2  = 'var(--icon-color-2, #94a3b8)';
-  const nav = 'var(--accent, #60a5fa)';
   const med = 'var(--icon-color-media, #34d399)';
 
   return (
-    <>
-      {/* İkincil satır — "Daha Fazla" açıkken görünür */}
+    <div
+      ref={dockRef}
+      data-dock="main"
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        background: 'linear-gradient(to bottom, transparent 0%, var(--dock-bg, rgba(6,8,16,0.94)) 28%)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        borderTop: 'var(--dock-border-top, 1px solid rgba(255,255,255,0.10))',
+        paddingTop: 4,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
+    >
+      {/* Accent shimmer line */}
+      <div aria-hidden style={{
+        position: 'absolute',
+        top: 0,
+        left: '8%',
+        right: '8%',
+        height: 1,
+        opacity: 0.45,
+        pointerEvents: 'none',
+        background: 'linear-gradient(90deg, transparent, var(--accent, rgba(255,255,255,0.14)), transparent)',
+      }} />
+
+      {/* Scrollable items row */}
       <div
-        className="fixed left-0 right-0 z-[99] flex items-center justify-center gap-1 overflow-x-auto scrollbar-none transition-[bottom,opacity] duration-200 ease-out"
+        ref={scrollRef}
         style={{
-          bottom: expanded ? 'calc(var(--lp-dock-h, 68px) + env(safe-area-inset-bottom, 0px))' : '-80px',
-          opacity: expanded ? 1 : 0,
-          pointerEvents: expanded ? 'auto' : 'none',
-          background: 'var(--dock-bg, rgba(6,8,16,0.92))',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          paddingLeft: '8px',
-          paddingRight: '8px',
+          display: 'flex',
+          flexWrap: 'nowrap',
+          alignItems: 'center',
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          scrollSnapType: 'x mandatory',
+          msOverflowStyle: 'none',
+          scrollbarWidth: 'none',
+          height: 'var(--dock-h, 72px)',
+          paddingLeft: 8,
+          paddingRight: 8,
         }}
       >
-        <T fn={() => { onOpenDrawer('climate');      setExpanded(false); }} label="Klima"   color="var(--accent, #60a5fa)"       icon={<Wind size={22} />} />
-        <T fn={() => { onOpenDrawer('weather');      setExpanded(false); }} label="Hava"    color="var(--icon-color-1, #38bdf8)" icon={<Cloud size={22} />} />
-        <T fn={() => { onOpenDrawer('traffic');      setExpanded(false); }} label="Trafik"  color="var(--icon-color-2, #fb923c)" icon={<AlertTriangle size={22} />} />
-        <T fn={() => { onOpenDrawer('dashcam');      setExpanded(false); }} label="Dashcam" color="var(--accent-red, #f87171)"   icon={<Camera size={22} />} />
-        <T fn={() => { onOpenDrawer('triplog');      setExpanded(false); }} label="Seyir"   color={med}                          icon={<Route size={22} />} />
-        <D />
-        <T fn={() => { onOpenDrawer('dtc');              setExpanded(false); }} label="Arıza"    color="var(--icon-color-2, #fbbf24)" icon={<ShieldAlert size={22} />} />
-        <T fn={() => { onOpenDrawer('vehicle-reminder'); setExpanded(false); }} label="Bakım"    color={c2}                           icon={<Wrench size={22} />} />
-        <T fn={() => { onOpenDrawer('security');         setExpanded(false); }} label="Güvenlik" color={med}                          icon={<Shield size={22} />} />
-        <T fn={() => { onOpenDrawer('entertainment');    setExpanded(false); }} label="Eğlence"  color={c1}                           icon={<Tv2 size={22} />} />
-        <T fn={() => { onOpenDrawer('sport');            setExpanded(false); }} label="Sport"    color="var(--accent-red, #f87171)"   icon={<Zap size={22} />} />
-        <D />
-        <T fn={() => { onOpenRearCam(); setExpanded(false); }} label="Kamera" color={c2} icon={<Camera size={22} />} />
-        <T fn={() => { onOpenSplit();   setExpanded(false); }} label="Split"  color={c2} icon={<SplitSquareHorizontal size={22} />} />
-      </div>
-
-      {/* Ana dock */}
-      <div
-        ref={dockRef}
-        data-dock="main"
-        className="fixed bottom-0 left-0 right-0 z-[100] pt-3 transition-[background] duration-400 ease-out"
-        style={{
-          background: 'linear-gradient(to bottom, transparent 0%, var(--dock-bg, rgba(6,8,16,0.92)) 28%)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        }}
-      >
-        <div
-          aria-hidden
-          className="absolute top-3 left-[8%] right-[8%] h-px opacity-50 pointer-events-none"
-          style={{ background: 'linear-gradient(90deg, transparent, var(--accent, rgba(255,255,255,0.12)), transparent)' }}
-        />
-
-        <div
-          className="flex items-center justify-center overflow-x-auto overflow-y-hidden px-1 scrollbar-none"
-          style={{ height: 'var(--lp-dock-h, 68px)' }}
-        >
-          {apps.map(a => (
-            <T
-              key={a.id}
-              fn={() => onLaunch(a.id)}
-              label={a.name}
-              color={c1}
-              icon={<span className="text-[22px]">{a.icon}</span>}
-            />
-          ))}
-          {apps.length > 0 && <D />}
-
-          <T fn={() => onOpenDrawer('phone')} label="Telefon" color={nav} icon={<Phone size={24} />} />
-          <T fn={() => onOpenDrawer('music')} label="Müzik"   color={med} icon={<Music2 size={24} />} />
-          <T
-            fn={() => onOpenDrawer('notifications')}
-            label="Bildirim"
-            color={n.unreadCount > 0 ? c1 : c2}
-            icon={<Bell size={24} />}
-            badge={n.unreadCount}
+        {dynamicApps.map(a => (
+          <Btn
+            key={a.id}
+            fn={() => onLaunch(a.id)}
+            label={a.name}
+            color={c1}
+            icon={<span style={{ fontSize: 'var(--dock-icon, 28px)', lineHeight: 1 }}>{a.icon}</span>}
           />
-          <D />
+        ))}
+        {dynamicApps.length > 0 && <Div />}
 
-          <T fn={onOpenApps}     label="Menü"    color={c1} icon={<LayoutGrid size={24} />} />
-          <T fn={onOpenSettings} label="Ayarlar" color={c2} icon={<SlidersHorizontal size={24} />} />
-          <D />
-
-          {/* Daha Fazla / Daha Az */}
-          <button
-            onClick={() => setExpanded(e => !e)}
-            onPointerDown={e => (e.currentTarget.style.transform = 'scale(0.95)')}
-            onPointerUp={e => (e.currentTarget.style.transform = '')}
-            onPointerCancel={e => (e.currentTarget.style.transform = '')}
-            className="relative flex flex-col items-center justify-center gap-[5px] flex-shrink-0 bg-transparent border-0 cursor-pointer rounded-[var(--radius-tile,0)] transition-all duration-150 ease-out hover:bg-[var(--tile-hover-bg,rgba(255,255,255,0.06))] active:opacity-80"
-            style={{
-              width: 'var(--lp-tile-w, 64px)',
-              height: 'var(--lp-dock-h, 68px)',
-            }}
-          >
-            <div
-              className="flex items-center justify-center transition-transform duration-200"
-              style={{
-                color: c2,
-                width: 'var(--lp-dock-icon, 24px)',
-                height: 'var(--lp-dock-icon, 24px)',
-                transform: expanded ? 'rotate(180deg)' : 'none',
-              }}
-            >
-              {expanded ? <ChevronDown size={24} /> : <ChevronUp size={24} />}
-            </div>
-            <span
-              className="uppercase leading-none text-[length:var(--lp-font-xs,10px)] font-[number:var(--font-weight-ui,700)] tracking-[var(--letter-spacing-ui,0.05em)] text-white/65"
-              style={{ fontFamily: 'var(--font-ui, system-ui)' }}
-            >
-              {expanded ? 'Kapat' : 'Daha'}
-            </span>
-          </button>
-        </div>
+        <Btn fn={() => openDrawer('phone')}         label="Telefon"  color={c1}  icon={<Phone           size={24} />} />
+        <Btn fn={() => openMusicDrawer()}            label="Müzik"    color={med} icon={<Music2          size={24} />} />
+        <Btn fn={() => openDrawer('notifications')} label="Bildirim" color={n.unreadCount > 0 ? c1 : c2} icon={<Bell size={24} />} badge={n.unreadCount} />
+        <Div />
+        <Btn fn={onOpenApps}     label="Menü"    color={c1} icon={<LayoutGrid      size={24} />} />
+        <Btn fn={onOpenSettings} label="Ayarlar" color={c2} icon={<SlidersHorizontal size={24} />} />
+        <Div />
+        <Btn fn={() => openDrawer('climate')}           label="Klima"    color={c1}             icon={<Wind        size={22} />} />
+        <Btn fn={() => openDrawer('weather')}           label="Hava"     color="#38bdf8"         icon={<Cloud       size={22} />} />
+        <Btn fn={() => openDrawer('traffic')}           label="Trafik"   color="#fb923c"         icon={<AlertTriangle size={22} />} />
+        <Btn fn={() => openDrawer('dashcam')}           label="Dashcam"  color="var(--accent-red, #f87171)" icon={<Camera size={22} />} />
+        <Btn fn={() => openDrawer('triplog')}           label="Seyir"    color={med}             icon={<Route       size={22} />} />
+        <Div />
+        <Btn fn={() => openDrawer('dtc')}               label="Arıza"    color="#fbbf24"         icon={<ShieldAlert size={22} />} />
+        <Btn fn={() => openDrawer('vehicle-reminder')}  label="Bakım"    color={c2}              icon={<Wrench      size={22} />} />
+        <Btn fn={() => openDrawer('security')}          label="Güvenlik" color={med}             icon={<Shield      size={22} />} />
+        <Btn fn={() => openDrawer('entertainment')}     label="Eğlence"  color={c1}              icon={<Tv2         size={22} />} />
+        <Btn fn={() => openDrawer('sport')}             label="Sport"    color="var(--accent-red, #f87171)" icon={<Zap size={22} />} />
+        {onOpenRearCam && (
+          <>
+            <Div />
+            <Btn fn={onOpenRearCam} label="Kamera" color={c2} icon={<Camera size={22} />} />
+          </>
+        )}
+        {onOpenSplit && (
+          <Btn fn={onOpenSplit} label="Split" color={c2} icon={<SplitSquareHorizontal size={22} />} />
+        )}
       </div>
-    </>
+    </div>
   );
 });

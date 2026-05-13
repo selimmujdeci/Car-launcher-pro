@@ -130,9 +130,16 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
     }
     _identity = { vehicleId: data.vehicle_id, deviceId };
 
+    const rawCode = (data.linking_code ?? '').trim();
+    const hasCode = rawCode.length === 6;
     return {
-      code:      data.linking_code ?? _mockCode().code,
-      expiresAt: data.expires_at ? new Date(data.expires_at).getTime() : Date.now() + 60_000,
+      code:      hasCode ? rawCode : '',
+      expiresAt:
+        hasCode && data.expires_at
+          ? new Date(data.expires_at).getTime()
+          : hasCode
+            ? Date.now() + 60_000
+            : 0,
     };
   } catch {
     // Sunucu ulaşılamıyor veya RPC hatası → çevrimdışı mod, mock kod göster

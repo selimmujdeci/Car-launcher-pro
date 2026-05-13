@@ -1,0 +1,110 @@
+{
+  "01-01": {
+    "kisaAd": "MIL ve izleme durumu",
+    "insancilAciklama": "Check Engine ışığının yanıp yanmadığını ve motorun kendi kendini test edip etmediğini gösterir; tek başına bir parça arızası demek değildir.",
+    "birim": "durum / bit maskesi",
+    "teknikKod": "PID 01"
+  },
+  "01-04": {
+    "kisaAd": "Motor yükü",
+    "insancilAciklama": "Motorun ne kadar zorlandığını gösteren yüzde; gaz kelebeği ve hızlanma ile artar, rölantide düşüktür.",
+    "birim": "%",
+    "teknikKod": "PID 04"
+  },
+  "01-05": {
+    "kisaAd": "Soğutma sıcaklığı",
+    "insancilAciklama": "Motor soğutma suyunun sıcaklığı; termostat veya soğutma sistemi sorunlarında beklenmedik şekilde düşük veya çok yüksek kalabilir.",
+    "birim": "°C",
+    "teknikKod": "PID 05"
+  },
+  "01-0A": {
+    "kisaAd": "Yakıt basıncı",
+    "insancilAciklama": "Yakıt hattındaki basınç; düşükse motor zayıf kalabilir veya çalışmayabilir; genelde yakıt pompası veya filtre ile ilişkilidir.",
+    "birim": "kPa",
+    "teknikKod": "PID 0A"
+  },
+  "01-0B": {
+    "kisaAd": "Manifold mutlak basıncı",
+    "insancilAciklama": "Emme manifoldundaki basınç; turbo dizel araçlarda yükleme ile birlikte değişir; sensör veya hortum kaçağı anomalileri gösterebilir.",
+    "birim": "kPa",
+    "teknikKod": "PID 0B"
+  },
+  "01-0C": {
+    "kisaAd": "Motor devri",
+    "insancilAciklama": "Krank milinin dakikadaki dönüş sayısı; vites ve gaz pozisyonuna göre değişir; ani sıfırlanma veya sapma sensör ile ilgili olabilir.",
+    "birim": "dev/dk",
+    "teknikKod": "PID 0C"
+  },
+  "01-0D": {
+    "kisaAd": "Araç hızı",
+    "insancilAciklama": "OBD üzerinden okunan tekerlek tabanlı hız bilgisi; gösterge ile küçük farklar normal kabul edilir.",
+    "birim": "km/h",
+    "teknikKod": "PID 0D"
+  },
+  "01-0F": {
+    "kisaAd": "Emme havası sıcaklığı",
+    "insancilAciklama": "Hava filtresi sonrası havanın sıcaklığı; MAF/IAT sensörleri ve emme kaçakları teşhiste kullanılır.",
+    "birim": "°C",
+    "teknikKod": "PID 0F"
+  },
+  "01-10": {
+    "kisaAd": "MAF hava akışı",
+    "insancilAciklama": "Saniyede motora giren hava kütlesi; yakıt karışımı hesapları için kritik; kirli sensör veya kaçak değeri bozabilir.",
+    "birim": "g/s",
+    "teknikKod": "PID 10"
+  },
+  "01-11": {
+    "kisaAd": "Gaz kelebeği konumu",
+    "insancilAciklama": "Gaz pedalına göre kelebeğin açık kalma oranı; elektronik gaz gövdelerinde sensör veya öğrenilmiş değer sorunları görülebilir.",
+    "birim": "%",
+    "teknikKod": "PID 11"
+  },
+  "01-2C": {
+    "kisaAd": "EGR komutu",
+    "insancilAciklama": "EGR valfine verilen komut yüzdesi; emisyon ve dolgu kontrolü içindir; tıkanık EGR motor titremesine yol açabilir.",
+    "birim": "%",
+    "teknikKod": "PID 2C"
+  },
+  "01-2F": {
+    "kisaAd": "Yakıt deposu seviyesi",
+    "insancilAciklama": "Depodaki yakıtın doluluk yüzdesi; gösterge ile tam örtüşmeyebilir; ani sıçramalar sensör veya iletkenlik kaynaklı olabilir.",
+    "birim": "%",
+    "teknikKod": "PID 2F"
+  },
+  "01-31": {
+    "kisaAd": "MIL sonrası mesafe",
+    "insancilAciklama": "Arıza lambası yandıktan sonra aracın kaç kilometre yaptığını gösterir; servis ve tekrar okuma öncesi bağlam sağlar.",
+    "birim": "km",
+    "teknikKod": "PID 31"
+  },
+  "01-33": {
+    "kisaAd": "Barometrik basınç",
+    "insancilAciklama": "Deniz seviyesine göre ortam hava basıncı; yükseklik ve hava yoğunluğu için referans; motor yükü hesaplarında kullanılır.",
+    "birim": "kPa",
+    "teknikKod": "PID 33"
+  },
+  "01-42": {
+    "kisaAd": "Kontrol modülü voltajı",
+    "insancilAciklama": "ECU beslemesine yakın akü/şarj voltajı; düşük voltaj sensör ve iletişim hatalarına eşlik edebilir.",
+    "birim": "V",
+    "teknikKod": "PID 42"
+  },
+  "01-46": {
+    "kisaAd": "Oksijen sensörü voltajı",
+    "insancilAciklama": "Banka 1 sensör 1 için lambda sensörü voltajı; yakıt karışımının zengin/ zayıf eğilimini yansıtır; sensör yaşlandıkça yavaşlayabilir.",
+    "birim": "V",
+    "teknikKod": "PID 46"
+  },
+  "22-F1-90": {
+    "kisaAd": "Araç kimlik (VIN) veri tanımlayıcısı",
+    "insancilAciklama": "OBD-II Mode 22 / UDS ReadDataByIdentifier ile okunan standart VIN bloğu; ECU tedarikçisine göre birden fazla istekte parçalı ASCII dönebilir.",
+    "birim": "ASCII / parça",
+    "teknikKod": "DID F190"
+  },
+  "22-F1-87": {
+    "kisaAd": "ECU yazılım numarası",
+    "insancilAciklama": "Mode 22 ile okunan yazılım parça numarası veya sürüm dizesi; teşhis ve kampanya eşlemesi için kullanılır; üreticiye göre format değişir.",
+    "birim": "metin",
+    "teknikKod": "DID F187"
+  }
+}

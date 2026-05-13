@@ -1,16 +1,11 @@
 import { memo, useState, lazy, Suspense, useEffect } from 'react';
+import { DockBar } from '../layout/DockBar';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
   Gauge, Thermometer, Fuel, Settings, Star,
-  Phone, Music2, Bell, LayoutGrid, SlidersHorizontal,
-  ChevronUp, ChevronDown, Cloud, AlertTriangle, Camera,
-  Route, ShieldAlert, Wrench, Shield, Tv2,
 } from 'lucide-react';
-import { openMusicDrawer } from '../../platform/mediaUi';
-import { openDrawer } from '../../platform/drawerBus';
-import { useNotificationState } from '../../platform/notificationService';
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
@@ -52,6 +47,10 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
   const { settings } = useStore();
   const { time, date } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
+  const obd = useOBDState();
+  const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
+    ? Math.round((obd.fuelLevel / 100) * 750)
+    : null;
 
   return (
     <div className="flex items-center justify-between px-6 flex-shrink-0"
@@ -80,7 +79,7 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
 
       {/* Orta: Durum — COMPACT'ta gizlenir */}
       <div data-mbux-status data-header-center className="flex items-center gap-5">
-        <MStatus label="MENZIL" value="450 km" />
+        <MStatus label="MENZIL" value={fuelRange != null ? `${fuelRange} km` : '— km'} />
         <div className="w-px h-5" style={{ background: M_BORDER }} />
         <MStatus label="ENERJI" value={device.ready ? `${device.battery}%` : '—'} />
         <div className="w-px h-5" style={{ background: M_BORDER }} />
@@ -370,86 +369,6 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
   );
 });
 
-/* ─── MERCEDES DOCK ───────────────────────────────────────────── */
-const MercedesDock = memo(function MercedesDock({ appMap, dockIds, onLaunch, onOpenApps, onOpenSettings }: {
-  appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void;
-  onOpenApps: () => void; onOpenSettings: () => void;
-}) {
-  const { unreadCount } = useNotificationState();
-  const [moreOpen, setMoreOpen] = useState(false);
-  const BTN_W = 90, BTN_H = 90, BTN_R = 20, ICON = 26;
-
-  function MDBtn({ fn, label, color, children, badge }: {
-    fn: () => void; label: string; color: string; children: React.ReactNode; badge?: number;
-  }) {
-    return (
-      <button onClick={fn}
-        className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all relative"
-        style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.03)', border: `1px solid ${M_BORDER}` }}>
-        <div style={{ color, width: ICON, height: ICON, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {children}
-        </div>
-        <span className="font-medium uppercase leading-none" style={{ fontSize: 9, color: M_DIM, letterSpacing: '0.2em' }}>{label}</span>
-        {!!badge && (
-          <span className="absolute top-1.5 right-1.5 min-w-4 h-4 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1"
-            style={{ background: M_GOLD }}>
-            {badge > 9 ? '9+' : badge}
-          </span>
-        )}
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex-shrink-0"
-      style={{ background: 'rgba(4,4,4,0.99)', borderTop: `1px solid ${M_BORDER}`, boxShadow: `0 -1px 0 rgba(200,169,110,0.07)` }}>
-      {moreOpen && (
-        <div className="flex items-center justify-center gap-3 px-4 py-2 overflow-x-auto no-scrollbar"
-          style={{ borderBottom: `1px solid ${M_BORDER}` }}>
-          {([
-            { label: 'Hava',     color: '#38bdf8', icon: <Cloud    size={20} />, fn: () => { openDrawer('weather');      setMoreOpen(false); } },
-            { label: 'Trafik',   color: '#fb923c', icon: <AlertTriangle size={20} />, fn: () => { openDrawer('traffic'); setMoreOpen(false); } },
-            { label: 'Dashcam',  color: '#f87171', icon: <Camera   size={20} />, fn: () => { openDrawer('dashcam');      setMoreOpen(false); } },
-            { label: 'Seyir',    color: '#34d399', icon: <Route    size={20} />, fn: () => { openDrawer('triplog');      setMoreOpen(false); } },
-            { label: 'Arıza',    color: '#fbbf24', icon: <ShieldAlert size={20} />, fn: () => { openDrawer('dtc');       setMoreOpen(false); } },
-            { label: 'Bakım',    color: M_DIM,     icon: <Wrench   size={20} />, fn: () => { openDrawer('vehicle-reminder'); setMoreOpen(false); } },
-            { label: 'Güvenlik', color: '#34d399', icon: <Shield   size={20} />, fn: () => { openDrawer('security');    setMoreOpen(false); } },
-            { label: 'Eğlence',  color: M_GOLD,    icon: <Tv2     size={20} />, fn: () => { openDrawer('entertainment'); setMoreOpen(false); } },
-          ] as const).map((item, i) => (
-            <button key={i} onClick={item.fn}
-              className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-90 transition-all px-3 py-2 rounded-2xl"
-              style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${M_BORDER}` }}>
-              <div style={{ color: item.color }}>{item.icon}</div>
-              <span className="font-medium uppercase" style={{ fontSize: 9, color: M_DIM, letterSpacing: '0.15em' }}>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center justify-center gap-3 overflow-x-auto no-scrollbar px-4 py-3">
-        {dockIds.slice(0, 2).map(id => {
-          const app = appMap[id] ?? APP_MAP[id];
-          if (!app) return null;
-          return (
-            <MDBtn key={id} fn={() => onLaunch(id)} label={app.name} color={M_GOLD}>
-              <span style={{ fontSize: ICON }}>{app.icon}</span>
-            </MDBtn>
-          );
-        })}
-        <MDBtn fn={() => openDrawer('phone')}         label="Telefon"  color={M_GOLD}><Phone           size={ICON} /></MDBtn>
-        <MDBtn fn={() => openMusicDrawer()}           label="Müzik"    color={M_GOLD}><Music2          size={ICON} /></MDBtn>
-        <MDBtn fn={() => openDrawer('notifications')} label="Bildirim" color={M_GOLD} badge={unreadCount}><Bell size={ICON} /></MDBtn>
-        <MDBtn fn={onOpenApps}                        label="Menü"     color={M_GOLD}><LayoutGrid      size={ICON} /></MDBtn>
-        <MDBtn fn={onOpenSettings}                    label="Ayarlar"  color={M_DIM}><SlidersHorizontal size={ICON} /></MDBtn>
-        <button onClick={() => setMoreOpen(o => !o)}
-          className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
-          style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.02)', border: `1px solid ${M_BORDER}` }}>
-          {moreOpen ? <ChevronDown size={ICON} style={{ color: M_DIM }} /> : <ChevronUp size={ICON} style={{ color: M_DIM }} />}
-          <span className="font-medium uppercase" style={{ fontSize: 9, color: M_DIM, letterSpacing: '0.2em' }}>{moreOpen ? 'Kapat' : 'Daha'}</span>
-        </button>
-      </div>
-    </div>
-  );
-});
 
 /* ─── MERCEDES LAYOUT ─────────────────────────────────────────── */
 export const MercedesLayout = memo(function MercedesLayout({
@@ -485,7 +404,8 @@ export const MercedesLayout = memo(function MercedesLayout({
           </div>
         )}
 
-        <MercedesDock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

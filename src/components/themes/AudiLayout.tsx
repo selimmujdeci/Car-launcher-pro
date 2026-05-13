@@ -1,4 +1,5 @@
 import { memo, useState, lazy, Suspense, useEffect } from 'react';
+import { DockBar } from '../layout/DockBar';
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
   Gauge, Thermometer, Fuel, Settings, Navigation2, Box, Mic,
@@ -14,6 +15,7 @@ import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { useRouteState } from '../../platform/routingService';
 import { APP_MAP, type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -49,6 +51,10 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
   const { settings } = useStore();
   const { time, date } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
+  const obd = useOBDState();
+  const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
+    ? Math.round((obd.fuelLevel / 100) * 750)
+    : null;
 
   return (
     <div className="flex items-center justify-between px-6 flex-shrink-0"
@@ -81,7 +87,7 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
 
       {/* Orta: Araç verisi — COMPACT'ta gizlenir */}
       <div data-header-center className="flex items-center">
-        <AStatus label="MENZIL" value="380 km" />
+        <AStatus label="MENZIL" value={fuelRange != null ? `${fuelRange} km` : '— km'} />
         <div className="w-px h-5 mx-3" style={{ background: A_BORDER }} />
         <AStatus label="BATARYA" value={device.ready ? `${device.battery}%` : '—'} />
         <div className="w-px h-5 mx-3" style={{ background: A_BORDER }} />
@@ -261,6 +267,11 @@ function ADataCell({ Icon, label, value, warn }: { Icon: typeof Gauge; label: st
 
 /* ─── AUDI MAP ────────────────────────────────────────────────── */
 const AudiMap = memo(function AudiMap({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
+  const route = useRouteState();
+  const distKm = route.totalDistanceMeters > 0
+    ? `${Math.round(route.totalDistanceMeters / 1000)} km`
+    : '--';
+
   return (
     <div className="flex flex-col h-full overflow-hidden"
       style={{ background: A_CARD, border: `1px solid ${A_BORDER}`, borderRadius: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
@@ -284,7 +295,7 @@ const AudiMap = memo(function AudiMap({ onOpenMap, fullMapOpen }: { onOpenMap: (
         <div className="rounded-xl px-3 py-2.5 text-center"
           style={{ background: 'rgba(204,0,0,0.08)', border: `1px solid rgba(204,0,0,0.18)` }}>
           <div className="font-light" style={{ fontSize: 9, color: A_DIM, letterSpacing: '0.1em' }}>MESAFE</div>
-          <div className="font-semibold tabular-nums mt-0.5" style={{ fontSize: 13, color: A_TEXT }}>128 km</div>
+          <div className="font-semibold tabular-nums mt-0.5" style={{ fontSize: 13, color: A_TEXT }}>{distKm}</div>
         </div>
       </div>
     </div>
@@ -369,25 +380,6 @@ const AudiSide = memo(function AudiSide({ appMap, onLaunch }: { appMap: Record<s
   );
 });
 
-/* ─── AUDI DOCK ───────────────────────────────────────────────── */
-const AudiDock = memo(function AudiDock({ appMap, dockIds, onLaunch }: { appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void }) {
-  const apps = dockIds.slice(0, 12).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
-  return (
-    <div className="flex-shrink-0"
-      style={{ background: 'rgba(8,8,8,0.99)', borderTop: `1px solid ${A_BORDER}`, boxShadow: `0 -1px 0 rgba(204,0,0,0.12)` }}>
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
-        {apps.map(({ id, app }) => (
-          <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-1.5 flex-shrink-0 px-3 py-2.5 rounded-xl active:scale-90 transition-all"
-            style={{ minWidth: 'var(--lp-tile-w, 56px)' }}>
-            <span className="text-xl leading-none">{app!.icon}</span>
-            <span className="font-medium truncate w-full text-center" style={{ fontSize: 10, color: A_DIM }}>{app!.name}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-});
 
 /* ─── AUDI LAYOUT ─────────────────────────────────────────────── */
 export const AudiLayout = memo(function AudiLayout({
@@ -422,7 +414,8 @@ export const AudiLayout = memo(function AudiLayout({
         </div>
       )}
 
-      <AudiDock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
+      <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+      <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
     </div>
   );
 });

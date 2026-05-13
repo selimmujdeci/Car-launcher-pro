@@ -60,7 +60,6 @@ let   _fsCacheReady = false;
  */
 const LRU_EVICT_PREFIXES: string[] = [
   'car-launcher-trip-log',  // yeniden üretilebilir trip geçmişi
-  'car_map_offline',        // offline map tercih bayrağı
   'car-cache-',             // genel uygulama önbelleği
   'car-glyph-',             // harita font verileri
 ];
@@ -77,19 +76,27 @@ const LRU_PROTECTED = new Set<string>([
   'car-vehicle-store',      // araç profilleri
   'car-maintenance-store',  // bakım/TPMS
   'car-gps-last-known',     // son GPS konumu
+  'car_map_offline',        // offline harita modu bayrağı — kaybolursa sürücü online moda düşer
   'car-e2e-private-key',    // ECDH P-256 private key (JWK) — asla silinmez
   'car-e2e-public-key',     // ECDH P-256 public key (SPKI base64) — asla silinmez
   'cl_usageMap',
   'cl_usagePruneTs',
   'cl_crash_log',           // kaza log meta anahtarı
+  'car-expert-trust-store', // Expert Trust mühürlü durum
+  'car-expert-trust-hmac-seed', // Expert Trust HMAC tohumu
+  'car-safety-brain-v1',      // Safety Brain VIN profilleri
 ]);
 
 /**
  * Prefix bazlı koruma — bu prefix ile başlayan hiçbir anahtar silinmez.
- * crash-log-[timestamp] anahtarları adli kayıt olduğu için asla silinmez.
+ * crash-log-[timestamp]    : adli kayıt — asla silinmez.
+ * car-corridor-            : rota koridor önbelleği — bağlantı kesilince kayıp = yeniden rota.
+ * car-poi-offline-         : offline POI verisi — tünel/sinyal kesiklerinde hayati.
  */
 const LRU_PROTECTED_PREFIXES: string[] = [
   'crash-log-',
+  'car-corridor-',
+  'car-poi-offline-',
 ];
 
 /** Anahtar kritik mi? Tam eşleşme veya prefix bazlı. */
@@ -119,6 +126,7 @@ const _SAFETY_DEBOUNCE_KEYS = new Set<string>([
   'car-launcher-storage',   // ana Zustand store — ses/parlaklık slider burst
   'car-vehicle-store',      // araç profili değişimleri
   'car-maintenance-store',  // bakım güncelleme
+  'car-safety-brain-v1',    // Safety Brain — ardışık fault flush
 ]);
 
 /* ── CacheStorage temizleyici (best-effort) ──────────────────── */

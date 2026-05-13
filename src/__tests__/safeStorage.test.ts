@@ -363,6 +363,51 @@ describe('safeLruEvict — kritik anahtarlar hiçbir zaman silinmez', () => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   8b. LRU EVİCTİON — OFFLİNE NAVİGASYON VERİ GÜVENLİĞİ
+═══════════════════════════════════════════════════════════════ */
+
+describe('safeLruEvict — offline navigasyon veri güvenliği', () => {
+  beforeEach(() => { clearLocalStorage(); });
+  afterEach(() => { clearLocalStorage(); });
+
+  it('car_map_offline evict edilmez (LRU_PROTECTED tam eşleşme)', () => {
+    localStorage.setItem('car_map_offline', 'true');
+    localStorage.setItem('car-cache-evictable', 'x'); // eviction'ı tetikle
+    safeLruEvict();
+    expect(localStorage.getItem('car_map_offline')).toBe('true');
+  });
+
+  it('car-corridor- prefixi evict edilmez', () => {
+    localStorage.setItem('car-corridor-route-abc123', '{"tiles":[]}');
+    localStorage.setItem('car-cache-evictable', 'x');
+    safeLruEvict();
+    expect(localStorage.getItem('car-corridor-route-abc123')).toBe('{"tiles":[]}');
+  });
+
+  it('car-poi-offline- prefixi evict edilmez', () => {
+    localStorage.setItem('car-poi-offline-istanbul', '{"count":100}');
+    localStorage.setItem('car-cache-evictable', 'x');
+    safeLruEvict();
+    expect(localStorage.getItem('car-poi-offline-istanbul')).toBe('{"count":100}');
+  });
+
+  it('eviction olurken evictable anahtar silinir, koridor ve offline kalır', () => {
+    localStorage.setItem('car-cache-trip-data', 'big-data');
+    localStorage.setItem('car-corridor-tile-set-1', 'protected');
+    localStorage.setItem('car-poi-offline-ankara', 'protected');
+    localStorage.setItem('car_map_offline', 'true');
+
+    const evicted = safeLruEvict();
+
+    expect(evicted).toBeGreaterThan(0);
+    expect(localStorage.getItem('car-cache-trip-data')).toBeNull();
+    expect(localStorage.getItem('car-corridor-tile-set-1')).toBe('protected');
+    expect(localStorage.getItem('car-poi-offline-ankara')).toBe('protected');
+    expect(localStorage.getItem('car_map_offline')).toBe('true');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
    9. listKeysWithPrefix
 ═══════════════════════════════════════════════════════════════ */
 

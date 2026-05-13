@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { useOBDState } from '../../platform/obdService';
 import { useStore } from '../../store/useStore';
 import { useSpeedLimit } from '../../platform/speedLimitService';
+import { useDTCState } from '../../platform/dtcService';
 
 // Speed Limit Sign Component - Moved outside to fix lint error
 const SpeedLimitSign = ({ limit, isOverSpeed }: { limit: number; isOverSpeed: boolean }) => (
@@ -10,11 +11,37 @@ const SpeedLimitSign = ({ limit, isOverSpeed }: { limit: number; isOverSpeed: bo
   </div>
 );
 
+// Check Engine Lamp — DTC sync
+const CheckEngineLamp = ({ critical }: { critical: boolean }) => (
+  <div
+    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider
+      ${critical
+        ? 'bg-red-900/60 text-red-400 animate-pulse border border-red-700/50'
+        : 'bg-orange-900/40 text-orange-400 border border-orange-700/30'}`}
+    title="Check Engine — DTC hata kodu aktif"
+  >
+    {/* Engine icon SVG */}
+    <svg width="14" height="10" viewBox="0 0 14 10" fill="currentColor">
+      <rect x="3" y="2" width="8" height="6" rx="1"/>
+      <rect x="0" y="3" width="3" height="4" rx="0.5"/>
+      <rect x="11" y="3" width="3" height="4" rx="0.5"/>
+      <rect x="5" y="0" width="2" height="2"/>
+      <rect x="7" y="0" width="2" height="2"/>
+    </svg>
+    CHECK
+  </div>
+);
+
 export const DigitalCluster = memo(() => {
   const { speed, rpm, engineTemp, fuelLevel } = useOBDState();
   const { settings } = useStore();
   const { themePack } = settings;
   const speedLimit = useSpeedLimit(speed);
+  const dtcState   = useDTCState();
+
+  // DTC sync — Check Engine lamp
+  const hasDTC      = dtcState.codes.length > 0;
+  const dtcCritical = dtcState.codes.some((c) => c.severity === 'critical');
 
   // Gauge calculations
   const rpmPercent = Math.min((rpm / 8000) * 100, 100);
@@ -87,8 +114,15 @@ export const DigitalCluster = memo(() => {
           </div>
         </div>
         
+        {/* Check Engine Lamp — DTC sync */}
+        {hasDTC && (
+          <div className="mt-4">
+            <CheckEngineLamp critical={dtcCritical} />
+          </div>
+        )}
+
         {/* M-Sport Strip */}
-        <div className="flex gap-1.5 mt-8 opacity-40">
+        <div className="flex gap-1.5 mt-6 opacity-40">
           <div className="w-14 h-1 bg-[#0ea5e9]" />
           <div className="w-14 h-1 bg-[#1d4ed8]" />
           <div className="w-14 h-1 bg-[#ef4444]" />
@@ -124,6 +158,7 @@ export const DigitalCluster = memo(() => {
             <span className="text-[11rem] font-extralight text-primary leading-none tracking-tighter drop-shadow-[0_0_40px_rgba(6,182,212,0.25)]">{Math.round(speed || 0)}</span>
             <span className="text-xs font-black text-cyan-500 uppercase tracking-[0.5em] -mt-4">KILOMETERS PER HOUR</span>
             <span className="text-[11px] font-black text-cyan-500/40 mt-2 uppercase tracking-[0.4em]">{speedLimit.roadName}</span>
+            {hasDTC && <div className="mt-3"><CheckEngineLamp critical={dtcCritical} /></div>}
           </div>
 
           <div className="relative flex flex-col items-center gap-3">
@@ -149,6 +184,11 @@ export const DigitalCluster = memo(() => {
       <div className="absolute top-6 right-8">
         <SpeedLimitSign limit={speedLimit.limit} isOverSpeed={speedLimit.isOverSpeed} />
       </div>
+      {hasDTC && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+          <CheckEngineLamp critical={dtcCritical} />
+        </div>
+      )}
       <div className="flex flex-col items-end">
         <span className="text-9xl font-black text-primary leading-none tracking-tighter">{Math.round(speed || 0)}</span>
         <span className="text-base font-black text-secondary uppercase tracking-[0.3em] mt-2">KM/H</span>

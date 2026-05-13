@@ -1,16 +1,20 @@
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, lazy, Suspense } from 'react';
 import { useDebugStore } from '../../platform/debug';
-import { CanRawView }      from './CanRawView';
-import { SignalView }      from './SignalView';
-import { ReverseLogView }  from './ReverseLogView';
-import { PerformanceView } from './PerformanceView';
-type Tab = 'can' | 'signals' | 'reverse' | 'perf';
+import { CanRawView }         from './CanRawView';
+import { SignalView }         from './SignalView';
+import { ReverseLogView }     from './ReverseLogView';
+import { PerformanceView }    from './PerformanceView';
+import { BlackBoxReplayView } from './BlackBoxReplayView';
+const TestControlPanel = lazy(() => import('./TestControlPanel'));
+type Tab = 'can' | 'signals' | 'reverse' | 'perf' | 'replay' | 'tests';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'can',     label: 'CAN LOG'      },
   { id: 'signals', label: 'SIGNALS'      },
   { id: 'reverse', label: 'REVERSE'      },
   { id: 'perf',    label: 'PERF / HATA'  },
+  { id: 'replay',  label: 'BB REPLAY'    },
+  { id: 'tests',   label: 'TESTLER'      },
 ];
 
 function downloadJson(data: object, filename: string) {
@@ -105,6 +109,8 @@ export const DebugPanel = memo(function DebugPanel({ onClose }: { onClose: () =>
         {tab === 'signals' && <SignalView />}
         {tab === 'reverse' && <ReverseLogView />}
         {tab === 'perf'    && <PerformanceView />}
+        {tab === 'replay'  && <BlackBoxReplayView />}
+        {tab === 'tests'   && <Suspense fallback={null}><TestControlPanel /></Suspense>}
       </div>
     </div>
   );

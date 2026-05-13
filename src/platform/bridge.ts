@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { useExpertStore } from '../store/useExpertStore';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../data/apps';
 import type { AppItem, NavOptionKey, MusicOptionKey } from '../data/apps';
 import { CarLauncher } from './nativePlugin';
@@ -285,6 +286,18 @@ class VehicleCommandQueue {
    */
   enqueue(type: VehicleCommandType, commandId?: string): Promise<CommandResult> {
     const id = commandId ?? _cmdId();
+
+    try {
+      useExpertStore.getState().assertWritesAllowed();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return Promise.resolve({
+        commandId: id,
+        type,
+        status:    'rejected',
+        error:     msg,
+      });
+    }
 
     // Atomic gate: bir kapı kilidi işlemi tamamlanmadan yenisi reddedilir
     if ((type === 'LOCK_DOORS' || type === 'UNLOCK_DOORS') && this._lockPending) {

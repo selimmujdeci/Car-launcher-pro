@@ -3,13 +3,13 @@ import { initFcmService }           from '../platform/fcmService';
 import { initConnectivityService }  from '../platform/connectivityService';
 import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
 import { enableWakeWord, disableWakeWord } from '../platform/wakeWordService';
-import { startTrafficService, updateTrafficLocation } from '../platform/trafficService';
+import { startTrafficService, stopTrafficService, updateTrafficLocation } from '../platform/trafficService';
 import { initializeContacts } from '../platform/contactsService';
 import { startMediaHub } from '../platform/mediaService';
 import {
   startAutoBrightness, stopAutoBrightness, updateAutoBrightnessLocation,
 } from '../platform/autoBrightnessService';
-import { startTripLog } from '../platform/tripLogService';
+import { startTripLog, stopTripLog } from '../platform/tripLogService';
 import {
   startNotificationService, stopNotificationService,
 } from '../platform/notificationService';
@@ -155,7 +155,7 @@ export function useLayoutServices({
     CarLauncher.addListener('backgroundLocation', (loc) => {
       feedBackgroundLocation(loc);
       if (settings.autoBrightnessEnabled) updateAutoBrightnessLocation(loc.lat, loc.lng);
-      updateTrafficLocation(loc.lat);
+      updateTrafficLocation(loc.lat, loc.lng);
     }).then((h) => {
       if (unmounted) { h.remove(); return; }
       handle = h;
@@ -229,12 +229,13 @@ export function useLayoutServices({
 
   // Traffic service startup (bir kez) + ilk konum ile başlat
   useEffect(() => {
-    startTrafficService(location?.latitude);
+    startTrafficService(location?.latitude, location?.longitude);
+    return () => { stopTrafficService(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Konum değiştiğinde trafik servisini güncelle
   useEffect(() => {
-    if (location?.latitude) updateTrafficLocation(location.latitude);
+    if (location?.latitude) updateTrafficLocation(location.latitude, location.longitude);
   }, [location?.latitude]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto brightness start/stop
@@ -286,6 +287,7 @@ export function useLayoutServices({
     startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
     return () => {
       stopSpeedLimitService();
+      stopTripLog();
       stopNotificationService();
       stopWeatherService();
       stopHeadlightAutoBrightness();

@@ -20,6 +20,8 @@
 
 import { runtimeManager }          from '../../core/runtime/AdaptiveRuntimeManager';
 import { initSafeStorageAsync }    from '../../utils/safeStorage';
+import { hydrateExpertTrustStore } from '../../store/useExpertStore';
+import { hydrateSafetyBrainFromStorage } from '../safety/SafetyBrain';
 import { isNative }                from '../bridge';
 import { CarLauncher }             from '../nativePlugin';
 import { startNativeGuardBridge }  from '../native/NativeGuardBridge';
@@ -42,6 +44,7 @@ import {
 }                                  from '../radar/radarEngine';
 import { turkiyeStaticRadars }     from '../radar/staticRadarData';
 import { startTheaterService }     from '../theaterModeService';
+import { startMemoryWatchdog, stopMemoryWatchdog } from '../memoryWatchdog';
 import {
   startSmartCardEngine,
   stopSmartCardEngine,
@@ -68,6 +71,8 @@ class SystemBoot {
   private _cleanups:     Cleanup[] = [];
   /** İsimli servis cleanup'ları — restart mekanizması için */
   private _namedCleanups = new Map<string, Cleanup>();
+  /** Worker crash sayaçları — max 2 deneme aşımı takibi */
+  private _workerRestartCounts = new Map<string, number>();
 
   // ── Cleanup kaydı ─────────────────────────────────────────────────────────
 
@@ -84,6 +89,21 @@ class SystemBoot {
   }
 
   /**
+   * Worker crash olduğunda çağrılır — max 2 deneme sonrası vazgeçer.
+   */
+  private _handleWorkerCrash(workerKey: string, restartServiceName: string): void {
+    const MAX_RESTARTS = 2;
+    const count = (this._workerRestartCounts.get(workerKey) ?? 0) + 1;
+    this._workerRestartCounts.set(workerKey, count);
+    _log(`Worker crash: ${workerKey} (attempt ${count}/${MAX_RESTARTS})`);
+    if (count <= MAX_RESTARTS) {
+      void this.restartService(restartServiceName).catch((e) => logError(`SystemBoot:restart:${restartServiceName}`, e));
+    } else {
+      _log(`  › ${workerKey} exceeded max restarts — giving up`);
+    }
+  }
+
+  /**
    * İsimli servisi durdur ve yeniden başlat.
    * HealthMonitor'ın restartFn'i bu metodu çağırır.
    * Bilinmeyen isim → no-op.
@@ -91,23 +111,47 @@ class SystemBoot {
   async restartService(name: string): Promise<void> {
     _log(`Restarting service: ${name}`);
 
-    // Mevcut cleanup'ı çalıştır
+    // Mevcut cleanup'ı çalıştır ve orijinal LIFO pozisyonunu kaydet
     const cleanup = this._namedCleanups.get(name);
+    let _insertIdx = this._cleanups.length; // varsayılan: sona ekle
     if (cleanup) {
       try { cleanup(); } catch (e) { logError(`SystemBoot:Restart:cleanup:${name}`, e); }
       this._namedCleanups.delete(name);
       const idx = this._cleanups.indexOf(cleanup);
-      if (idx >= 0) this._cleanups.splice(idx, 1);
+      if (idx >= 0) {
+        _insertIdx = idx; // orijinal pozisyonu koru → LIFO sırası bozulmaz
+        this._cleanups.splice(idx, 1);
+      }
     }
 
     // Kısa bekleme — cleanup settle
     await new Promise<void>((resolve) => setTimeout(resolve, 500));
 
     switch (name) {
-      case 'VehicleDataLayer':
-        this._regNamed('VehicleDataLayer', startVehicleDataLayer());
+      case 'VehicleDataLayer': {
+        const newCleanup = startVehicleDataLayer({
+          onWorkerCrash: () => this._handleWorkerCrash('VehicleCompute', 'VehicleDataLayer'),
+        });
+        if (typeof newCleanup === 'function') {
+          // push() yerine splice ile orijinal pozisyona yerleştir — LIFO korunur
+          this._cleanups.splice(_insertIdx, 0, newCleanup);
+          this._namedCleanups.set('VehicleDataLayer', newCleanup);
+        }
         _log(`  › VehicleDataLayer restarted`);
         break;
+      }
+      case 'VisionCompute': {
+        const { restartVisionWorker } = await import('../vision/visionCore');
+        restartVisionWorker();
+        _log(`  › VisionCompute worker restarted`);
+        break;
+      }
+      case 'NavigationCompute': {
+        const { restartNavWorker } = await import('../offlineRoutingService');
+        restartNavWorker();
+        _log(`  › NavigationCompute worker restarted`);
+        break;
+      }
       default:
         _log(`  › Unknown service for restart: ${name}`);
     }
@@ -149,6 +193,7 @@ class SystemBoot {
     }
     this._cleanups     = [];
     this._namedCleanups.clear();
+    this._workerRestartCounts.clear();
     this._started      = false;
   }
 
@@ -165,12 +210,23 @@ class SystemBoot {
     _log('  › initSafeStorageAsync');
     await initSafeStorageAsync();
 
+    _log('  › hydrateExpertTrustStore');
+    await hydrateExpertTrustStore();
+
+    _log('  › hydrateSafetyBrainFromStorage');
+    hydrateSafetyBrainFromStorage();
+
     // NativeGuardBridge: heartbeat (1s) + odo persist (5s) + mode sync
     _log('  › NativeGuardBridge');
     this._reg(startNativeGuardBridge());
 
     // Crash recovery: native odo > Zustand odo → worker'a gönder
     await this._crashRecovery();
+
+    // MemoryWatchdog: native LMK baskı event'lerini yakala
+    _log('  › MemoryWatchdog');
+    startMemoryWatchdog();
+    this._reg(stopMemoryWatchdog);
 
     // SystemHealthMonitor: tüm servislerden önce başlat
     _log('  › SystemHealthMonitor');
@@ -186,7 +242,9 @@ class SystemBoot {
 
     // VehicleDataLayer: OBD / GPS / CAN worker (SAB zero-copy)
     _log('  › VehicleDataLayer');
-    this._regNamed('VehicleDataLayer', startVehicleDataLayer());
+    this._regNamed('VehicleDataLayer', startVehicleDataLayer({
+      onWorkerCrash: () => this._handleWorkerCrash('VehicleCompute', 'VehicleDataLayer'),
+    }));
 
     healthMonitor.register({
       name:        'VehicleDataLayer',
@@ -251,6 +309,10 @@ class SystemBoot {
 
   private async _wave4(): Promise<void> {
     _log('Starting Wave 4 (UI Services)...');
+
+    // On-demand OPTIONAL worker'lar için lifecycle placeholder'ları
+    runtimeManager.registerWorker('VisionCompute',     null, 'OPTIONAL');
+    runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL');
 
     _log('  › TheaterService');
     this._reg(startTheaterService());

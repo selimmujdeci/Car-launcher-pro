@@ -13,6 +13,7 @@
 
 import type { IntentType } from './intentEngine';
 import type { MaintenanceAssessment } from './vehicleMaintenanceService';
+import { buildPidRegistryIntegrityPromptBlock } from './ai/pidDescriptionGate';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -140,7 +141,7 @@ function buildSystemPrompt(ctx?: VehicleContext): string {
     );
   }
 
-  return BASE_SYSTEM_PROMPT + contextLines.join('\n');
+  return `${BASE_SYSTEM_PROMPT}${contextLines.join('\n')}\n\n${buildPidRegistryIntegrityPromptBlock()}`;
 }
 
 /* ── Response parser ───────────────────────────────────────── */

@@ -3,13 +3,8 @@ import {
   Search, Grid3X3, Navigation,
   SkipBack, SkipForward, Play, Pause, MapPin,
   Gauge, Thermometer, Fuel, Zap, Mic,
-  Phone, Music2, Bell, LayoutGrid, SlidersHorizontal,
-  ChevronUp, ChevronDown, Cloud, AlertTriangle, Camera,
-  Route, ShieldAlert, Wrench, Shield, Tv2,
 } from 'lucide-react';
-import { openMusicDrawer } from '../../platform/mediaUi';
-import { openDrawer } from '../../platform/drawerBus';
-import { useNotificationState } from '../../platform/notificationService';
+import { DockBar } from './DockBar';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
@@ -18,9 +13,10 @@ import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
-import { APP_MAP, type AppItem } from '../../data/apps';
+import { type AppItem } from '../../data/apps';
 import { useCarTheme, baseOf } from '../../store/useCarTheme';
 import { resolveAndNavigate } from '../../platform/addressNavigationEngine';
+import { useRouteState } from '../../platform/routingService';
 import { TeslaLayout } from '../themes/TeslaLayout';
 import { AudiLayout } from '../themes/AudiLayout';
 import { MercedesLayout } from '../themes/MercedesLayout';
@@ -62,6 +58,10 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
   const { settings } = useStore();
   const { time, date } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
+  const obd = useOBDState();
+  const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
+    ? Math.round((obd.fuelLevel / 100) * 750)
+    : null;
 
   return (
     <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
@@ -89,7 +89,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
       <div className="flex items-center gap-2">
         <HPill emoji="☀️" value="21°C" label="Güneşli" />
         <HPill emoji="🔋" value={device.ready ? `${device.battery}%` : '—'} label="Batarya" />
-        <HPill emoji="⛽" value="420 km" label="Menzil" />
+        <HPill emoji="⛽" value={fuelRange != null ? `${fuelRange} km` : '— km'} label="Menzil" />
       </div>
 
       {/* Sağ: Eylem butonları */}
@@ -129,6 +129,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const gps = useGPSLocation();
+  const route = useRouteState();
 
   const handleSubmit = useCallback(() => {
     const q = query.trim();
@@ -195,7 +196,11 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
         </div>
         <div className="flex gap-1.5">
           <ETACell label="Varış" value="--:--" sub="--:--" />
-          <ETACell label="Mesafe" value="128" sub="km" />
+          <ETACell
+            label="Mesafe"
+            value={route.totalDistanceMeters > 0 ? String(Math.round(route.totalDistanceMeters / 1000)) : '--'}
+            sub={route.totalDistanceMeters > 0 ? 'km' : ''}
+          />
         </div>
       </div>
     </div>
@@ -398,122 +403,6 @@ const MusicCard = memo(function MusicCard() {
 });
 
 
-/* ─── DOCK ───────────────────────────────────────────────────── */
-const Dock = memo(function Dock({ appMap, dockIds, onLaunch, onOpenApps, onOpenSettings }: {
-  appMap: Record<string, AppItem>;
-  dockIds: string[];
-  onLaunch: (id: string) => void;
-  onOpenApps: () => void;
-  onOpenSettings: () => void;
-}) {
-  const { unreadCount } = useNotificationState();
-  const [voiceOpen, setVoiceOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  const BTN_W = 90, BTN_H = 90, BTN_R = 20, ICON = 28;
-
-  function DockBtn({ fn, label, color, children, badge }: {
-    fn: () => void; label: string; color: string;
-    children: React.ReactNode; badge?: number;
-  }) {
-    return (
-      <button onClick={fn}
-        className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all relative"
-        style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}>
-        <div style={{ color, width: ICON, height: ICON, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {children}
-        </div>
-        <span className="font-bold uppercase tracking-wider leading-none" style={{ fontSize: 10, color: '#7A8899' }}>{label}</span>
-        {!!badge && (
-          <span className="absolute top-2 right-2 min-w-4 h-4 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1">
-            {badge > 9 ? '9+' : badge}
-          </span>
-        )}
-      </button>
-    );
-  }
-
-  return (
-    <>
-      {voiceOpen && (
-        <Suspense fallback={null}>
-          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
-        </Suspense>
-      )}
-
-      {/* Secondary "Daha" panel */}
-      {moreOpen && (
-        <div className="flex-shrink-0 flex items-center justify-center gap-4 px-4 py-2 overflow-x-auto no-scrollbar"
-          style={{ background: 'rgba(4,8,18,0.98)', borderTop: '1px solid rgba(96,165,250,0.08)' }}>
-          {([
-            { label: 'Hava',     color: '#38bdf8', icon: <Cloud    size={22} />, fn: () => { openDrawer('weather');      setMoreOpen(false); } },
-            { label: 'Trafik',   color: '#fb923c', icon: <AlertTriangle size={22} />, fn: () => { openDrawer('traffic'); setMoreOpen(false); } },
-            { label: 'Dashcam',  color: '#f87171', icon: <Camera   size={22} />, fn: () => { openDrawer('dashcam');      setMoreOpen(false); } },
-            { label: 'Seyir',    color: '#34d399', icon: <Route    size={22} />, fn: () => { openDrawer('triplog');      setMoreOpen(false); } },
-            { label: 'Arıza',    color: '#fbbf24', icon: <ShieldAlert size={22} />, fn: () => { openDrawer('dtc');       setMoreOpen(false); } },
-            { label: 'Bakım',    color: '#94a3b8', icon: <Wrench   size={22} />, fn: () => { openDrawer('vehicle-reminder'); setMoreOpen(false); } },
-            { label: 'Güvenlik', color: '#34d399', icon: <Shield   size={22} />, fn: () => { openDrawer('security');    setMoreOpen(false); } },
-            { label: 'Eğlence',  color: '#60a5fa', icon: <Tv2     size={22} />, fn: () => { openDrawer('entertainment'); setMoreOpen(false); } },
-          ] as const).map((item, i) => (
-            <button key={i} onClick={item.fn}
-              className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-90 transition-all px-3 py-2 rounded-2xl"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <div style={{ color: item.color }}>{item.icon}</div>
-              <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: '#7A8899' }}>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Ana dock satırı */}
-      <div className="flex-shrink-0"
-        style={{
-          background: 'rgba(4,8,18,0.97)',
-          backdropFilter: 'blur(32px)',
-          WebkitBackdropFilter: 'blur(32px)',
-          borderTop: '1px solid rgba(96,165,250,0.10)',
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.50)',
-        }}>
-        <div className="flex items-center justify-center gap-4 overflow-x-auto no-scrollbar px-4 py-3"
-          style={{ overflowX: 'auto' }}>
-
-          {/* Dinamik app kısayolları (dockIds'den ilk 2) */}
-          {dockIds.slice(0, 2).map(id => {
-            const app = appMap[id] ?? APP_MAP[id];
-            if (!app) return null;
-            return (
-              <DockBtn key={id} fn={() => onLaunch(id)} label={app.name} color="#60a5fa">
-                <span style={{ fontSize: ICON }}>{app.icon}</span>
-              </DockBtn>
-            );
-          })}
-
-          <DockBtn fn={() => openDrawer('phone')}         label="Telefon"  color="#60a5fa"><Phone           size={ICON} /></DockBtn>
-          <DockBtn fn={() => openMusicDrawer()}           label="Müzik"    color="#34d399"><Music2          size={ICON} /></DockBtn>
-          <DockBtn fn={() => openDrawer('notifications')} label="Bildirim" color="#60a5fa" badge={unreadCount}><Bell size={ICON} /></DockBtn>
-          <DockBtn fn={onOpenApps}                        label="Menü"     color="#60a5fa"><LayoutGrid      size={ICON} /></DockBtn>
-          <DockBtn fn={onOpenSettings}                    label="Ayarlar"  color="#94a3b8"><SlidersHorizontal size={ICON} /></DockBtn>
-
-          {/* Ses (mikrofon) */}
-          <button onClick={() => setVoiceOpen(true)}
-            className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
-            style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'linear-gradient(135deg,rgba(29,78,216,0.30),rgba(59,130,246,0.15))', border: '1px solid rgba(96,165,250,0.30)' }}>
-            <Mic size={ICON} style={{ color: '#60a5fa' }} />
-            <span className="font-bold uppercase tracking-wider" style={{ fontSize: 10, color: '#60a5fa' }}>Ses</span>
-          </button>
-
-          {/* Daha */}
-          <button onClick={() => setMoreOpen(o => !o)}
-            className="flex flex-col items-center justify-center gap-2 flex-shrink-0 active:scale-90 transition-all"
-            style={{ width: BTN_W, height: BTN_H, borderRadius: BTN_R, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            {moreOpen ? <ChevronDown size={ICON} style={{ color: '#94a3b8' }} /> : <ChevronUp size={ICON} style={{ color: '#94a3b8' }} />}
-            <span className="font-bold uppercase tracking-wider" style={{ fontSize: 10, color: '#94a3b8' }}>{moreOpen ? 'Kapat' : 'Daha'}</span>
-          </button>
-        </div>
-      </div>
-    </>
-  );
-});
 
 /* ─── LAYOUT ─────────────────────────────────────────────────── */
 export const NewHomeLayout = memo(function NewHomeLayout({
@@ -562,7 +451,8 @@ export const NewHomeLayout = memo(function NewHomeLayout({
             <div className="flex-1 min-h-0"><MusicCard /></div>
           </div>
         </div>
-        <Dock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

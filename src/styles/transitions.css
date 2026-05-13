@@ -92,3 +92,23 @@
     transform: scale(1);
   }
 }
+
+/**
+ * trust-gauge-pulse — Expert güven yayı (180° ark): renk/parlaklık 1 Hz yavaş nabız.
+ * .perf-low altında index.css animasyonları kapattığı için güvenli degrade.
+ */
+@keyframes trust-gauge-pulse {
+  0%,
+  100% {
+    opacity: 0.82;
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.14) saturate(1.12);
+  }
+}
+
+.trust-gauge-arc-pulse {
+  animation: trust-gauge-pulse 1s ease-in-out infinite;
+}

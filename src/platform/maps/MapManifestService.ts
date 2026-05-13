@@ -17,6 +17,7 @@
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { logError } from '../crashLogger';
+import { isFeatureEnabled, recordFault } from '../safety/SafetyBrain';
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
@@ -259,6 +260,10 @@ export interface IntegrityReport {
  * Corrupt veya eksik tile > 0 ise `ok: false` döner.
  */
 export async function verifyIntegrity(versionId: string): Promise<IntegrityReport> {
+  if (!isFeatureEnabled('mapManifestIntegrityVerify')) {
+    return { ok: true, total: 0, corrupted: [], missing: [] };
+  }
+
   const manifest = await loadManifest(versionId);
   const report: IntegrityReport = {
     ok:        true,
@@ -269,6 +274,7 @@ export async function verifyIntegrity(versionId: string): Promise<IntegrityRepor
 
   if (!manifest) {
     report.ok = false;
+    recordFault('MAP_TILE_CRC_FAIL');
     return report;
   }
 
@@ -299,6 +305,10 @@ export async function verifyIntegrity(versionId: string): Promise<IntegrityRepor
       report.corrupted.push(key);
       report.ok = false;
     }
+  }
+
+  if (!report.ok) {
+    recordFault('MAP_TILE_CRC_FAIL');
   }
 
   return report;

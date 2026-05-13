@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useStore } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useWakeWordState } from '../../platform/wakeWordService';
 import {
   type NavOptionKey, type MusicOptionKey,
 } from '../../data/apps';
@@ -26,7 +25,7 @@ import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { BootSplash, type BootPhase } from './BootSplash';
 import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
-import { registerDrawerHandler } from '../../platform/drawerBus';
+import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/drawerBus';
 // DriveHUD kaldırıldı
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazy(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
@@ -104,8 +103,6 @@ export default function MainLayout() {
   const { isNavigating } = useNavigation();
   // Sadece playing alanı — şarkı metadata/position değişimlerinde MainLayout re-render olmasın
   const hudMedia = { playing: useMediaState().playing };
-  useWakeWordState();
-
   // ── Service initialisation ────────────────────────────────
   useLayoutServices({ settings, updateSettings, location });
 
@@ -247,6 +244,7 @@ export default function MainLayout() {
   // Drawer bus kaydı — tüm tema dockları buradan setDrawer çağırır
   useEffect(() => {
     registerDrawerHandler(setDrawer);
+    return () => { unregisterDrawerHandler(); };
   }, []);
 
 

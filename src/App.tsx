@@ -22,6 +22,7 @@ import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverl
 import { useSystemStore }     from './store/useSystemStore';
 import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
 import { systemBoot }         from './platform/system/SystemBoot';
+import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -77,6 +78,16 @@ function App() {
   useEffect(() => {
     signalReverse(storeReverse);
   }, [storeReverse]);
+
+  // ── GEOFENCE_VIOLATION — VehicleEventHub → Store (birincil tetikleyici) ──
+  // dispatchGeofenceViolation, geofenceService'in setGeofenceAlarm'ından ÖNCE gelir.
+  // Bu listener dispatch sırasında çalışır → alarm'ı geofenceService'ten önce set eder.
+  useEffect(() => {
+    return onVehicleEvent((e) => {
+      if (e.type !== 'GEOFENCE_VIOLATION') return;
+      useSystemStore.getState().setGeofenceAlarm({ zoneId: e.zoneId, zoneName: e.zoneName, ts: e.ts });
+    });
+  }, []);
 
   // ── GPS radar sistemi (hook — React bileşen içinde kalmalı) ───────────────
   useRadarSystem();

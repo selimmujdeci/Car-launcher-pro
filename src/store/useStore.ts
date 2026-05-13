@@ -105,6 +105,8 @@ export interface VehicleProfile {
   wifiSSID?: string;
   obdDeviceAddress?: string;
   obdDeviceName?: string;
+  /** OBD Mode 09 ile okunan VIN — Safety Brain anahtarı */
+  vin?: string;
   avgConsumptionL100?: number;
   themePack?: ThemePack;
   defaultNav?: string;
@@ -218,9 +220,6 @@ interface StoreState {
   /** theaterModeService tarafından enjekte edilen Theater Mode öneri kartı */
   theaterSuggestionCard:    SmartCard | null;
   setTheaterSuggestionCard: (card: SmartCard | null) => void;
-  /** Theater Mode aktif mi? Araç dururken medya odaklı tam ekran mod. */
-  isTheaterModeActive:      boolean;
-  setIsTheaterModeActive:   (v: boolean) => void;
   /** Termal koruma veya kullanıcı seçimiyle düşük güç/kaynak modu */
   isEcoMode:                boolean;
   setIsEcoMode:             (v: boolean) => void;
@@ -320,11 +319,9 @@ export const useStore = create<StoreState>()(
       _dismissedCardIds:      [],
       fuelSuggestionCard:       null,
       theaterSuggestionCard:    null,
-      isTheaterModeActive:      false,
       setSmartCards:            (cards) => set({ activeSmartCards: cards }),
       setFuelSuggestionCard:    (card)  => set({ fuelSuggestionCard: card }),
       setTheaterSuggestionCard: (card)  => set({ theaterSuggestionCard: card }),
-      setIsTheaterModeActive:   (v)     => set({ isTheaterModeActive: v }),
       dismissSmartCard: (id) =>
         set((state) => ({
           activeSmartCards:  state.activeSmartCards.filter((c) => c.id !== id),
@@ -400,7 +397,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 12,
+      version: 13,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -424,6 +421,10 @@ export const useStore = create<StoreState>()(
           // v12: Mikrofon varsayılan kapalı — telefon uyumluluğu için zorla sıfırla
           settings.wakeWordEnabled = false;
         }
+        if (fromVersion < 13) {
+          void persisted;
+          // v13: VehicleProfile.vin — OBD handshake ile doldurulur; mevcut profillerde alan yok
+        }
         return { ...ps, settings };
       },
       merge: (persistedState: unknown, currentState) => {
@@ -439,7 +440,6 @@ export const useStore = create<StoreState>()(
           _dismissedCardIds:     [],
           fuelSuggestionCard:    null,
           theaterSuggestionCard: null,
-          isTheaterModeActive:   false,
           isEcoMode:             false,
           targetFPS:             0,
           runtimeMode:           runtimeManager.getMode(), // persist değil — manager'dan al

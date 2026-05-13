@@ -78,12 +78,11 @@ const useRouteStore = create<RouteState>(() => INITIAL);
 /* ── Deviation detection — module-level state ────────────────── */
 
 // Distance hierarchy (must stay consistent with navigationService):
-//   ARRIVAL_THRESHOLD_M (20) < STEP_ADVANCE_THRESHOLD_M (30) < MANEUVER_STACK_THRESHOLD_M (50) = REROUTE_THRESHOLD_M (50)
-export const REROUTE_THRESHOLD_M        = 35; // metre — route-line deviation triggers reroute
+//   ARRIVAL_THRESHOLD_M (20) < STEP_ADVANCE_THRESHOLD_M (30) < MANEUVER_STACK_THRESHOLD_M (50) < REROUTE_THRESHOLD_M (55)
+//   25m güvenli bölge: STEP_ADVANCE (30m) → REROUTE (55m) — adım ilerleme ve reroute çakışmaz.
+export const REROUTE_THRESHOLD_M        = 55; // metre — rota sapma reroute eşiği (STEP_ADVANCE+25m güvenli bölge)
 export const STEP_ADVANCE_THRESHOLD_M   = 30;  // metre — advance to next turn instruction
 export const MANEUVER_STACK_THRESHOLD_M = 50;  // metre — back-to-back turns shown together
-
-const REROUTE_THROTTLE_MS  = 5_000; // 5 s — API spam koruması
 const HEADERS_TIMEOUT_MS   = 2_000; // Fail-Fast: headers alınamazsa offline katmana geç
 const BODY_TIMEOUT_MS      = 5_000; // Otomotiv standardı: maksimum 5s route indirme bekleme
 const DEVIATION_WINDOW    = 20;     // kontrol edilecek segment penceresi
@@ -112,9 +111,13 @@ export function clearRerouteContext(): void {
   _navContextStartMs = 0;
 }
 
-/** isRerouting değişikliklerini dinleyen callback'i kaydet (navigationService tarafından çağrılır). */
-export function registerReroutingCallback(cb: (val: boolean) => void): void {
+/**
+ * isRerouting değişikliklerini dinleyen callback'i kaydet.
+ * Dönen fonksiyon kaydı iptal eder — servis durduğunda çağrılmalı.
+ */
+export function registerReroutingCallback(cb: (val: boolean) => void): () => void {
   _reroutingCb = cb;
+  return () => { if (_reroutingCb === cb) _reroutingCb = null; };
 }
 
 /* ── Sunucu listesi ──────────────────────────────────────────── */
@@ -275,12 +278,6 @@ async function _tryServer(
   fromLon: number, fromLat: number,
   toLon: number,   toLat: number,
 ): Promise<{ steps: RouteStep[]; altSteps: RouteStep[][]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; altHasToll: boolean[]; distance: number; duration: number; hasToll: boolean }> {
-  // Dump raw coords before any transformation
-  console.log('ROUTE REQUEST RAW', {
-    origin: { lat: fromLat, lon: fromLon },
-    dest:   { lat: toLat,   lon: toLon  },
-  });
-
   // Coordinate validation
   if (!Number.isFinite(fromLat) || Math.abs(fromLat) > 90)  throw new Error(`INVALID_COORDS: origin lat=${fromLat}`);
   if (!Number.isFinite(fromLon) || Math.abs(fromLon) > 180) throw new Error(`INVALID_COORDS: origin lon=${fromLon}`);
@@ -290,13 +287,8 @@ async function _tryServer(
   // OSRM expects [longitude, latitude] — GeoJSON order
   const originCoords = [fromLon, fromLat] as const;  // [lon, lat]
   const destCoords   = [toLon,   toLat  ] as const;  // [lon, lat]
-  console.log('FINAL ORIGIN', originCoords);  // [fromLon, fromLat]
-  console.log('FINAL DEST',   destCoords);    // [toLon, toLat]
-
   const coordStr = `${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}`;
   const url      = `${baseUrl}/${coordStr}?steps=true&geometries=geojson&overview=full&alternatives=3&annotations=duration,distance&continue_straight=default`;
-  console.log('ROUTE REQUEST URL', url);
-
   const ctrl = new AbortController();
 
   // ── Phase 1: Headers (Fail-Fast) ─────────────────────────────────────────
@@ -335,18 +327,6 @@ async function _tryServer(
       }>;
     };
 
-    console.log('ROUTE RESPONSE', data);
-    console.log('OSRM RAW', {
-      code:          data?.code,
-      message:       (data as Record<string, unknown>)?.message,
-      routesLength:  data?.routes?.length,
-      geometryType:  typeof data?.routes?.[0]?.geometry,
-      geometryKeys:  data?.routes?.[0]?.geometry ? Object.keys(data.routes[0].geometry) : null,
-      coordsLength:  data?.routes?.[0]?.geometry?.coordinates?.length,
-      firstCoord:    data?.routes?.[0]?.geometry?.coordinates?.[0],
-      url,
-    });
-
     if (data.code !== 'Ok')
       throw new Error(`Rota bulunamadı (code=${data.code})`);
 
@@ -362,8 +342,6 @@ async function _tryServer(
       throw new Error('EMPTY_GEOMETRY');
     }
 
-    console.log('RAW ROUTE COORDS LENGTH', coords.length);
-
     const normalized = normalizeCoords(coords as [number, number][], fromLon, fromLat, toLon, toLat);
     if (normalized.length < 2)
       throw new Error(`geometry_normalize_failed: ${normalized.length} point(s) after normalize`);
@@ -372,11 +350,6 @@ async function _tryServer(
     const firstLon = normalized[0][0];
     const firstLat = normalized[0][1];
     const distToOrigin = hav(fromLat, fromLon, firstLat, firstLon);
-    console.log('[ROUTE_VALIDATION]', {
-      first: normalized[0],
-      gps: { lat: fromLat, lon: fromLon },
-      distanceM: Math.round(distToOrigin),
-    });
     // 2000m: Android GPS ~5-20m doğruluk için çok geniş ama browser/desktop IP-GPS
     // 500-2000m doğrulukta çalışır. Koordinat takası hatasını yakalamak için yeterli —
     // Türkiye'de lon/lat takası ~2500km fark üretir, bu 2000m'i geçer.
@@ -468,7 +441,6 @@ export function normalizeCoords(
 
   // Rule 1: magnitude > 90 is an unambiguous longitude marker
   if (Math.abs(a) > 90) {
-    console.log(`[Route] first coord: [${a.toFixed(5)}, ${b.toFixed(5)}] (lon, lat)`);
     return coords;
   }
   if (Math.abs(b) > 90) {
@@ -484,7 +456,6 @@ export function normalizeCoords(
       console.warn(`[Route] [lat,lon] detected via origin-hint — swapping`);
       return coords.map(([x, y]) => [y, x]);
     }
-    console.log(`[Route] first coord: [${a.toFixed(5)}, ${b.toFixed(5)}] (lon, lat)`);
     return coords;
   }
 
@@ -502,13 +473,10 @@ export function normalizeCoords(
       return coords.map(([x, y]) => [y, x]);
     }
     if (distAsIs < distSwap / 10) {
-      console.log(`[Route] dest-hint: confirmed [lon,lat] (asIs=${distAsIs.toFixed(0)}m swap=${distSwap.toFixed(0)}m)`);
       return coords;
     }
   }
 
-  // Rule 4: ambiguous, no hint — trust OSRM [lon, lat] standard
-  console.log(`[Route] first coord: [${a.toFixed(5)}, ${b.toFixed(5)}] (lon, lat) — hint absent`);
   return coords;
 }
 
@@ -628,9 +596,6 @@ export async function fetchRoute(
   toLat:   number,
   toLon:   number,
 ): Promise<void> {
-  console.log(`[ROUTE] fetchRoute: (${fromLat.toFixed(6)}, ${fromLon.toFixed(6)}) → (${toLat.toFixed(6)}, ${toLon.toFixed(6)})`);
-  console.log('[ROUTE] request', { origin: { lat: fromLat, lon: fromLon }, destination: { lat: toLat, lon: toLon } });
-
   // Preserve currentStepIndex during loading so UI keeps the active turn instruction.
   // It will be overwritten to 0 once the new route geometry arrives.
   const { currentStepIndex: _prevStepIdx } = useRouteStore.getState();
@@ -644,7 +609,6 @@ export async function fetchRoute(
       if (!daemonResult.geometry || daemonResult.geometry.length < 2) {
         console.error('[ROUTE] Layer 0: daemon returned NO_GEOMETRY — falling through', { pts: daemonResult.geometry?.length ?? 0 });
       } else {
-        console.log(`[ROUTE] provider: localhost:5000 | dist: ${daemonResult.distanceM.toFixed(0)}m | pts: ${daemonResult.geometry.length} | first3: ${JSON.stringify(daemonResult.geometry.slice(0, 3))}`);
         await _waitForStyleReady();
         useRouteStore.setState({
           loading: false,
@@ -674,8 +638,6 @@ export async function fetchRoute(
     for (const server of servers) {
       try {
         const result = await _tryServer(server, fromLon, fromLat, toLon, toLat);
-        console.log(`[ROUTE] provider: ${server} | dist: ${result.distance.toFixed(0)}m | dur: ${result.duration.toFixed(0)}s | pts: ${result.geometry.length} | first3: ${JSON.stringify(result.geometry.slice(0, 3))}`);
-        console.log('[ROUTE] result', { distance: result.distance, duration: result.duration, pts: result.geometry.length, first: result.geometry[0] });
         await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
         _storeAllRoutes(result.geometry, result.alternatives, result.altDistances, result.altDurations, result.altHasToll, result.altSteps, result.steps, result.distance, result.duration, result.hasToll);
         useRouteStore.setState({
@@ -716,7 +678,6 @@ export async function fetchRoute(
     if (!offlineResult.geometry || offlineResult.geometry.length < 2) {
       console.error('[ROUTE] Layer 3: offline A* returned NO_GEOMETRY — falling through to straight-line', { pts: offlineResult.geometry?.length ?? 0 });
     } else {
-      console.log(`[ROUTE] provider: ${offlineResult.source} | dist: ${offlineResult.distanceM.toFixed(0)}m | pts: ${offlineResult.geometry.length}`);
       await _waitForStyleReady();
       const offlineSteps = offlineResult.steps.length > 0
         ? offlineResult.steps
@@ -738,10 +699,9 @@ export async function fetchRoute(
   }
 
   // ── Katman 4: Straight-line (son çare) ───────────────────────
-  console.warn('[ROUTE] All OSRM layers failed — using straight-line fallback. Route line will be a direct line, not road-following.');
+  console.warn('[ROUTE] All OSRM layers failed — straight-line fallback');
   speakNavigation('İnternet bağlantısı yok. Düz hat navigasyon aktif.');
   const sl = straightLineRoute(fromLat, fromLon, toLat, toLon);
-  console.log('[ROUTE] result', { distance: sl.distanceM, duration: sl.durationS, pts: sl.geometry.length, first: sl.geometry[0] });
   await _waitForStyleReady(); // stil yenileniyorsa layer hazır olana kadar bekle
   useRouteStore.setState({
     loading: false,
@@ -758,9 +718,21 @@ export async function fetchRoute(
 }
 
 /**
+ * Hız-bağımlı reroute throttle süresi.
+ *   > 80 km/h  → 5 s  (otoyol — sapma hızlı gelir, kısa pencere)
+ *   20–80 km/h → 10 s (nominal şehir içi sürüş)
+ *   < 20 km/h  → 15 s (düşük hız / park — GPS jitter baskılaması)
+ */
+function _getRerouteThrottleMs(speedKmh: number): number {
+  if (speedKmh > 80) return  5_000;
+  if (speedKmh < 20) return 15_000;
+  return 10_000;
+}
+
+/**
  * GPS güncellenince çağrılır — hangi adımdayız, sonraki dönüşe ne kadar?
  * 30m'den yaklaşılınca otomatik adım ilerler.
- * 100m+ sapma + 10s throttle → otomatik yeniden rotalama.
+ * Sapma + hız-bağımlı throttle → otomatik yeniden rotalama.
  */
 export function updateRouteProgress(lat: number, lon: number): void {
   const { steps, currentStepIndex, geometry } = useRouteStore.getState();
@@ -782,6 +754,8 @@ export function updateRouteProgress(lat: number, lon: number): void {
 
     newStepIdx = checkIdx; // manevra onaylandı — bir adım ilerle
   }
+  // Monotonic Guard: GPS zıplaması eski adıma geri döndürmemeli.
+  newStepIdx = Math.max(newStepIdx, currentStepIndex);
 
   // ── Maneuver Stack: yakın ardışık manevralar ──────────────────────────────
   // Bir sonraki dönüşün hemen arkasındaki dönüş MANEUVER_STACK_THRESHOLD_M içindeyse,
@@ -827,12 +801,13 @@ export function updateRouteProgress(lat: number, lon: number): void {
   // Startup guard: navigasyon başından itibaren ilk 3s GPS henüz stabilize olmamıştır.
   // Anlık sapma tespiti, rota yeni çizilmişken yanlış reroute tetikleyebilir.
   if (_navContextStartMs > 0 && now - _navContextStartMs < 3_000) return;
-  if (now - _lastRerouteMs < REROUTE_THROTTLE_MS) return;
 
-  // ── Navigasyon Histerezisi ───────────────────────────────────
+  // ── Hız oku — hem throttle hem histerezis için kullanılır ─────────────────
   const { speed, location } = useUnifiedVehicleStore.getState();
   const speedKmh = (speed ?? 0) * 3.6;
   const accuracy = location?.accuracy ?? 999;
+
+  if (now - _lastRerouteMs < _getRerouteThrottleMs(speedKmh)) return;
 
   if (speedKmh < 3) return;   // Dururken jitter önleme (Sensor Resiliency)
   if (accuracy > 50) return;  // Zayıf sinyal koruması (Sensor Resiliency)
@@ -879,7 +854,6 @@ async function _triggerReroute(
   toLat:   number, toLon:   number,
 ): Promise<void> {
   if (_isFetchingRoute) return;
-  console.log('[REROUTE] triggered — fetching new route', { fromLat, fromLon, toLat, toLon });
   _isFetchingRoute = true;
   _reroutingCb?.(true);
   try {

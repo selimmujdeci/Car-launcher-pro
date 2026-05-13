@@ -4,7 +4,7 @@ import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../.
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
   Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
-  Cpu, Thermometer, Shield, Gauge, Settings2, Lock,
+  Cpu, Thermometer, Shield, ShieldCheck, Gauge, Settings2, Lock,
   Mic, Eye, EyeOff, CheckCircle, XCircle, Loader,
 } from 'lucide-react';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
@@ -21,6 +21,8 @@ import {
 import { setBrightness, setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { CanDiagPanel } from './CanDiagPanel';
+import { ExpertModePanel } from './ExpertModePanel';
+import { OfflineDataPanel } from './OfflineDataPanel';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import {
@@ -959,6 +961,11 @@ function SettingsPageInner({ onClose }: Props) {
                 <AIVoicePanel />
               </Panel>
 
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={HardDrive} title="Offline Konum Veritabanı" sub="Mahalle, benzinlik, hastane — internetsiz ara" color="#22d3ee" />
+                <OfflineDataPanel />
+              </Panel>
+
               {/* ── Hotspot / İnternet Bağlantısı ── */}
               <Panel accent="#22d3ee">
                 <SectionTitle icon={Wifi} title="Bluetooth İnternet" sub="Telefondan Bluetooth ile internet paylaşımı" color="#22d3ee" />
@@ -1217,6 +1224,12 @@ function SettingsPageInner({ onClose }: Props) {
               <Panel accent="#22d3ee">
                 <SectionTitle icon={Cpu} title="CAN Bus Teşhis" sub="CAN ID yapılandırması ve sniffer — araç sinyallerini tanımla" color="#22d3ee" />
                 <CanDiagPanel />
+              </Panel>
+
+              {/* ── Expert Mode (AI Safety Layer) ── */}
+              <Panel accent="#10b981">
+                <SectionTitle icon={ShieldCheck} title="CarOS Pro Expert Mode" sub="AI tabanlı otomotiv güvenlik katmanı ve mühürlü diagnostik" color="#10b981" />
+                <ExpertModePanel />
               </Panel>
             </div>
           )}

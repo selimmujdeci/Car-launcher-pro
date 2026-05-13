@@ -31,6 +31,9 @@ import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
 import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
+import { persistHandshakeVin } from './vehicleProfileService';
+import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
+import { useExpertStore } from '../store/useExpertStore';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -252,6 +255,15 @@ let _validationMisses       = 0;
 let _validationEnabled      = false; // Yalnızca EV profil seçilince aktif
 // GPS hız cache — gpsService'ten beslenir, main thread döngüsünde güncellenir
 let _lastKnownGpsSpeed      = 0;    // km/h
+
+// Fix 1: ICE/Diesel profilinde speed>10 km/h iken RPM=-1 gelen süreyi izle
+const ICE_RPM_SPEED_THRESHOLD = 10;     // km/h — hareket eşiği
+const ICE_RPM_TIMEOUT_MS      = 10_000; // 10 s ardışık RPM=-1 → StandardProfile
+let _iceRpmMissStart: number | null = null;
+
+// Fix 3: ısınma (warm-up) erken çıkış kancası
+let _warmupActive   = false;
+let _warmupResolve: (() => void) | null = null;
 
 // ── Fuel computation config ──────────────────────────────────
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
@@ -495,6 +507,7 @@ function _startMock(): void {
  * @param knownAddress Önceden bilinen BT MAC adresi — scan'ı atlamak için
  */
 export function setObdFuelConfig(tankL: number, avgL100: number, knownAddress?: string): void {
+  useExpertStore.getState().assertWritesAllowed();
   _fuelTankL     = tankL;
   _avgConsumL100 = avgL100;
   if (knownAddress) _lastKnownAddress = knownAddress;
@@ -507,6 +520,7 @@ export function setObdFuelConfig(tankL: number, avgL100: number, knownAddress?: 
 
 /** Aktif araç tipini güncelle ve mock verisini resetle */
 export function setObdVehicleType(type: VehicleType): void {
+  useExpertStore.getState().assertWritesAllowed();
   _merge({ vehicleType: type });
   if (_current.source === 'mock') {
     _stopMock();
@@ -563,9 +577,12 @@ function _startDataValidationGate(gen: number): void {
     _dataGateTimer = null;
     if (!_running || _nativeGeneration !== gen) return;
     if (!_dataGatePassed) {
+      recordFault('OBD_DATA_GATE_TIMEOUT');
       logError('OBD:DataGate', new Error(`Bağlandı fakat ${DATA_GATE_TIMEOUT_MS / 1000}s içinde PID verisi alınamadı (Stale bağlantı)`));
       _stopStaleWatchdog();
-      void _removeNativeHandles().then(() => _scheduleReconnect());
+      void _removeNativeHandles().then(() => {
+        if (isFeatureEnabled('obdDataGateAutoReconnect')) _scheduleReconnect();
+      });
     }
   }, DATA_GATE_TIMEOUT_MS);
 }
@@ -580,6 +597,13 @@ function _startDataValidationGate(gen: number): void {
  */
 function _onRealData(patch: Partial<OBDData>): void {
   _lastRealDataMs = Date.now();
+
+  // Fix 3: ısınma devam ediyorken geçerli PID (speed/RPM) gelirse 2s deadline'ı iptal et
+  if (_warmupActive && _warmupResolve && (patch.speed !== undefined || patch.rpm !== undefined)) {
+    _warmupResolve();
+    return; // gate açılana kadar bu paket görmezden gelinir; sonraki paket connected'e geçirir
+  }
+
   if (!_dataGatePassed) {
     if (patch.speed !== undefined || patch.rpm !== undefined) {
       _dataGatePassed = true;
@@ -590,15 +614,11 @@ function _onRealData(patch: Partial<OBDData>): void {
     return; // gate geçilmemişse diğer PID'ler ısınma dönemi boyunca görmezden gelinir
   }
 
-  // ── ValidationGuard ────────────────────────────────────────────────────────
+  // ── ValidationGuard (EV profili) ────────────────────────────────────────────
   // EV profili seçildiyse, OBD'den hız sinyali beklenmez (PID 0x0D listede olmayabilir).
   // Ancak OBD speed=0 gelirken GPS speed>10 km/h → profil yanlış seçilmiş.
   // VALIDATION_THRESHOLD ardışık tutarsızlıkta StandardProfile'e geri dön.
   if (_validationEnabled && patch.speed !== undefined && patch.speed === 0) {
-    // GPS hızına useUnifiedVehicleStore olmadan eriş: _current.speed GPS füzyonundan gelir
-    // obdService store'u kendi içinde tutar; GPS hızı için OBD speed'i GPS ile kıyaslarız.
-    // Burada _current.speed OBD source'tan gelen 0 — GPS hızı için
-    // window event veya module-level GPS speed cache kullanılır.
     const gpsSpeed = _lastKnownGpsSpeed;
     if (gpsSpeed > VALIDATION_GPS_KMH) {
       _validationMisses++;
@@ -616,6 +636,27 @@ function _onRealData(patch: Partial<OBDData>): void {
     _validationMisses = 0; // OBD speed geliyor → geçerli
   }
 
+  // Fix 1: ICE/Diesel Guard — profil ICE/Diesel iken speed>10 km/h ama RPM 10s boyunca -1
+  // → EV araca yanlış ICE profil seçilmiş olabilir, StandardProfile'e geri dön.
+  if (!_validationEnabled &&
+      (_current.vehicleType === 'ice' || _current.vehicleType === 'diesel') &&
+      patch.speed !== undefined) {
+    const effectiveRpm = patch.rpm !== undefined ? patch.rpm : _current.rpm;
+    if (patch.speed > ICE_RPM_SPEED_THRESHOLD && effectiveRpm === -1) {
+      const now = Date.now();
+      if (_iceRpmMissStart === null) {
+        _iceRpmMissStart = now;
+      } else if (now - _iceRpmMissStart >= ICE_RPM_TIMEOUT_MS) {
+        console.warn('[OBD:ICEGuard] ICE profili geçersiz: speed=', patch.speed,
+          'km/h iken 10s boyunca RPM=-1 → StandardProfile\'e geri dönülüyor');
+        _iceRpmMissStart = null;
+        _applyDetectedProfile(vehicleProfileRegistry.getById('standard')!);
+      }
+    } else {
+      _iceRpmMissStart = null; // RPM geldi veya araç yavaş → sayacı sıfırla
+    }
+  }
+
   _merge({ ...patch, lastSeenMs: _lastRealDataMs });
 }
 
@@ -631,6 +672,12 @@ function _scheduleReconnect(): void {
 
   clearAccumulatedBuffer(); // T507: parçalı paket tamponunu temizle
   _clearDataGate();         // önceki gate/timer sızıntısını önle
+
+  // Fix 2: A2DP glitch önleme — reconnect sırasında BT INQUIRY scan'i durdur.
+  // BT inquiry scan sırasında PLL çakışması → GPS ±15 m jitter + A2DP sniff-mode askıya → müzik atlaması.
+  if (Capacitor.isNativePlatform()) {
+    try { void (CarLauncher as unknown as { stopScan?: () => Promise<void> }).stopScan?.(); } catch { /* ignore */ }
+  }
 
   // OBD disconnect → RuntimeEngine'e bildir (bir adım downgrade — hysteresis bypass)
   runtimeManager.reportFailure('OBD');
@@ -658,7 +705,8 @@ function _scheduleReconnect(): void {
     return;
   }
 
-  const delayMs = Math.pow(2, _reconnectAttempts) * 1_000; // 1 s, 2 s, 4 s, 8 s, 16 s
+  // Fix 2: muhafazakâr backoff — ilk deneme 2s, çarpan 2.0 (2 s, 4 s, 8 s, 16 s, 32 s)
+  const delayMs = Math.pow(2, _reconnectAttempts) * 2_000;
   _reconnectAttempts++;
 
   // Native platformda reconnect bekleme süresi boyunca 'reconnecting' + source: 'none'
@@ -672,7 +720,7 @@ function _scheduleReconnect(): void {
     if (!_running) return;
 
     _stopMock();
-    _startNative().then(() => {
+    _startNative({ trustBypass: true }).then(() => {
       // Success — reset counter
       _reconnectAttempts = 0;
     }).catch(async (e: unknown) => {
@@ -717,7 +765,11 @@ function _getPidList(type: VehicleType): string[] {
   }
 }
 
-async function _startNative(): Promise<void> {
+async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
+  if (!opts?.trustBypass) {
+    useExpertStore.getState().assertWritesAllowed();
+  }
+
   // Capture generation at entry — if stopOBD()/startOBD() fires mid-flight,
   // _nativeGeneration changes and stale continuations bail out safely.
   const myGen = ++_nativeGeneration;
@@ -834,7 +886,15 @@ async function _startNative(): Promise<void> {
   try { localStorage.setItem(OBD_ADDRESS_KEY, candidate.address); } catch { /* quota */ }
   _merge({ connectionState: 'initializing', source: 'none' });
 
-  await new Promise<void>((r) => setTimeout(r, 2_000));
+  // Fix 3: 2s sabit bekleme → maksimum deadline. Geçerli PID (speed/RPM) daha erken
+  // gelirse _onRealData içinden _warmupResolve() çağrılır ve deadline iptal edilir.
+  _warmupActive = true;
+  await new Promise<void>((resolve) => {
+    const deadline = setTimeout(resolve, 2_000);
+    _warmupResolve = () => { clearTimeout(deadline); resolve(); };
+  });
+  _warmupActive  = false;
+  _warmupResolve = null;
   if (_stale()) { void _removeNativeHandles(); return; }
 
   // 6. OBD Handshake — VIN ve desteklenen PID tespiti.
@@ -850,6 +910,8 @@ async function _startNative(): Promise<void> {
 
       _applyDetectedProfile(profile);
 
+      persistHandshakeVin(result.vin ?? null);
+
       if (result.vin) {
         console.info('[OBD:Handshake] VIN:', result.vin,
           '| Üretici:', vehicleProfileRegistry /* decodeWMI */ && result.vin.slice(0, 3),
@@ -860,6 +922,7 @@ async function _startNative(): Promise<void> {
       }
     }
   } catch (err) {
+    persistHandshakeVin(null);
     // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
     console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
   }
@@ -897,6 +960,7 @@ function _applyDetectedProfile(profile: IVehicleProfile): void {
  * Sonuç { name, address }[] döner.
  */
 export async function scanOBD(): Promise<Array<{ name: string; address: string }>> {
+  useExpertStore.getState().assertWritesAllowed();
   if (!Capacitor.isNativePlatform()) return [];
   const { devices } = await CarLauncher.scanOBD();
   return devices;
@@ -906,6 +970,7 @@ export async function scanOBD(): Promise<Array<{ name: string; address: string }
  * Belirli bir BT adresiyle OBD bağlantısı kur — SetupWizard için.
  */
 export async function connectOBD(address: string): Promise<void> {
+  useExpertStore.getState().assertWritesAllowed();
   await CarLauncher.connectOBD({ address });
 }
 
@@ -941,6 +1006,12 @@ export function startOBD(address?: string, pin?: string): void {
     // address provided while service is already running but not connected:
     // cancel the in-flight operation (scan / failed connect) and direct-connect.
     if (address && _current.connectionState !== 'connected') {
+      try {
+        useExpertStore.getState().assertWritesAllowed();
+      } catch (e: unknown) {
+        logError('OBD:TrustGate', e);
+        return;
+      }
       if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
       _reconnectAttempts = 0;
       _nativeGeneration++; // invalidate any stale _startNative() continuation
@@ -953,6 +1024,12 @@ export function startOBD(address?: string, pin?: string): void {
         });
       });
     }
+    return;
+  }
+  try {
+    useExpertStore.getState().assertWritesAllowed();
+  } catch (e: unknown) {
+    logError('OBD:TrustGate', e);
     return;
   }
   _running = true;
@@ -1013,6 +1090,11 @@ export function stopOBD(): void {
   _reconnectAttempts = 0;
   _stopStaleWatchdog();
   _clearDataGate();
+  // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
+  if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }
+  _warmupActive = false;
+  // Fix 1: ICE RPM miss sayacı sıfırla
+  _iceRpmMissStart = null;
   clearAccumulatedBuffer();
   _stopMock();
   _pendingDisconnect = _removeNativeHandles().then(() => {
@@ -1071,6 +1153,7 @@ export function onOBDData(fn: (d: OBDData) => void): () => void {
  */
 export function setOBDTestOverride(data: Partial<OBDData> | null): void {
   if (!import.meta.env.DEV) return;
+  useExpertStore.getState().assertWritesAllowed();
   _testOBDOverride = data;
   // Override'ı hemen yayınla (debounce'u atla — test anında görünmeli)
   const snap: OBDData = data ? { ..._current, ...data } : { ..._current };

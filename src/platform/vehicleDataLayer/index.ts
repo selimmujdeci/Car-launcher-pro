@@ -50,11 +50,11 @@ export function restoreOdometer(km: number): void {
  * Heading ve location: GPS tarafı (gpsService mirror subscriber) yetkilidir;
  * worker'dan gelen heading/location patch'leri biriktirilmez.
  */
-export function startVehicleDataLayer(): () => void {
+export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): () => void {
   const can      = new CanAdapter();
   const obd      = new ObdAdapter();
   const gps      = new GpsAdapter();
-  const resolver = new VehicleSignalResolver(can, obd, gps);
+  const resolver = new VehicleSignalResolver(can, obd, gps, opts?.onWorkerCrash);
   _activeResolver = resolver;
 
   // ── RAF-Batched UI State Update ─────────────────────────────────────────

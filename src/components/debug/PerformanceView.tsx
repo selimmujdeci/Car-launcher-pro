@@ -35,10 +35,18 @@ function StatRow({ label, value, sub }: { label: string; value: string; sub?: st
   );
 }
 
+function fmtBytes(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(0)} KB`;
+  if (bytes < 1_024 * 1_024 * 1_024) return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
+  return `${(bytes / (1_024 * 1_024 * 1_024)).toFixed(2)} GB`;
+}
+
 export const PerformanceView = memo(function PerformanceView() {
-  const perf     = useDebugStore((s) => s.perf);
-  const fallback = useDebugStore((s) => s.fallback);
-  const errorLog = useDebugStore((s) => s.errorLog);
+  const perf       = useDebugStore((s) => s.perf);
+  const fallback   = useDebugStore((s) => s.fallback);
+  const errorLog   = useDebugStore((s) => s.errorLog);
+  const cacheStats = useDebugStore((s) => s.cacheStats);
 
   return (
     <div className="flex flex-col gap-4 px-1">
@@ -76,6 +84,36 @@ export const PerformanceView = memo(function PerformanceView() {
         <StatRow label="CAN dropped" value={String(perf.canDropped)} sub="invalid frames" />
         <StatRow label="OBD dropped" value={String(perf.obdDropped)} sub="invalid frames" />
         <StatRow label="GPS dropped" value={String(perf.gpsDropped)} sub="invalid frames" />
+      </div>
+
+      {/* Tile Cache */}
+      <div>
+        <p className="text-gray-500 text-xs font-mono uppercase mb-2">Tile Cache</p>
+        <div className="border border-gray-700 rounded px-3">
+          <div className="flex items-center justify-between py-1.5 border-b border-gray-800">
+            <span className="text-gray-400 text-xs font-mono">Cache Hit Rate</span>
+            <div className="flex items-center gap-2">
+              <div className="w-20 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                  style={{ width: `${cacheStats.hitRate}%` }}
+                />
+              </div>
+              <span className="text-blue-400 text-xs font-mono w-10 text-right">
+                {cacheStats.hitRate}%
+              </span>
+            </div>
+          </div>
+          <StatRow
+            label="Cache Size"
+            value={fmtBytes(cacheStats.totalBytes)}
+            sub={`${cacheStats.tileCount} tiles`}
+          />
+          <StatRow
+            label="Hits / Misses"
+            value={`${cacheStats.hits} / ${cacheStats.misses}`}
+          />
+        </div>
       </div>
 
       {/* Fallback status */}

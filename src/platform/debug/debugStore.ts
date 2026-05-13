@@ -51,6 +51,14 @@ export interface PerfStats {
   listenerCount: number;
 }
 
+export interface CacheStats {
+  hits:       number;
+  misses:     number;
+  hitRate:    number;  // 0-100 yüzde
+  totalBytes: number;
+  tileCount:  number;
+}
+
 export interface FallbackStatus {
   canAlive: boolean;
   obdFallbackActive: boolean;
@@ -83,6 +91,7 @@ interface DebugStore {
   canExtras: CanExtras;
   perf: PerfStats;
   fallback: FallbackStatus;
+  cacheStats: CacheStats;
   // Panel state
   collecting: boolean; // true when panel is open → canRawLog fills
 
@@ -93,6 +102,7 @@ interface DebugStore {
   updateCanExtras: (extras: CanExtras) => void;
   updatePerf: (patch: Partial<PerfStats>) => void;
   updateFallback: (f: FallbackStatus) => void;
+  updateCacheStats: (stats: CacheStats) => void;
   setCollecting: (v: boolean) => void;
   clearCanRaw: () => void;
   clearReverseLog: () => void;
@@ -105,6 +115,10 @@ const DEFAULT_PERF: PerfStats = {
   canLastTs: 0, obdLastTs: 0, gpsLastTs: 0,
   canDropped: 0, obdDropped: 0, gpsDropped: 0,
   listenerCount: 0,
+};
+
+const DEFAULT_CACHE_STATS: CacheStats = {
+  hits: 0, misses: 0, hitRate: 0, totalBytes: 0, tileCount: 0,
 };
 
 const DEFAULT_FALLBACK: FallbackStatus = {
@@ -120,6 +134,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
   canExtras: {},
   perf: DEFAULT_PERF,
   fallback: DEFAULT_FALLBACK,
+  cacheStats: DEFAULT_CACHE_STATS,
   collecting: false,
 
   pushCanRaw: (e) => {
@@ -141,6 +156,8 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
 
   updateFallback: (f) => set({ fallback: f }),
 
+  updateCacheStats: (stats) => set({ cacheStats: stats }),
+
   setCollecting: (v) => set({ collecting: v }),
 
   clearCanRaw: () => set({ canRawLog: [] }),
@@ -158,6 +175,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
       canExtras: s.canExtras,
       perf: s.perf,
       fallback: s.fallback,
+      cacheStats: s.cacheStats,
     };
   },
 }));

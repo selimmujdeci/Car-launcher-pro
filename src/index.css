@@ -81,6 +81,33 @@
   --text-dim:      #8A9AAA;
   --text-dim2:     #B4BDC6;
   --bg-card2:      rgba(24,24,28,0.90);
+
+  /* ── Dynamic Driver-Centric Dock ── */
+  --dock-h:        72px;
+  --dock-icon:     28px;
+  --dock-font:     11px;
+  --dock-gap:      8px;
+  --dock-tile-w:   64px;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --dock-h:      88px;
+    --dock-icon:   36px;
+    --dock-font:   13px;
+    --dock-gap:    12px;
+    --dock-tile-w: 72px;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --dock-h:      100px;
+    --dock-icon:   42px;
+    --dock-font:   14px;
+    --dock-gap:    16px;
+    --dock-tile-w: 80px;
+  }
 }
 
 [data-theme="pro"] {

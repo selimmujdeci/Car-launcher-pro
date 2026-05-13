@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cockpitos.local/schemas/pidHumanRegistry.schema.json",
+  "title": "OBD Mode01 PID ve Mode22 DID insancıl açıklama kaydı",
+  "description": "Kök özellik anahtarları: Mode01-PID (örn. 01-0C) ve Mode22 iki bayt DID (örn. 22-F1-90); ek anahtar yasaktır.",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "pidEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kisaAd", "insancilAciklama"],
+      "properties": {
+        "kisaAd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Kısa başlık — doğrulanmış Türkçe"
+        },
+        "insancilAciklama": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Sürücüye yönelik doğrulanmış açıklama"
+        },
+        "birim": {
+          "type": "string",
+          "description": "Ölçü birimi (opsiyonel)"
+        },
+        "teknikKod": {
+          "type": "string",
+          "description": "Referans PID etiketi (opsiyonel)"
+        }
+      }
+    }
+  },
+  "properties": {
+    "01-01": { "$ref": "#/definitions/pidEntry" },
+    "01-04": { "$ref": "#/definitions/pidEntry" },
+    "01-05": { "$ref": "#/definitions/pidEntry" },
+    "01-0A": { "$ref": "#/definitions/pidEntry" },
+    "01-0B": { "$ref": "#/definitions/pidEntry" },
+    "01-0C": { "$ref": "#/definitions/pidEntry" },
+    "01-0D": { "$ref": "#/definitions/pidEntry" },
+    "01-0F": { "$ref": "#/definitions/pidEntry" },
+    "01-10": { "$ref": "#/definitions/pidEntry" },
+    "01-11": { "$ref": "#/definitions/pidEntry" },
+    "01-2C": { "$ref": "#/definitions/pidEntry" },
+    "01-2F": { "$ref": "#/definitions/pidEntry" },
+    "01-31": { "$ref": "#/definitions/pidEntry" },
+    "01-33": { "$ref": "#/definitions/pidEntry" },
+    "01-42": { "$ref": "#/definitions/pidEntry" },
+    "01-46": { "$ref": "#/definitions/pidEntry" },
+    "22-F1-90": { "$ref": "#/definitions/pidEntry" },
+    "22-F1-87": { "$ref": "#/definitions/pidEntry" }
+  },
+  "required": [
+    "01-01",
+    "01-04",
+    "01-05",
+    "01-0A",
+    "01-0B",
+    "01-0C",
+    "01-0D",
+    "01-0F",
+    "01-10",
+    "01-11",
+    "01-2C",
+    "01-2F",
+    "01-31",
+    "01-33",
+    "01-42",
+    "01-46",
+    "22-F1-90",
+    "22-F1-87"
+  ]
+}

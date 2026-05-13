@@ -10,6 +10,7 @@
  */
 
 import { logError }       from '../crashLogger';
+import { systemBoot }     from '../system/SystemBoot';
 import { useVisionStore } from '../visionStore';
 import type { VisionFrame, VisionStore } from '../visionStore';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
@@ -83,8 +84,10 @@ function _createVisionWorker(): Worker | null {
     w.onerror = (err) => {
       logError('VisionCompute:onerror', new Error(err.message ?? 'Worker crash'));
       runtimeManager.reportFailure('VisionCompute');
-      _workerBusy  = false;
-      _visionWorker = null; // Stability Guard: crash sonrası null bırak
+      _workerBusy   = false;
+      _visionWorker = null;
+      runtimeManager.registerWorker('VisionCompute', null, 'OPTIONAL'); // referansı temizle
+      void systemBoot.restartService('VisionCompute').catch(() => {});
     };
     w.onmessageerror = () => {
       logError('VisionCompute:messageerror', new Error('Deserialize failed'));
@@ -276,6 +279,18 @@ export function onVisionFrame(fn: (f: VisionFrame) => void): () => void {
 }
 
 export function getLastFrame(): VisionFrame { return _lastFrame; }
+
+/**
+ * SystemBoot.restartService('VisionCompute') tarafından çağrılır.
+ * Worker crash sonrası RAF döngüsü aktifken yeni worker oluşturur.
+ */
+export function restartVisionWorker(): void {
+  if (!_running || _visionWorker) return; // vision çalışmıyorsa veya zaten varsa no-op
+  _visionWorker = _createVisionWorker();
+  if (_visionWorker) {
+    runtimeManager.registerWorker('VisionCompute', _visionWorker, 'OPTIONAL');
+  }
+}
 
 /* ── HMR cleanup ─────────────────────────────────────────────────────────────── */
 if (import.meta.hot) {

@@ -11,6 +11,10 @@ export function registerDrawerHandler(fn: (d: DrawerType) => void): void {
   _handler = fn;
 }
 
+export function unregisterDrawerHandler(): void {
+  _handler = null;
+}
+
 export function openDrawer(d: DrawerType): void {
   _handler?.(d);
 }

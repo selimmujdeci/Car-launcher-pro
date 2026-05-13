@@ -1,3 +1,8 @@
+import { dispatchPOISearch, closeWorkerDatabase } from './offlineRoutingService';
+import type { POIWorkerResult } from './offlineRoutingService';
+import { safeGetRaw } from '../utils/safeStorage';
+import { registerCachePurge } from './memoryWatchdog';
+
 /**
  * Offline Search Service — İnternet olmadan geocoding fallback.
  *
@@ -46,6 +51,14 @@ export interface OfflineSearchResult {
 const DB_NAME    = 'car-launcher-locations-v1';
 const STORE_NAME = 'locations';
 const DB_VERSION = 1;
+
+// SafeStorage anahtarı: poi.db başarıyla indirildiğinde bu key set edilir.
+// Anahtar varken poi.db yüklenemezse "Offline Veri Eksik" uyarısı tetiklenir.
+const POI_DB_MANIFEST_KEY = 'poi.db.manifest';
+
+// RAM CRITICAL sinyalinde Worker'daki SQLite bağlantısını temiz kapat.
+// Zero-Leak: registerCachePurge thunk döner ancak modül ömrü boyunca aktif.
+registerCachePurge(() => closeWorkerDatabase());
 
 let _db: IDBDatabase | null = null;
 
@@ -338,4 +351,126 @@ export async function clearAllLocations(): Promise<void> {
   for (const loc of all) {
     await idbDelete(db, loc.id);
   }
+}
+
+/* ── SQLite WASM FTS5 POI Arama ──────────────────────────────────────────── */
+
+export interface POISearchResult {
+  id:       string;
+  name:     string;
+  address:  string;
+  lat:      number;
+  lon:      number;
+  score:    number;
+  category: string;
+  source:   'sqlite-fts5' | 'indexeddb';
+}
+
+// SAB layout sabitleri — NavigationCompute.worker.ts ile senkron
+// İKİ DOSYADA DA DEĞİŞTİRİLMELİ
+export const POI_SAB_HEADER = 8;
+export const POI_SAB_STRIDE = 256;
+export const POI_SAB_MAX    = 20;
+const _OFF_NAME  = 0;  const _LEN_NAME  = 64;
+const _OFF_ADDR  = 64; const _LEN_ADDR  = 64;
+const _OFF_LAT   = 128;
+const _OFF_LON   = 136;
+const _OFF_SCORE = 144;
+const _OFF_CAT   = 148; const _LEN_CAT  = 32;
+const _OFF_ID    = 180; const _LEN_ID   = 32;
+
+const _dec = new TextDecoder();
+
+function _readStr(u8: Uint8Array, base: number, off: number, len: number): string {
+  const slice = u8.subarray(base + off, base + off + len);
+  const end   = slice.indexOf(0);
+  return _dec.decode(end < 0 ? slice : slice.subarray(0, end));
+}
+
+/**
+ * SharedArrayBuffer'ı POISearchResult dizisine çözer.
+ * Zero-copy transfer sonrası main thread tarafında çağrılır.
+ */
+export function decodePOISAB(sab: SharedArrayBuffer, count: number): POISearchResult[] {
+  const view   = new DataView(sab);
+  const u8     = new Uint8Array(sab);
+  const actual = Math.min(count, POI_SAB_MAX, Math.floor((sab.byteLength - POI_SAB_HEADER) / POI_SAB_STRIDE));
+  const out: POISearchResult[] = [];
+
+  for (let i = 0; i < actual; i++) {
+    const base = POI_SAB_HEADER + i * POI_SAB_STRIDE;
+    out.push({
+      name:     _readStr(u8, base, _OFF_NAME,  _LEN_NAME),
+      address:  _readStr(u8, base, _OFF_ADDR,  _LEN_ADDR),
+      lat:      view.getFloat64(base + _OFF_LAT,  true),
+      lon:      view.getFloat64(base + _OFF_LON,  true),
+      score:    view.getFloat32(base + _OFF_SCORE, true),
+      category: _readStr(u8, base, _OFF_CAT,   _LEN_CAT),
+      id:       _readStr(u8, base, _OFF_ID,    _LEN_ID),
+      source:   'sqlite-fts5',
+    });
+  }
+  return out;
+}
+
+function _allocPOISAB(maxResults: number): SharedArrayBuffer | null {
+  if (typeof SharedArrayBuffer === 'undefined') return null;
+  try {
+    return new SharedArrayBuffer(POI_SAB_HEADER + maxResults * POI_SAB_STRIDE);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SQLite FTS5 tabanlı POI araması — NavigationCompute Worker üzerinden çalışır.
+ * Ana thread hiçbir zaman veritabanı sorgusu yapmaz.
+ *
+ * - SharedArrayBuffer mevcut ise: zero-copy protokolü (SAB → decodePOISAB)
+ * - Mevcut değilse: JSON fallback (POIWorkerResult[] mesajla gönderilir)
+ * - poi.db yüklenemezse: boş dizi döner (graceful degrade)
+ *
+ * poi.db şeması (FTS5):
+ *   CREATE VIRTUAL TABLE poi_fts USING fts5(
+ *     id UNINDEXED, name, address,
+ *     lat UNINDEXED, lon UNINDEXED, category UNINDEXED,
+ *     tokenize = "unicode61 remove_diacritics 2"
+ *   );
+ */
+export async function searchPOI(
+  query:   string,
+  options: { lat?: number; lon?: number; maxResults?: number } = {},
+): Promise<POISearchResult[]> {
+  if (!query.trim()) return [];
+  const max = Math.min(options.maxResults ?? 10, POI_SAB_MAX);
+  const sab = _allocPOISAB(max);
+
+  const { count, results, dbError } = await dispatchPOISearch(
+    query,
+    options.lat,
+    options.lon,
+    max,
+    sab,
+  );
+
+  // poi.db yükleme hatası + manifest mevcutsa → veri eksik uyarısı
+  if (dbError && typeof window !== 'undefined') {
+    const manifest = safeGetRaw(POI_DB_MANIFEST_KEY);
+    if (manifest !== null) {
+      window.dispatchEvent(new CustomEvent('caros:offline-data-missing', {
+        detail: { source: 'poi.db', manifest },
+      }));
+    }
+  }
+
+  if (count === 0) return [];
+
+  // Zero-copy path: SAB'dan oku
+  if (sab) return decodePOISAB(sab, count);
+
+  // JSON fallback: doğrudan mesajdan dönüştür
+  return (results ?? []).map((r: POIWorkerResult): POISearchResult => ({
+    ...r,
+    source: 'sqlite-fts5',
+  }));
 }

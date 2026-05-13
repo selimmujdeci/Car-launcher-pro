@@ -16,7 +16,7 @@
  *   Worker'daki _checkGeofences() yalnızca speed > 0 iken çalışır.
  */
 
-import { onVehicleEvent }        from '../vehicleDataLayer/VehicleEventHub';
+import { onVehicleEvent, dispatchGeofenceViolation } from '../vehicleDataLayer/VehicleEventHub';
 import { updateGeofenceZones }   from '../vehicleDataLayer/index';
 import { sensitiveKeyStore }     from '../sensitiveKeyStore';
 import { getSupabaseClient }     from '../supabaseClient';
@@ -73,8 +73,12 @@ async function _fetchZones(vehicleId: string): Promise<WorkerGeofenceZone[]> {
 // ── İhlal işleyicisi ──────────────────────────────────────────────────────────
 
 function _onGeofenceExit(zoneId: string, zoneName: string, ts: number): void {
+  // VIOLATION önce dispatch edilir → App.tsx listener alarm'ı set eder (birincil yol)
+  dispatchGeofenceViolation(zoneId, zoneName);
+  // Güvenlik ağı: dispatch sırasında alarm set edilmediyse burada set edilir (idempotent)
   useSystemStore.getState().setGeofenceAlarm({ zoneId, zoneName, ts });
-  speakAlert(`Güvenlik uyarısı: Araç ${zoneName} bölgesinden ayrıldı.`);
+  // speakAlert kendi duckMedia/unduckMedia döngüsünü yönetir — ayrıca çağırmak gerekmez
+  speakAlert('Güvenli bölge dışına çıkıldı');
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

@@ -56,6 +56,10 @@ const NAV_TRIGGERS_RAW = [
   'beni götür',
   'götür beni',
   'götürün',
+  'navigasyona ekle',
+  'nasıl gidilir',
+  'nasıl giderim',
+  'nereye gideyim',
   'gidelim',
   'rotala',
   'gidin',
@@ -63,13 +67,16 @@ const NAV_TRIGGERS_RAW = [
   'götür',
   'git',
   'sür',
+  'bul',
+  'göster',
+  'nerede',
 ] as const;
 
 const NAV_TRIGGERS = NAV_TRIGGERS_RAW.map(norm);
 
 /* ── Place-type keywords (navigate_place intent) ─────────── */
 
-const PLACE_KEYWORDS = /hastane|okul|universite|cami|market|alisveris|avm|otel|banka|eczane|sahil|polis|itfaiye|muze|kutuphane|istasyon|terminal|havaalani|liman|koy|ilce|merkez/;
+const PLACE_KEYWORDS = /hastane|okul|universite|cami|market|alisveris|avm|otel|banka|eczane|sahil|polis|itfaiye|muze|kutuphane|istasyon|terminal|havaalani|liman|koy|ilce|merkez|mahalle|semt|bucak|cadde|sokak|bulvar|meydan|sitesi|apartman/;
 
 /* ── Ev/iş hedefleri — commandParser'a bırak ─────────────── */
 
@@ -113,6 +120,23 @@ export function tryParseNavAddress(rawText: string): ParsedNavAddress | null {
       displayText: 'En yakın otopark',
       feedback:    'En yakın otopark aranıyor',
     };
+  }
+
+  /* ── Mahalle / semt / cadde kalıbı (trigger olmaksızın) ──── */
+  // "Bağlar Mahallesi", "Çeliktepe Mahallesi'ne", "Kızılay Caddesi" vb.
+  // Kullanıcı sadece yer adını söylediğinde de navigate_place döndür.
+  const PLACE_SUFFIX_RE = /mahalle(?:si(?:ne|nde|nden|nin)?)?|semt(?:i(?:ne|nde|nden|nin)?)?|cadde(?:si(?:ne|nde|nden)?)?|sokak(?:\w*)?|bulvar(?:\w*)?|meydan(?:\w*)?/i;
+  const placeSuffixMatch = raw.match(
+    /^(.{2,}?)\s+(?:mahalle(?:si(?:ne|nde|nden|nin)?)?|semt(?:i(?:ne|nde|nden|nin)?)?|cadde(?:si(?:ne|nde|nden)?)?|sokak\w*|bulvar\w*|meydan\w*)\s*$/i
+  );
+  if (placeSuffixMatch) {
+    // suffix'i koruyarak tam yer adını oluştur
+    const suffixMatch = raw.match(PLACE_SUFFIX_RE);
+    const suffix = suffixMatch ? suffixMatch[0].replace(/(ne|nde|nden|nin)$/i, '') : '';
+    const destName = placeSuffixMatch[1].trim() + (suffix ? ' ' + suffix : '');
+    if (destName.length >= 2 && !HOME_WORK_EXACT.test(norm(destName.split(' ')[0]))) {
+      return buildResult(destName);
+    }
   }
 
   /* ── Sondan navigasyon fiili ara ─────────────────────────── */

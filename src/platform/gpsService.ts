@@ -506,10 +506,6 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     _drLastPos = { lat: _prevLoc.latitude, lng: _prevLoc.longitude };
   }
 
-  const _src = isNativePlatform() ? 'native' : 'web';
-  console.log(`[GPS] source:${_src} lat:${coords.latitude.toFixed(6)} lon:${coords.longitude.toFixed(6)} acc:${coords.accuracy?.toFixed(0)}m ts:${timestamp ?? now}`);
-  console.log('[GPS]', { lat: coords.latitude, lon: coords.longitude, accuracy: coords.accuracy, source: _src });
-
   // GPS speed yoksa pozisyon delta'sından hesapla
   const gpsSpeed = Number.isFinite(coords.speed ?? NaN) ? (coords.speed ?? undefined) : undefined;
   const rawSpeed = gpsSpeed ?? _calcSpeedFromDelta(coords.latitude, coords.longitude, timestamp ?? now);
@@ -586,16 +582,6 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _saveLastKnown(loc);
 
   const source: GPSState['source'] = isNativePlatform() ? 'native' : 'web';
-
-  console.log('[GPS_DECISION]', {
-    lat:       coords.latitude,
-    lon:       coords.longitude,
-    accuracy:  coords.accuracy,
-    ageMs:     Math.abs(now - (timestamp ?? now)),
-    gpsSource: source,
-    valid:     true,
-    reason:    'handlePosition_accepted',
-  });
 
   useGPSStore.setState({
     location:   loc,

@@ -23,10 +23,12 @@
  *   osmium extract -b bbox turkey.osm.pbf | osm-graph-exporter > routing-graph.bin
  */
 
-import { logError } from './crashLogger';
+import { Capacitor }        from '@capacitor/core';
+import { logError }          from './crashLogger';
 import { registerCachePurge } from './memoryWatchdog';
-import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
-import type { RouteStep } from './routingService';
+import { runtimeManager }    from '../core/runtime/AdaptiveRuntimeManager';
+import { systemBoot }        from './system/SystemBoot';
+import type { RouteStep }    from './routingService';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -70,19 +72,18 @@ function _toTR(type: string, mod: string, name: string): string {
  *
  * Bu fonksiyon, daemon ayakta ise rota döner; değilse null döner.
  */
-// Use public OSRM demo server — avoids mixed content block on Android
-const LOCAL_DAEMON_URL = 'https://router.project-osrm.org/route/v1/driving';
-const LOCAL_DAEMON_TIMEOUT_MS = 3_000;
+const LOCAL_DAEMON_URL        = 'http://localhost:5000/route/v1/driving';
+const LOCAL_DAEMON_TIMEOUT_MS = 3_000; // native daemon genellikle <100ms yanıt verir
 
 export async function tryLocalDaemon(
   fromLon: number, fromLat: number,
   toLon:   number, toLat:   number,
 ): Promise<OfflineRouteResult | null> {
+  if (!Capacitor.isNativePlatform()) return null;
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), LOCAL_DAEMON_TIMEOUT_MS);
   try {
     const url = `${LOCAL_DAEMON_URL}/${fromLon},${fromLat};${toLon},${toLat}?steps=true&geometries=geojson&overview=full`;
-    console.log('[OSRM_URL]', url);
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
     if (!res.ok) return null;
@@ -375,7 +376,26 @@ const _pending = new Map<string, {
   timer:   ReturnType<typeof setTimeout>;
 }>();
 
-const NAV_WORKER_TIMEOUT_MS = 8_000; // 8s — büyük graph + yavaş cihaz
+const NAV_WORKER_TIMEOUT_MS = 8_000;
+
+/* ── POI Arama worker dispatch ───────────────────────────────────────────── */
+
+export interface POIWorkerResult {
+  id:       string;
+  name:     string;
+  address:  string;
+  lat:      number;
+  lon:      number;
+  score:    number;
+  category: string;
+}
+
+const _searchPending = new Map<string, {
+  resolve: (r: { count: number; results?: POIWorkerResult[]; dbError?: boolean }) => void;
+  timer:   ReturnType<typeof setTimeout>;
+}>();
+let _searchReqCounter  = 0;
+const SEARCH_TIMEOUT_MS = 3_000;
 
 function _getOrCreateNavWorker(): Worker | null {
   if (_navWorker) return _navWorker;
@@ -394,7 +414,26 @@ function _getOrCreateNavWorker(): Worker | null {
         durationS?: number;
         steps?: RouteStep[];
         reason?: string;
+        count?: number;
+        results?: POIWorkerResult[];
       };
+
+      // POI arama yanıtı
+      if ((msg.type === 'SEARCH_RESULT' || msg.type === 'SEARCH_ERROR') && msg.requestId) {
+        const sreq = _searchPending.get(msg.requestId);
+        if (sreq) {
+          clearTimeout(sreq.timer);
+          _searchPending.delete(msg.requestId);
+          sreq.resolve({
+            count:   msg.type === 'SEARCH_RESULT' ? (msg.count ?? 0) : 0,
+            results: msg.results,
+            dbError: msg.type === 'SEARCH_ERROR',
+          });
+        }
+        return;
+      }
+
+      // Rota hesaplama yanıtı
       const req = msg.requestId ? _pending.get(msg.requestId) : undefined;
       if (!req) return;
       clearTimeout(req.timer);
@@ -416,13 +455,14 @@ function _getOrCreateNavWorker(): Worker | null {
     w.onerror = (err) => {
       logError('NavigationCompute:onerror', new Error(err.message ?? 'crash'));
       runtimeManager.reportFailure('NavigationCompute');
-      // Bekleyen tüm istekleri reddet
       for (const [id, req] of _pending.entries()) {
         clearTimeout(req.timer);
         req.resolve(null);
         _pending.delete(id);
       }
-      _navWorker = null; // Stability Guard
+      _navWorker = null;
+      runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL'); // referansı temizle
+      void systemBoot.restartService('NavigationCompute').catch(() => {});
     };
 
     w.onmessageerror = () => {
@@ -505,3 +545,48 @@ export function clearCache(): void {
 
 // RAM krizi: memoryWatchdog cache temizleme sinyaline kaydol
 registerCachePurge(clearCache);
+
+/**
+ * SystemBoot.restartService('NavigationCompute') tarafından çağrılır.
+ * Worker crash sonrası yeni worker önceden ısıtılır; sonraki rota isteği beklemez.
+ */
+export function restartNavWorker(): void {
+  if (_navWorker) return; // zaten çalışıyorsa no-op
+  _getOrCreateNavWorker(); // _navWorker null ise yeni oluşturur ve runtimeManager'a kaydeder
+}
+
+/**
+ * POI FTS5 aramasını NavigationCompute Worker'a gönderir.
+ * Sonuçlar SharedArrayBuffer varsa zero-copy, yoksa JSON fallback ile gelir.
+ * offlineSearchService.searchPOI() bu fonksiyonu kullanır.
+ */
+/**
+ * Worker thread'deki SQLite (poi.db) bağlantısını kapatır.
+ * RAM CRITICAL baskısında offlineSearchService tarafından çağrılır.
+ */
+export function closeWorkerDatabase(): void {
+  _navWorker?.postMessage({ type: 'CLOSE_DB' });
+}
+
+export async function dispatchPOISearch(
+  query:      string,
+  lat:        number | undefined,
+  lon:        number | undefined,
+  maxResults: number,
+  sab:        SharedArrayBuffer | null,
+): Promise<{ count: number; results?: POIWorkerResult[]; dbError?: boolean }> {
+  const w = _getOrCreateNavWorker();
+  if (!w) return { count: 0, dbError: true };
+
+  const requestId = `s${++_searchReqCounter}`;
+
+  return new Promise<{ count: number; results?: POIWorkerResult[]; dbError?: boolean }>((resolve) => {
+    const timer = setTimeout(() => {
+      _searchPending.delete(requestId);
+      resolve({ count: 0 });
+    }, SEARCH_TIMEOUT_MS);
+
+    _searchPending.set(requestId, { resolve, timer });
+    w.postMessage({ type: 'SEARCH_POI', requestId, query, lat, lon, maxResults, sab });
+  });
+}

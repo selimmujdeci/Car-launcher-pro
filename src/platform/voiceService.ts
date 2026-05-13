@@ -463,16 +463,14 @@ function _stopWebRecognition(): void {
 }
 
 export function startListening(): void {
-  if (_current.status === 'listening') {
+  // Warmup timer in-flight da re-entry'yi engeller
+  if (_current.status === 'listening' || _nativeSttWarmupTimer !== null) {
     stopListening();
     return;
   }
 
-  push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
-
   if (isNative) {
     // T507 ısınma süresi: tüm native cihazlarda 500ms — mikrofon donanım açılışı beklenir.
-    // Ses simülasyonu da warmup sonrası başlar — animasyon gerçek açılışla eşlenir.
     const warmupMs = isLowEndDevice() ? 500 : 300;
 
     const sttFailsafe = setTimeout(() => {
@@ -485,6 +483,8 @@ export function startListening(): void {
     }, 10_000);
 
     const doSTT = () => {
+      // Warmup bitti — mikrofon donanımı gerçekten açılıyor. "Dinliyorum" ancak burada basılır.
+      push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
       _startNativeVolumeListener();
       duckMedia();
 
@@ -493,12 +493,14 @@ export function startListening(): void {
           clearTimeout(sttFailsafe);
           _stopNativeVolumeListener();
           unduckMedia();
-          // Boş transcript: ilk boşta sessizce idle, 2. ardışık boşta bilgilendirme göster
           const transcript = result.transcript?.trim() ?? '';
           if (transcript) {
             _consecutiveEmptyCount = 0;
+            // CarLauncher bitti → anında "işleniyor" hissi ver, ardından processTextCommand çalışır
+            push({ status: 'processing', transcript });
             void processTextCommand(transcript);
           } else {
+            // Boş transcript: ilk boşta sessizce idle, 2. ardışık boşta bilgilendirme göster
             _consecutiveEmptyCount++;
             if (_consecutiveEmptyCount >= 2) {
               _consecutiveEmptyCount = 0;
@@ -514,20 +516,20 @@ export function startListening(): void {
           _stopNativeVolumeListener();
           unduckMedia();
           const msg = err instanceof Error ? err.message : String(err ?? '');
-          // T507 anlık cancel/abort/timeout → kullanıcıya gösterme, sessizce idle
-          if (/cancel|abort|timeout/i.test(msg)) {
+          // cancel/abort/timeout/no-speech → kullanıcı vazgeçti veya sessiz kaldı → sessizce idle
+          // "Ses algılanamadı" hatasından ayrı tutulur: bu yol kullanıcıyı suçlamaz
+          if (/cancel|abort|timeout|no.?speech|no.?match/i.test(msg)) {
             _consecutiveEmptyCount = 0;
             push({ status: 'idle' });
             return;
           }
           console.error('Native Speech Error:', err);
-          // Sadece ciddi hatalar (izin eksikliği) UI'da gösterilir
           const isPermission = /permission|denied|not.?allowed/i.test(msg);
           push({
             status: 'error',
             error: isPermission
               ? 'Mikrofon izni verilmemiş.'
-              : 'Ses algılanamadı. Çevrimdışı dil paketi (TR) yüklü mü?',
+              : 'Ses tanıma hatası. Çevrimdışı dil paketi (TR) yüklü mü?',
             suggestions: [],
           });
           setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
@@ -537,13 +539,13 @@ export function startListening(): void {
     if (warmupMs > 0) {
       _nativeSttWarmupTimer = setTimeout(() => {
         _nativeSttWarmupTimer = null;
-        if (_current.status !== 'listening') return; // kullanıcı iptal etti
         doSTT();
       }, warmupMs);
     } else {
       doSTT();
     }
   } else {
+    push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
     _startVolumeMeter();
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) {
@@ -579,12 +581,12 @@ export function startListening(): void {
 }
 
 export function stopListening(): void {
+  // Warmup timer status 'listening'e ulaşmadan önce de iptale açık olmalı
+  if (_nativeSttWarmupTimer !== null) {
+    clearTimeout(_nativeSttWarmupTimer);
+    _nativeSttWarmupTimer = null;
+  }
   if (_current.status === 'listening') {
-    // Warmup timer iptal — kullanıcı STT açılmadan iptal etmiş olabilir
-    if (_nativeSttWarmupTimer !== null) {
-      clearTimeout(_nativeSttWarmupTimer);
-      _nativeSttWarmupTimer = null;
-    }
     if (!isNative) _stopWebRecognition();
     _stopVolumeMeter();
     if (isNative) {

@@ -428,17 +428,18 @@ class AdaptiveRuntimeManager {
 
   private _terminateWorkerEntry(key: string, entry: WorkerEntry): void {
     if (!entry.worker) return;
+    console.info(`[Runtime] Worker.terminate() dispatched: ${key}`);
     try {
       entry.worker.postMessage({ type: 'STOP' }); // Temiz kapatma denemesi
-      // Gerekirse zorla terminate — crash veya yavaş kapanma için
       setTimeout(() => {
         try { entry.worker?.terminate(); } catch { /* zaten kapanmış */ }
+        console.info(`[Runtime] Worker.terminate() confirmed: ${key}`);
       }, 500);
     } catch {
       try { entry.worker.terminate(); } catch { /* noop */ }
     }
     this._workers.set(key, { ...entry, worker: null }); // referansı null yap
-    console.info(`[Runtime] Worker terminated under memory pressure: ${key}`);
+    console.info(`[Runtime] Worker reference nulled: ${key} — memory released`);
   }
 
   destroy(): void {

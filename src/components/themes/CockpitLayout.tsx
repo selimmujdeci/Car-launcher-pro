@@ -1,15 +1,11 @@
 import { memo, useState, lazy, Suspense, useEffect } from 'react';
+import { DockBar } from '../layout/DockBar';
 import {
   SkipBack, SkipForward,
-  Settings, Mic,
-  Phone, Music2, Bell, LayoutGrid,
-  ChevronUp, ChevronDown, Cloud, AlertTriangle,
-  Shield, Activity,
+  Settings, Mic, LayoutGrid,
+  Music2, Activity,
   Gauge, Cpu, Compass as CompassIcon,
 } from 'lucide-react';
-import { openMusicDrawer } from '../../platform/mediaUi';
-import { openDrawer } from '../../platform/drawerBus';
-import { useNotificationState } from '../../platform/notificationService';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import { useStore } from '../../store/useStore';
@@ -237,6 +233,7 @@ const GT_Performance = memo(({ appMap: _appMap, onLaunch: _onLaunch }: { appMap:
   
   const fuel = Math.round(obd.fuelLevel ?? 0);
   const temp = Math.round(obd.engineTemp ?? 0);
+  const voltage = obd.batteryVoltage ?? null;
 
   useEffect(() => {
     startMediaHub();
@@ -249,7 +246,7 @@ const GT_Performance = memo(({ appMap: _appMap, onLaunch: _onLaunch }: { appMap:
         <div className="p-5 flex flex-col gap-4">
           <MetricBar label="Fuel" value={`${fuel}%`} percent={fuel} color={fuel < 15 ? C_RED : C_AMBER} />
           <MetricBar label="Temp" value={`${temp}°C`} percent={Math.min(temp, 100)} color={temp > 105 ? C_RED : '#4CAF50'} />
-          <MetricBar label="Energy" value="12.8V" percent={85} color={C_ACCENT} />
+          <MetricBar label="Energy" value={voltage != null ? `${voltage.toFixed(1)}V` : '—'} percent={voltage != null ? Math.min(((voltage - 11) / 4) * 100, 100) : 0} color={voltage != null && voltage < 12 ? C_RED : C_ACCENT} />
         </div>
       </Panel>
 
@@ -308,64 +305,6 @@ const MetricBar = ({ label, value, percent, color }: { label: string; value: str
   </div>
 );
 
-/* ── GT_Dock (MIP) ────────────────────────────────────────── */
-const GT_Dock = memo(({ appMap: _appMap, dockIds: _dockIds, onLaunch: _onLaunch, onOpenApps, onOpenSettings }: {
-  appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void;
-  onOpenApps: () => void; onOpenSettings: () => void;
-}) => {
-  const { unreadCount } = useNotificationState();
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  return (
-    <div className="bg-black/60 border-t border-white/5 backdrop-blur-xl px-6 py-4 z-50">
-      {moreOpen && (
-        <div className="grid grid-cols-4 gap-4 pb-6 mb-6 border-b border-white/5 animate-in fade-in slide-in-from-bottom-4">
-           {([
-            { label: 'Weather',  color: '#38bdf8', icon: <Cloud size={18} />, fn: () => { openDrawer('weather'); setMoreOpen(false); } },
-            { label: 'Traffic',  color: '#fb923c', icon: <AlertTriangle size={18} />, fn: () => { openDrawer('traffic'); setMoreOpen(false); } },
-            { label: 'Security', color: '#34d399', icon: <Shield size={18} />, fn: () => { openDrawer('security'); setMoreOpen(false); } },
-            { label: 'Diagnostics', color: '#fbbf24', icon: <Cpu size={18} />, fn: () => { openDrawer('dtc'); setMoreOpen(false); } },
-          ] as const).map((item, i) => (
-            <button key={i} onClick={item.fn} className="flex flex-col items-center gap-2 p-3 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-white/5">
-              <div style={{ color: item.color }}>{item.icon}</div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-white/40">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      
-      <div className="flex items-center justify-center gap-6">
-        <DockBtn icon={Phone} label="Phone" fn={() => openDrawer('phone')} />
-        <DockBtn icon={Music2} label="Music" fn={() => openMusicDrawer()} />
-        <DockBtn icon={Bell} label="Alerts" fn={() => openDrawer('notifications')} badge={unreadCount} />
-        <div className="w-px h-10 bg-white/10 mx-2" />
-        <DockBtn icon={LayoutGrid} label="Apps" fn={onOpenApps} accent />
-        <DockBtn icon={Settings} label="System" fn={onOpenSettings} />
-        <button 
-          onClick={() => setMoreOpen(!moreOpen)}
-          className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white transition-all"
-        >
-          {moreOpen ? <ChevronDown /> : <ChevronUp />}
-        </button>
-      </div>
-    </div>
-  );
-});
-
-const DockBtn = ({ icon: Icon, label, fn, badge, accent }: { icon: any; label: string; fn: () => void; badge?: number; accent?: boolean }) => (
-  <button onClick={fn} className="flex flex-col items-center gap-2 group relative">
-    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${accent ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-400' : 'bg-white/5 border border-white/10 text-white/40 group-hover:text-white group-hover:bg-white/10'}`}>
-      <Icon className="w-6 h-6" />
-      {!!badge && (
-        <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-black text-[10px] font-black rounded-full flex items-center justify-center border-2 border-black">
-          {badge}
-        </span>
-      )}
-    </div>
-    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-white/20 group-hover:text-white/40 transition-colors">{label}</span>
-    {accent && <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-8 h-1 bg-cyan-400 rounded-full blur-[2px] opacity-40" />}
-  </button>
-);
 
 /* ── MAIN LAYOUT ─────────────────────────────────────────── */
 export const CockpitLayout = memo(function CockpitLayout({
@@ -411,7 +350,8 @@ export const CockpitLayout = memo(function CockpitLayout({
           </div>
         )}
 
-        <GT_Dock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

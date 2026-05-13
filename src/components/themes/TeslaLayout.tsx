@@ -1,4 +1,5 @@
 import { memo, useState, lazy, Suspense, useRef, useCallback, useEffect } from 'react';
+import { DockBar } from '../layout/DockBar';
 import type { CSSProperties } from 'react';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
@@ -16,7 +17,7 @@ import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { resolveAndNavigate } from '../../platform/addressNavigationEngine';
-import { APP_MAP, type AppItem } from '../../data/apps';
+import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
 
@@ -41,7 +42,6 @@ interface Props {
 const T_BG     = 'var(--bg-primary, #000000)';
 const T_RED    = 'var(--accent, #E31937)';
 const T_CARD   = 'var(--bg-card, rgba(18,18,18,0.95))';
-const T_CARD2  = 'var(--bg-card2, rgba(24,24,24,0.90))';
 const T_BORDER = 'var(--border-color, rgba(255,255,255,0.07))';
 const T_TEXT   = 'var(--text, #FFFFFF)';
 const T_DIM    = 'var(--text-dim, #8A9AAA)';
@@ -52,6 +52,10 @@ const TeslaHeader = memo(function TeslaHeader({ onOpenApps, onOpenSettings, onVo
   const { settings } = useStore();
   const { time } = useClock(settings.use24Hour, false);
   const device = useDeviceStatus();
+  const obd = useOBDState();
+  const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
+    ? Math.round((obd.fuelLevel / 100) * 750)
+    : null;
 
   return (
     <div className="flex items-center justify-between px-6 flex-shrink-0 h-14 bg-black/[0.98]"
@@ -68,7 +72,7 @@ const TeslaHeader = memo(function TeslaHeader({ onOpenApps, onOpenSettings, onVo
 
       {/* Orta: Durum — COMPACT'ta gizlenir */}
       <div data-header-center className="flex items-center gap-2">
-        <TSlot label="MENZIL" value="420 km" />
+        <TSlot label="MENZIL" value={fuelRange != null ? `${fuelRange} km` : '— km'} />
         <div className="w-px h-4" style={{ background: T_BORDER }} />
         <TSlot label="BATARYA" value={device.ready ? `${device.battery}%` : '—'} />
         <div className="w-px h-4" style={{ background: T_BORDER }} />
@@ -329,43 +333,6 @@ const TeslaMusic = memo(function TeslaMusic() {
   );
 });
 
-/* ─── TESLA QUICK APPS ────────────────────────────────────────── */
-const TeslaApps = memo(function TeslaApps({ appMap, onLaunch }: { appMap: Record<string, AppItem>; onLaunch: (id: string) => void }) {
-  const ids = ['maps', 'phone', 'youtube', 'settings'];
-  const apps = ids.map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
-  return (
-    <div className="flex-shrink-0 flex gap-2 px-3 pb-3">
-      {apps.map(({ id, app }) => (
-        <button key={id} onClick={() => onLaunch(id)}
-          className="flex-1 flex flex-col items-center gap-2 py-3.5 rounded-2xl active:scale-90 transition-all"
-          style={{ background: T_CARD2, border: `1px solid ${T_BORDER}` }}>
-          <span className="text-2xl leading-none">{app!.icon}</span>
-          <span className="font-medium" style={{ fontSize: 11, color: T_DIM }}>{app!.name}</span>
-        </button>
-      ))}
-    </div>
-  );
-});
-
-/* ─── TESLA DOCK ──────────────────────────────────────────────── */
-const TeslaDock = memo(function TeslaDock({ appMap, dockIds, onLaunch }: { appMap: Record<string, AppItem>; dockIds: string[]; onLaunch: (id: string) => void }) {
-  const apps = dockIds.slice(0, 12).map(id => ({ id, app: appMap[id] ?? APP_MAP[id] })).filter(x => x.app);
-  return (
-    <div className="flex-shrink-0 bg-black/[0.98]"
-      style={{ borderTop: `1px solid ${T_BORDER}` }}>
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
-        {apps.map(({ id, app }) => (
-          <button key={id} onClick={() => onLaunch(id)}
-            className="flex flex-col items-center gap-1.5 flex-shrink-0 px-3 py-2.5 rounded-xl active:scale-90 transition-all"
-            style={{ minWidth: 'var(--lp-tile-w, 56px)' }}>
-            <span className="text-xl leading-none">{app!.icon}</span>
-            <span className="font-medium truncate w-full text-center" style={{ fontSize: 10, color: T_DIM }}>{app!.name}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-});
 
 /* ─── TESLA LAYOUT ────────────────────────────────────────────── */
 export const TeslaLayout = memo(function TeslaLayout({
@@ -412,8 +379,9 @@ export const TeslaLayout = memo(function TeslaLayout({
         </div>
       </div>
 
-      <TeslaApps appMap={appMap} onLaunch={onLaunch} />
-      <TeslaDock appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} />
+      {/* Dock spacer — fixed DockBar'ın altında kalan alanı doldurur */}
+      <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+      <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
     </div>
   );
 });

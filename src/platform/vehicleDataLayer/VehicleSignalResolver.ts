@@ -20,6 +20,8 @@ import { initSABChannel, clearSABChannel } from './sabChannel';
 import { dispatchFromWorker } from './VehicleEventHub';
 import type { WorkerInMessage, WorkerOutMessage } from './VehicleCompute.worker';
 import { SignalNormalizer } from '../../core/val/SignalNormalizer';
+import { logError }         from '../crashLogger';
+import { runtimeManager }   from '../../core/runtime/AdaptiveRuntimeManager';
 
 type Callback = (patch: Partial<VehicleState>) => void;
 
@@ -36,8 +38,11 @@ const SAB_GEN_IDX  = 12; // Int32[12] at byte 48 — Atomics generation counter
 export class VehicleSignalResolver {
   private _listeners = new Set<Callback>();
   private _unsubs:    Array<() => void> = [];
-  private _worker:    Worker;
+  private _worker:    Worker | null = null;
   private _started    = false;
+  private readonly _onCrash?: () => void;
+  // Bound referans saklanır → removeEventListener doğru çalışsın
+  private _onWorkerMessageBound: ((e: MessageEvent) => void) | null = null;
 
   // SAB zero-copy channel — null when fallback (old WebView / no COOP+COEP)
   private _sab:       SharedArrayBuffer | null = null;
@@ -51,20 +56,31 @@ export class VehicleSignalResolver {
   private obd: ObdAdapter;
   private gps: GpsAdapter;
 
-  constructor(can: CanAdapter, obd: ObdAdapter, gps: GpsAdapter) {
+  constructor(can: CanAdapter, obd: ObdAdapter, gps: GpsAdapter, onCrash?: () => void) {
     this.can = can;
     this.obd = obd;
     this.gps = gps;
+    this._onCrash = onCrash;
     this._worker = new Worker(
       new URL('./VehicleCompute.worker.ts', import.meta.url),
       { type: 'module' },
     );
-    this._worker.addEventListener('message', this._onWorkerMessage.bind(this));
+    this._onWorkerMessageBound = this._onWorkerMessage.bind(this);
+    this._worker.addEventListener('message', this._onWorkerMessageBound);
+    this._worker.onerror = (err) => {
+      logError('VehicleCompute:onerror', new Error(err.message ?? 'Worker crash'));
+      runtimeManager.reportFailure('VehicleCompute');
+      runtimeManager.unregisterWorker('VehicleCompute');
+      this._onWorkerMessageBound = null; // crash path'te referansı temizle
+      this._worker = null;
+      this._onCrash?.();
+    };
   }
 
   start(): void {
     if (this._started) return;
     this._started = true;
+    runtimeManager.registerWorker('VehicleCompute', this._worker, 'CRITICAL');
 
     const odoKm = useUnifiedVehicleStore.getState().odometer ?? 0;
 
@@ -124,8 +140,15 @@ export class VehicleSignalResolver {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
     this._listeners.clear();
+    runtimeManager.unregisterWorker('VehicleCompute');
     this._send({ type: 'STOP' });
-    this._worker.terminate();
+    // Listener'ı terminate'ten ÖNCE kaldır — deterministik temizlik
+    if (this._worker && this._onWorkerMessageBound) {
+      this._worker.removeEventListener('message', this._onWorkerMessageBound);
+    }
+    this._onWorkerMessageBound = null;
+    this._worker?.terminate();
+    this._worker = null;
   }
 
   onResolved(cb: Callback): () => void {
@@ -208,7 +231,7 @@ export class VehicleSignalResolver {
   }
 
   private _send(msg: WorkerInMessage): void {
-    this._worker.postMessage(msg);
+    this._worker?.postMessage(msg);
   }
 
   private _onWorkerMessage(e: MessageEvent): void {

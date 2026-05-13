@@ -166,9 +166,6 @@ function WeatherWidgetInner() {
             <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">
               Yakın İstasyonlar
             </span>
-            <span className="text-amber-400/60 text-[9px] border border-amber-400/25 rounded px-1.5 py-0.5 uppercase tracking-wider font-bold">
-              Simülasyon
-            </span>
           </div>
           <button
             onClick={handleRefreshFuel}

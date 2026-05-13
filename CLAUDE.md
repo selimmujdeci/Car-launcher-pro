@@ -224,3 +224,54 @@ When working on a task:
 
 10. Never fake completion.
 
+---
+
+## 🗄️ SUPABASE SECURITY & DATA API RULES (PRODUCTION-CRITICAL)
+
+### New Table Checklist (public schema)
+
+Every new table in the `public` schema **MUST** include all four steps — no exceptions:
+
+```sql
+-- 1. GRANT
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.table_name TO anon, authenticated;
+GRANT ALL ON public.table_name TO service_role;
+
+-- 2. RLS
+ALTER TABLE public.table_name ENABLE ROW LEVEL SECURITY;
+
+-- 3. POLICY (minimum örnek)
+CREATE POLICY "anon read" ON public.table_name FOR SELECT TO anon USING (true);
+CREATE POLICY "auth write" ON public.table_name FOR ALL TO authenticated USING (auth.uid() = user_id);
+
+-- 4. Verification query
+SELECT grantee, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_name = 'table_name';
+```
+
+### Migration Verification (zorunlu)
+
+Her migration sonunda şunlar doğrulanmalı:
+
+| Kontrol | Yöntem |
+|---------|--------|
+| `anon` izinleri | `information_schema.role_table_grants` sorgusu |
+| `authenticated` izinleri | aynı sorgu |
+| `service_role` izinleri | aynı sorgu |
+| RLS durumu | `pg_tables.rowsecurity = true` |
+| Policy varlığı | `pg_policies` tablosu |
+
+### Supabase Data API Kuralları
+
+- PostgREST erişimi: her endpoint için GRANT + RLS + policy üçlüsü zorunlu.
+- Frontend erişimi: `anon` key ile erişilecek tablolarda `anon` GRANT eksikse **production crash** sayılır.
+- Realtime: `supabase_realtime` publication'a tablo ekleniyorsa RLS politikaları realtime mesajlarına da uygulanır — policy'siz tablo ekleme yasak.
+
+### Kesin Yasaklar
+
+- GRANT olmadan migration göndermek yasak — **production-critical hata** sayılır.
+- `public` şema tablolarının otomatik erişilebilir olduğunu varsaymak yasak.
+- RLS kapalıyken `authenticated` policy yazmak anlamsızdır — önce RLS aç.
+- Binary / büyük blob verisini `localStorage` veya Supabase `text` kolonuna yazmak yasak.
+

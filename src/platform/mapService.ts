@@ -5,15 +5,15 @@ import { handleSatelliteTileError, setActiveMapSource } from './mapSourceManager
 import { searchOffline } from './offlineSearchService';
 import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal }  from './poi/offlinePoiService';
+import { cacheLRUManager } from '../core/storage/CacheLRUManager';
 
-// Single tile source — no smart-tile, no offline
-// Real street map style using OSM raster tiles
+// Single tile source — caros-tile:// interceptor handles caching transparently
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
     'osm': {
       type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tiles: ['caros-tile://tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors',
       maxzoom: 19,
@@ -26,6 +26,8 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 
 // Ensure smart-tile protocol is never active
 try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
+// Register caros-tile cache interceptor (idempotent)
+cacheLRUManager.init();
 import { logError } from './crashLogger';
 
 declare global {
@@ -98,9 +100,9 @@ const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
     'osm-tiles': {
       type: 'raster' as const,
       tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'caros-tile://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'caros-tile://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'caros-tile://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors',
@@ -789,6 +791,11 @@ let _pendingRouteGeometry: { coords: [number, number][]; alts: [number, number][
 let _isStyleChanging = false;
 let _routeQueuePending = false; // tek style.load listener garantisi
 
+/** mapService._isStyleChanging'i FullMapView mutex ile senkronize et. */
+export function setMapStyleChanging(active: boolean): void {
+  _isStyleChanging = active;
+}
+
 
 /**
  * Haritada rota çizgisi göster ya da güncelle (hardened).
@@ -810,15 +817,18 @@ export function setRouteGeometry(
 ): void {
   if (!map || !coordinates.length) return;
 
-  console.log('[ROUTE_RENDER_START]', { pts: coordinates.length, first: coordinates[0], alts: alternatives.length });
-  console.log('[ROUTE_GEOMETRY_COORDS_COUNT]', coordinates.length);
-
   // routingService.normalizeCoords() already ensures [lon, lat] (GeoJSON standard).
   // Do NOT swap here — Turkey's longitude (26-45) overlaps with latitude range and any
   // heuristic guard incorrectly re-swaps already-correct coords for central/east Turkey.
 
   _cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
   _pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
+
+  // Visibility Watchdog — Android low-memory can silently drop layers while style stays loaded.
+  // If SEL_LAYER is missing despite style being ready, reset queue flag so _applyRouteGeometry runs immediately.
+  if (map.isStyleLoaded() && !_isStyleChanging && !map.getLayer(SEL_LAYER)) {
+    _routeQueuePending = false;
+  }
 
   if (_isStyleChanging) return;
 
@@ -858,7 +868,6 @@ function _applyRouteGeometry(
   try {
     // routingService.normalizeCoords() already guarantees [lon, lat] order.
     const coords: [number, number][] = coordinates;
-    console.log('[ROUTE_RENDER] pts:', coords.length, 'first:', coords[0], 'last:', coords[coords.length - 1]);
 
     // ── Alternatif rotalar (gri, arkada) ─────────────────────────
     const fixedAlts = alternatives;
@@ -880,11 +889,9 @@ function _applyRouteGeometry(
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#94a3b8', 'line-width': 6, 'line-opacity': 0.50 },
       } as any);
-      console.log('[ROUTE_LAYER_ADDED]', { id: ALT_FILL });
     } else {
       (map.getSource(ALT_SRC) as any).setData(altData);
     }
-    console.log('[ROUTE_ALTERNATIVES_SOURCE_SET]', { count: fixedAlts.length, first: fixedAlts[0]?.[0] });
 
     // ── Alternatif rota zaman etiketleri (midpoint badge) ────────────────────
     const badgeFeatures = fixedAlts.map((altCoords, i) => {
@@ -975,7 +982,6 @@ function _applyRouteGeometry(
       geometry: { type: 'LineString', coordinates: coords },
     };
     (map.getSource(SEL_SRC) as any).setData(routeFeature);
-    console.log('[ROUTE_SELECTED_SOURCE_SET]', { pts: coords.length, first: coords[0] });
 
     // ── Step 5: z-ordering — rota alt→üst, araç marker hepsinin üstünde ─────
     try { map.moveLayer(ALT_FILL); }        catch { /* ignore */ }
@@ -997,20 +1003,14 @@ function _applyRouteGeometry(
             new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]),
           );
           map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
-          console.log('[ROUTE_DEBUG] fitBounds applied');
         }
-      } catch(e) { console.warn('[ROUTE_DEBUG] fitBounds err:', e instanceof Error ? e.message : e); }
+      } catch { /* fitBounds geometry hatası — yoksay */ }
     }
-
-    console.log('[ROUTE_RENDER_DONE]', { pts: coords.length, alts: fixedAlts.length });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[MAP_WEBGL_ERROR]', msg, '| stack:', e instanceof Error ? e.stack?.split('\n')[1] : '');
+    console.error('[MAP_WEBGL_ERROR]', msg);
     if (retryCount < 1) {
-      console.warn('[ROUTE_LAYER_RECREATED] one-shot self-heal in 500ms');
       setTimeout(() => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 1, altDurations, mainDuration), 500);
-    } else {
-      console.error('[ROUTE_LAYER_RECREATED] self-heal failed — giving up');
     }
     return;
   }

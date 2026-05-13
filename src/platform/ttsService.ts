@@ -54,7 +54,12 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     if (isTTSAvailable()) {
       window.speechSynthesis.removeEventListener('voiceschanged', _onVoicesChanged);
+      window.speechSynthesis.cancel();
     }
+    // Duck state'i sıfırla — yeni modül instance temiz başlasın
+    _ttsDucking = false;
+    _cachedVoice = null;
+    _lastSpokenText = '';
   });
 }
 

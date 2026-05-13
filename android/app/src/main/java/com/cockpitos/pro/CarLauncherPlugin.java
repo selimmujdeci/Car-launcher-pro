@@ -106,6 +106,15 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import java.security.KeyStore;
+
+import javax.crypto.KeyGenerator;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
+
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+
 /**
  * CarLauncherPlugin — native Android bridge for CockpitOS.
  *
@@ -2425,6 +2434,121 @@ public class CarLauncherPlugin extends Plugin {
         res.put("running",         fcmRegistered); // FCM servisi OS tarafından yönetilir
         res.put("fgServiceRunning", fgRunning);
         call.resolve(res);
+    }
+
+    // ── Expert Trust — Android Keystore HMAC-SHA256 (ham seed WebView'da tutulmaz) ──
+
+    private static final String EXPERT_TRUST_HMAC_ALIAS = "CarExpertTrustHmacV1";
+
+    private void ensureExpertTrustHmacKey() throws Exception {
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        if (ks.containsAlias(EXPERT_TRUST_HMAC_ALIAS)) return;
+
+        KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
+            EXPERT_TRUST_HMAC_ALIAS,
+            KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
+            .setDigests(KeyProperties.DIGEST_SHA256)
+            .build();
+        KeyGenerator kg = KeyGenerator.getInstance(
+            KeyProperties.KEY_ALGORITHM_HMAC_SHA256, "AndroidKeyStore");
+        kg.init(spec);
+        kg.generateKey();
+    }
+
+    private static String bytesToHexExpertTrust(byte[] buf) {
+        StringBuilder sb = new StringBuilder(buf.length * 2);
+        for (byte b : buf) {
+            sb.append(String.format("%02x", b & 0xff));
+        }
+        return sb.toString();
+    }
+
+    private static boolean timingSafeEqualsHexExpertTrust(String a, String b) {
+        if (a == null || b == null || a.length() != b.length()) return false;
+        int diff = 0;
+        for (int i = 0; i < a.length(); i++) {
+            diff |= a.charAt(i) ^ b.charAt(i);
+        }
+        return diff == 0;
+    }
+
+    /**
+     * Expert Trust mühürü — canonical UTF-8 gövde için HMAC-SHA256 imzası (hex).
+     * Anahtar Android Keystore'da oluşturulur ve dışa çıkmaz.
+     */
+    @PluginMethod
+    public void expertTrustHmacSign(PluginCall call) {
+        String canonical = call.getString("canonical", "");
+        if (canonical == null) {
+            call.reject("canonical gerekli");
+            return;
+        }
+        try {
+            ensureExpertTrustHmacKey();
+            KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+            ks.load(null);
+            KeyStore.SecretKeyEntry entry =
+                (KeyStore.SecretKeyEntry) ks.getEntry(EXPERT_TRUST_HMAC_ALIAS, null);
+            if (entry == null) {
+                call.reject("HMAC anahtarı yüklenemedi");
+                return;
+            }
+            SecretKey key = entry.getSecretKey();
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(key);
+            byte[] sig = mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8));
+            JSObject res = new JSObject();
+            res.put("sigHex", bytesToHexExpertTrust(sig));
+            call.resolve(res);
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "expertTrustHmacSign: " + e.getMessage());
+            call.reject("HMAC imza hatası: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Expert Trust mühür doğrulama — aynı Keystore anahtarı ile HMAC yeniden hesaplanır.
+     */
+    @PluginMethod
+    public void expertTrustHmacVerify(PluginCall call) {
+        String canonical = call.getString("canonical", "");
+        String sigHex    = call.getString("sigHex", "");
+        JSObject out = new JSObject();
+        if (canonical == null || sigHex == null || sigHex.isEmpty()) {
+            out.put("valid", false);
+            call.resolve(out);
+            return;
+        }
+        try {
+            KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+            ks.load(null);
+            if (!ks.containsAlias(EXPERT_TRUST_HMAC_ALIAS)) {
+                out.put("valid", false);
+                call.resolve(out);
+                return;
+            }
+            KeyStore.SecretKeyEntry entry =
+                (KeyStore.SecretKeyEntry) ks.getEntry(EXPERT_TRUST_HMAC_ALIAS, null);
+            if (entry == null) {
+                out.put("valid", false);
+                call.resolve(out);
+                return;
+            }
+            SecretKey key = entry.getSecretKey();
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(key);
+            byte[] expected = mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8));
+            String expectedHex = bytesToHexExpertTrust(expected);
+            out.put("valid", timingSafeEqualsHexExpertTrust(
+                expectedHex.toLowerCase(java.util.Locale.ROOT),
+                sigHex.toLowerCase(java.util.Locale.ROOT)));
+            call.resolve(out);
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "expertTrustHmacVerify: " + e.getMessage());
+            out.put("valid", false);
+            call.resolve(out);
+        }
     }
 
     // ── Secure Storage API ────────────────────────────────────────────────

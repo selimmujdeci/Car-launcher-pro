@@ -65,8 +65,9 @@ vi.mock('../platform/canSnapshotService', () => ({
 /* ── obdBinaryParser mock ───────────────────────────────────── */
 
 vi.mock('../platform/obdBinaryParser', () => ({
-  parseBinaryOBDFrame: vi.fn(() => null),
-  hasBinaryFrame:      vi.fn(() => false),
+  parseBinaryOBDFrame:    vi.fn(() => null),
+  hasBinaryFrame:         vi.fn(() => false),
+  clearAccumulatedBuffer: vi.fn(),
 }));
 
 /* ── rafSmoother mock ───────────────────────────────────────── */
@@ -81,6 +82,7 @@ vi.mock('../platform/rafSmoother', () => ({
 
 vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
   runtimeManager: {
+    getMode:       vi.fn(() => 'BALANCED'),
     getConfig:     vi.fn(() => ({
       obdPollingMs:     50,
       gpsUpdateMs:      200,
@@ -198,13 +200,13 @@ describe('obdService — native modu, cihaz bulunamadı', () => {
     vi.clearAllMocks();
   });
 
-  it('eşleşmiş BT cihazı yok → hata sonrası mock moda düşer', async () => {
+  it('eşleşmiş BT cihazı yok → native modda error state (mock başlamaz)', async () => {
     startOBD();
-    // native: scanOBD → boş liste → throw → hata → 1.5 s bekleme → mock başlar
-    // 3 s timeout: 1.5 s gecikme + mock tick 50 ms → çok yeterli
-    const data = await waitForOBDData(3_500, (d) => d.source === 'mock');
-    expect(data.source).toBe('mock');
-    expect(data.connectionState).toBe('connected');
+    // native: scanOBD → boş liste → throw → error state.
+    // Otomotiv dürüstlüğü: native platformda hata sonrası sahte veri gösterilmez.
+    const data = await waitForOBDData(500, (d) => d.connectionState === 'error');
+    expect(data.connectionState).toBe('error');
+    expect(data.source).toBe('none');
   });
 });
 
@@ -228,7 +230,7 @@ describe('obdService — native modu, connectOBD zaman aşımı', () => {
     vi.useRealTimers();
   });
 
-  it('30 s sonra hata durumuna geçer, ardından mock bağlanır', async () => {
+  it('30 s sonra hata durumuna geçer, native modda error kalır', async () => {
     const states: string[] = [];
     const unsub = onOBDData((d) => { states.push(d.connectionState); });
 
@@ -247,16 +249,11 @@ describe('obdService — native modu, connectOBD zaman aşımı', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // 1.5 s mock başlama gecikmesini tetikle
-    await vi.advanceTimersByTimeAsync(2_000);
-    // mock _startMock → _merge → connected
-    await Promise.resolve();
-    await Promise.resolve();
-
     unsub();
 
+    // Otomotiv dürüstlüğü: native platformda hata sonrası sahte veri gösterilmez.
     expect(states).toContain('error');
-    expect(states[states.length - 1]).toBe('connected');
+    expect(states[states.length - 1]).toBe('error');
   });
 });
 
@@ -378,15 +375,17 @@ describe('obdService — native modu, reconnect backoff', () => {
     vi.useRealTimers();
   });
 
-  it('disconnect eventi → reconnecting state → mock devreye girer', async () => {
+  it('disconnect eventi → reconnecting state', async () => {
     vi.useFakeTimers();
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
 
-    // obdStatus listener'ı yakala
+    // obdStatus ve obdData listener'larını yakala
     let statusCallback: ((e: unknown) => void) | null = null;
+    let dataCallback:   ((e: unknown) => void) | null = null;
     vi.mocked(CarLauncher.addListener).mockImplementation(
       async (event: string, cb: (e: unknown) => void) => {
         if (event === 'obdStatus') statusCallback = cb;
+        if (event === 'obdData')   dataCallback   = cb;
         return { remove: vi.fn() };
       },
     );
@@ -402,20 +401,24 @@ describe('obdService — native modu, reconnect backoff', () => {
 
     startOBD();
 
-    // Async chain: scanOBD → addListener×2 → connectOBD → connected
-    // Her await için en az 1 mikro-task flush gerekir
+    // scanOBD → addListener×2 → connectOBD → 'initializing' (2s warmup başlar)
     for (let i = 0; i < 6; i++) await Promise.resolve();
 
-    // connected state olmalı şimdi
+    // Fix 3 uyumlu: 2s ısınma deadline'ını geç, ardından veri kapısını aç
+    await vi.advanceTimersByTimeAsync(2_001);
+    // warmup continuation: _warmupActive=false, handshake skip, _startDataValidationGate
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+
+    // Data gate: geçerli speed + RPM ile 'connected' state'e geç
+    dataCallback?.({ speed: 50, rpm: 1_500 });
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+
     expect(states).toContain('connected');
 
     // obdStatus eventi → _removeNativeHandles().then(_scheduleReconnect)
     statusCallback?.({});
-
-    // _removeNativeHandles: 2 handle × 1 flush + return + .then = 4+ flush
     for (let i = 0; i < 6; i++) await Promise.resolve();
 
-    // reconnecting state olmalı
     expect(states).toContain('reconnecting');
 
     // temizlik

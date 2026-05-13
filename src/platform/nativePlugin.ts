@@ -428,6 +428,12 @@ export interface CarLauncherPlugin {
   verifyPin(options: { attempt: string }): Promise<{ match: boolean }>;
   clearPin(): Promise<void>;
 
+  /**
+   * Expert Trust mühürü — HMAC-SHA256 anahtarı Android Keystore'da tutulur (ham seed WebView'da yok).
+   */
+  expertTrustHmacSign?(options: { canonical: string }): Promise<{ sigHex: string }>;
+  expertTrustHmacVerify?(options: { canonical: string; sigHex: string }): Promise<{ valid: boolean }>;
+
   addListener(
     event: 'obdStatus',
     handler: (data: OBDStatusEvent) => void,

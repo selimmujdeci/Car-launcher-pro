@@ -25,7 +25,8 @@ export type VehicleEventType =
   | 'MAINTENANCE_REQUIRED'
   | 'CRASH_DETECTED'
   | 'GEOFENCE_ENTER'
-  | 'GEOFENCE_EXIT';
+  | 'GEOFENCE_EXIT'
+  | 'GEOFENCE_VIOLATION';
 
 export type EventSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
 
@@ -39,7 +40,8 @@ export type VehicleEvent =
   | { type: 'MAINTENANCE_REQUIRED'; severity: 'WARNING';  healthScore: number; ts: number }
   | { type: 'CRASH_DETECTED';       severity: 'CRITICAL'; peakG:       number; ts: number }
   | { type: 'GEOFENCE_ENTER';       severity: 'INFO';     zoneId: string; zoneName: string; ts: number }
-  | { type: 'GEOFENCE_EXIT';        severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number };
+  | { type: 'GEOFENCE_EXIT';        severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number }
+  | { type: 'GEOFENCE_VIOLATION';   severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number };
 
 /* ── Modül-düzeyi listener kümesi ────────────────────────────── */
 
@@ -87,4 +89,15 @@ export function dispatchCrashDetected(peakG: number): void {
   _evCrashDetected.peakG = peakG;
   _evCrashDetected.ts    = Date.now();
   _dispatch(_evCrashDetected);
+}
+
+const _evGeofenceViolation: Extract<VehicleEvent, { type: 'GEOFENCE_VIOLATION' }> =
+  { type: 'GEOFENCE_VIOLATION', severity: 'CRITICAL', zoneId: '', zoneName: '', ts: 0 };
+
+/** geofenceService bir ihlal tespit ettiğinde tüm abonelere GEOFENCE_VIOLATION yayar. */
+export function dispatchGeofenceViolation(zoneId: string, zoneName: string): void {
+  _evGeofenceViolation.zoneId   = zoneId;
+  _evGeofenceViolation.zoneName = zoneName;
+  _evGeofenceViolation.ts       = Date.now();
+  _dispatch(_evGeofenceViolation);
 }
