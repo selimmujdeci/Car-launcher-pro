@@ -16,7 +16,11 @@ import { SportModePanel } from '../sport/SportModePanel';
 import { MediaScreen } from '../media/MediaScreen';
 import { PhoneScreen } from '../phone/PhoneScreen';
 import type { AppItem, MusicOptionKey } from '../../data/apps';
-import type { DrawerType } from './DockBar';
+import type { DrawerType }              from './DockBar';
+
+const SuperAdminShell = lazy(() =>
+  import('../admin/SuperAdminShell').then((m) => ({ default: m.SuperAdminShell })),
+);
 
 // Ağır paneller — ilk render'da yüklenmez, ilk açılışta indir
 const SecuritySuite      = lazy(() => import('../security/SecuritySuite').then((m) => ({ default: m.SecuritySuite })));
@@ -114,6 +118,12 @@ export const DrawerPanel = memo(function DrawerPanel({
 
       <DrawerShell open={drawer === 'phone'} onClose={onClose}>
         <PhoneScreen />
+      </DrawerShell>
+
+      <DrawerShell open={drawer === 'super-admin'} onClose={onClose}>
+        <Suspense fallback={null}>
+          <SuperAdminShell />
+        </Suspense>
       </DrawerShell>
 
       <Suspense fallback={null}>

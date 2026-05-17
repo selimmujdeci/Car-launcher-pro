@@ -1,7 +1,9 @@
 import { memo, useCallback } from 'react';
-import { Star } from 'lucide-react';
+import { Star, ShieldAlert, ChevronRight } from 'lucide-react';
 import type { AppItem } from '../../data/apps';
-import { getNativeIcon } from '../../platform/appDiscovery';
+import { getNativeIcon }    from '../../platform/appDiscovery';
+import { useRoleStore }     from '../../platform/roleSystem/RoleStore';
+import { openDrawer }       from '../../platform/drawerBus';
 
 interface Props {
   apps: AppItem[];
@@ -105,7 +107,54 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavor
   );
 });
 
+// ── Admin Management Card ─────────────────────────────────────────────────────
+
+const AdminManagementCard = memo(function AdminManagementCard() {
+  return (
+    <button
+      onClick={() => openDrawer('super-admin')}
+      className="w-full flex items-center gap-4 mb-6"
+      style={{
+        background:   'rgba(220,38,38,0.06)',
+        border:       '1px solid rgba(220,38,38,0.2)',
+        borderRadius:  24,
+        padding:      '14px 18px',
+        textAlign:    'left',
+        cursor:       'pointer',
+      }}
+    >
+      <div
+        style={{
+          width:      44,
+          height:     44,
+          borderRadius: 12,
+          background: 'rgba(220,38,38,0.12)',
+          border:     '1px solid rgba(220,38,38,0.25)',
+          display:    'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink:  0,
+        }}
+      >
+        <ShieldAlert size={22} style={{ color: '#dc2626' }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: '#e5e7eb', letterSpacing: '0.02em' }}>
+          Süper Admin Paneli
+        </p>
+        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+          Sistem stabilitesi ve filo yönetimi
+        </p>
+      </div>
+      <ChevronRight size={18} style={{ color: '#4b5563', flexShrink: 0 }} />
+    </button>
+  );
+});
+
 export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
+  const { can } = useRoleStore();
+  const isSuperAdmin = can('accessAdminPanel');
+
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
       <div className="p-8 pb-12">
@@ -120,6 +169,9 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
             {apps.length} TOPLAM SİSTEM
           </span>
         </div>
+
+        {/* Super Admin Kartı — sadece super_admin rolünde görünür */}
+        {isSuperAdmin && <AdminManagementCard />}
 
         {/* Grid */}
         <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>

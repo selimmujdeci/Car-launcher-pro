@@ -12,7 +12,8 @@ import type { AppItem } from '../../data/apps';
 export type DrawerType =
   | 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc'
   | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment'
-  | 'traffic' | 'music' | 'phone' | 'vehicle-reminder' | 'climate';
+  | 'traffic' | 'music' | 'phone' | 'vehicle-reminder' | 'climate'
+  | 'super-admin';
 
 interface Props {
   appMap: Record<string, AppItem>;
