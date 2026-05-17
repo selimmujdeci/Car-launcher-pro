@@ -162,6 +162,128 @@ export function subscribeToCriticalEvents(
   return () => { void sb.removeChannel(channel); };
 }
 
+// ── Incident Black Box ────────────────────────────────────────────────────────
+
+export interface RecentIncident {
+  id:           string
+  ts:           string
+  deviceHash:   string   // 6-char anonim
+  thermalLevel: number
+  overallHealth: 'degraded' | 'critical'
+  appVersion:   string
+  severity:     'warning' | 'critical'
+}
+
+export interface IncidentDataPoint {
+  ts:             string
+  thermalLevel:   number   // 0-3
+  ramPressure:    number   // 0-100 %
+  workerRestarts: number
+  uiFreezeCount:  number
+  overallHealth:  string
+}
+
+function _hashId(id: string | null | undefined): string {
+  if (!id) return 'UNKNWN';
+  return id.replace(/-/g, '').slice(0, 6).toUpperCase();
+}
+
+function _num(v: unknown, fallback = 0): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _str(v: unknown, fallback = ''): string {
+  return v != null ? String(v) : fallback;
+}
+
+/**
+ * Son `limit` adet healthy-olmayan system_health eventini döner.
+ * adminClient üzerinden — RLS: super_admin JWT gerekli.
+ * GPS verisi asla dahil edilmez.
+ */
+export async function getRecentIncidents(limit = 20): Promise<RecentIncident[]> {
+  const client = getAdminClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('vehicle_events')
+      .select('id, created_at, vehicle_id, payload')
+      .eq('type', 'system_health')
+      .neq('payload->>overallHealth', 'healthy')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error || !data) return [];
+
+    type Row = { id: string; created_at: string; vehicle_id?: string; payload: Record<string, unknown> | null };
+
+    return (data as Row[]).map((row) => {
+      const p = row.payload ?? {};
+      const health = _str(p['overallHealth'], 'degraded');
+      return {
+        id:           row.id,
+        ts:           row.created_at,
+        deviceHash:   _hashId(row.vehicle_id ?? row.id),
+        thermalLevel: _num(p['thermalLevel'], 0),
+        overallHealth: (health === 'critical' ? 'critical' : 'degraded') as 'critical' | 'degraded',
+        appVersion:   _str(p['appVersion'], 'unknown'),
+        severity:     (health === 'critical' ? 'critical' : 'warning') as 'warning' | 'critical',
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Olay anına ait 5 dakikalık telemetri penceresini döner.
+ * Client-side deviceHash filtresi — SQL substring yerine güvenli/hızlı.
+ * GPS verisi dahil edilmez.
+ */
+export async function getIncidentContext(
+  deviceHash: string,
+  targetTs:   string,
+): Promise<IncidentDataPoint[]> {
+  const client = getAdminClient();
+  if (!client) return [];
+
+  const windowStart = new Date(new Date(targetTs).getTime() - 5 * 60_000).toISOString();
+
+  try {
+    const { data, error } = await client
+      .from('vehicle_events')
+      .select('id, created_at, vehicle_id, payload')
+      .eq('type', 'system_health')
+      .gte('created_at', windowStart)
+      .lte('created_at', targetTs)
+      .order('created_at', { ascending: true })
+      .limit(60);
+
+    if (error || !data) return [];
+
+    type Row = { id: string; created_at: string; vehicle_id?: string; payload: Record<string, unknown> | null };
+
+    // Client-side deviceHash filtresi — O(n) ama küçük veri seti (max 60 row)
+    return (data as Row[])
+      .filter((r) => _hashId(r.vehicle_id ?? r.id) === deviceHash)
+      .map((r) => {
+        const p = r.payload ?? {};
+        return {
+          ts:             r.created_at,
+          thermalLevel:   Math.max(0, Math.min(3, _num(p['thermalLevel'], 0))),
+          ramPressure:    Math.round(_num(p['ramPressureRatio'], 0) * 100),
+          workerRestarts: _num(p['workerRestartTotal'], 0),
+          uiFreezeCount:  _num(p['uiFreezeCount'], 0),
+          overallHealth:  _str(p['overallHealth'], 'healthy'),
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
 // ── Write API — Tüm işlemler adminClient (persistSession:true) üzerinden ──────
 
 export interface FeatureFlag {

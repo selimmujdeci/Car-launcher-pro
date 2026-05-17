@@ -19,10 +19,13 @@ import {
   getFeatureFlags,
   updateFeatureFlag,
   activateFleetLimpMode,
+  getRecentIncidents,
   subscribeToCriticalEvents,
   type FleetHealthSummary,
   type FeatureFlag,
+  type RecentIncident,
 } from '../../platform/superadmin/superAdminService';
+import { IncidentReplayLite } from './IncidentReplayLite';
 
 // ── Renkler ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +61,11 @@ export function SuperAdminShell() {
   const [togglingFlag,  setTogglingFlag]  = useState<string | null>(null);
   const [flagError,     setFlagError]     = useState<string | null>(null);
 
+  // ── Incident state
+  const [incidents,      setIncidents]      = useState<RecentIncident[]>([]);
+  const [incLoading,     setIncLoading]     = useState(false);
+  const [replayIncident, setReplayIncident] = useState<RecentIncident | null>(null);
+
   // ── Limp Mode state
   const [showLimpModal, setShowLimpModal] = useState(false);
   const [executingLimp, setExecutingLimp] = useState(false);
@@ -89,13 +97,28 @@ export function SuperAdminShell() {
       }
     }
 
-    void loadData();
+    async function loadIncidents() {
+      if (cancelled) return;
+      setIncLoading(true);
+      try {
+        const inc = await getRecentIncidents(10);
+        if (!cancelled) setIncidents(inc);
+      } catch { /* silent */ }
+      finally { if (!cancelled) setIncLoading(false); }
+    }
 
-    unsubRef.current = subscribeToCriticalEvents(() => {
+    void loadData();
+    void loadIncidents();
+
+    unsubRef.current = subscribeToCriticalEvents((_payload) => {
       if (!cancelled) {
         setCritical((p) => (p ?? 0) + 1);
         setNewCritical(true);
         setTimeout(() => { if (!cancelled) setNewCritical(false); }, 3000);
+        // Yeni kritik olay → incident listesini yenile
+        void getRecentIncidents(10).then((inc) => {
+          if (!cancelled) setIncidents(inc);
+        });
       }
     });
 
@@ -232,6 +255,13 @@ export function SuperAdminShell() {
           valueColor={critAccent}
           sub={`Son 24 saat · ${critCount === 0 ? 'kritik olay yok' : `${critCount} acil durum`}`}
           urgent={critCount > 0}
+        />
+
+        {/* KRİTİK OLAY AKIŞI */}
+        <IncidentFeed
+          incidents={incidents}
+          loading={incLoading}
+          onSelect={setReplayIncident}
         />
 
         {/* Feature Flags — tıklanabilir */}
@@ -373,6 +403,14 @@ export function SuperAdminShell() {
           <ChevronRight size={14} style={{ color:DIM, flexShrink:0 }} />
         </div>
       </div>
+
+      {/* Incident Replay Modal */}
+      {replayIncident && (
+        <IncidentReplayLite
+          incident={replayIncident}
+          onClose={() => setReplayIncident(null)}
+        />
+      )}
 
       {/* Limp Mode Onay Modalı */}
       {showLimpModal && (
@@ -568,6 +606,113 @@ function LimpModeModal({ onConfirm, onCancel, executing, error }: {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── IncidentFeed ──────────────────────────────────────────────────────────────
+
+function IncidentFeed({
+  incidents, loading, onSelect,
+}: {
+  incidents: RecentIncident[];
+  loading:   boolean;
+  onSelect:  (inc: RecentIncident) => void;
+}) {
+  function fmtTs(iso: string): string {
+    try {
+      return new Date(iso).toLocaleTimeString('tr-TR', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+    } catch { return '--:--'; }
+  }
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 0 6px',
+      }}>
+        <p style={{
+          fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
+          color: DIM, letterSpacing: '0.12em', textTransform: 'uppercase',
+        }}>
+          KRİTİK OLAY AKIŞI
+        </p>
+        {loading && <Loader2 size={10} style={{ color: DIM, animation: 'spin 1s linear infinite' }} />}
+      </div>
+
+      {incidents.length === 0 && !loading ? (
+        <p style={{ fontFamily: 'monospace', fontSize: 9, color: DIM, padding: '4px 0' }}>
+          FEED_EMPTY: Kayıtlı kritik olay yok
+        </p>
+      ) : (
+        <div style={{
+          background: SURF, border: `1px solid ${BORD}`,
+          borderRadius: 4, overflow: 'hidden',
+        }}>
+          {incidents.map((inc, idx) => {
+            const color = inc.severity === 'critical' ? RED : AMB;
+            return (
+              <button
+                key={inc.id}
+                onClick={() => onSelect(inc)}
+                style={{
+                  width: '100%', textAlign: 'left', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: idx < incidents.length - 1 ? `1px solid ${BORD}` : 'none',
+                  transition: 'background 100ms ease',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#161616'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+              >
+                {/* Severity dot */}
+                <div style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: color, flexShrink: 0,
+                }} />
+
+                {/* Timestamp */}
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 9, color: DIM,
+                  flexShrink: 0, minWidth: 54,
+                }}>
+                  {fmtTs(inc.ts)}
+                </span>
+
+                {/* DeviceHash */}
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 9, color: MUTED,
+                  flexShrink: 0,
+                }}>
+                  dev:{inc.deviceHash}
+                </span>
+
+                {/* Health */}
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
+                  color, flexShrink: 0, textTransform: 'uppercase',
+                }}>
+                  {inc.overallHealth}
+                </span>
+
+                {/* Thermal */}
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 9,
+                  color: inc.thermalLevel >= 2 ? AMB : DIM, marginLeft: 'auto',
+                }}>
+                  T:L{inc.thermalLevel}
+                </span>
+
+                <ChevronRight size={10} style={{ color: DIM, flexShrink: 0 }} />
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
