@@ -23,6 +23,7 @@ import { useSystemStore }     from './store/useSystemStore';
 import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
 import { systemBoot }         from './platform/system/SystemBoot';
 import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
+import { useRoleStore }       from './platform/roleSystem/RoleStore';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -72,6 +73,27 @@ function App() {
     void systemBoot.start();
     return () => systemBoot.stop();
   }, []);
+
+  // ── Capacitor Deep Link — carospro://auth/* recovery bağlantısı ────────────
+  const handleRecoveryUrl = useRoleStore((s) => s.handleRecoveryUrl);
+  useEffect(() => {
+    if (!isNative) return;
+
+    let cleanup: (() => void) | undefined;
+
+    // Dinamik import — Capacitor yalnızca native ortamda mevcut
+    import('@capacitor/app').then(({ App: CapApp }) => {
+      const listener = CapApp.addListener('appUrlOpen', (event: { url: string }) => {
+        const url = event.url ?? '';
+        if (url.startsWith('carospro://auth/')) {
+          void handleRecoveryUrl(url);
+        }
+      });
+      cleanup = () => { void listener.then((l) => l.remove()); };
+    }).catch(() => { /* native olmayan ortamda sessizce geç */ });
+
+    return () => cleanup?.();
+  }, [handleRecoveryUrl]);
 
   // ── R-7: Store → cameraService köprüsü ───────────────────────────────────
   // VehicleDataLayer kaynaklı reverse sinyalini cameraService'e ilet

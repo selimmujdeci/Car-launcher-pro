@@ -12,6 +12,7 @@ import {
   Loader2, ChevronDown, ChevronUp, AlertTriangle, X,
 } from 'lucide-react';
 import { useRoleStore }             from '../../platform/roleSystem/RoleStore';
+import { AdminLoginForm }          from './AdminLoginForm';
 import {
   getFleetHealthSummary,
   getCriticalCount24h,
@@ -43,7 +44,7 @@ const AMB  = '#d97706';
 // ── SuperAdminShell ───────────────────────────────────────────────────────────
 
 export function SuperAdminShell() {
-  const { role, syncStatus, syncWithSupabase } = useRoleStore();
+  const { role, syncStatus, syncWithSupabase, adminAuthState } = useRoleStore();
 
   // ── Read state
   const [fleet,    setFleet]    = useState<FleetHealthSummary | null>(null);
@@ -180,11 +181,28 @@ export function SuperAdminShell() {
     }
   }
 
-  // Yetki yoksa
+  // Recovery modu — deep link ile gelindi
+  if (adminAuthState === 'recovery' || adminAuthState === 'updating_pw') {
+    return <AdminLoginForm mode="reset-confirm" />;
+  }
+
+  // Giriş yapılmamış → login formu göster
+  if (role !== 'super_admin' && adminAuthState !== 'signing_in') {
+    // syncStatus 'syncing' → loading göster, aksi halde login formu
+    if (syncStatus === 'syncing' || adminAuthState === 'idle') {
+      return <AdminLoginForm mode="login" />;
+    }
+    return <AdminLoginForm mode="login" />;
+  }
+
+  // Giriş yapılıyor
+  if (adminAuthState === 'signing_in') {
+    return <AccessDenied syncStatus="syncing" />;
+  }
+
+  // Giriş yapıldı ama yetki yok (allowlist dışı vs.)
   if (role !== 'super_admin') {
-    return (
-      <AccessDenied syncStatus={syncStatus} />
-    );
+    return <AccessDenied syncStatus={syncStatus} />;
   }
 
   if (fetchErr) {
@@ -717,9 +735,10 @@ function IncidentFeed({
   );
 }
 
-// ── AccessDenied ──────────────────────────────────────────────────────────────
+// ── AccessDenied (giriş yapmış ama yetkisiz) ─────────────────────────────────
 
 function AccessDenied({ syncStatus }: { syncStatus: string }) {
+  const { signOutAdmin } = useRoleStore();
   return (
     <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center',
       background:BG, flexDirection:'column', gap:12, padding:24 }}>
@@ -729,6 +748,20 @@ function AccessDenied({ syncStatus }: { syncStatus: string }) {
       <p style={{ fontFamily:'monospace', fontSize:11, color:MUTED, letterSpacing:'0.08em' }}>
         {syncStatus === 'syncing' ? 'YETKİ DOĞRULANIYORU...' : 'ERİŞİM REDDEDİLDİ'}
       </p>
+      {syncStatus !== 'syncing' && (
+        <button
+          onClick={() => { void signOutAdmin(); }}
+          style={{
+            marginTop:8, padding:'5px 14px',
+            background:'transparent', border:`1px solid ${BORD}`, borderRadius:4,
+            color:MUTED, cursor:'pointer',
+            fontFamily:'monospace', fontSize:9, fontWeight:700,
+            letterSpacing:'0.08em', textTransform:'uppercase',
+          }}
+        >
+          ÇIKIŞ YAP
+        </button>
+      )}
     </div>
   );
 }
