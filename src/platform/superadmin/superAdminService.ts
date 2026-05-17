@@ -8,7 +8,8 @@
  * Sorgular: RLS uyumlu — anon key ile erişilebilir SELECT'ler.
  */
 
-import { getSupabaseClient } from '../supabaseClient';
+import { getSupabaseClient }  from '../supabaseClient';
+import { getAdminClient }     from '../roleSystem/RoleStore';
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -159,4 +160,117 @@ export function subscribeToCriticalEvents(
     .subscribe();
 
   return () => { void sb.removeChannel(channel); };
+}
+
+// ── Write API — Tüm işlemler adminClient (persistSession:true) üzerinden ──────
+
+export interface FeatureFlag {
+  id:              string
+  key:             string
+  name:            string
+  enabled:         boolean
+  rollout_percent: number
+  updated_at:      string
+}
+
+const LIMP_MODE_FLAG_KEYS = [
+  'crm', 'hazard_intelligence', 'safety_copilot', 'predictive_intelligence', 'voice_extras',
+] as const;
+
+/**
+ * Tüm feature flag'leri döner (admin client — authenticated SELECT).
+ */
+export async function getFeatureFlags(): Promise<FeatureFlag[]> {
+  const client = getAdminClient();
+  if (!client) return [];
+  try {
+    const { data, error } = await client
+      .from('feature_flags')
+      .select('id, key, name, enabled, rollout_percent, updated_at')
+      .order('key', { ascending: true });
+    if (error || !data) return [];
+    return data as FeatureFlag[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Audit log'a kayıt düşer.
+ * ATOMIK KURAL: Bu fonksiyon başarısız olursa asıl işlem DURDURULMALI.
+ */
+export async function logAdminAction(
+  action:   string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const client = getAdminClient();
+  if (!client) throw new Error('AUDIT_FAILED: Admin client yok');
+
+  const { data: userData } = await client.auth.getUser();
+  const actorId = userData?.user?.id ?? null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (client.from('audit_logs') as any).insert({
+    actor_id:  actorId,
+    action,
+    target:    (metadata['target'] as string | undefined) ?? 'system',
+    after_val: metadata,
+    severity:  (metadata['severity'] as string | undefined) ?? 'warning',
+  });
+
+  if (error) throw new Error(`AUDIT_FAILED: ${error.message}`);
+}
+
+/**
+ * Belirli bir feature flag'i günceller.
+ * Atomic: önce audit log → başarılıysa update.
+ */
+export async function updateFeatureFlag(
+  key:     string,
+  enabled: boolean,
+): Promise<void> {
+  const client = getAdminClient();
+  if (!client) throw new Error('Kimlik doğrulama yok');
+
+  // 1. Audit log — başarısız olursa burada durur
+  await logAdminAction(`flag.${enabled ? 'enable' : 'disable'}`, {
+    target:   `flag:${key}`,
+    key,
+    enabled,
+    severity: 'warning',
+  });
+
+  // 2. Update
+  const now = new Date().toISOString();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (client.from('feature_flags') as any)
+    .update({ enabled, updated_at: now })
+    .eq('key', key);
+
+  if (error) throw new Error((error as { message: string }).message);
+}
+
+/**
+ * Tüm kritik flag'leri devre dışı bırakır (Fleet Limp Mode).
+ * Atomic: önce audit log → başarılıysa batch update.
+ */
+export async function activateFleetLimpMode(): Promise<void> {
+  const client = getAdminClient();
+  if (!client) throw new Error('Kimlik doğrulama yok');
+
+  // 1. Audit log — başarısız olursa burada durur
+  await logAdminAction('system.emergency_limp_mode', {
+    target:       'fleet',
+    affectedFlags: LIMP_MODE_FLAG_KEYS,
+    severity:     'critical',
+  });
+
+  // 2. Batch update
+  const now = new Date().toISOString();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (client.from('feature_flags') as any)
+    .update({ enabled: false, rollout_percent: 0, updated_at: now })
+    .in('key', [...LIMP_MODE_FLAG_KEYS]);
+
+  if (error) throw new Error((error as { message: string }).message);
 }

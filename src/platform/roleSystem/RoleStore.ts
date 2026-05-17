@@ -14,7 +14,8 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabaseClient';
 
 let _adminClient: ReturnType<typeof createClient> | null = null;
 
-function getAdminClient() {
+/** Admin Supabase client'ını döner. Sadece super_admin flow'u için kullanılır. */
+export function getAdminClient() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
   if (!_adminClient) {
     _adminClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
