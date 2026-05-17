@@ -55,7 +55,7 @@ const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
   useEffect(() => {
     let frame: number;
     const step = () => {
-      setDisplayRpm(prev => {
+      setDisplayRpm((prev: number) => {
         const diff = rpm - prev;
         if (Math.abs(diff) < 8) return rpm;
         return prev + diff * 0.14;

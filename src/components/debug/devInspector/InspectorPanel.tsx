@@ -4,12 +4,16 @@ import { runtimeManager }  from '../../../core/runtime/AdaptiveRuntimeManager';
 import { getReplayData, type BlackBoxSample } from '../../../platform/security/blackBoxService';
 import { getNetworkEntries, clearNetworkEntries, type NetEntry } from './NetworkInterceptor';
 import { useFpsCounter } from './useFpsCounter';
+import { HazardInspector } from './HazardInspector';
+import { IntelligenceInspector } from './IntelligenceInspector';
+import { useHazardStore } from '../../../store/useHazardStore';
+import { useVehicleIntelligenceStore } from '../../../store/useVehicleIntelligenceStore';
 
 /* ── Local types (mirror private WorkerEntry without importing internals) ── */
 type WorkerCrit = 'CRITICAL' | 'OPTIONAL';
 type WEntry     = readonly [string, { readonly worker: Worker | null; readonly criticality: WorkerCrit }];
 
-type Tab = 'workers' | 'timeline' | 'network' | 'fps';
+type Tab = 'workers' | 'timeline' | 'network' | 'fps' | 'hazards' | 'intel';
 
 const THERM_LABEL = ['Normal', 'Warm', 'Hot', 'Critical'] as const;
 const THERM_HEX   = ['#22c55e', '#eab308', '#f97316', '#ef4444'] as const;
@@ -32,8 +36,15 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
   const [timeline, setTimeline] = useState<BlackBoxSample[]>([]);
   const [network,  setNetwork]  = useState<readonly NetEntry[]>([]);
 
-  const fps        = useFpsCounter(tab === 'fps');
-  const fpsHistory = useRef<number[]>([]);
+  const fps              = useFpsCounter(tab === 'fps');
+  const fpsHistory       = useRef<number[]>([]);
+  const hazardStatus     = useHazardStore((s) => s.hazardStatus);
+  const hazardCount      = useHazardStore((s) => s.activeHazards.length);
+  const intelHealth      = useVehicleIntelligenceStore((s) => s.healthState);
+  const intelTrust       = useVehicleIntelligenceStore((s) => s.telemetryTrustScore);
+  const intelFaultCount  = useVehicleIntelligenceStore(
+    (s) => Object.values(s.plausibilityReport).filter((e) => !e.isValid).length,
+  );
 
   /* Accumulate FPS history only while FPS tab is open */
   useEffect(() => {
@@ -112,7 +123,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        {(['workers', 'timeline', 'network', 'fps'] as Tab[]).map((t) => {
+        {(['workers', 'timeline', 'network', 'fps', 'hazards', 'intel'] as Tab[]).map((t) => {
           const active = tab === t;
           return (
             <button key={t} onClick={() => setTab(t)}
@@ -125,6 +136,26 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
               {t === 'fps' && fps > 0 && (
                 <span style={{ marginLeft: 3, color: fps < 30 ? '#ef4444' : fps < 50 ? '#eab308' : '#22c55e' }}>
                   {fps}
+                </span>
+              )}
+              {t === 'hazards' && hazardCount > 0 && (
+                <span style={{
+                  marginLeft: 3,
+                  color: hazardStatus === 'ATTENTION' ? '#ef4444' : hazardStatus === 'PREPARE' ? '#f59e0b' : '#3b82f6',
+                }}>
+                  {hazardCount}
+                </span>
+              )}
+              {t === 'intel' && (
+                <span style={{
+                  marginLeft: 3,
+                  color: intelFaultCount > 0
+                    ? '#ef4444'
+                    : intelHealth !== 'HEALTHY'
+                      ? '#f59e0b'
+                      : '#22c55e',
+                }}>
+                  {intelFaultCount > 0 ? `!${intelFaultCount}` : `${Math.round(intelTrust * 100)}%`}
                 </span>
               )}
             </button>
@@ -252,6 +283,12 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
             </p>
           </div>
         )}
+
+        {/* Hazards */}
+        {tab === 'hazards' && <HazardInspector />}
+
+        {/* Vehicle Intelligence */}
+        {tab === 'intel' && <IntelligenceInspector />}
       </div>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}

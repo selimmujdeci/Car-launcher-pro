@@ -59,6 +59,9 @@ let _alertCb: AlertCallback | null = null;
 /** radarId → performance.now() of last TTS fire — persists across threat lifecycle */
 const _radarTtsHistory = new Map<string, number>();
 
+/** Singleton guard — çoklu başlatmayı önler */
+let _radarEngineRunning = false;
+
 /** Periyodik stale-purge timer — startRadarEngine başlatır, stopRadarEngine temizler */
 let _ttsHistoryPurgeTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -187,6 +190,8 @@ function _purgeStaleHistory(): void {
 
 /** Start the engine: load static points, begin community sync. Idempotent. */
 export async function startRadarEngine(staticPoints: RadarPoint[] = []): Promise<void> {
+  if (_radarEngineRunning) return; // zombie önleyici — çift start'ı engelle
+  _radarEngineRunning = true;
   loadStaticRadars(staticPoints);
   await startCommunitySync();
 
@@ -208,6 +213,7 @@ export async function startRadarEngine(staticPoints: RadarPoint[] = []): Promise
  *   ✓ Store threats + live reports purged
  */
 export function stopRadarEngine(): void {
+  _radarEngineRunning = false; // flag sıfırla — temiz yeniden başlatmaya izin ver
   stopCommunitySync();
   setRadarAlertCallback(null);
   _radarTtsHistory.clear();

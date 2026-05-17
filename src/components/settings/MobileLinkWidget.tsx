@@ -228,7 +228,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
     isValidSixDigit(info) &&
     !generating &&
     info!.expiresAt > 0 &&
-    Date.now() > info.expiresAt;
+    Date.now() > info!.expiresAt;
 
   /* ── Probe yükleniyor ─────────────────────────────────── */
   if (!probeDone) {

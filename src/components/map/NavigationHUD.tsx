@@ -39,6 +39,10 @@ import { speakNavigation } from '../../platform/ttsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
 import { useSpeedLimitByLocation } from '../../platform/speedLimitService';
+import { useSafetyStore } from '../../store/useSafetyStore';
+import { startSafetyObserver, stopSafetyObserver } from '../../platform/safetyService';
+import { useHazardStore, type HazardType } from '../../store/useHazardStore';
+import { useCognitiveStore } from '../../store/useCognitiveStore';
 
 /* ── Türkçe talimat ────────────────────────────────────────── */
 
@@ -122,6 +126,302 @@ function FuturistArrow({ mod, type, size = 'lg' }: {
   );
 }
 
+/* ── Tehlike banner etiketi ──────────────────────────────── */
+
+const HAZARD_LABELS_HUD: Record<HazardType, string> = {
+  CONSTRUCTION: 'YOL ÇALIŞMASI',
+  ACCIDENT:     'KAZA',
+  WEATHER:      'HAVA KOŞULLARI',
+  SPEED_CAM:    'HIZLI GEÇİŞ',
+  ROAD_DAMAGE:  'YOL HASARI',
+  TUNNEL:       'TÜNEL',
+};
+
+/* ── HazardBanner — üst merkez, sadece PREPARE/ATTENTION ────── */
+
+const HazardBanner = memo(function HazardBanner() {
+  const hazardStatus    = useHazardStore((s) => s.hazardStatus);
+  const activeHazards   = useHazardStore((s) => s.activeHazards);
+  const hazardIntensity = useHazardStore((s) => s.hazardIntensity);
+  const vehicleLoc      = useUnifiedVehicleStore((s) => s.location);
+  const cogMode         = useCognitiveStore((s) => s.currentMode);
+  const hideCrmBadge    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME';
+
+  if (hazardStatus !== 'PREPARE' && hazardStatus !== 'ATTENTION') return null;
+  if (activeHazards.length === 0) return null;
+
+  // En yüksek yoğunluklu tehlikeyi seç
+  const topEntry = Object.entries(hazardIntensity).sort((a, b) => b[1] - a[1])[0];
+  const topHazard = topEntry
+    ? activeHazards.find((h) => h.id === topEntry[0])
+    : activeHazards[0];
+  if (!topHazard) return null;
+
+  const label = HAZARD_LABELS_HUD[topHazard.type] ?? 'TEHLİKE';
+
+  // Araç–tehlike düz-mesafe tahmini
+  let distLabel = '';
+  if (vehicleLoc) {
+    const dLat = (vehicleLoc.latitude  - topHazard.lat) * 111_320;
+    const cosL = Math.cos(topHazard.lat * Math.PI / 180);
+    const dLng = (vehicleLoc.longitude - topHazard.lng) * 111_320 * cosL;
+    const distM = Math.sqrt(dLat * dLat + dLng * dLng);
+    distLabel = distM < 1000
+      ? `${Math.round(distM / 50) * 50} m`
+      : `${(distM / 1000).toFixed(1)} km`;
+  }
+
+  const isAttention = hazardStatus === 'ATTENTION';
+
+  return (
+    <div
+      className="absolute z-30 pointer-events-none flex flex-col items-center"
+      style={{ top: 'calc(var(--sat, 0px) + 72px)', left: '50%', transform: 'translateX(-50%)' }}
+    >
+      {/* Amber pulse + topluluk mavi-pulse keyframe'leri */}
+      <style>{`
+        @keyframes _hzPulse {
+          0%,100% { box-shadow:0 0 16px rgba(245,158,11,.30); }
+          50%      { box-shadow:0 0 32px rgba(245,158,11,.60); }
+        }
+        @keyframes _crmPulse {
+          0%,100% { opacity: 1; }
+          50%      { opacity: 0.4; }
+        }
+      `}</style>
+
+      <div
+        style={{
+          display:        'flex',
+          alignItems:     'center',
+          gap:            10,
+          padding:        '7px 18px',
+          borderRadius:   14,
+          background:     'rgba(8,9,14,0.84)',
+          border:         `1.5px solid ${isAttention ? 'rgba(245,158,11,0.75)' : 'rgba(245,158,11,0.35)'}`,
+          backdropFilter: 'blur(18px)',
+          animation:      isAttention ? '_hzPulse 1.6s ease-in-out infinite' : 'none',
+        }}
+      >
+        <span style={{ fontSize: 14, color: '#f59e0b', lineHeight: 1 }}>⚠</span>
+        <span style={{
+          fontSize:      11,
+          fontWeight:    900,
+          letterSpacing: '0.18em',
+          color:         '#fbbf24',
+          textTransform: 'uppercase',
+        }}>
+          {label}
+        </span>
+        {topHazard.isCommunity && !hideCrmBadge && (
+          <span style={{
+            display:       'flex',
+            alignItems:    'center',
+            gap:           4,
+            fontSize:      9,
+            fontWeight:    700,
+            letterSpacing: '0.12em',
+            color:         'rgba(96,165,250,0.85)',
+            textTransform: 'uppercase',
+          }}>
+            {/* Düşük GPU maliyetli opacity animasyonu — MALI-400 güvenli */}
+            <span style={{
+              width:        6,
+              height:       6,
+              borderRadius: '50%',
+              background:   '#60a5fa',
+              display:      'inline-block',
+              animation:    '_crmPulse 2s ease-in-out infinite',
+            }} />
+            Topluluk
+          </span>
+        )}
+        {distLabel && (
+          <span style={{
+            fontSize:      11,
+            fontWeight:    700,
+            letterSpacing: '0.08em',
+            color:         'rgba(255,255,255,0.50)',
+          }}>
+            {distLabel}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════ */
+/* ── LimpHomeHUD — Hayatta Kalma Modu, GPU ~%0 ────────────── */
+/* ══════════════════════════════════════════════════════════ */
+// MALI-400 safe: saf div/span, animasyon yok, SVG filtre yok, box-shadow yok.
+// Sadece hız (devasa) + dönüş oku + kritik mesafe. OBD ve navigasyon akışı kesilmez.
+
+const LimpHomeHUD = memo(function LimpHomeHUD({
+  speedKmh, currentStep, distToTurn, onStop,
+}: {
+  speedKmh:    number;
+  currentStep: RouteStep | undefined;
+  distToTurn:  number;
+  onStop:      () => void;
+}) {
+  return (
+    <div style={{
+      position:       'absolute',
+      inset:          0,
+      zIndex:         50,
+      display:        'flex',
+      flexDirection:  'column',
+      background:     '#000000',
+      color:          '#ffffff',
+      paddingTop:     'var(--sat, 0px)',
+    }}>
+      {/* Dönüş bilgisi — yüksek kontrast sarı */}
+      <div style={{
+        display:       'flex',
+        alignItems:    'center',
+        gap:           16,
+        padding:       '16px 20px',
+        borderBottom:  '1px solid #222222',
+      }}>
+        <div style={{
+          background:    '#facc15',
+          borderRadius:  6,
+          padding:       '10px 14px',
+          flexShrink:    0,
+          color:         '#000000',
+          lineHeight:    0,
+        }}>
+          <FuturistArrow
+            mod={currentStep?.maneuverModifier ?? 'straight'}
+            type={currentStep?.maneuverType   ?? 'straight'}
+            size="md"
+          />
+        </div>
+        <div>
+          <div style={{
+            fontSize:      40,
+            fontWeight:    900,
+            color:         '#facc15',
+            fontFamily:    'monospace',
+            lineHeight:    1,
+            letterSpacing: '-0.02em',
+          }}>
+            {currentStep ? fmtTurn(distToTurn) : '—'}
+          </div>
+          <div style={{
+            fontSize:      13,
+            fontWeight:    700,
+            color:         '#d1d5db',
+            marginTop:     4,
+            textTransform: 'uppercase',
+            letterSpacing: '0.10em',
+          }}>
+            {currentStep
+              ? toTurkish(currentStep.maneuverModifier, currentStep.maneuverType)
+              : 'Navigasyon devam ediyor'}
+          </div>
+        </div>
+      </div>
+
+      {/* Hız — ekranın merkezinde devasa */}
+      <div style={{
+        flex:           1,
+        display:        'flex',
+        flexDirection:  'column',
+        alignItems:     'center',
+        justifyContent: 'center',
+      }}>
+        <span style={{
+          fontSize:      120,
+          fontWeight:    900,
+          fontFamily:    'monospace',
+          color:         '#ffffff',
+          lineHeight:    1,
+          letterSpacing: '-0.04em',
+        }}>
+          {Math.round(speedKmh)}
+        </span>
+        <span style={{
+          fontSize:      16,
+          fontWeight:    700,
+          color:         '#4b5563',
+          marginTop:     8,
+          letterSpacing: '0.25em',
+        }}>
+          KM/H
+        </span>
+      </div>
+
+      {/* Alt çubuk — koruma modu etiketi + sonlandır */}
+      <div style={{
+        display:        'flex',
+        alignItems:     'center',
+        justifyContent: 'space-between',
+        padding:        '14px 20px',
+        borderTop:      '1px solid #222222',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width:        8,
+            height:       8,
+            borderRadius: '50%',
+            background:   '#facc15',
+            flexShrink:   0,
+          }} />
+          <span style={{
+            fontSize:      11,
+            fontWeight:    700,
+            color:         '#facc15',
+            textTransform: 'uppercase',
+            letterSpacing: '0.15em',
+          }}>
+            KORUMA MODU AKTİF
+          </span>
+        </div>
+        <button
+          onClick={onStop}
+          style={{
+            padding:       '8px 16px',
+            borderRadius:  6,
+            background:    'transparent',
+            border:        '1px solid #ef4444',
+            color:         '#ef4444',
+            fontWeight:    700,
+            fontSize:      11,
+            textTransform: 'uppercase',
+            letterSpacing: '0.10em',
+            cursor:        'pointer',
+          }}
+        >
+          SONLANDIR
+        </button>
+      </div>
+    </div>
+  );
+});
+
+/* ── FadeMount — kognitif mod bastırma için smooth unmount ───────────────── */
+// visible false olduğunda 150ms opacity geçişi → sonra tamamen unmount (MALI-400).
+// Absolute-positioned children'ların layout'unu etkilemez (wrapper position:static).
+
+function FadeMount({ visible, children }: { visible: boolean; children: ReactNode }) {
+  const [mounted, setMounted] = useState(visible);
+  const [opacity, setOpacity] = useState(visible ? 1 : 0);
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      const raf = requestAnimationFrame(() => setOpacity(1));
+      return () => cancelAnimationFrame(raf);
+    }
+    setOpacity(0);
+    const t = setTimeout(() => setMounted(false), 150);
+    return () => clearTimeout(t);
+  }, [visible]);
+  if (!mounted) return null;
+  return <div style={{ opacity, transition: 'opacity 150ms ease' }}>{children}</div>;
+}
+
 /* ── Dönüş mesafe formatlayıcı ──────────────────────────── */
 
 function fmtTurn(m: number): string {
@@ -138,9 +438,9 @@ function fmtTurn(m: number): string {
 /* ══════════════════════════════════════════════════════════ */
 
 const TurnPanel = memo(function TurnPanel({
-  step, distToTurn, nextStep,
+  step, distToTurn, nextStep, hazardActive = false,
 }: {
-  step: RouteStep; distToTurn: number; nextStep?: RouteStep;
+  step: RouteStep; distToTurn: number; nextStep?: RouteStep; hazardActive?: boolean;
 }) {
   const isArrive = step.maneuverType === 'arrive';
 
@@ -151,14 +451,17 @@ const TurnPanel = memo(function TurnPanel({
     >
       {/* Ana dönüş kartı — Mercedes MBUX Style */}
       <div className="futurist-glass futurist-glow-blue flex items-stretch rounded-[2rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] border-white/20">
-        {/* Ok alanı — daha geniş ve ikonik */}
+        {/* Ok alanı — tehlike modunda amber tona geçiş */}
         <div
           className="flex items-center justify-center px-6 flex-shrink-0"
           style={{
             background: isArrive
               ? 'linear-gradient(160deg,#10b981,#059669)'
-              : 'linear-gradient(160deg,#2563eb,#1e40af)',
+              : hazardActive
+                ? 'linear-gradient(160deg,#b45309,#78350f)'
+                : 'linear-gradient(160deg,#2563eb,#1e40af)',
             minWidth: 85,
+            transition: 'background 0.8s ease',
           }}
         >
           <FuturistArrow mod={step.maneuverModifier} type={step.maneuverType} size="md" />
@@ -289,6 +592,150 @@ const LaneGuidance = memo(function LaneGuidance({
 
 
 /* ══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════ */
+/* ── SafetyTensionBar — fren + reaksiyon mesafesi göstergesi */
+/* ══════════════════════════════════════════════════════════ */
+
+/**
+ * Sürücüye "görünmez durma mesafesini" ve eğri uyarısını sezgisel olarak gösterir.
+ * Mavi → reaksiyon  |  Amber/Kırmızı → fren yolu
+ * CAUTION / INTERVENTION → önerilen güvenli hız etiketi gösterilir.
+ */
+const SafetyTensionBar = memo(function SafetyTensionBar() {
+  const brakingDistanceM  = useSafetyStore((s) => s.brakingDistanceM);
+  const reactionDistanceM = useSafetyStore((s) => s.reactionDistanceM);
+  const isCritical        = useSafetyStore((s) => s.isBrakingCritical);
+  const safetyState       = useSafetyStore((s) => s.safetyState);
+  const recommendedSpeed  = useSafetyStore((s) => s.recommendedSpeedKmh);
+
+  const totalM    = brakingDistanceM + reactionDistanceM;
+  if (totalM < 1) return null;
+
+  const MAX_REF    = 150;
+  const totalFrac  = Math.min(1, totalM / MAX_REF);
+  const rxFrac     = reactionDistanceM / totalM;
+  const isCaution  = safetyState === 'CAUTION';
+  const isIntv     = safetyState === 'INTERVENTION';
+
+  // Eğri uyarısı: CAUTION/INTERVENTION → önerilen hız etiketi
+  const showCurveWarn = (isCaution || isIntv) && recommendedSpeed > 0;
+  const warnColor     = isIntv ? '#ef4444' : '#f59e0b';
+
+  return (
+    <div style={{ width: 82, paddingTop: 6 }}>
+      {/* Eğri uyarısı etiketi — CAUTION/INTERVENTION */}
+      {showCurveWarn ? (
+        <div style={{
+          fontSize:      8,
+          fontWeight:    900,
+          textAlign:     'center',
+          letterSpacing: '0.10em',
+          color:         warnColor,
+          marginBottom:  3,
+          fontFamily:    'monospace',
+        }}>
+          MAX {Math.round(recommendedSpeed)} km/h
+        </div>
+      ) : (
+        <div style={{
+          fontSize:      8,
+          fontWeight:    700,
+          textAlign:     'center',
+          letterSpacing: '0.12em',
+          color:         isCritical ? '#fca5a5' : 'rgba(255,255,255,0.30)',
+          marginBottom:  3,
+          fontFamily:    'monospace',
+        }}>
+          {Math.round(totalM)}m DUR
+        </div>
+      )}
+
+      {/* Tension bar */}
+      <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+        <div style={{
+          height:     '100%',
+          width:      `${totalFrac * 100}%`,
+          display:    'flex',
+          transition: 'width 0.35s ease',
+        }}>
+          <div style={{
+            flex:       rxFrac,
+            background: '#3b82f6',
+            transition: 'flex 0.35s ease',
+          }} />
+          <div style={{
+            flex:       1 - rxFrac,
+            background: isCritical ? '#ef4444' : '#f59e0b',
+            transition: 'flex 0.35s ease, background 0.35s ease',
+          }} />
+        </div>
+      </div>
+
+      {/* Segment etiketleri / eğri durumunda tek etiket */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+        {showCurveWarn ? (
+          <span style={{
+            fontSize:      7,
+            color:         warnColor,
+            fontWeight:    900,
+            letterSpacing: '0.08em',
+            fontFamily:    'monospace',
+            width:         '100%',
+            textAlign:     'center',
+          }}>
+            {isIntv ? '⚠ YAVAŞLA' : '↓ EĞRİ'}
+          </span>
+        ) : (
+          <>
+            <span style={{ fontSize: 7, color: '#3b82f6', fontWeight: 700, letterSpacing: '0.08em', fontFamily: 'monospace' }}>
+              REA
+            </span>
+            <span style={{ fontSize: 7, color: isCritical ? '#ef4444' : '#f59e0b', fontWeight: 700, letterSpacing: '0.08em', fontFamily: 'monospace' }}>
+              FRN
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════ */
+/* ── RiskOverlay — INTERVENTION tam-ekran kırmızı çerçeve ── */
+/* ══════════════════════════════════════════════════════════ */
+
+/**
+ * INTERVENTION durumunda ekran kenarlarına nabız atan kırmızı çerçeve.
+ * GPU hızlandırmalı opacity animasyonu — box-shadow yok, render maliyeti sıfır.
+ */
+const RiskOverlay = memo(function RiskOverlay() {
+  const safetyState = useSafetyStore((s) => s.safetyState);
+  if (safetyState !== 'INTERVENTION') return null;
+
+  return (
+    <>
+      <style>{`
+        @keyframes _riskHeartbeat {
+          0%, 100% { opacity: 0.08; }
+          30%       { opacity: 0.38; }
+          60%       { opacity: 0.15; }
+        }
+      `}</style>
+      <div
+        className="pointer-events-none"
+        style={{
+          position:        'fixed',
+          inset:           0,
+          zIndex:          9999,
+          border:          '4px solid rgba(239,68,68,0.90)',
+          animation:       '_riskHeartbeat 1.5s ease-in-out infinite',
+          borderRadius:    0,
+        }}
+      />
+    </>
+  );
+});
+
 /* ── SpeedPanel — futurist-glass, dynamic glow ───────────── */
 /* ══════════════════════════════════════════════════════════ */
 
@@ -299,6 +746,24 @@ const SpeedPanel = memo(function SpeedPanel({
 }) {
   const overSpeed    = speedKmh > speedLimitKmh + 5;
   const roundedSpeed = Math.round(speedKmh);
+  const safetyState  = useSafetyStore((s) => s.safetyState);
+
+  const isCaution = safetyState === 'CAUTION';
+  const isIntv    = safetyState === 'INTERVENTION';
+
+  // Glow önceliği: aşım > intervention > caution > normal
+  const glowClass = overSpeed
+    ? 'futurist-glow-red animate-futurist-pulse'
+    : isIntv
+      ? 'futurist-glow-red'
+      : isCaution
+        ? 'futurist-glow-amber'
+        : 'futurist-glow-blue';
+
+  // Hız rakamı rengi: intervention/aşım → kırmızı, caution → amber, normal → beyaz
+  const digitColor = (overSpeed || isIntv) ? '#f87171'
+    : isCaution ? '#fbbf24'
+    : '#ffffff';
 
   return (
     <div
@@ -307,17 +772,16 @@ const SpeedPanel = memo(function SpeedPanel({
     >
       {/* Hız göstergesi — futurist-glass + dinamik glow */}
       <div
-        className={`futurist-glass flex flex-col items-center px-5 py-3 rounded-[1.5rem] ${
-          overSpeed ? 'futurist-glow-red animate-futurist-pulse' : 'futurist-glow-blue'
-        }`}
+        className={`futurist-glass flex flex-col items-center px-5 py-3 rounded-[1.5rem] ${glowClass}`}
         style={{ minWidth: 90 }}
       >
         <span
           className="font-black tabular-nums leading-none futurist-text-glow"
           style={{
-            fontSize: 48,
-            color: overSpeed ? '#f87171' : '#ffffff',
+            fontSize:      48,
+            color:         digitColor,
             letterSpacing: '-0.05em',
+            transition:    'color 0.4s ease',
           }}
         >
           {roundedSpeed}
@@ -325,6 +789,9 @@ const SpeedPanel = memo(function SpeedPanel({
         <span className="text-slate-400 font-black uppercase tracking-[0.2em] text-[10px] mt-1 opacity-60">
           KM/H
         </span>
+
+        {/* Safety Tension Bar — fren + reaksiyon mesafesi */}
+        <SafetyTensionBar />
       </div>
 
       {/* Hız limiti tabelası */}
@@ -343,9 +810,14 @@ const SpeedPanel = memo(function SpeedPanel({
 /* ══════════════════════════════════════════════════════════ */
 
 const NavInfoBar = memo(function NavInfoBar({
-  etaSeconds, remainingMeters, totalMeters, onStop, isOffline,
+  etaSeconds, remainingMeters, totalMeters, onStop, isOffline, compact = false, limp = false,
 }: {
-  etaSeconds: number; remainingMeters: number; totalMeters: number; onStop: () => void; isOffline?: boolean;
+  etaSeconds: number; remainingMeters: number; totalMeters: number; onStop: () => void;
+  isOffline?: boolean;
+  /** CRITICAL modda: SÜRE gizlenir, yalnızca MESAFE + VARIŞ + SONLANDIR kalır */
+  compact?: boolean;
+  /** LIMP_HOME modda: sadece MESAFE + SONLANDIR */
+  limp?: boolean;
 }) {
   const arrival    = new Date(Date.now() + etaSeconds * 1_000);
   const arrivalStr = `${arrival.getHours().toString().padStart(2, '0')}:${arrival.getMinutes().toString().padStart(2, '0')}`;
@@ -391,15 +863,15 @@ const NavInfoBar = memo(function NavInfoBar({
 
       {/* İçerik satırı */}
       <div className="flex items-center gap-4 px-6 py-4">
-        {/* Süre | Mesafe | Varış */}
+        {/* Süre | Mesafe | Varış — kognitif moda göre kısaltılır */}
         <div className="flex-1 flex items-center justify-around">
-          <NavStat label="SÜRE"   value={formatEta(etaSeconds)} />
-          <div className="w-px h-8 bg-white/10" />
+          {!compact && !limp && <NavStat label="SÜRE" value={formatEta(etaSeconds)} />}
+          {!compact && !limp && <div className="w-px h-8 bg-white/10" />}
           <NavStat label="MESAFE" value={formatDistance(remainingMeters)} />
-          <div className="w-px h-8 bg-white/10" />
-          <NavStat label="VARIŞ"  value={arrivalStr} accent />
-          
-          {fuelPct != null && (
+          {!limp && <div className="w-px h-8 bg-white/10" />}
+          {!limp && <NavStat label="VARIŞ" value={arrivalStr} accent />}
+
+          {!limp && fuelPct != null && (
             <>
               <div className="w-px h-8 bg-white/10" />
               <div className="flex items-center gap-3">
@@ -946,6 +1418,30 @@ export const NavigationHUD = memo(function NavigationHUD({
 
   const [showAlts, setShowAlts] = useState(false);
 
+  // Safety observer lifecycle — bileşen mount'ta başlar, unmount'ta durur
+  useEffect(() => {
+    startSafetyObserver();
+    return () => stopSafetyObserver();
+  }, []);
+
+  // Phase H4 — Hazard state (selective subscription, minimal re-render)
+  const hazardStatus    = useHazardStore((s) => s.hazardStatus);
+  const globalRiskScore = useHazardStore((s) => s.globalRiskScore);
+  const isHazardAttn    = hazardStatus === 'ATTENTION';
+
+  // CL2 — Kognitif bastırma bayrakları
+  const cogMode     = useCognitiveStore((s) => s.currentMode);
+  const suppFocused = cogMode !== 'IMMERSIVE' && cogMode !== 'AWARE'; // FOCUSED|CRITICAL|LIMP_HOME
+  const suppCrit    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME';
+  const isLimp      = cogMode === 'LIMP_HOME';
+
+  // LIMP_HOME — tek seferlik otoriter TTS bildirimi
+  useEffect(() => {
+    if (isLimp) {
+      speakNavigation('Sistem koruma modu aktif. Navigasyon sürdürülüyor.');
+    }
+  }, [isLimp]);
+
   // Sesli yönlendirme — adım değiştiğinde konuş
   useEffect(() => {
     if (isActiveNav && currentStep && !isRerouting) {
@@ -977,26 +1473,47 @@ export const NavigationHUD = memo(function NavigationHUD({
 
   return (
     <>
+      {/* ═══ S4: INTERVENTION tam-ekran risk çerçevesi ═══ */}
+      <RiskOverlay />
+
       {/* ═══ ACTIVE / REROUTING ═══ */}
       {isActiveNav && (
         <>
+          {/* LIMP_HOME: standart HUD'un üzerine gelen minimal hayatta kalma overlay */}
+          {isLimp && (
+            <LimpHomeHUD
+              speedKmh={speedKmh}
+              currentStep={currentStep}
+              distToTurn={route.distanceToNextTurnMeters}
+              onStop={handleStop}
+            />
+          )}
+
           {isRerouting && <ReroutingBanner />}
+
+          {/* Tehlike Banner — PREPARE / ATTENTION durumunda görünür */}
+          <HazardBanner />
 
           {!isRerouting && currentStep && (
             <>
               <TurnPanel
                 step={currentStep}
                 distToTurn={route.distanceToNextTurnMeters}
-                nextStep={nextStep}
+                nextStep={isLimp ? undefined : nextStep}
+                hazardActive={isHazardAttn}
               />
-              <RoadSignsPanel
-                streetName={currentStep.streetName}
-                destName={destination?.name}
-              />
-              <LaneGuidance
-                maneuverModifier={currentStep.maneuverModifier}
-                distToTurn={route.distanceToNextTurnMeters}
-              />
+              <FadeMount visible={!suppCrit}>
+                <RoadSignsPanel
+                  streetName={currentStep.streetName}
+                  destName={destination?.name}
+                />
+              </FadeMount>
+              <FadeMount visible={!suppFocused}>
+                <LaneGuidance
+                  maneuverModifier={currentStep.maneuverModifier}
+                  distToTurn={route.distanceToNextTurnMeters}
+                />
+              </FadeMount>
               <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
             </>
           )}
@@ -1021,8 +1538,8 @@ export const NavigationHUD = memo(function NavigationHUD({
             </>
           )}
 
-          {/* Alternatif rotalar butonu + paneli */}
-          {!isRerouting && route.alternatives.length > 0 && (
+          {/* Alternatif rotalar butonu + paneli — FOCUSED+ modda gizlenir */}
+          {!isRerouting && !suppFocused && route.alternatives.length > 0 && (
             <div
               className="absolute z-30 pointer-events-auto"
               style={{ left: 16, bottom: 'calc(var(--lp-dock-h, 68px) + 96px)' }}
@@ -1069,6 +1586,8 @@ export const NavigationHUD = memo(function NavigationHUD({
             totalMeters={route.totalDistanceMeters}
             onStop={handleStop}
             isOffline={isOfflineResult}
+            compact={suppCrit}
+            limp={isLimp}
           />
         </>
       )}
@@ -1109,12 +1628,20 @@ export const NavigationHUD = memo(function NavigationHUD({
         />
       )}
 
-      {/* ═══ ACTIVE NAV — sol kompakt kısayollar ═══ */}
-      {isActiveNav && (
-        <QuickDestinations
-          gpsLat={location?.latitude  ?? null}
-          gpsLon={location?.longitude ?? null}
-        />
+      {/* ═══ ACTIVE NAV — sol kompakt kısayollar (FOCUSED+ modda unmount) ═══ */}
+      {isActiveNav && !suppFocused && (
+        <div
+          style={{
+            transition: 'opacity 0.6s ease, filter 0.6s ease',
+            opacity:    globalRiskScore > 0.8 ? 0.45 : 1,
+            filter:     globalRiskScore > 0.8 ? 'grayscale(0.55)' : 'none',
+          }}
+        >
+          <QuickDestinations
+            gpsLat={location?.latitude  ?? null}
+            gpsLon={location?.longitude ?? null}
+          />
+        </div>
       )}
     </>
   );

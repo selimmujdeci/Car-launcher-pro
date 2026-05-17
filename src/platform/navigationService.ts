@@ -14,6 +14,8 @@ import {
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
 import { corridorSync } from '../core/navigation/CorridorSyncEngine';
+// Phase H1 re-export kaldırıldı (H5 circular import fix).
+// startHazardEngine / stopHazardEngine doğrudan hazardService.ts'ten import edilebilir.
 
 /* ── Navigasyon Durum Makinesi ───────────────────────────────── */
 

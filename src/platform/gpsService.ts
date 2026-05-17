@@ -4,6 +4,18 @@ import { safeSetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
+import { applySpeedFilters, computeSpeedDelta } from './gps/speedCore';
+import type { PrevPosition } from './gps/speedCore';
+import { isJumpInvalid, calculateFusionRamp, DR_THRESHOLD_MS, DR_MIN_SPEED_MS } from './gps/fusionCore';
+import type { FusedPosition } from './gps/fusionCore';
+import {
+  isNativePlatform,
+  shouldSaveLastKnown,
+  shouldCheckGeofence,
+  LAST_KNOWN_KEY,
+  GPS_FIRST_FIX_MS,
+} from './gps/gpsUtils';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -90,18 +102,13 @@ const _unsubRuntimeGPS = runtimeManager.subscribe((_mode, config) => {
   }
 });
 
-// Geofence throttle: 5s veya 10m değişim
+// Geofence throttle state
 let _lastGeofenceCheckTime = 0;
 let _lastGeofenceCheckPos: { lat: number; lng: number } | null = null;
-const GEOFENCE_THROTTLE_MS = 5000;
-const GEOFENCE_THROTTLE_METERS = 10;
 
 // ── GPS Fusion Smoothing: tünel çıkışı stabilizasyonu ─────────────────────
 let _transitionStartPerf: number | null = null;
-let _drLastPos: { lat: number; lng: number } | null = null;
-const FUSION_RAMP_MS        = 3_000;   // DR→GPS geçiş yumuşatma süresi (ms)
-const JUMP_GUARD_METERS     = 100;     // maksimum kabul edilebilir fix atlama (m)
-const JUMP_GUARD_ACCURACY_M = 30;      // accuracy bu değerin üstündeyse jump guard aktif
+let _drLastPos: FusedPosition | null = null;
 
 // Auto-reconnect on consecutive errors
 let _consecutiveErrors = 0;
@@ -110,19 +117,16 @@ const MAX_GPS_ERRORS   = 3;
 const GPS_RECONNECT_MS = 8000;
 
 // ── Son bilinen konum (localStorage) ─────────────────────
-const LAST_KNOWN_KEY      = 'car-gps-last-known';
-const SAVE_LAST_KNOWN_MS  = 5_000; // 2 Hz GPS → max 5s'de-bir yaz
-let _lastSavePerf         = 0;
+let _lastSavePerf = 0;
 
 function _saveLastKnown(loc: GPSLocation): void {
   const now = performance.now();
-  if (now - _lastSavePerf < SAVE_LAST_KNOWN_MS) return;
+  if (!shouldSaveLastKnown(_lastSavePerf, now)) return;
   _lastSavePerf = now;
   safeSetRaw(LAST_KNOWN_KEY, JSON.stringify({ lat: loc.latitude, lng: loc.longitude }));
 }
 
-// ── İlk fix fallback (5 saniye) ──────────────────────────
-const GPS_FIRST_FIX_MS = 5000;
+// ── İlk fix fallback ─────────────────────────────────────
 let _firstFixTimer: ReturnType<typeof setTimeout> | null = null;
 
 function _clearFirstFixTimer(): void {
@@ -158,24 +162,9 @@ function _startFirstFixFallback(): void {
 // Angle lerp: shortest-arc (350°/10° wraparound güvenli)
 // Output: exponential low-pass filter (GPS sıçramalarını bastırır)
 
-const COMPASS_ONLY_KMH  = 3;
-const GPS_ONLY_KMH      = 10;
-const HEADING_SMOOTH_α  = 0.35; // yeni örneğin ağırlığı; 0.35 @2s tick = ~4 güncellemede %90
-const COMPASS_SMOOTH_α  = 0.25; // pusula low-pass @60 Hz ≈ ~67 ms gecikme
-
 let _compassHeading:     number | null = null;
 let _smoothedHeading:    number | null = null;
 let _compassListenerOn   = false;
-
-/** 0–360° aralığında en kısa yayı kullanarak açı interpolasyonu */
-function _lerpAngle(a: number, b: number, t: number): number {
-  const diff = ((b - a + 540) % 360) - 180; // -180..+180
-  return (a + diff * t + 360) % 360;
-}
-
-function _clamp01(x: number): number {
-  return x < 0 ? 0 : x > 1 ? 1 : x;
-}
 
 // Compass throttle: 60Hz → 10Hz (100ms) — pil tasarrufu
 let _compassLastMs = 0;
@@ -197,9 +186,7 @@ function _onDeviceOrientation(e: DeviceOrientationEvent): void {
     return;
   }
 
-  _compassHeading = _compassHeading === null
-    ? deg
-    : _lerpAngle(_compassHeading, deg, COMPASS_SMOOTH_α);
+  _compassHeading = applyCompassSmoothing(_compassHeading, deg);
 }
 
 function _startCompassListener(): void {
@@ -220,82 +207,14 @@ function _stopCompassListener(): void {
   _smoothedHeading = null;
 }
 
-/**
- * GPS course ve pusula başlığını hıza göre harmanlayıp tek heading döner.
- *
- * @param gpsBearing  coords.heading (GPS course, 0–360°) — null ise katkısı yok
- * @param speedMs     Anlık hız m/s
- * @returns           Smooth edilmiş blended heading veya null
- */
 function _blendHeading(gpsBearing: number | null, speedMs: number): number | null {
-  const speedKmh = speedMs * 3.6;
-  const hasGPS   = gpsBearing !== null && Number.isFinite(gpsBearing);
-  const hasCmps  = _compassHeading !== null;
-
-  let raw: number | null = null;
-
-  if (speedKmh <= COMPASS_ONLY_KMH) {
-    raw = hasCmps ? _compassHeading : (hasGPS ? gpsBearing : null);
-  } else if (speedKmh >= GPS_ONLY_KMH) {
-    raw = hasGPS ? gpsBearing : (hasCmps ? _compassHeading : null);
-  } else {
-    const α = _clamp01((speedKmh - COMPASS_ONLY_KMH) / (GPS_ONLY_KMH - COMPASS_ONLY_KMH));
-    if (hasGPS && hasCmps)      raw = _lerpAngle(_compassHeading!, gpsBearing!, α);
-    else if (hasGPS)            raw = gpsBearing;
-    else if (hasCmps)           raw = _compassHeading;
-  }
-
-  if (raw === null) return null;
-
-  _smoothedHeading = _smoothedHeading === null
-    ? raw
-    : _lerpAngle(_smoothedHeading, raw, HEADING_SMOOTH_α);
-
-  return Math.round(_smoothedHeading * 10) / 10; // 0.1° hassasiyet
+  const result = computeBlendedHeading(gpsBearing, speedMs, _compassHeading, _smoothedHeading);
+  _smoothedHeading = result.nextSmoothed;
+  return result.heading;
 }
-
-// ── GPS hız filtresi ─────────────────────────────────────────
-//
-// GPS Doppler hız ölçümü (coords.speed) zaten donanım seviyesinde filtreli;
-// yazılım EMA eklemek sadece gecikme yaratır. Örnek: α=0.40 @2s tick →
-// araç 50 km/h'deyken ekranda ~32 görünür, durduğunda ~10s geç sıfırlanır.
-//
-// Çözüm: EMA yok. Sadece deadzone (durağan jitter bastırma).
-//   < GPS_SPEED_DEADZONE_KMH → 0 (araç durmuş, GPS Doppler noise yok say)
-//   Timestamp freshness: > GPS_SPEED_MAX_AGE_MS → speed undefined (stale fix)
-//
-/** Durağan araç jitter bastırma eşiği (km/h) — altındaki değerler 0 sayılır.
- *  0.8 km/h: trafik sürünmesi Doppler'den geçer; park/otopark GPS kaymasını bastırır. */
-const GPS_SPEED_DEADZONE_KMH = 0.8;
-/** Bu süreden eski GPS fix'inden gelen hız kabul edilmez */
-const GPS_SPEED_MAX_AGE_MS   = 4000;
-/** GPS Doppler spike / uydu lock jitter: bu değerin üstü fiziksel olarak imkansız */
-const GPS_SPEED_MAX_KMH      = 280;
 
 // ── Speed from position delta ─────────────────────────────
-let _prevForSpeed: { lat: number; lng: number; ts: number } | null = null;
-
-/** Haversine mesafesi (metre) — ekvatorden uzaklaşınca doğru sonuç verir */
-function _haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R  = 6_371_000;
-  const dL = ((lat2 - lat1) * Math.PI) / 180;
-  const dG = ((lng2 - lng1) * Math.PI) / 180;
-  const a  = Math.sin(dL / 2) ** 2 +
-             Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-             Math.sin(dG / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function _calcSpeedFromDelta(lat: number, lng: number, ts: number): number | undefined {
-  const prev = _prevForSpeed;
-  _prevForSpeed = { lat, lng, ts };
-  if (!prev) return undefined;
-  const dt = (ts - prev.ts) / 1000; // seconds
-  if (dt < 0.5 || dt > 10) return undefined;
-  const distM = _haversineMeters(prev.lat, prev.lng, lat, lng);
-  if (!Number.isFinite(distM)) return undefined;
-  return distM / dt; // m/s
-}
+let _prevForSpeed: PrevPosition | null = null;
 
 function _scheduleGPSReconnect(): void {
   if (_reconnectTimer) return;
@@ -310,18 +229,6 @@ function _scheduleGPSReconnect(): void {
       logError('GPS:Reconnect', e);
     }
   }, GPS_RECONNECT_MS);
-}
-
-/**
- * Detect if running on Capacitor native platform
- */
-function isNativePlatform(): boolean {
-  try {
-    const cap = window.Capacitor;
-    return typeof cap?.isNativePlatform === 'function' && cap.isNativePlatform();
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -485,18 +392,11 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _consecutiveErrors = 0;
 
   // ── Jump Guard: tünel çıkışı gürültülü ilk fix koruması ─────────────────
-  // >100m atlama VE accuracy >30m ise bu fix muhtemelen noisy — reddet
   const _drActiveNow = isDeadReckoningActive();
   const _prevLoc     = useGPSStore.getState().location;
-  if (_prevLoc && coords.accuracy > JUMP_GUARD_ACCURACY_M) {
-    const jumpM = _haversineMeters(
-      _prevLoc.latitude, _prevLoc.longitude,
-      coords.latitude,   coords.longitude,
-    );
-    if (jumpM > JUMP_GUARD_METERS) {
-      console.warn(`[GPS] JumpGuard: ${jumpM.toFixed(0)}m atlama reddedildi (accuracy:${coords.accuracy.toFixed(0)}m)`);
-      return;
-    }
+  if (_prevLoc && isJumpInvalid(_prevLoc, coords)) {
+    console.warn(`[GPS] JumpGuard: atlama reddedildi (accuracy:${coords.accuracy.toFixed(0)}m)`);
+    return;
   }
 
   // ── Fusion Ramp başlatıcı: DR aktifken gelen ilk gerçek GPS fix'i ─────────
@@ -508,29 +408,12 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
 
   // GPS speed yoksa pozisyon delta'sından hesapla
   const gpsSpeed = Number.isFinite(coords.speed ?? NaN) ? (coords.speed ?? undefined) : undefined;
-  const rawSpeed = gpsSpeed ?? _calcSpeedFromDelta(coords.latitude, coords.longitude, timestamp ?? now);
+  const prevPos  = _prevForSpeed;
+  _prevForSpeed  = { lat: coords.latitude, lng: coords.longitude, ts: timestamp ?? now };
+  const rawSpeed = gpsSpeed ?? computeSpeedDelta(coords.latitude, coords.longitude, timestamp ?? now, prevPos);
 
-  // ── Hız filtresi: Sadece deadzone (EMA yok — gecikme kaynağıydı) ────
-  // GPS Doppler speed donanım seviyesinde zaten doğru; EMA sadece gecikme ekler.
-  // Deadzone: < 2 km/h → 0 (durağan araç jitter bastırma).
-  // Timestamp freshness: > GPS_SPEED_MAX_AGE_MS → hız geçersiz say.
-  let filteredSpeed: number | undefined;
-  if (rawSpeed != null) {
-    const dataAge = Math.abs(now - (timestamp ?? now));
-    if (dataAge > GPS_SPEED_MAX_AGE_MS) {
-      // Stale fix — pozisyonu güncelle ama hız verisini gösterme
-      filteredSpeed = undefined;
-    } else {
-      const rawKmh  = rawSpeed * 3.6;
-      if (rawKmh > GPS_SPEED_MAX_KMH) {
-        // Fiziksel olarak imkansız hız — GPS uydu lock jitter veya antenna spike
-        filteredSpeed = undefined;
-      } else {
-        // Deadzone: durağan araç jitter'ı bastır, ama 0'a HEMEN düş
-        filteredSpeed = (rawKmh < GPS_SPEED_DEADZONE_KMH ? 0 : rawKmh) / 3.6;
-      }
-    }
-  }
+  const dataAge     = Math.abs(now - (timestamp ?? now));
+  const filteredSpeed = rawSpeed != null ? applySpeedFilters(rawSpeed, dataAge) : undefined;
 
   // GPS course: Geolocation spec → null/NaN when stationary; safe-guard before blend
   const gpsCourse = Number.isFinite(coords.heading ?? NaN) ? (coords.heading ?? null) : null;
@@ -538,15 +421,13 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   const heading   = _blendHeading(gpsCourse, filteredSpeed ?? 0);
 
   // ── Fusion Ramp: DR→GPS weighted blend (3 saniyelik yumuşak geçiş) ────────
-  // finalPos = LastDRPos*(1-α) + NewGPSPos*α  →  araç haritada "akarak" geçer, zıplamaz
   let _fusedLat = coords.latitude;
   let _fusedLng = coords.longitude;
   if (_transitionStartPerf !== null && _drLastPos !== null) {
-    const _elapsed = performance.now() - _transitionStartPerf;
-    if (_elapsed < FUSION_RAMP_MS) {
-      const _alpha = _elapsed / FUSION_RAMP_MS;
-      _fusedLat = _drLastPos.lat * (1 - _alpha) + coords.latitude  * _alpha;
-      _fusedLng = _drLastPos.lng * (1 - _alpha) + coords.longitude * _alpha;
+    const fused = calculateFusionRamp(performance.now() - _transitionStartPerf, _drLastPos, coords);
+    if (fused !== null) {
+      _fusedLat = fused.lat;
+      _fusedLng = fused.lng;
     } else {
       _transitionStartPerf = null;
       _drLastPos           = null;
@@ -564,16 +445,10 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   };
 
   // ── Geofence 2.0 Kontrolü (Performans Throttling) ────
-  const distChange = _lastGeofenceCheckPos
-    ? _haversineMeters(_lastGeofenceCheckPos.lat, _lastGeofenceCheckPos.lng, loc.latitude, loc.longitude)
-    : Infinity;
-  const timeChange = now - _lastGeofenceCheckTime;
-
-  if (timeChange >= GEOFENCE_THROTTLE_MS || distChange >= GEOFENCE_THROTTLE_METERS) {
+  const currentPos = { lat: loc.latitude, lng: loc.longitude };
+  if (shouldCheckGeofence(_lastGeofenceCheckPos, currentPos, _lastGeofenceCheckTime, now)) {
     _lastGeofenceCheckTime = now;
-    _lastGeofenceCheckPos = { lat: loc.latitude, lng: loc.longitude };
-
-    // Hız geçerliyse (veya 0 ise) kontrolü tetikle
+    _lastGeofenceCheckPos  = currentPos;
     if (filteredSpeed != null) {
       checkGeofence(loc.latitude, loc.longitude, filteredSpeed * 3.6);
     }
@@ -746,7 +621,7 @@ export function onGPSLocation(fn: (loc: GPSLocation | null) => void): () => void
 export function feedBackgroundLocation(data: {
   lat:      number;
   lng:      number;
-  speed:    number;   // km/h (CarLauncherForegroundService'den geliyor)
+  speed:    number;
   bearing:  number;
   accuracy: number;
 }): void {
@@ -755,6 +630,11 @@ export function feedBackgroundLocation(data: {
   // Guard against malformed data from native background service
   if (!Number.isFinite(data.lat) || !Number.isFinite(data.lng)) {
     logError('GPS:Background', new Error(`Invalid coords: ${data.lat},${data.lng}`));
+    return;
+  }
+  // Range validation: GPS coordinates must be within valid ranges
+  if (data.lat > 90 || data.lat < -90 || data.lng > 180 || data.lng < -180) {
+    logError('GPS:Background', new Error(`Out-of-range coords: ${data.lat},${data.lng}`));
     return;
   }
   handlePosition(
@@ -786,8 +666,6 @@ export function feedBackgroundLocation(data: {
  *   - Histerezis: DR_THRESHOLD_MS (2s) GPS sessizliği gerekir
  */
 
-const DR_THRESHOLD_MS   = 2_000;  // GPS sessizlik eşiği (guard için korundu)
-const DR_MIN_SPEED_MS   = 2 / 3.6; // 2 km/h (m/s) — guard hız eşiği
 
 interface DeadReckoningState {
   active:         boolean;

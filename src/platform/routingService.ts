@@ -494,6 +494,27 @@ export function normalizeCoords(
 let _styleChangePending = false;
 const _styleReadyCallbacks: Array<() => void> = [];
 
+/* ── Navigation Style Callbacks ────────────────────────────────────────────
+ * Rota hazır/temizlendiğinde dış sistemlere (mapService focus mode) haber ver.
+ * Direct import döngüsünü önlemek için callback pattern kullanılır.
+ */
+type NavStyleCb = (active: boolean) => void;
+const _navStyleCbs: NavStyleCb[] = [];
+
+/**
+ * Rota state değişimlerine abone ol — mapService veya FullMapView tarafından
+ * kaydedilir. Rota geometrisi hazır → true, clearRoute → false olarak tetiklenir.
+ * @returns unsubscribe fonksiyonu
+ */
+export function registerNavigationStyleCallback(cb: NavStyleCb): () => void {
+  _navStyleCbs.push(cb);
+  return () => { const i = _navStyleCbs.indexOf(cb); if (i >= 0) _navStyleCbs.splice(i, 1); };
+}
+
+function _fireNavStyle(active: boolean): void {
+  for (const cb of _navStyleCbs) { try { cb(active); } catch { /* ignore */ } }
+}
+
 /**
  * Harita stil değişimini bildir.
  * Map bileşeni tarafından çağrılır — true=başladı, false=tamamlandı (style.load).
@@ -659,6 +680,7 @@ export async function fetchRoute(
           distanceToNextTurnMeters: 0,
           serverUsed:           server,
         });
+        _fireNavStyle(true); // rota hazır → focus mode aktif
         return;
       } catch (e) {
         const _errMsg = e instanceof Error ? e.message : String(e);
@@ -694,6 +716,7 @@ export async function fetchRoute(
         distanceToNextTurnMeters: 0,
         serverUsed:           offlineResult.source,
       });
+      _fireNavStyle(true); // offline rota hazır → focus mode aktif
       return;
     }
   }
@@ -715,6 +738,7 @@ export async function fetchRoute(
     distanceToNextTurnMeters: 0,
     serverUsed:           'straight-line',
   });
+  _fireNavStyle(true); // düz hat fallback → focus mode aktif
 }
 
 /**
@@ -895,6 +919,7 @@ export function clearRoute(): void {
   useRouteStore.setState(INITIAL);
   _deviationCounter = 0;
   _allRoutes = [];
+  _fireNavStyle(false); // navigasyon tamamlandı — focus mode kapat
 }
 
 /** Snapshot (non-hook) — test ve non-React context için. */

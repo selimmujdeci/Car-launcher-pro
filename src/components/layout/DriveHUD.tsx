@@ -24,6 +24,7 @@ import { useMediaState, togglePlayPause, next, previous } from '../../platform/m
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { useFusedSpeed } from '../../platform/speedFusion';
 import { useOBDHeadlights } from '../../platform/obdService';
+import { useCognitiveStore } from '../../store/useCognitiveStore';
 
 export const DriveHUD = memo(function DriveHUD() {
   const { data } = useFusedSpeed();
@@ -35,8 +36,13 @@ export const DriveHUD = memo(function DriveHUD() {
     || autoBrightness.phase === 'evening'
     || autoBrightness.phase === 'dawn';
 
+  // CL2 — Kognitif bastırma bayrakları
+  const cogMode    = useCognitiveStore((s) => s.currentMode);
+  const suppFocused = cogMode !== 'IMMERSIVE' && cogMode !== 'AWARE'; // medya kontrolleri gizle
+  const suppCrit    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME'; // parça bilgisi de gizle
+
   // Navigasyon bilgisi — mediaService üzerinden veya placeholder
-  const hasTrack    = !!(hudMedia.track.title);
+  const hasTrack    = !suppCrit && !!(hudMedia.track.title); // CRITICAL+ → her zaman nav placeholder
   const isPlaying   = hudMedia.playing;
 
   return (
@@ -111,43 +117,44 @@ export const DriveHUD = memo(function DriveHUD() {
           )}
         </div>
 
-        {/* ── Z-Odak 3: MEDYA KONTROLLERI — Üçüncül ─────── */}
-        {/* Sağda kompakt; dokunmatik için yeterli boyut */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button
-            onClick={previous}
-            className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform bg-white/[0.07] border border-white/10"
-            aria-label="Önceki parça"
-          >
-            <SkipBack className="w-3.5 h-3.5 text-slate-300" />
-          </button>
+        {/* ── Z-Odak 3: MEDYA KONTROLLERI — FOCUSED+ modda unmount ─────── */}
+        {!suppFocused && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              onClick={previous}
+              className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform bg-white/[0.07] border border-white/10"
+              aria-label="Önceki parça"
+            >
+              <SkipBack className="w-3.5 h-3.5 text-slate-300" />
+            </button>
 
-          <button
-            onClick={togglePlayPause}
-            className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
-            style={{
-              background: isPlaying
-                ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)'
-                : 'rgba(59,130,246,0.20)',
-              border: '1px solid rgba(59,130,246,0.35)',
-              boxShadow: isPlaying ? '0 2px 12px rgba(59,130,246,0.40)' : 'none',
-            }}
-            aria-label={isPlaying ? 'Durdur' : 'Oynat'}
-          >
-            {isPlaying
-              ? <Pause className="w-4 h-4 text-white fill-current" />
-              : <Play  className="w-4 h-4 text-white fill-current" />
-            }
-          </button>
+            <button
+              onClick={togglePlayPause}
+              className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
+              style={{
+                background: isPlaying
+                  ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)'
+                  : 'rgba(59,130,246,0.20)',
+                border: '1px solid rgba(59,130,246,0.35)',
+                boxShadow: isPlaying ? '0 2px 12px rgba(59,130,246,0.40)' : 'none',
+              }}
+              aria-label={isPlaying ? 'Durdur' : 'Oynat'}
+            >
+              {isPlaying
+                ? <Pause className="w-4 h-4 text-white fill-current" />
+                : <Play  className="w-4 h-4 text-white fill-current" />
+              }
+            </button>
 
-          <button
-            onClick={next}
-            className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform bg-white/[0.07] border border-white/10"
-            aria-label="Sonraki parça"
-          >
-            <SkipForward className="w-3.5 h-3.5 text-slate-300" />
-          </button>
-        </div>
+            <button
+              onClick={next}
+              className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-transform bg-white/[0.07] border border-white/10"
+              aria-label="Sonraki parça"
+            >
+              <SkipForward className="w-3.5 h-3.5 text-slate-300" />
+            </button>
+          </div>
+        )}
 
         {/* Gece fazı göstergesi */}
         {isNightPhase && (

@@ -20,6 +20,11 @@
   border-color: rgba(248, 113, 113, 0.5);
 }
 
+.futurist-glow-amber {
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.40);
+  border-color: rgba(251, 191, 36, 0.50);
+}
+
 .futurist-gradient-blue {
   background: linear-gradient(155deg, #2563eb, #1e3a8a, #1e40af);
 }

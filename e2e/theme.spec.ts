@@ -1,31 +1,28 @@
 import { test, expect } from '@playwright/test';
+import { gotoAndBoot } from './helpers';
 
 /**
  * Tema değişimi — Tesla, BMW, Mercedes, Audi, Glass Pro, OLED Pro.
  */
 test.describe('Theme System', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.waitForTimeout(1500);
+    await gotoAndBoot(page);
   });
 
   test('tema degistirme calisir', async ({ page }) => {
-    // Settings drawer aç
-    const settingsBtn = page.locator('[data-drawer-trigger="settings"], button:has-text("Ayarlar")');
+    const settingsBtn = page.locator('[data-drawer-trigger="settings"], button:has-text("Ayarlar")').first();
+    const themeOptions = page.locator('[data-theme-option], .theme-option, [data-testid="theme"]');
+
     if (await settingsBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await settingsBtn.click();
-      await page.waitForTimeout(500);
+      await settingsBtn.click({ force: true });
+      // Tema seçenekleri görünene kadar bekle
+      await themeOptions.first().waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
     }
 
-    // Tema seçenekleri
-    const themeOptions = page.locator('[data-theme-option], .theme-option, [data-testid="theme"]');
     const themeCount = await themeOptions.count();
-    
     if (themeCount > 0) {
-      // İlk temaya tıkla
       await themeOptions.first().click();
-      await page.waitForTimeout(300);
-      
+
       // Tema değişikliği uygulanmış olmalı
       const html = page.locator('html');
       const themePack = await html.getAttribute('data-theme-pack');
@@ -34,33 +31,27 @@ test.describe('Theme System', () => {
   });
 
   test('gece modu aktif', async ({ page }) => {
-    // Settings → Night Mode
     const nightModeToggle = page.locator('[data-night-mode], .night-mode-toggle, input[type="checkbox"][data-setting="autoTheme"]');
     if (await nightModeToggle.isVisible({ timeout: 2000 }).catch(() => false)) {
       const isChecked = await nightModeToggle.isChecked();
-      
-      // Toggle
+
       await nightModeToggle.click();
-      await page.waitForTimeout(500);
-      
-      // State değişmiş olmalı
+
+      // State değişmiş olmalı — isChecked() kendi auto-wait'iyle güvenli
       const newState = await nightModeToggle.isChecked();
       expect(newState).not.toBe(isChecked);
     }
   });
 
   test('widget stil degisimi', async ({ page }) => {
-    // Widget style options: elevated, flat, outlined
     const widgetStyleOptions = page.locator('[data-widget-style], .widget-style-option');
     const styleCount = await widgetStyleOptions.count();
-    
+
     if (styleCount > 1) {
-      // Farklı bir style seç
       await widgetStyleOptions.nth(1).click();
-      await page.waitForTimeout(300);
-      
-      // Değişiklik uygulanmış olmalı
-      await expect(page).not.toHaveErrors();
+
+      // Değişiklik uygulandı — app çalışır olmalı
+      await expect(page.locator('.ultra-premium-root').first()).toBeVisible();
     }
   });
 });
@@ -69,22 +60,17 @@ test.describe('Theme System', () => {
  * Widget visibility — widget'ların show/hide durumu.
  */
 test('widget gosterim ayarlari', async ({ page }) => {
-  await page.goto('/');
-  await page.waitForTimeout(1500);
+  await gotoAndBoot(page);
 
-  // Widget toggle'ları
   const widgetToggles = page.locator('[data-widget-toggle], .widget-toggle');
   const toggleCount = await widgetToggles.count();
-  
+
   if (toggleCount > 0) {
-    // İlk widget toggle
     const firstToggle = widgetToggles.first();
     const initialVisible = await firstToggle.isChecked();
-    
-    // Toggle
+
     await firstToggle.click();
-    await page.waitForTimeout(300);
-    
+
     // Durum değişmiş olmalı
     const newVisible = await firstToggle.isChecked();
     expect(newVisible).not.toBe(initialVisible);

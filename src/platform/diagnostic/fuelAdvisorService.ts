@@ -21,6 +21,8 @@ import { useStore, type SmartCard } from '../../store/useStore';
 import { safeGetRaw, safeSetRaw }   from '../../utils/safeStorage';
 import { runtimeManager }           from '../../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode }              from '../../core/runtime/runtimeTypes';
+import { getRouteState, pointToSegmentDist } from '../routingService';
+import { useHazardStore }           from '../../store/useHazardStore';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,14 @@ const SEARCH_RADIUS_M    = 5_000;          // 5 km
 const FUEL_CLEAR_PCT     = 20;             // %20 üzerine çıkınca kartı kaldır
 const OVERPASS_TIMEOUT_S = 10;
 const OVERPASS_URL       = 'https://overpass-api.de/api/interpreter';
+
+/** Route-Aware skor sabitleri */
+const DETOUR_ON_ROUTE_M      = 200;   // bu içindeyse → %50 öncelik bonusu
+const DETOUR_NEUTRAL_M       = 1_000; // 200–1000m → nötr, puan eklenmez
+const DETOUR_PENALTY_FACTOR  = 1.5;   // 1km+ sapma → skor ×1.5 + mesafe cezası
+const DETOUR_BBOX_TOL        = 0.014; // ~1.5km BBox ön-filtre — Mali-400 güvenli
+const BRAND_MISSING_PENALTY  = 0.5;   // marka bilgisi yoksa +0.5km eşdeğer ceza
+const CRM_HAZARD_RADIUS_M    = 500;   // istasyon çevresinde engel arama yarıçapı (m)
 const DISMISSED_STORAGE  = 'fuel-advisor-dismissed-until';
 const CARD_ID            = 'fuel-suggestion'; // sabit ID — dismissed filtresiyle uyumlu
 
@@ -88,6 +98,73 @@ function _stationBrand(tags: Record<string, string>): string {
   return tags['brand'] ?? tags['operator'] ?? '';
 }
 
+// ── Route-Aware skor hesabı ───────────────────────────────────────────────────
+
+/**
+ * İstasyonun aktif rotaya göre ağırlıklı skorunu döner (km cinsinden).
+ * Küçük skor → daha iyi öneri.
+ *
+ * - Rota segmentine ≤200m → %50 bonus (skor × 0.5)
+ * - 200m–1km → nötr (skor = distanceKm)
+ * - >1km sapma → ceza (skor × 1.5 + sapma mesafesi)
+ * - Marka bilgisi yoksa ek +0.5km eşdeğer ceza
+ *
+ * Mali-400 optimizasyonu: BBox ön-filtresi ile tüm segmentler taranmaz.
+ */
+function _routeAwareScore(station: NearbyStation, geometry: [number, number][]): number {
+  let base = station.distanceKm;
+
+  // Marka yoksa güven düşük → küçük ceza
+  if (!station.brand) base += BRAND_MISSING_PENALTY;
+
+  if (geometry.length < 2) return base; // rota yoksa Haversine'e geri dön
+
+  let minDistM = Infinity;
+
+  for (let i = 0; i < geometry.length - 1; i++) {
+    const aLon = geometry[i][0];     const aLat = geometry[i][1];
+    const bLon = geometry[i + 1][0]; const bLat = geometry[i + 1][1];
+
+    // BBox ön-filtresi — tüm segmentleri taramaktan kaçın
+    if (
+      station.lat < Math.min(aLat, bLat) - DETOUR_BBOX_TOL ||
+      station.lat > Math.max(aLat, bLat) + DETOUR_BBOX_TOL ||
+      station.lng < Math.min(aLon, bLon) - DETOUR_BBOX_TOL ||
+      station.lng > Math.max(aLon, bLon) + DETOUR_BBOX_TOL
+    ) continue;
+
+    const d = pointToSegmentDist(station.lat, station.lng, aLat, aLon, bLat, bLon);
+    if (d < minDistM) minDistM = d;
+    if (minDistM <= DETOUR_ON_ROUTE_M) break; // optimal bulundu — erken çık
+  }
+
+  if (!isFinite(minDistM)) {
+    // Tüm segmentler BBox dışında → rota çok uzakta → ceza uygula
+    return base * DETOUR_PENALTY_FACTOR;
+  }
+
+  if (minDistM <= DETOUR_ON_ROUTE_M) return base * 0.5;   // rota üzerinde → bonus
+  if (minDistM <= DETOUR_NEUTRAL_M)  return base;          // nötr bölge
+
+  // 1km+ sapma
+  const excessKm = (minDistM - DETOUR_NEUTRAL_M) / 1_000;
+  return base * DETOUR_PENALTY_FACTOR + excessKm;
+}
+
+/**
+ * İstasyon çevresinde aktif CONSTRUCTION veya ACCIDENT tehlikesi var mı?
+ * CRM verilerinden gelen topluluk raporları dahil (isCommunity bayrağı dikkate alınmaz).
+ */
+function _hasNearbyHazard(station: NearbyStation): boolean {
+  const { activeHazards } = useHazardStore.getState();
+  for (const h of activeHazards) {
+    if (h.type !== 'CONSTRUCTION' && h.type !== 'ACCIDENT') continue;
+    const distM = _haversineKm(station.lat, station.lng, h.lat, h.lng) * 1_000;
+    if (distM <= CRM_HAZARD_RADIUS_M) return true;
+  }
+  return false;
+}
+
 // ── Dismissed persistence ─────────────────────────────────────────────────────
 
 function _isDismissed(): boolean {
@@ -123,7 +200,7 @@ async function _fetchStations(lat: number, lng: number): Promise<NearbyStation[]
 
   const data = await resp.json() as OverpassResponse;
 
-  return (data.elements ?? [])
+  const raw: NearbyStation[] = (data.elements ?? [])
     .filter((n): n is OverpassNode => n.lat !== undefined && n.lon !== undefined)
     .map((n): NearbyStation => ({
       osmId:      n.id,
@@ -132,8 +209,20 @@ async function _fetchStations(lat: number, lng: number): Promise<NearbyStation[]
       lat:        n.lat,
       lng:        n.lon,
       distanceKm: _haversineKm(lat, lng, n.lat, n.lon),
-    }))
-    .sort((a, b) => a.distanceKm - b.distanceKm);
+    }));
+
+  // ── CRM Hazard Filtresi: yakınında yol çalışması / kaza olan istasyonları ele ──
+  const safe = raw.filter((s) => !_hasNearbyHazard(s));
+  const candidates = safe.length > 0 ? safe : raw; // tümü engellenmiş ise fallback
+
+  // ── Route-Aware Sıralama ──────────────────────────────────────────────────────
+  // Aktif rota varsa detour skoru kullan; yoksa düz Haversine.
+  const geometry = getRouteState().geometry ?? [];
+
+  return candidates
+    .map((s) => ({ s, score: _routeAwareScore(s, geometry) }))
+    .sort((a, b) => a.score - b.score)
+    .map(({ s }) => s);
 }
 
 // ── Kart temizleme ────────────────────────────────────────────────────────────
@@ -184,9 +273,12 @@ async function _onLowFuel(): Promise<void> {
   if (!_active) return; // fetch sırasında servis durdurulmuş olabilir
   if (stations.length === 0) return; // istasyon bulunamadı — kart çıkarma
 
-  const best  = stations[0]!; // en yakın istasyon
+  const best  = stations[0]!; // rota farkındalıklı en iyi istasyon
   const dist  = best.distanceKm;
-  const label = best.brand ? `${best.brand} (${best.name})` : best.name;
+  // Marka biliniyorsa "Shell (Akın Petrol)", bilinmiyorsa "(Doğrulanmamış) Ad"
+  const label = best.brand
+    ? `${best.brand} (${best.name})`
+    : `${best.name} · Marka doğrulanmadı`;
 
   // 7. Yakıt önerisi kartını oluştur
   const card: SmartCard = {

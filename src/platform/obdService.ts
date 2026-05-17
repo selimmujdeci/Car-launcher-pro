@@ -30,160 +30,33 @@ import {
 import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
+import { findBestObdDevice } from './obdDiscovery';
+import { loadObdAddress, saveObdAddress, loadObdProfileId, saveObdProfileId } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
+import { sanitizeNativeOBDPacket } from './obdSanitizer';
+import { computeFuelMetrics } from './obdMetrics';
+import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
+import { getPidListForVehicle } from './obdPidConfig';
+import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
+import {
+  CONNECT_TIMEOUT_MS,
+  STALE_THRESHOLD_MS,
+  WATCHDOG_INTERVAL_MS,
+  DATA_GATE_TIMEOUT_MS,
+  getReconnectDelay,
+  shouldAttemptReconnect,
+  isDataStale,
+} from './obdRetryPolicy';
 
-/* ── Types ───────────────────────────────────────────────── */
+/* ── Types & Initial State ───────────────────────────────── */
 
-export type OBDConnectionState =
-  | 'idle'
-  | 'scanning'
-  | 'connecting'
-  | 'initializing'   // connectOBD resolve → ECU handshake ısınma penceresi
-  | 'connected'
-  | 'reconnecting'   // exponential-backoff retry in progress
-  | 'error';
-
-export type VehicleType = 'ice' | 'diesel' | 'ev' | 'hybrid' | 'phev';
-
-export interface OBDData {
-  connectionState: OBDConnectionState;
-  source: 'real' | 'mock' | 'none';
-  deviceName: string;
-  vehicleType: VehicleType;  // aktif araç tipi
-  /** Unix ms — son gerçek (native) veri paketi alındığında güncellenir. 0 = hiç alınmadı. */
-  lastSeenMs: number;
-
-  // ── Universal ─────────────────────────────────
-  speed: number;        // km/h
-  headlights: boolean;  // far açık/kapalı
-
-  // ── ICE / Diesel / Hybrid ─────────────────────
-  rpm: number;          // motor RPM  (-1 = EV'de yok)
-  engineTemp: number;   // °C         (-1 = EV'de yok)
-  fuelLevel: number;    // 0–100%     (-1 = tam EV'de yok)
-  throttle: number;     // 0–100%     (-1 = desteklenmiyor)
-  intakeTemp: number;   // °C         (-1 = desteklenmiyor)
-  boostPressure: number; // kPa turbo (-1 = yok)
-  egt: number;          // °C egzoz   (-1 = yok)
-
-  // ── EV / Hybrid ───────────────────────────────
-  batteryLevel: number;   // % SoC   (-1 = ICE'de yok)
-  batteryTemp: number;    // °C      (-1 = ICE'de yok)
-  range: number;          // km      (-1 = ICE'de yok)
-  chargingState: 'not_charging' | 'charging' | 'fast_charging' | 'unknown';
-  chargingPower: number;  // kW      (-1 = şarj değil)
-  motorPower: number;     // kW çıkış / regen (-1 = desteklenmiyor)
-
-  // ── Computed fuel metrics ─────────────────────
-  /** Kalan yakıt (litre) — fuelTankL config ile hesaplanır; -1 = config eksik / EV */
-  fuelRemainingL: number;
-  /** Tahmini menzil (km) — ortalama tüketim + kalan yakıt; -1 = hesaplanamadı */
-  estimatedRangeKm: number;
-
-  // ── 12V Akü (tüm araç tipleri) ───────────────
-  /** 12V kurşun-asit akü voltajı (V) — PID 0x42 System Voltage / CAN bus.
-   *  -1 = desteklenmiyor; undefined = henüz okunmadı. */
-  batteryVoltage?: number;
-
-  // ── Body status (CAN bus / extended OBD) ──────
-  /** Kapı açıklık durumu — CAN bus kaynaklı; undefined = desteklenmiyor */
-  doors?: {
-    fl:    boolean;  // ön-sol (sürücü)
-    fr:    boolean;  // ön-sağ (yolcu)
-    rl:    boolean;  // arka-sol
-    rr:    boolean;  // arka-sağ
-    trunk: boolean;  // bagaj
-  };
-  /** TPMS lastik basınçları (kPa) — undefined = sensör yok */
-  tpms?: {
-    fl: number;  // ön-sol
-    fr: number;  // ön-sağ
-    rl: number;  // arka-sol
-    rr: number;  // arka-sağ
-  };
-}
+import { INITIAL } from './obdTypes';
+import type { OBDConnectionState, VehicleType, OBDData } from './obdTypes';
+export type { OBDConnectionState, VehicleType, OBDData } from './obdTypes';
 
 /* ── Module state ────────────────────────────────────────── */
-
-const INITIAL: OBDData = {
-  connectionState: 'idle',
-  source: 'none',
-  deviceName: '',
-  vehicleType: 'ice',
-  lastSeenMs: 0,
-  // Universal
-  speed: 0,
-  headlights: false,
-  // ICE / Diesel — tüm değerler -1: ELM327 bağlanana kadar sensör verisi yok
-  rpm: -1,
-  engineTemp: -1,
-  fuelLevel: -1,
-  throttle: -1,
-  intakeTemp: -1,
-  boostPressure: -1,
-  egt: -1,
-  // EV / Hybrid
-  batteryLevel: -1,
-  batteryTemp: -1,
-  range: -1,
-  chargingState: 'unknown',
-  chargingPower: -1,
-  motorPower: -1,
-  // Computed
-  fuelRemainingL: -1,
-  estimatedRangeKm: -1,
-  // Body status — undefined until CAN bus data arrives
-  doors: undefined,
-  tpms:  undefined,
-};
-
-// ICE mock starting values
-const MOCK_BASE_ICE = {
-  speed: 42, rpm: 1450, engineTemp: 90, fuelLevel: 68,
-  throttle: 18, intakeTemp: 22, boostPressure: -1, egt: -1,
-  batteryLevel: -1, batteryTemp: -1, range: -1,
-  chargingState: 'not_charging' as const, chargingPower: -1, motorPower: -1,
-  headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
-  doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
-  tpms:  { fl: 235, fr: 233, rl: 230, rr: 232 },
-  batteryVoltage: 13.8, // alternator şarj ediyor
-};
-
-// EV mock starting values
-const MOCK_BASE_EV = {
-  speed: 42, rpm: -1, engineTemp: -1, fuelLevel: -1,
-  throttle: 15, intakeTemp: -1, boostPressure: -1, egt: -1,
-  batteryLevel: 74, batteryTemp: 28, range: 185,
-  chargingState: 'not_charging' as const, chargingPower: -1, motorPower: 35,
-  headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
-  doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
-  tpms:  { fl: 240, fr: 238, rl: 236, rr: 237 },
-  batteryVoltage: 13.8,
-};
-
-// Hybrid mock starting values
-const MOCK_BASE_HYBRID = {
-  speed: 42, rpm: 800, engineTemp: 85, fuelLevel: 55,
-  throttle: 12, intakeTemp: 20, boostPressure: -1, egt: -1,
-  batteryLevel: 48, batteryTemp: 32, range: 290,
-  chargingState: 'not_charging' as const, chargingPower: -1, motorPower: 18,
-  headlights: new Date().getHours() >= 20 || new Date().getHours() < 6,
-  doors: { fl: false, fr: false, rl: false, rr: false, trunk: false },
-  tpms:  { fl: 233, fr: 231, rl: 228, rr: 230 },
-  batteryVoltage: 13.8,
-};
-
-function _getMockBase(type: VehicleType) {
-  if (type === 'ev') return MOCK_BASE_EV;
-  if (type === 'hybrid' || type === 'phev') return MOCK_BASE_HYBRID;
-  return MOCK_BASE_ICE;
-}
-
-// Active mock base (set when mock starts)
-let _mockBase = MOCK_BASE_ICE;
 
 // Tier 1 (sync): localStorage'dan anlık hydration — sıfır gecikme.
 let _current: OBDData = { ...INITIAL, ...hydrateCanSnapshotSync() };
@@ -201,9 +74,7 @@ let _running                 = false;
 let _lastNotifyTime          = 0;
 
 // Exponential back-off reconnect state
-const MAX_RECONNECT_ATTEMPTS = 5;  // 1 s, 2 s, 4 s, 8 s, 16 s
-const CONNECT_TIMEOUT_MS     = 30_000; // 30 s — prevent indefinite BT hang
-let _reconnectAttempts       = 0;
+let _reconnectAttempts = 0;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Generation counter — prevents stale in-flight _startNative() from writing
@@ -216,49 +87,31 @@ let _nativeGeneration = 0;
 let _pendingDisconnect: Promise<void> | null = null;
 
 // ── Stale-data watchdog ──────────────────────────────────────
-// ISO 15031-5 §6.3.3: ECU response timeout ≤ 50 ms per frame;
-// ELM327 poll cycle ≤ 3 s. After 12 s without a real frame the
-// RFCOMM socket has silently dropped — declare disconnected.
-const STALE_THRESHOLD_MS  = 12_000;
-const WATCHDOG_INTERVAL_MS = 5_000;
-let _lastRealDataMs        = 0;
+let _lastRealDataMs = 0;
 let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Data Validation Gate ─────────────────────────────────────
-// connectOBD resolve + 2s ısınma sonrası ilk geçerli PID (hız veya RPM)
-// gelene kadar 'connected'/'real' state'e geçilmez.
-// 10s boyunca PID akışı başlamazsa bağlantı bozuk sayılır → reconnect.
-const DATA_GATE_TIMEOUT_MS = 10_000;
 let _dataGateTimer: ReturnType<typeof setTimeout> | null = null;
 let _dataGatePassed = false;
 
 // ── Direct-reconnect: last known BT MAC ─────────────────────
 // Persisted to localStorage so app restart skips full BT INQUIRY scan.
 // BT INQUIRY = 10-30 s contention → GPS ±15 m jitter + A2DP glitch every ~10 s.
-const OBD_ADDRESS_KEY = 'obd:lastAddress';
-let _lastKnownAddress: string | null =
-  (() => { try { return localStorage.getItem(OBD_ADDRESS_KEY); } catch { return null; } })();
+let _lastKnownAddress: string | null = loadObdAddress();
 let _lastKnownPin: string | null = null; // session-only, güvenlik için localStorage'a yazılmaz
 
 // ── Vehicle Profile Auto-Detection ──────────────────────────
-const OBD_PROFILE_KEY = 'obd:detectedProfile'; // safeStorage anahtarı
 let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
-  safeGetRaw(OBD_PROFILE_KEY) ?? '',
+  loadObdProfileId() ?? '',
 ) ?? vehicleProfileRegistry.getById('standard')!;
 
-// ValidationGuard: profil EV olarak ayarlandı ama OBD hız verisi gelmiyor
-// iken GPS hızı > 10 km/h → StandardProfile'e geri dön.
-// _validationMisses: ardışık "OBD speed=0 iken GPS>10" sayacı
-const VALIDATION_THRESHOLD = 5;     // ardışık miss sayısı
-const VALIDATION_GPS_KMH   = 10;    // GPS eşiği
-let _validationMisses       = 0;
+// ValidationGuard: ardışık "OBD speed=0 iken GPS>10 km/h" sayacı
+let _validationMisses = 0;
 let _validationEnabled      = false; // Yalnızca EV profil seçilince aktif
 // GPS hız cache — gpsService'ten beslenir, main thread döngüsünde güncellenir
 let _lastKnownGpsSpeed      = 0;    // km/h
 
-// Fix 1: ICE/Diesel profilinde speed>10 km/h iken RPM=-1 gelen süreyi izle
-const ICE_RPM_SPEED_THRESHOLD = 10;     // km/h — hareket eşiği
-const ICE_RPM_TIMEOUT_MS      = 10_000; // 10 s ardışık RPM=-1 → StandardProfile
+// Fix 1: ICE/Diesel Guard zamanlayıcı başlangıcı
 let _iceRpmMissStart: number | null = null;
 
 // Fix 3: ısınma (warm-up) erken çıkış kancası
@@ -269,18 +122,6 @@ let _warmupResolve: (() => void) | null = null;
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
 let _fuelTankL        = 0;   // 0 = not configured
 let _avgConsumL100    = 0;   // 0 = not configured (L per 100 km)
-
-// ── Sensor sanity bounds (ISO 15031-5 §6.3 + SAE J1979) ──────
-// Physically impossible readings → ELM327 glitch / adapter failure.
-// RPM jump guard: ELM327 polls every 3s; >5000 RPM change in one cycle
-// is impossible in any production engine (max realistic blip: ~2000 RPM/s).
-const _BOUNDS = {
-  speed:       [0,   300] as const,  // km/h
-  rpm:         [0, 8_000] as const,  // RPM — covers all ICE/hybrid
-  engineTemp:  [-40, 130] as const,  // °C — NTC sensor range
-  fuelLevel:   [0,   100] as const,  // %
-} as const;
-const RPM_JUMP_LIMIT = 5_000;  // RPM/sample
 
 let _prevRpm: number | null = null;
 
@@ -323,162 +164,40 @@ function _notify(): void {
   if (_current.source === 'real') scheduleCanSnapshot(_current);
 }
 
-/** ISO 15031-5 §6.3: Fuel Tank Level (PID 0x2F) → litres + range */
-function _computeFuelMetrics(fuelPct: number): { fuelRemainingL: number; estimatedRangeKm: number } {
-  if (fuelPct < 0 || _fuelTankL <= 0) return { fuelRemainingL: -1, estimatedRangeKm: -1 };
-  const fuelRemainingL   = (fuelPct / 100) * _fuelTankL;
-  const estimatedRangeKm = _avgConsumL100 > 0.01
-    ? Math.round((fuelRemainingL / _avgConsumL100) * 100)
-    : -1;
-  return { fuelRemainingL: Math.round(fuelRemainingL * 10) / 10, estimatedRangeKm };
-}
-
 function _merge(partial: Partial<OBDData>): void {
   // Recompute fuel metrics whenever fuelLevel is updated
   if (partial.fuelLevel !== undefined && partial.fuelLevel >= 0) {
-    const computed = _computeFuelMetrics(partial.fuelLevel);
+    const computed = computeFuelMetrics(partial.fuelLevel, _fuelTankL, _avgConsumL100);
     partial = { ...partial, ...computed };
   }
+  const prevConnState = _current.connectionState;
   _current = { ..._current, ...partial };
+
+  // Testability: connectionState geçişinde body attribute güncelle (CSS/logic etkilemez)
+  if (typeof document !== 'undefined' && partial.connectionState !== undefined && partial.connectionState !== prevConnState) {
+    if (_current.connectionState === 'connected') {
+      document.body.setAttribute('data-obd-ready', 'true');
+    } else {
+      document.body.removeAttribute('data-obd-ready');
+    }
+  }
+
   _notify();
 }
 
-function _clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
 
-/**
- * Sanitize a raw native OBD packet before merging into state.
- *
- * Each field is validated against ISO 15031-5 physical bounds.
- * RPM additionally checked for impossible inter-sample jumps.
- * Returns null if no valid field was found (discard entire packet).
- */
 function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null {
-  // Safety Gate: non-finite veya fiziksel sınırı aşan hız → tüm paketi reddet
-  if (data.speed !== undefined && (!Number.isFinite(data.speed) || data.speed > 300)) {
-    console.warn('[SafetyGate] Rejected Speed:', data.speed);
-    return null;
-  }
-
-  const patch: Partial<OBDData> = {};
-  let accepted = false;
-
-  if (data.speed !== undefined && data.speed >= 0) {
-    const [lo, hi] = _BOUNDS.speed;
-    if (data.speed <= hi && data.speed >= lo) {
-      patch.speed = data.speed;
-      accepted = true;
-    } else {
-      logError('OBD:Sanitize', new Error(`speed=${data.speed} km/h out of bounds [${lo},${hi}]`));
-    }
-  }
-
-  if (data.rpm !== undefined && data.rpm >= 0) {
-    const [lo, hi] = _BOUNDS.rpm;
-    const jump = _prevRpm !== null ? Math.abs(data.rpm - _prevRpm) : 0;
-    if (data.rpm >= lo && data.rpm <= hi && jump < RPM_JUMP_LIMIT) {
-      patch.rpm = data.rpm;
-      _prevRpm  = data.rpm;
-      accepted  = true;
-    } else {
-      logError('OBD:Sanitize', new Error(`rpm=${data.rpm} invalid (prev=${_prevRpm ?? 'none'}, jump=${jump})`));
-    }
-  }
-
-  if (data.engineTemp !== undefined && data.engineTemp >= 0) {
-    const [lo, hi] = _BOUNDS.engineTemp;
-    if (data.engineTemp >= lo && data.engineTemp <= hi) {
-      patch.engineTemp = data.engineTemp;
-      accepted = true;
-    }
-  }
-
-  if (data.fuelLevel !== undefined && data.fuelLevel >= 0) {
-    const [lo, hi] = _BOUNDS.fuelLevel;
-    if (data.fuelLevel >= lo && data.fuelLevel <= hi) {
-      patch.fuelLevel = data.fuelLevel;
-      accepted = true;
-    }
-  }
-
-  if (data.headlights !== undefined) {
-    patch.headlights = data.headlights;
-    accepted = true;
-  }
-
-  return accepted ? patch : null;
+  const { patch, nextRpm } = sanitizeNativeOBDPacket(data, _prevRpm);
+  _prevRpm = nextRpm;
+  return patch;
 }
 
 /* ── Mock simulation ─────────────────────────────────────── */
 
 function _tickMock(): void {
-  // Skip simulation entirely when no UI is subscribed — saves CPU
-  if (_listeners.size === 0) return;
-
+  if (_listeners.size === 0) return; // UI abone yoksa CPU tasarrufu
   try {
-    const hour = new Date().getHours();
-    const headlights = hour >= 20 || hour < 6;
-    const type = _current.vehicleType;
-
-    if (type === 'ev') {
-      // EV: batarya tükenir, motor gücü değişir, RPM yok
-      const newSpeed = _clamp(Math.round(_current.speed + (Math.random() * 14 - 7)), 0, 180);
-      const powerDraw = newSpeed > 0 ? _clamp(Math.round(newSpeed * 0.6 + (Math.random() * 20 - 10)), -30, 150) : -5;
-      _merge({
-        speed: newSpeed,
-        headlights,
-        batteryLevel: _clamp((_current.batteryLevel - Math.random() * 0.08), 0, 100),
-        batteryTemp:  _clamp(Math.round(_current.batteryTemp + (Math.random() * 2 - 1)), 15, 45),
-        range:        _clamp(Math.round(_current.range - Math.random() * 0.05), 0, 600),
-        motorPower:   powerDraw,
-        throttle:     _clamp(Math.round(Math.abs(powerDraw) / 1.5), 0, 100),
-        rpm: -1, engineTemp: -1, fuelLevel: -1, boostPressure: -1, egt: -1,
-      });
-    } else if (type === 'hybrid' || type === 'phev') {
-      // Hybrid: hem batarya hem yakıt
-      _merge({
-        speed:        _clamp(Math.round(_current.speed + (Math.random() * 14 - 7)), 0, 180),
-        rpm:          _current.speed < 5 ? -1 : _clamp(Math.round(_current.rpm + (Math.random() * 200 - 100)), 0, 5000),
-        engineTemp:   _clamp(Math.round(_current.engineTemp + (Math.random() * 2 - 1)), 60, 105),
-        fuelLevel:    _clamp(_current.fuelLevel - Math.random() * 0.15, 0, 100),
-        batteryLevel: _clamp(_current.batteryLevel + (Math.random() * 0.4 - 0.25), 10, 100),
-        batteryTemp:  _clamp(Math.round(_current.batteryTemp + (Math.random() * 2 - 1)), 15, 45),
-        range:        _clamp(Math.round(_current.range - Math.random() * 0.04), 0, 800),
-        motorPower:   _clamp(Math.round(_current.motorPower + (Math.random() * 10 - 5)), -20, 80),
-        throttle:     _clamp(Math.round(_current.throttle + (Math.random() * 10 - 5)), 0, 100),
-        headlights,
-      });
-    } else if (type === 'diesel') {
-      // Diesel: turbo boost basıncı + EGT ekstra
-      _merge({
-        speed:         _clamp(Math.round(_current.speed + (Math.random() * 14 - 7)), 0, 180),
-        rpm:           _clamp(Math.round(_current.rpm + (Math.random() * 300 - 150)), 700, 4500),
-        engineTemp:    _clamp(Math.round(_current.engineTemp + (Math.random() * 2 - 1)), 70, 110),
-        fuelLevel:     _clamp(_current.fuelLevel - Math.random() * 0.2, 0, 100),
-        throttle:      _clamp(Math.round(_current.throttle + (Math.random() * 8 - 4)), 0, 100),
-        intakeTemp:    _clamp(Math.round(_current.intakeTemp + (Math.random() * 4 - 2)), 15, 65),
-        boostPressure: _clamp(Math.round(_current.boostPressure + (Math.random() * 6 - 3)), 0, 220),
-        egt:           _clamp(Math.round(_current.egt + (Math.random() * 20 - 10)), 200, 800),
-        headlights,
-      });
-    } else {
-      // ICE (benzin) — default
-      _merge({
-        speed:          _clamp(Math.round(_current.speed + (Math.random() * 14 - 7)), 0, 180),
-        rpm:            _clamp(Math.round(_current.rpm + (Math.random() * 300 - 150)), 650, 7000),
-        engineTemp:     _clamp(Math.round(_current.engineTemp + (Math.random() * 2 - 1)), 75, 105),
-        fuelLevel:      _clamp(_current.fuelLevel - Math.random() * 0.3, 0, 100),
-        throttle:       _clamp(Math.round(_current.throttle + (Math.random() * 10 - 5)), 0, 100),
-        intakeTemp:     _clamp(Math.round(_current.intakeTemp + (Math.random() * 3 - 1.5)), 10, 55),
-        headlights,
-        // 12V akü voltajı: alternator şarj → 13.6–14.4V arası küçük dalgalanma
-        batteryVoltage: parseFloat(_clamp(
-          (_current.batteryVoltage ?? 13.8) + (Math.random() * 0.16 - 0.08),
-          13.2, 14.6,
-        ).toFixed(2)),
-      });
-    }
+    _merge(generateMockUpdate(_current));
   } catch (e) {
     logError('OBD:MockTick', e);
   }
@@ -487,12 +206,11 @@ function _tickMock(): void {
 function _startMock(): void {
   if (!MOCK_ENABLED) return;  // mock kapalıysa asla sahte veri başlatma
   if (_mockTimerId !== null) return;
-  _mockBase = _getMockBase(_current.vehicleType);
   _merge({
     connectionState: 'connected',
     source: 'mock',
     deviceName: '',
-    ..._mockBase,
+    ...getMockInitialData(_current.vehicleType),
   });
   // Merkezi RuntimeEngine config — getConfig().obdPollInterval yerine
   _mockTimerId = setInterval(_tickMock, runtimeManager.getConfig().obdPollingMs);
@@ -513,8 +231,7 @@ export function setObdFuelConfig(tankL: number, avgL100: number, knownAddress?: 
   if (knownAddress) _lastKnownAddress = knownAddress;
   // Anlık fuelLevel ile metrikleri yeniden hesapla
   if (_current.fuelLevel >= 0) {
-    const computed = _computeFuelMetrics(_current.fuelLevel);
-    _merge(computed);
+    _merge(computeFuelMetrics(_current.fuelLevel, tankL, avgL100));
   }
 }
 
@@ -542,7 +259,7 @@ function _startStaleWatchdog(): void {
   _lastRealDataMs = Date.now();
   _staleWatchdogTimer = setInterval(() => {
     if (!_running || _current.source !== 'real') return;
-    if (Date.now() - _lastRealDataMs > STALE_THRESHOLD_MS) {
+    if (isDataStale(_lastRealDataMs)) {
       // RFCOMM socket sessizce düştü — reconnect tetikle
       logError('OBD:StaleData', new Error(`${STALE_THRESHOLD_MS / 1000}s boyunca veri alınamadı`));
       _stopStaleWatchdog();
@@ -615,45 +332,28 @@ function _onRealData(patch: Partial<OBDData>): void {
   }
 
   // ── ValidationGuard (EV profili) ────────────────────────────────────────────
-  // EV profili seçildiyse, OBD'den hız sinyali beklenmez (PID 0x0D listede olmayabilir).
-  // Ancak OBD speed=0 gelirken GPS speed>10 km/h → profil yanlış seçilmiş.
-  // VALIDATION_THRESHOLD ardışık tutarsızlıkta StandardProfile'e geri dön.
-  if (_validationEnabled && patch.speed !== undefined && patch.speed === 0) {
-    const gpsSpeed = _lastKnownGpsSpeed;
-    if (gpsSpeed > VALIDATION_GPS_KMH) {
-      _validationMisses++;
-      if (_validationMisses >= VALIDATION_THRESHOLD) {
-        console.warn('[OBD:ValidationGuard] EV profili geçersiz: OBD speed=0 iken GPS speed=',
-          gpsSpeed.toFixed(1), 'km/h →  StandardProfile\'e geri dönülüyor');
-        _validationMisses  = 0;
-        _validationEnabled = false;
-        _applyDetectedProfile(vehicleProfileRegistry.getById('standard')!);
-      }
-    } else {
-      _validationMisses = 0; // GPS de yavaş → tutarsızlık yok
+  if (_validationEnabled && patch.speed !== undefined) {
+    const { isInvalid, nextMisses } = shouldFallbackFromEV(patch.speed, _lastKnownGpsSpeed, _validationMisses);
+    _validationMisses = nextMisses;
+    if (isInvalid) {
+      console.warn('[OBD:ValidationGuard] EV profili geçersiz: OBD speed=0 iken GPS speed=',
+        _lastKnownGpsSpeed.toFixed(1), 'km/h → StandardProfile\'e geri dönülüyor');
+      _validationEnabled = false;
+      _applyDetectedProfile(vehicleProfileRegistry.getById('standard')!);
     }
-  } else if (_validationEnabled && patch.speed !== undefined && patch.speed > 0) {
-    _validationMisses = 0; // OBD speed geliyor → geçerli
   }
 
-  // Fix 1: ICE/Diesel Guard — profil ICE/Diesel iken speed>10 km/h ama RPM 10s boyunca -1
-  // → EV araca yanlış ICE profil seçilmiş olabilir, StandardProfile'e geri dön.
+  // Fix 1: ICE/Diesel Guard — speed>10 km/h ama RPM 10s boyunca -1 → StandardProfile'e dön
   if (!_validationEnabled &&
       (_current.vehicleType === 'ice' || _current.vehicleType === 'diesel') &&
       patch.speed !== undefined) {
     const effectiveRpm = patch.rpm !== undefined ? patch.rpm : _current.rpm;
-    if (patch.speed > ICE_RPM_SPEED_THRESHOLD && effectiveRpm === -1) {
-      const now = Date.now();
-      if (_iceRpmMissStart === null) {
-        _iceRpmMissStart = now;
-      } else if (now - _iceRpmMissStart >= ICE_RPM_TIMEOUT_MS) {
-        console.warn('[OBD:ICEGuard] ICE profili geçersiz: speed=', patch.speed,
-          'km/h iken 10s boyunca RPM=-1 → StandardProfile\'e geri dönülüyor');
-        _iceRpmMissStart = null;
-        _applyDetectedProfile(vehicleProfileRegistry.getById('standard')!);
-      }
-    } else {
-      _iceRpmMissStart = null; // RPM geldi veya araç yavaş → sayacı sıfırla
+    const { isInvalid, nextMissStart } = shouldFallbackFromICE(patch.speed, effectiveRpm, _iceRpmMissStart);
+    _iceRpmMissStart = nextMissStart;
+    if (isInvalid) {
+      console.warn('[OBD:ICEGuard] ICE profili geçersiz: speed=', patch.speed,
+        'km/h iken 10s boyunca RPM=-1 → StandardProfile\'e geri dönülüyor');
+      _applyDetectedProfile(vehicleProfileRegistry.getById('standard')!);
     }
   }
 
@@ -695,7 +395,7 @@ function _scheduleReconnect(): void {
     return;
   }
 
-  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+  if (!shouldAttemptReconnect(_reconnectAttempts)) {
     _reconnectAttempts = 0;
     if (MOCK_ENABLED && !nativePlatform) {
       _startMock();
@@ -706,7 +406,7 @@ function _scheduleReconnect(): void {
   }
 
   // Fix 2: muhafazakâr backoff — ilk deneme 2s, çarpan 2.0 (2 s, 4 s, 8 s, 16 s, 32 s)
-  const delayMs = Math.pow(2, _reconnectAttempts) * 2_000;
+  const delayMs = getReconnectDelay(_reconnectAttempts);
   _reconnectAttempts++;
 
   // Native platformda reconnect bekleme süresi boyunca 'reconnecting' + source: 'none'
@@ -740,30 +440,6 @@ async function _removeNativeHandles(): Promise<void> {
   }
 }
 
-/**
- * SAE J1979 (Mode 01) PID listesini araç tipine göre döner.
- *
- * EV'de ICE PID'leri (0x0C RPM, 0x05 ECT, 0x2F Fuel) sorgulamak neden
- * tehlikelidir: ELM327 her desteklenmeyen PID için 200 ms NO-DATA bekler.
- * 3 PID × 200 ms = 600 ms kayıp / poll cycle. Bazı ELM327 klonları arka
- * arkaya NO-DATA aldıklarında RFCOMM akışını bozar (AT komutları kayar →
- * disconnected). ISO 15031-5 §6.3.3: ECU P3 timeout = 55 ms; ELM327 default
- * = 200 ms.  EV için sadece 0x0D (speed) + OEM batarya PID'leri sorgulanmalı.
- */
-function _getPidList(type: VehicleType): string[] {
-  const universal = ['0x0D'];                               // PID 0x0D: speed
-  const iceExtra  = ['0x0C', '0x05', '0x2F', '0x11', '0x0F']; // RPM, ECT, fuel, throttle, IAT
-  const dieselExtra = [...iceExtra, '0x0B'];                // + manifold pressure (boost)
-
-  switch (type) {
-    case 'ev':     return universal;           // EV: sadece hız; batarya OEM-specific
-    case 'ice':    return [...universal, ...iceExtra];
-    case 'diesel': return [...universal, ...dieselExtra];
-    case 'hybrid':
-    case 'phev':   return [...universal, ...iceExtra];     // ICM aktif olduğunda tam set
-    default:       return [...universal, ...iceExtra];
-  }
-}
 
 async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   if (!opts?.trustBypass) {
@@ -802,10 +478,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
 
     if (_stale()) { void _removeNativeHandles(); return; }
 
-    candidate =
-      devices.find((d) => /obd|elm|v.?link|obdii|kw|veepeak|icar|vgate/i.test(d.name)) ??
-      devices[0] ??
-      null;
+    candidate = findBestObdDevice(devices);
 
     if (!candidate) {
       throw new Error('Eşleşmiş OBD adaptörü bulunamadı');
@@ -860,7 +533,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    T507 protokol zorlama: ilk denemede ATSP0 (otomatik); başarısız olunca
   //    _reconnectAttempts >= 1'de ISO 15765-4 CAN (protokol '6') zorlanır.
   //    Race against a 30 s timeout so a non-responsive BT device doesn't hang.
-  const pidList = _getPidList(_current.vehicleType);
+  const pidList = getPidListForVehicle(_current.vehicleType);
   const forceCanProtocol = _reconnectAttempts >= 1; // ikinci denemeden itibaren CAN zorla
   await Promise.race([
     CarLauncher.connectOBD({
@@ -883,7 +556,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    ELM327 initstring tamamlandı; T507 uyumu için ECU–adaptör el sıkışması
   //    gecikmeli olabilir. 2 saniye boyunca 'initializing' state'inde kal.
   _lastKnownAddress = candidate.address;
-  try { localStorage.setItem(OBD_ADDRESS_KEY, candidate.address); } catch { /* quota */ }
+  saveObdAddress(candidate.address);
   _merge({ connectionState: 'initializing', source: 'none' });
 
   // Fix 3: 2s sabit bekleme → maksimum deadline. Geçerli PID (speed/RPM) daha erken
@@ -943,7 +616,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
  */
 function _applyDetectedProfile(profile: IVehicleProfile): void {
   _activeProfile = profile;
-  safeSetRaw(OBD_PROFILE_KEY, profile.id);
+  saveObdProfileId(profile.id);
 
   // vehicleType state'ini güncelle — bir sonraki reconnect'te _getPidList() bunu kullanır
   _merge({ vehicleType: profile.vehicleType });
@@ -998,7 +671,7 @@ const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true'
 export function startOBD(address?: string, pin?: string): void {
   if (address) {
     _lastKnownAddress = address;
-    try { localStorage.setItem(OBD_ADDRESS_KEY, address); } catch { /* quota */ }
+    saveObdAddress(address);
   }
   if (pin !== undefined) _lastKnownPin = pin || null; // boş string → null (PIN'siz)
 

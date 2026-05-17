@@ -45,6 +45,22 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/* ── Detour ratio proxy ───────────────────────────────────────────────────── */
+
+// No road graph available offline; nearby-POI density proxies urbanisation level.
+// Dense urban (≥3 neighbours within 4 km) → roads are direct → ratio 1.25.
+// Isolated / rural → roads wind around obstacles → ratio 1.68.
+function _estimateDetourRatio(loc: StoredLocation, pool: StoredLocation[]): number {
+  const URBAN_R = 4; // km
+  let nearby = 0;
+  for (const other of pool) {
+    if (other !== loc && haversineKm(loc.lat, loc.lng, other.lat, other.lng) < URBAN_R) {
+      if (++nearby >= 3) return 1.25; // short-circuit — confirmed urban
+    }
+  }
+  return nearby >= 1 ? 1.42 : 1.68;
+}
+
 /* ── Result builder ───────────────────────────────────────────────────────── */
 
 function _toStoredLocation(row: Record<string, string | number | null | Uint8Array>): StoredLocation | null {
@@ -129,12 +145,12 @@ export async function searchGlobal(
     results = await _likeSearch(normalized, maxResults);
   }
 
-  // Mesafeye göre sırala (kullanıcı konumu biliniyorsa)
+  // Reachability-weighted sort — detour ratio penalises isolated / rural POIs
   if (userLat != null && userLng != null) {
     results.sort((a, b) => {
-      const dA = haversineKm(userLat, userLng, a.lat, a.lng);
-      const dB = haversineKm(userLat, userLng, b.lat, b.lng);
-      return dA - dB;
+      const rA = haversineKm(userLat, userLng, a.lat, a.lng) * _estimateDetourRatio(a, results);
+      const rB = haversineKm(userLat, userLng, b.lat, b.lng) * _estimateDetourRatio(b, results);
+      return rA - rB;
     });
   }
 

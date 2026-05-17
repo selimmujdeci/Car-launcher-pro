@@ -34,7 +34,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  *   3. Yeni import: _loadPersistedNonces() → _store'dan nonce geri yüklenir
  *   4. Replay denemesi → "Replay Attack" hatası ✓
  * ────────────────────────────────────────────────────────────────────────── */
-const _store = new Map<string, string>();
+
+// Use vi.hoisted to ensure _store is available during hoisting
+const { _store } = vi.hoisted(() => {
+  const store = new Map<string, string>();
+  return { _store: store };
+});
 
 vi.mock('../utils/safeStorage', () => ({
   safeGetRaw:          vi.fn((k: string) => _store.get(k) ?? null),

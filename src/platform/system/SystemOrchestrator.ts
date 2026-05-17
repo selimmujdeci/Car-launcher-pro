@@ -18,10 +18,16 @@
  * startSystemOrchestrator() → App.tsx'de çağrılır, dönen fn cleanup'tır.
  */
 
-import { onVehicleEvent } from '../vehicleDataLayer';
-import { onTripState }    from '../tripLogService';
-import { speakAlert }     from '../ttsService';
-import { useSystemStore } from '../../store/useSystemStore';
+import { onVehicleEvent }                          from '../vehicleDataLayer';
+import { onTripState }                             from '../tripLogService';
+import { speakAlert }                              from '../ttsService';
+import { useSystemStore }                          from '../../store/useSystemStore';
+import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
+import { onThermalLevelChange, getThermalSnapshot } from '../thermalWatchdog';
+import type { ThermalSnapshot }                    from '../thermalWatchdog';
+import { runtimeManager }                          from '../../core/runtime/AdaptiveRuntimeManager';
+import { setCommunityThermalLevel }                from '../communityService';
+import { showToast }                               from '../errorBus';
 
 /**
  * isUserOverrideActive — Kullanıcının manuel tema/parlaklık değişikliği
@@ -64,6 +70,50 @@ export function startSystemOrchestrator(): () => void {
   let _navFiredThisSession = false; // oturum başına bir kez harita aç
   let _pendingTripSummary  = false; // DRIVING_STOPPED → trip bitmesini bekle
   let _prevTripActive      = false; // onTripState geçiş tespiti için
+
+  startCognitiveEngine();
+
+  /* ── Termal Action Matrix ────────────────────────────────── */
+  // Sadece event-driven — poll yok, overhead sıfır.
+  // Eskalasyon: anlık (L yükseliyor). Recovery: 30s hysteresis AdaptiveRuntimeManager içinde.
+
+  function _handleThermalLevel(snap: ThermalSnapshot): void {
+    const level = snap.level;
+    runtimeManager.setThermalConstraint(level);
+    setCommunityThermalLevel(level);
+
+    if (level === 3) {
+      // L3: POWER_SAVE tavanı + bellek baskısı + bildirim
+      runtimeManager.handleMemoryPressure('MODERATE');
+      showToast({
+        type:     'error',
+        title:    'Kritik Isı Uyarısı',
+        message:  'Sistem kritik sıcaklıkta — tüm arka plan işlemleri durduruldu.',
+        duration: 10_000,
+      });
+      speakAlert('Sistem sıcaklığı kritik seviyede. Lütfen araçta uygun koşullar sağlayın.');
+    } else if (level === 2) {
+      showToast({
+        type:     'warning',
+        title:    'Yüksek Sıcaklık',
+        message:  'Termal koruma aktif — arka plan senkronizasyonu duraklatıldı.',
+        duration: 8_000,
+      });
+    } else if (level === 1) {
+      // L1: yalnızca ilk girişte bildir (tekrarda suppress)
+      showToast({
+        type:     'warning',
+        title:    'Sıcaklık Yükseliyor',
+        message:  'Termal throttling başladı — performans kısıtlaması uygulandı.',
+        duration: 6_000,
+      });
+    }
+    // L0: kısıt kaldırma, bildirim yok — kullanıcıyı yormama prensibi
+  }
+
+  // Açılışta anlık seviye uygula (watchdog başlamış olabilir)
+  _handleThermalLevel(getThermalSnapshot());
+  const unsubThermal = onThermalLevelChange(_handleThermalLevel);
 
   /* ── VehicleEvent aboneliği ─────────────────────────────── */
   const unsubVehicle = onVehicleEvent((e) => {
@@ -197,6 +247,8 @@ export function startSystemOrchestrator(): () => void {
 
   /* ── Cleanup ─────────────────────────────────────────────── */
   return () => {
+    stopCognitiveEngine();
+    unsubThermal();
     unsubVehicle();
     unsubTrip();
     _timers.forEach((t) => clearTimeout(t));

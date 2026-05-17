@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
-import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
-import { X, ZoomIn, ZoomOut, Crosshair, Map, Layers, Globe, Navigation2, ArrowLeft, Camera, CameraOff } from 'lucide-react';
+import { X, Map, Globe, ArrowLeft } from 'lucide-react';
 import {
   interpolateNavPoint, type NavPoint
 } from '../../utils/interpolation';
+import { bearingBetween } from '../../platform/cameraEngine';
 import {
   initializeMap,
   destroyMap,
@@ -26,7 +27,13 @@ import {
   setTurnFocus,
   clearTurnFocus,
   setMapStyleChanging,
+  setNavigationFocusMode,
+  reapplyNavigationFocus,
+  updateNavigationStyle,
+  updateMapMood,
+  registerAltRouteSelectCallback,
 } from '../../platform/mapService';
+import { useHazardStore } from '../../store/useHazardStore';
 import { useGPSLocation, useGPSHeading, useGPSSource } from '../../platform/gpsService';
 import {
   setMapMode,
@@ -35,7 +42,7 @@ import {
   notifyNavigationRender,
   notifyLowFPS,
   useMapNetworkStatus,
-  type MapMode,
+  getMapStyle,
 } from '../../platform/mapSourceManager';
 import { useVisionStore } from '../../platform/visionStore';
 import {
@@ -50,10 +57,12 @@ import {
   clearRoute,
   notifyStyleChange,
   selectAltRoute,
+  registerNavigationStyleCallback,
 } from '../../platform/routingService';
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { MapOverlay } from './MapOverlay';
 import { NavigationHUD } from './NavigationHUD';
+import { MapHudControls } from './MapHudControls';
 // VisionOverlay lazy — kamera/AR katmanı yalnızca vision aktifken yüklenir.
 // Bu import zinciri: VisionOverlay → visionEngine.ts (2280 satır WebGL/CV kodu)
 // Başlangıç bundle'ından dışarı alınır; HomeScreen normal çalışmayı etkilemez.
@@ -69,12 +78,6 @@ interface FullMapViewProps {
   /** Navigasyon alt çubuğundan başka sekmeleri açmak için */
   onOpenDrawer?: (type: 'music' | 'phone' | 'apps' | 'settings') => void;
 }
-
-const MODE_LABELS: Record<MapMode, string> = {
-  road: 'Yol',
-  hybrid: 'Hibrit',
-  satellite: 'Uydu',
-};
 
 /** Stable hash of a route geometry — first point + last point + length. */
 function _routeHash(geometry: [number, number][] | null | undefined): string {
@@ -181,6 +184,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [styleKey, setStyleKey]       = useState(0);
   const mapStyleReady = mapStatus === 'READY';
 
+  // Testability: harita render tamamlandığında DOM attribute set edilir (CSS/logic etkilemez)
+  useEffect(() => {
+    const el = outerDivRef.current;
+    if (!el) return;
+    if (mapStatus === 'READY') {
+      el.setAttribute('data-map-ready', 'true');
+    } else {
+      el.removeAttribute('data-map-ready');
+    }
+  }, [mapStatus]);
+
   const pushDebug = (label: string, data: unknown) => {
     try { console.log(`[NAV] ${label}:`, data); } catch { /* ignore */ }
   };
@@ -235,6 +249,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
+  }, []);
+
+  // routingService → Focus Mode köprüsü.
+  // fetchRoute rota hazır/temizlediğinde mapRef üzerinden updateNavigationStyle tetikler.
+  useEffect(() => {
+    return registerNavigationStyleCallback((active) => {
+      if (!mountedRef.current) return;
+      const map = mapRef.current;
+      if (map && map.isStyleLoaded()) updateNavigationStyle(map, active);
+    });
   }, []);
 
   // navStatusRef'i her render sonrası güncelle (rAF loop closure'ı için)
@@ -303,7 +327,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           const drLng    = lastKnown.lng + distDeg * Math.sin(headRad) / cosLat;
 
           if (now - lastMarkerUpdate > 100) {
-            updateUserMarker(drLat, drLng, lastKnown.heading);
+            updateUserMarker(drLat, drLng, lastKnown.heading, obdKmh);
             lastMarkerUpdate = now;
           }
           if (isFollowingRef.current) {
@@ -346,7 +370,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
         // Marker: kullanıcı etkileşimi yoksa 100ms'de bir güncelle (10fps yeterli)
         if (!userInteractingRef.current && now - lastMarkerUpdate > 100) {
-          updateUserMarker(displayLat, displayLng, bear);
+          updateUserMarker(displayLat, displayLng, bear, speedKmh);
           lastMarkerUpdate = now;
         }
 
@@ -364,8 +388,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           // Hız sıfırken 500ms, hız varken 150ms (6-7fps) — 16ms~60fps yerine GPU yükü %90 azalır
           const cameraThrottleMs = speedKmh < 1 ? 500 : 150;
           if (!userInteractingRef.current && isFollowingRef.current && (now - lastCameraUpdate > cameraThrottleMs)) {
+            // Turn anticipation: manevra sonrası yönü hesapla → kamera dönüşü önceden "görür"
+            let _nextTurnBearing: number | undefined;
+            const _rs  = getRouteState();
+            const _ni  = _rs.currentStepIndex + 1;         // bir sonraki dönüş adımı
+            const _ni2 = _ni + 1;                           // dönüş sonrası adım
+            if (_rs.steps.length > _ni2) {
+              const [aLon, aLat] = _rs.steps[_ni].coordinate;
+              const [bLon, bLat] = _rs.steps[_ni2].coordinate;
+              _nextTurnBearing = bearingBetween(aLat, aLon, bLat, bLon);
+            }
             // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
-            setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current);
+            setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing);
             lastCameraUpdate = now;
           }
         } else if (!userInteractingRef.current && isFollowingRef.current) {
@@ -379,7 +413,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       } else if (buffer.length === 1 && mapRef.current && mapRef.current.isStyleLoaded()) {
         // Tek nokta varsa (başlangıç) doğrudan oraya git
         const p = buffer[0];
-        updateUserMarker(p.lat, p.lng, p.heading);
+        updateUserMarker(p.lat, p.lng, p.heading, 0);
       }
 
       // 2. FPS & Performance Monitörü
@@ -485,28 +519,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Eagle Eye: render radar / speed-camera icons on the map
   useRadarMapLayer(mapRef, mapStyleReady);
 
-  // Alternatif rota harita tap — seçili rotayı değiştirir, MapLibre yeniden oluşturulmaz
+  // C7.2 — alternatif rota seçim köprüsü: mapService click → routingService
+  // mapService, style.load sonrası etkileşimleri otomatik yeniler (persistence garantisi).
   useEffect(() => {
-    if (mapStatus !== 'READY' || !mapRef.current) return;
-    const map = mapRef.current;
-    const onAltClick = (e: MapLayerMouseEvent) => {
-      const props = e.features?.[0]?.properties;
-      if (props?.altRealIdx !== undefined) {
-        console.log('[ROUTE_ALT_CLICK]', { altRealIdx: props.altRealIdx });
-        selectAltRoute(Number(props.altRealIdx));
-      }
-    };
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
-    const onLeave = () => { map.getCanvas().style.cursor = ''; };
-    map.on('click',      'car-route-alt-fill', onAltClick);
-    map.on('mouseenter', 'car-route-alt-fill', onEnter);
-    map.on('mouseleave', 'car-route-alt-fill', onLeave);
-    return () => {
-      map.off('click',      'car-route-alt-fill', onAltClick);
-      map.off('mouseenter', 'car-route-alt-fill', onEnter);
-      map.off('mouseleave', 'car-route-alt-fill', onLeave);
-    };
-  }, [mapStatus]);
+    return registerAltRouteSelectCallback((idx) => selectAltRoute(idx));
+  }, []);
 
   // Haritaya tıklanınca kontrolleri göster (MapLibre canvas olayları)
   useEffect(() => {
@@ -598,8 +615,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const el = containerRef.current;
     let observer: ResizeObserver | null = null;
 
-    let resizeRafId:  number | null = null;
-    let settleRafId:  number | null = null;
+    let resizeRafId:    number | null = null;
+    let resizeTimerId: ReturnType<typeof setTimeout> | null = null; // post-init debounce
+    let settleRafId:   number | null = null;
     let settleCount   = 0;
     let lastW         = 0;
     let lastH         = 0;
@@ -631,11 +649,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     function tryInit() {
       if (initDone.current) {
         if (el.offsetWidth > 0 && el.offsetHeight > 0 && mapRef.current) {
-          if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
-          resizeRafId = requestAnimationFrame(() => {
-            resizeRafId = null;
-            mapRef.current?.resize();
-          });
+          // 150ms debounce — CSS geçişleri sırasında resize spam'ini önler (MALI-400)
+          if (resizeTimerId !== null) clearTimeout(resizeTimerId);
+          resizeTimerId = setTimeout(() => {
+            resizeTimerId = null;
+            const container = containerRef.current;
+            if (container && container.offsetWidth > 0 && container.offsetHeight > 0) {
+              try { mapRef.current?.resize(); } catch { /* ignore */ }
+            }
+          }, 150);
         }
         return;
       }
@@ -732,8 +754,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
     return () => {
       observer?.disconnect();
-      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
-      if (settleRafId !== null) cancelAnimationFrame(settleRafId);
+      if (resizeRafId !== null)   cancelAnimationFrame(resizeRafId);
+      if (settleRafId !== null)   cancelAnimationFrame(settleRafId);
+      if (resizeTimerId !== null) clearTimeout(resizeTimerId);
       el.removeEventListener('transitionend', onTransitionEnd);
       cleanupRef.current?.();
     };
@@ -966,10 +989,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     _doStyleSwitch(mapRef.current, !instant);
   }, [tileRender]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Navigation + AR state → notify auto-switch engine
+  // Navigation + AR state → notify auto-switch engine + apply focus mode
   useEffect(() => {
     const arActive = arState === 'active' || arState === 'degraded';
     notifyNavigationRender(isNavigating, arActive);
+    // Focus mode: yardımcı yol katmanlarını navigasyon aktifken soldur
+    if (mapRef.current && mapRef.current.isStyleLoaded()) {
+      setNavigationFocusMode(mapRef.current, isNavigating);
+    }
   }, [isNavigating, arState]);
 
   /** Shared style-switch helper — avoids duplicating the marker/route restore logic. */
@@ -990,11 +1017,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
     try { map.resize(); } catch { /* container may be transitioning */ }
     setMapStatus('LOADING');
-    switchMapStyle(map, {
-      version: 8,
-      sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19 } },
-      layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-    } as any);
+    switchMapStyle(map, getMapStyle());
 
     let _styleSwitchFired = false;
     const _onStyleReady = () => {
@@ -1032,6 +1055,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       if (_geomToRender && map.isStyleLoaded()) {
         setRouteGeometry(map, _geomToRender, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current);
       }
+      // Style switch sonrası focus mode'u yeniden uygula (setStyle tüm paint'leri sıfırlar)
+      reapplyNavigationFocus(map);
       setStyleKey((k) => k + 1);
       if (withFadeOverlay) {
         setTimeout(() => { if (mountedRef.current) setIsSwitchingStyle(false); }, 150);
@@ -1070,6 +1095,13 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       lastDrivingLayersMs.current = nowMs;
       const spd = (location.speed ?? 0) * 3.6;
       updateDrivingLayers(mapRef.current, spd, location.latitude, location.longitude);
+    }
+
+    // Map Mood — tehlike riskine göre görsel karakter değişimi (Phase H3)
+    // updateMapMood kendi 200ms iç kısıtlamasını yönetir; GPS tick sıklığında çağrılabilir.
+    if (mapRef.current) {
+      const { globalRiskScore } = useHazardStore.getState();
+      updateMapMood(mapRef.current, globalRiskScore);
     }
   }, [location, heading, destination, mapStyleReady]);
 
@@ -1201,6 +1233,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }}
       />
 
+      {/* Cinematic vignette — HUD haritaya bağlanır, "UI overlay" hissi gider (Faz 3.3)
+           Bottom: navigasyon çubuğunun altındaki karanlık geçiş
+           Top: üst kontrollerin oturması için hafif çerçeve */}
+      <div
+        className="absolute bottom-0 left-0 right-0 pointer-events-none z-[35]"
+        style={{ height: '28%', background: 'linear-gradient(to top, rgba(6,9,15,0.68) 0%, transparent 100%)' }}
+      />
+      <div
+        className="absolute top-0 left-0 right-0 pointer-events-none z-[35]"
+        style={{ height: '11%', background: 'linear-gradient(to bottom, rgba(6,9,15,0.42) 0%, transparent 100%)' }}
+      />
+
       {/* Style-switch anti-flicker overlay.
           Fades in over the map (dark fill) while vector↔raster transition is
           in-flight, then fades out once first tiles have rendered.
@@ -1294,207 +1338,26 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }}
       />
 
-      {/* ── KAPAT — her zaman tam görünür (güvenlik) ── */}
-      <button
-        onClick={onClose}
-        aria-label="Haritayı kapat"
-        className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
-        style={{
-          position: 'fixed',
-          top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
-          zIndex: 9999,
-          padding: '12px 20px',
-          background: 'rgba(239,68,68,0.18)',
-          backdropFilter: 'blur(20px)',
-          border: '1.5px solid rgba(239,68,68,0.4)',
-          color: '#f87171', fontWeight: 900, fontSize: 13,
-          letterSpacing: '0.1em', cursor: 'pointer',
-          boxShadow: '0 8px 32px rgba(239,68,68,0.25)',
-        }}
-      >
-        <X className="w-4 h-4 text-red-400 stroke-[3px]" />
-        <span className="uppercase tracking-widest">KAPAT</span>
-      </button>
-
-      {/* ── GOOGLE MAPS TARZ RE-CENTER: Navigasyonda gizli, nav dışında sürüklenince çıkar ── */}
-      {!isFollowing && !isNavigating && (
-        <button
-          onClick={() => { handleRecenter(); showControls(); }}
-          aria-label="Konuma dön"
-          style={{
-            position: 'absolute',
-            bottom: isNavigating
-              ? 'calc(var(--lp-dock-h,68px) + 92px)'
-              : 'calc(var(--lp-dock-h,68px) + 80px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 30,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            background: 'rgba(10,14,26,0.92)',
-            backdropFilter: 'blur(16px)',
-            border: '1.5px solid rgba(59,130,246,0.55)',
-            borderRadius: '999px',
-            color: '#60a5fa',
-            fontWeight: 700,
-            fontSize: 13,
-            letterSpacing: '0.04em',
-            cursor: 'pointer',
-            boxShadow: '0 4px 24px rgba(59,130,246,0.35), 0 2px 8px rgba(0,0,0,0.6)',
-            animation: 'fadeSlideUp 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards',
-          }}
-        >
-          <Crosshair className="w-4 h-4" style={{ color: '#60a5fa' }} />
-          <span>Konuma Dön</span>
-        </button>
-      )}
-
-      {/* ── SAĞ: Nav dışı kontroller — sürüş modunda gizle ── */}
-      <div
-        className="absolute right-4 z-20 flex flex-col items-center gap-2.5"
-        style={{
-          bottom: 'calc(var(--lp-dock-h,68px) + 18px)',
-          opacity: isNavigating ? 0 : ctrlVisible ? 1 : 0.32,
-          transform: isNavigating ? 'translateX(56px)' : 'translateX(0)',
-          pointerEvents: isNavigating ? 'none' : 'auto',
-          transition: 'opacity 500ms cubic-bezier(0.4,0,0.2,1), transform 400ms cubic-bezier(0.4,0,0.2,1)',
-        }}
-      >
-        {/* Sürüş modu toggle */}
-        <button
-          onClick={() => { handleToggleDrivingMode(); showControls(); }}
-          className={`w-12 h-12 rounded-2xl border flex items-center justify-center active:scale-95 transition-colors duration-300 backdrop-blur-xl ${
-            drivingMode
-              ? 'bg-blue-500 border-blue-400/50 text-white'
-              : 'bg-black/60 border-white/15 text-slate-400 hover:text-white hover:border-white/25'
-          }`}
-          style={{ boxShadow: drivingMode ? '0 0 20px rgba(59,130,246,0.5), 0 4px 16px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
-        >
-          <Navigation2 className={`w-5 h-5 ${drivingMode ? 'fill-white' : ''}`} />
-        </button>
-
-        {/* Konuma dön */}
-        <button
-          onClick={() => { handleRecenter(); showControls(); }}
-          className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 flex items-center justify-center text-slate-400 hover:text-blue-300 hover:border-blue-400/35 active:scale-90 transition-colors"
-          style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
-        >
-          <Crosshair className="w-5 h-5" />
-        </button>
-
-        {/* Kamera aç/kapat */}
-        <button
-          onClick={handleCameraToggle}
-          className={`w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-90 transition-all ${
-            cameraOn
-              ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_16px_rgba(37,99,235,0.6)]'
-              : 'bg-black/60 border-white/15 text-slate-400 hover:text-blue-300 hover:border-blue-400/35'
-          }`}
-          style={{ boxShadow: cameraOn ? '0 0 16px rgba(37,99,235,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
-        >
-          {cameraOn ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
-        </button>
-
-        {/* Zoom pill */}
-        <div
-          className="flex flex-col bg-black/60 backdrop-blur-xl rounded-2xl border border-white/15 overflow-hidden"
-          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
-        >
-          <button
-            onClick={() => { handleZoomIn(); showControls(); }}
-            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
-          >
-            <ZoomIn className="w-5 h-5" />
-          </button>
-          <div className="h-px bg-white/12 mx-2.5" />
-          <button
-            onClick={() => { handleZoomOut(); showControls(); }}
-            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
-          >
-            <ZoomOut className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* ── SAĞ: Navigasyon zoom + pusula — nav modunda görünür ── */}
-      {isNavigating && (
-        <div
-          className="absolute right-4 z-20 flex flex-col items-center gap-2"
-          style={{ bottom: 'calc(var(--lp-dock-h,68px) + 96px)' }}
-        >
-          {/* Pusula — bearing'e göre döner */}
-          <button
-            onClick={() => { handleRecenter(); showControls(); }}
-            className="w-11 h-11 rounded-full flex items-center justify-center bg-black/70 backdrop-blur-xl border border-white/15 active:scale-90 transition-all"
-            style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.55)' }}
-          >
-            <Navigation2
-              className="w-5 h-5 text-white"
-              style={{ transform: `rotate(${-(heading ?? 0)}deg)`, transition: 'transform 0.3s ease' }}
-            />
-          </button>
-          {/* Zoom pill */}
-          <div
-            className="flex flex-col bg-black/70 backdrop-blur-xl rounded-2xl border border-white/15 overflow-hidden"
-            style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
-          >
-            <button
-              onClick={() => { handleZoomIn(); showControls(); }}
-              className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
-            >
-              <ZoomIn className="w-4.5 h-4.5" />
-            </button>
-            <div className="h-px bg-white/12 mx-2" />
-            <button
-              onClick={() => { handleZoomOut(); showControls(); }}
-              className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
-            >
-              <ZoomOut className="w-4.5 h-4.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── ALT MERKEZ: Harita katman seçici — nav/preview'da kaybolur, idle'da soluklaşır ── */}
-      <div
-        className="absolute left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2"
-        style={{
-          bottom: 'calc(var(--lp-dock-h,68px) + 14px)',
-          opacity: (isNavigating || isPreview) ? 0 : ctrlVisible ? 1 : 0.28,
-          transform: (isNavigating || isPreview) ? 'translateY(16px)' : 'translateY(0)',
-          pointerEvents: (isNavigating || isPreview) ? 'none' : 'auto',
-          transition: 'opacity 500ms cubic-bezier(0.4,0,0.2,1), transform 400ms cubic-bezier(0.4,0,0.2,1)',
-        }}
-      >
-        <div
-          className="flex items-center gap-0.5 bg-black/60 backdrop-blur-xl rounded-2xl p-1 border border-white/15"
-          style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}
-        >
-          {(['road', 'hybrid', 'satellite'] as MapMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => { setMapMode(m); showControls(); }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 active:scale-95 ${
-                mode === m
-                  ? 'bg-white/18 text-white'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/8'
-              }`}
-            >
-              {m === 'road' && <Map className="w-3.5 h-3.5" />}
-              {m === 'hybrid' && <Layers className="w-3.5 h-3.5" />}
-              {m === 'satellite' && <Globe className="w-3.5 h-3.5" />}
-              <span>{MODE_LABELS[m]}</span>
-            </button>
-          ))}
-        </div>
-        {location && (
-          <span className="text-[9px] text-white/25 font-mono tracking-tight">
-            {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
-          </span>
-        )}
-      </div>
+      {/* ── HUD Kontroller — butonlar, zoom, katman seçici ── */}
+      <MapHudControls
+        isNavigating={isNavigating}
+        isPreview={isPreview}
+        isFollowing={isFollowing}
+        ctrlVisible={ctrlVisible}
+        drivingMode={drivingMode}
+        cameraOn={cameraOn}
+        mode={mode}
+        heading={heading}
+        location={location}
+        onClose={onClose}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onRecenter={handleRecenter}
+        onToggleDrivingMode={handleToggleDrivingMode}
+        onCameraToggle={handleCameraToggle}
+        onSetMapMode={setMapMode}
+        showControls={showControls}
+      />
 
     </div>
   );

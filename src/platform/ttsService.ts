@@ -13,6 +13,7 @@
 import { duckMedia, unduckMedia } from './audioService';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
+import { useHazardStore } from '../store/useHazardStore';
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -84,13 +85,15 @@ interface SpeakOptions {
   queue?: boolean;
   /** Seslendirme tamamlandığında çağrılır — Audio Ducking restore için kullanılır */
   onEnd?: () => void;
+  /** MIN_REPEAT_MS deduplikasyonunu atla — güvenlik uyarıları için */
+  force?: boolean;
 }
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!text.trim()) return;
 
   const now = Date.now();
-  if (text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) return;
+  if (!opts.force && text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) return;
   _lastSpokenText = text;
   _lastSpokenAt   = now;
 
@@ -147,6 +150,80 @@ export function ttsCancel(): void {
   }
 }
 
+/* ── Attention-Aware Speech Engine (Phase H4) ───────────────────────────── */
+
+/**
+ * Uzaklık ön-eklerini ve kibarca ifadeler yerine emir kipini kullanan
+ * kısaltılmış navigasyon talimatı döndürür.
+ *
+ * "400 metre sonra sağa dönün, Bağdat Caddesi'ne girin"
+ *   → "Sağa dön, Bağdat Caddesi"
+ */
+const _DIST_PATTERNS = [
+  /\d+[\s.,]*(?:km|kilometre|m|metre)\s+sonra\s*/gi,
+  /yaklaşık\s+\d+\s+\w+\s+sonra\s*/gi,
+];
+
+const _POLITE_TO_CMD: [RegExp, string][] = [
+  [/\bdönün\b/gi,       'dön'],
+  [/\bdevam edin\b/gi,  'devam'],
+  [/\bgidin\b/gi,       'git'],
+  [/\bgirin\b/gi,       'gir'],
+  [/\bçıkın\b/gi,       'çık'],
+  [/\byapın\b/gi,       'yap'],
+  [/\balın\b/gi,        'al'],
+  [/\bkalın\b/gi,       'kal'],
+];
+
+export function shortenInstruction(text: string): string {
+  let s = text;
+  for (const p of _DIST_PATTERNS)      s = s.replace(p, '');
+  for (const [f, t] of _POLITE_TO_CMD) s = s.replace(f, t);
+  // Yinelenen boşlukları temizle ve kademe karakterlerini kaldır
+  return s.replace(/\s*[,;.]\s*$/, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Türkçe tehlike tipi → sesli uyarı metni */
+const _HAZARD_LABELS_TTS: Record<string, string> = {
+  CONSTRUCTION: 'yol çalışması',
+  ACCIDENT:     'kaza',
+  WEATHER:      'zor hava koşulları',
+  SPEED_CAM:    'hız kamerası',
+  ROAD_DAMAGE:  'yol hasarı',
+  TUNNEL:       'tünel',
+};
+
+/**
+ * Tehlike uyarısı — otoriter, düşük ses tonu.
+ * CarLauncher.speak() pitch parametresini desteklemiyorsa web fallback kullanılır.
+ */
+export function speakHazardAlert(type: string, distanceM?: number): void {
+  const label = _HAZARD_LABELS_TTS[type] ?? 'tehlike';
+  let dist = '';
+  if (distanceM !== undefined && distanceM > 0) {
+    dist = distanceM < 1000
+      ? `${Math.round(distanceM / 50) * 50} metre ileride`
+      : `${(distanceM / 1000).toFixed(1)} kilometre ileride`;
+  }
+  const text = dist ? `Dikkat! ${label}, ${dist}.` : `Dikkat! ${label}.`;
+  // Daha ağır ve yavaş ton — sürücüde aciliyet hissi yaratır
+  ttsSpeak(text, { rate: 0.86, pitch: 0.85, queue: false });
+}
+
+/**
+ * Güvenlik acil uyarısı — en yüksek öncelik kanalı.
+ *
+ * Farklar:
+ *  - __SAFETY_LOCK__ kontrolünü atlar — her zaman çalışır.
+ *  - Devam eden TTS'i keser (queue: false).
+ *  - MIN_REPEAT_MS deduplikasyonunu geçer (force: true).
+ *  - Soğuma (cooldown) safetyService tarafından yönetilir (15s).
+ *  - Arbitraj: yakın dönüş (<50m) varsa safetyService zaten atlar.
+ */
+export function speakSafetyAlert(message: string): void {
+  ttsSpeak(message, { rate: 0.82, pitch: 0.82, queue: false, force: true });
+}
+
 /* ── Semantic helpers ────────────────────────────────────── */
 
 /** Sesli komut tanındığında geri bildirim sesi */
@@ -178,14 +255,22 @@ function isCriticalNavigationMessage(msg: string): boolean {
   );
 }
 
-/** Navigasyon yönlendirme duyurusu — net, yavaş, sürücü odaklı */
+/** Navigasyon yönlendirme duyurusu — net, yavaş, sürücü odaklı.
+ *  Phase H4: Dikkat bütçesi düşükse (DAB < 0.4) veya ATTENTION durumundaysa
+ *  talimat kısaltılır — mesafe ön-ekleri silinir, emir kipi kullanılır.
+ */
 export function speakNavigation(instruction: string): void {
   if (
     typeof window !== 'undefined' &&
     (window as unknown as Record<string, unknown>).__SAFETY_LOCK__ &&
     !isCriticalNavigationMessage(instruction)
   ) return;
-  ttsSpeak(instruction, { rate: 0.92, queue: false });
+
+  const { driverAttentionBudget, hazardStatus } = useHazardStore.getState();
+  const needsShorten = driverAttentionBudget < 0.4 || hazardStatus === 'ATTENTION';
+  const text = needsShorten ? shortenInstruction(instruction) : instruction;
+
+  ttsSpeak(text, { rate: 0.92, queue: false });
 }
 
 /** Uyarı / hata mesajı — biraz yüksek pitch ile dikkat çeker */

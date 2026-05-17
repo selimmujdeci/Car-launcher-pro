@@ -320,6 +320,15 @@ const WARMUP_LAUNCH_MS = 1_000;
 const MAX_WARMUP_TRIES = 2;
 
 async function _sendWithWarmup(action: 'play' | 'pause'): Promise<void> {
+  // Agresif warm-up: aktif oturum yoksa ve tercih edilen paket biliniyorsa
+  // önce uygulamayı başlat — böylece play komutu canlı bir sürece ulaşır.
+  if (action === 'play' && !_current.hasSession && _preferredPackage) {
+    try {
+      await CarLauncher.launchApp({ packageName: _preferredPackage });
+      await new Promise<void>((r) => setTimeout(r, WARMUP_LAUNCH_MS));
+    } catch { /* uygulama zaten açık olabilir — devam et */ }
+  }
+
   await CarLauncher.sendMediaAction({ action });
 
   // pause için doğrulama/yeniden deneme gereksiz

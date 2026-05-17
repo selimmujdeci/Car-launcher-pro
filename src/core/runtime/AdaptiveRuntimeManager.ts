@@ -37,7 +37,21 @@ const MODE_RANK: Readonly<Record<RuntimeMode, number>> = {
 
 /* ── Sabitler ────────────────────────────────────────────────────── */
 
-const UPGRADE_DELAY_MS = 30_000; // 30 saniye stabilite penceresi
+const UPGRADE_DELAY_MS   = 30_000; // 30 saniye stabilite penceresi
+/** Termal kısıtlama recovery için aynı süre (soğuma 30s stabil kaldıktan sonra kısıt kaldırılır) */
+const THERMAL_RECOVERY_MS = 30_000;
+
+/**
+ * Termal seviyeye karşılık gelen mod tavanı.
+ * L0 = null (serbest), L1–L3 artan kısıtlama.
+ * Not: Modül scope'unda tanımlandı; RuntimeMode import'tan önce değil.
+ */
+const _THERMAL_CEILING: readonly (RuntimeMode | null)[] = [
+  null,                    // L0 — kısıtlama yok
+  RuntimeMode.BALANCED,    // L1 (≥45°C) — BALANCED üstüne çıkış yasak
+  RuntimeMode.BASIC_JS,    // L2 (≥55°C) — BASIC_JS üstüne çıkış yasak
+  RuntimeMode.POWER_SAVE,  // L3 (≥65°C) — POWER_SAVE üstüne çıkış yasak
+];
 
 /** Crash-recovery: son aktif modu safeStorage'a yazarız; yeniden başlatmada okuruz. */
 const PERSIST_KEY = 'rt-last-mode';
@@ -101,6 +115,12 @@ class AdaptiveRuntimeManager {
 
   /** Akü voltaj tavanı — bu mod üstüne çıkış engellenir; null = kısıtlama yok. */
   private _powerCeiling: RuntimeMode | null = null;
+
+  /** Anlık termal kısıtlama seviyesi (0–3). */
+  private _thermalActiveLevel: 0|1|2|3 = 0;
+
+  /** Termal recovery (kısıt gevşeme) timer handle. */
+  private _thermalConstraintTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly _listeners = new Set<ModeChangeListener>();
 
@@ -247,6 +267,13 @@ class AdaptiveRuntimeManager {
     }
   }
 
+  private _cancelThermalRecovery(): void {
+    if (this._thermalConstraintTimer !== null) {
+      clearTimeout(this._thermalConstraintTimer);
+      this._thermalConstraintTimer = null;
+    }
+  }
+
   /* ══════════════════════════════════════════════════════════════
      CSS Injection — :root CSS değişkenleri
   ══════════════════════════════════════════════════════════════ */
@@ -295,6 +322,42 @@ class AdaptiveRuntimeManager {
   /** Aktif güç tavanını döner (null = kısıtlama yok). */
   getPowerCeiling(): RuntimeMode | null {
     return this._powerCeiling;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     Thermal Constraint API
+  ══════════════════════════════════════════════════════════════ */
+
+  /**
+   * Termal seviyeye göre runtime mod tavanını günceller.
+   *
+   * Eskalasyon (level artıyor) → anlık; mevcut mod tavan üstündeyse hemen düşürür.
+   * Kurtarma (level düşüyor)   → 30s stabilite bekler; bu sürede yeni eskalasyon
+   *   gelirse timer iptal edilir (erken çıkış önlenir).
+   *
+   * Circular bağımlılık: thermalWatchdog → runtimeManager (mevcut) zinciri korunur.
+   * Bu metod thermalWatchdog'u import ETMEZ — çağıran (SystemOrchestrator) kablo kurar.
+   *
+   * @param level  ThermalLevel: 0 (soğuk) → 3 (kritik)
+   */
+  setThermalConstraint(level: 0|1|2|3): void {
+    if (level === this._thermalActiveLevel) return;
+
+    const isEscalation = level > this._thermalActiveLevel;
+    this._thermalActiveLevel = level;
+
+    if (isEscalation) {
+      // Anlık uygula — bekleyen recovery iptal
+      this._cancelThermalRecovery();
+      this.setPowerCeiling(_THERMAL_CEILING[level]);
+    } else {
+      // Kurtarma: 30s stabilite bekle, sonra kısıtı gevşet
+      this._cancelThermalRecovery();
+      this._thermalConstraintTimer = setTimeout(() => {
+        this._thermalConstraintTimer = null;
+        this.setPowerCeiling(_THERMAL_CEILING[this._thermalActiveLevel]);
+      }, THERMAL_RECOVERY_MS);
+    }
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -444,6 +507,7 @@ class AdaptiveRuntimeManager {
 
   destroy(): void {
     this._cancelUpgrade();
+    this._cancelThermalRecovery();
     this._listeners.clear();
 
     // Tüm worker'ları temizle
@@ -452,8 +516,9 @@ class AdaptiveRuntimeManager {
     }
     this._workers.clear();
 
-    this._started       = false;
-    this._powerCeiling  = null;
+    this._started            = false;
+    this._powerCeiling       = null;
+    this._thermalActiveLevel = 0;
 
     if (typeof document === 'undefined') return;
     const root = document.documentElement;

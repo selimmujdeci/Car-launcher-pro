@@ -7,6 +7,9 @@ import { showToast } from '../platform/errorBus';
 import type { MusicOptionKey } from '../data/apps';
 import type { MusicFavorite } from '../store/useStore';
 import { useStore } from '../store/useStore';
+
+// activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
+const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
 import { resolveAndNavigate } from '../platform/addressNavigationEngine';
 import { getGPSState } from '../platform/gpsService';
 import type { ParsedCommand } from '../platform/commandParser';
@@ -70,8 +73,15 @@ export function useVoiceCommandHandler({
         );
         return;
       }
+      // activeMediaSourceKey geçerli bir MusicOptionKey ise defaultMusic'e öncelik tanır.
+      // Örnek: kullanıcı Spotify seçtiyse "müzik aç" Spotify'ı hedefler.
+      const _activeKey = s.activeMediaSourceKey;
+      const effectiveMusic: MusicOptionKey = (_activeKey && _MUSIC_KEY_SET.has(_activeKey))
+        ? (_activeKey as MusicOptionKey)
+        : s.defaultMusic;
+
       const intent = toIntent(cmd, {
-        defaultNav: s.defaultNav, defaultMusic: s.defaultMusic,
+        defaultNav: s.defaultNav, defaultMusic: effectiveMusic,
         recentAppId: sm.quickActions.find((a) => a.id.startsWith('last-'))?.appId,
       });
       routeIntent(intent, {
@@ -98,7 +108,7 @@ export function useVoiceCommandHandler({
         },
 
         addMusicFavorite: () => {
-          const media   = getMediaState();
+          const media = getMediaState();
           const { addMusicFavorite } = useStore.getState();
           if (!media.hasSession || !media.track.title) {
             showToast({ type: 'info', title: 'Çalan şarkı yok', message: 'Favorilere eklemek için önce bir şarkı çalmalı', duration: 3000 });
@@ -115,6 +125,12 @@ export function useVoiceCommandHandler({
           showToast({ type: 'success', title: 'Favorilere eklendi', message: `${media.track.title} — ${media.track.artist}`, duration: 3000 });
         },
       });
+
+      // OPEN_MUSIC sonrası: müzik çalmıyorsa play tetikle.
+      // _sendWithWarmup zaten launch+retry döngüsü içeriyor; burada ekstra gecikme gereksiz.
+      if (intent.type === 'OPEN_MUSIC' && !getMediaState().playing) {
+        play();
+      }
     });
   }, []);
 }

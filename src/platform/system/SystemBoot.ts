@@ -51,8 +51,12 @@ import {
 }                                  from '../ai/smartCardEngine';
 import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
+import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { logError }                from '../crashLogger';
 import { healthMonitor }           from './SystemHealthMonitor';
+import { initCommunityService }    from '../communityService';
+import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
+import { useCognitiveStore }       from '../../store/useCognitiveStore';
 
 // ── Yardımcılar ───────────────────────────────────────────────────────────────
 
@@ -69,10 +73,13 @@ class SystemBoot {
 
   private _started       = false;
   private _cleanups:     Cleanup[] = [];
-  /** İsimli servis cleanup'ları — restart mekanizması için */
+  /** İsimli servis cleanup'ları — restart ve limp mekanizması için */
   private _namedCleanups = new Map<string, Cleanup>();
   /** Worker crash sayaçları — max 2 deneme aşımı takibi */
   private _workerRestartCounts = new Map<string, number>();
+  /** LIMP_HOME izleme durumu */
+  private _limpActive  = false;
+  private _cogUnsub:   (() => void) | null = null;
 
   // ── Cleanup kaydı ─────────────────────────────────────────────────────────
 
@@ -157,6 +164,67 @@ class SystemBoot {
     }
   }
 
+  // ── LIMP_HOME servis yönetimi ──────────────────────────────────────────────
+
+  /** CognitiveStore'u izle — LIMP_HOME geçişlerinde servisleri durdur/başlat. */
+  private _startLimpMonitor(): void {
+    let _prevMode = useCognitiveStore.getState().currentMode;
+    this._cogUnsub = useCognitiveStore.subscribe((state) => {
+      const mode = state.currentMode;
+      if (mode === _prevMode) return;
+      const wasLimp = _prevMode === 'LIMP_HOME';
+      const isLimp  = mode     === 'LIMP_HOME';
+      _prevMode = mode;
+      if (isLimp && !wasLimp)  this._enterLimp();
+      if (!isLimp && wasLimp)  void this._exitLimp();
+    });
+  }
+
+  /** LIMP_HOME girişi: opsiyonel servisleri durdur. */
+  private _enterLimp(): void {
+    if (this._limpActive) return;
+    this._limpActive = true;
+    _log('LIMP_HOME: Opsiyonel servisler durduruluyor...');
+    const OPTIONAL = ['RadarEngine', 'FuelAdvisor', 'MaintenanceBrain'] as const;
+    for (const name of OPTIONAL) {
+      const fn = this._namedCleanups.get(name);
+      if (fn) {
+        try { fn(); } catch (e) { logError(`LIMP:stop:${name}`, e); }
+        this._namedCleanups.delete(name);
+        const idx = this._cleanups.indexOf(fn);
+        if (idx >= 0) this._cleanups.splice(idx, 1);
+        _log(`  › ${name} durduruldu`);
+      }
+    }
+  }
+
+  /** LIMP_HOME çıkışı: opsiyonel servisleri Wave sırasına göre yeniden başlat. */
+  private async _exitLimp(): Promise<void> {
+    if (!this._limpActive) return;
+    this._limpActive = false;
+    _log('LIMP_HOME çıkışı: Servisler yeniden başlatılıyor...');
+    await new Promise<void>((r) => setTimeout(r, 500));
+
+    const mbCleanup = startMaintenanceBrain();
+    if (typeof mbCleanup === 'function') {
+      this._cleanups.push(mbCleanup);
+      this._namedCleanups.set('MaintenanceBrain', mbCleanup);
+      _log('  › MaintenanceBrain yeniden başlatıldı');
+    }
+
+    const faCleanup = startFuelAdvisor();
+    if (typeof faCleanup === 'function') {
+      this._cleanups.push(faCleanup);
+      this._namedCleanups.set('FuelAdvisor', faCleanup);
+      _log('  › FuelAdvisor yeniden başlatıldı');
+    }
+
+    void startRadarEngine(turkiyeStaticRadars); // async — singleton guard içinde
+    this._cleanups.push(stopRadarEngine);
+    this._namedCleanups.set('RadarEngine', stopRadarEngine);
+    _log('  › RadarEngine yeniden başlatıldı');
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
@@ -172,6 +240,7 @@ class SystemBoot {
       await this._wave2();
       await this._wave3();
       await this._wave4();
+      window.__APP_READY__ = true;
       _log('Boot complete ✓');
     } catch (e) {
       logError('SystemBoot', e);
@@ -186,6 +255,10 @@ class SystemBoot {
    */
   stop(): void {
     _log('Stopping all services (LIFO)...');
+    // CognitivePriorityEngine + LIMP izleyici
+    if (this._cogUnsub) { this._cogUnsub(); this._cogUnsub = null; }
+    stopCognitiveEngine();
+    this._limpActive = false;
     healthMonitor.stop();
     // LIFO: son başlayan ilk durur — bağımlılık zincirine saygı
     for (let i = this._cleanups.length - 1; i >= 0; i--) {
@@ -215,6 +288,9 @@ class SystemBoot {
 
     _log('  › hydrateSafetyBrainFromStorage');
     hydrateSafetyBrainFromStorage();
+
+    _log('  › initCommunityService');
+    initCommunityService();
 
     // NativeGuardBridge: heartbeat (1s) + odo persist (5s) + mode sync
     _log('  › NativeGuardBridge');
@@ -277,10 +353,10 @@ class SystemBoot {
     _log('Starting Wave 3 (Sensors & Intelligence)...');
 
     _log('  › MaintenanceBrain');
-    this._reg(startMaintenanceBrain());
+    this._regNamed('MaintenanceBrain', startMaintenanceBrain());
 
     _log('  › FuelAdvisor');
-    this._reg(startFuelAdvisor());
+    this._regNamed('FuelAdvisor', startFuelAdvisor());
 
     _log('  › BlackBox');
     this._reg(startBlackBox());
@@ -288,6 +364,10 @@ class SystemBoot {
     // BatteryProtection: 12V voltaj izleme + power ceiling
     _log('  › BatteryProtection');
     this._reg(startBatteryProtection());
+
+    // VehicleIntelligenceService: SPE sensör plausibility + güven skoru
+    _log('  › VehicleIntelligenceService');
+    this._reg(startVehicleIntelligenceService());
 
     // GeofenceService: async (Supabase zona sorgusu)
     _log('  › GeofenceService (async)');
@@ -300,7 +380,12 @@ class SystemBoot {
     // RadarEngine: Türkiye statik radar veritabanı
     _log('  › RadarEngine');
     startRadarEngine(turkiyeStaticRadars);
-    this._reg(stopRadarEngine);
+    this._regNamed('RadarEngine', stopRadarEngine);
+
+    // CognitivePriorityEngine + LIMP_HOME izleyici
+    _log('  › CognitivePriorityEngine');
+    startCognitiveEngine();
+    this._startLimpMonitor();
 
     _log('Wave 3 ready ✓');
   }
@@ -354,3 +439,7 @@ class SystemBoot {
 // ── Singleton export ──────────────────────────────────────────────────────────
 
 export const systemBoot = new SystemBoot();
+
+declare global {
+  interface Window { __APP_READY__: boolean; }
+}

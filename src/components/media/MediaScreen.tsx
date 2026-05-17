@@ -17,7 +17,7 @@ import { LocalMusicBrowser } from './LocalMusicBrowser';
 import {
   useMediaState, togglePlayPause, next, previous,
   fmtTime, startMediaHub, stopMediaHub, toggleShuffle, cycleRepeat,
-  setMediaPreferredPackage, pollMediaNow,
+  setMediaPreferredPackage, pollMediaNow, play,
 } from '../../platform/mediaService';
 import type { MediaSource } from '../../platform/mediaService';
 import { isNative } from '../../platform/bridge';
@@ -101,7 +101,8 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
       activeMediaSourceKey: src.key,
       ...(src.musicKey ? { defaultMusic: src.musicKey } : {}),
     });
-    if (src.pkg) setMediaPreferredPackage(src.pkg);
+    // Boş pkg (local_files, bluetooth) → tercih sıfırlanır; her durumda çağrılır.
+    setMediaPreferredPackage(src.pkg);
   }, [updateSettings]);
 
   /* ── İçerik ─────────────────────────────────────────────── */
@@ -122,6 +123,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
             repeat={repeat}
             activeSourceKey={activeSourceKey}
             onTabSources={() => setTab('sources')}
+            onPlay={play}
           />
         )}
         {tab === 'sources' && (
@@ -166,25 +168,26 @@ function TabBtn({ active, icon, label, onClick }: { active: boolean; icon: React
 /* ── Player view ──────────────────────────────────────────── */
 
 interface PlayerViewProps {
-  hasSession:         boolean;
-  playing:        boolean;
-  track:          ReturnType<typeof useMediaState>['track'];
-  source:         MediaSource;
-  srcMeta:        typeof SOURCE_META[MediaSource];
-  displayName:    string;
-  progressPct:    number;
-  shuffle:        boolean;
-  repeat:         'off' | 'one' | 'all';
-  activeSourceKey:string;
-  onTabSources:   () => void;
+  hasSession:      boolean;
+  playing:         boolean;
+  track:           ReturnType<typeof useMediaState>['track'];
+  source:          MediaSource;
+  srcMeta:         typeof SOURCE_META[MediaSource];
+  displayName:     string;
+  progressPct:     number;
+  shuffle:         boolean;
+  repeat:          'off' | 'one' | 'all';
+  activeSourceKey: string;
+  onTabSources:    () => void;
+  onPlay:          () => void;
 }
 
 function PlayerView({
   hasSession, playing, track, srcMeta, displayName, progressPct,
-  shuffle, repeat, activeSourceKey, onTabSources,
+  shuffle, repeat, activeSourceKey, onTabSources, onPlay,
 }: PlayerViewProps) {
   const progressRef = useRef<HTMLDivElement>(null);
-  if (!hasSession) return <NoSessionView onTabSources={onTabSources} activeSourceKey={activeSourceKey} />;
+  if (!hasSession) return <NoSessionView onTabSources={onTabSources} activeSourceKey={activeSourceKey} onPlay={onPlay} />;
 
   return (
     <div className="relative h-full flex flex-col overflow-hidden bg-transparent">
@@ -320,14 +323,17 @@ function PlayerView({
 function NoSessionView({
   onTabSources,
   activeSourceKey,
+  onPlay,
 }: {
   onTabSources: () => void;
   activeSourceKey: string;
+  onPlay: () => void;
 }) {
   const src      = KNOWN_SOURCES.find((s) => s.key === activeSourceKey);
   const srcColor = src?.color ?? '#3b82f6';
   const srcEmoji = src?.emoji ?? '🎵';
   const srcName  = src?.name  ?? 'Müzik';
+  const hasPkg   = !!(src?.pkg);
 
   return (
     <div className="h-full flex flex-col items-center justify-center gap-8 px-10 bg-transparent">
@@ -343,9 +349,25 @@ function NoSessionView({
       <div className="text-center">
         <div className="text-primary text-2xl font-black mb-2 tracking-tight">{srcName} Hazır</div>
         <div className="text-secondary text-sm leading-relaxed max-w-[280px] font-medium">
-          Parça kaynağı bulunamadı — telefondaki bir müzik uygulaması çalmaya başlarsa kontroller burada belirecek.
+          Parça kaynağı bulunamadı — uygulamayı uyandırıp oynatmak için butona basın.
         </div>
       </div>
+
+      {/* Oynat — uygulamayı uyandırır, play komutu gönderir */}
+      {isNative && hasPkg && (
+        <button
+          onClick={onPlay}
+          className="flex items-center gap-3 px-8 py-4 rounded-2xl active:scale-90 transition-all"
+          style={{
+            background:  `${srcColor}22`,
+            border:      `1.5px solid ${srcColor}55`,
+            color:        srcColor,
+          }}
+        >
+          <Play className="w-5 h-5 fill-current" />
+          <span className="font-black text-sm uppercase tracking-widest">Oynat</span>
+        </button>
+      )}
 
       {/* Kaynak değiştir */}
       <button

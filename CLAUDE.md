@@ -71,6 +71,77 @@ npm run preview       # Preview production build
 npm run android       # Build → sync → open in Android Studio
 npm run cap:sync      # Build → sync web assets to native
 npm run cap:copy      # Build → copy web assets only (no plugin sync)
+npm run test:e2e      # Playwright E2E tests (headless)
+npm run test:e2e:ui   # Playwright E2E tests (interactive UI)
+```
+
+## E2E Testing (Playwright)
+
+E2E testler `e2e/` klasöründe. Kritik user flows'u test eder:
+
+| Test Dosyası | Kapsam |
+|---------------|--------|
+| `app.spec.ts` | Boot sequence, ErrorBoundary, portrait warning |
+| `navigation.spec.ts` | App grid, phone, maps, POI search |
+| `obd.spec.ts` | OBD mock mode, speedometer, RPM, fuel gauges |
+| `theme.spec.ts` | Theme switching, night mode, widget styles |
+| `safety.spec.ts` | Reverse overlay priority (z-index: 100000), radar HUD |
+| `settings.spec.ts` | Settings drawer, language, volume, performance |
+| `smart-engine.spec.ts` | Driving mode detection, AI recommendations |
+| `error-handling.spec.ts` | Error boundaries, console errors |
+
+**Kurulum:** `npx playwright install --with-deps chromium`
+**CI:** `CI=true npm run test:e2e` — otomatik retries + trace
+
+## Unit & Integration Testing (Vitest)
+
+Unit ve integration testler `src/__tests__/` klasöründe:
+
+| Klasör/Dosya | Açıklama |
+|--------------|----------|
+| `helpers/index.ts` | Paylaşılan mock'lar, fixture'lar, helper fonksiyonlar |
+| `fixtures/integration.ts` | Integration test senaryoları |
+| `*.test.ts` | Platform servis unit testleri |
+| `*.integration.test.ts` | Multi-servis integration testleri |
+
+### Test Kategorileri
+
+**Unit Tests:**
+- OBD service state machine, sanitization
+- Smart Engine (detectDrivingMode, trackLaunch, Markov)
+- Safety Brain (fault tracking, feature disable)
+- Store (settings merge, negative delta guard)
+
+**Integration Tests:**
+- OBD + GPS data flow
+- Smart Engine + Theme coordination
+- Runtime Manager hysteresis
+- Zustand store persistence
+
+### Komutlar
+
+```bash
+npm run test            # Tüm testler (headless)
+npm run test:watch      # Watch mode
+npm run test:coverage   # Coverage report
+```
+
+### Test Helper Kullanımı
+
+```typescript
+import { OBD_FIXTURES, GPS_FIXTURES, clearAllStorage } from './helpers';
+import { FUEL_COMPUTATION_SCENARIOS } from './fixtures/integration';
+
+// OBD fixture kullan
+const obdData = createOBDData({ speed: 60, rpm: 2500 });
+
+// Integration scenario çalıştır
+FUEL_COMPUTATION_SCENARIOS.forEach((scenario) => {
+  it(scenario.name, () => {
+    const result = computeFuel(scenario.fuelPercent, scenario.tankLiters);
+    expect(result).toBeCloseTo(scenario.expectedFuelRemaining);
+  });
+});
 ```
 
 ---

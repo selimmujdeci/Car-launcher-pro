@@ -20,9 +20,7 @@ import { duckMedia, unduckMedia } from './audioService';
 import { askAI, resolveApiKey, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
-import { onDTCState } from './dtcService';
-import { getMaintenanceAssessment } from './vehicleMaintenanceService';
-import { onOBDData } from './obdService';
+import { buildEnrichedCtx } from './voiceContextBuilder';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -109,6 +107,8 @@ function _startVolumeMeter(): void {
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     _stream = stream;
     _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // Android WebView bazen AudioContext'i suspended başlatır — resume et
+    if (_audioCtx.state === 'suspended') { _audioCtx.resume().catch(() => {}); }
     const source = _audioCtx.createMediaStreamSource(stream);
     _analyser = _audioCtx.createAnalyser();
     _analyser.fftSize = 256;
@@ -224,61 +224,6 @@ function _dispatchConversation(response: string, raw: string): void {
   setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 3500);
 }
 
-/* ── AI Context Building ──────────────────────────────────── */
-
-async function _buildEnrichedCtx(ctx?: VehicleContext): Promise<VehicleContext> {
-  const base: VehicleContext = ctx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false };
-
-  // ── DTC kodları ──────────────────────────────────────────
-  let dtcCodes: VehicleContext['activeDTCCodes'] = base.activeDTCCodes;
-  try {
-    let snap: { codes: VehicleContext['activeDTCCodes'] } | undefined;
-    const unsub = onDTCState((s) => { snap = s; });
-    unsub();
-    if (snap) dtcCodes = snap.codes;
-  } catch { /* ignore */ }
-
-  // ── Bakım değerlendirmesi ─────────────────────────────────
-  let maintenanceAssessments: VehicleContext['maintenanceAssessments'] = base.maintenanceAssessments;
-  try {
-    maintenanceAssessments = await getMaintenanceAssessment();
-  } catch { /* ignore */ }
-
-  // ── T-12: CAN-BUS / OBD canlı verisi ─────────────────────
-  // "Arabanın durumu nasıl?" sorusuna AI güncel hız/yakıt/sıcaklık bilgisiyle cevap verebilsin.
-  // §2 Sensor Resiliency: veri alınamazsa mevcut context'i bozmaz.
-  let canSpeed: number | undefined;
-  let canFuel:  number | undefined;
-  let canTemp:  number | undefined;
-  try {
-    let obdSnap: { speedKmh: number; fuelLevel: number; engineTemp: number } | undefined;
-    const unsub = onOBDData((d) => {
-      obdSnap = { speedKmh: d.speed, fuelLevel: d.fuelLevel, engineTemp: d.engineTemp };
-    });
-    unsub(); // tek anlık snapshot — sürekli abone olmuyoruz
-    if (obdSnap) {
-      canSpeed = obdSnap.speedKmh;
-      canFuel  = obdSnap.fuelLevel;
-      canTemp  = obdSnap.engineTemp;
-    }
-  } catch { /* CAN verisi yoksa zarifçe devam et */ }
-
-  // speedKmh: ctx'ten gelen değer varsa öncelikli, yoksa CAN
-  const speedKmh  = base.speedKmh || canSpeed || 0;
-  const isDriving = speedKmh > 2;
-
-  return {
-    ...base,
-    speedKmh,
-    isDriving,
-    activeDTCCodes:        dtcCodes,
-    maintenanceAssessments,
-    // CAN verisini AI sistem mesajına gömülü gönder (VehicleContext'e extra alan)
-    ...(canFuel  !== undefined ? { fuelLevelPct:   canFuel  } : {}),
-    ...(canTemp  !== undefined ? { engineTempC:     canTemp  } : {}),
-  };
-}
-
 /* ── Ara TTS geri bildirimleri ────────────────────────────────── */
 
 const THINKING_PHRASES = [
@@ -369,7 +314,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     push({ status: 'processing', transcript: trimmed, error: null, suggestions: result.suggestions });
     _speakThinking();
 
-    const enrichedCtx = await _buildEnrichedCtx(ctx);
+    const enrichedCtx = await buildEnrichedCtx(ctx);
 
     // ── Semantik NLP (POI + bağlamsal anlama) ───────────────
     const semanticResult = await classifySemantic(trimmed, provider, apiKey, enrichedCtx);
@@ -467,6 +412,11 @@ export function startListening(): void {
   if (_current.status === 'listening' || _nativeSttWarmupTimer !== null) {
     stopListening();
     return;
+  }
+
+  // AudioContext donma koruması — her tetiklemede suspended ise resume et
+  if (_audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {});
   }
 
   if (isNative) {

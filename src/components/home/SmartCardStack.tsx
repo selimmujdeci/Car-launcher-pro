@@ -19,6 +19,7 @@ import { useSystemStore } from '../../store/useSystemStore';
 import { startNavigation }  from '../../platform/navigationService';
 import { getFavoriteAddresses } from '../../platform/addressBookService';
 import { Tv2 } from 'lucide-react';
+import { useCognitiveStore } from '../../store/useCognitiveStore';
 
 /* ── İkon eşlemesi ───────────────────────────────────────────── */
 
@@ -144,6 +145,12 @@ interface SmartCardStackProps {
   onSearchPoi?:  (query: string) => void;
 }
 
+/* Güvenlik kritik türler — hiçbir modda bastırılmaz */
+const SAFETY_KINDS = new Set(['engine-warning', 'fuel-warning', 'maintenance-warning']);
+
+/* Eğlence/konfor türler — FOCUSED modda bastırılır */
+const LEISURE_KINDS = new Set(['music-suggestion', 'theater-mode']);
+
 export const SmartCardStack = memo(function SmartCardStack({
   onNavigate,
   onLaunch,
@@ -152,6 +159,15 @@ export const SmartCardStack = memo(function SmartCardStack({
 }: SmartCardStackProps) {
   const cards   = useStore((s) => s.activeSmartCards);
   const dismiss = useStore((s) => s.dismissSmartCard);
+
+  // CL2 — Kognitif moda göre kart filtresi (unmount = MALI-400 safe)
+  const cogMode = useCognitiveStore((s) => s.currentMode);
+  const visibleCards = (() => {
+    if (cogMode === 'LIMP_HOME') return [];                              // tümü kapat
+    if (cogMode === 'CRITICAL')  return cards.filter((c) => SAFETY_KINDS.has(c.kind));
+    if (cogMode === 'FOCUSED')   return cards.filter((c) => !LEISURE_KINDS.has(c.kind));
+    return cards;                                                        // IMMERSIVE / AWARE
+  })();
 
   const handleAction = useCallback((card: SmartCard) => {
     dismiss(card.id);
@@ -186,17 +202,17 @@ export const SmartCardStack = memo(function SmartCardStack({
     }
   }, [dismiss, onNavigate, onLaunch, onOpenDrawer, onSearchPoi]);
 
-  if (cards.length === 0) return null;
+  if (visibleCards.length === 0) return null;
 
   // Max 2 kart görünür; 3. kart mevcutsa 2. arkasında gölge olur
-  const visible = cards.slice(0, 2);
+  const visible = visibleCards.slice(0, 2);
 
   return (
     <div
       className="absolute bottom-4 left-4 z-40 flex flex-col-reverse gap-0 pointer-events-none"
       aria-label="Akıllı Öneriler"
     >
-      {visible.map((card, i) => (
+      {visible.map((card, i, arr) => (
         <div
           key={card.id}
           className="pointer-events-auto animate-slide-up"
@@ -205,7 +221,7 @@ export const SmartCardStack = memo(function SmartCardStack({
           <SmartCardItem
             card={card}
             index={i}
-            total={cards.length}
+            total={arr.length}
             onDismiss={dismiss}
             onAction={handleAction}
           />

@@ -20,340 +20,32 @@ import { useState, useEffect, useRef } from 'react';
 import type { DeviceStatus } from './deviceApi';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
 import { onOBDData } from './obdService';
-import { getConfig } from './performanceMode';
-
-/* ── Accelerometer motion detection ─────────────────────────
- *
- * DeviceMotionEvent'in yatay bileşeni (yerçekimi hariç) araç hareketini
- * GPS/OBD olmadan tespit eder: fren, ivme, viraj → DrivingMode='normal'.
- *
- * Güvenlik: sadece pasif dinleyici (passive:true), UI thread'i bloklamaz.
- * Hassasiyet: 2.5 m/s² ≈ 0.25g — rahat sürüş değişimlerini yakalar.
- */
-
-let _accelMagnitude  = 0;    // yerçekimsiz yatay ivme büyüklüğü (m/s²)
-let _accelAttached   = false;
-
-function _handleDeviceMotion(e: DeviceMotionEvent): void {
-  const a = e.accelerationIncludingGravity;
-  if (!a) return;
-  const raw = Math.sqrt((a.x ?? 0) ** 2 + (a.y ?? 0) ** 2 + (a.z ?? 0) ** 2);
-  // Yerçekimini (~9.81 m/s²) çıkar — yalnızca dinamik ivme kalmak için
-  _accelMagnitude = Math.abs(raw - 9.81);
-}
-
-/** Accelerometer'ı bir kez global olarak bağla. Hook mount edildiğinde çağrılır. */
-export function attachAccelerometer(): void {
-  if (_accelAttached || typeof window === 'undefined' || !window.DeviceMotionEvent) return;
-  _accelAttached = true;
-  window.addEventListener('devicemotion', _handleDeviceMotion, { passive: true });
-}
-
-/** Accelerometer'ı ayır — HMR cleanup ve app teardown için. */
-export function detachAccelerometer(): void {
-  if (!_accelAttached || typeof window === 'undefined') return;
-  window.removeEventListener('devicemotion', _handleDeviceMotion);
-  _accelAttached  = false;
-  _accelMagnitude = 0;
-}
-
-// HMR cleanup — hot reload'da listener çoğalmasını önler
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => detachAccelerometer());
-}
-
-/* ── Hız kademesi tahmini (Speed decay) ──────────────────────
- *
- * OBD veya GPS bağlantısı kesildiğinde son bilinen hız zamanla azaltılır.
- * Araç durdu mu yoksa yalnızca bağlantı mı kesildi bilgisini ayrıştırır.
- *
- * Bozulma katsayısı: saniyede %8 — 20 sn sonra hız 0'a inmiş sayılır.
- * (Trafik ışığı bekleme süresi ~45 sn → bu aralıkta 'idle' geçişi beklenir.)
- */
-const DECAY_RATE_PER_S   = 0.92;   // saniyede %8 düşüş
-const DECAY_MAX_SEC      = 20;     // bu süreden sonra hız=0 kabul edilir
-const ACCEL_MOTION_MS2   = 2.5;    // m/s² — hareket eşiği
-
-interface _SpeedEstimate {
-  kmh:  number;
-  tsMs: number;
-}
-
-let _lastSpeedEstimate: _SpeedEstimate | null = null;
-
-function _recordSpeed(kmh: number): void {
-  // B30: performance.now() monotonic — DST/NTP clock jump'ta hız spike yok
-  _lastSpeedEstimate = { kmh, tsMs: performance.now() };
-}
-
-function _decayedSpeed(): number | undefined {
-  if (!_lastSpeedEstimate) return undefined;
-  const ageSec = (performance.now() - _lastSpeedEstimate.tsMs) / 1000;
-  if (ageSec > DECAY_MAX_SEC) return 0;
-  return Math.round(_lastSpeedEstimate.kmh * Math.pow(DECAY_RATE_PER_S, ageSec));
-}
-
-/* ── Types ───────────────────────────────────────────────── */
-
-export interface UsageRecord {
-  count:       number;   // total lifetime launches
-  recentCount: number;   // launches in current 24-h window
-  lastUsed:    number;   // epoch ms; 0 = never
-}
-
-export type UsageMap = Record<string, UsageRecord>;
-
-/** Flex weights for the hero row — drives NavHero / MediaPanel sizing. */
-export interface LayoutWeights {
-  navFlex:   2 | 3 | 4;
-  mediaFlex: 1 | 2 | 3;
-}
-
-/** Detected driving context — 3-level mode system based on vehicle speed. */
-export type DrivingMode = 'idle' | 'normal' | 'driving';
-
-/** A single contextual quick-action suggestion. */
-export interface QuickAction {
-  id:    string;  // unique key
-  label: string;
-  icon:  string;
-  appId: string;  // target for onLaunch()
-}
-
-/** AI-powered recommendation. */
-export interface SmartRecommendation {
-  type: 'app' | 'theme-pack' | 'sleep-mode' | 'theme-style';
-  reason: string;  // "morning_high_nav" | "driving_mode_active" | "idle_rich_theme" etc.
-  value: string;   // app ID, 'tesla'/'big-cards'/'ai-center', 'true', 'glass'/'neon'/'minimal'
-  confidence: number;  // 0.0–1.0
-  autoApply: boolean;  // true only for safe recommendations (driving mode)
-}
-
-/** Full computed smart state. */
-export interface SmartSnapshot {
-  layoutWeights:  LayoutWeights;
-  quickActions:   QuickAction[];
-  drivingMode:    DrivingMode;
-  dockIds:        string[];  // up to 4, usage-ranked
-  recommendation?: SmartRecommendation;  // single highest-confidence recommendation
-  /** True when music is actively playing — media panel should be visually prominent. */
-  mediaProminent: boolean;
-  /** True when an active navigation route exists — map/nav section takes priority. */
-  mapPriority:    boolean;
-  /** Markov Chain: son açılan uygulamadan sonra en olası 3 uygulama tahmini. */
-  predictions:    MarkovPrediction[];
-}
-
-/* ── Persistence ─────────────────────────────────────────── */
-
-const USAGE_KEY = 'cl_usageMap';
-const PRUNE_KEY = 'cl_usagePruneTs';
-const DAY_MS    = 86_400_000;
-
-function loadUsage(): UsageMap {
-  try {
-    const raw = localStorage.getItem(USAGE_KEY);
-    return raw ? (JSON.parse(raw) as UsageMap) : {};
-  } catch {
-    return {};
-  }
-}
-
-const MAX_USAGE_ENTRIES = 200;
-
-function saveUsage(map: UsageMap): void {
-  let toSave = map;
-  const keys = Object.keys(map);
-  if (keys.length > MAX_USAGE_ENTRIES) {
-    // Keep the 200 most recently used entries
-    const sorted = keys.sort((a, b) => (map[b]?.lastUsed ?? 0) - (map[a]?.lastUsed ?? 0));
-    toSave = Object.fromEntries(sorted.slice(0, MAX_USAGE_ENTRIES).map((k) => [k, map[k]])) as UsageMap;
-  }
-  try { localStorage.setItem(USAGE_KEY, JSON.stringify(toSave)); } catch { /* quota full */ }
-}
-
-/** Reset recentCount for all apps once per 24-h window. */
-function pruneIfStale(map: UsageMap): UsageMap {
-  const lastPrune = Number(localStorage.getItem(PRUNE_KEY) ?? 0);
-  if (Date.now() - lastPrune < DAY_MS) return map;
-  const pruned: UsageMap = {};
-  for (const [id, rec] of Object.entries(map)) {
-    pruned[id] = { ...rec, recentCount: 0 };
-  }
-  try { localStorage.setItem(PRUNE_KEY, String(Date.now())); } catch { /* ignore */ }
-  return pruned;
-}
-
-/* ── Usage cache — avoids repeated localStorage.getItem + JSON.parse ── */
-
-let _usageCache: UsageMap | null = null;
-
-function getCachedUsage(): UsageMap {
-  if (_usageCache) {
-    // localStorage dışarıdan temizlendiyse (test teardown, OS kota temizliği,
-    // safeStorage LRU eviction) cache'i geçersizleştir — stale veri önlenir.
-    if (!localStorage.getItem(USAGE_KEY)) _usageCache = null;
-  }
-  if (!_usageCache) {
-    _usageCache = pruneIfStale(loadUsage());
-  }
-  return _usageCache;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   MARKOV CHAIN — Intent Prediction Engine
-   ═══════════════════════════════════════════════════════════════════
- *
- * Mimari:
- *   Sparse geçiş matrisi P[fromApp][toApp] = gözlemlenen geçiş sayısı.
- *   Tahmin: P(toApp | fromApp, timeCtx) normalize edilerek 0–1 olasılık.
- *   Zaman bağlamı (time-slot) mevcut TIME_BIAS tablosunu kullanır —
- *   ayrı bir zaman-boyutlu matris yerine, tahmin aşamasında çarpanla uygulanır.
- *
- * Bellek analizi:
- *   100 row × ortalama 5 hedef × ~40 byte/entry ≈ 20 KB localStorage
- *   200-entry cap → maksimum 40 KB. localStorage limiti (5 MB) çok altında.
- *
- * Performans: trackLaunch O(1), prediction O(k) ─ k≤200, <0.5 ms.
- *
- * Zero-Leak: Herhangi bir listener/timer yok — saf veri yapısı.
- *
- * Blending: finalScore = (1-MARKOV_BLEND)×heuristic + MARKOV_BLEND×markov
- *   Markov verisi yoksa MARKOV_BLEND = 0 (tamamen heuristik).
- */
-
-/** Sparse geçiş matrisi: fromApp → { toApp → gözlemlenen geçiş sayısı } */
-type MarkovRow    = Record<string, number>;
-type MarkovMatrix = Record<string, MarkovRow>;
-
-export interface MarkovPrediction {
-  appId:       string;
-  probability: number;  // 0–1, normalize edilmiş
-  /** İnsan-okunabilir bağlam etiketi */
-  context:     string;
-}
-
-const MARKOV_KEY       = 'cl_markov';
-const MARKOV_MAX_ROWS  = 100;   // fazlası → en az kullanılanı at
-const MARKOV_MIN_COUNT = 2;     // bu eşiğin altındaki geçişler prune edilir
-const MARKOV_BLEND     = 0.45;  // Markov ağırlığı; heuristic = 1 - MARKOV_BLEND
-
-let _markovCache: MarkovMatrix | null = null;
-let _markovSaveTimer: ReturnType<typeof setTimeout> | null = null;
-let _lastLaunchedApp = '';
-
-function _loadMarkov(): MarkovMatrix {
-  try {
-    const raw = localStorage.getItem(MARKOV_KEY);
-    return raw ? (JSON.parse(raw) as MarkovMatrix) : {};
-  } catch { return {}; }
-}
-
-function _getCachedMarkov(): MarkovMatrix {
-  if (!_markovCache) _markovCache = _loadMarkov();
-  return _markovCache;
-}
-
-/** Throttled write — en fazla 10s'de bir localStorage'a yazar (CLAUDE.md: Write Throttling) */
-function _saveMarkovThrottled(): void {
-  if (_markovSaveTimer) return;
-  _markovSaveTimer = setTimeout(() => {
-    _markovSaveTimer = null;
-    if (!_markovCache) return;
-    try { localStorage.setItem(MARKOV_KEY, JSON.stringify(_markovCache)); }
-    catch { /* quota full — sessizce geç */ }
-  }, 10_000);
-}
-
-/** Markov matrisini güncelle: fromApp → toApp geçişini kaydet */
-function _updateMarkov(fromApp: string, toApp: string): void {
-  const matrix = _getCachedMarkov();
-
-  if (!matrix[fromApp]) {
-    // Satır sayısı sınırı — en az kullanılan kaynağı çıkar
-    const rows = Object.keys(matrix);
-    if (rows.length >= MARKOV_MAX_ROWS) {
-      const leastUsed = rows
-        .map((k) => ({ k, total: Object.values(matrix[k]).reduce((a, b) => a + b, 0) }))
-        .sort((a, b) => a.total - b.total)[0];
-      if (leastUsed) delete matrix[leastUsed.k];
-    }
-    matrix[fromApp] = {};
-  }
-
-  matrix[fromApp][toApp] = (matrix[fromApp][toApp] ?? 0) + 1;
-  _markovCache = matrix;
-  _saveMarkovThrottled();
-}
-
-/**
- * Markov olasılık skoru: P(toApp | fromApp) × zaman bağlamı çarpanı
- * fromApp için hiç geçiş kaydı yoksa 0 döner.
- */
-function _markovScore(toApp: string, fromApp: string, timeCtx: TimeContext): number {
-  if (!fromApp) return 0;
-  const matrix = _getCachedMarkov();
-  const row    = matrix[fromApp];
-  if (!row) return 0;
-
-  const rawTotal = Object.values(row).reduce((s, v) => s + v, 0);
-  if (rawTotal < MARKOV_MIN_COUNT) return 0;
-
-  const rawCount = row[toApp] ?? 0;
-  if (rawCount === 0) return 0;
-
-  // Normalize: P(toApp | fromApp) = count / total
-  const baseProb = rawCount / rawTotal;
-
-  // Zaman bağlamı çarpanı: TIME_BIAS kullan — ayrı matris gerektirmez
-  const timeBias = TIME_BIAS[timeCtx][toApp] ?? 0;
-  // Çarpan: 1.0–1.4 arası (bias etkisini yumuşat)
-  const timeMul  = 1.0 + Math.min(0.4, timeBias);
-
-  return Math.min(1, baseProb * timeMul);
-}
-
-/**
- * Top-3 Markov tahmini — dockIds ve quickActions'a girdi sağlar.
- * Mevcut bağlam: son açılan uygulama + zaman dilimi.
- */
-function computeMarkovPredictions(
-  fromApp:  string,
-  timeCtx:  TimeContext,
-): MarkovPrediction[] {
-  if (!fromApp) return [];
-  const matrix = _getCachedMarkov();
-  const row    = matrix[fromApp];
-  if (!row) return [];
-
-  const rawTotal = Object.values(row).reduce((s, v) => s + v, 0);
-  if (rawTotal < MARKOV_MIN_COUNT) return [];
-
-  const timeBias = TIME_BIAS[timeCtx];
-  const ctxLabel = `${timeCtx}:after_${fromApp}`;
-
-  return Object.entries(row)
-    .filter(([, cnt]) => cnt >= MARKOV_MIN_COUNT)
-    .map(([toApp, cnt]) => {
-      const baseProb = cnt / rawTotal;
-      const timeMul  = 1.0 + Math.min(0.4, timeBias[toApp] ?? 0);
-      return { appId: toApp, probability: Math.min(1, baseProb * timeMul), context: ctxLabel };
-    })
-    .sort((a, b) => b.probability - a.probability)
-    .slice(0, 3);
-}
-
-/**
- * Blended score: Markov verisi varsa (1-BLEND)×heuristic + BLEND×markov.
- * Yoksa saf heuristic — geriye dönük uyumluluk korunur.
- */
-function blendedScore(id: string, map: UsageMap, timeCtx: TimeContext): number {
-  const h = timedScore(id, map, timeCtx);
-  const m = _markovScore(id, _lastLaunchedApp, timeCtx);
-  if (m === 0) return h;  // Markov verisi yok → saf heuristic
-  return (1 - MARKOV_BLEND) * h + MARKOV_BLEND * m;
-}
-/* ═══════════════════════════════════════════════════════════════════ */
+export type {
+  UsageRecord, UsageMap, LayoutWeights, DrivingMode, QuickAction,
+  SmartRecommendation, SmartSnapshot, MarkovPrediction,
+} from './smartTypes';
+export { detectDrivingMode } from './smartDrivingEngine';
+import type {
+  UsageMap, LayoutWeights, DrivingMode, QuickAction,
+  SmartSnapshot, TimeContext, SmartParams,
+} from './smartTypes';
+import {
+  NAV_IDS, MEDIA_IDS, LAYOUT_DEBOUNCE_MS,
+  DOCK_POOL, DOCK_SLOTS,
+} from './smartConstants';
+import {
+  saveUsage, getCachedUsage, setUsageCache, clearUsageCache,
+  score, timedScore, getTimeContext,
+} from './smartUsageUtils';
+import {
+  attachAccelerometer, detachAccelerometer,
+  recordSpeed, detectDrivingMode,
+} from './smartDrivingEngine';
+import {
+  getLastLaunchedApp, setLastLaunchedApp, updateMarkov,
+  computeMarkovPredictions, blendedScore, clearMarkovState,
+} from './smartMarkovEngine';
+import { generateRecommendation } from './smartRecommendationEngine';
 
 /* ── Usage change bus ────────────────────────────────────── */
 
@@ -382,36 +74,20 @@ export function trackLaunch(appId: string): void {
     },
   };
   saveUsage(updated);
-  _usageCache = updated;  // cache'i güncel tut — sonraki buildSnapshot localStorage okumaz
+  setUsageCache(updated);  // cache'i güncel tut — sonraki buildSnapshot localStorage okumaz
 
   // Markov: önceki uygulama → bu uygulama geçişini kaydet
   // Aynı uygulamayı art arda açmak anlamlı geçiş değildir — atla
-  if (_lastLaunchedApp && _lastLaunchedApp !== appId) {
-    _updateMarkov(_lastLaunchedApp, appId);
+  const prev_ = getLastLaunchedApp();
+  if (prev_ && prev_ !== appId) {
+    updateMarkov(prev_, appId);
   }
-  _lastLaunchedApp = appId;
+  setLastLaunchedApp(appId);
 
   notifyListeners();
 }
 
-/* ── Scoring ─────────────────────────────────────────────── */
-
-/**
- * Composite score: lifetime count (30 %) + 24-h count (50 %) + recency decay (20 %).
- * Recency bonus fades linearly to 0 over 24 h.
- */
-function score(rec: UsageRecord | undefined): number {
-  if (!rec) return 0;
-  const recency = rec.lastUsed > 0
-    ? Math.max(0, 1 - (Date.now() - rec.lastUsed) / DAY_MS)
-    : 0;
-  return rec.count * 0.3 + rec.recentCount * 0.5 + recency * 0.2;
-}
-
 /* ── Layout weights ──────────────────────────────────────── */
-
-const NAV_IDS   = ['maps', 'waze'];
-const MEDIA_IDS = ['spotify', 'youtube'];
 
 function computeLayoutWeights(map: UsageMap): LayoutWeights {
   const nav   = NAV_IDS.reduce((s, id)   => s + score(map[id]), 0);
@@ -420,178 +96,6 @@ function computeLayoutWeights(map: UsageMap): LayoutWeights {
   if (nav   > media * 1.6) return { navFlex: 4, mediaFlex: 1 };
   if (media > nav   * 1.6) return { navFlex: 2, mediaFlex: 3 };
   return { navFlex: 3, mediaFlex: 2 };
-}
-
-/* ── Time context ────────────────────────────────────────── */
-
-type TimeContext = 'morning' | 'afternoon' | 'evening' | 'night';
-
-function getTimeContext(): TimeContext {
-  const h = new Date().getHours();
-  if (h >= 6  && h < 12) return 'morning';
-  if (h >= 12 && h < 18) return 'afternoon';
-  if (h >= 18 && h < 23) return 'evening';
-  return 'night';
-}
-
-/**
- * Time-of-day bias added on top of the usage score.
- * Kept small (≤ 0.4) so real usage history always wins over time heuristics.
- *
- * morning   → commute: boost nav
- * afternoon → casual: mild media boost
- * evening   → relaxation: boost media, softer nav
- * night     → checking in: boost phone / messages
- */
-const TIME_BIAS: Record<TimeContext, Partial<Record<string, number>>> = {
-  morning:   { maps: 0.4, waze: 0.4, phone: 0.15 },
-  afternoon: { spotify: 0.2, youtube: 0.15 },
-  evening:   { spotify: 0.35, youtube: 0.25, maps: 0.15 },
-  night:     { phone: 0.3, messages: 0.3, spotify: 0.15 },
-};
-
-function timedScore(id: string, map: UsageMap, ctx: TimeContext): number {
-  return score(map[id]) + (TIME_BIAS[ctx][id] ?? 0);
-}
-
-/* ── AI Recommendations Engine ────────────────────────────────── */
-
-interface RecommendationCandidate {
-  rec: SmartRecommendation;
-  score: number;
-}
-
-// performance.now() kullan — Date.now() saat atlarsa cooldown sıfırlanır
-let _lastRecommendationPerfMs = 0;
-
-function shouldGenerateNow(): boolean {
-  const cfg = getConfig();
-  if (!cfg.enableRecommendations) return false;
-  return performance.now() - _lastRecommendationPerfMs >= cfg.recCooldownMs;
-}
-
-/**
- * Generate a single high-confidence recommendation based on:
- *   - Time of day + usage patterns
- *   - Current driving mode
- *   - Respects performance mode cooldown
- * Returns undefined if cooldown not met or recommendations disabled.
- */
-function generateRecommendation(
-  map: UsageMap,
-  timeContext: TimeContext,
-  drivingMode: DrivingMode,
-): SmartRecommendation | undefined {
-  if (!shouldGenerateNow()) return;
-
-  const candidates: RecommendationCandidate[] = [];
-
-  // ── Driving mode: minimal UI ─────────────────────────────────────────
-  // Sürüş güvenliği: karmaşık glassmorphism efektleri sürücü dikkatini
-  // dağıtır. Minimal tema → daha az görsel gürültü, daha hızlı bilgi işleme.
-  // autoApply: true — güvenlik-kritik, kullanıcı onayı beklenmez.
-  // confidence: 0.97 — neredeyse kesin; sürüş modu tespit edildi.
-  if (drivingMode === 'driving') {
-    candidates.push({
-      rec: {
-        type: 'theme-style',
-        reason: 'driving_safety_minimal_ui',
-        value: 'minimal',
-        confidence: 0.97,
-        autoApply: true,
-      },
-      score: 0.97,
-    });
-  }
-
-  // ── Idle mode: rich theme based on usage
-  if (drivingMode === 'idle') {
-    const navScore = score(map.maps) + score(map.waze);
-    const musicScore = score(map.spotify) + score(map.youtube);
-
-    if (navScore > musicScore + 0.5) {
-      candidates.push({
-        rec: {
-          type: 'theme-pack',
-          reason: 'idle_high_nav_usage',
-          value: 'big-cards',
-          confidence: 0.7,
-          autoApply: false,
-        },
-        score: 0.7,
-      });
-    } else if (musicScore > navScore + 0.5) {
-      candidates.push({
-        rec: {
-          type: 'theme-pack',
-          reason: 'idle_high_music_usage',
-          value: 'ai-center',
-          confidence: 0.65,
-          autoApply: false,
-        },
-        score: 0.65,
-      });
-    }
-  }
-
-  // ── Time context: Morning → commute
-  if (timeContext === 'morning') {
-    const navScore = timedScore('maps', map, timeContext) + timedScore('waze', map, timeContext);
-    if (navScore > 0.8) {
-      candidates.push({
-        rec: {
-          type: 'app',
-          reason: 'morning_commute_pattern',
-          value: timedScore('maps', map, timeContext) > timedScore('waze', map, timeContext) ? 'maps' : 'waze',
-          confidence: 0.75,
-          autoApply: false,
-        },
-        score: 0.75,
-      });
-    }
-  }
-
-  // ── Time context: Evening → entertainment
-  if (timeContext === 'evening') {
-    const musicScore = timedScore('spotify', map, timeContext) + timedScore('youtube', map, timeContext);
-    if (musicScore > 0.7) {
-      candidates.push({
-        rec: {
-          type: 'app',
-          reason: 'evening_entertainment_pattern',
-          value: timedScore('spotify', map, timeContext) > timedScore('youtube', map, timeContext) ? 'spotify' : 'youtube',
-          confidence: 0.7,
-          autoApply: false,
-        },
-        score: 0.7,
-      });
-    }
-  }
-
-  // ── Low activity + idle: sleep mode
-  const totalRecentUsage = Object.values(map).reduce((sum, rec) => sum + rec.recentCount, 0);
-  if (totalRecentUsage === 0 && drivingMode === 'idle') {
-    candidates.push({
-      rec: {
-        type: 'sleep-mode',
-        reason: 'low_activity_idle',
-        value: 'true',
-        confidence: 0.35,
-        autoApply: false,
-      },
-      score: 0.35,
-    });
-  }
-
-  // Pick best candidate
-  if (candidates.length === 0) return;
-  const best = candidates.reduce((a, b) => b.score - a.score > 0 ? b : a);
-
-  // Only return if confidence high enough
-  if (best.rec.confidence < 0.4) return;
-
-  _lastRecommendationPerfMs = performance.now();
-  return best.rec;
 }
 
 /* ── Quick actions ───────────────────────────────────────── */
@@ -647,82 +151,7 @@ function computeQuickActions(
   return actions.slice(0, 4);
 }
 
-/* ── Driving mode ────────────────────────────────────────── */
-
-/**
- * 5-kademeli sensör hiyerarşisi ile sürüş modu tespiti.
- *
- * Hiyerarşi (güvenilirlik sırası):
- *   1. OBD hızı    — CAN bus / tekerlek enkoderi, gecikme: 3 s, hata: ±0 km/h
- *   2. GPS hızı    — Doppler ölçümü, bağımsız, EMA filtreli, hata: ±2 km/h
- *   3. Decay hızı  — Son bilinen hız üstel bozulma ile (20 s'de sıfıra iner)
- *   4. İvmeölçer   — GPS/OBD tamamen yoksa hareket tespiti
- *   5. BT + şarj   — Yalnızca hiçbir hız sinyali yoksa; güvenilirlik: düşük
- *
- * ISO 26262 "fail towards safety" prensibi:
- *   Herhangi bir kaynaktan hız > 5 km/h geliyorsa araç hareket halindedir.
- *   Bu durumda alt kademeler bile 'idle' dönemez ("isDefinitelyMoving" guard).
- *
- * Mod eşikleri (km/h):
- *   idle:    speed <  1  (park, zengin animasyonlar)
- *   normal:  1 ≤ speed < 20  (şehir/trafik, orta animasyon)
- *   driving: speed ≥ 20  (yol/otoyol, minimal UI — sürücü güvenliği)
- *
- * @param device    BT bağlantısı ve şarj durumu (Kademe 5 sezgiseli için)
- * @param obdSpeed  OBD hızı km/h — undefined ise bu kademe atlanır
- * @param gpsSpeed  GPS hızı km/h — undefined ise bu kademe atlanır
- */
-export function detectDrivingMode(
-  device:    Pick<DeviceStatus, 'btConnected' | 'charging'>,
-  obdSpeed?: number,
-  gpsSpeed?: number,
-): DrivingMode {
-  // ── ISO 26262 Güvenlik Prensibi: Hız > 5 km/h → kesinlikle hareket ──
-  // OBD veya GPS ayrı ayrı > 5 bildirebilir; ikisi çakışsa bile hareket
-  // kabul edilir (sensör arızasında "güvenli taraf" = hareket).
-  const decayed = _decayedSpeed();
-  const isDefinitelyMoving =
-    (obdSpeed !== undefined && obdSpeed > 5) ||
-    (gpsSpeed !== undefined && gpsSpeed > 5) ||
-    (decayed  !== undefined && decayed  > 5);
-
-  // ── Kademe 1: OBD hızı (CAN bus / tekerlek enkoderi — en güvenilir) ─
-  if (obdSpeed !== undefined) {
-    if (obdSpeed < 1 && !isDefinitelyMoving) return 'idle';
-    if (obdSpeed < 20) return 'normal';
-    return 'driving';
-  }
-
-  // ── Kademe 2: GPS hızı (Doppler — bağımsız kaynak, EMA filtreli) ────
-  if (gpsSpeed !== undefined) {
-    if (gpsSpeed < 1 && !isDefinitelyMoving) return 'idle';
-    if (gpsSpeed < 20) return 'normal';
-    return 'driving';
-  }
-
-  // ── Kademe 3: Zaman-kademeli son bilinen hız ─────────────────────────
-  // Bağlantı geçici kesildi ama araç hâlâ hareket ediyor olabilir.
-  if (decayed !== undefined) {
-    if (decayed < 1 && !isDefinitelyMoving) return 'idle';
-    if (decayed < 20) return 'normal';
-    return 'driving';
-  }
-
-  // ── Kademe 4: İvmeölçer büyüklüğü ───────────────────────────────────
-  // 2.5 m/s² ≈ hafif fren/ivme — GPS/OBD yokken hareket kanıtı.
-  if (_accelMagnitude > ACCEL_MOTION_MS2) return 'normal';
-
-  // ── Kademe 5: BT + şarj sezgiseli (son çare, güvenilirlik: düşük) ───
-  // Yalnızca hiçbir hız sinyali gelmediğinde çalışır.
-  // GÜVENLIK: isDefinitelyMoving true ise bu kademe bile 'idle' dönemez.
-  if (isDefinitelyMoving) return 'normal';
-  return device.btConnected && device.charging ? 'idle' : 'normal';
-}
-
 /* ── Smart dock ──────────────────────────────────────────── */
-
-const DOCK_POOL  = ['phone', 'maps', 'waze', 'spotify', 'youtube', 'browser', 'messages', 'weather'];
-const DOCK_SLOTS = 4;
 
 function computeDockIds(map: UsageMap, favorites: string[], timeCtx: TimeContext): string[] {
   const seen       = new Set<string>();
@@ -737,20 +166,6 @@ function computeDockIds(map: UsageMap, favorites: string[], timeCtx: TimeContext
 }
 
 /* ── Snapshot builder ────────────────────────────────────── */
-
-type SmartParams = {
-  device:        Pick<DeviceStatus, 'btConnected' | 'charging' | 'ready'>;
-  favorites:     string[];
-  defaultNav:    NavOptionKey;
-  defaultMusic:  MusicOptionKey;
-  obdSpeed?:     number;
-  /** GPS-derived speed (km/h). Used as fallback when OBD is not connected. */
-  gpsSpeedKmh?:  number;
-  /** Whether music is currently playing. */
-  isPlaying?:    boolean;
-  /** Whether an active navigation route exists. */
-  isNavigating?: boolean;
-};
 
 /**
  * Issue 3 — Priority Matrix
@@ -773,9 +188,9 @@ type SmartParams = {
 function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): SmartSnapshot {
   const map = getCachedUsage();
   // Hız kaydı: buildSnapshot gerçek sensör verisiyle çağrılır — decay için kaydet.
-  // detectDrivingMode artık _recordSpeed çağırmaz (pure function); kayıt buradan yapılır.
+  // detectDrivingMode artık recordSpeed çağırmaz (pure function); kayıt buradan yapılır.
   const speedForRecord = p.obdSpeed ?? p.gpsSpeedKmh;
-  if (speedForRecord !== undefined) _recordSpeed(speedForRecord);
+  if (speedForRecord !== undefined) recordSpeed(speedForRecord);
   // OBD ve GPS ayrı ayrı iletilir — detectDrivingMode kendi hiyerarşisini uygular
   const drivingMode = detectDrivingMode(p.device, p.obdSpeed, p.gpsSpeedKmh);
   const timeContext = getTimeContext();
@@ -803,7 +218,7 @@ function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): Smart
     recommendation: shouldGenerateRec ? generateRecommendation(map, timeContext, drivingMode) : undefined,
     mediaProminent,
     mapPriority,
-    predictions:    computeMarkovPredictions(_lastLaunchedApp, timeContext),
+    predictions:    computeMarkovPredictions(getLastLaunchedApp(), timeContext),
   };
 }
 
@@ -829,8 +244,6 @@ function buildSnapshot(p: SmartParams, shouldGenerateRec: boolean = true): Smart
  * 2 saniyelik eşik: parçalar arası boşluk genellikle <500 ms,
  * trafik durağı genellikle >5 s → eşik her iki durumu da doğru ayırt eder.
  */
-const LAYOUT_DEBOUNCE_MS = 2_000;
-
 export function useSmartEngine(
   device:        Pick<DeviceStatus, 'btConnected' | 'charging' | 'ready'>,
   favorites:     string[],
@@ -907,7 +320,7 @@ export function useSmartEngine(
         return;
       }
       lastNotifiedSpeed = d.speed;
-      _recordSpeed(d.speed); // decay için gerçek OBD hızını kaydet
+      recordSpeed(d.speed); // decay için gerçek OBD hızını kaydet
       const newMode: DrivingMode = detectDrivingMode({ btConnected: false, charging: false }, d.speed);
       const modeChanged = newMode !== prevModeRef.current;
       if (modeChanged) {
@@ -944,7 +357,7 @@ export function useSmartEngine(
     if (paramsRef.current.obdSpeed !== undefined) return; // Kademe 1 önceliği: OBD
 
     const prev    = paramsRef.current;
-    _recordSpeed(gpsSpeedKmh); // decay için gerçek GPS hızını kaydet
+    recordSpeed(gpsSpeedKmh); // decay için gerçek GPS hızını kaydet
     // detectDrivingMode'a OBD=undefined, GPS=gpsSpeedKmh iletilir (hiyerarşi korunur)
     const oldMode = detectDrivingMode(prev.device, undefined, prev.gpsSpeedKmh);
     const newMode = detectDrivingMode(prev.device, undefined, gpsSpeedKmh);
@@ -991,14 +404,12 @@ export function useSmartEngine(
   return snapshot;
 }
 
-/* ── HMR cleanup — dev'de accelerometer ve listener sızıntısını önle ── */
+/* ── HMR cleanup — dev'de tüm sub-engine state'lerini sıfırla ── */
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     detachAccelerometer();
     _listeners.clear();
-    _usageCache   = null;
-    _markovCache  = null;
-    if (_markovSaveTimer) { clearTimeout(_markovSaveTimer); _markovSaveTimer = null; }
-    _lastLaunchedApp = '';
+    clearUsageCache();
+    clearMarkovState();
   });
 }

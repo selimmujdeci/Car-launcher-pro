@@ -1,0 +1,589 @@
+/**
+ * vehicleIntelligenceService.ts — Sensor Plausibility Engine — T1 + T2 + T3 + T4
+ *
+ * T1 — Plausibility: imkânsız sıçrama, çapraz sensör, stale PID
+ * T2 — Trust 2.0: SPS/jitter bağlantı kalitesi, DCE 2.0 araç karakteri
+ * T3 — Termal Bellek: dT/dt tamponu, ısı soak borcu, soğuk çalışma, soğuma verimliliği
+ * T4 — Güven Ağırlıklı Sağlık (VHS 2.0):
+ *      - Ham mekanik sağlık (plausibilityComponent) vs. güven ağırlıklı sağlık (trust)
+ *      - Güven eşiği sertleştirmesi: SERVICE_SOON → trust > 0.8, ATTENTION → trust > 0.6
+ *      - Conservative kap: trust < 0.4 → max STRESSED
+ *      - 5 saniye yükseltme kilidi: anlık sensör gürültüsü tetiklemeleri önler
+ *      - isDiagnosticDegraded: trust < 0.4 veya fidelity < 0.5
+ *
+ * MALI-400: Float32Array dairesel tamponlar + zaman damgası karşılaştırması.
+ */
+
+import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import {
+  useVehicleIntelligenceStore,
+  type HealthState,
+  type ThermalStatus,
+} from '../store/useVehicleIntelligenceStore';
+import { addEvent } from './communityService';
+
+/* ── T1/T2 sabitler ──────────────────────────────────────── */
+
+const TICK_MS               = 500;
+const RPM_JUMP_THRESHOLD    = 4000;
+const COOLANT_JUMP_THRESHOLD= 5;
+const GPS_OBD_MISMATCH_KMH = 20;
+const RPM_LOAD_RPM_FLOOR    = 2000;
+const STALE_THRESHOLD_MS   = 5 * 60 * 1000;
+const MOVING_KMH            = 5;
+const AGGR_ALPHA            = 0.12;
+const ECON_ALPHA            = 0.05;
+const ECO_RPM_LOW           = 1200;
+const ECO_RPM_HIGH          = 2800;
+const AGGR_RPM_DELTA        = 600;
+const AGGR_SPD_DELTA_KMH    = -12;
+const TRUST_PER_FAULT       = 0.10;
+const TRUST_PER_STALE       = 0.15;
+
+/* ── T3 sabitler ─────────────────────────────────────────── */
+
+const TEMP_BUF_SIZE         = 120;
+const DEBT_ACCUM_RATE       = 0.003;
+const DEBT_CLEAR_RATE       = 0.001;
+const COOLANT_COLD          = 60;
+const COOLANT_WARM          = 80;
+const COOLANT_HOT           = 95;
+const COOLANT_DEBT_ACCUM    = 100;
+const COOLANT_DEBT_CLEAR    = 90;
+const COOLANT_OVERHEAT      = 110;
+const COOLANT_HEAT_SOAK_DTDT= 2.0;
+const COLD_START_RPM_LIMIT  = 3500;
+const COOLING_IDEAL_RATE    = 5.0;
+const COOLING_EFF_ALPHA     = 0.08;
+
+/* ── T4 sabitler ─────────────────────────────────────────── */
+
+/** Yükseltme kilidi: yeni durum bu süre boyunca tutarlıysa taahhüt edilir */
+const STATE_PERSIST_MS      = 5_000;
+/** SERVICE_SOON için minimum güven eşiği */
+const TRUST_SERVICE_SOON    = 0.80;
+/** ATTENTION için minimum güven eşiği */
+const TRUST_ATTENTION       = 0.60;
+/** Conservative kap eşiği — bu altında max STRESSED */
+const TRUST_CONSERVATIVE    = 0.40;
+/** isDiagnosticDegraded için fidelity alt sınırı */
+const DIAG_FIDELITY_MIN     = 0.50;
+
+/* ── CRM tetikleyici eşikleri ────────────────────────────── */
+
+/** Sert fren: 500ms içinde ≥18 km/h yavaşlama (~2G deselerasyon) */
+const HARD_BRAKE_KMH        = -18;
+/** Çukur: 500ms içinde ≥12 km/h anlık hız sapması */
+const POTHOLE_BOUNCE_KMH    = 12;
+/** Sert fren olayları arasında minimum süre (ms) */
+const HARD_BRAKE_COOL_MS    = 30_000;
+/** Çukur olayları arasında minimum süre (ms) */
+const POTHOLE_COOL_MS       = 15_000;
+
+/* ── Sağlık durum şiddeti haritası (T4) ─────────────────── */
+
+const HEALTH_SEVERITY: Record<HealthState, number> = {
+  HEALTHY:      0,
+  MONITOR:      1,
+  STRESSED:     2,
+  ATTENTION:    3,
+  SERVICE_SOON: 4,
+};
+
+/* ── T4: Durum kalıcılık (yükseltme kilidi) ─────────────── */
+
+let _pendingHealthState:   HealthState = 'HEALTHY';
+let _pendingSinceMs:       number      = 0;
+let _displayedHealthState: HealthState = 'HEALTHY';
+
+/**
+ * Yükseltme kilitleyici: daha yüksek şiddete geçiş için STATE_PERSIST_MS gerekir.
+ * İyileşme (şiddet azalması) anında uygulanır — yanlış iyimserlik yok.
+ */
+function _applyStateHysteresis(rawState: HealthState, nowMs: number): HealthState {
+  // Bekleyen durum değişti → sayacı sıfırla
+  if (rawState !== _pendingHealthState) {
+    _pendingHealthState = rawState;
+    _pendingSinceMs     = nowMs;
+  }
+
+  const rawIdx  = HEALTH_SEVERITY[rawState];
+  const dispIdx = HEALTH_SEVERITY[_displayedHealthState];
+
+  if (rawIdx <= dispIdx) {
+    // İyileşme veya aynı → anında uygula
+    _displayedHealthState = rawState;
+  } else if (nowMs - _pendingSinceMs >= STATE_PERSIST_MS) {
+    // Yükseltme → 5s kalıcılık sağlandı, taahhüt et
+    _displayedHealthState = rawState;
+  }
+  // Aksi hâlde: mevcut gösterilen durum korunur
+
+  return _displayedHealthState;
+}
+
+/**
+ * T4 güven eşiği sertleştirmesi:
+ *   trust < TRUST_CONSERVATIVE → max STRESSED (ATTENTION/SERVICE_SOON yasak)
+ *   trust ≤ TRUST_ATTENTION    → SERVICE_SOON → ATTENTION veya STRESSED
+ *   trust ≤ TRUST_SERVICE_SOON → SERVICE_SOON → ATTENTION
+ */
+function _applyTrustCaps(state: HealthState, trust: number): HealthState {
+  if (trust < TRUST_CONSERVATIVE) {
+    // Conservative mod: ATTENTION ve SERVICE_SOON → STRESSED
+    return HEALTH_SEVERITY[state] > HEALTH_SEVERITY['STRESSED'] ? 'STRESSED' : state;
+  }
+  if (state === 'SERVICE_SOON') {
+    if (trust <= TRUST_SERVICE_SOON) return trust > TRUST_ATTENTION ? 'ATTENTION' : 'STRESSED';
+  }
+  if (state === 'ATTENTION' && trust <= TRUST_ATTENTION) {
+    return 'STRESSED';
+  }
+  return state;
+}
+
+/* ── T4: Ham mekanik sağlık (güven ağırlığı yok) ─────────── */
+
+/** Sadece plausibility bileşeni — bağlantı kalitesi hariç */
+function _deriveHealthRaw(plausComp: number, staleCount: number): HealthState {
+  if (plausComp < 0.25 || staleCount >= 3) return 'SERVICE_SOON';
+  if (plausComp < 0.45 || staleCount >= 2) return 'ATTENTION';
+  if (plausComp < 0.65 || staleCount >= 1) return 'STRESSED';
+  if (plausComp < 0.85)                    return 'MONITOR';
+  return 'HEALTHY';
+}
+
+/** Tam güven (plausibility × fidelity × jitter) */
+function _deriveHealthFull(trust: number, staleCount: number): HealthState {
+  if (trust < 0.25 || staleCount >= 3) return 'SERVICE_SOON';
+  if (trust < 0.45 || staleCount >= 2) return 'ATTENTION';
+  if (trust < 0.65 || staleCount >= 1) return 'STRESSED';
+  if (trust < 0.85)                    return 'MONITOR';
+  return 'HEALTHY';
+}
+
+/* ── T2: Dairesel tamponlar ──────────────────────────────── */
+
+const BUF_SIZE   = 10;
+const _jBuf      = new Float32Array(BUF_SIZE);
+let   _jBufIdx   = 0;
+let   _jBufFull  = false;
+const _sdBuf     = new Float32Array(BUF_SIZE);
+let   _sdBufIdx  = 0;
+let   _sdBufFull = false;
+
+function _pushJitter(d: number): void {
+  _jBuf[_jBufIdx] = d; _jBufIdx = (_jBufIdx + 1) % BUF_SIZE;
+  if (_jBufIdx === 0) _jBufFull = true;
+}
+function _pushSpeedDelta(d: number): void {
+  _sdBuf[_sdBufIdx] = d; _sdBufIdx = (_sdBufIdx + 1) % BUF_SIZE;
+  if (_sdBufIdx === 0) _sdBufFull = true;
+}
+function _computeJitter(): number {
+  const n = _jBufFull ? BUF_SIZE : _jBufIdx;
+  if (n < 2) return 0;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += _jBuf[i];
+  const mean = sum / n;
+  let v = 0;
+  for (let i = 0; i < n; i++) v += (_jBuf[i] - mean) ** 2;
+  return Math.sqrt(v / n);
+}
+function _computeSmoothness(): number {
+  const n = _sdBufFull ? BUF_SIZE : _sdBufIdx;
+  if (n < 2) return 1;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += _sdBuf[i];
+  const mean = sum / n;
+  let v = 0;
+  for (let i = 0; i < n; i++) v += (_sdBuf[i] - mean) ** 2;
+  return Math.max(0, 1 - Math.sqrt(v / n) / 10);
+}
+
+/* ── T3: Sıcaklık dairesel tamponu ──────────────────────── */
+
+const _tempBuf     = new Float32Array(TEMP_BUF_SIZE);
+let   _tempBufIdx  = 0;
+let   _tempBufFull = false;
+
+function _derivativeAndPush(currentC: number): number {
+  let dTdt = 0;
+  if (_tempBufFull) {
+    dTdt = currentC - _tempBuf[_tempBufIdx]; // (T_now - T_60s_ago) / 1dak
+  } else if (_tempBufIdx >= 2) {
+    const elapsedMin = _tempBufIdx * (TICK_MS / 1000) / 60;
+    dTdt = (currentC - _tempBuf[0]) / elapsedMin;
+  }
+  _tempBuf[_tempBufIdx] = currentC;
+  _tempBufIdx = (_tempBufIdx + 1) % TEMP_BUF_SIZE;
+  if (_tempBufIdx === 0) _tempBufFull = true;
+  return dTdt;
+}
+
+/* ── T3: Termal durum ────────────────────────────────────── */
+
+let _thermalDebt       = 0;
+let _maxCoolantTrend   = 0;
+let _coolingEfficiency = 0.5;
+let _prevCoolantCool: number | null = null;
+
+function _computeThermalStatus(
+  coolant: number | null, dTdt: number, debt: number,
+  speedKmh: number, throttle: number | null,
+): ThermalStatus {
+  if (coolant === null)                                            return 'COLD';
+  if (coolant >= COOLANT_OVERHEAT)                                return 'OVERHEAT_RISK';
+  const highLoad = throttle !== null && throttle > 60;
+  if (coolant >= COOLANT_HOT && dTdt > COOLANT_HEAT_SOAK_DTDT && highLoad) return 'HEAT_SOAK';
+  if (debt > 0.7)                                                 return 'HEAT_SOAK';
+  if (coolant >= COOLANT_HOT && speedKmh < 10)                   return 'HEAT_SOAK';
+  if (coolant >= COOLANT_WARM)                                    return 'OPTIMAL';
+  if (coolant >= COOLANT_COLD)                                    return 'WARM';
+  return 'COLD';
+}
+
+/* ── T2: Bağlantı kalitesi ───────────────────────────────── */
+
+function _fidelityFromSps(sps: number): number {
+  if (sps >= 5)   return 1.0;
+  if (sps >= 2)   return 0.50 + (sps - 2) / 3 * 0.50;
+  if (sps >= 0.5) return 0.10 + (sps - 0.5) / 1.5 * 0.40;
+  return 0.10;
+}
+function _jitterToStability(ms: number): number { return 1 / (1 + ms / 200); }
+
+/* ── T2: SPS ölçümü ─────────────────────────────────────── */
+
+let _obdSampleCount  = 0;
+let _lastSpsWindowMs = 0;
+let _measuredSps     = 2.0;
+let _unsubObd: (() => void) | null = null;
+
+/* ── Stale izleyici ──────────────────────────────────────── */
+
+interface StaleEntry { lastValue: unknown; movingMsAccum: number; }
+const _stale: Record<string, StaleEntry> = {};
+
+function _trackStale(pid: string, value: unknown, isMoving: boolean, deltaMs: number): boolean {
+  if (!(pid in _stale)) { _stale[pid] = { lastValue: value, movingMsAccum: 0 }; return false; }
+  const e = _stale[pid];
+  if (value !== e.lastValue) { e.lastValue = value; e.movingMsAccum = 0; return false; }
+  if (isMoving) e.movingMsAccum += deltaMs;
+  return e.movingMsAccum >= STALE_THRESHOLD_MS;
+}
+
+/* ── DCE 2.0 ─────────────────────────────────────────────── */
+
+let _aggression    = 0;
+let _economy       = 0.5;
+let _prevSpdKmh    = 0;
+let _prevRpmVal    = 0;
+let _wasHardBraking = false;
+
+function _computeEcoEvent(speedKmh: number, throttle: number | null, rpm: number | undefined, spdDelta: number): number {
+  const isCoasting = speedKmh > MOVING_KMH && throttle !== null && throttle === 0 && (rpm ?? 0) > 800;
+  const isAggrAccel = throttle !== null && throttle > 60 && speedKmh > MOVING_KMH;
+  const isStopGo = _wasHardBraking && isAggrAccel;
+  _wasHardBraking = spdDelta < AGGR_SPD_DELTA_KMH;
+  if (isStopGo)   return 0;
+  if (isCoasting) return 1;
+  const inEco = rpm !== undefined && rpm >= ECO_RPM_LOW && rpm <= ECO_RPM_HIGH;
+  return (speedKmh > MOVING_KMH && inEco) ? 1 : 0;
+}
+
+function _updateCharacter(speedKmh: number, rpm: number | undefined, throttle: number | null, coldStartAbuse: boolean) {
+  const spdDelta = speedKmh - _prevSpdKmh;
+  const rpmDelta = rpm !== undefined ? rpm - _prevRpmVal : 0;
+  _pushSpeedDelta(spdDelta);
+  let event = 0;
+  if (rpmDelta > AGGR_RPM_DELTA)                 event = Math.max(event, 0.30);
+  if (spdDelta < AGGR_SPD_DELTA_KMH)             event = Math.max(event, 0.50);
+  if (rpmDelta > AGGR_RPM_DELTA && spdDelta < 0) event = 0.60;
+  if (coldStartAbuse)                            event = Math.max(event, 0.40);
+  _aggression = Math.max(0, Math.min(1, _aggression * (1 - AGGR_ALPHA) + event * AGGR_ALPHA));
+  const ecoEvent = _computeEcoEvent(speedKmh, throttle, rpm, spdDelta);
+  _economy = Math.max(0, Math.min(1, _economy * (1 - ECON_ALPHA) + ecoEvent * ECON_ALPHA));
+  _prevSpdKmh = speedKmh;
+  _prevRpmVal = rpm ?? _prevRpmVal;
+  return {
+    aggression: parseFloat(_aggression.toFixed(3)),
+    smoothness: parseFloat(_computeSmoothness().toFixed(3)),
+    economy:    parseFloat(_economy.toFixed(3)),
+  };
+}
+
+/* ── Önceki değerler ─────────────────────────────────────── */
+
+let _prevRpmRaw:     number | null = null;
+let _prevCoolantRaw: number | null = null;
+
+/* ── CRM cooldown izleyicileri ───────────────────────────── */
+
+let _crmHardBrakeCoolMs = 0;
+let _crmPotholeCoolMs   = 0;
+let _prevSpdDeltaCrm    = 0;
+
+/* ── Ana tick ────────────────────────────────────────────── */
+
+let _lastTickMs = 0;
+
+function _tick(): void {
+  const vs    = useUnifiedVehicleStore.getState();
+  const intel = useVehicleIntelligenceStore.getState();
+
+  const nowMs   = performance.now();
+  const deltaMs = _lastTickMs > 0 ? Math.min(nowMs - _lastTickMs, 2000) : TICK_MS;
+  _lastTickMs   = nowMs;
+
+  _pushJitter(deltaMs);
+
+  // T2: SPS 1s penceresi
+  const spsElapsed = nowMs - _lastSpsWindowMs;
+  if (spsElapsed >= 1000) {
+    _measuredSps = _obdSampleCount / (spsElapsed / 1000);
+    _obdSampleCount = 0; _lastSpsWindowMs = nowMs;
+  }
+
+  const speedKmh = vs.speed ?? 0;
+  const rpm      = vs.rpm;
+  const coolant  = vs.canCoolantTemp;
+  const fuel     = vs.fuel;
+  const throttle = vs.canThrottle;
+  const gpsMs    = vs.location?.speed ?? null;
+  const gpsKmh   = gpsMs !== null ? gpsMs * 3.6 : null;
+  const isMoving = speedKmh > MOVING_KMH;
+
+  // ── 1. İmkânsız Sıçrama ──────────────────────────────────────────────
+  if (rpm !== undefined && rpm !== null && _prevRpmRaw !== null) {
+    const d = Math.abs(rpm - _prevRpmRaw);
+    if (d > RPM_JUMP_THRESHOLD)
+      intel.updatePlausibility('rpm.jump', { isValid: false, reason: `RPM Δ${d} rpm/500ms` });
+    else intel.clearPlausibility('rpm.jump');
+  }
+  if (rpm !== undefined && rpm !== null) _prevRpmRaw = rpm;
+
+  if (coolant !== null && _prevCoolantRaw !== null) {
+    const d = Math.abs(coolant - _prevCoolantRaw);
+    if (d > COOLANT_JUMP_THRESHOLD)
+      intel.updatePlausibility('coolant.jump', { isValid: false, reason: `Soğutma Δ${d.toFixed(1)}°C/500ms` });
+    else intel.clearPlausibility('coolant.jump');
+  }
+  if (coolant !== null) _prevCoolantRaw = coolant;
+
+  // ── 2. Çapraz Sensör ─────────────────────────────────────────────────
+  if (gpsKmh !== null && gpsKmh > GPS_OBD_MISMATCH_KMH && speedKmh === 0)
+    intel.updatePlausibility('speed.gps_mismatch', { isValid: false, reason: `GPS ${gpsKmh.toFixed(0)} km/h ama OBD=0` });
+  else intel.clearPlausibility('speed.gps_mismatch');
+
+  const isDecelerating = speedKmh < _prevSpdKmh - 2;
+  if (rpm !== undefined && rpm !== null && rpm > RPM_LOAD_RPM_FLOOR && throttle !== null && throttle === 0 && !isDecelerating)
+    intel.updatePlausibility('rpm.load_mismatch', { isValid: false, reason: `RPM=${rpm} gaz=%0` });
+  else intel.clearPlausibility('rpm.load_mismatch');
+
+  // ── 3. Stale PID ─────────────────────────────────────────────────────
+  const pidValues: Record<string, unknown> = {
+    coolantTemp: coolant, fuel, obdSpeed: vs.speed,
+    rpm: (rpm !== undefined && (rpm ?? 0) > 0) ? rpm : null,
+  };
+  const stalePIDs: string[] = [];
+  for (const [pid, val] of Object.entries(pidValues)) {
+    if (val === null || val === undefined) {
+      if (pid in _stale) delete _stale[pid];
+      intel.clearPlausibility(`${pid}.stale`);
+      continue;
+    }
+    if (_trackStale(pid, val, isMoving, deltaMs)) {
+      stalePIDs.push(pid);
+      intel.updatePlausibility(`${pid}.stale`, { isValid: false, reason: `${pid} 5dk değişmedi` });
+    } else intel.clearPlausibility(`${pid}.stale`);
+  }
+  intel.setStalePIDs(stalePIDs);
+
+  // ── 4. Trust Score 2.0 ────────────────────────────────────────────────
+  const report     = useVehicleIntelligenceStore.getState().plausibilityReport;
+  const faultCount = Object.values(report).filter((e) => !e.isValid).length;
+  const plausComp  = Math.max(0, 1.0 - faultCount * TRUST_PER_FAULT - stalePIDs.length * TRUST_PER_STALE);
+  const jitterMs   = _computeJitter();
+  const connFidel  = _fidelityFromSps(_measuredSps);
+  const jStab      = _jitterToStability(jitterMs);
+  const trust      = plausComp * connFidel * jStab;
+
+  // ── 5. T3: Termal Bellek ──────────────────────────────────────────────
+  let dTdt = 0;
+  if (coolant !== null) dTdt = _derivativeAndPush(coolant);
+  if (dTdt > _maxCoolantTrend) _maxCoolantTrend = dTdt;
+
+  if (coolant !== null && coolant > COOLANT_DEBT_ACCUM && speedKmh < 10)
+    _thermalDebt = Math.min(1, _thermalDebt + DEBT_ACCUM_RATE);
+  else if (coolant !== null && coolant < COOLANT_DEBT_CLEAR)
+    _thermalDebt = Math.max(0, _thermalDebt - DEBT_CLEAR_RATE);
+
+  if (coolant !== null && _prevCoolantCool !== null) {
+    const dropPerMin = (_prevCoolantCool - coolant) * 120;
+    if (dropPerMin > 0 && _prevCoolantCool > COOLANT_WARM) {
+      const effEvent = Math.min(1, dropPerMin / COOLING_IDEAL_RATE);
+      _coolingEfficiency = _coolingEfficiency * (1 - COOLING_EFF_ALPHA) + effEvent * COOLING_EFF_ALPHA;
+    }
+  }
+  _prevCoolantCool = coolant;
+
+  const thermalStatus  = _computeThermalStatus(coolant, dTdt, _thermalDebt, speedKmh, throttle);
+  const thermalCap     = _thermalDebt > 0.7 || thermalStatus === 'HEAT_SOAK';
+  const coldStartAbuse = coolant !== null && coolant < COOLANT_COLD && (rpm ?? 0) > COLD_START_RPM_LIMIT;
+
+  // ── 6. T4: Güven Ağırlıklı Sağlık (VHS 2.0) ─────────────────────────
+
+  // 6a. Ham mekanik sağlık (bağlantı kalitesi yok — sadece plausibility)
+  let rawHealth = _deriveHealthRaw(plausComp, stalePIDs.length);
+  if (thermalCap && HEALTH_SEVERITY[rawHealth] < HEALTH_SEVERITY['STRESSED']) rawHealth = 'STRESSED';
+  if (coldStartAbuse && rawHealth === 'HEALTHY') rawHealth = 'MONITOR';
+
+  // 6b. Tam güven ağırlıklı sağlık (plausibility × fidelity × jitter)
+  let baseHealth = _deriveHealthFull(trust, stalePIDs.length);
+  if (thermalCap && HEALTH_SEVERITY[baseHealth] < HEALTH_SEVERITY['STRESSED']) baseHealth = 'STRESSED';
+  if (coldStartAbuse && baseHealth === 'HEALTHY') baseHealth = 'MONITOR';
+
+  // 6c. T4 güven eşiği sertleştirmesi (SERVICE_SOON/ATTENTION gereksinimleri)
+  const trustCapped = _applyTrustCaps(baseHealth, trust);
+
+  // 6d. T4 yükseltme kilidi (5s kalıcılık)
+  const finalHealth = _applyStateHysteresis(trustCapped, nowMs);
+
+  // 6e. isDiagnosticDegraded: bağlantı kalitesi veya trust yetersiz
+  const isDiagnosticDegraded = trust < 0.4 || connFidel < DIAG_FIDELITY_MIN;
+
+  // ── 7. CRM Otomatik Tetikleyiciler ───────────────────────────────────
+  // _prevSpdKmh burada henüz güncel olmadığı için (speedKmh'e eşitlenmedi)
+  // doğru delta değerini verir — _updateCharacter sonrasında sıfır olurdu.
+  const _crmSpdDelta = speedKmh - _prevSpdKmh;
+  const _crmNow      = Date.now();
+
+  if (isMoving) {
+    // Sert fren: deselerasyon eşiği
+    if (
+      _crmSpdDelta <= HARD_BRAKE_KMH &&
+      _crmNow - _crmHardBrakeCoolMs >= HARD_BRAKE_COOL_MS
+    ) {
+      const loc = vs.location;
+      if (loc !== null && loc !== undefined) {
+        addEvent('HARD_BRAKE', loc.latitude, loc.longitude, 0.8, {
+          spdDeltaKmh: parseFloat(_crmSpdDelta.toFixed(1)),
+        });
+        _crmHardBrakeCoolMs = _crmNow;
+      }
+    }
+
+    // Çukur: hız salınım imzası (ardışık zıt yönlü sıçramalar)
+    if (
+      Math.abs(_crmSpdDelta) >= POTHOLE_BOUNCE_KMH &&
+      Math.abs(_prevSpdDeltaCrm) >= POTHOLE_BOUNCE_KMH &&
+      Math.sign(_crmSpdDelta) !== Math.sign(_prevSpdDeltaCrm) &&
+      _crmNow - _crmPotholeCoolMs >= POTHOLE_COOL_MS
+    ) {
+      const loc = vs.location;
+      if (loc !== null && loc !== undefined) {
+        addEvent('POTHOLE', loc.latitude, loc.longitude, 0.8, {
+          bumpAmplitude: parseFloat(Math.abs(_crmSpdDelta).toFixed(1)),
+        });
+        _crmPotholeCoolMs = _crmNow;
+      }
+    }
+  }
+
+  _prevSpdDeltaCrm = _crmSpdDelta;
+
+  // ── 8. DCE 2.0 ───────────────────────────────────────────────────────
+  const character = _updateCharacter(speedKmh, rpm, throttle, coldStartAbuse);
+
+  // ── 9. Store dispatch (toplu, minimal render) ─────────────────────────
+  intel.updateTrustScore(trust);
+  intel.setDiagnosticState(finalHealth, rawHealth, isDiagnosticDegraded);
+  intel.setDegradation(trust < 0.4, trust >= 0.4);
+  intel.setConnectionMetrics({
+    samplesPerSecond:   parseFloat(_measuredSps.toFixed(2)),
+    jitterMs:           parseFloat(jitterMs.toFixed(1)),
+    connectionFidelity: parseFloat(connFidel.toFixed(3)),
+    jitterStability:    parseFloat(jStab.toFixed(3)),
+  });
+  intel.setThermalMetrics({
+    thermalStatus,
+    thermalDebt:       parseFloat(_thermalDebt.toFixed(3)),
+    coolingEfficiency: parseFloat(_coolingEfficiency.toFixed(3)),
+    maxCoolantTrend:   parseFloat(_maxCoolantTrend.toFixed(2)),
+    coolantTrendDtDt:  parseFloat(dTdt.toFixed(2)),
+  });
+  intel.updateDrivingChar(character);
+  intel.incrementSampleCount();
+}
+
+/* ── Observer lifecycle ──────────────────────────────────── */
+
+let _timer:  ReturnType<typeof setInterval> | null = null;
+let _running = false;
+
+export function startVehicleIntelligenceService(): () => void {
+  if (_running) return stopVehicleIntelligenceService;
+  _running = true; _lastTickMs = 0;
+  _lastSpsWindowMs = performance.now(); _obdSampleCount = 0;
+
+  _unsubObd = useUnifiedVehicleStore.subscribe((cur, prev) => {
+    if (
+      cur.speed          !== prev.speed          ||
+      cur.rpm            !== prev.rpm            ||
+      cur.fuel           !== prev.fuel           ||
+      cur.canCoolantTemp !== prev.canCoolantTemp ||
+      cur.canThrottle    !== prev.canThrottle
+    ) _obdSampleCount++;
+  });
+
+  _tick();
+  _timer = setInterval(_tick, TICK_MS);
+  return stopVehicleIntelligenceService;
+}
+
+export function stopVehicleIntelligenceService(): void {
+  _running = false;
+  if (_timer !== null) { clearInterval(_timer); _timer = null; }
+  _unsubObd?.(); _unsubObd = null;
+
+  // T1/T2 sıfırla
+  _prevRpmRaw = null; _prevCoolantRaw = null; _lastTickMs = 0;
+  _aggression = 0; _economy = 0.5; _prevSpdKmh = 0; _prevRpmVal = 0; _wasHardBraking = false;
+  _obdSampleCount = 0; _measuredSps = 2.0;
+  _jBuf.fill(0);  _jBufIdx = 0;  _jBufFull = false;
+  _sdBuf.fill(0); _sdBufIdx = 0; _sdBufFull = false;
+  for (const k of Object.keys(_stale)) delete _stale[k];
+
+  // T3 sıfırla
+  _thermalDebt = 0; _maxCoolantTrend = 0; _coolingEfficiency = 0.5; _prevCoolantCool = null;
+  _tempBuf.fill(0); _tempBufIdx = 0; _tempBufFull = false;
+
+  // T4 sıfırla
+  _pendingHealthState   = 'HEALTHY';
+  _pendingSinceMs       = 0;
+  _displayedHealthState = 'HEALTHY';
+
+  // CRM cooldown sıfırla
+  _crmHardBrakeCoolMs = 0;
+  _crmPotholeCoolMs   = 0;
+  _prevSpdDeltaCrm    = 0;
+}
+
+/* ── DEV yardımcıları ────────────────────────────────────── */
+
+export function injectFault(pid: string): void {
+  useVehicleIntelligenceStore.getState().updatePlausibility(pid, {
+    isValid: false, reason: '[DEV] Simüle edilmiş sensör hatası',
+  });
+}
+
+export function clearAllFaults(): void {
+  useVehicleIntelligenceStore.getState().reset();
+  for (const k of Object.keys(_stale)) delete _stale[k];
+  _jBuf.fill(0);  _jBufIdx = 0;  _jBufFull = false;
+  _sdBuf.fill(0); _sdBufIdx = 0; _sdBufFull = false;
+  _tempBuf.fill(0); _tempBufIdx = 0; _tempBufFull = false;
+  _thermalDebt = 0; _maxCoolantTrend = 0; _coolingEfficiency = 0.5;
+  _pendingHealthState = 'HEALTHY'; _pendingSinceMs = 0; _displayedHealthState = 'HEALTHY';
+}
