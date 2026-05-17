@@ -4,7 +4,7 @@
  * Zustand store'larının persist ve state güncellemelerini test eder.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi as _vi, beforeEach as _beforeEach } from 'vitest';
 import { STORE_FIXTURES } from './helpers';
 
 describe('Store Integration', () => {

@@ -287,7 +287,7 @@ async function _refreshMeta(db: IDBDatabase): Promise<void> {
     localStorage.setItem(META_KEY, JSON.stringify({
       totalPlaces, totalRegions: regions.length, regions,
     } satisfies OfflineCacheMeta));
-  } catch {}
+  } catch { /* noop */ }
 }
 
 /* ── PUBLIC: Bölge indir ─────────────────────────────────── */

@@ -10,7 +10,7 @@
  *  6. LRU eviction — 500MB limit aşılınca en eski tile'lar siliniyor
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach as _afterEach } from 'vitest';
 
 /* ── Maplibre mock ───────────────────────────────────────────── */
 
@@ -198,7 +198,7 @@ describe('CacheLRUManager — cache hit / miss', () => {
     expect(handler).toBeDefined();
 
     const ctrl = new AbortController();
-    await (handler as Function)(
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
       { url: 'caros-tile://tile.openstreetmap.org/10/520/350.png' },
       ctrl,
     );
@@ -216,11 +216,11 @@ describe('CacheLRUManager — cache hit / miss', () => {
     const url = 'caros-tile://tile.openstreetmap.org/10/520/350.png';
 
     // İlk istek — miss
-    await (handler as Function)({ url }, ctrl);
+    await (handler as (...args: unknown[]) => Promise<unknown>)({ url }, ctrl);
     (global.fetch as ReturnType<typeof vi.fn>).mockClear();
 
     // İkinci istek — hit
-    await (handler as Function)({ url }, ctrl);
+    await (handler as (...args: unknown[]) => Promise<unknown>)({ url }, ctrl);
 
     const stats = mgr.getCacheStats();
     expect(stats.hits).toBe(1);
@@ -240,12 +240,12 @@ describe('CacheLRUManager — istatistikler', () => {
     const ctrl = new AbortController();
 
     // 1 miss
-    await (handler as Function)(
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
       { url: 'caros-tile://tile.openstreetmap.org/10/520/350.png' },
       ctrl,
     );
     // 1 hit (aynı URL tekrar)
-    await (handler as Function)(
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
       { url: 'caros-tile://tile.openstreetmap.org/10/520/350.png' },
       ctrl,
     );
@@ -268,7 +268,7 @@ describe('CacheLRUManager — istatistikler', () => {
     ];
 
     for (const url of urls) {
-      await (handler as Function)({ url }, ctrl);
+      await (handler as (...args: unknown[]) => Promise<unknown>)({ url }, ctrl);
     }
 
     const stats = mgr.getCacheStats();
@@ -288,7 +288,7 @@ describe('CacheLRUManager — koridor koruması', () => {
     const ctrl = new AbortController();
 
     // Tile'ı cache'e al
-    await (handler as Function)(
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
       { url: 'caros-tile://tile.openstreetmap.org/12/2345/1680.png' },
       ctrl,
     );
@@ -305,7 +305,7 @@ describe('CacheLRUManager — koridor koruması', () => {
     const handler = _registeredProtocols.get('caros-tile')!;
     const ctrl = new AbortController();
 
-    await (handler as Function)(
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
       { url: 'caros-tile://tile.openstreetmap.org/12/2345/1680.png' },
       ctrl,
     );
@@ -322,11 +322,11 @@ describe('CacheLRUManager — protocol URL dönüşümü', () => {
   it("caros-tile:// -> https:// donusumu fetch'te dogru URL kullanilir", async () => {
     vi.clearAllMocks();
     _mockCacheStore.clear();
-    const mgr = await _freshManager();
+    await _freshManager();
     const handler = _registeredProtocols.get('caros-tile')!;
     const ctrl = new AbortController();
 
-    await (handler as Function)(
+    await (handler as (...args: unknown[]) => Promise<unknown>)(
       { url: 'caros-tile://a.tile.openstreetmap.org/14/8740/5645.png' },
       ctrl,
     );

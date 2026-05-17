@@ -10,10 +10,14 @@ import { Settings } from './pages/Settings'
 import { SuperAdmin } from './pages/SuperAdmin'
 import { ChaosSimulator } from './ChaosSimulator'
 import { SuperAdminGuard } from './components/auth/SuperAdminGuard'
-import { SuperAdminShell, EmptyModule } from './layouts/SuperAdminShell'
+import { SuperAdminShell } from './layouts/SuperAdminShell'
 import { HealthCenter }   from './pages/superadmin/HealthCenter'
 import { FeatureFlags }   from './pages/superadmin/FeatureFlags'
 import { PolicyCenter }   from './pages/superadmin/PolicyCenter'
+import { AuditCenter }    from './pages/superadmin/AuditCenter'
+import { RolloutCenter }  from './pages/superadmin/RolloutCenter'
+import { FleetCenter }       from './pages/superadmin/FleetCenter'
+import { DiagnosticsCenter } from './pages/superadmin/DiagnosticsCenter'
 
 export function AdminApp() {
   return (
@@ -30,11 +34,12 @@ export function AdminApp() {
             >
               <Route index element={<Navigate to="health" replace />} />
               <Route path="health"   element={<HealthCenter />} />
-              <Route path="fleet"    element={<EmptyModule label="Fleet Center"    description="Anonim filo operasyonel görünümü" />} />
+              <Route path="fleet"    element={<FleetCenter />} />
               <Route path="flags"    element={<FeatureFlags />} />
               <Route path="policies" element={<PolicyCenter />} />
-              <Route path="rollout"  element={<EmptyModule label="Rollout Center"  description="Sürüm dağıtım planları & onay akışı" />} />
-              <Route path="audit"    element={<EmptyModule label="Audit Center"    description="Denetim kaydı & aksiyon geçmişi" />} />
+              <Route path="rollout"  element={<RolloutCenter />} />
+              <Route path="audit"       element={<AuditCenter />} />
+              <Route path="diagnostics" element={<DiagnosticsCenter />} />
             </Route>
 
             <Route element={<AdminLayout />}>

@@ -1332,7 +1332,7 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
   // place-city — intersection tier listesinde YOK; mood'un özel hedefi
   if (map.getLayer('place-city')) {
     try { map.setPaintProperty('place-city', 'text-opacity', Math.max(0, 0.85 * (1 - r))); }
-    catch {}
+    catch { /* noop */ }
   }
 
   // road-label — min 0.60 (H5): sürücü tehlike anında bile cadde adını okuyabilmeli.
@@ -1340,7 +1340,7 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
   if (map.getLayer('road-label') && _lastIntersectionTier === 0) {
     // risk=0 → 1.0, risk=1 → 0.60 (minimum okunabilirlik garanti)
     try { map.setPaintProperty('road-label', 'text-opacity', Math.max(0.60, 1.0 - 0.40 * r)); }
-    catch {}
+    catch { /* noop */ }
   }
 
   // Background: #0d1117 → #060810 (kontrast artışı)
@@ -1349,7 +1349,7 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
   const bB = Math.round(23 - 9 * r);
   if (map.getLayer('background')) {
     try { map.setPaintProperty('background', 'background-color', `rgb(${bR},${bG},${bB})`); }
-    catch {}
+    catch { /* noop */ }
   }
 
   // Road colors — line-color (intersection tier line-opacity ile çakışmaz)
@@ -1359,7 +1359,7 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
     const pG = Math.round(213 - 93 * r);
     const pB = Math.round(226 - 87 * r);
     try { map.setPaintProperty('road-primary', 'line-color', `rgb(${pR},${pG},${pB})`); }
-    catch {}
+    catch { /* noop */ }
   }
   // road-secondary: #6b7f96 → #3e4f5e
   if (map.getLayer('road-secondary')) {
@@ -1367,7 +1367,7 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
     const sG = Math.round(127 - 51 * r);
     const sB = Math.round(150 - 56 * r);
     try { map.setPaintProperty('road-secondary', 'line-color', `rgb(${sR},${sG},${sB})`); }
-    catch {}
+    catch { /* noop */ }
   }
 }
 
@@ -2058,10 +2058,10 @@ export function updateDrivingLayers(
     if (blurNow !== _lastBlurReduced) {
       _lastBlurReduced = blurNow;
       if (map.getLayer(ROUTE_SHADOW)) {
-        try { map.setPaintProperty(ROUTE_SHADOW,   'line-blur', blurNow ? 3  : 8);  } catch {}
+        try { map.setPaintProperty(ROUTE_SHADOW,   'line-blur', blurNow ? 3  : 8);  } catch { /* noop */ }
       }
       if (map.getLayer(ROUTE_GLOW_SEL)) {
-        try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-blur', blurNow ? 5  : 10); } catch {}
+        try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-blur', blurNow ? 5  : 10); } catch { /* noop */ }
       }
     }
   }

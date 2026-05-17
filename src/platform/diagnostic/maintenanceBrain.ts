@@ -107,7 +107,7 @@ function _defaultData(): PersistedData {
 
 /* ── Modül durumu ────────────────────────────────────────────── */
 
-let _persisted:          PersistedData = _loadData();
+const _persisted:          PersistedData = _loadData();
 let _lastTickPerf        = 0;
 let _currentOdomKm       = 0;
 let _maintenanceFired    = false;

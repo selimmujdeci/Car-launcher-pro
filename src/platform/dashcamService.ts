@@ -55,7 +55,7 @@ let _mediaRecorder: MediaRecorder | null   = null;
 let _stream: MediaStream | null            = null;
 let _chunks: Blob[]                        = [];
 let _segmentBuffer: Blob[][]               = [];   // circular buffer
-let _lockedSegments: Blob[][]              = [];   // impact recordings
+const _lockedSegments: Blob[][]              = [];   // impact recordings
 
 let _segmentTimer: ReturnType<typeof setInterval> | null = null;
 let _durationTimer: ReturnType<typeof setInterval> | null = null;

@@ -1,0 +1,325 @@
+/**
+ * admin-enterprise.css — Tactical Dark Theme v3
+ * Mercedes Engineering Console / Tesla Internal Dashboard
+ * Operational Clarity: no glow, no blur, no gradients.
+ * Hairline borders, sans-serif titles, mono telemetry.
+ */
+
+:root {
+  /* ── Tactical Dark Palette ──────────────────────────────────────── */
+  --sa-bg:        #050505;
+  --sa-surface:   #0d0d0d;
+  --sa-surface-2: #111111;
+  --sa-surface-3: #161616;
+
+  /* Hairline borders */
+  --sa-border:    #1a1a1a;
+  --sa-border-2:  #141414;
+
+  /* Typography */
+  --sa-text:      #e5e7eb;
+  --sa-muted:     #4b5563;
+  --sa-dim:       #2d3748;
+
+  /* Status */
+  --sa-stable:    #4ade80;   /* green  — nominal */
+  --sa-info:      #60a5fa;   /* blue   — recovery/info */
+  --sa-warning:   #d97706;   /* amber  — warning */
+  --sa-danger:    #dc2626;   /* red    — critical */
+  --sa-orange:    #ea580c;   /* orange — thermal */
+
+  /* Fonts */
+  --sa-font-mono: 'JetBrains Mono', 'Roboto Mono', 'Fira Code', 'Consolas', monospace;
+  --sa-font-ui:   'Inter', 'Roboto', system-ui, sans-serif;
+
+  --sa-t: 150ms ease;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+.sa-scroll::-webkit-scrollbar        { width: 2px; height: 2px; }
+.sa-scroll::-webkit-scrollbar-track  { background: transparent; }
+.sa-scroll::-webkit-scrollbar-thumb  { background: #1a1a1a; border-radius: 1px; }
+
+/* ── Typography ─────────────────────────────────────────────────────── */
+
+/* Labels & headings — Sans-Serif */
+.sa-label {
+  font-family:    var(--sa-font-ui);
+  font-size:      9px;
+  font-weight:    600;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color:          var(--sa-muted);
+}
+
+/* Telemetry values — Mono */
+.sa-mono {
+  font-family:          var(--sa-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing:       0.02em;
+}
+
+/* ── Status colors ──────────────────────────────────────────────────── */
+.sa-stable  { color: var(--sa-stable);  }
+.sa-warning { color: var(--sa-warning); }
+.sa-danger  { color: var(--sa-danger);  }
+.sa-info    { color: var(--sa-info);    }
+.sa-muted   { color: var(--sa-muted);   }
+
+/* ── Pulse dot ──────────────────────────────────────────────────────── */
+.sa-dot {
+  display:       inline-block;
+  width:          5px;
+  height:         5px;
+  border-radius: 50%;
+  flex-shrink:    0;
+  animation:     sa-blink 2.4s ease-in-out infinite;
+}
+@keyframes sa-blink {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: 0.15; }
+}
+
+/* ── Card (hairline) ────────────────────────────────────────────────── */
+.sa-card {
+  background:    var(--sa-surface);
+  border:        1px solid var(--sa-border);
+  border-radius: 2px;
+}
+
+/* ── Ribbon cells ───────────────────────────────────────────────────── */
+.sa-cell {
+  display:         flex;
+  flex-direction:  column;
+  justify-content: center;
+  gap:             1px;
+  padding:         0 16px;
+  border-right:    1px solid var(--sa-border-2);
+  min-width:       88px;
+}
+.sa-cell:last-child { border-right: none; }
+
+.sa-cell-label {
+  font-family:    var(--sa-font-ui);
+  font-size:      8px;
+  font-weight:    600;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color:          var(--sa-dim);
+  white-space:    nowrap;
+}
+.sa-cell-value {
+  font-family:    var(--sa-font-mono);
+  font-size:      13px;
+  font-weight:    600;
+  letter-spacing: 0.02em;
+  line-height:    1.2;
+  white-space:    nowrap;
+  transition:     color var(--sa-t);
+}
+
+/* Cell flash — sadece değer değiştiğinde tetiklenir */
+@keyframes sa-cell-flash {
+  0%   { color: #e5e7eb; }
+  100% { color: inherit; }
+}
+.sa-cell-flash {
+  animation: sa-cell-flash 200ms ease forwards;
+}
+
+/* ── MetricCard ─────────────────────────────────────────────────────── */
+.sa-mc {
+  background:    var(--sa-surface);
+  border:        1px solid var(--sa-border);
+  border-radius: 2px;
+  padding:       14px 16px 0;
+  display:       flex;
+  flex-direction: column;
+  overflow:      hidden;
+}
+.sa-mc-label {
+  font-family:    var(--sa-font-ui);
+  font-size:      9px;
+  font-weight:    600;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color:          var(--sa-muted);
+}
+.sa-mc-value-row {
+  display:     flex;
+  align-items: baseline;
+  gap:         5px;
+  margin-top:  8px;
+}
+.sa-mc-value {
+  font-family:    var(--sa-font-mono);
+  font-size:      28px;
+  font-weight:    700;
+  letter-spacing: -0.03em;
+  line-height:    1;
+}
+.sa-mc-unit {
+  font-family:  var(--sa-font-mono);
+  font-size:    11px;
+  color:        var(--sa-muted);
+  font-weight:  400;
+}
+.sa-mc-sub {
+  font-family:  var(--sa-font-ui);
+  font-size:    10px;
+  color:        var(--sa-muted);
+  margin-top:   5px;
+  margin-bottom: 10px;
+}
+/* Sparkline — sabit yükseklik, SVG içinde */
+.sa-mc-spark {
+  margin-top:    auto;
+  border-top:    1px solid var(--sa-border-2);
+  height:        28px;
+  overflow:      hidden;
+  flex-shrink:   0;
+}
+
+/* ── Gauge (linear) ─────────────────────────────────────────────────── */
+.sa-gauge-track {
+  height:        4px;
+  background:    var(--sa-border);
+  border-radius: 1px;
+  overflow:      hidden;
+}
+.sa-gauge-fill {
+  height:      100%;
+  border-radius: 1px;
+  transition:  width 600ms ease;
+}
+
+/* ── Incident table ─────────────────────────────────────────────────── */
+.sa-inc-row {
+  display:       flex;
+  align-items:   center;
+  gap:           12px;
+  padding:       6px 12px;
+  border-bottom: 1px solid var(--sa-border-2);
+  font-family:   var(--sa-font-ui);
+  font-size:     11px;
+  line-height:   1.4;
+}
+.sa-inc-row:last-child { border-bottom: none; }
+.sa-inc-row:hover      { background: rgba(255,255,255,0.015); }
+
+/* ── Live Event Stream ──────────────────────────────────────────────── */
+@keyframes sa-fadein {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sa-event-new {
+  animation: sa-fadein 100ms ease forwards;
+}
+.sa-event-row {
+  display:       flex;
+  align-items:   baseline;
+  gap:           10px;
+  padding:       4px 12px;
+  border-bottom: 1px solid var(--sa-border-2);
+  font-family:   var(--sa-font-mono);
+  font-size:     11px;
+  line-height:   1.5;
+  white-space:   nowrap;
+  overflow:      hidden;
+}
+.sa-event-row:last-child { border-bottom: none; }
+
+/* ── Rollout Status ─────────────────────────────────────────────────── */
+@keyframes sa-rolling-pulse {
+  0%, 100% { border-color: #3b82f6; opacity: 1;   }
+  50%       { border-color: #1d4ed8; opacity: 0.7; }
+}
+.sa-status-rolling { animation: sa-rolling-pulse 1.8s ease-in-out infinite; }
+
+/* Stage pipeline connector */
+.sa-stage-connector {
+  flex:           1;
+  height:         1px;
+  background:     #1a1a1a;
+  align-self:     center;
+  margin:         0 4px;
+  flex-shrink:    0;
+}
+
+/* ── Emergency / Limp Mode ──────────────────────────────────────────── */
+@keyframes sa-emergency-pulse {
+  0%, 100% { border-color: #dc2626; }
+  50%       { border-color: #7f1d1d; }
+}
+@keyframes sa-emergency-bg {
+  0%, 100% { background-color: rgba(220,38,38,0.10); }
+  50%       { background-color: rgba(220,38,38,0.04); }
+}
+.sa-emergency-btn {
+  animation: sa-emergency-pulse 1.4s ease-in-out infinite,
+             sa-emergency-bg    1.4s ease-in-out infinite;
+}
+
+.sa-emergency-banner {
+  background:    rgba(220,38,38,0.05);
+  border:        1px solid #dc2626;
+  border-radius: 2px;
+  padding:       12px 16px;
+}
+
+/* ── Audit severity chips ────────────────────────────────────────────── */
+.sa-sev-info     { color: #6b7280; }
+.sa-sev-warning  { color: #d97706; }
+.sa-sev-critical { color: #dc2626; font-weight: 700; }
+
+/* ── JSON Diff viewer ────────────────────────────────────────────────── */
+.sa-diff-panel {
+  background:    #080808;
+  border:        1px solid #1a1a1a;
+  border-radius: 2px;
+  padding:       10px 12px;
+  font-family:   var(--sa-font-mono);
+  font-size:     10px;
+  line-height:   1.6;
+  overflow:      auto;
+  max-height:    280px;
+  white-space:   pre-wrap;
+  word-break:    break-all;
+  color:         #4b5563;
+}
+.sa-diff-panel .added   { color: #4ade80; }
+.sa-diff-panel .removed { color: #dc2626; }
+.sa-diff-panel .key     { color: #60a5fa; }
+
+/* ── Empty state ────────────────────────────────────────────────────── */
+.sa-empty {
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:             8px;
+  padding:         48px 24px;
+  font-family:     var(--sa-font-ui);
+  color:           var(--sa-muted);
+  font-size:       11px;
+  letter-spacing:  0.04em;
+}
+
+/* ── Grid metric (RuntimeHealthGrid) ───────────────────────────────── */
+.sa-metric {
+  background:  var(--sa-surface);
+  padding:     12px 14px;
+}
+.sa-metric-val {
+  font-family:    var(--sa-font-mono);
+  font-size:      20px;
+  font-weight:    700;
+  letter-spacing: -0.02em;
+  line-height:    1;
+}
+.sa-metric-unit {
+  font-family:  var(--sa-font-mono);
+  font-size:    10px;
+  color:        var(--sa-muted);
+  margin-left:  3px;
+}

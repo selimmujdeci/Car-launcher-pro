@@ -25,19 +25,21 @@ import {
 /* ── Mod renk haritası ──────────────────────────────────────────────────── */
 
 const MODE_COLOR: Record<CognitiveMode, string> = {
-  IMMERSIVE: '#22c55e',
-  AWARE:     '#3b82f6',
-  FOCUSED:   '#f59e0b',
-  CRITICAL:  '#f97316',
-  LIMP_HOME: '#ef4444',
+  IMMERSIVE:  '#22c55e',
+  AWARE:      '#3b82f6',
+  FOCUSED:    '#f59e0b',
+  CRITICAL:   '#f97316',
+  LIMP_HOME:  '#ef4444',
+  PROTECTION: '#a855f7',
 };
 
 const MODE_LABEL: Record<CognitiveMode, string> = {
-  IMMERSIVE: 'Tam Aktif',
-  AWARE:     'Farkındalık',
-  FOCUSED:   'Odaklanma',
-  CRITICAL:  'Kritik',
-  LIMP_HOME: 'Hayatta Kal',
+  IMMERSIVE:  'Tam Aktif',
+  AWARE:      'Farkındalık',
+  FOCUSED:    'Odaklanma',
+  CRITICAL:   'Kritik',
+  LIMP_HOME:  'Hayatta Kal',
+  PROTECTION: 'Koruma',
 };
 
 /* ── Termal seviye badge ────────────────────────────────────────────────── */

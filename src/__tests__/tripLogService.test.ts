@@ -39,8 +39,8 @@ type OBDCb     = (d: import('../platform/obdService').OBDData) => void;
 
 let _gpsCb: LocationCb | null = null;
 let _obdCb: OBDCb | null      = null;
-let _gpsUnsubFn: (() => void) | null = null;
-let _obdUnsubFn: (() => void) | null = null;
+const _gpsUnsubFn: (() => void) | null = null;
+const _obdUnsubFn: (() => void) | null = null;
 
 vi.mock('../platform/gpsService', () => ({
   onGPSLocation: vi.fn((cb: LocationCb) => {

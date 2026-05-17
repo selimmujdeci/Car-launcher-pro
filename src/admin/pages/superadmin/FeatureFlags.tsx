@@ -19,8 +19,9 @@ import { Badge }  from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Modal }  from '../../components/ui/Modal'
 import type { FeatureFlag } from '../../types/superadmin'
-import { getFeatureFlags, updateFeatureFlag } from '../../services/superadmin.service'
+import { getFeatureFlags, updateFeatureFlag, activateFleetLimpMode } from '../../services/superadmin.service'
 import { useAuth } from '../../hooks/useAuth'
+import '../../styles/admin-enterprise.css'
 
 // ── Flag görsel haritası ──────────────────────────────────────────────────────
 
@@ -59,13 +60,16 @@ interface PendingChange {
 
 export function FeatureFlags() {
   const { user }                        = useAuth()
-  const [flags,   setFlags]             = useState<FeatureFlag[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [saving,  setSaving]            = useState<string | null>(null)  // key of flag being saved
-  const [pending, setPending]           = useState<PendingChange | null>(null)
-  const [step,    setStep]              = useState<'preview' | 'confirm'>('preview')
-  const [error,   setError]             = useState<string | null>(null)
-  const [success, setSuccess]           = useState<string | null>(null)
+  const [flags,      setFlags]          = useState<FeatureFlag[]>([])
+  const [loading,    setLoading]        = useState(true)
+  const [saving,     setSaving]         = useState<string | null>(null)
+  const [pending,    setPending]        = useState<PendingChange | null>(null)
+  const [step,       setStep]           = useState<'preview' | 'confirm'>('preview')
+  const [error,      setError]          = useState<string | null>(null)
+  const [success,    setSuccess]        = useState<string | null>(null)
+  const [limpState,  setLimpState]      = useState<'idle'|'step1'|'step2'|'step3'|'executing'>('idle')
+  const [limpError,  setLimpError]      = useState<string | null>(null)
+  const [limpInput,  setLimpInput]      = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -115,11 +119,40 @@ export function FeatureFlags() {
     }
   }
 
-  const activeCount   = flags.filter((f) => f.enabled).length
-  const totalCount    = flags.length
+  async function handleLimpModeConfirm() {
+    if (!user) return
+    setLimpState('executing')
+    setLimpError(null)
+    try {
+      await activateFleetLimpMode(user.id)
+      await load()
+      setSuccess('FLEET LIMP MODE ACTIVATED — All flags disabled. Vehicles will update within 10 min.')
+    } catch (e) {
+      setLimpError(e instanceof Error ? e.message : 'Limp Mode failed')
+    } finally {
+      setLimpState('idle')
+      setLimpInput('')
+    }
+  }
+
+  const activeCount = flags.filter((f) => f.enabled).length
+  const totalCount  = flags.length
 
   return (
     <div className="space-y-6 max-w-3xl">
+
+      {/* ── Emergency Operations Banner ────────────────────────────── */}
+      <EmergencyBanner
+        limpState={limpState}
+        limpInput={limpInput}
+        limpError={limpError}
+        onLimpInputChange={setLimpInput}
+        onOpen={() => { setLimpState('step1'); setLimpError(null); setLimpInput('') }}
+        onStep1Confirm={() => setLimpState('step2')}
+        onStep2Confirm={() => setLimpState('step3')}
+        onStep3Confirm={() => { void handleLimpModeConfirm() }}
+        onCancel={() => { setLimpState('idle'); setLimpInput(''); setLimpError(null) }}
+      />
 
       {/* Başlık */}
       <div className="flex items-start justify-between gap-4">
@@ -356,6 +389,261 @@ function ConfirmModal({ pending, step, onNext, onConfirm, onClose }: ConfirmModa
         </div>
       )}
     </Modal>
+  )
+}
+
+// ── Emergency Banner ──────────────────────────────────────────────────────────
+
+interface EmergencyBannerProps {
+  limpState:        'idle'|'step1'|'step2'|'step3'|'executing'
+  limpInput:        string
+  limpError:        string | null
+  onLimpInputChange:(v: string) => void
+  onOpen:           () => void
+  onStep1Confirm:   () => void
+  onStep2Confirm:   () => void
+  onStep3Confirm:   () => void
+  onCancel:         () => void
+}
+
+function EmergencyBanner({
+  limpState, limpInput, limpError,
+  onLimpInputChange, onOpen,
+  onStep1Confirm, onStep2Confirm, onStep3Confirm, onCancel,
+}: EmergencyBannerProps) {
+  return (
+    <>
+      <div className="sa-emergency-banner flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+          <div>
+            <p
+              style={{
+                fontFamily:    'var(--sa-font-ui)',
+                fontSize:       10,
+                fontWeight:     700,
+                color:         '#dc2626',
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+              }}
+            >
+              EMERGENCY OPERATIONS
+            </p>
+            <p style={{ fontSize: 10, color: '#4b5563', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
+              Fleet Limp Mode tüm feature flag'leri devre dışı bırakır.
+              Araçlar 10 dakika içinde güvenli moda geçer.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onOpen}
+          disabled={limpState === 'executing'}
+          className="sa-emergency-btn"
+          style={{
+            padding:       '6px 14px',
+            background:    'rgba(220,38,38,0.10)',
+            border:        '1px solid #dc2626',
+            borderRadius:   2,
+            cursor:        limpState === 'executing' ? 'not-allowed' : 'pointer',
+            fontFamily:    'var(--sa-font-mono)',
+            fontSize:       9,
+            fontWeight:     700,
+            color:         '#dc2626',
+            letterSpacing: '0.10em',
+            textTransform: 'uppercase',
+            opacity:       limpState === 'executing' ? 0.5 : 1,
+            whiteSpace:    'nowrap',
+            flexShrink:     0,
+          }}
+        >
+          {limpState === 'executing' ? 'EXECUTING…' : 'ACTIVATE FLEET LIMP MODE'}
+        </button>
+      </div>
+
+      {/* Triple Confirmation Modal */}
+      <LimpModeModal
+        step={limpState}
+        input={limpInput}
+        error={limpError}
+        onInputChange={onLimpInputChange}
+        onStep1Confirm={onStep1Confirm}
+        onStep2Confirm={onStep2Confirm}
+        onStep3Confirm={onStep3Confirm}
+        onCancel={onCancel}
+      />
+    </>
+  )
+}
+
+// ── Limp Mode Triple Confirmation Modal ───────────────────────────────────────
+
+interface LimpModalProps {
+  step:            'idle'|'step1'|'step2'|'step3'|'executing'
+  input:           string
+  error:           string | null
+  onInputChange:   (v: string) => void
+  onStep1Confirm:  () => void
+  onStep2Confirm:  () => void
+  onStep3Confirm:  () => void
+  onCancel:        () => void
+}
+
+function LimpModeModal({
+  step, input, error, onInputChange,
+  onStep1Confirm, onStep2Confirm, onStep3Confirm, onCancel,
+}: LimpModalProps) {
+  if (step === 'idle' || step === 'executing') return null
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'rgba(0,0,0,0.88)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      }}
+    >
+      <div
+        style={{
+          width: '100%', maxWidth: 440,
+          background: '#0a0a0a',
+          border: '1px solid #dc2626',
+          borderRadius: 2,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid rgba(220,38,38,0.3)',
+            background: 'rgba(220,38,38,0.06)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}
+        >
+          <AlertTriangle size={13} style={{ color: '#dc2626' }} />
+          <span
+            style={{
+              fontFamily: 'var(--sa-font-mono)', fontSize: 10, fontWeight: 700,
+              color: '#dc2626', letterSpacing: '0.12em', textTransform: 'uppercase',
+            }}
+          >
+            {step === 'step1' && 'STEP 1 OF 3 — FIRST CONFIRMATION'}
+            {step === 'step2' && 'STEP 2 OF 3 — SECOND CONFIRMATION'}
+            {step === 'step3' && 'STEP 3 OF 3 — FINAL AUTHORIZATION'}
+          </span>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '16px 16px' }}>
+          {step === 'step1' && (
+            <>
+              <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                Bu işlem <strong style={{ color: '#dc2626' }}>tüm feature flag'leri</strong> devre dışı bırakır.
+                Filo genelindeki araçlar en fazla 10 dakika içinde etkilenecektir.
+              </p>
+              <div
+                style={{
+                  padding: '10px 12px', background: 'rgba(220,38,38,0.04)',
+                  border: '1px solid rgba(220,38,38,0.2)', borderRadius: 2, marginBottom: 14,
+                }}
+              >
+                <p style={{ fontFamily: 'var(--sa-font-mono)', fontSize: 10, color: '#dc2626' }}>
+                  CRM · Hazard Intelligence · Safety Co-Pilot · Predictive Intelligence · Voice Extras
+                </p>
+              </div>
+              <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 11, color: '#4b5563' }}>
+                Devam etmek istediğinizden emin misiniz?
+              </p>
+            </>
+          )}
+
+          {step === 'step2' && (
+            <>
+              <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                <strong style={{ color: '#dc2626' }}>Geri alınamaz</strong> — Limp Mode aktif olduğunda araçlar
+                yeniden bağlanana kadar bu özellikler kapalı kalır.
+              </p>
+              <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 11, color: '#4b5563' }}>
+                Audit Log'a <strong style={{ color: '#dc2626' }}>CRITICAL</strong> seviyeli kayıt düşülecek.
+                Devam etmek istiyor musunuz?
+              </p>
+            </>
+          )}
+
+          {step === 'step3' && (
+            <>
+              <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                Son onay. Devam etmek için aşağıya <code style={{ color: '#dc2626' }}>LIMP</code> yazın.
+              </p>
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => onInputChange(e.target.value)}
+                placeholder="LIMP"
+                autoFocus
+                style={{
+                  width: '100%', padding: '8px 10px',
+                  background: '#080808', border: '1px solid #1a1a1a',
+                  borderRadius: 2, color: '#e5e7eb',
+                  fontFamily: 'var(--sa-font-mono)', fontSize: 13,
+                  letterSpacing: '0.08em', outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {error && (
+                <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 10, color: '#dc2626', marginTop: 6 }}>
+                  {error}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            display: 'flex', justifyContent: 'flex-end', gap: 8,
+            padding: '10px 16px', borderTop: '1px solid #1a1a1a',
+          }}
+        >
+          <button
+            onClick={onCancel}
+            style={{
+              padding: '5px 12px', background: 'transparent',
+              border: '1px solid #1a1a1a', borderRadius: 2,
+              color: '#4b5563', cursor: 'pointer',
+              fontFamily: 'var(--sa-font-mono)', fontSize: 9,
+              fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}
+          >
+            ABORT
+          </button>
+          <button
+            onClick={() => {
+              if (step === 'step1') onStep1Confirm()
+              else if (step === 'step2') onStep2Confirm()
+              else if (step === 'step3') {
+                if (input.trim().toUpperCase() !== 'LIMP') return
+                onStep3Confirm()
+              }
+            }}
+            disabled={step === 'step3' && input.trim().toUpperCase() !== 'LIMP'}
+            style={{
+              padding: '5px 14px',
+              background: 'rgba(220,38,38,0.12)',
+              border: '1px solid #dc2626',
+              borderRadius: 2,
+              color: '#dc2626', cursor: 'pointer',
+              fontFamily: 'var(--sa-font-mono)', fontSize: 9,
+              fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              opacity: (step === 'step3' && input.trim().toUpperCase() !== 'LIMP') ? 0.4 : 1,
+            }}
+          >
+            {step === 'step3' ? 'EXECUTE LIMP MODE' : 'CONFIRM →'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

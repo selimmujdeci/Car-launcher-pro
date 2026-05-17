@@ -5,7 +5,7 @@
  * birlikte çalışmasını test eder.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi as _vi, beforeEach as _beforeEach } from 'vitest';
 import { THEME_SWITCH_SCENARIOS, SMART_ENGINE_SCENARIOS } from './fixtures/integration';
 
 describe('Smart Engine + Theme Integration', () => {
@@ -71,7 +71,7 @@ describe('Smart Engine + Theme Integration', () => {
       const hour = 8;
       const navScore = 10;
       const musicScore = 2;
-      const isDriving = false;
+      const _isDriving = false;
 
       let recommendationType: string | null = null;
 

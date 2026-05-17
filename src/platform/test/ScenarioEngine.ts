@@ -179,7 +179,7 @@ let _scenario:     AutomotiveScenario | null = null;
 let _timers:       ReturnType<typeof setTimeout>[] = [];
 let _startTime     = 0;
 let _currentStep   = 0;
-let _stateListeners = new Set<(s: ScenarioState) => void>();
+const _stateListeners = new Set<(s: ScenarioState) => void>();
 
 /* ── State emission ───────────────────────────────────────────────────────── */
 

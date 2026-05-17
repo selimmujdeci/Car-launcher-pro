@@ -76,16 +76,16 @@ function checkCssLayerSupport(): boolean {
 /* ── Profile builder ───────────────────────────────────────── */
 
 function buildProfile(): CompatProfile {
-  var ua = navigator.userAgent || '';
-  var androidVersion    = detectAndroidVersion(ua);
-  var webViewVersion    = detectWebViewVersion(ua);
-  var cpuCores          = navigator.hardwareConcurrency || 0;
-  var memoryGb          = (navigator as any).deviceMemory || 0;
-  var supportsBackdropFilter = checkBackdropFilter();
-  var supportsDvh            = checkDvh();
-  var supportsCssLayer       = checkCssLayerSupport();
+  const ua = navigator.userAgent || '';
+  const androidVersion    = detectAndroidVersion(ua);
+  const webViewVersion    = detectWebViewVersion(ua);
+  const cpuCores          = navigator.hardwareConcurrency || 0;
+  const memoryGb          = (navigator as any).deviceMemory || 0;
+  const supportsBackdropFilter = checkBackdropFilter();
+  const supportsDvh            = checkDvh();
+  const supportsCssLayer       = checkCssLayerSupport();
 
-  var isHeadUnit =
+  const isHeadUnit =
     (androidVersion > 0 && androidVersion < 11) ||
     (webViewVersion > 0 && webViewVersion < 80) ||
     (cpuCores > 0 && cpuCores <= 2) ||
@@ -107,7 +107,7 @@ function buildProfile(): CompatProfile {
 
 /* ── Runtime state ─────────────────────────────────────────── */
 
-var _profile: CompatProfile | null = null;
+let _profile: CompatProfile | null = null;
 
 export function getCompatProfile(): CompatProfile {
   if (!_profile) _profile = buildProfile();
@@ -135,14 +135,14 @@ function _computeScaleFactor(width: number): number {
 }
 
 function _applyScaleFactor(): void {
-  var width = window.innerWidth || document.documentElement.clientWidth;
-  var scale = _computeScaleFactor(width);
+  const width = window.innerWidth || document.documentElement.clientWidth;
+  const scale = _computeScaleFactor(width);
   document.documentElement.style.setProperty('--scale-factor', scale.toFixed(3));
   // rem tabanlı ölçekleme: 1rem = 16px × scale-factor
   document.documentElement.style.fontSize = (16 * scale).toFixed(2) + 'px';
 }
 
-var _scaleListenerAttached = false;
+let _scaleListenerAttached = false;
 
 function _startDynamicScaling(): void {
   _applyScaleFactor();

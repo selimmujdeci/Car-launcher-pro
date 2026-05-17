@@ -7,7 +7,7 @@
 
 import type { OBDData } from '../platform/obdService';
 import type { GPSLocation } from '../platform/vehicleDataLayer/types';
-import { OBD_FIXTURES, GPS_FIXTURES, VEHICLE_FIXTURES, STORE_FIXTURES } from '../helpers';
+import { OBD_FIXTURES as _OBD_FIXTURES, GPS_FIXTURES as _GPS_FIXTURES, VEHICLE_FIXTURES as _VEHICLE_FIXTURES, STORE_FIXTURES } from '../helpers';
 
 export { STORE_FIXTURES };
 

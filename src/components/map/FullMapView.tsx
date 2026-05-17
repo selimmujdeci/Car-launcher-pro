@@ -516,7 +516,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       }
     }
     prevOnlineRef.current = isOnline;
-  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOnline]);  
 
   // Eagle Eye: render radar / speed-camera icons on the map
   useRadarMapLayer(mapRef, mapStyleReady);
@@ -617,7 +617,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const el = containerRef.current;
     let observer: ResizeObserver | null = null;
 
-    let resizeRafId:    number | null = null;
+    const resizeRafId:    number | null = null;
     let resizeTimerId: ReturnType<typeof setTimeout> | null = null; // post-init debounce
     let settleRafId:   number | null = null;
     let settleCount   = 0;
@@ -848,7 +848,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (mapRef.current && loc) {
       enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
     }
-  }, [navStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navStatus]);  
 
   // D: Detect fetch failure — loading stopped but no geometry (e.g. _waitForStyleReady deadlock released)
   // Guard: navStatus === ROUTING means we are mid-fetch (fetchRoute sets loading:true synchronously,
@@ -972,7 +972,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     }
     if (!mapRef.current) return;
     _doStyleSwitch(mapRef.current, false);
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode]);  
 
   // Tile render mode change (raster ↔ vector) — auto-driven by navigation/AR state
   useEffect(() => {
@@ -989,7 +989,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     // Vector switch (idle): soft fade-in from dark background.
     const instant = tileRender === 'raster';
     _doStyleSwitch(mapRef.current, !instant);
-  }, [tileRender]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tileRender]);  
 
   // Navigation + AR state → notify auto-switch engine + apply focus mode
   useEffect(() => {

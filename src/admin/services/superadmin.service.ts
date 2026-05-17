@@ -41,12 +41,24 @@ export interface FleetHealthStats {
 export interface IncidentLog {
   id:            string;
   ts:            string;
+  /** Anonim cihaz parmak izi (6 char) — gerçek vehicle_id asla açığa çıkmaz */
+  deviceHash:    string;
   thermalLevel:  number;
   uiFreezeCount: number;
   restartCount:  number;
   overallHealth: string;
   appVersion:    string;
   severity:      'warning' | 'critical';
+}
+
+/** Black Box replay için tek bir telemetri snapshot'ı */
+export interface IncidentDataPoint {
+  ts:             string;
+  thermalLevel:   number;   // 0-3
+  ramPressure:    number;   // 0-100 (%)
+  workerRestarts: number;
+  uiFreezeCount:  number;
+  overallHealth:  string;
 }
 
 // ── Raw payload tipi ───────────────────────────────────────────────────────────
@@ -62,9 +74,10 @@ interface HealthPayload {
 }
 
 interface VehicleEventRow {
-  id:         string;
-  created_at: string;
-  payload:    HealthPayload | null;
+  id:          string;
+  created_at:  string;
+  vehicle_id?: string;
+  payload:     HealthPayload | null;
 }
 
 // ── Yardımcılar ────────────────────────────────────────────────────────────────
@@ -194,7 +207,7 @@ export async function getIncidentLogs(limit = 50): Promise<IncidentLog[]> {
   try {
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('id, created_at, payload')
+      .select('id, created_at, vehicle_id, payload')
       .eq('type', 'system_health')
       .neq('payload->>overallHealth', 'healthy')
       .order('created_at', { ascending: false })
@@ -208,6 +221,7 @@ export async function getIncidentLogs(limit = 50): Promise<IncidentLog[]> {
       return {
         id:            row.id,
         ts:            row.created_at,
+        deviceHash:    _hashDevice(row.vehicle_id ?? row.id),
         thermalLevel:  _num(p.thermalLevel, 0),
         uiFreezeCount: _num(p.uiFreezeCount, 0),
         restartCount:  _num(p.workerRestartTotal, 0),
@@ -219,6 +233,785 @@ export async function getIncidentLogs(limit = 50): Promise<IncidentLog[]> {
   } catch {
     return []
   }
+}
+
+// ── Remote Diagnostics ────────────────────────────────────────────────────────
+
+export interface KnownDevice {
+  hash:         string    // 6-char anonymized ID
+  lastSeen:     string
+  eventCount:   number
+  lastHealth:   'healthy' | 'degraded' | 'critical'
+  thermalLevel: number
+}
+
+export interface DiagnosticReport {
+  deviceHash:  string
+  events:      IncidentDataPoint[]
+  lastPanic:   Record<string, unknown> | null
+  loadedAt:    string
+}
+
+/**
+ * Son 24 saatte görülen tüm anonim cihaz hash'lerini döner.
+ * vehicle_id asla açığa çıkmaz — yalnızca 6-char hash.
+ */
+export async function getKnownDevices(): Promise<KnownDevice[]> {
+  try {
+    const since = new Date(Date.now() - 24 * 3_600_000).toISOString()
+    const { data, error } = await supabase
+      .from('vehicle_events')
+      .select('vehicle_id, payload, created_at')
+      .eq('type', 'system_health')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(500)
+
+    if (error || !data) return []
+
+    type Row = { vehicle_id?: string; payload: HealthPayload; created_at: string }
+    const map = new Map<string, { count: number; lastSeen: string; health: string; thermal: number }>()
+
+    for (const row of data as Row[]) {
+      const hash   = _hashDevice((row.vehicle_id as string | undefined) ?? row.created_at)
+      const p      = row.payload ?? {}
+      const health = _str(p.overallHealth, 'healthy')
+      const prev   = map.get(hash)
+      if (!prev) {
+        map.set(hash, { count: 1, lastSeen: row.created_at, health, thermal: _num(p.thermalLevel, 0) })
+      } else {
+        prev.count++
+      }
+    }
+
+    return [...map.entries()]
+      .map(([hash, v]) => ({
+        hash,
+        lastSeen:     v.lastSeen,
+        eventCount:   v.count,
+        lastHealth:   v.health as KnownDevice['lastHealth'],
+        thermalLevel: v.thermal,
+      }))
+      .slice(0, 20)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Belirli bir cihaz için teşhis raporu oluşturur.
+ * Tüm debug oturumları audit_logs'a kaydedilir.
+ * Privacy: GPS verisi kesinlikle dahil edilmez.
+ */
+export async function getDiagnosticReport(
+  deviceHash: string,
+  actorId:    string,
+): Promise<DiagnosticReport> {
+  const sessionId = crypto.randomUUID()
+  const loadedAt  = new Date().toISOString()
+
+  await auditAction({
+    actor_id:    actorId,
+    action:      'system.debug_session_started',
+    target_type: 'system',
+    target_id:   deviceHash,
+    before:      null,
+    after:       { deviceHash, sessionId, loadedAt },
+    metadata:    { sessionId },
+    severity:    'warning',
+  })
+
+  try {
+    const since = new Date(Date.now() - 15 * 60_000).toISOString()
+    const { data } = await supabase
+      .from('vehicle_events')
+      .select('vehicle_id, payload, created_at')
+      .eq('type', 'system_health')
+      .gte('created_at', since)
+      .order('created_at', { ascending: true })
+      .limit(100)
+
+    type Row = { vehicle_id?: string; payload: HealthPayload; created_at: string }
+    const rows = ((data ?? []) as Row[]).filter(
+      (r) => _hashDevice((r.vehicle_id as string | undefined) ?? '') === deviceHash,
+    )
+
+    const events: IncidentDataPoint[] = rows.map((r) => ({
+      ts:             r.created_at,
+      thermalLevel:   Math.max(0, Math.min(3, _num(r.payload?.thermalLevel, 0))),
+      ramPressure:    Math.round(_num(r.payload?.ramPressureRatio, 0) * 100),
+      workerRestarts: _num(r.payload?.workerRestartTotal, 0),
+      uiFreezeCount:  _num(r.payload?.uiFreezeCount, 0),
+      overallHealth:  _str(r.payload?.overallHealth, 'healthy'),
+    }))
+
+    // Panic snapshot — kritik sağlık eventi varsa son birini al
+    const panicRow = rows.findLast((r) => _str(r.payload?.overallHealth, '') === 'critical')
+    const lastPanic = panicRow
+      ? { ts: panicRow.created_at, thermal: _num(panicRow.payload?.thermalLevel, 0), ...panicRow.payload }
+      : null
+
+    return { deviceHash, events, lastPanic, loadedAt }
+  } catch {
+    return { deviceHash, events: [], lastPanic: null, loadedAt }
+  }
+}
+
+/**
+ * Belirli bir cihaz için realtime log akışını başlatır.
+ * Gelen tüm system_health eventleri client-side hash filtresiyle ayrılır.
+ * @returns cleanup fonksiyonu
+ */
+export function subscribeToDeviceLogs(
+  deviceHash: string,
+  onLog:      (event: LiveEvent) => void,
+): () => void {
+  const channel = supabase
+    .channel(`sa-device-debug-${deviceHash}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'vehicle_events' },
+      (change: { new: Record<string, unknown> }) => {
+        const row    = change.new
+        const rawId  = (row['vehicle_id'] as string | undefined) ?? (row['id'] as string | undefined)
+        const hash   = _hashDevice(rawId)
+        if (hash !== deviceHash) return   // başka cihaz → filtrele
+
+        const type    = _str(row['type'], '')
+        if (type !== 'system_health' && type !== 'critical_error') return
+
+        const payload  = (row['payload'] ?? {}) as HealthPayload
+        const { tag, message } = _parseEvent(type, payload)
+
+        onLog({
+          id:         _str(row['id'], crypto.randomUUID()),
+          ts:         _str(row['created_at'], new Date().toISOString()),
+          deviceHash: hash,
+          tag,
+          message,
+          count:      1,
+          isNew:      true,
+        })
+      },
+    )
+    .subscribe()
+
+  return () => { void supabase.removeChannel(channel) }
+}
+
+// ── Fleet Inventory ────────────────────────────────────────────────────────────
+
+export interface GpuClassBucket {
+  label:        string   // 'HIGH-END', 'MID-RANGE', 'LEGACY (MALI-400)'
+  count:        number
+  pct:          number
+  avgStability: number
+}
+
+export interface VersionBucket {
+  version:   string
+  count:     number   // unique device count
+  pct:       number
+  stability: number
+}
+
+export interface FleetInventory {
+  totalDevices: number
+  gpuClasses:   GpuClassBucket[]
+  versionDist:  VersionBucket[]
+  ramProfile: {
+    low:    number   // % devices with avg RAM < 40%
+    medium: number   // % devices with avg RAM 40-70%
+    high:   number   // % devices with avg RAM > 70%
+  }
+  lastScanned: string | null
+}
+
+const _FLEET_EMPTY: FleetInventory = {
+  totalDevices: 0,
+  gpuClasses:   [],
+  versionDist:  [],
+  ramProfile:   { low: 0, medium: 0, high: 0 },
+  lastScanned:  null,
+}
+
+/**
+ * Son 24 saatin system_health eventlerinden anonim filo envanteri üretir.
+ *
+ * GPU Sınıfı Heuristiği (gerçek GPU verisi payload'da yok):
+ *   avgThermal ≥ 2 VEYA avgRAM ≥ 70%  → LEGACY (MALI-400)
+ *   avgThermal ≥ 1 VEYA avgRAM ≥ 40%  → MID-RANGE
+ *   diğer                               → HIGH-END
+ *
+ * Privacy: vehicle_id yalnızca gruplama için hash'lenir, hiçbir zaman dışarı çıkmaz.
+ */
+export async function getFleetInventory(): Promise<FleetInventory> {
+  try {
+    const since = new Date(Date.now() - 24 * 3_600_000).toISOString()
+    const { data, error } = await supabase
+      .from('vehicle_events')
+      .select('vehicle_id, payload, created_at')
+      .eq('type', 'system_health')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1000)
+
+    if (error || !data || data.length === 0) return _FLEET_EMPTY
+
+    type Row = { vehicle_id?: string; payload: HealthPayload; created_at: string }
+
+    // Cihaz başına metrik biriktir — sadece hash, hiç raw ID dışarı çıkmaz
+    const deviceMap = new Map<string, {
+      ramSamples:  number[]
+      thermalSamples: number[]
+      criticals:   number
+      total:       number
+      appVersion:  string
+    }>()
+
+    let lastTs: string | null = null
+
+    for (const row of data as Row[]) {
+      const p     = row.payload ?? {}
+      const hash  = _hashDevice((row.vehicle_id as string | undefined) ?? '')
+      const prev  = deviceMap.get(hash) ?? {
+        ramSamples: [], thermalSamples: [], criticals: 0, total: 0,
+        appVersion: _str(p.appVersion, 'unknown'),
+      }
+      prev.ramSamples.push(_num(p.ramPressureRatio, 0) * 100)
+      prev.thermalSamples.push(_num(p.thermalLevel, 0))
+      if (_str(p.overallHealth, 'healthy') === 'critical') prev.criticals++
+      prev.total++
+      deviceMap.set(hash, prev)
+      if (!lastTs) lastTs = row.created_at
+    }
+
+    const totalDevices = deviceMap.size
+    if (totalDevices === 0) return _FLEET_EMPTY
+
+    const gpuMap  = new Map<string, { count: number; stabilities: number[] }>()
+    const verMap  = new Map<string, { count: number; stabilities: number[] }>()
+    let ramLow = 0, ramMedium = 0, ramHigh = 0
+
+    for (const stats of deviceMap.values()) {
+      const avgRam     = stats.ramSamples.reduce((a, b) => a + b, 0) / stats.ramSamples.length
+      const avgThermal = stats.thermalSamples.reduce((a, b) => a + b, 0) / stats.thermalSamples.length
+      const stability  = _calcStabilityScore(stats.total, stats.criticals, 0, 0)
+
+      // GPU class heuristic
+      const gpuLabel = avgThermal >= 2 || avgRam >= 70
+        ? 'LEGACY (MALI-400)'
+        : avgThermal >= 1 || avgRam >= 40
+        ? 'MID-RANGE'
+        : 'HIGH-END'
+
+      const g = gpuMap.get(gpuLabel) ?? { count: 0, stabilities: [] }
+      g.count++; g.stabilities.push(stability)
+      gpuMap.set(gpuLabel, g)
+
+      // Version distribution
+      const v = verMap.get(stats.appVersion) ?? { count: 0, stabilities: [] }
+      v.count++; v.stabilities.push(stability)
+      verMap.set(stats.appVersion, v)
+
+      // RAM profile
+      if (avgRam < 40) ramLow++
+      else if (avgRam < 70) ramMedium++
+      else ramHigh++
+    }
+
+    const avg = (arr: number[]) =>
+      arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 100
+
+    const gpuClasses: GpuClassBucket[] = ['HIGH-END', 'MID-RANGE', 'LEGACY (MALI-400)']
+      .filter((l) => gpuMap.has(l))
+      .map((l) => {
+        const b = gpuMap.get(l)!
+        return { label: l, count: b.count, pct: Math.round((b.count / totalDevices) * 100), avgStability: avg(b.stabilities) }
+      })
+
+    const versionDist: VersionBucket[] = [...verMap.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 8)
+      .map(([version, b]) => ({
+        version,
+        count:     b.count,
+        pct:       Math.round((b.count / totalDevices) * 100),
+        stability: avg(b.stabilities),
+      }))
+
+    const toP = (n: number) => Math.round((n / totalDevices) * 100)
+
+    return {
+      totalDevices,
+      gpuClasses,
+      versionDist,
+      ramProfile: { low: toP(ramLow), medium: toP(ramMedium), high: toP(ramHigh) },
+      lastScanned: lastTs,
+    }
+  } catch {
+    return _FLEET_EMPTY
+  }
+}
+
+// ── Rollout Plans ─────────────────────────────────────────────────────────────
+
+import type { RolloutPlan, RolloutStage, RolloutStageStatus } from '../types/superadmin'
+
+export interface RolloutHealthStats {
+  version:        string
+  stabilityScore: number
+  criticalEvents: number
+  totalEvents:    number
+  /** true → sağlık kritik eşiğin altında, ilerleme durdurulmalı */
+  circuitBreaker: boolean
+}
+
+export interface CreateRolloutDTO {
+  version:     string
+  description: string
+  rollback_to: string | null
+}
+
+/** Varsayılan 3-aşamalı canary pipeline */
+function _defaultStages(): RolloutStage[] {
+  return [
+    { order: 0, target: 'internal',   percent: 1,   status: 'pending', started_at: null, completed_at: null, error_threshold_pct: 5  },
+    { order: 1, target: 'pilot',      percent: 5,   status: 'pending', started_at: null, completed_at: null, error_threshold_pct: 3  },
+    { order: 2, target: 'production', percent: 100, status: 'pending', started_at: null, completed_at: null, error_threshold_pct: 1  },
+  ]
+}
+
+/**
+ * Rollout planlarını döner.
+ * rollout_plans tablosu yoksa boş dizi döner (offline graceful).
+ *
+ * ⚠ Tablo SQL:
+ *   CREATE TABLE IF NOT EXISTS public.rollout_plans (
+ *     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ *     name text NOT NULL, version text NOT NULL,
+ *     description text NOT NULL DEFAULT '',
+ *     status text NOT NULL DEFAULT 'draft',
+ *     stages jsonb NOT NULL DEFAULT '[]',
+ *     rollback_to text,
+ *     created_at timestamptz NOT NULL DEFAULT now(),
+ *     created_by uuid, approved_by uuid, approved_at timestamptz
+ *   );
+ *   GRANT SELECT, INSERT, UPDATE ON public.rollout_plans TO authenticated;
+ *   GRANT ALL ON public.rollout_plans TO service_role;
+ *   ALTER TABLE public.rollout_plans ENABLE ROW LEVEL SECURITY;
+ *   CREATE POLICY "superadmin_rollouts" ON public.rollout_plans
+ *     FOR ALL TO authenticated
+ *     USING ((auth.jwt() -> 'app_metadata' ->> 'role') = 'super_admin');
+ */
+export async function getRolloutPlans(): Promise<RolloutPlan[]> {
+  try {
+    const { data, error } = await supabase
+      .from('rollout_plans')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error || !data) return []
+    return data as unknown as RolloutPlan[]
+  } catch {
+    return []
+  }
+}
+
+/** Yeni rollout planı oluşturur ve audit log'a kaydeder. */
+export async function createRolloutPlan(
+  dto:     CreateRolloutDTO,
+  actorId: string,
+): Promise<RolloutPlan> {
+  const now  = new Date().toISOString()
+  const plan = {
+    name:        `Release ${dto.version}`,
+    version:     dto.version,
+    description: dto.description,
+    status:      'draft',
+    stages:      _defaultStages(),
+    rollback_to: dto.rollback_to,
+    created_at:  now,
+    created_by:  actorId,
+    approved_by: null,
+    approved_at: null,
+  }
+
+  const { data, error } = await supabase
+    .from('rollout_plans')
+    .insert(plan)
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  await auditAction({
+    actor_id:    actorId,
+    action:      'rollout.create',
+    target_type: 'rollout',
+    target_id:   (data as { id: string }).id,
+    before:      null,
+    after:       plan,
+    metadata:    { version: dto.version },
+    severity:    'info',
+  })
+
+  return data as unknown as RolloutPlan
+}
+
+/** Belirli bir aşamanın durumunu günceller. */
+export async function updateRolloutStage(
+  planId:   string,
+  stageIdx: number,
+  status:   RolloutStageStatus,
+  actorId:  string,
+): Promise<void> {
+  // Mevcut aşamaları oku
+  const { data: existing, error: fetchErr } = await supabase
+    .from('rollout_plans')
+    .select('stages, status, version')
+    .eq('id', planId)
+    .single()
+
+  if (fetchErr || !existing) throw new Error('Plan bulunamadı')
+
+  const stages = [...((existing as { stages: RolloutStage[] }).stages)]
+  if (!stages[stageIdx]) throw new Error('Aşama bulunamadı')
+
+  const now = new Date().toISOString()
+  stages[stageIdx] = {
+    ...stages[stageIdx],
+    status,
+    started_at:   status === 'active'   ? now : stages[stageIdx].started_at,
+    completed_at: status === 'complete' ? now : null,
+  }
+
+  // Plan genel durumunu hesapla
+  const allComplete = stages.every((s) => s.status === 'complete')
+  const anyFailed   = stages.some((s) => s.status === 'failed')
+  const anyActive   = stages.some((s) => s.status === 'active')
+  const planStatus: RolloutPlan['status'] = allComplete ? 'complete'
+    : anyFailed ? 'paused'
+    : anyActive ? 'rolling'
+    : (existing as { status: string }).status as RolloutPlan['status']
+
+  const { error } = await supabase
+    .from('rollout_plans')
+    .update({ stages, status: planStatus })
+    .eq('id', planId)
+
+  if (error) throw new Error(error.message)
+
+  await auditAction({
+    actor_id:    actorId,
+    action:      status === 'active' ? 'rollout.start' : `rollout.stage.${status}`,
+    target_type: 'rollout',
+    target_id:   planId,
+    before:      null,
+    after:       { stageIdx, status, version: (existing as { version: string }).version },
+    metadata:    { stageIdx, version: (existing as { version: string }).version },
+    severity:    status === 'failed' ? 'warning' : 'info',
+  })
+}
+
+/**
+ * Belirli bir versiyon için telemetri tabanlı sağlık raporu döner.
+ * circuit_breaker: stability < 60 ise true (ilerleme durdurulmalı).
+ */
+export async function getRolloutHealth(version: string): Promise<RolloutHealthStats> {
+  const fallback: RolloutHealthStats = {
+    version, stabilityScore: 100, criticalEvents: 0, totalEvents: 0, circuitBreaker: false,
+  }
+  try {
+    const since = new Date(Date.now() - 6 * 3_600_000).toISOString()
+    const { data, error } = await supabase
+      .from('vehicle_events')
+      .select('payload')
+      .eq('type', 'system_health')
+      .gte('created_at', since)
+      .limit(200)
+
+    if (error || !data) return fallback
+
+    const rows = (data as Array<{ payload: HealthPayload }>)
+      .filter((r) => _str(r.payload?.appVersion, '') === version)
+
+    if (rows.length === 0) return fallback
+
+    let critical = 0
+    rows.forEach((r) => {
+      if (_str(r.payload?.overallHealth, 'healthy') === 'critical') critical++
+    })
+
+    const score = _calcStabilityScore(rows.length, critical, 0, 0)
+    return {
+      version,
+      stabilityScore: score,
+      criticalEvents: critical,
+      totalEvents:    rows.length,
+      circuitBreaker: score < 60,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+// ── Audit Log API ─────────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  id:         string
+  actor_id:   string | null
+  action:     string
+  target:     string
+  before_val: unknown
+  after_val:  unknown
+  severity:   'info' | 'warning' | 'critical'
+  created_at: string
+}
+
+/**
+ * Denetim kayıtlarını döner.
+ * @param limit        Maksimum kayıt sayısı (varsayılan 100)
+ * @param criticalOnly Yalnızca 'critical' severity kayıtları
+ */
+export async function getAuditLogs(
+  limit        = 100,
+  criticalOnly = false,
+): Promise<AuditLogEntry[]> {
+  try {
+    let query = supabase
+      .from('audit_logs')
+      .select('id, actor_id, action, target, before_val, after_val, severity, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (criticalOnly) query = query.eq('severity', 'critical')
+
+    const { data, error } = await query
+    if (error || !data) return []
+    return data as AuditLogEntry[]
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Tek bir denetim kaydının tüm detaylarını döner.
+ */
+export async function getAuditLogDetail(id: string): Promise<AuditLogEntry | null> {
+  try {
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+    if (error || !data) return null
+    return data as AuditLogEntry
+  } catch {
+    return null
+  }
+}
+
+// ── Fleet Limp Mode ───────────────────────────────────────────────────────────
+
+const ALL_FLAG_KEYS = [
+  'crm',
+  'hazard_intelligence',
+  'safety_copilot',
+  'predictive_intelligence',
+  'voice_extras',
+] as const
+
+/**
+ * Acil durum: tüm feature flag'leri devre dışı bırakır.
+ * remoteConfigService 10 dakika içinde değişikliği araçlara iletir.
+ * Audit log'a 'system.emergency_limp_mode' / 'critical' kaydeder.
+ *
+ * @throws İşlem başarısız olursa hata fırlatır — UI yakalayıp göstermelidir.
+ */
+export async function activateFleetLimpMode(actorId: string): Promise<void> {
+  // Mevcut flag durumlarını kaydet (audit before)
+  const { data: before } = await supabase
+    .from('feature_flags')
+    .select('key, enabled')
+
+  // Tüm flagleri kapat (batch upsert)
+  const now = new Date().toISOString()
+  const { error } = await supabase
+    .from('feature_flags')
+    .upsert(
+      ALL_FLAG_KEYS.map((key) => ({
+        key,
+        enabled:         false,
+        rollout_percent: 0,
+        updated_at:      now,
+        updated_by:      actorId,
+      })),
+      { onConflict: 'key' },
+    )
+
+  if (error) throw new Error(`Limp Mode failed: ${error.message}`)
+
+  // Audit kaydı — kritik önem
+  await auditAction({
+    actor_id:    actorId,
+    action:      'system.emergency_limp_mode',
+    target_type: 'system',
+    target_id:   'fleet',
+    before:      before ?? [],
+    after:       {
+      allFlagsDisabled: true,
+      affectedFlags:    ALL_FLAG_KEYS,
+      timestamp:        now,
+    },
+    metadata:    { flagCount: ALL_FLAG_KEYS.length, reason: 'MANUAL_EMERGENCY' },
+    severity:    'critical',
+  })
+}
+
+// ── Incident Black Box Replay ──────────────────────────────────────────────────
+
+/**
+ * Belirli bir olayın öncesindeki 15 dakikalık sistem snapshot dizisini getirir.
+ * Filo geneli zaman penceresi kullanılır — cihaz filtreleme gizlilik sebebiyle
+ * yalnızca deviceHash görüntü amaçlıdır, SQL filtreye uygulanmaz.
+ *
+ * @param _deviceHash Görüntüleme amacıyla saklanır, filtre için kullanılmaz.
+ * @param targetTs    İncident zaman damgası (window'un sonu).
+ * @returns Kronolojik sıralı, maksimum 50 veri noktası.
+ */
+export async function getIncidentSequence(
+  _deviceHash: string,
+  targetTs:    string,
+): Promise<IncidentDataPoint[]> {
+  const windowStart = new Date(
+    new Date(targetTs).getTime() - 15 * 60_000,
+  ).toISOString()
+
+  try {
+    const { data, error } = await supabase
+      .from('vehicle_events')
+      .select('id, created_at, payload')
+      .eq('type', 'system_health')
+      .gte('created_at', windowStart)
+      .lte('created_at', targetTs)
+      .order('created_at', { ascending: true })
+      .limit(50)
+
+    if (error || !data || data.length === 0) return []
+
+    return (data as VehicleEventRow[]).map((row) => {
+      const p = row.payload ?? {}
+      return {
+        ts:             row.created_at,
+        thermalLevel:   Math.max(0, Math.min(3, _num(p.thermalLevel, 0))),
+        ramPressure:    Math.round(_num(p.ramPressureRatio, 0) * 100),
+        workerRestarts: _num(p.workerRestartTotal, 0),
+        uiFreezeCount:  _num(p.uiFreezeCount, 0),
+        overallHealth:  _str(p.overallHealth, 'healthy'),
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+// ── Live Event Stream ──────────────────────────────────────────────────────────
+
+export type LiveEventTag = 'OK' | 'RECOVERY' | 'WARN' | 'PANIC'
+
+export interface LiveEvent {
+  /** Supabase row UUID */
+  id:         string
+  /** ISO timestamp */
+  ts:         string
+  /** 6-char anonymized device fingerprint */
+  deviceHash: string
+  tag:        LiveEventTag
+  message:    string
+  /** Hysteresis gruplama sayacı */
+  count:      number
+  /** Fade-in için mount flag — bileşen tarafında temizlenir */
+  isNew:      boolean
+}
+
+/** 6 karakterlik anonimleştirilmiş cihaz parmak izi */
+function _hashDevice(id: string | null | undefined): string {
+  if (!id) return 'UNKNWN'
+  return id.replace(/-/g, '').slice(0, 6).toUpperCase()
+}
+
+/** Ham payload → insan okunabilir operasyonel mesaj */
+function _parseEvent(
+  type:    string,
+  payload: HealthPayload,
+): { tag: LiveEventTag; message: string } {
+  if (type === 'critical_error') {
+    return { tag: 'PANIC', message: 'Critical Error: System Fault Detected' }
+  }
+
+  const health   = _str(payload.overallHealth, 'healthy')
+  const thermal  = _num(payload.thermalLevel, 0)
+  const freezes  = _num(payload.uiFreezeCount, 0)
+  const restarts = _num(payload.workerRestartTotal, 0)
+  const version  = _str(payload.appVersion, '?')
+
+  if (thermal >= 3)           return { tag: 'PANIC',    message: 'Thermal: L3 Emergency — System Evacuation Active' }
+  if (health === 'critical')  return { tag: 'PANIC',    message: `System: Critical Health — Services Failing (v${version})` }
+  if (thermal === 2)          return { tag: 'WARN',     message: 'Thermal: Entered L2 Throttling — CRM Suspended' }
+  if (health === 'degraded')  return { tag: 'WARN',     message: `System: Degraded State — Service Pressure Detected (v${version})` }
+  if (thermal === 1)          return { tag: 'WARN',     message: 'Thermal: L1 Warning — Throttling Active' }
+  if (freezes > 0)            return { tag: 'WARN',     message: `UI: Thread Freeze ×${freezes} Detected` }
+  if (restarts > 0)           return { tag: 'RECOVERY', message: `Worker: Restart ×${restarts} — Auto-Recovery Active` }
+
+  return { tag: 'OK', message: `System: All Services Nominal (v${version})` }
+}
+
+/**
+ * vehicle_events tablosunu gerçek zamanlı dinler.
+ * system_health ve critical_error tipleri için callback ateşlenir.
+ * Privacy-First: vehicle_id asla callback'e iletilmez — yalnızca 6-char hash.
+ *
+ * @returns cleanup fonksiyonu — useEffect return'üne ekle.
+ *
+ * ⚠️ Ön koşul: Supabase Dashboard → Database → Replication →
+ *    "vehicle_events" tablosu realtime publication'a eklenmiş olmalı.
+ */
+export function subscribeToLiveEvents(
+  onEvent: (event: LiveEvent) => void,
+): () => void {
+  const channel = supabase
+    .channel('sa-live-vehicle-events')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'vehicle_events' },
+      (change: { new: Record<string, unknown> }) => {
+        const row = change.new
+        const type = _str(row['type'], '')
+
+        // İstemci tarafı filtre — sadece ilgili tipler
+        if (type !== 'system_health' && type !== 'critical_error') return
+
+        const payload    = (row['payload'] ?? {}) as HealthPayload
+        const deviceHash = _hashDevice(
+          (row['vehicle_id'] as string | undefined) ?? (row['id'] as string | undefined),
+        )
+        const { tag, message } = _parseEvent(type, payload)
+
+        onEvent({
+          id:         _str(row['id'], crypto.randomUUID()),
+          ts:         _str(row['created_at'], new Date().toISOString()),
+          deviceHash,
+          tag,
+          message,
+          count:      1,
+          isNew:      true,
+        })
+      },
+    )
+    .subscribe()
+
+  return () => { void supabase.removeChannel(channel) }
 }
 
 // ── Feature Flags ──────────────────────────────────────────────────────────────

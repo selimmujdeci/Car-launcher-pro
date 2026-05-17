@@ -232,12 +232,23 @@ export interface FleetStats {
  *   await auditAction({ action: 'policy.create', target_type: 'policy', ... })
  */
 export async function auditAction(dto: CreateAuditLogDTO & { actor_id: string }): Promise<void> {
-  // TODO(superadmin): Supabase 'audit_logs' tablosuna yazma entegrasyonu
-  // await supabase.from('audit_logs').insert({ ...dto, ts: new Date().toISOString() })
+  try {
+    const { supabase } = await import('../lib/supabaseClient')
+    await supabase.from('audit_logs').insert({
+      actor_id:   dto.actor_id,
+      action:     dto.action,
+      target:     `${dto.target_type}:${dto.target_id}`,
+      before_val: dto.before   ?? null,
+      after_val:  dto.after    ?? null,
+      severity:   dto.severity,
+    })
+  } catch {
+    // Audit yazma başarısız olsa bile asıl işlemi engellemez
+  }
   if (import.meta.env.DEV) {
     console.info(
       `[AuditLog] ${dto.actor_id} → ${dto.action} [${dto.target_type}:${dto.target_id}]`,
-      { severity: dto.severity, meta: dto.metadata },
+      { severity: dto.severity },
     )
   }
 }

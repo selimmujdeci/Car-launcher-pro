@@ -5,7 +5,7 @@
  * VehicleDataLayer üzerinden birleşik akışını test eder.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach as _afterEach } from 'vitest';
 
 /* ── Environment Setup ─────────────────────────────── */
 vi.hoisted(() => {
@@ -101,7 +101,7 @@ describe('OBD + GPS Integration', () => {
     it('OBD speed=0 iken GPS>10 → ValidationGuard tetiklenir', async () => {
       // Bu test senaryosu: EV profili seçildiğinde OBD speed=0 ama GPS>10
       // ValidationGuard 5 ardışık tutarsızlıkta StandardProfile'e döner
-      const validationMisses = 5;
+      const _validationMisses = 5;
       const gpsSpeedKmh = 15;
       const obdSpeed = 0;
 

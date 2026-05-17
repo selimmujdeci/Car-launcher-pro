@@ -4,7 +4,7 @@
  * Adaptive Runtime Manager'ın hysteresis ve mode geçişlerini test eder.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi as _vi } from 'vitest';
 import { RUNTIME_MODE_SCENARIOS, HYSTERESIS_SCENARIOS } from './fixtures/integration';
 
 describe('Runtime Manager Integration', () => {
@@ -43,7 +43,7 @@ describe('Runtime Manager Integration', () => {
   describe('Hysteresis behavior', () => {
     HYSTERESIS_SCENARIOS.forEach((scenario) => {
       it(`${scenario.name}`, () => {
-        const { currentMode, requestedMode, shouldTransition, reason } = scenario;
+        const { currentMode, requestedMode, shouldTransition, reason: _reason } = scenario;
 
         const modeRank: Record<string, number> = {
           SAFE_MODE: 0,

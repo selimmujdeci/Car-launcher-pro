@@ -28,7 +28,7 @@ let _samples:    BlackBoxSample[] = [];
 let _cursor      = 0;
 let _startTime   = 0;
 let _tickTimer:  ReturnType<typeof setInterval> | null = null;
-let _listeners   = new Set<ReplayListener>();
+const _listeners   = new Set<ReplayListener>();
 
 /* ── Internal helpers ─────────────────────────────────────────────────────── */
 

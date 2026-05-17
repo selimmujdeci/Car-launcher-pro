@@ -1,34 +1,20 @@
 /**
- * HealthCenter — Sistem Sağlık Merkezi (Faz 2: Gerçek Veri)
+ * HealthCenter — Sistem Sağlık Merkezi (Bento Box Layout)
  *
- * Privacy-First:
- *   Bireysel araç/kullanıcı verisi içermez.
- *   Yalnızca anonim, filo geneli toplamalı sağlık metrikleri gösterir.
+ * Privacy-First: bireysel araç/kullanıcı verisi içermez.
+ * Veri akışı: vehicle_events → getFleetHealthStats → 60s poll
  *
- * Veri Akışı:
- *   telemetryService → vehicle_events (system_health) → getFleetHealthStats()
- *   Yenileme: manuel veya 60s otomatik poll (mount'ta bir kez + interval).
+ * Layout (12-kolon Bento):
+ *   Row 1: Stability Score (5) | Critical (2) | Thermal L3 (2) | UI Freeze (2) | Restarts (1)
+ *   Row 2: Fleet activity bar (7) | Version breakdown (5)
+ *   Row 3: Incident tablosu (12)
+ *   Row 4: Live Event Stream (12)
  */
 
 import { useEffect, useState, useCallback } from 'react'
-import type { ServiceHealth, SystemHealthSnapshot, HealthStatus } from '../../types/superadmin'
-import { Card }   from '../../components/ui/Card'
-import { Badge }  from '../../components/ui/Badge'
-import { Button } from '../../components/ui/Button'
 import {
-  Activity,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Clock,
-  RefreshCw,
-  Zap,
-  Database,
-  Globe,
-  Server,
-  Cpu,
-  Thermometer,
-  RotateCcw,
+  Activity, AlertTriangle, CheckCircle, XCircle,
+  Clock, RefreshCw, Thermometer, RotateCcw, Zap,
 } from 'lucide-react'
 import {
   getFleetHealthStats,
@@ -36,75 +22,52 @@ import {
   type FleetHealthStats,
   type IncidentLog,
 } from '../../services/superadmin.service'
+import { MetricCard }      from '../../components/superadmin/MetricCard'
+import { LiveEventStream } from '../../components/superadmin/LiveEventStream'
+import { IncidentReplay }  from './IncidentReplay'
+import { Button }          from '../../components/ui/Button'
+import '../../styles/admin-enterprise.css'
 
-// ── Tip Yardımcıları ──────────────────────────────────────────────────────────
+// ── Renk yardımcıları ─────────────────────────────────────────────────────────
 
-function _statusVariant(s: HealthStatus): 'success' | 'warning' | 'danger' | 'muted' {
-  switch (s) {
-    case 'healthy':  return 'success'
-    case 'degraded': return 'warning'
-    case 'critical': return 'danger'
-    default:         return 'muted'
-  }
+function scoreColor(n: number): string {
+  if (n >= 80) return '#4ade80'
+  if (n >= 60) return '#d97706'
+  if (n >= 40) return '#ea580c'
+  return '#dc2626'
 }
 
-function _statusLabel(s: HealthStatus): string {
-  switch (s) {
-    case 'healthy':  return 'Sağlıklı'
-    case 'degraded': return 'Düşük Performans'
-    case 'critical': return 'Kritik'
-    default:         return 'Bilinmiyor'
-  }
-}
-
-function _statusIcon(s: HealthStatus) {
-  const props = { size: 14 } as const
-  switch (s) {
-    case 'healthy':  return <CheckCircle {...props} style={{ color: '#4ade80' }} />
-    case 'degraded': return <AlertTriangle {...props} style={{ color: '#facc15' }} />
-    case 'critical': return <XCircle {...props} style={{ color: '#f87171' }} />
-    default:         return <Clock {...props} style={{ color: '#64748b' }} />
-  }
-}
-
-function _scoreColor(score: number): string {
-  if (score >= 80) return '#4ade80'
-  if (score >= 60) return '#facc15'
-  if (score >= 40) return '#fb923c'
-  return '#f87171'
+function scoreLabel(n: number): string {
+  if (n >= 80) return 'NOMINAL'
+  if (n >= 60) return 'ACCEPTABLE'
+  if (n >= 40) return 'DEGRADED'
+  return 'CRITICAL'
 }
 
 function _relTime(iso: string | null): string {
   if (!iso) return '—'
   const ms = Date.now() - new Date(iso).getTime()
-  if (ms < 60_000) return 'Az önce'
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} dk önce`
-  return `${Math.floor(ms / 3_600_000)} sa önce`
+  if (ms < 60_000)     return 'just now'
+  if (ms < 3_600_000)  return `${Math.floor(ms / 60_000)}m ago`
+  return `${Math.floor(ms / 3_600_000)}h ago`
 }
-
-// ── Bekleme servisleri ────────────────────────────────────────────────────────
-
-const EXPECTED_SERVICES: Array<{ name: string; icon: React.ReactNode }> = [
-  { name: 'API Gateway',      icon: <Globe     size={14} /> },
-  { name: 'Realtime Engine',  icon: <Zap       size={14} /> },
-  { name: 'Database',         icon: <Database  size={14} /> },
-  { name: 'Auth Service',     icon: <Server    size={14} /> },
-  { name: 'Compute Workers',  icon: <Cpu       size={14} /> },
-  { name: 'Storage',          icon: <Database  size={14} /> },
-]
 
 // ── HealthCenter ──────────────────────────────────────────────────────────────
 
 export function HealthCenter() {
-  const [stats,     setStats]     = useState<FleetHealthStats | null>(null)
-  const [incidents, setIncidents] = useState<IncidentLog[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [lastFetch, setLastFetch] = useState<number>(0)
+  const [stats,           setStats]           = useState<FleetHealthStats | null>(null)
+  const [incidents,       setIncidents]       = useState<IncidentLog[]>([])
+  const [loading,         setLoading]         = useState(true)
+  const [lastFetch,       setLastFetch]       = useState(0)
+  const [replayIncident,  setReplayIncident]  = useState<IncidentLog | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, i] = await Promise.all([getFleetHealthStats(24), getIncidentLogs(10)])
+      const [s, i] = await Promise.all([
+        getFleetHealthStats(24),
+        getIncidentLogs(20),
+      ])
       setStats(s)
       setIncidents(i)
       setLastFetch(Date.now())
@@ -113,493 +76,496 @@ export function HealthCenter() {
     }
   }, [])
 
-  // İlk yükle + 60s polling
   useEffect(() => {
     void load()
     const id = setInterval(() => { void load() }, 60_000)
     return () => clearInterval(id)
   }, [load])
 
-  // HealthCenter snapshot (servis uyumluluğu için)
-  const snapshot: SystemHealthSnapshot | null = stats && stats.totalEvents > 0
-    ? {
-        ts:        stats.lastUpdated ?? new Date().toISOString(),
-        overall:   stats.criticalEvents > 0 ? 'critical'
-                   : stats.degradedEvents > 0 ? 'degraded' : 'healthy',
-        services:  [],
-        incidents: incidents.filter((i) => i.severity === 'critical').map((i) => i.id),
-      }
-    : null
-
-  const scoreColor = stats ? _scoreColor(stats.stabilityScore) : '#64748b'
+  const score = stats?.stabilityScore ?? 100
+  const sColor = scoreColor(score)
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, maxWidth: 1280 }}>
 
-      {/* Sayfa başlığı */}
-      <div className="flex items-start justify-between gap-4">
+      {/* ── Black Box Replay Modal ───────────────────────────────────── */}
+      <IncidentReplay
+        incident={replayIncident}
+        onClose={() => setReplayIncident(null)}
+      />
+
+      {/* ── Page header ─────────────────────────────────────────────── */}
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 14 }}
+      >
         <div>
-          <h1 className="text-lg font-semibold" style={{ color: '#e2e8f0' }}>
-            Sistem Sağlık Merkezi
-          </h1>
-          <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
-            Son 24 saatin anonim filo sağlık verileri.
-            {lastFetch > 0 && (
-              <span style={{ color: '#334155' }}> · Son güncelleme: {_relTime(new Date(lastFetch).toISOString())}</span>
-            )}
+          <p
+            style={{
+              fontFamily:    'var(--sa-font-ui)',
+              fontSize:       11,
+              fontWeight:     600,
+              color:         '#4b5563',
+              letterSpacing: '0.10em',
+              textTransform: 'uppercase',
+            }}
+          >
+            HEALTH CENTER
+          </p>
+          <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
+            {lastFetch > 0
+              ? `Last sync ${_relTime(new Date(lastFetch).toISOString())} · 24h window`
+              : 'Loading fleet data…'}
           </p>
         </div>
         <Button
           variant="outline"
           size="sm"
           disabled={loading}
-          className="shrink-0"
           onClick={() => { void load() }}
         >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          Yenile
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          Sync
         </Button>
       </div>
 
-      {/* Fleet Stability Score */}
+      {/* ── ROW 1 — Bento grid ──────────────────────────────────────── */}
       <div
-        className="flex items-center gap-5 px-5 py-4 rounded-xl"
         style={{
-          background: `${scoreColor}08`,
-          border:     `1px solid ${scoreColor}20`,
+          display:             'grid',
+          gridTemplateColumns: '5fr 2fr 2fr 2fr 1fr',
+          gap:                  1,
+        }}
+      >
+        {/* Stability Score — büyük blok */}
+        <div
+          style={{
+            background:    '#0d0d0d',
+            border:        '1px solid #1a1a1a',
+            borderRadius:   2,
+            padding:       '18px 20px',
+          }}
+        >
+          <p className="sa-label" style={{ marginBottom: 12 }}>FLEET STABILITY SCORE</p>
+
+          {loading && !stats ? (
+            <div style={{ height: 52, background: '#111', borderRadius: 2, animation: 'pulse 2s infinite' }} />
+          ) : (
+            <>
+              <div className="flex items-end gap-3" style={{ marginBottom: 14 }}>
+                <span
+                  className="sa-mono"
+                  style={{ fontSize: 52, fontWeight: 700, color: sColor, lineHeight: 1, letterSpacing: '-0.04em' }}
+                >
+                  {score.toFixed(0)}
+                </span>
+                <span style={{ fontSize: 16, color: '#2d3748', fontFamily: 'var(--sa-font-mono)', marginBottom: 4 }}>
+                  / 100
+                </span>
+                <span
+                  className="sa-mono"
+                  style={{
+                    fontSize:      9,
+                    fontWeight:    700,
+                    color:         sColor,
+                    letterSpacing: '0.12em',
+                    marginBottom:   6,
+                    marginLeft:     4,
+                  }}
+                >
+                  {scoreLabel(score)}
+                </span>
+              </div>
+
+              {/* Linear gauge */}
+              <div className="sa-gauge-track">
+                <div
+                  className="sa-gauge-fill"
+                  style={{ width: `${score}%`, background: sColor }}
+                />
+              </div>
+
+              {/* Tick marks */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                {[0, 25, 50, 75, 100].map((t) => (
+                  <span
+                    key={t}
+                    className="sa-mono"
+                    style={{ fontSize: 8, color: score >= t ? '#2d3748' : '#1a1a1a' }}
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+
+              <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 10 }}>
+                {stats?.totalEvents ?? 0} health events analyzed · 24h window
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Critical */}
+        <MetricCard
+          label="Critical Events"
+          value={stats?.criticalEvents ?? '—'}
+          sub={`${stats?.totalEvents ?? 0} total`}
+          status={
+            !stats ? 'neutral'
+            : stats.criticalEvents > 5 ? 'critical'
+            : stats.criticalEvents > 0 ? 'warning'
+            : 'stable'
+          }
+          sparkData={stats?.criticalEvents != null
+            ? Array(8).fill(0).map((_, i) =>
+                i === 7 ? Math.min(100, stats.criticalEvents * 10) : 0)
+            : undefined}
+        />
+
+        {/* Thermal L3 */}
+        <MetricCard
+          label="Thermal L3"
+          value={stats?.thermalL3Count ?? '—'}
+          sub={`avg ${stats?.avgThermalLevel?.toFixed(1) ?? '—'} lvl`}
+          status={
+            !stats ? 'neutral'
+            : stats.thermalL3Count > 3 ? 'critical'
+            : stats.thermalL3Count > 0 ? 'warning'
+            : 'stable'
+          }
+        />
+
+        {/* UI Freeze */}
+        <MetricCard
+          label="UI Freeze"
+          value={stats?.uiFreezeTotal ?? '—'}
+          sub="thread blocks"
+          status={
+            !stats ? 'neutral'
+            : stats.uiFreezeTotal > 5 ? 'warning'
+            : stats.uiFreezeTotal > 0 ? 'warning'
+            : 'stable'
+          }
+        />
+
+        {/* Worker Restarts — küçük blok */}
+        <MetricCard
+          label="Restarts"
+          value={stats?.workerRestartTotal ?? '—'}
+          status={
+            !stats ? 'neutral'
+            : stats.workerRestartTotal > 5 ? 'warning'
+            : 'neutral'
+          }
+        />
+      </div>
+
+      {/* ── ROW 2 — Activity + Version breakdown ────────────────────── */}
+      <div
+        style={{
+          display:             'grid',
+          gridTemplateColumns: '7fr 5fr',
+          gap:                  1,
+          marginTop:            1,
+        }}
+      >
+        {/* Fleet activity */}
+        <div
+          style={{
+            background: '#0d0d0d',
+            border:     '1px solid #1a1a1a',
+            borderRadius: 2,
+            padding:    '14px 16px',
+          }}
+        >
+          <p className="sa-label" style={{ marginBottom: 12 }}>FLEET ACTIVITY — 24H</p>
+          {!stats || stats.totalEvents === 0 ? (
+            <div className="sa-empty" style={{ padding: '24px 0' }}>
+              SYSTEM_IDLE: No events in window
+            </div>
+          ) : (
+            <ActivityBar stats={stats} />
+          )}
+        </div>
+
+        {/* Version breakdown */}
+        <div
+          style={{
+            background: '#0d0d0d',
+            border:     '1px solid #1a1a1a',
+            borderRadius: 2,
+            padding:    '14px 16px',
+          }}
+        >
+          <p className="sa-label" style={{ marginBottom: 12 }}>ERROR DIST BY VERSION</p>
+          {!stats || stats.errorsByVersion.length === 0 ? (
+            <div className="sa-empty" style={{ padding: '24px 0' }}>
+              NO_ERRORS: All versions nominal
+            </div>
+          ) : (
+            <VersionBreakdown items={stats.errorsByVersion} />
+          )}
+        </div>
+      </div>
+
+      {/* ── ROW 3 — Incident table ──────────────────────────────────── */}
+      <div
+        style={{
+          background:   '#0d0d0d',
+          border:       '1px solid #1a1a1a',
+          borderRadius:  2,
+          marginTop:     1,
+          overflow:     'hidden',
         }}
       >
         <div
-          className="flex items-center justify-center rounded-xl shrink-0"
-          style={{ width: 52, height: 52, background: `${scoreColor}12`, border: `1px solid ${scoreColor}25` }}
+          className="flex items-center justify-between"
+          style={{ padding: '10px 12px', borderBottom: '1px solid #1a1a1a' }}
         >
-          <Activity size={22} style={{ color: scoreColor }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
-            Filo Kararlılık Skoru
-          </p>
-          {loading && !stats ? (
-            <div className="h-8 w-24 rounded animate-pulse" style={{ background: 'rgba(255,255,255,0.06)' }} />
-          ) : (
-            <div className="flex items-end gap-3">
-              <p className="text-3xl font-bold tabular-nums leading-none" style={{ color: scoreColor }}>
-                {stats?.stabilityScore ?? 100}
-              </p>
-              <p className="text-sm mb-0.5" style={{ color: '#64748b' }}>/ 100</p>
-            </div>
-          )}
-          <p className="text-xs mt-1" style={{ color: '#475569' }}>
-            Son 24 saat · {stats?.totalEvents ?? 0} sağlık olayı analiz edildi
-          </p>
-        </div>
-        {/* Score bar */}
-        <div style={{ width: 120, flexShrink: 0 }}>
-          <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-            <div style={{
-              height:     '100%',
-              width:      `${stats?.stabilityScore ?? 0}%`,
-              background: scoreColor,
-              transition: 'width 0.6s ease',
-            }} />
-          </div>
-          <p className="text-[10px] mt-1 text-right" style={{ color: '#334155' }}>
-            {stats ? (
-              stats.stabilityScore >= 80 ? 'Stabil' :
-              stats.stabilityScore >= 60 ? 'Kabul Edilebilir' :
-              stats.stabilityScore >= 40 ? 'Dikkat' : 'Kritik'
-            ) : '—'}
-          </p>
-        </div>
-      </div>
-
-      {/* Genel durum banner'ı */}
-      {loading && !snapshot ? (
-        <WaitingBanner />
-      ) : snapshot ? (
-        <OverallStatusBanner snapshot={snapshot} />
-      ) : null}
-
-      {/* Metrik kartlar */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <MetricCard
-          label="Kritik Olay"
-          value={stats ? String(stats.criticalEvents) : '—'}
-          sub={`Son 24 saat · ${stats?.totalEvents ?? 0} toplam`}
-          iconColor="#f87171"
-          icon={<XCircle size={15} />}
-          loading={loading && !stats}
-        />
-        <MetricCard
-          label="Termal L3"
-          value={stats ? String(stats.thermalL3Count) : '—'}
-          sub={`Ort. seviye: ${stats?.avgThermalLevel?.toFixed(1) ?? '—'}`}
-          iconColor="#fb923c"
-          icon={<Thermometer size={15} />}
-          loading={loading && !stats}
-        />
-        <MetricCard
-          label="UI Donma"
-          value={stats ? String(stats.uiFreezeTotal) : '—'}
-          sub="Tespit edilen toplam"
-          iconColor="#facc15"
-          icon={<AlertTriangle size={15} />}
-          loading={loading && !stats}
-        />
-        <MetricCard
-          label="Worker Restart"
-          value={stats ? String(stats.workerRestartTotal) : '—'}
-          sub="Toplam yeniden başlatma"
-          iconColor="#60a5fa"
-          icon={<RotateCcw size={15} />}
-          loading={loading && !stats}
-        />
-      </div>
-
-      {/* Sürüm bazlı hata dağılımı */}
-      {stats && stats.errorsByVersion.length > 0 && (
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#64748b' }}>
-              Uygulama Versiyonu Bazlı Hata Dağılımı
-            </p>
-            <span className="text-[11px]" style={{ color: '#475569' }}>
-              healthy olmayan eventler
-            </span>
-          </div>
-          <div className="space-y-2">
-            {stats.errorsByVersion.map(({ version, count }) => {
-              const maxCount = stats.errorsByVersion[0]?.count ?? 1
-              const pct      = Math.round((count / maxCount) * 100)
-              return (
-                <div key={version} className="flex items-center gap-3">
-                  <code
-                    className="text-[11px] font-mono shrink-0 w-24 truncate"
-                    style={{ color: '#94a3b8' }}
-                  >
-                    {version}
-                  </code>
-                  <div className="flex-1" style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: '#f87171' }} />
-                  </div>
-                  <span className="text-[11px] tabular-nums shrink-0" style={{ color: '#64748b' }}>
-                    {count}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </Card>
-      )}
-
-      {/* Servis listesi */}
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#64748b' }}>
-            Servis Durumları
-          </p>
-          {!snapshot && (
-            <span className="text-[11px]" style={{ color: '#475569' }}>
-              Veri bekleniyor…
-            </span>
-          )}
-        </div>
-
-        {!snapshot ? (
-          <ServiceListSkeleton />
-        ) : snapshot.services.length > 0 ? (
-          <ServiceList services={snapshot.services} />
-        ) : (
-          <ServiceListSkeleton />
-        )}
-      </Card>
-
-      {/* Aktif incidentler */}
-      <Card>
-        <p className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: '#64748b' }}>
-          Son İncidentler
-        </p>
-        {loading && incidents.length === 0 ? (
-          <SkeletonList rows={3} />
-        ) : incidents.length === 0 ? (
-          <EmptyState
-            icon={<CheckCircle size={28} style={{ color: '#4ade80' }} />}
-            title="Aktif incident yok"
-            description="Son 24 saatte kritik veya düşük performanslı sistem olayı tespit edilmedi."
-          />
-        ) : (
-          <IncidentTable incidents={incidents} />
-        )}
-      </Card>
-
-      {/* Son olaylar zaman çizelgesi */}
-      <Card>
-        <p className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: '#64748b' }}>
-          Son Sistem Olayları
-        </p>
-        {loading && incidents.length === 0 ? (
-          <SkeletonList rows={4} />
-        ) : incidents.length === 0 ? (
-          <EmptyState
-            icon={<Activity size={28} style={{ color: '#475569' }} />}
-            title="Zaman çizelgesi boş"
-            description="Son 24 saatte incident kaydı yok."
-          />
-        ) : (
-          <IncidentTimeline incidents={incidents.slice(0, 8)} />
-        )}
-      </Card>
-
-    </div>
-  )
-}
-
-// ── Bekleme Durumu Banner ─────────────────────────────────────────────────────
-
-function WaitingBanner() {
-  return (
-    <div
-      className="flex items-center gap-4 px-5 py-4 rounded-xl"
-      style={{
-        background: 'rgba(59,130,246,0.05)',
-        border:     '1px solid rgba(59,130,246,0.15)',
-      }}
-    >
-      <div
-        className="flex items-center justify-center rounded-full shrink-0"
-        style={{ width: 36, height: 36, background: 'rgba(59,130,246,0.1)' }}
-      >
-        <Clock size={18} style={{ color: '#60a5fa' }} />
-      </div>
-      <div>
-        <p className="text-sm font-medium" style={{ color: '#93c5fd' }}>
-          Filo verisi bekleniyor…
-        </p>
-        <p className="text-xs mt-0.5" style={{ color: '#475569' }}>
-          vehicle_events tablosunda henüz system_health eventi yok.
-          Araçlar bağlandıkça bu alan dolacak.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ── Genel Durum Banner ────────────────────────────────────────────────────────
-
-function OverallStatusBanner({ snapshot }: { snapshot: SystemHealthSnapshot }) {
-  const statusColor = {
-    healthy:  { bg: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.2)', text: '#4ade80' },
-    degraded: { bg: 'rgba(234,179,8,0.08)', border: 'rgba(234,179,8,0.2)', text: '#facc15' },
-    critical: { bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.2)', text: '#f87171' },
-    unknown:  { bg: 'rgba(100,116,139,0.08)', border: 'rgba(100,116,139,0.2)', text: '#94a3b8' },
-  }[snapshot.overall]
-
-  return (
-    <div
-      className="flex items-center gap-4 px-5 py-4 rounded-xl"
-      style={{ background: statusColor.bg, border: `1px solid ${statusColor.border}` }}
-    >
-      {_statusIcon(snapshot.overall)}
-      <div>
-        <p className="text-sm font-medium" style={{ color: statusColor.text }}>
-          Genel Durum: {_statusLabel(snapshot.overall)}
-        </p>
-        <p className="text-[11px] mt-0.5" style={{ color: '#475569' }}>
-          Son kontrol: {new Date(snapshot.ts).toLocaleString('tr-TR')}
-          {snapshot.incidents.length > 0 && ` · ${snapshot.incidents.length} aktif incident`}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ── Metrik Kartı ──────────────────────────────────────────────────────────────
-
-interface MetricCardProps {
-  label:     string
-  value:     string
-  sub:       string
-  iconColor: string
-  icon:      React.ReactNode
-  loading?:  boolean
-}
-
-function MetricCard({ label, value, sub, iconColor, icon, loading }: MetricCardProps) {
-  return (
-    <Card>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[11px] font-medium uppercase tracking-wider" style={{ color: '#475569' }}>
-          {label}
-        </p>
-        <span style={{ color: iconColor }}>{icon}</span>
-      </div>
-      {loading ? (
-        <div className="h-8 w-16 rounded animate-pulse" style={{ background: 'rgba(255,255,255,0.06)' }} />
-      ) : (
-        <p className="text-2xl font-bold tabular-nums" style={{ color: '#e2e8f0' }}>
-          {value}
-        </p>
-      )}
-      <p className="text-[11px] mt-0.5" style={{ color: '#475569' }}>
-        {sub}
-      </p>
-    </Card>
-  )
-}
-
-// ── Servis Listesi ────────────────────────────────────────────────────────────
-
-function ServiceList({ services }: { services: ServiceHealth[] }) {
-  return (
-    <ul className="space-y-2">
-      {services.map((svc) => (
-        <li
-          key={svc.service}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
-          style={{ background: 'rgba(255,255,255,0.025)' }}
-        >
-          {_statusIcon(svc.status)}
-          <span className="flex-1 text-sm font-medium" style={{ color: '#e2e8f0' }}>
-            {svc.service}
+          <p className="sa-label">INCIDENT LOG</p>
+          <span style={{ fontSize: 9, color: '#2d3748', fontFamily: 'var(--sa-font-ui)' }}>
+            {incidents.length} records
           </span>
-          <Badge variant={_statusVariant(svc.status)}>
-            {_statusLabel(svc.status)}
-          </Badge>
-          {svc.latency_ms !== null && (
-            <span className="text-[11px] tabular-nums" style={{ color: '#475569' }}>
-              {svc.latency_ms}ms
-            </span>
-          )}
-        </li>
-      ))}
-    </ul>
-  )
-}
+        </div>
 
-// ── Servis Skeleton ───────────────────────────────────────────────────────────
-
-function ServiceListSkeleton() {
-  return (
-    <ul className="space-y-2">
-      {EXPECTED_SERVICES.map((svc) => (
-        <li
-          key={svc.name}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
-          style={{ background: 'rgba(255,255,255,0.025)' }}
-        >
-          <span style={{ color: '#334155' }}>{svc.icon}</span>
-          <span className="flex-1 text-sm" style={{ color: '#475569' }}>
-            {svc.name}
-          </span>
-          <div className="h-5 w-20 rounded-full animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
-          <div className="h-3.5 w-10 rounded animate-pulse" style={{ background: 'rgba(255,255,255,0.04)' }} />
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-// ── Incident Tablosu ──────────────────────────────────────────────────────────
-
-function IncidentTable({ incidents }: { incidents: IncidentLog[] }) {
-  return (
-    <ul className="space-y-2">
-      {incidents.map((inc) => (
-        <li
-          key={inc.id}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
-          style={{ background: 'rgba(255,255,255,0.02)' }}
-        >
-          {inc.severity === 'critical'
-            ? <XCircle size={14} style={{ color: '#f87171', flexShrink: 0 }} />
-            : <AlertTriangle size={14} style={{ color: '#facc15', flexShrink: 0 }} />
-          }
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <Badge variant={inc.severity === 'critical' ? 'danger' : 'warning'}>
-                {inc.severity === 'critical' ? 'Kritik' : 'Uyarı'}
-              </Badge>
-              <span className="text-[11px] tabular-nums" style={{ color: '#475569' }}>
-                {new Date(inc.ts).toLocaleString('tr-TR')}
-              </span>
-            </div>
-            <p className="text-[11px] mt-0.5 truncate" style={{ color: '#64748b' }}>
-              Termal L{inc.thermalLevel}
-              {inc.uiFreezeCount > 0 && ` · ${inc.uiFreezeCount} UI donma`}
-              {inc.restartCount > 0 && ` · ${inc.restartCount} restart`}
-              {' · v'}{inc.appVersion}
-            </p>
+        {loading && incidents.length === 0 ? (
+          <IncidentSkeleton />
+        ) : incidents.length === 0 ? (
+          <div className="sa-empty">
+            <CheckCircle size={18} style={{ color: '#4ade80', opacity: 0.5 }} />
+            NO_INCIDENTS: Fleet operating normally
           </div>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-// ── Incident Zaman Çizelgesi ──────────────────────────────────────────────────
-
-function IncidentTimeline({ incidents }: { incidents: IncidentLog[] }) {
-  return (
-    <div className="relative pl-5">
-      {/* Dikey çizgi */}
-      <div
-        className="absolute left-1.5 top-1 bottom-1"
-        style={{ width: 1, background: 'rgba(255,255,255,0.06)' }}
-      />
-      <ul className="space-y-4">
-        {incidents.map((inc) => (
-          <li key={inc.id} className="relative flex items-start gap-3">
-            {/* Nokta */}
+        ) : (
+          <div>
+            {/* Header */}
             <div
-              className="absolute -left-3.5 top-1 rounded-full shrink-0"
+              className="sa-inc-row"
+              style={{ background: '#080808', borderBottom: '1px solid #1a1a1a' }}
+            >
+              <span className="sa-label" style={{ width: 64 }}>TIME</span>
+              <span className="sa-label" style={{ width: 60 }}>SEV</span>
+              <span className="sa-label" style={{ width: 52 }}>VERSION</span>
+              <span className="sa-label" style={{ width: 56 }}>THERMAL</span>
+              <span className="sa-label" style={{ flex: 1 }}>DETAILS</span>
+            </div>
+            {incidents.map((inc) => (
+              <IncidentRow
+                key={inc.id}
+                inc={inc}
+                onClick={() => setReplayIncident(inc)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── ROW 4 — Live Event Stream ───────────────────────────────── */}
+      <div style={{ marginTop: 1 }}>
+        <LiveEventStream height={320} />
+        <p
+          style={{
+            marginTop:  4,
+            fontSize:    9,
+            color:      '#1a1a1a',
+            fontFamily: 'var(--sa-font-mono)',
+            letterSpacing: '0.06em',
+          }}
+        >
+          ⚠ Realtime: Supabase → Database → Replication → vehicle_events tablosunu publication'a ekle
+        </p>
+      </div>
+
+    </div>
+  )
+}
+
+// ── Activity Bar ──────────────────────────────────────────────────────────────
+
+function ActivityBar({ stats }: { stats: FleetHealthStats }) {
+  const total    = stats.totalEvents || 1
+  const segments = [
+    { label: 'Healthy',  count: stats.healthyEvents,  color: '#4ade80' },
+    { label: 'Degraded', count: stats.degradedEvents, color: '#d97706' },
+    { label: 'Critical', count: stats.criticalEvents, color: '#dc2626' },
+  ]
+
+  return (
+    <div>
+      {/* Stacked bar */}
+      <div
+        style={{
+          display:       'flex',
+          height:         6,
+          borderRadius:   1,
+          overflow:       'hidden',
+          background:    '#111',
+          marginBottom:   12,
+        }}
+      >
+        {segments.map((s) => (
+          <div
+            key={s.label}
+            style={{
+              width:      `${(s.count / total) * 100}%`,
+              background: s.color,
+              transition: 'width 600ms ease',
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 20 }}>
+        {segments.map((s) => (
+          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 1, background: s.color, flexShrink: 0 }} />
+            <span style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 10, color: '#4b5563' }}>
+              {s.label}
+            </span>
+            <span className="sa-mono" style={{ fontSize: 11, color: '#6b7280' }}>
+              {s.count}
+            </span>
+            <span style={{ fontSize: 9, color: '#374151' }}>
+              ({((s.count / total) * 100).toFixed(0)}%)
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Version Breakdown ─────────────────────────────────────────────────────────
+
+function VersionBreakdown({ items }: { items: FleetHealthStats['errorsByVersion'] }) {
+  const max = items[0]?.count ?? 1
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {items.map(({ version, count }) => (
+        <div key={version} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <code
+            className="sa-mono"
+            style={{ fontSize: 10, color: '#6b7280', width: 72, flexShrink: 0 }}
+          >
+            {version}
+          </code>
+          <div
+            style={{
+              flex:        1,
+              height:       3,
+              borderRadius: 1,
+              background:  '#111',
+              overflow:    'hidden',
+            }}
+          >
+            <div
               style={{
-                width:      7,
-                height:     7,
-                background: inc.severity === 'critical' ? '#f87171' : '#facc15',
-                flexShrink: 0,
+                height:     '100%',
+                width:      `${(count / max) * 100}%`,
+                background: '#dc2626',
+                opacity:     0.7,
               }}
             />
-            <div className="ml-2 min-w-0">
-              <p className="text-xs font-medium" style={{ color: '#94a3b8' }}>
-                {new Date(inc.ts).toLocaleString('tr-TR')}
-              </p>
-              <p className="text-[11px] mt-0.5" style={{ color: '#475569' }}>
-                {inc.overallHealth === 'critical' ? 'Kritik sistem durumu' : 'Düşük performans'}
-                {inc.thermalLevel >= 2 && ` · Termal L${inc.thermalLevel}`}
-                {inc.uiFreezeCount > 0 && ` · UI donma ×${inc.uiFreezeCount}`}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-// ── Skeleton Satırlar ─────────────────────────────────────────────────────────
-
-function SkeletonList({ rows }: { rows: number }) {
-  return (
-    <ul className="space-y-2">
-      {Array.from({ length: rows }).map((_, i) => (
-        <li key={i} className="h-10 rounded-lg animate-pulse" style={{ background: 'rgba(255,255,255,0.03)' }} />
+          </div>
+          <span className="sa-mono" style={{ fontSize: 10, color: '#4b5563', width: 24, textAlign: 'right' }}>
+            {count}
+          </span>
+        </div>
       ))}
-    </ul>
-  )
-}
-
-// ── Boş Durum ─────────────────────────────────────────────────────────────────
-
-function EmptyState({ icon, title, description }: {
-  icon:        React.ReactNode
-  title:       string
-  description: string
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center py-10 gap-3">
-      {icon}
-      <p className="text-sm font-medium" style={{ color: '#94a3b8' }}>{title}</p>
-      <p className="text-xs text-center max-w-sm" style={{ color: '#475569' }}>{description}</p>
     </div>
   )
 }
+
+// ── Incident Row ──────────────────────────────────────────────────────────────
+
+function IncidentRow({ inc, onClick }: { inc: IncidentLog; onClick: () => void }) {
+  const isCritical = inc.severity === 'critical'
+  return (
+    <div
+      className="sa-inc-row"
+      onClick={onClick}
+      title="Click to open Black Box Replay"
+      style={{ cursor: 'pointer' }}
+    >
+      <span
+        className="sa-mono"
+        style={{ fontSize: 10, color: '#4b5563', width: 64, flexShrink: 0 }}
+      >
+        {new Date(inc.ts).toLocaleTimeString('en-GB', { hour12: false })}
+      </span>
+      <span
+        style={{
+          width:         60,
+          flexShrink:    0,
+          fontSize:       9,
+          fontWeight:     700,
+          fontFamily:    'var(--sa-font-ui)',
+          letterSpacing: '0.08em',
+          color:         isCritical ? '#dc2626' : '#d97706',
+        }}
+      >
+        {isCritical ? 'CRITICAL' : 'WARN'}
+      </span>
+      <code
+        className="sa-mono"
+        style={{ fontSize: 10, color: '#6b7280', width: 52, flexShrink: 0 }}
+      >
+        v{inc.appVersion}
+      </code>
+      <span
+        style={{
+          width:      56,
+          flexShrink: 0,
+          fontSize:    10,
+          fontFamily: 'var(--sa-font-ui)',
+          color:      inc.thermalLevel >= 3 ? '#ea580c'
+                    : inc.thermalLevel >= 2 ? '#d97706'
+                    : '#4b5563',
+        }}
+      >
+        L{inc.thermalLevel}
+      </span>
+      <span
+        style={{
+          flex:       1,
+          fontSize:    10,
+          color:      '#4b5563',
+          fontFamily: 'var(--sa-font-ui)',
+          overflow:   'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {[
+          inc.uiFreezeCount > 0 && `freeze×${inc.uiFreezeCount}`,
+          inc.restartCount  > 0 && `restart×${inc.restartCount}`,
+          inc.overallHealth,
+        ].filter(Boolean).join(' · ')}
+      </span>
+    </div>
+  )
+}
+
+// ── Incident Skeleton ─────────────────────────────────────────────────────────
+
+function IncidentSkeleton() {
+  return (
+    <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            height:     28,
+            borderRadius: 2,
+            background:  '#0f0f0f',
+            animation:  'pulse 2s ease-in-out infinite',
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ── Unused imports cleanup — keep icons available for future use ──────────────
+void Activity; void AlertTriangle; void CheckCircle; void XCircle;
+void Clock; void Thermometer; void RotateCcw; void Zap;
