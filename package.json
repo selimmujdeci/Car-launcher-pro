@@ -21,7 +21,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
-    "postinstall": "playwright install --with-deps chromium"
+    "postinstall": "node -e \"if(process.env.CI||process.env.VERCEL){process.exit(0)}else{require('child_process').execSync('playwright install --with-deps chromium',{stdio:'inherit'})}\""
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
