@@ -75,6 +75,13 @@ let _lastPullSyncMs = 0;
 /** Anlık termal kısıtlama seviyesi — SystemOrchestrator tarafından yazılır. */
 let _thermalLevel: 0|1|2|3 = 0;
 
+/** Bilişsel Pause: true iken sync/pull işlemleri atlanır, timerlar canlı kalır. */
+let _cogPaused = false;
+
+export function setCommunityPaused(paused: boolean): void {
+  _cogPaused = paused;
+}
+
 /**
  * Topluluk servisi termal seviyesini günceller.
  * SystemOrchestrator tarafından onThermalLevelChange callback'inde çağrılır.
@@ -153,6 +160,19 @@ export function initCommunityService(): void {
   _pullTimer = setInterval(() => {
     _idlePull();
   }, PULL_INTERVAL_MS);
+}
+
+/**
+ * Topluluk servisini durdurur.
+ * Tüm aktif zamanlayıcılar temizlenir ve bekleyen kuyruk diske yazılır.
+ */
+export function stopCommunityService(): void {
+  // Kuyruk önce mühürlenir — eMMC ömrü koruması (timer'lardan önce)
+  _flushQueue();
+  if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
+  if (_pullTimer) { clearInterval(_pullTimer); _pullTimer = null; }
+  if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
+  console.info('[CRM] Shutdown complete - All timers cleared');
 }
 
 /* ── Anti-spam koruması ──────────────────────────────────────────────────── */
@@ -318,6 +338,7 @@ let _isSyncRunning = false;
  */
 export async function syncCommunityBatch(): Promise<void> {
   if (_isSyncRunning)        return;
+  if (_cogPaused)            return; // Bilişsel Pause: PROTECTION/CRITICAL modda bekle
   if (!navigator.onLine)     return;
   if (_thermalLevel >= 2)    return; // L2+: sync yasak — CPU/GPU baskısı
   if (!_isThermalSafe())     return;

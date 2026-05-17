@@ -453,7 +453,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       applyClass('');
       lastLowFPSRef.current = false;
       notifyLowFPS(false);
-      if (interactTimerRef.current) clearTimeout(interactTimerRef.current);
+      // DR uyarı timer'ı — rAF loop içinde oluşturuluyor, unmount'ta açık kalabilir
+      if (drWarnTimerRef.current) { clearTimeout(drWarnTimerRef.current); drWarnTimerRef.current = null; }
+      if (interactTimerRef.current) { clearTimeout(interactTimerRef.current); interactTimerRef.current = null; }
     };
   }, []); // mount-once; navStatusRef ref olduğu için dep'e girmez
 

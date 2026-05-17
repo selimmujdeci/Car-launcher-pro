@@ -4,7 +4,7 @@
  *
  * CLAUDE.md §3 + H-6 Async I/O direktifi:
  *  - Priority-Driven       : Kritik anahtarlar → sıfır debounce, doğrudan disk
- *  - Write Throttling      : Normal anahtarlar → 4s debounce (eMMC ömrü)
+ *  - Write Throttling      : Normal anahtarlar → 5s debounce (eMMC ömrü)
  *  - Double-Locking        : Kritik anahtarlar native'de localStorage (sync) + Filesystem (async)
  *  - Atomic Write (native) : .json.tmp → stat → rename → verify-read
  *  - Self-Healing          : verify-read hatası → localStorage backup → yeniden yaz
@@ -302,12 +302,44 @@ async function _fsRead(key: string): Promise<string | null> {
 
 /* ── Başlangıç ön yükleme ────────────────────────────────────── */
 
+/* ── Proaktif Temizlik ───────────────────────────────────────────────── */
+
+/** localStorage boyutunu byte cinsinden tahmin eder (UTF-16: 2 byte/karakter). */
+function _getLocalStorageUsageBytes(): number {
+  let total = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      total += key.length + (localStorage.getItem(key)?.length ?? 0);
+    }
+  } catch { /* private-mode veya kota kısıtlaması */ }
+  return total * 2;
+}
+
+/** %80 doluluk (≈4 MB) eşiğinde hata beklemeksizin LRU eviction çalıştırır. */
+function _proactiveEvictIfNeeded(): void {
+  const LS_THRESHOLD_BYTES = 4 * 1024 * 1024; // 4 MB ≈ %80 of 5 MB browser limit
+  try {
+    const usageBytes = _getLocalStorageUsageBytes();
+    if (usageBytes < LS_THRESHOLD_BYTES) return;
+    const evicted = safeLruEvict();
+    if (evicted > 0) {
+      console.warn(
+        `[safeStorage:ProactiveEvict] localStorage %80 doluluk aşıldı` +
+        ` (${(usageBytes / 1024 / 1024).toFixed(1)} MB) — ${evicted} anahtar temizlendi`,
+      );
+    }
+  } catch { /* ignore */ }
+}
+
 /**
  * Native modda Filesystem'daki tüm anahtarları _fsCache'e yükler.
  * main.tsx'de createRoot'tan ÖNCE await ile çağrılmalı; aksi halde
  * Zustand store'ları _fsCache boşken başlar ve varsayılan değerleri kullanır.
  */
 export async function initSafeStorageAsync(): Promise<void> {
+  _proactiveEvictIfNeeded(); // Her başlangıçta doluluk kontrolü — web + native
   if (!NATIVE || _fsCacheReady) return;
   _fsCacheReady = true;
 
@@ -328,10 +360,30 @@ export async function initSafeStorageAsync(): Promise<void> {
   }
 }
 
+/* ── eMMC Yazma Sayacı (doğrulama / fleet telemetri) ────────── */
+
+/**
+ * _commitToStorage çağrı sayacı — gerçek disk yazma sayısını ölçer.
+ * Hedef: 12 saatlik vardiyada önceki 4s debounce'a kıyasla %90 azalma.
+ * getEmmcWriteCount() ile dışarıdan okunur; Inspector/DevTools için.
+ */
+let _emmcWriteCount = 0;
+let _emmcWriteCountResetTs = Date.now();
+
+export function getEmmcWriteCount(): { count: number; sinceMs: number } {
+  return { count: _emmcWriteCount, sinceMs: Date.now() - _emmcWriteCountResetTs };
+}
+
+export function resetEmmcWriteCount(): void {
+  _emmcWriteCount = 0;
+  _emmcWriteCountResetTs = Date.now();
+}
+
 /* ── Disk yazma (quota-aware) ────────────────────────────────── */
 
 // Yalnızca _scheduleIdleWrite ve safeFlushAll/safeFlushKey/safeSetRawImmediate çağırır.
 async function _commitToStorage(key: string, value: string): Promise<void> {
+  _emmcWriteCount++;
   // Mali-400 Compliance: 100KB+ payload JSON.stringify'ı main thread'de bloke edebilir.
   // Uyarı yalnızca dev modda; prod'da sıfır overhead.
   if (import.meta.env.DEV && value.length > 102_400) {
@@ -391,10 +443,12 @@ function _cancelIdle(handle: number): void {
 /* ── Write buffer (Stage 1: debounce) ───────────────────────── */
 
 /**
- * CLAUDE.md §3: 4s debounce — GPS/OBD gibi rapid-fire kaynaklar
+ * CLAUDE.md §3: 5s debounce — GPS/OBD gibi rapid-fire kaynaklar
  * tek bir disk yazmasına indirgenir.
+ * 12 saatlik vardiya: ~8.640 GPS tick → teorik maks 8.640 yazma → 5s buffer ile ≤ 8.640/5 = 1.728 yazma.
+ * Hedef: %90 azalma (10x throttle).
  */
-const WRITE_DEBOUNCE_MS = 4_000;
+const WRITE_DEBOUNCE_MS = 5_000;
 
 /** Safety Debounce: slider/ayar burst → max 1Hz disk write (eMMC koruma) */
 const SAFETY_DEBOUNCE_MS = 1_000;
@@ -497,11 +551,27 @@ if (typeof window !== 'undefined') {
  *   Araç ayarları ve kaza logları RAM'de 1ms bile bekletilmez.
  *   Varsa önceki buffer/idle iptal edilir; native'de _fsCache anında güncellenir.
  *
- * NORMAL: 4s debounce → requestIdleCallback → _commitToStorage (eMMC ömrü)
+ * NORMAL: 5s debounce → requestIdleCallback → _commitToStorage (eMMC ömrü)
  *
  * @param debounceMs Normal yol için opsiyonel override — varsayılan WRITE_DEBOUNCE_MS
+ * @param immediate  true → debounce + idle scheduling atlanır, _commitToStorage anında çağrılır.
+ *                   Kullanım: odometer km gibi "kaybedilirse geri dönülemez" tek seferlik yazımlar.
+ *                   Dikkat: yüksek frekanslı döngülerde kullanma — eMMC ömrünü kısaltır.
  */
-export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUNCE_MS): void {
+export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUNCE_MS, immediate = false): void {
+  // ── Immediate override ───────────────────────────────────────
+  // Tüm debounce + idle scheduling atlanır; _commitToStorage doğrudan çağrılır.
+  // IMMEDIATE_WRITE_KEYS veya LRU_PROTECTED olmayan anahtarlar da kullanabilir.
+  if (immediate) {
+    const bw = _writeBuffer.get(key);
+    if (bw) { clearTimeout(bw.timer); _writeBuffer.delete(key); }
+    const h = _idleHandles.get(key);
+    if (h != null) { _cancelIdle(h); _idleHandles.delete(key); _idlePending.delete(key); }
+    if (NATIVE) _fsCache.set(key, value);
+    void _commitToStorage(key, value); // sayacı _commitToStorage içinde artırır
+    return;
+  }
+
   // ── Kritik yazım yolu ────────────────────────────────────────
   if (_isCritical(key)) {
     // ── Immediate Write: debounce yok — doğrudan _commitToStorage ──

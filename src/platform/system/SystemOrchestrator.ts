@@ -26,8 +26,11 @@ import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEn
 import { onThermalLevelChange, getThermalSnapshot } from '../thermalWatchdog';
 import type { ThermalSnapshot }                    from '../thermalWatchdog';
 import { runtimeManager }                          from '../../core/runtime/AdaptiveRuntimeManager';
-import { setCommunityThermalLevel }                from '../communityService';
+import { setCommunityThermalLevel, stopCommunityService } from '../communityService';
+import { useCognitiveStore }                        from '../../store/useCognitiveStore';
 import { showToast }                               from '../errorBus';
+import { thermalJournal }                          from './ThermalJournal';
+import { startRemoteConfigService }               from '../remoteConfigService';
 
 /**
  * isUserOverrideActive — Kullanıcının manuel tema/parlaklık değişikliği
@@ -72,6 +75,8 @@ export function startSystemOrchestrator(): () => void {
   let _prevTripActive      = false; // onTripState geçiş tespiti için
 
   startCognitiveEngine();
+  thermalJournal.start();
+  const stopRemoteConfig = startRemoteConfigService();
 
   /* ── Termal Action Matrix ────────────────────────────────── */
   // Sadece event-driven — poll yok, overhead sıfır.
@@ -81,22 +86,33 @@ export function startSystemOrchestrator(): () => void {
     const level = snap.level;
     runtimeManager.setThermalConstraint(level);
     setCommunityThermalLevel(level);
+    thermalJournal.record(level);
 
     if (level === 3) {
-      // L3: POWER_SAVE tavanı + bellek baskısı + bildirim
-      runtimeManager.handleMemoryPressure('MODERATE');
+      // L3: Sistem Tahliyesi — CRITICAL bellek baskısı + LIMP_HOME + non-critical alertleri temizle
+      runtimeManager.handleMemoryPressure('CRITICAL');
+      useCognitiveStore.getState().setMode('LIMP_HOME');
+      // Non-critical alertleri ekrandan kaldır — yalnızca CRITICAL kalır
+      useSystemStore.getState().activeAlerts
+        .filter((a) => a.severity !== 'CRITICAL')
+        .forEach((a) => {
+          _cancelTimer(a.id);
+          useSystemStore.getState().dismissAlert(a.id);
+        });
       showToast({
         type:     'error',
-        title:    'Kritik Isı Uyarısı',
-        message:  'Sistem kritik sıcaklıkta — tüm arka plan işlemleri durduruldu.',
+        title:    'Kritik Isı — Sistem Tahliyesi',
+        message:  'Sistem kritik sıcaklıkta — arka plan servisleri durduruldu.',
         duration: 10_000,
       });
       speakAlert('Sistem sıcaklığı kritik seviyede. Lütfen araçta uygun koşullar sağlayın.');
     } else if (level === 2) {
+      // L2: CRM senkronizasyonu tamamen durdur (L1'de yalnızca kısıtlanıyordu)
+      stopCommunityService();
       showToast({
         type:     'warning',
         title:    'Yüksek Sıcaklık',
-        message:  'Termal koruma aktif — arka plan senkronizasyonu duraklatıldı.',
+        message:  'Termal koruma aktif — topluluk senkronizasyonu durduruldu.',
         duration: 8_000,
       });
     } else if (level === 1) {
@@ -247,7 +263,9 @@ export function startSystemOrchestrator(): () => void {
 
   /* ── Cleanup ─────────────────────────────────────────────── */
   return () => {
+    stopRemoteConfig();
     stopCognitiveEngine();
+    thermalJournal.stop();
     unsubThermal();
     unsubVehicle();
     unsubTrip();

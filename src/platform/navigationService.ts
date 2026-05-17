@@ -14,6 +14,7 @@ import {
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
 import { corridorSync } from '../core/navigation/CorridorSyncEngine';
+import { safeSetRawImmediate, safeGetRaw, safeRemoveRaw } from '../utils/safeStorage';
 // Phase H1 re-export kaldırıldı (H5 circular import fix).
 // startHazardEngine / stopHazardEngine doğrudan hazardService.ts'ten import edilebilir.
 
@@ -148,6 +149,8 @@ export function startNavigation(destination: Address, isOffline = false): void {
   _unregisterReroutingCb = registerReroutingCallback(
     (val) => useNavigationStore.getState().setRerouting(val),
   );
+  // Crash recovery: varış noktasını anında mühürle (debounce bypass)
+  _sealNavState(destination, 0, false);
 }
 
 /**
@@ -171,6 +174,8 @@ export function activateNavigation(): void {
     // HUD güvencesi: offline/daemon modda steps boş gelebilir — sentinel enjekte et
     const { destination } = useNavigationStore.getState();
     if (destination) {
+      // Crash recovery: ACTIVE geçişini ve mevcut step'i mühürle
+      _sealNavState(destination, _lastPersistedStepIdx < 0 ? 0 : _lastPersistedStepIdx, true);
       injectSentinelStepIfEmpty(destination.latitude, destination.longitude);
     }
     // Konum merkezi kaynaktan gelir (useUnifiedVehicleStore) — yerel DR yok
@@ -190,6 +195,8 @@ export function setNavStatus(status: NavStatus, errorMessage?: string): void {
  * Navigasyonu durdur ve IDLE'a dön.
  */
 export function stopNavigation(): void {
+  safeRemoveRaw(NAV_PERSIST_KEY); // Crash recovery mührünü temizle — kullanıcı iptal etti
+  _lastPersistedStepIdx = -1;
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
   _unregisterReroutingCb?.(); _unregisterReroutingCb = null;
   useNavigationStore.getState().clearNavigation();
@@ -230,6 +237,85 @@ export function getNavigationState(): NavigationState {
     isOfflineResult:    s.isOfflineResult,
     errorMessage:       s.errorMessage,
   };
+}
+
+/**
+ * Crash Recovery — Phase S3 Zero-Touch Navigation Restore.
+ *
+ * Uygulama crash/LBO ile kapanırken mühürlenen navigasyon state'ini geri yükler.
+ * GPS fix beklenmeksizin PREVIEW modunda rota çizilir; fix gelince ACTIVE'e geçer.
+ * Tüm süreç sessizdir — TTS çalışmaz, kullanıcıyı korkutmaz.
+ *
+ * @returns true — başarılı geri yükleme, false — mühürlü veri yok veya süresi geçmiş
+ */
+export async function restoreNavigationAsync(): Promise<boolean> {
+  try {
+    const raw = safeGetRaw(NAV_PERSIST_KEY);
+    if (!raw) return false;
+
+    const persist = JSON.parse(raw) as NavPersistState;
+
+    // ── Bütünlük Denetimi (Integrity Check) ──────────────────────────────────
+    // Koordinat geçerliliği: NaN / Infinity / null island (0,0) reddedilir
+    const lat = persist.destination?.latitude;
+    const lng = persist.destination?.longitude;
+    const coordsOk = Number.isFinite(lat) && Number.isFinite(lng) &&
+                     !(lat === 0 && lng === 0);
+
+    // Step geçerliliği: negatif veya sonsuz index kabul edilmez
+    const stepOk = Number.isFinite(persist.stepIndex) && persist.stepIndex >= 0;
+
+    // Tazelik filtresi
+    const fresh = (Date.now() - persist.ts) <= NAV_PERSIST_MAX_AGE_MS;
+
+    if (!persist.destination || !coordsOk || !stepOk || !fresh) {
+      safeRemoveRaw(NAV_PERSIST_KEY);
+      if (import.meta.env.DEV) {
+        console.info('[NavRestore] Yolculuk güncelleniyor — bütünlük denetimi başarısız, sessiz iptal');
+      }
+      return false;
+    }
+
+    // PREVIEW modunda rota hazırla — TTS yok (sessiz crash recovery)
+    startNavigation(persist.destination, false);
+    // startNavigation step=0 yazar; geri yüklenen asıl step+wasActive'i üzerine mühürle
+    _sealNavState(persist.destination, persist.stepIndex, persist.wasActive);
+
+    console.info(
+      `[NavRestore] "${persist.destination.name}" geri yüklendi` +
+      ` (step=${persist.stepIndex}, wasActive=${persist.wasActive})`,
+    );
+
+    if (persist.wasActive) {
+      // GPS fix zaten varsa → anında ACTIVE'e al
+      const { location } = useUnifiedVehicleStore.getState();
+      const hasGpsFix = location &&
+        Number.isFinite(location.latitude) &&
+        (Date.now() - location.timestamp) < 30_000;
+
+      if (hasGpsFix) {
+        activateNavigation();
+        console.info('[NavRestore] GPS fix mevcut — navigasyon ACTIVE moduna alındı');
+      } else {
+        // GPS fix bekleniyor — gelince ACTIVE'e al (Zero-Touch)
+        const unsub = useUnifiedVehicleStore.subscribe((s) => {
+          const loc = s.location;
+          if (!loc || !Number.isFinite(loc.latitude)) return;
+          if ((Date.now() - loc.timestamp) >= 30_000) return;
+          unsub();
+          if (useNavigationStore.getState().status === NavStatus.PREVIEW) {
+            activateNavigation();
+            console.info('[NavRestore] GPS fix geldi — navigasyon ACTIVE moduna alındı');
+          }
+        });
+      }
+    }
+
+    return true;
+  } catch {
+    safeRemoveRaw(NAV_PERSIST_KEY);
+    return false;
+  }
 }
 
 // ETA hysteresis — prevents UI flickering from second-to-second speed jitter
@@ -296,6 +382,25 @@ let _arrivalDistanceBelow  = 0;
 // 500m yakınlık uyarısı: her navigasyon session'ında bir kez tetiklenir.
 let _proximityAlertFired   = false;
 
+// ── Crash Recovery State (Phase S3) ─────────────────────────────────────────
+const NAV_PERSIST_KEY        = 'nav_crash_state';
+const NAV_PERSIST_MAX_AGE_MS = 4 * 60 * 60 * 1_000; // 4 saat — daha eski kayıt geçersiz
+
+interface NavPersistState {
+  destination: Address;
+  stepIndex:   number;
+  wasActive:   boolean;
+  ts:          number;
+}
+
+let _lastPersistedStepIdx = -1;
+
+/** Navigasyon state'ini anlık diske mühürle — crash sonrası sıfır veri kaybı. */
+function _sealNavState(destination: Address, stepIndex: number, wasActive = false): void {
+  const payload: NavPersistState = { destination, stepIndex, wasActive, ts: Date.now() };
+  void safeSetRawImmediate(NAV_PERSIST_KEY, JSON.stringify(payload));
+}
+
 
 /**
  * Update navigation progress (distance, ETA, heading).
@@ -321,6 +426,14 @@ export function updateNavigationProgress(
 
   // Rota geometrisi varsa üzerindeki mesafeyi kullan; yoksa Haversine fallback
   const { cumulativeDistances } = getRouteState();
+
+  // Step geçişini mühürle — sadece step değişiminde yaz, yüksek frekanslı mesafe güncellemelerinde değil
+  const { currentStepIndex: _currentStep } = getRouteState();
+  if (state.destination && _currentStep !== _lastPersistedStepIdx) {
+    _lastPersistedStepIdx = _currentStep;
+    _sealNavState(state.destination, _currentStep, true);
+  }
+
   const distance = routeGeometry && routeGeometry.length >= 2
     ? calculateRouteDistance(currentLat, currentLon, routeGeometry, cumulativeDistances)
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);

@@ -21,6 +21,7 @@ import type { VehicleState }         from './vehicleDataLayer/types';
 import type { VehicleSignalResolver } from './vehicleDataLayer/VehicleSignalResolver';
 import { pushVehicleEvent }           from './vehicleIdentityService';
 import { getFusedSpeed }              from './speedFusion';
+import { healthMonitor }              from './system/SystemHealthMonitor';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -49,7 +50,11 @@ type TelemetryEventType =
   | 'speed_delta'
   | 'location_delta'
   | 'geofence_alert'
-  | 'valet_alert';
+  | 'valet_alert'
+  | 'system_health';
+
+/** Sistem sağlık anlık görüntüsü push aralığı (ms) — 5 dakika */
+const HEALTH_PUSH_INTERVAL_MS = 5 * 60_000;
 
 /** Araç durumuna göre belirlenen telemetri gönderim modu */
 type HeartbeatMode = 'driving' | 'parked' | 'deep_sleep';
@@ -115,6 +120,7 @@ export class TelemetryService {
   private _zeroStartTs = 0;
 
   private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private _healthTimer:   ReturnType<typeof setInterval> | null = null;
   private _unsub: (() => void) | null = null;
   private _running = false;
 
@@ -140,6 +146,11 @@ export class TelemetryService {
 
     // Adaptive Heartbeat: başlangıç moduna göre interval kurulur
     this._scheduleHeartbeat();
+
+    // 5 dakikada bir sistem sağlık anlık görüntüsü push'la
+    this._healthTimer = setInterval(() => {
+      void this._pushHealthSnapshot();
+    }, HEALTH_PUSH_INTERVAL_MS);
   }
 
   /**
@@ -154,6 +165,10 @@ export class TelemetryService {
     if (this._heartbeatTimer !== null) {
       clearInterval(this._heartbeatTimer);
       this._heartbeatTimer = null;
+    }
+    if (this._healthTimer !== null) {
+      clearInterval(this._healthTimer);
+      this._healthTimer = null;
     }
     if (this._unsub !== null) {
       this._unsub();
@@ -323,6 +338,19 @@ export class TelemetryService {
     metadata: Record<string, unknown>,
   ): void {
     this._push(event, metadata);
+  }
+
+  /**
+   * Sistem sağlık anlık görüntüsünü hemen push eder.
+   * Post-panic recovery veya acil durum tetiklemesi için — 5dk interval beklemez.
+   */
+  pushSystemHealthNow(): void {
+    void this._pushHealthSnapshot();
+  }
+
+  private async _pushHealthSnapshot(): Promise<void> {
+    const snapshot = healthMonitor.getGlobalHealthSnapshot();
+    await pushVehicleEvent('system_health', snapshot as unknown as Record<string, unknown>);
   }
 }
 

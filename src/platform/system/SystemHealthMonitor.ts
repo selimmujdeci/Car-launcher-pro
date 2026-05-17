@@ -20,22 +20,49 @@
  *   stop() tüm interval + abonelik referanslarını temizler.
  */
 
-import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
-import { onGPSLocation }          from '../gpsService';
-import { showToast, dismissToast } from '../errorBus';
-import { logError }               from '../crashLogger';
+import { useUnifiedVehicleStore }   from '../vehicleDataLayer/UnifiedVehicleStore';
+import { onGPSLocation }            from '../gpsService';
+import { showToast, dismissToast }  from '../errorBus';
+import { logError }                 from '../crashLogger';
+import { useCognitiveStore }        from '../../store/useCognitiveStore';
+import { capturePanicSnapshot }     from './SystemPanicHandler';
+import { thermalJournal }           from './ThermalJournal';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
-const WATCHDOG_INTERVAL_MS = 5_000;   // watchdog tick aralığı
-const ALERT_COOLDOWN_MS    = 60_000;  // aynı servis için uyarı yenileme süresi
-const RESTART_COOLDOWN_MS  = 10_000;  // restart denemeleri arası minimum bekleme
-const MAX_RESTARTS_DEFAULT = 2;
-const STARTUP_GRACE_MS     = 45_000;  // uygulama açılışta GPS fix almadan önce uyarı basılmaz
+const WATCHDOG_INTERVAL_MS        = 5_000;          // watchdog tick aralığı
+const ALERT_COOLDOWN_MS           = 60_000;          // aynı servis için uyarı yenileme süresi
+const RESTART_COOLDOWN_MS         = 10_000;          // restart denemeleri arası minimum bekleme
+const MAX_RESTARTS_DEFAULT        = 2;
+const STARTUP_GRACE_MS            = 45_000;          // uygulama açılışta GPS fix almadan önce uyarı basılmaz
+/** Critical servislerde zorla restart eşiği — 30s sessizlik = process killer devreye girer */
+const CRITICAL_FORCE_RESTART_MS   = 30_000;
+/** Soak Test: her 1 saatte bir rastgele OPTIONAL servis restart edilir */
+const SOAK_TEST_INTERVAL_MS       = 60 * 60 * 1_000;
+/** UI Thread Watchdog — 5s boyunca frame çizilemezse donma tespiti */
+const UI_FREEZE_THRESHOLD_MS      = 5_000;
+const UI_FREEZE_CHECK_INTERVAL_MS = 5_100; // eşikten biraz fazla → false-alarm engeli
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
 export type ServiceCriticality = 'critical' | 'warning';
+
+export interface GlobalHealthSnapshot {
+  ts:                  number;
+  thermalLevel:        0|1|2|3;
+  /** JS heap kullanım oranı 0.0–1.0 (performance.memory yoksa 0) */
+  ramPressureRatio:    number;
+  workerRestartTotal:  number;
+  uiFreezeCount:       number;
+  appVersion:          string;
+  services: Array<{
+    name:         string;
+    healthy:      boolean;
+    restartCount: number;
+    criticality:  ServiceCriticality;
+  }>;
+  overallHealth: 'healthy' | 'degraded' | 'critical';
+}
 
 export interface ServiceConfig {
   /** Servis adı — beat() çağrısında kullanılır */
@@ -77,6 +104,15 @@ class SystemHealthMonitor {
   private _startedAt   = 0;
   /** Hiç heartbeat almamış servisler — cold-start false-alarm koruması */
   private _neverBeaten = new Set<string>();
+  /** Soak Test Mode — her 1 saatte bir rastgele OPTIONAL servis restart eder */
+  private _soakTestActive = false;
+  private _soakTestTimer: ReturnType<typeof setInterval> | null = null;
+  /** UI Thread Watchdog state */
+  private _uiRafId:      number | null = null;
+  private _uiRafLastMs   = 0;
+  private _uiCheckTimer: ReturnType<typeof setInterval> | null = null;
+  /** Oturum boyunca tespit edilen toplam UI donma olayı sayısı */
+  private _uiFreezeCount = 0;
 
   /**
    * Bir servisi izleme listesine ekle.
@@ -127,11 +163,14 @@ class SystemHealthMonitor {
     this._startedAt = performance.now();
     this._setupPassiveMonitoring();
     this._timer = setInterval(() => { this._tick(); }, WATCHDOG_INTERVAL_MS);
+    this._startUiWatchdog();
   }
 
   /** Tüm kaynakları serbest bırak. */
   stop(): void {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    this._stopUiWatchdog();
+    this.disableSoakTest();
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
 
@@ -140,6 +179,99 @@ class SystemHealthMonitor {
       if (entry.alertId) { dismissToast(entry.alertId); entry.alertId = null; }
     }
     this._neverBeaten.clear();
+  }
+
+  // ── Soak Test Mode ────────────────────────────────────────────────────────────
+
+  /**
+   * Soak Test'i etkinleştir.
+   * Her 1 saatte bir rastgele bir OPTIONAL (warning criticality) servisi
+   * requestIdleCallback üzerinden restart eder.
+   * Amaç: 12 saatlik vardiyada sistemin 'resilience' kapasitesini ölçmek.
+   * UI thread asla bloke olmaz (Zero-Overhead).
+   */
+  enableSoakTest(): void {
+    if (this._soakTestActive) return;
+    this._soakTestActive = true;
+    console.info('[HealthMonitor:SoakTest] Etkinleştirildi — her 1 saatte bir rastgele servis restart edilecek');
+    this._soakTestTimer = setInterval(() => {
+      this._runSoakTestTick();
+    }, SOAK_TEST_INTERVAL_MS);
+  }
+
+  disableSoakTest(): void {
+    this._soakTestActive = false;
+    if (this._soakTestTimer) { clearInterval(this._soakTestTimer); this._soakTestTimer = null; }
+  }
+
+  /**
+   * Soak Test tick — kritik altyapı (VehicleDataLayer, GPS) hariç,
+   * restartFn'i olan OPTIONAL servisleri rastgele seçer ve restart eder.
+   */
+  private _runSoakTestTick(): void {
+    const INDESTRUCTIBLE = new Set(['VehicleDataLayer', 'GPS']);
+    const candidates = [...this._registry.values()].filter(
+      (e) => e.restartFn && !INDESTRUCTIBLE.has(e.name) && e.criticality !== 'critical',
+    );
+    if (candidates.length === 0) return;
+
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    console.info(`[HealthMonitor:SoakTest] Hedef: ${target.name} — restart başlatılıyor`);
+
+    const doRestart = () => {
+      target.restartCount++;
+      target.lastRestartAt = performance.now();
+      void target.restartFn!().then(() => {
+        console.info(`[HealthMonitor:SoakTest] ${target.name} başarıyla restart edildi`);
+        target.restartCount = 0; // soak-test restart'ı production sayacını kirletmez
+      }).catch((e: unknown) => {
+        logError(`HealthMonitor:SoakTest:${target.name}`, e);
+      });
+    };
+
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(doRestart, { timeout: 5_000 });
+    } else {
+      setTimeout(doRestart, 0);
+    }
+  }
+
+  // ── UI Thread Watchdog ────────────────────────────────────────────────────────
+
+  /**
+   * requestAnimationFrame döngüsü ile UI thread'in yanıt verdiğini izler.
+   * setInterval donma sonrası event-loop açılınca son frame gap'ini ölçer.
+   * 5s eşiği → throttling / debug pause false-alarm'larını bastırır.
+   */
+  private _startUiWatchdog(): void {
+    if (typeof requestAnimationFrame === 'undefined') return;
+    this._uiRafLastMs = performance.now();
+
+    const tick = () => {
+      this._uiRafLastMs = performance.now();
+      this._uiRafId     = requestAnimationFrame(tick);
+    };
+    this._uiRafId = requestAnimationFrame(tick);
+
+    this._uiCheckTimer = setInterval(() => {
+      const gapMs = performance.now() - this._uiRafLastMs;
+      if (gapMs > UI_FREEZE_THRESHOLD_MS) {
+        this._uiFreezeCount++;
+        const freezeSec = (gapMs / 1000).toFixed(1);
+        console.warn(
+          `[HealthMonitor:UIWatchdog] HEARTBEAT_UI_FREEZE — UI thread ${freezeSec}s dondu`,
+        );
+        console.warn(`[HealthMonitor:Escalation] Step 0: UI Thread Freeze Detected (${freezeSec}s)`);
+        logError('HealthMonitor:UIFreeze', new Error(`UI thread frozen for ${freezeSec}s`));
+        thermalJournal.addPanicMarker(`ui_freeze:${freezeSec}s`);
+        void capturePanicSnapshot(`ui_freeze:${freezeSec}s`);
+      }
+    }, UI_FREEZE_CHECK_INTERVAL_MS);
+  }
+
+  private _stopUiWatchdog(): void {
+    if (this._uiRafId !== null) { cancelAnimationFrame(this._uiRafId); this._uiRafId = null; }
+    if (this._uiCheckTimer !== null) { clearInterval(this._uiCheckTimer); this._uiCheckTimer = null; }
   }
 
   // ── Pasif İzleyiciler ────────────────────────────────────────────────────────
@@ -250,27 +382,115 @@ class SystemHealthMonitor {
         new Error(`No heartbeat for ${(elapsed / 1000).toFixed(0)}s`),
       );
 
-      // Restart dene
+      // Restart dene — UI thread asla bloke edilmez (requestIdleCallback)
       if (
         entry.restartFn &&
         entry.restartCount < entry.maxRestarts &&
         (now - entry.lastRestartAt) > RESTART_COOLDOWN_MS
       ) {
+        const isCriticalForce =
+          entry.criticality === 'critical' && elapsed > CRITICAL_FORCE_RESTART_MS;
+
         entry.restartCount++;
         entry.lastRestartAt = now;
 
-        const attempt = entry.restartCount;
-        if (import.meta.env.DEV) {
-          console.warn(
-            `[HealthMonitor] Restarting ${entry.name} (attempt ${attempt}/${entry.maxRestarts})`,
-          );
+        const attempt  = entry.restartCount;
+        const svcName  = entry.name;
+        const elapsedS = (elapsed / 1000).toFixed(0);
+
+        // ── Escalation Ladder ──────────────────────────────────────────────────
+        // attempt 1: sessiz restart
+        // attempt 2: CRITICAL moduna geç (medya + opsiyonel sistemler kapanır)
+        if (attempt === 1) {
+          console.warn(`[HealthMonitor:Escalation] Step 1: Silent Restart — ${svcName}`);
+        } else if (attempt >= 2) {
+          console.warn(`[HealthMonitor:Escalation] Step 2: CRITICAL Mode Activated — ${svcName}`);
+          useCognitiveStore.getState().setMode('CRITICAL');
         }
 
-        void entry.restartFn().catch((e: unknown) => {
-          logError(`HealthMonitor:Restart:${entry.name}`, e);
+        console.warn(
+          isCriticalForce
+            ? `[HealthMonitor:Watchdog] ${svcName} ${elapsedS}s sessiz → zorla yeniden başlatılıyor`
+            : `[HealthMonitor] Restarting ${svcName} (attempt ${attempt}/${entry.maxRestarts})`,
+        );
+
+        const doRestart = () => {
+          void entry.restartFn!().then(() => {
+            if (import.meta.env.DEV) {
+              console.info(`[HealthMonitor] ${svcName} restart tamamlandı`);
+            }
+          }).catch((e: unknown) => {
+            logError(`HealthMonitor:Restart:${svcName}`, e);
+          });
+        };
+
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(doRestart, { timeout: isCriticalForce ? 1_000 : 5_000 });
+        } else {
+          setTimeout(doRestart, 0);
+        }
+      } else if (entry.restartFn && entry.restartCount >= entry.maxRestarts) {
+        // ── Ladder Step 3: restart limiti doldu ──────────────────────────────
+        const svcName = entry.name;
+        console.warn(`[HealthMonitor:Escalation] Step 3: Panic Snapshot + User Toast — ${svcName} max restarts exceeded`);
+        showToast({
+          type:     'warning',
+          title:    'Güvenli Sürüş Modu Aktif',
+          message:  'Sistem kendini yeniledi. Sürüşünüz korunuyor.',
+          duration: 5_000,
         });
+        void capturePanicSnapshot(`watchdog_max_restarts:${svcName}`);
       }
     }
+  }
+
+  /**
+   * Mevcut sistem sağlık durumunun anlık görüntüsünü döner.
+   * Supabase telemetri push'u ve Super Admin HealthCenter tarafından kullanılır.
+   */
+  getGlobalHealthSnapshot(): GlobalHealthSnapshot {
+    const now = performance.now();
+
+    // Termal seviye — ThermalJournal son kaydedilen seviyeyi tutar
+    const thermalLevel = thermalJournal.getLastLevel();
+
+    // RAM baskısı — Chrome/Android WebView'da performance.memory mevcuttur
+    type PerfWithMemory = Performance & {
+      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+    };
+    const mem = (performance as PerfWithMemory).memory;
+    const ramPressureRatio = mem && mem.jsHeapSizeLimit > 0
+      ? Math.min(1, mem.usedJSHeapSize / mem.jsHeapSizeLimit)
+      : 0;
+
+    let restartTotal = 0;
+    const services: GlobalHealthSnapshot['services'] = [];
+    for (const e of this._registry.values()) {
+      restartTotal += e.restartCount;
+      services.push({
+        name:         e.name,
+        healthy:      (now - e.lastBeat) < e.deadlineMs,
+        restartCount: e.restartCount,
+        criticality:  e.criticality,
+      });
+    }
+
+    const hasCritical = services.some((s) => !s.healthy && s.criticality === 'critical');
+    const hasDegraded = services.some((s) => !s.healthy);
+    const overallHealth: GlobalHealthSnapshot['overallHealth'] = hasCritical
+      ? 'critical'
+      : hasDegraded ? 'degraded' : 'healthy';
+
+    return {
+      ts:                 Date.now(),
+      thermalLevel,
+      ramPressureRatio,
+      workerRestartTotal: restartTotal,
+      uiFreezeCount:      this._uiFreezeCount,
+      appVersion:         (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '1.0.0',
+      services,
+      overallHealth,
+    };
   }
 }
 

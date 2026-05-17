@@ -70,6 +70,13 @@ const INITIAL: VoiceState = {
 
 let _current: VoiceState = { ...INITIAL };
 const _stateListeners  = new Set<(s: VoiceState) => void>();
+
+/** Bilişsel Pause: true iken TTS ve AI işleme atlanır; dinleme (VAD) devam eder. */
+let _voiceCogPaused = false;
+
+export function setVoicePaused(paused: boolean): void {
+  _voiceCogPaused = paused;
+}
 const _commandHandlers = new Set<CommandHandler>();
 const _aiHandlers      = new Set<AIResultHandler>();
 let _lastCommandTime = 0;
@@ -245,6 +252,9 @@ function _speakThinking(): void {
 export async function processTextCommand(text: string, ctx?: VehicleContext): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return false;
+
+  // Bilişsel Pause: PROTECTION/CRITICAL modda AI işleme ve TTS atlanır
+  if (_voiceCogPaused) return false;
 
   const cfg = getConfig();
   const now = Date.now();
@@ -547,6 +557,25 @@ export function stopListening(): void {
     unduckMedia();
     push({ status: 'idle' });
   }
+}
+
+/**
+ * Hard kill — stopListening'den farklı olarak durum kontrolü yapmaz.
+ * Tüm runtime döngüleri koşulsuz temizlenir; global state korunur.
+ * SystemBoot LIMP_HOME girişinde ve L3 termal olaylarında çağrılır.
+ */
+export function stopVoiceService(): void {
+  if (_nativeSttWarmupTimer !== null) {
+    clearTimeout(_nativeSttWarmupTimer);
+    _nativeSttWarmupTimer = null;
+  }
+  _stopVolumeSimulation();       // _volumeSimTimer → null
+  _stopNativeVolumeListener();   // _rmsListenerHandle → remove + null
+  _stopVolumeMeter();            // _audioCtx → closed + null, stream → durduruldu, animFrame → iptal
+  _stopWebRecognition();
+  unduckMedia();                 // ses sistemi normalize — duck aktif olmasa da güvenli
+  push({ status: 'idle', error: null, volumeLevel: 0 });
+  console.info('[Voice] Hard kill complete — all timers and AudioContext cleared');
 }
 
 export function clearVoiceState(): void { push({ ...INITIAL, history: _current.history }); }

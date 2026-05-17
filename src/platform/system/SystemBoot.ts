@@ -54,7 +54,9 @@ import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { logError }                from '../crashLogger';
 import { healthMonitor }           from './SystemHealthMonitor';
-import { initCommunityService }    from '../communityService';
+import { initCommunityService, stopCommunityService } from '../communityService';
+import { stopVoiceService }        from '../voiceService';
+import { restoreNavigationAsync }  from '../navigationService';
 import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
 import { useCognitiveStore }       from '../../store/useCognitiveStore';
 
@@ -75,8 +77,8 @@ class SystemBoot {
   private _cleanups:     Cleanup[] = [];
   /** İsimli servis cleanup'ları — restart ve limp mekanizması için */
   private _namedCleanups = new Map<string, Cleanup>();
-  /** Worker crash sayaçları — max 2 deneme aşımı takibi */
-  private _workerRestartCounts = new Map<string, number>();
+  /** Worker crash exponential backoff — sayaç + cool-off timer */
+  private _backoffState = new Map<string, { count: number; cooloffTimer: ReturnType<typeof setTimeout> | null }>();
   /** LIMP_HOME izleme durumu */
   private _limpActive  = false;
   private _cogUnsub:   (() => void) | null = null;
@@ -99,14 +101,36 @@ class SystemBoot {
    * Worker crash olduğunda çağrılır — max 2 deneme sonrası vazgeçer.
    */
   private _handleWorkerCrash(workerKey: string, restartServiceName: string): void {
-    const MAX_RESTARTS = 2;
-    const count = (this._workerRestartCounts.get(workerKey) ?? 0) + 1;
-    this._workerRestartCounts.set(workerKey, count);
-    _log(`Worker crash: ${workerKey} (attempt ${count}/${MAX_RESTARTS})`);
-    if (count <= MAX_RESTARTS) {
-      void this.restartService(restartServiceName).catch((e) => logError(`SystemBoot:restart:${restartServiceName}`, e));
+    const MAX_RESTARTS    = 2;
+    const BACKOFF_BASE_MS = 5_000;        // 5s → 10s → 20s (her denemede 2x)
+    const BACKOFF_MAX_MS  = 160_000;      // üst limit ~2.5 dakika
+    const COOLOFF_MS      = 5 * 60_000;  // max limit sonrası 5 dk bekleme
+
+    const state = this._backoffState.get(workerKey) ?? { count: 0, cooloffTimer: null };
+
+    // Zaten cool-off dönemindeyse — reset öncesi gelen crash'i yok say
+    if (state.cooloffTimer) {
+      _log(`Worker crash: ${workerKey} — cool-off aktif, yok sayıldı`);
+      return;
+    }
+
+    state.count++;
+    this._backoffState.set(workerKey, state);
+
+    const delayMs = Math.min(BACKOFF_BASE_MS * Math.pow(2, state.count - 1), BACKOFF_MAX_MS);
+
+    if (state.count <= MAX_RESTARTS) {
+      _log(`Worker crash: ${workerKey} (attempt ${state.count}/${MAX_RESTARTS}) — ${delayMs / 1000}s sonra yeniden deneniyor`);
+      setTimeout(() => {
+        void this.restartService(restartServiceName).catch((e) => logError(`SystemBoot:restart:${restartServiceName}`, e));
+      }, delayMs);
     } else {
-      _log(`  › ${workerKey} exceeded max restarts — giving up`);
+      _log(`  › ${workerKey} max restart limitine ulaştı — ${COOLOFF_MS / 60_000}dk cool-off başlatıldı`);
+      state.cooloffTimer = setTimeout(() => {
+        _log(`  › ${workerKey} cool-off bitti — sayaç sıfırlandı`);
+        this._backoffState.set(workerKey, { count: 0, cooloffTimer: null });
+      }, COOLOFF_MS);
+      this._backoffState.set(workerKey, state);
     }
   }
 
@@ -185,7 +209,7 @@ class SystemBoot {
     if (this._limpActive) return;
     this._limpActive = true;
     _log('LIMP_HOME: Opsiyonel servisler durduruluyor...');
-    const OPTIONAL = ['RadarEngine', 'FuelAdvisor', 'MaintenanceBrain'] as const;
+    const OPTIONAL = ['RadarEngine', 'FuelAdvisor', 'MaintenanceBrain', 'CommunityService', 'VoiceService'] as const;
     for (const name of OPTIONAL) {
       const fn = this._namedCleanups.get(name);
       if (fn) {
@@ -223,6 +247,18 @@ class SystemBoot {
     this._cleanups.push(stopRadarEngine);
     this._namedCleanups.set('RadarEngine', stopRadarEngine);
     _log('  › RadarEngine yeniden başlatıldı');
+
+    // Wave 3/4 hiyerarşisi: CommunityService (sync) → VoiceService (module-level)
+    initCommunityService();
+    this._cleanups.push(stopCommunityService);
+    this._namedCleanups.set('CommunityService', stopCommunityService);
+    _log('  › CommunityService yeniden başlatıldı');
+
+    // VoiceService modül seviyesinde daima canlı — cleanup kaydı yenilendi
+    // startListening() çağrıldığında AudioContext sıfırdan açılır
+    this._cleanups.push(stopVoiceService);
+    this._namedCleanups.set('VoiceService', stopVoiceService);
+    _log('  › VoiceService yeniden etkinleştirildi');
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -266,7 +302,8 @@ class SystemBoot {
     }
     this._cleanups     = [];
     this._namedCleanups.clear();
-    this._workerRestartCounts.clear();
+    this._backoffState.forEach((s) => { if (s.cooloffTimer) clearTimeout(s.cooloffTimer); });
+    this._backoffState.clear();
     this._started      = false;
   }
 
@@ -277,6 +314,9 @@ class SystemBoot {
 
     // runtimeManager: crash recovery + ilk mod logu
     _log('  › runtimeManager.start()');
+    runtimeManager.setZombieRestartCallback((key) => {
+      void this.restartService(key).catch((e) => logError('SystemBoot:ZombieRestart', e));
+    });
     runtimeManager.start();
 
     // safeStorage: native FS önbelleği yükle (idempotent — main.tsx'de zaten çağrıldı)
@@ -291,6 +331,7 @@ class SystemBoot {
 
     _log('  › initCommunityService');
     initCommunityService();
+    this._regNamed('CommunityService', stopCommunityService);
 
     // NativeGuardBridge: heartbeat (1s) + odo persist (5s) + mode sync
     _log('  › NativeGuardBridge');
@@ -414,25 +455,129 @@ class SystemBoot {
     });
     this._reg(pushCleanup);
 
+    // VoiceService: modül-düzeyi singleton — cleanup'ı LIFO + namedCleanups'a kaydet
+    _log('  › VoiceService (named cleanup)');
+    this._regNamed('VoiceService', stopVoiceService);
+
+    // ChaosReceiver: yalnızca DEV ortamında — BroadcastChannel üzerinden komut dinler
+    if (import.meta.env.DEV) {
+      this._reg(this._startChaosReceiver());
+    }
+
     _log('Wave 4 ready ✓');
+  }
+
+  // ── Chaos Receiver (DEV ONLY) ──────────────────────────────────────────────
+
+  /**
+   * BroadcastChannel('caros-chaos') üzerinden admin panelinden gelen kaos
+   * komutlarını alır ve main app context'inde çalıştırır.
+   *
+   * Desteklenen komutlar:
+   *   trigger_zombie        — OPTIONAL zombie worker oluştur; ZombieDetection'ı test et
+   *   force_thermal_l3      — injectDeviceTemp(70) → ThermalWatchdog L3
+   *   simulate_ui_freeze    — 6s synchronous busy-loop → UIWatchdog tetiklenir
+   *   memory_pressure_high  — runtimeManager.handleMemoryPressure('CRITICAL')
+   *   corrupt_nav_state     — localStorage yazma admin panelinde yapıldı; burada log sadece
+   *
+   * Zero-Leak: dönen cleanup fn BroadcastChannel'ı kapatır.
+   */
+  private _startChaosReceiver(): () => void {
+    if (typeof BroadcastChannel === 'undefined') return () => {};
+
+    const bc = new BroadcastChannel('caros-chaos');
+
+    bc.onmessage = (e: MessageEvent) => {
+      const cmd = (e.data as { cmd: string }).cmd;
+      console.info(`[ChaosReceiver] Komut: ${cmd}`);
+
+      switch (cmd) {
+        case 'trigger_zombie': {
+          try {
+            const script  = 'self.onmessage=function(){/* zombie: PONG hiçbir zaman gönderilmez */}';
+            const blobUrl = URL.createObjectURL(new Blob([script], { type: 'text/javascript' }));
+            const zombie  = new Worker(blobUrl);
+            URL.revokeObjectURL(blobUrl); // Worker constructor iç referansı tutar — erken revoke güvenli
+            runtimeManager.registerWorker('ChaosZombie', zombie, 'OPTIONAL');
+            console.warn('[ChaosReceiver] Escalation Step X: Zombie Worker Registered — ChaosZombie (OPTIONAL) kayıtlı, ZombieDetection ~30s içinde tespit edecek');
+          } catch (err) {
+            console.error('[ChaosReceiver] Zombie worker oluşturulamadı:', err);
+          }
+          break;
+        }
+
+        case 'force_thermal_l3': {
+          void import('../thermalWatchdog').then(({ injectDeviceTemp }) => {
+            injectDeviceTemp(70); // ≥65°C → L3 eşiği
+            console.warn('[ChaosReceiver] Escalation Step X: Force Thermal L3 — injectDeviceTemp(70) uygulandı');
+          });
+          break;
+        }
+
+        case 'simulate_ui_freeze': {
+          // setTimeout ile kısa gecikme — BroadcastChannel işlemi tamamlansın
+          setTimeout(() => {
+            console.warn('[ChaosReceiver] Escalation Step X: UI Freeze Start — main thread 6s bloke edilecek');
+            const end = Date.now() + 6_000;
+            while (Date.now() < end) { /* synchronous busy-wait: UIWatchdog (5s eşiği) tetiklenmeli */ }
+            console.info('[ChaosReceiver] UI Freeze bitti — UIWatchdog PANIC_MARKER ThermalJournal\'a yazmalıydı');
+          }, 100);
+          break;
+        }
+
+        case 'memory_pressure_high': {
+          runtimeManager.handleMemoryPressure('CRITICAL');
+          console.warn('[ChaosReceiver] Escalation Step X: Memory Pressure High — handleMemoryPressure(CRITICAL) uygulandı');
+          break;
+        }
+
+        case 'corrupt_nav_state': {
+          // Bozma admin panelinde localStorage üzerinden yapıldı.
+          // Bir sonraki nav recovery'de sistem NaN koordinatları reddedecek.
+          console.warn('[ChaosReceiver] Escalation Step X: Nav State Corrupted — nav_crash_state localStorage\'da NaN koordinatlar mevcut, kurtarma testi için uygulamayı yenile');
+          break;
+        }
+
+        default:
+          console.warn(`[ChaosReceiver] Bilinmeyen komut: ${cmd}`);
+      }
+    };
+
+    console.info('[ChaosReceiver] BroadcastChannel(caros-chaos) başlatıldı — kaos komutları bekleniyor');
+    return () => { bc.close(); };
   }
 
   // ── Crash recovery yardımcısı ─────────────────────────────────────────────
 
   private async _crashRecovery(): Promise<void> {
-    if (!isNative) return;
+    // Odometer recovery — sadece native platformda
+    if (isNative) {
+      try {
+        const result = await CarLauncher.getPersistedOdometer?.();
+        if (result) {
+          const nativeKm = result.km;
+          if (Number.isFinite(nativeKm) && nativeKm > 0) {
+            const storeKm = useVehicleStore.getState().odometer ?? 0;
+            if (nativeKm > storeKm + 0.1) { // 100m tolerans
+              useVehicleStore.getState().updateVehicleState({ odometer: nativeKm });
+              restoreOdometer(nativeKm); // çalışan worker'a da bildir
+              _log(`  › Crash recovery: odo ${storeKm.toFixed(3)} → ${nativeKm.toFixed(3)} km`);
+            }
+          }
+        }
+      } catch { /* native metot henüz implement edilmemişse sessizce geç */ }
+    }
+
+    // Navigation crash recovery — platform-agnostic (web + native)
+    _log('  › Navigation recovery kontrol ediliyor...');
     try {
-      const result = await CarLauncher.getPersistedOdometer?.();
-      if (!result) return;
-      const nativeKm = result.km;
-      if (!Number.isFinite(nativeKm) || nativeKm <= 0) return;
-      const storeKm = useVehicleStore.getState().odometer ?? 0;
-      if (nativeKm > storeKm + 0.1) { // 100m tolerans
-        useVehicleStore.getState().updateVehicleState({ odometer: nativeKm });
-        restoreOdometer(nativeKm); // çalışan worker'a da bildir
-        _log(`  › Crash recovery: odo ${storeKm.toFixed(3)} → ${nativeKm.toFixed(3)} km`);
+      const navRestored = await restoreNavigationAsync();
+      if (navRestored) {
+        _log('  › Navigation recovery: rota başarıyla geri yüklendi');
       }
-    } catch { /* native metot henüz implement edilmemişse sessizce geç */ }
+    } catch (e) {
+      logError('SystemBoot:NavRestore', e);
+    }
   }
 }
 

@@ -40,6 +40,10 @@ const MODE_RANK: Readonly<Record<RuntimeMode, number>> = {
 const UPGRADE_DELAY_MS   = 30_000; // 30 saniye stabilite penceresi
 /** Termal kısıtlama recovery için aynı süre (soğuma 30s stabil kaldıktan sonra kısıt kaldırılır) */
 const THERMAL_RECOVERY_MS = 30_000;
+/** Zombie Detection: worker'lara PING gönderme aralığı */
+const ZOMBIE_PING_INTERVAL_MS = 10_000;
+/** Zombie Detection: art arda kaç PING yanıtsız kalırsa worker zombie sayılır */
+const ZOMBIE_MAX_MISSES = 3;
 
 /**
  * Termal seviyeye karşılık gelen mod tavanı.
@@ -126,6 +130,12 @@ class AdaptiveRuntimeManager {
 
   /** Worker registry: key → {worker, criticality} */
   private readonly _workers = new Map<string, WorkerEntry>();
+
+  /** Zombie Detection state */
+  private _zombiePingTimer:        ReturnType<typeof setInterval> | null = null;
+  private readonly _pingPendingCounts   = new Map<string, number>();
+  private readonly _workerMsgHandlers   = new Map<string, (e: MessageEvent) => void>();
+  private _zombieRestartCallback: ((key: string) => void) | null = null;
 
   /* ── Constructor ────────────────────────────────────────────── */
 
@@ -255,7 +265,16 @@ class AdaptiveRuntimeManager {
       return;
     }
 
+    this._startZombieDetection();
     console.info(`[Runtime] started: mode=${this._mode}`);
+  }
+
+  /**
+   * SystemBoot tarafından çağrılır — zombie tespit edilince hangi restart
+   * mekanizmasını kullanacağını bağlar.
+   */
+  setZombieRestartCallback(cb: (key: string) => void): void {
+    this._zombieRestartCallback = cb;
   }
 
   /* ── Upgrade timer temizleyici ──────────────────────────────── */
@@ -453,11 +472,38 @@ class AdaptiveRuntimeManager {
    */
   registerWorker(key: string, worker: Worker | null, criticality: WorkerCriticality): void {
     this._workers.set(key, { worker, criticality });
+
+    // Önceki listener'ı temizle (registerWorker yeniden çağrılabilir)
+    this._detachPongListener(key);
+
+    if (worker) {
+      // PONG mesajı gelince pending sayacını sıfırla
+      const handler = (e: MessageEvent): void => {
+        if (e.data?.type === 'PONG') {
+          this._pingPendingCounts.set(key, 0);
+        }
+      };
+      worker.addEventListener('message', handler);
+      this._workerMsgHandlers.set(key, handler);
+      this._pingPendingCounts.set(key, 0);
+    }
   }
 
   /** Worker kaydını kaldır. stopVision / stopNavigation çağrılarında kullanılır. */
   unregisterWorker(key: string): void {
+    this._detachPongListener(key);
+    this._pingPendingCounts.delete(key);
     this._workers.delete(key);
+  }
+
+  private _detachPongListener(key: string): void {
+    const existing = this._workerMsgHandlers.get(key);
+    if (!existing) return;
+    const entry = this._workers.get(key);
+    if (entry?.worker) {
+      try { entry.worker.removeEventListener('message', existing); } catch { /* noop */ }
+    }
+    this._workerMsgHandlers.delete(key);
   }
 
   /**
@@ -491,6 +537,11 @@ class AdaptiveRuntimeManager {
 
   private _terminateWorkerEntry(key: string, entry: WorkerEntry): void {
     if (!entry.worker) return;
+
+    // PONG listener'ı temizle — terminate öncesi, yoksa dangling ref kalır
+    this._detachPongListener(key);
+    this._pingPendingCounts.delete(key);
+
     console.info(`[Runtime] Worker.terminate() dispatched: ${key}`);
     try {
       entry.worker.postMessage({ type: 'STOP' }); // Temiz kapatma denemesi
@@ -505,9 +556,61 @@ class AdaptiveRuntimeManager {
     console.info(`[Runtime] Worker reference nulled: ${key} — memory released`);
   }
 
+  // ── Zombie Detection ──────────────────────────────────────────────────────────
+
+  /**
+   * Her 10 saniyede tüm aktif (non-CRITICAL) worker'lara PING gönderir.
+   * Worker 3 ping'e yanıt vermezse zombie sayılır → terminate + restart callback.
+   *
+   * CRITICAL worker'lar (VehicleCompute) asla terminate edilmez.
+   */
+  private _startZombieDetection(): void {
+    if (this._zombiePingTimer) return; // idempotent
+    this._zombiePingTimer = setInterval(() => {
+      for (const [key, entry] of this._workers.entries()) {
+        if (!entry.worker) continue;
+        if (entry.criticality === 'CRITICAL') continue; // VehicleCompute asla dokunulmaz
+
+        const misses = this._pingPendingCounts.get(key) ?? 0;
+
+        if (misses >= ZOMBIE_MAX_MISSES) {
+          console.warn(
+            `[Runtime:ZombieDetect] ${key} — ${misses} PING yanıtsız → zombie tespiti, terminate ediliyor`,
+          );
+          this._terminateWorkerEntry(key, entry);
+          if (this._zombieRestartCallback) {
+            this._zombieRestartCallback(key);
+          }
+          continue;
+        }
+
+        // PING gönder; pending sayacını artır (PONG gelince sıfırlanır)
+        try {
+          entry.worker.postMessage({ type: 'PING' });
+          this._pingPendingCounts.set(key, misses + 1);
+        } catch {
+          // Worker erişilemiyorsa terminate et
+          console.warn(`[Runtime:ZombieDetect] ${key} — postMessage başarısız → terminate`);
+          this._terminateWorkerEntry(key, entry);
+          if (this._zombieRestartCallback) {
+            this._zombieRestartCallback(key);
+          }
+        }
+      }
+    }, ZOMBIE_PING_INTERVAL_MS);
+  }
+
+  private _stopZombieDetection(): void {
+    if (this._zombiePingTimer) {
+      clearInterval(this._zombiePingTimer);
+      this._zombiePingTimer = null;
+    }
+  }
+
   destroy(): void {
     this._cancelUpgrade();
     this._cancelThermalRecovery();
+    this._stopZombieDetection();
     this._listeners.clear();
 
     // Tüm worker'ları temizle
@@ -515,6 +618,9 @@ class AdaptiveRuntimeManager {
       this._terminateWorkerEntry(key, entry);
     }
     this._workers.clear();
+    this._pingPendingCounts.clear();
+    this._workerMsgHandlers.clear();
+    this._zombieRestartCallback = null;
 
     this._started            = false;
     this._powerCeiling       = null;

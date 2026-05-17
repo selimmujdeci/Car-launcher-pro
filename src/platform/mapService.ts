@@ -7,8 +7,9 @@ import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal }  from './poi/offlinePoiService';
 import { cacheLRUManager } from '../core/storage/CacheLRUManager';
 import { NAV_SUPPRESS_LAYERS, NAV_SUPPRESS_TIERS } from './mapStyleBuilders';
-import { useHazardStore } from '../store/useHazardStore';
-import { useSafetyStore } from '../store/useSafetyStore';
+import { useHazardStore }    from '../store/useHazardStore';
+import { useSafetyStore }    from '../store/useSafetyStore';
+import { useCognitiveStore } from '../store/useCognitiveStore';
 import {
   CAMERA_CFG,
   resetCameraSmooth,
@@ -80,6 +81,17 @@ let _currentContainer:  HTMLElement | null = null; // hangi container için init
 // ardından 2 rAF frame beklenerek yeni context talebi güvenli hale gelir.
 let _destroyLock: Promise<void> = Promise.resolve();
 
+/** JS Heap anlık snapshot — Chrome/Android WebView destekli; diğer ortamlarda no-op. */
+function _logHeap(prefix: string): void {
+  const mem = (performance as any).memory;
+  if (mem) {
+    console.info(
+      `[MAP] ${prefix} JS Heap: ${(mem.usedJSHeapSize / 1_048_576).toFixed(1)} MB` +
+      ` / ${(mem.totalJSHeapSize / 1_048_576).toFixed(1)} MB total`,
+    );
+  }
+}
+
 async function _freeContext(map: MapLibreMap): Promise<void> {
   // Canvas ve GL referansını remove() öncesinde al — sonrasında erişilemeyebilir
   let gl: WebGLRenderingContext | null = null;
@@ -92,6 +104,46 @@ async function _freeContext(map: MapLibreMap): Promise<void> {
     ) as WebGLRenderingContext | null;
   } catch { /* ignore */ }
 
+  _logHeap('pre-destroy');
+
+  // ── Mali-400 Agresif GPU Kaynak Temizliği ────────────────────────────────────
+  // map.remove() öncesinde GPU slot'larını tek tek serbest bırak.
+  // Mali-400 GPU driver'ı kaynaklara sahip texture'ları tek seferde silmek yerine
+  // ayrı ayrı serbest bırakınca VRAM'i daha güvenilir geri alır.
+  if (map.isStyleLoaded()) {
+    try {
+      // 1. Custom image texture'larını boşalt (HEADING_CONE, ALT_BADGE vb.)
+      //    map.listImages() MapLibre 4.x'te yerleşik; tüm sprite+addImage kaydını döner.
+      const imageIds = map.listImages();
+      for (const id of imageIds) {
+        try { map.removeImage(id); } catch { /* ignore — already removed */ }
+      }
+
+      const style = map.getStyle();
+
+      // 2. Layer'ları ters sırayla kaldır (üstten alta — bağımlılık sırası korunur)
+      if (style?.layers) {
+        for (const layer of [...style.layers].reverse()) {
+          try { map.removeLayer(layer.id); } catch { /* ignore */ }
+        }
+      }
+
+      // 3. Source'ları kaldır (tüm layer'lar kaldırıldıktan sonra referans sıfır)
+      if (style?.sources) {
+        for (const sourceId of Object.keys(style.sources)) {
+          try { map.removeSource(sourceId); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* style may already be destroyed — race with map.remove() */ }
+  }
+
+  // 4. Bilinen event aboneliklerini kaldır — map.remove() tüm listener'ları zaten temizler;
+  //    ancak _cleanupRouteInteractions() tarafından sahiplenilmemiş olanları burada
+  //    açıkça kaldırarak React closure referanslarını erken serbest bırakırız (Zero-Leak).
+  // Not: map.off(type) handler referansı olmadan MapLibre 4.x'te geçerli değildir;
+  //      bu nedenle handler'ların tamamı map.remove() içindeki Evented.destroy() ile temizlenir.
+  // route click/mouseenter/mouseleave → _cleanupRouteInteractions() tarafından zaten kaldırılmış.
+
   try { map.remove(); } catch { /* canvas already removed */ }
 
   // GPU'ya context kaybını bildir — slot hemen serbest kalır
@@ -101,6 +153,8 @@ async function _freeContext(map: MapLibreMap): Promise<void> {
   await new Promise<void>(resolve =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
   );
+
+  _logHeap('post-destroy');
 }
 
 const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
@@ -1100,6 +1154,11 @@ function _buildPulseGradient(p: number, riskScore = 0, isAttention = false): unk
 function _applyBreathingGlow(map: MapLibreMap, nowMs: number, hazardRisk: number): void {
   if (!map.getLayer(ROUTE_GLOW_SEL)) return;
 
+  // Bilişsel mod kısıtı: PROTECTION → genlik %70 azaltılır; CRITICAL/LIMP_HOME → glow kapalı
+  const cogMode = useCognitiveStore.getState().currentMode;
+  if (cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME') return;
+  const cogAmplitudeFactor = cogMode === 'PROTECTION' ? 0.30 : 1.0; // %70 azaltma
+
   // S4: Safety state'ten görsel risk katkısı — INTERVENTION en yüksek öncelik
   const { safetyState } = useSafetyStore.getState();
   const safetyRisk = safetyState === 'INTERVENTION' ? 0.85
@@ -1120,8 +1179,8 @@ function _applyBreathingGlow(map: MapLibreMap, nowMs: number, hazardRisk: number
   else                                      period = 2500 - hazardRisk * 1000;
 
   const breath         = Math.sin((nowMs / period) * Math.PI * 2); // −1 → +1
-  // INTERVENTION: genlik ×1.4 — daha belirgin titreşim
-  const amplitudeScale = safetyState === 'INTERVENTION' ? 1.4 : 1.0;
+  // INTERVENTION: genlik ×1.4 — daha belirgin titreşim; PROTECTION: kısıtlı genlik
+  const amplitudeScale = (safetyState === 'INTERVENTION' ? 1.4 : 1.0) * cogAmplitudeFactor;
   const width          = Math.max(10, 22 + breath * 12 * visualRisk * amplitudeScale);
 
   try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-width', width); }
@@ -1183,9 +1242,12 @@ function _startLightTrail(): void {
     const { globalRiskScore, hazardStatus } = useHazardStore.getState();
     const isAttention = hazardStatus === 'ATTENTION';
 
-    // Akış hızı: hız × hızlanma + risk'e bağlı ek artış
-    const riskBoost   = 0.023 * globalRiskScore;
-    _flowProgress = (_flowProgress + 0.022 * _flowSpeedFactor + riskBoost) % 1;
+    // PROTECTION modunda flow hızı ve risk boost dondurulur — sürücüyü yormama prensibi
+    const cogMode     = useCognitiveStore.getState().currentMode;
+    const isProtected = cogMode === 'PROTECTION' || cogMode === 'CRITICAL';
+    const riskBoost   = isProtected ? 0 : 0.023 * globalRiskScore;
+    const flowStep    = isProtected ? 0.010 : 0.022 * _flowSpeedFactor; // sabit yavaş akış
+    _flowProgress = (_flowProgress + flowStep + riskBoost) % 1;
 
     // Pulse gradyanı (risk ve dikkat durumuna duyarlı)
     try {
@@ -1248,6 +1310,10 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
   if (!map || !map.isStyleLoaded()) return;
   const nowMs = performance.now();
   if (nowMs - _lastMoodMs < MOOD_THROTTLE_MS) return;
+
+  // PROTECTION modunda harita mood güncellemesi askıya alınır — GPU overdraw azaltılır
+  const cogMode = useCognitiveStore.getState().currentMode;
+  if (cogMode === 'PROTECTION' || cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME') return;
 
   // S4: Safety state'i hysteresis'e dahil et — durum değişince mood güncellenir
   const { safetyState } = useSafetyStore.getState();
