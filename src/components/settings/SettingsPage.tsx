@@ -1,5 +1,6 @@
 import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-const ThemeStudio = lazy(() => import('../themes/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
+const ThemeStudio      = lazy(() => import('../themes/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
+const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m => ({ default: m.SecureAccessModal })));
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
@@ -145,7 +146,7 @@ function ThemePanel() {
             </div>
             <div>
               <div className="text-sm font-black uppercase tracking-[0.15em]" style={{ color: '#fff' }}>Kokpit Teması</div>
-              <div className="text-[11px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Ana ekran görünümünü seç</div>
+              <div className="text-[11px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.62)' }}>Ana ekran görünümünü seç</div>
             </div>
           </div>
           {/* Gündüz / Gece toggle */}
@@ -195,8 +196,8 @@ function ThemePanel() {
                     </div>
                   )}
                 </div>
-                <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: active ? t.accent : 'rgba(255,255,255,0.45)' }}>{t.label}</div>
-                <div className="text-[9px] font-medium" style={{ color: 'rgba(255,255,255,0.28)' }}>{t.sub}</div>
+                <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: active ? t.accent : 'rgba(255,255,255,0.72)' }}>{t.label}</div>
+                <div className="text-[10px] font-medium" style={{ color: 'rgba(255,255,255,0.72)' }}>{t.sub}</div>
               </button>
             );
           })}
@@ -659,7 +660,7 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
               {m.label}
             </div>
             <div className="text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5"
-              style={{ color: active ? `${m.color}90` : 'rgba(255,255,255,0.28)' }}>
+              style={{ color: active ? `${m.color}90` : 'rgba(255,255,255,0.58)' }}>
               {m.sub}
             </div>
           </div>
@@ -668,13 +669,13 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         {/* Resource bars */}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between mb-0.5">
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>CPU</span>
-            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.25)' }}>{m.cpu}%</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.60)' }}>CPU</span>
+            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.55)' }}>{m.cpu}%</span>
           </div>
           <PerfMiniBar pct={active ? m.cpu : m.cpu * 0.5} color={m.color} />
           <div className="flex items-center justify-between mt-1 mb-0.5">
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>GPU</span>
-            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.25)' }}>{m.gpu}%</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.60)' }}>GPU</span>
+            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.55)' }}>{m.gpu}%</span>
           </div>
           <PerfMiniBar pct={active ? m.gpu : m.gpu * 0.5} color={m.color} />
         </div>
@@ -683,8 +684,8 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         <div className="flex flex-col gap-1.5 pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           {m.features.map(f => (
             <div key={f} className="flex items-center gap-2">
-              <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: active ? m.color : 'rgba(255,255,255,0.2)' }} />
-              <span className="text-[10px] font-semibold" style={{ color: active ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.35)' }}>{f}</span>
+              <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: active ? m.color : 'rgba(255,255,255,0.40)' }} />
+              <span className="text-[10px] font-semibold" style={{ color: active ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.65)' }}>{f}</span>
             </div>
           ))}
         </div>
@@ -697,9 +698,9 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
               border: `1px solid ${active ? m.color + '50' : 'rgba(255,255,255,0.07)'}`,
             }}>
             <div className="w-1.5 h-1.5 rounded-full transition-all duration-400"
-              style={{ background: active ? m.color : 'rgba(255,255,255,0.2)', boxShadow: active ? `0 0 6px ${m.color}` : 'none' }} />
+              style={{ background: active ? m.color : 'rgba(255,255,255,0.40)', boxShadow: active ? `0 0 6px ${m.color}` : 'none' }} />
             <span className="text-[8px] font-black uppercase tracking-[0.2em]"
-              style={{ color: active ? m.color : 'rgba(255,255,255,0.25)' }}>
+              style={{ color: active ? m.color : 'rgba(255,255,255,0.60)' }}>
               {active ? 'Aktif' : 'Seç'}
             </span>
           </div>
@@ -765,6 +766,30 @@ function SettingsPageInner({ onClose }: Props) {
   const [autoMode, setAutoMode]         = useState(() => isAutoModeEnabled());
   const [agcOn,    setAgcOn]            = useState(() => getAGCEnabled());
   const [focusOn,  setFocusOn]          = useState(() => getDriverFocusEnabled());
+
+  // ── Gizli Mühendislik Erişimi ──────────────────────────────────────────────
+  const [showSecureModal, setShowSecureModal] = useState(false);
+  const tapCountRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleSecretTap() {
+    tapCountRef.current += 1;
+
+    if (tapTimerRef.current !== null) clearTimeout(tapTimerRef.current);
+    tapTimerRef.current = setTimeout(() => { tapCountRef.current = 0; }, 3000);
+
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0;
+      if (tapTimerRef.current !== null) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
+      setShowSecureModal(true);
+    }
+  }
+
+  function closeSecureModal() {
+    setShowSecureModal(false);
+    tapCountRef.current = 0;
+    if (tapTimerRef.current !== null) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
+  }
 
   useLayoutSync();
   const sense = useScreenSense();
@@ -858,7 +883,7 @@ function SettingsPageInner({ onClose }: Props) {
 
           <div className="flex flex-col leading-none flex-shrink-0 ml-1">
             <span className="text-[13px] font-black uppercase tracking-[0.15em]" style={{ color: '#fff' }}>Ayarlar</span>
-            <span className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.28)' }}>
+            <span className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.60)' }}>
               {TABS.find(t => t.id === tab)?.label ?? ''}
             </span>
           </div>
@@ -892,9 +917,9 @@ function SettingsPageInner({ onClose }: Props) {
                 borderRight: tab === t.id ? `1px solid ${t.color}20` : '1px solid transparent',
                 borderBottom: 'none',
               }}>
-              <t.Icon className="w-4 h-4" style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.22)' }} />
+              <t.Icon className="w-4 h-4" style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.55)' }} />
               <span className="text-[10px] font-black uppercase tracking-[0.08em]"
-                style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.25)' }}>{t.label}</span>
+                style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.60)' }}>{t.label}</span>
               {tab === t.id && (
                 <div className="absolute bottom-0 left-[15%] right-[15%] h-[2px] rounded-t-full"
                   style={{ background: `linear-gradient(90deg, transparent, ${t.color}, transparent)` }} />
@@ -1002,8 +1027,8 @@ function SettingsPageInner({ onClose }: Props) {
                           {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold" style={{ color: active ? '#fff' : 'rgba(255,255,255,0.55)' }}>{label}</p>
-                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'rgba(255,255,255,0.25)' }}>{sub}</p>
+                          <p className="text-sm font-bold" style={{ color: active ? '#fff' : 'rgba(255,255,255,0.80)' }}>{label}</p>
+                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'rgba(255,255,255,0.60)' }}>{sub}</p>
                         </div>
                       </button>
                     );
@@ -1159,7 +1184,7 @@ function SettingsPageInner({ onClose }: Props) {
                                   className="text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all active:scale-95"
                                   style={profile.vehicleType === value
                                     ? { backgroundColor: `${color}20`, borderColor: `${color}60`, color }
-                                    : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}>
+                                    : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.70)' }}>
                                   {label}
                                 </button>
                               ))}
@@ -1238,7 +1263,13 @@ function SettingsPageInner({ onClose }: Props) {
             <div className="flex flex-col gap-4">
               <Panel accent="#fbbf24">
                 <div className="flex items-center justify-between mb-4">
-                  <SectionTitle icon={Zap} title="Sistem Güç Profili" sub="İşlemci ve görsel kalite optimizasyonu" color="#fbbf24" />
+                  <div
+                    onClick={handleSecretTap}
+                    style={{ WebkitTapHighlightColor: 'transparent' } as React.CSSProperties}
+                    role="presentation"
+                  >
+                    <SectionTitle icon={Zap} title="Sistem Güç Profili" sub="İşlemci ve görsel kalite optimizasyonu" color="#fbbf24" />
+                  </div>
                   {/* Otomatik mod toggle */}
                   <button
                     onClick={autoMode ? undefined : applyAutoPerf}
@@ -1342,6 +1373,12 @@ function SettingsPageInner({ onClose }: Props) {
         open={showOBDConnect}
         onClose={() => setShowOBDConnect(false)}
       />
+
+      {showSecureModal && (
+        <Suspense fallback={null}>
+          <SecureAccessModal onClose={closeSecureModal} />
+        </Suspense>
+      )}
     </div>
   );
 }

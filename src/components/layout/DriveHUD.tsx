@@ -47,24 +47,24 @@ export const DriveHUD = memo(function DriveHUD() {
 
   return (
     <div data-drive-hud="main" className="flex-shrink-0 relative z-25 px-3">
-      <div className="mb-1.5 px-4 py-2.5 rounded-2xl border border-white/[0.08] flex items-center gap-3 bg-[rgba(5,8,18,0.96)] backdrop-blur-[12px]">
+      <div className="mb-1.5 px-4 py-2.5 rounded-2xl border border-white/[0.13] flex items-center gap-3 bg-[rgba(20,20,20,0.97)] backdrop-blur-[6px]">
 
         {/* ── Z-Odak 1: HIZ — Birincil Odak Noktası ────── */}
         {/* Sayı: data.speed (anlık raw) — lerp KULLANILMAZ */}
         <div
           data-z-focus="speed"
           className="flex items-baseline gap-1 flex-shrink-0 min-w-[80px]"
-          aria-label={`Hız: ${data.speed} km/h`}
+          aria-label={data.source === 'none' ? 'Hız: veri yok' : `Hız: ${data.speed} km/h`}
         >
           <span
             data-z-focus="speed"
             className="font-black text-white tabular-nums leading-none text-[clamp(2rem,4vw,2.5rem)] tracking-[-1px]"
           >
-            {data.speed}
+            {data.source === 'none' ? '--' : data.speed}
           </span>
           <span
             data-z-focus="unit"
-            className="text-blue-400 font-bold uppercase tracking-wide self-end mb-0.5 text-[0.6rem]"
+            className="text-blue-400 font-bold uppercase tracking-wide self-end mb-0.5 text-[11px]"
           >
             km/h
           </span>
@@ -104,7 +104,7 @@ export const DriveHUD = memo(function DriveHUD() {
               </div>
               <div
                 data-z-focus="track-artist"
-                className="text-white/60 text-xs truncate mt-0.5 font-semibold"
+                className="text-white/75 text-xs truncate mt-0.5 font-semibold"
               >
                 {hudMedia.track.artist || '\u00a0'}
               </div>
@@ -112,7 +112,7 @@ export const DriveHUD = memo(function DriveHUD() {
           ) : (
             <div className="flex-1 min-w-0 flex items-center gap-1.5">
               <Navigation className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-              <span className="text-white/50 text-xs font-semibold truncate">Navigasyon Bekleniyor</span>
+              <span className="text-white/72 text-xs font-semibold truncate">Navigasyon Bekleniyor</span>
             </div>
           )}
         </div>

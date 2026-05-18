@@ -78,8 +78,8 @@
   --letter-spacing-ui: 0.05em;
   --btn-glow:      none;
   --tile-hover-bg: rgba(255,255,255,0.05);
-  --text-dim:      #8A9AAA;
-  --text-dim2:     #B4BDC6;
+  --text-dim:      #a8b8c8;
+  --text-dim2:     #c4d0da;
   --bg-card2:      rgba(24,24,28,0.90);
 
   /* ── Dynamic Driver-Centric Dock ── */
@@ -136,26 +136,26 @@
 
 [data-theme="tesla"] {
   --bg-primary:    #141414;
-  --bg-card:       rgba(18,18,18,0.95);
-  --bg-card2:      rgba(24,24,24,0.90);
+  --bg-card:       rgba(22,22,22,0.96);
+  --bg-card2:      rgba(26,26,26,0.92);
   --bg-surface:    #1E1E1E;
   --accent:        #E31937;
   --accent2:       #A8A9AD;
   --text:          #FFFFFF;
-  --text-dim:      #8A9AAA;
-  --text-dim2:     #B4BDC6;
-  --border-color:  rgba(255,255,255,0.07);
+  --text-dim:      #b0bec8;
+  --text-dim2:     #c8d4de;
+  --border-color:  rgba(255,255,255,0.11);
   --radius:        50px;
   --radius-card:   16px;
   --radius-btn:    50px;
   --radius-tile:   50px;
-  --dock-bg:       rgba(10,10,10,0.99);
+  --dock-bg:       rgba(14,14,14,0.99);
   --dock-border-top: 2px solid rgba(227,25,55,0.40);
-  --divider-color: rgba(255,255,255,0.06);
+  --divider-color: rgba(255,255,255,0.10);
   --icon-color-1:  #E31937;
   --icon-color-2:  #A8A9AD;
   --font-ui:       system-ui, -apple-system, sans-serif;
-  --font-weight-ui: 300;
+  --font-weight-ui: 500;
   --letter-spacing-ui: 0.08em;
   --btn-glow:      none;
   --tile-hover-bg: rgba(227,25,55,0.08);
@@ -168,8 +168,8 @@
   --accent:        #00D4FF;
   --accent2:       #FFB300;
   --text:          #E8F0FF;
-  --text-dim:      #4C6070;
-  --text-dim2:     #7A8E9A;
+  --text-dim:      #8AAABB;
+  --text-dim2:     #A8BCC8;
   --border-color:  rgba(0,212,255,0.18);
   --radius:        8px;
   --radius-card:   16px;
@@ -189,25 +189,25 @@
 
 [data-theme="mercedes"] {
   --bg-primary:    #181818;
-  --bg-card:       rgba(16,14,14,0.97);
+  --bg-card:       rgba(24,22,22,0.97);
   --bg-surface:    #2C2C2C;
   --accent:        #C8A96E;
   --accent2:       #8C8C8C;
   --text:          #F5F0EB;
-  --text-dim:      #9E9893;
-  --text-dim2:     #B5B0AB;
-  --border-color:  rgba(200,169,110,0.13);
+  --text-dim:      #b8b2ac;
+  --text-dim2:     #cac4be;
+  --border-color:  rgba(200,169,110,0.22);
   --radius:        6px;
   --radius-card:   20px;
   --radius-btn:    6px;
   --radius-tile:   6px;
-  --dock-bg:       rgba(10,10,10,0.99);
-  --dock-border-top: 1px solid rgba(200,168,130,0.28);
-  --divider-color: rgba(200,168,130,0.15);
+  --dock-bg:       rgba(14,14,14,0.99);
+  --dock-border-top: 1px solid rgba(200,168,130,0.35);
+  --divider-color: rgba(200,168,130,0.22);
   --icon-color-1:  #C8A882;
   --icon-color-2:  #8C8C8C;
   --font-ui:       system-ui, 'Helvetica Neue', sans-serif;
-  --font-weight-ui: 400;
+  --font-weight-ui: 500;
   --letter-spacing-ui: 3px;
   --btn-glow:      none;
   --tile-hover-bg: rgba(200,168,130,0.08);
@@ -220,8 +220,8 @@
   --accent:        #CC0000;
   --accent2:       #A8A9AD;
   --text:          #FFFFFF;
-  --text-dim:      #8A9AAA;
-  --text-dim2:     #B4BDC6;
+  --text-dim:      #a8b8c8;
+  --text-dim2:     #c4d0da;
   --border-color:  rgba(168,169,173,0.13);
   --radius:        2px;
   --radius-card:   10px;
@@ -241,9 +241,9 @@
 
 /* Gündüz varyantları için de aynı değişkenler */
 [data-theme="pro-day"]      { --bg-primary:#2D2D44; --bg-card:rgba(61,61,92,0.97); --bg-surface:#3D3D5C; --accent:#D4AF37; --accent2:#C0392B; --text:#F5F0E8; --border-color:rgba(212,175,55,0.32); --radius:4px; --radius-card:18px; --dock-bg:rgba(22,22,36,0.99); --dock-border-top:1px solid rgba(212,175,55,0.35); --divider-color:rgba(212,175,55,0.20); --icon-color-1:#D4AF37; --icon-color-2:#C0392B; --font-ui:'Orbitron',monospace; --font-weight-ui:900; --letter-spacing-ui:2px; --btn-glow:0 0 12px rgba(212,175,55,0.30); --tile-hover-bg:rgba(212,175,55,0.10); }
-[data-theme="tesla-day"]    { --bg-primary:#1E2A3A; --bg-card:rgba(38,48,64,0.97); --bg-surface:#263040; --accent:#E31937; --accent2:#A8A9AD; --text:#F0F2F5; --border-color:rgba(255,255,255,0.10); --radius:50px; --radius-card:12px; --dock-bg:rgba(12,18,28,0.99); --dock-border-top:2px solid rgba(227,25,55,0.40); --divider-color:rgba(255,255,255,0.08); --icon-color-1:#E31937; --icon-color-2:#A8A9AD; --font-ui:system-ui,sans-serif; --font-weight-ui:300; --letter-spacing-ui:0.08em; --btn-glow:none; --tile-hover-bg:rgba(227,25,55,0.08); }
+[data-theme="tesla-day"]    { --bg-primary:#1E2A3A; --bg-card:rgba(38,48,64,0.97); --bg-surface:#263040; --accent:#E31937; --accent2:#A8A9AD; --text:#F0F2F5; --border-color:rgba(255,255,255,0.12); --radius:50px; --radius-card:12px; --dock-bg:rgba(12,18,28,0.99); --dock-border-top:2px solid rgba(227,25,55,0.40); --divider-color:rgba(255,255,255,0.10); --icon-color-1:#E31937; --icon-color-2:#A8A9AD; --font-ui:system-ui,sans-serif; --font-weight-ui:500; --letter-spacing-ui:0.08em; --btn-glow:none; --tile-hover-bg:rgba(227,25,55,0.08); }
 [data-theme="cockpit-day"]  { --bg-primary:#0D2137; --bg-card:rgba(15,42,69,0.97); --bg-surface:#0F2A45; --accent:#00B4D8; --accent2:#90E0EF; --text:#E8F4FD; --border-color:rgba(0,180,216,0.40); --radius:8px; --radius-card:16px; --dock-bg:rgba(6,16,30,0.99); --dock-border-top:1px solid rgba(0,180,216,0.55); --divider-color:rgba(0,180,216,0.28); --icon-color-1:#00B4D8; --icon-color-2:#90E0EF; --font-ui:'Courier New',monospace; --font-weight-ui:700; --letter-spacing-ui:0.08em; --btn-glow:0 0 10px rgba(0,180,216,0.45); --tile-hover-bg:rgba(0,180,216,0.12); }
-[data-theme="mercedes-day"] { --bg-primary:#2C2C3A; --bg-card:rgba(54,54,69,0.97); --bg-surface:#363645; --accent:#C8A882; --accent2:#8C8C8C; --text:#EDE8E0; --border-color:rgba(200,168,130,0.30); --radius:6px; --radius-card:20px; --dock-bg:rgba(18,18,26,0.99); --dock-border-top:1px solid rgba(200,168,130,0.30); --divider-color:rgba(200,168,130,0.18); --icon-color-1:#C8A882; --icon-color-2:#8C8C8C; --font-ui:system-ui,sans-serif; --font-weight-ui:400; --letter-spacing-ui:3px; --btn-glow:none; --tile-hover-bg:rgba(200,168,130,0.10); }
+[data-theme="mercedes-day"] { --bg-primary:#2C2C3A; --bg-card:rgba(54,54,69,0.97); --bg-surface:#363645; --accent:#C8A882; --accent2:#8C8C8C; --text:#EDE8E0; --border-color:rgba(200,168,130,0.30); --radius:6px; --radius-card:20px; --dock-bg:rgba(18,18,26,0.99); --dock-border-top:1px solid rgba(200,168,130,0.35); --divider-color:rgba(200,168,130,0.22); --icon-color-1:#C8A882; --icon-color-2:#8C8C8C; --font-ui:system-ui,sans-serif; --font-weight-ui:500; --letter-spacing-ui:3px; --btn-glow:none; --tile-hover-bg:rgba(200,168,130,0.10); }
 [data-theme="audi-day"]     { --bg-primary:#1E1E2C; --bg-card:rgba(40,40,58,0.97); --bg-surface:#28283A; --accent:#BB0A21; --accent2:#D0D0D0; --text:#F0F0F2; --border-color:rgba(187,10,33,0.32); --radius:2px; --radius-card:10px; --dock-bg:rgba(10,10,18,0.99); --dock-border-top:2px solid rgba(187,10,33,0.55); --divider-color:rgba(187,10,33,0.22); --icon-color-1:#BB0A21; --icon-color-2:#D0D0D0; --font-ui:system-ui,sans-serif; --font-weight-ui:900; --letter-spacing-ui:1.5px; --btn-glow:none; --tile-hover-bg:rgba(187,10,33,0.12); }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -495,12 +495,12 @@ body.performance-mode * {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.38);
+  color: rgba(255,255,255,0.72);
 }
 
 .car-sublabel {
-  font-size: var(--lp-font-xs, 10px);
-  color: rgba(255,255,255,0.28);
+  font-size: var(--lp-font-xs, 12px);
+  color: rgba(255,255,255,0.72);
 }
 
 .car-value {
@@ -519,7 +519,7 @@ body.performance-mode * {
 
 .car-body {
   font-size: var(--lp-font-sm, 12px);
-  color: rgba(255,255,255,0.65);
+  color: rgba(255,255,255,0.82);
 }
 
 /* İkon container — ölçeklenebilir */
@@ -565,26 +565,26 @@ body.performance-mode * {
 }
 
 .car-btn-ghost {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.82);
 }
 
 /* Divider */
 .car-divider {
   height: 1px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.11);
   margin: 0;
   flex-shrink: 0;
 }
 
 /* Drawer/panel section başlıkları */
 .car-section-title {
-  font-size: var(--lp-font-xs, 10px);
+  font-size: var(--lp-font-xs, 12px);
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.22);
+  color: rgba(255,255,255,0.72);
   margin-bottom: var(--lp-space-sm, 6px);
 }
 

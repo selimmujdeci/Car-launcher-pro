@@ -4,18 +4,18 @@
 
 /* ── CSS DEĞİŞKENLERİ — tüm bileşenler buradan çeker ───────── */
 :root {
-  /* Arka plan gradyanı — dark automotive */
-  --pack-bg:        linear-gradient(160deg, #08090e 0%, #0a0c12 40%, #090b10 70%, #070810 100%);
-  --app-bg:         linear-gradient(160deg, #08090e 0%, #0a0c12 40%, #090b10 70%, #070810 100%);
-  --premium-bg:     linear-gradient(160deg, #08090e 0%, #0a0c12 40%, #090b10 70%, #070810 100%);
+  /* Arka plan gradyanı — dark automotive (OEM: #141414–#1C1C1E, pure black değil) */
+  --pack-bg:        linear-gradient(160deg, #141414 0%, #181818 40%, #1a1a1a 70%, #141414 100%);
+  --app-bg:         linear-gradient(160deg, #141414 0%, #181818 40%, #1a1a1a 70%, #141414 100%);
+  --premium-bg:     linear-gradient(160deg, #141414 0%, #181818 40%, #1a1a1a 70%, #141414 100%);
 
   /* Kart / yüzey */
-  --pack-card-bg:   rgba(12,18,32,0.96);
-  --pack-border:    rgba(255,255,255,0.08);
+  --pack-card-bg:   rgba(22,26,36,0.97);
+  --pack-border:    rgba(255,255,255,0.13);
   --pack-shadow:    0 4px 24px rgba(0,0,0,0.6), 0 1px 4px rgba(0,0,0,0.4);
   --pack-radius:    24px;
   --pack-glow:      rgba(59,130,246,0.12);
-  --pack-blur:      20px;
+  --pack-blur:      8px;
   --pack-font-weight: 600;
   --pack-tracking:  0.01em;
 
@@ -24,10 +24,10 @@
   --pack-accent-rgb: 59, 130, 246;
 
   /* Header / Dock */
-  --header-bg:   rgba(8,10,16,0.96);
-  --header-blur: 24px;
-  --dock-bg:     rgba(8,10,16,0.96);
-  --dock-blur:   24px;
+  --header-bg:   rgba(20,20,20,0.97);
+  --header-blur: 8px;
+  --dock-bg:     rgba(16,16,16,0.98);
+  --dock-blur:   4px;
 
   /* Hızometre */
   --speedo-bg:       rgba(255,255,255,0.80);
@@ -51,7 +51,7 @@
   --premium-text-dim: #cbd5e1;
   --premium-surface:  rgba(14,22,42,0.80);
   --premium-card:     rgba(14,22,42,0.85);
-  --premium-border:   rgba(255,255,255,0.08);
+  --premium-border:   rgba(255,255,255,0.13);
   --premium-glow:     0 4px 20px rgba(0,0,0,0.45);
   --premium-accent:   #3b82f6;
   --premium-accent-glow: rgba(59,130,246,0.25);
@@ -60,14 +60,14 @@
   /* Panel */
   --panel-bg:           rgba(14,22,42,0.88);
   --panel-bg-secondary: rgba(8,14,28,0.82);
-  --panel-border:       rgba(255,255,255,0.07);
+  --panel-border:       rgba(255,255,255,0.12);
   --panel-shadow:       0 4px 24px rgba(0,0,0,0.45);
-  --panel-blur:         blur(24px) saturate(1.4);
+  --panel-blur:         blur(8px);
 
   /* Yüzey */
-  --surface-base:    #07121e;
-  --surface-overlay: rgba(7,12,24,0.98);
-  --surface-blur:    blur(32px) saturate(1.4);
+  --surface-base:    #141414;
+  --surface-overlay: rgba(20,20,20,0.98);
+  --surface-blur:    blur(12px);
 
   /* Vurgu renk paleti */
   --accent-blue:    #3b82f6;
@@ -109,8 +109,8 @@
 .up-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(40px);
-  opacity: 0.45;
+  filter: blur(60px);
+  opacity: 0.18;
   transform: translateZ(0);
   contain: strict;
   will-change: transform;
@@ -161,8 +161,8 @@
 
 /* ── GLASS KART SİSTEMİ ─────────────────────────────────────── */
 .glass-card, .up-panel, .premium-card {
-  background: rgba(12,18,32,0.97) !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(22,26,36,0.97) !important;
+  border: 1px solid rgba(255,255,255,0.13) !important;
   box-shadow: 0 4px 24px rgba(0,0,0,0.55), 0 1px 4px rgba(0,0,0,0.35) !important;
   border-radius: var(--pack-radius) !important;
   transition:

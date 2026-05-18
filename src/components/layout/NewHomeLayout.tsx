@@ -9,7 +9,8 @@ const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => (
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useGPSLocation } from '../../platform/gpsService';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
@@ -32,11 +33,11 @@ import type { SmartSnapshot } from '../../platform/smartEngine';
 const BG = 'linear-gradient(160deg, #06101f 0%, #0a1628 35%, #091320 65%, #05101d 100%)';
 
 const GLASS_CARD: React.CSSProperties = {
-  background: 'rgba(14,24,44,0.82)',
-  backdropFilter: 'blur(28px) saturate(1.4)',
-  WebkitBackdropFilter: 'blur(28px) saturate(1.4)',
-  border: '1px solid rgba(96,165,250,0.18)',
-  boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07)',
+  background: 'rgba(22,26,36,0.97)',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
+  border: '1px solid rgba(96,165,250,0.22)',
+  boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 1px 6px rgba(0,0,0,0.35)',
   borderRadius: 28,
 };
 
@@ -66,11 +67,11 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
   return (
     <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
       style={{
-        background: 'rgba(4,8,18,0.96)',
-        backdropFilter: 'blur(32px)',
-        WebkitBackdropFilter: 'blur(32px)',
-        borderBottom: '1px solid rgba(96,165,250,0.12)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.40)',
+        background: 'rgba(20,20,20,0.97)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        borderBottom: '1px solid rgba(96,165,250,0.16)',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.30)',
       }}>
 
       {/* Sol: Logo + Saat */}
@@ -81,7 +82,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
         </div>
         <div>
           <div className="font-black tabular-nums leading-none" style={{ fontSize: 28, color: '#ffffff', letterSpacing: '-1px', textShadow: '0 0 40px rgba(96,165,250,0.30)' }}>{time}</div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.3em] mt-0.5" style={{ color: '#7A8899' }}>{date}</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.3em] mt-0.5" style={{ color: '#c0ccd8' }}>{date}</div>
         </div>
       </div>
 
@@ -104,11 +105,11 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
 function HPill({ emoji, value, label }: { emoji: string; value: string; label: string }) {
   return (
     <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-2xl"
-      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }}>
+      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)' }}>
       <span className="text-sm leading-none">{emoji}</span>
       <div>
         <div className="text-sm font-black tabular-nums leading-none" style={{ color: '#ffffff' }}>{value}</div>
-        <div className="text-[10px] font-bold leading-none mt-0.5 uppercase tracking-wide" style={{ color: '#7A8899' }}>{label}</div>
+        <div className="text-[10px] font-bold leading-none mt-0.5 uppercase tracking-wide" style={{ color: '#c0ccd8' }}>{label}</div>
       </div>
     </div>
   );
@@ -150,7 +151,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
           ? <div className="w-full h-full flex flex-col items-center justify-center gap-3"
               style={{ background: 'linear-gradient(160deg,#06101f,#0d1e38)' }}>
               <MapPin className="w-12 h-12" style={{ color: '#1d4ed8' }} />
-              <span className="text-sm font-bold" style={{ color: '#7A8899' }}>Harita açık</span>
+              <span className="text-sm font-bold" style={{ color: '#a8b8c8' }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
         }
@@ -158,12 +159,12 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
 
       {/* Alt bar: Arama + Mikrofon + ETA */}
       <div className="flex-shrink-0 flex flex-col gap-2 p-2.5"
-        style={{ background: 'rgba(4,8,18,0.90)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(96,165,250,0.10)' }}>
+        style={{ background: 'rgba(20,20,20,0.96)', backdropFilter: 'blur(8px)', borderTop: '1px solid rgba(96,165,250,0.14)' }}>
         <div className="flex items-center gap-2">
           {/* Metin giriş alanı */}
           <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#7A8899' }} />
+            <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#a8b8c8' }} />
             <input
               ref={inputRef}
               value={query}
@@ -171,7 +172,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
               onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
               placeholder="Nereye gidiyorsunuz?"
               className="flex-1 bg-transparent outline-none text-sm font-medium"
-              style={{ color: query ? '#e2e8f0' : '#7A8899' }}
+              style={{ color: query ? '#e2e8f0' : '#a8b8c8' }}
             />
             {query.length > 0 && (
               <button onClick={handleSubmit} className="flex-shrink-0 active:scale-90 transition-all">
@@ -211,9 +212,9 @@ function ETACell({ label, value, sub }: { label: string; value: string; sub: str
   return (
     <div className="flex-1 rounded-xl px-3 py-2"
       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <div className="text-[9px] font-bold uppercase tracking-wide" style={{ color: '#7A8899' }}>{label}</div>
+      <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#c0ccd8' }}>{label}</div>
       <div className="font-black leading-tight tabular-nums" style={{ fontSize: 16, color: '#ffffff' }}>
-        {value} <span style={{ fontSize: 11, color: '#7A8899', fontWeight: 700 }}>{sub}</span>
+        {value} <span style={{ fontSize: 11, color: '#a8b8c8', fontWeight: 700 }}>{sub}</span>
       </div>
     </div>
   );
@@ -222,12 +223,15 @@ function ETACell({ label, value, sub }: { label: string; value: string; sub: str
 /* ─── SPEED CARD ─────────────────────────────────────────────── */
 const SpeedCard = memo(function SpeedCard() {
   const obd = useOBDState();
-  const gps = useGPSLocation();
 
-  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
-  const rpm  = obd.rpm        ?? 929;
-  const temp = obd.engineTemp ?? 88;
-  const fuel = obd.fuelLevel  ?? 68;
+  const rawSpeed = useUnifiedVehicleStore((s) => s.speed);
+  const speedKmh = rawSpeed ?? 0;
+
+  const rpmDisplay  = obd.rpm        < 0 ? '--' : Math.round(obd.rpm).toLocaleString();
+  const tempDisplay = obd.engineTemp < 0 ? '--' : `${Math.round(obd.engineTemp)}°C`;
+  const fuelDisplay = obd.fuelLevel  < 0 ? '--' : `${Math.round(obd.fuelLevel)}%`;
+  const tempWarnVal = obd.engineTemp >= 0 && obd.engineTemp > 100;
+  const fuelWarnVal = obd.fuelLevel  >= 0 && obd.fuelLevel  < 15;
 
   const R = 90, cx = 115, cy = 120;
   const start = 135, span = 270;
@@ -248,8 +252,6 @@ const SpeedCard = memo(function SpeedCard() {
     };
   }, [speedKmh, cx, R, start, span]);
 
-  const tempWarn = temp > 100;
-  const fuelWarn = fuel < 15;
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative"
@@ -291,7 +293,7 @@ const SpeedCard = memo(function SpeedCard() {
       <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 10 }}>
             <div className="font-black tabular-nums leading-none"
               style={{ fontSize: 'var(--lp-speed-font, 58px)', color: '#ffffff', letterSpacing: '-2px', textShadow: `0 0 60px ${arcColor}, 0 4px 12px rgba(0,0,0,0.80)` }}>
-              {Math.round(speedKmh || 0)}
+              {rawSpeed == null ? '--' : Math.round(speedKmh)}
             </div>
             <div className="font-black tracking-[0.5em] mt-1.5" style={{ fontSize: 10, color: arcColor, textShadow: `0 0 20px ${arcColor}` }}>
               KM/H
@@ -302,9 +304,9 @@ const SpeedCard = memo(function SpeedCard() {
 
       {/* Data row */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0 relative z-10">
-        <DataChip Icon={Gauge}       label="RPM"      value={Math.round(rpm).toLocaleString()}      color="#60a5fa" warn={false} />
-        <DataChip Icon={Thermometer} label="SICAKLIK" value={`${Math.round(temp)}°C`}  color={tempWarn ? '#ef4444' : '#fb923c'} warn={tempWarn} />
-        <DataChip Icon={Fuel}        label="YAKIT"    value={`${Math.round(fuel)}%`}   color={fuelWarn ? '#ef4444' : '#34d399'} warn={fuelWarn} />
+        <DataChip Icon={Gauge}       label="RPM"      value={rpmDisplay}  color="#60a5fa"                                    warn={false} />
+        <DataChip Icon={Thermometer} label="SICAKLIK" value={tempDisplay} color={tempWarnVal ? '#ef4444' : '#fb923c'} warn={tempWarnVal} />
+        <DataChip Icon={Fuel}        label="YAKIT"    value={fuelDisplay} color={fuelWarnVal ? '#ef4444' : '#34d399'} warn={fuelWarnVal} />
       </div>
     </div>
   );
@@ -322,7 +324,7 @@ function DataChip({ Icon, label, value, color, warn }: {
       <div className="flex items-center justify-center mb-2">
         <Icon className="w-4 h-4" style={{ color, opacity: 0.80 }} />
       </div>
-      <div className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: '#7A8899' }}>{label}</div>
+      <div className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: '#c0ccd8' }}>{label}</div>
       <div className="font-black tabular-nums" style={{ color, fontSize: 15, textShadow: `0 0 20px ${color}60` }}>{value}</div>
     </div>
   );
@@ -368,7 +370,7 @@ const MusicCard = memo(function MusicCard() {
           <div className="font-black leading-tight truncate" style={{ fontSize: 15, color: '#ffffff' }}>
             {track.title || 'Harika bir gün!'}
           </div>
-          <div className="text-xs mt-0.5 truncate font-medium" style={{ color: '#7A8899' }}>
+          <div className="text-xs mt-0.5 truncate font-medium" style={{ color: '#a8b8c8' }}>
             {track.artist || 'En sevdiğin müzikleri dinle'}
           </div>
         </div>
