@@ -109,7 +109,7 @@ export const DrawerPanel = memo(function DrawerPanel({
       </DrawerShell>
 
       <DrawerShell open={drawer === 'climate'} onClose={onClose} fullscreen>
-        <ClimateScreen />
+        <ClimateScreen onClose={onClose} />
       </DrawerShell>
 
       <DrawerShell open={drawer === 'music'} onClose={onClose}>

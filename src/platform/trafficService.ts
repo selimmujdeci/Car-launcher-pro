@@ -302,6 +302,11 @@ export function setTrafficLayerVisible(visible: boolean): void {
 
 export function getTrafficState(): TrafficState { return _state; }
 
+export function getTrafficCurrentLocation(): { lat: number; lng: number } | null {
+  if (_currentLat == null || _currentLng == null) return null;
+  return { lat: _currentLat, lng: _currentLng };
+}
+
 export function stopTrafficService(): void {
   if (_refreshTimer) { clearTimeout(_refreshTimer); _refreshTimer = null; }
 }

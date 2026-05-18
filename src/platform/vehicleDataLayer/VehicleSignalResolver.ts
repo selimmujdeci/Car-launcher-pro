@@ -22,6 +22,10 @@ import type { WorkerInMessage, WorkerOutMessage } from './VehicleCompute.worker'
 import { SignalNormalizer } from '../../core/val/SignalNormalizer';
 import { logError }         from '../crashLogger';
 import { runtimeManager }   from '../../core/runtime/AdaptiveRuntimeManager';
+import { isNative }         from '../bridge';
+import { MockHALAdapter }   from './MockHALAdapter';
+import { NativeHALAdapter } from './NativeHALAdapter';
+import { useHALStatusStore } from './halStatusStore';
 
 type Callback = (patch: Partial<VehicleState>) => void;
 
@@ -55,11 +59,15 @@ export class VehicleSignalResolver {
   private can: CanAdapter;
   private obd: ObdAdapter;
   private gps: GpsAdapter;
+  // isNative=true  → NativeHALAdapter (AAOS polling, fail-safe)
+  // isNative=false → MockHALAdapter   (dev/demo simülatörü)
+  private hal: NativeHALAdapter | MockHALAdapter;
 
   constructor(can: CanAdapter, obd: ObdAdapter, gps: GpsAdapter, onCrash?: () => void) {
     this.can = can;
     this.obd = obd;
     this.gps = gps;
+    this.hal = isNative ? new NativeHALAdapter() : new MockHALAdapter();
     this._onCrash = onCrash;
     this._worker = new Worker(
       new URL('./VehicleCompute.worker.ts', import.meta.url),
@@ -125,6 +133,17 @@ export class VehicleSignalResolver {
       }),
     );
 
+    // ── HAL yolu: CONF_HAL=0.98 → fusion'da CAN/OBD'yi override eder ─────────
+    // isNative=true  → NativeHALAdapter (AAOS; connected:false ise sessiz)
+    // isNative=false → MockHALAdapter   (dev simülatörü)
+    this._unsubs.push(
+      this.hal.onData((d) => {
+        const signals = SignalNormalizer.fromHAL(d, Date.now());
+        this._send({ type: 'VEHICLE_DATA', source: 'HAL', signals });
+      }),
+    );
+    this.hal.start();
+
     this.can.start();
     this.obd.start();
     this.gps.start();
@@ -137,6 +156,7 @@ export class VehicleSignalResolver {
     this.can.stop();
     this.obd.stop();
     this.gps.stop();
+    this.hal.stop();
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
     this._listeners.clear();
@@ -238,6 +258,10 @@ export class VehicleSignalResolver {
     const msg = e.data as WorkerOutMessage;
     switch (msg.type) {
       case 'STATE_UPDATE':
+        // Active source değişimini halStatusStore'a yansıt (InspectorPanel okur)
+        if (msg.patch.nativeSource) {
+          useHALStatusStore.getState().setActiveSource(msg.patch.nativeSource);
+        }
         this._listeners.forEach((fn) => fn(msg.patch));
         break;
       case 'ODO_UPDATE':

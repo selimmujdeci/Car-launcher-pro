@@ -3,6 +3,7 @@ import { Activity, Save, Radio } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
 import type { CanIdConfig, CanRawFrame } from '../../platform/nativePlugin';
 import { isNative } from '../../platform/bridge';
+import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
 
 const DEFAULT_IDS: CanIdConfig = {
   speed:   0x0C9,
@@ -54,6 +55,7 @@ function toEditIds(cfg: CanIdConfig): EditIds {
 }
 
 export function CanDiagPanel() {
+  const { canPhase, canStatusText } = useHALStatusStore();
   const [editIds, setEditIds] = useState<EditIds>(toEditIds(DEFAULT_IDS));
   const [snifferOn, setSnifferOn]   = useState(false);
   const [snifferMap, setSnifferMap] = useState<Map<string, SnifferEntry>>(new Map());
@@ -126,7 +128,7 @@ export function CanDiagPanel() {
       {/* ── CAN ID Yapılandırması ── */}
       <div className="glass-card p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.35)' }}>
+          <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.72)' }}>
             Sinyal → CAN ID
           </span>
           <button
@@ -146,8 +148,8 @@ export function CanDiagPanel() {
             <div key={sig}
               className="flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <span className="text-[9px] font-black uppercase tracking-widest w-16 shrink-0 truncate"
-                style={{ color: 'rgba(255,255,255,0.35)' }}>
+              <span className="text-[11px] font-black uppercase tracking-widest w-16 shrink-0 truncate"
+                style={{ color: 'rgba(255,255,255,0.72)' }}>
                 {SIGNAL_LABELS[sig]}
               </span>
               <input
@@ -162,7 +164,7 @@ export function CanDiagPanel() {
           ))}
         </div>
 
-        <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.22)' }}>
+        <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.60)' }}>
           Hex formatında girin (örn. 0x1A0 veya 1A0). Sniffer'dan otomatik atamak için aşağıdaki tabloya tıklayın.
         </p>
       </div>
@@ -172,7 +174,7 @@ export function CanDiagPanel() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio className="w-3.5 h-3.5" style={{ color: snifferOn ? '#34d399' : 'rgba(255,255,255,0.3)' }} />
-            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.72)' }}>
               CAN Sniffer
             </span>
             {snifferOn && (
@@ -192,8 +194,20 @@ export function CanDiagPanel() {
         </div>
 
         {snifferOn && entries.length === 0 && (
-          <div className="text-center py-4 text-[11px]" style={{ color: 'rgba(255,255,255,0.22)' }}>
-            CAN frame bekleniyor...
+          <div className="text-center py-4">
+            {(canPhase === 'FALLBACK_ACTIVE' || canPhase === 'FAILED') ? (
+              <span className="text-[13px] font-bold leading-snug" style={{ color: '#ef4444' }}>
+                {canStatusText || 'CAN verisi alınamadı. Yedek sürüş moduna geçildi.'}
+              </span>
+            ) : canPhase === 'RETRYING' ? (
+              <span className="text-[13px] font-bold leading-snug" style={{ color: '#fbbf24' }}>
+                {canStatusText || 'CAN bağlantısı yeniden deneniyor...'}
+              </span>
+            ) : (
+              <span className="text-[13px]" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                CAN frame bekleniyor...
+              </span>
+            )}
           </div>
         )}
 
@@ -219,15 +233,15 @@ export function CanDiagPanel() {
                     }}
                   >
                     <span className="font-mono text-[10px] font-black" style={{ color: '#22d3ee' }}>{e.hex}</span>
-                    <span className="font-mono text-[9px] truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>{e.data}</span>
-                    <span className="text-[9px] text-right tabular-nums" style={{ color: 'rgba(255,255,255,0.28)' }}>{e.count}</span>
+                    <span className="font-mono text-[9px] truncate" style={{ color: 'rgba(255,255,255,0.72)' }}>{e.data}</span>
+                    <span className="text-[9px] text-right tabular-nums" style={{ color: 'rgba(255,255,255,0.62)' }}>{e.count}</span>
                   </button>
 
                   {assignTarget === e.hex && (
                     <div className="flex flex-wrap gap-1.5 px-2 py-2 mt-0.5 rounded-lg"
                       style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)' }}>
                       <span className="text-[9px] font-black uppercase tracking-widest w-full mb-0.5"
-                        style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        style={{ color: 'rgba(255,255,255,0.72)' }}>
                         {e.hex} → hangi sinyal?
                       </span>
                       {(Object.keys(SIGNAL_LABELS) as (keyof CanIdConfig)[]).map(sig => (
@@ -254,7 +268,7 @@ export function CanDiagPanel() {
           </div>
         )}
 
-        <p className="text-[9px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.22)' }}>
+        <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.60)' }}>
           {snifferOn
             ? 'Aracınızın gönderdiği tüm CAN ID\'leri listeleniyor. Bir satıra tıklayarak hangi sinyale ait olduğunu atayın, ardından Kaydet\'e basın.'
             : 'CAN bus\'u keşfetmek için Sniffer\'ı başlatın. Araç ateşleme açıkken çalıştırın.'}

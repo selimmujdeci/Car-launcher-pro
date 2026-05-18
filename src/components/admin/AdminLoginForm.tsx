@@ -12,8 +12,9 @@
  */
 
 import { useState } from 'react';
-import { ShieldAlert, Loader2, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { ShieldAlert, Loader2, CheckCircle, Eye, EyeOff, ExternalLink } from 'lucide-react';
 import { useRoleStore } from '../../platform/roleSystem/RoleStore';
+import { SUPABASE_URL } from '../../platform/supabaseClient';
 
 // ── Renkler ───────────────────────────────────────────────────────────────────
 const BG    = '#0a0a0a';
@@ -69,8 +70,8 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
     }
     clearAuthError();
     setLocalError(null);
-    await resetPassword(email.trim());
-    setResetSent(true);
+    const ok = await resetPassword(email.trim());
+    if (ok) setResetSent(true);
   }
 
   async function handleUpdatePassword() {
@@ -225,7 +226,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
                 />
               )}
 
-              {error && !resetSent && <ErrorMsg msg={error} />}
+              {error && !resetSent && <ResetErrorBlock msg={error} email={email} />}
 
               {!resetSent && (
                 <ActionBtn
@@ -430,6 +431,74 @@ function ErrorMsg({ msg }: { msg: string }) {
       <p style={{ fontFamily:'monospace', fontSize:9, color:RED, letterSpacing:'0.04em' }}>
         {msg}
       </p>
+    </div>
+  );
+}
+
+/** Reset hatası + Supabase dashboard direktif kutusu */
+function ResetErrorBlock({ msg, email }: { msg: string; email: string }) {
+  // SUPABASE_URL → https://abcxyz.supabase.co → proje ref = abcxyz
+  const projectRef = SUPABASE_URL
+    ? (SUPABASE_URL.replace('https://', '').split('.')[0] ?? '')
+    : '';
+  const dashUrl = projectRef
+    ? `https://supabase.com/dashboard/project/${projectRef}/auth/users`
+    : 'https://supabase.com/dashboard';
+
+  return (
+    <div style={{
+      padding:     '10px 12px',
+      background:  'rgba(220,38,38,0.06)',
+      border:      `1px solid rgba(220,38,38,0.25)`,
+      borderRadius: 4,
+      display:     'flex',
+      flexDirection:'column',
+      gap:          8,
+    }}>
+      <p style={{ fontFamily:'monospace', fontSize:9, color:RED, letterSpacing:'0.04em' }}>
+        {msg}
+      </p>
+      <div style={{
+        padding:     '8px 10px',
+        background:  'rgba(255,255,255,0.03)',
+        border:      '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 3,
+      }}>
+        <p style={{ fontFamily:'monospace', fontSize:8, color:'#9ca3af', letterSpacing:'0.06em', marginBottom:6 }}>
+          MANUEL ÇÖZÜM:
+        </p>
+        <p style={{ fontFamily:'monospace', fontSize:8, color:'#6b7280', lineHeight:1.6 }}>
+          1. Supabase Dashboard → Authentication → Users<br />
+          2. {email || 'E-posta adresinizi'} arayın<br />
+          3. &ldquo;Send Password Recovery&rdquo; veya<br />
+          &nbsp;&nbsp;&nbsp;&ldquo;Reset Password&rdquo; tıklayın
+        </p>
+      </div>
+      <a
+        href={dashUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          gap:             5,
+          padding:        '7px 10px',
+          background:     'rgba(96,165,250,0.08)',
+          border:         '1px solid rgba(96,165,250,0.25)',
+          borderRadius:    3,
+          color:           BLUE,
+          fontFamily:     'monospace',
+          fontSize:        9,
+          fontWeight:      700,
+          letterSpacing:  '0.08em',
+          textDecoration: 'none',
+          cursor:          'pointer',
+        }}
+      >
+        <ExternalLink size={10} />
+        SUPABASE DASHBOARD AÇ
+      </a>
     </div>
   );
 }

@@ -2232,7 +2232,13 @@ public class CarLauncherPlugin extends Plugin {
     /** CAN sniffer'ı açar/kapatır — sniffer aktifken her frame `canRawFrame` olarak emit edilir. */
     @PluginMethod
     public void setCanSnifferEnabled(PluginCall call) {
-        _canSnifferActive = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        _canSnifferActive = enabled;
+        if (enabled) {
+            // Sniffer başlatılırken CAN bus çalışmıyorsa otomatik başlat
+            if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
+            canBusManager.start(_canFrameListener, getContext(), canSignalMapper::reset);
+        }
         call.resolve();
     }
 

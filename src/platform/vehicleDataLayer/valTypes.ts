@@ -15,7 +15,8 @@
  *     Voltaj    → V
  *
  * `SignalSource`: Veriyi üreten fiziksel kaynak.
- *   CAN    — Araç CAN bus (en güvenilir, doğrudan ECU)
+ *   HAL    — Native HAL doğrudan ECU (en güvenilir, ham CAN frame üstü soyutlama)
+ *   CAN    — Araç CAN bus (doğrudan ECU, HAL yoksa birincil)
  *   OBD    — OBD-II serial adapter (güvenilir, ~0.3s gecikme)
  *   GPS    — GNSS alıcısı (konum hassas, hız için ikincil)
  *   FUSED  — Birden fazla kaynaktan sentezlenmiş (confidence en yüksek kullanılır)
@@ -32,7 +33,8 @@ export interface IVehicleSignal<T> {
    * Sinyal güvenilirliği: 0.0 (geçersiz) – 1.0 (mükemmel).
    *
    * Temel değerler (tazelik azaldıkça düşer):
-   *   CAN  → 0.95   (doğrudan ECU, düşük gecikme)
+   *   HAL  → 0.98   (native HAL, ham CAN üstü soyutlama, en güvenilir)
+   *   CAN  → 0.92   (doğrudan ECU, düşük gecikme)
    *   OBD  → 0.85   (serial, ~300ms gecikme)
    *   GPS  → 0.70   (Doppler hız, konum daha güvenilir)
    *
@@ -43,7 +45,7 @@ export interface IVehicleSignal<T> {
 
 /* ── Kaynak tanımlayıcı ──────────────────────────────────────────────────── */
 
-export type SignalSource = 'CAN' | 'OBD' | 'GPS' | 'FUSED';
+export type SignalSource = 'HAL' | 'CAN' | 'OBD' | 'GPS' | 'FUSED';
 
 /* ── Normalize edilmiş araç verisi ───────────────────────────────────────── */
 
@@ -103,7 +105,8 @@ export interface SignalSourceConfig {
 }
 
 export const SIGNAL_SOURCE_DEFAULTS: Readonly<Record<SignalSource, SignalSourceConfig>> = {
-  CAN:   { baseConfidence: 0.95, timeoutMs: 3_000 },
+  HAL:   { baseConfidence: 0.98, timeoutMs: 3_000 },
+  CAN:   { baseConfidence: 0.92, timeoutMs: 3_000 },
   OBD:   { baseConfidence: 0.85, timeoutMs: 2_000 },
   GPS:   { baseConfidence: 0.70, timeoutMs: 5_000 },
   FUSED: { baseConfidence: 1.00, timeoutMs: 5_000 },

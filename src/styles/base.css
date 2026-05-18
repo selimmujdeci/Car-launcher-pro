@@ -91,9 +91,18 @@
   --car-shadow-lg: 0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07);
   --car-r-sm: 8px; --car-r-md: 12px; --car-r-lg: 16px;
   --car-r-xl: 20px; --car-r-2xl: 24px; --car-r-3xl: 28px;
-  --car-dim-1: rgba(255,255,255,0.62);
-  --car-dim-2: rgba(255,255,255,0.40);
-  --car-dim-3: rgba(255,255,255,0.25);
+  --car-dim-1: rgba(255,255,255,0.92);
+  --car-dim-2: rgba(255,255,255,0.78);
+  --car-dim-3: rgba(255,255,255,0.62);
+
+  /* Head-unit minimum readability tokens (ISO 15008 / WCAG AA) */
+  --hu-font-label:     13px;
+  --hu-font-min:       15px;
+  --hu-font-value:     28px;
+  --hu-text-primary:   #ffffff;
+  --hu-text-secondary: #e2e8f0;
+  --hu-text-label:     #cbd5e1;
+  --hu-border-visible: rgba(255,255,255,0.18);
 }
 
 /* ── Core keyframe animations ─────────────────────────────── */

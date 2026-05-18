@@ -1,3 +1,5 @@
+import type { SignalSource } from './valTypes';
+
 /**
  * Rich GPS fix — gpsService'ten gelen tam nesne.
  * UnifiedVehicleStore.location, geofence servisi ve harita bileşenleri bu tipi kullanır.
@@ -73,7 +75,12 @@ export interface VehicleState {
   location: { lat: number; lng: number; accuracy: number } | null;
   /** OBD odometer (km) — mevcut olduğunda maintenance için Source of Truth */
   odometer?: number;
+  /** Aktif sinyal kaynağı — hız füzyonunu kazanan kaynak */
+  nativeSource?: SignalSource;
 }
+
+/** HAL adaptöründen gelen ham veri — CanAdapterData ile yapısal olarak aynı. */
+export type VehicleHALData = CanAdapterData;
 
 /**
  * Worker'a gönderilen geofence zona tanımı.

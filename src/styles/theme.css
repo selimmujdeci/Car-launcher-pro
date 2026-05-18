@@ -16,7 +16,7 @@
   --pack-radius:    24px;
   --pack-glow:      rgba(59,130,246,0.12);
   --pack-blur:      20px;
-  --pack-font-weight: 400;
+  --pack-font-weight: 600;
   --pack-tracking:  0.01em;
 
   /* Vurgu rengi */
@@ -43,12 +43,12 @@
   --map-shadow:      0 4px 20px rgba(0,0,0,0.08);
   --map-radius:      2.5rem;
 
-  /* Metin renkleri */
-  --text-primary:    #f1f5f9;
-  --text-secondary:  #94a3b8;
-  --text-muted:      #64748b;
-  --premium-text:    #f1f5f9;
-  --premium-text-dim: #94a3b8;
+  /* Metin renkleri — automotive WCAG AA minimum */
+  --text-primary:    #ffffff;
+  --text-secondary:  #cbd5e1;
+  --text-muted:      #94a3b8;
+  --premium-text:    #ffffff;
+  --premium-text-dim: #cbd5e1;
   --premium-surface:  rgba(14,22,42,0.80);
   --premium-card:     rgba(14,22,42,0.85);
   --premium-border:   rgba(255,255,255,0.08);

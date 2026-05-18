@@ -10,9 +10,13 @@ import { useEffect, useState, useRef } from 'react';
 import {
   ShieldAlert, ServerCrash, Flag, ChevronRight,
   Loader2, ChevronDown, ChevronUp, AlertTriangle, X,
+  LogOut, Activity, GitBranch, SlidersHorizontal, ScrollText,
+  Check, Pencil,
 } from 'lucide-react';
-import { useRoleStore }             from '../../platform/roleSystem/RoleStore';
-import { AdminLoginForm }          from './AdminLoginForm';
+import { useRoleStore, getAdminClient } from '../../platform/roleSystem/RoleStore';
+import { AdminLoginForm }              from './AdminLoginForm';
+import { DiagnosticsBridgeLite }       from './DiagnosticsBridgeLite';
+import { RolloutControlLite, RolloutKeyframes } from './RolloutControlLite';
 import {
   getFleetHealthSummary,
   getCriticalCount24h,
@@ -22,9 +26,14 @@ import {
   activateFleetLimpMode,
   getRecentIncidents,
   subscribeToCriticalEvents,
+  getSystemPolicies,
+  updatePolicy,
+  getAuditLogEntries,
   type FleetHealthSummary,
   type FeatureFlag,
   type RecentIncident,
+  type SystemPolicy,
+  type AuditLogEntry,
 } from '../../platform/superadmin/superAdminService';
 import { IncidentReplayLite } from './IncidentReplayLite';
 
@@ -44,7 +53,9 @@ const AMB  = '#d97706';
 // ── SuperAdminShell ───────────────────────────────────────────────────────────
 
 export function SuperAdminShell() {
-  const { role, syncStatus, syncWithSupabase, adminAuthState } = useRoleStore();
+  const { role, syncStatus, syncWithSupabase, adminAuthState, signOutAdmin } = useRoleStore();
+
+  const [adminEmail, setAdminEmail] = useState<string>('');
 
   // ── Read state
   const [fleet,    setFleet]    = useState<FleetHealthSummary | null>(null);
@@ -66,12 +77,37 @@ export function SuperAdminShell() {
   const [incidents,      setIncidents]      = useState<RecentIncident[]>([]);
   const [incLoading,     setIncLoading]     = useState(false);
   const [replayIncident, setReplayIncident] = useState<RecentIncident | null>(null);
+  const [diagIncident,   setDiagIncident]   = useState<RecentIncident | null>(null);
 
   // ── Limp Mode state
   const [showLimpModal, setShowLimpModal] = useState(false);
   const [executingLimp, setExecutingLimp] = useState(false);
   const [limpError,     setLimpError]     = useState<string | null>(null);
   const [limpSuccess,   setLimpSuccess]   = useState(false);
+
+  // ── Rollout state
+  const [showRollout, setShowRollout] = useState(false);
+
+  // ── Policies state
+  const [showPolicies,    setShowPolicies]    = useState(false);
+  const [policiesList,    setPoliciesList]    = useState<SystemPolicy[]>([]);
+  const [policiesLoading, setPoliciesLoading] = useState(false);
+  const [editingPolicyKey,  setEditingPolicyKey]  = useState<string | null>(null);
+  const [editingValue,      setEditingValue]      = useState('');
+  const [confirmingPolicy,  setConfirmingPolicy]  = useState<string | null>(null);
+  const [savingPolicyKey,   setSavingPolicyKey]   = useState<string | null>(null);
+  const [policyError,       setPolicyError]       = useState<string | null>(null);
+
+  // ── Audit Log state
+  const [auditEntries,  setAuditEntries]  = useState<AuditLogEntry[]>([]);
+  const [auditLoading,  setAuditLoading]  = useState(false);
+
+  // Admin e-postasını al
+  useEffect(() => {
+    void getAdminClient()?.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) setAdminEmail(data.user.email);
+    });
+  }, []);
 
   // Yetki doğrula
   useEffect(() => { void syncWithSupabase(); }, [syncWithSupabase]);
@@ -108,8 +144,19 @@ export function SuperAdminShell() {
       finally { if (!cancelled) setIncLoading(false); }
     }
 
+    async function loadAuditLog() {
+      if (cancelled) return;
+      setAuditLoading(true);
+      try {
+        const entries = await getAuditLogEntries(15);
+        if (!cancelled) setAuditEntries(entries);
+      } catch { /* silent */ }
+      finally { if (!cancelled) setAuditLoading(false); }
+    }
+
     void loadData();
     void loadIncidents();
+    void loadAuditLog();
 
     unsubRef.current = subscribeToCriticalEvents((_payload) => {
       if (!cancelled) {
@@ -181,6 +228,38 @@ export function SuperAdminShell() {
     }
   }
 
+  // Policies paneli aç/kapat
+  async function handleTogglePolicies() {
+    const next = !showPolicies;
+    setShowPolicies(next);
+    if (next && policiesList.length === 0) {
+      setPoliciesLoading(true);
+      try { setPoliciesList(await getSystemPolicies()); }
+      catch { /* silent */ }
+      finally { setPoliciesLoading(false); }
+    }
+  }
+
+  // Policy kaydet (çift onay flow'unda ikinci adım)
+  async function handlePolicySave(key: string) {
+    setSavingPolicyKey(key);
+    setPolicyError(null);
+    try {
+      await updatePolicy(key, editingValue);
+      setPoliciesList((prev) =>
+        prev.map((p) => p.key === key ? { ...p, value: editingValue, updatedAt: new Date().toISOString() } : p),
+      );
+      // Audit log'u yenile
+      void getAuditLogEntries(15).then(setAuditEntries);
+      setEditingPolicyKey(null);
+      setConfirmingPolicy(null);
+    } catch (e) {
+      setPolicyError(e instanceof Error ? e.message : 'Kaydetme başarısız');
+    } finally {
+      setSavingPolicyKey(null);
+    }
+  }
+
   // Recovery modu — deep link ile gelindi
   if (adminAuthState === 'recovery' || adminAuthState === 'updating_pw') {
     return <AdminLoginForm mode="reset-confirm" />;
@@ -226,24 +305,42 @@ export function SuperAdminShell() {
     <div style={{ flex:1, overflowY:'auto', background:BG, fontFamily:'system-ui, sans-serif' }}>
 
       {/* Header */}
-      <div style={{ padding:'20px 20px 16px', borderBottom:`1px solid ${BORD}`, background:'#080808' }}>
+      <div style={{ padding:'14px 16px 12px', borderBottom:`0.5px solid ${BORD}`, background:'#080808' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{
-            width:36, height:36, borderRadius:8,
-            background:'rgba(220,38,38,0.1)', border:`1px solid rgba(220,38,38,0.25)`,
+            width:34, height:34, borderRadius:8,
+            background:'rgba(220,38,38,0.1)', border:`0.5px solid rgba(220,38,38,0.25)`,
             display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
           }}>
-            <ShieldAlert size={18} style={{ color:RED }} />
+            <ShieldAlert size={17} style={{ color:RED }} />
           </div>
-          <div>
+          <div style={{ flex:1, minWidth:0 }}>
             <p style={{ fontSize:11, fontWeight:700, color:RED, letterSpacing:'0.14em', textTransform:'uppercase' }}>
               SİSTEM KOMUTA MERKEZİ
             </p>
-            <p style={{ fontSize:9, color:DIM, letterSpacing:'0.08em', marginTop:2 }}>
-              SUPER_ADMIN · {syncStatus === 'verified' ? 'JWT DOĞRULANDI' : 'SYNCING...'}
+            <p style={{ fontSize:9, color:MUTED, letterSpacing:'0.06em', marginTop:2,
+              whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              {adminEmail || 'SUPER_ADMIN'} · {syncStatus === 'verified' ? 'JWT DOĞRULANDI' : 'SYNCING...'}
               {newCritical && <span style={{ color:RED, marginLeft:8 }}>● YENİ KRİTİK OLAY</span>}
             </p>
           </div>
+          {/* Çıkış Yap */}
+          <button
+            onClick={() => { void signOutAdmin(); }}
+            title="Çıkış Yap"
+            style={{
+              display:'flex', alignItems:'center', gap:5,
+              padding:'5px 10px',
+              background:'transparent', border:`0.5px solid ${BORD}`,
+              borderRadius:4, cursor:'pointer',
+              color:MUTED, flexShrink:0,
+              fontFamily:'monospace', fontSize:9, fontWeight:700,
+              letterSpacing:'0.08em', textTransform:'uppercase',
+            }}
+          >
+            <LogOut size={11} />
+            ÇIKIŞ
+          </button>
         </div>
       </div>
 
@@ -280,6 +377,7 @@ export function SuperAdminShell() {
           incidents={incidents}
           loading={incLoading}
           onSelect={setReplayIncident}
+          onDiagnostics={setDiagIncident}
         />
 
         {/* Feature Flags — tıklanabilir */}
@@ -338,6 +436,100 @@ export function SuperAdminShell() {
                     flag={flag}
                     toggling={togglingFlag === flag.key}
                     onToggle={() => { void handleFlagToggle(flag); }}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* DAĞITIM MERKEZİ — Rollout modal açar */}
+        <button
+          onClick={() => setShowRollout(true)}
+          style={{
+            width:'100%', textAlign:'left', cursor:'pointer',
+            background: SURF, border:`0.5px solid ${BORD}`,
+            borderRadius:4, padding:'12px 14px',
+            display:'flex', alignItems:'center', gap:12,
+            borderLeft:`3px solid ${BLUE}40`,
+          }}
+        >
+          <div style={{
+            width:32, height:32, borderRadius:6,
+            background:`${BLUE}10`, border:`0.5px solid ${BLUE}20`,
+            display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+          }}>
+            <GitBranch size={15} style={{ color:BLUE }} />
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <p style={{ fontSize:11, fontWeight:600, color:TEXT, letterSpacing:'0.04em' }}>Dağıtım Merkezi</p>
+            <p style={{ fontSize:10, color:MUTED, marginTop:2 }}>Canary planları · Rollout kontrolü</p>
+          </div>
+          <ChevronRight size={13} style={{ color:DIM, flexShrink:0 }} />
+        </button>
+
+        {/* SİSTEM POLİTİKALARI */}
+        <div>
+          <button
+            onClick={() => { void handleTogglePolicies(); }}
+            style={{
+              width:'100%', textAlign:'left', cursor:'pointer',
+              background: SURF, border:`0.5px solid ${showPolicies ? `${AMB}40` : BORD}`,
+              borderRadius:4, padding:'12px 14px',
+              display:'flex', alignItems:'center', gap:12,
+              borderLeft:`3px solid ${AMB}40`,
+            }}
+          >
+            <div style={{
+              width:32, height:32, borderRadius:6,
+              background:`${AMB}10`, border:`0.5px solid ${AMB}20`,
+              display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+            }}>
+              <SlidersHorizontal size={15} style={{ color:AMB }} />
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ fontSize:11, fontWeight:600, color:TEXT, letterSpacing:'0.04em' }}>Sistem Politikaları</p>
+              <p style={{ fontSize:10, color:MUTED, marginTop:2 }}>
+                {policiesList.length > 0 ? `${policiesList.length} politika` : 'Termal · Bellek · Sync'}
+              </p>
+            </div>
+            {showPolicies
+              ? <ChevronUp size={13} style={{ color:DIM }} />
+              : <ChevronDown size={13} style={{ color:DIM }} />}
+          </button>
+
+          {showPolicies && (
+            <div style={{
+              background:'#0d0d0d', border:`0.5px solid ${BORD}`,
+              borderTop:'none', borderRadius:'0 0 4px 4px',
+            }}>
+              {policyError && (
+                <p style={{ fontSize:9, color:RED, padding:'6px 14px', fontFamily:'monospace', letterSpacing:'0.06em' }}>
+                  ✗ {policyError}
+                </p>
+              )}
+              {policiesLoading ? (
+                <div style={{ display:'flex', justifyContent:'center', padding:16 }}>
+                  <Loader2 size={13} style={{ color:MUTED, animation:'spin 1s linear infinite' }} />
+                </div>
+              ) : policiesList.length === 0 ? (
+                <p style={{ fontSize:9, color:DIM, padding:'8px 14px', fontFamily:'monospace' }}>
+                  POLICY_EMPTY: system_configs tablosu boş
+                </p>
+              ) : (
+                policiesList.map((policy) => (
+                  <PolicyRow
+                    key={policy.key}
+                    policy={policy}
+                    editing={editingPolicyKey === policy.key}
+                    confirming={confirmingPolicy === policy.key}
+                    saving={savingPolicyKey === policy.key}
+                    editValue={editingPolicyKey === policy.key ? editingValue : policy.value}
+                    onEdit={() => { setEditingPolicyKey(policy.key); setEditingValue(policy.value); setConfirmingPolicy(null); setPolicyError(null); }}
+                    onCancel={() => { setEditingPolicyKey(null); setConfirmingPolicy(null); setPolicyError(null); }}
+                    onChangeValue={(v) => setEditingValue(v)}
+                    onRequestConfirm={() => setConfirmingPolicy(policy.key)}
+                    onConfirm={() => { void handlePolicySave(policy.key); }}
                   />
                 ))
               )}
@@ -408,6 +600,39 @@ export function SuperAdminShell() {
         }
       `}</style>
 
+      {/* DENETİM GÜNLÜĞÜ */}
+      <div style={{ padding:'0 16px 8px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+          <ScrollText size={11} style={{ color:DIM }} />
+          <p style={{
+            fontSize:9, fontWeight:700, color:DIM,
+            letterSpacing:'0.14em', textTransform:'uppercase',
+          }}>
+            DENETİM GÜNLÜĞÜ
+          </p>
+          {auditLoading && <Loader2 size={9} style={{ color:DIM, animation:'spin 1s linear infinite' }} />}
+        </div>
+
+        {auditEntries.length === 0 && !auditLoading ? (
+          <p style={{ fontFamily:'monospace', fontSize:9, color:DIM, padding:'4px 0' }}>
+            AUDIT_EMPTY: Kayıtlı işlem yok
+          </p>
+        ) : (
+          <div style={{
+            background:SURF, border:`0.5px solid ${BORD}`,
+            borderRadius:4, overflow:'hidden',
+          }}>
+            {auditEntries.map((entry, idx) => (
+              <AuditRow
+                key={entry.id}
+                entry={entry}
+                isLast={idx === auditEntries.length - 1}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Web paneli linki */}
       <div style={{ padding:'12px 16px 28px' }}>
         <div style={{
@@ -428,6 +653,22 @@ export function SuperAdminShell() {
           incident={replayIncident}
           onClose={() => setReplayIncident(null)}
         />
+      )}
+
+      {/* Canlı Teşhis Modalı */}
+      {diagIncident && (
+        <DiagnosticsBridgeLite
+          incident={diagIncident}
+          onClose={() => setDiagIncident(null)}
+        />
+      )}
+
+      {/* Dağıtım Merkezi Modalı */}
+      {showRollout && (
+        <>
+          <RolloutControlLite onClose={() => setShowRollout(false)} />
+          <RolloutKeyframes />
+        </>
       )}
 
       {/* Limp Mode Onay Modalı */}
@@ -631,12 +872,15 @@ function LimpModeModal({ onConfirm, onCancel, executing, error }: {
 // ── IncidentFeed ──────────────────────────────────────────────────────────────
 
 function IncidentFeed({
-  incidents, loading, onSelect,
+  incidents, loading, onSelect, onDiagnostics,
 }: {
-  incidents: RecentIncident[];
-  loading:   boolean;
-  onSelect:  (inc: RecentIncident) => void;
+  incidents:     RecentIncident[];
+  loading:       boolean;
+  onSelect:      (inc: RecentIncident) => void;
+  onDiagnostics: (inc: RecentIncident) => void;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   function fmtTs(iso: string): string {
     try {
       return new Date(iso).toLocaleTimeString('tr-TR', {
@@ -670,67 +914,263 @@ function IncidentFeed({
           borderRadius: 4, overflow: 'hidden',
         }}>
           {incidents.map((inc, idx) => {
-            const color = inc.severity === 'critical' ? RED : AMB;
+            const color      = inc.severity === 'critical' ? RED : AMB;
+            const isExpanded = expandedId === inc.id;
             return (
-              <button
-                key={inc.id}
-                onClick={() => onSelect(inc)}
-                style={{
-                  width: '100%', textAlign: 'left', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: idx < incidents.length - 1 ? `1px solid ${BORD}` : 'none',
-                  transition: 'background 100ms ease',
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#161616'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-              >
-                {/* Severity dot */}
-                <div style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: color, flexShrink: 0,
-                }} />
+              <div key={inc.id} style={{
+                borderBottom: idx < incidents.length - 1 ? `1px solid ${BORD}` : 'none',
+              }}>
+                {/* Olay satırı */}
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : inc.id)}
+                  style={{
+                    width: '100%', textAlign: 'left', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 12px',
+                    background: isExpanded ? '#141414' : 'transparent',
+                    border: 'none',
+                    transition: 'background 100ms ease',
+                  }}
+                  onMouseEnter={(e) => { if (!isExpanded) (e.currentTarget as HTMLButtonElement).style.background = '#161616'; }}
+                  onMouseLeave={(e) => { if (!isExpanded) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                >
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, color: DIM, flexShrink: 0, minWidth: 54 }}>
+                    {fmtTs(inc.ts)}
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, color: MUTED, flexShrink: 0 }}>
+                    dev:{inc.deviceHash}
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, color, flexShrink: 0, textTransform: 'uppercase' }}>
+                    {inc.overallHealth}
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 9, color: inc.thermalLevel >= 2 ? AMB : DIM, marginLeft: 'auto' }}>
+                    T:L{inc.thermalLevel}
+                  </span>
+                  {isExpanded
+                    ? <ChevronDown size={10} style={{ color: DIM, flexShrink: 0 }} />
+                    : <ChevronRight size={10} style={{ color: DIM, flexShrink: 0 }} />}
+                </button>
 
-                {/* Timestamp */}
-                <span style={{
-                  fontFamily: 'monospace', fontSize: 9, color: DIM,
-                  flexShrink: 0, minWidth: 54,
-                }}>
-                  {fmtTs(inc.ts)}
-                </span>
-
-                {/* DeviceHash */}
-                <span style={{
-                  fontFamily: 'monospace', fontSize: 9, color: MUTED,
-                  flexShrink: 0,
-                }}>
-                  dev:{inc.deviceHash}
-                </span>
-
-                {/* Health */}
-                <span style={{
-                  fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
-                  color, flexShrink: 0, textTransform: 'uppercase',
-                }}>
-                  {inc.overallHealth}
-                </span>
-
-                {/* Thermal */}
-                <span style={{
-                  fontFamily: 'monospace', fontSize: 9,
-                  color: inc.thermalLevel >= 2 ? AMB : DIM, marginLeft: 'auto',
-                }}>
-                  T:L{inc.thermalLevel}
-                </span>
-
-                <ChevronRight size={10} style={{ color: DIM, flexShrink: 0 }} />
-              </button>
+                {/* Aksiyon satırı — genişletilince göster */}
+                {isExpanded && (
+                  <div style={{
+                    display: 'flex', gap: 1,
+                    padding: '6px 12px 8px',
+                    background: '#0e0e0e',
+                    borderTop: `0.5px solid ${BORD}`,
+                  }}>
+                    <button
+                      onClick={() => { setExpandedId(null); onSelect(inc); }}
+                      style={{
+                        flex: 1, padding: '7px 0', cursor: 'pointer',
+                        background: 'transparent',
+                        border: `0.5px solid ${BORD}`, borderRadius: '3px 0 0 3px',
+                        color: MUTED, fontFamily: 'monospace', fontSize: 9,
+                        fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      }}
+                    >
+                      <ChevronRight size={10} />
+                      REPLAY
+                    </button>
+                    <button
+                      onClick={() => { setExpandedId(null); onDiagnostics(inc); }}
+                      style={{
+                        flex: 1, padding: '7px 0', cursor: 'pointer',
+                        background: 'rgba(96,165,250,0.07)',
+                        border: `0.5px solid ${BLUE}40`, borderRadius: '0 3px 3px 0',
+                        color: BLUE, fontFamily: 'monospace', fontSize: 9,
+                        fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      }}
+                    >
+                      <Activity size={10} />
+                      CANLI TEŞHİS
+                    </button>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── PolicyRow ─────────────────────────────────────────────────────────────────
+
+function PolicyRow({
+  policy, editing, confirming, saving,
+  editValue, onEdit, onCancel, onChangeValue, onRequestConfirm, onConfirm,
+}: {
+  policy:           SystemPolicy
+  editing:          boolean
+  confirming:       boolean
+  saving:           boolean
+  editValue:        string
+  onEdit:           () => void
+  onCancel:         () => void
+  onChangeValue:    (v: string) => void
+  onRequestConfirm: () => void
+  onConfirm:        () => void
+}) {
+  return (
+    <div style={{
+      borderBottom: `0.5px solid ${BORD}`,
+      padding: '9px 14px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 11, color: TEXT, fontWeight: 500 }}>{policy.name}</p>
+          <p style={{ fontSize: 8, color: DIM, fontFamily: 'monospace', marginTop: 1, letterSpacing: '0.06em' }}>
+            {policy.key}
+          </p>
+        </div>
+
+        {!editing ? (
+          <>
+            <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: AMB }}>
+              {policy.value}{policy.unit ? ` ${policy.unit}` : ''}
+            </span>
+            <button
+              onClick={onEdit}
+              style={{
+                background: 'transparent', border: `0.5px solid ${BORD}`,
+                borderRadius: 3, cursor: 'pointer', color: MUTED,
+                padding: '3px 7px', display: 'flex', alignItems: 'center', gap: 4,
+                fontFamily: 'monospace', fontSize: 8, fontWeight: 700, letterSpacing: '0.08em',
+              }}
+            >
+              <Pencil size={9} />
+              DÜZENLİ
+            </button>
+          </>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <input
+              type="text"
+              value={editValue}
+              onChange={(e) => onChangeValue(e.target.value)}
+              autoFocus
+              style={{
+                width: 72, padding: '4px 7px',
+                background: '#141414', border: `0.5px solid ${AMB}60`,
+                borderRadius: 3, color: AMB, fontFamily: 'monospace', fontSize: 11,
+                outline: 'none',
+              }}
+            />
+            {policy.unit && (
+              <span style={{ fontFamily: 'monospace', fontSize: 9, color: DIM }}>{policy.unit}</span>
+            )}
+            {!confirming ? (
+              <>
+                <button
+                  onClick={onRequestConfirm}
+                  style={{
+                    padding: '4px 8px', background: `${AMB}15`,
+                    border: `0.5px solid ${AMB}60`, borderRadius: 3,
+                    cursor: 'pointer', color: AMB, fontFamily: 'monospace',
+                    fontSize: 8, fontWeight: 700, letterSpacing: '0.08em',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  <Check size={9} />
+                  KAYDET
+                </button>
+                <button
+                  onClick={onCancel}
+                  style={{
+                    padding: '4px 6px', background: 'transparent',
+                    border: `0.5px solid ${BORD}`, borderRadius: 3,
+                    cursor: 'pointer', color: MUTED,
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={onConfirm}
+                  disabled={saving}
+                  style={{
+                    padding: '4px 8px', background: 'rgba(220,38,38,0.12)',
+                    border: `0.5px solid ${RED}`, borderRadius: 3,
+                    cursor: saving ? 'not-allowed' : 'pointer', color: RED,
+                    fontFamily: 'monospace', fontSize: 8, fontWeight: 700, letterSpacing: '0.08em',
+                    display: 'flex', alignItems: 'center', gap: 4, opacity: saving ? 0.5 : 1,
+                  }}
+                >
+                  {saving
+                    ? <Loader2 size={9} style={{ animation: 'spin 1s linear infinite' }} />
+                    : null}
+                  {saving ? '...' : 'ONAYLA'}
+                </button>
+                <button
+                  onClick={onCancel}
+                  disabled={saving}
+                  style={{
+                    padding: '4px 6px', background: 'transparent',
+                    border: `0.5px solid ${BORD}`, borderRadius: 3,
+                    cursor: 'pointer', color: MUTED, opacity: saving ? 0.4 : 1,
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      {confirming && !saving && (
+        <p style={{
+          fontFamily: 'monospace', fontSize: 8, color: RED,
+          marginTop: 5, letterSpacing: '0.06em',
+        }}>
+          ⚠ {policy.key}: {policy.value} → {editValue} — onaylıyor musunuz?
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── AuditRow ──────────────────────────────────────────────────────────────────
+
+function AuditRow({ entry, isLast }: { entry: AuditLogEntry; isLast: boolean }) {
+  const sevColor = entry.severity === 'critical' ? RED : entry.severity === 'warning' ? AMB : DIM;
+
+  function fmtTs(iso: string): string {
+    try {
+      return new Date(iso).toLocaleTimeString('tr-TR', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+    } catch { return '--:--'; }
+  }
+
+  const shortEmail = entry.actorEmail.length > 20
+    ? entry.actorEmail.slice(0, 18) + '…'
+    : entry.actorEmail;
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '6px 12px',
+      borderBottom: isLast ? 'none' : `0.5px solid ${BORD}`,
+    }}>
+      <div style={{ width: 5, height: 5, borderRadius: '50%', background: sevColor, flexShrink: 0 }} />
+      <span style={{ fontFamily: 'monospace', fontSize: 8, color: DIM, flexShrink: 0, minWidth: 54 }}>
+        {fmtTs(entry.ts)}
+      </span>
+      <span style={{ fontFamily: 'monospace', fontSize: 8, color: MUTED, flexShrink: 0, minWidth: 0,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
+        {shortEmail}
+      </span>
+      <span style={{ fontFamily: 'monospace', fontSize: 8, color: sevColor, flex: 1, minWidth: 0,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '0.04em' }}>
+        {entry.action}
+      </span>
     </div>
   );
 }

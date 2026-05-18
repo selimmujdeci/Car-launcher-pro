@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useCallback } from 'react';
-import { Power, Thermometer, Wind } from 'lucide-react';
+import { Power, Thermometer, Wind, X } from 'lucide-react';
 
 /* ── Types ──────────────────────────────────────── */
 
@@ -216,7 +216,7 @@ function HeatCtrl({
 
 /* ── Ana bileşen ─────────────────────────────────── */
 
-export const ClimateScreen = memo(function ClimateScreen() {
+export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?: () => void }) {
   const [s, setS] = useState<CS>(DEF);
 
   /* Kabin sıcaklığı simülasyonu */
@@ -276,19 +276,36 @@ export const ClimateScreen = memo(function ClimateScreen() {
           <span className="text-[11px] text-white/35 ml-0.5">kabin</span>
         </div>
 
-        {/* Güç butonu */}
-        <button
-          onClick={() => upd('on', !s.on)}
-          className="flex items-center justify-center rounded-full transition-all duration-200 active:scale-90"
-          style={{
-            width: 44, height: 44,
-            background: s.on ? 'rgba(16,185,129,0.14)' : 'rgba(255,255,255,0.05)',
-            border: `1px solid ${s.on ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.1)'}`,
-            boxShadow: s.on ? '0 0 18px rgba(16,185,129,0.18)' : 'none',
-          }}
-        >
-          <Power size={17} color={s.on ? '#10b981' : 'rgba(255,255,255,0.25)'} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Güç butonu */}
+          <button
+            onClick={() => upd('on', !s.on)}
+            className="flex items-center justify-center rounded-full transition-all duration-200 active:scale-90"
+            style={{
+              width: 44, height: 44,
+              background: s.on ? 'rgba(16,185,129,0.14)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${s.on ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.1)'}`,
+              boxShadow: s.on ? '0 0 18px rgba(16,185,129,0.18)' : 'none',
+            }}
+          >
+            <Power size={17} color={s.on ? '#10b981' : 'rgba(255,255,255,0.25)'} />
+          </button>
+
+          {/* Kapat butonu */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center rounded-full transition-all duration-200 active:scale-90"
+              style={{
+                width: 44, height: 44,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.14)',
+              }}
+            >
+              <X size={18} color="rgba(255,255,255,0.70)" />
+            </button>
+          )}
+        </div>
       </header>
 
       {/* ── Ayırıcı çizgi ── */}

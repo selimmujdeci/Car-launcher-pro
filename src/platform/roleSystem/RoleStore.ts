@@ -49,8 +49,8 @@ interface RoleStore {
 
   /** Supabase ile giriş yap → yetki doğrula. Yetkisiz hesap: signOut + hata. */
   signInAdmin: (email: string, password: string) => Promise<void>;
-  /** Şifre sıfırlama e-postası gönder. redirectTo: carospro://auth/recovery */
-  resetPassword: (email: string) => Promise<void>;
+  /** Şifre sıfırlama e-postası gönder. redirectTo: carospro://auth/recovery. true = başarılı */
+  resetPassword: (email: string) => Promise<boolean>;
   /** Deep link'ten gelen access_token ile oturumu kur ve recovery moduna geç. */
   handleRecoveryUrl: (url: string) => Promise<void>;
   /** Yeni şifreyi kaydet (recovery akışı). */
@@ -156,18 +156,28 @@ export const useRoleStore = create<RoleStore>()(
         const client = getAdminClient();
         if (!client) {
           set({ authError: 'AUTH_CLIENT_MISSING: Supabase yapılandırılmamış' });
-          return;
+          return false;
         }
 
         set({ authError: null });
 
-        const { error } = await client.auth.resetPasswordForEmail(email, {
-          redirectTo: 'carospro://auth/recovery',
-        });
+        // redirectTo belirtilmez → Supabase proje site URL'ini kullanır.
+        // carospro:// scheme Supabase allowlist'inde tanımlıysa aşağıdaki satırı
+        // ekleyin: redirectTo: 'carospro://auth/recovery'
+        const { error } = await client.auth.resetPasswordForEmail(email);
 
         if (error) {
-          set({ authError: `RESET_ERROR: ${error.message}` });
+          // Supabase'in "Error sending recovery email" hatası genellikle
+          // SMTP konfigürasyonu veya izin listesi sorunundan kaynaklanır.
+          const msg = error.message.toLowerCase();
+          if (msg.includes('sending') || msg.includes('email')) {
+            set({ authError: 'E-posta gönderilemedi. Supabase SMTP ayarlarını ve proje URL yapılandırmasını kontrol edin.' });
+          } else {
+            set({ authError: `Şifre sıfırlama başarısız: ${error.message}` });
+          }
+          return false;
         }
+        return true;
       },
 
       // ── Deep Link Recovery Yönetimi ────────────────────────────────────────
