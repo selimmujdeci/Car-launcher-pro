@@ -37,20 +37,35 @@ function ResetPasswordForm() {
           setSessionChecked(true);
         });
     } else {
-      // Hash yoksa mevcut session'ı kontrol et (onAuthStateChange fallback)
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-        if (event === 'PASSWORD_RECOVERY') {
+      // Hash yok → sunucu-taraflı verifyOtp ile session kurulmuş olabilir
+      // getSession() kontrolü + onAuthStateChange fallback
+      const check = async () => {
+        // Mevcut session var mı? (server-side redirect sonrası cookie ile)
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
           setSessionReady(true);
           setSessionChecked(true);
-          subscription.unsubscribe();
+          return;
         }
-      });
-      // 3 saniye içinde event gelmezse expired say
-      const t = setTimeout(() => {
-        setSessionChecked(true);
-        subscription.unsubscribe();
-      }, 3000);
-      return () => { clearTimeout(t); subscription.unsubscribe(); };
+
+        // Yoksa PASSWORD_RECOVERY event'ini bekle
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+          if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
+            setSessionReady(true);
+            setSessionChecked(true);
+            subscription.unsubscribe();
+          }
+        });
+
+        const t = setTimeout(() => {
+          setSessionChecked(true);
+          subscription.unsubscribe();
+        }, 4000);
+
+        return () => { clearTimeout(t); subscription.unsubscribe(); };
+      };
+
+      void check();
     }
   }, []);
 
