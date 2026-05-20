@@ -15,15 +15,13 @@ export async function DELETE(
     return NextResponse.json({ error: 'Supabase yapılandırılmamış.' }, { status: 503 });
   }
 
-  // Auth token'ı header'dan al
   const auth  = req.headers.get('Authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-
   if (!token) {
     return NextResponse.json({ error: 'Kimlik doğrulama gerekli.' }, { status: 401 });
   }
 
-  // Service role varsa admin client, yoksa user token ile devam et
+  // Service role varsa admin client, yoksa kullanıcı token'ı ile devam
   const key    = SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
   const client = createClient(SUPABASE_URL, key, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -39,11 +37,11 @@ export async function DELETE(
     return NextResponse.json({ error: 'Geçersiz oturum.' }, { status: 401 });
   }
 
+  // vehicles tablosundan direkt sil
   const { error } = await client
-    .from('vehicle_users')
+    .from('vehicles')
     .delete()
-    .eq('vehicle_id', vehicleId)
-    .eq('user_id', user.id);
+    .eq('id', vehicleId);
 
   if (error) {
     console.error('DELETE /api/vehicles/[id]:', error.message);
