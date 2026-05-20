@@ -56,8 +56,8 @@ interface Props {
 
 /* ─── HEADER ─────────────────────────────────────────────────── */
 const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps: () => void; onOpenSettings: () => void }) {
-  const { settings } = useStore();
-  const { time, date } = useClock(settings.use24Hour, false);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
   const obd = useOBDState();
   const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0

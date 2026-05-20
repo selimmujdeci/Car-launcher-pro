@@ -49,8 +49,8 @@ const T_DIM2   = 'var(--text-dim2, #B4BDC6)';
 
 /* ─── TESLA HEADER ────────────────────────────────────────────── */
 const TeslaHeader = memo(function TeslaHeader({ onOpenApps, onOpenSettings, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void }) {
-  const { settings } = useStore();
-  const { time } = useClock(settings.use24Hour, false);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time } = useClock(use24Hour, false);
   const device = useDeviceStatus();
   const obd = useOBDState();
   const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
@@ -67,7 +67,7 @@ const TeslaHeader = memo(function TeslaHeader({ onOpenApps, onOpenSettings, onVo
           <path d="M0 0h342v14c-28 0-56-7-84-7-28 0-56 7-84 7s-56-7-84-7C62 7 34 14 0 14V0z"/>
           <path d="M100 14h142v112l-71 14-71-14V14z"/>
         </svg>
-        <div className="font-extralight tabular-nums" style={{ fontSize: 'var(--lp-font-2xl, 32px)', color: T_TEXT, letterSpacing: '-0.5px' }}>{time}</div>
+        <div className="font-light tabular-nums" style={{ fontSize: 'var(--lp-font-2xl, 32px)', color: T_TEXT, letterSpacing: '-0.5px' }}>{time}</div>
       </div>
 
       {/* Orta: Durum — COMPACT'ta gizlenir */}
@@ -94,8 +94,8 @@ const TeslaHeader = memo(function TeslaHeader({ onOpenApps, onOpenSettings, onVo
 function TSlot({ label, value }: { label: string; value: string }) {
   return (
     <div className="text-center px-2">
-      <div className="font-medium tabular-nums" style={{ fontSize: 13, color: T_TEXT }}>{value}</div>
-      <div className="uppercase tracking-widest mt-0.5" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.10em' }}>{label}</div>
+      <div className="font-semibold tabular-nums" style={{ fontSize: 13, color: T_TEXT }}>{value}</div>
+      <div className="uppercase tracking-widest mt-0.5" style={{ fontSize: 12, color: T_DIM2, letterSpacing: '0.10em' }}>{label}</div>
     </div>
   );
 }
@@ -130,7 +130,7 @@ const TeslaMap = memo(function TeslaMap({ onOpenMap, fullMapOpen, onVoice }: { o
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative"
-      style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+      style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.50), 0 1px 6px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10)' }}>
 
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
@@ -170,8 +170,8 @@ const TeslaMap = memo(function TeslaMap({ onOpenMap, fullMapOpen, onVoice }: { o
           <Mic className="w-4 h-4" style={{ color: T_RED }} />
         </button>
         <div className="px-3 py-2 rounded-xl text-center" style={{ background: 'rgba(227,25,55,0.08)', border: `1px solid rgba(227,25,55,0.18)` }}>
-          <div style={{ fontSize: 9, color: T_DIM, letterSpacing: '0.1em', textTransform: 'uppercase' }}>ETA</div>
-          <div className="font-medium tabular-nums mt-0.5" style={{ fontSize: 13, color: T_TEXT }}>--:--</div>
+          <div style={{ fontSize: 11, color: T_DIM2, letterSpacing: '0.08em', textTransform: 'uppercase' }}>ETA</div>
+          <div className="font-semibold tabular-nums mt-0.5" style={{ fontSize: 13, color: T_TEXT }}>--:--</div>
         </div>
       </div>
     </div>
@@ -185,9 +185,11 @@ const TeslaSpeed = memo(function TeslaSpeed() {
   const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const rpm  = obd.rpm        ?? 0;
   const temp = obd.engineTemp ?? 0;
-  const fuel = obd.fuelLevel  ?? 0;
+  const fuelRaw  = obd.fuelLevel;
+  // 0 veya null → PID desteklenmiyor (Fiat/Renault vb.) → '--' göster
+  const fuel     = (fuelRaw != null && fuelRaw > 0) ? Math.max(0, fuelRaw) : null;
   const tempWarn = temp > 100;
-  const fuelWarn = fuel < 15;
+  const fuelWarn = fuel != null && fuel > 0 && fuel < 15;
   const [show3D, setShow3D] = useState(false);
 
   const R = 78, cx = 100, cy = 105;
@@ -202,11 +204,11 @@ const TeslaSpeed = memo(function TeslaSpeed() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+      style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.50), 0 1px 6px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10)' }}>
 
       {/* 3D / Gösterge toggle başlık */}
       <div className="flex items-center justify-between px-3 pt-2 pb-1 flex-shrink-0">
-        <div style={{ fontSize: 9, color: T_DIM, letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 600 }}>
+        <div style={{ fontSize: 11, color: T_DIM2, letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 700 }}>
           {show3D ? '3D ARAÇ' : 'HIZ GÖSTERGESİ'}
         </div>
         <button
@@ -246,7 +248,7 @@ const TeslaSpeed = memo(function TeslaSpeed() {
               <div className="font-light tabular-nums leading-none" style={{ fontSize: 'var(--lp-speed-font, 58px)', color: T_TEXT, letterSpacing: '-2px', textShadow: '0 0 20px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.50)' }}>
                 {Math.round(speedKmh)}
               </div>
-              <div className="font-light mt-1.5 uppercase" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.45em' }}>
+              <div className="font-semibold mt-1.5 uppercase" style={{ fontSize: 12, color: T_DIM2, letterSpacing: '0.40em' }}>
                 km/h
               </div>
             </div>
@@ -258,7 +260,7 @@ const TeslaSpeed = memo(function TeslaSpeed() {
       <div className="flex flex-shrink-0 gap-2 pb-4 px-4">
         <TDataRow Icon={Gauge}       label="RPM"   value={rpm.toLocaleString()} warn={false} />
         <TDataRow Icon={Thermometer} label="ISIL"  value={`${Math.round(temp)}°`} warn={tempWarn} />
-        <TDataRow Icon={Fuel}        label="YAKIT" value={`${Math.round(fuel)}%`} warn={fuelWarn} />
+        <TDataRow Icon={Fuel}        label="YAKIT" value={fuel != null ? `${Math.round(fuel)}%` : '—'} warn={fuelWarn} />
       </div>
     </div>
   );
@@ -268,8 +270,8 @@ function TDataRow({ Icon, label, value, warn }: { Icon: typeof Gauge; label: str
   return (
     <div className="flex-1 flex flex-col items-center py-3.5 rounded-xl"
       style={{ background: warn ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${warn ? 'rgba(239,68,68,0.20)' : T_BORDER}` }}>
-      <Icon className="w-4 h-4 mb-2" style={{ color: warn ? '#EF4444' : T_DIM }} />
-      <div className="uppercase mb-0.5" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.10em' }}>{label}</div>
+      <Icon className="w-4 h-4 mb-2" style={{ color: warn ? '#EF4444' : T_DIM2 }} />
+      <div className="uppercase mb-0.5" style={{ fontSize: 11, color: T_DIM2, letterSpacing: '0.08em' }}>{label}</div>
       <div className="font-semibold tabular-nums" style={{ fontSize: 14, color: warn ? '#EF4444' : T_TEXT }}>{value}</div>
     </div>
   );
@@ -285,11 +287,11 @@ const TeslaMusic = memo(function TeslaMusic() {
   }, []);
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+      style={{ background: T_CARD, border: `1px solid ${T_BORDER}`, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.50), 0 1px 6px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10)' }}>
 
       <div className="px-4 pt-3.5 pb-2.5 flex-shrink-0"
         style={{ borderBottom: `1px solid ${T_BORDER}` }}>
-        <div className="uppercase font-medium" style={{ fontSize: 10, color: T_DIM, letterSpacing: '0.28em' }}>ÇAL</div>
+        <div className="uppercase font-semibold" style={{ fontSize: 11, color: T_DIM2, letterSpacing: '0.22em' }}>ÇAL</div>
       </div>
 
       <div className="flex-1 flex items-center gap-3 px-4 min-h-0">
@@ -304,10 +306,10 @@ const TeslaMusic = memo(function TeslaMusic() {
           }
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-medium leading-tight truncate" style={{ fontSize: 14, color: T_TEXT }}>
+          <div className="font-semibold leading-tight truncate" style={{ fontSize: 14, color: T_TEXT }}>
             {track.title || 'Seçili şarkı yok'}
           </div>
-          <div className="font-light mt-0.5 truncate" style={{ fontSize: 12, color: T_DIM }}>
+          <div className="font-normal mt-0.5 truncate" style={{ fontSize: 12, color: T_DIM2 }}>
             {track.artist || 'Müzik çalmıyor'}
           </div>
         </div>
@@ -381,7 +383,7 @@ export const TeslaLayout = memo(function TeslaLayout({
 
       {/* Dock spacer — fixed DockBar'ın altında kalan alanı doldurur */}
       <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
-      <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+      <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
     </div>
   );
 });

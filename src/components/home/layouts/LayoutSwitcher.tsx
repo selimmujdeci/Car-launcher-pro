@@ -15,8 +15,7 @@ interface LayoutSwitcherProps {
 }
 
 export function LayoutSwitcher(props: LayoutSwitcherProps) {
-  const { settings } = useStore();
-  const theme = settings.themePack;
+  const themePack = useStore(s => s.settings.themePack);
 
   // Tema Gruplandırması
   // Sport: bmw, porsche, redline, carbon, cyberpunk
@@ -24,19 +23,19 @@ export function LayoutSwitcher(props: LayoutSwitcherProps) {
   // Minimal: tesla, minimal-dark, minimal-light, monochrome, arctic
   // Replication: replication, pixel-perfect
 
-  if (['replication', 'pixel-perfect'].includes(theme)) {
+  if (['replication', 'pixel-perfect'].includes(themePack)) {
     return <ReplicationCockpit key="replication" {...props} />;
   }
 
-  if (['bmw', 'porsche', 'redline', 'carbon', 'cyberpunk', 'electric'].includes(theme)) {
+  if (['bmw', 'porsche', 'redline', 'carbon', 'cyberpunk', 'electric'].includes(themePack)) {
     return <SportCockpit key="sport" {...props} />;
   }
 
-  if (['mercedes', 'audi', 'range-rover', 'glass-pro', 'ambient', 'sunset', 'galaxy'].includes(theme)) {
+  if (['mercedes', 'audi', 'range-rover', 'glass-pro', 'ambient', 'sunset', 'galaxy'].includes(themePack)) {
     return <LuxuryCockpit key="luxury" {...props} />;
   }
 
-  if (['tesla', 'minimal-dark', 'minimal-light', 'monochrome', 'arctic', 'tesla-x-night'].includes(theme)) {
+  if (['tesla', 'minimal-dark', 'minimal-light', 'monochrome', 'arctic', 'tesla-x-night'].includes(themePack)) {
     return <MinimalCockpit key="minimal" {...props} />;
   }
 

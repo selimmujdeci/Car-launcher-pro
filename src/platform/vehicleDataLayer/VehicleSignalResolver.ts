@@ -21,9 +21,9 @@ import { dispatchFromWorker } from './VehicleEventHub';
 import type { WorkerInMessage, WorkerOutMessage } from './VehicleCompute.worker';
 import { SignalNormalizer } from '../../core/val/SignalNormalizer';
 import { logError }         from '../crashLogger';
+import { applyProfileGate, setGateOutcome } from '../canBus/ProfileSignalGate';
+import type { HandshakeOutcome }            from '../canBus/VehicleHandshake';
 import { runtimeManager }   from '../../core/runtime/AdaptiveRuntimeManager';
-import { isNative }         from '../bridge';
-import { MockHALAdapter }   from './MockHALAdapter';
 import { NativeHALAdapter } from './NativeHALAdapter';
 import { useHALStatusStore } from './halStatusStore';
 
@@ -55,19 +55,18 @@ export class VehicleSignalResolver {
   private _sabLastGen = 0;
   private _sabPrev    = { speed: NaN, rpm: NaN, fuel: NaN, odo: NaN, reverse: NaN };
   private _rafHandle: number | null = null;
+  private _pollInterval: ReturnType<typeof setInterval> | null = null;
 
   private can: CanAdapter;
   private obd: ObdAdapter;
   private gps: GpsAdapter;
-  // isNative=true  → NativeHALAdapter (AAOS polling, fail-safe)
-  // isNative=false → MockHALAdapter   (dev/demo simülatörü)
-  private hal: NativeHALAdapter | MockHALAdapter;
+  private hal: NativeHALAdapter;
 
   constructor(can: CanAdapter, obd: ObdAdapter, gps: GpsAdapter, onCrash?: () => void) {
     this.can = can;
     this.obd = obd;
     this.gps = gps;
-    this.hal = isNative ? new NativeHALAdapter() : new MockHALAdapter();
+    this.hal = new NativeHALAdapter();
     this._onCrash = onCrash;
     this._worker = new Worker(
       new URL('./VehicleCompute.worker.ts', import.meta.url),
@@ -116,7 +115,7 @@ export class VehicleSignalResolver {
     // GpsAdapterData.speed artık ham m/s içerir (GpsAdapter dönüşüm yapmaz).
     this._unsubs.push(
       this.can.onData((d) => {
-        const signals = SignalNormalizer.fromCAN(d, Date.now());
+        const signals = SignalNormalizer.fromCAN(applyProfileGate(d), Date.now());
         this._send({ type: 'VEHICLE_DATA', source: 'CAN', signals });
       }),
       this.obd.onData((d) => {
@@ -134,8 +133,6 @@ export class VehicleSignalResolver {
     );
 
     // ── HAL yolu: CONF_HAL=0.98 → fusion'da CAN/OBD'yi override eder ─────────
-    // isNative=true  → NativeHALAdapter (AAOS; connected:false ise sessiz)
-    // isNative=false → MockHALAdapter   (dev simülatörü)
     this._unsubs.push(
       this.hal.onData((d) => {
         const signals = SignalNormalizer.fromHAL(d, Date.now());
@@ -182,6 +179,14 @@ export class VehicleSignalResolver {
   }
 
   /**
+   * VehicleHandshake tamamlandığında çağrılır.
+   * Profile gate'i günceller — Safe Mode aktifse CAN-only sinyaller kesilir.
+   */
+  setHandshakeOutcome(outcome: HandshakeOutcome): void {
+    setGateOutcome(outcome);
+  }
+
+  /**
    * Crash recovery: native storage'dan kurtarılan km değerini worker'a ilet.
    * Worker yalnızca mevcut _odoKm'den büyükse uygular (Strict Monotonicity).
    */
@@ -189,61 +194,71 @@ export class VehicleSignalResolver {
     this._send({ type: 'RESTORE_ODO', km });
   }
 
-  // ── SAB polling (RAF-based, ~60fps) ────────────────────────────────────
+  // ── SAB polling — 50ms throttle (20Hz max) ──────────────────────────────────
   //
+  // Head unit perf budget: rAF ~60fps yerine setInterval ile 20Hz throttle.
+  // Gen counter zaten değişim takibi yaptığı için gereksiz frame'ler atlanır.
   // Worker tek-yazardır; Atomics.store gen counter → release fence.
   // UI: Atomics.load gen counter → acquire fence; ardından Float64 okur.
   // Sadece değişen alanları patch'e ekler → index.ts RAF batcher minimum iş yapar.
   // reverse değişince index.ts'nin immediate-flush mantığı tetiklenir.
 
   private _startSabPolling(): void {
-    const tick = () => {
-      if (this._sabI32 && this._sabF64) {
-        const gen = Atomics.load(this._sabI32, SAB_GEN_IDX);
-        if (gen !== this._sabLastGen) {
-          this._sabLastGen = gen;
-          const f64    = this._sabF64;
-          const prev   = this._sabPrev;
-          const patch: Partial<VehicleState> = {};
-          let   changed = false;
+    // Polling aralığını runtime moduna göre türet: Mali-400 (BASIC_JS/20fps) → 50ms,
+    // BALANCED/30fps → 33ms, PERFORMANCE/60fps → 16ms, SAFE_MODE → 100ms.
+    // Sabit 50ms yerine dinamik → düşük-uç cihazlarda CPU/GPU rahatlar.
+    const fps         = runtimeManager.getConfig().uiFpsTarget;
+    const intervalMs  = Math.max(16, Math.round(1000 / fps));
+    this._pollInterval = setInterval(() => {
+      if (!this._sabI32 || !this._sabF64) return;
 
-          // Object.is: NaN===NaN doğru karşılaştırır; NaN=null sentinel (tüm kaynaklar stale)
-          const speedRaw = f64[SAB_SPEED];
-          if (!Object.is(speedRaw, prev.speed)) {
-            patch.speed = Number.isNaN(speedRaw) ? null : speedRaw;
-            prev.speed  = speedRaw;
-            changed     = true;
-          }
+      const gen = Atomics.load(this._sabI32, SAB_GEN_IDX);
+      if (gen === this._sabLastGen) return; // Gen counter yok → veri yok, atla
+      this._sabLastGen = gen;
 
-          const rpm = f64[SAB_RPM];
-          if (!Object.is(rpm, prev.rpm)) { patch.rpm = rpm; prev.rpm = rpm; changed = true; }
+      const f64    = this._sabF64;
+      const prev   = this._sabPrev;
+      const patch: Partial<VehicleState> = {};
+      let   changed = false;
 
-          const fuelRaw = f64[SAB_FUEL];
-          if (!Object.is(fuelRaw, prev.fuel)) {
-            patch.fuel = Number.isNaN(fuelRaw) ? null : fuelRaw;
-            prev.fuel  = fuelRaw;
-            changed    = true;
-          }
-
-          const odo = f64[SAB_ODO];
-          if (odo !== prev.odo)     { patch.odometer = odo; prev.odo   = odo;   changed = true; }
-
-          const revRaw = f64[SAB_REVERSE];
-          if (revRaw !== prev.reverse) {
-            patch.reverse  = revRaw !== 0;
-            prev.reverse   = revRaw;
-            changed        = true;
-          }
-
-          if (changed) this._listeners.forEach((fn) => fn(patch));
-        }
+      // Object.is: NaN===NaN doğru karşılaştırır; NaN=null sentinel (tüm kaynaklar stale)
+      const speedRaw = f64[SAB_SPEED];
+      if (!Object.is(speedRaw, prev.speed)) {
+        patch.speed = Number.isNaN(speedRaw) ? null : speedRaw;
+        prev.speed  = speedRaw;
+        changed    = true;
       }
-      this._rafHandle = requestAnimationFrame(tick);
-    };
-    this._rafHandle = requestAnimationFrame(tick);
+
+      const rpm = f64[SAB_RPM];
+      if (!Object.is(rpm, prev.rpm)) { patch.rpm = rpm; prev.rpm = rpm; changed = true; }
+
+      const fuelRaw = f64[SAB_FUEL];
+      if (!Object.is(fuelRaw, prev.fuel)) {
+        patch.fuel = Number.isNaN(fuelRaw) ? null : fuelRaw;
+        prev.fuel  = fuelRaw;
+        changed    = true;
+      }
+
+      const odo = f64[SAB_ODO];
+      if (odo !== prev.odo)     { patch.odometer = odo; prev.odo   = odo;   changed = true; }
+
+      const revRaw = f64[SAB_REVERSE];
+      if (revRaw !== prev.reverse) {
+        patch.reverse  = revRaw !== 0;
+        prev.reverse   = revRaw;
+        changed        = true;
+      }
+
+      if (changed) this._listeners.forEach((fn) => fn(patch));
+    }, intervalMs);
   }
 
   private _stopSabPolling(): void {
+    if (this._pollInterval !== null) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
+    // Legacy rAF cleanup (varsa)
     if (this._rafHandle !== null) {
       cancelAnimationFrame(this._rafHandle);
       this._rafHandle = null;

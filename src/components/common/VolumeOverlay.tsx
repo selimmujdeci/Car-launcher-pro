@@ -3,8 +3,8 @@ import { Volume2, VolumeX, Volume1 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 export const VolumeOverlay = memo(function VolumeOverlay() {
-  const { settings } = useStore();
-  const { volume, volumeStyle } = settings;
+  const volume = useStore(s => s.settings.volume);
+  const volumeStyle = useStore(s => s.settings.volumeStyle);
   const [visible, setVisible] = useState(false);
   const [hasChanged, setHasChanged] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

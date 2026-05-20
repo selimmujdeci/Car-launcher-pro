@@ -143,6 +143,7 @@ const HazardBanner = memo(function HazardBanner() {
   const hazardStatus    = useHazardStore((s) => s.hazardStatus);
   const activeHazards   = useHazardStore((s) => s.activeHazards);
   const hazardIntensity = useHazardStore((s) => s.hazardIntensity);
+  // Sadece location — object yerine tek field subscribe
   const vehicleLoc      = useUnifiedVehicleStore((s) => s.location);
   const cogMode         = useCognitiveStore((s) => s.currentMode);
   const hideCrmBadge    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME';
@@ -199,7 +200,7 @@ const HazardBanner = memo(function HazardBanner() {
           borderRadius:   14,
           background:     'rgba(8,9,14,0.84)',
           border:         `1.5px solid ${isAttention ? 'rgba(245,158,11,0.75)' : 'rgba(245,158,11,0.35)'}`,
-          backdropFilter: 'blur(18px)',
+          backdropFilter: 'blur(calc(var(--rt-blur, 1) * 18px))',
           animation:      isAttention ? '_hzPulse 1.6s ease-in-out infinite' : 'none',
         }}
       >
@@ -1299,7 +1300,10 @@ const QuickDestinationsDelayed = memo(function QuickDestinationsDelayed({
 const QuickDestinations = memo(function QuickDestinations({
   gpsLat, gpsLon,
 }: { gpsLat: number | null; gpsLon: number | null }) {
-  const { settings, updateSettings } = useStore();
+  const recentDestinations = useStore(s => s.settings.recentDestinations);
+  const homeLocation       = useStore(s => s.settings.homeLocation);
+  const workLocation       = useStore(s => s.settings.workLocation);
+  const updateSettings     = useStore(s => s.updateSettings);
   const [fuelLoading, setFuelLoading] = useState(false);
   const [fuelError, setFuelError]     = useState('');
 
@@ -1309,10 +1313,10 @@ const QuickDestinations = memo(function QuickDestinations({
     updateSettings({
       recentDestinations: [
         entry,
-        ...(settings.recentDestinations ?? []).filter(d => d.name !== dest.name),
+        ...(recentDestinations ?? []).filter(d => d.name !== dest.name),
       ].slice(0, 5),
     });
-  }, [settings, updateSettings]);
+  }, [recentDestinations, updateSettings]);
 
   const setHome = useCallback(() => {
     if (!gpsLat || !gpsLon) return;
@@ -1348,15 +1352,15 @@ const QuickDestinations = memo(function QuickDestinations({
       style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 10px)' }}
     >
       <div className="flex flex-col gap-1">
-        {settings.homeLocation ? (
+        {homeLocation ? (
           <QuickCard icon={<Home className="w-3.5 h-3.5" />} label="Ev" color="#3b82f6"
-            onTap={() => navigate({ id: 'home', name: 'Ev', latitude: settings.homeLocation!.lat, longitude: settings.homeLocation!.lng, type: 'history', category: 'home' })} />
+            onTap={() => navigate({ id: 'home', name: 'Ev', latitude: homeLocation.lat, longitude: homeLocation.lng, type: 'history', category: 'home' })} />
         ) : (
           <QuickCard icon={<Home className="w-3.5 h-3.5" />} label="Ev Ayarla" color="#475569" onTap={setHome} disabled={!gpsLat} />
         )}
-        {settings.workLocation ? (
+        {workLocation ? (
           <QuickCard icon={<Briefcase className="w-3.5 h-3.5" />} label="İş" color="#8b5cf6"
-            onTap={() => navigate({ id: 'work', name: 'İş', latitude: settings.workLocation!.lat, longitude: settings.workLocation!.lng, type: 'history', category: 'work' })} />
+            onTap={() => navigate({ id: 'work', name: 'İş', latitude: workLocation.lat, longitude: workLocation.lng, type: 'history', category: 'work' })} />
         ) : (
           <QuickCard icon={<Briefcase className="w-3.5 h-3.5" />} label="İş Ayarla" color="#475569" onTap={setWork} disabled={!gpsLat} />
         )}

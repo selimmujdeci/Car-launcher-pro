@@ -101,7 +101,9 @@ export const BootSplash = memo(function BootSplash({ phase }: { phase: 'idle' | 
 /* ── Ana bileşen ─────────────────────────────────────────── */
 
 export function SetupWizard() {
-  const { settings, updateSettings } = useStore();
+  const updateSettings = useStore(s => s.updateSettings);
+  const defaultMusic = useStore(s => s.settings.defaultMusic);
+  const defaultNav = useStore(s => s.settings.defaultNav);
   const [step, setStep] = useState(0);
 
   const isLast   = step === STEPS.length - 1;
@@ -204,10 +206,10 @@ export function SetupWizard() {
 
   /* ── Safe key lookups ──────────────────────────────────── */
 
-  const musicKey = (settings.defaultMusic in MUSIC_OPTIONS
-    ? settings.defaultMusic : 'spotify') as MusicOptionKey;
-  const navKey   = (settings.defaultNav   in NAV_OPTIONS
-    ? settings.defaultNav   : 'maps')    as NavOptionKey;
+  const musicKey = (defaultMusic in MUSIC_OPTIONS
+    ? defaultMusic : 'spotify') as MusicOptionKey;
+  const navKey   = (defaultNav   in NAV_OPTIONS
+    ? defaultNav   : 'maps')    as NavOptionKey;
 
   /* ── Render ──────────────────────────────────────────────── */
 
@@ -325,7 +327,7 @@ export function SetupWizard() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(Object.entries(MUSIC_OPTIONS) as [MusicOptionKey, typeof MUSIC_OPTIONS[MusicOptionKey]][]).map(([key, opt]) => {
-                    const active = settings.defaultMusic === key;
+                    const active = defaultMusic === key;
                     return (
                       <button
                         type="button"
@@ -362,7 +364,7 @@ export function SetupWizard() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(Object.entries(NAV_OPTIONS) as [NavOptionKey, typeof NAV_OPTIONS[NavOptionKey]][]).map(([key, opt]) => {
-                    const active = settings.defaultNav === key;
+                    const active = defaultNav === key;
                     const color  = NAV_COLORS[key] ?? '#4285f4';
                     return (
                       <button

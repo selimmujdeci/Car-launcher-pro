@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from 'react';
 import { useThemeStudio, type ThemeToken, type SavedSlot } from '../../store/useThemeStudio';
-import { useCarTheme, type BaseTheme } from '../../store/useCarTheme';
+import { useCarTheme, type BaseTheme, type CoreTheme } from '../../store/useCarTheme';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,13 +37,11 @@ const FONT_FAMILY_CSS: Record<string, string> = {
   sharetech: "'Share Tech Mono', monospace",
 };
 
-const BASE_THEMES: { id: BaseTheme; label: string; accent: string }[] = [
+const BASE_THEMES: { id: CoreTheme; label: string; accent: string }[] = [
   { id: 'tesla',    label: 'Tesla',    accent: '#E31937' },
-  { id: 'pro',      label: 'PRO',      accent: '#D4AF37' },
-  { id: 'cockpit',  label: 'Cockpit',  accent: '#00D4FF' },
   { id: 'mercedes', label: 'Mercedes', accent: '#C8A96E' },
-  { id: 'audi',     label: 'Audi',     accent: '#CC0000' },
-  { id: 'oled',     label: 'OLED',     accent: '#00E5FF' },
+  { id: 'pro',      label: 'PRO',      accent: '#D4AF37' },
+  { id: 'sunlight', label: 'Sunlight', accent: '#001E8C' },
 ];
 
 // ── Sub-components ────────────────────────────────────────────────────────────

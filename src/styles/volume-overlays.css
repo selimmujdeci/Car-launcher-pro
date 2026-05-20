@@ -29,7 +29,7 @@
   right: 0;
   height: 6px;
   background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(calc(var(--rt-blur, 1) * 4px));
   overflow: hidden;
 }
 
@@ -71,7 +71,7 @@
   width: 70px;
   height: 320px;
   background: rgba(10, 15, 25, 0.8);
-  backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(calc(var(--rt-blur, 1) * 30px)) saturate(180%);
   border: 1px solid var(--vol-glass-border);
   border-radius: 24px;
   display: flex;
@@ -162,7 +162,7 @@
   right: 15px;
   bottom: 15px;
   background: radial-gradient(circle at center, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95));
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(calc(var(--rt-blur, 1) * 20px));
   border-radius: 50%;
   border: 1px solid var(--vol-glass-border);
   display: flex;
@@ -204,7 +204,7 @@
   width: 120px;
   height: 120px;
   background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(25px);
+  backdrop-filter: blur(calc(var(--rt-blur, 1) * 25px));
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   display: flex;
@@ -285,7 +285,7 @@
   background: rgba(255, 255, 255, 0.05);
   border-radius: 2px;
   overflow: hidden;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(calc(var(--rt-blur, 1) * 10px));
 }
 
 .ambient-bar-fill {

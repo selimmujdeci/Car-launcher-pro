@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { useOBDState } from '../../platform/obdService';
+import { useOBDSpeed, useOBDRPM, useOBDEngineTemp, useOBDFuelLevel } from '../../platform/obdService';
 import { useStore } from '../../store/useStore';
 import { useSpeedLimit } from '../../platform/speedLimitService';
 import { useDTCState } from '../../platform/dtcService';
@@ -33,9 +33,12 @@ const CheckEngineLamp = ({ critical }: { critical: boolean }) => (
 );
 
 export const DigitalCluster = memo(() => {
-  const { speed, rpm, engineTemp, fuelLevel } = useOBDState();
-  const { settings } = useStore();
-  const { themePack } = settings;
+  // Surgical selectors — her alan bağımsız, tüm OBD state'i abone değil
+  const speed       = useOBDSpeed();
+  const rpm         = useOBDRPM();
+  const engineTemp  = useOBDEngineTemp();
+  const fuelLevel   = useOBDFuelLevel();
+  const themePack   = useStore(s => s.settings.themePack);
   const speedLimit = useSpeedLimit(speed);
   const dtcState   = useDTCState();
 

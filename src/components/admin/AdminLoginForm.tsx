@@ -469,9 +469,9 @@ function ResetErrorBlock({ msg, email }: { msg: string; email: string }) {
         </p>
         <p style={{ fontFamily:'monospace', fontSize:8, color:'#6b7280', lineHeight:1.6 }}>
           1. Supabase Dashboard → Authentication → Users<br />
-          2. {email || 'E-posta adresinizi'} arayın<br />
-          3. &ldquo;Send Password Recovery&rdquo; veya<br />
-          &nbsp;&nbsp;&nbsp;&ldquo;Reset Password&rdquo; tıklayın
+          2. {email || 'E-posta adresinizi'} arayın → tıklayın<br />
+          3. &ldquo;Change password&rdquo; alanına yeni şifreyi yaz<br />
+          &nbsp;&nbsp;&nbsp;(e-posta gerekmez, direkt kaydeder)
         </p>
       </div>
       <a

@@ -18,8 +18,22 @@ export function getAdminClient() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
   if (!_adminClient) {
     _adminClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: {
+        persistSession:    true,
+        autoRefreshToken:  true,
+        detectSessionInUrl: true, // URL hash'teki access_token'ı otomatik yakala
+      },
       global: { headers: { 'X-Client-Info': 'capacitor-android-admin' } },
+    });
+
+    // Web browser'da reset linki açıldığında PASSWORD_RECOVERY event'i yakala
+    // Store henüz oluşturulmamış olabilir → setTimeout ile defer et
+    _adminClient.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setTimeout(() => {
+          useRoleStore.setState({ adminAuthState: 'recovery', authError: null });
+        }, 0);
+      }
     });
   }
   return _adminClient;
@@ -161,10 +175,11 @@ export const useRoleStore = create<RoleStore>()(
 
         set({ authError: null });
 
-        // redirectTo belirtilmez → Supabase proje site URL'ini kullanır.
-        // carospro:// scheme Supabase allowlist'inde tanımlıysa aşağıdaki satırı
-        // ekleyin: redirectTo: 'carospro://auth/recovery'
-        const { error } = await client.auth.resetPasswordForEmail(email);
+        // carospro:// scheme → native app deep link handler'ı yakalar (App.tsx)
+        // Supabase Redirect URL allowlist'ine eklenmeli: carospro://auth/recovery
+        const { error } = await client.auth.resetPasswordForEmail(email, {
+          redirectTo: 'carospro://auth/recovery',
+        });
 
         if (error) {
           // Supabase'in "Error sending recovery email" hatası genellikle
@@ -181,15 +196,18 @@ export const useRoleStore = create<RoleStore>()(
       },
 
       // ── Deep Link Recovery Yönetimi ────────────────────────────────────────
+      // carospro://auth/recovery#access_token=...  (native)
+      // https://carospro.com/#access_token=...     (web browser fallback)
       handleRecoveryUrl: async (url: string) => {
         const client = getAdminClient();
         if (!client) return;
 
         try {
-          // Fragment veya query string'den token'ları çıkar
-          // Supabase redirect: carospro://auth/recovery#access_token=...&refresh_token=...&type=recovery
-          const hashPart  = url.includes('#') ? url.split('#')[1] : url.split('?')[1] ?? '';
-          const params    = new URLSearchParams(hashPart);
+          // Hash veya query string'den token'ları çıkar
+          const hashPart = url.includes('#') ? url.split('#')[1]!
+                         : url.includes('?') ? url.split('?')[1]!
+                         : '';
+          const params       = new URLSearchParams(hashPart);
           const accessToken  = params.get('access_token');
           const refreshToken = params.get('refresh_token');
           const type         = params.get('type');
@@ -201,6 +219,8 @@ export const useRoleStore = create<RoleStore>()(
             });
             if (!error) {
               set({ adminAuthState: 'recovery', authError: null });
+            } else {
+              set({ authError: `SESSION_ERROR: ${error.message}` });
             }
           }
         } catch {

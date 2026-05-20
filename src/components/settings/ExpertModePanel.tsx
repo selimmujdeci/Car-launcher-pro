@@ -70,12 +70,26 @@ function resolveExpertModeState(
 }
 
 export const ExpertModePanel = memo(function ExpertModePanel() {
-  const trustScore     = useExpertStore((s) => s.trustScore);
-  const vinRaw         = useExpertStore((s) => s.vin);
-  const writeLocked    = useExpertStore((s) => s.writeLocked);
-  const hydrated       = useExpertStore((s) => s.hydrated);
-  const ecuSupplier    = useExpertStore((s) => s.ecuSupplier);
-  const recomputeTrust = useExpertStore((s) => s.recomputeTrust);
+  const trustScore        = useExpertStore((s) => s.trustScore);
+  const vinRaw            = useExpertStore((s) => s.vin);
+  const writeLocked       = useExpertStore((s) => s.writeLocked);
+  const hydrated          = useExpertStore((s) => s.hydrated);
+  const ecuSupplier       = useExpertStore((s) => s.ecuSupplier);
+  const recomputeTrust    = useExpertStore((s) => s.recomputeTrust);
+  const setVehicleContext = useExpertStore((s) => s.setVehicleContext);
+
+  // Manuel VIN giriş state
+  const [vinInput, setVinInput]   = useState('');
+  const [vinSaved, setVinSaved]   = useState(false);
+  const vinInputValid = /^[A-HJ-NPR-Z0-9]{17}$/i.test(vinInput.trim());
+
+  const onSaveVin = useCallback(() => {
+    if (!vinInputValid) return;
+    setVehicleContext({ vin: vinInput.trim().toUpperCase(), ecuSupplier: ecuSupplier || '' });
+    recomputeTrust();
+    setVinSaved(true);
+    setTimeout(() => setVinSaved(false), 2000);
+  }, [vinInput, vinInputValid, ecuSupplier, setVehicleContext, recomputeTrust]);
 
   const activeProfile = useStore((s) => {
     const id = s.settings.activeVehicleProfileId;
@@ -200,6 +214,57 @@ export const ExpertModePanel = memo(function ExpertModePanel() {
                 </span>
               )}
             </div>
+
+            {/* Manuel VIN girişi — OBD bağlı değilken trust skoru için */}
+            {!hasExpertVin && (
+              <div className="flex flex-col gap-2 p-3 rounded-lg border border-white/10 bg-white/[0.03]">
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-cyan-400/70">
+                  Manuel VIN Gir (OBD bağlı değilse)
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={17}
+                    placeholder="17 karakter VIN — örn. ZFA26300006XXXXX"
+                    value={vinInput}
+                    onChange={(e) => setVinInput(e.target.value.toUpperCase())}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255,255,255,0.06)',
+                      border: `1px solid ${vinInputValid ? 'rgba(34,211,238,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: 8,
+                      padding: '8px 10px',
+                      color: '#fff',
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      letterSpacing: '0.05em',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!vinInputValid}
+                    onClick={onSaveVin}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: vinInputValid ? 'rgba(34,211,238,0.2)' : 'rgba(255,255,255,0.05)',
+                      color: vinInputValid ? '#22d3ee' : 'rgba(255,255,255,0.2)',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: vinInputValid ? 'pointer' : 'default',
+                      transition: 'all 150ms',
+                    }}
+                  >
+                    {vinSaved ? '✓' : 'KAYDET'}
+                  </button>
+                </div>
+                <span className="text-[9px] text-white/30">
+                  {vinInput.length}/17 — Araç ruhsatından veya ön cam kenarındaki etiketten alın
+                </span>
+              </div>
+            )}
             <div className="flex flex-col gap-1">
               <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white/25">ECU tedarikçisi</span>
               <span className="font-mono text-xs font-bold text-white/70">{ecuSupplier || '—'}</span>

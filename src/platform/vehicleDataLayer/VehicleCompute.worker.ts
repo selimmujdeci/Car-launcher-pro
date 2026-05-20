@@ -159,6 +159,8 @@ let _lastDeadReckonAt = 0;
 // Son persist edilen odometer değeri — eşik kontrolü için
 // INIT'te _odoKm ile senkronize edilir; böylece start'ta gereksiz disk yazması olmaz
 let _lastPersistedOdo = 0;
+// ODO_UPDATE IPC throttle: son postMessage zamanı (performance.now())
+let _lastOdoPostAt    = 0;
 
 // ── Null-emit tek-seferlik bayrakları ────────────────────────────────────
 // Kaynaklar stale olduğunda null yalnızca bir kez iletilir — 10 Hz spam önlenir
@@ -256,16 +258,22 @@ const _evGeofenceEnter: Extract<VehicleEvent, { type: 'GEOFENCE_ENTER' }> = { ty
 // Strict Monotonicity: delta <= 0 ise sessiz dön.
 // Zero-allocation: _outOdo envelope mutate edilir.
 
-function _postOdoUpdate(_force: boolean): void {
+function _postOdoUpdate(force: boolean): void {
   const delta = _odoKm - _lastPersistedOdo;
   if (delta <= 0) return;
 
-  // SAB: anlık güncelle — bir sonraki _emitSpeed tiki (~300ms) UI'a yansır
+  // SAB: her zaman anlık yaz — UI akıcılığı (next _emitSpeed tiki ~300ms içinde yansır)
   if (_sabEnabled) _sabF64![SAB_ODO] = _odoKm;
 
-  // postMessage: GPS (500ms) / DR (300ms) doğal frekansıyla gönderilir; max ~3 Hz
-  // Zustand 4s debounce → eMMC yazısı max 0.25/s
+  // IPC throttle: postMessage yalnızca şu koşullarda gönderilir:
+  //   • force=true  (araç durdu / STOP)
+  //   • ≥ 100 m birikim  (Zustand 4s debounce zaten eMMC'yi korur)
+  //   • ≥ 5 s sessizlik  (uzun sabit hız senaryoları için güvence)
+  const now = performance.now();
+  if (!force && delta < 0.1 && (now - _lastOdoPostAt) < 5_000) return;
+
   _lastPersistedOdo = _odoKm;
+  _lastOdoPostAt    = now;
   _outOdo.odoKm     = _odoKm;
   self.postMessage(_outOdo);
 }

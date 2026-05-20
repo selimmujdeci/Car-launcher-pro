@@ -23,7 +23,8 @@ interface Props {
   onClose: () => void;
 }
 
-const OBD_REGEX = /obd|elm|v.?link|obdii|kw|veepeak|icar|vgate/i;
+// Geniş OBD anahtar kelime listesi — genel OBD2/ELM327 klonları dahil
+const OBD_REGEX = /obd|elm|v.?link|obdii|obd2|kw|veepeak|icar|vgate|konnwei|obdlink|carscanner|xtool|autel|launch|thinkcar/i;
 
 export function OBDConnectModal({ open, onClose }: Props) {
   const [devices,     setDevices]     = useState<DiscoveredDevice[]>([]);
@@ -33,6 +34,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
   const [error,       setError]       = useState<string | null>(null);
   const [pinTarget,   setPinTarget]   = useState<DiscoveredDevice | null>(null);
   const [pinValue,    setPinValue]    = useState('');
+  const [showAll,     setShowAll]     = useState(false);
 
   const obdConnectionState = useOBDConnectionState();
   const obdState = useOBDState();
@@ -41,6 +43,10 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  // Tüm discovery listener handle'larını temizlemek için ref
+  const discoveryHandleRef = useRef<{ remove: () => void } | null>(null);
+  const discoveryFinishedRef = useRef<{ remove: () => void } | null>(null);
 
   useEffect(() => {
     if (!connecting) return;
@@ -68,9 +74,19 @@ export function OBDConnectModal({ open, onClose }: Props) {
     return () => clearTimeout(t);
   }, [connecting]);
 
+  const stopDiscovery = useCallback(() => {
+    discoveryHandleRef.current?.remove();
+    discoveryHandleRef.current = null;
+    discoveryFinishedRef.current?.remove();
+    discoveryFinishedRef.current = null;
+    if (Capacitor.isNativePlatform()) {
+      CarLauncher.stopOBDDiscovery().catch(() => {});
+    }
+  }, []);
+
   const startScan = useCallback(async () => {
     if (!Capacitor.isNativePlatform()) {
-      setDevices([{ name: 'iCar3 (Demo)', address: 'AA:BB:CC:DD:EE:FF', bonded: true }]);
+      setDevices([{ name: 'OBD2 Demo', address: 'AA:BB:CC:DD:EE:FF', bonded: true }]);
       setScanning(false);
       return;
     }
@@ -80,7 +96,9 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setConnecting(null);
     setPinTarget(null);
     setPinValue('');
+    setShowAll(false);
     setScanning(true);
+    stopDiscovery();
 
     try {
       await CarLauncher.requestAndroid13Permissions();
@@ -93,31 +111,42 @@ export function OBDConnectModal({ open, onClose }: Props) {
       }
     }
 
-    try {
-      const result = await CarLauncher.scanOBD();
-      const mapped = result.devices.map((d) => ({ ...d, bonded: true }));
-      const sorted = [
-        ...mapped.filter((d) => OBD_REGEX.test(d.name)),
-        ...mapped.filter((d) => !OBD_REGEX.test(d.name)),
-      ];
-      setDevices(sorted);
+    // obdDeviceFound — her bulunan cihazda tetiklenir (bonded + aktif tarama)
+    const handle = await CarLauncher.addListener('obdDeviceFound', (data) => {
+      setDevices((prev) => {
+        if (prev.some((d) => d.address === data.address)) return prev;
+        return [...prev, { name: data.name, address: data.address, bonded: data.bonded }];
+      });
+    });
+    discoveryHandleRef.current = handle;
 
-      const svc = obdStateRef.current;
-      if (svc.connectionState === 'connected' && svc.deviceName) {
-        const match = sorted.find((d) => d.name === svc.deviceName);
-        if (match) setConnected(match.address);
-      }
+    // obdDiscoveryFinished — aktif tarama tamamlandı
+    const finHandle = await CarLauncher.addListener('obdDiscoveryFinished', () => {
+      setScanning(false);
+    });
+    discoveryFinishedRef.current = finHandle;
+
+    try {
+      await CarLauncher.startOBDDiscovery();
     } catch (e) {
       setError((e as Error).message ?? 'Tarama başlatılamadı');
-    } finally {
       setScanning(false);
+      stopDiscovery();
     }
-  }, []);
+
+    // 30 saniye sonra taramayı otomatik durdur
+    setTimeout(() => setScanning(false), 30_000);
+  }, [stopDiscovery]);
 
   useEffect(() => {
     if (open) {
       void startScan();
+      const svc = obdStateRef.current;
+      if (svc.connectionState === 'connected' && svc.deviceName) {
+        setConnected(svc.deviceName);
+      }
     } else {
+      stopDiscovery();
       setDevices([]);
       setScanning(false);
       setConnecting(null);
@@ -125,8 +154,9 @@ export function OBDConnectModal({ open, onClose }: Props) {
       setError(null);
       setPinTarget(null);
       setPinValue('');
+      setShowAll(false);
     }
-  }, [open, startScan]);
+  }, [open, startScan, stopDiscovery]);
 
   const handleConnect = (dev: DiscoveredDevice, pin?: string) => {
     setConnecting(dev.address);
@@ -368,10 +398,16 @@ export function OBDConnectModal({ open, onClose }: Props) {
             </div>
           )}
 
-          {/* Cihaz listesi */}
-          {devices.length > 0 ? (
+          {/* Cihaz listesi — sadece OBD cihazları */}
+          {(() => {
+            const obdDevices = devices.filter((d) => OBD_REGEX.test(d.name));
+            const otherDevices = devices.filter((d) => !OBD_REGEX.test(d.name));
+            const visibleDevices = showAll ? devices : obdDevices;
+            return (
+              <>
+                {visibleDevices.length > 0 ? (
             <div className="flex flex-col" style={{ gap: spSm, marginTop: spSm, paddingBottom: spSm }}>
-              {devices.map((dev) => {
+              {visibleDevices.map((dev) => {
                 const isObd  = OBD_REGEX.test(dev.name);
                 const isCon  = connecting === dev.address;
                 const isDone = connected === dev.address;
@@ -464,6 +500,20 @@ export function OBDConnectModal({ open, onClose }: Props) {
                   </button>
                 );
               })}
+              {/* OBD bulunamadı ama diğer cihazlar var — tümünü göster */}
+              {!showAll && obdDevices.length === 0 && otherDevices.length > 0 && !scanning && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="w-full font-bold uppercase tracking-wider transition-all active:scale-95"
+                  style={{
+                    padding: spMd, fontSize: fxs, borderRadius: rMd, minHeight: '40px',
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                    color: 'rgba(255,255,255,0.35)',
+                  }}
+                >
+                  Tüm {otherDevices.length} cihazı göster (OBD olmayan)
+                </button>
+              )}
             </div>
           ) : !scanning ? (
             <div
@@ -475,13 +525,30 @@ export function OBDConnectModal({ open, onClose }: Props) {
                 style={{ width: `calc(${icon} * 1.6)`, height: `calc(${icon} * 1.6)` }}
               />
               <p className="text-white/35 leading-relaxed" style={{ fontSize: fsm }}>
-                Eşleştirilmiş OBD cihazı bulunamadı.
+                OBD adaptörü bulunamadı.
               </p>
-              <p className="text-white/20 leading-relaxed mt-2" style={{ fontSize: fxs, maxWidth: '80%' }}>
-                Android Bluetooth Ayarları'ndan adaptörünüzü önce eşleştirin (PIN: 1234 veya 0000), ardından yeniden tarayın.
+              <p className="text-white/20 leading-relaxed mt-2" style={{ fontSize: fxs, maxWidth: '85%' }}>
+                Adaptörünüz takılı ve Bluetooth açık olduğundan emin olun.
+                İlk kez bağlanıyorsanız Android BT Ayarları'ndan eşleştirin (PIN: 0000 veya 1234).
               </p>
+              {otherDevices.length > 0 && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="font-bold uppercase tracking-wider mt-4 transition-all active:scale-95"
+                  style={{
+                    padding: `${spSm} ${spMd}`, fontSize: fxs, borderRadius: rSm,
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                    color: 'rgba(255,255,255,0.35)',
+                  }}
+                >
+                  Tüm {otherDevices.length} cihazı göster
+                </button>
+              )}
             </div>
           ) : null}
+              </>
+            );
+          })()}
         </div>
 
         {/* ── Alt bar ── */}

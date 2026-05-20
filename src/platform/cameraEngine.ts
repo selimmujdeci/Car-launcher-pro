@@ -28,12 +28,13 @@ export const CAMERA_CFG = {
   ZOOM_TURN_ZONE_M: 180,   // boost'un başladığı mesafe (metre)
 
   // ── Pitch curve (degrees) — Faz 3.3: scale realism ─────────────
-  // Önceki 68°/60° değerleri minyatür hissi yarattı; daha gerçekçi açılar:
-  PITCH_IDLE:     38,   //  0–10 km/h — park/bekleme (neredeyse overhead)
-  PITCH_URBAN:    45,   // 10–50 km/h — şehir içi
-  PITCH_ROAD:     57,   // 50–100 km/h — karayolu (daha dengeli perspektif)
-  PITCH_HIGHWAY:  63,   // 100+ km/h — otoyol ufku (daha az distorsiyon)
-  PITCH_TURN_MIN: 26,   // kavşak görünümü için minimum tilt
+  // 50°+ değerler MapLibre'de siyah köşe oluşturur (tile ufku aşılır).
+  // Maksimum güvenli pitch ~48° — tüm değerler bunun altında tutulur.
+  PITCH_IDLE:     20,   //  0–10 km/h — park/bekleme (neredeyse düz)
+  PITCH_URBAN:    30,   // 10–50 km/h — şehir içi
+  PITCH_ROAD:     40,   // 50–100 km/h — karayolu
+  PITCH_HIGHWAY:  47,   // 100+ km/h — otoyol (tile sınırı altında)
+  PITCH_TURN_MIN: 15,   // kavşak görünümü için minimum tilt
 
   // ── Look-ahead (metre) ──────────────────────────────────────────
   LOOK_SCALE: 42,       // log1p(spd * 0.5) * LOOK_SCALE

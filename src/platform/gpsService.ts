@@ -128,6 +128,8 @@ function _saveLastKnown(loc: GPSLocation): void {
 
 // ── İlk fix fallback ─────────────────────────────────────
 let _firstFixTimer: ReturnType<typeof setTimeout> | null = null;
+/** Zero-Leak: başarılı GPS fix geldiyse true — fallback timer callback'u bunu kontrol eder */
+let _hasValidFirstFix = false;
 
 function _clearFirstFixTimer(): void {
   if (_firstFixTimer) { clearTimeout(_firstFixTimer); _firstFixTimer = null; }
@@ -135,10 +137,14 @@ function _clearFirstFixTimer(): void {
 
 function _startFirstFixFallback(): void {
   _clearFirstFixTimer();
+  _hasValidFirstFix = false;
   _firstFixTimer = setTimeout(() => {
     _firstFixTimer = null;
+    // Zero-Leak: throttle-blocked warm start fix geldiyse fallback atla
+    if (_hasValidFirstFix) return;
     // Gerçek GPS fix zaten geldiyse dokunma
-    if (useGPSStore.getState().source === 'native' || useGPSStore.getState().source === 'web') return;
+    const src = useGPSStore.getState().source;
+    if (src === 'native' || src === 'web') return;
     // location is intentionally NOT set — fallback/last_known coords must never
     // enter navigation state. Route fetch, origin, and geometry guards all rely
     // on location===null to block invalid routing.
@@ -386,6 +392,7 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   }
 
   // Valid coords arrived — cancel fallback timer immediately, before accuracy check
+  _hasValidFirstFix = true;
   _clearFirstFixTimer();
 
   _lastPositionPerf  = perfNow;
@@ -471,6 +478,7 @@ export async function stopGPSTracking(): Promise<void> {
   // Cancel any pending reconnect so it doesn't fire after stop
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _clearFirstFixTimer();
+  _hasValidFirstFix = false;
   _stopCompassListener();
   _prevForSpeed             = null;
   _smoothedHeading          = null;

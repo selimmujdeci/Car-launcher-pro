@@ -68,6 +68,9 @@ let _unsubAccel: (() => void) | null = null;
 let _vehicleId:  string | null       = null;
 let _lastTrigger = 0;
 
+/** Zero-Leak: blob retry kuyruğu boyut sınırı — bellek growth önler (CLAUDE.md §1) */
+const MAX_PENDING_BLOBS = 5;
+
 // Çevrimdışı retry kuyruğu: alertId → blob (G-Sensor only ise null)
 const _pendingBlobs = new Map<string, Blob | null>();
 
@@ -158,9 +161,18 @@ async function _upload(alertId: string, blob: Blob | null): Promise<void> {
       clipUrl:      result !== '' ? result : null,
     });
   } else {
-    // Başarısız: belleğe al, tekrar denenecek
-    _pendingBlobs.set(alertId, blob);
-    _patchAlert(alertId, { uploadStatus: 'failed' });
+    // Başarısız: belleğe al, tekrar denenecek (max limit — CLAUDE.md §1 Zero-Leak)
+    if (_pendingBlobs.size < MAX_PENDING_BLOBS) {
+      _pendingBlobs.set(alertId, blob);
+      _patchAlert(alertId, { uploadStatus: 'failed' });
+    } else {
+      // Limit dolu — en eski kaydı at, yeni kayıt ekle
+      const oldestKey = _pendingBlobs.keys().next().value;
+      if (oldestKey) _pendingBlobs.delete(oldestKey);
+      _pendingBlobs.set(alertId, blob);
+      _patchAlert(alertId, { uploadStatus: 'failed' });
+      console.warn('[Sentry] pending blob limit reached — oldest dropped');
+    }
   }
 
   _set({ pendingUploads: _pendingBlobs.size });

@@ -647,13 +647,7 @@ export async function connectOBD(address: string): Promise<void> {
   await CarLauncher.connectOBD({ address });
 }
 
-/**
- * Mock varsayılan olarak KAPALI — otomotiv dürüstlüğü ilkesi.
- * Yalnızca geliştirme kolaylığı için VITE_ENABLE_OBD_MOCK=true ile açılır.
- * Gerçek ELM327 bağlı değilken kullanıcı asla sahte 42 km/h görmemeli.
- */
-const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true'
-  || import.meta.env['VITE_ENABLE_OBD_MOCK'] === '1';
+const MOCK_ENABLED = false;
 
 /**
  * Start OBD.

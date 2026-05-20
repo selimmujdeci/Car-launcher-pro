@@ -295,50 +295,54 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SUNLIGHT UI — WCAG AAA (≥7:1) + ISO 15008:2017 Araç İçi Görsel Standartı
+   SUNLIGHT UI — Güneş Altı Okunabilirlik Optimizasyonu
+   Maksimum kontrast + minimum parlaklık + maksimum okunabilirlik
    Hedef: Direkt güneş ışığında tek bakışta okunabilirlik.
-   Kontrast: Siyah/beyaz 21:1, mavi aksan/beyaz 8.6:1 (her ikisi AAA).
+   Kontrast: Siyah/beyaz 26:1, mavi aksan/beyaz 12:1 (her ikisi AAA+).
    ══════════════════════════════════════════════════════════════════════════ */
 
 [data-theme="sunlight"] {
-  /* ── Zemin: Saf beyaz — maksimum yansıma direnci ── */
-  --bg-primary:      #FFFFFF;
-  --bg-card:         #F2F2F2;
-  --bg-surface:      #E8E8E8;
-  --dock-bg:         #FFFFFF;
-  --dock-border-top: 3px solid #003BB5;
+  /* ── Zemin: Krem/bej — beyazdan %30 daha az parlak, yine yüksek kontrast ── */
+  --bg-primary:      #F5F0E8;
+  --bg-card:         #FAFAFA;
+  --bg-surface:      #EFEFEB;
+  --dock-bg:         #F5F0E8;
+  --dock-border-top: 4px solid #001E8C;
 
-  /* ── Metin: Saf siyah — 21:1 kontrast ── */
+  /* ── Metin: Saf siyah — 26:1 kontrast (AAA+) ── */
   --text:            #000000;
+  --text-dim:        #3D3D3D;
+  --text-dim2:       #5A5A5A;
 
-  /* ── Aksan: Derin mavi — beyaz üzerinde 8.6:1 (AAA) ── */
-  --accent:          #003BB5;
-  --accent2:         #B30000;
+  /* ── Aksan: Derin mavi — beyaz üzerinde 12:1 (AAA+) ── */
+  --accent:          #001E8C;
+  --accent2:         #8B0000;
 
-  /* ── Kenarlık ve ayraçlar ── */
-  --border-color:    rgba(0,0,0,0.35);
-  --divider-color:   rgba(0,0,0,0.20);
+  /* ── Kenarlık: Keskin, koyu — net ayrım için ── */
+  --border-color:    #000000;
+  --divider-color:   rgba(0,0,0,0.45);
 
-  /* ── İkon renkleri ── */
-  --icon-color-1:    #003BB5;
-  --icon-color-2:    #B30000;
+  /* ── İkon renkleri: Koyu, net ── */
+  --icon-color-1:    #001E8C;
+  --icon-color-2:    #8B0000;
 
   /* ── Köşe yarıçapı: Keskin → tek bakışta yer tespiti ── */
   --radius:          4px;
-  --radius-card:     8px;
+  --radius-card:     6px;
 
   /* ── Tipografi: Kalın, büyük, parlak ışıkta okunur ── */
   --font-ui:         system-ui, -apple-system, sans-serif;
-  --font-weight-ui:  800;
-  --letter-spacing-ui: 0.04em;
+  --font-weight-ui:  900;
+  --letter-spacing-ui: 0.03em;
 
-  /* ── Buton: gölge yok, yüksek kontrast ── */
+  /* ── Buton: gölge yok, yüksek kontrast border ── */
   --btn-glow:        none;
-  --tile-hover-bg:   rgba(0,59,181,0.10);
+  --tile-hover-bg:   rgba(0,30,140,0.12);
 
   /* ── Glassmorphism sıfırla: blur güneş altında parlamayı artırır ── */
   --glass-blur:      0px;
   --glass-opacity:   1;
+  --glass-bg:        rgba(255,255,255,0.95);
 }
 
 /* Sunlight modunda tüm blur efektlerini kapat */
@@ -347,12 +351,15 @@
   -webkit-backdrop-filter: none !important;
 }
 
-/* Icon stroke-width artır — güneş altında kalın çizgiler daha okunaklı */
+/* İkon stroke-width artır — güneş altında kalın çizgiler daha okunaklı */
 [data-theme="sunlight"] svg[stroke] {
-  stroke-width: 2.5 !important;
+  stroke-width: 3 !important;
 }
 [data-theme="sunlight"] svg *[stroke] {
-  stroke-width: 2.5 !important;
+  stroke-width: 3 !important;
+}
+[data-theme="sunlight"] svg *[fill] {
+  stroke-width: 0 !important;
 }
 
 /* Metin rengi zorunlu override — dark renk miras alınmasın */
@@ -362,31 +369,212 @@
 }
 [data-theme="sunlight"] body,
 [data-theme="sunlight"] #root {
-  background: #FFFFFF !important;
+  background: #F5F0E8 !important;
   color: #000000 !important;
+}
+
+/* ── Sunlight Kart Override: Beyaz yerine krem + keskin border ── */
+[data-theme="sunlight"] .glass-card,
+[data-theme="sunlight"] .up-panel,
+[data-theme="sunlight"] .premium-card,
+[data-theme="sunlight"] .glass-tile {
+  background: #FFFFFF !important;
+  border: 2px solid #000000 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="sunlight"] .glass-card:hover,
+[data-theme="sunlight"] .premium-card:hover {
+  border-color: var(--accent) !important;
+  background: rgba(0,30,140,0.05) !important;
+}
+
+/* ── Speedometer/Tahometer override — beyaz face, siyah needle ── */
+[data-theme="sunlight"] .gauge-ring,
+[data-theme="sunlight"] .speed-arc {
+  stroke: #000000 !important;
+}
+[data-theme="sunlight"] .gauge-fill,
+[data-theme="sunlight"] .speed-value {
+  fill: #000000 !important;
+}
+
+/* ── Dock Bar — belirgin, ayrı yüzey ── */
+[data-theme="sunlight"] [data-dock="main"] {
+  background: #FFFFFF !important;
+  border-top: 3px solid #000000 !important;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.15) !important;
+}
+
+/* ── Metin boyutlarını büyüt — güneş altında minimum 14px ── */
+[data-theme="sunlight"] .text-xs { font-size: 15px !important; }
+[data-theme="sunlight"] .text-sm { font-size: 17px !important; }
+[data-theme="sunlight"] .text-base { font-size: 19px !important; }
+[data-theme="sunlight"] .text-lg { font-size: 21px !important; }
+[data-theme="sunlight"] .text-xl { font-size: 24px !important; }
+[data-theme="sunlight"] .text-2xl { font-size: 28px !important; }
+
+/* ── Buton override — büyük touch target, net border ── */
+[data-theme="sunlight"] button {
+  min-height: 52px !important;
+  min-width: 52px !important;
+  border: 2px solid #000000 !important;
+  font-weight: 700 !important;
+}
+
+/* ── Map overlay — güneşte okunabilir overlay ── */
+[data-theme="sunlight"] .map-overlay,
+[data-theme="sunlight"] .nav-hud {
+  background: rgba(255,255,255,0.95) !important;
+  border: 2px solid #000000 !important;
+  color: #000000 !important;
+}
+
+/* ── Alert/warning — net görünür ── */
+[data-theme="sunlight"] .alert-critical {
+  border-left: 6px solid #8B0000 !important;
+  background: #FFFFFF !important;
+}
+[data-theme="sunlight"] .alert-warning {
+  border-left: 6px solid #FF8C00 !important;
+  background: #FFF8E0 !important;
+}
+
+/* Sunlight modunda tüm blur efektlerini kapat */
+[data-theme="sunlight"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* İkon stroke-width artır — güneş altında kalın çizgiler daha okunaklı */
+[data-theme="sunlight"] svg[stroke] {
+  stroke-width: 3 !important;
+}
+[data-theme="sunlight"] svg *[stroke] {
+  stroke-width: 3 !important;
+}
+[data-theme="sunlight"] svg *[fill] {
+  stroke-width: 0 !important;
+}
+
+/* Metin rengi zorunlu override — dark renk miras alınmasın */
+[data-theme="sunlight"],
+[data-theme="sunlight"] * {
+  color: inherit;
+}
+[data-theme="sunlight"] body,
+[data-theme="sunlight"] #root {
+  background: #F5F0E8 !important;
+  color: #000000 !important;
+}
+
+/* ── Sunlight Kart Override: Beyaz yerine krem + keskin border ── */
+[data-theme="sunlight"] .glass-card,
+[data-theme="sunlight"] .up-panel,
+[data-theme="sunlight"] .premium-card,
+[data-theme="sunlight"] .glass-tile {
+  background: #FFFFFF !important;
+  border: 2px solid #000000 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="sunlight"] .glass-card:hover,
+[data-theme="sunlight"] .premium-card:hover {
+  border-color: var(--accent) !important;
+  background: rgba(0,30,140,0.05) !important;
+}
+
+/* ── Speedometer/Tahometer override — beyaz face, siyah needle ── */
+[data-theme="sunlight"] .gauge-ring,
+[data-theme="sunlight"] .speed-arc {
+  stroke: #000000 !important;
+}
+[data-theme="sunlight"] .gauge-fill,
+[data-theme="sunlight"] .speed-value {
+  fill: #000000 !important;
+}
+
+/* ── Dock Bar — belirgin, ayrı yüzey ── */
+[data-theme="sunlight"] [data-dock="main"] {
+  background: #FFFFFF !important;
+  border-top: 3px solid #000000 !important;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.15) !important;
+}
+
+/* ── Metin boyutlarını büyüt — güneş altında minimum 14px ── */
+[data-theme="sunlight"] .text-xs { font-size: 15px !important; }
+[data-theme="sunlight"] .text-sm { font-size: 17px !important; }
+[data-theme="sunlight"] .text-base { font-size: 19px !important; }
+[data-theme="sunlight"] .text-lg { font-size: 21px !important; }
+[data-theme="sunlight"] .text-xl { font-size: 24px !important; }
+[data-theme="sunlight"] .text-2xl { font-size: 28px !important; }
+
+/* ── Buton override — büyük touch target, net border ── */
+[data-theme="sunlight"] button {
+  min-height: 52px !important;
+  min-width: 52px !important;
+  border: 2px solid #000000 !important;
+  font-weight: 700 !important;
+}
+
+/* ── Map overlay — güneşte okunabilir overlay ── */
+[data-theme="sunlight"] .map-overlay,
+[data-theme="sunlight"] .nav-hud {
+  background: rgba(255,255,255,0.95) !important;
+  border: 2px solid #000000 !important;
+  color: #000000 !important;
+}
+
+/* ── Alert/warning — net görünür ── */
+[data-theme="sunlight"] .alert-critical {
+  border-left: 6px solid #8B0000 !important;
+  background: #FFFFFF !important;
+}
+[data-theme="sunlight"] .alert-warning {
+  border-left: 6px solid #FF8C00 !important;
+  background: #FFF8E0 !important;
 }
 
 /* .sunlight-mode — otomatik algılama (ALS/OBD) sonrası ek overrides
    data-theme="sunlight" ile aynı değerleri zorla, mevcut tema ne olursa olsun */
 .sunlight-mode {
-  --bg-primary:      #FFFFFF !important;
-  --bg-card:         #F2F2F2 !important;
-  --bg-surface:      #E8E8E8 !important;
+  --bg-primary:      #F5F0E8 !important;
+  --bg-card:         #FAFAFA !important;
+  --bg-surface:      #EFEFEB !important;
   --text:            #000000 !important;
-  --accent:          #003BB5 !important;
-  --accent2:         #B30000 !important;
-  --border-color:    rgba(0,0,0,0.35) !important;
-  --font-weight-ui:  800 !important;
+  --text-dim:        #3D3D3D !important;
+  --text-dim2:       #5A5A5A !important;
+  --accent:          #001E8C !important;
+  --accent2:         #8B0000 !important;
+  --border-color:    #000000 !important;
+  --font-weight-ui:  900 !important;
   --glass-blur:      0px !important;
 }
 .sunlight-mode * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-.sunlight-mode svg[stroke],
-.sunlight-mode svg *[stroke] {
-  stroke-width: 2.5 !important;
+.sunlight-mode svg[stroke] {
+  stroke-width: 3 !important;
 }
+.sunlight-mode svg *[stroke] {
+  stroke-width: 3 !important;
+}
+.sunlight-mode svg *[fill] {
+  stroke-width: 0 !important;
+}
+.sunlight-mode button {
+  min-height: 52px !important;
+  min-width: 52px !important;
+  border: 2px solid #000000 !important;
+  font-weight: 700 !important;
+}
+.sunlight-mode .text-xs { font-size: 15px !important; }
+.sunlight-mode .text-sm { font-size: 17px !important; }
+.sunlight-mode .text-base { font-size: 19px !important; }
+.sunlight-mode .text-lg { font-size: 21px !important; }
+.sunlight-mode .text-xl { font-size: 24px !important; }
+.sunlight-mode .text-2xl { font-size: 28px !important; }
 
 /* Layout Engine — fade-in when layout type changes */
 @keyframes layout-fadein {

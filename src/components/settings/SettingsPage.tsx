@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-const ThemeStudio      = lazy(() => import('../themes/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
+const ThemeStudio       = lazy(() => import('../themes/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
 const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m => ({ default: m.SecureAccessModal })));
+const CanDiagPanel      = lazy(() => import('./CanDiagPanel').then(m => ({ default: m.CanDiagPanel })));
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
@@ -21,7 +22,6 @@ import {
 } from '../../platform/performanceMode';
 import { setBrightness, setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
-import { CanDiagPanel } from './CanDiagPanel';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { MobileLinkWidget } from './MobileLinkWidget';
@@ -1248,7 +1248,9 @@ function SettingsPageInner({ onClose }: Props) {
               {/* ── CAN Bus Teşhis ── */}
               <Panel accent="#22d3ee">
                 <SectionTitle icon={Cpu} title="CAN Bus Teşhis" sub="CAN ID yapılandırması ve sniffer — araç sinyallerini tanımla" color="#22d3ee" />
-                <CanDiagPanel />
+                <Suspense fallback={<div style={{ height: 80, opacity: 0.3, fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Yükleniyor…</div>}>
+                  <CanDiagPanel />
+                </Suspense>
               </Panel>
 
               {/* ── Expert Mode (AI Safety Layer) ── */}

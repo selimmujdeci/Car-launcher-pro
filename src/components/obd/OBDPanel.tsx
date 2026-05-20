@@ -336,25 +336,24 @@ function HybridView({ obd, maxRpm, canRpm }: {
 /* ── CAN Extras Panel ────────────────────────────────────── */
 
 function CanExtrasPanel() {
-  const s = useUnifiedVehicleStore((st) => ({
-    oilTemp:     st.canOilTemp,
-    battVolt:    st.canBatteryVolt,
-    ambient:     st.canAmbientTemp,
-    abs:         st.canAbs,
-    tcs:         st.canTractionControl,
-    esc:         st.canStabilityControl,
-    parkBrake:   st.canParkingBrake,
-    seatbelt:    st.canSeatbelt,
-    wipers:      st.canWipers,
-    ac:          st.canAirCondition,
-    cruise:      st.canCruiseControl,
-    gearPos:     st.canGearPos,
-    speed:       st.speed,
-  }));
+  // Her field ayrı selector — shallow olmadan optimize
+  const oilTemp    = useUnifiedVehicleStore((s) => s.canOilTemp);
+  const battVolt   = useUnifiedVehicleStore((s) => s.canBatteryVolt);
+  const ambient    = useUnifiedVehicleStore((s) => s.canAmbientTemp);
+  const abs        = useUnifiedVehicleStore((s) => s.canAbs);
+  const tcs        = useUnifiedVehicleStore((s) => s.canTractionControl);
+  const esc        = useUnifiedVehicleStore((s) => s.canStabilityControl);
+  const parkBrake  = useUnifiedVehicleStore((s) => s.canParkingBrake);
+  const seatbelt   = useUnifiedVehicleStore((s) => s.canSeatbelt);
+  const wipers      = useUnifiedVehicleStore((s) => s.canWipers);
+  const ac          = useUnifiedVehicleStore((s) => s.canAirCondition);
+  const cruise      = useUnifiedVehicleStore((s) => s.canCruiseControl);
+  const gearPos    = useUnifiedVehicleStore((s) => s.canGearPos);
+  const speed        = useUnifiedVehicleStore((s) => s.speed);
 
-  const hasMetrics  = s.oilTemp != null || s.battVolt != null || s.ambient != null;
-  const seatbeltOff = s.seatbelt === false && (s.speed ?? 0) > 5;
-  const hasBadges   = s.abs || s.tcs || s.esc || s.parkBrake || seatbeltOff || s.wipers || s.ac || s.cruise || s.gearPos != null;
+  const hasMetrics  = oilTemp != null || battVolt != null || ambient != null;
+  const seatbeltOff = seatbelt === false && (speed ?? 0) > 5;
+  const hasBadges   = abs || tcs || esc || parkBrake || seatbeltOff || wipers || ac || cruise || gearPos != null;
 
   if (!hasMetrics && !hasBadges) return null;
 
@@ -365,38 +364,38 @@ function CanExtrasPanel() {
       {hasBadges && (
         <div className="flex flex-wrap gap-2">
           {/* Vites */}
-          {s.gearPos != null && <GearBadge gearPos={s.gearPos} />}
+          {gearPos != null && <GearBadge gearPos={gearPos} />}
 
           {/* Güvenlik uyarıları */}
-          {s.abs      && <StatusBadge icon={ShieldAlert}   label="ABS"     color="#ef4444" warn />}
-          {s.tcs      && <StatusBadge icon={ShieldAlert}   label="TCS"     color="#f59e0b" warn />}
-          {s.esc      && <StatusBadge icon={ShieldAlert}   label="ESC"     color="#f59e0b" warn />}
-          {s.parkBrake&& <StatusBadge icon={ParkingSquare} label="EL FRENİ"color="#ef4444" warn />}
+          {abs      && <StatusBadge icon={ShieldAlert}   label="ABS"     color="#ef4444" warn />}
+          {tcs      && <StatusBadge icon={ShieldAlert}   label="TCS"     color="#f59e0b" warn />}
+          {esc      && <StatusBadge icon={ShieldAlert}   label="ESC"     color="#f59e0b" warn />}
+          {parkBrake&& <StatusBadge icon={ParkingSquare} label="EL FRENİ"color="#ef4444" warn />}
           {seatbeltOff&& <StatusBadge icon={UserCheck}     label="KEMER YOK" color="#ef4444" warn />}
 
           {/* Konfor durumu */}
-          {s.wipers   && <StatusBadge icon={Droplets}  label="SİLECEK"  color="#60a5fa" />}
-          {s.ac       && <StatusBadge icon={Snowflake}  label="KLİMA"    color="#22d3ee" />}
-          {s.cruise   && <StatusBadge icon={Navigation} label="SEYIR"    color="#a78bfa" />}
+          {wipers   && <StatusBadge icon={Droplets}  label="SİLECEK"  color="#60a5fa" />}
+          {ac       && <StatusBadge icon={Snowflake}  label="KLİMA"    color="#22d3ee" />}
+          {cruise   && <StatusBadge icon={Navigation} label="SEYIR"    color="#a78bfa" />}
         </div>
       )}
 
       {/* Sayısal ek veriler */}
       {hasMetrics && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {s.oilTemp != null && (
+          {oilTemp != null && (
             <MetricCard icon={Droplets} label="YAĞ ISI" unit="°C"
-              value={Math.round(s.oilTemp)} color={s.oilTemp > 130 ? 'red' : 'amber'}
-              warn={s.oilTemp > 130} />
+              value={Math.round(oilTemp)} color={oilTemp > 130 ? 'red' : 'amber'}
+              warn={oilTemp > 130} />
           )}
-          {s.battVolt != null && (
+          {battVolt != null && (
             <MetricCard icon={Cpu} label="AKÜ" unit="V"
-              value={s.battVolt.toFixed(1)} color={s.battVolt < 11.5 ? 'red' : 'emerald'}
-              warn={s.battVolt < 11.5} />
+              value={battVolt.toFixed(1)} color={battVolt < 11.5 ? 'red' : 'emerald'}
+              warn={battVolt < 11.5} />
           )}
-          {s.ambient != null && (
+          {ambient != null && (
             <MetricCard icon={Thermometer} label="DIŞ HAVA" unit="°C"
-              value={Math.round(s.ambient)} color="sky" />
+              value={Math.round(ambient)} color="sky" />
           )}
         </div>
       )}
@@ -408,7 +407,8 @@ function CanExtrasPanel() {
 
 function OBDPanelInner() {
   const obd = useOBDState();
-  const { settings } = useStore();
+  const vehicleProfiles = useStore(s => s.settings.vehicleProfiles);
+  const activeVehicleProfileId = useStore(s => s.settings.activeVehicleProfileId);
 
   // Mevcut CAN extras
   const canDoorOpen   = useUnifiedVehicleStore((s) => s.canDoorOpen);
@@ -417,7 +417,7 @@ function OBDPanelInner() {
   const canCoolant    = useUnifiedVehicleStore((s) => s.canCoolantTemp);
   const canThrottle   = useUnifiedVehicleStore((s) => s.canThrottle);
 
-  const activeProfile = settings.vehicleProfiles.find((p) => p.id === settings.activeVehicleProfileId);
+  const activeProfile = vehicleProfiles.find((p) => p.id === activeVehicleProfileId);
   const vehicleType: VehicleType = activeProfile?.vehicleType ?? obd.vehicleType;
   const maxRpm   = activeProfile?.maxRpm ?? 8000;
   const typeColor = TYPE_COLORS[vehicleType];

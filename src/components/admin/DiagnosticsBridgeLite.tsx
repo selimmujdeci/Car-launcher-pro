@@ -118,10 +118,10 @@ export function DiagnosticsBridgeLite({ incident, onClose }: Props) {
 
       if (cancelled) return;
 
-      unsubRef.current = subscribeToDeviceHeartbeat(incident.deviceHash, (hb) => {
+      unsubRef.current = subscribeToDeviceHeartbeat(incident.deviceHash, (hb: DiagnosticsHeartbeat) => {
         if (cancelled) return;
         setHeartbeat(hb);
-        hb.verbosityLogs.forEach((msg) => pushLog(msg));
+        hb.verbosityLogs.forEach((msg: string) => pushLog(msg));
       });
 
       timerRef.current = setInterval(() => {

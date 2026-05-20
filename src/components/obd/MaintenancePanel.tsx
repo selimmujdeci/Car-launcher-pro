@@ -5,7 +5,8 @@ import { useUnifiedVehicleStore as useVehicleStore } from '../../platform/vehicl
 import { getMaintenanceAssessment, type MaintenanceAssessment } from '../../platform/vehicleMaintenanceService';
 
 export const MaintenancePanel = memo(() => {
-  const { settings, updateMaintenance } = useStore();
+  const maintenance = useStore(s => s.settings.maintenance);
+  const updateMaintenance = useStore(s => s.updateMaintenance);
   const odometer = useVehicleStore(state => state.odometer);
   const [assessments, setAssessments] = useState<MaintenanceAssessment[]>([]);
   
@@ -15,15 +16,15 @@ export const MaintenancePanel = memo(() => {
       setAssessments(data);
     };
     fetchAssessments();
-  }, [odometer, settings.maintenance]);
+  }, [odometer, maintenance]);
 
   const oilAssessment = assessments.find(a => a.id === 'oil_change');
   const inspectionAssessment = assessments.find(a => a.id === 'inspection');
   const insuranceAssessment = assessments.find(a => a.id === 'insurance');
 
   // Oil Life percentage calculation based on remaining km
-  const nextOilKm = settings.maintenance.nextOilChangeKm || 10000;
-  const lastOilKm = settings.maintenance.lastOilChangeKm || 0;
+  const nextOilKm = maintenance.nextOilChangeKm || 10000;
+  const lastOilKm = maintenance.lastOilChangeKm || 0;
   const totalInterval = nextOilKm - lastOilKm || 10000;
   const currentKm = odometer ?? 0;
   const kmsLeft = Math.max(0, nextOilKm - currentKm);

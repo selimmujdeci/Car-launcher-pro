@@ -24,6 +24,7 @@ import type {
 import type {
   CanAdapterData,
   ObdAdapterData,
+  VehicleHALData,
 } from '../../platform/vehicleDataLayer/types';
 
 /* ── Dahili ham GPS tipi (m/s speed) ────────────────────────────────────── */
@@ -36,7 +37,8 @@ export interface RawGpsData {
 
 /* ── Güven sabitleri ─────────────────────────────────────────────────────── */
 
-const CONF_CAN = 0.95;
+const CONF_HAL = 0.98;
+const CONF_CAN = 0.92;
 const CONF_OBD = 0.85;
 const CONF_GPS = 0.70;
 
@@ -99,6 +101,41 @@ export class SignalNormalizer {
     // ── TPMS: ham değer kPa kabul edilir ─────────────────────────────────
     if (raw.tpms != null && raw.tpms.length === 4) {
       out.tpms = sig(raw.tpms as number[], ts, CONF_CAN);
+    }
+
+    return out;
+  }
+
+  /* ── HAL → NormalizedVehicleData ────────────────────────────────────── */
+
+  /**
+   * Native HAL verisini normalize eder.
+   * fromCAN ile aynı haritalama mantığı; sinyaller CONF_HAL (0.98) güveniyle üretilir.
+   * Hiyerarşi: HAL > CAN > OBD > GPS.
+   *
+   * @param raw  VehicleHALData (CanAdapterData uyumlu HAL frame)
+   * @param ts   Ölçüm zamanı (Date.now() ms)
+   */
+  static fromHAL(raw: VehicleHALData, ts: number): NormalizedVehicleData {
+    const out: NormalizedVehicleData = {};
+
+    if (raw.speed != null)       out.speed       = sig(raw.speed,       ts, CONF_HAL);
+    if (raw.reverse != null)     out.reverse     = sig(raw.reverse,     ts, CONF_HAL);
+    if (raw.fuel != null)        out.fuel        = sig(raw.fuel,        ts, CONF_HAL);
+
+    if (raw.rpm != null)         out.rpm         = sig(raw.rpm,         ts, CONF_HAL);
+    if (raw.coolantTemp != null) out.coolantTemp = sig(raw.coolantTemp, ts, CONF_HAL);
+    if (raw.oilTemp != null)     out.oilTemp     = sig(raw.oilTemp,     ts, CONF_HAL);
+    if (raw.throttle != null)    out.throttle    = sig(raw.throttle,    ts, CONF_HAL);
+
+    if (raw.batteryVolt != null) out.batteryVolt = sig(raw.batteryVolt, ts, CONF_HAL);
+
+    if (raw.gearPos != null)     out.gearPos     = sig(raw.gearPos,     ts, CONF_HAL);
+
+    if (raw.ambientTemp != null) out.ambientTemp = sig(raw.ambientTemp, ts, CONF_HAL);
+
+    if (raw.tpms != null && raw.tpms.length === 4) {
+      out.tpms = sig(raw.tpms as number[], ts, CONF_HAL);
     }
 
     return out;

@@ -28,7 +28,8 @@ const PROTOCOL      = 'caros-tile';
 
 const _DEBUG_ACTIVE =
   typeof import.meta !== 'undefined' &&
-  // @ts-expect-error — Vite ortam değişkeni
+  // @ts-ignore — Vite ortam değişkeni (tsc strict'te tanımsız olabilir)
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   (import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEBUG_PANEL === 'true');
 
 /* ── Manifest entry ───────────────────────────────────────────────────────── */

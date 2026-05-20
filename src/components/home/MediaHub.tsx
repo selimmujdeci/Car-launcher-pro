@@ -64,13 +64,13 @@ export const MediaHub = memo(function MediaHub({
 }: {
   defaultMusic: MusicOptionKey;
 }) {
-  const { settings } = useStore();
+  const activeMediaSourceKey = useStore(s => s.settings.activeMediaSourceKey);
 
   useEffect(() => {
     startMediaHub();
     // Kayıtlı tercih uygulanmadan önce native poll boş kalır.
     // Uygulama açılışında ayarlardaki kaynağı hemen uygula.
-    const key = settings.activeMediaSourceKey ?? defaultMusic;
+    const key = activeMediaSourceKey ?? defaultMusic;
     const pkg = MEDIA_SOURCE_PKGS[key];
     if (pkg) {
       setMediaPreferredPackage(pkg);
@@ -80,7 +80,7 @@ export const MediaHub = memo(function MediaHub({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { playing, track, source, activeAppName, hasSession } = useMediaState();
+  const { playing, track, source, activeAppName, hasSession, permissionRequired } = useMediaState();
 
   // Thermal guard — 'lite' modunda GPU tasarrufu için visualizer kapatılır
   const [thermalLite, setThermalLite] = useState(() => getPerformanceMode() === 'lite');
@@ -114,11 +114,35 @@ export const MediaHub = memo(function MediaHub({
 
         {/* Metin */}
         <div className="text-center">
-          <div className="text-primary text-base font-bold">Müzik Çalmıyor</div>
+          <div className="text-primary text-base font-bold">
+            {permissionRequired ? 'Bildirim İzni Gerekli' : 'Müzik Çalmıyor'}
+          </div>
           <div className="text-secondary text-xs mt-1.5 leading-tight font-medium">
-            Bir medya uygulaması başlatın
+            {permissionRequired
+              ? 'Çalan müziği görmek için bildirim erişimi verin'
+              : 'Bir medya uygulaması başlatın'}
           </div>
         </div>
+
+        {/* Bildirim izni butonu */}
+        {permissionRequired && isNative && (
+          <button
+            onClick={() => {
+              try {
+                // Android bildirim erişim ayarları
+                (window as any).Capacitor?.Plugins?.CarLauncher?.openNotificationSettings?.();
+              } catch { /* ignore */ }
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black active:scale-95 transition-all"
+            style={{
+              background: 'rgba(251,191,36,0.15)',
+              border:     '1px solid rgba(251,191,36,0.3)',
+              color:      '#fbbf24',
+            }}
+          >
+            ⚙ Bildirim Erişimini Etkinleştir
+          </button>
+        )}
 
         {/* Müzik uygulamasını aç */}
         <button

@@ -31,7 +31,9 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
     },
   },
   layers: [
-    { id: 'osm-tiles', type: 'raster', source: 'osm' },
+    // Tile yüklenemeyince siyah kanvas yerine koyu lacivert arka plan görünür
+    { id: 'background', type: 'background', paint: { 'background-color': '#0d1628' } },
+    { id: 'osm-tiles',  type: 'raster',     source: 'osm' },
   ],
 };
 
@@ -259,7 +261,7 @@ export function initializeMap(
   _initPromise = Promise.race<MapLibreMap>([
     _initCore(container, config, myGen),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Map init timeout (12s)')), 12_000)
+      setTimeout(() => reject(new Error('Map init timeout (30s)')), 30_000)
     ),
   ]).finally(() => {
     if (_initGen === myGen) {
@@ -307,6 +309,7 @@ async function _initCore(
       zoom: TURKEY_ZOOM,
       pitch: 0,
       bearing: 0,
+      maxPitch: 50,  // 50°+ üzerinde MapLibre siyah köşe oluşturur
       antialias: true,
       attributionControl: false,
     });
@@ -368,6 +371,8 @@ async function _initCore(
         if (useMapStore.getState().mapInstance === map) {
           console.error('[MAP_WEBGL_ERROR] context lost permanently — destroying instance');
           destroyMap();
+          // FullMapView'a re-init sinyali gönder — initializedRef sıfırlansın
+          window.dispatchEvent(new CustomEvent('map:reinit-needed'));
         }
       }, 5_000);
     });
@@ -526,8 +531,12 @@ function _setupRouteInteractions(map: MapLibreMap): void {
   };
 }
 
-function ensureHeadingImage(map: MapLibreMap) {
-  if (map.hasImage(HEADING_IMAGE_ID)) return;
+function ensureHeadingImage(map: MapLibreMap, force?: boolean) {
+  if (!force && map.hasImage(HEADING_IMAGE_ID)) return;
+  // force=true (stil yeniden yüklendi): GPU belleğini tazele — eski imaj sil, yeniden yükle
+  if (force && map.hasImage(HEADING_IMAGE_ID)) {
+    try { map.removeImage(HEADING_IMAGE_ID); } catch { /* ignore */ }
+  }
 
   const size = 96;
   const canvas = document.createElement('canvas');
@@ -633,7 +642,8 @@ export function addUserMarker(
     map.removeSource(sourceId);
   }
 
-  ensureHeadingImage(map);
+  // Stil geçişi veya WebGL context yenilenmesinde GPU görseli bayatlar — zorla yenile
+  ensureHeadingImage(map, true);
 
   const feature = {
     type: 'Feature' as const,
@@ -690,16 +700,24 @@ export function addUserMarker(
       'circle-opacity': 1,
     },
   });
+
+  // Katmanları en üste taşı — raster/vektör geçişlerinde veya OOM sonrası
+  // diğer katmanların (rota, POI) üzerinde kalması garantilenir.
+  try { map.moveLayer('user-heading-cone'); } catch { /* stil geçişi sırasında güvenli */ }
+  try { map.moveLayer('user-marker'); }       catch { /* stil geçişi sırasında güvenli */ }
+  try { map.moveLayer('user-dot'); }          catch { /* stil geçişi sırasında güvenli */ }
 }
 
 export function updateUserMarker(latitude: number, longitude: number, heading?: number, speedKmh?: number) {
   const map = useMapStore.getState().mapInstance;
   if (!map) return;
 
-  const sourceId = 'user-location';
+  const sourceId  = 'user-location';
   const rawSource = map.getSource(sourceId);
-  // B38: WebGL context loss sonrası yeni haritada source yok — yeniden ekle
-  if (!rawSource) {
+  const layerExists = !!map.getLayer('user-marker');
+  // Self-Healing: source kayıpsa VEYA ana katman WebGL/OOM baskısında düştüyse yeniden oluştur.
+  // Anti-Flicker: addUserMarker ağır işlemdir; yalnızca gerçekten eksikse tetiklenir.
+  if (!rawSource || !layerExists) {
     if (map.isStyleLoaded()) addUserMarker(map, latitude, longitude, heading);
     return;
   }
@@ -1005,20 +1023,20 @@ export function enterNavigationView(
 ) {
   if (!map || !map.isStyleLoaded()) return;
 
-  const TARGET_ZOOM    = 18.5; // Yakın yol detayı
-  const TARGET_PITCH   = 55;   // Google Maps sürüş perspektifi
-  const DURATION_MS    = 1200; // Yumuşak giriş animasyonu
+  const TARGET_ZOOM    = 18.0; // Yakın yol detayı
+  const TARGET_PITCH   = 38;   // 40°+ üzerinde siyah köşe riski artar
+  const DURATION_MS    = 1000; // Yumuşak giriş animasyonu
 
   // Smooth camera state'i giriş noktasıyla eşitle — ilk tick'te jump olmasın
-  resetCameraSmooth({ zoom: TARGET_ZOOM, pitch: TARGET_PITCH, lookAheadM: 40, bearing });
+  resetCameraSmooth({ zoom: TARGET_ZOOM, pitch: TARGET_PITCH, lookAheadM: 30, bearing });
 
-  const lookAheadDeg = 40 / 111_320;
+  const lookAheadDeg = 30 / 111_320;
   const headRad      = (bearing * Math.PI) / 180;
   const cosLat       = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
   const centerLat    = lat + lookAheadDeg * Math.cos(headRad);
   const centerLng    = lng + lookAheadDeg * Math.sin(headRad) / cosLat;
 
-  const topPad = Math.round(containerHeight * 0.55);
+  const topPad = Math.round(containerHeight * 0.48);
 
   map.easeTo({
     center:  [centerLng, centerLat],

@@ -4,6 +4,8 @@ import { CarLauncher } from '../../platform/nativePlugin';
 import type { CanIdConfig, CanRawFrame } from '../../platform/nativePlugin';
 import { isNative } from '../../platform/bridge';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
+import { TestProtocolPanel }      from '../debug/TestProtocolPanel';
+import { CandidateStatusPanel }   from '../debug/CandidateStatusPanel';
 
 const DEFAULT_IDS: CanIdConfig = {
   speed:   0x0C9,
@@ -42,7 +44,7 @@ const SIGNAL_LABELS: Record<keyof CanIdConfig, string> = {
 };
 
 type SnifferEntry = { hex: string; data: string; count: number };
-type EditIds = Record<keyof CanIdConfig, string>;
+type EditIds      = Record<keyof CanIdConfig, string>;
 
 function toHex(n: number) {
   return `0x${n.toString(16).toUpperCase().padStart(3, '0')}`;
@@ -54,6 +56,8 @@ function toEditIds(cfg: CanIdConfig): EditIds {
   ) as EditIds;
 }
 
+const MAX_DIAG_LINES = 30;
+
 export function CanDiagPanel() {
   const { canPhase, canStatusText } = useHALStatusStore();
   const [editIds, setEditIds] = useState<EditIds>(toEditIds(DEFAULT_IDS));
@@ -61,15 +65,34 @@ export function CanDiagPanel() {
   const [snifferMap, setSnifferMap] = useState<Map<string, SnifferEntry>>(new Map());
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [diagLines, setDiagLines]   = useState<string[]>([]);
 
   const liveMap  = useRef<Map<string, SnifferEntry>>(new Map());
   const flushRef = useRef<number | null>(null);
+  const diagRef  = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isNative || !CarLauncher.getCanIds) return;
     CarLauncher.getCanIds()
       .then(ids => setEditIds(toEditIds(ids)))
       .catch(() => {});
+  }, []);
+
+  // K24 tanı mesajları
+  useEffect(() => {
+    if (!isNative) return;
+    let handle: { remove(): void } | null = null;
+    CarLauncher.addListener('canDiag', ({ msg }: { msg: string }) => {
+      setDiagLines(prev => {
+        const next = [...prev, msg];
+        return next.length > MAX_DIAG_LINES ? next.slice(-MAX_DIAG_LINES) : next;
+      });
+      // Scroll to bottom
+      requestAnimationFrame(() => {
+        if (diagRef.current) diagRef.current.scrollTop = diagRef.current.scrollHeight;
+      });
+    }).then(h => { handle = h; }).catch(() => {});
+    return () => { handle?.remove(); };
   }, []);
 
   const toggleSniffer = useCallback(async () => {
@@ -273,6 +296,57 @@ export function CanDiagPanel() {
             ? 'Aracınızın gönderdiği tüm CAN ID\'leri listeleniyor. Bir satıra tıklayarak hangi sinyale ait olduğunu atayın, ardından Kaydet\'e basın.'
             : 'CAN bus\'u keşfetmek için Sniffer\'ı başlatın. Araç ateşleme açıkken çalıştırın.'}
         </p>
+      </div>
+
+      {/* ── K24 Tanı Günlüğü ── */}
+      {diagLines.length > 0 && (
+        <div className="glass-card p-4 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              K24 Tanı Günlüğü
+            </span>
+            <button
+              onClick={() => setDiagLines([])}
+              className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}
+            >
+              Temizle
+            </button>
+          </div>
+          <div
+            ref={diagRef}
+            className="flex flex-col gap-0.5 max-h-40 overflow-y-auto font-mono"
+          >
+            {diagLines.map((line, i) => (
+              <span
+                key={i}
+                className="text-[10px] leading-relaxed px-1"
+                style={{
+                  color: line.includes('[MARKER]')    ? '#f59e0b'     // test marker — amber
+                       : line.includes('TRANSACT HIT') ? '#a78bfa'    // binder hit — violet
+                       : line.includes('ContentProvider HIT') ? '#34d399' // provider hit — green
+                       : line.startsWith('BULUNDU')    ? '#34d399'
+                       : line.includes('INTENT ts=')   ? '#38bdf8'    // broadcast — sky blue
+                       : line.startsWith('İzin')       ? '#f87171'
+                       : line.startsWith('URI yanıt')  ? '#fbbf24'
+                       : 'rgba(255,255,255,0.55)',
+                }}
+              >
+                {line}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── CAN Sinyal Doğrulama ── */}
+      <div className="glass-card p-4">
+        <CandidateStatusPanel />
+      </div>
+
+      {/* ── Test Protokolü ── */}
+      <div className="glass-card p-4">
+        <TestProtocolPanel />
       </div>
 
     </div>

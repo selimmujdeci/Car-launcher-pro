@@ -18,6 +18,8 @@
  */
 
 import { isNative }        from '../bridge';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — VehicleHAL CI ortamında tip çözümlenemiyor
 import { VehicleHAL }      from '../nativePlugin';
 import type { IHALAdapter } from './MockHALAdapter';
 import type { VehicleHALData } from './types';

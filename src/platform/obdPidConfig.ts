@@ -12,7 +12,10 @@ import type { VehicleType } from './obdTypes';
  */
 
 const UNIVERSAL_PIDS  = ['0x0D'];                                        // PID 0x0D: speed
-const ICE_PIDS        = ['0x0C', '0x05', '0x2F', '0x11', '0x0F'];       // RPM, ECT, fuel, throttle, IAT
+const ICE_PIDS        = ['0x0C', '0x05', '0x11', '0x0F'];               // RPM, ECT, throttle, IAT
+// 0x2F (fuel) kaldırıldı — Fiat/PSA/Renault araçlarının çoğu desteklemiyor,
+// her cycle'da 200ms NO-DATA bekletir, RPM güncellemesini yavaşlatır.
+// Yakıt seviyesi ATMA/ham CAN yoluyla alınacak.
 const DIESEL_PIDS     = [...ICE_PIDS, '0x0B'];                           // + manifold pressure (boost)
 
 export function getPidListForVehicle(type: VehicleType): string[] {

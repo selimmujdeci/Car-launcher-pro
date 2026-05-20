@@ -73,9 +73,9 @@ export function RolloutControlLite({ onClose }: Props) {
   useEffect(() => {
     setLoading(true);
     void getActiveRollouts()
-      .then((data) => { setPlans(data); setLoading(false); })
-      .catch((e) => {
-        setLoadErr(e instanceof Error ? e.message : 'Yükleme hatası');
+      .then((data: RolloutPlan[]) => { setPlans(data); setLoading(false); })
+      .catch((e: unknown) => {
+        setLoadErr(e instanceof Error ? e.message : String(e) || 'Yükleme hatası');
         setLoading(false);
       });
   }, []);

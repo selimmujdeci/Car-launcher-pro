@@ -91,8 +91,8 @@ const Panel = memo(({ children, title, icon: Icon, accent = C_ACCENT }: { childr
 
 /* ── GT_Glareshield (Header) ──────────────────────────────── */
 const GT_Glareshield = memo(({ onOpenApps, onOpenSettings, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void }) => {
-  const { settings } = useStore();
-  const { time, date } = useClock(settings.use24Hour, true);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time, date } = useClock(use24Hour, true);
   void useDeviceStatus();
 
   return (
@@ -231,7 +231,7 @@ const GT_Performance = memo(({ appMap: _appMap, onLaunch: _onLaunch }: { appMap:
   const obd = useOBDState();
   const { playing, track } = useMediaState();
   
-  const fuel = Math.round(obd.fuelLevel ?? 0);
+  const fuel = Math.max(0, Math.round(obd.fuelLevel ?? 0));
   const temp = Math.round(obd.engineTemp ?? 0);
   const voltage = obd.batteryVoltage ?? null;
 
@@ -351,7 +351,7 @@ export const CockpitLayout = memo(function CockpitLayout({
         )}
 
         <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
-        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
       </div>
     </div>
   );

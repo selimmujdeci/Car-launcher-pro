@@ -4,6 +4,7 @@
  */
 import { registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
+import type { VehicleHALData } from './vehicleDataLayer/types';
 
 export interface LaunchAppOptions {
   packageName?: string; // startActivity by package
@@ -493,6 +494,22 @@ export interface CarLauncherPlugin {
 
   startCanBus?(): Promise<void>;
   stopCanBus?(): Promise<void>;
+  /** MCU event sniffer — K250/Hiworld keşif modu */
+  startMcuSniff?(): Promise<void>;
+  stopMcuSniff?(): Promise<void>;
+  /**
+   * Test protokolü marker — canDiag kanalına "[MARKER] name ts=…" yazar.
+   * Fiziksel olay öncesi çağrılır; log korelasyonu için kullanılır.
+   */
+  insertTestMarker?(opts: { marker: string }): Promise<void>;
+
+  /**
+   * ELM327 iCar'ı ATMA (Monitor All) moduna geçirir.
+   * OBD bağlı olmalı. Tüm CAN frame'leri canDiag kanalına akar (diff + throttle filtreli).
+   * CAN write yapmaz — sadece dinler.
+   */
+  startRawCanScan?(): Promise<void>;
+  stopRawCanScan?(): Promise<void>;
   /** USB serial adaptörler için izin ister (CH340, CP2102, FTDI, CDC ACM) */
   requestUsbCanPermission?(): Promise<{ requested: number }>;
 
@@ -559,6 +576,12 @@ export interface CarLauncherPlugin {
   addListener(
     event: 'canRawFrame',
     handler: (data: CanRawFrame) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /** K24 ContentProvider tanı mesajları — Bakım ekranında gösterilir */
+  addListener(
+    event: 'canDiag',
+    handler: (data: { msg: string }) => void,
   ): Promise<PluginListenerHandle>;
 
   /** Android bellek baskısı — system trim callback (CRITICAL / MODERATE) */
@@ -643,3 +666,23 @@ export interface CanRawFrame {
 
 // Plugin is resolved by Capacitor on native; undefined on web (bridge handles fallback)
 export const CarLauncher = registerPlugin<CarLauncherPlugin>('CarLauncher');
+
+/* ══════════════════════════════════════════════════════════════════
+   VehicleHAL — AAOS VHAL Capacitor Plugin (READ-ONLY)
+   Android impl: com.cockpitos.pro.hal.VehicleHALPlugin
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * `getSignal()` dönüş tipi:
+ *   • `connected`  — AAOS bağlı mı; false ise diğer alanlar tanımsızdır.
+ *   • `VehicleHALData` alanları canonical (km/h, %) birimlerde olmalıdır;
+ *     mevcut Java iskeletinde raw AAOS birimleri (m/s, litre) gelir.
+ *     NativeHALAdapter bu dönüşümü yaparak VAL pipeline'ına iletir.
+ */
+export interface VehicleHALPlugin {
+  startHAL(): Promise<{ connected: boolean }>;
+  stopHAL():  Promise<void>;
+  getSignal(): Promise<VehicleHALData & { connected: boolean; ts?: number }>;
+}
+
+export const VehicleHAL = registerPlugin<VehicleHALPlugin>('VehicleHAL');

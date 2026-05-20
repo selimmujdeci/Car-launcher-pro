@@ -135,6 +135,7 @@ class AdaptiveRuntimeManager {
   private _zombiePingTimer:        ReturnType<typeof setInterval> | null = null;
   private readonly _pingPendingCounts   = new Map<string, number>();
   private readonly _workerMsgHandlers   = new Map<string, (e: MessageEvent) => void>();
+  private readonly _pendingTerminateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private _zombieRestartCallback: ((key: string) => void) | null = null;
 
   /* ── Constructor ────────────────────────────────────────────── */
@@ -545,10 +546,13 @@ class AdaptiveRuntimeManager {
     console.info(`[Runtime] Worker.terminate() dispatched: ${key}`);
     try {
       entry.worker.postMessage({ type: 'STOP' }); // Temiz kapatma denemesi
-      setTimeout(() => {
+      // Zero-Leak: timer handle saklanır — destroy()'da temizlenir
+      const timerId = setTimeout(() => {
+        this._pendingTerminateTimers.delete(key);
         try { entry.worker?.terminate(); } catch { /* zaten kapanmış */ }
         console.info(`[Runtime] Worker.terminate() confirmed: ${key}`);
       }, 500);
+      this._pendingTerminateTimers.set(key, timerId);
     } catch {
       try { entry.worker.terminate(); } catch { /* noop */ }
     }
@@ -611,6 +615,11 @@ class AdaptiveRuntimeManager {
     this._cancelUpgrade();
     this._cancelThermalRecovery();
     this._stopZombieDetection();
+    // Zero-Leak: pending terminate timer'larını temizle
+    for (const timerId of this._pendingTerminateTimers.values()) {
+      clearTimeout(timerId);
+    }
+    this._pendingTerminateTimers.clear();
     this._listeners.clear();
 
     // Tüm worker'ları temizle

@@ -128,7 +128,13 @@ export function useDayNightManager(): void {
       sensor = new AlsClass({ frequency: ALS_FREQUENCY_HZ });
       sensor.onreading = () => {
         if (!sensor) return;
-        const isBright = sensor.illuminance >= SUNLIGHT_LUX_THRESHOLD;
+        const lux  = sensor.illuminance;
+        const hour = new Date().getHours();
+        const isDaytime = hour >= DAY_START_H && hour < DAY_END_H;
+        // Araç panosundaki sensör gökyüzüne bakmaz — düşük lux ↔ tünel/garaj ayrımı:
+        // < 50 lux → gerçekten karanlık (tünel/garaj) → sunlight-mode KAPALI
+        // ≥ 50 lux gündüzde → pano gölgesinde bile parlak dış ortam → sunlight-mode AÇIK
+        const isBright = lux >= SUNLIGHT_LUX_THRESHOLD || (isDaytime && lux >= 50);
         alsActiveRef.current = true;
         applySunlightMode(isBright);
       };

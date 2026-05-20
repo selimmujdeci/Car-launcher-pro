@@ -73,13 +73,13 @@ interface Props {
 
 export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
   const [tab, setTab] = useState<Tab>('player');
-  const { settings, updateSettings } = useStore();
-  const activeSourceKey = settings.activeMediaSourceKey ?? defaultMusic;
+  const updateSettings = useStore(s => s.updateSettings);
+  const activeMediaSourceKey = useStore(s => s.settings.activeMediaSourceKey) ?? defaultMusic;
 
   useEffect(() => {
     startMediaHub();
     // Mevcut aktif kaynak paketini MediaHub'a bildir
-    const src = KNOWN_SOURCES.find((s) => s.key === activeSourceKey);
+    const src = KNOWN_SOURCES.find((s) => s.key === activeMediaSourceKey);
     if (src?.pkg) setMediaPreferredPackage(src.pkg);
     // Drawer açılınca anında poll — 5s beklemesin
     pollMediaNow();
@@ -121,14 +121,14 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
             progressPct={progressPct}
             shuffle={shuffle}
             repeat={repeat}
-            activeSourceKey={activeSourceKey}
+            activeSourceKey={activeMediaSourceKey}
             onTabSources={() => setTab('sources')}
             onPlay={play}
           />
         )}
         {tab === 'sources' && (
           <SourcesView
-            activeSourceKey={activeSourceKey}
+            activeSourceKey={activeMediaSourceKey}
             activeSession={hasSession ? source : null}
             onSelectSource={handleSelectSource}
           />

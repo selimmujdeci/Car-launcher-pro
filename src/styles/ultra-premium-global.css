@@ -2,7 +2,7 @@
 
 .futurist-glass {
   background: rgba(8, 14, 28, 0.82);
-  backdrop-filter: blur(32px) saturate(1.8);
+  backdrop-filter: blur(calc(var(--rt-blur, 1) * 32px)) saturate(1.8);
   border: 1.5px solid rgba(255, 255, 255, 0.1);
   box-shadow: 
     0 24px 48px rgba(0, 0, 0, 0.6),

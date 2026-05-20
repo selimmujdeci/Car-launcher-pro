@@ -11,7 +11,7 @@ import { useMediaState } from '../../platform/mediaService';
 import { useSmartEngine, trackLaunch } from '../../platform/smartEngine';
 import { useNavigation } from '../../platform/navigationService';
 import { useApps } from '../../platform/appDiscovery';
-import { useOBDState } from '../../platform/obdService';
+import { useOBDSource } from '../../platform/obdService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { ErrorToast } from '../common/ErrorToast';
 import { VolumeOverlay } from '../common/VolumeOverlay';
@@ -80,8 +80,8 @@ export default function MainLayout() {
     useShallow((s) => ({ settings: s.settings, updateSettings: s.updateSettings, updateParking: s.updateParking }))
   );
   const { apps: allApps, appMap, loading: appsLoading } = useApps();
-  const obd      = useOBDState();
-  const location = useGPSLocation();
+  const obdSource = useOBDSource();
+  const location  = useGPSLocation();
 
   const [bootPhase,     setBootPhase]     = useState<BootPhase>('show');
   const [drawer,        setDrawer]        = useState<DrawerType>('none');
@@ -109,7 +109,7 @@ export default function MainLayout() {
   useDayNightManager();
 
   // ── OBD lifecycle (toasts, park save, auto sleep) ─────────
-  useOBDLifecycle({ obd, location, settings, updateSettings, updateParking });
+  useOBDLifecycle({ location, settings, updateSettings, updateParking });
 
   // ── Auto drive mode detection ─────────────────────────────
   useDriveModeDetection({ location, settings });
@@ -365,7 +365,7 @@ export default function MainLayout() {
       <VolumeOverlay />
 
       {/* OBD simüle veri uyarısı */}
-      {obd.source === 'mock' && bootPhase === 'done' && (
+      {obdSource === 'mock' && bootPhase === 'done' && (
         <div data-obd-sim-warn className="fixed top-2 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 heavy-blur pointer-events-none">
           <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
           <span className="text-amber-400 text-[10px] font-semibold tracking-wide uppercase">Simüle veri — OBD bağlı değil</span>

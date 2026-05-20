@@ -90,20 +90,20 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
 }: {
   onClose: () => void;
 }) {
-  const { settings, updateMaintenance } = useStore();
-  const m = settings.maintenance;
+  const maintenance = useStore(s => s.settings.maintenance);
+  const updateMaintenance = useStore(s => s.updateMaintenance);
   const odometer = useVehicleStore((state) => state.odometer);
 
   const [form, setForm] = useState<FormState>({
-    lastOilChangeKm: m.lastOilChangeKm ?? 0,
-    nextOilChangeKm: m.nextOilChangeKm ?? 10000,
-    inspectionDate:  m.inspectionDate  ?? '',
-    insuranceExpiry: m.insuranceExpiry ?? '',
-    kaskoExpiry:     m.kaskoExpiry     ?? '',
+    lastOilChangeKm: maintenance.lastOilChangeKm ?? 0,
+    nextOilChangeKm: maintenance.nextOilChangeKm ?? 10000,
+    inspectionDate:  maintenance.inspectionDate  ?? '',
+    insuranceExpiry: maintenance.insuranceExpiry ?? '',
+    kaskoExpiry:     maintenance.kaskoExpiry     ?? '',
   });
 
   // Canlı durum hesabı (kaydetmeden önce önizleme)
-  const reminders = computeReminders({ ...m, ...form }, odometer);
+  const reminders = computeReminders({ ...maintenance, ...form }, odometer);
 
   // Zero Mock filtresi: yalnızca gerçek veriye dayanan, aksiyon gerektiren satırlar gösterilir.
   // 'ok' → aksiyon gerekmez, summary barını kirletir.

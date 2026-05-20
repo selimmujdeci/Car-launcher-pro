@@ -1,64 +1,55 @@
 import { memo, useState } from 'react';
-import { useCarTheme, type CarTheme } from '../../store/useCarTheme';
-import { useSystemStore } from '../../store/useSystemStore';
+import { useCarTheme, type CarTheme, baseOf } from '../../store/useCarTheme';
 import { ThemeStudio } from './ThemeStudio';
 
-const THEMES: { id: CarTheme; label: string; sub: string; accent: string; bg: string; border: string }[] = [
+/**
+ * Core Theme Preview Cards — 4 tema (CLAUDE.md §UX Simplicity)
+ * Tema önizleme: kullanıcı seçim yapmadan önce görebilsin diye mini preview
+ */
+const THEME_PREVIEWS: { 
+  id: CarTheme; 
+  label: string; 
+  sub: string; 
+  accent: string; 
+  bg: string; 
+  border: string;
+  text: string;
+}[] = [
+  {
+    id: 'pro',
+    label: 'Glass Pro',
+    sub: 'Düşük güç · Hiworld',
+    accent: '#D4AF37',
+    bg: '#1C1C2E',
+    border: 'rgba(212,175,55,0.40)',
+    text: '#F5F0E8',
+  },
   {
     id: 'sunlight',
-    label: '☀ SUNLIGHT',
-    sub: 'Güneş Modu · WCAG AAA',
-    accent: '#003BB5',
-    bg: 'rgba(255,255,255,0.98)',
-    border: 'rgba(0,59,181,0.60)',
+    label: '☀ Sunlight',
+    sub: 'Güneş altı · WCAG AAA+',
+    accent: '#001E8C',
+    bg: '#F5F0E8',
+    border: '#000000',
+    text: '#000000',
   },
   {
     id: 'tesla',
-    label: 'TESLA',
-    sub: 'Model S',
+    label: 'Tesla',
+    sub: 'Minimalist · Premium',
     accent: '#E31937',
-    bg: 'rgba(0,0,0,0.95)',
+    bg: '#141414',
     border: 'rgba(227,25,55,0.35)',
-  },
-  {
-    id: 'audi',
-    label: 'AUDI',
-    sub: 'Virtual Cockpit',
-    accent: '#CC0000',
-    bg: 'rgba(10,10,10,0.95)',
-    border: 'rgba(204,0,0,0.35)',
+    text: '#FFFFFF',
   },
   {
     id: 'mercedes',
-    label: 'MERCEDES',
-    sub: 'MBUX',
+    label: 'Mercedes',
+    sub: 'Luxury · MBUX',
     accent: '#C8A96E',
-    bg: 'rgba(8,6,6,0.95)',
+    bg: '#080606',
     border: 'rgba(200,169,110,0.35)',
-  },
-  {
-    id: 'cockpit',
-    label: 'COCKPIT',
-    sub: 'Glass Cockpit',
-    accent: '#00D4FF',
-    bg: 'rgba(5,10,16,0.95)',
-    border: 'rgba(0,212,255,0.35)',
-  },
-  {
-    id: 'pro',
-    label: 'PRO',
-    sub: 'Dark Automotive',
-    accent: '#ff9800',
-    bg: 'rgba(10,12,16,0.97)',
-    border: 'rgba(255,152,0,0.40)',
-  },
-  {
-    id: 'oled',
-    label: 'OLED PRO',
-    sub: 'AMOLED High Contrast',
-    accent: '#00E5FF',
-    bg: '#000000',
-    border: 'rgba(0,229,255,0.40)',
+    text: '#F5F0E8',
   },
 ];
 
@@ -66,6 +57,15 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
   const { theme, setTheme } = useCarTheme();
   const [open,        setOpen]        = useState(false);
   const [studioOpen,  setStudioOpen]  = useState(false);
+
+  // Aktif tema hangi core theme'e ait?
+  const activeId = baseOf(theme);
+
+  // Temayı seç ve paneli kapat
+  const applyTheme = (id: CarTheme) => {
+    setTheme(id);
+    setOpen(false);
+  };
 
   return (
     <>
@@ -106,12 +106,12 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
               WebkitBackdropFilter: 'blur(32px)',
               border: '1px solid rgba(255,255,255,0.08)',
               boxShadow: '0 24px 64px rgba(0,0,0,0.80)',
-              minWidth: 180,
+              minWidth: 220,
             }}
           >
             <div className="text-[9px] uppercase tracking-[0.45em] font-light px-2 pb-1"
               style={{ color: 'rgba(255,255,255,0.30)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              TEMA SEÇ
+              TEMA SEÇ · 4 SEÇENEK
             </div>
 
             {/* Stüdyo butonu */}
@@ -134,16 +134,14 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
               </svg>
             </button>
 
-            {THEMES.map(t => {
-              const active = theme === t.id;
+            {/* 4 Core Theme seçimi */}
+            {THEME_PREVIEWS.map(t => {
+              // Aktif kontrolü: -day varyantı da "pro" sayılır
+              const active = activeId === baseOf(t.id);
               return (
                 <button
                   key={t.id}
-                  onClick={() => {
-                    setTheme(t.id);
-                    useSystemStore.getState().setUserOverride(120_000);
-                    setOpen(false);
-                  }}
+                  onClick={() => applyTheme(t.id)}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-2xl active:scale-95 transition-all"
                   style={{
                     background: active ? t.bg : 'rgba(255,255,255,0.02)',
@@ -151,7 +149,7 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
                     boxShadow: active ? `0 4px 20px ${t.accent}20` : 'none',
                   }}
                 >
-                  {/* Renk noktası */}
+                  {/* Tema renk noktası */}
                   <div className="w-3 h-3 rounded-full flex-shrink-0"
                     style={{
                       background: t.accent,
@@ -161,7 +159,7 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
                     <div className="text-[11px] font-semibold tracking-wider" style={{ color: active ? t.accent : 'rgba(255,255,255,0.60)' }}>
                       {t.label}
                     </div>
-                    <div className="text-[9px] font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                    <div className="text-[9px] font-light" style={{ color: 'rgba(255,255,255,0.30)' }}>
                       {t.sub}
                     </div>
                   </div>

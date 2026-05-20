@@ -92,6 +92,9 @@ let _runtimeUnsub:      (() => void) | null = null;
 let _pendingLevel:  ThermalLevel | null                    = null;
 let _debounceTimer: ReturnType<typeof setTimeout> | null   = null;
 
+let _lastBatteryLevel = -1;
+let _lastBatteryCheckTs = 0;
+
 // ── Tahminsel ısı motoru state ────────────────────────────────────────────────
 interface _ThermalSample { temp: number; ts: number; }
 /** Kayar pencere — eğim hesabı için son HISTORY_MAX/HISTORY_SPAN_MS örneği tutar */
@@ -492,15 +495,34 @@ async function _pollBatteryAPI(): Promise<void> {
 
   try {
     const battery = await nav.getBattery();
+    const now          = Date.now();
+    const currentLevel = battery.level;
 
-    // Battery API sıcaklık verisi sağlamaz.
-    // Heuristic: hızlı şarj + düşük batarya seviyesi → olası ısınma sinyali.
-    // Düşük güven — sadece başka kaynak yoksa kullanılır ve yalnızca L1 için.
-    if (battery.charging && battery.level < 0.25) {
-      // 46°C: L1 giriş eşiği 45°C'nin 1°C üzerinde → debounce ile L1'i gerçekten tetikleyebilir.
-      // Önceki değer 43°C idi ve histerezis bandının altında kalıyordu (L1 girmek için ≥45 gerekir).
+    // İlk çalışma — referans değerleri başlat, bu tik'te karar verme
+    if (_lastBatteryLevel === -1) {
+      _lastBatteryLevel   = currentLevel;
+      _lastBatteryCheckTs = now;
+      return;
+    }
+
+    // Minimum ölçüm aralığı kontrolü (POLL_MS = 30s)
+    const deltaMs = now - _lastBatteryCheckTs;
+    if (deltaMs < POLL_MS) return;
+
+    // Fast Charge hızı: şarj varken batarya seviyesi yükseldiyse
+    let chargeRatePerMin = 0;
+    if (battery.charging && currentLevel > _lastBatteryLevel) {
+      chargeRatePerMin = ((currentLevel - _lastBatteryLevel) / deltaMs) * 60_000;
+    }
+
+    // L1 tetikleme: hızlı şarj (>%0.5/dk) VEYA kritik düşük batarya + şarj stresi
+    if (chargeRatePerMin > 0.005 || battery.level < 0.25) {
       _applyTemp(46, 'battery_heuristic');
     }
+
+    // Ölçüm referansını güncelle
+    _lastBatteryLevel   = currentLevel;
+    _lastBatteryCheckTs = now;
   } catch {
     // Battery API erişim hatası — sessiz geç
   }

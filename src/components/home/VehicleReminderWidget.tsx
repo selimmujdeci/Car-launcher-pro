@@ -8,8 +8,8 @@ export const VehicleReminderWidget = memo(function VehicleReminderWidget({
 }: {
   onOpen: () => void;
 }) {
-  const { settings } = useStore();
-  const reminders = computeReminders(settings.maintenance);
+  const maintenance = useStore(s => s.settings.maintenance);
+  const reminders = computeReminders(maintenance);
   const urgent = hasUrgentReminders(reminders);
   const soonCount = reminders.filter((r) => r.urgency === 'soon').length;
   const urgentCount = reminders.filter(

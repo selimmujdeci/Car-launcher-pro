@@ -50,13 +50,14 @@ const SpeedGauge = memo(({ speed, isNight }: { speed: number, isNight: boolean }
 });
 
 export function ReplicationCockpit({ favorites: _favorites, onLaunch }: { favorites: string[]; onLaunch: (id: string) => void }) {
-  const { settings } = useStore();
-  const isNight = settings.dayNightMode === 'night';
+  const dayNightMode = useStore(s => s.settings.dayNightMode);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const isNight = dayNightMode === 'night';
   const obd = useOBDState();
   const gps = useGPSLocation();
   const device = useDeviceStatus();
   const { track } = useMediaState();
-  const { time } = useClock(settings.use24Hour, true);
+  const { time } = useClock(use24Hour, true);
 
   const speed = resolveSpeedKmh(gps, obd.speed ?? 0);
   const rpm = obd.rpm ?? 0;

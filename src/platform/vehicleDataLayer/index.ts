@@ -6,8 +6,19 @@ import { telemetryService }    from '../telemetryService';
 import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 import { startRemoteCommands, stopRemoteCommands } from '../remoteCommandService';
 import { startLiveStyleEngine }                    from '../liveStyleEngine';
-import { updateGpsSpeedForValidation }             from '../obdService';
+import { updateGpsSpeedForValidation, onOBDData }  from '../obdService';
 import type { VehicleState, WorkerGeofenceZone }   from './types';
+import { applyProfileGate }    from '../canBus/ProfileSignalGate';
+import { runVehicleHandshake } from '../canBus/VehicleHandshake';
+import { startConnectivityManager } from '../canBus/VehicleConnectivityManager';
+import { recordEvent, recordDiagLine } from '../canBus/EventRecorder';
+import { isNative }            from '../bridge';
+import { CarLauncher }         from '../nativePlugin';
+import {
+  startCanSignalValidator,
+  registerCandidate,
+  submitSample,
+} from '../canBus/CanSignalValidator';
 
 export { useUnifiedVehicleStore }                 from './UnifiedVehicleStore';
 export { useUnifiedVehicleStore as useVehicleStore } from './UnifiedVehicleStore'; // backward compat alias
@@ -101,8 +112,10 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
   });
 
   // CAN extras — worker'a gerek yok, doğrudan store'a yaz
-  // Tüm sinyaller (kapı/far/TPMS/motor/güvenlik/konfor) düşük frekanslı; RAF batch gerekmez.
-  const unsubCanExtras = can.onData((d) => {
+  // Gate uygula: Safe Mode'da CAN-only alanlar (reverse/door/gear vb.) bloklanır.
+  const unsubCanExtras = can.onData((raw) => {
+    const d = applyProfileGate(raw);   // Patch 5: gate bypass düzeltmesi
+    recordEvent('signal', 'MCU', `CAN frame`, { accepted: d !== raw || Object.keys(d).length > 0 });
     useUnifiedVehicleStore.getState().updateCanExtras({
       // Kapı / aydınlatma
       doorOpen:          d.doorOpen,
@@ -151,16 +164,96 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
 
   resolver.start();
 
+  // ── Connectivity Manager ────────────────────────────────────────────────
+  const stopConnectivity = startConnectivityManager();
+
+  // ── CAN Sinyal Validator ─────────────────────────────────────────────────
+  const stopValidator = startCanSignalValidator();
+
+  // Fiat Doblo aday sinyallerini validator'a kaydet (doğrulanmamış)
+  registerCandidate(0x1D0, 'speed',   'byte[2-3]×0.01 km/h');
+  registerCandidate(0x1D2, 'reverse', 'byte[0] bit5');
+  registerCandidate(0x345, 'doorFl',  'byte[0] bit0');
+  registerCandidate(0x345, 'doorFr',  'byte[0] bit1');
+
+  // ── MCU Sniffer — 12s gecikmeyle başlat (startup CPU rahatlatma) ────────
+  let _mcuSniffStarted = false;
+  if (isNative) {
+    // canDiag listener hemen kur — ama sniffer'ı 12s sonra başlat
+    CarLauncher.addListener('canDiag', (ev: { msg: string }) => {
+      recordDiagLine(ev.msg, 'MCU');
+      _feedValidatorFromDiag(ev.msg);
+    }).catch(() => {});
+
+    setTimeout(() => {
+      if (!_mcuSniffStarted) {
+        _mcuSniffStarted = true;
+        CarLauncher.startMcuSniff?.().catch(() => {});
+      }
+    }, 12_000);
+  }
+
+  // ── VehicleHandshake — OBD bağlandığında tek seferlik çalıştır ──────────
+  // Yalnızca OBD (Bluetooth) aktifken. Native CAN (Hiworld) her zaman trusted.
+  let _handshakeDone = false;
+  const unsubHandshake = onOBDData(() => {
+    if (_handshakeDone) return;
+    _handshakeDone = true;
+    // One-shot: artık OBD dinlemesine gerek yok
+    unsubHandshake();
+    // Handshake'i arka planda çalıştır — main thread'i bloke etme
+    setTimeout(() => {
+      void runVehicleHandshake('', '').then(outcome => {
+        resolver.setHandshakeOutcome(outcome);
+        recordEvent('signal', 'OBD', `Handshake: ${outcome.profile.id} safe=${outcome.safeMode}`);
+      }).catch(() => {});
+    }, 0);
+  });
+
   return () => {
     if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
     _hasPending = false;
     unsubCanExtras();
     unsubGpsValidation();
+    stopConnectivity();
+    stopValidator();
+    if (isNative) CarLauncher.stopMcuSniff?.().catch(() => {});
 
     _activeResolver = null;
     stopRemoteCommands();
     cleanupLiveStyle();
     telemetryService.stop();
-    resolver.stop(); // → worker'ı durdurur ve terminate eder
+    resolver.stop();
   };
 }
+
+// ── canDiag → CanSignalValidator besleme ─────────────────────────────────────
+// Format: "[CAN] 1D0  FF0032000000  ← speed=50.0 km/h  ts=1716123456"
+// Sadece decode edilmiş sinyalleri parse eder — ham hex'e dokunmaz.
+
+const _CAN_MULTI_RE = /(\w+)=([\d.]+|true|false)/g;
+
+function _feedValidatorFromDiag(msg: string): void {
+  if (!msg.startsWith('[CAN]') || !msg.includes('←')) return;
+
+  // CAN ID'yi parse et
+  const idMatch = msg.match(/^\[CAN\]\s+([0-9A-Fa-f]+)/);
+  if (!idMatch) return;
+  const canId = parseInt(idMatch[1], 16);
+  if (isNaN(canId)) return;
+
+  // Sinyal adı=değer çiftlerini parse et: "speed=50.0 km/h", "reverse=true"
+  const decoded = msg.slice(msg.indexOf('←') + 1);
+  const matches = decoded.matchAll(_CAN_MULTI_RE);
+  for (const m of matches) {
+    const name  = m[1];
+    const raw   = m[2];
+    const value: number | boolean | null =
+      raw === 'true'  ? true  :
+      raw === 'false' ? false :
+      isNaN(parseFloat(raw)) ? null : parseFloat(raw);
+    if (value === null) continue;
+    submitSample(canId, name, value);
+  }
+}
+

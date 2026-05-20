@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { showToast } from '../platform/errorBus';
-import type { OBDData } from '../platform/obdService';
+import { useOBDState } from '../platform/obdService';
 import type { GPSLocation } from '../platform/gpsService';
 import type { AppSettings } from '../store/useStore';
 import type { ParkingLocation } from '../store/useStore';
 
 interface UseOBDLifecycleParams {
-  obd: OBDData;
   location: GPSLocation | null;
   settings: AppSettings;
   updateSettings: (partial: Partial<AppSettings>) => void;
@@ -14,12 +13,12 @@ interface UseOBDLifecycleParams {
 }
 
 export function useOBDLifecycle({
-  obd,
   location,
   settings,
   updateSettings,
   updateParking,
 }: UseOBDLifecycleParams): void {
+  const obd = useOBDState();
   // OBD connection state toast notifications
   useEffect(() => {
     const state = obd.connectionState;

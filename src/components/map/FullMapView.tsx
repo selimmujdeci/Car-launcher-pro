@@ -93,6 +93,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const mapRef        = useRef<MapRef | null>(null);
   const initDone      = useRef(false);
   const initializedRef = useRef(false);
+  const tryInitRef    = useRef<(() => void) | null>(null);
   const cleanupRef    = useRef<(() => void) | null>(null);
   const modeInitRef   = useRef(false);
   const navStatusRef  = useRef<string>(NavStatus.IDLE); // FPS loop içinden okunur
@@ -139,7 +140,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const location = useGPSLocation();
   const heading = useGPSHeading();
   const gpsSource = useGPSSource();
-  const { isNavigating, destination, status: navStatus } = useNavigation();
+  const { isNavigating, destination, status: navStatus, distanceMeters: navDistMeters } = useNavigation();
   const route = useRouteState();
   const autoBrightness = useAutoBrightnessState();
   const mode = useMapMode();
@@ -222,13 +223,13 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   useEffect(() => {
     if (mapStatus !== 'LOADING') return;
 
-    // Resize pump — MapLibre boyutu sıfır sanıyorsa bu kurtarır
+    // Resize pump — MapLibre boyutu sıfır sanıyorsa bu kurtarır (K250: 100ms aralık)
     const pumpId = setInterval(() => {
       const container = containerRef.current;
       if (mapRef.current && container && container.offsetWidth > 0 && container.offsetHeight > 0) {
         try { mapRef.current.resize(); } catch { /* ignore */ }
       }
-    }, 300);
+    }, 100);
 
     const t = setTimeout(() => {
       clearInterval(pumpId);
@@ -240,7 +241,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         setMapStatus('READY');
         notifyStyleChange(false);
       }
-    }, 5_000);
+    }, 15_000); // K250: yavaş GPU — 5s yerine 15s bekle
 
     return () => { clearTimeout(t); clearInterval(pumpId); };
   }, [mapStatus]);
@@ -249,6 +250,22 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
+  }, []);
+
+  // WebGL kalıcı context kaybı → mapService destroyMap() sonrası re-init
+  useEffect(() => {
+    const handler = () => {
+      if (!mountedRef.current) return;
+      console.warn('[MAP] re-init signal received — resetting init state');
+      mapRef.current         = null;
+      initializedRef.current = false;
+      initDone.current       = false;
+      setMapStatus('IDLE' as any);
+      // ResizeObserver'ın tryInit'ini tetikle — yeni map init başlasın
+      requestAnimationFrame(() => tryInitRef.current?.());
+    };
+    window.addEventListener('map:reinit-needed', handler);
+    return () => window.removeEventListener('map:reinit-needed', handler);
   }, []);
 
   // routingService → Focus Mode köprüsü.
@@ -368,7 +385,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const displayLat = _snap?.lat ?? lat;
         const displayLng = _snap?.lon ?? lng;
 
-        // Marker: kullanıcı etkileşimi yoksa 100ms'de bir güncelle (10fps yeterli)
+        // Marker: kullanıcı etkileşimi yoksa 100ms'de bir güncelle (10fps yeterli).
+        // NOT: isSwitchingStyle state'i burada bilerek kontrol edilmez.
+        // updateUserMarker kendi içinde isStyleLoaded() + self-healing yönetir;
+        // isSwitchingStyle ile ekstra kilitleme, stil yüklendikten sonra da
+        // marker'ı geciktirir (React state güncelleme gecikmesi).
         if (!userInteractingRef.current && now - lastMarkerUpdate > 100) {
           updateUserMarker(displayLat, displayLng, bear, speedKmh);
           lastMarkerUpdate = now;
@@ -671,6 +692,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       scheduleSettle();
     }
 
+    tryInitRef.current = tryInit;
     observer = new ResizeObserver(tryInit);
     observer.observe(el);
 
@@ -1235,17 +1257,93 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }}
       />
 
-      {/* Cinematic vignette — HUD haritaya bağlanır, "UI overlay" hissi gider (Faz 3.3)
-           Bottom: navigasyon çubuğunun altındaki karanlık geçiş
-           Top: üst kontrollerin oturması için hafif çerçeve */}
+      {/* Vignette — HUD geçişi için hafif gradyan (koyu değil, sadece kenar yumuşatma) */}
       <div
         className="absolute bottom-0 left-0 right-0 pointer-events-none z-[35]"
-        style={{ height: '28%', background: 'linear-gradient(to top, rgba(6,9,15,0.68) 0%, transparent 100%)' }}
+        style={{ height: '18%', background: 'linear-gradient(to top, rgba(6,9,15,0.38) 0%, transparent 100%)' }}
       />
       <div
         className="absolute top-0 left-0 right-0 pointer-events-none z-[35]"
-        style={{ height: '11%', background: 'linear-gradient(to bottom, rgba(6,9,15,0.42) 0%, transparent 100%)' }}
+        style={{ height: '8%', background: 'linear-gradient(to bottom, rgba(6,9,15,0.22) 0%, transparent 100%)' }}
       />
+
+      {/* GPS konum durum göstergesi — sol üst köşe */}
+      {mapStatus === 'READY' && (
+        <div
+          className="absolute pointer-events-none z-[36]"
+          style={{ top: 'calc(var(--sat, 0px) + 14px)', left: 14 }}
+        >
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl"
+            style={{
+              background: 'rgba(0,0,0,0.42)',
+              backdropFilter: 'blur(8px)',
+              border: isValidGPS
+                ? '1px solid rgba(52,211,153,0.35)'
+                : '1px solid rgba(251,191,36,0.35)',
+            }}
+          >
+            <div
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{
+                background: isValidGPS ? '#34d399' : '#fbbf24',
+                boxShadow: isValidGPS
+                  ? '0 0 6px rgba(52,211,153,0.7)'
+                  : '0 0 6px rgba(251,191,36,0.7)',
+                animation: 'pulse 2s ease-in-out infinite',
+              }}
+            />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: isValidGPS ? '#34d399' : '#fbbf24' }}
+            >
+              {isValidGPS ? 'GPS' : 'GPS Zayıf'}
+            </span>
+            {isValidGPS && location?.accuracy != null && (
+              <span className="text-[8px] font-semibold" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                ±{Math.round(location.accuracy)}m
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* KM Sayacı — sol üst, navigasyon aktifken kalan mesafeyi gösterir */}
+      {isNavigating && mapStatus === 'READY' && (() => {
+        const effectiveDist = (navDistMeters && navDistMeters > 10)
+          ? navDistMeters
+          : route.totalDistanceMeters;
+        if (!effectiveDist || effectiveDist <= 0) return null;
+        const distLabel = effectiveDist < 1000
+          ? `${Math.round(effectiveDist / 10) * 10} m`
+          : `${(effectiveDist / 1000).toFixed(1)} km`;
+        return (
+          <div
+            className="absolute pointer-events-none z-[36]"
+            style={{ top: 'calc(var(--sat, 0px) + 48px)', left: 14 }}
+          >
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl"
+              style={{
+                background: 'rgba(0,0,0,0.50)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(59,130,246,0.35)',
+              }}
+            >
+              <div
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: '#3b82f6', boxShadow: '0 0 6px rgba(59,130,246,0.7)' }}
+              />
+              <span
+                className="font-black uppercase tracking-widest"
+                style={{ fontSize: 11, color: '#93c5fd' }}
+              >
+                {distLabel}
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Style-switch anti-flicker overlay.
           Fades in over the map (dark fill) while vector↔raster transition is

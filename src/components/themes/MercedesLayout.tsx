@@ -44,8 +44,8 @@ const M_DIM2   = 'var(--text-dim2, #B5B0AB)';
 
 /* ─── MERCEDES HEADER ─────────────────────────────────────────── */
 const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void }) {
-  const { settings } = useStore();
-  const { time, date } = useClock(settings.use24Hour, false);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
   const obd = useOBDState();
   const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
@@ -177,9 +177,9 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
           const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
           const rpm  = obd.rpm        ?? 0;
           const temp = obd.engineTemp ?? 0;
-          const fuel = obd.fuelLevel  ?? 0;
+          const fuelRaw = obd.fuelLevel; const fuel = (fuelRaw != null && fuelRaw > 0) ? Math.max(0, fuelRaw) : null;
   const tempWarn = temp > 100;
-  const fuelWarn = fuel < 15;
+  const fuelWarn = fuel != null && fuel > 0 && fuel < 15;
   const obdReady = obd.connectionState === 'connected' || obd.source === 'mock';
   const hasData  = obdReady || speedKmh > 0;
 
@@ -259,7 +259,7 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0">
         <MDataCell Icon={Gauge}       label="TORK"  value={hasData ? `${rpm.toLocaleString()}` : '--'}     warn={false} />
         <MDataCell Icon={Thermometer} label="MOTOR" value={hasData ? `${Math.round(temp)}°C` : '--'}       warn={tempWarn} />
-        <MDataCell Icon={Fuel}        label="YAKIT" value={hasData ? `${Math.round(fuel)}%`  : '--'}       warn={fuelWarn} />
+        <MDataCell Icon={Fuel}        label="YAKIT" value={fuel != null ? `${Math.round(fuel)}%` : '—'}       warn={fuelWarn} />
       </div>
     </div>
   );
@@ -405,7 +405,7 @@ export const MercedesLayout = memo(function MercedesLayout({
         )}
 
         <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
-        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
       </div>
     </div>
   );

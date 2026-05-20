@@ -8,12 +8,13 @@ import { HazardInspector } from './HazardInspector';
 import { IntelligenceInspector } from './IntelligenceInspector';
 import { useHazardStore } from '../../../store/useHazardStore';
 import { useVehicleIntelligenceStore } from '../../../store/useVehicleIntelligenceStore';
+import { useHALStatusStore } from '../../../platform/vehicleDataLayer/halStatusStore';
 
 /* ── Local types (mirror private WorkerEntry without importing internals) ── */
 type WorkerCrit = 'CRITICAL' | 'OPTIONAL';
 type WEntry     = readonly [string, { readonly worker: Worker | null; readonly criticality: WorkerCrit }];
 
-type Tab = 'workers' | 'timeline' | 'network' | 'fps' | 'hazards' | 'intel';
+type Tab = 'workers' | 'timeline' | 'network' | 'fps' | 'hazards' | 'intel' | 'hal';
 
 const THERM_LABEL = ['Normal', 'Warm', 'Hot', 'Critical'] as const;
 const THERM_HEX   = ['#22c55e', '#eab308', '#f97316', '#ef4444'] as const;
@@ -45,6 +46,9 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
   const intelFaultCount  = useVehicleIntelligenceStore(
     (s) => Object.values(s.plausibilityReport).filter((e) => !e.isValid).length,
   );
+  const halConnected  = useHALStatusStore((s) => s.halConnected);
+  const halConf       = useHALStatusStore((s) => s.halConf);
+  const activeSource  = useHALStatusStore((s) => s.activeSource);
 
   /* Accumulate FPS history only while FPS tab is open */
   useEffect(() => {
@@ -123,7 +127,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        {(['workers', 'timeline', 'network', 'fps', 'hazards', 'intel'] as Tab[]).map((t) => {
+        {(['workers', 'timeline', 'network', 'fps', 'hazards', 'intel', 'hal'] as Tab[]).map((t) => {
           const active = tab === t;
           return (
             <button key={t} onClick={() => setTab(t)}
@@ -156,6 +160,11 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
                       : '#22c55e',
                 }}>
                   {intelFaultCount > 0 ? `!${intelFaultCount}` : `${Math.round(intelTrust * 100)}%`}
+                </span>
+              )}
+              {t === 'hal' && (
+                <span style={{ marginLeft: 3, color: halConnected ? '#22c55e' : 'rgba(255,255,255,0.3)' }}>
+                  {halConnected ? '●' : '○'}
                 </span>
               )}
             </button>
@@ -289,6 +298,70 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
 
         {/* Vehicle Intelligence */}
         {tab === 'intel' && <IntelligenceInspector />}
+
+        {/* HAL Signal Source */}
+        {tab === 'hal' && (
+          <div className="space-y-2 p-1">
+            {/* Bağlantı durumu */}
+            <div className="px-2 py-2 rounded" style={{ background: 'rgba(255,255,255,0.03)' }}>
+              <div className="flex items-center justify-between">
+                <span style={{ color: 'rgba(255,255,255,0.45)' }}>HAL Source</span>
+                <span style={{ color: halConnected ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                  {halConnected ? '● CONNECTED' : '○ DISCONNECTED'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span style={{ color: 'rgba(255,255,255,0.45)' }}>Confidence</span>
+                <span style={{ color: halConnected ? '#22c55e' : 'rgba(255,255,255,0.25)' }}>
+                  {halConf.toFixed(2)} / 0.98
+                </span>
+              </div>
+            </div>
+
+            {/* Aktif kaynak */}
+            <div className="px-2 py-2 rounded" style={{ background: 'rgba(255,255,255,0.03)' }}>
+              <div className="text-[9px] mb-1.5" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                ACTIVE SPEED SOURCE
+              </div>
+              {(['HAL', 'CAN', 'OBD', 'GPS'] as const).map((src) => {
+                const isActive = activeSource === src;
+                const color =
+                  src === 'HAL' ? '#a78bfa' :
+                  src === 'CAN' ? '#3b82f6' :
+                  src === 'OBD' ? '#f59e0b' : '#22c55e';
+                const conf =
+                  src === 'HAL' ? 0.98 :
+                  src === 'CAN' ? 0.92 :
+                  src === 'OBD' ? 0.85 : 0.70;
+                return (
+                  <div key={src}
+                    className="flex items-center justify-between py-1 px-1 rounded mb-0.5"
+                    style={{
+                      background: isActive ? `${color}18` : 'transparent',
+                      border: `1px solid ${isActive ? color : 'transparent'}`,
+                    }}>
+                    <span style={{ color: isActive ? color : 'rgba(255,255,255,0.3)' }}>
+                      {isActive ? '▶' : '·'} {src}
+                    </span>
+                    <span style={{ color: isActive ? color : 'rgba(255,255,255,0.2)' }}>
+                      {conf.toFixed(2)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Hiyerarşi notu */}
+            <div className="px-2 py-1.5 rounded" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <div className="text-[9px]" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                Fusion: HAL(0.98) › CAN(0.92) › OBD(0.85) › GPS(0.70)
+              </div>
+              <div className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.15)' }}>
+                timeout · HAL 3s · CAN 3s · OBD 2s · GPS 5s
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}

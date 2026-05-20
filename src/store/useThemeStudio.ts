@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { BaseTheme } from './useCarTheme';
+import type { BaseTheme, CoreTheme, LegacyTheme } from './useCarTheme';
 
 // ── Token definitions ─────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ export interface SavedSlot extends ThemeToken {
 
 // ── Base theme presets (starting-point tokens) ───────────────────────────────
 
-const PRESETS: Record<BaseTheme, Omit<ThemeToken, 'name'>> = {
+const PRESETS: Record<CoreTheme | LegacyTheme, Omit<ThemeToken, 'name'>> = {
   pro: {
     baseTheme: 'pro',
     accentPrimary:   '#D4AF37',
@@ -76,6 +76,21 @@ const PRESETS: Record<BaseTheme, Omit<ThemeToken, 'name'>> = {
     cardBlurPx:    20, glowIntensity: 40,
     fontFamily: 'system', fontWeight: 400, letterSpacing: 0,
     iconNav:   '#E31937', iconMedia: '#FFFFFF', iconDock: '#E31937',
+  },
+  sunlight: {
+    baseTheme: 'sunlight',
+    accentPrimary:   '#001E8C',
+    accentSecondary: '#1565C0',
+    bgPrimary:       '#F5F0E8',
+    bgCard:          'rgba(245,240,232,0.98)',
+    textPrimary:     '#000000',
+    textSecondary:   '#444444',
+    borderColor:     'rgba(0,30,140,0.40)',
+    glowColor:       'rgba(0,30,140,0.15)',
+    radiusCard:  10, radiusBtn:  8, radiusTile:  12, radiusDock:  0,
+    cardBlurPx:     0, glowIntensity: 20,
+    fontFamily: 'system', fontWeight: 900, letterSpacing: 1,
+    iconNav:   '#001E8C', iconMedia: '#1565C0', iconDock: '#001E8C',
   },
   cockpit: {
     baseTheme: 'cockpit',

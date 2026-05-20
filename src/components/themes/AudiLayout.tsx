@@ -48,8 +48,8 @@ const A_DIM2   = 'var(--text-dim2, #B4BDC6)';
 
 /* ─── AUDI HEADER ─────────────────────────────────────────────── */
 const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpenMap, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onOpenMap: () => void; onVoice: () => void }) {
-  const { settings } = useStore();
-  const { time, date } = useClock(settings.use24Hour, false);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
   const obd = useOBDState();
   const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
@@ -136,9 +136,9 @@ const AudiSpeed = memo(function AudiSpeed() {
   const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
   const rpm  = obd.rpm        ?? 0;
   const temp = obd.engineTemp ?? 0;
-  const fuel = obd.fuelLevel  ?? 0;
+  const fuelRaw = obd.fuelLevel; const fuel = (fuelRaw != null && fuelRaw > 0) ? Math.max(0, fuelRaw) : null;
   const tempWarn = temp > 100;
-  const fuelWarn = fuel < 15;
+  const fuelWarn = fuel != null && fuel > 0 && fuel < 15;
   const [show3D, setShow3D] = useState(false);
   const obdReady = obd.connectionState === 'connected' || obd.source === 'mock';
   const hasData  = obdReady || speedKmh > 0;
@@ -244,7 +244,7 @@ const AudiSpeed = memo(function AudiSpeed() {
       {/* Alt veri çubukları — her iki modda da gösterilir */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0">
         <ADataCell Icon={Thermometer} label="MOTOR" value={hasData ? `${Math.round(temp)}°C` : '--'} warn={tempWarn} />
-        <ADataCell Icon={Fuel}        label="YAKIT" value={hasData ? `${Math.round(fuel)}%`  : '--'} warn={fuelWarn} />
+        <ADataCell Icon={Fuel}        label="YAKIT" value={fuel != null ? `${Math.round(fuel)}%` : '—'} warn={fuelWarn} />
         <ADataCell Icon={Gauge}       label="TORK"  value={hasData ? '320 Nm'                : '--'} warn={false} />
       </div>
     </div>
@@ -415,7 +415,7 @@ export const AudiLayout = memo(function AudiLayout({
       )}
 
       <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
-      <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+      <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
     </div>
   );
 });

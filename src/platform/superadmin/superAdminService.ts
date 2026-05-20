@@ -329,14 +329,15 @@ export async function logAdminAction(
   if (!client) throw new Error('AUDIT_FAILED: Admin client yok');
 
   const { data: userData } = await client.auth.getUser();
-  const actorId = userData?.user?.id ?? null;
+  const actorId    = userData?.user?.id    ?? null;
+  const actorEmail = userData?.user?.email ?? null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (client.from('audit_logs') as any).insert({
     actor_id:  actorId,
     action,
     target:    (metadata['target'] as string | undefined) ?? 'system',
-    after_val: metadata,
+    after_val: { ...metadata, _actor_email: actorEmail },
     severity:  (metadata['severity'] as string | undefined) ?? 'warning',
   });
 
@@ -395,4 +396,287 @@ export async function activateFleetLimpMode(): Promise<void> {
     .in('key', [...LIMP_MODE_FLAG_KEYS]);
 
   if (error) throw new Error((error as { message: string }).message);
+}
+
+// ── Diagnostics Bridge ────────────────────────────────────────────────────────
+
+export interface DiagnosticsHeartbeat {
+  ts:             string
+  deviceHash:     string
+  deviceClass:    string    // örn. 'Mali-400'
+  androidVersion: string
+  thermalLevel:   number
+  ramPressure:    number    // 0-100 %
+  appVersion:     string
+  verbosityLogs:  string[]  // sadece kritik sistem mesajları
+}
+
+/**
+ * Seçili cihaza 'DIAGNOSTICS_START' remote komutu gönderir.
+ * Atomic: önce audit log → başarılıysa remote_commands INSERT.
+ */
+export async function requestRemoteDiagnostics(deviceHash: string): Promise<void> {
+  const client = getAdminClient();
+  if (!client) throw new Error('Kimlik doğrulama yok');
+
+  await logAdminAction('admin.remote_diag_start', {
+    target:     `device:${deviceHash}`,
+    deviceHash,
+    severity:   'warning',
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (client.from('remote_commands') as any).insert({
+    device_hash:  deviceHash,
+    command_type: 'DIAGNOSTICS_START',
+    status:       'pending',
+  });
+
+  if (error) throw new Error((error as { message: string }).message);
+}
+
+/**
+ * Seçili cihaza ait anlık telemetriyi dinler (realtime INSERT).
+ * Sadece `deviceHash` ile eşleşen satırlar callback'e iletilir.
+ * GPS verisi asla dahil edilmez.
+ *
+ * @returns cleanup fonksiyonu — useEffect return'üne ekle.
+ */
+export function subscribeToDeviceHeartbeat(
+  deviceHash:  string,
+  onHeartbeat: (hb: DiagnosticsHeartbeat) => void,
+): () => void {
+  const client = getAdminClient();
+  if (!client) return () => undefined;
+
+  const channel = client
+    .channel(`diag-hb-${deviceHash}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'vehicle_events' },
+      (change: { new: Record<string, unknown> }) => {
+        const row  = change.new;
+        if ((row['type'] as string | undefined) !== 'system_health') return;
+
+        const vid = (row['vehicle_id'] as string | undefined) ?? (row['id'] as string | undefined);
+        if (_hashId(vid) !== deviceHash) return;
+
+        const p             = (row['payload'] ?? {}) as Record<string, unknown>;
+        const thermalLevel  = Math.max(0, Math.min(3, _num(p['thermalLevel'], 0)));
+        const ramPressure   = Math.round(_num(p['ramPressureRatio'], 0) * 100);
+        const health        = _str(p['overallHealth'], 'healthy');
+        const workerRestart = _num(p['workerRestartTotal'], 0);
+        const uiFreeze      = _num(p['uiFreezeCount'], 0);
+
+        const logs: string[] = [];
+        if (thermalLevel >= 2)    logs.push(`THERMAL_WARN: Level ${thermalLevel}`);
+        if (ramPressure   > 80)   logs.push(`MEM_PRESSURE: ${ramPressure}%`);
+        if (workerRestart  > 0)   logs.push(`WORKER_RESTART: count=${workerRestart}`);
+        if (uiFreeze       > 0)   logs.push(`UI_FREEZE: count=${uiFreeze}`);
+        if (health !== 'healthy') logs.push(`HEALTH_STATE: ${health.toUpperCase()}`);
+
+        onHeartbeat({
+          ts:             (row['created_at'] as string | undefined) ?? new Date().toISOString(),
+          deviceHash,
+          deviceClass:    _str(p['deviceClass'],    'Unknown'),
+          androidVersion: _str(p['androidVersion'], 'Unknown'),
+          thermalLevel,
+          ramPressure,
+          appVersion:     _str(p['appVersion'], 'unknown'),
+          verbosityLogs:  logs,
+        });
+      },
+    )
+    .subscribe();
+
+  return () => { void client.removeChannel(channel); };
+}
+
+// ── Rollout & Governance ──────────────────────────────────────────────────────
+
+export interface RolloutPlan {
+  id:             string
+  version:        string
+  status:         'active' | 'paused' | 'completed' | 'cancelled'
+  progress:       number    // 0-100 %
+  stabilityScore: number    // 0-100
+  startedAt:      string
+  updatedAt:      string
+}
+
+export interface SystemPolicy {
+  id:        string
+  key:       string
+  name:      string
+  value:     string
+  unit:      string
+  updatedAt: string
+}
+
+export interface AuditLogEntry {
+  id:         string
+  ts:         string
+  actorEmail: string
+  action:     string
+  target:     string
+  severity:   string
+}
+
+/**
+ * Aktif ve paused dağıtım planlarını döner.
+ * rollout_plans tablosu yoksa boş array — sessizce geçer.
+ */
+export async function getActiveRollouts(): Promise<RolloutPlan[]> {
+  const client = getAdminClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('rollout_plans')
+      .select('id, version, status, progress, stability_score, started_at, updated_at')
+      .in('status', ['active', 'paused'])
+      .order('started_at', { ascending: false })
+      .limit(20);
+
+    if (error || !data) return [];
+
+    type Row = {
+      id: string; version: string; status: string;
+      progress: number; stability_score: number;
+      started_at: string; updated_at: string;
+    };
+
+    return (data as Row[]).map((r) => ({
+      id:             r.id,
+      version:        r.version,
+      status:         (r.status as RolloutPlan['status']),
+      progress:       Math.round(_num(r.progress, 0)),
+      stabilityScore: Math.round(_num(r.stability_score, 100)),
+      startedAt:      r.started_at,
+      updatedAt:      r.updated_at,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Dağıtımı durdurur veya devam ettirir.
+ * Atomic: önce audit log → başarılıysa update.
+ */
+export async function updateRolloutStatus(
+  planId: string,
+  status: 'paused' | 'active',
+): Promise<void> {
+  const client = getAdminClient();
+  if (!client) throw new Error('Kimlik doğrulama yok');
+
+  await logAdminAction(`admin.rollout_${status}`, {
+    target:   `rollout:${planId}`,
+    planId,
+    status,
+    severity: status === 'paused' ? 'critical' : 'warning',
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (client.from('rollout_plans') as any)
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', planId);
+
+  if (error) throw new Error((error as { message: string }).message);
+}
+
+/**
+ * system_configs tablosundaki aktif politikaları döner.
+ */
+export async function getSystemPolicies(): Promise<SystemPolicy[]> {
+  const client = getAdminClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('system_configs')
+      .select('id, key, name, value, unit, updated_at')
+      .order('key', { ascending: true });
+
+    if (error || !data) return [];
+
+    type Row = {
+      id: string; key: string; name: string;
+      value: unknown; unit: string; updated_at: string;
+    };
+
+    return (data as Row[]).map((r) => ({
+      id:        r.id,
+      key:       r.key,
+      name:      r.name       ?? r.key,
+      value:     r.value != null ? String(r.value) : '',
+      unit:      r.unit       ?? '',
+      updatedAt: r.updated_at ?? '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Politika değerini günceller.
+ * Atomic: önce audit log → başarılıysa update.
+ */
+export async function updatePolicy(
+  key:   string,
+  value: string | number,
+): Promise<void> {
+  const client = getAdminClient();
+  if (!client) throw new Error('Kimlik doğrulama yok');
+
+  await logAdminAction('admin.policy_change', {
+    target:   `policy:${key}`,
+    key,
+    newValue: value,
+    severity: 'warning',
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (client.from('system_configs') as any)
+    .update({ value: String(value), updated_at: new Date().toISOString() })
+    .eq('key', key);
+
+  if (error) throw new Error((error as { message: string }).message);
+}
+
+/**
+ * Son `limit` admin aksiyonunu döner.
+ * Actor e-postası after_val._actor_email'den okunur.
+ */
+export async function getAuditLogEntries(limit = 15): Promise<AuditLogEntry[]> {
+  const client = getAdminClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('audit_logs')
+      .select('id, created_at, action, target, severity, after_val')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error || !data) return [];
+
+    type Row = {
+      id: string; created_at: string; action: string;
+      target: string; severity: string;
+      after_val: Record<string, unknown> | null;
+    };
+
+    return (data as Row[]).map((r) => ({
+      id:         r.id,
+      ts:         r.created_at,
+      actorEmail: _str((r.after_val ?? {})['_actor_email'], 'system'),
+      action:     r.action,
+      target:     r.target,
+      severity:   r.severity ?? 'info',
+    }));
+  } catch {
+    return [];
+  }
 }

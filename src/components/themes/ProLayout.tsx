@@ -1,5 +1,7 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useState, lazy, Suspense } from 'react';
 import { DockBar } from '../layout/DockBar';
+
+const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLayout } from '../../context/LayoutContext';
@@ -214,8 +216,8 @@ const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
 
 /* ─── TOP BAR ──────────────────────────────────────────────────── */
 const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }: { headerH?: number; font2xl?: number; fontSm?: number }) {
-  const { settings } = useStore();
-  const { time, date } = useClock(settings.use24Hour, false);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
 
   // Sun progress (Adaptive sun calculation - mock fallbacks removed)
@@ -897,6 +899,7 @@ export const ProLayout = memo(function ProLayout({
   onOpenRearCam, smart,
 }: Props) {
   injectStyles();
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const { screen, profile } = useLayout();
 
   const isPortrait = screen.height > screen.width;
@@ -921,6 +924,12 @@ export const ProLayout = memo(function ProLayout({
   const gaugeSize  = Math.min(Math.floor(topRowH * 0.92), gaugeMax);
 
   return (
+    <>
+      {voiceOpen && (
+        <Suspense fallback={null}>
+          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
+        </Suspense>
+      )}
     <div
       className="flex overflow-hidden w-full h-full"
       data-layout="pro-main"
@@ -965,8 +974,9 @@ export const ProLayout = memo(function ProLayout({
 
         {/* Dock spacer + DockBar */}
         <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
-        <DockBar appMap={appMap ?? {}} dockIds={dockIds ?? []} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} />
+        <DockBar appMap={appMap ?? {}} dockIds={dockIds ?? []} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} onOpenRearCam={onOpenRearCam} />
       </div>
     </div>
+    </>
   );
 });

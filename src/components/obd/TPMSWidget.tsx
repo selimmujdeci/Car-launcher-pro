@@ -40,8 +40,7 @@ const Tire = ({
 };
 
 export const TPMSWidget = memo(() => {
-  const { settings } = useStore();
-  const { tpms } = settings;
+  const tpms = useStore(s => s.settings.tpms);
   const canTpmsKpa = useUnifiedVehicleStore((s) => s.canTpmsKpa);
 
   // CAN verisi varsa canlı kPa değerlerini göster, yoksa store'daki statik veriyi kullan

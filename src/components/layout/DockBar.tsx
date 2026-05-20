@@ -2,7 +2,7 @@ import { memo, useRef, useEffect } from 'react';
 import {
   LayoutGrid, SlidersHorizontal, Camera, Route, ShieldAlert,
   Bell, Music2, Phone, Cloud, Shield, Tv2, AlertTriangle,
-  Wrench, Zap, SplitSquareHorizontal, Wind,
+  Wrench, Zap, SplitSquareHorizontal, Wind, Mic,
 } from 'lucide-react';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
@@ -21,6 +21,7 @@ interface Props {
   onLaunch: (id: string) => void;
   onOpenApps: () => void;
   onOpenSettings: () => void;
+  onVoice?: () => void;
   onOpenSplit?: () => void;
   onOpenRearCam?: () => void;
 }
@@ -80,14 +81,15 @@ function Btn({ fn, label, color, icon, badge }: {
           {icon}
         </div>
         <span style={{
-          fontSize: 'var(--dock-font, 11px)',
-          fontWeight: 700,
+          fontSize: 'var(--dock-font, 13px)',
+          fontWeight: 800,
           textTransform: 'uppercase',
-          letterSpacing: 'var(--letter-spacing-ui, 0.05em)',
-          color: 'rgba(255,255,255,0.60)',
+          letterSpacing: 'var(--letter-spacing-ui, 0.04em)',
+          color: '#ffffff',
           fontFamily: 'var(--font-ui, system-ui)',
           lineHeight: 1,
           whiteSpace: 'nowrap',
+          textShadow: '0 2px 10px rgba(0,0,0,1), 0 1px 3px rgba(0,0,0,1)',
         }}>
           {label}
         </span>
@@ -132,7 +134,7 @@ function Div() {
 
 /* ── DockBar ───────────────────────────────────────────────── */
 export const DockBar = memo(function DockBar({
-  appMap, dockIds, onLaunch, onOpenApps, onOpenSettings, onOpenSplit, onOpenRearCam,
+  appMap, dockIds, onLaunch, onOpenApps, onOpenSettings, onVoice, onOpenSplit, onOpenRearCam,
 }: Props) {
   const n = useNotificationState();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -154,7 +156,7 @@ export const DockBar = memo(function DockBar({
         const dist   = Math.abs(containerCenter - center);
         const ratio  = Math.min(dist / (maxDist || 1), 1);
         const scale  = (1.15 - ratio * 0.30).toFixed(3);
-        const opacity = Math.max(0.40, 1 - ratio * 0.60).toFixed(3);
+        const opacity = Math.max(0.92, 1 - ratio * 0.08).toFixed(3);
         item.style.transform = `translate3d(0,0,0) scale(${scale})`;
         item.style.opacity   = opacity;
       });
@@ -208,9 +210,9 @@ export const DockBar = memo(function DockBar({
         left: 0,
         right: 0,
         zIndex: 100,
-        background: 'linear-gradient(to bottom, transparent 0%, var(--dock-bg, rgba(6,8,16,0.94)) 28%)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
+        background: 'var(--dock-bg, rgba(5,7,14,0.98))',
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
         borderTop: 'var(--dock-border-top, 1px solid rgba(255,255,255,0.10))',
         paddingTop: 4,
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -256,6 +258,12 @@ export const DockBar = memo(function DockBar({
         ))}
         {dynamicApps.length > 0 && <Div />}
 
+        {onVoice && (
+          <>
+            <Btn fn={onVoice} label="Asistan" color="var(--accent-red, #f87171)" icon={<Mic size={24} />} />
+            <Div />
+          </>
+        )}
         <Btn fn={() => openDrawer('phone')}         label="Telefon"  color={c1}  icon={<Phone           size={24} />} />
         <Btn fn={() => openMusicDrawer()}            label="Müzik"    color={med} icon={<Music2          size={24} />} />
         <Btn fn={() => openDrawer('notifications')} label="Bildirim" color={n.unreadCount > 0 ? c1 : c2} icon={<Bell size={24} />} badge={n.unreadCount} />

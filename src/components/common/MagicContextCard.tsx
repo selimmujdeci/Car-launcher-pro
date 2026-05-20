@@ -242,14 +242,13 @@ export const MagicContextCard = memo(function MagicContextCard({
   onOpenMap,
 }: MagicContextCardProps) {
   const obd      = useOBDState();
-  const { settings } = useStore();
-  const fuelLevel    = obd.fuelLevel ?? -1;
-  const home         = settings.homeLocation;
-  const work         = settings.workLocation;
+  const homeLocation = useStore(s => s.settings.homeLocation);
+  const workLocation = useStore(s => s.settings.workLocation);
 
   const [dismissed, setDismissed] = useState(false);
 
-  const scenario = resolveScenario(smart, fuelLevel, home, work);
+  const fuelLevel = obd.fuelLevel ?? -1;
+  const scenario = resolveScenario(smart, fuelLevel, homeLocation, workLocation);
 
   // Yeni senaryo geldiğinde dismiss sıfırla — obj identity değil tür/değer bazlı
   const scenarioKey = scenario

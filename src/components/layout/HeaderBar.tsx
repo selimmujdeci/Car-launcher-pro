@@ -152,19 +152,23 @@ interface Props {
 export const HeaderBar = memo(function HeaderBar({
   smart, onLaunch, ctxSuggestions, onOpenMap, onOpenDrawer,
 }: Props) {
-  const { settings } = useStore();
-  const chipsEnabled = settings.smartContextEnabled && smart.quickActions.length > 0;
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const showSeconds = useStore(s => s.settings.showSeconds);
+  const clockStyle = useStore(s => s.settings.clockStyle);
+  const smartContextEnabled = useStore(s => s.settings.smartContextEnabled);
+
+  const chipsEnabled = smartContextEnabled && smart.quickActions.length > 0;
 
   return (
     <>
       <div data-layout-zone="header" className="flex items-center justify-between px-5 pt-2.5 pb-1 flex-shrink-0 relative z-30">
-        <ClockArea use24Hour={settings.use24Hour} showSeconds={settings.showSeconds} clockStyle={settings.clockStyle} />
+        <ClockArea use24Hour={use24Hour} showSeconds={showSeconds} clockStyle={clockStyle} />
         {chipsEnabled && <InlineChips smart={smart} onLaunch={onLaunch} />}
         <DeviceStatusBar />
       </div>
       <SmartContextBanner
         smart={smart}
-        enabled={settings.smartContextEnabled}
+        enabled={smartContextEnabled}
         onLaunch={onLaunch}
         ctxSuggestions={ctxSuggestions}
         onOpenMap={onOpenMap}
