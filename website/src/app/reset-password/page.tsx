@@ -1,17 +1,58 @@
 'use client';
 
-import { useState, FormEvent, Suspense } from 'react';
+import { useState, useEffect, FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabaseBrowser';
 
 function ResetPasswordForm() {
   const router = useRouter();
-  const [password,  setPassword]  = useState('');
-  const [confirm,   setConfirm]   = useState('');
-  const [error,     setError]     = useState('');
-  const [loading,   setLoading]   = useState(false);
-  const [done,      setDone]      = useState(false);
+  const [password,      setPassword]      = useState('');
+  const [confirm,       setConfirm]       = useState('');
+  const [error,         setError]         = useState('');
+  const [loading,       setLoading]       = useState(false);
+  const [done,          setDone]          = useState(false);
+  const [sessionReady,  setSessionReady]  = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  // Sayfa yüklenince URL hash'teki recovery token'ı session'a set et
+  useEffect(() => {
+    if (!isSupabaseConfigured) { setSessionChecked(true); return; }
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) { setSessionChecked(true); return; }
+
+    // URL hash'ten access_token + refresh_token oku
+    const hash   = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
+    const params = new URLSearchParams(hash);
+    const accessToken  = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    const type         = params.get('type');
+
+    if (type === 'recovery' && accessToken && refreshToken) {
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error: e }) => {
+          if (!e) setSessionReady(true);
+          else setError('Bağlantı geçersiz veya süresi dolmuş. Yeni sıfırlama linki isteyin.');
+          setSessionChecked(true);
+        });
+    } else {
+      // Hash yoksa mevcut session'ı kontrol et (onAuthStateChange fallback)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setSessionReady(true);
+          setSessionChecked(true);
+          subscription.unsubscribe();
+        }
+      });
+      // 3 saniye içinde event gelmezse expired say
+      const t = setTimeout(() => {
+        setSessionChecked(true);
+        subscription.unsubscribe();
+      }, 3000);
+      return () => { clearTimeout(t); subscription.unsubscribe(); };
+    }
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -21,18 +62,11 @@ function ResetPasswordForm() {
 
     setLoading(true);
     try {
-      if (!isSupabaseConfigured) {
-        setError('Kimlik doğrulama servisi yapılandırılmamış.');
-        return;
-      }
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        setError('Kimlik doğrulama servisi başlatılamadı.');
-        return;
-      }
+      if (!supabase) { setError('Kimlik doğrulama servisi başlatılamadı.'); return; }
       const { error: authError } = await supabase.auth.updateUser({ password });
       if (authError) {
-        setError('Şifre güncellenemedi. Bağlantı süresi dolmuş olabilir.');
+        setError('Şifre güncellenemedi: ' + authError.message);
         return;
       }
       setDone(true);
@@ -65,6 +99,27 @@ function ResetPasswordForm() {
           <p className="text-white/35 text-sm mt-4">Yeni şifre belirle</p>
         </div>
 
+        {/* Session kontrol ediliyor */}
+        {!sessionChecked && (
+          <div className="p-8 rounded-2xl bg-white/[0.03] border border-white/[0.09] text-center text-white/40 text-sm">
+            Bağlantı doğrulanıyor…
+          </div>
+        )}
+
+        {/* Session yok / expired */}
+        {sessionChecked && !sessionReady && !done && (
+          <div className="p-8 rounded-2xl bg-white/[0.03] border border-red-500/20 text-center flex flex-col gap-3">
+            <p className="text-red-400 text-sm">Bağlantı geçersiz veya süresi dolmuş.</p>
+            <p className="text-white/40 text-xs">Şifre sıfırlama ekranından yeni link isteyin.</p>
+            <button
+              onClick={() => router.push('/login')}
+              className="w-full bg-white/[0.06] hover:bg-white/[0.1] text-white/60 font-medium py-3 rounded-xl transition-colors text-sm"
+            >
+              Giriş Ekranına Dön
+            </button>
+          </div>
+        )}
+
         {done ? (
           <div className="p-8 rounded-2xl bg-white/[0.03] border border-white/[0.09] shadow-[0_0_60px_rgba(0,0,0,0.5)] text-center flex flex-col items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -83,7 +138,7 @@ function ResetPasswordForm() {
               Giriş Yap
             </button>
           </div>
-        ) : (
+        ) : sessionChecked && sessionReady ? (
           <div className="p-8 rounded-2xl bg-white/[0.03] border border-white/[0.09] shadow-[0_0_60px_rgba(0,0,0,0.5)]">
             <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
               <div>
@@ -139,7 +194,7 @@ function ResetPasswordForm() {
               </button>
             </form>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
