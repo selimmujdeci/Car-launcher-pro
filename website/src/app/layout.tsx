@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import PWARegistration from '@/components/layout/PWARegistration';
+import { AuthRecoveryHandler } from '@/components/auth/AuthRecoveryHandler';
 
 export const metadata: Metadata = {
   title: 'Caros Pro — Araç İçi Yazılım Platformu',
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="tr" className="dark">
       <body className="bg-black text-white antialiased selection:bg-blue-500/30">
         <PWARegistration />
+        <AuthRecoveryHandler />
         {children}
       </body>
     </html>
