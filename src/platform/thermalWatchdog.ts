@@ -53,16 +53,23 @@ export interface ThermalSnapshot {
 type ThermalCallback = (snap: ThermalSnapshot) => void;
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Sabitler
+    Sabitler
 ══════════════════════════════════════════════════════════════════════════ */
 
 const POLL_MS     = 30_000;      // Battery API kontrol periyodu (ms)
 const STORAGE_KEY = 'tw-state';  // safeStorage anahtarı
 const RESTORE_TTL = 5 * 60_000;  // Eski snapshot'ı yoksay (5 dk)
 
-// Giriş / Çıkış eşikleri — 5°C histerezis bandı
-const ENTER: readonly [number, number, number] = [45, 55, 65];
-const EXIT:  readonly [number, number, number] = [40, 50, 60];
+// Proactive termal koruma: 35°C'den itibaren FPS throttle başlar
+// L0.5 → 35-40°C: erken önleme, kullanıcıya bildirim yok (sessiz)
+// L1 → 40-45°C: ısınma başladı, RuntimeEngine FPS throttle
+// L2 → 45-55°C: ağır ısı, parlaklık düşürülür
+// L3 → 55°C+: kritik, SAFE_MODE + minimum yük
+
+// Giriş eşikleri (°C) — proactive: 35°C'den itibaren FPS throttle
+const ENTER: readonly [number, number, number, number] = [35, 40, 45, 55];
+// Çıkış eşikleri (°C) — histerezis ile geçiş
+const EXIT:  readonly [number, number, number, number] = [32, 38, 42, 52];
 
 // Tahminsel ısı motoru sabitleri
 const HISTORY_MAX         = 10;          // Kayar pencere örnekleri (maks)
@@ -204,49 +211,68 @@ function _checkEarlyWarning(predictedTemp: number, realTemp: number): void {
 /**
  * Geçerli sıcaklık ve mevcut seviye üzerinden hedef seviyeyi hesaplar.
  * Özyinelemeli çağrı birden fazla seviye düşüşünü tek adımda çözer.
+ * 4 seviye: L0(soğuk), L1(ılık), L2(sıcak), L3(kritik)
  */
 function _computeLevel(tempC: number, cur: ThermalLevel): ThermalLevel {
   if (!isFinite(tempC)) return 0;
 
   // Giriş: anında yüksek seviyeye geç (histerezis yok — güvenlik öncelikli)
-  if (cur < 3 && tempC >= ENTER[2]) return 3;
-  if (cur < 2 && tempC >= ENTER[1]) return 2;
-  if (cur < 1 && tempC >= ENTER[0]) return 1;
+  if (cur < 3 && tempC >= ENTER[3]) return 3;
+  if (cur < 2 && tempC >= ENTER[2]) return 2;
+  if (cur < 1 && tempC >= ENTER[1]) return 1;
+  if (cur < 0 && tempC >= ENTER[0]) return 0; // L0 proactive giriş
 
   // Çıkış: histerezis — soğuma eşiği karşılanınca bir alt seviyeye geç
-  // Özyinelemeli çağrı: 65→35°C tek seferde 3→0 yapabilir
-  if (cur === 3 && tempC < EXIT[2]) return _computeLevel(tempC, 2);
-  if (cur === 2 && tempC < EXIT[1]) return _computeLevel(tempC, 1);
-  if (cur === 1 && tempC < EXIT[0]) return 0;
+  if (cur === 3 && tempC < EXIT[3]) return _computeLevel(tempC, 2);
+  if (cur === 2 && tempC < EXIT[2]) return _computeLevel(tempC, 1);
+  if (cur === 1 && tempC < EXIT[1]) return _computeLevel(tempC, 0);
+  if (cur === 0 && tempC < EXIT[0]) return 0;
 
   return cur;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   RuntimeEngine entegrasyonu — termal seviyeye göre mod zorlaması
+    RuntimeEngine entegrasyonu — termal seviyeye göre mod zorlaması
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
  * Termal seviyeyi RuntimeEngine'e iletir.
  *
- * Eşleme (CLAUDE.md §2 Sensor Resiliency):
- *   L0 (<40°C) → thermalFloor kaldırılır, upgrade penceresi açılır
- *   L1 (≥45°C) → BASIC_JS zorla (blur/animasyon kapalı, GPU yükü azalır)
- *   L2 (≥55°C) → BASIC_JS zorla (L1 ile aynı, parlaklık kısıtlaması L2'de)
- *   L3 (≥65°C) → SAFE_MODE zorla (minimum kaynak tüketimi)
+ * Erken önleme (L0 proactive):
+ *   Sıcaklık 35-40°C arasında → BALANCED mod, FPS throttle 60→30 fps
+ *   Böylece ısınma başlamadan önce GPU yükü azaltılır.
  *
- * Not: Downgrade anında, upgrade 30s stabilite bekler (ARM hysteresis).
+ * L1-L3: Mevcut histerezis mantığı korunur.
+ *
+ * CSS değişkenleri:
+ *   --rt-fps-limit: GPU paint throttle (0=limitsiz, 30=30fps, 60=60fps)
+ *   --rt-blur: backdrop-filter blur (L2+ kapatılır)
+ *   --rt-anim: animasyonlar (L1+ kısılır)
  */
 function _notifyRuntime(level: ThermalLevel): void {
-  if (level >= 2) {
-    // L2 / L3: yüksek ısı → anlık SAFE_MODE downgrade
+  if (level >= 3) {
+    // L3: kritik → SAFE_MODE + minimum FPS
     runtimeManager.setMode(RuntimeMode.SAFE_MODE, 'High Temperature');
+  } else if (level === 2) {
+    // L2: ağır ısı → BASIC_JS + 20fps throttle
+    runtimeManager.setMode(RuntimeMode.BASIC_JS, 'thermal-hot');
   } else if (level === 1) {
-    // L1: hafif ısınma → blur/anim kapalı, GPU tasarrufu
+    // L1: ısınma → BASIC_JS + 30fps throttle
     runtimeManager.setMode(RuntimeMode.BASIC_JS, 'thermal-warm');
   } else {
-    // L0: soğuma → performans geri yükleme (30s upgrade hysteresis devrede)
-    runtimeManager.setMode(RuntimeMode.PERFORMANCE, 'Cooling Recovery');
+    // L0 proactive: BALANCED varsayılan, FPS normal
+    // 35°C+ giriş yapıldığında erken throttle başlar
+    runtimeManager.setMode(RuntimeMode.BALANCED, 'thermal-cool');
+  }
+
+  // CSS FPS throttle sinyali — mapService ve diğer bileşenler okur
+  const root = document.documentElement;
+  if (level >= 2) {
+    root.style.setProperty('--rt-fps-limit', '20');
+  } else if (level === 1) {
+    root.style.setProperty('--rt-fps-limit', '30');
+  } else {
+    root.style.removeProperty('--rt-fps-limit');
   }
 }
 
@@ -277,10 +303,14 @@ function _onEnter(level: ThermalLevel): void {
   _setCSSLevel(level);
 
   switch (level) {
+    case 0:
+      // L0 proactive: FPS throttle başladı — sessiz, kullanıcıya bildirim yok
+      // mapService zaten `--rt-fps-limit` CSS değişkenini okuyarak throttle yapıyor
+      break;
+
     case 1:
-      // L1: CSS var seti yeterli.
-      // Map bileşenleri `--thermal-level` okuyarak FPS'yi kısıtlar.
-      // OBD servisi `getThermalLevel()` ile poll aralığını ayarlayabilir.
+      // L1: FPS throttle aktif (30fps), kullanıcı bildirimi yok
+      // Map bileşenleri `--thermal-level` okuyarak ek optimizasyon yapabilir
       break;
 
     case 2: {
@@ -338,24 +368,23 @@ function _onExit(fromLevel: ThermalLevel, toLevel: ThermalLevel): void {
     setThermalBrightnessLock(50);
   }
 
-  // Parlaklığı geri yükle (L2/L3'ten L1 veya L0'a düşünce)
+  // Parlaklığı geri yükle (L2/L3'ten L0/L1'e düşünce)
   if (fromLevel >= 2 && toLevel < 2 && _savedBrightness !== null) {
     clearThermalBrightnessLock();          // Önce kilidi kaldır — sonra uygula
     setBrightnessAuto(_savedBrightness);   // Sistem geri yüklemesi — manual override takibini tetikleme
     _savedBrightness = null;
   }
 
-  // Radar'ı yeniden başlat (L2/L3'ten L1 veya L0'a düşünce)
+  // Radar'ı yeniden başlat (L2/L3'ten L0/L1'e düşünce)
   if (fromLevel >= 2 && toLevel < 2 && _radarWasPaused) {
     _radarWasPaused = false;
     void startCommunitySync();
   }
 
-  // L0'a dönüş: CSS sinyalini kaldır; bildirim gösterilmez (soğuma sessiz).
-  // L2/L3 uyarısı kullanıcıya zaten gösterilmişti; her soğuma için tekrar
-  // "Normal" toast'u dikkat dağıtıcı olduğundan kaldırıldı.
+  // L0'a dönüş: CSS sinyallerini temizle; bildirim gösterilmez (soğuma sessiz).
   if (toLevel === 0) {
     _setCSSLevel(0);
+    // FPS throttle kaldırıldı — harita normal 60fps'e döner
   }
 }
 

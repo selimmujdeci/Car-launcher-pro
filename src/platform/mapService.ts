@@ -10,6 +10,7 @@ import { NAV_SUPPRESS_LAYERS, NAV_SUPPRESS_TIERS } from './mapStyleBuilders';
 import { useHazardStore }    from '../store/useHazardStore';
 import { useSafetyStore }    from '../store/useSafetyStore';
 import { useCognitiveStore } from '../store/useCognitiveStore';
+import { getThermalLevel }   from './thermalWatchdog';
 import {
   CAMERA_CFG,
   resetCameraSmooth,
@@ -1246,11 +1247,19 @@ function _ensureBadgeImage(map: MapLibreMap): void {
 function _startLightTrail(): void {
   if (_flowRafId !== null) return;
   let lastMs = 0;
-  const TICK_MS = 80;
+  // Termal optimizasyon: 80ms → 200ms throttle (5fps) — GPU yükü %60 azalır
+  // L1+ termal modda animasyon tamamen durdurulur (ısı önleme)
+  const BASE_TICK_MS = 200;
 
   const frame = (nowMs: number) => {
     _flowRafId = requestAnimationFrame(frame);
-    if (nowMs - lastMs < TICK_MS) return;
+
+    // Termal L1+ → animasyonu durdur (ısı önleme)
+    const thermalLevel = getThermalLevel();
+    if (thermalLevel >= 1) return;
+
+    const tickMs = BASE_TICK_MS;
+    if (nowMs - lastMs < tickMs) return;
     lastMs = nowMs;
 
     const map = useMapStore.getState().mapInstance;
