@@ -20,6 +20,7 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
   const s = statusConfig[v.status];
   const [removing, setRemoving] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -28,21 +29,31 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
   }, [onClose]);
 
   async function handleRemove() {
-    if (!confirmRemove) { setConfirmRemove(true); return; }
+    if (!confirmRemove) { setConfirmRemove(true); setRemoveError(null); return; }
     setRemoving(true);
+    setRemoveError(null);
     try {
-      const token = (await supabaseBrowser?.auth.getSession())?.data.session?.access_token;
+      const session = (await supabaseBrowser?.auth.getSession())?.data.session;
+      const token   = session?.access_token;
+
       const res = await fetch(`/api/vehicles/${v.id}`, {
         method: 'DELETE',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+
       if (res.ok) {
         onRemove?.(v.id);
         onClose();
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        setRemoveError(body.error ?? `Hata ${res.status}: Araç kaldırılamadı.`);
+        setConfirmRemove(false);
       }
+    } catch {
+      setRemoveError('Bağlantı hatası. İnternet bağlantınızı kontrol edin.');
+      setConfirmRemove(false);
     } finally {
       setRemoving(false);
-      setConfirmRemove(false);
     }
   }
 
@@ -138,7 +149,12 @@ export default function VehicleModal({ vehicle: v, onClose, onRemove }: VehicleM
 
         {/* Footer — remove button */}
         {onRemove && (
-          <div className="flex-shrink-0 px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-white/[0.07]">
+          <div className="flex-shrink-0 px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-white/[0.07] flex flex-col gap-2">
+            {removeError && (
+              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                ⚠ {removeError}
+              </p>
+            )}
             <button
               onClick={handleRemove}
               disabled={removing}
