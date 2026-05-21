@@ -50,18 +50,6 @@ function LoginForm() {
     }
   };
 
-  const handleSSOLogin = async () => {
-    if (!isSupabaseConfigured) return;
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    setError('');
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${siteUrl}/auth/callback` },
-    });
-    if (oauthError) setError('Google girişi başlatılamadı: ' + oauthError.message);
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-6">
@@ -149,26 +137,6 @@ function LoginForm() {
             </button>
           </form>
 
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-white/[0.06]" />
-            <span className="text-white/20 text-xs">veya</span>
-            <div className="flex-1 h-px bg-white/[0.06]" />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSSOLogin}
-            disabled={!isSupabaseConfigured}
-            className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm text-white/50 hover:text-white/70"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M14.5 8.16c0-.49-.04-.96-.12-1.41H8v2.67h3.65a3.12 3.12 0 01-1.35 2.05v1.7h2.18c1.28-1.18 2.02-2.91 2.02-5.01z" fill="#4285F4"/>
-              <path d="M8 15c1.83 0 3.36-.61 4.48-1.64l-2.18-1.7c-.61.41-1.38.65-2.3.65-1.77 0-3.27-1.2-3.8-2.8H1.96v1.75A7 7 0 008 15z" fill="#34A853"/>
-              <path d="M4.2 9.51A4.2 4.2 0 014 8c0-.52.09-1.03.2-1.51V4.74H1.96A7 7 0 001 8c0 1.13.27 2.2.96 3.26l2.24-1.75z" fill="#FBBC05"/>
-              <path d="M8 3.2c1 0 1.89.34 2.6 1.01l1.94-1.94A7 7 0 001.96 4.74L4.2 6.49C4.73 4.9 6.23 3.2 8 3.2z" fill="#EA4335"/>
-            </svg>
-            Google ile Giriş Yap
-          </button>
         </div>
 
         <p className="text-center text-white/20 text-xs mt-8">
