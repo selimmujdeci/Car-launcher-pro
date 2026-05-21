@@ -54,11 +54,13 @@ function LoginForm() {
     if (!isSupabaseConfigured) return;
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
+    setError('');
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
-    await supabase.auth.signInWithOAuth({
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${siteUrl}/auth/callback` },
     });
+    if (oauthError) setError('Google girişi başlatılamadı: ' + oauthError.message);
   };
 
   return (
