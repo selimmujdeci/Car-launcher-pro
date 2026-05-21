@@ -196,23 +196,41 @@ export const useRoleStore = create<RoleStore>()(
       },
 
       // ── Deep Link Recovery Yönetimi ────────────────────────────────────────
-      // carospro://auth/recovery#access_token=...  (native)
-      // https://carospro.com/#access_token=...     (web browser fallback)
+      // Yeni format: carospro://auth/recovery?token_hash=xxx&type=recovery
+      // Eski format: carospro://auth/recovery#access_token=...&refresh_token=...&type=recovery
       handleRecoveryUrl: async (url: string) => {
         const client = getAdminClient();
         if (!client) return;
 
         try {
-          // Hash veya query string'den token'ları çıkar
-          const hashPart = url.includes('#') ? url.split('#')[1]!
-                         : url.includes('?') ? url.split('?')[1]!
-                         : '';
-          const params       = new URLSearchParams(hashPart);
-          const accessToken  = params.get('access_token');
-          const refreshToken = params.get('refresh_token');
-          const type         = params.get('type');
+          // Query string kısmını çıkar (? sonrası, # öncesi)
+          const queryPart = url.includes('?') ? url.split('?')[1]!.split('#')[0]! : '';
+          const queryParams = new URLSearchParams(queryPart);
+          const tokenHash = queryParams.get('token_hash');
+          const queryType = queryParams.get('type');
 
-          if (type === 'recovery' && accessToken && refreshToken) {
+          // Yeni format: token_hash + type → verifyOtp
+          if (tokenHash && queryType === 'recovery') {
+            const { error } = await client.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: 'recovery',
+            });
+            if (!error) {
+              set({ adminAuthState: 'recovery', authError: null });
+            } else {
+              set({ authError: `SESSION_ERROR: ${error.message}` });
+            }
+            return;
+          }
+
+          // Eski format: hash fragment → access_token + refresh_token → setSession
+          const hashPart = url.includes('#') ? url.split('#')[1]! : '';
+          const hashParams   = new URLSearchParams(hashPart);
+          const accessToken  = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+          const hashType     = hashParams.get('type');
+
+          if (hashType === 'recovery' && accessToken && refreshToken) {
             const { error } = await client.auth.setSession({
               access_token:  accessToken,
               refresh_token: refreshToken,
