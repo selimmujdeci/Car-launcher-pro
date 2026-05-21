@@ -3,7 +3,6 @@ import { createSupabaseMiddlewareClient } from '@/lib/supabaseServer';
 
 function redirectWithCookies(response: NextResponse, destination: string, origin: string): NextResponse {
   const dest = NextResponse.redirect(new URL(destination, origin));
-  // getSetCookie() her cookie'yi ayrı entry olarak döndürür — forEach birleştirip bozardı
   const setCookies = response.headers.getSetCookie?.() ?? [];
   setCookies.forEach((c) => dest.headers.append('set-cookie', c));
   return dest;
@@ -17,17 +16,19 @@ export async function GET(request: NextRequest) {
   const type      = searchParams.get('type') as 'recovery' | 'signup' | 'email' | null;
   const next      = searchParams.get('next') ?? '/dashboard';
 
+  // token_hash (recovery / magic-link) → client-side'a ilet, server cookie gerektirmez
+  if (tokenHash && type) {
+    const target = type === 'recovery'
+      ? `/reset-password?token_hash=${tokenHash}&type=${type}`
+      : `${next}?token_hash=${tokenHash}&type=${type}`;
+    return NextResponse.redirect(new URL(target, origin));
+  }
+
   const { supabase, response } = createSupabaseMiddlewareClient(request);
 
   // PKCE flow (email confirmation, OAuth)
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return redirectWithCookies(response, next, origin);
-  }
-
-  // Token-hash flow (password reset, magic link)
-  if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
     if (!error) {
       const target = type === 'recovery' ? '/reset-password' : next;
       return redirectWithCookies(response, target, origin);
