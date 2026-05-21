@@ -39,7 +39,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      console.error('pair_vehicle rpc error:', error);
+      // Fonksiyon bulunamazsa kullanıcıya anlamlı mesaj ver
+      const msg = error.message?.includes('Could not find the function')
+        ? 'Eşleştirme servisi yapılandırılmamış. Lütfen yöneticiyle iletişime geçin.'
+        : error.message;
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
 
     const res = data as {

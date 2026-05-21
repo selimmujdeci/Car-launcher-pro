@@ -3,60 +3,62 @@
 -- pair_vehicle RPC düzeltmesi:
 --   1. api_key_hash döndür (route bunu bekliyor)
 --   2. auth.uid() kaldır — PWA eşleşmesi kullanıcı oturumu gerektirmez
---      (service role ile çağrılır → auth.uid() = NULL → vehicle_pairings INSERT'i başarısız oluyordu)
+--      (service role ile çağrılır → auth.uid() = NULL → vehicle_pairings INSERT başarısız oluyordu)
+--   3. coalesce(api_key_hash, api_key) — eski Android sürümüyle kaydedilen araçlar
+--      api_key kolonuna yazıyor, api_key_hash NULL olunca "yapılandırma hatası" veriyordu
 -- ═══════════════════════════════════════════════════════
 
-create or replace function pair_vehicle(p_pairing_code text)
-returns jsonb language plpgsql security definer set search_path = public as $$
-declare
+CREATE OR REPLACE FUNCTION pair_vehicle(p_pairing_code text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
   v_vehicle_id uuid;
   v_api_key    text;
   v_code       text;
-begin
+BEGIN
   v_code := upper(trim(p_pairing_code));
 
-  -- 1. Geçici bağlama kodunda ara (register_vehicle'dan üretilen 6 haneli kod)
-  select vlc.vehicle_id, v.api_key_hash
-  into   v_vehicle_id, v_api_key
-  from   vehicle_linking_codes vlc
-  join   vehicles v on v.id = vlc.vehicle_id
-  where  vlc.code = v_code
-    and  vlc.expires_at > now()
-  limit 1;
+  -- Geçici bağlama kodunda ara — her iki api_key kolonunu dene
+  SELECT vlc.vehicle_id, coalesce(v.api_key_hash, v.api_key)
+  INTO   v_vehicle_id, v_api_key
+  FROM   vehicle_linking_codes vlc
+  JOIN   vehicles v ON v.id = vlc.vehicle_id
+  WHERE  vlc.code = v_code
+    AND  vlc.expires_at > now()
+  LIMIT 1;
 
-  -- 2. Bulunamazsa kalıcı pairing_code'da ara (araç panelinde gösterilen sabit kod)
-  if v_vehicle_id is null then
-    select id, api_key_hash
-    into   v_vehicle_id, v_api_key
-    from   vehicles
-    where  upper(pairing_code) = v_code
-    limit 1;
-  end if;
+  -- Kalıcı pairing_code'da ara (fallback)
+  IF v_vehicle_id IS NULL THEN
+    SELECT id, coalesce(api_key_hash, api_key)
+    INTO   v_vehicle_id, v_api_key
+    FROM   vehicles
+    WHERE  upper(pairing_code) = v_code
+    LIMIT 1;
+  END IF;
 
-  -- Kod bulunamadı
-  if v_vehicle_id is null then
-    return jsonb_build_object(
+  IF v_vehicle_id IS NULL THEN
+    RETURN jsonb_build_object(
       'success', false,
-      'message', 'Geçersiz eşleşme kodu veya süre dolmuş.'
+      'message', 'Gecersiz eslestirme kodu veya sure dolmus.'
     );
-  end if;
+  END IF;
 
-  -- api_key_hash eksik (eski kayıt veya yapılandırma hatası)
-  if v_api_key is null then
-    return jsonb_build_object(
-      'success', false,
-      'message', 'Araç yapılandırma hatası. Lütfen aracı yeniden kaydedin.'
-    );
-  end if;
+  -- api_key tamamen eksikse yeni üret (son çare)
+  IF v_api_key IS NULL THEN
+    v_api_key := encode(gen_random_bytes(32), 'hex');
+    UPDATE vehicles SET api_key_hash = v_api_key WHERE id = v_vehicle_id;
+  END IF;
 
-  -- Kullanılan geçici kodu sil (tek kullanım garantisi)
-  delete from vehicle_linking_codes
-  where vehicle_id = v_vehicle_id;
+  -- Geçici kodu sil (tek kullanım)
+  DELETE FROM vehicle_linking_codes WHERE vehicle_id = v_vehicle_id;
 
-  return jsonb_build_object(
+  RETURN jsonb_build_object(
     'success',    true,
     'vehicle_id', v_vehicle_id,
     'api_key',    v_api_key
   );
-end;
+END;
 $$;

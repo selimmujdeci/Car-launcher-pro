@@ -3,12 +3,9 @@ import { createSupabaseMiddlewareClient } from '@/lib/supabaseServer';
 
 function redirectWithCookies(response: NextResponse, destination: string, origin: string): NextResponse {
   const dest = NextResponse.redirect(new URL(destination, origin));
-  // Set-Cookie header'larını tam olarak kopyala (httpOnly, secure, sameSite korunur)
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === 'set-cookie') {
-      dest.headers.append('set-cookie', value);
-    }
-  });
+  // getSetCookie() her cookie'yi ayrı entry olarak döndürür — forEach birleştirip bozardı
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  setCookies.forEach((c) => dest.headers.append('set-cookie', c));
   return dest;
 }
 

@@ -19,7 +19,9 @@ alter table vehicle_linking_codes enable row level security;
 -- ── register_vehicle ──────────────────────────────────────
 -- Araç launcher'ı ilk açılışta çağırır.
 -- Aracı oluşturur (veya bulur), 6 haneli bağlama kodu üretir.
-create or replace function register_vehicle(p_device_id text, p_name text default 'Araç')
+-- coalesce(api_key_hash, api_key): eski araçlarda api_key kolonu dolu olabilir.
+drop function if exists public.register_vehicle(text, text);
+create or replace function public.register_vehicle(p_device_id text, p_name text default 'Araç')
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_vehicle_id uuid;
@@ -27,9 +29,12 @@ declare
   v_code       text;
   v_expires_at timestamptz;
 begin
-  -- Mevcut aracı device_name (device_id) ile bul
-  select id, api_key_hash into v_vehicle_id, v_api_key
-  from vehicles where device_name = p_device_id limit 1;
+  -- Mevcut aracı device_name (device_id) ile bul; her iki api_key kolonunu dene
+  select id, coalesce(api_key_hash, api_key)
+  into   v_vehicle_id, v_api_key
+  from   vehicles
+  where  device_name = p_device_id
+  limit  1;
 
   if v_vehicle_id is null then
     -- Yeni araç oluştur
@@ -66,14 +71,19 @@ $$;
 
 -- ── refresh_linking_code ──────────────────────────────────
 -- Kod süresi dolunca launcher yeni kod ister (api_key ile auth).
-create or replace function refresh_linking_code(p_api_key text)
+-- Her iki api_key kolonunu kontrol eder (api_key_hash veya api_key).
+create or replace function public.refresh_linking_code(p_api_key text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_vehicle_id uuid;
   v_code       text;
   v_expires_at timestamptz;
 begin
-  select id into v_vehicle_id from vehicles where api_key_hash = p_api_key limit 1;
+  select id into v_vehicle_id
+  from   vehicles
+  where  api_key_hash = p_api_key or api_key = p_api_key
+  limit  1;
+
   if v_vehicle_id is null then
     raise exception 'Geçersiz API anahtarı';
   end if;
@@ -94,53 +104,6 @@ begin
     set code = excluded.code, expires_at = excluded.expires_at;
 
   return jsonb_build_object('linking_code', v_code, 'expires_at', v_expires_at);
-end;
-$$;
-
--- ── pair_vehicle (güncellendi) ────────────────────────────
--- Geçici kod VEYA kalıcı pairing_code ile eşleşir.
-create or replace function pair_vehicle(p_pairing_code text)
-returns jsonb language plpgsql security definer set search_path = public as $$
-declare
-  v_vehicle_id uuid;
-  v_code       text;
-begin
-  v_code := upper(trim(p_pairing_code));
-
-  -- 1. Geçici bağlama kodunda ara
-  select vehicle_id into v_vehicle_id
-  from vehicle_linking_codes
-  where code = v_code and expires_at > now()
-  limit 1;
-
-  -- 2. Bulunamazsa kalıcı pairing_code'da ara
-  if v_vehicle_id is null then
-    select id into v_vehicle_id
-    from vehicles
-    where upper(pairing_code) = v_code and owner_id is null
-    limit 1;
-  end if;
-
-  if v_vehicle_id is null then
-    return jsonb_build_object(
-      'success', false,
-      'message', 'Geçersiz eşleşme kodu veya araç başka bir kullanıcıya bağlı.'
-    );
-  end if;
-
-  -- Sahibi ata
-  update vehicles set owner_id = auth.uid(), updated_at = now()
-  where id = v_vehicle_id;
-
-  -- Pairing kaydı
-  insert into vehicle_pairings (user_id, vehicle_id, role)
-  values (auth.uid(), v_vehicle_id, 'owner')
-  on conflict (user_id, vehicle_id) do nothing;
-
-  -- Kullanılan geçici kodu sil
-  delete from vehicle_linking_codes where vehicle_id = v_vehicle_id;
-
-  return jsonb_build_object('success', true, 'vehicle_id', v_vehicle_id);
 end;
 $$;
 

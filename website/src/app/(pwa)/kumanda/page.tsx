@@ -12,8 +12,9 @@ import { clearLocalVehicle } from '@/lib/pairingService';
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
 const RecordsPanel       = lazy(() => import('@/components/pwa/RecordsPanel'));
+const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
 
-type Tab = 'kumanda' | 'eslestir' | 'harita' | 'teshis' | 'kayitlar' | 'panel';
+type Tab = 'kumanda' | 'eslestir' | 'harita' | 'teshis' | 'kayitlar' | 'tema';
 
 export default function KumandaPage() {
   useRealtime();
@@ -125,6 +126,14 @@ export default function KumandaPage() {
       return (
         <Suspense fallback={lazySpinner}>
           <RecordsPanel vehicle={vehicle} />
+        </Suspense>
+      );
+    }
+
+    if (activeTab === 'tema') {
+      return (
+        <Suspense fallback={lazySpinner}>
+          <ThemeStudio vehicleId={vehicle?.id ?? null} />
         </Suspense>
       );
     }
@@ -287,6 +296,20 @@ export default function KumandaPage() {
               <rect x="2" y="2" width="16" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.5"/>
             </svg>
             <span className="text-[9px] font-semibold">Kayıtlar</span>
+          </button>
+
+          {/* Tema */}
+          <button
+            onClick={() => setActiveTab('tema')}
+            className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
+            style={{ color: activeTab === 'tema' ? '#a78bfa' : 'rgba(255,255,255,0.3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/>
+              <circle cx="10" cy="10" r="3"   stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Tema</span>
           </button>
         </div>
       </nav>

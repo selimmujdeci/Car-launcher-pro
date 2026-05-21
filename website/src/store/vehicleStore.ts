@@ -102,6 +102,11 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const vehicles = await fetchVehicles();
+      // Supabase boş döndürdüğünde (auth yok / RLS) localStorage araçlarını silme
+      if (vehicles.length === 0) {
+        set({ loading: false });
+        return;
+      }
       const map: Record<string, LiveVehicle> = {};
       for (const vehicle of vehicles) {
         map[vehicle.id] = vehicle;
