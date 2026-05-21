@@ -160,10 +160,12 @@ function LoginForm() {
             className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm text-white/50 hover:text-white/70"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="1" y="4" width="14" height="9" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-              <path d="M5 4V3a3 3 0 016 0v1" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M14.5 8.16c0-.49-.04-.96-.12-1.41H8v2.67h3.65a3.12 3.12 0 01-1.35 2.05v1.7h2.18c1.28-1.18 2.02-2.91 2.02-5.01z" fill="#4285F4"/>
+              <path d="M8 15c1.83 0 3.36-.61 4.48-1.64l-2.18-1.7c-.61.41-1.38.65-2.3.65-1.77 0-3.27-1.2-3.8-2.8H1.96v1.75A7 7 0 008 15z" fill="#34A853"/>
+              <path d="M4.2 9.51A4.2 4.2 0 014 8c0-.52.09-1.03.2-1.51V4.74H1.96A7 7 0 001 8c0 1.13.27 2.2.96 3.26l2.24-1.75z" fill="#FBBC05"/>
+              <path d="M8 3.2c1 0 1.89.34 2.6 1.01l1.94-1.94A7 7 0 001.96 4.74L4.2 6.49C4.73 4.9 6.23 3.2 8 3.2z" fill="#EA4335"/>
             </svg>
-            Kurumsal SSO ile Giriş
+            Google ile Giriş Yap
           </button>
         </div>
 
