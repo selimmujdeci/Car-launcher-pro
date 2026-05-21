@@ -3,5 +3,5 @@
     <string name="app_name">Caros Pro</string>
     <string name="title_activity_main">Caros Pro</string>
     <string name="package_name">com.cockpitos.pro</string>
-    <string name="custom_url_scheme">com.cockpitos.pro</string>
+    <string name="custom_url_scheme">carospro</string>
 </resources>
