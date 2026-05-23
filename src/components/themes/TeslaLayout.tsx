@@ -1,5 +1,6 @@
 import { memo, useState, lazy, Suspense, useRef, useCallback, useEffect } from 'react';
 import { DockBar } from '../layout/DockBar';
+import { HeaderBar } from '../layout/HeaderBar';
 import type { CSSProperties } from 'react';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
@@ -348,7 +349,10 @@ export const TeslaLayout = memo(function TeslaLayout({
           <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
         </Suspense>
       )}
-      <TeslaHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
+      {smart
+        ? <HeaderBar smart={smart} onLaunch={onLaunch} onOpenMap={onOpenMap} />
+        : <TeslaHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
+      }
 
       <div className="flex-1 min-h-0 flex overflow-hidden"
         style={{

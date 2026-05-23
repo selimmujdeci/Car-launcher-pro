@@ -5,6 +5,7 @@ import {
   Gauge, Thermometer, Fuel, Zap, Mic,
 } from 'lucide-react';
 import { DockBar } from './DockBar';
+import { HeaderBar } from './HeaderBar';;
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
@@ -145,7 +146,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
     <div className="flex flex-col h-full overflow-hidden relative"
       style={{ borderRadius: 28, border: '1px solid rgba(96,165,250,0.16)', boxShadow: '0 16px 56px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35)' }}>
 
-      {/* Harita — tam doldur */}
+      {/* Harita — tam doldur; iç header gizli (NavCard zaten kompakt panel) */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
           ? <div className="w-full h-full flex flex-col items-center justify-center gap-3"
@@ -153,56 +154,71 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
               <MapPin className="w-12 h-12" style={{ color: '#1d4ed8' }} />
               <span className="text-sm font-bold" style={{ color: '#a8b8c8' }}>Harita açık</span>
             </div>
-          : <MiniMapWidget onFullScreenClick={onOpenMap} />
+          : <MiniMapWidget onFullScreenClick={onOpenMap} hideHeader={true} hideOverlay={true} />
         }
+        {/* Floating fullscreen butonu — header gizli olduğu için harita üstüne yerleştir */}
+        {!fullMapOpen && (
+          <button
+            onClick={onOpenMap}
+            className="absolute top-2 right-2 w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all z-20"
+            style={{
+              background: 'rgba(0,0,0,0.55)',
+              border:     '1px solid rgba(96,165,250,0.35)',
+              backdropFilter: 'blur(4px)',
+            }}
+            title="Tam ekran"
+          >
+            <Navigation className="w-4 h-4" style={{ color: '#60a5fa' }} />
+          </button>
+        )}
       </div>
 
-      {/* Alt bar: Arama + Mikrofon + ETA */}
-      <div className="flex-shrink-0 flex flex-col gap-2 p-2.5"
+      {/* Alt bar: Arama + Mikrofon + ETA — daha kompakt (haritaya daha çok yer) */}
+      <div className="flex-shrink-0 flex flex-col gap-1.5 p-1.5"
         style={{ background: 'rgba(20,20,20,0.96)', backdropFilter: 'blur(8px)', borderTop: '1px solid rgba(96,165,250,0.14)' }}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {/* Metin giriş alanı */}
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl"
+          <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#a8b8c8' }} />
+            <Search className="w-3 h-3 flex-shrink-0" style={{ color: '#a8b8c8' }} />
             <input
               ref={inputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
               placeholder="Nereye gidiyorsunuz?"
-              className="flex-1 bg-transparent outline-none text-sm font-medium"
+              className="flex-1 bg-transparent outline-none text-xs font-medium min-w-0"
               style={{ color: query ? '#e2e8f0' : '#a8b8c8' }}
             />
             {query.length > 0 && (
               <button onClick={handleSubmit} className="flex-shrink-0 active:scale-90 transition-all">
-                <Navigation className="w-3.5 h-3.5" style={{ color: '#60a5fa' }} />
+                <Navigation className="w-3 h-3" style={{ color: '#60a5fa' }} />
               </button>
             )}
           </div>
-          {/* Mikrofon butonu */}
+          {/* Mikrofon butonu — daha küçük */}
           <button
             onClick={onVoice}
-            className="flex items-center justify-center rounded-xl transition-all active:scale-95 flex-shrink-0"
+            className="flex items-center justify-center rounded-lg transition-all active:scale-95 flex-shrink-0 w-8 h-8"
             style={{
-              width: 'var(--lp-tile-h, 40px)', height: 'var(--lp-tile-h, 40px)',
               background: 'rgba(96,165,250,0.13)',
-              border: '1px solid rgba(96,165,250,0.28)',
+              border:     '1px solid rgba(96,165,250,0.28)',
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(96,165,250,0.26)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(96,165,250,0.13)')}
           >
-            <Mic className="w-4 h-4" style={{ color: '#60a5fa' }} />
+            <Mic className="w-3.5 h-3.5" style={{ color: '#60a5fa' }} />
           </button>
         </div>
-        <div className="flex gap-1.5">
-          <ETACell label="Varış" value="--:--" sub="--:--" />
-          <ETACell
-            label="Mesafe"
-            value={route.totalDistanceMeters > 0 ? String(Math.round(route.totalDistanceMeters / 1000)) : '--'}
-            sub={route.totalDistanceMeters > 0 ? 'km' : ''}
-          />
-        </div>
+        {/* ETA satırı: route varsa göster, yoksa gizle (boş "--:--" verisi yerine harita yer kazanır) */}
+        {route.totalDistanceMeters > 0 && (
+          <div className="flex gap-1.5">
+            <ETACell label="Varış" value="--:--" sub="" />
+            <ETACell
+              label="Mesafe"
+              value={String(Math.round(route.totalDistanceMeters / 1000))}
+              sub="km"
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -445,7 +461,10 @@ export const NewHomeLayout = memo(function NewHomeLayout({
       )}
       {/* Dekoratif blob'lar — ambient-blobs ile sağlanıyor, burada gereksiz */}
       <div className="relative z-10 flex flex-col h-full">
-        <Header onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        {smart
+          ? <HeaderBar smart={smart} onLaunch={onLaunch} onOpenMap={onOpenMap} />
+          : <Header onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        }
         <div className="flex-1 min-h-0 grid gap-3 p-3 overflow-hidden" style={{ gridTemplateColumns: '0.90fr 1.20fr 0.90fr' }}>
           <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} onVoice={() => setVoiceOpenFallback(true)} />
           <SpeedCard />

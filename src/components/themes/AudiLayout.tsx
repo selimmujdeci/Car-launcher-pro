@@ -1,5 +1,6 @@
 import { memo, useState, lazy, Suspense, useEffect } from 'react';
 import { DockBar } from '../layout/DockBar';
+import { HeaderBar } from '../layout/HeaderBar';
 import {
   Search, Grid3X3, SkipBack, SkipForward, Play, Pause,
   Gauge, Thermometer, Fuel, Settings, Navigation2, Box, Mic,
@@ -393,7 +394,10 @@ export const AudiLayout = memo(function AudiLayout({
           <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
         </Suspense>
       )}
-      <AudiHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenMap={onOpenMap} onVoice={() => setVoiceOpen(true)} />
+      {smart
+        ? <HeaderBar smart={smart} onLaunch={onLaunch} onOpenMap={onOpenMap} />
+        : <AudiHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onOpenMap={onOpenMap} onVoice={() => setVoiceOpen(true)} />
+      }
 
       <div className="flex-1 min-h-0 grid gap-2.5 p-2.5 overflow-hidden"
         style={{ gridTemplateColumns: 'var(--l-grid-cols, minmax(0,1fr) minmax(0,1.1fr) minmax(0,0.85fr))' }}>
