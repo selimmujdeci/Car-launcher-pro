@@ -3,6 +3,7 @@
 
 @import "./styles/base.css";
 @import "./styles/theme.css";
+@import "./styles/oem-tokens.css";
 @import "./styles/drive-states.css";
 @import "./styles/widget-system.css";
 @import "./styles/transitions.css";
@@ -39,9 +40,19 @@
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
+  text-shadow: none !important;
+  /* filter: blur(...) MapLibre canvas dışında pahalı — head unit GPU'su batar */
+  filter: none !important;
 }
 .perf-med * {
   animation-duration: 0.5s !important;
+  /* Orta seviye: blur'u yumuşat ama tamamen kapatma */
+  filter: blur(0) !important;
+}
+/* MapLibre WebGL canvas her durumda kendi filtresini korumalı */
+.perf-low canvas.maplibregl-canvas,
+.perf-med canvas.maplibregl-canvas {
+  filter: revert !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
