@@ -193,10 +193,7 @@
 
 /* ── 1. Header Zone (Top Bar) ── */
 [data-layout-zone="header"] {
-  min-height: 72px !important;
   flex-shrink: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
   z-index: 40 !important;
   background: transparent !important;
 }

@@ -167,6 +167,7 @@ export interface AppSettings {
   homeLocation: { lat: number; lng: number; name: string } | null;
   workLocation: { lat: number; lng: number; name: string } | null;
   recentDestinations: { lat: number; lng: number; name: string; timestamp: number }[];
+  customLocations: { id: string; lat: number; lng: number; name: string; timestamp: number }[];
   smartContextEnabled: boolean;
   pinnedCards: PinnedCard[];
   dayNightMode: 'day' | 'night';
@@ -242,7 +243,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   volume: 60,
   volumeStyle: 'minimal_pro',
   theme: 'light',
-  themePack: 'tesla',
+  themePack: 'glass-pro',
   themeStyle: 'glass',
   widgetStyle: 'elevated',
   wallpaper: 'none',
@@ -291,6 +292,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   homeLocation: null,
   workLocation: null,
   recentDestinations: [],
+  customLocations: [],
   smartContextEnabled: true,     // Smart Engine varsayılan açık
   pinnedCards: [],
   dayNightMode: 'day',

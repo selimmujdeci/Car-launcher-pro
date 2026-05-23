@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, lazy, Suspense } from 'react';
 import { DockBar } from '../layout/DockBar';
+import { HeaderBar } from '../layout/HeaderBar';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import type { CSSProperties } from 'react';
@@ -907,9 +908,12 @@ export const ProLayout = memo(function ProLayout({
   // Sidebar genişliği: dockIconSize tabanlı, COMPACT'ta gizlenecek
   const sidebarW = getSidebarW(profile.dockIconSize);
 
+  // OEM layout dimensions
+  const OEM_HEADER_H = 80;  // HeaderBar natural height (px-7 pt-3.5 pb-2.5 + 56px clock)
+  const OEM_DOCK_H   = 96;  // DockBar height from base.css
+
   // Structural sizes — widget row always visible, proportions adapt to screen height
-  // dockTotal removed — MainLayout spacer handles dock gap
-  const contentH   = Math.max(screen.height - profile.headerHeight - 24, 200);
+  const contentH   = Math.max(screen.height - OEM_HEADER_H - OEM_DOCK_H, 200);
   // Music card: ekran genişliğinin %33'ü, sidebarW çıkarılır
   const musicCardW = Math.max(Math.min(Math.floor((screen.width - sidebarW) * 0.33), 400), 200);
 
@@ -930,53 +934,61 @@ export const ProLayout = memo(function ProLayout({
           <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
         </Suspense>
       )}
-    <div
-      className="flex overflow-hidden w-full h-full"
-      data-layout="pro-main"
-      style={{
-        flexDirection: isPortrait ? 'column' : ('var(--l-flex-dir, row)' as CSSProperties['flexDirection']),
-        background: 'var(--bg-primary, #0a0c10)',
-        transition: 'background 0.4s ease',
-      }}
-    >
-      {/* RPM Bar — COMPACT'ta CSS ile gizlenir */}
-      <RpmBar width={sidebarW} />
+      <div
+        className="flex flex-col overflow-hidden w-full h-full"
+        data-layout="pro-main"
+        style={{
+          background: 'var(--bg-primary, #0a0c10)',
+          transition: 'background 0.4s ease',
+        }}
+      >
+        {/* ── OEM HEADER — full-width spanning above sidebar ────────── */}
+        {smart
+          ? <HeaderBar smart={smart} onLaunch={onLaunch} onOpenMap={onOpenMap} />
+          : <TopBar headerH={profile.headerHeight} font2xl={profile.font2xl} fontSm={profile.fontSm} />
+        }
 
-      {/* Right: top bar + content */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar headerH={profile.headerHeight} font2xl={profile.font2xl} fontSm={profile.fontSm} />
-
-        {/* Content */}
+        {/* ── COCKPIT ROW — sidebar + content cards ─────────────────── */}
         <div
-          className="flex-1 flex flex-col overflow-hidden min-h-0"
-          style={{ padding: '12px 14px', gap: 11 }}
+          className="flex flex-1 overflow-hidden min-h-0"
+          style={{
+            flexDirection: isPortrait ? 'column' : ('var(--l-flex-dir, row)' as CSSProperties['flexDirection']),
+          }}
         >
-          {/* Top row: speedo + music */}
-          <div className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: topRowH }}>
-            <SpeedCard gaugeSize={gaugeSize} spaceMd={profile.spaceMd} />
-            <MusicCard width={musicCardW} />
-          </div>
+          {/* RPM sidebar — COMPACT'ta CSS ile gizlenir */}
+          <RpmBar width={sidebarW} />
 
-          {/* Widget row: always visible, height adapts, COMPACT'ta yatay scroll */}
-          <div data-widget-row className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: widgetRowH }}>
-            <NavMiniCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
-            <PhoneMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
-            <WeatherMiniCard spaceMd={profile.spaceMd} />
-            <AppsMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
-            <VehicleMiniCard onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} onLaunch={onLaunch} spaceMd={profile.spaceMd} />
-          </div>
+          {/* Cards column */}
+          <div
+            className="flex flex-col flex-1 overflow-hidden min-h-0"
+            style={{ padding: '12px 14px', gap: 11 }}
+          >
+            {/* Top row: speedo + music */}
+            <div className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: topRowH }}>
+              <SpeedCard gaugeSize={gaugeSize} spaceMd={profile.spaceMd} />
+              <MusicCard width={musicCardW} />
+            </div>
 
-          {/* Magic Context Card — widget sırasının altında, dock üzerinde */}
-          {smart && smart.predictions.length > 0 && (
-            <MagicContextCard smart={smart} variant="pro" onLaunch={onLaunch} onOpenMap={onOpenMap} />
-          )}
+            {/* Widget row: always visible, height adapts */}
+            <div data-widget-row className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: widgetRowH }}>
+              <NavMiniCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+              <PhoneMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
+              <WeatherMiniCard spaceMd={profile.spaceMd} />
+              <AppsMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
+              <VehicleMiniCard onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} onLaunch={onLaunch} spaceMd={profile.spaceMd} />
+            </div>
+
+            {/* Magic Context Card */}
+            {smart && smart.predictions.length > 0 && (
+              <MagicContextCard smart={smart} variant="pro" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+            )}
+          </div>
         </div>
 
-        {/* Dock spacer + DockBar */}
-        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+        {/* Dock spacer — content DockBar'ın arkasına gizlenmesin */}
+        <div style={{ height: OEM_DOCK_H, flexShrink: 0 }} />
         <DockBar appMap={appMap ?? {}} dockIds={dockIds ?? []} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} onOpenRearCam={onOpenRearCam} />
       </div>
-    </div>
     </>
   );
 });
