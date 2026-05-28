@@ -114,8 +114,6 @@ export const useCarTheme = create<CarThemeState>()(
           'cockpit-day', 'audi-day', 'oled-day',
         ];
         if (!VALID.includes(state.theme)) state.theme = 'pro';
-        // 'tesla' was the old hard-coded default — migrate to 'pro' (OEM primary layout)
-        if (state.theme === 'tesla' || state.theme === 'tesla-day') state.theme = 'pro';
         applyTheme(state.theme);
       },
     }

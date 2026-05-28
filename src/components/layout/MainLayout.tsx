@@ -30,7 +30,6 @@ import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/d
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazy(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
 import { NewHomeLayout } from './NewHomeLayout';
-import { CabinAmbient }  from './CabinAmbient';
 // ── Custom hooks ──────────────────────────────────────────────
 import { useLayoutServices } from '../../hooks/useLayoutServices';
 import { useOBDLifecycle } from '../../hooks/useOBDLifecycle';
@@ -360,10 +359,6 @@ export default function MainLayout() {
           <div className="up-blob up-blob-3" />
         </div>
       )}
-
-      {/* OEM Cabin Ambient — windshield wash + pillar trim + floor pool.
-          Self-gates by SAFE_MODE via runtimeManager.subscribe internally. */}
-      <CabinAmbient />
 
       <BootSplash phase={bootPhase} />
       <ErrorToast />

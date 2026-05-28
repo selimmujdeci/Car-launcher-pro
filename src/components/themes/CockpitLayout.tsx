@@ -1,6 +1,5 @@
 import { memo, useState, lazy, Suspense, useEffect } from 'react';
 import { DockBar } from '../layout/DockBar';
-import { HeaderBar } from '../layout/HeaderBar';
 import {
   SkipBack, SkipForward,
   Settings, Mic, LayoutGrid,
@@ -337,10 +336,7 @@ export const CockpitLayout = memo(function CockpitLayout({
       </div>
 
       <div className="relative z-10 flex flex-col h-full">
-        {smart
-          ? <HeaderBar smart={smart} onLaunch={onLaunch} onOpenMap={onOpenMap} />
-          : <GT_Glareshield onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
-        }
+        <GT_Glareshield onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
 
         <div className="flex-1 min-h-0 grid grid-cols-[1fr_1.4fr_1fr] gap-4 p-4">
           <GT_Navigation onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />

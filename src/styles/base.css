@@ -34,7 +34,7 @@
    * Fallback values match NORMAL profile (1024×600 baseline).
    * JS overrides these at runtime based on actual screen size.
    * ──────────────────────────────────────────────────────────── */
-  --lp-dock-h:      96px;
+  --lp-dock-h:      68px;
 
   /* Safe area aliases — çentik/notch koruması */
   --sat: env(safe-area-inset-top, 0px);
@@ -44,7 +44,7 @@
   --lp-tile-w:      64px;
   --lp-tile-h:      60px;
   --lp-dock-icon:   24px;
-  --lp-header-h:    72px;
+  --lp-header-h:    52px;
   --lp-icon:        22px;
   --lp-icon-sm:     16px;
 
@@ -193,7 +193,12 @@
 
 /* ── 1. Header Zone (Top Bar) ── */
 [data-layout-zone="header"] {
+  height: 60px !important;
   flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 1.5rem !important;
   z-index: 40 !important;
   background: transparent !important;
 }
@@ -222,7 +227,7 @@
   bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
-  height: 96px !important;
+  height: 80px !important;
   z-index: 100 !important;
   margin: 0 !important;
 }
@@ -435,6 +440,12 @@ html[data-compat-mode="true"] .bg-black\/80 {
   background-color: rgb(10, 15, 32) !important;
 }
 
-/* NOT: Önceden @supports ile background revert kuralı vardı; head unit'lerin çoğu
- * CSS.supports('backdrop-filter') true döndürür ama GPU rendering yavaş.
- * compat-mode aktif olduğunda blur tamamen kapatıldığı için arka planı opak tutmalıyız. */
+/* @supports ile W3C standart yol — tarayıcı destekliyorsa üst kuralları geçersiz kıl */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  html[data-compat-mode="true"] .backdrop-blur-3xl,
+  html[data-compat-mode="true"] .backdrop-blur-2xl,
+  html[data-compat-mode="true"] .backdrop-blur-xl {
+    /* backdrop-filter çalışıyor — CSS değişkenine bırak */
+    background-color: revert !important;
+  }
+}

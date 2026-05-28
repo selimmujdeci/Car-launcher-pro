@@ -1,6 +1,5 @@
 import { memo, useState, lazy, Suspense, useEffect } from 'react';
 import { DockBar } from '../layout/DockBar';
-import { HeaderBar } from '../layout/HeaderBar';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
@@ -385,10 +384,7 @@ export const MercedesLayout = memo(function MercedesLayout({
       )}
 
       <div className="relative z-10 flex flex-col h-full">
-        {smart
-          ? <HeaderBar smart={smart} onLaunch={onLaunch} onOpenMap={onOpenMap} />
-          : <MercedesHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
-        }
+        <MercedesHeader onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
 
         <div className="flex-1 min-h-0 grid gap-2.5 overflow-hidden"
           style={{
