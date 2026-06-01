@@ -52,9 +52,17 @@ export async function initNativeCore(): Promise<void> {
     // Auto-set performance mode unless user has a manual override
     initFromDeviceProfile(profile.deviceClass);
 
-    // Lite mode: disable heavy CSS effects immediately
-    if (profile.deviceClass === 'low') {
-      document.documentElement.classList.add('perf-lite');
+    // Low-end veya düşük RAM cihaz: tüm pahalı CSS efektlerini hemen kapat.
+    // `perf-low` index.css'te tanımlı: animation:none, blur:none, shadow:none.
+    // `data-compat-mode`: tüm backdrop-blur sınıflarını opak arka planla değiştirir.
+    if (profile.deviceClass === 'low' || profile.isLowRamDevice) {
+      document.documentElement.classList.add('perf-low');
+      document.documentElement.setAttribute('data-compat-mode', 'true');
+      // Cache: sonraki açılışta anında uygula (FOUC önler)
+      try { localStorage.setItem('cl_isHeadUnit', '1'); } catch { /* quota */ }
+    } else if (profile.deviceClass === 'mid') {
+      // Orta sınıf cihazda animasyon yavaşlatması yeterli; blur'a izin ver
+      document.documentElement.classList.add('perf-med');
     }
   } catch {
     // Native call failed — continue with defaults, no crash

@@ -20,7 +20,26 @@ export function useOBDLifecycle({
 }: UseOBDLifecycleParams): void {
   const obd = useOBDState();
   // OBD connection state toast notifications
+  // Sahte bildirim koruması:
+  //   - İlk render'da hiç toast atma (state senkronize edilir, kullanıcı uyarılmaz)
+  //   - Aynı state değişmediyse tekrar etme
+  const prevStateRef = useRef<string>('');
+  const mountedAtRef = useRef<number>(0);
   useEffect(() => {
+    if (mountedAtRef.current === 0) {
+      mountedAtRef.current = Date.now();
+      prevStateRef.current = obd.connectionState;
+      return;
+    }
+    // 3sn açılış grace — ilk OBD durumu değişimi sessizce kabul edilir
+    if (Date.now() - mountedAtRef.current < 3_000) {
+      prevStateRef.current = obd.connectionState;
+      return;
+    }
+    // Aynı state değişmediyse tekrar bildirme
+    if (prevStateRef.current === obd.connectionState) return;
+    prevStateRef.current = obd.connectionState;
+
     const state = obd.connectionState;
     if (state === 'error') {
       // Fix 4: stale data nedeniyle kesilen bağlantıyı ayırt et

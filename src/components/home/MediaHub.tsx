@@ -9,14 +9,15 @@ import { Play, Pause, SkipBack, SkipForward, Music2, Bluetooth, Radio } from 'lu
 import {
   useMediaState,
   togglePlayPause,
-  next,
-  previous,
   fmtTime,
   startMediaHub,
   stopMediaHub,
   setMediaPreferredPackage,
   pollMediaNow,
+  openMediaPermissionSettings,
 } from '../../platform/mediaService';
+// next/previous kuyruk-farkında caros katmanından (in-app parça değişimi çalışsın).
+import { next, previous } from '../../platform/media/carosMediaLayer';
 import type { MediaSource } from '../../platform/mediaService';
 import { MUSIC_OPTIONS } from '../../data/apps';
 import { isNative } from '../../platform/bridge';
@@ -45,7 +46,7 @@ const MEDIA_SOURCE_PKGS: Record<string, string> = {
 interface SourceMeta {
   label: string;
   color: string;
-  Icon:  React.ComponentType<{ className?: string }>;
+  Icon:  React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }
 
 const SOURCE_META: Record<MediaSource, SourceMeta> = {
@@ -82,9 +83,10 @@ export const MediaHub = memo(function MediaHub({
 
   const { playing, track, source, activeAppName, hasSession, permissionRequired } = useMediaState();
 
-  // Thermal guard — 'lite' modunda GPU tasarrufu için visualizer kapatılır
-  const [thermalLite, setThermalLite] = useState(() => getPerformanceMode() === 'lite');
-  useEffect(() => onPerformanceModeChange((m) => setThermalLite(m === 'lite')), []);
+  // GPU guard — Canvas tabanlı NeuralVisualizer sadece 'premium' modda çalışır.
+  // 'balanced' veya 'lite' modda her zaman kapalı (head unit GPU'ları için kritik).
+  const [showVisualizer, setShowVisualizer] = useState(() => getPerformanceMode() === 'premium');
+  useEffect(() => onPerformanceModeChange((m) => setShowVisualizer(m === 'premium')), []);
 
   const srcMeta     = SOURCE_META[source] ?? SOURCE_META.unknown;
   const fallbackApp = MUSIC_OPTIONS[defaultMusic];
@@ -127,12 +129,7 @@ export const MediaHub = memo(function MediaHub({
         {/* Bildirim izni butonu */}
         {permissionRequired && isNative && (
           <button
-            onClick={() => {
-              try {
-                // Android bildirim erişim ayarları
-                (window as any).Capacitor?.Plugins?.CarLauncher?.openNotificationSettings?.();
-              } catch { /* ignore */ }
-            }}
+            onClick={openMediaPermissionSettings}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black active:scale-95 transition-all"
             style={{
               background: 'rgba(251,191,36,0.15)',
@@ -192,8 +189,8 @@ export const MediaHub = memo(function MediaHub({
         }}
       />
 
-      {/* Neural Visualizer — albüm kapağının arkasında (z-index:1), thermal-lite'da gizli */}
-      {!thermalLite && (
+      {/* Neural Visualizer — sadece premium modda; düşük donanımda GPU'yu boşaltır */}
+      {showVisualizer && (
         <NeuralVisualizer playing={playing} color={srcMeta.color} />
       )}
 
@@ -249,11 +246,27 @@ export const MediaHub = memo(function MediaHub({
               />
             </div>
           ) : (
-            <div
-              className="w-18 h-18 rounded-2xl flex-shrink-0 flex items-center justify-center text-4xl border border-black/5 shadow-md glass-inner-focus"
-              style={{ width: 72, height: 72 }}
-            >
-              {fallbackApp.icon}
+            // Kapak yok — kaynağın renk + ikonuyla zengin fallback göster
+            <div className="relative flex-shrink-0" style={{ width: 72, height: 72 }}>
+              {playing && (
+                <div
+                  className="absolute -inset-1.5 rounded-[1.5rem] animate-pulse"
+                  style={{
+                    background: `radial-gradient(circle, ${srcMeta.color}55 0%, ${srcMeta.color}00 70%)`,
+                    filter:     'blur(6px)',
+                    zIndex:     0,
+                  }}
+                />
+              )}
+              <div
+                className="relative w-full h-full rounded-2xl flex items-center justify-center overflow-hidden border border-black/5 shadow-lg"
+                style={{
+                  background: `linear-gradient(135deg, ${srcMeta.color}55, ${srcMeta.color}22)`,
+                  zIndex:     1,
+                }}
+              >
+                <srcMeta.Icon className="w-9 h-9 drop-shadow-md" style={{ color: '#fff' }} />
+              </div>
             </div>
           )}
 

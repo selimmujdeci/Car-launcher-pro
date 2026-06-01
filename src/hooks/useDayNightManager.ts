@@ -30,9 +30,10 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import { onOBDData } from '../platform/obdService';
-import { useCarTheme, autoApplyOledVariant } from '../store/useCarTheme';
+import { autoApplyOledVariant } from '../store/useCarTheme';
 import { isUserOverrideActive } from '../platform/system/SystemOrchestrator';
 
 /* ── Eşikler ─────────────────────────────────────────────── */
@@ -68,7 +69,6 @@ declare global {
 
 /* ── Sunlight-Mode DOM uygulayıcı ────────────────────────── */
 
-let _applySunlightCallback: ((on: boolean) => void) | null = null;
 let _lastHour = -1; // hour-boundary trigger; -1 forces evaluation on first checkTime call
 
 function applySunlightMode(on: boolean): void {
@@ -80,41 +80,38 @@ function applySunlightMode(on: boolean): void {
   } else {
     root.classList.remove('sunlight-mode');
   }
-  // Hook içindeki setTheme callback'ini çağır
-  _applySunlightCallback?.(on);
 }
 
 function applyDayNightDOM(mode: 'day' | 'night'): void {
   document.documentElement.setAttribute('data-day-night', mode);
-  // Tek tema — dinamik stil enjeksiyonu devre dışı
+  // KRİTİK: light-ui (--oem-* + light-theme override'ları) day/night ile SENKRON.
+  // Aksi halde gece (koyu --bg) + takılı light-ui (açık --oem) = palet ayrışması
+  // (beyaz kart koyu pano içinde). Tek anahtar → her ekran tutarlı koyu/açık.
+  document.documentElement.classList.toggle('light-ui', mode === 'day');
 }
 
 
 /* ── Hook ────────────────────────────────────────────────── */
 
 export function useDayNightManager(): void {
-  const { settings, updateSettings } = useStore();
-  const { theme: carTheme, setTheme: setCarTheme } = useCarTheme();
+  // Narrow selector: tüm settings yerine yalnızca kullanılan 3 alana abone ol —
+  // ses/parlaklık/smartCard gibi alakasız store güncellemelerinde re-render olmaz.
+  const settings = useStore(useShallow((s) => ({
+    autoBrightnessEnabled: s.settings.autoBrightnessEnabled,
+    autoThemeEnabled:      s.settings.autoThemeEnabled,
+    dayNightMode:          s.settings.dayNightMode,
+  })));
+  const updateSettings = useStore((s) => s.updateSettings);
 
   const headlightsRef  = useRef(false);
   const alsActiveRef   = useRef(false);
-  const prevThemeRef   = useRef(carTheme);
 
-  // Callback'i güncelle: sunlight on/off → CarTheme store'a yaz
-  useEffect(() => {
-    _applySunlightCallback = (on: boolean) => {
-      if (on) {
-        if (carTheme !== 'sunlight') prevThemeRef.current = carTheme;
-        setCarTheme('sunlight');
-      } else {
-        // Önceki temaya geri dön (sunlight değilse)
-        if (carTheme === 'sunlight') {
-          setCarTheme(prevThemeRef.current === 'sunlight' ? 'tesla' : prevThemeRef.current);
-        }
-      }
-    };
-    return () => { _applySunlightCallback = null; };
-  }, [carTheme, setCarTheme]);
+  /* Güneş/gündüz artık kullanıcının TEMASINI DEĞİŞTİRMEZ.
+   * Eskiden gündüzde setCarTheme('sunlight') çağrılıyordu; 'sunlight' base'i
+   * hiçbir layout'la eşleşmediği için kullanıcının 'pro' teması ezilip premium
+   * ProLayout yerine fallback layout render ediliyordu (gündüz vakti premium
+   * görünümün kaybolması). Gündüz görünümü artık tamamen light-ui
+   * (applyDayNightDOM) + .sunlight-mode sınıfı ile sağlanır → layout korunur. */
 
   /* ── Katman 1: AmbientLightSensor ─────────────────────── */
   useEffect(() => {

@@ -111,9 +111,10 @@ async function nativeLoop(): Promise<void> {
     // Offline-First (R-5): internet bağlantısı olsa bile yerel STT motoru her zaman
     // öncelikli — on-device tanıma <100ms, bulut STT ise ağ gecikme ekler.
     const result = await CarLauncher.startSpeechRecognition({
-      preferOffline: true,
-      language:      'tr-TR',
-      maxResults:    3,
+      preferOffline:  true,
+      onlineFallback: false, // wake word sürekli döngü → online'a düşme (ağ/pil); offline-only kalsın
+      language:       'tr-TR',
+      maxResults:     3,
     });
 
     if (!_nativeLoopActive || !_state.enabled) return;

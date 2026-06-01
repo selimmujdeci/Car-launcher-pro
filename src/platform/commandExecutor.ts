@@ -14,7 +14,7 @@
 import { bridge, type CommandResult }   from './bridge';
 import { fromAIResponse, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
-import { play, pause, next, previous }  from './mediaService';
+import { play, pause, next, previous, setMediaPreferredPackage } from './mediaService';
 import { setVolume }                    from './systemSettingsService';
 import { speakFeedback, speakAlert } from './ttsService';
 import { showToast }                    from './errorBus';
@@ -48,7 +48,7 @@ export interface CommandContext {
   /** Resolve appId → actual app launch (has access to appMap in caller) */
   launch:       (appId: string) => void;
   setTheme?:    (theme: 'dark' | 'oled') => void;
-  openDrawer?:  (target: 'apps' | 'settings' | 'none') => void;
+  openDrawer?:  (target: 'apps' | 'settings' | 'music' | 'none') => void;
   openWeather?: () => void;
   /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */
   hwLockDoors?:   () => Promise<CommandResult>;
@@ -161,8 +161,15 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       }
 
       /* ── Müzik ──────────────────────────────────────────── */
+      // Genel "müzik aç": harici uygulamayı ÖN PLANA almadan arka planda çal ve
+      // uygulama içi çalma ekranını (music drawer) göster. Kullanıcı uygulamadan
+      // uzaklaşmaz. Yalnızca belirli bir şarkı/sanatçı araması (query/searchUri)
+      // gerektiğinde harici uygulama deep-link ile açılır — arama UI'si şart.
       case 'OPEN_MUSIC': {
-        bridge.launchMusic(ctx.defaultMusic);
+        const pkg = intent.payload.musicSourcePkg ?? '';
+        if (pkg) setMediaPreferredPackage(pkg);
+        play();                       // arka planda çal (sendMediaAction + warmup)
+        ctx.openDrawer?.('music');    // çalma ekranını öne getir
         _speak('Müzik açılıyor', isDriving);
         break;
       }
@@ -172,7 +179,8 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           bridge.launchMusicSearch(ctx.defaultMusic, query);
           _speak(`${query} aranıyor`, isDriving);
         } else {
-          bridge.launchMusic(ctx.defaultMusic);
+          play();
+          ctx.openDrawer?.('music');
           _speak('Müzik açılıyor', isDriving);
         }
         break;
@@ -180,8 +188,18 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       case 'PLAY_MUSIC_QUERY': {
         const pkg        = intent.payload.musicSourcePkg ?? '';
         const searchUri  = intent.payload.musicSearchUri ?? '';
-        bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
-        _speak('Müzik aranıyor', isDriving);
+        const query      = intent.payload.musicQuery ?? '';
+        if (searchUri || query) {
+          // Belirli bir parça araması → harici uygulama deep-link gerekir
+          bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
+          _speak('Müzik aranıyor', isDriving);
+        } else {
+          // Sadece kaynak söylendi → arka planda çal + ekranı göster
+          if (pkg) setMediaPreferredPackage(pkg);
+          play();
+          ctx.openDrawer?.('music');
+          _speak('Müzik açılıyor', isDriving);
+        }
         break;
       }
       case 'ADD_MUSIC_FAVORITE': {

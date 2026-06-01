@@ -12,67 +12,14 @@
  *   - TTS geri bildirimi
  */
 import { memo, useCallback, useRef, useState, useEffect } from 'react';
-import {
-  Mic, MicOff, X, Send, Navigation, Music, Gauge, Settings2,
-  ChevronRight, Clock, Trash2, Wifi, Bluetooth, Sun, SunDim,
-  Camera, MapPin,
-} from 'lucide-react';
+import { Mic, MicOff, X } from 'lucide-react';
 import {
   useVoiceState,
   startListening,
   stopListening,
   processTextCommand,
-  clearVoiceHistory,
-  type HistoryEntry,
 } from '../../platform/voiceService';
 import { isNative } from '../../platform/bridge';
-
-/* ── Quick command categories ───────────────────────────────── */
-
-interface QuickCmd { label: string; cmd: string; icon: React.ReactNode }
-
-const QUICK_CMDS: { category: string; icon: React.ReactNode; items: QuickCmd[] }[] = [
-  {
-    category: 'Navigasyon',
-    icon: <Navigation className="w-3 h-3" />,
-    items: [
-      { label: 'Eve Git',      cmd: 'eve git',             icon: <Navigation className="w-3.5 h-3.5" /> },
-      { label: 'İşe Git',      cmd: 'işe git',             icon: <Navigation className="w-3.5 h-3.5" /> },
-      { label: 'Benzin',       cmd: 'en yakın benzin',     icon: <MapPin className="w-3.5 h-3.5" /> },
-      { label: 'Trafik',       cmd: 'trafik nasıl',        icon: <MapPin className="w-3.5 h-3.5" /> },
-    ],
-  },
-  {
-    category: 'Müzik',
-    icon: <Music className="w-3 h-3" />,
-    items: [
-      { label: 'Müzik Aç',    cmd: 'müziği aç',           icon: <Music className="w-3.5 h-3.5" /> },
-      { label: 'Sonraki',      cmd: 'sonraki şarkı',       icon: <ChevronRight className="w-3.5 h-3.5" /> },
-      { label: 'Ses Aç',       cmd: 'sesi artır',          icon: <Music className="w-3.5 h-3.5" /> },
-      { label: 'Ses Kıs',      cmd: 'sesi kıs',            icon: <Music className="w-3.5 h-3.5" /> },
-    ],
-  },
-  {
-    category: 'Araç',
-    icon: <Gauge className="w-3 h-3" />,
-    items: [
-      { label: 'Hız',          cmd: 'hızım kaç',           icon: <Gauge className="w-3.5 h-3.5" /> },
-      { label: 'Yakıt',        cmd: 'yakıt durumum ne',    icon: <Gauge className="w-3.5 h-3.5" /> },
-      { label: 'Bakım',        cmd: 'bakım ne zaman',      icon: <Settings2 className="w-3.5 h-3.5" /> },
-      { label: 'Dashcam',      cmd: 'dashcamı aç',         icon: <Camera className="w-3.5 h-3.5" /> },
-    ],
-  },
-  {
-    category: 'Sistem',
-    icon: <Settings2 className="w-3 h-3" />,
-    items: [
-      { label: 'Parlak',       cmd: 'parlaklığı artır',    icon: <Sun className="w-3.5 h-3.5" /> },
-      { label: 'Karart',       cmd: 'ekranı karart',       icon: <SunDim className="w-3.5 h-3.5" /> },
-      { label: 'Bluetooth',    cmd: 'bluetoothu aç',       icon: <Bluetooth className="w-3.5 h-3.5" /> },
-      { label: 'WiFi',         cmd: 'wifiyi aç',           icon: <Wifi className="w-3.5 h-3.5" /> },
-    ],
-  },
-];
 
 /* ── Waveform animation ─────────────────────────────────────── */
 
@@ -115,49 +62,6 @@ const ConfidenceBar = memo(function ConfidenceBar({ value }: { value: number }) 
   );
 });
 
-/* ── History entry chip ─────────────────────────────────────── */
-
-const HistoryChip = memo(function HistoryChip({
-  entry,
-  onTap,
-}: {
-  entry: HistoryEntry;
-  onTap: (cmd: string) => void;
-}) {
-  const ago = Math.round((Date.now() - entry.timestamp) / 1000);
-  const agoLabel = ago < 60 ? `${ago}s` : `${Math.round(ago / 60)}d`;
-  return (
-    <button
-      onClick={() => onTap(entry.command.raw)}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/10 hover:bg-white/10 active:scale-95 transition-all text-left group"
-    >
-      <Clock className="w-3 h-3 text-slate-600 flex-shrink-0" />
-      <span className="text-slate-300 text-xs truncate max-w-[120px]">{entry.command.raw}</span>
-      <span className="text-slate-600 text-[10px] ml-auto flex-shrink-0">{agoLabel}</span>
-    </button>
-  );
-});
-
-/* ── Quick command button ───────────────────────────────────── */
-
-const QuickButton = memo(function QuickButton({
-  item,
-  onTap,
-}: {
-  item: QuickCmd;
-  onTap: (cmd: string) => void;
-}) {
-  return (
-    <button
-      onClick={() => onTap(item.cmd)}
-      className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.09] active:scale-95 transition-all text-left"
-    >
-      <span className="text-blue-400/80 flex-shrink-0">{item.icon}</span>
-      <span className="text-slate-300 text-xs font-medium truncate">{item.label}</span>
-    </button>
-  );
-});
-
 /* ── Pulse ring ─────────────────────────────────────────────── */
 
 const PulseRing = memo(function PulseRing({ active }: { active: boolean }) {
@@ -174,9 +78,6 @@ const PulseRing = memo(function PulseRing({ active }: { active: boolean }) {
 
 const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClose: () => void; autoStart?: boolean }) {
   const voice       = useVoiceState();
-  const [text, setText] = useState('');
-  const [tab, setTab]   = useState<'quick' | 'history'>('quick');
-  const inputRef    = useRef<HTMLInputElement>(null);
 
   const isListening   = voice.status === 'listening';
   const isProcessing  = voice.status === 'processing';
@@ -197,32 +98,13 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
     }
   }, [isSuccess, onClose]);
 
-  // Focus input in web mode
-  useEffect(() => {
-    if (!isNative && isListening && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isListening]);
-
-  const handleSubmit = useCallback(() => {
-    const t = text.trim();
-    if (!t) return;
-    processTextCommand(t);
-    setText('');
-  }, [text]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSubmit();
-    if (e.key === 'Escape') { stopListening(); onClose(); }
-  }, [handleSubmit, onClose]);
-
   const handleQuickCmd = useCallback((cmd: string) => {
     processTextCommand(cmd);
   }, []);
 
   /* ── Status label ── */
   const statusLabel =
-    isListening   ? (isNative ? 'Dinliyorum…' : 'Komut yazın') :
+    isListening   ? 'Dinliyorum…' :
     isProcessing  ? 'AI düşünüyor…' :
     isSuccess     ? 'Anlaşıldı' :
     isError       ? 'Anlaşılamadı' :
@@ -244,20 +126,20 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-end pb-6 px-4"
+      className="fixed inset-0 z-[70] flex flex-col items-center justify-center px-4"
       onClick={(e) => { if (e.target === e.currentTarget) { stopListening(); onClose(); } }}
     >
-      {/* Backdrop */}
+      {/* Backdrop — çok şeffaf, sadece hafif karartma */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/20"
         onClick={() => { stopListening(); onClose(); }}
       />
 
-      {/* Panel */}
-      <div className="relative w-full max-w-lg flex flex-col gap-3 pointer-events-auto">
+      {/* Panel — ortada, küçük */}
+      <div className="relative w-full max-w-xs flex flex-col gap-3 pointer-events-auto">
 
-        {/* ── Main card ── */}
-        <div className="bg-[#0d1628]/95 border border-white/[0.09] rounded-3xl shadow-[0_24px_64px_rgba(0,0,0,0.7)] overflow-hidden">
+        {/* ── Main card — çok şeffaf cam kart ── */}
+        <div className="bg-[#0d1628]/35 backdrop-blur-2xl border border-white/[0.12] rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.5)] overflow-hidden">
           {/* Top shimmer */}
           <div className="absolute top-0 left-1/4 right-1/4 h-px bg-gradient-to-r from-transparent via-blue-400/40 to-transparent" />
 
@@ -345,89 +227,6 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
               </p>
             )}
 
-            {/* Text input (always visible in listening state, web-first) */}
-            {isListening && (
-              <div className="flex gap-2">
-                <input
-                  ref={inputRef}
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={isNative ? 'Veya komut yazın…' : 'Komut yazın (ör: eve git)'}
-                  className="flex-1 bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-600 outline-none focus:border-blue-500/50 focus:bg-white/[0.07] transition-all"
-                />
-                <button
-                  onClick={handleSubmit}
-                  disabled={!text.trim()}
-                  className="w-10 h-10 rounded-xl bg-blue-500 disabled:bg-white/[0.05] disabled:text-slate-700 text-white flex items-center justify-center active:scale-90 transition-all disabled:cursor-not-allowed"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Quick commands / History ── */}
-        <div className="bg-[#0d1628]/90 border border-white/[0.07] rounded-2xl overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex border-b border-white/[0.06]">
-            {(['quick', 'history'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
-                  tab === t
-                    ? 'text-blue-400 border-b-2 border-blue-400 -mb-px'
-                    : 'text-slate-600 hover:text-slate-400'
-                }`}
-              >
-                {t === 'quick' ? 'Hızlı Komutlar' : 'Geçmiş'}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-3">
-            {tab === 'quick' && (
-              <div className="flex flex-col gap-3">
-                {QUICK_CMDS.map((cat) => (
-                  <div key={cat.category}>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className="text-slate-500">{cat.icon}</span>
-                      <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">{cat.category}</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {cat.items.map((item) => (
-                        <QuickButton key={item.cmd} item={item} onTap={handleQuickCmd} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {tab === 'history' && (
-              <div className="flex flex-col gap-1.5">
-                {voice.history.length === 0 ? (
-                  <p className="text-center text-slate-600 text-xs py-4">Henüz komut girilmedi</p>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[9px] text-slate-600 uppercase tracking-widest">Son {voice.history.length} komut</span>
-                      <button
-                        onClick={clearVoiceHistory}
-                        className="flex items-center gap-1 text-[9px] text-slate-600 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-2.5 h-2.5" /> Temizle
-                      </button>
-                    </div>
-                    {voice.history.map((entry) => (
-                      <HistoryChip key={entry.timestamp} entry={entry} onTap={handleQuickCmd} />
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>

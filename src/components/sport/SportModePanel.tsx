@@ -52,9 +52,9 @@ const GMeter = memo(function GMeter({
   const bx = CX + clampG(latG,  G_MAX) / G_MAX * (RADIUS - DOT_R - 4);
   const by = CY - clampG(longG, G_MAX) / G_MAX * (RADIUS - DOT_R - 4);
 
-  // Renk: güçlü G'de kırmızı, düşükte mavi
+  // Escalation: dinlenme nötr → orta amber → yüksek kırmızı (tek-aksan, semantik)
   const absG    = Math.sqrt(longG ** 2 + latG ** 2);
-  const dotColor = absG > 1.5 ? '#ef4444' : absG > 0.8 ? '#f59e0b' : '#3b82f6';
+  const dotColor = absG > 1.5 ? '#ef4444' : absG > 0.8 ? '#E0A23C' : 'rgba(255,255,255,0.6)';
 
   // Konsantrik çemberler ölçek çizgileri
   const rings = [0.25, 0.5, 0.75, 1.0];
@@ -163,12 +163,12 @@ const TestCard = memo(function TestCard({
     <div className={`
       rounded-2xl border p-4 flex flex-col gap-3 transition-all duration-300
       ${isDone ? 'border-emerald-500/30 bg-emerald-500/5' :
-        isRunning ? 'border-blue-400/30 bg-blue-500/5' :
+        isRunning ? 'border-amber-400/30 bg-amber-500/5' :
         'border-white/[0.1] bg-white/[0.05]'}
     `}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Icon className={`w-4 h-4 ${isDone ? 'text-emerald-400' : isRunning ? 'text-blue-400' : 'text-slate-500'}`} />
+          <Icon className={`w-4 h-4 ${isDone ? 'text-emerald-400' : isRunning ? 'text-amber-400' : 'text-slate-500'}`} />
           <span className="text-primary/70 text-xs font-bold uppercase tracking-wider">{title}</span>
         </div>
         {isRunning && (
@@ -220,7 +220,7 @@ const TestCard = memo(function TestCard({
             active:scale-95 transition-all
             ${isDone
               ? 'var(--panel-bg-secondary) border border-white/10 text-slate-400'
-              : 'bg-blue-500/20 border border-blue-400/30 text-blue-400'}
+              : 'bg-amber-500/20 border border-amber-400/30 text-amber-400'}
           `}
         >
           <Play className="w-3.5 h-3.5 fill-current" />
@@ -255,7 +255,7 @@ const PeakCard = memo(function PeakCard({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="text-center">
-          <div className="text-blue-400 text-2xl font-black tabular-nums">
+          <div className="text-amber-400 text-2xl font-black tabular-nums">
             {peakAccelG.toFixed(2)}<span className="text-slate-500 text-sm">g</span>
           </div>
           <div className="text-slate-600 text-[10px] mt-0.5">En Yüksek İvme</div>
@@ -365,7 +365,7 @@ export const SportModePanel = memo(function SportModePanel() {
             </div>
             <div className="w-full h-2 var(--panel-bg-secondary) rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all"
+                className="h-full bg-amber-500 rounded-full transition-all"
                 style={{ width: `${Math.min(100, (perf.qmDistanceM / 402.336) * 100)}%` }}
               />
             </div>

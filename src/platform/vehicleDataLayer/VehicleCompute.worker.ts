@@ -41,12 +41,20 @@ export type WorkerInMessage =
   /** Crash recovery: native storage'dan kurtarılan km değeri.
    *  Strict Monotonicity: yalnızca _odoKm'den büyükse uygulanır. */
   | { type: 'RESTORE_ODO';      km: number }
+  /** DEV-only kaos: _odoTMR'a bit-flip enjekte et (median recovery testi). */
+  | { type: 'CHAOS_BITFLIP' }
   | { type: 'STOP' };
 
 export type WorkerOutMessage =
   | { type: 'STATE_UPDATE'; patch: Partial<VehicleState> }
   | { type: 'ODO_UPDATE';   odoKm: number }
-  | { type: 'VEHICLE_EVENT'; event: VehicleEvent };
+  | { type: 'VEHICLE_EVENT'; event: VehicleEvent }
+  /**
+   * GPS kalite arızası: konum 20s boyunca accuracy > 100m veya NaN.
+   * active=true → arıza başladı, active=false → kalite normale döndü.
+   * SystemHealthMonitor bu olayı dinler (garbage fix'ler beat'i maskeleyemez).
+   */
+  | { type: 'GPS_FAILURE';  active: boolean; accuracy: number; ts: number };
 
 // ── Sabitler ─────────────────────────────────────────────────────────────
 
@@ -55,7 +63,23 @@ const SPEED_INTERVAL_MS    = 300;   // 3Hz — gösterge için yeterli, CPU bask
 const FUEL_INTERVAL_MS     = 8_000; // 8s — yakıt çok hızlı değişmez
 const ANTI_JITTER_KMH      = 20;
 
+/* ── GPS hız: gösterim akıcılığı + yanlış-sıfır koruması ────────────────────
+ * GPS Doppler hızı ~1Hz gelir ve gürültü içerir: sürüş sırasında arada 0/çok
+ * düşük raporlar (deadzone) ve değer basamaklı zıplar ("akıcı değil" + "arada 0").
+ * Bu eşikler YALNIZCA GPS kaynağı için, YALNIZCA gösterilen (SAB→UI) hıza uygulanır;
+ * odometre/dead-reckoning ve DRIVING event mantığı ham (raw) hızı kullanmaya devam
+ * eder → mesafe/olay doğruluğu korunur. Donanım kaynakları (HAL/CAN/OBD) ham gösterilir. */
+const SPEED_EMA_ALPHA      = 0.5;   // GPS yumuşatma (0..1): hedefe yaklaşım hızı (~1s oturma)
+const SPEED_SNAP_KMH       = 0.6;   // EMA hedefe bu kadar yaklaşınca sabitle (gereksiz mikro-adım yok)
+const ZERO_HOLD_TICKS      = 3;     // GPS 0/düşük: bu kadar art arda tik (3×300ms≈0.9s) onaylanmadan 0 gösterme
+const ZERO_HOLD_KMH        = 1.5;   // bu altı GPS raporu "sıfır gürültüsü" sayılır
+const ZERO_HOLD_MIN_KMH    = 6;     // yalnız önceki gösterilen hız bunun üstündeyse 0-düşmeyi debounce et
+
 const GPS_ACCURACY_MAX_M      = 30;
+/** GPS kalite arızası eşiği — bu accuracy üstü "kullanılamaz fix" sayılır */
+const GPS_FAILURE_ACCURACY_M  = 100;
+/** GPS bu süre boyunca kesintisiz kötü kalırsa GPS_FAILURE bildirilir */
+const GPS_FAILURE_WINDOW_MS   = 20_000;
 const ODO_JUMP_MAX_KM         = 0.2;   // GPS tek tick max delta (Haversine sanity)
 const ODO_OBD_JUMP_MAX_KM     = 5;     // OBD ani sıçrama eşiği (ilk sync hariç)
 // ODO_PERSIST_THRESHOLD kaldırıldı — Google Maps mantığı: her GPS/DR tick'inde güncelle
@@ -67,7 +91,7 @@ const DR_MAX_INTERVAL_MS   = 500;   // dead reckoning max Δt — SPEED_INTERVAL
 
 const SRC_TIMEOUT_HAL_MS   = 3_000;
 const SRC_TIMEOUT_CAN_MS   = 3_000;
-const SRC_TIMEOUT_OBD_MS   = 2_000;  // OBD 300-1000ms günceller; 2s stale = kesildi → GPS'e geç
+const SRC_TIMEOUT_OBD_MS   = 5_000;  // Native pollOBDLoop ~3s+ periyotla yayar; 5s tolerans = poll arası OBD stale sayılmaz (P1)
 const SRC_TIMEOUT_GPS_MS   = 5_000;
 const WATCHDOG_INTERVAL_MS = 1_000;
 
@@ -98,6 +122,12 @@ let _obdLastSeen    = 0;
 let _gpsLastSeen    = 0;
 let _prevGpsUpdateAt = 0; // önceki GPS_DATA zamanı — Doppler Δt hesabı için
 
+// ── GPS kalite arıza takibi (Watchdog Hardening) ──────────────────────────
+// _gpsBadSinceMs : kalite ilk bozulduğu performance.now() (0 = iyi/fix yok)
+// _gpsFailureActive : GPS_FAILURE bildirildi mi (recovery'e dek tek-emit)
+let _gpsBadSinceMs    = 0;
+let _gpsFailureActive = false;
+
 // ── VAL: Per-source normalized signal buffer ──────────────────────────────
 // VEHICLE_DATA mesajı geldiğinde bu buffer'lar güncellenir.
 // _emitSpeed() confidence-based fusion için bu buffer'ları kullanır.
@@ -124,6 +154,9 @@ function _effectiveConf(
 
 let _lastKnownSpeed     = 0;
 let _obdZeroConsecutive = 0;
+// GPS gösterim yumuşatma durumu (yalnız SAB→UI; raw mantığını etkilemez)
+let _dispSpeed          = 0;   // UI'a yazılan yumuşatılmış hız (km/h)
+let _gpsZeroTicks       = 0;   // GPS art arda kaç tiktir 0/düşük raporladı
 /** Hız kaynağı öncelik hiyerarşisi: HAL(0.98) > CAN(0.92) > OBD(0.85) > GPS(0.70) */
 type _SpeedSource = 'HAL' | 'CAN' | 'OBD' | 'GPS';
 
@@ -143,9 +176,43 @@ let _revDebounceTimer:  ReturnType<typeof setTimeout> | null = null;
 let _obdRevCandidate:   boolean | null = null;
 let _obdRevStableTimer: ReturnType<typeof setTimeout> | null = null;
 
-// ── Odometer ─────────────────────────────────────────────────────────────
+// ── Odometer (Triple Modular Redundancy — bit-flip koruması) ──────────────
+//
+// _odoKm tek primitif yerine 3 kopyada saklanır (_odoTMR). Yazımda 3'ü de
+// senkron güncellenir → kopyalar bir bug ile asla ayrışmaz. Okumada median-of-3
+// (ortanca) uygulanır: tek bir kopyada radyasyon/donanım kaynaklı bit-flip
+// olsa bile kalan 2 kopya çoğunluğu oluşturur ve sağlam değer döner; bir
+// sonraki yazım tüm kopyaları median+delta ile yeniden hizalar (self-healing).
+// Zero-allocation: pre-allocated Float64Array(3); median saf karşılaştırma.
+const _odoTMR = new Float64Array(3); // [0,0,0] — başlangıç odo = 0
 
-let _odoKm = 0;
+/**
+ * Median-of-3 okuma + Self-Healing.
+ * Tek kopya bozulsa bile çoğunluk sağlam değeri döner; ayrıca ayrışma tespit
+ * edilirse (median ≠ herhangi bir kopya) bozuk kopya(lar) anında median ile
+ * onarılır — bit-flip kalıcı birikemez (memory scrubbing). Sağlam durumda
+ * (3 kopya eşit) yazma yapılmaz → ek maliyet yok.
+ */
+function _odoGet(): number {
+  const a = _odoTMR[0], b = _odoTMR[1], c = _odoTMR[2];
+  // ortanca = max(min(a,b), min(max(a,b), c)) — dallanmasız, alloc'suz
+  const median = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+  // Self-Healing: ayrışan kopyayı anında doğru değerle onar
+  if (a !== median || b !== median || c !== median) {
+    _odoTMR[0] = median;
+    _odoTMR[1] = median;
+    _odoTMR[2] = median;
+  }
+  return median;
+}
+
+/** 3 kopyayı birden yaz — senkron; kopyalar yazım dışında asla ayrışmaz. */
+function _odoSet(v: number): void {
+  _odoTMR[0] = v;
+  _odoTMR[1] = v;
+  _odoTMR[2] = v;
+}
+
 // Pre-allocated prev GPS noktası; _prevOdoActive ile "null" durumu temsil edilir
 const _prevOdoBuf = { lat: 0, lng: 0 };
 let _prevOdoActive    = false;
@@ -191,29 +258,42 @@ const _gfExitFirstMs = new Map<string, number>();
 const GF_CONFIRM_COUNT = 3;    // ardışık "dışarıda" okuma sayısı
 const GF_CONFIRM_MS    = 5_000; // veya 5 saniye
 
-// ── SharedArrayBuffer (Zero-Copy) ─────────────────────────────────────────
+// ── SharedArrayBuffer (Zero-Copy, SEQLOCK + CACHE-LINE PADDING) ───────────
 //
-// Layout (64 bytes):
-//   Float64[0] = speed      Float64[1] = rpm
-//   Float64[2] = fuel       Float64[3] = odometer
-//   Float64[4] = isReverse  Float64[5] = lastUpdateTs (performance.now())
-//   Int32[12]  = generation counter — Atomics.store signals UI that data changed
+// Cache-line padding: her 64-bit değer AYRI 64-byte cache line'da (8 Float64
+// slot aralık) → çekirdekler farklı satır sahibi olur, CPU "False Sharing"
+// fiziksel olarak imkânsız.
+//   Float64[0]  = speed       Float64[8]  = rpm
+//   Float64[16] = fuel        Float64[24] = odometer
+//   Float64[32] = isReverse   Float64[40] = lastUpdateTs (performance.now())
+//   Int32[96]   = generation counter (byte 384) — AYRI cache line (veriden uzak)
 //
-// Tek-yazar (Worker) + Atomics.store release-fence → Float64 okuma güvenli.
+// Seqlock protokolü (tek-yazar Worker):
+//   1) Atomics.add(GEN,1) → değer TEK  (yazım başladı işareti)
+//   2) Float64 alanlarını yaz
+//   3) Atomics.add(GEN,1) → değer ÇİFT (yazım bitti işareti)
+// UI okurken GEN tek ise yazım sürüyordur; baş≠son GEN ise Torn Read'tir.
+// Atomics.add tam bellek fence'i → araya giren Float64 yazımları doğru sıralanır.
+//
 // Fallback: INIT'te sab yoksa _sabEnabled=false, tüm değerler postMessage'la gider.
 
-const SAB_SPEED   = 0;
-const SAB_RPM     = 1;
-const SAB_FUEL    = 2;
-const SAB_ODO     = 3;
-const SAB_REVERSE = 4;
-const SAB_TS      = 5;
-const SAB_GEN_IDX = 12; // Int32 index at byte 48
+const SAB_SPEED   = 0;   // byte 0
+const SAB_RPM     = 8;   // byte 64
+const SAB_FUEL    = 16;  // byte 128
+const SAB_ODO     = 24;  // byte 192
+const SAB_REVERSE = 32;  // byte 256
+const SAB_TS      = 40;  // byte 320
+const SAB_GEN_IDX = 96;  // Int32 index, byte 384 — ayrı cache line
 
 let _sabEnabled = false;
 let _sabF64:    Float64Array | null = null;
 let _sabI32:    Int32Array   | null = null;
-let _sabGen     = 0;
+
+// ── Seqlock yazım sınırlayıcıları (zero-allocation) ───────────────────────
+// begin: GEN'i TEK yap (yazım başladı). end: ÇİFT yap (yazım bitti).
+// Yalnızca _sabEnabled iken çağrılır (tüm çağıranlar guard'lı).
+function _sabBeginWrite(): void { Atomics.add(_sabI32!, SAB_GEN_IDX, 1); }
+function _sabEndWrite():   void { Atomics.add(_sabI32!, SAB_GEN_IDX, 1); }
 
 // ── Interval handles ──────────────────────────────────────────────────────
 
@@ -238,6 +318,11 @@ const _patchReverse: Partial<VehicleState> = { reverse: false };
 // ODO_UPDATE
 const _outOdo: { type: 'ODO_UPDATE'; odoKm: number } = { type: 'ODO_UPDATE', odoKm: 0 };
 
+// GPS_FAILURE (zero-allocation — yerinde mutate edilir)
+const _outGpsFailure: { type: 'GPS_FAILURE'; active: boolean; accuracy: number; ts: number } = {
+  type: 'GPS_FAILURE', active: false, accuracy: 0, ts: 0,
+};
+
 // VEHICLE_EVENT + pre-allocated olay nesneleri
 const _outEvent: { type: 'VEHICLE_EVENT'; event: VehicleEvent } = {
   type:  'VEHICLE_EVENT',
@@ -259,11 +344,12 @@ const _evGeofenceEnter: Extract<VehicleEvent, { type: 'GEOFENCE_ENTER' }> = { ty
 // Zero-allocation: _outOdo envelope mutate edilir.
 
 function _postOdoUpdate(force: boolean): void {
-  const delta = _odoKm - _lastPersistedOdo;
+  const odo   = _odoGet();              // TMR median — tek okuma
+  const delta = odo - _lastPersistedOdo;
   if (delta <= 0) return;
 
   // SAB: her zaman anlık yaz — UI akıcılığı (next _emitSpeed tiki ~300ms içinde yansır)
-  if (_sabEnabled) _sabF64![SAB_ODO] = _odoKm;
+  if (_sabEnabled) { _sabBeginWrite(); _sabF64![SAB_ODO] = odo; _sabEndWrite(); }
 
   // IPC throttle: postMessage yalnızca şu koşullarda gönderilir:
   //   • force=true  (araç durdu / STOP)
@@ -272,9 +358,9 @@ function _postOdoUpdate(force: boolean): void {
   const now = performance.now();
   if (!force && delta < 0.1 && (now - _lastOdoPostAt) < 5_000) return;
 
-  _lastPersistedOdo = _odoKm;
+  _lastPersistedOdo = odo;
   _lastOdoPostAt    = now;
-  _outOdo.odoKm     = _odoKm;
+  _outOdo.odoKm     = odo;
   self.postMessage(_outOdo);
 }
 
@@ -324,9 +410,10 @@ function _debounceReverse(value: boolean): void {
   _revDebounceTimer = setTimeout(() => {
     _revDebounceTimer = null;
     if (_sabEnabled) {
+      _sabBeginWrite();
       _sabF64![SAB_REVERSE] = value ? 1 : 0;
       _sabF64![SAB_TS]      = performance.now();
-      Atomics.store(_sabI32!, SAB_GEN_IDX, (_sabGen = (_sabGen + 1) | 0));
+      _sabEndWrite();
     } else {
       _patchReverse.reverse = value;
       _postPatch(_patchReverse);
@@ -516,7 +603,7 @@ function _updateOdometerGps(dtMs: number): void {
     // Araç hareket halindeyse OBD/fused hız × Δt ile kaybedilen mesafeyi kompanse et.
     const startupDelta = _odoGuard.compensateStartup(_lastKnownSpeed, dtMs);
     if (startupDelta > 0) {
-      _odoKm += startupDelta;
+      _odoSet(_odoGet() + startupDelta);
       _postOdoUpdate(false);
     }
     _prevOdoBuf.lat = loc.lat;
@@ -547,7 +634,7 @@ function _updateOdometerGps(dtMs: number): void {
   if (_gps.speed != null && dtMs >= 100 && dtMs < 3_000) {
     const deltaKm = (speedKmh / 3_600) * (dtMs / 1_000);
     if (deltaKm > 0 && deltaKm <= ODO_JUMP_MAX_KM) {
-      _odoKm += deltaKm;
+      _odoSet(_odoGet() + deltaKm);
       _postOdoUpdate(false);
       _prevOdoBuf.lat = loc.lat;
       _prevOdoBuf.lng = loc.lng;
@@ -581,31 +668,33 @@ function _updateOdometerGps(dtMs: number): void {
   }
 
   if (deltaKm > 0) {
-    _odoKm += deltaKm;
+    _odoSet(_odoGet() + deltaKm);
     _postOdoUpdate(false);
   }
 }
 
 // OBD totalDistance → mutlak kayıt; GPS birikimini senkronize et
 function _syncObdOdometer(totalDistanceKm: number): void {
+  const odo = _odoGet(); // TMR median — tek okuma
+
   // Strict Monotonicity: OBD değeri mevcut değerden küçükse negative delta → reddet
-  if (totalDistanceKm < _odoKm) {
+  if (totalDistanceKm < odo) {
     console.debug('[ODO] OBD negative delta rejected: new=', totalDistanceKm.toFixed(3),
-      'cur=', _odoKm.toFixed(3));
+      'cur=', odo.toFixed(3));
     return;
   }
 
   // Sanity Jump Guard (ilk sync hariç): 5 km'den büyük ani artış → sensör paraziti
-  if (_odoInitialized && (totalDistanceKm - _odoKm) > ODO_OBD_JUMP_MAX_KM) {
+  if (_odoInitialized && (totalDistanceKm - odo) > ODO_OBD_JUMP_MAX_KM) {
     console.debug('[ODO] OBD jump guard rejected: delta=',
-      (totalDistanceKm - _odoKm).toFixed(3), 'km');
+      (totalDistanceKm - odo).toFixed(3), 'km');
     return;
   }
 
   // 10m altı fark gürültü — sessizce atla
-  if (Math.abs(totalDistanceKm - _odoKm) < 0.01) return;
+  if (Math.abs(totalDistanceKm - odo) < 0.01) return;
 
-  _odoKm          = totalDistanceKm;
+  _odoSet(totalDistanceKm);
   _odoInitialized = true; // ilk başarılı sync; sonraki çağrılarda jump guard aktif
   _postOdoUpdate(false);  // 500 m eşiği kontrolü (OBD mutlak değerler artımlı değişir)
 
@@ -668,21 +757,30 @@ function _applyDeadReckoning(speedKmh: number): void {
   const deltaKm = (speedKmh / 3600) * (dtMs / 1000);
   if (deltaKm <= 0) return;
 
-  // Monotonicity garantili: pozitif delta, _odoKm asla azalmaz
-  _odoKm += deltaKm;
+  // Monotonicity garantili: pozitif delta, odometer asla azalmaz
+  _odoSet(_odoGet() + deltaKm);
   _postOdoUpdate(false); // 500 m eşiği kontrolü
 }
 
 // ── Periyodik görevler ────────────────────────────────────────────────────
 
-function _emitSpeed(): void {
-  let raw: number | undefined;
-  let src: 'HAL' | 'CAN' | 'OBD' | 'GPS' = 'CAN';
+// ── Hız çözümleme scratch çıktıları (zero-allocation) ──────────────────────
+// _resolveSpeedSource() sonucunu modül-seviye scratch'e yazar; her tikte yeni
+// nesne ayırmaz. _emitSpeed bu iki değeri okur.
+let _resolvedSpeed: number | undefined;
+let _resolvedSrc:  _SpeedSource = 'CAN';
 
-  // ── VAL yolu: IVehicleSignal.confidence bazlı seçim ───────────────────
-  // VEHICLE_DATA mesajları geliyorsa (valSignals dolu) confidence-fusion kullan.
-  // Hiyerarşi: HAL > CAN > OBD > GPS (confidence × tazelik skoru belirler).
-  // Eski CAN_DATA/OBD_DATA/GPS_DATA yolu fallback olarak korunur.
+/**
+ * Confidence Fusion — aktif hız kaynağını seçer (saf alt-fonksiyon).
+ *   • VAL yolu (VEHICLE_DATA doluysa): efektif güven (confidence × tazelik) ile
+ *     en yüksek skorlu kaynağı seçer. Hiyerarşi HAL > CAN > OBD > GPS.
+ *   • Aksi hâlde legacy hardcoded kaynak önceliği (CAN_DATA/OBD_DATA/GPS_DATA).
+ * Çıktı: _resolvedSpeed (undefined = tüm kaynaklar stale) + _resolvedSrc.
+ */
+function _resolveSpeedSource(): void {
+  _resolvedSpeed = undefined;
+  _resolvedSrc   = 'CAN';
+
   const valHAL = _valSignals.HAL?.speed;
   const valCAN = _valSignals.CAN?.speed;
   const valOBD = _valSignals.OBD?.speed;
@@ -696,30 +794,51 @@ function _emitSpeed(): void {
     const cGPS = _effectiveConf(valGPS, SRC_TIMEOUT_GPS_MS);
 
     if (cHAL >= cCAN && cHAL >= cOBD && cHAL >= cGPS && cHAL > 0) {
-      raw = valHAL!.value; src = 'HAL';
+      _resolvedSpeed = valHAL!.value; _resolvedSrc = 'HAL';
     } else if (cCAN >= cOBD && cCAN >= cGPS && cCAN > 0) {
-      raw = valCAN!.value; src = 'CAN';
+      _resolvedSpeed = valCAN!.value; _resolvedSrc = 'CAN';
     } else if (cOBD >= cGPS && cOBD > 0) {
-      raw = valOBD!.value; src = 'OBD';
+      _resolvedSpeed = valOBD!.value; _resolvedSrc = 'OBD';
     } else if (cGPS > 0) {
-      raw = valGPS!.value; src = 'GPS';
+      _resolvedSpeed = valGPS!.value; _resolvedSrc = 'GPS';
     }
-    // raw == null → tüm kaynaklar stale (efektif güven 0) → null emit yoluna düş
+    // _resolvedSpeed == null → tüm kaynaklar stale (efektif güven 0) → null emit yoluna düş
 
     // HAL hız=0 iken GPS > 5 km/h → AAOS sensör anormalliği uyarısı
-    if (src === 'HAL' && (raw ?? 0) < 1 && (valGPS?.value ?? 0) > 5) {
+    if (_resolvedSrc === 'HAL' && (_resolvedSpeed ?? 0) < 1 && (valGPS?.value ?? 0) > 5) {
       console.warn('[HAL] Conf mismatch: HAL=0 km/h GPS=', (valGPS!.value ?? 0).toFixed(1), 'km/h');
     }
-  } else {
-    // ── Legacy yol: CAN_DATA/OBD_DATA/GPS_DATA (hardcoded kaynak önceliği) ──
-    if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
-      raw = _can.speed; src = 'CAN';
-    } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
-      raw = _obd.speed; src = 'OBD';
-    } else if (_alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS)) {
-      raw = _gps.speed; src = 'GPS';
-    }
+    return;
   }
+
+  // ── Legacy yol: CAN_DATA/OBD_DATA/GPS_DATA (hardcoded kaynak önceliği) ──
+  if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
+    _resolvedSpeed = _can.speed; _resolvedSrc = 'CAN';
+  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+    _resolvedSpeed = _obd.speed; _resolvedSrc = 'OBD';
+  } else if (_alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS)) {
+    _resolvedSpeed = _gps.speed; _resolvedSrc = 'GPS';
+  }
+}
+
+/**
+ * Sanity reddi — ham hız değeri geçersizse true (saf predikat, mutasyon yok).
+ *   • Aralık     : 0 ≤ raw ≤ SPEED_MAX
+ *   • Anti-jitter: ~100ms'de ±ANTI_JITTER_KMH sıçrama → sensör gürültüsü
+ *   • RPM Cross  : OBD hız > 10 km/h ama rpm == 0 → ICE imkânsız
+ * Küçük + saf → V8 inline'a uygun.
+ */
+function _isSpeedRejected(raw: number, src: _SpeedSource): boolean {
+  if (raw < 0 || raw > SPEED_MAX) return true;
+  if (raw > 0 && _lastKnownSpeed > 0 && Math.abs(raw - _lastKnownSpeed) > ANTI_JITTER_KMH) return true;
+  if (src === 'OBD' && raw > 10 && _obd.rpm === 0) return true;
+  return false;
+}
+
+function _emitSpeed(): void {
+  _resolveSpeedSource();
+  const raw = _resolvedSpeed;
+  const src = _resolvedSrc;
 
   if (raw == null) {
     // Tüm kaynaklar stale → UI'a "sinyal yok" bildir (tek seferlik)
@@ -727,9 +846,10 @@ function _emitSpeed(): void {
     if (!_speedNullEmitted) {
       _speedNullEmitted = true;
       if (_sabEnabled) {
+        _sabBeginWrite();
         _sabF64![SAB_SPEED] = NaN; // NaN = null sentinel Float64'te
         _sabF64![SAB_TS]    = performance.now();
-        Atomics.store(_sabI32!, SAB_GEN_IDX, (_sabGen = (_sabGen + 1) | 0));
+        _sabEndWrite();
       } else {
         _patchSpeed.speed = null;
         _postPatch(_patchSpeed);
@@ -739,28 +859,48 @@ function _emitSpeed(): void {
   }
   _speedNullEmitted = false; // geçerli kaynak geldi — bayrağı sıfırla
 
-  if (raw < 0 || raw > SPEED_MAX) return;
-
-  // Anti-jitter: 100ms'de ±20 km/h sıçrama → sensör gürültüsü
-  if (raw > 0 && _lastKnownSpeed > 0 && Math.abs(raw - _lastKnownSpeed) > ANTI_JITTER_KMH) return;
-
-  // RPM Cross-Check: OBD hız > 10 km/h ama rpm == 0 → ICE imkânsız
-  if (src === 'OBD' && raw > 10 && _obd.rpm === 0) return;
+  // Sanity: aralık + anti-jitter + RPM cross-check (saf predikat)
+  if (_isSpeedRejected(raw, src)) return;
 
   _lastKnownSpeed    = raw;
   _activeSpeedSource = src; // kaynak farkındalıklı ODO + DR için
+
+  /* ── Gösterim hızı: GPS akıcılık + yanlış-sıfır debounce ──────────────────
+   * Yalnız UI'a yazılan değeri etkiler (raw odometre/event için korunur).
+   * GPS: EMA ile yumuşat; ani 0/düşük raporu (araç hareketliyken) ~0.9s onayla. */
+  let display: number;
+  if (src === 'GPS') {
+    if (raw < ZERO_HOLD_KMH && _dispSpeed > ZERO_HOLD_MIN_KMH && _gpsZeroTicks < ZERO_HOLD_TICKS) {
+      // Olası GPS gürültüsü: hareket halindeyken gelen ani 0 → henüz gösterme, son değeri tut
+      _gpsZeroTicks++;
+      display = _dispSpeed;
+    } else {
+      if (raw >= ZERO_HOLD_KMH) _gpsZeroTicks = 0;
+      // EMA: hedefe yumuşak yaklaş (gerçek 0 onaylandıysa da buraya düşer → akıcı şekilde 0'a iner)
+      _dispSpeed += (raw - _dispSpeed) * SPEED_EMA_ALPHA;
+      if (Math.abs(raw - _dispSpeed) < SPEED_SNAP_KMH) _dispSpeed = raw;
+      display = _dispSpeed;
+    }
+  } else {
+    // Donanım kaynağı (HAL/CAN/OBD): kesin değer — yumuşatma/debounce yok
+    _dispSpeed    = raw;
+    _gpsZeroTicks = 0;
+    display       = raw;
+  }
+
   // Kaynak değişimini InspectorPanel'e bildir — SAB string taşıyamaz, her zaman postMessage
   if (src !== _prevActiveSource) {
     _prevActiveSource = src;
     _postPatch({ nativeSource: src });
   }
   if (_sabEnabled) {
-    _sabF64![SAB_SPEED] = raw;
+    _sabBeginWrite();
+    _sabF64![SAB_SPEED] = display;
     if (_obd.rpm != null) _sabF64![SAB_RPM] = _obd.rpm;
     _sabF64![SAB_TS]    = performance.now();
-    Atomics.store(_sabI32!, SAB_GEN_IDX, (_sabGen = (_sabGen + 1) | 0));
+    _sabEndWrite();
   } else {
-    _patchSpeed.speed = raw;
+    _patchSpeed.speed = display;
     _postPatch(_patchSpeed);
   }
   _handleEventSpeed(raw);
@@ -785,9 +925,10 @@ function _emitFuel(): void {
     if (!_fuelNullEmitted) {
       _fuelNullEmitted = true;
       if (_sabEnabled) {
+        _sabBeginWrite();
         _sabF64![SAB_FUEL] = NaN;
         _sabF64![SAB_TS]   = performance.now();
-        Atomics.store(_sabI32!, SAB_GEN_IDX, (_sabGen = (_sabGen + 1) | 0));
+        _sabEndWrite();
       } else {
         _patchFuel.fuel = null;
         _postPatch(_patchFuel);
@@ -800,9 +941,10 @@ function _emitFuel(): void {
   if (raw < 0 || raw > 100) return;
 
   if (_sabEnabled) {
+    _sabBeginWrite();
     _sabF64![SAB_FUEL] = raw;
     _sabF64![SAB_TS]   = performance.now();
-    Atomics.store(_sabI32!, SAB_GEN_IDX, (_sabGen = (_sabGen + 1) | 0));
+    _sabEndWrite();
   } else {
     _patchFuel.fuel = raw;
     _postPatch(_patchFuel);
@@ -819,9 +961,10 @@ function _watchdog(): void {
   if (!canAlive && !obdAlive) {
     _clearReverseTimers();
     if (_sabEnabled) {
+      _sabBeginWrite();
       _sabF64![SAB_REVERSE] = 0;
       _sabF64![SAB_TS]      = performance.now();
-      Atomics.store(_sabI32!, SAB_GEN_IDX, (_sabGen = (_sabGen + 1) | 0));
+      _sabEndWrite();
     } else {
       _patchReverse.reverse = false;
       _postPatch(_patchReverse);
@@ -838,197 +981,280 @@ function _watchdog(): void {
   } else {
     _obdZeroConsecutive = 0;
   }
+
+  // GPS Hardening: kalite 20s kesintisiz kötüyse ana thread'e GPS_FAILURE bildir
+  _checkGpsQuality();
 }
 
-// ── Ana mesaj işleyicisi ──────────────────────────────────────────────────
+/**
+ * GPS kalite watchdog'u (1Hz, _watchdog içinden çağrılır).
+ *
+ * Fix VAR ama 20s boyunca accuracy > 100m veya koordinat NaN ise GPS_FAILURE
+ * (active=true) gönderir; kalite normale dönünce bir kez active=false gönderir.
+ * Hiç fix yoksa (tünel/kapalı) bu kontrol devre dışıdır — o senaryo
+ * SystemHealthMonitor'ın GPS deadline'ı (20s) tarafından kapsanır.
+ * Zero-allocation: önceden tahsis edilmiş _outGpsFailure mutate edilir.
+ */
+function _checkGpsQuality(): void {
+  if (!_gpsLocActive) { _gpsBadSinceMs = 0; return; }
+
+  const lat = _gpsLocBuf.lat;
+  const lng = _gpsLocBuf.lng;
+  const acc = _gpsLocBuf.accuracy;
+  const bad =
+    !Number.isFinite(lat) || !Number.isFinite(lng) ||
+    !Number.isFinite(acc) || acc > GPS_FAILURE_ACCURACY_M;
+
+  if (!bad) {
+    // Kalite iyi → pencereyi sıfırla; arıza aktifse recovery bildir
+    _gpsBadSinceMs = 0;
+    if (_gpsFailureActive) {
+      _gpsFailureActive     = false;
+      _outGpsFailure.active   = false;
+      _outGpsFailure.accuracy = acc;
+      _outGpsFailure.ts       = Date.now();
+      self.postMessage(_outGpsFailure);
+    }
+    return;
+  }
+
+  const now = performance.now();
+  if (_gpsBadSinceMs === 0)  { _gpsBadSinceMs = now; return; } // pencere başlat
+  if (_gpsFailureActive)      return;                          // zaten bildirildi
+  if (now - _gpsBadSinceMs >= GPS_FAILURE_WINDOW_MS) {
+    _gpsFailureActive       = true;
+    _outGpsFailure.active   = true;
+    _outGpsFailure.accuracy = Number.isFinite(acc) ? acc : NaN;
+    _outGpsFailure.ts       = Date.now();
+    self.postMessage(_outGpsFailure);
+  }
+}
+
+// ── Mesaj işleyicileri (her vaka ayrı monomorfik fonksiyon) ────────────────
+//
+// Switch-case korunur ama her vaka, tipi `Extract<WorkerInMessage, …>` ile
+// kesinleştirilmiş tek bir işleyiciye delege edilir. Böylece her fonksiyon
+// tek bir mesaj şekli görür → V8 "Type Feedback" kirliliği (polymorphism)
+// azalır ve gövdeler küçüldüğü için inline'a daha uygun hâle gelir.
+
+/** INIT/INIT_FALLBACK ortak periyodik görev kurulumu. */
+function _startTimers(): void {
+  _speedTimer    = setInterval(_emitSpeed,   SPEED_INTERVAL_MS);
+  _fuelTimer     = setInterval(_emitFuel,    FUEL_INTERVAL_MS);
+  _watchdogTimer = setInterval(_watchdog,    WATCHDOG_INTERVAL_MS);
+}
+
+function _handleInit(msg: Extract<WorkerInMessage, { type: 'INIT' }>): void {
+  _odoSet(msg.odoKm);            // TMR — 3 kopyaya yaz
+  _lastPersistedOdo = msg.odoKm; // main thread'le senkron; ilk 500 m dolana dek disk yazması yok
+  _odoGuard.reset(); // startup guard + jump referansı sıfırla
+  if (msg.sab) {
+    _sabF64          = new Float64Array(msg.sab);
+    _sabI32          = new Int32Array(msg.sab);
+    _sabEnabled      = true;
+    _sabF64[SAB_ODO] = _odoGet(); // odo'yu SAB'a ilk kez yaz
+  }
+  _startTimers();
+}
+
+function _handleInitFallback(msg: Extract<WorkerInMessage, { type: 'INIT_FALLBACK' }>): void {
+  // SAB izolasyonu yok — postMessage yolu, Zero-Crash garantisi
+  _odoSet(msg.odoKm);            // TMR — 3 kopyaya yaz
+  _lastPersistedOdo = msg.odoKm;
+  _odoGuard.reset();
+  _sabEnabled = false; // açık kısıtlama: SAB yolunu hiç deneme
+  _startTimers();
+}
+
+function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA' }>): void {
+  // ── VAL yolu: NormalizedVehicleData → per-source buffer güncelle ────
+  const { source, signals } = msg;
+  _valSignals[source as 'HAL' | 'CAN' | 'OBD' | 'GPS'] = signals;
+
+  // ── Legacy buffer'ları da güncelle (odometer/geofence/DR uyumluluğu) ──
+  const nowPerf = performance.now();
+  if (source === 'CAN') {
+    _canLastSeen  = nowPerf;
+    _can.speed    = signals.speed?.value;
+    _can.reverse  = signals.reverse?.value;
+    _can.fuel     = signals.fuel?.value;
+    if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
+  } else if (source === 'OBD') {
+    _obdLastSeen       = nowPerf;
+    _obd.speed         = signals.speed?.value;
+    _obd.fuel          = signals.fuel?.value;
+    _obd.rpm           = signals.rpm?.value;
+    _obd.reverse       = signals.reverse?.value;
+    _obd.totalDistance = signals.totalDistance?.value;
+    if (signals.reverse?.value != null)      _handleObdReverse(signals.reverse.value);
+    if (signals.totalDistance?.value != null) _syncObdOdometer(signals.totalDistance.value);
+  } else if (source === 'HAL') {
+    // HAL: CanAdapterData uyumlu yapı — CAN legacy buffer'larını güncelle.
+    // _emitFuel() ve watchdog legacy yolu üzerinden HAL yakıt/geri vites verisini görmesi için.
+    _canLastSeen  = nowPerf;
+    _can.speed    = signals.speed?.value;
+    _can.reverse  = signals.reverse?.value;
+    _can.fuel     = signals.fuel?.value;
+    if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
+  } else if (source === 'GPS') {
+    const dtMs = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
+    _prevGpsUpdateAt = nowPerf;
+    _gpsLastSeen     = nowPerf;
+    // GPS speed artık m/s RAW → SignalNormalizer km/h'e çevirdi, direkt kullan
+    _gps.speed   = signals.speed?.value;
+    _gps.heading = signals.heading?.value;
+
+    if (signals.location?.value != null) {
+      const loc = signals.location.value;
+      _gpsLocBuf.lat      = loc.lat;
+      _gpsLocBuf.lng      = loc.lng;
+      _gpsLocBuf.accuracy = loc.accuracy;
+      _gps.location       = _gpsLocBuf;
+      _gpsLocActive       = true;
+    } else {
+      _gps.location = undefined;
+      _gpsLocActive = false;
+    }
+
+    _updateOdometerGps(dtMs);
+
+    if (_gfActive && _gpsLocActive && _lastKnownSpeed > 0) {
+      _checkGeofences(_gpsLocBuf.lat, _gpsLocBuf.lng);
+    }
+
+    _patchGps.heading  = undefined;
+    _patchGps.location = undefined;
+    let hasGpsData = false;
+    if (_gps.heading  != null) { _patchGps.heading  = _gps.heading;  hasGpsData = true; }
+    if (_gpsLocActive)         { _patchGps.location = _gps.location; hasGpsData = true; }
+    if (hasGpsData) _postPatch(_patchGps);
+  }
+}
+
+function _handleCanData(msg: Extract<WorkerInMessage, { type: 'CAN_DATA' }>): void {
+  const d = msg.payload;
+  _canLastSeen    = performance.now();
+  _can.speed      = d.speed;
+  _can.reverse    = d.reverse;
+  _can.fuel       = d.fuel;
+  if (d.reverse != null) _handleCanReverse(d.reverse);
+}
+
+function _handleObdData(msg: Extract<WorkerInMessage, { type: 'OBD_DATA' }>): void {
+  const d = msg.payload;
+  _obdLastSeen        = performance.now();
+  _obd.speed          = d.speed;
+  _obd.fuel           = d.fuel;
+  _obd.rpm            = d.rpm;
+  _obd.reverse        = d.reverse;
+  _obd.totalDistance  = d.totalDistance;
+  if (d.reverse        != null) _handleObdReverse(d.reverse);
+  if (d.totalDistance  != null) _syncObdOdometer(d.totalDistance);
+}
+
+function _handleGpsData(msg: Extract<WorkerInMessage, { type: 'GPS_DATA' }>): void {
+  const d = msg.payload;
+  const _nowGps = performance.now();
+  // Δt: önceki GPS güncellemesinden bu yana geçen süre (Doppler × Δt odometer için)
+  const dtMs = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
+  _prevGpsUpdateAt = _nowGps;
+  _gpsLastSeen     = _nowGps;
+  _gps.speed    = d.speed;
+  _gps.heading  = d.heading;
+
+  if (d.location != null) {
+    // In-place güncelleme — yeni nesne oluşturma
+    _gpsLocBuf.lat      = d.location.lat;
+    _gpsLocBuf.lng      = d.location.lng;
+    _gpsLocBuf.accuracy = d.location.accuracy;
+    _gps.location       = _gpsLocBuf;
+    _gpsLocActive       = true;
+  } else {
+    _gps.location = undefined;
+    _gpsLocActive = false;
+  }
+
+  _updateOdometerGps(dtMs);
+
+  // Geofence kontrolü — yalnızca araç hareket halindeyken ve konum geçerliyse
+  if (_gfActive && _gpsLocActive && _lastKnownSpeed > 0) {
+    _checkGeofences(_gpsLocBuf.lat, _gpsLocBuf.lng);
+  }
+
+  // GPS STATE_UPDATE: heading ve/veya location
+  _patchGps.heading  = undefined;
+  _patchGps.location = undefined;
+  let hasGpsData = false;
+  if (_gps.heading  != null) { _patchGps.heading  = _gps.heading;  hasGpsData = true; }
+  if (_gpsLocActive)         { _patchGps.location = _gps.location; hasGpsData = true; }
+  if (hasGpsData) _postPatch(_patchGps);
+}
+
+function _handleUpdateGeofence(msg: Extract<WorkerInMessage, { type: 'UPDATE_GEOFENCE' }>): void {
+  _gfZones  = msg.zones;
+  _gfActive = msg.zones.length > 0;
+  // Mevcut zona state'ini temizle — yeni zona seti için sıfırdan başlat
+  _gfInsideMap.clear();
+  _gfExitCount.clear();
+  _gfExitFirstMs.clear();
+}
+
+function _handleRestoreOdo(msg: Extract<WorkerInMessage, { type: 'RESTORE_ODO' }>): void {
+  // Strict Monotonicity: native'den gelen değer yalnızca mevcut _odoKm'den
+  // büyükse uygulanır — crash recovery sırasında geriye gidiş olmaz.
+  if (Number.isFinite(msg.km) && msg.km > _odoGet()) {
+    _odoSet(msg.km);            // TMR — 3 kopyaya yaz
+    _lastPersistedOdo = msg.km; // persist eşiğini senkronize et
+    _odoGuard.setInitialValue(msg.km); // startup guard geç
+    if (_sabEnabled && _sabF64) { _sabBeginWrite(); _sabF64[SAB_ODO] = _odoGet(); _sabEndWrite(); }
+    console.info('[ODO] Crash recovery: restored to', msg.km.toFixed(3), 'km');
+  }
+}
+
+function _handleStop(): void {
+  if (_speedTimer    !== null) { clearInterval(_speedTimer);    _speedTimer    = null; }
+  if (_fuelTimer     !== null) { clearInterval(_fuelTimer);     _fuelTimer     = null; }
+  if (_watchdogTimer !== null) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
+  _clearReverseTimers();
+}
+
+/**
+ * DEV-only kaos: _odoTMR'daki 3 kopyadan birine aykırı bir değer yazar (bit-flip
+ * simülasyonu), ardından _odoGet() median'ının doğru km'yi kurtardığını loglar.
+ * Yalnızca import.meta.env.DEV altında dispatch edilir → üretimde tree-shake edilir.
+ */
+function _handleChaosBitflip(): void {
+  const before   = _odoGet();
+  const idx      = Math.floor(Math.random() * 3);
+  const corrupt  = before + 9_000 + Math.random() * 1_000; // bariz aykırı değer
+  _odoTMR[idx]   = corrupt;                                 // bit-flip enjekte
+  const recovered = _odoGet();                              // median + self-heal (bozuk kopya onarılır)
+  // Self-heal sonrası 3 kopya da median'a eşit olmalı
+  const healed = _odoTMR[0] === recovered && _odoTMR[1] === recovered && _odoTMR[2] === recovered;
+  console.warn(
+    `[Chaos:BitFlip] _odoTMR[${idx}] bozuldu: ${before.toFixed(3)} → ${corrupt.toFixed(3)} km | ` +
+    `median: ${recovered.toFixed(3)} km | sapma: ${Math.abs(recovered - before).toFixed(6)} km | ` +
+    (recovered === before && healed
+      ? 'TMR BAŞARILI — değer kurtarıldı ve 3 kopya self-heal ile onarıldı'
+      : 'TMR BAŞARISIZ — median sapması veya onarım eksik!'),
+  );
+}
+
+// ── Ana mesaj işleyicisi (ince dispatcher) ─────────────────────────────────
 
 self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
   const msg = e.data;
 
   switch (msg.type) {
-
-    case 'INIT':
-      _odoKm            = msg.odoKm;
-      _lastPersistedOdo = msg.odoKm; // main thread'le senkron; ilk 500 m dolana dek disk yazması yok
-      _odoGuard.reset(); // startup guard + jump referansı sıfırla
-      if (msg.sab) {
-        _sabF64          = new Float64Array(msg.sab);
-        _sabI32          = new Int32Array(msg.sab);
-        _sabEnabled      = true;
-        _sabF64[SAB_ODO] = _odoKm; // odo'yu SAB'a ilk kez yaz
-      }
-      _speedTimer    = setInterval(_emitSpeed,   SPEED_INTERVAL_MS);
-      _fuelTimer     = setInterval(_emitFuel,    FUEL_INTERVAL_MS);
-      _watchdogTimer = setInterval(_watchdog,    WATCHDOG_INTERVAL_MS);
-      break;
-
-    case 'INIT_FALLBACK':
-      // SAB izolasyonu yok — postMessage yolu, Zero-Crash garantisi
-      _odoKm            = msg.odoKm;
-      _lastPersistedOdo = msg.odoKm;
-      _odoGuard.reset();
-      _sabEnabled    = false; // açık kısıtlama: SAB yolunu hiç deneme
-      _speedTimer    = setInterval(_emitSpeed,   SPEED_INTERVAL_MS);
-      _fuelTimer     = setInterval(_emitFuel,    FUEL_INTERVAL_MS);
-      _watchdogTimer = setInterval(_watchdog,    WATCHDOG_INTERVAL_MS);
-      break;
-
-    case 'VEHICLE_DATA': {
-      // ── VAL yolu: NormalizedVehicleData → per-source buffer güncelle ────
-      const { source, signals } = msg;
-      _valSignals[source as 'HAL' | 'CAN' | 'OBD' | 'GPS'] = signals;
-
-      // ── Legacy buffer'ları da güncelle (odometer/geofence/DR uyumluluğu) ──
-      const nowPerf = performance.now();
-      if (source === 'CAN') {
-        _canLastSeen  = nowPerf;
-        _can.speed    = signals.speed?.value;
-        _can.reverse  = signals.reverse?.value;
-        _can.fuel     = signals.fuel?.value;
-        if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
-      } else if (source === 'OBD') {
-        _obdLastSeen       = nowPerf;
-        _obd.speed         = signals.speed?.value;
-        _obd.fuel          = signals.fuel?.value;
-        _obd.rpm           = signals.rpm?.value;
-        _obd.reverse       = signals.reverse?.value;
-        _obd.totalDistance = signals.totalDistance?.value;
-        if (signals.reverse?.value != null)      _handleObdReverse(signals.reverse.value);
-        if (signals.totalDistance?.value != null) _syncObdOdometer(signals.totalDistance.value);
-      } else if (source === 'HAL') {
-        // HAL: CanAdapterData uyumlu yapı — CAN legacy buffer'larını güncelle.
-        // _emitFuel() ve watchdog legacy yolu üzerinden HAL yakıt/geri vites verisini görmesi için.
-        _canLastSeen  = nowPerf;
-        _can.speed    = signals.speed?.value;
-        _can.reverse  = signals.reverse?.value;
-        _can.fuel     = signals.fuel?.value;
-        if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
-      } else if (source === 'GPS') {
-        const dtMs = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
-        _prevGpsUpdateAt = nowPerf;
-        _gpsLastSeen     = nowPerf;
-        // GPS speed artık m/s RAW → SignalNormalizer km/h'e çevirdi, direkt kullan
-        _gps.speed   = signals.speed?.value;
-        _gps.heading = signals.heading?.value;
-
-        if (signals.location?.value != null) {
-          const loc = signals.location.value;
-          _gpsLocBuf.lat      = loc.lat;
-          _gpsLocBuf.lng      = loc.lng;
-          _gpsLocBuf.accuracy = loc.accuracy;
-          _gps.location       = _gpsLocBuf;
-          _gpsLocActive       = true;
-        } else {
-          _gps.location = undefined;
-          _gpsLocActive = false;
-        }
-
-        _updateOdometerGps(dtMs);
-
-        if (_gfActive && _gpsLocActive && _lastKnownSpeed > 0) {
-          _checkGeofences(_gpsLocBuf.lat, _gpsLocBuf.lng);
-        }
-
-        _patchGps.heading  = undefined;
-        _patchGps.location = undefined;
-        let hasGpsData = false;
-        if (_gps.heading  != null) { _patchGps.heading  = _gps.heading;  hasGpsData = true; }
-        if (_gpsLocActive)         { _patchGps.location = _gps.location; hasGpsData = true; }
-        if (hasGpsData) _postPatch(_patchGps);
-      }
-      break;
-    }
-
-    case 'CAN_DATA': {
-      const d = msg.payload;
-      _canLastSeen    = performance.now();
-      _can.speed      = d.speed;
-      _can.reverse    = d.reverse;
-      _can.fuel       = d.fuel;
-      if (d.reverse != null) _handleCanReverse(d.reverse);
-      break;
-    }
-
-    case 'OBD_DATA': {
-      const d = msg.payload;
-      _obdLastSeen        = performance.now();
-      _obd.speed          = d.speed;
-      _obd.fuel           = d.fuel;
-      _obd.rpm            = d.rpm;
-      _obd.reverse        = d.reverse;
-      _obd.totalDistance  = d.totalDistance;
-      if (d.reverse        != null) _handleObdReverse(d.reverse);
-      if (d.totalDistance  != null) _syncObdOdometer(d.totalDistance);
-      break;
-    }
-
-    case 'GPS_DATA': {
-      const d = msg.payload;
-      const _nowGps = performance.now();
-      // Δt: önceki GPS güncellemesinden bu yana geçen süre (Doppler × Δt odometer için)
-      const dtMs = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
-      _prevGpsUpdateAt = _nowGps;
-      _gpsLastSeen     = _nowGps;
-      _gps.speed    = d.speed;
-      _gps.heading  = d.heading;
-
-      if (d.location != null) {
-        // In-place güncelleme — yeni nesne oluşturma
-        _gpsLocBuf.lat      = d.location.lat;
-        _gpsLocBuf.lng      = d.location.lng;
-        _gpsLocBuf.accuracy = d.location.accuracy;
-        _gps.location       = _gpsLocBuf;
-        _gpsLocActive       = true;
-      } else {
-        _gps.location = undefined;
-        _gpsLocActive = false;
-      }
-
-      _updateOdometerGps(dtMs);
-
-      // Geofence kontrolü — yalnızca araç hareket halindeyken ve konum geçerliyse
-      if (_gfActive && _gpsLocActive && _lastKnownSpeed > 0) {
-        _checkGeofences(_gpsLocBuf.lat, _gpsLocBuf.lng);
-      }
-
-      // GPS STATE_UPDATE: heading ve/veya location
-      _patchGps.heading  = undefined;
-      _patchGps.location = undefined;
-      let hasGpsData = false;
-      if (_gps.heading  != null) { _patchGps.heading  = _gps.heading;  hasGpsData = true; }
-      if (_gpsLocActive)         { _patchGps.location = _gps.location; hasGpsData = true; }
-      if (hasGpsData) _postPatch(_patchGps);
-      break;
-    }
-
-    case 'UPDATE_GEOFENCE': {
-      _gfZones  = msg.zones;
-      _gfActive = msg.zones.length > 0;
-      // Mevcut zona state'ini temizle — yeni zona seti için sıfırdan başlat
-      _gfInsideMap.clear();
-      _gfExitCount.clear();
-      _gfExitFirstMs.clear();
-      break;
-    }
-
-    case 'RESTORE_ODO': {
-      // Strict Monotonicity: native'den gelen değer yalnızca mevcut _odoKm'den
-      // büyükse uygulanır — crash recovery sırasında geriye gidiş olmaz.
-      if (Number.isFinite(msg.km) && msg.km > _odoKm) {
-        _odoKm            = msg.km;
-        _lastPersistedOdo = msg.km; // persist eşiğini senkronize et
-        _odoGuard.setInitialValue(msg.km); // startup guard geç
-        if (_sabEnabled && _sabF64) _sabF64[SAB_ODO] = _odoKm;
-        console.info('[ODO] Crash recovery: restored to', msg.km.toFixed(3), 'km');
-      }
-      break;
-    }
-
-    case 'STOP':
-      if (_speedTimer    !== null) { clearInterval(_speedTimer);    _speedTimer    = null; }
-      if (_fuelTimer     !== null) { clearInterval(_fuelTimer);     _fuelTimer     = null; }
-      if (_watchdogTimer !== null) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
-      _clearReverseTimers();
-      break;
+    case 'INIT':            _handleInit(msg);            break;
+    case 'INIT_FALLBACK':   _handleInitFallback(msg);    break;
+    case 'VEHICLE_DATA':    _handleVehicleData(msg);     break;
+    case 'CAN_DATA':        _handleCanData(msg);         break;
+    case 'OBD_DATA':        _handleObdData(msg);         break;
+    case 'GPS_DATA':        _handleGpsData(msg);         break;
+    case 'UPDATE_GEOFENCE': _handleUpdateGeofence(msg);  break;
+    case 'RESTORE_ODO':     _handleRestoreOdo(msg);      break;
+    case 'CHAOS_BITFLIP':   if (import.meta.env.DEV) _handleChaosBitflip(); break;
+    case 'STOP':            _handleStop();               break;
   }
 };

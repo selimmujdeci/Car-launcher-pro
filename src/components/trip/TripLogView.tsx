@@ -82,8 +82,9 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
 type StatColor = 'blue' | 'purple' | 'emerald' | 'amber';
 
 const COLOR_MAP: Record<StatColor, { icon: string; bg: string; border: string }> = {
-  blue:    { icon: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/20' },
-  purple:  { icon: 'text-purple-400',  bg: 'bg-purple-500/10',  border: 'border-purple-500/20' },
+  /* best-of OEM: blue/purple → tek amber'e yönlendirildi (tüm stat kartları). */
+  blue:    { icon: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
+  purple:  { icon: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
   emerald: { icon: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
   amber:   { icon: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
 };
@@ -132,7 +133,7 @@ function TripLogViewInner() {
       {/* ── Title ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Route className="w-5 h-5 text-blue-400" />
+          <Route className="w-5 h-5 text-amber-400" />
           <span className="text-primary font-black text-base uppercase tracking-widest">Seyir Defteri</span>
         </div>
         {trip.history.length > 0 && (
@@ -203,8 +204,8 @@ function TripLogViewInner() {
 
         {trip.history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-blue-400/70" />
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <AlertCircle className="w-8 h-8 text-amber-400/70" />
             </div>
             <div className="text-slate-300 font-bold text-sm">
               Henüz kayıtlı seyahat yok

@@ -1,0 +1,214 @@
+/* ════════════════════════════════════════════════════════════════
+   OEM CARDS — Specular highlight + warm bottom bounce.
+
+   PURE ADDITIVE — uses ::after (theme.css already owns ::before
+   for .glass-card). Never replaces background, border, or
+   box-shadow declared by theme.css / theme-packs.css /
+   day-mode.css. Uses only --oem-* tokens.
+
+   ⚠ Respect existing kill-switches:
+     - [data-theme="oled"] *  → box-shadow:none !important (handled below)
+     - [data-compat-mode]  *  → box-shadow:none !important (auto)
+     - .perf-low *            → box-shadow:none !important (auto)
+     - .sunlight-mode         → forces flat white cards (auto)
+
+   These already use !important to strip shadows; our ::after is
+   a separate element so the suppression cascades correctly when
+   the parent's filter chain forbids visual effects.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Reassert position:relative idempotently — required for ::after.
+   theme.css already implies this via existing .glass-card::before. */
+.glass-card,
+.up-panel,
+.premium-card {
+  position: relative;
+}
+
+/* Warm bottom bounce — sits BELOW the card, sampled into the corners.
+   Pointer-none, never intercepts clicks. */
+.glass-card::after,
+.up-panel::after,
+.premium-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    /* warm amber wash from bottom-right corner — luxury ambient bounce */
+    radial-gradient(80% 60% at 80% 105%,
+      var(--oem-amber-soft, transparent),
+      transparent 65%),
+    /* faint cool key-light from top-left — brushed-aluminum sheen */
+    linear-gradient(135deg,
+      rgba(255,240,210,0.04) 0%,
+      transparent 28%);
+  /* Below content, above bg */
+  z-index: 0;
+  /* Avoid bleeding past rounded corners */
+  overflow: hidden;
+  /* Opacity respects --oem-amber-soft alpha already */
+}
+
+/* Children must stack above the ::after layer */
+.glass-card > *,
+.up-panel > *,
+.premium-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ─ Suppression cascade ─ */
+[data-theme="oled"]      .glass-card::after,
+[data-theme="oled"]      .up-panel::after,
+[data-theme="oled"]      .premium-card::after,
+[data-theme="oled-day"]  .glass-card::after,
+[data-theme="oled-day"]  .up-panel::after,
+[data-theme="oled-day"]  .premium-card::after,
+[data-theme="sunlight"]  .glass-card::after,
+[data-theme="sunlight"]  .up-panel::after,
+[data-theme="sunlight"]  .premium-card::after,
+.sunlight-mode           .glass-card::after,
+.sunlight-mode           .up-panel::after,
+.sunlight-mode           .premium-card::after,
+[data-compat-mode="true"] .glass-card::after,
+[data-compat-mode="true"] .up-panel::after,
+[data-compat-mode="true"] .premium-card::after,
+.perf-low                .glass-card::after,
+.perf-low                .up-panel::after,
+.perf-low                .premium-card::after {
+  display: none !important;
+}
+
+/* Reduced motion: keep the static bounce but cancel any future animation hooks. */
+@media (prefers-reduced-motion: reduce) {
+  .glass-card::after,
+  .up-panel::after,
+  .premium-card::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   OEM UTILITY OVERLAYS — opt-in classes (additive only).
+
+   • .lux-noise  → ultra-fine luxury film grain (SVG fractalNoise)
+   • .amber-soft → warm amber undertone wash from bottom-right
+   • .cool-sheen → cool brushed-aluminum sheen on top edge
+
+   Stack freely with .glass-card / .up-panel / .premium-card.
+   Each uses an absolute child (::before-style) on a clean stacking
+   slot — none of them touch background/border/box-shadow.
+
+   Suppression: respect existing kill switches (oled, sunlight,
+   perf-low, compat-mode) — handled at the end.
+   ════════════════════════════════════════════════════════════════ */
+
+.lux-noise,
+.amber-soft,
+.cool-sheen {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Direct children stay above all overlay layers */
+.lux-noise > *,
+.amber-soft > *,
+.cool-sheen > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* ─ .lux-noise — film grain (data-URI SVG, GPU-cheap) ─ */
+.lux-noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.94  0 0 0 0 0.84  0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-size: 160px 160px;
+}
+
+/* ─ .amber-soft — warm bottom-right undertone wash ─ */
+.amber-soft {
+  background-image:
+    radial-gradient(70% 55% at 85% 110%,
+      var(--oem-amber-soft, transparent),
+      transparent 60%);
+  background-repeat: no-repeat;
+  background-position: 100% 100%;
+  background-size: 100% 100%;
+  background-blend-mode: screen;
+}
+
+/* ─ .cool-sheen — cool brushed sheen on top edge ─ */
+.cool-sheen::after {
+  /* Use ::after so we don't collide with .glass-card::after.
+     ::after of .lux-noise/.amber-soft would clobber existing card glow. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    linear-gradient(180deg,
+      rgba(255, 240, 210, 0.07) 0%,
+      rgba(255, 240, 210, 0.02) 12%,
+      transparent 32%);
+}
+
+/* When .cool-sheen is applied to a .glass-card / .up-panel / .premium-card,
+   the host's existing ::after (warm bottom bounce) already occupies the slot.
+   Resolve by promoting cool-sheen via a child layer of .glass-card::before
+   trick — but theme.css owns ::before on .glass-card. So we instead use a
+   distinct selector that targets non-card hosts only. Card hosts will still
+   show the warm bounce from oem-cards.css ::after; the cool sheen is then
+   delivered via the bottom-aligned linear-gradient below. */
+.glass-card.cool-sheen,
+.up-panel.cool-sheen,
+.premium-card.cool-sheen {
+  /* Layer the cool sheen as a background-image — additive, never replaces
+     the theme-driven background-color underneath. */
+  background-image:
+    linear-gradient(180deg,
+      rgba(255, 240, 210, 0.06) 0%,
+      transparent 28%);
+}
+.glass-card.cool-sheen::after,
+.up-panel.cool-sheen::after,
+.premium-card.cool-sheen::after {
+  /* Don't override the existing warm bounce on cards. */
+  /* The bg-image above provides the sheen. */
+}
+
+/* ─ Suppression cascade ─ */
+[data-theme="oled"]      .lux-noise::before,
+[data-theme="oled"]      .cool-sheen::after,
+[data-theme="oled-day"]  .lux-noise::before,
+[data-theme="oled-day"]  .cool-sheen::after,
+[data-theme="sunlight"]  .lux-noise::before,
+[data-theme="sunlight"]  .cool-sheen::after,
+.sunlight-mode           .lux-noise::before,
+.sunlight-mode           .cool-sheen::after,
+[data-compat-mode="true"] .lux-noise::before,
+[data-compat-mode="true"] .cool-sheen::after,
+.perf-low                .lux-noise::before,
+.perf-low                .cool-sheen::after {
+  display: none !important;
+}
+[data-theme="oled"]      .amber-soft,
+[data-theme="oled-day"]  .amber-soft,
+[data-theme="sunlight"]  .amber-soft,
+.sunlight-mode           .amber-soft,
+[data-compat-mode="true"] .amber-soft,
+.perf-low                .amber-soft {
+  background-image: none !important;
+}

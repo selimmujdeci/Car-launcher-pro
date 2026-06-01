@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, Link2 } from 'lucide-react'
+import { Pencil, Trash2, Link2, Radio } from 'lucide-react'
 import { PageHeader } from '../components/shared/PageHeader'
 import { DataTable, type ColDef } from '../components/shared/DataTable'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { LinkVehicleModal } from '../components/vehicles/LinkVehicleModal'
+import { RemoteCommandPanel } from '../components/vehicles/RemoteCommandPanel'
 import { useTable } from '../hooks/useTable'
 import { useModal } from '../hooks/useModal'
 import { useRole } from '../hooks/useRole'
@@ -30,11 +31,13 @@ export function Vehicles() {
   const { can, company } = useRole()
   const [all,     setAll]     = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<Vehicle | null>(null)
-  const [toDelete, setToDelete] = useState<Vehicle | null>(null)
+  const [editing,   setEditing]   = useState<Vehicle | null>(null)
+  const [toDelete,  setToDelete]  = useState<Vehicle | null>(null)
+  const [cmdTarget, setCmdTarget] = useState<Vehicle | null>(null)
   const editModal   = useModal()
   const deleteModal = useModal()
   const linkModal   = useModal()
+  const cmdModal    = useModal()
 
   useEffect(() => {
     setLoading(true)
@@ -108,6 +111,19 @@ export function Vehicles() {
       key: 'institution', header: 'Kurum',
       cell: (v) => <span className="text-xs text-[--adm-muted]">{v.institution ?? '—'}</span>,
     },
+    {
+      key: '_cmd', header: '',
+      cell: (v: Vehicle) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => { setCmdTarget(v); cmdModal.show() }}
+          title="Uzak Komut Gönder"
+        >
+          <Radio className="h-3.5 w-3.5 text-blue-400" />
+        </Button>
+      ),
+    } as ColDef<Vehicle>,
     ...(can('admin') ? [{
       key: '_actions', header: '',
       cell: (v: Vehicle) => (
@@ -201,6 +217,15 @@ export function Vehicles() {
         onClose={linkModal.hide}
         onLinked={handleLinked}
       />
+
+      {/* ── Uzak Komut Modalı ────────────────────────────────── */}
+      <Modal
+        open={cmdModal.open}
+        onClose={cmdModal.hide}
+        title={cmdTarget ? `${cmdTarget.plate} — Uzak Komut` : 'Uzak Komut'}
+      >
+        {cmdTarget && <RemoteCommandPanel vehicleId={cmdTarget.id} />}
+      </Modal>
 
       <Modal
         open={deleteModal.open}

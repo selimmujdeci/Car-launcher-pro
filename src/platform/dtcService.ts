@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
+import { logError } from './crashLogger';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -188,7 +189,7 @@ export async function readDTCCodes(): Promise<void> {
           isReading: false,
           lastReadAt: Date.now(),
           isStale: true,
-          error: 'OBD okuyucu bağlı değil veya ECU yanıt vermiyor',
+          error: 'Arıza kodu okunamadı — OBD okuyucu yanıt vermiyor veya bu işlemi desteklemiyor',
         });
       }
       return;
@@ -214,13 +215,22 @@ export async function clearDTCCodes(): Promise<void> {
 
   try {
     if (Capacitor.isNativePlatform()) {
+      // Native: gerçek ECU temizleme denenir. BAŞARISIZSA UI listesi TEMİZLENMEZ —
+      // aksi halde kullanıcı kodların araçtan silindiğini sanır (veri bütünlüğü hatası).
       try {
         await CarLauncher.clearDTC();
-      } catch {
-        // ignore if plugin doesn't support clearDTC yet
+      } catch (e) {
+        logError('DTC:NativeClearFailed', e);
+        _setState({
+          isClearing: false,
+          isStale:    true,
+          error:      'Arıza kodları araçtan silinemedi — OBD okuyucu bu işlemi desteklemiyor olabilir',
+        });
+        return; // codes listesi KORUNUR — yalancı temizleme yok
       }
     }
 
+    // Native başarılı veya web/demo modu → onay gecikmesi + listeyi temizle
     await new Promise<void>((r) => setTimeout(r, 2_000));
     _setState({ codes: [], isClearing: false, lastReadAt: Date.now() });
 

@@ -17,6 +17,9 @@ export const metadata: Metadata = {
     icon: '/icons/icon-192.png',
     apple: '/icons/icon-192.png',
   },
+  // Sayfa zaten Türkçe; tarayıcı çevirisi DOM'u bozup React'i çökertiyor
+  // (removeChild NotFoundError). Çeviriyi tamamen devre dışı bırak.
+  other: { google: 'notranslate' },
 };
 
 export const viewport: Viewport = {
@@ -30,7 +33,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="tr" className="dark">
+    <html lang="tr" className="dark" translate="no">
       <body className="bg-black text-white antialiased selection:bg-blue-500/30">
         <PWARegistration />
         <AuthRecoveryHandler />

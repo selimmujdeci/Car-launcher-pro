@@ -107,7 +107,7 @@ export interface IntentContext {
 /** Thin action interface — keeps intentEngine free of React / Settings imports. */
 export interface RouterContext {
   launch:           (appId: string) => void;
-  openDrawer:       (target: 'apps' | 'settings' | 'none') => void;
+  openDrawer:       (target: 'apps' | 'settings' | 'music' | 'none') => void;
   setTheme:         (theme: 'dark' | 'oled') => void;
   playMedia:        () => void;
   pauseMedia:       () => void;
@@ -118,8 +118,8 @@ export interface RouterContext {
   openWeather?:     () => void;
   /** Launch music app and search for a query (simple, key-based) */
   playMusicSearch?: (appKey: string, query: string) => void;
-  /** Launch music with full query context (pkg + searchUri + type) */
-  playMusicQuery?:  (pkg: string, searchUri: string, queryType: string, fallbackKey: string) => void;
+  /** Launch music with full query context (pkg + searchUri + type + raw query) */
+  playMusicQuery?:  (pkg: string, searchUri: string, queryType: string, fallbackKey: string, query?: string) => void;
   /** Add currently playing track to favorites */
   addMusicFavorite?: () => void;
   /** Serbest adres / yer araması — resolveAndNavigate wrapper'ı */
@@ -290,8 +290,15 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
  */
 export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<void> {
   switch (intent.type) {
+    case 'OPEN_MUSIC': {
+      // Müzik açma: uygulamayı ön plana almadan arka planda çalmayı başlat,
+      // ardından uygulama içi çalma ekranını (music drawer) göster.
+      // Kullanıcı harici müzik uygulamasına gitmez.
+      ctx.playMedia();
+      ctx.openDrawer('music');
+      break;
+    }
     case 'OPEN_NAVIGATION':
-    case 'OPEN_MUSIC':
     case 'OPEN_PHONE':
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;
@@ -338,7 +345,8 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       const searchUri  = intent.payload.musicSearchUri ?? '';
       const queryType  = intent.payload.musicQueryType ?? 'generic';
       const fallback   = intent.payload.targetApp ?? 'spotify';
-      ctx.playMusicQuery?.(pkg, searchUri, queryType, fallback);
+      const query      = intent.payload.musicQuery ?? '';
+      ctx.playMusicQuery?.(pkg, searchUri, queryType, fallback, query);
       break;
     }
     case 'ADD_MUSIC_FAVORITE':

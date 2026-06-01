@@ -2,7 +2,7 @@ import { memo, useCallback } from 'react';
 import {
   Bell, BellOff, Volume2, VolumeX, Mic, MicOff,
   Phone, PhoneOff, PhoneMissed, MessageCircle,
-  Mail, X, CheckCheck, ChevronRight,
+  Mail, X, CheckCheck,
 } from 'lucide-react';
 import {
   useNotificationState,
@@ -250,9 +250,12 @@ function NotificationCenterInner() {
               onClick={() => setAutoRead(value)}
               className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 rounded-2xl border text-xs font-bold transition-all active:scale-95 ${
                 ns.autoRead === value
-                  ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
+                  ? 'border-transparent'
                   : 'var(--panel-bg-secondary) border-white/5 text-slate-500 hover:var(--panel-bg-secondary)'
               }`}
+              style={ns.autoRead === value
+                ? { background: 'rgba(224,162,60,0.16)', borderColor: 'rgba(224,162,60,0.45)', color: '#E0A23C' }
+                : undefined}
             >
               <Icon className="w-4 h-4" />
               {label}
@@ -308,10 +311,6 @@ function NotificationCenterInner() {
           <div className="text-slate-600 font-bold text-sm">Bildirim yok</div>
           <div className="text-slate-700 text-xs leading-relaxed max-w-[220px]">
             WhatsApp, aramalar ve diğer bildirimler burada görünecek
-          </div>
-          <div className="flex items-center gap-1.5 text-slate-600 text-[11px]">
-            <ChevronRight className="w-3 h-3" />
-            Demo mod: 8 saniye sonra örnek bildirim gelecek
           </div>
         </div>
       ) : null}

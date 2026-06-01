@@ -81,27 +81,31 @@ export const MapHudControls = memo(function MapHudControls({
 
   return (
     <>
-      {/* ── KAPAT — her zaman tam görünür (güvenlik) ── */}
-      <button
-        onClick={onClose}
-        aria-label="Haritayı kapat"
-        className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
-        style={{
-          position: 'fixed',
-          top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
-          zIndex: 9999,
-          padding: '12px 20px',
-          background: 'rgba(239,68,68,0.18)',
-          backdropFilter: 'blur(20px)',
-          border: '1.5px solid rgba(239,68,68,0.4)',
-          color: '#f87171', fontWeight: 900, fontSize: 13,
-          letterSpacing: '0.1em', cursor: 'pointer',
-          boxShadow: '0 8px 32px rgba(239,68,68,0.25)',
-        }}
-      >
-        <X className="w-4 h-4 text-red-400 stroke-[3px]" />
-        <span className="uppercase tracking-widest">KAPAT</span>
-      </button>
+      {/* ── KAPAT — yalnızca navigasyon kapalıyken görünür.
+       *   Active nav: NavInfoBar'daki SONLANDIR rotanın doğru bitirme yolu.
+       *   Bu sayede SpeedPanel ile çakışmaz. */}
+      {!isNavigating && (
+        <button
+          onClick={onClose}
+          aria-label="Haritayı kapat"
+          className="flex items-center gap-2 rounded-2xl active:scale-90 transition-all hover:brightness-110"
+          style={{
+            position: 'fixed',
+            top: 'calc(var(--sat) + 16px)', right: 'calc(var(--sar) + 16px)',
+            zIndex: 9999,
+            padding: '12px 20px',
+            background: 'rgba(239,68,68,0.18)',
+            backdropFilter: 'blur(20px)',
+            border: '1.5px solid rgba(239,68,68,0.4)',
+            color: '#f87171', fontWeight: 900, fontSize: 13,
+            letterSpacing: '0.1em', cursor: 'pointer',
+            boxShadow: '0 8px 32px rgba(239,68,68,0.25)',
+          }}
+        >
+          <X className="w-4 h-4 text-red-400 stroke-[3px]" />
+          <span className="uppercase tracking-widest">KAPAT</span>
+        </button>
+      )}
 
       {/* ── GOOGLE MAPS TARZ RE-CENTER: Navigasyonda gizli, nav dışında sürüklenince çıkar ── */}
       {!isFollowing && !isNavigating && (
@@ -122,18 +126,18 @@ export const MapHudControls = memo(function MapHudControls({
             padding: '10px 20px',
             background: 'rgba(10,14,26,0.92)',
             backdropFilter: 'blur(16px)',
-            border: '1.5px solid rgba(59,130,246,0.55)',
+            border: '1.5px solid rgba(224,162,60,0.55)',
             borderRadius: '999px',
-            color: '#60a5fa',
+            color: '#E8B86A',
             fontWeight: 700,
             fontSize: 13,
             letterSpacing: '0.04em',
             cursor: 'pointer',
-            boxShadow: '0 4px 24px rgba(59,130,246,0.35), 0 2px 8px rgba(0,0,0,0.6)',
+            boxShadow: '0 4px 24px rgba(224,162,60,0.35), 0 2px 8px rgba(0,0,0,0.6)',
             animation: 'fadeSlideUp 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards',
           }}
         >
-          <Crosshair className="w-4 h-4" style={{ color: '#60a5fa' }} />
+          <Crosshair className="w-4 h-4" style={{ color: '#E8B86A' }} />
           <span>Konuma Dön</span>
         </button>
       )}
@@ -154,18 +158,18 @@ export const MapHudControls = memo(function MapHudControls({
           onClick={() => { onToggleDrivingMode(); showControls(); }}
           className={`w-12 h-12 rounded-2xl border flex items-center justify-center active:scale-95 transition-colors duration-300 backdrop-blur-xl ${
             drivingMode
-              ? 'bg-blue-500 border-blue-400/50 text-white'
+              ? 'bg-amber-500 border-amber-400/50 text-black'
               : 'bg-black/60 border-white/15 text-slate-400 hover:text-white hover:border-white/25'
           }`}
-          style={{ boxShadow: drivingMode ? '0 0 20px rgba(59,130,246,0.5), 0 4px 16px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
+          style={{ boxShadow: drivingMode ? '0 0 20px rgba(224,162,60,0.5), 0 4px 16px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
         >
-          <Navigation2 className={`w-5 h-5 ${drivingMode ? 'fill-white' : ''}`} />
+          <Navigation2 className={`w-5 h-5 ${drivingMode ? 'fill-black' : ''}`} />
         </button>
 
         {/* Konuma dön */}
         <button
           onClick={() => { onRecenter(); showControls(); }}
-          className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 flex items-center justify-center text-slate-400 hover:text-blue-300 hover:border-blue-400/35 active:scale-90 transition-colors"
+          className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 flex items-center justify-center text-slate-400 hover:text-amber-300 hover:border-amber-400/35 active:scale-90 transition-colors"
           style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
         >
           <Crosshair className="w-5 h-5" />
@@ -176,10 +180,10 @@ export const MapHudControls = memo(function MapHudControls({
           onClick={onCameraToggle}
           className={`w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-90 transition-all ${
             cameraOn
-              ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_16px_rgba(37,99,235,0.6)]'
-              : 'bg-black/60 border-white/15 text-slate-400 hover:text-blue-300 hover:border-blue-400/35'
+              ? 'bg-amber-500 border-amber-400 text-black shadow-[0_0_16px_rgba(224,162,60,0.6)]'
+              : 'bg-black/60 border-white/15 text-slate-400 hover:text-amber-300 hover:border-amber-400/35'
           }`}
-          style={{ boxShadow: cameraOn ? '0 0 16px rgba(37,99,235,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
+          style={{ boxShadow: cameraOn ? '0 0 16px rgba(224,162,60,0.5)' : '0 4px 16px rgba(0,0,0,0.5)' }}
         >
           {cameraOn ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
         </button>

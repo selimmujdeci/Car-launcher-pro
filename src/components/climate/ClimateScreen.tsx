@@ -98,7 +98,7 @@ function FanViz({ speed, on }: { speed: number; on: boolean }) {
     >
       {[0, 90, 180, 270].map(a => (
         <ellipse key={a} cx="28" cy="13" rx="5.5" ry="12"
-          fill="rgba(96,165,250,0.72)" transform={`rotate(${a} 28 28)`} />
+          fill="rgba(224,162,60,0.72)" transform={`rotate(${a} 28 28)`} />
       ))}
       <circle cx="28" cy="28" r="5" fill="rgba(255,255,255,0.9)" />
     </svg>
@@ -156,9 +156,9 @@ function AirBtn({
       disabled={disabled}
       className="flex-1 flex flex-col items-center gap-[5px] py-2.5 rounded-xl transition-all duration-150 active:scale-95"
       style={{
-        background: active ? 'rgba(59,130,246,0.13)' : 'rgba(255,255,255,0.03)',
-        border: `1px solid ${active ? 'rgba(59,130,246,0.45)' : 'rgba(255,255,255,0.06)'}`,
-        boxShadow: active ? '0 0 12px rgba(59,130,246,0.2)' : 'none',
+        background: active ? 'rgba(224,162,60,0.13)' : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${active ? 'rgba(224,162,60,0.45)' : 'rgba(255,255,255,0.06)'}`,
+        boxShadow: active ? '0 0 12px rgba(224,162,60,0.2)' : 'none',
         cursor: disabled ? 'default' : 'pointer',
         opacity: disabled ? 0.35 : 1,
       }}
@@ -166,7 +166,7 @@ function AirBtn({
       <span style={{ fontSize: 20 }}>{icon}</span>
       <span
         className="text-[10px] font-bold tracking-wider uppercase leading-none"
-        style={{ color: active ? '#60a5fa' : 'rgba(255,255,255,0.3)' }}
+        style={{ color: active ? '#E0A23C' : 'rgba(255,255,255,0.3)' }}
       >
         {label}
       </span>
@@ -247,8 +247,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
     ...p, sync: !p.sync, pTemp: !p.sync ? p.dTemp : p.pTemp,
   }));
 
-  const dColor = tc(s.dTemp, s.on);
-  const pColor = tc(s.pTemp, s.on);
+  // Sıcaklık sayısı sakin beyaz; cool/warm ipucu ince Arc'ta (tc) kalır → best-of OEM.
 
   return (
     <div
@@ -258,7 +257,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
       {/* ── Başlık ── */}
       <header className="flex items-center justify-between px-6 pt-5 pb-2 shrink-0">
         <div className="flex items-center gap-2.5">
-          <Wind size={16} className="text-blue-400/70" />
+          <Wind size={16} className="text-white/45" />
           <span className="text-[13px] font-bold tracking-[0.18em] uppercase text-white/55">
             İklim Kontrolü
           </span>
@@ -322,7 +321,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span
                 className="text-[42px] font-bold tabular-nums leading-none transition-colors duration-300"
-                style={{ color: s.on ? dColor : 'rgba(255,255,255,0.18)', fontVariantNumeric: 'tabular-nums' }}
+                style={{ color: s.on ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.18)', fontVariantNumeric: 'tabular-nums' }}
               >
                 {s.dTemp.toFixed(1)}
               </span>
@@ -353,7 +352,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
                   height: 10 + i * 4,
                   borderRadius: 4,
                   background: s.fan > i && s.on
-                    ? `rgba(96,165,250,${0.45 + i * 0.08})`
+                    ? `rgba(224,162,60,${0.45 + i * 0.08})`
                     : 'rgba(255,255,255,0.07)',
                   border: 'none',
                   cursor: s.on && !s.auto ? 'pointer' : 'default',
@@ -370,11 +369,11 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
           {/* Mod butonları */}
           <div className="flex flex-col gap-2 w-full">
             <ModBtn label="A/C"  active={s.ac && s.on}   disabled={!s.on}
-              onClick={() => upd('ac', !s.ac)} col="#3b82f6" />
+              onClick={() => upd('ac', !s.ac)} col="#E0A23C" />
             <ModBtn label="AUTO" active={s.auto && s.on} disabled={!s.on}
-              onClick={() => upd('auto', !s.auto)} col="#10b981" />
+              onClick={() => upd('auto', !s.auto)} col="#E0A23C" />
             <ModBtn label="SYNC" active={s.sync && s.on} disabled={!s.on}
-              onClick={toggleSync} col="#8b5cf6" />
+              onClick={toggleSync} col="#E0A23C" />
           </div>
         </div>
 
@@ -386,7 +385,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span
                 className="text-[42px] font-bold tabular-nums leading-none transition-colors duration-300"
-                style={{ color: s.on ? pColor : 'rgba(255,255,255,0.18)', fontVariantNumeric: 'tabular-nums' }}
+                style={{ color: s.on ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.18)', fontVariantNumeric: 'tabular-nums' }}
               >
                 {s.pTemp.toFixed(1)}
               </span>

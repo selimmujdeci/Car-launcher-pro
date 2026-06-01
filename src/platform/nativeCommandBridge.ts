@@ -26,6 +26,7 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { safeGetRaw } from '../utils/safeStorage';
 import type { CommandType } from './commandListener';
+import { logInfo } from './debug';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ export async function executeMcuCommand(
 ): Promise<'completed' | 'failed'> {
   if (!Capacitor.isNativePlatform()) {
     // Web/dev modda MCU yok — simüle et
-    console.log(`[NativeCmdBridge] Web modu — MCU simüle: ${type}`);
+    logInfo(`[NativeCmdBridge] Web modu — MCU simüle: ${type}`);
     return 'completed';
   }
 
@@ -61,7 +62,7 @@ export async function executeMcuCommand(
         console.warn(`[NativeCmdBridge] MCU desteklemez: ${type}`);
         return 'failed';
     }
-    console.log(`[NativeCmdBridge] MCU OK: ${type}`);
+    logInfo(`[NativeCmdBridge] MCU OK: ${type}`);
     return 'completed';
   } catch (err) {
     console.error(`[NativeCmdBridge] MCU hatası (${type}):`, err);
@@ -150,7 +151,7 @@ export async function drainNativeCommandQueue(
   const results = await getNativeCommandResults();
   if (results.length === 0) return;
 
-  console.log(`[NativeCmdBridge] ${results.length} native sonuç boşaltılıyor`);
+  logInfo(`[NativeCmdBridge] ${results.length} native sonuç boşaltılıyor`);
 
   for (const r of results) {
     // TTL kontrolü (5 dakika)
@@ -163,7 +164,7 @@ export async function drainNativeCommandQueue(
   }
 
   await clearNativeCommandQueue();
-  console.log('[NativeCmdBridge] Native kuyruk temizlendi');
+  logInfo('[NativeCmdBridge] Native kuyruk temizlendi');
 }
 
 // ── E2E Anahtar Senkronizasyonu ───────────────────────────────────────────────
@@ -198,7 +199,7 @@ export async function syncKeysToNative(): Promise<void> {
       secureStoreSet(opts: { key: string; value: string }): Promise<void>;
     }).secureStoreSet({ key: E2E_PRIVATE_KEY_STORAGE_KEY, value: jwkJson });
 
-    console.log('[NativeCmdBridge] E2E JWK native katmana senkronize edildi');
+    logInfo('[NativeCmdBridge] E2E JWK native katmana senkronize edildi');
   } catch (err) {
     // Non-fatal: native E2E çözümü devre dışı kalır, JS tarafı devralır
     console.warn('[NativeCmdBridge] syncKeysToNative başarısız:', err);

@@ -34,6 +34,15 @@ const THEME_PREVIEWS: {
     text: '#000000',
   },
   {
+    id: 'expedition',
+    label: 'CarOS Expedition',
+    sub: 'Offroad · Day/Night',
+    accent: '#E07B14',
+    bg: '#1c1610',
+    border: 'rgba(224,123,20,0.38)',
+    text: '#EDE4D2',
+  },
+  {
     id: 'tesla',
     label: 'Tesla',
     sub: 'Minimalist · Premium',
@@ -111,7 +120,7 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
           >
             <div className="text-[9px] uppercase tracking-[0.45em] font-light px-2 pb-1"
               style={{ color: 'rgba(255,255,255,0.30)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              TEMA SEÇ · 4 SEÇENEK
+              TEMA SEÇ · 5 SEÇENEK
             </div>
 
             {/* Stüdyo butonu */}

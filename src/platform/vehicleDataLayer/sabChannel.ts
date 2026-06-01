@@ -4,24 +4,30 @@
  * VehicleSignalResolver SAB'ı oluşturduğunda initSABChannel() çağırır.
  * Gauge bileşenleri bu modülü import ederek SAB dizilerine doğrudan erişir.
  *
- * Layout (Worker ile senkron — VehicleCompute.worker.ts ile aynı sabitler):
- *   Float64[0] = speed (km/h)
- *   Float64[1] = rpm
- *   Float64[2] = fuel (%)
- *   Float64[3] = odometer (km)
- *   Float64[4] = reverse (0/1)
- *   Int32[12]  = generation counter (Atomics.store ile artar)
+ * Layout (Worker + Resolver ile senkron — CACHE-LINE PADDING + SEQLOCK):
+ *   Her 64-bit değer AYRI 64-byte cache line'da → CPU "False Sharing" yok.
+ *   (8 Float64 slot = 64 byte aralık.)
+ *     Float64[0]  = speed (km/h)      byte 0
+ *     Float64[8]  = rpm               byte 64
+ *     Float64[16] = fuel (%)          byte 128
+ *     Float64[24] = odometer (km)     byte 192
+ *     Float64[32] = reverse (0/1)     byte 256
+ *     Float64[40] = lastUpdateTs      byte 320 (Worker-only)
+ *     Int32[96]   = generation counter byte 384 — AYRI cache line (veriden uzak)
+ *
+ *   Seqlock: GEN tek=yazım sürüyor, çift=yazım bitti. Okuyucu baş/son GEN
+ *   karşılaştırıp Torn Read'i tespit eder. SAB_BYTES = 512.
  */
 
 export const SAB_IDX = {
   SPEED:   0,
-  RPM:     1,
-  FUEL:    2,
-  ODO:     3,
-  REVERSE: 4,
+  RPM:     8,
+  FUEL:    16,
+  ODO:     24,
+  REVERSE: 32,
 } as const;
 
-export const SAB_GEN_IDX = 12; // Int32 indeksi (byte 48)
+export const SAB_GEN_IDX = 96; // Int32 indeksi (byte 384) — ayrı cache line
 
 export interface SABChannel {
   f64: Float64Array | null;

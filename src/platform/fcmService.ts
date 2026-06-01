@@ -12,6 +12,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { logInfo } from './debug';
 import { sensitiveKeyStore }  from './sensitiveKeyStore';
 // Statik import — dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler
 import { getSupabaseClient }  from './supabaseClient';
@@ -42,7 +43,7 @@ function wakeCommandListener(): void {
         if (!vehicleId) return;
         _listenerActive = true;
         startCommandListener(vehicleId);
-        console.log('[FCM] Push-to-Wake: CommandListener başlatıldı');
+        logInfo('[FCM] Push-to-Wake: CommandListener başlatıldı');
       })
       .catch(() => { _isWaking = false; });
   }
@@ -52,7 +53,7 @@ function wakeCommandListener(): void {
     _wakeTimer = null;
     _listenerActive = false;
     stopCommandListener();
-    console.log('[FCM] Push-to-Wake: CommandListener uyutuldu (idle timeout)');
+    logInfo('[FCM] Push-to-Wake: CommandListener uyutuldu (idle timeout)');
   }, WAKE_TIMEOUT_MS);
 }
 
@@ -71,7 +72,7 @@ async function saveFcmToken(token: string): Promise<void> {
       p_fcm_token:  token,
       p_platform:   'android',
     });
-    console.log('[FCM] Token kaydedildi');
+    logInfo('[FCM] Token kaydedildi');
   } catch (err) {
     console.warn('[FCM] Token kayıt hatası:', err);
   }
@@ -137,7 +138,7 @@ export async function initFcmService(): Promise<() => void> {
       const event = data?.event ?? '';
 
       if (event === 'new_command' || event === 'command_pending') {
-        console.log('[FCM] Push-to-Wake tetiklendi:', event);
+        logInfo('[FCM] Push-to-Wake tetiklendi:', event);
         wakeCommandListener();
       }
     },

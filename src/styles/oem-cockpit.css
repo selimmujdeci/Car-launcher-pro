@@ -1,0 +1,374 @@
+/* OEM Cockpit design system — ported from CarOS Pro design handoff */
+/* All colors, surfaces, animations from the approved design. */
+
+:root {
+  --bg-deep: #0E1218;
+  --bg: #131822;
+  --surface-0: #1E2331;
+  --surface-1: #262C3C;
+  --surface-2: #303749;
+  --surface-3: #3D4458;
+  --surface-warm: #2B2A2F;
+
+  --line: rgba(232,224,208,0.09);
+  --line-strong: rgba(232,224,208,0.16);
+  --line-warm: rgba(150,170,205,0.20);
+
+  --ink: #F4F1EA;
+  --ink-2: rgba(244,241,234,0.74);
+  --ink-3: rgba(244,241,234,0.50);
+  --ink-4: rgba(244,241,234,0.24);
+
+  /* OEM-nötr accent (eski amber → çelik mavi); değişken adı uyumluluk için korundu */
+  --amber: oklch(72% 0.10 248);
+  --amber-soft: oklch(72% 0.10 248 / 0.22);
+  --amber-glow: oklch(72% 0.10 248 / 0.12);
+  --amber-deep: oklch(54% 0.11 250);
+
+  --cyan: oklch(82% 0.06 220);
+  --cyan-soft: oklch(82% 0.06 220 / 0.18);
+  --gold: oklch(80% 0.10 84);
+  --good: oklch(80% 0.10 158);
+  --warn: oklch(82% 0.12 78);
+  --alert: oklch(72% 0.14 22);
+
+  --r-sm: 14px;
+  --r-md: 20px;
+  --r-lg: 28px;
+  --r-xl: 36px;
+  --gap: 20px;
+  --pad: 28px;
+
+  --shadow-card: 0 1px 0 rgba(255,240,210,0.05) inset, 0 20px 50px -24px rgba(0,0,0,0.55);
+  --shadow-raised: 0 1px 0 rgba(255,240,210,0.07) inset, 0 28px 64px -28px rgba(0,0,0,0.65);
+
+  /* Map — night defaults */
+  --map-bg-1: #131822;
+  --map-bg-2: #10141D;
+  --map-bg-3: #0B0E15;
+  --map-amb-cool: oklch(64% 0.05 220 / 0.08);
+  --map-amb-warm: oklch(64% 0.10 55 / 0.06);
+  --map-hwy-a: #524A38;
+  --map-hwy-b: #635A44;
+  --map-art-a: #44444F;
+  --map-art-b: #38383F;
+  --map-secondary: #353540;
+  --map-secondary-casing: #1C1C24;
+  --map-residential: #2A2A33;
+  --map-residential-casing: #16161D;
+  --map-casing: rgba(0,0,0,0.55);
+  --map-centerline: rgba(255,240,210,0.22);
+  --map-divider-warn: oklch(75% 0.13 80 / 0.45);
+  --map-junction: rgba(255,250,230,0.65);
+  --map-bldg-1a: #2C3346;
+  --map-bldg-1b: #1D2230;
+  --map-bldg-2a: #313850;
+  --map-bldg-2b: #20253A;
+  --map-bldg-extrude: #11131C;
+  --map-bldg-stroke: rgba(0,0,0,0.45);
+  --map-bldg-edge: rgba(255,240,210,0.14);
+  --map-bldg-window: oklch(82% 0.10 70 / 0.85);
+  --map-park-a: #1F2E26;
+  --map-park-b: #1A2620;
+  --map-park-edge: rgba(120,160,130,0.18);
+  --map-tree: oklch(48% 0.07 145 / 0.65);
+  --map-tree-hi: oklch(62% 0.10 145 / 0.55);
+  --map-water-a: #1A2540;
+  --map-water-b: #152035;
+  --map-label: rgba(232,224,208,0.78);
+  --map-label-halo: rgba(10,14,22,0.85);
+  --map-label-minor: rgba(232,224,208,0.55);
+  --map-district: rgba(232,224,208,0.18);
+  --map-district-park: rgba(180,210,180,0.24);
+  --map-district-water: rgba(160,190,220,0.24);
+  --map-route-a: oklch(86% 0.13 70);
+  --map-route-b: oklch(68% 0.14 50);
+  --map-route-halo: oklch(80% 0.13 60);
+  --map-route-flow: rgba(255,250,235,0.80);
+  --map-vignette: rgba(8,10,18,0.65);
+  --map-haze: oklch(40% 0.04 230);
+  --map-spill-top: oklch(70% 0.06 220 / 0.10);
+  --map-poi-bg: rgba(20,24,32,0.92);
+  --map-poi-text: rgba(232,224,208,0.7);
+  --map-poi-charge: oklch(78% 0.12 150);
+  --map-poi-fuel: oklch(80% 0.12 60);
+  --map-poi-food: oklch(78% 0.10 30);
+  --map-traffic-green: oklch(75% 0.13 150 / 0.65);
+  --map-traffic-yellow: oklch(78% 0.14 80 / 0.7);
+  --map-traffic-red: oklch(64% 0.16 22 / 0.75);
+
+  --chrome-bg-strong: rgba(20,16,12,0.65);
+  --chrome-bg-soft: rgba(20,16,12,0.20);
+  --chip-bg: rgba(20,24,32,0.55);
+}
+
+/* ── Map grain overlay ── */
+.oem-map-grain {
+  position: absolute; inset: 0; pointer-events: none;
+  opacity: 0.22; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='280' height='280'><filter id='m'><feTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0.65 0'/></filter><rect width='100%' height='100%' filter='url(%23m)'/></svg>");
+}
+[data-theme="pro-day"] .oem-map-grain {
+  opacity: 0.18; mix-blend-mode: multiply;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   GÜNDÜZ AYDINLIK KOKPİT — data-day-night="day" (useDayNightManager'ın
+   gerçekten set ettiği eksen). Eski [data-theme="pro-day"] hiç tetiklenmiyordu.
+   Açık yüzeyler + koyu mürekkep → güneş altı OEM okunabilirlik.
+   ══════════════════════════════════════════════════════════════════ */
+html[data-day-night="day"] {
+  --bg-deep:   #E1E4EA;
+  --bg:        #ECEEF1;
+  --surface-0: #ECEEF1;
+  --surface-1: #FFFFFF;
+  --surface-2: #F4F6F9;
+  --surface-3: #E8EBEF;
+  --surface-warm: #FBF8F2;
+  --line:        rgba(0,0,0,0.10);
+  --line-strong: rgba(0,0,0,0.16);
+  --line-warm:   oklch(64% 0.10 55 / 0.30);
+  --ink:   #14181F;
+  --ink-2: rgba(20,24,31,0.72);
+  --ink-3: rgba(20,24,31,0.50);
+  --ink-4: rgba(20,24,31,0.28);
+  --amber:      oklch(54% 0.13 252);
+  --amber-soft: oklch(54% 0.13 252 / 0.12);
+  --amber-glow: oklch(54% 0.13 252 / 0.08);
+  --amber-deep: oklch(44% 0.13 255);
+  --chrome-bg-strong: rgba(248,249,251,0.88);
+  --chrome-bg-soft:   rgba(248,249,251,0.50);
+  --chip-bg:          rgba(255,255,255,0.78);
+}
+
+/* DAY mode (legacy) — dark cockpit with daylight-adapted surfaces */
+[data-theme="pro-day"] {
+  --bg-deep: #0F1318;
+  --bg: #161B23;
+  --surface-0: #21283A;
+  --surface-1: #2A3245;
+  --surface-2: #333B50;
+  --surface-3: #404862;
+  --line: rgba(255,255,255,0.08);
+  --line-strong: rgba(255,255,255,0.16);
+  --line-warm: oklch(64% 0.10 55 / 0.40);
+  --ink: #F0EBE0;
+  --ink-2: rgba(240,235,224,0.74);
+  --ink-3: rgba(240,235,224,0.52);
+  --ink-4: rgba(240,235,224,0.28);
+  --amber: oklch(76% 0.12 60);
+  --amber-soft: oklch(76% 0.12 60 / 0.16);
+  --amber-glow: oklch(76% 0.12 60 / 0.10);
+  --amber-deep: oklch(58% 0.12 50);
+  --good: oklch(66% 0.13 158);
+  --warn: oklch(74% 0.13 70);
+  --alert: oklch(64% 0.16 22);
+  --chrome-bg-strong: rgba(20,24,32,0.78);
+  --chrome-bg-soft: rgba(20,24,32,0.42);
+  --chip-bg: rgba(36,42,56,0.82);
+  /* Map — day palette */
+  --map-bg-1: #D9D4C7;
+  --map-bg-2: #CFCABC;
+  --map-bg-3: #C5C0B0;
+  --map-hwy-a: #D8B36A;
+  --map-hwy-b: #E8C58A;
+  --map-art-a: #EEEAE0;
+  --map-art-b: #E2DED2;
+  --map-secondary: #EAE5D9;
+  --map-secondary-casing: rgba(28,30,36,0.32);
+  --map-residential: #E0DCCF;
+  --map-residential-casing: rgba(28,30,36,0.22);
+  --map-casing: rgba(28,30,36,0.36);
+  --map-centerline: rgba(28,30,36,0.45);
+  --map-bldg-1a: #C0BBA8;
+  --map-bldg-1b: #A8A28E;
+  --map-bldg-2a: #BAB5A2;
+  --map-bldg-2b: #A29C88;
+  --map-bldg-extrude: #76715F;
+  --map-bldg-stroke: rgba(28,30,36,0.30);
+  --map-bldg-edge: rgba(255,255,255,0.50);
+  --map-park-a: #A8C28E;
+  --map-park-b: #90B074;
+  --map-park-edge: rgba(40,80,30,0.38);
+  --map-tree: oklch(46% 0.12 145 / 0.70);
+  --map-water-a: #8FAFCB;
+  --map-water-b: #7AA0C0;
+  --map-label: rgba(20,22,28,0.88);
+  --map-label-halo: rgba(232,228,216,0.92);
+  --map-label-minor: rgba(20,22,28,0.62);
+  --map-district: rgba(20,22,28,0.36);
+  --map-district-park: rgba(40,80,30,0.65);
+  --map-district-water: rgba(30,70,110,0.65);
+  --map-route-a: oklch(64% 0.13 55);
+  --map-route-b: oklch(48% 0.13 32);
+  --map-route-halo: oklch(58% 0.12 50);
+  --map-route-flow: rgba(255,245,225,0.85);
+  --map-vignette: rgba(40,38,30,0.35);
+  --map-haze: oklch(78% 0.04 220);
+  --map-spill-top: oklch(80% 0.04 220 / 0.18);
+  --map-poi-bg: rgba(248,244,232,0.96);
+  --map-poi-text: rgba(20,22,28,0.86);
+  --map-poi-charge: oklch(44% 0.16 150);
+  --map-poi-fuel: oklch(50% 0.16 55);
+  --map-poi-food: oklch(48% 0.16 28);
+  --map-traffic-green: oklch(54% 0.18 150 / 0.86);
+  --map-traffic-yellow: oklch(60% 0.18 70 / 0.92);
+  --map-traffic-red: oklch(50% 0.20 25 / 0.94);
+  --map-bldg-window: oklch(58% 0.06 65 / 0.20);
+  --chrome-bg-strong: rgba(20,24,32,0.78);
+  --chrome-bg-soft: rgba(20,24,32,0.42);
+  --chip-bg: rgba(36,42,56,0.82);
+}
+
+/* ── OEM Card ── */
+.oem-card {
+  background:
+    linear-gradient(135deg, rgba(255,240,210,0.08) 0%, rgba(255,240,210,0.02) 24%, transparent 50%),
+    radial-gradient(120% 80% at 100% 100%, oklch(60% 0.08 50 / 0.06), transparent 60%),
+    linear-gradient(180deg, var(--surface-1) 0%, var(--surface-0) 75%, #1F2532 100%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(255,240,210,0.10) inset,
+    0 -1px 0 rgba(0,0,0,0.40) inset,
+    0 1px 1px rgba(0,0,0,0.4),
+    0 24px 56px -24px rgba(0,0,0,0.70),
+    0 4px 12px -6px rgba(0,0,0,0.30);
+}
+.oem-card::before {
+  content: '';
+  position: absolute; left: 1px; right: 1px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,240,210,0.32) 50%, transparent);
+  pointer-events: none;
+}
+.oem-card > * { position: relative; z-index: 1; }
+
+/* ── OEM Card Inset ── */
+.oem-card-inset {
+  background:
+    linear-gradient(135deg, rgba(255,240,210,0.04), transparent 45%),
+    var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  position: relative;
+  box-shadow: 0 1px 0 rgba(255,240,210,0.05) inset, 0 4px 12px -8px rgba(0,0,0,0.4);
+}
+
+/* ── OEM Glass overlay ── */
+.oem-glass {
+  background:
+    linear-gradient(135deg, rgba(255,240,210,0.06) 0%, rgba(255,240,210,0.01) 30%, transparent 55%),
+    linear-gradient(180deg, rgba(36,42,58,0.78), rgba(28,32,44,0.86));
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 0 rgba(255,240,210,0.12) inset,
+    0 0 0 1px rgba(0,0,0,0.4),
+    0 32px 64px -28px rgba(0,0,0,0.7);
+  position: relative;
+}
+.oem-glass::before {
+  content: '';
+  position: absolute; left: 1px; right: 1px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,240,210,0.32) 50%, transparent);
+  pointer-events: none;
+}
+
+/* ── OEM Button ── */
+.oem-btn {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  background:
+    linear-gradient(180deg, rgba(255,240,210,0.06), transparent 60%),
+    var(--surface-2);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 14px 24px;
+  font-family: 'Manrope', inherit;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  box-shadow: 0 1px 0 rgba(255,240,210,0.06) inset, 0 4px 12px -6px rgba(0,0,0,0.4);
+  transition: background 0.18s, border-color 0.18s;
+}
+.oem-btn:hover { background: var(--surface-3); border-color: rgba(232,224,208,0.26); }
+.oem-btn.ghost { background: transparent; border-color: var(--line-strong); box-shadow: none; }
+.oem-btn.icon { padding: 0; width: 52px; height: 52px; justify-content: center; border-radius: 50%; }
+.oem-btn.active {
+  background:
+    linear-gradient(180deg, rgba(255,235,200,0.12), transparent 70%),
+    var(--surface-3);
+  border-color: var(--line-warm);
+  color: var(--ink);
+}
+
+/* ── Typography helpers ── */
+.oem-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-weight: 700;
+}
+.oem-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-feature-settings: "tnum" 1; }
+.oem-num  { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+/* ── Live dot ── */
+.oem-live-dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--good);
+  animation: oemPulseDot 2.4s ease-in-out infinite;
+  box-shadow: 0 0 0 4px oklch(78% 0.09 158 / 0.14);
+  display: inline-block;
+}
+
+/* ── Meter ── */
+.oem-meter-track {
+  width: 100%; border-radius: 999px;
+  background: var(--line-strong);
+  overflow: hidden;
+}
+.oem-meter-fill {
+  height: 100%; border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* ── Animations ── */
+@keyframes oemPulseDot {
+  0%, 100% { opacity: .6; transform: scale(1); }
+  50%       { opacity: 1; transform: scale(1.15); }
+}
+@keyframes oemBreathe {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 0.85; }
+}
+@keyframes oemHaloPulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50%       { transform: scale(1.08); opacity: 0.75; }
+}
+@keyframes oemSpeedBreathe {
+  0%, 100% { filter: drop-shadow(0 0 12px oklch(70% 0.13 60 / 0.45)); }
+  50%       { filter: drop-shadow(0 0 24px oklch(85% 0.13 60 / 0.7)); }
+}
+@keyframes oemSpeedPulse {
+  0%, 100% { text-shadow: 0 0 80px oklch(78% 0.10 60 / 0.55), 0 0 30px oklch(86% 0.10 70 / 0.4); }
+  50%       { text-shadow: 0 0 120px oklch(78% 0.10 60 / 0.75), 0 0 50px oklch(86% 0.10 70 / 0.55); }
+}
+@keyframes oemRouteFlow {
+  0%   { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -40; }
+}
+
+.oem-halo-pulse { animation: oemHaloPulse 4s ease-in-out infinite; }
+.oem-speed-arc  { animation: oemSpeedBreathe 3.2s ease-in-out infinite; }
+.oem-speed-digit { animation: oemSpeedPulse 3.2s ease-in-out infinite; }
+.oem-route-flow  { animation: oemRouteFlow 2s linear infinite; }

@@ -1,34 +1,746 @@
-import { memo, useEffect, useState, lazy, Suspense } from 'react';
-import { DockBar } from '../layout/DockBar';
-
+import { memo, useEffect, useState, useMemo, useRef, lazy, Suspense, createContext, useContext } from 'react';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
-import type { CSSProperties } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useLayout } from '../../context/LayoutContext';
 import {
-  SkipBack, SkipForward, Pause, Play,
-  Thermometer, Fuel, Camera, Maximize2, User, Monitor,
-  Star, Clock, Bluetooth, Wifi, MapPin, Phone, Settings,
+  Navigation, Maximize2, SkipBack, SkipForward, Play, Pause,
+  Phone, Clock3, Mic, Bell, Wind, Settings, LayoutGrid,
+  Map as MapIcon, Music2, Bluetooth, Wifi, Lock, Plug, Fan, ChevronRight,
+  CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
+  AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench,
 } from 'lucide-react';
+import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
-import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
+import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { useNotificationState } from '../../platform/notificationService';
+import { openDrawer } from '../../platform/drawerBus';
+import { openMusicDrawer } from '../../platform/mediaUi';
+import type { DrawerType } from '../layout/DockBar';
+import { useLayout } from '../../context/LayoutContext';
 import { MiniMapWidget } from '../map/MiniMapWidget';
-import { APP_MAP, type AppItem } from '../../data/apps';
+import type { AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ════════════════════════════════════════════════════════════
-   PRO LAYOUT — Dark Automotive Dashboard
-   Exact replica of the premium car infotainment design
+   PRO LAYOUT — OEM CAM TILE DASHBOARD (gündüz / gece adaptif)
+   Referans: aydınlık + gece HMI kartlı pano + yüzen cam dock.
+   Palet day/night ile otomatik döner; aksan = soğuk mavi.
    ════════════════════════════════════════════════════════════ */
 
-// Sidebar genişliği profilden — dockIconSize × 2.8, COMPACT'ta gizlenir
-const getSidebarW = (iconSize: number) => Math.max(iconSize * 2.8 | 0, 50);
+interface Pal {
+  night: boolean;
+  bg: string;
+  card: string;        // cam kart yüzeyi
+  cardSolid: string;   // opak kart (medya/araç)
+  border: string;
+  ink: string;
+  ink2: string;
+  ink3: string;
+  accent: string;
+  accentSoft: string;
+  accentGlow: string;
+  good: string;
+  shadow: string;
+  dockBg: string;
+  dockBorder: string;
+  tile: string;        // iç mini-kutu zemini
+}
 
+function buildPal(night: boolean): Pal {
+  return night
+    ? {
+        night: true,
+        bg: 'radial-gradient(120% 90% at 70% -10%, #11203a 0%, transparent 55%), linear-gradient(160deg,#070a12 0%,#0a0f1c 45%,#070b15 100%)',
+        card: 'rgba(20,26,40,0.66)',
+        cardSolid: 'rgba(17,22,34,0.94)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        ink: '#eef2f8',
+        ink2: 'rgba(225,231,242,0.66)',
+        ink3: 'rgba(225,231,242,0.40)',
+        accent: '#5b8dff',
+        accentSoft: 'rgba(91,141,255,0.18)',
+        accentGlow: 'rgba(91,141,255,0.40)',
+        good: '#34d399',
+        shadow: '0 18px 48px -22px rgba(0,0,0,0.72), 0 2px 10px rgba(0,0,0,0.45)',
+        dockBg: 'rgba(16,21,33,0.62)',
+        dockBorder: '1px solid rgba(255,255,255,0.09)',
+        tile: 'rgba(255,255,255,0.05)',
+      }
+    : {
+        night: false,
+        // Hafif mavimsi serin zemin: sol-altta yumuşak mavi wash + sağ-üstte ışık.
+        bg:
+          'radial-gradient(88% 76% at 7% 113%, rgba(47,107,255,0.16) 0%, rgba(47,107,255,0.05) 32%, transparent 58%),' +
+          'radial-gradient(120% 88% at 80% -12%, rgba(236,243,253,0.95) 0%, transparent 54%),' +
+          'linear-gradient(160deg,#dbe4f1 0%,#e7eef7 46%,#e0e9f4 100%)',
+        // Kart yüzeyleri neredeyse opak (güneşte saydamlık kontrastı düşürür) + hafif mavimsi
+        card: 'linear-gradient(150deg, rgba(249,251,255,0.97) 0%, rgba(234,242,253,0.96) 100%)',
+        cardSolid: 'linear-gradient(150deg, #f8fbff 0%, #e9f1fd 100%)',
+        border: '1px solid rgba(47,107,255,0.18)',
+        // Güneş okunabilirliği (WCAG AAA / ISO 15008): tam-opak koyu mürekkep,
+        // ikincil/üçüncül yazılar da yüksek kontrast (sönük gri yok).
+        ink: '#0c1420',
+        ink2: 'rgba(16,26,42,0.88)',
+        ink3: 'rgba(16,26,42,0.72)',
+        accent: '#2f6bff',
+        accentSoft: 'rgba(47,107,255,0.12)',
+        accentGlow: 'rgba(47,107,255,0.28)',
+        good: '#0e9f6e',
+        shadow: '0 14px 34px -16px rgba(40,70,120,0.30), 0 2px 8px rgba(40,70,120,0.10)',
+        dockBg: 'linear-gradient(150deg, rgba(249,251,255,0.84) 0%, rgba(232,241,253,0.80) 100%)',
+        dockBorder: '1px solid rgba(47,107,255,0.20)',
+        tile: 'rgba(47,107,255,0.08)',
+      };
+}
+
+const PalCtx = createContext<Pal>(buildPal(false));
+const usePal = () => useContext(PalCtx);
+
+/* ─── ortak kart kabuğu ─────────────────────────────────────── */
+function cardStyle(p: Pal, opts?: { solid?: boolean; pad?: number }): React.CSSProperties {
+  return {
+    background: opts?.solid ? p.cardSolid : p.card,
+    border: p.border,
+    borderRadius: 24,
+    boxShadow: p.shadow,
+    backdropFilter: 'blur(18px) saturate(1.25)',
+    WebkitBackdropFilter: 'blur(18px) saturate(1.25)',
+    padding: opts?.pad,
+  };
+}
+
+function CardLabel({ children }: { children: React.ReactNode }) {
+  const p = usePal();
+  return (
+    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.ink2 }}>
+      {children}
+    </div>
+  );
+}
+
+/* ─── STATUS CLUSTER (bt / sinyal / wifi / batarya) ──────────── */
+const StatusCluster = memo(function StatusCluster() {
+  const p = usePal();
+  const device = useDeviceStatus();
+  return (
+    <div className="flex items-center gap-2.5" style={{ color: p.ink2 }}>
+      <Bluetooth className="w-3.5 h-3.5" />
+      <div className="flex items-end gap-[2px] h-3.5">
+        {[4, 7, 10, 13].map((h, i) => (
+          <div key={i} style={{ width: 2.5, height: h, background: p.ink2, borderRadius: 1 }} />
+        ))}
+      </div>
+      <Wifi className="w-3.5 h-3.5" />
+      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
+        {device.ready ? `${device.battery}%` : '—'}
+      </span>
+    </div>
+  );
+});
+
+/* ─── CLOCK CARD ────────────────────────────────────────────── */
+const ClockCard = memo(function ClockCard() {
+  const p = usePal();
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const { time, date } = useClock(use24Hour, false);
+  return (
+    <div style={{ ...cardStyle(p), padding: '14px 16px' }} className="flex-shrink-0">
+      <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>
+        {time}
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 5 }}>{date}</div>
+    </div>
+  );
+});
+
+/* ─── GAUGE CARD (hız halkası + menzil + mini medya) ────────── */
+const GaugeCard = memo(function GaugeCard() {
+  const p = usePal();
+  const obd = useOBDState();
+  const gps = useGPSLocation();
+  const { playing, track } = useMediaState();
+  const speedKmh = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const range = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round((obd.fuelLevel / 100) * 750) : null;
+
+  const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
+  const arc = useMemo(() => {
+    const rad = (d: number) => (d * Math.PI) / 180;
+    const pt = (a: number) => ({ x: cx + R * Math.cos(rad(a)), y: cy + R * Math.sin(rad(a)) });
+    const build = (a1: number, a2: number) => {
+      const s = pt(a1), e = pt(a2), large = a2 - a1 > 180 ? 1 : 0;
+      return `M${s.x} ${s.y} A${R} ${R} 0 ${large} 1 ${e.x} ${e.y}`;
+    };
+    const pct = Math.min(speedKmh / 200, 1);
+    return { track: build(START, START + SPAN), fill: pct > 0.01 ? build(START, START + pct * SPAN) : null };
+  }, [speedKmh]);
+
+  return (
+    <div style={{ ...cardStyle(p), padding: 14 }} className="flex-1 min-h-0 flex flex-col items-center justify-between">
+      {/* Hız halkası */}
+      <div style={{ position: 'relative', width: 128, height: 128 }}>
+        <svg viewBox="0 0 128 128" width="128" height="128" style={{ overflow: 'visible' }}>
+          <path d={arc.track} fill="none" stroke={p.tile} strokeWidth="9" strokeLinecap="round" />
+          {arc.fill && (
+            <path d={arc.fill} fill="none" stroke={p.accent} strokeWidth="9" strokeLinecap="round"
+              style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span style={{ fontSize: 40, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speedKmh}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/S</span>
+        </div>
+      </div>
+
+      {/* Sürüş modu + limit */}
+      <div className="w-full flex items-center justify-between" style={{ marginTop: 4 }}>
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>D</span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: p.ink2 }}>AUTO</span>
+        </div>
+        <div className="flex flex-col items-center justify-center rounded-full" style={{ width: 34, height: 34, border: '2.5px solid #E0322B', background: p.cardSolid }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>90</span>
+        </div>
+      </div>
+
+      {/* Menzil */}
+      <div className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: p.tile }}>
+        <BatteryCharging className="w-3.5 h-3.5" style={{ color: p.good }} />
+        <span style={{ fontSize: 15, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
+      </div>
+
+      {/* Mini medya */}
+      <button onClick={() => openMusicDrawer()} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl active:scale-[0.98] transition-all"
+        style={{ background: p.night ? 'rgba(91,141,255,0.10)' : 'rgba(47,107,255,0.07)', border: 'none', cursor: 'pointer' }}>
+        <div className="flex items-end gap-[2px] h-4" style={{ flexShrink: 0 }}>
+          {[0.5, 0.9, 0.6, 1].map((s, i) => (
+            <div key={i} style={{ width: 2.5, height: `${s * 100}%`, background: p.accent, borderRadius: 1, animation: playing ? `proEq 0.9s ${i * 0.12}s ease-in-out infinite` : 'none', opacity: playing ? 1 : 0.5 }} />
+          ))}
+        </div>
+        <span className="truncate" style={{ fontSize: 11, fontWeight: 600, color: p.ink2, textAlign: 'left', flex: 1 }}>
+          {track.title || 'Müzik'}
+        </span>
+      </button>
+    </div>
+  );
+});
+
+/* ─── SETTINGS CARD (saat kartı stilinde, sol kolon altı) ───── */
+const SettingsCard = memo(function SettingsCard({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const p = usePal();
+  return (
+    <button
+      onClick={onOpenSettings}
+      style={{ ...cardStyle(p), padding: '12px 14px' }}
+      className="flex-shrink-0 w-full flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
+    >
+      <div className="flex items-center justify-center rounded-xl flex-shrink-0" style={{ width: 38, height: 38, background: p.tile }}>
+        <Settings className="w-5 h-5" style={{ color: p.ink2 }} />
+      </div>
+      <div className="min-w-0 text-left">
+        <div style={{ fontSize: 15, fontWeight: 800, color: p.ink, lineHeight: 1 }}>Ayarlar</div>
+        <div className="truncate" style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 3 }}>Sistem · Tema</div>
+      </div>
+    </button>
+  );
+});
+
+/* ─── NAV CARD (büyük harita + dönüş kartı) ─────────────────── */
+const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
+  const p = usePal();
+  return (
+    <div onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0"
+      style={{ borderRadius: 24, border: p.border, boxShadow: p.shadow }}>
+      {/* Harita */}
+      <div className="absolute inset-0">
+        {fullMapOpen
+          ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.night ? '#0a1020' : '#dfe6ef' }}>
+              <Navigation className="w-10 h-10" style={{ color: p.accent }} />
+            </div>
+          : <MiniMapWidget onFullScreenClick={onOpenMap} />}
+      </div>
+
+      {/* Üst başlık + büyüt */}
+      <div className="absolute top-3 left-3 right-3 flex items-start justify-between pointer-events-none">
+        <div className="px-3 py-2 rounded-2xl pointer-events-auto" style={{ ...cardStyle(p), padding: '10px 14px', borderRadius: 18 }}>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+              <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                2.4 <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-center rounded-xl pointer-events-auto" style={{ width: 34, height: 34, background: p.dockBg, border: p.dockBorder, backdropFilter: 'blur(8px)' }}>
+          <Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} />
+        </div>
+      </div>
+
+      {/* Alt ETA şeridi */}
+      <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 pointer-events-none">
+        <div className="flex items-center gap-4 px-4 py-2.5 rounded-2xl pointer-events-auto" style={{ ...cardStyle(p), padding: '10px 16px', borderRadius: 16 }}>
+          <div className="flex items-center gap-2">
+            <Clock3 className="w-4 h-4" style={{ color: p.accent }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: p.ink }}>23 dk</span>
+            <span style={{ fontSize: 12, color: p.ink3 }}>· 19:56</span>
+          </div>
+          <div style={{ width: 1, height: 16, background: p.border.includes('255') ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>18 km</span>
+          <div style={{ width: 1, height: 16, background: p.border.includes('255') ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }} />
+          <div className="flex items-center gap-1.5">
+            <BatteryCharging className="w-4 h-4" style={{ color: p.good }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>EV kullanımı</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ─── MUSIC CARD ────────────────────────────────────────────── */
+const MusicCard = memo(function MusicCard() {
+  const p = usePal();
+  const { playing, track, hasSession } = useMediaState();
+  // Dock drawer ile aynı kaynak: mount'ta son parçayı önizle (oturum yoksa).
+  // YouTube IFrame oynatıcısını önceden ısıt → "son parçadan devam" tıklamasında
+  // user-gesture korunur, autoplay engellenmez (cold-start await'i gesture'ı tüketirdi).
+  useEffect(() => {
+    startMediaHub();
+    previewLastMedia();
+    void ensureYouTubeReady().catch(() => {});
+    return () => stopMediaHub();
+  }, []);
+
+  const elapsed = track.positionSec || 0;
+  const total = track.durationSec || 0;
+  const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 0;
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  // Play: aktif oturum varsa duraklat/sürdür; boştaysa son parçayı sürdür, o da yoksa müzik drawer'ını aç.
+  const handlePlay = () => {
+    if (hasSession) togglePlayPause();
+    else if (!resumeLastMedia()) openMusicDrawer();
+  };
+
+  // İlerleme çubuğu — dokun/sürükle ile sarma (seek)
+  const barRef = useRef<HTMLDivElement>(null);
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const ratioFromX = (clientX: number) => {
+    const el = barRef.current;
+    if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    return Math.min(Math.max((clientX - r.left) / r.width, 0), 1);
+  };
+  const onBarDown = (e: React.PointerEvent) => {
+    if (total <= 0) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDragPct(ratioFromX(e.clientX) * 100);
+  };
+  const onBarMove = (e: React.PointerEvent) => {
+    if (dragPct == null) return;
+    setDragPct(ratioFromX(e.clientX) * 100);
+  };
+  const onBarUp = (e: React.PointerEvent) => {
+    if (dragPct == null) return;
+    e.stopPropagation();
+    seek(ratioFromX(e.clientX) * total);
+    setDragPct(null);
+  };
+  const shownPct = dragPct ?? pct;
+
+  return (
+    <div style={{ ...cardStyle(p), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
+      <div className="flex items-center justify-between mb-3">
+        <CardLabel>Müzik</CardLabel>
+        <StatusCluster />
+      </div>
+      {/* Albüm alanı — dokununca müzik kütüphanesi açılır */}
+      <button onClick={() => openMusicDrawer()} className="flex items-center gap-3.5 flex-1 min-h-0 bg-transparent border-none cursor-pointer text-left p-0">
+        <div className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 74, height: 74, background: 'linear-gradient(135deg,#7c3aed,#db2777 60%,#f97316)', boxShadow: `0 10px 24px ${p.night ? 'rgba(124,58,237,0.45)' : 'rgba(124,58,237,0.30)'}` }}>
+          {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: 'rgba(255,255,255,0.9)' }} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="truncate" style={{ fontSize: 18, fontWeight: 800, color: p.ink }}>{track.title || 'Çalmıyor'}</div>
+          <div className="truncate" style={{ fontSize: 13, color: p.ink2, marginTop: 2 }}>{track.artist || 'Oynatmak için dokun'}</div>
+        </div>
+      </button>
+      <div className="mt-3">
+        <div
+          ref={barRef}
+          onPointerDown={onBarDown}
+          onPointerMove={onBarMove}
+          onPointerUp={onBarUp}
+          className="relative mb-1.5"
+          style={{ paddingTop: 7, paddingBottom: 7, cursor: total > 0 ? 'pointer' : 'default', touchAction: 'none' }}
+        >
+          <div className="h-[4px] rounded-full overflow-hidden" style={{ background: p.tile }}>
+            <div style={{ height: '100%', width: `${shownPct}%`, background: p.accent, borderRadius: 999, transition: dragPct == null ? 'width 0.4s linear' : 'none' }} />
+          </div>
+          {total > 0 && (
+            <div className="absolute rounded-full" style={{ top: '50%', left: `${shownPct}%`, transform: 'translate(-50%,-50%)', width: 12, height: 12, background: p.accent, boxShadow: `0 0 0 3px ${p.accentSoft}, 0 1px 3px rgba(0,0,0,0.3)`, pointerEvents: 'none' }} />
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(dragPct != null ? (dragPct / 100) * total : elapsed) : '--:--'}</span>
+          <div className="flex items-center gap-4">
+            <button onClick={(e) => { e.stopPropagation(); previous(); }} className="active:scale-90 transition-all bg-transparent border-none cursor-pointer" style={{ color: p.ink2 }}><SkipBack className="w-5 h-5" /></button>
+            <button onClick={(e) => { e.stopPropagation(); handlePlay(); }} className="flex items-center justify-center rounded-full active:scale-90 transition-all cursor-pointer" style={{ width: 42, height: 42, background: p.accent, boxShadow: `0 6px 18px ${p.accentGlow}`, border: 'none' }}>
+              {playing ? <Pause className="w-5 h-5" style={{ fill: '#fff', color: '#fff' }} /> : <Play className="w-5 h-5 ml-0.5" style={{ fill: '#fff', color: '#fff' }} />}
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); next(); }} className="active:scale-90 transition-all bg-transparent border-none cursor-pointer" style={{ color: p.ink2 }}><SkipForward className="w-5 h-5" /></button>
+          </div>
+          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(total) : '--:--'}</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ─── NEW VECTOR SUV (gündüz/gece) ──────────────────────────── */
+function VehicleSVG({ p }: { p: Pal }) {
+  const body = p.night ? '#d6dce6' : '#e8edf4';
+  const bodyDeep = p.night ? '#aab4c4' : '#c7d0dd';
+  const glass = p.night ? 'rgba(91,141,255,0.30)' : 'rgba(47,107,255,0.16)';
+  const wheel = p.night ? '#0c1018' : '#2a3140';
+  return (
+    <svg viewBox="0 0 240 110" width="100%" height="100%" style={{ maxWidth: 230 }}>
+      <defs>
+        <linearGradient id="proSuvBody" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity={p.night ? 0.95 : 1} />
+          <stop offset="55%" stopColor={body} />
+          <stop offset="100%" stopColor={bodyDeep} />
+        </linearGradient>
+        <radialGradient id="proSuvGnd" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={p.accent} stopOpacity="0.16" />
+          <stop offset="100%" stopColor={p.accent} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {/* zemin yansıması */}
+      <ellipse cx="120" cy="98" rx="100" ry="9" fill="url(#proSuvGnd)" />
+      {/* gövde — modern crossover silüeti */}
+      <path d="M14,74 C14,64 20,60 30,58 C40,42 58,32 84,30 L150,30 C172,30 192,40 206,54 C218,56 226,62 226,72 L226,80 C226,84 223,86 219,86 L21,86 C17,86 14,83 14,79 Z" fill="url(#proSuvBody)" stroke={bodyDeep} strokeWidth="0.6" />
+      {/* cam / kabin */}
+      <path d="M62,34 C72,32 80,31 92,31 L146,31 C162,31 176,38 188,50 L70,50 C66,50 63,48 62,44 Z" fill={glass} stroke="rgba(255,255,255,0.4)" strokeWidth="0.6" />
+      <line x1="118" y1="31" x2="118" y2="50" stroke={p.night ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.10)'} strokeWidth="0.8" />
+      {/* kapı çizgisi */}
+      <path d="M70,52 L196,52" stroke={p.night ? 'rgba(0,0,0,0.14)' : 'rgba(0,0,0,0.08)'} strokeWidth="0.8" />
+      {/* far */}
+      <path d="M206,56 L222,60 L222,66 L204,63 Z" fill={p.night ? 'rgba(140,180,255,0.85)' : 'rgba(255,250,220,0.9)'} />
+      {/* stop lambası */}
+      <path d="M16,60 L15,68 L22,70 L24,62 Z" fill="#E0322B" opacity="0.8" />
+      {/* tekerlekler */}
+      {[64, 176].map((wx) => (
+        <g key={wx}>
+          <circle cx={wx} cy="86" r="16" fill={wheel} />
+          <circle cx={wx} cy="86" r="9" fill={p.night ? '#161c28' : '#3a4254'} />
+          <circle cx={wx} cy="86" r="3.4" fill={p.night ? '#222a3a' : '#525c70'} />
+          <g stroke={p.night ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.5)'} strokeWidth="1.3">
+            <line x1={wx} y1="78" x2={wx} y2="94" /><line x1={wx - 8} y1="86" x2={wx + 8} y2="86" />
+            <line x1={wx - 6} y1="80" x2={wx + 6} y2="92" /><line x1={wx - 6} y1="92" x2={wx + 6} y2="80" />
+          </g>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ─── VEHICLE STATUS CARD ───────────────────────────────────── */
+const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { onOpenSettings: () => void; onLaunch: (id: string) => void }) {
+  const p = usePal();
+  const obd = useOBDState();
+  const battery = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round(obd.fuelLevel) : 78;
+  const range = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round((obd.fuelLevel / 100) * 750) : 320;
+
+  const toggles = [
+    { Icon: Lock, label: 'KİLİT', fn: onOpenSettings },
+    { Icon: Fan, label: 'HAVALANDIR', fn: () => openDrawer('climate') },
+    { Icon: Plug, label: 'ŞARJ', fn: onOpenSettings },
+    { Icon: Settings, label: 'AYAR', fn: onOpenSettings },
+  ];
+
+  return (
+    <div style={{ ...cardStyle(p, { solid: true }), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2">
+          <CardLabel>Araç Durumu</CardLabel>
+          <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
+        </div>
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: p.ink, marginTop: 4 }}>Normal</div>
+
+      <div className="flex-1 min-h-0 flex items-center gap-3 my-1">
+        <div className="flex-1 flex items-center justify-center min-w-0"><VehicleSVG p={p} /></div>
+        <div className="flex flex-col gap-2 flex-shrink-0" style={{ minWidth: 88 }}>
+          <Stat p={p} icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={`${battery}%`} label="Batarya" />
+          <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="2.5 bar" label="Lastik" />
+          <Stat p={p} icon={<Navigation className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${range} km`} label="Menzil" />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between pt-3" style={{ borderTop: p.border, gap: 6 }} onClick={e => e.stopPropagation()}>
+        {toggles.map(({ Icon, label, fn }) => (
+          <button key={label} onClick={fn} className="flex flex-col items-center gap-1.5 flex-1 active:scale-95 transition-all bg-transparent border-none cursor-pointer">
+            <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: p.tile }}>
+              <Icon className="w-4 h-4" style={{ color: p.ink2 }} />
+            </div>
+            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', color: p.ink2 }}>{label}</span>
+          </button>
+        ))}
+      </div>
+      {/* youtube/monitor erişimi gizli koru */}
+      <span className="hidden" onClick={() => onLaunch('youtube')} />
+    </div>
+  );
+});
+
+function Stat({ p, icon, value, label }: { p: Pal; icon: React.ReactNode; value: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      {icon}
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: p.ink, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: p.ink2 }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── DOCK (yüzen cam hap) ──────────────────────────────────── */
+/** "Daha Fazla" içinde açılan ikincil drawer kısayolları */
+const MORE_ITEMS: { label: string; color: string; Icon: typeof MapIcon; drawer: DrawerType }[] = [
+  { label: 'Trafik', color: '#f4b740', Icon: AlertTriangle, drawer: 'traffic' },
+  { label: 'Dashcam', color: '#a78bfa', Icon: Camera, drawer: 'dashcam' },
+  { label: 'Seyir', color: '#34d399', Icon: Route, drawer: 'triplog' },
+  { label: 'Arıza', color: '#f87171', Icon: ShieldAlert, drawer: 'dtc' },
+  { label: 'Bakım', color: '#fb923c', Icon: Wrench, drawer: 'vehicle-reminder' },
+  { label: 'Güvenlik', color: '#60a5fa', Icon: Shield, drawer: 'security' },
+  { label: 'Eğlence', color: '#f472b6', Icon: Tv2, drawer: 'entertainment' },
+  { label: 'Sport', color: '#fb7185', Icon: Zap, drawer: 'sport' },
+];
+
+const DOCK_APPS_KEY = 'proDockApps';
+function loadDockApps(): string[] {
+  try { const r = safeGetRaw(DOCK_APPS_KEY); return r ? (JSON.parse(r) as string[]) : []; } catch { return []; }
+}
+
+const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSettings, appMap, onLaunch }: {
+  onOpenMap: () => void; onVoice: () => void; onOpenApps: () => void; onOpenSettings: () => void;
+  appMap: Record<string, AppItem>; onLaunch: (id: string) => void;
+}) {
+  const p = usePal();
+  const n = useNotificationState();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [dockApps, setDockApps] = useState<string[]>(loadDockApps);
+
+  const toggleApp = (id: string) => {
+    setDockApps(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      try { safeSetRaw(DOCK_APPS_KEY, JSON.stringify(next)); } catch { /* yoksay */ }
+      return next;
+    });
+  };
+
+  // Uzun-basma → düzenleme modu (tutup silme)
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpFired = useRef(false);
+  const startLongPress = () => {
+    lpFired.current = false;
+    lpTimer.current = setTimeout(() => { lpFired.current = true; setEditMode(true); }, 500);
+  };
+  const cancelLongPress = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
+  useEffect(() => () => cancelLongPress(), []);
+
+  // Yatay kaydırma: dokunmatik native; fare için tekerlek→yatay + sürükle-kaydır
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ down: false, startX: 0, startLeft: 0, moved: false });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (d !== 0) { el.scrollLeft += d; e.preventDefault(); }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  const onDragStart = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse') return; // dokunmatik native scroll kullanır
+    drag.current = { down: true, startX: e.clientX, startLeft: scrollRef.current?.scrollLeft ?? 0, moved: false };
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d.down || !scrollRef.current) return;
+    const dx = e.clientX - d.startX;
+    if (Math.abs(dx) > 5) d.moved = true;
+    scrollRef.current.scrollLeft = d.startLeft - dx;
+  };
+  const onDragEnd = () => { drag.current.down = false; };
+  // Sürükleme sonrası yanlışlıkla tıklamayı (uygulama açma/drawer) bastır
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (drag.current.moved) { e.stopPropagation(); e.preventDefault(); drag.current.moved = false; }
+  };
+
+  // Tüm sabit fonksiyon butonları (birincil + ikincil drawer'lar) inline
+  const items: { label: string; color: string; Icon: typeof MapIcon; fn: () => void; badge?: number; accent?: boolean }[] = [
+    { label: 'Harita', color: '#3b82f6', Icon: MapIcon, fn: onOpenMap },
+    { label: 'Müzik', color: '#ec4899', Icon: Music2, fn: () => openMusicDrawer() },
+    { label: 'Asistan', color: '#8b5cf6', Icon: Mic, fn: onVoice, accent: true },
+    { label: 'Telefon', color: '#22c55e', Icon: Phone, fn: () => openDrawer('phone') },
+    { label: 'Bildirim', color: '#f59e0b', Icon: Bell, fn: () => openDrawer('notifications'), badge: n.unreadCount },
+    { label: 'Araç', color: '#64748b', Icon: Navigation, fn: () => openDrawer('vehicle-reminder') },
+    { label: 'İklim', color: '#14b8a6', Icon: Wind, fn: () => openDrawer('climate') },
+    { label: 'Menü', color: '#3b82f6', Icon: LayoutGrid, fn: onOpenApps },
+    ...MORE_ITEMS.map(m => ({ label: m.label, color: m.color, Icon: m.Icon, fn: () => openDrawer(m.drawer) })),
+  ];
+  void onOpenSettings;
+
+  const allApps = Object.values(appMap ?? {});
+  // Büyük dock öğesi
+  const TILE_W = 94, TILE_H = 84, ICON = 32;
+
+  const tileBtn = "relative flex flex-col items-center justify-center gap-2 rounded-2xl active:scale-90 transition-all border-none cursor-pointer flex-shrink-0";
+  const labelStyle: React.CSSProperties = { fontSize: 12.5, fontWeight: 700, letterSpacing: '0.02em', color: p.ink2, maxWidth: TILE_W - 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+  return (
+    <div className="relative w-full" style={{ zIndex: editMode ? 95 : undefined }}>
+      {/* Düzenleme modu — dışarı dokununca çık */}
+      {editMode && <div className="fixed inset-0" style={{ zIndex: 90 }} onClick={() => setEditMode(false)} />}
+
+      {/* Uygulama ekleme picker — dock'un üstünde, sağda cam panel */}
+      {pickerOpen && (
+        <>
+          <div className="fixed inset-0" style={{ zIndex: 90 }} onClick={() => setPickerOpen(false)} />
+          <div className="absolute rounded-3xl p-3"
+            style={{ right: 6, bottom: 'calc(100% + 10px)', zIndex: 91, width: 'min(440px, 92vw)', background: p.dockBg, border: p.dockBorder, backdropFilter: 'blur(22px) saturate(1.3)', WebkitBackdropFilter: 'blur(22px) saturate(1.3)', boxShadow: p.shadow }}>
+            <div className="flex items-center justify-between mb-2 px-1">
+              <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: p.ink2 }}>Dock'a Uygulama Ekle</span>
+              <button onClick={() => setPickerOpen(false)} className="bg-transparent border-none cursor-pointer" style={{ fontSize: 12, fontWeight: 700, color: p.accent }}>Bitti</button>
+            </div>
+            <div className="pro-dock-scroll grid grid-cols-4 gap-1.5" style={{ maxHeight: 240, overflowY: 'auto', scrollbarWidth: 'none' }}>
+              {allApps.map(a => {
+                const on = dockApps.includes(a.id);
+                return (
+                  <button key={a.id} onClick={() => toggleApp(a.id)}
+                    className="relative flex flex-col items-center justify-center gap-1.5 rounded-2xl active:scale-90 transition-all border-none cursor-pointer"
+                    style={{ height: 70, background: on ? p.accentSoft : 'transparent' }}>
+                    <span style={{ fontSize: 24, lineHeight: 1 }}>{a.icon}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: p.ink2, maxWidth: 78, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                    {on && (
+                      <span className="absolute flex items-center justify-center rounded-full" style={{ top: 4, right: 8, width: 16, height: 16, background: p.accent }}>
+                        <Check style={{ width: 11, height: 11, color: '#fff' }} />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Tam genişlik, yatay kaydırmalı dock */}
+      <div
+        ref={scrollRef}
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerLeave={onDragEnd}
+        onClickCapture={onClickCapture}
+        className="pro-dock-scroll flex items-center gap-1.5 px-3 py-3.5 rounded-3xl w-full"
+        style={{
+          background: p.dockBg, border: p.dockBorder,
+          backdropFilter: 'blur(22px) saturate(1.3)', WebkitBackdropFilter: 'blur(22px) saturate(1.3)',
+          boxShadow: p.shadow,
+          overflowX: 'auto', overflowY: 'hidden',
+          scrollbarWidth: 'none', msOverflowStyle: 'none',
+          cursor: 'grab', touchAction: 'pan-x',
+          position: 'relative', zIndex: 91, // editMode kapatma katmanının (z90) üstünde kalsın → × tıklanabilir
+        }}
+      >
+        {items.map((it, i) => (
+          <button key={i} onClick={it.fn} className={tileBtn}
+            style={{ width: TILE_W, height: TILE_H, background: it.accent ? p.accentSoft : 'transparent' }}>
+            <it.Icon style={{ width: ICON, height: ICON, color: it.accent ? p.accent : it.color }} />
+            <span style={labelStyle}>{it.label}</span>
+            {!!it.badge && (
+              <span className="absolute" style={{ top: 6, right: 16, minWidth: 16, height: 16, background: '#f43f5e', color: '#fff', fontSize: 9, fontWeight: 800, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
+                {it.badge > 9 ? '9+' : it.badge}
+              </span>
+            )}
+          </button>
+        ))}
+
+        {/* Kullanıcının eklediği uygulamalar — tutup silme (uzun-basma → düzenleme modu) */}
+        {dockApps.map(id => {
+          const a = appMap?.[id];
+          if (!a) return null;
+          return (
+            <button
+              key={id}
+              onClick={() => { if (lpFired.current || editMode) { lpFired.current = false; return; } onLaunch(id); }}
+              onPointerDown={startLongPress}
+              onPointerUp={cancelLongPress}
+              onPointerLeave={cancelLongPress}
+              onContextMenu={(e) => { e.preventDefault(); setEditMode(true); }}
+              className={tileBtn}
+              style={{ width: TILE_W, height: TILE_H, animation: editMode ? 'proWiggle 0.3s ease-in-out infinite' : 'none' }}
+            >
+              <span style={{ fontSize: ICON, lineHeight: 1 }}>{a.icon}</span>
+              <span style={labelStyle}>{a.name}</span>
+              {editMode && (
+                <span
+                  onClick={(e) => { e.stopPropagation(); toggleApp(id); }}
+                  className="absolute flex items-center justify-center rounded-full"
+                  style={{ top: 2, left: 8, width: 18, height: 18, background: '#f43f5e', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer' }}
+                >
+                  <X style={{ width: 12, height: 12, color: '#fff' }} strokeWidth={3} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+
+        {/* Ekle */}
+        <button onClick={() => setPickerOpen(o => !o)} className={tileBtn} style={{ width: TILE_W, height: TILE_H }}>
+          <span className="flex items-center justify-center rounded-full" style={{ width: 40, height: 40, background: p.accentSoft, border: `1.5px dashed ${p.accent}` }}>
+            <Plus style={{ width: 22, height: 22, color: p.accent }} />
+          </span>
+          <span style={{ ...labelStyle, color: p.accent }}>Ekle</span>
+        </button>
+      </div>
+    </div>
+  );
+});
+
+/* ─── KEYFRAMES ─────────────────────────────────────────────── */
+const KEYFRAMES = `
+  @keyframes proPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  @keyframes proEq { 0%,100%{transform:scaleY(0.5)} 50%{transform:scaleY(1)} }
+  @keyframes proWiggle { 0%,100%{transform:rotate(-1.6deg)} 50%{transform:rotate(1.6deg)} }
+  .pro-dock-scroll::-webkit-scrollbar { display: none; }
+`;
+let styleInjected = false;
+function injectStyles() {
+  if (styleInjected || typeof document === 'undefined') return;
+  styleInjected = true;
+  const el = document.createElement('style');
+  el.textContent = KEYFRAMES;
+  document.head.appendChild(el);
+}
+
+/* ─── ROOT LAYOUT ───────────────────────────────────────────── */
 interface Props {
   onOpenMap:       () => void;
   onOpenApps:      () => void;
@@ -42,941 +754,62 @@ interface Props {
   smart?:          SmartSnapshot;
 }
 
-/* ─── SIDEBAR ─────────────────────────────────────────────────── */
-/* ─── RPM BAR ──────────────────────────────────────────────────── */
-const RPM_MAX = 7000;
-
-const RpmBar = memo(function RpmBar({ width = 64 }: { width?: number }) {
-  const { t } = useTranslation();
-  const obd = useOBDState();
-  const rpm = obd.rpm >= 0 ? obd.rpm : 0;
-  const throttle = obd.throttle >= 0 ? obd.throttle : 0;
-
-  /* Smooth lerp toward target RPM */
-  const [displayRpm, setDisplayRpm] = useState(rpm);
-  useEffect(() => {
-    let frame: number;
-    const step = () => {
-      setDisplayRpm((prev: number) => {
-        const diff = rpm - prev;
-        if (Math.abs(diff) < 8) return rpm;
-        return prev + diff * 0.14;
-      });
-      frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [rpm]);
-
-  const pct = Math.min(displayRpm / RPM_MAX, 1);
-  const isRedline = pct > 0.82;
-  const isHot     = pct > 0.55;
-
-  /* Liquid color gradient stops */
-  const liquidTop    = isRedline ? '#ff3b30' : isHot ? '#f59e0b' : '#00e5ff';
-  const liquidBottom = isRedline ? '#b91c1c' : isHot ? '#b45309' : '#0284c7';
-  const glowColor    = isRedline ? 'rgba(239,68,68,0.55)' : isHot ? 'rgba(245,158,11,0.4)' : 'rgba(0,229,255,0.35)';
-
-  /* Fill height % from bottom */
-  const fillPct = pct * 100;
-
-  return (
-    <div
-      data-pro-rpmbar
-      style={{
-        width,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        flexShrink: 0,
-        background: 'linear-gradient(180deg, rgba(5,7,13,0.98) 0%, rgba(8,10,18,0.98) 100%)',
-        borderRight: '1px solid rgba(255,255,255,0.04)',
-        padding: '14px 0 10px',
-        position: 'relative',
-        gap: 6,
-      }}
-    >
-      {/* RPM label */}
-      <div style={{
-        fontFamily: '"Orbitron", monospace',
-        fontSize: 8,
-        fontWeight: 700,
-        letterSpacing: '0.14em',
-        color: 'rgba(255,255,255,0.28)',
-      }}>{t('common.rpm')}</div>
-
-      {/* 7k marker */}
-      <div style={{
-        fontFamily: '"Orbitron", monospace',
-        fontSize: 7,
-        color: 'rgba(239,68,68,0.6)',
-        letterSpacing: '0.06em',
-        marginBottom: -2,
-      }}>7k</div>
-
-      {/* Glass tube */}
-      <div style={{
-        position: 'relative',
-        width: 22,
-        flex: 1,
-        borderRadius: 11,
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.10)',
-        boxShadow: `inset 0 0 12px rgba(0,0,0,0.6), 0 0 16px ${glowColor}`,
-        overflow: 'hidden',
-        transition: 'box-shadow 0.3s ease',
-      }}>
-        {/* Liquid fill — rises from bottom */}
-        <div style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: `${fillPct}%`,
-          background: `linear-gradient(180deg, ${liquidTop} 0%, ${liquidBottom} 100%)`,
-          transition: 'height 0.12s ease-out, background 0.4s ease',
-          borderRadius: '0 0 10px 10px',
-        }}>
-          {/* Wave at surface */}
-          <div style={{
-            position: 'absolute',
-            top: -4,
-            left: -8,
-            right: -8,
-            height: 8,
-            borderRadius: '50%',
-            background: `${liquidTop}cc`,
-            animation: 'rpmWave 1.8s ease-in-out infinite',
-          }} />
-          {/* Inner shine */}
-          <div className="absolute inset-y-0 left-[3px] w-1 rounded-sm" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, transparent 100%)' }} />
-        </div>
-
-        {/* Tick marks */}
-        {[0.25, 0.5, 0.75].map(t => (
-          <div key={t} style={{
-            position: 'absolute',
-            bottom: `${t * 100}%`,
-            left: 0, right: 0,
-            height: 1,
-            background: 'rgba(255,255,255,0.08)',
-            pointerEvents: 'none',
-          }} />
-        ))}
-
-        {/* Glass glare overlay */}
-        <div className="absolute inset-y-0 left-px w-1.5 rounded-tl-[6px] rounded-bl-[6px] pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 60%)' }} />
-      </div>
-
-      {/* 0 marker */}
-      <div style={{
-        fontFamily: '"Orbitron", monospace',
-        fontSize: 7,
-        color: 'rgba(0,229,255,0.45)',
-        letterSpacing: '0.06em',
-        marginTop: -2,
-      }}>0</div>
-
-      {/* RPM value */}
-      <div style={{
-        fontFamily: '"Orbitron", monospace',
-        fontSize: 9,
-        fontWeight: 700,
-        color: isRedline ? '#ff3b30' : 'rgba(255,255,255,0.65)',
-        letterSpacing: '0.03em',
-        textShadow: isRedline ? '0 0 10px rgba(255,59,48,0.9)' : 'none',
-        transition: 'color 0.25s, text-shadow 0.25s',
-        textAlign: 'center',
-        lineHeight: 1.2,
-      }}>
-        {(Math.round(displayRpm / 100) * 100).toLocaleString()}
-      </div>
-
-      {/* Throttle label + bar */}
-      <div className="w-full flex flex-col items-center gap-[3px] pb-0.5">
-        <div style={{ fontSize: 7, fontFamily: '"Orbitron", monospace', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.1em' }}>GZ</div>
-        <div style={{
-          width: 28, height: 3, borderRadius: 2,
-          background: 'rgba(255,255,255,0.06)',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            height: '100%',
-            width: `${throttle}%`,
-            background: `linear-gradient(90deg, ${liquidBottom}, ${liquidTop})`,
-            borderRadius: 2,
-            transition: 'width 0.12s ease',
-            boxShadow: `0 0 4px ${liquidTop}`,
-          }} />
-        </div>
-      </div>
-    </div>
-  );
-});
-
-/* ─── TOP BAR ──────────────────────────────────────────────────── */
-const TopBar = memo(function TopBar({ headerH = 64, font2xl = 28, fontSm = 11 }: { headerH?: number; font2xl?: number; fontSm?: number }) {
-  const use24Hour = useStore(s => s.settings.use24Hour);
-  const { time, date } = useClock(use24Hour, false);
-  const device = useDeviceStatus();
-
-  // Sun progress (Adaptive sun calculation - mock fallbacks removed)
-  const [sunPct, setSunPct] = useState(0);
-  useEffect(() => {
-    const calc = () => {
-      const now = new Date();
-      const cur = now.getHours() * 60 + now.getMinutes();
-      const rise = 6 * 60;  // 06:00 avg
-      const set_ = 19 * 60; // 19:00 avg
-      setSunPct(Math.max(0, Math.min(100, ((cur - rise) / (set_ - rise)) * 100)));
-    };
-    calc();
-    const id = setInterval(calc, 60000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <div
-      data-pro-topbar
-      className="flex items-center flex-shrink-0"
-      style={{
-        height: headerH,
-        background: 'var(--header-bg, #0a0c10)',
-        borderBottom: '1px solid var(--divider-color, rgba(255,255,255,0.05))',
-        transition: 'background 0.4s ease',
-        padding: '0 20px',
-        gap: 0,
-      }}
-    >
-      {/* Time + Date */}
-      <div className="flex-shrink-0">
-        <div
-          style={{
-            fontFamily: '"Orbitron", monospace',
-            fontSize: font2xl,
-            fontWeight: 700,
-            color: '#fff',
-            lineHeight: 1,
-            letterSpacing: 2,
-          }}
-        >
-          {time}
-        </div>
-        <div style={{ fontSize: fontSm, color: 'rgba(255,255,255,0.45)', marginTop: 2, fontWeight: 400 }}>
-          {date}
-        </div>
-      </div>
-
-      {/* Sun progress — center — COMPACT'ta gizlenir */}
-      <div data-sun-bar data-header-center className="flex flex-col items-center gap-1 flex-1">
-        <div className="flex items-center gap-3 text-xs text-white/55">
-          <span className="flex items-center gap-1"><span>☀️</span><span>--:--</span></span>
-          <div className="relative w-[clamp(120px,15vw,200px)] h-1 bg-white/10 rounded-sm overflow-visible">
-            <div
-              className="h-full rounded-sm relative"
-              style={{ width: `${sunPct}%`, background: 'linear-gradient(90deg, #ff9800, #ffeb3b, #4fc3f7)' }}
-            >
-              <div className="absolute -right-[5px] -top-[3px] w-2.5 h-2.5 bg-[#ffeb3b] rounded-full" style={{ boxShadow: '0 0 8px #ffeb3b' }} />
-            </div>
-          </div>
-          <span className="flex items-center gap-1"><span>🌙</span><span>--:--</span></span>
-        </div>
-      </div>
-
-      {/* Status icons */}
-      <div data-header-status className="flex items-center gap-4 flex-shrink-0">
-        <Bluetooth className="w-4 h-4 text-white/65" />
-
-        {/* Signal bars */}
-        <div className="flex items-end gap-0.5 h-4">
-          {[4, 7, 10, 14].map((h, i) => (
-            <div key={i} style={{ width: 3, height: h, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
-          ))}
-        </div>
-
-        <Wifi className="w-4 h-4 text-white/65" />
-
-        <span className="text-[14px] text-[#4fc3f7] font-semibold" style={{ fontFamily: '"Orbitron", monospace' }}>
-          {device.ready ? `${device.battery}%` : '--°C'}
-        </span>
-      </div>
-    </div>
-  );
-});
-
-/* ─── SPEED CARD ───────────────────────────────────────────────── */
-const SpeedCard = memo(function SpeedCard({ gaugeSize = 260, spaceMd = 10 }: { gaugeSize?: number; spaceMd?: number }) {
-  const { t } = useTranslation();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speedKmh = resolveSpeedKmh(gps, obd.speed ?? 0);
-  const temp = obd.engineTemp ?? 0;
-  const fuelRange = obd.fuelLevel != null ? Math.round((obd.fuelLevel / 100) * 750) : null;
-
-  // Gauge arc
-  const MAX = 240;
-  const R = 100, cx = 130, cy = 130;
-  const START_DEG = 135, SPAN_DEG = 270;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const ptOnArc = (deg: number) => ({
-    x: cx + R * Math.cos(toRad(deg)),
-    y: cy + R * Math.sin(toRad(deg)),
-  });
-  const arcPath = (a1: number, a2: number) => {
-    const s = ptOnArc(a1), e = ptOnArc(a2);
-    const large = a2 - a1 > 180 ? 1 : 0;
-    return `M${s.x} ${s.y} A${R} ${R} 0 ${large} 1 ${e.x} ${e.y}`;
-  };
-  const pct = Math.min(speedKmh / MAX, 1);
-  const fillAngle = START_DEG + pct * SPAN_DEG;
-
-  return (
-    <div
-      className="relative overflow-hidden flex-1"
-      style={{
-        borderRadius: 'var(--radius-card, 16px)',
-        border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
-        boxShadow: '0 4px 32px rgba(0,0,0,0.6)',
-        background: `
-          linear-gradient(180deg, rgba(10,12,16,0.15) 0%, rgba(10,12,16,0.35) 55%, rgba(10,12,16,0.88) 100%),
-          radial-gradient(ellipse 80% 40% at 50% 100%, #c8680a 0%, transparent 55%),
-          radial-gradient(ellipse 120% 60% at 50% 85%, #7b3000 0%, transparent 50%),
-          linear-gradient(180deg, #1a0a2e 0%, #2d1b4e 15%, #4a2060 25%, #6b3a1f 40%, #8b5a0a 50%, #5c3d0a 60%, #2a1a0a 75%, #0a0806 100%)
-        `,
-      }}
-    >
-      {/* Mountain silhouettes */}
-      <svg
-        className="absolute bottom-[60px] inset-x-0 w-full pointer-events-none"
-        viewBox="0 0 870 180"
-        preserveAspectRatio="none"
-      >
-        <defs>
-          <radialGradient id="proSkyGlow" cx="50%" cy="80%" r="60%">
-            <stop offset="0%" stopColor="#c85a00" stopOpacity="0.7" />
-            <stop offset="100%" stopColor="#2d1b4e" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <rect width="870" height="180" fill="url(#proSkyGlow)" />
-        <path d="M0,150 L80,70 L140,100 L200,40 L260,80 L320,20 L380,60 L440,10 L500,50 L560,30 L620,70 L680,20 L740,60 L800,40 L870,80 L870,180 L0,180Z" fill="#1a0a2e" opacity="0.95" />
-        <path d="M0,165 L60,120 L120,145 L180,100 L240,130 L300,90 L360,120 L420,80 L480,110 L540,92 L600,120 L660,95 L720,125 L780,105 L870,135 L870,180 L0,180Z" fill="#0d0618" opacity="0.98" />
-      </svg>
-
-      {/* Road */}
-      <svg
-        className="absolute bottom-0 inset-x-0 w-full pointer-events-none"
-        viewBox="0 0 870 130"
-        preserveAspectRatio="none"
-      >
-        <defs>
-          <linearGradient id="proRoad" x1="50%" y1="0%" x2="50%" y2="100%">
-            <stop offset="0%" stopColor="#1a1008" />
-            <stop offset="100%" stopColor="#0a0806" />
-          </linearGradient>
-          <linearGradient id="proLane" x1="50%" y1="0%" x2="50%" y2="100%">
-            <stop offset="0%" stopColor="#6ad4ff" stopOpacity="0.8" />
-            <stop offset="100%" stopColor="#4fc3f7" stopOpacity="0.1" />
-          </linearGradient>
-        </defs>
-        <path d="M320,0 L550,0 L870,130 L0,130Z" fill="url(#proRoad)" />
-        <path d="M430,0 L440,0 L480,130 L460,130Z" fill="#c85a00" opacity="0.25" />
-        <path d="M320,0 L340,0 L60,130 L0,100Z" fill="#7b2fff" opacity="0.10" />
-      </svg>
-
-      {/* Car silhouette */}
-      <svg
-        className="absolute bottom-[58px] left-1/2 -translate-x-1/2 w-[130px] pointer-events-none"
-        viewBox="0 0 130 58"
-      >
-        <defs>
-          <linearGradient id="proCarBody" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#2a2a3a" />
-            <stop offset="100%" stopColor="#0d0d14" />
-          </linearGradient>
-        </defs>
-        <path d="M10,40 L10,30 C10,30 22,10 38,8 L92,8 C104,8 118,22 120,30 L120,40 Z" fill="url(#proCarBody)" />
-        <path d="M30,8 L38,2 L92,2 L98,8Z" fill="#1a1a28" />
-        <path d="M32,8 L39,3 L64,3 L64,8Z" fill="rgba(79,195,247,0.18)" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-        <path d="M66,3 L90,3 L96,8 L66,8Z" fill="rgba(79,195,247,0.18)" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-        <circle cx="30" cy="42" r="10" fill="#111" stroke="#2a2a3a" strokeWidth="2" />
-        <circle cx="30" cy="42" r="6" fill="#1a1a28" />
-        <circle cx="100" cy="42" r="10" fill="#111" stroke="#2a2a3a" strokeWidth="2" />
-        <circle cx="100" cy="42" r="6" fill="#1a1a28" />
-        <path d="M106,34 L120,36 L120,40 L105,39 Z" fill="rgba(200,220,255,0.5)" />
-        <rect x="7" y="28" width="4" height="8" rx="2" fill="#c0392b" opacity="0.85" />
-        <ellipse cx="65" cy="53" rx="50" ry="5" fill="rgba(79,195,247,0.06)" />
-      </svg>
-
-      {/* Content overlay */}
-      <div className="absolute inset-0 flex flex-col p-5">
-        {/* Top row */}
-        <div className="flex justify-between items-start">
-          {/* Speed limit */}
-          <div className="flex flex-col items-center gap-1 z-[2]">
-            <div
-              className="rounded-full border-[3px] border-[#f44336] flex items-center justify-center bg-[rgba(244,67,54,0.12)]"
-              style={{
-                width: Math.max(gaugeSize * 0.2, 36),
-                height: Math.max(gaugeSize * 0.2, 36),
-                boxShadow: '0 0 16px rgba(244,67,54,0.4)',
-              }}
-            >
-              <span
-                className="font-bold text-[#f44336]"
-                style={{ fontFamily: '"Orbitron", monospace', fontSize: Math.max(gaugeSize * 0.074, 13) }}
-              >90</span>
-            </div>
-            <span className="text-center text-white/55" style={{ fontSize: spaceMd - 1 }}>{t('common.limit')}</span>
-          </div>
-
-          {/* Drive mode */}
-          <div className="text-right z-[2]">
-            <div className="text-[28px] font-bold text-white" style={{ fontFamily: '"Orbitron", monospace' }}>D</div>
-            <div className="text-[11px] text-white/50 tracking-[2px]">NORMAL</div>
-          </div>
-        </div>
-
-        {/* Gauge — center */}
-        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -52%)', width: gaugeSize, height: gaugeSize, zIndex: 3 }}>
-          <svg viewBox="0 0 260 260" className="overflow-visible">
-            <defs>
-              <linearGradient id="proArcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#4fc3f7" />
-                <stop offset="50%" stopColor="#7c4dff" />
-                <stop offset="100%" stopColor="#f44336" />
-              </linearGradient>
-            </defs>
-            {/* Track */}
-            <path d={arcPath(START_DEG, START_DEG + SPAN_DEG)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" strokeLinecap="round" />
-            {/* Fill */}
-            {pct > 0.01 && (
-              <path
-                d={arcPath(START_DEG, fillAngle)}
-                fill="none"
-                stroke="url(#proArcGrad)"
-                strokeWidth="8"
-                strokeLinecap="round"
-                style={{ filter: 'drop-shadow(0 0 8px rgba(79,195,247,0.6))' }}
-              />
-            )}
-          </svg>
-          {/* Speed number */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
-            <span style={{
-              fontFamily: '"Orbitron", monospace',
-              fontSize: Math.round(gaugeSize * 0.29),
-              fontWeight: 900,
-              color: '#fff',
-              lineHeight: 1,
-              letterSpacing: -2,
-              textShadow: '0 0 40px rgba(255,255,255,0.25)',
-            }}>{Math.round(speedKmh)}</span>
-            <span style={{
-              fontFamily: '"Orbitron", monospace',
-              fontSize: 13,
-              color: 'rgba(255,255,255,0.55)',
-              letterSpacing: 3,
-              marginTop: -2,
-            }}>km/h</span>
-          </div>
-        </div>
-
-        {/* Bottom info */}
-        <div className="absolute bottom-3.5 left-5 right-5 flex justify-between items-center z-[5]">
-          <div className="flex items-center gap-1.5 text-[13px] text-white/70">
-            <Fuel className="w-4 h-4 opacity-70" />
-            <span>{fuelRange != null ? `${fuelRange} km` : '— km'}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[13px] text-white/70">
-            <Thermometer className="w-4 h-4 opacity-70" />
-            <span>{Math.round(temp)}°C</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom glow line */}
-      <div
-        className="absolute bottom-0 inset-x-0 h-0.5"
-        style={{ background: 'linear-gradient(90deg, transparent, #4fc3f7, transparent)', boxShadow: '0 0 12px #4fc3f7' }}
-      />
-    </div>
-  );
-});
-
-/* ─── MUSIC CARD ───────────────────────────────────────────────── */
-const MusicCard = memo(function MusicCard({ width = 300 }: { width?: number }) {
-  const { t } = useTranslation();
-  const { playing, track } = useMediaState();
-
-  useEffect(() => {
-    startMediaHub();
-    return () => stopMediaHub();
-  }, []);
-  const [elapsed, setElapsed] = useState(92); // 1:32
-  const total = 228; // 3:48
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => setElapsed(e => (e + 1) % total), 1000);
-    return () => clearInterval(id);
-  }, [playing]);
-
-  const fmt = (s: number) =>
-    `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-
-  return (
-    <div
-      className="flex flex-col overflow-hidden flex-shrink-0"
-      style={{
-        width,
-        borderRadius: 'var(--radius-card, 16px)',
-        border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
-        background: 'var(--bg-card, #12151d)',
-        boxShadow: '0 4px 32px rgba(0,0,0,0.6)',
-        transition: 'background 0.4s ease',
-      }}
-    >
-      {/* Vinyl section */}
-      <div
-        className="relative flex items-center justify-center overflow-hidden flex-1 min-h-0"
-        style={{ background: 'var(--bg-primary, #0d0d16)', transition: 'background 0.4s ease' }}
-      >
-        {/* EQ icon */}
-        <div className="absolute top-3 left-3 w-8 h-8 bg-white/[0.08] rounded-lg flex items-center justify-center z-[5]">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="2">
-            <path d="M9 19V5m6 11V3M3 17V9m18 4V9" />
-          </svg>
-        </div>
-
-        {/* Vinyl record */}
-        <div className="relative flex items-center justify-center">
-          <div style={{
-            width: 180, height: 180, borderRadius: '50%',
-            background: 'radial-gradient(circle at center, #1a1a1a 0%, #0d0d0d 30%, #1a1a1a 31%, #111 35%, #1a1a1a 36%, #111 50%, #1a1a1a 51%, #0d0d0d 100%)',
-            boxShadow: '0 0 30px rgba(0,0,0,0.8)',
-            animation: playing ? 'proVinylSpin 4s linear infinite' : 'none',
-          }}>
-            {/* Album label */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70px] h-[70px] rounded overflow-hidden" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>
-              {track.albumArt
-                ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
-                : (
-                  <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, #4a1942 0%, #8b4513 30%, #c0392b 50%, #e67e22 70%, #f39c12 100%)' }} />
-                )
-              }
-            </div>
-          </div>
-
-          {/* Tonearm */}
-          <svg className="absolute right-2.5 -top-2.5 w-[60px] h-[100px] pointer-events-none" viewBox="0 0 60 100">
-            <line x1="50" y1="5" x2="20" y2="82" stroke="rgba(255,220,100,0.75)" strokeWidth="2.5" strokeLinecap="round" />
-            <circle cx="50" cy="5" r="5" fill="#333" stroke="rgba(255,220,100,0.6)" strokeWidth="1.5" />
-            <circle cx="50" cy="5" r="3" fill="rgba(255,220,100,0.8)" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Music info */}
-      <div className="px-4 py-3.5" style={{ background: 'var(--bg-surface, #12151d)', transition: 'background 0.4s ease' }}>
-        <div className="text-[17px] font-bold text-white mb-0.5">
-          {track.title || t('common.not_playing')}
-        </div>
-        <div className="text-[13px] text-white/45 mb-2.5">
-          {track.artist || t('common.no_signal')}
-        </div>
-
-        {/* Progress */}
-        <div className="mb-2">
-          <div className="h-[3px] bg-white/10 rounded-sm overflow-hidden mb-1">
-            <div style={{
-              height: '100%',
-              width: `${(elapsed / total) * 100}%`,
-              background: 'linear-gradient(90deg, #f44336, #e91e63)',
-              borderRadius: 2,
-              transition: 'width 1s linear',
-            }} />
-          </div>
-          <div className="flex justify-between text-[11px] text-white/[0.38]" style={{ fontFamily: '"Orbitron", monospace' }}>
-            <span>{fmt(elapsed)}</span>
-            <span>{fmt(total)}</span>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center justify-center gap-6">
-          <button onClick={() => previous()}
-            className="flex items-center justify-center active:scale-90 transition-all bg-transparent border-none cursor-pointer text-white/55 p-1.5">
-            <SkipBack className="w-5 h-5" />
-          </button>
-          <button onClick={() => togglePlayPause()}
-            className="flex items-center justify-center active:scale-90 transition-all w-12 h-12 rounded-full bg-white/[0.12] border-2 border-white/20 cursor-pointer text-white">
-            {playing
-              ? <Pause className="w-5 h-5 fill-white" />
-              : <Play className="w-5 h-5 fill-white ml-0.5" />
-            }
-          </button>
-          <button onClick={() => next()}
-            className="flex items-center justify-center active:scale-90 transition-all bg-transparent border-none cursor-pointer text-white/55 p-1.5">
-            <SkipForward className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-/* ─── MINI CARD WRAPPER ────────────────────────────────────────── */
-function MiniCard({ children, onClick, spaceMd = 10 }: { children: React.ReactNode; onClick?: () => void; spaceMd?: number }) {
-  return (
-    <div
-      data-mini-card
-      onClick={onClick}
-      className={`relative overflow-hidden flex flex-col flex-1 min-w-0 transition-all active:scale-[0.99] ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
-      style={{
-        borderRadius: 'var(--radius-card, 16px)',
-        border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
-        background: 'var(--bg-card, #12151d)',
-        padding: spaceMd + 4,
-        boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
-        transition: 'background 0.4s ease, border-color 0.4s ease',
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/* ─── NAV MINI CARD ────────────────────────────────────────────── */
-const NavMiniCard = memo(function NavMiniCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
-  return (
-    <div
-      className="flex-1 overflow-hidden relative cursor-pointer"
-      style={{
-        borderRadius: 'var(--radius-card, 16px)',
-        border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
-        background: 'var(--bg-card, #0e1119)',
-        boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
-        transition: 'background 0.4s ease, border-color 0.4s ease',
-      }}
-      onClick={onOpenMap}
-    >
-      {fullMapOpen ? (
-        <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(160deg,#06101f,#0d1e38)' }}>
-          <MapPin className="w-8 h-8 opacity-50 text-[#4fc3f7]" />
-        </div>
-      ) : (
-        <MiniMapWidget onFullScreenClick={onOpenMap} />
-      )}
-      {/* Expand button overlay */}
-      <div
-        className="absolute top-2 right-2 z-10 w-7 h-7 bg-black/55 rounded-lg flex items-center justify-center pointer-events-none"
-      >
-        <Maximize2 className="w-3.5 h-3.5 text-white/70" />
-      </div>
-    </div>
-  );
-});
-
-/* ─── PHONE MINI CARD ──────────────────────────────────────────── */
-const PhoneMiniCard = memo(function PhoneMiniCard({ onLaunch, spaceMd }: { onLaunch: (id: string) => void; spaceMd?: number }) {
-  const { t } = useTranslation();
-  return (
-    <MiniCard spaceMd={spaceMd} onClick={() => onLaunch('phone')}>
-      <div className="text-[13px] font-semibold text-white/80 mb-1">{t('common.phone')}</div>
-      <div className="flex items-center gap-1.5 mb-1">
-        <div className="w-[7px] h-[7px] rounded-full bg-[#4caf50]" style={{ boxShadow: '0 0 8px #4caf50', animation: 'proPulse 2s infinite' }} />
-        <span className="text-xs text-[#4caf50] font-semibold">{t('common.connected')}</span>
-      </div>
-      <div className="flex-1 flex items-center justify-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(76,175,80,0.12)', border: '2px solid rgba(76,175,80,0.35)', boxShadow: '0 0 20px rgba(76,175,80,0.25)' }}>
-          <Phone className="w-6 h-6 text-[#4caf50]" />
-        </div>
-      </div>
-      <div className="flex justify-around pt-2 border-t border-white/[0.06]"
-        onClick={e => e.stopPropagation()}>
-        {[User, Star, Clock].map((Icon, i) => (
-          <button key={i} onClick={() => onLaunch('phone')} className="w-8 h-8 rounded-lg bg-white/[0.05] border-none cursor-pointer flex items-center justify-center">
-            <Icon className="w-4 h-4 text-white/45" />
-          </button>
-        ))}
-      </div>
-    </MiniCard>
-  );
-});
-
-/* ─── WEATHER MINI CARD ────────────────────────────────────────── */
-const WeatherMiniCard = memo(function WeatherMiniCard({ spaceMd }: { spaceMd?: number }) {
-  const { t } = useTranslation();
-  return (
-    <MiniCard spaceMd={spaceMd}>
-      {/* Sunset bg */}
-      <div
-        className="absolute inset-0 rounded-2xl pointer-events-none"
-        style={{ background: 'linear-gradient(135deg, rgba(180,80,20,0.32) 0%, rgba(120,40,60,0.28) 40%, rgba(20,20,40,0.88) 100%)' }}
-      />
-      <div className="relative z-[2] h-full flex flex-col">
-        <div className="text-[13px] font-semibold text-white/80 mb-1.5">{t('common.weather')}</div>
-        <div className="flex items-center gap-2 mb-0.5">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="1.5">
-            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" />
-          </svg>
-          <span className="text-[26px] font-bold text-white" style={{ fontFamily: '"Orbitron", monospace' }}>--°C</span>
-        </div>
-        <div className="text-[11px] text-white/55 mb-px">{t('common.weather')}</div>
-        <div className="text-[11px] text-white/35 mb-2">Konum belirleniyor...</div>
-        <div className="flex justify-between mt-auto pt-2 border-t border-white/[0.06]">
-          {[
-            { t: '12:00', icon: '☀️', temp: '--°' },
-            { t: '15:00', icon: '🌤️', temp: '--°' },
-            { t: '18:00', icon: '☁️', temp: '--°' },
-          ].map((f, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <span className="text-[10px] text-white/[0.38]">{f.t}</span>
-              <span className="text-sm">{f.icon}</span>
-              <span className="text-[11px] text-white/75 font-semibold">{f.temp}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </MiniCard>
-  );
-});
-
-/* ─── APPS MINI CARD ───────────────────────────────────────────── */
-const AppsMiniCard = memo(function AppsMiniCard({ onLaunch, spaceMd }: { onLaunch: (id: string) => void; spaceMd?: number }) {
-  const { t } = useTranslation();
-  const apps = [
-    { id: 'youtube', icon: '▶️', label: 'YouTube', bg: '#ff0000' },
-    { id: 'spotify', icon: '🎵', label: 'Spotify', bg: '#1db954' },
-    { id: 'chrome', icon: '🌐', label: 'Chrome', bg: '#fff' },
-    { id: 'maps', icon: '🗺️', label: 'Haritalar', bg: 'linear-gradient(135deg,#34a853,#4285f4)' },
-    { id: 'playstore', icon: '▶', label: 'Play Store', bg: 'linear-gradient(135deg,#01875f,#34a853)' },
-    { id: 'news', icon: '📰', label: 'Haberler', bg: '#1565c0' },
-  ];
-
-  return (
-    <MiniCard spaceMd={spaceMd}>
-      <div className="text-[13px] font-semibold text-white/80 mb-2">{t('common.apps')}</div>
-      <div className="grid grid-cols-3 gap-2 flex-1">
-        {apps.map((app) => {
-          const nativeApp = APP_MAP[app.id];
-          return (
-            <button
-              key={app.id}
-              onClick={() => onLaunch(app.id)}
-              className="flex flex-col items-center gap-1 rounded-lg active:scale-90 transition-all bg-transparent border-none cursor-pointer px-0.5 py-1"
-            >
-              <div
-                className="w-[34px] h-[34px] rounded-lg flex items-center justify-center text-base"
-                style={{ background: app.bg }}
-              >
-                <span>{nativeApp?.icon || app.icon}</span>
-              </div>
-              <span className="text-[9px] text-white/45 text-center leading-tight">
-                {nativeApp?.name || app.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </MiniCard>
-  );
-});
-
-/* ─── VEHICLE MINI CARD ────────────────────────────────────────── */
-const VehicleMiniCard = memo(function VehicleMiniCard({
-  onOpenSettings, onOpenRearCam, onLaunch, spaceMd,
-}: { onOpenSettings: () => void; onOpenRearCam?: () => void; onLaunch: (id: string) => void; spaceMd?: number }) {
-  const vehicleBtns = [
-    { Icon: Camera,   action: onOpenRearCam ?? onOpenSettings },
-    { Icon: User,     action: onOpenSettings },
-    { Icon: Monitor,  action: () => onLaunch('youtube') },
-    { Icon: Settings, action: onOpenSettings },
-  ];
-  return (
-    <MiniCard spaceMd={spaceMd} onClick={onOpenSettings}>
-      <div className="flex justify-between items-start mb-0.5">
-        <div>
-          <div className="text-[13px] font-semibold text-white/80 leading-tight">
-            Araç Durumu <span className="text-white/28 text-[11px]">›</span>
-          </div>
-          <div className="text-xs text-[#4caf50] font-semibold">Mükemmel</div>
-        </div>
-      </div>
-
-      {/* Car illustration */}
-      <div className="flex-1 flex items-center justify-center">
-        <svg viewBox="0 0 200 90" width="190" height="80">
-          <defs>
-            <linearGradient id="proVehBody" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#2a2a3e" />
-              <stop offset="100%" stopColor="#0d0d14" />
-            </linearGradient>
-            <radialGradient id="proGndRefl" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(79,195,247,0.12)" />
-              <stop offset="100%" stopColor="rgba(79,195,247,0)" />
-            </radialGradient>
-          </defs>
-          <ellipse cx="100" cy="82" rx="80" ry="7" fill="url(#proGndRefl)" />
-          <path d="M15,62 L15,50 C15,50 28,28 48,24 L152,24 C170,24 185,42 185,50 L185,62 Z" fill="url(#proVehBody)" />
-          <path d="M15,60 L185,60 L188,68 L12,68 Z" fill="#111118" />
-          <path d="M55,24 L65,10 L135,10 L145,24 Z" fill="#1a1a28" />
-          <path d="M58,24 L67,12 L100,12 L100,24 Z" fill="rgba(79,195,247,0.18)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />
-          <path d="M100,24 L100,12 L133,12 L143,24 Z" fill="rgba(79,195,247,0.18)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />
-          <line x1="100" y1="24" x2="100" y2="60" stroke="rgba(255,255,255,0.07)" strokeWidth="0.8" />
-          <rect x="70" y="46" width="12" height="2.5" rx="1.2" fill="rgba(255,255,255,0.14)" />
-          <rect x="118" y="46" width="12" height="2.5" rx="1.2" fill="rgba(255,255,255,0.14)" />
-          <path d="M168,42 L183,46 L183,52 L166,49 Z" fill="rgba(200,220,255,0.5)" />
-          <ellipse cx="185" cy="47" rx="4" ry="2" fill="rgba(200,220,255,0.35)" />
-          <path d="M17,42 L16,50 L20,52 L22,44 Z" fill="#c0392b" opacity="0.8" />
-          <circle cx="50" cy="68" r="13" fill="#0a0a12" stroke="#222" strokeWidth="2.5" />
-          <circle cx="50" cy="68" r="8" fill="#111120" />
-          <circle cx="50" cy="68" r="4" fill="#1a1a28" />
-          <g stroke="rgba(255,255,255,0.14)" strokeWidth="1.2">
-            <line x1="50" y1="61" x2="50" y2="75" /><line x1="43" y1="68" x2="57" y2="68" />
-            <line x1="45" y1="63" x2="55" y2="73" /><line x1="45" y1="73" x2="55" y2="63" />
-          </g>
-          <circle cx="150" cy="68" r="13" fill="#0a0a12" stroke="#222" strokeWidth="2.5" />
-          <circle cx="150" cy="68" r="8" fill="#111120" />
-          <circle cx="150" cy="68" r="4" fill="#1a1a28" />
-          <g stroke="rgba(255,255,255,0.14)" strokeWidth="1.2">
-            <line x1="150" y1="61" x2="150" y2="75" /><line x1="143" y1="68" x2="157" y2="68" />
-            <line x1="145" y1="63" x2="155" y2="73" /><line x1="145" y1="73" x2="155" y2="63" />
-          </g>
-          <path d="M22,44 L168,44" stroke="rgba(79,195,247,0.22)" strokeWidth="0.8" />
-        </svg>
-      </div>
-
-      {/* Action buttons */}
-      <div className="flex justify-around pt-2 border-t border-white/[0.06]"
-        onClick={e => e.stopPropagation()}>
-        {vehicleBtns.map(({ Icon, action }, i) => (
-          <button key={i} onClick={action} className="w-[30px] h-[30px] rounded-lg bg-white/[0.05] border-none cursor-pointer flex items-center justify-center">
-            <Icon className="w-3.5 h-3.5 text-white/50" />
-          </button>
-        ))}
-      </div>
-    </MiniCard>
-  );
-});
-
-
-/* ─── KEYFRAMES (injected once) ────────────────────────────────── */
-const KEYFRAMES = `
-  @keyframes proVinylSpin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  @keyframes proPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-  @keyframes proMicGlow {
-    0%, 100% { box-shadow: 0 0 20px rgba(79,195,247,0.4), 0 0 40px rgba(79,195,247,0.15); }
-    50% { box-shadow: 0 0 30px rgba(79,195,247,0.65), 0 0 60px rgba(79,195,247,0.28); }
-  }
-  @keyframes rpmWave {
-    0%   { transform: scaleX(1)   translateY(0px); }
-    30%  { transform: scaleX(1.1) translateY(-2px); }
-    60%  { transform: scaleX(0.95) translateY(1px); }
-    100% { transform: scaleX(1)   translateY(0px); }
-  }
-`;
-
-let styleInjected = false;
-function injectStyles() {
-  if (styleInjected) return;
-  styleInjected = true;
-  const el = document.createElement('style');
-  el.textContent = KEYFRAMES;
-  document.head.appendChild(el);
-}
-
-
-/* ─── ROOT LAYOUT ──────────────────────────────────────────────── */
 export const ProLayout = memo(function ProLayout({
-  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, dockIds, fullMapOpen,
-  onOpenRearCam, smart,
+  onOpenMap, onOpenApps, onOpenSettings, onLaunch, appMap, fullMapOpen, smart,
 }: Props) {
   injectStyles();
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const { screen, profile } = useLayout();
+  const { screen } = useLayout();
+  const dayNightMode = useStore(s => s.settings.dayNightMode);
+  const pal = useMemo(() => buildPal(dayNightMode === 'night'), [dayNightMode]);
 
   const isPortrait = screen.height > screen.width;
 
-  // Sidebar genişliği: dockIconSize tabanlı, COMPACT'ta gizlenecek
-  const sidebarW = getSidebarW(profile.dockIconSize);
-
-  // Structural sizes — widget row always visible, proportions adapt to screen height
-  // dockTotal removed — MainLayout spacer handles dock gap
-  const contentH   = Math.max(screen.height - profile.headerHeight - 24, 200);
-  // Music card: ekran genişliğinin %33'ü, sidebarW çıkarılır
-  const musicCardW = Math.max(Math.min(Math.floor((screen.width - sidebarW) * 0.33), 400), 200);
-
-  // Widget row: 120px min, 220px max — whatever fits after top row
-  const widgetH    = Math.min(Math.max(contentH - 296 - 11, 120), 220);
-  // Top row: takes remaining space after widget row, minimum 180px
-  const topRowH    = Math.max(contentH - widgetH - 11, 180);
-  // Final widget height after top row is clamped
-  const widgetRowH = contentH - topRowH - 11;
-  // Gauge size scales with top row height; cap at screen category-based maximum
-  const gaugeMax   = screen.category === 'COMPACT' ? 200 : screen.category === 'WIDE' ? 300 : 260;
-  const gaugeSize  = Math.min(Math.floor(topRowH * 0.92), gaugeMax);
-
   return (
-    <>
+    <PalCtx.Provider value={pal}>
       {voiceOpen && (
         <Suspense fallback={null}>
-          <VoiceAssistant onClose={() => setVoiceOpen(false)} minimal />
+          {/* Tam overlay (web-first): Chrome'da sesli + her yerde metin/hızlı komut.
+              minimal pill (sürüş) sadece konuşma olup webde anında kapanıyordu. */}
+          <VoiceAssistant onClose={() => setVoiceOpen(false)} autoStart />
         </Suspense>
       )}
-    <div
-      className="flex overflow-hidden w-full h-full"
-      data-layout="pro-main"
-      style={{
-        flexDirection: isPortrait ? 'column' : ('var(--l-flex-dir, row)' as CSSProperties['flexDirection']),
-        background: 'var(--bg-primary, #0a0c10)',
-        transition: 'background 0.4s ease',
-      }}
-    >
-      {/* RPM Bar — COMPACT'ta CSS ile gizlenir */}
-      <RpmBar width={sidebarW} />
+      <div className="flex flex-col w-full h-full overflow-hidden" data-layout="pro-main" style={{ background: pal.bg, transition: 'background 0.4s ease' }}>
+        {/* İçerik */}
+        <div className="flex-1 min-h-0 overflow-hidden" style={{ padding: '12px 14px 6px' }}>
+          <div className="h-full min-h-0 flex" style={{ flexDirection: isPortrait ? 'column' : 'row', gap: 12 }}>
+            {/* Sol kolon */}
+            <div className="flex flex-col min-h-0" style={{ gap: 12, width: isPortrait ? '100%' : 'clamp(132px, 13vw, 168px)', flexShrink: 0 }}>
+              <ClockCard />
+              <GaugeCard />
+              <SettingsCard onOpenSettings={onOpenSettings} />
+            </div>
 
-      {/* Right: top bar + content */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar headerH={profile.headerHeight} font2xl={profile.font2xl} fontSm={profile.fontSm} />
+            {/* Orta kolon — büyük harita tüm yüksekliği kaplar (alt 3 kart kaldırıldı) */}
+            <div className="flex flex-col min-h-0 flex-1" style={{ gap: 12 }}>
+              <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+            </div>
 
-        {/* Content */}
-        <div
-          className="flex-1 flex flex-col overflow-hidden min-h-0"
-          style={{ padding: '12px 14px', gap: 11 }}
-        >
-          {/* Top row: speedo + music */}
-          <div className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: topRowH }}>
-            <SpeedCard gaugeSize={gaugeSize} spaceMd={profile.spaceMd} />
-            <MusicCard width={musicCardW} />
+            {/* Sağ kolon */}
+            <div className="flex flex-col min-h-0" style={{ gap: 12, width: isPortrait ? '100%' : 'clamp(260px, 27vw, 340px)', flexShrink: 0 }}>
+              <MusicCard />
+              <VehicleCard onOpenSettings={onOpenSettings} onLaunch={onLaunch} />
+            </div>
           </div>
-
-          {/* Widget row: always visible, height adapts, COMPACT'ta yatay scroll */}
-          <div data-widget-row className="flex flex-shrink-0 overflow-hidden" style={{ gap: profile.spaceSm, height: widgetRowH }}>
-            <NavMiniCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
-            <PhoneMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
-            <WeatherMiniCard spaceMd={profile.spaceMd} />
-            <AppsMiniCard onLaunch={onLaunch} spaceMd={profile.spaceMd} />
-            <VehicleMiniCard onOpenSettings={onOpenSettings} onOpenRearCam={onOpenRearCam} onLaunch={onLaunch} spaceMd={profile.spaceMd} />
-          </div>
-
-          {/* Magic Context Card — widget sırasının altında, dock üzerinde */}
-          {smart && smart.predictions.length > 0 && (
-            <MagicContextCard smart={smart} variant="pro" onLaunch={onLaunch} onOpenMap={onOpenMap} />
-          )}
         </div>
 
-        {/* Dock spacer + DockBar */}
-        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
-        <DockBar appMap={appMap ?? {}} dockIds={dockIds ?? []} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} onOpenRearCam={onOpenRearCam} />
+        {/* Magic context (varsa) */}
+        {smart && smart.predictions.length > 0 && (
+          <div className="px-4 flex-shrink-0">
+            <MagicContextCard smart={smart} variant="pro" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+          </div>
+        )}
+
+        {/* Dock — tam genişlik, yatay kaydırmalı */}
+        <div className="flex-shrink-0" style={{ padding: '4px 14px 12px' }}>
+          <ProDock onOpenMap={onOpenMap} onVoice={() => setVoiceOpen(true)} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} appMap={appMap ?? {}} onLaunch={onLaunch} />
+        </div>
       </div>
-    </div>
-    </>
+    </PalCtx.Provider>
   );
 });

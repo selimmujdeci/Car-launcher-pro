@@ -23,8 +23,31 @@ interface Props {
   onClose: () => void;
 }
 
-// Geniş OBD anahtar kelime listesi — genel OBD2/ELM327 klonları dahil
-const OBD_REGEX = /obd|elm|v.?link|obdii|obd2|kw|veepeak|icar|vgate|konnwei|obdlink|carscanner|xtool|autel|launch|thinkcar/i;
+// Geniş OBD anahtar kelime listesi — genel OBD2/ELM327 klonları dahil.
+// "spp" / "ble serial" / "serial" / "bt" gibi generic SPP-stack isimleri de OBD adapter olabilir;
+// "mini" + ELM327 klonları, "viecar", "bafx", "ediag" gibi tanınmış markalar dahil.
+const OBD_REGEX = /obd|elm|v.?link|obdii|obd2|kw\d{3}|veepeak|icar|vgate|konnwei|obdlink|carscanner|xtool|autel|launch|thinkcar|viecar|bafx|panlong|ediag|carista|tonwon|topdon|ancel|nexas|foseal|spp[-_ ]?dev|serial|ble[-_ ]?spp|mini\s*obd/i;
+
+// Telefon / kulaklık / saat / araba multimedya gibi kesin OBD olmayan cihazları dışla
+const NON_OBD_REGEX = /iphone|ipad|airpod|airpods|galaxy\s*(buds|watch)|pixel\s*(buds|watch)|mi\s*band|mi\s*watch|honor\s*band|headset|earbud|speaker|tv|chromecast|laptop|mouse|keyboard|smartwatch|fitbit|huawei\s*watch|samsung\s*(tv|tab)|microntek|kswcar|fyt|car\s*play/i;
+
+/**
+ * Bir BT cihazının OBD adayı olup olmadığını tahmin eder.
+ * - İsimde regex eşleşmesi → kesin OBD
+ * - İsim yok / MAC adresi adı olarak gelmiş → muhtemel OBD (ELM327 klonları çoğu kez böyle)
+ * - Bilinen NON-OBD ürün → asla aday değil
+ */
+function looksLikeObd(name: string, address: string): boolean {
+  const n = (name ?? '').trim();
+  if (!n) return true;                      // adsız → aday
+  if (NON_OBD_REGEX.test(n)) return false;  // telefon / kulaklık vs.
+  if (OBD_REGEX.test(n))    return true;
+  // BT name çekilemediğinde plugin name=address yazar → muhtemelen OBD'dir
+  if (n.toUpperCase() === address.toUpperCase()) return true;
+  // İsim sadece hex/MAC karakterleri ise (xx:xx veya bare hex) → muhtemel OBD
+  if (/^[0-9A-F:-]{8,}$/i.test(n)) return true;
+  return false;
+}
 
 export function OBDConnectModal({ open, onClose }: Props) {
   const [devices,     setDevices]     = useState<DiscoveredDevice[]>([]);
@@ -398,17 +421,17 @@ export function OBDConnectModal({ open, onClose }: Props) {
             </div>
           )}
 
-          {/* Cihaz listesi — sadece OBD cihazları */}
+          {/* Cihaz listesi — sadece OBD adayları (geniş kapsam) */}
           {(() => {
-            const obdDevices = devices.filter((d) => OBD_REGEX.test(d.name));
-            const otherDevices = devices.filter((d) => !OBD_REGEX.test(d.name));
+            const obdDevices   = devices.filter((d) => looksLikeObd(d.name, d.address));
+            const otherDevices = devices.filter((d) => !looksLikeObd(d.name, d.address));
             const visibleDevices = showAll ? devices : obdDevices;
             return (
               <>
                 {visibleDevices.length > 0 ? (
             <div className="flex flex-col" style={{ gap: spSm, marginTop: spSm, paddingBottom: spSm }}>
               {visibleDevices.map((dev) => {
-                const isObd  = OBD_REGEX.test(dev.name);
+                const isObd  = looksLikeObd(dev.name, dev.address);
                 const isCon  = connecting === dev.address;
                 const isDone = connected === dev.address;
 
@@ -500,8 +523,9 @@ export function OBDConnectModal({ open, onClose }: Props) {
                   </button>
                 );
               })}
-              {/* OBD bulunamadı ama diğer cihazlar var — tümünü göster */}
-              {!showAll && obdDevices.length === 0 && otherDevices.length > 0 && !scanning && (
+              {/* Gizli (OBD olmayan) cihaz varsa — OBD adayı bulunsa bile tümünü göster.
+                  Kullanıcının adaptörü filtreye takılmış olabilir; el ile seçebilsin. */}
+              {!showAll && otherDevices.length > 0 && !scanning && (
                 <button
                   onClick={() => setShowAll(true)}
                   className="w-full font-bold uppercase tracking-wider transition-all active:scale-95"
@@ -511,7 +535,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
                     color: 'rgba(255,255,255,0.35)',
                   }}
                 >
-                  Tüm {otherDevices.length} cihazı göster (OBD olmayan)
+                  + Gizli {otherDevices.length} cihazı göster (tümü)
                 </button>
               )}
             </div>

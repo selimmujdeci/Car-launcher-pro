@@ -31,6 +31,9 @@ import android.media.ImageReader;
 import android.media.MediaPlayer;
 import android.util.Base64;
 import android.view.Surface;
+import android.view.TextureView;
+import android.graphics.SurfaceTexture;
+import android.graphics.Matrix;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
@@ -51,6 +54,12 @@ import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+// Vosk — offline (Google'sız) cihaz-içi ses tanıma. org.vosk.android.RecognitionListener
+// android.speech.RecognitionListener ile çakıştığı için aşağıda FQN ile kullanılır.
+import org.vosk.Model;
+import org.vosk.Recognizer;
+import org.vosk.android.SpeechService;
+import org.vosk.android.StorageService;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -82,6 +91,8 @@ import com.cockpitos.pro.obd.OBDBluetoothManager;
 import com.cockpitos.pro.can.ReverseSignalGuard;
 import com.cockpitos.pro.can.NativeToJsBridge;
 import com.cockpitos.pro.can.VehicleCanData;
+import com.cockpitos.pro.can.K24CanBridge;
+import com.cockpitos.pro.can.McuEventSniffer;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -207,6 +218,11 @@ public class CarLauncherPlugin extends Plugin {
                 }
             }
         });
+
+        // Bildirim erişimi daha önce verilmişse servis zaten bağlı olabilir —
+        // medya oturum dinleyicisini hemen kur. Henüz bağlı değilse servisin
+        // onListenerConnected callback'i bu metodu tekrar tetikleyecek.
+        mainHandler.post(this::attachMediaSessionsListener);
     }
 
     /**
@@ -547,6 +563,32 @@ public class CarLauncherPlugin extends Plugin {
     private volatile MediaController activeMediaController = null;
     private volatile MediaController.Callback mediaCallback = null;
 
+    /**
+     * Aktif medya oturumlarının değişimini dinler. Spotify, YouTube Music vb.
+     * ön plana çıkmadan müzik başlattığında bu listener otomatik tetiklenir
+     * ve mediaChanged event'i UI'a düşer — kullanıcının uygulamaya el ile
+     * dokunmasına gerek kalmaz.
+     */
+    private volatile MediaSessionManager.OnActiveSessionsChangedListener activeSessionsListener = null;
+    private volatile boolean mediaListenerRegistered = false;
+    /** Kullanıcının manuel seçtiği veya asistan komutuyla hedeflenen paket — listener'da öncelik kazanır */
+    private volatile String preferredMediaPackage = "";
+
+    /* Album-art async loader — Spotify/YouTube Music gibi modern uygulamalar
+     * kapak resmini sıklıkla URI olarak (content:// veya https://) verir.
+     * Bitmap olarak gelirse sync döndürürüz; URI ise arka planda yüklenip
+     * cache'lenir ve hazır olunca mediaChanged tekrar yayınlanır. */
+    private final java.util.concurrent.ExecutorService artLoaderExecutor =
+        java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.LinkedHashMap<String, String> artCache =
+        new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
+                return size() > 12;
+            }
+        };
+    private final java.util.HashSet<String> artInFlight = new java.util.HashSet<>();
+
     @PluginMethod
     public void getMediaInfo(PluginCall call) {
         MediaListenerService svc = MediaListenerService.instance;
@@ -571,6 +613,7 @@ public class CarLauncherPlugin extends Plugin {
             String preferred = call.getString("preferredPackage", "");
             MediaController ctrl = controllers.get(0);
             if (preferred != null && !preferred.isEmpty()) {
+                preferredMediaPackage = preferred;
                 for (MediaController c : controllers) {
                     if (preferred.equals(c.getPackageName())) {
                         ctrl = c;
@@ -579,6 +622,8 @@ public class CarLauncherPlugin extends Plugin {
                 }
             }
             ensureMediaCallback(ctrl);
+            // Listener henüz kurulmadıysa şimdi kur — ileride yeni session geldiğinde otomatik yakalansın
+            attachMediaSessionsListener();
 
             JSObject result = buildMediaInfo(ctrl);
             result.put("sessionCount", controllers.size());
@@ -589,6 +634,132 @@ public class CarLauncherPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("MEDIA_INFO_FAILED", e.getMessage());
         }
+    }
+
+    /**
+     * MediaSessionManager.OnActiveSessionsChangedListener'ı bir kere kurar.
+     *
+     * Tetiklenme koşulları:
+     *   - MediaListenerService.instance != null (bildirim erişim izni verilmiş)
+     *   - Plugin daha önce attach etmemiş
+     *
+     * Listener tetiklendiğinde:
+     *   - Liste boş → onSessionDestroyed davranışı (mediaCallback temizlenir)
+     *   - Liste dolu → preferredMediaPackage öncelikli olarak controller seçilir,
+     *                   ensureMediaCallback rebind yapar ve hemen mediaChanged emit edilir.
+     *
+     * Thread güvenliği: handler == mainHandler → callback'ler UI thread'inde gelir.
+     */
+    private void attachMediaSessionsListener() {
+        if (mediaListenerRegistered) return;
+        MediaListenerService svc = MediaListenerService.instance;
+        if (svc == null) return; // bildirim izni yok — sessizce çık
+
+        try {
+            final MediaSessionManager msm = (MediaSessionManager)
+                getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
+            if (msm == null) return;
+
+            final ComponentName cn = new ComponentName(getContext(), MediaListenerService.class);
+
+            activeSessionsListener = controllers -> {
+                try {
+                    if (controllers == null || controllers.isEmpty()) {
+                        // Tüm session'lar gitti — UI tarafına grace period zaten boşluk yönetir
+                        if (activeMediaController != null && mediaCallback != null) {
+                            try { activeMediaController.unregisterCallback(mediaCallback); } catch (Exception ignored) {}
+                            activeMediaController = null;
+                            mediaCallback         = null;
+                        }
+                        // Boş mediaChanged → UI hasSession=false'a düşer (sanitizer + grace garantili)
+                        JSObject empty = new JSObject();
+                        empty.put("packageName", "");
+                        empty.put("appName",     "");
+                        empty.put("title",       "");
+                        empty.put("artist",      "");
+                        empty.put("playing",     false);
+                        empty.put("durationMs",  0L);
+                        empty.put("positionMs",  0L);
+                        notifyListeners("mediaChanged", empty);
+                        return;
+                    }
+
+                    // Preferred package varsa öncelikle seç, yoksa en yeni session (genelde index 0)
+                    MediaController target = controllers.get(0);
+                    String pref = preferredMediaPackage;
+                    if (pref != null && !pref.isEmpty()) {
+                        for (MediaController c : controllers) {
+                            if (pref.equals(c.getPackageName())) {
+                                target = c;
+                                break;
+                            }
+                        }
+                    }
+
+                    ensureMediaCallback(target);
+                    JSObject info = buildMediaInfo(target);
+                    notifyListeners("mediaChanged", info);
+                } catch (Exception ignored) { /* listener leak korumalı */ }
+            };
+
+            msm.addOnActiveSessionsChangedListener(activeSessionsListener, cn, mainHandler);
+            mediaListenerRegistered = true;
+
+            // Servis bağlandığında zaten çalan bir session olabilir — initial snapshot çek
+            try {
+                List<MediaController> initial = msm.getActiveSessions(cn);
+                if (initial != null && !initial.isEmpty()) {
+                    MediaController target = initial.get(0);
+                    String pref = preferredMediaPackage;
+                    if (pref != null && !pref.isEmpty()) {
+                        for (MediaController c : initial) {
+                            if (pref.equals(c.getPackageName())) { target = c; break; }
+                        }
+                    }
+                    ensureMediaCallback(target);
+                    JSObject info = buildMediaInfo(target);
+                    notifyListeners("mediaChanged", info);
+                }
+            } catch (Exception ignored) { /* SecurityException olası — sessizce geç */ }
+
+        } catch (Exception ignored) {
+            mediaListenerRegistered = false;
+        }
+    }
+
+    /**
+     * Listener'ı kaldırır. handleOnDestroy ve servis bağlantısı koptuğunda çağrılır.
+     */
+    private void detachMediaSessionsListener() {
+        if (!mediaListenerRegistered) return;
+        try {
+            MediaSessionManager msm = (MediaSessionManager)
+                getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
+            if (msm != null && activeSessionsListener != null) {
+                msm.removeOnActiveSessionsChangedListener(activeSessionsListener);
+            }
+        } catch (Exception ignored) {}
+        activeSessionsListener   = null;
+        mediaListenerRegistered  = false;
+    }
+
+    /**
+     * MediaListenerService.onListenerConnected'tan çağrılır — bildirim izni
+     * verildiği veya servis tekrar bağlandığı anda media listener'ı kur.
+     * Statik bağlantı: servisin Java tarafından plugin'e direkt erişimi yok,
+     * bu yüzden _instance üzerinden köprülenir.
+     */
+    public static void onMediaListenerConnected() {
+        final CarLauncherPlugin p = _instance;
+        if (p == null) return;
+        p.mainHandler.post(p::attachMediaSessionsListener);
+    }
+
+    /** Servis bağlantısı kopunca listener da geçersizdir — temizle. */
+    public static void onMediaListenerDisconnected() {
+        final CarLauncherPlugin p = _instance;
+        if (p == null) return;
+        p.mainHandler.post(p::detachMediaSessionsListener);
     }
 
     private void ensureMediaCallback(MediaController ctrl) {
@@ -645,9 +816,38 @@ public class CarLauncherPlugin extends Plugin {
             out.put("artist",     safe(meta.getString(MediaMetadata.METADATA_KEY_ARTIST)));
             out.put("durationMs", meta.getLong(MediaMetadata.METADATA_KEY_DURATION));
 
+            // Önce bitmap key'leri dene (sync, hızlı)
             Bitmap art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
             if (art == null) art = meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
-            if (art != null) out.put("albumArt", bitmapToDataUri(art));
+            if (art == null) art = meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+
+            if (art != null) {
+                out.put("albumArt", bitmapToDataUri(art));
+            } else {
+                // Bitmap yok — URI key'leri dene (Spotify, YT Music vs.)
+                String uri = firstNonEmpty(
+                    meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
+                    meta.getString(MediaMetadata.METADATA_KEY_ART_URI),
+                    meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                );
+                if (uri != null) {
+                    String cached;
+                    boolean scheduleLoad = false;
+                    synchronized (artCache) {
+                        cached = artCache.get(uri);
+                        if (cached == null && !artInFlight.contains(uri)) {
+                            artInFlight.add(uri);
+                            scheduleLoad = true;
+                        }
+                    }
+                    if (cached != null) {
+                        out.put("albumArt", cached);
+                    } else if (scheduleLoad) {
+                        // Arka planda yükle, bittiğinde mediaChanged tekrar yayınla
+                        loadArtAsync(ctrl, uri);
+                    }
+                }
+            }
         } else {
             out.put("title",      "");
             out.put("artist",     "");
@@ -673,6 +873,141 @@ public class CarLauncherPlugin extends Plugin {
         } catch (Exception ignored) {
             return "";
         }
+    }
+
+    private static String firstNonEmpty(String... vals) {
+        if (vals == null) return null;
+        for (String v : vals) {
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return null;
+    }
+
+    /**
+     * URI bazlı kapak resmini arka planda yükler ve cache'ler.
+     * Yükleme tamamlanınca mediaChanged event'i tekrar yayınlanır — UI güncellenir.
+     */
+    private void loadArtAsync(final MediaController ctrl, final String uri) {
+        artLoaderExecutor.submit(() -> {
+            String dataUri = null;
+            try {
+                Bitmap b = loadBitmapFromUri(uri);
+                if (b != null) dataUri = bitmapToDataUri(b);
+            } catch (Throwable ignored) { /* hata → cache boş kalır */ }
+
+            synchronized (artCache) {
+                artInFlight.remove(uri);
+                if (dataUri != null) artCache.put(uri, dataUri);
+            }
+
+            // Hâlâ aynı oturum aktifse — UI'ya tazelenmiş info gönder
+            if (dataUri != null) {
+                mainHandler.post(() -> {
+                    MediaController active = activeMediaController;
+                    if (active != null && active.equals(ctrl)) {
+                        try {
+                            JSObject info = buildMediaInfo(ctrl);
+                            notifyListeners("mediaChanged", info);
+                        } catch (Exception ignored) {}
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * URI bazlı kapak resmini base64 data URI olarak döner.
+     * Hem MediaSession URI'leri hem yerel MediaStore albumart URI'leri için kullanılır.
+     * Cache'lenir — aynı URI ikinci kez sorgulanırsa hemen döner.
+     *
+     * @param uri "content://media/external/audio/albumart/123" veya "https://..." vb.
+     * @return { dataUri: "data:image/jpeg;base64,..." } veya { dataUri: "" }
+     */
+    @PluginMethod
+    public void getMediaArtDataUri(PluginCall call) {
+        final String uri = call.getString("uri", "");
+        if (uri == null || uri.isEmpty()) {
+            JSObject empty = new JSObject();
+            empty.put("dataUri", "");
+            call.resolve(empty);
+            return;
+        }
+
+        // Cache check
+        synchronized (artCache) {
+            String cached = artCache.get(uri);
+            if (cached != null) {
+                JSObject result = new JSObject();
+                result.put("dataUri", cached);
+                call.resolve(result);
+                return;
+            }
+        }
+
+        // Arka planda yükle
+        artLoaderExecutor.submit(() -> {
+            String dataUri = "";
+            try {
+                Bitmap b = loadBitmapFromUri(uri);
+                if (b != null) {
+                    dataUri = bitmapToDataUri(b);
+                    if (!dataUri.isEmpty()) {
+                        synchronized (artCache) { artCache.put(uri, dataUri); }
+                    }
+                }
+            } catch (Throwable ignored) {}
+            JSObject result = new JSObject();
+            result.put("dataUri", dataUri);
+            call.resolve(result);
+        });
+    }
+
+    /**
+     * URI'den Bitmap yükler. Destekler:
+     *   content://     — ContentResolver (hızlı, in-process — Spotify, MediaStore vs.)
+     *   file://        — Local dosya
+     *   android.resource:// — Uygulama içi kaynak
+     *   http(s)://     — CDN (Spotify scdn.co, YouTube i.ytimg.com vs.)
+     *
+     * HTTP timeout: 2s connect + 2.5s read — sürüş sırasında uzun bekleme olmaz.
+     */
+    private Bitmap loadBitmapFromUri(String uriStr) {
+        if (uriStr == null || uriStr.isEmpty()) return null;
+        try {
+            Uri uri = Uri.parse(uriStr);
+            String scheme = uri.getScheme();
+            if (scheme == null) return null;
+            scheme = scheme.toLowerCase();
+
+            if ("content".equals(scheme) || "file".equals(scheme) || "android.resource".equals(scheme)) {
+                InputStream is = getContext().getContentResolver().openInputStream(uri);
+                if (is == null) return null;
+                try {
+                    return android.graphics.BitmapFactory.decodeStream(is);
+                } finally {
+                    try { is.close(); } catch (Exception ignored) {}
+                }
+            } else if ("http".equals(scheme) || "https".equals(scheme)) {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                    new java.net.URL(uriStr).openConnection();
+                conn.setConnectTimeout(2_000);
+                conn.setReadTimeout(2_500);
+                conn.setRequestProperty("User-Agent", "CockpitOS/1.0");
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+                try {
+                    InputStream is = conn.getInputStream();
+                    try {
+                        return android.graphics.BitmapFactory.decodeStream(is);
+                    } finally {
+                        try { is.close(); } catch (Exception ignored) {}
+                    }
+                } finally {
+                    try { conn.disconnect(); } catch (Exception ignored) {}
+                }
+            }
+        } catch (Throwable ignored) { /* sessizce başarısız */ }
+        return null;
     }
 
     // ── Contacts ────────────────────────────────────────────────────────────
@@ -792,6 +1127,11 @@ public class CarLauncherPlugin extends Plugin {
     private volatile InputStream     obdInput   = null;
     private volatile OutputStream    obdOutput  = null;
     private volatile boolean         obdRunning = false;
+
+    // JS → Native OBD contract (P2): connectOBD ile gelen protokol + PID listesi.
+    // null → geriye dönük uyumluluk: ATSP0 + sabit 4 PID (010D/010C/0105/012F).
+    private volatile String                 obdProtocol = null;
+    private volatile java.util.Set<String>  obdPidSet   = null;
 
     // ── Aktif BT Tarama (uygulama içi OBD eşleştirme) ──────────────────────
 
@@ -922,6 +1262,12 @@ public class CarLauncherPlugin extends Plugin {
             return;
         }
 
+        // P2: JS'ten gelen protokol + PID listesini al (init/poll'da kullanılır).
+        // Bunlar submit'ten ÖNCE set edilir; initELM327/pollOBDLoop güncel değeri görür.
+        String protocol = call.getString("protocol");
+        obdProtocol = present(protocol) ? protocol : null;
+        obdPidSet   = parsePidSet(call.getArray("pids"));
+
         disconnectOBDInternal();
 
         obdExecutor.submit(() -> {
@@ -1022,17 +1368,51 @@ public class CarLauncherPlugin extends Plugin {
         sendOBDCommand("ATE0",  1000);
         sendOBDCommand("ATL0",   500);
         sendOBDCommand("ATH0",   500);
-        sendOBDCommand("ATSP0", 1000);
+        // P2: JS protokol gönderdiyse zorla (ör. '6' → ISO 15765-4 CAN); yoksa otomatik.
+        String sp = obdProtocol;
+        if (sp != null && sp.length() == 1) {
+            sendOBDCommand("ATSP" + sp, 1000);
+        } else {
+            sendOBDCommand("ATSP0", 1000);
+        }
+    }
+
+    /**
+     * JS'ten gelen PID JSArray'ini ('0x0D' formatı) kanonik sete çevirir ('0D').
+     * @return null → liste yok/boş (geriye dönük uyumluluk: tüm PID'ler sorgulanır)
+     */
+    private java.util.Set<String> parsePidSet(JSArray arr) {
+        if (arr == null) return null;
+        java.util.Set<String> set = new java.util.HashSet<>();
+        try {
+            for (int i = 0; i < arr.length(); i++) {
+                Object o = arr.get(i);
+                if (o == null) continue;
+                String s = o.toString().trim().toUpperCase();
+                if (s.startsWith("0X")) s = s.substring(2);
+                if (!s.isEmpty()) set.add(s);
+            }
+        } catch (org.json.JSONException ignored) {}
+        return set.isEmpty() ? null : set;
+    }
+
+    /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */
+    private static boolean shouldQuery(java.util.Set<String> set, String pid) {
+        return set == null || set.contains(pid);
     }
 
     private void pollOBDLoop() {
         while (obdRunning && obdSocket != null && obdSocket.isConnected()) {
             try {
+                // P2/P3: yalnızca JS'ten gelen PID listesindekiler sorgulanır.
+                // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
+                // (ör. 012F yakıt desteklenmeyen araçta cycle başına 1500ms kazandırır).
+                java.util.Set<String> pidSet = obdPidSet;
                 JSObject data = new JSObject();
-                data.put("speed",      readPID_speed());
-                data.put("rpm",        readPID_rpm());
-                data.put("engineTemp", readPID_temp());
-                data.put("fuelLevel",  readPID_fuel());
+                data.put("speed",      shouldQuery(pidSet, "0D") ? readPID_speed() : -1);
+                data.put("rpm",        shouldQuery(pidSet, "0C") ? readPID_rpm()   : -1);
+                data.put("engineTemp", shouldQuery(pidSet, "05") ? readPID_temp()  : -1);
+                data.put("fuelLevel",  shouldQuery(pidSet, "2F") ? readPID_fuel()  : -1);
                 data.put("headlights", false);
                 notifyListeners("obdData", data);
 
@@ -1180,12 +1560,50 @@ public class CarLauncherPlugin extends Plugin {
     private PluginCall savedSpeechCall = null;
     private SpeechRecognizer speechRecognizer = null;
 
+    // ── Vosk (offline STT) durumu ────────────────────────────────────────────
+    private Model         voskModel           = null;   // bir kez yüklenir, tekrar kullanılır
+    private SpeechService voskSpeechService   = null;   // aktif dinleme oturumu
+    private boolean       voskModelLoading    = false;
+    private Handler       voskTimeoutHandler  = null;
+    private Runnable      voskTimeoutRunnable = null;
+
     @PluginMethod
     public void startSpeechRecognition(PluginCall call) {
+        // Mikrofon izni yoksa runtime'da iste — ama YİNE DE Vosk'u dene (engelleme).
+        // Bazı head unit'lerde checkSelfPermission "denied" dönse bile AudioRecord
+        // çalışır (gevşek izin / sistem benzeri erişim). Engelleyici reddetme,
+        // çalışan yolu kapatıyordu; gerçekten erişilemezse Vosk onError bildirir.
+        if (ContextCompat.checkSelfPermission(getContext(),
+                android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            try {
+                ActivityCompat.requestPermissions(getActivity(),
+                    new String[]{ android.Manifest.permission.RECORD_AUDIO }, 9002);
+            } catch (Exception ignored) {}
+        }
         savedSpeechCall = call;
-        String language = call.getString("language", "tr-TR");
-        int    maxResults = call.getInt("maxResults", 1);
+        String  language      = call.getString("language", "tr-TR");
+        int     maxResults    = call.getInt("maxResults", 1);
+        // JS preferOffline tercihini ARTIK dikkate al. Eskiden EXTRA_PREFER_OFFLINE sabit true idi →
+        // offline TR dil modeli olmayan head unit'lerde tanıma anında ERROR_CLIENT/NO_MATCH ile çöküyor,
+        // dinleme hiç başlamadan "Anlaşılamadı" gösteriliyordu. Telefonlarda offline model/GMS olduğu için çalışıyordu.
+        boolean preferOffline  = Boolean.TRUE.equals(call.getBoolean("preferOffline", Boolean.FALSE));
+        boolean onlineFallback = Boolean.TRUE.equals(call.getBoolean("onlineFallback", Boolean.TRUE));
+        // KATMAN 1 — Önce Vosk (offline, Google'sız, cihaz-içi). Model yüklenemez/başlatılamazsa
+        // Google SpeechRecognizer'a (beginSpeechRecognition) düşülür — GMS'li cihazlarda yedek.
+        startVoskRecognition(language, maxResults, preferOffline, onlineFallback);
+    }
 
+    /**
+     * @param preferOffline    yalnızca true ise EXTRA_PREFER_OFFLINE ayarlanır (aksi halde sistem
+     *                         en iyi yolu — genelde online — seçer; head unit uyumluluğu için kritik).
+     * @param allowOnlineRetry offline denemesi başarısız olursa online ile bir kez daha denensin mi
+     *                         (head unit'lerde offline model yok → otomatik online'a düşülür).
+     */
+    private void beginSpeechRecognition(String language, int maxResults,
+                                        boolean preferOffline, boolean allowOnlineRetry) {
+        final int     finalMaxResults    = maxResults;
+        final boolean finalPreferOffline = preferOffline;
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
                 if (speechRecognizer != null) {
@@ -1203,7 +1621,6 @@ public class CarLauncherPlugin extends Plugin {
 
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(getContext());
 
-                final int finalMaxResults = maxResults;
                 speechRecognizer.setRecognitionListener(new RecognitionListener() {
                     @Override public void onReadyForSpeech(android.os.Bundle params) {}
                     @Override public void onBeginningOfSpeech() {}
@@ -1237,6 +1654,18 @@ public class CarLauncherPlugin extends Plugin {
 
                     @Override
                     public void onError(int error) {
+                        // Offline denendi ve model yok / dil desteklenmiyorsa → online ile BİR KEZ daha dene.
+                        // ERROR_CLIENT(5), NO_MATCH(7), LANGUAGE_UNAVAILABLE(12), LANGUAGE_NOT_SUPPORTED(13)
+                        boolean offlineMissing = error == SpeechRecognizer.ERROR_CLIENT
+                                              || error == SpeechRecognizer.ERROR_NO_MATCH
+                                              || error == 12
+                                              || error == 13;
+                        if (allowOnlineRetry && finalPreferOffline && offlineMissing) {
+                            destroySpeechRecognizer();
+                            // savedSpeechCall KORUNUR — online denemesi aynı Promise'i çözer
+                            beginSpeechRecognition(language, finalMaxResults, false, false);
+                            return;
+                        }
                         PluginCall c = savedSpeechCall;
                         savedSpeechCall = null;
                         if (c == null) return;
@@ -1254,7 +1683,10 @@ public class CarLauncherPlugin extends Plugin {
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
                 intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
                 intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, finalMaxResults);
-                intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+                // Sadece açıkça istenirse offline'a zorla — aksi halde sistem online'ı kullanabilir.
+                if (finalPreferOffline) {
+                    intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+                }
                 intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,
                     getContext().getPackageName());
 
@@ -1275,6 +1707,135 @@ public class CarLauncherPlugin extends Plugin {
             try { speechRecognizer.destroy(); } catch (Exception ignored) {}
             speechRecognizer = null;
         }
+    }
+
+    /* ── Vosk offline STT (Katman 1) ─────────────────────────────────────────
+     * Google/GMS gerektirmez, internetsiz çalışır. Model assets/vosk-model-tr'den
+     * ilk çağrıda filesDir'e açılır (StorageService), sonra RAM'de tutulur.
+     * Başarısız olursa Google SpeechRecognizer'a (beginSpeechRecognition) düşülür. */
+
+    private void startVoskRecognition(String language, int maxResults,
+                                      boolean preferOffline, boolean onlineFallback) {
+        if (voskModel != null) { runVoskListening(); return; }
+        if (voskModelLoading) {
+            if (savedSpeechCall != null) {
+                savedSpeechCall.reject("MODEL_LOADING", "Ses modeli yükleniyor, tekrar deneyin");
+                savedSpeechCall = null;
+            }
+            return;
+        }
+        voskModelLoading = true;
+        try {
+            StorageService.unpack(getContext(), "vosk-model-tr", "vosk-model",
+                (model) -> {
+                    voskModel = model;
+                    voskModelLoading = false;
+                    runVoskListening();
+                },
+                (exception) -> voskFailed(
+                    "model açılamadı: " + (exception != null ? exception.getMessage() : "bilinmeyen"),
+                    language, maxResults, preferOffline, onlineFallback));
+        } catch (Throwable t) {
+            voskFailed("model unpack istisnası: " + t.getMessage(),
+                language, maxResults, preferOffline, onlineFallback);
+        }
+    }
+
+    /**
+     * Vosk başlatılamadığında: GMS/Google tanıma VARSA ona düş (telefon),
+     * YOKSA (head unit) yanıltıcı "internet/dil paketi" mesajı yerine GERÇEK
+     * Vosk hatasını JS'e bildir — böylece sebep (storage, ABI, model) görünür.
+     */
+    private void voskFailed(String reason, String language, int maxResults,
+                            boolean preferOffline, boolean onlineFallback) {
+        voskModelLoading = false;
+        boolean googleAvailable = false;
+        try { googleAvailable = SpeechRecognizer.isRecognitionAvailable(getContext()); }
+        catch (Exception ignored) {}
+        if (googleAvailable && onlineFallback) {
+            beginSpeechRecognition(language, maxResults, preferOffline, onlineFallback);
+        } else {
+            rejectVosk("Vosk STT başlatılamadı — " + reason);
+        }
+    }
+
+    private void runVoskListening() {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                stopVosk(); // önceki oturumu temizle
+                Recognizer recognizer = new Recognizer(voskModel, 16000.0f);
+                voskSpeechService = new SpeechService(recognizer, 16000.0f);
+                voskSpeechService.startListening(new org.vosk.android.RecognitionListener() {
+                    @Override public void onPartialResult(String hypothesis) { /* RMS sağlamaz — atlanır */ }
+                    @Override public void onResult(String hypothesis) {
+                        String text = extractVoskText(hypothesis);
+                        if (text != null && !text.isEmpty()) resolveVosk(text); // ilk dolu sonuç → çöz + dur
+                    }
+                    @Override public void onFinalResult(String hypothesis) {
+                        if (savedSpeechCall == null) return;
+                        String text = extractVoskText(hypothesis);
+                        if (text != null && !text.isEmpty()) resolveVosk(text);
+                        else rejectVosk("No speech detected"); // JS bunu sessizce idle eder
+                    }
+                    @Override public void onError(Exception e) {
+                        rejectVosk("Vosk hata: " + (e != null ? e.getMessage() : "bilinmeyen"));
+                    }
+                    @Override public void onTimeout() {
+                        if (savedSpeechCall != null) rejectVosk("No speech detected");
+                    }
+                });
+
+                // 10 sn güvenlik zaman aşımı — kullanıcı hiç konuşmazsa oturumu kapat
+                voskTimeoutHandler  = new Handler(Looper.getMainLooper());
+                voskTimeoutRunnable = () -> {
+                    if (savedSpeechCall != null) rejectVosk("No speech detected"); else stopVosk();
+                };
+                voskTimeoutHandler.postDelayed(voskTimeoutRunnable, 10_000);
+
+            } catch (Throwable t) {
+                rejectVosk("Vosk başlatılamadı: " + t.getMessage());
+            }
+        });
+    }
+
+    private void resolveVosk(String text) {
+        PluginCall c = savedSpeechCall;
+        savedSpeechCall = null;
+        if (c != null) {
+            JSObject r = new JSObject();
+            r.put("transcript", text);
+            c.resolve(r);
+        }
+        stopVosk();
+    }
+
+    private void rejectVosk(String msg) {
+        PluginCall c = savedSpeechCall;
+        savedSpeechCall = null;
+        if (c != null) c.reject("NO_RESULT", msg);
+        stopVosk();
+    }
+
+    private void stopVosk() {
+        if (voskTimeoutHandler != null && voskTimeoutRunnable != null) {
+            voskTimeoutHandler.removeCallbacks(voskTimeoutRunnable);
+        }
+        voskTimeoutRunnable = null;
+        if (voskSpeechService != null) {
+            try { voskSpeechService.stop(); }     catch (Exception ignored) {}
+            try { voskSpeechService.shutdown(); }  catch (Exception ignored) {}
+            voskSpeechService = null;
+        }
+    }
+
+    private String extractVoskText(String json) {
+        if (json == null) return "";
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            if (o.has("text"))    return o.optString("text", "").trim();
+            if (o.has("partial")) return o.optString("partial", "").trim();
+        } catch (Exception ignored) {}
+        return "";
     }
 
     // ── Background service ───────────────────────────────────────────────────
@@ -1334,6 +1895,23 @@ public class CarLauncherPlugin extends Plugin {
                     != PackageManager.PERMISSION_GRANTED) {
                 needed.add(android.Manifest.permission.BLUETOOTH_SCAN);
             }
+        }
+
+        // Classic BT discovery, eşli OLMAYAN cihazları (yeni OBD adaptörü) ancak
+        // konum izni verildiğinde ACTION_FOUND ile bildirir. neverForLocation
+        // flag'i kaldırıldığı için BLUETOOTH_SCAN artık FINE_LOCATION gerektirir.
+        if (ContextCompat.checkSelfPermission(getContext(),
+                android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+
+        // Sesli asistan (Vosk offline STT) mikrofon kaydı yapar. İzin verilmezse
+        // Vosk AudioRecord açamaz → ses tanıma başarısız hatası döner.
+        if (ContextCompat.checkSelfPermission(getContext(),
+                android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.RECORD_AUDIO);
         }
 
         if (Build.VERSION.SDK_INT >= 33) {
@@ -2030,6 +2608,37 @@ public class CarLauncherPlugin extends Plugin {
     private final ReverseSignalGuard reverseGuard     = new ReverseSignalGuard();
     private       NativeToJsBridge  canJsBridge;
     private volatile boolean _canSnifferActive = false;
+
+    // K24/Hiworld head unit'leri root GEREKTİRMEDEN okur (ContentProvider +
+    // ServiceManager binder'ları üzerinden). Ham seri (canBusManager) root'suz
+    // /dev/ttyS*'e erişemediği için bu cihazlarda tek çalışan CAN yolu budur.
+    private final K24CanBridge      k24CanBridge      = new K24CanBridge();
+
+    /** K24 köprüsünün decoded verisini ham CAN ile aynı emit yoluna sokar. */
+    private final K24CanBridge.DecodedListener _k24DataListener = this::emitVehicleData;
+
+    /** K24 köprüsünün tanı satırlarını CanDiagPanel'in dinlediği canDiag kanalına aktarır. */
+    private final K24CanBridge.DiagListener _k24DiagListener = (msg) -> {
+        JSObject o = new JSObject();
+        o.put("msg", msg);
+        notifyListeners("canDiag", o);
+    };
+
+    // MCU broadcast keşfi — non-exported provider'a erişemeyen sandboxed app için
+    // tek meşru kanal: NWD/Hiworld'ün yayınladığı CAN broadcast'lerini dinler.
+    // Veri ÜRETMEZ; hangi kanalın yayın yaptığını tanı günlüğüne yazar.
+    private McuEventSniffer mcuEventSniffer = null;
+
+    private void startMcuSnifferOnce() {
+        if (mcuEventSniffer == null) {
+            mcuEventSniffer = new McuEventSniffer(getContext(), (line) -> {
+                JSObject o = new JSObject();
+                o.put("msg", line);
+                notifyListeners("canDiag", o);
+            });
+        }
+        mcuEventSniffer.start(); // idempotent (_running guard)
+    }
     private static final String PREFS_CAN_IDS  = "can_ids";
 
     // ── Industrial-Grade Secure Storage ──────────────────────────────────────
@@ -2105,7 +2714,14 @@ public class CarLauncherPlugin extends Plugin {
             notifyListeners("canRawFrame", raw);
         }
 
-        VehicleCanData data = canSignalMapper.process(signals);
+        emitVehicleData(canSignalMapper.process(signals));
+    };
+
+    /**
+     * reverseGuard filtreleme + JS emit. Hem ham CAN (_canFrameListener) hem de
+     * K24/Hiworld köprüsü (_k24DataListener) bu tek yolu kullanır.
+     */
+    private void emitVehicleData(VehicleCanData data) {
         if (data == null) return;
 
         if (data.speed != null) reverseGuard.updateSpeed(data.speed);
@@ -2119,12 +2735,16 @@ public class CarLauncherPlugin extends Plugin {
         }
 
         if (canJsBridge != null) canJsBridge.emit(filtered);
-    };
+    }
 
     @PluginMethod
     public void startCanBus(PluginCall call) {
         if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
         canBusManager.start(_canFrameListener, getContext(), canSignalMapper::reset);
+        // K24/Hiworld root'suz yol — ham seri başarısız olsa da bu çalışabilir.
+        // start() içinde _started guard'ı var → tekrar çağrı güvenli (idempotent).
+        k24CanBridge.start(_k24DataListener, _k24DiagListener, getContext());
+        startMcuSnifferOnce();
         // 3s sonra bağlantı durumunu JS'e bildir (transport connect denemesi için süre)
         new Handler(Looper.getMainLooper()).postDelayed(this::emitCanStatus, 3_000);
         call.resolve();
@@ -2133,6 +2753,8 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void stopCanBus(PluginCall call) {
         canBusManager.stop();
+        k24CanBridge.stop();
+        if (mcuEventSniffer != null) mcuEventSniffer.stop();
         emitCanStatus();
         call.resolve();
     }
@@ -2238,6 +2860,9 @@ public class CarLauncherPlugin extends Plugin {
             // Sniffer başlatılırken CAN bus çalışmıyorsa otomatik başlat
             if (canJsBridge == null) canJsBridge = new NativeToJsBridge(this::notifyListeners);
             canBusManager.start(_canFrameListener, getContext(), canSignalMapper::reset);
+            // K24/Hiworld root'suz köprü — tanı çıktısı canDiag'a, decoded veri canData'ya akar.
+            k24CanBridge.start(_k24DataListener, _k24DiagListener, getContext());
+            startMcuSnifferOnce();
         }
         call.resolve();
     }
@@ -2917,8 +3542,12 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Video oynatma (VideoView overlay — aynı Activity içinde) ───────────────
 
-    private RelativeLayout videoOverlay = null;
-    private VideoView      nativeVideoView = null;
+    private RelativeLayout videoOverlay       = null;
+    // VideoView (SurfaceView) WebView üstüne eklenince video yüzeyi pencerenin arkasında
+    // kalıp "ses var görüntü yok" sorununa yol açıyordu. TextureView normal view
+    // hiyerarşisinde render edildiği için bu sorunu çözer.
+    private TextureView    nativeVideoTexture = null;
+    private MediaPlayer    nativeVideoPlayer  = null;
 
     /** MediaStore.Video.Media'dan cihaz videolarını listele. */
     @PluginMethod
@@ -3005,41 +3634,58 @@ public class CarLauncherPlugin extends Plugin {
                 ViewGroup.LayoutParams.MATCH_PARENT
             ));
 
-            // VideoView
-            nativeVideoView = new VideoView(getContext());
+            // TextureView — normal view hiyerarşisinde render → WebView üstünde görüntü görünür
+            nativeVideoTexture = new TextureView(getContext());
             RelativeLayout.LayoutParams vp = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.MATCH_PARENT,
                 RelativeLayout.LayoutParams.MATCH_PARENT
             );
             vp.addRule(RelativeLayout.CENTER_IN_PARENT);
-            nativeVideoView.setLayoutParams(vp);
-            nativeVideoView.setVideoURI(Uri.parse(finalUri));
-
-            android.widget.MediaController mc = new android.widget.MediaController(getContext());
-            mc.setAnchorView(nativeVideoView);
-            nativeVideoView.setMediaController(mc);
-
-            nativeVideoView.setOnPreparedListener(mp -> {
-                mp.start();
-                JSObject data = new JSObject();
-                data.put("durationMs", mp.getDuration());
-                notifyListeners("videoStarted", data);
+            nativeVideoTexture.setLayoutParams(vp);
+            nativeVideoTexture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+                @Override
+                public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                    try {
+                        nativeVideoPlayer = new MediaPlayer();
+                        nativeVideoPlayer.setSurface(new Surface(surface));
+                        nativeVideoPlayer.setDataSource(getContext(), Uri.parse(finalUri));
+                        nativeVideoPlayer.setOnPreparedListener(mp -> {
+                            mp.start();
+                            JSObject data = new JSObject();
+                            data.put("durationMs", mp.getDuration());
+                            notifyListeners("videoStarted", data);
+                        });
+                        nativeVideoPlayer.setOnVideoSizeChangedListener((mp, vw, vh) ->
+                            getActivity().runOnUiThread(() -> fitVideoTexture(vw, vh)));
+                        nativeVideoPlayer.setOnCompletionListener(mp -> {
+                            notifyListeners("videoCompleted", new JSObject());
+                            getActivity().runOnUiThread(CarLauncherPlugin.this::closeVideoNativeInternal);
+                        });
+                        nativeVideoPlayer.setOnErrorListener((mp, what, extra) -> {
+                            JSObject err = new JSObject();
+                            err.put("error", "Video oynatma hatası: " + what + "/" + extra);
+                            notifyListeners("videoError", err);
+                            return true; // hatayı tükettik — MediaPlayer'ı serbest bırakacağız
+                        });
+                        nativeVideoPlayer.prepareAsync();
+                    } catch (Exception e) {
+                        JSObject err = new JSObject();
+                        err.put("error", "Video açılamadı: " + e.getMessage());
+                        notifyListeners("videoError", err);
+                    }
+                }
+                @Override
+                public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+                    if (nativeVideoPlayer != null) {
+                        try { fitVideoTexture(nativeVideoPlayer.getVideoWidth(), nativeVideoPlayer.getVideoHeight()); }
+                        catch (Exception ignored) {}
+                    }
+                }
+                @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) { return true; }
+                @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
             });
 
-            nativeVideoView.setOnCompletionListener(mp -> {
-                notifyListeners("videoCompleted", new JSObject());
-                // Tamamlanınca overlay kaldır
-                getActivity().runOnUiThread(this::closeVideoNativeInternal);
-            });
-
-            nativeVideoView.setOnErrorListener((mp, what, extra) -> {
-                JSObject err = new JSObject();
-                err.put("error", "Video oynatma hatası: " + what + "/" + extra);
-                notifyListeners("videoError", err);
-                return false;
-            });
-
-            videoOverlay.addView(nativeVideoView);
+            videoOverlay.addView(nativeVideoTexture);
 
             // KAPAT butonu — sağ üst köşe
             Button closeBtn = new Button(getContext());
@@ -3078,16 +3724,37 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     private void closeVideoNativeInternal() {
-        if (nativeVideoView != null) {
-            try { nativeVideoView.stopPlayback(); } catch (Exception ignored) {}
-            nativeVideoView = null;
+        if (nativeVideoPlayer != null) {
+            try { nativeVideoPlayer.stop(); }    catch (Exception ignored) {}
+            try { nativeVideoPlayer.release(); }  catch (Exception ignored) {}
+            nativeVideoPlayer = null;
         }
+        nativeVideoTexture = null;
         if (videoOverlay != null) {
             try {
                 ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(videoOverlay);
             } catch (Exception ignored) {}
             videoOverlay = null;
         }
+    }
+
+    /** Videoyu TextureView içine en-boy oranını koruyarak (letterbox) sığdırır. */
+    private void fitVideoTexture(int videoW, int videoH) {
+        TextureView tv = nativeVideoTexture;
+        if (tv == null || videoW <= 0 || videoH <= 0) return;
+        int viewW = tv.getWidth(), viewH = tv.getHeight();
+        if (viewW <= 0 || viewH <= 0) return;
+        float viewAspect  = (float) viewW / viewH;
+        float videoAspect = (float) videoW / videoH;
+        float scaleX = 1f, scaleY = 1f;
+        if (videoAspect > viewAspect) {
+            scaleY = viewAspect / videoAspect; // video daha geniş → üst/alt boşluk
+        } else {
+            scaleX = videoAspect / viewAspect; // video daha dar → yan boşluk
+        }
+        Matrix m = new Matrix();
+        m.setScale(scaleX, scaleY, viewW / 2f, viewH / 2f);
+        tv.setTransform(m);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -3110,8 +3777,9 @@ public class CarLauncherPlugin extends Plugin {
         disconnectOBDInternal();
         obdExecutor.shutdownNow();
 
+        detachMediaSessionsListener();
         if (activeMediaController != null && mediaCallback != null) {
-            activeMediaController.unregisterCallback(mediaCallback);
+            try { activeMediaController.unregisterCallback(mediaCallback); } catch (Exception ignored) {}
             activeMediaController = null;
             mediaCallback         = null;
         }

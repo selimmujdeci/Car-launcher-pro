@@ -11,6 +11,12 @@
 @import "./styles/day-mode.css";
 @import "./styles/theme-packs.css";
 @import "./styles/ultra-premium-global.css";
+/* Tasarım sistemi — kanonik --oem-* semantik token katmanı (koyu fallback + aydınlık-pro) */
+@import "./styles/design-system.css";
+/* Dock premium chrome — alt bar malzeme + durum + derinlik (--oem-dock-*) */
+@import "./styles/dock-premium.css";
+/* Açık tema EN SON — load-order ile koyu kuralları ezer (html.light-ui ile tetiklenir) */
+@import "./styles/light-theme.css";
 
 /* ═══════════════════════════════════════════════════════════
    SUNLIGHT MODE — autoBrightnessService.ts tarafından yönetilir
@@ -60,7 +66,7 @@
   --bg-primary:    #0a0c10;
   --bg-card:       #12151d;
   --bg-surface:    #1a1d28;
-  --accent:        #60a5fa;
+  --accent:        #E0A23C;
   --accent2:       #34d399;
   --text:          #ffffff;
   --border-color:  rgba(255,255,255,0.08);
@@ -114,24 +120,24 @@
   --bg-primary:    #1C1C2E;
   --bg-card:       rgba(35,35,58,0.97);
   --bg-surface:    #2D2D44;
-  --accent:        #D4AF37;
+  --accent:        #E0A23C;
   --accent2:       #C0392B;
   --text:          #F5F0E8;
-  --border-color:  rgba(212,175,55,0.30);
+  --border-color:  rgba(224,162,60,0.30);
   --radius:        4px;
   --radius-card:   18px;
   --radius-btn:    4px;
   --radius-tile:   4px;
   --dock-bg:       rgba(13,13,26,0.99);
-  --dock-border-top: 1px solid rgba(212,175,55,0.35);
-  --divider-color: rgba(212,175,55,0.18);
-  --icon-color-1:  #D4AF37;
+  --dock-border-top: 1px solid rgba(224,162,60,0.35);
+  --divider-color: rgba(224,162,60,0.18);
+  --icon-color-1:  #E0A23C;
   --icon-color-2:  #C0392B;
   --font-ui:       'Orbitron', monospace;
   --font-weight-ui: 900;
   --letter-spacing-ui: 2px;
-  --btn-glow:      0 0 12px rgba(212,175,55,0.35);
-  --tile-hover-bg: rgba(212,175,55,0.08);
+  --btn-glow:      0 0 12px rgba(224,162,60,0.35);
+  --tile-hover-bg: rgba(224,162,60,0.08);
 }
 
 [data-theme="tesla"] {
@@ -139,7 +145,7 @@
   --bg-card:       rgba(22,22,22,0.96);
   --bg-card2:      rgba(26,26,26,0.92);
   --bg-surface:    #1E1E1E;
-  --accent:        #E31937;
+  --accent:        #E0A23C;
   --accent2:       #A8A9AD;
   --text:          #FFFFFF;
   --text-dim:      #b0bec8;
@@ -150,15 +156,15 @@
   --radius-btn:    50px;
   --radius-tile:   50px;
   --dock-bg:       rgba(14,14,14,0.99);
-  --dock-border-top: 2px solid rgba(227,25,55,0.40);
+  --dock-border-top: 2px solid rgba(224,162,60,0.40);
   --divider-color: rgba(255,255,255,0.10);
-  --icon-color-1:  #E31937;
+  --icon-color-1:  #E0A23C;
   --icon-color-2:  #A8A9AD;
-  --font-ui:       system-ui, -apple-system, sans-serif;
+  --font-ui:       'Inter', system-ui, -apple-system, sans-serif;
   --font-weight-ui: 500;
   --letter-spacing-ui: 0.08em;
   --btn-glow:      none;
-  --tile-hover-bg: rgba(227,25,55,0.08);
+  --tile-hover-bg: rgba(224,162,60,0.08);
 }
 
 [data-theme="cockpit"] {
@@ -191,7 +197,7 @@
   --bg-primary:    #181818;
   --bg-card:       rgba(24,22,22,0.97);
   --bg-surface:    #2C2C2C;
-  --accent:        #C8A96E;
+  --accent:        #E0A23C;
   --accent2:       #8C8C8C;
   --text:          #F5F0EB;
   --text-dim:      #b8b2ac;
@@ -202,15 +208,15 @@
   --radius-btn:    6px;
   --radius-tile:   6px;
   --dock-bg:       rgba(14,14,14,0.99);
-  --dock-border-top: 1px solid rgba(200,168,130,0.35);
-  --divider-color: rgba(200,168,130,0.22);
-  --icon-color-1:  #C8A882;
+  --dock-border-top: 1px solid rgba(224,162,60,0.35);
+  --divider-color: rgba(224,162,60,0.22);
+  --icon-color-1:  #E0A23C;
   --icon-color-2:  #8C8C8C;
-  --font-ui:       system-ui, 'Helvetica Neue', sans-serif;
+  --font-ui:       'Inter', system-ui, sans-serif;
   --font-weight-ui: 500;
   --letter-spacing-ui: 3px;
   --btn-glow:      none;
-  --tile-hover-bg: rgba(200,168,130,0.08);
+  --tile-hover-bg: rgba(224,162,60,0.08);
 }
 
 [data-theme="audi"] {
@@ -240,10 +246,10 @@
 }
 
 /* Gündüz varyantları için de aynı değişkenler */
-[data-theme="pro-day"]      { --bg-primary:#2D2D44; --bg-card:rgba(61,61,92,0.97); --bg-surface:#3D3D5C; --accent:#D4AF37; --accent2:#C0392B; --text:#F5F0E8; --border-color:rgba(212,175,55,0.32); --radius:4px; --radius-card:18px; --dock-bg:rgba(22,22,36,0.99); --dock-border-top:1px solid rgba(212,175,55,0.35); --divider-color:rgba(212,175,55,0.20); --icon-color-1:#D4AF37; --icon-color-2:#C0392B; --font-ui:'Orbitron',monospace; --font-weight-ui:900; --letter-spacing-ui:2px; --btn-glow:0 0 12px rgba(212,175,55,0.30); --tile-hover-bg:rgba(212,175,55,0.10); }
-[data-theme="tesla-day"]    { --bg-primary:#1E2A3A; --bg-card:rgba(38,48,64,0.97); --bg-surface:#263040; --accent:#E31937; --accent2:#A8A9AD; --text:#F0F2F5; --border-color:rgba(255,255,255,0.12); --radius:50px; --radius-card:12px; --dock-bg:rgba(12,18,28,0.99); --dock-border-top:2px solid rgba(227,25,55,0.40); --divider-color:rgba(255,255,255,0.10); --icon-color-1:#E31937; --icon-color-2:#A8A9AD; --font-ui:system-ui,sans-serif; --font-weight-ui:500; --letter-spacing-ui:0.08em; --btn-glow:none; --tile-hover-bg:rgba(227,25,55,0.08); }
+[data-theme="pro-day"]      { --bg-primary:#2D2D44; --bg-card:rgba(61,61,92,0.97); --bg-surface:#3D3D5C; --accent:#E0A23C; --accent2:#C0392B; --text:#F5F0E8; --border-color:rgba(224,162,60,0.32); --radius:4px; --radius-card:18px; --dock-bg:rgba(22,22,36,0.99); --dock-border-top:1px solid rgba(224,162,60,0.35); --divider-color:rgba(224,162,60,0.20); --icon-color-1:#E0A23C; --icon-color-2:#C0392B; --font-ui:'Inter',system-ui,sans-serif; --font-weight-ui:900; --letter-spacing-ui:2px; --btn-glow:0 0 12px rgba(224,162,60,0.30); --tile-hover-bg:rgba(224,162,60,0.10); }
+[data-theme="tesla-day"]    { --bg-primary:#1E2A3A; --bg-card:rgba(38,48,64,0.97); --bg-surface:#263040; --accent:#E0A23C; --accent2:#A8A9AD; --text:#F0F2F5; --border-color:rgba(255,255,255,0.12); --radius:50px; --radius-card:12px; --dock-bg:rgba(12,18,28,0.99); --dock-border-top:2px solid rgba(224,162,60,0.40); --divider-color:rgba(255,255,255,0.10); --icon-color-1:#E0A23C; --icon-color-2:#A8A9AD; --font-ui:'Inter',system-ui,sans-serif; --font-weight-ui:500; --letter-spacing-ui:0.08em; --btn-glow:none; --tile-hover-bg:rgba(224,162,60,0.08); }
 [data-theme="cockpit-day"]  { --bg-primary:#0D2137; --bg-card:rgba(15,42,69,0.97); --bg-surface:#0F2A45; --accent:#00B4D8; --accent2:#90E0EF; --text:#E8F4FD; --border-color:rgba(0,180,216,0.40); --radius:8px; --radius-card:16px; --dock-bg:rgba(6,16,30,0.99); --dock-border-top:1px solid rgba(0,180,216,0.55); --divider-color:rgba(0,180,216,0.28); --icon-color-1:#00B4D8; --icon-color-2:#90E0EF; --font-ui:'Courier New',monospace; --font-weight-ui:700; --letter-spacing-ui:0.08em; --btn-glow:0 0 10px rgba(0,180,216,0.45); --tile-hover-bg:rgba(0,180,216,0.12); }
-[data-theme="mercedes-day"] { --bg-primary:#2C2C3A; --bg-card:rgba(54,54,69,0.97); --bg-surface:#363645; --accent:#C8A882; --accent2:#8C8C8C; --text:#EDE8E0; --border-color:rgba(200,168,130,0.30); --radius:6px; --radius-card:20px; --dock-bg:rgba(18,18,26,0.99); --dock-border-top:1px solid rgba(200,168,130,0.35); --divider-color:rgba(200,168,130,0.22); --icon-color-1:#C8A882; --icon-color-2:#8C8C8C; --font-ui:system-ui,sans-serif; --font-weight-ui:500; --letter-spacing-ui:3px; --btn-glow:none; --tile-hover-bg:rgba(200,168,130,0.10); }
+[data-theme="mercedes-day"] { --bg-primary:#2C2C3A; --bg-card:rgba(54,54,69,0.97); --bg-surface:#363645; --accent:#E0A23C; --accent2:#8C8C8C; --text:#EDE8E0; --border-color:rgba(224,162,60,0.30); --radius:6px; --radius-card:20px; --dock-bg:rgba(18,18,26,0.99); --dock-border-top:1px solid rgba(224,162,60,0.35); --divider-color:rgba(224,162,60,0.22); --icon-color-1:#E0A23C; --icon-color-2:#8C8C8C; --font-ui:'Inter',system-ui,sans-serif; --font-weight-ui:500; --letter-spacing-ui:3px; --btn-glow:none; --tile-hover-bg:rgba(224,162,60,0.10); }
 [data-theme="audi-day"]     { --bg-primary:#1E1E2C; --bg-card:rgba(40,40,58,0.97); --bg-surface:#28283A; --accent:#BB0A21; --accent2:#D0D0D0; --text:#F0F0F2; --border-color:rgba(187,10,33,0.32); --radius:2px; --radius-card:10px; --dock-bg:rgba(10,10,18,0.99); --dock-border-top:2px solid rgba(187,10,33,0.55); --divider-color:rgba(187,10,33,0.22); --icon-color-1:#BB0A21; --icon-color-2:#D0D0D0; --font-ui:system-ui,sans-serif; --font-weight-ui:900; --letter-spacing-ui:1.5px; --btn-glow:none; --tile-hover-bg:rgba(187,10,33,0.12); }
 
 /* ══════════════════════════════════════════════════════════════════════════

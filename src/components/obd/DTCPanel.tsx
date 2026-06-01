@@ -138,7 +138,8 @@ function DTCPanelInner() {
         <button
           onClick={readDTCCodes}
           disabled={dtc.isReading}
-          className="flex-1 h-14 flex items-center justify-center gap-3 bg-blue-500/10 border border-blue-500/25 text-blue-600 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
+          className="flex-1 h-14 flex items-center justify-center gap-3 rounded-2xl font-black text-sm uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
+          style={{ background: 'rgba(224,162,60,0.14)', border: '1px solid rgba(224,162,60,0.40)', color: '#E0A23C' }}
         >
           <RefreshCw className={`w-5 h-5 ${dtc.isReading ? 'animate-spin' : ''}`} />
           {dtc.isReading ? 'OKUNUYOR…' : 'TARAMAYI BAŞLAT'}

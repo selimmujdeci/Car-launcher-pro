@@ -73,12 +73,17 @@ export function useSABDirectUpdate(
       let raw: number | null = null;
 
       if (ch.f64 && ch.i32) {
-        // SAB yolu — Atomics.load ile acquire fence; değişmezse early-exit
-        const gen = Atomics.load(ch.i32, SAB_GEN_IDX);
-        if (gen !== lastGen) {
-          lastGen  = gen;
+        // SAB yolu — Seqlock double-check (Worker tek-yazar, +2/yazım):
+        //   GEN tek → yazım sürüyor; baş≠son → Torn Read. Her ikisinde de bu
+        //   frame'i atla (lastGen güncellenmez → sonraki RAF temiz okur).
+        const g1 = Atomics.load(ch.i32, SAB_GEN_IDX);
+        if ((g1 & 1) === 0 && g1 !== lastGen) {
           const f  = ch.f64[sabIndex];
-          if (Number.isFinite(f) && !Number.isNaN(f)) raw = f;
+          const g2 = Atomics.load(ch.i32, SAB_GEN_IDX);
+          if (g1 === g2) {
+            lastGen = g1;
+            if (Number.isFinite(f) && !Number.isNaN(f)) raw = f;
+          }
         }
       } else {
         // Zustand yedek yolu — her frame mevcut değeri al

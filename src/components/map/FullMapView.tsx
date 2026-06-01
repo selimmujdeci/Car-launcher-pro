@@ -7,6 +7,7 @@ import {
   interpolateNavPoint, type NavPoint
 } from '../../utils/interpolation';
 import { bearingBetween } from '../../platform/cameraEngine';
+import { logInfo } from '../../platform/debug';
 import {
   initializeMap,
   destroyMap,
@@ -14,6 +15,8 @@ import {
   setMapCenter,
   addUserMarker,
   updateUserMarker,
+  applyMapDayNight,
+  setMarkerNavActive,
   setMapHeading,
   switchMapStyle,
   setDrivingView,
@@ -34,7 +37,8 @@ import {
   registerAltRouteSelectCallback,
 } from '../../platform/mapService';
 import { useHazardStore } from '../../store/useHazardStore';
-import { useGPSLocation, useGPSHeading, useGPSSource } from '../../platform/gpsService';
+import { useGPSSource, onGPSLocation, type GPSLocation } from '../../platform/gpsService';
+import { useThermalState } from '../../platform/thermalWatchdog';
 import {
   setMapMode,
   useMapMode,
@@ -48,6 +52,7 @@ import { useVisionStore } from '../../platform/visionStore';
 import {
   useNavigation, updateNavigationProgress, getSnappedMarkerPosition,
   setNavStatus, NavStatus, activateNavigation, stopNavigation, startNavigation,
+  getNavigationState,
 } from '../../platform/navigationService';
 import {
   fetchRoute,
@@ -60,6 +65,8 @@ import {
   registerNavigationStyleCallback,
 } from '../../platform/routingService';
 import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
+import { useStore } from '../../store/useStore';
+import { showToast } from '../../platform/errorBus';
 import { MapOverlay } from './MapOverlay';
 import { NavigationHUD } from './NavigationHUD';
 import { MapHudControls } from './MapHudControls';
@@ -97,7 +104,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const cleanupRef    = useRef<(() => void) | null>(null);
   const modeInitRef   = useRef(false);
   const navStatusRef  = useRef<string>(NavStatus.IDLE); // FPS loop içinden okunur
-  const locationRef        = useRef<ReturnType<typeof useGPSLocation>>(null);
+  const locationRef        = useRef<GPSLocation | null>(null);
   const headingRef         = useRef<number | null>(null);
   const lastDrivingPosRef  = useRef<{ lat: number; lng: number; heading: number } | null>(null);
   const navPointsRef       = useRef<NavPoint[]>([]);
@@ -121,6 +128,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [isPreview, setIsPreview] = useState(false);
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
+  // TEMP DEBUG — rota katmanı haritada gerçekten var mı (teşhis rozeti için, sonra kaldırılacak)
+  const [dbgLayer, setDbgLayer] = useState(false);
   const [isFollowing, setIsFollowing] = useState(true);
   const isFollowingRef  = useRef(true);
   const autoFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -137,8 +146,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   /** True while a MapLibre style reload is in-flight — blocks setRouteGeometry and fetchRoute store writes. */
   const styleChangingRef = useRef(false);
 
-  const location = useGPSLocation();
-  const heading = useGPSHeading();
+  // GPS artık FullMapView'i her fix'te RE-RENDER ETMEZ (termal/CPU tasarrufu).
+  // Gerçek-zamanlı yol: onGPSLocation aboneliği locationRef/headingRef'e yazar,
+  // rAF döngüsü bunları tam hızda okur. Aşağıdaki düşük frekanslı (≤1Hz) render
+  // state'i yalnızca overlay'leri (MapOverlay, GPS rozeti, HUD prop'ları) tazeler —
+  // NavigationHUD zaten store'a kendi abone olduğundan tam hızda kalır.
+  const [gpsView, setGpsView] = useState<{ location: GPSLocation | null; heading: number | null }>({ location: null, heading: null });
+  const location  = gpsView.location;
+  const heading   = gpsView.heading;
   const gpsSource = useGPSSource();
   const { isNavigating, destination, status: navStatus, distanceMeters: navDistMeters } = useNavigation();
   const route = useRouteState();
@@ -156,6 +171,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   };
 
   const isNight = autoBrightness.phase === 'night' || autoBrightness.phase === 'evening' || autoBrightness.phase === 'dawn';
+  // Harita paleti gün/gece — UI'ın geri kalanıyla (light-ui / minimap) AYNI sinyali kullanır:
+  // settings.dayNightMode (saat 07–19 gündüz). autoBrightness.phase güneş-saati hesabı konum
+  // gerektirir ve 'evening'i de gece sayar → gündüzde bile koyu kalabiliyordu (tutarsızlık).
+  const mapNight = useStore((s) => s.settings.dayNightMode) === 'night';
 
   const isValidGPS = !!(location && Number.isFinite(location.accuracy) && location.accuracy < 1000);
 
@@ -166,38 +185,123 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [gpsLostWarn, setGpsLostWarn] = useState(false);
   const gpsLostWarnRef  = useRef(false); // stale closure'dan kaçınmak için
 
-  // OBD hız ref'ini reactive olarak güncelle (render tetiklemeden)
   const obdState = useOBDState();
-  useEffect(() => { obdSpeedRef.current = obdState.speed ?? 0; }, [obdState.speed]);
-  // gpsLostWarn ref sync — tick closure stale okuma önlemi
-  useEffect(() => { gpsLostWarnRef.current = gpsLostWarn; }, [gpsLostWarn]);
+  // Termal seviye — rAF FPS gate için ref'e yansıtılır (hook re-render'ı nadir: seviye değişiminde)
+  const { level: thermalLevel } = useThermalState();
 
-  // Sync refs safely outside of render
+  // rAF/subscription içinden okunan ref'ler (re-render tetiklemezler)
+  const destinationRef   = useRef<typeof destination>(destination);
+  const thermalLevelRef  = useRef(0);
+  const mapStyleReadyRef = useRef(false);
+
+  // ── Ref syncs — re-render tetikleyen state'leri rAF/subscription için ref'e yansıt ──
+  // NOT: location/heading BURADA YOK — onGPSLocation aboneliği bunları doğrudan
+  // locationRef/headingRef'e yazar; böylece GPS tick'i bu effect'i tetiklemez.
   useEffect(() => {
-    locationRef.current = location;
-    headingRef.current  = heading;
-  }, [location, heading]);
-
-  useEffect(() => { drivingModeRef.current = drivingMode; }, [drivingMode]);
+    navStatusRef.current    = navStatus;
+    drivingModeRef.current  = drivingMode;
+    obdSpeedRef.current     = obdState.speed ?? 0;
+    gpsLostWarnRef.current  = gpsLostWarn;
+    destinationRef.current  = destination;
+    thermalLevelRef.current = thermalLevel;
+  }, [navStatus, drivingMode, obdState.speed, gpsLostWarn, destination, thermalLevel]);
 
   const [mapStatus, setMapStatus]     = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [mapError, setMapError]       = useState<string | null>(null);
   const [styleKey, setStyleKey]       = useState(0);
   const mapStyleReady = mapStatus === 'READY';
+  useEffect(() => { mapStyleReadyRef.current = mapStatus === 'READY'; }, [mapStatus]);
 
-  // Testability: harita render tamamlandığında DOM attribute set edilir (CSS/logic etkilemez)
+  // ── Harita + Rover marker — gündüz/gece teması ──────────────────────────
+  // applyMapDayNight: marker variantı + raster harita paletini (gündüz doğal açık /
+  // gece grafit) RESTYLE OLMADAN canlı günceller (rota katmanları korunur) + night
+  // state'i set eder (sonraki stil inşası doğru palet). mapStatus deps: harita READY
+  // olunca da çalışır → ilk yüklemede gündüzse açık harita garanti.
+  useEffect(() => { applyMapDayNight(mapNight, mapRef.current ?? undefined); }, [mapNight, mapStatus]);
+
+  // ── CarOS Rover marker — navigasyon aktifliği (alt halka genişler + glow güçlenir) ──
+  useEffect(() => {
+    setMarkerNavActive(navStatus === NavStatus.ACTIVE || navStatus === NavStatus.REROUTING);
+  }, [navStatus]);
+
+  // ── GPS aboneliği — store değişimini re-render YERİNE ref'e yazar ────────────
+  // onGPSLocation her gerçek konum değişiminde tetiklenir (UnifiedVehicleStore'daki
+  // shallow-equal guard sayesinde standstill'de tetiklenmez). Mount-once; içeride
+  // okunan her şey stable ref/setter olduğundan stale-closure riski yoktur.
+  useEffect(() => {
+    let lastViewCommit = 0;
+    const VIEW_COMMIT_MS = 1000; // overlay tazeleme tavanı — 1Hz (GPS native rate ~1-2Hz ile uyumlu)
+
+    const unsub = onGPSLocation((loc) => {
+      if (!mountedRef.current) return;
+
+      // 1) Gerçek-zamanlı yol — ref'ler (rAF döngüsü bunları tam hızda okur)
+      locationRef.current = loc;
+      headingRef.current  = loc?.heading ?? null;
+
+      // 2) Navigasyon buffer beslemesi — eski "Location updates" effect'i buraya taşındı.
+      //    rAF interpolasyonu navPointsRef'i tüketir; bu nedenle GPS tick'inde dolmalı.
+      if (loc && mapStyleReadyRef.current) {
+        const newPoint: NavPoint = {
+          lat: loc.latitude,
+          lng: loc.longitude,
+          heading: loc.heading ?? 0,
+          ts: performance.now(),
+        };
+        const buffer = navPointsRef.current;
+        buffer.push(newPoint);
+        if (buffer.length > 2) buffer.shift();
+
+        // Rota ilerlemesini gerçek GPS tick'inde güncelle (yalnız ACTIVE/REROUTING).
+        if (destinationRef.current) {
+          const _navStatusNow = getNavigationState().status;
+          if (_navStatusNow === NavStatus.ACTIVE || _navStatusNow === NavStatus.REROUTING) {
+            updateRouteProgress(loc.latitude, loc.longitude);
+            updateNavigationProgress(loc.latitude, loc.longitude, loc.heading ?? 0, routeGeometryRef.current ?? undefined);
+          }
+        }
+
+        // Hız bazlı katman gizleme + POI proximity — queryRenderedFeatures pahalı, 2s throttle
+        const nowMs = performance.now();
+        if (mapRef.current && nowMs - lastDrivingLayersMs.current > 2_000) {
+          lastDrivingLayersMs.current = nowMs;
+          const spd = (loc.speed ?? 0) * 3.6;
+          updateDrivingLayers(mapRef.current, spd, loc.latitude, loc.longitude);
+        }
+
+        // Map Mood — tehlike riskine göre görsel karakter (updateMapMood kendi 200ms iç throttle'ı var)
+        if (mapRef.current) {
+          const { globalRiskScore } = useHazardStore.getState();
+          updateMapMood(mapRef.current, globalRiskScore);
+        }
+      }
+
+      // 3) Düşük frekanslı render commit — overlay prop'ları bayatlamasın.
+      //    İlk fix'te (null veya throttle dolmuşsa) commit; aksi halde re-render yok.
+      const commitNow = performance.now();
+      if (loc === null || commitNow - lastViewCommit >= VIEW_COMMIT_MS) {
+        lastViewCommit = commitNow;
+        setGpsView({ location: loc, heading: loc?.heading ?? null });
+      }
+    });
+
+    return unsub;
+  }, []);
+
+  // Testability: DOM attribute set — ana thread'den tahliye: kritik render yoluna girmiyor
   useEffect(() => {
     const el = outerDivRef.current;
     if (!el) return;
-    if (mapStatus === 'READY') {
-      el.setAttribute('data-map-ready', 'true');
-    } else {
-      el.removeAttribute('data-map-ready');
-    }
+    const id = setTimeout(() => {
+      if (!mountedRef.current) return;
+      if (mapStatus === 'READY') el.setAttribute('data-map-ready', 'true');
+      else el.removeAttribute('data-map-ready');
+    }, 0);
+    return () => clearTimeout(id);
   }, [mapStatus]);
 
   const pushDebug = (label: string, data: unknown) => {
-    try { console.log(`[NAV] ${label}:`, data); } catch { /* ignore */ }
+    try { logInfo(`[NAV] ${label}:`, data); } catch { /* ignore */ }
   };
 
   useEffect(() => {
@@ -218,32 +322,42 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   }, [mapStatus]);
 
   // Stuck-LOADING guard — style.load Android WebView'da bazen hiç gelmez.
-  // Resize pump: 300ms aralıkla MapLibre'ye container boyutunu hatırlat (siyah ekran önleme).
-  // 5s sonra hâlâ LOADING ise READY'e zorla.
+  // rAF pump: setInterval yerine requestAnimationFrame zinciri — gizli sekmelerde durur,
+  // GPU frame döngüsüyle senkronize çalışır. 200ms throttle Mali-400'ü zorlamaz.
   useEffect(() => {
     if (mapStatus !== 'LOADING') return;
 
-    // Resize pump — MapLibre boyutu sıfır sanıyorsa bu kurtarır (K250: 100ms aralık)
-    const pumpId = setInterval(() => {
-      const container = containerRef.current;
-      if (mapRef.current && container && container.offsetWidth > 0 && container.offsetHeight > 0) {
-        try { mapRef.current.resize(); } catch { /* ignore */ }
+    let running  = true;
+    let lastPump = 0;
+    let rafId:   number;
+
+    const pump = (now: number) => {
+      if (!running) return;
+      if (now - lastPump >= 200) {
+        const container = containerRef.current;
+        if (mapRef.current && container && container.offsetWidth > 0 && container.offsetHeight > 0) {
+          try { mapRef.current.resize(); } catch { /* ignore */ }
+          lastPump = now;
+        }
       }
-    }, 100);
+      rafId = requestAnimationFrame(pump);
+    };
+    rafId = requestAnimationFrame(pump);
 
     const t = setTimeout(() => {
-      clearInterval(pumpId);
+      running = false;
+      cancelAnimationFrame(rafId);
       if (mountedRef.current) {
         console.warn('[MAP] style.load timeout — forcing READY');
-        if (containerRef.current?.offsetWidth ?? 0 > 0) {
+        if ((containerRef.current?.offsetWidth ?? 0) > 0) {
           try { mapRef.current?.resize(); } catch { /* ignore */ }
         }
         setMapStatus('READY');
         notifyStyleChange(false);
       }
-    }, 15_000); // K250: yavaş GPU — 5s yerine 15s bekle
+    }, 15_000); // K250: yavaş GPU — 15s bekle
 
-    return () => { clearTimeout(t); clearInterval(pumpId); };
+    return () => { running = false; cancelAnimationFrame(rafId); clearTimeout(t); };
   }, [mapStatus]);
 
   // Unmount guard — mount-once, sets false on cleanup
@@ -278,9 +392,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     });
   }, []);
 
-  // navStatusRef'i her render sonrası güncelle (rAF loop closure'ı için)
-  useEffect(() => { navStatusRef.current = navStatus; }, [navStatus]);
-
   // ── Adaptive Performance — FPS monitörü ─────────────────────────────
   // Sürüş (ACTIVE/REROUTING) her zaman perf-low → blur yok.
   // Sürüş dışında FPS < 20 → perf-low, FPS 20-40 → perf-med.
@@ -306,8 +417,25 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     let lastCameraUpdate = 0;
     let lastMarkerUpdate = 0;
     let isPerfLowCached  = false; // DOM classList sorgusunu önler — applyClass'la senkronize
+    let lastThermalFrameTs = 0;   // termal FPS gate — son ağır-iş frame zamanı
 
     const tick = (now: number) => {
+      // ── Termal FPS kısıtlaması ────────────────────────────────────────────
+      // level>0 → hedef FPS = 30/level (L1≈30, L2≈15, L3≈10 fps).
+      // Min frame süresi dolmadıysa ağır iş (DR + interpolasyon + kamera/marker)
+      // atlanır; rAF zinciri ve FPS sayacı çalışmaya devam eder.
+      let _doHeavy = true;
+      const _tl = thermalLevelRef.current;
+      if (_tl > 0) {
+        const _minFrameMs = 1000 / (30 / _tl);
+        if (now - lastThermalFrameTs >= _minFrameMs) {
+          lastThermalFrameTs = now;
+        } else {
+          _doHeavy = false;
+        }
+      }
+
+      if (_doHeavy) {
       // ── Dead Reckoning — GPS koptuysa OBD hız + son heading ile konum hesapla ──
       // Sadece: navigasyon ACTIVE + GPS geçersiz → CPU sıfır yük normal durumda
       const isActiveNav = navStatusRef.current === NavStatus.ACTIVE || navStatusRef.current === NavStatus.REROUTING;
@@ -390,7 +518,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // updateUserMarker kendi içinde isStyleLoaded() + self-healing yönetir;
         // isSwitchingStyle ile ekstra kilitleme, stil yüklendikten sonra da
         // marker'ı geciktirir (React state güncelleme gecikmesi).
-        if (!userInteractingRef.current && now - lastMarkerUpdate > 100) {
+        // Marker 60ms (~16fps): tek nokta source.setData ucuz → araç ekstrapole yol boyunca
+        // daha akıcı kayar (önceki 100ms/10fps'te basamaklı/geride hissi). Kamera throttle'ı
+        // (150ms, Mali-400 GPU) ayrı tutulur — marker hızı GPU'yu yük etmez.
+        if (!userInteractingRef.current && now - lastMarkerUpdate > 60) {
           updateUserMarker(displayLat, displayLng, bear, speedKmh);
           lastMarkerUpdate = now;
         }
@@ -436,8 +567,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const p = buffer[0];
         updateUserMarker(p.lat, p.lng, p.heading, 0);
       }
+      } // ── _doHeavy (termal FPS gate) sonu ──
 
-      // 2. FPS & Performance Monitörü
+      // 2. FPS & Performance Monitörü — termal throttle'dan bağımsız, her frame çalışır
       frameCount++;
       if (now - lastT >= 1000) {
         const fps = frameCount;
@@ -488,10 +620,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (ctrlTimerRef.current) clearTimeout(ctrlTimerRef.current);
     ctrlTimerRef.current = setTimeout(() => setCtrlVisible(false), 3500);
   }, []);
+  // ctrlVisible timer: harita READY olmadan başlatılmasın — gereksiz timer yükü önlenir
   useEffect(() => {
+    if (mapStatus !== 'READY') return;
     showControls();
     return () => { if (ctrlTimerRef.current) clearTimeout(ctrlTimerRef.current); };
-  }, [showControls]);
+  }, [mapStatus, showControls]);
 
   // Interaction guard — map READY olduktan sonra bağlanır (mount-time null sorunu çözüldü)
   const _onInteractStart = useCallback(() => {
@@ -717,19 +851,19 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     function doInit(container: HTMLElement) {
       // SINGLE INSTANCE GUARANTEE — never create a second WebGL context
       if (mapRef.current) {
-        console.log('[MAP_INIT_BLOCKED] already exists');
+        logInfo('[MAP_INIT_BLOCKED] already exists');
         setMapStatus('READY');
         return;
       }
       if (initializedRef.current) {
-        console.log('[MAP_INIT_BLOCKED] initializedRef');
+        logInfo('[MAP_INIT_BLOCKED] initializedRef');
         return;
       }
       initializedRef.current = true;
       initDone.current = true;
       setMapStatus('LOADING');
       let cancelled = false;
-      console.log('[MAP_INIT_START]');
+      logInfo('[MAP_INIT_START]');
 
       (async () => {
         try {
@@ -740,9 +874,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             return;
           }
           mapRef.current = map;
-          console.log('[MAP_INIT_DONE]');
+          logInfo('[MAP_INIT_DONE]');
 
-          const markReady = () => { if (!cancelled) { console.log('[MAP_READY]'); setMapStatus('READY'); } };
+          const markReady = () => { if (!cancelled) { logInfo('[MAP_READY]'); setMapStatus('READY'); } };
 
           // ONLY style.load triggers READY — render fires too early (before layers can be added)
           if (map.isStyleLoaded()) {
@@ -769,7 +903,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           setMapStyleChanging(false);
           notifyStyleChange(false);
         }
-        console.log('[MAP_DESTROY]');
+        logInfo('[MAP_DESTROY]');
         mapRef.current = null;
         initializedRef.current = false;
         try { destroyMap(); } catch (e) { console.warn('[MAP_DESTROY_FAILED]', e); }
@@ -803,15 +937,24 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   useEffect(() => {
     if (isNavigating && destination) {
       const loc = locationRef.current;
-      if (!loc || loc.accuracy >= 1000) {
-        pushDebug('ROUTE_BLOCKED_INVALID_GPS', { accuracy: loc?.accuracy ?? null });
+      // Rota ÇİZİMİ (önizleme) için origin hassasiyeti kritik değil — şehirler arası
+      // rotada birkaç km sapma önemsiz. Eski 1000m guard'ı, GPS soğuk başlangıçta /
+      // son-bilinen konumda (yüksek accuracy) rotayı sessizce blokluyordu → "harita
+      // açıldı rota yok". Artık yalnız HİÇ konum yoksa blokla (ve kullanıcıya bildir);
+      // konum varsa kaba da olsa rotayı çiz, GPS düzeldikçe canlı nav hassaslaşır.
+      if (!loc) {
+        pushDebug('ROUTE_BLOCKED_NO_GPS', { accuracy: null });
+        showToast({ type: 'warning', title: 'Rota çizilemedi', message: 'Konum bulunamadı — GPS sinyali bekleniyor.' });
         return;
+      }
+      if (loc.accuracy >= 1000) {
+        pushDebug('ROUTE_LOWACC_GPS', { accuracy: loc.accuracy });
       }
       if (lastFetchedRef.current === destination.id) return;
       lastFetchedRef.current = destination.id;
       setNavStatus(NavStatus.ROUTING);
       setRouteReady(false);
-      console.log('[ROUTE_REQUEST]', {
+      logInfo('[ROUTE_REQUEST]', {
         gps: { lat: loc.latitude, lon: loc.longitude, accuracy: loc.accuracy },
         destination: { lat: destination.latitude, lon: destination.longitude, name: destination.name },
         requestString: `${loc.longitude},${loc.latitude};${destination.longitude},${destination.latitude}`,
@@ -836,6 +979,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       const failed = route.error && !route.geometry; // error + no geometry = true failure
       if (failed) {
         setNavStatus(NavStatus.ERROR, 'Rota oluşturulamadı');
+        // H2: dedup'ı sıfırla — sonraki GPS tick'inde (ağ/GPS düzelince) otomatik yeniden dene.
+        lastFetchedRef.current = null;
       } else if (!route.loading) {
         setNavStatus(NavStatus.PREVIEW);
       }
@@ -912,7 +1057,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     routeAltDursRef.current  = route.altDurations;
     routeMainDurRef.current  = route.totalDurationSeconds;
 
-    if (!mapRef.current || mapStatus !== 'READY') return;
+    // Ground-truth READY: mapStatus bayrağı bir style-switch'te false'ta TAKILABİLİR
+    // (style.load kaçırılırsa). O durumda harita render olur (tile/marker/ETA çalışır) ama
+    // rota çizimi hiç tetiklenmezdi → "çizgi hiçbir yerde yok". Bayrak takılıysa bile stil
+    // gerçekten yüklüyse (isStyleLoaded) çizime devam et.
+    if (!mapRef.current || (mapStatus !== 'READY' && !mapRef.current.isStyleLoaded())) return;
     if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
     const hash = _routeHash(route.geometry);
     const last = lastAppliedRef.current;
@@ -926,11 +1075,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // Failsafe Deadlock Recovery — SEL_LAYER 3 saniye boyunca kayıpsa rota yeniden inşa edilir.
   // Senaryo: Android low-memory → layer silindi ama style READY → setRouteGeometry hiç tetiklenmedi.
   useEffect(() => {
-    if (!isNavigating || mapStatus !== 'READY') return;
+    // mapStatus gate'i KASTEN kaldırıldı: takılı bayrak failsafe'i de devre dışı bırakıyordu.
+    // İçerideki map.isStyleLoaded() ground-truth kontrolü hazır olup olmadığını zaten yönetir.
+    if (!isNavigating) return;
     let missingStart: number | null = null;
     const t = setInterval(() => {
       const map = mapRef.current;
-      if (!map || !mountedRef.current || styleChangingRef.current || !map.isStyleLoaded()) {
+      // Bekleme koşulu artık BAYRAĞA değil, ground-truth'a (isStyleLoaded) bakar.
+      // styleChangingRef burada KASTEN yok sayılır: takılı bir bayrak rota çizimini
+      // kalıcı bloke ediyorsa ("hiç çizilmiyor, beklesen de gelmiyor") deadlock'u burada kırarız.
+      if (!map || !mountedRef.current || !map.isStyleLoaded()) {
         missingStart = null;
         return;
       }
@@ -942,17 +1096,35 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         missingStart = performance.now();
         return;
       }
-      if (performance.now() - missingStart >= 3000) {
+      if (performance.now() - missingStart >= 1200) {
         missingStart = null;
+        // Stil yüklü ama rota katmanı 1.2sn+ yok → çizimi bloke eden takılı/bayat
+        // style-changing guard'larını (component ref + module _isStyleChanging) zorla temizle.
+        // Stil zaten yüklü olduğundan setRouteGeometry güvenli — "source does not exist" riski yok.
+        if (styleChangingRef.current) {
+          styleChangingRef.current = false;
+          (window as any).__MAP_MUTEX__ = false;
+        }
+        notifyStyleChange(false); // module _isStyleChanging=false → setRouteGeometry erken-return etmez
         const geom = routeGeometryRef.current ?? getRouteState().geometry;
         if (geom) {
           setRouteGeometry(map, geom, routeAltRef.current, routeAltIdxRef.current, routeAltDursRef.current, routeMainDurRef.current);
           lastAppliedRef.current = null;
         }
       }
+    }, 400);
+    return () => clearInterval(t);
+  }, [isNavigating]);
+
+  // TEMP DEBUG — rota katmanının haritada olup olmadığını 1sn'de bir yokla (teşhis rozeti)
+  useEffect(() => {
+    if (!isNavigating) { setDbgLayer(false); return; }
+    const t = setInterval(() => {
+      const m = mapRef.current as any;
+      setDbgLayer(!!(m && m.isStyleLoaded?.() && m.getLayer?.('selected-route-layer')));
     }, 1000);
     return () => clearInterval(t);
-  }, [isNavigating, mapStatus]);
+  }, [isNavigating]);
 
   // Turn focus: highlight next turn when approaching, clear on step advance
   useEffect(() => {
@@ -1092,42 +1264,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     map.once('style.load', _onStyleReady);
   }
 
-  // Location updates — buffer data for 60fps interpolation
-  useEffect(() => {
-    if (!location || !mapStyleReady) return;
-
-    const newPoint: NavPoint = {
-      lat: location.latitude,
-      lng: location.longitude,
-      heading: heading || 0,
-      ts: performance.now(),
-    };
-
-    const buffer = navPointsRef.current;
-    buffer.push(newPoint);
-    if (buffer.length > 2) buffer.shift();
-
-    // Rota ilerlemesini gerçek GPS tick'inde güncelle (mantık ve OSRM verisi için)
-    if (destination) {
-      updateNavigationProgress(location.latitude, location.longitude, heading || 0, routeGeometryRef.current ?? undefined);
-      updateRouteProgress(location.latitude, location.longitude);
-    }
-
-    // Hız bazlı katman gizleme + POI proximity glow — queryRenderedFeatures pahalı, 2s throttle
-    const nowMs = performance.now();
-    if (mapRef.current && nowMs - lastDrivingLayersMs.current > 2_000) {
-      lastDrivingLayersMs.current = nowMs;
-      const spd = (location.speed ?? 0) * 3.6;
-      updateDrivingLayers(mapRef.current, spd, location.latitude, location.longitude);
-    }
-
-    // Map Mood — tehlike riskine göre görsel karakter değişimi (Phase H3)
-    // updateMapMood kendi 200ms iç kısıtlamasını yönetir; GPS tick sıklığında çağrılabilir.
-    if (mapRef.current) {
-      const { globalRiskScore } = useHazardStore.getState();
-      updateMapMood(mapRef.current, globalRiskScore);
-    }
-  }, [location, heading, destination, mapStyleReady]);
+  // NOT: Eski "Location updates" effect'i (60fps buffer beslemesi + rota ilerlemesi +
+  // driving layers + map mood) yukarıdaki onGPSLocation aboneliğine taşındı.
+  // Böylece GPS tick'i FullMapView'i re-render etmeden buffer'ı besler.
 
   const handleNavStart  = useCallback(() => {
     activateNavigation();
@@ -1240,7 +1379,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       {mapStatus !== 'READY' && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center animate-spin-slow">
-            <Globe className="w-8 h-8 text-blue-400/60" />
+            <Globe className="w-8 h-8" style={{ color: 'rgba(224,162,60,0.6)' }} />
           </div>
         </div>
       )}
@@ -1252,7 +1391,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           width: '100%',
           height: '100%',
           opacity: navMode === 'HYBRID_AR_NAVIGATION' ? 0.55 : 1,
-          filter: isNight ? 'brightness(0.72) saturate(0.65)' : 'none',
+          // Dark-amber cockpit aesthetic — matches map.jsx OEM palette.
+          // Night: deep brightness drop + amber sepia overlay via hue-rotate.
+          // Day: full color preserved for outdoor sunlight readability.
+          filter: isNight
+            ? 'brightness(0.4) saturate(0.8) sepia(0.2) hue-rotate(-10deg)'
+            : 'none',
           transition: 'opacity 500ms ease, filter 5s ease',
         }}
       />
@@ -1327,16 +1471,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               style={{
                 background: 'rgba(0,0,0,0.50)',
                 backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(59,130,246,0.35)',
+                border: '1px solid rgba(224,162,60,0.35)',
               }}
             >
               <div
                 className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: '#3b82f6', boxShadow: '0 0 6px rgba(59,130,246,0.7)' }}
+                style={{ background: '#E0A23C', boxShadow: '0 0 6px rgba(224,162,60,0.7)' }}
               />
               <span
                 className="font-black uppercase tracking-widest"
-                style={{ fontSize: 11, color: '#93c5fd' }}
+                style={{ fontSize: 11, color: '#E8B86A' }}
               >
                 {distLabel}
               </span>
@@ -1458,6 +1602,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         onSetMapMode={setMapMode}
         showControls={showControls}
       />
+
+      {/* TEMP DEBUG — rota teşhis rozeti. SADECE dev build'de görünür (import.meta.env.DEV);
+          production/APK'da asla çıkmaz → premium ürün temiz kalır. */}
+      {import.meta.env.DEV && isNavigating && (
+        <div style={{
+          position: 'absolute', left: 8, bottom: 8, zIndex: 60,
+          background: 'rgba(0,0,0,0.80)', color: '#22d3ee',
+          font: '11px/1.4 monospace', padding: '4px 8px', borderRadius: 6,
+          border: '1px solid #22d3ee', pointerEvents: 'none', maxWidth: '70vw',
+        }}>
+          RTDBG b4 · pts:{route.geometry?.length ?? 0} · map:{mapStatus} · sc:{styleChangingRef.current ? 1 : 0} · lyr:{dbgLayer ? 1 : 0} · rdy:{routeReady ? 1 : 0} · srv:{route.serverUsed ?? '-'}
+          {route.geometry?.[0] && ` · c0:${route.geometry[0][0].toFixed(3)},${route.geometry[0][1].toFixed(3)}`}
+        </div>
+      )}
 
     </div>
   );

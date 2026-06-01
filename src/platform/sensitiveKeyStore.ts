@@ -16,6 +16,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { logInfo } from './debug';
 import { CarLauncher } from './nativePlugin';
 
 export type SensitiveKey =
@@ -164,7 +165,7 @@ async function _migrateToNative(): Promise<void> {
   try {
     if (localStorage.getItem(LEGACY_KEY)) {
       localStorage.removeItem(LEGACY_KEY);
-      console.log('[sensitiveKeyStore] v1 → v2 migration: eski şifreli depo temizlendi');
+      logInfo('[sensitiveKeyStore] v1 → v2 migration: eski şifreli depo temizlendi');
     }
   } catch { /* ignore */ }
 }

@@ -59,6 +59,31 @@ function sig<T>(value: T, ts: number, confidence: number): IVehicleSignal<T> {
   return { value, ts, confidence: Math.max(0, Math.min(1, confidence)) };
 }
 
+/* ── Hidden-class kararlılığı (V8 TurboFan) ──────────────────────────────────
+   Tüm `from*` metodları bu tam-şablon nesnesini döndürür. Tek literal kaynağı
+   → V8 için tek "Hidden Class" (Map). Özellikler koşullu eklenince "transition"
+   yaşanmaz; ayrıca dört metodun da çıktısı AYNI Map olduğundan tüketici tarafı
+   (worker `_emitSpeed` vb.) `signals.speed` erişiminde monomorfik kalır.
+   Anahtar SIRASI = NormalizedVehicleData arayüz sırası (değiştirme). */
+function _blankNormalized(): NormalizedVehicleData {
+  return {
+    speed:         undefined,
+    reverse:       undefined,
+    fuel:          undefined,
+    rpm:           undefined,
+    coolantTemp:   undefined,
+    oilTemp:       undefined,
+    throttle:      undefined,
+    batteryVolt:   undefined,
+    gearPos:       undefined,
+    ambientTemp:   undefined,
+    location:      undefined,
+    heading:       undefined,
+    totalDistance: undefined,
+    tpms:          undefined,
+  };
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    SignalNormalizer — Tüm metodlar static ve durumsuz
 ══════════════════════════════════════════════════════════════════════════ */
@@ -76,7 +101,7 @@ export class SignalNormalizer {
    * @param ts   Ölçüm zamanı (Date.now() ms)
    */
   static fromCAN(raw: CanAdapterData, ts: number): NormalizedVehicleData {
-    const out: NormalizedVehicleData = {};
+    const out = _blankNormalized();
 
     // ── Hız ──────────────────────────────────────────────────────────────
     if (raw.speed != null)       out.speed       = sig(raw.speed,       ts, CONF_CAN);
@@ -117,7 +142,7 @@ export class SignalNormalizer {
    * @param ts   Ölçüm zamanı (Date.now() ms)
    */
   static fromHAL(raw: VehicleHALData, ts: number): NormalizedVehicleData {
-    const out: NormalizedVehicleData = {};
+    const out = _blankNormalized();
 
     if (raw.speed != null)       out.speed       = sig(raw.speed,       ts, CONF_HAL);
     if (raw.reverse != null)     out.reverse     = sig(raw.reverse,     ts, CONF_HAL);
@@ -152,7 +177,7 @@ export class SignalNormalizer {
    * @param ts   Ölçüm zamanı
    */
   static fromOBD(raw: ObdAdapterData, ts: number): NormalizedVehicleData {
-    const out: NormalizedVehicleData = {};
+    const out = _blankNormalized();
 
     if (raw.speed != null)         out.speed         = sig(raw.speed,         ts, CONF_OBD);
     if (raw.fuel  != null)         out.fuel          = sig(raw.fuel,          ts, CONF_OBD);
@@ -179,7 +204,7 @@ export class SignalNormalizer {
    * @param ts   Ölçüm zamanı
    */
   static fromGPS(raw: RawGpsData, ts: number): NormalizedVehicleData {
-    const out: NormalizedVehicleData = {};
+    const out = _blankNormalized();
     const DEADZONE_KMH = 0.8;
 
     // ── Hız: m/s → km/h + deadzone ───────────────────────────────────────

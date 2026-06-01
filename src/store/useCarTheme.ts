@@ -16,7 +16,7 @@ import { persist } from 'zustand/middleware';
  * - oled: Pure black → pro ile birleştirildi
  */
 
-export type CoreTheme = 'tesla' | 'mercedes' | 'pro' | 'sunlight';
+export type CoreTheme = 'tesla' | 'mercedes' | 'pro' | 'sunlight' | 'expedition';
 export type LegacyTheme = 'cockpit' | 'audi' | 'oled';
 
 export type BaseTheme = CoreTheme | LegacyTheme;
@@ -54,6 +54,7 @@ export function isDayTime(): boolean {
  * Legacy themes accessible via code but hidden from theme selector
  */
 export const CORE_THEMES: { id: CoreTheme; label: string; desc: string }[] = [
+  { id: 'expedition', label: 'CarOS Expedition', desc: 'Offroad · Day (kum) / Night (pas-metal)' },
   { id: 'tesla',    label: 'Tesla',      desc: 'Minimalist, premium his' },
   { id: 'mercedes', label: 'Mercedes',   desc: 'Luxury, ambient lighting' },
   { id: 'pro',      label: 'Glass Pro',  desc: 'Düşük güç, Hiworld optimize' },
@@ -107,13 +108,17 @@ export const useCarTheme = create<CarThemeState>()(
         if (!state) return;
         // Tüm geçerli temalar (core + legacy — kullanıcı eski temayı seçtiyse koru)
         const VALID: CarTheme[] = [
-          'tesla', 'mercedes', 'pro', 'sunlight',
-          'tesla-day', 'mercedes-day', 'pro-day',
+          'tesla', 'mercedes', 'pro', 'sunlight', 'expedition',
+          'tesla-day', 'mercedes-day', 'pro-day', 'expedition-day',
           // Legacy themes — backward compatibility
           'cockpit', 'audi', 'oled',
           'cockpit-day', 'audi-day', 'oled-day',
         ];
         if (!VALID.includes(state.theme)) state.theme = 'pro';
+        // Migration: gündüz yöneticisi eskiden temayı zorla 'sunlight' yapıyordu
+        // (premium ProLayout'u fallback'e düşüren bug). Kalıcı 'sunlight'ı
+        // premium 'pro'ya geri al. (Tema seçicide 'sunlight' zaten sunulmuyor.)
+        if (state.theme === 'sunlight') state.theme = 'pro';
         applyTheme(state.theme);
       },
     }

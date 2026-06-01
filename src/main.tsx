@@ -12,12 +12,29 @@ import { initGeofence } from './platform/geofenceService.ts'
 import { initSafeStorageAsync } from './utils/safeStorage.ts'
 import { signalReverse } from './platform/cameraService.ts'
 import { CarLauncher } from './platform/nativePlugin.ts'
+import { captureSpotifyRedirect } from './platform/spotify/spotifyAuth.ts'
 
 /* ── Bootstrap Launcher ── */
 (async () => {
 try {
   /* ── Head unit / eski WebView uyumluluk modu — React öncesi çağrılmalı ── */
   applyCompatMode();
+
+  /* ── Gün/Gece + light-ui boot senkronu ───────────────────────────────────
+   * light-ui (--oem-* açık palet + light-theme override'ları) ARTIK data-day-night
+   * ile senkron yönetilir (useDayNightManager.applyDayNightDOM). Boot'ta ilk boyamanın
+   * tutarlı olması için saatten gün/gece hesaplanıp İKİSİ birden set edilir
+   * (07–19 gündüz). Böylece gece beyaz-kart-koyu-pano flaşı olmaz. */
+  try {
+    const _h = new Date().getHours();
+    const _isDay = _h >= 7 && _h < 19;
+    document.documentElement.setAttribute('data-day-night', _isDay ? 'day' : 'night');
+    document.documentElement.classList.toggle('light-ui', _isDay);
+  } catch { /* no-op */ }
+
+  /* ── Spotify OAuth dönüşü: URL'de ?code= varsa token'a çevir, URL'yi temizle ── */
+  /* Kod yoksa anında çıkar (no-op). React render'dan önce URL temizlenmeli. */
+  await captureSpotifyRedirect().catch((e) => console.error('[SpotifyAuth]', e));
 
   /* ── Safe Storage: Filesystem cache'ini React öncesi yükle (native) ── */
   /* Zustand store'ları ilk render'da safeGetRaw çağırır; _fsCache hazır olmalı. */

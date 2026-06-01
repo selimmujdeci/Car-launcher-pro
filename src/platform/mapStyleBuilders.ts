@@ -65,7 +65,12 @@ export const NAV_SUPPRESS_LAYERS = NAV_SUPPRESS_TIERS[0];
 export function buildVectorStyle(
   sources: Map<string, MapSource>,
   onFallback: () => StyleSpecification,
+  night = true,
 ): StyleSpecification {
+  // Gündüz: koyu otomotiv vektör paleti güneşte okunmaz/ayna olur. Tam gündüz vektör
+  // paleti gelene kadar gündüzde açık raster'a düş (onFallback gece/gündüz farkındadır).
+  if (!night) return onFallback();
+
   const hasLocalPbf = sources.get('local')?.isAvailable === true;
   const customUrl   = (import.meta.env['VITE_VECTOR_TILE_URL'] ?? '') as string;
 
@@ -113,48 +118,52 @@ export function buildVectorStyle(
     terrain: { source: 'terrain-rgb', exaggeration: 1.2 },
     layers: [
       // ── Base ──────────────────────────────────────────────
+      // OEM tasarım gece paleti: sıcak grafit (--map-bg-1 #131822)
       { id: 'background',
         type: 'background',
-        paint: { 'background-color': '#0d1117' } },
+        paint: { 'background-color': '#131822' } },
 
       // ── Water ─────────────────────────────────────────────
+      // --map-water-a #1A2540 / --map-water-b #152035
       { id: 'water-fill',
         type: 'fill',
         source: 'omv',
         'source-layer': 'water',
-        paint: { 'fill-color': '#0c1e2f' } },
+        paint: { 'fill-color': '#16213a' } },
       { id: 'waterway',
         type: 'line',
         source: 'omv',
         'source-layer': 'waterway',
-        paint: { 'line-color': '#0c1e2f', 'line-width': 1.5 } },
+        paint: { 'line-color': '#16213a', 'line-width': 1.5 } },
 
       // ── Landuse ───────────────────────────────────────────
+      // --map-park-a #1F2E26
       { id: 'landuse-park',
         type: 'fill',
         source: 'omv',
         'source-layer': 'landuse',
         filter: ['in', ['get', 'class'], ['literal', ['park', 'grass', 'meadow', 'pitch', 'playground', 'golf']]],
-        paint: { 'fill-color': '#0d1f12' } },
+        paint: { 'fill-color': '#1c2b22' } },
+      // hafif yükseltilmiş yerleşim zemini — --map-residential #2A2A33'e yakın koyu
       { id: 'landuse-residential',
         type: 'fill',
         source: 'omv',
         'source-layer': 'landuse',
         filter: ['in', ['get', 'class'], ['literal', ['residential', 'suburb', 'neighbourhood']]],
-        paint: { 'fill-color': '#10131a' } },
+        paint: { 'fill-color': '#171b25' } },
 
       // ── Buildings ─────────────────────────────────────────
+      // --map-bldg-1b #1D2230 fill, --map-bldg-1a #2C3346 outline
       { id: 'building',
         type: 'fill',
         source: 'omv',
         'source-layer': 'building',
         minzoom: 13,
-        paint: { 'fill-color': '#15202e', 'fill-outline-color': '#1c2d40' } },
+        paint: { 'fill-color': '#1d2230', 'fill-outline-color': '#2c3346' } },
 
-      // ── 3D Buildings — fill-extrusion z15+, automotive dark ──
-      // Height-keyed colour: low buildings warm-dark, towers cooler-lighter.
-      // fill-extrusion-vertical-gradient adds per-face shading (depth cue).
-      // Ambient occlusion casts soft shadows at the building base (MapLibre v3+).
+      // ── 3D Buildings — fill-extrusion z15+, OEM grafit ──
+      // Yükseklik-bazlı renk: alçak binalar koyu, kuleler hafif aydınlık.
+      // --map-bldg-1b #1D2230 → --map-bldg-2a #313850 → hafif sıcak vurgu.
       { id: 'building-3d',
         type: 'fill-extrusion',
         source: 'omv',
@@ -164,20 +173,21 @@ export function buildVectorStyle(
           'fill-extrusion-color': [
             'interpolate', ['linear'],
             ['coalesce', ['get', 'render_height'], ['get', 'height'], 5],
-            0,  '#14202e',
-            20, '#1c2d42',
-            60, '#243748',
+            0,  '#1d2230',
+            20, '#2c3346',
+            60, '#313850',
           ],
-          'fill-extrusion-opacity':           0.72,
+          'fill-extrusion-opacity':           0.78,
           'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
           'fill-extrusion-base':   ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
           'fill-extrusion-vertical-gradient': true,
-          'fill-extrusion-ambient-occlusion-intensity': 0.3,
+          'fill-extrusion-ambient-occlusion-intensity': 0.35,
           'fill-extrusion-ambient-occlusion-radius':    10,
         } as any,
       } as LayerSpecification,
 
       // ── Roads: casings (outlines) ─────────────────────────
+      // OEM: otoyol kasası sıcak-koyu (sadece aktif rota altın renkte parlar)
       { id: 'road-motorway-casing',
         type: 'line',
         source: 'omv',
@@ -185,7 +195,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#b06800',
+          'line-color': '#2a2418',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 12],
         } },
       { id: 'road-primary-casing',
@@ -195,7 +205,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#1a2535',
+          'line-color': '#16161d',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 9],
         } },
       { id: 'road-minor-casing',
@@ -206,11 +216,12 @@ export function buildVectorStyle(
         minzoom: 12,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#111827',
+          'line-color': '#101015',
           'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 6],
         } },
 
       // ── Roads: fills ──────────────────────────────────────
+      // --map-hwy-b #635A44 (sıcak koyu zeytin) — otoyol gövdesi
       { id: 'road-motorway',
         type: 'line',
         source: 'omv',
@@ -218,14 +229,12 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#f59e0b',
+          'line-color': '#6b6048',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 9],
         } },
-      // Faz 3.3: Road hierarchy depth — daha belirgin fiziksel hiyerarşi
-      // primary: daha az parlak (eski #e2e8f0 gece modunda çok baskındı)
-      // secondary: daha sakin (eski #94a3b8 primary'e çok yakındı)
-      // minor: daha geri çekilmiş (arka plan dokusu hissi)
-      // Zoom stops artırıldı → yakında daha belirgin, uzakta daha ince (atmosferik derinlik)
+      // OEM grafit hiyerarşisi: arterler koyu arduvaz (--map-art-a #44444F),
+      // yan yollar daha geri çekilmiş (--map-secondary #353540 / --map-residential #2A2A33).
+      // Sadece aktif rota (altın) öne çıkar — tasarım dili bu.
       { id: 'road-primary',
         type: 'line',
         source: 'omv',
@@ -233,7 +242,7 @@ export function buildVectorStyle(
         filter: ['==', ['get', 'class'], 'primary'],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#c8d5e2',
+          'line-color': '#44444f',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.0, 12, 3, 14, 6.5, 18, 13],
         } },
       { id: 'road-secondary',
@@ -243,7 +252,7 @@ export function buildVectorStyle(
         filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#6b7f96',
+          'line-color': '#383840',
           'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 12, 2, 14, 4, 18, 9],
         } },
       { id: 'road-minor',
@@ -254,7 +263,7 @@ export function buildVectorStyle(
         minzoom: 12,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#29394d',
+          'line-color': '#2a2a33',
           'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 14, 2, 18, 6],
         } },
 
@@ -330,9 +339,9 @@ export function buildVectorStyle(
             'text-letter-spacing': 0.06,
           },
           paint: {
-            'text-color': '#c8d6e8',      // Daha parlak — gün ışığında okunabilir
-            'text-halo-color': '#060c14',
-            'text-halo-width': 2.2,        // Daha kalın halo → gün ışığı kontrast
+            'text-color': '#e8e0d0',      // OEM --map-label sıcak fildişi
+            'text-halo-color': '#0a0e16',
+            'text-halo-width': 2.2,        // kalın halo → gün ışığı kontrast
             'text-halo-blur': 0.5,
           } },
         { id: 'place-town',
@@ -378,10 +387,31 @@ export function buildVectorStyle(
   return style;
 }
 
+/** Raster (OSM) day/night paint setleri — applyMapDayNight canlı geçişte de bunu kullanır. */
+export const RASTER_PAINT_NIGHT = {
+  // OEM gece tonu: ham OSM raster'ı sıcak-koyu grafite indirger.
+  'raster-opacity': 1,
+  'raster-contrast': 0.5,
+  'raster-brightness-min': 0,
+  'raster-brightness-max': 0.30,
+  'raster-saturation': -0.82,
+  'raster-hue-rotate': 25,
+} as const;
+export const RASTER_PAINT_DAY = {
+  // Gündüz: ham OSM'nin doğal açık renkleri — hafif yumuşatma, koyulaştırma YOK.
+  'raster-opacity': 1,
+  'raster-contrast': 0.05,
+  'raster-brightness-min': 0,
+  'raster-brightness-max': 1,
+  'raster-saturation': -0.05,
+  'raster-hue-rotate': 0,
+} as const;
+
 export function buildRoadStyle(
   activeSourceId: string | null,
   sources: Map<string, MapSource>,
   getTileUrls: () => string[],
+  night = true,
 ): StyleSpecification {
   const tiles = getTileUrls();
   const hasLocal = sources.get('local')?.isAvailable === true;
@@ -404,20 +434,13 @@ export function buildRoadStyle(
       {
         id: 'background',
         type: 'background',
-        paint: { 'background-color': '#020408' }
+        paint: { 'background-color': night ? '#131822' : '#e9eef3' }  // gece grafit / gündüz açık
       },
       {
         id: 'tiles-layer',
         type: 'raster',
         source: 'map-tiles',
-        paint: {
-          'raster-opacity': 1,
-          'raster-contrast': 0.7,
-          'raster-brightness-min': 0,
-          'raster-brightness-max': 0.22,
-          'raster-saturation': -1,
-          'raster-hue-rotate': 195,
-        }
+        paint: { ...(night ? RASTER_PAINT_NIGHT : RASTER_PAINT_DAY) },
       },
     ],
   };
@@ -433,7 +456,10 @@ export function buildSatelliteStyle(): StyleSpecification {
         tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         tileSize: 256,
         attribution: '© Esri',
-        maxzoom: 19,
+        // maxzoom 17: ESRI World_Imagery bazı bölgelerde z18-19'da görüntüye sahip değil →
+        // "Map data not yet available" placeholder karosu döner. Düşük maxzoom ile MapLibre
+        // mevcut karoyu OVER-ZOOM eder (hafif bulanık ama gerçek görüntü, placeholder yok).
+        maxzoom: 17,
       },
     },
     layers: [
@@ -453,7 +479,8 @@ export function buildHybridStyle(): StyleSpecification {
         tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         tileSize: 256,
         attribution: '© Esri',
-        maxzoom: 19,
+        // bkz. buildSatelliteStyle — ESRI placeholder karosunu önlemek için over-zoom
+        maxzoom: 17,
       },
       'road-overlay': {
         type: 'raster',

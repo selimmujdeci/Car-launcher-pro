@@ -54,9 +54,9 @@ export const MapOverlay = memo(function MapOverlay({
     }
     return {
       label: 'ONLINE',
-      dot: 'bg-blue-400',
-      wrap: 'bg-blue-500/10 border-blue-400/20',
-      text: 'text-blue-400',
+      dot: 'bg-[#E0A23C]',
+      wrap: 'bg-[#E0A23C]/10 border-[#E0A23C]/20',
+      text: 'text-[#E0A23C]',
     };
   })();
 
@@ -78,8 +78,8 @@ export const MapOverlay = memo(function MapOverlay({
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2 bg-[#0f172a]/80 backdrop-blur-xl rounded-2xl px-4 py-3 border border-white/10">
               <div className="relative w-7 h-7">
-                <div className="absolute inset-0 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-                <Navigation2 className="absolute inset-0 m-auto w-3.5 h-3.5 text-blue-400" />
+                <div className="absolute inset-0 border-2 border-[#E0A23C]/20 border-t-[#E0A23C] rounded-full animate-spin" />
+                <Navigation2 className="absolute inset-0 m-auto w-3.5 h-3.5 text-[#E0A23C]" />
               </div>
               <span className="text-primary text-[9px] font-black tracking-widest uppercase">
                 {gpsUnavailable ? 'GPS HATASI' : 'GPS BEKLENİYOR'}
@@ -95,18 +95,18 @@ export const MapOverlay = memo(function MapOverlay({
               <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-primary'}`}>
                 {Math.round(speed)}
               </span>
-              <span className="text-[8px] font-black text-blue-400 uppercase leading-none">km/h</span>
+              <span className="text-[8px] font-black text-[#E0A23C] uppercase leading-none">km/h</span>
               {hasHeading && (
                 <>
                   <div className="w-px h-3 var(--panel-bg-secondary) mx-0.5" />
                   <svg
                     viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                    className="w-3.5 h-3.5 text-blue-400"
+                    className="w-3.5 h-3.5 text-[#E0A23C]"
                     style={{ transform: `rotate(${heading}deg)`, transition: 'transform 1s ease-out' }}
                   >
                     <path d="M12 2L19 21L12 17L5 21L12 2Z" fill="currentColor" fillOpacity="0.35" />
                   </svg>
-                  <span className="text-[8px] font-black text-blue-400/70 uppercase">{toCardinal(heading!)}</span>
+                  <span className="text-[8px] font-black text-[#E0A23C]/70 uppercase">{toCardinal(heading!)}</span>
                 </>
               )}
             </div>
@@ -136,8 +136,8 @@ export const MapOverlay = memo(function MapOverlay({
         <div className="absolute inset-0 flex items-center justify-center animate-in fade-in zoom-in-95 duration-1000">
           <div className="flex flex-col items-center gap-6 bg-[#0f172a]/80 backdrop-blur-3xl rounded-[3rem] px-12 py-10 border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)]">
             <div className="relative w-16 h-16">
-              <div className="absolute inset-0 border-4 border-blue-500/10 border-t-blue-500 rounded-full animate-spin" />
-              <Navigation2 className="absolute inset-0 m-auto w-7 h-7 text-blue-400 opacity-80" />
+              <div className="absolute inset-0 border-4 border-[#E0A23C]/10 border-t-[#E0A23C] rounded-full animate-spin" />
+              <Navigation2 className="absolute inset-0 m-auto w-7 h-7 text-[#E0A23C] opacity-80" />
             </div>
             <div className="text-center">
               <div className="text-primary text-sm font-black tracking-[0.3em] uppercase mb-1">

@@ -31,16 +31,21 @@ public class MediaListenerService extends NotificationListenerService {
     @Override
     public void onListenerConnected() {
         instance = this;
+        // Plugin yüklüyse, OnActiveSessionsChangedListener'ı şimdi attach et —
+        // böylece müzik halihazırda çalıyorsa anında metadata UI'a düşer.
+        try { CarLauncherPlugin.onMediaListenerConnected(); } catch (Throwable ignored) {}
     }
 
     @Override
     public void onListenerDisconnected() {
         instance = null;
+        try { CarLauncherPlugin.onMediaListenerDisconnected(); } catch (Throwable ignored) {}
     }
 
     @Override
     public void onDestroy() {
         instance = null;
+        try { CarLauncherPlugin.onMediaListenerDisconnected(); } catch (Throwable ignored) {}
         super.onDestroy();
     }
 }

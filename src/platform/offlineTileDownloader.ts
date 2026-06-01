@@ -88,6 +88,33 @@ export function estimateTileCount(preset: TileRegionPreset): number {
   return getTilesForPreset(preset).length;
 }
 
+/** Tahmini boyut (MB) — ortalama OSM raster tile ~14 KB. */
+export function estimateSizeMB(preset: TileRegionPreset): number {
+  return (estimateTileCount(preset) * 14) / 1024;
+}
+
+/**
+ * Bir merkez nokta etrafında dinamik bölge paketi üretir (herhangi yer / bulunulan bölge).
+ * radiusKm yarıçaplı kare bbox; metro kapsaması için varsayılan ~30 km, z10–15.
+ * 1° lat ≈ 111 km; lon düzeltmesi enlem kosinüsü ile.
+ */
+export function buildAreaPreset(
+  lat: number,
+  lon: number,
+  opts?: { radiusKm?: number; minZoom?: number; maxZoom?: number; id?: string; name?: string },
+): TileRegionPreset {
+  const radiusKm = opts?.radiusKm ?? 30;
+  const dLat = radiusKm / 111;
+  const dLon = radiusKm / (111 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+  return {
+    id:      opts?.id   ?? `area-${lat.toFixed(3)}-${lon.toFixed(3)}`,
+    name:    opts?.name ?? 'Bulunduğun Bölge',
+    bbox:    { minLat: lat - dLat, maxLat: lat + dLat, minLon: lon - dLon, maxLon: lon + dLon },
+    minZoom: opts?.minZoom ?? 10,
+    maxZoom: opts?.maxZoom ?? 15,
+  };
+}
+
 /* ── İndirme durumu ──────────────────────────────────────── */
 
 export type DownloadStatus = 'idle' | 'downloading' | 'paused' | 'done' | 'error' | 'cancelled';
@@ -174,13 +201,20 @@ async function fetchTile(
  * @returns İndirilen tile sayısı
  */
 export async function downloadTileRegion(presetId: string): Promise<void> {
-  if (_state.status === 'downloading') return; // zaten çalışıyor
-
   const preset = TILE_PRESETS.find((p) => p.id === presetId);
   if (!preset) {
     push({ status: 'error', errorMsg: 'Bilinmeyen preset: ' + presetId });
     return;
   }
+  return downloadTilePreset(preset);
+}
+
+/**
+ * Herhangi bir bölge paketi (preset veya dinamik buildAreaPreset) için tile indirir.
+ * Service Worker aktifse her fetch otomatik IndexedDB'ye kaydedilir → tam offline.
+ */
+export async function downloadTilePreset(preset: TileRegionPreset): Promise<void> {
+  if (_state.status === 'downloading') return; // zaten çalışıyor
 
   const tiles = getTilesForPreset(preset);
   _abortController = new AbortController();

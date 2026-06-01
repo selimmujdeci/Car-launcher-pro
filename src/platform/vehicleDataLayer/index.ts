@@ -48,6 +48,15 @@ export function restoreOdometer(km: number): void {
 }
 
 /**
+ * DEV-only kaos: VehicleCompute worker'ında _odoTMR bit-flip simülasyonu tetikler.
+ * Üretimde no-op (DEV guard) — ChaosReceiver yalnızca DEV'de çağırır.
+ */
+export function chaosTriggerBitflip(): void {
+  if (!import.meta.env.DEV) return;
+  _activeResolver?.chaosBitflip();
+}
+
+/**
  * startVehicleDataLayer — OBD/GPS/CAN veri hattını, telemetri push'unu
  * ve uzaktan komut kanalını başlatır.
  *

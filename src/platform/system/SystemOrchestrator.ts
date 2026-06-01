@@ -82,11 +82,24 @@ export function startSystemOrchestrator(): () => void {
   // Sadece event-driven — poll yok, overhead sıfır.
   // Eskalasyon: anlık (L yükseliyor). Recovery: 30s hysteresis AdaptiveRuntimeManager içinde.
 
+  // Sahte bildirim koruması: aynı seviye tekrar ederse toast atma; ilk açılışta
+  // sessizce state senkronize et (kullanıcı bot mesajı görmesin).
+  let _lastThermalLevel: number = -1;
+  let _thermalFirstCall = true;
+
   function _handleThermalLevel(snap: ThermalSnapshot): void {
     const level = snap.level;
     runtimeManager.setThermalConstraint(level);
     setCommunityThermalLevel(level);
     thermalJournal.record(level);
+
+    // Toast bastırma:
+    //   - Startup'taki ilk çağrı (state sync, gerçek değişim değil)
+    //   - Aynı veya daha düşük seviye (yalnızca yükseliş anlarında bildir)
+    const shouldSuppress = _thermalFirstCall || level <= _lastThermalLevel;
+    _thermalFirstCall   = false;
+    _lastThermalLevel    = level;
+    if (shouldSuppress) return;
 
     if (level === 3) {
       // L3: Sistem Tahliyesi — CRITICAL bellek baskısı + LIMP_HOME + non-critical alertleri temizle

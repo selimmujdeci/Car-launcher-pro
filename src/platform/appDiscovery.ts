@@ -3,6 +3,12 @@ import { CarLauncher, type NativeApp } from './nativePlugin';
 import { ALL_APPS, type AppItem, type AppCategory } from '../data/apps';
 import { isNative } from './bridge';
 
+/** requestIdleCallback yoksa (Safari <16) setTimeout(0) ile fallback */
+const _rIdle: (fn: () => void) => void =
+  typeof requestIdleCallback === 'function'
+    ? (fn) => requestIdleCallback(fn, { timeout: 1000 })
+    : (fn) => setTimeout(fn, 0);
+
 export interface AppDiscoveryResult {
   apps: AppItem[];
   appMap: Record<string, AppItem>;
@@ -95,13 +101,28 @@ export function useApps(): AppDiscoveryResult {
         );
 
         // ── İkon önbelleğini doldur ────────────────────────────────────────
-        // Tüm yüklü uygulamaların native ikonları önbelleğe alınır — filtreden
-        // geçen (curated dahil) tüm paketler kapsanır.
+        // İlk 20 ikon ana thread'de hemen yüklenir (görünür alanı hızlı doldur).
+        // Kalanlar requestIdleCallback ile toplu yüklenir — UI frame'ini bloklamaz.
         // Curated uygulamaların (Spotify, Maps vb.) ikonları da böylece
         // app.icon emoji'sini override edecek şekilde cache'e girer.
-        apps.forEach(na => {
+        const SYNC_COUNT = 20;
+        apps.slice(0, SYNC_COUNT).forEach(na => {
           if (na.icon) _iconCache.set(na.packageName, na.icon);
         });
+        if (apps.length > SYNC_COUNT) {
+          const deferred = apps.slice(SYNC_COUNT);
+          let _offset    = 0;
+          const _fillBatch = () => {
+            const end = Math.min(_offset + 8, deferred.length);
+            for (let i = _offset; i < end; i++) {
+              const na = deferred[i];
+              if (na.icon) _iconCache.set(na.packageName, na.icon);
+            }
+            _offset = end;
+            if (_offset < deferred.length) _rIdle(_fillBatch);
+          };
+          _rIdle(_fillBatch);
+        }
 
         // ── Yüklü paket kümesi — ALL_APPS filtresi için (render'a karışmaz)
         setInstalledPackages(new Set<string>(apps.map(na => na.packageName)));

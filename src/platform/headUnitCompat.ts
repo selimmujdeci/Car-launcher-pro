@@ -75,6 +75,30 @@ function checkCssLayerSupport(): boolean {
 
 /* ── Profile builder ───────────────────────────────────────── */
 
+/** Head unit ekran karakteristik tespiti — düşük çözünürlüklü/non-standart oranlar */
+function detectHeadUnitScreen(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w   = window.innerWidth  || screen.width  || 0;
+  const h   = window.innerHeight || screen.height || 0;
+  const dpr = window.devicePixelRatio || 1;
+  if (w === 0 || h === 0) return false;
+
+  // Düşük DPR (head unit'lerde nadiren > 1.5)
+  if (dpr <= 1.0) return true;
+
+  // Klasik head unit çözünürlükleri (800x480, 1024x600, 1280x720, 1280x480)
+  const maxDim = Math.max(w, h);
+  const minDim = Math.min(w, h);
+  if (maxDim <= 1024 && minDim <= 600) return true;
+  if (maxDim <= 1280 && minDim <= 480) return true;
+
+  // Aşırı geniş aspect ratio (ultra-wide head unit'ler: 1920x720, 2560x720)
+  const aspect = maxDim / Math.max(1, minDim);
+  if (aspect >= 2.5) return true;
+
+  return false;
+}
+
 function buildProfile(): CompatProfile {
   const ua = navigator.userAgent || '';
   const androidVersion    = detectAndroidVersion(ua);
@@ -84,15 +108,23 @@ function buildProfile(): CompatProfile {
   const supportsBackdropFilter = checkBackdropFilter();
   const supportsDvh            = checkDvh();
   const supportsCssLayer       = checkCssLayerSupport();
+  const lowEndScreen           = detectHeadUnitScreen();
 
+  // Sıkılaştırılmış eşikler:
+  //   Android < 12      → eski cihaz
+  //   Chromium < 90     → eski WebView (modern blur işleri tutmaz)
+  //   cpuCores ≤ 4      → çoğu head unit Cortex-A53 quad-core
+  //   memoryGb ≤ 3      → 4GB advertised olsa bile sistem 3.x GB raporlar
+  //   lowEndScreen      → düşük çözünürlük / düşük DPR / ultra-wide
   const isHeadUnit =
-    (androidVersion > 0 && androidVersion < 11) ||
-    (webViewVersion > 0 && webViewVersion < 80) ||
-    (cpuCores > 0 && cpuCores <= 2) ||
-    (memoryGb > 0 && memoryGb <= 2) ||
+    (androidVersion > 0 && androidVersion < 12) ||
+    (webViewVersion > 0 && webViewVersion < 90) ||
+    (cpuCores > 0 && cpuCores <= 4) ||
+    (memoryGb > 0 && memoryGb <= 3) ||
     !supportsBackdropFilter ||
     !supportsDvh ||
-    !supportsCssLayer;
+    !supportsCssLayer ||
+    lowEndScreen;
 
   return {
     isHeadUnit: isHeadUnit,
@@ -209,15 +241,36 @@ function applyCompatThemeDefaults(): void {
   } catch { /* quota veya parse hatası — devam et */ }
 }
 
+/** Önceki başlatmada head unit tespit edildiyse hemen compat-mode aç (FOUC önler) */
+function applyCachedHeadUnitFlag(): boolean {
+  try {
+    if (localStorage.getItem('cl_isHeadUnit') === '1') {
+      document.documentElement.setAttribute('data-compat-mode', 'true');
+      document.documentElement.classList.add('perf-low');
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 export function applyCompatMode(): void {
+  // Cache'den anında uygula — React render öncesi blur/animation kapanır
+  applyCachedHeadUnitFlag();
+
   // Dinamik ölçekleme — compat/normal tüm cihazlarda çalışır
   _startDynamicScaling();
 
   const profile = getCompatProfile();
 
+  // Cache: sonraki açılış için tespit sonucunu sakla
+  try {
+    localStorage.setItem('cl_isHeadUnit', profile.isHeadUnit ? '1' : '0');
+  } catch { /* quota */ }
+
   if (profile.isHeadUnit) {
-    // CSS override için data attribute
+    // CSS override için data attribute + perf-low class
     document.documentElement.setAttribute('data-compat-mode', 'true');
+    document.documentElement.classList.add('perf-low');
 
     // Kullanıcı manuel olarak perf mode ayarlamamışsa 'lite' zorla
     const hasUserPref = (() => {

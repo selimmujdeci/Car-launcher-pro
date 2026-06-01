@@ -301,34 +301,41 @@ export function setSource(source: MediaSource): void {
  */
 
 /**
- * Issue 4 — Warm-up Retry Logic
+ * Issue 4 — Background-Safe Play Logic
  *
- * Problem: sendMediaAction() bir KeyEvent gönderir. Hedef uygulama öldürülmüşse
- * (Android kill-cache), event native tarafından kabul edilir ama uygulama cevap
- * veremez. Sonuç: promise resolve olur, müzik başlamaz.
+ * Uygulama arka planda çalışıyorken (Spotify, YouTube Music vb.) sendMediaAction()
+ * ile müzik başlatılır. launchApp() KULLANILMAZ — bu çağrı uygulamayı ön plana
+ * getirir ve kullanıcı müzik çalar ekranından uzaklaşır.
  *
- * Çözüm (play için — pause'da gerek yok):
- *   1. Komutu gönder.
- *   2. 1500 ms bekle, getMediaInfo() ile etkiyi doğrula.
- *   3. Müzik hâlâ başlamadıysa, paketi intent ile uyandır (warm-up).
- *   4. 1000 ms bekle, tekrar play komutu gönder (max 2 deneme).
+ * Eğer uygulama arka planda değil, tamamen kapalıysa sendMediaAction() etkisiz
+ * kalabilir; bu durumda kullanıcı uygulamayı bir kez kendisi açmalıdır.
  *
- * pause() sadece 1 kez çalışır — zaten çalmayan uygulamayı durdurmak anlamsız.
+ * Kaynak seçilmemişse: önce aktif oturumdan paket tespit edilir, yoksa
+ * DEFAULT_PLAY_PACKAGES listesindeki ilk pakete geçilir.
  */
 const WARMUP_CHECK_MS  = 1_500;
-const WARMUP_LAUNCH_MS = 1_000;
 const MAX_WARMUP_TRIES = 2;
 
+/** Tercih edilen paket yoksa sırayla denenir */
+const DEFAULT_PLAY_PACKAGES = [
+  'com.spotify.music',
+  'com.google.android.apps.youtube.music',
+  'com.maxmpz.audioplayer',
+];
+
 async function _sendWithWarmup(action: 'play' | 'pause'): Promise<void> {
-  // Agresif warm-up: aktif oturum yoksa ve tercih edilen paket biliniyorsa
-  // önce uygulamayı başlat — böylece play komutu canlı bir sürece ulaşır.
-  if (action === 'play' && !_current.hasSession && _preferredPackage) {
+  // Kaynak seçilmemişse: aktif oturumdan veya varsayılan listeden paket seç
+  if (action === 'play' && !_preferredPackage) {
     try {
-      await CarLauncher.launchApp({ packageName: _preferredPackage });
-      await new Promise<void>((r) => setTimeout(r, WARMUP_LAUNCH_MS));
-    } catch { /* uygulama zaten açık olabilir — devam et */ }
+      const active = await CarLauncher.getMediaInfo();
+      _preferredPackage = active.packageName || DEFAULT_PLAY_PACKAGES[0];
+    } catch {
+      _preferredPackage = DEFAULT_PLAY_PACKAGES[0];
+    }
   }
 
+  // Uygulamayı ön plana almadan medya komutu gönder.
+  // Arka planda yaşayan uygulamalar (Spotify, YouTube Music vb.) bu komutu alır ve çalmaya başlar.
   await CarLauncher.sendMediaAction({ action });
 
   // pause için doğrulama/yeniden deneme gereksiz
@@ -342,22 +349,15 @@ async function _sendWithWarmup(action: 'play' | 'pause'): Promise<void> {
       _preferredPackage ? { preferredPackage: _preferredPackage } : undefined,
     );
   } catch {
-    return; // getMediaInfo başarısız — sessizce çık
+    return;
   }
 
-  if (info.playing) return; // komut çalıştı
+  if (info.playing) return;
 
-  // Uygulama cevap vermedi — launch intent ile uyandır
-  const targetPkg = info.packageName || _preferredPackage;
-  if (!targetPkg) return;
-
+  // Hâlâ çalmıyorsa tekrar dene — uygulama arka planda uyandırılıyor olabilir
   for (let attempt = 0; attempt < MAX_WARMUP_TRIES; attempt++) {
     try {
-      await CarLauncher.launchApp({ packageName: targetPkg });
-      await new Promise<void>((r) => setTimeout(r, WARMUP_LAUNCH_MS));
       await CarLauncher.sendMediaAction({ action: 'play' });
-
-      // Kısa doğrulama — başarılıysa döngüden çık
       await new Promise<void>((r) => setTimeout(r, 500));
       const verify = await CarLauncher.getMediaInfo(
         _preferredPackage ? { preferredPackage: _preferredPackage } : undefined,
@@ -381,6 +381,16 @@ export function pause(): void {
 }
 
 export function togglePlayPause(): void {
+  // Stream (uygulama içi internet akışı) aktifse → streamMusicService (web + native).
+  // isNative guard'ından ÖNCE: stream web'de de çalar.
+  if (_current.activePackage === 'com.cockpitos.pro.stream') {
+    import('./streamMusicService').then(({ streamTogglePlayPause }) => streamTogglePlayPause()).catch(() => {});
+    return;
+  }
+  if (_current.activePackage === 'com.cockpitos.pro.youtube') {
+    import('./youtubeService').then(({ youtubeTogglePlayPause }) => youtubeTogglePlayPause()).catch(() => {});
+    return;
+  }
   if (!isNative) return;
   // Yerel müzik aktifse localMusicService'e yönlendir (circular import önlemek için lazy import)
   if (_current.activePackage === 'com.cockpitos.pro') {
@@ -627,7 +637,20 @@ function _isPermissionError(e: unknown): boolean {
   );
 }
 
+/* Uygulama-içi (WebView) kaynaklar — kendi servisleriyle yönetilir (YouTube IFrame,
+ * HTML5 stream, yerel MediaPlayer). Bunlar native MediaController değil; 5sn'lik native
+ * poll bunların state'ini (hasSession/playing/track) EZMEMELİ — yoksa YouTube videosu
+ * kararır, oynatma kontrolleri sıfırlanır. Gerçek harici oturum değişimleri yine
+ * 'mediaChanged' event'iyle gelir (poll'dan bağımsız). */
+const IN_APP_PACKAGES = new Set([
+  'com.cockpitos.pro',
+  'com.cockpitos.pro.youtube',
+  'com.cockpitos.pro.stream',
+]);
+
 async function _pollNative(): Promise<void> {
+  // Aktif kaynak uygulama-içiyse native poll'u atla (in-app servis state'i otoritedir).
+  if (_current.hasSession && IN_APP_PACKAGES.has(_current.activePackage)) return;
   try {
     const info = await CarLauncher.getMediaInfo(
       _preferredPackage ? { preferredPackage: _preferredPackage } : undefined,
@@ -636,11 +659,29 @@ async function _pollNative(): Promise<void> {
     applyNativeMediaInfo(info);
   } catch (e: unknown) {
     if (_isPermissionError(e)) {
-      // Bildirim erişimi yok — permissionRequired bayrağını set et
-      updateMediaState({ hasSession: false, permissionRequired: true });
+      // NO_LISTENER → MediaListenerService.instance henüz null.
+      // Bu iki sebepten kaynaklanabilir:
+      //   1. Kullanıcı bildirim izni VERMEMİŞ → gerçek "İZİN GEREKLİ"
+      //   2. İzin verilmiş ama Android henüz servisi bind etmemiş (birkaç saniye) → bekle
+      // Gerçek izin durumunu native'den sorgula — sahte "İZİN GEREKLİ" göstermeyelim.
+      try {
+        const { granted } = await CarLauncher.checkNotificationAccess();
+        if (granted) {
+          // İzin var, servis bind ediliyor — permissionRequired flag'i bastır
+          if (_current.permissionRequired) updateMediaState({ permissionRequired: false });
+          if (_current.hasSession) updateMediaState({ hasSession: false });
+        } else {
+          // Gerçekten izin yok
+          updateMediaState({ hasSession: false, permissionRequired: true });
+        }
+      } catch {
+        // checkNotificationAccess başarısız — eski davranışa düş
+        updateMediaState({ hasSession: false, permissionRequired: true });
+      }
     } else {
       // Session yok veya başka hata — izin var ama müzik çalmıyor
       if (_current.hasSession) updateMediaState({ hasSession: false });
+      if (_current.permissionRequired) updateMediaState({ permissionRequired: false });
     }
   }
 }

@@ -231,11 +231,16 @@ const PATTERNS: CommandPattern[] = [
       'bir şarkı koy', 'müziği kur', 'ritim başlat',
       // Kısa form
       'müzik', 'çal', 'oynat', 'şarkı', 'parça',
+      // "dinle" ailesi — doğal konuşma ("bir şeyler dinleyelim")
+      'müzik dinle', 'müzik dinleyelim', 'şarkı dinle', 'şarkı dinleyelim',
+      'bir şeyler dinle', 'bir şeyler dinleyelim', 'biraz müzik dinleyelim',
+      'biraz müzik olsun', 'müzik olsun', 'şarkı olsun', 'açsana müzik',
+      'koy bir şarkı', 'bir şeyler çalsana', 'müzik istiyorum', 'canım müzik istedi',
       // Uzun / resmi
       'müzik uygulamasını aç', 'müzik çalmaya başla', 'şarkı çalmaya başla',
       'playlist başlat', 'albüm aç', 'hafifçe müzik koy', 'müziği başlatabilir misin',
     ],
-    tokens: ['muzik', 'muzigi', 'spotify', 'sarki', 'music', 'cal', 'oynat', 'playlist', 'parca'],
+    tokens: ['muzik', 'muzigi', 'spotify', 'sarki', 'music', 'cal', 'oynat', 'playlist', 'parca', 'dinle', 'dinleyelim'],
   },
   {
     type: 'stop_music', priority: 'high',

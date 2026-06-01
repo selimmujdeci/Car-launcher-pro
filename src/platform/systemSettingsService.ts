@@ -13,6 +13,18 @@ import { CarLauncher } from './nativePlugin';
 import { onOBDData } from './obdService';
 import { logError } from './crashLogger';
 import { showToast } from './errorBus';
+import { logInfo } from './debug';
+
+/* ── Web platform yetersizlik bildirimi (tek seferlik) ───── */
+// Web/PWA'da sistem ses/parlaklık donanım kontrolü yoktur. UI bunları
+// isSystemControlSupported() ile zaten gizler; yine de slider başına spam
+// üretmeden, görünürlük için bir kez log bırakılır.
+const _webUnsupportedNotified = new Set<string>();
+function _notifyWebUnsupportedOnce(feature: 'ses' | 'parlaklık'): void {
+  if (_webUnsupportedNotified.has(feature)) return;
+  _webUnsupportedNotified.add(feature);
+  logInfo(`[systemSettings] Sistem ${feature} kontrolü yalnızca native platformda desteklenir (web no-op).`);
+}
 
 /* ── Platform capability flag ────────────────────────────── */
 
@@ -80,8 +92,10 @@ async function _applyBrightnessNative(percent: number): Promise<void> {
 const _applyBrightnessDebounced = debounce((percent: number) => {
   if (Capacitor.isNativePlatform()) {
     void _applyBrightnessNative(percent);
+  } else {
+    // web: donanım kontrolü yok — bir kez bilgilendir (UI zaten gizler)
+    _notifyWebUnsupportedOnce('parlaklık');
   }
-  // web: sessiz no-op — UI sliders isSystemControlSupported() ile zaten gizlenir
 }, 80);
 
 /* ── Manual Override Hysteresis (Far otomasyonu) ─────────── */
@@ -160,8 +174,10 @@ function _applyVolumeNative(percent: number): void {
 const _applyVolumeDebounced = debounce((percent: number) => {
   if (Capacitor.isNativePlatform()) {
     _applyVolumeNative(percent);
+  } else {
+    // web: donanım kontrolü yok — bir kez bilgilendir (UI zaten gizler)
+    _notifyWebUnsupportedOnce('ses');
   }
-  // web: sessiz no-op — UI sliders isSystemControlSupported() ile zaten gizlenir
 }, 80);
 
 /**

@@ -1,0 +1,14 @@
+{
+  "id": "standard_obd",
+  "version": "1.0.0",
+  "make": "*",
+  "model": "*",
+  "yearFrom": 1996,
+  "yearTo": 9999,
+  "protocol": "OBD2_AUTO",
+  "confidenceScore": 1.0,
+  "safetyLevel": "verified",
+  "fallbackProfile": null,
+  "notes": "Evrensel OBD-II PID modu. Raw CAN ID kullanmaz — mevcut obdService.ts PID akışıyla çalışır. Araç tanınamadığında Safe Mode bu profile düşer. Sinyaller obdService tarafından sağlanır.",
+  "signals": []
+}

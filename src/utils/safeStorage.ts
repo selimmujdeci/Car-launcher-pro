@@ -123,10 +123,11 @@ const IMMEDIATE_WRITE_KEYS = new Set<string>([
  * 1s debounce alır. Slider/ayar burst'larını max 1Hz disk yazmasına indirgir.
  */
 const _SAFETY_DEBOUNCE_KEYS = new Set<string>([
-  'car-launcher-storage',   // ana Zustand store — ses/parlaklık slider burst
-  'car-vehicle-store',      // araç profili değişimleri
-  'car-maintenance-store',  // bakım güncelleme
-  'car-safety-brain-v1',    // Safety Brain — ardışık fault flush
+  'car-launcher-storage',          // ana Zustand store — ses/parlaklık slider burst
+  'car-vehicle-store',             // araç profili değişimleri
+  'car-maintenance-store',         // bakım güncelleme
+  'car-safety-brain-v1',           // Safety Brain — ardışık fault flush
+  'car-launcher-vehicle-state',    // odometer — kritik anlarda immediate flush, normal akışta 1s buffer
 ]);
 
 /* ── CacheStorage temizleyici (best-effort) ──────────────────── */
@@ -234,6 +235,14 @@ async function _fsWriteAtomic(key: string, value: string): Promise<void> {
   });
   const readBack = typeof verifyResult.data === 'string' ? verifyResult.data : '';
   if (readBack !== value) {
+    // Her verify-read başarısızlığı — kurtarılabilir olsa bile — integrity bus'a bildirilir.
+    // Dinleyiciler (blackBox / telemetri servisleri) adli kayıt için bu olayı tüketir.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('caros:integrity-violation', {
+        detail: { key, reason: 'verify-read-mismatch' },
+      }));
+    }
+
     // Self-Healing: localStorage backup'tan kurtarma dene
     let backup: string | null = null;
     try { backup = localStorage.getItem(key); } catch { /* ignore */ }
@@ -249,8 +258,7 @@ async function _fsWriteAtomic(key: string, value: string): Promise<void> {
       });
       // Başarıyla yazıldı; devam et (6. adım cache'i günceller)
     } else {
-      // Filesystem ve localStorage birbiriyle çelişiyor — Data Integrity Violation.
-      // Veriyi corrupt etmek yerine ERROR_BUS üzerinden sinyal gönder; fırlatmaya devam.
+      // Filesystem ve localStorage birbiriyle çelişiyor — daha ağır ihlal; üst katman karar verir.
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('caros:integrity-violation', {
           detail: { key, reason: 'fs-backup-mismatch' },
@@ -384,13 +392,17 @@ export function resetEmmcWriteCount(): void {
 // Yalnızca _scheduleIdleWrite ve safeFlushAll/safeFlushKey/safeSetRawImmediate çağırır.
 async function _commitToStorage(key: string, value: string): Promise<void> {
   _emmcWriteCount++;
-  // Mali-400 Compliance: 100KB+ payload JSON.stringify'ı main thread'de bloke edebilir.
-  // Uyarı yalnızca dev modda; prod'da sıfır overhead.
-  if (import.meta.env.DEV && value.length > 102_400) {
-    console.warn(
-      `[safeStorage] Büyük yazım: "${key}" ${(value.length / 1024).toFixed(1)}KB — ` +
-      'JSON parçalama veya lazy persist önerilir (CLAUDE.md §3 Mali-400 Compliance)',
-    );
+
+  // Deferred Write: 50 KB+ payload → idle callback yield, sonra I/O başlar.
+  // Amaç: Zustand serialize etmiş büyük objeleri ana thread'i bloke etmeden diske göndermek (Mali-400).
+  if (value.length > 51_200) {
+    await new Promise<void>((resolve) => { _requestIdle(() => resolve()); });
+    if (import.meta.env.DEV) {
+      console.warn(
+        `[safeStorage] Büyük yazım: "${key}" ${(value.length / 1024).toFixed(1)}KB — ` +
+        'idle yield eklendi (CLAUDE.md §3 Mali-400 Compliance)',
+      );
+    }
   }
   if (NATIVE) {
     // Double-lock: kritik anahtarlar için önce localStorage senkron backup

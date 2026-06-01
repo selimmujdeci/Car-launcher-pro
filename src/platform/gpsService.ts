@@ -16,6 +16,7 @@ import {
   LAST_KNOWN_KEY,
   GPS_FIRST_FIX_MS,
 } from './gps/gpsUtils';
+import { getThermalLevel } from './thermalWatchdog';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -72,8 +73,16 @@ useGPSStore.subscribe((state) => {
 
 let watchId: number | string | null = null;
 let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
-// 200ms throttle — 1s GPS interval'de her fix'i işle
-const POSITION_THROTTLE_MS = 200;
+// 200ms taban throttle — 1s GPS interval'de her fix'i işle
+const POSITION_THROTTLE_BASE_MS = 200;
+
+// ── Termal-adaptif konum throttle ───────────────────────────────────────────
+// L2 (≥55°C) ve üzerinde GPS işleme sıklığını 500ms'ye düşür → her fix'te yapılan
+// jump-guard / heading-blend / geofence / store-emit yükü yarıdan aza iner (CPU/ısı).
+// Navigasyon yine 2 Hz'in altına inmez (L0/L1'de 200ms = 5 Hz taban korunur).
+function _positionThrottleMs(): number {
+  return getThermalLevel() >= 2 ? 500 : POSITION_THROTTLE_BASE_MS;
+}
 
 // ── Navigasyon GPS taban aralığı ─────────────────────────────
 // RuntimeEngine SAFE_MODE (5s) / POWER_SAVE (8s) / BASIC_JS (2s) modlarında
@@ -384,7 +393,7 @@ interface CoordsLike {
 function handlePosition(coords: CoordsLike, timestamp: number): void {
   const now     = Date.now();
   const perfNow = performance.now();
-  if (perfNow - _lastPositionPerf < POSITION_THROTTLE_MS) return;
+  if (perfNow - _lastPositionPerf < _positionThrottleMs()) return;
 
   if (!isFinite(coords.latitude) || !isFinite(coords.longitude)) {
     logError('GPS', new Error(`Invalid coords: ${coords.latitude},${coords.longitude}`));

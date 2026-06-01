@@ -22,7 +22,7 @@ function LoginForm() {
     if (!supabase) return;
     setError('');
     setGoogleLoading(true);
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {

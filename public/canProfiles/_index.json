@@ -1,0 +1,23 @@
+{
+  "version": "1.1.0",
+  "profiles": [
+    {
+      "id": "standard_obd",
+      "file": "standard_obd.json",
+      "make": "*",
+      "model": "*",
+      "yearFrom": 1996,
+      "yearTo": 9999,
+      "safetyLevel": "verified"
+    },
+    {
+      "id": "fiat_doblo_2016",
+      "file": "fiat_doblo_2016.json",
+      "make": "Fiat",
+      "model": "Doblò",
+      "yearFrom": 2010,
+      "yearTo": 2022,
+      "safetyLevel": "experimental"
+    }
+  ]
+}

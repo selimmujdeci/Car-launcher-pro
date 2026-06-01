@@ -92,14 +92,22 @@ function removeLayers(css: string): string {
   return result;
 }
 
-// SharedArrayBuffer için zorunlu: COOP + COEP → crossOriginIsolated = true
-const _coopCoepHeaders = {
-  'Cross-Origin-Opener-Policy':   'same-origin',
-  'Cross-Origin-Embedder-Policy': 'require-corp',
-};
+// COOP/COEP KAPALI — dev ortamını APK ile eşitler.
+//
+// Geçmiş: COEP (require-corp→credentialless) SharedArrayBuffer/crossOriginIsolated
+// için açıktı. ANCAK COEP, COEP başlığı göndermeyen çapraz-köken IFRAME'leri
+// bloklar → YouTube IFrame oynatıcısı dev'de yüklenemiyordu.
+// APK zaten COEP göndermiyor (orada crossOriginIsolated=false, SAB → BASIC_JS
+// fallback). Dev'i de COEP'siz bırakınca: (1) YouTube iframe çalışır, (2) tüm
+// ses akışları (Audius/Jamendo/Archive/radyo) CORP gerekmeden yüklenir,
+// (3) runtime APK ile aynı BASIC_JS yolunu kullanır. SAB yolu yine COEP'li bir
+// web dağıtımında (carospro.com) aktif olur; dev artık onu test etmez.
+const _coopCoepHeaders: Record<string, string> = {};
 
 export default defineConfig({
-  server:  { headers: _coopCoepHeaders },
+  // host 127.0.0.1: Spotify OAuth loopback redirect'i IPv4 ister. Varsayılan
+  // "localhost" Windows'ta ::1'e (IPv6) bağlanıp 127.0.0.1'i reddediyordu.
+  server:  { host: '127.0.0.1', port: 5173, strictPort: true, headers: _coopCoepHeaders },
   preview: { headers: _coopCoepHeaders },
   optimizeDeps: {
     // Vite 8/rolldown CJS interop fix: react-i18next → use-sync-external-store/shim

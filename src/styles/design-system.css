@@ -1,0 +1,242 @@
+/* ════════════════════════════════════════════════════════════════════════
+   COCKPITOS — TASARIM SİSTEMİ (KANONİK SEMANTİK TOKEN KATMANI)
+   ────────────────────────────────────────────────────────────────────────
+   Bu dosya, OEM-kalite görsel kimliğin TEK kaynağıdır (--oem-* namespace).
+
+   Mimari ilke — TEK NAMESPACE:
+     Projede zaten ölçek (scale) token'ları var, bunlara DOKUNULMAZ:
+       • --lp-*   spacing / font / radius / icon  (base.css — LayoutContext runtime)
+       • --car-*  shadow / radius / dim-text      (base.css)
+       • --z-*    z-index katmanları              (base.css)
+       • --hu-*   ISO 15008 okunabilirlik          (base.css)
+     Bu dosya YALNIZCA semantik RENK + DURUM + HAREKET katmanını sahiplenir
+     ve hepsini --oem-* altında toplar. Yeni bir 7. namespace AÇILMAZ.
+
+   İki scope:
+     :root            → KOYU fallback (dark/oled tema seçilirse tutarlı kalsın)
+     html.light-ui    → AYDINLIK-PRO (VARSAYILAN — güneş okunabilirliği)
+
+   Kural: saf token tanımı. Bileşen seçici / !important YOK.
+          Bileşene özel light override'ları light-theme.css'te kalır.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1) KOYU FALLBACK (:root) — sinematik graphite + amber
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  /* ── Zeminler (yükseltilmiş graphite — --bg-card'ı DEĞİŞTİRMEZ) ── */
+  --oem-bg:            #14171F;
+  --oem-surface-0:     #1E2331;
+  --oem-surface-1:     #262C3C;
+  --oem-surface-2:     #303749;
+  --oem-surface-3:     #3D4458;
+
+  /* ── Mürekkep (metin) ── */
+  --oem-ink:           #F0EBE0;
+  --oem-ink-2:         rgba(240,235,224,0.74);
+  --oem-ink-3:         rgba(240,235,224,0.52);
+  --oem-ink-4:         rgba(240,235,224,0.30);
+
+  /* ── Aksan (tek kanonik aksan = amber; --oem-amber geri-uyum alias'ı) ── */
+  --oem-accent:        #E0A23C;
+  --oem-accent-strong: #C9831A;
+  --oem-accent-soft:   rgba(224,162,60,0.18);
+  --oem-accent-glow:   rgba(224,162,60,0.34);
+  --oem-accent-ink:    #1A140A;            /* aksan zemini üstündeki metin */
+  --oem-amber:         var(--oem-accent);
+  --oem-amber-deep:    var(--oem-accent-strong);
+  --oem-amber-soft:    var(--oem-accent-soft);
+  --oem-amber-glow:    var(--oem-accent-glow);
+
+  /* ── Semantik durum renkleri (+ soft zemin varyantları) ── */
+  --oem-good:          #34D399;
+  --oem-good-soft:     rgba(52,211,153,0.16);
+  --oem-warn:          #FBBF24;
+  --oem-warn-soft:     rgba(251,191,36,0.16);
+  --oem-danger:        #F87171;
+  --oem-danger-soft:   rgba(248,113,113,0.16);
+  --oem-info:          #60A5FA;
+  --oem-info-soft:     rgba(96,165,250,0.16);
+
+  /* ── Çizgiler / ayraçlar ── */
+  --oem-line:          rgba(255,240,210,0.08);
+  --oem-line-strong:   rgba(255,240,210,0.18);
+  --oem-line-warm:     rgba(190,140,60,0.42);
+
+  /* ── Elevation (gölge) — 3 kademe ── */
+  --oem-shadow-card:   0 1px 0 rgba(255,240,210,0.06) inset,
+                       0 18px 40px -22px rgba(0,0,0,0.55);
+  --oem-shadow-raised: 0 1px 0 rgba(255,240,210,0.08) inset,
+                       0 28px 60px -26px rgba(0,0,0,0.65);
+  --oem-shadow-pop:    0 32px 80px -28px rgba(0,0,0,0.72);
+
+  /* ── Kabin ambient (sürüş atmosferi) ── */
+  --oem-ambient-cool:  oklch(70% 0.08 220 / 0.22);
+  --oem-ambient-warm:  oklch(64% 0.12 55 / 0.24);
+
+  /* ── Yarıçap (köşe) — scale'e hizalı semantik adlar ── */
+  --oem-radius-card:   20px;
+  --oem-radius-tile:   14px;
+  --oem-radius-pill:   999px;
+
+  /* ── Hareket (motion) — tek easing/süre sözlüğü ── */
+  --oem-ease:          cubic-bezier(0.4, 0, 0.2, 1);
+  --oem-ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --oem-ease-spring:   cubic-bezier(0.34, 1.2, 0.64, 1);
+  --oem-dur-fast:      120ms;
+  --oem-dur-base:      220ms;
+  --oem-dur-slow:      360ms;
+
+  /* ── Odak halkası (klavye/erişilebilirlik) ── */
+  --oem-focus-ring:    0 0 0 2px var(--oem-bg), 0 0 0 4px var(--oem-accent);
+
+  /* ── Dokunma hedefi (automotive minimum) ── */
+  --oem-touch-min:     44px;
+
+  /* ── DOCK CHROME — tema-bağımsız KOYU yüzey ──────────────────────────────
+     Dock, gövde aydınlık olsa bile koyu "chrome" kalır (bilinçli premium
+     kontrast — MBUX/iDrive/MMI gibi). Bu yüzden light-ui'de YENİDEN
+     TANIMLANMAZ; her zaman bu koyu değerler geçerlidir. ── */
+  --oem-dock-bg-top:      #232834;
+  --oem-dock-bg-mid:      #161A22;
+  --oem-dock-bg-bot:      #0D0F14;
+  --oem-dock-ink:         rgba(238,234,226,0.82);   /* ikon/etiket — sakin */
+  --oem-dock-ink-dim:     rgba(238,234,226,0.56);   /* etiket — ikincil */
+  --oem-dock-ink-active:  #F6F1E7;                  /* aktif/hover */
+  --oem-dock-accent:      #E6A93F;                  /* koyu chrome üstünde parlak amber */
+  --oem-dock-chip:        rgba(255,255,255,0.035);  /* ikon çipi zemini */
+  --oem-dock-chip-border: rgba(255,255,255,0.07);
+  --oem-dock-chip-hover:  rgba(230,169,63,0.14);    /* hover/aktif çip parıltısı */
+  --oem-dock-hairline:    rgba(255,255,255,0.10);   /* üst kenar highlight */
+  --oem-dock-divider:     rgba(255,255,255,0.08);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   2) AYDINLIK-PRO (html.light-ui) — VARSAYILAN
+      Açık nötr zemin + koyu mürekkep. Güneş altında okunur (WCAG AA+).
+   ───────────────────────────────────────────────────────────────────────── */
+html.light-ui {
+  /* ── Zeminler ── */
+  --oem-bg:            #EEF1F5;
+  --oem-surface-0:     #FFFFFF;
+  --oem-surface-1:     #FFFFFF;
+  --oem-surface-2:     #F1F3F7;
+  --oem-surface-3:     #E7EAF0;
+
+  /* ── Mürekkep — #14171C beyaz üstünde ~15:1 (AAA) ── */
+  --oem-ink:           #14171C;
+  --oem-ink-2:         rgba(20,23,28,0.74);
+  --oem-ink-3:         rgba(20,23,28,0.52);
+  --oem-ink-4:         rgba(20,23,28,0.34);
+
+  /* ── Aksan — açık zeminde okunur bronz-amber (~4.6:1) ── */
+  --oem-accent:        #9A5B00;
+  --oem-accent-strong: #7C4800;
+  --oem-accent-soft:   rgba(154,91,0,0.10);
+  --oem-accent-glow:   rgba(154,91,0,0.18);
+  --oem-accent-ink:    #FFFFFF;
+  --oem-amber:         var(--oem-accent);
+  --oem-amber-deep:    var(--oem-accent-strong);
+  --oem-amber-soft:    var(--oem-accent-soft);
+  --oem-amber-glow:    var(--oem-accent-glow);
+
+  /* ── Semantik durumlar — açık zeminde koyulaştırılmış (kontrast) ── */
+  --oem-good:          #0E7A54;
+  --oem-good-soft:     rgba(14,122,84,0.12);
+  --oem-warn:          #9A6700;
+  --oem-warn-soft:     rgba(154,103,0,0.12);
+  --oem-danger:        #C2342B;
+  --oem-danger-soft:   rgba(194,52,43,0.10);
+  --oem-info:          #1456B8;
+  --oem-info-soft:     rgba(20,86,184,0.10);
+
+  /* ── Çizgiler ── */
+  --oem-line:          rgba(0,0,0,0.10);
+  --oem-line-strong:   rgba(0,0,0,0.16);
+  --oem-line-warm:     rgba(154,91,0,0.34);
+
+  /* ── Elevation — açık zeminde yumuşak, gri gölge ── */
+  --oem-shadow-card:   0 10px 28px -16px rgba(15,23,42,0.30);
+  --oem-shadow-raised: 0 16px 40px -22px rgba(15,23,42,0.35);
+  --oem-shadow-pop:    0 24px 56px -24px rgba(15,23,42,0.42);
+
+  /* ── Ambient kapalı (açık zeminde gerek yok) ── */
+  --oem-ambient-cool:  transparent;
+  --oem-ambient-warm:  transparent;
+
+  /* ── Geri-uyum kısa adları (bazı bileşenler --ink/--line kullanır) ── */
+  --ink:               var(--oem-ink);
+  --ink-2:             var(--oem-ink-2);
+  --ink-3:             var(--oem-ink-3);
+  --line:              var(--oem-line);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3) AMBIENT/GLOW BASTIRMA — düşük GPU / güneş / hareket-azalt
+      (token-only; bileşen seçici yok)
+   ───────────────────────────────────────────────────────────────────────── */
+[data-runtime-mode="SAFE_MODE"],
+.sunlight-mode,
+[data-theme="oled"],
+[data-theme="oled-day"],
+.perf-low,
+[data-compat-mode="true"] {
+  --oem-ambient-cool: transparent;
+  --oem-ambient-warm: transparent;
+  --oem-accent-glow:  transparent;
+  --oem-amber-glow:   transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --oem-ambient-cool: transparent;
+    --oem-ambient-warm: transparent;
+    --oem-accent-glow:  transparent;
+    --oem-amber-glow:   transparent;
+    --oem-dur-fast:     1ms;
+    --oem-dur-base:     1ms;
+    --oem-dur-slow:     1ms;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   PER-THEME --oem AKSAN KİMLİĞİ
+   Drawer / dock ekranları (Müzik, Klima, Bildirim, …) artık aktif temanın
+   aksan paletini takip eder. Dosya sonunda + html[data-theme] (spec 0,1,1) →
+   hem base :root hem [data-day-night] gündüz bloğunu kaynak-sırası ile yener.
+   expedition = varsayılan amber/kum (kendi kimliği) → override gerekmez.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Tesla — minimalist gümüş/nötr */
+html[data-theme="tesla"] {
+  --oem-accent:        #D6DAE0;
+  --oem-accent-strong: #AEB4BE;
+  --oem-accent-soft:   rgba(214,218,224,0.14);
+  --oem-accent-glow:   rgba(214,218,224,0.26);
+  --oem-accent-ink:    #14171C;
+}
+
+/* Mercedes — lüks altın */
+html[data-theme="mercedes"] {
+  --oem-accent:        #D4AF37;
+  --oem-accent-strong: #B8962B;
+  --oem-accent-soft:   rgba(212,175,55,0.16);
+  --oem-accent-glow:   rgba(212,175,55,0.32);
+  --oem-accent-ink:    #1A140A;
+}
+
+/* Glass Pro — mavi (gece koyu / gündüz canlı) */
+html[data-theme="pro"] {
+  --oem-accent:        #5B8DFF;
+  --oem-accent-strong: #3F74F0;
+  --oem-accent-soft:   rgba(91,141,255,0.16);
+  --oem-accent-glow:   rgba(91,141,255,0.30);
+  --oem-accent-ink:    #0A1020;
+}
+html[data-theme="pro"][data-day-night="day"] {
+  --oem-accent:        #2F6BFF;
+  --oem-accent-strong: #1F54E0;
+  --oem-accent-soft:   rgba(47,107,255,0.12);
+  --oem-accent-glow:   rgba(47,107,255,0.20);
+  --oem-accent-ink:    #FFFFFF;
+}

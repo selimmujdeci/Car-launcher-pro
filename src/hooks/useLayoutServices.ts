@@ -29,6 +29,7 @@ import { updateDeviceStatus } from '../platform/deviceApi';
 import { logError } from '../platform/crashLogger';
 import { initializeAddressBook } from '../platform/addressBookService';
 import { useStore } from '../store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { GPSLocation } from '../platform/gpsService';
 import type { AppSettings } from '../store/useStore';
 import { startThermalWatchdog, stopThermalWatchdog } from '../platform/thermalWatchdog';
@@ -92,7 +93,13 @@ export function useLayoutServices({
 
   // OBD yakıt konfigürasyonu — aktif araç profili değiştiğinde güncelle
   // Fix 5: ham fuelLevel % → fuelRemainingL + estimatedRangeKm hesabı için gerekli
-  const { settings: storeSettings } = useStore();
+  // Narrow selector: çıplak useStore() MainLayout'un useShallow optimizasyonunu bozuyordu
+  // (her smartCard/runtime güncellemesinde MainLayout re-render). Sadece bu effect'in
+  // ihtiyaç duyduğu 2 alana abone ol.
+  const storeSettings = useStore(useShallow((s) => ({
+    vehicleProfiles:        s.settings.vehicleProfiles,
+    activeVehicleProfileId: s.settings.activeVehicleProfileId,
+  })));
   useEffect(() => {
     const profile = storeSettings.vehicleProfiles.find(
       (p) => p.id === storeSettings.activeVehicleProfileId,
@@ -119,13 +126,33 @@ export function useLayoutServices({
   useEffect(() => { startMediaHub().catch(() => {}); }, []);
 
   // GPS warning (native only, once)
+  // Sahte bildirim koruması: location null olabilir çünkü GPS fix bekliyordur (tünel/garaj).
+  // Gerçek izin durumu KONTROL edilmediyse toast atma.
   useEffect(() => {
-    if (!location && isNative) {
-      const t = setTimeout(() => {
-        showToast({ type: 'warning', title: 'GPS İzni Gerekli', message: 'Konum izni verilmeden harita ve navigasyon çalışmaz.', duration: 8000 });
-      }, 5000);
-      return () => clearTimeout(t);
-    }
+    if (!isNative) return;
+    const t = setTimeout(() => {
+      // 5sn sonra hâlâ konum yoksa gerçek izin durumunu kontrol et
+      void (async () => {
+        try {
+          const { Geolocation } = await import('@capacitor/geolocation');
+          const perms = await Geolocation.checkPermissions();
+          const granted = perms.location === 'granted' || perms.coarseLocation === 'granted';
+          if (!granted) {
+            // Gerçekten izin yok → uyar
+            showToast({
+              type: 'warning',
+              title: 'GPS İzni Gerekli',
+              message: 'Konum izni verilmeden harita ve navigasyon çalışmaz.',
+              duration: 8000,
+            });
+          }
+          // İzin var ama fix yok → sessizce bekle (GPS bekliyor olabilir)
+        } catch {
+          // Plugin başarısız → toast atma (false positive önle)
+        }
+      })();
+    }, 5000);
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -189,12 +216,43 @@ export function useLayoutServices({
   useEffect(() => { startWifiService(); return () => { stopWifiService(); }; }, []);
 
   // Bluetooth araç entegrasyonu — bağlantı değişikliklerini dinle
+  // Sahte bildirim koruması:
+  //   1. Mount sırasında 5sn grace period — ilk listener event'i (Android replay) yutulur
+  //   2. Cihaz başına 60sn cooldown — A2DP/HFP/AVRCP profil değişimleri tek toast
+  //   3. Yalnızca durum DEĞİŞTİĞİNDE toast (true→true yutulur, true→false→true gerçek bağlanma)
   useEffect(() => {
     if (!isNative) return;
     let handle: { remove(): void } | null = null;
     let unmounted = false;
+
+    const mountTime  = performance.now();
+    const GRACE_MS   = 5_000;
+    const COOLDOWN_MS = 60_000;
+
+    // deviceName → son toast zamanı (ms)
+    const lastShownAt = new Map<string, number>();
+    let   lastConnected: boolean | null = null;
+
     CarLauncher.addListener('btChanged', (evt) => {
+      const now = performance.now();
       updateDeviceStatus({ btConnected: evt.connected, btDevice: evt.deviceName });
+
+      // 1. Mount grace: ilk 5sn içindeki event'leri sessizce yut (Android receiver replay'i)
+      if (now - mountTime < GRACE_MS) {
+        lastConnected = evt.connected;
+        return;
+      }
+
+      // 2. Aynı durum tekrar geliyorsa toast atma (true→true / false→false)
+      if (lastConnected === evt.connected) return;
+      lastConnected = evt.connected;
+
+      // 3. Cihaz başına cooldown (60sn)
+      const key = evt.deviceName || '_';
+      const last = lastShownAt.get(key) ?? 0;
+      if (now - last < COOLDOWN_MS) return;
+      lastShownAt.set(key, now);
+
       if (evt.connected) {
         showToast({
           type:     'success',

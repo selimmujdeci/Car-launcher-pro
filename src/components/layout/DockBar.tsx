@@ -29,12 +29,16 @@ interface Props {
 const SKIP_IDS = new Set(['phone', 'spotify', 'music', 'contacts']);
 
 /* ── Dock item ─────────────────────────────────────────────── */
-function Btn({ fn, label, color, icon, badge }: {
+/* Görsel katman (zemin/renk/hover/aktif/çip parıltısı) dock-premium.css'te;
+   burada yalnızca yapı + ölçü. İkonlar monokrom ink (--oem-dock-ink),
+   aksan yalnızca hover/aktif'te → premium OEM tutarlılığı. */
+function Btn({ fn, label, icon, badge, color }: {
   fn: () => void;
   label: string;
-  color: string;
   icon: React.ReactNode;
   badge?: number;
+  /** İkonun sinyatür rengi (referans: renkli ikonlu açık-cam dock) */
+  color?: string;
 }) {
   return (
     <div
@@ -47,61 +51,61 @@ function Btn({ fn, label, color, icon, badge }: {
       }}
     >
       <button
+        className="dock-btn"
         onClick={fn}
-        onPointerDown={e => { e.currentTarget.style.filter = 'brightness(1.4)'; }}
-        onPointerUp={e => { e.currentTarget.style.filter = ''; }}
-        onPointerCancel={e => { e.currentTarget.style.filter = ''; }}
         style={{
+          // İkon rengini CSS'e aktar (chip glyph + tint bunu kullanır)
+          ['--dock-ic' as string]: color ?? 'var(--oem-dock-ink)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 'var(--dock-gap, 8px)',
+          gap: 'var(--dock-gap, 7px)',
           width: 'var(--dock-tile-w, 64px)',
           height: 'var(--dock-h, 72px)',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          borderRadius: 'var(--radius-tile, 0)',
           position: 'relative',
           padding: 0,
-          transition: 'filter 80ms ease-out',
         }}
       >
-        <div style={{
-          color,
-          width: 'var(--dock-icon, 28px)',
-          height: 'var(--dock-icon, 28px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          filter: 'var(--btn-glow, none)',
-          flexShrink: 0,
-        }}>
+        <div
+          className="dock-chip"
+          style={{
+            width: 'calc(var(--dock-icon, 28px) + 20px)',
+            height: 'calc(var(--dock-icon, 28px) + 20px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
           {icon}
         </div>
-        <span style={{
-          fontSize: 'var(--dock-font, 13px)',
-          fontWeight: 800,
-          textTransform: 'uppercase',
-          letterSpacing: 'var(--letter-spacing-ui, 0.04em)',
-          color: '#ffffff',
-          fontFamily: 'var(--font-ui, system-ui)',
-          lineHeight: 1,
-          whiteSpace: 'nowrap',
-          textShadow: '0 2px 10px rgba(0,0,0,1), 0 1px 3px rgba(0,0,0,1)',
-        }}>
+        <span
+          className="dock-label"
+          style={{
+            fontSize: 'var(--dock-font, 12px)',
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.07em',
+            fontFamily: 'var(--font-ui, system-ui)',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
           {label}
         </span>
         {!!badge && (
           <span style={{
             position: 'absolute',
-            top: 8,
-            right: 6,
+            top: 4,
+            right: 8,
             minWidth: 16,
             height: 16,
-            background: 'var(--accent, #3b82f6)',
-            color: '#fff',
+            background: 'var(--oem-dock-accent, #E6A93F)',
+            color: '#1A140A',
             fontSize: 9,
             fontWeight: 900,
             borderRadius: 8,
@@ -109,6 +113,7 @@ function Btn({ fn, label, color, icon, badge }: {
             alignItems: 'center',
             justifyContent: 'center',
             padding: '0 3px',
+            boxShadow: '0 2px 6px -2px rgba(0,0,0,0.6)',
           }}>
             {badge > 9 ? '9+' : badge}
           </span>
@@ -121,13 +126,12 @@ function Btn({ fn, label, color, icon, badge }: {
 /* ── Divider ───────────────────────────────────────────────── */
 function Div() {
   return (
-    <div style={{
+    <div className="dock-divider" style={{
       flexShrink: 0,
       width: 1,
-      height: 28,
-      margin: '0 4px',
+      height: 30,
+      margin: '0 6px',
       alignSelf: 'center',
-      background: 'var(--divider-color, rgba(255,255,255,0.13))',
     }} />
   );
 }
@@ -139,6 +143,8 @@ export const DockBar = memo(function DockBar({
   const n = useNotificationState();
   const scrollRef = useRef<HTMLDivElement>(null);
   const dockRef   = useRef<HTMLDivElement>(null);
+
+  /* Dock her zaman sabit/görünür — ana tema (ProDock) ile tutarlı (auto-hide kaldırıldı) */
 
   /* Fisheye scroll effect — throttled via rAF */
   useEffect(() => {
@@ -196,10 +202,6 @@ export const DockBar = memo(function DockBar({
     .map(id => appMap[id])
     .filter(Boolean) as AppItem[];
 
-  const c1  = 'var(--accent, #60a5fa)';
-  const c2  = 'var(--icon-color-2, #94a3b8)';
-  const med = 'var(--icon-color-media, #34d399)';
-
   return (
     <div
       ref={dockRef}
@@ -210,26 +212,13 @@ export const DockBar = memo(function DockBar({
         left: 0,
         right: 0,
         zIndex: 100,
-        background: 'var(--dock-bg, rgba(5,7,14,0.98))',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
-        borderTop: 'var(--dock-border-top, 1px solid rgba(255,255,255,0.10))',
+        // Zemin / üst hairline / elevation → dock-premium.css (--oem-dock-*)
+        backdropFilter: 'blur(12px) saturate(1.2)',
+        WebkitBackdropFilter: 'blur(12px) saturate(1.2)',
         paddingTop: 4,
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
     >
-      {/* Accent shimmer line */}
-      <div aria-hidden style={{
-        position: 'absolute',
-        top: 0,
-        left: '8%',
-        right: '8%',
-        height: 1,
-        opacity: 0.45,
-        pointerEvents: 'none',
-        background: 'linear-gradient(90deg, transparent, var(--accent, rgba(255,255,255,0.14)), transparent)',
-      }} />
-
       {/* Scrollable items row */}
       <div
         ref={scrollRef}
@@ -252,7 +241,6 @@ export const DockBar = memo(function DockBar({
             key={a.id}
             fn={() => onLaunch(a.id)}
             label={a.name}
-            color={c1}
             icon={<span style={{ fontSize: 'var(--dock-icon, 28px)', lineHeight: 1 }}>{a.icon}</span>}
           />
         ))}
@@ -260,36 +248,36 @@ export const DockBar = memo(function DockBar({
 
         {onVoice && (
           <>
-            <Btn fn={onVoice} label="Asistan" color="var(--accent-red, #f87171)" icon={<Mic size={24} />} />
+            <Btn fn={onVoice} label="Asistan" color="#7C6CFF" icon={<Mic size={24} />} />
             <Div />
           </>
         )}
-        <Btn fn={() => openDrawer('phone')}         label="Telefon"  color={c1}  icon={<Phone           size={24} />} />
-        <Btn fn={() => openMusicDrawer()}            label="Müzik"    color={med} icon={<Music2          size={24} />} />
-        <Btn fn={() => openDrawer('notifications')} label="Bildirim" color={n.unreadCount > 0 ? c1 : c2} icon={<Bell size={24} />} badge={n.unreadCount} />
+        <Btn fn={() => openDrawer('phone')}         label="Telefon"  color="#22C55E" icon={<Phone           size={24} />} />
+        <Btn fn={() => openMusicDrawer()}            label="Müzik"    color="#FF4D6D" icon={<Music2          size={24} />} />
+        <Btn fn={() => openDrawer('notifications')} label="Bildirim" color="#FF9F43" icon={<Bell size={24} />} badge={n.unreadCount} />
         <Div />
-        <Btn fn={onOpenApps}     label="Menü"    color={c1} icon={<LayoutGrid      size={24} />} />
-        <Btn fn={onOpenSettings} label="Ayarlar" color={c2} icon={<SlidersHorizontal size={24} />} />
+        <Btn fn={onOpenApps}     label="Menü"    color="#5B8DEF" icon={<LayoutGrid      size={24} />} />
+        <Btn fn={onOpenSettings} label="Ayarlar" color="#8A93A6" icon={<SlidersHorizontal size={24} />} />
         <Div />
-        <Btn fn={() => openDrawer('climate')}           label="Klima"    color={c1}             icon={<Wind        size={22} />} />
-        <Btn fn={() => openDrawer('weather')}           label="Hava"     color="#38bdf8"         icon={<Cloud       size={22} />} />
-        <Btn fn={() => openDrawer('traffic')}           label="Trafik"   color="#fb923c"         icon={<AlertTriangle size={22} />} />
-        <Btn fn={() => openDrawer('dashcam')}           label="Dashcam"  color="var(--accent-red, #f87171)" icon={<Camera size={22} />} />
-        <Btn fn={() => openDrawer('triplog')}           label="Seyir"    color={med}             icon={<Route       size={22} />} />
+        <Btn fn={() => openDrawer('climate')}           label="Klima"    color="#2DD4BF" icon={<Wind        size={22} />} />
+        <Btn fn={() => openDrawer('weather')}           label="Hava"     color="#38BDF8" icon={<Cloud       size={22} />} />
+        <Btn fn={() => openDrawer('traffic')}           label="Trafik"   color="#F4B740" icon={<AlertTriangle size={22} />} />
+        <Btn fn={() => openDrawer('dashcam')}           label="Dashcam"  color="#A78BFA" icon={<Camera size={22} />} />
+        <Btn fn={() => openDrawer('triplog')}           label="Seyir"    color="#34D399" icon={<Route       size={22} />} />
         <Div />
-        <Btn fn={() => openDrawer('dtc')}               label="Arıza"    color="#fbbf24"         icon={<ShieldAlert size={22} />} />
-        <Btn fn={() => openDrawer('vehicle-reminder')}  label="Bakım"    color={c2}              icon={<Wrench      size={22} />} />
-        <Btn fn={() => openDrawer('security')}          label="Güvenlik" color={med}             icon={<Shield      size={22} />} />
-        <Btn fn={() => openDrawer('entertainment')}     label="Eğlence"  color={c1}              icon={<Tv2         size={22} />} />
-        <Btn fn={() => openDrawer('sport')}             label="Sport"    color="var(--accent-red, #f87171)" icon={<Zap size={22} />} />
+        <Btn fn={() => openDrawer('dtc')}               label="Arıza"    color="#F87171" icon={<ShieldAlert size={22} />} />
+        <Btn fn={() => openDrawer('vehicle-reminder')}  label="Bakım"    color="#FB923C" icon={<Wrench      size={22} />} />
+        <Btn fn={() => openDrawer('security')}          label="Güvenlik" color="#60A5FA" icon={<Shield      size={22} />} />
+        <Btn fn={() => openDrawer('entertainment')}     label="Eğlence"  color="#F472B6" icon={<Tv2         size={22} />} />
+        <Btn fn={() => openDrawer('sport')}             label="Sport"    color="#FB7185" icon={<Zap size={22} />} />
         {onOpenRearCam && (
           <>
             <Div />
-            <Btn fn={onOpenRearCam} label="Kamera" color={c2} icon={<Camera size={22} />} />
+            <Btn fn={onOpenRearCam} label="Kamera" icon={<Camera size={22} />} />
           </>
         )}
         {onOpenSplit && (
-          <Btn fn={onOpenSplit} label="Split" color={c2} icon={<SplitSquareHorizontal size={22} />} />
+          <Btn fn={onOpenSplit} label="Split" icon={<SplitSquareHorizontal size={22} />} />
         )}
       </div>
     </div>

@@ -1,6 +1,19 @@
 export const DEBUG_ENABLED =
   import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_PANEL === 'true';
 
+/**
+ * DEBUG_ENABLED guard'lı bilgi logu — çıplak `console.log` yerine kullanılır.
+ * Üretimde (DEBUG kapalı) hiçbir şey basmaz → konsol spam'i ve uzun oturumlarda
+ * bellek şişmesi önlenir. Kritik `console.error` / `console.warn` dokunulmaz.
+ *
+ * Kullanım: `import { logInfo } from '@/platform/debug'; logInfo('[X]', data);`
+ */
+export function logInfo(...args: unknown[]): void {
+  if (!DEBUG_ENABLED) return;
+  // eslint-disable-next-line no-console -- merkezi, guard'lı debug log noktası
+  console.log(...args);
+}
+
 export { useDebugStore } from './debugStore';
 export type {
   SignalSource,

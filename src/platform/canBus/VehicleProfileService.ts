@@ -15,6 +15,7 @@
 
 import type { VehicleCanProfile, ProfileIndex, ProfileLoadResult, CanSignalDef, CanSignalName, SafetyLevel } from './canProfileTypes';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
+import { logInfo } from '../debug';
 import { logError }               from '../crashLogger';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ function _validateProfile(obj: unknown, id: string): obj is VehicleCanProfile {
 // ── Yardımcılar ───────────────────────────────────────────────────────────────
 
 function _log(msg: string): void {
-  if (import.meta.env.DEV) console.log(`[VehicleProfileService] ${msg}`);
+  logInfo(`[VehicleProfileService] ${msg}`);
 }
 
 /** Timeout'lu fetch — yavaş/erişilemeyen varlıklar uygulamayı bloke etmez */

@@ -647,7 +647,7 @@ export async function connectOBD(address: string): Promise<void> {
   await CarLauncher.connectOBD({ address });
 }
 
-const MOCK_ENABLED = false;
+const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true';
 
 /**
  * Start OBD.

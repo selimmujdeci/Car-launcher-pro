@@ -1,13 +1,14 @@
 import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-const ThemeStudio       = lazy(() => import('../themes/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
 const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m => ({ default: m.SecureAccessModal })));
 const CanDiagPanel      = lazy(() => import('./CanDiagPanel').then(m => ({ default: m.CanDiagPanel })));
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
+import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
   Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
   Cpu, Thermometer, Shield, ShieldCheck, Gauge, Settings2, Lock,
   Mic, Eye, EyeOff, CheckCircle, XCircle, Loader,
+  Grid3X3, Star, Users, ChevronRight, Info, type LucideIcon,
 } from 'lucide-react';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
@@ -48,23 +49,43 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
   colorA: string; colorB: string;
 }) {
   return (
-    <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+    <div className="rounded-xl p-4 lux-noise amber-soft"
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid var(--oem-line, rgba(255,255,255,0.06))',
+        boxShadow: 'var(--oem-shadow-card, none)',
+      }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${colorA}15` }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+            style={{
+              background: `${colorA}15`,
+              boxShadow: `inset 0 0 0 1px var(--oem-line, rgba(255,255,255,0.06)), 0 0 18px var(--oem-amber-soft, transparent)`,
+            }}>
             <Icon className="w-5 h-5" style={{ color: colorA }} />
           </div>
           <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{label}</span>
         </div>
         <div className="flex items-baseline gap-1">
-          <span className="font-black text-2xl tabular-nums" style={{ color: colorA }}>{value}</span>
+          <span className="font-black text-2xl tabular-nums" style={{ color: colorA, textShadow: `0 0 14px ${colorA}55` }}>{value}</span>
           <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>%</span>
         </div>
       </div>
-      <div className="relative h-2 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+      <div className="relative h-2 rounded-full"
+        style={{
+          background: 'rgba(255,255,255,0.06)',
+          boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.35), 0 0 0 1px var(--oem-amber-soft, transparent)',
+        }}>
         <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, background: `linear-gradient(90deg,${colorA},${colorB})` }} />
         <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white pointer-events-none transition-[left] duration-75"
-          style={{ left: `calc(${value}% - 8px)`, boxShadow: `0 0 0 3px ${colorA}55, 0 2px 8px rgba(0,0,0,0.4)` }} />
+          style={{
+            left: `calc(${value}% - 8px)`,
+            boxShadow:
+              `0 0 0 3px ${colorA}55,` +
+              ` 0 0 16px var(--oem-amber-glow, transparent),` +
+              ` 0 4px 14px rgba(0,0,0,0.55),` +
+              ` 0 0 22px ${colorA}40`,
+          }} />
         <input type="range" min={0} max={100} value={value} onChange={e => onChange(Number(e.target.value))}
           className="absolute inset-0 w-full opacity-0 cursor-pointer z-10" style={{ height: '100%', margin: 0 }} />
       </div>
@@ -75,62 +96,73 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
 /* ════════════════════════════════════════
    PREMIUM TOGGLE
 ════════════════════════════════════════ */
-function PremiumToggle({ label, desc, value, onChange, icon: Icon, accent = '#3b82f6' }: {
+/* PremiumToggle — artık premium SettingTile + BigToggle'a delege eder.
+   Böylece TÜM ayar kartları "Ses" bölümüyle BİREBİR aynı görünür:
+   graphite kart, ikon çipi, karışık-harf başlık, gri açıklama, amber
+   BigToggle (ETKİN/KAPALI). Eski gökkuşağı accent (mor/yeşil/mavi/cyan)
+   ve uppercase başlıklar kaldırıldı — tutarlı OEM görünüm.
+   `accent` prop'u geriye-uyum için imzada kalır ama kullanılmaz.
+   (SettingTile/BigToggle function-declaration → hoisting ile erişilebilir.) */
+function PremiumToggle({ label, desc, value, onChange, icon: Icon }: {
   label: string; desc: string; value: boolean; onChange: (v: boolean) => void;
-  icon?: typeof Wifi; accent?: string;
+  icon?: LucideIcon; accent?: string;
 }) {
   return (
-    <button onClick={() => onChange(!value)}
-      className="group w-full flex items-center gap-4 p-4 rounded-2xl text-left glass-card lux-noise"
-      style={value
-        ? { backgroundColor: `${accent}12`, borderColor: `${accent}35`, boxShadow: `0 0 0 1px ${accent}20, 0 0 24px ${accent}18, 0 8px 32px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)` }
-        : {}}>
-      {Icon && (
-        <div className="lux-icon-box w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-400"
-          style={value ? { backgroundColor: `${accent}18`, borderColor: `${accent}45`, boxShadow: `0 0 14px ${accent}30` } : {}}>
-          <Icon className="w-5 h-5 transition-all duration-400"
-            style={{ color: value ? accent : 'var(--text-secondary)', filter: value ? `drop-shadow(0 0 10px ${accent}) brightness(1.2)` : 'none' }} />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-black tracking-[0.1em] uppercase transition-colors" style={{ color: 'var(--text-primary)' }}>{label}</div>
-        <div className="text-[11px] truncate mt-1.5 font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', opacity: 0.55 }}>{desc}</div>
-      </div>
-      {/* Toggle pill — neon glow aktifken */}
-      <div className="relative w-[66px] h-[36px] rounded-full flex-shrink-0 border"
-        style={value
-          ? { background: accent, borderColor: `${accent}50`, boxShadow: `0 0 18px ${accent}60, 0 0 36px ${accent}25, inset 0 1px 0 rgba(255,255,255,0.20)` }
-          : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.10)', boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.35)' }}>
-        <div className="lux-toggle-thumb absolute top-[5px] w-[24px] h-[24px] rounded-full bg-white"
-          style={{ left: value ? '36px' : '6px', transform: value ? 'scale(1.08)' : 'scale(1)', boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 0 8px rgba(255,255,255,0.15)' }} />
-      </div>
-    </button>
+    <SettingTile
+      icon={Icon}
+      title={label}
+      sub={desc}
+      control={<BigToggle value={value} onChange={onChange} />}
+    />
   );
 }
 
 /* ════════════════════════════════════════
    THEME PANEL — Ayarlar içi tema seçici
 ════════════════════════════════════════ */
-const THEME_OPTIONS: { id: BaseTheme; label: string; sub: string; accent: string; nightBg: string; dayBg: string }[] = [
-  { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', nightBg: 'linear-gradient(135deg,#0a0c10,#12151d)', dayBg: 'linear-gradient(135deg,#2D2D44,#3D3D5C)' },
-  { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', nightBg: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)', dayBg: 'linear-gradient(135deg,#1E2A3A,#263040)' },
-  { id: 'cockpit',  label: 'COCKPIT',  sub: 'Glass Cockpit',    accent: '#00B4D8', nightBg: 'linear-gradient(135deg,#050a10,#0a1628)', dayBg: 'linear-gradient(135deg,#0D2137,#0F2A45)' },
-  { id: 'mercedes', label: 'MERCEDES', sub: 'MBUX',             accent: '#C8A882', nightBg: 'linear-gradient(135deg,#181818,#2c2c2c)', dayBg: 'linear-gradient(135deg,#2C2C3A,#363645)' },
-  { id: 'audi',     label: 'AUDI',     sub: 'Virtual Cockpit',  accent: '#BB0A21', nightBg: 'linear-gradient(135deg,#1E1E2C,#252535)', dayBg: 'linear-gradient(135deg,#1E1E2C,#28283A)' },
+/** dn dolu olan kartlar (carOS Expedition ailesi) gün/gece varyantını da seçer. */
+type ThemeOpt = { id: BaseTheme; dn?: 'day' | 'night'; label: string; sub: string; accent: string; preview: string; emblem?: boolean };
+const THEME_OPTIONS: ThemeOpt[] = [
+  { id: 'expedition', dn: 'day',   label: 'EXPEDITION DAY',   sub: 'Kum · Gündüz', accent: '#E07B14', preview: 'linear-gradient(135deg,#FBF7EF,#DED3C0)', emblem: true },
+  { id: 'expedition', dn: 'night', label: 'EXPEDITION NIGHT', sub: 'Pas · Gece',   accent: '#F2871C', preview: 'linear-gradient(135deg,#2c2216,#0f0c09)', emblem: true },
+  { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', preview: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)' },
+  { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#0a0c10,#12151d)' },
+  { id: 'cockpit',  label: 'COCKPIT',  sub: 'Glass Cockpit',    accent: '#00B4D8', preview: 'linear-gradient(135deg,#050a10,#0a1628)' },
+  { id: 'mercedes', label: 'MERCEDES', sub: 'MBUX',             accent: '#C8A882', preview: 'linear-gradient(135deg,#181818,#2c2c2c)' },
+  { id: 'audi',     label: 'AUDI',     sub: 'Virtual Cockpit',  accent: '#BB0A21', preview: 'linear-gradient(135deg,#1E1E2C,#252535)' },
 ];
 
 function ThemePanel() {
   const { theme, setTheme } = useCarTheme();
   const dayMode = isDay(theme);
   const activeBase = baseOf(theme);
+  const dayNightMode = useStore(s => s.settings.dayNightMode);
 
   function selectBase(id: BaseTheme) {
     setTheme(dayMode ? `${id}-day` as const : id);
     useSystemStore.getState().setUserOverride(120_000);
   }
 
+  /** Expedition ailesi: tema varyantı + kanonik gün/gece sinyalini birlikte ayarlar
+   *  (Sand=gündüz, Lava=gece). useDayNightManager auto modda dayNightMode'u zaten
+   *  saate göre çevirir → otomatik eşleşme; bu da manuel seçimi sağlar. */
+  function selectExpedition(dn: 'day' | 'night') {
+    setTheme(dn === 'day' ? 'expedition-day' : 'expedition');
+    useStore.getState().updateSettings({ dayNightMode: dn, theme: dn === 'day' ? 'light' : 'dark' });
+    useSystemStore.getState().setUserOverride(120_000);
+  }
+
   function toggleDayNight() {
-    setTheme(dayMode ? toNight(theme) : toDay(theme));
+    const target = dayMode ? 'night' : 'day';
+    // 1) Tema varyantı (layout/önizleme)  2) KANONİK gündüz/gece sinyali
+    //    (settings.dayNightMode → useDayNightManager: data-day-night + light-ui
+    //     + dock + --oem palet). İkisini SENKRON tut, aksi halde toggle tutarsız.
+    setTheme(target === 'day' ? toDay(theme) : toNight(theme));
+    useStore.getState().updateSettings({
+      dayNightMode: target,
+      theme: target === 'day' ? 'light' : 'dark',
+    });
+    // Otomatik (saat-bazlı) geçiş manuel kararı hemen ezmesin
     useSystemStore.getState().setUserOverride(120_000);
   }
 
@@ -145,8 +177,8 @@ function ThemePanel() {
               <Palette className="w-5 h-5" style={{ color: '#ff9800' }} />
             </div>
             <div>
-              <div className="text-sm font-black uppercase tracking-[0.15em]" style={{ color: '#fff' }}>Kokpit Teması</div>
-              <div className="text-[11px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.62)' }}>Ana ekran görünümünü seç</div>
+              <div className="text-sm font-black uppercase tracking-[0.15em]" style={{ color: 'var(--oem-ink, #fff)' }}>Kokpit Teması</div>
+              <div className="text-[11px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.62))' }}>Ana ekran görünümünü seç</div>
             </div>
           </div>
           {/* Gündüz / Gece toggle */}
@@ -167,14 +199,16 @@ function ThemePanel() {
         </div>
 
         {/* Tema kartları */}
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {THEME_OPTIONS.map(t => {
-            const active = activeBase === t.id;
-            const preview = dayMode ? t.dayBg : t.nightBg;
+            const active = t.dn
+              ? (activeBase === 'expedition' && (t.dn === 'day' ? dayNightMode === 'day' : dayNightMode !== 'day'))
+              : (activeBase === t.id);
+            const preview = t.preview;
             return (
               <button
-                key={t.id}
-                onClick={() => selectBase(t.id)}
+                key={t.label}
+                onClick={() => (t.dn ? selectExpedition(t.dn) : selectBase(t.id))}
                 className="flex flex-col items-center gap-2 p-3 rounded-2xl transition-all duration-300 active:scale-95"
                 style={{
                   background: active ? `${t.accent}18` : 'rgba(255,255,255,0.03)',
@@ -186,6 +220,9 @@ function ThemePanel() {
                 <div className="relative w-full aspect-video rounded-xl overflow-hidden" style={{ background: preview }}>
                   <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6, height: 3, background: `${t.accent}70`, borderRadius: 2 }} />
                   <div style={{ position: 'absolute', top: 6, left: 6, width: 16, height: 3, background: `${t.accent}50`, borderRadius: 2 }} />
+                  {t.emblem && (
+                    <img src={expeditionEmblem} alt="" style={{ position: 'absolute', top: '50%', left: '50%', width: '38%', transform: 'translate(-50%,-55%)', opacity: 0.92, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }} />
+                  )}
                   {/* Gündüz göstergesi */}
                   {dayMode && (
                     <div style={{ position: 'absolute', top: 5, right: 6, fontSize: 10 }}>☀️</div>
@@ -196,8 +233,8 @@ function ThemePanel() {
                     </div>
                   )}
                 </div>
-                <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: active ? t.accent : 'rgba(255,255,255,0.72)' }}>{t.label}</div>
-                <div className="text-[10px] font-medium" style={{ color: 'rgba(255,255,255,0.72)' }}>{t.sub}</div>
+                <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: active ? t.accent : 'var(--oem-ink-2, rgba(255,255,255,0.72))' }}>{t.label}</div>
+                <div className="text-[10px] font-medium" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.72))' }}>{t.sub}</div>
               </button>
             );
           })}
@@ -212,7 +249,7 @@ function ThemePanel() {
 ════════════════════════════════════════ */
 function Panel({ children, className = '', accent }: { children: ReactNode; className?: string; accent?: string }) {
   return (
-    <div className={`glass-card lux-panel lux-noise overflow-hidden group transition-all duration-500 ${className}`}
+    <div className={`glass-card lux-panel lux-noise amber-soft cool-sheen overflow-hidden group transition-all duration-500 ${className}`}
       style={{ padding: 0 }}>
       {accent && (
         <div className="lux-accent-top group-hover:opacity-100 transition-opacity" style={{ color: accent }} />
@@ -363,10 +400,10 @@ const AIVoicePanel = memo(function AIVoicePanel() {
           >
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{ backgroundColor: `${p.color}18`, border: `1px solid ${p.color}30` }}>
-              <Mic className="w-5 h-5" style={{ color: provider === p.id ? p.color : 'rgba(255,255,255,0.3)' }} />
+              <Mic className="w-5 h-5" style={{ color: provider === p.id ? p.color : 'var(--oem-ink-3, rgba(255,255,255,0.3))' }} />
             </div>
             <div className="flex-1 text-left">
-              <div className="text-sm font-bold" style={{ color: provider === p.id ? p.color : 'rgba(255,255,255,0.7)' }}>{p.label}</div>
+              <div className="text-sm font-bold" style={{ color: provider === p.id ? p.color : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{p.label}</div>
               <div className="text-[10px] text-slate-500 mt-0.5">{p.sub}</div>
             </div>
             <div className="flex items-center gap-2">
@@ -480,7 +517,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             onClick={handleTest}
             disabled={testing || !activeKey}
             className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-bold transition-all active:scale-95 disabled:opacity-40"
-            style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}
+            style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--oem-ink-2, rgba(255,255,255,0.6))' }}
           >
             {testing
               ? <Loader className="w-4 h-4 animate-spin" />
@@ -656,11 +693,11 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
           </div>
           <div>
             <div className="font-black text-[15px] leading-tight tracking-tight transition-colors duration-300"
-              style={{ color: active ? m.color : 'rgba(255,255,255,0.75)' }}>
+              style={{ color: active ? m.color : 'var(--oem-ink-2, rgba(255,255,255,0.75))' }}>
               {m.label}
             </div>
             <div className="text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5"
-              style={{ color: active ? `${m.color}90` : 'rgba(255,255,255,0.58)' }}>
+              style={{ color: active ? `${m.color}90` : 'var(--oem-ink-3, rgba(255,255,255,0.58))' }}>
               {m.sub}
             </div>
           </div>
@@ -669,13 +706,13 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         {/* Resource bars */}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between mb-0.5">
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.60)' }}>CPU</span>
-            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.55)' }}>{m.cpu}%</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>CPU</span>
+            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'var(--oem-ink-3, rgba(255,255,255,0.55))' }}>{m.cpu}%</span>
           </div>
           <PerfMiniBar pct={active ? m.cpu : m.cpu * 0.5} color={m.color} />
           <div className="flex items-center justify-between mt-1 mb-0.5">
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.60)' }}>GPU</span>
-            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'rgba(255,255,255,0.55)' }}>{m.gpu}%</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>GPU</span>
+            <span className="text-[8px] font-black tabular-nums" style={{ color: active ? m.color : 'var(--oem-ink-3, rgba(255,255,255,0.55))' }}>{m.gpu}%</span>
           </div>
           <PerfMiniBar pct={active ? m.gpu : m.gpu * 0.5} color={m.color} />
         </div>
@@ -685,7 +722,7 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
           {m.features.map(f => (
             <div key={f} className="flex items-center gap-2">
               <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: active ? m.color : 'rgba(255,255,255,0.40)' }} />
-              <span className="text-[10px] font-semibold" style={{ color: active ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.65)' }}>{f}</span>
+              <span className="text-[10px] font-semibold" style={{ color: active ? 'var(--oem-ink-2, rgba(255,255,255,0.75))' : 'var(--oem-ink-2, rgba(255,255,255,0.65))' }}>{f}</span>
             </div>
           ))}
         </div>
@@ -700,7 +737,7 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
             <div className="w-1.5 h-1.5 rounded-full transition-all duration-400"
               style={{ background: active ? m.color : 'rgba(255,255,255,0.40)', boxShadow: active ? `0 0 6px ${m.color}` : 'none' }} />
             <span className="text-[8px] font-black uppercase tracking-[0.2em]"
-              style={{ color: active ? m.color : 'rgba(255,255,255,0.60)' }}>
+              style={{ color: active ? m.color : 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>
               {active ? 'Aktif' : 'Seç'}
             </span>
           </div>
@@ -750,17 +787,306 @@ function LiveStatsRow() {
 }
 
 /* ════════════════════════════════════════
+   COCKPIT PRIMITIVES — 1:1 screens.jsx (Phase 8)
+════════════════════════════════════════ */
+
+function SettingsHero({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
+  return (
+    <div className="flex items-end justify-between gap-6" style={{ marginBottom: 36 }}>
+      <div style={{ maxWidth: 780 }}>
+        <div className="text-[11px] font-black uppercase"
+          style={{ letterSpacing: '0.20em', color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
+          {eyebrow}
+        </div>
+        <h1
+          style={{
+            fontSize: 'clamp(36px, 4.4vw, 56px)',
+            fontWeight: 300,
+            marginTop: 14,
+            letterSpacing: '-0.025em',
+            lineHeight: 1.02,
+            color: 'var(--oem-ink, #F0EBE0)',
+          }}>
+          {title}
+        </h1>
+        {sub && (
+          <div
+            style={{
+              fontSize: 17, marginTop: 14, maxWidth: 640, lineHeight: 1.5,
+              color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
+            }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
+  icon?: LucideIcon; title: string; sub?: string; control?: ReactNode;
+  accent?: 'amber'; span?: number; onClick?: () => void;
+}) {
+  const Icon = icon;
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        gridColumn: `span ${span}`,
+        padding: '28px 30px',
+        display: 'flex', flexDirection: 'column', gap: 20,
+        cursor: onClick ? 'pointer' : 'default',
+        position: 'relative',
+        background:
+          'linear-gradient(135deg, rgba(255,240,210,0.04), transparent 30%),' +
+          ' var(--oem-surface-1, #262C3C)',
+        border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
+        borderRadius: 24,
+        boxShadow: 'var(--oem-shadow-card)',
+      }}>
+      <div className="flex items-start gap-4">
+        {Icon && (
+          <span
+            style={{
+              width: 56, height: 56, borderRadius: 16,
+              background: accent === 'amber'
+                ? 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.30), oklch(60% 0.10 50 / 0.10))'
+                : 'var(--oem-surface-2, #303749)',
+              border: '1px solid ' + (accent === 'amber'
+                ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))'
+                : 'var(--oem-line, rgba(255,240,210,0.08))'),
+              display: 'grid', placeItems: 'center',
+              color: accent === 'amber'
+                ? 'var(--oem-amber, oklch(80% 0.13 60))'
+                : 'var(--oem-ink-2, rgba(240,235,224,0.74))',
+              flex: 'none',
+              boxShadow: accent === 'amber' ? '0 0 18px oklch(70% 0.10 60 / 0.18)' : 'none',
+            }}>
+            <Icon className="w-6 h-6" />
+          </span>
+        )}
+        <div className="flex-1 min-w-0">
+          <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--oem-ink, #F0EBE0)' }}>
+            {title}
+          </h3>
+          {sub && (
+            <div style={{ fontSize: 15, marginTop: 8, lineHeight: 1.5, color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
+              {sub}
+            </div>
+          )}
+        </div>
+      </div>
+      {control && <div style={{ marginTop: 'auto' }}>{control}</div>}
+    </div>
+  );
+}
+
+function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span
+        className="font-bold uppercase"
+        style={{
+          fontSize: 14,
+          letterSpacing: '0.10em',
+          color: value ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
+        }}>
+        {value ? 'Etkin' : 'Kapalı'}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        onClick={() => onChange?.(!value)}
+        style={{
+          width: 60, height: 32, borderRadius: 999, position: 'relative',
+          border: '1px solid ' + (value ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'var(--oem-line-strong, rgba(240,235,224,0.16))'),
+          background: value
+            ? 'linear-gradient(180deg, oklch(86% 0.10 70 / 0.55), oklch(60% 0.12 50 / 0.45))'
+            : 'rgba(255,255,255,0.06)',
+          boxShadow: value
+            ? '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.20)'
+            : 'inset 0 2px 5px rgba(0,0,0,0.35)',
+          cursor: 'pointer',
+          transition: 'background .2s ease, border-color .2s ease',
+        }}>
+        <span
+          style={{
+            position: 'absolute', top: 4, left: value ? 32 : 4,
+            width: 22, height: 22, borderRadius: 999,
+            background: '#ffffff',
+            transition: 'left .2s ease',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.45)',
+          }} />
+      </button>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   ABOUT / AÇIK KAYNAK LİSANSLARI
+   CLAUDE.md "Ticari Lisans / Satışa Uygunluk" kuralı — atıf yükümlülüğü buradan karşılanır.
+════════════════════════════════════════ */
+
+const OSS_LICENSES: { name: string; license: string }[] = [
+  { name: 'Vosk — offline ses tanıma',   license: 'Apache-2.0' },
+  { name: 'Vosk Türkçe Dil Modeli',      license: 'Apache-2.0' },
+  { name: 'MapLibre GL',                 license: 'BSD-3-Clause' },
+  { name: 'OpenStreetMap harita verisi', license: 'ODbL' },
+  { name: 'Capacitor',                   license: 'MIT' },
+  { name: 'React',                       license: 'MIT' },
+  { name: 'Zustand',                     license: 'MIT' },
+  { name: 'Tailwind CSS',                license: 'MIT' },
+  { name: 'Lucide Icons',                license: 'ISC' },
+  { name: 'usb-serial-for-android',      license: 'MIT' },
+];
+
+function AboutTabContent() {
+  return (
+    <div className="space-y-5">
+      <Panel accent="#60a5fa">
+        <SectionTitle icon={Info} title="Hakkında" sub="Sürüm ve yasal bilgiler" color="#60a5fa" />
+        <div className="flex items-center justify-between px-1">
+          <div>
+            <div className="text-base font-black" style={{ color: 'var(--text-primary)' }}>CockpitOS Pro</div>
+            <div className="text-[11px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>Araç içi infotainment sistemi</div>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl glass-card text-[11px] font-black tabular-nums" style={{ color: '#60a5fa' }}>v1.0</div>
+        </div>
+      </Panel>
+
+      <Panel accent="#34d399">
+        <SectionTitle icon={ShieldCheck} title="Açık Kaynak Lisansları" sub="Kullanılan açık kaynak bileşenler ve lisansları" color="#34d399" />
+        <div className="flex flex-col gap-2">
+          {OSS_LICENSES.map((c) => (
+            <div key={c.name} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <span className="text-[12px] font-bold truncate" style={{ color: 'var(--text-primary)' }}>{c.name}</span>
+              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg flex-shrink-0"
+                style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.25)', color: '#93c5fd' }}>
+                {c.license}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 px-3 py-2.5 rounded-xl text-[11px] leading-relaxed"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.20)', color: 'var(--text-muted)' }}>
+          Harita verileri <span style={{ color: '#fbbf24', fontWeight: 800 }}>© OpenStreetMap katkıcıları</span> tarafından sağlanır (ODbL).
+          Tüm açık kaynak bileşenler izin verici (permissive) lisanslıdır ve ticari kullanıma uygundur.
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   STUB TAB CONTENTS — Phase 8 (Sound, Connect, Profiles)
+════════════════════════════════════════ */
+
+function SoundTabContent() {
+  const [agc, setAgc] = useState(true);
+  const [chime, setChime] = useState(true);
+  const [spatial, setSpatial] = useState(false);
+  return (
+    <>
+      <SettingsHero
+        eyebrow="Ses"
+        title="Kabin akustiği"
+        sub="Hoparlör sahnesi, ekolayzer, hıza göre ses ve uyarı tonları."
+      />
+      <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
+        <SettingTile icon={Volume2} accent="amber" title="Akıllı Ses Dengeleme (AGC)"
+          sub="YouTube, Spotify gibi kaynaklar arasında ses eşitlenir."
+          control={<BigToggle value={agc} onChange={setAgc} />} />
+        <SettingTile icon={Mic} title="Sürücü Odaklı Ses"
+          sub="60 km/s üstünde uyarı ve TTS sesleri sürücüye yönlendirilir."
+          control={<BigToggle value={chime} onChange={setChime} />} />
+        <SettingTile icon={Settings2} title="Hıza Bağlı Ses"
+          sub="Yol hızı artarken müzik ve telefon sesi otomatik artar."
+          control={<BigToggle value={spatial} onChange={setSpatial} />} />
+        <SettingTile icon={Volume2} title="Uyarı Tonları"
+          sub="Şerit ihlali, hız limiti, kapı uyarıları için özelleştirilebilir tonlar."
+          control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>OEM Varsayılan</div>} />
+      </div>
+    </>
+  );
+}
+
+function ConnectTabContent() {
+  const [wifi, setWifi] = useState(true);
+  const [bt, setBt] = useState(true);
+  const [ota, setOta] = useState(true);
+  return (
+    <>
+      <SettingsHero
+        eyebrow="Bağlantı"
+        title="Ağ & Eşleme"
+        sub="Wi-Fi, Bluetooth, hücresel, yansıtma ve bulut bağlantılarını yönetin."
+      />
+      <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
+        <SettingTile icon={Wifi} accent="amber" title="Wi-Fi"
+          sub="EvAg · −52 dBm, 5 GHz"
+          control={<BigToggle value={wifi} onChange={setWifi} />} />
+        <SettingTile icon={Smartphone} title="Bluetooth"
+          sub="3 eşleşmiş cihaz · Telefon, ses, OBD adaptör"
+          control={<BigToggle value={bt} onChange={setBt} />} />
+        <SettingTile icon={Cloud} title="OTA Güncellemeleri"
+          sub="Yazılım otomatik kontrol ve indirme."
+          control={<BigToggle value={ota} onChange={setOta} />} />
+        <SettingTile icon={HardDrive} title="Veri Yansıtma"
+          sub="CarPlay / Android Auto / MirrorLink protokol katmanı."
+          control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>Pasif</div>} />
+      </div>
+    </>
+  );
+}
+
+function ProfilesTabContent() {
+  return (
+    <>
+      <SettingsHero
+        eyebrow="Profiller"
+        title="Sürücü hafızası"
+        sub="Koltuk, iklim, müzik ve sürüş tercihlerini profil başına saklayın."
+      />
+      <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
+        <SettingTile icon={Users} accent="amber" title="Mehmet"
+          sub="Aktif profil · Konfor mod, 21°C, Spotify"
+          control={<div className="text-[10px] font-black uppercase tracking-[0.20em]" style={{ color: 'var(--oem-amber, oklch(80% 0.13 60))' }}>AKTİF</div>} />
+        <SettingTile icon={Users} title="Ahmet"
+          sub="Spor mod, 19°C, YouTube Music"
+          control={<div className="text-[10px] font-black uppercase tracking-[0.20em]" style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>PASİF</div>} />
+        <SettingTile icon={Star} title="Yeni Profil Ekle"
+          sub="Maksimum 4 profil destekler."
+          control={<div className="text-[10px] font-black uppercase tracking-[0.20em]" style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>2 / 4</div>} />
+      </div>
+    </>
+  );
+}
+
+/* ════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════ */
 interface Props { onOpenMap?: () => void; onClose?: () => void; }
 
+type Tab = 'general' | 'appearance' | 'performance' | 'maintenance' | 'sound' | 'connect' | 'profiles' | 'about';
+const TAB_IDS: Tab[] = ['general', 'appearance', 'performance', 'maintenance', 'sound', 'connect', 'profiles'];
+const TAB_STORAGE_KEY = 'caros.settings.tab';
+
 function SettingsPageInner({ onClose }: Props) {
   const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile, addVehicleProfile, removeVehicleProfile } = useStore();
-  type Tab = 'general' | 'appearance' | 'performance' | 'maintenance';
-  const [tab, setTab] = useState<Tab>('general');
+  // Tab persists across the session (CLAUDE.md Faz 8 task 3).
+  const [tab, setTab] = useState<Tab>(() => {
+    try {
+      const saved = sessionStorage.getItem(TAB_STORAGE_KEY) as Tab | null;
+      return saved && TAB_IDS.includes(saved) ? saved : 'general';
+    } catch { return 'general'; }
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* quota / private mode */ }
+  }, [tab]);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showOBDConnect, setShowOBDConnect] = useState(false);
-  const [studioOpen, setStudioOpen] = useState(false);
   const { locked: layoutLocked, toggleLock } = useEditStore();
   const [perfMode, setPerfMode]         = useState(() => getPerformanceMode());
   const [autoMode, setAutoMode]         = useState(() => isAutoModeEnabled());
@@ -816,11 +1142,16 @@ function SettingsPageInner({ onClose }: Props) {
     setAutoMode(true);
   }, []);
 
-  const TABS = [
-    { id: 'general'     as Tab, label: 'Sistem',     Icon: Smartphone, color: '#60a5fa' },
-    { id: 'appearance'  as Tab, label: 'Arayüz',     Icon: Palette,    color: '#e879f9' },
-    { id: 'maintenance' as Tab, label: 'Bakım',      Icon: Tool,       color: '#34d399' },
-    { id: 'performance' as Tab, label: 'Performans', Icon: Zap,        color: '#fbbf24' },
+  // ─ Sidebar nav — 1:1 screens.jsx SETTINGS_NAV (Genel Bakış, Ekran, Ses, Araç, Sürüş, Bağlantı, Profiller)
+  const TABS: Array<{ id: Tab; label: string; Icon: LucideIcon; color: string }> = [
+    { id: 'general'     as Tab, label: 'Genel Bakış',      Icon: Grid3X3,    color: '#60a5fa' },
+    { id: 'appearance'  as Tab, label: 'Ekran & Atmosfer', Icon: Palette,    color: '#e879f9' },
+    { id: 'sound'       as Tab, label: 'Ses',              Icon: Volume2,    color: '#a78bfa' },
+    { id: 'maintenance' as Tab, label: 'Araç',             Icon: Gauge,      color: '#34d399' },
+    { id: 'performance' as Tab, label: 'Sürüş Asistanı',   Icon: Zap,        color: '#fbbf24' },
+    { id: 'connect'     as Tab, label: 'Bağlantı',         Icon: Wifi,       color: '#22d3ee' },
+    { id: 'profiles'    as Tab, label: 'Profiller',        Icon: Star,       color: '#fb923c' },
+    { id: 'about'       as Tab, label: 'Hakkında',         Icon: Info,       color: '#60a5fa' },
   ];
 
   const WALLPAPERS: Array<{ id: string; label: string; url: string; preview?: string; type: 'gradient' | 'photo'; online?: boolean }> = [
@@ -861,7 +1192,7 @@ function SettingsPageInner({ onClose }: Props) {
 
   return (
     <div
-      className="flex-1 flex flex-col min-h-0 ultra-premium-root"
+      className="flex-1 flex flex-col min-h-0 ultra-premium-root settings-page"
       data-theme-pack={settings.themePack}
       data-theme-style={settings.themeStyle}
       data-day-night={settings.dayNightMode}
@@ -870,20 +1201,24 @@ function SettingsPageInner({ onClose }: Props) {
 
       {/* ═══ HEADER — 2 satır: üst (nav+stats), alt (sekmeler) ═══ */}
       <div className="flex-shrink-0 relative z-20"
-        style={{ background: 'rgba(8,12,24,0.92)', backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        style={{
+          background: settings.dayNightMode === 'day' ? 'rgba(248,249,251,0.94)' : 'rgba(8,12,24,0.92)',
+          backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+          borderBottom: '1px solid ' + (settings.dayNightMode === 'day' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.07)'),
+        }}>
 
         {/* Satır 1: Navigasyon + Live Stats */}
         <div className={`flex items-center gap-2 px-4 ${isCompactScreen ? 'py-1.5' : 'pt-3 pb-2'}`}>
           <button onClick={onClose}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 transition-all flex-shrink-0"
-            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)' }}>
-            <ArrowLeft className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.55)' }} />
-            <span className="text-[11px] font-black uppercase tracking-widest hidden sm:inline" style={{ color: 'rgba(255,255,255,0.45)' }}>Geri</span>
+            style={{ background: 'var(--oem-surface-2, rgba(255,255,255,0.06))', border: '1px solid var(--oem-line-strong, rgba(255,255,255,0.09))' }}>
+            <ArrowLeft className="w-4 h-4" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.55))' }} />
+            <span className="text-[11px] font-black uppercase tracking-widest hidden sm:inline" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.45))' }}>Geri</span>
           </button>
 
           <div className="flex flex-col leading-none flex-shrink-0 ml-1">
-            <span className="text-[13px] font-black uppercase tracking-[0.15em]" style={{ color: '#fff' }}>Ayarlar</span>
-            <span className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.60)' }}>
+            <span className="text-[13px] font-black uppercase tracking-[0.15em]" style={{ color: 'var(--oem-ink, #fff)' }}>Ayarlar</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.60))' }}>
               {TABS.find(t => t.id === tab)?.label ?? ''}
             </span>
           </div>
@@ -900,47 +1235,142 @@ function SettingsPageInner({ onClose }: Props) {
 
           <button onClick={onClose}
             className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl active:scale-90 transition-all ml-1"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <X className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.40)' }} />
+            style={{ background: 'var(--oem-surface-2, rgba(255,255,255,0.05))', border: '1px solid var(--oem-line-strong, rgba(255,255,255,0.08))' }}>
+            <X className="w-4 h-4" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.40))' }} />
           </button>
         </div>
 
-        {/* Satır 2: Sekmeler — tam genişlik */}
-        <div className={`flex px-4 pb-0 gap-1 ${isCompactScreen ? 'pb-0' : ''}`}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`relative flex-1 flex flex-col items-center gap-1 ${isCompactScreen ? 'py-1.5' : 'py-2.5'} rounded-t-xl transition-all duration-200 active:scale-95`}
-              style={{
-                background: tab === t.id ? `${t.color}12` : 'transparent',
-                borderTop: tab === t.id ? `1px solid ${t.color}30` : '1px solid transparent',
-                borderLeft: tab === t.id ? `1px solid ${t.color}20` : '1px solid transparent',
-                borderRight: tab === t.id ? `1px solid ${t.color}20` : '1px solid transparent',
-                borderBottom: 'none',
-              }}>
-              <t.Icon className="w-4 h-4" style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.55)' }} />
-              <span className="text-[10px] font-black uppercase tracking-[0.08em]"
-                style={{ color: tab === t.id ? t.color : 'rgba(255,255,255,0.60)' }}>{t.label}</span>
-              {tab === t.id && (
-                <div className="absolute bottom-0 left-[15%] right-[15%] h-[2px] rounded-t-full"
-                  style={{ background: `linear-gradient(90deg, transparent, ${t.color}, transparent)` }} />
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Bottom glow line */}
+        {/* Bottom glow line — kept under header (no more tab row) */}
         <div style={{
           height: '1px',
           background: 'linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.30) 30%, rgba(139,92,246,0.20) 70%, transparent 100%)',
         }} />
       </div>
 
-      {/* ═══ CONTENT ═══ */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 z-10" style={{ WebkitOverflowScrolling: 'touch', overflowY: 'scroll', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
+      {/* ═══ BODY — 340px sidebar + content (1:1 screens.jsx SettingsScreen) ═══ */}
+      <div className="flex flex-1 min-h-0 z-10">
+
+        {/* SIDEBAR — fixed 340px (compact ekranlarda 96px ikon-only) */}
+        <div
+          style={{
+            width: isCompactScreen ? 96 : 340,
+            borderRight: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
+            padding: isCompactScreen ? '24px 10px' : '32px 22px',
+            overflow: 'auto',
+            flex: 'none',
+            background:
+              'linear-gradient(180deg, rgba(255,240,210,0.03), transparent 12%, transparent 88%, rgba(255,240,210,0.02))',
+          }}>
+          {!isCompactScreen && (
+            <div className="text-[11px] font-black uppercase"
+              style={{
+                padding: '0 18px 22px',
+                letterSpacing: '0.20em',
+                color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
+              }}>
+              Ayarlar
+            </div>
+          )}
+          <div className="flex flex-col" style={{ gap: 8 }}>
+            {TABS.map((s) => {
+              const active = tab === s.id;
+              const Icon = s.Icon;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setTab(s.id)}
+                  style={{
+                    width: '100%',
+                    appearance: 'none',
+                    border: '1px solid ' + (active ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'transparent'),
+                    background: active
+                      ? 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03) 70%), var(--oem-surface-1, #262C3C)'
+                      : 'transparent',
+                    color: active ? 'var(--oem-ink, #F0EBE0)' : 'var(--oem-ink-2, rgba(240,235,224,0.74))',
+                    padding: isCompactScreen ? '14px 8px' : '20px 22px',
+                    borderRadius: 20,
+                    display: 'flex',
+                    flexDirection: isCompactScreen ? 'column' : 'row',
+                    alignItems: 'center',
+                    gap: isCompactScreen ? 6 : 18,
+                    fontSize: 17,
+                    fontWeight: 600,
+                    textAlign: isCompactScreen ? 'center' : 'left',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    letterSpacing: '-0.005em',
+                    position: 'relative',
+                    boxShadow: active
+                      ? '0 1px 0 rgba(255,255,255,0.10) inset, 0 12px 28px -16px oklch(60% 0.10 250 / 0.40)'
+                      : 'none',
+                    transition: 'background .15s ease, color .15s ease, border-color .15s ease',
+                  }}>
+                  {/* Amber glow bar on the left when active */}
+                  {active && !isCompactScreen && (
+                    <span
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        left: -10,
+                        top: 14,
+                        bottom: 14,
+                        width: 4,
+                        borderRadius: 4,
+                        background:
+                          'linear-gradient(180deg, oklch(86% 0.07 248), oklch(66% 0.11 250) 60%, oklch(50% 0.12 252))',
+                        boxShadow: '0 0 14px oklch(70% 0.10 248 / 0.50)',
+                      }} />
+                  )}
+                  <span
+                    style={{
+                      width: isCompactScreen ? 36 : 48,
+                      height: isCompactScreen ? 36 : 48,
+                      borderRadius: 14,
+                      background: active
+                        ? 'var(--oem-amber-soft, oklch(80% 0.13 60 / 0.18))'
+                        : 'var(--oem-surface-2, #303749)',
+                      border: '1px solid ' + (active ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'var(--oem-line, rgba(255,240,210,0.08))'),
+                      display: 'grid',
+                      placeItems: 'center',
+                      color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : s.color,
+                      flex: 'none',
+                      filter: active ? 'drop-shadow(0 0 10px oklch(80% 0.13 60 / 0.50))' : 'none',
+                    }}>
+                    <Icon className={isCompactScreen ? 'w-4 h-4' : 'w-5 h-5'} />
+                  </span>
+                  {!isCompactScreen && (
+                    <>
+                      <span className="truncate">{s.label}</span>
+                      <span style={{ flex: 1 }} />
+                      {active && <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }} />}
+                    </>
+                  )}
+                  {isCompactScreen && (
+                    <span className="text-[9px] font-black uppercase tracking-[0.10em] truncate w-full"
+                      style={{ color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+                      {s.label.split(' ')[0]}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ═══ CONTENT STAGE ═══ */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            overflowY: 'scroll',
+            touchAction: 'pan-y',
+            overscrollBehavior: 'contain',
+            padding: isCompactScreen ? '20px 16px' : '36px 40px',
+          }}>
         <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
           {tab === 'general' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               {nativeControls && (
                 <Panel accent="#3b82f6">
                   <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="#3b82f6" />
@@ -1027,8 +1457,8 @@ function SettingsPageInner({ onClose }: Props) {
                           {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold" style={{ color: active ? '#fff' : 'rgba(255,255,255,0.80)' }}>{label}</p>
-                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'rgba(255,255,255,0.60)' }}>{sub}</p>
+                          <p className="text-sm font-bold" style={{ color: active ? 'var(--oem-ink, #fff)' : 'var(--oem-ink-2, rgba(255,255,255,0.80))' }}>{label}</p>
+                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>{sub}</p>
                         </div>
                       </button>
                     );
@@ -1056,28 +1486,6 @@ function SettingsPageInner({ onClose }: Props) {
 
           {tab === 'appearance' && (
             <>
-              {/* ── Tema Stüdyo ── */}
-              <Suspense fallback={null}>
-                {studioOpen && <ThemeStudio onClose={() => setStudioOpen(false)} />}
-              </Suspense>
-              <button
-                onClick={() => setStudioOpen(true)}
-                className="w-full flex items-center justify-between rounded-2xl px-5 py-4 transition-all active:scale-[0.98]"
-                style={{ background: 'linear-gradient(135deg,rgba(139,92,246,0.18),rgba(6,182,212,0.12))', border: '1px solid rgba(139,92,246,0.35)' }}>
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}>
-                    <Palette className="w-5 h-5" style={{ color: '#a78bfa' }} />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-black text-sm text-white">Tema Stüdyo</div>
-                    <div className="text-[11px] font-medium mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Her detayı özelleştir · Canlı önizleme</div>
-                  </div>
-                </div>
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.2)' }}>
-                  <ArrowLeft className="w-4 h-4 rotate-180" style={{ color: '#a78bfa' }} />
-                </div>
-              </button>
-
               {/* ── Tema Seçici ── */}
               <ThemePanel />
 
@@ -1110,7 +1518,7 @@ function SettingsPageInner({ onClose }: Props) {
                       );
                     })}
                   </div>
-                  <p className="text-[9px] text-white/30 mt-2 leading-relaxed">🌐 işaretli temalar internet bağlantısı gerektirir.</p>
+                  <p className="text-[9px] mt-2 leading-relaxed" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.3))' }}>🌐 işaretli temalar internet bağlantısı gerektirir.</p>
                 </Panel>
 
                 <Panel accent="#a78bfa">
@@ -1145,7 +1553,7 @@ function SettingsPageInner({ onClose }: Props) {
                   </button>
                 </div>
                 {settings.vehicleProfiles.length === 0 ? (
-                  <div className="text-center py-6 text-white/30 text-sm">
+                  <div className="text-center py-6 text-sm" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.3))' }}>
                     Henüz araç profili yok. Yukarıdan ekleyin.
                   </div>
                 ) : (
@@ -1169,8 +1577,8 @@ function SettingsPageInner({ onClose }: Props) {
                               <input
                                 defaultValue={profile.name}
                                 onBlur={(e) => updateVehicleProfile(profile.id, { name: e.target.value || profile.name })}
-                                className="font-bold text-sm text-white bg-transparent border-none outline-none truncate w-full max-w-[140px]"
-                                style={{ caretColor: '#60a5fa' }}
+                                className="font-bold text-sm bg-transparent border-none outline-none truncate w-full max-w-[140px]"
+                                style={{ caretColor: '#60a5fa', color: 'var(--oem-ink, #fff)' }}
                               />
                               {isActive && (
                                 <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">AKTİF</span>
@@ -1184,7 +1592,7 @@ function SettingsPageInner({ onClose }: Props) {
                                   className="text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all active:scale-95"
                                   style={profile.vehicleType === value
                                     ? { backgroundColor: `${color}20`, borderColor: `${color}60`, color }
-                                    : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.70)' }}>
+                                    : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'var(--oem-ink-2, rgba(255,255,255,0.70))' }}>
                                   {label}
                                 </button>
                               ))}
@@ -1193,7 +1601,8 @@ function SettingsPageInner({ onClose }: Props) {
                           <div className="flex flex-col gap-1.5 shrink-0">
                             {!isActive && (
                               <button onClick={() => setActiveVehicleProfile(profile.id)}
-                                className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all active:scale-95">
+                                className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 hover:border-white/30 transition-all active:scale-95"
+                                style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.4))' }}>
                                 Seç
                               </button>
                             )}
@@ -1219,7 +1628,7 @@ function SettingsPageInner({ onClose }: Props) {
               <Panel accent="#38bdf8">
                 <SectionTitle icon={Wifi} title="OBD Cihaz Bağlantısı" sub="iCar 3 / ELM327 Bluetooth adaptörü bağla" color="#38bdf8" />
                 <div className="glass-card p-4">
-                  <p className="text-[11px] text-white/40 mb-3 leading-relaxed">
+                  <p className="text-[11px] mb-3 leading-relaxed" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.4))' }}>
                     OBD adaptörünüzü araca takın, ardından aşağıdan tarayıp doğrudan bağlanın. Android Bluetooth ayarlarına girmenize gerek yok.
                   </p>
                   <button
@@ -1286,7 +1695,7 @@ function SettingsPageInner({ onClose }: Props) {
                     <span style={{ fontSize: 15 }}>🤖</span>
                     <div>
                       <div className="text-[11px] font-black uppercase tracking-widest"
-                        style={{ color: autoMode ? '#fbbf24' : 'rgba(255,255,255,0.45)' }}>
+                        style={{ color: autoMode ? '#fbbf24' : 'var(--oem-ink-2, rgba(255,255,255,0.45))' }}>
                         {autoMode ? 'Otomatik Aktif' : 'Otomatik'}
                       </div>
                       {autoMode && (
@@ -1339,7 +1748,7 @@ function SettingsPageInner({ onClose }: Props) {
 
                       <div>
                         <div className="text-[8px] font-black uppercase tracking-[0.25em]" style={{ color: `${s.color}80` }}>{s.label}</div>
-                        <div className="text-[13px] font-black tracking-tight mt-0.5" style={{ color: 'rgba(255,255,255,0.85)' }}>{s.value}</div>
+                        <div className="text-[13px] font-black tracking-tight mt-0.5" style={{ color: 'var(--oem-ink, rgba(255,255,255,0.85))' }}>{s.value}</div>
                       </div>
 
                       {s.pct !== null && (
@@ -1354,6 +1763,12 @@ function SettingsPageInner({ onClose }: Props) {
             </div>
           )}
 
+          {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
+          {tab === 'sound' && <SoundTabContent />}
+          {tab === 'connect' && <ConnectTabContent />}
+          {tab === 'profiles' && <ProfilesTabContent />}
+          {tab === 'about' && <AboutTabContent />}
+
           {/* Privacy */}
           <div className="flex justify-center py-10">
             <button onClick={() => setShowPrivacy(true)}
@@ -1362,6 +1777,7 @@ function SettingsPageInner({ onClose }: Props) {
               <span className="text-[10px] font-black uppercase tracking-[0.5em] text-primary/20 group-hover:text-primary/60 transition-all">Gizlilik ve Güvenlik</span>
             </button>
           </div>
+        </div>
         </div>
       </div>
 

@@ -10,14 +10,15 @@
  *   GPS location.speed (m/s) doğrudan km/h'e çevrilip store'a yazılır.
  *
  * Yazma Koruma:
- *   odometer persist → 4s debounce (eMMC ömrü koruması — CLAUDE.md §3)
+ *   odometer persist → safeStorage 1s debounce (_SAFETY_DEBOUNCE_KEYS).
+ *   Kritik anlarda (speed=0 veya 1 km artış) safeFlushKey ile anında mühürlenir.
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { openRearCamera, closeRearCamera } from '../cameraService';
 import type { VehicleState, GPSLocation } from './types';
-import { safeStorage } from '../../utils/safeStorage';
+import { safeStorage, safeFlushKey } from '../../utils/safeStorage';
 
 export type { GPSLocation };
 
@@ -118,25 +119,10 @@ export interface UnifiedVehicleState {
   resetCanData:       () => void;
 }
 
-// ── 4s write throttle — eMMC write protection ────────────────────────────
-
-let _pendingWrite: (() => void) | null = null;
-let _writeTimer: ReturnType<typeof setTimeout> | null = null;
-
-const throttledStorage = createJSONStorage(() => ({
-  getItem:    (name: string)               => safeStorage.getItem(name),
-  setItem:    (name: string, value: string) => {
-    _pendingWrite = () => safeStorage.setItem(name, value);
-    if (!_writeTimer) {
-      _writeTimer = setTimeout(() => {
-        _writeTimer   = null;
-        _pendingWrite?.();
-        _pendingWrite = null;
-      }, 4000);
-    }
-  },
-  removeItem: (name: string)               => safeStorage.removeItem(name),
-}));
+// ── Odometer critical-flush tracker ──────────────────────────────────────
+// safeStorage._SAFETY_DEBOUNCE_KEYS → 1s baz koruma.
+// Araç durduğunda (speed=0) veya her 1km artışta debounce bypass ile mühürlenir.
+let _lastOdometerFlushKm = 0;
 
 // ── Store ─────────────────────────────────────────────────────────────────
 
@@ -207,15 +193,31 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         if ('fuel' in patch && patch.fuel !== cur.fuel) {
           u.fuel = patch.fuel; dirty = true;
         }
-        if ('odometer' in patch && patch.odometer != null && patch.odometer !== cur.odometer) {
-          u.odometer = patch.odometer; dirty = true;
+        if ('odometer' in patch && patch.odometer != null) {
+          if (patch.odometer < cur.odometer) {
+            // Monotonicity guard — Son savunma hattı: Worker zaten kontrol eder; Store da doğrular
+            if (import.meta.env.DEV) console.warn('[SafetyGate] Odometer rollback rejected:', patch.odometer, '<', cur.odometer);
+          } else if (patch.odometer !== cur.odometer) {
+            u.odometer = patch.odometer; dirty = true;
+          }
         }
         if ('reverse' in patch && !!patch.reverse !== cur.reverse) {
           u.reverse = !!patch.reverse; dirty = true;
         }
         // heading ve location: GPS tarafı yetkilidir, worker patch'leri yok sayılır.
 
-        if (dirty) set(u as Partial<UnifiedVehicleState>);
+        if (dirty) {
+          set(u as Partial<UnifiedVehicleState>);
+
+          // Odometer KM mühürleme: araç durduğunda veya 1 km artışta 1s debounce bypass
+          // set() sonrası çağrılır — persist middleware buffer'a yazmış olur, flush anında çalışır
+          const newSpeed = 'speed' in u ? u.speed : cur.speed;
+          const newOdom  = ('odometer' in u ? u.odometer : cur.odometer) ?? 0;
+          if (newSpeed === 0 || Math.floor(newOdom) > Math.floor(_lastOdometerFlushKm)) {
+            _lastOdometerFlushKm = newOdom;
+            safeFlushKey('car-launcher-vehicle-state');
+          }
+        }
       },
 
       // ── GPS state update (from gpsService mirror subscriber) ──────────────
@@ -226,15 +228,29 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         let dirty = false;
 
         if ('location' in gpsPatch) {
-          u.location = gpsPatch.location ?? null;
-          dirty = true;
+          const next = gpsPatch.location ?? null;
+          const prev = cur.location;
+          // Shallow-equal guard: koordinat ve hız değişmediyse referansı DEĞİŞTİRME.
+          // GPS standstill'de aynı fix tekrar tekrar gelir; yeni referans yaymak
+          // tüm store subscriber'larını (NavigationHUD, FullMapView onGPSLocation)
+          // gereksiz tetikler → CPU/termal yükü. Aynıysa ref'i sabit tut.
+          const sameLoc =
+            prev === next ||
+            (prev != null && next != null &&
+              prev.latitude === next.latitude &&
+              prev.longitude === next.longitude &&
+              prev.speed === next.speed);
+          if (!sameLoc) {
+            u.location = next;
+            dirty = true;
+          }
 
           // Smooth handover: worker hızı stale → GPS location.speed'den devral
           const stale = performance.now() - cur._vehicleSpeedTs > OBD_SPEED_STALE_MS;
-          if (stale && gpsPatch.location?.speed != null) {
-            const kmh = Math.round(gpsPatch.location.speed * 3.6);
+          if (stale && next?.speed != null) {
+            const kmh = Math.round(next.speed * 3.6);
             const clamped = kmh >= 0 ? kmh : 0;
-            if (clamped !== cur.speed) u.speed = clamped;
+            if (clamped !== cur.speed) { u.speed = clamped; dirty = true; }
           }
         }
         if ('heading' in gpsPatch && (gpsPatch.heading ?? null) !== cur.heading) {
@@ -335,9 +351,13 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
       },
     }),
     {
-      name:       'car-launcher-vehicle-state', // aynı key → sorunsuz migrasyon
-      storage:    throttledStorage,
+      name:       'car-launcher-vehicle-state',
+      storage:    createJSONStorage(() => safeStorage), // _SAFETY_DEBOUNCE_KEYS: 1s baz koruma
       partialize: (s) => ({ odometer: s.odometer }),
+      onRehydrateStorage: () => (state) => {
+        // Rehydrasyon sonrası başlangıç km'ini senkronize et — ilk güncellemede yanlış 1km tick önlenir
+        if (state) _lastOdometerFlushKm = state.odometer;
+      },
     },
   ),
 );

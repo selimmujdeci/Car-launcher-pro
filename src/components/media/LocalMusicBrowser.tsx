@@ -2,21 +2,69 @@
  * Local Music Browser — cihaz müzik kütüphanesi tarayıcısı.
  * MediaScreen içinde "Cihaz" sekmesi olarak gösterilir.
  */
-import { memo, useEffect, useState, useCallback, useMemo } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { memo, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Music2, Search, Play, Pause, Loader2, AlertCircle, ChevronUp } from 'lucide-react';
 import {
   useLocalMusic,
   loadMusicTracks,
-  playAtIndex,
   localTogglePlayPause,
   initLocalMusic,
 } from '../../platform/localMusicService';
+import { playMedia, type UnifiedTrack } from '../../platform/media/carosMediaLayer';
 import { fmtTime } from '../../platform/mediaService';
+import { CarLauncher } from '../../platform/nativePlugin';
+import { isNative } from '../../platform/bridge';
 
 /* ── Yardımcı: saniye formatı ────────────────────────────── */
 function fmtMs(ms: number): string {
   return fmtTime(ms / 1000);
+}
+
+/* ── Lazy album art — native base64 fetch ─────────────────
+ * MediaStore content:// URI'leri convertFileSrc ile yüklenemiyor.
+ * Bunun yerine native taraftan base64 data URI istiyoruz.
+ * Native cache + IntersectionObserver: liste 1000+ parça olsa bile
+ * sadece görünür olanlar için fetch yapılır.
+ */
+function AlbumArtImg({
+  uri,
+  className,
+  fallback,
+}: {
+  uri:       string | undefined;
+  className: string;
+  fallback:  React.ReactNode;
+}) {
+  const [src, setSrc] = useState<string | undefined>(undefined);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!ref.current || visible) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setVisible(true);
+        obs.disconnect();
+      }
+    }, { rootMargin: '200px' });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !uri || !isNative) return;
+    let cancelled = false;
+    CarLauncher.getMediaArtDataUri({ uri })
+      .then(({ dataUri }) => { if (!cancelled && dataUri) setSrc(dataUri); })
+      .catch(() => { /* fallback gösterilecek */ });
+    return () => { cancelled = true; };
+  }, [visible, uri]);
+
+  return (
+    <div ref={ref} className={className}>
+      {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : fallback}
+    </div>
+  );
 }
 
 /* ── Ana bileşen ─────────────────────────────────────────── */
@@ -42,7 +90,17 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser() {
     // filtered index → tracks index
     const track = filtered[index];
     const realIndex = tracks.findIndex((t) => t.id === track.id);
-    void playAtIndex(realIndex);
+    if (realIndex < 0) return;
+    // Tüm cihaz kütüphanesini kuyruk olarak caros katmanına ver →
+    // sonraki/önceki + "play tuşuyla son parçadan devam" tek noktadan çalışır.
+    const queue: UnifiedTrack[] = tracks.map((t, i) => ({
+      id:         `local-${i}`,
+      providerId: 'local',
+      title:      t.title || t.uri.split('/').pop() || 'Parça',
+      subtitle:   t.artist || t.album || 'Cihaz',
+      localIndex: i,
+    }));
+    playMedia(queue[realIndex], queue);
   }, [filtered, tracks]);
 
   /* ── Yükleniyor ── */
@@ -105,12 +163,11 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser() {
           className="flex-shrink-0 flex items-center gap-3 px-4 py-3 border-b border-white/8"
           style={{ background: 'rgba(59,130,246,0.08)' }}
         >
-          <div className="w-9 h-9 rounded-xl glass-card overflow-hidden flex items-center justify-center flex-shrink-0">
-            {currentTrack.albumArtUri
-              ? <img src={Capacitor.convertFileSrc(currentTrack.albumArtUri)} alt="" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-              : <Music2 className="w-4 h-4 text-blue-400" />
-            }
-          </div>
+          <AlbumArtImg
+            uri={currentTrack.albumArtUri}
+            className="w-9 h-9 rounded-xl glass-card overflow-hidden flex items-center justify-center flex-shrink-0"
+            fallback={<Music2 className="w-4 h-4 text-blue-400" />}
+          />
           <div className="flex-1 min-w-0">
             <div className="text-primary text-[13px] font-black truncate">{currentTrack.title}</div>
             <div className="text-secondary text-[10px] truncate">{currentTrack.artist}</div>
@@ -165,14 +222,21 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser() {
                 }}
               >
                 {/* Album art / çalıyor göstergesi */}
-                <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 relative"
-                  style={{ background: isActive ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.05)' }}>
-                  {track.albumArtUri
-                    ? <img src={Capacitor.convertFileSrc(track.albumArtUri)} alt="" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display='none'; }} />
-                    : <div className="w-full h-full flex items-center justify-center"><Music2 className={`w-4 h-4 ${isActive ? 'text-blue-400' : 'text-secondary opacity-50'}`} /></div>
-                  }
+                <div className="relative flex-shrink-0">
+                  <AlbumArtImg
+                    uri={track.albumArtUri}
+                    className="w-10 h-10 rounded-xl overflow-hidden"
+                    fallback={
+                      <div
+                        className="w-full h-full flex items-center justify-center"
+                        style={{ background: isActive ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.05)' }}
+                      >
+                        <Music2 className={`w-4 h-4 ${isActive ? 'text-blue-400' : 'text-secondary opacity-50'}`} />
+                      </div>
+                    }
+                  />
                   {isActive && playing && (
-                    <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
+                    <div className="absolute inset-0 rounded-xl flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
                       <Pause className="w-4 h-4 text-blue-400 fill-current" />
                     </div>
                   )}

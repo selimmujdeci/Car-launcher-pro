@@ -17,6 +17,7 @@
  */
 
 import { parseVIN, parseSupportedPIDs } from '../../core/val/OBDHandshake';
+import { logInfo } from '../debug';
 import { listAvailableProfiles, loadProfileById } from './VehicleProfileService';
 import type { VehicleCanProfile } from './canProfileTypes';
 import { logError } from '../crashLogger';
@@ -182,7 +183,7 @@ export async function runVehicleHandshake(
   const modelYear     = vin ? _decodeVinYear(vin)   : null;
 
   const _log = (msg: string) => {
-    if (import.meta.env.DEV) console.log(`[VehicleHandshake] ${msg}`);
+    logInfo(`[VehicleHandshake] ${msg}`);
   };
 
   _log(`VIN=${vin ?? 'yok'} make=${make ?? '?'} year=${modelYear ?? '?'} PIDs=${supportedPids.size}`);

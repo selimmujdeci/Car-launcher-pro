@@ -1,12 +1,13 @@
 import maplibregl, { Map as MapLibreMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import type { LngLatLike } from 'maplibre-gl';
+import { logInfo } from './debug';
 import { create } from 'zustand';
-import { handleSatelliteTileError, setActiveMapSource } from './mapSourceManager';
+import { handleSatelliteTileError, setActiveMapSource, setMapNight } from './mapSourceManager';
 import { searchOffline } from './offlineSearchService';
 import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal }  from './poi/offlinePoiService';
 import { cacheLRUManager } from '../core/storage/CacheLRUManager';
-import { NAV_SUPPRESS_LAYERS, NAV_SUPPRESS_TIERS } from './mapStyleBuilders';
+import { NAV_SUPPRESS_LAYERS, NAV_SUPPRESS_TIERS, RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from './mapStyleBuilders';
 import { useHazardStore }    from '../store/useHazardStore';
 import { useSafetyStore }    from '../store/useSafetyStore';
 import { useCognitiveStore } from '../store/useCognitiveStore';
@@ -31,9 +32,19 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
     },
   },
   layers: [
-    // Tile yüklenemeyince siyah kanvas yerine koyu lacivert arka plan görünür
-    { id: 'background', type: 'background', paint: { 'background-color': '#0d1628' } },
-    { id: 'osm-tiles',  type: 'raster',     source: 'osm' },
+    // Tile yüklenemeyince siyah kanvas yerine OEM sıcak grafit arka plan görünür
+    { id: 'background', type: 'background', paint: { 'background-color': '#131822' } },
+    // OEM gece tonu: ham OSM raster'ı sıcak-koyu grafite indirger (--map-bg-1 #131822).
+    // Tam desatürasyon yerine hafif sıcaklık (-0.82) + hue sıcağa döndürülür (25°).
+    { id: 'osm-tiles',  type: 'raster',     source: 'osm',
+      paint: {
+        'raster-opacity': 1,
+        'raster-contrast': 0.5,
+        'raster-brightness-min': 0,
+        'raster-brightness-max': 0.30,
+        'raster-saturation': -0.82,
+        'raster-hue-rotate': 25,
+      } },
   ],
 };
 
@@ -180,19 +191,20 @@ const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
     {
       id: 'background',
       type: 'background' as const,
-      paint: { 'background-color': '#0d1628' },
+      paint: { 'background-color': '#131822' },
     },
     {
       id: 'osm-layer',
       type: 'raster' as const,
       source: 'osm-tiles',
       paint: {
+        // OEM sıcak grafit gece tonu — OSM_STYLE ile birebir aynı
         'raster-opacity': 1,
-        'raster-contrast': 0.7,
+        'raster-contrast': 0.5,
         'raster-brightness-min': 0,
-        'raster-brightness-max': 0.22,
-        'raster-saturation': -1,
-        'raster-hue-rotate': 195,
+        'raster-brightness-max': 0.30,
+        'raster-saturation': -0.82,
+        'raster-hue-rotate': 25,
       },
     },
   ],
@@ -243,7 +255,7 @@ export function initializeMap(
     }
     // Farklı container (ör. FullMap açıldı, MiniMap init devam ediyor) →
     // mevcut init'i iptal et (_initGen++ → _initCore erken çıkar), sıfırla
-    console.log('[MAP_INIT] different container — cancelling in-flight init');
+    logInfo('[MAP_INIT] different container — cancelling in-flight init');
     _initGen++;
     _initPromise = null;
     _currentContainer = null;
@@ -251,7 +263,7 @@ export function initializeMap(
 
   const existing = useMapStore.getState().mapInstance;
   if (existing) {
-    console.log('[MAP_DESTROY] clearing existing instance before re-init');
+    logInfo('[MAP_DESTROY] clearing existing instance before re-init');
     destroyMap();
   }
 
@@ -297,7 +309,7 @@ async function _initCore(
     // offlineInitialized stays false intentionally
     setActiveMapSource('online');
 
-    console.log('[MAP_STYLE] OSM raster');
+    logInfo('[MAP_STYLE] OSM raster');
     const style = OSM_STYLE;
     const TURKEY_CENTER: [number, number] = [35, 39];
     const TURKEY_ZOOM = 6;
@@ -316,11 +328,11 @@ async function _initCore(
 
     map.on('style.load', () => {
       useMapStore.setState({ isReady: true });
-      console.log('[MAP_READY]');
+      logInfo('[MAP_READY]');
       _setupRouteInteractions(map); // C7.2 — ilk yüklemede etkileşimleri kur
       if (_cachedRoute && _cachedRoute.coords?.length > 2) {
         _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx);
-        console.log('[ROUTE_LAYER_RECREATED] after style.load');
+        logInfo('[ROUTE_LAYER_RECREATED] after style.load');
       }
     });
 
@@ -459,15 +471,24 @@ export function setMapHeading(map: MapLibreMap, heading: number) {
   map.setBearing(heading);
 }
 
-const HEADING_IMAGE_ID = 'heading-cone';
+// ── CarOS Rover konum göstergesi (marka imzası) ──────────────────────────
+// Klasik mavi ok yerine üstten görünüş CarOS Rover; heading'e göre kendi
+// ekseninde döner, altında amber konum halkası + parlayan glow. Gündüz sade,
+// gece güçlü amber glow (CarOS Expedition ışık dili).
+const ROVER_IMG_DAY   = 'rover-veh-day';
+const ROVER_IMG_NIGHT = 'rover-veh-night';
 const USER_LAYERS = [
-  'user-heading-cone',
-  'user-marker',
-  'user-dot',
+  'user-glow',     // alt: yumuşak amber hale
+  'user-ring',     // amber konum halkası
+  'user-vehicle',  // üstte dönen Rover
 ];
 
 // C7.1: hysteresis state — icon-size yalnızca ≥3 km/h değişimde güncellenir
 let _lastScaleSpeedKmh = -1;
+// Marker durum makinesi — gündüz/gece teması + navigasyon aktifliği + pulse throttle
+let _markerNight     = false;
+let _markerNavActive = false;
+let _lastRingPulseMs = 0;
 
 // C7.2: rota etkileşim motoru — listener cleanup + seçim callback
 let _routeInteractionCleanup: (() => void) | null = null;
@@ -531,93 +552,169 @@ function _setupRouteInteractions(map: MapLibreMap): void {
   };
 }
 
-function ensureHeadingImage(map: MapLibreMap, force?: boolean) {
-  if (!force && map.hasImage(HEADING_IMAGE_ID)) return;
-  // force=true (stil yeniden yüklendi): GPU belleğini tazele — eski imaj sil, yeniden yükle
-  if (force && map.hasImage(HEADING_IMAGE_ID)) {
-    try { map.removeImage(HEADING_IMAGE_ID); } catch { /* ignore */ }
+/** Köşeleri yuvarlatılmış dikdörtgen yolu — ctx.roundRect tüm WebView'larda yok, kendi çiziyoruz. */
+function _roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y,     x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x,     y + h, rr);
+  ctx.arcTo(x,     y + h, x,     y,     rr);
+  ctx.arcTo(x,     y,     x + w, y,     rr);
+  ctx.closePath();
+}
+
+/**
+ * Üstten görünüş CarOS Rover'ı verilen context'e çizer (ön = yukarı = heading 0°).
+ * Gerçekçi off-road SUV: zemin gölgesi, şampanya metalik gövde (genişlik+boy gradyanı),
+ * jantlı iri lastikler, greenhouse (ön cam/tavan/arka cam), tavan rafı, yan aynalar,
+ * amber CAROS ön ışık barı + farlar, arka stop lambaları. night=true → koyu gövde,
+ * amber kenar ışığı, parlayan far/ışık barı (CarOS Expedition gece dili).
+ * Çizim 144 birimlik referansa göre ölçeklenir; rotation origin = size/2 (symbol anchor 'center').
+ */
+function _drawRover(ctx: CanvasRenderingContext2D, size: number, night: boolean) {
+  const cx = size / 2;
+  const s  = size / 144;              // ölçek faktörü
+  const P  = (n: number) => n * s;    // birim → piksel
+  const X  = (n: number) => cx + n * s; // merkeze göre yatay
+  const Y  = (n: number) => n * s;       // tepeden dikey (144-uzayı)
+  ctx.clearRect(0, 0, size, size);
+  ctx.lineJoin = 'round';
+
+  const amber     = night ? '#FFB347' : '#E0A23C';
+  const amberGlow = night ? 'rgba(255,170,60,0.95)' : 'rgba(224,162,60,0.55)';
+  const glass     = night ? 'rgba(30,36,46,0.95)' : 'rgba(22,28,38,0.92)';
+  const tireCol   = '#141417';
+
+  // 1) Zemin gölgesi — radyal gradyan (filter'sız, tüm WebView'larda çalışır), aracı kaldırır
+  const sh = ctx.createRadialGradient(cx, Y(78), 0, cx, Y(78), P(58));
+  sh.addColorStop(0,   night ? 'rgba(0,0,0,0.50)' : 'rgba(30,22,10,0.36)');
+  sh.addColorStop(0.7, night ? 'rgba(0,0,0,0.22)' : 'rgba(30,22,10,0.15)');
+  sh.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = sh;
+  ctx.beginPath();
+  ctx.ellipse(cx, Y(78), P(44), P(60), 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2) Tekerler — koyu lastik + tread çizgileri (off-road geniş duruş)
+  const wheel = (wx: number, wy: number) => {
+    ctx.fillStyle = tireCol;
+    _roundRectPath(ctx, wx - P(7.5), wy - P(16), P(15), P(32), P(5));
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = P(1);
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(wx + i * P(4), wy - P(13));
+      ctx.lineTo(wx + i * P(4), wy + P(13));
+      ctx.stroke();
+    }
+  };
+  wheel(X(-31), Y(42)); wheel(X(31), Y(42));    // ön
+  wheel(X(-31), Y(102)); wheel(X(31), Y(102));  // arka
+
+  // 3) Gövde — şampanya metalik (genişlik gradyanı: koyu kenar → parlak merkez)
+  _roundRectPath(ctx, X(-30), Y(14), P(60), P(116), P(13));
+  const wg = ctx.createLinearGradient(X(-30), 0, X(30), 0);
+  if (night) {
+    wg.addColorStop(0, '#2b2820'); wg.addColorStop(0.5, '#6a6353'); wg.addColorStop(1, '#2b2820');
+  } else {
+    wg.addColorStop(0, '#998969'); wg.addColorStop(0.5, '#e4d6b8'); wg.addColorStop(1, '#998969');
+  }
+  ctx.fillStyle = wg;
+  ctx.fill();
+
+  // 3b) Boy gradyanı (ön aydınlık → arka koyu) — gövde yoluna clip'lenir
+  ctx.save();
+  ctx.clip();
+  const lg = ctx.createLinearGradient(0, Y(14), 0, Y(130));
+  lg.addColorStop(0,   night ? 'rgba(255,200,120,0.12)' : 'rgba(255,255,255,0.18)');
+  lg.addColorStop(0.4, 'rgba(0,0,0,0)');
+  lg.addColorStop(1,   night ? 'rgba(0,0,0,0.38)' : 'rgba(60,45,25,0.22)');
+  ctx.fillStyle = lg;
+  ctx.fillRect(0, 0, size, size);
+  ctx.restore();
+
+  // 3c) Kenar ışığı (rim light)
+  _roundRectPath(ctx, X(-30), Y(14), P(60), P(116), P(13));
+  ctx.lineWidth = P(1.6);
+  ctx.strokeStyle = night ? 'rgba(255,185,90,0.6)' : 'rgba(255,255,255,0.5)';
+  ctx.stroke();
+
+  // 4) Panel/kapı dikişleri
+  ctx.strokeStyle = night ? 'rgba(0,0,0,0.4)' : 'rgba(70,55,35,0.35)';
+  ctx.lineWidth = P(1);
+  for (const seam of [[-26, 26, 46], [-30, 30, 74], [-26, 26, 112]]) {
+    ctx.beginPath(); ctx.moveTo(X(seam[0]), Y(seam[2])); ctx.lineTo(X(seam[1]), Y(seam[2])); ctx.stroke();
   }
 
-  const size = 96;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const cx = size / 2; // 48
+  // 5) Kaput havalandırma yarıkları
+  ctx.fillStyle = night ? 'rgba(0,0,0,0.32)' : 'rgba(80,62,38,0.3)';
+  _roundRectPath(ctx, X(-8), Y(30), P(16), P(3), P(1.5)); ctx.fill();
+  _roundRectPath(ctx, X(-8), Y(35), P(16), P(3), P(1.5)); ctx.fill();
 
-  // Arka momentum parıltısı (hareket enerjisi göstergesi)
-  const rearGlow = ctx.createRadialGradient(cx, 76, 0, cx, 76, 30);
-  rearGlow.addColorStop(0,   'rgba(96,165,250,0.55)');
-  rearGlow.addColorStop(0.6, 'rgba(96,165,250,0.18)');
-  rearGlow.addColorStop(1,   'rgba(96,165,250,0)');
-  ctx.beginPath();
-  ctx.arc(cx, 76, 30, 0, Math.PI * 2);
-  ctx.fillStyle = rearGlow;
-  ctx.fill();
+  // 6) Greenhouse — ön cam, tavan paneli, arka cam
+  ctx.fillStyle = glass;
+  _roundRectPath(ctx, X(-23), Y(48), P(46), P(12), P(4)); ctx.fill(); // ön cam
+  ctx.fillStyle = night ? '#5a5343' : '#d8c9a8';
+  _roundRectPath(ctx, X(-22), Y(60), P(44), P(40), P(6)); ctx.fill(); // tavan
+  ctx.fillStyle = glass;
+  _roundRectPath(ctx, X(-23), Y(100), P(46), P(10), P(4)); ctx.fill(); // arka cam
 
-  // Araç gövdesi — üstten görünüş spor araç silüeti (ön yukarı = heading 0°)
-  ctx.beginPath();
-  ctx.moveTo(cx, 8);                                          // ön burun
-  ctx.bezierCurveTo(cx + 6, 12, cx + 13, 20, cx + 14, 34);  // ön-sağ kavis
-  ctx.lineTo(cx + 14, 60);                                    // sağ kenar
-  ctx.bezierCurveTo(cx + 14, 68, cx + 10, 74, cx + 5, 79);  // arka-sağ daralma
-  ctx.lineTo(cx, 82);                                         // arka merkez
-  ctx.lineTo(cx - 5, 79);                                     // arka-sol daralma
-  ctx.bezierCurveTo(cx - 10, 74, cx - 14, 68, cx - 14, 60); // arka-sol kavis
-  ctx.lineTo(cx - 14, 34);                                    // sol kenar
-  ctx.bezierCurveTo(cx - 13, 20, cx - 6, 12, cx, 8);        // ön-sol kavis
-  ctx.closePath();
-  ctx.fillStyle = '#1A73E8';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-  ctx.lineWidth = 1.5;
-  ctx.lineJoin = 'round';
-  ctx.stroke();
+  // 6b) Tavan rafı (yan raylar + çapraz barlar)
+  ctx.strokeStyle = night ? '#1f1c16' : '#6a5c42';
+  ctx.lineWidth = P(2);
+  ctx.beginPath(); ctx.moveTo(X(-19), Y(62)); ctx.lineTo(X(-19), Y(98)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X(19),  Y(62)); ctx.lineTo(X(19),  Y(98)); ctx.stroke();
+  ctx.lineWidth = P(1.5);
+  for (const yy of [68, 78, 88]) {
+    ctx.beginPath(); ctx.moveTo(X(-19), Y(yy)); ctx.lineTo(X(19), Y(yy)); ctx.stroke();
+  }
 
-  // Yan aynalar
-  ctx.fillStyle = '#1558B0';
-  ctx.beginPath(); // Sağ ayna
-  ctx.moveTo(cx + 14, 28); ctx.lineTo(cx + 20, 26);
-  ctx.lineTo(cx + 20, 33); ctx.lineTo(cx + 14, 33);
-  ctx.closePath(); ctx.fill();
-  ctx.beginPath(); // Sol ayna
-  ctx.moveTo(cx - 14, 28); ctx.lineTo(cx - 20, 26);
-  ctx.lineTo(cx - 20, 33); ctx.lineTo(cx - 14, 33);
-  ctx.closePath(); ctx.fill();
+  // 7) Yan aynalar
+  ctx.fillStyle = night ? '#4a4536' : '#b6a684';
+  _roundRectPath(ctx, X(-35), Y(54), P(6), P(5), P(2)); ctx.fill();
+  _roundRectPath(ctx, X(29),  Y(54), P(6), P(5), P(2)); ctx.fill();
 
-  // Ön cam (cam alanı)
-  ctx.beginPath();
-  ctx.moveTo(cx - 9, 17);
-  ctx.bezierCurveTo(cx - 9, 13, cx + 9, 13, cx + 9, 17);
-  ctx.lineTo(cx + 10, 30);
-  ctx.lineTo(cx - 10, 30);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(255,255,255,0.20)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-  ctx.lineWidth = 0.8;
-  ctx.stroke();
+  // 8) Ön tampon + CAROS amber ışık barı + farlar (Expedition imzası)
+  ctx.fillStyle = night ? 'rgba(20,17,12,0.9)' : 'rgba(70,56,36,0.7)';
+  _roundRectPath(ctx, X(-27), Y(16), P(54), P(6), P(3)); ctx.fill();
+  ctx.save();
+  ctx.shadowColor = amberGlow; ctx.shadowBlur = night ? P(11) : P(5);
+  ctx.fillStyle = amber;
+  _roundRectPath(ctx, X(-20), Y(18), P(40), P(3), P(1.5)); ctx.fill();      // ışık barı
+  ctx.fillStyle = night ? '#FFD27A' : '#F0B85A';
+  _roundRectPath(ctx, X(-26), Y(23), P(9), P(4), P(2)); ctx.fill();          // sol far
+  _roundRectPath(ctx, X(17),  Y(23), P(9), P(4), P(2)); ctx.fill();          // sağ far
+  ctx.restore();
 
-  // Arka cam
-  ctx.beginPath();
-  ctx.moveTo(cx - 9, 58);
-  ctx.lineTo(cx + 9, 58);
-  ctx.lineTo(cx + 8, 69);
-  ctx.bezierCurveTo(cx + 8, 73, cx - 8, 73, cx - 8, 69);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = 0.8;
-  ctx.stroke();
+  // 9) Arka stop lambaları
+  ctx.save();
+  if (night) { ctx.shadowColor = 'rgba(255,40,30,0.8)'; ctx.shadowBlur = P(6); }
+  ctx.fillStyle = night ? 'rgba(255,70,55,0.95)' : 'rgba(190,55,42,0.85)';
+  _roundRectPath(ctx, X(-25), Y(122), P(8), P(4), P(2)); ctx.fill();
+  _roundRectPath(ctx, X(17),  Y(122), P(8), P(4), P(2)); ctx.fill();
+  ctx.restore();
+}
 
-  const imgData = ctx.getImageData(0, 0, size, size);
-  map.addImage(HEADING_IMAGE_ID, {
-    width:  size,
-    height: size,
-    data:   new Uint8Array(imgData.data.buffer),
-  });
+/**
+ * Gündüz + gece Rover GPU image'larını kayıt eder.
+ * force=true (stil reload / WebGL restore): GPU belleğini tazele, yeniden çiz.
+ */
+function ensureRoverImages(map: MapLibreMap, force?: boolean) {
+  const size = 144;
+  for (const [id, night] of [[ROVER_IMG_DAY, false], [ROVER_IMG_NIGHT, true]] as const) {
+    if (!force && map.hasImage(id)) continue;
+    if (map.hasImage(id)) { try { map.removeImage(id); } catch { /* ignore */ } }
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+    _drawRover(ctx, size, night);
+    const imgData = ctx.getImageData(0, 0, size, size);
+    map.addImage(id, { width: size, height: size, data: new Uint8Array(imgData.data.buffer) });
+  }
 }
 
 export function addUserMarker(
@@ -643,7 +740,7 @@ export function addUserMarker(
   }
 
   // Stil geçişi veya WebGL context yenilenmesinde GPU görseli bayatlar — zorla yenile
-  ensureHeadingImage(map, true);
+  ensureRoverImages(map, true);
 
   const feature = {
     type: 'Feature' as const,
@@ -659,53 +756,58 @@ export function addUserMarker(
     data: { type: 'FeatureCollection', features: [feature] },
   } as any);
 
-  // 1. Heading cone — rotated symbol, larger for visibility
+  // 1. Amber glow halesi (en altta) — gece güçlü, gündüz sade. circle-blur ile yumuşak parıltı.
   map.addLayer({
-    id: 'user-heading-cone',
+    id: 'user-glow',
+    type: 'circle',
+    source: sourceId,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 16, 15, 26, 18, 34],
+      'circle-color': _markerNight ? '#FF9E2C' : '#E0A23C',
+      'circle-blur': 1,
+      'circle-opacity': _markerNight ? 0.42 : 0.22,
+      'circle-pitch-alignment': 'map',
+    } as any,
+  });
+
+  // 2. Amber konum halkası — aracın altında çepeçevre, pulse/expand burada animasyonlu
+  map.addLayer({
+    id: 'user-ring',
+    type: 'circle',
+    source: sourceId,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 11, 15, 17, 18, 22],
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-width': 2.5,
+      'circle-stroke-color': _markerNight ? '#FFB347' : '#E0A23C',
+      'circle-stroke-opacity': 0.9,
+      'circle-pitch-alignment': 'map',
+    } as any,
+  });
+
+  // 3. CarOS Rover — heading'e göre döner. pitch-alignment:map → 3D nav görünümünde
+  // zemine yatık "decal" gibi durur. icon-size dar aralık: çok büyümez/küçülmez.
+  map.addLayer({
+    id: 'user-vehicle',
     type: 'symbol',
     source: sourceId,
     layout: {
-      'icon-image': HEADING_IMAGE_ID,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.90, 18, 1.30],
+      'icon-image': _markerNight ? ROVER_IMG_NIGHT : ROVER_IMG_DAY,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.30, 14, 0.41, 18, 0.51],
       'icon-rotate': ['get', 'heading'],
       'icon-rotation-alignment': 'map',
+      'icon-pitch-alignment': 'map',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       'icon-offset': [0, 0],
-    },
-  });
-
-  // 6. Main marker — sleek blue with thin sharp border
-  map.addLayer({
-    id: 'user-marker',
-    type: 'circle',
-    source: sourceId,
-    paint: {
-      'circle-radius': 10,
-      'circle-color': '#2563eb',
-      'circle-opacity': 1,
-      'circle-stroke-width': 2,
-      'circle-stroke-color': '#ffffff',
-    },
-  });
-
-  // 7. Inner bright center dot
-  map.addLayer({
-    id: 'user-dot',
-    type: 'circle',
-    source: sourceId,
-    paint: {
-      'circle-radius': 3.5,
-      'circle-color': '#ffffff',
-      'circle-opacity': 1,
-    },
+    } as any,
   });
 
   // Katmanları en üste taşı — raster/vektör geçişlerinde veya OOM sonrası
   // diğer katmanların (rota, POI) üzerinde kalması garantilenir.
-  try { map.moveLayer('user-heading-cone'); } catch { /* stil geçişi sırasında güvenli */ }
-  try { map.moveLayer('user-marker'); }       catch { /* stil geçişi sırasında güvenli */ }
-  try { map.moveLayer('user-dot'); }          catch { /* stil geçişi sırasında güvenli */ }
+  try { map.moveLayer('user-glow'); }    catch { /* stil geçişi sırasında güvenli */ }
+  try { map.moveLayer('user-ring'); }    catch { /* stil geçişi sırasında güvenli */ }
+  try { map.moveLayer('user-vehicle'); } catch { /* stil geçişi sırasında güvenli */ }
 }
 
 export function updateUserMarker(latitude: number, longitude: number, heading?: number, speedKmh?: number) {
@@ -714,7 +816,7 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
 
   const sourceId  = 'user-location';
   const rawSource = map.getSource(sourceId);
-  const layerExists = !!map.getLayer('user-marker');
+  const layerExists = !!map.getLayer('user-vehicle');
   // Self-Healing: source kayıpsa VEYA ana katman WebGL/OOM baskısında düştüyse yeniden oluştur.
   // Anti-Flicker: addUserMarker ağır işlemdir; yalnızca gerçekten eksikse tetiklenir.
   if (!rawSource || !layerExists) {
@@ -723,18 +825,39 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
   }
   const source = rawSource as GeoJSONSource;
 
-  // C7.1 — hıza duyarlı dinamik ölçekleme (±3 km/h hysteresis)
-  // Zoom interpolasyonu speed faktörüyle çarpılır: 0 km/h → ×0.85, 100+ km/h → ×1.15
+  // ── Durum makinesi: Park / Hareket / Navigasyon ──────────────────────────
+  // Hareket veya nav aktifken alt halkada hafif pulse; nav aktifken halka genişler.
+  // Park (hız≈0, nav yok): statik glow — pulse yok, GPS tick'i de durduğundan CPU sıfır.
+  const moving = (speedKmh ?? 0) > 1.5;
+  const now    = performance.now();
+  if ((moving || _markerNavActive) && now - _lastRingPulseMs > 150) {
+    _lastRingPulseMs = now;
+    const pulse    = Math.sin(now / 450) * 0.5 + 0.5;        // 0..1, ~2.8s periyot
+    const navBoost = _markerNavActive ? 1.18 : 1.0;          // nav: halka genişler
+    const rScale   = navBoost * (1 + pulse * 0.10);
+    try {
+      map.setPaintProperty('user-ring', 'circle-radius', [
+        'interpolate', ['linear'], ['zoom'],
+        10, 11 * rScale,
+        15, 17 * rScale,
+        18, 22 * rScale,
+      ]);
+      const baseOp = _markerNight ? 0.42 : 0.22;
+      map.setPaintProperty('user-glow', 'circle-opacity', baseOp * (0.8 + pulse * 0.4) * navBoost);
+    } catch { /* stil yeniden yükleniyor */ }
+  }
+
+  // C7.1 — hıza duyarlı ince ölçekleme (±3 km/h hysteresis) — araç çok az büyür
   if (speedKmh !== undefined && Math.abs(speedKmh - _lastScaleSpeedKmh) >= 3) {
     _lastScaleSpeedKmh = speedKmh;
     const clamped = Math.max(0, Math.min(100, speedKmh));
-    const sf      = 0.85 + (clamped / 100) * 0.30;
+    const sf      = 0.95 + (clamped / 100) * 0.12;
     try {
-      map.setLayoutProperty('user-heading-cone', 'icon-size', [
+      map.setLayoutProperty('user-vehicle', 'icon-size', [
         'interpolate', ['linear'], ['zoom'],
-        8,  0.55 * sf,
-        14, 0.90 * sf,
-        18, 1.30 * sf,
+        10, 0.30 * sf,
+        14, 0.41 * sf,
+        18, 0.51 * sf,
       ]);
     } catch { /* stil yeniden yükleniyor */ }
   }
@@ -752,6 +875,65 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
     type: 'FeatureCollection',
     features: [feature],
   } as any);
+}
+
+/**
+ * Gündüz/gece temasını değiştir — Rover image variantını + halka/glow rengini günceller.
+ * Idempotent; değişim yoksa hiçbir GPU işi yapmaz (re-render tetiklemez).
+ */
+export function setMarkerTheme(night: boolean): void {
+  if (_markerNight === night) return;
+  _markerNight = night;
+  const map = useMapStore.getState().mapInstance;
+  if (!map || !map.getLayer('user-vehicle')) return;
+  try {
+    map.setLayoutProperty('user-vehicle', 'icon-image', night ? ROVER_IMG_NIGHT : ROVER_IMG_DAY);
+    map.setPaintProperty('user-ring', 'circle-stroke-color', night ? '#FFB347' : '#E0A23C');
+    map.setPaintProperty('user-glow', 'circle-color',   night ? '#FF9E2C' : '#E0A23C');
+    map.setPaintProperty('user-glow', 'circle-opacity', night ? 0.42 : 0.22);
+  } catch { /* stil yeniden yükleniyor — sonraki addUserMarker doğru variantı kurar */ }
+}
+
+/**
+ * Harita gün/gece geçişi — RESTYLE OLMADAN canlı paint güncellemesi (rota katmanları korunur).
+ *
+ * - Raster (OSM) aktifse: 'tiles-layer' paint'ini gündüz (doğal açık) / gece (grafit) setine
+ *   geçirir + arka plan rengini günceller. setStyle() çağrılmaz → navigasyon rota/ok katmanları silinmez.
+ * - Marker (rover) gün/gece variantı da güncellenir.
+ * - mapSourceManager night state'i set edilir → sonraki stil yeniden inşası (kaynak değişimi vb.) doğru palet kullanır.
+ *
+ * Vektör (offline .pbf) aktifken gündüze geçiş raster temsiline gerektirir (buildVectorStyle
+ * gündüzde raster'a düşer); bu durum bir sonraki stil yeniden inşasında uygulanır.
+ */
+export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useMapStore.getState>['mapInstance']): void {
+  setMapNight(night);
+  setMarkerTheme(night);
+  const map = mapArg ?? useMapStore.getState().mapInstance;
+  if (!map) return;
+  try {
+    if (map.getLayer('tiles-layer')) {
+      // RASTER (OSM) → canlı paint: restyle yok, rota/marker korunur (en yaygın yol).
+      const paint = night ? RASTER_PAINT_NIGHT : RASTER_PAINT_DAY;
+      for (const [prop, val] of Object.entries(paint)) {
+        map.setPaintProperty('tiles-layer', prop as any, val as any);
+      }
+      if (map.getLayer('background')) {
+        map.setPaintProperty('background', 'background-color', night ? '#131822' : '#e9eef3');
+      }
+    }
+    // NOT: Vektör (offline .pbf) veya uydu/hibrit → burada setStyle ÇAĞIRMA. setStyle,
+    // mapStatus-tetiklemeli effect'te reload↔restyle döngüsü yaratıp birkaç dakikada
+    // bellek/CPU şişmesine → çökmeye yol açabiliyordu. _mapNight yine güncellendiği için
+    // bir sonraki DOĞAL stil inşası (kaynak/mod değişimi) doğru gün/gece paletini kurar.
+  } catch { /* stil yeniden yükleniyor — sonraki getMapStyle doğru paleti kurar */ }
+}
+
+/**
+ * Navigasyon aktiflik durumunu işaretle — alt halka genişler, glow güçlenir.
+ * Yalnızca bayrak günceller; görsel etki updateUserMarker'ın pulse döngüsünde uygulanır.
+ */
+export function setMarkerNavActive(active: boolean): void {
+  _markerNavActive = active;
 }
 
 export function getMapInstance(): MapLibreMap | null {
@@ -1231,7 +1413,7 @@ function _ensureBadgeImage(map: MapLibreMap): void {
   ctx.fillStyle = 'rgba(14,28,48,0.88)';
   ctx.fill();
 
-  ctx.strokeStyle = 'rgba(96,165,250,0.45)';
+  ctx.strokeStyle = 'rgba(224,162,60,0.45)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
@@ -1361,29 +1543,29 @@ export function updateMapMood(map: MapLibreMap, riskScore: number): void {
     catch { /* noop */ }
   }
 
-  // Background: #0d1117 → #060810 (kontrast artışı)
-  const bR = Math.round(13 - 7 * r);
-  const bG = Math.round(17 - 9 * r);
-  const bB = Math.round(23 - 9 * r);
+  // Background: OEM --map-bg-1 #131822 → riskte hafif koyulaşır (#0c0f19)
+  const bR = Math.round(19 - 7 * r);
+  const bG = Math.round(24 - 9 * r);
+  const bB = Math.round(34 - 9 * r);
   if (map.getLayer('background')) {
     try { map.setPaintProperty('background', 'background-color', `rgb(${bR},${bG},${bB})`); }
     catch { /* noop */ }
   }
 
-  // Road colors — line-color (intersection tier line-opacity ile çakışmaz)
-  // road-primary: #c8d5e2 → #7a8b98 (nötr gri-mavi)
+  // Road colors — OEM grafit paletiyle hizalı (style base ile aynı çıpa)
+  // road-primary: #44444f (--map-art-a) → riskte #303037
   if (map.getLayer('road-primary')) {
-    const pR = Math.round(200 - 94 * r);
-    const pG = Math.round(213 - 93 * r);
-    const pB = Math.round(226 - 87 * r);
+    const pR = Math.round(68 - 20 * r);
+    const pG = Math.round(68 - 20 * r);
+    const pB = Math.round(79 - 24 * r);
     try { map.setPaintProperty('road-primary', 'line-color', `rgb(${pR},${pG},${pB})`); }
     catch { /* noop */ }
   }
-  // road-secondary: #6b7f96 → #3e4f5e
+  // road-secondary: #383840 → riskte #262630
   if (map.getLayer('road-secondary')) {
-    const sR = Math.round(107 - 45 * r);
-    const sG = Math.round(127 - 51 * r);
-    const sB = Math.round(150 - 56 * r);
+    const sR = Math.round(56 - 18 * r);
+    const sG = Math.round(56 - 18 * r);
+    const sB = Math.round(64 - 20 * r);
     try { map.setPaintProperty('road-secondary', 'line-color', `rgb(${sR},${sG},${sB})`); }
     catch { /* noop */ }
   }
@@ -1466,7 +1648,6 @@ let _lastBlurReduced = false;  // speed > 20 km/h → halved blur
 let _cachedRoute: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[]; altDurs?: number[]; mainDur?: number } | null = null;
 let _pendingRouteGeometry: { coords: [number, number][]; alts: [number, number][][]; altIdx?: number[]; altDurs?: number[]; mainDur?: number } | null = null;
 let _isStyleChanging = false;
-let _routeQueuePending = false; // tek style.load listener garantisi
 
 /** mapService._isStyleChanging'i FullMapView mutex ile senkronize et. */
 export function setMapStyleChanging(active: boolean): void {
@@ -1501,27 +1682,22 @@ export function setRouteGeometry(
   _cachedRoute          = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
   _pendingRouteGeometry = { coords: coordinates, alts: alternatives, altIdx: altRealIndices, altDurs: altDurations, mainDur: mainDuration };
 
-  // Visibility Watchdog — Android low-memory can silently drop layers while style stays loaded.
-  // If SEL_LAYER is missing despite style being ready, reset queue flag so _applyRouteGeometry runs immediately.
-  if (map.isStyleLoaded() && !_isStyleChanging && !map.getLayer(SEL_LAYER)) {
-    _routeQueuePending = false;
+  // Visibility / Deadlock Watchdog — Android low-memory can silently drop layers while
+  // style stays loaded. If SEL_LAYER is missing despite style being ready, clear stuck flag.
+  if (map.isStyleLoaded() && !map.getLayer(SEL_LAYER)) {
+    // STUCK-FLAG DEADLOCK: stil TAM yüklü + rota katmanı yok ama _isStyleChanging hâlâ true →
+    // bir style.load kaçırılmış / bayrak temizlenmemiş demektir. Bayrak takılı kalırsa rota
+    // "hesaplandı ama çizgi hiç çizilmez" (kullanıcı raporu). Güvenli: yalnız stil yüklüyken
+    // (gerçek setStyle sırasında isStyleLoaded()=false olur, buraya girilmez) temizleyip çiziyoruz.
+    if (_isStyleChanging) _isStyleChanging = false;
   }
 
   if (_isStyleChanging) return;
 
-  if (!map.isStyleLoaded()) {
-    if (!_routeQueuePending) {
-      _routeQueuePending = true;
-      map.once('style.load', () => {
-        _routeQueuePending = false;
-        if (_cachedRoute) {
-          _applyRouteGeometry(map, _cachedRoute.coords, _cachedRoute.alts, _cachedRoute.altIdx, 0, _cachedRoute.altDurs, _cachedRoute.mainDur);
-        }
-      });
-    }
-    return;
-  }
-
+  // NOT: Stil "yüklü değil" görünse bile burada 'style.load' beklemiyoruz —
+  // zaten yüklü stilde tetiklenmez ve Android'de isStyleLoaded() false-negative
+  // verebilir. _applyRouteGeometry kendi içinde frame-poll ile hazır olana kadar
+  // bekler, böylece rota askıda kalmaz ve geç gelmez.
   _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, 0, altDurations, mainDuration);
 }
 
@@ -1538,7 +1714,18 @@ function _applyRouteGeometry(
   if (!map) return;
 
   if (!map.isStyleLoaded()) {
-    map.once('style.load', () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, retryCount));
+    // Android WebView: isStyleLoaded() sık sık FALSE-NEGATIVE döner (stil görsel
+    // olarak hazır olsa bile) ve ZATEN YÜKLÜ bir stilde 'style.load' bir daha
+    // tetiklenmez. style.load beklemek rota çizimini kalıcı askıya alıyordu →
+    // çizgi yalnızca 3sn'lik failsafe ile, GEÇ geliyordu. Çözüm: bir sonraki
+    // frame'de poll ile yeniden dene; isStyleLoaded genelde 1-2 frame'de true'ya
+    // döner → çizgi ~100ms içinde çizilir, saniyelerce beklenmez.
+    if (retryCount < 40) {
+      setTimeout(
+        () => _applyRouteGeometry(map, coordinates, alternatives, altRealIndices, retryCount + 1, altDurations, mainDuration),
+        50,
+      );
+    }
     return;
   }
 
@@ -1626,15 +1813,20 @@ function _applyRouteGeometry(
       (map.getSource(ALT_BADGE_SRC) as any).setData(badgeData);
     }
 
-    // ── Step 3: 5-katmanlı route stack — source + layer re-creation (robust) ──
-    // Herhangi bir katman yoksa tamamını yeniden oluştur (orphan koruması).
+    // Head unit / düşük GPU tespiti — line-blur, line-gradient ve ekstra katmanlar atlanır
+    const _isLowEnd = typeof document !== 'undefined' &&
+      document.documentElement.classList.contains('perf-low');
+
+    // ── Step 3: route stack — source + layer re-creation (robust) ──
+    // perf-low: yalnızca CASE + SEL_LAYER zorunlu. Aksi: 5-katman tam.
     const _selSrcOk    = !!map.getSource(SEL_SRC);
-    const _selLayersOk =
-      !!map.getLayer(ROUTE_SHADOW)   &&
-      !!map.getLayer(ROUTE_GLOW_SEL) &&
-      !!map.getLayer(ROUTE_CASE)     &&
-      !!map.getLayer(SEL_LAYER)      &&
-      !!map.getLayer(ROUTE_FLOW);
+    const _selLayersOk = _isLowEnd
+      ? (!!map.getLayer(ROUTE_CASE) && !!map.getLayer(SEL_LAYER))
+      : (!!map.getLayer(ROUTE_SHADOW)
+         && !!map.getLayer(ROUTE_GLOW_SEL)
+         && !!map.getLayer(ROUTE_CASE)
+         && !!map.getLayer(SEL_LAYER)
+         && !!map.getLayer(ROUTE_FLOW));
 
     if (!_selSrcOk || !_selLayersOk) {
       // Temizle — ters sırayla (üstten alta) kaldır
@@ -1647,39 +1839,41 @@ function _applyRouteGeometry(
       map.addSource(SEL_SRC, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
-        lineMetrics: true,
+        lineMetrics: !_isLowEnd, // perf-low'da gerekmiyor (gradient yok)
       } as any);
 
-      // Layer 0 — Shadow: line-offset + blur ile zemin derinliği
-      map.addLayer({
-        id: ROUTE_SHADOW,
-        type: 'line',
-        source: SEL_SRC,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color':  '#000000',
-          'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 18, 18, 50],
-          'line-opacity': 0.20,
-          'line-blur':    8,
-          'line-offset':  3,
-        },
-      } as any);
+      // Layer 0 — Shadow: line-blur GPU yoğun, head unit'lerde atla
+      if (!_isLowEnd) {
+        map.addLayer({
+          id: ROUTE_SHADOW,
+          type: 'line',
+          source: SEL_SRC,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color':  '#000000',
+            'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 8, 18, 22],
+            'line-opacity': 0.20,
+            'line-blur':    8,
+            'line-offset':  3,
+          },
+        } as any);
 
-      // Layer 1 — Outer Glow: geniş dağılımlı neon halo (gece modu)
-      map.addLayer({
-        id: ROUTE_GLOW_SEL,
-        type: 'line',
-        source: SEL_SRC,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color':  '#4285f4',
-          'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 22, 18, 56],
-          'line-opacity': 0.20,
-          'line-blur':    10,
-        },
-      } as any);
+        // Layer 1 — Outer Glow: blur ile neon halo, head unit'lerde atla
+        map.addLayer({
+          id: ROUTE_GLOW_SEL,
+          type: 'line',
+          source: SEL_SRC,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color':  '#4285f4',
+            'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 10, 18, 24],
+            'line-opacity': 0.20,
+            'line-blur':    10,
+          },
+        } as any);
+      }
 
-      // Layer 2 — Casing: yüksek kontrastlı beyaz sınır
+      // Layer 2 — Casing: beyaz sınır (Google Maps tarzı — ince ve net)
       map.addLayer({
         id: ROUTE_CASE,
         type: 'line',
@@ -1687,45 +1881,50 @@ function _applyRouteGeometry(
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color':  '#ffffff',
-          'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 14, 18, 38],
+          'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 6, 18, 14],
           'line-opacity': 0.95,
         },
       } as any);
-
-      // Layer 3 — Core Fill: yön-kodlu gradyan (mavi departure → yeşil arrival)
+      const _coreFillPaint: any = {
+        'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 4, 18, 10],
+        'line-opacity': 1,
+      };
+      if (_isLowEnd) {
+        _coreFillPaint['line-color'] = '#1A73E8'; // Solid Google blue — head unit safe
+      } else {
+        _coreFillPaint['line-gradient'] = [
+          'interpolate', ['linear'], ['line-progress'],
+          0,   '#1A73E8',  // departure — Google blue
+          0.5, '#4F46E5',  // mid — indigo
+          1,   '#10b981',  // arrival — emerald
+        ];
+      }
       map.addLayer({
         id: SEL_LAYER,
         type: 'line',
         source: SEL_SRC,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-width':  ['interpolate', ['linear'], ['zoom'], 12, 8, 18, 32],
-          'line-opacity': 1,
-          'line-gradient': [
-            'interpolate', ['linear'], ['line-progress'],
-            0,   '#1A73E8',  // departure — Google blue
-            0.5, '#4F46E5',  // mid — indigo
-            1,   '#10b981',  // arrival — emerald
-          ],
-        },
+        paint: _coreFillPaint,
       } as any);
 
-      // Layer 4 — Flow: cinematic light trail (rAF + line-gradient pulse)
-      // line-gradient kullanıldığında line-color ve line-dasharray geçersizdir.
-      map.addLayer({
-        id: ROUTE_FLOW,
-        type: 'line',
-        source: SEL_SRC,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-width':    ['interpolate', ['linear'], ['zoom'], 12, 4, 18, 14],
-          'line-opacity':  0.85,
-          'line-gradient': _buildPulseGradient(0.5),
-        },
-      } as any);
+      // Layer 4 — Flow: cinematic light trail. Head unit'lerde rAF + line-gradient
+      // çift maliyetli → atla, pil ve GPU tasarrufu için.
+      if (!_isLowEnd) {
+        map.addLayer({
+          id: ROUTE_FLOW,
+          type: 'line',
+          source: SEL_SRC,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-width':    ['interpolate', ['linear'], ['zoom'], 12, 4, 18, 14],
+            'line-opacity':  0.85,
+            'line-gradient': _buildPulseGradient(0.5),
+          },
+        } as any);
 
-      // Light trail rAF loop başlat (singleton — çift çağrı güvenli)
-      _startLightTrail();
+        // Light trail rAF loop başlat (singleton — çift çağrı güvenli)
+        _startLightTrail();
+      }
 
     } else {
       // Tüm katmanlar mevcut — sadece maneuver/perspective state sıfırla.
@@ -1756,9 +1955,9 @@ function _applyRouteGeometry(
     try { map.moveLayer(SEL_LAYER); }      catch { /* ignore */ }
     try { map.moveLayer(ROUTE_FLOW); }     catch { /* ignore */ }
     // Araç marker'ı tüm rota katmanlarının üstünde
-    try { map.moveLayer('user-heading-cone'); } catch { /* ignore */ }
-    try { map.moveLayer('user-marker'); }       catch { /* ignore */ }
-    try { map.moveLayer('user-dot'); }          catch { /* ignore */ }
+    try { map.moveLayer('user-glow'); }    catch { /* ignore */ }
+    try { map.moveLayer('user-ring'); }    catch { /* ignore */ }
+    try { map.moveLayer('user-vehicle'); } catch { /* ignore */ }
 
     // ── Step 6: fit bounds (sadece preview modda — driving modda setDrivingView ile çatışır) ───
     if (!useMapStore.getState().drivingMode) {
@@ -1789,7 +1988,6 @@ function _applyRouteGeometry(
 export function clearRouteGeometry(map: MapLibreMap): void {
   _cachedRoute          = null;
   _pendingRouteGeometry = null;
-  _routeQueuePending    = false;
   // Light trail rAF loop durdur — cancelAnimationFrame garantili
   _stopLightTrail();
   // Perspektif / manevra / intersection durumunu sıfırla
@@ -1856,7 +2054,7 @@ export function clearTurnFocus(): void {
 }
 
 export function destroyMap() {
-  console.log('[MAP_DESTROY]');
+  logInfo('[MAP_DESTROY]');
   _initGen++;
   _isStyleChanging  = false;
   _initPromise      = null;

@@ -23,7 +23,7 @@ function RegisterForm() {
     if (!supabase) return;
     setError('');
     setGoogleLoading(true);
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -57,7 +57,7 @@ function RegisterForm() {
         setError('Kimlik doğrulama servisi başlatılamadı.');
         return;
       }
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
       const { error: authError } = await supabase.auth.signUp({
         email,
         password,

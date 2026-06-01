@@ -46,8 +46,9 @@ export function TheaterOverlay() {
   const [isVisible,   setIsVisible]   = useState(false);
   const [isFadingOut, setIsFadingOut] = useState(false);
 
-  // Ambient renk: mediaService.albumAccentRgb üzerinden — merkezi kaynak (Music Hub 2.0)
-  const ambientRgb = media.albumAccentRgb;
+  // Tek Amber (#E0A23C = 224,162,60) — albümden çıkarılan değişken renk yerine
+  // sabit OEM aksanı. Mavi/yeşil sızıntı önlenir, tüm parıltı/buton/ikon amber.
+  const ambientRgb = '224, 162, 60';
 
   // ── Visibility: fade-in / safety fade-out ─────────────────────────────────
   useEffect(() => {
@@ -87,7 +88,7 @@ export function TheaterOverlay() {
         position:       'fixed',
         inset:          0,
         zIndex:         999,
-        background:     'rgba(0, 0, 0, 0.93)',
+        background:     'rgba(0, 0, 0, 0.45)',
         opacity,
         transition,
         display:        'flex',

@@ -26,7 +26,7 @@ function ForgotPasswordForm() {
         setError('Kimlik doğrulama servisi başlatılamadı.');
         return;
       }
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
       const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${siteUrl}/auth/callback`,
       });

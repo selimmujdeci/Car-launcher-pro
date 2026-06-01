@@ -166,7 +166,7 @@ describe('safeSetRaw — SAFETY_DEBOUNCE_KEYS (car-launcher-storage)', () => {
    4. NORMAL DEBOUNCE (4s)
 ═══════════════════════════════════════════════════════════════ */
 
-describe('safeSetRaw — normal 4s debounce', () => {
+describe('safeSetRaw — normal 5s debounce', () => {
   beforeEach(() => {
     clearLocalStorage();
     vi.useFakeTimers();
@@ -186,18 +186,18 @@ describe('safeSetRaw — normal 4s debounce', () => {
     expect(safeGetRaw('car-cache-trip')).toBe('data');
   });
 
-  it('4.1s sonra localStorage\'a yazılır', async () => {
+  it('5.1s sonra localStorage\'a yazılır', async () => {
     safeSetRaw('car-cache-trip', 'committed');
-    await vi.advanceTimersByTimeAsync(4_100);
+    await vi.advanceTimersByTimeAsync(5_100);
     await vi.advanceTimersByTimeAsync(10); // idle polyfill
     expect(localStorage.getItem('car-cache-trip')).toBe('committed');
   });
 
-  it('4s içinde değer güncellenince önceki timer iptal edilir (yalnız son değer yazılır)', async () => {
+  it('5s içinde değer güncellenince önceki timer iptal edilir (yalnız son değer yazılır)', async () => {
     safeSetRaw('car-cache-trip', 'v1');
     await vi.advanceTimersByTimeAsync(2_000);
     safeSetRaw('car-cache-trip', 'v2');
-    await vi.advanceTimersByTimeAsync(4_100);
+    await vi.advanceTimersByTimeAsync(5_100);
     await vi.advanceTimersByTimeAsync(10);
     expect(localStorage.getItem('car-cache-trip')).toBe('v2');
   });

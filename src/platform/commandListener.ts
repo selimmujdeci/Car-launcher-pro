@@ -18,6 +18,7 @@ import {
 import { sensitiveKeyStore }                       from './sensitiveKeyStore';
 import { connectivityService }                     from './connectivityService';
 import { executeMcuCommand }                       from './nativeCommandBridge';
+import { logInfo }                                 from './debug';
 
 // Lazy imports — native modüller sadece runtime'da yüklenir
 let _buildNavIntent:  typeof import('../../website/src/lib/routeEngine').buildNavIntent | null = null;
@@ -428,7 +429,7 @@ export class CommandListener {
     if (retryCount < MAX_RETRY) {
       // Exponential backoff: 2^retry saniye (1s, 2s, 4s)
       const backoffMs = Math.pow(2, retryCount) * 1_000;
-      console.log(`[CmdListener] Retry ${retryCount + 1}/${MAX_RETRY} — ${backoffMs}ms sonra: ${cmd.id}`);
+      logInfo(`[CmdListener] Retry ${retryCount + 1}/${MAX_RETRY} — ${backoffMs}ms sonra: ${cmd.id}`);
 
       // DB'yi güncelle (retry_count++ ve status pending kalır)
       await incrementRetry(cmd.id, `Attempt ${retryCount + 1} failed`);

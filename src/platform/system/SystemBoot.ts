@@ -53,6 +53,7 @@ import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { logError }                from '../crashLogger';
+import { showToast, dismissToast } from '../errorBus';
 import { healthMonitor }           from './SystemHealthMonitor';
 import { initCommunityService, stopCommunityService } from '../communityService';
 import { stopVoiceService }        from '../voiceService';
@@ -82,6 +83,33 @@ class SystemBoot {
   /** LIMP_HOME izleme durumu */
   private _limpActive  = false;
   private _cogUnsub:   (() => void) | null = null;
+  /** LIMP_HOME kullanıcı uyarısı (GlobalAlert) toast id — Zero-Leak: çıkışta kapatılır */
+  private _limpToastId: string | null = null;
+  /**
+   * Boot iptal denetleyicisi. start() sırasında stop() tetiklenirse abort()
+   * edilir; havada bekleyen async start adımları erken çıkar ve geç tamamlanan
+   * servisler anında temizlenir (zombi servis önleme).
+   */
+  private _bootAbort: AbortController | null = null;
+
+  /** Boot şu an iptal edilmiş mi? */
+  private get _aborted(): boolean {
+    return this._bootAbort?.signal.aborted ?? false;
+  }
+
+  /**
+   * Cleanup kaydı — ama boot iptal edildiyse servisi kaydetmeden anında durdur.
+   * Async adımdan SONRA dönen cleanup için: stop() çoktan geçtiyse zombi kalmaz.
+   */
+  private _regOrAbort(fn: Cleanup | void | undefined): void {
+    if (this._aborted) {
+      if (typeof fn === 'function') {
+        try { fn(); } catch (e) { logError('SystemBoot:abortCleanup', e); }
+      }
+      return;
+    }
+    this._reg(fn);
+  }
 
   // ── Cleanup kaydı ─────────────────────────────────────────────────────────
 
@@ -209,6 +237,17 @@ class SystemBoot {
     if (this._limpActive) return;
     this._limpActive = true;
     _log('LIMP_HOME: Opsiyonel servisler durduruluyor...');
+
+    // GlobalAlert: kullanıcıyı kalıcı uyarıyla bilgilendir (kritik veriler açık kalır)
+    if (!this._limpToastId) {
+      this._limpToastId = showToast({
+        type:     'warning',
+        title:    'Sistem Kısıtlı Modda',
+        message:  'Bazı özellikler güvenlik için devre dışı. Hız, harita ve temel OBD aktif.',
+        duration: 0,
+      });
+    }
+
     const OPTIONAL = ['RadarEngine', 'FuelAdvisor', 'MaintenanceBrain', 'CommunityService', 'VoiceService'] as const;
     for (const name of OPTIONAL) {
       const fn = this._namedCleanups.get(name);
@@ -227,6 +266,10 @@ class SystemBoot {
     if (!this._limpActive) return;
     this._limpActive = false;
     _log('LIMP_HOME çıkışı: Servisler yeniden başlatılıyor...');
+
+    // GlobalAlert kapat — kısıtlı mod sona erdi
+    if (this._limpToastId) { dismissToast(this._limpToastId); this._limpToastId = null; }
+
     await new Promise<void>((r) => setTimeout(r, 500));
 
     const mbCleanup = startMaintenanceBrain();
@@ -270,14 +313,22 @@ class SystemBoot {
   async start(): Promise<void> {
     if (this._started) return;
     this._started = true;
+    this._bootAbort = new AbortController();
 
     try {
-      await this._wave1();
-      await this._wave2();
-      await this._wave3();
-      await this._wave4();
+      await this._wave1(); if (this._aborted) return this._onBootAborted();
+      await this._wave2(); if (this._aborted) return this._onBootAborted();
+      await this._wave3(); if (this._aborted) return this._onBootAborted();
+      await this._wave4(); if (this._aborted) return this._onBootAborted();
       window.__APP_READY__ = true;
       _log('Boot complete ✓');
+
+      // Soak Test: window.__START_SOAK_TEST__ bayrağı ile DEV + üretimde opsiyonel olarak tetiklenir.
+      // Üretimde varsayılan kapalı; DevTools'ta "window.__START_SOAK_TEST__ = true" ile açılır.
+      if (window.__START_SOAK_TEST__) {
+        healthMonitor.enableSoakTest();
+        _log('SoakTest etkinleştirildi (window.__START_SOAK_TEST__)');
+      }
     } catch (e) {
       logError('SystemBoot', e);
       this.stop(); // kısmi başlatma geri alınır
@@ -286,15 +337,27 @@ class SystemBoot {
   }
 
   /**
+   * Boot, ortasında stop() ile iptal edildiğinde çağrılır.
+   * stop() cleanup'ları zaten çalıştırdı; burada yalnızca güvenli çıkış loglanır.
+   * Geç tamamlanan wave adımları _aborted kontrolleri sayesinde servis kaydetmez.
+   */
+  private _onBootAborted(): void {
+    _log('Boot aborted (stop() çağrıldı) — kısmi başlatma iptal edildi');
+  }
+
+  /**
    * Tüm servisleri Wave 4 → Wave 1 sırasıyla durdurur.
    * start() sonrasında yeniden çağrılabilir (stop → start döngüsü güvenli).
    */
   stop(): void {
     _log('Stopping all services (LIFO)...');
+    // Havada bekleyen async boot adımlarını iptal et (zombi servis önleme)
+    this._bootAbort?.abort();
     // CognitivePriorityEngine + LIMP izleyici
     if (this._cogUnsub) { this._cogUnsub(); this._cogUnsub = null; }
     stopCognitiveEngine();
     this._limpActive = false;
+    if (this._limpToastId) { dismissToast(this._limpToastId); this._limpToastId = null; }
     healthMonitor.stop();
     // LIFO: son başlayan ilk durur — bağımlılık zincirine saygı
     for (let i = this._cleanups.length - 1; i >= 0; i--) {
@@ -304,6 +367,7 @@ class SystemBoot {
     this._namedCleanups.clear();
     this._backoffState.forEach((s) => { if (s.cooloffTimer) clearTimeout(s.cooloffTimer); });
     this._backoffState.clear();
+    this._bootAbort    = null;
     this._started      = false;
   }
 
@@ -325,6 +389,7 @@ class SystemBoot {
 
     _log('  › hydrateExpertTrustStore');
     await hydrateExpertTrustStore();
+    if (this._aborted) return; // stop() async sırasında geldi → erken çık
 
     _log('  › hydrateSafetyBrainFromStorage');
     hydrateSafetyBrainFromStorage();
@@ -333,12 +398,20 @@ class SystemBoot {
     initCommunityService();
     this._regNamed('CommunityService', stopCommunityService);
 
+    // Offline auto-cache: GPS konumuna abone ol → internet varken bulunulan bölgenin
+    // POI verisini arka planda sessizce indir ("offline harita kendiliğinden çalışır").
+    _log('  › startOfflineAutoCache');
+    const { startOfflineAutoCache, stopOfflineAutoCache } = await import('../offlineAutoCache');
+    startOfflineAutoCache();
+    this._regNamed('OfflineAutoCache', stopOfflineAutoCache);
+
     // NativeGuardBridge: heartbeat (1s) + odo persist (5s) + mode sync
     _log('  › NativeGuardBridge');
     this._reg(startNativeGuardBridge());
 
     // Crash recovery: native odo > Zustand odo → worker'a gönder
     await this._crashRecovery();
+    if (this._aborted) return; // stop() async sırasında geldi → erken çık
 
     // MemoryWatchdog: native LMK baskı event'lerini yakala
     _log('  › MemoryWatchdog');
@@ -416,7 +489,9 @@ class SystemBoot {
       logError('SystemBoot:Geofence', e);
       return stopGeofenceService; // fallback cleanup
     });
-    this._reg(geofenceCleanup ?? stopGeofenceService);
+    // Async sırasında stop() geldiyse servisi kaydetme, anında durdur (zombi önle)
+    this._regOrAbort(geofenceCleanup ?? stopGeofenceService);
+    if (this._aborted) return;
 
     // RadarEngine: Türkiye statik radar veritabanı
     _log('  › RadarEngine');
@@ -453,7 +528,9 @@ class SystemBoot {
       logError('SystemBoot:Push', e);
       return undefined;
     });
-    this._reg(pushCleanup);
+    // Async sırasında stop() geldiyse servisi kaydetme, anında durdur (zombi önle)
+    this._regOrAbort(pushCleanup);
+    if (this._aborted) return;
 
     // VoiceService: modül-düzeyi singleton — cleanup'ı LIFO + namedCleanups'a kaydet
     _log('  › VoiceService (named cleanup)');
@@ -475,10 +552,11 @@ class SystemBoot {
    *
    * Desteklenen komutlar:
    *   trigger_zombie        — OPTIONAL zombie worker oluştur; ZombieDetection'ı test et
+   *   trigger_bitflip       — VehicleCompute _odoTMR'a bit-flip enjekte et; median recovery testi
    *   force_thermal_l3      — injectDeviceTemp(70) → ThermalWatchdog L3
    *   simulate_ui_freeze    — 6s synchronous busy-loop → UIWatchdog tetiklenir
    *   memory_pressure_high  — runtimeManager.handleMemoryPressure('CRITICAL')
-   *   corrupt_nav_state     — localStorage yazma admin panelinde yapıldı; burada log sadece
+   *   corrupt_nav_state     — nav_crash_state'i NaN/null koordinatla boz; reload'da reddedilmeli
    *
    * Zero-Leak: dönen cleanup fn BroadcastChannel'ı kapatır.
    */
@@ -503,6 +581,15 @@ class SystemBoot {
           } catch (err) {
             console.error('[ChaosReceiver] Zombie worker oluşturulamadı:', err);
           }
+          break;
+        }
+
+        case 'trigger_bitflip': {
+          // VehicleCompute worker'ında _odoTMR bit-flip → median recovery worker loglarında görünür
+          void import('../vehicleDataLayer').then(({ chaosTriggerBitflip }) => {
+            chaosTriggerBitflip();
+            console.warn('[ChaosReceiver] Escalation Step X: Bit-Flip Injected — VehicleCompute _odoTMR bozuldu; worker loglarında "[Chaos:BitFlip] … TMR BAŞARILI" satırı doğrulanmalı');
+          }).catch((err) => console.error('[ChaosReceiver] trigger_bitflip başarısız:', err));
           break;
         }
 
@@ -532,9 +619,20 @@ class SystemBoot {
         }
 
         case 'corrupt_nav_state': {
-          // Bozma admin panelinde localStorage üzerinden yapıldı.
-          // Bir sonraki nav recovery'de sistem NaN koordinatları reddedecek.
-          console.warn('[ChaosReceiver] Escalation Step X: Nav State Corrupted — nav_crash_state localStorage\'da NaN koordinatlar mevcut, kurtarma testi için uygulamayı yenile');
+          // nav_crash_state'i gerçekten boz: null koordinatlar (Number.isFinite=false).
+          // Reload'da restoreNavigationAsync bütünlük denetiminden geçemez → temiz başlangıç.
+          try {
+            const corrupt = JSON.stringify({
+              destination: { latitude: null, longitude: null, label: 'CHAOS_CORRUPT' },
+              stepIndex:   0,
+              wasActive:   true,
+              ts:          Date.now(),
+            });
+            localStorage.setItem('nav_crash_state', corrupt);
+            console.warn('[ChaosReceiver] Escalation Step X: Nav State Corrupted — nav_crash_state null koordinatlarla bozuldu; uygulamayı yenileyin, restoreNavigationAsync reddedip temiz başlamalı');
+          } catch (err) {
+            console.error('[ChaosReceiver] corrupt_nav_state başarısız:', err);
+          }
           break;
         }
 
@@ -586,5 +684,9 @@ class SystemBoot {
 export const systemBoot = new SystemBoot();
 
 declare global {
-  interface Window { __APP_READY__: boolean; }
+  interface Window {
+    __APP_READY__:       boolean;
+    /** DevTools veya fleet araçlarında Soak Test'i etkinleştirmek için set edilir. */
+    __START_SOAK_TEST__?: boolean;
+  }
 }

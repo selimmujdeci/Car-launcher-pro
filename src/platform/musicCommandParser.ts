@@ -229,12 +229,26 @@ const NON_MUSIC_TARGETS = new Set([
 const STANDALONE_VERB = /^(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle|başlat|baslat|göster|goster|yükle|yukle|çalsın|calsin)(?:\s+bana)?$/i;
 
 function cleanQuery(q: string): string {
-  return q
+  let r = q
     .replace(VERB_SUFFIX, '')       // " aç" gibi sondaki fiil + boşluk
     .replace(STANDALONE_VERB, '')   // tek başına kalan "aç"/"ac" kalıntısı
     .replace(/^(?:bir\s+)?/i, '')   // "bir" kelimesi başta
     .replace(/\s+/g, ' ')
     .trim();
+
+  // "<sanatçı>'ten müzik aç" kalıbı: VERB_SUFFIX " aç"ı attıktan sonra geriye
+  // "İbrahim Tatlıses'ten müzik" kalır. Sondaki jenerik kelimeyi ("müzik/şarkı/
+  // parça") ve ardından sanatçıdaki Türkçe ablatif eki ('ten/'den/'tan/'dan)
+  // temizle ki arama sorgusu sade sanatçı adı olsun → tüm kaynaklarda bulunur.
+  const hadMusicWord = /\s+(?:müziği?|şarkı(?:yı|sı)?|parça(?:yı|sı)?|parçası)$/i.test(r);
+  r = r.replace(/\s+(?:müziği?|şarkı(?:yı|sı)?|parça(?:yı|sı)?|parçası)$/i, '').trim();
+  // Apostroflu ek her zaman güvenle silinir ("Tatlıses'ten" → "Tatlıses").
+  r = r.replace(/['']\s*(?:dan|den|tan|ten|da|de|ta|te)$/i, '').trim();
+  // Apostrofsuz ek yalnızca "X müzik/şarkı" kalıbı kesinleştiyse silinir
+  // (ASR apostrofu düşürmüş olabilir: "tatlısesten müzik" → "tatlıses").
+  if (hadMusicWord) r = r.replace(/(?:dan|den|tan|ten)$/i, '').trim();
+
+  return r;
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -299,7 +313,7 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
   /* ── 5. Query temizle ────────────────────────── */
   const query = cleanQuery(queryRaw);
 
-  // Query boşsa ve sadece kaynak var → uygulamayı aç
+  // Query boşsa ve sadece kaynak var → o kaynaktan müzik başlat (uygulamayı ön plana alma)
   if (!query || query.length < 2) {
     if (!source) return null;
     return {
@@ -307,7 +321,7 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
       source,
       query:     '',
       queryType: 'generic',
-      feedback:  `${source.name} açılıyor`,
+      feedback:  `${source.name}'den müzik başlatılıyor`,
       raw:       trimmed,
     };
   }

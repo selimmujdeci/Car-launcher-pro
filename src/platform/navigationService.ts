@@ -121,6 +121,9 @@ export const ARRIVAL_THRESHOLD_M = 20;
 // 5 s ARRIVED → IDLE timer
 let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
 let _unregisterReroutingCb: (() => void) | null = null;
+// H1: restoreNavigationAsync'in GPS-fix bekleme aboneliğini temizler (Zero-Leak).
+// Fix hiç gelmezse 60s timeout veya stopNavigation() bu fonksiyonu çağırır.
+let _restoreGpsCleanup: (() => void) | null = null;
 
 /** Hedefe varış — ARRIVED durumuna geç ve 5 s sonra IDLE'a dön. */
 function transitionToArrived(): void {
@@ -163,6 +166,7 @@ export function activateNavigation(): void {
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
     _navStartLat            = null;
     _navStartLon            = null;
+    _navStartDistToDest     = Infinity;
     _navigationStarted      = true;
     _arrivalLowSpeedStartMs = null;
     _arrivalDistanceBelow   = 0;
@@ -199,6 +203,7 @@ export function stopNavigation(): void {
   _lastPersistedStepIdx = -1;
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
   _unregisterReroutingCb?.(); _unregisterReroutingCb = null;
+  _restoreGpsCleanup?.(); // H1: bekleyen GPS-fix aboneliğini temizle
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
@@ -211,6 +216,7 @@ export function stopNavigation(): void {
   _lastClosestSegIdx      = -1;
   _navStartLat            = null;
   _navStartLon            = null;
+  _navStartDistToDest     = Infinity;
   _navigationStarted      = false;
   _arrivalLowSpeedStartMs = null;
   _arrivalDistanceBelow   = 0;
@@ -297,17 +303,25 @@ export async function restoreNavigationAsync(): Promise<boolean> {
         activateNavigation();
         console.info('[NavRestore] GPS fix mevcut — navigasyon ACTIVE moduna alındı');
       } else {
-        // GPS fix bekleniyor — gelince ACTIVE'e al (Zero-Touch)
+        // GPS fix bekleniyor — gelince ACTIVE'e al (Zero-Touch).
+        // H1: temizlik referansı + 60s timeout — fix hiç gelmezse abonelik sonsuza dek yaşamaz.
+        _restoreGpsCleanup?.(); // önceki bekleyen aboneliği temizle (çift restore koruması)
         const unsub = useUnifiedVehicleStore.subscribe((s) => {
           const loc = s.location;
           if (!loc || !Number.isFinite(loc.latitude)) return;
           if ((Date.now() - loc.timestamp) >= 30_000) return;
-          unsub();
+          _restoreGpsCleanup?.();
           if (useNavigationStore.getState().status === NavStatus.PREVIEW) {
             activateNavigation();
             console.info('[NavRestore] GPS fix geldi — navigasyon ACTIVE moduna alındı');
           }
         });
+        const _gpsWaitTimer = setTimeout(() => _restoreGpsCleanup?.(), 60_000);
+        _restoreGpsCleanup = () => {
+          unsub();
+          clearTimeout(_gpsWaitTimer);
+          _restoreGpsCleanup = null;
+        };
       }
     }
 
@@ -371,6 +385,8 @@ const ETA_TRAFFIC_HYSTERESIS_MS = 2_000;
 // Aktivasyon state — activateNavigation() set eder, stopNavigation() temizler
 let _navStartLat:           number | null = null;
 let _navStartLon:           number | null = null;
+// M3: navigasyon başındaki hedefe-mesafe — kısa yolculukta (<50m) varış eşiğini orantılı yapar.
+let _navStartDistToDest:    number       = Infinity;
 // navigationStarted: ACTIVE geçişi activateNavigation() üzerinden mi yapıldı?
 // false iken ARRIVED asla tetiklenmez.
 let _navigationStarted:     boolean       = false;
@@ -450,6 +466,10 @@ export function updateNavigationProgress(
   if (_navStartLat === null) {
     _navStartLat = currentLat;
     _navStartLon = currentLon;
+    // M3: başlangıçtaki hedefe-mesafe — kısa yolculukta varış hareket eşiğini ölçekler.
+    _navStartDistToDest = calculateDistance(
+      currentLat, currentLon, state.destination.latitude, state.destination.longitude,
+    );
   }
 
   // ── Sürekli düşük hız takibi ──────────────────────────────────────────────
@@ -496,9 +516,12 @@ export function updateNavigationProgress(
       const softTrigger = distance < ARRIVAL_THRESHOLD_M
         && _arrivalDistanceBelow >= ARRIVAL_HYSTERESIS_COUNT
         && lowSpeedMs >= ARRIVAL_CONSECUTIVE_LOW_SPEED_MS;
+      // M3: Kısa yolculukta (hedef <50m) 50m hareket koşulu asla sağlanmaz → varış takılır.
+      // Eşiği başlangıç mesafesinin yarısına ölçekle (min 5m); normal yolculukta 50m kalır.
+      const minMove = Math.min(ARRIVAL_MIN_MOVE_M, Math.max(_navStartDistToDest * 0.5, 5));
       const allowed = hasValidDest
         && hasValidGeometry
-        && movedFromStart >= ARRIVAL_MIN_MOVE_M
+        && movedFromStart >= minMove
         && (hardTrigger || softTrigger);
 
       if (allowed) {

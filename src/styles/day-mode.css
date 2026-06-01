@@ -12,9 +12,9 @@ html[data-day-night="day"] {
 
   /* Kartlar — biraz daha görünür yüzey */
   --pack-card-bg:       rgba(20,30,52,0.95);
-  --pack-border:        rgba(96,165,250,0.18);
+  --pack-border:        rgba(224,162,60,0.18);
   --pack-shadow:        0 4px 24px rgba(0,0,0,0.5),0 1px 4px rgba(0,0,0,0.3);
-  --pack-glow:          rgba(59,130,246,0.15);
+  --pack-glow:          rgba(224,162,60,0.15);
 
   /* Header / Dock */
   --header-bg:          rgba(12,18,32,0.98);
@@ -30,7 +30,7 @@ html[data-day-night="day"] {
   /* Panel */
   --panel-bg:           rgba(18,26,46,0.96);
   --panel-bg-secondary: rgba(14,20,38,0.94);
-  --panel-border:       rgba(96,165,250,0.15);
+  --panel-border:       rgba(224,162,60,0.15);
   --panel-shadow:       0 4px 24px rgba(0,0,0,0.50);
 
   /* Yüzey */
@@ -38,14 +38,14 @@ html[data-day-night="day"] {
   --surface-overlay:    rgba(12,18,32,0.99);
 
   /* Vurgu renkleri gündüzde daha canlı */
-  --accent-blue:        #3b82f6;
+  --accent-blue:        #E0A23C;
   --accent-purple:      #8b5cf6;
   --accent-cyan:        #06b6d4;
   --accent-emerald:     #10b981;
-  --premium-accent:     #3b82f6;
+  --premium-accent:     #E0A23C;
 
   /* Ambient blob'lar daha belirgin */
-  --blob-1-color:       rgba(59,130,246,0.22);
+  --blob-1-color:       rgba(224,162,60,0.22);
   --blob-2-color:       rgba(139,92,246,0.16);
   --blob-3-color:       rgba(6,182,212,0.14);
 }
@@ -172,8 +172,8 @@ html[data-day-night="day"] .glass-card,
 html[data-day-night="day"] .up-panel,
 html[data-day-night="day"] .premium-card {
   background: rgba(20,30,52,0.96) !important;
-  border: 1px solid rgba(96,165,250,0.16) !important;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.50), 0 0 0 1px rgba(96,165,250,0.05) !important;
+  border: 1px solid rgba(224,162,60,0.16) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.50), 0 0 0 1px rgba(224,162,60,0.05) !important;
 }
 
 /* ── ProLayout kök ── */
@@ -184,7 +184,7 @@ html[data-day-night="day"] [data-layout="pro-main"] {
 /* ── Dock ── */
 html[data-day-night="day"] [data-dock="main"] {
   background: rgba(8,12,22,0.99) !important;
-  border-top: 1px solid rgba(96,165,250,0.20) !important;
+  border-top: 1px solid rgba(224,162,60,0.20) !important;
   box-shadow: 0 -2px 20px rgba(0,0,0,0.70) !important;
 }
 
@@ -199,42 +199,174 @@ html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.07)"],
 html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.08)"],
 html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.09)"],
 html[data-day-night="day"] [style*="border: 1px solid rgba(255,255,255,0.10)"] {
-  border-color: rgba(96,165,250,0.18) !important;
+  border-color: rgba(224,162,60,0.18) !important;
 }
 
 /* ── Gündüzde tailwind vurgu renkleri daha canlı ── */
-html[data-day-night="day"] .text-blue-400   { color: #60a5fa !important; filter: brightness(1.15); }
+html[data-day-night="day"] .text-blue-400   { color: #E0A23C !important; filter: brightness(1.15); }
 html[data-day-night="day"] .text-emerald-400 { color: #34d399 !important; filter: brightness(1.1); }
 html[data-day-night="day"] .text-amber-400  { color: #fbbf24 !important; filter: brightness(1.1); }
 html[data-day-night="day"] .text-purple-400 { color: #a78bfa !important; filter: brightness(1.1); }
 html[data-day-night="day"] .text-cyan-400   { color: #22d3ee !important; filter: brightness(1.1); }
 
 /* ── bg-white/opacity gündüzde biraz daha görünür ── */
-html[data-day-night="day"] .bg-white\/\[0\.04\] { background: rgba(96,165,250,0.06) !important; }
-html[data-day-night="day"] .bg-white\/\[0\.05\] { background: rgba(96,165,250,0.07) !important; }
-html[data-day-night="day"] .bg-white\/\[0\.06\] { background: rgba(96,165,250,0.08) !important; }
-html[data-day-night="day"] .bg-white\/\[0\.07\] { background: rgba(96,165,250,0.09) !important; }
-html[data-day-night="day"] .bg-white\/\[0\.08\] { background: rgba(96,165,250,0.10) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.04\] { background: rgba(224,162,60,0.06) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.05\] { background: rgba(224,162,60,0.07) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.06\] { background: rgba(224,162,60,0.08) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.07\] { background: rgba(224,162,60,0.09) !important; }
+html[data-day-night="day"] .bg-white\/\[0\.08\] { background: rgba(224,162,60,0.10) !important; }
 
 /* ── EntertainmentPortal kartlar ── */
 html[data-day-night="day"] [style*="background: rgba(255,255,255,0.05)"],
 html[data-day-night="day"] [style*="background: rgba(255,255,255,0.07)"],
 html[data-day-night="day"] [style*="background: rgba(255,255,255,0.08)"] {
-  background: rgba(96,165,250,0.08) !important;
-  border-color: rgba(96,165,250,0.15) !important;
+  background: rgba(224,162,60,0.08) !important;
+  border-color: rgba(224,162,60,0.15) !important;
 }
 
 /* ── Sunlight mode: güneş altında kontrast artır ── */
 html[data-day-night="day"].sunlight-mode {
   --text-primary:  #ffffff;
-  --blob-1-color:  rgba(59,130,246,0.30);
+  --blob-1-color:  rgba(224,162,60,0.30);
 }
 
 html[data-day-night="day"].sunlight-mode [data-dock="main"] {
   background: rgba(4,8,18,1) !important;
-  border-top-color: rgba(96,165,250,0.35) !important;
+  border-top-color: rgba(224,162,60,0.35) !important;
 }
 
 /* ── Geçiş ── */
 html[data-day-night] body,
 html[data-day-night] #root { transition: background 0.5s ease; }
+
+/* ═══════════════════════════════════════════════════════════
+   GÜNEŞ OKUNABİLİRLİĞİ — açıklama/ikincil yazılar (beyaz başlık ALTI)
+   güneşte/aydınlıkta okunmuyordu. İkincil + soluk yazı tabanını yükselt.
+   ═══════════════════════════════════════════════════════════ */
+html[data-day-night="day"],
+html[data-day-night="night"] {
+  --text-secondary: #ccd8e8 !important;  /* açıklamalar — belirgin açık gri-mavi */
+  --text-muted:     #aebccf !important;  /* en soluk seviye bile okunur */
+  --premium-text-dim: #ccd8e8 !important;
+  --oem-ink-2:      rgba(236,240,248,0.88) !important;
+  --oem-ink-3:      rgba(236,240,248,0.70) !important;
+}
+/* Düşük-opak beyaz açıklama yazıları (text-white/40-60, opacity-50/60) güneşte görünsün */
+html[data-day-night] .text-white\/40,
+html[data-day-night] .text-white\/45,
+html[data-day-night] .text-white\/50,
+html[data-day-night] .text-white\/55,
+html[data-day-night] .text-white\/60,
+html[data-day-night] .text-slate-400,
+html[data-day-night] .text-slate-500 {
+  color: rgba(226,232,240,0.92) !important;
+}
+
+/* Açık tema (light-ui) güneşte: açıklamalar yeterince KOYU olsun (açık zeminde) */
+html.light-ui {
+  --text-secondary: #2C333E !important;
+  --text-muted:     #444C58 !important;
+  --oem-ink-2:      rgba(18,21,26,0.82) !important;
+  --oem-ink-3:      rgba(18,21,26,0.64) !important;
+}
+
+/* AYARLAR — açık modda (light-ui) görünmez kalan class-tabanlı yazılar.
+   Yukarıdaki "açıklamaları aydınlat" kuralı beyaz zemine ters düşüyor:
+   slate / düşük-opak beyaz açıklamalar açık kart üstünde kayboluyor.
+   Yalnızca .settings-page'e scope'lu → ProLayout/ana ekran etkilenmez. */
+html.light-ui .settings-page .text-white\/30,
+html.light-ui .settings-page .text-white\/40,
+html.light-ui .settings-page .text-white\/45,
+html.light-ui .settings-page .text-white\/50,
+html.light-ui .settings-page .text-white\/55,
+html.light-ui .settings-page .text-white\/60,
+html.light-ui .settings-page .text-white\/70,
+html.light-ui .settings-page .text-slate-400,
+html.light-ui .settings-page .text-slate-500 {
+  color: rgba(20,23,28,0.74) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ☀️ GÜNEŞ ALTI MAKSİMUM OKUNABİLİRLİK (head-unit, doğrudan güneş)
+   ────────────────────────────────────────────────────────────────────────
+   Sorun: Koyu ekran doğrudan güneşte AYNA gibi davranır → sürücü kendi
+   yansımasını görür, içerik okunmaz. (ISO 15008 / WCAG AAA ≥ 7:1.)
+   Çözüm: GÜNDÜZ + sunlight-mode (ALS/far/saat ile güneş algılandığında) tüm
+   temaları yüksek-luminanslı AÇIK + TAM OPAK + BLUR'SUZ + MAKSİMUM KONTRAST
+   yüzeylere zorla. Cam/şeffaflık ve blur güneşte parlamayı artırıp kontrastı
+   düşürdüğü için kaldırılır; soluk griler tam-siyaha çekilir.
+   GECE (data-day-night="night") ASLA beyaza zorlanmaz — gece beyaz ekran
+   sürücüyü kör eder. Bu blok dosya sonunda → eşit-özgüllükteki koyu
+   .sunlight-mode kurallarını kaynak-sırasıyla yener.
+   ════════════════════════════════════════════════════════════════════════ */
+html[data-day-night="day"].sunlight-mode {
+  --bg-card:        #FFFFFF !important;
+  --bg-primary:     #F4F6FA !important;
+  --bg-surface:     #FFFFFF !important;
+  --bg-main:        #EDF0F5 !important;
+  --bg-panel:       #FFFFFF !important;
+  --text:           #0A0C10 !important;
+  --text-main:      #0A0C10 !important;
+  --text-primary:   #0A0C10 !important;
+  --text-secondary: #14181F !important;
+  --text-dim:       #2A2F38 !important;
+  --border-color:   rgba(0,0,0,0.22) !important;
+  --divider-color:  rgba(0,0,0,0.16) !important;
+  /* OEM semantik katman — drawer/dock ekranları bunları kullanır */
+  --oem-bg:        #F4F6FA !important;
+  --oem-surface-0: #FFFFFF !important;
+  --oem-surface-1: #FFFFFF !important;
+  --oem-surface-2: #EEF1F6 !important;
+  --oem-surface-3: #E3E7EE !important;
+  --oem-ink:   #0A0C10 !important;
+  --oem-ink-2: #14181F !important;   /* soluk griler → tam kontrast */
+  --oem-ink-3: #2A2F38 !important;
+  --oem-ink-4: #3A4049 !important;
+  /* Cam blur kapat — güneşte parlama + Mali-400 GPU yükü */
+  --glass-blur: 0px !important;
+  --oem-glass-blur: 0px !important;
+}
+
+/* Kart / panel / drawer / dock: opak beyaz + net koyu kenar (şeffaflık güneşte
+   kontrastı düşürür) — blur tamamen kapalı. */
+html[data-day-night="day"].sunlight-mode .glass-card,
+html[data-day-night="day"].sunlight-mode .up-panel,
+html[data-day-night="day"].sunlight-mode .premium-card,
+html[data-day-night="day"].sunlight-mode [data-drawer],
+html[data-day-night="day"].sunlight-mode [data-dock="main"] {
+  background: #FFFFFF !important;
+  color: #0A0C10 !important;
+  border: 1px solid rgba(0,0,0,0.20) !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.14) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Kök / zemin: parlak açık — koyu yansıma/ayna etkisini bastırır */
+html[data-day-night="day"].sunlight-mode body,
+html[data-day-night="day"].sunlight-mode #root,
+html[data-day-night="day"].sunlight-mode .ultra-premium-root,
+html[data-day-night="day"].sunlight-mode [data-layout="pro-main"] {
+  background: #F4F6FA !important;
+  color: #0A0C10 !important;
+}
+
+/* Soluk/şeffaf metin sınıflarını tam kontrasta zorla (açık zeminde okunabilirlik).
+   Doygun renkler (kırmızı/yeşil/aksan uyarıları) etkilenmez — yalnız nötr griler. */
+html[data-day-night="day"].sunlight-mode .text-white,
+html[data-day-night="day"].sunlight-mode [class*="text-white\/"],
+html[data-day-night="day"].sunlight-mode [class*="text-slate-"],
+html[data-day-night="day"].sunlight-mode [class*="text-gray-"],
+html[data-day-night="day"].sunlight-mode [class*="text-zinc-"],
+html[data-day-night="day"].sunlight-mode [class*="text-neutral-"] {
+  color: #0A0C10 !important;
+}
+
+/* Metin gölgesi güneşte bulanık his verir → kaldır */
+html[data-day-night="day"].sunlight-mode .text-primary,
+html[data-day-night="day"].sunlight-mode .text-secondary,
+html[data-day-night="day"].sunlight-mode h1,
+html[data-day-night="day"].sunlight-mode h2,
+html[data-day-night="day"].sunlight-mode h3 {
+  text-shadow: none !important;
+}

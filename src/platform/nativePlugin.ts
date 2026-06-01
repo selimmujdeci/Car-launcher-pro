@@ -134,8 +134,11 @@ export interface SetVolumeOptions {
 }
 
 export interface SpeechRecognitionOptions {
-  preferOffline: boolean; // EXTRA_PREFER_OFFLINE
-  language?: string;      // BCP-47, e.g. 'tr-TR'
+  preferOffline: boolean;     // EXTRA_PREFER_OFFLINE — yalnızca true ise offline'a zorlanır
+  /** Offline başarısız olursa online ile bir kez daha denensin mi (varsayılan true).
+   *  Head unit'lerde offline TR modeli yok → online fallback şart. Wake word'de false. */
+  onlineFallback?: boolean;
+  language?: string;          // BCP-47, e.g. 'tr-TR'
   maxResults?: number;
 }
 
@@ -383,6 +386,13 @@ export interface CarLauncherPlugin {
 
   // Active media session (Android MediaSessionManager)
   getMediaInfo(options?: { preferredPackage?: string }): Promise<NativeMediaInfo>;
+
+  /**
+   * URI bazlı kapak resmini base64 data URI olarak çeker.
+   * content://, file://, http(s):// destekler. Yerel MediaStore albumart URI'leri için kullanılır.
+   * Native tarafta cache'lenir — aynı URI tekrar sorgulanırsa hemen döner.
+   */
+  getMediaArtDataUri(options: { uri: string }): Promise<{ dataUri: string }>;
 
   // Yerel müzik — cihaz depolamasından MediaPlayer ile çalma
   getMusicTracks(): Promise<GetMusicTracksResult>;

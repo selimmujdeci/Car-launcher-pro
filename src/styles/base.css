@@ -130,7 +130,7 @@
   width: 6px;
 }
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.5);
+  background: rgba(224, 162, 60, 0.5);
   border-radius: 12px;
 }
 

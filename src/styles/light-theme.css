@@ -1,0 +1,116 @@
+/* ═══════════════════════════════════════════════════════════
+   LIGHT UI — Gerçek aydınlık tema (head unit / güneş okunabilirliği)
+   ───────────────────────────────────────────────────────────
+   Tetik:  <html class="light-ui">   (varsayılan açık — main.tsx)
+   Amaç:   Güneş altında okunabilir, açık zemin + koyu yazı.
+
+   Mimari: Çoğu bileşen var(--oem-*, koyu-fallback) / var(--text-*) /
+           var(--panel-*) kullanır. Bu değişkenler açık tanımlanınca
+           Medya, Ayarlar, Navigasyon HUD gibi DEĞİŞKEN-TABANLI ekranlar
+           otomatik aydınlanır.
+   Not:    Renklerini INLINE hardcode eden ekranlar (ör. NewHomeLayout)
+           bu katmandan etkilenmez; onlar ayrıca elden geçer.
+   Sıra:   index.css'te EN SON @import edilir → load-order ile koyu
+           kuralları ezer.
+   ═══════════════════════════════════════════════════════════ */
+
+html.light-ui {
+  /* ── Global zemin / metin ── */
+  --bg-primary:          #EEF1F5;
+  --bg-surface:          #FFFFFF;
+  --bg-main:             #EEF1F5;
+  --bg-panel:            #FFFFFF;
+  --bg-card:             #FFFFFF;
+  --surface-base:        #EEF1F5;
+  --surface-overlay:     #FFFFFF;
+  --text-primary:        #14171C;
+  --text-secondary:      #3C434F;
+  --text-muted:          #69717D;
+  --text:                #14171C;
+  --text-main:           #14171C;
+  --premium-text:        #14171C;
+  --premium-text-dim:    #59616D;
+  --border:              rgba(0,0,0,0.12);
+  --border-color:        rgba(0,0,0,0.12);
+  --panel-bg:            #FFFFFF;
+  --panel-bg-secondary:  #F3F5F9;
+  --panel-border:        rgba(0,0,0,0.10);
+
+  /* OEM token'ları (--oem-* / --ink / --line) artık design-system.css'te
+     KANONİK olarak tanımlı (html.light-ui scope). Burada TEKRARLANMAZ.
+     Bu dosya yalnızca global --bg/--text/--panel override'larını +
+     bileşene özel !important yamalarını tutar. */
+  --chrome-bg-strong:    #FFFFFF;
+  --oem-chrome-bg-strong:#FFFFFF;
+}
+
+/* day-mode.css gündüzde --text-primary'yi BEYAZA çekiyor (koyu tema için).
+   Açık zeminde kayboluyor → light-ui'de zorla koyu yap (!important, eşit özgüllüğü kır). */
+html.light-ui[data-day-night="day"],
+html.light-ui[data-day-night="night"],
+html.light-ui {
+  --text-primary:   #14171C !important;
+  --text-secondary: #3C434F !important;
+  --text-muted:     #5A626E !important;
+  --premium-text:   #14171C !important;
+}
+
+/* Ayarlar/kart başlık ve etiketleri net okunur olsun (soluk gri → koyu) */
+html.light-ui .lux-panel .uppercase,
+html.light-ui .glass-card .uppercase,
+html.light-ui .premium-card .uppercase,
+html.light-ui .oem-glass .uppercase {
+  color: #14171C !important;
+}
+
+/* ── Kök zemin ── */
+html.light-ui body,
+html.light-ui #root,
+html.light-ui .ultra-premium-root {
+  background: #EEF1F5 !important;
+  color: #14171C !important;
+}
+
+/* ── Cam / panel yüzeyleri → beyaz, koyu yazı ── */
+html.light-ui .glass-card,
+html.light-ui .oem-glass,
+html.light-ui .premium-card,
+html.light-ui .up-panel,
+html.light-ui .lux-panel,
+html.light-ui .futurist-glass {
+  background: #FFFFFF !important;
+  border-color: rgba(0,0,0,0.10) !important;
+  box-shadow: 0 6px 20px -10px rgba(0,0,0,0.22) !important;
+  color: #14171C !important;
+}
+
+/* Gece/sunlight koyu kuralları light-ui aktifken yüzeyleri tekrar karartmasın */
+html.light-ui[data-day-night="night"] .glass-card,
+html.light-ui[data-day-night="night"] .up-panel,
+html.light-ui[data-day-night="night"] .premium-card,
+html.light-ui[data-day-night="day"] .glass-card,
+html.light-ui[data-day-night="day"] .up-panel,
+html.light-ui[data-day-night="day"] .premium-card {
+  background: #FFFFFF !important;
+  border-color: rgba(0,0,0,0.10) !important;
+  color: #14171C !important;
+}
+
+/* ── Tailwind metin yardımcıları (var-bağlı) zaten döner; ek güvence ── */
+html.light-ui .text-primary   { color: #14171C !important; }
+html.light-ui .text-secondary { color: #3C434F !important; }
+
+/* ── Koyu zemin için yapılmış bg-white/opacity yüzeyleri açıkta hafif gri ── */
+html.light-ui .glass-card [class*="bg-white/"],
+html.light-ui .oem-glass  [class*="bg-white/"],
+html.light-ui .premium-card [class*="bg-white/"] {
+  background: rgba(0,0,0,0.05) !important;
+}
+
+/* ── İlerleme çubuğu / ayraç gibi düşük-opak beyaz çizgiler açıkta görünür olsun ── */
+html.light-ui [style*="rgba(255,240,210,0.18)"],
+html.light-ui [style*="rgba(255,255,255,0.10)"],
+html.light-ui [style*="rgba(255,255,255,0.08)"] {
+  /* not: yalnızca ayraç/hat amaçlı; arka plan değil */
+  border-color: rgba(0,0,0,0.14) !important;
+}

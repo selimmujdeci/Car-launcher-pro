@@ -1,50 +1,37 @@
 /**
- * theaterModeService.ts — Theater Mode Otomasyonu.
+ * theaterModeService.ts — Theater (Sinema) Modu ses profili senkronizasyonu.
  *
- * Araç 30 saniye boyunca durursa VE medya oynatılıyorsa Theater Mode doğrudan aktifleşir.
- * Araç hareket ederse (speed > EXIT_SPEED_KMH) → anında deaktif (GÜVENLİK).
+ * NOT: Otomatik aktivasyon KALDIRILDI. Araç durunca sistem kendiliğinden
+ * "siyah perde"ye (Theater Mode) GİRMEZ. Premium UI her modda net kalır.
+ * Theater Mode yalnızca kullanıcı manuel açtığında (SmartCard / buton) aktifleşir.
+ *
+ * Bu servisin iki sorumluluğu kaldı:
+ *   1. GÜVENLİK ÇIKIŞI: araç harekete geçerse (speed > EXIT_SPEED_KMH) Theater
+ *      Mode anında kapanır.
+ *   2. SES PROFİLİ: isTheaterModeActive değiştiğinde sinema/normal ses profili.
  *
  * Akış:
- *   speed → 0  ──30s timer──►  playing? → setTheaterMode(true)
- *   speed > EXIT_SPEED_KMH    →  setTheaterMode(false)  [anında, 100ms bekleme yok]
- *   isTheaterModeActive: true  →  setCinemaAudioProfile()
- *   isTheaterModeActive: false →  setNormalAudioProfile()
+ *   speed > EXIT_SPEED_KMH      →  setTheaterMode(false)  [anında güvenlik çıkışı]
+ *   isTheaterModeActive: true   →  setCinemaAudioProfile()
+ *   isTheaterModeActive: false  →  setNormalAudioProfile()
  */
 
 import { useUnifiedVehicleStore as useVehicleStore }    from './vehicleDataLayer/UnifiedVehicleStore';
-import { getMediaState }                                from './mediaService';
 import { setCinemaAudioProfile, setNormalAudioProfile } from './audioService';
 import { useSystemStore }                               from '../store/useSystemStore';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
-const STOP_DELAY_MS  = 30_000; // Araç durduktan kaç ms sonra aktifleşir
 const EXIT_SPEED_KMH = 2;      // Bu hızı aşınca → anında çıkış (GPS jitter payı)
 
 // ── Modül state ───────────────────────────────────────────────────────────────
 
-let _stopTimer:       ReturnType<typeof setTimeout> | null = null;
 let _active           = false;
 let _unsubSpeed:      (() => void) | null = null;
 let _unsubTheater:    (() => void) | null = null;
 let _wasTheaterActive = false;
 
 // ── İç yardımcılar ───────────────────────────────────────────────────────────
-
-function _cancelTimer(): void {
-  if (_stopTimer) { clearTimeout(_stopTimer); _stopTimer = null; }
-}
-
-/**
- * 30s duruş sonrası doğrudan aktivasyon.
- * Medya oynatılmıyorsa sessizce geçer — zamanlayıcı bir sonraki duruşta yeniden dener.
- */
-function _activateTheaterMode(): void {
-  if (!_active) return;
-  if (useSystemStore.getState().isTheaterModeActive) return; // zaten aktif
-  if (!getMediaState().playing) return;                      // medya yok → bekle
-  useSystemStore.getState().setTheaterMode(true);
-}
 
 /**
  * Güvenlik çıkışı — araç harekete geçti.
@@ -54,7 +41,6 @@ function _exitTheaterMode(): void {
   if (useSystemStore.getState().isTheaterModeActive) {
     useSystemStore.getState().setTheaterMode(false);
   }
-  _cancelTimer();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -67,27 +53,14 @@ export function startTheaterService(): () => void {
   if (_active) return stopTheaterService;
   _active = true;
 
-  // ── Hız aboneliği ─────────────────────────────────────────────────────────
-  let _prevSpeed = useVehicleStore.getState().speed;
-
+  // ── Hız aboneliği — yalnızca GÜVENLİK çıkışı için ─────────────────────────
+  // Otomatik aktivasyon yok: araç durunca Theater Mode kendiliğinden AÇILMAZ.
+  // Yalnızca araç hareket ederse manuel açılmış modu güvenlik gereği kapatır.
   _unsubSpeed = useVehicleStore.subscribe((state) => {
-    const speed = state.speed;
-    const spd   = speed ?? 0;
-
-    // Güvenlik öncelikli: hareket → anında çıkış, timer iptal
+    const spd = state.speed ?? 0;
     if (spd > EXIT_SPEED_KMH) {
       _exitTheaterMode();
-      _prevSpeed = speed;
-      return;
     }
-
-    // Durma geçişi (hareket → 0) → 30s sayacını başlat
-    if (spd === 0 && ((_prevSpeed ?? 0) > EXIT_SPEED_KMH)) {
-      _cancelTimer();
-      _stopTimer = setTimeout(_activateTheaterMode, STOP_DELAY_MS);
-    }
-
-    _prevSpeed = speed;
   });
 
   // ── Theater Mode değişiminde ses profili güncelle ─────────────────────────
@@ -111,7 +84,6 @@ export function startTheaterService(): () => void {
 export function stopTheaterService(): void {
   if (!_active) return;
   _active = false;
-  _cancelTimer();
   _exitTheaterMode();
   _unsubSpeed?.();   _unsubSpeed   = null;
   _unsubTheater?.(); _unsubTheater = null;

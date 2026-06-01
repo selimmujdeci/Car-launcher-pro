@@ -1,0 +1,137 @@
+{
+  "id": "fiat_doblo_2016",
+  "version": "0.1.0",
+  "make": "Fiat",
+  "model": "Doblò",
+  "yearFrom": 2010,
+  "yearTo": 2022,
+  "protocol": "CAN11_500",
+  "confidenceScore": 0.55,
+  "safetyLevel": "experimental",
+  "fallbackProfile": "standard_obd",
+  "notes": "Fiat C-CAN 500kbps. Aday ID'ler — test protokolüyle doğrulanacak. opendbc + topluluk kaynaklı. DOĞRULANMADAN üretime alma.",
+  "signals": [
+    {
+      "name": "speed",
+      "canId": 464,
+      "startByte": 2,
+      "length": 2,
+      "scale": 0.01,
+      "offset": 0,
+      "unit": "km/h"
+    },
+    {
+      "name": "rpm",
+      "canId": 182,
+      "startByte": 0,
+      "length": 2,
+      "scale": 0.25,
+      "offset": 0,
+      "unit": "rpm"
+    },
+    {
+      "name": "coolant",
+      "canId": 182,
+      "startByte": 4,
+      "length": 1,
+      "scale": 1,
+      "offset": -40,
+      "unit": "°C"
+    },
+    {
+      "name": "throttle",
+      "canId": 464,
+      "startByte": 0,
+      "length": 1,
+      "scale": 0.392,
+      "offset": 0,
+      "unit": "%"
+    },
+    {
+      "name": "reverse",
+      "canId": 466,
+      "startByte": 0,
+      "length": 1,
+      "bitOffset": 5,
+      "bitMask": 32,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "parkingBrake",
+      "canId": 466,
+      "startByte": 1,
+      "length": 1,
+      "bitOffset": 0,
+      "bitMask": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "doorFl",
+      "canId": 837,
+      "startByte": 0,
+      "length": 1,
+      "bitOffset": 0,
+      "bitMask": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "doorFr",
+      "canId": 837,
+      "startByte": 0,
+      "length": 1,
+      "bitOffset": 1,
+      "bitMask": 2,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "doorRl",
+      "canId": 837,
+      "startByte": 0,
+      "length": 1,
+      "bitOffset": 2,
+      "bitMask": 4,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "doorRr",
+      "canId": 837,
+      "startByte": 0,
+      "length": 1,
+      "bitOffset": 3,
+      "bitMask": 8,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "headlights",
+      "canId": 837,
+      "startByte": 1,
+      "length": 1,
+      "bitOffset": 2,
+      "bitMask": 4,
+      "scale": 1,
+      "offset": 0,
+      "unit": "bool"
+    },
+    {
+      "name": "fuel",
+      "canId": 1361,
+      "startByte": 0,
+      "length": 1,
+      "scale": 0.392,
+      "offset": 0,
+      "unit": "%"
+    }
+  ]
+}

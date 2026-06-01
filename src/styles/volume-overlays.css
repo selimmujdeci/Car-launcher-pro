@@ -1,6 +1,6 @@
 :root {
-  --vol-glow: rgba(59, 130, 246, 0.5);
-  --vol-accent: var(--pack-accent-color, #3b82f6);
+  --vol-glow: rgba(224, 162, 60, 0.5);
+  --vol-accent: var(--pack-accent-color, #E0A23C);
   --vol-glass: rgba(255, 255, 255, 0.05);
   --vol-glass-border: rgba(255, 255, 255, 0.1);
 }

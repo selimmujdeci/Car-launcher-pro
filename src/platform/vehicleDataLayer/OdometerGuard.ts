@@ -57,6 +57,12 @@ export class OdometerGuard {
   private _startupDone  = false;
   private _refLat: number | null = null;
   private _refLng: number | null = null;
+  /**
+   * Monotonic Clock Enforcement: check() çağrıları arası süre yalnızca
+   * performance.now() ile ölçülür (Date.now()/wall-clock ASLA). NTP senkronu
+   * veya kullanıcı saat değişimi "time jump" üretemez. 0 = henüz ölçüm yok.
+   */
+  private _lastCheckPerfMs = 0;
 
   /**
    * GPS koordinatını odometer hesabına geçmeden önce denetle.
@@ -74,6 +80,16 @@ export class OdometerGuard {
    *   'ok'      — Geçerli; odometer delta hesaplanabilir.
    */
   check(lat: number, lng: number, speedKmh: number, dtMs: number): 'skip' | 'invalid' | 'ok' {
+    // ── Monotonic Clock Enforcement ────────────────────────────────────────
+    // check() çağrıları arası süreyi performance.now() ile ölç (saat atlamasına
+    // bağışık). Çağıranın geçtiği dtMs yalnızca makul VE wall-clock kokusu
+    // taşımıyorsa kullanılır; aksi halde monotonic delta esas alınır.
+    const nowPerf = performance.now();
+    const monoDt  = this._lastCheckPerfMs > 0 ? nowPerf - this._lastCheckPerfMs : 0;
+    this._lastCheckPerfMs = nowPerf;
+    // Güvenli Δt: dtMs sonlu, negatif değil ve < 60s ise olduğu gibi; değilse monoDt.
+    const safeDtMs = (Number.isFinite(dtMs) && dtMs >= 0 && dtMs < 60_000) ? dtMs : monoDt;
+
     // ── Startup Guard ──────────────────────────────────────────────────────
     if (!this._startupDone) {
       this._startupCount++;
@@ -91,13 +107,13 @@ export class OdometerGuard {
       // Fiziksel yer değiştirme limiti:
       //   speed (km/h) × dt (s) × 2.0 (ivme tamponu) + 0.05 (50 m GPS taban toleransı)
       const spd            = speedKmh > 0 ? speedKmh : 0;
-      const maxAllowedDist = (spd / 3_600) * (dtMs / 1_000) * 2.0 + 0.05;
+      const maxAllowedDist = (spd / 3_600) * (safeDtMs / 1_000) * 2.0 + 0.05;
 
       if (dist > maxAllowedDist) {
         console.warn(
           `[ODO:Guard] Teleport rejected: ${dist.toFixed(3)} km` +
           ` > ${maxAllowedDist.toFixed(3)} km allowed` +
-          ` (${speedKmh.toFixed(1)} km/h, Δt ${dtMs} ms)`,
+          ` (${speedKmh.toFixed(1)} km/h, Δt ${safeDtMs.toFixed(0)} ms)`,
         );
         // Referansı sıfırla → sonraki kararlı fix yeni baseline kurar
         this._refLat = null;
@@ -156,6 +172,7 @@ export class OdometerGuard {
     // Lat/Lng referansı sıfır kalır: bir sonraki GPS fix'te jump guard pas geçer
     this._refLat = null;
     this._refLng = null;
+    this._lastCheckPerfMs = 0; // monotonic delta'yı sıfırla — recovery sonrası ilk fix temiz
     void km; // lint: parametre acknowledged, dahili km takibi worker'da
   }
 
@@ -165,5 +182,6 @@ export class OdometerGuard {
     this._startupDone  = false;
     this._refLat       = null;
     this._refLng       = null;
+    this._lastCheckPerfMs = 0;
   }
 }

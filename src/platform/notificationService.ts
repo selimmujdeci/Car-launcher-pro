@@ -4,7 +4,7 @@
  * Architecture:
  *  - Module-level push state (same pattern as obdService / mediaService)
  *  - Native path: CarLauncher 'notification' events (requires Android NotificationListenerService)
- *  - Web/demo path: Mock notifications every ~30s simulating WhatsApp, calls, etc.
+ *  - Web/demo path: bildirim yok (simülasyon kaldırıldı — ticari sürüm)
  *  - TTS: Web Speech API (SpeechSynthesis) in Turkish
  *  - Voice Reply: SpeechRecognition API → native replyToNotification or console log
  *  - Auto-read modes: 'all' | 'priority' | 'off'
@@ -151,7 +151,6 @@ const INITIAL: NotificationState = {
 
 let _state: NotificationState = { ...INITIAL };
 const _listeners = new Set<(s: NotificationState) => void>();
-let _mockTimer: ReturnType<typeof setInterval> | null = null;
 let _nativeListenerStop: (() => void) | null = null;
 let _started = false;
 
@@ -206,33 +205,6 @@ function _addNotification(raw: Omit<AppNotification, 'id' | 'appIcon' | 'categor
   }
 }
 
-/* ── Mock notifications (web/demo mode) ──────────────────── */
-
-const MOCK_POOL: Array<Omit<AppNotification, 'id' | 'appIcon' | 'category' | 'isRead' | 'isPriority' | 'time'>> = [
-  { packageName: 'com.whatsapp', appName: 'WhatsApp', sender: 'Murat', text: 'Neredesin abi, geliyorum' },
-  { packageName: 'com.whatsapp', appName: 'WhatsApp', sender: 'Aile Grubu', text: 'Akşama yemek var, gel 🍽️' },
-  { packageName: 'org.telegram.messenger', appName: 'Telegram', sender: 'Ahmet', text: 'Toplantı 3\'e ertelendi' },
-  { packageName: 'com.android.dialer', appName: 'Telefon', sender: '+90 532 XXX XX XX', text: 'Gelen Arama' },
-  { packageName: 'com.android.dialer', appName: 'Telefon', sender: 'Cevapsız: Annem', text: 'Cevapsız arama' },
-  { packageName: 'com.google.android.gm', appName: 'Gmail', sender: 'noreply@bank.com', text: 'Hesabınıza 1.250₺ yatırıldı' },
-  { packageName: 'com.whatsapp', appName: 'WhatsApp', sender: 'Selim İş', text: 'Raporu gönderin lütfen' },
-  { packageName: 'org.telegram.messenger', appName: 'Telegram', sender: 'Car Channel', text: '🚗 Yeni güncelleme mevcut!' },
-];
-
-function _startMock(): void {
-  if (_mockTimer) return;
-  // Fire first mock after 8 seconds, then every 25–45 seconds
-  setTimeout(() => {
-    _fireRandomMock();
-    _mockTimer = setInterval(_fireRandomMock, 30_000 + Math.random() * 15_000);
-  }, 8_000);
-}
-
-function _fireRandomMock(): void {
-  const template = MOCK_POOL[Math.floor(Math.random() * MOCK_POOL.length)];
-  _addNotification({ ...template, time: Date.now() });
-}
-
 /* ── Native notifications ────────────────────────────────── */
 
 async function _startNative(): Promise<void> {
@@ -260,8 +232,9 @@ async function _startNative(): Promise<void> {
     _nativeListenerStop = () => { try { handle.remove(); } catch { /* ignore */ } };
 
   } catch {
-    // Fall back to mock if native not available
-    _startMock();
+    // Native dinleyici kurulamadı → bildirim yok (simülasyona düşülmez).
+    // İzin/listener yokken sessiz kal; startNotificationService retry'e izin verir.
+    _setState({ hasPermission: false });
   }
 }
 
@@ -292,13 +265,12 @@ export function startNotificationService(): void {
       _started = false; // allow retry
     });
   } else {
-    _setState({ hasPermission: true });
-    _startMock();
+    // Web/demo: simülasyon bildirimi yok. Native köprü olmadan bildirim gelmez.
+    _setState({ hasPermission: false });
   }
 }
 
 export function stopNotificationService(): void {
-  if (_mockTimer) { clearInterval(_mockTimer); _mockTimer = null; }
   if (_nativeListenerStop) {
     const stop = _nativeListenerStop;
     _nativeListenerStop = null;

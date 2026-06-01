@@ -178,7 +178,7 @@ function App() {
             alignItems: 'center', justifyContent: 'center',
             gap: '1.5rem', color: '#fff', fontFamily: 'system-ui,sans-serif',
           }}>
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#E0A23C" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="7" y="2" width="10" height="18" rx="2"/>
               <path d="M12 18v.01"/>
               <path d="M5 8l-2 2 2 2" opacity="0.5"/>

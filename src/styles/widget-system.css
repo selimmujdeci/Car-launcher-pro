@@ -26,7 +26,7 @@
 
 /* Large: focus ring and full presence */
 [data-widget-key][data-widget-size="large"] > * {
-  outline: 1px solid rgba(59, 130, 246, 0.25);
+  outline: 1px solid rgba(224, 162, 60, 0.25);
   outline-offset: 2px;
   border-radius: inherit;
 }
@@ -64,7 +64,7 @@
 [data-theme-pack="tesla"] [class*="ClockWidget"],
 [data-theme-pack="tesla"] [class*="TimeWidget"] {
   background: rgba(13, 22, 40, 0.6) !important;
-  border: 1px solid rgba(59, 130, 246, 0.15) !important;
+  border: 1px solid rgba(224, 162, 60, 0.15) !important;
   border-radius: 0.75rem !important;
   padding: 0.75rem !important;
   font-size: 0.85rem;
@@ -73,7 +73,7 @@
 [data-theme-pack="tesla"] [data-section="obd"],
 [data-theme-pack="tesla"] [class*="OBDPanel"] {
   background: rgba(13, 22, 40, 0.5) !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border: 1px solid rgba(224, 162, 60, 0.2) !important;
   border-radius: 0.5rem !important;
   padding: 0.75rem !important;
   gap: 0.5rem !important;
@@ -91,9 +91,9 @@
 }
 
 [data-theme-pack="tesla"] button:hover {
-  background: rgba(59, 130, 246, 0.1) !important;
+  background: rgba(224, 162, 60, 0.1) !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 2px 8px rgba(224, 162, 60, 0.1) !important;
 }
 
 /* ── BIG CARDS: Bold, driving-focused ───────────────────────── */

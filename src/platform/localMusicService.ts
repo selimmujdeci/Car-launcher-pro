@@ -7,17 +7,25 @@
  * - MediaHub'a entegrasyon: yerel çalarken updateMediaState() → kart güncellenir
  */
 import { useSyncExternalStore } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import type { LocalMusicTrack } from './nativePlugin';
 import { isNative } from './bridge';
 import { updateMediaState, getMediaState } from './mediaService';
 import { logError } from './crashLogger';
 
-/** content:// URI'yi WebView'de yüklenebilir URL'e çevirir */
-function toWebUri(uri: string | undefined): string | undefined {
+/**
+ * MediaStore content URI'sinden base64 kapak resmi yükler.
+ * `convertFileSrc` content provider URI'lerini düzgün çevirmediği için
+ * native taraftan base64 data URI alıyoruz.
+ */
+async function fetchAlbumArtDataUri(uri: string | undefined): Promise<string | undefined> {
   if (!uri || !isNative) return undefined;
-  try { return Capacitor.convertFileSrc(uri); } catch { return undefined; }
+  try {
+    const { dataUri } = await CarLauncher.getMediaArtDataUri({ uri });
+    return dataUri || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /* ── State ───────────────────────────────────────────────── */
@@ -69,6 +77,11 @@ let _startedStop:  RemoveFn | null = null;
 let _completedStop:RemoveFn | null = null;
 let _errorStop:    RemoveFn | null = null;
 
+/* Parça doğal bitince kuyruğu üst katmanın (carosMediaLayer) ilerletmesi için callback.
+ * Kayıtlı değilse kendi içinde sıradaki parçaya geçer (geriye dönük güvenli). */
+let _onEnded: (() => void) | null = null;
+export function setLocalOnEnded(cb: (() => void) | null): void { _onEnded = cb; }
+
 /* ── Init / destroy ─────────────────────────────────────── */
 
 export async function initLocalMusic(): Promise<void> {
@@ -101,7 +114,8 @@ export async function initLocalMusic(): Promise<void> {
     const h3 = await CarLauncher.addListener('localMusicCompleted', () => {
       _set({ playing: false, positionMs: 0 });
       updateMediaState({ playing: false });
-      // Sonraki parçaya geç
+      // Kuyruk yönetimi caros katmanındaysa oraya devret (tek tip + persist); yoksa kendi içinde ilerle.
+      if (_onEnded) { _onEnded(); return; }
       if (_state.currentIndex < _state.tracks.length - 1) {
         void playAtIndex(_state.currentIndex + 1);
       }
@@ -157,6 +171,7 @@ export async function playAtIndex(index: number): Promise<void> {
   }
 
   // mediaService state'i hemen güncelle → MediaHub kart bilgisi
+  // albumArt boş başlar — async fetch sonra dolduracak
   updateMediaState({
     playing:       false,
     hasSession:    true,
@@ -166,11 +181,22 @@ export async function playAtIndex(index: number): Promise<void> {
     track: {
       title:       track.title   || track.uri.split('/').pop() || 'Bilinmeyen Parça',
       artist:      track.artist  || track.album || 'Bilinmeyen Sanatçı',
-      albumArt:    toWebUri(track.albumArtUri),
+      albumArt:    undefined,
       durationSec: track.durationMs / 1000,
       positionSec: 0,
     },
   });
+
+  // Kapak resmini arka planda yükle ve hazır olunca state'i tazele
+  void (async () => {
+    const dataUri = await fetchAlbumArtDataUri(track.albumArtUri);
+    if (dataUri && _state.currentIndex === index) {
+      // Hâlâ aynı parça çalıyor — state'i güncelle
+      updateMediaState({
+        track: { ...getMediaState().track, albumArt: dataUri },
+      });
+    }
+  })();
 
   try {
     await CarLauncher.playLocalTrack({ uri: track.uri });

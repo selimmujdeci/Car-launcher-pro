@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import { useStore } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -28,7 +29,7 @@ import type { DrawerType } from './DockBar';
 import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/drawerBus';
 // DriveHUD kaldırıldı
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
-const DrawerPanel      = lazy(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
+const DrawerPanel      = lazyWithRetry(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
 import { NewHomeLayout } from './NewHomeLayout';
 // ── Custom hooks ──────────────────────────────────────────────
 import { useLayoutServices } from '../../hooks/useLayoutServices';
@@ -153,13 +154,16 @@ export default function MainLayout() {
   }, [bootPhase, settings.autoNavOnStart]);
 
   // ── Orchestrator'dan gelen harita açma sinyali ───────────
-  // navOpenTrigger her artışı bir kez "aç" komutudur
+  // navOpenTrigger her artışı bir kez "aç" komutudur (sürüş başlayınca tetiklenir).
+  // Yalnızca kullanıcı "Hızlı Harita" (autoNavOnStart) açıksa haritayı aç — aksi
+  // halde park/test sırasında sürüş yanlış algılanınca harita kendiliğinden tam
+  // ekran açılıyordu. Tetik yine tüketilir (seen ref güncellenir) → birikmez.
   useEffect(() => {
     if (navOpenTrigger !== navOpenSeenRef.current) {
       navOpenSeenRef.current = navOpenTrigger;
-      setFullMapOpen(true);
+      if (settings.autoNavOnStart) setFullMapOpen(true);
     }
-  }, [navOpenTrigger]);
+  }, [navOpenTrigger, settings.autoNavOnStart]);
 
   useEffect(() => {
     document.body.classList.toggle('performance-mode', !!settings.performanceMode);

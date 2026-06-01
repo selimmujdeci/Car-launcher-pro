@@ -14,6 +14,7 @@
  */
 
 import { Network } from '@capacitor/network';
+import { logInfo } from './debug';
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ class ConnectivityService {
       const wasOffline = !this._online;
       this._online = connected;
       if (connected && wasOffline) {
-        console.log('[Connectivity] Bağlantı geldi — kuyruk boşaltılıyor');
+        logInfo('[Connectivity] Bağlantı geldi — kuyruk boşaltılıyor');
         void this._drainQueue();
       }
     });

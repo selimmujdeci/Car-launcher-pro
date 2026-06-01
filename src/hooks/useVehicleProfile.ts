@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   onVehicleDetection,
   getVehicleDetectionSnapshot,
@@ -18,7 +19,11 @@ export function useVehicleProfile(): VehicleProfileState {
   const [detection, setDetection] = useState<VehicleDetectionState>(
     getVehicleDetectionSnapshot,
   );
-  const { settings } = useStore();
+  // Narrow selector: araç profili dışındaki store güncellemelerinde re-render olmaz.
+  const settings = useStore(useShallow((s) => ({
+    vehicleProfiles:        s.settings.vehicleProfiles,
+    activeVehicleProfileId: s.settings.activeVehicleProfileId,
+  })));
 
   useEffect(() => onVehicleDetection(setDetection), []);
 

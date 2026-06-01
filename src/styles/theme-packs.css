@@ -4,74 +4,65 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ──────────────────────────────────────────────────────────────────
-   1. PRO — Lamborghini / Ferrari Pit Lane Estetiği
-   Karbon fiber, altın vurgular, derin mürekkep mavisi
+   1. PRO — OEM Adaptive HMI (gece = yükseltilmiş ılık-nötr koyu)
+   Eski Lamborghini pit-lane (altın/karbon/Orbitron) → OEM-grade nötr.
+   Gündüz aydınlık override: html[data-theme="pro"][data-day-night="day"] (altta).
 ────────────────────────────────────────────────────────────────── */
 :root[data-theme="pro"],
 html[data-theme="pro"] {
-  --bg-primary:      #1C1C2E;
-  --bg-secondary:    #24243E;
-  --bg-surface:      #2D2D44;
-  --bg-card:         rgba(35,35,58,0.96);
-  --accent-primary:  #D4AF37;
-  --accent-secondary:#C0392B;
-  --accent-glow:     rgba(212,175,55,0.25);
-  --text-primary:    #F5F0E8;
-  --text-secondary:  #B8A89A;
-  --text-muted:      #7A6E66;
-  --border-color:    rgba(212,175,55,0.30);
-  --border-subtle:   rgba(212,175,55,0.12);
-  --shadow-color:    rgba(0,0,0,0.70);
-  --gradient-start:  #1C1C2E;
-  --gradient-end:    #2D2D44;
-  --dock-bg:         rgba(14,14,24,0.98);
-  --dock-border:     rgba(212,175,55,0.25);
-  --card-blur:       blur(16px) saturate(1.4);
+  --bg-primary:      #16181D;
+  --bg-secondary:    #1C1F27;
+  --bg-surface:      #232732;
+  --bg-card:         rgba(32,36,45,0.96);
+  --accent-primary:  #E0A23C;
+  --accent-secondary:#64748B;
+  --accent-glow:     rgba(224,162,60,0.22);
+  --text-primary:    #F4F1EA;
+  --text-secondary:  #C2C9D6;
+  --text-muted:      #8A93A3;
+  --border-color:    rgba(255,255,255,0.12);
+  --border-subtle:   rgba(255,255,255,0.06);
+  --shadow-color:    rgba(0,0,0,0.55);
+  --gradient-start:  #16181D;
+  --gradient-end:    #232732;
+  --dock-bg:         rgba(18,20,25,0.98);
+  --dock-border:     rgba(255,255,255,0.10);
+  --card-blur:       blur(4px);
   --radius-card:     18px;
   --radius-dock:     0px;
-  --pack-bg:         linear-gradient(160deg,#1C1C2E 0%,#24243E 50%,#1A1A2C 100%);
-  --pack-card-bg:    rgba(35,35,58,0.96);
-  --pack-border:     rgba(212,175,55,0.28);
-  --pack-glow:       rgba(212,175,55,0.15);
-  --pack-accent:     #D4AF37;
-  --pack-accent-rgb: 212,175,55;
-  --header-bg:       rgba(14,14,24,0.98);
-  --dock-bg-var:     rgba(12,12,20,0.99);
-  --text-primary-var:#F5F0E8;
-  --text-secondary-var:#B8A89A;
-  --premium-accent:  #D4AF37;
-  --accent-blue:     #D4AF37;
+  --pack-bg:         linear-gradient(160deg,#16181D 0%,#1A1D24 45%,#1D2129 100%);
+  --pack-card-bg:    rgba(32,36,45,0.96);
+  --pack-border:     rgba(255,255,255,0.12);
+  --pack-glow:       rgba(224,162,60,0.12);
+  --pack-accent:     #E0A23C;
+  --pack-accent-rgb: 224,162,60;
+  --header-bg:       rgba(20,22,28,0.98);
+  --dock-bg-var:     rgba(16,18,23,0.99);
+  --text-primary-var:#F4F1EA;
+  --text-secondary-var:#C2C9D6;
+  --premium-accent:  #E0A23C;
+  --accent-blue:     #E0A23C;
   --accent-emerald:  #2ECC71;
-  --accent-red:      #C0392B;
+  --accent-red:      #EF4444;
 
-  /* ── Yapısal kimlik: PRO ── */
-  --radius-btn:        4px;
-  --radius-tile:       4px;
-  --font-ui:           'Orbitron', monospace;
-  --font-weight-ui:    900;
-  --letter-spacing-ui: 2px;
-  --btn-glow:          0 0 12px rgba(212,175,55,0.35);
-  --icon-color-1:      #D4AF37;
-  --icon-color-2:      #C0392B;
-  --icon-color-nav:    #D4AF37;
+  /* ── Yapısal kimlik: OEM (yumuşak köşeler, okunabilir tipografi) ── */
+  --radius-btn:        10px;
+  --radius-tile:       12px;
+  --font-ui:           'Inter', system-ui, sans-serif;
+  --font-weight-ui:    600;
+  --letter-spacing-ui: 0.01em;
+  --btn-glow:          none;
+  --icon-color-1:      #E0A23C;
+  --icon-color-2:      #94A3B8;
+  --icon-color-nav:    #E0A23C;
   --icon-color-media:  #2ECC71;
-  --dock-icon-color:   #D4AF37;
-  --divider-color:     rgba(212,175,55,0.18);
-  --dock-border-top:   1px solid rgba(212,175,55,0.35);
-  --tile-hover-bg:     rgba(212,175,55,0.08);
+  --dock-icon-color:   #C2C9D6;
+  --divider-color:     rgba(255,255,255,0.10);
+  --dock-border-top:   1px solid rgba(255,255,255,0.10);
+  --tile-hover-bg:     rgba(255,255,255,0.06);
 
-  /* Karbon fiber doku */
-  --carbon-texture:
-    repeating-linear-gradient(
-      45deg,
-      rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px,
-      transparent 1px, transparent 6px
-    ),
-    repeating-linear-gradient(
-      -45deg,
-      rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px,
-      transparent 1px, transparent 6px
-    );
+  /* Karbon doku kaldırıldı — OEM düz yüzey */
+  --carbon-texture:    none;
 }
 
 html[data-theme="pro"] body,
@@ -86,30 +77,126 @@ html[data-theme="pro"] .up-panel,
 html[data-theme="pro"] .premium-card {
   background: var(--bg-card) !important;
   border: 1px solid var(--border-color) !important;
-  box-shadow: 0 4px 32px var(--shadow-color), 0 0 0 1px var(--border-subtle),
-              inset 0 1px 0 rgba(212,175,55,0.08) !important;
+  box-shadow: 0 4px 24px var(--shadow-color), 0 0 0 1px var(--border-subtle) !important;
   backdrop-filter: var(--card-blur) !important;
-  background-image: var(--carbon-texture) !important;
+  background-image: none !important;
 }
 
 html[data-theme="pro"] [data-dock="main"] {
   background: var(--dock-bg) !important;
   border-top: 1px solid var(--dock-border) !important;
-  box-shadow: 0 -4px 32px rgba(212,175,55,0.08), 0 -1px 0 rgba(212,175,55,0.15) !important;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.35) !important;
 }
 
 html[data-theme="pro"] [data-layout="pro-main"],
 html[data-theme="pro"] [data-pro-sidebar],
 html[data-theme="pro"] [data-pro-topbar],
 html[data-theme="pro"] [data-pro-bottombar] {
-  background: #1C1C2E !important;
-  border-color: rgba(212,175,55,0.20) !important;
+  background: #16181D !important;
+  border-color: rgba(255,255,255,0.10) !important;
 }
 
-html[data-theme="pro"] .text-blue-400,
-html[data-theme="pro"] [style*="color: #60a5fa"] { color: #D4AF37 !important; }
-
 html[data-theme="pro"] .text-emerald-400 { color: #2ECC71 !important; }
+
+/* ══════════════════════════════════════════════════════════════════
+   PRO — GÜNDÜZ AYDINLIK PALET (OEM day, Audi/Mercedes his)
+   Specificity 0,2,1 (vars) / 0,3,1 (element) → hem base [data-theme="pro"]
+   hem day-mode.css hem compat-mode kurallarını ezer.
+   Aydınlık yüzey blur'a ihtiyaç duymaz → Mali-400 kazancı.
+══════════════════════════════════════════════════════════════════ */
+html[data-theme="pro"][data-day-night="day"] {
+  --bg-primary:      #ECEEF1;
+  --bg-secondary:    #E1E4EA;
+  --bg-surface:      #FFFFFF;
+  --bg-card:         rgba(255,255,255,0.94);
+  --accent-primary:  #9A5B00;
+  --accent-glow:     rgba(154,91,0,0.14);
+  --text-primary:    #14181F;
+  --text-secondary:  #3C4350;
+  --text-muted:      #6B7280;
+  --border-color:    rgba(0,0,0,0.10);
+  --border-subtle:   rgba(0,0,0,0.04);
+  --shadow-color:    rgba(0,0,0,0.12);
+  --dock-bg:         rgba(244,246,249,0.96);
+  --dock-border:     rgba(0,0,0,0.10);
+  --card-blur:       blur(1px);
+  --pack-bg:         linear-gradient(160deg,#ECEEF1 0%,#E6E9EE 50%,#E1E4EA 100%);
+  --pack-card-bg:    rgba(255,255,255,0.94);
+  --pack-border:     rgba(0,0,0,0.10);
+  --pack-glow:       rgba(154,91,0,0.06);
+  --pack-accent:     #9A5B00;
+  --pack-accent-rgb: 154,91,0;
+  --header-bg:       rgba(248,249,251,0.94);
+  --dock-bg-var:     rgba(244,246,249,0.97);
+  --text-primary-var:#14181F;
+  --text-secondary-var:#3C4350;
+  --premium-accent:  #9A5B00;
+  --accent-blue:     #9A5B00;
+  --divider-color:   rgba(0,0,0,0.08);
+  --dock-icon-color: #3C4350;
+  --tile-hover-bg:   rgba(0,0,0,0.04);
+}
+
+html[data-theme="pro"][data-day-night="day"] body,
+html[data-theme="pro"][data-day-night="day"] #root,
+html[data-theme="pro"][data-day-night="day"] .ultra-premium-root {
+  background: var(--pack-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme="pro"][data-day-night="day"] .glass-card,
+html[data-theme="pro"][data-day-night="day"] .up-panel,
+html[data-theme="pro"][data-day-night="day"] .premium-card {
+  background: rgba(255,255,255,0.94) !important;
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04) !important;
+  backdrop-filter: blur(1px) !important;
+  background-image: none !important;
+  color: #14181F !important;
+}
+
+html[data-theme="pro"][data-day-night="day"] [data-dock="main"] {
+  background: rgba(248,249,251,0.97) !important;
+  border-top: 1px solid rgba(0,0,0,0.10) !important;
+  box-shadow: 0 -2px 16px rgba(0,0,0,0.10) !important;
+}
+
+html[data-theme="pro"][data-day-night="day"] [data-layout="pro-main"],
+html[data-theme="pro"][data-day-night="day"] [data-pro-sidebar],
+html[data-theme="pro"][data-day-night="day"] [data-pro-topbar],
+html[data-theme="pro"][data-day-night="day"] [data-pro-bottombar] {
+  background: #ECEEF1 !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+
+html[data-theme="pro"][data-day-night="day"] [data-header] {
+  background: rgba(248,249,251,0.94) !important;
+}
+
+html[data-theme="pro"][data-day-night="day"] [data-drawer] {
+  background: rgba(252,253,255,0.98) !important;
+}
+
+/* Gündüz okunabilirlik güvenlik katmanı — açık yüzeyde hardcoded açık metni karart.
+   Vurgu renkleri (text-blue/emerald/amber) korunur; yalnızca beyaz/gri tonlar koyulaşır. */
+html[data-theme="pro"][data-day-night="day"] .text-white,
+html[data-theme="pro"][data-day-night="day"] .text-white\/90,
+html[data-theme="pro"][data-day-night="day"] .text-white\/80,
+html[data-theme="pro"][data-day-night="day"] .text-white\/70,
+html[data-theme="pro"][data-day-night="day"] .text-slate-100,
+html[data-theme="pro"][data-day-night="day"] .text-slate-200,
+html[data-theme="pro"][data-day-night="day"] .text-slate-300,
+html[data-theme="pro"][data-day-night="day"] .text-gray-100,
+html[data-theme="pro"][data-day-night="day"] .text-gray-200,
+html[data-theme="pro"][data-day-night="day"] .text-gray-300 {
+  color: #1A1F29 !important;
+}
+html[data-theme="pro"][data-day-night="day"] .text-slate-400,
+html[data-theme="pro"][data-day-night="day"] .text-slate-500,
+html[data-theme="pro"][data-day-night="day"] .text-gray-400,
+html[data-theme="pro"][data-day-night="day"] .text-gray-500 {
+  color: #4A5260 !important;
+}
 
 /* ──────────────────────────────────────────────────────────────────
    2. TESLA — Silicon Valley Minimalizmi
@@ -121,32 +208,32 @@ html[data-theme="tesla"] {
   --bg-secondary:    #1E1E1E;
   --bg-surface:      #252525;
   --bg-card:         rgba(28,28,28,0.94);
-  --accent-primary:  #E31937;
+  --accent-primary:  #E0A23C;
   --accent-secondary:#A8A9AD;
-  --accent-glow:     rgba(227,25,55,0.20);
+  --accent-glow:     rgba(224,162,60,0.20);
   --text-primary:    #F2F2F2;
   --text-secondary:  #A8A9AD;
   --text-muted:      #666;
-  --border-color:    rgba(227,25,55,0.22);
+  --border-color:    rgba(224,162,60,0.22);
   --border-subtle:   rgba(255,255,255,0.07);
   --shadow-color:    rgba(0,0,0,0.75);
   --gradient-start:  #141414;
   --gradient-end:    #1E1E1E;
   --dock-bg:         rgba(10,10,10,0.99);
-  --dock-border:     rgba(227,25,55,0.30);
+  --dock-border:     rgba(224,162,60,0.30);
   --card-blur:       blur(20px) saturate(1.2);
   --radius-card:     12px;
   --pack-bg:         linear-gradient(160deg,#141414 0%,#1A1A1A 50%,#121212 100%);
   --pack-card-bg:    rgba(28,28,28,0.95);
-  --pack-border:     rgba(227,25,55,0.20);
-  --pack-glow:       rgba(227,25,55,0.12);
-  --pack-accent:     #E31937;
-  --pack-accent-rgb: 227,25,55;
+  --pack-border:     rgba(224,162,60,0.20);
+  --pack-glow:       rgba(224,162,60,0.12);
+  --pack-accent:     #E0A23C;
+  --pack-accent-rgb: 224,162,60;
   --header-bg:       rgba(8,8,8,0.99);
-  --premium-accent:  #E31937;
-  --accent-blue:     #E31937;
+  --premium-accent:  #E0A23C;
+  --accent-blue:     #E0A23C;
   --accent-emerald:  #3DDC84;
-  --accent-red:      #E31937;
+  --accent-red:      #ef4444;
 
   /* ── Yapısal kimlik: TESLA ── */
   --radius-btn:        50px;
@@ -155,14 +242,14 @@ html[data-theme="tesla"] {
   --font-weight-ui:    300;
   --letter-spacing-ui: 0.08em;
   --btn-glow:          none;
-  --icon-color-1:      #E31937;
+  --icon-color-1:      #E0A23C;
   --icon-color-2:      #A8A9AD;
-  --icon-color-nav:    #E31937;
+  --icon-color-nav:    #E0A23C;
   --icon-color-media:  #3DDC84;
-  --dock-icon-color:   #E31937;
+  --dock-icon-color:   #E0A23C;
   --divider-color:     rgba(255,255,255,0.06);
-  --dock-border-top:   2px solid rgba(227,25,55,0.40);
-  --tile-hover-bg:     rgba(227,25,55,0.08);
+  --dock-border-top:   2px solid rgba(224,162,60,0.40);
+  --tile-hover-bg:     rgba(224,162,60,0.08);
 }
 
 html[data-theme="tesla"] body,
@@ -177,7 +264,7 @@ html[data-theme="tesla"] .up-panel,
 html[data-theme="tesla"] .premium-card {
   background: var(--bg-card) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-bottom: 1px solid rgba(227,25,55,0.18) !important;
+  border-bottom: 1px solid rgba(224,162,60,0.18) !important;
   box-shadow: 0 8px 32px var(--shadow-color), 0 1px 0 rgba(255,255,255,0.05) inset !important;
   backdrop-filter: var(--card-blur) !important;
   border-radius: var(--radius-card) !important;
@@ -185,8 +272,8 @@ html[data-theme="tesla"] .premium-card {
 
 html[data-theme="tesla"] [data-dock="main"] {
   background: var(--dock-bg) !important;
-  border-top: 2px solid rgba(227,25,55,0.35) !important;
-  box-shadow: 0 -4px 24px rgba(227,25,55,0.10) !important;
+  border-top: 2px solid rgba(224,162,60,0.35) !important;
+  box-shadow: 0 -4px 24px rgba(224,162,60,0.10) !important;
 }
 
 html[data-theme="tesla"] [data-layout="pro-main"],
@@ -197,7 +284,7 @@ html[data-theme="tesla"] [data-pro-bottombar] {
   border-color: rgba(255,255,255,0.05) !important;
 }
 
-html[data-theme="tesla"] .text-blue-400 { color: #E31937 !important; }
+html[data-theme="tesla"] .text-blue-400 { color: #E0A23C !important; }
 html[data-theme="tesla"] .text-emerald-400 { color: #3DDC84 !important; }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -310,30 +397,30 @@ html[data-theme="mercedes"] {
   --bg-secondary:    #222222;
   --bg-surface:      #2C2C2C;
   --bg-card:         rgba(30,30,30,0.97);
-  --accent-primary:  #C8A882;
+  --accent-primary:  #E0A23C;
   --accent-secondary:#8C8C8C;
-  --accent-glow:     rgba(200,168,130,0.20);
+  --accent-glow:     rgba(224,162,60,0.20);
   --text-primary:    #EDE8E0;
   --text-secondary:  #B0A898;
   --text-muted:      #6A6460;
-  --border-color:    rgba(200,168,130,0.25);
-  --border-subtle:   rgba(200,168,130,0.10);
+  --border-color:    rgba(224,162,60,0.25);
+  --border-subtle:   rgba(224,162,60,0.10);
   --shadow-color:    rgba(0,0,0,0.80);
   --gradient-start:  #181818;
   --gradient-end:    #2C2C2C;
   --dock-bg:         rgba(10,10,10,0.99);
-  --dock-border:     rgba(200,168,130,0.22);
+  --dock-border:     rgba(224,162,60,0.22);
   --card-blur:       blur(24px) saturate(1.3);
   --radius-card:     20px;
   --pack-bg:         linear-gradient(160deg,#181818 0%,#202020 50%,#161616 100%);
   --pack-card-bg:    rgba(30,30,30,0.97);
-  --pack-border:     rgba(200,168,130,0.22);
-  --pack-glow:       rgba(200,168,130,0.12);
-  --pack-accent:     #C8A882;
-  --pack-accent-rgb: 200,168,130;
+  --pack-border:     rgba(224,162,60,0.22);
+  --pack-glow:       rgba(224,162,60,0.12);
+  --pack-accent:     #E0A23C;
+  --pack-accent-rgb: 224,162,60;
   --header-bg:       rgba(10,10,10,0.99);
-  --premium-accent:  #C8A882;
-  --accent-blue:     #C8A882;
+  --premium-accent:  #E0A23C;
+  --accent-blue:     #E0A23C;
   --accent-emerald:  #6EBF8B;
   --accent-red:      #C0392B;
 
@@ -344,14 +431,14 @@ html[data-theme="mercedes"] {
   --font-weight-ui:    400;
   --letter-spacing-ui: 3px;
   --btn-glow:          none;
-  --icon-color-1:      #C8A882;
+  --icon-color-1:      #E0A23C;
   --icon-color-2:      #8C8C8C;
-  --icon-color-nav:    #C8A882;
+  --icon-color-nav:    #E0A23C;
   --icon-color-media:  #6EBF8B;
-  --dock-icon-color:   #C8A882;
-  --divider-color:     rgba(200,168,130,0.15);
-  --dock-border-top:   1px solid rgba(200,168,130,0.28);
-  --tile-hover-bg:     rgba(200,168,130,0.08);
+  --dock-icon-color:   #E0A23C;
+  --divider-color:     rgba(224,162,60,0.15);
+  --dock-border-top:   1px solid rgba(224,162,60,0.28);
+  --tile-hover-bg:     rgba(224,162,60,0.08);
 
   /* Fırçalanmış metal efekti */
   --brushed-metal:
@@ -377,7 +464,7 @@ html[data-theme="mercedes"] .up-panel,
 html[data-theme="mercedes"] .premium-card {
   background: var(--bg-card) !important;
   border: 1px solid var(--border-color) !important;
-  box-shadow: 0 8px 40px var(--shadow-color), inset 0 1px 0 rgba(200,168,130,0.10) !important;
+  box-shadow: 0 8px 40px var(--shadow-color), inset 0 1px 0 rgba(224,162,60,0.10) !important;
   backdrop-filter: var(--card-blur) !important;
   border-radius: var(--radius-card) !important;
   background-image: var(--brushed-metal) !important;
@@ -386,7 +473,7 @@ html[data-theme="mercedes"] .premium-card {
 html[data-theme="mercedes"] [data-dock="main"] {
   background: var(--dock-bg) !important;
   border-top: 1px solid var(--dock-border) !important;
-  box-shadow: 0 -4px 24px rgba(200,168,130,0.06) !important;
+  box-shadow: 0 -4px 24px rgba(224,162,60,0.06) !important;
 }
 
 /* MBUX — başlıklarda geniş letter-spacing */
@@ -400,12 +487,12 @@ html[data-theme="mercedes"] [data-pro-sidebar],
 html[data-theme="mercedes"] [data-pro-topbar],
 html[data-theme="mercedes"] [data-pro-bottombar] {
   background: #181818 !important;
-  border-color: rgba(200,168,130,0.15) !important;
+  border-color: rgba(224,162,60,0.15) !important;
 }
 
-html[data-theme="mercedes"] .text-blue-400 { color: #C8A882 !important; }
+html[data-theme="mercedes"] .text-blue-400 { color: #E0A23C !important; }
 html[data-theme="mercedes"] .text-emerald-400 { color: #6EBF8B !important; }
-html[data-theme="mercedes"] [style*="color: #60a5fa"] { color: #C8A882 !important; }
+html[data-theme="mercedes"] [style*="color: #60a5fa"] { color: #E0A23C !important; }
 
 /* ──────────────────────────────────────────────────────────────────
    5. AUDI — Virtual Cockpit / RS Serisi Agresif Premium
@@ -588,23 +675,23 @@ html[data-theme="tesla-day"] {
   --bg-secondary:    #243245;
   --bg-surface:      #263040;
   --bg-card:         rgba(38,48,64,0.97);
-  --accent-primary:  #E31937;
-  --accent-glow:     rgba(227,25,55,0.28);
+  --accent-primary:  #E0A23C;
+  --accent-glow:     rgba(224,162,60,0.28);
   --text-primary:    #F0F2F5;
   --text-secondary:  #A8B8C8;
   --text-muted:      #607080;
-  --border-color:    rgba(227,25,55,0.28);
+  --border-color:    rgba(224,162,60,0.28);
   --border-subtle:   rgba(255,255,255,0.10);
   --shadow-color:    rgba(0,0,0,0.50);
   --dock-bg:         rgba(12,18,28,0.99);
-  --dock-border:     rgba(227,25,55,0.40);
+  --dock-border:     rgba(224,162,60,0.40);
   --card-blur:       blur(20px) saturate(1.3);
   --radius-card:     12px;
   --pack-bg:         linear-gradient(160deg,#1E2A3A 0%,#243245 50%,#1A2535 100%);
-  --pack-accent:     #E31937;
+  --pack-accent:     #E0A23C;
   --header-bg:       rgba(14,20,30,0.99);
-  --premium-accent:  #E31937;
-  --accent-blue:     #E31937;
+  --premium-accent:  #E0A23C;
+  --accent-blue:     #E0A23C;
 }
 
 html[data-theme="tesla-day"] body,
@@ -619,7 +706,7 @@ html[data-theme="tesla-day"] .up-panel,
 html[data-theme="tesla-day"] .premium-card {
   background: rgba(38,48,64,0.97) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  border-bottom: 1px solid rgba(227,25,55,0.25) !important;
+  border-bottom: 1px solid rgba(224,162,60,0.25) !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.45) !important;
   backdrop-filter: blur(calc(var(--rt-blur, 1) * 20px)) saturate(1.3) !important;
   border-radius: 12px !important;
@@ -630,13 +717,13 @@ html[data-theme="tesla-day"] [data-pro-sidebar],
 html[data-theme="tesla-day"] [data-pro-topbar],
 html[data-theme="tesla-day"] [data-pro-bottombar] {
   background: #1E2A3A !important;
-  border-color: rgba(227,25,55,0.15) !important;
+  border-color: rgba(224,162,60,0.15) !important;
 }
 
 html[data-theme="tesla-day"] [data-dock="main"] {
   background: rgba(12,18,28,0.99) !important;
-  border-top: 2px solid rgba(227,25,55,0.40) !important;
-  box-shadow: 0 -4px 24px rgba(227,25,55,0.12) !important;
+  border-top: 2px solid rgba(224,162,60,0.40) !important;
+  box-shadow: 0 -4px 24px rgba(224,162,60,0.12) !important;
 }
 
 /* ── 3. Cockpit Gündüz ── */
@@ -707,23 +794,23 @@ html[data-theme="mercedes-day"] {
   --bg-secondary:    #363645;
   --bg-surface:      #363645;
   --bg-card:         rgba(54,54,69,0.97);
-  --accent-primary:  #C8A882;
-  --accent-glow:     rgba(200,168,130,0.28);
+  --accent-primary:  #E0A23C;
+  --accent-glow:     rgba(224,162,60,0.28);
   --text-primary:    #EDE8E0;
   --text-secondary:  #B0A090;
   --text-muted:      #706860;
-  --border-color:    rgba(200,168,130,0.32);
-  --border-subtle:   rgba(200,168,130,0.15);
+  --border-color:    rgba(224,162,60,0.32);
+  --border-subtle:   rgba(224,162,60,0.15);
   --shadow-color:    rgba(0,0,0,0.45);
   --dock-bg:         rgba(18,18,26,0.99);
-  --dock-border:     rgba(200,168,130,0.28);
+  --dock-border:     rgba(224,162,60,0.28);
   --card-blur:       blur(24px) saturate(1.4);
   --radius-card:     20px;
   --pack-bg:         linear-gradient(160deg,#2C2C3A 0%,#363645 50%,#282836 100%);
-  --pack-accent:     #C8A882;
+  --pack-accent:     #E0A23C;
   --header-bg:       rgba(20,20,28,0.99);
-  --premium-accent:  #C8A882;
-  --accent-blue:     #C8A882;
+  --premium-accent:  #E0A23C;
+  --accent-blue:     #E0A23C;
   --brushed-metal:
     repeating-linear-gradient(90deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 3px);
   --letter-spacing-title: 0.22em;
@@ -740,8 +827,8 @@ html[data-theme="mercedes-day"] .glass-card,
 html[data-theme="mercedes-day"] .up-panel,
 html[data-theme="mercedes-day"] .premium-card {
   background: rgba(54,54,69,0.97) !important;
-  border: 1px solid rgba(200,168,130,0.30) !important;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.40), inset 0 1px 0 rgba(200,168,130,0.12) !important;
+  border: 1px solid rgba(224,162,60,0.30) !important;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.40), inset 0 1px 0 rgba(224,162,60,0.12) !important;
   backdrop-filter: blur(calc(var(--rt-blur, 1) * 24px)) saturate(1.4) !important;
   border-radius: 20px !important;
   background-image: var(--brushed-metal) !important;
@@ -752,13 +839,13 @@ html[data-theme="mercedes-day"] [data-pro-sidebar],
 html[data-theme="mercedes-day"] [data-pro-topbar],
 html[data-theme="mercedes-day"] [data-pro-bottombar] {
   background: #2C2C3A !important;
-  border-color: rgba(200,168,130,0.18) !important;
+  border-color: rgba(224,162,60,0.18) !important;
 }
 
 html[data-theme="mercedes-day"] [data-dock="main"] {
   background: rgba(18,18,26,0.99) !important;
-  border-top: 1px solid rgba(200,168,130,0.28) !important;
-  box-shadow: 0 -4px 24px rgba(200,168,130,0.08) !important;
+  border-top: 1px solid rgba(224,162,60,0.28) !important;
+  box-shadow: 0 -4px 24px rgba(224,162,60,0.08) !important;
 }
 
 html[data-theme="mercedes-day"] .font-black,

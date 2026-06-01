@@ -7,7 +7,10 @@ import {
 import { DockBar } from './DockBar';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import { useStore } from '../../store/useStore';
-import { useMediaState, togglePlayPause, next, previous } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause } from '../../platform/mediaService';
+// next/previous caros katmanından — kuyruk-farkında (in-app YouTube/stream/yerel parça değişimi).
+// mediaService'in native next/previous'ı yalnız harici MediaSession'ı sürer; in-app kuyruğu değiştirmez.
+import { next, previous } from '../../platform/media/carosMediaLayer';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
@@ -19,6 +22,7 @@ import { useCarTheme, baseOf } from '../../store/useCarTheme';
 import { resolveAndNavigate } from '../../platform/addressNavigationEngine';
 import { useRouteState } from '../../platform/routingService';
 import { TeslaLayout } from '../themes/TeslaLayout';
+import { ExpeditionLayout } from '../themes/ExpeditionLayout';
 import { AudiLayout } from '../themes/AudiLayout';
 import { MercedesLayout } from '../themes/MercedesLayout';
 import { CockpitLayout } from '../themes/CockpitLayout';
@@ -36,7 +40,7 @@ const GLASS_CARD: React.CSSProperties = {
   background: 'rgba(22,26,36,0.97)',
   backdropFilter: 'blur(10px)',
   WebkitBackdropFilter: 'blur(10px)',
-  border: '1px solid rgba(96,165,250,0.22)',
+  border: '1px solid var(--oem-accent-soft)',
   boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 1px 6px rgba(0,0,0,0.35)',
   borderRadius: 28,
 };
@@ -55,7 +59,7 @@ interface Props {
 }
 
 /* ─── HEADER ─────────────────────────────────────────────────── */
-const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps: () => void; onOpenSettings: () => void }) {
+const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void }) {
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
@@ -70,18 +74,18 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
         background: 'rgba(20,20,20,0.97)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
-        borderBottom: '1px solid rgba(96,165,250,0.16)',
+        borderBottom: '1px solid var(--oem-accent-soft)',
         boxShadow: '0 2px 12px rgba(0,0,0,0.30)',
       }}>
 
       {/* Sol: Logo + Saat */}
       <div className="flex items-center gap-4">
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
-          style={{ background: 'linear-gradient(135deg,#1d4ed8,#4338ca)', boxShadow: '0 4px 20px rgba(29,78,216,0.50)' }}>
-          <Navigation className="w-5 h-5 text-white" />
+          style={{ background: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))', boxShadow: '0 4px 20px var(--oem-accent-glow)' }}>
+          <Navigation className="w-5 h-5" style={{ color: 'var(--oem-accent-ink)' }} />
         </div>
         <div>
-          <div className="font-black tabular-nums leading-none" style={{ fontSize: 28, color: '#ffffff', letterSpacing: '-1px', textShadow: '0 0 40px rgba(96,165,250,0.30)' }}>{time}</div>
+          <div className="font-black tabular-nums leading-none" style={{ fontSize: 28, color: '#ffffff', letterSpacing: '-1px', textShadow: '0 0 40px var(--oem-accent-glow)' }}>{time}</div>
           <div className="text-[10px] font-bold uppercase tracking-[0.3em] mt-0.5" style={{ color: '#c0ccd8' }}>{date}</div>
         </div>
       </div>
@@ -95,6 +99,17 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings }: { onOpenApps
 
       {/* Sağ: Eylem butonları */}
       <div className="flex items-center gap-2">
+        {/* Sesli asistan — sakin amber vurgu (tek aksan) */}
+        <button
+          onClick={onVoice}
+          aria-label="Sesli asistan"
+          className="w-10 h-10 rounded-2xl flex items-center justify-center active:scale-95 transition-all"
+          style={{ background: 'var(--oem-accent-soft)', border: '1px solid var(--oem-accent-glow)' }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(224,162,60,0.30)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(224,162,60,0.16)')}
+        >
+          <Mic className="w-4.5 h-4.5" style={{ color: 'var(--oem-accent)' }} />
+        </button>
         <HBtn onClick={onOpenSettings}><Search className="w-4.5 h-4.5 text-slate-300" /></HBtn>
         <HBtn onClick={onOpenApps}><Grid3X3 className="w-4.5 h-4.5 text-slate-300" /></HBtn>
       </div>
@@ -143,14 +158,14 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative"
-      style={{ borderRadius: 28, border: '1px solid rgba(96,165,250,0.16)', boxShadow: '0 16px 56px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35)' }}>
+      style={{ borderRadius: 28, border: '1px solid var(--oem-accent-soft)', boxShadow: '0 16px 56px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35)' }}>
 
       {/* Harita — tam doldur */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {fullMapOpen
           ? <div className="w-full h-full flex flex-col items-center justify-center gap-3"
               style={{ background: 'linear-gradient(160deg,#06101f,#0d1e38)' }}>
-              <MapPin className="w-12 h-12" style={{ color: '#1d4ed8' }} />
+              <MapPin className="w-12 h-12" style={{ color: 'var(--oem-accent)' }} />
               <span className="text-sm font-bold" style={{ color: '#a8b8c8' }}>Harita açık</span>
             </div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />
@@ -159,7 +174,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
 
       {/* Alt bar: Arama + Mikrofon + ETA */}
       <div className="flex-shrink-0 flex flex-col gap-2 p-2.5"
-        style={{ background: 'rgba(20,20,20,0.96)', backdropFilter: 'blur(8px)', borderTop: '1px solid rgba(96,165,250,0.14)' }}>
+        style={{ background: 'rgba(20,20,20,0.96)', backdropFilter: 'blur(8px)', borderTop: '1px solid var(--oem-accent-soft)' }}>
         <div className="flex items-center gap-2">
           {/* Metin giriş alanı */}
           <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl"
@@ -176,7 +191,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
             />
             {query.length > 0 && (
               <button onClick={handleSubmit} className="flex-shrink-0 active:scale-90 transition-all">
-                <Navigation className="w-3.5 h-3.5" style={{ color: '#60a5fa' }} />
+                <Navigation className="w-3.5 h-3.5" style={{ color: 'var(--oem-accent)' }} />
               </button>
             )}
           </div>
@@ -186,13 +201,13 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
             className="flex items-center justify-center rounded-xl transition-all active:scale-95 flex-shrink-0"
             style={{
               width: 'var(--lp-tile-h, 40px)', height: 'var(--lp-tile-h, 40px)',
-              background: 'rgba(96,165,250,0.13)',
-              border: '1px solid rgba(96,165,250,0.28)',
+              background: 'var(--oem-accent-soft)',
+              border: '1px solid var(--oem-accent-glow)',
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(96,165,250,0.26)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(96,165,250,0.13)')}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(224,162,60,0.26)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(224,162,60,0.13)')}
           >
-            <Mic className="w-4 h-4" style={{ color: '#60a5fa' }} />
+            <Mic className="w-4 h-4" style={{ color: 'var(--oem-accent)' }} />
           </button>
         </div>
         <div className="flex gap-1.5">
@@ -258,15 +273,15 @@ const SpeedCard = memo(function SpeedCard() {
       style={{ ...GLASS_CARD, background: 'linear-gradient(160deg,#070e1c 0%,#0d1e38 40%,#091628 80%,#060d1a 100%)' }}>
 
       {/* Top shimmer */}
-      <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(96,165,250,0.40),transparent)' }} />
+      <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(224,162,60,0.40),transparent)' }} />
       {/* Ambient center glow */}
-      <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(37,99,235,0.12) 0%, transparent 60%)' }} />
+      <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(224,162,60,0.10) 0%, transparent 60%)' }} />
 
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0 relative z-10"
-        style={{ borderBottom: '1px solid rgba(96,165,250,0.08)' }}>
+        style={{ borderBottom: '1px solid var(--oem-accent-soft)' }}>
         <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: '#60a5fa' }}>SÜRÜŞ BİLGİLERİ</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: 'var(--oem-accent)' }}>SÜRÜŞ BİLGİLERİ</div>
           <div className="text-sm font-black mt-0.5" style={{ color: '#ffffff' }}>CANLI VERİLER</div>
         </div>
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
@@ -304,7 +319,7 @@ const SpeedCard = memo(function SpeedCard() {
 
       {/* Data row */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0 relative z-10">
-        <DataChip Icon={Gauge}       label="RPM"      value={rpmDisplay}  color="#60a5fa"                                    warn={false} />
+        <DataChip Icon={Gauge}       label="RPM"      value={rpmDisplay}  color="#E0A23C"                                    warn={false} />
         <DataChip Icon={Thermometer} label="SICAKLIK" value={tempDisplay} color={tempWarnVal ? '#ef4444' : '#fb923c'} warn={tempWarnVal} />
         <DataChip Icon={Fuel}        label="YAKIT"    value={fuelDisplay} color={fuelWarnVal ? '#ef4444' : '#34d399'} warn={fuelWarnVal} />
       </div>
@@ -337,18 +352,18 @@ const MusicCard = memo(function MusicCard() {
   return (
     <div className="flex flex-col overflow-hidden h-full relative" style={GLASS_CARD}>
       {/* Shimmer */}
-      <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(168,85,247,0.30),transparent)' }} />
+      <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(224,162,60,0.30),transparent)' }} />
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-3 flex-shrink-0"
-        style={{ borderBottom: '1px solid rgba(168,85,247,0.10)' }}>
+        style={{ borderBottom: '1px solid var(--oem-accent-soft)' }}>
         <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: '#a855f7' }}>MÜZİK</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.38em]" style={{ color: 'var(--oem-accent)' }}>MÜZİK</div>
           <div className="text-base font-black mt-0.5 tracking-tight truncate max-w-[130px]" style={{ color: permissionRequired ? '#f87171' : '#ffffff' }}>
             {permissionRequired ? 'İZİN GEREKLİ' : track.title ? (track.artist || 'Bilinmeyen') : 'SEÇİLMEDİ'}
           </div>
         </div>
-        <Zap className="w-4 h-4 opacity-40" style={{ color: '#a855f7' }} />
+        <Zap className="w-4 h-4 opacity-40" style={{ color: 'var(--oem-accent)' }} />
       </div>
 
       {/* Album art */}
@@ -356,8 +371,8 @@ const MusicCard = memo(function MusicCard() {
         <div className="rounded-3xl overflow-hidden flex-shrink-0 flex items-center justify-center relative"
           style={{
             width: 'var(--lp-album, 120px)', height: 'var(--lp-album, 120px)',
-            background: 'linear-gradient(135deg,#7c3aed,#1d4ed8)',
-            boxShadow: '0 16px 40px rgba(124,58,237,0.50), 0 4px 12px rgba(0,0,0,0.40)',
+            background: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))',
+            boxShadow: '0 16px 40px var(--oem-accent-glow), 0 4px 12px rgba(0,0,0,0.40)',
           }}>
           {track.albumArt
             ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
@@ -380,14 +395,14 @@ const MusicCard = memo(function MusicCard() {
       <div className="flex items-center justify-center gap-3 flex-shrink-0 pb-4 px-4">
         <button onClick={() => previous()}
           className="w-10 h-10 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
-          style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.20)' }}>
-          <SkipBack className="w-4 h-4" style={{ color: '#c084fc' }} />
+          style={{ background: 'var(--oem-accent-soft)', border: '1px solid var(--oem-accent-glow)' }}>
+          <SkipBack className="w-4 h-4" style={{ color: 'var(--oem-accent)' }} />
         </button>
         <button onClick={() => togglePlayPause()}
           className="w-14 h-14 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
           style={{
-            background: 'linear-gradient(135deg,#7c3aed,#2563eb)',
-            boxShadow: '0 8px 24px rgba(124,58,237,0.55), 0 2px 8px rgba(0,0,0,0.30)',
+            background: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))',
+            boxShadow: '0 8px 24px var(--oem-accent-glow), 0 2px 8px rgba(0,0,0,0.30)',
           }}>
           {playing
             ? <Pause className="w-6 h-6 fill-white" style={{ color: '#ffffff' }} />
@@ -396,8 +411,8 @@ const MusicCard = memo(function MusicCard() {
         </button>
         <button onClick={() => next()}
           className="w-10 h-10 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
-          style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.20)' }}>
-          <SkipForward className="w-4 h-4" style={{ color: '#c084fc' }} />
+          style={{ background: 'var(--oem-accent-soft)', border: '1px solid var(--oem-accent-glow)' }}>
+          <SkipForward className="w-4 h-4" style={{ color: 'var(--oem-accent)' }} />
         </button>
       </div>
     </div>
@@ -416,6 +431,9 @@ export const NewHomeLayout = memo(function NewHomeLayout({
 
   const base = baseOf(theme);
 
+  if (base === 'expedition') {
+    return <ExpeditionLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
+  }
   if (base === 'tesla') {
     return <TeslaLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
@@ -445,7 +463,7 @@ export const NewHomeLayout = memo(function NewHomeLayout({
       )}
       {/* Dekoratif blob'lar — ambient-blobs ile sağlanıyor, burada gereksiz */}
       <div className="relative z-10 flex flex-col h-full">
-        <Header onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
+        <Header onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpenFallback(true)} />
         <div className="flex-1 min-h-0 grid gap-3 p-3 overflow-hidden" style={{ gridTemplateColumns: '0.90fr 1.20fr 0.90fr' }}>
           <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} onVoice={() => setVoiceOpenFallback(true)} />
           <SpeedCard />

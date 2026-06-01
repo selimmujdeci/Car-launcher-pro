@@ -26,18 +26,21 @@ import type { HandshakeOutcome }            from '../canBus/VehicleHandshake';
 import { runtimeManager }   from '../../core/runtime/AdaptiveRuntimeManager';
 import { NativeHALAdapter } from './NativeHALAdapter';
 import { useHALStatusStore } from './halStatusStore';
+import { healthMonitor }    from '../system/SystemHealthMonitor';
 
 type Callback = (patch: Partial<VehicleState>) => void;
 
-// ── SAB layout (Worker ile senkron) ──────────────────────────────────────
-const SAB_BYTES    = 64;
-const SAB_SPEED    = 0;  // Float64[0]
-const SAB_RPM      = 1;  // Float64[1]
-const SAB_FUEL     = 2;  // Float64[2]
-const SAB_ODO      = 3;  // Float64[3]
-const SAB_REVERSE  = 4;  // Float64[4]
-// Float64[5] = lastUpdateTs — Worker yazar, Resolver okumaz (gen counter yeterli)
-const SAB_GEN_IDX  = 12; // Int32[12] at byte 48 — Atomics generation counter
+// ── SAB layout (Worker ile senkron — CACHE-LINE PADDING + SEQLOCK) ────────
+// Her 64-bit değer ayrı 64-byte cache line'da (False Sharing yok). GEN ayrı
+// cache line'da (byte 384). SAB_BYTES, padding'i kapsayacak şekilde 512.
+const SAB_BYTES    = 512;
+const SAB_SPEED    = 0;   // Float64[0]  byte 0
+const SAB_RPM      = 8;   // Float64[8]  byte 64
+const SAB_FUEL     = 16;  // Float64[16] byte 128
+const SAB_ODO      = 24;  // Float64[24] byte 192
+const SAB_REVERSE  = 32;  // Float64[32] byte 256
+// Float64[40] = lastUpdateTs — Worker yazar, Resolver okumaz
+const SAB_GEN_IDX  = 96;  // Int32[96] byte 384 — Seqlock generation counter (ayrı cache line)
 
 export class VehicleSignalResolver {
   private _listeners = new Set<Callback>();
@@ -178,6 +181,12 @@ export class VehicleSignalResolver {
     this._send({ type: 'UPDATE_GEOFENCE', zones });
   }
 
+  /** DEV-only kaos: worker'a bit-flip enjekte et (TMR median recovery testi). */
+  chaosBitflip(): void {
+    if (!import.meta.env.DEV) return;
+    this._send({ type: 'CHAOS_BITFLIP' });
+  }
+
   /**
    * VehicleHandshake tamamlandığında çağrılır.
    * Profile gate'i günceller — Safe Mode aktifse CAN-only sinyaller kesilir.
@@ -211,38 +220,51 @@ export class VehicleSignalResolver {
     const intervalMs  = Math.max(16, Math.round(1000 / fps));
     this._pollInterval = setInterval(() => {
       if (!this._sabI32 || !this._sabF64) return;
+      const i32 = this._sabI32;
+      const f64 = this._sabF64;
 
-      const gen = Atomics.load(this._sabI32, SAB_GEN_IDX);
-      if (gen === this._sabLastGen) return; // Gen counter yok → veri yok, atla
-      this._sabLastGen = gen;
+      // ── Seqlock acquire ──────────────────────────────────────────────────
+      // 1) Başlangıç counter'ını oku. TEK ise Worker yazım ortasında → bu tiki atla.
+      const g1 = Atomics.load(i32, SAB_GEN_IDX);
+      if ((g1 & 1) !== 0) return;            // odd → write in progress
+      if (g1 === this._sabLastGen) return;   // değişim yok
 
-      const f64    = this._sabF64;
+      // 2) Verileri yerel primitiflere oku (zero-allocation — stack üstünde).
+      const speedRaw = f64[SAB_SPEED];
+      const rpmRaw   = f64[SAB_RPM];
+      const fuelRaw  = f64[SAB_FUEL];
+      const odoRaw   = f64[SAB_ODO];
+      const revRaw   = f64[SAB_REVERSE];
+
+      // 3) Bitiş counter'ını oku. Başlangıç != bitiş → okuma sırasında yazım oldu
+      //    (Torn Read). Okumayı GEÇERSİZ say: önceki değerleri koru, _sabLastGen'i
+      //    GÜNCELLEME → sonraki tik (yazım bitince) temiz okur.
+      const g2 = Atomics.load(i32, SAB_GEN_IDX);
+      if (g1 !== g2) return;
+
+      this._sabLastGen = g1;
+
       const prev   = this._sabPrev;
       const patch: Partial<VehicleState> = {};
       let   changed = false;
 
       // Object.is: NaN===NaN doğru karşılaştırır; NaN=null sentinel (tüm kaynaklar stale)
-      const speedRaw = f64[SAB_SPEED];
       if (!Object.is(speedRaw, prev.speed)) {
         patch.speed = Number.isNaN(speedRaw) ? null : speedRaw;
         prev.speed  = speedRaw;
         changed    = true;
       }
 
-      const rpm = f64[SAB_RPM];
-      if (!Object.is(rpm, prev.rpm)) { patch.rpm = rpm; prev.rpm = rpm; changed = true; }
+      if (!Object.is(rpmRaw, prev.rpm)) { patch.rpm = rpmRaw; prev.rpm = rpmRaw; changed = true; }
 
-      const fuelRaw = f64[SAB_FUEL];
       if (!Object.is(fuelRaw, prev.fuel)) {
         patch.fuel = Number.isNaN(fuelRaw) ? null : fuelRaw;
         prev.fuel  = fuelRaw;
         changed    = true;
       }
 
-      const odo = f64[SAB_ODO];
-      if (odo !== prev.odo)     { patch.odometer = odo; prev.odo   = odo;   changed = true; }
+      if (odoRaw !== prev.odo)     { patch.odometer = odoRaw; prev.odo   = odoRaw;   changed = true; }
 
-      const revRaw = f64[SAB_REVERSE];
       if (revRaw !== prev.reverse) {
         patch.reverse  = revRaw !== 0;
         prev.reverse   = revRaw;
@@ -284,6 +306,10 @@ export class VehicleSignalResolver {
         break;
       case 'VEHICLE_EVENT':
         dispatchFromWorker(msg.event);
+        break;
+      case 'GPS_FAILURE':
+        // Worker GPS kalite arızası → HealthMonitor bilsin (garbage fix beat'i maskelemesin)
+        healthMonitor.setGpsQuality(!msg.active, msg.accuracy);
         break;
     }
   }

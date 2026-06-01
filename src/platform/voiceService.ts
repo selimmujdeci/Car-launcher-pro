@@ -448,7 +448,7 @@ export function startListening(): void {
       _startNativeVolumeListener();
       duckMedia();
 
-      CarLauncher.startSpeechRecognition({ preferOffline: true, language: 'tr-TR', maxResults: 1 })
+      CarLauncher.startSpeechRecognition({ preferOffline: true, onlineFallback: true, language: 'tr-TR', maxResults: 1 })
         .then((result) => {
           clearTimeout(sttFailsafe);
           _stopNativeVolumeListener();
@@ -485,11 +485,16 @@ export function startListening(): void {
           }
           console.error('Native Speech Error:', err);
           const isPermission = /permission|denied|not.?allowed/i.test(msg);
+          // Native, Vosk başlatma hatasını gerçek sebebiyle gönderir (head unit
+          // teşhisi için) → genel mesaj yerine bu gerçek hatayı göster.
+          const isVoskDiag = /vosk|model|stt|unpack|abi|storage/i.test(msg);
           push({
             status: 'error',
             error: isPermission
               ? 'Mikrofon izni verilmemiş.'
-              : 'Ses tanıma hatası. Çevrimdışı dil paketi (TR) yüklü mü?',
+              : isVoskDiag
+              ? msg
+              : 'Ses tanıma başarısız. İnternet bağlantısı veya çevrimdışı dil paketi (TR) gerekli.',
             suggestions: [],
           });
           setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);

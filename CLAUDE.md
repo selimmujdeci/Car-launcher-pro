@@ -238,6 +238,30 @@ To ensure "Caros Pro" meets industrial-grade reliability, all code modifications
 
 ---
 
+## ⚡ V8 Engine & JIT Optimization (MISSION-CRITICAL)
+
+To prevent JIT Deoptimization (Deopt) and maintain "Hot Path" execution on low-end automotive hardware:
+
+### 1. Hidden Class (Shape) Stability
+- **Template Object Literals:** Never create empty objects `{}` and add properties dynamically. Always use a "Template Literal" that contains all possible keys initialized to `undefined` or `null`.
+- **Consistent Property Order:** Always initialize object properties in the exact same order as defined in their TypeScript interfaces to prevent Map transitions.
+- **Avoid Property Deletion:** Never use `delete object.prop`. Set it to `null` or `undefined` instead.
+
+### 2. Monomorphic Call Sites
+- **Stable Handlers:** Ensure high-frequency functions (e.g., message dispatchers, signal processors) receive objects of the same Hidden Class. Use type-narrowed monomorphic handlers instead of megamorphic `switch-case` blocks where possible.
+- **Type Feedback Integrity:** Avoid changing the type of a variable (e.g., from `number` to `string`) within hot loops.
+
+### 3. SharedArrayBuffer (SAB) & Hardware Safety
+- **Seqlock Protocol:** All SAB writes MUST use the Seqlock pattern (GEN counter: Odd=Write-in-progress, Even=Done). All reads MUST use the double-check guard (GEN1 == GEN2).
+- **Cache-Line Padding:** Keep independent 64-bit signals at least 64 bytes apart (8 Float64 slots) in the `SharedArrayBuffer` to prevent "False Sharing" and L1 Cache contention.
+- **Atomic Fences:** Use `Atomics.add` for Seqlock counters to ensure full memory fences across CPU cores.
+
+### 4. Zero-Allocation Hot-Paths
+- **Pre-allocated Envelopes:** Use module-level pre-allocated objects (envelopes) for `postMessage` calls.
+- **Scratch Variables:** Use primitive "scratch" variables for intermediate calculations instead of creating temporary objects or arrays.
+
+---
+
 ## ⚡ ONAY İSTEME KURALLARI (ZORUNLU — İSTİSNASIZ)
 
 **HİÇBİR İŞLEM İÇİN ONAY İSTENMEZ. DOĞRUDAN YAPILIR.**
@@ -345,4 +369,33 @@ Her migration sonunda şunlar doğrulanmalı:
 - `public` şema tablolarının otomatik erişilebilir olduğunu varsaymak yasak.
 - RLS kapalıyken `authenticated` policy yazmak anlamsızdır — önce RLS aç.
 - Binary / büyük blob verisini `localStorage` veya Supabase `text` kolonuna yazmak yasak.
+
+---
+
+## ⚖️ TİCARİ LİSANS / SATIŞA UYGUNLUK KURALI (ZORUNLU)
+
+Bu uygulama **ticari olarak satılacak** (3. taraf üreticilere / head unit'lere dahil). İçine eklenen **hiçbir şey ticari satışı engellememelidir.** Bu yüzden her yeni bağımlılık, model, font, harita verisi veya gömülü varlık için:
+
+### İzin verilen lisanslar (permissive — serbestçe satılır)
+- **MIT, Apache-2.0, BSD (2/3-Clause), ISC, Zlib, Unlicense, CC0, OFL (fontlar)**
+- Bunlar: telifsiz, kapalı kaynak satışa izinli, coğrafi kısıt yok.
+
+### KESİN YASAK (satışı engeller / risk yaratır)
+- **Copyleft lisanslar:** GPL, AGPL, LGPL, SSPL, EUPL — kaynak açma/türev zorunluluğu getirir. **Eklenmez.**
+- **"Non-Commercial" (NC) varlıklar:** `CC-BY-NC`, ticari kullanımı yasaklayan model/font/ses/veri. **Eklenmez.**
+- **Belirsiz/lisanssız** GitHub kodu veya model. Lisansı netleşmeden gömülmez.
+- 3. taraf **marka logoları** (Spotify, YouTube vb.) gömüp "onaylı" izlenimi vermek — yalnızca **isimle referans** verilir, logo gömülmez.
+
+### Yeni bir şey eklemeden önce (zorunlu adımlar)
+1. Lisansı **doğrula**; permissive değilse **EKLEME**, önce kullanıcıya sor.
+2. Permissive lisanslar (Apache/BSD) **atıf** ister → uygulamadaki **"Açık Kaynak Lisansları"** ekranına ekle.
+3. **Harita verisi OpenStreetMap tabanlıysa** → `© OpenStreetMap katkıcıları` atıfı **zorunlu** (ODbL).
+4. Ücretli API (Gemini/Claude/OpenAI) → **BYOK** (her müşteri kendi anahtarı). Uygulamaya **merkezi/gömülü API anahtarı konmaz** (fatura + ToS riski).
+
+### Mevcut durum (referans — hepsi satışa uygun)
+- Vosk + Türkçe model: **Apache-2.0** ✅ · MapLibre: **BSD** ✅ · Capacitor/React/Zustand/Tailwind/Lucide: **MIT** ✅
+
+### Lansman öncesi kontrol
+- Tüm bağımlılık ağacını tara: `npx license-checker --summary` (kopyaleft çıkarsa çıkar/değiştir).
+- Not: Bu hukuki danışmanlık değildir; ticari lansman öncesi lisans denetimi yapılmalı.
 

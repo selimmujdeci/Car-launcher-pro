@@ -1,4 +1,5 @@
-import { memo, lazy, Suspense } from 'react';
+import { memo, Suspense } from 'react';
+import { lazyWithRetry as lazy } from '../../utils/lazyWithRetry';
 import { DrawerShell } from './DrawerShell';
 import { TrafficPanel } from '../traffic/TrafficPanel';
 import { ClimateScreen } from '../climate/ClimateScreen';

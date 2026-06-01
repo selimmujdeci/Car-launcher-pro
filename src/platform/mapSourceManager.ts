@@ -329,19 +329,17 @@ export async function refreshMapSources(): Promise<void> {
 /**
  * Get the tile URL(s) for the currently active source.
  *
- * ALWAYS returns smart-tile:// so all fetches go through our JS protocol
- * handler instead of MapLibre's internal XHR.  MapLibre's XHR is blocked by
- * Capacitor Android WebView's CORS/mixed-content policy when the origin is
- * capacitor:// or file://.  Our smart-tile handler uses the JS fetch() API
- * which Capacitor's native bridge does allow for same-session requests.
- *
- * Priority chain inside registerSmartTileProtocol():
- *   1. Capacitor Filesystem (SD card / internal storage)
- *   2. /maps/{z}/{x}/{y}.png  (APK asset)
- *   3. tile.openstreetmap.org (online fallback)
+ * ALWAYS returns caros-tile:// so all fetches go through CacheLRUManager's JS
+ * protocol handler instead of MapLibre's internal XHR.  MapLibre's XHR is
+ * blocked by Capacitor Android WebView's CORS/mixed-content policy when the
+ * origin is capacitor:// or file://.  The caros-tile handler uses the JS
+ * fetch() API (which Capacitor's native bridge allows) and adds a 500 MB LRU
+ * disk cache on top — this is the single tile pipeline the app uses (matches
+ * OSM_STYLE in mapService.ts). The legacy smart-tile protocol is no longer
+ * registered, so emitting it here produced "scheme not supported" → black map.
  */
 export function getActiveTileUrls(): string[] {
-  return ['smart-tile://{z}/{x}/{y}'];
+  return ['caros-tile://tile.openstreetmap.org/{z}/{x}/{y}.png'];
 }
 
 /**
@@ -353,13 +351,19 @@ export function getActiveTileUrls(): string[] {
  *
  * Satellite/hybrid are always raster regardless of tileRender.
  */
+/** Harita gün/gece durumu — getMapStyle ve canlı paint geçişi (applyMapDayNight) okur.
+ *  Varsayılan gece (mevcut davranış korunur); FullMapView mount'ta isNight'e göre set eder. */
+let _mapNight = true;
+export function setMapNight(night: boolean): void { _mapNight = night; }
+export function getMapNight(): boolean { return _mapNight; }
+
 export function getMapStyle(): StyleSpecification {
   const { mapMode, tileRender, sources, activeSourceId } = useMapSourceStore.getState();
   if (mapMode === 'satellite') return buildSatelliteStyle();
   if (mapMode === 'hybrid')    return buildHybridStyle();
-  const roadFallback = () => buildRoadStyle(activeSourceId, sources, getActiveTileUrls);
-  if (tileRender === 'vector') return buildVectorStyle(sources, roadFallback);
-  return buildRoadStyle(activeSourceId, sources, getActiveTileUrls);
+  const roadFallback = () => buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
+  if (tileRender === 'vector') return buildVectorStyle(sources, roadFallback, _mapNight);
+  return buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
 }
 
 /**

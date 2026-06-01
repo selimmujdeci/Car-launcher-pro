@@ -53,8 +53,8 @@ type TelemetryEventType =
   | 'valet_alert'
   | 'system_health';
 
-/** Sistem sağlık anlık görüntüsü push aralığı (ms) — 5 dakika */
-const HEALTH_PUSH_INTERVAL_MS = 5 * 60_000;
+/** Sistem sağlık anlık görüntüsü push aralığı (ms) — 10 dakika (filo veri maliyeti optimizasyonu) */
+const HEALTH_PUSH_INTERVAL_MS = 10 * 60_000;
 
 /** Araç durumuna göre belirlenen telemetri gönderim modu */
 type HeartbeatMode = 'driving' | 'parked' | 'deep_sleep';
@@ -147,7 +147,7 @@ export class TelemetryService {
     // Adaptive Heartbeat: başlangıç moduna göre interval kurulur
     this._scheduleHeartbeat();
 
-    // 5 dakikada bir sistem sağlık anlık görüntüsü push'la
+    // 10 dakikada bir sistem sağlık anlık görüntüsü push'la
     this._healthTimer = setInterval(() => {
       void this._pushHealthSnapshot();
     }, HEALTH_PUSH_INTERVAL_MS);

@@ -36,9 +36,8 @@ interface Props {
   smart?:         SmartSnapshot;
 }
 
-const C_ACCENT  = '#00E5FF';
-const C_AMBER   = '#FF9800';
-const C_RED     = '#FF3B30';
+const C_ACCENT  = '#00E5FF';   // Cockpit tek sinyatür aksanı (Neon Cyan)
+const C_RED     = '#FF3B30';   // semantik uyarı (rpm/fuel/temp/voltage)
 
 /* ── Keyframes (Injected via Style Tag) ───────────────────── */
 const STYLE_ID = 'hyper-gt-styles';
@@ -200,7 +199,7 @@ const GT_Navigation = memo(({ onOpenMap, fullMapOpen }: { onOpenMap: () => void;
   const heading = Math.round(gps?.heading ?? 0);
 
   return (
-    <Panel title="Navigation" icon={CompassIcon} accent={C_AMBER}>
+    <Panel title="Navigation" icon={CompassIcon} accent={C_ACCENT}>
       <div className="w-full h-full relative overflow-hidden rounded-b-xl">
         {fullMapOpen ? (
           <div className="w-full h-full flex items-center justify-center bg-black/40">
@@ -242,10 +241,10 @@ const GT_Performance = memo(({ appMap: _appMap, onLaunch: _onLaunch }: { appMap:
 
   return (
     <div className="flex flex-col gap-3 h-full">
-      <Panel title="Vehicle Stats" icon={Activity} accent={C_AMBER}>
+      <Panel title="Vehicle Stats" icon={Activity} accent={C_ACCENT}>
         <div className="p-5 flex flex-col gap-4">
-          <MetricBar label="Fuel" value={`${fuel}%`} percent={fuel} color={fuel < 15 ? C_RED : C_AMBER} />
-          <MetricBar label="Temp" value={`${temp}°C`} percent={Math.min(temp, 100)} color={temp > 105 ? C_RED : '#4CAF50'} />
+          <MetricBar label="Fuel" value={`${fuel}%`} percent={fuel} color={fuel < 15 ? C_RED : C_ACCENT} />
+          <MetricBar label="Temp" value={`${temp}°C`} percent={Math.min(temp, 100)} color={temp > 105 ? C_RED : C_ACCENT} />
           <MetricBar label="Energy" value={voltage != null ? `${voltage.toFixed(1)}V` : '—'} percent={voltage != null ? Math.min(((voltage - 11) / 4) * 100, 100) : 0} color={voltage != null && voltage < 12 ? C_RED : C_ACCENT} />
         </div>
       </Panel>
@@ -257,7 +256,7 @@ const GT_Performance = memo(({ appMap: _appMap, onLaunch: _onLaunch }: { appMap:
               {track.albumArt ? (
                 <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-purple-500/20">
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-cyan-500/5">
                   <Music2 className="w-6 h-6 text-white/20" />
                 </div>
               )}

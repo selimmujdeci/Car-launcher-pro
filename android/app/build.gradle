@@ -16,6 +16,11 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Head unit'ler ARM — x86/x86_64 native kütüphaneleri (~18MB, çoğu Vosk) gereksiz yük.
+        // Sadece ARM tut → APK ~18MB küçülür. (Hepsi 64-bit ise armeabi-v7a da çıkarılıp ~8MB daha düşürülebilir.)
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -67,6 +72,9 @@ dependencies {
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
     // USB-to-serial: CH340, CP2102, FTDI, CDC ACM desteği (CAN bus USB adaptörleri)
     implementation 'com.github.mik3y:usb-serial-for-android:3.8.0'
+    // Vosk — offline, Google'sız, cihazda Türkçe ses tanıma (Katman 1 STT).
+    // Model assets/vosk-model-tr içinde gömülü; internet/GMS gerekmez.
+    implementation 'com.alphacephei:vosk-android:0.3.47'
 }
 
 apply from: 'capacitor.build.gradle'

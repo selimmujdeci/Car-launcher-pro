@@ -167,6 +167,9 @@ export interface AppSettings {
   homeLocation: { lat: number; lng: number; name: string } | null;
   workLocation: { lat: number; lng: number; name: string } | null;
   recentDestinations: { lat: number; lng: number; name: string; timestamp: number }[];
+  customLocations: { id: string; lat: number; lng: number; name: string; timestamp: number }[];
+  /** Alt dock bar otomatik gizlensin mi — ekrana dokununca geri gelir */
+  dockAutoHide: boolean;
   smartContextEnabled: boolean;
   pinnedCards: PinnedCard[];
   dayNightMode: 'day' | 'night';
@@ -179,6 +182,8 @@ export interface AppSettings {
   autoNavOnStart: boolean;
   activeMediaSourceKey: string;
   musicFavorites: MusicFavorite[];
+  /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
+  customMusicSources: CustomMusicSource[];
   aiVoiceProvider: 'gemini' | 'haiku' | 'none';
   geminiApiKey: string;
   claudeHaikuApiKey: string;
@@ -196,6 +201,20 @@ export interface MusicFavorite {
   title: string; artist: string; albumArt?: string; source: string; addedAt: number;
 }
 
+/**
+ * Kullanıcının eklediği özel müzik kaynağı.
+ * kind:'stream' → doğrudan internet ses akışı / radyo URL'si; uygulama içinde
+ * HTML5 Audio ile çalar, harici uygulamaya geçilmez.
+ */
+export interface CustomMusicSource {
+  id: string;
+  name: string;
+  kind: 'stream';
+  url: string;
+  color: string;
+  addedAt: number;
+}
+
 interface StoreState {
   settings: AppSettings;
   updateSettings: (partial: Partial<AppSettings>) => void;
@@ -209,6 +228,8 @@ interface StoreState {
   setActiveVehicleProfile: (id: string | null) => void;
   addMusicFavorite: (fav: MusicFavorite) => void;
   removeMusicFavorite: (title: string, artist: string) => void;
+  addCustomMusicSource: (src: CustomMusicSource) => void;
+  removeCustomMusicSource: (id: string) => void;
   // ── Runtime state (persist edilmez, oturum sonunda sıfırlanır) ──
   activeSmartCards:       SmartCard[];
   _dismissedCardIds:      string[];
@@ -291,6 +312,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   homeLocation: null,
   workLocation: null,
   recentDestinations: [],
+  customLocations: [],
+  dockAutoHide: false,           // varsayılan: dock her zaman görünür
   smartContextEnabled: true,     // Smart Engine varsayılan açık
   pinnedCards: [],
   dayNightMode: 'day',
@@ -303,6 +326,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoNavOnStart: false,
   activeMediaSourceKey: 'spotify',
   musicFavorites: [],
+  customMusicSources: [],
   aiVoiceProvider: 'gemini',
   geminiApiKey: '',
   claudeHaikuApiKey: '',
@@ -382,6 +406,10 @@ export const useStore = create<StoreState>()(
         }),
       removeMusicFavorite: (title, artist) =>
         set((state) => ({ settings: { ...state.settings, musicFavorites: state.settings.musicFavorites.filter((f) => !(f.title === title && f.artist === artist)) } })),
+      addCustomMusicSource: (src) =>
+        set((state) => ({ settings: { ...state.settings, customMusicSources: [src, ...state.settings.customMusicSources.filter((s) => s.id !== src.id)].slice(0, 50) } })),
+      removeCustomMusicSource: (id) =>
+        set((state) => ({ settings: { ...state.settings, customMusicSources: state.settings.customMusicSources.filter((s) => s.id !== id) } })),
       isEcoMode:    false,
       setIsEcoMode: (v) => set({ isEcoMode: v }),
       targetFPS:    0,

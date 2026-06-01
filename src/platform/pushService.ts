@@ -14,6 +14,7 @@
 
 import { Capacitor }         from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { logInfo }           from './debug';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import { getSupabaseClient } from './supabaseClient';
 import {
@@ -48,7 +49,7 @@ async function _saveFcmToken(token: string): Promise<void> {
       p_fcm_token:  token,
       p_platform:   Capacitor.getPlatform(),
     });
-    console.log('[PushService] FCM token kaydedildi');
+    logInfo('[PushService] FCM token kaydedildi');
   } catch (err) {
     console.warn('[PushService] Token kayıt hatası:', err);
   }
@@ -61,7 +62,7 @@ function _resetWakeTimer(): void {
   _wakeTimer = setTimeout(() => {
     _wakeTimer = null;
     stopCommandListener();
-    console.log('[PushService] Wake timeout — CommandListener uyutuldu (30s idle)');
+    logInfo('[PushService] Wake timeout — CommandListener uyutuldu (30s idle)');
   }, WAKE_TIMEOUT_MS);
 }
 
@@ -74,7 +75,7 @@ async function _onWakeSignal(commandId?: string): Promise<void> {
     // Listener zaten canlı → Realtime channel açık, ama push push anında DB poll yap
     // (Realtime bağlantısında geçici gap olabilir — bu güvence kaplaması)
     triggerPendingPoll();
-    if (commandId) console.log(`[PushService] Pending poll tetiklendi: command_id=${commandId}`);
+    if (commandId) logInfo(`[PushService] Pending poll tetiklendi: command_id=${commandId}`);
     return;
   }
 
@@ -86,7 +87,7 @@ async function _onWakeSignal(commandId?: string): Promise<void> {
     const vehicleId = await sensitiveKeyStore.get('veh_vehicle_id');
     if (!vehicleId) return;
     startCommandListener(vehicleId);
-    console.log(`[PushService] Push-to-Wake: CommandListener başlatıldı${commandId ? ` (command_id=${commandId})` : ''}`);
+    logInfo(`[PushService] Push-to-Wake: CommandListener başlatıldı${commandId ? ` (command_id=${commandId})` : ''}`);
   } finally {
     _isWaking = false;
   }

@@ -27,6 +27,7 @@ import { logError }                 from '../crashLogger';
 import { useCognitiveStore }        from '../../store/useCognitiveStore';
 import { capturePanicSnapshot }     from './SystemPanicHandler';
 import { thermalJournal }           from './ThermalJournal';
+import { getEmmcWriteCount }        from '../../utils/safeStorage';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,9 @@ const STARTUP_GRACE_MS            = 45_000;          // uygulama açılışta GP
 const CRITICAL_FORCE_RESTART_MS   = 30_000;
 /** Soak Test: her 1 saatte bir rastgele OPTIONAL servis restart edilir */
 const SOAK_TEST_INTERVAL_MS       = 60 * 60 * 1_000;
-/** UI Thread Watchdog — 5s boyunca frame çizilemezse donma tespiti */
-const UI_FREEZE_THRESHOLD_MS      = 5_000;
-const UI_FREEZE_CHECK_INTERVAL_MS = 5_100; // eşikten biraz fazla → false-alarm engeli
+/** UI Thread Watchdog — 8s eşiği: düşük segment cihazlarda harita yükü sırasında false-alarm engeli */
+const UI_FREEZE_THRESHOLD_MS      = 8_000;
+const UI_FREEZE_CHECK_INTERVAL_MS = 8_100; // eşikten biraz fazla → false-alarm engeli
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,10 @@ export interface GlobalHealthSnapshot {
   ramPressureRatio:    number;
   workerRestartTotal:  number;
   uiFreezeCount:       number;
+  /** eMMC disk yazma sayacı — filodaki her araç için bağımsız periyodik sıfırlama */
+  emmcWriteCount:      number;
+  /** emmcWriteCount'un sıfırlandığı andan bu yana geçen süre (ms) */
+  emmcWriteSinceMs:    number;
   appVersion:          string;
   services: Array<{
     name:         string;
@@ -113,6 +118,9 @@ class SystemHealthMonitor {
   private _uiCheckTimer: ReturnType<typeof setInterval> | null = null;
   /** Oturum boyunca tespit edilen toplam UI donma olayı sayısı */
   private _uiFreezeCount = 0;
+  /** Worker GPS kalite arızası — aktif toast id + durum (setGpsQuality yönetir) */
+  private _gpsQualityToastId: string | null = null;
+  private _gpsQualityBad     = false;
 
   /**
    * Bir servisi izleme listesine ekle.
@@ -157,6 +165,36 @@ class SystemHealthMonitor {
     }
   }
 
+  /**
+   * Worker GPS kalite arızası bildirimi (VehicleCompute → resolver → buraya).
+   *
+   * GPS "canlı" görünebilir (bozuk fix'ler bile location'ı değiştirip beat üretir);
+   * bu yüzden kalite arızası deadline mekanizmasından bağımsız, kendi kalıcı
+   * uyarısıyla bildirilir.
+   *
+   * @param ok        true = kalite normal, false = accuracy > 100m / NaN (20s)
+   * @param accuracy  son ölçülen accuracy (m) — uyarı metni için (opsiyonel)
+   */
+  setGpsQuality(ok: boolean, accuracy?: number): void {
+    if (ok) {
+      if (!this._gpsQualityBad) return;
+      this._gpsQualityBad = false;
+      if (this._gpsQualityToastId) { dismissToast(this._gpsQualityToastId); this._gpsQualityToastId = null; }
+      if (import.meta.env.DEV) console.info('[HealthMonitor] GPS quality recovered');
+      return;
+    }
+    if (this._gpsQualityBad) return; // zaten bildirildi (tek-emit)
+    this._gpsQualityBad = true;
+    const accStr = Number.isFinite(accuracy ?? NaN) ? ` (~${Math.round(accuracy!)}m)` : '';
+    this._gpsQualityToastId = showToast({
+      type:     'warning',
+      title:    'GPS Doğruluğu Düşük',
+      message:  `Konum doğruluğu yetersiz${accStr} — navigasyon sapabilir.`,
+      duration: 0,
+    });
+    logError('HealthMonitor:GPSQuality', new Error(`GPS accuracy degraded${accStr}`));
+  }
+
   /** Watchdog ve pasif izleyicileri başlat. start() → stop() idempotent. */
   start(): void {
     if (this._timer) return;
@@ -178,6 +216,9 @@ class SystemHealthMonitor {
     for (const entry of this._registry.values()) {
       if (entry.alertId) { dismissToast(entry.alertId); entry.alertId = null; }
     }
+    // GPS kalite uyarısını da kapat
+    if (this._gpsQualityToastId) { dismissToast(this._gpsQualityToastId); this._gpsQualityToastId = null; }
+    this._gpsQualityBad = false;
     this._neverBeaten.clear();
   }
 
@@ -241,7 +282,7 @@ class SystemHealthMonitor {
   /**
    * requestAnimationFrame döngüsü ile UI thread'in yanıt verdiğini izler.
    * setInterval donma sonrası event-loop açılınca son frame gap'ini ölçer.
-   * 5s eşiği → throttling / debug pause false-alarm'larını bastırır.
+   * 8s eşiği → düşük segment cihazlarda harita yükü sırasındaki false-alarm'ları bastırır.
    */
   private _startUiWatchdog(): void {
     if (typeof requestAnimationFrame === 'undefined') return;
@@ -481,12 +522,16 @@ class SystemHealthMonitor {
       ? 'critical'
       : hasDegraded ? 'degraded' : 'healthy';
 
+    const emmc = getEmmcWriteCount();
+
     return {
       ts:                 Date.now(),
       thermalLevel,
       ramPressureRatio,
       workerRestartTotal: restartTotal,
       uiFreezeCount:      this._uiFreezeCount,
+      emmcWriteCount:     emmc.count,
+      emmcWriteSinceMs:   emmc.sinceMs,
       appVersion:         (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '1.0.0',
       services,
       overallHealth,

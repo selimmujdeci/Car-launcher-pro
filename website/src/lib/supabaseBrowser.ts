@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const url     = process.env.NEXT_PUBLIC_SUPABASE_URL     ?? '';
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
@@ -7,36 +8,24 @@ export const isSupabaseConfigured = Boolean(url && anonKey);
 
 let browserClient: SupabaseClient | null = null;
 
-/** Cookie helpers — session middleware'in okuyabilmesi için cookie'ye yazar */
-const cookieStorage = {
-  getItem(key: string): string | null {
-    if (typeof document === 'undefined') return null;
-    const match = document.cookie.split('; ').find((c) => c.startsWith(key + '='));
-    return match ? decodeURIComponent(match.slice(key.length + 1)) : null;
-  },
-  setItem(key: string, value: string): void {
-    if (typeof document === 'undefined') return;
-    document.cookie = `${key}=${encodeURIComponent(value)};path=/;max-age=604800;SameSite=Lax;Secure`;
-  },
-  removeItem(key: string): void {
-    if (typeof document === 'undefined') return;
-    document.cookie = `${key}=;path=/;max-age=0;SameSite=Lax`;
-  },
-};
-
+/**
+ * Tarayıcı Supabase client'ı.
+ *
+ * @supabase/ssr'in createBrowserClient'ı session'ı cookie'ye, server
+ * (createServerClient) ve middleware ile BİREBİR aynı formatta (chunked,
+ * base64) yazar. Böylece e-posta/şifre ile giriş yapıldığında middleware
+ * session'ı okuyabilir ve /dashboard'a yönlendirme döngüye girmez.
+ *
+ * NOT: Daha önce supabase-js + özel cookieStorage kullanılıyordu; o JSON
+ * formatını @supabase/ssr çözemediği için middleware getUser() null dönüyor
+ * ve giriş başarılı olmasına rağmen tekrar /login'e atıyordu.
+ */
 export function getSupabaseBrowserClient(): SupabaseClient | null {
   if (!isSupabaseConfigured) return null;
   if (typeof window === 'undefined') return null;
 
   if (!browserClient) {
-    browserClient = createClient(url, anonKey, {
-      auth: {
-        storage:          cookieStorage,   // session cookie'e yazar → middleware okur
-        persistSession:   true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    });
+    browserClient = createBrowserClient(url, anonKey);
   }
 
   return browserClient;

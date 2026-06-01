@@ -31,6 +31,7 @@
 
 import type { RealtimeChannel }               from '@supabase/supabase-js';
 import { getSupabaseClient }                   from './supabaseClient';
+import { logInfo }                             from './debug';
 import { getVehicleIdentity }                  from './vehicleIdentityService';
 import { updateRemoteCommandStatus,
          pushVehicleEvent }                    from './vehicleIdentityService';
@@ -190,7 +191,7 @@ async function _drainRetryQueue(): Promise<void> {
   if (entries.length === 0) return;
 
   if (import.meta.env.DEV) {
-    console.log(`[RemoteCommand] Draining ${entries.length} queued command(s)`);
+    logInfo(`[RemoteCommand] Draining ${entries.length} queued command(s)`);
   }
 
   for (const entry of entries) {
@@ -307,7 +308,7 @@ async function _processCommand(
       _enqueueRetry(row);
       await updateRemoteCommandStatus(commandId, 'queued').catch(() => {});
       if (import.meta.env.DEV) {
-        console.log(`[RemoteCommand] Queued critical command (offline):`, commandId);
+        logInfo(`[RemoteCommand] Queued critical command (offline):`, commandId);
       }
     } else {
       // Kritik olmayan komut: queue'ya alma — süresi dolmuş olabilir, telefonu uyar
@@ -354,7 +355,7 @@ async function _processCommand(
       // Status 'executing' olarak kalır; ACK gelince veya timeout'ta sonuçlanır.
       // Telefon 'executing' görürken araç CAN bus yanıtı bekler.
       if (import.meta.env.DEV) {
-        console.log(`[RemoteCommand] Awaiting hardware ACK (${ACK_TIMEOUT_MS / 1000}s):`, commandId);
+        logInfo(`[RemoteCommand] Awaiting hardware ACK (${ACK_TIMEOUT_MS / 1000}s):`, commandId);
       }
       const acked = await _awaitHardwareAck(commandId);
       if (!acked) {
@@ -420,7 +421,7 @@ async function _fetchMissedCommands(): Promise<void> {
   if (!data?.length) return;
 
   if (import.meta.env.DEV) {
-    console.log(`[RemoteCommand] Fetching ${data.length} missed command(s) after reconnect`);
+    logInfo(`[RemoteCommand] Fetching ${data.length} missed command(s) after reconnect`);
   }
 
   for (const row of data) {
@@ -475,7 +476,7 @@ export async function startRemoteCommands(): Promise<void> {
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         if (import.meta.env.DEV) {
-          console.log('[RemoteCommand] Subscribed — TTL:', DEFAULT_TTL_MS / 1000, 's');
+          logInfo('[RemoteCommand] Subscribed — TTL:', DEFAULT_TTL_MS / 1000, 's');
         }
         // Bağlantı yeniden kuruldu — offline dönemde gelen komutları işle
         void _fetchMissedCommands();

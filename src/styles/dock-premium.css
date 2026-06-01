@@ -1,0 +1,165 @@
+/* ════════════════════════════════════════════════════════════════════════
+   DOCK — PREMIUM OEM CHROME
+   ────────────────────────────────────────────────────────────────────────
+   Alt dock'un görsel katmanı. DockBar.tsx layout'u (flex/scroll/fisheye/
+   autohide) inline tutar; bu dosya yalnızca malzeme + durum (hover/active)
+   + derinlik (hairline/glow/elevation) sağlar — inline ile yapılamayanlar.
+
+   Tüm değerler --oem-dock-* token'larından gelir (design-system.css).
+   Dock KOYU chrome'dur (light-ui'de bile) → bilinçli premium kontrast.
+   Mevcut kill-switch'lere saygı: sunlight/oled/compat/perf-low en sonda.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Bar gövdesi: katmanlı graphite + üst hairline + yukarı elevation ── */
+[data-dock="main"] {
+  /* base.css içeriği 80px'e sabitliyordu ama iç satır (--dock-h) ≥1024px'te
+     88px → etiketler taşıp kesiliyordu. İçeriğe göre sar; ResizeObserver
+     --lp-dock-h spacer'ını otomatik günceller. */
+  height: auto !important;
+  /* Katmanlı cam: üst metalik sheen + alttan sıcak amber under-glow + chrome taban */
+  background:
+    linear-gradient(180deg, rgba(255,240,210,0.06), transparent 16%),
+    radial-gradient(130% 90% at 50% 128%, var(--oem-amber-glow, rgba(224,162,60,0.12)), transparent 68%),
+    linear-gradient(180deg,
+      var(--oem-dock-bg-top) 0%,
+      var(--oem-dock-bg-mid) 52%,
+      var(--oem-dock-bg-bot) 100%) !important;
+  border-top: 1px solid var(--oem-dock-hairline) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.07) inset,    /* iç üst highlight (cam kenarı) */
+    0 -22px 50px -26px rgba(0,0,0,0.72);      /* gövdeyi içerikten ayıran yumuşak gölge */
+}
+
+/* Üst-orta sıcak aksan parıltısı — şeridi "canlı" gösterir */
+[data-dock="main"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 42%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--oem-dock-accent) 55%, transparent),
+    transparent);
+  opacity: 0.6;
+}
+
+/* ── Buton (icon + label) ── */
+.dock-btn {
+  border-radius: 16px;
+  transition: background var(--oem-dur-fast) var(--oem-ease),
+              transform var(--oem-dur-fast) var(--oem-ease-out);
+}
+.dock-btn:hover   { background: rgba(255,255,255,0.045); }
+.dock-btn:active  { transform: translateY(1px) scale(0.97); }
+
+/* ── İkon çipi — DİNLENMEDE ÇIPLAK (kutu yok), SADECE hover/aktif'te amber pill.
+   Referans SideRail dili: temiz ikon satırı → premium; zengin durum yalnız dokununca. ── */
+.dock-chip {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  color: var(--oem-dock-ink);
+  box-shadow: none;
+  transition: background var(--oem-dur-base) var(--oem-ease),
+              border-color var(--oem-dur-base) var(--oem-ease),
+              color var(--oem-dur-base) var(--oem-ease),
+              box-shadow var(--oem-dur-base) var(--oem-ease);
+}
+.dock-btn:hover .dock-chip,
+.dock-btn:active .dock-chip {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--oem-dock-accent) 24%, transparent),
+    color-mix(in srgb, var(--oem-dock-accent) 5%, transparent) 75%);
+  border-color: color-mix(in srgb, var(--oem-dock-accent) 50%, transparent);
+  color: var(--oem-dock-accent);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.10) inset,
+    0 8px 22px -10px color-mix(in srgb, var(--oem-dock-accent) 70%, transparent),
+    0 0 26px -6px color-mix(in srgb, var(--oem-dock-accent) 38%, transparent);
+}
+/* İkon glyph'i çip rengini miras alır (monokrom → tutarlı) */
+.dock-chip svg { color: inherit; }
+
+/* ── Etiket — sakin, ferah ── */
+.dock-label {
+  color: var(--oem-dock-ink-dim);
+  transition: color var(--oem-dur-base) var(--oem-ease);
+}
+.dock-btn:hover .dock-label { color: var(--oem-dock-ink-active); }
+
+/* ── Ayraç — kısa, gradyan-fade hairline ── */
+.dock-divider {
+  background: linear-gradient(180deg,
+    transparent,
+    var(--oem-dock-divider) 22%,
+    var(--oem-dock-divider) 78%,
+    transparent) !important;
+}
+
+/* ── Sunlight yüksek-kontrast buton kuralı (index.css `.sunlight-mode button`:
+   2px siyah kenar + 700 weight + 52px min + svg stroke-width:3) dock chrome'u
+   KABALAŞTIRIYORDU. Dock'u muaf tut — premium/sakin kalır (yüksek özgüllük). ── */
+.sunlight-mode .dock-btn {
+  border: none !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  font-weight: inherit !important;
+}
+.sunlight-mode .dock-chip svg[stroke],
+.sunlight-mode .dock-chip svg *[stroke] { stroke-width: 2 !important; }
+.sunlight-mode .dock-label { font-weight: 600 !important; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   KILL-SWITCH'LERE SAYGI — okunabilirlik / GPU
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── PRO + GÜNDÜZ: AYDINLIK premium dock ──────────────────────────────────
+   theme-packs.css pro+day'de barı açık (rgba(248,249,251)) zorluyor. dock-premium
+   token'ları koyu-chrome için (açık ink) → açık bar üstünde ikon kaybolur.
+   Burada açık bar için KOYU-ink + sakin etiket + okunur amber tanımlıyoruz.
+   (Diğer temalar ve GECE: koyu chrome korunur — bu kurallar pro+day'e scope'lu.) */
+html[data-theme="pro"][data-day-night="day"] [data-dock="main"] {
+  box-shadow:
+    0 -1px 0 rgba(255,255,255,0.6) inset,
+    0 -18px 40px -26px rgba(15,23,42,0.22) !important;
+}
+html[data-theme="pro"][data-day-night="day"] .dock-chip {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: rgba(20,23,28,0.80) !important;
+  box-shadow: none !important;
+}
+html[data-theme="pro"][data-day-night="day"] .dock-btn:hover .dock-chip,
+html[data-theme="pro"][data-day-night="day"] .dock-btn:active .dock-chip {
+  background: linear-gradient(180deg, rgba(154,91,0,0.18), rgba(154,91,0,0.04) 75%) !important;
+  border-color: rgba(154,91,0,0.45) !important;
+  color: #7C4800 !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.6) inset,
+    0 8px 20px -10px rgba(154,91,0,0.5),
+    0 0 24px -8px rgba(154,91,0,0.32) !important;
+}
+html[data-theme="pro"][data-day-night="day"] .dock-label {
+  color: rgba(20,23,28,0.58) !important;
+}
+html[data-theme="pro"][data-day-night="day"] .dock-btn:hover .dock-label {
+  color: #14171C !important;
+}
+html[data-theme="pro"][data-day-night="day"] .dock-divider {
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.10) 22%, rgba(0,0,0,0.10) 78%, transparent) !important;
+}
+
+/* Compat / perf-low / oled: derinlik efektlerini sıfırla (gradyan düz koyu) */
+[data-compat-mode="true"] [data-dock="main"],
+.perf-low [data-dock="main"],
+[data-theme="oled"] [data-dock="main"],
+[data-theme="oled-day"] [data-dock="main"] {
+  background: var(--oem-dock-bg-bot) !important;
+  box-shadow: none !important;
+}
+[data-compat-mode="true"] [data-dock="main"]::before,
+.perf-low [data-dock="main"]::before { display: none !important; }

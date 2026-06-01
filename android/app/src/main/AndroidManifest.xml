@@ -201,8 +201,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <!-- API 31+ -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
+    <!-- neverForLocation KALDIRILDI: Classic BT discovery (ACTION_FOUND) eşli
+         OLMAYAN OBD adaptörlerini ancak konum çıkarımına izin verildiğinde
+         bildirir. Flag kalsaydı sadece bonded cihazlar listelenirdi. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
 
     <!-- Mikrofon — sesli asistan -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

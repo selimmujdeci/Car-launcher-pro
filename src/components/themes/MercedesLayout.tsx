@@ -19,7 +19,7 @@ import { MagicContextCard } from '../common/MagicContextCard';
 
 /* ══════════════════════════════════════════
    MERCEDES THEME — MBUX Hyperscreen Style
-   Siyah + Altın (#C8A96E) + Rosé Gold
+   Siyah + Amber (#E0A23C) — tek OEM aksanı
    ══════════════════════════════════════════ */
 
 interface Props {
@@ -35,9 +35,9 @@ interface Props {
 
 /* Tema renkleri CSS custom property — index.css [data-theme="mercedes"] */
 const M_BG     = 'var(--bg-primary, #0e0e0e)';
-const M_GOLD   = 'var(--accent, #C8A96E)';
+const M_GOLD   = 'var(--accent, #E0A23C)';
 const M_CARD   = 'var(--bg-card, rgba(16,14,14,0.97))';
-const M_BORDER = 'var(--border-color, rgba(200,169,110,0.13))';
+const M_BORDER = 'var(--border-color, rgba(224,162,60,0.13))';
 const M_TEXT   = 'var(--text, #F5F0EB)';
 const M_DIM    = 'var(--text-dim, #9E9893)';
 const M_DIM2   = 'var(--text-dim2, #B5B0AB)';
@@ -58,16 +58,16 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
         height: 56,
         background: 'rgba(6,5,5,0.99)',
         borderBottom: `1px solid ${M_BORDER}`,
-        boxShadow: `0 1px 0 rgba(200,169,110,0.07), 0 4px 20px rgba(0,0,0,0.55)`,
+        boxShadow: `0 1px 0 rgba(224,162,60,0.07), 0 4px 20px rgba(0,0,0,0.55)`,
       }}>
 
       {/* Sol: Mercedes yıldızı + saat */}
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
           style={{
-            background: 'linear-gradient(135deg, rgba(200,169,110,0.18), rgba(200,169,110,0.07))',
-            border: `1px solid rgba(200,169,110,0.28)`,
-            boxShadow: `0 3px 12px rgba(200,169,110,0.12)`,
+            background: 'linear-gradient(135deg, rgba(224,162,60,0.18), rgba(224,162,60,0.07))',
+            border: `1px solid rgba(224,162,60,0.28)`,
+            boxShadow: `0 3px 12px rgba(224,162,60,0.12)`,
           }}>
           <Star className="w-4.5 h-4.5" style={{ color: M_GOLD, fill: M_GOLD }} />
         </div>
@@ -94,10 +94,10 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
           className="px-4 h-11 rounded-2xl font-light tracking-widest active:scale-95 transition-all uppercase"
           style={{
             fontSize: 11,
-            background: 'linear-gradient(135deg, rgba(200,169,110,0.18), rgba(200,169,110,0.08))',
-            border: `1px solid rgba(200,169,110,0.32)`,
+            background: 'linear-gradient(135deg, rgba(224,162,60,0.18), rgba(224,162,60,0.08))',
+            border: `1px solid rgba(224,162,60,0.32)`,
             color: M_GOLD,
-            boxShadow: `0 3px 14px rgba(200,169,110,0.08)`,
+            boxShadow: `0 3px 14px rgba(224,162,60,0.08)`,
           }}>
           HEY MERCEDES
         </button>
@@ -129,7 +129,7 @@ function MIconBtn({ onClick, children }: { onClick: () => void; children: React.
 const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
+      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(224,162,60,0.07)` }}>
 
       {/* Altın üst çizgi */}
       <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, flexShrink: 0, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
@@ -161,7 +161,7 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
           <span className="font-extralight" style={{ fontSize: 13, color: M_DIM }}>Hedef belirle...</span>
         </button>
         <div className="rounded-2xl px-3 py-2.5 text-center"
-          style={{ background: 'rgba(200,169,110,0.07)', border: `1px solid rgba(200,169,110,0.16)` }}>
+          style={{ background: 'rgba(224,162,60,0.07)', border: `1px solid rgba(224,162,60,0.16)` }}>
           <div className="font-light" style={{ fontSize: 9, color: M_DIM, letterSpacing: '0.1em' }}>ETA</div>
           <div className="font-normal tabular-nums mt-0.5" style={{ fontSize: 13, color: M_GOLD }}>--:--</div>
           </div>
@@ -183,19 +183,32 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
   const obdReady = obd.connectionState === 'connected' || obd.source === 'mock';
   const hasData  = obdReady || speedKmh > 0;
 
-  const R = 95, cx = 120, cy = 130;
-  const pct = Math.min(speedKmh / 280, 1);
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const pt  = (a: number) => ({ x: cx + R * Math.cos(rad(a)), y: cy + R * Math.sin(rad(a)) });
-  const arc = (a1: number, a2: number) => {
-    const s = pt(a1), e = pt(a2), large = a2 - a1 > 180 ? 1 : 0;
-    return `M${s.x} ${s.y} A${R} ${R} 0 ${large} 1 ${e.x} ${e.y}`;
+  // Referans DriveCoreCard geometrisi — 240° yay (-210°→+30°), volumetrik gauge
+  const SPEED_MAX = 240;
+  const cxG = 240, cyG = 240, arcR = 218;
+  const startA = -210, endA = 30;
+  const v = Math.max(0, Math.min(1, speedKmh / SPEED_MAX));
+  const sweep = (endA - startA) * v;
+  const polar = (deg: number, r: number): [number, number] => {
+    const a = (deg - 90) * Math.PI / 180;
+    return [cxG + r * Math.cos(a), cyG + r * Math.sin(a)];
   };
-  const fillAngle = 135 + pct * 270;
+  const [sx, sy] = polar(startA, arcR);
+  const [ex, ey] = polar(startA + sweep, arcR);
+  const [tStartX, tStartY] = polar(startA, arcR);
+  const [tEndX, tEndY] = polar(endA, arcR);
+  const largeArc = sweep > 180 ? 1 : 0;
+  const gTicks = Array.from({ length: 10 }).map((_, i) => {
+    const a = startA + (endA - startA) * (i / 9);
+    const [x1, y1] = polar(a, arcR - 14);
+    const [x2, y2] = polar(a, arcR - 4);
+    return { x1, y1, x2, y2, major: i % 2 === 0 };
+  });
+  const [limX, limY] = polar(startA + (endA - startA) * (80 / SPEED_MAX), arcR - 34);
 
   return (
     <div className="flex flex-col h-full overflow-hidden"
-      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
+      style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 8px 40px rgba(0,0,0,0.70), 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(224,162,60,0.07)` }}>
 
       <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, flexShrink: 0, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
 
@@ -205,54 +218,79 @@ const MercedesMap = memo(function MercedesMap({ onOpenMap, fullMapOpen }: { onOp
         <div className="font-light mt-0.5" style={{ fontSize: 13, color: M_TEXT }}>Dijital Gösterge</div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center relative min-h-0">
-        {!hasData ? (
-          /* OBD bağlı değil — bekleme placeholder'ı */
-          <div className="flex flex-col items-center justify-center gap-3">
-            <div className="relative w-20 h-20">
-              <div className="absolute inset-0 rounded-full border border-[rgba(200,169,110,0.18)] animate-ping [animation-duration:2.4s]" />
-              <div className="absolute inset-2 rounded-full border border-[rgba(200,169,110,0.25)] animate-ping [animation-duration:2.4s] [animation-delay:0.6s]" />
-              <div className="absolute inset-4 rounded-full border border-[rgba(200,169,110,0.35)] animate-ping [animation-duration:2.4s] [animation-delay:1.2s]" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Gauge className="w-6 h-6" style={{ color: 'rgba(200,169,110,0.5)' }} />
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="font-medium uppercase" style={{ fontSize: 9, color: M_GOLD, letterSpacing: '0.3em' }}>Sinyal Bekleniyor</div>
-              <div className="font-light mt-1" style={{ fontSize: 10, color: M_DIM }}>OBD · GPS</div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ width: 'var(--lp-speedo, 175px)', height: 'var(--lp-speedo, 175px)', position: 'relative' }}>
-            <svg width="100%" height="100%" viewBox="0 0 240 260">
-              <circle cx="120" cy="130" r="112" fill="none" stroke="rgba(200,169,110,0.04)" strokeWidth="1" />
-              <circle cx="120" cy="130" r="106" fill="none" stroke="rgba(200,169,110,0.07)" strokeWidth="0.5" />
-              <path d={arc(135, 405)} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="12" strokeLinecap="round" />
-              {pct > 0.01 && (
-                <path d={arc(135, fillAngle)} fill="none"
-                  stroke="url(#goldGrad)" strokeWidth="12" strokeLinecap="round"
-                  style={{ filter: `drop-shadow(0 0 7px rgba(200,169,110,0.45))` }} />
-              )}
-              <defs>
-                <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#C8A96E" />
-                  <stop offset="100%" stopColor="#E8C98E" />
-                </linearGradient>
-              </defs>
-              <circle cx="120" cy="130" r="52" fill="rgba(0,0,0,0.82)" stroke="rgba(200,169,110,0.10)" strokeWidth="1" />
-            </svg>
+      <div className="flex-1 flex items-center justify-center relative min-h-0 px-2">
+        {/* Referans DriveCoreCard — volumetrik amber gauge (Tesla/MBUX kalitesi) */}
+        <div style={{ position: 'relative', width: 'min(94%, 360px)', aspectRatio: '1 / 1' }}>
+          {/* Volumetrik glow yığını — hacim hissi */}
+          <div className="absolute" style={{ inset: '4%', borderRadius: '999px',
+            background: 'radial-gradient(circle, rgba(224,162,60,0.16), transparent 60%)', filter: 'blur(24px)' }} />
+          <div className="absolute" style={{ inset: '20%', borderRadius: '999px',
+            background: 'radial-gradient(circle, rgba(224,162,60,0.10), transparent 65%)', filter: 'blur(12px)' }} />
 
-            <div className="absolute inset-0 flex flex-col items-center justify-center pt-2.5">
-              <div className="font-extralight tabular-nums leading-none"
-                style={{ fontSize: 'var(--lp-speed-font, 58px)', color: M_TEXT, letterSpacing: '-1px', textShadow: '0 0 20px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.50)' }}>
-                {Math.round(speedKmh)}
-              </div>
-              <div className="font-light uppercase mt-1.5" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.45em' }}>
-                km/h
-              </div>
+          <svg width="100%" height="100%" viewBox="0 0 480 480" style={{ position: 'absolute', inset: 0 }}>
+            <defs>
+              <linearGradient id="mSpeedArc" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0" stopColor="#C9831A" />
+                <stop offset="0.6" stopColor="#E8B86A" />
+                <stop offset="1" stopColor="#F6E2B8" />
+              </linearGradient>
+              <filter id="mArcGlow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="4" />
+              </filter>
+            </defs>
+
+            {/* Tick'ler */}
+            {gTicks.map((tk, i) => (
+              <line key={i} x1={tk.x1} y1={tk.y1} x2={tk.x2} y2={tk.y2}
+                stroke="rgba(232,224,208,0.22)" strokeWidth={tk.major ? 2 : 1} strokeLinecap="round" />
+            ))}
+
+            {/* Track yay */}
+            <path d={`M ${tStartX} ${tStartY} A ${arcR} ${arcR} 0 1 1 ${tEndX} ${tEndY}`}
+              fill="none" stroke="rgba(232,224,208,0.08)" strokeWidth="6" strokeLinecap="round" />
+
+            {/* Dolum yayı — çift stroke (blur glow + keskin) */}
+            {v > 0.01 && (
+              <>
+                <path d={`M ${sx} ${sy} A ${arcR} ${arcR} 0 ${largeArc} 1 ${ex} ${ey}`}
+                  fill="none" stroke="url(#mSpeedArc)" strokeWidth="14" strokeLinecap="round"
+                  filter="url(#mArcGlow)" opacity="0.45" />
+                <path d={`M ${sx} ${sy} A ${arcR} ${arcR} 0 ${largeArc} 1 ${ex} ${ey}`}
+                  fill="none" stroke="url(#mSpeedArc)" strokeWidth="6" strokeLinecap="round" />
+              </>
+            )}
+
+            {/* Hız limiti işareti — 80 km/h */}
+            <g>
+              <circle cx={limX} cy={limY} r="15" fill="rgba(20,24,32,0.85)" stroke="#E0A23C" strokeWidth="2" />
+              <text x={limX} y={limY + 5} textAnchor="middle" fontSize="14" fontWeight="700" fill="#F2C277" fontFamily="Inter, system-ui">80</text>
+            </g>
+          </svg>
+
+          {/* Merkez okuma — devasa ince sayı */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="tabular-nums" style={{ fontSize: 'clamp(64px, 17vh, 124px)', fontWeight: 200, lineHeight: 1, letterSpacing: '-0.05em', color: M_TEXT, textShadow: '0 0 32px rgba(244,206,134,0.18)' }}>
+              {Math.round(speedKmh)}
+            </div>
+            <div className="uppercase" style={{ fontSize: 12, letterSpacing: '0.36em', color: M_GOLD, marginTop: 4, fontWeight: 600 }}>
+              KM · SAAT
+            </div>
+            <div className="flex items-center gap-1.5 mt-3 px-2.5 py-1 rounded-full"
+              style={{
+                background: hasData ? 'rgba(52,211,153,0.10)' : 'rgba(224,162,60,0.08)',
+                border: `1px solid ${hasData ? 'rgba(52,211,153,0.28)' : 'rgba(224,162,60,0.20)'}`,
+              }}>
+              <span style={{
+                width: 5, height: 5, borderRadius: '50%',
+                background: hasData ? '#34D399' : 'rgba(224,162,60,0.7)',
+                boxShadow: hasData ? '0 0 6px rgba(52,211,153,0.8)' : 'none',
+              }} />
+              <span className="uppercase font-medium" style={{ fontSize: 8, letterSpacing: '0.18em', color: hasData ? '#34D399' : M_DIM }}>
+                {hasData ? 'OBD-II Canlı' : 'Sinyal bekleniyor'}
+              </span>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Veri */}
@@ -269,8 +307,8 @@ function MDataCell({ Icon, label, value, warn }: { Icon: typeof Gauge; label: st
   return (
     <div className="flex-1 rounded-2xl p-3.5 text-center"
       style={{
-        background: warn ? 'rgba(204,50,50,0.07)' : 'rgba(200,169,110,0.04)',
-        border: `1px solid ${warn ? 'rgba(204,50,50,0.18)' : 'rgba(200,169,110,0.09)'}`,
+        background: warn ? 'rgba(204,50,50,0.07)' : 'rgba(224,162,60,0.04)',
+        border: `1px solid ${warn ? 'rgba(204,50,50,0.18)' : 'rgba(224,162,60,0.09)'}`,
       }}>
       <Icon className="w-4 h-4 mx-auto mb-2" style={{ color: warn ? '#EF4444' : M_GOLD }} />
       <div className="uppercase font-medium mb-1" style={{ fontSize: 10, color: M_DIM, letterSpacing: '0.10em' }}>{label}</div>
@@ -295,7 +333,7 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
 
       {/* Müzik */}
       <div className="overflow-hidden flex-shrink-0"
-        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
+        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(224,162,60,0.07)` }}>
         <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
         <div className="p-3.5">
           <div className="uppercase font-medium mb-3" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.32em' }}>BURMESTER MÜZİK</div>
@@ -303,8 +341,8 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
             <div className="rounded-2xl flex-shrink-0 flex items-center justify-center overflow-hidden"
               style={{
                 width: 'var(--lp-album, 52px)', height: 'var(--lp-album, 52px)',
-                background: 'linear-gradient(135deg, rgba(200,169,110,0.13), rgba(200,169,110,0.05))',
-                border: `1px solid rgba(200,169,110,0.18)`,
+                background: 'linear-gradient(135deg, rgba(224,162,60,0.13), rgba(224,162,60,0.05))',
+                border: `1px solid rgba(224,162,60,0.18)`,
               }}>
               {track.albumArt
                 ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" />
@@ -328,9 +366,9 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
             <button onClick={() => togglePlayPause()}
               className="w-11 h-11 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
               style={{
-                background: 'linear-gradient(135deg, rgba(200,169,110,0.22), rgba(200,169,110,0.10))',
-                border: `1px solid rgba(200,169,110,0.32)`,
-                boxShadow: `0 4px 14px rgba(200,169,110,0.16)`,
+                background: 'linear-gradient(135deg, rgba(224,162,60,0.22), rgba(224,162,60,0.10))',
+                border: `1px solid rgba(224,162,60,0.32)`,
+                boxShadow: `0 4px 14px rgba(224,162,60,0.16)`,
               }}>
               {playing
                 ? <Pause className="w-5 h-5" style={{ color: M_GOLD }} />
@@ -346,7 +384,7 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
 
       {/* Uygulamalar */}
       <div className="flex-1 overflow-hidden"
-        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(200,169,110,0.07)` }}>
+        style={{ background: M_CARD, border: `1px solid ${M_BORDER}`, borderRadius: 24, boxShadow: `0 4px 24px rgba(0,0,0,0.60), 0 1px 6px rgba(0,0,0,0.40), inset 0 1px 0 rgba(224,162,60,0.07)` }}>
         <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${M_GOLD}, transparent)`, borderRadius: '24px 24px 0 0', opacity: 0.70 }} />
         <div className="p-3.5">
           <div className="uppercase font-medium mb-3" style={{ fontSize: 10, color: M_GOLD, letterSpacing: '0.32em' }}>MBUX UYGULAMALAR</div>
@@ -355,8 +393,8 @@ const MercedesSide = memo(function MercedesSide({ appMap, onLaunch }: { appMap: 
               <button key={id} onClick={() => onLaunch(id)}
                 className="flex flex-col items-center gap-1.5 py-3.5 rounded-2xl active:scale-90 transition-all"
                 style={{
-                  background: 'rgba(200,169,110,0.04)',
-                  border: `1px solid rgba(200,169,110,0.09)`,
+                  background: 'rgba(224,162,60,0.04)',
+                  border: `1px solid rgba(224,162,60,0.09)`,
                 }}>
                 <span className="text-xl leading-none">{app!.icon}</span>
                 <span className="font-light" style={{ fontSize: 10, color: M_DIM }}>{app!.name}</span>
