@@ -4,7 +4,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 type MapRef = MapLibreMap & { _fullMapInitialized?: boolean };
 import { X, Map, Globe, ArrowLeft } from 'lucide-react';
 import {
-  interpolateNavPoint, type NavPoint
+  interpolateNavPoint, projectDeadReckon, resolveDrSpeed, type NavPoint
 } from '../../utils/interpolation';
 import { bearingBetween } from '../../platform/cameraEngine';
 import { logInfo } from '../../platform/debug';
@@ -181,6 +181,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // ── Dead Reckoning refs — rAF loop içinde kullanılır, React state tetiklemez ──
   const obdSpeedRef     = useRef(0);           // OBD hız (km/h) — DR fallback için
   const gpsLostTsRef    = useRef<number | null>(null); // GPS kayıp zamanı
+  const lastFixTsRef    = useRef<number | null>(null); // son geçerli GPS fix zamanı (performance.now) — staleness için
   const drWarnTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [gpsLostWarn, setGpsLostWarn] = useState(false);
   const gpsLostWarnRef  = useRef(false); // stale closure'dan kaçınmak için
@@ -238,6 +239,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       // 1) Gerçek-zamanlı yol — ref'ler (rAF döngüsü bunları tam hızda okur)
       locationRef.current = loc;
       headingRef.current  = loc?.heading ?? null;
+      // Son geçerli fix zamanı — staleness (gpsOk yaş kontrolü) için. rAF tick ile aynı
+      // time origin (performance.now / rAF timestamp) → monotonik, clock-jump güvenli.
+      // mapStyleReadyRef koşuluna bağlanmaz: map READY olmasa da yaş doğru izlenmeli.
+      if (loc) lastFixTsRef.current = performance.now();
 
       // 2) Navigasyon buffer beslemesi — eski "Location updates" effect'i buraya taşındı.
       //    rAF interpolasyonu navPointsRef'i tüketir; bu nedenle GPS tick'inde dolmalı.
@@ -437,13 +442,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       if (_doHeavy) {
       // ── Dead Reckoning — GPS koptuysa OBD hız + son heading ile konum hesapla ──
-      // Sadece: navigasyon ACTIVE + GPS geçersiz → CPU sıfır yük normal durumda
-      const isActiveNav = navStatusRef.current === NavStatus.ACTIVE || navStatusRef.current === NavStatus.REROUTING;
-      const gpsOk = !!(locationRef.current && Number.isFinite(locationRef.current.accuracy) && locationRef.current.accuracy < 1000);
+      // GPS geçersizse (aktif rota olmasa da) son bilinen noktadan ileri projeksiyon yap
+      // Staleness: son fix 5sn'den eskiyse (örn. tünelde sinyal kesildi, locationRef
+      // son iyi fix'te DONDU) GPS bayat sayılır → DR devreye girer. Yaş, fix kaydı ile
+      // aynı time origin'den (performance.now ≡ rAF `now`) hesaplanır → clock-jump güvenli.
+      const GPS_STALE_MS = 5000;
+      const fixFresh = lastFixTsRef.current !== null && (now - lastFixTsRef.current) <= GPS_STALE_MS;
+      const gpsOk = !!(fixFresh && locationRef.current && Number.isFinite(locationRef.current.accuracy) && locationRef.current.accuracy < 1000);
 
-      if (isActiveNav && !gpsOk && navPointsRef.current.length > 0) {
+      if (!gpsOk && navPointsRef.current.length > 0) {
         const lastKnown = navPointsRef.current[navPointsRef.current.length - 1];
-        const obdKmh    = obdSpeedRef.current;
+        // OBD hızı varsa onu tercih et; yok/0 ise son geçerli GPS hızına (m/s→km/h) düş
+        const obdKmh    = resolveDrSpeed(obdSpeedRef.current, locationRef.current?.speed ?? null);
 
         // GPS kayıp zamanını ilk kez kaydet
         if (gpsLostTsRef.current === null) gpsLostTsRef.current = now;
@@ -463,13 +473,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const drInterval = isPerfLow ? 500 : 16;
 
         if (!userInteractingRef.current && mapRef.current && mapRef.current.isStyleLoaded() && (now - lastCameraUpdate > drInterval)) {
-          // Dead Reckoning: s = v × t, kartezyen tahmini
-          const dtSec    = Math.min((now - lastKnown.ts) / 1000, 5); // max 5s DR penceresi
-          const distDeg  = (obdKmh / 3.6) * dtSec / 111_320;
-          const headRad  = (lastKnown.heading * Math.PI) / 180;
-          const cosLat   = Math.max(0.001, Math.cos((lastKnown.lat * Math.PI) / 180));
-          const drLat    = lastKnown.lat + distDeg * Math.cos(headRad);
-          const drLng    = lastKnown.lng + distDeg * Math.sin(headRad) / cosLat;
+          // Dead Reckoning: s = v × t, kartezyen tahmini (saf matematik utils'te)
+          const { lat: drLat, lng: drLng } = projectDeadReckon(lastKnown, obdKmh, now);
 
           if (now - lastMarkerUpdate > 100) {
             updateUserMarker(drLat, drLng, lastKnown.heading, obdKmh);
