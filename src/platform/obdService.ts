@@ -31,7 +31,7 @@ import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
 import { findBestObdDevice } from './obdDiscovery';
-import { loadObdAddress, saveObdAddress, loadObdProfileId, saveObdProfileId } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -98,7 +98,16 @@ let _dataGatePassed = false;
 // Persisted to localStorage so app restart skips full BT INQUIRY scan.
 // BT INQUIRY = 10-30 s contention → GPS ±15 m jitter + A2DP glitch every ~10 s.
 let _lastKnownAddress: string | null = loadObdAddress();
+
+// Adaptör-değişimi koruması: kayıtlı MAC bu OTURUMDA en az bir kez RFCOMM ile
+// bağlandı mı? false + tüm reconnect'ler tükendi → adres muhtemelen stale (yeni
+// adaptör) → temizle. true (bağlanıp düştü = araç kapanması gibi) → adres korunur.
+let _addressConnectedOnce = false;
 let _lastKnownPin: string | null = null; // session-only, güvenlik için localStorage'a yazılmaz
+
+// Son kullanılan taşıma katmanı ('classic' | 'ble'). MAC adresiyle birlikte persist edilir
+// → direct-reconnect yolunda doğru transport ile bağlanılır. null = mevcut Classic varsayılanı.
+let _lastKnownTransport: ObdTransport | null = loadObdTransport();
 
 // ── Vehicle Profile Auto-Detection ──────────────────────────
 let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
@@ -397,6 +406,18 @@ function _scheduleReconnect(): void {
 
   if (!shouldAttemptReconnect(_reconnectAttempts)) {
     _reconnectAttempts = 0;
+    // Adaptör-değişimi koruması: kayıtlı MAC bu oturumda HİÇ bağlanamadıysa (RFCOMM
+    // hiç açılmadı) muhtemelen eski/yanlış adaptör → temizle ki sonraki başlatma
+    // tam BT scan'e düşsün (sonsuz mock/hata döngüsü önlenir). Bağlanıp düşen geçerli
+    // adres KORUNUR — araç kapanması gibi geçici drop'ta yeniden eşleştirme zorlanmaz.
+    if (!_addressConnectedOnce) {
+      _lastKnownAddress = null;
+      clearObdAddress();
+      // Adres temizlenince transport da temizlenir: stale 'ble' transport bir sonraki
+      // farklı adaptörde yanlış GATT dallanmasına yol açmasın (adres+transport birlikte persist).
+      _lastKnownTransport = null;
+      clearObdTransport();
+    }
     if (MOCK_ENABLED && !nativePlatform) {
       _startMock();
     } else {
@@ -541,6 +562,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       pids: pidList,
       ...(forceCanProtocol ? { protocol: '6' } : {}),
       ...(_lastKnownPin ? { pin: _lastKnownPin } : {}),
+      ...(_lastKnownTransport ? { transport: _lastKnownTransport } : {}),
     }),
     new Promise<never>((_, reject) =>
       setTimeout(
@@ -557,6 +579,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    gecikmeli olabilir. 2 saniye boyunca 'initializing' state'inde kal.
   _lastKnownAddress = candidate.address;
   saveObdAddress(candidate.address);
+  _addressConnectedOnce = true; // RFCOMM+init başarılı → bu adres bu oturumda doğrulandı
   _merge({ connectionState: 'initializing', source: 'none' });
 
   // Fix 3: 2s sabit bekleme → maksimum deadline. Geçerli PID (speed/RPM) daha erken
@@ -661,13 +684,22 @@ const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true';
  *   scan/connect is cancelled and restarted with the given address.
  *   Omitted → uses _lastKnownAddress from localStorage (also skips scan);
  *   only falls back to full scan if no address was ever saved.
+ *
+ * @param transport — optional 'classic' | 'ble'. Persisted alongside the address so
+ *   direct-reconnect uses the correct transport. Omitted → keeps the current Classic
+ *   RFCOMM default (backward compatible).
  */
-export function startOBD(address?: string, pin?: string): void {
+export function startOBD(address?: string, pin?: string, transport?: ObdTransport): void {
   if (address) {
     _lastKnownAddress = address;
     saveObdAddress(address);
+    _addressConnectedOnce = false; // yeni adres: henüz doğrulanmadı
   }
   if (pin !== undefined) _lastKnownPin = pin || null; // boş string → null (PIN'siz)
+  if (transport) {
+    _lastKnownTransport = transport;
+    saveObdTransport(transport); // direct-reconnect yolunda doğru transport ile bağlan
+  }
 
   if (_running) {
     // address provided while service is already running but not connected:

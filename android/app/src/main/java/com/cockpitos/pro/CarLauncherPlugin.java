@@ -88,6 +88,7 @@ import com.getcapacitor.annotation.PermissionCallback;
 import com.cockpitos.pro.can.CanBusManager;
 import com.cockpitos.pro.can.CanFrameDecoder;
 import com.cockpitos.pro.can.VehicleSignalMapper;
+import com.cockpitos.pro.obd.BleObdManager;
 import com.cockpitos.pro.obd.BleObdScanner;
 import com.cockpitos.pro.obd.OBDBluetoothManager;
 import com.cockpitos.pro.obd.OBDManager;
@@ -668,12 +669,46 @@ public class CarLauncherPlugin extends Plugin {
     // KÖPRÜ katmanıdır: PluginCall parse + JSObject + notifyListeners + SAB push.
 
     private OBDManager obdManager;
+    private BleObdManager bleObdManager;
 
     /** Lazy init — getContext() plugin load sonrası geçerlidir. */
     private OBDManager obd() {
         if (obdManager == null) obdManager = new OBDManager(getContext(), obdListener);
         return obdManager;
     }
+
+    /**
+     * Lazy init — BLE GATT OBD motoru (Faz 3 wire).
+     * Classic ile AYNI köprü davranışını paylaşır: BLE'nin ayrı listener tipi
+     * {@link bleObdListener} ile {@link #obdListener} mantığına delege edilir.
+     */
+    private BleObdManager bleObd() {
+        if (bleObdManager == null) bleObdManager = new BleObdManager(getContext(), bleObdListener);
+        return bleObdManager;
+    }
+
+    /**
+     * BLE motoru → köprü adapteri. BleObdManager kendi {@link BleObdManager.OnOBDDataListener}
+     * tipini kullanır (Classic ile imza-uyumlu ama farklı tip). Köprü mantığı tek noktada
+     * kalsın diye doğrudan {@link #obdListener}'a delege eder — notifyListeners + SAB yolu
+     * birebir aynı.
+     */
+    private final BleObdManager.OnOBDDataListener bleObdListener = new BleObdManager.OnOBDDataListener() {
+        @Override
+        public void onObdData(int speed, int rpm, int engineTemp, int fuelLevel) {
+            obdListener.onObdData(speed, rpm, engineTemp, fuelLevel);
+        }
+
+        @Override
+        public void onStatusChanged(String state, String message) {
+            obdListener.onStatusChanged(state, message);
+        }
+
+        @Override
+        public void onError(String error) {
+            obdListener.onError(error);
+        }
+    };
 
     /** OBD motoru → köprü: gelen veriyi mevcut notifyListeners + SAB yoluyla JS'e ilet. */
     private final OBDManager.OnOBDDataListener obdListener = new OBDManager.OnOBDDataListener() {
@@ -902,6 +937,44 @@ public class CarLauncherPlugin extends Plugin {
         String protocol = call.getString("protocol");
         java.util.Set<String> pidSet = parsePidSet(call.getArray("pids"));
 
+        // Faz 3: transport bilgisi frontend'den iletilir ('classic' | 'ble').
+        // 'ble' → BLE GATT yolu (BleObdManager); aksi halde (classic/null/eksik/diğer)
+        // mevcut Classic RFCOMM yolu BİREBİR korunur.
+        String transport = call.getString("transport");
+        android.util.Log.i("OBD", "connectOBD transport=" + (present(transport) ? transport : "classic(default)"));
+
+        if ("ble".equals(transport)) {
+            // Tek aktif bağlantı: BLE'ye geçmeden önce varsa Classic'i temiz kapat.
+            if (obdManager != null) {
+                try { obdManager.disconnect(); } catch (Exception ignored) {}
+            }
+            // Motor BleObdManager'da; köprü (notifyListeners + SAB) bleObdListener üzerinden.
+            // BLE imzasında PIN yoktur (GATT pairing ELM327 klonlarında gerekmiyor).
+            bleObd().connect(address, protocol, pidSet, new BleObdManager.ConnectCallback() {
+                @Override
+                public void onConnected() {
+                    mainHandler.post(call::resolve);
+                }
+
+                @Override
+                public void onFailed(String error) {
+                    JSObject event = new JSObject();
+                    event.put("state",   "error");
+                    event.put("message", error);
+                    notifyListeners("obdStatus", event);
+
+                    mainHandler.post(() -> call.reject("CONNECT_FAILED", error));
+                }
+            });
+            return;
+        }
+
+        // ── Classic RFCOMM yolu (transport classic/null/eksik/diğer) — BİREBİR korunur ──
+        // Tek aktif bağlantı: Classic'e geçmeden önce varsa BLE'yi temiz kapat.
+        if (bleObdManager != null) {
+            try { bleObdManager.disconnect(); } catch (Exception ignored) {}
+        }
+
         // Motor OBDManager'da; PluginCall resolve/reject + obdStatus event'i köprüde.
         obd().connect(address, pin, protocol, pidSet, new OBDManager.ConnectCallback() {
             @Override
@@ -923,7 +996,12 @@ public class CarLauncherPlugin extends Plugin {
 
     @PluginMethod
     public void disconnectOBD(PluginCall call) {
+        // Hangi transport aktifse onu kapat. Her disconnect() idempotent; init edilmemiş
+        // motoru oluşturmamak için null-guard kullanılır (gereksiz instance açma yok).
         obd().disconnect();
+        if (bleObdManager != null) {
+            try { bleObdManager.disconnect(); } catch (Exception ignored) {}
+        }
 
         JSObject event = new JSObject();
         event.put("state", "disconnected");
@@ -3348,6 +3426,7 @@ public class CarLauncherPlugin extends Plugin {
         releaseLocalPlayer();
         canBusManager.stop();
         if (obdManager != null) obdManager.shutdown();
+        if (bleObdManager != null) bleObdManager.shutdown();
 
         if (mediaManager != null) {
             mediaManager.detachMediaSessionsListener();

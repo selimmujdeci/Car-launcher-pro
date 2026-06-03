@@ -16,6 +16,9 @@ interface DiscoveredDevice {
   name:    string;
   address: string;
   bonded:  boolean;
+  // Opsiyonel taşıma katmanı — native taraf "classic" veya "ble" gönderir.
+  // Eski Classic akışı transport olmadan da çalışır (geriye dönük uyumlu).
+  transport?: 'classic' | 'ble';
 }
 
 interface Props {
@@ -138,7 +141,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
     const handle = await CarLauncher.addListener('obdDeviceFound', (data) => {
       setDevices((prev) => {
         if (prev.some((d) => d.address === data.address)) return prev;
-        return [...prev, { name: data.name, address: data.address, bonded: data.bonded }];
+        return [...prev, { name: data.name, address: data.address, bonded: data.bonded, transport: data.transport }];
       });
     });
     discoveryHandleRef.current = handle;
@@ -186,7 +189,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setError(null);
     setPinTarget(null);
     stopOBD();
-    startOBD(dev.address, pin);
+    startOBD(dev.address, pin, dev.transport);
   };
 
   if (!open) return null;

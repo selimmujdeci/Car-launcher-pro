@@ -71,6 +71,12 @@ export interface OBDConnectOptions {
    * V-LINK, bazı ELM327 klonları: '0000' veya '1234'.
    */
   pin?: string;
+  /**
+   * Bağlantı taşıma katmanı.
+   * 'classic' = Classic Bluetooth SPP/RFCOMM (varsayılan), 'ble' = Bluetooth Low Energy GATT.
+   * Belirtilmezse native taraf mevcut Classic RFCOMM yolunu kullanır (geriye dönük uyumlu).
+   */
+  transport?: 'classic' | 'ble';
 }
 
 /**
@@ -349,7 +355,14 @@ export interface CarLauncherPlugin {
 
   addListener(
     event: 'obdDeviceFound',
-    handler: (data: { name: string; address: string; bonded: boolean }) => void,
+    handler: (data: {
+      name: string;
+      address: string;
+      bonded: boolean;
+      // Opsiyonel — native taraf "classic" (Classic Bluetooth SPP) veya
+      // "ble" (Bluetooth Low Energy) gönderir. Eski yol transport olmadan da çalışır.
+      transport?: 'classic' | 'ble';
+    }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     event: 'obdDiscoveryFinished',
