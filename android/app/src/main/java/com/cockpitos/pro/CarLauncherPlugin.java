@@ -47,6 +47,7 @@ import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.ContactsContract;
@@ -87,12 +88,16 @@ import com.getcapacitor.annotation.PermissionCallback;
 import com.cockpitos.pro.can.CanBusManager;
 import com.cockpitos.pro.can.CanFrameDecoder;
 import com.cockpitos.pro.can.VehicleSignalMapper;
+import com.cockpitos.pro.obd.BleObdScanner;
 import com.cockpitos.pro.obd.OBDBluetoothManager;
+import com.cockpitos.pro.obd.OBDManager;
 import com.cockpitos.pro.can.ReverseSignalGuard;
 import com.cockpitos.pro.can.NativeToJsBridge;
 import com.cockpitos.pro.can.VehicleCanData;
 import com.cockpitos.pro.can.K24CanBridge;
 import com.cockpitos.pro.can.McuEventSniffer;
+import com.cockpitos.pro.core.VehicleNativeBridge;
+import com.cockpitos.pro.media.MediaManager;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -159,6 +164,7 @@ import android.security.keystore.KeyProperties;
 public class CarLauncherPlugin extends Plugin {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private MediaManager mediaManager;
 
     // ── Static instance — LMK memory pressure bridge ─────────────────────────
     // MainActivity.onTrimMemory → broadcastMemoryPressure() → notifyListeners → JS
@@ -168,6 +174,21 @@ public class CarLauncherPlugin extends Plugin {
     public void load() {
         super.load();
         _instance = this;
+
+        // Medya yöneticisini başlat ve listener'ı kur
+        mediaManager = MediaManager.getInstance(getContext());
+        mediaManager.setListener(new MediaManager.OnMediaUpdateListener() {
+            @Override
+            public void onMetadataChanged(JSObject metadata) {
+                notifyListeners("mediaChanged", metadata);
+            }
+
+            @Override
+            public void onPlaybackStateChanged(String state) {
+                // Opsiyonel: playbackStateChanged event'i JS tarafında gerekiyorsa eklenebilir.
+                // Mevcut yapıda her şey mediaChanged (onMetadataChanged) üzerinden akıyor.
+            }
+        });
 
         // CanBusManager'ı ForegroundService watchdog'a inject et
         CarLauncherForegroundService.setCanBusManager(canBusManager);
@@ -222,7 +243,7 @@ public class CarLauncherPlugin extends Plugin {
         // Bildirim erişimi daha önce verilmişse servis zaten bağlı olabilir —
         // medya oturum dinleyicisini hemen kur. Henüz bağlı değilse servisin
         // onListenerConnected callback'i bu metodu tekrar tetikleyecek.
-        mainHandler.post(this::attachMediaSessionsListener);
+        mainHandler.post(mediaManager::attachMediaSessionsListener);
     }
 
     /**
@@ -326,7 +347,7 @@ public class CarLauncherPlugin extends Plugin {
                 // Native icon — 96×96 PNG, bellek tasarrufu için küçültülmüş
                 try {
                     android.graphics.drawable.Drawable drawable = info.loadIcon(pm);
-                    Bitmap bmp = drawableToBitmap(drawable, 96);
+                    Bitmap bmp = PluginUtils.drawableToBitmap(drawable, 96);
                     if (bmp != null) {
                         ByteArrayOutputStream stream = new ByteArrayOutputStream();
                         bmp.compress(Bitmap.CompressFormat.PNG, 100, stream);
@@ -354,23 +375,6 @@ public class CarLauncherPlugin extends Plugin {
      * BitmapDrawable → createScaledBitmap (GPU destekli ölçekleme, en düşük RAM).
      * Diğer tipler (VectorDrawable, AdaptiveIconDrawable) → Canvas rendering.
      */
-    private Bitmap drawableToBitmap(android.graphics.drawable.Drawable drawable, int size) {
-        if (drawable == null) return null;
-
-        if (drawable instanceof android.graphics.drawable.BitmapDrawable) {
-            Bitmap src = ((android.graphics.drawable.BitmapDrawable) drawable).getBitmap();
-            if (src != null && !src.isRecycled()) {
-                return Bitmap.createScaledBitmap(src, size, size, true);
-            }
-        }
-
-        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
-        drawable.setBounds(0, 0, size, size);
-        drawable.draw(canvas);
-        return bmp;
-    }
-
     private Intent resolveIntent(String pkg, String action, String data, String category) {
         PackageManager pm = getContext().getPackageManager();
         boolean pkgInstalled = false;
@@ -499,59 +503,8 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void sendMediaAction(PluginCall call) {
         String action = call.getString("action", "");
-
-        MediaController ctrl = activeMediaController;
-        if (ctrl == null) {
-            MediaListenerService svc = MediaListenerService.instance;
-            if (svc != null) {
-                try {
-                    MediaSessionManager msm = (MediaSessionManager)
-                        getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
-                    ComponentName cn = new ComponentName(getContext(), MediaListenerService.class);
-                    List<MediaController> controllers = msm.getActiveSessions(cn);
-                    if (!controllers.isEmpty()) {
-                        ctrl = controllers.get(0);
-                        ensureMediaCallback(ctrl);
-                    }
-                } catch (Exception ignored) {}
-            }
-        }
-
-        if (ctrl != null) {
-            try {
-                MediaController.TransportControls tc = ctrl.getTransportControls();
-                switch (action) {
-                    case "play":     tc.play();     break;
-                    case "pause":    tc.pause();    break;
-                    case "next":     tc.skipToNext(); break;
-                    case "previous": tc.skipToPrevious(); break;
-                    default:
-                        call.reject("INVALID_ACTION", "Geçersiz aksiyon: " + action);
-                        return;
-                }
-                call.resolve();
-                return;
-            } catch (Exception e) {
-                // TransportControls başarısız — AudioManager fallback'e düş
-            }
-        }
-
-        int keyCode;
-        switch (action) {
-            case "play":
-            case "pause":    keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE; break;
-            case "next":     keyCode = KeyEvent.KEYCODE_MEDIA_NEXT;       break;
-            case "previous": keyCode = KeyEvent.KEYCODE_MEDIA_PREVIOUS;   break;
-            default:
-                call.reject("INVALID_ACTION", "Geçersiz aksiyon: " + action);
-                return;
-        }
         try {
-            AudioManager am =
-                (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
-            long now = SystemClock.uptimeMillis();
-            am.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
-            am.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP,   keyCode, 0));
+            mediaManager.sendMediaCommand(action);
             call.resolve();
         } catch (Exception e) {
             call.reject("MEDIA_ACTION_FAILED", e.getMessage());
@@ -560,187 +513,29 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Media session info ──────────────────────────────────────────────────
 
-    private volatile MediaController activeMediaController = null;
-    private volatile MediaController.Callback mediaCallback = null;
-
-    /**
-     * Aktif medya oturumlarının değişimini dinler. Spotify, YouTube Music vb.
-     * ön plana çıkmadan müzik başlattığında bu listener otomatik tetiklenir
-     * ve mediaChanged event'i UI'a düşer — kullanıcının uygulamaya el ile
-     * dokunmasına gerek kalmaz.
-     */
-    private volatile MediaSessionManager.OnActiveSessionsChangedListener activeSessionsListener = null;
-    private volatile boolean mediaListenerRegistered = false;
-    /** Kullanıcının manuel seçtiği veya asistan komutuyla hedeflenen paket — listener'da öncelik kazanır */
-    private volatile String preferredMediaPackage = "";
-
-    /* Album-art async loader — Spotify/YouTube Music gibi modern uygulamalar
-     * kapak resmini sıklıkla URI olarak (content:// veya https://) verir.
-     * Bitmap olarak gelirse sync döndürürüz; URI ise arka planda yüklenip
-     * cache'lenir ve hazır olunca mediaChanged tekrar yayınlanır. */
-    private final java.util.concurrent.ExecutorService artLoaderExecutor =
-        java.util.concurrent.Executors.newSingleThreadExecutor();
-    private final java.util.LinkedHashMap<String, String> artCache =
-        new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
-                return size() > 12;
-            }
-        };
-    private final java.util.HashSet<String> artInFlight = new java.util.HashSet<>();
-
     @PluginMethod
     public void getMediaInfo(PluginCall call) {
-        MediaListenerService svc = MediaListenerService.instance;
-        if (svc == null) {
-            call.reject("NO_LISTENER",
-                "Bildirim erişim izni gerekli: Ayarlar → Uygulama Bildirimleri");
-            return;
-        }
-
         try {
-            MediaSessionManager msm = (MediaSessionManager)
-                getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
-            ComponentName cn =
-                new ComponentName(getContext(), MediaListenerService.class);
-            List<MediaController> controllers = msm.getActiveSessions(cn);
-
-            if (controllers.isEmpty()) {
+            String preferred = call.getString("preferredPackage", "");
+            JSObject result = mediaManager.getMediaMetadata(preferred);
+            if (result == null) {
                 call.reject("NO_SESSION", "Aktif medya oturumu yok");
                 return;
             }
-
-            String preferred = call.getString("preferredPackage", "");
-            MediaController ctrl = controllers.get(0);
-            if (preferred != null && !preferred.isEmpty()) {
-                preferredMediaPackage = preferred;
-                for (MediaController c : controllers) {
-                    if (preferred.equals(c.getPackageName())) {
-                        ctrl = c;
-                        break;
-                    }
-                }
-            }
-            ensureMediaCallback(ctrl);
-            // Listener henüz kurulmadıysa şimdi kur — ileride yeni session geldiğinde otomatik yakalansın
-            attachMediaSessionsListener();
-
-            JSObject result = buildMediaInfo(ctrl);
-            result.put("sessionCount", controllers.size());
             call.resolve(result);
-
-        } catch (SecurityException e) {
-            call.reject("PERMISSION_DENIED", "Bildirim erişim izni gerekli");
         } catch (Exception e) {
             call.reject("MEDIA_INFO_FAILED", e.getMessage());
         }
     }
 
-    /**
-     * MediaSessionManager.OnActiveSessionsChangedListener'ı bir kere kurar.
-     *
-     * Tetiklenme koşulları:
-     *   - MediaListenerService.instance != null (bildirim erişim izni verilmiş)
-     *   - Plugin daha önce attach etmemiş
-     *
-     * Listener tetiklendiğinde:
-     *   - Liste boş → onSessionDestroyed davranışı (mediaCallback temizlenir)
-     *   - Liste dolu → preferredMediaPackage öncelikli olarak controller seçilir,
-     *                   ensureMediaCallback rebind yapar ve hemen mediaChanged emit edilir.
-     *
-     * Thread güvenliği: handler == mainHandler → callback'ler UI thread'inde gelir.
-     */
-    private void attachMediaSessionsListener() {
-        if (mediaListenerRegistered) return;
-        MediaListenerService svc = MediaListenerService.instance;
-        if (svc == null) return; // bildirim izni yok — sessizce çık
-
-        try {
-            final MediaSessionManager msm = (MediaSessionManager)
-                getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
-            if (msm == null) return;
-
-            final ComponentName cn = new ComponentName(getContext(), MediaListenerService.class);
-
-            activeSessionsListener = controllers -> {
-                try {
-                    if (controllers == null || controllers.isEmpty()) {
-                        // Tüm session'lar gitti — UI tarafına grace period zaten boşluk yönetir
-                        if (activeMediaController != null && mediaCallback != null) {
-                            try { activeMediaController.unregisterCallback(mediaCallback); } catch (Exception ignored) {}
-                            activeMediaController = null;
-                            mediaCallback         = null;
-                        }
-                        // Boş mediaChanged → UI hasSession=false'a düşer (sanitizer + grace garantili)
-                        JSObject empty = new JSObject();
-                        empty.put("packageName", "");
-                        empty.put("appName",     "");
-                        empty.put("title",       "");
-                        empty.put("artist",      "");
-                        empty.put("playing",     false);
-                        empty.put("durationMs",  0L);
-                        empty.put("positionMs",  0L);
-                        notifyListeners("mediaChanged", empty);
-                        return;
-                    }
-
-                    // Preferred package varsa öncelikle seç, yoksa en yeni session (genelde index 0)
-                    MediaController target = controllers.get(0);
-                    String pref = preferredMediaPackage;
-                    if (pref != null && !pref.isEmpty()) {
-                        for (MediaController c : controllers) {
-                            if (pref.equals(c.getPackageName())) {
-                                target = c;
-                                break;
-                            }
-                        }
-                    }
-
-                    ensureMediaCallback(target);
-                    JSObject info = buildMediaInfo(target);
-                    notifyListeners("mediaChanged", info);
-                } catch (Exception ignored) { /* listener leak korumalı */ }
-            };
-
-            msm.addOnActiveSessionsChangedListener(activeSessionsListener, cn, mainHandler);
-            mediaListenerRegistered = true;
-
-            // Servis bağlandığında zaten çalan bir session olabilir — initial snapshot çek
-            try {
-                List<MediaController> initial = msm.getActiveSessions(cn);
-                if (initial != null && !initial.isEmpty()) {
-                    MediaController target = initial.get(0);
-                    String pref = preferredMediaPackage;
-                    if (pref != null && !pref.isEmpty()) {
-                        for (MediaController c : initial) {
-                            if (pref.equals(c.getPackageName())) { target = c; break; }
-                        }
-                    }
-                    ensureMediaCallback(target);
-                    JSObject info = buildMediaInfo(target);
-                    notifyListeners("mediaChanged", info);
-                }
-            } catch (Exception ignored) { /* SecurityException olası — sessizce geç */ }
-
-        } catch (Exception ignored) {
-            mediaListenerRegistered = false;
-        }
-    }
-
-    /**
-     * Listener'ı kaldırır. handleOnDestroy ve servis bağlantısı koptuğunda çağrılır.
-     */
-    private void detachMediaSessionsListener() {
-        if (!mediaListenerRegistered) return;
-        try {
-            MediaSessionManager msm = (MediaSessionManager)
-                getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
-            if (msm != null && activeSessionsListener != null) {
-                msm.removeOnActiveSessionsChangedListener(activeSessionsListener);
-            }
-        } catch (Exception ignored) {}
-        activeSessionsListener   = null;
-        mediaListenerRegistered  = false;
+    @PluginMethod
+    public void getMediaArtDataUri(PluginCall call) {
+        final String uri = call.getString("uri", "");
+        mediaManager.getMediaArtDataUri(uri, dataUri -> {
+            JSObject result = new JSObject();
+            result.put("dataUri", dataUri);
+            call.resolve(result);
+        });
     }
 
     /**
@@ -751,263 +546,15 @@ public class CarLauncherPlugin extends Plugin {
      */
     public static void onMediaListenerConnected() {
         final CarLauncherPlugin p = _instance;
-        if (p == null) return;
-        p.mainHandler.post(p::attachMediaSessionsListener);
+        if (p == null || p.mediaManager == null) return;
+        p.mainHandler.post(p.mediaManager::attachMediaSessionsListener);
     }
 
     /** Servis bağlantısı kopunca listener da geçersizdir — temizle. */
     public static void onMediaListenerDisconnected() {
         final CarLauncherPlugin p = _instance;
-        if (p == null) return;
-        p.mainHandler.post(p::detachMediaSessionsListener);
-    }
-
-    private void ensureMediaCallback(MediaController ctrl) {
-        if (ctrl.equals(activeMediaController)) return;
-
-        if (activeMediaController != null && mediaCallback != null) {
-            activeMediaController.unregisterCallback(mediaCallback);
-        }
-
-        activeMediaController = ctrl;
-
-        mediaCallback = new MediaController.Callback() {
-            @Override
-            public void onMetadataChanged(MediaMetadata metadata) {
-                JSObject info = buildMediaInfo(ctrl);
-                notifyListeners("mediaChanged", info);
-            }
-
-            @Override
-            public void onPlaybackStateChanged(PlaybackState state) {
-                JSObject info = buildMediaInfo(ctrl);
-                notifyListeners("mediaChanged", info);
-            }
-
-            @Override
-            public void onSessionDestroyed() {
-                if (ctrl.equals(activeMediaController)) {
-                    activeMediaController = null;
-                    mediaCallback         = null;
-                }
-            }
-        };
-
-        ctrl.registerCallback(mediaCallback, mainHandler);
-    }
-
-    private JSObject buildMediaInfo(MediaController ctrl) {
-        JSObject out = new JSObject();
-        out.put("packageName", ctrl.getPackageName());
-
-        String appName = ctrl.getPackageName();
-        try {
-            appName = (String) getContext().getPackageManager()
-                .getApplicationLabel(getContext().getPackageManager()
-                    .getApplicationInfo(ctrl.getPackageName(), 0));
-        } catch (Exception ignored) {}
-        out.put("appName", appName);
-
-        MediaMetadata meta  = ctrl.getMetadata();
-        PlaybackState state = ctrl.getPlaybackState();
-
-        if (meta != null) {
-            out.put("title",      safe(meta.getString(MediaMetadata.METADATA_KEY_TITLE)));
-            out.put("artist",     safe(meta.getString(MediaMetadata.METADATA_KEY_ARTIST)));
-            out.put("durationMs", meta.getLong(MediaMetadata.METADATA_KEY_DURATION));
-
-            // Önce bitmap key'leri dene (sync, hızlı)
-            Bitmap art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
-            if (art == null) art = meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
-            if (art == null) art = meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
-
-            if (art != null) {
-                out.put("albumArt", bitmapToDataUri(art));
-            } else {
-                // Bitmap yok — URI key'leri dene (Spotify, YT Music vs.)
-                String uri = firstNonEmpty(
-                    meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
-                    meta.getString(MediaMetadata.METADATA_KEY_ART_URI),
-                    meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
-                );
-                if (uri != null) {
-                    String cached;
-                    boolean scheduleLoad = false;
-                    synchronized (artCache) {
-                        cached = artCache.get(uri);
-                        if (cached == null && !artInFlight.contains(uri)) {
-                            artInFlight.add(uri);
-                            scheduleLoad = true;
-                        }
-                    }
-                    if (cached != null) {
-                        out.put("albumArt", cached);
-                    } else if (scheduleLoad) {
-                        // Arka planda yükle, bittiğinde mediaChanged tekrar yayınla
-                        loadArtAsync(ctrl, uri);
-                    }
-                }
-            }
-        } else {
-            out.put("title",      "");
-            out.put("artist",     "");
-            out.put("durationMs", 0L);
-        }
-
-        boolean playing = state != null
-            && state.getState() == PlaybackState.STATE_PLAYING;
-        out.put("playing",    playing);
-        out.put("positionMs", state != null ? state.getPosition() : 0L);
-
-        return out;
-    }
-
-    private String bitmapToDataUri(Bitmap src) {
-        try {
-            Bitmap scaled = Bitmap.createScaledBitmap(src, 200, 200, true);
-            ByteArrayOutputStream stream = new ByteArrayOutputStream();
-            scaled.compress(Bitmap.CompressFormat.JPEG, 75, stream);
-            String b64 = android.util.Base64.encodeToString(
-                stream.toByteArray(), android.util.Base64.NO_WRAP);
-            return "data:image/jpeg;base64," + b64;
-        } catch (Exception ignored) {
-            return "";
-        }
-    }
-
-    private static String firstNonEmpty(String... vals) {
-        if (vals == null) return null;
-        for (String v : vals) {
-            if (v != null && !v.isEmpty()) return v;
-        }
-        return null;
-    }
-
-    /**
-     * URI bazlı kapak resmini arka planda yükler ve cache'ler.
-     * Yükleme tamamlanınca mediaChanged event'i tekrar yayınlanır — UI güncellenir.
-     */
-    private void loadArtAsync(final MediaController ctrl, final String uri) {
-        artLoaderExecutor.submit(() -> {
-            String dataUri = null;
-            try {
-                Bitmap b = loadBitmapFromUri(uri);
-                if (b != null) dataUri = bitmapToDataUri(b);
-            } catch (Throwable ignored) { /* hata → cache boş kalır */ }
-
-            synchronized (artCache) {
-                artInFlight.remove(uri);
-                if (dataUri != null) artCache.put(uri, dataUri);
-            }
-
-            // Hâlâ aynı oturum aktifse — UI'ya tazelenmiş info gönder
-            if (dataUri != null) {
-                mainHandler.post(() -> {
-                    MediaController active = activeMediaController;
-                    if (active != null && active.equals(ctrl)) {
-                        try {
-                            JSObject info = buildMediaInfo(ctrl);
-                            notifyListeners("mediaChanged", info);
-                        } catch (Exception ignored) {}
-                    }
-                });
-            }
-        });
-    }
-
-    /**
-     * URI bazlı kapak resmini base64 data URI olarak döner.
-     * Hem MediaSession URI'leri hem yerel MediaStore albumart URI'leri için kullanılır.
-     * Cache'lenir — aynı URI ikinci kez sorgulanırsa hemen döner.
-     *
-     * @param uri "content://media/external/audio/albumart/123" veya "https://..." vb.
-     * @return { dataUri: "data:image/jpeg;base64,..." } veya { dataUri: "" }
-     */
-    @PluginMethod
-    public void getMediaArtDataUri(PluginCall call) {
-        final String uri = call.getString("uri", "");
-        if (uri == null || uri.isEmpty()) {
-            JSObject empty = new JSObject();
-            empty.put("dataUri", "");
-            call.resolve(empty);
-            return;
-        }
-
-        // Cache check
-        synchronized (artCache) {
-            String cached = artCache.get(uri);
-            if (cached != null) {
-                JSObject result = new JSObject();
-                result.put("dataUri", cached);
-                call.resolve(result);
-                return;
-            }
-        }
-
-        // Arka planda yükle
-        artLoaderExecutor.submit(() -> {
-            String dataUri = "";
-            try {
-                Bitmap b = loadBitmapFromUri(uri);
-                if (b != null) {
-                    dataUri = bitmapToDataUri(b);
-                    if (!dataUri.isEmpty()) {
-                        synchronized (artCache) { artCache.put(uri, dataUri); }
-                    }
-                }
-            } catch (Throwable ignored) {}
-            JSObject result = new JSObject();
-            result.put("dataUri", dataUri);
-            call.resolve(result);
-        });
-    }
-
-    /**
-     * URI'den Bitmap yükler. Destekler:
-     *   content://     — ContentResolver (hızlı, in-process — Spotify, MediaStore vs.)
-     *   file://        — Local dosya
-     *   android.resource:// — Uygulama içi kaynak
-     *   http(s)://     — CDN (Spotify scdn.co, YouTube i.ytimg.com vs.)
-     *
-     * HTTP timeout: 2s connect + 2.5s read — sürüş sırasında uzun bekleme olmaz.
-     */
-    private Bitmap loadBitmapFromUri(String uriStr) {
-        if (uriStr == null || uriStr.isEmpty()) return null;
-        try {
-            Uri uri = Uri.parse(uriStr);
-            String scheme = uri.getScheme();
-            if (scheme == null) return null;
-            scheme = scheme.toLowerCase();
-
-            if ("content".equals(scheme) || "file".equals(scheme) || "android.resource".equals(scheme)) {
-                InputStream is = getContext().getContentResolver().openInputStream(uri);
-                if (is == null) return null;
-                try {
-                    return android.graphics.BitmapFactory.decodeStream(is);
-                } finally {
-                    try { is.close(); } catch (Exception ignored) {}
-                }
-            } else if ("http".equals(scheme) || "https".equals(scheme)) {
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
-                    new java.net.URL(uriStr).openConnection();
-                conn.setConnectTimeout(2_000);
-                conn.setReadTimeout(2_500);
-                conn.setRequestProperty("User-Agent", "CockpitOS/1.0");
-                conn.setInstanceFollowRedirects(true);
-                conn.connect();
-                try {
-                    InputStream is = conn.getInputStream();
-                    try {
-                        return android.graphics.BitmapFactory.decodeStream(is);
-                    } finally {
-                        try { is.close(); } catch (Exception ignored) {}
-                    }
-                } finally {
-                    try { conn.disconnect(); } catch (Exception ignored) {}
-                }
-            }
-        } catch (Throwable ignored) { /* sessizce başarısız */ }
-        return null;
+        if (p == null || p.mediaManager == null) return;
+        p.mainHandler.post(p.mediaManager::detachMediaSessionsListener);
     }
 
     // ── Contacts ────────────────────────────────────────────────────────────
@@ -1117,25 +664,66 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     // ── OBD-II Bluetooth (ELM327) ───────────────────────────────────────────
+    // Bağlantı + polling motoru OBDManager'a taşındı (Phase 5). Plugin yalnızca
+    // KÖPRÜ katmanıdır: PluginCall parse + JSObject + notifyListeners + SAB push.
 
-    private static final UUID SPP_UUID =
-        UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    private OBDManager obdManager;
 
-    private final ExecutorService obdExecutor = Executors.newSingleThreadExecutor();
+    /** Lazy init — getContext() plugin load sonrası geçerlidir. */
+    private OBDManager obd() {
+        if (obdManager == null) obdManager = new OBDManager(getContext(), obdListener);
+        return obdManager;
+    }
 
-    private volatile BluetoothSocket obdSocket  = null;
-    private volatile InputStream     obdInput   = null;
-    private volatile OutputStream    obdOutput  = null;
-    private volatile boolean         obdRunning = false;
+    /** OBD motoru → köprü: gelen veriyi mevcut notifyListeners + SAB yoluyla JS'e ilet. */
+    private final OBDManager.OnOBDDataListener obdListener = new OBDManager.OnOBDDataListener() {
+        @Override
+        public void onObdData(int speed, int rpm, int engineTemp, int fuelLevel) {
+            JSObject data = new JSObject();
+            data.put("speed",      speed);
+            data.put("rpm",        rpm);
+            data.put("engineTemp", engineTemp);
+            data.put("fuelLevel",  fuelLevel);
+            data.put("headlights", false);
+            notifyListeners("obdData", data);
 
-    // JS → Native OBD contract (P2): connectOBD ile gelen protokol + PID listesi.
-    // null → geriye dönük uyumluluk: ATSP0 + sabit 4 PID (010D/010C/0105/012F).
-    private volatile String                 obdProtocol = null;
-    private volatile java.util.Set<String>  obdPidSet   = null;
+            // ── Native-Core side-stream (Phase N4) — DEĞİŞMEDİ ─────────────
+            // Geçerli (>= 0) OBD değerlerini native katmana KOPYALA. obdData
+            // JS event'i değişmedi. int→double tam dönüşüm (kayıpsız).
+            if (VehicleNativeBridge.INSTANCE.isAvailable()) {
+                long ts = System.nanoTime();
+                if (speed     >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.SPEED, (double) speed, ts);
+                if (rpm       >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.RPM, (double) rpm, ts);
+                if (fuelLevel >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.FUEL, (double) fuelLevel, ts);
+            }
+        }
+
+        @Override
+        public void onStatusChanged(String state, String message) {
+            JSObject event = new JSObject();
+            event.put("state",   state);
+            event.put("message", message);
+            notifyListeners("obdStatus", event);
+        }
+
+        @Override
+        public void onError(String error) {
+            JSObject event = new JSObject();
+            event.put("state",   "error");
+            event.put("message", error);
+            notifyListeners("obdStatus", event);
+        }
+    };
 
     // ── Aktif BT Tarama (uygulama içi OBD eşleştirme) ──────────────────────
 
     private android.content.BroadcastReceiver _discoveryReceiver = null;
+    // BLE (Bluetooth Low Energy) OBD keşfi — Classic discovery'ye EK olarak çalışır.
+    // SADECE tarama/listeleme; GATT connect bu aşamada YOK.
+    private BleObdScanner _bleScanner = null;
 
     @PluginMethod
     public void startOBDDiscovery(PluginCall call) {
@@ -1145,7 +733,7 @@ public class CarLauncherPlugin extends Plugin {
             return;
         }
 
-        // Önceki receiver varsa kaldır
+        // Önceki receiver + BLE scanner varsa kaldır
         stopOBDDiscoveryInternal();
 
         _discoveryReceiver = new android.content.BroadcastReceiver() {
@@ -1163,12 +751,18 @@ public class CarLauncherPlugin extends Plugin {
                     event.put("name",    name);
                     event.put("address", dev.getAddress());
                     event.put("bonded",  dev.getBondState() == BluetoothDevice.BOND_BONDED);
+                    event.put("transport", "classic");
                     notifyListeners("obdDeviceFound", event);
 
                 } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
-                    JSObject event = new JSObject();
-                    event.put("finished", true);
-                    notifyListeners("obdDiscoveryFinished", event);
+                    // Classic tarama bitti. BLE hâlâ tarıyorsa "finished" event'ini
+                    // erken göndermeyiz — BLE tarama bittiğinde gönderilir.
+                    BleObdScanner ble = _bleScanner;
+                    if (ble == null || !ble.isScanning()) {
+                        JSObject event = new JSObject();
+                        event.put("finished", true);
+                        notifyListeners("obdDiscoveryFinished", event);
+                    }
                 }
             }
         };
@@ -1198,10 +792,48 @@ public class CarLauncherPlugin extends Plugin {
                     event.put("name",    name);
                     event.put("address", dev.getAddress());
                     event.put("bonded",  true);
+                    event.put("transport", "classic");
                     notifyListeners("obdDeviceFound", event);
                 }
             }
         } catch (SecurityException ignored) {}
+
+        // ── BLE keşfi (Classic'e EK) ──────────────────────────────────────
+        // BLE OBD adaptörleri Classic discovery'de görünmez; yalnızca LE tarama
+        // ile listelenir. Bağlantı/GATT bu aşamada YOK — sadece keşif/listeleme.
+        _bleScanner = new BleObdScanner();
+        boolean bleStarted = _bleScanner.start(new BleObdScanner.Listener() {
+            @Override
+            public void onBleDeviceFound(String name, String address) {
+                JSObject event = new JSObject();
+                event.put("name",    name);
+                event.put("address", address);
+                // BLE keşfinde eşleşme (bond) bilgisi anlamlı değildir; bağlantı
+                // sonraki aşamada GATT ile yapılacak. Şimdilik false.
+                event.put("bonded",  false);
+                event.put("transport", "ble");
+                notifyListeners("obdDeviceFound", event);
+            }
+
+            @Override
+            public void onBleScanFinished() {
+                // BLE bitti. Classic tarama da bitmişse "finished" gönder.
+                BluetoothAdapter a = BluetoothAdapter.getDefaultAdapter();
+                boolean classicScanning = false;
+                try { classicScanning = a != null && a.isDiscovering(); }
+                catch (SecurityException ignored) {}
+                if (!classicScanning) {
+                    JSObject event = new JSObject();
+                    event.put("finished", true);
+                    notifyListeners("obdDiscoveryFinished", event);
+                }
+            }
+        }, BleObdScanner.DEFAULT_SCAN_DURATION_MS);
+
+        if (!bleStarted) {
+            // BLE desteklenmiyor / izin yok → Classic akışı bozulmaz, sessiz geç.
+            _bleScanner = null;
+        }
 
         call.resolve();
     }
@@ -1216,6 +848,10 @@ public class CarLauncherPlugin extends Plugin {
         if (_discoveryReceiver != null) {
             try { getContext().unregisterReceiver(_discoveryReceiver); } catch (Exception ignored) {}
             _discoveryReceiver = null;
+        }
+        if (_bleScanner != null) {
+            try { _bleScanner.stop(); } catch (Exception ignored) {}
+            _bleScanner = null;
         }
         BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
         if (bt != null) {
@@ -1262,97 +898,32 @@ public class CarLauncherPlugin extends Plugin {
             return;
         }
 
-        // P2: JS'ten gelen protokol + PID listesini al (init/poll'da kullanılır).
-        // Bunlar submit'ten ÖNCE set edilir; initELM327/pollOBDLoop güncel değeri görür.
+        // P2: JS'ten gelen protokol + PID listesini al (PluginCall parse köprüde kalır).
         String protocol = call.getString("protocol");
-        obdProtocol = present(protocol) ? protocol : null;
-        obdPidSet   = parsePidSet(call.getArray("pids"));
+        java.util.Set<String> pidSet = parsePidSet(call.getArray("pids"));
 
-        disconnectOBDInternal();
-
-        obdExecutor.submit(() -> {
-            try {
-                BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
-                if (bt == null) throw new IOException("Bluetooth desteklenmiyor");
-
-                BluetoothDevice device = bt.getRemoteDevice(address);
-
-                try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
-
-                // ── Silent PIN Pairing ────────────────────────────────────
-                // Cihaz eşleştirilmemiş (BOND_NONE) ve PIN sağlanmışsa
-                // Android'in sistem diyaloğu göstermeden sessizce eşleştir.
-                if (present(pin) && device.getBondState() != BluetoothDevice.BOND_BONDED) {
-                    try {
-                        device.setPin(pin.getBytes());
-                        device.createBond();
-                        // Eşleştirme tamamlanana kadar bekle — max 15 s
-                        int waited = 0;
-                        while (device.getBondState() != BluetoothDevice.BOND_BONDED && waited < 15_000) {
-                            Thread.sleep(300);
-                            waited += 300;
-                        }
-                        if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
-                            android.util.Log.w("OBD", "Silent pairing timeout — bağlantı yine de deneniyor");
-                        }
-                    } catch (Exception pairEx) {
-                        // Eşleştirme başarısız olsa da RFCOMM insecure fallback denenecek
-                        android.util.Log.w("OBD", "Silent pairing hatası: " + pairEx.getMessage());
-                    }
-                }
-
-                // Önce secure RFCOMM dene; bazı head unit'lerde çalışmaz
-                // → insecure RFCOMM fallback (iCar 3 / ELM327 klonlar için gerekli)
-                BluetoothSocket socket = null;
-                Exception lastErr = null;
-
-                try {
-                    socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-                    socket.connect();
-                } catch (Exception secureEx) {
-                    lastErr = secureEx;
-                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
-                    socket = null;
-                    // Insecure fallback — pairing PIN gerektirmez, head unit uyumsuzluğunu aşar
-                    try {
-                        socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
-                        socket.connect();
-                        lastErr = null; // başarılı
-                    } catch (Exception insecureEx) {
-                        try { if (socket != null) socket.close(); } catch (Exception ignored) {}
-                        socket = null;
-                        // Her iki yol da başarısız — orijinal hatayı fırlat
-                        throw secureEx;
-                    }
-                }
-
-                obdSocket = socket;
-                obdInput  = socket.getInputStream();
-                obdOutput = socket.getOutputStream();
-
-                initELM327();
-
-                obdRunning = true;
+        // Motor OBDManager'da; PluginCall resolve/reject + obdStatus event'i köprüde.
+        obd().connect(address, pin, protocol, pidSet, new OBDManager.ConnectCallback() {
+            @Override
+            public void onConnected() {
                 mainHandler.post(call::resolve);
+            }
 
-                pollOBDLoop();
-
-            } catch (Exception e) {
-                disconnectOBDInternal();
-
+            @Override
+            public void onFailed(String error) {
                 JSObject event = new JSObject();
                 event.put("state",   "error");
-                event.put("message", e.getMessage());
+                event.put("message", error);
                 notifyListeners("obdStatus", event);
 
-                mainHandler.post(() -> call.reject("CONNECT_FAILED", e.getMessage()));
+                mainHandler.post(() -> call.reject("CONNECT_FAILED", error));
             }
         });
     }
 
     @PluginMethod
     public void disconnectOBD(PluginCall call) {
-        disconnectOBDInternal();
+        obd().disconnect();
 
         JSObject event = new JSObject();
         event.put("state", "disconnected");
@@ -1362,20 +933,6 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     // ── OBD internals ───────────────────────────────────────────────────────
-
-    private void initELM327() throws IOException {
-        sendOBDCommand("ATZ",   2500);
-        sendOBDCommand("ATE0",  1000);
-        sendOBDCommand("ATL0",   500);
-        sendOBDCommand("ATH0",   500);
-        // P2: JS protokol gönderdiyse zorla (ör. '6' → ISO 15765-4 CAN); yoksa otomatik.
-        String sp = obdProtocol;
-        if (sp != null && sp.length() == 1) {
-            sendOBDCommand("ATSP" + sp, 1000);
-        } else {
-            sendOBDCommand("ATSP0", 1000);
-        }
-    }
 
     /**
      * JS'ten gelen PID JSArray'ini ('0x0D' formatı) kanonik sete çevirir ('0D').
@@ -1394,125 +951,6 @@ public class CarLauncherPlugin extends Plugin {
             }
         } catch (org.json.JSONException ignored) {}
         return set.isEmpty() ? null : set;
-    }
-
-    /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */
-    private static boolean shouldQuery(java.util.Set<String> set, String pid) {
-        return set == null || set.contains(pid);
-    }
-
-    private void pollOBDLoop() {
-        while (obdRunning && obdSocket != null && obdSocket.isConnected()) {
-            try {
-                // P2/P3: yalnızca JS'ten gelen PID listesindekiler sorgulanır.
-                // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
-                // (ör. 012F yakıt desteklenmeyen araçta cycle başına 1500ms kazandırır).
-                java.util.Set<String> pidSet = obdPidSet;
-                JSObject data = new JSObject();
-                data.put("speed",      shouldQuery(pidSet, "0D") ? readPID_speed() : -1);
-                data.put("rpm",        shouldQuery(pidSet, "0C") ? readPID_rpm()   : -1);
-                data.put("engineTemp", shouldQuery(pidSet, "05") ? readPID_temp()  : -1);
-                data.put("fuelLevel",  shouldQuery(pidSet, "2F") ? readPID_fuel()  : -1);
-                data.put("headlights", false);
-                notifyListeners("obdData", data);
-
-                Thread.sleep(3000);
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                disconnectOBDInternal();
-                JSObject event = new JSObject();
-                event.put("state",   "disconnected");
-                event.put("message", e.getMessage());
-                notifyListeners("obdStatus", event);
-                break;
-            }
-        }
-    }
-
-    private void disconnectOBDInternal() {
-        obdRunning = false;
-        try { if (obdInput  != null) { obdInput.close();  obdInput  = null; } } catch (IOException ignored) {}
-        try { if (obdOutput != null) { obdOutput.close(); obdOutput = null; } } catch (IOException ignored) {}
-        try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}
-    }
-
-    private String sendOBDCommand(String cmd, int timeoutMs) throws IOException {
-        InputStream  in  = obdInput;
-        OutputStream out = obdOutput;
-        if (in == null || out == null) throw new IOException("OBD bağlantısı yok");
-
-        int stale = in.available();
-        if (stale > 0) in.skip(stale);
-
-        out.write((cmd + "\r").getBytes("ASCII"));
-        out.flush();
-
-        StringBuilder sb   = new StringBuilder();
-        long          dead = System.currentTimeMillis() + timeoutMs;
-
-        while (System.currentTimeMillis() < dead) {
-            if (in.available() > 0) {
-                int c = in.read();
-                if (c < 0) throw new IOException("Stream kapandı");
-                if (c == '>') break;
-                if (c != '\r') sb.append((char) c);
-            } else {
-                try { Thread.sleep(20); }
-                catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("Kesintiye uğradı");
-                }
-            }
-        }
-        return sb.toString().trim();
-    }
-
-    // ── PID readers ─────────────────────────────────────────────────────────
-
-    private int readPID_speed() {
-        try {
-            String r = sendOBDCommand("010D", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("410D");
-            if (idx >= 0 && r.length() >= idx + 6)
-                return Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-        } catch (Exception ignored) {}
-        return -1;
-    }
-
-    private int readPID_rpm() {
-        try {
-            String r = sendOBDCommand("010C", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("410C");
-            if (idx >= 0 && r.length() >= idx + 8) {
-                int a = Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-                int b = Integer.parseInt(r.substring(idx + 6, idx + 8), 16);
-                return ((a * 256) + b) / 4;
-            }
-        } catch (Exception ignored) {}
-        return -1;
-    }
-
-    private int readPID_temp() {
-        try {
-            String r = sendOBDCommand("0105", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("4105");
-            if (idx >= 0 && r.length() >= idx + 6)
-                return Integer.parseInt(r.substring(idx + 4, idx + 6), 16) - 40;
-        } catch (Exception ignored) {}
-        return -1;
-    }
-
-    private int readPID_fuel() {
-        try {
-            String r = sendOBDCommand("012F", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("412F");
-            if (idx >= 0 && r.length() >= idx + 6)
-                return (int) (Integer.parseInt(r.substring(idx + 4, idx + 6), 16) * 100.0 / 255.0);
-        } catch (Exception ignored) {}
-        return -1;
     }
 
     // ── System settings ──────────────────────────────────────────────────────
@@ -2735,6 +2173,22 @@ public class CarLauncherPlugin extends Plugin {
         }
 
         if (canJsBridge != null) canJsBridge.emit(filtered);
+
+        // ── Native-Core side-stream (Phase N4) ──────────────────────────────
+        // Ham CAN değerlerini native katmana KOPYALA. JS akışını (canJsBridge.emit)
+        // etkilemez. Float→double lossless widening (.doubleValue()).
+        if (VehicleNativeBridge.INSTANCE.isAvailable()) {
+            long ts = System.nanoTime();
+            if (data.speed != null)
+                VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.SPEED, data.speed.doubleValue(), ts);
+            if (data.rpm != null)
+                VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.RPM, data.rpm.doubleValue(), ts);
+            if (data.fuel != null)
+                VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.FUEL, data.fuel.doubleValue(), ts);
+        }
     }
 
     @PluginMethod
@@ -2754,7 +2208,12 @@ public class CarLauncherPlugin extends Plugin {
     public void stopCanBus(PluginCall call) {
         canBusManager.stop();
         k24CanBridge.stop();
-        if (mcuEventSniffer != null) mcuEventSniffer.stop();
+        if (mcuEventSniffer != null) {
+            mcuEventSniffer.stop();
+            // Ölü instance yeniden kullanılmasın → sonraki startMcuSnifferOnce taze
+            // nesne yaratır. (A patch'i executor'u zaten kurtarıyor; bu ek güvenlik.)
+            mcuEventSniffer = null;
+        }
         emitCanStatus();
         call.resolve();
     }
@@ -3762,10 +3221,124 @@ public class CarLauncherPlugin extends Plugin {
     private static boolean present(String s) { return s != null && !s.isEmpty(); }
     private static String  safe(String s)    { return s != null ? s : ""; }
 
+    // ── Native-Core köprüsü (Phase N2) ─────────────────────────────────────────
+    // C++ (vehicle_core) JNI hattının canlı olduğunu JS'e doğrulatır.
+    // Native lib yüklenemezse fail-soft: heartbeat < 0 + available=false döner.
+    @PluginMethod
+    public void getNativeHeartbeat(PluginCall call) {
+        long hb;
+        try {
+            hb = com.cockpitos.pro.core.VehicleNativeBridge.INSTANCE.heartbeat();
+        } catch (Throwable t) {
+            hb = -1L;
+        }
+        JSObject result = new JSObject();
+        result.put("heartbeat", hb);
+        result.put("available", hb >= 0L);
+        call.resolve(result);
+    }
+
+    // ── Native zero-copy veri stream'i (Phase N3) ──────────────────────────────
+    // C++ VehicleState → DirectByteBuffer (zero-copy) → notifyListeners("nativeVehicleData").
+    // Mevcut worker.ts akışına EK (side-stream); onu bozmaz. Adanmış HandlerThread'de
+    // koşar (main thread jank yok). Hot-path: yeniden kullanılan double[] + seq-gated emit.
+    private HandlerThread nativeStreamThread = null;
+    private Handler       nativeStreamHandler = null;
+    private Runnable      nativeStreamTask = null;
+    private final double[] nativeSnap = new double[6]; // [speed,rpm,fuel,odometer,seq,nativeSource] — reusable
+    private double         nativeLastSeq = -1.0;       // değişmediyse emit atla
+
+    @PluginMethod
+    public void startNativeStream(PluginCall call) {
+        int hz = call.getInt("hz", 20);                  // 10–20 Hz hedefi
+        if (hz < 1)  hz = 1;
+        if (hz > 50) hz = 50;
+        final long periodMs = Math.max(1L, 1000L / hz);
+
+        com.cockpitos.pro.core.VehicleNativeBridge bridge =
+                com.cockpitos.pro.core.VehicleNativeBridge.INSTANCE;
+        if (!bridge.isAvailable() || !bridge.ensureSnapshotBuffer()) {
+            call.reject("native-core kullanılamıyor (lib yüklenemedi veya buffer map edilemedi)");
+            return;
+        }
+
+        stopNativeStreamInternal(); // varsa eski stream'i temizle (idempotent)
+
+        nativeStreamThread = new HandlerThread("native-stream");
+        nativeStreamThread.start();
+        nativeStreamHandler = new Handler(nativeStreamThread.getLooper());
+        nativeLastSeq = -1.0;
+
+        final long fPeriod = periodMs;
+        nativeStreamTask = new Runnable() {
+            @Override public void run() {
+                Handler h = nativeStreamHandler;
+                if (h == null) return; // durduruldu
+                if (bridge.readSnapshotInto(nativeSnap)) {
+                    double seq = nativeSnap[4];
+                    if (seq != nativeLastSeq) {        // sadece yeni veri varken emit
+                        nativeLastSeq = seq;
+                        JSObject data = new JSObject(); // tick başına tek (zorunlu) allokasyon
+                        data.put("speed",        nativeSnap[0]);
+                        data.put("rpm",          nativeSnap[1]);
+                        data.put("fuel",         nativeSnap[2]);
+                        data.put("odometer",     nativeSnap[3]);
+                        data.put("seq",          (long) seq);
+                        data.put("nativeSource", (int) nativeSnap[5]); // Phase N5.2: aktif füzyon kaynağı
+                        notifyListeners("nativeVehicleData", data);
+                    }
+                }
+                h.postDelayed(this, fPeriod);
+            }
+        };
+        nativeStreamHandler.post(nativeStreamTask);
+
+        JSObject result = new JSObject();
+        result.put("started", true);
+        result.put("hz", hz);
+        result.put("periodMs", fPeriod);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void stopNativeStream(PluginCall call) {
+        stopNativeStreamInternal();
+        JSObject result = new JSObject();
+        result.put("stopped", true);
+        call.resolve(result);
+    }
+
+    // ── Odometre seed (Phase N5.1) ─────────────────────────────────────────────
+    // JS başlangıcında kayıtlı toplam km'yi native birikticiye yükler.
+    // Hesaplama native'de; burada yalnızca değer iletilir. Hafif: sadece resolve.
+    @PluginMethod
+    public void setNativeOdometer(PluginCall call) {
+        Double km = call.getDouble("km");
+        if (km == null) {
+            call.reject("km parametresi gerekli");
+            return;
+        }
+        VehicleNativeBridge.INSTANCE.setOdometer(km);
+        call.resolve();
+    }
+
+    private void stopNativeStreamInternal() {
+        if (nativeStreamHandler != null && nativeStreamTask != null) {
+            nativeStreamHandler.removeCallbacks(nativeStreamTask);
+        }
+        if (nativeStreamThread != null) {
+            nativeStreamThread.quitSafely();
+            nativeStreamThread = null;
+        }
+        nativeStreamHandler = null;
+        nativeStreamTask    = null;
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     protected void handleOnDestroy() {
+        stopNativeStreamInternal();
         if (btStateReceiver != null) {
             try { getContext().unregisterReceiver(btStateReceiver); } catch (Exception ignored) {}
             btStateReceiver = null;
@@ -3774,14 +3347,10 @@ public class CarLauncherPlugin extends Plugin {
         ttsReady = false;
         releaseLocalPlayer();
         canBusManager.stop();
-        disconnectOBDInternal();
-        obdExecutor.shutdownNow();
+        if (obdManager != null) obdManager.shutdown();
 
-        detachMediaSessionsListener();
-        if (activeMediaController != null && mediaCallback != null) {
-            try { activeMediaController.unregisterCallback(mediaCallback); } catch (Exception ignored) {}
-            activeMediaController = null;
-            mediaCallback         = null;
+        if (mediaManager != null) {
+            mediaManager.detachMediaSessionsListener();
         }
 
         closeCameraInternal();

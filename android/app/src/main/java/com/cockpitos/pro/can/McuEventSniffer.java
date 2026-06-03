@@ -18,6 +18,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -104,12 +105,18 @@ public final class McuEventSniffer {
     private static final long THROTTLE_MS = 10_000;
 
     private BroadcastReceiver _receiver = null;
-    private final ScheduledExecutorService _exec =
-        Executors.newSingleThreadScheduledExecutor(r -> {
+    // NOT: final değil — stop() executor'u shutdownNow() ile öldürdükten sonra
+    // start() yeniden yaratabilsin diye volatile. Ölü executor'a schedule edilince
+    // RejectedExecutionException atılıp process çöküyordu (crash loop).
+    private volatile ScheduledExecutorService _exec = _newExec();
+
+    private static ScheduledExecutorService _newExec() {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "McuEventSniffer");
             t.setDaemon(true);
             return t;
         });
+    }
 
     public McuEventSniffer(Context ctx, DiagListener diag) {
         _ctx  = ctx.getApplicationContext();
@@ -121,7 +128,19 @@ public final class McuEventSniffer {
     public void start() {
         if (!_running.compareAndSet(false, true)) return;
         diag("[McuSniffer] Başlatılıyor — K250/Hiworld MCU event keşfi");
-        _exec.schedule(this::_discover, 500, TimeUnit.MILLISECONDS);
+        // Executor önceki stop() ile kapatılmış olabilir → schedule etmeden önce
+        // yeniden yarat (start/stop/start senaryosunda RejectedExecutionException önler).
+        if (_exec == null || _exec.isShutdown()) {
+            _exec = _newExec();
+        }
+        try {
+            _exec.schedule(this::_discover, 500, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException e) {
+            // Kemer+askı: yine de reddedilirse asla uncaught exception sızdırma.
+            diag("[McuSniffer] schedule reddedildi, başlatma iptal: " + e.getMessage());
+            _running.set(false);
+            return;
+        }
         _registerBroadcasts();
     }
 
