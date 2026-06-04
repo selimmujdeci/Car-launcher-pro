@@ -230,7 +230,7 @@ describe('obdService — native modu, connectOBD zaman aşımı', () => {
     vi.useRealTimers();
   });
 
-  it('30 s sonra hata durumuna geçer, native modda error kalır', async () => {
+  it('çift transport 30 s + 30 s timeout sonrası hata durumuna geçer, native modda error kalır', async () => {
     const states: string[] = [];
     const unsub = onOBDData((d) => { states.push(d.connectionState); });
 
@@ -242,14 +242,31 @@ describe('obdService — native modu, connectOBD zaman aşımı', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // 30 s connectOBD timeout'unu tetikle
+    // Yeni davranış (BLE çift-transport fallback): primary transport CONNECT_TIMEOUT_MS
+    // (30 s) içinde bağlanamazsa OTOMATİK fallback transport denenir → ikinci 30 s.
+    // Error state'e geçmek için TOPLAM iki timeout (2 × 30 s) ilerletilmeli.
+
+    // 1. Faz — primary transport 30 s timeout → reject → catch: disconnectOBD + 'connecting'
     await vi.advanceTimersByTimeAsync(30_500);
-    // async catch zincirini temizle (logError, _removeNativeHandles, _merge)
+    // catch zincirini temizle (disconnectOBD await, _merge 'connecting', fallback timer kur)
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // 2. Faz — fallback transport 30 s timeout → reject → _startNative throw → error
+    await vi.advanceTimersByTimeAsync(30_500);
+    // dış catch zincirini temizle (logError, _removeNativeHandles, _merge 'error')
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
     unsub();
+
+    // Fallback gerçekten denendi: connectOBD iki kez, iki FARKLI transport ile çağrıldı.
+    const transports = vi.mocked(CarLauncher.connectOBD).mock.calls
+      .map(([arg]) => (arg as { transport?: string }).transport);
+    expect(transports.length).toBe(2);
+    expect(transports[0]).not.toBe(transports[1]);
 
     // Otomotiv dürüstlüğü: native platformda hata sonrası sahte veri gösterilmez.
     expect(states).toContain('error');

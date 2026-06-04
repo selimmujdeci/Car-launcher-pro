@@ -1578,7 +1578,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         onCancel={handleNavCancel}
         routeReady={routeReady}
         gpsValid={isValidGPS}
-        speedKmh={location?.speed != null ? location.speed * 3.6 : 0}
         onNavTab={(id) => {
           if (id === 'media')    { onClose(); onOpenDrawer?.('music');    return; }
           if (id === 'phone')    { onClose(); onOpenDrawer?.('phone');    return; }

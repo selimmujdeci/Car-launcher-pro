@@ -11,6 +11,7 @@
  *   QuickDestinations — hızlı hedef kartları
  */
 import '../../styles/ultra-premium-global.css';
+import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import {
   memo, useState, useCallback, useEffect, useRef, type ReactNode,
 } from 'react';
@@ -1372,12 +1373,13 @@ function _fuelHav(la1: number, lo1: number, la2: number, lo2: number): number {
 }
 
 function _saveFuelCache(items: _FuelItem[]): void {
-  try { localStorage.setItem(_FUEL_KEY, JSON.stringify({ items, cachedAt: Date.now() } satisfies _FuelCache)); } catch { /* quota */ }
+  // safeStorage: eMMC throttle + kota/LRU koruması (5s debounce — DEĞİŞTİRİLMEDİ).
+  try { safeSetRaw(_FUEL_KEY, JSON.stringify({ items, cachedAt: Date.now() } satisfies _FuelCache)); } catch { /* quota */ }
 }
 
 function _nearestCached(lat: number, lon: number): (_FuelItem & { fromCache: true }) | null {
   try {
-    const raw = localStorage.getItem(_FUEL_KEY);
+    const raw = safeGetRaw(_FUEL_KEY);
     if (!raw) return null;
     const c = JSON.parse(raw) as _FuelCache;
     if (!c.items?.length || Date.now() - c.cachedAt > _FUEL_MAX_MS) return null;
@@ -1661,7 +1663,6 @@ export interface NavigationHUDProps {
   routeReady: boolean;
   /** GPS fix geçerli mi — false ise Start butonu disabled */
   gpsValid?:  boolean;
-  speedKmh?:  number;
   onNavTab?:  (id: string) => void;
 }
 
@@ -1670,8 +1671,11 @@ export const NavigationHUD = memo(function NavigationHUD({
   onCancel,
   routeReady,
   gpsValid = true,
-  speedKmh = 0,
 }: NavigationHUDProps) {
+  // Hız kaynağı: UnifiedVehicleStore.speed — worker SAB-polling (EMA + zero-hold +
+  // anti-jitter) ile beslenir, worker stale olunca GPS location.speed'den devralınır.
+  // Ham, filtresiz location.speed * 3.6 KULLANILMAZ (anlık 0 / spike sorunu).
+  const speedKmh = useUnifiedVehicleStore((s) => s.speed) ?? 0;
   const location = useGPSLocation();
   const dynamicLimit = useSpeedLimitByLocation(
     location?.latitude  ?? null,
