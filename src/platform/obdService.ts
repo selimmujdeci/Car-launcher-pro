@@ -45,6 +45,7 @@ import {
   STALE_THRESHOLD_MS,
   WATCHDOG_INTERVAL_MS,
   DATA_GATE_TIMEOUT_MS,
+  DEEP_RECONNECT_INTERVAL_MS,
   getReconnectDelay,
   shouldAttemptReconnect,
   isDataStale,
@@ -108,6 +109,12 @@ let _lastKnownPin: string | null = null; // session-only, güvenlik için localS
 // Son kullanılan taşıma katmanı ('classic' | 'ble'). MAC adresiyle birlikte persist edilir
 // → direct-reconnect yolunda doğru transport ile bağlanılır. null = mevcut Classic varsayılanı.
 let _lastKnownTransport: ObdTransport | null = loadObdTransport();
+// Transport GERÇEKTEN doğrulandı mı (önceki BAŞARILI bağlantıdan)? Persist edilmiş transport
+// yalnızca başarılı bağlantı sonrası yazılır → yüklendiğinde doğrulanmış sayılır. Modal/tarama
+// seçimi ise yalnızca TAHMİN'dir (DUAL cihaz 'classic' görünebilir) → doğrulanmış DEĞİL.
+// Bu ayrım fallback timeout'unu belirler: doğrulanmış → yanlış yolda 3s bekleme; tahmin →
+// fallback'e TAM timeout ver (aksi halde doğru BLE yolu 3s'e açlık çeker, V-LINK bağlanamaz).
+let _transportConfirmed = _lastKnownTransport != null;
 
 // ── Vehicle Profile Auto-Detection ──────────────────────────
 let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
@@ -406,18 +413,28 @@ function _scheduleReconnect(): void {
 
   if (!shouldAttemptReconnect(_reconnectAttempts)) {
     _reconnectAttempts = 0;
+
+    // ── Risk B çözümü: Automotive "Always-On" derin yeniden bağlanma ──────────
+    // DOĞRULANMIŞ adaptör (bu oturumda en az bir kez RFCOMM/GATT açıldı = araç
+    // kapanması gibi GEÇİCİ drop) → sistem ASLA pes etmez. 'reconnecting' durumunda
+    // kalır ve DEEP_RECONNECT_INTERVAL_MS'de bir yeni üstel tur başlatır. Kontak
+    // saatler sonra tekrar açılsa bile bağlantı kendiliğinden geri gelir.
+    if (_addressConnectedOnce) {
+      _merge({ connectionState: 'reconnecting', source: (MOCK_ENABLED && !nativePlatform) ? 'mock' : 'none', deviceName: '' });
+      if (!nativePlatform) _startMock();
+      _scheduleDeepReconnect();
+      return;
+    }
+
     // Adaptör-değişimi koruması: kayıtlı MAC bu oturumda HİÇ bağlanamadıysa (RFCOMM
     // hiç açılmadı) muhtemelen eski/yanlış adaptör → temizle ki sonraki başlatma
-    // tam BT scan'e düşsün (sonsuz mock/hata döngüsü önlenir). Bağlanıp düşen geçerli
-    // adres KORUNUR — araç kapanması gibi geçici drop'ta yeniden eşleştirme zorlanmaz.
-    if (!_addressConnectedOnce) {
-      _lastKnownAddress = null;
-      clearObdAddress();
-      // Adres temizlenince transport da temizlenir: stale 'ble' transport bir sonraki
-      // farklı adaptörde yanlış GATT dallanmasına yol açmasın (adres+transport birlikte persist).
-      _lastKnownTransport = null;
-      clearObdTransport();
-    }
+    // tam BT scan'e düşsün. Burada deep-loop YOK (yanlış adrese sonsuza dek asılmamak için).
+    _lastKnownAddress = null;
+    clearObdAddress();
+    // Adres temizlenince transport da temizlenir: stale 'ble' transport bir sonraki
+    // farklı adaptörde yanlış GATT dallanmasına yol açmasın (adres+transport birlikte persist).
+    _lastKnownTransport = null;
+    clearObdTransport();
     if (MOCK_ENABLED && !nativePlatform) {
       _startMock();
     } else {
@@ -450,6 +467,34 @@ function _scheduleReconnect(): void {
       _scheduleReconnect();
     });
   }, delayMs);
+}
+
+/**
+ * Derin yeniden bağlanma (Automotive Always-On) — üstel backoff turu tükenen
+ * DOĞRULANMIŞ adaptör için DEEP_RECONNECT_INTERVAL_MS'de bir yeni tur dener.
+ *
+ * Sistem bu sırada 'reconnecting' durumunda kalır; ASLA 'error'a düşmez. Başarısız
+ * olursa _scheduleReconnect ile yeni bir üstel tur başlar, o da tükenirse tekrar bu
+ * derin döngüye girilir → sonsuz, düşük-frekanslı (5 dk) yeniden deneme. Tek timer
+ * (_reconnectTimer) kullanılır; ekstra bellek/FPS maliyeti yok.
+ */
+function _scheduleDeepReconnect(): void {
+  if (!_running) return;
+  if (_reconnectTimer) clearTimeout(_reconnectTimer);
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    if (!_running) return;
+
+    _reconnectAttempts = 0;       // yeni üstel tur baştan başlar
+    _stopMock();
+    _startNative({ trustBypass: true }).then(() => {
+      _reconnectAttempts = 0;     // başarılı — sayaç sıfır
+    }).catch(async (e: unknown) => {
+      logError('OBD:DeepReconnect', e);
+      await _removeNativeHandles();
+      _scheduleReconnect();       // yeni üstel tur; o da tükenirse yine deep-loop
+    });
+  }, DEEP_RECONNECT_INTERVAL_MS);
 }
 
 /* ── Native OBD helpers ──────────────────────────────────── */
@@ -551,82 +596,111 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
 
   // 4. Connect — resolves when ELM327 init completes, rejects on failure.
   //    Araç tipine göre PID listesi iletilir — EV'de ICE PID'leri atlanır.
-  //    T507 protokol zorlama: ilk denemede ATSP0 (otomatik); başarısız olunca
-  //    _reconnectAttempts >= 1'de ISO 15765-4 CAN (protokol '6') zorlanır.
-  //    Race against a 30 s timeout so a non-responsive BT device doesn't hang.
+  //    PROTOKOL DÖNGÜSÜ: araç CAN OLMAYABİLİR. Eski Fiat/Doblo, Punto vb. = KWP2000
+  //    (ISO 14230) ya da ISO 9141 kullanır — CAN değil. Eskiden 2. denemeden itibaren
+  //    HEP CAN ('6') zorlanıyordu → KWP araçta ECU init SONSUZA KADAR başarısız oluyordu
+  //    ("Car Scanner bağlanıyor ama biz bağlanmıyoruz, hep aynı döngü"). Artık deneme
+  //    sayısına göre ELM327 protokolü döndürülür → CAN, KWP ve ISO9141 araçlar da bağlanır.
+  //    Race against a timeout so a non-responsive BT device doesn't hang.
   const pidList = getPidListForVehicle(_current.vehicleType);
-  const forceCanProtocol = _reconnectAttempts >= 1; // ikinci denemeden itibaren CAN zorla
-  await Promise.race([
+  // ELM327 ATSP numaraları: undefined=ATSP0 otomatik · 6=CAN 11/500 · 5=KWP hızlı init ·
+  // 4=KWP 5-baud · 3=ISO 9141-2 · 7=CAN 29/500. Otomatik çoğu aracı bulur; bulamazsa sırayla denenir.
+  const PROTOCOL_CYCLE: (string | undefined)[] = [undefined, '6', '5', '4', '3', '7'];
+  const forcedProtocol = PROTOCOL_CYCLE[_reconnectAttempts % PROTOCOL_CYCLE.length];
+  const cand = candidate!;
+
+  // Tek transport ile bağlantı denemesi — verilen timeout ile yarışır (askıda kalmasın).
+  const _tryConnectTransport = (tp: ObdTransport, timeoutMs: number): Promise<void> => Promise.race([
     CarLauncher.connectOBD({
-      address: candidate.address,
+      address: cand.address,
       pids: pidList,
-      ...(forceCanProtocol ? { protocol: '6' } : {}),
+      ...(forcedProtocol ? { protocol: forcedProtocol } : {}),
       ...(_lastKnownPin ? { pin: _lastKnownPin } : {}),
-      ...(_lastKnownTransport ? { transport: _lastKnownTransport } : {}),
+      transport: tp,
     }),
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error(`OBD bağlantısı zaman aşımına uğradı (${CONNECT_TIMEOUT_MS / 1000}s): ${candidate.name}`)),
-        CONNECT_TIMEOUT_MS,
+        () => reject(new Error(`OBD bağlantısı zaman aşımına uğradı (${Math.round(timeoutMs / 1000)}s): ${cand.name}`)),
+        timeoutMs,
       )
     ),
   ]);
 
-  if (_stale()) { void _removeNativeHandles(); return; }
-
-  // 5. MAC'i kaydet ve ısınma (warm-up) periyoduna gir.
-  //    ELM327 initstring tamamlandı; T507 uyumu için ECU–adaptör el sıkışması
-  //    gecikmeli olabilir. 2 saniye boyunca 'initializing' state'inde kal.
-  _lastKnownAddress = candidate.address;
-  saveObdAddress(candidate.address);
-  _addressConnectedOnce = true; // RFCOMM+init başarılı → bu adres bu oturumda doğrulandı
-  _merge({ connectionState: 'initializing', source: 'none' });
-
-  // Fix 3: 2s sabit bekleme → maksimum deadline. Geçerli PID (speed/RPM) daha erken
-  // gelirse _onRealData içinden _warmupResolve() çağrılır ve deadline iptal edilir.
-  _warmupActive = true;
-  await new Promise<void>((resolve) => {
-    const deadline = setTimeout(resolve, 2_000);
-    _warmupResolve = () => { clearTimeout(deadline); resolve(); };
-  });
-  _warmupActive  = false;
-  _warmupResolve = null;
-  if (_stale()) { void _removeNativeHandles(); return; }
-
-  // 6. OBD Handshake — VIN ve desteklenen PID tespiti.
-  //    performHandshake() opsiyoneldir; eski plugin versiyonlarında yoktur → try/catch.
-  //    Hata oluşursa ya da native mevcut değilse varsayılan profil korunur.
+  // TRANSPORT BYPASS (zero-latency): _lastKnownTransport BİLİNİYORSA (önceki başarılı
+  // bağlantıdan veya kullanıcı seçiminden) primary onu kullanır; fallback'e yalnızca KISA
+  // 3 s verilir — yanlış transport'ta 15 s beklenmez. Transport bilinmiyorsa (ilk kör
+  // bağlantı) her iki transport da tam timeout ile denenir (BLE↔classic güvenlik ağı korunur).
+  const _primaryTp:  ObdTransport = _lastKnownTransport ?? 'classic';
+  const _fallbackTp: ObdTransport = _primaryTp === 'ble' ? 'classic' : 'ble';
+  // 3s hızlı-fallback YALNIZCA transport DOĞRULANMIŞSA (önceki başarılı bağlantı): yanlış
+  // yolda 15s beklenmez. Transport TAHMİN ise (modal/tarama, ilk bağlantı) fallback TAM
+  // timeout alır — DUAL adaptör 'classic' tahmin edilse bile BLE yolu gerçek şans bulur.
+  const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : CONNECT_TIMEOUT_MS;
+  let _connectedTp = _primaryTp;
   try {
-    if (CarLauncher.performHandshake) {
-      const { raw09, raw0100 } = await CarLauncher.performHandshake();
-      if (_stale()) { void _removeNativeHandles(); return; }
-
-      const result  = buildHandshakeResult(raw09, raw0100);
-      const profile = vehicleProfileRegistry.findBestMatch(result.vin, result.supportedPids);
-
-      _applyDetectedProfile(profile);
-
-      persistHandshakeVin(result.vin ?? null);
-
-      if (result.vin) {
-        console.info('[OBD:Handshake] VIN:', result.vin,
-          '| Üretici:', vehicleProfileRegistry /* decodeWMI */ && result.vin.slice(0, 3),
-          '| Profil:', profile.name,
-        );
-      } else {
-        console.info('[OBD:Handshake] VIN alınamadı, PID heuristic → profil:', profile.name);
-      }
-    }
-  } catch (err) {
-    persistHandshakeVin(null);
-    // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
-    console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
+    await _tryConnectTransport(_primaryTp, CONNECT_TIMEOUT_MS);
+  } catch (ePrimary) {
+    if (_stale()) { void _removeNativeHandles(); return; }
+    console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
+    _merge({ connectionState: 'connecting', deviceName: cand.name });
+    try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
+    if (_stale()) { void _removeNativeHandles(); return; }
+    await _tryConnectTransport(_fallbackTp, _fallbackTimeoutMs); // bu da olmazsa throw → reconnect
+    _connectedTp = _fallbackTp;
+  }
+  // Çalışan transport'u kalıcılaştır → sonraki direkt-reconnect doğru yolu kullanır.
+  // Artık DOĞRULANMIŞ: bu transport gerçekten bağlandı → sonraki sefer 3s hızlı-fallback geçerli.
+  _transportConfirmed = true;
+  if (_connectedTp !== _lastKnownTransport) {
+    _lastKnownTransport = _connectedTp;
+    saveObdTransport(_connectedTp);
   }
 
-  // 7. Veri kapısı: ilk geçerli hız veya RPM geldiğinde 'connected'/'real'e geçilir.
-  //    DATA_GATE_TIMEOUT_MS içinde PID alınamazsa bağlantı bozuk → reconnect.
-  //    (Stale watchdog kapı geçilince _onRealData içinden başlatılır.)
+  if (_stale()) { void _removeNativeHandles(); return; }
+
+  // 5. MAC'i kaydet. ZERO-LATENCY: bağlantı kurulur kurulmaz veri akışı başlasın —
+  //    2 s 'initializing' beklemesi YOK, handshake BEKLENMEZ. (Eski 2 s warm-up kaldırıldı:
+  //    ilk geçerli PID gelince _onRealData zaten anında 'connected'e geçirir.)
+  _lastKnownAddress = candidate.address;
+  saveObdAddress(candidate.address);
+  _addressConnectedOnce = true; // RFCOMM/GATT+init başarılı → bu adres bu oturumda doğrulandı
+  _merge({ connectionState: 'initializing', source: 'none' });
+
+  // 6. INSTANT DATA LOOP — veri kapısını HEMEN aç (handshake'ten ÖNCE). Native poll
+  //    döngüsü bağlantıyla birlikte PID isteklerini göndermeye başlar → adaptör ışığı
+  //    yanıp söner; ilk geçerli PID gelince _onRealData 'connected'/'real'e geçirir.
   _startDataValidationGate(myGen);
+
+  // 7. PIN Resilience — bonding doğrulaması ARKA PLANDA (veri akışını BLOKLAMAZ).
+  //    Cihaz Android'de bonded ise PIN'e bir daha gerek yok (bonding kalıcı) → session
+  //    PIN temizlenir; sonraki reconnect'te gereksiz/yanlış silent-pair denenmez.
+  if (CarLauncher.getObdBondState) {
+    void CarLauncher.getObdBondState({ address: candidate.address })
+      .then(({ bonded }) => { if (!_stale() && bonded) _lastKnownPin = null; })
+      .catch(() => { /* native metod yok / sorgu başarısız → session PIN korunur */ });
+  }
+
+  // 8. OBD Handshake — PARALLELIZE: await ETME. VIN/desteklenen-PID tespiti veri akışını
+  //    bloklamaz; sonuç gelince profil güncellenir (sonraki poll doğru PID listesini kullanır).
+  //    performHandshake() opsiyoneldir (eski plugin'de yok) → guard + .catch ile korunur.
+  if (CarLauncher.performHandshake) {
+    void CarLauncher.performHandshake()
+      .then(({ raw09, raw0100 }) => {
+        if (_stale()) return;
+        const result  = buildHandshakeResult(raw09, raw0100);
+        const profile = vehicleProfileRegistry.findBestMatch(result.vin, result.supportedPids);
+        _applyDetectedProfile(profile);
+        persistHandshakeVin(result.vin ?? null);
+        console.info('[OBD:Handshake]',
+          result.vin ? 'VIN: ' + result.vin : 'VIN yok, PID heuristic',
+          '→ profil:', profile.name);
+      })
+      .catch((err: unknown) => {
+        persistHandshakeVin(null);
+        // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
+        console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
+      });
+  }
 }
 
 /* ── Profil uygulama ─────────────────────────────────────────────────────── */
@@ -697,6 +771,9 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
   }
   if (pin !== undefined) _lastKnownPin = pin || null; // boş string → null (PIN'siz)
   if (transport) {
+    // Modal/tarama seçimi = TAHMİN (DUAL adaptör 'classic' raporlayabilir). Doğrulanmış
+    // saymayız → fallback transport'a tam timeout verilir (BLE yolu 3s'e açlık çekmez).
+    _transportConfirmed = transport === _lastKnownTransport && _transportConfirmed;
     _lastKnownTransport = transport;
     saveObdTransport(transport); // direct-reconnect yolunda doğru transport ile bağlan
   }

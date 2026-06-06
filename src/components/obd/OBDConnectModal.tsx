@@ -8,9 +8,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings, KeyRound } from 'lucide-react';
+import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings, KeyRound, Trash2 } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { startOBD, stopOBD, useOBDConnectionState, useOBDState } from '../../platform/obdService';
+import { looksLikeObd } from '../../platform/obdDiscovery';
 
 interface DiscoveredDevice {
   name:    string;
@@ -24,32 +25,6 @@ interface DiscoveredDevice {
 interface Props {
   open:    boolean;
   onClose: () => void;
-}
-
-// Geniş OBD anahtar kelime listesi — genel OBD2/ELM327 klonları dahil.
-// "spp" / "ble serial" / "serial" / "bt" gibi generic SPP-stack isimleri de OBD adapter olabilir;
-// "mini" + ELM327 klonları, "viecar", "bafx", "ediag" gibi tanınmış markalar dahil.
-const OBD_REGEX = /obd|elm|v.?link|obdii|obd2|kw\d{3}|veepeak|icar|vgate|konnwei|obdlink|carscanner|xtool|autel|launch|thinkcar|viecar|bafx|panlong|ediag|carista|tonwon|topdon|ancel|nexas|foseal|spp[-_ ]?dev|serial|ble[-_ ]?spp|mini\s*obd/i;
-
-// Telefon / kulaklık / saat / araba multimedya gibi kesin OBD olmayan cihazları dışla
-const NON_OBD_REGEX = /iphone|ipad|airpod|airpods|galaxy\s*(buds|watch)|pixel\s*(buds|watch)|mi\s*band|mi\s*watch|honor\s*band|headset|earbud|speaker|tv|chromecast|laptop|mouse|keyboard|smartwatch|fitbit|huawei\s*watch|samsung\s*(tv|tab)|microntek|kswcar|fyt|car\s*play/i;
-
-/**
- * Bir BT cihazının OBD adayı olup olmadığını tahmin eder.
- * - İsimde regex eşleşmesi → kesin OBD
- * - İsim yok / MAC adresi adı olarak gelmiş → muhtemel OBD (ELM327 klonları çoğu kez böyle)
- * - Bilinen NON-OBD ürün → asla aday değil
- */
-function looksLikeObd(name: string, address: string): boolean {
-  const n = (name ?? '').trim();
-  if (!n) return true;                      // adsız → aday
-  if (NON_OBD_REGEX.test(n)) return false;  // telefon / kulaklık vs.
-  if (OBD_REGEX.test(n))    return true;
-  // BT name çekilemediğinde plugin name=address yazar → muhtemelen OBD'dir
-  if (n.toUpperCase() === address.toUpperCase()) return true;
-  // İsim sadece hex/MAC karakterleri ise (xx:xx veya bare hex) → muhtemel OBD
-  if (/^[0-9A-F:-]{8,}$/i.test(n)) return true;
-  return false;
 }
 
 export function OBDConnectModal({ open, onClose }: Props) {
@@ -93,10 +68,13 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
   useEffect(() => {
     if (!connecting) return;
+    // OBD servisi önce bir transport'u (≤30s), başarısızsa diğerini (≤30s) dener
+    // (classic↔BLE otomatik fallback). UI zaman aşımı bunların İKİSİNE birden
+    // yetmeli; aksi halde BLE adaptör klasik denenirken UI erken "bağlanamadı" derdi.
     const t = setTimeout(() => {
       setConnecting(null);
-      setError('Bağlantı zaman aşımına uğradı (35 s). Adaptörün açık ve yakında olduğundan emin olun.');
-    }, 35_000);
+      setError('Bağlantı zaman aşımına uğradı. Adaptörün açık, takılı ve yakında olduğundan emin olun.');
+    }, 75_000);
     return () => clearTimeout(t);
   }, [connecting]);
 
@@ -112,7 +90,9 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
   const startScan = useCallback(async () => {
     if (!Capacitor.isNativePlatform()) {
-      setDevices([{ name: 'OBD2 Demo', address: 'AA:BB:CC:DD:EE:FF', bonded: true }]);
+      // Native değil (tarayıcı/dev): gerçek Bluetooth taraması yok.
+      // Sahte/demo cihaz GÖSTERİLMEZ — yalnızca gerçek cihazlar listelenir.
+      setDevices([]);
       setScanning(false);
       return;
     }
@@ -140,7 +120,34 @@ export function OBDConnectModal({ open, onClose }: Props) {
     // obdDeviceFound — her bulunan cihazda tetiklenir (bonded + aktif tarama)
     const handle = await CarLauncher.addListener('obdDeviceFound', (data) => {
       setDevices((prev) => {
-        if (prev.some((d) => d.address === data.address)) return prev;
+        const existing = prev.find((d) => d.address === data.address);
+        if (existing) {
+          // Aynı adres İKİ taramadan da gelebilir: eşli (bonded → transport='classic')
+          // ve BLE taraması (transport='ble'). V-LINK / vLinker gibi BLE adaptörler eşli
+          // listede 'classic' görünür ama GERÇEKTE GATT ile bağlanır. Bilgileri BİRLEŞTİR:
+          // BLE tespit edildiyse transport'u 'ble'ye yükselt (yoksa önce klasik RFCOMM
+          // denenip takılır, BLE'ye düşene kadar zaman aşımına uğranır → "bağlanamadı").
+          const mergedTransport: 'classic' | 'ble' | undefined =
+            existing.transport === 'ble' || data.transport === 'ble'
+              ? 'ble'
+              : (existing.transport ?? data.transport);
+          const mergedBonded = existing.bonded || data.bonded;
+          // İsim: MAC olmayan (gerçek) ismi koru.
+          const mergedName =
+            existing.name && existing.name !== existing.address ? existing.name : data.name;
+          if (
+            mergedTransport === existing.transport &&
+            mergedBonded === existing.bonded &&
+            mergedName === existing.name
+          ) {
+            return prev;
+          }
+          return prev.map((d) =>
+            d.address === data.address
+              ? { ...d, name: mergedName, bonded: mergedBonded, transport: mergedTransport }
+              : d,
+          );
+        }
         return [...prev, { name: data.name, address: data.address, bonded: data.bonded, transport: data.transport }];
       });
     });
@@ -190,6 +197,28 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setPinTarget(null);
     stopOBD();
     startOBD(dev.address, pin, dev.transport);
+  };
+
+  // Eski/erişilemez "Eşli" cihazı kaldır (unpair) → listeden çıkar.
+  // removeBond (gizli API) bazı Android sürümlerinde ENGELLİDİR → o zaman
+  // başarısız olur ve cihaz Android'de eşli kalmaya devam eder. Bu durumda
+  // kullanıcıyı Android BT Ayarları'na yönlendir (tek kesin kaldırma yolu).
+  const handleForget = async (dev: DiscoveredDevice) => {
+    if (!Capacitor.isNativePlatform()) {
+      setDevices((prev) => prev.filter((d) => d.address !== dev.address));
+      return;
+    }
+    let removed = false;
+    try {
+      const res = await CarLauncher.forgetOBDDevice({ address: dev.address });
+      removed = !!(res && (res as { success?: boolean }).success);
+    } catch { /* removeBond engelli / hata */ }
+    setDevices((prev) => prev.filter((d) => d.address !== dev.address));
+    if (!removed) {
+      // Uygulama kaldıramadı → Android BT Ayarları'ndan manuel "Eşleştirmeyi kaldır".
+      setError('Bu cihaz Android tarafında eşli kaldı. Açılan BT Ayarları\'ndan "Eşleştirmeyi kaldır" deyin.');
+      CarLauncher.launchApp({ action: 'android.settings.BLUETOOTH_SETTINGS' }).catch(() => {});
+    }
   };
 
   if (!open) return null;
@@ -251,7 +280,11 @@ export function OBDConnectModal({ open, onClose }: Props) {
               OBD Cihaz Bağlantısı
             </div>
             <div className="text-white/40 uppercase tracking-wider mt-0.5" style={{ fontSize: fxs }}>
-              {scanning ? 'Taranıyor…' : `${devices.length} cihaz bulundu`}
+              {scanning
+                ? 'Canlı taranıyor…'
+                : devices.length === 0
+                  ? 'Cihaz yok · OBD takılı + Konum açık mı?'
+                  : `${devices.length} cihaz · CANLI TARAMA`}
             </div>
           </div>
           <button
@@ -439,11 +472,11 @@ export function OBDConnectModal({ open, onClose }: Props) {
                 const isDone = connected === dev.address;
 
                 return (
+                  <div key={dev.address} className="w-full flex items-center" style={{ gap: spSm }}>
                   <button
-                    key={dev.address}
                     disabled={!!connecting || !!connected}
                     onClick={() => void handleConnect(dev)}
-                    className="w-full flex items-center gap-3 text-left transition-all active:scale-[0.99] disabled:opacity-50"
+                    className="flex-1 min-w-0 flex items-center gap-3 text-left transition-all active:scale-[0.99] disabled:opacity-50"
                     style={{
                       padding: spMd,
                       borderRadius: rMd,
@@ -524,6 +557,22 @@ export function OBDConnectModal({ open, onClose }: Props) {
                       {isDone ? 'Bağlandı' : isCon ? 'Bağlanıyor…' : dev.bonded ? 'Eşli' : 'Bağlan'}
                     </div>
                   </button>
+                  {dev.bonded && (
+                    <button
+                      onClick={() => void handleForget(dev)}
+                      disabled={!!connecting || !!connected}
+                      title="Cihazı unut (eşleşmeyi sil)"
+                      aria-label="Cihazı unut"
+                      className="shrink-0 flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+                      style={{
+                        width: '44px', height: '44px', borderRadius: rSm,
+                        background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
+                      }}
+                    >
+                      <Trash2 style={{ width: iconSm, height: iconSm }} className="text-red-400" />
+                    </button>
+                  )}
+                  </div>
                 );
               })}
               {/* Gizli (OBD olmayan) cihaz varsa — OBD adayı bulunsa bile tümünü göster.

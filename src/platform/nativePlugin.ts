@@ -352,6 +352,15 @@ export interface CarLauncherPlugin {
   startOBDDiscovery(): Promise<void>;
   stopOBDDiscovery(): Promise<void>;
 
+  // Eşleşmiş (bonded) bir OBD cihazının pairing'ini siler (unpair) — taramada
+  // kalan eski/erişilemez "Eşli" kaydı kaldırır; sonraki taramada listelenmez.
+  forgetOBDDevice(opts: { address: string }): Promise<{ success: boolean }>;
+
+  // Bir cihazın Android bonding (eşleşme) durumunu sorgular — PIN Resilience için:
+  // bağlantı sonrası cihaz bonded ise PIN'e bir daha gerek yoktur (bonding kalıcı).
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (obdService try/catch ile çağırır).
+  getObdBondState?(opts: { address: string }): Promise<{ bonded: boolean }>;
+
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(
     event: 'btChanged',
