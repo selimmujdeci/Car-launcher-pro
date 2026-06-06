@@ -21,6 +21,7 @@ import { askAI, resolveApiKey, type AIVoiceResult, type VehicleContext } from '.
 import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
 import { buildEnrichedCtx } from './voiceContextBuilder';
+import { isInformationalCommand, answerInformational } from './voiceInfoService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -208,7 +209,13 @@ function dispatch(cmd: ParsedCommand): void {
     suggestions: [],
   });
   pushHistory(cmd);
-  speakFeedback(cmd.feedback);
+  // Bilgi sorguları ("hava durumu nasıl", "hızım kaç") → statik feedback yerine
+  // GERÇEK veriyle cevap ver. Aksi halde sadece "gösteriliyor" denir, cevap verilmez.
+  if (isInformationalCommand(cmd.type)) {
+    void answerInformational(cmd.type);
+  } else {
+    speakFeedback(cmd.feedback);
+  }
   _commandHandlers.forEach((fn) => fn(cmd));
   const delays = getResetDelays();
   setTimeout(() => {
@@ -219,7 +226,11 @@ function dispatch(cmd: ParsedCommand): void {
 }
 
 function dispatchDriving(cmd: ParsedCommand): void {
-  speakFeedback(cmd.feedback);
+  if (isInformationalCommand(cmd.type)) {
+    void answerInformational(cmd.type);
+  } else {
+    speakFeedback(cmd.feedback);
+  }
   pushHistory(cmd);
   _commandHandlers.forEach((fn) => fn(cmd));
 }
