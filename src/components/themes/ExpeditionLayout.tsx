@@ -142,7 +142,7 @@ const Header = memo(function Header() {
         <img src={emblemUrl} alt="CarOS" style={{ width: 38, height: 38, objectFit: 'contain', filter: p.night ? 'drop-shadow(0 2px 4px rgba(0,0,0,.55))' : 'none' }} />
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
       </div>
-      <div className="flex items-center" style={{ gap: 16, color: p.ink2 }}>
+      <div data-header-status className="flex items-center" style={{ gap: 16, color: p.ink2 }}>
         <button onClick={() => openDrawer('notifications')} className="ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex' }}>
           <Bell className="w-[18px] h-[18px]" />
           {n.unreadCount > 0 && <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a0f02', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{n.unreadCount > 9 ? '9+' : n.unreadCount}</span>}

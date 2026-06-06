@@ -113,12 +113,12 @@ const GT_Glareshield = memo(({ onOpenApps, onOpenSettings, onVoice }: { onOpenAp
         </div>
       </div>
 
-      <div className="flex flex-col items-center">
+      <div data-header-center className="flex flex-col items-center">
         <span className="text-2xl font-black tracking-tighter tabular-nums text-white gt-glow-text">{time}</span>
         <span className="text-[9px] font-bold text-white/20 tracking-[0.5em] uppercase -mt-1">{date}</span>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div data-header-status className="flex items-center gap-4">
         <button onClick={onVoice} className="relative group">
           <div className="absolute inset-0 bg-cyan-500/20 rounded-full blur-md opacity-0 group-hover:opacity-100 transition-opacity" />
           <div className="w-10 h-10 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center relative z-10 animate-[gt-mic-pulse_2s_infinite]">

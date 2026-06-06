@@ -86,8 +86,8 @@ const MercedesHeader = memo(function MercedesHeader({ onOpenApps, onOpenSettings
         <MStatus label="AMBIYANS" value="🌙 Gece" />
       </div>
 
-      {/* Sağ */}
-      <div className="flex items-center gap-1.5">
+      {/* Sağ — COMPACT'ta gap sıkışır */}
+      <div data-header-status className="flex items-center gap-1.5">
         <MIconBtn onClick={onOpenSettings}><Settings className="w-4 h-4" style={{ color: M_DIM2 }} /></MIconBtn>
         <MIconBtn onClick={onOpenApps}><Grid3X3 className="w-4 h-4" style={{ color: M_DIM2 }} /></MIconBtn>
         <button onClick={onVoice}

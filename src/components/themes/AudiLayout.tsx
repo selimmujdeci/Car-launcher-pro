@@ -95,8 +95,8 @@ const AudiHeader = memo(function AudiHeader({ onOpenApps, onOpenSettings, onOpen
         <AStatus label="DIŞ SICAKLIK" value="21°C" />
       </div>
 
-      {/* Sağ */}
-      <div className="flex items-center gap-1.5">
+      {/* Sağ — COMPACT'ta gap sıkışır */}
+      <div data-header-status className="flex items-center gap-1.5">
         <AIconBtn onClick={onOpenSettings}><Settings className="w-4 h-4" style={{ color: A_DIM2 }} /></AIconBtn>
         <AIconBtn onClick={onOpenApps}><Grid3X3 className="w-4 h-4" style={{ color: A_DIM2 }} /></AIconBtn>
         <AIconBtn onClick={onVoice}><Mic className="w-4 h-4" style={{ color: A_RED }} /></AIconBtn>
@@ -421,7 +421,7 @@ export const AudiLayout = memo(function AudiLayout({
         </div>
       )}
 
-      <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+      <div style={{ height: 'var(--lp-dock-h, 68px)', flexShrink: 0 }} />
       <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
     </div>
   );
