@@ -475,7 +475,7 @@ export const NewHomeLayout = memo(function NewHomeLayout({
             <div className="flex-1 min-h-0"><MusicCard /></div>
           </div>
         </div>
-        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+        <div style={{ height: 'var(--lp-dock-h, 68px)', flexShrink: 0 }} />
         <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} />
       </div>
     </div>

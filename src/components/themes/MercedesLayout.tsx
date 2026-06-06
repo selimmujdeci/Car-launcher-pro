@@ -442,7 +442,7 @@ export const MercedesLayout = memo(function MercedesLayout({
           </div>
         )}
 
-        <div style={{ height: 'var(--dock-h, 72px)', flexShrink: 0 }} />
+        <div style={{ height: 'var(--lp-dock-h, 68px)', flexShrink: 0 }} />
         <DockBar appMap={appMap} dockIds={dockIds} onLaunch={onLaunch} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
       </div>
     </div>
