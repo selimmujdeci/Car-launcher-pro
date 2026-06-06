@@ -51,3 +51,27 @@ Ekran g*.png
 .opencode/
 .claude/settings.json
 scratchpad.md
+
+# ── Repo temizliği (2026-06-06) — build çıktıları, artefaktlar, hassas dosyalar ──
+
+# Android imza anahtarı (HASSAS — asla commit etme)
+/android/app/carospro-key
+
+# Derlenmiş paketler (build çıktısı)
+*.apk
+*.aab
+
+# Android build çıktı dizinleri
+/android/app/build/
+/android/build/
+/android/app/release/
+
+# Üretilmiş test artefaktları (kaynak değil)
+test-artifacts/
+
+# Git worktree'leri (paralel checkout; reponun parçası değil)
+.worktrees/
+
+# Ekran görüntüleri ve geçici yakalama/analiz çıktıları
+/notch*.png
+/faz3-screens/
