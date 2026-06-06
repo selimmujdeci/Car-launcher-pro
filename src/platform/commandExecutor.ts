@@ -48,6 +48,8 @@ export interface CommandContext {
   /** Resolve appId → actual app launch (has access to appMap in caller) */
   launch:       (appId: string) => void;
   setTheme?:    (theme: 'night' | 'day' | 'oled' | 'dark') => void;
+  /** Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness). */
+  applySetting?: (key: string, action: string, value?: string, kind?: string, label?: string) => void;
   openDrawer?:  (target: 'apps' | 'settings' | 'music' | 'none') => void;
   openWeather?: () => void;
   /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */
@@ -276,13 +278,23 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         break;
       }
       case 'ENABLE_NIGHT_MODE': {
-        ctx.setTheme?.((intent.payload.mode as 'dark' | 'oled') ?? 'oled');
+        ctx.setTheme?.((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
         _speak('Gece modu aktif', isDriving);
         break;
       }
       case 'SET_THEME': {
-        ctx.setTheme?.((intent.payload.mode as 'dark' | 'oled') ?? 'dark');
+        ctx.setTheme?.((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
         _speak('Tema değiştirildi', isDriving);
+        break;
+      }
+      case 'SET_SETTING': {
+        ctx.applySetting?.(
+          intent.payload.settingKey ?? '',
+          intent.payload.settingAction ?? '',
+          intent.payload.settingValue,
+          intent.payload.settingKind,
+        );
+        _speak('Ayar uygulandı', isDriving);
         break;
       }
       case 'ENABLE_DRIVING_MODE': {

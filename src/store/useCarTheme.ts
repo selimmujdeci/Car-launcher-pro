@@ -16,7 +16,7 @@ import { persist } from 'zustand/middleware';
  * - oled: Pure black → pro ile birleştirildi
  */
 
-export type CoreTheme = 'tesla' | 'mercedes' | 'pro' | 'sunlight' | 'expedition';
+export type CoreTheme = 'tesla' | 'mercedes' | 'pro' | 'sunlight' | 'expedition' | 'horizon';
 export type LegacyTheme = 'cockpit' | 'audi' | 'oled';
 
 export type BaseTheme = CoreTheme | LegacyTheme;
@@ -54,7 +54,8 @@ export function isDayTime(): boolean {
  * Legacy themes accessible via code but hidden from theme selector
  */
 export const CORE_THEMES: { id: CoreTheme; label: string; desc: string }[] = [
-  { id: 'expedition', label: 'CarOS Expedition', desc: 'Offroad · Day (kum) / Night (pas-metal)' },
+  { id: 'expedition', label: 'CarOS Expedition', desc: 'Ana tema · Offroad · Day (kum) / Night (pas-metal)' },
+  { id: 'horizon',    label: 'CarOS Horizon', desc: 'Premium · harita-odaklı · Day / Night' },
   { id: 'tesla',    label: 'Tesla',      desc: 'Minimalist, premium his' },
   { id: 'mercedes', label: 'Mercedes',   desc: 'Luxury, ambient lighting' },
   { id: 'pro',      label: 'Glass Pro',  desc: 'Düşük güç, Hiworld optimize' },
@@ -79,24 +80,39 @@ interface CarThemeState {
 }
 
 function applyTheme(theme: CarTheme) {
-  document.documentElement.setAttribute('data-theme', theme);
+  const root = document.documentElement;
+  // Render Guard: data-theme değişimi color/background transition'larını binlerce
+  // elemanda aynı anda tetikler → "transition fırtınası" (jank). 'theme-switching'
+  // sınıfı geçişleri swap frame'inde bastırır (CSS: html.theme-switching *) →
+  // recalc/repaint animasyonsuz, tek seferde olur.
+  root.classList.add('theme-switching');
+  root.setAttribute('data-theme', theme);
   // Validation: data-theme atamasının DOM'a yansıdığını doğrula (Automotive Grade §R-3)
-  if (document.documentElement.getAttribute('data-theme') !== theme) {
+  if (root.getAttribute('data-theme') !== theme) {
     console.error(`[CarTheme] data-theme doğrulama hatası: beklenen "${theme}"`);
   }
   // OLED-Pro GPU doğrulama: --glass-blur 0px olmak zorunda (R-3 sıfır GPU yükü)
   if (theme === 'oled' || theme === 'oled-day') {
-    const blur = getComputedStyle(document.documentElement).getPropertyValue('--glass-blur').trim();
+    const blur = getComputedStyle(root).getPropertyValue('--glass-blur').trim();
     if (blur && blur !== '0px') {
       console.warn(`[CarTheme] OLED GPU kontrol: --glass-blur beklenen 0px, gerçek "${blur}"`);
     }
+  }
+  // Geçişleri bir sonraki frame'de geri aç (rAF) — recalc/paint tamamlandıktan
+  // sonra, ana thread'i kilitlemeden. rAF yoksa (test/SSR) senkron temizle (fail-soft).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => root.classList.remove('theme-switching'));
+    });
+  } else {
+    root.classList.remove('theme-switching');
   }
 }
 
 export const useCarTheme = create<CarThemeState>()(
   persist(
     (set) => ({
-      theme: 'pro', // Default: Glass Pro — senin aracın için optimal
+      theme: 'expedition', // Default: CarOS Expedition (ana tema) — Day kum / Night pas-metal
       setTheme: (theme) => {
         applyTheme(theme);
         set({ theme });
@@ -104,17 +120,28 @@ export const useCarTheme = create<CarThemeState>()(
     }),
     {
       name: 'car-launcher-theme',
+      version: 1,
+      // v1: varsayılan tema 'pro' → 'expedition' (ana tema) oldu.
+      // Yalnızca hâlâ ESKİ varsayılanda (pro) olan kurulumları bir kez taşı;
+      // kullanıcının bilinçli seçtiği temaları (mercedes/tesla/horizon...) KORU.
+      migrate: (persisted) => {
+        const s = persisted as Partial<CarThemeState> | undefined;
+        if (s && (s.theme === 'pro' || s.theme === 'pro-day')) {
+          s.theme = 'expedition';
+        }
+        return s as CarThemeState;
+      },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         // Tüm geçerli temalar (core + legacy — kullanıcı eski temayı seçtiyse koru)
         const VALID: CarTheme[] = [
-          'tesla', 'mercedes', 'pro', 'sunlight', 'expedition',
-          'tesla-day', 'mercedes-day', 'pro-day', 'expedition-day',
+          'tesla', 'mercedes', 'pro', 'sunlight', 'expedition', 'horizon',
+          'tesla-day', 'mercedes-day', 'pro-day', 'expedition-day', 'horizon-day',
           // Legacy themes — backward compatibility
           'cockpit', 'audi', 'oled',
           'cockpit-day', 'audi-day', 'oled-day',
         ];
-        if (!VALID.includes(state.theme)) state.theme = 'pro';
+        if (!VALID.includes(state.theme)) state.theme = 'expedition';
         // Migration: gündüz yöneticisi eskiden temayı zorla 'sunlight' yapıyordu
         // (premium ProLayout'u fallback'e düşüren bug). Kalıcı 'sunlight'ı
         // premium 'pro'ya geri al. (Tema seçicide 'sunlight' zaten sunulmuyor.)

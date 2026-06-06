@@ -45,6 +45,8 @@ export type IntentType =
   | 'OPEN_FAVORITES'
   | 'ENABLE_NIGHT_MODE'
   | 'SET_THEME'
+  | 'CYCLE_THEME'
+  | 'SET_SETTING'
   | 'SET_MUSIC'
   | 'ENABLE_DRIVING_MODE'
   | 'TOGGLE_SLEEP_MODE'
@@ -85,6 +87,11 @@ export interface IntentPayload {
   // SEARCH_POI fields (from semanticAiService)
   poiCategory?:   string;  // 'RESTAURANT' | 'GAS_STATION' | … (PoiCategory)
   poiQuery?:      string;  // normalize edilmiş arama terimi ("kebap", "benzin" …)
+  // SET_SETTING fields (from set_setting / toggle_*/ screen_brightness_*)
+  settingKey?:    string;  // AppSettings anahtarı veya 'wifi' | 'bluetooth' | 'brightness'
+  settingKind?:   string;  // 'bool' | 'enum' | 'number' | 'openTab'
+  settingAction?: string;  // 'on' | 'off' | 'inc' | 'dec' | 'set' | 'open' | 'toggle'
+  settingValue?:  string;  // enum değeri ya da number (yüzde) — string taşınır
 }
 
 export interface AppIntent {
@@ -108,7 +115,10 @@ export interface IntentContext {
 export interface RouterContext {
   launch:           (appId: string) => void;
   openDrawer:       (target: 'apps' | 'settings' | 'music' | 'none') => void;
-  setTheme:         (theme: 'dark' | 'oled') => void;
+  setTheme:         (theme: 'night' | 'day' | 'oled' | 'dark') => void;
+  cycleTheme?:      () => void;
+  /** Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness). */
+  applySetting?:    (key: string, action: string, value?: string, kind?: string, label?: string) => void;
   playMedia:        () => void;
   pauseMedia:       () => void;
   nextTrack?:       () => void;
@@ -148,10 +158,10 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   find_nearby_hospital:   'UNKNOWN',
   show_traffic:           'OPEN_NAVIGATION',
   open_dashcam:           'UNKNOWN',
-  toggle_bluetooth:       'UNKNOWN',
-  toggle_wifi:            'UNKNOWN',
-  screen_brightness_up:   'UNKNOWN',
-  screen_brightness_down: 'UNKNOWN',
+  toggle_bluetooth:       'SET_SETTING',
+  toggle_wifi:            'SET_SETTING',
+  screen_brightness_up:   'SET_SETTING',
+  screen_brightness_down: 'SET_SETTING',
   call_contact:           'OPEN_PHONE',
   open_camera:            'UNKNOWN',
   open_maps:              'OPEN_NAVIGATION',
@@ -171,6 +181,9 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   theme_night:        'ENABLE_NIGHT_MODE',
   theme_dark:         'SET_THEME',
   theme_oled:         'SET_THEME',
+  theme_day:          'SET_THEME',
+  theme_cycle:        'CYCLE_THEME',
+  set_setting:        'SET_SETTING',
   music_spotify:      'SET_MUSIC',
   music_youtube:      'SET_MUSIC',
   driving_mode:       'ENABLE_DRIVING_MODE',
@@ -253,13 +266,38 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       payload.targetApp = ctx.recentAppId;
       break;
     case 'theme_night':
-      payload.mode = 'oled';
+      payload.mode = 'night';   // mevcut temanın gece varyantı (toNight)
       break;
     case 'theme_dark':
-      payload.mode = 'dark';
+      payload.mode = 'night';   // "koyu tema" = gece varyantı
       break;
     case 'theme_oled':
-      payload.mode = 'oled';
+      payload.mode = 'oled';    // saf siyah, düşük güç teması
+      break;
+    case 'theme_day':
+      payload.mode = 'day';     // mevcut temanın gündüz varyantı (toDay)
+      break;
+    case 'theme_cycle':
+      // mode yok — CYCLE_THEME core temalar arasında döngü yapar
+      break;
+    case 'set_setting':
+      payload.settingKey    = cmd.extra?.['settingKey'];
+      payload.settingKind   = cmd.extra?.['settingKind'];
+      payload.settingAction = cmd.extra?.['settingAction'];
+      payload.settingValue  = cmd.extra?.['settingValue'];
+      break;
+    // Eski "ölü" komutlar (UNKNOWN'dı) artık SET_SETTING'e payload üretir:
+    case 'toggle_bluetooth':
+      payload.settingKey = 'bluetooth'; payload.settingKind = 'bool'; payload.settingAction = 'toggle';
+      break;
+    case 'toggle_wifi':
+      payload.settingKey = 'wifi'; payload.settingKind = 'bool'; payload.settingAction = 'toggle';
+      break;
+    case 'screen_brightness_up':
+      payload.settingKey = 'brightness'; payload.settingKind = 'number'; payload.settingAction = 'inc';
+      break;
+    case 'screen_brightness_down':
+      payload.settingKey = 'brightness'; payload.settingKind = 'number'; payload.settingAction = 'dec';
       break;
     case 'music_spotify':
       payload.targetApp = 'spotify';
@@ -359,10 +397,21 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       ctx.pauseMedia();
       break;
     case 'ENABLE_NIGHT_MODE':
-      ctx.setTheme((intent.payload.mode as 'dark' | 'oled') ?? 'oled');
+      ctx.setTheme((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
       break;
     case 'SET_THEME':
-      ctx.setTheme((intent.payload.mode as 'dark' | 'oled') ?? 'dark');
+      ctx.setTheme((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
+      break;
+    case 'CYCLE_THEME':
+      ctx.cycleTheme?.();
+      break;
+    case 'SET_SETTING':
+      ctx.applySetting?.(
+        intent.payload.settingKey ?? '',
+        intent.payload.settingAction ?? '',
+        intent.payload.settingValue,
+        intent.payload.settingKind,
+      );
       break;
     case 'SET_MUSIC':
       if (intent.payload.targetApp) ctx.launch(intent.payload.targetApp);
@@ -432,7 +481,7 @@ const VALID_INTENTS = new Set<IntentType>([
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
-  'SET_THEME', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
+  'SET_THEME', 'CYCLE_THEME', 'SET_SETTING', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
   'ENABLE_NIGHT_MODE', 'ENABLE_DRIVING_MODE', 'OPEN_LAST_APP',
   'SHOW_WEATHER', 'CHECK_VEHICLE_HEALTH', 'CLEAR_DTC_CODES',
   'CHECK_MAINTENANCE', 'OPEN_APPOINTMENT_LINK',

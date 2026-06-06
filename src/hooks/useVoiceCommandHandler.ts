@@ -6,11 +6,87 @@ import { bridge, isNative } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
 import { CarLauncher } from '../platform/nativePlugin';
 import type { MusicOptionKey } from '../data/apps';
-import type { MusicFavorite } from '../store/useStore';
+import type { MusicFavorite, AppSettings } from '../store/useStore';
 import { useStore } from '../store/useStore';
+import { useCarTheme, baseOf, toDay, toNight, isDay, type CoreTheme } from '../store/useCarTheme';
+import { getVoiceSetting } from '../platform/settingsVoice';
 
 // activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
 const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
+
+/* ── Sesli tema kontrolü ───────────────────────────────────────────────
+ * Sesli komutlar GÖRÜNÜR temayı (useCarTheme) değiştirir — eskiden yalnızca
+ * kullanılmayan useStore.settings.theme flag'ine yazıyordu (görsel etki yoktu).
+ * getState() React dışında ve monomorfik çağrıda güvenli (zero re-render). */
+function applyVoiceTheme(mode: 'night' | 'day' | 'oled' | 'dark'): void {
+  const { theme, setTheme } = useCarTheme.getState();
+  if (mode === 'oled')     setTheme('oled');            // saf siyah (düşük güç)
+  else if (mode === 'day') setTheme(toDay(theme));      // mevcut temanın gündüz varyantı
+  else                     setTheme(toNight(theme));    // 'night' | 'dark' → gece varyantı
+}
+
+// "tema değiştir" → core temalar arasında döngü; gündüz/gece tercihi korunur.
+const _THEME_CYCLE: CoreTheme[] = ['expedition', 'horizon', 'tesla', 'mercedes', 'pro', 'sunlight'];
+function cycleVoiceTheme(): void {
+  const { theme, setTheme } = useCarTheme.getState();
+  const idx  = _THEME_CYCLE.indexOf(baseOf(theme) as CoreTheme); // legacy/bilinmeyen → -1 → ilk tema
+  const next = _THEME_CYCLE[(idx + 1) % _THEME_CYCLE.length];
+  // sunlight'ın -day varyantı yok; diğerlerinde gündüz tercihini koru
+  setTheme(isDay(theme) && next !== 'sunlight' ? toDay(next) : next);
+}
+
+/* ── Sesli ayar kontrolü (set_setting, toggle_wifi/bt, brightness) ─────────
+ * Aksiyonu doğrudan AppSettings'e (veya wifi/bt/brightness native) uygular.
+ * getState() React dışında güvenli; openTab için drawer açıcı callback geçilir. */
+const _SETTING_STEP = 10;
+async function applyVoiceSetting(
+  key: string,
+  action: string,
+  value: string | undefined,
+  kind: string | undefined,
+  openSettings: () => void,
+): Promise<void> {
+  // WiFi / Bluetooth — Android 10+ doğrudan açmayı engeller → sistem panelini aç (fail-soft)
+  if (key === 'wifi' || key === 'bluetooth') {
+    if (isNative) {
+      try {
+        if (key === 'wifi') await CarLauncher.openWifiSettings?.();
+        else                await CarLauncher.openBluetoothSettings?.();
+      } catch { /* fail-soft: panel açılamadı */ }
+    }
+    return;
+  }
+
+  const update  = useStore.getState().updateSettings;
+  const s        = useStore.getState().settings as unknown as Record<string, unknown>;
+  const effKind  = kind ?? getVoiceSetting(key)?.kind;
+
+  if (effKind === 'openTab') { openSettings(); return; }
+
+  if (effKind === 'enum') {
+    if (value) update({ [key]: value } as unknown as Partial<AppSettings>);
+    return;
+  }
+
+  if (effKind === 'number') {
+    const cur = Number(s[key] ?? 0);
+    let next = cur;
+    if (action === 'set' && value)      next = parseInt(value, 10);
+    else if (action === 'inc')          next = cur + _SETTING_STEP;
+    else if (action === 'dec')          next = cur - _SETTING_STEP;
+    next = Math.max(0, Math.min(100, Number.isFinite(next) ? next : cur));
+    update({ [key]: next } as unknown as Partial<AppSettings>);
+    if (key === 'brightness' && isNative) {
+      try { await CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) }); } catch { /* fail-soft */ }
+    }
+    return;
+  }
+
+  // bool (varsayılan) — on/off/toggle
+  const curBool  = Boolean(s[key]);
+  const nextBool = action === 'toggle' ? !curBool : action === 'on';
+  update({ [key]: nextBool } as unknown as Partial<AppSettings>);
+}
 
 // Android paket adından store'daki kaynak anahtarına eşleme
 const PKG_TO_SOURCE_KEY: Record<string, string> = {
@@ -102,7 +178,6 @@ import { resolveAndNavigate } from '../platform/addressNavigationEngine';
 import { getGPSState } from '../platform/gpsService';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
-import type { AppSettings } from '../store/useStore';
 import type { DrawerType } from '../components/layout/DockBar';
 import { executeAIResult } from '../platform/commandExecutor';
 
@@ -128,14 +203,16 @@ export function useVoiceCommandHandler({
 
   useEffect(() => {
     return registerAIResultHandler((aiResult, vehicleCtx) => {
-      const { settings: s, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
+      const { settings: s, handleLaunch: launch, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       executeAIResult(aiResult, {
         vehicleCtx: vehicleCtx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false },
         defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
         defaultMusic: s.defaultMusic,
         launch,
-        setTheme:    (theme) => update({ theme: theme === 'day' ? 'light' : theme === 'night' ? 'dark' : theme }),
+        setTheme:    applyVoiceTheme,
         openDrawer:  (t) => open(t as DrawerType),
+        applySetting: (key, action, value, kind) =>
+          void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         openWeather: showWeather,
       });
     });
@@ -174,7 +251,10 @@ export function useVoiceCommandHandler({
       routeIntent(intent, {
         launch,
         openDrawer:  (t) => open(t as DrawerType),
-        setTheme:    (theme) => update({ theme }),
+        setTheme:    applyVoiceTheme,
+        cycleTheme:  cycleVoiceTheme,
+        applySetting: (key, action, value, kind) =>
+          void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         playMedia:   play,
         pauseMedia:  pause,
         nextTrack:   next,

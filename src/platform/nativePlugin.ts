@@ -333,6 +333,11 @@ export interface CarLauncherPlugin {
   setBrightness(options: SetBrightnessOptions): Promise<void>;
   setVolume(options: SetVolumeOptions): Promise<void>;
 
+  // Sistem ayar panelleri — WiFi/Bluetooth (Android 10+ doğrudan toggle'ı engeller,
+  // panel açmak satışa-uygun tek yol). Opsiyonel: eski plugin sürümlerinde bulunmayabilir.
+  openWifiSettings?(): Promise<{ opened: boolean }>;
+  openBluetoothSettings?(): Promise<{ opened: boolean }>;
+
   // On-device speech recognition (EXTRA_PREFER_OFFLINE)
   startSpeechRecognition(options: SpeechRecognitionOptions): Promise<SpeechRecognitionResult>;
 

@@ -16,6 +16,15 @@ const THEME_PREVIEWS: {
   text: string;
 }[] = [
   {
+    id: 'horizon',
+    label: 'CarOS Horizon',
+    sub: 'Premium · harita-odaklı',
+    accent: '#F2871C',
+    bg: '#0D0F13',
+    border: 'rgba(242,135,28,0.38)',
+    text: '#F2F4F7',
+  },
+  {
     id: 'pro',
     label: 'Glass Pro',
     sub: 'Düşük güç · Hiworld',
@@ -120,7 +129,7 @@ export const ThemeSwitcher = memo(function ThemeSwitcher() {
           >
             <div className="text-[9px] uppercase tracking-[0.45em] font-light px-2 pb-1"
               style={{ color: 'rgba(255,255,255,0.30)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              TEMA SEÇ · 5 SEÇENEK
+              TEMA SEÇ · 6 SEÇENEK
             </div>
 
             {/* Stüdyo butonu */}

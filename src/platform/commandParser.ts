@@ -18,49 +18,9 @@
 
 import { tryParseNavAddress } from './addressParser';
 import { tryParseMusicCommand } from './musicCommandParser';
+import { matchVoiceSetting, type VoiceSettingMatch } from './settingsVoice';
 
 /* ── Music search pre-check ──────────────────────────────── */
-
-/**
- * Detects "X çal / X'i çal / X oynat" patterns and extracts the search query.
- * Returns null if the query is a generic word (müzik, şarkı, spotify, …).
- *
- * Examples:
- *   "Blinding Lights çal"  → { query: "Blinding Lights" }
- *   "Starboy'u çal"        → { query: "Starboy" }
- *   "şarkı çal"            → null  (generic)
- *   "spotify çal"          → null  (app name — handled elsewhere)
- */
-function tryParseMusicSearch(raw: string): { query: string } | null {
-  const SKIP = new Set([
-    'muzik', 'muzigi', 'sarki', 'sarkiyi', 'playlist', 'ses', 'music', 'song', 'audio',
-    'spotify', 'youtube', 'deezer', 'tidal', 'soundcloud', 'amazon', 'apple',
-  ]);
-
-  // Match: <query>[suffix] çal/oynat
-  const pattern = /^(.+?)(?:'[a-zğüşıöçA-ZĞÜŞİÖÇ]*)?\s+(?:cal(?:iver)?|oynat|calsin)$/i;
-  const normalizedRaw = raw.trim()
-    .toLowerCase()
-    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
-    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g');
-
-  const match = normalizedRaw.match(pattern);
-  if (!match) return null;
-
-  const normalizedQuery = match[1].trim();
-  if (normalizedQuery.length < 2) return null;
-
-  // Reject if every token is a generic / app-name word
-  const tokens = normalizedQuery.split(/\s+/);
-  if (tokens.every((t) => SKIP.has(t))) return null;
-
-  // Extract query from ORIGINAL input (preserve casing)
-  // Find where the verb starts to trim it
-  const verbMatch = raw.trim().match(/^(.+?)(?:'[^\s]*)?\s+(?:çal(?:ıver)?|oynat|çalsın)$/i);
-  const query = verbMatch ? verbMatch[1].trim() : raw.trim();
-
-  return { query };
-}
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -90,6 +50,9 @@ export type CommandType =
   | 'theme_night'
   | 'theme_dark'
   | 'theme_oled'
+  | 'theme_day'
+  | 'theme_cycle'
+  | 'set_setting'
   | 'music_spotify'
   | 'music_youtube'
   | 'driving_mode'
@@ -267,7 +230,10 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       // Temel
       'sonraki şarkı', 'sonraki parça', 'ileri sar', 'next şarkı', 'next',
-      'atla', 'geç', 'şarkıyı geç', 'başka şarkı',
+      // NOT: yalın 'geç' Tier-1 substring olarak "gece moduna geç" / "gündüz moduna geç"
+      // / "koyu temaya geç" gibi TEMA komutlarını kaçırıyordu (hepsi music_next'e 1.00
+      // veriyordu). Çıkarıldı; tek-kelime "geç" hâlâ 'gec' TOKEN'ı ile şarkı atlar (0.82).
+      'atla', 'şarkıyı geç', 'başka şarkı',
       // Argo / kısa
       'skip', 'pas geç', 'ilerle', 'diğeri', 'diğer şarkı', 'bir sonraki',
       'başkası', 'bu değil', 'değiştir şarkıyı', 'başka bir şey çal',
@@ -405,6 +371,30 @@ const PATTERNS: CommandPattern[] = [
       'tam siyah', 'gerçek siyah', 'amoled', 'oled ekran',
     ],
     tokens: ['oled', 'siyah', 'tema', 'amoled'],
+  },
+  {
+    type: 'theme_day', priority: 'normal',
+    feedback: 'Gündüz modu aktif',
+    label: 'Gündüz Moduna Geç', example: 'gündüz moduna geç',
+    keywords: [
+      'gündüz moduna geç', 'gündüz modu', 'gündüz teması', 'aydınlık mod',
+      'aydınlık moduna geç', 'aydınlık tema', 'açık tema', 'ekranı aydınlat', 'day mode',
+    ],
+    tokens: ['gunduz', 'aydinlik'],
+  },
+  {
+    // "tema değiştir" → core temalar arasında döngü. SADECE açık ifadeler eşleşsin
+    // diye token listesi boş tutuldu; aksi halde 'tema' / 'degistir' tek-token girişleri
+    // theme_dark / music_next ile çakışırdı (skorlama Tier-2). Keyword'ler benzersiz (1.00).
+    type: 'theme_cycle', priority: 'normal',
+    feedback: 'Tema değiştiriliyor',
+    label: 'Temayı Değiştir', example: 'tema değiştir',
+    keywords: [
+      'tema değiştir', 'temayı değiştir', 'temayı değiştirir misin', 'tema değiştirir misin',
+      'temayı değiştirebilir misin', 'temayı değiştirsene', 'tema değiştirelim',
+      'başka tema', 'başka bir tema', 'farklı tema', 'farklı bir tema', 'temayı değiştir lütfen',
+    ],
+    tokens: [],
   },
   {
     type: 'music_spotify', priority: 'normal',
@@ -879,6 +869,21 @@ function scorePattern(
 
 /* ── Public API ──────────────────────────────────────────── */
 
+/** Sesli ayar komutu için dinamik geri bildirim metni. */
+function settingFeedback(m: VoiceSettingMatch): string {
+  switch (m.action) {
+    case 'on':   return `${m.label} açılıyor`;
+    case 'off':  return `${m.label} kapatılıyor`;
+    case 'inc':  return `${m.label} artırılıyor`;
+    case 'dec':  return `${m.label} azaltılıyor`;
+    case 'set':  return m.kind === 'number'
+                   ? `${m.label} yüzde ${m.value} yapılıyor`
+                   : `${m.label} ${m.value} olarak ayarlanıyor`;
+    case 'open': return `${m.label} ayarları açılıyor`;
+    default:     return `${m.label} güncelleniyor`;
+  }
+}
+
 /**
  * Full parse — returns command + ranked suggestions.
  * Use this everywhere; `parseCommand` is a thin compatibility wrapper.
@@ -941,6 +946,31 @@ export function parseCommandFull(input: string): ParseResult {
     };
   }
 
+  // Ön kontrol: sesli ayar kontrolü ("performans modunu aç", "parlaklığı %50 yap",
+  // "wifi aç", "duvar kağıdını değiştir"). Müzik ön-kontrolünden sonra, adres/skorlamadan
+  // önce. confidence 0.93 (exact 1.0 değil) → "sesi aç"→volume_up gibi gerçek exact
+  // komutlar önceliğini korur. Yanlış pozitif: matchVoiceSetting fiil şartı koşar.
+  const settingMatch = matchVoiceSetting(trimmed);
+  if (settingMatch) {
+    return {
+      command: {
+        type:       'set_setting',
+        raw:        trimmed,
+        confidence: 0.93,
+        feedback:   settingFeedback(settingMatch),
+        priority:   'normal',
+        extra: {
+          settingKey:    settingMatch.key,
+          settingKind:   settingMatch.kind,
+          settingAction: settingMatch.action,
+          settingValue:  settingMatch.value != null ? String(settingMatch.value) : '',
+        },
+      },
+      suggestions:   [],
+      needsSemantic: false,
+    };
+  }
+
   // Ön kontrol: serbest adres navigasyonu (keyword matching'den önce)
   const navMatch = tryParseNavAddress(trimmed);
   if (navMatch) {
@@ -958,22 +988,12 @@ export function parseCommandFull(input: string): ParseResult {
     };
   }
 
-  // Ön kontrol: müzik arama (örn: "Blinding Lights çal")
-  const musicSearch = tryParseMusicSearch(trimmed);
-  if (musicSearch) {
-    return {
-      command: {
-        type:       'play_music_search',
-        raw:        trimmed,
-        confidence: 0.92,
-        feedback:   `"${musicSearch.query}" aranıyor`,
-        priority:   'high',
-        extra:      { query: musicSearch.query },
-      },
-      suggestions:   [],
-      needsSemantic: false,
-    };
-  }
+  // NOT: Eskiden burada ikinci bir gevşek müzik-arama ön-kontrolü (tryParseMusicSearch)
+  // vardı; sondaki "çal/oynat" fiilini gören HER cümleyi müzik yapıyor ve
+  // tryParseMusicCommand'ın bilinçli reddettiği durumları (ör. "haritayı çal",
+  // NON_MUSIC_TARGETS) geri diriltiyordu → yanlış müzik açma. Kaldırıldı; gerçek
+  // müzik komutları zaten yukarıdaki tryParseMusicCommand (bağlam korumalı) tarafından
+  // yakalanıyor. Eşleşmeyen girişler aşağıdaki desen skorlamasına / "anlamadım"a düşer.
 
   const normalized  = stripFiller(normalizeText(trimmed));
   if (!normalized) return { command: null, suggestions: [], needsSemantic: false };

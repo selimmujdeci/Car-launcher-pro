@@ -123,6 +123,7 @@ function PremiumToggle({ label, desc, value, onChange, icon: Icon }: {
 /** dn dolu olan kartlar (carOS Expedition ailesi) gün/gece varyantını da seçer. */
 type ThemeOpt = { id: BaseTheme; dn?: 'day' | 'night'; label: string; sub: string; accent: string; preview: string; emblem?: boolean };
 const THEME_OPTIONS: ThemeOpt[] = [
+  { id: 'horizon',  label: 'HORIZON',  sub: 'Expedition · Pivi Pro', accent: '#F2871C', preview: 'linear-gradient(135deg,#473d2c 0%,#221d15 52%,#0c0906 100%)' },
   { id: 'expedition', dn: 'day',   label: 'EXPEDITION DAY',   sub: 'Kum · Gündüz', accent: '#E07B14', preview: 'linear-gradient(135deg,#FBF7EF,#DED3C0)', emblem: true },
   { id: 'expedition', dn: 'night', label: 'EXPEDITION NIGHT', sub: 'Pas · Gece',   accent: '#F2871C', preview: 'linear-gradient(135deg,#2c2216,#0f0c09)', emblem: true },
   { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', preview: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)' },
