@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react';
 import { onOBDData } from './obdService';
 import type { OBDData } from './obdService';
+import { speakAlert } from './ttsService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -141,6 +142,13 @@ function _evaluate(data: OBDData): void {
             { id: rule.id, severity: rule.severity, title: rule.title, suggestion: rule.suggestion },
           ];
           changed = true;
+          // PROAKTİF SES: kritik uyarıları asistan sesli söyler (yakıt bitti, motor
+          // aşırı ısındı, aşırı hız). Görsel kart + ses birlikte. Histerezis + 30s
+          // cooldown zaten tekrarı önlüyor; warning'ler sadece görsel kalır (rahatsız
+          // etmemek için). Gerçek araç ikaz mantığı.
+          if (rule.severity === 'critical') {
+            try { speakAlert(`${rule.title}. ${rule.suggestion}`); } catch { /* TTS hazır değil */ }
+          }
         }
       }
     }
