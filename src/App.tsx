@@ -17,6 +17,7 @@ import { useRadarSystem }     from './hooks/useRadarSystem';
 import { RadarAlertHUD }      from './components/layout/RadarAlertHUD';
 import { SentryOverlay }      from './components/security/SentryOverlay';
 import { GlobalAlert }        from './components/common/GlobalAlert';
+import { VolumeGestureLayer } from './components/common/VolumeGestureLayer';
 import { signalReverse }      from './platform/cameraService';
 import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
 import { useSystemStore }     from './store/useSystemStore';
@@ -155,6 +156,9 @@ function App() {
           </EditController>
         </div>
         <ReverseOverlay />
+
+        {/* Global görünmez ses kontrolü — şoför (sol) kenarı dikey kaydırma; her sayfada aktif */}
+        <VolumeGestureLayer />
 
         {/*
          * ── Z-Index Hiyerarşi Kuralı ─────────────────────────────────────────
