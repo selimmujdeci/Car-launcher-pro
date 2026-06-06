@@ -169,7 +169,10 @@ html[data-day-night="day"] {
 .up-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60px);
+  /* --rt-blur guard'ına bağlı: low-end (Mali-400) cihazda AdaptiveRuntimeManager
+     --rt-blur=0 yazınca 60px Gaussian blur 0'a iner → GPU fill-rate yükü kalkar.
+     High-end'de --rt-blur=1 → görsel aynı. */
+  filter: blur(calc(var(--rt-blur, 1) * 60px));
   opacity: 0.18;
   transform: translateZ(0);
   contain: strict;

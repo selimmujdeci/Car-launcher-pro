@@ -334,7 +334,24 @@ export default function MainLayout() {
   }, [settings.wallpaper]);
 
   const isSafeMode     = runtimeMode === RuntimeMode.SAFE_MODE;
+  // Mali-400 GPU guard: blur kapalıyken (low-end) ambient blob DOM'unu hiç render etme.
+  // CSS guard (--rt-blur) blur'u 0'a indirir; bu ek olarak 3 kalıcı will-change
+  // compositor layer'ını da DOM'dan kaldırır. runtimeMode değişiminde (satır 122
+  // subscribe) yeniden hesaplanır — config mode ile senkron yazılır.
+  const blurEnabled    = runtimeManager.getConfig().enableBlur;
   const isTheaterActive = useSystemStore((s) => s.isTheaterModeActive);
+
+  // Mali-400 GPU guard: anasayfa TAMAMEN opak bir overlay ile kapandığında alttaki
+  // MiniMapWidget'ın canlı MapLibre WebGL context'ini serbest bırak (sürekli çizim
+  // döngüsü dokunma gecikmesine katkı veriyordu). Mevcut `fullMapOpen` unmount koşuluna
+  // OR'lanır → 8 tema layout dosyasına dokunmadan, kanıtlanmış unmount yolu üzerinden.
+  // YALNIZCA opak/tam-kapatan durumlar: settings & climate FullscreenDrawer (opak, z-9999),
+  // split (kendi haritası var), rear-cam (kamera, tam ekran), theater (home opacity:0).
+  // Yarı saydam NormalDrawer'lar (apps/music/phone) HARİÇ — anasayfa backdrop arkasından
+  // görünür, orada unmount görünür kararmaya yol açar.
+  const homeFullyHidden =
+    isTheaterActive || splitOpen || rearCamOpen ||
+    drawer === 'settings' || drawer === 'climate';
 
   // Theater mode: nav/widget'lar gizlenir; içerik alanı serbest kalır.
   // Giriş: 400ms fade-out (görsel geçiş).
@@ -355,8 +372,10 @@ export default function MainLayout() {
       className="ultra-premium-root flex flex-col w-full overflow-hidden"
       style={{ height: '100dvh' }}
     >
-      {/* Ultra Premium Ambient Blobs — SAFE_MODE'da devre dışı (GPU tasarrufu) */}
-      {!isSafeMode && (
+      {/* Ultra Premium Ambient Blobs — SAFE_MODE'da ve low-end (blur kapalı) cihazda
+          devre dışı: Mali-400'de 3 kalıcı will-change compositor layer + 60px blur
+          GPU fill-rate'i doyuruyordu (dokunma gecikmesi). */}
+      {!isSafeMode && blurEnabled && (
         <div className="up-ambient-blobs">
           <div className="up-blob up-blob-1" />
           <div className="up-blob up-blob-2" />
@@ -412,7 +431,7 @@ export default function MainLayout() {
           onLaunch={handleLaunch}
           appMap={appMap}
           dockIds={smart.dockIds}
-          fullMapOpen={fullMapOpen}
+          fullMapOpen={fullMapOpen || homeFullyHidden}
           onOpenRearCam={() => setRearCamOpen(true)}
           onOpenDashcam={() => setDrawer('dashcam')}
           smart={smart}
