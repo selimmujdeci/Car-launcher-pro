@@ -23,6 +23,7 @@ import { resolveAndNavigate } from '../../platform/addressNavigationEngine';
 import { useRouteState } from '../../platform/routingService';
 import { TeslaLayout } from '../themes/TeslaLayout';
 import { ExpeditionLayout } from '../themes/ExpeditionLayout';
+import { HorizonLayout } from '../themes/HorizonLayout';
 import { AudiLayout } from '../themes/AudiLayout';
 import { MercedesLayout } from '../themes/MercedesLayout';
 import { CockpitLayout } from '../themes/CockpitLayout';
@@ -431,6 +432,9 @@ export const NewHomeLayout = memo(function NewHomeLayout({
 
   const base = baseOf(theme);
 
+  if (base === 'horizon') {
+    return <HorizonLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
+  }
   if (base === 'expedition') {
     return <ExpeditionLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
