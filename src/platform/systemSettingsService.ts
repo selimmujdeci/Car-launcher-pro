@@ -181,11 +181,30 @@ const _applyVolumeDebounced = debounce((percent: number) => {
 }, 80);
 
 /**
+ * Uygulama içi (WebView) oynatıcıların sesini ayarlar.
+ *
+ * Native STREAM_MUSIC ses kontrolü YouTube IFrame player'ı ve HTML5 stream
+ * Audio'sunu ETKİLEMEZ (web'de zaten sistem sesi yoktur). Bu yüzden ses kontrolü
+ * ayrıca aktif uygulama-içi motora iletilmelidir — yoksa "gösterge değişir ama
+ * müzik sesi değişmez" yaşanır. Lazy import: döngüsel bağımlılık önlenir.
+ */
+function _applyInAppVolume(percent: number): void {
+  import('./youtubeService')
+    .then(({ youtubeSetVolume }) => youtubeSetVolume(percent))
+    .catch(() => { /* modül yok — yoksay */ });
+  import('./streamMusicService')
+    .then(({ streamSetVolume }) => streamSetVolume(percent))
+    .catch(() => { /* modül yok — yoksay */ });
+}
+
+/**
  * Set media volume.
  * @param percent 0–100 (matches store value)
  */
 export function setVolume(percent: number): void {
-  _applyVolumeDebounced(Math.max(0, Math.min(100, percent)));
+  const clamped = Math.max(0, Math.min(100, percent));
+  _applyVolumeDebounced(clamped);   // native sistem sesi (STREAM_MUSIC) — yerel müzik
+  _applyInAppVolume(clamped);       // uygulama içi YouTube IFrame + HTML5 stream
 }
 
 /* ── Headlight Auto-Brightness ───────────────────────────── */
