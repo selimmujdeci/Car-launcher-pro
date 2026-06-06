@@ -85,18 +85,41 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
   const isError       = voice.status === 'error';
   const isThrottled   = voice.status === 'throttled';
 
+  // Dinleme GERÇEKTEN başladı mı? (warmup penceresinde erken idle-kapatmayı önler — bkz. pill)
+  const startedRef = useRef(false);
+
   // Auto-start listening on mount
   useEffect(() => {
     if (autoStart) startListening();
+    // Güvenlik: warmup hiç başlamasa bile pencere sonsuza dek asılı kalmasın.
+    const safety = setTimeout(() => { if (!startedRef.current) onClose(); }, 11_000);
+    return () => clearTimeout(safety);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-close on success
+  useEffect(() => {
+    if (voice.status === 'listening' || voice.status === 'processing') startedRef.current = true;
+  }, [voice.status]);
+
+  // Auto-close — başarı, hata VE idle. Aksi halde STT bitince/başarısız olunca
+  // pencere ekranda asılı kalır ("ANLAŞILAMADI" → "SESLİ ASİSTAN" idle, açık kalır).
   useEffect(() => {
     if (isSuccess) {
       const id = setTimeout(onClose, 2200);
       return () => clearTimeout(id);
     }
-  }, [isSuccess, onClose]);
+    if (isError) {
+      const id = setTimeout(onClose, 3000);   // hatayı kısa süre göster, sonra kapat
+      return () => clearTimeout(id);
+    }
+    if (voice.status === 'idle') {
+      // KRİTİK: dinleme başlamadan (mikrofon warmup'ı, 300-500ms) idle'da KAPATMA.
+      // Eskiden 200ms'de kapanıyordu → warmup bitmeden pencere kapanıp STT görünmez
+      // çalışıyordu ("mikrofona basıyorum hiçbir şey çıkmıyor").
+      if (!startedRef.current) return;
+      const id = setTimeout(onClose, 200);    // dinleme bitti, sonuç yok → kapan
+      return () => clearTimeout(id);
+    }
+  }, [isSuccess, isError, voice.status, onClose]);
 
   const handleQuickCmd = useCallback((cmd: string) => {
     processTextCommand(cmd);
@@ -246,18 +269,29 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  // Dinleme GERÇEKTEN başladı mı? Native STT'de mikrofon warmup'ı (düşük donanımda 500ms)
+  // boyunca durum hâlâ 'idle' kalır. Aşağıdaki idle-otokapat bu warmup'tan ÖNCE (80ms)
+  // tetiklenirse pencere dinleme başlamadan kapanır ve STT görünmez çalışır → "hiçbir şey
+  // çıkmıyor". Bu ref: yalnızca BİR KEZ listening/processing görüldükten SONRA idle'da kapat.
+  const startedRef = useRef(false);
+
   // Buton tıklamasında startListening() önceden çağrılmış olmalı.
   // Eğer henüz başlamadıysa (durum hâlâ idle) başlat.
   useEffect(() => {
     if (voice.status !== 'listening') startListening();
-    // Max 10s güvenlik — hiçbir koşulda ekranda asılı kalmaz
+    // Max 10s güvenlik — hiçbir koşulda ekranda asılı kalmaz (warmup hiç başlamasa bile kapatır)
     const safety = setTimeout(() => { stopListening(); onCloseRef.current(); }, 10_000);
     return () => clearTimeout(safety);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // idle → hemen kapat (görünmeden önce kapansın)
+  useEffect(() => {
+    if (voice.status === 'listening' || voice.status === 'processing') startedRef.current = true;
+  }, [voice.status]);
+
+  // idle → kapat AMA yalnızca dinleme başladıysa (warmup penceresinde erken kapanma yok)
   useEffect(() => {
     if (voice.status === 'idle') {
+      if (!startedRef.current) return; // warmup sürüyor → henüz kapatma
       const id = setTimeout(() => { onCloseRef.current(); }, 80);
       return () => clearTimeout(id);
     }
@@ -274,7 +308,9 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
     isListening  ? 'Dinliyorum…' :
     isProcessing ? 'İşleniyor…' :
     isSuccess    ? (voice.lastCommand?.feedback ?? 'Anlaşıldı') :
-    isError      ? 'Anlaşılamadı' : '';
+    // Hata: GERÇEK sebebi göster (izin / Vosk model / dil paketi). Eskiden hep "Anlaşılamadı"
+    // yazıyordu → kullanıcı mikrofonun neden çalışmadığını göremiyordu ("hiç tepki vermiyor").
+    isError      ? (voice.error ?? 'Anlaşılamadı') : '';
 
   const accent =
     isListening  ? 'rgba(96,165,250,1)'   :

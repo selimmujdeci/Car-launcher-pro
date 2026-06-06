@@ -182,6 +182,15 @@ const PLAY_VERBS = [
 // Fiil çekim ekleriyle biten pattern (hem aksan'lı hem aksan'sız form — "aç"/"ac", "çal"/"cal" vb.)
 const VERB_SUFFIX = /\s+(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle|başlat|baslat|göster|goster|yükle|yukle|çalsın|calsin)(?:\s+bana)?$/i;
 
+// GÜÇLÜ müzik fiilleri — tek başlarına kesin müzik niyeti taşır (çal/oynat/çalsın/dinle).
+// ZAYIF/genel fiiller (aç/başlat/göster/yükle) bunun DIŞINDA: "aç" = Türkçe "open",
+// "perdeyi aç"/"X göster" veya Vosk'un yanlış duyduğu cümleler müzik AÇMASIN diye
+// zayıf fiil için ayrıca müzik bağlamı (kaynak adı VEYA müzik kelimesi) aranır.
+const STRONG_VERB_SUFFIX = /\s+(?:çal(?:ıver)?|cal(?:iver)?|oynat|dinle|çalsın|calsin)(?:\s+bana)?$/i;
+
+// Açık müzik bağlam kelimesi — zayıf fiilli komutun gerçekten müzik olduğunu doğrular.
+const MUSIC_CONTEXT_WORD = /(?:müzik|muzik|şarkı|sarki|parça|parca|playlist|çalma\s*list|albüm|albume?|album|karışık|karisik|favori)/i;
+
 const ADD_FAVORITE_PATTERN = /(?:bu\s+şarkıyı?\s+)?favor[iı](?:ler)?(?:ime|e)?\s+ekle/i;
 const SHUFFLE_PATTERN      = /karışık(?:\s+(?:aç|çal|oynat|başlat))?|shuffle(?:\s+(?:aç|çal|oynat))?/i;
 
@@ -222,6 +231,9 @@ const NON_MUSIC_TARGETS = new Set([
   'telefon', 'telefonu', 'arama', 'mesaj', 'mesaji',
   'alarm', 'alarmı', 'alarmi', 'takvim', 'takvimi',
   'uygulama', 'uygulamayi', 'sistem',
+  // Donanım hedefleri — "kapıyı aç", "kilidi aç" müzik araması DEĞİL (→ hw_unlock_doors)
+  'kapi', 'kapiyi', 'kapilari', 'kapilar', 'kilit', 'kilidi', 'kapagi',
+  'pencere', 'pencereyi', 'cam', 'bagaj', 'bagaji',
 ]);
 
 // Tek başına kalan fiil — öncesinde boşluk olmaksızın tam eşleşme.
@@ -287,6 +299,15 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
   const hasSource    = sourceResult !== null;
 
   if (!hasVerb && !hasSource) return null;
+
+  // PRECISION KAPISI: zayıf fiil (aç/başlat/göster/yükle) TEK BAŞINA müzik sayılmaz.
+  // Müzik için ya GÜÇLÜ fiil (çal/oynat/çalsın/dinle), ya kaynak adı (Spotify…),
+  // ya da açık müzik kelimesi (müzik/şarkı…) gerekir. Aksi halde "perdeyi aç",
+  // "X göster" veya Vosk yanlış-transkripsiyonları yanlışlıkla müzik açıyordu.
+  // ("müzik aç"/"spotify aç" buradan GEÇER → sonraki adımlar open_music'e yönlendirir.)
+  const hasStrongVerb = STRONG_VERB_SUFFIX.test(trimmed);
+  const hasMusicWord  = MUSIC_CONTEXT_WORD.test(trimmed);
+  if (!hasStrongVerb && !hasSource && !hasMusicWord) return null;
 
   /* ── 3. Kaynak ve kalan sorguyu ayıkla ───────── */
   let source: MusicSource | null = null;
