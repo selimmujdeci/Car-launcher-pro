@@ -86,7 +86,6 @@ let _lastCommandTime = 0;
 
 let _audioCtx: AudioContext | null = null;
 let _stream: MediaStream | null = null;
-let _analyser: AnalyserNode | null = null;
 let _animationFrame: number | null = null;
 
 // Native STT: gerçek AudioContext yok — sentetik dalga ile görsel geri bildirim
@@ -105,39 +104,27 @@ function _stopVolumeMeter(): void {
   _animationFrame = null;
   _stream = null;
   _audioCtx = null;
-  _analyser = null;
   push({ volumeLevel: 0 });
 }
 
-function _startVolumeMeter(): void {
-  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return;
-  
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-    _stream = stream;
-    _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    // Android WebView bazen AudioContext'i suspended başlatır — resume et
-    if (_audioCtx.state === 'suspended') { _audioCtx.resume().catch(() => {}); }
-    const source = _audioCtx.createMediaStreamSource(stream);
-    _analyser = _audioCtx.createAnalyser();
-    _analyser.fftSize = 256;
-    source.connect(_analyser);
-
-    const dataArray = new Uint8Array(_analyser.frequencyBinCount);
-    const tick = () => {
-      if (!_analyser) return;
-      _analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      const avg = sum / dataArray.length;
-      // Normalize to 0-1 range with a slight boost
-      push({ volumeLevel: Math.min(1, (avg / 128) * 1.5) });
-      _animationFrame = requestAnimationFrame(tick);
-    };
-    tick();
-  }).catch(e => {
-    console.warn('Volume meter failed:', e);
-    // Silent fail for meter, but still listening
-  });
+/**
+ * Web dinleme animasyonu — SENTETİK dalga.
+ *
+ * KRİTİK: Web'de görselleştirme için ayrı bir getUserMedia mikrofon stream'i
+ * AÇILMAZ. webkitSpeechRecognition kendi mikrofon erişimini ister; aynı anda
+ * ikinci bir getUserMedia capture'ı tanımayı çekişmeye sokar ve Chrome tanımayı
+ * anında 'aborted' ile sonlandırır (ses algılanmaz). Bu yüzden seviye göstergesi
+ * yalnızca görsel amaçlı, mikrofonsuz sentetik bir dalga ile beslenir.
+ */
+function _startVolumeSimulation(): void {
+  _stopVolumeSimulation();
+  let t = 0;
+  _volumeSimTimer = setInterval(() => {
+    t += 1;
+    const base   = 0.32 + 0.22 * Math.sin(t / 3);
+    const jitter = 0.18 * Math.random();
+    push({ volumeLevel: Math.max(0.06, Math.min(1, base + jitter)) });
+  }, 120);
 }
 
 function _stopVolumeSimulation(): void {
@@ -235,6 +222,48 @@ function dispatchDriving(cmd: ParsedCommand): void {
   _commandHandlers.forEach((fn) => fn(cmd));
 }
 
+/* ── Komut zincirleme ("müziği aç ve eve git") ─────────────────
+ * Bağlaçla ayrılmış birden çok komutu tek söylemde çalıştırır. Yanlış pozitifi
+ * önlemek için EN AZ 2 segment GÜVENLİ (≥0.7) komut olmalı; aksi halde zincir
+ * sayılmaz ("Ahmet ve Mehmet'i ara", "ve" içeren yer adları normal işlenir). */
+const CHAIN_SPLIT = /\s+(?:ve|sonra|ardindan|ardından|bir de|hem de|ayrica|ayrıca)\s+/i;
+
+function dispatchChain(cmds: ParsedCommand[], ctx?: VehicleContext): void {
+  // Tek birleşik TTS (üst üste konuşma olmasın), sonra her komutun aksiyonu.
+  const combined = cmds.map((c) => c.feedback).filter(Boolean).join(', ');
+  if (combined) speakFeedback(combined);
+  for (const cmd of cmds) {
+    pushHistory(cmd);
+    _commandHandlers.forEach((fn) => fn(cmd));
+  }
+  if (!ctx?.isDriving) {
+    push({
+      status:      'success',
+      lastCommand: cmds[cmds.length - 1],
+      transcript:  cmds.map((c) => c.raw).join(' ve '),
+      error:       null,
+      suggestions: [],
+    });
+    setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2500);
+  }
+}
+
+/** Girişi zincir olarak işlemeyi dener; işlediyse true. */
+function tryHandleChain(trimmed: string, ctx?: VehicleContext): boolean {
+  if (!CHAIN_SPLIT.test(trimmed)) return false;
+  const parts = trimmed.split(CHAIN_SPLIT).map((s) => s.trim()).filter((s) => s.length >= 2);
+  if (parts.length < 2) return false;
+  const cmds: ParsedCommand[] = [];
+  for (const p of parts) {
+    const c = parseCommandFull(p).command;
+    if (c && c.confidence >= AUTO_DISPATCH_MIN) cmds.push(c);
+  }
+  if (cmds.length < 2) return false;   // ≥2 güvenli komut yoksa zincir değil
+  _lastCommandTime = Date.now();
+  dispatchChain(cmds, ctx);
+  return true;
+}
+
 /** Sohbet yanıtı — komut dispatch yok, sadece TTS + UI güncelleme. */
 function _dispatchConversation(response: string, raw: string): void {
   speakFeedback(response);
@@ -258,6 +287,18 @@ function _speakThinking(): void {
   speakFeedback(phrase);
 }
 
+/* ── Düşük-güven onay durumu ──────────────────────────────────
+ * Orta güvenli (BELİRSİZ) komutu körlemesine UYGULAMAK yerine "bunu mu istedin?"
+ * diye sorar; bir sonraki giriş evet/hayır olarak yorumlanır. Böylece "bir şey
+ * diyorum yanlış şey yapıyor" durumu azalır. Sürüş halinde (etkileşim minimumu,
+ * ISO 15008) onay sorulmaz — doğrudan uygulanır. */
+const AUTO_DISPATCH_MIN = 0.7;     // ≥ bu güven → onaysız uygula
+const PENDING_TTL_MS    = 15_000;  // onay penceresi
+const AFFIRM_RE = /^\s*(evet|tabii|tabi|olur|tamam|aynen|onayla|onayliyorum|onaylıyorum|he|hi hi|yap|elbette|kesinlikle|dogru|doğru)\b/i;
+const NEGATE_RE = /^\s*(hayir|hayır|yok|iptal|vazgec|vazgeç|gerek yok|istemiyorum|olmaz|dur|bos ver|boş ver)\b/i;
+let _pendingCmd: ParsedCommand | null = null;
+let _pendingAt  = 0;
+
 /* ── Processing ───────────────────────────────────────────── */
 
 export async function processTextCommand(text: string, ctx?: VehicleContext): Promise<boolean> {
@@ -269,12 +310,35 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
 
   const cfg = getConfig();
   const now = Date.now();
+
+  // ── Bekleyen onay (belirsiz komut) varsa önce onu yorumla ──
+  //   evet → uygula · hayır → iptal · başka bir şey → onayı bırak, normal işle.
+  if (_pendingCmd) {
+    if ((now - _pendingAt) < PENDING_TTL_MS) {
+      if (AFFIRM_RE.test(trimmed)) {
+        const cmd = _pendingCmd; _pendingCmd = null; _lastCommandTime = now;
+        if (ctx?.isDriving) { dispatchDriving(cmd); } else { dispatch(cmd); }
+        return true;
+      }
+      if (NEGATE_RE.test(trimmed)) {
+        _pendingCmd = null;
+        speakFeedback('Tamam, vazgeçtim.');
+        push({ status: 'idle', error: null });
+        return true;
+      }
+    }
+    _pendingCmd = null; // süresi geçti ya da farklı bir şey söylendi → temizle, devam et
+  }
+
   if (!cfg.enableRecommendations && (now - _lastCommandTime < 1500)) {
     const remaining = Math.ceil((1500 - (now - _lastCommandTime)) / 1000);
     push({ status: 'throttled', error: `Lütfen ${remaining}s bekleyin`, transcript: trimmed });
     setTimeout(() => push({ status: 'idle' }), 1200);
     return false;
   }
+
+  // ── Komut zincirleme: "müziği aç ve eve git" → her ikisini de çalıştır ──
+  if (tryHandleChain(trimmed, ctx)) return true;
 
   // ── API anahtarlarını al (AI fallback için gerekli) ─────────
   const rawKey  = localStorage.getItem('car-launcher-storage');
@@ -297,14 +361,31 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
-  // Fuzzy match (0.5–0.99) → yerel dispatch + arka plan proaktif log
-  if (result.command && result.command.confidence >= 0.5) {
+  // Yüksek güven (≥0.7) → onaysız anında dispatch + arka plan proaktif log
+  if (result.command && result.command.confidence >= AUTO_DISPATCH_MIN) {
     _lastCommandTime = now;
     if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
     // Proaktif bağlam — sonucu beklemiyoruz, UI etkilenmiyor
     if (result.needsSemantic && provider !== 'none' && apiKey && hasNet) {
       enrichBackground(trimmed, provider, apiKey, ctx);
     }
+    return true;
+  }
+
+  // Orta güven (0.5–0.7) → BELİRSİZ. Eskiden bu band da körlemesine dispatch
+  // ediliyordu (yanlış komutu sessizce uyguluyordu). Artık: sürüşte etkileşimi
+  // en aza indirmek için doğrudan uygula; PARK halinde "bunu mu istedin?" diye sor.
+  if (result.command && result.command.confidence >= 0.5) {
+    if (ctx?.isDriving) {
+      _lastCommandTime = now;
+      dispatchDriving(result.command);
+      return true;
+    }
+    _pendingCmd = result.command;
+    _pendingAt  = now;
+    const q = `Bunu mu demek istedin: ${result.command.feedback}? Evet ya da hayır de.`;
+    speakFeedback(q);
+    push({ status: 'error', transcript: trimmed, error: q, suggestions: result.suggestions });
     return true;
   }
 
@@ -317,20 +398,11 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   }
 
   // ── Sohbet da eşleşmedi → Semantic NLP devreye giriyor ───────
-  if (provider !== 'none' && apiKey) {
-    if (!hasNet) {
-      // Çevrimdışı — ne yapabileceğini söyle
-      speakFeedback('Bunu anlayamadım. Komut veya soru söyle.');
-      push({
-        status:      'error',
-        error:       'İnternet bağlantısı yok',
-        transcript:  trimmed,
-        suggestions: result.suggestions,
-      });
-      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3500);
-      return false;
-    }
-
+  // HEAD UNIT GERÇEĞİ: internet sık sık yok/zayıf. AI YALNIZCA net varsa denenir; aksi halde
+  // yanıltıcı "internet hatası" göstermek yerine aşağıdaki YEREL düşük-güven fallback'e düşülür
+  // (offline komutlar çalışsın). Eskiden offline+provider → erken "İnternet bağlantısı yok"
+  // dönüyor, yereldeki olası eşleşme hiç denenmiyordu → "mikrofon hep internet hatası veriyor".
+  if (provider !== 'none' && apiKey && hasNet) {
     // Ara sesli geri bildirim — AI yanıtını beklerken yerel öneriler hazırda tut (R-5 Hybrid)
     push({ status: 'processing', transcript: trimmed, error: null, suggestions: result.suggestions });
     _speakThinking();
@@ -429,9 +501,12 @@ function _stopWebRecognition(): void {
 }
 
 export function startListening(): void {
-  // Warmup timer in-flight da re-entry'yi engeller
+  // İDEMPOTENT: zaten dinleniyorsa (veya native warmup uçuştaysa) hiçbir şey yapma.
+  // KRİTİK: burada stopListening() ÇAĞIRMA. React mount efektleri (özellikle dev
+  // StrictMode) startListening'i iki kez çağırır; toggle davranışı 2. çağrıda tanımayı
+  // anında iptal ederdi ("mik açılır, hemen kapanır, algılama yok"). Durdurma işini
+  // butonlar explicit stopListening() ile yapar.
   if (_current.status === 'listening' || _nativeSttWarmupTimer !== null) {
-    stopListening();
     return;
   }
 
@@ -495,17 +570,16 @@ export function startListening(): void {
             return;
           }
           console.error('Native Speech Error:', err);
-          const isPermission = /permission|denied|not.?allowed/i.test(msg);
-          // Native, Vosk başlatma hatasını gerçek sebebiyle gönderir (head unit
-          // teşhisi için) → genel mesaj yerine bu gerçek hatayı göster.
-          const isVoskDiag = /vosk|model|stt|unpack|abi|storage/i.test(msg);
+          const isPermission = /permission|denied|not.?allowed|izin/i.test(msg);
+          // GERÇEK native sebebi HER ZAMAN göster (head unit teşhisi). Eskiden anahtar kelime
+          // eşleşmezse yanıltıcı "internet/dil paketi gerekli" gösteriliyordu — üstelik native
+          // reject argümanları ters olduğundan err.message hep "NO_RESULT" geliyor, gerçek sebep
+          // gizleniyordu. Artık reject(mesaj,kod) düzeltildi + burada ham mesaj gösteriliyor.
           push({
             status: 'error',
             error: isPermission
               ? 'Mikrofon izni verilmemiş.'
-              : isVoskDiag
-              ? msg
-              : 'Ses tanıma başarısız. İnternet bağlantısı veya çevrimdışı dil paketi (TR) gerekli.',
+              : (msg && msg.trim().length > 1 ? msg : 'Ses tanıma başlatılamadı'),
             suggestions: [],
           });
           setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
@@ -522,9 +596,10 @@ export function startListening(): void {
     }
   } else {
     push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
-    _startVolumeMeter();
+    _startVolumeSimulation();   // sentetik dalga — mikrofonu tanımaya bırak (çekişme yok)
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) {
+      _stopVolumeSimulation();
       push({ status: 'error', error: 'Tarayıcı ses tanımayı desteklemiyor.' });
       setTimeout(() => push({ status: 'idle' }), 3000);
       return;
@@ -533,26 +608,75 @@ export function startListening(): void {
     _stopWebRecognition();
     _webRecognition = new SpeechRecognition();
     _webRecognition.lang = 'tr-TR';
-    _webRecognition.interimResults = false;
+    _webRecognition.interimResults = true;   // canlı (kısmi) sonuç — "dinliyor ama algılamıyor" teşhisi + hızlı geri bildirim
+    _webRecognition.continuous = false;
     _webRecognition.maxAlternatives = 1;
 
+    // ── Teşhis logları: hangi olayların tetiklendiğini görmek için ──
+    _webRecognition.onstart       = () => console.warn('[Voice/web] onstart — tanıma başladı');
+    _webRecognition.onaudiostart  = () => console.warn('[Voice/web] onaudiostart — mikrofon sesi alınıyor');
+    _webRecognition.onspeechstart = () => console.warn('[Voice/web] onspeechstart — konuşma algılandı');
+    _webRecognition.onspeechend   = () => console.warn('[Voice/web] onspeechend — konuşma bitti');
+    _webRecognition.onnomatch     = () => console.warn('[Voice/web] onnomatch — eşleşme yok');
+
     _webRecognition.onresult = (event: any) => {
-      const transcript = (event.results[0][0].transcript as string)?.trim();
-      if (transcript) void processTextCommand(transcript);
+      // Tüm sonuçları tara: final varsa onu işle, yoksa kısmi metni canlı göster.
+      let finalText = '';
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const res = event.results[i];
+        const txt = (res[0]?.transcript as string) ?? '';
+        if (res.isFinal) finalText += txt; else interimText += txt;
+      }
+      const live = (finalText || interimText).trim();
+      console.warn('[Voice/web] onresult — final:', JSON.stringify(finalText), 'interim:', JSON.stringify(interimText));
+
+      if (finalText.trim()) {
+        _stopVolumeSimulation();
+        push({ status: 'processing', transcript: finalText.trim() });
+        void processTextCommand(finalText.trim());
+      } else if (live) {
+        // Kısmi metin — kullanıcıya "seni duyuyorum" geri bildirimi (hâlâ dinlemede)
+        push({ status: 'listening', transcript: live });
+      }
     };
 
     _webRecognition.onerror = (event: any) => {
       console.error('Web Speech Error:', event.error);
-      const msg = event.error === 'not-allowed' ? 'Mikrofon izni reddedildi.' : 'Ses tanıma hatası.';
+      _stopVolumeSimulation();
+      // 'aborted' → kullanıcı/uygulama durdurdu, sessizce idle (hata değil)
+      if (event.error === 'aborted') {
+        if (_current.status === 'listening') push({ status: 'idle' });
+        return;
+      }
+      // Diğer her hata GÖRÜNÜR mesaj verir — "hiç tepki vermiyor" olmaz.
+      const msg =
+        event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? 'Mikrofon izni gerekli. Adres çubuğundaki kilit/mikrofon simgesinden izin ver.'
+        : event.error === 'no-speech'
+          ? 'Ses algılanamadı. Daha yüksek sesle konuşun.'
+        : event.error === 'network'
+          ? 'Ses tanıma için internet bağlantısı gerekli.'
+          : 'Ses tanıma hatası.';
       push({ status: 'error', error: msg });
-      setTimeout(() => push({ status: 'idle' }), 3000);
+      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3500);
     };
 
     _webRecognition.onend = () => {
+      // Tanıma kendiliğinden bitti — sentetik dalgayı her zaman durdur.
+      console.warn('[Voice/web] onend — tanıma bitti (status:', _current.status, ')');
+      _stopVolumeSimulation();
       if (_current.status === 'listening') push({ status: 'idle' });
     };
 
-    try { _webRecognition.start(); } catch { push({ status: 'idle' }); }
+    try {
+      _webRecognition.start();
+      console.warn('[Voice/web] start() çağrıldı — lang:', _webRecognition.lang);
+    } catch (e) {
+      console.error('[Voice/web] start() HATA:', e);
+      _stopVolumeSimulation();
+      push({ status: 'idle' });
+    }
   }
 }
 
