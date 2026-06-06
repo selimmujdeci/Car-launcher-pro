@@ -29,6 +29,28 @@ import type { UnifiedVehicleState }  from '../platform/vehicleDataLayer/UnifiedV
 
 type OnFrameCb = (raw: number, smoothed: number) => void;
 
+/**
+ * Fallback (Zustand) yolu SNAP eşikleri — EMA hedefe "oturdu" sayılınca
+ * onFrame atlanır. Davranış sözleşmesi SAB yolundakiyle aynıdır:
+ *   "değer değişmedi (yeni sequence yok) VE smoothed hedefe oturdu → onFrame atla".
+ * Eşik altında kalan |raw - smoothed| farkı insan gözüyle ayırt edilemez.
+ */
+// SPEED: rafSmoother.ts'teki SPEED snap (0.5 km/h, satır ~83) ile hizalı.
+const SNAP_SPEED_KMH = 0.5;
+// RPM: 0-8000 ölçeğinde 0.5 anlamsız küçük; ~3 RPM ibre açısında görünmez.
+const SNAP_RPM = 3;
+// FUEL ve diğer index'ler: 0-100 yüzde ölçeği için küçük makul varsayılan.
+const SNAP_DEFAULT = 0.1;
+
+/** sabIndex'e göre fallback SNAP eşiğini döndür. */
+function _snapThreshold(idx: number): number {
+  switch (idx) {
+    case SAB_IDX.SPEED: return SNAP_SPEED_KMH;
+    case SAB_IDX.RPM:   return SNAP_RPM;
+    default:            return SNAP_DEFAULT;
+  }
+}
+
 /** UnifiedVehicleState'ten ham float değer çıkar — sabIndex eşlemesi */
 function _zustandField(state: UnifiedVehicleState, idx: number): number | null {
   switch (idx) {
@@ -57,9 +79,19 @@ export function useSABDirectUpdate(
       sabIndex,
     );
 
+    // B — Sequence sayacı: subscribe her veri güncellemesinde artırır.
+    // RAF tick bu sayacı _lastFallbackSeq ile karşılaştırarak "yeni veri var mı"
+    // sorusunu O(1) cevaplar (değer karşılaştırmasından bağımsız).
+    let _fallbackSeq = 0;
+    // İlk RAF tick'i ASLA guard'a takılmasın: -1 ≠ 0 → en az bir kez işlenir.
+    let _lastFallbackSeq = -1;
+
     const unsubZustand = useUnifiedVehicleStore.subscribe((state) => {
       _latestZustand = _zustandField(state, sabIndex);
+      _fallbackSeq++;
     });
+
+    const snapThreshold = _snapThreshold(sabIndex);
 
     // İlk kare: anlık değeri yansıt (boş ekrandan kaçın)
     if (_latestZustand != null) {
@@ -86,8 +118,25 @@ export function useSABDirectUpdate(
           }
         }
       } else {
-        // Zustand yedek yolu — her frame mevcut değeri al
+        // Zustand yedek yolu — her frame mevcut değeri al.
+        // B+C generation-guard: SAB yolundaki "değişmeyen değerde onFrame atla"
+        // kazancını fallback'e taşır. Guard YALNIZCA iki koşul BİRDEN sağlanınca
+        // durur (donma önleme):
+        //   (a) sequence değişmedi → yeni veri yok, VE
+        //   (b) |raw - smoothed| < SNAP eşiği → EMA hedefe oturdu.
+        // İkisinden biri sağlanmazsa onFrame çağrılmaya devam eder; ibre hedefe
+        // yumuşak oturur, ekranda donma/sıçrama olmaz. (null davranışı korunur.)
         raw = _latestZustand;
+        if (raw != null) {
+          const seqUnchanged   = _fallbackSeq === _lastFallbackSeq;
+          const emaSettled     = Math.abs(raw - smoothed) < snapThreshold;
+          _lastFallbackSeq = _fallbackSeq;
+          if (seqUnchanged && emaSettled) {
+            // Hem yeni veri yok hem ibre oturmuş → DOM mutasyonunu atla.
+            rafId = requestAnimationFrame(tick);
+            return;
+          }
+        }
       }
 
       if (raw != null) {
