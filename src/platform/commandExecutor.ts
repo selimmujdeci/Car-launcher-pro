@@ -47,7 +47,7 @@ export interface CommandContext {
   recentAppId?: string;
   /** Resolve appId → actual app launch (has access to appMap in caller) */
   launch:       (appId: string) => void;
-  setTheme?:    (theme: 'dark' | 'oled') => void;
+  setTheme?:    (theme: 'night' | 'day' | 'oled' | 'dark') => void;
   openDrawer?:  (target: 'apps' | 'settings' | 'music' | 'none') => void;
   openWeather?: () => void;
   /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */

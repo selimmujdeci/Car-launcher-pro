@@ -134,7 +134,7 @@ export function useVoiceCommandHandler({
         defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
         defaultMusic: s.defaultMusic,
         launch,
-        setTheme:    (theme) => update({ theme }),
+        setTheme:    (theme) => update({ theme: theme === 'day' ? 'light' : theme === 'night' ? 'dark' : theme }),
         openDrawer:  (t) => open(t as DrawerType),
         openWeather: showWeather,
       });
