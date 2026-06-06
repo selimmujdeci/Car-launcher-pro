@@ -22,6 +22,7 @@ import {
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
 import { useFusedSpeed } from '../../platform/speedFusion';
 import { getMapStyle, useMapMode, setMapNight } from '../../platform/mapSourceManager';
+import type { MapMode } from '../../platform/mapSourceManager';
 import { useStore } from '../../store/useStore';
 import { MapOverlay } from './MapOverlay';
 
@@ -44,6 +45,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const initializedRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
   const modeInitRef = useRef(false);
+  // Son uygulanan stil modu — aynı moda geçişte gereksiz tam restyle'ı (overdraw +
+  // style.load + marker yeniden ekleme) engeller.
+  const lastStyleModeRef = useRef<MapMode | null>(null);
   const locationRef = useRef<ReturnType<typeof useGPSLocation>>(null);
   const headingRef = useRef<number | null>(null);
 
@@ -218,9 +222,13 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   useEffect(() => {
     if (!modeInitRef.current) {
       modeInitRef.current = true;
+      lastStyleModeRef.current = mode; // mount: baseline modu kaydet, restyle yok
       return;
     }
     if (!mapRef.current) return;
+    // Stil/mod gerçekten değişmediyse tam restyle yapma (map overdraw koruması).
+    if (lastStyleModeRef.current === mode) return;
+    lastStyleModeRef.current = mode;
     const map = mapRef.current;
     const loc = locationRef.current;
     const hdg = headingRef.current;
