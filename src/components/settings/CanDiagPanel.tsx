@@ -56,7 +56,7 @@ function toEditIds(cfg: CanIdConfig): EditIds {
   ) as EditIds;
 }
 
-const MAX_DIAG_LINES = 30;
+const MAX_DIAG_LINES = 400;
 
 export function CanDiagPanel() {
   const { canPhase, canStatusText } = useHALStatusStore();
@@ -315,7 +315,7 @@ export function CanDiagPanel() {
           </div>
           <div
             ref={diagRef}
-            className="flex flex-col gap-0.5 max-h-40 overflow-y-auto font-mono"
+            className="flex flex-col gap-0.5 max-h-[75vh] overflow-y-auto font-mono"
           >
             {diagLines.map((line, i) => (
               <span

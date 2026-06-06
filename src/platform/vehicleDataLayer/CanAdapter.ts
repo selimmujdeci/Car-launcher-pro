@@ -19,7 +19,10 @@ const FIRST_FRAME_TIMEOUT_MS = 30_000;
 /** Maksimum retry sayısı — 3 × 30s = 90s toplam bekleme */
 const MAX_RETRIES              =      3;
 /** FALLBACK_ACTIVE sonrası geç bağlantı için periyodik yeniden deneme (ms) */
-const LATE_RECOVERY_INTERVAL_MS = 60_000;
+// CAN bağlanamayınca geç-kurtarma yeniden deneme aralığı. Her restart AĞIR tarama
+// (getInstalledPackages + getprop) tetiklediği için sık restart head-unit'i kasıyordu.
+// 60s → 300s: CAN hâlâ geç bağlanabilir ama arka plan CPU yükü ~5× azalır.
+const LATE_RECOVERY_INTERVAL_MS = 300_000;
 
 export interface ICanAdapter {
   readonly start: () => void;
