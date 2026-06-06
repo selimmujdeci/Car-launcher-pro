@@ -6,6 +6,7 @@
  */
 
 import type { PerformanceMode } from './performanceMode';
+import { getCapabilities, getDeviceTier } from './deviceCapabilities';
 
 export interface DeviceCapabilities {
   cores: number;           // CPU core count
@@ -20,33 +21,14 @@ export interface DeviceCapabilities {
  * Safe — no errors on unsupported APIs, returns sensible defaults.
  */
 export function detectDeviceCapabilities(): DeviceCapabilities {
-  // CPU cores — most reliable indicator
-  const cores = navigator.hardwareConcurrency ?? 2;
-
-  // RAM estimation (deviceMemory is deprecated but still available in some browsers)
-  const navMemory = (navigator as any).deviceMemory ?? 4; // GB
-  const memory = Math.max(512, navMemory * 1024); // Convert to MB, min 512
-
-  // Mobile detection (heuristic)
-  const isLowEnd = window.innerWidth < 768 || /mobile|android|iphone|ipad|phone/i.test(
-    navigator.userAgent.toLowerCase(),
-  );
-
-  // WebGL support
-  const canvas = document.createElement('canvas');
-  const supportsWebGL = !!canvas.getContext('webgl') || !!canvas.getContext('webgl2');
-
-  // CSS Backdrop filter support
-  const div = document.createElement('div');
-  div.style.backdropFilter = 'blur(1px)';
-  const supportsBackdropFilter = div.style.backdropFilter !== '';
-
+  // TEK kaynak: deviceCapabilities. Eskiden burada ayrı/farklı eşikli probe vardı.
+  const c = getCapabilities();
   return {
-    cores,
-    memory,
-    isLowEnd,
-    supportsWebGL,
-    supportsBackdropFilter,
+    cores:                  c.cores,
+    memory:                 c.memoryMb,
+    isLowEnd:               c.lowEndScreen || getDeviceTier() === 'low',
+    supportsWebGL:          c.supportsWebGL,
+    supportsBackdropFilter: c.supportsBackdropFilter,
   };
 }
 
@@ -60,24 +42,11 @@ export function detectDeviceCapabilities(): DeviceCapabilities {
  * Also considers GPU support:
  *  - No WebGL or Backdrop Filter → demote to lite
  */
-export function suggestPerformanceMode(cap: DeviceCapabilities): PerformanceMode {
-  // GPU check: if no graphics support, always recommend lite
-  if (!cap.supportsWebGL || !cap.supportsBackdropFilter) {
-    return 'lite';
-  }
-
-  // Low-end device or very limited resources
-  if (cap.isLowEnd || cap.cores < 2 || cap.memory < 512) {
-    return 'lite';
-  }
-
-  // High-end device
-  if (cap.cores > 4 && cap.memory > 2048) {
-    return 'premium';
-  }
-
-  // Default: balanced for most devices
-  return 'balanced';
+export function suggestPerformanceMode(_cap: DeviceCapabilities): PerformanceMode {
+  // TEK kaynak: kanonik DeviceTier (eşik tanımı deviceCapabilities'te).
+  // _cap parametresi geriye-uyumluluk için tutuldu (getSuggestionInfo metni için).
+  const t = getDeviceTier();
+  return t === 'low' ? 'lite' : t === 'high' ? 'premium' : 'balanced';
 }
 
 /**

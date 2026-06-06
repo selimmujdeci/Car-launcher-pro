@@ -14,7 +14,14 @@
  *  - GPU effect intensity
  */
 
+import { getDeviceTier, type DeviceTier } from './deviceCapabilities';
+
 export type PerformanceMode = 'lite' | 'balanced' | 'premium';
+
+/** Kanonik cihaz sınıfı → performans modu. TEK eşik tanımı (deviceCapabilities). */
+function tierToMode(tier: DeviceTier): PerformanceMode {
+  return tier === 'low' ? 'lite' : tier === 'high' ? 'premium' : 'balanced';
+}
 
 export interface PerfConfig {
   // OBD polling interval (ms) — how often OBD Service fetches data
@@ -89,16 +96,10 @@ const PERF_MODE_KEY = 'cl_performanceMode';
 
 function loadPerformanceMode(): PerformanceMode {
   try {
-    // Otomatik mod aktifse donanım tespitine bırak, kayıtlı değeri kullanma
+    // Otomatik mod aktifse kanonik cihaz sınıfına bırak (TEK kaynak: deviceCapabilities).
+    // Eskiden burada ayrı/çelişen (cores>6) eşik vardı; artık getDeviceTier ile tutarlı.
     if (localStorage.getItem('cl_performanceMode_auto') === '1') {
-      const cores = navigator.hardwareConcurrency ?? 2;
-      const memGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 2;
-      const memMb = Math.max(512, memGb * 1024);
-      // Aftermarket head unit tuzağı: yüksek RAM ama zayıf CPU.
-      // Hem core hem RAM yüksek olmalı; RAM tek başına yeterli değil.
-      if (cores > 6 && memMb > 3072) return 'premium';
-      if (cores < 2 || memMb < 1024) return 'lite';
-      return 'balanced';
+      return tierToMode(getDeviceTier());
     }
     const saved = localStorage.getItem(PERF_MODE_KEY);
     if (saved && (saved === 'lite' || saved === 'balanced' || saved === 'premium')) {
@@ -173,18 +174,9 @@ export function enableAutoMode(): PerformanceMode {
     localStorage.setItem(AUTO_KEY, '1');
   } catch { /* ignore */ }
 
-  // Tarayıcı tarafında donanım tespiti yap
-  const cores  = navigator.hardwareConcurrency ?? 2;
-  const memGb  = (navigator as { deviceMemory?: number }).deviceMemory ?? 2;
-  const memMb  = Math.max(512, memGb * 1024);
-
-  let mode: PerformanceMode = 'balanced';
-  if (cores > 4 && memMb > 2048) {
-    mode = 'premium';
-  } else if (cores < 2 || memMb < 1024) {
-    mode = 'lite';
-  }
-
+  // Kanonik cihaz sınıfı (TEK kaynak) → mod. Eskiden burada loadPerformanceMode'dan
+  // FARKLI (cores>4) bir eşik vardı; artık ikisi de getDeviceTier ile aynı.
+  const mode = tierToMode(getDeviceTier());
   setPerformanceMode(mode);
   return mode;
 }

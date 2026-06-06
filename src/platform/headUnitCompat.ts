@@ -12,6 +12,7 @@
  */
 
 import { setPerformanceMode, getPerformanceMode } from './performanceMode';
+import { getCapabilities, getDeviceTier } from './deviceCapabilities';
 
 // Listener'ların tek seferlik kaydedilmesini sağlar — HMR / re-entry'ye karşı guard
 let _compatListenersAttached = false;
@@ -24,116 +25,25 @@ export interface CompatProfile {
   memoryGb: number;
   androidVersion: number;
   webViewVersion: number;
+  weakGpu: boolean;
 }
 
-/* ── Detection helpers ─────────────────────────────────────── */
-
-function detectAndroidVersion(ua: string): number {
-  const m = ua.match(/Android\s+(\d+)/i);
-  return m ? parseInt(m[1], 10) : 0;
-}
-
-function detectWebViewVersion(ua: string): number {
-  // Chromium/WebView sürümü
-  const m = ua.match(/Chrome\/(\d+)/);
-  return m ? parseInt(m[1], 10) : 0;
-}
-
-function checkCssSupport(property: string, value: string): boolean {
-  try {
-    return typeof CSS !== 'undefined' && CSS.supports(property, value);
-  } catch {
-    return false;
-  }
-}
-
-function checkBackdropFilter(): boolean {
-  return (
-    checkCssSupport('backdrop-filter', 'blur(1px)') ||
-    checkCssSupport('-webkit-backdrop-filter', 'blur(1px)')
-  );
-}
-
-function checkDvh(): boolean {
-  return checkCssSupport('height', '1dvh');
-}
-
-function checkCssLayerSupport(): boolean {
-  // @layer cascade layers: Chrome 99+
-  // Yoksa Tailwind v4 CSS tamamen görmezden gelinir
-  try {
-    const style = document.createElement('style');
-    style.textContent = '@layer _test_ {}';
-    document.head.appendChild(style);
-    const ok = !!(style.sheet && style.sheet.cssRules.length > 0);
-    document.head.removeChild(style);
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
-/* ── Profile builder ───────────────────────────────────────── */
-
-/** Head unit ekran karakteristik tespiti — düşük çözünürlüklü/non-standart oranlar */
-function detectHeadUnitScreen(): boolean {
-  if (typeof window === 'undefined') return false;
-  const w   = window.innerWidth  || screen.width  || 0;
-  const h   = window.innerHeight || screen.height || 0;
-  const dpr = window.devicePixelRatio || 1;
-  if (w === 0 || h === 0) return false;
-
-  // Düşük DPR (head unit'lerde nadiren > 1.5)
-  if (dpr <= 1.0) return true;
-
-  // Klasik head unit çözünürlükleri (800x480, 1024x600, 1280x720, 1280x480)
-  const maxDim = Math.max(w, h);
-  const minDim = Math.min(w, h);
-  if (maxDim <= 1024 && minDim <= 600) return true;
-  if (maxDim <= 1280 && minDim <= 480) return true;
-
-  // Aşırı geniş aspect ratio (ultra-wide head unit'ler: 1920x720, 2560x720)
-  const aspect = maxDim / Math.max(1, minDim);
-  if (aspect >= 2.5) return true;
-
-  return false;
-}
+/* ── Profile builder — TEK otoriteden (deviceCapabilities) türetilir ─────────
+ * Eskiden burada ayrı UA/CSS/ekran/GPU probe helper'ları vardı; hepsi
+ * deviceCapabilities'e taşındı. isHeadUnit artık kanonik `DeviceTier === 'low'`:
+ * performanceMode + runtime ile AYNI tespit kaynağından beslenir → tutarlı. */
 
 function buildProfile(): CompatProfile {
-  const ua = navigator.userAgent || '';
-  const androidVersion    = detectAndroidVersion(ua);
-  const webViewVersion    = detectWebViewVersion(ua);
-  const cpuCores          = navigator.hardwareConcurrency || 0;
-  const memoryGb          = (navigator as any).deviceMemory || 0;
-  const supportsBackdropFilter = checkBackdropFilter();
-  const supportsDvh            = checkDvh();
-  const supportsCssLayer       = checkCssLayerSupport();
-  const lowEndScreen           = detectHeadUnitScreen();
-
-  // Sıkılaştırılmış eşikler:
-  //   Android < 12      → eski cihaz
-  //   Chromium < 90     → eski WebView (modern blur işleri tutmaz)
-  //   cpuCores ≤ 4      → çoğu head unit Cortex-A53 quad-core
-  //   memoryGb ≤ 3      → 4GB advertised olsa bile sistem 3.x GB raporlar
-  //   lowEndScreen      → düşük çözünürlük / düşük DPR / ultra-wide
-  const isHeadUnit =
-    (androidVersion > 0 && androidVersion < 12) ||
-    (webViewVersion > 0 && webViewVersion < 90) ||
-    (cpuCores > 0 && cpuCores <= 4) ||
-    (memoryGb > 0 && memoryGb <= 3) ||
-    !supportsBackdropFilter ||
-    !supportsDvh ||
-    !supportsCssLayer ||
-    lowEndScreen;
-
+  const c = getCapabilities();
   return {
-    isHeadUnit: isHeadUnit,
-    supportsBackdropFilter: supportsBackdropFilter,
-    supportsDvh: supportsDvh,
-    cpuCores: cpuCores,
-    memoryGb: memoryGb,
-    androidVersion: androidVersion,
-    webViewVersion: webViewVersion,
+    isHeadUnit:             getDeviceTier() === 'low',
+    supportsBackdropFilter: c.supportsBackdropFilter,
+    supportsDvh:            c.supportsDvh,
+    cpuCores:               c.cores,
+    memoryGb:               c.memoryMb > 0 ? c.memoryMb / 1024 : 0,
+    androidVersion:         c.androidVersion,
+    webViewVersion:         c.webViewVersion,
+    weakGpu:                c.weakGpu,
   };
 }
 
