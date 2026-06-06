@@ -24,6 +24,8 @@
 import { RuntimeMode, type RuntimeConfig } from './runtimeTypes';
 import { getRuntimeConfig }                from './runtimeConfig';
 import { safeGetRaw, safeSetRaw }          from '../../utils/safeStorage';
+import { hasWeakGpu }                      from '../../utils/detectWeakGpu';
+import { getDeviceTier }                   from '../../platform/deviceCapabilities';
 
 /* ── Mod sıralaması (sayısal karşılaştırma) ─────────────────────── */
 
@@ -158,6 +160,23 @@ class AdaptiveRuntimeManager {
    * Her ikisi var → BALANCED (termal ve kullanıcı sinyalleri daha sonra ayarlar)
    */
   private _detectCapabilities(): RuntimeMode {
+    // Kanonik düşük donanım sınıfı (deviceCapabilities) → BASIC_JS. getDeviceTier()
+    // GPU probe'una EK olarak ekran/çekirdek/RAM/WebView/Android/CSS sinyallerini de
+    // değerlendirir; maskeli WebGL renderer'da hasWeakGpu yanılsa bile (örn. K24:
+    // Android 15 / 6GB RAM ama Mali-400 + düşük çözünürlük) lowEndScreen/cores yakalar →
+    // blur/animation açık kalmaz.
+    if (getDeviceTier() === 'low') {
+      return RuntimeMode.BASIC_JS;
+    }
+
+    // GPU sınıfı önce: CPU'da SAB/Worker olsa BİLE zayıf GPU (Mali-400 sınıfı
+    // Utgard / yazılım render) backdrop-filter blur'u software path'te çalıştırır →
+    // her kare GPU stall → "aşırı kasma". Böyle cihazlarda BASIC_JS tavanına in
+    // (enableBlur=false → --rt-blur=0 → tüm cam/blur efektleri app genelinde kapanır).
+    if (hasWeakGpu()) {
+      return RuntimeMode.BASIC_JS;
+    }
+
     const hasWorker = typeof Worker !== 'undefined';
     // typeof tek başına yetmez: SAB yalnızca crossOriginIsolated=true (COOP+COEP)
     // ortamında gerçekten kullanılabilir; aksi halde runtime'da hata fırlatır.
