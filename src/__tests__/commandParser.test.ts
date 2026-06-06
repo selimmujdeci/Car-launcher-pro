@@ -111,6 +111,42 @@ describe('parseCommandFull — priority / feedback', () => {
   });
 });
 
+describe('parseCommandFull — müzik PRECISION (yanlış müzik açmasın)', () => {
+  const MUSIC_TYPES = ['play_music_query', 'play_music_search', 'open_music'];
+
+  it('"Tarkan çal" → play_music_query (güçlü fiil müzik açar)', () => {
+    const r = parseCommandFull('Tarkan çal');
+    expect(r.command?.type).toBe('play_music_query');
+  });
+
+  it('"müzik aç" → open_music (müzik kelimesi bağlam sağlar)', () => {
+    expect(parseCommandFull('müzik aç').command?.type).toBe('open_music');
+  });
+
+  it('"spotify aç" → open_music (kaynak bağlam sağlar)', () => {
+    expect(parseCommandFull('spotify aç').command?.type).toBe('open_music');
+  });
+
+  it('"perdeyi aç" → MÜZİK DEĞİL (zayıf fiil + bağlam yok)', () => {
+    const r = parseCommandFull('perdeyi aç');
+    expect(MUSIC_TYPES).not.toContain(r.command?.type);
+  });
+
+  it('"haritayı çal" → MÜZİK DEĞİL (NON_MUSIC_TARGET, eski gevşek net kaldırıldı)', () => {
+    const r = parseCommandFull('haritayı çal');
+    expect(MUSIC_TYPES).not.toContain(r.command?.type);
+  });
+
+  it('"toplantı saat kaçta göster" → MÜZİK DEĞİL (alakasız + zayıf fiil)', () => {
+    const r = parseCommandFull('toplantı saat kaçta göster');
+    expect(MUSIC_TYPES).not.toContain(r.command?.type);
+  });
+
+  it('"ayarları aç" → open_settings (müzik değil)', () => {
+    expect(parseCommandFull('ayarları aç').command?.type).toBe('open_settings');
+  });
+});
+
 describe('parseCommand (shorthand)', () => {
   it('returns ParsedCommand directly', () => {
     const c = parseCommand('müzik aç');

@@ -41,9 +41,10 @@ describe('useStore — başlangıç durumu', () => {
     expect(useStore.getState().settings.theme).toBe('light');
   });
 
-  it('varsayılan themePack "glass-pro"', () => {
+  it('varsayılan themePack "tesla"', () => {
     useStore.getState().resetSettings();
-    expect(useStore.getState().settings.themePack).toBe('glass-pro');
+    // Kanonik varsayılan 'tesla' (DEFAULT_SETTINGS + store.integration.test.ts ile tutarlı).
+    expect(useStore.getState().settings.themePack).toBe('tesla');
   });
 
   it('varsayılan wallpaper "none"', () => {
@@ -79,7 +80,7 @@ describe('useStore — updateSettings', () => {
     const after = useStore.getState().settings;
     expect(after.theme).toBe('oled');
     expect(after.volume).toBe(before); // değişmedi
-    expect(after.themePack).toBe('glass-pro'); // değişmedi
+    expect(after.themePack).toBe('tesla'); // değişmedi (kanonik varsayılan)
   });
 
   it('birden fazla alan aynı anda güncellenebilir', () => {
