@@ -615,6 +615,15 @@ body.performance-mode * {
   transition: none !important;
 }
 
+/* Render Guard — Tema geçişi (useCarTheme.applyTheme).
+   data-theme değişimi color/background transition'larını binlerce elemanda aynı
+   anda tetikler → "transition fırtınası" jank kaynağı. Bu sınıf yalnızca swap
+   frame'inde aktiftir (rAF ile kaldırılır): recalc/repaint animasyonsuz, tek
+   seferde gerçekleşir → ana thread kilitlenmez, geçiş anlık ve akıcı olur. */
+html.theme-switching * {
+  transition: none !important;
+}
+
 /* ── Runtime-Adaptive Utilities ─────────────────────────────────────────
    --rt-blur / --rt-anim: 0 | 1  — AdaptiveRuntimeManager tarafından yazılır.
    Default 1: Manager henüz yüklenmemişse efektler açık kalır (fail-safe).
