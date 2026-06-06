@@ -20,13 +20,8 @@ import { connectivityService }                     from './connectivityService';
 import { executeMcuCommand }                       from './nativeCommandBridge';
 import { logInfo }                                 from './debug';
 
-// Lazy imports — native modüller sadece runtime'da yüklenir
-let _buildNavIntent:  typeof import('../../website/src/lib/routeEngine').buildNavIntent | null = null;
-
-async function getBuildNavIntent() {
-  if (!_buildNavIntent) _buildNavIntent = (await import('../../website/src/lib/routeEngine')).buildNavIntent;
-  return _buildNavIntent;
-}
+// buildNavIntent — website/ fork bağımlılığından koparıldı; ana app içinde (navIntent.ts).
+import { buildNavIntent } from './navIntent';
 
 // ── Supabase client — statik import (dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler)
 // remoteCommandService ve weatherService zaten statik import yaptığı için
@@ -152,8 +147,7 @@ async function executeCommand(
           console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
           return 'failed';
         }
-        const buildNav = await getBuildNavIntent();
-        const intentUri = buildNav(lat, lng, route.address_name ?? '',
+        const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
           (route.provider_intent ?? 'google_maps') as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
         // Android'de intent URI'yi window.open ile aç
         window.open(intentUri, '_blank');
