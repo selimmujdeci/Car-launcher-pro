@@ -352,8 +352,14 @@ export function getActiveTileUrls(): string[] {
  * Satellite/hybrid are always raster regardless of tileRender.
  */
 /** Harita gün/gece durumu — getMapStyle ve canlı paint geçişi (applyMapDayNight) okur.
- *  Varsayılan gece (mevcut davranış korunur); FullMapView mount'ta isNight'e göre set eder. */
-let _mapNight = true;
+ *  Varsayılan GERÇEK SAATE göre (useDayNightManager ile aynı 07–19 gündüz bandı). Eskiden
+ *  sabit `true` (gece) idi → harita, widget efekti gerçek değeri yazmadan önce gece stiliyle
+ *  kuruluyor; canlı düzeltme yalnızca raster 'tiles-layer'da işlediğinden (vektör stilde
+ *  atlanır) GÜNDÜZ VAKTİ HARİTA GECE KALIYORDU (UI açık ama harita koyu = desync). Saate
+ *  dayalı varsayılan bu init penceresini doğru kapatır; store değişince widget yine günceller. */
+let _mapNight = (() => {
+  try { const h = new Date().getHours(); return h < 7 || h >= 19; } catch { return false; }
+})();
 export function setMapNight(night: boolean): void { _mapNight = night; }
 export function getMapNight(): boolean { return _mapNight; }
 
