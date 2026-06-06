@@ -8,6 +8,7 @@
  * Web/Demo: mock track rotasyonu
  */
 import { memo, useEffect, useCallback, useState, useRef, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import {
   SkipBack, SkipForward, Play, Pause,
   Music2, Music, Bluetooth, Radio, Shuffle, Repeat, Repeat1,
@@ -34,7 +35,8 @@ import { useStore } from '../../store/useStore';
 import type { CustomMusicSource } from '../../store/useStore';
 import type { MusicOptionKey } from '../../data/apps';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
-import { RuntimeMode } from '../../core/runtime/runtimeTypes';
+import { getRuntimeConfig } from '../../core/runtime/runtimeConfig';
+import { isLowEndDevice } from '../../platform/headUnitCompat';
 
 /* SAFE_MODE subscription — disables heavy backdrop blurs */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
@@ -252,8 +254,9 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
         style={{
           background:           'var(--oem-surface-0, rgba(20,24,32,0.85))',
           borderColor:          'var(--oem-line, rgba(255,255,255,0.10))',
-          backdropFilter:       'blur(var(--oem-glass-blur, 12px))',
-          WebkitBackdropFilter: 'blur(var(--oem-glass-blur, 12px))',
+          // --rt-blur=0 (Mali-400 / düşük mod) → 0px → GPU stall yok; aksi halde 12px
+          backdropFilter:       'blur(calc(var(--rt-blur, 1) * 12px))',
+          WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 12px))',
         }}
       >
         <TabBtn active={tab === 'player'}  icon={<Music2     className="w-5 h-5" />} label="Çalıyor"   onClick={() => setTab('player')}  />
@@ -307,6 +310,129 @@ interface PlayerViewProps {
   onPlay:          () => void;
 }
 
+/**
+ * Tam ekran YouTube video kontrol katmanı.
+ *
+ * Video host'u (#yt-player-host, body'ye bağlı, z-index 2147483000) videoMode'da
+ * tüm viewport'u kaplar; bu chrome onun ÜSTÜNE gelir (body portal, z-index
+ * 2147483600). Ekrana dokununca kontroller belirir (kapat + önceki/oynat/sonraki +
+ * başlık), 3 sn sonra otomatik gizlenir → temiz izleme. Tekrar dokununca geri gelir.
+ *
+ * Katman düzeni: altta tüm ekranı kaplayan dokunma-yakalayıcı (kontrolleri aç/kapat),
+ * üstünde kontroller (container pointer-events:none; boş alana dokunma yakalayıcıya
+ * düşer → gizler; butonlar pointer-events:auto → çalışır). Video host pointer-events:
+ * none olduğundan oynatma hep API ile yönetilir; YouTube'un kendi kontrolleri kapalı.
+ */
+function VideoFullscreenChrome({
+  title, artist, playing, onClose,
+}: { title: string; artist: string; playing: boolean; onClose: () => void }) {
+  const [show, setShow] = useState(true);
+  const hideTimer = useRef<number | null>(null);
+
+  const scheduleHide = useCallback(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => setShow(false), 3000);
+  }, []);
+
+  // İlk açılışta kontroller görünür, 3 sn sonra gizlenir.
+  useEffect(() => {
+    scheduleHide();
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  }, [scheduleHide]);
+
+  // Boş ekrana dokunma → kontrolleri aç/kapat (açılırsa gizleme sayacını yeniden kur).
+  const onBgTap = useCallback(() => {
+    setShow((v) => {
+      if (!v) scheduleHide();
+      return !v;
+    });
+  }, [scheduleHide]);
+
+  // Bir butona basınca kontroller görünür kalsın + sayacı sıfırla.
+  const wake = useCallback(() => { setShow(true); scheduleHide(); }, [scheduleHide]);
+
+  // Kontroller gizliyken (show=false) butonlar da tıklanamaz olmalı — yoksa görünmez
+  // buton bölgesinde "dokun-göster" çalışmaz (tık butona gider, yakalayıcıya değil).
+  const ctrlBtn = (size: number): React.CSSProperties => ({
+    flexShrink: 0, width: size, height: size, borderRadius: 9999, pointerEvents: show ? 'auto' : 'none', border: 'none',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+    background: 'rgba(8,10,14,0.5)',
+    // --rt-blur=0 (Mali-400 / düşük mod) → backdrop blur kapalı, video üstünde GPU stall yok
+    backdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))', WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))',
+    color: '#fff', WebkitTapHighlightColor: 'transparent',
+  });
+
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2147483600 }}>
+      {/* Dokunma yakalayıcı — tüm ekran; dokununca kontrolleri aç/kapat */}
+      <div onPointerDown={onBgTap} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto' }} />
+
+      {/* Kontroller — show'a göre fade; container pointer-events:none (boş alan alttaki yakalayıcıya düşer) */}
+      <div
+        style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          opacity: show ? 1 : 0, transition: 'opacity 0.25s ease',
+        }}
+      >
+        {/* Üst gradyan + Kapat (sağ üst) */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 120,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.55), transparent)',
+        }} />
+        <button
+          onClick={onClose}
+          aria-label="Tam ekrandan çık"
+          style={{ ...ctrlBtn(48), position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: 20 }}
+        >
+          <X className="w-6 h-6" />
+        </button>
+
+        {/* Alt gradyan + başlık + önceki/oynat/sonraki */}
+        <div
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, pointerEvents: 'none',
+            padding: '64px 28px calc(env(safe-area-inset-bottom, 0px) + 22px)',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.66), transparent)',
+            display: 'flex', flexDirection: 'column', gap: 16,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              color: '#fff', fontWeight: 900, fontSize: 22, lineHeight: 1.15,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 2px 8px rgba(0,0,0,0.6)',
+            }}>{title || 'YouTube'}</div>
+            {artist && (
+              <div style={{
+                color: 'rgba(255,255,255,0.78)', fontWeight: 700, fontSize: 13, marginTop: 4,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>{artist}</div>
+            )}
+          </div>
+
+          {/* Önceki / Oynat-Duraklat / Sonraki — tam ekrandan parça değiştirme */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28 }}>
+            <button onClick={() => { previous(); wake(); }} aria-label="Önceki" style={ctrlBtn(52)}>
+              <SkipBack className="w-6 h-6" />
+            </button>
+            <button
+              onClick={() => { togglePlayPause(); wake(); }}
+              aria-label={playing ? 'Duraklat' : 'Çal'}
+              style={{ ...ctrlBtn(72), background: 'rgba(255,255,255,0.95)', color: '#0b0d12', boxShadow: '0 8px 28px rgba(0,0,0,0.45)' }}
+            >
+              {playing ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
+            </button>
+            <button onClick={() => { next(); wake(); }} aria-label="Sonraki" style={ctrlBtn(52)}>
+              <SkipForward className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function PlayerView({
   hasSession, playing, track, srcMeta, displayName, progressPct,
   shuffle, repeat, isStream, isYouTube, canResume, videoMode, onToggleVideo, onTabSources, onPlay,
@@ -314,21 +440,27 @@ function PlayerView({
   const progressRef = useRef<HTMLDivElement>(null);
   const artRef      = useRef<HTMLDivElement>(null);
 
-  // YouTube videosunu albüm-kapağı alanına hizala (rAF ile sürekli senkron);
-  // player sekmesinden çıkınca köşeye küçülür (mini oynatıcı, ses devam eder).
+  // YouTube video konumlandırma:
+  //  • videoMode KAPALI → host gizli (kapak/ses gösterilir).
+  //  • videoMode AÇIK   → host TAM EKRAN (tüm viewport). Küçük kapak alanı yerine
+  //    sürücünün gerçekten izleyebileceği tam ekran video. Üstüne kapat/oynat
+  //    kontrolleri VideoFullscreenChrome (body portal, host'tan üst z-index) gelir.
   useEffect(() => {
     if (!isYouTube) return;
-    let raf = 0;
-    const sync = () => {
-      const el = artRef.current;
-      if (el) {
-        const r = el.getBoundingClientRect();
-        setYouTubeRegion({ left: r.left, top: r.top, width: r.width, height: r.height }, videoMode);
-      }
-      raf = requestAnimationFrame(sync);
+    if (!videoMode) {
+      // Kapak modu — host gizli (rAF gerekmez). Albüm kapağını React gösterir.
+      setYouTubeRegion(null);
+      return;
+    }
+    // Tam ekran — viewport'u kapla. Resize'da (nadiren) güncelle.
+    const applyFullscreen = () =>
+      setYouTubeRegion({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }, true);
+    applyFullscreen();
+    window.addEventListener('resize', applyFullscreen);
+    return () => {
+      window.removeEventListener('resize', applyFullscreen);
+      setYouTubeRegion(null);
     };
-    raf = requestAnimationFrame(sync);
-    return () => { cancelAnimationFrame(raf); setYouTubeRegion(null); };
   }, [isYouTube, videoMode]);
 
   // Progress bar'a dokununca/sürükleyince konuma atla (stream/Spotify/cihaz).
@@ -341,14 +473,30 @@ function PlayerView({
     seek(frac * track.durationSec);
   }, [track.durationSec]);
 
-  // SAFE_MODE → disable heavy backdrop blur (GPU safety, CLAUDE.md §3)
+  // Ağır blur GPU koruması (CLAUDE.md §3): enableBlur=false olan TÜM düşük modlarda
+  // (BASIC_JS / POWER_SAVE / SAFE_MODE — yani Mali-400 sınıfı GPU'lar) kapat.
+  // Önceden yalnızca SAFE_MODE kontrol ediliyordu; BASIC_JS'de blur(64px) açık
+  // kalıp head unit'i kilitliyordu.
   const runtimeMode = useSyncExternalStore(subscribeRuntime, getRuntimeMode, getRuntimeMode);
-  const isSafeMode = runtimeMode === RuntimeMode.SAFE_MODE;
+  // Düşük runtime modu VEYA head-unit/compat (zayıf GPU): ağır filter:blur'u kapat.
+  // filter:blur backdrop kill CSS'ine takılmaz (o yalnızca backdrop-filter), bu yüzden
+  // burada ayrıca gate edilir.
+  const blurOff = !getRuntimeConfig(runtimeMode).enableBlur || isLowEndDevice();
 
   // Oturum yoksa bile çalma ekranı düzeni gösterilir (placeholder kapak + başlık).
   // Boş "kaynak bulunamadı" durumu kaldırıldı — büyük oynat butonu arka planda çalmayı başlatır.
   return (
     <div className="relative h-full flex flex-col overflow-hidden bg-transparent">
+
+      {/* Tam ekran video kontrol katmanı — video host'u (body, tam ekran) üstüne biner */}
+      {isYouTube && videoMode && (
+        <VideoFullscreenChrome
+          title={track.title}
+          artist={track.artist}
+          playing={playing}
+          onClose={onToggleVideo}
+        />
+      )}
 
       {/* Ambient backdrop — heavily blurred, low-opacity album art fills entire view */}
       <div className="absolute inset-0 pointer-events-none z-0">
@@ -361,8 +509,8 @@ function PlayerView({
               backgroundSize:     'cover',
               backgroundPosition: 'center',
               opacity:            0.30,
-              // SAFE_MODE: 0px blur → GPU spared; otherwise blur-3xl ≈ 64px
-              filter:             isSafeMode ? 'none' : 'blur(64px)',
+              // Düşük mod (Mali-400 vb.): 0px blur → GPU korunur; aksi halde ≈ 64px
+              filter:             blurOff ? 'none' : 'blur(64px)',
               transform:          'scale(1.5)',
               transition:         'opacity 0.6s ease',
             }}
@@ -401,7 +549,7 @@ function PlayerView({
         <div className="flex-1 flex items-center justify-center min-h-0 py-4">
           <div ref={artRef} className="relative group" style={{ width: 'min(280px, 70vw)', aspectRatio: '1 / 1' }}>
             <AlbumArt size={280} src={track.albumArt ?? undefined} />
-            {playing && !isSafeMode && (
+            {playing && !blurOff && (
               <div
                 aria-hidden
                 className="absolute -inset-3 rounded-[3rem] pointer-events-none animate-pulse"
@@ -846,7 +994,10 @@ function SearchView({ onPlay, onAddSource }: SearchViewProps) {
     let cancelled = false;
     setSearching(true);
     const t = setTimeout(async () => {
-      const r = await searchMedia(query, filter);
+      // Progresif: her sağlayıcı döndükçe sonuçları göster (en yavaşı bekleme).
+      const r = await searchMedia(query, filter, (partial) => {
+        if (!cancelled) setResults(partial);
+      });
       if (!cancelled) { setResults(r); setSearching(false); }
     }, 200);
     return () => { cancelled = true; clearTimeout(t); };

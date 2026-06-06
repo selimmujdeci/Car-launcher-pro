@@ -175,7 +175,8 @@ export const MediaHub = memo(function MediaHub({
             backgroundSize:     'cover',
             backgroundPosition: 'center',
             opacity:            0.12,
-            filter:             'blur(60px)',
+            // Lite mod (head-unit / Mali-400 sınıfı): büyük filter:blur GPU'yu yorar → kapat
+            filter:             getPerformanceMode() === 'lite' ? 'none' : 'blur(60px)',
             transform:          'scale(1.2)',
           }}
         />
