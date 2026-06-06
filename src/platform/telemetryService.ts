@@ -147,6 +147,12 @@ export class TelemetryService {
     // Adaptive Heartbeat: başlangıç moduna göre interval kurulur
     this._scheduleHeartbeat();
 
+    // Açılışta ANINDA bir heartbeat — park halindeki araç 10 dk (parked interval)
+    // beklemeden hemen online görünsün. Web online'ı telemetri/konum tazeliğinden
+    // türetir; bu ilk push backend'e "şu an buradayım" der. (api_key yoksa _push
+    // sessizce no-op — güvenli.)
+    this._push('heartbeat', { startup: true });
+
     // 10 dakikada bir sistem sağlık anlık görüntüsü push'la
     this._healthTimer = setInterval(() => {
       void this._pushHealthSnapshot();
