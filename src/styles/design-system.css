@@ -225,6 +225,22 @@ html[data-theme="mercedes"] {
   --oem-accent-ink:    #1A140A;
 }
 
+/* CarOS Horizon — premium amber (gece kömür / gündüz fildişi) */
+html[data-theme="horizon"] {
+  --oem-accent:        #F2871C;
+  --oem-accent-strong: #C9650A;
+  --oem-accent-soft:   rgba(242,135,28,0.13);
+  --oem-accent-glow:   rgba(242,135,28,0.32);
+  --oem-accent-ink:    #1A0F02;
+}
+html[data-theme="horizon"][data-day-night="day"] {
+  --oem-accent:        #E07B14;
+  --oem-accent-strong: #B45F08;
+  --oem-accent-soft:   rgba(224,123,20,0.10);
+  --oem-accent-glow:   rgba(224,123,20,0.22);
+  --oem-accent-ink:    #FFFFFF;
+}
+
 /* Glass Pro — mavi (gece koyu / gündüz canlı) */
 html[data-theme="pro"] {
   --oem-accent:        #5B8DFF;
