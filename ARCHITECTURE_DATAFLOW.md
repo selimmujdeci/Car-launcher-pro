@@ -106,8 +106,9 @@ AKTİF gauge bileşenleri (SpeedCard vb.) ← useUnifiedVehicleStore / useOBDSta
 
 ## 6. YouTube / Medya Mimarisi (Piped)
 
-- **pipedProvider.ts** YouTube proxy. INSTANCES'ta tek canlı instance:
-  `https://api.piped.private.coffee` (satır 22-23); sticky instance mekanizması (43-44).
+- **pipedProvider.ts** YouTube proxy. `INSTANCES` 5 aday içerir (satır 22-28, paralel yarış);
+  2026-06 testinde yalnızca `https://api.piped.private.coffee` canlı, diğerleri 502/aday.
+  Sticky instance mekanizması (43-44). Pratikte tek-nokta-arıza riski.
 - **Mimari risk:** Tek nokta arıza — instance düşerse YouTube arama/stream çalışmaz.
 - **YouTube gömülü oynatma REVERT:** carosMediaLayer.ts içinde `_playYouTubeLight` yok,
   yalnızca standart `playYouTube` (satır 32, 203). Müzik kaynakları: local + stream.

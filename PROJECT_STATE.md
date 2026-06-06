@@ -131,9 +131,11 @@ Interval gating hedefleri (frekanslar bu oturumda kodda doğrulandı):
 - **YouTube gömülü oynatma denendi sonra REVERT edildi.** `carosMediaLayer.ts` içinde
   `_playYouTubeLight` artık YOK (teyit: grep boş, yalnızca standart `playYouTube` var —
   carosMediaLayer.ts:32, :203). Eski haline döndürüldü.
-- **Piped (YouTube proxy) mimari sorunu:** Çoğu public instance ölü; kodda tek canlı
-  instance bırakılmış: `https://api.piped.private.coffee` (teyit: pipedProvider.ts:22-23).
-  Bu **tek nokta arıza riski** — instance düşerse YouTube arama/stream çalışmaz.
+- **Piped (YouTube proxy) mimari sorunu:** `pipedProvider.ts:22-28` **5 aday instance**
+  içeriyor (paralel yarışır), ama 2026-06 testinde yalnızca `https://api.piped.private.coffee`
+  canlı doğrulandı; diğerleri 502/aday. Pratikte **tek nokta arıza riski** — o instance
+  düşerse YouTube arama/stream çalışmaz. (Düzeltme 2026-06-06: önceki "tek instance" ifadesi
+  yanlıştı; liste 5 elemanlı, 1 canlı.)
 - Müzik kaynak mimarisi: local + stream mevcut.
 
 ---

@@ -31,6 +31,10 @@
   Gerçek adaylar (eski layout sistemi, traffic/*, diagnostic/*) ve false-positive kümeleri
   PROJECT_STATE.md'de. **Yan bulgu:** `useSABDirectUpdate` ÖLÜ → `ARCHITECTURE_DATAFLOW.md`
   §1 düzeltildi (aktif hız akışı Zustand üzerinden).
+- **Mühendislik süreç sistemi** (2026-06-06): `RELEASE_CHECKLIST.md`, `CONTRIBUTING.md`,
+  `docs/adr/0001-0004`, `.github/pull_request_template.md`, `docs/TEST_MATRIX.md`,
+  `docs/FEATURE_FLAGS.md` eklendi. Release öncesi RELEASE_CHECKLIST'i, yeni iş öncesi
+  CONTRIBUTING'i izle.
 
 ---
 
@@ -84,13 +88,17 @@
 
 - **Branch belirsizliği:** CLAUDE.md "master" diyor, çalışma `feature/ble-obd-support`'ta;
   hem main hem master ref var. Merge hedefi netleşmeli.
-- **Piped tek-instance:** `api.piped.private.coffee` tek canlı nokta; düşerse YouTube
-  arama/stream çöker (pipedProvider.ts:22-23).
+- **Piped tek-nokta riski:** `pipedProvider.ts:22-28` 5 aday içerir ama yalnızca
+  `api.piped.private.coffee` canlı doğrulanmış; o düşerse YouTube arama/stream çöker.
 - **Commit edilmemiş native değişiklikler:** Android dosyaları `M` ve
   `android/app/src/main/assets/` UNTRACKED (`??` — Vosk modeli/`uuid` git'te yok);
   commit/transfer öncesi `git diff` ile gözden geçirilmeli. (~240 dosyalık kirli ağaç.)
 - **Cihazda doğrulanmamış native iş yığını:** OBD/BLE + Vosk büyük oranda saha testi
   bekliyor — "tamamlandı" sayma.
+- **OBD mock env adı tutarsızlığı:** Kod `VITE_ENABLE_OBD_MOCK` okuyor (obdService.ts:747,
+  opt-in) ama `.env.example:25` + `.github/workflows/main.yml:32` okunmayan
+  `VITE_DISABLE_OBD_MOCK`'u kullanıyor → o CI satırı **etkisiz**. Üretim varsayılanı güvenli
+  (mock kapalı) ama doküman/CI yanıltıcı. Düzeltme ayrı küçük iş (kod/CI dokunuşu gerektirir).
 - **STABILIZATION MODE:** AI.md gereği yeni özellik/büyük refactor yasak; tek-bug-tek-fix.
 
 ---
