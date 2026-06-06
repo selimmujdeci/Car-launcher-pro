@@ -16,6 +16,7 @@ import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
 import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { getPerformanceMode } from '../../platform/performanceMode';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
@@ -316,6 +317,12 @@ const MusicCard = memo(function MusicCard() {
   useEffect(() => {
     startMediaHub();
     previewLastMedia();
+    // Lite (low-end) modda iframe ısıtması boot'u bloklamasın → idle'a ertele.
+    // Diğer modlarda hemen ısıt (ilk çalmada user-gesture korunur).
+    if (getPerformanceMode() === 'lite') {
+      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      return () => { window.clearTimeout(id); stopMediaHub(); };
+    }
     void ensureYouTubeReady().catch(() => {});
     return () => stopMediaHub();
   }, []);

@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import {
   Compass, Music, Phone, ShieldCheck,
   Sun, Thermometer, LayoutGrid,
@@ -6,15 +7,33 @@ import {
 } from 'lucide-react';
 import { MiniMapWidget } from '../../map/MiniMapWidget';
 import { MediaHub } from '../MediaHub';
+import { runtimeManager } from '../../../core/runtime/AdaptiveRuntimeManager';
+import { RuntimeMode } from '../../../core/runtime/runtimeTypes';
+
+/* SAFE_MODE subscription — düşük donanımda ağır GPU efektlerini (blur, ambient
+   blob, sürekli animasyon) kapatır. Diğer SAFE_MODE tüketicileriyle aynı idiom. */
+function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
+function getRuntimeMode() { return runtimeManager.getMode(); }
 
 export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; onLaunch: (id: string) => void }) {
+  const runtimeMode = useSyncExternalStore(subscribeRuntime, getRuntimeMode, getRuntimeMode);
+  const isSafeMode  = runtimeMode === RuntimeMode.SAFE_MODE;
+  // SAFE_MODE: sürekli nabız animasyonu kapalı, ağır cam blur'u hafif blur'a indir.
+  const pulse  = isSafeMode ? '' : 'animate-pulse';
+  const blurXl = isSafeMode ? 'backdrop-blur-sm' : 'backdrop-blur-xl';
   return (
     <div className="h-full w-full extreme-bg text-slate-200 p-12 flex flex-col gap-10 overflow-hidden extreme-lux select-none relative">
-      <div className="wow-overlay" />
-      
+      {/* wow-overlay + ışık küreleri: SAFE_MODE'da render edilmez (GPU tasarrufu).
+          blur-[80px]/[60px] + animate-pulse/float-slow en pahalı katmanlar. */}
+      {!isSafeMode && <div className="wow-overlay" />}
+
       {/* Dynamic Background Light Orbs — blur reduced for GPU perf on Android WebView */}
-      <div className="absolute top-[-20%] left-[15%] w-[60%] h-[60%] bg-blue-500/10 rounded-full blur-[80px] animate-pulse" />
-      <div className="absolute bottom-[-10%] right-[5%] w-[40%] h-[40%] bg-indigo-500/5 rounded-full blur-[60px] float-slow" />
+      {!isSafeMode && (
+        <>
+          <div className="absolute top-[-20%] left-[15%] w-[60%] h-[60%] bg-blue-500/10 rounded-full blur-[80px] animate-pulse" />
+          <div className="absolute bottom-[-10%] right-[5%] w-[40%] h-[40%] bg-indigo-500/5 rounded-full blur-[60px] float-slow" />
+        </>
+      )}
 
       {/* HEADER: Ultra-Thin Elegance */}
       <div className="flex justify-between items-center z-10">
@@ -57,7 +76,7 @@ export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; on
             </div>
             <div>
                 <div className="flex items-center gap-4 mb-12">
-                    <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_20px_#34d399] animate-pulse" />
+                    <div className={`w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_20px_#34d399] ${pulse}`} />
                     <span className="text-[11px] font-black tracking-[0.5em] text-slate-500 uppercase">Automotive Health</span>
                 </div>
                 <div className="space-y-10">
@@ -106,7 +125,7 @@ export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; on
              
              {/* HUD Overlay v2 */}
              <div className="absolute bottom-12 left-12 right-12 flex justify-between items-end">
-                <div className="rgba(15,23,42,0.02) backdrop-blur-xl border border-white/10 p-10 rounded-[4rem] flex items-center gap-10 shadow-2xl group-hover:translate-y-[-10px] transition-transform duration-700">
+                <div className={`rgba(15,23,42,0.02) ${blurXl} border border-white/10 p-10 rounded-[4rem] flex items-center gap-10 shadow-2xl group-hover:translate-y-[-10px] transition-transform duration-700`}>
                     <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center border border-white/20 shadow-[0_0_40px_rgba(59,130,246,0.4)] group-hover:rotate-[360deg] transition-transform duration-1000">
                         <Compass className="w-10 h-10 text-primary" />
                     </div>
@@ -116,7 +135,7 @@ export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; on
                     </div>
                 </div>
                 
-                <div className="rgba(15,23,42,0.02) backdrop-blur-xl border border-white/10 p-10 rounded-[4rem] flex flex-col items-center shadow-2xl min-w-[200px]">
+                <div className={`rgba(15,23,42,0.02) ${blurXl} border border-white/10 p-10 rounded-[4rem] flex flex-col items-center shadow-2xl min-w-[200px]`}>
                     <span className="text-[11px] font-black text-slate-500 tracking-[0.5em] uppercase mb-2 opacity-60">Velocity</span>
                     <span className="text-7xl font-extralight text-primary tracking-tighter tabular-nums drop-shadow-2xl">
                         72<span className="text-base ml-2 text-blue-300 font-bold tracking-[0.2em] uppercase">km/h</span>
@@ -136,9 +155,9 @@ export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; on
                 <div className="flex items-center gap-5">
                     <div className="flex gap-1 h-5 items-end">
                         {[1,2,3,4].map(i => (
-                          <div 
-                            key={i} 
-                            className="w-1 bg-blue-300 rounded-full animate-pulse" 
+                          <div
+                            key={i}
+                            className={`w-1 bg-blue-300 rounded-full ${pulse}`}
                             style={{ 
                               height: `${40 + (i % 3) * 20}%`, 
                               animationDelay: `${i * 100}ms` 
@@ -171,7 +190,7 @@ export function LuxuryCockpit({ favorites, onLaunch }: { favorites: string[]; on
       </div>
 
       {/* DOCK: The Control Bar */}
-      <div className="h-28 rgba(15,23,42,0.02) backdrop-blur-xl border border-white/10 rounded-[4rem] flex items-center justify-center gap-20 z-10 shadow-[0_40px_100px_rgba(0,0,0,0.6)] max-w-6xl mx-auto px-24 border-t-white/20">
+      <div className={`h-28 rgba(15,23,42,0.02) ${blurXl} border border-white/10 rounded-[4rem] flex items-center justify-center gap-20 z-10 shadow-[0_40px_100px_rgba(0,0,0,0.6)] max-w-6xl mx-auto px-24 border-t-white/20`}>
           {[Compass, Phone, LayoutGrid, Music, Settings].map((Icon, idx) => (
               <button key={idx} className={`relative group transition-all duration-500 ${idx === 2 ? 'var(--panel-bg-secondary) p-6 rounded-[2rem] border border-white/20 shadow-2xl scale-110 translate-y-[-10px]' : 'text-slate-500 hover:text-primary hover:scale-125'}`}>
                   <Icon className={`${idx === 2 ? 'w-10 h-10' : 'w-8 h-8'} transition-transform duration-500 group-hover:rotate-6`} />

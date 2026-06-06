@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import {
   Zap, Navigation, Music, Shield,
   Settings, Phone, Cpu,
@@ -6,9 +6,16 @@ import {
 } from 'lucide-react';
 import { MiniMapWidget } from '../../map/MiniMapWidget';
 import { MediaHub } from '../MediaHub';
+import { runtimeManager } from '../../../core/runtime/AdaptiveRuntimeManager';
+import { RuntimeMode } from '../../../core/runtime/runtimeTypes';
+
+/* SAFE_MODE subscription — düşük donanımda ağır GPU efektlerini kapatır.
+   Diğer SAFE_MODE tüketicileriyle (MediaScreen, BootSplash) aynı idiom. */
+function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
+function getRuntimeMode() { return runtimeManager.getMode(); }
 
 // --- Hyper Neon Gauge v2 ---
-const NeonGauge = ({ speed }: { speed: number }) => {
+const NeonGauge = ({ speed, safe }: { speed: number; safe: boolean }) => {
   const percentage = Math.min(speed / 260, 1);
   const strokeDash = 540;
   const offset = strokeDash - (strokeDash * percentage * 0.75);
@@ -17,7 +24,7 @@ const NeonGauge = ({ speed }: { speed: number }) => {
     <div className="relative w-[500px] h-[500px] flex items-center justify-center scale-110">
       {/* Dynamic Glow Layers */}
       <div className="absolute inset-0 rounded-full border-[2px] border-cyan-500/5 shadow-[0_0_150px_rgba(0,242,255,0.1)]" />
-      <div className="absolute inset-12 rounded-full var(--panel-bg-secondary) border border-white/10 shadow-inner backdrop-blur-xl" />
+      <div className={`absolute inset-12 rounded-full var(--panel-bg-secondary) border border-white/10 shadow-inner ${safe ? 'backdrop-blur-sm' : 'backdrop-blur-xl'}`} />
       
       {/* The Mechanical Ring */}
       <div className="absolute inset-8 rounded-full border-[15px] border-primary/5 shadow-[inset_0_0_30px_rgba(0,0,0,0.05)]" />
@@ -92,6 +99,9 @@ const NeonGauge = ({ speed }: { speed: number }) => {
 
 export function SportCockpit() {
   const [fakeSpeed, setFakeSpeed] = useState(0);
+  const runtimeMode = useSyncExternalStore(subscribeRuntime, getRuntimeMode, getRuntimeMode);
+  const isSafeMode  = runtimeMode === RuntimeMode.SAFE_MODE;
+  const blurXl = isSafeMode ? 'backdrop-blur-sm' : 'backdrop-blur-xl';
 
   useEffect(() => {
     const itv = setInterval(() => {
@@ -106,9 +116,11 @@ export function SportCockpit() {
   return (
     <div className="h-full w-full bg-transparent text-primary p-8 flex gap-8 overflow-hidden select-none relative">
       
-      {/* Animated Scanline Effect */}
-      <div className="absolute inset-0 pointer-events-none opacity-[0.03] mix-blend-overlay" 
-           style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, #000 3px, transparent 4px)', backgroundSize: '100% 4px' }} />
+      {/* Animated Scanline Effect — SAFE_MODE'da render edilmez (fullscreen mix-blend GPU yükü) */}
+      {!isSafeMode && (
+        <div className="absolute inset-0 pointer-events-none opacity-[0.03] mix-blend-overlay"
+             style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, #000 3px, transparent 4px)', backgroundSize: '100% 4px' }} />
+      )}
 
       {/* LEFT: Dynamic Intelligence */}
       <div className="w-[28%] flex flex-col gap-8 z-10">
@@ -118,7 +130,7 @@ export function SportCockpit() {
           </div>
           <div className="text-8xl font-black italic tracking-tighter text-primary tabular-nums drop-shadow-xl">14:45</div>
           <div className="flex items-center gap-3 mt-4">
-             <div className="w-3 h-3 bg-cyan-500 rounded-full animate-ping" />
+             <div className={`w-3 h-3 bg-cyan-500 rounded-full ${isSafeMode ? '' : 'animate-ping'}`} />
              <span className="text-cyan-600 font-black tracking-[0.4em] text-[11px] uppercase">Telemetry Active</span>
           </div>
         </div>
@@ -163,10 +175,10 @@ export function SportCockpit() {
       <div className="flex-1 flex flex-col items-center justify-center relative z-10">
         <div className="absolute top-0 flex gap-6 skew-x-[-15deg]">
             <div className="px-12 py-3 bg-red-600 text-primary text-sm font-black tracking-[0.5em] shadow-[0_10px_40px_rgba(220,38,38,0.4)] border-b-4 border-red-800 uppercase">Extreme Perf</div>
-            <div className="px-12 py-3 var(--panel-bg-secondary) backdrop-blur-xl border border-white/20 text-sm font-black tracking-[0.4em] text-primary uppercase shadow-lg">Aero Active</div>
+            <div className={`px-12 py-3 var(--panel-bg-secondary) ${blurXl} border border-white/20 text-sm font-black tracking-[0.4em] text-primary uppercase shadow-lg`}>Aero Active</div>
         </div>
         
-        <NeonGauge speed={fakeSpeed} />
+        <NeonGauge speed={fakeSpeed} safe={isSafeMode} />
 
         <div className="mt-12 grid grid-cols-3 gap-10 w-full max-w-3xl skew-x-[-8deg]">
             {[

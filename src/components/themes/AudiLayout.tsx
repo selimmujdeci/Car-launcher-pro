@@ -19,6 +19,7 @@ import { useRouteState } from '../../platform/routingService';
 import { APP_MAP, type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { isLowEndDevice } from '../../platform/headUnitCompat';
 
 /* ══════════════════════════════════════════
    AUDI THEME — Virtual Cockpit RS Style
@@ -140,6 +141,10 @@ const AudiSpeed = memo(function AudiSpeed() {
   const tempWarn = temp > 100;
   const fuelWarn = fuel != null && fuel > 0 && fuel < 15;
   const [show3D, setShow3D] = useState(false);
+  // three.js WebGL 3D görüntüleyici Mali-400 sınıfı head unit'te ağırdır → düşük
+  // donanımda özelliği TAMAMEN kapat (toggle gizli + render Virtual Cockpit'e düşer).
+  // Capable cihazlar 3D'yi normal kullanır.
+  const allow3D = !isLowEndDevice();
   const obdReady = obd.connectionState === 'connected' || obd.source === 'mock';
   const hasData  = obdReady || speedKmh > 0;
 
@@ -171,20 +176,22 @@ const AudiSpeed = memo(function AudiSpeed() {
       <div className="flex items-center flex-shrink-0" style={{ height: 3, background: A_RED, borderRadius: '20px 20px 0 0' }} />
       <div className="flex items-center justify-between px-3 pt-2 pb-0 flex-shrink-0">
         <div className="uppercase font-medium tracking-[0.4em]"
-          style={{ fontSize: 9, color: A_RED }}>{show3D ? '3D ARAÇ' : 'VIRTUAL COCKPIT'}</div>
-        <button
-          onClick={() => setShow3D(v => !v)}
-          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-all"
-          style={{
-            background: show3D ? 'rgba(204,0,0,0.12)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${show3D ? 'rgba(204,0,0,0.30)' : A_BORDER}`,
-          }}>
-          <Box className="w-3.5 h-3.5" style={{ color: show3D ? A_RED : A_SILVER }} />
-        </button>
+          style={{ fontSize: 9, color: A_RED }}>{(show3D && allow3D) ? '3D ARAÇ' : 'VIRTUAL COCKPIT'}</div>
+        {allow3D && (
+          <button
+            onClick={() => setShow3D(v => !v)}
+            className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-all"
+            style={{
+              background: show3D ? 'rgba(204,0,0,0.12)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${show3D ? 'rgba(204,0,0,0.30)' : A_BORDER}`,
+            }}>
+            <Box className="w-3.5 h-3.5" style={{ color: show3D ? A_RED : A_SILVER }} />
+          </button>
+        )}
       </div>
 
-      {show3D ? (
-        /* 3D Viewer modu */
+      {(show3D && allow3D) ? (
+        /* 3D Viewer modu — yalnızca capable cihazda (low-end'de allow3D=false) */
         <div className="flex-1 min-h-0">
           <Suspense fallback={
             <div className="w-full h-full flex items-center justify-center">

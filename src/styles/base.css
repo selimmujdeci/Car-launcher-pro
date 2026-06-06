@@ -449,3 +449,21 @@ html[data-compat-mode="true"] .bg-black\/80 {
     background-color: revert !important;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   DÜŞÜK RUNTIME MODU — backdrop-filter app GENELİ kapalı
+   AdaptiveRuntimeManager zayıf GPU (Mali-400 sınıfı) / termal / güç kısıtında
+   data-runtime'ı BASIC_JS / POWER_SAVE / SAFE_MODE yapar. Bu modlarda
+   backdrop-filter (her kare backdrop yeniden örnekleme = Mali-400 GPU stall)
+   INLINE stiller dahil kapatılır — onlarca bileşendeki hardcoded blur'lar tek
+   kuralla nötrlenir. Yalnızca backdrop-filter hedeflenir; animasyon/spinner/gölge
+   ve normal filter:drop-shadow KORUNUR (görünüm bozulmaz). Capable cihazlar
+   (BALANCED / PERFORMANCE) bu kuraldan ETKİLENMEZ → cam görünüm tam kalır.
+   --rt-blur calc kullanan kurallar zaten 0'a düşer; bu kural inline px olanları yakalar.
+   ══════════════════════════════════════════════════════════════════════ */
+html[data-runtime="SAFE_MODE"] *,
+html[data-runtime="BASIC_JS"] *,
+html[data-runtime="POWER_SAVE"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

@@ -136,6 +136,7 @@
   backdrop-filter:         none !important;
   -webkit-backdrop-filter: none !important;
   text-shadow:             none !important;
+  box-shadow:              none !important;
   animation:               none !important;
   transition-duration:     50ms !important;
   will-change:             auto !important;
@@ -154,6 +155,7 @@
 [data-performance-mode="balanced"] * {
   backdrop-filter:         none !important;
   -webkit-backdrop-filter: none !important;
+  box-shadow:              none !important;
 }
 [data-performance-mode="balanced"] .up-blob {
   filter: blur(40px) !important;
@@ -162,11 +164,12 @@
   opacity: 0.4 !important;
 }
 
-/* will-change hint */
+/* will-change hint — box-shadow/border-radius hint'i sürekli repaint/katman
+   promosyonu yapıyordu (düşük GPU'da felç). Nötrlendi. */
 .speedometer-container,
 .map-container,
 .dock-inner {
-  will-change: border-radius, box-shadow;
+  will-change: auto;
 }
 
 
