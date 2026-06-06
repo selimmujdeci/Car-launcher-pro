@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
+import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { useStore } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -51,22 +52,16 @@ import { TheaterOverlay }     from '../theater/TheaterOverlay';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
+/* favorites gibi düşük frekanslı tercihler artık doğrudan localStorage yerine
+   safeStorage üzerinden kalıcı kılınır: 5s write-debounce (WRITE_DEBOUNCE_MS) +
+   kota/LRU koruması wrapper'ın içinde (CLAUDE.md §3 Atomic Persistence). */
 function save(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      // Kota doldu — geçici verileri temizle ve yeniden dene
-      try { localStorage.removeItem('car-trip-log'); } catch { /* ignore */ }
-      try { localStorage.removeItem('car-crash-log'); } catch { /* ignore */ }
-      try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
-    }
-  }
+  safeSetRaw(key, JSON.stringify(value));
 }
 
 function load<T>(key: string, fallback: T): T {
   try {
-    const v = localStorage.getItem(key);
+    const v = safeGetRaw(key);
     return v ? (JSON.parse(v) as T) : fallback;
   } catch {
     return fallback;
@@ -285,7 +280,9 @@ export default function MainLayout() {
         return _remoteRef.current.smart.quickActions.find((a) => a.id.startsWith('last-'))?.appId;
       },
       launch:         (id)    => _remoteRef.current.handleLaunch(id),
-      setTheme:       (theme) => _remoteRef.current.updateSettings({ theme }),
+      setTheme:       (theme) => _remoteRef.current.updateSettings({
+        theme: theme === 'day' ? 'light' : theme === 'night' ? 'dark' : theme,
+      }),
       openDrawer:     (t)     => _remoteRef.current.setDrawer(t as DrawerType),
       hwLockDoors:    ()      => bridge.hwLockDoors(),
       hwUnlockDoors:  ()      => bridge.hwUnlockDoors(),
