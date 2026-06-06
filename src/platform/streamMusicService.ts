@@ -18,6 +18,9 @@ import { logError } from './crashLogger';
 export const STREAM_PKG = 'com.cockpitos.pro.stream';
 
 let _audio: HTMLAudioElement | null = null;
+// Son uygulanan ses düzeyi (0–1). Web'de sistem sesi HTML5 Audio'yu otomatik
+// kısmaz; ses jesti/slider buraya yönlenir. Yeni audio elementine de uygulanır.
+let _volume = 1;
 let _onEnded: (() => void) | null = null;
 // Tek-atış bitiş bayrağı: 'ended' ile timeupdate-yedeğinin çift ilerletmesini önler.
 // Her yeni kaynak yüklenince ('loadstart') sıfırlanır.
@@ -71,8 +74,18 @@ function _ensureAudio(): HTMLAudioElement {
     updateMediaState({ playing: false });
   });
 
+  a.volume = _volume;
   _audio = a;
   return a;
+}
+
+/**
+ * Uygulama içi internet akışının ses düzeyini ayarlar (0–100).
+ * Web'de sistem sesi HTML5 Audio'yu otomatik etkilemediği için ses kontrolü buraya yönlenir.
+ */
+export function streamSetVolume(percent: number): void {
+  _volume = Math.max(0, Math.min(100, percent)) / 100;
+  if (_audio) _audio.volume = _volume;
 }
 
 /**

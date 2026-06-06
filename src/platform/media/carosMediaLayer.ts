@@ -57,7 +57,10 @@ export const PROVIDER_META: Record<ProviderId, { name: string; color: string }> 
   youtube: { name: 'YouTube', color: '#ff0000' },
 };
 
-const SEARCH_TIMEOUT_MS = 5000;
+// Ağ sağlayıcı araması üst timeout'u. pipedProvider instance-başı 6s denediğinden bu
+// değer ondan BÜYÜK olmalı — aksi halde yavaş head unit ağında çalışan tek instance'ın
+// fetch'i erkenden abort edilir ("Aranıyor…" sonra boş). 5s→8s.
+const SEARCH_TIMEOUT_MS = 8000;
 
 /* ── Alaka sıralaması ────────────────────────────────────────
  * Sağlayıcı taban puanı: Spotify (tam katalog + market=TR) en yukarıda; ardından
@@ -96,47 +99,22 @@ export function ensureLocalLoaded(): void {
  * filter: 'all' | 'spotify' | 'audius' | 'radio' | 'local' | <özelKaynakId>
  * Yerel + özel kaynaklar senkron (anında); spotify/audius/radio paralel + timeout.
  */
-export async function searchMedia(query: string, filter: string): Promise<UnifiedTrack[]> {
+export async function searchMedia(
+  query: string,
+  filter: string,
+  onPartial?: (partial: UnifiedTrack[]) => void,
+): Promise<UnifiedTrack[]> {
   const q  = query.trim();
   const lc = q.toLowerCase();
   const out: UnifiedTrack[] = [];
 
-  // ── Spotify (catalog) ──
-  // ── Audius (catalog) ──
-  // ── Radio Browser (istasyon) ──
-  const tasks: Promise<UnifiedTrack[]>[] = [];
-  if (q) {
-    if ((filter === 'all' || filter === 'spotify') && isSpotifyConnected()) {
-      tasks.push(
-        searchSpotifyTracks(q).then((rs) => rs.map((t): UnifiedTrack => ({
-          id: `spotify-${t.id}`, providerId: 'spotify',
-          title: t.title, subtitle: t.artist, artwork: t.albumArt,
-          spotifyUri: t.uri, spotifyDurationMs: t.durationMs,
-        }))).catch(() => []),
-      );
-    }
-    // YouTube (Piped) — Türk içeriği dahil her şey; her zaman açık (ana Türkçe kaynak).
-    if (filter === 'all' || filter === 'youtube') {
-      tasks.push(pipedProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
-    }
-    if (WORLDWIDE_SOURCES_ENABLED && (filter === 'all' || filter === 'audius')) {
-      tasks.push(audiusProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
-    }
-    if (WORLDWIDE_SOURCES_ENABLED && (filter === 'all' || filter === 'jamendo')) {
-      tasks.push(jamendoProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
-    }
-    if (WORLDWIDE_SOURCES_ENABLED && (filter === 'all' || filter === 'archive')) {
-      tasks.push(archiveProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
-    }
-    if (filter === 'all' || filter === 'radio') {
-      tasks.push(radioBrowserProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
-    }
-  }
+  // Alaka + sağlayıcı önceliğine göre sıralı kopya (stable: eşit puanlı geliş sırasını korur).
+  const snapshot = (): UnifiedTrack[] =>
+    out.slice().sort((a, b) => _relevance(b, lc) - _relevance(a, lc));
+  const emit = (): void => { if (onPartial) onPartial(snapshot()); };
 
-  const settled = await Promise.allSettled(tasks);
-  for (const s of settled) if (s.status === 'fulfilled') out.push(...s.value);
-
-  // ── Yerel cihaz müziği (senkron snapshot) ──
+  // ── SENKRON kaynaklar ÖNCE: ağ beklemeden anında görünür ───────────────
+  // Yerel cihaz müziği
   if (filter === 'all' || filter === 'local') {
     getLocalMusicState().tracks.forEach((t, i) => {
       const title  = t.title || t.uri.split('/').pop() || 'Parça';
@@ -146,18 +124,51 @@ export async function searchMedia(query: string, filter: string): Promise<Unifie
       }
     });
   }
-
-  // ── Özel internet kaynakları (store) ──
+  // Özel internet kaynakları (store)
   useStore.getState().settings.customMusicSources.forEach((s) => {
     if (filter !== 'all' && filter !== s.id) return;
     if (!lc || s.name.toLowerCase().includes(lc)) {
       out.push({ id: `stream-${s.id}`, providerId: 'stream', title: s.name, subtitle: 'İnternet akışı', streamUrl: s.url });
     }
   });
+  if (out.length) emit(); // yerel + özel sonuçlar ANINDA göster
 
-  // Alaka + sağlayıcı önceliğine göre sırala (stable: eşit puanlılar geliş sırasını korur)
-  out.sort((a, b) => _relevance(b, lc) - _relevance(a, lc));
-  return out;
+  // ── AĞ sağlayıcıları: her biri DÖNDÜKÇE sonuç ekler (en yavaşı BEKLEMEZ) ─
+  // Önceki davranış: Promise.allSettled tüm sağlayıcıları beklerdi → YouTube
+  // 1 sn'de dönse bile radio 5 sn timeout'a kadar kullanıcı boş ekran görürdü
+  // ("bir saat arıyor"). Artık her sağlayıcı çözülünce onPartial ile UI güncellenir.
+  const tasks: Promise<unknown>[] = [];
+  const addTask = (p: Promise<UnifiedTrack[]>): void => {
+    tasks.push(p.then((rs) => { if (rs?.length) { out.push(...rs); emit(); } }).catch(() => { /* sağlayıcı hatası → sessiz */ }));
+  };
+  if (q) {
+    if ((filter === 'all' || filter === 'spotify') && isSpotifyConnected()) {
+      addTask(searchSpotifyTracks(q).then((rs) => rs.map((t): UnifiedTrack => ({
+        id: `spotify-${t.id}`, providerId: 'spotify',
+        title: t.title, subtitle: t.artist, artwork: t.albumArt,
+        spotifyUri: t.uri, spotifyDurationMs: t.durationMs,
+      }))));
+    }
+    // YouTube (Piped) — Türk içeriği dahil her şey; ana Türkçe kaynak.
+    if (filter === 'all' || filter === 'youtube') {
+      addTask(pipedProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
+    }
+    if (WORLDWIDE_SOURCES_ENABLED && (filter === 'all' || filter === 'audius')) {
+      addTask(audiusProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
+    }
+    if (WORLDWIDE_SOURCES_ENABLED && (filter === 'all' || filter === 'jamendo')) {
+      addTask(jamendoProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
+    }
+    if (WORLDWIDE_SOURCES_ENABLED && (filter === 'all' || filter === 'archive')) {
+      addTask(archiveProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
+    }
+    if (filter === 'all' || filter === 'radio') {
+      addTask(radioBrowserProvider.search(q, timeoutSignal(SEARCH_TIMEOUT_MS)));
+    }
+  }
+
+  await Promise.allSettled(tasks);
+  return snapshot();
 }
 
 /* ── Çalma kuyruğu (stream/Audius/Spotify arama sonuçları için) ────────────

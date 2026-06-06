@@ -13,8 +13,19 @@
  * Not: Bu bir VIDEO oynatıcısıdır (ses-only değil) — ToS'un istediği yasal yol.
  */
 import { updateMediaState, getMediaState } from './mediaService';
+import { isLowEndDevice } from './headUnitCompat';
 
 export const YOUTUBE_PKG = 'com.cockpitos.pro.youtube';
+
+/**
+ * loadVideoById argümanı — düşük donanımda (Mali-400 sınıfı head unit) videoyu
+ * düşük çözünürlükte iste: GPU decode yükü ve kasma ciddi azalır. 800×480 ekranda
+ * 'small' (240p) zaten yeterli. Capable cihazlarda 'default' (otomatik kalite).
+ * YT bunu bir İPUCU olarak uygular; yok sayılırsa zararsız.
+ */
+function _loadArg(videoId: string): string | { videoId: string; suggestedQuality: string } {
+  return isLowEndDevice() ? { videoId, suggestedQuality: 'small' } : videoId;
+}
 
 // Teşhis: setYouTubeRegion saniyede bir log atsın (rAF spam'ini önle).
 let _lastRegionLog = 0;
@@ -27,6 +38,9 @@ function _logRegion(msg: string, data: Record<string, unknown>): void {
 
 let _player: any = null;
 let _apiLoading = false;
+// Son uygulanan ses düzeyi (0–100). IFrame player web'de sistem sesinden bağımsızdır;
+// bu yüzden ses jesti/slider buraya yönlenir. Yeni video yüklenince tekrar uygulanır.
+let _volume = 100;
 let _onEnded: (() => void) | null = null;
 let _onUnplayable: ((videoId: string) => void) | null = null;
 let _currentVideoId = '';
@@ -103,7 +117,7 @@ export function ensureYouTubeReady(): Promise<void> {
           modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3,
         },
         events: {
-          onReady: () => { console.warn('[YT] player hazır'); resolve(); },
+          onReady: () => { console.warn('[YT] player hazır'); _applyVolume(); resolve(); },
           onStateChange: _onState,
           onError: _onError,
         },
@@ -189,12 +203,12 @@ export async function playYouTube(videoId: string, title: string, artist: string
   // bu yüzden çağıranlar player'ı önceden ensureYouTubeReady() ile ısıtmalıdır.
   if (_player && _host) {
     _host.style.display = 'block';
-    try { _player.loadVideoById(videoId); console.warn('[YT] loadVideoById (warm) çağrıldı'); }
+    try { _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (warm) çağrıldı'); }
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   } else {
     await ensureYouTubeReady();
     if (_host) _host.style.display = 'block';
-    try { _player.loadVideoById(videoId); console.warn('[YT] loadVideoById (cold) çağrıldı'); }
+    try { _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (cold) çağrıldı'); }
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   }
 
@@ -206,6 +220,25 @@ export async function playYouTube(videoId: string, title: string, artist: string
   import('./streamMusicService')
     .then(({ streamStop, isStreamActive }) => { if (isStreamActive()) streamStop(); })
     .catch(() => { /* ignore */ });
+}
+
+/** Mevcut ses düzeyini IFrame player'a uygular (player hazırsa). */
+function _applyVolume(): void {
+  if (!_player) return;
+  try {
+    _player.setVolume(_volume);   // YT API: 0–100
+    if (_volume > 0) _player.unMute?.();
+    else _player.mute?.();
+  } catch { /* player henüz hazır değil — onReady/load sonrası tekrar uygulanır */ }
+}
+
+/**
+ * Uygulama içi YouTube oynatıcısının ses düzeyini ayarlar (0–100).
+ * Web'de sistem sesi (STREAM_MUSIC) IFrame'i etkilemediği için ses kontrolü buraya yönlenir.
+ */
+export function youtubeSetVolume(percent: number): void {
+  _volume = Math.max(0, Math.min(100, Math.round(percent)));
+  _applyVolume();
 }
 
 export function youtubeTogglePlayPause(): void {

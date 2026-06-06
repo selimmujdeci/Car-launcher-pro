@@ -14,21 +14,27 @@
  * çıkarmayı bloklar. Çözüm bulunamazsa fail-soft: parça sessizce atlanır.
  */
 import type { MediaProvider, UnifiedTrack } from './providers';
-import { timeoutSignal } from './providers';
 
-// Aday Piped API instance'ları (sırayla denenir). Sağlık zamanla değişir.
+// Aday Piped API instance'ları. Sağlık zamanla değişir; ölü instance'ın canlıyı
+// bloklamaması için PARALEL yarışırlar (aşağıda _tryInstances). Liste 2026-06
+// canlılık testiyle tazelendi: tam ölü (DNS/connection-refused) olanlar çıkarıldı,
+// canlı + geçici 502 (toparlayabilir) olanlar bırakıldı. Canlı olan başta.
 const INSTANCES = [
-  'https://api.piped.private.coffee',
-  'https://pipedapi.kavin.rocks',
-  'https://piapi.ggtyler.dev',
-  'https://pipedapi.adminforge.de',
-  'https://pipedapi.r4fo.com',
-  'https://pipedapi.ducks.party',
-  'https://pipedapi.nosebs.ru',
+  'https://api.piped.private.coffee',  // ✅ canlı (test: 200 + CORS:*)
+  'https://pipedapi.kavin.rocks',      // 502 — backend toparlarsa
+  'https://pipedapi.leptons.xyz',
+  'https://pipedapi.reallyaweso.me',
+  'https://piped-api.lunar.icu',
 ];
 
 /** streamUrl bu önekle başlıyorsa YouTube/Piped item'ıdır (çalmadan önce çözülür). */
 export const PIPED_SCHEME = 'piped://';
+
+// Instance başına timeout: ölü/yavaş instance tüm aramayı kilitlemesin. Head unit ağı
+// sık sık YAVAŞ → tek canlı instance'a (private.coffee) ulaşmak için biraz daha cömert
+// süre verilir (4s'de yavaş ama çalışan instance koparılıyordu → "bulamıyor").
+const SEARCH_PER_INSTANCE_MS = 6000;
+const STREAM_PER_INSTANCE_MS = 9000;
 
 let _stickyInstance = '';
 
@@ -38,19 +44,46 @@ function _ordered(): string[] {
   return [_stickyInstance, ...INSTANCES.filter((i) => i !== _stickyInstance)];
 }
 
-/** Bir işlemi instance'lar üzerinde sırayla dener; ilk null-olmayan sonucu döner. */
-async function _tryInstances<T>(
-  fn: (base: string) => Promise<T | null>,
-  signal?: AbortSignal,
-): Promise<T | null> {
-  for (const base of _ordered()) {
-    if (signal?.aborted) return null;
-    try {
-      const r = await fn(base);
-      if (r !== null) { _stickyInstance = base; return r; }
-    } catch { /* sonraki instance */ }
+/** Dış sinyal + instance-başına timeout'u birleştiren AbortSignal. */
+function _perInstanceSignal(outer: AbortSignal | undefined, ms: number): AbortSignal {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  if (outer) {
+    if (outer.aborted) c.abort();
+    else outer.addEventListener('abort', () => { clearTimeout(t); c.abort(); }, { once: true });
   }
-  return null;
+  return c.signal;
+}
+
+/**
+ * Bir işlemi TÜM instance'larda PARALEL dener; ilk null-olmayan sonucu hemen döner.
+ * Ölü/asılı instance artık canlıyı bloklamaz (eski sıralı tek-timeout-bütçesi yerine).
+ * Her instance kendi timeout'unu alır; ilk başarılı "sticky" olur.
+ */
+async function _tryInstances<T>(
+  fn: (base: string, signal: AbortSignal) => Promise<T | null>,
+  signal?: AbortSignal,
+  perInstanceMs: number = SEARCH_PER_INSTANCE_MS,
+): Promise<T | null> {
+  if (signal?.aborted) return null;
+  const bases = _ordered();
+  if (!bases.length) return null;
+  return new Promise<T | null>((resolve) => {
+    let remaining = bases.length;
+    let settled = false;
+    const done = (r: T | null, base?: string) => {
+      if (settled) return;
+      if (r !== null) { settled = true; if (base) _stickyInstance = base; resolve(r); return; }
+      if (--remaining === 0) { settled = true; resolve(null); }
+    };
+    for (const base of bases) {
+      const sig = _perInstanceSignal(signal, perInstanceMs);
+      Promise.resolve()
+        .then(() => fn(base, sig))
+        .then((r) => done(r, base))
+        .catch(() => done(null));
+    }
+  });
 }
 
 function _videoId(watchUrl: string): string {
@@ -63,13 +96,18 @@ export const pipedProvider: MediaProvider = {
   async search(query, signal) {
     const q = query.trim();
     if (!q) return [];
-    const items = await _tryInstances(async (base) => {
-      const res = await fetch(`${base}/search?q=${encodeURIComponent(q)}&filter=music_songs`, { signal });
+    const fetchItems = (filter: string) => _tryInstances(async (base, sig) => {
+      const res = await fetch(`${base}/search?q=${encodeURIComponent(q)}&filter=${filter}`, { signal: sig });
       if (!res.ok) return null;
       const json = await res.json();
       const arr  = (json?.items ?? []) as any[];
       return arr.length ? arr : null; // boşsa diğer instance'ı dene
     }, signal);
+    // Genel YouTube video araması — normal YouTube'da ne aranıp bulunuyorsa aynısı:
+    // müzik, haber, analiz, takip edilen kanal videoları, vlog vb. (müzik-only DEĞİL).
+    // Boşsa müzik aramasına düş (nadir; bazı instance'larda 'videos' boş dönebilir).
+    let items = await fetchItems('videos');
+    if (!items) items = await fetchItems('music_songs');
     if (!items) return [];
     return items
       .filter((t) => typeof t.url === 'string' && t.url.includes('/watch?v='))
@@ -95,8 +133,8 @@ export const pipedProvider: MediaProvider = {
  */
 export async function resolvePipedStream(videoId: string): Promise<string | null> {
   if (!videoId) return null;
-  return _tryInstances(async (base) => {
-    const res = await fetch(`${base}/streams/${videoId}`, { signal: timeoutSignal(8000) });
+  return _tryInstances(async (base, sig) => {
+    const res = await fetch(`${base}/streams/${videoId}`, { signal: sig });
     if (!res.ok) return null;
     const json = await res.json();
     if (json?.error) return null;
@@ -104,5 +142,5 @@ export async function resolvePipedStream(videoId: string): Promise<string | null
     if (!audio.length) return null;
     const best = audio.slice().sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
     return best?.url ?? null;
-  });
+  }, undefined, STREAM_PER_INSTANCE_MS);
 }
