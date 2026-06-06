@@ -1,16 +1,22 @@
 /**
  * Offline Conversation Engine — internet gerekmeden doğal dil yanıtları.
  *
- * Tamamen kural tabanlı: regex pattern tablosu + araç bağlamı enjeksiyonu.
+ * Tamamen kural tabanlı: SKORLU anahtar-kelime eşleştirme + araç bağlamı enjeksiyonu.
  *   - ML model yok, ağ çağrısı yok, 0 ek bağımlılık.
  *   - Senkron — ana thread'i bloklama yok.
- *   - Sürüş modu: isDriving=true → ≤ 8 kelime (ISO 15008).
- *   - Araç verisi: hız (GPS), yakıt/sıcaklık (OBD snapshot), müzik (MediaSession).
+ *   - Sürüş modu: isDriving=true → kısa yanıt (ISO 15008).
+ *   - Veri: hız (GPS/OBD), yakıt/menzil/sıcaklık/RPM/akü/lastik/kapı/far (OBD),
+ *           ETA/mesafe (rota), müzik (MediaSession), saat/tarih.
+ *
+ * ESKİDEN: ilk-eşleşen-regex kazanırdı → Vosk'un kelime varyasyonları (sıra/ek farkı)
+ * kaçıyordu. ARTIK: her niyetin anahtar kelimeleri girişte aranır, EN ÇOK eşleşen
+ * niyet kazanır (kelime sırasından bağımsız, eş anlamlılara dayanıklı).
  */
 
-import { getMediaState } from './mediaService';
-import { getGPSState }   from './gpsService';
-import { onOBDData }     from './obdService';
+import { getMediaState }  from './mediaService';
+import { getGPSState }    from './gpsService';
+import { onOBDData }      from './obdService';
+import { getRouteState }  from './routingService';
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -19,10 +25,20 @@ export interface ConvResult {
   handled:  boolean;
 }
 
-interface OBDSnapshot {
-  fuelLevel?:  number;
-  engineTemp?: number;
-  speedKmh?:   number;
+interface CarSnapshot {
+  speedKmh?:        number;
+  rpm?:             number;
+  engineTemp?:      number;
+  fuelLevel?:       number;       // %
+  fuelRemainingL?:  number;       // litre
+  rangeKm?:         number;       // tahmini menzil
+  batteryVoltage?:  number;       // 12V sistem
+  batteryLevel?:    number;       // EV %
+  chargingState?:   string;
+  throttle?:        number;
+  headlights?:      boolean;
+  doors?:           { fl: boolean; fr: boolean; rl: boolean; rr: boolean; trunk: boolean };
+  tpms?:            { fl: number; fr: number; rl: number; rr: number };
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -42,21 +58,37 @@ function norm(s: string): string {
 }
 
 /** OBD anlık snapshot — onOBDData abone/ayrıl döngüsüyle tek ölçüm alır. */
-function obdSnapshot(): OBDSnapshot {
-  let snap: OBDSnapshot = {};
+function carSnapshot(): CarSnapshot {
+  let snap: CarSnapshot = {};
   try {
     const unsub = onOBDData((d) => {
-      snap = { fuelLevel: d.fuelLevel, engineTemp: d.engineTemp, speedKmh: d.speed };
+      snap = {
+        speedKmh:       d.speed,
+        rpm:            d.rpm,
+        engineTemp:     d.engineTemp,
+        fuelLevel:      d.fuelLevel,
+        fuelRemainingL: d.fuelRemainingL,
+        rangeKm:        d.estimatedRangeKm >= 0 ? d.estimatedRangeKm : (d.range >= 0 ? d.range : undefined),
+        batteryVoltage: d.batteryVoltage,
+        batteryLevel:   d.batteryLevel >= 0 ? d.batteryLevel : undefined,
+        chargingState:  d.chargingState,
+        throttle:       d.throttle,
+        headlights:     d.headlights,
+        doors:          d.doors,
+        tpms:           d.tpms,
+      };
     });
     unsub();
   } catch { /* OBD bağlı değil — zarifçe devam */ }
   return snap;
 }
 
-/** Sürüş sırasında uzun yanıtı kısalt (≤ 8 kelime). */
+/** Sürüş sırasında uzun yanıtı kısalt. */
 function drive(full: string, short: string, isDriving?: boolean): string {
   return isDriving ? short : full;
 }
+
+const NO_OBD = 'OBD bağlı değil, bu bilgiyi alamıyorum.';
 
 /* ── Saat / Tarih ────────────────────────────────────────────── */
 
@@ -78,26 +110,117 @@ function buildDate(): string {
 /* ── Araç verisi ─────────────────────────────────────────────── */
 
 function buildSpeed(ctxSpeed?: number): string {
-  const obd = obdSnapshot();
-  const spd = ctxSpeed ?? obd.speedKmh ?? getGPSState().location?.speed ?? 0;
+  const c = carSnapshot();
+  const spd = ctxSpeed ?? c.speedKmh ?? getGPSState().location?.speed ?? 0;
   if (spd < 2)  return pick(['Şu an duruyoruz.', 'Araç durmuş durumda.']);
-  return `Saatte ${Math.round(spd)} km hızla gidiyoruz.`;
+  return `Saatte ${Math.round(spd)} kilometre hızla gidiyoruz.`;
+}
+
+function buildRpm(): string {
+  const { rpm } = carSnapshot();
+  if (rpm === undefined || rpm < 0) return 'Motor devri bilgisi yok (OBD desteklemiyor olabilir).';
+  if (rpm < 100) return 'Motor şu an çalışmıyor gibi görünüyor.';
+  return `Motor devri ${Math.round(rpm)} RPM.`;
 }
 
 function buildFuel(): string {
-  const { fuelLevel } = obdSnapshot();
-  if (fuelLevel === undefined) return 'OBD bağlı değil, yakıt bilgisi alınamıyor.';
-  if (fuelLevel < 10) return `Yakıt kritik: yüzde ${Math.round(fuelLevel)}. Benzinliğe uğrayalım.`;
-  if (fuelLevel < 25) return `Yakıt az: yüzde ${Math.round(fuelLevel)}. Yakında doldurmalısın.`;
-  return `Yakıt seviyesi yüzde ${Math.round(fuelLevel)}.`;
+  const { fuelLevel, fuelRemainingL } = carSnapshot();
+  if (fuelLevel === undefined || fuelLevel < 0) return NO_OBD;
+  const litres = (fuelRemainingL !== undefined && fuelRemainingL > 0)
+    ? ` (yaklaşık ${fuelRemainingL} litre)` : '';
+  if (fuelLevel < 10) return `Yakıt kritik: yüzde ${Math.round(fuelLevel)}${litres}. Benzinliğe uğrayalım.`;
+  if (fuelLevel < 25) return `Yakıt az: yüzde ${Math.round(fuelLevel)}${litres}. Yakında doldurmalısın.`;
+  return `Yakıt seviyesi yüzde ${Math.round(fuelLevel)}${litres}.`;
+}
+
+function buildRange(): string {
+  const { rangeKm, batteryLevel } = carSnapshot();
+  if (batteryLevel !== undefined) {
+    const r = rangeKm !== undefined ? ` Tahmini menzil ${rangeKm} kilometre.` : '';
+    return `Batarya yüzde ${Math.round(batteryLevel)}.${r}`;
+  }
+  if (rangeKm === undefined) {
+    return 'Menzil için ortalama tüketim ayarı gerekli. Ayarlardan depo ve tüketim değerini girersen hesaplarım.';
+  }
+  return `Kalan yakıtla tahmini menzilin yaklaşık ${rangeKm} kilometre.`;
 }
 
 function buildEngineTemp(): string {
-  const { engineTemp } = obdSnapshot();
-  if (engineTemp === undefined) return 'OBD bağlı değil, sıcaklık bilgisi yok.';
+  const { engineTemp } = carSnapshot();
+  if (engineTemp === undefined || engineTemp < -40) return NO_OBD;
   if (engineTemp < 70)  return `Motor henüz ısınıyor, ${Math.round(engineTemp)} derece.`;
   if (engineTemp > 105) return `Motor aşırı ısınıyor! ${Math.round(engineTemp)} derece — dur ve kontrol et!`;
   return `Motor sıcaklığı normal: ${Math.round(engineTemp)} derece.`;
+}
+
+function buildBattery(): string {
+  const { batteryVoltage, batteryLevel } = carSnapshot();
+  if (batteryLevel !== undefined) return `Batarya seviyesi yüzde ${Math.round(batteryLevel)}.`;
+  if (batteryVoltage === undefined || batteryVoltage <= 0) return NO_OBD;
+  const v = batteryVoltage.toFixed(1);
+  if (batteryVoltage < 12.2) return `Akü voltajı düşük: ${v} volt. Akü zayıflıyor olabilir.`;
+  if (batteryVoltage > 14.8) return `Akü voltajı yüksek: ${v} volt. Şarj sistemini kontrol ettir.`;
+  return `Akü voltajı ${v} volt, normal.`;
+}
+
+function buildTires(): string {
+  const { tpms } = carSnapshot();
+  if (!tpms) return 'Lastik basıncı bilgisi yok (araç TPMS sağlamıyor olabilir).';
+  const vals = [tpms.fl, tpms.fr, tpms.rl, tpms.rr];
+  if (vals.some((v) => v == null || v <= 0)) return 'Lastik basıncı okunamıyor.';
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  // Normal bant ≈ 210–260 (kPa). Dışına çıkan varsa uyar.
+  if (lo < 200) return `Bir lastiğin basıncı düşük (en düşük ${lo}). Lastikleri kontrol et: ön sol ${tpms.fl}, ön sağ ${tpms.fr}, arka sol ${tpms.rl}, arka sağ ${tpms.rr}.`;
+  if (hi > 280) return `Bir lastiğin basıncı yüksek (en yüksek ${hi}). Kontrol etmekte fayda var.`;
+  return 'Lastik basınçların normal görünüyor.';
+}
+
+function buildDoors(): string {
+  const { doors } = carSnapshot();
+  if (!doors) return 'Kapı durumu bilgisi yok.';
+  const open: string[] = [];
+  if (doors.fl) open.push('ön sol');
+  if (doors.fr) open.push('ön sağ');
+  if (doors.rl) open.push('arka sol');
+  if (doors.rr) open.push('arka sağ');
+  if (doors.trunk) open.push('bagaj');
+  if (open.length === 0) return 'Tüm kapılar kapalı.';
+  return `Açık: ${open.join(', ')}.`;
+}
+
+function buildHeadlights(): string {
+  const { headlights } = carSnapshot();
+  if (headlights === undefined) return 'Far durumu bilgisi yok.';
+  return headlights ? 'Farlar açık.' : 'Farlar kapalı.';
+}
+
+/* ── Rota / Navigasyon ───────────────────────────────────────── */
+
+function buildEta(): string {
+  const r = getRouteState();
+  if (!r.geometry || r.totalDurationSeconds <= 0) {
+    return 'Şu an aktif bir rota yok. Önce hedef söyle.';
+  }
+  const mins = Math.round(r.totalDurationSeconds / 60);
+  const arrival = new Date(Date.now() + r.totalDurationSeconds * 1000);
+  const ah = arrival.getHours();
+  const am = arrival.getMinutes().toString().padStart(2, '0');
+  if (mins < 1) return 'Neredeyse vardık.';
+  if (mins < 60) return `Varışa yaklaşık ${mins} dakika. Tahmini varış ${ah}:${am}.`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `Varışa yaklaşık ${h} saat ${m} dakika. Tahmini varış ${ah}:${am}.`;
+}
+
+function buildDistance(): string {
+  const r = getRouteState();
+  if (!r.geometry || r.totalDistanceMeters <= 0) {
+    return 'Şu an aktif bir rota yok.';
+  }
+  const km = r.totalDistanceMeters / 1000;
+  if (km < 1) return `${Math.round(r.totalDistanceMeters)} metre kaldı.`;
+  return `Hedefe yaklaşık ${km.toFixed(1)} kilometre yol var.`;
 }
 
 /* ── Müzik ───────────────────────────────────────────────────── */
@@ -119,145 +242,134 @@ const GREETINGS = [
   'Hey! Emirleriniz?',
   'Merhaba, CockpitOS hazır!',
 ];
-
 const HOW_ARE_YOU = [
   'İyiyim, teşekkürler! Yolculuk nasıl gidiyor?',
   'Gayet iyi! Bir şeye ihtiyacın var mı?',
   'Çalışır durumdayım, endişelenme!',
   'Hem iyi hem hızlıyım — sen nasılsın?',
 ];
-
 const THANKS = [
-  'Rica ederim!',
-  'Ne demek, her zaman!',
-  'Yardımcı olabildiğime memnunum.',
-  'Buyur, başka bir şey?',
+  'Rica ederim!', 'Ne demek, her zaman!',
+  'Yardımcı olabildiğime memnunum.', 'Buyur, başka bir şey?',
 ];
-
 const GOODBYE = [
-  'Güle güle! İyi yolculuklar.',
-  'Hoşça kal! Dikkatli git.',
-  'Görüşmek üzere!',
+  'Güle güle! İyi yolculuklar.', 'Hoşça kal! Dikkatli git.', 'Görüşmek üzere!',
 ];
-
 const JOKES = [
   "GPS'e sordular: Neden dur diyorsun? Çünkü sen kırmızı ışıkta bile dinlemiyorsun.",
   'Bir araba ne zaman akıllıdır? İçinde sen olmadığında!',
   'Dedim asistan ne zaman hata yapar, dediler navigasyonda sola dönmeyi söyleyince.',
   'Ben araç içi asistanım. Şaka bilgim harita verisi kadar güncel!',
 ];
-
 const WHO_AM_I = [
   'Ben CockpitOS asistanıyım — internetsiz de çalışırım!',
   'CockpitOS, senin araç asistanın. Müzik, navigasyon, araç bilgisi — hepsi burada.',
   'Adım CockpitOS. Komut beklemiyorum, muhabbet de ederim!',
 ];
-
 const HELP_TEXT =
-  'Şunları yapabilirim: navigasyon başlat, müzik çal veya değiştir, ' +
-  'ses ayarla, Bluetooth yönet, saat ve tarih söyle, ' +
-  'hız, yakıt ve motor sıcaklığı bildir, ' +
-  'uygulama aç, şaka anlat. ' +
-  'İnternet varsa çok daha fazlasını anlayabilirim.';
+  'Şunları sorabilirsin: hız, yakıt, menzil, motor sıcaklığı, devir, akü voltajı, ' +
+  'lastik ve kapı durumu, varışa ne kadar kaldı, ne çalıyor, saat ve tarih. ' +
+  'Ayrıca navigasyon başlat, müzik çal, ses ayarla, uygulama aç diyebilirsin.';
+const WEATHER_OFFLINE = 'Hava durumu için internet gerekiyor. Şu an çevrimdışısın.';
+const TRAFFIC_OFFLINE = 'Trafik bilgisi için internet bağlantısı gerekli.';
 
-const WEATHER_OFFLINE =
-  'Hava durumu için internet gerekiyor. Şu an çevrimdışısın.';
+/* ── Niyet tablosu (skorlu eşleştirme) ───────────────────────────
+ * Her niyet: anahtar kelimeler (normalize, çok-kelimeli = daha spesifik = yüksek puan)
+ * + yanıt üreticisi. Girişte en çok eşleşen niyet kazanır. */
 
-const TRAFFIC_OFFLINE =
-  'Trafik bilgisi için internet bağlantısı gerekli.';
+interface Intent {
+  kw:    string[];
+  build: (isDriving?: boolean, speedKmh?: number) => string;
+}
 
-/* ── Pattern tablosu ─────────────────────────────────────────── */
+const INTENTS: Intent[] = [
+  // ── Araç verisi (yüksek değer) ──
+  { kw: ['hiz kac', 'kac km', 'kac hizla', 'hizimiz', 'ne kadar hiz', 'kac kmh', 'hiz nedir', 'ne hizla'],
+    build: (drv, spd) => drive(buildSpeed(spd), buildSpeed(spd), drv) },
+  { kw: ['motor devri', 'devir kac', 'kac devir', 'rpm kac', 'kac rpm', 'devir nedir'],
+    build: (drv) => drive(buildRpm(), buildRpm(), drv) },
+  { kw: ['yakit kac', 'yakit ne kadar', 'ne kadar yakit', 'yakit seviyesi', 'benzin kaldi', 'mazot kaldi',
+    'yakit durum', 'depoda ne', 'benzin ne kadar', 'kac yakit', 'yakit var mi', 'benzin var mi'],
+    build: (drv) => drive(buildFuel(), buildFuel(), drv) },
+  { kw: ['menzil', 'kac km gider', 'ne kadar gider', 'daha ne kadar gider', 'kac kilometre gider', 'kalan menzil'],
+    build: (drv) => drive(buildRange(), buildRange(), drv) },
+  { kw: ['motor sicakligi', 'motor kac derece', 'kac derece motor', 'motor isiyor', 'motor sicak',
+    'motor isindi', 'hararet', 'sicaklik kac'],
+    build: (drv) => drive(buildEngineTemp(), buildEngineTemp(), drv) },
+  { kw: ['aku voltaj', 'aku kac volt', 'kac volt', 'aku durumu', 'aku seviyesi', 'voltaj kac', 'aku nasil', 'batarya'],
+    build: (drv) => drive(buildBattery(), buildBattery(), drv) },
+  { kw: ['lastik basinc', 'lastik kac', 'lastik durum', 'lastikler nasil', 'tekerlek basinc', 'lastik hava'],
+    build: (drv) => drive(buildTires(), buildTires(), drv) },
+  { kw: ['kapi acik', 'kapilar acik', 'kapi durumu', 'kapi kapali mi', 'bagaj acik', 'kapilar kapali mi'],
+    build: (drv) => drive(buildDoors(), buildDoors(), drv) },
+  { kw: ['far acik', 'farlar acik', 'far durumu', 'farlar yaniyor', 'far yaniyor mu', 'farlar kapali mi'],
+    build: (drv) => drive(buildHeadlights(), buildHeadlights(), drv) },
 
-type Handler = (n: string, isDriving?: boolean, speedKmh?: number) => string;
+  // ── Rota / Navigasyon ──
+  { kw: ['varisa ne kadar', 'ne zaman varir', 'ne zaman variriz', 'kac dakika kaldi', 'varis ne zaman',
+    'eta', 'ne zaman ulasir', 'daha ne kadar var', 'kac dakika var'],
+    build: (drv) => drive(buildEta(), buildEta(), drv) },
+  { kw: ['ne kadar yol', 'kac km kaldi', 'kac kilometre kaldi', 'mesafe ne kadar', 'kac km var', 'kalan mesafe',
+    'hedefe ne kadar'],
+    build: (drv) => drive(buildDistance(), buildDistance(), drv) },
 
-const PATTERNS: [RegExp, Handler][] = [
+  // ── Saat / Tarih ──
+  { kw: ['saat ve tarih', 'tarih ve saat'],
+    build: () => `${buildTime()} ${buildDate()}` },
+  { kw: ['saat kac', 'saat ne', 'saat nedir', 'kac saat oldu', 'saat kaci'],
+    build: () => buildTime() },
+  { kw: ['bugun ne gunu', 'tarih ne', 'hangi gun', 'gunlerden ne', 'kacincisi', 'bugunun tarihi', 'bugun kac',
+    'ayin kaci', 'hangi tarih'],
+    build: () => buildDate() },
 
-  /* Selamlama */
-  [/\b(merhaba|selam|hey|gunaydin|iyi gunler|iyi aksamlar|iyi sabahlar)\b/,
-    () => pick(GREETINGS)],
+  // ── Müzik ──
+  { kw: ['ne caliyor', 'sarki adi', 'ne muzik', 'sarki ne', 'kim soyluyor', 'muzik ne', 'hangi sarki',
+    'sarkinin adi', 'bu sarki ne'],
+    build: (drv) => drive(buildMusic(), buildMusic(), drv) },
 
-  /* Nasılsın / Ne haber */
-  [/\b(nasilsin|nasil misin|ne haber|naber|iyi misin|nasılsın)\b/,
-    (_, drv) => drive(pick(HOW_ARE_YOU), 'İyiyim, teşekkürler!', drv)],
+  // ── Hava / Trafik (offline stub) ──
+  { kw: ['hava durumu', 'hava nasil', 'dis sicaklik', 'dis hava', 'hava kac derece', 'yagmur var mi'],
+    build: (drv) => drive(WEATHER_OFFLINE, 'İnternet yok, hava bilinmiyor.', drv) },
+  { kw: ['trafik nasil', 'trafik var mi', 'trafik durumu', 'yol acik mi', 'yogunluk var mi'],
+    build: (drv) => drive(TRAFFIC_OFFLINE, 'İnternet yok, trafik bilinmiyor.', drv) },
 
-  /* Teşekkür / Onay */
-  [/\b(tesekk|sagol|eyvallah|cok guzel|harika|mukemmel|super|bravo)\b/,
-    () => pick(THANKS)],
-
-  /* Güle güle / Veda */
-  [/\b(gule gule|hosca kal|gorusurum|gorururuz|gorusuruz|bay bay|bye)\b/,
-    () => pick(GOODBYE)],
-
-  /* Saat */
-  [/\b(saat kac|saat ne|saat nedir|kac saat oldu|saat kaci)\b/,
-    () => buildTime()],
-
-  /* Tarih / Gün */
-  [/\b(bugun ne gunu|tarih ne|hangi gun|gunlerden ne|kacincisi|bugunun tarihi|bugun kac)\b/,
-    () => buildDate()],
-
-  /* Saat VE Tarih birlikte */
-  [/\b(saat ve tarih|tarih ve saat)\b/,
-    () => `${buildTime()} ${buildDate()}`],
-
-  /* Ne çalıyor / Müzik adı */
-  [/\b(ne caliyor|sarki adi|ne muzik|sarki ne|kim soyluyor|muzik ne|hangi sarki)\b/,
-    (_, drv) => drive(buildMusic(), buildMusic(), drv)],
-
-  /* Hız */
-  [/\b(hiz kac|kac km|kac hizla|hizimiz|ne kadar hiz|kac kmh|hiz nedir)\b/,
-    (_, drv, spd) => drive(buildSpeed(spd), buildSpeed(spd), drv)],
-
-  /* Yakıt */
-  [/\b(yakit kac|yakit ne kadar|ne kadar yakit|yakit seviyesi|benzin kaldi|mazot kaldi|yakit durum)\b/,
-    (_, drv) => drive(buildFuel(), buildFuel(), drv)],
-
-  /* Motor sıcaklığı */
-  [/\b(motor sicakligi|motor kac derece|kac derece motor|engine temp|motor isiyor|motor sicak)\b/,
-    (_, drv) => drive(buildEngineTemp(), buildEngineTemp(), drv)],
-
-  /* Hava durumu */
-  [/\b(hava durumu|hava nasil|dis sicaklik|dis hava|hava kac derece)\b/,
-    (_, drv) => drive(WEATHER_OFFLINE, 'İnternet yok, hava bilinmiyor.', drv)],
-
-  /* Trafik */
-  [/\b(trafik nasil|trafik var mi|trafik durumu|yol acik mi)\b/,
-    (_, drv) => drive(TRAFFIC_OFFLINE, 'İnternet yok, trafik bilinmiyor.', drv)],
-
-  /* Şaka / Fıkra */
-  [/\b(saka anlat|fikra anlat|guldurucu bir sey|beni guldururunsun|saka yap|beni guldurum|eglenceli)\b/,
-    () => pick(JOKES)],
-
-  /* Kim sin / ne sin */
-  [/\b(kim sin|sen kimsin|adin ne|ismin ne|ne sin|hangi asistan)\b/,
-    () => pick(WHO_AM_I)],
-
-  /* Ne yapabilirsin / Yardım */
-  [/\b(ne yapabilirsin|yardim|komutlar|ne biliyorsun|ne yaparsın|ne ogrettin|nasil kullanilir)\b/,
-    (_, drv) => drive(HELP_TEXT, 'Komut veya müzik, navigasyon, araç bilgisi.', drv)],
-
-  /* İyi yolculuk / dilekler */
-  [/\b(iyi yolculuklar|guvenli surusler|iyi surucler|kolay gelsin)\b/,
-    () => pick(['İyi yolculuklar!', 'Güvenli sürüşler, dikkatli ol.', 'Teşekkürler, güvenli git!'])],
-
-  /* Dur / bekle — sohbet kalıbı */
-  [/^\b(dur|tamam|anladim|peki|oldu|haklisın|dogru)\b$/,
-    () => pick(['Tamam!', 'Anlaşıldı.', 'Peki.'])],
-
-  /* Evet / Hayır kısa yanıt */
-  [/^(evet|tabii|kesinlikle|tabi ki|olur)$/,
-    () => pick(['Harika!', 'Anlaşıldı.', 'Tamam, devam ediyorum.'])],
-
-  [/^(hayir|yok|istemiyorum|gerek yok)$/,
-    () => pick(['Tamam, bir şey yapmıyorum.', 'Peki, beklerim.'])],
+  // ── Sohbet ──
+  { kw: ['merhaba', 'selam', 'gunaydin', 'iyi gunler', 'iyi aksamlar', 'iyi sabahlar', 'alo', 'hey'],
+    build: () => pick(GREETINGS) },
+  { kw: ['nasilsin', 'nasil misin', 'ne haber', 'naber', 'iyi misin', 'keyifler nasil'],
+    build: (drv) => drive(pick(HOW_ARE_YOU), 'İyiyim, teşekkürler!', drv) },
+  { kw: ['tesekkur', 'sagol', 'eyvallah', 'cok guzel', 'harika', 'mukemmel', 'super', 'bravo', 'tesekkurler'],
+    build: () => pick(THANKS) },
+  { kw: ['gule gule', 'hosca kal', 'gorusuruz', 'gorusurum', 'bay bay', 'bye', 'kendine iyi bak'],
+    build: () => pick(GOODBYE) },
+  { kw: ['saka anlat', 'fikra anlat', 'guldur', 'saka yap', 'eglenceli bir sey', 'komik bir sey'],
+    build: () => pick(JOKES) },
+  { kw: ['kimsin', 'sen kimsin', 'adin ne', 'ismin ne', 'nesin', 'hangi asistan', 'kim sin'],
+    build: () => pick(WHO_AM_I) },
+  { kw: ['ne yapabilirsin', 'yardim', 'komutlar', 'ne biliyorsun', 'ne yaparsin', 'neler yapabilirsin',
+    'nasil kullanilir', 'ne sorabilirim'],
+    build: (drv) => drive(HELP_TEXT, 'Hız, yakıt, menzil, varış, müzik sorabilirsin.', drv) },
+  { kw: ['iyi yolculuklar', 'guvenli surus', 'iyi suruc', 'kolay gelsin'],
+    build: () => pick(['İyi yolculuklar!', 'Güvenli sürüşler, dikkatli ol.', 'Teşekkürler, güvenli git!']) },
 ];
+
+/* ── Skorlama ─────────────────────────────────────────────────── */
+
+// Eşleşme eşiği: en az bir anahtar kelime tam (substring) bulunmalı.
+// Çok-kelimeli anahtarlar 2 puan (spesifik), tek-kelimeli 1 puan.
+function scoreIntent(n: string, kw: string[]): number {
+  let s = 0;
+  for (const k of kw) {
+    if (n.includes(k)) s += k.includes(' ') ? 2 : 1;
+  }
+  return s;
+}
 
 /* ── Public API ──────────────────────────────────────────────── */
 
 /**
- * Ham metin girişini konuşma motoruyla değerlendirir.
- * Eşleşme bulursa { handled: true, response: "..." } döner.
- * Eşleşme yoksa { handled: false, response: '' } döner — caller başka yola yönlenir.
+ * Ham metin girişini konuşma motoruyla değerlendirir (skorlu).
+ * En yüksek puanlı niyet (≥1) yanıtı döner; eşleşme yoksa handled:false.
  */
 export function tryOfflineConversation(
   raw:        string,
@@ -268,11 +380,15 @@ export function tryOfflineConversation(
 
   const n = norm(raw);
 
-  for (const [pattern, handler] of PATTERNS) {
-    if (pattern.test(n)) {
-      const response = handler(n, isDriving, speedKmh);
-      return { handled: true, response };
-    }
+  let bestScore = 0;
+  let best: Intent | null = null;
+  for (const intent of INTENTS) {
+    const s = scoreIntent(n, intent.kw);
+    if (s > bestScore) { bestScore = s; best = intent; }
+  }
+
+  if (best && bestScore >= 1) {
+    return { handled: true, response: best.build(isDriving, speedKmh) };
   }
 
   return { handled: false, response: '' };
