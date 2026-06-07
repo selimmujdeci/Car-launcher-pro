@@ -40,7 +40,8 @@ import { fromAIResponse }                      from './intentEngine';
 import { executeIntent }                       from './commandExecutor';
 import type { CommandContext }                  from './commandExecutor';
 import { applyVars }                           from './liveStyleEngine';
-import { isE2EPayload }                        from './commandCrypto';
+import { isE2EPayload, decryptE2EPayload,
+         getCarPrivateKey, loadOrCreateDeviceKey } from './commandCrypto';
 import { safeGetRaw, safeSetRaw }              from '../utils/safeStorage';
 
 // ── TTL Sabitleri ─────────────────────────────────────────────────────────
@@ -287,6 +288,8 @@ async function _processCommand(
 
   if (isCritical) {
     const payloadField = row['payload'] as unknown;
+
+    // 1. Format kontrolü — `ecdh_v1` değilse anında red (plaintext kritik komut).
     if (!isE2EPayload(payloadField)) {
       const msg = 'Security: critical command requires E2E encryption (ecdh_v1)';
       await updateRemoteCommandStatus(commandId, 'rejected', msg).catch(() => {});
@@ -297,6 +300,36 @@ async function _processCommand(
       }).catch(() => {});
       if (import.meta.env.DEV) {
         console.error('[RemoteCommand] SECURITY BLOCK — unencrypted critical cmd:', commandId);
+      }
+      return;
+    }
+
+    // 2. C2 fix: GERÇEK deşifreleme — format-spoof'u eler. Private key yalnız araçta
+    //    olduğundan saldırgan geçerli ciphertext üretemez → decrypt başarısı = TEK icra
+    //    kapısı. Decrypt edilmiş temiz payload row'a yazılır; artık plaintext `intent`
+    //    alanına değil doğrulanmış içeriğe güvenilir. (Nonce-replay çift-icrayı engeller.)
+    let privKey = getCarPrivateKey();
+    if (!privKey) {
+      await loadOrCreateDeviceKey().catch(() => {});
+      privKey = getCarPrivateKey();
+    }
+    if (!privKey) {
+      await updateRemoteCommandStatus(commandId, 'rejected', 'Security: E2E private key unavailable').catch(() => {});
+      return;
+    }
+    try {
+      const clear = await decryptE2EPayload(payloadField, privKey);
+      row['payload'] = clear; // fromAIResponse/executeIntent doğrulanmış payload'ı görür
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Decryption Error';
+      await updateRemoteCommandStatus(commandId, 'rejected', `Security: ${reason}`).catch(() => {});
+      await pushVehicleEvent('remote_command_rejected', {
+        commandId,
+        reason: 'e2e_decrypt_failed',
+        rowType,
+      }).catch(() => {});
+      if (import.meta.env.DEV) {
+        console.error('[RemoteCommand] SECURITY BLOCK — E2E decrypt failed:', commandId, reason);
       }
       return;
     }

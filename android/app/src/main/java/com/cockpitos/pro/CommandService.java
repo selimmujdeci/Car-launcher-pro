@@ -32,10 +32,9 @@ import java.util.Set;
  *   FCM push gelir (Supabase Edge Fn: push-notify)
  *     → WebView canlı mı?
  *       Evet → JS tarafı (fcmService.ts → commandListener.ts) devralır; broadcast gönder
- *       Hayır → MCU komutu mu?
- *           Evet + plaintext: CanBusManager ile doğrudan çalıştır
- *           Evet + E2E payload: NativeCryptoManager ile çöz, çalıştır
- *           Hayır: Kuyruğa al, uygulamayı uyandır
+ *       Hayır → E2E payload var mı?
+ *           Evet: NativeCryptoManager ile çöz → (whitelist) MCU çalıştır
+ *           Hayır (plaintext): ASLA doğrudan CAN — kuyruğa al, uygulamayı uyandır
  *
  * Güvenlik:
  *   - MCU komutu: sadece whitelist (McuCommandFactory)
@@ -104,13 +103,12 @@ public class CommandService extends FirebaseMessagingService {
         // WebView uyku modunda ────────────────────────────────────────────
 
         if (!e2ePayload.isEmpty()) {
-            // E2E şifreli komut — NativeCryptoManager ile çöz
+            // E2E şifreli komut — NativeCryptoManager ile çöz (tek güvenli MCU yolu)
             handleEncryptedCommand(cmdId, e2ePayload, vehicleId);
-        } else if (!cmdType.isEmpty() && MCU_COMMANDS.contains(cmdType)) {
-            // Plaintext MCU komutu — doğrudan çalıştır
-            executeMcuCommandNative(cmdType, cmdId);
         } else {
-            // WebView gerekli (navigation, theme, vb.) veya tip bilinmiyor
+            // C8 fix: Plaintext komut (MCU dahil) ASLA doğrudan CAN'e gitmez.
+            // E2E doğrulaması olmadan fiziksel komut icra edilmez — WebView'ı uyandır;
+            // JS CommandListener E2E enforce ederek (decrypt zorunlu) işlesin.
             if (!cmdId.isEmpty()) queuePendingCommand(cmdId, cmdType, vehicleId);
             wakeApplication();
         }

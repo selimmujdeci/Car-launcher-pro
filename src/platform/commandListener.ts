@@ -65,6 +65,9 @@ interface VehicleCommand {
 const DANGEROUS_WHILE_MOVING: CommandType[] = ['lock', 'unlock'];
 const SPEED_THRESHOLD_KMH = 5;
 
+// Fiziksel (MCU/CAN) komutlar — yalnız E2E ile gelmelidir (CommandService.java MCU_COMMANDS ile birebir).
+const MCU_COMMANDS: CommandType[] = ['lock', 'unlock', 'horn', 'alarm_on', 'alarm_off', 'lights_on'];
+
 let currentSpeedKmh = 0;
 export function updateCurrentSpeed(speedKmh: number): void {
   currentSpeedKmh = speedKmh;
@@ -80,6 +83,15 @@ async function executeCommand(
   cmd: VehicleCommand,
 ): Promise<'completed' | 'rejected' | 'failed' | 'crypto_failed'> {
   let payload = cmd.payload;
+
+  // ── C1 fix: Kritik (MCU/CAN) komut E2E olmadan ASLA icra edilmez ────────────
+  // Plaintext fiziksel komut = kategorik red. Yalnız başarılı E2E decrypt icra kapısıdır
+  // (decrypt aşağıda; başarısızsa crypto_failed). Çift-dinleyici (C3) nonce-replay ile
+  // doğal korunur: ilk decrypt nonce'u tüketir, ikinci dinleyici 'Replay Attack' alır.
+  if (MCU_COMMANDS.includes(cmd.type) && !isE2EPayload(payload)) {
+    console.error(`[CmdListener] Kritik komut E2E olmadan reddedildi: ${cmd.type}`);
+    return 'crypto_failed';
+  }
 
   // ── E2E (ECDH) deşifreleme — yeni yol, önce kontrol edilir ──────────────────
   if (isE2EPayload(payload)) {
