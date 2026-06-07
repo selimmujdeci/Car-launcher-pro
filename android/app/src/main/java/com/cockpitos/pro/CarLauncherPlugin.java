@@ -814,6 +814,8 @@ public class CarLauncherPlugin extends Plugin {
                     event.put("address", dev.getAddress());
                     event.put("bonded",  dev.getBondState() == BluetoothDevice.BOND_BONDED);
                     event.put("transport", "classic");
+                    // Classic inquiry sonucu = cihaz GERÇEKTEN menzilde → canlı.
+                    event.put("source", "live");
                     notifyListeners("obdDeviceFound", event);
 
                 } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
@@ -865,6 +867,8 @@ public class CarLauncherPlugin extends Plugin {
                 // sonraki aşamada GATT ile yapılacak. Şimdilik false.
                 event.put("bonded",  false);
                 event.put("transport", "ble");
+                // BLE advertise = cihaz GERÇEKTEN menzilde → canlı.
+                event.put("source", "live");
                 notifyListeners("obdDeviceFound", event);
             }
 
@@ -925,6 +929,10 @@ public class CarLauncherPlugin extends Plugin {
                     event.put("address", baddr);
                     event.put("bonded",  true);
                     event.put("transport", transport);
+                    // getBondedDevices() dökümü = sadece eşleşme hafızası; cihaz
+                    // menzilde OLMAYABİLİR → "canlı" DEĞİL. Aynı adres canlı taramada
+                    // da gelirse modal 'live'a yükseltir.
+                    event.put("source", "bonded");
                     notifyListeners("obdDeviceFound", event);
                 }
             }

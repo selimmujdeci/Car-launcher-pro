@@ -15,6 +15,8 @@ import { looksLikeObd } from '../../platform/obdDiscovery';
 import { OBDDiagnosticTimeline } from './OBDDiagnosticTimeline';
 import { startSession, setSessionDevice, endSession, recordDiag } from '../../platform/obdDiagnosticRecorder';
 
+type DeviceSource = 'live' | 'bonded' | 'cached';
+
 interface DiscoveredDevice {
   name:    string;
   address: string;
@@ -22,6 +24,18 @@ interface DiscoveredDevice {
   // Opsiyonel taşıma katmanı — native taraf "classic" veya "ble" gönderir.
   // Eski Classic akışı transport olmadan da çalışır (geriye dönük uyumlu).
   transport?: 'classic' | 'ble';
+  // Cihazın listeye geliş kaynağı:
+  //  • live   → canlı taramada (ACTION_FOUND / BLE advertise) GERÇEKTEN menzilde.
+  //  • bonded → yalnızca getBondedDevices() dökümü; menzilde OLMAYABİLİR.
+  //  • cached → kalıcı kayıt (şu an kullanılmıyor; ileride direct-reconnect için).
+  // Native eski sürümü 'source' göndermezse: bonded=true→'bonded', değilse 'live'.
+  source:  DeviceSource;
+}
+
+/** Native event payload'ından güvenli kaynak türetimi (geriye dönük uyumlu). */
+function resolveSource(raw: unknown, bonded: boolean): DeviceSource {
+  if (raw === 'live' || raw === 'bonded' || raw === 'cached') return raw;
+  return bonded ? 'bonded' : 'live';
 }
 
 interface Props {
@@ -40,8 +54,10 @@ export function OBDConnectModal({ open, onClose }: Props) {
   const [showAll,     setShowAll]     = useState(false);
   const [showDiag,    setShowDiag]    = useState(false);   // teşhis timeline — varsayılan KAPALI
 
-  // Teşhis: bu oturumda "cihaz bulundu" event'i bir kez kaydedilen adresler (spam önleme).
-  const diagSeenRef = useRef<Set<string>>(new Set());
+  // Teşhis: bu oturumda "cihaz bulundu" event'i kaydedilen adres → kaynak eşlemesi.
+  // (Yalnız spam önleme değil; 'bonded' kaydedilmiş bir adres sonradan canlı gelirse
+  //  bir kez daha 'live' milestone'u yazmak için kaynağı da tutar.)
+  const diagSeenRef = useRef<Map<string, DeviceSource>>(new Map());
 
   const obdConnectionState = useOBDConnectionState();
   const obdState = useOBDState();
@@ -140,19 +156,27 @@ export function OBDConnectModal({ open, onClose }: Props) {
       }
     }
 
-    // obdDeviceFound — her bulunan cihazda tetiklenir (bonded + aktif tarama)
+    // obdDeviceFound — her bulunan cihazda tetiklenir (canlı tarama + bonded döküm)
     const handle = await CarLauncher.addListener('obdDeviceFound', (data) => {
-      // Teşhis: yalnızca YENİ adres için bir kez kaydet (spam önleme; setDevices
-      // güncelleyicisinin DIŞINDA — yan etkisiz reducer).
-      if (!diagSeenRef.current.has(data.address)) {
-        diagSeenRef.current.add(data.address);
+      // Kaynak: native 'source' alanı; eski sürüm göndermezse bonded'dan türet.
+      const src = resolveSource((data as { source?: unknown }).source, !!data.bonded);
+
+      // Teşhis (setDevices güncelleyicisinin DIŞINDA — yan etkisiz reducer):
+      // adres ilk kez geldiğinde, VEYA 'bonded' kaydedilmiş bir adres sonradan
+      // CANLI gelince bir kez daha 'live' milestone'u yaz.
+      const prevSrc = diagSeenRef.current.get(data.address);
+      if (prevSrc === undefined || (src === 'live' && prevSrc !== 'live')) {
+        diagSeenRef.current.set(data.address, src === 'live' ? 'live' : (prevSrc ?? src));
         recordDiag({
           stage: 'deviceFound', status: 'info',
           transport: data.transport === 'ble' ? 'ble' : data.transport === 'classic' ? 'classic' : 'unknown',
-          userMessage: `Cihaz bulundu: ${data.name || data.address}`,
-          technicalMessage: `${data.address} bonded=${data.bonded}`,
+          userMessage: src === 'live'
+            ? `OBD cihazı canlı bulundu: ${data.name || data.address}`
+            : `Daha önce eşleşmiş OBD cihazı listelendi: ${data.name || data.address}`,
+          technicalMessage: `${data.address} source=${src} bonded=${data.bonded}`,
         });
       }
+
       setDevices((prev) => {
         const existing = prev.find((d) => d.address === data.address);
         if (existing) {
@@ -169,20 +193,24 @@ export function OBDConnectModal({ open, onClose }: Props) {
           // İsim: MAC olmayan (gerçek) ismi koru.
           const mergedName =
             existing.name && existing.name !== existing.address ? existing.name : data.name;
+          // Kaynak: CANLI her zaman kazanır (bir kez canlı görülen cihaz canlıdır).
+          const mergedSource: DeviceSource =
+            existing.source === 'live' || src === 'live' ? 'live' : existing.source;
           if (
             mergedTransport === existing.transport &&
             mergedBonded === existing.bonded &&
-            mergedName === existing.name
+            mergedName === existing.name &&
+            mergedSource === existing.source
           ) {
             return prev;
           }
           return prev.map((d) =>
             d.address === data.address
-              ? { ...d, name: mergedName, bonded: mergedBonded, transport: mergedTransport }
+              ? { ...d, name: mergedName, bonded: mergedBonded, transport: mergedTransport, source: mergedSource }
               : d,
           );
         }
-        return [...prev, { name: data.name, address: data.address, bonded: data.bonded, transport: data.transport }];
+        return [...prev, { name: data.name, address: data.address, bonded: data.bonded, transport: data.transport, source: src }];
       });
     });
     discoveryHandleRef.current = handle;
@@ -329,7 +357,9 @@ export function OBDConnectModal({ open, onClose }: Props) {
                 ? 'Canlı taranıyor…'
                 : devices.length === 0
                   ? 'Cihaz yok · OBD takılı + Konum açık mı?'
-                  : `${devices.length} cihaz · CANLI TARAMA`}
+                  : devices.some((d) => d.source === 'live')
+                    ? `${devices.length} cihaz · ${devices.filter((d) => d.source === 'live').length} CANLI`
+                    : `${devices.length} cihaz · canlı yok (eşleşmiş)`}
             </div>
           </div>
           <button
@@ -504,9 +534,13 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
           {/* Cihaz listesi — sadece OBD adayları (geniş kapsam) */}
           {(() => {
-            const obdDevices   = devices.filter((d) => looksLikeObd(d.name, d.address));
-            const otherDevices = devices.filter((d) => !looksLikeObd(d.name, d.address));
-            const visibleDevices = showAll ? devices : obdDevices;
+            // Canlı bulunanlar üstte (source==='live' önce), sıra korunarak.
+            const SOURCE_RANK: Record<DeviceSource, number> = { live: 0, bonded: 1, cached: 2 };
+            const byLiveFirst = (a: DiscoveredDevice, b: DiscoveredDevice) =>
+              SOURCE_RANK[a.source] - SOURCE_RANK[b.source];
+            const obdDevices   = devices.filter((d) => looksLikeObd(d.name, d.address)).sort(byLiveFirst);
+            const otherDevices = devices.filter((d) => !looksLikeObd(d.name, d.address)).sort(byLiveFirst);
+            const visibleDevices = showAll ? [...devices].sort(byLiveFirst) : obdDevices;
             return (
               <>
                 {visibleDevices.length > 0 ? (
@@ -591,15 +625,30 @@ export function OBDConnectModal({ open, onClose }: Props) {
                       </div>
                     </div>
 
-                    {/* Durum */}
+                    {/* Durum — kaynak (canlı / eşleşmiş / kayıtlı) net göster */}
                     <div
-                      className="shrink-0 font-bold"
+                      className="shrink-0 font-bold text-right"
                       style={{
                         fontSize: fxs,
-                        color: isDone ? '#4ade80' : isCon ? '#38bdf8' : 'rgba(255,255,255,0.25)',
+                        maxWidth: '38%',
+                        color: isDone
+                          ? '#4ade80'
+                          : isCon
+                            ? '#38bdf8'
+                            : dev.source === 'live'
+                              ? 'rgba(56,189,248,0.85)'
+                              : 'rgba(255,255,255,0.32)',
                       }}
                     >
-                      {isDone ? 'Bağlandı' : isCon ? 'Bağlanıyor…' : dev.bonded ? 'Eşli' : 'Bağlan'}
+                      {isDone
+                        ? 'Bağlandı'
+                        : isCon
+                          ? 'Bağlanıyor…'
+                          : dev.source === 'live'
+                            ? 'Canlı bulundu'
+                            : dev.source === 'cached'
+                              ? 'Kayıtlı'
+                              : 'Daha önce eşleşmiş'}
                     </div>
                   </button>
                   {dev.bonded && (
