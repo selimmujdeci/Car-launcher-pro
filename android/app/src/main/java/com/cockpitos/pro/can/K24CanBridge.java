@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
 import android.database.ContentObserver;
@@ -44,7 +45,10 @@ public final class K24CanBridge {
     }
 
     private static final String TAG      = "K24CanBridge";
-    private static final long   POLL_MS  = 500L;
+    // Polling aralığı: 500ms her döngüde 90 ContentProvider URI sorguluyordu → zayıf
+    // head-unit'te sürekli CPU yükü/kasma. CAN bu ROM'da kilitli; 3s yeterli (geç veri
+    // gelirse yine yakalanır), CPU yükü ~6× azalır.
+    private static final long   POLL_MS  = 3000L;
 
     // Taranacak paket isimleri
     private static final String[] PACKAGES = {
@@ -172,7 +176,9 @@ public final class K24CanBridge {
     public synchronized void stop() {
         if (!_started) return;
         _started   = false;
-        _inspected = false; // bir sonraki başlatmada inceleme tekrar çalışsın
+        // _inspected SIFIRLANMIYOR: ağır keşif (getInstalledPackages + getprop + servis
+        // tarama) process başına BİR kez koşsun. Late-recovery her restart'ta tekrar
+        // çalıştırıp head-unit'i kasıyordu. (Süreç yeniden başlayınca yine taranır.)
         _blocked.clear();   // yeniden başlatmada provider'ları tekrar dene
         if (_task != null) { _task.cancel(false); _task = null; }
         _unregisterObserver();
@@ -185,11 +191,47 @@ public final class K24CanBridge {
         if (!_started || _ctx == null || _inspected) return;
         _inspected = true;
         // Ağır işlemleri sıralı yap — hepsi aynı anda değil
+        probeSystemProperties();  // YENİ: getprop araç durumu taraması (hızlı, en yüksek umut)
         inspectFiles();           // hızlı
         inspectServiceManager();  // orta
         // Paket taraması ve nwdaudio probe en ağır — 2s arayla çalıştır
         _exec.schedule(this::inspectPackages, 2_000,  TimeUnit.MILLISECONDS);
         _exec.schedule(this::probeNwdAudio,   5_000,  TimeUnit.MILLISECONDS);
+        // mycar izin sonucu — GEÇ ve TEKRARLI logla → diğer dökümlerin ALTINDA,
+        // log'un en sonunda görünür (kullanıcı kaydırmadan bulsun). Kararı bu belirliyor.
+        _exec.schedule(this::probeMyCarPermission, 12_000, TimeUnit.MILLISECONDS);
+        _exec.schedule(this::probeMyCarPermission, 25_000, TimeUnit.MILLISECONDS);
+    }
+
+    // ── Aşama 0: System property (getprop) taraması ─────────────────────────────
+    // NWD/Hiworld MCU'ları araç durumunu çoğu zaman system property'lere yansıtır
+    // (persist.sys.car.*, sys.nwd.*, vb.). Bu, app izniyle okunabilen READ-ONLY bir
+    // kanaldır; serial/SELinux kilidine takılmaz. Bulunursa tick() bu prop'ları poll
+    // edebilir. Şimdilik KEŞİF: ilgili tüm prop'ları tanı günlüğüne yaz.
+    private void probeSystemProperties() {
+        java.io.BufferedReader br = null;
+        Process proc = null;
+        try {
+            proc = Runtime.getRuntime().exec("getprop");
+            br = new java.io.BufferedReader(new java.io.InputStreamReader(proc.getInputStream()));
+            java.util.regex.Pattern pat = java.util.regex.Pattern.compile(
+                "car|can|nwd|hiworld|mcu|reverse|speed|gear|door|vehicle|acc[_.\\]]|kbus|kcan|illum|headlight|wheel",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+            String line;
+            int hits = 0;
+            while ((line = br.readLine()) != null) {
+                if (pat.matcher(line).find()) {
+                    diag("PROP: " + line.trim());
+                    if (++hits >= 80) { diag("PROP: (… liste kesildi)"); break; }
+                }
+            }
+            diag(hits == 0 ? "getprop: ilgili araç property'si yok" : ("getprop: " + hits + " ilgili property bulundu"));
+        } catch (Exception e) {
+            diag("getprop hatası: " + e.getMessage());
+        } finally {
+            if (br != null) { try { br.close(); } catch (Exception ignored) {} }
+            if (proc != null) { try { proc.destroy(); } catch (Exception ignored) {} }
+        }
     }
 
     // ── Ana tick ─────────────────────────────────────────────────────────────
@@ -222,6 +264,49 @@ public final class K24CanBridge {
                 }
             }
         }
+    }
+
+    // ── Aşama 0b: mycar provider izin seviyesi ─────────────────────────────────
+    // com.nwd.mycar.provider araç verisi taşıyor ama SecurityException veriyor.
+    // Korumalı iznin ADINI ve SEVİYESİNİ raporla: normal/dangerous ise manifest'e
+    // <uses-permission> ekleyip erişebiliriz; signature/system ise OEM imzası gerekir.
+    private void probeMyCarPermission() {
+        diag("══════════ MYCAR İZİN SONUCU ══════════");
+        try {
+            PackageManager pm = _ctx.getPackageManager();
+            String[] auths = { "com.nwd.mycar.provider", "com.nwd.mycar", "com.nwd.car" };
+            for (String auth : auths) {
+                ProviderInfo pi;
+                try { pi = pm.resolveContentProvider(auth, 0); }
+                catch (Exception e) { diag("mycar(" + auth + ") çözülemedi: " + e.getMessage()); continue; }
+                if (pi == null) { diag("mycar(" + auth + "): provider yok"); continue; }
+                diag("mycar PROVIDER: auth=" + auth + " pkg=" + pi.packageName
+                    + " exported=" + pi.exported
+                    + " read=" + pi.readPermission + " write=" + pi.writePermission);
+                String[] perms = { pi.readPermission, pi.writePermission };
+                for (String perm : perms) {
+                    if (perm == null || perm.isEmpty()) continue;
+                    try {
+                        PermissionInfo info = pm.getPermissionInfo(perm, 0);
+                        int prot = info.protectionLevel & PermissionInfo.PROTECTION_MASK_BASE;
+                        boolean askable = (prot == PermissionInfo.PROTECTION_NORMAL
+                                        || prot == PermissionInfo.PROTECTION_DANGEROUS);
+                        String lvl = prot == PermissionInfo.PROTECTION_NORMAL    ? "normal"
+                                   : prot == PermissionInfo.PROTECTION_DANGEROUS ? "dangerous"
+                                   : prot == PermissionInfo.PROTECTION_SIGNATURE ? "signature"
+                                   : "diğer(" + prot + ")";
+                        diag("  → izin '" + perm + "' seviye=" + lvl
+                            + (askable ? "  ✓ İSTENEBİLİR (manifest'e ekle)"
+                                       : "  ✗ sistem/imza — OEM imzası gerekir"));
+                    } catch (Exception e) {
+                        diag("  → izin '" + perm + "' tanımsız/alınamadı: " + e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            diag("probeMyCarPermission hatası: " + e.getMessage());
+        }
+        diag("═══════════════════════════════════════");
     }
 
     // ── Aşama 1: Paket incelemesi (TÜM paketler) ────────────────────────────
@@ -372,7 +457,9 @@ public final class K24CanBridge {
                     // Canlı polling başlat (2s arayla — değer değişimini yakala)
                     if (!_nwdPolling) {
                         _nwdPolling = true;
-                        _exec.scheduleAtFixedRate(this::_nwdPollTick, 2_000, 2_000, TimeUnit.MILLISECONDS);
+                        // 2s → 10s: nwdaudio binder transact'i sürekli CPU yiyordu; değer
+                        // değişimini yakalamak için 10s yeterli, yük 5× azalır.
+                        _exec.scheduleAtFixedRate(this::_nwdPollTick, 10_000, 10_000, TimeUnit.MILLISECONDS);
                     }
                     break; // ilk bulunan yeterli
                 } catch (Exception ignored) {}

@@ -421,8 +421,10 @@ public final class McuEventSniffer {
         // K24CanBridge zaten geniş tarama yapıyor; burada yalnızca MCU sütunlarını hedefle
         String[] authorities = {
             "com.nwd.factory.setting", "com.nwd.factory", "com.nwd.vehicle",
+            // YENİ: kodda araç verisi adayı olarak işaretli — keşfe dahil edildi
+            "com.nwd.mycar.provider", "com.nwd.mycar", "com.nwd.car",
         };
-        String[] paths = { "/mcu", "/car", "/vehicle", "/signal", "" };
+        String[] paths = { "/mcu", "/car", "/vehicle", "/signal", "/can", "/status", "" };
 
         ContentResolver cr = _ctx.getContentResolver();
         for (String auth : authorities) {
@@ -445,6 +447,16 @@ public final class McuEventSniffer {
                             if (_containsAny(lc, MCU_COL_DOOR))    diag("  → DOOR sütunu: " + col);
                             if (_containsAny(lc, MCU_COL_ACC))     diag("  → ACC sütunu: " + col);
                             if (_containsAny(lc, MCU_COL_STEER))   diag("  → STEERING sütunu: " + col);
+                        }
+                        // KEŞİF: ilk satırın değerlerini dök — sinyal isim/değerlerini görmek için
+                        if (c.moveToFirst()) {
+                            StringBuilder sb = new StringBuilder("  satır[0]: ");
+                            for (int i = 0; i < cols.length && i < 24; i++) {
+                                String v;
+                                try { v = c.getString(i); } catch (Exception ex) { v = "?"; }
+                                sb.append(cols[i]).append("=").append(v).append("  ");
+                            }
+                            diag(sb.toString().trim());
                         }
                     } finally {
                         c.close();
