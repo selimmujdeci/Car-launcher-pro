@@ -75,3 +75,8 @@ test-artifacts/
 # Ekran görüntüleri ve geçici yakalama/analiz çıktıları
 /notch*.png
 /faz3-screens/
+
+# Vosk offline STT modeli (57 MB binary) — git'e ALINMAZ.
+# scripts/fetch-vosk-model.mjs ile indirilir, scripts/vosk-model-tr.sha256 ile doğrulanır.
+# Bkz. docs/VOSK_MODEL_SETUP.md
+/android/app/src/main/assets/vosk-model-tr/

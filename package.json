@@ -21,7 +21,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
-    "setup:e2e": "playwright install --with-deps chromium"
+    "setup:e2e": "playwright install --with-deps chromium",
+    "fetch:vosk": "node scripts/fetch-vosk-model.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
