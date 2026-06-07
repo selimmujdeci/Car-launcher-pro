@@ -8,10 +8,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings, KeyRound, Trash2 } from 'lucide-react';
+import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings, KeyRound, Trash2, Stethoscope, ChevronDown } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { startOBD, stopOBD, useOBDConnectionState, useOBDState } from '../../platform/obdService';
 import { looksLikeObd } from '../../platform/obdDiscovery';
+import { OBDDiagnosticTimeline } from './OBDDiagnosticTimeline';
+import { startSession, setSessionDevice, endSession, recordDiag } from '../../platform/obdDiagnosticRecorder';
 
 interface DiscoveredDevice {
   name:    string;
@@ -36,6 +38,10 @@ export function OBDConnectModal({ open, onClose }: Props) {
   const [pinTarget,   setPinTarget]   = useState<DiscoveredDevice | null>(null);
   const [pinValue,    setPinValue]    = useState('');
   const [showAll,     setShowAll]     = useState(false);
+  const [showDiag,    setShowDiag]    = useState(false);   // teşhis timeline — varsayılan KAPALI
+
+  // Teşhis: bu oturumda "cihaz bulundu" event'i bir kez kaydedilen adresler (spam önleme).
+  const diagSeenRef = useRef<Set<string>>(new Set());
 
   const obdConnectionState = useOBDConnectionState();
   const obdState = useOBDState();
@@ -54,6 +60,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
     if (obdConnectionState === 'connected') {
       setConnected(connecting);
       setConnecting(null);
+      endSession('connected');     // teşhis oturumunu kalıcı yaz
       const t = setTimeout(() => onCloseRef.current(), 1500);
       return () => clearTimeout(t);
     }
@@ -63,6 +70,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
       setError(null);
       setPinTarget(failedDev);
       setPinValue('');
+      endSession('failed');        // teşhis oturumunu kalıcı yaz
     }
   }, [obdConnectionState, connecting]);
 
@@ -73,6 +81,8 @@ export function OBDConnectModal({ open, onClose }: Props) {
     // yetmeli; aksi halde BLE adaptör klasik denenirken UI erken "bağlanamadı" derdi.
     const t = setTimeout(() => {
       setConnecting(null);
+      recordDiag({ stage: 'disconnect', status: 'fail', userMessage: 'Bağlantı zaman aşımına uğradı.', technicalMessage: 'UI 75s timeout' });
+      endSession('failed');
       setError('Bağlantı zaman aşımına uğradı. Adaptörün açık, takılı ve yakında olduğundan emin olun.');
     }, 75_000);
     return () => clearTimeout(t);
@@ -106,11 +116,24 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setScanning(true);
     stopDiscovery();
 
+    // Teşhis: yeni oturum + tarama başladı milestone'u (pasif gözlemci).
+    startSession();
+    diagSeenRef.current.clear();
+    recordDiag({ stage: 'scan', status: 'pending', userMessage: 'Cihaz taraması başladı.' });
+
     try {
       await CarLauncher.requestAndroid13Permissions();
+      recordDiag({ stage: 'permission', status: 'success', userMessage: 'Bluetooth/konum izni verildi.' });
     } catch (e) {
       const msg = (e as Error)?.message ?? '';
       if (/denied|permission|bluetooth/i.test(msg)) {
+        // Bluetooth kapalı mı yoksa izin mi reddedildi — mevcut hata mesajından türet.
+        if (/bluetooth.*(off|kapal|disable)|disable.*bluetooth/i.test(msg)) {
+          recordDiag({ stage: 'bluetooth', status: 'fail', reason: 'BT_OFF', technicalMessage: msg });
+        } else {
+          recordDiag({ stage: 'permission', status: 'fail', reason: 'NO_PERMISSION', technicalMessage: msg });
+        }
+        endSession('failed');
         setError('Bluetooth izni reddedildi. Ayarlar > Uygulama İzinleri bölümünden Yakındaki Cihazlar iznini verin.');
         setScanning(false);
         return;
@@ -119,6 +142,17 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
     // obdDeviceFound — her bulunan cihazda tetiklenir (bonded + aktif tarama)
     const handle = await CarLauncher.addListener('obdDeviceFound', (data) => {
+      // Teşhis: yalnızca YENİ adres için bir kez kaydet (spam önleme; setDevices
+      // güncelleyicisinin DIŞINDA — yan etkisiz reducer).
+      if (!diagSeenRef.current.has(data.address)) {
+        diagSeenRef.current.add(data.address);
+        recordDiag({
+          stage: 'deviceFound', status: 'info',
+          transport: data.transport === 'ble' ? 'ble' : data.transport === 'classic' ? 'classic' : 'unknown',
+          userMessage: `Cihaz bulundu: ${data.name || data.address}`,
+          technicalMessage: `${data.address} bonded=${data.bonded}`,
+        });
+      }
       setDevices((prev) => {
         const existing = prev.find((d) => d.address === data.address);
         if (existing) {
@@ -195,6 +229,17 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setConnecting(dev.address);
     setError(null);
     setPinTarget(null);
+
+    // Teşhis (pasif): seçim + bond durumu + bağlantı başlatıldı (transport ile).
+    const tr = dev.transport === 'ble' ? 'ble' : dev.transport === 'classic' ? 'classic' : 'unknown';
+    setSessionDevice({ name: dev.name, address: dev.address, transport: tr });
+    recordDiag({ stage: 'select', status: 'info', transport: tr, userMessage: `Cihaz seçildi: ${dev.name || dev.address}` });
+    recordDiag({ stage: 'bond', status: 'info', userMessage: dev.bonded ? 'Cihaz eşli (bonded).' : 'Cihaz eşli değil — direkt bağlantı denenecek.' });
+    recordDiag({
+      stage: tr === 'ble' ? 'connectBle' : 'connectClassic', status: 'pending', transport: tr,
+      userMessage: 'Cihaza bağlanılıyor…',
+    });
+
     stopOBD();
     startOBD(dev.address, pin, dev.transport);
   };
@@ -625,6 +670,31 @@ export function OBDConnectModal({ open, onClose }: Props) {
               </>
             );
           })()}
+
+          {/* ── Teşhis zaman çizelgesi (katlanabilir, varsayılan KAPALI) ── */}
+          <div style={{ marginTop: spMd, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: spMd }}>
+            <button
+              type="button"
+              onClick={() => setShowDiag((v) => !v)}
+              className="w-full flex items-center gap-2 transition-colors hover:bg-white/5 active:scale-[0.99]"
+              style={{ padding: spSm, borderRadius: rSm, color: 'rgba(255,255,255,0.5)' }}
+              aria-expanded={showDiag}
+            >
+              <Stethoscope style={{ width: iconSm, height: iconSm }} className="text-white/40" />
+              <span className="font-bold uppercase tracking-wider" style={{ fontSize: fxs }}>
+                Bağlantı Teşhisi
+              </span>
+              <ChevronDown
+                style={{ width: iconSm, height: iconSm, marginLeft: 'auto', transition: 'transform 0.2s', transform: showDiag ? 'rotate(180deg)' : 'none' }}
+                className="text-white/30"
+              />
+            </button>
+            {showDiag && (
+              <div style={{ marginTop: spSm }}>
+                <OBDDiagnosticTimeline />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── Alt bar ── */}

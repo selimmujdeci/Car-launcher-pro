@@ -39,6 +39,7 @@ import { sanitizeNativeOBDPacket } from './obdSanitizer';
 import { computeFuelMetrics } from './obdMetrics';
 import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle } from './obdPidConfig';
+import { recordDiag } from './obdDiagnosticRecorder';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
   CONNECT_TIMEOUT_MS,
@@ -180,6 +181,50 @@ function _notify(): void {
   if (_current.source === 'real') scheduleCanSnapshot(_current);
 }
 
+/**
+ * Teşhis timeline — connectionState GEÇİŞİNDE milestone kaydeder (pasif gözlemci).
+ * Yalnızca durum değiştiğinde çağrılır; obdData paketleri connectionState'i
+ * değiştirmediğinden canlı veride tetiklenmez (spam yok). Bağlantı akışına
+ * etkisi yoktur — yalnızca recordDiag çağırır. scanning/connecting/initializing
+ * modal tarafında (transport bilgisiyle) kaydedilir; burada yalnız sonuçlar.
+ */
+function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState): void {
+  switch (next) {
+    case 'connected':
+      // connected == ilk geçerli veri paketi (data gate) → "canlı veri başladı".
+      recordDiag({
+        stage: 'liveData', status: 'success',
+        userMessage: 'Bağlandı — canlı veri akıyor.',
+        technicalMessage: `connectionState ${prev}→connected`,
+      });
+      break;
+    case 'reconnecting':
+      recordDiag({
+        stage: 'retry', status: 'warn',
+        userMessage: 'Bağlantı koptu, yeniden deneniyor…',
+        technicalMessage: `connectionState ${prev}→reconnecting`,
+      });
+      break;
+    case 'error':
+      recordDiag({
+        stage: 'disconnect', status: 'fail',
+        userMessage: 'Bağlantı hatası oluştu.',
+        technicalMessage: `connectionState ${prev}→error`,
+      });
+      break;
+    case 'idle':
+      // Aktif bir durumdan idle'a düşüş = gerçek disconnect (boot-idle değil).
+      recordDiag({
+        stage: 'disconnect', status: 'info',
+        userMessage: 'Bağlantı kapatıldı.',
+        technicalMessage: `connectionState ${prev}→idle`,
+      });
+      break;
+    default:
+      break; // scanning / connecting / initializing → modal kaydeder
+  }
+}
+
 function _merge(partial: Partial<OBDData>): void {
   // Recompute fuel metrics whenever fuelLevel is updated
   if (partial.fuelLevel !== undefined && partial.fuelLevel >= 0) {
@@ -196,6 +241,11 @@ function _merge(partial: Partial<OBDData>): void {
     } else {
       document.body.removeAttribute('data-obd-ready');
     }
+  }
+
+  // Teşhis timeline (pasif): yalnızca connectionState GEÇİŞİNDE milestone kaydet.
+  if (partial.connectionState !== undefined && _current.connectionState !== prevConnState) {
+    _recordConnMilestone(prevConnState, _current.connectionState);
   }
 
   _notify();
