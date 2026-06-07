@@ -152,8 +152,36 @@ function _stopNativeVolumeListener(): void {
   push({ volumeLevel: 0 });
 }
 
+// Asistan dinlerken müziği duraklatıp bittiğinde devam ettirmek için: yalnız BİZ
+// duraklattıysak geri başlat (kullanıcının kendi duraklatmasını ezme).
+let _assistantDuckedMusic = false;
+
+/**
+ * Asistan ducking: dinlemeye geçince müziği duraklat (çalıyorsa), asistan tamamen
+ * bitince (idle'a dönünce) devam ettir. mediaService.play/pause uygulama-içi
+ * oynatıcıyı (YouTube/stream/yerel) doğru yönlendirir. Lazy import → döngü yok.
+ */
+function _applyAssistantDuck(prev: VoiceStatus, next: VoiceStatus): void {
+  if (next === 'listening' && prev === 'idle') {
+    void import('./mediaService')
+      .then(({ getMediaState, pause }) => {
+        if (getMediaState().playing) { _assistantDuckedMusic = true; pause(); }
+      })
+      .catch(() => {});
+    return;
+  }
+  if (next === 'idle' && prev !== 'idle' && _assistantDuckedMusic) {
+    _assistantDuckedMusic = false;
+    void import('./mediaService').then(({ play }) => play()).catch(() => {});
+  }
+}
+
 function push(partial: Partial<VoiceState>): void {
+  const prevStatus = _current.status;
   _current = { ..._current, ...partial };
+  if (partial.status !== undefined && partial.status !== prevStatus) {
+    _applyAssistantDuck(prevStatus, _current.status);
+  }
   _stateListeners.forEach((fn) => fn(_current));
 }
 
