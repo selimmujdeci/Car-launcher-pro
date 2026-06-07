@@ -38,6 +38,7 @@ import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { getRuntimeConfig } from '../../core/runtime/runtimeConfig';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { getCurrentYouTubeVideoId } from '../../platform/youtubeService';
+import { getVideoMode, toggleVideoMode, subscribeVideoMode } from '../../platform/media/videoModeStore';
 
 /* SAFE_MODE subscription — disables heavy backdrop blurs */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
@@ -213,8 +214,9 @@ interface Props {
 
 export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
   const [tab, setTab] = useState<Tab>('player');
-  // YouTube parçasında video gösterilsin mi (varsayılan: kapak/ses). Kullanıcı butonla değiştirir.
-  const [videoMode, setVideoMode] = useState(false);
+  // YouTube parçasında video gösterilsin mi (varsayılan: kapak/ses). Buton VEYA sesli
+  // komut ("video moduna al") değiştirir → global videoModeStore (UI dışından tetiklenir).
+  const videoMode = useSyncExternalStore(subscribeVideoMode, getVideoMode, getVideoMode);
   // Devam ettirilebilir son parça var mı (play tuşunu oturumsuzken de etkinleştirir)
   const [canResume, setCanResume] = useState(false);
   const updateSettings = useStore(s => s.updateSettings);
@@ -301,7 +303,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic }: Props) {
             isYouTube={isYouTube}
             canResume={canResume}
             videoMode={videoMode}
-            onToggleVideo={() => setVideoMode((v) => !v)}
+            onToggleVideo={() => toggleVideoMode()}
             activeSourceKey={activeMediaSourceKey}
             onTabSources={() => setTab('sources')}
             onPlay={handleBigPlay}

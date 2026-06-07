@@ -41,6 +41,7 @@ export type CommandType =
   | 'stop_music'
   | 'music_next'
   | 'music_prev'
+  | 'media_video_mode'
   | 'volume_up'
   | 'volume_down'
   | 'open_phone'
@@ -261,6 +262,18 @@ const PATTERNS: CommandPattern[] = [
       'önceki şarkıya dön', 'bir önceki parçaya geç', 'şarkıyı geri al',
     ],
     tokens: ['onceki', 'previous', 'prev', 'geri', 'back', 'eski'],
+  },
+  {
+    type: 'media_video_mode', priority: 'high',
+    feedback: 'Video modu açılıyor',
+    label: 'Video Modu', example: 'video moduna al',
+    keywords: [
+      'video moduna al', 'video moduna geç', 'video modunu aç', 'video modu aç',
+      'videoyu aç', 'videoyu göster', 'video göster', 'videoyu izle', 'videoya geç',
+      'klibi göster', 'klibi aç', 'klip aç', 'görüntüyü aç', 'görüntülü çal',
+      'tam ekran video', 'videoyu büyüt', 'video modu',
+    ],
+    tokens: ['video', 'klip', 'goruntu'],
   },
   {
     type: 'volume_up', priority: 'high',

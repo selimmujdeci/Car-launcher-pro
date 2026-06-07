@@ -6,6 +6,7 @@ import { play, getMediaState, setMediaPreferredPackage } from '../platform/media
 // sürümler (mediaService'inkiler native MediaSession'a özel; tarayıcıda no-op + YouTube/
 // stream kuyruğunu bilmez → "değiştir/durdur" çalışmıyordu).
 import { next, previous, togglePlayPause } from '../platform/media/carosMediaLayer';
+import { setVideoMode as applyVideoMode } from '../platform/media/videoModeStore';
 import { bridge, isNative } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
 import { CarLauncher } from '../platform/nativePlugin';
@@ -269,6 +270,9 @@ export function useVoiceCommandHandler({
         pauseMedia:  () => { cancelAssistantDuck(); if (getMediaState().playing) togglePlayPause(); },
         nextTrack:   () => { cancelAssistantDuck(); next(); },        // carosMediaLayer (kuyruk-farkında)
         prevTrack:   () => { cancelAssistantDuck(); previous(); },    // carosMediaLayer (kuyruk-farkında)
+        // "video moduna al" → müzik ekranını aç + tam ekran video modunu aç.
+        // Yalnız YouTube çalarken görsel etki olur (aksi halde zararsız no-op).
+        setVideoMode: (on) => { open('music' as DrawerType); applyVideoMode(on); },
         volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
         volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
         openWeather:      showWeather,

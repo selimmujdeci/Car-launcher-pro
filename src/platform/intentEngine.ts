@@ -40,6 +40,7 @@ export type IntentType =
   | 'PAUSE_MEDIA'
   | 'MEDIA_NEXT'
   | 'MEDIA_PREV'
+  | 'MEDIA_VIDEO_MODE'
   | 'VOLUME_UP'
   | 'VOLUME_DOWN'
   | 'OPEN_FAVORITES'
@@ -123,6 +124,8 @@ export interface RouterContext {
   pauseMedia:       () => void;
   nextTrack?:       () => void;
   prevTrack?:       () => void;
+  /** YouTube tam ekran video modunu aç (sesli "video moduna al"). */
+  setVideoMode?:    (on: boolean) => void;
   volumeUp?:        () => void;
   volumeDown?:      () => void;
   openWeather?:     () => void;
@@ -172,6 +175,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   stop_music:           'PAUSE_MEDIA',
   music_next:           'MEDIA_NEXT',
   music_prev:           'MEDIA_PREV',
+  media_video_mode:     'MEDIA_VIDEO_MODE',
   volume_up:          'VOLUME_UP',
   volume_down:        'VOLUME_DOWN',
   open_phone:         'OPEN_PHONE',
@@ -422,6 +426,9 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     case 'MEDIA_PREV':
       ctx.prevTrack?.();
       break;
+    case 'MEDIA_VIDEO_MODE':
+      ctx.setVideoMode?.(true);
+      break;
     case 'VOLUME_UP':
       ctx.volumeUp?.();
       break;
@@ -479,7 +486,7 @@ const VALID_INTENTS = new Set<IntentType>([
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_SETTINGS',
-  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
+  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
   'SET_THEME', 'CYCLE_THEME', 'SET_SETTING', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
   'ENABLE_NIGHT_MODE', 'ENABLE_DRIVING_MODE', 'OPEN_LAST_APP',
