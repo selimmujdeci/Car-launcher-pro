@@ -80,3 +80,11 @@ test-artifacts/
 # scripts/fetch-vosk-model.mjs ile indirilir, scripts/vosk-model-tr.sha256 ile doğrulanır.
 # Bkz. docs/VOSK_MODEL_SETUP.md
 /android/app/src/main/assets/vosk-model-tr/
+
+# Teşhis çıktıları (üretilmiş artefakt — diag-restart.ps1 üretir; kaynak değil)
+/tools/diag-output/
+
+# Kişisel dev yardımcıları — gömülü mutlak yol; ürün/build'in parçası değil
+/apk-server.cjs
+/apk-share-server.cjs
+/hz-notch.mjs
