@@ -370,12 +370,49 @@ async function _sendWithWarmup(action: 'play' | 'pause'): Promise<void> {
   }
 }
 
-export function play(): void {
-  if (!isNative) return;
-  _sendWithWarmup('play').catch((e) => logError('Media:Play', e));
+/** Aktif paket uygulama-içi oynatıcı mı (stream / youtube / yerel)? */
+function _isInAppPkg(pkg: string): boolean {
+  return pkg === 'com.cockpitos.pro.stream'
+      || pkg === 'com.cockpitos.pro.youtube'
+      || pkg === 'com.cockpitos.pro';
 }
 
+/**
+ * Çalmayı BAŞLAT/DEVAM ETTİR. Sesli komut ("müzik başlat/çal") ve MediaSession
+ * 'play' aksiyonu buraya gelir.
+ *
+ * Eski sürüm yalnız native MediaSession'a 'play' yolluyordu → tarayıcıda no-op,
+ * cihazda da uygulama-içi parçayı/placeholder'ı devam ettirmiyordu ("başlatıldı
+ * der ama çalmaz"). Yeni davranış:
+ *   1) Aktif in-app oturum (stream/youtube/yerel) duraklatılmışsa → devam ettir
+ *      (togglePlayPause stream/youtube'u web'de de yönlendirir).
+ *   2) Oturum yoksa → son çalınan parçayı (placeholder dahil) resumeLastMedia ile
+ *      başlat; o da yoksa native MediaSession 'play' (harici uygulama).
+ */
+export function play(): void {
+  if (_isInAppPkg(_current.activePackage) && _current.hasSession) {
+    if (!_current.playing) togglePlayPause();   // yalnız duraklatılmışsa devam ettir
+    return;
+  }
+  // Oturum yok → son medyayı devam ettir. Lazy import: carosMediaLayer mediaService'i
+  // import ettiğinden statik döngüyü kırmak için dinamik import.
+  void import('./media/carosMediaLayer')
+    .then(({ resumeLastMedia }) => {
+      if (!resumeLastMedia() && isNative) _sendWithWarmup('play').catch((e) => logError('Media:Play', e));
+    })
+    .catch(() => { if (isNative) _sendWithWarmup('play').catch((e) => logError('Media:Play', e)); });
+}
+
+/**
+ * Çalmayı DURDUR/DURAKLAT. Sesli komut ("müziği durdur") ve MediaSession 'pause'
+ * aksiyonu buraya gelir. Aktif in-app oturumu doğru servise yönlendirir (web +
+ * native); yoksa native MediaSession 'pause'.
+ */
 export function pause(): void {
+  if (_isInAppPkg(_current.activePackage) && _current.hasSession) {
+    if (_current.playing) togglePlayPause();    // yalnız çalıyorsa duraklat
+    return;
+  }
   if (!isNative) return;
   _sendWithWarmup('pause').catch((e) => logError('Media:Pause', e));
 }
