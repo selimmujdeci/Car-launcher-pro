@@ -149,14 +149,30 @@ public final class BleObdManager {
                 BluetoothDevice device = bt.getRemoteDevice(address);
 
                 // 1) GATT bağlan — autoConnect=false, TRANSPORT_LE açıkça.
-                resetOpResult();
-                BluetoothGatt g = device.connectGatt(
-                        mContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
-                if (g == null) throw new IOException("connectGatt null döndü");
-                gatt = g;
-
-                if (!awaitOp(CONNECT_TIMEOUT_MS))
-                    throw new IOException("GATT bağlantı zaman aşımı / başarısız");
+                //    GATT 133 (BLE'de en yaygın geçici hata) için 2 deneme: ilk
+                //    connectGatt başarısız olursa kapat, kısa bekle, tekrar dene.
+                //    Car Scanner dahil sağlam BLE istemcileri bu retry'ı uygular.
+                BluetoothGatt g = null;
+                boolean gattConnected = false;
+                for (int attempt = 0; attempt < 2 && !gattConnected; attempt++) {
+                    resetOpResult();
+                    g = device.connectGatt(mContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+                    if (g == null) {
+                        if (attempt == 0) { Thread.sleep(600); continue; }
+                        throw new IOException("connectGatt null döndü");
+                    }
+                    gatt = g;
+                    if (awaitOp(CONNECT_TIMEOUT_MS)) {
+                        gattConnected = true;
+                    } else {
+                        // Bağlanamadı (timeout / GATT 133) — slot'u temizle ve tekrar dene.
+                        try { g.close(); } catch (Exception ignored) {}
+                        gatt = null;
+                        if (attempt == 0) Thread.sleep(600);
+                    }
+                }
+                if (!gattConnected || g == null)
+                    throw new IOException("GATT bağlantı zaman aşımı / başarısız (133?)");
 
                 // 2) (Opsiyonel) MTU yükselt — ELM327 yanıtları kısa, başarısızlık kritik değil.
                 resetOpResult();

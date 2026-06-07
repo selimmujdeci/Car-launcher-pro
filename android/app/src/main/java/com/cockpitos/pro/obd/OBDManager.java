@@ -124,28 +124,48 @@ public final class OBDManager {
                     }
                 }
 
-                // Önce secure RFCOMM dene; bazı head unit'lerde çalışmaz
-                // → insecure RFCOMM fallback (iCar 3 / ELM327 klonlar için gerekli)
+                // ── 3 katmanlı RFCOMM bağlantı (Car Scanner / Torque yöntemi) ──────────
+                // ELM327 klonları SDP servis kaydını çoğu kez düzgün yayınlamaz; bu yüzden
+                // standart ...ToServiceRecord çağrıları "read failed, socket might closed"
+                // ile patlar. Sıra:
+                //   1) secure   RFCOMM ToServiceRecord (SPP UUID)
+                //   2) insecure RFCOMM ToServiceRecord (PIN/pairing gerektirmez)
+                //   3) reflection createRfcommSocket(channel 1) — SON ÇARE, SDP'yi atlar
+                //      (ELM327 klonları her zaman RFCOMM kanal 1'dedir). Car Scanner'ın da
+                //      bağlandığı yol budur.
                 BluetoothSocket socket = null;
-                Exception lastErr = null;
+                Exception firstErr = null;
 
                 try {
                     socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
                     socket.connect();
                 } catch (Exception secureEx) {
-                    lastErr = secureEx;
+                    firstErr = secureEx;
                     try { if (socket != null) socket.close(); } catch (Exception ignored) {}
                     socket = null;
-                    // Insecure fallback — pairing PIN gerektirmez, head unit uyumsuzluğunu aşar
+
+                    // 2) Insecure ToServiceRecord
                     try {
                         socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
                         socket.connect();
-                        lastErr = null; // başarılı
                     } catch (Exception insecureEx) {
                         try { if (socket != null) socket.close(); } catch (Exception ignored) {}
                         socket = null;
-                        // Her iki yol da başarısız — orijinal hatayı fırlat
-                        throw secureEx;
+
+                        // 3) Reflection createRfcommSocket(1) — SDP'yi tamamen atlar.
+                        try { bt.cancelDiscovery(); } catch (Exception ignored) {}
+                        try {
+                            socket = createReflectionRfcommSocket(device);
+                            socket.connect();
+                        } catch (Exception reflectEx) {
+                            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                            socket = null;
+                            android.util.Log.w("OBD", "RFCOMM 3 yol da başarısız: secure="
+                                + secureEx.getMessage() + " | insecure=" + insecureEx.getMessage()
+                                + " | reflection=" + reflectEx.getMessage());
+                            // İlk (en açıklayıcı) hatayı fırlat.
+                            throw firstErr;
+                        }
                     }
                 }
 
@@ -276,4 +296,19 @@ public final class OBDManager {
     }
 
     private static boolean present(String s) { return s != null && !s.isEmpty(); }
+
+    /**
+     * Reflection ile RFCOMM kanal 1 soketi oluşturur — SDP servis keşfini ATLAR.
+     *
+     * ELM327 klonlarının çoğu SPP servis kaydını düzgün yayınlamaz; bu durumda
+     * createRfcommSocketToServiceRecord SDP araması başarısız olur ("read failed,
+     * socket might closed"). Gizli {@code createRfcommSocket(int channel)} API'si
+     * doğrudan kanal 1'e bağlanır (ELM327 klonları daima kanal 1'dedir). Torque ve
+     * Car Scanner gibi uygulamaların kullandığı bilinen son-çare yöntemidir.
+     */
+    private static BluetoothSocket createReflectionRfcommSocket(BluetoothDevice device) throws Exception {
+        java.lang.reflect.Method m =
+            device.getClass().getMethod("createRfcommSocket", new Class[] { int.class });
+        return (BluetoothSocket) m.invoke(device, Integer.valueOf(1));
+    }
 }
