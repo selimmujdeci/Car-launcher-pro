@@ -35,9 +35,13 @@ function DevInspectorInner() {
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
         title="DevInspector (hold 600ms)"
-        className="fixed bottom-4 right-4 flex items-center justify-center rounded-full"
+        className="fixed flex items-center justify-center rounded-full"
         style={{
-          width: 40, height: 40, zIndex: 9989,
+          /* Head unit: sağ-alt köşe dock/navigation bar + safe-area altında kalıyordu.
+             Yukarı/içeri al (bottom 96px + safe-area), yüksek z ile her zaman görünür. */
+          right: 24,
+          bottom: 'calc(96px + env(safe-area-inset-bottom, 0px))',
+          width: 44, height: 44, zIndex: 99990,
           background: open ? '#1d4ed8' : '#172554',
           border: '2px solid #3b82f6',
           color: '#93c5fd',
