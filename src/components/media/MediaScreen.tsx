@@ -474,9 +474,20 @@ function VideoFullscreenChrome({
         }} />
         <div style={{
           position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 24, right: 20,
-          display: 'flex', alignItems: 'flex-start', gap: 12,
+          display: 'flex', alignItems: 'center', gap: 14,
         }}>
-          <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
+          {/* Kapat — ŞOFÖR TARAFI (sol), "Kapat" etiketli + büyük: sürücü rahatça bassın */}
+          <button
+            onClick={onClose}
+            aria-label="Tam ekranı kapat"
+            style={{
+              ...ctrlBtn(52), width: 'auto', padding: '0 22px', gap: 9, borderRadius: 9999,
+            }}
+          >
+            <X className="w-6 h-6" />
+            <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: '0.02em' }}>Kapat</span>
+          </button>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
               color: '#fff', fontWeight: 900, fontSize: 22, lineHeight: 1.15,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 2px 8px rgba(0,0,0,0.6)',
@@ -493,9 +504,6 @@ function VideoFullscreenChrome({
           {YT_DL && (
             <YtDownloadButton title={title} artist={artist} variant="overlay" style={{ pointerEvents: show ? 'auto' : 'none' }} />
           )}
-          <button onClick={onClose} aria-label="Tam ekrandan çık" style={ctrlBtn(48)}>
-            <X className="w-6 h-6" />
-          </button>
         </div>
 
         {/* ORTADA büyük kontroller — sürücü kolay erişsin: Önceki / Oynat / Sonraki */}
