@@ -2,6 +2,8 @@ package com.cockpitos.pro;
 
 import android.service.notification.NotificationListenerService;
 
+import com.cockpitos.pro.media.MediaManager;
+
 /**
  * MediaListenerService — NotificationListenerService stub.
  *
@@ -33,19 +35,19 @@ public class MediaListenerService extends NotificationListenerService {
         instance = this;
         // Plugin yüklüyse, OnActiveSessionsChangedListener'ı şimdi attach et —
         // böylece müzik halihazırda çalıyorsa anında metadata UI'a düşer.
-        try { CarLauncherPlugin.onMediaListenerConnected(); } catch (Throwable ignored) {}
+        try { MediaManager.getInstance(this).attachMediaSessionsListener(); } catch (Throwable ignored) {}
     }
 
     @Override
     public void onListenerDisconnected() {
         instance = null;
-        try { CarLauncherPlugin.onMediaListenerDisconnected(); } catch (Throwable ignored) {}
+        try { MediaManager.getInstance(this).detachMediaSessionsListener(); } catch (Throwable ignored) {}
     }
 
     @Override
     public void onDestroy() {
         instance = null;
-        try { CarLauncherPlugin.onMediaListenerDisconnected(); } catch (Throwable ignored) {}
+        try { MediaManager.getInstance(this).detachMediaSessionsListener(); } catch (Throwable ignored) {}
         super.onDestroy();
     }
 }
