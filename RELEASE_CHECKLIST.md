@@ -53,6 +53,12 @@
   Production build'de `import.meta.env.DEV = false` (CLAUDE.md / kod yorumları).
 - [ ] **Device test logger kapalı** — `ENABLE_DEVICE_TEST` env /
   localStorage toggle aktif değil (`__tests__/patentTestLogger.ts`).
+- [ ] **YouTube indirme KAPALI (ZORUNLU — yasal)** — `VITE_ENABLE_YT_DOWNLOAD`
+  release build'de **ASLA** set edilmez (YouTube ToS / telif; CLAUDE.md ticari
+  lisans kuralı). Doğrula: bayrak vermeden `npm run build` sonrası `dist`'te
+  indirme kodu OLMAMALI:
+  `grep -rl "caros-yt\|yt-downloads\|ytDownloadService" dist/assets/*.js` → **boş**.
+  (`media/ytDownloadService.ts`, `MediaScreen.tsx` `YT_DL`; bkz. docs/FEATURE_FLAGS.md.)
 - [ ] **YouTube debug probe** — **Belirsiz / kodda bu adla yok.** `YT_DEBUG_PROBE`
   flag'i kod tabanında bulunamadı (grep boş). Gömülü YouTube video zaten REVERT
   edildi (`carosMediaLayer.ts`'te `_playYouTubeLight` yok). Kontrol edilecek ayrı

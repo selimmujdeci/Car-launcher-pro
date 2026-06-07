@@ -88,3 +88,6 @@ test-artifacts/
 /apk-server.cjs
 /apk-share-server.cjs
 /hz-notch.mjs
+
+# Üretilmiş dosya envanteri (Get-ChildItem | Export-Csv çıktısı; kaynak değil)
+/inventory.csv
