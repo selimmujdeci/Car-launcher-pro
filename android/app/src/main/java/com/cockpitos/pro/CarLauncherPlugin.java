@@ -25,7 +25,13 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CameraCaptureSession;
 import android.content.ContentUris;
 import android.media.AudioAttributes;
+import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.NoiseSuppressor;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaPlayer;
@@ -59,7 +65,6 @@ import android.speech.SpeechRecognizer;
 // android.speech.RecognitionListener ile çakıştığı için aşağıda FQN ile kullanılır.
 import org.vosk.Model;
 import org.vosk.Recognizer;
-import org.vosk.android.SpeechService;
 import org.vosk.android.StorageService;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
@@ -768,6 +773,28 @@ public class CarLauncherPlugin extends Plugin {
             return;
         }
 
+        // KONUM kontrolü: Android'de Bluetooth taraması (klasik ACTION_FOUND + BLE)
+        // konum servisi KAPALIYKEN hiçbir cihaz bulamaz. Artık eşli liste dökülmediği
+        // için konum kapalıysa liste tamamen boş kalır → kullanıcıya net sebep ver.
+        try {
+            android.location.LocationManager lm =
+                (android.location.LocationManager) getContext().getSystemService(android.content.Context.LOCATION_SERVICE);
+            boolean locOn = false;
+            if (lm != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    locOn = lm.isLocationEnabled();
+                } else {
+                    locOn = lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+                         || lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER);
+                }
+            }
+            if (!locOn) {
+                call.reject("LOCATION_OFF",
+                    "Konum servisi kapalı. Bluetooth cihaz taraması için Konum'u açın (Android kuralı).");
+                return;
+            }
+        } catch (Exception ignored) { /* kontrol başarısız → taramaya yine de devam et */ }
+
         // Önceki receiver + BLE scanner varsa kaldır
         stopOBDDiscoveryInternal();
 
@@ -815,23 +842,14 @@ public class CarLauncherPlugin extends Plugin {
             return;
         }
 
-        // Bonded cihazları da hemen gönder (zaten pair edilmiş OBD'ler)
-        try {
-            java.util.Set<BluetoothDevice> bonded = bt.getBondedDevices();
-            if (bonded != null) {
-                for (BluetoothDevice dev : bonded) {
-                    String name = null;
-                    try { name = dev.getName(); } catch (SecurityException ignored) {}
-                    if (name == null || name.isEmpty()) name = dev.getAddress();
-                    JSObject event = new JSObject();
-                    event.put("name",    name);
-                    event.put("address", dev.getAddress());
-                    event.put("bonded",  true);
-                    event.put("transport", "classic");
-                    notifyListeners("obdDeviceFound", event);
-                }
-            }
-        } catch (SecurityException ignored) {}
+        // NOT: Eşleştirilmiş (bonded) cihaz listesini ARTIK DÖKMÜYORUZ.
+        // Eskiden getBondedDevices() ile Android'in TÜM kayıtlı eşleştirmeleri (telefon,
+        // kulaklık + eski OBD'ler) anında listeye basılıyordu → kullanıcı "etrafta olmayan
+        // hayalet/sahte cihazlar" görüyordu. Artık liste = YALNIZCA canlı taramada GERÇEKTEN
+        // menzilde bulunan cihazlar (klasik ACTION_FOUND + BLE advertise). Menzildeki eşli
+        // bir OBD zaten ACTION_FOUND ile gelir; menzilde olmayan kayıt görünmez.
+        // (Bilinen adrese hızlı yeniden bağlanma obdService.startOBD direct-reconnect ile;
+        //  bu modal değil.)
 
         // ── BLE keşfi (Classic'e EK) ──────────────────────────────────────
         // BLE OBD adaptörleri Classic discovery'de görünmez; yalnızca LE tarama
@@ -870,7 +888,77 @@ public class CarLauncherPlugin extends Plugin {
             _bleScanner = null;
         }
 
+        // ── Eşli (bonded) OBD adaptörlerini de listeye ekle ───────────────────
+        // Eşli bir BLE OBD adaptörü (V-LINK / vLinker tarzı) classic inquiry
+        // taramasında (ACTION_FOUND) GÖRÜNMEZ ve bonded iken çoğu zaman BLE
+        // advertise de ETMEZ → yalnızca getBondedDevices()'te yaşar. Bonded dump
+        // kaldırıldığında bu tip adaptör hiç listelenmiyordu ("tarıyor ama bir şey
+        // çıkmıyor"). Telefon/kulaklık "hayalet"lerini önlemek için SADECE
+        // OBD-benzeri isimli eşli cihazları yayınla. Transport cihaz tipinden
+        // türetilir (LE→ble, classic→classic) → eşli BLE adaptörü doğrudan GATT
+        // yoluna gider, 75 sn classic timeout beklenmez. Menzilde GERÇEKTEN bulunan
+        // eşli OBD zaten ACTION_FOUND/BLE ile de gelir → modal aynı adresi birleştirir.
+        try {
+            Set<BluetoothDevice> bonded = bt.getBondedDevices();
+            if (bonded != null) {
+                for (BluetoothDevice dev : bonded) {
+                    String baddr = dev.getAddress();
+                    if (baddr == null) continue;
+                    String bname = null;
+                    try { bname = dev.getName(); } catch (SecurityException ignored) {}
+                    if (!looksLikeObdName(bname, baddr)) continue;
+                    if (bname == null || bname.isEmpty()) bname = baddr;
+                    // V-LINK / vLinker gibi adaptörler DUAL-mode (BR/EDR + BLE) raporlar →
+                    // eskiden yalnızca DEVICE_TYPE_LE 'ble' sayılıyor, DUAL 'classic'e düşüyordu.
+                    // Android'de bu klonların OBD verisi pratikte BLE GATT üzerinden akar; classic
+                    // RFCOMM SPP ya takılır ya "bağlandı ama veri yok" verir. DUAL'i de 'ble'ye yönlendir
+                    // (yalnızca saf DEVICE_TYPE_CLASSIC classic kalır); classic, obdService'te tam
+                    // timeout'lu fallback olarak korunur → çift güvenlik.
+                    String transport = "classic";
+                    try {
+                        int devType = dev.getType();
+                        if (devType == BluetoothDevice.DEVICE_TYPE_LE
+                                || devType == BluetoothDevice.DEVICE_TYPE_DUAL) transport = "ble";
+                    } catch (SecurityException ignored) {}
+                    JSObject event = new JSObject();
+                    event.put("name",    bname);
+                    event.put("address", baddr);
+                    event.put("bonded",  true);
+                    event.put("transport", transport);
+                    notifyListeners("obdDeviceFound", event);
+                }
+            }
+        } catch (SecurityException ignored) { /* tarama izni yok → sessiz geç */ }
+
         call.resolve();
+    }
+
+    /**
+     * Eşli cihaz filtresi için minimal OBD isim sezgiseli — JS `looksLikeObd` ile hizalı.
+     * Yalnızca bonded liste için kullanılır (canlı tarama JS tarafında filtrelenir).
+     * Bilinen telefon/kulaklık/saat cihazlarını eler; OBD anahtar kelimeleri, isimsiz
+     * veya MAC-isimli ELM klonları aday sayılır.
+     */
+    private boolean looksLikeObdName(String name, String address) {
+        if (name == null || name.isEmpty()) return true; // isimsiz → aday (ELM klonları ad yayınlamaz)
+        String n   = name.trim();
+        String low = n.toLowerCase(java.util.Locale.ROOT);
+        String[] nonObd = {
+            "iphone", "ipad", "airpod", "buds", "watch", "band", "headset",
+            "earbud", "speaker", "tv", "chromecast", "laptop", "mouse",
+            "keyboard", "fitbit", "carplay", "microntek", "kswcar"
+        };
+        for (String k : nonObd) if (low.contains(k)) return false;
+        String[] obd = {
+            "obd", "elm", "vlink", "v-link", "vlinker", "veepeak", "icar", "vgate",
+            "konnwei", "obdlink", "carscanner", "xtool", "viecar", "bafx", "panlong",
+            "ediag", "carista", "tonwon", "topdon", "ancel", "nexas", "foseal",
+            "thinkcar", "autel", "launch", "scan", "mini obd"
+        };
+        for (String k : obd) if (low.contains(k)) return true;
+        if (n.equalsIgnoreCase(address)) return true;        // name == MAC
+        if (n.matches("[0-9A-Fa-f:\\-]{8,}")) return true;   // sadece hex/MAC karakterleri
+        return false;
     }
 
     @PluginMethod
@@ -891,6 +979,67 @@ public class CarLauncherPlugin extends Plugin {
         BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
         if (bt != null) {
             try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
+        }
+    }
+
+    /**
+     * Eşleşmiş (bonded) bir OBD cihazının pairing'ini siler (unpair).
+     * Kullanıcı, taramada artık fiziksel olarak mevcut olmayan eski "Eşli" cihazı
+     * kaldırmak istediğinde çağrılır → bir sonraki taramada o cihaz listelenmez.
+     * BluetoothDevice.removeBond() gizli API'si reflection ile çağrılır.
+     */
+    @PluginMethod
+    public void forgetOBDDevice(PluginCall call) {
+        String address = call.getString("address");
+        if (address == null || address.isEmpty()) {
+            call.reject("NO_ADDRESS", "Cihaz adresi gerekli");
+            return;
+        }
+        BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
+        if (bt == null) { call.reject("BT_DISABLED", "Bluetooth kullanılamıyor"); return; }
+        try {
+            BluetoothDevice dev = bt.getRemoteDevice(address);
+            boolean removed = false;
+            if (dev.getBondState() != BluetoothDevice.BOND_NONE) {
+                java.lang.reflect.Method m = dev.getClass().getMethod("removeBond");
+                Object r = m.invoke(dev);
+                removed = Boolean.TRUE.equals(r);
+            } else {
+                removed = true; // zaten eşli değil → "silinmiş" say
+            }
+            JSObject res = new JSObject();
+            res.put("success", removed);
+            call.resolve(res);
+        } catch (IllegalArgumentException e) {
+            call.reject("BAD_ADDRESS", "Geçersiz cihaz adresi");
+        } catch (Exception e) {
+            call.reject("FORGET_FAILED", e.getMessage() != null ? e.getMessage() : "Cihaz kaldırılamadı");
+        }
+    }
+
+    /**
+     * Bir cihazın Android bonding (eşleşme) durumunu döner — PIN Resilience için.
+     * Bağlantı sonrası obdService bunu çağırır: bonded ise PIN'e bir daha gerek yok
+     * (bonding kalıcıdır), session PIN temizlenir.
+     */
+    @PluginMethod
+    public void getObdBondState(PluginCall call) {
+        String address = call.getString("address");
+        if (address == null || address.isEmpty()) {
+            call.reject("NO_ADDRESS", "Cihaz adresi gerekli");
+            return;
+        }
+        BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
+        if (bt == null) { call.reject("BT_DISABLED", "Bluetooth kullanılamıyor"); return; }
+        try {
+            BluetoothDevice dev = bt.getRemoteDevice(address);
+            JSObject res = new JSObject();
+            res.put("bonded", dev.getBondState() == BluetoothDevice.BOND_BONDED);
+            call.resolve(res);
+        } catch (IllegalArgumentException e) {
+            call.reject("BAD_ADDRESS", "Geçersiz cihaz adresi");
+        } catch (Exception e) {
+            call.reject("BOND_STATE_FAILED", e.getMessage() != null ? e.getMessage() : "Bond durumu okunamadı");
         }
     }
 
@@ -1078,10 +1227,28 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Vosk (offline STT) durumu ────────────────────────────────────────────
     private Model         voskModel           = null;   // bir kez yüklenir, tekrar kullanılır
-    private SpeechService voskSpeechService   = null;   // aktif dinleme oturumu
+    private volatile Thread voskCaptureThread = null;   // aktif dinleme thread'i (özel AudioRecord döngüsü)
+    private volatile boolean voskCapturing    = false;  // capture döngüsü çalışıyor mu
     private boolean       voskModelLoading    = false;
     private Handler       voskTimeoutHandler  = null;
     private Runnable      voskTimeoutRunnable = null;
+
+    // ── Mikrofon hassasiyeti (araç içi: yol gürültüsü + alçak sesle konuşma) ──────
+    // Vosk'un kendi SpeechService'i ham, kazançsız ses verir → kullanıcı bağırmadan
+    // tanımıyordu. Özel AudioRecord döngüsü: AGC + NoiseSuppressor + AEC efektleri +
+    // yazılım kazancı (GAIN) ile alçak sesli konuşma yükseltilir.
+    private static final float VOSK_GAIN = 2.0f;        // yazılım ses kazancı (clipping korumalı)
+    private static final int   VOSK_SAMPLE_RATE = 16000;
+    private static final long  VOSK_MAX_LISTEN_MS = 9000; // sessizlik endpoint'i daha erken çözer
+
+    // ── Dinlerken müzik kısma (audio ducking) ───────────────────────────────────
+    // Mikrofona basınca müzik hoparlörden çalmaya devam ediyordu → (1) rahatsız edici,
+    // (2) mikrofon müziği konuşmayla birlikte alıp tanımayı bozuyordu (kullanıcı bağırıyordu).
+    // Dinleme başında STREAM_MUSIC sesini fiziksel olarak kısar, bitince geri yükleriz.
+    // Fiziksel kısma şart: WebView/HTML5 oynatıcılar audio focus'a uymayabilir; setStreamVolume
+    // her oynatıcı için garanti çalışır.
+    private static final float VOSK_DUCK_RATIO = 0.12f; // dinlerken müzik max'ın ~%12'sine iner
+    private volatile int savedMusicVolume = -1;         // -1 = kısılmadı (geri yükleme bekleyen yok)
 
     @PluginMethod
     public void startSpeechRecognition(PluginCall call) {
@@ -1129,7 +1296,7 @@ public class CarLauncherPlugin extends Plugin {
 
                 if (!SpeechRecognizer.isRecognitionAvailable(getContext())) {
                     if (savedSpeechCall != null) {
-                        savedSpeechCall.reject("NO_RECOGNIZER", "Cihazda ses tanıma mevcut değil");
+                        savedSpeechCall.reject("Cihazda ses tanıma mevcut değil", "NO_RECOGNIZER");
                         savedSpeechCall = null;
                     }
                     return;
@@ -1163,7 +1330,7 @@ public class CarLauncherPlugin extends Plugin {
                             r.put("transcript", matches.get(0));
                             c.resolve(r);
                         } else {
-                            c.reject("NO_RESULT", "Sonuç alınamadı");
+                            c.reject("Sonuç alınamadı", "NO_RESULT");
                         }
                         destroySpeechRecognizer();
                     }
@@ -1189,7 +1356,7 @@ public class CarLauncherPlugin extends Plugin {
                             : error == SpeechRecognizer.ERROR_NETWORK ? "Check internet connection"
                             : error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Zaman aşımı"
                             : "Ses tanıma hatası: " + error;
-                        c.reject("NO_RESULT", msg);
+                        c.reject(msg, "NO_RESULT");
                         destroySpeechRecognizer();
                     }
                 });
@@ -1206,11 +1373,12 @@ public class CarLauncherPlugin extends Plugin {
                 intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,
                     getContext().getPackageName());
 
+                duckMusicForListening(); // Google yolu da dinlerken müziği kıs (Vosk ile tutarlı)
                 speechRecognizer.startListening(intent);
 
             } catch (Exception e) {
                 if (savedSpeechCall != null) {
-                    savedSpeechCall.reject("NO_RECOGNIZER", "Ses tanıma başlatılamadı: " + e.getMessage());
+                    savedSpeechCall.reject("Ses tanıma başlatılamadı: " + e.getMessage(), "NO_RECOGNIZER");
                     savedSpeechCall = null;
                 }
                 destroySpeechRecognizer();
@@ -1219,6 +1387,7 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     private void destroySpeechRecognizer() {
+        restoreMusicAfterListening(); // dinleme bitti → müziği geri aç (sonuç/hata/iptal tüm yollar buraya uğrar)
         if (speechRecognizer != null) {
             try { speechRecognizer.destroy(); } catch (Exception ignored) {}
             speechRecognizer = null;
@@ -1235,7 +1404,7 @@ public class CarLauncherPlugin extends Plugin {
         if (voskModel != null) { runVoskListening(); return; }
         if (voskModelLoading) {
             if (savedSpeechCall != null) {
-                savedSpeechCall.reject("MODEL_LOADING", "Ses modeli yükleniyor, tekrar deneyin");
+                savedSpeechCall.reject("Ses modeli yükleniyor, tekrar deneyin", "MODEL_LOADING");
                 savedSpeechCall = null;
             }
             return;
@@ -1268,50 +1437,146 @@ public class CarLauncherPlugin extends Plugin {
         boolean googleAvailable = false;
         try { googleAvailable = SpeechRecognizer.isRecognitionAvailable(getContext()); }
         catch (Exception ignored) {}
-        if (googleAvailable && onlineFallback) {
+        // KRİTİK: Head unit'lerde internet YOKTUR. preferOffline=true iken Vosk başarısız
+        // olursa Google'a düşmek yanıltıcı "internet gerekli" hatası verir ve GERÇEK Vosk
+        // sebebini (model yapısı/storage/ABI) gizler. Bu yüzden offline tercih edildiğinde
+        // Google'a DÜŞME — gerçek Vosk sebebini bildir ki sorun teşhis edilebilsin.
+        if (!preferOffline && googleAvailable && onlineFallback) {
             beginSpeechRecognition(language, maxResults, preferOffline, onlineFallback);
         } else {
             rejectVosk("Vosk STT başlatılamadı — " + reason);
         }
     }
 
-    private void runVoskListening() {
-        new Handler(Looper.getMainLooper()).post(() -> {
-            try {
-                stopVosk(); // önceki oturumu temizle
-                Recognizer recognizer = new Recognizer(voskModel, 16000.0f);
-                voskSpeechService = new SpeechService(recognizer, 16000.0f);
-                voskSpeechService.startListening(new org.vosk.android.RecognitionListener() {
-                    @Override public void onPartialResult(String hypothesis) { /* RMS sağlamaz — atlanır */ }
-                    @Override public void onResult(String hypothesis) {
-                        String text = extractVoskText(hypothesis);
-                        if (text != null && !text.isEmpty()) resolveVosk(text); // ilk dolu sonuç → çöz + dur
-                    }
-                    @Override public void onFinalResult(String hypothesis) {
-                        if (savedSpeechCall == null) return;
-                        String text = extractVoskText(hypothesis);
-                        if (text != null && !text.isEmpty()) resolveVosk(text);
-                        else rejectVosk("No speech detected"); // JS bunu sessizce idle eder
-                    }
-                    @Override public void onError(Exception e) {
-                        rejectVosk("Vosk hata: " + (e != null ? e.getMessage() : "bilinmeyen"));
-                    }
-                    @Override public void onTimeout() {
-                        if (savedSpeechCall != null) rejectVosk("No speech detected");
-                    }
-                });
-
-                // 10 sn güvenlik zaman aşımı — kullanıcı hiç konuşmazsa oturumu kapat
-                voskTimeoutHandler  = new Handler(Looper.getMainLooper());
-                voskTimeoutRunnable = () -> {
-                    if (savedSpeechCall != null) rejectVosk("No speech detected"); else stopVosk();
-                };
-                voskTimeoutHandler.postDelayed(voskTimeoutRunnable, 10_000);
-
-            } catch (Throwable t) {
-                rejectVosk("Vosk başlatılamadı: " + t.getMessage());
+    /**
+     * Özel AudioRecord dinleme döngüsü — Vosk'un kendi SpeechService'i yerine.
+     * Neden: SpeechService ham, kazançsız ses verir → araç içinde alçak sesle/yol gürültüsünde
+     * tanımıyordu (kullanıcı bağırmak zorunda). Bu döngü:
+     *   - AGC (otomatik kazanç) + NoiseSuppressor + AcousticEchoCanceler donanım efektleri,
+     *   - yazılım kazancı (VOSK_GAIN, clipping korumalı),
+     *   - gerçek RMS → UI ses göstergesi (SpeechService RMS vermiyordu),
+     *   - acceptWaveForm endpoint → konuşma biter bitmez sonuç (geç tepki azalır).
+     */
+    /** Dinleme başında müzik sesini kıs (mikrofon temizliği + UX). */
+    private void duckMusicForListening() {
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int ducked = Math.max(0, Math.round(max * VOSK_DUCK_RATIO));
+            if (ducked < cur) {
+                if (savedMusicVolume < 0) savedMusicVolume = cur; // ilk kısmada gerçek seviyeyi sakla
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, ducked, 0);
             }
-        });
+        } catch (Exception ignored) {}
+    }
+
+    /** Dinleme bitince müzik sesini eski seviyeye geri yükle. */
+    private void restoreMusicAfterListening() {
+        try {
+            int saved = savedMusicVolume;
+            savedMusicVolume = -1;
+            if (saved < 0) return; // kısılmamıştı → dokunma
+            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0);
+        } catch (Exception ignored) {}
+    }
+
+    private void runVoskListening() {
+        stopVosk(); // önceki oturumu temizle (varsa eski thread'i durdur)
+        voskCapturing = true;
+        duckMusicForListening(); // mikrofon dinlerken müziği kıs
+        final long startedAt = System.currentTimeMillis();
+        Thread t = new Thread(() -> {
+            AudioRecord recorder = null;
+            Recognizer recognizer = null;
+            AutomaticGainControl agc = null;
+            NoiseSuppressor      ns  = null;
+            AcousticEchoCanceler aec = null;
+            boolean gotResult = false;
+            try {
+                int minBuf = AudioRecord.getMinBufferSize(VOSK_SAMPLE_RATE,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                if (minBuf <= 0) minBuf = VOSK_SAMPLE_RATE; // güvenli taban
+                int bufBytes = Math.max(minBuf, VOSK_SAMPLE_RATE / 2); // ~250ms pencere
+
+                // VOICE_RECOGNITION: ASR için tasarlı kaynak; AGC/NS'yi biz açıyoruz.
+                recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT, bufBytes * 2);
+                if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                    try { recorder.release(); } catch (Exception ignored) {}
+                    // Bazı head unit'lerde VOICE_RECOGNITION kaynağı yok → MIC'e düş
+                    recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,
+                            VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT, bufBytes * 2);
+                }
+                if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                    throw new IllegalStateException("AudioRecord init başarısız (mikrofon izni/donanım)");
+                }
+
+                // Donanım ses efektleri — araç içi alçak ses + yol gürültüsü için kritik
+                int sid = recorder.getAudioSessionId();
+                try { if (AutomaticGainControl.isAvailable())  { agc = AutomaticGainControl.create(sid);  if (agc != null) agc.setEnabled(true); } } catch (Exception ignored) {}
+                try { if (NoiseSuppressor.isAvailable())       { ns  = NoiseSuppressor.create(sid);        if (ns  != null) ns.setEnabled(true);  } } catch (Exception ignored) {}
+                try { if (AcousticEchoCanceler.isAvailable())  { aec = AcousticEchoCanceler.create(sid);   if (aec != null) aec.setEnabled(true); } } catch (Exception ignored) {}
+
+                recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                recorder.startRecording();
+
+                short[] buf = new short[bufBytes / 2];
+                int rmsThrottle = 0;
+                while (voskCapturing && !Thread.currentThread().isInterrupted()) {
+                    int n = recorder.read(buf, 0, buf.length);
+                    if (n <= 0) {
+                        if (System.currentTimeMillis() - startedAt > VOSK_MAX_LISTEN_MS) break;
+                        continue;
+                    }
+                    // Yazılım kazancı + clipping koruması + RMS (UI ses göstergesi)
+                    double sumSq = 0;
+                    for (int i = 0; i < n; i++) {
+                        int v = Math.round(buf[i] * VOSK_GAIN);
+                        if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+                        buf[i] = (short) v;
+                        sumSq += (double) v * v;
+                    }
+                    if (++rmsThrottle >= 2) {
+                        rmsThrottle = 0;
+                        double rms = Math.sqrt(sumSq / n) / 32768.0;
+                        JSObject d = new JSObject();
+                        d.put("value", Math.max(0.0, Math.min(1.0, rms * 2.5)));
+                        notifyListeners("rmsData", d);
+                    }
+
+                    if (recognizer.acceptWaveForm(buf, n)) {
+                        // Endpoint (konuşma + sessizlik) → sonuç hazır
+                        String text = extractVoskText(recognizer.getResult());
+                        if (text != null && !text.isEmpty()) { gotResult = true; resolveVosk(text); break; }
+                    }
+                    if (System.currentTimeMillis() - startedAt > VOSK_MAX_LISTEN_MS) break;
+                }
+
+                if (!gotResult && voskCapturing) {
+                    String text = extractVoskText(recognizer.getFinalResult());
+                    if (text != null && !text.isEmpty()) resolveVosk(text);
+                    else rejectVosk("No speech detected"); // JS bunu sessizce idle eder
+                }
+            } catch (Throwable th) {
+                if (voskCapturing) rejectVosk("Vosk başlatılamadı: " + th.getMessage());
+            } finally {
+                voskCapturing = false;
+                restoreMusicAfterListening(); // dinleme bitti → müziği geri aç (her yol: sonuç/sessizlik/hata/timeout/iptal)
+                if (recorder != null) { try { recorder.stop(); } catch (Exception ignored) {} try { recorder.release(); } catch (Exception ignored) {} }
+                if (agc != null) { try { agc.release(); } catch (Exception ignored) {} }
+                if (ns  != null) { try { ns.release();  } catch (Exception ignored) {} }
+                if (aec != null) { try { aec.release(); } catch (Exception ignored) {} }
+                if (recognizer != null) { try { recognizer.close(); } catch (Exception ignored) {} }
+            }
+        }, "vosk-capture");
+        voskCaptureThread = t;
+        t.start();
     }
 
     private void resolveVosk(String text) {
@@ -1328,7 +1593,10 @@ public class CarLauncherPlugin extends Plugin {
     private void rejectVosk(String msg) {
         PluginCall c = savedSpeechCall;
         savedSpeechCall = null;
-        if (c != null) c.reject("NO_RESULT", msg);
+        // Capacitor imzası reject(MESAJ, kod) — eskiden ("NO_RESULT", msg) ters veriliyordu →
+        // JS'e err.message="NO_RESULT" gidiyor, gerçek Vosk sebebi kod alanında kayboluyor →
+        // yanıltıcı "internet gerekli" mesajı. Gerçek sebebi MESAJ olarak ver.
+        if (c != null) c.reject(msg, "NO_RESULT");
         stopVosk();
     }
 
@@ -1337,10 +1605,14 @@ public class CarLauncherPlugin extends Plugin {
             voskTimeoutHandler.removeCallbacks(voskTimeoutRunnable);
         }
         voskTimeoutRunnable = null;
-        if (voskSpeechService != null) {
-            try { voskSpeechService.stop(); }     catch (Exception ignored) {}
-            try { voskSpeechService.shutdown(); }  catch (Exception ignored) {}
-            voskSpeechService = null;
+        voskCapturing = false;                 // capture döngüsüne dur sinyali
+        Thread th = voskCaptureThread;
+        voskCaptureThread = null;
+        // KRİTİK: resolveVosk/rejectVosk capture thread'inden stopVosk çağırır → kendini
+        // join ETME (deadlock). Yalnızca DIŞARIDAN (farklı thread) durdurulursa join et.
+        if (th != null && th != Thread.currentThread()) {
+            th.interrupt();
+            try { th.join(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         }
     }
 
@@ -1526,6 +1798,58 @@ public class CarLauncherPlugin extends Plugin {
         JSObject r = new JSObject();
         r.put("granted", granted);
         r.put("restricted", !granted && isRestrictedSettingsBlocked());
+        call.resolve(r);
+    }
+
+    /**
+     * WiFi ayar panelini açar. Android 10+ (API 29) uygulamaların WiFi'ı programatik
+     * açmasını engellediği için (setWifiEnabled kaldırıldı), satışa-uygun tek yol
+     * sistem panelini açmaktır. API 29+ slide-up panel (uygulamadan çıkmaz), eski
+     * sürümlerde klasik WiFi ayar ekranı. Her durumda fail-soft resolve eder.
+     */
+    @PluginMethod
+    public void openWifiSettings(PluginCall call) {
+        JSObject r = new JSObject();
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= 29) {
+            intent = new Intent(Settings.Panel.ACTION_WIFI);
+        } else {
+            intent = new Intent(Settings.ACTION_WIFI_SETTINGS);
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            r.put("opened", true);
+        } catch (Exception e) {
+            // Panel açılamadı → klasik WiFi ayar ekranına düş (fail-soft)
+            try {
+                Intent fb = new Intent(Settings.ACTION_WIFI_SETTINGS);
+                fb.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(fb);
+                r.put("opened", true);
+            } catch (Exception e2) {
+                r.put("opened", false);
+            }
+        }
+        call.resolve(r);
+    }
+
+    /**
+     * Bluetooth ayar ekranını açar. BluetoothAdapter.enable() API 33+'ta kaldırıldığı
+     * için doğrudan açma güvenilir değil; klasik Bluetooth ayar ekranı her sürümde
+     * çalışır. Fail-soft resolve eder.
+     */
+    @PluginMethod
+    public void openBluetoothSettings(PluginCall call) {
+        JSObject r = new JSObject();
+        Intent intent = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            r.put("opened", true);
+        } catch (Exception e) {
+            r.put("opened", false);
+        }
         call.resolve(r);
     }
 
