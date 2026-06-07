@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
-import { registerCommandHandler, registerAIResultHandler } from '../platform/voiceService';
+import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck } from '../platform/voiceService';
 import { play, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
 // next/previous/togglePlayPause: UI'nın kullandığı KUYRUK-FARKINDA + in-app yönlendiren
 // sürümler (mediaService'inkiler native MediaSession'a özel; tarayıcıda no-op + YouTube/
@@ -259,12 +259,16 @@ export function useVoiceCommandHandler({
         cycleTheme:  cycleVoiceTheme,
         applySetting: (key, action, value, kind) =>
           void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
-        playMedia:   play,
+        // Medya komutları oynatmayı YÖNETİR → asistan ducking-resume'unu iptal et
+        // (yoksa mikrofon ducking müziği duraklatıp idle'da geri başlatarak "durdur"u
+        // eziyordu). cancelAssistantDuck idempotent; alakasız komutlarda çağrılmaz.
+        playMedia:   () => { cancelAssistantDuck(); play(); },
         // "müziği durdur" → çalıyorsa togglePlayPause ile duraklat (UI ile aynı yol;
-        // in-app YouTube/stream'i web'de de doğru yönlendirir).
-        pauseMedia:  () => { if (getMediaState().playing) togglePlayPause(); },
-        nextTrack:   next,        // carosMediaLayer (kuyruk-farkında)
-        prevTrack:   previous,    // carosMediaLayer (kuyruk-farkında)
+        // in-app YouTube/stream'i web'de de doğru yönlendirir). Ducking zaten
+        // duraklattıysa toggle no-op olur; cancelAssistantDuck duraklamayı kalıcı kılar.
+        pauseMedia:  () => { cancelAssistantDuck(); if (getMediaState().playing) togglePlayPause(); },
+        nextTrack:   () => { cancelAssistantDuck(); next(); },        // carosMediaLayer (kuyruk-farkında)
+        prevTrack:   () => { cancelAssistantDuck(); previous(); },    // carosMediaLayer (kuyruk-farkında)
         volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
         volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
         openWeather:      showWeather,

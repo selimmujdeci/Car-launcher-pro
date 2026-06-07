@@ -176,6 +176,15 @@ function _applyAssistantDuck(prev: VoiceStatus, next: VoiceStatus): void {
   }
 }
 
+/**
+ * Ducking-resume'u iptal et. Kullanıcı asistana MEDYA komutu verdiğinde
+ * (durdur/başlat/değiştir) çağrılır: komut oynatmayı zaten yönetir, asistan
+ * idle'a dönünce müziği OTOMATİK geri başlatma (yoksa "durdur" eziliyordu).
+ */
+export function cancelAssistantDuck(): void {
+  _assistantDuckedMusic = false;
+}
+
 function push(partial: Partial<VoiceState>): void {
   const prevStatus = _current.status;
   _current = { ..._current, ...partial };
