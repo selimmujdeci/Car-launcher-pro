@@ -11,7 +11,7 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: true,
     captureInput: true,
-    webContentsDebuggingEnabled: true,
+    webContentsDebuggingEnabled: isDev,
     backgroundColor: '#060d1a',
     loggingBehavior: isDev ? 'debug' : 'none',
     initialFocus: false,

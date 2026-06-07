@@ -24,12 +24,6 @@ interface PushBody {
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
 
-  // Dahili servis auth: service_role key veya anon key ile çağrılabilir
-  const auth = req.headers.get('Authorization') ?? '';
-  if (!auth.includes(SERVICE_ROLE_KEY) && !auth.startsWith('Bearer ')) {
-    return new Response('Unauthorized', { status: 401 });
-  }
-
   let body: PushBody;
   try {
     body = await req.json() as PushBody;
@@ -40,6 +34,31 @@ Deno.serve(async (req: Request) => {
   const { event, vehicleId, payload = {} } = body;
   if (!vehicleId) return new Response('vehicleId required', { status: 400 });
 
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+
+  // ── Auth (E1 fix) ────────────────────────────────────────────────────────────
+  // ÖNCE: `auth.startsWith('Bearer ')` herhangi bir sahte "Bearer X" string'ini kabul
+  // ediyordu (JWT doğrulaması YOK) → yetkisiz push-to-wake (DoS/batarya + C8/C2 saldırı yüzeyi).
+  // ŞİMDİ: ya service_role tam-eşleşmesi (backend/cron) ya da GERÇEKTEN doğrulanmış JWT'ye
+  // sahip + bu araca bağlı kullanıcı. service_role olmayan çağıran yalnız KENDİ aracını uyandırır.
+  const token = (req.headers.get('Authorization') ?? '').replace('Bearer ', '').trim();
+  if (!token) return new Response('Unauthorized', { status: 401 });
+
+  if (token !== SERVICE_ROLE_KEY) {
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) return new Response('Unauthorized', { status: 401 });
+
+    const { data: link } = await supabase
+      .from('vehicle_users')
+      .select('user_id')
+      .eq('vehicle_id', vehicleId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (!link) return new Response('Forbidden', { status: 403 });
+  }
+
   if (!FCM_SERVER_KEY || !FCM_PROJECT_ID) {
     console.warn('[push-notify] FCM_SERVER_KEY veya FCM_PROJECT_ID eksik — push atlandı');
     return new Response(JSON.stringify({ ok: true, skipped: true }), {
@@ -48,9 +67,6 @@ Deno.serve(async (req: Request) => {
   }
 
   // Araç FCM token'larını al
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
 
   const { data: tokens, error } = await supabase
     .from('vehicle_push_tokens')
