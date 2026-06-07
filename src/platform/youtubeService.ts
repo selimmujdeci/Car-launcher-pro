@@ -48,6 +48,11 @@ let _pollTimer: number | null = null;
 let _host: HTMLDivElement | null = null;
 let _readyPromise: Promise<void> | null = null;
 
+/** Şu an çalan YouTube videosunun id'si (yoksa boş string). */
+export function getCurrentYouTubeVideoId(): string {
+  return _currentVideoId;
+}
+
 /** Parça doğal bitince çağrılacak kanca (kuyruk ilerletme için katman bağlar). */
 export function setYouTubeOnEnded(cb: (() => void) | null): void {
   _onEnded = cb;

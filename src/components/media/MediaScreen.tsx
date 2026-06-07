@@ -13,7 +13,7 @@ import {
   SkipBack, SkipForward, Play, Pause,
   Music2, Music, Bluetooth, Radio, Shuffle, Repeat, Repeat1,
   Heart, Layers, Check, ChevronRight, HardDrive, SlidersHorizontal,
-  Search, Plus, Trash2, Globe, X, Video,
+  Search, Plus, Trash2, Globe, X, Video, Download, Loader2,
 } from 'lucide-react';
 import { LocalMusicBrowser } from './LocalMusicBrowser';
 import { LocalVideoBrowser } from './LocalVideoBrowser';
@@ -37,10 +37,79 @@ import type { MusicOptionKey } from '../../data/apps';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { getRuntimeConfig } from '../../core/runtime/runtimeConfig';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
+import { getCurrentYouTubeVideoId } from '../../platform/youtubeService';
 
 /* SAFE_MODE subscription — disables heavy backdrop blurs */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
 function getRuntimeMode() { return runtimeManager.getMode(); }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * YouTube indir butonu — SADECE dev/kişisel build (VITE_ENABLE_YT_DOWNLOAD).
+ *
+ * YT_DL build-time'da statik sabite indirgenir; release build'de (bayrak yok)
+ * `false` olur → buton JSX'i + ytDownloadService dinamik import'u ölü-kod olarak
+ * ELENİR (bundle'da indirme kodu bulunmaz). ytDownloadService ASLA statik import
+ * edilmez — yalnız tık anında dinamik import. Bkz. docs/FEATURE_FLAGS.md.
+ * ────────────────────────────────────────────────────────────────────────── */
+const YT_DL = import.meta.env.VITE_ENABLE_YT_DOWNLOAD === 'true';
+
+type YtDlState = 'idle' | 'busy' | 'done' | 'error';
+
+function YtDownloadButton({ title, artist }: { title: string; artist: string }) {
+  const [state, setState] = useState<YtDlState>('idle');
+  const [pct, setPct] = useState(0);
+
+  // Mount'ta: bu video daha önce indirildi mi? (dinamik import — flag'li yolda)
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const vid = getCurrentYouTubeVideoId();
+      if (!vid) return;
+      const svc = await import('../../platform/media/ytDownloadService');
+      if (alive && svc.isDownloaded(vid)) setState('done');
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const onClick = useCallback(async () => {
+    if (state === 'busy' || state === 'done') return;
+    const videoId = getCurrentYouTubeVideoId();
+    if (!videoId) { setState('error'); return; }
+    setState('busy'); setPct(0);
+    try {
+      const { downloadYouTube } = await import('../../platform/media/ytDownloadService');
+      await downloadYouTube({ videoId, title, artist }, (loaded, total) => {
+        if (total) setPct(Math.round((loaded / total) * 100));
+      });
+      setState('done');
+    } catch {
+      setState('error');
+      window.setTimeout(() => setState('idle'), 2500);
+    }
+  }, [state, title, artist]);
+
+  const color =
+    state === 'done'  ? { color: '#22c55e', borderColor: 'rgba(34,197,94,0.5)' } :
+    state === 'error' ? { color: '#ef4444', borderColor: 'rgba(239,68,68,0.5)' } :
+                        { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={state === 'busy'}
+      aria-label={state === 'done' ? 'İndirildi' : 'Cihaza indir'}
+      title={state === 'done' ? 'İndirildi (çevrimdışı çalınabilir)' : state === 'error' ? 'İndirilemedi' : 'Cihaza indir'}
+      className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all relative"
+      style={color}
+    >
+      {state === 'busy'
+        ? <><Loader2 className="w-6 h-6 animate-spin" />{pct > 0 && <span className="absolute -bottom-1 text-[9px] font-black tabular-nums">{pct}%</span>}</>
+        : state === 'done'
+          ? <Check className="w-6 h-6" />
+          : <Download className="w-6 h-6" />}
+    </button>
+  );
+}
 
 /* ── AlbumArt — premium 4-layer shadow + texture + specular sweep ── */
 // Per screens.jsx 247-277. oklch(56% 0.10 42) base when no cover.
@@ -583,6 +652,11 @@ function PlayerView({
                   : { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
                 <Video className="w-6 h-6" />
               </button>
+            )}
+            {/* İndir — yalnız dev/kişisel build (YT_DL) + YouTube oynatılırken.
+                Release build'de YT_DL statik false → bu blok elenir. */}
+            {YT_DL && isYouTube && (
+              <YtDownloadButton title={track.title} artist={track.artist} />
             )}
             <button
               className="w-12 h-12 rounded-2xl flex items-center justify-center text-secondary hover:text-red-500 glass-card active:scale-90 transition-all">
