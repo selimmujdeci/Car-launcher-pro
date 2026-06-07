@@ -30,9 +30,17 @@ const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
 );
 
-const DevInspector = lazy(() =>
-  import('./components/debug/devInspector/DevInspector').then((m) => ({ default: m.DevInspector })),
-);
+/* Derleme-zamanı sabit: dev VEYA VITE_ENABLE_INSPECTOR=true. Satış build'inde false'a
+   katlanır → ternary'nin ölü dalındaki dynamic import elenir → inspector chunk hiç
+   emit EDİLMEZ (yalnız flag açıkken lazy chunk üretilir). */
+const INSPECTOR_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_INSPECTOR === 'true';
+
+const DevInspector = INSPECTOR_ENABLED
+  ? lazy(() =>
+      import('./components/debug/devInspector/DevInspector').then((m) => ({ default: m.DevInspector })),
+    )
+  : null;
 
 // Uygulama oturumu başına yalnızca bir kez sor (state değil module-level flag)
 let _hotspotChecked = false;
@@ -224,10 +232,12 @@ function App() {
           </Suspense>
         )}
 
-        {/* DevInspector — dev builds only, tree-shaked in prod */}
-        <Suspense fallback={null}>
-          <DevInspector />
-        </Suspense>
+        {/* DevInspector — dev VEYA VITE_ENABLE_INSPECTOR; satış build'inde DCE (chunk yok) */}
+        {DevInspector && (
+          <Suspense fallback={null}>
+            <DevInspector />
+          </Suspense>
+        )}
       </ErrorBoundary>
 
       {/*

@@ -17,6 +17,7 @@
  */
 
 let _cached: boolean | null = null;
+let _rendererCached: string | null = null;   // ham UNMASKED_RENDERER (teşhis için)
 
 export function hasWeakGpu(): boolean {
   if (_cached !== null) return _cached;
@@ -24,18 +25,37 @@ export function hasWeakGpu(): boolean {
   return _cached;
 }
 
-function _probe(): boolean {
-  if (typeof document === 'undefined') return false;
+/**
+ * Ham WebGL `UNMASKED_RENDERER` dizesini döner (teşhis amaçlı; DevInspector kullanır).
+ *  - '' → WebGL var ama renderer MASKELİ (extension yok / boş). weakGpu=false ile birlikte
+ *    görülürse "low-end yanlış sınıflandı mı?" sorusunu doğrudan yanıtlar.
+ *  - '(WebGL yok)' → WebGL bağlamı oluşturulamadı.
+ * Sonuç donanım sabiti → cache'lenir. Hot-path değil; yalnız panel açıldığında okunur.
+ */
+export function getGpuRenderer(): string {
+  if (_rendererCached !== null) return _rendererCached;
+  _rendererCached = _probeRenderer();
+  return _rendererCached;
+}
+
+/** WebGL renderer dizesini ham (orijinal harf) okur — yoksa boş/işaret döner. */
+function _probeRenderer(): string {
+  if (typeof document === 'undefined') return '';
   try {
     const canvas = document.createElement('canvas');
     const gl = (canvas.getContext('webgl') ||
                 canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
-    if (!gl) return false; // WebGL bilinmiyor → downgrade etme (test/headless güvenliği)
+    if (!gl) return '(WebGL yok)';
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    if (!dbg) return false;
-    const renderer = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) ?? '').toLowerCase();
-    return /mali-?[34]\d\d|swiftshader|llvmpipe|software|videocore/.test(renderer);
+    if (!dbg) return '';   // renderer maskeli (extension yok)
+    return String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) ?? '').trim();
   } catch {
-    return false;
+    return '';
   }
+}
+
+function _probe(): boolean {
+  const renderer = getGpuRenderer().toLowerCase();
+  if (!renderer || renderer === '(webgl yok)') return false; // bilinmiyor → downgrade etme
+  return /mali-?[34]\d\d|swiftshader|llvmpipe|software|videocore/.test(renderer);
 }

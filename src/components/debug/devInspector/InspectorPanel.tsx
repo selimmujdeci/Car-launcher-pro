@@ -9,6 +9,8 @@ import { IntelligenceInspector } from './IntelligenceInspector';
 import { useHazardStore } from '../../../store/useHazardStore';
 import { useVehicleIntelligenceStore } from '../../../store/useVehicleIntelligenceStore';
 import { useHALStatusStore } from '../../../platform/vehicleDataLayer/halStatusStore';
+import { getDeviceTier, getCapabilities } from '../../../platform/deviceCapabilities';
+import { hasWeakGpu, getGpuRenderer } from '../../../utils/detectWeakGpu';
 
 /* ── Local types (mirror private WorkerEntry without importing internals) ── */
 type WorkerCrit = 'CRITICAL' | 'OPTIONAL';
@@ -36,6 +38,16 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
   const [workers,  setWorkers]  = useState<WEntry[]>([]);
   const [timeline, setTimeline] = useState<BlackBoxSample[]>([]);
   const [network,  setNetwork]  = useState<readonly NetEntry[]>([]);
+  const [ramMb,    setRamMb]    = useState(0);       // usedJSHeapSize (MB) — 2Hz poll
+  const [blurOn,   setBlurOn]   = useState(false);   // gerçek --rt-blur (mod değişince güncel)
+
+  // Donanım sabitleri — bir kez prob (cache'li singleton'lar); re-render maliyeti yok.
+  const [caps] = useState(() => ({
+    tier:     getDeviceTier(),
+    webgl:    getCapabilities().supportsWebGL,
+    weakGpu:  hasWeakGpu(),
+    renderer: getGpuRenderer(),
+  }));
 
   const fps              = useFpsCounter(tab === 'fps');
   const fpsHistory       = useRef<number[]>([]);
@@ -64,6 +76,14 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
       setWorkers(Array.from(runtimeManager.getWorkers()) as WEntry[]);
       try { setTimeline(getReplayData().slice(-15).reverse()); } catch { /* not started yet */ }
       setNetwork([...getNetworkEntries()].slice(-20).reverse());
+      // RAM (yalnız Chromium/WebView'de var; yoksa 0 → "—" gösterilir).
+      const mem = (performance as { memory?: { usedJSHeapSize?: number } }).memory;
+      setRamMb(mem?.usedJSHeapSize ? Math.round(mem.usedJSHeapSize / 1048576) : 0);
+      // Blur: gerçek uygulanan --rt-blur (CSS guard'ı yansıtır). Boşsa config'e düş.
+      try {
+        const rt = getComputedStyle(document.documentElement).getPropertyValue('--rt-blur').trim();
+        setBlurOn(rt !== '' ? rt !== '0' : runtimeManager.getConfig().enableBlur);
+      } catch { /* SSR/test guard */ }
     }
     refresh();
     const id = setInterval(refresh, 500);
@@ -78,6 +98,12 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         runtime:  {
           mode,
           fps,
+          tier:     caps.tier,
+          ramMb,
+          blur:     blurOn ? 'ON' : 'OFF',
+          webgl:    caps.webgl,
+          weakGpu:  caps.weakGpu,
+          renderer: caps.renderer || '(masked)',
           workers: workers.map(([key, { criticality, worker }]) => ({
             key, criticality, status: worker != null ? 'alive' : 'dead',
           })),
@@ -124,6 +150,33 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+
+      {/* ── CAPS — her zaman görünür teşhis şeridi (mode/tier/fps/ram/blur/webgl/gpu) ── */}
+      {(() => {
+        const hist   = fpsHistory.current;
+        const avgFps = hist.length ? Math.round(hist.reduce((a, b) => a + b, 0) / hist.length) : 0;
+        const fpsCol = (v: number) => (v <= 0 ? 'rgba(255,255,255,0.3)' : v < 30 ? '#ef4444' : v < 50 ? '#eab308' : '#22c55e');
+        const tierCol = caps.tier === 'low' ? '#ef4444' : caps.tier === 'mid' ? '#eab308' : '#22c55e';
+        const Row = ({ k, v, c }: { k: string; v: string; c?: string }) => (
+          <div className="flex items-center justify-between gap-2">
+            <span style={{ color: 'rgba(255,255,255,0.35)' }}>{k}</span>
+            <span className="truncate text-right" style={{ color: c ?? 'rgba(255,255,255,0.85)' }}>{v}</span>
+          </div>
+        );
+        return (
+          <div className="shrink-0 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(59,130,246,0.04)' }}>
+            <Row k="Mode" v={mode || '—'} c="#3b82f6" />
+            <Row k="Tier" v={caps.tier} c={tierCol} />
+            <Row k="FPS"  v={tab === 'fps' ? `${fps} (avg ${avgFps})` : 'fps tab →'} c={fpsCol(fps)} />
+            <Row k="RAM"  v={ramMb > 0 ? `${ramMb} MB` : '—'} />
+            <Row k="Blur" v={blurOn ? 'ON' : 'OFF'} c={blurOn ? '#eab308' : '#22c55e'} />
+            <Row k="WebGL" v={caps.webgl ? 'YES' : 'NO'} c={caps.webgl ? '#22c55e' : '#ef4444'} />
+            <Row k="WeakGPU" v={caps.weakGpu ? 'YES' : 'NO'} c={caps.weakGpu ? '#ef4444' : '#22c55e'} />
+            <Row k="GPU" v={caps.renderer || '(maskeli)'} c={caps.renderer ? 'rgba(255,255,255,0.85)' : '#eab308'} />
+          </div>
+        );
+      })()}
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>

@@ -52,7 +52,13 @@ function DevInspectorInner() {
   );
 }
 
+/* Etkin mi? Dev build VEYA kişisel/teşhis build (VITE_ENABLE_INSPECTOR=true).
+   Satış build'inde ikisi de false → derleme-zamanı sabit → bu modül App.tsx'te
+   DCE edilir, chunk emit edilmez. */
+export const INSPECTOR_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_INSPECTOR === 'true';
+
 export function DevInspector() {
-  if (!import.meta.env.DEV) return null;
+  if (!INSPECTOR_ENABLED) return null;
   return <DevInspectorInner />;
 }
