@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
 import { registerCommandHandler, registerAIResultHandler } from '../platform/voiceService';
-import { pause, play, next, previous, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
+import { play, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
+// next/previous/togglePlayPause: UI'nın kullandığı KUYRUK-FARKINDA + in-app yönlendiren
+// sürümler (mediaService'inkiler native MediaSession'a özel; tarayıcıda no-op + YouTube/
+// stream kuyruğunu bilmez → "değiştir/durdur" çalışmıyordu).
+import { next, previous, togglePlayPause } from '../platform/media/carosMediaLayer';
 import { bridge, isNative } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
 import { CarLauncher } from '../platform/nativePlugin';
@@ -256,9 +260,11 @@ export function useVoiceCommandHandler({
         applySetting: (key, action, value, kind) =>
           void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         playMedia:   play,
-        pauseMedia:  pause,
-        nextTrack:   next,
-        prevTrack:   previous,
+        // "müziği durdur" → çalıyorsa togglePlayPause ile duraklat (UI ile aynı yol;
+        // in-app YouTube/stream'i web'de de doğru yönlendirir).
+        pauseMedia:  () => { if (getMediaState().playing) togglePlayPause(); },
+        nextTrack:   next,        // carosMediaLayer (kuyruk-farkında)
+        prevTrack:   previous,    // carosMediaLayer (kuyruk-farkında)
         volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
         volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
         openWeather:      showWeather,
