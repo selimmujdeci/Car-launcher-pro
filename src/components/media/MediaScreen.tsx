@@ -55,7 +55,9 @@ const YT_DL = import.meta.env.VITE_ENABLE_YT_DOWNLOAD === 'true';
 
 type YtDlState = 'idle' | 'busy' | 'done' | 'error';
 
-function YtDownloadButton({ title, artist }: { title: string; artist: string }) {
+function YtDownloadButton({
+  title, artist, variant = 'panel', style,
+}: { title: string; artist: string; variant?: 'panel' | 'overlay'; style?: React.CSSProperties }) {
   const [state, setState] = useState<YtDlState>('idle');
   const [pct, setPct] = useState(0);
 
@@ -89,9 +91,18 @@ function YtDownloadButton({ title, artist }: { title: string; artist: string }) 
   }, [state, title, artist]);
 
   const color =
-    state === 'done'  ? { color: '#22c55e', borderColor: 'rgba(34,197,94,0.5)' } :
-    state === 'error' ? { color: '#ef4444', borderColor: 'rgba(239,68,68,0.5)' } :
-                        { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' };
+    state === 'done'  ? '#22c55e' :
+    state === 'error' ? '#ef4444' :
+    variant === 'overlay' ? '#fff' : 'var(--oem-ink-2, rgba(240,235,224,0.74))';
+
+  // Video üstü (overlay) varyant: koyu cam zemin (ctrlBtn ile uyumlu); panel varyant: glass-card.
+  const overlayStyle: React.CSSProperties = {
+    width: 48, height: 48, borderRadius: 9999, border: 'none', color,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+    background: 'rgba(8,10,14,0.5)',
+    backdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))', WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))',
+    WebkitTapHighlightColor: 'transparent', position: 'relative',
+  };
 
   return (
     <button
@@ -99,8 +110,10 @@ function YtDownloadButton({ title, artist }: { title: string; artist: string }) 
       disabled={state === 'busy'}
       aria-label={state === 'done' ? 'İndirildi' : 'Cihaza indir'}
       title={state === 'done' ? 'İndirildi (çevrimdışı çalınabilir)' : state === 'error' ? 'İndirilemedi' : 'Cihaza indir'}
-      className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all relative"
-      style={color}
+      className={variant === 'overlay'
+        ? 'active:scale-90 transition-all'
+        : 'w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all relative'}
+      style={variant === 'overlay' ? { ...overlayStyle, ...style } : { color, ...style }}
     >
       {state === 'busy'
         ? <><Loader2 className="w-6 h-6 animate-spin" />{pct > 0 && <span className="absolute -bottom-1 text-[9px] font-black tabular-nums">{pct}%</span>}</>
@@ -393,17 +406,18 @@ interface PlayerViewProps {
  * none olduğundan oynatma hep API ile yönetilir; YouTube'un kendi kontrolleri kapalı.
  */
 function VideoFullscreenChrome({
-  title, artist, playing, onClose,
-}: { title: string; artist: string; playing: boolean; onClose: () => void }) {
+  title, artist, playing, positionSec, durationSec, onClose,
+}: { title: string; artist: string; playing: boolean; positionSec: number; durationSec: number; onClose: () => void }) {
   const [show, setShow] = useState(true);
   const hideTimer = useRef<number | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => setShow(false), 3000);
+    hideTimer.current = window.setTimeout(() => setShow(false), 3500);
   }, []);
 
-  // İlk açılışta kontroller görünür, 3 sn sonra gizlenir.
+  // İlk açılışta kontroller görünür, 3.5 sn sonra gizlenir.
   useEffect(() => {
     scheduleHide();
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
@@ -420,13 +434,23 @@ function VideoFullscreenChrome({
   // Bir butona basınca kontroller görünür kalsın + sayacı sıfırla.
   const wake = useCallback(() => { setShow(true); scheduleHide(); }, [scheduleHide]);
 
-  // Kontroller gizliyken (show=false) butonlar da tıklanamaz olmalı — yoksa görünmez
-  // buton bölgesinde "dokun-göster" çalışmaz (tık butona gider, yakalayıcıya değil).
+  // İlerleme çubuğuna dokunma → konuma atla (YouTube seek).
+  const onSeek = useCallback((e: React.PointerEvent) => {
+    const el = barRef.current;
+    if (!el || durationSec <= 0) return;
+    const r = el.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    seek(frac * durationSec);
+    wake();
+  }, [durationSec, wake]);
+
+  const progPct = durationSec > 0 ? Math.min(100, (positionSec / durationSec) * 100) : 0;
+
+  // Kontroller gizliyken (show=false) butonlar da tıklanamaz olmalı.
   const ctrlBtn = (size: number): React.CSSProperties => ({
     flexShrink: 0, width: size, height: size, borderRadius: 9999, pointerEvents: show ? 'auto' : 'none', border: 'none',
     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
     background: 'rgba(8,10,14,0.5)',
-    // --rt-blur=0 (Mali-400 / düşük mod) → backdrop blur kapalı, video üstünde GPU stall yok
     backdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))', WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))',
     color: '#fff', WebkitTapHighlightColor: 'transparent',
   });
@@ -443,29 +467,16 @@ function VideoFullscreenChrome({
           opacity: show ? 1 : 0, transition: 'opacity 0.25s ease',
         }}
       >
-        {/* Üst gradyan + Kapat (sağ üst) */}
+        {/* Üst gradyan + başlık (sol) + indir & kapat (sağ) */}
         <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 120,
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.55), transparent)',
+          position: 'absolute', top: 0, left: 0, right: 0, height: 132,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)',
         }} />
-        <button
-          onClick={onClose}
-          aria-label="Tam ekrandan çık"
-          style={{ ...ctrlBtn(48), position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: 20 }}
-        >
-          <X className="w-6 h-6" />
-        </button>
-
-        {/* Alt gradyan + başlık + önceki/oynat/sonraki */}
-        <div
-          style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, pointerEvents: 'none',
-            padding: '64px 28px calc(env(safe-area-inset-bottom, 0px) + 22px)',
-            background: 'linear-gradient(to top, rgba(0,0,0,0.66), transparent)',
-            display: 'flex', flexDirection: 'column', gap: 16,
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
+        <div style={{
+          position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 24, right: 20,
+          display: 'flex', alignItems: 'flex-start', gap: 12,
+        }}>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
             <div style={{
               color: '#fff', fontWeight: 900, fontSize: 22, lineHeight: 1.15,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 2px 8px rgba(0,0,0,0.6)',
@@ -478,22 +489,56 @@ function VideoFullscreenChrome({
               }}>{artist}</div>
             )}
           </div>
+          {/* İndir — tam ekranda da görünür (dev/kişisel build) */}
+          {YT_DL && (
+            <YtDownloadButton title={title} artist={artist} variant="overlay" style={{ pointerEvents: show ? 'auto' : 'none' }} />
+          )}
+          <button onClick={onClose} aria-label="Tam ekrandan çık" style={ctrlBtn(48)}>
+            <X className="w-6 h-6" />
+          </button>
+        </div>
 
-          {/* Önceki / Oynat-Duraklat / Sonraki — tam ekrandan parça değiştirme */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28 }}>
-            <button onClick={() => { previous(); wake(); }} aria-label="Önceki" style={ctrlBtn(52)}>
-              <SkipBack className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => { togglePlayPause(); wake(); }}
-              aria-label={playing ? 'Duraklat' : 'Çal'}
-              style={{ ...ctrlBtn(72), background: 'rgba(255,255,255,0.95)', color: '#0b0d12', boxShadow: '0 8px 28px rgba(0,0,0,0.45)' }}
-            >
-              {playing ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
-            </button>
-            <button onClick={() => { next(); wake(); }} aria-label="Sonraki" style={ctrlBtn(52)}>
-              <SkipForward className="w-6 h-6" />
-            </button>
+        {/* ORTADA büyük kontroller — sürücü kolay erişsin: Önceki / Oynat / Sonraki */}
+        <div style={{
+          position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 44,
+        }}>
+          <button onClick={() => { previous(); wake(); }} aria-label="Önceki" style={ctrlBtn(76)}>
+            <SkipBack className="w-9 h-9" />
+          </button>
+          <button
+            onClick={() => { togglePlayPause(); wake(); }}
+            aria-label={playing ? 'Duraklat' : 'Çal'}
+            style={{ ...ctrlBtn(108), background: 'rgba(255,255,255,0.96)', color: '#0b0d12', boxShadow: '0 10px 34px rgba(0,0,0,0.5)' }}
+          >
+            {playing ? <Pause className="w-12 h-12" /> : <Play className="w-12 h-12 ml-1" />}
+          </button>
+          <button onClick={() => { next(); wake(); }} aria-label="Sonraki" style={ctrlBtn(76)}>
+            <SkipForward className="w-9 h-9" />
+          </button>
+        </div>
+
+        {/* ALTTA ilerleme çubuğu + süre */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0, pointerEvents: 'none',
+          padding: '48px 28px calc(env(safe-area-inset-bottom, 0px) + 20px)',
+          background: 'linear-gradient(to top, rgba(0,0,0,0.66), transparent)',
+        }}>
+          {/* Geniş dokunma alanı (py-3) — ince çubuğu kolayca hedeflemek için */}
+          <div
+            onPointerDown={onSeek}
+            style={{ position: 'relative', width: '100%', padding: '12px 0', margin: '-12px 0', touchAction: 'none', pointerEvents: show ? 'auto' : 'none', cursor: 'pointer' }}
+          >
+            <div ref={barRef} style={{ position: 'relative', width: '100%', height: 5, borderRadius: 9999, background: 'rgba(255,255,255,0.22)', overflow: 'visible' }}>
+              <div style={{ position: 'absolute', insetBlock: 0, left: 0, width: `${progPct}%`, borderRadius: 9999, background: '#ff3b3b', boxShadow: '0 0 12px rgba(255,59,59,0.6)' }} />
+              {progPct > 0 && progPct < 100 && (
+                <div style={{ position: 'absolute', left: `calc(${progPct}% - 7px)`, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 0 0 3px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.5)' }} />
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, fontWeight: 800, letterSpacing: '0.05em', color: 'rgba(255,255,255,0.75)', fontVariantNumeric: 'tabular-nums' }}>
+            <span>{fmtTime(positionSec)}</span>
+            <span>{fmtTime(durationSec)}</span>
           </div>
         </div>
       </div>
@@ -563,6 +608,8 @@ function PlayerView({
           title={track.title}
           artist={track.artist}
           playing={playing}
+          positionSec={track.positionSec}
+          durationSec={track.durationSec}
           onClose={onToggleVideo}
         />
       )}
