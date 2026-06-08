@@ -20,6 +20,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { safeGetRaw, safeSetRawImmediate, safeRemoveRaw } from '../utils/safeStorage';
+import { logError } from './crashLogger';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -249,8 +250,11 @@ async function _doLoadOrCreate(): Promise<{ privKey: CryptoKey; pubKeyB64: strin
       _privKeyCache   = privKey;
       _pubKeyB64Cache = storedPub;
       return { privKey, pubKeyB64: storedPub };
-    } catch {
-      // JWK bozulmuş — yeni çift oluştur
+    } catch (e) {
+      // JWK bozulmuş — yeni çift oluştur (DAVRANIŞ AYNI; aşağıda yeni anahtar üretimi sürer).
+      // Gözlemlenebilirlik (Q2): sessiz key rotation eşleşmeyi koparabilir — hata türü loglanır.
+      // JWK İÇERİĞİ (storedPriv) ASLA loglanmaz.
+      logError('commandCrypto:loadOrCreate:jwk-import-failed', e);
     }
   }
 

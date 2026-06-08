@@ -17,6 +17,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { logInfo } from './debug';
+import { logError } from './crashLogger';
 import { CarLauncher } from './nativePlugin';
 
 export type SensitiveKey =
@@ -70,7 +71,10 @@ async function nativeGet(key: string): Promise<string> {
       secureStoreGet: (opts: { key: string }) => Promise<{ value: string | null }>;
     }).secureStoreGet({ key });
     return result?.value ?? '';
-  } catch {
+  } catch (e) {
+    // Gözlemlenebilirlik (Q2): Keystore okuma hatası ile "key yok" ('') ayırt edilemiyordu.
+    // Davranış AYNI (boş döner); yalnız hata türü + key ADI loglanır — key DEĞERİ asla.
+    logError(`sensitiveKeyStore:nativeGet:${key}`, e);
     return '';
   }
 }
