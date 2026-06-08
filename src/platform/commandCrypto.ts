@@ -18,7 +18,8 @@
  *                 türetilir, sonraki çağrılar RAM'den <1 μs.
  */
 
-import { safeGetRaw, safeSetRawImmediate } from '../utils/safeStorage';
+import { Capacitor } from '@capacitor/core';
+import { safeGetRaw, safeSetRawImmediate, safeRemoveRaw } from '../utils/safeStorage';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -189,9 +190,51 @@ export async function loadOrCreateDeviceKey(): Promise<{ pubKeyB64: string }> {
   return { pubKeyB64: result.pubKeyB64 };
 }
 
+/**
+ * C4 fix — E2E private key persistence katmanı.
+ *
+ * Native (satış APK'sı = asıl tehdit): Keystore-backed sensitiveKeyStore
+ *   (hardware AES-256-GCM). localStorage'a ASLA yazılmaz → chrome://inspect ile
+ *   sızamaz. Alias `car-e2e-private-key` korunur → NativeCryptoManager (FCM E2E)
+ *   aynı anahtardan okur.
+ * Web/dev (yalnız geliştirme, satış değil): mevcut safeStorage davranışı korunur.
+ */
+async function _loadPrivKeyJwk(): Promise<string | null> {
+  if (Capacitor.isNativePlatform()) {
+    const { sensitiveKeyStore } = await import('./sensitiveKeyStore');
+    const stored = await sensitiveKeyStore.get('car-e2e-private-key');
+    if (stored) return stored;
+    // Migration: eski plaintext safeStorage JWK'sını Keystore'a taşı, kalıntıyı temizle.
+    const legacy = safeGetRaw(DEVICE_PRIV_KEY);
+    if (legacy) {
+      await sensitiveKeyStore.set('car-e2e-private-key', legacy);
+      _purgeLegacyPrivKey();
+      return legacy;
+    }
+    return null;
+  }
+  return safeGetRaw(DEVICE_PRIV_KEY);
+}
+
+async function _persistPrivKeyJwk(jwkJson: string): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    const { sensitiveKeyStore } = await import('./sensitiveKeyStore');
+    await sensitiveKeyStore.set('car-e2e-private-key', jwkJson);
+    _purgeLegacyPrivKey(); // yeni key localStorage'a hiç yazılmaz + eski kalıntıyı sil
+    return;
+  }
+  await safeSetRawImmediate(DEVICE_PRIV_KEY, jwkJson);
+}
+
+/** Native: safeStorage Filesystem (safeRemoveRaw) + katman-2 localStorage kopyasını birlikte sil. */
+function _purgeLegacyPrivKey(): void {
+  try { safeRemoveRaw(DEVICE_PRIV_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(DEVICE_PRIV_KEY); } catch { /* ignore */ }
+}
+
 async function _doLoadOrCreate(): Promise<{ privKey: CryptoKey; pubKeyB64: string }> {
-  // 1. Mevcut anahtar çiftini yüklemeyi dene
-  const storedPriv = safeGetRaw(DEVICE_PRIV_KEY);
+  // 1. Mevcut anahtar çiftini yüklemeyi dene (private: native Keystore / web safeStorage)
+  const storedPriv = await _loadPrivKeyJwk();
   const storedPub  = safeGetRaw(DEVICE_PUB_KEY);
 
   if (storedPriv && storedPub) {
@@ -218,9 +261,9 @@ async function _doLoadOrCreate(): Promise<{ privKey: CryptoKey; pubKeyB64: strin
     ['deriveBits'],
   );
 
-  // 3. Private key → JWK → safeStorage (kritik, immediate write)
+  // 3. Private key → JWK → Keystore (native) / safeStorage (web). localStorage'a yazılmaz (C4).
   const privJwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
-  await safeSetRawImmediate(DEVICE_PRIV_KEY, JSON.stringify(privJwk));
+  await _persistPrivKeyJwk(JSON.stringify(privJwk));
 
   // 4. Public key → SPKI base64 → safeStorage
   const spki      = await crypto.subtle.exportKey('spki', pair.publicKey);

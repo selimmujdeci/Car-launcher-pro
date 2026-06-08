@@ -22,6 +22,7 @@ import { CarLauncher } from './nativePlugin';
 export type SensitiveKey =
   | 'geminiApiKey'
   | 'claudeHaikuApiKey'
+  | 'car-e2e-private-key'   // ECDH P-256 private key (JWK) — NativeCryptoManager alias'ı ile aynı (C4)
   | 'veh_device_id'
   | 'veh_api_key'
   | 'veh_vehicle_id'
