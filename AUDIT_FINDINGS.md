@@ -15,7 +15,13 @@
 
 > **EK DÜZELTMELER (2026-06-08, güvenli-atomik):**
 > #10 (POI UTF-8 byte-kesme — Türkçe karakter bozulması, GERÇEK bug) `698a8f7` · C9/#19/#21 yanıltıcı yorumlar `698a8f7` · #8 memory-pressure JSDoc + #7 SafetyBrain "geçici" metni `7a63300`. #8/#7'de KÖK davranış DOĞRU çıktı — yalnız doküman/metin yanlıştı (davranışa dokunulmadı).
-> **DüzeltilMEYEN — bilinçli bırakıldı (kullanıcı kararı / risk / scope):** #0 SAB (mimari karar), #2 offline turn-by-turn (özellik), #3 hız füzyonu çift-impl (JS+C++ multi-system, AI.md yasak), #4 NDK tüketici, #5 A* ölü duplike (silme doğrulaması gerek), #9 C++ SPSC, #11 versionCode (release politikası), #12 security-crypto alpha (dependency bump riski), #13 lisans denetimi, #15 zombie (yorumda saniye iddiası yok — geçersiz), #16/#17/#18 perf/mimari, #20 RLS GRANT teyidi, Q1 any=91 / Q2 sessiz-catch (geniş), C5/C6/C7 defense-in-depth, S1 API-key plaintext (store+UI).
+>
+> **DEFENSE-IN-DEPTH grubu (2026-06-08):**
+> **S1** `d738914` — useStore'daki gemini/claude API-key alanları ÖLÜ çıktı (gerçek yol zaten Keystore: SettingsPage useSensitiveKey + voiceService sks.get); plaintext sızıntı fiilen yoktu, yanıltıcı ölü alanlar kaldırıldı.
+> **C5/C6** — kod değişikliği GEREKMEDİ: C8 (plaintext MCU dalı kaldırıldı) + C10 (native nonce) sonrası native MCU yolu yalnız E2E-decrypt'ten geçiyor → "whitelist yetkisiz unlock'a izin veriyor" artık geçersiz; ekstra native yetki katmanı redundant.
+> **C7** `ef5e5ba` — admin open_trunk (handler'sız ölü buton) kaldırıldı; horn + tüm fiziksel MCU komutları remoteCommandService CRITICAL_TYPES'a eklendi → commandListener ile tutarlı, E2E'siz fiziksel komut iki yolda da reddedilir. (Kullanıcı kararı: admin-web E2E eksikse horn geçici çalışmasın — güvenlikten taviz yok.)
+>
+> **DüzeltilMEYEN — bilinçli bırakıldı (kullanıcı kararı / risk / scope):** #0 SAB (mimari karar), #2 offline turn-by-turn (özellik), #3 hız füzyonu çift-impl (JS+C++ multi-system, AI.md yasak), #4 NDK tüketici, #5 A* ölü duplike (silme doğrulaması gerek), #9 C++ SPSC, #11 versionCode (release politikası), #12 security-crypto alpha (dependency bump riski), #13 lisans denetimi, #15 zombie (yorumda saniye iddiası yok — geçersiz), #16/#17/#18 perf/mimari, #20 RLS GRANT teyidi, Q1 any=91 / Q2 sessiz-catch (geniş). **Açık iş:** admin-web E2E komut akışı (horn yeniden etkinleşmesi için), open_trunk handler (isteniyorsa).
 
 ### [P0-1] `webContentsDebuggingEnabled` — satış APK'sında remote debug açık
 - **Kanıt:** KESİN (`capacitor.config.ts:14` koşulsuz `true`)
@@ -185,6 +191,29 @@ E2E kriptosu (`commandCrypto.ts`) kusursuz (ECDH-P256+PFS+çift-replay) AMA **ik
 **HENÜZ kapsanmayan (ayrı oturum):** UI dev katmanı TAM (142 component, özellikle FullMapView 38-effect derin inceleme) · admin-web React (RemoteCommandPanel, SuperAdminShell 1207) · her servisin satır-satır okuması · commandParser(1057) · SystemOrchestrator/CognitivePriorityEngine tam · RLS migration'larının tamamı + GRANT teyidi · test içerikleri.
 
 ---
+
+### Alan 44 — Kalan native güvenlik toplu (loop tur 34)
+- ✅ Kalan native güvenli: `Runtime.exec`/`su` yalnız CAN transport'larda (HiworldAdapter/K24CanBridge/SerialPortHandler) — UART `/dev/ttyS*` chmod erişimi için (hafıza "FileSerial su ile chmod bypass" notuyla uyumlu, READ-ONLY CAN, rootsuz cihazda CanBusManager USB/BT fallback). Komut-enjeksiyonu yüzeyi yok (sabit komut, kullanıcı girdisi yok). MainActivity(361)/BootReceiver(63)/PluginUtils(109)/MediaListenerService(53) exec'siz.
+- 🟢 Handoff: CAN transport `su` komutlarının sabit-yol (enjeksiyon-yok) satır-satır teyidi — düşük öncelik.
+**Okunan/tarandı (kümülatif ~115 dosya / ~%67):** + kalan native (su/exec/exported toplu tarama: HiworldAdapter/K24/SerialPortHandler/MainActivity/BootReceiver/PluginUtils/MediaListener).
+
+### Alan 43 — Platform alt-dizin leak toplu → TEMİZ (loop tur 33)
+- ✅ **Platform alt-dizinleri (42 dosya: vision/ai/traffic/poi/radar/power/maps/expert/safety/security/navigation/gps) leak-temiz:** 3 şüpheli (visionCore 4/2, radarEngine 4/1, radarCommunity 3/1) hepsi false-positive. radarEngine: `_ttsHistoryPurgeTimer` clearInterval'lı (satır 221), decay-timer stopCommunitySync'te, "Zero-Leak cleanup" yorumu. visionCore: stopVision cleanup (önceki tur). Grep ayrı-metod cleanup'ı + tek-atış setTimeout'ı sayamıyor (kronik false-positive deseni).
+**Okunan/tarandı (kümülatif ~113 dosya / ~%65):** + 42 platform alt-dizin leak toplu, radarEngine cleanup doğrulama.
+
+### Alan 42 — CarLauncherPlugin güvenlik taraması (loop tur 32)
+- ✅ `CarLauncherPlugin.java` (3700 satır, 87 @PluginMethod) güvenlik anti-pattern TEMİZ: `Runtime.exec`/`su`/`ProcessBuilder`/shell YOK (yalnız `.shutdown()` metod adı false-match), dünya-okunabilir dosya (`MODE_WORLD`/`getExternalStorage`/`file://`) YOK, `setClassName`/`setPackage` yalnız app-launch (launcher) için meşru. Komut-enjeksiyonu/arbitrary-path yüzeyi yok.
+- 📌 Not: 3700 satır TAM okunmadı (bağlam) ama güvenlik-kritik yüzey (shell/intent/dosya/exec) tarandı. İş mantığı detayı (OBD/media/system metotları) handoff'ta kalır.
+**Okunan/tarandı (kümülatif ~111 dosya / ~%62):** + CarLauncherPlugin güvenlik-yüzey taraması (87 metot).
+
+### Alan 41 — Admin-web güvenlik toplu tarama → GÜVENLİ (loop tur 31)
+- ✅ **Admin-web (44 dosya) güvenli — kritik pozitif:** `service_role` key client bundle'da **YOK** (yalnız kurulum yorumlarında) → yaygın "admin'de service_role gömme=tüm RLS bypass" hatası YAPILMAMIŞ. Route guard mevcut (SuperAdminGuard/RoleGuard/useRole/useAuth). Tüm superadmin sayfaları (FeatureFlags/PolicyCenter/RolloutCenter/FleetCenter/HealthCenter/AuditCenter) mutation=0 → işlemler superadmin.service üzerinden RLS `app_metadata.role=super_admin` (JWT, kullanıcı değiştiremez) korumalı. Yalnız RemoteCommandPanel(1 insert=C7) + SuperAdminGuard(2 auth).
+**Okunan/tarandı (kümülatif ~110 dosya / ~%60):** + 44 admin-web dosya (mutation/service_role/guard toplu tarama).
+
+### Alan 40 — UI katmanı leak toplu tarama → TEMİZ (loop tur 30)
+- ✅ **UI katmanı (142 component) leak-temiz teyit:** yan-etki/cleanup farkı≥2 yalnız 3 component, hepsi **false-positive**: NavigationHUD (7/5, render-ağırlıklı), ExpertModePanel (subscribeSafetyBrain inline useEffect-return cleanup'lı + 2 setTimeout handler-içi tek-atış UI feedback), RadarQuickReport (benzer). Grep inline-return'ü sayamıyor → metrik yanıltıcı (önceki FullMapView gibi). 139/142 zaten dengeli.
+- 🟢 ExpertModePanel setTimeout'ları unmount sonrası setState uyarısı üretebilir (memory leak DEĞİL, konsol uyarısı — çok düşük).
+**Okunan/tarandı (kümülatif ~108 dosya / ~%57):** + 142 UI component leak toplu tarama, ExpertModePanel spot-doğrulama.
 
 ### Alan 39 — Clock-jump disiplini bulk tarama (loop tur 29)
 - ✅ **Clock-jump disiplini büyük ölçüde doğru (CLAUDE.md §4):** kritik duration'lar (odometer/trip/command-ts/telemetry/OdometerGuard/blackBox) monotonic `performance.now`. Kalan `Date.now` kullanımları (communityService/fuelAdvisor/geofence/hazard/mapSource/obdRetry throttle-cooldown, traffic ageDays/ageHours uzun-yaş) → kabul edilebilir (clock-jump etkisi ihmal edilebilir).
