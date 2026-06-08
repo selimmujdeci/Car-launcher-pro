@@ -100,8 +100,8 @@ export function updateDeviceStatus(partial: Partial<DeviceStatus>): void {
 export function useDeviceStatus(): DeviceStatus {
   const status = useSyncExternalStore(
     (onStoreChange) => {
-      _listeners.add(onStoreChange as any);
-      return () => { _listeners.delete(onStoreChange as any); };
+      _listeners.add(onStoreChange);
+      return () => { _listeners.delete(onStoreChange); };
     },
     () => _current,
     () => _current,

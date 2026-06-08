@@ -26,6 +26,7 @@ import { buildNavIntent } from './navIntent';
 // ── Supabase client — statik import (dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler)
 // remoteCommandService ve weatherService zaten statik import yaptığı için
 // bu modül de aynı chunk'a düşmeli.
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { getSupabaseClient } from './supabaseClient';
 
 function getSupabase() {
@@ -258,8 +259,7 @@ async function triggerPushNotify(
 export class CommandListener {
   private vehicleId:      string;
   private _alive =        false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private channel:        any = null;
+  private channel:        RealtimeChannel | null = null;
   private executedIds:    Set<string> = new Set(); // ID bazlı dedup (nonce değil)
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimers:    Map<string, ReturnType<typeof setTimeout>> = new Map();

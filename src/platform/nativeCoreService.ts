@@ -99,8 +99,8 @@ export function getScreenMetrics(): NativeScreenMetrics | null {
 export function useDeviceProfile(): NativeDeviceProfile | null {
   return useSyncExternalStore(
     (onStoreChange) => {
-      _profileListeners.add(onStoreChange as any);
-      return () => { _profileListeners.delete(onStoreChange as any); };
+      _profileListeners.add(onStoreChange);
+      return () => { _profileListeners.delete(onStoreChange); };
     },
     () => _profile,
     () => _profile,
@@ -110,8 +110,8 @@ export function useDeviceProfile(): NativeDeviceProfile | null {
 export function useScreenMetrics(): NativeScreenMetrics | null {
   return useSyncExternalStore(
     (onStoreChange) => {
-      _metricsListeners.add(onStoreChange as any);
-      return () => { _metricsListeners.delete(onStoreChange as any); };
+      _metricsListeners.add(onStoreChange);
+      return () => { _metricsListeners.delete(onStoreChange); };
     },
     () => _screenMetrics,
     () => _screenMetrics,
