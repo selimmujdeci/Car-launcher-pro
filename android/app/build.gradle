@@ -16,7 +16,10 @@ android {
         applicationId "com.cockpitos.pro"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // Sürüm yönetimi (#11): Play Store her yüklemede STRICT artan bir tamsayı ister.
+        // versionCode HER YAYINDA elle +1 artırılır (manuel monotonik — CI/git-count YOK).
+        // versionName insan-okur etikettir; release'te ikisi birlikte güncellenir.
+        versionCode 2
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Head unit'ler ARM — x86/x86_64 native kütüphaneleri (~18MB, çoğu Vosk) gereksiz yük.
