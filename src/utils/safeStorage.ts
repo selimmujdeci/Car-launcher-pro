@@ -159,6 +159,9 @@ export function safeLruEvict(): number {
         if (!_isCritical(key) && (key.startsWith(prefix) || key === prefix)) {
           _fsCache.delete(key);
           void Filesystem.deleteFile({ path: _fp(key), directory: FS_DIR }).catch(() => {});
+          // #18: native'de safeSetRawImmediate localStorage'a katman-2 backup yazar;
+          // onu da temizle, yoksa LRU'dan muaf kalıp localStorage quota'sını şişirir.
+          try { localStorage.removeItem(key); } catch { /* ignore */ }
           evicted++;
         }
       });
