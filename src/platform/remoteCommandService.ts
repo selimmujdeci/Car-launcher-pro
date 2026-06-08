@@ -140,6 +140,10 @@ function _awaitHardwareAck(commandId: string): Promise<boolean> {
  */
 const CRITICAL_TYPES = new Set([
   'lock', 'unlock',
+  // C7: TÜM fiziksel MCU komutları E2E-kritik — commandListener MCU_COMMANDS ile birebir
+  // tutarlı. E2E'siz (örn. admin paneli plaintext) horn/alarm/lights araç tarafında reddedilir;
+  // hiçbir fiziksel komut şifresiz geçemez (güvenlik modeli tutarlı).
+  'horn', 'alarm_on', 'alarm_off', 'lights_on',
   'hw_lock_doors', 'hw_unlock_doors',
   'HARDWARE_LOCK', 'HARDWARE_UNLOCK',
 ]);

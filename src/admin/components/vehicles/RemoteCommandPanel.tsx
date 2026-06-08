@@ -31,9 +31,11 @@ interface RemoteCommand {
 }
 
 const COMMANDS: RemoteCommand[] = [
-  { type: 'horn',       label: 'Korna',     icon: '📢' },
-  { type: 'locate',     label: 'Aracı Bul', icon: '📍' },
-  { type: 'open_trunk', label: 'Bagaj Aç',  icon: '🔓' },
+  { type: 'horn',   label: 'Korna',     icon: '📢' },
+  { type: 'locate', label: 'Aracı Bul', icon: '📍' },
+  // open_trunk kaldırıldı (C7): araç tarafında handler yok — ölü/yanıltıcı buton.
+  // horn artık E2E-kritik; bu panel E2E göndermediğinden araç tarafında reddedilir
+  // (kasıtlı — güvenlikten taviz yok; admin-web E2E akışı ayrı iş).
 ]
 
 // ── Component ────────────────────────────────────────────────────────────────
