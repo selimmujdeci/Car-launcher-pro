@@ -9,9 +9,11 @@
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { authorizePushRequest } from './pushAuth.ts';
 
 const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY         = Deno.env.get('SUPABASE_ANON_KEY')!;        // RLS-aware kullanıcı sorgusu için
 const FCM_SERVER_KEY   = Deno.env.get('FCM_SERVER_KEY') ?? '';      // Firebase Server Key
 const FCM_PROJECT_ID   = Deno.env.get('FCM_PROJECT_ID') ?? '';      // Firebase Project ID
 
@@ -38,25 +40,40 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false },
   });
 
-  // ── Auth (E1 fix) ────────────────────────────────────────────────────────────
-  // ÖNCE: `auth.startsWith('Bearer ')` herhangi bir sahte "Bearer X" string'ini kabul
-  // ediyordu (JWT doğrulaması YOK) → yetkisiz push-to-wake (DoS/batarya + C8/C2 saldırı yüzeyi).
-  // ŞİMDİ: ya service_role tam-eşleşmesi (backend/cron) ya da GERÇEKTEN doğrulanmış JWT'ye
-  // sahip + bu araca bağlı kullanıcı. service_role olmayan çağıran yalnız KENDİ aracını uyandırır.
+  // ── Auth (E1 + prod-şema fix) ────────────────────────────────────────────────
+  // ÖNCE: sahte "Bearer X" kabul ediliyordu (JWT doğrulaması yok) → yetkisiz push-to-wake.
+  // ŞİMDİ: service_role bypass'ı VEYA doğrulanmış JWT + araca RLS erişimi.
+  // Prod şemada `vehicle_users` YOK; araç↔kullanıcı ilişkisi `vehicles` RLS policy'sinde:
+  //   company_id = auth_company_id() OR owner_id = auth.uid()  (001_init.sql:194-200)
+  // Erişim, kullanıcının kendi JWT'siyle (RLS-aware) vehicles SELECT'ine delege edilir →
+  // owner + şirket-üyesi senaryolarını DB'nin kendi mantığı çözer. Karar mantığı pushAuth.ts'te (test).
   const token = (req.headers.get('Authorization') ?? '').replace('Bearer ', '').trim();
-  if (!token) return new Response('Unauthorized', { status: 401 });
 
-  if (token !== SERVICE_ROLE_KEY) {
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) return new Response('Unauthorized', { status: 401 });
+  const decision = await authorizePushRequest(token, vehicleId, {
+    serviceRoleKey: SERVICE_ROLE_KEY,
+    verifyJwt: async (t) => {
+      const { data: { user }, error } = await supabase.auth.getUser(t);
+      return error || !user ? null : user.id;
+    },
+    vehicleExists: async (vid) => {
+      const { data } = await supabase.from('vehicles').select('id').eq('id', vid).maybeSingle();
+      return !!data;
+    },
+    userCanAccessVehicle: async (t, vid) => {
+      const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: `Bearer ${t}` } },
+        auth: { persistSession: false },
+      });
+      const { data } = await userClient.from('vehicles').select('id').eq('id', vid).maybeSingle();
+      return !!data;
+    },
+  });
 
-    const { data: link } = await supabase
-      .from('vehicle_users')
-      .select('user_id')
-      .eq('vehicle_id', vehicleId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (!link) return new Response('Forbidden', { status: 403 });
+  if (!decision.ok) {
+    const msg = decision.status === 401 ? 'Unauthorized'
+              : decision.status === 404 ? 'Vehicle not found'
+              : 'Forbidden';
+    return new Response(msg, { status: decision.status });
   }
 
   if (!FCM_SERVER_KEY || !FCM_PROJECT_ID) {
