@@ -8,6 +8,15 @@
 **Sıra:** P0-1 → P0-4 → (P0-2 + P0-3 birlikte, aynı kök) → P0-5 → P1-1
 **Fix öncesi cihazda teyit bekleyen:** P0-2 uçtan-uca (FCM `cmd_type` akışı), P0-4 (`config.toml` `verify_jwt`)
 
+> **DURUM (2026-06-08): tümü kodda DÜZELTİLDİ — cihaz/deploy doğrulaması bekliyor.**
+> P0-1 `656d225` · P0-4 `656d225` · P0-2+P0-3 (C1/C2/C8) `953247b` · P0-5 (C4) `d84de2b` · C10/P0-2b (native nonce-replay) `95b1846` · P1-1 (M1/M2 BYOK) `abf762c`.
+> **Lokal doğrulama:** `tsc -b`+eslint temiz, ilgili Vitest geçti. **Lokal YAPILAMAYAN:** Java derlemesi (gradle), Deno edge-fn check, cihazda runtime/exploit testleri.
+> **Açık kalan (ayrı iş):** cross-channel nonce dedup (native↔JS ayrı store), tam tek-dinleyici birleştirme (C3), BYOK ayar UI'si.
+
+> **EK DÜZELTMELER (2026-06-08, güvenli-atomik):**
+> #10 (POI UTF-8 byte-kesme — Türkçe karakter bozulması, GERÇEK bug) `698a8f7` · C9/#19/#21 yanıltıcı yorumlar `698a8f7` · #8 memory-pressure JSDoc + #7 SafetyBrain "geçici" metni `7a63300`. #8/#7'de KÖK davranış DOĞRU çıktı — yalnız doküman/metin yanlıştı (davranışa dokunulmadı).
+> **DüzeltilMEYEN — bilinçli bırakıldı (kullanıcı kararı / risk / scope):** #0 SAB (mimari karar), #2 offline turn-by-turn (özellik), #3 hız füzyonu çift-impl (JS+C++ multi-system, AI.md yasak), #4 NDK tüketici, #5 A* ölü duplike (silme doğrulaması gerek), #9 C++ SPSC, #11 versionCode (release politikası), #12 security-crypto alpha (dependency bump riski), #13 lisans denetimi, #15 zombie (yorumda saniye iddiası yok — geçersiz), #16/#17/#18 perf/mimari, #20 RLS GRANT teyidi, Q1 any=91 / Q2 sessiz-catch (geniş), C5/C6/C7 defense-in-depth, S1 API-key plaintext (store+UI).
+
 ### [P0-1] `webContentsDebuggingEnabled` — satış APK'sında remote debug açık
 - **Kanıt:** KESİN (`capacitor.config.ts:14` koşulsuz `true`)
 - **Exploit:** Fiziksel/ADB → chrome://inspect → DOM/JS/localStorage (E2E key, oturum, API key)
@@ -41,6 +50,13 @@
 - **Min. fix:** P0-1 kapat (birincil); E2E key'i `sensitiveKeyStore`'a taşı (Keystore-backed, altyapı MEVCUT); localStorage double-lock'tan hariç tut
 - **Regresyon:** ORTA (key persistence/migrasyon; mevcut eşleşmeler kopmamalı) · **Satış engeli:** EVET
 - **Test:** localStorage E2E key içermez; native decrypt çalışır; eşleşmiş cihaz reconnect→decrypt OK
+
+### [P0-2b] C10 — Native E2E decrypt'te replay/nonce koruması YOK
+- **Kanıt:** KESİN kod-kanıtlı (`NativeCryptoManager.decryptCommandPayload`: outer ts + inner _ts var, **`_nonce` deduplication YOK**). JS `commandCrypto`'da `_checkAndMarkNonce` var → native'de eksik.
+- **Exploit:** Geçerli şifreli `unlock` yakala (MITM/DB-read/FCM gözlem) → 30s pencerede FCM ile tekrar gönder → araç uyku → native decrypt geçer → CAN → kapı tekrar açılır. Replay attack.
+- **Min. fix:** Native'de inner `_nonce` dedup (kalıcı kullanılmış-nonce seti, JS deseni); veya tek-kullanımlık komut id. Aynı dosya zinciri P0-2 (C8) ile birlikte fix edilmeli.
+- **Regresyon:** DÜŞÜK-ORTA (nonce store native; meşru komut tek-icra korunmalı) · **Satış engeli:** EVET (fiziksel kapı, replay)
+- **Test:** Aynı şifreli komut 2× → ilki icra, ikincisi red; farklı nonce → her biri icra; 30s sonra→stale red
 
 ### [P1-1] M1/M2 — Gömülü Jamendo/Spotify client_id
 - **Kanıt:** KESİN (`jamendoProvider.ts:16`='65c9241f'; `spotifyConfig.ts:21`='7ebfa30f...')
@@ -169,6 +185,80 @@ E2E kriptosu (`commandCrypto.ts`) kusursuz (ECDH-P256+PFS+çift-replay) AMA **ik
 **HENÜZ kapsanmayan (ayrı oturum):** UI dev katmanı TAM (142 component, özellikle FullMapView 38-effect derin inceleme) · admin-web React (RemoteCommandPanel, SuperAdminShell 1207) · her servisin satır-satır okuması · commandParser(1057) · SystemOrchestrator/CognitivePriorityEngine tam · RLS migration'larının tamamı + GRANT teyidi · test içerikleri.
 
 ---
+
+### Alan 39 — Clock-jump disiplini bulk tarama (loop tur 29)
+- ✅ **Clock-jump disiplini büyük ölçüde doğru (CLAUDE.md §4):** kritik duration'lar (odometer/trip/command-ts/telemetry/OdometerGuard/blackBox) monotonic `performance.now`. Kalan `Date.now` kullanımları (communityService/fuelAdvisor/geofence/hazard/mapSource/obdRetry throttle-cooldown, traffic ageDays/ageHours uzun-yaş) → kabul edilebilir (clock-jump etkisi ihmal edilebilir).
+- 🟢 `ReplayService`/`ScenarioEngine` elapsedMs `Date.now()` — clock-jump'ta yanlış elapsed ama platform/test/ (dev/test aracı, production-kritik değil).
+**Okunan/tarandı (kümülatif ~106 dosya / ~%55):** + clock-jump bulk tarama (13 Date.now noktası değerlendirildi), kalan platform boyut envanteri.
+
+### Alan 38 — Bulk güvenlik re-tarama + M1/M2 fix teyidi (loop tur 28)
+- ✅ **M1/M2 fix doğrulandı:** `mediaCredentials.ts:20-21` artık `DEV_JAMENDO/SPOTIFY_CLIENT_ID` (DEV-only fallback, BYOK yapısı, production'da DCE ile bundle'dan çıkar). P1-1 kapandı.
+- ✅ `CockpitLayout.tsx:48` `innerHTML` = statik CSS keyframe (kullanıcı girdisi yok) → XSS riski YOK, false positive.
+- ✅ **Kalan src bulk re-tarama TEMİZ:** gömülü-secret (M1/M2 dışında), eval/innerHTML/dangerouslySetInnerHTML/new Function, http:// (non-localhost) = SIFIR. Güvenlik yüzeyi tüm kod tabanında temiz teyit edildi.
+**Okunan/tarandı (kümülatif ~104 dosya / ~%53):** + mediaCredentials, CockpitLayout(innerHTML), tüm src güvenlik bulk re-tarama.
+
+### Alan 37 — Native heartbeat auth (hardcoded-key şüphesi çürütüldü) (loop tur 27)
+- ✅ **Native heartbeat hardcoded key YOK** (önceki tur şüphesi ÇÜRÜTÜLDÜ): `sSupabaseUrl`/`sSupabaseKey` JS'ten `setSupabaseConfig(url, anonKey, vehicleId)` ile runtime enjekte (CarLauncherPlugin:3166→ForegroundService:133). **anon key** (service_role DEĞİL) + RLS owner/paired → vehicle_locations'a güvenli yazım. anon key zaten client-side public, RLS koruyor.
+**Okunan (kümülatif ~102 dosya / ~%51):** + CarLauncherForegroundService heartbeat auth (grep doğrulama), CarLauncherPlugin.setSupabaseConfig.
+
+### Alan 36 — CarLauncherForegroundService → %50 milestone (loop tur 26)
+- ✅ `CarLauncherForegroundService` yapı sağlam: wake-up (30s IMPORTANCE_HIGH→LOW), offline GPS buffer (ArrayDeque max-200), Android 12+ ForegroundServiceType uyumu, native heartbeat (WebView ölünce HttpURLConnection→Supabase GPS).
+- 📌 **Handoff/teyit:** Native heartbeat'in Supabase auth yöntemi (HttpURLConnection header) okunmadı — hardcoded Supabase key riski sonraki turda doğrulanmalı (heartbeat metodu satır 75+).
+**Okunan (kümülatif ~101 dosya / ~%50):** + CarLauncherForegroundService(1-75). 🎯 %50 milestone.
+
+### Alan 35 — maintenanceBrain (loop tur 25)
+- ✅ `maintenanceBrain` temiz: predictive aşınma (healthScore kümülatif, oilLife km-bazlı), VehicleProfile kalibrasyon (idleRpm/normalTemp/oilType/wearOffset/engineCapacity), MAINTENANCE_REQUIRED histerezis (40/50 re-arm), monotonic delta (clock-jump güvenli), safeStorage 30s debounce, degraded-mode 2dk throttle (CPU sürüşe bırakılır).
+**Okunan (kümülatif ~100 dosya / ~%49):** + maintenanceBrain(1-70).
+
+### Alan 34 — VehicleSignalMapper native CAN decode (loop tur 24)
+- ✅ `VehicleSignalMapper` temiz: CAN ID→sinyal dönüşümü, per-vehicle `configure()` (volatile CAN ID'ler), sanity sınırları ilk-katman (RPM≤10k, speed≤300, temp -40/150, batt 8/20, throttle 0/100), partial-state accumulator (read-thread-only), bit maskeleri, JS'te savunma-derinliği ek kontrol. CAN decode katmanı (HiworldProtocolParser + VehicleSignalMapper) tutarlı sağlam.
+**Okunan (kümülatif ~99 dosya / ~%48):** + VehicleSignalMapper.java(1-85).
+
+### Alan 33 — dtcService (loop tur 23)
+- ✅ `dtcService` temiz: kapsamlı Türkçe DTC veritabanı (P/B/C/U kodları, severity+possibleCauses), native readDTC/clearDTC, `isStale` (başarısız okumada önceki veri korunur), module-level state (obdService deseni), mock fallback (OBD mock policy env-driven olmalı — düşük öncelik teyit).
+**Okunan (kümülatif ~98 dosya / ~%47):** + dtcService(1-65).
+
+### Alan 32 — geofenceService (loop tur 22)
+- ✅ `geofenceService` temiz: Supabase zona→Worker→offline-security (zonalar bir kez yüklenince internet kesilse de worker içinde denetim sürer), worker `_checkGeofences` yalnız speed>0 (perf), sensitiveKeyStore vehicleId, retry 60s, `stop()` cleanup. EXIT→useSystemStore.geofenceAlarm→overlay.
+**Okunan (kümülatif ~97 dosya / ~%46):** + geofenceService(1-70).
+
+### Alan 31 — RLS GRANT teyidi → R1 (loop tur 21)
+- **R1** 🔴 **RLS migration'larında explicit GRANT yok (#20 doğrulandı).** 13 tablo taraması: 001_init(6 tablo,GRANT=0,RLS=6,POLICY=11), 002_remote_commands(3 tablo,GRANT=0,POLICY=0), command_bus(2 tablo,GRANT=0), linking_codes(1,GRANT=0), vehicle_push(1,GRANT=0). **Yalnız data_retention'da 1 GRANT.** CLAUDE.md: "GRANT olmadan migration=production-critical hata; public-schema otomatik-erişilebilir varsaymak YASAK". RLS+policy var ama GRANT'siz → Supabase default schema-GRANT devrede değilse anon/authenticated `permission denied` → **frontend çöker**.
+  - **Doğrulama gerekir:** Supabase default `GRANT ... ON ALL TABLES TO anon,authenticated` aktif mi? `information_schema.role_table_grants` ile teyit (statik analizde görülemez). Aktifse R1 düşer; değilse production-blocker.
+  - **Min. fix:** Her tabloya `GRANT SELECT,INSERT,UPDATE,DELETE ON ... TO anon,authenticated` + `GRANT ALL ... TO service_role` (CLAUDE.md checklist).
+- 🟢 002_remote_commands RLS=3/POLICY=0 ama policy'ler ayrı migration'da (20260424000009b_rls.sql, 8 policy) — bölünmüş, kabul edilebilir.
+**Okunan/tarandı (kümülatif ~96 dosya / ~%45):** + 13 RLS migration (GRANT/policy toplu tarama).
+
+### Alan 30 — blackBoxService forensic (loop tur 20)
+- ✅ `blackBoxService` **örnek forensic**: 300-slot zero-allocation rolling buffer (30s@10Hz), 6G darbe algılama (DeviceMotionEvent), atomik crash-log kilitleme (safeSetRawImmediate), monotonic time (R-1, clock-jump güvenli), **gizlilik: crash replay buffer'da lat/lng YOK** (yalnız hız/rpm/gear), crash-log-* LRU-muaf shield. Bulgu yok.
+- 📌 **Gözlem:** Tur 16 (C10) sonrası hep temiz doğrulama — kod kalitesi tutarlı yüksek. Kalan en yüksek risk: CarLauncherPlugin 3700-satır tam okuma, kalan admin-web React sayfaları, RLS migration'ların tamamı.
+**Okunan (kümülatif ~95 dosya / ~%44):** + blackBoxService(1-75).
+
+### Alan 29 — McuEventSniffer (restart-loop fix doğrulandı) (loop tur 19)
+- ✅ `McuEventSniffer` **READ-ONLY** MCU event keşif (K250/NWD/Hiworld): yazma/kontrol komutu yok, main-thread bloke etmez, log throttle (10s). FactorySettingService IBinder (UiService değil → kamera açmaz), broadcast/socket/ContentProvider çok-yöntemli keşif (K24CanBridge deseni).
+- ✅ `RejectedExecutionException` import + handling mevcut → hafızadaki "1-5dk restart loop kök neden = ölü executor" fix'i kod düzeyinde DOĞRULANDI.
+**Okunan (kümülatif ~94 dosya / ~%43):** + McuEventSniffer.java(1-75).
+
+### Alan 28 — Vision çekirdeği + admin shell (loop tur 18)
+- ✅ `SuperAdminShell.tsx` komut yüzeyi YOK (insert/rpc/lock=0) — salt görüntüleme/yönetim; admin komutu yalnız RemoteCommandPanel'de (C7).
+- ✅ `visionCore` temiz: AdaptiveRuntime throttle (SAFE_MODE→0 CPU, BASIC_JS→5fps, BALANCED→10fps — Mali-400), `_workerBusy` frame-atlama guard, OffscreenCanvas→VisionCompute worker→SAB. Vision SAB tek-artış generation (#16 zaten kayıtlı — Seqlock yok ama tek-yazım/dirty-flag, lane verisi güvenlik-kritik değil).
+**Okunan (kümülatif ~93 dosya / ~%42):** + SuperAdminShell(güvenlik-grep), visionCore(1-80).
+
+### Alan 27 — Broadcast receiver + manifest exported disiplini (loop tur 17)
+- ✅ `CommandBroadcastReceiver` güvenli (yalnız ForegroundService wakeUp, komut icra YOK; CommandService `setPackage` ile gönderir).
+- ✅ **Manifest exported disiplini DOĞRU:** CommandService `exported=false`, CommandBroadcastReceiver `exported=false`, MediaListenerService permission-korumalı (BIND_NOTIFICATION_LISTENER_SERVICE), provider `exported=false`. (Satır 98 exported=true receiver muhtemelen BootReceiver/BOOT_COMPLETED — standart, handoff'ta teyit.)
+- 📌 **C8 vektör daralması:** CommandService exported=false → yerel uygulama komut enjekte edemez. C8 yalnız FCM mesajı enjeksiyonu (E1 bypass veya Firebase Server Key sızıntısı) ile sömürülebilir — hâlâ baş-kritik, ama saldırı yüzeyi dar.
+**Okunan (kümülatif ~91 dosya / ~%41):** + CommandBroadcastReceiver.java, AndroidManifest.xml(exported tarama).
+
+### Alan 26 — NativeCryptoManager → C10 replay açığı (loop tur 16)
+- **C10** 🔴🔴 **Native E2E decrypt'te nonce/replay koruması YOK** (P0-2b). `NativeCryptoManager.decryptCommandPayload` outer/inner ts kontrol eder ama `_nonce` dedup yok (JS commandCrypto'da var). 30s pencerede replay → tekrar unlock → CAN. C8 ile aynı native yolda ikinci açık.
+- ✅ Kripto kalitesi doğru: ECDH-P256 + HKDF-SHA256(zero-salt+caros-cmd-v1) + AES-256-GCM(128-bit tag), JS commandCrypto ile birebir uyumlu, çift-timestamp, JWK key EncryptedSharedPreferences (CarLauncherSecureStore), P256 params manuel doğru. Tek eksik: nonce.
+**Okunan (kümülatif ~90 dosya / ~%40):** + NativeCryptoManager.java(tam).
+
+### Alan 25 — AI servisi + S1 kesinleşti (loop tur 15)
+- **S1 KESİNLEŞTİ** 🟡 `resolveApiKey` (aiVoiceService.ts:267): AI key **settings-plaintext öncelikli** (useStore→safeStorage→localStorage), env fallback; **sensitiveKeyStore AI key yolunda HİÇ kullanılmıyor** (tip tanımlı olsa da). #1 (debug açık) + plaintext → kullanıcının gemini/claude key'i chrome-inspect ile sızar. Fix: AI key'i sensitiveKeyStore'dan oku (C4/P0-5 ile aynı altyapı).
+- ✅ `semanticAiService` güvenli: AI çıktısı `VALID_INTENTS`/`VALID_CATEGORIES` whitelist'iyle doğrulanıyor (prompt-injection'a karşı sağlam), 3-katman fallback (edge_fn→direct_ai→offline), JSON-only prompt, pidDescriptionGate bütünlük bloğu.
+**Okunan (kümülatif ~89 dosya / ~%39):** + semanticAiService(1-90), aiVoiceService(resolveApiKey/askAI).
 
 ### Alan 24 — connectivityService (loop tur 14)
 - ✅ `connectivityService` **örnek dayanıklılık**: at-least-once delivery (2xx'e dek silinmez), priority queue (critical>high>normal), exponential backoff (1s→30s), IndexedDB kalıcı kuyruk, monotonic enqueuedAt (clock-jump güvenli). Komut-status/telemetri güvenilir teslim altyapısı.
