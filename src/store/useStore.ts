@@ -185,8 +185,10 @@ export interface AppSettings {
   /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
   customMusicSources: CustomMusicSource[];
   aiVoiceProvider: 'gemini' | 'haiku' | 'none';
-  geminiApiKey: string;
-  claudeHaikuApiKey: string;
+  // S1: gemini/claude API anahtarları BURADA tutulmaz — sensitiveKeyStore'da
+  // (Keystore-backed). Settings persist'i localStorage'a plaintext yazdığından
+  // bu hassas değerler için ölü/yanıltıcı alanlar kaldırıldı. Yazma: SettingsPage
+  // useSensitiveKey; okuma: voiceService sks.get.
   /** Araç başlangıcında telefon hotspot bağlantı davranışı */
   hotspotMode: 'auto' | 'ask' | 'off';
   /**
@@ -328,8 +330,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   musicFavorites: [],
   customMusicSources: [],
   aiVoiceProvider: 'gemini',
-  geminiApiKey: '',
-  claudeHaikuApiKey: '',
   hotspotMode: 'ask',
   runtimeOverride: 'AUTO',
 };

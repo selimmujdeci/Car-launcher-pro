@@ -355,8 +355,6 @@ export const STORE_FIXTURES = {
     activeMediaSourceKey: 'spotify',
     musicFavorites: [],
     aiVoiceProvider: 'gemini' as const,
-    geminiApiKey: '',
-    claudeHaikuApiKey: '',
     hotspotMode: 'ask' as const,
     runtimeOverride: 'AUTO' as const,
   },
