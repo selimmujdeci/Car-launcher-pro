@@ -9,7 +9,8 @@
  *
  * Token'lar localStorage'da tutulur. Refresh token ile sessiz yenileme yapılır.
  */
-import { SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES } from './spotifyConfig';
+import { SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES } from './spotifyConfig';
+import { getSpotifyClientId } from '../media/mediaCredentials';
 
 const LS = {
   access:   'spotify_access_token',
@@ -59,6 +60,13 @@ function storeTokens(t: TokenResponse): void {
 
 /** Login akışını başlatır — sayfayı Spotify'a yönlendirir. */
 export async function beginSpotifyLogin(): Promise<void> {
+  const clientId = getSpotifyClientId();
+  if (!clientId) {
+    // BYOK: client_id yok → giriş başlatma anlamsız (fail-soft).
+    console.warn('[Spotify] client_id tanımlı değil — BYOK (ayar/VITE env) gerekli.');
+    return;
+  }
+
   const verifier  = randomString(64);
   const challenge = await pkceChallenge(verifier);
   const state     = randomString(16);
@@ -66,7 +74,7 @@ export async function beginSpotifyLogin(): Promise<void> {
   localStorage.setItem(LS.state, state);
 
   const params = new URLSearchParams({
-    client_id:             SPOTIFY_CLIENT_ID,
+    client_id:             clientId,
     response_type:         'code',
     redirect_uri:          SPOTIFY_REDIRECT_URI,
     code_challenge_method: 'S256',
@@ -97,7 +105,7 @@ export async function captureSpotifyRedirect(): Promise<boolean> {
   let ok = false;
   try {
     const body = new URLSearchParams({
-      client_id:     SPOTIFY_CLIENT_ID,
+      client_id:     getSpotifyClientId(),
       grant_type:    'authorization_code',
       code,
       redirect_uri:  SPOTIFY_REDIRECT_URI,
@@ -123,7 +131,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refresh) return null;
   try {
     const body = new URLSearchParams({
-      client_id:     SPOTIFY_CLIENT_ID,
+      client_id:     getSpotifyClientId(),
       grant_type:    'refresh_token',
       refresh_token: refresh,
     });

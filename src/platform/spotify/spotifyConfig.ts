@@ -1,8 +1,10 @@
 /**
  * Spotify yapılandırması.
  *
- * Client ID gizli DEĞİLDİR (client uygulamalarda açıkça bulunur) — gömülü tutulur.
- * Client SECRET ASLA kullanılmaz: client-side akış PKCE'dir, secret gerektirmez.
+ * Client ID gizli DEĞİLDİR ama BYOK olarak çözülür (bkz. mediaCredentials.ts:
+ * getSpotifyClientId — kullanıcı ayarı > VITE env > yalnız DEV fallback). Gömülü
+ * merkezi kimlik yok (CLAUDE.md ticari satış kuralı; Spotify dev-mode 25-kullanıcı
+ * limiti). Client SECRET ASLA kullanılmaz: client-side akış PKCE'dir, secret gerektirmez.
  *
  * Redirect URI'ler Spotify Developer Dashboard'a eklenmelidir:
  *   - http://127.0.0.1:5173/callback   (tarayıcı / dev)
@@ -17,8 +19,6 @@
  * farklı köken arasında bölünmez (aksi halde "bağlandı ama hâlâ Bağlan diyor").
  */
 import { isNative } from '../bridge';
-
-export const SPOTIFY_CLIENT_ID = '7ebfa30f6a924d159a460ee1e6b364ba';
 
 const WEB_ORIGIN =
   typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:5173';

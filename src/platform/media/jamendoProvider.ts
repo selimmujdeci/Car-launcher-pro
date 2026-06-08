@@ -1,19 +1,17 @@
 /**
  * Jamendo sağlayıcısı — ücretsiz / Creative Commons müzik, tam parça yasal stream.
  *
- * Açık API; SECRET gerektirmez ama ücretsiz bir `client_id` ister (Spotify'daki
- * dashboard adımı gibi). Kayıt: https://devportal.jamendo.com → "Create new app"
- * → Client ID'yi aşağıya yapıştır. client_id istemci tarafında açıkça bulunur,
- * gizli değildir.
+ * Açık API; SECRET gerektirmez ama ücretsiz bir `client_id` ister. client_id
+ * BYOK olarak çözülür (bkz. mediaCredentials.ts): kullanıcı ayarı > VITE env >
+ * yalnız DEV fallback. Production'da hiçbiri yoksa arama sessizce devre dışı
+ * kalır (fail-soft) — gömülü merkezi kimlik yok (CLAUDE.md ticari satış kuralı).
  *
+ * Kayıt: https://devportal.jamendo.com → "Create new app" → Client ID.
  * Arama: /v3.0/tracks/?client_id=...&search=QUERY&audioformat=mp32
  * track.audio → doğrudan çalınabilir MP3 URL'si (HTML5 stream player).
  */
 import type { MediaProvider, UnifiedTrack } from './providers';
-
-// ⚠️ Ücretsiz Jamendo client_id — devportal.jamendo.com'dan al, buraya yapıştır.
-// Boş bırakılırsa Jamendo araması sessizce devre dışı kalır (fail-soft).
-export const JAMENDO_CLIENT_ID = '65c9241f';
+import { getJamendoClientId } from './mediaCredentials';
 
 const API = 'https://api.jamendo.com/v3.0';
 
@@ -21,10 +19,11 @@ export const jamendoProvider: MediaProvider = {
   id: 'jamendo',
   async search(query, signal) {
     const q = query.trim();
-    if (!q || !JAMENDO_CLIENT_ID) return [];
+    const clientId = getJamendoClientId();
+    if (!q || !clientId) return [];
     try {
       const params = new URLSearchParams({
-        client_id:   JAMENDO_CLIENT_ID,
+        client_id:   clientId,
         format:      'json',
         limit:       '20',
         search:      q,
