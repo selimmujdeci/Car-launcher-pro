@@ -324,7 +324,11 @@ function _writeStr(u8: Uint8Array, base: number, off: number, maxLen: number, s:
   const bytes = _enc.encode(s);
   const start = base + off;
   u8.fill(0, start, start + maxLen);
-  u8.set(bytes.slice(0, maxLen - 1), start);
+  // UTF-8 güvenli kesme (#10): maxLen-1 (null-terminator yeri) sınırı çok-byte karakter
+  // ortasına denk gelirse continuation byte'ları geri sar — Türkçe ç/ğ/ş/ü/ö/İ bozulmasın.
+  let cut = Math.min(maxLen - 1, bytes.length);
+  while (cut > 0 && (bytes[cut] & 0xC0) === 0x80) cut--;
+  u8.set(bytes.subarray(0, cut), start);
 }
 
 interface _POIRow { id: string; name: string; address: string; lat: number; lon: number; score: number; category: string; }

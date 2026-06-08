@@ -17,7 +17,7 @@
  *     safeSetRawImmediate → async, await _commitToStorage (native katmana iletim garantisi)
  *     _commitToStorage    → localStorage sync backup önce, Filesystem async sonra
  *   NORMAL (cache, glyph, trip log):
- *     safeSetRaw          → 4s debounce → idle → _commitToStorage
+ *     safeSetRaw          → 5s debounce (WRITE_DEBOUNCE_MS) → idle → _commitToStorage
  *
  * Self-Healing akışı (verify-read hatası):
  *   verify(file) ≠ value → localStorage backup oku
@@ -624,7 +624,7 @@ export function safeSetRaw(key: string, value: string, debounceMs = WRITE_DEBOUN
     return;
   }
 
-  // ── Normal yazım yolu (4s debounce) ──────────────────────────
+  // ── Normal yazım yolu (5s debounce — WRITE_DEBOUNCE_MS) ──────────────────────────
   const existing = _writeBuffer.get(key);
   if (existing) {
     if (existing.value === value) return; // değişmedi — timer sıfırlama

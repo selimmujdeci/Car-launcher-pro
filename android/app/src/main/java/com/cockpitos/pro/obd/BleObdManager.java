@@ -34,9 +34,9 @@ import java.util.concurrent.TimeUnit;
  *     SharedArrayBuffer köprüsüne ASLA dokunmaz.
  *   - Veriyi {@link OnOBDDataListener} üzerinden Plugin'e bildirir (Classic ile aynı imza).
  *
- * FAZ NOTU:
- *   - Bu sınıf HENÜZ WIRE EDİLMEDİ (CarLauncherPlugin.connectOBD'den çağrılmıyor).
- *     Derlenir ve kullanılmaya hazırdır; Faz 3'te plugin dallanması eklenecek.
+ * WIRE DURUMU:
+ *   - WIRE EDİLDİ: CarLauncherPlugin.connectOBD(transport='ble') → bleObd().connect(...)
+ *     ile çağrılır (CarLauncherPlugin ~1098-1110). Eski "henüz wire edilmedi" notu geçersiz.
  *
  * GATT SERİLİĞİ:
  *   - Android BluetoothGatt aynı anda TEK operasyon yürütür (write / descriptor-write /
