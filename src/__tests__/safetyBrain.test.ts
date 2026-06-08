@@ -87,7 +87,7 @@ describe('SafetyBrain', () => {
     const msgs = listSafetyDisabledFeatureWarnings();
     expect(msgs.length).toBeGreaterThan(0);
     expect(msgs[0]).toContain('Güvenlik nedeniyle');
-    expect(msgs[0]).toContain('geçici olarak kapatıldı');
+    expect(msgs[0]).toContain('kapatıldı (tekrarlayan arıza tespiti)');
   });
 
   it('farklı fault ayrı özelliği etkiler', () => {
