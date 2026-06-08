@@ -1,10 +1,13 @@
 package com.cockpitos.pro;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Base64;
 import android.util.Log;
 
 import org.json.JSONObject;
+
+import java.util.Map;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -54,6 +57,11 @@ public final class NativeCryptoManager {
     private static final String TAG           = "NativeCrypto";
     private static final String HKDF_INFO     = "caros-cmd-v1";
     private static final long   TS_WINDOW_MS  = 30_000L;
+
+    // C10: Replay koruması — kullanılmış _nonce'lar persist edilir (JS commandCrypto
+    // NONCE_WINDOW_MS=60s ile uyumlu; restart sonrası da replay engellenir).
+    private static final String NONCE_PREFS     = "native_e2e_nonces";
+    private static final long   NONCE_WINDOW_MS = 60_000L;
 
     /** CarLauncherPlugin secureStoreGet'te kullandığı EncryptedSharedPreferences alias */
     private static final String PRIV_KEY_STORE_KEY = "car-e2e-private-key";
@@ -136,6 +144,14 @@ public final class NativeCryptoManager {
                 return null;
             }
 
+            // C10: Nonce replay koruması (JS _checkAndMarkNonce karşılığı).
+            // Şifreli içindeki _nonce daha önce kullanıldıysa komut REDDEDİLİR.
+            String nonce = inner.optString("_nonce", "");
+            if (nonce.isEmpty() || isReplayNonce(ctx, nonce)) {
+                Log.w(TAG, "Replay Attack: nonce tekrar kullanılmış veya eksik");
+                return null;
+            }
+
             // Komut tipini al
             String cmdType = inner.optString("type", "");
             if (cmdType.isEmpty()) {
@@ -150,6 +166,36 @@ public final class NativeCryptoManager {
             Log.e(TAG, "E2E deşifreleme hatası: " + e.getMessage(), e);
             return null;
         }
+    }
+
+    // ── Nonce Replay Koruması (C10) ────────────────────────────────────────
+
+    /**
+     * Kullanılmış nonce'ları EncryptedSharedPreferences yerine düz prefs'te
+     * (nonce → expiry ms) tutar — değer hassas değildir, yalnız tekrar tespiti.
+     *
+     * @return true → nonce daha önce kullanılmış (replay, reddet); false → yeni (kaydedildi).
+     */
+    private static synchronized boolean isReplayNonce(Context ctx, String nonce) {
+        SharedPreferences prefs = ctx.getSharedPreferences(NONCE_PREFS, Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+
+        long exp = prefs.getLong(nonce, 0L);
+        if (exp > now) {
+            return true; // hâlâ geçerli pencerede → replay
+        }
+
+        // GC: süresi dolmuş nonce'ları temizle + yeni nonce'u kaydet
+        SharedPreferences.Editor editor = prefs.edit();
+        for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Long && (Long) v < now) {
+                editor.remove(e.getKey());
+            }
+        }
+        editor.putLong(nonce, now + NONCE_WINDOW_MS);
+        editor.apply();
+        return false;
     }
 
     // ── HKDF-SHA256 ────────────────────────────────────────────────────────
