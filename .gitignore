@@ -69,6 +69,12 @@ scratchpad.md
 # Üretilmiş test artefaktları (kaynak değil)
 test-artifacts/
 
+# TypeScript incremental build cache (üretilmiş — tsc --build çıktısı)
+*.tsbuildinfo
+
+# Deno lock — Supabase edge function testleri (deno test) üretir; ana proje Deno değil
+deno.lock
+
 # Git worktree'leri (paralel checkout; reponun parçası değil)
 .worktrees/
 
