@@ -540,8 +540,10 @@ class AdaptiveRuntimeManager {
    * (Döngüsel bağımlılığı önlemek için memoryWatchdog buraya import yapılmaz;
    *  memoryWatchdog runtimeManager referansını alıp bu metodu çağırır.)
    *
-   * MODERATE → OPTIONAL worker'ları sonlandır (VisionCompute vb.)
-   * CRITICAL → tüm OPTIONAL + NavigationCompute sonlandır; sadece CRITICAL hayatta kalır
+   * MODERATE veya CRITICAL → tüm OPTIONAL worker'lar (VisionCompute + NavigationCompute,
+   * ikisi de OPTIONAL) sonlandırılır; yalnız CRITICAL (VehicleCompute) hayatta kalır.
+   * NOT: criticality yalnız 2 seviye olduğundan (#8) iki baskı seviyesi şu an AYNI agresif
+   * davranışı uygular — MODERATE'de navigasyonu korumak ayrı bir 3. seviye gerektirir.
    */
   handleMemoryPressure(level: 'MODERATE' | 'CRITICAL'): void {
     console.warn(`[Runtime] memory pressure: ${level} — adjusting worker lifecycle`);

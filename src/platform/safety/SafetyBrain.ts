@@ -149,7 +149,9 @@ export function listSafetyDisabledFeatureWarnings(): string[] {
   if (!prof || prof.disabledFeatures.length === 0) return [];
   return prof.disabledFeatures.map((fid) => {
     const label = FEATURE_LABEL_TR[fid] ?? fid;
-    return `Güvenlik nedeniyle ${label} özelliği geçici olarak kapatıldı.`;
+    // #7: Devre dışı bırakma KALICIDIR (tekrarlayan arıza → STRIKE_THRESHOLD); yalnız
+    // araç profili sıfırlanınca geri gelir. Otomatik zaman-recovery yok → "geçici" demiyoruz.
+    return `Güvenlik nedeniyle ${label} özelliği kapatıldı (tekrarlayan arıza tespiti).`;
   });
 }
 
