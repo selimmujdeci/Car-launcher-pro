@@ -155,10 +155,11 @@ public final class HiworldProtocolParser {
             case CMD_SPEED:
                 if (d.length >= 2) {
                     // Bazı Hiworld firmware'ler km/h*100 gönderir, bazıları raw km/h.
-                    // 0x0064 = 100 → raw 100 km/h veya scaled 1.00 km/h.
-                    // Makul eşik: ham değer > 3000 ise büyük ihtimalle *100 ölçekli değil.
+                    // Raw firmware ham km/h yollar → SPEED_MAX'ı (300) ASLA aşamaz; ham değer
+                    // SPEED_MAX'ı aşıyorsa kesinlikle *100 ölçekli (scaled). Eski 3000 eşiği
+                    // scaled firmware'de ≤30 km/h'i (raw 300–3000) reddedip kaybediyordu (#6).
                     int raw = ((d[0] & 0xFF) << 8) | (d[1] & 0xFF);
-                    float v = (raw > 3000) ? raw * 0.01f : (float) raw;
+                    float v = (raw > SPEED_MAX) ? raw * 0.01f : (float) raw;
                     if (v >= 0 && v <= SPEED_MAX) { _speed = v; updated = true; }
                     else Log.d(TAG, "Hız sanity reject: " + v);
                 }
