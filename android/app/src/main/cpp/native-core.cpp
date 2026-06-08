@@ -18,7 +18,6 @@
 #include <android/log.h>
 
 #include "VehicleState.hpp"
-#include "SignalBuffer.hpp"
 
 #define LOG_TAG "VehicleCore"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -28,7 +27,6 @@ namespace {
 // ── Global sinyal hattı (module-level, zero runtime allocation) ────
 // Tek üretici (CAN/OBD thread) → tek tüketici (JNI drain) varsayımı.
 caros::VehicleState        g_state;            // Seqlock son durum
-caros::SignalBuffer<1024>  g_buffer;           // ham sinyal kuyruğu (1023 kullanılabilir)
 
 // Producer-side mirror: seqlock tüm 4 alanı birlikte yazdığı için, tek bir
 // sinyal güncellenince diğerlerinin son değeri burada tutulur (scratch, allocate yok).
@@ -142,21 +140,15 @@ Java_com_cockpitos_pro_core_VehicleNativeBridge_getNativeHeartbeat(
 }
 
 // ── pushSignal (Phase N2) ───────────────────────────────────────────
-// Producer girişi: ham sinyali SPSC buffer'a koyar + kanonik state'i mühürler.
-// Hot-path: kilit yok, allocate yok. Buffer doluysa sessizce drop (fail-soft).
+// Producer girişi: ham sinyali işler + kanonik state'i Seqlock ile mühürler.
+// Hot-path: kilit yok, allocate yok.
+// (#9: ham sinyali tutan SPSC ring buffer KALDIRILDI — push ediliyor ama hiçbir
+//  tüketici pop etmiyordu; tek veri yolu aşağıdaki Seqlock state.)
 JNIEXPORT jboolean JNICALL
 Java_com_cockpitos_pro_core_VehicleNativeBridge_nativePushSignal(
         JNIEnv* /* env */, jobject /* thiz */,
         jint id, jdouble value, jlong tsNanos) {
 
-    // 1) Ham örneği lock-free kuyruğa yaz (drain için).
-    const caros::Signal sig{
-        static_cast<uint32_t>(id),
-        0u,
-        static_cast<double>(value),
-        static_cast<int64_t>(tsNanos)
-    };
-    const bool queued = g_buffer.push(sig);
     const double dv = static_cast<double>(value);
 
     // 2) Sinyali işle ve Seqlock state'i yaz.
@@ -187,11 +179,13 @@ Java_com_cockpitos_pro_core_VehicleNativeBridge_nativePushSignal(
     const bool speedChanged = (isSpeed && dv != s_lastSpeed);
     if (isSpeed) s_lastSpeed = dv;
     if (speedChanged || (s_pushCount % 100u == 0u)) {
-        LOGI("[NativeCore] Push: ID=%d, Val=%.2f, BufferSize=%zu",
-             static_cast<int>(id), dv, g_buffer.size());
+        LOGI("[NativeCore] Push: ID=%d, Val=%.2f, Count=%llu",
+             static_cast<int>(id), dv, static_cast<unsigned long long>(s_pushCount));
     }
 
-    return queued ? JNI_TRUE : JNI_FALSE;
+    // Buffer kaldırıldı (#9 — ölü SPSC kuyruğu); Boolean imza/sözleşme korunsun
+    // diye sabit TRUE (çağıranlar dönüş değerini zaten kullanmıyor).
+    return JNI_TRUE;
 }
 
 // ── Odometre seed (Phase N5.1) ──────────────────────────────────────

@@ -14,8 +14,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(vehicle_core SHARED
         native-core.cpp
         # Header-only bileşenler (derleme birimi değil; IDE indeksleme + bağımlılık takibi):
-        VehicleState.hpp     # Phase N2: Seqlock + cache-line hizalı araç durumu
-        SignalBuffer.hpp)    # Phase N2: lock-free SPSC ring buffer
+        VehicleState.hpp)    # Phase N2: Seqlock + cache-line hizalı araç durumu
 
 # Header'lar aynı dizinde — include yolu.
 target_include_directories(vehicle_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
