@@ -34,7 +34,7 @@ import type { RouteStep }    from './routingService';
 export interface OfflineRouteResult {
   geometry:  [number, number][];  // [lon, lat][] — OSRM ile aynı format
   distanceM: number;
-  durationS: number;              // tahmini (30 km/h ortalama)
+  durationS: number;              // tahmini ETA (sabit ortalama hız — yol-tipi verisi yok, #14)
   steps:     RouteStep[];
   source:    'offline-worker' | 'offline-daemon' | 'straight-line';
 }
@@ -291,6 +291,11 @@ export async function computeOfflineRoute(
 
 /* ── Straight-line fallback (son çare) ───────────────────────── */
 
+// Kuş uçuşu (straight-line) ETA: gerçek yol mesafesi bilinmediğinden mesafe düşük
+// tahmin edilir; worker'ın gerçek-rota ortalamasından (30 km/h) bilinçli olarak daha
+// yüksek bir ortalama bu eksikliği telafi eder. Yol-tipi verisi yok (#14).
+const STRAIGHT_LINE_AVG_SPEED_MS = 40 / 3.6; // 40 km/h kestirme
+
 export function straightLineRoute(
   fromLat: number,
   fromLon: number,
@@ -301,7 +306,7 @@ export function straightLineRoute(
   return {
     geometry:  [[fromLon, fromLat], [toLon, toLat]],
     distanceM,
-    durationS: distanceM / (40 / 3.6), // 40 km/h kestirme tahmini
+    durationS: distanceM / STRAIGHT_LINE_AVG_SPEED_MS,
     steps:     [],
     source:    'straight-line',
   };

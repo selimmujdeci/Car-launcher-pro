@@ -190,6 +190,11 @@ function _aStar(g: RoutingGraph, startIdx: number, goalIdx: number): number[] | 
 
 /* ── Rota hesaplama ──────────────────────────────────────────────────────── */
 
+// ETA tahmini: graph binary formatı (from/to/costM/oneway) yol-sınıfı/hız-limiti
+// taşımaz → yol-tipine duyarlı ETA mümkün değil; sabit şehir-içi ortalama kullanılır
+// (#14). Yol sınıfı verisi eklenirse hız buradan türetilmeli.
+const AVG_ROUTE_SPEED_MS = 30 / 3.6; // 30 km/h ortalama
+
 async function _handleRoute(
   requestId: string,
   fromLat: number, fromLon: number,
@@ -211,7 +216,7 @@ async function _handleRoute(
         type: 'ROUTE_RESULT', requestId,
         geometry:  [[fromLon, fromLat], [toLon, toLat]],
         distanceM: d,
-        durationS: d / (30 / 3.6),
+        durationS: d / AVG_ROUTE_SPEED_MS,
         steps: [],
       });
       return;
@@ -233,7 +238,7 @@ async function _handleRoute(
     (self as unknown as Worker).postMessage({
       type: 'ROUTE_RESULT', requestId, geometry,
       distanceM,
-      durationS: distanceM / (30 / 3.6),
+      durationS: distanceM / AVG_ROUTE_SPEED_MS,
       steps: [],
     });
   } catch (err) {
