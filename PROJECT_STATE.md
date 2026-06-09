@@ -2,7 +2,7 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-06-06.
+> Son güncelleme: 2026-06-09.
 
 ---
 
@@ -17,9 +17,22 @@
 
 ## Son Commit (HEAD)
 
-- `2fbbd57` — **perf(ui): low-end head unit (Mali-400) GPU yükünü azalt — Faz 1**
-  (teyit: `.git/logs/HEAD` son satır)
+- `b453cf9` — **docs(soak): fix PSS sampler multi-match in K24 checklist**
+  (teyit: `git rev-parse HEAD`)
+- **Test altyapısı T1–T4 arc'ı (2026-06-09)** — hepsi `src/__tests__/` altında,
+  production'a dokunmaz:
+  - `e98bd23` docs(soak): K24 manuel soak checklist
+  - `6b75e7f` test(soak): cross-service 24h aggregate leak invariant
+  - `57da3a9` test(soak): remoteCommand ack-timeout + queue eviction
+  - `55ab621` test(soak): telemetry + connectivity endurance
+  - `a6646e1` test(soak): runtime zombie + thermal stability
+  - `ac0295e` test(soak): obd reconnect/backoff long-run leak
+  - `79d8b11` test(soak): safeStorage write-throttle 8h endurance
+  - `473893a` test(soak): virtual-clock soak harness (T4 başlangıcı)
+  - `9a41c73`/`ca8024f`/`978aa2a`/`52a04c4`/`206b41a` — T3/T7/T2/T1 (leak harness,
+    low-end, CAN, OBD simülatörleri)
 - Önceki ilgili commit'ler:
+  - `2fbbd57` perf(ui): low-end head unit (Mali-400) GPU yükünü azalt — Faz 1
   - `99abf60` fix(nav): use canonical speed in navigation HUD
   - `ca0f345` fix(voice): keep Vosk and JNA classes in release builds
   - `04d0ef2` feat(obd): add BLE GATT transport support
@@ -49,8 +62,9 @@ Bunların hepsi HEAD'e commit EDİLMEMİŞ durumda.
 
 ## Build & Test Durumu
 
-- **Web build:** `npm run build` (tsc + vite) **bu oturumda çalıştırıldı → OK** (~2m33s).
-- **Test:** `npm run test` (vitest) **bu oturumda çalıştırıldı → 482/482 OK** (32 dosya).
+- **Web build:** `npm run build` (tsc + vite) **bu oturumda (2026-06-09) çalıştırıldı → OK** (~1m17s).
+- **Test:** `npm run test` (vitest) **bu oturumda çalıştırıldı → 635/635 OK** (50 dosya).
+  T1–T4 test altyapısıyla 482 → 635'e çıktı. `tsc -b` ve `eslint` de temiz.
   (jsdom canvas `getContext` uyarıları önceden var, hata değil.)
 - **Native compile:** `gradlew compileDebugJavaWithJavac` mikrofon/ducking değişiklikleri
   için **OK** (bu oturumda; APK paketlenmedi).

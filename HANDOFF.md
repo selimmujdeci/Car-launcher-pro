@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-06. Branch: `feature/ble-obd-support`.
+> Son güncelleme: 2026-06-09. Branch: `feature/ble-obd-support`. HEAD: `b453cf9`.
 
 ---
 
@@ -21,7 +21,25 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
-- **Faz 1 GPU yükü azaltma** (commit 2fbbd57 = HEAD): blur guard + ambient blob koşullu
+- **Test Altyapısı T1–T4 (2026-06-09, HEAD `b453cf9`):** araçsız/donanımsız deterministik
+  test serisi. Hepsi YALNIZ `src/__tests__/` altında — production/native hot-path'e
+  DOKUNULMADI, bundle'a sızmıyor (tree-shake teyitli). Suite: **635/635** (50 dosya;
+  önceki 482).
+  - **T1** OBD simülatörü (`sim/obdSimulator.ts`) `206b41a` · **T2** CAN frame senaryoları
+    `52a04c4` · **T3** kaynak-sızıntı leak harness + cleanup testleri (`sim/leakHarness.ts`,
+    `cleanup.*.test.ts`) `ca8024f`/`9a41c73` · **T7** low-end/runtime simülatörü
+    (`sim/runtimeSimulator.ts`) `978aa2a`.
+  - **T4 Soak (sanal-saat, 8–24h) — 8 commit:** `sim/soakHarness.ts` (fake timer+Date+
+    performance, gerçek sleep YOK) `473893a`; safeStorage write-throttle `79d8b11`; OBD
+    reconnect/backoff (real `obdRetryPolicy` modeli) `ac0295e`; runtime zombie/thermal
+    (real `AdaptiveRuntimeManager`) `a6646e1`; telemetry+connectivity (real + in-memory
+    IDB shim) `55ab621`; remoteCommand ACK-timeout/eviction (real `_awaitHardwareAck`)
+    `57da3a9`; cross-service 24h aggregate leak `6b75e7f`; **manuel K24 saha prosedürü**
+    `docs/SOAK_MANUAL_K24_CHECKLIST.md` (`e98bd23`, PSS sampler fix `b453cf9`).
+  - Sanal testler MANTIK/sözleşmeyi kapsar; gerçek RAM-PSS/A2DP/eMMC-aşınma/SoC-ısı/
+    saat-sıçraması **manuel checklist'e** ayrıldı (CHECKLIST §0 ayrım tablosu). ACTIVE_TASK
+    P1 soak/eMMC/backoff maddeleri büyük ölçüde bu seriyle karşılandı.
+- **Faz 1 GPU yükü azaltma** (commit 2fbbd57): blur guard + ambient blob koşullu
   render + MiniMap WebGL unmount. Salt görsel/koşullu render.
 - **BLE GATT transport** (04d0ef2), **OBD protokol cycle**, **nav kanonik hız** (99abf60),
   **Vosk release keep** (ca0f345), **McuEventSniffer crash fix** (ef20108).
