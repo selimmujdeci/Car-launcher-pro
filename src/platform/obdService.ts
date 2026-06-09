@@ -52,6 +52,13 @@ import {
   isDataStale,
 } from './obdRetryPolicy';
 
+/**
+ * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
+ * bounded timeout. GATT connect+discovery genelde <5s sürer; 8s gerçek BLE adaptöre yeter,
+ * gerçek classic adaptörde ise 15s'lik classic timeout'a geçmeden hızlıca eler.
+ */
+const BLE_FIRST_TIMEOUT_MS = 8_000;
+
 /* ── Types & Initial State ───────────────────────────────── */
 
 import { INITIAL } from './obdTypes';
@@ -115,7 +122,12 @@ let _lastKnownTransport: ObdTransport | null = loadObdTransport();
 // seçimi ise yalnızca TAHMİN'dir (DUAL cihaz 'classic' görünebilir) → doğrulanmış DEĞİL.
 // Bu ayrım fallback timeout'unu belirler: doğrulanmış → yanlış yolda 3s bekleme; tahmin →
 // fallback'e TAM timeout ver (aksi halde doğru BLE yolu 3s'e açlık çeker, V-LINK bağlanamaz).
-let _transportConfirmed = _lastKnownTransport != null;
+//
+// HİBRİT FIX: Doğrulama YALNIZ bu oturumda GERÇEKLEŞEN başarılı bağlantıdan kazanılır.
+// Persist edilmiş transport bir İPUCU'dur, doğrulama DEĞİL → her oturum başı false. Aksi
+// halde modal tahmini (saveObdTransport ile kaydedilen 'classic') gelecek oturumda
+// "doğrulanmış" sanılıp BLE fallback'i 3s'e sıkıştırıyordu (dual-mod V-LINK/iCar bağlanamıyordu).
+let _transportConfirmed = false;
 
 // ── Vehicle Profile Auto-Detection ──────────────────────────
 let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
@@ -680,15 +692,20 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // bağlantıdan veya kullanıcı seçiminden) primary onu kullanır; fallback'e yalnızca KISA
   // 3 s verilir — yanlış transport'ta 15 s beklenmez. Transport bilinmiyorsa (ilk kör
   // bağlantı) her iki transport da tam timeout ile denenir (BLE↔classic güvenlik ağı korunur).
-  const _primaryTp:  ObdTransport = _lastKnownTransport ?? 'classic';
+  // HİBRİT/OTOMATİK transport seçimi:
+  //   • DOĞRULANMIŞ (bu oturumda gerçekten bağlanmış) → o transport primary (tam timeout),
+  //     diğerine kısa 3s fallback → zero-latency reconnect.
+  //   • DOĞRULANMAMIŞ (oturum başı / modal-tarama tahmini): dual-mod OBD adaptörleri Android'de
+  //     'classic' raporlar ama verileri BLE GATT'tan akar → BLE'yi ÖNCE dene (bounded
+  //     BLE_FIRST_TIMEOUT_MS); olmazsa classic'e TAM timeout ile geç. Böylece BLE adaptörde 15s
+  //     classic timeout'u boşa beklenmez; gerçek classic adaptör de fallback'te bağlanır.
+  const _primaryTp:  ObdTransport = _transportConfirmed ? (_lastKnownTransport ?? 'ble') : 'ble';
   const _fallbackTp: ObdTransport = _primaryTp === 'ble' ? 'classic' : 'ble';
-  // 3s hızlı-fallback YALNIZCA transport DOĞRULANMIŞSA (önceki başarılı bağlantı): yanlış
-  // yolda 15s beklenmez. Transport TAHMİN ise (modal/tarama, ilk bağlantı) fallback TAM
-  // timeout alır — DUAL adaptör 'classic' tahmin edilse bile BLE yolu gerçek şans bulur.
+  const _primaryTimeoutMs  = _transportConfirmed ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS;
   const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : CONNECT_TIMEOUT_MS;
   let _connectedTp = _primaryTp;
   try {
-    await _tryConnectTransport(_primaryTp, CONNECT_TIMEOUT_MS);
+    await _tryConnectTransport(_primaryTp, _primaryTimeoutMs);
   } catch (ePrimary) {
     if (_stale()) { void _removeNativeHandles(); return; }
     console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
@@ -822,10 +839,11 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
   if (pin !== undefined) _lastKnownPin = pin || null; // boş string → null (PIN'siz)
   if (transport) {
     // Modal/tarama seçimi = TAHMİN (DUAL adaptör 'classic' raporlayabilir). Doğrulanmış
-    // saymayız → fallback transport'a tam timeout verilir (BLE yolu 3s'e açlık çekmez).
-    _transportConfirmed = transport === _lastKnownTransport && _transportConfirmed;
+    // SAYILMAZ → ilk bağlantıda BLE-öncelikli hibrit akış + fallback'e tam timeout devreye girer.
+    // Tahmin PERSIST EDİLMEZ: storage yalnız GERÇEKTEN bağlanmış (confirmed) transport'u tutar
+    // (başarılı bağlantıda _startNative kaydeder) → bayat 'classic' tahmini gelecek oturumu kilitlemez.
+    _transportConfirmed = false;
     _lastKnownTransport = transport;
-    saveObdTransport(transport); // direct-reconnect yolunda doğru transport ile bağlan
   }
 
   if (_running) {
