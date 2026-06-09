@@ -26,8 +26,9 @@
 
 | Katman | Komut | Son bilinen durum |
 |--------|-------|-------------------|
-| Unit + integration (vitest) | `npm test` | 635/635 OK (50 dosya; 2026-06-09) |
+| Unit + integration (vitest) | `npm test` | 671/671 OK (57 dosya; 2026-06-09) |
 | Soak / endurance (sanal-saat, T4) | `npm test -- soak` | 49 test; 8–24h fake-timer; gerçek sleep yok |
+| Performans (sanal, P-serisi) | `npm test -- perf` | 36 test; notify/RAF/theme/map/blur/worker/fps proxy |
 | E2E (Playwright) | `npm run test:e2e` | CLAUDE.md E2E tablosu; release öncesi koş |
 | Web build (tsc + vite) | `npm run build` | OK (`PROJECT_STATE.md`) |
 | Type/lint | `npx tsc -b` · `npm run lint` | tsc -b + eslint temiz (2026-06-09) |
@@ -37,6 +38,13 @@
 > safeStorage / OBD reconnect / runtime zombie-thermal / telemetry / connectivity /
 > remoteCommand / cross-service 24h **mantığını** araçsız deterministik doğrular.
 > Gerçek-donanım soak için → `docs/SOAK_MANUAL_K24_CHECKLIST.md`.
+>
+> **Performans P-serisi** (`src/__tests__/sim/perfHarness.ts` + `perf.*.test.ts`):
+> store notify disiplini, rafSmoother 20Hz throttle, theme-switching guard, map
+> ownership singleton, media blurOff matrisi, worker/main-thread bütçe, FPS sayaç
+> matematiği. jsdom'da tam render kırılgan (testing-library yok) → render storm
+> KÖK-NEDENİNDEN (notify + RAF throttle) proxy ile ölçülür. Plan/kabul:
+> `docs/PERF_AUDIT.md`; gerçek-donanım FPS/RAM/WebGL için → `docs/PERF_K24_CHECKLIST.md`.
 | Lint | `npm run lint` | Release öncesi koş |
 | Native compile | `gradlew compileDebugJavaWithJavac` | OK (mic/ducking; `PROJECT_STATE.md`) |
 
