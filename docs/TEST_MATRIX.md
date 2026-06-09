@@ -1,7 +1,7 @@
 # TEST MATRIX — CarOS Pro
 
 > Senaryo bazlı test durumu. "Mevcut durum" `PROJECT_STATE.md` + `HANDOFF.md`'den
-> alındı (2026-06-06); çoğu native/saha senaryosu **SAHA TESTİ BEKLİYOR**.
+> alındı (güncelleme 2026-06-09); çoğu native/saha senaryosu **SAHA TESTİ BEKLİYOR**.
 > Release öncesi `RELEASE_CHECKLIST.md` ile birlikte kullanılır.
 
 | Senaryo | Kapsam | Nasıl test edilir | Mevcut durum | Not |
@@ -18,6 +18,7 @@
 | **YouTube video probe** | YT debug/probe flag ile video teşhisi | — | **Belirsiz** | `YT_DEBUG_PROBE`/iframe probe kodda YOK (grep boş) |
 | **Low-end performans** | Faz 1 GPU patch sonrası dokunma gecikmesi ölçümü | K24'te dokunma gecikmesini ölç; `--rt-blur` guard etkin mi | Bekliyor | Faz 1 commit 2fbbd57; Faz 2 interval gating YAPILMADI |
 | **Vosk STT (mikrofon)** | Offline Türkçe STT + AGC/NS/AEC + ducking | K24 internetsiz; sesli komut ver, müzik %12'ye iniyor mu | Bekliyor | CarLauncherPlugin.java; Java compile OK, cihazda doğrulanmadı |
+| **8–24h Soak (uzun süre)** | RAM/PSS plato, BT/OBD reconnect, CAN sinyal, eMMC, termal, saat-sıçraması, ducking, media session | `docs/SOAK_MANUAL_K24_CHECKLIST.md` adımları (8–24h) + `tools/diag-restart.ps1` | Bekliyor | Mantık/sözleşme sanal kapsandı (T4); gerçek-donanım manuel |
 
 ## Otomatik test kapsamı (referans — bunlar geçiyor)
 
@@ -25,9 +26,17 @@
 
 | Katman | Komut | Son bilinen durum |
 |--------|-------|-------------------|
-| Unit + integration (vitest) | `npm test` | 482/482 OK (`PROJECT_STATE.md`) |
+| Unit + integration (vitest) | `npm test` | 635/635 OK (50 dosya; 2026-06-09) |
+| Soak / endurance (sanal-saat, T4) | `npm test -- soak` | 49 test; 8–24h fake-timer; gerçek sleep yok |
 | E2E (Playwright) | `npm run test:e2e` | CLAUDE.md E2E tablosu; release öncesi koş |
 | Web build (tsc + vite) | `npm run build` | OK (`PROJECT_STATE.md`) |
+| Type/lint | `npx tsc -b` · `npm run lint` | tsc -b + eslint temiz (2026-06-09) |
+
+> **T1–T4 sanal test altyapısı** (`src/__tests__/sim/` + `soak.*.test.ts` + `cleanup.*.test.ts`):
+> OBD/CAN simülatörü, leak harness, low-end/runtime simülatörü, sanal-saat soak motoru.
+> safeStorage / OBD reconnect / runtime zombie-thermal / telemetry / connectivity /
+> remoteCommand / cross-service 24h **mantığını** araçsız deterministik doğrular.
+> Gerçek-donanım soak için → `docs/SOAK_MANUAL_K24_CHECKLIST.md`.
 | Lint | `npm run lint` | Release öncesi koş |
 | Native compile | `gradlew compileDebugJavaWithJavac` | OK (mic/ducking; `PROJECT_STATE.md`) |
 
