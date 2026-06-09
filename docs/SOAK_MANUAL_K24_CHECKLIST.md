@@ -121,8 +121,10 @@ $pkg = "com.cockpitos.pro"
 $out = "C:\Users\selim\Desktop\caros pro\tools\diag-output\meminfo-timeline.csv"
 "timestamp,total_pss_kb" | Out-File $out -Encoding utf8
 while ($true) {
-  $m = adb shell dumpsys meminfo $pkg 2>$null | Select-String "TOTAL"
-  $pss = ($m.Line -split '\s+' | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1)
+  # "TOTAL" birden fazla satir eslestirir (TOTAL PSS/RSS/SWAP) -> ilk eslesmeyi al,
+  # o satirdaki ilk tam sayi = toplam PSS (kB).
+  $line = (adb shell dumpsys meminfo $pkg 2>$null | Select-String "TOTAL" | Select-Object -First 1).Line
+  $pss  = if ($line) { ($line -split '\s+' | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1) } else { "" }
   "$(Get-Date -Format s),$pss" | Add-Content $out
   Start-Sleep -Seconds 300   # 5 dk
 }
