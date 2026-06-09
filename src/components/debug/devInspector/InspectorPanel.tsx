@@ -34,6 +34,7 @@ function statusColor(s: number | null): string {
 export function InspectorPanel({ onClose }: { onClose: () => void }) {
   const [tab,      setTab]      = useState<Tab>('workers');
   const [copied,   setCopied]   = useState(false);
+  const [exportText, setExportText] = useState<string | null>(null); // K24 clipboard fallback: seçilebilir metin
   const [mode,     setMode]     = useState('');
   const [workers,  setWorkers]  = useState<WEntry[]>([]);
   const [timeline, setTimeline] = useState<BlackBoxSample[]>([]);
@@ -92,35 +93,107 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
 
   /* Build sanitised export — no lastCmd (navigation commands), no PII */
   function handleCopy(): void {
-    try {
-      const payload = {
-        _meta:    { sanitized: true, noPII: true, exportedAt: new Date().toISOString() },
-        runtime:  {
-          mode,
-          fps,
-          tier:     caps.tier,
-          ramMb,
-          blur:     blurOn ? 'ON' : 'OFF',
-          webgl:    caps.webgl,
-          weakGpu:  caps.weakGpu,
-          renderer: caps.renderer || '(masked)',
-          workers: workers.map(([key, { criticality, worker }]) => ({
-            key, criticality, status: worker != null ? 'alive' : 'dead',
-          })),
-        },
-        timeline: timeline.slice(0, 10).map(({ ts, signals, env }) => ({ ts, signals, env })),
-        network:  network.slice(0, 10).map(({ method, url, status, durationMs }) => ({
-          method, url, status, durationMs,
+    const payload = {
+      _meta:    { sanitized: true, noPII: true, exportedAt: new Date().toISOString() },
+      runtime:  {
+        mode,
+        fps,
+        tier:     caps.tier,
+        ramMb,
+        blur:     blurOn ? 'ON' : 'OFF',
+        webgl:    caps.webgl,
+        weakGpu:  caps.weakGpu,
+        renderer: caps.renderer || '(masked)',
+        workers: workers.map(([key, { criticality, worker }]) => ({
+          key, criticality, status: worker != null ? 'alive' : 'dead',
         })),
-      };
-      void navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard not available */ }
+      },
+      timeline: timeline.slice(0, 10).map(({ ts, signals, env }) => ({ ts, signals, env })),
+      network:  network.slice(0, 10).map(({ method, url, status, durationMs }) => ({
+        method, url, status, durationMs,
+      })),
+    };
+    const text = JSON.stringify(payload, null, 2);
+
+    // K24 WebView'da pano çoğu zaman çalışmaz (insecure context / izin) → HER ZAMAN
+    // seçilebilir metin overlay'i göster (kullanıcı seçip kopyalayabilir veya ekran görüntüsü alır).
+    setExportText(text);
+
+    // En iyi çaba ile panoya da yaz: 1) modern API, 2) legacy execCommand fallback.
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        void navigator.clipboard.writeText(text)
+          .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
+          .catch(() => { /* fallback overlay zaten açık */ });
+        ok = true;
+      }
+    } catch { /* ignore */ }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        const done = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (done) { setCopied(true); setTimeout(() => setCopied(false), 2000); }
+      } catch { /* overlay yine de açık */ }
+    }
   }
 
   /* ── Render ──────────────────────────────────────────────────────────── */
   return (
+    <>
+    {/* ── Claude export overlay — K24 clipboard çalışmazsa seç & kopyala / ekran görüntüsü ── */}
+    {exportText !== null && (
+      <div className="fixed inset-0 flex flex-col"
+        style={{ zIndex: 9999, background: 'rgba(2,6,14,0.96)', padding: 12 }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[12px] font-mono font-bold" style={{ color: '#3b82f6' }}>
+            Claude için teşhis — uzun bas → Tümünü seç → kopyala (veya ekran görüntüsü al)
+          </span>
+          <button onClick={() => setExportText(null)}
+            className="flex items-center justify-center rounded"
+            style={{ color: '#fff', width: 26, height: 26, background: 'rgba(255,255,255,0.08)' }}>
+            <X size={15} />
+          </button>
+        </div>
+        <textarea
+          readOnly
+          autoFocus
+          value={exportText}
+          onFocus={(e) => e.currentTarget.select()}
+          className="flex-1 w-full font-mono text-[11px]"
+          style={{
+            background: '#0a0f1a', color: '#cbd5e1',
+            border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6,
+            padding: 8, resize: 'none', whiteSpace: 'pre', overflow: 'auto',
+            WebkitUserSelect: 'text', userSelect: 'text',
+          }}
+        />
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={() => {
+              const el = document.querySelector('textarea[readonly]') as HTMLTextAreaElement | null;
+              if (el) { el.focus(); el.select();
+                try { document.execCommand('copy'); } catch { /* ignore */ }
+              }
+            }}
+            className="flex-1 text-[12px] font-mono py-2 rounded"
+            style={{ background: 'rgba(59,130,246,0.18)', color: '#93c5fd' }}>
+            Tümünü seç + kopyala
+          </button>
+          <button onClick={() => setExportText(null)}
+            className="text-[12px] font-mono py-2 px-4 rounded"
+            style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>
+            Kapat
+          </button>
+        </div>
+      </div>
+    )}
     <div
       className="fixed bottom-16 right-4 flex flex-col select-none"
       style={{
@@ -431,5 +504,6 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
     </div>
+    </>
   );
 }
