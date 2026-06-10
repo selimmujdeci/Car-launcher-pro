@@ -28,6 +28,24 @@ import { useCognitiveStore }        from '../../store/useCognitiveStore';
 import { capturePanicSnapshot }     from './SystemPanicHandler';
 import { thermalJournal }           from './ThermalJournal';
 import { getEmmcWriteCount }        from '../../utils/safeStorage';
+import { getAppVersionInfo }        from '../nativeCommandBridge';
+
+// ── Uygulama Sürümü (OTA v1 / Commit 1 — device version truth) ───────────────
+// Eski bug: VITE_APP_VERSION hiçbir yerde set edilmiyordu → ?? '1.0.0' fallback'i
+// her cihazı sahte '1.0.0' raporlatıyor, RolloutCenter getRolloutHealth'ün
+// appVersion filtresini (circuit breaker) kör bırakıyordu.
+// Yeni sıra: native PackageManager (kurulu gerçek) > build-time enjeksiyon
+// (vite.config define ← version.properties) > '0.0.0-unknown' (görünür körlük —
+// asla gerçek sürüm gibi davranan sahte değer değil).
+let _appVersion: string =
+  (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '0.0.0-unknown';
+
+/** start() çağırır — native sürüm gelince build-time değeri ezilir (fire-and-forget). */
+function _primeAppVersion(): void {
+  void getAppVersionInfo()
+    .then((info) => { if (info?.versionName) _appVersion = info.versionName; })
+    .catch(() => { /* web/dev veya köprü hatası — build-time değer kalır */ });
+}
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -199,6 +217,7 @@ class SystemHealthMonitor {
   start(): void {
     if (this._timer) return;
     this._startedAt = performance.now();
+    _primeAppVersion();
     this._setupPassiveMonitoring();
     this._timer = setInterval(() => { this._tick(); }, WATCHDOG_INTERVAL_MS);
     this._startUiWatchdog();
@@ -532,7 +551,7 @@ class SystemHealthMonitor {
       uiFreezeCount:      this._uiFreezeCount,
       emmcWriteCount:     emmc.count,
       emmcWriteSinceMs:   emmc.sinceMs,
-      appVersion:         (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '1.0.0',
+      appVersion:         _appVersion,
       services,
       overallHealth,
     };

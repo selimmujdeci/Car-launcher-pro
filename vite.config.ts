@@ -3,6 +3,24 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import legacy from '@vitejs/plugin-legacy'
 import type { Plugin } from 'vite'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { parseVersionProperties, VERSION_FALLBACK } from './src/utils/versionProperties'
+
+// ── Sürüm enjeksiyonu (OTA v1 / Commit 1 — device version truth) ─────────────
+// VITE_APP_VERSION daha önce HİÇBİR yerde set edilmiyordu → SystemHealthMonitor
+// her cihazda '1.0.0' raporluyor, RolloutCenter circuit breaker kör kalıyordu.
+// Tek kaynak version.properties; build.gradle de aynı dosyayı okur → APK ile
+// web asset sürümü aynı build'de drift edemez. Runtime'da native
+// getAppVersionInfo (PackageManager) bu değeri ezer (kurulu gerçek).
+const _versionProps = (() => {
+  try {
+    const path = fileURLToPath(new URL('./version.properties', import.meta.url))
+    return parseVersionProperties(readFileSync(path, 'utf-8'))
+  } catch {
+    return VERSION_FALLBACK // dosya yoksa gradle fallback'leriyle aynı değerler
+  }
+})()
 
 /**
  * addWebkitBackdropFilter — Android WebView uyumluluk fix
@@ -105,6 +123,12 @@ function removeLayers(css: string): string {
 const _coopCoepHeaders: Record<string, string> = {};
 
 export default defineConfig({
+  define: {
+    // Kaynak: version.properties (yukarıdaki _versionProps). import.meta.env
+    // anahtarları derlemede literal'e çevrilir — runtime env DEĞİL.
+    'import.meta.env.VITE_APP_VERSION':      JSON.stringify(_versionProps.versionName),
+    'import.meta.env.VITE_APP_VERSION_CODE': JSON.stringify(String(_versionProps.versionCode)),
+  },
   // host 127.0.0.1: Spotify OAuth loopback redirect'i IPv4 ister. Varsayılan
   // "localhost" Windows'ta ::1'e (IPv6) bağlanıp 127.0.0.1'i reddediyordu.
   server:  { host: '127.0.0.1', port: 5173, strictPort: true, headers: _coopCoepHeaders },

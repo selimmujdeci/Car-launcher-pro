@@ -24,6 +24,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
+import type { AppVersionInfo } from './nativePlugin';
 import { safeGetRaw } from '../utils/safeStorage';
 import type { CommandType } from './commandListener';
 import { logInfo } from './debug';
@@ -98,6 +99,33 @@ export async function checkCrossChannelNonceReplay(
   } catch (err) {
     // Köprü hatası: güvenli taraf — local store yine de kontrol eder.
     console.warn('[NativeCmdBridge] checkCommandNonce köprü hatası:', err);
+    return undefined;
+  }
+}
+
+// ── Uygulama Sürümü (OTA v1 / Commit 1 — device version truth) ────────────────
+
+/** Sürüm oturum boyunca değişmez — tek native çağrı, sonrası cache. */
+let _appVersionCache: AppVersionInfo | undefined;
+
+/**
+ * Cihazda KURULU gerçek uygulama sürümü (PackageManager üzerinden).
+ * Web/dev'de veya köprü hatasında undefined döner — çağıran build-time
+ * enjekte edilen VITE_APP_VERSION'a düşer (vite.config.ts define,
+ * kaynak: version.properties).
+ */
+export async function getAppVersionInfo(): Promise<AppVersionInfo | undefined> {
+  if (!Capacitor.isNativePlatform()) return undefined;
+  if (_appVersionCache) return _appVersionCache;
+  try {
+    const info = await CarLauncher.getAppVersionInfo();
+    if (info && typeof info.versionName === 'string' && info.versionName.length > 0) {
+      _appVersionCache = info;
+      return info;
+    }
+    return undefined;
+  } catch (err) {
+    console.warn('[NativeCmdBridge] getAppVersionInfo köprü hatası:', err);
     return undefined;
   }
 }

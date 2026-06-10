@@ -3123,6 +3123,32 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
+     * JS → Native: Uygulamanın GERÇEK kurulu sürümünü döner (OTA v1 / Commit 1).
+     * Kaynak: PackageManager — build.gradle'ın version.properties'ten okuduğu
+     * versionCode/versionName'in cihazdaki kurulu hali. Build-time env enjeksiyonundan
+     * (VITE_APP_VERSION) farklı olarak APK ile web asset arasında drift yapamaz.
+     * Döner: { versionCode: number, versionName: string, packageName: string }
+     */
+    @PluginMethod
+    public void getAppVersionInfo(PluginCall call) {
+        try {
+            android.content.pm.PackageInfo info = getContext().getPackageManager()
+                .getPackageInfo(getContext().getPackageName(), 0);
+            long versionCode = android.os.Build.VERSION.SDK_INT >= 28
+                ? info.getLongVersionCode()
+                : info.versionCode; // minSdk 24 — API <28 fallback
+            JSObject result = new JSObject();
+            result.put("versionCode", versionCode);
+            result.put("versionName", info.versionName != null ? info.versionName : "");
+            result.put("packageName", getContext().getPackageName());
+            call.resolve(result);
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "getAppVersionInfo hatası: " + e.getMessage());
+            call.reject("Sürüm bilgisi okunamadı: " + e.getMessage());
+        }
+    }
+
+    /**
      * JS → Native: Anahtarı siler.
      * params: { key: string }
      */

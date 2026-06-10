@@ -312,7 +312,17 @@ export interface SavedOBDDevice {
 
 /* ── Plugin interface ────────────────────────────────────── */
 
+export interface AppVersionInfo {
+  /** PackageManager longVersionCode — version.properties VERSION_CODE'un kurulu hali */
+  versionCode: number;
+  /** PackageManager versionName — version.properties VERSION_NAME'in kurulu hali */
+  versionName: string;
+  packageName: string;
+}
+
 export interface CarLauncherPlugin {
+  /** OTA v1: cihazda KURULU gerçek sürüm (PackageManager — drift imkânsız) */
+  getAppVersionInfo(): Promise<AppVersionInfo>;
   /** Native Core: hardware profile for performance-mode detection */
   getDeviceProfile(): Promise<NativeDeviceProfile>;
   /** Native Core: real screen dimensions from WindowManager */
