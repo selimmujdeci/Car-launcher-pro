@@ -26,9 +26,11 @@ const service  = readFileSync(
   join(process.cwd(), 'src', 'admin', 'services', 'superadmin.service.ts'), 'utf-8');
 
 describe('OTA migration dosyaları', () => {
-  it('timestamp sırası: yeni migration\'lar mevcut en yeniden SONRA gelir', () => {
+  it('timestamp sırası: OTA migration\'ları kendinden önceki tüm migration\'lardan SONRA gelir', () => {
+    // OTA'dan sonra eklenen migration'lar (ör. 020 remote log guards) bu
+    // testin kapsamı dışında — yalnız OTA-öncesi dosyalarla karşılaştırılır.
     const stamped = readdirSync(MIG_DIR)
-      .filter((f) => /^\d{8}/.test(f) && f !== REGISTRY_FN && f !== STORAGE_FN)
+      .filter((f) => /^\d{8}/.test(f) && f < REGISTRY_FN)
       .sort();
     const newest = stamped[stamped.length - 1];
     expect(REGISTRY_FN > newest).toBe(true);
