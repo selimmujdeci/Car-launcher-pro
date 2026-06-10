@@ -216,7 +216,15 @@ PremiumNavDemoScreen/OEMMapVignette/NeuralVisualizer + hooks: useSABDirectUpdate
 useVehicleProfile + store: useDragStore/useThemeStudio). Kritik ayrım:
 `themes/CockpitLayout` CANLI (NewHomeLayout.tsx:29) — silinen `layout/layouts/CockpitLayout`.
 Doğrulama: build 42s + lint 0 + vitest geçti + e2e 6/6.
-Sırada: Commit 3 (traffic/ 9 + diagnostic/ 5 — dış-ref kontrolü yapıldı, temiz).
+**Commit 3 UYGULANDI:** traffic/ adası (9 dosya — yarım migrasyon; aktif yol
+trafficService.ts KORUNDU) + diagnostic/ adası (components/diagnostic 4 +
+diagnosticStore; aktif DTC obd/DTCPanel KORUNDU). Doğrulama: build 38s + lint 0 +
+vitest 671/671 + e2e 6/6.
+
+**3 commit toplamı: ~67 dosya, ~14.000 satır ölü kod kaldırıldı.** Build süresi
+1m02s → 38s. DOKUNULMAYANLAR (bilinçli): serviceWorker.ts (drift kararı bekliyor),
+offline harita kümesi 6 dosya, obdBluetoothService (BLE saha testi), 
+car-dashboard-theme.html (kullanıcı kararı).
 
 ## Ölü Kod Denetimi v2 (2026-06-10 — rapor-only, silme YOK)
 
