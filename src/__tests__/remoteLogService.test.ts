@@ -57,6 +57,12 @@ vi.mock('../platform/system/SystemHealthMonitor', () => ({
   },
 }));
 
+// Commit 4: snapshot OTA özeti — ağır otaUpdateService grafiği yerine sabit mock
+vi.mock('../platform/otaUpdateService', () => ({
+  useOtaStore: { getState: () => ({ state: 'idle', errorCode: null, release: null, lastCheckTs: null }) },
+  getCurrentVersionCode: vi.fn(async () => 7),
+}));
+
 import {
   sanitizeForRemote,
   reportCritical,

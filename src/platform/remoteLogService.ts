@@ -35,6 +35,7 @@ import {
 import { pushVehicleEvent }  from './vehicleIdentityService';
 import { healthMonitor }     from './system/SystemHealthMonitor';
 import { getOBDStatusSnapshot } from './obdService';
+import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../utils/safeStorage';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
@@ -230,26 +231,40 @@ export async function reportObdDiag(diag: Record<string, unknown>): Promise<void
 /* ── support_snapshot ───────────────────────────────────────── */
 
 /**
- * Destek anlık görüntüsü: appVersion + OBD durumu + son hata özeti +
- * sağlık özeti. Konum bilgisi YOK — her bölüm güvenli alanlardan elle
- * kurulur, üstüne deep sanitize (deny + maske) uygulanır.
+ * Destek anlık görüntüsü: appVersion/versionCode + OBD durumu + son hata
+ * özeti + son critical hata + sağlık özeti + OTA durumu. Konum/VIN/plaka/
+ * MAC/cihaz adı/token YOK — her bölüm güvenli alanlardan elle kurulur,
+ * üstüne deep sanitize (deny + maske) uygulanır.
+ *
+ * Enqueue hatası PROPAGATE eder — triggerSupportSnapshot bunu kullanıcıya
+ * "gönderilemedi" olarak yansıtır.
  */
 export async function reportSupportSnapshot(): Promise<Record<string, unknown>> {
   const obd    = getOBDStatusSnapshot();
   const health = healthMonitor.getGlobalHealthSnapshot();
+  const ota    = useOtaStore.getState();
+  const versionCode = await getCurrentVersionCode().catch(() => 0);
 
   // Son 5 hata — yalnız ts/ctx/msg/severity; stack ve replayBuffer
   // (kara kutu: konum içerir) bilinçli olarak DIŞARIDA.
-  const lastErrors = getErrorLog().slice(-5).map((e) => ({
+  const entries    = getErrorLog();
+  const lastErrors = entries.slice(-5).map((e) => ({
     ts:       e.ts,
     ctx:      _maskString(e.ctx),
     msg:      _maskString(e.msg.slice(0, 256)),
     severity: e.severity ?? 'error',
   }));
 
+  // Son critical hata özeti — yoksa null
+  const lastCrit = entries.filter((e) => e.severity === 'critical').slice(-1)[0];
+  const lastCritical = lastCrit
+    ? { ts: lastCrit.ts, ctx: _maskString(lastCrit.ctx), msg: _maskString(lastCrit.msg.slice(0, 256)) }
+    : null;
+
   const payload = _deepSanitize({
-    appVersion: health.appVersion,
-    bootId:     BOOT_ID,
+    appVersion:  health.appVersion,
+    versionCode,
+    bootId:      BOOT_ID,
     obd: {
       connectionState: obd.connectionState,
       source:          obd.source,
@@ -257,17 +272,59 @@ export async function reportSupportSnapshot(): Promise<Record<string, unknown>> 
       lastSeenMs:      obd.lastSeenMs,
     },
     lastErrors,
+    lastCritical,
     health: {
       overallHealth: health.overallHealth,
       services:      health.services.map((s) => ({
         name: s.name, healthy: s.healthy, restartCount: s.restartCount,
       })),
     },
+    // OTA durumu — apkPath/fileName (storage yolu) BİLİNÇLİ dışarıda
+    ota: {
+      state:             ota.state,
+      errorCode:         ota.errorCode,
+      targetVersionCode: ota.release?.versionCode ?? null,
+      lastCheckTs:       ota.lastCheckTs,
+    },
   }, 0) as Record<string, unknown>;
 
-  try { await pushVehicleEvent('support_snapshot', payload); }
-  catch { /* fire-and-forget */ }
+  await pushVehicleEvent('support_snapshot', payload);
   return payload;
+}
+
+/* ── Kullanıcı tetiklemeli snapshot (Settings "Tanı Gönder") ── */
+
+export type SnapshotTriggerResult = 'sent' | 'queued_offline' | 'cooldown' | 'error';
+
+/** Art arda basma spam koruması — pencere içinde tek snapshot */
+export const SNAPSHOT_COOLDOWN_MS = 60_000;
+
+let _lastSnapshotAt = Number.NEGATIVE_INFINITY; // monotonic (performance.now)
+
+/**
+ * Settings/Destek "Tanı raporu gönder" aksiyonu:
+ *  - cooldown      : SNAPSHOT_COOLDOWN_MS içinde ikinci basış → snapshot üretilmez
+ *  - queued_offline: çevrimdışı — connectivityService at-least-once kuyruğuna
+ *                    alındı, internet gelince gönderilecek
+ *  - sent          : kuyruğa kabul edildi (çevrimiçi)
+ *  - error         : enqueue hatası — cooldown YANMAZ, kullanıcı hemen
+ *                    yeniden deneyebilir
+ */
+export async function triggerSupportSnapshot(): Promise<SnapshotTriggerResult> {
+  const now = performance.now();
+  if (now - _lastSnapshotAt < SNAPSHOT_COOLDOWN_MS) return 'cooldown';
+
+  // Fail-open: yalnız onLine === false kesin "çevrimdışı"dır; alan yoksa
+  // (eski WebView / test ortamı) çevrimiçi varsayılır — kuyruk zaten
+  // at-least-once olduğundan yanlış 'sent' veri kaybettirmez.
+  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  try {
+    await reportSupportSnapshot();
+    _lastSnapshotAt = now;
+    return online ? 'sent' : 'queued_offline';
+  } catch {
+    return 'error';
+  }
 }
 
 /* ── Boot-time crash drain ──────────────────────────────────── */
@@ -359,6 +416,7 @@ export function _resetRemoteLogServiceForTest(opts?: { keepWatermark?: boolean }
   _dedupSeen.clear();
   _tokens     = RATE_CAPACITY;
   _lastRefill = performance.now();
+  _lastSnapshotAt = Number.NEGATIVE_INFINITY;
   _running    = false;
   registerRemoteSink(null);
   if (!opts?.keepWatermark) safeRemoveRaw(WATERMARK_KEY);

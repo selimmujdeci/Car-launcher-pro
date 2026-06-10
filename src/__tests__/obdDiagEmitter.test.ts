@@ -32,6 +32,12 @@ vi.mock('../platform/system/SystemHealthMonitor', () => ({
   },
 }));
 
+// Commit 4: remoteLogService otaUpdateService import ediyor — hafif mock
+vi.mock('../platform/otaUpdateService', () => ({
+  useOtaStore: { getState: () => ({ state: 'idle', errorCode: null, release: null, lastCheckTs: null }) },
+  getCurrentVersionCode: vi.fn(async () => 7),
+}));
+
 import {
   emitObdDiag,
   SUPPRESS_WINDOW_MS,
