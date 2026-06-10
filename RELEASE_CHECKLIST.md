@@ -95,6 +95,24 @@
 - [ ] **config.toml deploy davranışı** — `supabase/config.toml` YOK. Fonksiyon-içi
   auth defense-in-depth sağlıyor; yine de gateway `verify_jwt=true` deploy'da teyit.
 
+## 4c. OTA v1 Doğrulaması (deploy + K24 saha — detay: docs/OTA.md §7)
+
+> 7-commit OTA zinciri kodda tamam + 92 JS testi geçiyor; **deploy/cihazda doğrulanmadı.**
+
+- [ ] **Migration deploy** — `supabase db push`: `20260610000018` + `20260610000019`;
+  self-verifying DO blokları NOTICE ile PASS (GRANT/RLS/policy/bucket-private).
+- [ ] **Publish** — `npm run ota:publish -- --apk <release.apk> --channel internal`
+  → draft satır + Storage objesi; aynı sürüm ikinci publish → 409 reddi.
+- [ ] **Download** — aktivasyon sonrası cihaz indiriyor (progress + `files/ota/*.apk`).
+- [ ] **Hash verify** — sha256 kolonu bozularak negatif test: `ERR_HASH` + tmp silinmiş.
+- [ ] **Install permission** — bilinmeyen-kaynak ayar ekranı K24 ROM'unda AÇILIYOR
+  (en büyük ROM riski; açılmıyorsa OTA stratejisi daraltılıp belgelenir).
+- [ ] **Install dialog** — sistem kurulum diyaloğu + kullanıcı onayı (sessiz kurulum yok).
+- [ ] **Reboot** — kurulum sonrası launcher (HOME default) otomatik geri geliyor.
+- [ ] **Version doğrulama** — `getAppVersionInfo` yeni versionCode raporluyor.
+- [ ] **ota_success event** — `vehicle_events`'te `ota_event/ota_success` satırı;
+  aynı sürüm için İKİNCİ event YOK (dedup); RolloutCenter health beslemesi görünür.
+
 ## 5. Saha Testi (K24 head unit — gerçek cihaz)
 
 > `PROJECT_STATE.md` + `HANDOFF.md`: aşağıdakilerin çoğu **SAHA TESTİ BEKLİYOR**.

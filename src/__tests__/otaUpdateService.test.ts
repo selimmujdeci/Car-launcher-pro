@@ -52,6 +52,8 @@ vi.mock('../platform/supabaseClient', () => ({
 }));
 
 vi.mock('../platform/debug', () => ({ logInfo: vi.fn() }));
+// Commit 7: telemetri importu — bu dosyada davranışı test edilmez (otaTelemetry.test.ts)
+vi.mock('../platform/vehicleIdentityService', () => ({ pushVehicleEvent: vi.fn(async () => {}) }));
 
 import {
   useOtaStore,
@@ -75,6 +77,7 @@ beforeEach(() => {
   _resetOtaServiceForTest();
   safeRemoveRaw('ota-state-v1');
   safeRemoveRaw('ota-channel');
+  safeRemoveRaw('ota-telemetry-v1');
   M.speed = null;            // sensör yok = park (fail-soft)
   M.versionCode = 5;
   M.rows = [];

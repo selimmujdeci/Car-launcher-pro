@@ -32,6 +32,7 @@ import {
   downloadOtaApk,
   installOtaApk,
 } from './nativeCommandBridge';
+import { pushVehicleEvent } from './vehicleIdentityService';
 import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
 import { logInfo } from './debug';
 
@@ -40,6 +41,7 @@ import { logInfo } from './debug';
 const POLL_INTERVAL_MS  = 6 * 60 * 60 * 1_000; // 6 saat
 const STATE_KEY         = 'ota-state-v1';
 const CHANNEL_KEY       = 'ota-channel';       // internal|pilot|production (cihaz ataması)
+const TELEMETRY_KEY     = 'ota-telemetry-v1';  // spam-engeli dedup durumu
 const VALID_CHANNELS    = ['internal', 'pilot', 'production'] as const;
 
 export type OtaChannel = (typeof VALID_CHANNELS)[number];
@@ -121,6 +123,68 @@ function _loadPersisted(): Partial<OtaSnapshot> | null {
   }
 }
 
+// ── Telemetri (OTA v1 / Commit 7 — rollout circuit-breaker beslemesi) ────────
+//
+// vehicle_events'e 'ota_event' tipiyle gider (pushVehicleEvent →
+// push_vehicle_event RPC → connectivityService at-least-once kuyruğu).
+// Admin tarafı (superadmin.service getRolloutHealth) aynı vehicle_events
+// tablosunu okur — OTA başarı/başarısızlık verisi rollout sağlığını besler.
+//
+// Spam engeli: aynı sürümün success'i ve aynı (errorCode, versionCode)
+// çiftinin fail'i YALNIZ BİR KEZ gönderilir (safeStorage dedup, reboot
+// dayanıklı). Yeni sürüm/yeni hata → yeniden gönderilir.
+
+interface OtaTelemetryDedup {
+  lastSuccessVc: number | null;
+  lastFailKey: string | null; // `${errorCode}:${versionCode}`
+}
+
+function _loadTelemetryDedup(): OtaTelemetryDedup {
+  try {
+    const raw = safeGetRaw(TELEMETRY_KEY);
+    if (raw) return JSON.parse(raw) as OtaTelemetryDedup;
+  } catch { /* bozuk kayıt → sıfırdan */ }
+  return { lastSuccessVc: null, lastFailKey: null };
+}
+
+function _saveTelemetryDedup(d: OtaTelemetryDedup): void {
+  safeSetRaw(TELEMETRY_KEY, JSON.stringify(d), undefined, true);
+}
+
+/** Güncelleme kuruldu — sürüm başına TEK success eventi. */
+function _emitOtaSuccess(versionCode: number, versionName: string): void {
+  const dedup = _loadTelemetryDedup();
+  if (dedup.lastSuccessVc === versionCode) return; // aynı sürüm tekrar gönderilmez
+  dedup.lastSuccessVc = versionCode;
+  _saveTelemetryDedup(dedup);
+  void pushVehicleEvent('ota_event', {
+    event: 'ota_success',
+    versionCode,
+    versionName,
+  }).catch(() => { /* fire-and-forget — kuyruk zaten at-least-once */ });
+}
+
+/** OTA hatası — aynı (errorCode, hedef sürüm) çifti TEK kez gönderilir. */
+function _emitOtaFail(errorCode: string, versionCode: number): void {
+  const key = `${errorCode}:${versionCode}`;
+  const dedup = _loadTelemetryDedup();
+  if (dedup.lastFailKey === key) return; // aynı hata spam'lenmez
+  dedup.lastFailKey = key;
+  _saveTelemetryDedup(dedup);
+  void pushVehicleEvent('ota_event', {
+    event: 'ota_fail',
+    errorCode,
+    versionCode,
+  }).catch(() => { /* fire-and-forget */ });
+}
+
+/** failed geçişlerinin tek kapısı: durum + telemetri birlikte. */
+function _fail(errorCode: string, extra?: Partial<OtaSnapshot>): void {
+  const target = useOtaStore.getState().release?.versionCode ?? 0;
+  _set({ state: 'failed', errorCode, ...extra });
+  _emitOtaFail(errorCode, target);
+}
+
 export function getOtaChannel(): OtaChannel {
   const raw = safeGetRaw(CHANNEL_KEY);
   return (VALID_CHANNELS as readonly string[]).includes(raw ?? '')
@@ -194,7 +258,7 @@ export async function checkForUpdate(): Promise<void> {
 
     const current = await getCurrentVersionCode();
     if (current <= 0) {
-      _set({ state: 'failed', errorCode: 'ERR_VERSION_UNKNOWN' });
+      _fail('ERR_VERSION_UNKNOWN');
       return;
     }
     const release = await _queryLatestRelease(current);
@@ -210,7 +274,7 @@ export async function checkForUpdate(): Promise<void> {
       await _downloadAvailableRelease();
     }
   } catch (err) {
-    _set({ state: 'failed', errorCode: 'ERR_CHECK', release: null });
+    _fail('ERR_CHECK', { release: null });
     console.warn('[OTA] checkForUpdate hatası:', err);
   } finally {
     _busy = false;
@@ -226,7 +290,7 @@ async function _downloadAvailableRelease(): Promise<void> {
   const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   if (!url || !anon) {
-    _set({ state: 'failed', errorCode: 'ERR_NO_ENV' });
+    _fail('ERR_NO_ENV');
     return;
   }
   const fileName = release.apkPath.split('/').pop() ?? '';
@@ -246,7 +310,7 @@ async function _downloadAvailableRelease(): Promise<void> {
   if (result.ok) {
     _set({ state: 'verified', fileName, progressPercent: 100 });
   } else {
-    _set({ state: 'failed', errorCode: result.errorCode ?? 'ERR_DOWNLOAD' });
+    _fail(result.errorCode ?? 'ERR_DOWNLOAD'); // ERR_HASH/ERR_HTTP/ERR_IO/... telemetriye
   }
 }
 
@@ -269,12 +333,13 @@ export async function installVerifiedApk(): Promise<void> {
       _set({ state: 'installed_waiting_reboot', awaitingPermission: false });
     } else if (r.action === 'settings_opened') {
       // İzin akışı: ayar ekranı açıldı — verified'a dön, bayrağı kaldır
+      // (telemetri YOK — hata değil, beklenen kullanıcı akışı)
       _set({ state: 'verified', awaitingPermission: true });
     } else {
-      _set({ state: 'failed', errorCode: r.errorCode ?? 'ERR_INSTALL' });
+      _fail(r.errorCode ?? 'ERR_INSTALL'); // ERR_SIGNATURE/ERR_PACKAGE/ERR_DOWNGRADE/...
     }
   } catch (err) {
-    _set({ state: 'failed', errorCode: 'ERR_INSTALL' });
+    _fail('ERR_INSTALL');
     console.warn('[OTA] installVerifiedApk hatası:', err);
   } finally {
     _busy = false;
@@ -292,7 +357,9 @@ export async function reconcileOnBoot(): Promise<void> {
   const target = persisted.release?.versionCode ?? 0;
 
   if (target > 0 && current >= target) {
-    // Güncelleme kurulmuş — temiz başlangıç (başarı eventi Commit 7'de)
+    // Güncelleme KURULMUŞ — sürüm başına tek ota_success (circuit breaker
+    // beslemesi), sonra temiz başlangıç.
+    _emitOtaSuccess(target, persisted.release?.versionName ?? '');
     _set({ ...INITIAL });
     return;
   }
