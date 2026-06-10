@@ -2,13 +2,14 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-06-09.
+> Son güncelleme: 2026-06-11.
 
 ---
 
 ## Aktif Branch
 
-- **Aktif branch:** `feature/ble-obd-support` (teyit: `.git/HEAD`)
+- **Aktif branch:** `main` (HEAD `e191bb1`; 2026-06-11 Duster düzeltmeleri
+  doğrudan main'e atıldı)
 - **Branch belirsizliği ÇÖZÜLDÜ (2026-06-10):** remote HEAD `origin/main` →
   CLAUDE.md "Primary branch" `main` olarak düzeltildi; `master` arşiv ref.
   PR/merge hedefi: `main`.
@@ -36,6 +37,34 @@
   versionCode=2 / versionName=1.0.0 teyitli — version.properties'ten geliyor).
   Not: gradle buildDir `C:/Temp/carlauncher/` (android/build.gradle:30);
   JAVA_HOME = Android Studio jbr gerekiyor (PATH'te java yok).
+
+## Duster Saha Düzeltmeleri (2026-06-11 — 3 commit, CİHAZDA KISMEN DOĞRULANDI)
+
+Gerçek araç testi (Renault Duster, aftermarket head unit, eski WebView
+Chrome 64-78 bandı) üç saha hatası — kökleri ve çözümleri:
+
+1. **`901edf5` fix(compat):** inline modern CSS (clamp/min/aspect-ratio/
+   inset/100dvh) eski WebView'de sessizce düşüyor → Expedition/Horizon grid'i
+   tek kolona çöküyor, harita 0px, kök auto-yükseklik → dock ekran dışı.
+   Çözüm: `src/utils/cssCompat.ts` (CSS.supports, module-eval'de 1 kez) +
+   minmax() fallback şablonları + inset→top/right/bottom/left + harita
+   minHeight:200 + `VIEWPORT_H` (dvh→vh). Ek: gün/gece boot'ta 2 dk hızlı
+   saat kontrolü (geç RTC senkronu); support snapshot'a `device` bloğu
+   (webViewVersion/androidVersion/tier/cores/RAM/ekran).
+2. **`67d0a71` fix(media):** YouTube araması boş — Piped instance'larının
+   4/5'i kalıcı 502. Invidious yedek havuzu (arama+stream; iv.melmac.space
+   doğrulandı), `_tryInstances(pool)` havuz-başına sticky, kapaklar
+   i.ytimg.com, AbortController guard (Chrome <66).
+3. **`e191bb1` fix(voice):** mikrofon "Dinliyorum"da takılıyordu — ilk
+   basışta Vosk unpack+load 20-40 sn, JS failsafe 14 sn. Çözüm: SystemBoot
+   Wave 4 boot+8sn `preloadVoskModel` + native `ensureVoskModel` kuyruk
+   (yükleme sırasında istek reddedilmez). **✅ Cihazda doğrulandı (kullanıcı:
+   "mikrofon çalışıyor").** Dashboard/dock/YouTube düzeltmeleri cihazda
+   henüz ayrı ayrı teyit edilmedi.
+
+Doğrulama: tsc temiz · ilgili testler geçti (41 day/night+inspector,
+8 ytDownload) · build+cap sync+assembleDebug OK. APK dağıtımı: cloudflared
+quick tunnel + `C:\Temp\apk-share\serve-apk.cjs` (Range destekli mini sunucu).
 
 ## OTA v1 (2026-06-10 — KOD TARAFI TAMAM, 7/7 commit)
 

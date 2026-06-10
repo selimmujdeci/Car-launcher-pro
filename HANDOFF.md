@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-09. Branch: `feature/ble-obd-support`. HEAD: `b453cf9`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `e191bb1`.
 
 ---
 
@@ -21,6 +21,21 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Duster saha düzeltmeleri (2026-06-11, `901edf5`+`67d0a71`+`e191bb1`):** gerçek
+  araç (Renault Duster, eski WebView Chrome 64-78) üç saha hatası:
+  1. **Dashboard çöküşü + görünmeyen dock** — inline modern CSS (clamp/min/
+     aspect-ratio/inset/dvh) eski WebView'de düşüyor → grid tek kolona çöküyor,
+     kök 100dvh'siz auto yüksekliğe iniyordu. Çözüm: `src/utils/cssCompat.ts`
+     (CSS.supports tespiti) + Expedition/Horizon fallback şablonları + harita
+     minHeight:200 + MainLayout VIEWPORT_H. Snapshot'a `device` bloğu eklendi
+     (webViewVersion vb. saha teşhisi). Gün/gece: boot'ta ilk 2 dk 5 sn'lik
+     hızlı saat kontrolü (geç RTC senkronu).
+  2. **YouTube araması boş** — Piped instance'larının 4/5'i öldü; Invidious
+     yedek havuzu eklendi (arama + ses akışı), kapaklar i.ytimg.com'dan.
+  3. **Mikrofon "Dinliyorum"da takılı** — ilk basışta Vosk unpack+load 20-40 sn
+     (JS failsafe 14 sn'de pes ediyordu). Çözüm: boot+8sn'de `preloadVoskModel`
+     (SystemBoot Wave 4) + native istek kuyruğu (reddetme yok). **Cihazda
+     doğrulandı: mikrofon çalışıyor (kullanıcı teyidi).**
 - **OTA v1 TAMAM (2026-06-10, 7 commit `3f9b456`…`fb4b51d`):** sürüm gerçeği →
   Supabase şema → publish script → native indirme/doğrulama → install gate →
   orkestrasyon servisi (SystemBoot Wave 4 + Settings kartı) → telemetri.
