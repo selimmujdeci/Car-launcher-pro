@@ -64,7 +64,6 @@ import {
   selectAltRoute,
   registerNavigationStyleCallback,
 } from '../../platform/routingService';
-import { useAutoBrightnessState } from '../../platform/autoBrightnessService';
 import { useStore } from '../../store/useStore';
 import { showToast } from '../../platform/errorBus';
 import { MapOverlay } from './MapOverlay';
@@ -157,7 +156,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const gpsSource = useGPSSource();
   const { isNavigating, destination, status: navStatus, distanceMeters: navDistMeters } = useNavigation();
   const route = useRouteState();
-  const autoBrightness = useAutoBrightnessState();
   const mode = useMapMode();
   const tileRender = useTileRenderMode();
   const drivingMode = useDrivingMode();
@@ -170,10 +168,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     setUserVisionPreference(next ? 'hybrid' : 'standard');
   };
 
-  const isNight = autoBrightness.phase === 'night' || autoBrightness.phase === 'evening' || autoBrightness.phase === 'dawn';
   // Harita paleti gün/gece — UI'ın geri kalanıyla (light-ui / minimap) AYNI sinyali kullanır:
   // settings.dayNightMode (saat 07–19 gündüz). autoBrightness.phase güneş-saati hesabı konum
-  // gerektirir ve 'evening'i de gece sayar → gündüzde bile koyu kalabiliyordu (tutarsızlık).
+  // gerektirir ve 'evening'/'dawn'ı da gece sayar → gündüzde bile koyu kalabiliyordu.
+  // Canvas CSS filtresi de DAHİL tüm gün/gece kararı bu TEK sinyalden gelir.
   const mapNight = useStore((s) => s.settings.dayNightMode) === 'night';
 
   const isValidGPS = !!(location && Number.isFinite(location.accuracy) && location.accuracy < 1000);
@@ -218,7 +216,25 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // gece grafit) RESTYLE OLMADAN canlı günceller (rota katmanları korunur) + night
   // state'i set eder (sonraki stil inşası doğru palet). mapStatus deps: harita READY
   // olunca da çalışır → ilk yüklemede gündüzse açık harita garanti.
-  useEffect(() => { applyMapDayNight(mapNight, mapRef.current ?? undefined); }, [mapNight, mapStatus]);
+  //
+  // Vektör istisnası: koyu vektör stil ('omv' source) canlı patch'lenemez (raster
+  // 'tiles-layer' yok). Gündüze geçişte IDLE'da tam restyle → getMapStyle gündüz
+  // raster fallback döner. navStatus deps: navigasyon bittiğinde de yeniden denenir
+  // (nav sırasında setStyle rota katmanlarını sileceğinden ertelenir).
+  useEffect(() => {
+    applyMapDayNight(mapNight, mapRef.current ?? undefined);
+    const map = mapRef.current;
+    if (
+      map && !mapNight &&
+      navStatus === NavStatus.IDLE &&
+      !styleChangingRef.current &&
+      map.isStyleLoaded() &&
+      !!map.getSource('omv')
+    ) {
+      _doStyleSwitch(map, false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapNight, mapStatus, navStatus]);
 
   // ── CarOS Rover marker — navigasyon aktifliği (alt halka genişler + glow güçlenir) ──
   useEffect(() => {
@@ -1399,7 +1415,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           // Dark-amber cockpit aesthetic — matches map.jsx OEM palette.
           // Night: deep brightness drop + amber sepia overlay via hue-rotate.
           // Day: full color preserved for outdoor sunlight readability.
-          filter: isNight
+          // mapNight (settings.dayNightMode) — harita stiliyle AYNI sinyal; eski
+          // autoBrightness.phase sinyali gündüzde de filtre uygulayıp haritayı karartıyordu.
+          filter: mapNight
             ? 'brightness(0.4) saturate(0.8) sepia(0.2) hue-rotate(-10deg)'
             : 'none',
           transition: 'opacity 500ms ease, filter 5s ease',

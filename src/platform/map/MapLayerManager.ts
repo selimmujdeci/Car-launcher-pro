@@ -392,17 +392,23 @@ export function applyMapDayNight(night: boolean, mapArg?: ReturnType<typeof useM
   const map = mapArg ?? useMapStore.getState().mapInstance;
   if (!map) return;
   try {
-    if (map.getLayer('tiles-layer')) {
+    // 'tiles-layer' = buildRoadStyle/getOnlineTileStyle standardı; 'osm-tiles'/'osm-layer'
+    // eski sabit stillerin id'leri — id eşleşmezse geçiş sessizce no-op oluyordu (gündüz
+    // temada kalıcı gece harita). Hangisi varsa onu canlı patch'le.
+    const rasterLayerId = ['tiles-layer', 'osm-tiles', 'osm-layer'].find((id) => map.getLayer(id));
+    if (rasterLayerId) {
       // RASTER (OSM) → canlı paint: restyle yok, rota/marker korunur (en yaygın yol).
       const paint = night ? RASTER_PAINT_NIGHT : RASTER_PAINT_DAY;
       for (const [prop, val] of Object.entries(paint)) {
-        map.setPaintProperty('tiles-layer', prop as any, val as any);
+        map.setPaintProperty(rasterLayerId, prop as any, val as any);
       }
       if (map.getLayer('background')) {
         map.setPaintProperty('background', 'background-color', night ? '#131822' : '#e9eef3');
       }
     }
     // NOT: Vektör (offline .pbf) veya uydu/hibrit → burada setStyle ÇAĞIRMA.
+    // Vektör stil gündüze canlı çevrilemez — FullMapView gün/gece effect'i IDLE'da
+    // tam restyle (getMapStyle → gündüz raster fallback) tetikler.
   } catch { /* stil yeniden yükleniyor — sonraki getMapStyle doğru paleti kurar */ }
 }
 

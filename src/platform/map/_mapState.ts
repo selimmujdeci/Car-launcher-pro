@@ -148,11 +148,15 @@ export const OSM_STYLE: maplibregl.StyleSpecification = {
   ],
 };
 
-export const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
+/** Son çare fallback stili — gün/gece paleti parametreyle seçilir.
+ *  Varsayılan GÜNDÜZ (night=false): fallback haritası gündüz temada asla koyu kurulmaz.
+ *  Layer id 'tiles-layer' + source 'map-tiles': applyMapDayNight canlı paint geçişi ve
+ *  MapCore'daki source-loaded kontrolü ana stille (buildRoadStyle) aynı id'leri bulur. */
+export const getOnlineTileStyle = (night = false): maplibregl.StyleSpecification => ({
   version: 8,
   name: 'OSM Online',
   sources: {
-    'osm-tiles': {
+    'map-tiles': {
       type: 'raster' as const,
       tiles: [
         'caros-tile://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -169,21 +173,31 @@ export const getOnlineTileStyle = (): maplibregl.StyleSpecification => ({
     {
       id: 'background',
       type: 'background' as const,
-      paint: { 'background-color': '#131822' },
+      paint: { 'background-color': night ? '#131822' : '#e9eef3' },
     },
     {
-      id: 'osm-layer',
+      id: 'tiles-layer',
       type: 'raster' as const,
-      source: 'osm-tiles',
-      paint: {
-        // OEM sıcak grafit gece tonu — OSM_STYLE ile birebir aynı
-        'raster-opacity': 1,
-        'raster-contrast': 0.5,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.30,
-        'raster-saturation': -0.82,
-        'raster-hue-rotate': 25,
-      },
+      source: 'map-tiles',
+      paint: night
+        ? {
+            // OEM sıcak grafit gece tonu — RASTER_PAINT_NIGHT ile birebir aynı
+            'raster-opacity': 1,
+            'raster-contrast': 0.5,
+            'raster-brightness-min': 0,
+            'raster-brightness-max': 0.30,
+            'raster-saturation': -0.82,
+            'raster-hue-rotate': 25,
+          }
+        : {
+            // Gündüz: ham OSM doğal açık renkleri — RASTER_PAINT_DAY ile birebir aynı
+            'raster-opacity': 1,
+            'raster-contrast': 0.05,
+            'raster-brightness-min': 0,
+            'raster-brightness-max': 1,
+            'raster-saturation': -0.05,
+            'raster-hue-rotate': 0,
+          },
     },
   ],
 });

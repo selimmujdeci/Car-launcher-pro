@@ -351,6 +351,12 @@ export function getActiveTileUrls(): string[] {
  *
  * Satellite/hybrid are always raster regardless of tileRender.
  */
+/** Saat → gece bandı — useDayNightManager (DAY_START_H=7 / DAY_END_H=19) ile AYNI kural.
+ *  Tek kaynak: hem _mapNight varsayılanı hem testler bunu kullanır. */
+export function isNightHour(hour: number): boolean {
+  return hour < 7 || hour >= 19;
+}
+
 /** Harita gün/gece durumu — getMapStyle ve canlı paint geçişi (applyMapDayNight) okur.
  *  Varsayılan GERÇEK SAATE göre (useDayNightManager ile aynı 07–19 gündüz bandı). Eskiden
  *  sabit `true` (gece) idi → harita, widget efekti gerçek değeri yazmadan önce gece stiliyle
@@ -358,13 +364,17 @@ export function getActiveTileUrls(): string[] {
  *  atlanır) GÜNDÜZ VAKTİ HARİTA GECE KALIYORDU (UI açık ama harita koyu = desync). Saate
  *  dayalı varsayılan bu init penceresini doğru kapatır; store değişince widget yine günceller. */
 let _mapNight = (() => {
-  try { const h = new Date().getHours(); return h < 7 || h >= 19; } catch { return false; }
+  try { return isNightHour(new Date().getHours()); } catch { return false; }
 })();
 export function setMapNight(night: boolean): void { _mapNight = night; }
 export function getMapNight(): boolean { return _mapNight; }
 
 export function getMapStyle(): StyleSpecification {
   const { mapMode, tileRender, sources, activeSourceId } = useMapSourceStore.getState();
+  if (import.meta.env.DEV) {
+    // Yalnız dev: stil karar zinciri görünür olsun — gündüz/gece desync teşhisi için.
+    console.info('[MAP_STYLE_RESOLVE]', { night: _mapNight, mapMode, tileRender });
+  }
   if (mapMode === 'satellite') return buildSatelliteStyle();
   if (mapMode === 'hybrid')    return buildHybridStyle();
   const roadFallback = () => buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);

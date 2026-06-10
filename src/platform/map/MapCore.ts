@@ -12,9 +12,9 @@
 import maplibregl, { Map as MapLibreMap } from 'maplibre-gl';
 import { logInfo } from '../debug';
 import { logError } from '../crashLogger';
-import { handleSatelliteTileError, setActiveMapSource } from '../mapSourceManager';
+import { handleSatelliteTileError, setActiveMapSource, getMapStyle, getMapNight } from '../mapSourceManager';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
-import { M, useMapStore, OSM_STYLE, getOnlineTileStyle, type MapConfig } from './_mapState';
+import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
 import { _applyRouteGeometry } from './MapLayerManager';
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
 
@@ -186,8 +186,12 @@ async function _initCore(
     // Offline tile server DISABLED — device has no tiles, interceptor causes 404 spam
     setActiveMapSource('online');
 
-    logInfo('[MAP_STYLE] OSM raster');
-    const style = OSM_STYLE;
+    // Stil TEK kaynaktan çözülür: getMapStyle() → _mapNight + mapMode + tileRender.
+    // Eski sabit OSM_STYLE gece paletliydi ve layer id'si ('osm-tiles') canlı gün/gece
+    // güncelleyicisinin beklediği 'tiles-layer' ile eşleşmiyordu → gündüz temada harita
+    // kalıcı gece kalıyordu (applyMapDayNight no-op).
+    logInfo('[MAP_STYLE] resolved via getMapStyle', { night: getMapNight() });
+    const style = getMapStyle();
     const TURKEY_CENTER: [number, number] = [35, 39];
     const TURKEY_ZOOM = 6;
 
@@ -228,7 +232,8 @@ async function _initCore(
           useMapStore.setState({ tileError: true });
           setTimeout(() => {
             if (setActiveMapSource('online')) {
-              switchMapStyle(map, OSM_STYLE);
+              // Tek kaynaklı resolver — gün/gece paletini korur (sabit gece OSM_STYLE değil)
+              switchMapStyle(map, getMapStyle());
               tileFailCount = 0;
             }
           }, 3_000);
@@ -302,11 +307,11 @@ async function _initCore(
 
     logError('Map:InitFallback', err);
 
-    // Son çare fallback: minimal koyu harita
+    // Son çare fallback: minimal harita — gün/gece paleti getMapNight() ile seçilir
     try {
       const fallbackMap = new MapLibreMap({
         container,
-        style: getOnlineTileStyle(),
+        style: getOnlineTileStyle(getMapNight()),
         center: [35, 39],
         zoom: 6,
         attributionControl: false,
