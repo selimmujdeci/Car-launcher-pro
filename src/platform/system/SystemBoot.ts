@@ -549,6 +549,22 @@ class SystemBoot {
     _log('  › RemoteLogService');
     this._reg(startRemoteLogService());
 
+    // Vosk STT modelini boot sonrası arka planda ısıt — eskiden ilk mikrofon
+    // basışında unpack+load (zayıf head unit CPU'sunda 20-40 sn) ödeniyor,
+    // JS failsafe 14 sn'de pes edip "Dinliyorum"da takılı kalıyordu.
+    // 8 sn gecikme: boot I/O'su ile yarışmasın. Fail-soft: preload başarısız
+    // olsa da ilk basışta normal yol (artık kuyruklu) devreye girer.
+    if (isNative) {
+      const voskWarmTimer = setTimeout(() => {
+        try {
+          CarLauncher.preloadVoskModel?.()
+            .then(() => _log('  › Vosk model preloaded ✓'))
+            .catch((e: unknown) => logError('SystemBoot:VoskPreload', e));
+        } catch (e) { logError('SystemBoot:VoskPreload', e); }
+      }, 8_000);
+      this._reg(() => clearTimeout(voskWarmTimer));
+    }
+
     // ChaosReceiver: yalnızca DEV ortamında — BroadcastChannel üzerinden komut dinler
     if (import.meta.env.DEV) {
       this._reg(this._startChaosReceiver());

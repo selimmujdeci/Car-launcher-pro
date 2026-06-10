@@ -1241,6 +1241,73 @@ public class CarLauncherPlugin extends Plugin {
     private Handler       voskTimeoutHandler  = null;
     private Runnable      voskTimeoutRunnable = null;
 
+    /* Model hazır/hata bekleyenleri — unpack+load zayıf head unit CPU'sunda 20-40 sn
+     * sürebilir. Eskiden yükleme sırasındaki 2. çağrı REDDEDİLİYORDU ("tekrar deneyin")
+     * ve ilk çağrı JS failsafe'ine (14 sn) takılıp "Dinliyorum"da asılı kalıyordu.
+     * Artık: (1) boot'ta preloadVoskModel ile arka planda ısıtılır, (2) yükleme
+     * sürerken gelen istekler kuyruğa alınır, model hazır olunca sırayla çalışır. */
+    private interface VoskFailCb { void fail(String reason); }
+    private final java.util.List<Runnable>   voskOnReady = new java.util.ArrayList<>();
+    private final java.util.List<VoskFailCb> voskOnFail  = new java.util.ArrayList<>();
+
+    /**
+     * Modeli (gerekiyorsa) yükler; hazır olunca onReady, başarısızsa onFail çalışır.
+     * Eşzamanlı çağrılar tek unpack paylaşır — callback'ler kuyruklanır.
+     */
+    private void ensureVoskModel(Runnable onReady, VoskFailCb onFail) {
+        synchronized (voskOnReady) {
+            if (voskModel != null) { onReady.run(); return; }
+            voskOnReady.add(onReady);
+            voskOnFail.add(onFail);
+            if (voskModelLoading) return; // yükleme zaten uçuşta — kuyruğa eklendi
+            voskModelLoading = true;
+        }
+        try {
+            StorageService.unpack(getContext(), "vosk-model-tr", "vosk-model",
+                (model) -> {
+                    java.util.List<Runnable> ready;
+                    synchronized (voskOnReady) {
+                        voskModel = model;
+                        voskModelLoading = false;
+                        ready = new java.util.ArrayList<>(voskOnReady);
+                        voskOnReady.clear();
+                        voskOnFail.clear();
+                    }
+                    for (Runnable r : ready) { try { r.run(); } catch (Exception ignored) {} }
+                },
+                (exception) -> drainVoskFail("model açılamadı: "
+                    + (exception != null ? exception.getMessage() : "bilinmeyen")));
+        } catch (Throwable t) {
+            drainVoskFail("model unpack istisnası: " + t.getMessage());
+        }
+    }
+
+    private void drainVoskFail(String reason) {
+        java.util.List<VoskFailCb> fails;
+        synchronized (voskOnReady) {
+            voskModelLoading = false;
+            fails = new java.util.ArrayList<>(voskOnFail);
+            voskOnReady.clear();
+            voskOnFail.clear();
+        }
+        for (VoskFailCb f : fails) { try { f.fail(reason); } catch (Exception ignored) {} }
+    }
+
+    /**
+     * Boot sırasında modeli arka planda ısıtır — ilk mikrofon basışı unpack+load
+     * maliyetini (zayıf CPU'da 20-40 sn) ödemesin. İdempotent; model RAM'de kalır.
+     */
+    @PluginMethod
+    public void preloadVoskModel(PluginCall call) {
+        ensureVoskModel(
+            () -> {
+                JSObject r = new JSObject();
+                r.put("ready", true);
+                call.resolve(r);
+            },
+            (reason) -> call.reject("Vosk model yüklenemedi — " + reason, "MODEL_LOAD"));
+    }
+
     // ── Mikrofon hassasiyeti (araç içi: yol gürültüsü + alçak sesle konuşma) ──────
     // Vosk'un kendi SpeechService'i ham, kazançsız ses verir → kullanıcı bağırmadan
     // tanımıyordu. Özel AudioRecord döngüsü: AGC + NoiseSuppressor + AEC efektleri +
@@ -1427,29 +1494,12 @@ public class CarLauncherPlugin extends Plugin {
 
     private void startVoskRecognition(String language, int maxResults,
                                       boolean preferOffline, boolean onlineFallback) {
-        if (voskModel != null) { runVoskListening(); return; }
-        if (voskModelLoading) {
-            if (savedSpeechCall != null) {
-                savedSpeechCall.reject("Ses modeli yükleniyor, tekrar deneyin", "MODEL_LOADING");
-                savedSpeechCall = null;
-            }
-            return;
-        }
-        voskModelLoading = true;
-        try {
-            StorageService.unpack(getContext(), "vosk-model-tr", "vosk-model",
-                (model) -> {
-                    voskModel = model;
-                    voskModelLoading = false;
-                    runVoskListening();
-                },
-                (exception) -> voskFailed(
-                    "model açılamadı: " + (exception != null ? exception.getMessage() : "bilinmeyen"),
-                    language, maxResults, preferOffline, onlineFallback));
-        } catch (Throwable t) {
-            voskFailed("model unpack istisnası: " + t.getMessage(),
-                language, maxResults, preferOffline, onlineFallback);
-        }
+        // Model yüklemesi (gerekirse) ensureVoskModel'de kuyruklanır — yükleme sürerken
+        // gelen istek REDDEDİLMEZ, model hazır olunca dinleme başlar. savedSpeechCall
+        // korunur; runVoskListening onu çözer.
+        ensureVoskModel(
+            this::runVoskListening,
+            (reason) -> voskFailed(reason, language, maxResults, preferOffline, onlineFallback));
     }
 
     /**
@@ -1511,6 +1561,8 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     private void runVoskListening() {
+        // Bekleyen JS çağrısı yoksa (kullanıcı vazgeçti / preload yolu) mikrofonu boşuna açma
+        if (savedSpeechCall == null) return;
         stopVosk(); // önceki oturumu temizle (varsa eski thread'i durdur)
         voskCapturing = true;
         duckMusicForListening(); // mikrofon dinlerken müziği kıs

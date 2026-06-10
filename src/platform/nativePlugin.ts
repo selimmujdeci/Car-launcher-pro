@@ -410,6 +410,11 @@ export interface CarLauncherPlugin {
   // On-device speech recognition (EXTRA_PREFER_OFFLINE)
   startSpeechRecognition(options: SpeechRecognitionOptions): Promise<SpeechRecognitionResult>;
 
+  // Vosk modelini boot'ta arka planda ısıtır — ilk mikrofon basışı unpack+load
+  // maliyetini (zayıf head unit CPU'sunda 20-40 sn) ödemesin. Opsiyonel: eski
+  // plugin sürümlerinde bulunmayabilir (çağıran try/catch ile korur).
+  preloadVoskModel?(): Promise<{ ready: boolean }>;
+
   // OBD-II Bluetooth Serial
   scanOBD(): Promise<OBDScanResult>;
   connectOBD(options: OBDConnectOptions): Promise<void>;
