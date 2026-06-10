@@ -20,11 +20,24 @@ import type { MediaProvider, UnifiedTrack } from './providers';
 // canlılık testiyle tazelendi: tam ölü (DNS/connection-refused) olanlar çıkarıldı,
 // canlı + geçici 502 (toparlayabilir) olanlar bırakıldı. Canlı olan başta.
 const INSTANCES = [
-  'https://api.piped.private.coffee',  // ✅ canlı (test: 200 + CORS:*)
+  'https://api.piped.private.coffee',  // ✅ canlı (2026-06-10 test: 200 + CORS:*)
   'https://pipedapi.kavin.rocks',      // 502 — backend toparlarsa
   'https://pipedapi.leptons.xyz',
   'https://pipedapi.reallyaweso.me',
   'https://piped-api.lunar.icu',
+];
+
+/* Invidious yedek havuzu — Piped ekosistemi 2026'da büyük ölçüde çöktü (test:
+ * 5 instance'tan 4'ü 502). Tek canlı Piped instance'ına bağımlılık kırılgan;
+ * Invidious bağımsız ikinci ağ: hem arama (/api/v1/search) hem ses akışı
+ * (/api/v1/videos/<id> → adaptiveFormats) verir. melmac doğrulandı (200 +
+ * CORS:*); diğerleri PowerShell UA'sına 403 verdi — tarayıcı UA'lı WebView'den
+ * çalışabilir, paralel yarışta ölü instance canlıyı bloklamaz. */
+const INVIDIOUS_INSTANCES = [
+  'https://iv.melmac.space',           // ✅ canlı (2026-06-10 test: 200 + CORS:*)
+  'https://yewtu.be',
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
 ];
 
 /** streamUrl bu önekle başlıyorsa YouTube/Piped item'ıdır (çalmadan önce çözülür). */
@@ -36,16 +49,22 @@ export const PIPED_SCHEME = 'piped://';
 const SEARCH_PER_INSTANCE_MS = 6000;
 const STREAM_PER_INSTANCE_MS = 9000;
 
-let _stickyInstance = '';
+type Pool = 'piped' | 'invidious';
+const _sticky: Record<Pool, string> = { piped: '', invidious: '' };
 
-/** Çalışan instance'ı önce deneyecek şekilde sıralı liste. */
-function _ordered(): string[] {
-  if (!_stickyInstance) return INSTANCES;
-  return [_stickyInstance, ...INSTANCES.filter((i) => i !== _stickyInstance)];
+/** Çalışan instance'ı önce deneyecek şekilde sıralı liste (havuz başına sticky). */
+function _ordered(pool: Pool): string[] {
+  const list = pool === 'piped' ? INSTANCES : INVIDIOUS_INSTANCES;
+  const s = _sticky[pool];
+  if (!s) return list;
+  return [s, ...list.filter((i) => i !== s)];
 }
 
-/** Dış sinyal + instance-başına timeout'u birleştiren AbortSignal. */
-function _perInstanceSignal(outer: AbortSignal | undefined, ms: number): AbortSignal {
+/** Dış sinyal + instance-başına timeout'u birleştiren AbortSignal.
+ *  Eski WebView'de (Chrome <66) AbortController yoktur — timeout'suz devam
+ *  edilir (arama hiç çalışmamaktan iyidir); fetch signal: undefined kabul eder. */
+function _perInstanceSignal(outer: AbortSignal | undefined, ms: number): AbortSignal | undefined {
+  if (typeof AbortController === 'undefined') return outer;
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
   if (outer) {
@@ -61,19 +80,20 @@ function _perInstanceSignal(outer: AbortSignal | undefined, ms: number): AbortSi
  * Her instance kendi timeout'unu alır; ilk başarılı "sticky" olur.
  */
 async function _tryInstances<T>(
-  fn: (base: string, signal: AbortSignal) => Promise<T | null>,
+  pool: Pool,
+  fn: (base: string, signal: AbortSignal | undefined) => Promise<T | null>,
   signal?: AbortSignal,
   perInstanceMs: number = SEARCH_PER_INSTANCE_MS,
 ): Promise<T | null> {
   if (signal?.aborted) return null;
-  const bases = _ordered();
+  const bases = _ordered(pool);
   if (!bases.length) return null;
   return new Promise<T | null>((resolve) => {
     let remaining = bases.length;
     let settled = false;
     const done = (r: T | null, base?: string) => {
       if (settled) return;
-      if (r !== null) { settled = true; if (base) _stickyInstance = base; resolve(r); return; }
+      if (r !== null) { settled = true; if (base) _sticky[pool] = base; resolve(r); return; }
       if (--remaining === 0) { settled = true; resolve(null); }
     };
     for (const base of bases) {
@@ -91,12 +111,26 @@ function _videoId(watchUrl: string): string {
   return new URLSearchParams(qs).get('v') ?? '';
 }
 
+/** UnifiedTrack kurucusu — Piped ve Invidious sonuçları aynı şemaya iner.
+ *  streamUrl sentinel'i (piped://<id>) kaynaktan bağımsız: çalma anında
+ *  resolvePipedStream her iki havuzu da dener. */
+function _track(vid: string, title?: string, uploader?: string, artwork?: string): UnifiedTrack {
+  return {
+    id:         `youtube-${vid}`,
+    providerId: 'youtube',
+    title:      title?.trim() || 'Parça',
+    subtitle:   uploader?.trim() || 'YouTube',
+    artwork,
+    streamUrl:  `${PIPED_SCHEME}${vid}`,
+  };
+}
+
 export const pipedProvider: MediaProvider = {
   id: 'youtube',
   async search(query, signal) {
     const q = query.trim();
     if (!q) return [];
-    const fetchItems = (filter: string) => _tryInstances(async (base, sig) => {
+    const fetchItems = (filter: string) => _tryInstances('piped', async (base, sig) => {
       const res = await fetch(`${base}/search?q=${encodeURIComponent(q)}&filter=${filter}`, { signal: sig });
       if (!res.ok) return null;
       const json = await res.json();
@@ -108,21 +142,38 @@ export const pipedProvider: MediaProvider = {
     // Boşsa müzik aramasına düş (nadir; bazı instance'larda 'videos' boş dönebilir).
     let items = await fetchItems('videos');
     if (!items) items = await fetchItems('music_songs');
-    if (!items) return [];
-    return items
-      .filter((t) => typeof t.url === 'string' && t.url.includes('/watch?v='))
-      .map((t): UnifiedTrack => {
-        const vid = _videoId(t.url);
-        return {
-          id:         `youtube-${vid}`,
-          providerId: 'youtube',
-          title:      t.title?.trim() || 'Parça',
-          subtitle:   t.uploaderName?.trim() || 'YouTube',
-          artwork:    typeof t.thumbnail === 'string' ? t.thumbnail : undefined,
-          streamUrl:  `${PIPED_SCHEME}${vid}`,
-        };
-      })
-      .filter((t) => t.streamUrl !== PIPED_SCHEME)
+    if (items) {
+      return items
+        .filter((t) => typeof t.url === 'string' && t.url.includes('/watch?v='))
+        .map((t) => _track(
+          _videoId(t.url),
+          t.title,
+          t.uploaderName,
+          typeof t.thumbnail === 'string' ? t.thumbnail : undefined,
+        ))
+        .filter((t) => t.streamUrl !== PIPED_SCHEME)
+        .slice(0, 20);
+    }
+
+    // ── Invidious fallback — tüm Piped instance'ları düştüyse ──
+    const invItems = await _tryInstances('invidious', async (base, sig) => {
+      const res = await fetch(`${base}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, { signal: sig });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const arr  = (Array.isArray(json) ? json : []).filter(
+        (v: any) => v?.type === 'video' && typeof v?.videoId === 'string' && v.videoId,
+      );
+      return arr.length ? (arr as any[]) : null;
+    }, signal);
+    if (!invItems) return [];
+    return invItems
+      .map((v) => _track(
+        v.videoId,
+        v.title,
+        v.author,
+        // Thumbnail instance'tan değil doğrudan YouTube CDN'den — instance ölse de görsel yaşar
+        `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
+      ))
       .slice(0, 20);
   },
 };
@@ -133,7 +184,7 @@ export const pipedProvider: MediaProvider = {
  */
 export async function resolvePipedStream(videoId: string): Promise<string | null> {
   if (!videoId) return null;
-  return _tryInstances(async (base, sig) => {
+  const fromPiped = await _tryInstances('piped', async (base, sig) => {
     const res = await fetch(`${base}/streams/${videoId}`, { signal: sig });
     if (!res.ok) return null;
     const json = await res.json();
@@ -141,6 +192,21 @@ export async function resolvePipedStream(videoId: string): Promise<string | null
     const audio = (json?.audioStreams ?? []) as any[];
     if (!audio.length) return null;
     const best = audio.slice().sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+    return best?.url ?? null;
+  }, undefined, STREAM_PER_INSTANCE_MS);
+  if (fromPiped) return fromPiped;
+
+  // ── Invidious fallback — adaptiveFormats içinden en yüksek bitrate'li ses ──
+  // Not: Invidious bitrate alanı string döner; Number() ile normalize edilir.
+  return _tryInstances('invidious', async (base, sig) => {
+    const res = await fetch(`${base}/api/v1/videos/${videoId}`, { signal: sig });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const fmts = ((json?.adaptiveFormats ?? []) as any[]).filter(
+      (f) => typeof f?.type === 'string' && f.type.startsWith('audio/') && typeof f?.url === 'string' && f.url,
+    );
+    if (!fmts.length) return null;
+    const best = fmts.slice().sort((a, b) => (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0))[0];
     return best?.url ?? null;
   }, undefined, STREAM_PER_INSTANCE_MS);
 }
