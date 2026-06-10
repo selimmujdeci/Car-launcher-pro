@@ -70,6 +70,38 @@ export async function executeMcuCommand(
   }
 }
 
+// ── Cross-channel Nonce Tüketimi (replay koruması) ────────────────────────────
+
+/**
+ * Cross-channel replay fix: JS ve Native ayrı nonce depoları tutuyordu
+ * (commandCrypto `car-nonce-store-v1` ↔ NativeCryptoManager `native_e2e_nonces`).
+ * Bu fonksiyon JS yolunu da Native'in TEK store'una bağlar: JS bir nonce'u
+ * işlerken native store'da atomik check-and-mark yapılır. Native uyku yolu
+ * (CommandService.java → NativeCryptoManager) zaten aynı store'u kullandığından
+ * artık hangi kanal önce işlerse diğeri replay görür.
+ *
+ * Web/dev'de native yoktur → undefined döner (commandCrypto local store'a düşer).
+ *
+ * @returns true → nonce daha önce kullanılmış (replay, REDDET);
+ *          false → taze (native store'a işaretlendi);
+ *          undefined → native yok / köprü hatası (local store otoritedir).
+ */
+export async function checkCrossChannelNonceReplay(
+  nonce: string,
+): Promise<boolean | undefined> {
+  if (!Capacitor.isNativePlatform()) return undefined;
+  try {
+    const res = await (CarLauncher as unknown as {
+      checkCommandNonce: (o: { nonce: string }) => Promise<{ replay: boolean }>;
+    }).checkCommandNonce({ nonce });
+    return res?.replay === true;
+  } catch (err) {
+    // Köprü hatası: güvenli taraf — local store yine de kontrol eder.
+    console.warn('[NativeCmdBridge] checkCommandNonce köprü hatası:', err);
+    return undefined;
+  }
+}
+
 // ── Native Kuyruk — CommandService.java çıktısı ───────────────────────────────
 
 export interface QueuedNativeCommand {

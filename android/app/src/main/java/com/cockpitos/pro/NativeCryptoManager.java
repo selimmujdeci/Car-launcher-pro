@@ -171,6 +171,19 @@ public final class NativeCryptoManager {
     // ── Nonce Replay Koruması (C10) ────────────────────────────────────────
 
     /**
+     * Cross-channel replay fix: JS yolu (commandCrypto) bu metodu CarLauncherPlugin
+     * köprüsü üzerinden çağırır → JS ve Native AYNI nonce store'unu (native_e2e_nonces)
+     * paylaşır. Böylece bir nonce hangi kanaldan (WebView aktif JS / uyku native)
+     * gelirse gelsin ikinci kez kabul edilmez. Atomik check-and-mark (synchronized).
+     *
+     * @return true → nonce daha önce kullanılmış (replay, REDDET); false → taze (işaretlendi).
+     */
+    public static boolean checkAndMarkNonce(Context ctx, String nonce) {
+        if (nonce == null || nonce.isEmpty()) return true; // eksik nonce = güvensiz, reddet
+        return isReplayNonce(ctx, nonce);
+    }
+
+    /**
      * Kullanılmış nonce'ları EncryptedSharedPreferences yerine düz prefs'te
      * (nonce → expiry ms) tutar — değer hassas değildir, yalnız tekrar tespiti.
      *

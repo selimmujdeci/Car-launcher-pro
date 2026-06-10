@@ -208,6 +208,75 @@ describe('Replay Attack — nonce deduplication', () => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   4b. CROSS-CHANNEL REPLAY (JS ↔ Native ortak nonce store)
+   Fix: decryptE2EPayload opsiyonel crossChannelNonceCheck enjeksiyonu.
+   Native köprü (checkCommandNonce) cihaz gerektirir → burada checker
+   davranışı mock'lanır; köprü kablolaması cihazda doğrulanacak.
+═══════════════════════════════════════════════════════════════ */
+
+describe('Cross-channel replay — crossChannelNonceCheck enjeksiyonu', () => {
+  let carPair: CryptoKeyPair;
+  let carPubB64: string;
+
+  beforeEach(async () => {
+    carPair = await makeKeyPair();
+    const spki = await crypto.subtle.exportKey('spki', carPair.publicKey);
+    carPubB64 = b64enc(new Uint8Array(spki));
+  });
+
+  it('native store nonce kullanıldı derse (true) komut reddedilir — diğer kanaldan replay', async () => {
+    // Senaryo: nonce başka bir kanalda (ör. native uyku yolu) zaten tüketilmiş.
+    const enc = await encryptE2EPayload({ cmd: 'unlock' }, carPubB64);
+    const crossChannelNonceCheck = vi.fn(async () => true); // native: "kullanılmış"
+
+    await expect(
+      decryptE2EPayload(enc, carPair.privateKey, { crossChannelNonceCheck }),
+    ).rejects.toThrow('cross-channel nonce already used');
+    expect(crossChannelNonceCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it('native store taze derse (false) komut çalışır ve checker çağrılır', async () => {
+    const enc = await encryptE2EPayload({ cmd: 'unlock' }, carPubB64);
+    const crossChannelNonceCheck = vi.fn(async () => false); // native: "taze"
+
+    const dec = await decryptE2EPayload(enc, carPair.privateKey, { crossChannelNonceCheck });
+    expect(dec.cmd).toBe('unlock');
+    expect(crossChannelNonceCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it('native yok (undefined) → local nonce store otoritedir, replay yine yakalanır', async () => {
+    const enc = await encryptE2EPayload({ cmd: 'lock' }, carPubB64);
+    const crossChannelNonceCheck = vi.fn(async () => undefined); // web/dev — köprü yok
+
+    // İlk geçer (local fresh), ikinci local store ile reddedilir
+    await expect(
+      decryptE2EPayload(enc, carPair.privateKey, { crossChannelNonceCheck }),
+    ).resolves.toBeDefined();
+    await expect(
+      decryptE2EPayload(enc, carPair.privateKey, { crossChannelNonceCheck }),
+    ).rejects.toThrow('Replay Attack');
+  });
+
+  it('cross-channel kontrol local mark\'tan ÖNCE yapılır (native replay local\'i kirletmez)', async () => {
+    // Native "kullanılmış" derse local store'a yazılmamalı → sonraki taze checker ile
+    // aynı nonce (teorik) local'de hâlâ taze olabilmeli. Sıra garantisi testi.
+    const enc = await encryptE2EPayload({ cmd: 'horn' }, carPubB64);
+    const reject = vi.fn(async () => true);
+
+    await expect(
+      decryptE2EPayload(enc, carPair.privateKey, { crossChannelNonceCheck: reject }),
+    ).rejects.toThrow('cross-channel');
+
+    // Cross-channel red sonrası local store kirlenmediyse, undefined checker ile
+    // aynı paket (aynı nonce) bu sefer local fresh kabul edilmeli.
+    const dec = await decryptE2EPayload(enc, carPair.privateKey, {
+      crossChannelNonceCheck: vi.fn(async () => undefined),
+    });
+    expect(dec.cmd).toBe('horn');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
    5. TIMESTAMP PENCERE KORUMASI
 ═══════════════════════════════════════════════════════════════ */
 

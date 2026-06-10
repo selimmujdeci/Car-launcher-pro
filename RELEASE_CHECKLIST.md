@@ -74,6 +74,27 @@
   edildi (`carosMediaLayer.ts`'te `_playYouTubeLight` yok). Kontrol edilecek ayrı
   bir YT probe flag'i yok.
 
+## 4b. Güvenlik — Uzaktan Komut P0 Cihaz Doğrulaması (ZORUNLU, satış blocker)
+
+> Fix'ler kodda kapalı + JS testleri geçiyor; **cihazda doğrulanmadı**.
+> Detay senaryolar: §"Cihazda Doğrulanmamış Fix'ler" (güvenlik test planı).
+
+- [ ] **Plaintext kritik komut reddi** — E2E'siz `unlock` her üç yolda CAN'e gitmez
+  (commandListener.ts:92 · remoteCommandService.ts:297 · CommandService.java:108).
+- [ ] **Same-channel replay reddi** — aynı E2E komut 2×: ilki icra, ikincisi
+  `Replay Attack` (commandCrypto.ts:7b · NativeCryptoManager.java:150).
+- [ ] **Cross-channel replay reddi (YENİ FIX)** — komut WebView aktifken işlenir,
+  sonra ekran kapalı + aynı şifreli komut FCM ile → native reddeder. Köprü:
+  `checkCommandNonce` (CarLauncherPlugin) → `NativeCryptoManager.checkAndMarkNonce`
+  ortak `native_e2e_nonces` store. **Cihazda doğrulanmadı.**
+- [ ] **push-notify auth (YENİ FIX)** — service_role'suz POST → 401
+  (`auth.ts authorizePushRequest`; JS testi geçti). **Deploy'da doğrulanmadı.**
+  NOT: araç-tarafı `triggerPushNotify` artık 401 alır (service_role taşıyamaz) →
+  "komut tamamlandı" bildirimi server-side tetiğe taşınmalı (kalan iş; kritik
+  komut akışı etkilenmez, fire-and-forget).
+- [ ] **config.toml deploy davranışı** — `supabase/config.toml` YOK. Fonksiyon-içi
+  auth defense-in-depth sağlıyor; yine de gateway `verify_jwt=true` deploy'da teyit.
+
 ## 5. Saha Testi (K24 head unit — gerçek cihaz)
 
 > `PROJECT_STATE.md` + `HANDOFF.md`: aşağıdakilerin çoğu **SAHA TESTİ BEKLİYOR**.

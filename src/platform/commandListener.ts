@@ -17,7 +17,7 @@ import {
 } from './commandCrypto';
 import { sensitiveKeyStore }                       from './sensitiveKeyStore';
 import { connectivityService }                     from './connectivityService';
-import { executeMcuCommand }                       from './nativeCommandBridge';
+import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
 import { logInfo }                                 from './debug';
 
 // buildNavIntent — website/ fork bağımlılığından koparıldı; ana app içinde (navIntent.ts).
@@ -103,7 +103,9 @@ async function executeCommand(
       return 'crypto_failed';
     }
     try {
-      payload = await decryptE2EPayload(payload, privKey);
+      payload = await decryptE2EPayload(payload, privKey, {
+        crossChannelNonceCheck: checkCrossChannelNonceReplay,
+      });
     } catch (err) {
       // Zero-Plaintext: hata mesajını logla, komutu ASLA icra etme
       const reason = err instanceof Error ? err.message : 'Decryption Error';

@@ -20,6 +20,7 @@
 import { serve }        from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush          from 'npm:web-push@3.6.7';
+import { authorizePushRequest } from './auth.ts';
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -121,6 +122,20 @@ serve(async (req: Request): Promise<Response> => {
 
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
+  }
+
+  // ── E1 fix: Fonksiyon-içi Authorization doğrulaması ───────────
+  // push-notify yalnızca server/internal (service_role) tarafından çağrılabilir.
+  // Auth header yok VEYA token != SERVICE_ROLE_KEY → 401. Gateway verify_jwt'ye
+  // bağımlı kalmaz (config.toml bağımsız defense-in-depth). NOT: araç-tarafı
+  // (commandListener.triggerPushNotify) service_role taşıyamaz → bildirim
+  // tetikleme server-side'a taşınmalı (kalan iş; kritik komut akışını etkilemez).
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!authorizePushRequest(req.headers.get('Authorization'), serviceRoleKey)) {
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized' }),
+      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
   }
 
   try {

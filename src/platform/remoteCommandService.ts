@@ -42,6 +42,7 @@ import type { CommandContext }                  from './commandExecutor';
 import { applyVars }                           from './liveStyleEngine';
 import { isE2EPayload, decryptE2EPayload,
          getCarPrivateKey, loadOrCreateDeviceKey } from './commandCrypto';
+import { checkCrossChannelNonceReplay }            from './nativeCommandBridge';
 import { safeGetRaw, safeSetRaw }              from '../utils/safeStorage';
 
 // ── TTL Sabitleri ─────────────────────────────────────────────────────────
@@ -322,7 +323,9 @@ async function _processCommand(
       return;
     }
     try {
-      const clear = await decryptE2EPayload(payloadField, privKey);
+      const clear = await decryptE2EPayload(payloadField, privKey, {
+        crossChannelNonceCheck: checkCrossChannelNonceReplay,
+      });
       row['payload'] = clear; // fromAIResponse/executeIntent doğrulanmış payload'ı görür
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Decryption Error';

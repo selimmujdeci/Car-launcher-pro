@@ -354,6 +354,15 @@ export async function encryptE2EPayload(
 export async function decryptE2EPayload(
   encrypted:  E2EEncryptedPayload,
   carPrivKey: CryptoKey,
+  opts?: {
+    /**
+     * Cross-channel replay koruması: native ortamda JS ve Native nonce
+     * depolarını birleştirir. true → nonce native store'da kullanılmış (replay);
+     * false → taze (işaretlendi); undefined → native yok (local store otoritedir).
+     * Enjeksiyon deseni: commandCrypto Capacitor'a bağımlı kalmaz, test-edilebilir.
+     */
+    crossChannelNonceCheck?: (nonce: string) => Promise<boolean | undefined>;
+  },
 ): Promise<Record<string, unknown>> {
   // 1. Erken timestamp kontrolü — ECDH hesabından önce (Mali-400 tasarrufu)
   const outerAge = Date.now() - encrypted.ts;
@@ -413,7 +422,22 @@ export async function decryptE2EPayload(
 
   // 7. Nonce deduplication — Replay Attack koruması
   const nonce = inner._nonce;
-  if (typeof nonce !== 'string' || !_checkAndMarkNonce(nonce)) {
+  if (typeof nonce !== 'string') {
+    throw new Error('Replay Attack: nonce already used or missing');
+  }
+
+  // 7a. Cross-channel kontrol ÖNCE (native tek-store otoritesi): JS bir kanalda
+  //     işlerken native store'a da işaretlenir → uyku/aktif yolların ikisi de
+  //     aynı nonce'u tekrar kabul etmez. Native yoksa undefined → local'e düşer.
+  if (opts?.crossChannelNonceCheck) {
+    const replay = await opts.crossChannelNonceCheck(nonce);
+    if (replay === true) {
+      throw new Error('Replay Attack: cross-channel nonce already used');
+    }
+  }
+
+  // 7b. Local store (web + restart dayanıklılığı; native'de ikinci katman).
+  if (!_checkAndMarkNonce(nonce)) {
     throw new Error('Replay Attack: nonce already used or missing');
   }
 

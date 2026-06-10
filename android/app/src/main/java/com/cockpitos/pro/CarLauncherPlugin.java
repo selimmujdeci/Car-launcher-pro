@@ -3101,6 +3101,28 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
+     * JS → Native: Cross-channel nonce tüketimi (replay koruması fix).
+     * JS komut yolu (commandCrypto.decryptE2EPayload) bu köprü ile native'in
+     * AYNI nonce store'unu (native_e2e_nonces) atomik check-and-mark eder.
+     * Native uyku yolu (NativeCryptoManager) zaten aynı store'u kullandığından,
+     * bir nonce hangi kanaldan gelirse gelsin ikinci kez kabul edilmez.
+     * Döner: { replay: true } → kullanılmış (REDDET); { replay: false } → taze.
+     */
+    @PluginMethod
+    public void checkCommandNonce(PluginCall call) {
+        String nonce = call.getString("nonce", "");
+        try {
+            boolean replay = NativeCryptoManager.checkAndMarkNonce(getContext(), nonce);
+            JSObject result = new JSObject();
+            result.put("replay", replay);
+            call.resolve(result);
+        } catch (Exception e) {
+            android.util.Log.e("CarLauncherPlugin", "checkCommandNonce hatası: " + e.getMessage());
+            call.reject("Nonce kontrol hatası: " + e.getMessage());
+        }
+    }
+
+    /**
      * JS → Native: Anahtarı siler.
      * params: { key: string }
      */
