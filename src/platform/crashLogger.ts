@@ -12,11 +12,20 @@ import { safeGetRaw, safeSetRawImmediate, safeRemoveRaw, safeLruEvict } from '..
 const LOG_KEY    = 'cl_crash_log';
 const MAX_ENTRIES = 50;
 
+/**
+ * Hata şiddeti — uzak log hattının filtresi:
+ *   critical : crash-grade (ErrorBoundary, boot failure) → remote sink'e gider
+ *   error    : normal servis hatası (varsayılan)         → yalnız lokal
+ *   warning  : bilgi amaçlı                              → yalnız lokal
+ */
+export type CrashSeverity = 'critical' | 'error' | 'warning';
+
 export interface CrashEntry {
   ts:    number;    // epoch ms
   ctx:   string;    // e.g. 'GPS', 'OBD', 'Media', 'Bridge', 'React'
   msg:   string;    // human-readable error message
   stack?: string;   // stack trace when available
+  severity?: CrashSeverity; // yoksa 'error' kabul edilir (eski kayıtlar)
   /** Son 60 saniyeye ait 1Hz araç durumu anlık görüntüleri (kara kutu verisi). */
   replayBuffer?: unknown[];
 }
@@ -31,6 +40,20 @@ let _replayGetter: (() => unknown[]) | null = null;
 
 export function registerBlackBoxGetter(getter: () => unknown[]): void {
   _replayGetter = getter;
+}
+
+/**
+ * Uzak log sink'i — remoteLogService başlarken kendini buraya kaydeder
+ * (registerBlackBoxGetter ile aynı desen → crashLogger remoteLogService'i
+ * import etmez, döngüsel bağımlılık yok).
+ *
+ * Sink YALNIZ severity === 'critical' entry'ler için çağrılır —
+ * warning/error seviyeleri uzağa gitmez. null → kayıt silinir (cleanup).
+ */
+let _remoteSink: ((entry: CrashEntry) => void) | null = null;
+
+export function registerRemoteSink(sink: ((entry: CrashEntry) => void) | null): void {
+  _remoteSink = sink;
 }
 
 let _log: CrashEntry[] = [];
@@ -73,13 +96,13 @@ function _persist(): void {
  *   Her hata anında getReplayData() çağrılır → son 60s araç durumu CrashEntry'ye eklenir.
  *   replayBuffer disk'e safeSetRawImmediate ile anında yazılır (uygulama ölmeden önce).
  */
-export function logError(ctx: string, error: unknown): void {
+export function logError(ctx: string, error: unknown, severity: CrashSeverity = 'error'): void {
   try {
     _ensureLoaded();
     const msg   = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack?.slice(0, 1024) : undefined;
 
-    const entry: CrashEntry = { ts: Date.now(), ctx, msg, stack };
+    const entry: CrashEntry = { ts: Date.now(), ctx, msg, stack, severity };
 
     // Kara kutu replay verisi — kayıtlı getter varsa çağır
     try {
@@ -91,6 +114,11 @@ export function logError(ctx: string, error: unknown): void {
 
     _log.push(entry);
     _persist();
+
+    // Uzak sink — YALNIZ critical; sink hatası logger'ı asla düşürmez
+    if (severity === 'critical') {
+      try { _remoteSink?.(entry); } catch { /* sessiz */ }
+    }
   } catch {
     // Even the logger itself must not crash
   }

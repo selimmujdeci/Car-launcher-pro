@@ -16,7 +16,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
-    logError('React', new Error(`${error.message}\n${info.componentStack}`));
+    // critical: render crash → remote log sink'ine de gider (remoteLogService)
+    logError('React', new Error(`${error.message}\n${info.componentStack}`), 'critical');
     this.setState({ stack: info.componentStack.slice(0, 400) });
   }
 

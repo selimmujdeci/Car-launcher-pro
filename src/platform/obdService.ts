@@ -982,6 +982,25 @@ export function getActiveOBDProfile(): IVehicleProfile {
  * Subscribe to every OBD state push from outside React.
  * Returns a cleanup function. Used by obdAlerts.ts.
  */
+/**
+ * OBD bağlantı durumunun hook-dışı anlık görüntüsü — remoteLogService
+ * support_snapshot için. Bilinçli olarak DAR: deviceName/adres gibi
+ * tanımlayıcı alanlar dahil DEĞİL (uzak log gizlilik kuralı).
+ */
+export function getOBDStatusSnapshot(): {
+  connectionState: OBDData['connectionState'];
+  source:          OBDData['source'];
+  vehicleType:     OBDData['vehicleType'];
+  lastSeenMs:      number;
+} {
+  return {
+    connectionState: _current.connectionState,
+    source:          _current.source,
+    vehicleType:     _current.vehicleType,
+    lastSeenMs:      _current.lastSeenMs,
+  };
+}
+
 export function onOBDData(fn: (d: OBDData) => void): () => void {
   _dataListeners.add(fn);
   return () => _dataListeners.delete(fn);

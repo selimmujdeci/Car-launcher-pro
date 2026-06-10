@@ -45,6 +45,7 @@ import {
 import { turkiyeStaticRadars }     from '../radar/staticRadarData';
 import { startTheaterService }     from '../theaterModeService';
 import { startOtaService, stopOtaService } from '../otaUpdateService';
+import { startRemoteLogService }   from '../remoteLogService';
 import { startMemoryWatchdog, stopMemoryWatchdog } from '../memoryWatchdog';
 import {
   startSmartCardEngine,
@@ -331,7 +332,8 @@ class SystemBoot {
         _log('SoakTest etkinleştirildi (window.__START_SOAK_TEST__)');
       }
     } catch (e) {
-      logError('SystemBoot', e);
+      // critical: boot çökmesi → bir sonraki açılışta remote drain ile raporlanır
+      logError('SystemBoot', e, 'critical');
       this.stop(); // kısmi başlatma geri alınır
       throw e;
     }
@@ -541,6 +543,11 @@ class SystemBoot {
     _log('  › OtaUpdateService');
     startOtaService();
     this._reg(stopOtaService);
+
+    // Uzak log hattı: crashLogger sink kaydı + önceki oturum crash drain'i
+    // (Remote Log v1 / Commit 2)
+    _log('  › RemoteLogService');
+    this._reg(startRemoteLogService());
 
     // ChaosReceiver: yalnızca DEV ortamında — BroadcastChannel üzerinden komut dinler
     if (import.meta.env.DEV) {
