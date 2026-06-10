@@ -205,7 +205,18 @@ PerformanceModeSuggestion (birlikte) · obdAlerts · useDragScroll. Ayrıca `pup
 devDep kaldırıldı (e2e Playwright kullanıyor). **useSABDirectUpdate Commit 2'ye ertelendi**
 (importer'ı PremiumSpeedometer henüz duruyor — birlikte silinecek).
 Doğrulama: build + lint 0 hata + vitest 671/671 + e2e app.spec 6/6 (chromium).
-Sırada: Commit 2 (eski layout zinciri ~22+1 dosya), Commit 3 (traffic/ + diagnostic/ adaları).
+
+**Commit 2 UYGULANDI:** eski layout zinciri + uyduları, 44 dosya
+(HomeScreen→LayoutSwitcher→layout/layouts/* 8 + home/layouts/* 5 → PremiumSpeedometer/
+DriveHUD/HeaderBar/OEMCockpitLayout/LayoutWidgets/DraggableWidget/WidgetEditPanel +
+uydular: MediaHub/SmartCardStack/SetupWizard/OBDPanel/DigitalCluster/TPMSWidget/
+SleepScreen/SmartContextBanner/MaintenanceWidget/RadarQuickReport/VehicleReminderWidget/
+LayoutPreview/ThemeStudio/ThemeSwitcher/TelemetryView/QuickControlsOverlay/
+PremiumNavDemoScreen/OEMMapVignette/NeuralVisualizer + hooks: useSABDirectUpdate/
+useVehicleProfile + store: useDragStore/useThemeStudio). Kritik ayrım:
+`themes/CockpitLayout` CANLI (NewHomeLayout.tsx:29) — silinen `layout/layouts/CockpitLayout`.
+Doğrulama: build 42s + lint 0 + vitest geçti + e2e 6/6.
+Sırada: Commit 3 (traffic/ 9 + diagnostic/ 5 — dış-ref kontrolü yapıldı, temiz).
 
 ## Ölü Kod Denetimi v2 (2026-06-10 — rapor-only, silme YOK)
 
