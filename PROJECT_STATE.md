@@ -37,6 +37,25 @@
   Not: gradle buildDir `C:/Temp/carlauncher/` (android/build.gradle:30);
   JAVA_HOME = Android Studio jbr gerekiyor (PATH'te java yok).
 
+## OTA v1 (2026-06-10 — KOD TARAFI TAMAM, 7/7 commit)
+
+Zincir: `3f9b456` version truth (VITE_APP_VERSION körlüğü fix + native
+getAppVersionInfo) · `a04ff42` ota_releases+rollout_plans migration
+(GRANT/RLS/policy + self-verifying DO) · `8a60066` publish script
+(`npm run ota:publish`, draft+409-koruması) · `3b11e82` native downloader
+(streaming SHA-256, .tmp→.apk, disk×2) · `6740d44` install gate
+(paket/sürüm/imza ön-kontrol + REQUEST_INSTALL_PACKAGES + sistem diyaloğu)
+· `ca97374` otaUpdateService (durum makinesi, 6h poll, park kapısı,
+SystemBoot Wave 4, Settings kartı) · `fb4b51d` telemetri
+(ota_success/ota_fail dedup → vehicle_events → getRolloutHealth).
+
+- **Doküman:** `docs/OTA.md` (mimari/runbook/rollback/güvenlik/K24 listesi),
+  RELEASE_CHECKLIST §4c.
+- **BEKLEYEN (kod dışı):** `supabase db push` (2 migration) → gerçek publish
+  → K24 uçtan uca saha doğrulaması (en büyük risk: ROM'da bilinmeyen-kaynak
+  ayar ekranı). Test: 788/788. Aynı gün güvenlik commit'i: `7075813`
+  (cross-channel replay + push auth).
+
 ## Son Commit (HEAD)
 
 - `b453cf9` — **docs(soak): fix PSS sampler multi-match in K24 checklist**

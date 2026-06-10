@@ -21,6 +21,15 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **OTA v1 TAMAM (2026-06-10, 7 commit `3f9b456`…`fb4b51d`):** sürüm gerçeği →
+  Supabase şema → publish script → native indirme/doğrulama → install gate →
+  orkestrasyon servisi (SystemBoot Wave 4 + Settings kartı) → telemetri.
+  Detay: PROJECT_STATE "OTA v1" bölümü + `docs/OTA.md`. **Saha/deploy bekliyor:**
+  `supabase db push` + gerçek publish + K24 uçtan uca (CHECKLIST §4c).
+- **Güvenlik P0 (2026-06-10, `7075813`):** cross-channel nonce replay kapandı
+  (JS↔Native tek store, `checkCommandNonce` köprüsü) + push-notify fonksiyon-içi
+  auth (service_role, fail-closed). Cihaz/deploy doğrulaması CHECKLIST §4b.
+
 - **Test Altyapısı T1–T4 (2026-06-09, HEAD `b453cf9`):** araçsız/donanımsız deterministik
   test serisi. Hepsi YALNIZ `src/__tests__/` altında — production/native hot-path'e
   DOKUNULMADI, bundle'a sızmıyor (tree-shake teyitli). Suite: **635/635** (50 dosya;
