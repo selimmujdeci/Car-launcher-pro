@@ -159,3 +159,36 @@ describe('parseCommand (shorthand)', () => {
     expect(c).toBeNull();
   });
 });
+
+/* ── Regresyon: "nasılsın" sosyal soru, araç raporu DEĞİL ─────
+ * Saha hatası (2026-06-11): "nasılsın" vehicle_status'a exact eşleşiyor,
+ * OBD bağlı değilken "Araç verisi alınamıyor" deniyordu. Sohbet katmanının
+ * HOW_ARE_YOU niyeti hiç çalışamıyordu. Kalıp + zayıf 'nasil' token'ı kaldırıldı. */
+
+describe('regresyon — sosyal sorular araç durumuna düşmez', () => {
+  it('"nasılsın" → parser eşleşmez (sohbet katmanına düşer)', () => {
+    const r = parseCommandFull('nasılsın');
+    expect(r.command).toBeNull();
+    expect(r.needsSemantic).toBe(true);
+  });
+
+  it('"nasilsin" (aksansız) → parser eşleşmez', () => {
+    expect(parseCommandFull('nasilsin').command).toBeNull();
+  });
+
+  it('"iyi misin" → parser eşleşmez (sohbet katmanına düşer)', () => {
+    expect(parseCommandFull('iyi misin').command).toBeNull();
+  });
+
+  it('"araç durumu nasıl" → vehicle_status KORUNDU', () => {
+    expect(parseCommandFull('araç durumu nasıl').command?.type).toBe('vehicle_status');
+  });
+
+  it('"durum nasıl" → vehicle_status KORUNDU', () => {
+    expect(parseCommandFull('durum nasıl').command?.type).toBe('vehicle_status');
+  });
+
+  it('"rapor ver" → vehicle_status KORUNDU', () => {
+    expect(parseCommandFull('rapor ver').command?.type).toBe('vehicle_status');
+  });
+});

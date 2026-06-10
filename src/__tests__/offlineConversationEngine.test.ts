@@ -106,3 +106,27 @@ describe('offlineConversationEngine — sohbet + eşleşmeme', () => {
     expect(tryOfflineConversation('   ').handled).toBe(false);
   });
 });
+
+/* ── Regresyon (2026-06-11): "nasılsın" hal-hatır sorusudur ──
+ * commandParser bu kalıbı yutuyordu (vehicle_status exact) → buraya hiç
+ * düşmüyordu ve OBD'siz cihazda "Araç verisi alınamıyor" deniyordu. */
+describe('regresyon — "nasılsın" hal-hatır yanıtı', () => {
+  it('"nasılsın" handled=true ve sosyal yanıt döner (araç verisi hatası DEĞİL)', () => {
+    const r = tryOfflineConversation('nasılsın');
+    expect(r.handled).toBe(true);
+    expect(r.response).not.toContain('alınamıyor');
+    expect(r.response).not.toContain('OBD');
+  });
+
+  it('"naber" da hal-hatır niyetine düşer', () => {
+    const r = tryOfflineConversation('naber');
+    expect(r.handled).toBe(true);
+    expect(r.response).not.toContain('OBD');
+  });
+
+  it('sürüşte kısa yanıt (ISO 15008)', () => {
+    const r = tryOfflineConversation('nasılsın', true);
+    expect(r.handled).toBe(true);
+    expect(r.response.length).toBeLessThan(60);
+  });
+});

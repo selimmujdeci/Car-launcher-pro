@@ -738,8 +738,11 @@ const PATTERNS: CommandPattern[] = [
     label: 'Araç Durumu', example: 'arabanın durumu nasıl',
     keywords: [
       // Temel
+      // NOT: 'nasılsın' BİLEREK YOK — sosyal hal-hatır sorusudur, araç raporu
+      // değil. Parser yutarsa offlineConversationEngine'in HOW_ARE_YOU niyeti
+      // hiç çalışamıyor ve OBD bağlı değilken "Araç verisi alınamıyor" deniyordu.
       'arabanın durumu', 'araç durumu nasıl', 'hız kaç', 'yakıt ne kadar', 'durum nasıl',
-      'durumumuz ne', 'nasılsın', 'her şey yolunda mı', 'araç özeti', 'rapor ver',
+      'durumumuz ne', 'her şey yolunda mı', 'araç özeti', 'rapor ver',
       // Argo / günlük
       'brifing ver', 'ne var ne yok', 'genel durum ne', 'sistemi oku',
       'araç nasıl gidiyor', 'her şey normale mi', 'kontrol listesi',
@@ -747,7 +750,10 @@ const PATTERNS: CommandPattern[] = [
       'raporla', 'durum raporu', 'sistem raporu', 'araç raporu',
       'araç bilgisi', 'mevcut durum', 'hepsi tamam mı', 'nasıl gidiyor',
     ],
-    tokens: ['durum', 'nasil', 'hiz', 'yakit', 'sicaklik', 'status', 'ozet', 'rapor', 'brifing'],
+    // NOT: 'nasil' token'ı BİLEREK YOK — "nasılsın"/"hava nasıl" gibi her
+    // "nasıl"lı cümleyi Tier-2'de araç durumuna çekiyordu. Araçlı kalıplar
+    // ('araç durumu nasıl', 'durum nasıl') Tier-1 exact eşleşmeyle zaten yakalanır.
+    tokens: ['durum', 'hiz', 'yakit', 'sicaklik', 'status', 'ozet', 'rapor', 'brifing'],
   },
 ];
 
@@ -773,6 +779,11 @@ const FILLERS = new Set([
   'ok', 'evet', 'tabi', 'hee', 'ee', 'alo', 'rica', 'ederim',
   'bir', 'bana', 'beni', 'benim', 'sana', 'seni', 'senim',
   'yani', 'iste', 'nasil', 'neden', 'niye', 'lanet', 'vay',
+  // Soru edatları — niyet taşımaz; 'misin' fuzzy'de 'music'e (0.6) eşleşip
+  // her "... misin?" cümlesini müziğe çekiyordu (saha hatası 2026-06-11).
+  // Kalıp içi 'misin'li komutlar reverse-startsWith ile yine yakalanır
+  // ('keser misin' → kw.startsWith('keser')).
+  'mi', 'mu', 'misin', 'musun', 'misiniz', 'musunuz',
 ]);
 
 /**
@@ -835,30 +846,56 @@ function scorePattern(
 ): number {
   let score = 0;
 
-  // Tier 1 — exact substring
+  // Tier 1 — exact substring (kelime sınırı korumalı)
+  // Kısa kalıplar (≤4: 'dur', 'sus') ve ters yön (girdi ⊂ kalıp) TAM KELİME
+  // ister. Aksi hâlde 'dur' ⊂ "araç DURumu nasıl" → stop_music gibi gasplar
+  // oluyordu (saha hatası 2026-06-11: durum sorusu müziği kapatıyordu).
+  const padded = ` ${normalized} `;
   for (const kw of pattern.keywords) {
-    if (normalized.includes(kw) || (kw.length >= 4 && kw.includes(normalized))) {
+    const forwardHit = kw.length <= 4
+      ? padded.includes(` ${kw} `)          // kısa kalıp: yalnız tam kelime
+      : normalized.includes(kw);            // uzun kalıp: alt-dizi güvenli
+    // Ters yön (girdi ⊂ kalıp) iki meşru biçim:
+    //  a) kalıbın başını söyleme — kesik kelime serbest ('haritayı çal[ıştır]')
+    //  b) kalıbın içinden TAM KELİME dizisi ('durumu nasil' ⊂ 'arac durumu nasil')
+    //     — yalnız ÇOK KELİMELİ girdi; tek kelime ('iyi' ⊂ 'hava iyi mi')
+    //     EXACT sayılmaz, tek kelimenin yeri kürasyonlu token katmanıdır (Tier-2).
+    // Eski hâli düz substring'di: 'durum' ⊂ 'hava DURUMu' → weather gaspı.
+    const reverseHit = kw.length >= 4 &&
+      (kw.startsWith(normalized) ||
+       (normalized.includes(' ') && ` ${kw} `.includes(padded)));
+    if (forwardHit || reverseHit) {
       score = EXACT_SCORE;
       break;
     }
   }
 
-  // Tier 2 — token exact / substring
+  // Tier 2 — token exact / prefix
+  // Türkçe SONEK dilidir: anlamlı eşleşme "kök + ek"tir (durum→durumu).
+  // Eski tok.includes(pt) ORTA-KELİME eşleşmesiydi: 'nasilsin' içinde 'sil'
+  // → vehicle_clear_dtc (0.82, otomatik!) gibi tehlikeli gasplar üretiyordu.
   if (score === 0) {
     outer: for (const tok of inputTokens) {
       if (tok.length < 2) continue;
       for (const pt of pattern.tokens) {
-        if (tok === pt || tok.includes(pt) || pt.includes(tok)) { score = TOKEN_SCORE; break outer; }
+        if (tok === pt ||
+            (pt.length >= 3 && tok.startsWith(pt)) ||   // yakit → yakitim
+            (tok.length >= 3 && pt.startsWith(tok))) {  // hiz → hizlandir
+          score = TOKEN_SCORE; break outer;
+        }
       }
     }
   }
 
   // Tier 3 — fuzzy token matching via Levenshtein
+  // Min uzunluk 4: 3 harfli çiftlerde 1 mesafe ~0.67 benzerlik veriyor ve
+  // 'iyi'~'isi' (sıcaklık) gibi alakasız eşleşmeler THRESHOLD'u geçiyordu.
+  // 3 harfli gerçek token'lar ('hiz') Tier-2 exact/prefix ile zaten yakalanır.
   if (score === 0) {
     for (const tok of inputTokens) {
-      if (tok.length < 3) continue;
+      if (tok.length < 4) continue;
       for (const pt of pattern.tokens) {
-        if (pt.length < 3) continue;
+        if (pt.length < 4) continue;
         const dist = levenshtein(tok, pt);
         const sim  = 1 - dist / Math.max(tok.length, pt.length);
         if (sim >= FUZZY_MIN) score = Math.max(score, sim * FUZZY_SCALE);
