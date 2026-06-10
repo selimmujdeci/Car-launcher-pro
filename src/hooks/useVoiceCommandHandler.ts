@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { toIntent, routeIntent } from '../platform/intentEngine';
 import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck } from '../platform/voiceService';
+import { reportVoiceDiag } from '../platform/voiceDiagService';
 import { play, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
 // next/previous/togglePlayPause: UI'nın kullandığı KUYRUK-FARKINDA + in-app yönlendiren
 // sürümler (mediaService'inkiler native MediaSession'a özel; tarayıcıda no-op + YouTube/
@@ -209,6 +210,7 @@ export function useVoiceCommandHandler({
   useEffect(() => {
     return registerAIResultHandler((aiResult, vehicleCtx) => {
       const { settings: s, handleLaunch: launch, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
+      void reportVoiceDiag('voice_command_execute', { command: aiResult.intent });
       executeAIResult(aiResult, {
         vehicleCtx: vehicleCtx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false },
         defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
@@ -226,6 +228,7 @@ export function useVoiceCommandHandler({
   useEffect(() => {
     return registerCommandHandler((cmd: ParsedCommand) => {
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
+      void reportVoiceDiag('voice_command_execute', { command: cmd.type });
       if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
 
       // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür

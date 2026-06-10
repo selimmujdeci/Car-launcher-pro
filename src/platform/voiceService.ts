@@ -23,6 +23,7 @@ import { fromSemanticResult } from './intentEngine';
 import { buildEnrichedCtx } from './voiceContextBuilder';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
 import { VOICE_TUNING } from './voiceTuning';
+import { reportVoiceDiag } from './voiceDiagService';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -174,6 +175,7 @@ function _armProcessingFailsafe(): void {
     _processingFailsafeTimer = null;
     if (_current.status === 'processing') {
       console.warn('[Voice] processing failsafe — forcing idle');
+      void reportVoiceDiag('voice_timeout', { errorCode: 'ERR_PROCESSING_FAILSAFE' });
       push({ status: 'idle', error: null });
     }
   }, PROCESSING_FAILSAFE_MS);
@@ -254,6 +256,7 @@ function getResetDelays(): Record<string, number> {
 }
 
 function dispatch(cmd: ParsedCommand): void {
+  void reportVoiceDiag('voice_intent', { intent: cmd.type });
   push({
     status:      'success',
     lastCommand: cmd,
@@ -270,6 +273,7 @@ function dispatch(cmd: ParsedCommand): void {
     speakFeedback(cmd.feedback);
   }
   _commandHandlers.forEach((fn) => fn(cmd));
+  void reportVoiceDiag('voice_success', { intent: cmd.type });
   const delays = getResetDelays();
   setTimeout(() => {
     try {
@@ -279,6 +283,7 @@ function dispatch(cmd: ParsedCommand): void {
 }
 
 function dispatchDriving(cmd: ParsedCommand): void {
+  void reportVoiceDiag('voice_intent', { intent: cmd.type });
   if (isInformationalCommand(cmd.type)) {
     void answerInformational(cmd.type);
   } else {
@@ -286,6 +291,7 @@ function dispatchDriving(cmd: ParsedCommand): void {
   }
   pushHistory(cmd);
   _commandHandlers.forEach((fn) => fn(cmd));
+  void reportVoiceDiag('voice_success', { intent: cmd.type });
 }
 
 /* ── Komut zincirleme ("müziği aç ve eve git") ─────────────────
@@ -371,12 +377,15 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   const trimmed = text.trim();
   if (!trimmed) return false;
 
+  void reportVoiceDiag('voice_processing', { transcriptLength: trimmed.length });
+
   // Bilişsel Pause: PROTECTION/CRITICAL modda AI işleme ve TTS atlanır.
   // SESSİZ return YOK: native akış bu çağrıdan önce 'processing' bastığı için
   // durum geçişsiz dönüş UI'yı "İşleniyor"da sonsuza dek asılı bırakıyordu.
   // Kullanıcıya görünür terminal durum + kısa açıklama verilir (TTS bilinçli
   // olarak yok — pause modunda TTS de atlanır).
   if (_voiceCogPaused) {
+    void reportVoiceDiag('voice_cognitive_pause', { transcriptLength: trimmed.length });
     push({
       status:      'error',
       error:       'Sürüş güvenliği nedeniyle sesli komut bekletildi',
@@ -501,6 +510,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
       const intent = fromSemanticResult(semanticResult, trimmed);
       if (intent) {
         _lastCommandTime = Date.now();
+        void reportVoiceDiag('voice_intent', { intent: intent.type, provider });
         // semanticResult'ı mevcut AI handler zincirine ilet (VoiceAssistant, commandExecutor vb.)
         const aiCompat: AIVoiceResult = {
           intent:     intent.type as AIVoiceResult['intent'],
@@ -509,6 +519,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
           feedback:   semanticResult.feedback,
         };
         _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
+        void reportVoiceDiag('voice_success', { intent: intent.type, provider });
         speakFeedback(semanticResult.feedback);
         if (!ctx?.isDriving) {
           push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
@@ -522,7 +533,9 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     const aiResult = await askAI(trimmed, provider, apiKey, enrichedCtx);
     if (aiResult && aiResult.intent !== 'UNKNOWN' && aiResult.confidence >= 0.45) {
       _lastCommandTime = Date.now();
+      void reportVoiceDiag('voice_intent', { intent: aiResult.intent, provider });
       _aiHandlers.forEach((fn) => fn(aiResult, ctx));
+      void reportVoiceDiag('voice_success', { intent: aiResult.intent, provider });
       speakFeedback(aiResult.feedback);
       if (!ctx?.isDriving) {
         push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
@@ -559,6 +572,11 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
+  void reportVoiceDiag('voice_error', {
+    errorCode: 'ERR_NO_MATCH',
+    transcriptLength: trimmed.length,
+    provider,
+  });
   push({
     status:      'error',
     error:       `"${trimmed}" anlaşılamadı`,
@@ -595,6 +613,8 @@ export function startListening(): void {
     return;
   }
 
+  void reportVoiceDiag('voice_start');
+
   // AudioContext donma koruması — her tetiklemede suspended ise resume et
   if (_audioCtx && _audioCtx.state === 'suspended') {
     _audioCtx.resume().catch(() => {});
@@ -609,6 +629,7 @@ export function startListening(): void {
     const sttFailsafe = setTimeout(() => {
       if (_current.status === 'listening') {
         console.warn(`[Voice] STT failsafe (${VOICE_TUNING.listenFailsafeMs}ms) — forcing idle`);
+        void reportVoiceDiag('voice_timeout', { errorCode: 'ERR_LISTEN_FAILSAFE' });
         _stopNativeVolumeListener();
         unduckMedia();
         push({ status: 'idle' });
@@ -618,6 +639,7 @@ export function startListening(): void {
     const doSTT = () => {
       // Warmup bitti — mikrofon donanımı gerçekten açılıyor. "Dinliyorum" ancak burada basılır.
       push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
+      void reportVoiceDiag('voice_listening');
       _startNativeVolumeListener();
       duckMedia();
 
@@ -635,6 +657,7 @@ export function startListening(): void {
           const transcript = result.transcript?.trim() ?? '';
           if (transcript) {
             _consecutiveEmptyCount = 0;
+            void reportVoiceDiag('voice_transcript', { transcriptLength: transcript.length });
             // CarLauncher bitti → anında "işleniyor" hissi ver, ardından processTextCommand çalışır
             push({ status: 'processing', transcript });
             void processTextCommand(transcript);
@@ -645,6 +668,7 @@ export function startListening(): void {
               _consecutiveEmptyCount = 0;
               push({ status: 'error', error: 'Ses algılanamadı. Daha yüksek sesle konuşun.', suggestions: [] });
               setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 2500);
+              void reportVoiceDiag('voice_error', { errorCode: 'ERR_NO_SPEECH' });
               // Uzak tanı (opsiyonel): ardışık 2 boş transcript — mikrofon/kazanç sorunu
               // sinyali. remoteLogService dedup'u (oturumda 1 kez) + token bucket spam'i keser.
               void import('./remoteLogService')
@@ -681,6 +705,9 @@ export function startListening(): void {
             suggestions: [],
           });
           setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+          void reportVoiceDiag('voice_error', {
+            errorCode: isPermission ? 'ERR_PERMISSION' : 'ERR_STT_START',
+          });
           // Uzak tanı (opsiyonel): gerçek STT başlatma hatası (izin/Vosk model/donanım) —
           // saha teşhisi için bir kez raporlanır (ctx+msg dedup, oturum başına 1; spam yok).
           void import('./remoteLogService')
@@ -699,6 +726,7 @@ export function startListening(): void {
     }
   } else {
     push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
+    void reportVoiceDiag('voice_listening');
     _startVolumeSimulation();   // sentetik dalga — mikrofonu tanımaya bırak (çekişme yok)
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) {
@@ -736,6 +764,7 @@ export function startListening(): void {
 
       if (finalText.trim()) {
         _stopVolumeSimulation();
+        void reportVoiceDiag('voice_transcript', { transcriptLength: finalText.trim().length });
         push({ status: 'processing', transcript: finalText.trim() });
         void processTextCommand(finalText.trim());
       } else if (live) {

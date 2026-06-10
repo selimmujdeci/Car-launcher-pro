@@ -52,12 +52,12 @@ beforeEach(() => {
 /* ── Sorgu sözleşmesi ───────────────────────────────────────── */
 
 describe('getRemoteIncidents — sorgu sözleşmesi', () => {
-  it('varsayılan: vehicle_events, ÜÇ incident tipi, created_at DESC, range(0,49)', async () => {
+  it('varsayılan: vehicle_events, DÖRT incident tipi, created_at DESC, range(0,49)', async () => {
     await getRemoteIncidents();
 
     expect(M.table).toBe('vehicle_events');
     expect(M.captured['select']).toEqual(['id, vehicle_id, type, metadata, created_at']);
-    expect(M.captured['in']).toEqual(['type', ['critical_error', 'obd_diag', 'support_snapshot']]);
+    expect(M.captured['in']).toEqual(['type', ['critical_error', 'obd_diag', 'support_snapshot', 'voice_diag']]);
     expect(M.captured['order']).toEqual(['created_at', { ascending: false }]);
     expect(M.captured['range']).toEqual([0, 49]);
     // Telemetri tipleri (heartbeat/system_health) sorguya GİRMEZ
@@ -113,8 +113,8 @@ describe('getRemoteIncidents — sorgu sözleşmesi', () => {
     expect(r.error).toBe('permission denied');
   });
 
-  it('INCIDENT_TYPES sabiti üç log tipini içerir', () => {
-    expect([...INCIDENT_TYPES]).toEqual(['critical_error', 'obd_diag', 'support_snapshot']);
+  it('INCIDENT_TYPES sabiti dört log tipini içerir (voice_diag — P0 Voice Diagnostics)', () => {
+    expect([...INCIDENT_TYPES]).toEqual(['critical_error', 'obd_diag', 'support_snapshot', 'voice_diag']);
   });
 });
 

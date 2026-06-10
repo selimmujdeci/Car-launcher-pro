@@ -48,6 +48,7 @@ vi.mock('../platform/voiceInfoService', () => ({
 vi.mock('../platform/sensitiveKeyStore', () => ({
   sensitiveKeyStore: { get: async () => '' },
 }));
+vi.mock('../platform/voiceDiagService', () => ({ reportVoiceDiag: vi.fn(async () => true) }));
 
 import {
   processTextCommand,

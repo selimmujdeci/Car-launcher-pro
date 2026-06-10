@@ -42,6 +42,7 @@ const TYPE_STYLE: Record<IncidentType, { color: string; label: string }> = {
   critical_error:   { color: '#dc2626', label: 'CRITICAL' },
   obd_diag:         { color: '#d97706', label: 'OBD_DIAG' },
   support_snapshot: { color: '#60a5fa', label: 'SNAPSHOT' },
+  voice_diag:       { color: '#a78bfa', label: 'VOICE' },
 }
 
 function _str(v: unknown): string {
@@ -113,7 +114,7 @@ export function IncidentCenter() {
         <div>
           <p className="sa-label">INCIDENT CENTER — TANI KAYITLARI</p>
           <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
-            critical_error · obd_diag · support_snapshot — cihazda sanitize edilmiş uzak tanı verisi
+            critical_error · obd_diag · support_snapshot · voice_diag — cihazda sanitize edilmiş uzak tanı verisi
           </p>
         </div>
         <Button variant="outline" size="sm" disabled={loading} onClick={() => { void load() }}>
@@ -279,11 +280,16 @@ function IncidentRow({
 }) {
   const t  = TYPE_STYLE[entry.type] ?? { color: '#4b5563', label: entry.type }
   const md = entry.metadata ?? {}
-  const ctxPhase  = _str(md['phase'] ?? md['ctx'])
+  // voice_diag: aşama CTX kolonunda, intent/command + süre MSG kolonunda
+  const ctxPhase  = entry.type === 'voice_diag'
+    ? _str(md['stage'])
+    : _str(md['phase'] ?? md['ctx'])
   const errorCode = _str(md['errorCode'])
   // support_snapshot'ta msg yok → appVersion göster
   const msgCell = entry.type === 'support_snapshot'
     ? `v${_str(md['appVersion'])}`
+    : entry.type === 'voice_diag'
+    ? `${_str(md['intent'] ?? md['command'])} · ${_str(md['durationMs'])}ms`
     : _str(md['msg'])
 
   return (

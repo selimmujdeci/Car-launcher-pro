@@ -805,7 +805,7 @@ export async function getAuditLogDetail(id: string): Promise<AuditLogEntry | nul
 // deny-list + maske); redactIncidentMetadata görüntüleme öncesi ikinci
 // savunma katmanıdır (sanitizer öncesi eski kayıtlar için).
 
-export const INCIDENT_TYPES = ['critical_error', 'obd_diag', 'support_snapshot'] as const
+export const INCIDENT_TYPES = ['critical_error', 'obd_diag', 'support_snapshot', 'voice_diag'] as const
 export type IncidentType = (typeof INCIDENT_TYPES)[number]
 
 export interface IncidentEntry {

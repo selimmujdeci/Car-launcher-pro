@@ -54,6 +54,7 @@ vi.mock('../platform/voiceInfoService', () => ({
 }));
 vi.mock('../platform/sensitiveKeyStore', () => ({ sensitiveKeyStore: { get: async () => '' } }));
 vi.mock('../platform/remoteLogService', () => ({ reportCritical: vi.fn(async () => true) }));
+vi.mock('../platform/voiceDiagService', () => ({ reportVoiceDiag: vi.fn(async () => true) }));
 
 import {
   startListening,

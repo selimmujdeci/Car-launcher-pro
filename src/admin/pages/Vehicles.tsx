@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, Link2, Radio } from 'lucide-react'
+import { Pencil, Trash2, Link2, Radio, Mic } from 'lucide-react'
 import { PageHeader } from '../components/shared/PageHeader'
 import { DataTable, type ColDef } from '../components/shared/DataTable'
 import { Badge } from '../components/ui/Badge'
@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { LinkVehicleModal } from '../components/vehicles/LinkVehicleModal'
 import { RemoteCommandPanel } from '../components/vehicles/RemoteCommandPanel'
+import { VoiceDiagPanel } from '../components/vehicles/VoiceDiagPanel'
 import { useTable } from '../hooks/useTable'
 import { useModal } from '../hooks/useModal'
 import { useRole } from '../hooks/useRole'
@@ -34,10 +35,12 @@ export function Vehicles() {
   const [editing,   setEditing]   = useState<Vehicle | null>(null)
   const [toDelete,  setToDelete]  = useState<Vehicle | null>(null)
   const [cmdTarget, setCmdTarget] = useState<Vehicle | null>(null)
+  const [diagTarget, setDiagTarget] = useState<Vehicle | null>(null)
   const editModal   = useModal()
   const deleteModal = useModal()
   const linkModal   = useModal()
   const cmdModal    = useModal()
+  const diagModal   = useModal()
 
   useEffect(() => {
     setLoading(true)
@@ -114,14 +117,24 @@ export function Vehicles() {
     {
       key: '_cmd', header: '',
       cell: (v: Vehicle) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => { setCmdTarget(v); cmdModal.show() }}
-          title="Uzak Komut Gönder"
-        >
-          <Radio className="h-3.5 w-3.5 text-blue-400" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => { setCmdTarget(v); cmdModal.show() }}
+            title="Uzak Komut Gönder"
+          >
+            <Radio className="h-3.5 w-3.5 text-blue-400" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => { setDiagTarget(v); diagModal.show() }}
+            title="Sesli Asistan Tanısı (voice_diag)"
+          >
+            <Mic className="h-3.5 w-3.5 text-purple-400" />
+          </Button>
+        </div>
       ),
     } as ColDef<Vehicle>,
     ...(can('admin') ? [{
@@ -225,6 +238,15 @@ export function Vehicles() {
         title={cmdTarget ? `${cmdTarget.plate} — Uzak Komut` : 'Uzak Komut'}
       >
         {cmdTarget && <RemoteCommandPanel vehicleId={cmdTarget.id} />}
+      </Modal>
+
+      {/* ── Sesli Asistan Tanı Modalı (voice_diag) ────────────── */}
+      <Modal
+        open={diagModal.open}
+        onClose={diagModal.hide}
+        title={diagTarget ? `${diagTarget.plate} — Sesli Asistan Tanısı` : 'Sesli Asistan Tanısı'}
+      >
+        {diagTarget && <VoiceDiagPanel vehicleId={diagTarget.id} />}
       </Modal>
 
       <Modal

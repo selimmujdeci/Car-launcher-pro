@@ -162,6 +162,14 @@ function _appVersion(): string {
 }
 
 /**
+ * Diğer tanı üreticileri (voiceDiagService) için oturum kimliği + sürüm.
+ * Aynı bootId → admin tarafında critical_error/voice_diag korelasyonu.
+ */
+export function getRemoteLogSession(): { bootId: string; appVersion: string } {
+  return { bootId: BOOT_ID, appVersion: _appVersion() };
+}
+
+/**
  * İç gönderim — dedup/rate limit düşürmesinde false döner; enqueue
  * HATASINDA throw eder (drain bunu "log silme" kararında ayırt eder).
  */
