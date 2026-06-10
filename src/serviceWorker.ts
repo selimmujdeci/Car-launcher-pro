@@ -1,28 +1,35 @@
 /// <reference lib="webworker" />
 
-declare const self: ServiceWorkerGlobalScope;
+/* ═══════════════════════════════════════════════════════════════════════════
+ * TEK KAYNAK (single source of truth): src/serviceWorker.ts
+ * public/serviceWorker.js bu dosyadan ÜRETİLİR — elle düzenleme!
+ * Üretim: `npm run build:sw` (npm run build içinde zincirli).
+ * Kayıt: serviceWorkerManager.ts → navigator.serviceWorker.register('/serviceWorker.js')
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+// lib.webworker `var self` tanımladığı için redeclare edilemez (TS2451);
+// tipli alias hem proje (tsc -b, DOM lib) hem CLI (build:sw) derlemesinde çalışır.
+const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const OFFLINE_TILES_DB = 'offline_tiles_cache';
 
 /**
  * Service Worker for offline tile serving
- * Intercepts fetch requests and serves tiles from local storage
+ * Handles fetch interception and IndexedDB tile caching
  */
 
 // Handle tile requests
-self.addEventListener('fetch', (event) => {
+sw.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Handle custom tile:// protocol (converted to http by browser)
+  // Handle custom tile:// protocol or tile paths
   if (
     url.pathname.match(/\/tiles\/\d+\/\d+\/\d+\.png$/) ||
     url.pathname.match(/^\/tile\/\d+\/\d+\/\d+$/)
   ) {
     event.respondWith(handleTileRequest(event.request));
-  }
-
-  // Handle OSM tiles with offline fallback
-  if (url.hostname.includes('tile.openstreetmap.org')) {
+  } else if (url.hostname.includes('tile.openstreetmap.org')) {
+    // Handle OSM tiles with offline fallback
     event.respondWith(handleOsmTileRequest(event.request));
   }
 });
@@ -51,13 +58,14 @@ async function handleTileRequest(request: Request): Promise<Response> {
     }
 
     // Try network if offline tile not found
-    if (self.navigator.onLine) {
+    if (sw.navigator.onLine) {
       try {
         const response = await fetch(request);
         if (response.ok) {
-          // Cache successful response
           const blob = await response.blob();
-          await cacheTileData(parseInt(z), parseInt(x), parseInt(y), blob);
+          // Fire-and-forget: cache yazımı yanıtı BLOKLAMAZ, hatası yutulur
+          // (canlı davranış — await edilirse cache hatası yanıtı 404/500'e çevirir)
+          void cacheTileData(parseInt(z), parseInt(x), parseInt(y), blob).catch(() => {});
         }
         return response;
       } catch {
@@ -96,13 +104,14 @@ async function handleOsmTileRequest(request: Request): Promise<Response> {
       });
     }
 
-    // Try network
-    if (self.navigator.onLine) {
+    // Try network if online
+    if (sw.navigator.onLine) {
       try {
         const response = await fetch(request);
         if (response.ok) {
           const blob = await response.blob();
-          await cacheTileData(parseInt(z), parseInt(x), parseInt(y), blob);
+          // Fire-and-forget (yukarıdaki not)
+          void cacheTileData(parseInt(z), parseInt(x), parseInt(y), blob).catch(() => {});
         }
         return response;
       } catch {
@@ -118,7 +127,7 @@ async function handleOsmTileRequest(request: Request): Promise<Response> {
       }
     }
 
-    // Network unavailable
+    // Network unavailable, check cache
     const cached = await getOfflineTile(parseInt(z), parseInt(x), parseInt(y));
     if (cached) {
       return new Response(cached, {
@@ -195,46 +204,79 @@ function openTileDatabase(): Promise<IDBDatabase> {
   });
 }
 
-// Handle install event
-self.addEventListener('install', (event) => {
-  event.waitUntil(self.skipWaiting());
+// Handle install event - claim immediately
+sw.addEventListener('install', (event) => {
+  event.waitUntil(sw.skipWaiting());
 });
 
-// Handle activate event
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+// Handle activate event - take over all pages
+sw.addEventListener('activate', (event) => {
+  event.waitUntil(sw.clients.claim());
 });
 
-/* ── SVC System Integrity — hız mesaj rölesi ──────────────────────────────
- * Otomasyon split-screen senaryolarında (aynı anda iki WebView bağlamı)
- * OBD hızı yalnızca bir bağlamda gelir. SW bu mesajı diğer açık istemcilere
- * yönlendirerek tüm bağlamlarda SVC senkronizasyonunu sağlar.
- *
- * Ana thread kullanımı:
- *   navigator.serviceWorker.controller?.postMessage({
- *     type: 'SVC_SPEED_UPDATE', kmh: currentSpeedKmh
- *   });
- * ─────────────────────────────────────────────────────────────────────── */
+// ── Web Push — bildirim göster ────────────────────────────────────────────────
 
-interface SvcSpeedMessage {
-  type: 'SVC_SPEED_UPDATE';
-  kmh:  number;
+interface PushNotificationData {
+  url?: string;
 }
 
-self.addEventListener('message', (event: ExtendableMessageEvent) => {
-  const msg = event.data as SvcSpeedMessage | null;
-  if (!msg || msg.type !== 'SVC_SPEED_UPDATE') return;
-  if (typeof msg.kmh !== 'number' || !Number.isFinite(msg.kmh)) return;
+interface PushPayload {
+  title?:    string;
+  body?:     string;
+  icon?:     string;
+  tag?:      string;
+  renotify?: boolean;
+  data?:     PushNotificationData;
+}
 
-  // Kaynak istemci dışındaki tüm açık window istemcilerine hızı yayınla
-  void self.clients
-    .matchAll({ includeUncontrolled: false, type: 'window' })
-    .then((clients) => {
-      const srcId = (event.source as { id?: string } | null)?.id;
+sw.addEventListener('push', (event: PushEvent) => {
+  if (!event.data) return;
+
+  let payload: PushPayload;
+  try { payload = event.data.json() as PushPayload; } catch { return; }
+
+  const {
+    title = 'Caros Pro',
+    body  = '',
+    icon  = '/icons/icon-192.png',
+    tag   = 'cockpitos',
+    renotify = false,
+    data: notifData = {},
+  } = payload;
+
+  // vibrate/renotify/actions standart TS lib tanımında yok ama Chromium'da
+  // destekli — assertion ile geçirilir, runtime davranışı canlı JS ile birebir.
+  const options = {
+    body,
+    icon,
+    badge:    '/icons/badge-72.png',
+    tag,
+    renotify,
+    vibrate:  [100, 50, 100],
+    data:     notifData,
+    actions:  notifData.url ? [{ action: 'open', title: 'Aç' }] : [],
+  } as NotificationOptions;
+
+  event.waitUntil(sw.registration.showNotification(title, options));
+});
+
+// ── Bildirime tıklandığında ilgili sayfayı aç ─────────────────────────────────
+
+sw.addEventListener('notificationclick', (event: NotificationEvent) => {
+  event.notification.close();
+
+  const url = (event.notification.data as PushNotificationData | null)?.url ?? '/kumanda';
+
+  event.waitUntil(
+    sw.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Açık pencere varsa oraya odaklan
       for (const client of clients) {
-        if (client.id !== srcId) {
-          client.postMessage({ type: 'SVC_SPEED_RELAY', kmh: msg.kmh });
+        if (client.url.includes(new URL(url, sw.location.origin).pathname)) {
+          return client.focus();
         }
       }
-    });
+      // Yoksa yeni sekme aç
+      return sw.clients.openWindow(url);
+    })
+  );
 });

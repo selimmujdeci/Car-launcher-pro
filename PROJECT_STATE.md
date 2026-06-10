@@ -237,13 +237,15 @@ literal doğrulaması. **~76 dosya erişilemez** (knip tam listesi o oturum çı
   ytDownloadService dist'te 0). Tree-shake çalışıyor.
 - **Aktif zincir:** index.html → main.tsx → App.tsx:4 → MainLayout → NewHomeLayout
   (MainLayout.tsx:34,424); temalar NewHomeLayout üzerinden CANLI.
-- **⚠️ YENİ KRİTİK BULGU — ServiceWorker drift:** runtime'da çalışan SW
-  `public/serviceWorker.js` (son commit 2026-04-30, 251 satır el-yazımı JS);
-  `src/serviceWorker.ts` (son commit 2026-05-10, 240 satır) DAHA YENİ ama
-  build'e hiç girmiyor (vite input'ta yok, kayıt string-bazlı:
-  serviceWorkerManager.ts:20 register('/serviceWorker.js')). TS kaynaktaki
-  10 Mayıs sonrası değişiklikler ÜRÜNE HİÇ GİTMEDİ. Karar gerek: TS'i derleyip
-  public'e üreten step ekle YA DA tek kaynağı public/*.js kabul edip TS'i sil.
+- **✅ ServiceWorker drift ÇÖZÜLDÜ (2026-06-10):** `src/serviceWorker.ts` artık
+  TEK KAYNAK; `public/serviceWorker.js` AUTO-GENERATED (`npm run build:sw`,
+  build zincirinde). Drift iki yönlüydü: TS'teki tüketicisiz SVC_SPEED_UPDATE
+  rölesi KALDIRILDI (istemci tarafı hiç yazılmamıştı); canlı JS'teki push +
+  notificationclick handler'ları TS'e tipli taşındı; canlı JS'in güvenli
+  fire-and-forget cache yazımı (`cacheTileData().catch()`) korundu (TS'teki
+  `await` regresyonu düzeltildi). Kanıt: md5(public)==md5(dist), handler
+  envanteri 5=5. Not: `declare const self` WebWorker lib ile çakışır (TS2451)
+  → `const sw = self as unknown as ServiceWorkerGlobalScope` alias deseni.
 - **Knip false-positive'leri (CANLI, silme):** serviceWorker.ts (string-register
   zinciri mapSourceManager→serviceWorkerManager aktif — ama yukarıdaki drift
   nedeniyle fiilen gölge kopya).
