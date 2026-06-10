@@ -67,6 +67,8 @@ const BOOT_ID: string = (() => {
 const ALLOW_KEYS = new Set([
   'ctx', 'msg', 'stack', 'errorCode', 'severity', 'source', 'appVersion',
   'transport', 'protocol', 'attempts', 'elapsedMs', 'bootId',
+  // obd_diag alanları (Commit 3): bağlantı fazı + araç tipi + son veri zamanı
+  'phase', 'vehicleType', 'lastSeenMs',
 ]);
 
 /** Her derinlikte düşülen alanlar (küçük harf karşılaştırma) */

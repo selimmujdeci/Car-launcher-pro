@@ -40,6 +40,7 @@ import { computeFuelMetrics } from './obdMetrics';
 import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle } from './obdPidConfig';
 import { recordDiag } from './obdDiagnosticRecorder';
+import { emitObdDiag } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
   CONNECT_TIMEOUT_MS,
@@ -330,6 +331,17 @@ function _stopMock(): void {
   }
 }
 
+/* ── Remote tanı (obd_diag) ortak alanları ───────────────── */
+// emitObdDiag çağrılarında tekrarlanan, kişisel-veri-içermeyen durum seti.
+// MAC / cihaz adı / VIN / plaka / konum BİLİNÇLİ olarak burada YOK.
+function _diagCommon(): { source: string; vehicleType: string; lastSeenMs: number } {
+  return {
+    source:      _current.source,
+    vehicleType: _current.vehicleType,
+    lastSeenMs:  _current.lastSeenMs,
+  };
+}
+
 /* ── Stale-data watchdog ─────────────────────────────────── */
 
 function _startStaleWatchdog(): void {
@@ -340,6 +352,12 @@ function _startStaleWatchdog(): void {
     if (isDataStale(_lastRealDataMs)) {
       // RFCOMM socket sessizce düştü — reconnect tetikle
       logError('OBD:StaleData', new Error(`${STALE_THRESHOLD_MS / 1000}s boyunca veri alınamadı`));
+      emitObdDiag('stale_data', 'OBD_STALE_DATA', {
+        ..._diagCommon(),
+        transport: _lastKnownTransport,
+        elapsedMs: Date.now() - _lastRealDataMs,
+        msg:       'Veri akışı kesildi (RFCOMM sessiz drop)',
+      });
       _stopStaleWatchdog();
       void _removeNativeHandles().then(() => _scheduleReconnect());
     }
@@ -374,6 +392,13 @@ function _startDataValidationGate(gen: number): void {
     if (!_dataGatePassed) {
       recordFault('OBD_DATA_GATE_TIMEOUT');
       logError('OBD:DataGate', new Error(`Bağlandı fakat ${DATA_GATE_TIMEOUT_MS / 1000}s içinde PID verisi alınamadı (Stale bağlantı)`));
+      emitObdDiag('data_gate', 'OBD_DATA_GATE_TIMEOUT', {
+        ..._diagCommon(),
+        transport: _lastKnownTransport,
+        attempts:  _reconnectAttempts,
+        elapsedMs: DATA_GATE_TIMEOUT_MS,
+        msg:       'Bağlandı fakat PID verisi alınamadı (stale bağlantı)',
+      });
       _stopStaleWatchdog();
       void _removeNativeHandles().then(() => {
         if (isFeatureEnabled('obdDataGateAutoReconnect')) _scheduleReconnect();
@@ -474,6 +499,15 @@ function _scheduleReconnect(): void {
   }
 
   if (!shouldAttemptReconnect(_reconnectAttempts)) {
+    // Üstel tur tükendi — tek tanı eventi (deneme sayısı sıfırlanmadan ÖNCE)
+    emitObdDiag('reconnect', 'OBD_RECONNECT_EXHAUSTED', {
+      ..._diagCommon(),
+      transport: _lastKnownTransport,
+      attempts:  _reconnectAttempts,
+      msg: _addressConnectedOnce
+        ? 'Üstel reconnect turu tükendi — derin döngüye geçildi'
+        : 'Üstel reconnect turu tükendi — kayıtlı adres temizlendi',
+    });
     _reconnectAttempts = 0;
 
     // ── Risk B çözümü: Automotive "Always-On" derin yeniden bağlanma ──────────
@@ -578,6 +612,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // _nativeGeneration changes and stale continuations bail out safely.
   const myGen = ++_nativeGeneration;
   const _stale = () => !_running || _nativeGeneration !== myGen;
+  // Tanı: faz süreleri için monotonic başlangıç (saat atlaması güvenli)
+  const _diagT0 = performance.now();
 
   // Önceki stopOBD() disconnect'inin native tarafta tamamlanmasını bekle.
   // disconnectOBD() bitmeden connectOBD() gönderilirse BLE/TCP stack yarış yaşar.
@@ -609,6 +645,12 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     candidate = findBestObdDevice(devices);
 
     if (!candidate) {
+      emitObdDiag('scan', 'OBD_NO_DEVICE', {
+        ..._diagCommon(),
+        attempts:  _reconnectAttempts,
+        elapsedMs: performance.now() - _diagT0,
+        msg:       'Eşleşmiş OBD adaptörü bulunamadı',
+      });
       throw new Error('Eşleşmiş OBD adaptörü bulunamadı');
     }
     _merge({ connectionState: 'connecting', deviceName: candidate.name });
@@ -712,7 +754,24 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     _merge({ connectionState: 'connecting', deviceName: cand.name });
     try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
     if (_stale()) { void _removeNativeHandles(); return; }
-    await _tryConnectTransport(_fallbackTp, _fallbackTimeoutMs); // bu da olmazsa throw → reconnect
+    try {
+      await _tryConnectTransport(_fallbackTp, _fallbackTimeoutMs); // bu da olmazsa throw → reconnect
+    } catch (eFallback) {
+      // Her iki transport da başarısız — tanı eventi (cihaz adı/MAC YOK,
+      // msg statik; alt hata mesajı cihaz adı içerdiğinden payload'a girmez)
+      if (!_stale()) {
+        const timedOut = eFallback instanceof Error && eFallback.message.includes('zaman aşımı');
+        emitObdDiag('connect', timedOut ? 'OBD_CONNECT_TIMEOUT' : 'OBD_CONNECT_FAIL', {
+          ..._diagCommon(),
+          transport: `${_primaryTp}+${_fallbackTp}`,
+          protocol:  forcedProtocol ?? 'auto',
+          attempts:  _reconnectAttempts,
+          elapsedMs: performance.now() - _diagT0,
+          msg:       'Her iki transport ile bağlantı başarısız',
+        });
+      }
+      throw eFallback;
+    }
     _connectedTp = _fallbackTp;
   }
   // Çalışan transport'u kalıcılaştır → sonraki direkt-reconnect doğru yolu kullanır.
@@ -766,6 +825,16 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         persistHandshakeVin(null);
         // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
         console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
+        if (!_stale()) {
+          emitObdDiag('handshake', 'OBD_HANDSHAKE_FAIL', {
+            ..._diagCommon(),
+            transport: _connectedTp,
+            protocol:  forcedProtocol ?? 'auto',
+            attempts:  _reconnectAttempts,
+            elapsedMs: performance.now() - _diagT0,
+            msg:       'ELM327 el sıkışması başarısız (VIN/PID alınamadı)',
+          });
+        }
       });
   }
 }
