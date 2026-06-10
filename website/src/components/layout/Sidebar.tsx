@@ -1,8 +1,20 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useNotificationStore } from '@/store/notificationStore';
+import { supabaseBrowser } from '@/lib/supabase';
+import { isSuperAdminToken } from '@/lib/superAdminClaim';
+
+/**
+ * Command Center (Super Admin) — admin SPA ayrı projede yaşar
+ * (car-launcher-pro.vercel.app); carospro.com'da /admin route'u YOKTUR.
+ * Bu yüzden mutlak URL — path sözleşmesi /admin/sa/health.
+ */
+const COMMAND_CENTER_URL = `${
+  process.env.NEXT_PUBLIC_ADMIN_PANEL_ORIGIN ?? 'https://car-launcher-pro.vercel.app'
+}/admin/sa/health`;
 
 const navItems = [
   {
@@ -80,6 +92,27 @@ export default function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const unreadCount = useNotificationStore((s) => s.unreadCount());
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  // JWT app_metadata.role === 'super_admin' → Command Center maddesi.
+  // Token yenilemesinde de güncel kalsın diye onAuthStateChange dinlenir;
+  // cleanup ile abonelik kesilir (zero-leak).
+  useEffect(() => {
+    if (!supabaseBrowser) return;
+    let mounted = true;
+
+    void supabaseBrowser.auth.getSession().then(({ data }) => {
+      if (mounted) setIsSuperAdmin(isSuperAdminToken(data.session?.access_token));
+    });
+    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
+      if (mounted) setIsSuperAdmin(isSuperAdminToken(session?.access_token));
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -149,6 +182,24 @@ export default function Sidebar({ onClose }: SidebarProps) {
           );
         })}
       </nav>
+
+      {/* Command Center — yalnız super_admin (JWT claim); tek giriş noktası */}
+      {isSuperAdmin && (
+        <div className="px-3 pb-3 flex-shrink-0" data-testid="command-center-nav">
+          <a
+            href={COMMAND_CENTER_URL}
+            onClick={onClose}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-red-400/70 hover:text-red-300 hover:bg-red-500/[0.08]"
+          >
+            {/* ShieldCheck — mevcut inline-SVG diliyle (18px, stroke 1.4) */}
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+              <path d="M9 1.5l5.5 2v4.25c0 3.5-2.333 6.417-5.5 7.75-3.167-1.333-5.5-4.25-5.5-7.75V3.5l5.5-2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+              <path d="M6.5 9l1.75 1.75L11.75 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span>Command Center</span>
+          </a>
+        </div>
+      )}
 
       {/* User + Logout */}
       <div className="px-3 py-4 border-t border-white/[0.06] flex-shrink-0">

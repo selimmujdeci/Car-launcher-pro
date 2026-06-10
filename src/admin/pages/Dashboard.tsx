@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Users, Truck, Activity, AlertTriangle, ShieldCheck, ChevronRight } from 'lucide-react'
+import { Users, Truck, Activity, AlertTriangle } from 'lucide-react'
 import { StatCard } from '../components/shared/StatCard'
 import { PageHeader } from '../components/shared/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { listUsers } from '../services/users.service'
 import { listVehicles } from '../services/vehicles.service'
-import { useRole } from '../hooks/useRole'
 import type { User, Vehicle } from '../types'
 
 export function Dashboard() {
-  const { can } = useRole()
   const [users,    setUsers]    = useState<User[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -29,31 +26,6 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" description="Sisteme genel bakış" />
-
-      {/* Süper Admin Paneli girişi (YevmiyePlus modeli): yalnız super_admin
-          görür, Command Center'a (/sa → health) götürür. SuperAdminShell
-          sidebar'ındaki Incidents/VoiceDiag erişimi aynen durur. */}
-      {can('super_admin') && (
-        <Link to="/sa/health" className="block" data-testid="super-admin-panel-card">
-          <Card className="flex items-center gap-4 transition-opacity hover:opacity-85">
-            <div
-              className="flex items-center justify-center w-10 h-10 rounded-lg shrink-0"
-              style={{ background: 'rgba(239,68,68,0.15)' }}
-            >
-              <ShieldCheck size={20} style={{ color: '#ef4444' }} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold" style={{ color: 'var(--adm-text)' }}>
-                Süper Admin Paneli
-              </p>
-              <p className="text-xs truncate" style={{ color: 'var(--adm-muted)' }}>
-                Command Center — Health, Fleet, Rollout, Incidents
-              </p>
-            </div>
-            <ChevronRight size={18} className="shrink-0" style={{ color: 'var(--adm-muted)' }} />
-          </Card>
-        </Link>
-      )}
 
       {loading ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
