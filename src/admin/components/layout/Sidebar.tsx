@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, Truck, Settings, LogOut, Car, ShieldCheck,
+  LayoutDashboard, Users, Truck, Settings, LogOut, Car, ShieldCheck, Activity,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -13,6 +13,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Truck,
   Settings,
   ShieldCheck,
+  Activity,
 }
 
 export function Sidebar() {

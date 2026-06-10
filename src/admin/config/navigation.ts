@@ -31,6 +31,10 @@ export const NAV: NavGroup[] = [
     items: [
       { path: '/settings',    label: 'Ayarlar',      icon: 'Settings',    minRole: 'admin'       },
       { path: '/superadmin',  label: 'Süper Admin',  icon: 'ShieldCheck', minRole: 'super_admin' },
+      // Command Center (/sa kabuğu): Health/Fleet/Flags/Rollout/Incidents (voice_diag
+      // dahil) buranın altında — eskiden normal menüden HİÇ link yoktu, yalnız elle
+      // URL ile erişilebiliyordu ("Incident Center menüde yok" bulgusu).
+      { path: '/sa/health',   label: 'Command Center', icon: 'Activity',  minRole: 'super_admin' },
     ],
   },
 ]

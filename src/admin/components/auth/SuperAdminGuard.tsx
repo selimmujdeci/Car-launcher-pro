@@ -71,6 +71,27 @@ function _extractRole(payload: Record<string, unknown>): string | undefined {
   return fromApp ?? fromUser
 }
 
+/**
+ * Saf kural: payload super_admin claim'i taşıyor mu?
+ * Guard VE useRole.can() aynı kaynağı kullanır — rol çatallanması yok
+ * (eski durum: sidebar memberships'e, /sa kapısı JWT'ye bakıyordu;
+ * yalnız claim'i olan süper admin normal menüde hiçbir şey göremiyordu).
+ */
+export function isSuperAdminJwtPayload(payload: Record<string, unknown>): boolean {
+  return _extractRole(payload) === SUPER_ADMIN_CLAIM_VALUE
+}
+
+/** Aktif oturumun JWT'sinde super_admin claim'i var mı? (ağ çağrısı yok — in-memory token) */
+export async function hasSuperAdminClaim(): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return false
+    return isSuperAdminJwtPayload(_decodeJwtPayload(session.access_token))
+  } catch {
+    return false
+  }
+}
+
 // ── Bileşen ───────────────────────────────────────────────────────────────────
 
 export function SuperAdminGuard({ children }: Props) {
