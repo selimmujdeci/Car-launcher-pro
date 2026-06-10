@@ -20,6 +20,7 @@ import {
   processTextCommand,
 } from '../../platform/voiceService';
 import { isNative } from '../../platform/bridge';
+import { VOICE_TUNING } from '../../platform/voiceTuning';
 
 /* ── Waveform animation ─────────────────────────────────────── */
 
@@ -92,7 +93,8 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
   useEffect(() => {
     if (autoStart) startListening();
     // Güvenlik: warmup hiç başlamasa bile pencere sonsuza dek asılı kalmasın.
-    const safety = setTimeout(() => { if (!startedRef.current) onClose(); }, 11_000);
+    // Süre voiceTuning'den: listenFailsafeMs'ten BÜYÜK — aktif dinlemeyi kesmez.
+    const safety = setTimeout(() => { if (!startedRef.current) onClose(); }, VOICE_TUNING.uiSafetyCloseMs);
     return () => clearTimeout(safety);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -279,8 +281,10 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
   // Eğer henüz başlamadıysa (durum hâlâ idle) başlat.
   useEffect(() => {
     if (voice.status !== 'listening') startListening();
-    // Max 10s güvenlik — hiçbir koşulda ekranda asılı kalmaz (warmup hiç başlamasa bile kapatır)
-    const safety = setTimeout(() => { stopListening(); onCloseRef.current(); }, 10_000);
+    // Güvenlik kapanışı (voiceTuning.uiSafetyCloseMs) — hiçbir koşulda ekranda asılı
+    // kalmaz. listenFailsafeMs'ten BÜYÜK: 12s dinleme penceresi UI tarafından kesilmez
+    // (eski 10s sabiti, 9s pencere + warmup ile yalnız 500ms pay bırakıyordu).
+    const safety = setTimeout(() => { stopListening(); onCloseRef.current(); }, VOICE_TUNING.uiSafetyCloseMs);
     return () => clearTimeout(safety);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -1245,9 +1245,20 @@ public class CarLauncherPlugin extends Plugin {
     // Vosk'un kendi SpeechService'i ham, kazançsız ses verir → kullanıcı bağırmadan
     // tanımıyordu. Özel AudioRecord döngüsü: AGC + NoiseSuppressor + AEC efektleri +
     // yazılım kazancı (GAIN) ile alçak sesli konuşma yükseltilir.
-    private static final float VOSK_GAIN = 2.0f;        // yazılım ses kazancı (clipping korumalı)
-    private static final int   VOSK_SAMPLE_RATE = 16000;
-    private static final long  VOSK_MAX_LISTEN_MS = 9000; // sessizlik endpoint'i daha erken çözer
+    // Varsayılanlar yalnız OPSİYONSUZ çağrılar için (wake word döngüsü — mevcut
+    // pil/davranış profili korunur). Sesli asistan değerleri TEK KAYNAKTAN gelir:
+    // src/platform/voiceTuning.ts → startSpeechRecognition({ gain, maxListenMs }).
+    // Clamp şart: aşırı kazanç yol gürültüsünü "kelimeye" çevirir (yanlış tetikleme),
+    // aşırı pencere pil/UX maliyeti getirir.
+    private static final float VOSK_GAIN_DEFAULT  = 2.0f;  // yazılım ses kazancı (clipping korumalı)
+    private static final float VOSK_GAIN_MIN      = 1.0f;
+    private static final float VOSK_GAIN_MAX      = 4.0f;  // gürültü tavanı
+    private static final int   VOSK_SAMPLE_RATE   = 16000;
+    private static final long  VOSK_MAX_LISTEN_MS_DEFAULT = 9000; // sessizlik endpoint'i daha erken çözer
+    private static final long  VOSK_MAX_LISTEN_MIN_MS     = 5000;
+    private static final long  VOSK_MAX_LISTEN_MAX_MS     = 20000;
+    private volatile float voskGain        = VOSK_GAIN_DEFAULT;
+    private volatile long  voskMaxListenMs = VOSK_MAX_LISTEN_MS_DEFAULT;
 
     // ── Dinlerken müzik kısma (audio ducking) ───────────────────────────────────
     // Mikrofona basınca müzik hoparlörden çalmaya devam ediyordu → (1) rahatsız edici,
@@ -1280,6 +1291,13 @@ public class CarLauncherPlugin extends Plugin {
         // dinleme hiç başlamadan "Anlaşılamadı" gösteriliyordu. Telefonlarda offline model/GMS olduğu için çalışıyordu.
         boolean preferOffline  = Boolean.TRUE.equals(call.getBoolean("preferOffline", Boolean.FALSE));
         boolean onlineFallback = Boolean.TRUE.equals(call.getBoolean("onlineFallback", Boolean.TRUE));
+        // Hassasiyet ayarları (opsiyonel — voiceTuning.ts tek kaynak). Clamp ile güvenli bant.
+        Double gainOpt = call.getDouble("gain");
+        float reqGain = gainOpt != null ? gainOpt.floatValue() : VOSK_GAIN_DEFAULT;
+        voskGain = Math.max(VOSK_GAIN_MIN, Math.min(VOSK_GAIN_MAX, reqGain));
+        Integer maxMsOpt = call.getInt("maxListenMs");
+        long reqMaxMs = maxMsOpt != null ? maxMsOpt.longValue() : VOSK_MAX_LISTEN_MS_DEFAULT;
+        voskMaxListenMs = Math.max(VOSK_MAX_LISTEN_MIN_MS, Math.min(VOSK_MAX_LISTEN_MAX_MS, reqMaxMs));
         // KATMAN 1 — Önce Vosk (offline, Google'sız, cihaz-içi). Model yüklenemez/başlatılamazsa
         // Google SpeechRecognizer'a (beginSpeechRecognition) düşülür — GMS'li cihazlarda yedek.
         startVoskRecognition(language, maxResults, preferOffline, onlineFallback);
@@ -1461,7 +1479,7 @@ public class CarLauncherPlugin extends Plugin {
      * Neden: SpeechService ham, kazançsız ses verir → araç içinde alçak sesle/yol gürültüsünde
      * tanımıyordu (kullanıcı bağırmak zorunda). Bu döngü:
      *   - AGC (otomatik kazanç) + NoiseSuppressor + AcousticEchoCanceler donanım efektleri,
-     *   - yazılım kazancı (VOSK_GAIN, clipping korumalı),
+     *   - yazılım kazancı (voskGain — JS voiceTuning.ts'ten, clamp'li; clipping korumalı),
      *   - gerçek RMS → UI ses göstergesi (SpeechService RMS vermiyordu),
      *   - acceptWaveForm endpoint → konuşma biter bitmez sonuç (geç tepki azalır).
      */
@@ -1497,6 +1515,10 @@ public class CarLauncherPlugin extends Plugin {
         voskCapturing = true;
         duckMusicForListening(); // mikrofon dinlerken müziği kıs
         final long startedAt = System.currentTimeMillis();
+        // Oturum başında sabitle (thread görünürlüğü): bir sonraki çağrının opsiyonları
+        // çalışan oturumu etkilemesin.
+        final float sessionGain  = voskGain;
+        final long  sessionMaxMs = voskMaxListenMs;
         Thread t = new Thread(() -> {
             AudioRecord recorder = null;
             Recognizer recognizer = null;
@@ -1539,13 +1561,13 @@ public class CarLauncherPlugin extends Plugin {
                 while (voskCapturing && !Thread.currentThread().isInterrupted()) {
                     int n = recorder.read(buf, 0, buf.length);
                     if (n <= 0) {
-                        if (System.currentTimeMillis() - startedAt > VOSK_MAX_LISTEN_MS) break;
+                        if (System.currentTimeMillis() - startedAt > sessionMaxMs) break;
                         continue;
                     }
                     // Yazılım kazancı + clipping koruması + RMS (UI ses göstergesi)
                     double sumSq = 0;
                     for (int i = 0; i < n; i++) {
-                        int v = Math.round(buf[i] * VOSK_GAIN);
+                        int v = Math.round(buf[i] * sessionGain);
                         if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
                         buf[i] = (short) v;
                         sumSq += (double) v * v;
@@ -1563,7 +1585,7 @@ public class CarLauncherPlugin extends Plugin {
                         String text = extractVoskText(recognizer.getResult());
                         if (text != null && !text.isEmpty()) { gotResult = true; resolveVosk(text); break; }
                     }
-                    if (System.currentTimeMillis() - startedAt > VOSK_MAX_LISTEN_MS) break;
+                    if (System.currentTimeMillis() - startedAt > sessionMaxMs) break;
                 }
 
                 if (!gotResult && voskCapturing) {

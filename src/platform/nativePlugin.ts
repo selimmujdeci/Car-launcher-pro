@@ -146,6 +146,12 @@ export interface SpeechRecognitionOptions {
   onlineFallback?: boolean;
   language?: string;          // BCP-47, e.g. 'tr-TR'
   maxResults?: number;
+  /** Vosk yazılım kazancı çarpanı — native 1.0–4.0 clamp'ler (varsayılan 2.0).
+   *  Tek kaynak: voiceTuning.ts. Verilmezse native varsayılanı (wake word yolu). */
+  gain?: number;
+  /** Vosk maksimum dinleme penceresi ms — native 5000–20000 clamp'ler (varsayılan 9000).
+   *  Sessizlik endpoint'i konuşma bitince daha erken çözer; bu yalnız üst sınır. */
+  maxListenMs?: number;
 }
 
 export interface SpeechRecognitionResult {

@@ -22,6 +22,7 @@ import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
 import { buildEnrichedCtx } from './voiceContextBuilder';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
+import { VOICE_TUNING } from './voiceTuning';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -600,17 +601,19 @@ export function startListening(): void {
   }
 
   if (isNative) {
-    // T507 ısınma süresi: tüm native cihazlarda 500ms — mikrofon donanım açılışı beklenir.
-    const warmupMs = isLowEndDevice() ? 500 : 300;
+    // Mikrofon donanım ısınması — süreler voiceTuning.ts tek kaynağından.
+    const warmupMs = isLowEndDevice() ? VOICE_TUNING.warmupLowEndMs : VOICE_TUNING.warmupMs;
 
+    // Failsafe > warmup + maxListenMs (voiceTuning hiyerarşisi): aktif dinleme
+    // ASLA buradan kesilmez; yalnız native'in hiç dönmediği anormal durumu toparlar.
     const sttFailsafe = setTimeout(() => {
       if (_current.status === 'listening') {
-        console.warn('[Voice] STT timeout (10s) — forcing idle');
+        console.warn(`[Voice] STT failsafe (${VOICE_TUNING.listenFailsafeMs}ms) — forcing idle`);
         _stopNativeVolumeListener();
         unduckMedia();
         push({ status: 'idle' });
       }
-    }, 10_000);
+    }, VOICE_TUNING.listenFailsafeMs);
 
     const doSTT = () => {
       // Warmup bitti — mikrofon donanımı gerçekten açılıyor. "Dinliyorum" ancak burada basılır.
@@ -618,7 +621,13 @@ export function startListening(): void {
       _startNativeVolumeListener();
       duckMedia();
 
-      CarLauncher.startSpeechRecognition({ preferOffline: true, onlineFallback: true, language: 'tr-TR', maxResults: 1 })
+      CarLauncher.startSpeechRecognition({
+        preferOffline: true, onlineFallback: true, language: 'tr-TR', maxResults: 1,
+        // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
+        // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
+        gain: VOICE_TUNING.nativeGainX,
+        maxListenMs: VOICE_TUNING.maxListenMs,
+      })
         .then((result) => {
           clearTimeout(sttFailsafe);
           _stopNativeVolumeListener();
@@ -636,6 +645,11 @@ export function startListening(): void {
               _consecutiveEmptyCount = 0;
               push({ status: 'error', error: 'Ses algılanamadı. Daha yüksek sesle konuşun.', suggestions: [] });
               setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 2500);
+              // Uzak tanı (opsiyonel): ardışık 2 boş transcript — mikrofon/kazanç sorunu
+              // sinyali. remoteLogService dedup'u (oturumda 1 kez) + token bucket spam'i keser.
+              void import('./remoteLogService')
+                .then((m) => m.reportCritical('VOICE_STT', 'no_speech_x2', { errorCode: 'ERR_NO_SPEECH' }))
+                .catch(() => {});
             } else {
               push({ status: 'idle' });
             }
@@ -667,6 +681,11 @@ export function startListening(): void {
             suggestions: [],
           });
           setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+          // Uzak tanı (opsiyonel): gerçek STT başlatma hatası (izin/Vosk model/donanım) —
+          // saha teşhisi için bir kez raporlanır (ctx+msg dedup, oturum başına 1; spam yok).
+          void import('./remoteLogService')
+            .then((m) => m.reportCritical('VOICE_STT', msg || 'stt_start_failed', { errorCode: 'ERR_STT_START' }))
+            .catch(() => {});
         });
     };
 
