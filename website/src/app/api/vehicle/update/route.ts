@@ -64,24 +64,25 @@ export async function POST(req: NextRequest) {
   };
 
   if (isSupabaseConfigured) {
-    // 1. Persist event to DB
-    await supabaseAdmin.from('events').insert({
-      vehicle_id:  vehicleId,
-      lat:         update.lat,
-      lng:         update.lng,
-      speed:       update.speed,
-      fuel:        update.fuel,
-      engine_temp: update.engineTemp,
-      rpm:         update.rpm,
-    });
-
-    // 2. Broadcast via Supabase Realtime so web panel receives instantly
-    const channel = supabaseAdmin.channel('vehicle-updates');
-    await channel.send({
+    // NOT: Eski `events` tablosuna insert kaldırıldı — tablo canlıda hiç var
+    // olmadı (PGRST205, hata sessizce yutuluyordu) ve kalıcılaştırma zaten
+    // cihazların doğrudan çağırdığı push_vehicle_event RPC'sinde
+    // (vehicle_events + locations/telemetry köprüleri). Bu route yalnız
+    // realtime broadcast köprüsüdür (realtimeEngine.ts `v:{vehicleId}` dinler).
+    const channel  = supabaseAdmin.channel('vehicle-updates');
+    const sendStatus = await channel.send({
       type:    'broadcast',
       event:   `v:${vehicleId}`,
       payload: update,
     });
+    await supabaseAdmin.removeChannel(channel);
+
+    if (sendStatus !== 'ok') {
+      return NextResponse.json(
+        { ok: false, error: `Realtime broadcast başarısız: ${sendStatus}` },
+        { status: 502 },
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });

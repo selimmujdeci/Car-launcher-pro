@@ -3,7 +3,9 @@
 /**
  * GeofenceAlertsPanel — Gerçek zamanlı geofence & valet ihlal bildirimleri.
  *
- * Supabase Realtime üzerinden `events` tablosunu dinler (type = geofence_alert | valet_alert).
+ * Supabase Realtime üzerinden `vehicle_events` tablosunu dinler (type = geofence_alert | valet_alert).
+ * (Eski `events` tablosu canlıda hiç var olmadı — cihazlar push_vehicle_event
+ * RPC'siyle vehicle_events'e yazar; olay verisi `metadata` kolonundadır.)
  * Zero-Leak: useEffect cleanup ile kanal aboneliği kesilir.
  * Mock mod: Supabase yoksa demo olayları simüle eder.
  */
@@ -26,7 +28,7 @@ import { supabaseBrowser } from '@/lib/supabase';
 export interface GeofenceAlertEvent {
   id:         string;
   type:       'geofence_alert' | 'valet_alert';
-  payload:    {
+  metadata:   {
     violation?:   string;
     speedKmh?:    number;
     limitKmh?:    number;
@@ -49,13 +51,13 @@ const MOCK_ALERTS: GeofenceAlertEvent[] = [
   {
     id:         'mock-1',
     type:       'geofence_alert',
-    payload:    { violation: 'exit', distanceKm: 2.4, lat: 41.0082, lng: 28.9784, timestamp: Date.now() - 180_000 },
+    metadata:   { violation: 'exit', distanceKm: 2.4, lat: 41.0082, lng: 28.9784, timestamp: Date.now() - 180_000 },
     created_at: new Date(Date.now() - 180_000).toISOString(),
   },
   {
     id:         'mock-2',
     type:       'valet_alert',
-    payload:    { violation: 'speed_limit', speedKmh: 73, limitKmh: 50, lat: 41.0102, lng: 28.9814, timestamp: Date.now() - 60_000 },
+    metadata:   { violation: 'speed_limit', speedKmh: 73, limitKmh: 50, lat: 41.0102, lng: 28.9814, timestamp: Date.now() - 60_000 },
     created_at: new Date(Date.now() - 60_000).toISOString(),
   },
 ];
@@ -89,8 +91,8 @@ export function GeofenceAlertsPanel({ vehicleId, maxItems = 10 }: Props) {
     /* ── İlk yükleme: son 24 saatteki olaylar ── */
     const since = new Date(Date.now() - 86_400_000).toISOString();
     let query = supabaseBrowser
-      .from('events')
-      .select('id, type, payload, created_at')
+      .from('vehicle_events')
+      .select('id, type, metadata, created_at')
       .in('type', ['geofence_alert', 'valet_alert'])
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -110,9 +112,9 @@ export function GeofenceAlertsPanel({ vehicleId, maxItems = 10 }: Props) {
 
     const channel = supabaseBrowser
       .channel('geofence-alerts')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vehicle_events', filter }, (change) => {
         if (!mountedRef.current) return;
-        const ev = payload.new as GeofenceAlertEvent;
+        const ev = change.new as GeofenceAlertEvent;
         if (!['geofence_alert', 'valet_alert'].includes(ev.type)) return;
         setAlerts((prev) => [ev, ...prev].slice(0, maxItems));
       })
@@ -144,12 +146,12 @@ export function GeofenceAlertsPanel({ vehicleId, maxItems = 10 }: Props) {
         const Icon: SvgFC = isValet ? _AlertTriangle : _Navigation;
 
         const title = isValet
-          ? `Vale İhlali — ${Math.round(alert.payload.speedKmh ?? 0)} km/h`
-          : `Geofence Çıkışı — ${alert.payload.distanceKm?.toFixed(1)} km`;
+          ? `Vale İhlali — ${Math.round(alert.metadata.speedKmh ?? 0)} km/h`
+          : `Geofence Çıkışı — ${alert.metadata.distanceKm?.toFixed(1)} km`;
 
         const sub = isValet
-          ? `Limit: ${alert.payload.limitKmh} km/h`
-          : alert.payload.lat ? `${alert.payload.lat.toFixed(4)}, ${alert.payload.lng?.toFixed(4)}` : '';
+          ? `Limit: ${alert.metadata.limitKmh} km/h`
+          : alert.metadata.lat ? `${alert.metadata.lat.toFixed(4)}, ${alert.metadata.lng?.toFixed(4)}` : '';
 
         return (
           <div key={alert.id}
