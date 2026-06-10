@@ -147,7 +147,35 @@ describe('route — /admin/sa/incidents', () => {
   });
 });
 
-/* ── 5. Sidebar render sözleşmesi ────────────────────────────── */
+/* ── 5. Dashboard — Süper Admin Paneli kartı (YevmiyePlus modeli) ── */
+
+describe('Dashboard — Süper Admin Paneli kartı', () => {
+  const dashSrc = readFileSync(
+    join(process.cwd(), 'src', 'admin', 'pages', 'Dashboard.tsx'), 'utf-8');
+
+  it('kart yalnız super_admin için render edilir (can guard)', () => {
+    expect(dashSrc).toMatch(/can\('super_admin'\) && \(/);
+    expect(dashSrc).toContain("import { useRole } from '../hooks/useRole'");
+  });
+
+  it('kart Command Center\'a götürür: Link to=/sa/health (basename /admin → /admin/sa/health)', () => {
+    expect(dashSrc).toMatch(/<Link to="\/sa\/health"/);
+    // window.location / href ile basename atlanmaz — Link kullanımı zorunlu
+    expect(dashSrc).not.toMatch(/location\.href|window\.open/);
+  });
+
+  it('kart etiketi "Süper Admin Paneli" + test kancası mevcut', () => {
+    expect(dashSrc).toContain('Süper Admin Paneli');
+    expect(dashSrc).toContain('data-testid="super-admin-panel-card"');
+  });
+
+  it('yanlış route üretilmez: /dashboard/admin veya mutlak /admin prefix yok', () => {
+    expect(dashSrc).not.toContain('/dashboard/admin');
+    expect(dashSrc).not.toMatch(/to="\/admin\/sa/); // basename zaten /admin — çift prefix yasak
+  });
+});
+
+/* ── 6. Sidebar render sözleşmesi ────────────────────────────── */
 
 describe('Sidebar — rol filtreli render', () => {
   const sidebarSrc = readFileSync(
