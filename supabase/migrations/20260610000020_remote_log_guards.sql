@@ -149,7 +149,9 @@ END;
 $$;
 
 -- Temizlik yalnız backend işi: anon/authenticated ÇAĞIRAMAZ.
-REVOKE ALL     ON FUNCTION public.cleanup_vehicle_log_events() FROM PUBLIC;
+-- Supabase default privileges yeni fonksiyona anon/authenticated EXECUTE
+-- ekler; FROM PUBLIC bunları kaldırmaz — açıkça revoke edilmeli.
+REVOKE ALL     ON FUNCTION public.cleanup_vehicle_log_events() FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.cleanup_vehicle_log_events() TO service_role;
 
 -- pg_cron varsa günlük 03:15'te zamanla (schedule aynı isimle idempotent).
