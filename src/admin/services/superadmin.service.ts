@@ -11,7 +11,7 @@
  *
  * Bağımlılık:
  *   telemetryService her 5dk'da bir bu şemada system_health eventi push'lar.
- *   push_vehicle_event RPC payload'ı vehicle_events.payload JSONB kolonuna yazar.
+ *   push_vehicle_event RPC payload'ı vehicle_events.metadata JSONB kolonuna yazar.
  */
 
 import { supabase }                      from '../lib/supabaseClient'
@@ -77,7 +77,7 @@ interface VehicleEventRow {
   id:          string;
   created_at:  string;
   vehicle_id?: string;
-  payload:     HealthPayload | null;
+  metadata:    HealthPayload | null;
 }
 
 // ── Yardımcılar ────────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ export async function getFleetHealthStats(hoursBack = 24): Promise<FleetHealthSt
   try {
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('id, created_at, payload')
+      .select('id, created_at, metadata')
       .eq('type', 'system_health')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -154,7 +154,7 @@ export async function getFleetHealthStats(hoursBack = 24): Promise<FleetHealthSt
     const versionErrorMap = new Map<string, number>()
 
     for (const row of rows) {
-      const p: HealthPayload = row.payload ?? {}
+      const p: HealthPayload = row.metadata ?? {}
       const health     = _str(p.overallHealth, 'healthy')
       const thermal    = _num(p.thermalLevel, 0)
       const freezes    = _num(p.uiFreezeCount, 0)
@@ -207,16 +207,16 @@ export async function getIncidentLogs(limit = 50): Promise<IncidentLog[]> {
   try {
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('id, created_at, vehicle_id, payload')
+      .select('id, created_at, vehicle_id, metadata')
       .eq('type', 'system_health')
-      .neq('payload->>overallHealth', 'healthy')
+      .neq('metadata->>overallHealth', 'healthy')
       .order('created_at', { ascending: false })
       .limit(limit)
 
     if (error || !data) return []
 
     return (data as VehicleEventRow[]).map((row) => {
-      const p: HealthPayload = row.payload ?? {}
+      const p: HealthPayload = row.metadata ?? {}
       const health  = _str(p.overallHealth, 'degraded')
       return {
         id:            row.id,
@@ -261,7 +261,7 @@ export async function getKnownDevices(): Promise<KnownDevice[]> {
     const since = new Date(Date.now() - 24 * 3_600_000).toISOString()
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('vehicle_id, payload, created_at')
+      .select('vehicle_id, metadata, created_at')
       .eq('type', 'system_health')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -269,12 +269,12 @@ export async function getKnownDevices(): Promise<KnownDevice[]> {
 
     if (error || !data) return []
 
-    type Row = { vehicle_id?: string; payload: HealthPayload; created_at: string }
+    type Row = { vehicle_id?: string; metadata: HealthPayload; created_at: string }
     const map = new Map<string, { count: number; lastSeen: string; health: string; thermal: number }>()
 
     for (const row of data as Row[]) {
       const hash   = _hashDevice((row.vehicle_id as string | undefined) ?? row.created_at)
-      const p      = row.payload ?? {}
+      const p      = row.metadata ?? {}
       const health = _str(p.overallHealth, 'healthy')
       const prev   = map.get(hash)
       if (!prev) {
@@ -325,30 +325,30 @@ export async function getDiagnosticReport(
     const since = new Date(Date.now() - 15 * 60_000).toISOString()
     const { data } = await supabase
       .from('vehicle_events')
-      .select('vehicle_id, payload, created_at')
+      .select('vehicle_id, metadata, created_at')
       .eq('type', 'system_health')
       .gte('created_at', since)
       .order('created_at', { ascending: true })
       .limit(100)
 
-    type Row = { vehicle_id?: string; payload: HealthPayload; created_at: string }
+    type Row = { vehicle_id?: string; metadata: HealthPayload; created_at: string }
     const rows = ((data ?? []) as Row[]).filter(
       (r) => _hashDevice((r.vehicle_id as string | undefined) ?? '') === deviceHash,
     )
 
     const events: IncidentDataPoint[] = rows.map((r) => ({
       ts:             r.created_at,
-      thermalLevel:   Math.max(0, Math.min(3, _num(r.payload?.thermalLevel, 0))),
-      ramPressure:    Math.round(_num(r.payload?.ramPressureRatio, 0) * 100),
-      workerRestarts: _num(r.payload?.workerRestartTotal, 0),
-      uiFreezeCount:  _num(r.payload?.uiFreezeCount, 0),
-      overallHealth:  _str(r.payload?.overallHealth, 'healthy'),
+      thermalLevel:   Math.max(0, Math.min(3, _num(r.metadata?.thermalLevel, 0))),
+      ramPressure:    Math.round(_num(r.metadata?.ramPressureRatio, 0) * 100),
+      workerRestarts: _num(r.metadata?.workerRestartTotal, 0),
+      uiFreezeCount:  _num(r.metadata?.uiFreezeCount, 0),
+      overallHealth:  _str(r.metadata?.overallHealth, 'healthy'),
     }))
 
     // Panic snapshot — kritik sağlık eventi varsa son birini al
-    const panicRow = rows.findLast((r) => _str(r.payload?.overallHealth, '') === 'critical')
+    const panicRow = rows.findLast((r) => _str(r.metadata?.overallHealth, '') === 'critical')
     const lastPanic = panicRow
-      ? { ts: panicRow.created_at, thermal: _num(panicRow.payload?.thermalLevel, 0), ...panicRow.payload }
+      ? { ts: panicRow.created_at, thermal: _num(panicRow.metadata?.thermalLevel, 0), ...panicRow.metadata }
       : null
 
     return { deviceHash, events, lastPanic, loadedAt }
@@ -380,7 +380,7 @@ export function subscribeToDeviceLogs(
         const type    = _str(row['type'], '')
         if (type !== 'system_health' && type !== 'critical_error') return
 
-        const payload  = (row['payload'] ?? {}) as HealthPayload
+        const payload  = (row['metadata'] ?? {}) as HealthPayload
         const { tag, message } = _parseEvent(type, payload)
 
         onLog({
@@ -450,7 +450,7 @@ export async function getFleetInventory(): Promise<FleetInventory> {
     const since = new Date(Date.now() - 24 * 3_600_000).toISOString()
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('vehicle_id, payload, created_at')
+      .select('vehicle_id, metadata, created_at')
       .eq('type', 'system_health')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -458,7 +458,7 @@ export async function getFleetInventory(): Promise<FleetInventory> {
 
     if (error || !data || data.length === 0) return _FLEET_EMPTY
 
-    type Row = { vehicle_id?: string; payload: HealthPayload; created_at: string }
+    type Row = { vehicle_id?: string; metadata: HealthPayload; created_at: string }
 
     // Cihaz başına metrik biriktir — sadece hash, hiç raw ID dışarı çıkmaz
     const deviceMap = new Map<string, {
@@ -472,7 +472,7 @@ export async function getFleetInventory(): Promise<FleetInventory> {
     let lastTs: string | null = null
 
     for (const row of data as Row[]) {
-      const p     = row.payload ?? {}
+      const p     = row.metadata ?? {}
       const hash  = _hashDevice((row.vehicle_id as string | undefined) ?? '')
       const prev  = deviceMap.get(hash) ?? {
         ramSamples: [], thermalSamples: [], criticals: 0, total: 0,
@@ -712,21 +712,21 @@ export async function getRolloutHealth(version: string): Promise<RolloutHealthSt
     const since = new Date(Date.now() - 6 * 3_600_000).toISOString()
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('payload')
+      .select('metadata')
       .eq('type', 'system_health')
       .gte('created_at', since)
       .limit(200)
 
     if (error || !data) return fallback
 
-    const rows = (data as Array<{ payload: HealthPayload }>)
-      .filter((r) => _str(r.payload?.appVersion, '') === version)
+    const rows = (data as Array<{ metadata: HealthPayload }>)
+      .filter((r) => _str(r.metadata?.appVersion, '') === version)
 
     if (rows.length === 0) return fallback
 
     let critical = 0
     rows.forEach((r) => {
-      if (_str(r.payload?.overallHealth, 'healthy') === 'critical') critical++
+      if (_str(r.metadata?.overallHealth, 'healthy') === 'critical') critical++
     })
 
     const score = _calcStabilityScore(rows.length, critical, 0, 0)
@@ -838,8 +838,7 @@ export interface IncidentQueryResult {
  * (getIncidentLogs zaten system_health tabanlı HealthCenter listesi —
  * bu API Remote Log v1 tipleri için ayrıdır.)
  * NOT: JSONB kolonu `metadata` — push_vehicle_event RPC bu kolona yazar
- * (migration 012/017/020; getRolloutHealth'teki 'payload' seçimi eski şema
- * yorumundan kalmadır, bu API doğru kolonu kullanır).
+ * (migration 012/017/020; tüm vehicle_events sorguları bu kolonu kullanır).
  */
 export async function getRemoteIncidents(filter: IncidentFilter = {}): Promise<IncidentQueryResult> {
   try {
@@ -968,7 +967,7 @@ export async function getIncidentSequence(
   try {
     const { data, error } = await supabase
       .from('vehicle_events')
-      .select('id, created_at, payload')
+      .select('id, created_at, metadata')
       .eq('type', 'system_health')
       .gte('created_at', windowStart)
       .lte('created_at', targetTs)
@@ -978,7 +977,7 @@ export async function getIncidentSequence(
     if (error || !data || data.length === 0) return []
 
     return (data as VehicleEventRow[]).map((row) => {
-      const p = row.payload ?? {}
+      const p = row.metadata ?? {}
       return {
         ts:             row.created_at,
         thermalLevel:   Math.max(0, Math.min(3, _num(p.thermalLevel, 0))),
@@ -1069,7 +1068,7 @@ export function subscribeToLiveEvents(
         // İstemci tarafı filtre — sadece ilgili tipler
         if (type !== 'system_health' && type !== 'critical_error') return
 
-        const payload    = (row['payload'] ?? {}) as HealthPayload
+        const payload    = (row['metadata'] ?? {}) as HealthPayload
         const deviceHash = _hashDevice(
           (row['vehicle_id'] as string | undefined) ?? (row['id'] as string | undefined),
         )

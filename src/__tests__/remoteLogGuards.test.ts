@@ -27,12 +27,12 @@ const sql = readFileSync(join(MIG_DIR, GUARD_FN), 'utf-8');
 const LOG_TYPES = ['critical_error', 'crash', 'log', 'obd_diag', 'support_snapshot', 'ota_event'];
 
 describe('migration dosyası', () => {
-  it('timestamp sırası: mevcut en yeni migration\'dan SONRA gelir', () => {
-    const stamped = readdirSync(MIG_DIR)
-      .filter((f) => /^\d{8}/.test(f) && f !== GUARD_FN)
-      .sort();
-    const newest = stamped[stamped.length - 1];
-    expect(GUARD_FN > newest).toBe(true);
+  it('timestamp sırası: bağımlı olduğu migration\'lardan SONRA gelir', () => {
+    // 017: değiştirdiği RPC'nin sahibi · 018/019: aynı OTA serisinin önceki adımları
+    const deps = readdirSync(MIG_DIR)
+      .filter((f) => /^(20260602000017|20260610000018|20260610000019)/.test(f));
+    expect(deps.length).toBe(3);
+    for (const dep of deps) expect(GUARD_FN > dep).toBe(true);
   });
 
   it('RPC imzası değişmedi: (p_api_key, p_type, p_payload jsonb DEFAULT) → uuid', () => {
