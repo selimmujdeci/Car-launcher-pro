@@ -69,6 +69,10 @@ scratchpad.md
 # Üretilmiş test artefaktları (kaynak değil)
 test-artifacts/
 
+# Playwright koşu artefaktları (her e2e koşusunda üretilir; kaynak değil)
+test-results/
+playwright-report/
+
 # TypeScript incremental build cache (üretilmiş — tsc --build çıktısı)
 *.tsbuildinfo
 
