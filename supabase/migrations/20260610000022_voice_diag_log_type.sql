@@ -127,7 +127,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL     ON FUNCTION public.cleanup_vehicle_log_events() FROM PUBLIC;
+-- Supabase default privileges yeni fonksiyona anon/authenticated EXECUTE
+-- ekler; FROM PUBLIC bunları kaldırmaz — açıkça revoke edilmeli.
+REVOKE ALL     ON FUNCTION public.cleanup_vehicle_log_events() FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.cleanup_vehicle_log_events() TO service_role;
 
 -- ── 4. Verification (CLAUDE.md zorunlu) ──────────────────────
