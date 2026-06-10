@@ -798,6 +798,97 @@ export async function getAuditLogDetail(id: string): Promise<AuditLogEntry | nul
   }
 }
 
+// ── Incident Log API (Remote Log v1 / Commit 5) ──────────────────────────────
+// vehicle_events tablosundaki uzak tanı kayıtları: critical_error (crash),
+// obd_diag (bağlantı tanısı), support_snapshot (kullanıcı tetiklemeli rapor).
+// Payload'lar cihazda remoteLogService sanitizer'ından geçer (allowlist +
+// deny-list + maske); redactIncidentMetadata görüntüleme öncesi ikinci
+// savunma katmanıdır (sanitizer öncesi eski kayıtlar için).
+
+export const INCIDENT_TYPES = ['critical_error', 'obd_diag', 'support_snapshot'] as const
+export type IncidentType = (typeof INCIDENT_TYPES)[number]
+
+export interface IncidentEntry {
+  id:         string
+  vehicle_id: string
+  type:       IncidentType
+  /** Cihazda sanitize edilmiş tanı payload'ı (vehicle_events.metadata JSONB) */
+  metadata:   Record<string, unknown>
+  created_at: string
+}
+
+export interface IncidentFilter {
+  type?:       IncidentType   // verilmezse üç tip birden
+  vehicleId?:  string
+  appVersion?: string         // metadata->>appVersion
+  since?:      string         // ISO — created_at >= since
+  until?:      string         // ISO — created_at <= until
+  limit?:      number         // sayfa boyutu (varsayılan 50)
+  offset?:     number         // pagination başlangıcı
+}
+
+export interface IncidentQueryResult {
+  rows:  IncidentEntry[]
+  /** null = başarılı; UI hata durumunu bundan gösterir (sessiz [] değil) */
+  error: string | null
+}
+
+/**
+ * Uzak tanı kayıtlarını filtreli + sayfalı döner. Sıralama: created_at DESC.
+ * (getIncidentLogs zaten system_health tabanlı HealthCenter listesi —
+ * bu API Remote Log v1 tipleri için ayrıdır.)
+ * NOT: JSONB kolonu `metadata` — push_vehicle_event RPC bu kolona yazar
+ * (migration 012/017/020; getRolloutHealth'teki 'payload' seçimi eski şema
+ * yorumundan kalmadır, bu API doğru kolonu kullanır).
+ */
+export async function getRemoteIncidents(filter: IncidentFilter = {}): Promise<IncidentQueryResult> {
+  try {
+    const limit  = filter.limit  ?? 50
+    const offset = filter.offset ?? 0
+
+    let q = supabase
+      .from('vehicle_events')
+      .select('id, vehicle_id, type, metadata, created_at')
+      .in('type', filter.type ? [filter.type] : [...INCIDENT_TYPES])
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
+
+    if (filter.vehicleId)  q = q.eq('vehicle_id', filter.vehicleId)
+    if (filter.appVersion) q = q.eq('metadata->>appVersion', filter.appVersion)
+    if (filter.since)      q = q.gte('created_at', filter.since)
+    if (filter.until)      q = q.lte('created_at', filter.until)
+
+    const { data, error } = await q
+    if (error) return { rows: [], error: error.message }
+    return { rows: (data ?? []) as IncidentEntry[], error: null }
+  } catch (e) {
+    return { rows: [], error: e instanceof Error ? e.message : 'unknown_error' }
+  }
+}
+
+/** Görüntüleme katmanı deny-list'i — cihaz sanitizer'ı ile aynı set. */
+const INCIDENT_DENY_KEYS = new Set([
+  'lat', 'lng', 'latitude', 'longitude', 'location', 'address',
+  'vin', 'plate', 'plaka', 'phone', 'contact',
+  'ssid', 'bssid', 'mac', 'api_key', 'token',
+])
+
+/**
+ * Defense-in-depth: metadata'dan hassas anahtarları HER derinlikte düşürür.
+ * Cihaz tarafı zaten sanitize eder; bu katman sanitizer ÖNCESİ yazılmış
+ * eski kayıtların admin ekranında konum/kimlik sızdırmamasını garantiler.
+ */
+export function redactIncidentMetadata(value: unknown, depth = 0): unknown {
+  if (value == null || typeof value !== 'object' || depth > 6) return value
+  if (Array.isArray(value)) return value.map((v) => redactIncidentMetadata(v, depth + 1))
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>)) {
+    if (INCIDENT_DENY_KEYS.has(key.toLowerCase())) continue
+    out[key] = redactIncidentMetadata((value as Record<string, unknown>)[key], depth + 1)
+  }
+  return out
+}
+
 // ── Fleet Limp Mode ───────────────────────────────────────────────────────────
 
 const ALL_FLAG_KEYS = [

@@ -18,6 +18,7 @@ import { AuditCenter }    from './pages/superadmin/AuditCenter'
 import { RolloutCenter }  from './pages/superadmin/RolloutCenter'
 import { FleetCenter }       from './pages/superadmin/FleetCenter'
 import { DiagnosticsCenter } from './pages/superadmin/DiagnosticsCenter'
+import { IncidentCenter }    from './pages/superadmin/IncidentCenter'
 
 export function AdminApp() {
   return (
@@ -40,6 +41,7 @@ export function AdminApp() {
               <Route path="rollout"  element={<RolloutCenter />} />
               <Route path="audit"       element={<AuditCenter />} />
               <Route path="diagnostics" element={<DiagnosticsCenter />} />
+              <Route path="incidents"   element={<IncidentCenter />} />
             </Route>
 
             <Route element={<AdminLayout />}>

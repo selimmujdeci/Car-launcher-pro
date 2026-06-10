@@ -48,6 +48,7 @@ const MODULES: NavModule[] = [
   { path: 'rollout',     label: 'Rollout',  icon: Rocket,        description: 'Sürüm dağıtım planları' },
   { path: 'audit',      label: 'Audit',    icon: ClipboardList, description: 'Denetim kaydı & aksiyon geçmişi' },
   { path: 'diagnostics',label: 'Diag',     icon: Stethoscope,   description: 'Canlı uzak teşhis & debug' },
+  { path: 'incidents',  label: 'Incidents', icon: AlertTriangle, description: 'Tanı kayıtları — crash / OBD / snapshot' },
 ]
 
 // ── SuperAdminShell ───────────────────────────────────────────────────────────
