@@ -586,23 +586,9 @@ function _defaultStages(): RolloutStage[] {
  * Rollout planlarını döner.
  * rollout_plans tablosu yoksa boş dizi döner (offline graceful).
  *
- * ⚠ Tablo SQL:
- *   CREATE TABLE IF NOT EXISTS public.rollout_plans (
- *     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- *     name text NOT NULL, version text NOT NULL,
- *     description text NOT NULL DEFAULT '',
- *     status text NOT NULL DEFAULT 'draft',
- *     stages jsonb NOT NULL DEFAULT '[]',
- *     rollback_to text,
- *     created_at timestamptz NOT NULL DEFAULT now(),
- *     created_by uuid, approved_by uuid, approved_at timestamptz
- *   );
- *   GRANT SELECT, INSERT, UPDATE ON public.rollout_plans TO authenticated;
- *   GRANT ALL ON public.rollout_plans TO service_role;
- *   ALTER TABLE public.rollout_plans ENABLE ROW LEVEL SECURITY;
- *   CREATE POLICY "superadmin_rollouts" ON public.rollout_plans
- *     FOR ALL TO authenticated
- *     USING ((auth.jwt() -> 'app_metadata' ->> 'role') = 'super_admin');
+ * Şema: supabase/migrations/20260610000018_ota_release_registry.sql
+ * (elle SQL bağımlılığı kaldırıldı — tablo, GRANT, RLS ve policy artık
+ * gerçek migration'da; ota_releases ile rollout_plan_id üzerinden ilişkili).
  */
 export async function getRolloutPlans(): Promise<RolloutPlan[]> {
   try {
