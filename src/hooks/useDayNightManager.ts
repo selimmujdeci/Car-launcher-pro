@@ -71,6 +71,14 @@ declare global {
 
 let _lastHour = -1; // hour-boundary trigger; -1 forces evaluation on first checkTime call
 
+/* Geç RTC senkronu: head unit'ler boot'ta yanlış saat verebilir (GPS/MCU saat
+ * senkronu birkaç sn–dk sürer). 60s'lik checkTime bu pencerede gündüz paletini
+ * gece boyunca kilitleyebilir. İlk 2 dk 5 sn'de bir kontrol → saat düzelir
+ * düzelmez gün/gece oturur. performance.now monotonic — saat atlaması güvenli. */
+const _bootMonoMs = typeof performance !== 'undefined' ? performance.now() : 0;
+const BOOT_FAST_WINDOW_MS   = 120_000;
+const BOOT_FAST_INTERVAL_MS = 5_000;
+
 function applySunlightMode(on: boolean): void {
   // Manuel kullanıcı kararı aktifken otomatik tema/parlaklık değişikliğini engelle
   if (isUserOverrideActive()) return;
@@ -253,7 +261,17 @@ export function useDayNightManager(): void {
     checkTime(); // Anında çalıştır
 
     const interval = setInterval(checkTime, 60_000);
-    return () => clearInterval(interval);
+
+    // Boot penceresi: geç RTC senkronunu hızlı yakala — pencere dolunca kendini kapatır
+    const fast = setInterval(() => {
+      if (performance.now() - _bootMonoMs > BOOT_FAST_WINDOW_MS) {
+        clearInterval(fast);
+        return;
+      }
+      checkTime();
+    }, BOOT_FAST_INTERVAL_MS);
+
+    return () => { clearInterval(interval); clearInterval(fast); };
   }, [
     settings.autoThemeEnabled,
     settings.autoBrightnessEnabled,

@@ -37,6 +37,7 @@ import { healthMonitor }     from './system/SystemHealthMonitor';
 import { getOBDStatusSnapshot } from './obdService';
 import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../utils/safeStorage';
+import { getCapabilities, getDeviceTier } from './deviceCapabilities';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -276,10 +277,23 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     ? { ts: lastCrit.ts, ctx: _maskString(lastCrit.ctx), msg: _maskString(lastCrit.msg.slice(0, 256)) }
     : null;
 
+  // Cihaz profili — saha teşhisi için (Duster vakası: eski WebView'de inline
+  // modern CSS düşüp dashboard çöküyordu). PII yok: sürüm/çekirdek/ekran sayısal.
+  const caps = getCapabilities();
+
   const payload = _deepSanitize({
     appVersion:  health.appVersion,
     versionCode,
     bootId:      BOOT_ID,
+    device: {
+      webViewVersion: caps.webViewVersion,
+      androidVersion: caps.androidVersion,
+      tier:           getDeviceTier(),
+      cores:          caps.cores,
+      memoryMb:       caps.memoryMb,
+      screenW:        typeof window !== 'undefined' ? window.screen?.width  ?? 0 : 0,
+      screenH:        typeof window !== 'undefined' ? window.screen?.height ?? 0 : 0,
+    },
     obd: {
       connectionState: obd.connectionState,
       source:          obd.source,

@@ -21,6 +21,21 @@ import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
+import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat';
+
+/* ── Eski WebView (Chrome <79/<88) inline-CSS fallback'leri ──────────
+ * clamp()/aspect-ratio desteklenmeyince tarayıcı deklarasyonu sessizce düşürür:
+ * grid tek kolona çöker, harita plakası 0px olur (Duster saha vakası).
+ * Şablonlar module-eval'de BİR KEZ seçilir. */
+const GRID_COLS = SUPPORTS_CSS_CLAMP
+  ? 'clamp(200px,24vw,330px) minmax(0,1fr) clamp(230px,27vw,360px)'
+  : 'minmax(200px,330px) minmax(0,1fr) minmax(230px,360px)';
+const LEFT_RAIL_ROWS = SUPPORTS_CSS_CLAMP
+  ? '1fr clamp(120px,18vh,160px)'
+  : '1fr minmax(120px,160px)';
+const RING_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
+  ? { position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }
+  : { position: 'relative', width: 210, maxWidth: '100%', height: 210 };
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -99,6 +114,7 @@ function plateStyle(p: Pal): React.CSSProperties {
   return {
     position: 'relative',
     minWidth: 0,          // grid/flex hücresinde içeriğe göre küçülebilsin (taşma önlenir)
+    minHeight: 0,         // dar ekranda (600p head unit) dikeyde de küçülebilsin — dock'a binmez
     overflow: 'hidden',   // içerik plakayı aşarsa kırp (kart dışarı taşmaz)
     borderRadius: 20,
     backgroundColor: p.plate,
@@ -178,12 +194,12 @@ const SpeedPlate = memo(function SpeedPlate() {
         <div style={{ marginTop: 5, color: p.ink2, fontSize: 14, fontWeight: 500 }}>{date}</div>
       </div>
       <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', marginTop: 6, minHeight: 0 }}>
-        <div style={{ position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }}>
+        <div style={RING_BOX}>
           <svg viewBox="0 0 232 232" width="100%" height="100%" style={{ transform: 'rotate(135deg)' }}>
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.plateSunk} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" />
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.accent} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
           </svg>
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
             <div style={{ fontWeight: 800, fontSize: 76, lineHeight: 0.8, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
             <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
           </div>
@@ -228,13 +244,15 @@ const RangePlate = memo(function RangePlate() {
 const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
   const chip: React.CSSProperties = { background: p.night ? 'rgba(16,12,7,0.82)' : 'rgba(250,244,232,0.9)', border: `1px solid ${p.edge}`, borderRadius: 13 };
+  // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz —
+  // MiniMapWidget 0 boyutta init'i bekletir (MiniMapWidget.tsx tryInit)
   return (
-    <Plate style={{ padding: 0, overflow: 'hidden', flex: 1, minWidth: 0, minHeight: 0 }} onClick={onOpenMap}>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: 20, overflow: 'hidden', cursor: 'pointer' }}>
+    <Plate style={{ padding: 0, overflow: 'hidden', flex: 1, minWidth: 0, minHeight: 200 }} onClick={onOpenMap}>
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 20, overflow: 'hidden', cursor: 'pointer' }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.plateSunk }}><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 20, boxShadow: p.night ? 'inset 0 0 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(176,134,76,.30)' : 'inset 0 0 60px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.6)' }} />
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 20, boxShadow: p.night ? 'inset 0 0 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(176,134,76,.30)' : 'inset 0 0 60px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.6)' }} />
       </div>
       <div className="absolute flex items-start justify-between" style={{ top: 14, left: 14, right: 14, pointerEvents: 'none' }}>
         <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
@@ -333,8 +351,8 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
       </div>
       {/* Rover görseli — dekor (canlı metrikler altında) */}
       <div style={{ flex: 1, position: 'relative', margin: '6px -20px 0', minHeight: 0 }}>
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${roverUrl})`, backgroundPosition: 'center 58%', backgroundSize: '112%', backgroundRepeat: 'no-repeat', filter: p.night ? 'none' : 'brightness(1.04)' }} />
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: `linear-gradient(to bottom, transparent 44%, ${p.plate} 96%)` }} />
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundImage: `url(${roverUrl})`, backgroundPosition: 'center 58%', backgroundSize: '112%', backgroundRepeat: 'no-repeat', filter: p.night ? 'none' : 'brightness(1.04)' }} />
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', background: `linear-gradient(to bottom, transparent 44%, ${p.plate} 96%)` }} />
       </div>
       <div className="flex" style={{ borderTop: `1px solid ${p.hairline}`, position: 'relative', zIndex: 2 }} onClick={e => e.stopPropagation()}>
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
@@ -373,7 +391,7 @@ const Compass = memo(function Compass({ onClick }: { onClick: () => void }) {
   const p = usePal();
   return (
     <button onClick={onClick} className="ex-btn" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 150, height: 150, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'repeating-conic-gradient(from 0deg,#15151a 0 3deg,#3c3c44 3deg 6deg)', boxShadow: '0 12px 26px rgba(0,0,0,.6), inset 0 0 0 2px rgba(0,0,0,.55)' }} />
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: 'repeating-conic-gradient(from 0deg,#15151a 0 3deg,#3c3c44 3deg 6deg)', boxShadow: '0 12px 26px rgba(0,0,0,.6), inset 0 0 0 2px rgba(0,0,0,.55)' }} />
       <div style={{ position: 'absolute', inset: 11, borderRadius: '50%', background: 'conic-gradient(#8e8e96,#34343a,#6a6a72,#26262b,#8e8e96)', boxShadow: 'inset 0 2px 4px rgba(255,255,255,.25), inset 0 -3px 7px rgba(0,0,0,.75)' }} />
       <div style={{ position: 'absolute', inset: 20, borderRadius: '50%', background: 'radial-gradient(circle at 50% 36%, #232228, #0f0e12 78%)', boxShadow: `inset 0 3px 9px rgba(0,0,0,.85), inset 0 0 0 2px ${p.accent}66`, display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
         <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', fontSize: 12, fontWeight: 700, color: '#f0e7d6' }}>N</span>
@@ -387,7 +405,7 @@ const Compass = memo(function Compass({ onClick }: { onClick: () => void }) {
         <span style={{ position: 'absolute', left: '50%', top: '50%', width: 30, height: 30, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: 'radial-gradient(circle at 38% 32%, #7a7a82, #18181c)', boxShadow: '0 0 0 2px rgba(0,0,0,.55), inset 0 1px 2px rgba(255,255,255,.3)', display: 'grid', placeItems: 'center', zIndex: 3 }}>
           <img src={emblemUrl} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
         </span>
-        <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', pointerEvents: 'none', boxShadow: `inset 0 0 26px ${p.accentGlow}`, opacity: p.night ? 1 : 0.5 }} />
+        <span style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', pointerEvents: 'none', boxShadow: `inset 0 0 26px ${p.accentGlow}`, opacity: p.night ? 1 : 0.5 }} />
       </div>
     </button>
   );
@@ -443,7 +461,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: 126 }}>
-      <div style={{ ...plateStyle(p), position: 'absolute', inset: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
+      <div style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
         <DockScrollZone>
@@ -502,9 +520,9 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
 
         <Header />
 
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: 'clamp(200px,24vw,330px) minmax(0,1fr) clamp(230px,27vw,360px)', gap: 14 }}>
+        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: GRID_COLS, gap: 14 }}>
           {/* Sol ray */}
-          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: '1fr clamp(120px,18vh,160px)' }}>
+          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: LEFT_RAIL_ROWS }}>
             <SpeedPlate />
             <RangePlate />
           </div>

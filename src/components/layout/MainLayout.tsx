@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
+import { VIEWPORT_H } from '../../utils/cssCompat';
 import { useStore } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -367,7 +368,7 @@ export default function MainLayout() {
       data-media-active={String(smart.mediaProminent)}
       data-nav-active={String(smart.mapPriority)}
       className="ultra-premium-root flex flex-col w-full overflow-hidden"
-      style={{ height: '100dvh' }}
+      style={{ height: VIEWPORT_H }}
     >
       {/* Ultra Premium Ambient Blobs — SAFE_MODE'da ve low-end (blur kapalı) cihazda
           devre dışı: Mali-400'de 3 kalıcı will-change compositor layer + 60px blur

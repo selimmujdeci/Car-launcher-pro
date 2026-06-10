@@ -19,8 +19,23 @@ import { MiniMapWidget } from '../map/MiniMapWidget';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO, cssClamp } from '../../utils/cssCompat';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
+
+/* ── Eski WebView (Chrome <79/<88) inline-CSS fallback'leri ──────────
+ * clamp()/aspect-ratio desteklenmeyince tarayıcı deklarasyonu sessizce
+ * düşürür: grid tek kolona çöker, harita 0px olur (Duster saha vakası).
+ * Fallback'ler 1024×600 / 1280×720 head unit ekranlarına göre seçildi. */
+const HZ_GRID_COLS = SUPPORTS_CSS_CLAMP
+  ? 'clamp(184px,17.8vw,300px) minmax(0,1fr) clamp(244px,25.8vw,400px)'
+  : 'minmax(184px,300px) minmax(0,1fr) minmax(244px,400px)';
+const HZ_TOPBAR_H   = cssClamp('58px', '9.4vh', '74px', '64px');
+const HZ_DOCK_H     = cssClamp('94px', '14.6vh', '122px', '106px');
+const HZ_DOCK_GAP_W = cssClamp('168px', '26vh', '210px', '188px');
+const HZ_COMPASS_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
+  ? { width: 'clamp(150px, 24vh, 188px)', aspectRatio: '1' }
+  : { width: 166, height: 166 };
 
 /* ══════════════════════════════════════════════════════════════════════
    CarOS HORIZON v3 — Expedition ↔ Land Rover Pivi Pro
@@ -103,7 +118,7 @@ function injectHz() {
 /* ─── PANEL (rafine bevel — VİDA YOK; askeri azalt) ───────────────── */
 function panelStyle(p: Pal): React.CSSProperties {
   return {
-    position: 'relative', minWidth: 0, overflow: 'hidden', borderRadius: 17,
+    position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden', borderRadius: 17,
     background: p.panel, border: `1px solid ${p.edge}`, boxShadow: `${p.elev}, ${p.bevel}`,
   };
 }
@@ -152,7 +167,7 @@ const HzTopBar = memo(function HzTopBar() {
   const alt = gps?.altitude;
 
   return (
-    <div className="relative flex items-center justify-between flex-shrink-0" style={{ height: 'clamp(58px, 9.4vh, 74px)', padding: '0 2px' }}>
+    <div className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
       <div className="flex items-center">
         {/* Marka plakası — metal + imza vida */}
         <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
@@ -292,16 +307,17 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   // Pusula merkezi harita alt kenarının ~25px ALTINDA (root gap 12 + dock içi konum) →
   // mask dairesini calc(100% + 25px)'e taşı ki kavis pusula yayıyla eşmerkezli otursun.
   // Yarıçap = pusula yarıçapı (clamp(75,12vh,94)) + küçük boşluk.
-  const notchX = 'calc(50vw - 27px - clamp(184px, 17.8vw, 300px))';
-  const notchR = 'calc(clamp(75px, 12vh, 94px) + 7px)';
+  const notchX = `calc(50vw - 27px - ${cssClamp('184px', '17.8vw', '300px', '228px')})`;
+  const notchR = `calc(${cssClamp('75px', '12vh', '94px', '84px')} + 7px)`;
   const notchMask = `radial-gradient(circle at ${notchX} calc(100% + 25px), transparent 0 calc(${notchR} - 1px), #000 ${notchR})`;
+  // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz (Duster vakası)
   return (
-    <Panel style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 0, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: 17, overflow: 'hidden', cursor: 'pointer', background: terrain }}>
+    <Panel style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, overflow: 'hidden', cursor: 'pointer', background: terrain }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center"><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 17, background: p.mapveil }} />
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 17, background: p.mapveil }} />
       </div>
 
       {/* nav talimatı — sol üst */}
@@ -506,7 +522,7 @@ const HzCompass = memo(function HzCompass({ onClick }: { onClick: () => void }) 
     return { x1: 90 + 68 * Math.sin(a), y1: 90 - 68 * Math.cos(a), x2: 90 + r2 * Math.sin(a), y2: 90 - r2 * Math.cos(a), mj };
   }), []);
   return (
-    <button onClick={onClick} className="hz-btn" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', width: 'clamp(150px, 24vh, 188px)', aspectRatio: '1', zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+    <button onClick={onClick} className="hz-btn" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
       <svg viewBox="0 0 180 180" width="100%" height="100%">
         <defs>
           <radialGradient id="hzBz" cx=".5" cy=".34" r=".72"><stop offset="0" stopColor={p.night ? '#7a6a4a' : '#dcd2ba'} /><stop offset=".7" stopColor={p.night ? '#544733' : '#b3a888'} /><stop offset="1" stopColor={p.night ? '#3a3120' : '#8d815f'} /></radialGradient>
@@ -575,8 +591,8 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
   const p = usePalH();
   const n = useNotificationState();
   return (
-    <div style={{ position: 'relative', flex: '0 0 auto', height: 'clamp(94px, 14.6vh, 122px)' }}>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
+    <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
         {/* imza vidaları — dock köşeleri */}
         <Bolt style={{ top: 8, left: 9 }} /><Bolt style={{ bottom: 8, left: 9 }} />
         <Bolt style={{ top: 8, right: 9 }} /><Bolt style={{ bottom: 8, right: 9 }} />
@@ -588,7 +604,7 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
           <HzDockBtn Icon={Phone}      cap="Telefon"     onClick={() => openDrawer('phone')} />
           <HzDockBtn Icon={Bell}       cap="Bildirim"    onClick={() => openDrawer('notifications')} badge={n.unreadCount} />
         </HzDockScroll>
-        <div style={{ flex: '0 0 clamp(168px, 26vh, 210px)' }} />
+        <div style={{ flex: `0 0 ${HZ_DOCK_GAP_W}` }} />
         <HzDockScroll>
           <HzDockBtn Icon={Car}           cap="Araç"     onClick={() => openDrawer('vehicle-reminder')} />
           <HzDockBtn Icon={Camera}        cap="Kameralar" onClick={() => (onOpenDashcam ? onOpenDashcam() : openDrawer('dashcam'))} />
@@ -637,7 +653,7 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
         <HzTopBar />
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: 'clamp(184px,17.8vw,300px) minmax(0,1fr) clamp(244px,25.8vw,400px)', gap: 12 }}>
+        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: HZ_GRID_COLS, gap: 12 }}>
           <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto' }}>
             <HzDriveModeCard />
             <HzSpeedCard />
