@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `c07ac1a`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `d55f8e2`.
 
 ---
 
@@ -20,6 +20,12 @@
 ---
 
 ## 2. Son Yapılan Değişiklikler (özet)
+
+- **Parser hassasiyet düzeltmesi (2026-06-11, `d55f8e2`):** "nasılsın" →
+  "Araç verisi alınamıyor" saha hatası. `commandParser.scorePattern` 5 ayrı
+  gevşeklik tek seferde kapatıldı (kısa kalıp tam-kelime, ters yön startsWith/
+  çok-kelimeli, Tier-2 prefix, fuzzy min 4, soru edatları filler). Detay:
+  PROJECT_STATE "Parser Hassasiyet". 9 regresyon testi. **Cihazda doğrulanmadı.**
 
 - **Companion AI "Yol Arkadaşım" V1 başladı (2026-06-11, `8cceab8`+`0c478e0`+
   `c07ac1a`):** mimari doküman (`docs/COMPANION_AI_ARCHITECTURE.md` — 7

@@ -8,7 +8,20 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `c07ac1a`; 2026-06-11 Companion AI Commit 2)
+- **Aktif branch:** `main` (HEAD `d55f8e2`; 2026-06-11 parser hassasiyet fix)
+
+## Sesli Komut Parser Hassasiyet Düzeltmesi (2026-06-11, `d55f8e2`)
+
+Saha hatası: "nasılsın" → "Araç verisi alınamıyor". Kök neden zinciri —
+hepsi `scorePattern` gevşekliği, tek commit'te kapatıldı:
+'nasılsın' vehicle_status kalıbındaydı (kaldırıldı) · Tier-1 kısa kalıp
+substring gaspı ('dur' ⊂ "araç DURumu" → durum sorusu MÜZİĞİ KAPATIYORDU;
+≤4 harf artık tam-kelime) · ters yön düz substring ('durum' ⊂ 'hava DURUMu';
+artık startsWith veya çok-kelimeli tam-kelime dizisi) · Tier-2 orta-kelime
+eşleşme ('nasilSİLn'deki 'sil' → DTC silme 0.82 OTOMATİK eşik üstü; artık
+exact/prefix) · Tier-3 fuzzy 3-harf gürültüsü ('iyi'~'isi'; min 4) ·
+soru edatları ('mi/misin/musun') FILLERS'a eklendi ('misin'~'music' 0.6).
+9 yeni regresyon testi; suite 1066/1066. **Cihaz doğrulaması bekliyor.**
 - **Branch belirsizliği ÇÖZÜLDÜ (2026-06-10):** remote HEAD `origin/main` →
   CLAUDE.md "Primary branch" `main` olarak düzeltildi; `master` arşiv ref.
   PR/merge hedefi: `main`.
