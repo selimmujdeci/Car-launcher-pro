@@ -26,7 +26,8 @@
     "fetch:vosk": "node scripts/fetch-vosk-model.mjs",
     "release:bump": "node scripts/bump-version.mjs",
     "release:apk": "npm run build && npx cap sync android && cd android && gradlew assembleRelease",
-    "release:aab": "npm run build && npx cap sync android && cd android && gradlew bundleRelease"
+    "release:aab": "npm run build && npx cap sync android && cd android && gradlew bundleRelease",
+    "ota:publish": "node scripts/publish-ota.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
