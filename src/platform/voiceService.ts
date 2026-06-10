@@ -17,7 +17,7 @@ import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
 import { speakFeedback } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
-import { askAI, resolveApiKey, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+import { askAI, resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
 import { buildEnrichedCtx } from './voiceContextBuilder';
@@ -152,6 +152,32 @@ function _stopNativeVolumeListener(): void {
   push({ volumeLevel: 0 });
 }
 
+/* ── Processing failsafe ──────────────────────────────────────
+ * 'processing' durumu için hiçbir yol terminal duruma geçmezse (beklenmedik
+ * throw, yutulmuş rejection) durum makinesi asılı kalıyordu — sttFailsafe
+ * yalnız 'listening'i kapsar. Bu bekçi: processing'e girişte kurulur,
+ * processing'den çıkışta sökülür; süre dolarsa zorla idle. */
+const PROCESSING_FAILSAFE_MS = 20_000;
+let _processingFailsafeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function _clearProcessingFailsafe(): void {
+  if (_processingFailsafeTimer !== null) {
+    clearTimeout(_processingFailsafeTimer);
+    _processingFailsafeTimer = null;
+  }
+}
+
+function _armProcessingFailsafe(): void {
+  _clearProcessingFailsafe();
+  _processingFailsafeTimer = setTimeout(() => {
+    _processingFailsafeTimer = null;
+    if (_current.status === 'processing') {
+      console.warn('[Voice] processing failsafe — forcing idle');
+      push({ status: 'idle', error: null });
+    }
+  }, PROCESSING_FAILSAFE_MS);
+}
+
 // Asistan dinlerken müziği duraklatıp bittiğinde devam ettirmek için: yalnız BİZ
 // duraklattıysak geri başlat (kullanıcının kendi duraklatmasını ezme).
 let _assistantDuckedMusic = false;
@@ -190,6 +216,8 @@ function push(partial: Partial<VoiceState>): void {
   _current = { ..._current, ...partial };
   if (partial.status !== undefined && partial.status !== prevStatus) {
     _applyAssistantDuck(prevStatus, _current.status);
+    if (_current.status === 'processing') _armProcessingFailsafe();
+    else _clearProcessingFailsafe();
   }
   _stateListeners.forEach((fn) => fn(_current));
 }
@@ -342,8 +370,21 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   const trimmed = text.trim();
   if (!trimmed) return false;
 
-  // Bilişsel Pause: PROTECTION/CRITICAL modda AI işleme ve TTS atlanır
-  if (_voiceCogPaused) return false;
+  // Bilişsel Pause: PROTECTION/CRITICAL modda AI işleme ve TTS atlanır.
+  // SESSİZ return YOK: native akış bu çağrıdan önce 'processing' bastığı için
+  // durum geçişsiz dönüş UI'yı "İşleniyor"da sonsuza dek asılı bırakıyordu.
+  // Kullanıcıya görünür terminal durum + kısa açıklama verilir (TTS bilinçli
+  // olarak yok — pause modunda TTS de atlanır).
+  if (_voiceCogPaused) {
+    push({
+      status:      'error',
+      error:       'Sürüş güvenliği nedeniyle sesli komut bekletildi',
+      transcript:  trimmed,
+      suggestions: [],
+    });
+    setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 2500);
+    return false;
+  }
 
   const cfg = getConfig();
   const now = Date.now();
@@ -378,8 +419,14 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   if (tryHandleChain(trimmed, ctx)) return true;
 
   // ── API anahtarlarını al (AI fallback için gerekli) ─────────
-  const rawKey  = localStorage.getItem('car-launcher-storage');
-  const provider = rawKey ? (JSON.parse(rawKey)?.state?.settings?.aiVoiceProvider ?? 'none') : 'none';
+  // Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
+  // 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2).
+  let provider: AIProvider = 'none';
+  try {
+    const rawKey = localStorage.getItem('car-launcher-storage');
+    const stored: unknown = rawKey ? JSON.parse(rawKey)?.state?.settings?.aiVoiceProvider : undefined;
+    if (stored === 'gemini' || stored === 'haiku') provider = stored;
+  } catch { /* bozuk JSON → AI katmanı yok sayılır */ }
   const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
   const [geminiKey, haikuKey] = await Promise.all([
     sks.get('geminiApiKey'),
@@ -757,6 +804,27 @@ export function stopVoiceService(): void {
 
 export function clearVoiceState(): void { push({ ...INITIAL, history: _current.history }); }
 export function clearVoiceHistory(): void { push({ history: [] }); }
+
+/* ── Test yardımcıları (yalnız vitest) ────────────────────── */
+
+/** @internal — modül durumunu sıfırlar (testler arası izolasyon). */
+export function _resetVoiceServiceForTest(): void {
+  _clearProcessingFailsafe();
+  _voiceCogPaused  = false;
+  _pendingCmd      = null;
+  _lastCommandTime = 0;
+  _current = { ...INITIAL };
+}
+
+/** @internal — durum geçişini zorlar (processing failsafe testi). */
+export function _setVoiceStatusForTest(status: VoiceStatus): void {
+  push({ status });
+}
+
+/** @internal — anlık durum görüntüsü (hook'suz okuma, yalnız testler). */
+export function _getVoiceStateForTest(): VoiceState {
+  return _current;
+}
 
 export function useVoiceState(): VoiceState {
   const [state, setState] = useState<VoiceState>(_current);
