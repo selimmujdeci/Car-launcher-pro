@@ -312,6 +312,40 @@ export interface SavedOBDDevice {
 
 /* ── Plugin interface ────────────────────────────────────── */
 
+/* ── OTA types (Commit 4 — download + verify) ─────────────── */
+
+export interface OtaDownloadOptions {
+  /** Tam indirme URL'i (https zorunlu) */
+  url: string;
+  /** ota_releases.sha256 — 64 hex karakter */
+  expectedSha256: string;
+  /** ota_releases.apk_size — bayt */
+  expectedSize: number;
+  /** Hedef dosya adı (yalnız [A-Za-z0-9._-], traversal reddi) */
+  fileName: string;
+  /** Anon-key auth header'ları (apikey/Authorization) — service_role ASLA */
+  headers?: Record<string, string>;
+}
+
+export interface OtaDownloadResult {
+  ok: boolean;
+  /** ok=true: doğrulanmış APK'nın mutlak yolu (files/ota/...) */
+  path?: string;
+  /** ok=true: hesaplanan SHA-256 (lowercase hex) */
+  sha256?: string;
+  /** ok=true: indirilen bayt */
+  size?: number;
+  /** ok=false: ERR_INPUT|ERR_DISK|ERR_HTTP|ERR_SIZE|ERR_HASH|ERR_RENAME|ERR_IO */
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface OtaDownloadProgressEvent {
+  downloadedBytes: number;
+  totalBytes: number;
+  percent: number;
+}
+
 export interface AppVersionInfo {
   /** PackageManager longVersionCode — version.properties VERSION_CODE'un kurulu hali */
   versionCode: number;
@@ -323,6 +357,12 @@ export interface AppVersionInfo {
 export interface CarLauncherPlugin {
   /** OTA v1: cihazda KURULU gerçek sürüm (PackageManager — drift imkânsız) */
   getAppVersionInfo(): Promise<AppVersionInfo>;
+  /** OTA v1: streaming APK indirme + SHA-256/boyut doğrulama (kurulum YOK — Commit 5) */
+  downloadOtaApk(options: OtaDownloadOptions): Promise<OtaDownloadResult>;
+  addListener(
+    event: 'otaDownloadProgress',
+    handler: (data: OtaDownloadProgressEvent) => void,
+  ): Promise<PluginListenerHandle>;
   /** Native Core: hardware profile for performance-mode detection */
   getDeviceProfile(): Promise<NativeDeviceProfile>;
   /** Native Core: real screen dimensions from WindowManager */

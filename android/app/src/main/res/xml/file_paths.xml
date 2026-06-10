@@ -2,4 +2,7 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- OTA v1: doğrulanmış APK'lar (OtaDownloadManager.otaDir) — Commit 5'te
+         kurulum intent'i bu FileProvider content-URI'sini kullanacak -->
+    <files-path name="ota" path="ota/" />
 </paths>

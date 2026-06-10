@@ -24,7 +24,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
-import type { AppVersionInfo } from './nativePlugin';
+import type {
+  AppVersionInfo,
+  OtaDownloadOptions,
+  OtaDownloadResult,
+  OtaDownloadProgressEvent,
+} from './nativePlugin';
 import { safeGetRaw } from '../utils/safeStorage';
 import type { CommandType } from './commandListener';
 import { logInfo } from './debug';
@@ -127,6 +132,67 @@ export async function getAppVersionInfo(): Promise<AppVersionInfo | undefined> {
   } catch (err) {
     console.warn('[NativeCmdBridge] getAppVersionInfo köprü hatası:', err);
     return undefined;
+  }
+}
+
+// ── OTA APK İndirme (OTA v1 / Commit 4) ──────────────────────────────────────
+
+/**
+ * İndirme girdilerini doğrular — native'deki kontrollerin JS aynası
+ * (defense-in-depth + cihazsız test edilebilirlik). Hata varsa mesaj,
+ * geçerliyse null döner.
+ */
+export function validateOtaDownloadInput(opts: OtaDownloadOptions): string | null {
+  if (!opts.url || !opts.url.startsWith('https://')) {
+    return 'url https:// olmalı';
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(opts.expectedSha256 ?? '')) {
+    return 'expectedSha256 64-hex olmalı';
+  }
+  if (!Number.isFinite(opts.expectedSize) || opts.expectedSize <= 0) {
+    return 'expectedSize > 0 olmalı';
+  }
+  const name = opts.fileName ?? '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || name.includes('..')) {
+    return `Geçersiz fileName (path traversal/ayraç reddi): ${name}`;
+  }
+  return null;
+}
+
+/**
+ * OTA APK'sını native tarafta indirir ve doğrular (OtaDownloadManager.java).
+ * - Web/dev → fail-soft { ok:false, ERR_NO_NATIVE } (asla throw etmez)
+ * - Progress: onProgress callback'i otaDownloadProgress eventlerini alır;
+ *   listener her durumda (başarı/hata) kaldırılır (Zero-Leak §1).
+ * - KURULUM YOK — yalnız indirme + hash doğrulama (Commit 5 ayrı).
+ */
+export async function downloadOtaApk(
+  opts: OtaDownloadOptions,
+  onProgress?: (ev: OtaDownloadProgressEvent) => void,
+): Promise<OtaDownloadResult> {
+  const inputError = validateOtaDownloadInput(opts);
+  if (inputError) {
+    return { ok: false, errorCode: 'ERR_INPUT', errorMessage: inputError };
+  }
+  if (!Capacitor.isNativePlatform()) {
+    return { ok: false, errorCode: 'ERR_NO_NATIVE', errorMessage: 'OTA indirme yalnız cihazda' };
+  }
+
+  let listener: { remove: () => Promise<void> } | undefined;
+  try {
+    if (onProgress) {
+      listener = await CarLauncher.addListener('otaDownloadProgress', onProgress);
+    }
+    return await CarLauncher.downloadOtaApk(opts);
+  } catch (err) {
+    console.warn('[NativeCmdBridge] downloadOtaApk köprü hatası:', err);
+    return {
+      ok: false,
+      errorCode: 'ERR_BRIDGE',
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    await listener?.remove().catch(() => { /* listener zaten düşmüş olabilir */ });
   }
 }
 

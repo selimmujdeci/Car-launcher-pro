@@ -3148,6 +3148,61 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    // ── OTA v1 / Commit 4: APK indirme + SHA-256 doğrulama ──────────────────
+
+    /** OTA indirme tek-iş kuyruğu — UI thread'i bloklamaz, eşzamanlı indirme yok. */
+    private static final ExecutorService OTA_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    /**
+     * JS → Native: OTA APK'sını streaming indirir, SHA-256 + boyut doğrular,
+     * files/ota/{fileName} olarak teslim eder (önce .tmp, doğrulama sonrası rename).
+     * Kurulum BU METODDA YOK (Commit 5). Auth: çağıran anon-key header'larını
+     * geçirir — servis-rol anahtarı cihazda ASLA. Detay: ota/OtaDownloadManager.java.
+     * params: { url, expectedSha256, expectedSize, fileName, headers? }
+     * event:  otaDownloadProgress { downloadedBytes, totalBytes, percent }
+     * döner:  { ok, path?, sha256?, size?, errorCode?, errorMessage? }
+     */
+    @PluginMethod
+    public void downloadOtaApk(PluginCall call) {
+        String url            = call.getString("url", "");
+        String expectedSha256 = call.getString("expectedSha256", "");
+        long   expectedSize   = call.getLong("expectedSize", 0L);
+        String fileName       = call.getString("fileName", "");
+        JSObject headersObj   = call.getObject("headers", new JSObject());
+
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        java.util.Iterator<String> keys = headersObj.keys();
+        while (keys.hasNext()) {
+            String k = keys.next();
+            headers.put(k, headersObj.getString(k, ""));
+        }
+
+        final android.content.Context ctx = getContext();
+        OTA_EXECUTOR.execute(() -> {
+            com.cockpitos.pro.ota.OtaDownloadManager.Result r =
+                com.cockpitos.pro.ota.OtaDownloadManager.download(
+                    ctx, url, expectedSha256, expectedSize, fileName, headers,
+                    (downloadedBytes, totalBytes, percent) -> {
+                        JSObject ev = new JSObject();
+                        ev.put("downloadedBytes", downloadedBytes);
+                        ev.put("totalBytes", totalBytes);
+                        ev.put("percent", percent);
+                        notifyListeners("otaDownloadProgress", ev);
+                    });
+            JSObject result = new JSObject();
+            result.put("ok", r.ok);
+            if (r.ok) {
+                result.put("path", r.path);
+                result.put("sha256", r.sha256);
+                result.put("size", r.size);
+            } else {
+                result.put("errorCode", r.errorCode);
+                result.put("errorMessage", r.errorMessage);
+            }
+            call.resolve(result);
+        });
+    }
+
     /**
      * JS → Native: Anahtarı siler.
      * params: { key: string }
