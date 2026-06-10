@@ -26,6 +26,7 @@ import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { MobileLinkWidget } from './MobileLinkWidget';
+import { OtaUpdateCard } from './OtaUpdateCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import {
   useMapSources, useMapNetworkStatus, setActiveMapSource,
@@ -954,6 +955,7 @@ function AboutTabContent() {
           </div>
           <div className="px-3 py-1.5 rounded-xl glass-card text-[11px] font-black tabular-nums" style={{ color: '#60a5fa' }}>v1.0</div>
         </div>
+        <OtaUpdateCard />
       </Panel>
 
       <Panel accent="#34d399">

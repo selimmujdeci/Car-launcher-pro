@@ -44,6 +44,7 @@ import {
 }                                  from '../radar/radarEngine';
 import { turkiyeStaticRadars }     from '../radar/staticRadarData';
 import { startTheaterService }     from '../theaterModeService';
+import { startOtaService, stopOtaService } from '../otaUpdateService';
 import { startMemoryWatchdog, stopMemoryWatchdog } from '../memoryWatchdog';
 import {
   startSmartCardEngine,
@@ -535,6 +536,11 @@ class SystemBoot {
     // VoiceService: modül-düzeyi singleton — cleanup'ı LIFO + namedCleanups'a kaydet
     _log('  › VoiceService (named cleanup)');
     this._regNamed('VoiceService', stopVoiceService);
+
+    // OTA güncelleme servisi: boot kontrolü + 6 saatlik poll (OTA v1 / Commit 6)
+    _log('  › OtaUpdateService');
+    startOtaService();
+    this._reg(stopOtaService);
 
     // ChaosReceiver: yalnızca DEV ortamında — BroadcastChannel üzerinden komut dinler
     if (import.meta.env.DEV) {
