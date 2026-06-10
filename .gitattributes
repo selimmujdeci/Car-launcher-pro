@@ -1,0 +1,2 @@
+# .mjs scriptleri vitest/esbuild transformunda CRLF ile bozuluyor (otaPublish.test SyntaxError) — LF sabitle
+*.mjs text eol=lf
