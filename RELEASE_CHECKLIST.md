@@ -32,9 +32,19 @@
 
 ## 3. Sürüm & Konfigürasyon
 
-- [ ] **versionCode / versionName güncel** — `android/app/build.gradle:19-20`
-  (mevcut: `versionCode 1`, `versionName "1.0"`). Release öncesi bilinçli artır.
-  Not: SDK seviyeleri `android/variables.gradle`'da (minSdk 24, target/compile 36).
+- [ ] **versionCode / versionName artırıldı** — tek kaynak `version.properties`
+  (repo kökü); `npm run release:bump [x.y.z]` ile artır (`scripts/bump-version.mjs`
+  VERSION_CODE +1 + package.json senkronu). `build.gradle` bu dosyadan okur —
+  gradle'a elle dokunma. Not: SDK seviyeleri `android/variables.gradle`'da
+  (minSdk 24, target/compile 36).
+- [ ] **CHANGELOG.md güncellendi** — `[Unreleased]` maddeleri yeni sürüm
+  başlığına taşındı (boş release notu ile yayın YOK).
+- [ ] **Git tag atıldı** — release commit'ine `git tag v<VERSION_NAME>` +
+  `git push origin v<VERSION_NAME>`. Tag'siz APK/AAB dağıtılmaz (hangi APK
+  hangi koddan üretildi izlenebilmeli).
+- [ ] **Release paketi script ile üretildi** — `npm run release:apk` veya
+  `npm run release:aab` (build + cap sync + gradle release; `package.json`
+  scripts). Elle Android Studio export'u yerine bu yol kullanılır.
 - [ ] **`.env` üretim değerleriyle ayarlı** — `.env.example`'a göre.
   Üretimde `VITE_ENABLE_OBD_MOCK` ayarlanmamış/`false` olmalı (mock kapalı —
   `obdService.ts:747`). **DİKKAT:** `.env.example:25` `VITE_DISABLE_OBD_MOCK`

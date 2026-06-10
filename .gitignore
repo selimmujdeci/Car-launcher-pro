@@ -97,3 +97,7 @@ deno.lock
 
 # Üretilmiş dosya envanteri (Get-ChildItem | Export-Csv çıktısı; kaynak değil)
 /inventory.csv
+
+# Üretilmiş sunum/pazarlama binary'leri (build_deck.cjs çıktısı; kaynak değil)
+*.pptx
+

@@ -9,11 +9,33 @@
 ## Aktif Branch
 
 - **Aktif branch:** `feature/ble-obd-support` (teyit: `.git/HEAD`)
-- **CLAUDE.md "Primary branch: master" diyor**, ancak repoda hem `master` hem `main`
-  ref'i var ve **aktif çalışma `feature/ble-obd-support` üzerinde**. Yani belge ile
-  gerçek branch durumu uyuşmuyor — PR/merge hedefi netleşmeli (**Belirsiz**: hangi
-  branch'e merge edilecek, master mı main mi).
+- **Branch belirsizliği ÇÖZÜLDÜ (2026-06-10):** remote HEAD `origin/main` →
+  CLAUDE.md "Primary branch" `main` olarak düzeltildi; `master` arşiv ref.
+  PR/merge hedefi: `main`.
 - Diğer branch'ler: `main`, `master`, `fix/thermal-optimization`.
+
+## Release Disiplini (2026-06-10 — KURULDU)
+
+- **Tek sürüm kaynağı:** repo kökünde `version.properties` (VERSION_CODE=2,
+  VERSION_NAME=1.0.0). `android/app/build.gradle` buradan okur (fallback'li);
+  `package.json` "version" senkron (1.0.0).
+- **Bump akışı:** `npm run release:bump [x.y.z]` → `scripts/bump-version.mjs`
+  (VERSION_CODE +1, VERSION_NAME set, package.json senkron, boş CHANGELOG uyarısı).
+  Smoke-test edildi (2→3→geri alındı).
+- **Paket script'leri:** `npm run release:apk` / `release:aab`
+  (build + cap sync + gradle assembleRelease/bundleRelease).
+- **CHANGELOG.md** eklendi (Keep-a-Changelog; [Unreleased] + [1.0.0] baseline).
+  Kural: release'te tag `git tag v<VERSION_NAME>`; tag'siz APK/AAB dağıtılmaz.
+- **RELEASE_CHECKLIST.md §3** güncellendi (stale "versionCode 1" düzeltildi;
+  CHANGELOG/tag/script maddeleri eklendi).
+- **eslint.config.js:** `.worktrees/` globalIgnores'a eklendi (10 sahte lint
+  hatası worktree kopyasından geliyordu → lint artık exit 0).
+- **.gitignore:** `*.pptx` (build_deck.cjs üretimi pazarlama binary'si).
+- **Doğrulama (2026-06-10):** `npm run build` OK (1m02s) · `npm run lint` exit 0 ·
+  `gradlew :app:assembleDebug` BUILD SUCCESSFUL (merged manifest'te
+  versionCode=2 / versionName=1.0.0 teyitli — version.properties'ten geliyor).
+  Not: gradle buildDir `C:/Temp/carlauncher/` (android/build.gradle:30);
+  JAVA_HOME = Android Studio jbr gerekiyor (PATH'te java yok).
 
 ## Son Commit (HEAD)
 

@@ -9,7 +9,7 @@
 An Android in-car infotainment OS built with React + TypeScript + Capacitor. Optimized for automotive displays with offline-first maps, GPS tracking, OBD integration, and native app launching.
 
 **App ID:** `com.cockpitos.pro`
-**Primary branch:** `master`
+**Primary branch:** `main` (remote HEAD `origin/main`; eski `master` ref'i arşiv — PR/merge hedefi `main`)
 
 ---
 

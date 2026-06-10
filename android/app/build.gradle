@@ -7,6 +7,16 @@ if (keyPropertiesFile.exists()) {
     keyPropertiesFile.withReader('UTF-8') { reader -> keyProperties.load(reader) }
 }
 
+// Sürüm tek kaynağı: repo kökündeki version.properties (#11 sürüm yönetimi).
+// Her yayında `npm run release:bump` artırır; burada yalnızca okunur.
+def versionPropertiesFile = rootProject.file("../version.properties")
+def versionProperties = new Properties()
+if (versionPropertiesFile.exists()) {
+    versionPropertiesFile.withReader('UTF-8') { reader -> versionProperties.load(reader) }
+}
+def resolvedVersionCode = ((versionProperties['VERSION_CODE'] ?: '2') as String).trim().toInteger()
+def resolvedVersionName = ((versionProperties['VERSION_NAME'] ?: '1.0.0') as String).trim()
+
 android {
     namespace = "com.cockpitos.pro"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -17,10 +27,10 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Sürüm yönetimi (#11): Play Store her yüklemede STRICT artan bir tamsayı ister.
-        // versionCode HER YAYINDA elle +1 artırılır (manuel monotonik — CI/git-count YOK).
-        // versionName insan-okur etikettir; release'te ikisi birlikte güncellenir.
-        versionCode 2
-        versionName "1.0"
+        // Tek kaynak: ../version.properties — `npm run release:bump` ile artırılır.
+        // Fallback değerler yalnızca version.properties yoksa devreye girer.
+        versionCode resolvedVersionCode
+        versionName resolvedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Head unit'ler ARM — x86/x86_64 native kütüphaneleri (~18MB, çoğu Vosk) gereksiz yük.
         // Sadece ARM tut → APK ~18MB küçülür. (Hepsi 64-bit ise armeabi-v7a da çıkarılıp ~8MB daha düşürülebilir.)

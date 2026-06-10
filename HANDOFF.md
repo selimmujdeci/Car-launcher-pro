@@ -104,8 +104,10 @@
 
 ## 6. Bilinen Riskler
 
-- **Branch belirsizliği:** CLAUDE.md "master" diyor, çalışma `feature/ble-obd-support`'ta;
-  hem main hem master ref var. Merge hedefi netleşmeli.
+- **Branch belirsizliği ÇÖZÜLDÜ (2026-06-10):** CLAUDE.md `main` olarak düzeltildi
+  (remote HEAD origin/main); merge hedefi `main`. Release disiplini kuruldu:
+  `version.properties` tek kaynak + `release:bump`/`release:apk`/`release:aab`
+  script'leri + CHANGELOG.md (detay: PROJECT_STATE.md "Release Disiplini").
 - **Piped tek-nokta riski:** `pipedProvider.ts:22-28` 5 aday içerir ama yalnızca
   `api.piped.private.coffee` canlı doğrulanmış; o düşerse YouTube arama/stream çöker.
 - **Commit edilmemiş native değişiklikler:** Android dosyaları `M` ve
