@@ -8,8 +8,7 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `e191bb1`; 2026-06-11 Duster düzeltmeleri
-  doğrudan main'e atıldı)
+- **Aktif branch:** `main` (HEAD `0c478e0`; 2026-06-11 Companion AI Commit 1)
 - **Branch belirsizliği ÇÖZÜLDÜ (2026-06-10):** remote HEAD `origin/main` →
   CLAUDE.md "Primary branch" `main` olarak düzeltildi; `master` arşiv ref.
   PR/merge hedefi: `main`.
@@ -37,6 +36,26 @@
   versionCode=2 / versionName=1.0.0 teyitli — version.properties'ten geliyor).
   Not: gradle buildDir `C:/Temp/carlauncher/` (android/build.gradle:30);
   JAVA_HOME = Android Studio jbr gerekiyor (PATH'te java yok).
+
+## Companion AI "Yol Arkadaşım" (2026-06-11 — V1 BAŞLADI, Commit 1/7 TAMAM)
+
+- **Mimari:** `docs/COMPANION_AI_ARCHITECTURE.md` (`8cceab8`) — tam tasarım:
+  mevcut altyapı analizi, güvenlik riskleri, wake word v2 planı, state machine,
+  7 commit'lik atomik plan (§9), test planı (§10).
+- **Commit 1 TAMAM (`0c478e0`):** ayar + güvenli kimlik modeli.
+  - `src/platform/companion/companionIdentity.ts` — sanitize (24 char sınır,
+    TTS-güvenli karakter seti, prompt injection sökme TR+EN), fallback zinciri
+    (ad→"Yol Arkadaşım", wake→"Hey Mavi", hitap→boş), kısa wake phrase uyarısı,
+    `resolveCompanionIdentity` (tüketiciler ayarları YALNIZ buradan okur).
+  - `useStore` persist **v13→v14**: 7 yeni alan (`companionEnabled` ham anahtar
+    her zaman false başlar — opt-in; eski `wakeWordEnabled`'dan devralınmaz).
+  - SettingsPage "Yol Arkadaşım" paneli: ana anahtar, asistan adı, hitap,
+    4 kişilik (sessiz/samimi/neseli/profesyonel), 3 sıklık (az/normal/sik),
+    wake word toggle + cümle + yanlış tetikleme uyarısı; blur'da sanitize.
+  - 40 yeni test (`companionIdentity.test.ts`) — suite 1002/1002, build+lint OK.
+- **Sırada (Commit 2):** `companionContext` saf yorumlayıcılar (ham OBD/trip →
+  insan dili) + unit testler. Sonra: persona/şablonlar → engine → wake word v2
+  (native, K24 ölçümü şart) → telemetri → Gemini sohbet.
 
 ## Duster Saha Düzeltmeleri (2026-06-11 — 3 commit, CİHAZDA KISMEN DOĞRULANDI)
 
