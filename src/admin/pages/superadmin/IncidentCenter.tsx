@@ -39,10 +39,10 @@ function _vehicleShort(id: string): string {
 }
 
 const TYPE_STYLE: Record<IncidentType, { color: string; label: string }> = {
-  critical_error:   { color: '#dc2626', label: 'CRITICAL' },
-  obd_diag:         { color: '#d97706', label: 'OBD_DIAG' },
-  support_snapshot: { color: '#60a5fa', label: 'SNAPSHOT' },
-  voice_diag:       { color: '#a78bfa', label: 'VOICE' },
+  critical_error:   { color: '#dc2626', label: 'KRİTİK' },
+  obd_diag:         { color: '#d97706', label: 'OBD_TANI' },
+  support_snapshot: { color: '#60a5fa', label: 'ANLIK_GÖRÜNTÜ' },
+  voice_diag:       { color: '#a78bfa', label: 'SES' },
 }
 
 function _str(v: unknown): string {
@@ -112,14 +112,14 @@ export function IncidentCenter() {
       {/* Header */}
       <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
         <div>
-          <p className="sa-label">INCIDENT CENTER — TANI KAYITLARI</p>
+          <p className="sa-label">OLAY MERKEZİ — TANI KAYITLARI</p>
           <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
             critical_error · obd_diag · support_snapshot · voice_diag — cihazda sanitize edilmiş uzak tanı verisi
           </p>
         </div>
         <Button variant="outline" size="sm" disabled={loading} onClick={() => { void load() }}>
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          Refresh
+          Yenile
         </Button>
       </div>
 
@@ -138,12 +138,12 @@ export function IncidentCenter() {
           className="sa-mono"
           style={_filterStyle}
         >
-          <option value="">ALL TYPES</option>
+          <option value="">TÜM TİPLER</option>
           {INCIDENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <input
           aria-label="Araç ID"
-          placeholder="vehicle id"
+          placeholder="araç id"
           value={vehicleId}
           onChange={(e) => onFilterChange(setVehicleId)(e.target.value)}
           className="sa-mono"
@@ -151,7 +151,7 @@ export function IncidentCenter() {
         />
         <input
           aria-label="Uygulama sürümü"
-          placeholder="appVersion (ör. 2.4.0)"
+          placeholder="uygulama sürümü (ör. 2.4.0)"
           value={appVersion}
           onChange={(e) => onFilterChange(setAppVersion)(e.target.value)}
           className="sa-mono"
@@ -187,7 +187,7 @@ export function IncidentCenter() {
         >
           <AlertTriangle size={12} style={{ color: '#dc2626' }} />
           <span className="sa-mono" style={{ fontSize: 10, color: '#f87171' }}>
-            QUERY_ERROR: {queryError}
+            SORGU_HATASI: {queryError}
           </span>
           <button
             onClick={() => { void load() }}
@@ -198,7 +198,7 @@ export function IncidentCenter() {
               fontSize: 9, padding: '3px 8px', letterSpacing: '0.08em',
             }}
           >
-            RETRY
+            TEKRAR DENE
           </button>
         </div>
       )}
@@ -212,7 +212,7 @@ export function IncidentCenter() {
             padding: '7px 12px', background: '#080808', borderBottom: '1px solid #1a1a1a',
           }}
         >
-          {['TIMESTAMP', 'VEHICLE', 'TYPE', 'CTX/PHASE', 'ERROR CODE', 'MSG / VERSION', ''].map((h) => (
+          {['ZAMAN', 'ARAÇ', 'TİP', 'BAĞLAM/AŞAMA', 'HATA KODU', 'MESAJ / SÜRÜM', ''].map((h) => (
             <span key={h} className="sa-label">{h}</span>
           ))}
         </div>
@@ -222,7 +222,7 @@ export function IncidentCenter() {
         ) : rows.length === 0 ? (
           <div className="sa-empty">
             <Info size={16} style={{ color: '#2d3748', opacity: 0.5 }} />
-            {queryError ? 'QUERY_FAILED: Kayıtlar alınamadı' : 'NO_INCIDENTS: Tanı kaydı yok'}
+            {queryError ? 'SORGU_BAŞARISIZ: Kayıtlar alınamadı' : 'OLAY_YOK: Tanı kaydı yok'}
           </div>
         ) : (
           <div style={{ maxHeight: 480, overflowY: 'auto' }} className="sa-scroll">
@@ -245,16 +245,16 @@ export function IncidentCenter() {
           }}
         >
           <span className="sa-mono" style={{ fontSize: 9, color: '#2d3748' }}>
-            PAGE {page + 1} · {rows.length} ROWS
+            SAYFA {page + 1} · {rows.length} SATIR
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
             <Button variant="outline" size="sm" disabled={loading || page === 0}
               onClick={() => setPage((p) => Math.max(0, p - 1))}>
-              <ChevronLeft size={11} /> Prev
+              <ChevronLeft size={11} /> Önceki
             </Button>
             <Button variant="outline" size="sm" disabled={loading || rows.length < PAGE_SIZE}
               onClick={() => setPage((p) => p + 1)}>
-              Next <ChevronRight size={11} />
+              Sonraki <ChevronRight size={11} />
             </Button>
           </div>
         </div>
@@ -285,9 +285,9 @@ function IncidentRow({
     ? _str(md['stage'])
     : _str(md['phase'] ?? md['ctx'])
   const errorCode = _str(md['errorCode'])
-  // support_snapshot'ta msg yok → appVersion göster
+  // support_snapshot'ta msg yok → appVersion göster (+ Dev Inspector kaynağı işareti)
   const msgCell = entry.type === 'support_snapshot'
-    ? `v${_str(md['appVersion'])}`
+    ? `v${_str(md['appVersion'])}${md['source'] === 'dev_inspector' ? ' · inspector' : ''}`
     : entry.type === 'voice_diag'
     ? `${_str(md['intent'] ?? md['command'])} · ${_str(md['durationMs'])}ms`
     : _str(md['msg'])
@@ -356,20 +356,24 @@ function IncidentDetail({ entry, onClose }: { entry: IncidentEntry; onClose: () 
             color: '#374151', fontSize: 10, fontFamily: 'var(--sa-font-mono)', letterSpacing: '0.08em',
           }}
         >
-          CLOSE
+          KAPAT
         </button>
       </div>
 
       {isSnapshot ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-          <SnapshotSection title="HEALTH"        value={md['health']} />
-          <SnapshotSection title="OBD"           value={md['obd']} />
-          <SnapshotSection title="OTA"           value={md['ota']} />
-          <SnapshotSection title="LAST CRITICAL" value={md['lastCritical']} critical />
+          <SnapshotSection title="SAĞLIK"     value={md['health']} />
+          <SnapshotSection title="OBD"        value={md['obd']} />
+          <SnapshotSection title="OTA"        value={md['ota']} />
+          <SnapshotSection title="SON KRİTİK" value={md['lastCritical']} critical />
+          {/* Dev Inspector "Tanı Gönder" — runtime/timeline/network özeti (source: dev_inspector) */}
+          {md['inspector'] != null && (
+            <SnapshotSection title="INSPECTOR" value={md['inspector']} />
+          )}
         </div>
       ) : (
         <div style={{ padding: '10px 12px' }}>
-          <p className="sa-label" style={{ marginBottom: 6 }}>PAYLOAD</p>
+          <p className="sa-label" style={{ marginBottom: 6 }}>VERİ</p>
           <div className="sa-diff-panel">{renderJson(md)}</div>
         </div>
       )}

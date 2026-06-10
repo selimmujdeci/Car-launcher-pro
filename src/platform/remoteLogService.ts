@@ -248,6 +248,13 @@ export async function reportObdDiag(diag: Record<string, unknown>): Promise<void
  * "gönderilemedi" olarak yansıtır.
  */
 export async function reportSupportSnapshot(): Promise<Record<string, unknown>> {
+  const payload = await _buildSupportSnapshotPayload();
+  await pushVehicleEvent('support_snapshot', payload);
+  return payload;
+}
+
+/** Ortak snapshot gövdesi — reportSupportSnapshot ve reportDiagnosticSnapshot kullanır. */
+async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> {
   const obd    = getOBDStatusSnapshot();
   const health = healthMonitor.getGlobalHealthSnapshot();
   const ota    = useOtaStore.getState();
@@ -296,6 +303,32 @@ export async function reportSupportSnapshot(): Promise<Record<string, unknown>> 
     },
   }, 0) as Record<string, unknown>;
 
+  return payload;
+}
+
+/* ── diagnostic snapshot (Dev Inspector "Tanı Gönder") ──────── */
+
+/**
+ * Dev Inspector tanı raporu — support_snapshot gövdesinin üstüne sanitize
+ * edilmiş inspector özetini (runtime/timeline/network) ekler.
+ *
+ * Tip BİLİNÇLİ olarak 'support_snapshot': Admin Incident Center'ın mevcut
+ * INCIDENT_TYPES filtresi/detay paneli yeni tip eklemeden görür;
+ * `source: 'dev_inspector'` alanı kaynağı ayırt eder. Inspector verisi de
+ * _deepSanitize'dan geçer (deny-list + VIN/MAC/koordinat/token maskesi) —
+ * Copy for Claude payload'ı zaten PII'siz kurulur, bu ikinci savunma katmanı.
+ *
+ * Enqueue hatası PROPAGATE eder — triggerDiagnosticSnapshot 'error' yansıtır.
+ */
+export async function reportDiagnosticSnapshot(
+  inspector: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const base = await _buildSupportSnapshotPayload();
+  const payload: Record<string, unknown> = {
+    ...base,
+    source:    'dev_inspector',
+    inspector: _deepSanitize(inspector, 1),
+  };
   await pushVehicleEvent('support_snapshot', payload);
   return payload;
 }
@@ -319,6 +352,24 @@ let _lastSnapshotAt = Number.NEGATIVE_INFINITY; // monotonic (performance.now)
  *                    yeniden deneyebilir
  */
 export async function triggerSupportSnapshot(): Promise<SnapshotTriggerResult> {
+  return _triggerSnapshot(() => reportSupportSnapshot());
+}
+
+/**
+ * Dev Inspector "Tanı Gönder" aksiyonu — triggerSupportSnapshot ile AYNI
+ * cooldown penceresini paylaşır (iki buton arka arkaya basılsa da pencere
+ * başına tek snapshot; spam koruması tek yerden).
+ */
+export async function triggerDiagnosticSnapshot(
+  inspector: Record<string, unknown>,
+): Promise<SnapshotTriggerResult> {
+  return _triggerSnapshot(() => reportDiagnosticSnapshot(inspector));
+}
+
+/** Ortak tetikleme iskeleti: cooldown → gönder → sonucu sınıflandır. */
+async function _triggerSnapshot(
+  send: () => Promise<Record<string, unknown>>,
+): Promise<SnapshotTriggerResult> {
   const now = performance.now();
   if (now - _lastSnapshotAt < SNAPSHOT_COOLDOWN_MS) return 'cooldown';
 
@@ -327,11 +378,11 @@ export async function triggerSupportSnapshot(): Promise<SnapshotTriggerResult> {
   // at-least-once olduğundan yanlış 'sent' veri kaybettirmez.
   const online = typeof navigator === 'undefined' || navigator.onLine !== false;
   try {
-    await reportSupportSnapshot();
+    await send();
     _lastSnapshotAt = now;
     return online ? 'sent' : 'queued_offline';
   } catch {
-    return 'error';
+    return 'error'; // cooldown yanmaz — kullanıcı hemen yeniden deneyebilir
   }
 }
 

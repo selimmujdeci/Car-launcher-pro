@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, Copy, CheckCheck } from 'lucide-react';
+import { X, Copy, CheckCheck, Send, Loader2 } from 'lucide-react';
+import { triggerDiagnosticSnapshot, type SnapshotTriggerResult } from '../../../platform/remoteLogService';
 import { runtimeManager }  from '../../../core/runtime/AdaptiveRuntimeManager';
 import { getReplayData, type BlackBoxSample } from '../../../platform/security/blackBoxService';
 import { getNetworkEntries, clearNetworkEntries, type NetEntry } from './NetworkInterceptor';
@@ -91,9 +92,10 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
     return () => clearInterval(id);
   }, []);
 
-  /* Build sanitised export — no lastCmd (navigation commands), no PII */
-  function handleCopy(): void {
-    const payload = {
+  /* Build sanitised export — no lastCmd (navigation commands), no PII.
+   * Copy for Claude ve "Tanı Gönder" AYNI payload'ı kullanır (tek kaynak). */
+  function buildExportPayload(): Record<string, unknown> {
+    return {
       _meta:    { sanitized: true, noPII: true, exportedAt: new Date().toISOString() },
       runtime:  {
         mode,
@@ -113,7 +115,10 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         method, url, status, durationMs,
       })),
     };
-    const text = JSON.stringify(payload, null, 2);
+  }
+
+  function handleCopy(): void {
+    const text = JSON.stringify(buildExportPayload(), null, 2);
 
     // K24 WebView'da pano çoğu zaman çalışmaz (insecure context / izin) → HER ZAMAN
     // seçilebilir metin overlay'i göster (kullanıcı seçip kopyalayabilir veya ekran görüntüsü alır).
@@ -143,6 +148,41 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
       } catch { /* overlay yine de açık */ }
     }
   }
+
+  /* ── "Tanı Gönder" — inspector payload'ını remote log sistemine yollar ──
+   * Araç ekranında pano kullanışsız (yapıştıracak yer yok) → snapshot doğrudan
+   * vehicle_events'e (support_snapshot, source: dev_inspector) gider; Admin
+   * Incident Center'da görünür. Cooldown + offline queue remoteLogService'te. */
+  type SendState = 'idle' | 'sending' | SnapshotTriggerResult;
+  const [sendState, setSendState] = useState<SendState>('idle');
+  const sendResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (sendResetTimer.current) clearTimeout(sendResetTimer.current); }, []);
+
+  async function handleSendDiag(): Promise<void> {
+    if (sendState === 'sending') return; // çift tıklama koruması (cooldown'a ek)
+    setSendState('sending');
+    const result = await triggerDiagnosticSnapshot(buildExportPayload());
+    setSendState(result);
+    if (sendResetTimer.current) clearTimeout(sendResetTimer.current);
+    sendResetTimer.current = setTimeout(() => setSendState('idle'), 4000);
+  }
+
+  const SEND_LABEL: Record<SendState, string> = {
+    idle:           'Tanı Gönder',
+    sending:        'Gönderiliyor…',
+    sent:           'Gönderildi ✓',
+    queued_offline: 'İnternet gelince gönderilecek',
+    cooldown:       'Az önce gönderildi — bekleyin',
+    error:          'Gönderilemedi',
+  };
+  const SEND_COLOR: Record<SendState, string> = {
+    idle:           'rgba(255,255,255,0.4)',
+    sending:        '#3b82f6',
+    sent:           '#22c55e',
+    queued_offline: '#eab308',
+    cooldown:       '#eab308',
+    error:          '#ef4444',
+  };
 
   /* ── Render ──────────────────────────────────────────────────────────── */
   return (
@@ -491,17 +531,31 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-3 py-1.5 shrink-0"
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 shrink-0"
         style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <span className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.12)' }}>
-          dev only — tree-shaked in prod
+        <span className="text-[9px] font-mono shrink-0" style={{ color: 'rgba(255,255,255,0.12)' }}>
+          dev only
         </span>
-        <button onClick={handleCopy}
-          className="flex items-center gap-1 text-[10px] font-mono transition-colors"
-          style={{ color: copied ? '#22c55e' : 'rgba(255,255,255,0.4)' }}>
-          {copied ? <CheckCheck size={11} /> : <Copy size={11} />}
-          {copied ? 'Kopyalandı!' : 'Copy for Claude'}
-        </button>
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Araç ekranı için: panoya değil doğrudan remote incidents'a gönderir */}
+          <button onClick={() => { void handleSendDiag(); }}
+            disabled={sendState === 'sending'}
+            className="flex items-center gap-1 text-[10px] font-mono transition-colors truncate"
+            style={{ color: SEND_COLOR[sendState] }}>
+            {sendState === 'sending'
+              ? <Loader2 size={11} className="animate-spin" />
+              : sendState === 'sent'
+                ? <CheckCheck size={11} />
+                : <Send size={11} />}
+            {SEND_LABEL[sendState]}
+          </button>
+          <button onClick={handleCopy}
+            className="flex items-center gap-1 text-[10px] font-mono transition-colors shrink-0"
+            style={{ color: copied ? '#22c55e' : 'rgba(255,255,255,0.4)' }}>
+            {copied ? <CheckCheck size={11} /> : <Copy size={11} />}
+            {copied ? 'Kopyalandı!' : 'Copy for Claude'}
+          </button>
+        </div>
       </div>
     </div>
     </>
