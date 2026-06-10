@@ -196,6 +196,45 @@ Interval gating hedefleri (frekanslar bu oturumda kodda doğrulandı):
 
 ---
 
+## Ölü Kod Temizliği — Commit 1 UYGULANDI (2026-06-10)
+
+İzole tekiller silindi (9 dosya, hepsi 0-importer kanıtlı; testler/e2e dahil):
+usePersonalizationStore (deprecated shim) · themeTransitionService · dropZoneRegistry ·
+arProjectionService ×2 (platform/ + platform/navigation/ çift kopya) · deviceDetection +
+PerformanceModeSuggestion (birlikte) · obdAlerts · useDragScroll. Ayrıca `puppeteer`
+devDep kaldırıldı (e2e Playwright kullanıyor). **useSABDirectUpdate Commit 2'ye ertelendi**
+(importer'ı PremiumSpeedometer henüz duruyor — birlikte silinecek).
+Doğrulama: build + lint 0 hata + vitest 671/671 + e2e app.spec 6/6 (chromium).
+Sırada: Commit 2 (eski layout zinciri ~22+1 dosya), Commit 3 (traffic/ + diagnostic/ adaları).
+
+## Ölü Kod Denetimi v2 (2026-06-10 — rapor-only, silme YOK)
+
+Knip (geçici config: entry main.tsx+admin/main.tsx) + import-graph grep + dist
+literal doğrulaması. **~76 dosya erişilemez** (knip tam listesi o oturum çıktısında).
+2026-06-06 raporunu DOĞRULAR ve genişletir:
+
+- **Bundle temiz teyit:** ölü dosyalar dist'e GİRMİYOR (OEMCockpitLayout benzersiz
+  literal'leri dist'te 0; obdSimulator/soakHarness/leakHarness/patentTestLogger/
+  ytDownloadService dist'te 0). Tree-shake çalışıyor.
+- **Aktif zincir:** index.html → main.tsx → App.tsx:4 → MainLayout → NewHomeLayout
+  (MainLayout.tsx:34,424); temalar NewHomeLayout üzerinden CANLI.
+- **⚠️ YENİ KRİTİK BULGU — ServiceWorker drift:** runtime'da çalışan SW
+  `public/serviceWorker.js` (son commit 2026-04-30, 251 satır el-yazımı JS);
+  `src/serviceWorker.ts` (son commit 2026-05-10, 240 satır) DAHA YENİ ama
+  build'e hiç girmiyor (vite input'ta yok, kayıt string-bazlı:
+  serviceWorkerManager.ts:20 register('/serviceWorker.js')). TS kaynaktaki
+  10 Mayıs sonrası değişiklikler ÜRÜNE HİÇ GİTMEDİ. Karar gerek: TS'i derleyip
+  public'e üreten step ekle YA DA tek kaynağı public/*.js kabul edip TS'i sil.
+- **Knip false-positive'leri (CANLI, silme):** serviceWorker.ts (string-register
+  zinciri mapSourceManager→serviceWorkerManager aktif — ama yukarıdaki drift
+  nedeniyle fiilen gölge kopya).
+- **depcheck:** gerçek aday yalnız `puppeteer` (e2e Playwright kullanıyor);
+  @capacitor/android (cap sync), tailwindcss (@tailwindcss/vite), 
+  @vitest/coverage-v8 (test:coverage CLI) false-positive.
+- **.worktrees/:** 28MB, git-ignored (gitignore:79), tracked=0, tsc/vite kapsamı
+  dışında (tsconfig include=["src"]); lint'e 2026-06-10'da ignore eklendi →
+  artık hiçbir süreci etkilemiyor; tek etkisi disk + IDE/grep gürültüsü.
+
 ## Çöp Kod / Ölü Dosya Analizi (2026-06-06)
 
 Knip ile analiz yapıldı (rapor-only, **hiçbir şey silinmedi**). Knip kurulu değildi → `npx`
