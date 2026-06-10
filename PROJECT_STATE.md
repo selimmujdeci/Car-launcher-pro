@@ -8,7 +8,7 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `0c478e0`; 2026-06-11 Companion AI Commit 1)
+- **Aktif branch:** `main` (HEAD `c07ac1a`; 2026-06-11 Companion AI Commit 2)
 - **Branch belirsizliği ÇÖZÜLDÜ (2026-06-10):** remote HEAD `origin/main` →
   CLAUDE.md "Primary branch" `main` olarak düzeltildi; `master` arşiv ref.
   PR/merge hedefi: `main`.
@@ -37,7 +37,7 @@
   Not: gradle buildDir `C:/Temp/carlauncher/` (android/build.gradle:30);
   JAVA_HOME = Android Studio jbr gerekiyor (PATH'te java yok).
 
-## Companion AI "Yol Arkadaşım" (2026-06-11 — V1 BAŞLADI, Commit 1/7 TAMAM)
+## Companion AI "Yol Arkadaşım" (2026-06-11 — V1 BAŞLADI, Commit 2/7 TAMAM)
 
 - **Mimari:** `docs/COMPANION_AI_ARCHITECTURE.md` (`8cceab8`) — tam tasarım:
   mevcut altyapı analizi, güvenlik riskleri, wake word v2 planı, state machine,
@@ -53,9 +53,18 @@
     4 kişilik (sessiz/samimi/neseli/profesyonel), 3 sıklık (az/normal/sik),
     wake word toggle + cümle + yanlış tetikleme uyarısı; blur'da sanitize.
   - 40 yeni test (`companionIdentity.test.ts`) — suite 1002/1002, build+lint OK.
-- **Sırada (Commit 2):** `companionContext` saf yorumlayıcılar (ham OBD/trip →
-  insan dili) + unit testler. Sonra: persona/şablonlar → engine → wake word v2
-  (native, K24 ölçümü şart) → telemetri → Gemini sohbet.
+- **Commit 2 TAMAM (`c07ac1a`):** `companionContext.ts` — SAF yorumlayıcılar
+  (servis import'u SIFIR; motor Commit 4'te ham değerleri besler).
+  `interpretFuel/Range` (yakıt→menzil, approxRangeKm 143→150),
+  `interpretTripDuration/BreakNeed` (mola kararı: eşik altı null=sus, Türkçe
+  ek uyumu saattir/dakikadır), `interpretFatigue` (gece+süre),
+  `interpretArrival` (TTS ondalık virgül "7,5"), `interpretEngineTempConcern`
+  (yalnız konuşmaya değer durum), `interpretTimeOfDay` (geçersiz→gece fail-safe).
+  İmkânsız sensör verisi → null (fail-soft sus). 55 test; suite 1057/1057.
+- **Sırada (Commit 3):** `companionPersona` — 4 kişilik profili, hitap,
+  karşılama/hal-hatır/mola/yakıt şablonları (varyantlı), tekrar-önleme
+  parmak izi. Sonra: engine → wake word v2 (K24 ölçümü şart) → telemetri →
+  Gemini sohbet.
 
 ## Duster Saha Düzeltmeleri (2026-06-11 — 3 commit, CİHAZDA KISMEN DOĞRULANDI)
 

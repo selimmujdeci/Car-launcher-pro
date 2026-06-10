@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `0c478e0`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `c07ac1a`.
 
 ---
 
@@ -21,13 +21,16 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
-- **Companion AI "Yol Arkadaşım" V1 başladı (2026-06-11, `8cceab8`+`0c478e0`):**
-  mimari doküman (`docs/COMPANION_AI_ARCHITECTURE.md` — 7 commit'lik plan) +
-  Commit 1: ayar/kimlik modeli. `companionIdentity.ts` sanitize+fallback
-  (injection sökme, 24 char, TTS-güvenli), useStore v14 (7 alan, varsayılan
-  KAPALI), Settings "Yol Arkadaşım" paneli, 40 test. **Kural:** tüketiciler
-  (motor/prompt/TTS) ayarları yalnız `resolveCompanionIdentity` üzerinden okur.
-  **Sırada:** Commit 2 — companionContext yorumlayıcıları.
+- **Companion AI "Yol Arkadaşım" V1 başladı (2026-06-11, `8cceab8`+`0c478e0`+
+  `c07ac1a`):** mimari doküman (`docs/COMPANION_AI_ARCHITECTURE.md` — 7
+  commit'lik plan) + Commit 1: ayar/kimlik modeli (`companionIdentity.ts`
+  sanitize+fallback, useStore v14, Settings paneli, 40 test) + Commit 2:
+  `companionContext.ts` saf yorumlayıcılar (yakıt/menzil/mola/yorgunluk/
+  varış/sıcaklık; servis import'u SIFIR, imkânsız veri→null fail-soft,
+  55 test). **Kurallar:** ayarlar yalnız `resolveCompanionIdentity`
+  üzerinden okunur; Gemini prompt'una ham veri değil yorum girer.
+  **Sırada:** Commit 3 — companionPersona (4 kişilik + şablonlar +
+  tekrar-önleme).
 - **Duster saha düzeltmeleri (2026-06-11, `901edf5`+`67d0a71`+`e191bb1`):** gerçek
   araç (Renault Duster, eski WebView Chrome 64-78) üç saha hatası:
   1. **Dashboard çöküşü + görünmeyen dock** — inline modern CSS (clamp/min/
