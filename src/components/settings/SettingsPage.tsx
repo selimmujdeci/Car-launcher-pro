@@ -8,8 +8,14 @@ import {
   Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
   Cpu, Thermometer, Shield, ShieldCheck, Gauge, Settings2, Lock,
   Mic, Eye, EyeOff, CheckCircle, XCircle, Loader,
-  Grid3X3, Star, Users, ChevronRight, Info, type LucideIcon,
+  Grid3X3, Star, Users, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
 } from 'lucide-react';
+import {
+  sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
+  getWakePhraseWarning, COMPANION_TEXT_MAX_LEN,
+  DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE,
+  type CompanionPersonality, type CompanionChattiness,
+} from '../../platform/companion/companionIdentity';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
 import { Clipboard } from '@capacitor/clipboard';
@@ -549,6 +555,184 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         {' '}Offline parser tanıyamadığında (%50 altı güven) AI devreye girer. İnternet yoksa otomatik olarak offline modda çalışır.
         {' '}<span className="text-slate-500">API key cihazda şifrelenmiş olarak saklanır.</span>
       </div>
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════
+   COMPANION PANEL — "Yol Arkadaşım"
+   Yalnız ayar/kimlik modeli (Commit 1) — motor, wake word ve Gemini
+   sohbeti sonraki commit'lerde. Metin alanları blur'da sanitize edilip
+   store'a yazılır; store'da asla ham riskli metin kalmaz.
+════════════════════════════════════════ */
+const CompanionPanel = memo(function CompanionPanel() {
+  const { settings, updateSettings } = useStore();
+
+  // Taslak değerler — yazarken sanitize ETME (kullanıcı deneyimi),
+  // blur/commit anında sanitize et.
+  const [nameDraft,     setNameDraft]     = useState(settings.companionAssistantName ?? DEFAULT_ASSISTANT_NAME);
+  const [callsignDraft, setCallsignDraft] = useState(settings.companionUserCallsign ?? '');
+  const [phraseDraft,   setPhraseDraft]   = useState(settings.companionWakePhrase ?? DEFAULT_WAKE_PHRASE);
+
+  const commitName = useCallback(() => {
+    const clean = sanitizeAssistantName(nameDraft);
+    setNameDraft(clean);
+    updateSettings({ companionAssistantName: clean });
+  }, [nameDraft, updateSettings]);
+
+  const commitCallsign = useCallback(() => {
+    const clean = sanitizeUserCallsign(callsignDraft);
+    setCallsignDraft(clean);
+    updateSettings({ companionUserCallsign: clean });
+  }, [callsignDraft, updateSettings]);
+
+  const commitPhrase = useCallback(() => {
+    const clean = sanitizeWakePhrase(phraseDraft);
+    setPhraseDraft(clean);
+    updateSettings({ companionWakePhrase: clean });
+  }, [phraseDraft, updateSettings]);
+
+  const phraseWarning = getWakePhraseWarning(phraseDraft);
+
+  const PERSONALITIES: { id: CompanionPersonality; label: string; sub: string }[] = [
+    { id: 'sessiz',      label: 'Sessiz',      sub: 'Yalnız sorulara cevap verir' },
+    { id: 'samimi',      label: 'Samimi',      sub: 'Sıcak, doğal yol arkadaşı' },
+    { id: 'neseli',      label: 'Neşeli',      sub: 'Enerjik ve esprili ton' },
+    { id: 'profesyonel', label: 'Profesyonel', sub: 'Kısa, net, resmi' },
+  ];
+  const CHATTINESS: { id: CompanionChattiness; label: string; sub: string }[] = [
+    { id: 'az',     label: 'Az',     sub: 'Yalnız önemli anlarda' },
+    { id: 'normal', label: 'Normal', sub: 'Dengeli sohbet' },
+    { id: 'sik',    label: 'Sık',    sub: 'Konuşkan yolculuk' },
+  ];
+
+  const inputClass = 'w-full bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-500 outline-none focus:border-cyan-500/50 transition-all';
+
+  return (
+    <div className="flex flex-col gap-3">
+      <PremiumToggle
+        icon={MessageCircle}
+        label="Yol Arkadaşım"
+        desc="Konuşan akıllı yolculuk asistanı — varsayılan kapalı"
+        value={settings.companionEnabled ?? false}
+        onChange={(v) => updateSettings({ companionEnabled: v })}
+        accent="#22d3ee"
+      />
+
+      {(settings.companionEnabled ?? false) && (
+        <div className="flex flex-col gap-5 mt-2 pl-1">
+          {/* Asistan adı */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Asistan Adı</span>
+            <input
+              type="text"
+              value={nameDraft}
+              maxLength={COMPANION_TEXT_MAX_LEN}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              placeholder={DEFAULT_ASSISTANT_NAME}
+              className={inputClass}
+            />
+          </div>
+
+          {/* Kullanıcı hitabı */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Bana Böyle Seslen</span>
+            <input
+              type="text"
+              value={callsignDraft}
+              maxLength={COMPANION_TEXT_MAX_LEN}
+              onChange={(e) => setCallsignDraft(e.target.value)}
+              onBlur={commitCallsign}
+              placeholder="Boş bırakılırsa hitapsız konuşur"
+              className={inputClass}
+            />
+          </div>
+
+          {/* Kişilik */}
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Kişilik</span>
+            <div className="grid grid-cols-2 gap-2">
+              {PERSONALITIES.map(({ id, label, sub }) => {
+                const active = (settings.companionPersonality ?? 'samimi') === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => updateSettings({ companionPersonality: id })}
+                    className="flex flex-col gap-0.5 px-4 py-3 rounded-xl border text-left transition-all active:scale-[0.98]"
+                    style={active
+                      ? { backgroundColor: 'rgba(34,211,238,0.10)', borderColor: 'rgba(34,211,238,0.45)' }
+                      : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                  >
+                    <span className="text-sm font-bold" style={{ color: active ? '#22d3ee' : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{label}</span>
+                    <span className="text-[10px]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.4))' }}>{sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Konuşma sıklığı */}
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Konuşma Sıklığı</span>
+            <div className="grid grid-cols-3 gap-2">
+              {CHATTINESS.map(({ id, label, sub }) => {
+                const active = (settings.companionChattiness ?? 'az') === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => updateSettings({ companionChattiness: id })}
+                    className="flex flex-col gap-0.5 px-3 py-3 rounded-xl border text-left transition-all active:scale-[0.98]"
+                    style={active
+                      ? { backgroundColor: 'rgba(34,211,238,0.10)', borderColor: 'rgba(34,211,238,0.45)' }
+                      : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                  >
+                    <span className="text-sm font-bold" style={{ color: active ? '#22d3ee' : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{label}</span>
+                    <span className="text-[10px]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.4))' }}>{sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Wake word */}
+          <PremiumToggle
+            icon={Mic}
+            label="Sesle Uyandırma"
+            desc="Uyandırma cümlesiyle asistanı çağır (motor sonraki sürümde)"
+            value={settings.companionWakeWordEnabled ?? false}
+            onChange={(v) => updateSettings({ companionWakeWordEnabled: v })}
+            accent="#a78bfa"
+          />
+
+          {(settings.companionWakeWordEnabled ?? false) && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Uyandırma Cümlesi</span>
+              <input
+                type="text"
+                value={phraseDraft}
+                maxLength={COMPANION_TEXT_MAX_LEN}
+                onChange={(e) => setPhraseDraft(e.target.value)}
+                onBlur={commitPhrase}
+                placeholder={DEFAULT_WAKE_PHRASE}
+                className={inputClass}
+              />
+              {phraseWarning && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] leading-relaxed text-amber-400">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>{phraseWarning}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Gizlilik notu */}
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[10px] text-slate-600 leading-relaxed">
+            <span className="text-slate-500 font-bold">Gizlilik:</span>
+            {' '}Ses tanıma %100 cihaz içinde çalışır. Ad ve hitap bilgisi cihaz dışına gönderilmez.
+          </div>
+        </div>
+      )}
     </div>
   );
 });
@@ -1419,6 +1603,12 @@ function SettingsPageInner({ onClose }: Props) {
                 </div>
                 {settings.offlineMap && <MapSourcePanel />}
                 <AIVoicePanel />
+              </Panel>
+
+              {/* ── "Yol Arkadaşım" (Companion AI) ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={MessageCircle} title="Yol Arkadaşım" sub="Kişilikli yolculuk asistanı" color="#22d3ee" />
+                <CompanionPanel />
               </Panel>
 
               <Panel accent="#22d3ee">

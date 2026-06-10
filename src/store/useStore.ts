@@ -6,6 +6,11 @@ import { RuntimeMode }           from '../core/runtime/runtimeTypes';
 import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
 import { setObdVehicleType } from '../platform/obdService';
 import { safeStorage } from '../utils/safeStorage';
+import {
+  DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE,
+  DEFAULT_PERSONALITY, DEFAULT_CHATTINESS,
+  type CompanionPersonality, type CompanionChattiness,
+} from '../platform/companion/companionIdentity';
 
 /**
  * Shallow merge helper — plain objeleri recursive merge eder.
@@ -191,6 +196,23 @@ export interface AppSettings {
   // useSensitiveKey; okuma: voiceService sks.get.
   /** Araç başlangıcında telefon hotspot bağlantı davranışı */
   hotspotMode: 'auto' | 'ask' | 'off';
+  // ── "Yol Arkadaşım" (Companion AI) — docs/COMPANION_AI_ARCHITECTURE.md §7 ──
+  // Ham kullanıcı girdisi burada saklanır; tüketiciler (motor/prompt/TTS)
+  // değerleri YALNIZ resolveCompanionIdentity üzerinden okur (sanitize garanti).
+  /** Ana anahtar — opt-in, varsayılan kapalı */
+  companionEnabled: boolean;
+  /** Asistanın adı (TTS ve şablonlarda geçer) */
+  companionAssistantName: string;
+  /** "Bana böyle seslen" — boş = hitapsız konuşma */
+  companionUserCallsign: string;
+  /** Kişilik profili — şablon ailesi + (V2) Gemini system prompt seçer */
+  companionPersonality: CompanionPersonality;
+  /** Proaktif konuşma sıklığı bütçesi (az=45dk · normal=20dk · sik=10dk) */
+  companionChattiness: CompanionChattiness;
+  /** Companion wake word anahtarı (eski wakeWordEnabled'dan bağımsız) */
+  companionWakeWordEnabled: boolean;
+  /** Uyandırma cümlesi — wake word motoru (Commit 5) bu değeri kullanır */
+  companionWakePhrase: string;
   /**
    * Adaptive Runtime Engine mod seçimi.
    * 'AUTO' → cihaz metriğine göre otomatik algılama.
@@ -331,6 +353,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   customMusicSources: [],
   aiVoiceProvider: 'gemini',
   hotspotMode: 'ask',
+  // Companion AI — varsayılan KAPALI (opt-in)
+  companionEnabled: false,
+  companionAssistantName: DEFAULT_ASSISTANT_NAME,
+  companionUserCallsign: '',
+  companionPersonality: DEFAULT_PERSONALITY,
+  companionChattiness: DEFAULT_CHATTINESS,
+  companionWakeWordEnabled: false,
+  companionWakePhrase: DEFAULT_WAKE_PHRASE,
   runtimeOverride: 'AUTO',
 };
 
@@ -425,7 +455,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 13,
+      version: 14,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -452,6 +482,13 @@ export const useStore = create<StoreState>()(
         if (fromVersion < 13) {
           void persisted;
           // v13: VehicleProfile.vin — OBD handshake ile doldurulur; mevcut profillerde alan yok
+        }
+        if (fromVersion < 14) {
+          // v14: "Yol Arkadaşım" (Companion AI) ayarları — yeni alanlar
+          // DEFAULT_SETTINGS spread'inden gelir; companion HER ZAMAN kapalı
+          // başlar (opt-in), eski wakeWordEnabled değerinden devralınmaz.
+          settings.companionEnabled = false;
+          settings.companionWakeWordEnabled = false;
         }
         return { ...ps, settings };
       },
