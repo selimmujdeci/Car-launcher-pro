@@ -3204,6 +3204,30 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
+     * JS → Native: Hash-doğrulanmış OTA APK'sı için sistem kurulum akışı
+     * (OTA v1 / Commit 5). SESSİZ KURULUM YOK — kullanıcı onayı sistem
+     * diyaloğunda. Ön-kontroller (paket/sürüm/imza/konum) ve izin
+     * yönlendirmesi: ota/OtaInstallManager.java.
+     * params: { fileName } (yalnız ad — yol files/ota'ya sabitlenir)
+     * döner:  { ok, action?, errorCode?, errorMessage? }
+     */
+    @PluginMethod
+    public void installOtaApk(PluginCall call) {
+        String fileName = call.getString("fileName", "");
+        final android.content.Context ctx = getContext();
+        OTA_EXECUTOR.execute(() -> {
+            com.cockpitos.pro.ota.OtaInstallManager.Result r =
+                com.cockpitos.pro.ota.OtaInstallManager.install(ctx, fileName);
+            JSObject result = new JSObject();
+            result.put("ok", r.ok);
+            if (r.action != null)       result.put("action", r.action);
+            if (r.errorCode != null)    result.put("errorCode", r.errorCode);
+            if (r.errorMessage != null) result.put("errorMessage", r.errorMessage);
+            call.resolve(result);
+        });
+    }
+
+    /**
      * JS → Native: Anahtarı siler.
      * params: { key: string }
      */

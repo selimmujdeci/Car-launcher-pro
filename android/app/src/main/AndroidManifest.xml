@@ -242,4 +242,10 @@
     <!-- Pil optimizasyonu muafiyeti — MIUI/HyperOS arka plan öldürmesini önler -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- OTA v1 (Commit 5): hash+imza dogrulanmis guncelleme APK'sinin sistem
+         kurulum ekranini acabilmesi icin. SESSIZ KURULUM YOK - kullanici onayi
+         her zaman Android sistem diyalogunda (OtaInstallManager.java kapisi:
+         paket/surum/imza on-kontrolu gecmeden bu izin kullanilmaz). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
 </manifest>

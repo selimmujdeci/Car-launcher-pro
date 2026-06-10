@@ -346,6 +346,17 @@ export interface OtaDownloadProgressEvent {
   percent: number;
 }
 
+export interface OtaInstallResult {
+  ok: boolean;
+  /** install_prompted: sistem kurulum diyaloğu açıldı ·
+   *  settings_opened: bilinmeyen-kaynak izni ayarına yönlendirildi (yeniden dene) */
+  action?: 'install_prompted' | 'settings_opened';
+  /** ERR_INPUT|ERR_NOT_FOUND|ERR_NO_PERMISSION|ERR_BAD_APK|ERR_PACKAGE|
+   *  ERR_DOWNGRADE|ERR_SIGNATURE|ERR_NO_INSTALLER|ERR_IO */
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface AppVersionInfo {
   /** PackageManager longVersionCode — version.properties VERSION_CODE'un kurulu hali */
   versionCode: number;
@@ -357,8 +368,10 @@ export interface AppVersionInfo {
 export interface CarLauncherPlugin {
   /** OTA v1: cihazda KURULU gerçek sürüm (PackageManager — drift imkânsız) */
   getAppVersionInfo(): Promise<AppVersionInfo>;
-  /** OTA v1: streaming APK indirme + SHA-256/boyut doğrulama (kurulum YOK — Commit 5) */
+  /** OTA v1: streaming APK indirme + SHA-256/boyut doğrulama (kurulum ayrı) */
   downloadOtaApk(options: OtaDownloadOptions): Promise<OtaDownloadResult>;
+  /** OTA v1: güvenli kurulum kapısı — paket/sürüm/imza ön-kontrol + sistem diyaloğu */
+  installOtaApk(options: { fileName: string }): Promise<OtaInstallResult>;
   addListener(
     event: 'otaDownloadProgress',
     handler: (data: OtaDownloadProgressEvent) => void,

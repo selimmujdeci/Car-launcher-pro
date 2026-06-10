@@ -210,12 +210,13 @@ describe('OtaDownloadManager.java güvenlik sözleşmesi', () => {
     expect(plugin).toContain('notifyListeners("otaDownloadProgress", ev)');
   });
 
-  it('kurulum bu commit\'te YOK: REQUEST_INSTALL_PACKAGES manifest\'e eklenmedi (Commit 5)', () => {
-    const manifest = readFileSync(join(process.cwd(),
-      'android/app/src/main/AndroidManifest.xml'), 'utf-8');
-    expect(manifest).not.toContain('REQUEST_INSTALL_PACKAGES');
+  it('sorumluluk ayrımı: indirme sınıfında kurulum mantığı YOK (kurulum = OtaInstallManager)', () => {
+    // Commit 5 izni manifest'e ekledi; bu kilit artık SINIF-DÜZEYİNDE:
+    // downloader asla intent/kurucu çağırmaz — tek işi indirme+doğrulama.
     expect(java).not.toContain('PackageInstaller');
     expect(java).not.toContain('ACTION_VIEW');
+    expect(java).not.toContain('startActivity');
+    expect(java).not.toContain('REQUEST_INSTALL_PACKAGES');
   });
 
   it('FileProvider hazırlığı: file_paths.xml files/ota yolu', () => {

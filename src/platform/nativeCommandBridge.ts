@@ -29,6 +29,7 @@ import type {
   OtaDownloadOptions,
   OtaDownloadResult,
   OtaDownloadProgressEvent,
+  OtaInstallResult,
 } from './nativePlugin';
 import { safeGetRaw } from '../utils/safeStorage';
 import type { CommandType } from './commandListener';
@@ -193,6 +194,41 @@ export async function downloadOtaApk(
     };
   } finally {
     await listener?.remove().catch(() => { /* listener zaten düşmüş olabilir */ });
+  }
+}
+
+// ── OTA Kurulum Kapısı (OTA v1 / Commit 5) ───────────────────────────────────
+
+/** İndirme ile aynı fileName kuralı — kurulum yalnız files/ota içinden. */
+const SAFE_OTA_FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Hash-doğrulanmış OTA APK'sı için native kurulum kapısını çağırır
+ * (OtaInstallManager.java: konum/paket/sürüm/imza ön-kontrol + izin
+ * yönlendirme + sistem kurulum diyaloğu — SESSİZ KURULUM YOK).
+ * - Web/dev → fail-soft { ok:false, ERR_NO_NATIVE }
+ * - action: 'settings_opened' dönerse kullanıcı izni verdikten sonra
+ *   yeniden çağrılmalı (Commit 6 orkestrasyonu).
+ */
+export async function installOtaApk(fileName: string): Promise<OtaInstallResult> {
+  if (!SAFE_OTA_FILENAME_RE.test(fileName ?? '') || (fileName ?? '').includes('..')) {
+    return {
+      ok: false, errorCode: 'ERR_INPUT',
+      errorMessage: `Geçersiz fileName (path traversal/ayraç reddi): ${fileName}`,
+    };
+  }
+  if (!Capacitor.isNativePlatform()) {
+    return { ok: false, errorCode: 'ERR_NO_NATIVE', errorMessage: 'OTA kurulum yalnız cihazda' };
+  }
+  try {
+    return await CarLauncher.installOtaApk({ fileName });
+  } catch (err) {
+    console.warn('[NativeCmdBridge] installOtaApk köprü hatası:', err);
+    return {
+      ok: false,
+      errorCode: 'ERR_BRIDGE',
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
