@@ -301,6 +301,34 @@ describe('bilişsel koruma (PROTECTION/CRITICAL) — takip dinlemesi kapalı', (
   });
 });
 
+/* ── 5b. Müzik aksiyon kapısı — sohbet müzik isteğini GASP EDEMEZ ── */
+
+describe('müzik aksiyon kapısı (saha: "İbrahim Tatlıses\'ten müzik aç" → biyografi)', () => {
+  it('parser\'a takılmayan müzik İSTEĞİ companion sohbetine GİRMEZ', async () => {
+    const companionCalls: string[] = [];
+    M.companionImpl = async (raw) => {
+      companionCalls.push(raw);
+      return { response: 'İbrahim Tatlıses 1952 doğumlu...', route: 'companion_gemini' };
+    };
+    // Parser eşleşmedi senaryosu (mock parser null döner) ama cümle müzik aksiyonu
+    M.sttQueue = ['ibrahim tatlısesten bir müzik açıver şöyle'];
+    await speakTurn();
+
+    expect(companionCalls).toHaveLength(0);              // Gemini biyografi ANLATMADI
+  });
+
+  it('müzik içermeyen serbest cümle companion\'a gitmeye devam eder', async () => {
+    const companionCalls: string[] = [];
+    M.companionImpl = async (raw) => {
+      companionCalls.push(raw);
+      return { response: 'Cevap.', route: 'companion_gemini' };
+    };
+    M.sttQueue = ['bugün biraz yorgunum'];
+    await speakTurn();
+    expect(companionCalls).toEqual(['bugün biraz yorgunum']);
+  });
+});
+
 /* ── 6. Geç cevap → "düşünüyorum" ara feedback'i ───────────── */
 
 describe('gecikme geri bildirimi (800ms eşiği)', () => {

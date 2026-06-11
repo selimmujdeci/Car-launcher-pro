@@ -35,6 +35,17 @@ export interface VoiceTuning {
    * Native clamp alt sınırı 5s'in üstünde kalmalı.
    */
   followUpListenMs: number;
+  /**
+   * Wake word pasif döngüsü kazancı — aktif dinlemeden AYRI: pasif modda
+   * kullanıcı mikrofona uzak/yan konuşur, daha yüksek kazanç gerekir.
+   * Tavan yine 4.0 (gürültü → yanlış tetikleme).
+   */
+  wakeGainX: number;
+  /**
+   * Wake word pasif dinleme penceresi (ms) — native clamp tavanı 20s.
+   * Uzun pencere = daha az oturum restart'ı = daha az sağır boşluk.
+   */
+  wakeListenMs: number;
   /** Mikrofon donanım ısınması — normal cihaz (ms). */
   warmupMs: number;
   /** Mikrofon donanım ısınması — düşük donanım/T507 (ms). */
@@ -52,9 +63,13 @@ export interface VoiceTuning {
 }
 
 export const VOICE_TUNING: VoiceTuning = {
-  nativeGainX:      2.5,
+  // 2.5 → 3.0 (2026-06-11 saha: "dediklerimi anlamıyor, hassaslaştır") —
+  // tavan 4.0'a hâlâ pay var; yanlış tetikleme artarsa 2.5'e dönülür.
+  nativeGainX:      3.0,
   maxListenMs:      12_000,
   followUpListenMs: 8_000,
+  wakeGainX:        3.2,
+  wakeListenMs:     20_000,
   warmupMs:         300,
   warmupLowEndMs:   500,
   listenFailsafeMs: 14_000,

@@ -149,6 +149,17 @@ export function normalizeWakeText(raw: string): string {
 const MIN_BARE_NAME_LEN = 3;
 
 /**
+ * Vosk Türkçe modeli "hey" İngilizce kelimesini güvenilir tanımaz —
+ * sahada "hey mavi" çoğu kez "ey mavi"/"hay mavi" olarak döner ve wake
+ * hiç tetiklenmezdi. "hey {ad}" varyantı bu eşdeğer öneklerle genişletilir.
+ */
+const HEY_EQUIVALENTS = ['hey', 'ey', 'hay', 'hei'] as const;
+
+function heyVariants(name: string): string[] {
+  return HEY_EQUIVALENTS.map((h) => `${h} ${name}`);
+}
+
+/**
  * Aktif wake sözlerini (normalize edilmiş) kimlikten türetir.
  * Asistan adı wake sisteminin MERKEZİ: ad değişince sözler otomatik değişir.
  * Güvenlik: ad sanitize'dan geçmiştir; çok kısa ad (<3) tek başına
@@ -156,22 +167,25 @@ const MIN_BARE_NAME_LEN = 3;
  */
 export function resolveWakeWords(identity: Pick<CompanionIdentity, 'assistantName' | 'wakeMode' | 'wakePhrase'>): string[] {
   const name = normalizeWakeText(identity.assistantName);
-  const heyName = name ? `hey ${name}` : '';
   const words: string[] = [];
 
   if (identity.wakeMode === 'custom') {
     const custom = normalizeWakeText(identity.wakePhrase);
-    // Özel cümle de çok kısaysa güvenli varsayılana düş (fail-soft)
-    if (custom.length >= MIN_BARE_NAME_LEN) return [custom];
-    return heyName ? [heyName] : [normalizeWakeText(DEFAULT_WAKE_PHRASE)];
+    if (custom.length >= MIN_BARE_NAME_LEN) {
+      // "hey ..." ile başlayan özel cümle de Vosk eşdeğerleriyle genişler
+      // (boş cümlenin fallback'i 'Hey Mavi' buradan geçer).
+      return custom.startsWith('hey ') ? heyVariants(custom.slice(4)) : [custom];
+    }
+    // Özel cümle çok kısaysa güvenli varsayılana düş (fail-soft)
+    return name ? heyVariants(name) : heyVariants(normalizeWakeText(DEFAULT_ASSISTANT_NAME));
   }
   if ((identity.wakeMode === 'name' || identity.wakeMode === 'both') && name.length >= MIN_BARE_NAME_LEN) {
     words.push(name);
   }
   if (identity.wakeMode === 'hey_name' || identity.wakeMode === 'both' || words.length === 0) {
-    if (heyName) words.push(heyName);
+    if (name) words.push(...heyVariants(name));
   }
-  return words.length > 0 ? words : [normalizeWakeText(DEFAULT_WAKE_PHRASE)];
+  return words.length > 0 ? words : heyVariants(normalizeWakeText(DEFAULT_ASSISTANT_NAME));
 }
 
 /**

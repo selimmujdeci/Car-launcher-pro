@@ -152,6 +152,9 @@ export interface SpeechRecognitionOptions {
   /** Vosk maksimum dinleme penceresi ms — native 5000–20000 clamp'ler (varsayılan 9000).
    *  Sessizlik endpoint'i konuşma bitince daha erken çözer; bu yalnız üst sınır. */
   maxListenMs?: number;
+  /** Dinlerken müzik kısılsın mı (varsayılan true). Wake word PASİF döngüsü
+   *  false geçer — sürekli %12 duck müziği dinlenemez hâle getiriyordu. */
+  duckWhileListening?: boolean;
 }
 
 export interface SpeechRecognitionResult {

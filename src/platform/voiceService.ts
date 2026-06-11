@@ -13,6 +13,7 @@ import { isNative } from './bridge';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import { looksLikeMusicActionRequest } from './musicCommandParser';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
 import { speakFeedback, registerTtsEndListener } from './ttsService';
@@ -620,8 +621,14 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // Companion kapalıyken bu blok null döner, eski zincir AYNEN işler.
   // P0 saha hatası: "nasılsın" araç komutuna düşüyor, "Araç verisi
   // alınamıyor" deniyordu.
+  // MÜZİK AKSİYON KAPISI: "İbrahim Tatlıses'ten müzik açar mısın" gibi parser'a
+  // takılmayan müzik İSTEKLERİ sohbet DEĞİLDİR — Gemini sanatçının hayatını
+  // anlatıyordu (saha 2026-06-11). Bu cümleler companion'ı atlar; zincir
+  // semantic NLP'ye (PLAY_MUSIC_SEARCH) ve yerel önerilere devam eder.
+  const skipCompanion = looksLikeMusicActionRequest(trimmed);
+
   let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
-  try {
+  if (!skipCompanion) try {
     const { tryCompanionChat } = await import('./companion/companionChatProvider');
     // Gemini'ye gidilecekse GECİKMELİ ara geri bildirim: cevap 800ms'yi aşarsa
     // "Düşünüyorum..." denir — 6 sn'ye varan ağ beklemesi sessiz geçmesin

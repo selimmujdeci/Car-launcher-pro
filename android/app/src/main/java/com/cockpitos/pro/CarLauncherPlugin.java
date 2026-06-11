@@ -243,6 +243,15 @@ public class CarLauncherPlugin extends Plugin {
                     ttsEngine.setLanguage(java.util.Locale.getDefault());
                     ttsReady = true;
                 }
+                // speak() Promise'i seslendirme BİTİNCE çözülür (eskiden anında çözülüyordu →
+                // JS "konuşma bitti" anını bilemiyordu: ducking TTS sürerken geri açılıyor,
+                // cevap-sonrası otomatik dinleme (takip modu) kurulamıyordu).
+                ttsEngine.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                    @Override public void onStart(String utteranceId) {}
+                    @Override public void onDone(String utteranceId)  { settleTtsCall(utteranceId); }
+                    @Override public void onError(String utteranceId) { settleTtsCall(utteranceId); }
+                    @Override public void onStop(String utteranceId, boolean interrupted) { settleTtsCall(utteranceId); }
+                });
             }
         });
 
@@ -283,6 +292,24 @@ public class CarLauncherPlugin extends Plugin {
     // ── TextToSpeech ──────────────────────────────────────────────────────────
     private android.speech.tts.TextToSpeech ttsEngine = null;
     private boolean ttsReady = false;
+    // Seslendirme bitiş takibi: utteranceId → bekleyen Capacitor çağrısı.
+    // QUEUE_FLUSH önceki utterance'ı keser → onStop ile o da çözülür (sızıntı yok).
+    private final java.util.concurrent.ConcurrentHashMap<String, PluginCall> ttsPendingCalls =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger ttsUtteranceSeq =
+        new java.util.concurrent.atomic.AtomicInteger();
+
+    /** TTS bitti/kesildi/hata — bekleyen speak() Promise'ini çöz. */
+    private void settleTtsCall(String utteranceId) {
+        if (utteranceId == null) return;
+        PluginCall c = ttsPendingCalls.remove(utteranceId);
+        if (c != null) c.resolve();
+    }
+
+    /** Tüm bekleyen speak() çağrılarını çöz (ttsStop / plugin destroy). */
+    private void settleAllTtsCalls() {
+        for (String id : ttsPendingCalls.keySet()) settleTtsCall(id);
+    }
 
     // ── Bluetooth connect/disconnect receiver ─────────────────────────────────
     private BroadcastReceiver btStateReceiver = null;
@@ -1377,6 +1404,10 @@ public class CarLauncherPlugin extends Plugin {
     private static final long  VOSK_MAX_LISTEN_MAX_MS     = 20000;
     private volatile float voskGain        = VOSK_GAIN_DEFAULT;
     private volatile long  voskMaxListenMs = VOSK_MAX_LISTEN_MS_DEFAULT;
+    // Wake word pasif döngüsü müziği KISMAMALI (sürekli %12 duck = müzik
+    // dinlenemez). JS duckWhileListening:false geçer; varsayılan true —
+    // aktif dinleme (push-to-talk) davranışı değişmez.
+    private volatile boolean voskDuckEnabled = true;
 
     // ── Dinlerken müzik kısma (audio ducking) ───────────────────────────────────
     // Mikrofona basınca müzik hoparlörden çalmaya devam ediyordu → (1) rahatsız edici,
@@ -1416,6 +1447,7 @@ public class CarLauncherPlugin extends Plugin {
         Integer maxMsOpt = call.getInt("maxListenMs");
         long reqMaxMs = maxMsOpt != null ? maxMsOpt.longValue() : VOSK_MAX_LISTEN_MS_DEFAULT;
         voskMaxListenMs = Math.max(VOSK_MAX_LISTEN_MIN_MS, Math.min(VOSK_MAX_LISTEN_MAX_MS, reqMaxMs));
+        voskDuckEnabled = !Boolean.FALSE.equals(call.getBoolean("duckWhileListening", Boolean.TRUE));
         // KATMAN 1 — Önce Vosk (offline, Google'sız, cihaz-içi). Model yüklenemez/başlatılamazsa
         // Google SpeechRecognizer'a (beginSpeechRecognition) düşülür — GMS'li cihazlarda yedek.
         startVoskRecognition(language, maxResults, preferOffline, onlineFallback);
@@ -1616,7 +1648,8 @@ public class CarLauncherPlugin extends Plugin {
         if (savedSpeechCall == null) return;
         stopVosk(); // önceki oturumu temizle (varsa eski thread'i durdur)
         voskCapturing = true;
-        duckMusicForListening(); // mikrofon dinlerken müziği kıs
+        // Wake word pasif döngüsü duckWhileListening:false geçer — müzik kısılmaz.
+        if (voskDuckEnabled) duckMusicForListening(); // mikrofon dinlerken müziği kıs
         final long startedAt = System.currentTimeMillis();
         // Oturum başında sabitle (thread görünürlüğü): bir sonraki çağrının opsiyonları
         // çalışan oturumu etkilemesin.
@@ -2650,13 +2683,21 @@ public class CarLauncherPlugin extends Plugin {
         if (text == null || text.trim().isEmpty()) { call.resolve(); return; }
         if (!ttsReady || ttsEngine == null) { call.reject("TTS_NOT_READY"); return; }
         ttsEngine.setSpeechRate(rate);
-        ttsEngine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "cockpitos_tts");
-        call.resolve();
+        // Promise seslendirme BİTİNCE çözülür (UtteranceProgressListener) — JS tarafı
+        // ducking restore + takip dinlemesini doğru ana bağlar. speak() kuyruğa
+        // alınamazsa anında çöz (asılı Promise bırakma).
+        String utteranceId = "cockpitos_tts_" + ttsUtteranceSeq.incrementAndGet();
+        ttsPendingCalls.put(utteranceId, call);
+        int queued = ttsEngine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+        if (queued != android.speech.tts.TextToSpeech.SUCCESS) {
+            settleTtsCall(utteranceId);
+        }
     }
 
     @PluginMethod
     public void ttsStop(PluginCall call) {
         if (ttsEngine != null && ttsReady) ttsEngine.stop();
+        settleAllTtsCalls(); // bekleyen speak() Promise'leri asılı kalmasın
         call.resolve();
     }
 
@@ -4007,6 +4048,7 @@ public class CarLauncherPlugin extends Plugin {
         }
         if (ttsEngine != null) { ttsEngine.stop(); ttsEngine.shutdown(); ttsEngine = null; }
         ttsReady = false;
+        settleAllTtsCalls();
         releaseLocalPlayer();
         canBusManager.stop();
         if (obdManager != null) obdManager.shutdown();

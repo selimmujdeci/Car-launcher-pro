@@ -23,6 +23,7 @@ import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { startListening, isVoicePaused, getVoiceSnapshot } from './voiceService';
 import { matchesWakeTranscript, normalizeWakeText } from './companion/companionIdentity';
+import { VOICE_TUNING } from './voiceTuning';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -37,6 +38,12 @@ export interface WakeWordState {
   companion:   boolean;
   lastTrigger: number | null;
   errorMsg:    string | null;
+  /**
+   * Saha teşhisi: pasif döngünün duyduğu son transcript'ler (en yeni başta,
+   * max 5). "Uyanmıyor" şikayetinde Vosk'un gerçekte NE duyduğu buradan
+   * görülür (chrome inspect / dev inspector).
+   */
+  lastHeard:   string[];
 }
 
 /* ── Legacy uyandırma kelimeleri ("hey car" sistemi) ─────── */
@@ -74,6 +81,7 @@ const INITIAL: WakeWordState = {
   companion:   false,
   lastTrigger: null,
   errorMsg:    null,
+  lastHeard:   [],
 };
 
 let _state: WakeWordState = { ...INITIAL };
@@ -143,14 +151,30 @@ function stopWebListening(): void {
 
 /* ── Native Android impl. ────────────────────────────────── */
 
-async function nativeLoop(): Promise<void> {
-  if (!_nativeLoopActive || !_state.enabled) return;
+/**
+ * Döngü jenerasyonu: ayar değişiminde (disable→enable) ESKİ döngü
+ * instance'ının in-flight promise'i çözülünce yeniden zincirlemesini keser —
+ * aksi hâlde iki paralel döngü native STT'yi karşılıklı iptal edip wake'i
+ * tamamen sağırlaştırıyordu.
+ */
+let _loopGen = 0;
+/** Ardışık gerçek hata sayısı — N kez üst üste hata = görünür 'error' durumu. */
+let _consecErrors = 0;
+const MAX_CONSEC_ERRORS = 5;
+
+function _pushHeard(transcript: string): void {
+  const lastHeard = [transcript, ..._state.lastHeard].slice(0, 5);
+  push({ lastHeard });
+}
+
+async function nativeLoop(gen: number): Promise<void> {
+  if (gen !== _loopGen || !_nativeLoopActive || !_state.enabled) return;
 
   // Aktif dinleme/işleme sürerken pasif döngü mikrofon AÇMAZ — voiceService
   // ile startSpeechRecognition çakışması (wake'in cevabı yutması) önlenir.
   const vs = getVoiceSnapshot().status;
   if (vs === 'listening' || vs === 'processing') {
-    setTimeout(() => { void nativeLoop(); }, 1500);
+    setTimeout(() => { void nativeLoop(gen); }, 1500);
     return;
   }
 
@@ -163,21 +187,42 @@ async function nativeLoop(): Promise<void> {
       onlineFallback: false, // wake word sürekli döngü → online'a düşme (ağ/pil); offline-only kalsın
       language:       'tr-TR',
       maxResults:     3,
+      // Pasif dinleme tuning'i: yüksek kazanç (uzaktan/yan konuşma) + uzun
+      // pencere (daha az restart = daha az sağır boşluk) + DUCK YOK (pasif
+      // bekleme müziği sürekli %12'ye kısıyordu — müzik dinlenemiyordu).
+      gain:              VOICE_TUNING.wakeGainX,
+      maxListenMs:       VOICE_TUNING.wakeListenMs,
+      duckWhileListening: false,
     });
 
-    if (!_nativeLoopActive || !_state.enabled) return;
+    if (gen !== _loopGen || !_nativeLoopActive || !_state.enabled) return;
+    _consecErrors = 0;
 
-    if (result.transcript && _matches(result.transcript)) {
-      onWakeWordDetected();
+    if (result.transcript) {
+      _pushHeard(result.transcript);
+      console.warn('[WakeWord] duyuldu:', JSON.stringify(result.transcript),
+        '→ eşleşme:', _matches(result.transcript));
+      if (_matches(result.transcript)) onWakeWordDetected();
     }
-    // Yeniden döngü
-    if (_nativeLoopActive && _state.enabled) {
-      setTimeout(() => { void nativeLoop(); }, 500);
+    // Yeniden döngü — kısa nefes (CPU'ya alan), sağır boşluk minimum
+    setTimeout(() => { void nativeLoop(gen); }, 300);
+  } catch (err) {
+    if (gen !== _loopGen || !_nativeLoopActive || !_state.enabled) return;
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    // Sessizlik/zaman aşımı HATA DEĞİL — normal döngü olayı: HEMEN yeniden
+    // dinle (eski 3 sn bekleme döngünün ~%25'ini sağır bırakıyordu).
+    if (/no.?speech|timeout|zaman aşımı|cancel|abort/i.test(msg)) {
+      _consecErrors = 0;
+      setTimeout(() => { void nativeLoop(gen); }, 250);
+      return;
     }
-  } catch {
-    if (_nativeLoopActive && _state.enabled) {
-      setTimeout(() => { void nativeLoop(); }, 3000);
+    // Gerçek hata (izin/model/donanım): logla, art arda 5'te görünür hata bas.
+    _consecErrors++;
+    console.warn(`[WakeWord] döngü hatası (${_consecErrors}/${MAX_CONSEC_ERRORS}):`, msg);
+    if (_consecErrors >= MAX_CONSEC_ERRORS && _state.status !== 'error') {
+      push({ status: 'error', errorMsg: msg || 'Wake word dinleme hatası' });
     }
+    setTimeout(() => { void nativeLoop(gen); }, 3000);
   }
 }
 
@@ -201,9 +246,11 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
     // NOT: pasif beklerken status 'idle' kalır — UI "Dinliyorum" GÖSTERMEZ;
     // görünür durum yalnız tetiklenme sonrası aktif dinlemede (voiceService).
     push({ enabled: true, wakeWords, companion, status: 'idle', errorMsg: null });
-    const wasActive = _nativeLoopActive;
     _nativeLoopActive = true;
-    if (!wasActive) void nativeLoop();   // ayar değişiminde ikinci paralel döngü açma
+    _consecErrors = 0;
+    // Jenerasyon artır: olası eski döngü instance'ı bir sonraki adımında ölür;
+    // yeni döngü tek başına çalışır (paralel döngü = karşılıklı STT iptali).
+    void nativeLoop(++_loopGen);
   } else {
     // Web: sürekli dinleme yok — push-to-talk yeterli
     // Wake word toggle ayarları kayıt altında kalır ama web'de mikrofon açılmaz
@@ -213,6 +260,7 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
 
 export function disableWakeWord(): void {
   _nativeLoopActive = false;
+  _loopGen++; // in-flight döngü adımı uyanınca kendini sonlandırır
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   push({ enabled: false, status: 'disabled' });
   stopWebListening();
@@ -227,6 +275,8 @@ export function getWakeWordState(): WakeWordState { return _state; }
 /** @internal — testler arası izolasyon. */
 export function _resetWakeWordForTest(): void {
   _nativeLoopActive = false;
+  _loopGen++;
+  _consecErrors = 0;
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   clearRestartTimer();
   _greetCounter = 0;
@@ -237,6 +287,7 @@ export function _resetWakeWordForTest(): void {
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _nativeLoopActive = false;                                      // nativeLoop döngüsünü kes
+    _loopGen++;
     if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
     stopWebListening();                                             // SpeechRecognition.abort() + _restartTimer iptal
     _listeners.clear();                                            // stale React setState callback'leri temizle

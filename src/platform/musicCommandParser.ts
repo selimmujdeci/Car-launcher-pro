@@ -176,17 +176,48 @@ function inferQueryType(query: string, raw: string): MusicQueryType {
 // Türkçe müzik fiilleri (normalize edilmiş)
 const PLAY_VERBS = [
   'caliiver', 'caliver', 'cal', 'oynat', 'oynat', 'calsin', 'ac', 'dinle',
-  'baslat', 'goster', 'yukle',
+  'baslat', 'goster', 'yukle', 'koy',
 ];
 
-// Fiil çekim ekleriyle biten pattern (hem aksan'lı hem aksan'sız form — "aç"/"ac", "çal"/"cal" vb.)
-const VERB_SUFFIX = /\s+(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle|başlat|baslat|göster|goster|yükle|yukle|çalsın|calsin)(?:\s+bana)?$/i;
+/* Saha hatası (2026-06-11): "İbrahim Tatlıses'ten müzik açar mısın" gibi
+ * ÇEKİMLİ fiiller eşleşmiyordu → cümle companion sohbetine düşüp Gemini
+ * sanatçının HAYATINI anlatıyordu. Çekim aileleri:
+ *   aç / açar mısın / açabilir misin / açsana (+ cal/koy/oynat/dinle aynı)
+ * Soru eki tüm ünlü uyumları: mısın/misin/musun/müsün (+ "mi sin" boşluklu ASR).
+ * Sondaki nezaket kelimeleri (bana/lütfen/hadi/bi/bir) yutulur. */
+const POLITE_TAIL = String.raw`(?:\s+(?:bana|bize|lütfen|lutfen|hadi|haydi|bi|bir))*`;
+const Q_SUFFIX    = String.raw`(?:\s*m[ıiuü]\s*s[ıiuü]n(?:[ıiuü]z)?)`; // "mısın"/"mı sın"/"mısınız"
 
-// GÜÇLÜ müzik fiilleri — tek başlarına kesin müzik niyeti taşır (çal/oynat/çalsın/dinle).
+// Fiil gövdeleri (aksanlı + aksansız) → çekim kombinasyonları tek pattern'de
+const VERB_CORE = String.raw`(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle[t]?|başlat|baslat|göster|goster|yükle|yukle|koy)`;
+const VERB_FORMS = String.raw`(?:` +
+  VERB_CORE + String.raw`(?:sana|s[ıi]n)?` +                       // aç / açsana / çalsın
+  String.raw`|` + VERB_CORE + String.raw`[aıe]r` + Q_SUFFIX +      // açar mısın / çalar mısın / koyar musun
+  String.raw`|` + VERB_CORE + String.raw`abil[ıi]r` + Q_SUFFIX +   // açabilir misin / çalabilir misin
+  String.raw`|` + VERB_CORE + String.raw`[ıi]r` + Q_SUFFIX +       // dinletir misin / gösterir misin
+  String.raw`)`;
+
+// Fiil çekim ekleriyle biten pattern (hem aksan'lı hem aksan'sız form)
+const VERB_SUFFIX = new RegExp(String.raw`\s+` + VERB_FORMS + POLITE_TAIL + String.raw`$`, 'i');
+
+// GÜÇLÜ müzik fiilleri — tek başlarına kesin müzik niyeti taşır (çal/oynat/koy/dinle).
 // ZAYIF/genel fiiller (aç/başlat/göster/yükle) bunun DIŞINDA: "aç" = Türkçe "open",
 // "perdeyi aç"/"X göster" veya Vosk'un yanlış duyduğu cümleler müzik AÇMASIN diye
 // zayıf fiil için ayrıca müzik bağlamı (kaynak adı VEYA müzik kelimesi) aranır.
-const STRONG_VERB_SUFFIX = /\s+(?:çal(?:ıver)?|cal(?:iver)?|oynat|dinle|çalsın|calsin)(?:\s+bana)?$/i;
+const STRONG_CORE = String.raw`(?:çal(?:ıver)?|cal(?:iver)?|oynat|dinle[t]?|koy)`;
+const STRONG_VERB_SUFFIX = new RegExp(
+  String.raw`\s+(?:` +
+  STRONG_CORE + String.raw`(?:sana|s[ıi]n)?` +
+  String.raw`|` + STRONG_CORE + String.raw`[aıe]r` + Q_SUFFIX +
+  String.raw`|` + STRONG_CORE + String.raw`abil[ıi]r` + Q_SUFFIX +
+  String.raw`|` + STRONG_CORE + String.raw`[ıi]r` + Q_SUFFIX +
+  String.raw`)` + POLITE_TAIL + String.raw`$`, 'i');
+
+/* Fiilsiz ama NET müzik istekleri:
+ *  - "<sanatçı>'ten müzik" / "tatlısesten şarkı" (ablatif + müzik kelimesi)
+ *  - "<sanatçı> şarkıları(nı)" / "<sanatçı> şarkısı" (iyelik çoğul) */
+const ABLATIVE_MUSIC  = /['']?(?:dan|den|tan|ten)\s+(?:müzik|muzik|şarkı|sarki|parça|parca)/i;
+const VERBLESS_ARTIST = /\S\s+\S*(?:şarkıları(?:nı)?|sarkilari(?:ni)?|şarkısı(?:nı)?|sarkisi(?:ni)?|müzikleri(?:ni)?|muzikleri(?:ni)?)$/i;
 
 // Açık müzik bağlam kelimesi — zayıf fiilli komutun gerçekten müzik olduğunu doğrular.
 const MUSIC_CONTEXT_WORD = /(?:müzik|muzik|şarkı|sarki|parça|parca|playlist|çalma\s*list|albüm|albume?|album|karışık|karisik|favori)/i;
@@ -238,7 +269,7 @@ const NON_MUSIC_TARGETS = new Set([
 
 // Tek başına kalan fiil — öncesinde boşluk olmaksızın tam eşleşme.
 // Kaynak çıkarımından sonra queryRaw="aç" gibi kalıntı fiilin temizlenmesi için.
-const STANDALONE_VERB = /^(?:çal(?:ıver)?|cal(?:iver)?|oynat|aç|ac|dinle|başlat|baslat|göster|goster|yükle|yukle|çalsın|calsin)(?:\s+bana)?$/i;
+const STANDALONE_VERB = new RegExp(String.raw`^` + VERB_FORMS + POLITE_TAIL + String.raw`$`, 'i');
 
 function cleanQuery(q: string): string {
   let r = q
@@ -250,10 +281,13 @@ function cleanQuery(q: string): string {
 
   // "<sanatçı>'ten müzik aç" kalıbı: VERB_SUFFIX " aç"ı attıktan sonra geriye
   // "İbrahim Tatlıses'ten müzik" kalır. Sondaki jenerik kelimeyi ("müzik/şarkı/
-  // parça") ve ardından sanatçıdaki Türkçe ablatif eki ('ten/'den/'tan/'dan)
-  // temizle ki arama sorgusu sade sanatçı adı olsun → tüm kaynaklarda bulunur.
-  const hadMusicWord = /\s+(?:müziği?|şarkı(?:yı|sı)?|parça(?:yı|sı)?|parçası)$/i.test(r);
-  r = r.replace(/\s+(?:müziği?|şarkı(?:yı|sı)?|parça(?:yı|sı)?|parçası)$/i, '').trim();
+  // parça" + çoğul/iyelik biçimleri: "şarkıları", "müziklerini") ve ardından
+  // sanatçıdaki Türkçe ablatif eki ('ten/'den/'tan/'dan) temizle ki arama
+  // sorgusu sade sanatçı adı olsun → tüm kaynaklarda bulunur.
+  const TRAILING_MUSIC_WORD =
+    /\s+(?:müzik(?:leri(?:ni)?|i)?|muzik(?:leri(?:ni)?|i)?|şarkı(?:yı|sı(?:nı)?|ları(?:nı)?)?|sarki(?:yi|si(?:ni)?|lari(?:ni)?)?|parça(?:yı|sı(?:nı)?)?|parca(?:yi|si(?:ni)?)?)$/i;
+  const hadMusicWord = TRAILING_MUSIC_WORD.test(r);
+  r = r.replace(TRAILING_MUSIC_WORD, '').trim();
   // Apostroflu ek her zaman güvenle silinir ("Tatlıses'ten" → "Tatlıses").
   r = r.replace(/['']\s*(?:dan|den|tan|ten|da|de|ta|te)$/i, '').trim();
   // Apostrofsuz ek yalnızca "X müzik/şarkı" kalıbı kesinleştiyse silinir
@@ -264,6 +298,26 @@ function cleanQuery(q: string): string {
 }
 
 /* ── Public API ──────────────────────────────────────────── */
+
+/**
+ * Müzik AKSİYONU istenen ama parser'ın yapılandıramadığı cümleler için
+ * sezgi (companion sohbet kapısı): müzik bağlam kelimesi + aksiyon fiili
+ * birlikteyse cümle SOHBET DEĞİLDİR — Gemini'nin sanatçının hayatını
+ * anlatması yerine zincir komut/semantic yoluna devam etmelidir
+ * (saha hatası 2026-06-11: "İbrahim Tatlıses'ten müzik aç" → biyografi).
+ * Soru cümleleri ("bu şarkı kimin") sohbete gitmeye devam eder.
+ */
+export function looksLikeMusicActionRequest(raw: string): boolean {
+  const t = raw.trim();
+  if (!t) return false;
+  if (!MUSIC_CONTEXT_WORD.test(t)) return false;
+  if (/^(?:bu|şu|su|o|kim|kimin|ne|neyin|hangi|kaç|kac)\b/i.test(t)) return false;
+  const n = normalizeForDetection(t);
+  // Fiil kökü + kontrollü ek seti: aç/açar/açsana/açabilir/açıver...
+  // ('calisma' gibi kelimeler eşleşmez — ek seti sınırlı).
+  return /(?:^|\s)(?:ac|cal|koy|oynat|baslat|dinle|dinlet)(?:ar|er|ir|iver|sana|sin|abilir|ebilir|tir)?(?:\s|$)/.test(n)
+    || ABLATIVE_MUSIC.test(t);
+}
 
 /**
  * Verilen ham metni müzik komutuna parse etmeyi dener.
@@ -291,8 +345,14 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
   }
 
   /* ── 2. Müzik fiili var mı? ───────────────────── */
+  // Fiilsiz net istekler: "tatlıses'ten müzik" (ablatif) · "tarkan şarkıları"
+  // (iyelik) — soru cümleleri HARİÇ ("bu kimin şarkısı" müzik araması değil).
+  const verblessMusic =
+    (ABLATIVE_MUSIC.test(trimmed) || VERBLESS_ARTIST.test(trimmed)) &&
+    !/^(?:bu|şu|su|o|kim|kimin|ne|neyin|hangi|kaç|kac)\b/i.test(trimmed);
   const hasVerb = VERB_SUFFIX.test(trimmed) ||
-    PLAY_VERBS.some(v => normalized.endsWith(' ' + v) || normalized === v);
+    PLAY_VERBS.some(v => normalized.endsWith(' ' + v) || normalized === v) ||
+    verblessMusic;
 
   // Kaynak adı var mı? (verb olmadan da kaynak tek başına komut olabilir)
   const sourceResult = detectSource(normalized, trimmed);

@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseCommandFull, parseCommand } from '../platform/commandParser';
+import { tryParseMusicCommand } from '../platform/musicCommandParser';
 
 describe('parseCommandFull — exact match', () => {
   it('"eve git" → navigate_home', () => {
@@ -144,6 +145,50 @@ describe('parseCommandFull — müzik PRECISION (yanlış müzik açmasın)', ()
 
   it('"ayarları aç" → open_settings (müzik değil)', () => {
     expect(parseCommandFull('ayarları aç').command?.type).toBe('open_settings');
+  });
+});
+
+/* ── Regresyon: çekimli müzik istekleri (saha 2026-06-11) ─────
+ * "İbrahim Tatlıses'ten müzik açar mısın" parser'a takılmıyor, companion
+ * sohbetine düşüyor, Gemini sanatçının HAYATINI anlatıyordu. Çekimli
+ * fiiller (açar mısın/çalsana/koy), fiilsiz net istekler ("X'ten müzik",
+ * "X şarkıları") artık play_music_query üretir. */
+
+describe('regresyon — çekimli/fiilsiz müzik istekleri komut yolunda kalır', () => {
+  it.each([
+    'İbrahim Tatlıses\'ten müzik aç',
+    'İbrahim Tatlıses\'ten müzik açar mısın',
+    'ibrahim tatlısesten müzik açar mısın',     // Vosk: apostrofsuz/küçük
+    'Tarkan çalar mısın',
+    'Müslüm Gürses çalsana',
+    'Sezen Aksu\'dan şarkı koy',
+    'Tarkan\'dan müzik açabilir misin',
+  ])('"%s" → play_music_query (≥0.7, companion\'a düşmez)', (input) => {
+    const r = parseCommandFull(input);
+    expect(r.command?.type).toBe('play_music_query');
+    expect(r.command!.confidence).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('sorgu sade sanatçı adına iner: "İbrahim Tatlıses\'ten müzik açar mısın"', () => {
+    const r = parseCommandFull("İbrahim Tatlıses'ten müzik açar mısın");
+    expect((r.command?.extra as Record<string, string>).query).toBe('İbrahim Tatlıses');
+  });
+
+  it('fiilsiz net istek: "tarkan şarkıları" / "tatlısesten müzik" → play_music_query', () => {
+    expect(parseCommandFull('tarkan şarkıları').command?.type).toBe('play_music_query');
+    expect(parseCommandFull('tatlısesten müzik').command?.type).toBe('play_music_query');
+  });
+
+  it('soru cümlesi fiilsiz-müzik yoluna girmez: "bu kimin şarkısı" → sorgu üretilmez', () => {
+    // Fiilsiz VERBLESS_ARTIST kalıbı soru başlangıçlarında devre dışı —
+    // "bu kimin" bir arama sorgusuna dönüşmemeli. (Eski skorlama yolunun
+    // genel davranışı kapsam dışı; burada yalnız YENİ yol kilitlenir.)
+    expect(tryParseMusicCommand('bu kimin şarkısı')).toBeNull();
+  });
+
+  it('PRECISION korunur: "perdeyi açar mısın" müzik değil', () => {
+    const r = parseCommandFull('perdeyi açar mısın');
+    expect(['play_music_query', 'play_music_search', 'open_music']).not.toContain(r.command?.type);
   });
 });
 

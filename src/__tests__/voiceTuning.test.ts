@@ -116,6 +116,13 @@ describe('VOICE_TUNING invariantları', () => {
     );
   });
 
+  it('wake tuning: kazanç 2.0-4.0 bandında, pencere native clamp (5-20s) içinde', () => {
+    expect(VOICE_TUNING.wakeGainX).toBeGreaterThanOrEqual(2.0);
+    expect(VOICE_TUNING.wakeGainX).toBeLessThanOrEqual(4.0);   // gürültü tavanı
+    expect(VOICE_TUNING.wakeListenMs).toBeGreaterThanOrEqual(5_000);
+    expect(VOICE_TUNING.wakeListenMs).toBeLessThanOrEqual(20_000);
+  });
+
   it('warmup değerleri makul: 0 < normal <= lowEnd <= 1000ms', () => {
     expect(VOICE_TUNING.warmupMs).toBeGreaterThan(0);
     expect(VOICE_TUNING.warmupLowEndMs).toBeGreaterThanOrEqual(VOICE_TUNING.warmupMs);
@@ -211,6 +218,11 @@ describe('CarLauncherPlugin.java sözleşmesi', () => {
   it('opsiyonsuz çağrı varsayılanları DEĞİŞMEDİ (wake word regresyonu yok)', () => {
     expect(src).toMatch(/VOSK_GAIN_DEFAULT\s*=\s*2\.0f/);
     expect(src).toMatch(/VOSK_MAX_LISTEN_MS_DEFAULT\s*=\s*9000/);
+  });
+
+  it('duckWhileListening opsiyonu okunuyor ve duck koşullu (wake pasif döngüsü müziği kısmaz)', () => {
+    expect(src).toMatch(/call\.getBoolean\("duckWhileListening",\s*Boolean\.TRUE\)/);
+    expect(src).toMatch(/if \(voskDuckEnabled\) duckMusicForListening\(\)/);
   });
 
   it('donanım efektleri (AGC + NoiseSuppressor + AEC) hâlâ etkin', () => {
