@@ -8,7 +8,27 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `63c558b`; 2026-06-11 yakın mikrofon clipping fix)
+- **Aktif branch:** `main` (HEAD `3a25bbd`; 2026-06-11 Siri mantığı birleşik beyin)
+
+## Siri Mantığı — Birleşik Asistan Beyni (2026-06-11, `3a25bbd` — CİHAZ DOĞRULAMASI BEKLİYOR)
+
+Kullanıcı isteği: "Siri mantığında yap". Yeni akış: yerel parser yalnız NET
+komutlar (≥0.7) için hız katmanı; gerisi `tryCompanionBrain` — TEK Gemini
+çağrısı komut/sohbet kararını verir (JSON: action|chat), bozuk ASR özel
+isimlerini düzeltir ("leyla türk"→"Leyla Göktürk").
+- ACTION → `fromSemanticResult` → AI handler zinciri (sohbet döngüsü yok);
+  CHAT → TTS + takip dinlemesi. Aksiyon turları RAM geçmişine girer
+  ("onu da çal" bağlamı). Offline: eski fallback zinciri aynen; müzik kapısı
+  yalnız offline'da (online'da beyin müziği yapısal ACTION yapar).
+- `repairMusicQuery`: yerel yakalanan play_music_query online'ken ≤1.8s
+  Gemini isim onarımından geçer (fail-soft; searchUri+feedback güncellenir).
+- **BUG FIX** `intentEngine.fromSemanticResult`: PLAY_MUSIC_SEARCH query
+  payload'a hiç yazılmıyordu → semantic müzik araması yalnız uygulama
+  açıyordu; `searchQuery` artık köprüleniyor.
+Test +9 → suite **1178/1178** · build 58s · lint 0.
+**Cihazda doğrulanacak:** internetli ortamda "Leyla Göktürk'ten müzik çal"
+(bozuk ASR ile bile doğru isme onarım), serbest cümle komutları ("canım X
+dinlemek istiyor"), sohbet sürekliliği; Gemini gecikme hissi (800ms feedback).
 
 ## Yakın Mikrofon Clipping Fix (2026-06-11, `63c558b` — CİHAZ DOĞRULAMASI BEKLİYOR)
 
