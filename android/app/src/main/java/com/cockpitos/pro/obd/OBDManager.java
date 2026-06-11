@@ -208,10 +208,15 @@ public final class OBDManager {
                 // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
                 // (ör. 012F yakıt desteklenmeyen araçta cycle başına 1500ms kazandırır).
                 Set<String> pidSet = obdPidSet;
-                int speed      = shouldQuery(pidSet, "0D") ? readPID_speed() : -1;
-                int rpm        = shouldQuery(pidSet, "0C") ? readPID_rpm()   : -1;
-                int engineTemp = shouldQuery(pidSet, "05") ? readPID_temp()  : -1;
-                int fuelLevel  = shouldQuery(pidSet, "2F") ? readPID_fuel()  : -1;
+                int speed, rpm, engineTemp, fuelLevel;
+                // elmLock: DTC okuma/silme (plugin thread'i) ile PID polling aynı
+                // RFCOMM stream'ini paylaşır — komutlar ASLA iç içe geçmemeli.
+                synchronized (elmLock) {
+                    speed      = shouldQuery(pidSet, "0D") ? readPID_speed() : -1;
+                    rpm        = shouldQuery(pidSet, "0C") ? readPID_rpm()   : -1;
+                    engineTemp = shouldQuery(pidSet, "05") ? readPID_temp()  : -1;
+                    fuelLevel  = shouldQuery(pidSet, "2F") ? readPID_fuel()  : -1;
+                }
 
                 // Veriyi köprü katmanına bildir — JSObject/notifyListeners/SAB Plugin'de.
                 listener.onObdData(speed, rpm, engineTemp, fuelLevel);
@@ -242,6 +247,31 @@ public final class OBDManager {
     public void shutdown() {
         disconnect();
         obdExecutor.shutdownNow();
+    }
+
+    // ── DTC API (plugin thread'inden çağrılır) ───────────────────────────────
+
+    /** Polling ile aynı stream'i paylaşan komutların serileştirme kilidi. */
+    private final Object elmLock = new Object();
+
+    /** Aktif ELM bağlantısı var mı (plugin'in transport seçimi için). */
+    public boolean isConnected() { return obdRunning; }
+
+    /**
+     * Kayıtlı arıza kodlarını okur (Mode 03). Polling döngüsüyle elmLock
+     * üzerinden serileşir — en kötü ihtimal bir poll turu (~6 sn) bekler.
+     */
+    public java.util.List<String> readDTCs() throws Exception {
+        ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        synchronized (elmLock) { return p.readDTCs(); }
+    }
+
+    /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. */
+    public boolean clearDTCs() throws Exception {
+        ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        synchronized (elmLock) { return p.clearDTCs(); }
     }
 
     // ── PID readers (ElmProtocol'e delege — davranış birebir korunur) ────────

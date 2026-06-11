@@ -1167,6 +1167,57 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve();
     }
 
+    // ── DTC (Mode 03 / 04) ──────────────────────────────────────────────────
+    // dtcService.ts bu metotları çağırır. Eskiden native implementasyon HİÇ
+    // YOKTU → her tarama "method not implemented" reject → UI her zaman
+    // "OBD okuyucu yanıt vermiyor" gösteriyordu (saha hatası 2026-06-11).
+
+    /** Aktif transport üzerinden DTC okur; hiçbiri bağlı değilse IOException. */
+    private java.util.List<String> dtcReadFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDTCs();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDTCs();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    private boolean dtcClearFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.clearDTCs();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.clearDTCs();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    @PluginMethod
+    public void readDTC(PluginCall call) {
+        // Ayrı thread: elmLock'ta bir poll turu beklenebilir (~6sn) + Mode 03
+        // (~4sn) — Capacitor plugin handler'ı bloklanırsa TTS/diğer çağrılar takılır.
+        new Thread(() -> {
+            try {
+                java.util.List<String> codes = dtcReadFromActive();
+                JSArray arr = new JSArray();
+                for (String c : codes) arr.put(c);
+                JSObject ret = new JSObject();
+                ret.put("codes", arr);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "DTC okunamadı";
+                mainHandler.post(() -> call.reject("DTC_READ_FAILED", msg));
+            }
+        }, "obd-dtc-read").start();
+    }
+
+    @PluginMethod
+    public void clearDTC(PluginCall call) {
+        new Thread(() -> {
+            try {
+                boolean ok = dtcClearFromActive();
+                if (ok) mainHandler.post(call::resolve);
+                else    mainHandler.post(() -> call.reject("DTC_CLEAR_FAILED", "ECU silme onayı vermedi"));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "DTC silinemedi";
+                mainHandler.post(() -> call.reject("DTC_CLEAR_FAILED", msg));
+            }
+        }, "obd-dtc-clear").start();
+    }
+
     // ── OBD internals ───────────────────────────────────────────────────────
 
     /**

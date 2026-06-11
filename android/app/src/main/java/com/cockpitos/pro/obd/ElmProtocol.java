@@ -94,4 +94,101 @@ public final class ElmProtocol {
         } catch (Exception ignored) {}
         return -1;
     }
+
+    // ── DTC (SAE J1979 Mode 03 / 04) ────────────────────────────────────────
+
+    /**
+     * Kayıtlı arıza kodlarını okur (Mode 03).
+     *
+     * @return P/B/C/U formatında kod listesi; araçta kod yoksa BOŞ liste
+     *         ("NO DATA" da boş liste sayılır — bazı ECU'lar kod yokken yanıt vermez).
+     * @throws IOException adaptör/iletişim hatası (ELM "ERROR", bağlantı kopması).
+     */
+    public java.util.List<String> readDTCs() throws IOException {
+        try {
+            // Mode 03 yanıtı çok-çerçeveli olabilir (3+ kod, ISO-TP) → geniş timeout.
+            return parseDtcResponse(channel.send("03", 4000));
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Arıza kodlarını ve freeze-frame verisini siler (Mode 04).
+     * @return true → ECU "44" onayı döndü; false → onay yok (silinmemiş sayılır).
+     */
+    public boolean clearDTCs() throws IOException {
+        try {
+            String r = channel.send("04", 4000).replaceAll("\\s+", "").toUpperCase();
+            return r.contains("44");
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Ham Mode 03 yanıtını DTC listesine çevirir.
+     *
+     * Desteklenen biçimler (ATE0 + ATH0 varsayımı):
+     *  - CAN (ISO 15765-4): "43 02 01 71 04 20" — 43'ten sonra 1 SAYAÇ baytı +
+     *    kod çiftleri → 43 sonrası bayt sayısı TEK olur, ilk bayt atılır.
+     *  - K-line (ISO 9141/14230): "43 01 71 00 00 00 00" — sayaç yok, çerçeve
+     *    başına 3 çift (sıfır dolgulu) → bayt sayısı ÇİFT olur.
+     *  - Çok-ECU: her ECU yanıtı ayrı satırda ayrı "43" bloğu.
+     *  - ISO-TP uzun yanıt: "0:", "1:" segment önekli satırlar → birleştirilir.
+     *
+     * "NO DATA" → boş liste (kod yok). "ERROR"/"UNABLE TO CONNECT"/"STOPPED"
+     * → IOException (adaptör/araç iletişim sorunu — boş listeyle KARIŞTIRILMAZ).
+     */
+    static java.util.List<String> parseDtcResponse(String raw) throws IOException {
+        java.util.LinkedHashSet<String> codes = new java.util.LinkedHashSet<>();
+        if (raw == null) throw new IOException("ELM327 yanıt vermedi");
+
+        String compact = raw.replaceAll("\\s+", "").toUpperCase();
+        if (compact.isEmpty())               throw new IOException("ELM327 yanıt vermedi");
+        if (compact.contains("NODATA"))      return new java.util.ArrayList<>(codes); // kod yok
+        if (compact.contains("UNABLETOCONNECT") || compact.contains("CANERROR")
+            || compact.contains("BUSERROR")  || compact.contains("STOPPED")
+            || compact.contains("ERROR")     || compact.equals("?"))
+            throw new IOException("ELM327 hata yanıtı: " + raw.trim());
+
+        // ISO-TP segment önekli satırları ("0:", "1:"...) tek hex gövdede birleştir;
+        // diğer satırlar (ECU başına tek çerçeve) bağımsız işlenir.
+        StringBuilder segmented = new StringBuilder();
+        java.util.List<String> bodies = new java.util.ArrayList<>();
+        for (String line : raw.toUpperCase().split("\n")) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            if (t.matches("^[0-9A-F]{1,2}:.*")) {
+                segmented.append(t.substring(t.indexOf(':') + 1).replaceAll("[^0-9A-F]", ""));
+            } else {
+                String hex = t.replaceAll("[^0-9A-F]", "");
+                if (!hex.isEmpty()) bodies.add(hex);
+            }
+        }
+        if (segmented.length() > 0) bodies.add(segmented.toString());
+
+        for (String hex : bodies) {
+            int idx = hex.startsWith("43") ? 0 : hex.indexOf("43");
+            if (idx < 0) continue;
+            String payload = hex.substring(idx + 2);
+            if (payload.length() % 2 == 1) payload = payload.substring(0, payload.length() - 1);
+            // CAN sayaç baytı: 43 sonrası bayt sayısı tekse ilk bayt sayaçtır → at.
+            if ((payload.length() / 2) % 2 == 1) payload = payload.substring(2);
+
+            for (int i = 0; i + 4 <= payload.length(); i += 4) {
+                String pair = payload.substring(i, i + 4);
+                if (pair.equals("0000")) continue; // K-line sıfır dolgusu
+                int b1 = Integer.parseInt(pair.substring(0, 2), 16);
+                char letter = "PCBU".charAt((b1 >> 6) & 0x03);
+                codes.add(String.format("%c%d%X%s",
+                    letter, (b1 >> 4) & 0x03, b1 & 0x0F, pair.substring(2)));
+            }
+        }
+        return new java.util.ArrayList<>(codes);
+    }
 }

@@ -245,10 +245,15 @@ public final class BleObdManager {
         while (obdRunning && gatt != null) {
             try {
                 Set<String> pidSet = obdPidSet;
-                int speed      = shouldQuery(pidSet, "0D") ? elm.readPID_speed() : -1;
-                int rpm        = shouldQuery(pidSet, "0C") ? elm.readPID_rpm()   : -1;
-                int engineTemp = shouldQuery(pidSet, "05") ? elm.readPID_temp()  : -1;
-                int fuelLevel  = shouldQuery(pidSet, "2F") ? elm.readPID_fuel()  : -1;
+                int speed, rpm, engineTemp, fuelLevel;
+                // elmLock: DTC okuma/silme (plugin thread'i) ile PID polling aynı
+                // GATT kanalını paylaşır — send() tek-thread sözleşmesi korunur.
+                synchronized (elmLock) {
+                    speed      = shouldQuery(pidSet, "0D") ? elm.readPID_speed() : -1;
+                    rpm        = shouldQuery(pidSet, "0C") ? elm.readPID_rpm()   : -1;
+                    engineTemp = shouldQuery(pidSet, "05") ? elm.readPID_temp()  : -1;
+                    fuelLevel  = shouldQuery(pidSet, "2F") ? elm.readPID_fuel()  : -1;
+                }
 
                 listener.onObdData(speed, rpm, engineTemp, fuelLevel);
 
@@ -268,6 +273,31 @@ public final class BleObdManager {
     /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */
     private static boolean shouldQuery(Set<String> set, String pid) {
         return set == null || set.contains(pid);
+    }
+
+    // ── DTC API (plugin thread'inden çağrılır) ───────────────────────────────
+
+    /** Polling ile aynı GATT kanalını paylaşan komutların serileştirme kilidi. */
+    private final Object elmLock = new Object();
+
+    /** Aktif BLE ELM bağlantısı var mı (plugin'in transport seçimi için). */
+    public boolean isConnected() { return obdRunning; }
+
+    /**
+     * Kayıtlı arıza kodlarını okur (Mode 03). Polling döngüsüyle elmLock
+     * üzerinden serileşir — GattChannel.send tek-thread sözleşmesi bozulmaz.
+     */
+    public java.util.List<String> readDTCs() throws Exception {
+        ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        synchronized (elmLock) { return p.readDTCs(); }
+    }
+
+    /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. */
+    public boolean clearDTCs() throws Exception {
+        ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        synchronized (elmLock) { return p.clearDTCs(); }
     }
 
     // ── Characteristic seçimi (hibrit: bilinen UUID önce, sonra heuristik) ──────────

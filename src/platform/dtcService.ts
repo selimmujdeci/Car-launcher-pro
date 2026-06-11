@@ -182,14 +182,17 @@ export async function readDTCCodes(): Promise<void> {
         const result = await CarLauncher.readDTC();
         const codes = (result.codes ?? []).map(_lookupCode);
         _setState({ codes, isReading: false, lastReadAt: Date.now(), isStale: false });
-      } catch {
+      } catch (err) {
         // Fix 4: hata durumunda mevcut codes listesi korunur, isStale=true ile işaretlenir.
         // UI "hata okunamadı" ile "hata yok" arasındaki farkı isStale üzerinden ayırt eder.
+        // Native nedeni eklenir — "OBD bağlı değil" / "ELM327 hata yanıtı" ayrımı
+        // saha teşhisinde kritik (2026-06-11: metot hiç yoktu, hep generic mesajdı).
+        const detail = err instanceof Error && err.message ? ` — ${err.message}` : '';
         _setState({
           isReading: false,
           lastReadAt: Date.now(),
           isStale: true,
-          error: 'Arıza kodu okunamadı — OBD okuyucu yanıt vermiyor veya bu işlemi desteklemiyor',
+          error: `Arıza kodu okunamadı${detail || ' — OBD okuyucu yanıt vermiyor veya bu işlemi desteklemiyor'}`,
         });
       }
       return;
