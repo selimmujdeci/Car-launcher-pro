@@ -8,7 +8,20 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `03b7e83`; 2026-06-11 Companion AI-first Commit 3)
+- **Aktif branch:** `main` (HEAD `209046f`; 2026-06-11 DTC native fix)
+
+## DTC Tarama Düzeltmesi (2026-06-11, `209046f` — CİHAZ DOĞRULAMASI BEKLİYOR)
+
+Saha hatası (foto): OBD bağlı + canlı veri akarken Arıza Teşhisi "OBD okuyucu
+yanıt vermiyor". Kök neden: `CarLauncher.readDTC()/clearDTC()` native tarafta
+HİÇ YOKTU (yalnız TS arayüzü) → her tarama "method not implemented" reject.
+Düzeltme: ElmProtocol'e SAE J1979 Mode 03/04 (CAN sayaç baytı + K-line dolgu +
+çok-ECU + ISO-TP segment parse; NO DATA=boş liste ≠ ERROR=exception);
+OBDManager+BleObdManager'a `elmLock` (DTC ↔ 3sn PID polling aynı kanal,
+serileşir) + `isConnected()`; CarLauncherPlugin'e `readDTC`/`clearDTC`
+@PluginMethod (BLE öncelikli aktif transport, ayrı thread). dtcService artık
+native hata nedenini gösteriyor. Gradle compile + 1090 test + lint OK.
+**Cihazda doğrulanacak:** ELM327 + araçta gerçek Mode 03 (kod var/yok/çoklu).
 
 ## Sesli Komut Parser Hassasiyet Düzeltmesi (2026-06-11, `d55f8e2`)
 

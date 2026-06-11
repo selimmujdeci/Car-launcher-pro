@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `03b7e83`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `209046f`.
 
 ---
 
@@ -21,6 +21,10 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **DTC tarama düzeltmesi (2026-06-11, `209046f`):** Arıza Teşhisi "OBD okuyucu
+  yanıt vermiyor" — native `readDTC/clearDTC` hiç yoktu, her tarama reject'ti.
+  ElmProtocol Mode 03/04 + elmLock (polling ile serileşme) + plugin metotları.
+  Detay: PROJECT_STATE "DTC Tarama". **Cihazda doğrulanmadı.**
 - **Companion AI-FIRST Commit 3 (2026-06-11, `03b7e83`):** kullanıcı onaylı yön
   değişikliği — keyword sohbet ana yol değil. Companion açıkken komut olmayan
   her cümle önce Gemini'ye (kişilikli sohbet prompt'u); offline'a yalnız net/key
