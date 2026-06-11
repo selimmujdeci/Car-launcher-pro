@@ -234,8 +234,16 @@ describe('CarLauncherPlugin.java sözleşmesi', () => {
   it('oturum değerleri thread-güvenli sabitleniyor (sessionGain/sessionMaxMs)', () => {
     expect(src).toContain('final float sessionGain  = voskGain;');
     expect(src).toContain('final long  sessionMaxMs = voskMaxListenMs;');
-    // Döngü oturum kopyalarını kullanıyor, volatile alanı değil
-    expect(src).toMatch(/buf\[i\] \* sessionGain/);
     expect(src).toMatch(/startedAt > sessionMaxMs/);
+  });
+
+  it('ADAPTİF kazanç: tepe-farkındalıklı limiter var (yakın mikrofon clipping fix)', () => {
+    // Naif clamp dalga tepelerini kesiyordu → Vosk özel isimleri tanıyamıyordu.
+    // Sözleşme: headroom sabiti + tepe ölçümü + kazancın pencere başına düşmesi.
+    expect(src).toMatch(/VOSK_CLIP_HEADROOM\s*=\s*29000f/);
+    expect(src).toMatch(/if \(peak > 0 && peak \* g > VOSK_CLIP_HEADROOM\)/);
+    expect(src).toMatch(/Math\.max\(1\.0f,\s*VOSK_CLIP_HEADROOM \/ peak\)/);
+    expect(src).toMatch(/buf\[i\] \* g\)/);                 // döngü adaptif kazancı kullanıyor
+    expect(src).not.toMatch(/buf\[i\] \* sessionGain/);     // eski naif yol kalmadı
   });
 });

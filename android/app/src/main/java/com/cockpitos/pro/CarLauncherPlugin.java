@@ -1398,6 +1398,12 @@ public class CarLauncherPlugin extends Plugin {
     private static final float VOSK_GAIN_DEFAULT  = 2.0f;  // yazılım ses kazancı (clipping korumalı)
     private static final float VOSK_GAIN_MIN      = 1.0f;
     private static final float VOSK_GAIN_MAX      = 4.0f;  // gürültü tavanı
+    // Adaptif kazanç tepe sınırı (~%88 tam ölçek): kullanıcı mikrofonun DİBİNDE
+    // konuşunca yüksek giriş × kazanç naif clamp'le TEPEDEN KESİLİYORDU (kare
+    // dalga distorsiyonu) → Vosk özel isimleri tanıyamıyordu ("Göktürk"→"Türk"
+    // ya da isim komple düşüyor — saha 2026-06-11). Tepe bu sınırı aşacaksa
+    // kazanç o pencere için otomatik düşürülür; uzak/alçak seste tam kazanç sürer.
+    private static final float VOSK_CLIP_HEADROOM = 29000f;
     private static final int   VOSK_SAMPLE_RATE   = 16000;
     private static final long  VOSK_MAX_LISTEN_MS_DEFAULT = 9000; // sessizlik endpoint'i daha erken çözer
     private static final long  VOSK_MAX_LISTEN_MIN_MS     = 5000;
@@ -1700,11 +1706,23 @@ public class CarLauncherPlugin extends Plugin {
                         if (System.currentTimeMillis() - startedAt > sessionMaxMs) break;
                         continue;
                     }
-                    // Yazılım kazancı + clipping koruması + RMS (UI ses göstergesi)
+                    // ADAPTİF yazılım kazancı: pencere tepesine göre kazanç sınırlanır —
+                    // naif clamp dalgayı tepeden kesip distorsiyon yaratıyordu (yakın
+                    // mikrofonda özel isimler tanınmıyordu). Tepe × kazanç headroom'u
+                    // aşacaksa kazanç o pencere için düşer (en az 1.0 — sinyal asla kısılmaz).
+                    int peak = 0;
+                    for (int i = 0; i < n; i++) {
+                        int a = buf[i] >= 0 ? buf[i] : -buf[i];
+                        if (a > peak) peak = a;
+                    }
+                    float g = sessionGain;
+                    if (peak > 0 && peak * g > VOSK_CLIP_HEADROOM) {
+                        g = Math.max(1.0f, VOSK_CLIP_HEADROOM / peak);
+                    }
                     double sumSq = 0;
                     for (int i = 0; i < n; i++) {
-                        int v = Math.round(buf[i] * sessionGain);
-                        if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+                        int v = Math.round(buf[i] * g);
+                        if (v > 32767) v = 32767; else if (v < -32768) v = -32768; // emniyet
                         buf[i] = (short) v;
                         sumSq += (double) v * v;
                     }
