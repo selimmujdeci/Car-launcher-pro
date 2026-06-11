@@ -8,7 +8,20 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `3a25bbd`; 2026-06-11 Siri mantığı birleşik beyin)
+- **Aktif branch:** `main` (HEAD `51aa03a`; 2026-06-11 Faz 1 Ruh ve Kimlik)
+
+## Companion Faz 1 — Ruh ve Kimlik (2026-06-11, `51aa03a`)
+
+`buildCompanionSystemPrompt` yeniden tasarlandı (sohbet + beyin aynı persona
+katmanı): şive duyarlılığı (kelimeye değil NİYETE odak; "anlamadım" yasak) ·
+robotik kalıp yasağı ("Tamam, hallettim." doğal tepkiler) · sürüşte kısa-öz-
+samimi · tehlikeli istekler DOST TAVSİYESİYLE reddedilir · kişilik tonu
+kullanıcı seçimine saygılı (profesyonelde argo yok). BRAIN_INTENTS +=
+CYCLE_THEME/ENABLE_NIGHT_MODE (ASR bozuk "tema değiştir" beyin devralır).
+Injection guard değişmedi (yalnız ad/hitap alanına uygulanır — doğrulandı).
+Test +3 → **1181/1181**. Saha notu: "tema değiştir" temiz transcript'te
+zaten exact theme_cycle (1.0) — saha hatası ASR bozulmasıydı; artık beyin
+yedeği var.
 
 ## Siri Mantığı — Birleşik Asistan Beyni (2026-06-11, `3a25bbd` — CİHAZ DOĞRULAMASI BEKLİYOR)
 
