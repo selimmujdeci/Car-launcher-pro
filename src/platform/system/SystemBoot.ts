@@ -59,6 +59,10 @@ import { showToast, dismissToast } from '../errorBus';
 import { healthMonitor }           from './SystemHealthMonitor';
 import { initCommunityService, stopCommunityService } from '../communityService';
 import { stopVoiceService }        from '../voiceService';
+import {
+  startCompanionEngine,
+  stopCompanionEngine,
+}                                  from '../companion/companionEngine';
 import { restoreNavigationAsync }  from '../navigationService';
 import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
 import { useCognitiveStore }       from '../../store/useCognitiveStore';
@@ -538,6 +542,13 @@ class SystemBoot {
     // VoiceService: modül-düzeyi singleton — cleanup'ı LIFO + namedCleanups'a kaydet
     _log('  › VoiceService (named cleanup)');
     this._regNamed('VoiceService', stopVoiceService);
+
+    // CompanionEngine: proaktif motor + uyku önleyici (Faz 4 — 60s PromptScheduler).
+    // Gate zinciri PROTECTION+ modlarda kendini susturur; LIMP_HOME'da ekstra
+    // kayda gerek yok. companionEnabled kapalıysa tick no-op (ayar runtime izlenir).
+    _log('  › CompanionEngine');
+    startCompanionEngine();
+    this._regNamed('CompanionEngine', stopCompanionEngine);
 
     // OTA güncelleme servisi: boot kontrolü + 6 saatlik poll (OTA v1 / Commit 6)
     _log('  › OtaUpdateService');

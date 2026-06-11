@@ -8,7 +8,31 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `a0a749d`+; 2026-06-11 Faz 3 Companion Brain — commit bekliyor)
+- **Aktif branch:** `main` (HEAD `33b61ec`+; 2026-06-11 Faz 4 Companion Engine — commit bekliyor)
+
+## Companion Faz 4 — Proaktif Motor + Uyku Önleyici (2026-06-11, working tree — COMMIT BEKLİYOR)
+
+YENİ `companionEngine.ts` (PromptScheduler, mimari §5) + SystemBoot Wave 4 kaydı
+(`CompanionEngine` named cleanup, VoiceService'ten sonra):
+- **60 sn tick döngüsü**, tetik önceliği: (1) yakıt menzili <50 km [GÜVENLİK,
+  medya çalarken bile, 15 dk cooldown] → (2) uyku önleme [gece + sürüş ≥30 dk +
+  ≥20 dk sessizlik → AÇIK UÇLU soru, deterministik rotasyon, 25 dk cooldown] →
+  (3) kontak/boot selamlaması [oturumda 1, ilk 5 dk penceresi, saat dilimine göre]
+  → (4) mola önerisi [interpretBreakNeed, 45 dk tekrar aralığı] → (5) yolculuk
+  yorumu [yalnız 'sik'].
+- **Frequency budget (mimari §5.2):** az=45dk · normal=20dk · sık=10dk; 'az' =
+  yalnız güvenlik tetikleri (+ tek seferlik selamlama — ürün kararı); güvenlik
+  tetikleri bütçeden bağımsız ama kendi cooldown'lu.
+- **Interaction Gate:** companionEnabled · personality≠'sessiz' (proaktif 0) ·
+  CognitiveMode<PROTECTION · !isVoicePaused · sesli oturum yok (status/followUp) ·
+  kendi TTS uçuşta değil · medya prominent ise yalnız tetik #1.
+- **Sessizlik tanımı:** tick örneklemesi (voice/media) + registerCommandHandler +
+  registerTtsEndListener anlık sıfırlar; tüm süreler performance.now monotonik.
+- **Proaktif konuşma Gemini'ye GİTMEZ** (mimari §2.8) — şablon + companionContext
+  yorumlayıcıları. Zero-leak: interval+abonelik+emniyet zamanlayıcısı cleanup'ta.
+Test +21 (`companionEngine.test.ts`) → suite **1206/1206** · tsc + lint temiz.
+**Cihazda doğrulanacak:** boot selamlaması zamanlaması (Vosk preload/boot TTS ile
+çakışma), gece uzun sürüşte uyku sorusu, müzik çalarken yalnız yakıt uyarısı.
 
 ## Companion Faz 3 — Şive Dostu Birleşik Beyin (2026-06-11, working tree — COMMIT BEKLİYOR)
 

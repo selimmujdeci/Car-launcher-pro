@@ -21,8 +21,15 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
-- **Companion Faz 3 Şive Dostu Birleşik Beyin (2026-06-11, working tree —
-  COMMIT BEKLİYOR):** kişilik beynin tepesinde (profesyonel=MAKAM ASİSTANI,
+- **Companion Faz 4 Proaktif Motor + Uyku Önleyici (2026-06-11, working tree —
+  COMMIT BEKLİYOR):** YENİ `companionEngine.ts` (60 sn PromptScheduler) +
+  SystemBoot Wave 4 named cleanup. Tetikler: yakıt <50 km (güvenlik, medyada
+  bile) · gece+sessizlik uyku sorusu (açık uçlu) · boot selamlaması (1 kez) ·
+  mola · 'sik' yolculuk yorumu. Gate: PROTECTION+/sesli oturum/voicePaused/
+  sessiz kişilik → sus. Bütçe az=45dk/normal=20dk/sık=10dk. Proaktif konuşma
+  Gemini'ye gitmez (şablon+yorumlayıcı). +21 test → 1206/1206. Detay:
+  PROJECT_STATE "Faz 4". **Cihazda doğrulanmadı.**
+- **Companion Faz 3 Şive Dostu Birleşik Beyin (2026-06-11, `33b61ec`):** kişilik beynin tepesinde (profesyonel=MAKAM ASİSTANI,
   samimi=MAHALLE ARKADAŞI); şive talimatı (birez/kurban/uşağum = karakter
   ipucu, niyet cımbızla çekilir); No Dead-Ends iki katman (prompt "ASLA
   ÇIKMAZ YOK" + kod backstop: online çöküş + offline eşleşme yok →
