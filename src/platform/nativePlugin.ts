@@ -157,6 +157,19 @@ export interface SpeechRecognitionOptions {
   duckWhileListening?: boolean;
 }
 
+// Faz 5 — grammar-kısıtlı native wake word thread'i (startWakeWordListening)
+export interface WakeWordListeningOptions {
+  /** Grammar listesi — asistan adından türetilen wake sözleri (küçük harf). */
+  phrases: string[];
+  /** Yazılım kazancı (native tarafta clamp'lenir, varsayılan VOSK_GAIN_DEFAULT). */
+  gain?: number;
+}
+
+/** Native 'wakeWord' event'i — grammar thread'i wake sözü duyduğunda düşer. */
+export interface WakeWordEvent {
+  transcript: string;
+}
+
 export interface SpeechRecognitionResult {
   transcript: string; // top recognition result
 }
@@ -417,6 +430,19 @@ export interface CarLauncherPlugin {
   // maliyetini (zayıf head unit CPU'sunda 20-40 sn) ödemesin. Opsiyonel: eski
   // plugin sürümlerinde bulunmayabilir (çağıran try/catch ile korur).
   preloadVoskModel?(): Promise<{ ready: boolean }>;
+
+  // Faz 5 — Native Refleksler: grammar-kısıtlı kalıcı wake word thread'i.
+  // Vosk tam sözlük yerine yalnız wake sözleri + "[unk]" ile çalışır (hız +
+  // az yanlış pozitif); tetik 'wakeWord' event'iyle JS'e düşer (partial sonuç,
+  // endpoint beklenmez — <200ms refleks). Pasif modda DUCK/audio-focus YOK.
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (wakeWordService
+  // yokluğunda eski startSpeechRecognition döngüsüne düşer).
+  startWakeWordListening?(options: WakeWordListeningOptions): Promise<void>;
+  stopWakeWordListening?(): Promise<void>;
+  addListener(
+    event: 'wakeWord',
+    handler: (data: WakeWordEvent) => void,
+  ): Promise<PluginListenerHandle>;
 
   // OBD-II Bluetooth Serial
   scanOBD(): Promise<OBDScanResult>;

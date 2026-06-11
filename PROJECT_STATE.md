@@ -8,7 +8,38 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `33b61ec`+; 2026-06-11 Faz 4 Companion Engine — commit bekliyor)
+- **Aktif branch:** `main` (HEAD `2939055`+; 2026-06-11 Faz 5 Native Refleksler — commit bekliyor)
+
+## Companion Faz 5 — Native Refleksler / Grammar Wake (2026-06-11, working tree — COMMIT BEKLİYOR)
+
+Wake word algılama JS polling döngüsünden NATIVE, kalıcı, grammar-kısıtlı Vosk
+thread'ine taşındı (mevcut `runVoskListening`'e DOKUNULMADI — mimari §6):
+- **CarLauncherPlugin.java:** yeni `startWakeWordListening`/`stopWakeWordListening`
+  + `runVoskGrammar()` thread'i. Vosk TAM SÖZLÜK DEĞİL yalnız wake sözleri +
+  `[unk]` grammar'ıyla çalışır (`new Recognizer(model, rate, grammarJson)`) —
+  hız + yapısal az yanlış pozitif ("maviş" [unk]'a düşer).
+- **REFLEKS (<200ms):** ~100ms ses penceresi + PARTIAL sonuç kontrolü — endpoint
+  sessizliği BEKLENMEZ; "mavi" dendiği an `wakeWord` event'i JS'e düşer. JS
+  tarafında ttsService modülü grammar başlatılırken ISITILIR (soğuk import yok).
+- **NO DUCKING:** pasif thread'de requestAudioFocus/duckMusicForListening YOK —
+  müzik tam kalitede çalmaya devam eder.
+- **HALF-DUPLEX:** `nativeTtsSpeaking` (speak() kuyrukladığında set, son
+  utterance çözülünce clear) + `voskCapturing` + `savedSpeechCall != null`
+  (volatile yapıldı) → wake thread mikrofonu BIRAKIR; asistan kendi
+  selamlamasını duymaz, AudioRecord çakışmaz. Tetik sonrası 600ms bekleme.
+- **wakeWordService.ts:** önce grammar modu denenir (`startGrammarMode`);
+  metot yok (eski APK) / model hatası → ESKİ startSpeechRecognition döngüsü
+  aynen (fail-soft, jenerasyon token'ı async yarışları kapatır). Event'te
+  defense-in-depth `_matches` (kelime sınırı) + lastHeard teşhisi korunur.
+- **nativePlugin.ts:** `WakeWordListeningOptions`/`WakeWordEvent` + opsiyonel
+  metot tipleri + `wakeWord` addListener overload'u. (`duckWhileListening`
+  zaten Faz öncesi hem JS hem native'de bağlıydı — değişiklik gerekmedi.)
+- handleOnDestroy → stopWakeWordThread (mikrofon sızıntısı yok).
+Test +7 (`companionWake.test.ts` FAZ 5 bloğu) → suite **1213/1213** · tsc +
+lint + `gradlew compileDebugJavaWithJavac` temiz.
+**Cihazda doğrulanacak:** grammar modunda TR modelin "mavi/hey mavi" tanıma
+isabeti, refleks gecikmesi (<200ms hedef), müzik çalarken pasif dinlemenin
+müziği hiç kısmaması, TTS sırasında kendini tetiklememe.
 
 ## Companion Faz 4 — Proaktif Motor + Uyku Önleyici (2026-06-11, working tree — COMMIT BEKLİYOR)
 

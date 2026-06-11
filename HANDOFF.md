@@ -21,8 +21,15 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
-- **Companion Faz 4 Proaktif Motor + Uyku Önleyici (2026-06-11, working tree —
-  COMMIT BEKLİYOR):** YENİ `companionEngine.ts` (60 sn PromptScheduler) +
+- **Companion Faz 5 Native Refleksler / Grammar Wake (2026-06-11, working
+  tree — COMMIT BEKLİYOR):** wake word native kalıcı grammar thread'ine
+  taşındı (Vosk yalnız wake sözleri + [unk]; runVoskListening'e dokunulmadı).
+  Partial sonuçla <200ms refleks (`wakeWord` event), pasif modda duck/audio-
+  focus YOK (müzik tam kalite), half-duplex (TTS/aktif STT'de mikrofon
+  bırakılır — kendini duymaz). wakeWordService: grammar→eski döngü fail-soft.
+  +7 test → 1213/1213; Java compile OK. Detay: PROJECT_STATE "Faz 5".
+  **Cihazda doğrulanmadı.**
+- **Companion Faz 4 Proaktif Motor + Uyku Önleyici (2026-06-11, `2939055`):** YENİ `companionEngine.ts` (60 sn PromptScheduler) +
   SystemBoot Wave 4 named cleanup. Tetikler: yakıt <50 km (güvenlik, medyada
   bile) · gece+sessizlik uyku sorusu (açık uçlu) · boot selamlaması (1 kez) ·
   mola · 'sik' yolculuk yorumu. Gate: PROTECTION+/sesli oturum/voicePaused/

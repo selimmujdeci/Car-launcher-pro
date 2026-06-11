@@ -29,6 +29,13 @@ const M = vi.hoisted(() => ({
   voicePaused: false,
   voiceStatus: 'idle' as string,
   spoken: [] as { text: string; onEnd?: () => void }[],
+  /* Faz 5 — grammar modu mock kontrolü: false = eski APK (metot YOK). */
+  grammarAvailable: false,
+  grammarFail: false,
+  grammarStarts: [] as Record<string, unknown>[],
+  grammarStops: 0,
+  listenerRemovals: 0,
+  wakeHandler: null as null | ((d: { transcript: string }) => void),
 }));
 
 vi.mock('../platform/bridge', () => ({ isNative: true, bridge: {} }));
@@ -42,8 +49,8 @@ vi.mock('../platform/ttsService', () => ({
     M.spoken.push({ text, onEnd: opts?.onEnd });
   },
 }));
-vi.mock('../platform/nativePlugin', () => ({
-  CarLauncher: {
+vi.mock('../platform/nativePlugin', () => {
+  const plugin: Record<string, unknown> = {
     startSpeechRecognition: (opts: Record<string, unknown>) => {
       M.sttCalls++;
       M.sttOpts.push(opts);
@@ -52,8 +59,28 @@ vi.mock('../platform/nativePlugin', () => ({
       if (next.startsWith('!REJECT:')) return Promise.reject(new Error(next.slice(8)));
       return Promise.resolve({ transcript: next });
     },
-  },
-}));
+    addListener: (_event: string, handler: (d: { transcript: string }) => void) => {
+      M.wakeHandler = handler;
+      return Promise.resolve({
+        remove: () => { M.listenerRemovals++; M.wakeHandler = null; return Promise.resolve(); },
+      });
+    },
+    stopWakeWordListening: () => { M.grammarStops++; return Promise.resolve(); },
+  };
+  // typeof kontrolü gerçeği yansıtsın: eski APK simülasyonunda metot YOKTUR.
+  Object.defineProperty(plugin, 'startWakeWordListening', {
+    configurable: true,
+    get() {
+      if (!M.grammarAvailable) return undefined;
+      return (opts: Record<string, unknown>) => {
+        if (M.grammarFail) return Promise.reject(new Error('MODEL_LOAD'));
+        M.grammarStarts.push(opts);
+        return Promise.resolve();
+      };
+    },
+  });
+  return { CarLauncher: plugin };
+});
 
 import {
   resolveWakeWords,
@@ -91,6 +118,12 @@ beforeEach(() => {
   M.voicePaused = false;
   M.voiceStatus = 'idle';
   M.spoken = [];
+  M.grammarAvailable = false;
+  M.grammarFail = false;
+  M.grammarStarts = [];
+  M.grammarStops = 0;
+  M.listenerRemovals = 0;
+  M.wakeHandler = null;
   M.startListening.mockClear();
 });
 
@@ -337,5 +370,86 @@ describe('wakeWordService — companion wake akışı', () => {
     // döngünün +300ms turu mikrofon açar (kuyruk boş → askıda bekler).
     await vi.advanceTimersByTimeAsync(2_000);
     expect(M.sttCalls).toBe(3);                          // 4 olsaydı = paralel döngü bug'ı
+  });
+});
+
+/* ── 5. FAZ 5: Native grammar modu (event-driven refleks) ───── */
+
+describe('FAZ 5 — native grammar wake modu', () => {
+  async function enableGrammar(): Promise<void> {
+    M.grammarAvailable = true;
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10); // async probe mikro-görevleri
+  }
+
+  it('grammar varsa tercih edilir: phrases + gain native\'e gider, JS polling HİÇ açılmaz', async () => {
+    await enableGrammar();
+    expect(M.grammarStarts).toHaveLength(1);
+    expect(M.grammarStarts[0]!['phrases']).toEqual(wakeWordsFor('Mavi', 'both'));
+    expect(M.grammarStarts[0]!['gain']).toBe(VOICE_TUNING.wakeGainX);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(M.sttCalls).toBe(0);                          // eski döngü hiç başlamadı
+  });
+
+  it("'wakeWord' event'i → selamlama TTS → bitince aktif dinleme (refleks zinciri)", async () => {
+    await enableGrammar();
+    M.wakeHandler!({ transcript: 'hey mavi' });
+    await vi.advanceTimersByTimeAsync(5);                // lazy ttsService import'u (ısıtılmış)
+
+    expect(M.spoken).toHaveLength(1);
+    expect(['Buradayım.', 'Dinliyorum.', 'Seni dinliyorum.']).toContain(M.spoken[0]!.text);
+    expect(getWakeWordState().lastHeard[0]).toBe('hey mavi');
+    expect(M.startListening).not.toHaveBeenCalled();     // TTS bitmeden mikrofon yok
+    M.spoken[0]!.onEnd?.();
+    expect(M.startListening).toHaveBeenCalledTimes(1);
+  });
+
+  it('defense-in-depth: kelime sınırını geçemeyen transcript tetiklemez ("maviş")', async () => {
+    await enableGrammar();
+    M.wakeHandler!({ transcript: 'maviş nerede' });
+    await vi.advanceTimersByTimeAsync(5);
+    expect(M.spoken).toHaveLength(0);
+    expect(M.startListening).not.toHaveBeenCalled();
+    expect(getWakeWordState().lastHeard[0]).toBe('maviş nerede'); // teşhise yine düşer
+  });
+
+  it('PROTECTION/CRITICAL (voicePaused): event gelse bile tetik yutulur', async () => {
+    await enableGrammar();
+    M.voicePaused = true;
+    M.wakeHandler!({ transcript: 'hey mavi' });
+    await vi.advanceTimersByTimeAsync(5);
+    expect(M.spoken).toHaveLength(0);
+    expect(M.startListening).not.toHaveBeenCalled();
+  });
+
+  it('disable: native thread durdurulur + event listener kaldırılır', async () => {
+    await enableGrammar();
+    disableWakeWord();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStops).toBe(1);
+    expect(M.listenerRemovals).toBe(1);
+    expect(M.wakeHandler).toBeNull();                    // event artık tetikleyemez
+  });
+
+  it('grammar başlatma BAŞARISIZ (model yok) → eski döngüye düşer, listener temizlenir', async () => {
+    M.grammarAvailable = true;
+    M.grammarFail = true;
+    M.sttQueue = ['hey mavi'];
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(M.listenerRemovals).toBe(1);                  // yarım kalan listener sızmadı
+    expect(M.sttCalls).toBeGreaterThanOrEqual(1);        // fallback polling devrede
+    expect(M.spoken).toHaveLength(1);                    // wake yine çalışıyor
+  });
+
+  it('eski APK (metot yok) → davranış değişmez: doğrudan polling', async () => {
+    M.grammarAvailable = false;
+    M.sttQueue = ['hey mavi'];
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStarts).toHaveLength(0);
+    expect(M.sttCalls).toBe(1);
+    expect(M.spoken).toHaveLength(1);
   });
 });

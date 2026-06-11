@@ -14,9 +14,15 @@
  * Güvenlik: PROTECTION/CRITICAL (isVoicePaused) modda wake tetiklense bile
  * sohbet/eğlence başlamaz — tetik sessizce yutulur.
  *
- * Native Android: CarLauncher.startSpeechRecognition() her bitiminde
- * otomatik yeniden başlatılır (ön plan modu). voiceService mikrofonu
- * kullanırken (aktif dinleme/işleme) döngü mikrofon AÇMAZ — çakışma yok.
+ * Native Android — İKİ KATMAN (Faz 5):
+ *  1. GRAMMAR MODU (tercih): CarLauncher.startWakeWordListening — native,
+ *     kalıcı, grammar-kısıtlı Vosk thread'i (yalnız wake sözleri + [unk]).
+ *     Tetik 'wakeWord' EVENT'iyle düşer (partial sonuç — endpoint beklenmez,
+ *     <200ms refleks). Pasif modda DUCK YOK, half-duplex native tarafta
+ *     (TTS/aktif STT sürerken thread mikrofonu bırakır — kendini duymaz).
+ *  2. ESKİ DÖNGÜ (fallback): startSpeechRecognition promise döngüsü — eski
+ *     APK'larda / grammar başlatılamazsa davranış aynen korunur. voiceService
+ *     mikrofonu kullanırken döngü mikrofon AÇMAZ — çakışma yok.
  */
 
 import { useState, useEffect } from 'react';
@@ -101,6 +107,9 @@ let _recognition: SpeechRecognitionAny = null;
 let _restartTimer: ReturnType<typeof setTimeout> | null = null;
 let _detectedTimer: ReturnType<typeof setTimeout> | null = null; // onWakeWordDetected gecikmesi
 let _nativeLoopActive = false;
+/** Faz 5: native grammar modu aktif mi + event listener handle'ı. */
+let _grammarMode = false;
+let _grammarHandle: { remove: () => Promise<void> } | null = null;
 
 function clearRestartTimer(): void {
   if (_restartTimer) { clearTimeout(_restartTimer); _restartTimer = null; }
@@ -226,6 +235,70 @@ async function nativeLoop(gen: number): Promise<void> {
   }
 }
 
+/* ── Faz 5: Native grammar modu (event-driven wake) ──────── */
+
+/**
+ * Grammar-kısıtlı native wake thread'ini dener. Başarılıysa true — JS polling
+ * döngüsü HİÇ açılmaz (CPU + sağır boşluk sıfır). Eski APK'da metot yoksa /
+ * model yüklenemezse false → çağıran eski döngüye düşer (fail-soft).
+ */
+async function startGrammarMode(gen: number): Promise<boolean> {
+  try {
+    const { CarLauncher } = await import('./nativePlugin');
+    if (typeof CarLauncher.startWakeWordListening !== 'function') return false;
+
+    // REFLEKS ISITMASI: ttsService modülü ŞİMDİ yüklenir — tetik anındaki
+    // dynamic import önbellekten (mikro-görev) çözülür; "Buradayım" <200ms
+    // hedefini ilk tetikte de tutar (soğuk import head unit'te yüzlerce ms).
+    void import('./ttsService').catch(() => { /* TTS yoksa selamlamasız akış */ });
+
+    const handle = await CarLauncher.addListener('wakeWord', (data: { transcript?: string }) => {
+      if (!_state.enabled || !_grammarMode) return;
+      const transcript = typeof data?.transcript === 'string' ? data.transcript : '';
+      if (transcript) _pushHeard(transcript);
+      // Native grammar zaten süzdü; yine de kelime-sınırlı çift kontrol
+      // (defense-in-depth): "[unk]" parçalı transcript'te yanlış pozitif kalmaz.
+      if (transcript && !_matches(transcript)) return;
+      onWakeWordDetected();
+    });
+
+    try {
+      await CarLauncher.startWakeWordListening({
+        phrases: _state.wakeWords,
+        gain:    VOICE_TUNING.wakeGainX,
+      });
+    } catch (err) {
+      try { await handle.remove(); } catch { /* listener temizliği fail-soft */ }
+      throw err;
+    }
+
+    // Async başlatma sürerken disable/yeniden enable geldiyse: hemen geri al.
+    if (gen !== _loopGen) {
+      _grammarHandle = handle;
+      void stopGrammarMode();
+      return true; // jenerasyon değişti — çağıran zaten yeni akışı kurdu
+    }
+    _grammarHandle = handle;
+    _grammarMode = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function stopGrammarMode(): Promise<void> {
+  const handle = _grammarHandle;
+  _grammarHandle = null;
+  const wasActive = _grammarMode;
+  _grammarMode = false;
+  if (!handle && !wasActive) return;
+  try {
+    if (handle) await handle.remove();
+    const { CarLauncher } = await import('./nativePlugin');
+    await CarLauncher.stopWakeWordListening?.();
+  } catch { /* native durdurmada hata pasif kalmayı etkilemez */ }
+}
+
 /* ── Public API ──────────────────────────────────────────── */
 
 export interface EnableWakeWordOpts {
@@ -242,15 +315,24 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
     : [DEFAULT_WAKE_WORD];
 
   if (isNative) {
-    // Native Android: arka plan wake word döngüsü.
+    // Native Android: arka plan wake word dinlemesi.
     // NOT: pasif beklerken status 'idle' kalır — UI "Dinliyorum" GÖSTERMEZ;
     // görünür durum yalnız tetiklenme sonrası aktif dinlemede (voiceService).
     push({ enabled: true, wakeWords, companion, status: 'idle', errorMsg: null });
-    _nativeLoopActive = true;
     _consecErrors = 0;
-    // Jenerasyon artır: olası eski döngü instance'ı bir sonraki adımında ölür;
-    // yeni döngü tek başına çalışır (paralel döngü = karşılıklı STT iptali).
-    void nativeLoop(++_loopGen);
+    // Jenerasyon artır: olası eski döngü/grammar instance'ı ölür; yeni akış
+    // tek başına çalışır (paralel dinleme = karşılıklı STT iptali).
+    const gen = ++_loopGen;
+    void (async () => {
+      // Faz 5: önce native grammar modu (event-driven, refleks). Olmazsa
+      // eski startSpeechRecognition döngüsü — davranış aynen korunur.
+      const grammarOk = await startGrammarMode(gen);
+      if (gen !== _loopGen) return; // bu arada disable/yeniden enable oldu
+      if (!grammarOk) {
+        _nativeLoopActive = true;
+        void nativeLoop(gen);
+      }
+    })();
   } else {
     // Web: sürekli dinleme yok — push-to-talk yeterli
     // Wake word toggle ayarları kayıt altında kalır ama web'de mikrofon açılmaz
@@ -261,6 +343,7 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
 export function disableWakeWord(): void {
   _nativeLoopActive = false;
   _loopGen++; // in-flight döngü adımı uyanınca kendini sonlandırır
+  void stopGrammarMode(); // Faz 5: native grammar thread + event listener kapanır
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   push({ enabled: false, status: 'disabled' });
   stopWebListening();
@@ -277,6 +360,8 @@ export function _resetWakeWordForTest(): void {
   _nativeLoopActive = false;
   _loopGen++;
   _consecErrors = 0;
+  _grammarMode = false;
+  _grammarHandle = null;
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   clearRestartTimer();
   _greetCounter = 0;
@@ -288,6 +373,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _nativeLoopActive = false;                                      // nativeLoop döngüsünü kes
     _loopGen++;
+    void stopGrammarMode();                                         // native grammar thread + listener
     if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
     stopWebListening();                                             // SpeechRecognition.abort() + _restartTimer iptal
     _listeners.clear();                                            // stale React setState callback'leri temizle

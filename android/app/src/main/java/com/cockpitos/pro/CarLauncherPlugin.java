@@ -299,10 +299,16 @@ public class CarLauncherPlugin extends Plugin {
     private final java.util.concurrent.atomic.AtomicInteger ttsUtteranceSeq =
         new java.util.concurrent.atomic.AtomicInteger();
 
+    /* Half-Duplex (Faz 5): TTS konuşurken wake word grammar thread'i mikrofonu
+     * BIRAKIR — asistan kendi selamlamasını ("Buradayım") wake word sanıp
+     * kendini tetiklemez. speak() kuyruklayınca true, son utterance çözülünce false. */
+    private volatile boolean nativeTtsSpeaking = false;
+
     /** TTS bitti/kesildi/hata — bekleyen speak() Promise'ini çöz. */
     private void settleTtsCall(String utteranceId) {
         if (utteranceId == null) return;
         PluginCall c = ttsPendingCalls.remove(utteranceId);
+        if (ttsPendingCalls.isEmpty()) nativeTtsSpeaking = false; // half-duplex serbest
         if (c != null) c.resolve();
     }
 
@@ -1308,7 +1314,9 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Speech recognition ───────────────────────────────────────────────────
 
-    private PluginCall savedSpeechCall = null;
+    // volatile (Faz 5): wake grammar thread'i half-duplex kararı için okur —
+    // aktif STT isteği beklerken (model yükleniyor olsa bile) mikrofon bırakılır.
+    private volatile PluginCall savedSpeechCall = null;
     private SpeechRecognizer speechRecognizer = null;
 
     // ── Vosk (offline STT) durumu ────────────────────────────────────────────
@@ -1808,6 +1816,190 @@ public class CarLauncherPlugin extends Plugin {
             if (o.has("partial")) return o.optString("partial", "").trim();
         } catch (Exception ignored) {}
         return "";
+    }
+
+    /* ── Faz 5: Grammar-kısıtlı wake word thread ("Native Refleksler") ────────
+     * Mevcut runVoskListening'e DOKUNULMAZ (mimari §6) — bu AYRI, kalıcı bir
+     * pasif dinleme thread'idir:
+     *   - Vosk TAM SÖZLÜKLE DEĞİL, yalnız wake sözleri + "[unk]" grammar'ıyla
+     *     çalışır → arama uzayı küçülür (zayıf head unit CPU'sunda hız) ve
+     *     liste dışı her söz "[unk]"a düşer (yanlış pozitif yapısal olarak az).
+     *   - REFLEKS: her ~100ms ses penceresinde PARTIAL sonuç kontrol edilir —
+     *     endpoint (konuşma sonu sessizliği) BEKLENMEZ; "mavi" dendiği anda
+     *     'wakeWord' event'i JS'e düşer (<200ms selamlama hedefi).
+     *   - NO DUCKING: requestAudioFocus ÇAĞRILMAZ, duckMusicForListening
+     *     ÇAĞRILMAZ — müzik arka planda TAM kalitede çalmaya devam eder.
+     *   - HALF-DUPLEX: aktif STT oturumu (voskCapturing/savedSpeechCall) veya
+     *     TTS (nativeTtsSpeaking) sürerken mikrofon BIRAKILIR — asistan kendi
+     *     sesini duymaz, AudioRecord çakışması olmaz. */
+
+    private volatile boolean wakeWordActive  = false;
+    private volatile Thread  wakeWordThread  = null;
+    private volatile String  wakeGrammarJson = null;
+    private volatile String[] wakePhrases    = new String[0];
+    private volatile float   wakeWordGain    = VOSK_GAIN_DEFAULT;
+
+    @PluginMethod
+    public void startWakeWordListening(PluginCall call) {
+        JSArray arr = call.getArray("phrases");
+        java.util.List<String> phrases = new java.util.ArrayList<>();
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                try {
+                    String p = String.valueOf(arr.get(i)).trim().toLowerCase(java.util.Locale.ROOT);
+                    if (!p.isEmpty() && !"null".equals(p)) phrases.add(p);
+                } catch (Exception ignored) {}
+            }
+        }
+        if (phrases.isEmpty()) { call.reject("phrases boş", "BAD_ARGS"); return; }
+        wakePhrases = phrases.toArray(new String[0]);
+        // Grammar JSON örn: ["mavi","hey mavi","[unk]"] — "[unk]" ŞART: liste
+        // dışı konuşma tek [unk] tokenına düşer, "maviş" gibi yakın kelimeler
+        // wake sözüne zorlanmaz.
+        org.json.JSONArray g = new org.json.JSONArray();
+        for (String p : phrases) g.put(p);
+        g.put("[unk]");
+        wakeGrammarJson = g.toString();
+        Double gainOpt = call.getDouble("gain");
+        float reqGain = gainOpt != null ? gainOpt.floatValue() : VOSK_GAIN_DEFAULT;
+        wakeWordGain = Math.max(VOSK_GAIN_MIN, Math.min(VOSK_GAIN_MAX, reqGain));
+
+        ensureVoskModel(
+            () -> {
+                stopWakeWordThread();        // olası eski thread → tek instance garantisi
+                wakeWordActive = true;
+                runVoskGrammar();
+                call.resolve();
+            },
+            (reason) -> call.reject("Vosk model yüklenemedi — " + reason, "MODEL_LOAD"));
+    }
+
+    @PluginMethod
+    public void stopWakeWordListening(PluginCall call) {
+        stopWakeWordThread();
+        call.resolve();
+    }
+
+    private void stopWakeWordThread() {
+        wakeWordActive = false;
+        Thread t = wakeWordThread;
+        wakeWordThread = null;
+        if (t != null && t != Thread.currentThread()) {
+            t.interrupt();
+            try { t.join(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+    }
+
+    /** Wake grammar thread'inin mikrofonu bırakması gereken anlar (half-duplex). */
+    private boolean wakeMicMustYield() {
+        return voskCapturing || nativeTtsSpeaking || savedSpeechCall != null;
+    }
+
+    private boolean matchesWakePhrase(String text) {
+        if (text == null || text.isEmpty()) return false;
+        for (String p : wakePhrases) {
+            if (!p.isEmpty() && text.contains(p)) return true; // "[unk] mavi" de yakalanır
+        }
+        return false;
+    }
+
+    private void runVoskGrammar() {
+        Thread t = new Thread(() -> {
+            while (wakeWordActive && !Thread.currentThread().isInterrupted()) {
+                // HALF-DUPLEX bekleme: aktif STT/TTS bitene dek mikrofon kapalı.
+                if (wakeMicMustYield()) {
+                    try { Thread.sleep(250); } catch (InterruptedException e) { return; }
+                    continue;
+                }
+                AudioRecord recorder   = null;
+                Recognizer  recognizer = null;
+                boolean triggered = false;
+                try {
+                    int minBuf = AudioRecord.getMinBufferSize(VOSK_SAMPLE_RATE,
+                            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                    if (minBuf <= 0) minBuf = VOSK_SAMPLE_RATE;
+                    // Küçük okuma penceresi (~100ms): refleks hedefi <200ms —
+                    // her pencerede partial kontrolü yapılır.
+                    int frameSamples = Math.max(minBuf / 2, VOSK_SAMPLE_RATE / 10);
+
+                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                            VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT, frameSamples * 4);
+                    if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                        try { recorder.release(); } catch (Exception ignored) {}
+                        recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,
+                                VOSK_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                                AudioFormat.ENCODING_PCM_16BIT, frameSamples * 4);
+                    }
+                    if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                        throw new IllegalStateException("AudioRecord init başarısız");
+                    }
+
+                    // NO DUCKING (Faz 5, bilinçli): requestAudioFocus YOK,
+                    // duckMusicForListening YOK — pasif dinleme müziğe görünmezdir.
+
+                    try {
+                        // Grammar modu: yalnız wake sözleri + [unk]
+                        recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE, wakeGrammarJson);
+                    } catch (Throwable grammarErr) {
+                        // Fail-soft: grammar desteklenmiyorsa tam sözlük (eşleşme yine contains)
+                        recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                    }
+                    recorder.startRecording();
+
+                    final float gain = wakeWordGain;
+                    short[] buf = new short[frameSamples];
+                    while (wakeWordActive && !wakeMicMustYield()
+                            && !Thread.currentThread().isInterrupted()) {
+                        int n = recorder.read(buf, 0, buf.length);
+                        if (n <= 0) continue;
+                        // Adaptif kazanç — runVoskListening ile aynı clipping koruması
+                        int peak = 0;
+                        for (int i = 0; i < n; i++) {
+                            int a = buf[i] >= 0 ? buf[i] : -buf[i];
+                            if (a > peak) peak = a;
+                        }
+                        float gApplied = gain;
+                        if (peak > 0 && peak * gApplied > VOSK_CLIP_HEADROOM) {
+                            gApplied = Math.max(1.0f, VOSK_CLIP_HEADROOM / peak);
+                        }
+                        for (int i = 0; i < n; i++) {
+                            int v = Math.round(buf[i] * gApplied);
+                            if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+                            buf[i] = (short) v;
+                        }
+
+                        // REFLEKS: endpoint beklenmez — partial her pencerede kontrol edilir
+                        String heard = recognizer.acceptWaveForm(buf, n)
+                            ? extractVoskText(recognizer.getResult())
+                            : extractVoskText(recognizer.getPartialResult());
+                        if (matchesWakePhrase(heard)) {
+                            triggered = true;
+                            JSObject ev = new JSObject();
+                            ev.put("transcript", heard);
+                            notifyListeners("wakeWord", ev);
+                            break;
+                        }
+                    }
+                } catch (Throwable th) {
+                    // Donanım/izin hatası: sıkı döngüye girmeden bekle, yeniden dene
+                    try { Thread.sleep(3000); } catch (InterruptedException e) { return; }
+                } finally {
+                    if (recorder != null) {
+                        try { recorder.stop(); } catch (Exception ignored) {}
+                        try { recorder.release(); } catch (Exception ignored) {}
+                    }
+                    if (recognizer != null) { try { recognizer.close(); } catch (Exception ignored) {} }
+                }
+                if (triggered) {
+                    // JS şimdi selamlama TTS'i + aktif dinlemeyi başlatır — mikrofonu
+                    // hemen geri kapmadan kısa bekle; sonrasını half-duplex devralır.
+                    try { Thread.sleep(600); } catch (InterruptedException e) { return; }
+                }
+            }
+        }, "vosk-wake-grammar");
+        wakeWordThread = t;
+        t.start();
     }
 
     // ── Background service ───────────────────────────────────────────────────
@@ -2706,6 +2898,7 @@ public class CarLauncherPlugin extends Plugin {
         // alınamazsa anında çöz (asılı Promise bırakma).
         String utteranceId = "cockpitos_tts_" + ttsUtteranceSeq.incrementAndGet();
         ttsPendingCalls.put(utteranceId, call);
+        nativeTtsSpeaking = true; // half-duplex: wake grammar thread mikrofonu bırakır
         int queued = ttsEngine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId);
         if (queued != android.speech.tts.TextToSpeech.SUCCESS) {
             settleTtsCall(utteranceId);
@@ -4059,6 +4252,7 @@ public class CarLauncherPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        stopWakeWordThread(); // grammar wake thread — mikrofon sızıntısı olmasın
         stopNativeStreamInternal();
         if (btStateReceiver != null) {
             try { getContext().unregisterReceiver(btStateReceiver); } catch (Exception ignored) {}
