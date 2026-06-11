@@ -8,7 +8,19 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `45facfa`; 2026-06-11 wake uyanmama + müzik isteği saha fix)
+- **Aktif branch:** `main` (HEAD `63c558b`; 2026-06-11 yakın mikrofon clipping fix)
+
+## Yakın Mikrofon Clipping Fix (2026-06-11, `63c558b` — CİHAZ DOĞRULAMASI BEKLİYOR)
+
+Saha: kullanıcı mikrofonun dibinde konuşuyor, Vosk özel isimleri tanıyamıyor
+("Leyla Göktürk"→"Leyla Türk" / isim komple düşüyor → generic "müzik açılıyor").
+Kök neden: yüksek giriş × 3.0 yazılım kazancı naif clamp ile TEPEDEN
+KESİLİYORDU (kare dalga distorsiyonu) → Vosk'a bozuk ses gidiyordu.
+Fix (CarLauncherPlugin.runVoskListening): pencere tepesi ölçülür; peak×gain
+headroom'u (`VOSK_CLIP_HEADROOM=29000`, ~%88 FS) aşacaksa kazanç o pencere
+için otomatik düşer (min 1.0). Yakın konuşma temiz, uzak/alçak ses tam
+kazançlı; wake döngüsü aynı yoldan geçtiği için o da düzelir. Sözleşme testi
+voiceTuning.test.ts'te. Suite 1169/1169 · Java compile OK.
 
 ## Wake Uyanmama + Müzik İsteği Saha Fix (2026-06-11, `45facfa` — CİHAZ DOĞRULAMASI BEKLİYOR)
 
