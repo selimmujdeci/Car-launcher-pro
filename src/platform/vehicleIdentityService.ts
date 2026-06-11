@@ -227,17 +227,79 @@ export async function updateRemoteCommandStatus(
   );
 }
 
+/* ── Event pipeline görünürlüğü (saha hatası 2026-06-11) ──────────────────
+ * Eskiden env/api_key yokken pushVehicleEvent SESSİZCE return ediyordu →
+ * tüm voice_diag/system_health/obd_diag eventleri hiçbir iz bırakmadan
+ * kayboluyor, admin tablosu boş kalıyor, neden anlaşılamıyordu. */
+
+const DROP_WARN_THROTTLE_MS = 60_000;
+let _dropWarnAt        = 0;    // son console.warn zamanı (Date.now)
+let _droppedNoKeyCount = 0;    // bu oturumda yutulan event sayısı
+let _lastDropAt: number | null = null;
+
+export interface VehicleEventPipelineStatus {
+  /** VITE_SUPABASE_URL/ANON_KEY build'e gömülü mü (build-time gate) */
+  configured: boolean;
+  /** Eşlenmemiş cihaz yüzünden bu oturumda düşürülen event sayısı */
+  droppedNoKeyCount: number;
+  /** Son düşürme zamanı (Date.now) — null = hiç düşmedi */
+  lastDropAt: number | null;
+}
+
+/** Dev Inspector / tanı ekranları için pipeline durumu (senkron, ucuz). */
+export function getVehicleEventPipelineStatus(): VehicleEventPipelineStatus {
+  return {
+    configured:        !!(RPC_BASE && SUPABASE_ANON_KEY),
+    droppedNoKeyCount: _droppedNoKeyCount,
+    lastDropAt:        _lastDropAt,
+  };
+}
+
+/** Cihaz backend'e eşlenmiş mi (veh_api_key mevcut mu). */
+export async function isDevicePaired(): Promise<boolean> {
+  if (_apiKey) return true;
+  try {
+    return !!(await sensitiveKeyStore.get(SK_API_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/** Düşen event'i say + throttle'lı uyar (60sn'de 1 — logcat spam'i yok). */
+function _noteDroppedEvent(reason: string, type: string): void {
+  _droppedNoKeyCount++;
+  _lastDropAt = Date.now();
+  if (Date.now() - _dropWarnAt < DROP_WARN_THROTTLE_MS) return;
+  _dropWarnAt = Date.now();
+  console.warn(`[VehicleEvent] ${reason} — event düşürüldü: ${type} ` +
+    `(toplam ${_droppedNoKeyCount}). Ayarlar → Mobil Bağlantı'dan cihazı eşleştirin.`);
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetVehicleEventGuardForTest(): void {
+  _dropWarnAt = 0;
+  _droppedNoKeyCount = 0;
+  _lastDropAt = null;
+}
+
 /**
  * Push a telemetry event to Supabase.
  * Artık fire-and-forget değil — connectivityService kuyruğu aracılığıyla at-least-once.
+ * Gönderilemeyen event SESSİZCE YUTULMAZ: sayaç + throttle'lı console.warn.
  */
 export async function pushVehicleEvent(
   type: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  if (!RPC_BASE || !SUPABASE_ANON_KEY) return;
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) {
+    _noteDroppedEvent('Supabase env eksik (VITE_SUPABASE_URL/ANON_KEY build\'e gömülmemiş)', type);
+    return;
+  }
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
-  if (!apiKey) return;
+  if (!apiKey) {
+    _noteDroppedEvent('missing veh_api_key; device not paired', type);
+    return;
+  }
 
   // Alarm/kaza eventi kritik — önce işlenir
   const isCritical = type === 'alarm' || type === 'crash' || type === 'sos';

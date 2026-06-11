@@ -21,6 +21,7 @@ import { join } from 'node:path';
 const M = vi.hoisted(() => ({
   pushed: [] as Array<{ type: string; payload: Record<string, unknown> }>,
   pushError: null as Error | null,
+  paired: true,
 }));
 
 vi.mock('../platform/vehicleIdentityService', () => ({
@@ -28,6 +29,7 @@ vi.mock('../platform/vehicleIdentityService', () => ({
     if (M.pushError) throw M.pushError;
     M.pushed.push({ type, payload });
   }),
+  isDevicePaired: vi.fn(async () => M.paired),
 }));
 
 vi.mock('../platform/obdService', () => ({
@@ -83,6 +85,7 @@ beforeEach(() => {
   clearErrorLog();
   M.pushed = [];
   M.pushError = null;
+  M.paired = true;
 });
 
 afterEach(() => {
@@ -270,5 +273,25 @@ describe('Admin Incident Center — görünürlük sözleşmesi', () => {
 
   it('listede dev_inspector kaynağı işaretlenir', () => {
     expect(page).toContain("md['source'] === 'dev_inspector'");
+  });
+});
+
+/* ── Eşlenmemiş cihaz: yalancı "sent" yok (saha hatası 2026-06-11) ── */
+
+describe('not_paired — eşlenmemiş cihazda dürüst sonuç', () => {
+  it("cihaz eşlenmemişse 'not_paired' döner, snapshot ÜRETİLMEZ", async () => {
+    M.paired = false;
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('not_paired');
+    expect(M.pushed).toHaveLength(0);
+    expect(await triggerSupportSnapshot()).toBe('not_paired');
+    expect(M.pushed).toHaveLength(0);
+  });
+
+  it("not_paired cooldown YAKMAZ — eşleme sonrası ilk deneme 'sent'", async () => {
+    M.paired = false;
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('not_paired');
+    M.paired = true;
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('sent');
+    expect(M.pushed).toHaveLength(1);
   });
 });

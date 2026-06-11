@@ -17,6 +17,7 @@ const RESULT_MSG: Record<SnapshotTriggerResult, string> = {
   queued_offline: 'Çevrimdışı — internet gelince gönderilecek',
   cooldown:       'Az önce gönderildi — lütfen biraz bekleyin',
   error:          'Gönderilemedi — tekrar deneyin',
+  not_paired:     "Cihaz eşlenmemiş — loglar gönderilemez. Ayarlar → Mobil Bağlantı'dan eşleştirin",
 };
 
 const RESULT_COLOR: Record<SnapshotTriggerResult, string> = {
@@ -24,6 +25,7 @@ const RESULT_COLOR: Record<SnapshotTriggerResult, string> = {
   queued_offline: '#fbbf24',
   cooldown:       '#fbbf24',
   error:          '#f87171',
+  not_paired:     '#f87171',
 };
 
 type CardStatus = 'idle' | 'sending' | SnapshotTriggerResult;

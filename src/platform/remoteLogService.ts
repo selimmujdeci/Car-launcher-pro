@@ -349,7 +349,7 @@ export async function reportDiagnosticSnapshot(
 
 /* ── Kullanıcı tetiklemeli snapshot (Settings "Tanı Gönder") ── */
 
-export type SnapshotTriggerResult = 'sent' | 'queued_offline' | 'cooldown' | 'error';
+export type SnapshotTriggerResult = 'sent' | 'queued_offline' | 'cooldown' | 'error' | 'not_paired';
 
 /** Art arda basma spam koruması — pencere içinde tek snapshot */
 export const SNAPSHOT_COOLDOWN_MS = 60_000;
@@ -386,6 +386,17 @@ async function _triggerSnapshot(
 ): Promise<SnapshotTriggerResult> {
   const now = performance.now();
   if (now - _lastSnapshotAt < SNAPSHOT_COOLDOWN_MS) return 'cooldown';
+
+  // Eşleme ön-kontrolü: cihaz eşlenmemişse pushVehicleEvent event'i düşürür —
+  // eskiden burası yine 'sent' diyordu (yalancı başarı). Kullanıcıya gerçek
+  // neden + Mobil Bağlantı yönlendirmesi gösterilir; cooldown YANMAZ.
+  // Fail-open: kontrol fonksiyonu yoksa (test mock'u / eski sürüm) atlanır.
+  try {
+    const vis = await import('./vehicleIdentityService');
+    if (typeof vis.isDevicePaired === 'function' && !(await vis.isDevicePaired())) {
+      return 'not_paired';
+    }
+  } catch { /* tanı ön-kontrolü snapshot akışını asla kıramaz */ }
 
   // Fail-open: yalnız onLine === false kesin "çevrimdışı"dır; alan yoksa
   // (eski WebView / test ortamı) çevrimiçi varsayılır — kuyruk zaten

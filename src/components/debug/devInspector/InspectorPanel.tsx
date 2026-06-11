@@ -174,6 +174,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
     queued_offline: 'İnternet gelince gönderilecek',
     cooldown:       'Az önce gönderildi — bekleyin',
     error:          'Gönderilemedi',
+    not_paired:     'Cihaz eşlenmemiş — loglar gönderilemez (Ayarlar → Mobil Bağlantı)',
   };
   const SEND_COLOR: Record<SendState, string> = {
     idle:           'rgba(255,255,255,0.4)',
@@ -182,6 +183,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
     queued_offline: '#eab308',
     cooldown:       '#eab308',
     error:          '#ef4444',
+    not_paired:     '#ef4444',
   };
 
   /* ── Render ──────────────────────────────────────────────────────────── */
