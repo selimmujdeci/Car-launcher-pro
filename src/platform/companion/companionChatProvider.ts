@@ -186,7 +186,13 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
     'Liste, madde işareti, emoji, markdown kullanma; yalnız düz konuşma metni.',
   ];
   if (vehicleContext) {
-    lines.push(`Araç bağlamı (yorumlanmış): ${vehicleContext} Bu bilgiyi yalnız konuyla ilgiliyse doğal biçimde kullan.`);
+    // Faz 2 — güçlü bağlam enjeksiyonu: yorumlar "durum raporu" değil,
+    // sürücünün O ANKİ HÂLİ olarak verilir. Kritik durum (az yakıt, ısınan
+    // motor) kendiliğinden dile getirilir; gerisi yalnız konu açılınca.
+    lines.push(
+      `SÜRÜCÜNÜN MEVCUT DURUMU (araçtan canlı, yorumlanmış — doğrudur, sorgulama): ${vehicleContext}`,
+      'Bu durumu bir dost gibi gözet: kritik bir şey varsa (az yakıt, ısınan motor, yorgunluk) lafı geçmişken kendiliğinden ve doğal biçimde hatırlat; diğer detayları yalnız konuyla ilgiliyse kullan. Rakam okuyan robot gibi davranma, durumu hissederek konuş.',
+    );
   } else {
     lines.push(
       'Araç verisine (hız, yakıt, sıcaklık) şu an erişimin yok. Sorulursa bunu teknik hata mesajı gibi değil, ' +

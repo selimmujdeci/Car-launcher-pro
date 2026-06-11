@@ -8,7 +8,29 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `51aa03a`; 2026-06-11 Faz 1 Ruh ve Kimlik)
+- **Aktif branch:** `main` (HEAD `f773448`; 2026-06-11 Faz 2 Bağlamsal Zeka — commit bekliyor)
+
+## Companion Faz 2 — Bağlamsal Zeka (2026-06-11, working tree — COMMIT BEKLİYOR)
+
+`companionContext.ts` yorumlayıcıları proaktif/öngörülü hale getirildi:
+- **interpretFuel:** menzil < 100 km ise yüzde okumakla yetinmez, benzinliği
+  ROTAYA EKLEME teklif eder ("istersen rotanın üzerindeki en yakın benzinliğe
+  yönlendireyim") — 3 kademe (kritik/az/normal-ama-düşük-menzil).
+- **interpretFatigue:** gece + ≥2 saat → can yoldaşı derinliği: somut eylem
+  teklifleri (camı arala, kahve molası, en yakın dinlenme yeri). Diğer dallar
+  da empatik dile çekildi.
+- **interpretEngineTempConcern:** soğuk motorda samimi uyarı ("hadi biraz
+  ısınsın, öyle basarız"); ısınmada ciddiyet + birliktelik ("ben de
+  göstergeleri izliyorum").
+- **MİMARİ KARAR:** "kanka/aslanım" hitapları yorumlayıcılara GÖMÜLMEDİ —
+  ton/hitap persona katmanının (Gemini) işi; profesyonel kişiliğe argo
+  sızmama test garantisi korunur (`companionChat.test.ts` persona testi).
+- **Context injection güçlendi (`companionChatProvider.ts`):** araç bağlamı
+  artık "SÜRÜCÜNÜN MEVCUT DURUMU" başlığıyla girer; kritik durum (az yakıt,
+  ısınan motor) Gemini'ye KENDİLİĞİNDEN dile getirme talimatıyla verilir;
+  "yalnız konuyla ilgiliyse" kuralı (test sözleşmesi) korundu.
+Companion testleri 92/92 · `tsc --noEmit` temiz. Modül saflığı korundu
+(companionContext import'suz saf fonksiyon — kaynak sözleşme testi geçiyor).
 
 ## Companion Faz 1 — Ruh ve Kimlik (2026-06-11, `51aa03a`)
 

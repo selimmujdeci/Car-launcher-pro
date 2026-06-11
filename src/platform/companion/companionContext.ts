@@ -96,6 +96,20 @@ export function interpretFuel(fuelPercent: number, rangeKm?: number): string | n
   if (!isFiniteNonNegative(fuelPercent) || fuelPercent > 100) return null;
   const pct = Math.round(fuelPercent);
   const approx = rangeKm !== undefined ? approxRangeKm(rangeKm) : null;
+
+  // Faz 2 — proaktif rota teklifi: menzil 100 km altına düştüyse yüzdeyi
+  // söylemekle yetinme, benzinliği ROTAYA EKLEME teklif et. Hitap/ton yok
+  // (persona katmanının işi); teklif cümlesi deterministik kalır.
+  if (approx !== null && approx > 0 && approx < 100) {
+    if (pct < 10) {
+      return `Yakıt kritik seviyede, yüzde ${pct} — yaklaşık ${approx} kilometre menzilin kaldı. Bunu riske atmayalım; istersen rotanın üzerindeki en yakın benzinliğe yönlendireyim.`;
+    }
+    if (pct < 25) {
+      return `Yakıt azalıyor, yüzde ${pct} — bu gidişle yaklaşık ${approx} kilometre yolun var. İstersen yol üstünde uygun bir benzinlik bulup rotana ekleyeyim.`;
+    }
+    return `Yakıt yüzde ${pct} ama menzil yaklaşık ${approx} kilometreye düştü. İstersen ileride bir benzinliğe uğrayacak şekilde rota önereyim.`;
+  }
+
   const rangePart = approx !== null && approx > 0
     ? ` Mevcut sürüşüne göre yaklaşık ${approx} kilometre yolun var.`
     : '';
@@ -155,19 +169,24 @@ export function interpretBreakNeed(minutesSinceBreak: number, intervalMin: numbe
 /**
  * "Yorgunum" yanıtı — yolculuk süresi ve gece bilgisiyle yorumlanır.
  * Her zaman cevap üretir (kullanıcı-başlatan soru; null yalnız bozuk veride).
+ *
+ * Faz 2 — can yoldaşı derinliği: gece + 2 saat üstü sürüşte "mola ver"
+ * komutu değil, somut eylem teklifleri (cam, kahve, dinlenme yeri) sunulur.
+ * Hitap ("kanka" vb.) BURADA KURULMAZ — kişilik tonu Gemini/persona
+ * katmanının işi; profesyonel kişiliğe argo sızmaması böyle garanti edilir.
  */
 export function interpretFatigue(tripDurationMin: number, isNight: boolean): string | null {
   if (!isFiniteNonNegative(tripDurationMin) || tripDurationMin > MAX_PLAUSIBLE_TRIP_MIN) return null;
   if (isNight && tripDurationMin >= 120) {
-    return 'Gece sürüşü ve uzun yol birleşince yorgunluk normal. En yakın dinlenme noktasında mola verelim, istersen camı biraz aç.';
+    return 'Gece gece yollar yordu seni, hissediyorum. İstersen camı biraz aralayayım, ya da bir kahve molası verip kendimize gelelim — en yakın dinlenme yerini bulurum.';
   }
   if (isNight) {
-    return 'Gece sürüşü yorucu olur. Kendini ağır hissedersen hiç bekletme, mola verelim.';
+    return 'Gece sürüşü insanı sandığından çok yorar. Kendini ağır hissedersen hiç bekletme; söyle, hemen bir mola yeri bulalım.';
   }
   if (tripDurationMin >= 120) {
-    return 'Epeydir yoldayız, yorulman doğal. İlk uygun yerde mola verip biraz hava almak iyi gelir.';
+    return 'Epeydir yoldayız, yorulman çok doğal. İlk uygun yerde mola verip bir kahve içelim derim; istersen camı da biraz aralarım.';
   }
-  return 'İstersen kısa bir mola verelim. Müziği de canlandırabilirim.';
+  return 'Daha yolun başındayız ama önemli olan senin nasıl hissettiğin. İstersen kısa bir mola verelim, ya da müziği biraz canlandırayım.';
 }
 
 /* ── Rota / varış ───────────────────────────────────────────── */
@@ -201,10 +220,15 @@ export function interpretArrival(remainingMeters: number, remainingSeconds: numb
  * Motor sıcaklığı yorumu — yalnız KONUŞMAYA DEĞER durumlarda cümle döner:
  * soğuk motor (ilk dakikalar) ve aşırı ısınma. Normal aralık → null (sus).
  * Eşikler offlineConversationEngine.buildEngineTemp ile hizalı (70/105).
+ *
+ * Faz 2 — samimi ton: soğuk motorda "kural" değil dost uyarısı ("biraz
+ * ısınsın, öyle basarız"); ısınmada ciddiyet + birliktelik hissi ("ben de
+ * göstergeleri izliyorum"). tempC < 50 ilk dakikaların vekil göstergesidir
+ * (süre bilgisi bu saf modüle girmez — kaynak: yalnız sensör değeri).
  */
 export function interpretEngineTempConcern(tempC: number): string | null {
   if (typeof tempC !== 'number' || !Number.isFinite(tempC) || tempC < -40 || tempC > 200) return null;
-  if (tempC > 105) return `Motor sıcaklığı ${Math.round(tempC)} dereceye çıktı. Uygun bir yerde durup kontrol edelim.`;
-  if (tempC < 50)  return 'Motor daha soğuk, ilk birkaç dakika yumuşak sürmek iyi olur.';
+  if (tempC > 105) return `Motor sıcaklığı ${Math.round(tempC)} dereceye çıktı — bu şakaya gelmez. Uygun bir yerde durup kontrol edelim, ben de göstergeleri izliyorum.`;
+  if (tempC < 50)  return 'Motor daha soğuk — hadi biraz ısınsın, öyle basarız. İlk birkaç dakika yumuşak kullanmak ona iyi gelir.';
   return null;
 }

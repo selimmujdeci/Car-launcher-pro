@@ -21,6 +21,14 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Companion Faz 2 Bağlamsal Zeka (2026-06-11, working tree — COMMIT
+  BEKLİYOR):** `companionContext.ts` yorumlayıcıları proaktifleşti — yakıt
+  menzili <100 km'de rota teklifi, gece+2saat yorgunlukta somut eylem
+  teklifleri (cam/kahve/dinlenme yeri), soğuk motorda samimi uyarı.
+  `companionChatProvider.ts`: bağlam "SÜRÜCÜNÜN MEVCUT DURUMU" başlığıyla
+  + kritik durumda kendiliğinden dile getirme talimatıyla enjekte edilir.
+  Hitap (kanka vb.) yorumlayıcılara gömülmedi — persona katmanının işi.
+  Companion testleri 92/92, tsc temiz. Detay: PROJECT_STATE "Faz 2".
 - **Wake uyanmama + müzik isteği saha fix (2026-06-11, `45facfa`):** Vosk
   "hey" tanımıyor → ey/hay/hei varyantları; sessizlikte 3sn sağır boşluk →
   250ms; paralel döngü bug'ı → jenerasyon token; pasif dinleme müzik duck'ı
