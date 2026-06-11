@@ -518,6 +518,10 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
   if (intentType === 'SEARCH_POI') {
     payload.poiCategory = result.category;
     payload.poiQuery    = result.query ?? buildPoiSearchQuery(result).replace('yakın ', '');
+  } else if (intentType === 'PLAY_MUSIC_SEARCH') {
+    // BUG FIX (2026-06-11): query payload'a hiç yazılmıyordu → executor
+    // sorgusuz kalıp yalnız uygulamayı açıyordu (arama YAPILMIYORDU).
+    payload.searchQuery = result.query ?? '';
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';

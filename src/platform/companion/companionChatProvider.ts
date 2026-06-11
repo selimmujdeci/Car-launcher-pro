@@ -29,6 +29,7 @@ import { resolveCompanionIdentity, type CompanionIdentity } from './companionIde
 import { interpretFuel, interpretEngineTempConcern } from './companionContext';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
+import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
@@ -295,6 +296,203 @@ function offlineCompanionReply(raw: string, opts: CompanionChatOpts): string | n
   const kind = classifySmalltalk(raw);
   if (kind !== null) return offlineCategoryReply(kind, opts.isDriving === true);
   return null;
+}
+
+/* ── BİRLEŞİK ASİSTAN BEYNİ ("Siri mantığı", 2026-06-11) ──────
+ * Tek Gemini çağrısı hem KOMUT hem SOHBET kararını verir:
+ *   - komut → {"type":"action", intent, query…} → intentEngine'e köprülenir
+ *   - sohbet → {"type":"chat", say} → TTS + takip dinlemesi
+ * Kritik yetenek: metin KUSURLU cihaz-içi ASR'den gelir — prompt Gemini'den
+ * bozulmuş özel isimleri (sanatçı/yer) en olası gerçeğe DÜZELTMESİNİ ister
+ * ("leyla türk" → büyük olasılıkla "Leyla Göktürk"). Yerel parser'ın
+ * tanıyamadığı her cümlede bu beyin tek yetkilidir; offline'da eski
+ * fallback zinciri aynen geçerlidir. */
+
+const BRAIN_INTENTS = new Set<string>([
+  'SEARCH_POI',
+  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
+  'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
+  'OPEN_PHONE', 'OPEN_SETTINGS', 'SHOW_WEATHER',
+  'CHECK_VEHICLE_HEALTH', 'CHECK_MAINTENANCE',
+]);
+
+export interface CompanionBrainAction {
+  kind:     'action';
+  semantic: SemanticResult; // fromSemanticResult ile AppIntent'e dönüşür
+}
+export interface CompanionBrainChat {
+  kind:     'chat';
+  response: string;
+  route:    CompanionChatRoute;
+}
+export type CompanionBrainResult = CompanionBrainAction | CompanionBrainChat;
+
+function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string): string {
+  const chatPersona = buildCompanionSystemPrompt(id, isDriving, vehicleContext);
+  return [
+    `Sen "${id.assistantName}" adlı Türkçe araç içi asistansın (Siri benzeri tek beyin).`,
+    'Kullanıcı metni KUSURLU cihaz-içi konuşma tanımadan gelir: bozulmuş veya yanlış duyulmuş',
+    'ÖZEL İSİMLERİ (sanatçı, şarkı, yer adı) en olası GERÇEK isme düzelt; emin değilsen olduğu gibi bırak.',
+    'GÖREV: metnin bir ARAÇ KOMUTU mu yoksa SOHBET mi olduğuna karar ver. SADECE JSON döndür.',
+    '',
+    'KOMUT ise: {"type":"action","intent":"...","query":"...","destination":"...","category":"...","feedback":"kısa Türkçe onay (≤8 kelime)","confidence":0.0-1.0}',
+    `intent yalnız şunlardan biri: ${[...BRAIN_INTENTS].join(' | ')}`,
+    'Müzik istekleri ("X\'ten müzik aç", "X çal", "X dinleyelim") → PLAY_MUSIC_SEARCH + query=DÜZELTİLMİŞ sanatçı/şarkı adı.',
+    'Yer/mekan aramaları → SEARCH_POI + category + query. Adres/yere gitme → NAVIGATE_ADDRESS + destination.',
+    '',
+    'SOHBET ise: {"type":"chat","say":"..."} — say için şu kişilik kuralları geçerli:',
+    chatPersona,
+    '',
+    'ÖRNEKLER:',
+    '"ibrahim tatlısesden müzik açar mısın" → {"type":"action","intent":"PLAY_MUSIC_SEARCH","query":"İbrahim Tatlıses","feedback":"İbrahim Tatlıses açılıyor","confidence":0.95}',
+    '"acıktım bir şeyler yiyelim" → {"type":"action","intent":"SEARCH_POI","category":"RESTAURANT","query":"restoran","feedback":"Yakın restoranlar aranıyor","confidence":0.9}',
+    '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
+  ].join('\n');
+}
+
+interface BrainJson {
+  type?:        string;
+  intent?:      string;
+  query?:       string;
+  destination?: string;
+  category?:    string;
+  feedback?:    string;
+  confidence?:  number;
+  say?:         string;
+}
+
+function parseBrainJson(raw: string): CompanionBrainResult | null {
+  try {
+    const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    const obj = JSON.parse(cleaned) as BrainJson;
+    if (obj.type === 'chat' && typeof obj.say === 'string' && obj.say.trim()) {
+      const flat = obj.say.replace(/\s+/g, ' ').trim();
+      return { kind: 'chat', response: flat.length > 300 ? `${flat.slice(0, 297)}...` : flat, route: 'companion_gemini' };
+    }
+    if (obj.type === 'action' && typeof obj.intent === 'string' && BRAIN_INTENTS.has(obj.intent)) {
+      return {
+        kind: 'action',
+        semantic: {
+          intent:      obj.intent as SemanticResult['intent'],
+          category:    obj.category as SemanticResult['category'],
+          query:       typeof obj.query === 'string' ? obj.query : undefined,
+          destination: typeof obj.destination === 'string' ? obj.destination : undefined,
+          feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
+          confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
+          source:      'direct_ai',
+        },
+      };
+    }
+    return null;
+  } catch { return null; }
+}
+
+async function askCompanionBrain(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+): Promise<CompanionBrainResult | null> {
+  const contents = [
+    ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+    { role: 'user', parts: [{ text }] },
+  ];
+  const body = {
+    system_instruction: {
+      parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext()) }],
+    },
+    contents,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature:      0.4,
+      maxOutputTokens:  isDriving ? 160 : 220,
+    },
+  };
+  const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+  });
+  if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+  if (!resp.ok) return null;
+  const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
+}
+
+/**
+ * Birleşik beyin girişi — voiceService router'ı parser <0.7 her cümlede
+ * bunu çağırır. Gemini kullanılamıyorsa offline sohbet fallback'i (yalnız
+ * chat) döner; o da yoksa null → eski zincir devam eder.
+ */
+export async function tryCompanionBrain(
+  raw: string,
+  opts: CompanionChatOpts = {},
+): Promise<CompanionBrainResult | null> {
+  const settings = useStore.getState().settings;
+  if (settings.companionEnabled !== true) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const isDriving = opts.isDriving === true;
+
+  const geminiUsable =
+    opts.provider === 'gemini' && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
+
+  if (geminiUsable) {
+    try {
+      const result = await askCompanionBrain(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      if (result) {
+        // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
+        // bağlamlı devam cümleleri için).
+        pushHistory('user', trimmed);
+        pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
+        return result;
+      }
+    } catch { /* timeout / ağ / parse — offline'a düş */ }
+  }
+
+  // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
+  const offline = offlineCompanionReply(trimmed, opts);
+  if (offline !== null) return { kind: 'chat', response: offline, route: 'companion_offline' };
+  return null;
+}
+
+/* ── ASR müzik sorgu onarımı (yerel parser yakaladığında) ───── *
+ * "leyla türkten müzik çal" yerel parser'da 0.93 ile yakalanır ama İSİM
+ * ASR'de bozulmuş olabilir. Online'ken sorgu hızlı bir Gemini çağrısıyla
+ * onarılır; zaman aşımında ham sorgu aynen kullanılır (komut GECİKMEZ). */
+
+const REPAIR_TIMEOUT_MS = 1_800;
+
+export async function repairMusicQuery(query: string, apiKey: string): Promise<string | null> {
+  const q = query.trim();
+  if (!q || q.length < 3) return null;
+  try {
+    const body = {
+      system_instruction: { parts: [{ text:
+        'Türkçe araç içi konuşma tanıma (ASR) çıktısından gelen müzik araması düzeltirsin. ' +
+        'Verilen metin büyük olasılıkla bir sanatçı veya şarkı adıdır ama ASR bozmuş olabilir. ' +
+        'En olası GERÇEK adı döndür; emin değilsen metni AYNEN döndür. SADECE JSON: {"q":"..."}',
+      }] },
+      contents: [{ role: 'user', parts: [{ text: q }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50 },
+    };
+    const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+      signal:  AbortSignal.timeout(REPAIR_TIMEOUT_MS),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+    const obj = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '')) as { q?: string };
+    const fixed = typeof obj.q === 'string' ? obj.q.replace(/\s+/g, ' ').trim() : '';
+    if (!fixed || fixed.length > 80) return null;
+    return fixed === q ? null : fixed;
+  } catch { return null; }
 }
 
 /* ── Ana giriş — Companion Router'ın sohbet ucu ─────────────── */

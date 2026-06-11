@@ -513,6 +513,30 @@ async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string;
   return { provider, apiKey, hasNet };
 }
 
+/* ── ASR müzik sorgu onarımı ─────────────────────────────────
+ * Yerel parser müzik komutunu yakalar ama İSİM Vosk'ta bozulmuş olabilir
+ * ("leyla türk" ← "Leyla Göktürk"). Online + Gemini varsa sorgu hızlı bir
+ * onarım çağrısından geçer (≤1.8s); başarısız/zaman aşımında ham sorgu
+ * AYNEN kullanılır — komut asla bloklanmaz (fail-soft). */
+async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
+  try {
+    const extra = cmd.extra as Record<string, string> | undefined;
+    const q = extra?.query;
+    if (!q || q.trim().length < 3) return;
+    const { provider, apiKey, hasNet } = await _resolveAiKeys();
+    if (provider !== 'gemini' || !apiKey || !hasNet) return;
+    const { repairMusicQuery } = await import('./companion/companionChatProvider');
+    const fixed = await repairMusicQuery(q, apiKey);
+    if (!fixed) return;
+    extra.query = fixed;
+    if (extra.searchUri) {
+      extra.searchUri = extra.searchUri.replace(encodeURIComponent(q), encodeURIComponent(fixed));
+    }
+    cmd.feedback = cmd.feedback.includes(q) ? cmd.feedback.replace(q, fixed) : `"${fixed}" aranıyor`;
+    void reportVoiceDiag('voice_route', { route: 'music_query_repaired' });
+  } catch { /* onarım hatası komutu etkilemez */ }
+}
+
 /* ── Processing ───────────────────────────────────────────── */
 
 export async function processTextCommand(text: string, ctx?: VehicleContext): Promise<boolean> {
@@ -583,6 +607,12 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // ── Komut zincirleme: "müziği aç ve eve git" → her ikisini de çalıştır ──
   if (tryHandleChain(trimmed, ctx)) return true;
 
+  /* Siri mantığı (2026-06-11): yerel parser yalnız NET komutlar için hız
+   * katmanıdır; tanıyamadığı HER cümlede tek yetkili birleşik beyindir
+   * (tryCompanionBrain — komut/sohbet kararını Gemini verir, bozuk ASR
+   * isimlerini düzeltir). Yerel müzik sorguları bile online'ken isim
+   * onarımından geçer (aşağıda _maybeRepairMusicQuery). */
+
   // ── Yerel parser ────────────────────────────────────────────
   // GECİKME KRİTİĞİ: API anahtarları (2 şifreli native okuma) ARTIK burada
   // BEKLENMEZ. Eskiden her komut — "müziği aç" dahil — anahtar deposu
@@ -600,6 +630,11 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // Yüksek güven (≥0.7) → onaysız anında dispatch + arka plan proaktif log
   if (result.command && result.command.confidence >= AUTO_DISPATCH_MIN) {
     _lastCommandTime = now;
+    // ASR isim onarımı: "leyla türkten müzik çal" yerelde yakalanır ama isim
+    // bozuk olabilir — online'ken sorgu Gemini ile düzeltilir (≤1.8s, fail-soft).
+    if (result.command.type === 'play_music_query') {
+      await _maybeRepairMusicQuery(result.command);
+    }
     if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
     // Proaktif bağlam — anahtarlar arka planda çözülür, dispatch BEKLEMEZ
     if (result.needsSemantic) {
@@ -621,37 +656,60 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // Companion kapalıyken bu blok null döner, eski zincir AYNEN işler.
   // P0 saha hatası: "nasılsın" araç komutuna düşüyor, "Araç verisi
   // alınamıyor" deniyordu.
-  // MÜZİK AKSİYON KAPISI: "İbrahim Tatlıses'ten müzik açar mısın" gibi parser'a
-  // takılmayan müzik İSTEKLERİ sohbet DEĞİLDİR — Gemini sanatçının hayatını
-  // anlatıyordu (saha 2026-06-11). Bu cümleler companion'ı atlar; zincir
-  // semantic NLP'ye (PLAY_MUSIC_SEARCH) ve yerel önerilere devam eder.
-  const skipCompanion = looksLikeMusicActionRequest(trimmed);
+  const geminiUsable = provider === 'gemini' && !!apiKey && hasNet;
+
+  // MÜZİK AKSİYON KAPISI (yalnız OFFLINE): online'ken birleşik beyin müzik
+  // isteğini ACTION'a çevirir (sohbet gaspı yapısal olarak engelli). Offline'da
+  // beyin yalnız sohbet üretebildiğinden müzik istekleri companion'ı atlar →
+  // yerel öneriler/parser fallback'i devreye girer.
+  const skipCompanion = !geminiUsable && looksLikeMusicActionRequest(trimmed);
 
   let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
   if (!skipCompanion) try {
-    const { tryCompanionChat } = await import('./companion/companionChatProvider');
+    const { tryCompanionBrain } = await import('./companion/companionChatProvider');
     // Gemini'ye gidilecekse GECİKMELİ ara geri bildirim: cevap 800ms'yi aşarsa
-    // "Düşünüyorum..." denir — 6 sn'ye varan ağ beklemesi sessiz geçmesin
-    // ("asistan çok geç cevap veriyor" algısının ana kaynağı). Hızlı cevapta
-    // timer iptal edilir, gereksiz ara konuşma OLMAZ; geç kalan ara konuşmayı
-    // cevap TTS'i QUEUE_FLUSH ile keser.
-    if (provider === 'gemini' && apiKey && hasNet) {
+    // "Düşünüyorum..." denir — 6 sn'ye varan ağ beklemesi sessiz geçmesin.
+    // Hızlı cevapta timer iptal edilir; geç kalan ara konuşmayı cevap TTS'i keser.
+    if (geminiUsable) {
       _thinkingTimer = setTimeout(() => { _thinkingTimer = null; _speakThinking(); }, THINKING_FEEDBACK_DELAY_MS);
     }
-    const compResult = await tryCompanionChat(trimmed, {
+    const brain = await tryCompanionBrain(trimmed, {
       isDriving: ctx?.isDriving,
       speedKmh:  ctx?.speedKmh,
       provider,
       apiKey,
       hasNet,
     });
-    if (compResult) {
+    if (brain) {
       _lastCommandTime = now;
-      void reportVoiceDiag('voice_route', { route: compResult.route, provider });
-      // Sürekli sohbet döngüsü YALNIZ companion modunda (her iki route da
-      // companion'dur: gemini + offline fallback) ve sesli oturumda kurulur.
-      _dispatchConversation(compResult.response, trimmed, true);
-      return true;
+      if (brain.kind === 'chat') {
+        void reportVoiceDiag('voice_route', { route: brain.route, provider });
+        // Sürekli sohbet döngüsü YALNIZ companion sohbet cevabında kurulur.
+        _dispatchConversation(brain.response, trimmed, true);
+        return true;
+      }
+      // ACTION — beyin komuta karar verdi (Siri mantığı): intent köprüsü.
+      const intent = fromSemanticResult(brain.semantic, trimmed);
+      if (intent) {
+        void reportVoiceDiag('voice_route', { route: 'companion_action', provider });
+        void reportVoiceDiag('voice_intent', { intent: intent.type, provider });
+        const aiCompat: AIVoiceResult = {
+          intent:     intent.type as AIVoiceResult['intent'],
+          payload:    intent.payload as Record<string, unknown>,
+          confidence: brain.semantic.confidence,
+          feedback:   brain.semantic.feedback,
+        };
+        _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
+        void reportVoiceDiag('voice_success', { intent: intent.type, provider });
+        _endConvSession(); // araç komutu → sohbet döngüsü başlatmaz
+        speakFeedback(brain.semantic.feedback);
+        if (!ctx?.isDriving) {
+          push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
+          setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2000);
+        }
+        return true;
+      }
+      // intent köprülenemedi (geçersiz/loş güven) → zincire devam
     }
   } catch { /* companion hattı asla komut akışını kıramaz — zincire devam */ }
   finally {

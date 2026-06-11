@@ -46,8 +46,11 @@ vi.mock('../platform/obdService', () => ({
 import {
   classifySmalltalk,
   tryCompanionChat,
+  tryCompanionBrain,
+  repairMusicQuery,
   _resetCompanionChatForTest,
 } from '../platform/companion/companionChatProvider';
+import { fromSemanticResult } from '../platform/intentEngine';
 import { parseCommandFull } from '../platform/commandParser';
 import { VOICE_DIAG_STAGES } from '../platform/voiceDiagService';
 import { useStore } from '../store/useStore';
@@ -304,6 +307,111 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     expect(body.contents.length).toBe(3); // user + model + yeni user
     expect(body.contents[0].role).toBe('user');
     expect(body.contents[1].role).toBe('model');
+  });
+});
+
+/* ── 3b. tryCompanionBrain — birleşik beyin (Siri mantığı) ──── */
+
+describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı verir', () => {
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setupCompanion(false);
+  });
+
+  function mockBrainJson(obj: Record<string, unknown>) {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }),
+    });
+  }
+
+  it('ACTION kararı: müzik isteği PLAY_MUSIC_SEARCH + düzeltilmiş isim döner; intent köprülenebilir', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', mockBrainJson({
+      type: 'action', intent: 'PLAY_MUSIC_SEARCH', query: 'Leyla Göktürk',
+      feedback: 'Leyla Göktürk açılıyor', confidence: 0.95,
+    }));
+
+    const r = await tryCompanionBrain('leyla türkten müzik çal', GEMINI_OPTS);
+    expect(r!.kind).toBe('action');
+    if (r!.kind !== 'action') return;
+    expect(r.semantic.intent).toBe('PLAY_MUSIC_SEARCH');
+    expect(r.semantic.query).toBe('Leyla Göktürk');           // ASR onarımı beynin işi
+    const intent = fromSemanticResult(r.semantic, 'leyla türkten müzik çal');
+    expect(intent?.type).toBe('PLAY_MUSIC_SEARCH');
+    expect(intent?.payload.searchQuery).toBe('Leyla Göktürk'); // payload köprüsü (bug fix)
+  });
+
+  it('CHAT kararı: serbest sohbet say alanıyla döner', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', mockBrainJson({ type: 'chat', say: 'İyiyim, sen nasılsın?' }));
+    const r = await tryCompanionBrain('nasılsın', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.response).toBe('İyiyim, sen nasılsın?');
+  });
+
+  it('beyin prompt\'u ASR onarım talimatı + intent listesi + JSON modu içerir', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Tamamdır.' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await tryCompanionBrain('bir şey söyle', GEMINI_OPTS);
+
+    const body = lastRequestBody(fetchSpy);
+    expect(body.generationConfig.responseMimeType).toBe('application/json');
+    const prompt = body.system_instruction.parts[0].text;
+    expect(prompt).toContain('ÖZEL İSİMLERİ');                 // ASR onarım talimatı
+    expect(prompt).toContain('PLAY_MUSIC_SEARCH');
+    expect(prompt).toContain('SEARCH_POI');
+  });
+
+  it('geçersiz intent / bozuk JSON → offline fallback zinciri (sohbet)', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', mockBrainJson({ type: 'action', intent: 'RM_RF_SLASH' }));
+    const r = await tryCompanionBrain('nasılsın', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');                              // action sızmaz, offline sohbet
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline');
+  });
+
+  it('companion KAPALI → null (eski zincir aynen)', async () => {
+    setupCompanion(false);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await tryCompanionBrain('nasılsın', GEMINI_OPTS)).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/* ── 3c. repairMusicQuery — yerel müzik sorgusu ASR onarımı ─── */
+
+describe('repairMusicQuery — bozuk sanatçı adı onarımı', () => {
+  beforeEach(() => vi.unstubAllGlobals());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('Gemini düzeltme önerirse düzeltilmiş ad döner', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '{"q":"Leyla Göktürk"}' }] } }] }),
+    }));
+    expect(await repairMusicQuery('leyla türk', 'k')).toBe('Leyla Göktürk');
+  });
+
+  it('aynı ad dönerse null (değişiklik yok sinyali)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '{"q":"Tarkan"}' }] } }] }),
+    }));
+    expect(await repairMusicQuery('Tarkan', 'k')).toBeNull();
+  });
+
+  it('ağ hatası / bozuk JSON → null (komut ham sorguyla devam eder, fail-soft)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
+    expect(await repairMusicQuery('leyla türk', 'k')).toBeNull();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: 'bozuk' }] } }] }) }));
+    expect(await repairMusicQuery('leyla türk', 'k')).toBeNull();
   });
 });
 
