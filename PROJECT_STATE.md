@@ -8,9 +8,27 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `f773448`; 2026-06-11 Faz 2 Bağlamsal Zeka — commit bekliyor)
+- **Aktif branch:** `main` (HEAD `a0a749d`+; 2026-06-11 Faz 3 Companion Brain — commit bekliyor)
 
-## Companion Faz 2 — Bağlamsal Zeka (2026-06-11, working tree — COMMIT BEKLİYOR)
+## Companion Faz 3 — Şive Dostu Birleşik Beyin (2026-06-11, working tree — COMMIT BEKLİYOR)
+
+`companionChatProvider.ts` beyin katmanı (tryCompanionBrain + buildBrainSystemPrompt):
+- **Persona Integration:** kişilik beynin EN TEPESİNDE (`BRAIN_PERSONA_ROLE`) —
+  profesyonel=MAKAM ASİSTANI, samimi=MAHALLE ARKADAŞI, neseli/sessiz eşdeğerleri;
+  hem chat "say" hem action "feedback" tonunu belirler.
+- **Dialect Robustness:** prompt'a şive talimatı ("birez/kurban/uşağum/gardaş"
+  engel değil KARAKTER İPUCU; niyet şive katmanının altından cımbızla çekilir)
+  + şiveli komut örneği ("uşağum şuralarda bi benzinlik bulsana" → FIND_NEARBY_GAS).
+- **No Dead-Ends (iki katman):** (1) prompt: "ASLA ÇIKMAZ YOK" — anlaşılmayan
+  metinde bile chat tekrar-rica; (2) kod backstop: ONLINE deneme çöktü + offline
+  eşleşme yok → `REASK_BY_PERSONALITY` (kişiliğe uygun deterministik tekrar-rica,
+  route companion_offline → takip dinlemesi açılır). Gemini HİÇ denenmediyse
+  (offline) null KORUNUR — eski dürüst zincir (öneriler + offline müzik kapısı)
+  bozulmaz (bilinçli tasarım: voiceService null'da zincire devam eder).
+Test +5 → suite **1185/1185** · tsc temiz. Mevcut sözleşmeler korundu
+('birez kıs kurban' örneği, geçersiz intent→offline, companion kapalı→null).
+
+## Companion Faz 2 — Bağlamsal Zeka (2026-06-11, `a0a749d`)
 
 `companionContext.ts` yorumlayıcıları proaktif/öngörülü hale getirildi:
 - **interpretFuel:** menzil < 100 km ise yüzde okumakla yetinmez, benzinliği

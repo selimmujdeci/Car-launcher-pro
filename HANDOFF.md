@@ -21,8 +21,14 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
-- **Companion Faz 2 Bağlamsal Zeka (2026-06-11, working tree — COMMIT
-  BEKLİYOR):** `companionContext.ts` yorumlayıcıları proaktifleşti — yakıt
+- **Companion Faz 3 Şive Dostu Birleşik Beyin (2026-06-11, working tree —
+  COMMIT BEKLİYOR):** kişilik beynin tepesinde (profesyonel=MAKAM ASİSTANI,
+  samimi=MAHALLE ARKADAŞI); şive talimatı (birez/kurban/uşağum = karakter
+  ipucu, niyet cımbızla çekilir); No Dead-Ends iki katman (prompt "ASLA
+  ÇIKMAZ YOK" + kod backstop: online çöküş + offline eşleşme yok →
+  kişiliğe uygun tekrar-rica; offline'da null korunur, eski zincir bozulmaz).
+  Test +5 → 1185/1185, tsc temiz. Detay: PROJECT_STATE "Faz 3".
+- **Companion Faz 2 Bağlamsal Zeka (2026-06-11, `a0a749d`):** `companionContext.ts` yorumlayıcıları proaktifleşti — yakıt
   menzili <100 km'de rota teklifi, gece+2saat yorgunlukta somut eylem
   teklifleri (cam/kahve/dinlenme yeri), soğuk motorda samimi uyarı.
   `companionChatProvider.ts`: bağlam "SÜRÜCÜNÜN MEVCUT DURUMU" başlığıyla

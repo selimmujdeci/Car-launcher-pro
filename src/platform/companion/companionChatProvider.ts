@@ -349,12 +349,39 @@ export interface CompanionBrainChat {
 }
 export type CompanionBrainResult = CompanionBrainAction | CompanionBrainChat;
 
+/* Faz 3 — Persona Integration: kişilik beynin EN TEPESİNDE durur; hem sohbet
+ * cevabının ("say") hem komut onayının ("feedback") tonunu belirler.
+ * resolveCompanionIdentity dört değerden birini garanti eder; bilinmeyen
+ * değer samimi'ye düşer (fail-soft). */
+const BRAIN_PERSONA_ROLE: Record<string, string> = {
+  sessiz:      'KİŞİLİĞİN (en öncelikli ton kuralı): SESSİZ YARDIMCI — az ve öz konuşursun, yalnız gerekeni söylersin.',
+  samimi:      'KİŞİLİĞİN (en öncelikli ton kuralı): MAHALLE ARKADAŞI — sıcak, senli benli, eski dost rahatlığında konuşursun.',
+  neseli:      'KİŞİLİĞİN (en öncelikli ton kuralı): NEŞELİ YOL ARKADAŞI — enerjik ve pozitifsin, yeri gelince espri yaparsın.',
+  profesyonel: 'KİŞİLİĞİN (en öncelikli ton kuralı): MAKAM ASİSTANI — kısa, net ve saygılı konuşursun; argo ve laubalilik asla.',
+};
+
+/* Faz 3 — No Dead-Ends: beyin/ağ tamamen başarısız olsa bile kullanıcı "Hata"
+ * duymaz; seçili kişiliğe uygun deterministik "tekrar rica" cümlesi söylenir
+ * (yalnız ONLINE deneme başarısızken — offline'da null = eski dürüst zincir). */
+const REASK_BY_PERSONALITY: Record<string, string> = {
+  sessiz:      'Anlayamadım, tekrar eder misin?',
+  samimi:      'Kusura bakma, tam yakalayamadım — bir daha söylesene.',
+  neseli:      'Of, orayı kaçırdım! Hadi bir daha söyle.',
+  profesyonel: 'Tam anlayamadım, tekrar alabilir miyim?',
+};
+const REASK_DEFAULT = 'Tam anlayamadım, bir daha söyler misin?';
+
 function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string): string {
   const chatPersona = buildCompanionSystemPrompt(id, isDriving, vehicleContext);
+  const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
   return [
     `Sen "${id.assistantName}" adlı Türkçe araç içi asistansın (Siri benzeri tek beyin).`,
+    personaRole,
+    'Bu kişilik hem sohbet cevaplarının ("say") hem komut onaylarının ("feedback") tonunu belirler.',
     'Kullanıcı metni KUSURLU cihaz-içi konuşma tanımadan gelir: bozulmuş veya yanlış duyulmuş',
     'ÖZEL İSİMLERİ (sanatçı, şarkı, yer adı) en olası GERÇEK isme düzelt; emin değilsen olduğu gibi bırak.',
+    'ŞİVE DAYANIKLILIĞI: kullanıcı "birez", "kurban", "uşağum", "gardaş" gibi yöresel ifadeler kullanabilir.',
+    'Bunları birer engel değil KARAKTER İPUCU olarak gör; komut niyetini bu şive katmanının altından cımbızla çek.',
     'GÖREV: metnin bir ARAÇ KOMUTU mu yoksa SOHBET mi olduğuna karar ver. SADECE JSON döndür.',
     '',
     'KOMUT ise: {"type":"action","intent":"...","query":"...","destination":"...","category":"...","feedback":"kısa Türkçe onay (≤8 kelime)","confidence":0.0-1.0}',
@@ -367,9 +394,13 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'SOHBET ise: {"type":"chat","say":"..."} — say için şu kişilik kuralları geçerli:',
     chatPersona,
     '',
+    'ASLA ÇIKMAZ YOK: metni hiç anlayamasan bile hata döndürme, boş dönme;',
+    '{"type":"chat","say":"..."} ile kişiliğine uygun kısa bir tekrar-rica cümlesi üret ("Tam yakalayamadım, bir daha söyler misin?" gibi).',
+    '',
     'ÖRNEKLER:',
     '"ibrahim tatlısesden müzik açar mısın" → {"type":"action","intent":"PLAY_MUSIC_SEARCH","query":"İbrahim Tatlıses","feedback":"İbrahim Tatlıses açılıyor","confidence":0.95}',
     '"acıktım bir şeyler yiyelim" → {"type":"action","intent":"SEARCH_POI","category":"RESTAURANT","query":"restoran","feedback":"Yakın restoranlar aranıyor","confidence":0.9}',
+    '"uşağum şuralarda bi benzinlik bulsana" → {"type":"action","intent":"FIND_NEARBY_GAS","feedback":"Yakın benzinlikler aranıyor","confidence":0.9}',
     '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
   ].join('\n');
 }
@@ -462,8 +493,10 @@ export async function tryCompanionBrain(
   const geminiUsable =
     opts.provider === 'gemini' && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
 
+  let geminiAttempted = false;
   if (geminiUsable) {
     try {
+      geminiAttempted = true;
       const result = await askCompanionBrain(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
       if (result) {
         // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
@@ -478,6 +511,16 @@ export async function tryCompanionBrain(
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
   const offline = offlineCompanionReply(trimmed, opts);
   if (offline !== null) return { kind: 'chat', response: offline, route: 'companion_offline' };
+
+  // Faz 3 — No Dead-Ends: ONLINE deneme yapıldı ama beyin/ağ/parse başarısız
+  // VE offline'ın da söyleyecek sözü yoksa kullanıcı "Hata/anlaşılamadı" değil,
+  // kişiliğe uygun bir tekrar-rica duyar (takip dinlemesi açılır → tekrar söyler).
+  // Gemini HİÇ denenmediyse (offline) null korunur: eski dürüst zincir
+  // (yerel öneriler + offline müzik kapısı) bozulmaz.
+  if (geminiAttempted) {
+    const reask = REASK_BY_PERSONALITY[resolveCompanionIdentity(settings).personality] ?? REASK_DEFAULT;
+    return { kind: 'chat', response: reask, route: 'companion_offline' };
+  }
   return null;
 }
 

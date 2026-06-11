@@ -417,6 +417,58 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     if (r!.kind === 'chat') expect(r.route).toBe('companion_offline');
   });
 
+  it('FAZ 3 — kişilik beynin tepesinde: profesyonel → MAKAM ASİSTANI, samimi → MAHALLE ARKADAŞI', async () => {
+    setupCompanion(true);
+    useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Buyurun.' });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('bir şey söyle', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('MAKAM ASİSTANI');
+    expect(prompt).not.toContain('MAHALLE ARKADAŞI');          // kişilikler karışmaz
+
+    useStore.getState().updateSettings({ companionPersonality: 'samimi' });
+    await tryCompanionBrain('bir şey daha söyle', GEMINI_OPTS);
+    const prompt2 = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt2).toContain('MAHALLE ARKADAŞI');
+  });
+
+  it('FAZ 3 — şive dayanıklılığı + çıkmaz yok talimatı promptta', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Tamam.' });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('uşağum bi bak hele', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('uşağum');                        // şive örnekleri
+    expect(prompt).toContain('KARAKTER İPUCU');                // engel değil ipucu
+    expect(prompt).toContain('ASLA ÇIKMAZ YOK');               // no dead-ends talimatı
+    expect(prompt).toContain('FIND_NEARBY_GAS');               // şiveli komut örneği
+  });
+
+  it('FAZ 3 — No Dead-Ends: online deneme çöktü + offline eşleşme yok → kişiliğe uygun tekrar-rica (null DEĞİL)', async () => {
+    setupCompanion(true);
+    useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_offline');
+      expect(r.response).toBe('Tam anlayamadım, tekrar alabilir miyim?');
+    }
+  });
+
+  it('FAZ 3 — Gemini HİÇ denenmediyse (offline) anlaşılmayan metin → null (eski dürüst zincir korunur)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', { provider: 'gemini', apiKey: 'k', hasNet: false });
+    expect(r).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('companion KAPALI → null (eski zincir aynen)', async () => {
     setupCompanion(false);
     const fetchSpy = vi.fn();
