@@ -336,7 +336,7 @@ const INTENTS: Intent[] = [
   // ── Sohbet ──
   { kw: ['merhaba', 'selam', 'gunaydin', 'iyi gunler', 'iyi aksamlar', 'iyi sabahlar', 'alo', 'hey'],
     build: () => pick(GREETINGS) },
-  { kw: ['nasilsin', 'nasil misin', 'ne haber', 'naber', 'iyi misin', 'keyifler nasil'],
+  { kw: ['nasilsin', 'nasil misin', 'ne haber', 'naber', 'iyi misin', 'keyifler nasil', 'ne var ne yok'],
     build: (drv) => drive(pick(HOW_ARE_YOU), 'İyiyim, teşekkürler!', drv) },
   { kw: ['tesekkur', 'sagol', 'eyvallah', 'cok guzel', 'harika', 'mukemmel', 'super', 'bravo', 'tesekkurler'],
     build: () => pick(THANKS) },

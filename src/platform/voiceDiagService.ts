@@ -36,6 +36,9 @@ export const VOICE_DIAG_STAGES = [
   'voice_error',
   'voice_timeout',
   'voice_cognitive_pause',
+  // Hangi işleme hattının seçildiği (companion_gemini | companion_offline |
+  // offline_chat ...) — smalltalk/komut ayrımı saha teşhisi için (P0 2026-06-11)
+  'voice_route',
 ] as const;
 
 export type VoiceDiagStage = (typeof VOICE_DIAG_STAGES)[number];
@@ -50,6 +53,8 @@ export interface VoiceDiagExtra {
   command?: string;
   provider?: string;
   errorCode?: string;
+  /** Seçilen işleme hattı — yalnız tanımlayıcı (companion_gemini vb.). */
+  route?: string;
 }
 
 /* ── Fırtına koruması: stage başına 60sn/5 ──────────────────── */
@@ -135,10 +140,12 @@ export async function reportVoiceDiag(
     const command   = _cleanStr(extra?.command);
     const provider  = _cleanStr(extra?.provider);
     const errorCode = _cleanStr(extra?.errorCode);
+    const route     = _cleanStr(extra?.route);
     if (intent)    payload['intent']    = intent;
     if (command)   payload['command']   = command;
     if (provider)  payload['provider']  = provider;
     if (errorCode) payload['errorCode'] = errorCode;
+    if (route)     payload['route']     = route;
 
     await pushVehicleEvent('voice_diag', payload);
     return true;

@@ -175,8 +175,9 @@ describe('payload — zorunlu alanlar + monotonic süre', () => {
     expect(M.pushed[2].payload['durationMs']).toBe(3_250);
   });
 
-  it('10 aşamanın tamamı geçerli', async () => {
-    expect(VOICE_DIAG_STAGES).toHaveLength(10);
+  it('11 aşamanın tamamı geçerli', async () => {
+    // 11.: 'voice_route' — smalltalk/komut hat ayrımı tanısı (P0 2026-06-11)
+    expect(VOICE_DIAG_STAGES).toHaveLength(11);
     for (const stage of VOICE_DIAG_STAGES) {
       _resetVoiceDiagForTest();
       expect(await reportVoiceDiag(stage)).toBe(true);

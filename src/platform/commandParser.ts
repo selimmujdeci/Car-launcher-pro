@@ -743,8 +743,11 @@ const PATTERNS: CommandPattern[] = [
       // hiç çalışamıyor ve OBD bağlı değilken "Araç verisi alınamıyor" deniyordu.
       'arabanın durumu', 'araç durumu nasıl', 'hız kaç', 'yakıt ne kadar', 'durum nasıl',
       'durumumuz ne', 'her şey yolunda mı', 'araç özeti', 'rapor ver',
+      'obd durumu', 'obd durumu nasıl',
       // Argo / günlük
-      'brifing ver', 'ne var ne yok', 'genel durum ne', 'sistemi oku',
+      // NOT: 'ne var ne yok' BİLEREK YOK — sosyal hal-hatır deyimidir
+      // ('nasılsın' ile aynı P0 saha hatası); companion/sohbet hattının işi.
+      'brifing ver', 'genel durum ne', 'sistemi oku',
       'araç nasıl gidiyor', 'her şey normale mi', 'kontrol listesi',
       // Sistem fiilleri
       'raporla', 'durum raporu', 'sistem raporu', 'araç raporu',

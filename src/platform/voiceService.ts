@@ -466,6 +466,31 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
+  // ── Companion Router ("Yol Arkadaşım") — AI-FIRST sohbet hattı ──
+  // Konum: NET komutlardan (≥0.7) SONRA, belirsiz banttan (0.5-0.7) ÖNCE.
+  // Companion açıkken komut olmayan/belirsiz HER cümle önce Gemini sohbetine
+  // gider (keyword kapısı YOK — kullanıcı onaylı AI-first mimari 2026-06-11);
+  // internet/key yok veya Gemini hata/429 → offline fallback zinciri.
+  // Companion kapalıyken bu blok null döner, eski zincir AYNEN işler.
+  // P0 saha hatası: "nasılsın" araç komutuna düşüyor, "Araç verisi
+  // alınamıyor" deniyordu.
+  try {
+    const { tryCompanionChat } = await import('./companion/companionChatProvider');
+    const compResult = await tryCompanionChat(trimmed, {
+      isDriving: ctx?.isDriving,
+      speedKmh:  ctx?.speedKmh,
+      provider,
+      apiKey,
+      hasNet,
+    });
+    if (compResult) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: compResult.route, provider });
+      _dispatchConversation(compResult.response, trimmed);
+      return true;
+    }
+  } catch { /* companion hattı asla komut akışını kıramaz — zincire devam */ }
+
   // Orta güven (0.5–0.7) → BELİRSİZ. Eskiden bu band da körlemesine dispatch
   // ediliyordu (yanlış komutu sessizce uyguluyordu). Artık: sürüşte etkileşimi
   // en aza indirmek için doğrudan uygula; PARK halinde "bunu mu istedin?" diye sor.
@@ -483,10 +508,12 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
-  // ── Hiç komut eşleşmesi yok → önce offline sohbet motoru ─────
+  // ── Hiç komut eşleşmesi yok → offline sohbet motoru ──────────
+  // (companion kapalıyken smalltalk dahil her şey; companion hattı yukarıda)
   const convResult = tryOfflineConversation(trimmed, ctx?.isDriving, ctx?.speedKmh);
   if (convResult.handled) {
     _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'offline_chat' });
     _dispatchConversation(convResult.response, trimmed);
     return true;
   }
