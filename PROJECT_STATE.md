@@ -8,7 +8,21 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `209046f`; 2026-06-11 DTC native fix)
+- **Aktif branch:** `main` (HEAD `60d92e4`; 2026-06-11 telemetri görünürlük fix)
+
+## Telemetri Sessiz Yutma Düzeltmesi (2026-06-11, `60d92e4`)
+
+Saha: admin incidents tablosu tamamen boş. Kanıtlı kök neden:
+`vehicleIdentityService.ts` — cihaz eşlenmemişse (`veh_api_key` yok;
+`registerVehicle` YALNIZ MobileLinkWidget'tan tetikleniyor, boot'ta otomatik
+kayıt YOK) `if (!apiKey) return;` tüm eventleri sessizce yutuyordu.
+Düzeltme: throttle'lı `[VehicleEvent] missing veh_api_key` console.warn +
+düşen event sayacı (`getVehicleEventPipelineStatus`) + `isDevicePaired()` +
+snapshot'larda yalancı 'sent' yerine **'not_paired'** sonucu + Ayarlar/Dev
+Inspector'da "Cihaz eşlenmemiş — Mobil Bağlantı'dan eşleştirin" mesajı.
+Gönderim davranışı değişmedi (eşlenmemişken denenmiyor) — kayıp artık görünür.
+**Sahada yapılacak:** cihazda Ayarlar → Mobil Bağlantı ile eşleme; sonrasında
+voice_diag/system_health akışı admin'de doğrulanacak.
 
 ## DTC Tarama Düzeltmesi (2026-06-11, `209046f` — CİHAZ DOĞRULAMASI BEKLİYOR)
 
