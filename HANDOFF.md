@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `cffe182`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `eb8ad25`.
 
 ---
 
@@ -21,6 +21,14 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Asistan adı merkezli wake word (2026-06-11, `eb8ad25`):** kullanıcı
+  asistana hangi adı verirse o adla uyanır (ad=Mavi → "Mavi"/"Hey Mavi");
+  uyanma şekli seçici (name/hey_name/both/custom); ÜRÜN KARARI: varsayılan
+  ad 'Mavi' (persist v15 migration); tetiklenince kısa selamlama → TTS
+  bitince aktif dinleme; PROTECTION/CRITICAL'da tetik yutulur; pasif
+  beklemede "Dinliyorum" UI yok; companion wake artık useLayoutServices'e
+  WIRE EDİLDİ (eskiden ayar vardı, motor bağlı değildi). Detay:
+  PROJECT_STATE "Asistan Adı Merkezli Wake Word". **Cihazda doğrulanmadı.**
 - **Companion sürekli sohbet döngüsü (2026-06-11, `cffe182`):** P0 saha UX —
   cevap sonrası mikrofona tekrar basma zorunluluğu kalktı. Akış: dinle →
   transcript → (Gemini >800ms ise "düşünüyorum") → cevap TTS → TTS bitince

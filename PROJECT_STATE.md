@@ -8,7 +8,43 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `cffe182`; 2026-06-11 companion sürekli sohbet döngüsü)
+- **Aktif branch:** `main` (HEAD `eb8ad25`; 2026-06-11 asistan adı merkezli wake word)
+
+## Asistan Adı Merkezli Wake Word (2026-06-11, `eb8ad25` — CİHAZ DOĞRULAMASI BEKLİYOR)
+
+Ürün davranışı: wake phrase sabit marka kelimesi DEĞİL — kullanıcı asistana
+hangi adı verirse asistan o adla uyanır (ad=Mavi → "Mavi"/"Hey Mavi").
+
+- **ÜRÜN KARARI:** varsayılan asistan adı **'Mavi'** ("Hey Yol Arkadaşım" wake
+  olarak kullanılamaz; "Yol Arkadaşım" özelliğin adı olarak kalır). Persist
+  **v14→v15**: eski varsayılan ad 'Yol Arkadaşım' kişiselleştirilmemiş sayılıp
+  'Mavi' yapılır; kullanıcının özel adları aynen korunur.
+- **Model:** `companionWakeMode` = name / hey_name / **both (varsayılan)** /
+  custom. `companionWakePhrase` artık YALNIZ custom modda kullanılır.
+  `resolveWakeWords` ad-merkezli türetir: <3 harf ad tek başına tetiklemez
+  (yalnız "hey {ad}" kalır); boş liste asla dönmez (fallback "hey mavi").
+- **Eşleşme:** `normalizeWakeText` (TR küçük harf İ dahil, aksan sadeleştirme,
+  noktalama) + `matchesWakeTranscript` (kelime-sınırlı ardışık eşleşme:
+  "mavi" ⊄ "maviş"). Legacy "hey car" sistemi bit değişmeden korundu
+  (substring davranışı dahil).
+- **Wake UX:** tetiklenince kısa selamlama ("Buradayım."/"Dinliyorum."
+  rotasyon) → TTS bitince aktif dinleme (selamlama mikrofona karışmaz).
+  Pasif beklemede status 'idle' — sürekli "Dinliyorum" UI YOK; görünür durum
+  yalnız aktif dinlemede. Follow-up (8s sohbet penceresi) sistemiyle uyumlu.
+- **Güvenlik:** PROTECTION/CRITICAL'da (`isVoicePaused` yeni export) tetik
+  sessizce yutulur — selamlama/dinleme/sohbet başlamaz. Ad/cümle
+  sanitizer'dan geçer (injection/özel karakter/boş → fallback).
+- **Çakışma fix:** voiceService meşgulken (listening/processing) pasif döngü
+  mikrofon AÇMAZ (`getVoiceSnapshot`) — wake döngüsünün aktif dinlemenin
+  cevabını yutması engellendi.
+- **UI:** Ayarlar → Yol Arkadaşım: "Uyanma Şekli" 4'lü seçici, ad değişince
+  öneri/önizleme otomatik ("Şu sözlerle uyanır: …"), özel cümle girişi yalnız
+  custom modda, kısa isim yanlış tetikleme uyarısı.
+- **Test:** `companionWake.test.ts` 28 yeni (türetme/normalize/eşleşme/
+  güvenlik/servis akışı). Suite **1147/1147** · build 57s · lint 0 hata.
+- **Cihazda doğrulanacak:** K24/Duster'da gerçek Vosk transcript'iyle
+  "Mavi"/"Hey Mavi" tetikleme oranı + yanlış tetikleme (yol gürültüsü, radyo);
+  selamlama → dinleme geçiş hissi; PROTECTION modda sessiz kalma.
 
 ## Companion Sürekli Sohbet Döngüsü (2026-06-11, `cffe182` — P0 UX, CİHAZ DOĞRULAMASI BEKLİYOR)
 
