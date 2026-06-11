@@ -148,6 +148,12 @@ const GEMINI_CHAT_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 const GEMINI_TIMEOUT_MS = 6000;
 
+/**
+ * "Yol Arkadaşı" ruhu (Faz 1, 2026-06-11): Siri'den ayrışma noktaları —
+ * şive duyarlılığı (kelime değil NİYET), robotik kalıp yasağı, dost
+ * tavsiyesiyle güvenlik reddi. Kişilik tonu kullanıcı seçimine saygılıdır
+ * ("profesyonel" seçen kullanıcıya "kanka" denmez).
+ */
 function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string): string {
   // Hitap her cümlede TEKRARLANMAZ — "her cümlede isim" robotik algının
   // ana kaynaklarından (saha geri bildirimi 2026-06-11).
@@ -156,21 +162,26 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
     : 'Kullanıcıya hitap kullanma.';
   const persona: Record<string, string> = {
     sessiz:      'Az ve öz konuş, yalnız sorulana cevap ver.',
-    samimi:      'Sıcak ve doğal bir yol arkadaşı gibi konuş.',
+    samimi:      'Sıcak, senli benli bir yol arkadaşı gibi konuş — eski dost rahatlığında.',
     neseli:      'Enerjik ve pozitif konuş, hafif espri yapabilirsin.',
-    profesyonel: 'Kısa, net ve resmi konuş.',
+    profesyonel: 'Kısa, net ve saygılı konuş; argo ve laubalilik kullanma.',
   };
-  // Sürüşte kısa ama DOĞAL: "tek cümle robot" değil, 2-3 kısa cümle
-  // (ISO 15008 dikkat sınırı korunur; eski "8 kelime" kuralı sohbeti öldürüyordu).
+  // Sürüşte kısa ama DOĞAL: çoğu zaman birkaç kelimelik samimi tepki yeter;
+  // "tek cümle robot" değil (ISO 15008 dikkat sınırı korunur).
   const driving = isDriving
-    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 2-3 kısa cümleyle, sade ve net cevap ver.'
+    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: kısa tut — çoğu zaman birkaç kelimelik doğal tepki yeter ("Tamam, hallettim."), gerekirse en fazla 2-3 kısa cümle.'
     : 'En fazla 3 doğal cümleyle cevap ver.';
   const lines = [
-    `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın.`,
+    `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın — bu arabanın ruhusun, bir çağrı merkezi robotu değilsin.`,
     'Doğal ve akıcı konuş; robotik, kalıp ya da tek kelimelik cevaplar verme.',
+    '"İşleminiz tamamlandı", "Talebiniz alındı" gibi resmi kalıplar YASAK — "Tamam, hallettim.", "Oldu bil." gibi doğal tepkiler ver.',
     persona[id.personality],
     callsign,
     driving,
+    // Şive duyarlılığı: kelimeye değil niyete odak (Faz 1 — Dialect Awareness)
+    'Kullanıcı yerel şivelerle (Karadeniz, Ege, Doğu...) veya sokak ağzıyla konuşabilir ("birez", "kurban", "uşağum", "gardaş"). Kelimelere takılma; otomotiv bağlamına ve NİYETE odaklan. Asla "anlamadım" deyip bırakma — bağlamdan çıkarım yap, gerçekten gerekiyorsa tek kısa soruyla netleştir.',
+    // Güvenlik: resmi nezaket değil, dost tavsiyesi
+    'Tehlikeli istekleri (hız yapma, sürüşte video izleme, dikkat dağıtma) resmi nezaketle değil DOST TAVSİYESİYLE geri çevir ("Bence şimdi olmaz, yoldayız — varınca bakarız.").',
     'Aynı açılış kalıplarını ve cümleleri tekrar etme.',
     'Liste, madde işareti, emoji, markdown kullanma; yalnız düz konuşma metni.',
   ];
@@ -316,6 +327,9 @@ const BRAIN_INTENTS = new Set<string>([
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'SHOW_WEATHER',
   'CHECK_VEHICLE_HEALTH', 'CHECK_MAINTENANCE',
+  // Tema/görünüm (saha 2026-06-11: ASR bozuk "tema değiştir" yerel parser'ı
+  // kaçırınca beyin devralabilmeli — eskiden listede yoktu, sohbete düşüyordu)
+  'CYCLE_THEME', 'ENABLE_NIGHT_MODE',
 ]);
 
 export interface CompanionBrainAction {
@@ -341,6 +355,8 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     `intent yalnız şunlardan biri: ${[...BRAIN_INTENTS].join(' | ')}`,
     'Müzik istekleri ("X\'ten müzik aç", "X çal", "X dinleyelim") → PLAY_MUSIC_SEARCH + query=DÜZELTİLMİŞ sanatçı/şarkı adı.',
     'Yer/mekan aramaları → SEARCH_POI + category + query. Adres/yere gitme → NAVIGATE_ADDRESS + destination.',
+    'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
+    'Şive/sokak ağzı komutları da KOMUTTUR ("klimayı birez kıs kurban" gibi) — niyete odaklan, sohbete düşürme.',
     '',
     'SOHBET ise: {"type":"chat","say":"..."} — say için şu kişilik kuralları geçerli:',
     chatPersona,

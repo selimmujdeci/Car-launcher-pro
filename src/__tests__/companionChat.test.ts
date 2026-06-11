@@ -276,6 +276,34 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     expect(prompt).toContain('her cümlede kullanma');               // hitap tekrarı engeli
   });
 
+  it('FAZ 1 — Ruh ve Kimlik: şive duyarlılığı + robotik kalıp yasağı + dost güvenlik reddi promptta', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockGeminiOk();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('Karadeniz');                  // şive duyarlılığı
+    expect(prompt).toContain('NİYETE odaklan');             // kelime değil niyet
+    expect(prompt).toContain('Asla "anlamadım" deyip bırakma');
+    expect(prompt).toContain('Tamam, hallettim');           // doğal tepki örneği
+    expect(prompt).toContain('YASAK');                      // resmi kalıp yasağı
+    expect(prompt).toContain('DOST TAVSİYESİYLE');          // güvenlik reddi tonu
+    expect(prompt).toContain('arabanın ruhu');              // kimlik
+  });
+
+  it('FAZ 1 — kişilik tonu kullanıcı seçimine saygılı: profesyonelde argo yasağı', async () => {
+    setupCompanion(true);
+    useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
+    const fetchSpy = mockGeminiOk();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('argo ve laubalilik kullanma');
+    expect(prompt).not.toContain('senli benli');            // samimi tonu sızmaz
+  });
+
   it('araç verisi yokken: smalltalk için teknik hata cevabı İSTENMEZ (doğal dil kuralı promptta)', async () => {
     setupCompanion(true);
     const fetchSpy = mockGeminiOk();
@@ -344,6 +372,19 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     const intent = fromSemanticResult(r.semantic, 'leyla türkten müzik çal');
     expect(intent?.type).toBe('PLAY_MUSIC_SEARCH');
     expect(intent?.payload.searchQuery).toBe('Leyla Göktürk'); // payload köprüsü (bug fix)
+  });
+
+  it('FAZ 1 — tema komutları beynin yetkisinde: CYCLE_THEME kabul edilir, prompt şive komut örneği taşır', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockBrainJson({ type: 'action', intent: 'CYCLE_THEME', feedback: 'Tema değişti', confidence: 0.9 });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('temayı bi değiştirsene', GEMINI_OPTS);
+    expect(r!.kind).toBe('action');
+    if (r!.kind === 'action') expect(r.semantic.intent).toBe('CYCLE_THEME');
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('CYCLE_THEME');
+    expect(prompt).toContain('birez kıs kurban');           // şive komutu da komuttur
   });
 
   it('CHAT kararı: serbest sohbet say alanıyla döner', async () => {
