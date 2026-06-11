@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `d55f8e2`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `03b7e83`.
 
 ---
 
@@ -21,6 +21,14 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Companion AI-FIRST Commit 3 (2026-06-11, `03b7e83`):** kullanıcı onaylı yön
+  değişikliği — keyword sohbet ana yol değil. Companion açıkken komut olmayan
+  her cümle önce Gemini'ye (kişilikli sohbet prompt'u); offline'a yalnız net/key
+  yok + hata/timeout + 429 (soğuma) durumlarında düşülür. Router voiceService'te
+  (parser ≥0.7 → komut yolu aynen; companion kapalı → eski zincir bit değişmeden).
+  Ham OBD prompt'a girmez — Commit 2 yorumlayıcıları girer (yapısal test).
+  `voice_route` tanı aşaması eklendi. Detay: PROJECT_STATE "Companion AI" +
+  doküman §9 revizyonu. **Cihazda doğrulanmadı.**
 - **Parser hassasiyet düzeltmesi (2026-06-11, `d55f8e2`):** "nasılsın" →
   "Araç verisi alınamıyor" saha hatası. `commandParser.scorePattern` 5 ayrı
   gevşeklik tek seferde kapatıldı (kısa kalıp tam-kelime, ters yön startsWith/

@@ -8,7 +8,7 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `d55f8e2`; 2026-06-11 parser hassasiyet fix)
+- **Aktif branch:** `main` (HEAD `03b7e83`; 2026-06-11 Companion AI-first Commit 3)
 
 ## Sesli Komut Parser Hassasiyet Düzeltmesi (2026-06-11, `d55f8e2`)
 
@@ -50,7 +50,21 @@ soru edatları ('mi/misin/musun') FILLERS'a eklendi ('misin'~'music' 0.6).
   Not: gradle buildDir `C:/Temp/carlauncher/` (android/build.gradle:30);
   JAVA_HOME = Android Studio jbr gerekiyor (PATH'te java yok).
 
-## Companion AI "Yol Arkadaşım" (2026-06-11 — V1 BAŞLADI, Commit 2/7 TAMAM)
+## Companion AI "Yol Arkadaşım" (2026-06-11 — V1, Commit 3/7 TAMAM, AI-FIRST)
+
+- **MİMARİ REVİZYONU (kullanıcı onaylı):** keyword tabanlı sohbet ANA YOL DEĞİL.
+  Companion açıkken komut olmayan/belirsiz her cümle ÖNCE Gemini'ye gider;
+  offline'a yalnız 4 koşulda düşülür (net yok · key yok · hata/timeout · 429
+  60sn soğuma). Doküman §9 revize edildi; §2.8 korundu (proaktif = şablon).
+- **Commit 3 TAMAM (`03b7e83`):** `companionChatProvider.tryCompanionChat` —
+  AI-first router ucu. Router voiceService'te: parser ≥0.7 → komut yolu AYNEN;
+  gerisi sohbet hattı (belirsiz bant 0.5-0.7'den ÖNCE). Gemini sohbet: kişilik+
+  ad+hitap system prompt, temp 0.7, sürüşte 60 token/8 kelime, RAM geçmişi 8 tur.
+  **Ham OBD gitmez** — Commit 2 yorumlayıcı çıktısı prompt'a girer (yapısal test
+  var). Offline fallback zinciri: offlineConversationEngine → kategori şablonu →
+  null (zincir devam). `voice_route` tanı aşaması (companion_gemini/_offline/
+  offline_chat). 24 test; suite 1090/1090. **Cihaz doğrulaması bekliyor**
+  (Duster: "nasılsın" → Gemini cevabı; internetsiz K24: offline cevap).
 
 - **Mimari:** `docs/COMPANION_AI_ARCHITECTURE.md` (`8cceab8`) — tam tasarım:
   mevcut altyapı analizi, güvenlik riskleri, wake word v2 planı, state machine,
@@ -74,10 +88,10 @@ soru edatları ('mi/misin/musun') FILLERS'a eklendi ('misin'~'music' 0.6).
   `interpretArrival` (TTS ondalık virgül "7,5"), `interpretEngineTempConcern`
   (yalnız konuşmaya değer durum), `interpretTimeOfDay` (geçersiz→gece fail-safe).
   İmkânsız sensör verisi → null (fail-soft sus). 55 test; suite 1057/1057.
-- **Sırada (Commit 3):** `companionPersona` — 4 kişilik profili, hitap,
-  karşılama/hal-hatır/mola/yakıt şablonları (varyantlı), tekrar-önleme
-  parmak izi. Sonra: engine → wake word v2 (K24 ölçümü şart) → telemetri →
-  Gemini sohbet.
+- **Sırada (Commit 4):** bağlam enjeksiyonu genişletme — trip/rota/hava
+  yorumlarının prompt bağlamına eklenmesi (OBD yakıt/sıcaklık 3'te girdi).
+  Sonra: engine/PromptScheduler (proaktif=şablon) → wake word v2 (K24 ölçümü
+  şart) → telemetri.
 
 ## Duster Saha Düzeltmeleri (2026-06-11 — 3 commit, CİHAZDA KISMEN DOĞRULANDI)
 
