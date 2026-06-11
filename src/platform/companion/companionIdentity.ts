@@ -17,11 +17,29 @@
 /* ── Sabitler ───────────────────────────────────────────────── */
 
 export const COMPANION_TEXT_MAX_LEN = 24;
-export const DEFAULT_ASSISTANT_NAME = 'Yol Arkadaşım';
+/**
+ * Varsayılan asistan adı — ÜRÜN KARARI (2026-06-11): 'Mavi'.
+ * Gerekçe: asistan adı artık wake sisteminin MERKEZİ ("Mavi" / "Hey Mavi"
+ * ile uyanır); "Yol Arkadaşım" wake cümlesi olarak kullanılamayacak kadar
+ * uzun. "Yol Arkadaşım" ÖZELLİĞİN adı olarak kalır (ayar paneli başlığı),
+ * 'Mavi' ise asistanın varsayılan KİŞİSEL adıdır — kullanıcı değiştirebilir.
+ */
+export const DEFAULT_ASSISTANT_NAME = 'Mavi';
 export const DEFAULT_WAKE_PHRASE    = 'Hey Mavi';
 
 export type CompanionPersonality = 'sessiz' | 'samimi' | 'neseli' | 'profesyonel';
 export type CompanionChattiness  = 'az' | 'normal' | 'sik';
+
+/**
+ * Uyanma şekli — wake sözleri asistan ADINDAN türetilir:
+ *  - 'name'     → yalnız "{ad}"
+ *  - 'hey_name' → yalnız "Hey {ad}"
+ *  - 'both'     → ikisi de (varsayılan)
+ *  - 'custom'   → kullanıcının yazdığı özel cümle (companionWakePhrase)
+ */
+export type CompanionWakeMode = 'name' | 'hey_name' | 'both' | 'custom';
+export const DEFAULT_WAKE_MODE: CompanionWakeMode = 'both';
+const WAKE_MODES: readonly CompanionWakeMode[] = ['name', 'hey_name', 'both', 'custom'];
 
 export const DEFAULT_PERSONALITY: CompanionPersonality = 'samimi';
 export const DEFAULT_CHATTINESS:  CompanionChattiness  = 'az';
@@ -104,6 +122,79 @@ export function sanitizeWakePhrase(raw: unknown): string {
   return sanitizeCompanionText(raw, DEFAULT_WAKE_PHRASE);
 }
 
+/* ── Wake word türetme + eşleşme (asistan adı merkezli) ─────── */
+
+/** Önerilen wake cümlesi — asistan adı değişince UI bu öneriyi gösterir. */
+export function suggestWakePhrase(assistantName: unknown): string {
+  return `Hey ${sanitizeAssistantName(assistantName)}`;
+}
+
+/**
+ * Wake eşleşme normalizasyonu: Türkçe küçük harf (İ→i dahil), aksan
+ * sadeleştirme (ı/ö/ü/ç/ş/ğ/â/î/û → ASCII), noktalama temizliği.
+ * "MAVİ?", "mavi", "Hey Mavi!" → hepsi aynı forma iner.
+ */
+export function normalizeWakeText(raw: string): string {
+  return raw
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g')
+    .replace(/â/g, 'a').replace(/î/g, 'i').replace(/û/g, 'u')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Tek-kelimelik wake için minimum normalize uzunluk — altı yanlış tetikler. */
+const MIN_BARE_NAME_LEN = 3;
+
+/**
+ * Aktif wake sözlerini (normalize edilmiş) kimlikten türetir.
+ * Asistan adı wake sisteminin MERKEZİ: ad değişince sözler otomatik değişir.
+ * Güvenlik: ad sanitize'dan geçmiştir; çok kısa ad (<3) tek başına
+ * tetikleyici OLMAZ — yalnız "hey {ad}" varyantı kalır (yanlış tetikleme).
+ */
+export function resolveWakeWords(identity: Pick<CompanionIdentity, 'assistantName' | 'wakeMode' | 'wakePhrase'>): string[] {
+  const name = normalizeWakeText(identity.assistantName);
+  const heyName = name ? `hey ${name}` : '';
+  const words: string[] = [];
+
+  if (identity.wakeMode === 'custom') {
+    const custom = normalizeWakeText(identity.wakePhrase);
+    // Özel cümle de çok kısaysa güvenli varsayılana düş (fail-soft)
+    if (custom.length >= MIN_BARE_NAME_LEN) return [custom];
+    return heyName ? [heyName] : [normalizeWakeText(DEFAULT_WAKE_PHRASE)];
+  }
+  if ((identity.wakeMode === 'name' || identity.wakeMode === 'both') && name.length >= MIN_BARE_NAME_LEN) {
+    words.push(name);
+  }
+  if (identity.wakeMode === 'hey_name' || identity.wakeMode === 'both' || words.length === 0) {
+    if (heyName) words.push(heyName);
+  }
+  return words.length > 0 ? words : [normalizeWakeText(DEFAULT_WAKE_PHRASE)];
+}
+
+/**
+ * Transcript wake sözlerinden birini içeriyor mu — KELİME SINIRLI ardışık
+ * eşleşme ("mavi" ⊄ "maviş"; "hey mavi naber" → eşleşir).
+ */
+export function matchesWakeTranscript(transcript: string, wakeWords: readonly string[]): boolean {
+  const tWords = normalizeWakeText(transcript).split(' ').filter(Boolean);
+  if (tWords.length === 0) return false;
+  for (const phrase of wakeWords) {
+    const pWords = phrase.split(' ').filter(Boolean);
+    if (pWords.length === 0) continue;
+    for (let i = 0; i + pWords.length <= tWords.length; i++) {
+      let ok = true;
+      for (let j = 0; j < pWords.length; j++) {
+        if (tWords[i + j] !== pWords[j]) { ok = false; break; }
+      }
+      if (ok) return true;
+    }
+  }
+  return false;
+}
+
 /* ── Wake phrase risk uyarısı ───────────────────────────────── */
 
 const TURKISH_VOWELS = /[aeıioöuüâîûAEIİOÖUÜÂÎÛ]/g;
@@ -120,7 +211,7 @@ export function getWakePhraseWarning(phrase: string): string | null {
   if (words.length > 1) return null;
   const vowelCount = (clean.match(TURKISH_VOWELS) ?? []).length;
   if (vowelCount > 3) return null;
-  return `"${clean}" gibi tek kelimelik kısa adlarda yanlış tetikleme riski yüksek — "Hey ${clean}" gibi iki kelimeli bir cümle önerilir.`;
+  return `"${clean}" gibi kısa isimler araç içinde yanlışlıkla tetiklenebilir (yanlış tetikleme) — "Hey ${clean}" daha güvenlidir.`;
 }
 
 /* ── Kimlik çözücü ──────────────────────────────────────────── */
@@ -132,6 +223,7 @@ export interface CompanionIdentity {
   personality:     CompanionPersonality;
   chattiness:      CompanionChattiness;
   wakeWordEnabled: boolean;
+  wakeMode:        CompanionWakeMode;
   wakePhrase:      string;
 }
 
@@ -143,6 +235,7 @@ export interface CompanionSettingsInput {
   companionPersonality?:     unknown;
   companionChattiness?:      unknown;
   companionWakeWordEnabled?: unknown;
+  companionWakeMode?:        unknown;
   companionWakePhrase?:      unknown;
 }
 
@@ -154,6 +247,11 @@ function asPersonality(raw: unknown): CompanionPersonality {
 function asChattiness(raw: unknown): CompanionChattiness {
   return CHATTINESS_LEVELS.includes(raw as CompanionChattiness)
     ? (raw as CompanionChattiness) : DEFAULT_CHATTINESS;
+}
+
+function asWakeMode(raw: unknown): CompanionWakeMode {
+  return WAKE_MODES.includes(raw as CompanionWakeMode)
+    ? (raw as CompanionWakeMode) : DEFAULT_WAKE_MODE;
 }
 
 /**
@@ -172,6 +270,7 @@ export function resolveCompanionIdentity(
     personality:     asPersonality(settings.companionPersonality),
     chattiness:      asChattiness(settings.companionChattiness),
     wakeWordEnabled: settings.companionWakeWordEnabled === true,
+    wakeMode:        asWakeMode(settings.companionWakeMode),
     wakePhrase:      sanitizeWakePhrase(settings.companionWakePhrase),
   };
 }

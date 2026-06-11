@@ -13,8 +13,9 @@ import {
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
   getWakePhraseWarning, COMPANION_TEXT_MAX_LEN,
-  DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE,
-  type CompanionPersonality, type CompanionChattiness,
+  DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE, DEFAULT_WAKE_MODE,
+  suggestWakePhrase, resolveWakeWords, resolveCompanionIdentity,
+  type CompanionPersonality, type CompanionChattiness, type CompanionWakeMode,
 } from '../../platform/companion/companionIdentity';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
@@ -592,7 +593,24 @@ const CompanionPanel = memo(function CompanionPanel() {
     updateSettings({ companionWakePhrase: clean });
   }, [phraseDraft, updateSettings]);
 
-  const phraseWarning = getWakePhraseWarning(phraseDraft);
+  // Wake sözleri asistan ADINDAN türetilir — ad/şekil değişince önizleme
+  // ve uyarı otomatik güncellenir (öneri: "Hey {ad}").
+  const wakeMode  = settings.companionWakeMode ?? DEFAULT_WAKE_MODE;
+  const cleanName = sanitizeAssistantName(settings.companionAssistantName);
+  const wakePreview = resolveWakeWords(resolveCompanionIdentity(settings));
+  // Yanlış tetikleme uyarısı: tek-isim tetikleyici aktifse ada, özel cümlede cümleye bakılır
+  const phraseWarning = wakeMode === 'custom'
+    ? getWakePhraseWarning(phraseDraft)
+    : (wakeMode === 'name' || wakeMode === 'both')
+      ? getWakePhraseWarning(cleanName)
+      : null;
+
+  const WAKE_MODES: { id: CompanionWakeMode; label: string; sub: string }[] = [
+    { id: 'name',     label: 'Sadece isim', sub: `"${cleanName}"` },
+    { id: 'hey_name', label: 'Hey + isim',  sub: `"Hey ${cleanName}"` },
+    { id: 'both',     label: 'İkisi de',    sub: 'İsim veya Hey+isim' },
+    { id: 'custom',   label: 'Özel cümle',  sub: 'Kendin yaz' },
+  ];
 
   const PERSONALITIES: { id: CompanionPersonality; label: string; sub: string }[] = [
     { id: 'sessiz',      label: 'Sessiz',      sub: 'Yalnız sorulara cevap verir' },
@@ -695,28 +713,62 @@ const CompanionPanel = memo(function CompanionPanel() {
             </div>
           </div>
 
-          {/* Wake word */}
+          {/* Wake word — sözler asistan ADINDAN türetilir ("Mavi"/"Hey Mavi") */}
           <PremiumToggle
             icon={Mic}
             label="Sesle Uyandırma"
-            desc="Uyandırma cümlesiyle asistanı çağır (motor sonraki sürümde)"
+            desc={`"${suggestWakePhrase(settings.companionAssistantName)}" de, asistan uyansın`}
             value={settings.companionWakeWordEnabled ?? false}
             onChange={(v) => updateSettings({ companionWakeWordEnabled: v })}
             accent="#a78bfa"
           />
 
           {(settings.companionWakeWordEnabled ?? false) && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Uyandırma Cümlesi</span>
-              <input
-                type="text"
-                value={phraseDraft}
-                maxLength={COMPANION_TEXT_MAX_LEN}
-                onChange={(e) => setPhraseDraft(e.target.value)}
-                onBlur={commitPhrase}
-                placeholder={DEFAULT_WAKE_PHRASE}
-                className={inputClass}
-              />
+            <div className="flex flex-col gap-3">
+              {/* Uyanma şekli */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Uyanma Şekli</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {WAKE_MODES.map(({ id, label, sub }) => {
+                    const active = wakeMode === id;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => updateSettings({ companionWakeMode: id })}
+                        className="flex flex-col gap-0.5 px-4 py-3 rounded-xl border text-left transition-all active:scale-[0.98]"
+                        style={active
+                          ? { backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'rgba(167,139,250,0.45)' }
+                          : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                      >
+                        <span className="text-sm font-bold" style={{ color: active ? '#a78bfa' : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{label}</span>
+                        <span className="text-[10px]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.4))' }}>{sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Özel cümle girişi — yalnız 'custom' modda */}
+              {wakeMode === 'custom' && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Özel Uyandırma Cümlesi</span>
+                  <input
+                    type="text"
+                    value={phraseDraft}
+                    maxLength={COMPANION_TEXT_MAX_LEN}
+                    onChange={(e) => setPhraseDraft(e.target.value)}
+                    onBlur={commitPhrase}
+                    placeholder={suggestWakePhrase(settings.companionAssistantName)}
+                    className={inputClass}
+                  />
+                </div>
+              )}
+
+              {/* Aktif wake sözleri önizlemesi */}
+              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-slate-400 leading-relaxed">
+                Şu sözlerle uyanır: {wakePreview.map((w) => `"${w}"`).join(' · ')}
+              </div>
+
               {phraseWarning && (
                 <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] leading-relaxed text-amber-400">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />

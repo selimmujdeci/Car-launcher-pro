@@ -86,6 +86,19 @@ let _voiceCogPaused = false;
 export function setVoicePaused(paused: boolean): void {
   _voiceCogPaused = paused;
 }
+
+/**
+ * PROTECTION/CRITICAL kilidi dışarıdan okunabilir (wake word kapısı):
+ * pasif dinleme wake tetiklese bile sohbet/eğlence BAŞLAMAZ.
+ */
+export function isVoicePaused(): boolean {
+  return _voiceCogPaused;
+}
+
+/** Anlık ses durumu görüntüsü (hook'suz) — wake döngüsü mikrofon çakışmasını önler. */
+export function getVoiceSnapshot(): VoiceState {
+  return _current;
+}
 const _commandHandlers = new Set<CommandHandler>();
 const _aiHandlers      = new Set<AIResultHandler>();
 let _lastCommandTime = 0;

@@ -7,9 +7,9 @@ import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
 import { setObdVehicleType } from '../platform/obdService';
 import { safeStorage } from '../utils/safeStorage';
 import {
-  DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE,
+  DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE, DEFAULT_WAKE_MODE,
   DEFAULT_PERSONALITY, DEFAULT_CHATTINESS,
-  type CompanionPersonality, type CompanionChattiness,
+  type CompanionPersonality, type CompanionChattiness, type CompanionWakeMode,
 } from '../platform/companion/companionIdentity';
 
 /**
@@ -211,7 +211,12 @@ export interface AppSettings {
   companionChattiness: CompanionChattiness;
   /** Companion wake word anahtarı (eski wakeWordEnabled'dan bağımsız) */
   companionWakeWordEnabled: boolean;
-  /** Uyandırma cümlesi — wake word motoru (Commit 5) bu değeri kullanır */
+  /**
+   * Uyanma şekli — wake sözleri asistan ADINDAN türetilir:
+   * name="{ad}" · hey_name="Hey {ad}" · both=ikisi · custom=companionWakePhrase
+   */
+  companionWakeMode: CompanionWakeMode;
+  /** ÖZEL uyandırma cümlesi — yalnız companionWakeMode='custom' iken kullanılır */
   companionWakePhrase: string;
   /**
    * Adaptive Runtime Engine mod seçimi.
@@ -360,6 +365,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionPersonality: DEFAULT_PERSONALITY,
   companionChattiness: DEFAULT_CHATTINESS,
   companionWakeWordEnabled: false,
+  companionWakeMode: DEFAULT_WAKE_MODE,
   companionWakePhrase: DEFAULT_WAKE_PHRASE,
   runtimeOverride: 'AUTO',
 };
@@ -455,7 +461,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 14,
+      version: 15,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -489,6 +495,16 @@ export const useStore = create<StoreState>()(
           // başlar (opt-in), eski wakeWordEnabled değerinden devralınmaz.
           settings.companionEnabled = false;
           settings.companionWakeWordEnabled = false;
+        }
+        if (fromVersion < 15) {
+          // v15: wake sözleri asistan adından türetilir (companionWakeMode).
+          // Eski varsayılan ad 'Yol Arkadaşım' kişiselleştirilmemiş sayılır →
+          // yeni ürün varsayılanı 'Mavi' ("Hey Yol Arkadaşım" wake olarak
+          // kullanılamaz). Kullanıcının verdiği ÖZEL adlar aynen korunur.
+          settings.companionWakeMode = DEFAULT_WAKE_MODE;
+          if (persisted['companionAssistantName'] === 'Yol Arkadaşım') {
+            settings.companionAssistantName = DEFAULT_ASSISTANT_NAME;
+          }
         }
         return { ...ps, settings };
       },

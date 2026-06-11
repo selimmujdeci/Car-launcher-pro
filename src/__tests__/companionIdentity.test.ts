@@ -45,7 +45,7 @@ describe('sanitizeAssistantName', () => {
     expect(sanitizeAssistantName('  Mavi   Bulut  ')).toBe('Mavi Bulut');
   });
 
-  it('boş değer → varsayılan "Yol Arkadaşım"', () => {
+  it('boş değer → varsayılan asistan adı (Mavi)', () => {
     expect(sanitizeAssistantName('')).toBe(DEFAULT_ASSISTANT_NAME);
     expect(sanitizeAssistantName('   ')).toBe(DEFAULT_ASSISTANT_NAME);
   });
@@ -245,14 +245,17 @@ describe('useStore — companion ayarları', () => {
     useStore.getState().resetSettings();
   });
 
-  it('varsayılanlar doğru (kapalı + Yol Arkadaşım + Hey Mavi)', () => {
+  it('varsayılanlar doğru (kapalı + Mavi + Hey Mavi + both)', () => {
     const s = useStore.getState().settings;
     expect(s.companionEnabled).toBe(false);
-    expect(s.companionAssistantName).toBe('Yol Arkadaşım');
+    // Ürün kararı 2026-06-11: varsayılan ad 'Mavi' — wake sözleri adın
+    // kendisinden türediği için ("Mavi"/"Hey Mavi") wake-dostu bir ad şart.
+    expect(s.companionAssistantName).toBe('Mavi');
     expect(s.companionUserCallsign).toBe('');
     expect(s.companionPersonality).toBe('samimi');
     expect(s.companionChattiness).toBe('az');
     expect(s.companionWakeWordEnabled).toBe(false);
+    expect(s.companionWakeMode).toBe('both');
     expect(s.companionWakePhrase).toBe('Hey Mavi');
   });
 
@@ -278,7 +281,7 @@ describe('useStore — companion ayarları', () => {
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw!) as { state: { settings: Record<string, unknown> }; version: number };
     expect(parsed.state.settings.companionAssistantName).toBe('Bulut');
-    expect(parsed.version).toBe(14);
+    expect(parsed.version).toBe(15);
   });
 
   it('companion alanı güncellemesi diğer ayarları bozmaz', () => {

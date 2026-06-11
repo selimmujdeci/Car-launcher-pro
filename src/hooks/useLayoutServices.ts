@@ -3,6 +3,7 @@ import { initFcmService }           from '../platform/fcmService';
 import { initConnectivityService }  from '../platform/connectivityService';
 import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
 import { enableWakeWord, disableWakeWord } from '../platform/wakeWordService';
+import { resolveCompanionIdentity, resolveWakeWords } from '../platform/companion/companionIdentity';
 import { startTrafficService, stopTrafficService, updateTrafficLocation } from '../platform/trafficService';
 import { initializeContacts } from '../platform/contactsService';
 import { startMediaHub } from '../platform/mediaService';
@@ -112,12 +113,31 @@ export function useLayoutServices({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeSettings.activeVehicleProfileId, storeSettings.vehicleProfiles]);
 
-  // Wake word
+  // Wake word — COMPANION ÖNCELİKLİ: "Yol Arkadaşım" + sesle uyandırma
+  // açıksa wake sözleri asistan ADINDAN türetilir ("Mavi"/"Hey Mavi"/özel);
+  // değilse eski "hey car" sistemi aynen çalışır.
   useEffect(() => {
-    if (settings.wakeWordEnabled) enableWakeWord(settings.wakeWord ?? 'hey car');
-    else disableWakeWord();
+    const companionWake =
+      (settings.companionEnabled ?? false) && (settings.companionWakeWordEnabled ?? false);
+    if (companionWake) {
+      // Yalnız wake'i etkileyen alanlar geçirilir (whole-settings bağımlılığı yok)
+      const identity = resolveCompanionIdentity({
+        companionAssistantName: settings.companionAssistantName,
+        companionWakeMode:      settings.companionWakeMode,
+        companionWakePhrase:    settings.companionWakePhrase,
+      });
+      enableWakeWord(resolveWakeWords(identity), { companion: true });
+    } else if (settings.wakeWordEnabled) {
+      enableWakeWord(settings.wakeWord ?? 'hey car');
+    } else {
+      disableWakeWord();
+    }
     return () => { disableWakeWord(); };
-  }, [settings.wakeWordEnabled, settings.wakeWord]);
+  }, [
+    settings.wakeWordEnabled, settings.wakeWord,
+    settings.companionEnabled, settings.companionWakeWordEnabled,
+    settings.companionAssistantName, settings.companionWakeMode, settings.companionWakePhrase,
+  ]);
 
   // Contacts
   useEffect(() => { initializeContacts(); }, []);
