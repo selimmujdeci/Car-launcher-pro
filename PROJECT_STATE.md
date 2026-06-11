@@ -8,7 +8,41 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `eb8ad25`; 2026-06-11 asistan adı merkezli wake word)
+- **Aktif branch:** `main` (HEAD `45facfa`; 2026-06-11 wake uyanmama + müzik isteği saha fix)
+
+## Wake Uyanmama + Müzik İsteği Saha Fix (2026-06-11, `45facfa` — CİHAZ DOĞRULAMASI BEKLİYOR)
+
+Saha: (1) "hey mavi / özel ad diyorum uyanmıyor" · (2) "İbrahim Tatlıses'ten
+müzik aç → Gemini sanatçının hayatını anlatıyor".
+
+**Wake kök nedenleri ve fix'ler (wakeWordService + companionIdentity + Java):**
+- Vosk TR modeli "hey"i güvenilir tanımaz → "hey {ad}" Vosk eşdeğerleriyle
+  genişler (ey/hay/hei); custom "hey ..." cümleleri de.
+- Sessizlik rejection'ı hata sayılıp 3sn bekleniyordu (döngünün ~%25'i SAĞIR)
+  → 250ms; tur arası 500→300ms; pencere 9s→20s (wakeListenMs).
+- Ayar değişiminde eski döngü instance'ı ölmüyordu → PARALEL STT (karşılıklı
+  iptal = tam sağırlık). Jenerasyon token'ı eklendi.
+- Pasif döngü her turda müziği %12'ye kısıyordu → native yeni opsiyon
+  `duckWhileListening:false` (CarLauncherPlugin; varsayılan true, aktif
+  dinleme değişmez). Wake kazancı ayrı: `wakeGainX=3.2`.
+- Teşhis: `WakeWordState.lastHeard` (son 5 transcript) + console.warn eşleşme
+  sonucu; 5 ardışık gerçek hata → görünür 'error' (sessiz sonsuz döngü yok).
+
+**Müzik kök nedeni:** musicCommandParser çekimli fiil tanımıyordu ("açar
+mısın"/"açsana"/"açıver"/"koy") → cümle <0.7 → companion AI-first sohbete
+düşüyordu. Fix: VERB_FORMS (kök+çekim+soru eki tüm ünlü uyumları+nezaket
+kuyruğu) + fiilsiz net istekler ("X'ten müzik", "tarkan şarkıları"; soru
+cümleleri hariç) → play_music_query 0.93, sorgu sade sanatçı adı. Ek sigorta:
+voiceService companion kapısı — `looksLikeMusicActionRequest` true ise sohbet
+ATLANIR, zincir semantic NLP'ye (PLAY_MUSIC_SEARCH) devam eder.
+
+**Genel hassasiyet:** nativeGainX 2.5→3.0 (saha isteği; tavan 4.0, yanlış
+tetikleme artarsa geri alınır).
+
+Test: +21 → suite **1168/1168** · build OK · lint 0 · Java compile OK.
+**Cihazda doğrulanacak:** "Mavi"/"Hey Mavi"/özel ad uyanma oranı (lastHeard
+chrome inspect'te), müzik çalarken duck yokluğu, "X'ten müzik açar mısın" →
+arama, yanlış tetikleme oranı (gain 3.0/3.2 yüksekse düşürülecek).
 
 ## Asistan Adı Merkezli Wake Word (2026-06-11, `eb8ad25` — CİHAZ DOĞRULAMASI BEKLİYOR)
 

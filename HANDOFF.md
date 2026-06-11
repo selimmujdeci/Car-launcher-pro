@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `eb8ad25`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `45facfa`.
 
 ---
 
@@ -21,6 +21,14 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Wake uyanmama + müzik isteği saha fix (2026-06-11, `45facfa`):** Vosk
+  "hey" tanımıyor → ey/hay/hei varyantları; sessizlikte 3sn sağır boşluk →
+  250ms; paralel döngü bug'ı → jenerasyon token; pasif dinleme müzik duck'ı
+  kapatıldı (native `duckWhileListening` opsiyonu); çekimli müzik fiilleri
+  ("açar mısın/açsana/koy") + fiilsiz istekler ("X'ten müzik") artık
+  play_music_query; companion müzik kapısı (sohbet biyografi anlatamaz);
+  gain 2.5→3.0, wake 3.2/20s; lastHeard teşhisi. Detay: PROJECT_STATE
+  "Wake Uyanmama + Müzik İsteği". **Cihazda doğrulanmadı.**
 - **Asistan adı merkezli wake word (2026-06-11, `eb8ad25`):** kullanıcı
   asistana hangi adı verirse o adla uyanır (ad=Mavi → "Mavi"/"Hey Mavi");
   uyanma şekli seçici (name/hey_name/both/custom); ÜRÜN KARARI: varsayılan
