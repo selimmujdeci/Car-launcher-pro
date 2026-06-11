@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `60d92e4`.
+> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `cffe182`.
 
 ---
 
@@ -21,6 +21,15 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Companion sürekli sohbet döngüsü (2026-06-11, `cffe182`):** P0 saha UX —
+  cevap sonrası mikrofona tekrar basma zorunluluğu kalktı. Akış: dinle →
+  transcript → (Gemini >800ms ise "düşünüyorum") → cevap TTS → TTS bitince
+  KISA pencereyle (8s, `followUpListenMs`) otomatik yeniden dinleme.
+  Döngü YALNIZ companion sohbet modunda; araç komutları döngü kurmaz;
+  "tamam/sus/kapat/sonra konuşuruz" sessizce kapatır; PROTECTION/CRITICAL
+  kapatır; sessizlikte idle (tekrar konuşma yok). Prompt doğallaştı
+  ("8 kelime" kuralı kalktı; sürüşte 2-3 kısa cümle; token 100/160).
+  15 yeni test (`companionConversationLoop.test.ts`). **Cihazda doğrulanmadı.**
 - **Telemetri görünürlük (2026-06-11, `60d92e4`):** admin incidents boştu —
   eşlenmemiş cihazda pushVehicleEvent her event'i sessiz yutuyordu. Artık
   throttle'lı warn + sayaç + `not_paired` snapshot sonucu + UI yönlendirmesi.

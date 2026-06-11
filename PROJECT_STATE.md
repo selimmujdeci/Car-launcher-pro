@@ -8,7 +8,44 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `60d92e4`; 2026-06-11 telemetri görünürlük fix)
+- **Aktif branch:** `main` (HEAD `cffe182`; 2026-06-11 companion sürekli sohbet döngüsü)
+
+## Companion Sürekli Sohbet Döngüsü (2026-06-11, `cffe182` — P0 UX, CİHAZ DOĞRULAMASI BEKLİYOR)
+
+Saha şikayetleri: cevap sonrası her seferinde mikrofona basmak gerekiyor ·
+asistan geç cevap veriyor · cevaplar robotik/aşırı kısa. Çözüm (voiceService +
+ttsService + voiceTuning + companionChatProvider, 8 dosya):
+
+- **Döngü:** dinle → transcript → cevap TTS → `registerTtsEndListener` →
+  350ms tampon → mikrofon OTOMATİK yeniden açılır (`followUpListenMs=8s`
+  kısa pencere; wake word gerekmez). Sessizlik (boş transcript) → idle,
+  tekrar tekrar konuşma YOK.
+- **Kapsam kuralı:** döngü YALNIZ companion sohbet cevabında kurulur
+  (`_dispatchConversation(armFollowUp=true)`). Araç komutları (dispatch/
+  dispatchDriving/dispatchChain/semantic/askAI) `_endConvSession()` çağırır —
+  komut sonrası mikrofon kendiliğinden AÇILMAZ. Onay sorusu ("Bunu mu demek
+  istedin?") istisna: evet/hayır cevabı için dinleme açılır.
+- **Kapatma sözleri:** `_isConversationEnd` — "tamam/sus/kapat/sonra
+  konuşuruz/görüşürüz" (TAM söylem, TR-normalize) döngüyü SESSİZCE bitirir;
+  "müziği kapat" gibi nesneli komutlar parser yolunda kalır.
+- **Geç cevap:** "düşünüyorum" ara feedback'i 800ms EŞİKLİ timer'a alındı
+  (`THINKING_FEEDBACK_DELAY_MS`) — hızlı cevapta ara konuşma yok; geç kalan
+  ara konuşmayı cevap TTS'i QUEUE_FLUSH ile keser (`_speakSeq` yalnız son
+  utterance bitişi sayılır).
+- **Doğallık:** companion promptunda "8 kelime" kuralı kaldırıldı — sürüşte
+  2-3 kısa cümle / parkta 3 doğal cümle; hitap her cümlede tekrarlanmaz;
+  aynı kalıplar yasak; veri yokken smalltalk'ta teknik hata cevabı yerine
+  doğal dil. `maxOutputTokens` 60/120→100/160; TTS kırpma 220→300 + cümle
+  sınırında kesim.
+- **Güvenlik:** PROTECTION/CRITICAL (`setVoicePaused`) hem arm'ı hem
+  re-listen'ı engeller; TTS konuşurken STT başlamaz (bitiş event'i bekler).
+- **Test:** `companionConversationLoop.test.ts` 15 yeni test (döngü, komut
+  ayrımı, kapatma sözleri, pause kilidi, 800ms eşiği). voiceTuning/
+  voiceCogPause mock'larına `registerTtsEndListener` eklendi (modül-init
+  kırılması onarıldı). Suite **1119/1119** · build 1m31s · lint 0 hata.
+- **Cihazda doğrulanacak:** Duster'da çok turlu sohbet ("Hey Mavi nasılsın"
+  → cevap → tekrar basmadan konuşma), "tamam" ile kapanış, müzik çalarken
+  duck/resume davranışı, K24'te kısa pencere süresi hissi.
 
 ## Telemetri Sessiz Yutma Düzeltmesi (2026-06-11, `60d92e4`)
 
