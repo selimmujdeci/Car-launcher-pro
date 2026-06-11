@@ -64,6 +64,33 @@ if (import.meta.hot) {
   });
 }
 
+/* ── TTS bitiş olayı (takip dinlemesi için) ───────────────── */
+
+/**
+ * Her seslendirme tamamlandığında (bitti/kesildi/atlandı) çağrılan dinleyiciler.
+ * voiceService takip modunda "cevap bitti → mikrofonu yeniden aç" anını buradan alır.
+ * Dedupe ile ATLANAN konuşmalar da bildirir — aksi halde takip modu asılı kalır.
+ */
+type TtsEndListener = () => void;
+const _ttsEndListeners = new Set<TtsEndListener>();
+
+export function registerTtsEndListener(cb: TtsEndListener): () => void {
+  _ttsEndListeners.add(cb);
+  return () => { _ttsEndListeners.delete(cb); };
+}
+
+function _notifyTtsEnd(): void {
+  _ttsEndListeners.forEach((fn) => { try { fn(); } catch { /* dinleyici hatası TTS'i kırmasın */ } });
+}
+
+/**
+ * Seslendirme sırası: QUEUE_FLUSH eski utterance'ı keser ve onun bitişi de
+ * (onStop) settle tetikler. Yalnız EN SON utterance'ın bitişi "konuşma bitti"
+ * sayılır — aksi halde flush edilen "Düşünüyorum..." cümlesinin bitişi, asıl
+ * cevap hâlâ konuşulurken takip dinlemesini/unduck'ı erken tetiklerdi.
+ */
+let _speakSeq = 0;
+
 /* ── Rate limiting ───────────────────────────────────────── */
 
 /** Aynı metni kısa aralıkla tekrar seslendirme */
@@ -93,16 +120,39 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!text.trim()) return;
 
   const now = Date.now();
-  if (!opts.force && text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) return;
+  if (!opts.force && text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) {
+    // Dedupe atladı — başka seslendirme uçuşta değilse yine de "bitti" bildir:
+    // takip dinlemesi bu sinyali bekliyor (uçuştaki utterance kendi bitişini bildirir).
+    if (!_ttsDucking) setTimeout(_notifyTtsEnd, 0);
+    return;
+  }
   _lastSpokenText = text;
   _lastSpokenAt   = now;
 
   // ── Native path: Android TextToSpeech (güvenilir, Türkçe destekli) ──
   if (_isNative) {
+    const seq = ++_speakSeq;
     if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
+    // speak() Promise'i artık seslendirme BİTİNCE çözülür (UtteranceProgressListener).
+    // Bazı OEM TTS motorları onDone'u hiç çağırmayabilir → süre tahminli emniyet
+    // zamanlayıcısı: hangisi önce gelirse bir kez işlenir (çift unduck/çift onEnd yok).
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      // Yalnız en son utterance global durumu kapatır (flush edilen eskiler dokunmaz)
+      if (seq === _speakSeq) {
+        _ttsDucking = false;
+        unduckMedia();
+        _notifyTtsEnd();
+      }
+      opts.onEnd?.();
+    };
+    const estimatedMs = Math.min(30_000, 3_000 + text.length * 110);
+    const safety = setTimeout(settle, estimatedMs);
     CarLauncher.speak({ text, rate: opts.rate ?? 1.0 })
-      .then(() => { _ttsDucking = false; unduckMedia(); opts.onEnd?.(); })
-      .catch(() => { _ttsDucking = false; unduckMedia(); });
+      .then(() => { clearTimeout(safety); settle(); })
+      .catch(() => { clearTimeout(safety); settle(); });
     return;
   }
 
@@ -128,6 +178,12 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     _ttsDucking = false;
     unduckMedia();
     userOnEnd?.();
+    _notifyTtsEnd();
+  };
+  utter.onerror = () => {
+    _ttsDucking = false;
+    unduckMedia();
+    _notifyTtsEnd();
   };
 
   const voice = _getTurkishVoice();

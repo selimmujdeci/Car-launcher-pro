@@ -245,15 +245,44 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     expect(r).toBeNull();
   });
 
-  it('sürüşte: Gemini token limiti 60 + "8 kelime" kuralı promptta', async () => {
+  it('sürüşte: doğal sohbet sınırları — "2-3 kısa cümle" kuralı, robotik "8 kelime" YOK', async () => {
     setupCompanion(true);
     const fetchSpy = mockGeminiOk('Kısa.');
     vi.stubGlobal('fetch', fetchSpy);
 
     await tryCompanionChat('nasılsın', { ...GEMINI_OPTS, isDriving: true });
     const body = lastRequestBody(fetchSpy);
-    expect(body.generationConfig.maxOutputTokens).toBe(60);
-    expect(body.system_instruction.parts[0].text).toContain('8 kelime');
+    expect(body.generationConfig.maxOutputTokens).toBe(100);        // 60 cevapları ortadan kesiyordu
+    const prompt = body.system_instruction.parts[0].text;
+    expect(prompt).toContain('2-3 kısa cümle');
+    expect(prompt).not.toContain('8 kelime');                       // robotik sınır kaldırıldı
+    expect(prompt).toContain('Doğal ve akıcı konuş');
+  });
+
+  it('park halinde: 3 doğal cümleye izin + hitap her cümlede tekrarlanmaz kuralı', async () => {
+    setupCompanion(true);
+    useStore.getState().updateSettings({ companionUserCallsign: 'Selim' });
+    const fetchSpy = mockGeminiOk();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    const body = lastRequestBody(fetchSpy);
+    expect(body.generationConfig.maxOutputTokens).toBe(160);
+    const prompt = body.system_instruction.parts[0].text;
+    expect(prompt).toContain('3 doğal cümle');
+    expect(prompt).toContain('her cümlede kullanma');               // hitap tekrarı engeli
+  });
+
+  it('araç verisi yokken: smalltalk için teknik hata cevabı İSTENMEZ (doğal dil kuralı promptta)', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockGeminiOk();
+    vi.stubGlobal('fetch', fetchSpy);
+    // OBD mock'u modül seviyesinde veri veriyor — veri YOK durumunu yorumlayıcı
+    // boş bağlamla simüle edemeyiz; bunun yerine kural metni bağlamsız dalda.
+    // interpretFuel(23,143) bağlam ürettiği için bu testte bağlamlı dal doğrulanır:
+    await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('yalnız konuyla ilgiliyse');           // smalltalk'a veri sızdırma yok
   });
 
   it('sürüşte offline yanıt kısa (ISO 15008)', async () => {

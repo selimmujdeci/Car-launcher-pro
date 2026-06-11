@@ -148,27 +148,39 @@ const GEMINI_CHAT_ENDPOINT =
 const GEMINI_TIMEOUT_MS = 6000;
 
 function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string): string {
-  const callsign = id.userCallsign ? `Kullanıcıya "${id.userCallsign}" diye hitap et.` : 'Kullanıcıya hitap kullanma.';
+  // Hitap her cümlede TEKRARLANMAZ — "her cümlede isim" robotik algının
+  // ana kaynaklarından (saha geri bildirimi 2026-06-11).
+  const callsign = id.userCallsign
+    ? `Kullanıcıya ara sıra "${id.userCallsign}" diye hitap edebilirsin ama her cümlede kullanma.`
+    : 'Kullanıcıya hitap kullanma.';
   const persona: Record<string, string> = {
     sessiz:      'Az ve öz konuş, yalnız sorulana cevap ver.',
     samimi:      'Sıcak ve doğal bir yol arkadaşı gibi konuş.',
     neseli:      'Enerjik ve pozitif konuş, hafif espri yapabilirsin.',
     profesyonel: 'Kısa, net ve resmi konuş.',
   };
+  // Sürüşte kısa ama DOĞAL: "tek cümle robot" değil, 2-3 kısa cümle
+  // (ISO 15008 dikkat sınırı korunur; eski "8 kelime" kuralı sohbeti öldürüyordu).
   const driving = isDriving
-    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 8 kelimeyle cevap ver.'
-    : 'En fazla 2 kısa cümleyle cevap ver.';
+    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 2-3 kısa cümleyle, sade ve net cevap ver.'
+    : 'En fazla 3 doğal cümleyle cevap ver.';
   const lines = [
     `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın.`,
+    'Doğal ve akıcı konuş; robotik, kalıp ya da tek kelimelik cevaplar verme.',
     persona[id.personality],
     callsign,
     driving,
+    'Aynı açılış kalıplarını ve cümleleri tekrar etme.',
     'Liste, madde işareti, emoji, markdown kullanma; yalnız düz konuşma metni.',
   ];
   if (vehicleContext) {
     lines.push(`Araç bağlamı (yorumlanmış): ${vehicleContext} Bu bilgiyi yalnız konuyla ilgiliyse doğal biçimde kullan.`);
   } else {
-    lines.push('Araç verisine (hız, yakıt, sıcaklık) şu an erişimin yok — sorulursa bunu söyle, asla uydurma.');
+    lines.push(
+      'Araç verisine (hız, yakıt, sıcaklık) şu an erişimin yok. Sorulursa bunu teknik hata mesajı gibi değil, ' +
+      'doğal bir dille söyle ("şu an araçtan veri alamıyorum ama sürüşü takip ediyorum" gibi); asla veri uydurma. ' +
+      'Günlük sohbette araç verisinden hiç bahsetme.',
+    );
   }
   return lines.join(' ');
 }
@@ -190,7 +202,9 @@ async function askCompanionGemini(
     contents,
     generationConfig: {
       temperature:     0.7,
-      maxOutputTokens: isDriving ? 60 : 120,
+      // 2-3 doğal cümleye alan tanır (eski 60/120 cevapları ortadan kesiyordu);
+      // üst sınır yine TTS kırpma katmanıyla (aşağıda) sigortalı.
+      maxOutputTokens: isDriving ? 100 : 160,
     },
   };
 
@@ -213,9 +227,15 @@ async function askCompanionGemini(
   };
   const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
   if (!raw) return null;
-  // TTS güvenliği: tek satıra indir, aşırı uzunsa kırp (dikkat dağıtma — §2.1)
+  // TTS güvenliği: tek satıra indir, aşırı uzunsa kırp (dikkat dağıtma — §2.1).
+  // Kırpma cümle sınırında yapılır — yarıda kesilen cümle robotik algı yaratır.
   const flat = raw.replace(/\s+/g, ' ').trim();
-  return flat.length > 220 ? `${flat.slice(0, 217)}...` : flat;
+  if (flat.length <= 300) return flat;
+  const head = flat.slice(0, 297);
+  const lastSentenceEnd = Math.max(
+    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
+  );
+  return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
 }
 
 /* ── Offline fallback yanıtları ─────────────────────────────── */

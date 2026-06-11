@@ -28,6 +28,13 @@ export interface VoiceTuning {
    * konuşmaya alan tanır (eski 9s pencere sonunda kısa komutlar kesilebiliyordu).
    */
   maxListenMs: number;
+  /**
+   * Takip dinleme penceresi (ms) — sohbet modunda cevap (TTS) bitince açılan
+   * otomatik yeniden-dinleme. Normal pencereden KISA tutulur: kullanıcı
+   * konuşmazsa sistem hızla idle'a döner (6-10s bandı; sürüş dikkati).
+   * Native clamp alt sınırı 5s'in üstünde kalmalı.
+   */
+  followUpListenMs: number;
   /** Mikrofon donanım ısınması — normal cihaz (ms). */
   warmupMs: number;
   /** Mikrofon donanım ısınması — düşük donanım/T507 (ms). */
@@ -47,6 +54,7 @@ export interface VoiceTuning {
 export const VOICE_TUNING: VoiceTuning = {
   nativeGainX:      2.5,
   maxListenMs:      12_000,
+  followUpListenMs: 8_000,
   warmupMs:         300,
   warmupLowEndMs:   500,
   listenFailsafeMs: 14_000,

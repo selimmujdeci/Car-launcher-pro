@@ -39,7 +39,11 @@ vi.mock('../platform/offlineConversationEngine', () => ({
   tryOfflineConversation: () => ({ handled: false, response: '' }),
 }));
 vi.mock('../platform/performanceMode', () => ({ getConfig: () => ({ enableRecommendations: true }) }));
-vi.mock('../platform/ttsService', () => ({ speakFeedback: vi.fn(), speakAlert: vi.fn() }));
+vi.mock('../platform/ttsService', () => ({
+  speakFeedback: vi.fn(),
+  speakAlert: vi.fn(),
+  registerTtsEndListener: () => () => {},   // takip dinlemesi modül-init kaydı
+}));
 vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
 vi.mock('../platform/ai/semanticAiService', () => ({
@@ -103,6 +107,15 @@ describe('VOICE_TUNING invariantları', () => {
     expect(VOICE_TUNING.uiSafetyCloseMs).toBeGreaterThan(VOICE_TUNING.listenFailsafeMs);
   });
 
+  it('takip dinleme penceresi 6-10s bandında ve zaman hiyerarşisini bozmaz', () => {
+    expect(VOICE_TUNING.followUpListenMs).toBeGreaterThanOrEqual(6_000);  // çok kısa → kullanıcı yetişemez
+    expect(VOICE_TUNING.followUpListenMs).toBeLessThanOrEqual(10_000);    // çok uzun → mikrofon asılı kalır
+    expect(VOICE_TUNING.followUpListenMs).toBeGreaterThanOrEqual(5_000);  // native clamp alt sınırı
+    expect(VOICE_TUNING.listenFailsafeMs).toBeGreaterThan(
+      VOICE_TUNING.warmupLowEndMs + VOICE_TUNING.followUpListenMs,
+    );
+  });
+
   it('warmup değerleri makul: 0 < normal <= lowEnd <= 1000ms', () => {
     expect(VOICE_TUNING.warmupMs).toBeGreaterThan(0);
     expect(VOICE_TUNING.warmupLowEndMs).toBeGreaterThanOrEqual(VOICE_TUNING.warmupMs);
@@ -122,6 +135,16 @@ describe('native opsiyon aktarımı', () => {
     expect(M.sttOptions!['gain']).toBe(VOICE_TUNING.nativeGainX);
     expect(M.sttOptions!['maxListenMs']).toBe(VOICE_TUNING.maxListenMs);
     expect(M.sttOptions!['preferOffline']).toBe(true); // mevcut davranış korunur
+  });
+
+  it('takip dinlemesi (followUpWindow) KISA pencereyi native\'e geçirir', async () => {
+    vi.useFakeTimers();
+    startListening({ followUpWindow: true });
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 50);
+
+    expect(M.sttOptions).not.toBeNull();
+    expect(M.sttOptions!['maxListenMs']).toBe(VOICE_TUNING.followUpListenMs);
+    expect(M.sttOptions!['gain']).toBe(VOICE_TUNING.nativeGainX); // kazanç aynı
   });
 });
 

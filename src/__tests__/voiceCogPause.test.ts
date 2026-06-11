@@ -32,6 +32,7 @@ vi.mock('../platform/performanceMode', () => ({ getConfig: () => ({ enableRecomm
 vi.mock('../platform/ttsService', () => ({
   speakFeedback: (...a: unknown[]) => M.speak(...a),
   speakAlert: vi.fn(),
+  registerTtsEndListener: () => () => {},   // takip dinlemesi modül-init kaydı
 }));
 vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
