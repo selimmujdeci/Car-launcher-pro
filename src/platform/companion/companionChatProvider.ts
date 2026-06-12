@@ -50,6 +50,12 @@ export interface CompanionChatOpts {
   /** resolveApiKey çıktısı — boş string = key yok. */
   apiKey?:    string;
   hasNet?:    boolean;
+  /**
+   * Single Brain karar bütçesi (ms). voiceService 2.5sn iletir: beyin bu süre
+   * içinde ACTION/CHAT kararı veremezse fetch iptal edilir → yerel graceful
+   * fallback zinciri zamanında devreye girer. Verilmezse GEMINI_TIMEOUT_MS.
+   */
+  timeoutMs?: number;
 }
 
 /* ── Offline kategori ipuçları (ANA YOL DEĞİL — yalnız fallback) ── */
@@ -377,7 +383,9 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
   const chatPersona = buildCompanionSystemPrompt(id, isDriving, vehicleContext);
   const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
   return [
-    `Sen "${id.assistantName}" adlı Türkçe araç içi asistansın (Siri benzeri tek beyin).`,
+    `Sen "${id.assistantName}" adlı Türkçe araç içi asistansın.`,
+    'Sen bu aracın TEK BEYNİSİN (Single Brain): arkanda başka bir ayrıştırıcı, parser ya da ikinci asistan katmanı YOK. Bu girdiye yalnız SEN cevap vereceksin — kararını tek başına ver.',
+    'TEK KARAR: kullanıcı bir AKSİYON (araç komutu) mu yoksa SOHBET mi istiyor? İkisinden YALNIZ birini seç ve ona göre JSON döndür; asla ikisini birden döndürme.',
     personaRole,
     'Bu kişilik hem sohbet cevaplarının ("say") hem komut onaylarının ("feedback") tonunu belirler.',
     'Kullanıcı metni KUSURLU cihaz-içi konuşma tanımadan gelir: bozulmuş veya yanlış duyulmuş',
@@ -449,6 +457,7 @@ async function askCompanionBrain(
   apiKey: string,
   id: CompanionIdentity,
   isDriving: boolean,
+  timeoutMs?: number,
 ): Promise<CompanionBrainResult | null> {
   const contents = [
     ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
@@ -465,11 +474,15 @@ async function askCompanionBrain(
       maxOutputTokens:  isDriving ? 160 : 220,
     },
   };
+  // Single Brain karar bütçesi: voiceService 2.5sn iletir. GEMINI_TIMEOUT_MS
+  // tavanına clamp'lenir → beyin ASLA 6sn'den uzun bloklamaz; süre dolunca fetch
+  // abort olur, çağıran (tryCompanionBrain) recordAiNetFailure + fallback'e düşer.
+  const decisionMs = Math.min(timeoutMs ?? GEMINI_TIMEOUT_MS, GEMINI_TIMEOUT_MS);
   const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
-    signal:  signalWithTimeout(GEMINI_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
+    signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
   if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
   if (!resp.ok) return null;
@@ -499,7 +512,7 @@ export async function tryCompanionBrain(
   if (geminiUsable) {
     try {
       geminiAttempted = true;
-      const result = await askCompanionBrain(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      const result = await askCompanionBrain(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving, opts.timeoutMs);
       if (result) {
         recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi

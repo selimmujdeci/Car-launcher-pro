@@ -13,16 +13,13 @@ import { isNative } from './bridge';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
-import { looksLikeMusicActionRequest } from './musicCommandParser';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
 import { speakFeedback, registerTtsEndListener } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
-import { askAI, resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { isAiNetHealthy } from './aiHealth';
-import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
-import { buildEnrichedCtx } from './voiceContextBuilder';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
 import { VOICE_TUNING } from './voiceTuning';
 import { reportVoiceDiag } from './voiceDiagService';
@@ -499,6 +496,20 @@ function _speakThinking(): void {
  * ISO 15008) onay sorulmaz — doğrudan uygulanır. */
 const AUTO_DISPATCH_MIN = 0.7;     // ≥ bu güven → onaysız uygula
 const PENDING_TTL_MS    = 15_000;  // onay penceresi
+
+/* ── Single Brain: kritik refleks komutları ──────────────────
+ * YALNIZ bu komut tipleri (ses aç/kıs, duraklat/dur) ve YALNIZ tam güvende
+ * (1.0) Gemini'yi beklemeden yerelde anında çalışır. Diğer her girdi — 1.0
+ * olsa bile — önce TEK birleşik beyne (Gemini) gider. Refleks komutlarının
+ * 2.5sn ağ beklemesi UX'i bozardı; bu yüzden istisna. */
+const CRITICAL_VOICE_TYPES = new Set<ParsedCommand['type']>([
+  'volume_up', 'volume_down', 'stop_music',
+]);
+
+/* Gemini-first karar penceresi: beyin bu süre içinde ACTION/CHAT kararı
+ * veremezse (yavaş ağ/timeout) yerel graceful-fallback zincirine düşülür.
+ * (companionChatProvider askCompanionBrain'e timeoutMs olarak iletilir.) */
+const BRAIN_DECISION_TIMEOUT_MS = 2_500;
 const AFFIRM_RE = /^\s*(evet|tabii|tabi|olur|tamam|aynen|onayla|onayliyorum|onaylıyorum|he|hi hi|yap|elbette|kesinlikle|dogru|doğru)\b/i;
 const NEGATE_RE = /^\s*(hayir|hayır|yok|iptal|vazgec|vazgeç|gerek yok|istemiyorum|olmaz|dur|bos ver|boş ver)\b/i;
 let _pendingCmd: ParsedCommand | null = null;
@@ -638,65 +649,46 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // Anahtarlar yalnız AI gerektiren yollarda (_resolveAiKeys) tembel çözülür.
   const result = parseCommandFull(trimmed);
 
-  // Exact match (confidence 1.0) → anında dispatch, AI çağrısı yok
-  if (result.command && result.command.confidence >= 1.0) {
+  // ── 1. ANINDA BYPASS (Single Brain istisnası) ────────────────
+  // YALNIZ kritik refleks komutları (ses aç/kıs, duraklat/dur) ve YALNIZ tam
+  // güvende (1.0) Gemini'yi beklemeden yerelde çalışır. Diğer HER girdi —
+  // 1.0 olsa bile — aşağıda önce birleşik beyne (Gemini) gider.
+  if (
+    result.command &&
+    result.command.confidence >= 1.0 &&
+    CRITICAL_VOICE_TYPES.has(result.command.type)
+  ) {
     _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'critical_bypass' });
     if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
     return true;
   }
 
-  // Yüksek güven (≥0.7) → onaysız anında dispatch + arka plan proaktif log
-  if (result.command && result.command.confidence >= AUTO_DISPATCH_MIN) {
-    _lastCommandTime = now;
-    // ASR isim onarımı: "leyla türkten müzik çal" yerelde yakalanır ama isim
-    // bozuk olabilir — online'ken sorgu Gemini ile düzeltilir (≤1.8s, fail-soft).
-    if (result.command.type === 'play_music_query') {
-      await _maybeRepairMusicQuery(result.command);
-    }
-    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
-    // Proaktif bağlam — anahtarlar arka planda çözülür, dispatch BEKLEMEZ
-    if (result.needsSemantic) {
-      void _resolveAiKeys().then(({ provider, apiKey, hasNet }) => {
-        if (provider !== 'none' && apiKey && hasNet) enrichBackground(trimmed, provider, apiKey, ctx);
-      }).catch(() => {});
-    }
-    return true;
-  }
-
-  // ── API anahtarları (yalnız AI gerektiren yollar buraya iner) ──
+  // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
   const { provider, apiKey, hasNet } = await _resolveAiKeys();
 
-  // ── Companion Router ("Yol Arkadaşım") — AI-FIRST sohbet hattı ──
-  // Konum: NET komutlardan (≥0.7) SONRA, belirsiz banttan (0.5-0.7) ÖNCE.
-  // Companion açıkken komut olmayan/belirsiz HER cümle önce Gemini sohbetine
-  // gider (keyword kapısı YOK — kullanıcı onaylı AI-first mimari 2026-06-11);
-  // internet/key yok veya Gemini hata/429 → offline fallback zinciri.
-  // Companion kapalıyken bu blok null döner, eski zincir AYNEN işler.
-  // P0 saha hatası: "nasılsın" araç komutuna düşüyor, "Araç verisi
-  // alınamıyor" deniyordu.
   const geminiUsable = provider === 'gemini' && !!apiKey && hasNet;
 
-  // MÜZİK AKSİYON KAPISI (yalnız OFFLINE): online'ken birleşik beyin müzik
-  // isteğini ACTION'a çevirir (sohbet gaspı yapısal olarak engelli). Offline'da
-  // beyin yalnız sohbet üretebildiğinden müzik istekleri companion'ı atlar →
-  // yerel öneriler/parser fallback'i devreye girer.
-  const skipCompanion = !geminiUsable && looksLikeMusicActionRequest(trimmed);
-
+  // ── 2. GEMINI FIRST (Single Brain) ───────────────────────────
+  // Online + Gemini varsa kritik-bypass DIŞINDAKİ HER girdi önce TEK birleşik
+  // beyne gider. Beyin tek kararı verir: ACTION (araç komutu) ya da CHAT
+  // (sohbet). Karar ≤2.5sn'de gelmezse/başarısızsa aşağıdaki yerel graceful
+  // fallback zincirine düşülür. "No Dual Response": beyin cevap verdiyse
+  // yerel parser/semantic bir daha KONUŞMAZ. Offline'da bu blok atlanır,
+  // doğrudan yerel zincir çalışır.
   let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
-  if (!skipCompanion) try {
+  if (geminiUsable) try {
     const { tryCompanionBrain } = await import('./companion/companionChatProvider');
-    // Gemini'ye gidilecekse GECİKMELİ ara geri bildirim: cevap 800ms'yi aşarsa
-    // "Düşünüyorum..." denir — 6 sn'ye varan ağ beklemesi sessiz geçmesin.
-    // Hızlı cevapta timer iptal edilir; geç kalan ara konuşmayı cevap TTS'i keser.
-    if (geminiUsable) {
-      _thinkingTimer = setTimeout(() => { _thinkingTimer = null; _speakThinking(); }, THINKING_FEEDBACK_DELAY_MS);
-    }
+    // TEK spinner: cevap THINKING_FEEDBACK_DELAY_MS'yi aşarsa kısa NÖTR ara söz
+    // ("Bir saniye..."). Hızlı cevapta timer iptal; geç ara sözü cevap TTS'i keser.
+    _thinkingTimer = setTimeout(() => { _thinkingTimer = null; _speakThinking(); }, THINKING_FEEDBACK_DELAY_MS);
     const brain = await tryCompanionBrain(trimmed, {
       isDriving: ctx?.isDriving,
       speedKmh:  ctx?.speedKmh,
       provider,
       apiKey,
       hasNet,
+      timeoutMs: BRAIN_DECISION_TIMEOUT_MS,
     });
     if (brain) {
       _lastCommandTime = now;
@@ -734,9 +726,25 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     if (_thinkingTimer !== null) { clearTimeout(_thinkingTimer); _thinkingTimer = null; }
   }
 
-  // Orta güven (0.5–0.7) → BELİRSİZ. Eskiden bu band da körlemesine dispatch
-  // ediliyordu (yanlış komutu sessizce uyguluyordu). Artık: sürüşte etkileşimi
-  // en aza indirmek için doğrudan uygula; PARK halinde "bunu mu istedin?" diye sor.
+  // ── 3 & 4. GRACEFUL FALLBACK (offline VEYA beyin başarısız/null) ──
+  // Buraya yalnız (a) offline/Gemini yok, ya da (b) online beyin ≤2.5sn'de
+  // karar veremedi/null döndü durumunda inilir. İKİNCİ bir AI çağrısı YOK
+  // (No Dual Response) ve "İnternet yavaş..." mesajı YOK — yerel parser +
+  // offline sohbet sırayla denenir (CLAUDE.md §2 fail-soft).
+
+  // (a) Yüksek güven yerel komut (≥0.7) → anında uygula. Müzik sorgusu online
+  //     ise isim onarımından geçer (içinde hasNet kapısı var; fail-soft).
+  if (result.command && result.command.confidence >= AUTO_DISPATCH_MIN) {
+    _lastCommandTime = now;
+    if (result.command.type === 'play_music_query') {
+      await _maybeRepairMusicQuery(result.command);
+    }
+    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    return true;
+  }
+
+  // (b) Orta güven (0.5–0.7) → BELİRSİZ. Sürüşte etkileşimi en aza indirmek
+  //     için doğrudan uygula; PARK halinde "bunu mu istedin?" diye sor.
   if (result.command && result.command.confidence >= 0.5) {
     if (ctx?.isDriving) {
       _lastCommandTime = now;
@@ -752,100 +760,24 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
-  // ── Hiç komut eşleşmesi yok → offline sohbet motoru ──────────
-  // (companion kapalıyken smalltalk dahil her şey; companion hattı yukarıda)
+  // (c) Komut değil → offline sohbet motoru (smalltalk vb.). Tek seferlik cevap
+  //     (offline sürekli sohbet döngüsü açılmaz; online döngü beyin yolunda kurulur).
   const convResult = tryOfflineConversation(trimmed, ctx?.isDriving, ctx?.speedKmh);
   if (convResult.handled) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'offline_chat' });
-    // Companion KAPALI (açıkken bu satıra inilmez) → sürekli sohbet döngüsü yok.
     _dispatchConversation(convResult.response, trimmed, false);
     return true;
   }
 
-  // ── Sohbet da eşleşmedi → Semantic NLP devreye giriyor ───────
-  // HEAD UNIT GERÇEĞİ: internet sık sık yok/zayıf. AI YALNIZCA net varsa denenir; aksi halde
-  // yanıltıcı "internet hatası" göstermek yerine aşağıdaki YEREL düşük-güven fallback'e düşülür
-  // (offline komutlar çalışsın). Eskiden offline+provider → erken "İnternet bağlantısı yok"
-  // dönüyor, yereldeki olası eşleşme hiç denenmiyordu → "mikrofon hep internet hatası veriyor".
-  if (provider !== 'none' && apiKey && hasNet) {
-    // Ara sesli geri bildirim — AI yanıtını beklerken yerel öneriler hazırda tut (R-5 Hybrid)
-    push({ status: 'processing', transcript: trimmed, error: null, suggestions: result.suggestions });
-    _speakThinking();
-
-    const enrichedCtx = await buildEnrichedCtx(ctx);
-
-    // ── Semantik NLP (POI + bağlamsal anlama) ───────────────
-    const semanticResult = await classifySemantic(trimmed, provider, apiKey, enrichedCtx);
-
-    if (semanticResult.source !== 'offline' && semanticResult.confidence >= 0.45) {
-      const intent = fromSemanticResult(semanticResult, trimmed);
-      if (intent) {
-        _lastCommandTime = Date.now();
-        void reportVoiceDiag('voice_intent', { intent: intent.type, provider });
-        // semanticResult'ı mevcut AI handler zincirine ilet (VoiceAssistant, commandExecutor vb.)
-        const aiCompat: AIVoiceResult = {
-          intent:     intent.type as AIVoiceResult['intent'],
-          payload:    intent.payload as Record<string, unknown>,
-          confidence: semanticResult.confidence,
-          feedback:   semanticResult.feedback,
-        };
-        _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
-        void reportVoiceDiag('voice_success', { intent: intent.type, provider });
-        _endConvSession(); // AI ile çözülmüş ARAÇ KOMUTU — sohbet döngüsü başlatmaz
-        speakFeedback(semanticResult.feedback);
-        if (!ctx?.isDriving) {
-          push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
-          setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2000);
-        }
-        return true;
-      }
-    }
-
-    // Semantik anlamlandıramadıysa — genel AI'ı dene (mevcut aiVoiceService)
-    const aiResult = await askAI(trimmed, provider, apiKey, enrichedCtx);
-    if (aiResult && aiResult.intent !== 'UNKNOWN' && aiResult.confidence >= 0.45) {
-      _lastCommandTime = Date.now();
-      void reportVoiceDiag('voice_intent', { intent: aiResult.intent, provider });
-      _aiHandlers.forEach((fn) => fn(aiResult, ctx));
-      void reportVoiceDiag('voice_success', { intent: aiResult.intent, provider });
-      _endConvSession(); // AI ile çözülmüş ARAÇ KOMUTU — sohbet döngüsü başlatmaz
-      speakFeedback(aiResult.feedback);
-      if (!ctx?.isDriving) {
-        push({ status: 'success', transcript: trimmed, error: null, suggestions: [] });
-        setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 2000);
-      }
-      return true;
-    }
-
-    // AI null döndü (timeout / abort / invalid) — yerel parser açık fallback (CLAUDE.md §2).
-    // Local parser result of truth; AI sadece zenginleştirici, asla tek yetkili değil.
-    if (result.command) {
-      _lastCommandTime = now;
-      if (result.suggestions.length > 0) speakFeedback('İnternet yavaş, şunu mu demek istediniz?');
-      if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
-      return true;
-    }
-    if (result.suggestions.length > 0) {
-      speakFeedback('İnternet yavaş, şunu mu demek istediniz?');
-      push({
-        status:      'error',
-        error:       'İnternet yavaş, şunu mu demek istediniz?',
-        transcript:  trimmed,
-        suggestions: result.suggestions,
-      });
-      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 4000);
-      return false;
-    }
-  }
-
-  // Düşük güvenlikli yerel eşleşme varsa son çare olarak kullan
+  // (d) Düşük güven yerel eşleşme → son çare uygula.
   if (result.command) {
     _lastCommandTime = now;
     if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
     return true;
   }
 
+  // (e) Hiçbir şey eşleşmedi → "anlaşılamadı" (çıkmaz yok; ikinci AI/“internet yavaş” yok).
   void reportVoiceDiag('voice_error', {
     errorCode: 'ERR_NO_MATCH',
     transcriptLength: trimmed.length,

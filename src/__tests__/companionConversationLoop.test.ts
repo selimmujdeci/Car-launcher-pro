@@ -35,6 +35,16 @@ const M = vi.hoisted(() => ({
 /** Beyin chat sonucu kısayolu. */
 const chatResult = (response: string) => ({ kind: 'chat', response, route: 'companion_gemini' });
 
+/**
+ * Beyin ACTION sonucu kısayolu (Single Brain: araç komutu kararı beynindir).
+ * fromSemanticResult mock'u intent/query/confidence okur; voiceService ayrıca
+ * semantic.feedback + confidence kullanır.
+ */
+const actionResult = (intent: string, feedback: string, confidence = 0.95) => ({
+  kind: 'action',
+  semantic: { intent, query: undefined, destination: undefined, category: undefined, feedback, confidence, source: 'direct_ai' },
+});
+
 vi.mock('../platform/bridge', () => ({ isNative: true, bridge: {} }));
 vi.mock('../platform/headUnitCompat', () => ({ isLowEndDevice: () => false }));
 vi.mock('../platform/nativePlugin', () => ({
@@ -204,8 +214,10 @@ describe('sürekli sohbet döngüsü — companion cevabı sonrası', () => {
 /* ── 2. Araç komutu → döngü YOK ─────────────────────────────── */
 
 describe('araç komutu sonrası takip dinlemesi BAŞLAMAZ', () => {
-  it('net komut (≥0.7) dispatch edilir, followUp kurulmaz, TTS bitince mikrofon kapalı kalır', async () => {
-    M.parseResult = { command: CMD, suggestions: [], needsSemantic: false };
+  it('beyin ACTION kararı verince followUp kurulmaz, TTS bitince mikrofon kapalı kalır', async () => {
+    // Single Brain: kritik olmayan "müziği aç" Gemini'ye gider; beyin ACTION
+    // döndürür → araç komutu olarak çalışır, sohbet döngüsü AÇILMAZ.
+    M.companionImpl = async () => actionResult('PLAY_MUSIC_SEARCH', 'Müzik açılıyor');
     M.sttQueue = ['müziği aç'];
     await speakTurn();
 
@@ -217,12 +229,12 @@ describe('araç komutu sonrası takip dinlemesi BAŞLAMAZ', () => {
     expect(M.sttCalls).toHaveLength(1);                              // yeniden açılma YOK
   });
 
-  it('sohbet ortasında araç komutu gelirse komut çalışır ve döngü BİTER', async () => {
+  it('sohbet ortasında araç komutu (beyin ACTION) gelirse komut çalışır ve döngü BİTER', async () => {
     M.sttQueue = ['nasılsın', 'müziği aç'];
-    await speakTurn();                                               // tur 1: sohbet
+    await speakTurn();                                               // tur 1: sohbet (chat)
     expect(_getVoiceStateForTest().followUp).toBe(true);
 
-    M.parseResult = { command: CMD, suggestions: [], needsSemantic: false };
+    M.companionImpl = async () => actionResult('PLAY_MUSIC_SEARCH', 'Müzik açılıyor');
     M.ttsEnd!();
     await vi.advanceTimersByTimeAsync(RELISTEN_SETTLE_MS);           // tur 2: komut
 
@@ -277,16 +289,19 @@ describe('sohbet kapatma sözleri', () => {
       expect(M.sttCalls).toHaveLength(2);                            // mikrofon yeniden açılmadı
     });
 
-  it('"müziği kapat" gibi NESNELİ komut kapatma sözü SAYILMAZ — parser yolunda kalır', async () => {
+  it('"müziği kapat" gibi NESNELİ kritik komut kapatma sözü SAYILMAZ — kritik bypass yerelde çalışır', async () => {
+    // stop_music kritik refleks tipidir (CRITICAL_VOICE_TYPES): 1.0 güvende
+    // Gemini beklenmeden yerelde çalışır. 'müziği kapat' içinde 'kapat' geçse de
+    // TAM söylem değil → sohbet kapatma sözü SAYILMAZ, komut olarak işlenir.
     M.parseResult = {
-      command: { ...CMD, raw: 'müziği kapat', type: 'pause_music', feedback: 'Müzik duraklatıldı' },
+      command: { ...CMD, raw: 'müziği kapat', type: 'stop_music', feedback: 'Müzik duraklatıldı' },
       suggestions: [], needsSemantic: false,
     };
     M.sttQueue = ['nasılsın', 'müziği kapat'];
     await speakTurn();
     M.ttsEnd!();
     await vi.advanceTimersByTimeAsync(RELISTEN_SETTLE_MS);
-    expect(M.speak).toHaveBeenCalledWith('Müzik duraklatıldı');      // komut ÇALIŞTI
+    expect(M.speak).toHaveBeenCalledWith('Müzik duraklatıldı');      // kritik bypass ÇALIŞTI
   });
 });
 
