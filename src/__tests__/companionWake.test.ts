@@ -95,8 +95,12 @@ import {
   enableWakeWord,
   disableWakeWord,
   getWakeWordState,
+  startWakeWordService,
+  notifyVoskModelReady,
   _resetWakeWordForTest,
+  _setVoskReadyForTest,
 } from '../platform/wakeWordService';
+import { useStore } from '../store/useStore';
 import { VOICE_TUNING } from '../platform/voiceTuning';
 
 /** Kimlikten wake sözleri (test kısayolu). */
@@ -451,5 +455,124 @@ describe('FAZ 5 — native grammar wake modu', () => {
     expect(M.grammarStarts).toHaveLength(0);
     expect(M.sttCalls).toBe(1);
     expect(M.spoken).toHaveLength(1);
+  });
+});
+
+/* ── 6. startWakeWordService — ayar-tabanlı boot orkestrasyonu ── */
+
+describe('startWakeWordService — ayar değişimine göre wake aç/kapa', () => {
+  it('companion wake açık → asistan adından türeyen sözlerle companion modda etkinleşir', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: true, companionWakeWordEnabled: true,
+      companionAssistantName: 'Atlas', companionWakeMode: 'both', wakeWordEnabled: false,
+    });
+    const stop = startWakeWordService();
+    const s = getWakeWordState();
+    expect(s.enabled).toBe(true);
+    expect(s.companion).toBe(true);
+    expect(s.wakeWords).toContain('atlas');
+    stop();
+  });
+
+  it('her iki anahtar kapalı → wake devre dışı', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: false, companionWakeWordEnabled: false, wakeWordEnabled: false,
+    });
+    const stop = startWakeWordService();
+    expect(getWakeWordState().enabled).toBe(false);
+    expect(getWakeWordState().status).toBe('disabled');
+    stop();
+  });
+
+  it('legacy wakeWordEnabled → companion olmadan etkinleşir (eski "hey car")', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: false, companionWakeWordEnabled: false,
+      wakeWordEnabled: true, wakeWord: 'hey car',
+    });
+    const stop = startWakeWordService();
+    expect(getWakeWordState().enabled).toBe(true);
+    expect(getWakeWordState().companion).toBe(false);
+    stop();
+  });
+
+  it('asistan adı değişince wake sözleri yeniden türetilir (canlı abonelik)', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: true, companionWakeWordEnabled: true,
+      companionAssistantName: 'Mavi', companionWakeMode: 'name', wakeWordEnabled: false,
+    });
+    const stop = startWakeWordService();
+    expect(getWakeWordState().wakeWords).toEqual(['mavi']);
+
+    useStore.getState().updateSettings({ companionAssistantName: 'Atlas' });
+    expect(getWakeWordState().wakeWords).toEqual(['atlas']);
+    stop();
+  });
+
+  it('cleanup: abonelik sökülür + wake kapanır (sonraki ayar değişimi etkilemez)', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: true, companionWakeWordEnabled: true,
+      companionAssistantName: 'Mavi', companionWakeMode: 'name', wakeWordEnabled: false,
+    });
+    const stop = startWakeWordService();
+    expect(getWakeWordState().enabled).toBe(true);
+
+    stop();
+    expect(getWakeWordState().enabled).toBe(false);
+    useStore.getState().updateSettings({ companionAssistantName: 'Atlas' });
+    expect(getWakeWordState().enabled).toBe(false);  // abonelik söküldü → yeniden açılmadı
+  });
+
+  it('idempotent: ikinci start önceki aboneliği temizler (çift abone/çift oturum yok)', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: true, companionWakeWordEnabled: true,
+      companionAssistantName: 'Mavi', companionWakeMode: 'name', wakeWordEnabled: false,
+    });
+    startWakeWordService();
+    const stop2 = startWakeWordService();   // önceki aboneliği söker, yenisini kurar
+    stop2();
+    // İki abone kalsaydı bu değişiklik wake'i yeniden açardı; tek abone söküldü.
+    useStore.getState().updateSettings({ companionAssistantName: 'Atlas' });
+    expect(getWakeWordState().enabled).toBe(false);
+  });
+});
+
+/* ── 7. Vosk hazırlık kapısı — erken start "model yok" sağırlığı ── */
+
+describe('Vosk model hazırlık kapısı (uyanmama kökü)', () => {
+  it('model hazır değil → native start ERTELENİR; notifyVoskModelReady gelince kurulur', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(false);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(getWakeWordState().enabled).toBe(true);   // ayar kaydedildi
+    expect(M.grammarStarts).toHaveLength(0);          // ama dinleme HENÜZ başlamadı (ertelendi)
+    expect(M.sttCalls).toBe(0);
+
+    notifyVoskModelReady();                            // model hazır → kapı açıldı
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStarts).toHaveLength(1);          // şimdi grammar thread kuruldu
+  });
+
+  it('readiness sinyali gelmezse backstop süresi sonunda yine de başlar', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(false);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStarts).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(75_000);         // VOSK_READY_BACKSTOP_MS
+    expect(M.grammarStarts).toHaveLength(1);           // backstop kapıyı açtı (sonsuz sağırlık yok)
+  });
+
+  it('hazır değilken disable → ertelenmiş start iptal; sonra ready gelse de başlamaz', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(false);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    disableWakeWord();
+    notifyVoskModelReady();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStarts).toHaveLength(0);           // iptal edilen start dirilmedi
+    expect(getWakeWordState().enabled).toBe(false);
   });
 });

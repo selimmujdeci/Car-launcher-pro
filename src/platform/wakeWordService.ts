@@ -28,8 +28,14 @@
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { startListening, isVoicePaused, getVoiceSnapshot } from './voiceService';
-import { matchesWakeTranscript, normalizeWakeText } from './companion/companionIdentity';
+import {
+  matchesWakeTranscript,
+  normalizeWakeText,
+  resolveCompanionIdentity,
+  resolveWakeWords,
+} from './companion/companionIdentity';
 import { VOICE_TUNING } from './voiceTuning';
+import { useStore } from '../store/useStore';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -170,6 +176,50 @@ let _loopGen = 0;
 /** Ardışık gerçek hata sayısı — N kez üst üste hata = görünür 'error' durumu. */
 let _consecErrors = 0;
 const MAX_CONSEC_ERRORS = 5;
+
+/* ── Vosk model hazırlık kapısı (yalnız native) ──────────────────
+ * "Asistan uyanmıyor" kökü: grammar thread / polling döngüsü Vosk modeli
+ * unpack+load BİTMEDEN başlatılırsa `startWakeWordListening` hard-fail eder
+ * ("model yok") ve ilk tetikler sağır geçer. SystemBoot preloadVoskModel
+ * çözülünce `notifyVoskModelReady()` çağırır → kapı açılır, bekleyen native
+ * start kurulur. Sinyal hiç gelmezse (eski APK / preload yok) backstop süresi
+ * sonunda yine de başlatılır (native loop kendi ensureVoskModel kuyruğuyla
+ * yükler — sonsuz beklemeye düşmez). */
+let _voskReady = !isNative;          // web'de model yok → kapı zaten açık
+let _pendingNativeGen: number | null = null;
+let _voskReadyBackstop: ReturnType<typeof setTimeout> | null = null;
+const VOSK_READY_BACKSTOP_MS = 75_000;
+
+function _clearVoskBackstop(): void {
+  if (_voskReadyBackstop) { clearTimeout(_voskReadyBackstop); _voskReadyBackstop = null; }
+}
+
+/** Native wake akışını kur: önce grammar (event-driven), olmazsa eski polling. */
+function _startNativeWake(gen: number): void {
+  void (async () => {
+    const grammarOk = await startGrammarMode(gen);
+    if (gen !== _loopGen) return;       // bu arada disable/yeniden enable oldu
+    if (!grammarOk) {
+      _nativeLoopActive = true;
+      void nativeLoop(gen);
+    }
+  })();
+}
+
+/**
+ * Vosk modeli hazır — wake kapısını aç. SystemBoot preloadVoskModel çözülünce
+ * (veya başarısız/yok olduğunda hemen) çağrılır. Bekleyen ertelenmiş start
+ * varsa ve hâlâ güncel jenerasyonsa şimdi gerçekten başlatılır. İdempotent.
+ */
+export function notifyVoskModelReady(): void {
+  if (_voskReady) return;
+  _voskReady = true;
+  _clearVoskBackstop();
+  if (_pendingNativeGen !== null && _pendingNativeGen === _loopGen && _state.enabled) {
+    _startNativeWake(_pendingNativeGen);
+  }
+  _pendingNativeGen = null;
+}
 
 function _pushHeard(transcript: string): void {
   const lastHeard = [transcript, ..._state.lastHeard].slice(0, 5);
@@ -323,16 +373,22 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
     // Jenerasyon artır: olası eski döngü/grammar instance'ı ölür; yeni akış
     // tek başına çalışır (paralel dinleme = karşılıklı STT iptali).
     const gen = ++_loopGen;
-    void (async () => {
+    if (_voskReady) {
       // Faz 5: önce native grammar modu (event-driven, refleks). Olmazsa
       // eski startSpeechRecognition döngüsü — davranış aynen korunur.
-      const grammarOk = await startGrammarMode(gen);
-      if (gen !== _loopGen) return; // bu arada disable/yeniden enable oldu
-      if (!grammarOk) {
-        _nativeLoopActive = true;
-        void nativeLoop(gen);
+      _startNativeWake(gen);
+    } else {
+      // Model henüz hazır değil → başlatmayı readiness sinyaline ertele
+      // (erken start "model yok" ile hard-fail ediyordu = uyanmama kökü).
+      // Backstop: sinyal gelmezse VOSK_READY_BACKSTOP_MS sonra yine de başla.
+      _pendingNativeGen = gen;
+      if (!_voskReadyBackstop) {
+        _voskReadyBackstop = setTimeout(() => {
+          _voskReadyBackstop = null;
+          notifyVoskModelReady();
+        }, VOSK_READY_BACKSTOP_MS);
       }
-    })();
+    }
   } else {
     // Web: sürekli dinleme yok — push-to-talk yeterli
     // Wake word toggle ayarları kayıt altında kalır ama web'de mikrofon açılmaz
@@ -343,6 +399,8 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
 export function disableWakeWord(): void {
   _nativeLoopActive = false;
   _loopGen++; // in-flight döngü adımı uyanınca kendini sonlandırır
+  _pendingNativeGen = null;   // bekleyen (ertelenmiş) native start iptal
+  _clearVoskBackstop();
   void stopGrammarMode(); // Faz 5: native grammar thread + event listener kapanır
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   push({ enabled: false, status: 'disabled' });
@@ -355,17 +413,98 @@ export function setWakeWord(word: string): void {
 
 export function getWakeWordState(): WakeWordState { return _state; }
 
+/* ── Boot orkestratörü: ayar-tabanlı wake aç/kapa ────────────────
+ * SystemBoot Wave 4'te çağrılır. React mount'una BAĞLI DEĞİL (modül-düzeyi
+ * store aboneliği — her zaman canlı, layout takılsa bile çalışır). useStore'a
+ * abone olur; companion/legacy wake ayarlarına göre enableWakeWord/
+ * disableWakeWord çağırır; ad/mod değişiminde yeniden kurar. enableWakeWord
+ * _loopGen'i artırdığı için ÇİFT dinleme oturumu olmaz. Yalnız wake'i etkileyen
+ * alanlar değişince yeniden uygulanır (ilgisiz ayar değişiminde churn yok). */
+
+type AppSettings = ReturnType<typeof useStore.getState>['settings'];
+
+function _wakeKey(s: AppSettings): string {
+  return [
+    s.companionEnabled ? 1 : 0,
+    s.companionWakeWordEnabled ? 1 : 0,
+    s.wakeWordEnabled ? 1 : 0,
+    s.wakeWord ?? '',
+    s.companionAssistantName ?? '',
+    s.companionWakeMode ?? '',
+    s.companionWakePhrase ?? '',
+  ].join('|');
+}
+
+function _applyWakeFromSettings(s: AppSettings): void {
+  const companionWake =
+    (s.companionEnabled ?? false) && (s.companionWakeWordEnabled ?? false);
+  if (companionWake) {
+    // Wake sözleri asistan ADINDAN türer ("Mavi"/"Hey Mavi"/özel cümle).
+    const identity = resolveCompanionIdentity({
+      companionAssistantName: s.companionAssistantName,
+      companionWakeMode:      s.companionWakeMode,
+      companionWakePhrase:    s.companionWakePhrase,
+    });
+    enableWakeWord(resolveWakeWords(identity), { companion: true });
+  } else if (s.wakeWordEnabled) {
+    enableWakeWord(s.wakeWord ?? DEFAULT_WAKE_WORD);   // eski "hey car" sistemi
+  } else {
+    disableWakeWord();
+  }
+}
+
+let _wakeServiceUnsub: (() => void) | null = null;
+
+/**
+ * Wake word servisini başlat — ayarları izleyip wake'i aç/kapa yönetir.
+ * İdempotent (ikinci çağrı önceki aboneliği temizler). Dönen cleanup
+ * aboneliği söker + wake'i kapatır (zero-leak; SystemBoot _cleanups'a girer).
+ */
+export function startWakeWordService(): () => void {
+  if (_wakeServiceUnsub) { _wakeServiceUnsub(); }   // çift abone yok
+
+  const initial = useStore.getState().settings;
+  let prevKey = _wakeKey(initial);
+  _applyWakeFromSettings(initial);
+
+  const unsub = useStore.subscribe((state) => {
+    const key = _wakeKey(state.settings);
+    if (key === prevKey) return;       // ilgisiz ayar değişimi → wake'e dokunma
+    prevKey = key;
+    _applyWakeFromSettings(state.settings);
+  });
+
+  _wakeServiceUnsub = () => {
+    unsub();
+    _wakeServiceUnsub = null;
+    disableWakeWord();
+  };
+  return _wakeServiceUnsub;
+}
+
 /** @internal — testler arası izolasyon. */
 export function _resetWakeWordForTest(): void {
+  if (_wakeServiceUnsub) { _wakeServiceUnsub(); }   // store aboneliği sızmasın
   _nativeLoopActive = false;
   _loopGen++;
   _consecErrors = 0;
   _grammarMode = false;
   _grammarHandle = null;
+  // Testler enableWakeWord'ün ANINDA native akışı kurmasını bekler → kapı açık
+  // varsayılır. Hazırlık kapısı davranışı _setVoskReadyForTest ile ayrı test edilir.
+  _voskReady = true;
+  _pendingNativeGen = null;
+  _clearVoskBackstop();
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   clearRestartTimer();
   _greetCounter = 0;
   _state = { ...INITIAL };
+}
+
+/** @internal — Vosk hazırlık kapısını test için zorla (false = model hazır değil). */
+export function _setVoskReadyForTest(ready: boolean): void {
+  _voskReady = ready;
+  if (ready) { _pendingNativeGen = null; _clearVoskBackstop(); }
 }
 
 /* ── HMR cleanup — dev modda Recognition/timer sızıntısını önle ─── */
@@ -373,6 +512,9 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _nativeLoopActive = false;                                      // nativeLoop döngüsünü kes
     _loopGen++;
+    _pendingNativeGen = null;                                       // ertelenmiş native start iptal
+    _clearVoskBackstop();                                           // backstop timer sızmasın
+    if (_wakeServiceUnsub) { _wakeServiceUnsub(); }                 // store aboneliği + disable
     void stopGrammarMode();                                         // native grammar thread + listener
     if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
     stopWebListening();                                             // SpeechRecognition.abort() + _restartTimer iptal

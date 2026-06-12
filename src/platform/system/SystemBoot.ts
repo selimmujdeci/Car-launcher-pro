@@ -59,6 +59,7 @@ import { showToast, dismissToast } from '../errorBus';
 import { healthMonitor }           from './SystemHealthMonitor';
 import { initCommunityService, stopCommunityService } from '../communityService';
 import { stopVoiceService }        from '../voiceService';
+import { startWakeWordService, notifyVoskModelReady } from '../wakeWordService';
 import {
   startCompanionEngine,
   stopCompanionEngine,
@@ -550,6 +551,14 @@ class SystemBoot {
     startCompanionEngine();
     this._regNamed('CompanionEngine', stopCompanionEngine);
 
+    // WakeWordService: ayar-tabanlı pasif wake (companion "Mavi"/legacy "hey car").
+    // Modül-düzeyi store aboneliği — React mount'una bağlı değil (eskiden yalnız
+    // useLayoutServices hook'undaydı; layout takılırsa wake hiç kurulmuyordu).
+    // Native'de gerçek dinleme Vosk modeli hazır olana dek ERTELENİR (aşağıdaki
+    // notifyVoskModelReady) — erken start "model yok" ile sağır kalıyordu.
+    _log('  › WakeWordService');
+    this._reg(startWakeWordService());
+
     // OTA güncelleme servisi: boot kontrolü + 6 saatlik poll (OTA v1 / Commit 6)
     _log('  › OtaUpdateService');
     startOtaService();
@@ -569,14 +578,22 @@ class SystemBoot {
     // AWAIT EDİLMEZ (fire-and-forget): boot zinciri AI modeli beklemez.
     // Fail-soft: preload başarısız olsa da ilk basışta normal yol (kuyruklu) çalışır.
     if (isNative) {
-      const voskWarmTimer = setTimeout(() => {
-        try {
-          CarLauncher.preloadVoskModel?.()
-            .then(() => _log('  › Vosk model preloaded ✓'))
-            .catch((e: unknown) => logError('SystemBoot:VoskPreload', e));
-        } catch (e) { logError('SystemBoot:VoskPreload', e); }
-      }, 30_000);
-      this._reg(() => clearTimeout(voskWarmTimer));
+      if (typeof CarLauncher.preloadVoskModel === 'function') {
+        const voskWarmTimer = setTimeout(() => {
+          try {
+            CarLauncher.preloadVoskModel!()
+              // Model hazır → wake kapısını aç (bekleyen pasif dinleme başlar).
+              .then(() => { _log('  › Vosk model preloaded ✓'); notifyVoskModelReady(); })
+              // Başarısız olsa da kapıyı aç: native loop kendi ensureVoskModel
+              // kuyruğuyla yükler — wake sonsuza dek sağır kalmaz (fail-soft).
+              .catch((e: unknown) => { logError('SystemBoot:VoskPreload', e); notifyVoskModelReady(); });
+          } catch (e) { logError('SystemBoot:VoskPreload', e); notifyVoskModelReady(); }
+        }, 30_000);
+        this._reg(() => clearTimeout(voskWarmTimer));
+      } else {
+        // Eski APK: preload metodu yok → kapıyı hemen aç (gate'i bekletme).
+        notifyVoskModelReady();
+      }
     }
 
     // ChaosReceiver: yalnızca DEV ortamında — BroadcastChannel üzerinden komut dinler
