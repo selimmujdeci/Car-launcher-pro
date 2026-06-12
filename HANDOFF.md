@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `b51e75a`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `4ab262b`.
 
 ---
 
@@ -21,6 +21,13 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Telefon dock kompaktlaştırma (2026-06-12, `4ab262b`):** telefonda (w<600px)
+  alt dock fazla yer kaplıyordu. `theme-layouts.css` `@media (max-width:600px)`
+  bloğuna `--dock-h:64px !important` + `--dock-icon:24px` (portrait 70px'i ezer).
+  Head unit ≥800px etkilenmez; dokunma hedefi 44px korundu. Task premisleri
+  düzeltildi (gerçek değişken adları --dock-h/--dock-icon; 1.5rem padding yok;
+  80px = HD head unit breakpoint, tema override değil). Detay: PROJECT_STATE
+  "Telefon Dock". **Cihazda screenshot ile doğrulanacak.**
 - **OBD persistence chain polish (2026-06-12, `b51e75a`):** WebView crash/boot
   sonrası snapshot'tan hydrate edilen OBD verisi UI'da görünmüyordu —
   `_buildPatch` `source` taşımıyordu → `_current.source` 'none' kalıp gösterge

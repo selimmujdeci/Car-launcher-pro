@@ -8,7 +8,25 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `b51e75a`; OBD persistence chain polish)
+- **Aktif branch:** `main` (HEAD `4ab262b`; telefon dock kompaktlaştırma)
+
+## Telefon Dock Kompaktlaştırma (2026-06-12, `4ab262b`)
+
+Saha: telefonda (w<600px) alt dock fazla yer kaplıyordu. `theme-layouts.css`
+mevcut `@media (max-width:600px)` bloğu `--dock-h`/`--dock-icon` set etmiyordu;
+telefon `--dock-h`'yi portrait bloğundan (70px) alıyordu. Fix: o bloğa
+`--dock-h: 64px !important` (portrait 70px'i ezer) + `--dock-icon: 24px` (emoji
+ikonlar; Lucide zaten 24px). **Head unit (≥800px landscape) bu bloğa GİRMEZ →
+etkilenmez** (kısıt). Dokunma hedefi korundu: DockBar Btn = `var(--dock-icon)+20px`
+= 44px (NHTSA/ISO 15005 ≥44px). Task premisleri düzeltildi: (1) gerçek değişken
+adları `--dock-h`/`--dock-icon` (proje `--dock-height`/`--dock-icon-size`
+kullanmaz). (2) DockBar'da 1.5rem padding YOK — outer fixed div zaten
+`paddingTop:4` + `paddingBottom:env(safe-area-inset-bottom)` (istenen safe-area
+deseni mevcut; değişiklik yok). (3) "Expedition/Horizon 80px tema override"
+GERÇEKTE YOK — 80px = 1280×720 HD head unit breakpoint'i; bu temalar kendi
+head-unit dock'larını kullanır (126px / 94-122px clamp), `--dock-h` ile değil.
+Build OK, dist CSS doğrulandı, lint 0. **Cihazda doğrulanacak (screenshot):**
+telefonda dock yüksekliği + ikon boyutu; deploy+screenshot istek üzerine.
 
 ## OBD Persistence Chain — Snapshot Kurtarma Devamlılığı (2026-06-12, `b51e75a`)
 
