@@ -10,6 +10,25 @@
 
 - **Aktif branch:** `main` (HEAD `0cfd729`; Faz 5 `7c674dc`'de commit'lendi)
 
+## Asistan Sağırlığı Fix Paketi 2 (2026-06-12, `be63735`)
+
+Saha raporu 2 (asistanfix APK öncesi): "hey mavi" hiç uyanmıyor, cevaptan
+sonra dinlemede kalmıyor, "anladım deyip sonra anlayamadım" diyor:
+1. **TTS yield emniyeti (native):** bazı head unit TTS motorları onDone'u
+   çağırmıyor → `nativeTtsSpeaking` takılı → half-duplex wake mikrofonu
+   SONSUZA DEK kapalı (boot selamlaması sonrası asistan sağır). 30 sn üst
+   sınır eklendi (`TTS_YIELD_MAX_MS`).
+2. **Wake thread nice +2** (BACKGROUND→2): bg cpuset harita render'ında
+   decode'u açlığa düşürebiliyordu.
+3. **Takip dinlemesi fallback'i:** TTS bitiş eventi gelmezse 20 sn sonra
+   mikrofon best-effort açılır (eskiden sessizce vazgeçiyordu).
+4. **Ara mesaj:** "Anlıyorum/Tabii bakayım" çıktı; eşik 800→1500 ms.
+NOT: `be63735` bekleyen admin/CAN-sniffer working-tree değişikliklerini de
+içerdi (git add -A süpürmesi — dosyalar tüm yeşil koşuların parçasıydı).
+NOT 2: Grammar wake özel isimlerde Vosk sözlüğü dışındaysa YAPISAL çalışmaz
+([unk]'a düşer) — kullanıcıya Türkçe kelime isim önerilecek.
+**Cihazda doğrulanacak:** boot selamlaması sonrası "hey mavi", sohbet döngüsü.
+
 ## Asistan Sağırlığı Fix Paketi (2026-06-12, `ab756e1`)
 
 Saha raporu: asistan yalnız "İnternet yavaş, şunu mu demek istediniz" diyor,
