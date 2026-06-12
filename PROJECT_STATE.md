@@ -8,7 +8,35 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `5abcd32`; Phase P — Deep Intelligence beyin)
+- **Aktif branch:** `main` (HEAD `b51e75a`; OBD persistence chain polish)
+
+## OBD Persistence Chain — Snapshot Kurtarma Devamlılığı (2026-06-12, `b51e75a`)
+
+Sorun: WebView crash / boot sonrası snapshot'tan hydrate edilen OBD verisi UI'da
+gösterilmiyordu — `_buildPatch` `source` taşımadığından `_current.source` 'none'
+kalıyor, geçerli tarihsel veri (yakıt/menzil) varken bile gösterge 'none/idle'
+boşta takılıyordu.
+1. **`canSnapshotService._buildPatch`:** en az bir GEÇERLİ (bayat olmayan) alan
+   kurtarıldıysa `source: 'real'` ekler (snapshot YALNIZ source='real' için
+   yazılır → persist edilmiş veri gerçektir). Tüm alanlar bayatsa patch BOŞ kalır,
+   source EKLENMEZ (çağıranların `Object.keys(patch).length` kontrolü korunur).
+2. **`obdService._current` init:** `_buildPatch` sayesinde source='real' otomatik
+   gelir → boot'ta son bilinen değerler ANINDA görünür (belge + doğrulama).
+3. **Async hydration (instruction 3 audit):**
+   - Guard `source !== 'none'` YETERSİZDİ (sync hydration artık source='real'
+     yapıyor) → CANLI veri sinyali `_lastRealDataMs` ile ayrıldı (yalnız gerçek
+     bağlantı set eder; snapshot etmez). Taze Filesystem verisi sync sonrası da
+     uygulanabilir kaldı.
+   - Computed yakıt alanları (`fuelRemainingL`/`estimatedRangeKm`) snapshot'ta YOK
+     ve hydration `_merge`'i bypass eder → async patch'te `fuelLevel` varsa
+     `computeFuelMetrics` ile yeniden hesaplanır. **Sync yolda** `setObdFuelConfig`
+     (araç profili yüklenince) zaten `_current.fuelLevel`'den recompute ediyor
+     (audit: bu yol çalışıyordu, async yol açıktı — kapatıldı).
+Yan etki notu: `_notify` (193) source='real' iken `scheduleCanSnapshot` çağırır
+ama hydration yolları `_notify` çağırmaz (sync init no-op, async yalnız store
+listener) → hydration kendisi re-persist tetiklemez. Test: canSnapshotService +5
+→ **1229/1229** · tsc + build temiz. **Cihazda doğrulanacak:** WebView öldürülüp
+yeniden açıldığında göstergenin son yakıt/menzil değerini anında göstermesi.
 
 ## Phase P — Deep Intelligence Co-Pilot (2026-06-12, `5abcd32`)
 

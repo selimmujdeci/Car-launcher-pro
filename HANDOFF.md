@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `5abcd32`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `b51e75a`.
 
 ---
 
@@ -21,6 +21,15 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **OBD persistence chain polish (2026-06-12, `b51e75a`):** WebView crash/boot
+  sonrası snapshot'tan hydrate edilen OBD verisi UI'da görünmüyordu —
+  `_buildPatch` `source` taşımıyordu → `_current.source` 'none' kalıp gösterge
+  boşta takılıyordu. (1) `_buildPatch` geçerli alan kurtarınca `source: 'real'`
+  ekler (tüm alanlar bayatsa BOŞ kalır). (2) init source otomatik 'real'. (3)
+  async hydration guard'ı `_lastRealDataMs` (canlı veri) ile ayrıldı + computed
+  yakıt alanları (`fuelRemainingL`/`estimatedRangeKm`) `computeFuelMetrics` ile
+  recompute (sync yol setObdFuelConfig ile zaten çalışıyordu). +5 test →
+  1229/1229. Detay: PROJECT_STATE "OBD Persistence Chain". **Cihazda doğrulanacak.**
 - **Phase P — Deep Intelligence Co-Pilot (2026-06-12, `5abcd32`):** asistan
   "komut dağıtıcı"dan bağlam-farkında yardımcı pilota. (Madde 1 wake + madde 3
   SystemBoot `0348b9b`'de, 2.5s fallback `734d825`'te zaten tamamdı — redo yok.)
