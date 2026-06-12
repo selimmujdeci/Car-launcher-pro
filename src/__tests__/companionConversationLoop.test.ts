@@ -362,8 +362,8 @@ describe('birleşik beyin: müzik isteği ACTION olur, sohbet gasp edemez', () =
 
 /* ── 6. Geç cevap → "düşünüyorum" ara feedback'i ───────────── */
 
-describe('gecikme geri bildirimi (800ms eşiği)', () => {
-  it('Gemini 800ms\'yi aşarsa kısa ara feedback seslendirilir, sonra asıl cevap', async () => {
+describe('gecikme geri bildirimi (1500ms eşiği — saha fix 2026-06-12)', () => {
+  it('Gemini 1500ms\'yi aşarsa kısa ara feedback seslendirilir, sonra asıl cevap', async () => {
     M.companionImpl = () => new Promise((resolve) => {
       setTimeout(() => resolve(chatResult('Geç ama geldim.')), 3_000);
     });
@@ -371,15 +371,15 @@ describe('gecikme geri bildirimi (800ms eşiği)', () => {
     await speakTurn();                                               // 100ms pay — henüz feedback yok
     expect(M.speak.mock.calls.some(([t]) => THINKING_RE.test(String(t)))).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(900);                          // 800ms eşiği geçildi
+    await vi.advanceTimersByTimeAsync(1_600);                        // 1500ms eşiği geçildi
     expect(M.speak.mock.calls.some(([t]) => THINKING_RE.test(String(t)))).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(2_500);                        // Gemini cevabı geldi
+    await vi.advanceTimersByTimeAsync(2_000);                        // Gemini cevabı geldi
     expect(M.speak).toHaveBeenCalledWith('Geç ama geldim.');
     expect(_getVoiceStateForTest().followUp).toBe(true);             // döngü yine kurulu
   });
 
-  it('Gemini hızlıysa (≤800ms) ara feedback YOK — doğrudan cevap', async () => {
+  it('Gemini hızlıysa (≤1500ms) ara feedback YOK — doğrudan cevap', async () => {
     M.sttQueue = ['nasılsın'];
     await speakTurn();
     await vi.advanceTimersByTimeAsync(2_000);                        // eşik geçse bile timer iptal edildi

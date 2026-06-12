@@ -126,9 +126,9 @@ export function FeatureFlags() {
     try {
       await activateFleetLimpMode(user.id)
       await load()
-      setSuccess('FLEET LIMP MODE ACTIVATED — All flags disabled. Vehicles will update within 10 min.')
+      setSuccess('FİLO LIMP MODU ETKİNLEŞTİRİLDİ — Tüm bayraklar kapatıldı. Araçlar 10 dk içinde güncellenecek.')
     } catch (e) {
-      setLimpError(e instanceof Error ? e.message : 'Limp Mode failed')
+      setLimpError(e instanceof Error ? e.message : 'Limp Modu başarısız')
     } finally {
       setLimpState('idle')
       setLimpInput('')
@@ -158,10 +158,10 @@ export function FeatureFlags() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: '#e2e8f0' }}>
-            Feature Flag Yönetimi
+            Özellik Bayrağı Yönetimi
           </h1>
           <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
-            {activeCount} / {totalCount} flag aktif · Her değişiklik audit log'a kaydedilir.
+            {activeCount} / {totalCount} bayrak aktif · Her değişiklik denetim kaydına işlenir.
           </p>
         </div>
         <Button
@@ -374,7 +374,7 @@ function ConfirmModal({ pending, step, onNext, onConfirm, onClose }: ConfirmModa
               <AlertTriangle size={16} style={{ color: '#f87171', flexShrink: 0, marginTop: 1 }} />
               <p className="text-xs" style={{ color: '#fca5a5' }}>
                 <strong>Dikkat:</strong> Bu özelliği devre dışı bırakmak anlık olarak
-                tüm araçlarda etkili olacak. Audit log'a kaydedilecek.
+                tüm araçlarda etkili olacak. Denetim kaydına işlenecek.
               </p>
             </div>
           )}
@@ -427,10 +427,10 @@ function EmergencyBanner({
                 textTransform: 'uppercase',
               }}
             >
-              EMERGENCY OPERATIONS
+              ACİL DURUM OPERASYONLARI
             </p>
             <p style={{ fontSize: 10, color: '#4b5563', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
-              Fleet Limp Mode tüm feature flag'leri devre dışı bırakır.
+              Filo Limp Modu tüm özellik bayraklarını devre dışı bırakır.
               Araçlar 10 dakika içinde güvenli moda geçer.
             </p>
           </div>
@@ -456,7 +456,7 @@ function EmergencyBanner({
             flexShrink:     0,
           }}
         >
-          {limpState === 'executing' ? 'EXECUTING…' : 'ACTIVATE FLEET LIMP MODE'}
+          {limpState === 'executing' ? 'YÜRÜTÜLÜYOR…' : 'FİLO LIMP MODUNU ETKİNLEŞTİR'}
         </button>
       </div>
 
@@ -527,9 +527,9 @@ function LimpModeModal({
               color: '#dc2626', letterSpacing: '0.12em', textTransform: 'uppercase',
             }}
           >
-            {step === 'step1' && 'STEP 1 OF 3 — FIRST CONFIRMATION'}
-            {step === 'step2' && 'STEP 2 OF 3 — SECOND CONFIRMATION'}
-            {step === 'step3' && 'STEP 3 OF 3 — FINAL AUTHORIZATION'}
+            {step === 'step1' && 'ADIM 1 / 3 — BİRİNCİ ONAY'}
+            {step === 'step2' && 'ADIM 2 / 3 — İKİNCİ ONAY'}
+            {step === 'step3' && 'ADIM 3 / 3 — SON YETKİLENDİRME'}
           </span>
         </div>
 
@@ -538,7 +538,7 @@ function LimpModeModal({
           {step === 'step1' && (
             <>
               <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-                Bu işlem <strong style={{ color: '#dc2626' }}>tüm feature flag'leri</strong> devre dışı bırakır.
+                Bu işlem <strong style={{ color: '#dc2626' }}>tüm özellik bayraklarını</strong> devre dışı bırakır.
                 Filo genelindeki araçlar en fazla 10 dakika içinde etkilenecektir.
               </p>
               <div
@@ -560,11 +560,11 @@ function LimpModeModal({
           {step === 'step2' && (
             <>
               <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-                <strong style={{ color: '#dc2626' }}>Geri alınamaz</strong> — Limp Mode aktif olduğunda araçlar
+                <strong style={{ color: '#dc2626' }}>Geri alınamaz</strong> — Limp Modu aktif olduğunda araçlar
                 yeniden bağlanana kadar bu özellikler kapalı kalır.
               </p>
               <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 11, color: '#4b5563' }}>
-                Audit Log'a <strong style={{ color: '#dc2626' }}>CRITICAL</strong> seviyeli kayıt düşülecek.
+                Denetim kaydına <strong style={{ color: '#dc2626' }}>KRİTİK</strong> seviyeli kayıt düşülecek.
                 Devam etmek istiyor musunuz?
               </p>
             </>
@@ -616,7 +616,7 @@ function LimpModeModal({
               fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
             }}
           >
-            ABORT
+            VAZGEÇ
           </button>
           <button
             onClick={() => {
@@ -639,7 +639,7 @@ function LimpModeModal({
               opacity: (step === 'step3' && input.trim().toUpperCase() !== 'LIMP') ? 0.4 : 1,
             }}
           >
-            {step === 'step3' ? 'EXECUTE LIMP MODE' : 'CONFIRM →'}
+            {step === 'step3' ? 'LIMP MODUNU YÜRÜT' : 'ONAYLA →'}
           </button>
         </div>
       </div>

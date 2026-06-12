@@ -38,18 +38,18 @@ function scoreColor(n: number): string {
 }
 
 function scoreLabel(n: number): string {
-  if (n >= 80) return 'NOMINAL'
-  if (n >= 60) return 'ACCEPTABLE'
-  if (n >= 40) return 'DEGRADED'
-  return 'CRITICAL'
+  if (n >= 80) return 'NORMAL'
+  if (n >= 60) return 'KABUL EDİLEBİLİR'
+  if (n >= 40) return 'BOZULMUŞ'
+  return 'KRİTİK'
 }
 
 function _relTime(iso: string | null): string {
   if (!iso) return '—'
   const ms = Date.now() - new Date(iso).getTime()
-  if (ms < 60_000)     return 'just now'
-  if (ms < 3_600_000)  return `${Math.floor(ms / 60_000)}m ago`
-  return `${Math.floor(ms / 3_600_000)}h ago`
+  if (ms < 60_000)     return 'az önce'
+  if (ms < 3_600_000)  return `${Math.floor(ms / 60_000)} dk önce`
+  return `${Math.floor(ms / 3_600_000)} sa önce`
 }
 
 // ── HealthCenter ──────────────────────────────────────────────────────────────
@@ -110,12 +110,12 @@ export function HealthCenter() {
               textTransform: 'uppercase',
             }}
           >
-            HEALTH CENTER
+            SAĞLIK MERKEZİ
           </p>
           <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
             {lastFetch > 0
-              ? `Last sync ${_relTime(new Date(lastFetch).toISOString())} · 24h window`
-              : 'Loading fleet data…'}
+              ? `Son eşitleme ${_relTime(new Date(lastFetch).toISOString())} · 24 saatlik pencere`
+              : 'Filo verisi yükleniyor…'}
           </p>
         </div>
         <Button
@@ -125,7 +125,7 @@ export function HealthCenter() {
           onClick={() => { void load() }}
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          Sync
+          Eşitle
         </Button>
       </div>
 
@@ -146,7 +146,7 @@ export function HealthCenter() {
             padding:       '18px 20px',
           }}
         >
-          <p className="sa-label" style={{ marginBottom: 12 }}>FLEET STABILITY SCORE</p>
+          <p className="sa-label" style={{ marginBottom: 12 }}>FİLO KARARLILIK PUANI</p>
 
           {loading && !stats ? (
             <div style={{ height: 52, background: '#111', borderRadius: 2, animation: 'pulse 2s infinite' }} />
@@ -199,7 +199,7 @@ export function HealthCenter() {
               </div>
 
               <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 10 }}>
-                {stats?.totalEvents ?? 0} health events analyzed · 24h window
+                {stats?.totalEvents ?? 0} sağlık olayı incelendi · 24 saatlik pencere
               </p>
             </>
           )}
@@ -207,9 +207,9 @@ export function HealthCenter() {
 
         {/* Critical */}
         <MetricCard
-          label="Critical Events"
+          label="Kritik Olaylar"
           value={stats?.criticalEvents ?? '—'}
-          sub={`${stats?.totalEvents ?? 0} total`}
+          sub={`toplam ${stats?.totalEvents ?? 0}`}
           status={
             !stats ? 'neutral'
             : stats.criticalEvents > 5 ? 'critical'
@@ -224,9 +224,9 @@ export function HealthCenter() {
 
         {/* Thermal L3 */}
         <MetricCard
-          label="Thermal L3"
+          label="Termal S3"
           value={stats?.thermalL3Count ?? '—'}
-          sub={`avg ${stats?.avgThermalLevel?.toFixed(1) ?? '—'} lvl`}
+          sub={`ort. seviye ${stats?.avgThermalLevel?.toFixed(1) ?? '—'}`}
           status={
             !stats ? 'neutral'
             : stats.thermalL3Count > 3 ? 'critical'
@@ -237,9 +237,9 @@ export function HealthCenter() {
 
         {/* UI Freeze */}
         <MetricCard
-          label="UI Freeze"
+          label="Arayüz Donması"
           value={stats?.uiFreezeTotal ?? '—'}
-          sub="thread blocks"
+          sub="iş parçacığı blokları"
           status={
             !stats ? 'neutral'
             : stats.uiFreezeTotal > 5 ? 'warning'
@@ -250,7 +250,7 @@ export function HealthCenter() {
 
         {/* Worker Restarts — küçük blok */}
         <MetricCard
-          label="Restarts"
+          label="Yeniden Başlatma"
           value={stats?.workerRestartTotal ?? '—'}
           status={
             !stats ? 'neutral'
@@ -278,10 +278,10 @@ export function HealthCenter() {
             padding:    '14px 16px',
           }}
         >
-          <p className="sa-label" style={{ marginBottom: 12 }}>FLEET ACTIVITY — 24H</p>
+          <p className="sa-label" style={{ marginBottom: 12 }}>FİLO ETKİNLİĞİ — 24 SA</p>
           {!stats || stats.totalEvents === 0 ? (
             <div className="sa-empty" style={{ padding: '24px 0' }}>
-              SYSTEM_IDLE: No events in window
+              SİSTEM_BEKLEMEDE: Pencerede olay yok
             </div>
           ) : (
             <ActivityBar stats={stats} />
@@ -297,10 +297,10 @@ export function HealthCenter() {
             padding:    '14px 16px',
           }}
         >
-          <p className="sa-label" style={{ marginBottom: 12 }}>ERROR DIST BY VERSION</p>
+          <p className="sa-label" style={{ marginBottom: 12 }}>SÜRÜME GÖRE HATA DAĞILIMI</p>
           {!stats || stats.errorsByVersion.length === 0 ? (
             <div className="sa-empty" style={{ padding: '24px 0' }}>
-              NO_ERRORS: All versions nominal
+              HATA_YOK: Tüm sürümler normal
             </div>
           ) : (
             <VersionBreakdown items={stats.errorsByVersion} />
@@ -322,9 +322,9 @@ export function HealthCenter() {
           className="flex items-center justify-between"
           style={{ padding: '10px 12px', borderBottom: '1px solid #1a1a1a' }}
         >
-          <p className="sa-label">INCIDENT LOG</p>
+          <p className="sa-label">OLAY KAYDI</p>
           <span style={{ fontSize: 9, color: '#2d3748', fontFamily: 'var(--sa-font-ui)' }}>
-            {incidents.length} records
+            {incidents.length} kayıt
           </span>
         </div>
 
@@ -333,7 +333,7 @@ export function HealthCenter() {
         ) : incidents.length === 0 ? (
           <div className="sa-empty">
             <CheckCircle size={18} style={{ color: '#4ade80', opacity: 0.5 }} />
-            NO_INCIDENTS: Fleet operating normally
+            OLAY_YOK: Filo normal çalışıyor
           </div>
         ) : (
           <div>
@@ -342,11 +342,11 @@ export function HealthCenter() {
               className="sa-inc-row"
               style={{ background: '#080808', borderBottom: '1px solid #1a1a1a' }}
             >
-              <span className="sa-label" style={{ width: 64 }}>TIME</span>
-              <span className="sa-label" style={{ width: 60 }}>SEV</span>
-              <span className="sa-label" style={{ width: 52 }}>VERSION</span>
-              <span className="sa-label" style={{ width: 56 }}>THERMAL</span>
-              <span className="sa-label" style={{ flex: 1 }}>DETAILS</span>
+              <span className="sa-label" style={{ width: 64 }}>SAAT</span>
+              <span className="sa-label" style={{ width: 60 }}>ÖNEM</span>
+              <span className="sa-label" style={{ width: 52 }}>SÜRÜM</span>
+              <span className="sa-label" style={{ width: 56 }}>TERMAL</span>
+              <span className="sa-label" style={{ flex: 1 }}>AYRINTILAR</span>
             </div>
             {incidents.map((inc) => (
               <IncidentRow
@@ -384,9 +384,9 @@ export function HealthCenter() {
 function ActivityBar({ stats }: { stats: FleetHealthStats }) {
   const total    = stats.totalEvents || 1
   const segments = [
-    { label: 'Healthy',  count: stats.healthyEvents,  color: '#4ade80' },
-    { label: 'Degraded', count: stats.degradedEvents, color: '#d97706' },
-    { label: 'Critical', count: stats.criticalEvents, color: '#dc2626' },
+    { label: 'Sağlıklı', count: stats.healthyEvents,  color: '#4ade80' },
+    { label: 'Bozulmuş', count: stats.degradedEvents, color: '#d97706' },
+    { label: 'Kritik',   count: stats.criticalEvents, color: '#dc2626' },
   ]
 
   return (
@@ -484,7 +484,7 @@ function IncidentRow({ inc, onClick }: { inc: IncidentLog; onClick: () => void }
     <div
       className="sa-inc-row"
       onClick={onClick}
-      title="Click to open Black Box Replay"
+      title="Kara Kutu Tekrarını açmak için tıkla"
       style={{ cursor: 'pointer' }}
     >
       <span
@@ -504,7 +504,7 @@ function IncidentRow({ inc, onClick }: { inc: IncidentLog; onClick: () => void }
           color:         isCritical ? '#dc2626' : '#d97706',
         }}
       >
-        {isCritical ? 'CRITICAL' : 'WARN'}
+        {isCritical ? 'KRİTİK' : 'UYARI'}
       </span>
       <code
         className="sa-mono"
@@ -537,8 +537,8 @@ function IncidentRow({ inc, onClick }: { inc: IncidentLog; onClick: () => void }
         }}
       >
         {[
-          inc.uiFreezeCount > 0 && `freeze×${inc.uiFreezeCount}`,
-          inc.restartCount  > 0 && `restart×${inc.restartCount}`,
+          inc.uiFreezeCount > 0 && `donma×${inc.uiFreezeCount}`,
+          inc.restartCount  > 0 && `yeniden başlatma×${inc.restartCount}`,
           inc.overallHealth,
         ].filter(Boolean).join(' · ')}
       </span>

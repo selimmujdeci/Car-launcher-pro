@@ -184,7 +184,7 @@ export function SuperAdminShell() {
     if (next && flagsList.length === 0) {
       setFlagsLoading(true);
       try { setFlagsList(await getFeatureFlags()); }
-      catch { setFlagError('Flag listesi alınamadı'); }
+      catch { setFlagError('Bayrak listesi alınamadı'); }
       finally { setFlagsLoading(false); }
     }
   }
@@ -290,7 +290,7 @@ export function SuperAdminShell() {
         background:BG, flexDirection:'column', gap:8, padding:24 }}>
         <ServerCrash size={24} style={{ color: AMB }} />
         <p style={{ fontFamily:'monospace', fontSize:10, color:MUTED, letterSpacing:'0.08em' }}>
-          NETWORK_ERROR: Veri çekilemedi
+          AĞ_HATASI: Veri çekilemedi
         </p>
       </div>
     );
@@ -320,7 +320,7 @@ export function SuperAdminShell() {
             </p>
             <p style={{ fontSize:9, color:MUTED, letterSpacing:'0.06em', marginTop:2,
               whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {adminEmail || 'SUPER_ADMIN'} · {syncStatus === 'verified' ? 'JWT DOĞRULANDI' : 'SYNCING...'}
+              {adminEmail || 'SÜPER_ADMİN'} · {syncStatus === 'verified' ? 'JWT DOĞRULANDI' : 'EŞİTLENİYOR...'}
               {newCritical && <span style={{ color:RED, marginLeft:8 }}>● YENİ KRİTİK OLAY</span>}
             </p>
           </div>
@@ -356,7 +356,7 @@ export function SuperAdminShell() {
           value={fleet ? `%${score}` : undefined}
           valueColor={scoreColor}
           sub={fleet
-            ? `${fleet.totalEvents} event / son ${fleet.windowHours}sa · ${fleet.criticalCount} kritik`
+            ? `${fleet.totalEvents} olay / son ${fleet.windowHours}sa · ${fleet.criticalCount} kritik`
             : 'vehicle_events bekleniyor'}
         />
 
@@ -400,7 +400,7 @@ export function SuperAdminShell() {
               <Flag size={16} style={{ color:BLUE }} />
             </div>
             <div style={{ flex:1, minWidth:0 }}>
-              <p style={{ fontSize:11, fontWeight:600, color:TEXT, letterSpacing:'0.04em' }}>Feature Flags</p>
+              <p style={{ fontSize:11, fontWeight:600, color:TEXT, letterSpacing:'0.04em' }}>Özellik Bayrakları</p>
               <p style={{ fontSize:10, color:MUTED, marginTop:2 }}>
                 {flagMeta ? `${flagMeta.enabled} aktif · ${flagMeta.total - flagMeta.enabled} kapalı` : 'Yükleniyor...'}
               </p>
@@ -427,7 +427,7 @@ export function SuperAdminShell() {
                 </div>
               ) : flagsList.length === 0 ? (
                 <p style={{ fontSize:10, color:DIM, padding:'8px 14px', fontFamily:'monospace' }}>
-                  FLAG_EMPTY: Tablo boş
+                  BAYRAK_YOK: Tablo boş
                 </p>
               ) : (
                 flagsList.map((flag) => (
@@ -463,7 +463,7 @@ export function SuperAdminShell() {
           </div>
           <div style={{ flex:1, minWidth:0 }}>
             <p style={{ fontSize:11, fontWeight:600, color:TEXT, letterSpacing:'0.04em' }}>Dağıtım Merkezi</p>
-            <p style={{ fontSize:10, color:MUTED, marginTop:2 }}>Canary planları · Rollout kontrolü</p>
+            <p style={{ fontSize:10, color:MUTED, marginTop:2 }}>Canary planları · Dağıtım kontrolü</p>
           </div>
           <ChevronRight size={13} style={{ color:DIM, flexShrink:0 }} />
         </button>
@@ -490,7 +490,7 @@ export function SuperAdminShell() {
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontSize:11, fontWeight:600, color:TEXT, letterSpacing:'0.04em' }}>Sistem Politikaları</p>
               <p style={{ fontSize:10, color:MUTED, marginTop:2 }}>
-                {policiesList.length > 0 ? `${policiesList.length} politika` : 'Termal · Bellek · Sync'}
+                {policiesList.length > 0 ? `${policiesList.length} politika` : 'Termal · Bellek · Senkron'}
               </p>
             </div>
             {showPolicies
@@ -514,7 +514,7 @@ export function SuperAdminShell() {
                 </div>
               ) : policiesList.length === 0 ? (
                 <p style={{ fontSize:9, color:DIM, padding:'8px 14px', fontFamily:'monospace' }}>
-                  POLICY_EMPTY: system_configs tablosu boş
+                  POLİTİKA_YOK: system_configs tablosu boş
                 </p>
               ) : (
                 policiesList.map((policy) => (
@@ -552,7 +552,7 @@ export function SuperAdminShell() {
         {limpSuccess && (
           <p style={{ fontSize:10, color:GREEN, fontFamily:'monospace',
             marginBottom:8, letterSpacing:'0.06em' }}>
-            ✓ LIMP_MODE_ACTIVATED — Tüm kritik flagler devre dışı
+            ✓ LIMP_MODU_AKTİF — Tüm kritik bayraklar devre dışı
           </p>
         )}
         {limpError && (
@@ -587,7 +587,7 @@ export function SuperAdminShell() {
             letterSpacing:'0.12em', textTransform:'uppercase',
             fontFamily:'monospace',
           }}>
-            {executingLimp ? 'İŞLENİYOR...' : limpSuccess ? 'LIMP MODE AKTİF' : 'FLEET LIMP MODE'}
+            {executingLimp ? 'İŞLENİYOR...' : limpSuccess ? 'LIMP MODU AKTİF' : 'FİLO LIMP MODU'}
           </span>
         </button>
       </div>
@@ -615,7 +615,7 @@ export function SuperAdminShell() {
 
         {auditEntries.length === 0 && !auditLoading ? (
           <p style={{ fontFamily:'monospace', fontSize:9, color:DIM, padding:'4px 0' }}>
-            AUDIT_EMPTY: Kayıtlı işlem yok
+            DENETİM_BOŞ: Kayıtlı işlem yok
           </p>
         ) : (
           <div style={{
@@ -906,7 +906,7 @@ function IncidentFeed({
 
       {incidents.length === 0 && !loading ? (
         <p style={{ fontFamily: 'monospace', fontSize: 9, color: DIM, padding: '4px 0' }}>
-          FEED_EMPTY: Kayıtlı kritik olay yok
+          AKIŞ_BOŞ: Kayıtlı kritik olay yok
         </p>
       ) : (
         <div style={{

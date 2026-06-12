@@ -41,7 +41,7 @@ export function RuntimeHealthGrid({
   metrics,
   columns = 4,
   title,
-  emptyMsg = 'SYSTEM_IDLE: Awaiting Telemetry...',
+  emptyMsg = 'SİSTEM_BEKLEMEDE: Telemetri bekleniyor...',
 }: RuntimeHealthGridProps) {
 
   if (metrics.length === 0) {

@@ -66,7 +66,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
         sessionStart: sessionStart ?? new Date().toISOString(),
         exportedAt:   new Date().toISOString(),
         eventCount:   events.length,
-        privacy:      'ANONYMIZED — no GPS, no user data',
+        privacy:      'ANONİMLEŞTİRİLMİŞ — GPS yok, kullanıcı verisi yok',
       },
       events: events.map((e) => ({
         ts:      e.ts,
@@ -140,7 +140,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
                   animation:     'sa-blink 1.2s ease-in-out infinite',
                 }}
               >
-                LIVE_DEBUG_ACTIVE
+                CANLI_AYIKLAMA_AKTİF
               </span>
             </div>
           )}
@@ -154,7 +154,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
                 marginLeft:     8,
               }}
             >
-              SESSION_ENDED
+              OTURUM_BİTTİ
             </span>
           )}
         </div>
@@ -176,7 +176,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
               textTransform: 'uppercase',
             }}
           >
-            AUTO-SCROLL {autoScroll ? 'ON' : 'OFF'}
+            OTOMATİK KAYDIRMA {autoScroll ? 'AÇIK' : 'KAPALI'}
           </button>
 
           {/* Download */}
@@ -202,7 +202,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
             }}
           >
             <Download size={9} />
-            DOWNLOAD DEBUG BUNDLE
+            AYIKLAMA PAKETİNİ İNDİR
           </button>
         </div>
       </div>
@@ -253,7 +253,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
             letterSpacing: '0.06em',
           }}
         >
-          {visibleLines.length}/{MAX_LINES} lines · GPS_EXCLUDED · USER_DATA_EXCLUDED
+          {visibleLines.length}/{MAX_LINES} satır · GPS_HARİÇ · KULLANICI_VERİSİ_HARİÇ
         </span>
         {events.length > MAX_LINES && (
           <span
@@ -264,7 +264,7 @@ export function DebugConsole({ events, active, deviceHash, sessionStart }: Debug
               letterSpacing: '0.06em',
             }}
           >
-            showing last {MAX_LINES}
+            son {MAX_LINES} satır gösteriliyor
           </span>
         )}
       </div>
@@ -314,16 +314,16 @@ function LogLine({ event: e }: { event: LiveEvent }) {
 function ConsoleIdle({ active }: { active: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ color: '#22c55e' }}>CarOS Pro — Remote Debug Terminal v1.0</span>
-      <span style={{ color: '#166534' }}>Privacy: GPS_EXCLUDED · USER_DATA_EXCLUDED</span>
+      <span style={{ color: '#22c55e' }}>CarOS Pro — Uzak Hata Ayıklama Terminali v1.0</span>
+      <span style={{ color: '#166534' }}>Gizlilik: GPS_HARİÇ · KULLANICI_VERİSİ_HARİÇ</span>
       <span style={{ color: '#1a1a1a' }}>─────────────────────────────────────────</span>
       {active ? (
         <span style={{ color: '#22c55e', animation: 'sa-blink 1s ease-in-out infinite' }}>
-          STREAM_ACTIVE: Waiting for vehicle telemetry...
+          AKIŞ_AKTİF: Araç telemetrisi bekleniyor...
         </span>
       ) : (
         <span style={{ color: '#2d3748' }}>
-          STREAM_IDLE: Start a debug session to see live logs.
+          AKIŞ_BEKLEMEDE: Canlı loglar için bir hata ayıklama oturumu başlat.
         </span>
       )}
     </div>

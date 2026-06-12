@@ -574,10 +574,16 @@ public final class K24CanBridge {
                         if (iface != null) req.writeInterfaceToken(iface);
                         boolean ok = b.transact(code, req, resp, 0);
                         if (ok && resp.dataAvail() > 0) {
-                            byte[] bytes = new byte[Math.min(resp.dataAvail(), 64)];
+                            // dataAvail() okudukça azalır → önce boyutu yakala, sonra hex dök.
+                            // transact[2] 564B veri döndürüyor (tanı bulgusu); payload'u görmeliyiz.
+                            int sz = resp.dataAvail();
+                            int readLen = Math.min(sz, 256);
+                            byte[] bytes = new byte[readLen];
                             resp.setDataPosition(0);
-                            for (int i = 0; i < bytes.length; i++) bytes[i] = resp.readByte();
-                            diag("NWDMANAGER transact[" + code + "] → " + resp.dataAvail() + "B");
+                            for (int i = 0; i < readLen; i++) bytes[i] = resp.readByte();
+                            String trunc = sz > 256 ? " (+…" + (sz - 256) + ")" : "";
+                            diag("NWDMANAGER transact[" + code + "] → " + sz + "B" + trunc
+                                + " hex=" + _toHex(bytes));
                         }
                     } catch (Exception ignored) {}
                     finally { req.recycle(); resp.recycle(); }

@@ -54,7 +54,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
 
   async function handleLogin() {
     if (!email.trim() || !password) {
-      setLocalError('INPUT_MISSING: E-posta ve şifre zorunlu');
+      setLocalError('EKSİK_GİRİŞ: E-posta ve şifre zorunlu');
       return;
     }
     clearAuthError();
@@ -65,7 +65,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
 
   async function handleReset() {
     if (!email.trim()) {
-      setLocalError('INPUT_MISSING: E-posta zorunlu');
+      setLocalError('EKSİK_GİRİŞ: E-posta zorunlu');
       return;
     }
     clearAuthError();
@@ -76,11 +76,11 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
 
   async function handleUpdatePassword() {
     if (!newPw || newPw.length < 8) {
-      setLocalError('PW_TOO_SHORT: Şifre en az 8 karakter olmalı');
+      setLocalError('ŞİFRE_KISA: Şifre en az 8 karakter olmalı');
       return;
     }
     if (newPw !== newPwConfirm) {
-      setLocalError('PW_MISMATCH: Şifreler eşleşmiyor');
+      setLocalError('ŞİFRE_UYUŞMUYOR: Şifreler eşleşmiyor');
       return;
     }
     clearAuthError();
@@ -128,12 +128,12 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
           <div>
             <p style={{ fontFamily:'monospace', fontSize:10, fontWeight:700,
               color:RED, letterSpacing:'0.12em', textTransform:'uppercase' }}>
-              {mode === 'login'          && 'ADMIN_AUTH'}
-              {mode === 'reset-request'  && 'RESET_PASSWORD'}
-              {mode === 'reset-confirm'  && 'NEW_PASSWORD'}
+              {mode === 'login'          && 'ADMİN_GİRİŞİ'}
+              {mode === 'reset-request'  && 'ŞİFRE_SIFIRLAMA'}
+              {mode === 'reset-confirm'  && 'YENİ_ŞİFRE'}
             </p>
             <p style={{ fontSize:9, color:DIM, fontFamily:'monospace', marginTop:2 }}>
-              {mode === 'login'         && 'Super Admin giriş paneli'}
+              {mode === 'login'         && 'Süper Admin giriş paneli'}
               {mode === 'reset-request' && 'Sıfırlama e-postası gönder'}
               {mode === 'reset-confirm' && 'Kurtarma bağlantısı aktif'}
             </p>
@@ -179,7 +179,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
               {error && <ErrorMsg msg={error} />}
 
               <ActionBtn
-                label={isLoading ? 'DOĞRULANIYORU...' : 'GİRİŞ YAP'}
+                label={isLoading ? 'DOĞRULANIYOR...' : 'GİRİŞ YAP'}
                 loading={isLoading}
                 color={BLUE}
                 onClick={() => { void handleLogin(); }}
@@ -212,7 +212,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
                 }}>
                   <CheckCircle size={13} style={{ color:GREEN, flexShrink:0 }} />
                   <p style={{ fontFamily:'monospace', fontSize:9, color:GREEN, letterSpacing:'0.06em' }}>
-                    RESET_SENT: E-posta gönderildi. Gelen kutunuzu kontrol edin.
+                    SIFIRLAMA_GÖNDERİLDİ: E-posta gönderildi. Gelen kutunuzu kontrol edin.
                   </p>
                 </div>
               ) : (
@@ -261,7 +261,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
                 borderRadius:4,
               }}>
                 <p style={{ fontFamily:'monospace', fontSize:9, color:BLUE, letterSpacing:'0.06em' }}>
-                  RECOVERY_ACTIVE: Kurtarma bağlantısı ile yönlendirildiniz.
+                  KURTARMA_AKTİF: Kurtarma bağlantısı ile yönlendirildiniz.
                 </p>
               </div>
 
@@ -317,7 +317,7 @@ export function AdminLoginForm({ mode: initialMode }: Props) {
           background:'#080808',
         }}>
           <p style={{ fontFamily:'monospace', fontSize:7, color:DIM, letterSpacing:'0.06em', textAlign:'center' }}>
-            SECURE_CHANNEL · Şifreler loglanmaz · Sadece yetkili hesaplar
+            GÜVENLİ_KANAL · Şifreler loglanmaz · Sadece yetkili hesaplar
           </p>
         </div>
       </div>

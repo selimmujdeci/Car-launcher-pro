@@ -59,6 +59,11 @@ public final class McuEventSniffer {
     private static final String NWD_PKG_FACTORY  = "com.nwd.factory.setting";
     private static final String NWD_SVC_DATA     = "com.nwd.factory.service.FactorySettingService";
 
+    // Doğrudan CAN servisi — tanı günlüğü bulgusu (S:com.nwd.can.service.CanService exp=true)
+    // com.nwd.can.setting paketi bu servisi export ediyor → araç verisinin en güçlü adayı.
+    private static final String NWD_PKG_CAN  = "com.nwd.can.setting";
+    private static final String NWD_SVC_CAN  = "com.nwd.can.service.CanService";
+
     // NWD/K250'ye özgü broadcast action'ları (K24 listesine ek olarak)
     private static final String[] NWD_ACTIONS = {
         "com.nwd.factory.action.CAR_STATUS",
@@ -177,6 +182,7 @@ public final class McuEventSniffer {
     private void _discover() {
         _probeBackcarService();      // ← YENİ: geri vites kamera servisi
         _probeFactorySettingService();
+        _probeCanService();          // ← YENİ: doğrudan exp=true CAN servisi (tanı bulgusu)
         _probeDeviceFiles();
         _probeNwdContentProvider();
     }
@@ -271,6 +277,32 @@ public final class McuEventSniffer {
             diag("[McuSniffer] FactorySettingService bind " + (bound ? "başlatıldı" : "BAŞARISIZ"));
         } catch (Exception e) {
             diag("[McuSniffer] FactorySettingService bind hatası: " + e.getMessage());
+        }
+    }
+
+    // ── 1b. CanService — doğrudan exp=true CAN servisi (tanı bulgusu) ──────────
+    // com.nwd.can.setting → com.nwd.can.service.CanService export edilmiş (exp=true).
+    // FactorySetting/Backcar ile aynı READ-ONLY transact altyapısı: yazma/kontrol YOK,
+    // bağlantı transact probe biter bitmez kapatılır (side effect olmasın).
+    private void _probeCanService() {
+        diag("[McuSniffer] CanService probe başlıyor (com.nwd.can.setting)...");
+        try {
+            Intent intent = new Intent();
+            intent.setComponent(new ComponentName(NWD_PKG_CAN, NWD_SVC_CAN));
+            boolean bound = _ctx.bindService(intent, new ServiceConnection() {
+                @Override
+                public void onServiceConnected(ComponentName name, IBinder binder) {
+                    diag("[McuSniffer] ★ CanService BAĞLANDI: " + name.flattenToShortString());
+                    diag("[McuSniffer] CanService descriptor: " + safeDescriptor(binder));
+                    _transactProbe(binder, name.flattenToShortString());
+                    try { _ctx.unbindService(this); } catch (Exception ignored) {}
+                }
+                @Override
+                public void onServiceDisconnected(ComponentName name) {}
+            }, Context.BIND_AUTO_CREATE);
+            diag("[McuSniffer] CanService bind " + (bound ? "başlatıldı" : "BAŞARISIZ — paket yok/izin?"));
+        } catch (Exception e) {
+            diag("[McuSniffer] CanService bind hatası: " + e.getMessage());
         }
     }
 

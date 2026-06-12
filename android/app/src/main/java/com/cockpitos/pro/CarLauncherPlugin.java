@@ -303,6 +303,12 @@ public class CarLauncherPlugin extends Plugin {
      * BIRAKIR — asistan kendi selamlamasını ("Buradayım") wake word sanıp
      * kendini tetiklemez. speak() kuyruklayınca true, son utterance çözülünce false. */
     private volatile boolean nativeTtsSpeaking = false;
+    /* SAHA FİX 2026-06-12: bazı head unit TTS motorları onDone'u GÜVENİLİR
+     * çağırmaz → nativeTtsSpeaking takılı kalır → wake word mikrofonu SONSUZA
+     * DEK kapalı (boot selamlaması konuşur konuşmaz asistan sağırlaşıyordu).
+     * Emniyet: bayrak set edileli TTS_YIELD_MAX_MS geçtiyse yield YOK SAYILIR. */
+    private static final long TTS_YIELD_MAX_MS = 30_000;
+    private volatile long nativeTtsSpeakingSinceMs = 0;
 
     /** TTS bitti/kesildi/hata — bekleyen speak() Promise'ini çöz. */
     private void settleTtsCall(String utteranceId) {
@@ -1674,9 +1680,10 @@ public class CarLauncherPlugin extends Plugin {
             // PERF 2026-06-12: pasif wake polling oturumu (duck:false) sürekli döner —
             // UI ile yarışmasın (grammar thread'iyle aynı gerekçe). Aktif asistan
             // oturumu (duck:true) kullanıcı tetiklidir ve kısadır → default öncelik kalır.
+            // SAHA REVİZE: BACKGROUND(10) yerine nice +2 — bg cpuset açlığı riski yok.
             if (!sessionDuck) {
                 try {
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                    android.os.Process.setThreadPriority(2);
                 } catch (Throwable ignored) {}
             }
             AudioRecord recorder = null;
@@ -1901,7 +1908,11 @@ public class CarLauncherPlugin extends Plugin {
 
     /** Wake grammar thread'inin mikrofonu bırakması gereken anlar (half-duplex). */
     private boolean wakeMicMustYield() {
-        return voskCapturing || nativeTtsSpeaking || savedSpeechCall != null;
+        // TTS yield emniyeti: onDone hiç gelmezse bayrak 30 sn sonra yok sayılır —
+        // wake word kalıcı sağırlaşmaz (gerçek konuşmalar 30 sn'den kısadır).
+        boolean ttsYield = nativeTtsSpeaking
+            && (android.os.SystemClock.elapsedRealtime() - nativeTtsSpeakingSinceMs) < TTS_YIELD_MAX_MS;
+        return voskCapturing || ttsYield || savedSpeechCall != null;
     }
 
     private boolean matchesWakePhrase(String text) {
@@ -1915,11 +1926,12 @@ public class CarLauncherPlugin extends Plugin {
     private void runVoskGrammar() {
         Thread t = new Thread(() -> {
             // PERF 2026-06-12: kalıcı pasif decode UI ile aynı öncelikte YARIŞMAZ.
-            // Default öncelikli sürekli Vosk decode zayıf head unit CPU'sunda
-            // WebView ana thread'ini açlığa itiyordu (her dokunuş → saniyeler).
-            // BACKGROUND: sistem boşken decode tam hız; kullanıcı dokununca UI kazanır.
+            // SAHA REVİZE (aynı gün): BACKGROUND(10) bazı Android'lerde thread'i
+            // bg cpuset'e taşır — harita render ederken decode AÇLIĞA düşüp wake
+            // word tamamen sağırlaşabiliyordu. nice +2: foreground grupta kalır,
+            // UI yine öncelikli ama decode asla tam aç bırakılmaz.
             try {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                android.os.Process.setThreadPriority(2);
             } catch (Throwable ignored) {}
             while (wakeWordActive && !Thread.currentThread().isInterrupted()) {
                 // HALF-DUPLEX bekleme: aktif STT/TTS bitene dek mikrofon kapalı.
@@ -2915,6 +2927,7 @@ public class CarLauncherPlugin extends Plugin {
         String utteranceId = "cockpitos_tts_" + ttsUtteranceSeq.incrementAndGet();
         ttsPendingCalls.put(utteranceId, call);
         nativeTtsSpeaking = true; // half-duplex: wake grammar thread mikrofonu bırakır
+        nativeTtsSpeakingSinceMs = android.os.SystemClock.elapsedRealtime(); // yield emniyet saati
         int queued = ttsEngine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId);
         if (queued != android.speech.tts.TextToSpeech.SUCCESS) {
             settleTtsCall(utteranceId);

@@ -166,32 +166,32 @@ describe('IncidentCenter — UI sözleşmesi', () => {
     expect(page).toMatch(/redactIncidentMetadata\(entry\.metadata/);
   });
 
-  it('support_snapshot detayı: HEALTH / OBD / OTA / LAST CRITICAL bölümleri', () => {
-    expect(page).toContain('title="HEALTH"');
+  it('support_snapshot detayı: SAĞLIK / OBD / OTA / SON KRİTİK bölümleri', () => {
+    expect(page).toContain('title="SAĞLIK"');
     expect(page).toContain('title="OBD"');
     expect(page).toContain('title="OTA"');
-    expect(page).toContain('title="LAST CRITICAL"');
+    expect(page).toContain('title="SON KRİTİK"');
     expect(page).toMatch(/md\['health'\]/);
     expect(page).toMatch(/md\['lastCritical'\]/);
   });
 
   it('satır kolonları: vehicle/type/ctx-phase/errorCode/msg/created_at', () => {
-    expect(page).toContain("'TIMESTAMP', 'VEHICLE', 'TYPE', 'CTX/PHASE', 'ERROR CODE', 'MSG / VERSION'");
+    expect(page).toContain("'ZAMAN', 'ARAÇ', 'TİP', 'BAĞLAM/AŞAMA', 'HATA KODU', 'MESAJ / SÜRÜM'");
     expect(page).toMatch(/md\['phase'\] \?\? md\['ctx'\]/);
     expect(page).toMatch(/md\['errorCode'\]/);
   });
 
   it('filtre kontrolleri: tip / araç / appVersion / tarih aralığı', () => {
     expect(page).toContain('INCIDENT_TYPES.map');
-    expect(page).toContain('placeholder="vehicle id"');
+    expect(page).toContain('placeholder="araç id"');
     expect(page).toContain('appVersion');
     expect(page).toMatch(/type="date"/);
   });
 
   it('boş durum + hata durumu + retry mevcut', () => {
-    expect(page).toContain('NO_INCIDENTS');
-    expect(page).toContain('QUERY_ERROR');
-    expect(page).toContain('RETRY');
+    expect(page).toContain('OLAY_YOK');
+    expect(page).toContain('SORGU_HATASI');
+    expect(page).toContain('TEKRAR DENE');
   });
 
   it('pagination kontrolleri: Prev/Next + sayfa boyu kapısı', () => {

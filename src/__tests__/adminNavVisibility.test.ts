@@ -54,7 +54,7 @@ describe('NAV — Command Center linki', () => {
 
   it('NAV path doğru: /sa/health (BrowserRouter basename=/admin → /admin/sa/health)', () => {
     expect(cc).toBeDefined();
-    expect(cc!.label).toBe('Command Center');
+    expect(cc!.label).toBe('Komuta Merkezi');
   });
 
   it('minRole super_admin — normal admin için filtrede elenir', () => {

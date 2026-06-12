@@ -113,7 +113,7 @@ function ThermalChart({
   data: IncidentDataPoint[]; critX: number; curX: number; H?: number
 }) {
   const n = data.length
-  if (n === 0) return <ChartWrap label="THERMAL LEVEL (0-3)" H={H}><text x={VW/2} y={H/2} fill="#2d3748" fontSize={9} textAnchor="middle">NO DATA</text></ChartWrap>
+  if (n === 0) return <ChartWrap label="TERMAL SEVİYE (0-3)" H={H}><text x={VW/2} y={H/2} fill="#2d3748" fontSize={9} textAnchor="middle">VERİ YOK</text></ChartWrap>
 
   // Level lines as colored horizontal segments
   const segments: React.ReactNode[] = []
@@ -153,7 +153,7 @@ function ThermalChart({
   })
 
   return (
-    <ChartWrap label="THERMAL LEVEL (L0-L3)" H={H}>
+    <ChartWrap label="TERMAL SEVİYE (L0-L3)" H={H}>
       {gridLines}
       {segments}
       <VLine x={critX} H={H} color="#dc2626" dashed />
@@ -170,7 +170,7 @@ function RamChart({
   data: IncidentDataPoint[]; critX: number; curX: number; H?: number
 }) {
   const n = data.length
-  if (n === 0) return <ChartWrap label="RAM PRESSURE (%)" H={H}><text x={VW/2} y={H/2} fill="#2d3748" fontSize={9} textAnchor="middle">NO DATA</text></ChartWrap>
+  if (n === 0) return <ChartWrap label="RAM BASKISI (%)" H={H}><text x={VW/2} y={H/2} fill="#2d3748" fontSize={9} textAnchor="middle">VERİ YOK</text></ChartWrap>
 
   // Area path
   const pts   = data.map((d, i) => `${xOf(i, n).toFixed(1)},${yOf(d.ramPressure, 100, H).toFixed(1)}`)
@@ -186,7 +186,7 @@ function RamChart({
   })
 
   return (
-    <ChartWrap label="RAM PRESSURE (%)" H={H}>
+    <ChartWrap label="RAM BASKISI (%)" H={H}>
       {gridLines}
       <path d={areaPath} fill="#60a5fa" fillOpacity={0.08} />
       <path d={linePath} fill="none" stroke="#60a5fa" strokeWidth={1} strokeOpacity={0.6} />
@@ -205,7 +205,7 @@ function RestartChart({
 }) {
   const n   = data.length
   const max = Math.max(...data.map((d) => d.workerRestarts), 1)
-  if (n === 0) return <ChartWrap label="WORKER RESTARTS" H={H}><text x={VW/2} y={H/2} fill="#2d3748" fontSize={9} textAnchor="middle">NO DATA</text></ChartWrap>
+  if (n === 0) return <ChartWrap label="WORKER YENİDEN BAŞLATMALARI" H={H}><text x={VW/2} y={H/2} fill="#2d3748" fontSize={9} textAnchor="middle">VERİ YOK</text></ChartWrap>
 
   const bw    = Math.max(1, (VW - PAD.l - PAD.r) / n - 1)
   const inner = H - PAD.t - PAD.b
@@ -225,7 +225,7 @@ function RestartChart({
   })
 
   return (
-    <ChartWrap label="WORKER RESTARTS" H={H}>
+    <ChartWrap label="WORKER YENİDEN BAŞLATMALARI" H={H}>
       {/* Baseline */}
       <line x1={PAD.l} y1={H - PAD.b} x2={VW - PAD.r} y2={H - PAD.b} stroke="#1a1a1a" strokeWidth={0.5} />
       {bars}
@@ -276,7 +276,7 @@ export function IncidentTimeline({ sequence, targetTs, currentIdx }: IncidentTim
           letterSpacing:   '0.06em',
         }}
       >
-        SEQUENCE_EMPTY: No telemetry in 15-minute window
+        DİZİ_BOŞ: 15 dakikalık pencerede telemetri yok
       </div>
     )
   }
@@ -306,8 +306,8 @@ export function IncidentTimeline({ sequence, targetTs, currentIdx }: IncidentTim
 
       {/* Legend */}
       <div style={{ display: 'flex', gap: 16, marginTop: 2 }}>
-        <LegendItem color="#dc2626" dashed label="CRITICAL POINT" />
-        <LegendItem color="#374151" label="CURRENT POSITION" />
+        <LegendItem color="#dc2626" dashed label="KRİTİK NOKTA" />
+        <LegendItem color="#374151" label="MEVCUT KONUM" />
       </div>
     </div>
   )

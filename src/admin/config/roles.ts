@@ -67,7 +67,7 @@ export type SuperAdminCapability = typeof SUPER_ADMIN_CAPABILITIES[number]
 // ── Permission Listesi ────────────────────────────────────────────────────────
 
 export const PERMISSIONS: Permission[] = [
-  { key: 'dashboard',       label: 'Dashboard',          minRole: 'viewer'      },
+  { key: 'dashboard',       label: 'Gösterge Paneli',    minRole: 'viewer'      },
   { key: 'users_view',      label: 'Kullanıcı Görme',    minRole: 'operator'    },
   { key: 'users_manage',    label: 'Kullanıcı Yönet',    minRole: 'admin'       },
   { key: 'vehicles_view',   label: 'Araç Görme',         minRole: 'viewer'      },
@@ -76,8 +76,8 @@ export const PERMISSIONS: Permission[] = [
   { key: 'roles_manage',    label: 'Rol Yönetimi',       minRole: 'super_admin' },
   { key: 'health_center',   label: 'Sistem Sağlığı',     minRole: 'super_admin' },
   { key: 'fleet_ops',       label: 'Filo Operasyonları', minRole: 'super_admin' },
-  { key: 'feature_flags',   label: 'Feature Flags',      minRole: 'super_admin' },
+  { key: 'feature_flags',   label: 'Özellik Bayrakları', minRole: 'super_admin' },
   { key: 'policy_manage',   label: 'Politika Yönet',     minRole: 'super_admin' },
-  { key: 'rollout_manage',  label: 'Rollout Yönet',      minRole: 'super_admin' },
+  { key: 'rollout_manage',  label: 'Dağıtım Yönet',      minRole: 'super_admin' },
   { key: 'audit_logs',      label: 'Denetim Logları',    minRole: 'super_admin' },
 ]

@@ -219,7 +219,7 @@ let _convSession = false;
 let _followUpArmed = false;
 /** TTS hiç başlamazsa (SAFETY_LOCK, sessiz yollar) takip modu asılı kalmasın. */
 let _followUpFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-const FOLLOWUP_FALLBACK_MS = 30_000;
+const FOLLOWUP_FALLBACK_MS = 20_000;
 /** Hoparlör kuyruğu boşalması için TTS bitişi → mikrofon arası tampon. */
 const FOLLOWUP_RELISTEN_DELAY_MS = 350;
 
@@ -246,7 +246,18 @@ function _armFollowUp(): void {
   if (!_convSession || _voiceCogPaused) return;
   _followUpArmed = true;
   if (_followUpFallbackTimer !== null) clearTimeout(_followUpFallbackTimer);
-  _followUpFallbackTimer = setTimeout(() => { _disarmFollowUp(); }, FOLLOWUP_FALLBACK_MS);
+  // SAHA FİX 2026-06-12: TTS bitiş eventi hiç gelmezse (bazı head unit TTS
+  // motorlarında onDone güvenilmez) eskiden SESSİZCE vazgeçiliyordu — kullanıcı
+  // "cevaptan sonra dinlemiyor" yaşıyordu. Bu süre dolduğunda konuşma kesin
+  // bitmiştir: vazgeçmek yerine mikrofonu best-effort AÇ (sohbet döngüsü kopmaz).
+  _followUpFallbackTimer = setTimeout(() => {
+    _followUpFallbackTimer = null;
+    if (!_followUpArmed) return;
+    _followUpArmed = false;
+    if (!_convSession || _voiceCogPaused) { _disarmFollowUp(); return; }
+    if (_current.status === 'listening' || _current.status === 'processing') return;
+    startListening({ followUpWindow: true });
+  }, FOLLOWUP_FALLBACK_MS);
   if (!_current.followUp) push({ followUp: true });
 }
 
@@ -462,16 +473,18 @@ function _isConversationEnd(raw: string): boolean {
 
 /* ── Ara TTS geri bildirimleri ────────────────────────────────── */
 
-/** Gemini cevabı bu süreyi aşarsa kısa ara geri bildirim seslendirilir. */
-const THINKING_FEEDBACK_DELAY_MS = 800;
+/** Gemini cevabı bu süreyi aşarsa kısa ara geri bildirim seslendirilir.
+ *  SAHA FİX 2026-06-12: 800 → 1500 ms. Erken ara mesaj "önce bir şey söylüyor
+ *  sonra cevap veriyor" şikayeti yaratıyordu — hızlı cevaplar artık doğrudan gelir. */
+const THINKING_FEEDBACK_DELAY_MS = 1_500;
 
+// SAHA FİX 2026-06-12: "Anlıyorum..." / "Tabii, bakayım..." LİSTEDEN ÇIKTI —
+// anlama İMA eden ara mesajdan sonra zincir başarısız olunca kullanıcı
+// "anladım diyor sonra anlayamadım diyor" yaşıyordu. Yalnız NÖTR ifadeler kaldı.
 const THINKING_PHRASES = [
   'Bakıyorum hemen...',
-  'Anlıyorum...',
-  'Düşünüyorum...',
   'Bir saniye...',
   'Kontrol ediyorum...',
-  'Tabii, bakayım...',
 ];
 
 function _speakThinking(): void {

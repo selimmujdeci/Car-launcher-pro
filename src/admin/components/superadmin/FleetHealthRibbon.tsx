@@ -22,12 +22,12 @@ function scoreColor(score: number): string {
 }
 
 function _ago(iso: string | null): string {
-  if (!iso) return 'N/A'
+  if (!iso) return 'YOK'
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60)  return `${s}s ago`
+  if (s < 60)  return `${s} sn önce`
   const m = Math.floor(s / 60)
-  if (m < 60)  return `${m}m ago`
-  return `${Math.floor(m / 60)}h ago`
+  if (m < 60)  return `${m} dk önce`
+  return `${Math.floor(m / 60)} sa önce`
 }
 
 // ── FleetHealthRibbon ─────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ export function FleetHealthRibbon() {
         style={{ borderRight: '1px solid #1a1a1a', minWidth: 168 }}
       >
         <span className="sa-dot" style={{ background: sColor }} />
-        <span className="sa-cell-label">FLEET STABILITY</span>
+        <span className="sa-cell-label">FİLO KARARLILIĞI</span>
         <span
           className={`sa-cell-value sa-mono${
             prev && prev.stabilityScore !== score ? ' sa-cell-flash' : ''
@@ -87,38 +87,38 @@ export function FleetHealthRibbon() {
       {/* Metrik hücreler */}
       <div className="flex items-center flex-1 h-full">
         <FlashCell
-          label="EVENTS/1H"
+          label="OLAY/1SA"
           value={syncing ? '—' : String(stats?.totalEvents ?? 0)}
           color="#6b7280"
           changed={prev?.totalEvents !== stats?.totalEvents}
         />
         <FlashCell
-          label="CRITICAL"
+          label="KRİTİK"
           value={syncing ? '—' : String(stats?.criticalEvents ?? 0)}
           color={(stats?.criticalEvents ?? 0) > 0 ? '#dc2626' : '#374151'}
           changed={prev?.criticalEvents !== stats?.criticalEvents}
         />
         <FlashCell
-          label="THERMAL L3"
+          label="TERMAL S3"
           value={syncing ? '—' : String(stats?.thermalL3Count ?? 0)}
           color={(stats?.thermalL3Count ?? 0) > 0 ? '#ea580c' : '#374151'}
           changed={prev?.thermalL3Count !== stats?.thermalL3Count}
         />
         <FlashCell
-          label="UI FREEZE"
+          label="ARAYÜZ DONMASI"
           value={syncing ? '—' : String(stats?.uiFreezeTotal ?? 0)}
           color={(stats?.uiFreezeTotal ?? 0) > 0 ? '#d97706' : '#374151'}
           changed={prev?.uiFreezeTotal !== stats?.uiFreezeTotal}
         />
         <FlashCell
-          label="RESTARTS"
+          label="YENİDEN BAŞLATMA"
           value={syncing ? '—' : String(stats?.workerRestartTotal ?? 0)}
           color={(stats?.workerRestartTotal ?? 0) > 2 ? '#ea580c' : '#374151'}
           changed={prev?.workerRestartTotal !== stats?.workerRestartTotal}
         />
         <FlashCell
-          label="LAST SYNC"
-          value={syncing ? 'syncing…' : _ago(stats?.lastUpdated ?? null)}
+          label="SON EŞİTLEME"
+          value={syncing ? 'eşitleniyor…' : _ago(stats?.lastUpdated ?? null)}
           color="#374151"
           changed={false}
         />
@@ -182,7 +182,7 @@ function SystemTime() {
       className="flex flex-col justify-center px-4 h-full shrink-0"
       style={{ borderLeft: '1px solid #1a1a1a', minWidth: 88 }}
     >
-      <span className="sa-cell-label">SYSTEM_TIME</span>
+      <span className="sa-cell-label">SİSTEM_SAATİ</span>
       <span className="sa-cell-value sa-mono" style={{ color: '#374151', fontSize: 11 }}>
         {t}
       </span>

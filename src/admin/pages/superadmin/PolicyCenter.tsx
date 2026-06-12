@@ -28,9 +28,9 @@ import { useAuth } from '../../hooks/useAuth'
 // ── Kategori meta ─────────────────────────────────────────────────────────────
 
 const CATEGORY_META: Record<RuntimePolicyCategory, { label: string; icon: React.ReactNode; color: string }> = {
-  thermal:  { label: 'Termal Eşikler',    icon: <Thermometer size={15} />, color: '#f97316' },
-  sync:     { label: 'Sync Aralıkları',   icon: <RefreshCw   size={15} />, color: '#60a5fa' },
-  watchdog: { label: 'Watchdog Politikası', icon: <Eye         size={15} />, color: '#a78bfa' },
+  thermal:  { label: 'Termal Eşikler',           icon: <Thermometer size={15} />, color: '#f97316' },
+  sync:     { label: 'Senkronizasyon Aralıkları', icon: <RefreshCw   size={15} />, color: '#60a5fa' },
+  watchdog: { label: 'Gözcü (Watchdog) Politikası', icon: <Eye         size={15} />, color: '#a78bfa' },
 }
 
 // ── Bekleyen değişiklik tipi ──────────────────────────────────────────────────
@@ -145,11 +145,11 @@ export function PolicyCenter() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: '#e2e8f0' }}>
-            Runtime Politika Merkezi
+            Çalışma Zamanı Politika Merkezi
           </h1>
           <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
-            Termal eşikler, senkronizasyon aralıkları ve watchdog limitleri.
-            Her değişiklik audit log'a kaydedilir.
+            Termal eşikler, senkronizasyon aralıkları ve gözcü limitleri.
+            Her değişiklik denetim kaydına işlenir.
           </p>
         </div>
         <Button
@@ -415,7 +415,7 @@ function ConfirmModal({
         <AlertTriangle size={16} style={{ color: '#facc15', flexShrink: 0, marginTop: 1 }} />
         <p className="text-xs" style={{ color: '#fde68a' }}>
           Bu değişiklikler anlık olarak tüm sisteme uygulanır.
-          {changes.length} politika güncellenecek ve audit log'a kaydedilecek.
+          {changes.length} politika güncellenecek ve denetim kaydına işlenecek.
         </p>
       </div>
     </Modal>

@@ -28,7 +28,7 @@ function _fmt(iso: string): string {
 }
 
 function _actorShort(id: string | null): string {
-  if (!id) return 'SYSTEM'
+  if (!id) return 'SİSTEM'
   return id.replace(/-/g, '').slice(0, 8).toUpperCase()
 }
 
@@ -97,11 +97,11 @@ export function AuditCenter() {
       {/* Header */}
       <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
         <div>
-          <p className="sa-label">AUDIT CENTER</p>
+          <p className="sa-label">DENETİM MERKEZİ</p>
           <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
             {lastFetch > 0
-              ? `${logs.length} records · refreshed ${Math.floor((Date.now() - lastFetch) / 1000)}s ago`
-              : 'Loading audit trail…'}
+              ? `${logs.length} kayıt · ${Math.floor((Date.now() - lastFetch) / 1000)} sn önce yenilendi`
+              : 'Denetim kaydı yükleniyor…'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -127,11 +127,11 @@ export function AuditCenter() {
             }}
           >
             <Filter size={10} />
-            Critical Only
+            Sadece Kritik
           </button>
           <Button variant="outline" size="sm" disabled={loading} onClick={() => { void load() }}>
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            Yenile
           </Button>
         </div>
       </div>
@@ -156,7 +156,7 @@ export function AuditCenter() {
             borderBottom:        '1px solid #1a1a1a',
           }}
         >
-          {['TIMESTAMP', 'ACTOR', 'ACTION', 'TARGET', 'SEV', ''].map((h) => (
+          {['ZAMAN', 'AKTÖR', 'AKSİYON', 'HEDEF', 'ÖNEM', ''].map((h) => (
             <span key={h} className="sa-label">{h}</span>
           ))}
         </div>
@@ -166,7 +166,7 @@ export function AuditCenter() {
         ) : logs.length === 0 ? (
           <div className="sa-empty">
             <Info size={16} style={{ color: '#2d3748', opacity: 0.5 }} />
-            NO_RECORDS: Audit trail is empty
+            KAYIT_YOK: Denetim kaydı boş
           </div>
         ) : (
           <div style={{ maxHeight: 520, overflowY: 'auto' }} className="sa-scroll">
@@ -280,10 +280,10 @@ function AuditRow({
 // ── Severity Badge ────────────────────────────────────────────────────────────
 
 function SevBadge({ severity }: { severity: string }) {
-  const map: Record<string, { color: string; icon: React.ReactNode }> = {
-    critical: { color: '#dc2626', icon: <AlertTriangle size={9} /> },
-    warning:  { color: '#d97706', icon: <AlertTriangle size={9} /> },
-    info:     { color: '#4b5563', icon: <Info size={9} /> },
+  const map: Record<string, { color: string; label: string; icon: React.ReactNode }> = {
+    critical: { color: '#dc2626', label: 'KRİTİK', icon: <AlertTriangle size={9} /> },
+    warning:  { color: '#d97706', label: 'UYARI',  icon: <AlertTriangle size={9} /> },
+    info:     { color: '#4b5563', label: 'BİLGİ',  icon: <Info size={9} /> },
   }
   const s = map[severity] ?? map['info']
   return (
@@ -298,7 +298,7 @@ function SevBadge({ severity }: { severity: string }) {
           textTransform: 'uppercase',
         }}
       >
-        {severity}
+        {s.label}
       </span>
     </div>
   )
@@ -333,7 +333,7 @@ function DetailPanel({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Clock size={11} style={{ color: '#2d3748' }} />
-          <span className="sa-label">JSON DIFF — {entry.action}</span>
+          <span className="sa-label">JSON FARKI — {entry.action}</span>
           <span
             className="sa-mono"
             style={{ fontSize: 9, color: '#2d3748' }}
@@ -349,7 +349,7 @@ function DetailPanel({
             letterSpacing: '0.08em',
           }}
         >
-          CLOSE
+          KAPAT
         </button>
       </div>
 
@@ -360,7 +360,7 @@ function DetailPanel({
             fontFamily: 'var(--sa-font-mono)', fontSize: 10, color: '#2d3748',
           }}
         >
-          LOADING_DIFF…
+          FARK_YÜKLENİYOR…
         </div>
       ) : (
         <div
@@ -373,7 +373,7 @@ function DetailPanel({
           {/* Before */}
           <div style={{ padding: '10px 12px' }}>
             <p className="sa-label" style={{ marginBottom: 6 }}>
-              BEFORE
+              ÖNCESİ
             </p>
             <div className="sa-diff-panel">
               {renderDiff(entry.before_val)}
@@ -386,7 +386,7 @@ function DetailPanel({
               className="sa-label"
               style={{ marginBottom: 6, color: entry.severity === 'critical' ? '#dc2626' : undefined }}
             >
-              AFTER
+              SONRASI
             </p>
             <div
               className="sa-diff-panel"

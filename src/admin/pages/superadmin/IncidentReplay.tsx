@@ -36,6 +36,19 @@ function healthColor(h: string): string {
   return '#4ade80'
 }
 
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: 'KRİTİK',
+  warning:  'UYARI',
+  info:     'BİLGİ',
+}
+
+const HEALTH_LABEL: Record<string, string> = {
+  healthy:  'SAĞLIKLI',
+  degraded: 'BOZULMUŞ',
+  critical: 'KRİTİK',
+  unknown:  'BİLİNMİYOR',
+}
+
 function _fmt(iso: string): string {
   try {
     return new Date(iso).toLocaleString('tr-TR', {
@@ -160,7 +173,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                 textTransform: 'uppercase',
               }}
             >
-              BLACK_BOX_REPLAY
+              KARA_KUTU_TEKRARI
             </span>
             <span
               style={{
@@ -214,18 +227,18 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
             }}
             className="sa-scroll"
           >
-            <p className="sa-label" style={{ marginBottom: 14 }}>INCIDENT DETAILS</p>
+            <p className="sa-label" style={{ marginBottom: 14 }}>OLAY AYRINTILARI</p>
 
-            <DetailRow label="SEVERITY"    value={incident.severity.toUpperCase()}
+            <DetailRow label="ÖNEM"    value={SEVERITY_LABEL[incident.severity] ?? incident.severity.toUpperCase()}
               color={incident.severity === 'critical' ? '#dc2626' : '#d97706'} />
-            <DetailRow label="STATUS"      value={incident.overallHealth.toUpperCase()}
+            <DetailRow label="DURUM"      value={HEALTH_LABEL[incident.overallHealth] ?? incident.overallHealth.toUpperCase()}
               color={healthColor(incident.overallHealth)} />
-            <DetailRow label="TIMESTAMP"   value={_fmt(incident.ts)} mono />
-            <DetailRow label="APP VERSION" value={`v${incident.appVersion}`} mono />
-            <DetailRow label="DEVICE_HASH" value={incident.deviceHash} mono dim />
+            <DetailRow label="ZAMAN"   value={_fmt(incident.ts)} mono />
+            <DetailRow label="UYGULAMA SÜRÜMÜ" value={`v${incident.appVersion}`} mono />
+            <DetailRow label="CİHAZ_HASH" value={incident.deviceHash} mono dim />
 
             <div style={{ marginTop: 20, marginBottom: 14 }}>
-              <p className="sa-label" style={{ marginBottom: 10 }}>AT INCIDENT</p>
+              <p className="sa-label" style={{ marginBottom: 10 }}>OLAY ANINDA</p>
               <div
                 style={{
                   display:      'grid',
@@ -236,17 +249,17 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                   overflow:     'hidden',
                 }}
               >
-                <StatCell label="THERMAL"
+                <StatCell label="TERMAL"
                   value={`L${incident.thermalLevel}`}
                   color={thermalColor(incident.thermalLevel)} />
-                <StatCell label="FREEZES"
+                <StatCell label="DONMALAR"
                   value={String(incident.uiFreezeCount)}
                   color={incident.uiFreezeCount > 0 ? '#d97706' : '#374151'} />
-                <StatCell label="RESTARTS"
+                <StatCell label="BAŞLATMALAR"
                   value={String(incident.restartCount)}
                   color={incident.restartCount > 0 ? '#60a5fa' : '#374151'} />
-                <StatCell label="WINDOW"
-                  value="−15min"
+                <StatCell label="PENCERE"
+                  value="−15 dk"
                   color="#374151" />
               </div>
             </div>
@@ -254,7 +267,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
             {/* Current frame values */}
             {current && (
               <div style={{ marginTop: 4 }}>
-                <p className="sa-label" style={{ marginBottom: 10 }}>PLAYBACK FRAME</p>
+                <p className="sa-label" style={{ marginBottom: 10 }}>OYNATMA KARESİ</p>
                 <div
                   style={{
                     display:      'grid',
@@ -265,17 +278,17 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                     overflow:     'hidden',
                   }}
                 >
-                  <StatCell label="THERMAL"
+                  <StatCell label="TERMAL"
                     value={`L${current.thermalLevel}`}
                     color={thermalColor(current.thermalLevel)} />
                   <StatCell label="RAM"
                     value={`${current.ramPressure}%`}
                     color={current.ramPressure > 80 ? '#dc2626' : current.ramPressure > 60 ? '#d97706' : '#4ade80'} />
-                  <StatCell label="RESTARTS"
+                  <StatCell label="BAŞLATMALAR"
                     value={String(current.workerRestarts)}
                     color={current.workerRestarts > 0 ? '#60a5fa' : '#374151'} />
-                  <StatCell label="STATUS"
-                    value={current.overallHealth.slice(0, 4).toUpperCase()}
+                  <StatCell label="DURUM"
+                    value={(HEALTH_LABEL[current.overallHealth] ?? current.overallHealth).slice(0, 4).toUpperCase()}
                     color={healthColor(current.overallHealth)} />
                 </div>
                 <p
@@ -287,7 +300,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                     letterSpacing: '0.04em',
                   }}
                 >
-                  {new Date(current.ts).toLocaleTimeString('en-GB', { hour12: false })} · frame {currentIdx + 1}/{sequence.length}
+                  {new Date(current.ts).toLocaleTimeString('tr-TR', { hour12: false })} · kare {currentIdx + 1}/{sequence.length}
                 </p>
               </div>
             )}
@@ -305,7 +318,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
             }}
             className="sa-scroll"
           >
-            <p className="sa-label">TELEMETRY REPLAY — 15 MIN WINDOW</p>
+            <p className="sa-label">TELEMETRİ TEKRARI — 15 DK PENCERE</p>
 
             {loading ? (
               <div
@@ -320,7 +333,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                   letterSpacing:   '0.08em',
                 }}
               >
-                LOADING_SEQUENCE: Querying vehicle_events…
+                DİZİ_YÜKLENİYOR: vehicle_events sorgulanıyor…
               </div>
             ) : (
               <IncidentTimeline
@@ -358,7 +371,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                     style={ctrlBtnStyle}
                     onMouseEnter={hoverIn}
                     onMouseLeave={hoverOut}
-                    title="Previous"
+                    title="Önceki"
                   >
                     <ChevronLeft size={12} />
                   </button>
@@ -368,11 +381,11 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                     style={{ ...ctrlBtnStyle, minWidth: 60 }}
                     onMouseEnter={hoverIn}
                     onMouseLeave={hoverOut}
-                    title={isPlaying ? 'Pause' : 'Play'}
+                    title={isPlaying ? 'Duraklat' : 'Oynat'}
                   >
                     {isPlaying
-                      ? <><Pause size={10} /><span>PAUSE</span></>
-                      : <><Play  size={10} /><span>PLAY</span></>
+                      ? <><Pause size={10} /><span>DURAKLAT</span></>
+                      : <><Play  size={10} /><span>OYNAT</span></>
                     }
                   </button>
 
@@ -381,7 +394,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                     style={ctrlBtnStyle}
                     onMouseEnter={hoverIn}
                     onMouseLeave={hoverOut}
-                    title="Next"
+                    title="Sonraki"
                   >
                     <ChevronRight size={12} />
                   </button>
@@ -391,9 +404,9 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                     style={ctrlBtnStyle}
                     onMouseEnter={hoverIn}
                     onMouseLeave={hoverOut}
-                    title="Reset"
+                    title="Sıfırla"
                   >
-                    RESET
+                    SIFIRLA
                   </button>
 
                   <span
@@ -405,7 +418,7 @@ export function IncidentReplay({ incident, onClose }: IncidentReplayProps) {
                       letterSpacing: '0.06em',
                     }}
                   >
-                    {sequence.length} frames · 15-min window
+                    {sequence.length} kare · 15 dk pencere
                   </span>
                 </div>
               </div>

@@ -50,10 +50,27 @@ const STAGE_COLOR: Record<string, string> = {
 }
 
 const TARGET_LABEL: Record<string, string> = {
-  internal:   'INTERNAL',
-  pilot:      'PILOT',
+  internal:   'DAHİLİ',
+  pilot:      'PİLOT',
   beta:       'BETA',
-  production: 'PRODUCTION',
+  production: 'ÜRETİM',
+}
+
+const PLAN_STATUS_LABEL: Record<string, string> = {
+  draft:          'TASLAK',
+  pending_review: 'ONAY BEKLİYOR',
+  approved:       'ONAYLANDI',
+  rolling:        'DAĞITILIYOR',
+  paused:         'DURAKLATILDI',
+  complete:       'TAMAMLANDI',
+  reverted:       'GERİ ALINDI',
+}
+
+const STAGE_STATUS_LABEL: Record<string, string> = {
+  pending:  'BEKLİYOR',
+  active:   'AKTİF',
+  complete: 'TAMAMLANDI',
+  failed:   'BAŞARISIZ',
 }
 
 // ── RolloutCenter ─────────────────────────────────────────────────────────────
@@ -106,7 +123,7 @@ export function RolloutCenter() {
     if (!user) return
     try {
       await updateRolloutStage(plan.id, stageIdx, status, user.id)
-      setToast({ type: 'ok', msg: `Stage ${stageIdx + 1} → ${status.toUpperCase()}` })
+      setToast({ type: 'ok', msg: `Aşama ${stageIdx + 1} → ${STAGE_STATUS_LABEL[status] ?? status.toUpperCase()}` })
       await load()
     } catch (e) {
       setToast({ type: 'err', msg: e instanceof Error ? e.message : 'İşlem başarısız' })
@@ -141,17 +158,17 @@ export function RolloutCenter() {
       {/* Header */}
       <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
         <div>
-          <p className="sa-label">ROLLOUT CENTER</p>
+          <p className="sa-label">DAĞITIM MERKEZİ</p>
           <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
             {activeCount > 0
-              ? `${activeCount} active deployment${activeCount > 1 ? 's' : ''} · canary pipeline`
-              : 'No active deployments'}
+              ? `${activeCount} aktif dağıtım · canary hattı`
+              : 'Aktif dağıtım yok'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" disabled={loading} onClick={() => { void load() }}>
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            Yenile
           </Button>
           <button
             onClick={() => setShowForm(true)}
@@ -173,7 +190,7 @@ export function RolloutCenter() {
             }}
           >
             <Plus size={11} />
-            New Rollout
+            Yeni Dağıtım
           </button>
         </div>
       </div>
@@ -227,11 +244,11 @@ export function RolloutCenter() {
                 textTransform: 'uppercase',
               }}
             >
-              CIRCUIT BREAKER — v{h.version}
+              DEVRE KESİCİ — v{h.version}
             </p>
             <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 10, color: '#4b5563', marginTop: 2 }}>
-              Stability score {h.stabilityScore.toFixed(0)}/100 ({h.criticalEvents} critical events) —
-              automatic progression blocked.
+              Kararlılık puanı {h.stabilityScore.toFixed(0)}/100 ({h.criticalEvents} kritik olay) —
+              otomatik ilerleme engellendi.
             </p>
           </div>
         </div>
@@ -243,9 +260,9 @@ export function RolloutCenter() {
       ) : plans.length === 0 ? (
         <div className="sa-empty" style={{ border: '1px solid #1a1a1a', borderRadius: 2 }}>
           <Zap size={18} style={{ opacity: 0.3, color: '#4b5563' }} />
-          NO_PLANS: No rollout plans found.
+          PLAN_YOK: Dağıtım planı bulunamadı.
           <span style={{ fontSize: 9, color: '#1a1a1a' }}>
-            Create the rollout_plans table in Supabase first.
+            Önce Supabase'de rollout_plans tablosunu oluştur.
           </span>
         </div>
       ) : (
@@ -439,7 +456,7 @@ function StatusChip({ status }: { status: string }) {
           textTransform: 'uppercase',
         }}
       >
-        {status.replace(/_/g, ' ')}
+        {PLAN_STATUS_LABEL[status] ?? status.replace(/_/g, ' ')}
       </span>
     </div>
   )
@@ -508,7 +525,7 @@ function StageCard({
             textTransform: 'uppercase',
           }}
         >
-          STAGE {idx + 1}
+          AŞAMA {idx + 1}
         </span>
         <StageIcon status={stage.status} />
       </div>
@@ -524,20 +541,20 @@ function StageCard({
         className="sa-mono"
         style={{ fontSize: 10, color: '#4b5563' }}
       >
-        {stage.percent}% · max err {stage.error_threshold_pct}%
+        {stage.percent}% · maks hata {stage.error_threshold_pct}%
       </p>
 
       {/* Timestamp */}
       {stage.started_at && (
         <p style={{ fontFamily: 'var(--sa-font-mono)', fontSize: 8, color: '#2d3748', marginTop: 4 }}>
-          started {new Date(stage.started_at).toLocaleTimeString('en-GB', { hour12: false })}
+          başladı {new Date(stage.started_at).toLocaleTimeString('tr-TR', { hour12: false })}
         </p>
       )}
 
       {/* Actions */}
       {circuitBreaker && (
         <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 8, color: '#dc2626', marginTop: 6, fontWeight: 700 }}>
-          BLOCKED
+          ENGELLENDİ
         </p>
       )}
       {!circuitBreaker && (
@@ -546,7 +563,7 @@ function StageCard({
             <ActionBtn
               color="#60a5fa"
               icon={<PlayCircle size={10} />}
-              label="START"
+              label="BAŞLAT"
               onClick={() => onAction(idx, 'active')}
             />
           )}
@@ -555,27 +572,27 @@ function StageCard({
               <ActionBtn
                 color="#4ade80"
                 icon={<CheckCircle size={10} />}
-                label="DONE"
+                label="TAMAM"
                 onClick={() => onAction(idx, 'complete')}
               />
               <ActionBtn
                 color="#d97706"
                 icon={<PauseCircle size={10} />}
-                label="PAUSE"
+                label="DURAKLAT"
                 onClick={() => onAction(idx, 'failed')}
               />
             </>
           )}
           {stage.status === 'complete' && (
             <span style={{ fontFamily: 'var(--sa-font-mono)', fontSize: 8, color: '#4ade80' }}>
-              COMPLETE ✓
+              TAMAMLANDI ✓
             </span>
           )}
           {stage.status === 'failed' && (
             <ActionBtn
               color="#f87171"
               icon={<XCircle size={10} />}
-              label="RETRY"
+              label="YENİDEN DENE"
               onClick={() => onAction(idx, 'active')}
             />
           )}
@@ -676,7 +693,7 @@ function NewRolloutModal({
               color: '#60a5fa', letterSpacing: '0.12em', textTransform: 'uppercase',
             }}
           >
-            NEW ROLLOUT PLAN
+            YENİ DAĞITIM PLANI
           </span>
           <button
             onClick={onClose}
@@ -686,24 +703,24 @@ function NewRolloutModal({
               letterSpacing: '0.08em',
             }}
           >
-            CANCEL
+            İPTAL
           </button>
         </div>
 
         {/* Body */}
         <div style={{ padding: '16px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <FormField label="VERSION *" placeholder="2.5.0" value={version} onChange={setVersion} />
-          <FormField label="DESCRIPTION" placeholder="Release notes..." value={description} onChange={setDescription} />
-          <FormField label="ROLLBACK TO" placeholder="2.4.1 (previous stable)" value={rollbackTo} onChange={setRollbackTo} />
+          <FormField label="SÜRÜM *" placeholder="2.5.0" value={version} onChange={setVersion} />
+          <FormField label="AÇIKLAMA" placeholder="Sürüm notları..." value={description} onChange={setDescription} />
+          <FormField label="GERİ DÖNÜŞ SÜRÜMÜ" placeholder="2.4.1 (önceki kararlı)" value={rollbackTo} onChange={setRollbackTo} />
 
           {/* Default stages preview */}
           <div>
-            <p className="sa-label" style={{ marginBottom: 8 }}>DEFAULT STAGES</p>
+            <p className="sa-label" style={{ marginBottom: 8 }}>VARSAYILAN AŞAMALAR</p>
             <div style={{ display: 'flex', gap: 1 }}>
               {[
-                { label: 'INTERNAL', pct: '1%' },
-                { label: 'PILOT',    pct: '5%' },
-                { label: 'PROD',     pct: '100%' },
+                { label: 'DAHİLİ', pct: '1%' },
+                { label: 'PİLOT',  pct: '5%' },
+                { label: 'ÜRETİM', pct: '100%' },
               ].map((s, i) => (
                 <div
                   key={i}
@@ -743,7 +760,7 @@ function NewRolloutModal({
               opacity: version.trim() ? 1 : 0.4,
             }}
           >
-            CREATE PLAN →
+            PLAN OLUŞTUR →
           </button>
         </div>
       </div>

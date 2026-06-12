@@ -49,9 +49,16 @@ function thermalColor(l: number): string {
 
 function _ago(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return `${s}s ago`
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  return `${Math.floor(s / 3600)}h ago`
+  if (s < 60) return `${s} sn önce`
+  if (s < 3600) return `${Math.floor(s / 60)} dk önce`
+  return `${Math.floor(s / 3600)} sa önce`
+}
+
+const HEALTH_LABEL: Record<string, string> = {
+  healthy:  'SAĞLIKLI',
+  degraded: 'BOZULMUŞ',
+  critical: 'KRİTİK',
+  unknown:  'BİLİNMİYOR',
 }
 
 // ── DiagnosticsCenter ─────────────────────────────────────────────────────────
@@ -163,7 +170,7 @@ export function DiagnosticsCenter() {
             justifyContent: 'space-between',
           }}
         >
-          <p className="sa-label">KNOWN DEVICES</p>
+          <p className="sa-label">BİLİNEN CİHAZLAR</p>
           <button
             onClick={() => { void loadDevices() }}
             disabled={devLoading}
@@ -180,11 +187,11 @@ export function DiagnosticsCenter() {
         <div style={{ flex: 1, overflowY: 'auto' }} className="sa-scroll">
           {devLoading ? (
             <div className="sa-empty" style={{ padding: '24px 12px' }}>
-              SCANNING...
+              TARANIYOR...
             </div>
           ) : devices.length === 0 ? (
             <div className="sa-empty" style={{ padding: '24px 12px' }}>
-              NO_DEVICES
+              CİHAZ_YOK
             </div>
           ) : (
             devices.map((dev) => (
@@ -209,7 +216,7 @@ export function DiagnosticsCenter() {
               textTransform: 'uppercase',
             }}
           >
-            GPS_EXCLUDED · ANON ONLY
+            GPS_HARİÇ · YALNIZCA ANONİM
           </p>
         </div>
       </div>
@@ -254,7 +261,7 @@ export function DiagnosticsCenter() {
                 }}
               >
                 <p className="sa-label" style={{ marginBottom: 10 }}>
-                  60-SECOND ROLLING TELEMETRY
+                  60 SANİYELİK KAYAN TELEMETRİ
                 </p>
                 <LiveMiniChart
                   report={report}
@@ -277,7 +284,7 @@ export function DiagnosticsCenter() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                     <AlertTriangle size={11} style={{ color: '#dc2626' }} />
-                    <p className="sa-label" style={{ color: '#dc2626' }}>LAST PANIC</p>
+                    <p className="sa-label" style={{ color: '#dc2626' }}>SON PANİK</p>
                   </div>
                   <PanicSnapshot panic={report.lastPanic} />
                 </div>
@@ -339,7 +346,7 @@ function DeviceRow({
         />
       </div>
       <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 9, color: '#2d3748', marginTop: 3 }}>
-        {_ago(device.lastSeen)} · {device.eventCount} events
+        {_ago(device.lastSeen)} · {device.eventCount} olay
       </p>
       <p
         style={{
@@ -349,7 +356,7 @@ function DeviceRow({
           marginTop:      2,
         }}
       >
-        T:L{device.thermalLevel} · {device.lastHealth.toUpperCase()}
+        T:L{device.thermalLevel} · {HEALTH_LABEL[device.lastHealth] ?? device.lastHealth.toUpperCase()}
       </p>
     </div>
   )
@@ -390,7 +397,7 @@ function SessionBar({
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
         {sessionState === 'idle' && (
           <SessionBtn
-            label="START REMOTE DEBUG"
+            label="UZAK HATA AYIKLAMAYI BAŞLAT"
             color="#60a5fa"
             icon={<PlayCircle size={11} />}
             onClick={onStartRequest}
@@ -407,10 +414,10 @@ function SessionBar({
                 letterSpacing: '0.08em',
               }}
             >
-              Confirm 60s debug session?
+              60 sn hata ayıklama oturumu onaylansın mı?
             </span>
-            <SessionBtn label="CONFIRM" color="#d97706" icon={<CheckCircle size={11} />} onClick={onConfirm} />
-            <SessionBtn label="CANCEL"  color="#4b5563" onClick={onAbortConfirm} />
+            <SessionBtn label="ONAYLA" color="#d97706" icon={<CheckCircle size={11} />} onClick={onConfirm} />
+            <SessionBtn label="İPTAL"  color="#4b5563" onClick={onAbortConfirm} />
           </>
         )}
 
@@ -420,16 +427,16 @@ function SessionBar({
               className="sa-mono"
               style={{ fontSize: 10, color: countdown <= 10 ? '#dc2626' : '#4ade80' }}
             >
-              {countdown}s remaining
+              {countdown} sn kaldı
             </span>
-            <SessionBtn label="STOP" color="#dc2626" icon={<StopCircle size={11} />} onClick={onStop} />
+            <SessionBtn label="DURDUR" color="#dc2626" icon={<StopCircle size={11} />} onClick={onStop} />
           </>
         )}
 
         {sessionState === 'ended' && (
           <>
-            <span className="sa-mono" style={{ fontSize: 9, color: '#2d3748' }}>SESSION_ENDED</span>
-            <SessionBtn label="NEW SESSION" color="#60a5fa" icon={<PlayCircle size={11} />} onClick={onStartRequest} />
+            <span className="sa-mono" style={{ fontSize: 9, color: '#2d3748' }}>OTURUM_BİTTİ</span>
+            <SessionBtn label="YENİ OTURUM" color="#60a5fa" icon={<PlayCircle size={11} />} onClick={onStartRequest} />
           </>
         )}
       </div>
@@ -498,7 +505,7 @@ function LiveMiniChart({
           letterSpacing:   '0.06em',
         }}
       >
-        {active ? 'AWAITING_TELEMETRY...' : 'NO_DATA: Start a session to see live metrics'}
+        {active ? 'TELEMETRİ_BEKLENİYOR...' : 'VERİ_YOK: Canlı metrikler için bir oturum başlat'}
       </div>
     )
   }
@@ -519,7 +526,7 @@ function LiveMiniChart({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {/* Thermal */}
       <div>
-        <p className="sa-label" style={{ marginBottom: 3 }}>THERMAL</p>
+        <p className="sa-label" style={{ marginBottom: 3 }}>TERMAL</p>
         <svg viewBox={`0 0 ${W} ${HT}`} preserveAspectRatio="none" style={{ width: '100%', height: HT }}>
           <polyline points={thermalPts} fill="none" stroke="#d97706" strokeWidth={1} strokeOpacity={0.8} />
           {active && n > 0 && (
@@ -530,7 +537,7 @@ function LiveMiniChart({
 
       {/* RAM */}
       <div>
-        <p className="sa-label" style={{ marginBottom: 3 }}>RAM PRESSURE</p>
+        <p className="sa-label" style={{ marginBottom: 3 }}>RAM BASKISI</p>
         <svg viewBox={`0 0 ${W} ${HR}`} preserveAspectRatio="none" style={{ width: '100%', height: HR }}>
           <path d={ramArea} fill="#60a5fa" fillOpacity={0.08} />
           <polyline points={ramLine} fill="none" stroke="#60a5fa" strokeWidth={1} strokeOpacity={0.6} />
@@ -547,9 +554,9 @@ function LiveMiniChart({
 
 function PanicSnapshot({ panic }: { panic: Record<string, unknown> }) {
   const fields = [
-    { label: 'TIMESTAMP', value: typeof panic['ts'] === 'string' ? panic['ts'].slice(0, 19).replace('T', ' ') : '—' },
-    { label: 'THERMAL',   value: `L${panic['thermal'] ?? '?'}` },
-    { label: 'HEALTH',    value: String(panic['overallHealth'] ?? 'critical').toUpperCase() },
+    { label: 'ZAMAN',  value: typeof panic['ts'] === 'string' ? panic['ts'].slice(0, 19).replace('T', ' ') : '—' },
+    { label: 'TERMAL', value: `L${panic['thermal'] ?? '?'}` },
+    { label: 'SAĞLIK', value: HEALTH_LABEL[String(panic['overallHealth'] ?? 'critical')] ?? String(panic['overallHealth'] ?? 'critical').toUpperCase() },
   ]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -589,7 +596,7 @@ function SelectDevicePrompt() {
           textTransform: 'uppercase',
         }}
       >
-        SELECT_DEVICE: Choose a device from the list to begin diagnostics
+        CİHAZ_SEÇ: Tanıya başlamak için listeden bir cihaz seçin
       </p>
     </div>
   )

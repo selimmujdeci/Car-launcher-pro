@@ -53,7 +53,7 @@ export function SecureAccessModal({ onClose }: Props) {
             color: 'rgba(220,38,38,0.5)', letterSpacing: '0.18em',
             textTransform: 'uppercase',
           }}>
-            CarOS Pro Secure Access
+            CarOS Pro Güvenli Erişim
           </span>
         </div>
         <button

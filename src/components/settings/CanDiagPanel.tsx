@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, Save, Radio } from 'lucide-react';
+import { Activity, Save, Radio, Download } from 'lucide-react';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { CarLauncher } from '../../platform/nativePlugin';
 import type { CanIdConfig, CanRawFrame } from '../../platform/nativePlugin';
 import { isNative } from '../../platform/bridge';
@@ -66,6 +67,8 @@ export function CanDiagPanel() {
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [diagLines, setDiagLines]   = useState<string[]>([]);
+  // Tanı günlüğünü dosyaya çıkarma durumu (head unit internetsiz → USB/dosya yöneticisiyle al)
+  const [diagSaveState, setDiagSaveState] = useState<'idle' | 'saving' | { path: string } | 'error'>('idle');
 
   const liveMap  = useRef<Map<string, SnifferEntry>>(new Map());
   const flushRef = useRef<number | null>(null);
@@ -142,6 +145,53 @@ export function CanDiagPanel() {
     setEditIds(prev => ({ ...prev, [signal]: hex }));
     setAssignTarget(null);
   }, []);
+
+  // Tanı günlüğünü .txt olarak public Documents'a yaz → head unit internetsiz olduğu için
+  // pano/paylaşım çalışmaz; tek dosyayı USB/MTP ya da dosya yöneticisiyle çıkarmak en garanti yol.
+  const saveDiagToFile = useCallback(async () => {
+    if (diagLines.length === 0) return;
+    setDiagSaveState('saving');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const fileName = `caros-can-diag-${stamp}.txt`;
+    const header =
+      `CarOS Pro — K24 CAN Tanı Günlüğü\n` +
+      `Tarih: ${new Date().toLocaleString('tr-TR')}\n` +
+      `Satır: ${diagLines.length}\n` +
+      `${'='.repeat(48)}\n\n`;
+    const body = header + diagLines.join('\n') + '\n';
+    try {
+      if (!isNative) {
+        // Tarayıcı modu: blob indir (geliştirme kolaylığı)
+        const blob = new Blob([body], { type: 'text/plain' });
+        const url  = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fileName; a.click();
+        URL.revokeObjectURL(url);
+        setDiagSaveState({ path: `İndirilenler/${fileName}` });
+        return;
+      }
+      // Public Documents → dosya yöneticisi/USB ile görünür. İzin reddedilirse app-özel
+      // External klasörüne düş (her zaman yazılabilir, /Android/data/... altında USB'den okunur).
+      let savedPath: string;
+      try {
+        const res = await Filesystem.writeFile({
+          path: fileName, data: body, directory: Directory.Documents,
+          encoding: Encoding.UTF8, recursive: true,
+        });
+        savedPath = res.uri || `Documents/${fileName}`;
+      } catch {
+        const res = await Filesystem.writeFile({
+          path: fileName, data: body, directory: Directory.External,
+          encoding: Encoding.UTF8, recursive: true,
+        });
+        savedPath = res.uri || `External/${fileName}`;
+      }
+      setDiagSaveState({ path: savedPath });
+    } catch (e) {
+      console.error('[CanDiag] dosya kaydı başarısız', e);
+      setDiagSaveState('error');
+    }
+  }, [diagLines]);
 
   const entries = [...snifferMap.values()].sort((a, b) => a.hex.localeCompare(b.hex));
 
@@ -305,14 +355,42 @@ export function CanDiagPanel() {
             <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.72)' }}>
               K24 Tanı Günlüğü
             </span>
-            <button
-              onClick={() => setDiagLines([])}
-              className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}
-            >
-              Temizle
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={saveDiagToFile}
+                disabled={diagSaveState === 'saving'}
+                className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg active:scale-95"
+                style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa' }}
+              >
+                <Download className="w-3 h-3" />
+                {diagSaveState === 'saving' ? 'Kaydediliyor…' : 'Dosyaya Kaydet'}
+              </button>
+              <button
+                onClick={() => { setDiagLines([]); setDiagSaveState('idle'); }}
+                className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}
+              >
+                Temizle
+              </button>
+            </div>
           </div>
+
+          {typeof diagSaveState === 'object' && (
+            <div className="px-1 py-1.5 rounded-lg text-[10px] leading-relaxed break-all"
+              style={{ background: 'rgba(52,211,153,0.10)', border: '1px solid rgba(52,211,153,0.25)', color: '#34d399' }}>
+              ✓ Kaydedildi → <span className="font-mono">{diagSaveState.path}</span>
+              <br />
+              <span style={{ color: 'rgba(255,255,255,0.55)' }}>
+                USB kablo (MTP) veya dosya yöneticisiyle bu .txt'yi al, sohbete yükle.
+              </span>
+            </div>
+          )}
+          {diagSaveState === 'error' && (
+            <div className="px-1 py-1.5 rounded-lg text-[10px]"
+              style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+              Dosya yazılamadı — depolama izni reddedildi. Ekran görüntüsü al.
+            </div>
+          )}
           <div
             ref={diagRef}
             className="flex flex-col gap-0.5 max-h-[75vh] overflow-y-auto font-mono"

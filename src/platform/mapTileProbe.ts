@@ -4,7 +4,8 @@ import { NATIVE_MAPS_SUBDIRS, OFFLINE_PREF_KEY } from './mapSourceTypes';
 
 // AbortSignal.timeout() polyfill'i utils/abortCompat'a taşındı (tüm proje tek
 // kaynaktan kullanır) — buradaki export geriye dönük uyumluluk için korunur.
-export { signalWithTimeout } from '../utils/abortCompat';
+import { signalWithTimeout } from '../utils/abortCompat';
+export { signalWithTimeout };
 
 /** Converts lng/lat to TMS tile x/y at a given zoom level (Web Mercator). */
 export function lngLatToTile(lng: number, lat: number, zoom: number): { x: number; y: number } {

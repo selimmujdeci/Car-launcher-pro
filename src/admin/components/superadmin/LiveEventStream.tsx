@@ -134,7 +134,7 @@ export function LiveEventStream({ height = 360, title }: LiveEventStreamProps) {
               textTransform: 'uppercase',
             }}
           >
-            {title ?? 'LIVE_OPERATIONS_STREAM'}
+            {title ?? 'CANLI_OPERASYON_AKIŞI'}
           </span>
         </div>
         <span
@@ -145,7 +145,7 @@ export function LiveEventStream({ height = 360, title }: LiveEventStreamProps) {
             letterSpacing: '0.08em',
           }}
         >
-          {events.length}/{MAX_EVENTS} events · 10s hysteresis
+          {events.length}/{MAX_EVENTS} olay · 10 sn histerezis
         </span>
       </div>
 
@@ -256,8 +256,8 @@ function EmptyTerminal({ connected }: { connected: boolean }) {
     >
       <span style={{ fontSize: 11, color: '#334155', letterSpacing: '0.08em' }}>
         {connected
-          ? 'STREAM_ACTIVE: Awaiting vehicle_events...'
-          : 'STREAM_OFFLINE: Connecting to Supabase Realtime...'}
+          ? 'AKIŞ_AKTİF: vehicle_events bekleniyor...'
+          : 'AKIŞ_ÇEVRİMDIŞI: Supabase Realtime bağlantısı kuruluyor...'}
       </span>
       <span style={{ fontSize: 9, color: '#1e293b', letterSpacing: '0.06em' }}>
         system_health · critical_error · hysteresis:10s

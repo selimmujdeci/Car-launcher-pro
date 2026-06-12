@@ -43,8 +43,8 @@ function ramColor(level: 'low' | 'medium' | 'high'): string {
 function _ago(iso: string | null): string {
   if (!iso) return '—'
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return `${s}s ago`
-  return `${Math.floor(s / 60)}m ago`
+  if (s < 60) return `${s} sn önce`
+  return `${Math.floor(s / 60)} dk önce`
 }
 
 // ── FleetCenter ───────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ export function FleetCenter() {
       <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <p className="sa-label">FLEET INVENTORY</p>
+            <p className="sa-label">FİLO ENVANTERİ</p>
             <span
               style={{
                 fontFamily:    'var(--sa-font-mono)',
@@ -88,20 +88,20 @@ export function FleetCenter() {
                 borderRadius:   2,
               }}
             >
-              STRICTLY ANONYMOUS
+              TAMAMEN ANONİM
             </span>
           </div>
           <p style={{ fontSize: 10, color: '#2d3748', fontFamily: 'var(--sa-font-ui)', marginTop: 2 }}>
             {loading
-              ? 'SCANNING_FLEET_ASSETS...'
+              ? 'FİLO_VARLIKLARI_TARANIYOR...'
               : inv && inv.totalDevices > 0
-              ? `${inv.totalDevices} unique devices · 24h window · last scan ${_ago(inv.lastScanned)}`
-              : 'No fleet data in 24h window'}
+              ? `${inv.totalDevices} benzersiz cihaz · 24 saatlik pencere · son tarama ${_ago(inv.lastScanned)}`
+              : '24 saatlik pencerede filo verisi yok'}
           </p>
         </div>
         <Button variant="outline" size="sm" disabled={loading} onClick={() => { void load() }}>
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          Scan
+          Tara
         </Button>
       </div>
 
@@ -138,7 +138,7 @@ function GpuMatrixWidget({
   const maxCount = Math.max(...gpuClasses.map((g) => g.count), 1)
 
   return (
-    <WidgetWrap label="GPU ARCHITECTURE MATRIX" icon={<Cpu size={11} />}>
+    <WidgetWrap label="GPU MİMARİ MATRİSİ" icon={<Cpu size={11} />}>
       {gpuClasses.length === 0 ? (
         <EmptyWidget />
       ) : (
@@ -159,7 +159,7 @@ function GpuMatrixWidget({
                 </span>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <span className="sa-mono" style={{ fontSize: 10, color: '#4b5563' }}>
-                    {g.count} dev
+                    {g.count} cihaz
                   </span>
                   <span className="sa-mono" style={{ fontSize: 10, color: '#2d3748' }}>
                     {g.pct}%
@@ -183,12 +183,12 @@ function GpuMatrixWidget({
                 />
               </svg>
               <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 9, color: '#2d3748', marginTop: 3 }}>
-                avg stability {g.avgStability}/100
+                ort. kararlılık {g.avgStability}/100
               </p>
             </div>
           ))}
           <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 9, color: '#1a1a1a', marginTop: 4 }}>
-            * Thermal+RAM heuristic — no direct GPU API access
+            * Termal+RAM sezgiseli — doğrudan GPU API erişimi yok
           </p>
         </div>
       )}
@@ -204,13 +204,13 @@ function RamProfileWidget({
   ramProfile: FleetInventory['ramProfile']
 }) {
   const segments: Array<{ label: string; pct: number; level: 'low'|'medium'|'high'; desc: string }> = [
-    { label: 'LOW PRESSURE',    pct: ramProfile.low,    level: 'low',    desc: 'avg RAM < 40%' },
-    { label: 'MEDIUM PRESSURE', pct: ramProfile.medium, level: 'medium', desc: 'avg RAM 40-70%' },
-    { label: 'HIGH PRESSURE',   pct: ramProfile.high,   level: 'high',   desc: 'avg RAM > 70%' },
+    { label: 'DÜŞÜK BASKI', pct: ramProfile.low,    level: 'low',    desc: 'ort. RAM < %40' },
+    { label: 'ORTA BASKI',  pct: ramProfile.medium, level: 'medium', desc: 'ort. RAM %40-70' },
+    { label: 'YÜKSEK BASKI', pct: ramProfile.high,  level: 'high',   desc: 'ort. RAM > %70' },
   ]
 
   return (
-    <WidgetWrap label="RAM PRESSURE PROFILE" icon={<Layers size={11} />}>
+    <WidgetWrap label="RAM BASKI PROFİLİ" icon={<Layers size={11} />}>
       {/* Stacked bar */}
       <div
         style={{
@@ -266,17 +266,17 @@ function VersionDistWidget({
   const maxCount = Math.max(...versionDist.map((v) => v.count), 1)
 
   return (
-    <WidgetWrap label="APP VERSION DISTRIBUTION" icon={<Shield size={11} />}>
+    <WidgetWrap label="UYGULAMA SÜRÜM DAĞILIMI" icon={<Shield size={11} />}>
       {versionDist.length === 0 ? (
         <EmptyWidget />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {/* Header row */}
           <div style={{ display: 'flex', gap: 8 }}>
-            <span className="sa-label" style={{ width: 72 }}>VERSION</span>
-            <span className="sa-label" style={{ flex: 1 }}>DISTRIBUTION</span>
-            <span className="sa-label" style={{ width: 40, textAlign: 'right' }}>DEVICES</span>
-            <span className="sa-label" style={{ width: 40, textAlign: 'right' }}>STAB.</span>
+            <span className="sa-label" style={{ width: 72 }}>SÜRÜM</span>
+            <span className="sa-label" style={{ flex: 1 }}>DAĞILIM</span>
+            <span className="sa-label" style={{ width: 40, textAlign: 'right' }}>CİHAZ</span>
+            <span className="sa-label" style={{ width: 40, textAlign: 'right' }}>KARAR.</span>
           </div>
 
           {versionDist.map((v) => {
@@ -318,7 +318,7 @@ function VersionDistWidget({
           })}
 
           <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 9, color: '#1a1a1a', marginTop: 4 }}>
-            {versionDist.reduce((s, v) => s + v.count, 0)} total devices · {versionDist.length} versions detected · 24h window
+            toplam {versionDist.reduce((s, v) => s + v.count, 0)} cihaz · {versionDist.length} sürüm tespit edildi · 24 saatlik pencere
           </p>
         </div>
       )}
@@ -340,7 +340,7 @@ function HealthScorecardWidget({
   const worst  = sorted[sorted.length - 1]
 
   return (
-    <WidgetWrap label="DEVICE HEALTH SCORECARD" icon={<Shield size={11} />}>
+    <WidgetWrap label="CİHAZ SAĞLIK KARNESİ" icon={<Shield size={11} />}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1 }}>
 
         {/* GPU classes */}
@@ -349,25 +349,25 @@ function HealthScorecardWidget({
             key={g.label}
             label={g.label}
             score={g.avgStability}
-            sub={`${g.count} devices · ${g.pct}% of fleet`}
+            sub={`${g.count} cihaz · filonun %${g.pct}'i`}
           />
         ))}
 
         {/* Best version */}
         {best && (
           <ScorecardCell
-            label={`BEST: v${best.version}`}
+            label={`EN İYİ: v${best.version}`}
             score={best.stability}
-            sub={`${best.count} devices`}
+            sub={`${best.count} cihaz`}
           />
         )}
 
         {/* Worst version */}
         {worst && worst.version !== best?.version && (
           <ScorecardCell
-            label={`WATCH: v${worst.version}`}
+            label={`İZLE: v${worst.version}`}
             score={worst.stability}
-            sub={`${worst.count} devices · needs attention`}
+            sub={`${worst.count} cihaz · ilgi gerektirir`}
           />
         )}
       </div>
@@ -455,10 +455,10 @@ function ScanningState() {
           textTransform: 'uppercase',
         }}
       >
-        SCANNING_FLEET_ASSETS...
+        FİLO_VARLIKLARI_TARANIYOR...
       </p>
       <p style={{ fontFamily: 'var(--sa-font-ui)', fontSize: 9, color: '#1a1a1a' }}>
-        Aggregating anonymous telemetry from vehicle_events
+        vehicle_events üzerinden anonim telemetri toplanıyor
       </p>
     </div>
   )
@@ -468,9 +468,9 @@ function EmptyState() {
   return (
     <div className="sa-empty" style={{ border: '1px solid #1a1a1a', borderRadius: 2, height: 200 }}>
       <Cpu size={18} style={{ color: '#2d3748', opacity: 0.5 }} />
-      NO_FLEET_DATA: No system_health events in 24h window
+      FİLO_VERİSİ_YOK: 24 saatlik pencerede system_health olayı yok
       <span style={{ fontSize: 9, color: '#1a1a1a' }}>
-        Vehicles must push telemetry events to populate inventory
+        Envanterin dolması için araçların telemetri olayı göndermesi gerekir
       </span>
     </div>
   )
@@ -488,7 +488,7 @@ function EmptyWidget() {
         textAlign:     'center',
       }}
     >
-      SYSTEM_IDLE: No data
+      SİSTEM_BEKLEMEDE: Veri yok
     </div>
   )
 }

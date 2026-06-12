@@ -59,6 +59,13 @@ function critX(seq: IncidentDataPoint[], targetTs: string): number {
   return xOf(best, seq.length);
 }
 
+const HEALTH_TR: Record<string, string> = {
+  healthy:  'SAĞLIKLI',
+  degraded: 'BOZULMUŞ',
+  critical: 'KRİTİK',
+  unknown:  'BİLİNMİYOR',
+};
+
 function fmtTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -101,7 +108,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
 
   function handleDownload() {
     const bundle = {
-      privacy:      'ANONYMIZED — no GPS data',
+      privacy:      'ANONİMLEŞTİRİLMİŞ — GPS verisi yok',
       incidentId:   incident.id,
       deviceHash:   incident.deviceHash,
       ts:           incident.ts,
@@ -155,7 +162,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
             color: incident.severity === 'critical' ? RED : AMB,
             letterSpacing: '0.12em', textTransform: 'uppercase',
           }}>
-            BLACK_BOX_LITE — dev:{incident.deviceHash}
+            KARA_KUTU_LITE — dev:{incident.deviceHash}
           </p>
           <p style={{ fontSize: 9, color: DIM, fontFamily: 'monospace', marginTop: 2 }}>
             {fmtTime(incident.ts)} · v{incident.appVersion} · T:L{incident.thermalLevel}
@@ -185,7 +192,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
           }}>
             <Loader2 size={20} style={{ color: MUTED, animation: 'spin 1s linear infinite' }} />
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED, letterSpacing: '0.08em' }}>
-              LOADING_CONTEXT...
+              BAĞLAM_YÜKLENİYOR...
             </p>
           </div>
         ) : seq.length === 0 ? (
@@ -195,7 +202,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
           }}>
             <AlertTriangle size={20} style={{ color: DIM }} />
             <p style={{ fontFamily: 'monospace', fontSize: 10, color: DIM, letterSpacing: '0.06em' }}>
-              SEQUENCE_EMPTY: 5 dakikalık pencerede veri yok
+              DİZİ_BOŞ: 5 dakikalık pencerede veri yok
             </p>
           </div>
         ) : (
@@ -206,7 +213,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
               gap: 1, border: `1px solid ${BORD}`, borderRadius: 4, overflow: 'hidden',
             }}>
               {[
-                { label: 'SAĞLIK', value: incident.overallHealth.toUpperCase(),
+                { label: 'SAĞLIK', value: HEALTH_TR[incident.overallHealth] ?? incident.overallHealth.toUpperCase(),
                   color: incident.severity === 'critical' ? RED : AMB },
                 { label: 'TERMAL', value: `L${current?.thermalLevel ?? incident.thermalLevel}`,
                   color: thermalColor(current?.thermalLevel ?? incident.thermalLevel) },
@@ -235,7 +242,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
             </div>
 
             {/* SVG 1: Thermal Level */}
-            <ChartBlock label="THERMAL LEVEL (L0-L3)" H={44}>
+            <ChartBlock label="TERMAL SEVİYE (L0-L3)" H={44}>
               {/* Grid lines */}
               {[0, 1, 2, 3].map((l) => (
                 <line key={l} x1={PAD.l} y1={yOf(l, 3, 44)} x2={VW - PAD.r} y2={yOf(l, 3, 44)}
@@ -263,7 +270,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
             </ChartBlock>
 
             {/* SVG 2: RAM Pressure */}
-            <ChartBlock label="RAM PRESSURE (%)" H={44}>
+            <ChartBlock label="RAM BASKISI (%)" H={44}>
               {[0, 50, 100].map((v) => (
                 <line key={v} x1={PAD.l} y1={yOf(v, 100, 44)} x2={VW - PAD.r} y2={yOf(v, 100, 44)}
                   stroke={BORD} strokeWidth={0.5} />
@@ -292,7 +299,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
             </ChartBlock>
 
             {/* SVG 3: Worker Restarts */}
-            <ChartBlock label="WORKER RESTARTS" H={36}>
+            <ChartBlock label="WORKER YENİDEN BAŞLATMALARI" H={36}>
               {(() => {
                 const maxR = Math.max(...seq.map((p) => p.workerRestarts), 1);
                 const bw   = Math.max(1, (VW - PAD.l - PAD.r) / seq.length - 1);
@@ -327,7 +334,7 @@ export function IncidentReplayLite({ incident, onClose }: Props) {
             {/* Legend */}
             <div style={{ display: 'flex', gap: 16 }}>
               <LegendItem color={RED}   dashed label="KRİTİK NOKTA" />
-              <LegendItem color={MUTED} label="PLAYBACK" />
+              <LegendItem color={MUTED} label="OYNATMA" />
             </div>
 
             {/* Slider */}

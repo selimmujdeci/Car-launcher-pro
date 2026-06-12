@@ -41,14 +41,14 @@ interface NavModule {
 }
 
 const MODULES: NavModule[] = [
-  { path: 'health',   label: 'Health',   icon: Activity,     description: 'Servis sağlık & incident izleme' },
-  { path: 'fleet',    label: 'Fleet',    icon: Truck,         description: 'Filo anonim operasyonel görünüm' },
-  { path: 'flags',    label: 'Flags',    icon: Flag,          description: 'Feature flag yönetimi' },
-  { path: 'policies', label: 'Policies', icon: ShieldCheck,   description: 'Runtime politika merkezi' },
-  { path: 'rollout',     label: 'Rollout',  icon: Rocket,        description: 'Sürüm dağıtım planları' },
-  { path: 'audit',      label: 'Audit',    icon: ClipboardList, description: 'Denetim kaydı & aksiyon geçmişi' },
-  { path: 'diagnostics',label: 'Diag',     icon: Stethoscope,   description: 'Canlı uzak teşhis & debug' },
-  { path: 'incidents',  label: 'Incidents', icon: AlertTriangle, description: 'Tanı kayıtları — crash / OBD / snapshot' },
+  { path: 'health',   label: 'Sağlık',      icon: Activity,     description: 'Servis sağlığı ve olay izleme' },
+  { path: 'fleet',    label: 'Filo',        icon: Truck,         description: 'Filo anonim operasyonel görünüm' },
+  { path: 'flags',    label: 'Bayraklar',   icon: Flag,          description: 'Özellik bayrağı yönetimi' },
+  { path: 'policies', label: 'Politikalar', icon: ShieldCheck,   description: 'Çalışma zamanı politika merkezi' },
+  { path: 'rollout',     label: 'Dağıtım',  icon: Rocket,        description: 'Sürüm dağıtım planları' },
+  { path: 'audit',      label: 'Denetim',   icon: ClipboardList, description: 'Denetim kaydı ve aksiyon geçmişi' },
+  { path: 'diagnostics',label: 'Tanı',      icon: Stethoscope,   description: 'Canlı uzak teşhis ve hata ayıklama' },
+  { path: 'incidents',  label: 'Olaylar',   icon: AlertTriangle, description: 'Tanı kayıtları — çökme / OBD / anlık görüntü' },
 ]
 
 // ── SuperAdminShell ───────────────────────────────────────────────────────────
@@ -128,10 +128,10 @@ export function SuperAdminShell() {
                   className="sa-mono"
                   style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', color: '#94a3b8' }}
                 >
-                  SUPER ADMIN
+                  SÜPER ADMİN
                 </p>
                 <p style={{ fontSize: 9, color: 'var(--sa-dim)', letterSpacing: '0.08em' }}>
-                  COMMAND CENTER
+                  KOMUTA MERKEZİ
                 </p>
               </div>
             )}
@@ -140,7 +140,7 @@ export function SuperAdminShell() {
           {/* Nav */}
           <nav className="flex-1 overflow-y-auto py-2 px-1.5 space-y-0.5 sa-scroll">
             {!collapsed && (
-              <p className="sa-label px-2 mb-2" style={{ paddingTop: 4 }}>MODULES</p>
+              <p className="sa-label px-2 mb-2" style={{ paddingTop: 4 }}>MODÜLLER</p>
             )}
             {MODULES.map((mod) => (
               <SidebarItem key={mod.path} mod={mod} collapsed={collapsed} />
@@ -173,7 +173,7 @@ export function SuperAdminShell() {
                   <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.02em' }} className="truncate">
                     {user.full_name}
                   </p>
-                  <p className="sa-label truncate" style={{ fontSize: 8 }}>SUPER_ADMIN</p>
+                  <p className="sa-label truncate" style={{ fontSize: 8 }}>SÜPER_ADMİN</p>
                 </div>
                 <button
                   onClick={handleSignOut}
@@ -214,7 +214,7 @@ export function SuperAdminShell() {
             >
               {collapsed
                 ? <ChevronRight size={12} />
-                : <><ChevronLeft size={12} /><span style={{ fontFamily: 'var(--sa-font-mono)', letterSpacing: '0.08em' }}>COLLAPSE</span></>
+                : <><ChevronLeft size={12} /><span style={{ fontFamily: 'var(--sa-font-mono)', letterSpacing: '0.08em' }}>DARALT</span></>
               }
             </button>
           </div>
@@ -240,7 +240,7 @@ export function SuperAdminShell() {
                       className="sa-mono"
                       style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em' }}
                     >
-                      {activeModule.label.toUpperCase()}
+                      {activeModule.label.toLocaleUpperCase('tr-TR')}
                     </p>
                     <p style={{ fontSize: 10, color: 'var(--sa-dim)', letterSpacing: '0.02em' }} className="truncate">
                       {activeModule.description}
@@ -309,7 +309,7 @@ function SidebarItem({ mod, collapsed }: { mod: NavModule; collapsed: boolean })
                 letterSpacing: '0.04em',
               }}
             >
-              {mod.label.toUpperCase()}
+              {mod.label.toLocaleUpperCase('tr-TR')}
             </span>
           )}
           {!collapsed && mod.badge && (
@@ -348,7 +348,7 @@ function SystemPill() {
       }}
     >
       <span className="sa-dot" style={{ background: '#22c55e', width: 5, height: 5 }} />
-      SYS_NOMINAL
+      SİSTEM_NORMAL
     </div>
   )
 }
@@ -363,14 +363,14 @@ export function EmptyModule({ label, description }: { label: string; description
           className="sa-dot"
           style={{ background: '#334155', width: 5, height: 5 }}
         />
-        <span style={{ color: '#475569' }}>MODULE_OFFLINE</span>
+        <span style={{ color: '#475569' }}>MODÜL_ÇEVRİMDIŞI</span>
       </div>
-      <p style={{ color: 'var(--sa-dim)', marginTop: 4 }}>{label.toUpperCase()}</p>
+      <p style={{ color: 'var(--sa-dim)', marginTop: 4 }}>{label.toLocaleUpperCase('tr-TR')}</p>
       {description && (
         <p style={{ color: '#1e293b', fontSize: 10 }}>{description}</p>
       )}
       <p style={{ color: '#1e293b', marginTop: 8 }}>
-        SYSTEM_IDLE: Awaiting Implementation...
+        SİSTEM_BEKLEMEDE: Uygulama bekleniyor...
       </p>
     </div>
   )

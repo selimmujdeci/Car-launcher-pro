@@ -106,13 +106,13 @@ export function DiagnosticsBridgeLite({ incident, onClose }: Props) {
         await requestRemoteDiagnostics(incident.deviceHash);
         if (cancelled) return;
         setConnected(true);
-        pushLog('DIAG_SESSION_START: Bağlantı kuruldu');
+        pushLog('TANI_OTURUMU_BAŞLADI: Bağlantı kuruldu');
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : 'Başlatma hatası';
           // remote_commands tablosu henüz yoksa bağlantıyı yine de göster
           setConnected(true);
-          pushLog(`DIAG_CMD_WARN: ${msg} — izleme devam ediyor`);
+          pushLog(`TANI_KOMUT_UYARISI: ${msg} — izleme devam ediyor`);
         }
       }
 
@@ -248,7 +248,7 @@ export function DiagnosticsBridgeLite({ incident, onClose }: Props) {
             fontFamily: 'monospace', fontSize: 8, color: DIM,
             letterSpacing: '0.12em', textTransform: 'uppercase',
           }}>
-            VERBOSITY LOG
+            AYRINTILI LOG
           </span>
         </div>
 
@@ -256,7 +256,7 @@ export function DiagnosticsBridgeLite({ incident, onClose }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 4 }}>
             <Loader2 size={10} style={{ color: DIM, animation: 'spin 1s linear infinite' }} />
             <p style={{ fontFamily: 'monospace', fontSize: 9, color: DIM, letterSpacing: '0.06em' }}>
-              LOG_STREAM: Mesaj bekleniyor...
+              LOG_AKIŞI: Mesaj bekleniyor...
             </p>
           </div>
         ) : (

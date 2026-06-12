@@ -141,7 +141,7 @@ export function RolloutControlLite({ onClose }: Props) {
             DAĞITIM MERKEZİ
           </p>
           <p style={{ fontFamily: 'monospace', fontSize: 8, color: DIM, letterSpacing: '0.06em', marginTop: 1 }}>
-            {loading ? 'YÜKLENIYOR...' : `${plans.length} plan · ${plans.filter(p => p.status === 'active').length} aktif`}
+            {loading ? 'YÜKLENİYOR...' : `${plans.length} plan · ${plans.filter(p => p.status === 'active').length} aktif`}
           </p>
         </div>
         {loading && <Loader2 size={12} style={{ color: DIM, animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
@@ -160,7 +160,7 @@ export function RolloutControlLite({ onClose }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingTop: 32 }}>
             <AlertTriangle size={18} style={{ color: DIM }} />
             <p style={{ fontFamily: 'monospace', fontSize: 9, color: DIM, letterSpacing: '0.06em' }}>
-              LOAD_ERR: {loadErr}
+              YÜKLEME_HATASI: {loadErr}
             </p>
           </div>
         ) : loading ? (
@@ -171,7 +171,7 @@ export function RolloutControlLite({ onClose }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingTop: 32 }}>
             <GitBranch size={18} style={{ color: DIM }} />
             <p style={{ fontFamily: 'monospace', fontSize: 9, color: DIM, letterSpacing: '0.06em' }}>
-              ROLLOUT_EMPTY: Aktif dağıtım planı yok
+              DAĞITIM_YOK: Aktif dağıtım planı yok
             </p>
           </div>
         ) : (
@@ -334,7 +334,7 @@ function RolloutCard({
               }}
             >
               <Square size={10} />
-              STOP ROLLOUT
+              DAĞITIMI DURDUR
             </button>
           )}
         </div>
@@ -349,7 +349,7 @@ function RolloutCard({
             fontFamily: 'monospace', fontSize: 9, color: RED,
             letterSpacing: '0.08em', marginBottom: 8,
           }}>
-            DURDURULSUn mu? v{plan.version} — TÜM CİHAZLARI ETKİLER
+            DURDURULSUN MU? v{plan.version} — TÜM CİHAZLARI ETKİLER
           </p>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
