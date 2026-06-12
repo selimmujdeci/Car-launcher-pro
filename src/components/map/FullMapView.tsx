@@ -131,7 +131,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const [routeStartFlash, setRouteStartFlash] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
   // TEMP DEBUG — rota katmanı haritada gerçekten var mı (teşhis rozeti için, sonra kaldırılacak)
-  const [dbgLayer, setDbgLayer] = useState(false);
   const [isFollowing, setIsFollowing] = useState(true);
   const isFollowingRef  = useRef(true);
   const autoFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1177,16 +1176,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     return () => clearInterval(t);
   }, [isNavigating]);
 
-  // TEMP DEBUG — rota katmanının haritada olup olmadığını 1sn'de bir yokla (teşhis rozeti)
-  useEffect(() => {
-    if (!isNavigating) { setDbgLayer(false); return; }
-    const t = setInterval(() => {
-      const m = mapRef.current as any;
-      setDbgLayer(!!(m && m.isStyleLoaded?.() && m.getLayer?.('selected-route-layer')));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [isNavigating]);
-
   // Turn focus: highlight next turn when approaching, clear on step advance
   useEffect(() => {
     const map = mapRef.current;
@@ -1674,20 +1663,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         onSetMapMode={setMapMode}
         showControls={showControls}
       />
-
-      {/* TEMP DEBUG — rota teşhis rozeti. SADECE dev build'de görünür (import.meta.env.DEV);
-          production/APK'da asla çıkmaz → premium ürün temiz kalır. */}
-      {import.meta.env.DEV && isNavigating && (
-        <div style={{
-          position: 'absolute', left: 8, bottom: 8, zIndex: 60,
-          background: 'rgba(0,0,0,0.80)', color: '#22d3ee',
-          font: '11px/1.4 monospace', padding: '4px 8px', borderRadius: 6,
-          border: '1px solid #22d3ee', pointerEvents: 'none', maxWidth: '70vw',
-        }}>
-          RTDBG b4 · pts:{route.geometry?.length ?? 0} · map:{mapStatus} · sc:{styleChangingRef.current ? 1 : 0} · lyr:{dbgLayer ? 1 : 0} · rdy:{routeReady ? 1 : 0} · srv:{route.serverUsed ?? '-'}
-          {route.geometry?.[0] && ` · c0:${route.geometry[0][0].toFixed(3)},${route.geometry[0][1].toFixed(3)}`}
-        </div>
-      )}
 
     </div>
   );
