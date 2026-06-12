@@ -10,6 +10,24 @@
 
 - **Aktif branch:** `main` (HEAD `0cfd729`; Faz 5 `7c674dc`'de commit'lendi)
 
+## Asistan Sağırlığı Fix Paketi (2026-06-12, `ab756e1`)
+
+Saha raporu: asistan yalnız "İnternet yavaş, şunu mu demek istediniz" diyor,
+istenen müzik yerine farklı parça açılıyor. İki kök neden:
+1. **`AbortSignal.timeout()` Chrome 103+ API'si — head unit WebView (64-78)
+   TANIMAZ** → TypeError, fetch ağa hiç çıkamadan ölüyordu. Cihazda Gemini /
+   hava / trafik / Overpass / remote-config çağrılarının TAMAMI anında
+   başarısızdı. → `utils/abortCompat.ts signalWithTimeout()` (native →
+   AbortController fallback → timeout'suz); 14 ham kullanım değiştirildi.
+   **KURAL: src/ altında ham `AbortSignal.timeout` kullanmak yasak.**
+2. **Yavaş hotspot**: onLine=true ama her cümle 3 ardışık AI timeout'u
+   (6+5+3 sn) bekliyordu. → `platform/aiHealth.ts` devre kesici: 2 ardışık
+   AĞ hatası → 90 sn tüm AI yolları atlanır (yerel zincir anında cevap);
+   başarılı cevap devreyi kapatır. `_resolveAiKeys.hasNet`'e bağlandı.
+3. UX: `PLAY_MUSIC_QUERY` artık duyduğu sorguyu söyler ("X aranıyor").
+Suite 1213/1213 · tsc/lint temiz. **Cihazda doğrulanacak:** Gemini sohbet
+gerçekten çalışıyor mu (ilk kez ağa çıkabilecek), müzik aramada duyulan ad.
+
 ## Navigasyon Saha Fix Paketi (2026-06-12, `0fcac44`)
 
 Saha raporu (Tarsus sürüşü, latencyfix APK): harita sabit + rota çizgisi
