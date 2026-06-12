@@ -71,6 +71,7 @@ import { showToast } from '../../platform/errorBus';
 import { MapOverlay } from './MapOverlay';
 import { NavigationHUD } from './NavigationHUD';
 import { MapHudControls } from './MapHudControls';
+import { MapSearchBar } from './MapSearchBar';
 // VisionOverlay lazy — kamera/AR katmanı yalnızca vision aktifken yüklenir.
 // Bu import zinciri: VisionOverlay → visionEngine.ts (2280 satır WebGL/CV kodu)
 // Başlangıç bundle'ından dışarı alınır; HomeScreen normal çalışmayı etkilemez.
@@ -1512,6 +1513,16 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             )}
           </div>
         </div>
+      )}
+
+      {/* Adres/yer arama — üst orta. Yalnız boş haritada (IDLE); navigasyon/önizlemede
+          gizlenir (rota paneliyle çakışmasın). Sonuçlarda km aynı kanonik kaynaktan. */}
+      {mapStatus === 'READY' && (
+        <MapSearchBar
+          gpsLat={location?.latitude ?? null}
+          gpsLon={location?.longitude ?? null}
+          hidden={navStatus !== NavStatus.IDLE}
+        />
       )}
 
       {/* KM Sayacı — sol üst, navigasyon aktifken kalan mesafeyi gösterir */}
