@@ -1669,7 +1669,16 @@ public class CarLauncherPlugin extends Plugin {
         // çalışan oturumu etkilemesin.
         final float sessionGain  = voskGain;
         final long  sessionMaxMs = voskMaxListenMs;
+        final boolean sessionDuck = voskDuckEnabled; // false = pasif wake döngüsü (eski APK fallback yolu)
         Thread t = new Thread(() -> {
+            // PERF 2026-06-12: pasif wake polling oturumu (duck:false) sürekli döner —
+            // UI ile yarışmasın (grammar thread'iyle aynı gerekçe). Aktif asistan
+            // oturumu (duck:true) kullanıcı tetiklidir ve kısadır → default öncelik kalır.
+            if (!sessionDuck) {
+                try {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                } catch (Throwable ignored) {}
+            }
             AudioRecord recorder = null;
             Recognizer recognizer = null;
             AutomaticGainControl agc = null;
@@ -1905,6 +1914,13 @@ public class CarLauncherPlugin extends Plugin {
 
     private void runVoskGrammar() {
         Thread t = new Thread(() -> {
+            // PERF 2026-06-12: kalıcı pasif decode UI ile aynı öncelikte YARIŞMAZ.
+            // Default öncelikli sürekli Vosk decode zayıf head unit CPU'sunda
+            // WebView ana thread'ini açlığa itiyordu (her dokunuş → saniyeler).
+            // BACKGROUND: sistem boşken decode tam hız; kullanıcı dokununca UI kazanır.
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            } catch (Throwable ignored) {}
             while (wakeWordActive && !Thread.currentThread().isInterrupted()) {
                 // HALF-DUPLEX bekleme: aktif STT/TTS bitene dek mikrofon kapalı.
                 if (wakeMicMustYield()) {
