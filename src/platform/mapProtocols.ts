@@ -139,8 +139,11 @@ export function registerSmartTileProtocol(): void {
       }
 
       // ── Strateji 2: APK asset /maps/ ────────────────────────
-      const localSignal = AbortSignal.any
-        ? AbortSignal.any([abortController.signal, signalWithTimeout(500)])
+      // signalWithTimeout çok eski WebView'da undefined dönebilir — o durumda
+      // (AbortSignal.any de yoktur zaten) yalnız abort sinyali kullanılır.
+      const _timeoutSig = signalWithTimeout(500);
+      const localSignal = (typeof AbortSignal.any === 'function' && _timeoutSig)
+        ? AbortSignal.any([abortController.signal, _timeoutSig])
         : abortController.signal;
       for (const ext of localExts) {
         try {
