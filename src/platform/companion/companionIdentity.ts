@@ -38,7 +38,11 @@ export type CompanionChattiness  = 'az' | 'normal' | 'sik';
  *  - 'custom'   → kullanıcının yazdığı özel cümle (companionWakePhrase)
  */
 export type CompanionWakeMode = 'name' | 'hey_name' | 'both' | 'custom';
-export const DEFAULT_WAKE_MODE: CompanionWakeMode = 'both';
+// Varsayılan 'hey_name' (2026-06-12): eski 'both' tek kelime "Mavi"yi de wake
+// yapıyordu → araç içinde radyo/yolcu "mavi" deyince yanlış tetikleme. Artık
+// yalnız "Hey Mavi" (+ Vosk eşdeğerleri ey/hay/hei) uyandırır. Kullanıcı
+// dilerse ayarlardan 'name'/'both' seçip tek kelimeyle de uyandırabilir.
+export const DEFAULT_WAKE_MODE: CompanionWakeMode = 'hey_name';
 const WAKE_MODES: readonly CompanionWakeMode[] = ['name', 'hey_name', 'both', 'custom'];
 
 export const DEFAULT_PERSONALITY: CompanionPersonality = 'samimi';

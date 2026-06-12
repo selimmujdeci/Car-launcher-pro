@@ -180,8 +180,9 @@ describe('resolveWakeWords — wake sözleri asistan adından türer', () => {
     expect(words).toEqual([fallback, ...heyAll(fallback)]);
   });
 
-  it('geçersiz mod → varsayılan (both)', () => {
-    expect(wakeWordsFor('Mavi', 'bilinmeyen-mod')).toEqual(['mavi', ...heyAll('mavi')]);
+  it('geçersiz mod → varsayılan (hey_name)', () => {
+    // Varsayılan artık 'hey_name' → tek kelime "mavi" wake DEĞİL, yalnız "hey mavi" varyantları.
+    expect(wakeWordsFor('Mavi', 'bilinmeyen-mod')).toEqual([...heyAll('mavi')]);
   });
 
   it('Vosk "hey"i bozsa bile uyanır: "ey mavi"/"hay mavi" hey_name modunda eşleşir', () => {

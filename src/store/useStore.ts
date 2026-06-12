@@ -461,7 +461,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 15,
+      version: 16,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -505,6 +505,12 @@ export const useStore = create<StoreState>()(
           if (persisted['companionAssistantName'] === 'Yol Arkadaşım') {
             settings.companionAssistantName = DEFAULT_ASSISTANT_NAME;
           }
+        }
+        if (fromVersion < 16) {
+          // v16: tek kelimelik "Mavi" wake yanlış tetikliyordu (radyo/yolcu) →
+          // varsayılan 'hey_name' (yalnız "Hey Mavi"). Yalnız eski varsayılan
+          // 'both' taşınır; kullanıcının seçtiği name/custom/hey_name korunur.
+          if (settings.companionWakeMode === 'both') settings.companionWakeMode = 'hey_name';
         }
         return { ...ps, settings };
       },
