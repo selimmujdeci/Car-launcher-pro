@@ -377,12 +377,12 @@ function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigatio
   const p = usePal();
   // flex 0 0 33.333% → her zaman 3 buton görünür; fazlası yatay kaydırmayla gelir.
   return (
-    <button onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flexBasis: '33.333%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 9, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative' }}>
+    <button onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flexBasis: '33.333%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 5, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative' }}>
       {active && !p.night
-        ? <span style={{ width: 46, height: 46, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-6 h-6" /></span>
-        : <Icon className="w-8 h-8" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
-      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase' }}>{cap}</span>
-      {!!badge && <span style={{ position: 'absolute', top: 8, right: '22%', minWidth: 16, height: 16, background: p.accent, color: '#1a120a', fontSize: 9, fontWeight: 900, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
+        ? <span style={{ width: 36, height: 36, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-5 h-5" /></span>
+        : <Icon className="w-[22px] h-[22px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
+      <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{cap}</span>
+      {!!badge && <span style={{ position: 'absolute', top: 6, right: '22%', minWidth: 15, height: 15, background: p.accent, color: '#1a120a', fontSize: 9, fontWeight: 900, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
     </button>
   );
 }
@@ -467,7 +467,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.8)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
       {/* dış koyu kontur — gölge taşıyıcı */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: '#0b0b0e', boxShadow: `0 14px 30px rgba(0,0,0,.65), 0 0 22px ${GOLD_GLOW}` }} />
       {/* altın bezel */}
@@ -570,7 +570,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // İki yan grup yatay kaydırılabilir; her birinde 3 buton görünür (toplam 6),
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
-    <div style={{ position: 'relative', flex: '0 0 auto', height: 126 }}>
+    <div style={{ position: 'relative', flex: '0 0 auto', height: 96 }}>
       <div style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
@@ -583,7 +583,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockBtn Icon={LayoutGrid} cap="Menü"       onClick={onOpenApps} />
         </DockScrollZone>
         {/* Pusula boşluğu */}
-        <div style={{ flex: '0 0 168px' }} />
+        <div style={{ flex: '0 0 132px' }} />
         {/* Sağ grup — kaydırılabilir */}
         <DockScrollZone>
           <DockBtn Icon={Wind}          cap="Klima"    onClick={() => openDrawer('climate')} />
