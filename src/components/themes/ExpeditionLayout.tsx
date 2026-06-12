@@ -11,7 +11,7 @@ import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMedi
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
-import { useClock } from '../../hooks/useClock';
+import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
@@ -387,25 +387,135 @@ function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigatio
   );
 }
 
-const Compass = memo(function Compass({ onClick }: { onClick: () => void }) {
+/* ─── MARKA SAATİ — pusula yerine lüks CarOS Pro hibrit saat ──────────
+   Referans: altın çift bezel + üst altın hale, koyu sunburst kadran,
+   12 altın çentik, C amblem + CAROS/PRO, ince krem akrepler + turuncu
+   saniye, alt yarıda dijital saat + tarih + gün. Kadran her iki modda
+   koyu kalır (referans estetiği). Canlı 1 Hz; tek interval (zero-leak).
+   WebView <79 uyumu: inset shorthand yok; explicit top/right/bottom/left. */
+const GOLD_RING = 'conic-gradient(from 218deg,#5a3d16,#f7e2a8,#c89236,#8a5e22,#fbe9b6,#a8762c,#5a3d16,#f4dd9e,#5a3d16)';
+const GOLD_GLOW = 'rgba(245,201,118,0.55)';
+
+const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }) {
   const p = usePal();
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const h24 = now.getHours();
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+  const hourDeg = (h24 % 12) * 30 + m * 0.5;
+  const minDeg  = m * 6 + s * 0.1;
+  const secDeg  = s * 6;
+
+  const digital = use24Hour
+    ? `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    : `${(h24 % 12) || 12}:${String(m).padStart(2, '0')}`;
+  const dateLine = `${now.getDate()} ${MONTHS_TR[now.getMonth()].toUpperCase()} ${now.getFullYear()}`;
+  const dayLine  = DAYS_TR[now.getDay()].toUpperCase();
+
+  // Altın bezel her iki modda; kadran gün/gece döner (gündüz fildişi → aydınlık OEM)
+  const accent   = p.accent;
+  const dark     = p.night;
+  const faceGrad = dark
+    ? 'radial-gradient(circle at 50% 40%, #1b1a17 0%, #0c0c0e 62%, #050506 100%)'
+    : 'radial-gradient(circle at 50% 40%, #fbf7ec 0%, #efe5d0 64%, #ddd0b4 100%)';
+  const faceInset = dark
+    ? `inset 0 4px 12px rgba(0,0,0,.7), inset 0 0 0 1px ${accent}3a`
+    : `inset 0 3px 9px rgba(120,90,40,.28), inset 0 0 0 1px ${accent}3a`;
+  const sunburst = dark
+    ? 'repeating-conic-gradient(from 0deg, rgba(255,255,255,.030) 0 0.6deg, transparent 0.6deg 1.6deg)'
+    : 'repeating-conic-gradient(from 0deg, rgba(90,64,20,.045) 0 0.6deg, transparent 0.6deg 1.6deg)';
+  const handGrad   = dark ? 'linear-gradient(#f3ede0,#cfc6b4)' : 'linear-gradient(#4a3b22,#241c10)';
+  const handShadow = dark ? '0 1px 3px rgba(0,0,0,.6)' : '0 1px 2px rgba(90,64,20,.4)';
+  const brandCol   = dark ? '#f4efe4' : '#2c2114';
+  const digitalCol = dark ? '#f6f1e7' : '#241b0e';
+  const dayCol     = dark ? 'rgba(220,212,196,.78)' : 'rgba(78,60,28,.72)';
+  const hubRing    = dark ? '#0c0c0e' : '#e7dcc2';
+  const tickCol = dark ? 'rgba(244,221,158,0.92)' : 'rgba(150,108,36,0.92)';
+  const tickDim = dark ? 'rgba(244,221,158,0.34)' : 'rgba(150,108,36,0.40)';
+
+  // 12 saat çentiği (ana yönler daha uzun) + 60 dakika ince ray
+  const ticks = [];
+  for (let i = 0; i < 12; i++) {
+    const major = i % 3 === 0;
+    ticks.push(
+      <span key={`h${i}`} style={{
+        position: 'absolute', left: '50%', top: '50%',
+        width: major ? 3 : 2, height: major ? 12 : 8,
+        background: tickCol, borderRadius: 2,
+        transform: `translate(-50%,-50%) rotate(${i * 30}deg) translateY(-54px)`,
+        transformOrigin: 'center',
+        boxShadow: `0 0 4px ${accent}66`,
+      }} />,
+    );
+  }
+  for (let i = 0; i < 60; i++) {
+    if (i % 5 === 0) continue; // ana çentikler zaten var
+    ticks.push(
+      <span key={`m${i}`} style={{
+        position: 'absolute', left: '50%', top: '50%',
+        width: 1, height: 4, background: tickDim, borderRadius: 1,
+        transform: `translate(-50%,-50%) rotate(${i * 6}deg) translateY(-56px)`,
+        transformOrigin: 'center',
+      }} />,
+    );
+  }
+
   return (
-    <button onClick={onClick} className="ex-btn" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 150, height: 150, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: 'repeating-conic-gradient(from 0deg,#15151a 0 3deg,#3c3c44 3deg 6deg)', boxShadow: '0 12px 26px rgba(0,0,0,.6), inset 0 0 0 2px rgba(0,0,0,.55)' }} />
-      <div style={{ position: 'absolute', inset: 11, borderRadius: '50%', background: 'conic-gradient(#8e8e96,#34343a,#6a6a72,#26262b,#8e8e96)', boxShadow: 'inset 0 2px 4px rgba(255,255,255,.25), inset 0 -3px 7px rgba(0,0,0,.75)' }} />
-      <div style={{ position: 'absolute', inset: 20, borderRadius: '50%', background: 'radial-gradient(circle at 50% 36%, #232228, #0f0e12 78%)', boxShadow: `inset 0 3px 9px rgba(0,0,0,.85), inset 0 0 0 2px ${p.accent}66`, display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
-        <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', fontSize: 12, fontWeight: 700, color: '#f0e7d6' }}>N</span>
-        <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', fontSize: 12, fontWeight: 700, color: '#cdc6ba' }}>S</span>
-        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 12, fontWeight: 700, color: '#cdc6ba' }}>E</span>
-        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 12, fontWeight: 700, color: '#cdc6ba' }}>W</span>
-        {/* iğne */}
-        <span style={{ position: 'absolute', left: '50%', top: '15%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: `40px solid ${p.accent}`, filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />
-        <span style={{ position: 'absolute', left: '50%', bottom: '16%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '36px solid #5b5b63' }} />
-        {/* hub — CarOS amblem */}
-        <span style={{ position: 'absolute', left: '50%', top: '50%', width: 30, height: 30, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: 'radial-gradient(circle at 38% 32%, #7a7a82, #18181c)', boxShadow: '0 0 0 2px rgba(0,0,0,.55), inset 0 1px 2px rgba(255,255,255,.3)', display: 'grid', placeItems: 'center', zIndex: 3 }}>
-          <img src={emblemUrl} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+      {/* dış koyu kontur — gölge taşıyıcı */}
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: '#0b0b0e', boxShadow: `0 14px 30px rgba(0,0,0,.65), 0 0 22px ${GOLD_GLOW}` }} />
+      {/* altın bezel */}
+      <div style={{ position: 'absolute', top: 3, right: 3, bottom: 3, left: 3, borderRadius: '50%', background: GOLD_RING, boxShadow: 'inset 0 2px 3px rgba(255,240,200,.55), inset 0 -3px 6px rgba(0,0,0,.5)' }} />
+      {/* iç koyu kontur (kadran-bezel ayrımı) */}
+      <div style={{ position: 'absolute', top: 14, right: 14, bottom: 14, left: 14, borderRadius: '50%', background: '#08080a' }} />
+      {/* üst altın hale — 12 yönü ışıltı */}
+      <div style={{ position: 'absolute', top: 2, right: 2, bottom: 2, left: 2, borderRadius: '50%', pointerEvents: 'none', background: `radial-gradient(70% 42% at 50% 2%, ${GOLD_GLOW}, transparent 60%)` }} />
+
+      {/* kadran */}
+      <div style={{ position: 'absolute', top: 16, right: 16, bottom: 16, left: 16, borderRadius: '50%', background: faceGrad, boxShadow: faceInset, overflow: 'hidden' }}>
+        {/* sunburst doku */}
+        <span style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', pointerEvents: 'none', background: sunburst }} />
+        {/* kadran üst iç altın yansıma */}
+        <span style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', pointerEvents: 'none', boxShadow: `inset 0 7px 16px -6px ${GOLD_GLOW}` }} />
+
+        {/* çentikler */}
+        {ticks}
+
+        {/* C amblem — 12 altı */}
+        <img src={emblemUrl} alt="" style={{ position: 'absolute', top: 30, left: '50%', transform: 'translateX(-50%)', width: 17, height: 17, objectFit: 'contain', filter: `drop-shadow(0 0 5px ${accent}88)` }} />
+        {/* CAROS */}
+        <span style={{ position: 'absolute', top: 49, left: '50%', transform: 'translateX(-50%)', fontSize: 11, fontWeight: 700, letterSpacing: '0.10em', color: brandCol, whiteSpace: 'nowrap' }}>CAROS</span>
+        {/* PRO */}
+        <span style={{ position: 'absolute', top: 63, left: '50%', transform: 'translateX(-50%)', fontSize: 8, fontWeight: 700, letterSpacing: '0.34em', textIndent: '0.34em', color: accent, whiteSpace: 'nowrap' }}>PRO</span>
+
+        {/* dijital saat — merkez altı */}
+        <span style={{ position: 'absolute', top: 84, left: '50%', transform: 'translateX(-50%)', fontSize: 20, fontWeight: 600, letterSpacing: '0.02em', color: digitalCol, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{digital}</span>
+        {/* tarih */}
+        <span style={{ position: 'absolute', top: 107, left: '50%', transform: 'translateX(-50%)', fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', color: accent, whiteSpace: 'nowrap' }}>{dateLine}</span>
+        {/* gün */}
+        <span style={{ position: 'absolute', top: 117, left: '50%', transform: 'translateX(-50%)', fontSize: 7.5, fontWeight: 600, letterSpacing: '0.14em', color: dayCol, whiteSpace: 'nowrap' }}>{dayLine}</span>
+
+        {/* akrep (saat) */}
+        <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 4, height: 34, background: handGrad, borderRadius: 4, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${hourDeg}deg)`, boxShadow: handShadow, zIndex: 5 }} />
+        {/* yelkovan (dakika) */}
+        <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 2.8, height: 50, background: handGrad, borderRadius: 4, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${minDeg}deg)`, boxShadow: handShadow, zIndex: 5 }} />
+        {/* saniye akrebi — turuncu + kuyruk */}
+        <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 1.4, height: 56, background: accent, borderRadius: 2, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${secDeg}deg)`, filter: `drop-shadow(0 0 4px ${p.accentGlow})`, zIndex: 6 }} />
+        <div style={{ position: 'absolute', left: '50%', top: '50%', width: 1.4, height: 15, background: accent, borderRadius: 2, transformOrigin: '50% 0%', transform: `translateX(-50%) rotate(${secDeg + 180}deg)`, zIndex: 6 }} />
+
+        {/* merkez hub — turuncu amblem kapağı */}
+        <span style={{ position: 'absolute', left: '50%', top: '50%', width: 18, height: 18, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: `radial-gradient(circle at 38% 32%, ${accent}, ${p.accentDeep})`, boxShadow: `0 0 0 2px ${hubRing}, 0 0 8px ${p.accentGlow}, inset 0 1px 2px rgba(255,255,255,.45)`, display: 'grid', placeItems: 'center', zIndex: 7 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#1a1208' }} />
         </span>
-        <span style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', pointerEvents: 'none', boxShadow: `inset 0 0 26px ${p.accentGlow}`, opacity: p.night ? 1 : 0.5 }} />
+
+        {/* safir cam parlaması */}
+        <span style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', pointerEvents: 'none', background: 'radial-gradient(130% 70% at 32% 8%, rgba(255,255,255,.16), transparent 50%)', zIndex: 8 }} />
       </div>
     </button>
   );
@@ -489,7 +599,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockBtn Icon={Zap}           cap="Sport"    onClick={() => openDrawer('sport')} />
         </DockScrollZone>
       </div>
-      <Compass onClick={onOpenApps} />
+      <BrandClock onClick={onOpenApps} />
     </div>
   );
 });

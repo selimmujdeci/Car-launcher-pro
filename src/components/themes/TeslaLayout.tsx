@@ -437,21 +437,60 @@ function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; 
   );
 }
 
-const CompassButton = memo(function CompassButton({ onClick }: { onClick: () => void }) {
+/* MARKA SAATİ (Tesla imzası) — minimalist analog madalyon.
+   Expedition'dan ayrışır: altın/sunburst YOK; tek ince aksan halka,
+   monokrom akrepler, turuncu saniye, sade "CAROS PRO". Çok temiz/ferah.
+   Day = kum kadran + koyu akrep · Night = kömür kadran + krem akrep. */
+const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }) {
   const p = usePal();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+  const hourDeg = (now.getHours() % 12) * 30 + m * 0.5;
+  const minDeg  = m * 6 + s * 0.1;
+  const secDeg  = s * 6;
+
+  const face = p.night
+    ? 'radial-gradient(circle at 50% 36%, #232a1b 0%, #0f120b 82%)'
+    : 'radial-gradient(circle at 50% 34%, #faf4e6 0%, #e2d4ba 84%)';
+  const ink = p.night ? '#F2ECE0' : '#2A2014';
+  const dim = p.night ? 'rgba(242,236,224,0.34)' : 'rgba(42,32,20,0.32)';
+  const hubRing = p.night ? '#0f120b' : '#e2d4ba';
+
+  const ticks = [];
+  for (let i = 0; i < 12; i++) {
+    const mj = i % 3 === 0;
+    ticks.push(
+      <span key={i} style={{
+        position: 'absolute', left: '50%', top: '50%',
+        width: mj ? 2.4 : 1.5, height: mj ? 9 : 5,
+        background: mj ? ink : dim, borderRadius: 1,
+        transform: `translate(-50%,-50%) rotate(${i * 30}deg) translateY(-44px)`,
+        transformOrigin: 'center',
+      }} />,
+    );
+  }
+
   return (
-    <button onClick={onClick} className="ex-btn flex items-center justify-center rounded-full"
-      style={{ width: 78, height: 78, background: p.night ? 'radial-gradient(circle at 50% 36%, #3a4130 0%, #14180e 78%)' : 'radial-gradient(circle at 50% 34%, #f1e7d2 0%, #c9b794 78%)', border: `3px solid ${p.accent}`, boxShadow: p.night ? `0 0 26px -4px ${p.accentGlow}, inset 0 2px 6px rgba(0,0,0,0.6)` : `0 4px 14px -4px rgba(90,68,38,0.5), inset 0 2px 5px rgba(255,255,255,0.6)`, cursor: 'pointer' }}>
-      <svg viewBox="0 0 82 82" width="78" height="78">
-        <circle cx="41" cy="41" r="31" fill="none" stroke={p.night ? 'rgba(255,255,255,0.06)' : 'rgba(120,92,52,0.25)'} strokeWidth="1" />
-        <g stroke={p.accent} strokeWidth="1.4" opacity="0.55">
-          {Array.from({ length: 12 }).map((_, i) => { const a = (i * 30) * Math.PI / 180; const r1 = 31, r2 = i % 3 === 0 ? 24 : 27.5; return <line key={i} x1={41 + Math.cos(a) * r1} y1={41 + Math.sin(a) * r1} x2={41 + Math.cos(a) * r2} y2={41 + Math.sin(a) * r2} />; })}
-        </g>
-        <path d="M41 17 L47 43 L41 39 L35 43 Z" fill={p.accent} style={{ filter: `drop-shadow(0 0 4px ${p.accentGlow})` }} />
-        <path d="M41 65 L35 43 L41 47 L47 43 Z" fill={p.night ? '#5c5238' : '#8a7a55'} />
-        <circle cx="41" cy="43" r="3.4" fill={p.night ? '#14180e' : '#e7d9bd'} stroke={p.accent} strokeWidth="1.5" />
-        <text x="41" y="13.5" textAnchor="middle" style={{ fontSize: 9, fontWeight: 800, fill: p.accent2 }}>N</text>
-      </svg>
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'relative', width: 110, height: 110, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+      {/* tek ince aksan halka + kadran */}
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: face, border: `2px solid ${p.accent}`, boxShadow: p.night ? `0 0 24px -4px ${p.accentGlow}, inset 0 2px 7px rgba(0,0,0,0.6)` : `0 5px 16px -5px rgba(90,68,38,0.5), inset 0 2px 6px rgba(255,255,255,0.6)` }} />
+      {/* ince iç hairline */}
+      <div style={{ position: 'absolute', top: 7, right: 7, bottom: 7, left: 7, borderRadius: '50%', border: `1px solid ${dim}`, pointerEvents: 'none' }} />
+      {ticks}
+      {/* marka — 12 altı */}
+      <span style={{ position: 'absolute', top: 30, left: '50%', transform: 'translateX(-50%)', fontSize: 9.5, fontWeight: 800, letterSpacing: '0.12em', color: ink, whiteSpace: 'nowrap' }}>CAROS</span>
+      <span style={{ position: 'absolute', top: 42, left: '50%', transform: 'translateX(-50%)', fontSize: 6, fontWeight: 700, letterSpacing: '0.36em', textIndent: '0.36em', color: p.accent, whiteSpace: 'nowrap' }}>PRO</span>
+      {/* akrepler */}
+      <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 3.4, height: 24, background: ink, borderRadius: 3, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${hourDeg}deg)`, boxShadow: '0 1px 2px rgba(0,0,0,.4)' }} />
+      <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 2.2, height: 35, background: ink, borderRadius: 3, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${minDeg}deg)`, boxShadow: '0 1px 2px rgba(0,0,0,.4)' }} />
+      <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 1.3, height: 39, background: p.accent, borderRadius: 2, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${secDeg}deg)`, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+      {/* merkez */}
+      <span style={{ position: 'absolute', left: '50%', top: '50%', width: 9, height: 9, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: p.accent, boxShadow: `0 0 0 2.5px ${hubRing}`, zIndex: 2 }} />
     </button>
   );
 });
@@ -475,8 +514,8 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
         <DockPlate Icon={Settings} label="Ayarlar" onClick={onOpenSettings} />
       </div>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 3 }}>
-        <div style={{ pointerEvents: 'auto', transform: 'translateY(-22px)' }}>
-          <CompassButton onClick={onOpenApps} />
+        <div style={{ pointerEvents: 'auto', transform: 'translateY(-30px)' }}>
+          <TeslaClock onClick={onOpenApps} />
         </div>
       </div>
     </div>

@@ -11,7 +11,7 @@ import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMedi
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
-import { useClock } from '../../hooks/useClock';
+import { useClock, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
@@ -512,35 +512,87 @@ function HzDockBtn({ Icon, cap, active, onClick, badge }: {
   );
 }
 
-/* PUSULA — tema imzası (knurled metal bezel + kazınmış tick + amber iğne) */
-const HzCompass = memo(function HzCompass({ onClick }: { onClick: () => void }) {
+/* MARKA SAATİ (Horizon imzası) — modern "pilot/pivi" saati.
+   Expedition & Tesla'dan ayrışır: düz mat ferah kadran (sunburst/altın yok),
+   ince metal bezel, uzun baton index, ince ipince akrepler, ALT dijital
+   pencere (saat+tarih) — havacılık göstergesi hissi. SVG: ölçek-net çizgiler.
+   Day = krem-ferah · Night = kömür-bronz. Canlı 1 Hz. */
+const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => void }) {
   const p = usePalH();
-  const gps = useGPSLocation();
-  const heading = gps?.heading ?? 0;
-  const ticks = useMemo(() => Array.from({ length: 36 }, (_, i) => {
-    const a = (i / 36) * Math.PI * 2; const mj = i % 9 === 0; const r2 = mj ? 59 : 65;
-    return { x1: 90 + 68 * Math.sin(a), y1: 90 - 68 * Math.cos(a), x2: 90 + r2 * Math.sin(a), y2: 90 - r2 * Math.cos(a), mj };
-  }), []);
+  const use24Hour = useStore(s => s.settings.use24Hour);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+  const hourDeg = (now.getHours() % 12) * 30 + m * 0.5;
+  const minDeg  = m * 6 + s * 0.1;
+  const secDeg  = s * 6;
+  const digital = use24Hour
+    ? `${String(now.getHours()).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    : `${(now.getHours() % 12) || 12}:${String(m).padStart(2, '0')}`;
+  const dateLine = `${now.getDate()} ${MONTHS_TR[now.getMonth()].toUpperCase()}`;
+
+  // baton index — 12 uzun + 60 ince dakika
+  const idx = useMemo(() => {
+    const hr = [], mn = [];
+    for (let i = 0; i < 60; i++) {
+      const a = (i / 60) * Math.PI * 2;
+      const sin = Math.sin(a), cos = -Math.cos(a);
+      if (i % 5 === 0) {
+        const mj = i % 15 === 0;
+        hr.push({ x1: 90 + 78 * sin, y1: 90 + 78 * cos, x2: 90 + (mj ? 64 : 68) * sin, y2: 90 + (mj ? 64 : 68) * cos, w: mj ? 3.2 : 2.4 });
+      } else {
+        mn.push({ x1: 90 + 78 * sin, y1: 90 + 78 * cos, x2: 90 + 74 * sin, y2: 90 + 74 * cos });
+      }
+    }
+    return { hr, mn };
+  }, []);
+
+  const ink   = p.ink;
+  const faceA = p.night ? '#26201400' : '#ffffff00';
+  const fcOut = p.night ? '#241d12' : '#f7f1e4';
+  const fcIn  = p.night ? '#15110a' : '#ece3d0';
+  const bzOut = p.night ? '#5a4d36' : '#e7ddc6';
+  const bzIn  = p.night ? '#332a1b' : '#b9ad90';
+
   return (
-    <button onClick={onClick} className="hz-btn" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+    <button onClick={onClick} className="hz-btn" aria-label="Saat — Menü" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
       <svg viewBox="0 0 180 180" width="100%" height="100%">
         <defs>
-          <radialGradient id="hzBz" cx=".5" cy=".34" r=".72"><stop offset="0" stopColor={p.night ? '#7a6a4a' : '#dcd2ba'} /><stop offset=".7" stopColor={p.night ? '#544733' : '#b3a888'} /><stop offset="1" stopColor={p.night ? '#3a3120' : '#8d815f'} /></radialGradient>
-          <radialGradient id="hzFc" cx=".5" cy=".4" r=".72"><stop offset="0" stopColor={p.night ? '#2c2517' : '#3a3526'} /><stop offset="1" stopColor={p.night ? '#1c160d' : '#2a2418'} /></radialGradient>
+          <radialGradient id="hzClkBz" cx=".5" cy=".32" r=".74"><stop offset="0" stopColor={bzOut} /><stop offset="1" stopColor={bzIn} /></radialGradient>
+          <radialGradient id="hzClkFc" cx=".5" cy=".36" r=".78"><stop offset="0" stopColor={fcOut} /><stop offset="1" stopColor={fcIn} /></radialGradient>
         </defs>
-        <circle cx="90" cy="90" r="88" fill="url(#hzBz)" stroke={p.edgeHi} strokeWidth="1" />
-        <circle cx="90" cy="90" r="72" fill="url(#hzFc)" stroke={p.accent} strokeOpacity=".45" strokeWidth="1.5" />
-        <g transform={`rotate(${-heading} 90 90)`} style={{ transition: 'transform .4s ease' }}>
-          {ticks.map((t, i) => <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={p.accent2} strokeWidth={t.mj ? 2 : 1} opacity={t.mj ? 1 : 0.45} />)}
-          <path d="M90 26 L99 90 L90 83 L81 90 Z" fill={p.accent} />
-          <path d="M90 154 L81 90 L90 97 L99 90 Z" fill={p.ink3} />
+        {/* ince metal bezel */}
+        <circle cx="90" cy="90" r="88" fill="url(#hzClkBz)" stroke={p.edgeHi} strokeWidth="1" />
+        {/* mat ferah kadran */}
+        <circle cx="90" cy="90" r="80" fill="url(#hzClkFc)" stroke={p.accent} strokeOpacity=".35" strokeWidth="1" />
+        <circle cx="90" cy="90" r="80" fill={faceA} />
+        {/* dakika ince çizgiler */}
+        {idx.mn.map((t, i) => <line key={`mn${i}`} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={p.ink3} strokeWidth="1" opacity=".5" />)}
+        {/* saat baton index */}
+        {idx.hr.map((t, i) => <line key={`hr${i}`} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={ink} strokeWidth={t.w} strokeLinecap="round" />)}
+
+        {/* marka — 12 altı */}
+        <text x="90" y="56" textAnchor="middle" style={{ fontSize: 13, fontWeight: 800, letterSpacing: '1.4px', fill: ink }}>CarOS</text>
+        <text x="90" y="68" textAnchor="middle" style={{ fontSize: 7.5, fontWeight: 700, letterSpacing: '4px', fill: p.accent }}>PRO</text>
+
+        {/* ALT dijital pencere — pilot altpencere */}
+        <rect x="61" y="104" width="58" height="30" rx="6" fill={p.night ? '#0d0a05' : '#fffdf7'} stroke={p.accent} strokeOpacity=".5" strokeWidth="1" />
+        <text x="90" y="120" textAnchor="middle" style={{ fontSize: 15, fontWeight: 700, fill: ink, fontVariantNumeric: 'tabular-nums' }}>{digital}</text>
+        <text x="90" y="130" textAnchor="middle" style={{ fontSize: 7, fontWeight: 700, letterSpacing: '1px', fill: p.accent }}>{dateLine}</text>
+
+        {/* akrepler — ince/zarif */}
+        <g style={{ transition: 'transform .2s ease' }}>
+          <line x1="90" y1="90" x2="90" y2="56" stroke={ink} strokeWidth="3.4" strokeLinecap="round" transform={`rotate(${hourDeg} 90 90)`} />
+          <line x1="90" y1="90" x2="90" y2="40" stroke={ink} strokeWidth="2.4" strokeLinecap="round" transform={`rotate(${minDeg} 90 90)`} />
+          <line x1="90" y1="98" x2="90" y2="36" stroke={p.accent} strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
         </g>
-        <text x="90" y="22" fill={p.accent} fontSize="14" fontWeight="800" textAnchor="middle">N</text>
-        <text x="90" y="166" fill="#C9BC9E" fontSize="12" fontWeight="700" textAnchor="middle">S</text>
-        <text x="162" y="95" fill="#C9BC9E" fontSize="12" fontWeight="700" textAnchor="middle">E</text>
-        <text x="18" y="95" fill="#C9BC9E" fontSize="12" fontWeight="700" textAnchor="middle">W</text>
-        <circle cx="90" cy="90" r="19" fill="url(#hzBz)" stroke={p.edge} />
-        <circle cx="90" cy="90" r="3" fill={p.accent} />
+        {/* merkez hub */}
+        <circle cx="90" cy="90" r="5.5" fill={p.night ? '#15110a' : '#f7f1e4'} stroke={p.accent} strokeWidth="2" />
+        <circle cx="90" cy="90" r="1.8" fill={p.accent} />
       </svg>
     </button>
   );
@@ -619,7 +671,7 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
           <HzDockBtn Icon={Zap}           cap="Sport"    onClick={() => openDrawer('sport')} />
         </HzDockScroll>
       </div>
-      <HzCompass onClick={onOpenApps} />
+      <HorizonClock onClick={onOpenApps} />
     </div>
   );
 });
