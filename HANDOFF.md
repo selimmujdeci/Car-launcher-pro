@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `4ab262b`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `d6b8fdb`.
 
 ---
 
@@ -21,6 +21,13 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Araç-tipi farkındalıklı UI+AI (2026-06-12, `d6b8fdb`):** EV'de dashboard
+  RPM/SICAKLIK/YAKIT → MOTOR/AKÜ ISI/ŞARJ (NewHomeLayout SpeedCard; useOBDState
+  reaktif, profil değişince anında). Header Menzil ⛽→⚡ + obd.range. Companion
+  prompt'a araç-tipi yetenek notu (EV: "RPM/yakıt YOK, uydurma"). Kapsam dışı
+  (kodda yok): transmission/GearPosition, BoostPressure widget'ı. +2 test →
+  1231/1231. Detay: PROJECT_STATE "Araç-Tipi Farkındalıklı UI". **Cihazda
+  screenshot ile doğrulanacak.**
 - **Telefon dock kompaktlaştırma (2026-06-12, `4ab262b`):** telefonda (w<600px)
   alt dock fazla yer kaplıyordu. `theme-layouts.css` `@media (max-width:600px)`
   bloğuna `--dock-h:64px !important` + `--dock-icon:24px` (portrait 70px'i ezer).

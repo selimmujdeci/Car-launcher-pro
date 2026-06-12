@@ -8,7 +8,32 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `4ab262b`; telefon dock kompaktlaştırma)
+- **Aktif branch:** `main` (HEAD `d6b8fdb`; araç-tipi farkındalıklı UI+AI)
+
+## Araç-Tipi Farkındalıklı UI + AI (2026-06-12, `d6b8fdb`)
+
+Hedef: UI ve AI'yı bağlı aracın tipine göre uyarla. `useOBDState` reaktif +
+`useStore.ts:433` (profil değişince `setObdVehicleType`) → **anında, reload yok**
+(kısıt karşılandı).
+- **SpeedCard data row (NewHomeLayout):** `vehicleType==='ev'` → RPM/SICAKLIK/
+  YAKIT chip'leri GİZLENİR, yerine MOTOR(kW)/AKÜ ISI/ŞARJ(%) gelir
+  (`motorPower`/`batteryTemp`/`batteryLevel`). Zero Redundancy: EV'de "RPM --"
+  yerine özelliği komple değiştir. `flex-1` + 3-için-3 takas → "tam dolu" görünüm
+  korunur (instruction 3 ekstra grid gerektirmedi).
+- **Header Menzil pill:** EV'de ⛽ yakıt menzili yerine ⚡ + `obd.range` (araç-
+  bildirimli batarya menzili); ICE'de eski yakıt-türevli.
+- **companionChatProvider:** `vehicleCapabilityNote` — EV'ye "TAM ELEKTRİKLİ,
+  RPM/motor sıcaklığı/yakıt YOK, ASLA bahsetme/uydurma"; hibrit/phev "mevcut
+  olandan bahset". ICE'de not boş (gürültü yok). Turbo notu EKLENMEDİ
+  (boostPressure<0 "turbo yok" demek değil — yanlış iddia).
+
+**KAPSAM DIŞI (kod tabanında yok, uydurulmadı):** `transmission`/`GearPosition`
+(veri modelinde transmission alanı + gear widget'ı YOK); `BoostPressure` widget'ı
+(NewHomeLayout'ta boost chip'i yok). Task premisleri gerçek bileşen yapısıyla
+uyuşmuyordu; gerçekte var olan EV ayrımına odaklandım. Test: companionChat +2
+(EV notu girer/ICE'de girmez) → **1231/1231** · tsc+lint+build temiz. **Cihazda
+doğrulanacak (screenshot):** profil EV seçilince dashboard'un batarya chip'lerine
+ANINDA geçişi.
 
 ## Telefon Dock Kompaktlaştırma (2026-06-12, `4ab262b`)
 
