@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `d6b8fdb`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `f37c160`.
 
 ---
 
@@ -21,6 +21,14 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Mercedes/Audi temaları silindi (2026-06-12, `f37c160`):** 2 layout dosyası
+  + tüm TS referansları kaldırıldı; persist v1→v2 migration mercedes/audi→
+  expedition (gerçek alan `theme`, string-cast; + onRehydrateStorage VALID ikinci
+  ağ → beyaz ekran yok). Voice cycle/perf test/SettingsPage/website ThemeStudio/
+  FEATURES+MARKETING temizlendi. Kapsam dışı (ayrı sistem): ThemePack/
+  themeLayoutEngine, MagicCardVariant, dead CSS. tsc EXIT 0, 1231/1231. Detay:
+  PROJECT_STATE "Mercedes + Audi". **Cihazda doğrulanacak (mercedes/audi
+  kullanıcısı boot'ta expedition'a düşmeli).**
 - **Araç-tipi farkındalıklı UI+AI (2026-06-12, `d6b8fdb`):** EV'de dashboard
   RPM/SICAKLIK/YAKIT → MOTOR/AKÜ ISI/ŞARJ (NewHomeLayout SpeedCard; useOBDState
   reaktif, profil değişince anında). Header Menzil ⛽→⚡ + obd.range. Companion

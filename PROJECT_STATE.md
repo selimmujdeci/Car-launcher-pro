@@ -8,7 +8,32 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `d6b8fdb`; araç-tipi farkındalıklı UI+AI)
+- **Aktif branch:** `main` (HEAD `f37c160`; Mercedes/Audi tema silme)
+
+## Mercedes + Audi Temaları Silindi (2026-06-12, `f37c160`)
+
+Hedef: mercedes/audi temalarını tüm referanslarıyla kaldır, mevcut kullanıcıyı
+güvenli temaya (expedition) taşı. **Silinen:** `themes/{Audi,Mercedes}Layout.tsx`.
+- **useCarTheme.ts:** `CoreTheme`'den 'mercedes', `LegacyTheme`'den 'audi'
+  kaldırıldı; `CORE_THEMES` + `onRehydrateStorage VALID`'ten çıktı. persist
+  `version 1→2`; `migrate`'e `mercedes/audi(+-day)→expedition`. **KRİTİK:** gerçek
+  persist alanı `theme` (task'ın `themeId`'si YANLIŞ olurdu → beyaz ekran);
+  kaldırılan literal'ler union'da olmadığından **string-cast** ile karşılaştırıldı.
+  İki güvenlik ağı: migrate (version bump) + VALID (her yüklemede) → beyaz ekran yok.
+- **NewHomeLayout.tsx:** Audi/Mercedes import + renderTheme if-blokları kaldırıldı
+  (eşleşmezse fallback layout'a düşer). **useVoiceCommandHandler:** `_THEME_CYCLE`
+  -'mercedes'. **perf.theme.test:** `setTheme('mercedes')`→'horizon'.
+  **SettingsPage:** THEME_OPTIONS -mercedes/audi. **website ThemeStudio:** PRESETS
+  -MERCEDES/AUDI. **FEATURES.md + MARKETING_ONEPAGER.md:** tema listesinden Mercedes
+  ("Audius" müzik servisine DOKUNULMADI — Audi değil).
+- **KAPSAM DIŞI (bilinçli, ayrı sistemler):** `ThemePack`/`themeLayoutEngine`
+  (`Record<ThemePack>` ayrı sistem, 'bmw' bile içerir → dokunmak Record'u kırardı);
+  `MagicCardVariant`/`VARIANT_STYLES` (iç kart preset'leri, zararsız ölü kod);
+  `[data-theme="mercedes/audi"]` CSS (data-theme artık o değerlere ayarlanmaz →
+  erişilmez/zararsız).
+Doğrulama: `tsc --noEmit` EXIT 0 (module-not-found YOK) · **1231/1231** · lint 0 ·
+build OK. **Cihazda doğrulanacak:** mercedes/audi temasında olan kullanıcı boot'ta
+expedition'a düşmeli (beyaz ekran yok).
 
 ## Araç-Tipi Farkındalıklı UI + AI (2026-06-12, `d6b8fdb`)
 
