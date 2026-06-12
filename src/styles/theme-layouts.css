@@ -545,9 +545,20 @@ button, [role="button"], .dock-card, .up-nav-item, .glass-card > button {
   }
 }
 
-/* Phone küçük ekran (w < 600px) — compact grid */
+/* Phone küçük ekran (w < 600px) — compact grid + kompakt dock */
 @media (max-width: 600px) {
-  :root { --lp-dock-h: 52px; }
+  /* Telefonda alt dock fazla yer kaplıyordu (portrait bloğu --dock-h:70px).
+     Burada 64px + emoji ikon 28→24px (Lucide ikonlar zaten 24px). Bu blok
+     portrait bloğundan SONRA geldiği için kazanır; !important ek sigorta.
+     HEAD UNIT (≥800px landscape) bu bloğa GİRMEZ → etkilenmez (kısıt).
+     Dokunma hedefi KORUNUR: DockBar Btn = var(--dock-icon)+20px = 44px
+     (NHTSA/ISO 15005 ≥44px). Gerçek değişken adları --dock-h/--dock-icon
+     (proje --dock-height/--dock-icon-size kullanmaz). */
+  :root {
+    --lp-dock-h: 52px;
+    --dock-h:    64px !important;
+    --dock-icon: 24px;
+  }
 
   .speedometer-container { width: 100% !important; }
 
