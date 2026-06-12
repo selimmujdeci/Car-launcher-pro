@@ -15,6 +15,7 @@
  * Dismissed persistence: safeStorage 4h TTL — sürüş boyunca bir daha sorulmaz.
  */
 
+import { signalWithTimeout } from '../../utils/abortCompat';
 import { onVehicleEvent }      from '../vehicleDataLayer/VehicleEventHub';
 import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { useStore, type SmartCard } from '../../store/useStore';
@@ -193,7 +194,7 @@ async function _fetchStations(lat: number, lng: number): Promise<NearbyStation[]
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    `data=${encodeURIComponent(query)}`,
-    signal:  AbortSignal.timeout(OVERPASS_TIMEOUT_S * 1_000),
+    signal:  signalWithTimeout(OVERPASS_TIMEOUT_S * 1_000),
   });
 
   if (!resp.ok) return [];

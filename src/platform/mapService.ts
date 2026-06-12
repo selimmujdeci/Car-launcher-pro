@@ -16,6 +16,7 @@ import { searchOffline } from './offlineSearchService';
 import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal } from './poi/offlinePoiService';
 import { NOMINATIM_URL, NOMINATIM_UA } from './map/_mapState';
+import { signalWithTimeout } from '../utils/abortCompat';
 
 // ── Public API re-exports (delegation) ───────────────────────────────────────
 export * from './map/MapCore';
@@ -44,7 +45,7 @@ async function _nominatimSearch(
     });
     const res = await fetch(`${NOMINATIM_URL}?${params}`, {
       headers: { 'User-Agent': NOMINATIM_UA },
-      signal:  AbortSignal.timeout(5_000),
+      signal:  signalWithTimeout(5_000), // Chrome <103 WebView güvenli (abortCompat)
     });
     if (!res.ok) return [];
 

@@ -9,6 +9,7 @@
  * Kaynak: trafficSummary.source  →  'here' | 'tomtom' | 'estimated'
  */
 
+import { signalWithTimeout } from '../utils/abortCompat';
 import { useState, useEffect } from 'react';
 
 /* ── Tipler ──────────────────────────────────────────────── */
@@ -65,7 +66,7 @@ async function fetchHereTraffic(lat: number, lng: number): Promise<TrafficSummar
     `&in=bbox:${lng - delta},${lat - delta},${lng + delta},${lat + delta}` +
     `&locationReferencing=shape`;
 
-  const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res  = await fetch(url, { signal: signalWithTimeout(8000) });
   if (!res.ok) throw new Error(`HERE HTTP ${res.status}`);
   const data  = await res.json() as { results?: HereFlowResult[] };
   const items = data.results ?? [];
@@ -120,7 +121,7 @@ async function fetchTomTomTraffic(lat: number, lng: number): Promise<TrafficSumm
     `?key=${TOMTOM_KEY}` +
     `&point=${lat},${lng}`;
 
-  const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res  = await fetch(url, { signal: signalWithTimeout(8000) });
   if (!res.ok) throw new Error(`TomTom HTTP ${res.status}`);
   const data  = await res.json() as {
     flowSegmentData?: {

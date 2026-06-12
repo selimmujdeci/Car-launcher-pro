@@ -13,6 +13,7 @@
  * CLAUDE.md §4 (Data Integrity): enqueueAt = performance.now() — saat atlamalarına karşı.
  */
 
+import { signalWithTimeout } from '../utils/abortCompat';
 import { Network } from '@capacitor/network';
 import { logInfo } from './debug';
 
@@ -235,7 +236,7 @@ class ConnectivityService {
         method:  entry.method,
         headers: entry.headers,
         body:    entry.body,
-        signal:  AbortSignal.timeout?.(10_000) ?? undefined,
+        signal:  signalWithTimeout(10_000),
       });
 
       // 2xx → başarılı, kuyruktan sil

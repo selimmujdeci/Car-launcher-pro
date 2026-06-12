@@ -192,9 +192,11 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         const searchUri  = intent.payload.musicSearchUri ?? '';
         const query      = intent.payload.musicQuery ?? '';
         if (searchUri || query) {
-          // Belirli bir parça araması → harici uygulama deep-link gerekir
+          // Belirli bir parça araması → harici uygulama deep-link gerekir.
+          // SAHA FİX 2026-06-12: NE DUYDUĞUNU söyle — ASR yanlış anladıysa
+          // sürücü bunu yanlış şarkı çalmadan ÖNCE duyup düzeltebilir.
           bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
-          _speak('Müzik aranıyor', isDriving);
+          _speak(query ? `${query} aranıyor` : 'Müzik aranıyor', isDriving);
         } else {
           // Sadece kaynak söylendi → arka planda çal + ekranı göster
           if (pkg) setMediaPreferredPackage(pkg);

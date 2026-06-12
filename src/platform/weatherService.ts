@@ -17,6 +17,7 @@
  *  - Falls back to Istanbul coords when GPS unavailable
  */
 
+import { signalWithTimeout } from '../utils/abortCompat';
 import { useState, useEffect } from 'react';
 import { getSupabaseClient } from './supabaseClient';
 import { logError } from './crashLogger';
@@ -148,7 +149,7 @@ async function _fetchFuelFromAPI(lat: number, lng: number): Promise<FuelStation[
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
       body:    JSON.stringify({ lat, lng }),
-      signal:  AbortSignal.timeout(10_000), // 10s timeout — araç ağı yavaş olabilir
+      signal:  signalWithTimeout(10_000), // 10s timeout — araç ağı yavaş olabilir
     });
     if (!res.ok) return null;
     const data = await res.json() as FuelAPIResponse;

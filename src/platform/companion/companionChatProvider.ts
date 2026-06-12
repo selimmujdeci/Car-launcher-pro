@@ -29,6 +29,8 @@ import { resolveCompanionIdentity, type CompanionIdentity } from './companionIde
 import { interpretFuel, interpretEngineTempConcern } from './companionContext';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
+import { signalWithTimeout } from '../../utils/abortCompat';
+import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
@@ -230,7 +232,7 @@ async function askCompanionGemini(
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
-    signal:  AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+    signal:  signalWithTimeout(GEMINI_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
   });
   if (resp.status === 429) {
     // Rate limit: soğuma penceresi boyunca Gemini denenmez (kullanıcı faturası
@@ -467,7 +469,7 @@ async function askCompanionBrain(
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
-    signal:  AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+    signal:  signalWithTimeout(GEMINI_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
   });
   if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
   if (!resp.ok) return null;
@@ -499,13 +501,14 @@ export async function tryCompanionBrain(
       geminiAttempted = true;
       const result = await askCompanionBrain(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
       if (result) {
+        recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
         // bağlamlı devam cümleleri için).
         pushHistory('user', trimmed);
         pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
         return result;
       }
-    } catch { /* timeout / ağ / parse — offline'a düş */ }
+    } catch { recordAiNetFailure(); /* timeout / ağ — offline'a düş; kesici art arda hatada AI'yı kapatır */ }
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
@@ -548,7 +551,7 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
-      signal:  AbortSignal.timeout(REPAIR_TIMEOUT_MS),
+      signal:  signalWithTimeout(REPAIR_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
     });
     if (!resp.ok) return null;
     const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -556,8 +559,9 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
     const obj = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '')) as { q?: string };
     const fixed = typeof obj.q === 'string' ? obj.q.replace(/\s+/g, ' ').trim() : '';
     if (!fixed || fixed.length > 80) return null;
+    recordAiNetSuccess();
     return fixed === q ? null : fixed;
-  } catch { return null; }
+  } catch { recordAiNetFailure(); return null; }
 }
 
 /* ── Ana giriş — Companion Router'ın sohbet ucu ─────────────── */
@@ -594,11 +598,12 @@ export async function tryCompanionChat(
     try {
       const reply = await askCompanionGemini(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
       if (reply) {
+        recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         pushHistory('user', trimmed);
         pushHistory('model', reply);
         return { response: reply, route: 'companion_gemini' };
       }
-    } catch { /* timeout / ağ / parse — sessizce offline'a düş */ }
+    } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
   }
 
   // ── Offline fallback: internet yok · key yok · hata/timeout · 429 ──

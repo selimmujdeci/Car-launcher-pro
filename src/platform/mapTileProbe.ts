@@ -2,15 +2,9 @@ import { Capacitor } from '@capacitor/core';
 import type { MapSource } from './mapSourceTypes';
 import { NATIVE_MAPS_SUBDIRS, OFFLINE_PREF_KEY } from './mapSourceTypes';
 
-/**
- * AbortSignal.timeout() polyfill — Chrome 103+ natively, older Android WebViews need fallback.
- */
-export function signalWithTimeout(ms: number): AbortSignal {
-  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
-  const ctrl = new AbortController();
-  setTimeout(() => ctrl.abort(), ms);
-  return ctrl.signal;
-}
+// AbortSignal.timeout() polyfill'i utils/abortCompat'a taşındı (tüm proje tek
+// kaynaktan kullanır) — buradaki export geriye dönük uyumluluk için korunur.
+export { signalWithTimeout } from '../utils/abortCompat';
 
 /** Converts lng/lat to TMS tile x/y at a given zoom level (Web Mercator). */
 export function lngLatToTile(lng: number, lat: number, zoom: number): { x: number; y: number } {

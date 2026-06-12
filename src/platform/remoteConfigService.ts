@@ -20,6 +20,7 @@
  *   - Network yoksa sessizce devam eder (offline-first)
  */
 
+import { signalWithTimeout } from '../utils/abortCompat';
 import { useStore } from '../store/useStore';
 
 // ── Sabitler ──────────────────────────────────────────────────────────────────
@@ -91,7 +92,7 @@ async function _fetchAndApply(): Promise<void> {
           apikey:        SUPABASE_ANON_KEY,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        signal: AbortSignal.timeout(8_000),
+        signal: signalWithTimeout(8_000),
       },
     );
 

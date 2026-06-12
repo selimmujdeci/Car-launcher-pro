@@ -14,6 +14,8 @@
 import type { IntentType } from './intentEngine';
 import type { MaintenanceAssessment } from './vehicleMaintenanceService';
 import { buildPidRegistryIntegrityPromptBlock } from './ai/pidDescriptionGate';
+import { signalWithTimeout } from '../utils/abortCompat';
+import { recordAiNetFailure, recordAiNetSuccess } from './aiHealth';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -202,7 +204,7 @@ async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Pr
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(3000),
+    signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
   });
 
   if (!resp.ok) return null;
@@ -235,7 +237,7 @@ async function askHaiku(text: string, apiKey: string, ctx?: VehicleContext): Pro
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(3000),
+    signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
   });
 
   if (!resp.ok) return null;
@@ -297,11 +299,14 @@ export async function askAI(
   if (provider === 'none' || !key || !navigator.onLine) return null;
 
   try {
-    if (provider === 'gemini') return await askGemini(text, key, ctx);
-    if (provider === 'haiku')  return await askHaiku(text, key, ctx);
-    return null;
+    let result: AIVoiceResult | null = null;
+    if (provider === 'gemini') result = await askGemini(text, key, ctx);
+    if (provider === 'haiku')  result = await askHaiku(text, key, ctx);
+    if (result) recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+    return result;
   } catch {
     // Network error, timeout, etc. — silent fallback
+    recordAiNetFailure(); // devre kesici art arda hatada AI yollarını kapatır
     return null;
   }
 }

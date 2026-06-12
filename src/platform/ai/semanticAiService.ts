@@ -19,6 +19,8 @@ import type { VehicleContext } from '../aiVoiceService';
 import { resolveApiKey, type AIProvider } from '../aiVoiceService';
 import { callProcessIntent } from '../supabaseClient';
 import { buildPidRegistryIntegrityPromptBlock } from './pidDescriptionGate';
+import { signalWithTimeout } from '../../utils/abortCompat';
+import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 
 /* ── POI Kategorileri ────────────────────────────────────────── */
 
@@ -155,7 +157,7 @@ async function _askGemini(text: string, apiKey: string, ctx?: VehicleContext): P
       contents: [{ role: 'user', parts: [{ text }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128 },
     }),
-    signal: AbortSignal.timeout(5_000),
+    signal: signalWithTimeout(5_000), // Chrome <103 WebView güvenli (abortCompat)
   });
 
   if (!resp.ok) return null;
@@ -181,7 +183,7 @@ async function _askHaiku(text: string, apiKey: string, ctx?: VehicleContext): Pr
       system:     buildContextPrompt(ctx),
       messages:   [{ role: 'user', content: text }],
     }),
-    signal: AbortSignal.timeout(5_000),
+    signal: signalWithTimeout(5_000), // Chrome <103 WebView güvenli (abortCompat)
   });
 
   if (!resp.ok) return null;
@@ -244,9 +246,9 @@ export async function classifySemantic(
     let result: SemanticResult | null = null;
     if (provider === 'gemini') result = await _askGemini(text, resolvedKey, ctx);
     if (provider === 'haiku')  result = await _askHaiku(text, resolvedKey, ctx);
-    if (result) return result;
+    if (result) { recordAiNetSuccess(); return result; }
   } catch {
-    // Ağ hatası, timeout vb.
+    recordAiNetFailure(); // ağ hatası/timeout — devre kesici art arda hatada AI'yı kapatır
   }
 
   // ── 3. Offline fallback ─────────────────────────────────────

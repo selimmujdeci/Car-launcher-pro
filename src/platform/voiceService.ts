@@ -19,6 +19,7 @@ import { getConfig } from './performanceMode';
 import { speakFeedback, registerTtsEndListener } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
 import { askAI, resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
+import { isAiNetHealthy } from './aiHealth';
 import { classifySemantic, enrichBackground } from './ai/semanticAiService';
 import { fromSemanticResult } from './intentEngine';
 import { buildEnrichedCtx } from './voiceContextBuilder';
@@ -509,7 +510,11 @@ async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string;
     ]);
     apiKey = resolveApiKey(provider, provider === 'gemini' ? geminiKey : haikuKey);
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
-  const hasNet = typeof navigator !== 'undefined' && navigator.onLine;
+  // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
+  // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
+  // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
+  // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
+  const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
   return { provider, apiKey, hasNet };
 }
 
