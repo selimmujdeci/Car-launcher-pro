@@ -42,6 +42,16 @@ vi.mock('../platform/obdService', () => ({
     return () => {};
   },
 }));
+// World View — yolculuk süresi enjeksiyonu kontrolü (varsayılan: aktif trip YOK).
+const TRIP = vi.hoisted(() => ({
+  current: null as null | { liveDurationMin: number; liveDistanceKm: number },
+}));
+vi.mock('../platform/tripLogService', () => ({
+  getTripSnapshot: () => ({
+    active: TRIP.current !== null, current: TRIP.current,
+    history: [], totalDistanceKm: 0, totalTrips: 0,
+  }),
+}));
 
 import {
   classifySmalltalk,
@@ -407,6 +417,33 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(prompt).toContain('ÖZEL İSİMLERİ');                 // ASR onarım talimatı
     expect(prompt).toContain('PLAY_MUSIC_SEARCH');
     expect(prompt).toContain('SEARCH_POI');
+  });
+
+  it('Phase P — Contextual AI Partner: yardımcı pilot + World View + genel ASR/niyet talimatı', async () => {
+    setupCompanion(true);
+    TRIP.current = null;
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Tamam.' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await tryCompanionBrain('bir şey söyle', GEMINI_OPTS);
+
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('YARDIMCI PİLOT');                // komut robotu → bağlamsal ortak
+    expect(prompt).toContain('World View');                    // dünya görüşü çerçevesi
+    expect(prompt).toContain('birez muzuk ac');                // genel kelime ASR/niyet örneği
+  });
+
+  it('Phase P — World View: aktif yolculuk süresi prompt bağlamına girer (trip duration)', async () => {
+    setupCompanion(true);
+    TRIP.current = { liveDurationMin: 95, liveDistanceKm: 120 };  // 1 saat 35 dk yoldayız
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'İyi gidiyoruz.' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await tryCompanionBrain('nasıl gidiyoruz', GEMINI_OPTS);
+
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('yoldayız');                      // interpretTripDuration çıktısı
+    expect(prompt).toContain('120 kilometre');                 // canlı mesafe
+    expect(prompt).toContain('yüzde 23');                      // yakıt yorumu da hâlâ var (World View bütün)
+    TRIP.current = null;
   });
 
   it('geçersiz intent / bozuk JSON → offline fallback zinciri (sohbet)', async () => {

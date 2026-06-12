@@ -26,9 +26,10 @@
 
 import { useStore } from '../../store/useStore';
 import { resolveCompanionIdentity, type CompanionIdentity } from './companionIdentity';
-import { interpretFuel, interpretEngineTempConcern } from './companionContext';
+import { interpretFuel, interpretEngineTempConcern, interpretTripDuration } from './companionContext';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
+import { getTripSnapshot } from '../tripLogService';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import type { SemanticResult } from '../ai/semanticAiService';
@@ -134,20 +135,29 @@ export function _resetCompanionChatForTest(): void {
  * ile aynı (senkron son-değer yakalama).
  */
 function buildInterpretedVehicleContext(): string {
-  let line = '';
+  const parts: string[] = [];
+  // (1) OBD: yakıt + motor sıcaklığı (yorumlanmış — ham veri DEĞİL).
   try {
     const unsub = onOBDData((d) => {
       const rangeKm = d.estimatedRangeKm >= 0 ? d.estimatedRangeKm
                     : (d.range >= 0 ? d.range : undefined);
-      const parts = [
-        interpretFuel(d.fuelLevel, rangeKm),
-        interpretEngineTempConcern(d.engineTemp),
-      ].filter((p): p is string => p !== null);
-      line = parts.join(' ');
+      const fuel = interpretFuel(d.fuelLevel, rangeKm);
+      const temp = interpretEngineTempConcern(d.engineTemp);
+      if (fuel) parts.push(fuel);
+      if (temp) parts.push(temp);
     });
     unsub();
   } catch { /* OBD bağlı değil — bağlamsız sohbet */ }
-  return line;
+  // (2) Yolculuk süresi (World View): aktif trip varsa "ne zamandır yoldayız".
+  //     getTripSnapshot CANLI current verir (onTripState immediate-emit null'dur).
+  try {
+    const trip = getTripSnapshot().current;
+    if (trip) {
+      const t = interpretTripDuration(trip.liveDurationMin, trip.liveDistanceKm);
+      if (t) parts.push(t);
+    }
+  } catch { /* trip servisi yok — süresiz bağlam */ }
+  return parts.join(' ');
 }
 
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */
@@ -177,8 +187,8 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
   // Sürüşte kısa ama DOĞAL: çoğu zaman birkaç kelimelik samimi tepki yeter;
   // "tek cümle robot" değil (ISO 15008 dikkat sınırı korunur).
   const driving = isDriving
-    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: kısa tut — çoğu zaman birkaç kelimelik doğal tepki yeter ("Tamam, hallettim."), gerekirse en fazla 2-3 kısa cümle.'
-    : 'En fazla 3 doğal cümleyle cevap ver.';
+    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: kısa tut — çoğu zaman birkaç kelimelik doğal tepki yeter ("Tamam, hallettim."), gerekirse en fazla 2-3 kısa cümle. Dikkatini dağıtma.'
+    : 'Araç PARK HALİNDE — acele yok: en fazla 3 doğal cümleyle, ama daha sohbet odaklı, derinlemesine ve içten konuşabilirsin.';
   const lines = [
     `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın — bu arabanın ruhusun, bir çağrı merkezi robotu değilsin.`,
     'Doğal ve akıcı konuş; robotik, kalıp ya da tek kelimelik cevaplar verme.',
@@ -384,12 +394,14 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
   const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
   return [
     `Sen "${id.assistantName}" adlı Türkçe araç içi asistansın.`,
+    'Sen bir KOMUT ROBOTU DEĞİL, sürücüyle yol arkadaşlığı eden, aracın ve yolculuğun O ANKİ durumunu (DÜNYA GÖRÜŞÜN / World View — aşağıda verilir) sürekli bilen bir YARDIMCI PİLOTSUN. Bir komutu yerine getirirken bile bu bağlamı gözetir, önem taşıyan bir şey varsa kendiliğinden ve doğal biçimde değinirsin.',
     'Sen bu aracın TEK BEYNİSİN (Single Brain): arkanda başka bir ayrıştırıcı, parser ya da ikinci asistan katmanı YOK. Bu girdiye yalnız SEN cevap vereceksin — kararını tek başına ver.',
     'TEK KARAR: kullanıcı bir AKSİYON (araç komutu) mu yoksa SOHBET mi istiyor? İkisinden YALNIZ birini seç ve ona göre JSON döndür; asla ikisini birden döndürme.',
     personaRole,
     'Bu kişilik hem sohbet cevaplarının ("say") hem komut onaylarının ("feedback") tonunu belirler.',
     'Kullanıcı metni KUSURLU cihaz-içi konuşma tanımadan gelir: bozulmuş veya yanlış duyulmuş',
     'ÖZEL İSİMLERİ (sanatçı, şarkı, yer adı) en olası GERÇEK isme düzelt; emin değilsen olduğu gibi bırak.',
+    'Yalnız özel isimler değil GENEL kelimeler de ASR\'de bozulur: sesçe en yakın anlamlı Türkçe ifadeye göre NİYETİ çöz ("birez muzuk ac" → "biraz müzik aç", "navü baş lat" → "navigasyonu başlat"). Harf/ses hatasına takılma; kullanıcının ne demek istediğine odaklan.',
     'ŞİVE DAYANIKLILIĞI: kullanıcı "birez", "kurban", "uşağum", "gardaş" gibi yöresel ifadeler kullanabilir.',
     'Bunları birer engel değil KARAKTER İPUCU olarak gör; komut niyetini bu şive katmanının altından cımbızla çek.',
     'GÖREV: metnin bir ARAÇ KOMUTU mu yoksa SOHBET mi olduğuna karar ver. SADECE JSON döndür.',

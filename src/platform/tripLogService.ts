@@ -151,8 +151,9 @@ function _calcScore(maxSpeed: number, harshEvents: number, avgSpeed: number): nu
 
 /* ── Notify ──────────────────────────────────────────────── */
 
-function _notify(): void {
-  const snap: TripState = {
+/** Canlı anlık görüntü — aktif trip'in süre/mesafesi performance.now ile hesaplanır. */
+function _computeSnapshot(): TripState {
+  return {
     ..._state,
     history: [..._state.history],
     current: _active
@@ -163,6 +164,10 @@ function _notify(): void {
         }
       : null,
   };
+}
+
+function _notify(): void {
+  const snap = _computeSnapshot();
   _listeners.forEach((fn) => fn(snap));
 }
 
@@ -403,6 +408,16 @@ export function onTripState(fn: (s: TripState) => void): () => void {
   _listeners.add(fn);
   fn({ ..._state, history: [..._state.history], current: null });
   return () => { _listeners.delete(fn); };
+}
+
+/**
+ * Senkron anlık görüntü — aktif trip'in CANLI süre/mesafesiyle. companion
+ * bağlam enjeksiyonu (World View) prompt kurarken bunu okur: onTripState'in
+ * immediate-emit'i `current: null` gönderdiği için tek-atış subscribe canlı
+ * yolculuk verisini vermez; bu getter hesaplı current döndürür.
+ */
+export function getTripSnapshot(): TripState {
+  return _computeSnapshot();
 }
 
 export function useTripState(): TripState {
