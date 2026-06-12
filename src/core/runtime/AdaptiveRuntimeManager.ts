@@ -336,8 +336,13 @@ class AdaptiveRuntimeManager {
     const config = getRuntimeConfig(mode);
     const root   = document.documentElement;
 
-    root.style.setProperty('--rt-blur',  config.enableBlur       ? '1' : '0');
-    root.style.setProperty('--rt-anim',  config.enableAnimations ? '1' : '0');
+    root.style.setProperty('--rt-blur',   config.enableBlur       ? '1' : '0');
+    root.style.setProperty('--rt-anim',   config.enableAnimations ? '1' : '0');
+    root.style.setProperty('--rt-shadow', config.enableShadows    ? '1' : '0');
+    // box-shadow string'i calc(var()) ile ölçeklenemez → CSS sınıf anahtarı.
+    // enableShadows=false (BASIC_JS/POWER_SAVE/SAFE_MODE) → html.rt-no-shadow →
+    // index.css tüm box-shadow'ları sıfırlar (Mali-400 kompozit katman tasarrufu).
+    root.classList.toggle('rt-no-shadow', !config.enableShadows);
     root.setAttribute('data-runtime', mode);
   }
 
@@ -664,6 +669,8 @@ class AdaptiveRuntimeManager {
     const root = document.documentElement;
     root.style.removeProperty('--rt-blur');
     root.style.removeProperty('--rt-anim');
+    root.style.removeProperty('--rt-shadow');
+    root.classList.remove('rt-no-shadow');
     root.removeAttribute('data-runtime');
   }
 }

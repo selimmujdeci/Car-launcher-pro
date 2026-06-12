@@ -45,9 +45,21 @@
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
+  /* radial-gradient her kare için CPU-taraflı hesap maliyeti yüksek (Mali-400
+     hardware rasterizer'ı karmaşık gradientleri desteklemez).
+     Düz renk fallback → tile overdraw tamamen kalkar. */
+  background-image: none !important;
 }
 .perf-med * {
   animation-duration: 0.5s !important;
+}
+
+/* Runtime-mode bazlı gölge kontrolü — AdaptiveRuntimeManager enableShadows=false
+   (BASIC_JS / POWER_SAVE / SAFE_MODE) iken html.rt-no-shadow ekler. --rt-shadow=0
+   ile senkron; box-shadow string'i calc() ile ölçeklenemediği için sınıf kullanılır.
+   .perf-low (GPU-tier) ile çakışması zararsız — ikisi de gölgeyi sıfırlar. */
+html.rt-no-shadow * {
+  box-shadow: none !important;
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -28,6 +28,7 @@ const PERFORMANCE_CONFIG: RuntimeConfig = Object.freeze({
   uiFpsTarget:      60,       // 60fps smooth
   enableBlur:       true,     // hardware accelerated
   enableAnimations: true,
+  enableShadows:    true,     // yüksek uçta tam gölge kalitesi
   loggingLevel:     'warn',
   suspendWorkers:   false,
 } as const);
@@ -44,6 +45,7 @@ const BALANCED_CONFIG: RuntimeConfig = Object.freeze({
   uiFpsTarget:      30,       // 30fps — çoğu HU ekranı 30Hz native
   enableBlur:       true,     // orta sınıf GPU destekler
   enableAnimations: true,
+  enableShadows:    true,     // orta sınıf GPU gölge maliyetini kaldırır
   loggingLevel:     'warn',
   suspendWorkers:   false,
 } as const);
@@ -61,6 +63,7 @@ const BASIC_JS_CONFIG: RuntimeConfig = Object.freeze({
   uiFpsTarget:      20,       // 20fps — Mali-400 gerçekçi üst sınır
   enableBlur:       false,    // Mali-400 uyarısı — GPU stall
   enableAnimations: false,    // JS animation loop CPU maliyetini kaldır
+  enableShadows:    false,    // Mali-400: her shadow kompozit pass → frame drop
   loggingLevel:     'error',  // sadece hatalar — eMMC yazma azalt
   suspendWorkers:   false,
 } as const);
@@ -79,6 +82,7 @@ const POWER_SAVE_CONFIG: RuntimeConfig = Object.freeze({
   uiFpsTarget:      15,       // 15fps — yeterli ama düşük
   enableBlur:       false,
   enableAnimations: false,
+  enableShadows:    false,    // pil tasarrufu — kompozit pass'ları tamamen kaldır
   loggingLevel:     'silent', // eMMC yazma koruması
   suspendWorkers:   false,
 } as const);
@@ -96,6 +100,7 @@ const SAFE_MODE_CONFIG: RuntimeConfig = Object.freeze({
   uiFpsTarget:      15,       // 15fps — ~67ms frame budget, JS dominant
   enableBlur:       false,
   enableAnimations: false,
+  enableShadows:    false,    // minimum kaynak — hiçbir ek GPU pass
   loggingLevel:     'silent', // sıfır log — eMMC ömrü koruması
   suspendWorkers:   true,     // RAM krizi: VehicleCompute Worker durdurulur
 } as const);

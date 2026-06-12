@@ -11,7 +11,16 @@ import { useMediaState, togglePlayPause } from '../../platform/mediaService';
 // next/previous caros katmanından — kuyruk-farkında (in-app YouTube/stream/yerel parça değişimi).
 // mediaService'in native next/previous'ı yalnız harici MediaSession'ı sürer; in-app kuyruğu değiştirmez.
 import { next, previous } from '../../platform/media/carosMediaLayer';
-import { useOBDState } from '../../platform/obdService';
+import {
+  useOBDVehicleType,
+  useOBDFuelLevel,
+  useOBDEngineTemp,
+  useOBDRPM,
+  useOBDRange,
+  useOBDBatteryLevel,
+  useOBDBatteryTemp,
+  useOBDMotorPower,
+} from '../../platform/obdService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 import { useClock } from '../../hooks/useClock';
@@ -36,9 +45,12 @@ const BG = 'linear-gradient(160deg, #06101f 0%, #0a1628 35%, #091320 65%, #05101
 
 const GLASS_CARD: React.CSSProperties = {
   background: 'rgba(22,26,36,0.97)',
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
+  // --rt-blur=0 (Mali-400/BASIC_JS) → blur(0px) → GPU stall yok
+  backdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))',
+  WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 10px))',
   border: '1px solid var(--oem-accent-soft)',
+  // boxShadow CSS sınıfına taşındı (.perf-low * { box-shadow: none !important })
+  // High-end'de tam gölge; Mali-400'de index.css .perf-low kuralı sıfırlar.
   boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 1px 6px rgba(0,0,0,0.35)',
   borderRadius: 28,
 };
@@ -61,20 +73,23 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
-  const obd = useOBDState();
-  // EV'de ⛽ yakıt menzili anlamsız → ⚡ + araç-bildirimli batarya menzili (obd.range).
-  const isEV = obd.vehicleType === 'ev';
-  const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
-    ? Math.round((obd.fuelLevel / 100) * 750)
+  // Atomic selectors — her hook yalnızca kendi alanı değişince re-render tetikler.
+  const vehicleType = useOBDVehicleType();
+  const fuelLevel   = useOBDFuelLevel();
+  const rangeField  = useOBDRange();
+  // EV'de ⛽ yakıt menzili anlamsız → ⚡ + araç-bildirimli batarya menzili (rangeField).
+  const isEV = vehicleType === 'ev';
+  const fuelRange = fuelLevel != null && fuelLevel >= 0
+    ? Math.round((fuelLevel / 100) * 750)
     : null;
-  const rangeKm   = isEV ? (obd.range >= 0 ? obd.range : null) : fuelRange;
+  const rangeKm   = isEV ? (rangeField >= 0 ? rangeField : null) : fuelRange;
 
   return (
     <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
       style={{
         background: 'rgba(20,20,20,0.97)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
+        backdropFilter: 'blur(calc(var(--rt-blur, 1) * 8px))',
+        WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 8px))',
         borderBottom: '1px solid var(--oem-accent-soft)',
         boxShadow: '0 2px 12px rgba(0,0,0,0.30)',
       }}>
@@ -175,7 +190,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
 
       {/* Alt bar: Arama + Mikrofon + ETA */}
       <div className="flex-shrink-0 flex flex-col gap-2 p-2.5"
-        style={{ background: 'rgba(20,20,20,0.96)', backdropFilter: 'blur(8px)', borderTop: '1px solid var(--oem-accent-soft)' }}>
+        style={{ background: 'rgba(20,20,20,0.96)', backdropFilter: 'blur(calc(var(--rt-blur, 1) * 8px))', borderTop: '1px solid var(--oem-accent-soft)' }}>
         <div className="flex items-center gap-2">
           {/* Metin giriş alanı */}
           <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl"
@@ -238,29 +253,38 @@ function ETACell({ label, value, sub }: { label: string; value: string; sub: str
 
 /* ─── SPEED CARD ─────────────────────────────────────────────── */
 const SpeedCard = memo(function SpeedCard() {
-  const obd = useOBDState();
+  // Atomic selectors — her hook yalnızca kendi field'ı değişince re-render tetikler.
+  // useOBDState() kütlesel aboneliğini kaldırdık; 20Hz OBD poll'da tüm SpeedCard
+  // yeniden render edilmez, sadece değişen field'ı okuyan chip güncellenir.
+  const vehicleType  = useOBDVehicleType();
+  const rpm          = useOBDRPM();
+  const engineTemp   = useOBDEngineTemp();
+  const fuelLevel    = useOBDFuelLevel();
+  const batteryLevel = useOBDBatteryLevel();
+  const batteryTemp  = useOBDBatteryTemp();
+  const motorPower   = useOBDMotorPower();
 
   const rawSpeed = useUnifiedVehicleStore((s) => s.speed);
   const speedKmh = rawSpeed ?? 0;
 
   // Araç-tipi farkındalığı (Zero Redundancy): tam EV'de motor devri/sıcaklığı/
   // yakıt YOK → o chip'leri "--" ile gösterme, batarya chip'leriyle DEĞİŞTİR
-  // (BatterySoC / MotorPower / BatteryTemp). useOBDState reaktif → profil
+  // (BatterySoC / MotorPower / BatteryTemp). Atomic wrapper reaktif → profil
   // değişince anında uyarlanır. Hibrit/PHEV motorlu sayılır (RPM/yakıt gerçek).
-  const isEV = obd.vehicleType === 'ev';
+  const isEV = vehicleType === 'ev';
 
-  const rpmDisplay  = obd.rpm        < 0 ? '--' : Math.round(obd.rpm).toLocaleString();
-  const tempDisplay = obd.engineTemp < 0 ? '--' : `${Math.round(obd.engineTemp)}°C`;
-  const fuelDisplay = obd.fuelLevel  < 0 ? '--' : `${Math.round(obd.fuelLevel)}%`;
-  const tempWarnVal = obd.engineTemp >= 0 && obd.engineTemp > 100;
-  const fuelWarnVal = obd.fuelLevel  >= 0 && obd.fuelLevel  < 15;
+  const rpmDisplay  = rpm         < 0 ? '--' : Math.round(rpm).toLocaleString();
+  const tempDisplay = engineTemp  < 0 ? '--' : `${Math.round(engineTemp)}°C`;
+  const fuelDisplay = fuelLevel   < 0 ? '--' : `${Math.round(fuelLevel)}%`;
+  const tempWarnVal = engineTemp  >= 0 && engineTemp  > 100;
+  const fuelWarnVal = fuelLevel   >= 0 && fuelLevel   < 15;
 
   // EV chip değerleri
-  const socDisplay   = obd.batteryLevel < 0 ? '--' : `${Math.round(obd.batteryLevel)}%`;
-  const motorDisplay = obd.motorPower   < 0 ? '--' : `${Math.round(obd.motorPower)} kW`;
-  const batTempDisp  = obd.batteryTemp  < 0 ? '--' : `${Math.round(obd.batteryTemp)}°C`;
-  const socWarn      = obd.batteryLevel >= 0 && obd.batteryLevel < 15;
-  const batTempWarn  = obd.batteryTemp  >= 0 && obd.batteryTemp  > 45; // EV batarya termal eşik
+  const socDisplay   = batteryLevel < 0 ? '--' : `${Math.round(batteryLevel)}%`;
+  const motorDisplay = motorPower   < 0 ? '--' : `${Math.round(motorPower)} kW`;
+  const batTempDisp  = batteryTemp  < 0 ? '--' : `${Math.round(batteryTemp)}°C`;
+  const socWarn      = batteryLevel >= 0 && batteryLevel < 15;
+  const batTempWarn  = batteryTemp  >= 0 && batteryTemp  > 45; // EV batarya termal eşik
 
   const R = 90, cx = 115, cy = 120;
   const start = 135, span = 270;

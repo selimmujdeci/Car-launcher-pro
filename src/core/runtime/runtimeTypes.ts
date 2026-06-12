@@ -86,6 +86,13 @@ export interface RuntimeConfig {
   readonly enableAnimations: boolean;
 
   /**
+   * CSS box-shadow ve drop-shadow efektleri aktif mi?
+   * Mali-400'de her gölge kare başına ek kompozit katman → GPU overdraw.
+   * BASIC_JS ve SAFE_MODE'da kapatılır; high-end modlarda tam kalite.
+   */
+  readonly enableShadows: boolean;
+
+  /**
    * Çalışma zamanı log seviyesi.
    * crashLogger ve intentEngine bu değere göre filtreleme yapar.
    */

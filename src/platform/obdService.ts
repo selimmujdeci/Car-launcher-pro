@@ -1183,3 +1183,13 @@ export function useOBDFuelLevel(): number      { return useOBDField('fuelLevel')
 export function useOBDHeadlights(): boolean    { return useOBDField('headlights'); }
 /** Only re-renders when data source changes (real/mock/none). */
 export function useOBDSource(): OBDData['source'] { return useOBDField('source'); }
+/** Only re-renders when vehicle type changes (ice/diesel/ev/hybrid/phev). */
+export function useOBDVehicleType(): VehicleType  { return useOBDField('vehicleType'); }
+/** Only re-renders when battery SoC changes (EV/Hybrid). -1 = ICE only. */
+export function useOBDBatteryLevel(): number      { return useOBDField('batteryLevel'); }
+/** Only re-renders when battery temperature changes (EV/Hybrid). -1 = ICE only. */
+export function useOBDBatteryTemp(): number       { return useOBDField('batteryTemp'); }
+/** Only re-renders when estimated range changes. -1 = ICE only. */
+export function useOBDRange(): number             { return useOBDField('range'); }
+/** Only re-renders when motor power output changes (EV/Hybrid). -1 = not supported. */
+export function useOBDMotorPower(): number        { return useOBDField('motorPower'); }
