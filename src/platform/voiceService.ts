@@ -861,7 +861,13 @@ export function startListening(opts?: StartListeningOpts): void {
       duckMedia();
 
       CarLauncher.startSpeechRecognition({
-        preferOffline: true, onlineFallback: true, language: 'tr-TR', maxResults: 1,
+        // SAHA FİX 2026-06-12 ("telefonda %40 anlıyor"): STT doğruluğu Vosk küçük TR
+        // modeliyle sınırlı. İNTERNET VARSA yüksek doğruluklu online tanıma kullan;
+        // İNTERNETSİZ (head unit) cihaz-içi Vosk'a düş. Native tarafta da bu tercih
+        // yönlendiriliyor: preferOffline=false + Google mevcut → online; aksi halde Vosk.
+        // (onlineFallback artık çift yönlü: online koparsa Vosk yedeği devreye girer.)
+        preferOffline: !(typeof navigator !== 'undefined' && navigator.onLine),
+        onlineFallback: true, language: 'tr-TR', maxResults: 1,
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
         // Takip dinlemesi (sohbet modu) KISA pencere kullanır — sessizlikte hızlı idle.

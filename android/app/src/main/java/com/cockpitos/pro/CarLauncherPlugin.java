@@ -1468,9 +1468,20 @@ public class CarLauncherPlugin extends Plugin {
         long reqMaxMs = maxMsOpt != null ? maxMsOpt.longValue() : VOSK_MAX_LISTEN_MS_DEFAULT;
         voskMaxListenMs = Math.max(VOSK_MAX_LISTEN_MIN_MS, Math.min(VOSK_MAX_LISTEN_MAX_MS, reqMaxMs));
         voskDuckEnabled = !Boolean.FALSE.equals(call.getBoolean("duckWhileListening", Boolean.TRUE));
-        // KATMAN 1 — Önce Vosk (offline, Google'sız, cihaz-içi). Model yüklenemez/başlatılamazsa
-        // Google SpeechRecognizer'a (beginSpeechRecognition) düşülür — GMS'li cihazlarda yedek.
-        startVoskRecognition(language, maxResults, preferOffline, onlineFallback);
+        // YÖNLENDİRME (2026-06-12 saha: "telefonda %40 anlıyor") — Vosk küçük TR modeli
+        // araç-içinde yeterli ama telefonda online tanıma çok daha doğru:
+        //   • preferOffline=false + Google tanıma MEVCUT (telefon, internetli) → yüksek
+        //     doğruluklu ONLINE tanıma. Online ağ koparsa Vosk'a düşülür (onError → voskFallback).
+        //   • aksi halde (head unit/internetsiz ya da Google yok) → KATMAN 1 cihaz-içi Vosk.
+        //     Vosk modeli yüklenemezse voskFailed() eski mantıkla GMS'li cihazda online dener.
+        boolean googleAvailable = false;
+        try { googleAvailable = SpeechRecognizer.isRecognitionAvailable(getContext()); }
+        catch (Exception ignored) {}
+        if (!preferOffline && googleAvailable) {
+            beginSpeechRecognition(language, maxResults, false, false, onlineFallback);
+        } else {
+            startVoskRecognition(language, maxResults, preferOffline, onlineFallback);
+        }
     }
 
     /**
@@ -1480,9 +1491,11 @@ public class CarLauncherPlugin extends Plugin {
      *                         (head unit'lerde offline model yok → otomatik online'a düşülür).
      */
     private void beginSpeechRecognition(String language, int maxResults,
-                                        boolean preferOffline, boolean allowOnlineRetry) {
+                                        boolean preferOffline, boolean allowOnlineRetry,
+                                        boolean voskFallback) {
         final int     finalMaxResults    = maxResults;
         final boolean finalPreferOffline = preferOffline;
+        final boolean finalVoskFallback  = voskFallback;
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
                 if (speechRecognizer != null) {
@@ -1542,7 +1555,20 @@ public class CarLauncherPlugin extends Plugin {
                         if (allowOnlineRetry && finalPreferOffline && offlineMissing) {
                             destroySpeechRecognizer();
                             // savedSpeechCall KORUNUR — online denemesi aynı Promise'i çözer
-                            beginSpeechRecognition(language, finalMaxResults, false, false);
+                            beginSpeechRecognition(language, finalMaxResults, false, false, finalVoskFallback);
+                            return;
+                        }
+                        // Online tanıma SEÇİLDİ ama ağ koptu/sunucu/istemci hatası → cihaz-içi Vosk'a
+                        // düş (telefon: internet anlık kesilse bile cevapsız kalma). NO_MATCH/timeout
+                        // (kullanıcı konuştu ama anlaşılmadı) HARİÇ — onlarda yeniden dinleme açma.
+                        boolean onlineUnavailable = error == SpeechRecognizer.ERROR_NETWORK
+                                                 || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+                                                 || error == SpeechRecognizer.ERROR_CLIENT
+                                                 || error == SpeechRecognizer.ERROR_SERVER;
+                        if (finalVoskFallback && onlineUnavailable) {
+                            destroySpeechRecognizer();
+                            // savedSpeechCall KORUNUR — Vosk aynı Promise'i çözer
+                            startVoskRecognition(language, finalMaxResults, true, false);
                             return;
                         }
                         PluginCall c = savedSpeechCall;
@@ -1621,7 +1647,7 @@ public class CarLauncherPlugin extends Plugin {
         // sebebini (model yapısı/storage/ABI) gizler. Bu yüzden offline tercih edildiğinde
         // Google'a DÜŞME — gerçek Vosk sebebini bildir ki sorun teşhis edilebilsin.
         if (!preferOffline && googleAvailable && onlineFallback) {
-            beginSpeechRecognition(language, maxResults, preferOffline, onlineFallback);
+            beginSpeechRecognition(language, maxResults, preferOffline, onlineFallback, false);
         } else {
             rejectVosk("Vosk STT başlatılamadı — " + reason);
         }
