@@ -138,12 +138,13 @@ export const OSM_STYLE: maplibregl.StyleSpecification = {
     // OEM gece tonu: ham OSM raster'ı sıcak-koyu grafite indirger (--map-bg-1 #131822).
     { id: 'osm-tiles',  type: 'raster',     source: 'osm',
       paint: {
+        // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı (bkz. mapStyleBuilders).
         'raster-opacity': 1,
-        'raster-contrast': 0.5,
+        'raster-contrast': 0.42,
         'raster-brightness-min': 0,
-        'raster-brightness-max': 0.30,
-        'raster-saturation': -0.82,
-        'raster-hue-rotate': 25,
+        'raster-brightness-max': 0.62,
+        'raster-saturation': -0.55,
+        'raster-hue-rotate': 15,
       } },
   ],
 };
@@ -181,13 +182,13 @@ export const getOnlineTileStyle = (night = false): maplibregl.StyleSpecification
       source: 'map-tiles',
       paint: night
         ? {
-            // OEM sıcak grafit gece tonu — RASTER_PAINT_NIGHT ile birebir aynı
+            // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı
             'raster-opacity': 1,
-            'raster-contrast': 0.5,
+            'raster-contrast': 0.42,
             'raster-brightness-min': 0,
-            'raster-brightness-max': 0.30,
-            'raster-saturation': -0.82,
-            'raster-hue-rotate': 25,
+            'raster-brightness-max': 0.62,
+            'raster-saturation': -0.55,
+            'raster-hue-rotate': 15,
           }
         : {
             // Gündüz: ham OSM doğal açık renkleri — RASTER_PAINT_DAY ile birebir aynı

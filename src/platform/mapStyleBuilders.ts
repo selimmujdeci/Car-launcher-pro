@@ -389,13 +389,16 @@ export function buildVectorStyle(
 
 /** Raster (OSM) day/night paint setleri — applyMapDayNight canlı geçişte de bunu kullanır. */
 export const RASTER_PAINT_NIGHT = {
-  // OEM gece tonu: ham OSM raster'ı sıcak-koyu grafite indirger.
+  // OEM gece tonu — OKUNUR dimmed (saha 2026-06-13: "gece çok koyu, yazılar
+  // okunmuyor"). brightness-max 0.30→0.62: zemin orta-koyu gri (siyah değil),
+  // OSM'nin koyu etiketleri artık kontrastla okunur. Gündüzden belirgin daha
+  // sönük ama gözü yormayan, kullanıcının aydınlık-OEM tercihine uygun.
   'raster-opacity': 1,
-  'raster-contrast': 0.5,
+  'raster-contrast': 0.42,
   'raster-brightness-min': 0,
-  'raster-brightness-max': 0.30,
-  'raster-saturation': -0.82,
-  'raster-hue-rotate': 25,
+  'raster-brightness-max': 0.62,
+  'raster-saturation': -0.55,
+  'raster-hue-rotate': 15,
 } as const;
 export const RASTER_PAINT_DAY = {
   // Gündüz: ham OSM'nin doğal açık renkleri — hafif yumuşatma, koyulaştırma YOK.
