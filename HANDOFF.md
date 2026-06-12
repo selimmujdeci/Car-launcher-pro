@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `0cfd729`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `734d825`.
 
 ---
 
@@ -21,6 +21,19 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Single Brain mimarisi tamamlandı (2026-06-12, `734d825`):** sesli asistan
+  "Gemini-first tek beyin". voiceService refactor'u (kritik bypass →
+  Gemini-first → graceful fallback) zaten yazılmıştı; eksikler tamamlandı:
+  (1) `timeoutMs` ÖLÜ parametreydi — voiceService 2.5sn karar bütçesi
+  gönderiyordu ama `CompanionChatOpts`'ta alan yoktu, `askCompanionBrain` 6sn
+  sabit timeout kullanıyordu → "2.5sn'de timeout→fallback" fiilen çalışmıyordu;
+  `timeoutMs?` eklendi + fetch signal'ına clamp'li bağlandı. (2) BRAIN_SYSTEM_
+  PROMPT "TEK BEYİN + AKSİYON mu CHAT mi" açık vurgusu (No Dual Response).
+  (3) `CRITICAL_VOICE_TYPES`=volume_up/down+stop_music yalnız 1.0'da yerelde,
+  gerisi beyne. (4) `companionConversationLoop` testleri eski "yerel dispatch"
+  mimarisinden Single Brain ACTION'a güncellendi (+`pause_music`→`stop_music`).
+  No-Dead-Ends reask'a dokunulmadı (test-kilitli). Suite 1213/1213, tsc+build
+  temiz. Detay: PROJECT_STATE "Single Brain". **Cihazda doğrulanacak.**
 - **Navigasyon saha fix paketi (2026-06-12, `0fcac44`):** sürüş testi raporu
   üzerine — rota ilerlemesi mapStyleReady kapısından çıktı (donma kökü),
   kat edilen rota kırpma + kademeli sesli yönlendirme (500m/200m/şimdi)

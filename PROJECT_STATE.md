@@ -8,7 +8,36 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `0cfd729`; Faz 5 `7c674dc`'de commit'lendi)
+- **Aktif branch:** `main` (HEAD `734d825`; Single Brain tamamlama)
+
+## Single Brain Mimarisi Tamamlandı (2026-06-12, `734d825`)
+
+Kullanıcı isteği: sesli asistanı "Gemini-first tek beyin" mimarisine indir.
+Refactor'un büyük kısmı (`voiceService.processTextCommand`: kritik bypass →
+Gemini-first → graceful fallback) çalışma ağacında ZATEN yazılmıştı; eksik/
+yarım kalan parçalar tamamlandı (klasik niyet≠gerçek):
+1. **`timeoutMs` ÖLÜ parametreydi (asıl kusur):** voiceService beyne 2.5sn
+   karar bütçesi (`BRAIN_DECISION_TIMEOUT_MS`) gönderiyordu ama
+   `CompanionChatOpts`'ta alan YOKTU ve `askCompanionBrain` sabit
+   `GEMINI_TIMEOUT_MS=6000` kullanıyordu → task'ın "2.5sn'de timeout→yerel
+   fallback" şartı FİİLEN ÇALIŞMIYORDU (6sn blokluyordu). `timeoutMs?` alanı
+   eklendi + fetch signal'ına clamp'li (≤6sn tavan) bağlandı.
+2. **BRAIN_SYSTEM_PROMPT açık vurgu:** "Sen bu aracın TEK BEYNİSİN (Single
+   Brain) — arkanda parser/ikinci asistan YOK" + "TEK KARAR: AKSİYON mu CHAT
+   mi, yalnız birini döndür" (No Dual Response prompt katmanında).
+3. **Kritik refleks bypass:** `CRITICAL_VOICE_TYPES` = volume_up/down +
+   stop_music (= MEDIA_PAUSE/STOP). YALNIZ bunlar 1.0 güvende Gemini
+   beklenmeden yerelde çalışır; diğer her girdi (1.0 olsa bile) önce beyne.
+4. **Testler eski mimariye göreydi (3 fail → düzeltildi):**
+   `companionConversationLoop` "net komut yerelde dispatch" beklentisindeydi;
+   Single Brain'de komut beyin ACTION kararıyla gelir (`actionResult` helper).
+   "müziği kapat" testi var olmayan `pause_music` yerine gerçek `stop_music`
+   (kritik bypass) tipini kullanıyor.
+**No-Dead-Ends reask'a DOKUNULMADI** (test-kilitli `companionChat.test.ts`:
+online çöküş+offline yok → kişiliğe uygun tekrar-rica; task'la çelişmiyor).
+Doğrulama: tsc temiz · **1213/1213 test** · production build OK. **Cihazda
+doğrulanacak:** internetli ortamda gerçek Gemini karar gecikmesi (2.5sn
+bütçe içinde mi), yavaş ağda yerel fallback'e zamanında düşme.
 
 ## Asistan Sağırlığı Fix Paketi 2 (2026-06-12, `be63735`)
 
