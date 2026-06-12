@@ -10,6 +10,7 @@ import {
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
+import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
@@ -128,8 +129,21 @@ function CardLabel({ children }: { children: React.ReactNode }) {
 const StatusCluster = memo(function StatusCluster() {
   const p = usePal();
   const device = useDeviceStatus();
+  // Living theme — bağlantı ekseni: online → yeşil nabız (.lt-pulse), offline →
+  // soluk statik nokta. .lt-pulse Mali-400/static tier'da otomatik durur (index.css
+  // guard'ı) → K24'te solid yeşil nokta, kasma yok.
+  const online = useLivingThemeState().conn === 'online';
   return (
     <div className="flex items-center gap-2.5" style={{ color: p.ink2 }}>
+      <span
+        className={online ? 'lt-pulse' : undefined}
+        aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
+        style={{
+          width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+          background: online ? '#34d399' : p.ink2,
+          opacity:    online ? 1 : 0.4,
+        }}
+      />
       <Bluetooth className="w-3.5 h-3.5" />
       <div className="flex items-end gap-[2px] h-3.5">
         {[4, 7, 10, 13].map((h, i) => (
