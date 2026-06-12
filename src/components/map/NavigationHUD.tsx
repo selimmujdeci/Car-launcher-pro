@@ -13,7 +13,7 @@
 import '../../styles/ultra-premium-global.css';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import {
-  memo, useState, useCallback, useEffect, useRef, type ReactNode,
+  memo, useState, useCallback, useEffect, useRef, useMemo, type ReactNode,
 } from 'react';
 import {
   MapPin, Home, Briefcase, Fuel, ChevronDown, Star, Plus, Trash2,
@@ -36,6 +36,9 @@ import {
 import type { RouteStep } from '../../platform/routingService';
 import { useStore } from '../../store/useStore';
 import { useGPSLocation } from '../../platform/gpsService';
+// TEK MESAFE KAYNAĞI: tüm km gösterimleri (Benzinlik/İş/Ev/Özel) bu kanonik
+// haversine'den beslenir — GPS alt sistemiyle (fusionCore/speedCore) AYNI fonksiyon.
+import { _haversineMeters } from '../../platform/gps/gpsMath';
 import { speakNavigation } from '../../platform/ttsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
@@ -1337,9 +1340,15 @@ const PreviewCard = memo(function PreviewCard({
 /* ── QuickCard & QuickDestinations ───────────────────────── */
 /* ══════════════════════════════════════════════════════════ */
 
-function QuickCard({ icon, label, color, onTap, disabled = false, active = false }: {
-  icon: ReactNode; label: string; color: string; onTap: () => void; disabled?: boolean; active?: boolean;
+function QuickCard({ icon, label, color, onTap, disabled = false, active = false, distanceM = null }: {
+  icon: ReactNode; label: string; color: string; onTap: () => void;
+  disabled?: boolean; active?: boolean;
+  /** Bulunduğun yere kuş-uçuşu mesafe (metre) — formatDistance ile gösterilir. null = gizle. */
+  distanceM?: number | null;
 }) {
+  // Tek format kaynağı (formatDistance) — PreviewCard/rota ETA ile AYNI gösterim.
+  const km = (distanceM != null && Number.isFinite(distanceM) && distanceM >= 0)
+    ? formatDistance(distanceM) : null;
   return (
     <button
       onClick={onTap}
@@ -1353,6 +1362,11 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
     >
       <span className="flex-shrink-0">{icon}</span>
       <span className="text-[10px] font-black uppercase tracking-wider text-slate-200 truncate max-w-[90px]">{label}</span>
+      {km && (
+        <span className="ml-auto pl-1.5 text-[10px] font-black tabular-nums whitespace-nowrap" style={{ color }}>
+          {km}
+        </span>
+      )}
     </button>
   );
 }
@@ -1364,14 +1378,6 @@ const _FUEL_MAX_MS = 7 * 24 * 60 * 60 * 1000; // 7 gün
 
 interface _FuelItem { name: string; lat: number; lon: number; }
 interface _FuelCache { items: _FuelItem[]; cachedAt: number; }
-
-function _fuelHav(la1: number, lo1: number, la2: number, lo2: number): number {
-  const R = 6_371_000;
-  const dLa = (la2 - la1) * Math.PI / 180;
-  const dLo = (lo2 - lo1) * Math.PI / 180;
-  const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * Math.PI / 180) * Math.cos(la2 * Math.PI / 180) * Math.sin(dLo / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 function _saveFuelCache(items: _FuelItem[]): void {
   // safeStorage: eMMC throttle + kota/LRU koruması (5s debounce — DEĞİŞTİRİLMEDİ).
@@ -1385,7 +1391,7 @@ function _nearestCached(lat: number, lon: number): (_FuelItem & { fromCache: tru
     const c = JSON.parse(raw) as _FuelCache;
     if (!c.items?.length || Date.now() - c.cachedAt > _FUEL_MAX_MS) return null;
     const best = c.items.reduce((a, b) =>
-      _fuelHav(lat, lon, a.lat, a.lon) <= _fuelHav(lat, lon, b.lat, b.lon) ? a : b,
+      _haversineMeters(lat, lon, a.lat, a.lon) <= _haversineMeters(lat, lon, b.lat, b.lon) ? a : b,
     );
     return { ...best, fromCache: true as const };
   } catch { return null; }
@@ -1408,7 +1414,7 @@ async function findNearbyFuel(
       name: el.tags?.name || 'Benzin İstasyonu', lat: el.lat, lon: el.lon,
     }));
     _saveFuelCache(items);
-    return items.reduce((a, b) => _fuelHav(lat, lon, a.lat, a.lon) <= _fuelHav(lat, lon, b.lat, b.lon) ? a : b);
+    return items.reduce((a, b) => _haversineMeters(lat, lon, a.lat, a.lon) <= _haversineMeters(lat, lon, b.lat, b.lon) ? a : b);
   } catch {
     return _nearestCached(lat, lon);
   }
@@ -1438,6 +1444,26 @@ const QuickDestinations = memo(function QuickDestinations({
   const [fuelError, setFuelError]     = useState('');
   const [customOpen, setCustomOpen]   = useState(false);
   const [addError, setAddError]       = useState('');
+
+  // ── Hızlı hedef km'leri — TEK kaynak (_haversineMeters) + TEK format (formatDistance) ──
+  // Kuş-uçuşu (düz çizgi) mesafe; rota mesafesi değil. GPS yoksa null → km gizlenir.
+  const homeDistM = useMemo(
+    () => (gpsLat != null && gpsLon != null && homeLocation)
+      ? _haversineMeters(gpsLat, gpsLon, homeLocation.lat, homeLocation.lng) : null,
+    [gpsLat, gpsLon, homeLocation],
+  );
+  const workDistM = useMemo(
+    () => (gpsLat != null && gpsLon != null && workLocation)
+      ? _haversineMeters(gpsLat, gpsLon, workLocation.lat, workLocation.lng) : null,
+    [gpsLat, gpsLon, workLocation],
+  );
+  // Benzinlik: en yakın ÖNBELLEKTEKİ istasyona mesafe (ağ çağrısı yok). Önbellek yoksa
+  // (ilk kullanım) null → kullanıcı bir kez Benzinlik'e basınca cache dolar, km belirir.
+  const fuelDistM = useMemo(() => {
+    if (gpsLat == null || gpsLon == null) return null;
+    const f = _nearestCached(gpsLat, gpsLon);
+    return f ? _haversineMeters(gpsLat, gpsLon, f.lat, f.lon) : null;
+  }, [gpsLat, gpsLon, fuelLoading]);
 
   const navigate = useCallback((dest: Address) => {
     startNavigation(dest);
@@ -1505,15 +1531,18 @@ const QuickDestinations = memo(function QuickDestinations({
       <div className="flex flex-col gap-1">
         <QuickCard
           icon={fuelLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Fuel className="w-3.5 h-3.5" />}
-          label="Benzinlik" color="#E0A23C" onTap={handleFuel} disabled={!gpsLat || fuelLoading} />
+          label="Benzinlik" color="#E0A23C" onTap={handleFuel} disabled={!gpsLat || fuelLoading}
+          distanceM={fuelDistM} />
         {workLocation ? (
           <QuickCard icon={<Briefcase className="w-3.5 h-3.5" />} label="İş" color="#E0A23C"
+            distanceM={workDistM}
             onTap={() => navigate({ id: 'work', name: 'İş', latitude: workLocation.lat, longitude: workLocation.lng, type: 'history', category: 'work' })} />
         ) : (
           <QuickCard icon={<Briefcase className="w-3.5 h-3.5" />} label="İş Ayarla" color="#475569" onTap={setWork} disabled={!gpsLat} />
         )}
         {homeLocation ? (
           <QuickCard icon={<Home className="w-3.5 h-3.5" />} label="Ev" color="#E0A23C"
+            distanceM={homeDistM}
             onTap={() => navigate({ id: 'home', name: 'Ev', latitude: homeLocation.lat, longitude: homeLocation.lng, type: 'history', category: 'home' })} />
         ) : (
           <QuickCard icon={<Home className="w-3.5 h-3.5" />} label="Ev Ayarla" color="#475569" onTap={setHome} disabled={!gpsLat} />
@@ -1636,6 +1665,12 @@ const QuickDestinations = memo(function QuickDestinations({
                       </span>
                     </div>
                   </button>
+                  {/* Km — aynı kanonik kaynak (_haversineMeters) + format (formatDistance) */}
+                  {gpsLat != null && gpsLon != null && (
+                    <span className="text-[10px] font-black tabular-nums whitespace-nowrap flex-shrink-0" style={{ color: '#E0A23C' }}>
+                      {formatDistance(_haversineMeters(gpsLat, gpsLon, loc.lat, loc.lng))}
+                    </span>
+                  )}
                   <button
                     onClick={() => removeCustomLocation(loc.id)}
                     aria-label="Sil"
