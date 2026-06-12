@@ -24,7 +24,6 @@ import { useRouteState } from '../../platform/routingService';
 import { TeslaLayout } from '../themes/TeslaLayout';
 import { ExpeditionLayout } from '../themes/ExpeditionLayout';
 import { HorizonLayout } from '../themes/HorizonLayout';
-import { CockpitLayout } from '../themes/CockpitLayout';
 import { ProLayout } from '../themes/ProLayout';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 
@@ -464,9 +463,6 @@ export const NewHomeLayout = memo(function NewHomeLayout({
   }
   if (base === 'tesla') {
     return <TeslaLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
-  }
-  if (base === 'cockpit') {
-    return <CockpitLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
   if (base === 'pro') {
     return <ProLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} onOpenRearCam={onOpenRearCam} onOpenDashcam={onOpenDashcam} smart={smart} />;

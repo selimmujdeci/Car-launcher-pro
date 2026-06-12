@@ -137,7 +137,6 @@ const THEME_OPTIONS: ThemeOpt[] = [
   { id: 'expedition', dn: 'night', label: 'EXPEDITION NIGHT', sub: 'Pas · Gece',   accent: '#F2871C', preview: 'linear-gradient(135deg,#2c2216,#0f0c09)', emblem: true },
   { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', preview: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)' },
   { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#0a0c10,#12151d)' },
-  { id: 'cockpit',  label: 'COCKPIT',  sub: 'Glass Cockpit',    accent: '#00B4D8', preview: 'linear-gradient(135deg,#050a10,#0a1628)' },
 ];
 
 function ThemePanel() {

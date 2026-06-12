@@ -57,17 +57,6 @@ const PRESETS: Record<string, ThemeToken> = {
     fontFamily: 'system', fontWeight: 400, letterSpacing: 0,
     iconNav: '#E31937', iconMedia: '#FFFFFF', iconDock: '#E31937',
   },
-  cockpit: {
-    name: 'COCKPIT', baseTheme: 'cockpit',
-    accentPrimary: '#00D4FF', accentSecondary: '#0050FF',
-    bgPrimary: '#05080E', bgCard: 'rgba(5,15,30,0.90)',
-    textPrimary: '#E8F4FF', textSecondary: '#5A7A9A',
-    borderColor: 'rgba(0,212,255,0.25)', glowColor: 'rgba(0,212,255,0.20)',
-    radiusCard: 20, radiusBtn: 10, radiusTile: 16, radiusDock: 16,
-    cardBlurPx: 28, glowIntensity: 80,
-    fontFamily: 'exo2', fontWeight: 700, letterSpacing: 1,
-    iconNav: '#00D4FF', iconMedia: '#00D4FF', iconDock: '#00D4FF',
-  },
 };
 
 const LS_KEY = 'caros-theme-studio';

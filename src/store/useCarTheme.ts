@@ -10,16 +10,15 @@ import { persist } from 'zustand/middleware';
  * - pro: Glass Pro — düşük güçlü ARM + Hiworld
  * - sunlight: Güneş altı optimizasyon (açık hava)
  *
- * Arşivlenen temalar (kodda durur, UI'da gösterilmez):
- * - cockpit: Cockpit immersive → pro ile birleştirildi
+ * Arşivlenen tema (kodda durur, UI'da gösterilmez):
  * - oled: Pure black → pro ile birleştirildi
  *
- * KALDIRILDI (v2): mercedes, audi — silindi; persist migration güvenli liman
- * 'expedition'a taşır (aşağıdaki migrate + onRehydrateStorage VALID kontrolü).
+ * KALDIRILDI: mercedes, audi (v2) + cockpit (v3) — layout'ları silindi; persist
+ * migration güvenli liman 'expedition'a taşır (migrate + onRehydrateStorage VALID).
  */
 
 export type CoreTheme = 'tesla' | 'pro' | 'sunlight' | 'expedition' | 'horizon';
-export type LegacyTheme = 'cockpit' | 'oled';
+export type LegacyTheme = 'oled';
 
 export type BaseTheme = CoreTheme | LegacyTheme;
 export type CarTheme =
@@ -121,9 +120,10 @@ export const useCarTheme = create<CarThemeState>()(
     }),
     {
       name: 'car-launcher-theme',
-      version: 2,
+      version: 3,
       // v1: varsayılan tema 'pro' → 'expedition' (ana tema) oldu.
-      // v2: 'mercedes' ve 'audi' temaları KALDIRILDI → güvenli liman 'expedition'
+      // v2: 'mercedes' ve 'audi' temaları KALDIRILDI → güvenli liman 'expedition'.
+      // v3: 'cockpit' teması KALDIRILDI → güvenli liman 'expedition'
       //     (silinen layout'lar render edilemez; beyaz ekran önlenir).
       // Kullanıcının bilinçli seçtiği DİĞER temalar (tesla/horizon...) KORUNUR.
       // Not: persisted.theme'i string olarak ele al — kaldırılan literal'ler artık
@@ -132,21 +132,20 @@ export const useCarTheme = create<CarThemeState>()(
         const s = persisted as { theme?: string } | undefined;
         if (s && typeof s.theme === 'string') {
           if (s.theme === 'pro' || s.theme === 'pro-day') s.theme = 'expedition';
-          if (/^(mercedes|audi)(-day)?$/.test(s.theme)) s.theme = 'expedition';
+          if (/^(mercedes|audi|cockpit)(-day)?$/.test(s.theme)) s.theme = 'expedition';
         }
         return s as CarThemeState;
       },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         // Tüm geçerli temalar (core + legacy — kullanıcı eski temayı seçtiyse koru).
-        // mercedes/audi KALDIRILDI → listede yok; migrate atlanırsa bu kontrol de
-        // (her yüklemede çalışır) onları 'expedition'a düşürür (ikinci güvenlik ağı).
+        // mercedes/audi/cockpit KALDIRILDI → listede yok; migrate atlanırsa bu kontrol
+        // de (her yüklemede çalışır) onları 'expedition'a düşürür (ikinci güvenlik ağı).
         const VALID: CarTheme[] = [
           'tesla', 'pro', 'sunlight', 'expedition', 'horizon',
           'tesla-day', 'pro-day', 'expedition-day', 'horizon-day',
-          // Legacy themes — backward compatibility
-          'cockpit', 'oled',
-          'cockpit-day', 'oled-day',
+          // Legacy theme — backward compatibility
+          'oled', 'oled-day',
         ];
         if (!VALID.includes(state.theme)) state.theme = 'expedition';
         // Migration: gündüz yöneticisi eskiden temayı zorla 'sunlight' yapıyordu
