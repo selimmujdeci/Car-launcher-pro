@@ -772,7 +772,15 @@ export function _applyRouteGeometry(
         type: 'line',
         source: ALT_SRC,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#94a3b8', 'line-width': 6, 'line-opacity': 0.50 },
+        // SAHA FİX 2026-06-12 ("alternatif rotayı Google/Yandex gibi göster"): eski gri
+        // 0.50 opacity + sabit 6px ana rotanın altında kayboluyordu. Belirgin + zoom-ölçekli
+        // (görünürlük + dokunma hedefi büyür); ana mavi rotanın ARKASINDA kalır, tıklanınca
+        // selectAltRoute ile seçilir (car-route-alt-fill click köprüsü).
+        paint: {
+          'line-color':   '#9aa6ba',
+          'line-width':   ['interpolate', ['linear'], ['zoom'], 12, 5, 16, 9, 18, 13],
+          'line-opacity': 0.9,
+        },
       } as any);
     } else {
       (map.getSource(ALT_SRC) as any).setData(altData);
