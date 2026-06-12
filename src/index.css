@@ -667,6 +667,68 @@ html.theme-switching * {
   animation-duration:      0.1s !important;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   LIVING THEME — Mali-400 GÜVENLİ canlılık utility'leri (opt-in, Commit 2)
+
+   Yalnız `transform` + `opacity` animasyonu (compositor-only: paint/reflow YOK).
+   Henüz hiçbir component bu class'ları kullanmaz → görsel etki sıfır; bu commit
+   yalnız ALTYAPI + guard'ları kurar. 3 animasyon kademesi (useLivingThemeState
+   `level` ile aynı mantık, ama burada MEVCUT DOM sinyallerinden — yeni attribute
+   gerektirmez):
+
+     full    — varsayılan: yavaş döngü (24-30fps yeter)
+     reduced — prefers-reduced-motion: pulse yavaşlar, wave durur
+     static  — data-compat-mode (K24/tier=low) VEYA data-runtime BASIC_JS/
+               POWER_SAVE/SAFE_MODE → HİÇ döngü animasyonu
+
+   Mevcut kill-switch'lerle (body.performance-mode * / [data-compat-mode] *)
+   ÇAKIŞMAZ — onları pekiştirir. Özellikle [data-compat-mode] *'ın
+   animation-duration:0.1s infinite "flicker"ını explicit `none` ile ezer.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes lt-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+@keyframes lt-wave {
+  0%, 100% { transform: scaleY(0.45); }
+  50%      { transform: scaleY(1); }
+}
+
+/* full (varsayılan) — hafif, yavaş döngü. will-change KULLANILMAZ (Mali-400 layer
+   bütçesi sınırlı; transform/opacity animasyonu zaten otomatik promote olur). */
+.lt-pulse { animation: lt-pulse 2.4s ease-in-out infinite; }
+.lt-wave > * {
+  transform-origin: center bottom;
+  animation: lt-wave 1.1s ease-in-out infinite;
+}
+.lt-wave > *:nth-child(2) { animation-delay: 0.18s; }
+.lt-wave > *:nth-child(3) { animation-delay: 0.36s; }
+
+/* reduced — prefers-reduced-motion: pulse yavaşlar (tek nazik nabız), wave durur. */
+@media (prefers-reduced-motion: reduce) {
+  .lt-pulse    { animation-duration: 4s; }
+  .lt-wave > * { animation: none; transform: scaleY(0.7); }
+}
+
+/* static — K24/compat veya düşük runtime modları: HİÇ döngü. Sinyaller zaten
+   DOM'da (headUnitCompat → data-compat-mode; AdaptiveRuntimeManager → data-runtime).
+   Class-seçici özgüllüğü universal kill-switch'i geçer → flicker bastırılır. */
+[data-compat-mode="true"] .lt-pulse,
+[data-runtime="BASIC_JS"]  .lt-pulse,
+[data-runtime="POWER_SAVE"] .lt-pulse,
+[data-runtime="SAFE_MODE"]  .lt-pulse {
+  animation: none !important;
+  opacity: 1;
+}
+[data-compat-mode="true"] .lt-wave > *,
+[data-runtime="BASIC_JS"]  .lt-wave > *,
+[data-runtime="POWER_SAVE"] .lt-wave > *,
+[data-runtime="SAFE_MODE"]  .lt-wave > * {
+  animation: none !important;
+  transform: scaleY(0.7);
+}
+
 /* ── MediaHub: progress shimmer ─────────────────────────────── */
 @keyframes progressShimmer {
   0%   { left: -2rem; }
