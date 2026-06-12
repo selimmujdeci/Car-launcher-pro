@@ -6,8 +6,9 @@
  * Sıcaklık kaynakları (öncelik sırasıyla):
  *   1. injectDeviceTemp() — native plugin entegrasyonu (CarLauncher gelecek sürüm)
  *   2. OBD batteryTemp   — EV akü paketi (araç içi sıcaklık proxy)
- *   3. OBD engineTemp    — motor soğutma suyu
- *   4. Battery API       — şarj durumu heuristic (sıcaklık yoksa)
+ *   3. Battery API       — şarj durumu heuristic (sıcaklık yoksa)
+ *   NOT (2026-06-11): OBD engineTemp kaynak DEĞİLDİR — motor suyu (90-105°C)
+ *   cihaz ısısı sanılıp head unit'i kalıcı L2/L3 kısıtlamaya sokuyordu.
  *
  * Kademeler ve histerezis:
  *   Giriş:  ≥45°C → L1  |  ≥55°C → L2  |  ≥65°C → L3
@@ -474,12 +475,14 @@ function _subscribeOBD(): void {
     // EV akü paketi → cihaz ısısı için en alakalı kaynak
     if (data.batteryTemp != null && data.batteryTemp > 0) {
       _applyTemp(data.batteryTemp, 'obd_battery');
-      return;
     }
-    // Motor soğutma suyu (ICE) — araç kaynaklı sıcaklık
-    if (data.engineTemp > 0) {
-      _applyTemp(data.engineTemp, 'obd_engine');
-    }
+    // PERF/DOĞRULUK 2026-06-11: engineTemp ZİNCİRDEN ÇIKARILDI. Motor soğutma
+    // suyu (ICE normalde 90-105°C) CİHAZIN sıcaklığı değildir — L1 eşiği 45°C
+    // olduğundan her sağlıklı motor head unit'i kalıcı L2/L3 termal kısıtlamaya
+    // sokuyor, FPS/işlev kısıtları "10 sn kilitlenme" olarak yaşanıyordu.
+    // Cihaz ısısı kaynakları: injectDeviceTemp (native) + batteryTemp (EV paketi
+    // proxy) + Battery API heuristic. Motor sıcaklığı yalnız gösterge/uyarı
+    // katmanlarının işidir (companionContext.interpretEngineTempConcern vb.).
   });
 }
 

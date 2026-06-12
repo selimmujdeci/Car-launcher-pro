@@ -72,13 +72,13 @@ describe('T3 — AdaptiveRuntimeManager cleanup', () => {
     const m = forceMode(RuntimeMode.BALANCED);
     const restarts: string[] = [];
     m.setZombieRestartCallback((key) => restarts.push(key));
-    m.start(); // zombie ping interval (10s)
+    m.start(); // zombie ping interval (30s — PERF 2026-06-11: postMessage trafiği azaltıldı)
 
     const zombie = makeMockWorker(); // PONG göndermez → ölü
     m.registerWorker('VisionCompute', zombie.worker, 'OPTIONAL');
 
     // 4 ping döngüsü: 3 PING (miss 1→3), 4. tikte zombie tespiti
-    vi.advanceTimersByTime(10_000 * 4 + 100);
+    vi.advanceTimersByTime(30_000 * 4 + 100);
 
     expect(restarts).toContain('VisionCompute');
     expect(zombie.posted).toContainEqual({ type: 'PING' });

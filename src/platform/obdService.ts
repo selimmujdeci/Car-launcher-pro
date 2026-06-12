@@ -30,7 +30,6 @@ import {
 import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { findBestObdDevice } from './obdDiscovery';
 import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
@@ -636,24 +635,18 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     candidate = { name: 'OBD Adaptörü', address: _lastKnownAddress };
     _merge({ connectionState: 'connecting', deviceName: candidate.name });
   } else {
-    // İlk bağlantı veya adres bilinmiyor — full scan gerekli
-    _merge({ connectionState: 'scanning' });
-    const { devices } = await CarLauncher.scanOBD();
-
-    if (_stale()) { void _removeNativeHandles(); return; }
-
-    candidate = findBestObdDevice(devices);
-
-    if (!candidate) {
-      emitObdDiag('scan', 'OBD_NO_DEVICE', {
-        ..._diagCommon(),
-        attempts:  _reconnectAttempts,
-        elapsedMs: performance.now() - _diagT0,
-        msg:       'Eşleşmiş OBD adaptörü bulunamadı',
-      });
-      throw new Error('Eşleşmiş OBD adaptörü bulunamadı');
-    }
-    _merge({ connectionState: 'connecting', deviceName: candidate.name });
+    // PERF 2026-06-11: kayıtlı adres YOKKEN otomatik scanOBD() KALDIRILDI.
+    // Açılışta tetiklenen BT INQUIRY (10-30 s) GPS jitter + A2DP glitch +
+    // Capacitor Bridge tıkanması = "Latency Death" yaratıyordu. İlk bağlantı
+    // HER ZAMAN kullanıcı eylemiyle kurulur: OBDConnectModal taraması →
+    // startOBD(address) → adres persist → sonraki açılışlar direct-reconnect.
+    emitObdDiag('scan', 'OBD_NO_DEVICE', {
+      ..._diagCommon(),
+      attempts:  _reconnectAttempts,
+      elapsedMs: performance.now() - _diagT0,
+      msg:       'Kayıtlı OBD adresi yok — otomatik tarama atlandı (manuel bağlantı gerekli)',
+    });
+    throw new Error('Kayıtlı OBD adresi yok — Ayarlar → OBD Bağlantısı\'ndan cihaz seçin');
   }
 
   // 2. Register disconnect / error listener — set handle immediately to ensure cleanup

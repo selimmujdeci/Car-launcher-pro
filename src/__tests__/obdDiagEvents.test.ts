@@ -124,18 +124,20 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/* ═══ 1. SCAN FAIL ════════════════════════════════════════════ */
+/* ═══ 1. ADRES YOK — OTOMATİK TARAMA YASAK (PERF 2026-06-11) ══ */
 
-describe('scan fail', () => {
-  it('eşleşmiş cihaz yok → obd_diag phase=scan, OBD_NO_DEVICE', async () => {
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [] });
-    startOBD();
+describe('kayıtlı adres yok', () => {
+  it('otomatik scanOBD ÇAĞRILMAZ → obd_diag phase=scan, OBD_NO_DEVICE (manuel bağlantı gerekli)', async () => {
+    startOBD(); // adres verilmedi + kayıtlı adres yok
 
     await vi.waitFor(() => expect(diagsOf('scan')).toHaveLength(1));
     const d = diagsOf('scan')[0]!;
     expect(d.errorCode).toBe('OBD_NO_DEVICE');
     expect(d.ctx).toBe('OBD');
     expect(typeof d.elapsedMs).toBe('number');
+    // PERF sözleşmesi: açılışta BT INQUIRY tetiklenmez (GPS jitter + A2DP glitch
+    // + Bridge tıkanması). İlk bağlantı OBDConnectModal → startOBD(address) ile.
+    expect(vi.mocked(CarLauncher.scanOBD)).not.toHaveBeenCalled();
   });
 });
 
@@ -143,9 +145,9 @@ describe('scan fail', () => {
 
 describe('connect fail', () => {
   it('her iki transport reddeder → obd_diag phase=connect; transport/protocol doğru', async () => {
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
+    // PERF 2026-06-11 sözleşmesi: otomatik tarama yok → testler adresle bağlanır
     vi.mocked(CarLauncher.connectOBD).mockRejectedValue(new Error('GATT bağlantı reddetti'));
-    startOBD();
+    startOBD(DEVICE.address);
 
     await vi.waitFor(() => expect(diagsOf('connect')).toHaveLength(1));
     const d = diagsOf('connect')[0]!;
@@ -157,9 +159,8 @@ describe('connect fail', () => {
   });
 
   it('payload\'da MAC / cihaz adı / adres YOK', async () => {
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
     vi.mocked(CarLauncher.connectOBD).mockRejectedValue(new Error('reddetti'));
-    startOBD();
+    startOBD(DEVICE.address);
 
     await vi.waitFor(() => expect(diagsOf('connect')).toHaveLength(1));
     const flat = JSON.stringify(M.diags);
@@ -169,9 +170,8 @@ describe('connect fail', () => {
   });
 
   it('duplicate suppression: peş peşe ikinci hata turu yeni event üretmez', async () => {
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
     vi.mocked(CarLauncher.connectOBD).mockRejectedValue(new Error('reddetti'));
-    startOBD();
+    startOBD(DEVICE.address);
     await vi.waitFor(() => expect(diagsOf('connect')).toHaveLength(1));
 
     // Aynı pencere içinde ikinci tam tur (DirectConnect yolu — servis çalışıyor)
@@ -186,10 +186,9 @@ describe('connect fail', () => {
 
 describe('handshake fail', () => {
   it('performHandshake reddeder → obd_diag phase=handshake', async () => {
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
     vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
     CL['performHandshake'] = vi.fn().mockRejectedValue(new Error('ELM327 yanıt yok'));
-    startOBD();
+    startOBD(DEVICE.address);
 
     await vi.waitFor(() => expect(diagsOf('handshake')).toHaveLength(1));
     const d = diagsOf('handshake')[0]!;
@@ -204,9 +203,8 @@ describe('handshake fail', () => {
 describe('data gate fail', () => {
   it('bağlandı ama PID gelmedi → obd_diag phase=data_gate', async () => {
     vi.useFakeTimers();
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
     vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
-    startOBD();
+    startOBD(DEVICE.address);
 
     // connect zinciri (mikro-task) + gate timeout'u ilerlet
     await vi.advanceTimersByTimeAsync(10);
@@ -224,9 +222,8 @@ describe('data gate fail', () => {
 describe('başarılı bağlantı', () => {
   it('veri akışı gate\'i geçer → HİÇBİR obd_diag gönderilmez', async () => {
     vi.useFakeTimers();
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
     vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
-    startOBD();
+    startOBD(DEVICE.address);
 
     await vi.advanceTimersByTimeAsync(10); // connect zinciri tamamlansın
     expect(M.listeners['obdData']).toBeTypeOf('function');
@@ -243,9 +240,8 @@ describe('başarılı bağlantı', () => {
 describe('stale data', () => {
   it('akış kesilir → obd_diag phase=stale_data', async () => {
     vi.useFakeTimers();
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({ devices: [DEVICE] });
     vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
-    startOBD();
+    startOBD(DEVICE.address);
 
     await vi.advanceTimersByTimeAsync(10);
     M.listeners['obdData']!({ speed: 42, rpm: 1800 }); // connected + watchdog başlar

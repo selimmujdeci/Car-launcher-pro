@@ -234,9 +234,10 @@ describe('obdService — native modu, connectOBD zaman aşımı', () => {
     const states: string[] = [];
     const unsub = onOBDData((d) => { states.push(d.connectionState); });
 
-    startOBD();
+    // PERF 2026-06-11 sözleşmesi: otomatik tarama yok → adresle direct-connect
+    startOBD('00:11:22:33:44:55');
 
-    // scanOBD + addListener Promise'lerini çöz (mikro-task flush)
+    // addListener Promise'lerini çöz (mikro-task flush)
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -310,8 +311,9 @@ describe('obdService — onOBDData listener yönetimi', () => {
 describe('obdService — stopOBD mid-flight koruma (generation guard)', () => {
   beforeEach(() => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    // scanOBD asla resolve etmez → _startNative() BT tarama aşamasında askıda
-    vi.mocked(CarLauncher.scanOBD).mockImplementation(() => new Promise(() => {}));
+    // PERF 2026-06-11: otomatik tarama yok → askı noktası artık connectOBD.
+    // connectOBD asla resolve etmez → _startNative() bağlantı aşamasında askıda
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {}));
   });
   afterEach(() => {
     stopOBD();
@@ -322,7 +324,8 @@ describe('obdService — stopOBD mid-flight koruma (generation guard)', () => {
     const states: string[] = [];
     const unsub = onOBDData((d) => states.push(d.connectionState));
 
-    startOBD(); // _startNative() başlar, scanOBD'de askıda
+    startOBD('00:11:22:33:44:55'); // _startNative() başlar, connectOBD'de askıda
+    await Promise.resolve();
     await Promise.resolve();
     stopOBD(); // generation++ → in-flight call geçersiz
 
@@ -409,16 +412,14 @@ describe('obdService — native modu, reconnect backoff', () => {
 
     // connectOBD başarıyla tamamlanır
     vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
-    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({
-      devices: [{ name: 'ELM327', address: 'AA:BB:CC:DD:EE:FF' }],
-    });
 
     const states: string[] = [];
     const unsub = onOBDData((d) => states.push(d.connectionState));
 
-    startOBD();
+    // PERF 2026-06-11 sözleşmesi: otomatik tarama yok → adresle direct-connect
+    startOBD('AA:BB:CC:DD:EE:FF');
 
-    // scanOBD → addListener×2 → connectOBD → 'initializing' (2s warmup başlar)
+    // addListener×2 → connectOBD → 'initializing' (2s warmup başlar)
     for (let i = 0; i < 6; i++) await Promise.resolve();
 
     // Fix 3 uyumlu: 2s ısınma deadline'ını geç, ardından veri kapısını aç

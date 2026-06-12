@@ -563,8 +563,11 @@ class SystemBoot {
     // Vosk STT modelini boot sonrası arka planda ısıt — eskiden ilk mikrofon
     // basışında unpack+load (zayıf head unit CPU'sunda 20-40 sn) ödeniyor,
     // JS failsafe 14 sn'de pes edip "Dinliyorum"da takılı kalıyordu.
-    // 8 sn gecikme: boot I/O'su ile yarışmasın. Fail-soft: preload başarısız
-    // olsa da ilk basışta normal yol (artık kuyruklu) devreye girer.
+    // PERF 2026-06-11: 8 sn → 30 sn. 8 sn'de model unpack'i hâlâ süren boot
+    // I/O'su + ilk render + OBD/CAN bağlantısıyla yarışıp Capacitor Bridge'i
+    // tıkıyordu (10 sn'lik UI kilitlenmeleri). 30 sn'de sistem oturmuş olur.
+    // AWAIT EDİLMEZ (fire-and-forget): boot zinciri AI modeli beklemez.
+    // Fail-soft: preload başarısız olsa da ilk basışta normal yol (kuyruklu) çalışır.
     if (isNative) {
       const voskWarmTimer = setTimeout(() => {
         try {
@@ -572,7 +575,7 @@ class SystemBoot {
             .then(() => _log('  › Vosk model preloaded ✓'))
             .catch((e: unknown) => logError('SystemBoot:VoskPreload', e));
         } catch (e) { logError('SystemBoot:VoskPreload', e); }
-      }, 8_000);
+      }, 30_000);
       this._reg(() => clearTimeout(voskWarmTimer));
     }
 

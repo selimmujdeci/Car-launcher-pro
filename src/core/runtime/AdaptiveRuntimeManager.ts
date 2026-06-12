@@ -42,8 +42,12 @@ const MODE_RANK: Readonly<Record<RuntimeMode, number>> = {
 const UPGRADE_DELAY_MS   = 30_000; // 30 saniye stabilite penceresi
 /** Termal kısıtlama recovery için aynı süre (soğuma 30s stabil kaldıktan sonra kısıt kaldırılır) */
 const THERMAL_RECOVERY_MS = 30_000;
-/** Zombie Detection: worker'lara PING gönderme aralığı */
-const ZOMBIE_PING_INTERVAL_MS = 10_000;
+/** Zombie Detection: worker'lara PING gönderme aralığı.
+ *  PERF 2026-06-11: 10s → 30s. Zayıf head unit'te her PING bir postMessage
+ *  round-trip'i = main thread + worker uyanışı; 10 sn'lik kilitlenme
+ *  dönemlerinde gereksiz trafik ekliyordu. Tespit penceresi 30s×3=90s'e
+ *  çıkar — zombie worker zaten dakikalar mertebesinde bir arıza durumudur. */
+const ZOMBIE_PING_INTERVAL_MS = 30_000;
 /** Zombie Detection: art arda kaç PING yanıtsız kalırsa worker zombie sayılır */
 const ZOMBIE_MAX_MISSES = 3;
 

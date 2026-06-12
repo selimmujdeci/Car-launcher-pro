@@ -55,7 +55,11 @@ export interface PerfConfig {
 const CONFIG: Record<PerformanceMode, PerfConfig> = {
   lite: {
     obdPollInterval: 30_000,       // every 30s
-    obdListenerDebounce: 10_000,   // at most every 10s
+    // PERF 2026-06-11: 10_000 → 1_500. 10 sn debounce zayıf head unit'te
+    // "Latency Death" yaratıyordu: hız/devir göstergeleri 10 sn donuk kalıyor,
+    // kullanıcı kilitlenme sanıyordu. 1.5 sn hâlâ lite-dostu (≤0.7 Hz bildirim)
+    // ama gösterge canlı hissettirir.
+    obdListenerDebounce: 1_500,    // at most every 1.5s
     recCooldownMs: 5 * 60_000,     // 5 min
     uiTransitionMs: 50,            // very light
     themeTransitionMs: 100,        // very light theme fade

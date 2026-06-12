@@ -63,13 +63,13 @@ describe('T4 — runtime zombie detection', () => {
     const m = forceMode(RuntimeMode.BALANCED);
     const restarts: string[] = [];
     m.setZombieRestartCallback((k) => restarts.push(k));
-    m.start(); // zombie ping interval (10s)
+    m.start(); // zombie ping interval (30s — PERF 2026-06-11: postMessage trafiği azaltıldı)
 
     const zombie = makeMockWorker(); // PONG göndermez → ölü
     m.registerWorker('VisionCompute', zombie.worker, 'OPTIONAL');
 
     // 4 tik: PING×3 (miss 1→3), 4. tik zombie tespiti + terminate dispatch
-    await clock.advance(SECONDS(10) * 4 + 100);
+    await clock.advance(SECONDS(30) * 4 + 100);
     const pinged   = zombie.posted.some((p) => (p as { type?: string }).type === 'PING');
     const stopped  = zombie.posted.some((p) => (p as { type?: string }).type === 'STOP');
     await clock.advance(600); // 500ms terminate-confirm timer
@@ -99,10 +99,10 @@ describe('T4 — runtime zombie detection', () => {
     const handler = (m as unknown as { _workerMsgHandlers: Map<string, (e: MessageEvent) => void> })
       ._workerMsgHandlers.get('VisionCompute');
 
-    // 10 tik boyunca her seferinde PONG enjekte et
+    // 10 tik boyunca her seferinde PONG enjekte et (tik = 30s ping aralığı)
     for (let i = 0; i < 10; i++) {
       handler?.({ data: { type: 'PONG' } } as MessageEvent);
-      await clock.advance(SECONDS(10));
+      await clock.advance(SECONDS(30));
     }
     const stillAlive = m.getWorkers().get('VisionCompute')?.worker;
 
