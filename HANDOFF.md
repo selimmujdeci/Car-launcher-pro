@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-11. Branch: `main`. HEAD: `45facfa`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `0cfd729`.
 
 ---
 
@@ -21,8 +21,17 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
-- **Companion Faz 5 Native Refleksler / Grammar Wake (2026-06-11, working
-  tree — COMMIT BEKLİYOR):** wake word native kalıcı grammar thread'ine
+- **Head Unit "Latency Death" fix paketi (2026-06-12, `5687d9a`+`0cfd729`):**
+  kullanıcının "her butona basınca 5 sn" şikayetine kök neden paketi.
+  (1) thermalWatchdog motor suyu sıcaklığını cihaz ısısı sanıp KALICI L2/L3
+  termal kısıt uyguluyordu → engineTemp zincirden çıktı. (2) Açılışta adres
+  yokken otomatik BT INQUIRY kaldırıldı (ilk bağlantı modal'dan). (3) lite
+  obdListenerDebounce 10s→1.5s, zombie PING 10s→30s, Vosk preload 8s→30s.
+  (4) Kalıcı wake Vosk thread'leri THREAD_PRIORITY_BACKGROUND (UI ile
+  yarışmaz). Suite 1213/1213 + Java compile temiz. **Cihazda doğrulanmadı —
+  cihazdaki APK'da fix'ler YOK, yeni APK kullanıcı isteyince.**
+- **Companion Faz 5 Native Refleksler / Grammar Wake (2026-06-11,
+  `7c674dc`):** wake word native kalıcı grammar thread'ine
   taşındı (Vosk yalnız wake sözleri + [unk]; runVoskListening'e dokunulmadı).
   Partial sonuçla <200ms refleks (`wakeWord` event), pasif modda duck/audio-
   focus YOK (müzik tam kalite), half-duplex (TTS/aktif STT'de mikrofon

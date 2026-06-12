@@ -2,15 +2,41 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-06-11.
+> Son güncelleme: 2026-06-12.
 
 ---
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `2939055`+; 2026-06-11 Faz 5 Native Refleksler — commit bekliyor)
+- **Aktif branch:** `main` (HEAD `0cfd729`; Faz 5 `7c674dc`'de commit'lendi)
 
-## Companion Faz 5 — Native Refleksler / Grammar Wake (2026-06-11, working tree — COMMIT BEKLİYOR)
+## Head Unit "Latency Death" Fix Paketi (2026-06-12, `5687d9a` + `0cfd729`)
+
+Kullanıcı şikayeti: "her butona basınca en az 5 sn bekliyorum". İki commit:
+- **`5687d9a` (önceki oturumun working tree'de KALMIŞ perf fix'leri commit'lendi
+  + testler uyarlandı):**
+  - thermalWatchdog: OBD **engineTemp cihaz ısısı kaynağı DEĞİL** — sağlıklı
+    motor suyu (90-105°C) 45°C L1 eşiğini sürekli aşıp head unit'i KALICI
+    L2/L3 termal kısıtlamaya sokuyordu (en olası kök neden).
+  - obdService: kayıtlı adres yokken otomatik scanOBD kaldırıldı (BT INQUIRY
+    10-30 sn → GPS jitter + A2DP glitch + Bridge tıkanması). İlk bağlantı
+    HER ZAMAN OBDConnectModal → `startOBD(address)`.
+  - performanceMode lite: obdListenerDebounce 10s→1.5s · ARM zombie PING
+    10s→30s · SystemBoot Vosk preload 8s→30s.
+  - Testler yeni sözleşmeye uyarlandı (obdDiagEvents/obdService: adresle
+    direct-connect, `scanOBD` çağrılmadığı assert edilir). Suite 1213/1213.
+- **`0cfd729` (yeni):** kalıcı wake grammar thread'i (Faz 5) + pasif wake
+  polling oturumları (duck:false) `THREAD_PRIORITY_BACKGROUND`'a alındı —
+  default öncelikli sürekli Vosk decode WebView ana thread'iyle yarışıyordu.
+  Aktif asistan oturumu (duck:true, kısa) default öncelikte kalır.
+  Java compile temiz.
+**Cihazda doğrulanacak:** dokunma gecikmesi (termal kısıt kalkınca), wake
+isabeti (BACKGROUND öncelikte decode yetişiyor mu), OBD ilk bağlantı akışı
+(modal'dan adres seçimi → persist → sonraki boot direct-reconnect).
+**NOT:** Cihazdaki APK'da bu fix'lerin HİÇBİRİ yok — yeni APK gerekecek
+(kullanıcı isteyince).
+
+## Companion Faz 5 — Native Refleksler / Grammar Wake (2026-06-11, `7c674dc`)
 
 Wake word algılama JS polling döngüsünden NATIVE, kalıcı, grammar-kısıtlı Vosk
 thread'ine taşındı (mevcut `runVoskListening`'e DOKUNULMADI — mimari §6):
@@ -41,7 +67,7 @@ lint + `gradlew compileDebugJavaWithJavac` temiz.
 isabeti, refleks gecikmesi (<200ms hedef), müzik çalarken pasif dinlemenin
 müziği hiç kısmaması, TTS sırasında kendini tetiklememe.
 
-## Companion Faz 4 — Proaktif Motor + Uyku Önleyici (2026-06-11, working tree — COMMIT BEKLİYOR)
+## Companion Faz 4 — Proaktif Motor + Uyku Önleyici (2026-06-11, `2939055`)
 
 YENİ `companionEngine.ts` (PromptScheduler, mimari §5) + SystemBoot Wave 4 kaydı
 (`CompanionEngine` named cleanup, VoiceService'ten sonra):
@@ -65,7 +91,7 @@ Test +21 (`companionEngine.test.ts`) → suite **1206/1206** · tsc + lint temiz
 **Cihazda doğrulanacak:** boot selamlaması zamanlaması (Vosk preload/boot TTS ile
 çakışma), gece uzun sürüşte uyku sorusu, müzik çalarken yalnız yakıt uyarısı.
 
-## Companion Faz 3 — Şive Dostu Birleşik Beyin (2026-06-11, working tree — COMMIT BEKLİYOR)
+## Companion Faz 3 — Şive Dostu Birleşik Beyin (2026-06-11, `33b61ec`)
 
 `companionChatProvider.ts` beyin katmanı (tryCompanionBrain + buildBrainSystemPrompt):
 - **Persona Integration:** kişilik beynin EN TEPESİNDE (`BRAIN_PERSONA_ROLE`) —
