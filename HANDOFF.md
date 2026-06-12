@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `f37c160`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `7bc1b07`.
 
 ---
 
@@ -21,6 +21,12 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Cockpit teması silindi (2026-06-12, `7bc1b07`):** Mercedes/Audi ile aynı desen.
+  CockpitLayout.tsx silindi; useCarTheme LegacyTheme/VALID/migrate (v2→v3,
+  cockpit→expedition) + NewHomeLayout/SettingsPage/website ThemeStudio temizlendi.
+  Kapsam dışı: themeLayoutEngine/MagicCardVariant/dead CSS/K24 paket-adı. tsc EXIT 0,
+  1231/1231. Aktif temalar: expedition·horizon·tesla·pro·sunlight. **Cihazda
+  doğrulanacak.**
 - **Mercedes/Audi temaları silindi (2026-06-12, `f37c160`):** 2 layout dosyası
   + tüm TS referansları kaldırıldı; persist v1→v2 migration mercedes/audi→
   expedition (gerçek alan `theme`, string-cast; + onRehydrateStorage VALID ikinci

@@ -8,7 +8,25 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `f37c160`; Mercedes/Audi tema silme)
+- **Aktif branch:** `main` (HEAD `7bc1b07`; Cockpit tema silme)
+
+## Cockpit Teması Silindi (2026-06-12, `7bc1b07`)
+
+Mercedes/Audi ile AYNI desen — kullanıcı isteği üzerine cockpit de kaldırıldı.
+**Silinen:** `themes/CockpitLayout.tsx`.
+- **useCarTheme.ts:** `LegacyTheme`'den 'cockpit' çıktı ('oled' kaldı); VALID'ten
+  cockpit/cockpit-day çıktı; persist `version 2→3`; migrate regex
+  `/^(mercedes|audi|cockpit)(-day)?$/→expedition` (gerçek alan `theme`, string-cast).
+  İki güvenlik ağı (migrate + VALID) → beyaz ekran yok.
+- **NewHomeLayout:** import + if-bloğu kaldırıldı. **SettingsPage:** THEME_OPTIONS
+  -cockpit. **website ThemeStudio:** PRESETS -COCKPIT.
+- **KAPSAM DIŞI (false match / ayrı sistem):** `themeLayoutEngine` LayoutVariant
+  'cockpit' (ThemePack/bmw); `MagicCardVariant` 'cockpit' (iç preset, zararsız ölü);
+  `[data-theme="cockpit"]` CSS + base.css yorumu (erişilmez); `K24CanBridge.java`
+  `p.contains("cockpit")` (paket adı `com.cockpitos.pro` — ALAKASIZ).
+Doğrulama: `tsc` EXIT 0 · **1231/1231** · build OK. Aktif tema seçenekleri artık:
+expedition (day/night) · horizon · tesla · pro · sunlight. **Cihazda doğrulanacak:**
+cockpit kullanıcısı boot'ta expedition'a düşmeli.
 
 ## Mercedes + Audi Temaları Silindi (2026-06-12, `f37c160`)
 
