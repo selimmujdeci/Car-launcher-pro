@@ -29,9 +29,12 @@ vi.mock('../platform/gpsService', () => ({
 vi.mock('../platform/routingService', () => ({
   getRouteState: () => ({ geometry: null, totalDistanceMeters: 0, totalDurationSeconds: 0 }),
 }));
+// Araç-tipi kontrolü (EV yetenek notu testi için; varsayılan ICE veri seti).
+const OBD = vi.hoisted(() => ({ vehicleType: 'ice' as string }));
 vi.mock('../platform/obdService', () => ({
   onOBDData: (cb: (d: Record<string, unknown>) => void) => {
     cb({
+      vehicleType: OBD.vehicleType,
       speed: 50, rpm: 2000, engineTemp: 88, fuelLevel: 23,
       fuelRemainingL: 11, estimatedRangeKm: 143, range: -1,
       batteryVoltage: 13.8, batteryLevel: -1, chargingState: 'not_charging',
@@ -444,6 +447,30 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(prompt).toContain('120 kilometre');                 // canlı mesafe
     expect(prompt).toContain('yüzde 23');                      // yakıt yorumu da hâlâ var (World View bütün)
     TRIP.current = null;
+  });
+
+  it('Vehicle-Aware — EV: Gemini\'ye "RPM/yakıt YOK, uydurma" yetenek notu girer', async () => {
+    setupCompanion(true);
+    OBD.vehicleType = 'ev';
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Tamam.' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await tryCompanionBrain('menzilim ne kadar', GEMINI_OPTS);
+
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('TAM ELEKTRİKLİ');                // EV yetenek notu
+    expect(prompt).toContain('ASLA bahsetme');                 // olmayan özellikten bahsetme (Zero Redundancy)
+    OBD.vehicleType = 'ice';
+  });
+
+  it('Vehicle-Aware — ICE: yetenek notu girmez (gereksiz prompt gürültüsü yok)', async () => {
+    setupCompanion(true);
+    OBD.vehicleType = 'ice';
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Tamam.' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await tryCompanionBrain('nasılsın', GEMINI_OPTS);
+
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).not.toContain('TAM ELEKTRİKLİ');            // ICE'de EV notu yok
   });
 
   it('geçersiz intent / bozuk JSON → offline fallback zinciri (sohbet)', async () => {

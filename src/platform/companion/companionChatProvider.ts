@@ -129,6 +129,23 @@ export function _resetCompanionChatForTest(): void {
 /* ── Yorumlanmış araç bağlamı (HAM VERİ DEĞİL) ──────────────── */
 
 /**
+ * Araç-tipi YETENEK notu — Gemini'ye aracın FİZİKSEL OLARAK SAHİP OLMADIĞI
+ * özelliği söyler (Zero Redundancy: olmayan özellikten bahsetme/uydurma).
+ * Tip profilden gelir (setObdVehicleType), canlı OBD gerekmez. Turbo notu YOK:
+ * boostPressure<0 "turbo yok" demek değildir (adaptör desteklemiyor olabilir) →
+ * yanlış iddia üretmemek için yalnız güvenilir tip ayrımı (EV/hibrit) kullanılır.
+ */
+function vehicleCapabilityNote(vt?: string): string {
+  if (vt === 'ev') {
+    return 'ARAÇ ÖZELLİĞİ (önemli): Bu TAM ELEKTRİKLİ (EV) bir araç — motor devri (RPM), motor sıcaklığı ve benzin/yakıt YOK. Bunlardan ASLA bahsetme veya değer uydurma; menzili ve enerjiyi batarya şarjı (%) üzerinden konuş.';
+  }
+  if (vt === 'hybrid' || vt === 'phev') {
+    return 'ARAÇ ÖZELLİĞİ: Bu HİBRİT bir araç — hem motor (RPM/yakıt) hem batarya verisi olabilir; yalnız MEVCUT olandan bahset, olmayan için veri uydurma.';
+  }
+  return '';
+}
+
+/**
  * OBD anlık verisini Commit 2 yorumlayıcılarından geçirip insan dili
  * bağlam cümlesi üretir. OBD yoksa/bozuksa boş string (prompt'a girmez).
  * Tek seferlik abone ol/ayrıl deseni: offlineConversationEngine.carSnapshot
@@ -136,9 +153,11 @@ export function _resetCompanionChatForTest(): void {
  */
 function buildInterpretedVehicleContext(): string {
   const parts: string[] = [];
+  let vehicleType: string | undefined;
   // (1) OBD: yakıt + motor sıcaklığı (yorumlanmış — ham veri DEĞİL).
   try {
     const unsub = onOBDData((d) => {
+      vehicleType = d.vehicleType;
       const rangeKm = d.estimatedRangeKm >= 0 ? d.estimatedRangeKm
                     : (d.range >= 0 ? d.range : undefined);
       const fuel = interpretFuel(d.fuelLevel, rangeKm);
@@ -157,7 +176,10 @@ function buildInterpretedVehicleContext(): string {
       if (t) parts.push(t);
     }
   } catch { /* trip servisi yok — süresiz bağlam */ }
-  return parts.join(' ');
+  // (3) Araç-tipi yetenek notu — olmayan özellik (EV'de RPM/yakıt) için Gemini'yi
+  //     yapısal olarak susturur. EV'de canlı yorum boş olsa bile not eklenir.
+  const note = vehicleCapabilityNote(vehicleType);
+  return note ? [note, ...parts].join(' ') : parts.join(' ');
 }
 
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */

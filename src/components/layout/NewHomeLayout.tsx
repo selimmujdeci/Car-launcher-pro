@@ -2,7 +2,7 @@ import { memo, useState, lazy, Suspense, useRef, useCallback, useMemo } from 're
 import {
   Search, Grid3X3, Navigation,
   SkipBack, SkipForward, Play, Pause, MapPin,
-  Gauge, Thermometer, Fuel, Zap, Mic,
+  Gauge, Thermometer, Fuel, Zap, Mic, BatteryCharging,
 } from 'lucide-react';
 import { DockBar } from './DockBar';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
@@ -65,9 +65,12 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
   const { time, date } = useClock(use24Hour, false);
   const device = useDeviceStatus();
   const obd = useOBDState();
+  // EV'de ⛽ yakıt menzili anlamsız → ⚡ + araç-bildirimli batarya menzili (obd.range).
+  const isEV = obd.vehicleType === 'ev';
   const fuelRange = obd.fuelLevel != null && obd.fuelLevel >= 0
     ? Math.round((obd.fuelLevel / 100) * 750)
     : null;
+  const rangeKm   = isEV ? (obd.range >= 0 ? obd.range : null) : fuelRange;
 
   return (
     <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
@@ -95,7 +98,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
       <div className="flex items-center gap-2">
         <HPill emoji="☀️" value="21°C" label="Güneşli" />
         <HPill emoji="🔋" value={device.ready ? `${device.battery}%` : '—'} label="Batarya" />
-        <HPill emoji="⛽" value={fuelRange != null ? `${fuelRange} km` : '— km'} label="Menzil" />
+        <HPill emoji={isEV ? '⚡' : '⛽'} value={rangeKm != null ? `${rangeKm} km` : '— km'} label="Menzil" />
       </div>
 
       {/* Sağ: Eylem butonları */}
@@ -243,11 +246,24 @@ const SpeedCard = memo(function SpeedCard() {
   const rawSpeed = useUnifiedVehicleStore((s) => s.speed);
   const speedKmh = rawSpeed ?? 0;
 
+  // Araç-tipi farkındalığı (Zero Redundancy): tam EV'de motor devri/sıcaklığı/
+  // yakıt YOK → o chip'leri "--" ile gösterme, batarya chip'leriyle DEĞİŞTİR
+  // (BatterySoC / MotorPower / BatteryTemp). useOBDState reaktif → profil
+  // değişince anında uyarlanır. Hibrit/PHEV motorlu sayılır (RPM/yakıt gerçek).
+  const isEV = obd.vehicleType === 'ev';
+
   const rpmDisplay  = obd.rpm        < 0 ? '--' : Math.round(obd.rpm).toLocaleString();
   const tempDisplay = obd.engineTemp < 0 ? '--' : `${Math.round(obd.engineTemp)}°C`;
   const fuelDisplay = obd.fuelLevel  < 0 ? '--' : `${Math.round(obd.fuelLevel)}%`;
   const tempWarnVal = obd.engineTemp >= 0 && obd.engineTemp > 100;
   const fuelWarnVal = obd.fuelLevel  >= 0 && obd.fuelLevel  < 15;
+
+  // EV chip değerleri
+  const socDisplay   = obd.batteryLevel < 0 ? '--' : `${Math.round(obd.batteryLevel)}%`;
+  const motorDisplay = obd.motorPower   < 0 ? '--' : `${Math.round(obd.motorPower)} kW`;
+  const batTempDisp  = obd.batteryTemp  < 0 ? '--' : `${Math.round(obd.batteryTemp)}°C`;
+  const socWarn      = obd.batteryLevel >= 0 && obd.batteryLevel < 15;
+  const batTempWarn  = obd.batteryTemp  >= 0 && obd.batteryTemp  > 45; // EV batarya termal eşik
 
   const R = 90, cx = 115, cy = 120;
   const start = 135, span = 270;
@@ -318,11 +334,21 @@ const SpeedCard = memo(function SpeedCard() {
         </div>
       </div>
 
-      {/* Data row */}
+      {/* Data row — araç tipine göre 3 chip (flex-1 → her zaman tam dolu görünür) */}
       <div className="flex gap-2 px-4 pb-4 flex-shrink-0 relative z-10">
-        <DataChip Icon={Gauge}       label="RPM"      value={rpmDisplay}  color="#E0A23C"                                    warn={false} />
-        <DataChip Icon={Thermometer} label="SICAKLIK" value={tempDisplay} color={tempWarnVal ? '#ef4444' : '#fb923c'} warn={tempWarnVal} />
-        <DataChip Icon={Fuel}        label="YAKIT"    value={fuelDisplay} color={fuelWarnVal ? '#ef4444' : '#34d399'} warn={fuelWarnVal} />
+        {isEV ? (
+          <>
+            <DataChip Icon={Zap}             label="MOTOR"   value={motorDisplay} color="#E0A23C" warn={false} />
+            <DataChip Icon={Thermometer}     label="AKÜ ISI" value={batTempDisp}  color={batTempWarn ? '#ef4444' : '#fb923c'} warn={batTempWarn} />
+            <DataChip Icon={BatteryCharging} label="ŞARJ"    value={socDisplay}   color={socWarn ? '#ef4444' : '#34d399'} warn={socWarn} />
+          </>
+        ) : (
+          <>
+            <DataChip Icon={Gauge}       label="RPM"      value={rpmDisplay}  color="#E0A23C"                            warn={false} />
+            <DataChip Icon={Thermometer} label="SICAKLIK" value={tempDisplay} color={tempWarnVal ? '#ef4444' : '#fb923c'} warn={tempWarnVal} />
+            <DataChip Icon={Fuel}        label="YAKIT"    value={fuelDisplay} color={fuelWarnVal ? '#ef4444' : '#34d399'} warn={fuelWarnVal} />
+          </>
+        )}
       </div>
     </div>
   );
