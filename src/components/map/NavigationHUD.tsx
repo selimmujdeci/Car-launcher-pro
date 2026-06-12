@@ -1287,8 +1287,9 @@ const PreviewCard = memo(function PreviewCard({
         <div className="flex gap-3 mb-3">
           {hasAlts ? (
             <button
-              onClick={() => altsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
-              className="flex-1 py-3.5 rounded-2xl text-slate-300 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
+              onClick={onStart}
+              disabled={!routeReady || !gpsValid}
+              className="flex-1 py-3.5 rounded-2xl text-slate-300 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Rota Seç
             </button>

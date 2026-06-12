@@ -453,7 +453,10 @@ export function buildSatelliteStyle(): StyleSpecification {
     sources: {
       'satellite-tiles': {
         type: 'raster',
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        // SAHA FİX 2026-06-12: ham https → caros-tile:// protokolü. Capacitor Android
+        // WebView MapLibre'nin iç XHR'ını (CORS/mixed-content) blokluyordu → uydu boş
+        // geliyordu. Yol karoları gibi caros-tile JS fetch()'ten geçer + LRU cache.
+        tiles: ['caros-tile://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         tileSize: 256,
         attribution: '© Esri',
         // maxzoom 17: ESRI World_Imagery bazı bölgelerde z18-19'da görüntüye sahip değil →
@@ -476,7 +479,10 @@ export function buildHybridStyle(): StyleSpecification {
     sources: {
       'satellite-tiles': {
         type: 'raster',
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        // SAHA FİX 2026-06-12: ham https → caros-tile:// protokolü. Capacitor Android
+        // WebView MapLibre'nin iç XHR'ını (CORS/mixed-content) blokluyordu → uydu boş
+        // geliyordu. Yol karoları gibi caros-tile JS fetch()'ten geçer + LRU cache.
+        tiles: ['caros-tile://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         tileSize: 256,
         attribution: '© Esri',
         // bkz. buildSatelliteStyle — ESRI placeholder karosunu önlemek için over-zoom
@@ -484,11 +490,8 @@ export function buildHybridStyle(): StyleSpecification {
       },
       'road-overlay': {
         type: 'raster',
-        tiles: [
-          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        ],
+        // caros-tile:// — WebView XHR bloklamasını aşar (yukarıdaki uydu notu).
+        tiles: ['caros-tile://tile.openstreetmap.org/{z}/{x}/{y}.png'],
         tileSize: 256,
         attribution: '© OpenStreetMap contributors',
         maxzoom: 19,
