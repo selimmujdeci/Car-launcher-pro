@@ -27,6 +27,7 @@ import {
   updateDrivingLayers,
   setRouteGeometry,
   clearRouteGeometry,
+  trimRouteGeometry,
   setTurnFocus,
   clearTurnFocus,
   setMapStyleChanging,
@@ -51,6 +52,7 @@ import {
 import { useVisionStore } from '../../platform/visionStore';
 import {
   useNavigation, updateNavigationProgress, getSnappedMarkerPosition,
+  getRouteProgressPoint,
   setNavStatus, NavStatus, activateNavigation, stopNavigation, startNavigation,
   getNavigationState,
 } from '../../platform/navigationService';
@@ -134,6 +136,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const autoFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drivingModeRef  = useRef(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
+  // Kat edilen rota kırpma durumu — yalnız segment index / geometri değişince setData
+  const lastTrimSegRef    = useRef(-1);
+  const lastTrimGeomRef   = useRef<[number, number][] | null>(null);
   const routeAltRef       = useRef<[number, number][][]>([]);
   const routeAltIdxRef    = useRef<number[]>([]);
   const routeAltDursRef   = useRef<number[]>([]);
@@ -273,15 +278,6 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         buffer.push(newPoint);
         if (buffer.length > 2) buffer.shift();
 
-        // Rota ilerlemesini gerçek GPS tick'inde güncelle (yalnız ACTIVE/REROUTING).
-        if (destinationRef.current) {
-          const _navStatusNow = getNavigationState().status;
-          if (_navStatusNow === NavStatus.ACTIVE || _navStatusNow === NavStatus.REROUTING) {
-            updateRouteProgress(loc.latitude, loc.longitude);
-            updateNavigationProgress(loc.latitude, loc.longitude, loc.heading ?? 0, routeGeometryRef.current ?? undefined);
-          }
-        }
-
         // Hız bazlı katman gizleme + POI proximity — queryRenderedFeatures pahalı, 2s throttle
         const nowMs = performance.now();
         if (mapRef.current && nowMs - lastDrivingLayersMs.current > 2_000) {
@@ -294,6 +290,33 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         if (mapRef.current) {
           const { globalRiskScore } = useHazardStore.getState();
           updateMapMood(mapRef.current, globalRiskScore);
+        }
+      }
+
+      // 2b) Rota ilerlemesi — HARİTA STİLİNDEN BAĞIMSIZ (saha fix 2026-06-12).
+      //     Eskiden mapStyleReadyRef kapısının İÇİNDEYDİ: stil bayrağı takılırsa
+      //     adım sayacı/mesafe/ses/kırpma topluca donuyordu (GPS rozeti canlıyken).
+      //     İlerleme hesabı haritaya ihtiyaç duymaz — her geçerli fix'te çalışır.
+      if (loc && destinationRef.current) {
+        const _navStatusNow = getNavigationState().status;
+        if (_navStatusNow === NavStatus.ACTIVE || _navStatusNow === NavStatus.REROUTING) {
+          updateRouteProgress(loc.latitude, loc.longitude);
+          updateNavigationProgress(loc.latitude, loc.longitude, loc.heading ?? 0, routeGeometryRef.current ?? undefined);
+
+          // Kat edilen rotayı kırp: snapped noktadan İLERİYE kalan geometri çizilir.
+          // Yalnız segment index veya geometri (reroute) değişince setData — Mali-400 dostu.
+          const _prog = getRouteProgressPoint();
+          const _geom = routeGeometryRef.current;
+          if (_prog && _geom && _geom.length >= 2 && mapRef.current &&
+              (_prog.segIdx !== lastTrimSegRef.current || _geom !== lastTrimGeomRef.current)) {
+            lastTrimSegRef.current  = _prog.segIdx;
+            lastTrimGeomRef.current = _geom;
+            const _remaining: [number, number][] = [
+              [_prog.lon, _prog.lat],
+              ..._geom.slice(_prog.segIdx + 1),
+            ];
+            trimRouteGeometry(mapRef.current, _remaining);
+          }
         }
       }
 
@@ -511,6 +534,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         }
       }
 
+      // ── Nav kamera watchdog (saha fix 2026-06-12) ─────────────────────────
+      // ACTIVE navigasyonda kamera 8 sn'dir HİÇ güncellenmediyse takılı bayraklar
+      // (follow=false asılı kalması / interacting'in temizlenmemesi) kendiliğinden
+      // toparlanır — "harita sabit, araç ekrandan çıkıyor" sürücü müdahalesiz düzelir.
+      const _navActiveWd = navStatusRef.current === NavStatus.ACTIVE ||
+                           navStatusRef.current === NavStatus.REROUTING;
+      if (_navActiveWd && now - lastCameraUpdate > 8_000) {
+        userInteractingRef.current = false;
+        if (!isFollowingRef.current) { isFollowingRef.current = true; setIsFollowing(true); }
+        lastCameraUpdate = now - 1_000; // kamera yolu bir sonraki tick'te hemen çalışsın
+      }
+
       // 1. Interpolation Mantığı — 60 FPS Araç Hareketi
       const buffer = navPointsRef.current;
       if (buffer.length >= 2 && mapRef.current && mapRef.current.isStyleLoaded()) {
@@ -523,7 +558,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // GPS hız sıfırsa OBD fallback — speed-adaptive zoom/pitch için
         const gpsSpeedKmh = (locationRef.current?.speed ?? 0) * 3.6;
         const speedKmh    = gpsSpeedKmh > 0.5 ? gpsSpeedKmh : obdSpeedRef.current;
-        const turnDist = route.steps.length ? route.distanceToNextTurnMeters : undefined;
+        // TAZE rota durumu — render-scope `route` mount-once rAF closure'ında BAYATTI:
+        // steps hep ilk render'daki boş dizi kalıyor, turnDist hiç geçmiyordu (dönüş
+        // yaklaşım zoom'u + turn anticipation hiç devreye girmiyordu).
+        const _rsTick  = getRouteState();
+        const turnDist = _rsTick.steps.length ? _rsTick.distanceToNextTurnMeters : undefined;
 
         // A — Araç işaretçisi + Visual Snapping
         // ACTIVE: snap → rota yoluna kilitle, GPS zıplamalarını gizle

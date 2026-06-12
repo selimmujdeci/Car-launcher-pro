@@ -1718,16 +1718,40 @@ export const NavigationHUD = memo(function NavigationHUD({
     }
   }, [isLimp]);
 
-  // Sesli yönlendirme — adım değiştiğinde konuş
+  // ── Sesli yönlendirme — kademeli yaklaşım anonsları (saha fix 2026-06-12) ──
+  // ESKİDEN yalnız adım DEĞİŞİNCE konuşuyordu = anons dönüşün üzerinden geçerken
+  // geliyordu; sürücü "sağa dön / sola dön" uyarısını hiç duymuyordu.
+  // Şimdi Google tarzı üç kademe (her adım için en fazla 1'er kez):
+  //   ~500 m → "500 metre sonra sağa dönün"
+  //   ~200 m → "200 metre sonra sağa dönün"
+  //   ~60 m  → "Şimdi sağa dönün"
+  // Kademeler bitmask ile adım başına kilitlenir; adım değişince sıfırlanır.
+  // Mesafe useRouteState'ten her GPS tick'inde gelir (TurnPanel ile aynı kaynak).
+  const _spokenRef = useRef<{ step: number; tiers: number }>({ step: -1, tiers: 0 });
   useEffect(() => {
-    if (isActiveNav && currentStep && !isRerouting) {
-      const distance = Math.round(route.distanceToNextTurnMeters);
-      if (distance > 0) {
-        speakNavigation(`${distance} metre sonra ${currentStep.instruction}`);
-      }
+    if (!isActiveNav || isRerouting || !currentStep) return;
+    const d = route.distanceToNextTurnMeters;
+    if (!Number.isFinite(d) || d <= 0) return;
+
+    if (_spokenRef.current.step !== route.currentStepIndex) {
+      _spokenRef.current = { step: route.currentStepIndex, tiers: 0 };
+    }
+    const s = _spokenRef.current;
+    // Talimatı cümle ortasına uydur: "Sağa dönün" → "sağa dönün"
+    const inst = currentStep.instruction.charAt(0).toLowerCase() + currentStep.instruction.slice(1);
+
+    if (d <= 80 && !(s.tiers & 4)) {
+      s.tiers |= 4 | 2 | 1; // yakın kademede uzaktakiler de kapanır (üst üste konuşmaz)
+      speakNavigation(`Şimdi ${inst}`);
+    } else if (d <= 250 && !(s.tiers & 2)) {
+      s.tiers |= 2 | 1;
+      speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
+    } else if (d <= 600 && !(s.tiers & 1)) {
+      s.tiers |= 1;
+      speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.currentStepIndex, isRerouting]);
+  }, [route.distanceToNextTurnMeters, route.currentStepIndex, isRerouting]);
 
   // Durum türetmeleri
   const isActiveNav   = status === NavStatus.ACTIVE || status === NavStatus.REROUTING;

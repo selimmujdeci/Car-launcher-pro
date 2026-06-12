@@ -997,6 +997,28 @@ export function _applyRouteGeometry(
   M.pendingRouteGeometry = null;
 }
 
+/**
+ * Kat edilen rotayı kırp — SEL_SRC verisini snapped noktadan İLERİYE kalan
+ * geometriyle değiştirir (geride kalan çizgi silinir).
+ *
+ * setRouteGeometry'ye DOKUNMAZ: cache (M.cachedRoute) tam geometriyi tutmaya
+ * devam eder — stil değişiminde tam rota geri çizilir, bir sonraki GPS tick'i
+ * kırpmayı yeniden uygular (kendiliğinden iyileşir). Yalnız segment index
+ * değişince çağrılır (FullMapView) → Mali-400'de setData yükü seyrek kalır.
+ */
+export function trimRouteGeometry(map: MapLibreMap, remaining: [number, number][]): void {
+  if (!map || remaining.length < 2) return;
+  if (M.isStyleChanging) return; // stil geçişi sürerken source'a dokunma
+  try {
+    if (!map.isStyleLoaded() || !map.getSource(SEL_SRC)) return;
+    (map.getSource(SEL_SRC) as any).setData({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: remaining },
+    });
+  } catch { /* stil yeniden yükleniyor olabilir — sonraki tick yeniden dener */ }
+}
+
 /** Rota çizgilerini (ana + alternatifler + debug) ve cache'i temizle. */
 export function clearRouteGeometry(map: MapLibreMap): void {
   M.cachedRoute          = null;

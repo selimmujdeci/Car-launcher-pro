@@ -66,9 +66,14 @@ export function useSpeedLimit(currentSpeed: number): SpeedLimitData {
  * GPS konumuna göre gerçek zamanlı hız limiti — Overpass API (maxspeed etiketi).
  * Her 200 m'de bir sorgu atar; ağ hatası veya sonuç yoksa önceki limit korunur.
  * NavigationHUD tarafından kullanılır.
+ *
+ * SAHA FİX 2026-06-12: başlangıç 50 → null. Eski sabit 50 varsayılanı internetsiz/
+ * yavaş bağlantıda HİÇ güncellenmiyor, sürücüye yanlış/sabit levha gösteriyordu
+ * (otomotiv dürüstlüğü: veri yoksa levha HİÇ çizilmez — SpeedPanel hasLimit guard'ı).
+ * İlk gerçek Overpass sonucu gelince levha görünür; sonrasında önceki değer korunur.
  */
-export function useSpeedLimitByLocation(lat: number | null, lon: number | null): number {
-  const [limit, setLimit]   = useState(50);
+export function useSpeedLimitByLocation(lat: number | null, lon: number | null): number | null {
+  const [limit, setLimit]   = useState<number | null>(null);
   const prevPosRef          = useRef<{ lat: number; lon: number } | null>(null);
   const timerRef            = useRef<ReturnType<typeof setTimeout> | null>(null);
 

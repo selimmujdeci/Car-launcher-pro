@@ -793,6 +793,26 @@ export function getSnappedMarkerPosition(): { lat: number; lon: number } | null 
   return { lat: _lastSnappedLat, lon: _lastSnappedLon };
 }
 
+/** Kırpma için off-route toleransı — reroute eşiğinden (55m) geniş tutulur:
+ *  GPS gürültüsünde kırpma sürmeli; gerçek sapmada zaten reroute tetiklenir. */
+const TRIM_OFF_ROUTE_MAX_M = 80;
+
+/**
+ * Kat edilen rota kırpma için ilerleme noktası: en yakın segment index'i +
+ * rota üzerine yansıtılmış (snapped) konum. FullMapView GPS tick'i bunu
+ * okuyup rota çizgisini snapped noktadan İLERİYE doğru yeniden çizer —
+ * geride kalan kısım haritadan silinir.
+ *
+ * null: navigasyon aktif değil / henüz hesap yok / araç rotadan çok uzak.
+ */
+export function getRouteProgressPoint(): { segIdx: number; lat: number; lon: number } | null {
+  const status = useNavigationStore.getState().status;
+  if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
+  if (_lastClosestSegIdx < 0 || _lastSnappedLat === null || _lastSnappedLon === null) return null;
+  if (_lastOffRouteM > TRIM_OFF_ROUTE_MAX_M) return null;
+  return { segIdx: _lastClosestSegIdx, lat: _lastSnappedLat, lon: _lastSnappedLon };
+}
+
 /**
  * Format distance for display — Tesla style with space separator
  */
