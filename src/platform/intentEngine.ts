@@ -169,6 +169,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   open_camera:            'UNKNOWN',
   open_maps:              'OPEN_NAVIGATION',
   open_music:           'OPEN_MUSIC',
+  open_radio:           'OPEN_MUSIC',  // radyo → aynı müzik altyapısı (fallback)
   play_music_search:    'PLAY_MUSIC_SEARCH',
   play_music_query:     'PLAY_MUSIC_QUERY',
   add_music_favorite:   'ADD_MUSIC_FAVORITE',
@@ -235,6 +236,10 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'open_maps':
       payload.targetApp = ctx.defaultNav;
+      break;
+    case 'open_radio':
+      // Radyo isteği → aktif müzik kaynağını aç (radyo entegrasyonu yoksa fallback)
+      payload.targetApp = ctx.defaultMusic;
       break;
     case 'open_music': {
       const srcPkg = cmd.extra?.['sourcePkg'] as string | undefined;

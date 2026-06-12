@@ -83,7 +83,8 @@ export type CommandType =
   | 'hw_rear_camera'
   | 'hw_lights_off'
   | 'hw_screen_off'
-  | 'vehicle_status';
+  | 'vehicle_status'
+  | 'open_radio';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -205,6 +206,23 @@ const PATTERNS: CommandPattern[] = [
       'playlist başlat', 'albüm aç', 'hafifçe müzik koy', 'müziği başlatabilir misin',
     ],
     tokens: ['muzik', 'muzigi', 'spotify', 'sarki', 'music', 'cal', 'oynat', 'playlist', 'parca', 'dinle', 'dinleyelim'],
+  },
+  {
+    // Radyo intent: "radyo aç", "radyoyu aç", "fm aç" vb.
+    // open_music'ten önce yer almasının nedeni: her ikisinde de 'aç' fiili geçer;
+    // radyo spesifik token ('radyo', 'fm') Tier-1 exact'ten geçer → müzik açar.
+    // Gerçek radyo kaynağı yoksa open_music ile aynı altyapı kullanılır
+    // (voiceCommandHandler'da 'open_radio' → aktif müzik kaynağını aç).
+    type: 'open_radio', priority: 'high',
+    feedback: 'Radyo açılıyor',
+    label: 'Radyoyu Aç', example: 'radyoyu aç',
+    keywords: [
+      'radyoyu aç', 'radyo aç', 'radyo dinle', 'fm aç', 'radyoyu çalıştır',
+      'radyoya geç', 'radyo başlat', 'radyoyu başlat', 'fm dinle',
+      'radyoyu aç lütfen', 'radyo istiyorum', 'radyo dinleyelim',
+      'fm radyo aç', 'am radyo', 'radyo kanalı aç',
+    ],
+    tokens: ['radyo', 'radio', 'fm', 'am'],
   },
   {
     type: 'stop_music', priority: 'high',
@@ -660,7 +678,10 @@ const PATTERNS: CommandPattern[] = [
       'kapıları aç', 'kilidi aç', 'arabayı aç', 'unlock', 'kapı aç',
       'kilidi kaldır', 'araç kilidini aç', 'kapıları kilitsizle',
     ],
-    tokens: ['unlock', 'kilid', 'kapi', 'ac'],
+    // 'ac' (aç) KASITLI KALDIRILDI: genel fiil — "radyo aç", "müziği aç" gibi
+    // HER cümleyi hw_unlock_doors'a çekiyordu (token-score 0.82 gasping).
+    // "kapıları aç" gibi meşru ifadeler Tier-1 exact keywords ile yakalanıyor.
+    tokens: ['unlock', 'kilid', 'kapi'],
   },
   {
     type: 'hw_honk_horn', priority: 'normal',
@@ -700,7 +721,10 @@ const PATTERNS: CommandPattern[] = [
       'alarmı kapat', 'alarmı durdur', 'alarm kapat', 'alarm iptal',
       'alarmı söndür', 'alarmı devre dışı bırak', 'güvenlik sistemini kapat',
     ],
-    tokens: ['alarm', 'kapat', 'durdur', 'iptal'],
+    // 'kapat' ve 'durdur' KASITLI KALDIRILDI: genel fiiller — "müziği durdur",
+    // "sesi kapat" yanlışlıkla hw_alarm_off'a eşleşebiliyordu (Tier-2 token gasp).
+    // "alarmı kapat", "alarmı durdur" exact keywords ile Tier-1'de yakalanıyor.
+    tokens: ['alarm', 'iptal'],
   },
   {
     type: 'hw_rear_camera', priority: 'critical',
@@ -720,7 +744,10 @@ const PATTERNS: CommandPattern[] = [
       'ışıkları kapat', 'farları kapat', 'ışığı söndür', 'farı söndür', 'lights off', 'ışık söndür',
       'araç ışıklarını kapat', 'farları söndür',
     ],
-    tokens: ['isik', 'far', 'kapat', 'sondur', 'lights'],
+    // 'kapat' ve 'sondur' KASITLI KALDIRILDI: genel fiiller — "müziği kapat",
+    // "sesi sondur" gibi ifadeler yanlışlıkla hw_lights_off'a düşüyordu.
+    // "ışıkları kapat", "farları söndür" exact keywords ile Tier-1'de yakalanıyor.
+    tokens: ['isik', 'far', 'lights'],
   },
   {
     type: 'hw_screen_off', priority: 'normal',

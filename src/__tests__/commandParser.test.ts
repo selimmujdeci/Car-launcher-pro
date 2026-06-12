@@ -237,3 +237,59 @@ describe('regresyon — sosyal sorular araç durumuna düşmez', () => {
     expect(parseCommandFull('rapor ver').command?.type).toBe('vehicle_status');
   });
 });
+
+/* ── Regresyon: token gasp düzeltmesi (saha hatası 2026-06-12) ────────────
+ * "radyo aç" → hw_unlock_doors gidiyordu: 'ac' genel-fiil token'ı kapı açmayı
+ * gaspediyordu. Ayrıca "müziği kapat" → hw_lights_off/hw_alarm_off yanlış
+ * eşleşme riski vardı. Bunlar düzeltildi; meşru kapı/ışık komutları korunuyor. */
+
+describe('regresyon — genel-fiil token gasp düzeltmesi (2026-06-12)', () => {
+  it('"radyo aç" → open_radio (hw_unlock_doors DEĞİL)', () => {
+    const r = parseCommandFull('radyo aç');
+    expect(r.command?.type).toBe('open_radio');
+    expect(r.command?.type).not.toBe('hw_unlock_doors');
+  });
+
+  it('"radyoyu aç" → open_radio', () => {
+    const r = parseCommandFull('radyoyu aç');
+    expect(r.command?.type).toBe('open_radio');
+  });
+
+  it('"fm aç" → open_radio', () => {
+    const r = parseCommandFull('fm aç');
+    expect(r.command?.type).toBe('open_radio');
+  });
+
+  it('"müziği kapat" → stop_music (hw_lights_off / hw_alarm_off DEĞİL)', () => {
+    const r = parseCommandFull('müziği kapat');
+    expect(r.command?.type).toBe('stop_music');
+    expect(r.command?.type).not.toBe('hw_lights_off');
+    expect(r.command?.type).not.toBe('hw_alarm_off');
+  });
+
+  it('"müziği durdur" → stop_music', () => {
+    // "müziği durdur" — exact keyword, stop_music 1.0 alır
+    expect(parseCommandFull('müziği durdur').command?.type).toBe('stop_music');
+  });
+
+  // Regresyon: meşru donanım komutları hâlâ çalışıyor
+  it('"kapıları aç" → hw_unlock_doors KORUNDU', () => {
+    expect(parseCommandFull('kapıları aç').command?.type).toBe('hw_unlock_doors');
+  });
+
+  it('"kilidi aç" → hw_unlock_doors KORUNDU', () => {
+    expect(parseCommandFull('kilidi aç').command?.type).toBe('hw_unlock_doors');
+  });
+
+  it('"ışıkları kapat" → hw_lights_off KORUNDU', () => {
+    expect(parseCommandFull('ışıkları kapat').command?.type).toBe('hw_lights_off');
+  });
+
+  it('"farları kapat" → hw_lights_off KORUNDU', () => {
+    expect(parseCommandFull('farları kapat').command?.type).toBe('hw_lights_off');
+  });
+
+  it('"alarmı kapat" → hw_alarm_off KORUNDU', () => {
+    expect(parseCommandFull('alarmı kapat').command?.type).toBe('hw_alarm_off');
+  });
+});
