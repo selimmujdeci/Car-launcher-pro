@@ -4,6 +4,28 @@
 
 **Tüm yanıtlar Türkçe olacak.** Kod dışındaki her şey — açıklamalar, sorular, öneriler, hata mesajları, yorumlar — Türkçe yazılacak. İstisna yok.
 
+## 🤖 OTOMATİK AJAN/MODEL YÖNLENDİRME (KULLANICI POLİTİKASI — ZORUNLU)
+
+Kullanıcı ajan/model ADI VERMEZ. Görev geldiğinde ana oturum görevi sınıflandırır
+ve uygun ajana KENDİLİĞİNDEN devreder — model ajan tanımından gelir (kullanıcı
+onaylı maliyet politikası; "agent spawn etme" varsayılanını bu politika ezer):
+
+| Görev tipi | Ajan (model) |
+|------------|--------------|
+| Kod yazma / bug fix / refactor / test yazma | caros-coder (sonnet) |
+| Test koşma / regresyon / doğrulama / review | caros-tester (sonnet) |
+| Navigasyon / GPS / harita / rota | caros-navigation (sonnet) |
+| OBD / CAN / BLE / head unit native | caros-obd-canbus (sonnet) |
+| Performans / bellek / termal / FPS | caros-performance (sonnet) |
+| Mimari analiz / kök neden / planlama | caros-architect (güçlü model) |
+| Güvenlik / auth / RLS / API koruması | caros-security (güçlü model) |
+
+İstisnalar (delegasyon ETME — inline yap, spawn maliyeti işin kendisinden pahalı):
+- Tek dosyalık küçük düzeltme, hızlı soru-cevap, 5 dakikalık iş.
+- Aktif saha/acil debug oturumu (bağlam kaybı riskli).
+Delege edilen işin sonucu ana oturumda DOĞRULANIR (test/tsc) — ajan çıktısına
+körlemesine güvenilmez.
+
 ## Project Overview
 
 An Android in-car infotainment OS built with React + TypeScript + Capacitor. Optimized for automotive displays with offline-first maps, GPS tracking, OBD integration, and native app launching.
