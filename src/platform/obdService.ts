@@ -68,6 +68,11 @@ export type { OBDConnectionState, VehicleType, OBDData } from './obdTypes';
 /* ── Module state ────────────────────────────────────────── */
 
 // Tier 1 (sync): localStorage'dan anlık hydration — sıfır gecikme.
+// Snapshot kurtarıldıysa patch source='real' taşır (canSnapshotService._buildPatch)
+// → _current.source 'none' yerine 'real' başlar, UI son bilinen değerleri ANINDA
+// gösterir (boot'ta "veri yok / idle" boş gösterge görünmez). Computed yakıt
+// alanları (fuelRemainingL/estimatedRangeKm) snapshot'ta yok; araç profili
+// yüklenince setObdFuelConfig _current.fuelLevel'den yeniden hesaplar.
 let _current: OBDData = { ...INITIAL, ...hydrateCanSnapshotSync() };
 let _asyncHydrated = false; // Tier 2 hydration'ın tek sefer çalışmasını garantiler
 
@@ -946,8 +951,17 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
     _asyncHydrated = true;
     hydrateCanSnapshotAsync().then((patch) => {
       if (Object.keys(patch).length === 0) return;
-      if (_current.source !== 'none') return; // gerçek veri zaten aktıysa dokunma
-      _current = { ..._current, ...patch };
+      // CANLI gerçek veri zaten aktıysa snapshot ile EZME. (source kontrolü
+      // YETERSİZDİ: sync hydration source='real' yapıyor → canlı veri sinyali
+      // _lastRealDataMs ile ayrılır; yalnız gerçek bağlantı bunu set eder.)
+      if (_lastRealDataMs > 0) return;
+      // Computed yakıt alanları snapshot'ta YOK ve hydration _merge'i bypass eder
+      // → tank config varsa burada yeniden hesapla (instruction 3). Config yoksa
+      // computeFuelMetrics -1 döner (zararsız); setObdFuelConfig sonradan düzeltir.
+      const hydrated: Partial<OBDData> = (patch.fuelLevel !== undefined && patch.fuelLevel >= 0)
+        ? { ...patch, ...computeFuelMetrics(patch.fuelLevel, _fuelTankL, _avgConsumL100) }
+        : patch;
+      _current = { ..._current, ...hydrated };
       _storeListeners.forEach((fn) => fn()); // React hook'larını tetikle
     }).catch(() => { /* Tier 1 localStorage fallback yeterli */ });
   }

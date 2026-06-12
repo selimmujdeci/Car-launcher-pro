@@ -158,6 +158,15 @@ function _buildPatch(snap: CanSnapshot): Partial<OBDData> {
     patch.vehicleType  = snap.vehicleType;
   }
 
+  // En az bir GEÇERLİ (bayat olmayan) alan kurtarıldıysa: bu veri PERSIST EDİLMİŞ
+  // GERÇEK veridir (scheduleCanSnapshot YALNIZ source='real' için yazar — mock asla).
+  // source='real' işaretle ki UI 'none/idle'da takılı kalmasın, son bilinen
+  // değerleri ANINDA göstersin. Tüm alanlar bayatsa patch BOŞ kalır → source
+  // EKLENMEZ (çağıranların Object.keys(patch).length kontrolü bozulmaz).
+  if (Object.keys(patch).length > 0) {
+    patch.source = 'real';
+  }
+
   return patch;
 }
 
