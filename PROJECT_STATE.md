@@ -8,7 +8,34 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `0348b9b`; Wake word entegrasyonu)
+- **Aktif branch:** `main` (HEAD `5abcd32`; Phase P — Deep Intelligence beyin)
+
+## Phase P — Deep Intelligence Co-Pilot (2026-06-12, `5abcd32`)
+
+Kullanıcı isteği: asistanı "komut dağıtıcı"dan bağlam-farkında yardımcı pilota
+çevir. Üç maddenin 1 ve 3'ü ZATEN tamamdı (wake `startWakeWordService` +
+Vosk re-trigger `0348b9b`; SystemBoot Wave 4 wiring `0348b9b`; 2.5s
+zero-latency fallback `734d825`) — redo edilmedi, doğrulandı. Yeni iş madde 2
+(`companionChatProvider.ts` + `tripLogService.ts`):
+- **Contextual AI Partner:** beyin prompt'una "KOMUT ROBOTU DEĞİL, aracın ve
+  yolculuğun o anki durumunu (DÜNYA GÖRÜŞÜN / World View) bilen YARDIMCI PİLOT"
+  çerçevesi. Single Brain ACTION/CHAT kararı korundu.
+- **Full Context Injection (World View):** `buildInterpretedVehicleContext`
+  artık yakıt + motor sıcaklığı YANINDA **yolculuk süresini** de enjekte ediyor
+  (`interpretTripDuration`). Her isteğe girer (askCompanionBrain + Gemini chat).
+- **Dialect & Intent Awareness:** özel isimlere ek olarak GENEL kelime ASR
+  hatası talimatı ("birez muzuk ac" → "biraz müzik aç"; harf/ses hatasına
+  takılma, niyeti yakala).
+- **Otomotiv:** sürüşte kısa ("2-3 kısa cümle" + "dikkatini dağıtma"), park
+  halinde derin/sohbet odaklı.
+- **`tripLogService.getTripSnapshot()`** eklendi: `onTripState` immediate-emit'i
+  `current: null` gönderdiğinden tek-atış subscribe canlı trip vermiyordu; bu
+  getter hesaplı (performance.now) `current` döndürür. `_notify` ile
+  `_computeSnapshot` paylaşıldı (davranış korundu).
+Test: companionChat +2 (World View trip enjeksiyonu + yeni prompt çerçevesi),
+kontrollü tripLogService mock → **1224/1224** · tsc + build temiz. **Cihazda
+doğrulanacak:** gerçek yolculukta süre bağlamının doğal dile girmesi, bozuk ASR
+genel kelimelerde niyet yakalama, park/sürüş ton farkı.
 
 ## Wake Word Entegrasyonu — Boot Orkestratörü + Vosk Kapısı (2026-06-12, `0348b9b`)
 

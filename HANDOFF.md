@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `0348b9b`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `5abcd32`.
 
 ---
 
@@ -21,6 +21,16 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Phase P — Deep Intelligence Co-Pilot (2026-06-12, `5abcd32`):** asistan
+  "komut dağıtıcı"dan bağlam-farkında yardımcı pilota. (Madde 1 wake + madde 3
+  SystemBoot `0348b9b`'de, 2.5s fallback `734d825`'te zaten tamamdı — redo yok.)
+  Yeni: beyin prompt'u Contextual AI Partner çerçevesi (KOMUT ROBOTU DEĞİL /
+  World View / YARDIMCI PİLOT; Single Brain kararı korundu) · World View
+  enjeksiyonu yakıt+sıcaklık YANINDA **yolculuk süresi** (interpretTripDuration)
+  · genel kelime ASR/niyet talimatı ("birez muzuk ac"→"biraz müzik aç") · park
+  halinde derin/sürüşte kısa ton. `tripLogService.getTripSnapshot()` eklendi
+  (onTripState immediate-emit canlı trip vermiyordu). +2 test → 1224/1224.
+  Detay: PROJECT_STATE "Phase P". **Cihazda doğrulanacak.**
 - **Wake word entegrasyonu (2026-06-12, `0348b9b`):** "asistan uyanmıyor" iki
   kök neden. (1) Wake yalnız `useLayoutServices` React hook'undaydı (mount'a
   bağlı, churn'lü) → YENİ `startWakeWordService()` modül-düzeyi `useStore`
