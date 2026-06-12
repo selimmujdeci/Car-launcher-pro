@@ -24,8 +24,6 @@ import { useRouteState } from '../../platform/routingService';
 import { TeslaLayout } from '../themes/TeslaLayout';
 import { ExpeditionLayout } from '../themes/ExpeditionLayout';
 import { HorizonLayout } from '../themes/HorizonLayout';
-import { AudiLayout } from '../themes/AudiLayout';
-import { MercedesLayout } from '../themes/MercedesLayout';
 import { CockpitLayout } from '../themes/CockpitLayout';
 import { ProLayout } from '../themes/ProLayout';
 import type { SmartSnapshot } from '../../platform/smartEngine';
@@ -466,12 +464,6 @@ export const NewHomeLayout = memo(function NewHomeLayout({
   }
   if (base === 'tesla') {
     return <TeslaLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
-  }
-  if (base === 'audi') {
-    return <AudiLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
-  }
-  if (base === 'mercedes') {
-    return <MercedesLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;
   }
   if (base === 'cockpit') {
     return <CockpitLayout onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onLaunch={onLaunch} appMap={appMap} dockIds={dockIds} fullMapOpen={fullMapOpen} smart={smart} />;

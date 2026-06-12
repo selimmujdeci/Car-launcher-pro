@@ -68,28 +68,6 @@ const PRESETS: Record<string, ThemeToken> = {
     fontFamily: 'exo2', fontWeight: 700, letterSpacing: 1,
     iconNav: '#00D4FF', iconMedia: '#00D4FF', iconDock: '#00D4FF',
   },
-  mercedes: {
-    name: 'MERCEDES', baseTheme: 'mercedes',
-    accentPrimary: '#C8A96E', accentSecondary: '#8A7A5E',
-    bgPrimary: '#080606', bgCard: 'rgba(15,12,10,0.95)',
-    textPrimary: '#EDE8E0', textSecondary: '#8A7E72',
-    borderColor: 'rgba(200,169,110,0.28)', glowColor: 'rgba(200,169,110,0.15)',
-    radiusCard: 6, radiusBtn: 6, radiusTile: 6, radiusDock: 0,
-    cardBlurPx: 12, glowIntensity: 30,
-    fontFamily: 'rajdhani', fontWeight: 600, letterSpacing: 3,
-    iconNav: '#C8A96E', iconMedia: '#C8A96E', iconDock: '#C8A96E',
-  },
-  audi: {
-    name: 'AUDI', baseTheme: 'audi',
-    accentPrimary: '#CC0000', accentSecondary: '#FFFFFF',
-    bgPrimary: '#0A0A0A', bgCard: 'rgba(12,12,12,0.96)',
-    textPrimary: '#FFFFFF', textSecondary: '#888888',
-    borderColor: 'rgba(204,0,0,0.30)', glowColor: 'rgba(204,0,0,0.20)',
-    radiusCard: 2, radiusBtn: 2, radiusTile: 2, radiusDock: 0,
-    cardBlurPx: 8, glowIntensity: 45,
-    fontFamily: 'system', fontWeight: 700, letterSpacing: 4,
-    iconNav: '#CC0000', iconMedia: '#FFFFFF', iconDock: '#CC0000',
-  },
 };
 
 const LS_KEY = 'caros-theme-studio';

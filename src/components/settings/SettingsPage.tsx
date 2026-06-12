@@ -138,8 +138,6 @@ const THEME_OPTIONS: ThemeOpt[] = [
   { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', preview: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)' },
   { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#0a0c10,#12151d)' },
   { id: 'cockpit',  label: 'COCKPIT',  sub: 'Glass Cockpit',    accent: '#00B4D8', preview: 'linear-gradient(135deg,#050a10,#0a1628)' },
-  { id: 'mercedes', label: 'MERCEDES', sub: 'MBUX',             accent: '#C8A882', preview: 'linear-gradient(135deg,#181818,#2c2c2c)' },
-  { id: 'audi',     label: 'AUDI',     sub: 'Virtual Cockpit',  accent: '#BB0A21', preview: 'linear-gradient(135deg,#1E1E2C,#252535)' },
 ];
 
 function ThemePanel() {

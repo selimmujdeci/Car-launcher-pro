@@ -32,7 +32,7 @@ function applyVoiceTheme(mode: 'night' | 'day' | 'oled' | 'dark'): void {
 }
 
 // "tema değiştir" → core temalar arasında döngü; gündüz/gece tercihi korunur.
-const _THEME_CYCLE: CoreTheme[] = ['expedition', 'horizon', 'tesla', 'mercedes', 'pro', 'sunlight'];
+const _THEME_CYCLE: CoreTheme[] = ['expedition', 'horizon', 'tesla', 'pro', 'sunlight'];
 function cycleVoiceTheme(): void {
   const { theme, setTheme } = useCarTheme.getState();
   const idx  = _THEME_CYCLE.indexOf(baseOf(theme) as CoreTheme); // legacy/bilinmeyen → -1 → ilk tema

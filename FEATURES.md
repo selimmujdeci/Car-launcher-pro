@@ -48,7 +48,7 @@
 - Push-to-Wake (FCM ile uyandırma), Supabase backend (RLS korumalı).
 
 ## 🎨 Kişiselleştirme & Temalar
-- Premium temalar: Expedition (offroad), Horizon (harita-odaklı), Tesla, Mercedes, Sunlight, Pro.
+- Premium temalar: Expedition (offroad), Horizon (harita-odaklı), Tesla, Sunlight, Pro.
 - Gündüz/gece otomatik palet + otomatik parlaklık.
 - Theme Studio (token-bazlı tema üret/kaydet), Edit Mode (her widget düzenlenebilir, undo/redo).
 

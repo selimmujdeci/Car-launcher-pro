@@ -53,7 +53,7 @@ describe('P4 — theme switch storm guard (Test D)', () => {
     root.classList.remove('theme-switching');
 
     useCarTheme.getState().setTheme('expedition');
-    useCarTheme.getState().setTheme('mercedes');
+    useCarTheme.getState().setTheme('horizon');
     useCarTheme.getState().setTheme('tesla'); // RAF'lar dolmadan ardışık
 
     // classList bir küme — guard tek kez eklenir (binlerce elemanda tek bastırma)

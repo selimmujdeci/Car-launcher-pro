@@ -2,22 +2,24 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 /**
- * CockpitOS Core Themes — 4 tema seçimi (CLAUDE.md §UX Simplicity)
- * 
- * Kullanıcı başına 4 tema = optimal seçim, overchoice önleme
- * - tesla: Minimalist premium (Tesla sahipleri)
- * - mercedes: Luxury ambient (Mercedes sahipleri)
- * - pro: Glass Pro — düşük güçlü ARM + Hiworld (senin aracın için önerilen)
- * - sunlight: Güneş altı optimizasyon (açık hava kullanımı)
- * 
+ * CockpitOS Core Themes (CLAUDE.md §UX Simplicity — overchoice önleme)
+ *
+ * - expedition: Ana tema · Offroad (Day kum / Night pas-metal)
+ * - horizon: Premium · harita-odaklı (Day / Night)
+ * - tesla: Minimalist premium
+ * - pro: Glass Pro — düşük güçlü ARM + Hiworld
+ * - sunlight: Güneş altı optimizasyon (açık hava)
+ *
  * Arşivlenen temalar (kodda durur, UI'da gösterilmez):
  * - cockpit: Cockpit immersive → pro ile birleştirildi
- * - audi: Sport theme → mercedes ile birleştirildi  
  * - oled: Pure black → pro ile birleştirildi
+ *
+ * KALDIRILDI (v2): mercedes, audi — silindi; persist migration güvenli liman
+ * 'expedition'a taşır (aşağıdaki migrate + onRehydrateStorage VALID kontrolü).
  */
 
-export type CoreTheme = 'tesla' | 'mercedes' | 'pro' | 'sunlight' | 'expedition' | 'horizon';
-export type LegacyTheme = 'cockpit' | 'audi' | 'oled';
+export type CoreTheme = 'tesla' | 'pro' | 'sunlight' | 'expedition' | 'horizon';
+export type LegacyTheme = 'cockpit' | 'oled';
 
 export type BaseTheme = CoreTheme | LegacyTheme;
 export type CarTheme =
@@ -57,7 +59,6 @@ export const CORE_THEMES: { id: CoreTheme; label: string; desc: string }[] = [
   { id: 'expedition', label: 'CarOS Expedition', desc: 'Ana tema · Offroad · Day (kum) / Night (pas-metal)' },
   { id: 'horizon',    label: 'CarOS Horizon', desc: 'Premium · harita-odaklı · Day / Night' },
   { id: 'tesla',    label: 'Tesla',      desc: 'Minimalist, premium his' },
-  { id: 'mercedes', label: 'Mercedes',   desc: 'Luxury, ambient lighting' },
   { id: 'pro',      label: 'Glass Pro',  desc: 'Düşük güç, Hiworld optimize' },
   { id: 'sunlight', label: 'Sunlight',   desc: 'Güneş altı okunabilirlik' },
 ];
@@ -120,26 +121,32 @@ export const useCarTheme = create<CarThemeState>()(
     }),
     {
       name: 'car-launcher-theme',
-      version: 1,
+      version: 2,
       // v1: varsayılan tema 'pro' → 'expedition' (ana tema) oldu.
-      // Yalnızca hâlâ ESKİ varsayılanda (pro) olan kurulumları bir kez taşı;
-      // kullanıcının bilinçli seçtiği temaları (mercedes/tesla/horizon...) KORU.
+      // v2: 'mercedes' ve 'audi' temaları KALDIRILDI → güvenli liman 'expedition'
+      //     (silinen layout'lar render edilemez; beyaz ekran önlenir).
+      // Kullanıcının bilinçli seçtiği DİĞER temalar (tesla/horizon...) KORUNUR.
+      // Not: persisted.theme'i string olarak ele al — kaldırılan literal'ler artık
+      // CarTheme union'ında olmadığından doğrudan karşılaştırma tsc hatası verirdi.
       migrate: (persisted) => {
-        const s = persisted as Partial<CarThemeState> | undefined;
-        if (s && (s.theme === 'pro' || s.theme === 'pro-day')) {
-          s.theme = 'expedition';
+        const s = persisted as { theme?: string } | undefined;
+        if (s && typeof s.theme === 'string') {
+          if (s.theme === 'pro' || s.theme === 'pro-day') s.theme = 'expedition';
+          if (/^(mercedes|audi)(-day)?$/.test(s.theme)) s.theme = 'expedition';
         }
         return s as CarThemeState;
       },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        // Tüm geçerli temalar (core + legacy — kullanıcı eski temayı seçtiyse koru)
+        // Tüm geçerli temalar (core + legacy — kullanıcı eski temayı seçtiyse koru).
+        // mercedes/audi KALDIRILDI → listede yok; migrate atlanırsa bu kontrol de
+        // (her yüklemede çalışır) onları 'expedition'a düşürür (ikinci güvenlik ağı).
         const VALID: CarTheme[] = [
-          'tesla', 'mercedes', 'pro', 'sunlight', 'expedition', 'horizon',
-          'tesla-day', 'mercedes-day', 'pro-day', 'expedition-day', 'horizon-day',
+          'tesla', 'pro', 'sunlight', 'expedition', 'horizon',
+          'tesla-day', 'pro-day', 'expedition-day', 'horizon-day',
           // Legacy themes — backward compatibility
-          'cockpit', 'audi', 'oled',
-          'cockpit-day', 'audi-day', 'oled-day',
+          'cockpit', 'oled',
+          'cockpit-day', 'oled-day',
         ];
         if (!VALID.includes(state.theme)) state.theme = 'expedition';
         // Migration: gündüz yöneticisi eskiden temayı zorla 'sunlight' yapıyordu
