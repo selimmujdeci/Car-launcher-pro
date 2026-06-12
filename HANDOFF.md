@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `734d825`.
+> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `0348b9b`.
 
 ---
 
@@ -21,6 +21,17 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Wake word entegrasyonu (2026-06-12, `0348b9b`):** "asistan uyanmıyor" iki
+  kök neden. (1) Wake yalnız `useLayoutServices` React hook'undaydı (mount'a
+  bağlı, churn'lü) → YENİ `startWakeWordService()` modül-düzeyi `useStore`
+  aboneliği, SystemBoot `_wave4` + cleanup; eski hook KALDIRILDI (çift
+  orkestratör = çift dinleme oturumu riski). (2) Grammar/polling Vosk modeli
+  preload (boot+30s, 20-40s yüklenir) bitmeden başlayıp "model yok" hard-fail
+  ediyordu → `notifyVoskModelReady()` kapısı: native start model hazır olana
+  dek ertelenir; SystemBoot preload çözülünce (eski APK'da hemen) açılır,
+  backstop 75s. Silent Handover + zero-leak korundu. +9 test → 1222/1222,
+  tsc+lint+build temiz. Detay: PROJECT_STATE "Wake Word Entegrasyonu".
+  **Cihazda doğrulanacak.**
 - **Single Brain mimarisi tamamlandı (2026-06-12, `734d825`):** sesli asistan
   "Gemini-first tek beyin". voiceService refactor'u (kritik bypass →
   Gemini-first → graceful fallback) zaten yazılmıştı; eksikler tamamlandı:

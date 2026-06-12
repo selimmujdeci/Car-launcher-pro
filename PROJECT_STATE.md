@@ -8,7 +8,32 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `734d825`; Single Brain tamamlama)
+- **Aktif branch:** `main` (HEAD `0348b9b`; Wake word entegrasyonu)
+
+## Wake Word Entegrasyonu — Boot Orkestratörü + Vosk Kapısı (2026-06-12, `0348b9b`)
+
+Kullanıcı isteği: "asistan uyanmıyor" düzelt. İki kök neden bulundu:
+1. **Orkestrasyon kırılgan:** wake YALNIZ `useLayoutServices` React hook'unda
+   wire'lıydı (layout mount'una bağlı, dependency değişiminde disable→enable
+   churn). YENİ `startWakeWordService()` (wakeWordService.ts): modül-düzeyi
+   `useStore.subscribe` — companion/legacy wake ayarına göre enable/disable,
+   ad/mod değişiminde yeniden kurar, `_wakeKey` ile ilgisiz ayar churn'ü yok.
+   SystemBoot `_wave4`'te çağrılır + `_cleanups`'a girer. **Eski
+   useLayoutServices wake effect'i KALDIRILDI** — iki orkestratör aynı anda
+   enable/disable çağırınca çift dinleme oturumu (karşılıklı STT iptali =
+   sağırlık) riski vardı. `_loopGen` korunur.
+2. **Erken start sağır:** grammar/polling, Vosk modeli unpack+load (boot+30s,
+   20-40s) bitmeden başlıyordu → `startWakeWordListening` "model yok" hard-fail,
+   ilk tetikler sağır. YENİ `notifyVoskModelReady()` kapısı: native start model
+   hazır olana dek ERTELENİR (`_pendingNativeGen`); SystemBoot preloadVoskModel
+   çözülünce (veya eski APK'da preload metodu yoksa hemen) kapı açılır. Backstop
+   75s: sinyal hiç gelmezse yine başlar (sonsuz sağırlık yok).
+Zero-leak: backstop timer + store aboneliği + ertelenmiş start cleanup'ta ve
+HMR dispose'da temizlenir. Silent Handover korundu (pasif beklemede status
+'idle', UI pill yok). Test: companionWake +9 (orkestrasyon 6 + kapı 3) →
+**1222/1222** · tsc + lint + build temiz. **Cihazda doğrulanacak:** gerçek
+boot'ta wake'in Vosk preload SONRASI kurulması (ilk dakikada erken sağırlık
+yok), ayar açıp-kapama + ad değişiminde tek oturum (çift dinleme yok).
 
 ## Single Brain Mimarisi Tamamlandı (2026-06-12, `734d825`)
 
