@@ -862,16 +862,18 @@ export function startListening(opts?: StartListeningOpts): void {
 
       CarLauncher.startSpeechRecognition({
         // SAHA FİX 2026-06-12 ("telefonda %40 anlıyor"): STT doğruluğu Vosk küçük TR
-        // modeliyle sınırlı. İNTERNET VARSA yüksek doğruluklu online tanıma kullan;
-        // İNTERNETSİZ (head unit) cihaz-içi Vosk'a düş. Native tarafta da bu tercih
-        // yönlendiriliyor: preferOffline=false + Google mevcut → online; aksi halde Vosk.
-        // (onlineFallback artık çift yönlü: online koparsa Vosk yedeği devreye girer.)
+        // modeliyle sınırlı. GERÇEK İNTERNET VARSA yüksek doğruluklu online tanıma kullan;
+        // aksi halde cihaz-içi Vosk. Native tarafta da yönlendirilir: preferOffline=false +
+        // Google mevcut → online; aksi halde Vosk (onlineFallback çift yönlü: online koparsa Vosk).
         //
-        // HEAD UNIT KİLİDİ: low-tier cihaz (K24/head unit) HER ZAMAN Vosk kullanır —
-        // navigator.onLine yanlış 'true' raporlasa bile online yola HİÇ girmez (boşa
-        // online denemesi + gecikme riski sıfırlanır). Online yalnız gerçek telefonda
-        // (mid/high tier + internet) açılır. Head unit davranışı bit-bit değişmez.
-        preferOffline: isLowEndDevice() || !(typeof navigator !== 'undefined' && navigator.onLine),
+        // GERÇEK BAĞLANTI KAPISI (sahte onLine koruması): online STT yalnız
+        // navigator.onLine VE isAiNetHealthy() iken açılır. navigator.onLine tek başına
+        // güvenilmez — head unit internetsizken bile 'true' raporlayabilir. Gemini devre
+        // kesicisi (isAiNetHealthy) art arda gerçek AI ağ hatasında düşer → ağ sahte/ölü
+        // ise STT de Vosk'a iner (en çok ilk 1-2 komut online dener, sonra breaker
+        // kapatır; 90s soğuma). Böylece: internetli head unit ≈ Siri (online STT + Gemini),
+        // internetsiz/sahte-online head unit → Vosk. Cihaz tier'ından BAĞIMSIZ.
+        preferOffline: !(typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy()),
         onlineFallback: true, language: 'tr-TR', maxResults: 1,
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
