@@ -10,6 +10,28 @@
 
 - **Aktif branch:** `main` (HEAD `0cfd729`; Faz 5 `7c674dc`'de commit'lendi)
 
+## Navigasyon Saha Fix Paketi (2026-06-12, `0fcac44`)
+
+Saha raporu (Tarsus sürüşü, latencyfix APK): harita sabit + rota çizgisi
+silinmiyor + sesli yönlendirme yok + hız levhası 50'de sabit. Düzeltmeler:
+1. **Rota ilerlemesi stil kapısından çıktı** (FullMapView GPS callback):
+   `mapStyleReadyRef` takılırsa adım sayacı/mesafe/ses/kırpma topluca
+   donuyordu — ilerleme artık her geçerli fix'te çalışır.
+2. **Kat edilen rota kırpma EKLENDİ** (özellik hiç yoktu):
+   `getRouteProgressPoint()` (navigationService) + `trimRouteGeometry()`
+   (MapLayerManager) — snapped noktadan ileriye kalan geometri; yalnız
+   segIdx/geometri değişince setData; stil değişiminde self-healing.
+3. **Kademeli sesli yönlendirme EKLENDİ** (NavigationHUD): ~500m/~200m/şimdi;
+   eskiden yalnız adım değişince (dönüşün üstünden geçerken) konuşuyordu.
+4. **Nav kamera watchdog** (rAF): ACTIVE'de 8 sn kamera güncellenmezse
+   follow/interacting bayrakları kendiliğinden toparlanır.
+5. **rAF bayat `route` closure fix**: turnDist hep undefined'dı — dönüş
+   yaklaşım zoom'u/anticipation hiç çalışmıyordu.
+6. **Hız levhası dürüstlüğü**: `useSpeedLimitByLocation` 50 → null başlar;
+   gerçek Overpass verisi gelmeden levha çizilmez.
+**Cihazda doğrulanacak:** sürüşte kamera takibi + kırpma + üç kademeli anons;
+levha yalnız gerçek veriyle görünmeli. Suite 1213/1213 · tsc/lint temiz.
+
 ## Head Unit "Latency Death" Fix Paketi (2026-06-12, `5687d9a` + `0cfd729`)
 
 Kullanıcı şikayeti: "her butona basınca en az 5 sn bekliyorum". İki commit:

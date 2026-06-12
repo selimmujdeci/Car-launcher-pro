@@ -21,6 +21,11 @@
 
 ## 2. Son Yapılan Değişiklikler (özet)
 
+- **Navigasyon saha fix paketi (2026-06-12, `0fcac44`):** sürüş testi raporu
+  üzerine — rota ilerlemesi mapStyleReady kapısından çıktı (donma kökü),
+  kat edilen rota kırpma + kademeli sesli yönlendirme (500m/200m/şimdi)
+  EKLENDİ, nav kamera watchdog'u, rAF bayat route closure fix (turnDist),
+  hız levhası veri yoksa çizilmez. Suite 1213/1213. **Cihazda doğrulanacak.**
 - **Head Unit "Latency Death" fix paketi (2026-06-12, `5687d9a`+`0cfd729`):**
   kullanıcının "her butona basınca 5 sn" şikayetine kök neden paketi.
   (1) thermalWatchdog motor suyu sıcaklığını cihaz ısısı sanıp KALICI L2/L3
