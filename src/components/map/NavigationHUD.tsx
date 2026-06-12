@@ -1363,7 +1363,10 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
       <span className="flex-shrink-0">{icon}</span>
       <span className="text-[10px] font-black uppercase tracking-wider text-slate-200 truncate max-w-[90px]">{label}</span>
       {km && (
-        <span className="ml-auto pl-1.5 text-[10px] font-black tabular-nums whitespace-nowrap" style={{ color }}>
+        <span
+          className="ml-auto text-[13px] font-black tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-md leading-none"
+          style={{ color, background: 'rgba(0,0,0,0.45)' }}
+        >
           {km}
         </span>
       )}
@@ -1425,7 +1428,10 @@ const QuickDestinationsDelayed = memo(function QuickDestinationsDelayed({
 }: { gpsLat: number | null; gpsLon: number | null }) {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 2000);
+    // SAHA FİX 2026-06-12: 2000 → 300 ms. Kullanıcı "harita açıldığında km görünmüyor"
+    // diyordu — panel (km'leriyle) ilk açılışta 2 sn boyunca hiç gelmiyordu. Kısa
+    // gecikme haritanın ilk boyamasını bozmaz ama km neredeyse anında belirir.
+    const t = setTimeout(() => setVisible(true), 300);
     return () => clearTimeout(t);
   }, []);
   if (!visible) return null;
