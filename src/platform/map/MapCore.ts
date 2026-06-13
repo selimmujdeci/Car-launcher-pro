@@ -17,6 +17,7 @@ import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState';
 import { _applyRouteGeometry } from './MapLayerManager';
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
+import { hasWeakGpu } from '../../utils/detectWeakGpu';
 
 // Ensure smart-tile protocol is never active
 try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
@@ -203,7 +204,9 @@ async function _initCore(
       pitch: 0,
       bearing: 0,
       maxPitch: 50,  // 50°+ üzerinde MapLibre siyah köşe oluşturur
-      antialias: true,
+      // MSAA: Mali-400 sınıfı (Utgard) bant-genişliği aç → her kare çoklu örnekleme
+      // fragment yükünü katlar. Zayıf GPU'da kapat; capable cihazda kenar yumuşatma kalsın.
+      antialias: !hasWeakGpu(),
       attributionControl: false,
     });
 
