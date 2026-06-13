@@ -574,7 +574,7 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
   const bzIn  = p.night ? '#332a1b' : '#b9ad90';
 
   return (
-    <button onClick={onClick} className="hz-btn" aria-label="Saat — Menü" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+    <button onClick={onClick} className="hz-btn" aria-label="Saat — Menü" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
       <svg viewBox="0 0 180 180" width="100%" height="100%">
         <defs>
           <radialGradient id="hzClkBz" cx=".5" cy=".32" r=".74"><stop offset="0" stopColor={bzOut} /><stop offset="1" stopColor={bzIn} /></radialGradient>

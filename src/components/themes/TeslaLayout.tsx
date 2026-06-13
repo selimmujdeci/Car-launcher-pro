@@ -492,7 +492,7 @@ const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'relative', width: 110, height: 110, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'relative', width: 110, height: 110, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
       {/* tek ince aksan halka + kadran */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: face, border: `2px solid ${p.accent}`, boxShadow: p.night ? `0 0 24px -4px ${p.accentGlow}, inset 0 2px 7px rgba(0,0,0,0.6)` : `0 5px 16px -5px rgba(90,68,38,0.5), inset 0 2px 6px rgba(255,255,255,0.6)` }} />
       {/* ince iç hairline */}
