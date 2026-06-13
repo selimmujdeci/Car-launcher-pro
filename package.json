@@ -12,6 +12,8 @@
     "android": "npm run build && npx cap sync android && npx cap open android",
     "cap:sync": "npm run build && npx cap sync",
     "cap:copy": "npm run build && npx cap copy",
+    "guard": "vitest run src/__tests__/regression.guards.test.ts",
+    "apk:safe": "npm run test && npm run build && npx cap sync android && cd android && gradlew clean assembleDebug",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

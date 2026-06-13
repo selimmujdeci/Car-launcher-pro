@@ -146,7 +146,24 @@ Unit ve integration testler `src/__tests__/` klasöründe:
 npm run test            # Tüm testler (headless)
 npm run test:watch      # Watch mode
 npm run test:coverage   # Coverage report
+npm run guard           # Hızlı regresyon kasası (sadece kilitler)
+npm run apk:safe        # test → build → sync → temiz APK (test düşerse APK ÜRETİLMEZ)
 ```
+
+### 🔒 REGRESYON KASASI — "YASA" (ZORUNLU)
+
+`src/__tests__/regression.guards.test.ts` defalarca bozulup düzelttiğimiz
+davranışları KİLİTLER (ekran adaptasyonu, saat gün/gece, geçersiz tema,
+sesli rota uygulama-içi, reroute eşiği, saat siyah-dikdörtgen…).
+
+- **Bu testleri ASLA zayıflatma/silme.** Bir kilit bilinçli değişiyorsa, kilidi
+  yeni doğru davranışa GÜNCELLE — kaldırma.
+- **Yeni bir bug düzeltince** karşılık gelen kilidi bu dosyaya EKLE (aynı bug
+  bir daha sessizce geri gelmesin).
+- **Cihaza APK göndermeden önce `npm run apk:safe`** kullan: test geçmezse APK
+  üretilmez. Manuel build'de bile önce `npm run test` koş — yeşil olmadan APK YOK.
+- **Stale-APK tuzağı:** gradle "up-to-date" deyip eski APK paketleyebilir;
+  `apk:safe` bu yüzden `gradlew clean` kullanır (taze APK garantisi).
 
 ### Test Helper Kullanımı
 
