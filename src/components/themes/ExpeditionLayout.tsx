@@ -10,6 +10,7 @@ import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
@@ -152,6 +153,8 @@ const Header = memo(function Header() {
   const { time } = useClock(use24Hour, false);
   const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
   const n = useNotificationState();
+  // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
+  const online = useLivingThemeState().conn === 'online';
   return (
     <div className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
       <div className="flex items-center" style={{ gap: 12 }}>
@@ -163,6 +166,8 @@ const Header = memo(function Header() {
           <Bell className="w-[18px] h-[18px]" />
           {n.unreadCount > 0 && <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a0f02', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{n.unreadCount > 9 ? '9+' : n.unreadCount}</span>}
         </button>
+        <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
+          style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
         <Bluetooth className="w-4 h-4" />
         <div className="flex items-end" style={{ gap: 2, height: 15 }}>
           {[5, 8, 11, 14].map((h, i) => <div key={i} style={{ width: 3, height: h, background: p.ink2, borderRadius: 1 }} />)}

@@ -9,6 +9,7 @@ import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
@@ -148,8 +149,12 @@ const StatusCluster = memo(function StatusCluster() {
   const device = useDeviceStatus();
   const n = useNotificationState();
   const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  // Living theme — bağlantı: online yeşil nabız (.lt-pulse, static tier'da durur), offline soluk.
+  const online = useLivingThemeState().conn === 'online';
   return (
     <div className="flex items-center gap-3" style={{ color: p.ink2 }}>
+      <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
+        style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
       <button onClick={() => openDrawer('notifications')} className="ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
         <Bell className="w-4 h-4" />
         {n.unreadCount > 0 && (

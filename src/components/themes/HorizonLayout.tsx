@@ -10,6 +10,7 @@ import { useStore } from '../../store/useStore';
 import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useClock, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
@@ -165,6 +166,8 @@ const HzTopBar = memo(function HzTopBar() {
   const gps = useGPSLocation();
   const n = useNotificationState();
   const alt = gps?.altitude;
+  // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
+  const online = useLivingThemeState().conn === 'online';
 
   return (
     <div className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
@@ -197,6 +200,8 @@ const HzTopBar = memo(function HzTopBar() {
       </div>
 
       <div className="flex items-center" style={{ gap: 13, color: p.onDark2 }}>
+        <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
+          style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
         <Bluetooth className="w-[17px] h-[17px]" />
         <div className="flex items-end" style={{ gap: 2, height: 14 }}>
           {[5, 8, 11, 14].map((h, i) => <div key={i} style={{ width: 3, height: h, background: 'currentColor', borderRadius: 1 }} />)}
