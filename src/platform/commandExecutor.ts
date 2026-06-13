@@ -52,6 +52,9 @@ export interface CommandContext {
   applySetting?: (key: string, action: string, value?: string, kind?: string, label?: string) => void;
   openDrawer?:  (target: 'apps' | 'settings' | 'music' | 'none') => void;
   openWeather?: () => void;
+  /** Uygulama-içi serbest adres/yer navigasyonu (resolveAndNavigate wrapper'ı).
+   *  intentEngine.routeIntent ile aynı yol → harici nav app'e gitmeden kendi haritamız. */
+  navigateToPlace?: (query: string) => void;
   /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */
   hwLockDoors?:   () => Promise<CommandResult>;
   /** Araç kapı kilidi açma — güvenlik: sürüş sırasında engellenir; L2 ACK ile resolve */
@@ -133,31 +136,40 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
   try {
     switch (intent.type) {
 
-      /* ── Navigasyon ─────────────────────────────────────── */
+      /* ── Navigasyon ─────────────────────────────────────────
+         KENDİ HARİTAMIZ: ctx.launch(defaultNav) → handleLaunch navigation
+         kategorisini yakalar → uygulama-içi FullMapView açar (harici Google
+         Maps'e YÖNLENDİRME YOK). intentEngine.routeIntent ile birebir tutarlı —
+         eskiden AI yolu bridge.launchNavigation ile harici app açıyordu (iki
+         router ayrışması). navigateToPlace varsa hedefe uygulama-içi rota kurar. */
       case 'OPEN_NAVIGATION': {
-        bridge.launchNavigation(ctx.defaultNav);
+        ctx.launch(ctx.defaultNav);
         _speak('Navigasyon başlatılıyor', isDriving);
         break;
       }
       case 'NAVIGATE_ADDRESS': {
-        bridge.launchNavigation(ctx.defaultNav);
         const dest = intent.payload.destination;
+        if (dest && ctx.navigateToPlace) ctx.navigateToPlace(dest);
+        else ctx.launch(ctx.defaultNav);
         _speak(dest ? `${dest} adresine gidiyoruz` : 'Navigasyon başlatılıyor', isDriving);
         break;
       }
       case 'NAVIGATE_PLACE': {
-        bridge.launchNavigation(ctx.defaultNav);
         const place = intent.payload.destination;
+        if (place && ctx.navigateToPlace) ctx.navigateToPlace(place);
+        else ctx.launch(ctx.defaultNav);
         _speak(place ? `${place} aranıyor` : 'Yer aranıyor', isDriving);
         break;
       }
       case 'FIND_NEARBY_GAS': {
-        bridge.launchNavigation(ctx.defaultNav);
+        if (ctx.navigateToPlace) ctx.navigateToPlace('yakın benzinlik');
+        else ctx.launch(ctx.defaultNav);
         _speak('Yakın benzinlik aranıyor', isDriving);
         break;
       }
       case 'FIND_NEARBY_PARKING': {
-        bridge.launchNavigation(ctx.defaultNav);
+        if (ctx.navigateToPlace) ctx.navigateToPlace('yakın park yeri');
+        else ctx.launch(ctx.defaultNav);
         _speak('Yakın park yeri aranıyor', isDriving);
         break;
       }

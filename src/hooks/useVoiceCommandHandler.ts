@@ -221,6 +221,13 @@ export function useVoiceCommandHandler({
         applySetting: (key, action, value, kind) =>
           void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         openWeather: showWeather,
+        // Uygulama-içi navigasyon — offline routeIntent yolu ile aynı. AI yolunun
+        // (Gemini) "rota oluştur" komutunu harici Google Maps'e değil kendi
+        // haritamıza yönlendirir.
+        navigateToPlace: (query: string) => {
+          const gps = getGPSState().location;
+          resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+        },
       });
     });
   }, []);
