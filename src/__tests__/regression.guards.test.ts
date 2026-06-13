@@ -159,6 +159,32 @@ describe('WiFi/Bluetooth doğrudan toggle kilidi', () => {
     const mf = read('android/app/src/main/AndroidManifest.xml');
     expect(mf).toMatch(/CHANGE_WIFI_STATE/);
   });
+
+  // Regresyon (2026-06-13): ONLINE'ken "wifi aç"/"bluetooth aç" Gemini "Single
+  // Brain"e gidiyordu; semantik sözlükte toggle intent OLMADIĞI için en yakın
+  // OPEN_SETTINGS'e düşüp UYGULAMA AYARLARINI açıyordu. Toggle'lar artık kritik
+  // refleks komut → tam-güven yerel eşleşmede beyni atlar, donanım anında açılır.
+  it('YAPISAL: voiceService kritik-bypass listesi toggle_wifi + toggle_bluetooth içerir', () => {
+    const src = read('src/platform/voiceService.ts');
+    const m = src.match(/CRITICAL_VOICE_TYPES\s*=\s*new Set<[^>]*>\(\[([\s\S]*?)\]\)/);
+    expect(m, 'CRITICAL_VOICE_TYPES seti bulunamadı').toBeTruthy();
+    expect(m![1]).toMatch(/'toggle_wifi'/);
+    expect(m![1]).toMatch(/'toggle_bluetooth'/);
+  });
+
+  it('DAVRANIŞ: "bluetooth aç"/"wifi aç" donanım komutu + TAM güven (1.0) ki beyni atlasın', async () => {
+    const { parseCommandFull } = await import('../platform/commandParser');
+    // matchVoiceSetting ön-kontrolü bunları set_setting(wifi/bluetooth) yapar;
+    // donanım refleksi olduğundan confidence 1.0 OLMALI (kritik-bypass koşulu).
+    for (const [q, key] of [['bluetooth aç', 'bluetooth'], ['wifi aç', 'wifi']] as const) {
+      const c = parseCommandFull(q).command;
+      const k = c?.type === 'set_setting' ? c?.extra?.settingKey : undefined;
+      // ya dedik~toggle_* tipi ya da set_setting(wifi/bluetooth) — her iki yol da kabul
+      const isHw = (c?.type === 'toggle_wifi' || c?.type === 'toggle_bluetooth') || k === key;
+      expect(isHw, `${q} donanım toggle komutu olmalı (oldu: ${c?.type}/${k})`).toBe(true);
+      expect(c?.confidence, `${q} tam güven (1.0) olmalı ki Gemini'yi atlasın`).toBeGreaterThanOrEqual(1.0);
+    }
+  });
 });
 
 /* ───────────────────────────────────────────────────────────────

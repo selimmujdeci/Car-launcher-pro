@@ -1032,11 +1032,16 @@ export function parseCommandFull(input: string): ParseResult {
   // komutlar önceliğini korur. Yanlış pozitif: matchVoiceSetting fiil şartı koşar.
   const settingMatch = matchVoiceSetting(trimmed);
   if (settingMatch) {
+    // WiFi/Bluetooth = belirsizliksiz refleks donanım komutu → tam güven (1.0).
+    // Böylece voiceService kritik-bypass'ı tetiklenir; ONLINE'ken Gemini'ye
+    // gidip (semantik sözlükte toggle YOK → OPEN_SETTINGS) uygulama ayarlarını
+    // açma bug'ı önlenir. Diğer ayarlar 0.93'te kalır (gerçek exact'ler öne geçsin).
+    const isHwToggle = settingMatch.key === 'wifi' || settingMatch.key === 'bluetooth';
     return {
       command: {
         type:       'set_setting',
         raw:        trimmed,
-        confidence: 0.93,
+        confidence: isHwToggle ? 1.0 : 0.93,
         feedback:   settingFeedback(settingMatch),
         priority:   'normal',
         extra: {

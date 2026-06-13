@@ -553,6 +553,11 @@ const PENDING_TTL_MS    = 15_000;  // onay penceresi
  * 2.5sn ağ beklemesi UX'i bozardı; bu yüzden istisna. */
 const CRITICAL_VOICE_TYPES = new Set<ParsedCommand['type']>([
   'volume_up', 'volume_down', 'stop_music',
+  // WiFi/Bluetooth DOĞRUDAN donanım toggle'ı — refleks komut. Gemini'nin
+  // semantik sözlüğünde bu intent YOK; online'ken beyne giderse en yakın
+  // "OPEN_SETTINGS"e düşüp UYGULAMA AYARLARINI açıyordu (bug). Tam-güven
+  // (1.0) yerel eşleşmede beyni atla → setWifi/setBluetooth anında çalışsın.
+  'toggle_wifi', 'toggle_bluetooth',
 ]);
 
 /* Gemini-first karar penceresi: beyin bu süre içinde ACTION/CHAT kararı
@@ -703,13 +708,19 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   const result = parseCommandFull(trimmed);
 
   // ── 1. ANINDA BYPASS (Single Brain istisnası) ────────────────
-  // YALNIZ kritik refleks komutları (ses aç/kıs, duraklat/dur) ve YALNIZ tam
-  // güvende (1.0) Gemini'yi beklemeden yerelde çalışır. Diğer HER girdi —
-  // 1.0 olsa bile — aşağıda önce birleşik beyne (Gemini) gider.
+  // YALNIZ kritik refleks komutları (ses aç/kıs, duraklat/dur, wifi/bluetooth
+  // toggle) ve YALNIZ tam güvende (1.0) Gemini'yi beklemeden yerelde çalışır.
+  // Diğer HER girdi — 1.0 olsa bile — aşağıda önce birleşik beyne (Gemini) gider.
+  // WiFi/Bluetooth ayrıca set_setting tipiyle de gelebilir (matchVoiceSetting
+  // ön-kontrolü); o yol da donanım refleksi → bypass'a dahil (yoksa ONLINE'ken
+  // Gemini OPEN_SETTINGS'e düşürüp uygulama ayarlarını açıyordu).
+  const _cmdKey = result.command?.extra?.settingKey;
+  const _isHwToggleSetting =
+    result.command?.type === 'set_setting' && (_cmdKey === 'wifi' || _cmdKey === 'bluetooth');
   if (
     result.command &&
     result.command.confidence >= 1.0 &&
-    CRITICAL_VOICE_TYPES.has(result.command.type)
+    (CRITICAL_VOICE_TYPES.has(result.command.type) || _isHwToggleSetting)
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'critical_bypass' });
