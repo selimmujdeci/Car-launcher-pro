@@ -302,6 +302,41 @@ describe('CSS var() className antipattern yasağı kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   4f. ANAHTAR YOK YÖNLENDİRMESİ — AI/internet isteği anahtarsızken
+   Regresyon (2026-06-13): anahtar yokken "haberleri özetle"/"bilmece sor"
+   gibi YALNIZ yapay zekayla yanıtlanan istekler sessiz "anlaşılamadı"ya
+   düşüyordu; dahası yerel parser bunlara sahte komut (vehicle_status@0.82)
+   üretip yanlış ekran açıyordu. Artık anahtarsızken kullanıcı ayarlardan
+   Gemini/Claude Haiku anahtarı eklemeye yönlendirilir.
+   ─────────────────────────────────────────────────────────────── */
+describe('Anahtar yok yönlendirmesi kilidi', () => {
+  const vs = () => read('src/platform/voiceService.ts');
+
+  it('YAPISAL: anahtarsız AI isteği yönlendirmesi var (Gemini + Claude Haiku + ayarlar)', () => {
+    const src = vs();
+    expect(src).toMatch(/_looksLikeAiRequest/);
+    expect(src).toMatch(/!apiKey && _looksLikeAiRequest/);              // koşul: anahtar YOK
+    expect(src).toMatch(/Gemini ya da Claude Haiku/);                   // her iki sağlayıcı önerilir
+    expect(src).toMatch(/ai_key_missing_hint/);                         // tanı rotası
+  });
+
+  it('YAPISAL: yönlendirme AUTO-DISPATCH ve GEMINI FIRST\'ten ÖNCE (sahte komut öne geçmesin)', () => {
+    const src = vs();
+    const hintIdx = src.indexOf('_looksLikeAiRequest(trimmed)');
+    const geminiFirstIdx = src.indexOf('2. GEMINI FIRST');
+    const autoDispatchIdx = src.indexOf('Yüksek güven yerel komut');
+    expect(hintIdx).toBeGreaterThan(0);
+    expect(hintIdx).toBeLessThan(geminiFirstIdx);                       // beyin bloğundan önce
+    expect(hintIdx).toBeLessThan(autoDispatchIdx);                     // yerel auto-dispatch'ten önce
+  });
+
+  it('YAPISAL: exact (1.0) gerçek komutlar korunur — yönlendirme yalnız <1.0\'da', () => {
+    const src = vs();
+    expect(src).toMatch(/_looksLikeAiRequest\(trimmed\) && \(result\.command\?\.confidence \?\? 0\) < 1\.0/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    5. REROUTE — yoğun ızgarada sahte yeniden-rotalama önlemi
    Regresyon: rota sürekli sıfırlanıp "Yola çıkın"a dönüyordu.
    ─────────────────────────────────────────────────────────────── */

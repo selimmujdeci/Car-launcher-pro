@@ -560,6 +560,39 @@ const CRITICAL_VOICE_TYPES = new Set<ParsedCommand['type']>([
   'toggle_wifi', 'toggle_bluetooth',
 ]);
 
+/* ── API ANAHTARI YOK yönlendirmesi ──────────────────────────────
+ * Anahtar YOKKEN yalnız AI/internet gerektiren bir istek gelirse (haber, döviz,
+ * hava, fıkra, bilmece, "X kimdir/nedir"...) kullanıcı sessiz "anlaşılamadı"
+ * yerine ayarlardan anahtar eklemesi için yönlendirilir. Yerel komutlar (harita
+ * aç, ses kıs...) anahtarsız çalıştığından bu tetiklenmez. ASR çöpünde yanlış
+ * pozitif olmasın diye hedefli anahtar-kelime sezgisi kullanılır. */
+const _AI_HINT_TOKENS: readonly string[] = [
+  'haber', 'gundem', 'son dakika', 'manset',
+  'dolar', 'euro', 'sterlin', 'altin', 'borsa', 'doviz', 'kur', 'bitcoin',
+  'kac para', 'kac lira', 'kac tl',
+  'mac', 'skor', 'puan durumu', 'fikstur', 'kim kazandi',
+  'fikra', 'saka', 'bilmece', 'siir', 'hikaye anlat',
+  'kimdir', 'nedir', 'ne demek', 'anlami ne', 'ozetle', 'acikla', 'arastir',
+];
+
+function _normForHint(s: string): string {
+  return s.toLowerCase()
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** AI/internet gerektiren bir istek mi? (anahtarsız yönlendirme için sezgi) */
+function _looksLikeAiRequest(raw: string): boolean {
+  const n = _normForHint(raw);
+  if (n.split(' ').filter((w) => w.length > 1).length < 2) return false; // tek kelime/çöp değil
+  return _AI_HINT_TOKENS.some((t) => n.includes(t));
+}
+
+/** Yönlendirme tekrarını engelleyen soğuma (kullanıcıyı her cümlede dürtme). */
+const _AI_KEY_HINT_COOLDOWN_MS = 120_000;
+let _aiKeyHintAt = 0;
+
 /* Gemini-first karar penceresi: beyin bu süre içinde ACTION/CHAT kararı
  * veremezse (yavaş ağ/timeout) yerel graceful-fallback zincirine düşülür.
  * (companionChatProvider askCompanionBrain'e timeoutMs olarak iletilir.) */
@@ -732,6 +765,34 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   const { provider, apiKey, hasNet } = await _resolveAiKeys();
 
   const geminiUsable = provider === 'gemini' && !!apiKey && hasNet;
+
+  // ── 1b. ANAHTAR YOK + AÇIK AI/İNTERNET İSTEĞİ → ayarlardan anahtar ekle ──
+  // Anahtar yokken haber/döviz/fıkra/bilmece/"X kimdir" gibi YALNIZ yapay zekayla
+  // yanıtlanabilen istekler gelir. Yerel parser bunlara sahte düşük-güven komut
+  // üretebildiğinden (ör. "haberleri özetle"→vehicle_status@0.82) auto-dispatch'ten
+  // ÖNCE yakalanır; aksi halde kullanıcı yanlış komut görür. Exact (1.0) gerçek
+  // komutlar korunur (AI-token içermezler zaten); anahtar VARSA bu blok atlanır
+  // (o yol beyne/offline'a gider). Soğuma: TTS ile her cümlede dürtmeyiz.
+  if (!apiKey && _looksLikeAiRequest(trimmed) && (result.command?.confidence ?? 0) < 1.0) {
+    _lastCommandTime = now;
+    _endConvSession();
+    const within = now - _aiKeyHintAt <= _AI_KEY_HINT_COOLDOWN_MS;
+    void reportVoiceDiag('voice_route', { route: 'ai_key_missing_hint' });
+    if (within) {
+      // Yakında zaten söylendi → sessizce yalnız ekran notu (yanlış komut da çalışmaz).
+      push({ status: 'error', transcript: trimmed, error: 'Yapay zeka anahtarı gerekli — ayarlardan ekle.', suggestions: [] });
+      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+      return true;
+    }
+    _aiKeyHintAt = now;
+    const hint = ctx?.isDriving
+      ? 'Bunun için yapay zeka anahtarı gerekiyor. Varınca ayarlardan ekleyebilirsin.'
+      : 'Bunun için bir yapay zeka anahtarı gerekiyor. Ayarlardan Gemini ya da Claude Haiku için bir API anahtarı ekleyebilirsin, sonra haber ve güncel bilgileri sorabilirsin.';
+    speakFeedback(hint);
+    push({ status: 'error', transcript: trimmed, error: hint, suggestions: [] });
+    setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 4000);
+    return true;
+  }
 
   // ── 2. GEMINI FIRST (Single Brain) ───────────────────────────
   // Online + Gemini varsa kritik-bypass DIŞINDAKİ HER girdi önce TEK birleşik
