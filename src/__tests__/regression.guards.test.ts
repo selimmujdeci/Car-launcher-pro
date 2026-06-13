@@ -130,6 +130,28 @@ describe('Sesli navigasyon uygulama-içi kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   4b. WiFi/Bluetooth — DOĞRUDAN toggle (ekran açma değil)
+   Regresyon: "bluetooth aç" sistem ekranını açıyordu; doğrudan açmalı.
+   ─────────────────────────────────────────────────────────────── */
+describe('WiFi/Bluetooth doğrudan toggle kilidi', () => {
+  it('YAPISAL: applyVoiceSetting setWifi/setBluetooth (doğrudan) dener, salt panel açmaz', () => {
+    const src = read('src/hooks/useVoiceCommandHandler.ts');
+    expect(src).toMatch(/CarLauncher\.setWifi/);
+    expect(src).toMatch(/CarLauncher\.setBluetooth/);
+  });
+  it('YAPISAL: native plugin setWifi + setBluetooth metodları var', () => {
+    const java = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(java).toMatch(/public void setWifi\(/);
+    expect(java).toMatch(/public void setBluetooth\(/);
+    expect(java).toMatch(/setWifiEnabled/);
+  });
+  it('YAPISAL: CHANGE_WIFI_STATE izni manifest\'te', () => {
+    const mf = read('android/app/src/main/AndroidManifest.xml');
+    expect(mf).toMatch(/CHANGE_WIFI_STATE/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    5. REROUTE — yoğun ızgarada sahte yeniden-rotalama önlemi
    Regresyon: rota sürekli sıfırlanıp "Yola çıkın"a dönüyordu.
    ─────────────────────────────────────────────────────────────── */

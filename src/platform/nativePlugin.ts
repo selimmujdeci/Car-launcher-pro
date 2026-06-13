@@ -422,6 +422,11 @@ export interface CarLauncherPlugin {
   // panel açmak satışa-uygun tek yol). Opsiyonel: eski plugin sürümlerinde bulunmayabilir.
   openWifiSettings?(): Promise<{ opened: boolean }>;
   openBluetoothSettings?(): Promise<{ opened: boolean }>;
+  /** WiFi'yi DOĞRUDAN aç/kapat: eski Android/sistem-app head unit'te uygulanır;
+   *  modern telefonda (OS engeli) panele düşer. { enabled } veya { toggle:true }. */
+  setWifi?(opts: { enabled?: boolean; toggle?: boolean }): Promise<{ applied: boolean; opened: boolean }>;
+  /** Bluetooth'u DOĞRUDAN aç/kapat: aynı mantık (fail-soft panel fallback). */
+  setBluetooth?(opts: { enabled?: boolean; toggle?: boolean }): Promise<{ applied: boolean; opened: boolean }>;
 
   // On-device speech recognition (EXTRA_PREFER_OFFLINE)
   startSpeechRecognition(options: SpeechRecognitionOptions): Promise<SpeechRecognitionResult>;

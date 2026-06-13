@@ -53,13 +53,22 @@ async function applyVoiceSetting(
   kind: string | undefined,
   openSettings: () => void,
 ): Promise<void> {
-  // WiFi / Bluetooth — Android 10+ doğrudan açmayı engeller → sistem panelini aç (fail-soft)
+  // WiFi / Bluetooth — DOĞRUDAN aç/kapat. Native önce donanım toggle'ı dener
+  // (eski Android / sistem-app head unit → ekran açılmadan uygulanır); modern
+  // telefonda OS engeller → native otomatik sistem paneline düşer (fail-soft).
+  // Eski plugin sürümünde setWifi/setBluetooth yoksa eski panel-açma davranışı.
   if (key === 'wifi' || key === 'bluetooth') {
     if (isNative) {
+      const opts = action === 'toggle' ? { toggle: true } : { enabled: action === 'on' };
       try {
-        if (key === 'wifi') await CarLauncher.openWifiSettings?.();
-        else                await CarLauncher.openBluetoothSettings?.();
-      } catch { /* fail-soft: panel açılamadı */ }
+        if (key === 'wifi') {
+          if (CarLauncher.setWifi) await CarLauncher.setWifi(opts);
+          else                     await CarLauncher.openWifiSettings?.();
+        } else {
+          if (CarLauncher.setBluetooth) await CarLauncher.setBluetooth(opts);
+          else                          await CarLauncher.openBluetoothSettings?.();
+        }
+      } catch { /* fail-soft */ }
     }
     return;
   }

@@ -2272,14 +2272,80 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void openBluetoothSettings(PluginCall call) {
         JSObject r = new JSObject();
+        r.put("opened", openBtPanelInternal());
+        call.resolve(r);
+    }
+
+    private boolean openWifiPanelInternal() {
+        Intent intent = (Build.VERSION.SDK_INT >= 29)
+            ? new Intent(Settings.Panel.ACTION_WIFI)
+            : new Intent(Settings.ACTION_WIFI_SETTINGS);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { getContext().startActivity(intent); return true; }
+        catch (Exception e) {
+            try {
+                Intent fb = new Intent(Settings.ACTION_WIFI_SETTINGS);
+                fb.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(fb);
+                return true;
+            } catch (Exception e2) { return false; }
+        }
+    }
+
+    private boolean openBtPanelInternal() {
         Intent intent = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            getContext().startActivity(intent);
-            r.put("opened", true);
-        } catch (Exception e) {
-            r.put("opened", false);
+        try { getContext().startActivity(intent); return true; }
+        catch (Exception e) { return false; }
+    }
+
+    /**
+     * WiFi'yi DOĞRUDAN aç/kapat. Eski Android (<API 29) ve sistem-app head unit'lerde
+     * WifiManager.setWifiEnabled çalışır → ekran açılmadan uygulanır. Modern telefonda
+     * (API 29+ non-system) OS engeller → setWifiEnabled false döner → panele düşülür.
+     * Çağrı: { enabled:boolean } veya { toggle:true }. Sonuç: { applied, opened }.
+     */
+    @PluginMethod
+    public void setWifi(PluginCall call) {
+        JSObject r = new JSObject();
+        WifiManager wm = (WifiManager) getContext().getApplicationContext()
+            .getSystemService(Context.WIFI_SERVICE);
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", true));
+        if (wm != null && Boolean.TRUE.equals(call.getBoolean("toggle", false))) {
+            enabled = !wm.isWifiEnabled();
         }
+        boolean applied = false;
+        if (wm != null) {
+            try { applied = wm.setWifiEnabled(enabled); } catch (Exception e) { applied = false; }
+        }
+        boolean opened = false;
+        if (!applied) opened = openWifiPanelInternal(); // doğrudan yok → panel (fail-soft)
+        r.put("applied", applied);
+        r.put("opened", opened);
+        call.resolve(r);
+    }
+
+    /**
+     * Bluetooth'u DOĞRUDAN aç/kapat. Eski Android (<API 33) / sistem-app head unit'lerde
+     * BluetoothAdapter.enable()/disable() çalışır → ekran açılmadan uygulanır. API 33+'ta
+     * kaldırıldı → false/SecurityException → panele düşülür. { enabled } | { toggle:true }.
+     */
+    @PluginMethod
+    public void setBluetooth(PluginCall call) {
+        JSObject r = new JSObject();
+        BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", true));
+        boolean applied = false;
+        if (bt != null) {
+            if (Boolean.TRUE.equals(call.getBoolean("toggle", false))) enabled = !bt.isEnabled();
+            try {
+                applied = enabled ? bt.enable() : bt.disable();
+            } catch (Exception e) { applied = false; }
+        }
+        boolean opened = false;
+        if (!applied) opened = openBtPanelInternal(); // doğrudan yok → panel (fail-soft)
+        r.put("applied", applied);
+        r.put("opened", opened);
         call.resolve(r);
     }
 
