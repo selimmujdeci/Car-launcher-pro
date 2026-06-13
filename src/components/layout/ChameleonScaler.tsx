@@ -36,6 +36,17 @@ const MAX_SCALE = 1.6;
 const NEAR_ONE_LO = 0.99;
 const NEAR_ONE_HI = 1.01;
 
+/**
+ * Saf ölçek matematiği — regresyon testi için dışa açık (UI'dan bağımsız).
+ * min(w/BASE_W, h/BASE_H) → kısa kenar referansa göre; [MIN, MAX]'e kısıtlı.
+ * Head unit (~1024×600) → ~1.0. ASLA letterbox: iki boyut da 100/scale'e açılır.
+ */
+export function computeChameleonScale(w: number, h: number): number {
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return 1;
+  const raw = Math.min(w / BASE_W, h / BASE_H);
+  return Math.max(MIN_SCALE, Math.min(MAX_SCALE, raw));
+}
+
 export function ChameleonScaler({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -46,9 +57,7 @@ export function ChameleonScaler({ children }: { children: ReactNode }) {
     const w = el.clientWidth;
     const h = el.clientHeight;
     if (w === 0 || h === 0) return;
-    const raw = Math.min(w / BASE_W, h / BASE_H);
-    const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, raw));
-    setScale(Number(clamped.toFixed(4)));
+    setScale(Number(computeChameleonScale(w, h).toFixed(4)));
   }, []);
 
   useLayoutEffect(() => {
