@@ -89,7 +89,10 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
       void QRCode.toCanvas(canvasRef.current, `${QR_SCHEME}${info!.code}`, {
         width:                200,
         margin:               2,
-        color:                { dark: '#ffffff', light: '#0b1220' },
+        // Tema-bağımsız: koyu modül / beyaz tile → hem gündüz (açık zemin) hem gece
+        // taranabilir. Kameralar koyu-açık QR'ı en iyi okur; eski beyaz-modül/koyu-zemin
+        // gündüz modunda kontrastı bozuyordu.
+        color:                { dark: '#0b1220', light: '#ffffff' },
         errorCorrectionLevel: 'M',
       }).catch((e) => {
         console.warn('QR Render Error:', e);
@@ -235,7 +238,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
     return (
       <div className="flex flex-col items-center gap-3 py-10">
         <RefreshCw className="h-6 w-6 animate-spin text-cyan-400" aria-hidden />
-        <span className="text-[10px] font-bold uppercase tracking-widest text-white/35">Durum kontrol ediliyor…</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--oem-ink-4)]">Durum kontrol ediliyor…</span>
       </div>
     );
   }
@@ -251,8 +254,8 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
           <CheckCircle2 className="h-8 w-8 text-emerald-400" aria-hidden />
         </div>
         <div className="text-center">
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-white">Bağlı Cihaz</p>
-          <p className="mt-2 max-w-[260px] text-[11px] font-medium leading-relaxed text-white/45">
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-[color:var(--oem-ink)]">Bağlı Cihaz</p>
+          <p className="mt-2 max-w-[260px] text-[11px] font-medium leading-relaxed text-[color:var(--oem-ink-3)]">
             Bu araç ünitesi mobil uygulama ile eşleştirildi. Yeni bir güvenli kod üretmek için aşağıdaki düğmeyi
             kullanın.
           </p>
@@ -274,8 +277,8 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
       <div className="flex flex-col items-center gap-5 py-8 text-center select-none">
         <Smartphone className="h-14 w-14 text-cyan-400/90" strokeWidth={1.25} aria-hidden />
         <div>
-          <h3 className="text-sm font-black uppercase tracking-[0.18em] text-white">Mobil Cihaz Eşleştir</h3>
-          <p className="mx-auto mt-3 max-w-[280px] text-[11px] font-medium leading-relaxed text-white/45">
+          <h3 className="text-sm font-black uppercase tracking-[0.18em] text-[color:var(--oem-ink)]">Mobil Cihaz Eşleştir</h3>
+          <p className="mx-auto mt-3 max-w-[280px] text-[11px] font-medium leading-relaxed text-[color:var(--oem-ink-3)]">
             Bu kod sadece bu oturum için geçerlidir. Telefonunuzdaki CarOS Pro Mobile uygulamasını açın ve kodu
             taratın.
           </p>
@@ -296,7 +299,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
     return (
       <div className="flex flex-col items-center gap-4 py-12 select-none">
         <RefreshCw className="h-7 w-7 animate-spin text-cyan-400" aria-hidden />
-        <span className="text-[10px] font-bold uppercase tracking-[0.35em] text-white/40">Güvenlik anahtarı üretiliyor…</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.35em] text-[color:var(--oem-ink-3)]">Güvenlik anahtarı üretiliyor…</span>
       </div>
     );
   }
@@ -313,7 +316,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
             setIsGenerated(false);
             setQrReveal(false);
           }}
-          className="rounded-xl border border-white/10 px-5 py-2 text-[11px] font-black uppercase tracking-widest text-white/60 transition-all hover:border-white/25 hover:text-white active:scale-95"
+          className="rounded-xl border border-[color:var(--oem-ink-4)] px-5 py-2 text-[11px] font-black uppercase tracking-widest text-[color:var(--oem-ink-2)] transition-all hover:border-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] active:scale-95"
         >
           Tekrar Dene
         </button>
@@ -339,8 +342,8 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
             <Smartphone className="h-4 w-4 text-cyan-400" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-black uppercase tracking-[0.35em] text-white/70">Mobil Cihaz Eşle</div>
-            <div className="text-[9px] uppercase tracking-widest text-white/30">Telefon uygulamasıyla tara veya kodu gir</div>
+            <div className="text-[11px] font-black uppercase tracking-[0.35em] text-[color:var(--oem-ink-2)]">Mobil Cihaz Eşle</div>
+            <div className="text-[9px] uppercase tracking-widest text-[color:var(--oem-ink-4)]">Telefon uygulamasıyla tara veya kodu gir</div>
           </div>
           <div
             className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1"
@@ -387,8 +390,8 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
             style={{
               fontSize:             '2.4rem',
               letterSpacing:        '0.2em',
-              color:                isExpiring ? '#f87171' : isExpired ? 'rgba(255,255,255,0.2)' : '#ffffff',
-              textShadow:           isExpiring ? '0 0 20px rgba(248,113,113,0.5)' : '0 0 20px rgba(255,255,255,0.15)',
+              color:                isExpiring ? '#f87171' : isExpired ? 'var(--oem-ink-4)' : 'var(--oem-ink)',
+              textShadow:           isExpiring ? '0 0 20px rgba(248,113,113,0.5)' : 'none',
               fontVariantNumeric:   'tabular-nums',
               transition:           'color 0.4s, text-shadow 0.4s',
             }}
@@ -409,7 +412,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
             </div>
             <span
               className="min-w-[36px] text-[11px] font-black tabular-nums"
-              style={{ color: isExpiring ? '#f87171' : 'rgba(255,255,255,0.35)' }}
+              style={{ color: isExpiring ? '#f87171' : 'var(--oem-ink-3)' }}
             >
               {remaining > 0 ? `${remaining}s` : 'Doldu'}
             </span>
@@ -423,12 +426,12 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
           className="group flex items-center gap-2 rounded-xl border border-white/10 px-5 py-2.5 transition-all hover:border-cyan-400/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <RefreshCw className="h-3.5 w-3.5 text-cyan-400 transition-transform duration-500 group-hover:rotate-180" />
-          <span className="text-[10px] font-black uppercase tracking-[0.35em] text-white/50 transition-colors group-hover:text-cyan-400">
+          <span className="text-[10px] font-black uppercase tracking-[0.35em] text-[color:var(--oem-ink-3)] transition-colors group-hover:text-cyan-400">
             Yeni Kod Al
           </span>
         </button>
 
-        <p className="max-w-[240px] text-center text-[9px] leading-relaxed text-white/25">
+        <p className="max-w-[240px] text-center text-[9px] leading-relaxed text-[color:var(--oem-ink-4)]">
           Kod 60 sn geçerlidir ve tek kullanımlıktır. Telefonun Caros uygulamasında eşleşme ekranını aç.
         </p>
       </div>
