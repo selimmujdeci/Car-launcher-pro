@@ -7,12 +7,14 @@
  * fromAIResponse() (intentEngine.ts) bu yanıtı AppIntent'e çevirir.
  * İnternet yoksa veya API key yoksa null döner → offline fallback devreye girer.
  *
- * GÜVENLİK: API key'ler localStorage'da saklanır (Zustand persist).
- * Sunucu yok — trafik doğrudan cihaz ↔ API arasında.
+ * GÜVENLİK: API anahtarları localStorage'da DEĞİL, sensitiveKeyStore üzerinden
+ * (native: Android Keystore + EncryptedSharedPreferences; web: AES-256-GCM)
+ * saklanır. Sunucu yok — trafik doğrudan cihaz ↔ API arasında (BYOK).
  */
 
 import type { IntentType } from './intentEngine';
 import type { MaintenanceAssessment } from './vehicleMaintenanceService';
+import type { DTCCode } from './dtcService';
 import { buildPidRegistryIntegrityPromptBlock } from './ai/pidDescriptionGate';
 import { signalWithTimeout } from '../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from './aiHealth';
@@ -43,8 +45,8 @@ export interface VehicleContext {
   drivingMode: 'idle' | 'normal' | 'driving';
   /** true ise yanıt ≤ 8 kelime, saf TTS formatı */
   isDriving:   boolean;
-  /** Aktif DTC arıza kodları — AI teşhis bağlamı için */
-  activeDTCCodes?: any[];
+  /** Aktif DTC arıza kodları — AI teşhis bağlamı için (dtcService kanonik tipi). */
+  activeDTCCodes?: DTCCode[];
   /** Bakım durumu — vehicleMaintenanceService'den gelen gerçek tip */
   maintenanceAssessments?: MaintenanceAssessment[];
 }

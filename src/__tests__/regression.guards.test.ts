@@ -152,6 +152,44 @@ describe('WiFi/Bluetooth doğrudan toggle kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   4c. SESLİ ASİSTAN TTS SENKRONU — kendi sesiyle çakışma + UI durum
+   Regresyon riski: (a) dinlemeye geçince asistan kendi sesini kesmiyordu;
+   (b) sohbet cevabı sabit 3.5s timer ile idle'a dönüyordu (UI gerçek konuşma
+   süresiyle ayrışıyordu); (c) DTC bağlamı any[] idi.
+   ─────────────────────────────────────────────────────────────── */
+describe('Sesli asistan TTS senkronu kilidi', () => {
+  const vs = () => read('src/platform/voiceService.ts');
+
+  it('YAPISAL: startListening ilk iş olarak ttsCancel() çağırır (kendi sesini kes)', () => {
+    const src = vs();
+    expect(src).toMatch(/registerTtsEndListener,\s*ttsCancel\s*\}/); // import edildi
+    const fn = src.slice(src.indexOf('export function startListening'),
+                         src.indexOf('export function startListening') + 1300);
+    expect(fn).toMatch(/ttsCancel\(\)/);
+  });
+
+  it('YAPISAL: _dispatchConversation sabit setTimeout(idle) İÇERMEZ; TTS bitişine bağlı', () => {
+    const src = vs();
+    const start = src.indexOf('function _dispatchConversation');
+    const fn = src.slice(start, src.indexOf('\n}', start));
+    expect(fn).not.toMatch(/setTimeout/);          // 3.5s sabit timer kaldırıldı
+    expect(fn).toMatch(/_armConvIdleOnTtsEnd/);    // idle artık TTS-end yolundan
+  });
+
+  it('YAPISAL: native warmup BAŞLARKEN status listening basılır (görsel geri bildirim)', () => {
+    const src = vs();
+    const b = src.slice(src.indexOf('if (warmupMs > 0)'), src.indexOf('_nativeSttWarmupTimer = setTimeout'));
+    expect(b).toMatch(/push\(\{ status: 'listening'/);
+  });
+
+  it('YAPISAL: VehicleContext.activeDTCCodes DTCCode[] (any[] değil)', () => {
+    const ai = read('src/platform/aiVoiceService.ts');
+    expect(ai).toMatch(/activeDTCCodes\?:\s*DTCCode\[\]/);
+    expect(ai).not.toMatch(/activeDTCCodes\?:\s*any\[\]/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    5. REROUTE — yoğun ızgarada sahte yeniden-rotalama önlemi
    Regresyon: rota sürekli sıfırlanıp "Yola çıkın"a dönüyordu.
    ─────────────────────────────────────────────────────────────── */

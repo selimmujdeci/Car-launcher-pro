@@ -42,6 +42,7 @@ vi.mock('../platform/performanceMode', () => ({ getConfig: () => ({ enableRecomm
 vi.mock('../platform/ttsService', () => ({
   speakFeedback: vi.fn(),
   speakAlert: vi.fn(),
+  ttsCancel: vi.fn(),
   registerTtsEndListener: () => () => {},   // takip dinlemesi modül-init kaydı
 }));
 vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));

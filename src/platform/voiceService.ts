@@ -15,7 +15,7 @@ import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
-import { speakFeedback, registerTtsEndListener } from './ttsService';
+import { speakFeedback, registerTtsEndListener, ttsCancel } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
 import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { isAiNetHealthy } from './aiHealth';
@@ -220,6 +220,37 @@ const FOLLOWUP_FALLBACK_MS = 20_000;
 /** Hoparlör kuyruğu boşalması için TTS bitişi → mikrofon arası tampon. */
 const FOLLOWUP_RELISTEN_DELAY_MS = 350;
 
+/* ── Takipsiz sohbet cevabı → TTS bitince idle ─────────────────
+ * Eski davranış: _dispatchConversation sabit 3.5s setTimeout ile idle'a dönerdi.
+ * Sorun: cevap 3.5s'den uzunsa UI hâlâ konuşurken 'idle'a düşüyor, kısaysa
+ * konuşma bittikten sonra boş yere 'success'te bekliyordu — UI durumu gerçek
+ * konuşma süresiyle SENKRON DEĞİLDİ. Artık idle YALNIZ TTS bitince (TTS-end
+ * dinleyicisi) basılır. Emniyet: TTS bitiş eventi hiç gelmezse (SAFETY_LOCK ile
+ * speakFeedback sessiz döner / bazı OEM TTS onDone'u atlar) 'success'te asılı
+ * kalmasın diye fail-soft fallback (CLAUDE.md §2). */
+let _convIdleOnTtsEnd = false;
+let _convIdleFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+const CONV_IDLE_FALLBACK_MS = 15_000;
+
+function _clearConvIdle(): void {
+  _convIdleOnTtsEnd = false;
+  if (_convIdleFallbackTimer !== null) {
+    clearTimeout(_convIdleFallbackTimer);
+    _convIdleFallbackTimer = null;
+  }
+}
+
+function _armConvIdleOnTtsEnd(): void {
+  _convIdleOnTtsEnd = true;
+  if (_convIdleFallbackTimer !== null) clearTimeout(_convIdleFallbackTimer);
+  _convIdleFallbackTimer = setTimeout(() => {
+    _convIdleFallbackTimer = null;
+    if (!_convIdleOnTtsEnd) return;
+    _convIdleOnTtsEnd = false;
+    if (_current.status === 'success') push({ status: 'idle' });
+  }, CONV_IDLE_FALLBACK_MS);
+}
+
 function _disarmFollowUp(): void {
   _followUpArmed = false;
   if (_followUpFallbackTimer !== null) {
@@ -233,6 +264,7 @@ function _disarmFollowUp(): void {
 function _endConvSession(): void {
   _convSession = false;
   _disarmFollowUp();
+  _clearConvIdle();
 }
 
 /**
@@ -258,21 +290,31 @@ function _armFollowUp(): void {
   if (!_current.followUp) push({ followUp: true });
 }
 
-// TTS bitti → kurulu takip varsa mikrofonu yeniden aç.
+// TTS bitti → (A) kurulu takip varsa mikrofonu yeniden aç, yoksa
+//             (B) takipsiz sohbet cevabıysa idle'a dön (sabit timer YOK).
 registerTtsEndListener(() => {
-  if (!_followUpArmed) return;
-  // AI hâlâ işliyor/dinleme zaten açık → bu bitiş ara feedback'ti, kurulu kal.
-  if (_current.status === 'processing' || _current.status === 'listening') return;
-  _followUpArmed = false;
-  if (_followUpFallbackTimer !== null) {
-    clearTimeout(_followUpFallbackTimer);
-    _followUpFallbackTimer = null;
+  // (A) Takip dinlemesi (sürekli sohbet döngüsü) ────────────────
+  if (_followUpArmed) {
+    // AI hâlâ işliyor/dinleme zaten açık → bu bitiş ara feedback'ti, kurulu kal.
+    if (_current.status === 'processing' || _current.status === 'listening') return;
+    _followUpArmed = false;
+    if (_followUpFallbackTimer !== null) {
+      clearTimeout(_followUpFallbackTimer);
+      _followUpFallbackTimer = null;
+    }
+    setTimeout(() => {
+      if (!_convSession || _voiceCogPaused) { _disarmFollowUp(); return; }
+      if (_current.status === 'listening' || _current.status === 'processing') return;
+      startListening({ followUpWindow: true }); // kısa pencere — wake word gerekmez
+    }, FOLLOWUP_RELISTEN_DELAY_MS);
+    return;
   }
-  setTimeout(() => {
-    if (!_convSession || _voiceCogPaused) { _disarmFollowUp(); return; }
-    if (_current.status === 'listening' || _current.status === 'processing') return;
-    startListening({ followUpWindow: true }); // kısa pencere — wake word gerekmez
-  }, FOLLOWUP_RELISTEN_DELAY_MS);
+  // (B) Takipsiz sohbet cevabı → konuşma bitti, idle'a dön. UI 'success'
+  //     barı GERÇEK konuşma süresince görünür kaldı (3.5s sabit timer kaldırıldı).
+  if (_convIdleOnTtsEnd) {
+    _clearConvIdle();
+    if (_current.status === 'success') push({ status: 'idle' });
+  }
 });
 
 // Asistan dinlerken müziği duraklatıp bittiğinde devam ettirmek için: yalnız BİZ
@@ -445,10 +487,17 @@ function tryHandleChain(trimmed: string, ctx?: VehicleContext): boolean {
  * Companion kapalıyken (offline_chat) eski davranış korunur — döngü yok.
  */
 function _dispatchConversation(response: string, raw: string, armFollowUp: boolean): void {
-  if (armFollowUp) _armFollowUp(); else _endConvSession();
+  // armFollowUp=true  → cevap bitince mikrofon yeniden açılır (sürekli sohbet).
+  // armFollowUp=false → cevap bitince idle (TTS-end dinleyicisi). Sabit 3.5s timer
+  //                     KALDIRILDI: UI durumu gerçek konuşma süresiyle senkron.
+  if (armFollowUp) _armFollowUp();
+  else             _endConvSession();
+  // followUp GERÇEKTEN kurulamadıysa (pause yarışı / oturum yok / takipsiz) idle'ı
+  // TTS bitişine bağla — aksi halde re-listen yolu idle'ı devralır. Böylece durum
+  // hiçbir koşulda 'success'te asılı kalmaz (eski 3.5s timer'ın emniyet rolü).
+  if (!_followUpArmed) _armConvIdleOnTtsEnd();
   speakFeedback(response);
   push({ status: 'success', transcript: raw, error: null, suggestions: [], lastCommand: null });
-  setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, 3500);
 }
 
 /* ── Sohbet kapatma sözleri (sürekli sohbet döngüsünden çıkış) ──
@@ -519,6 +568,10 @@ let _pendingAt  = 0;
  * Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
  * 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2). */
 async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string; hasNet: boolean }> {
+  // GÜVENLİK: localStorage'dan SADECE hassas-olmayan provider SEÇİMİ okunur
+  // (gemini|haiku enum'u). API ANAHTARLARI burada DEĞİL — aşağıda
+  // sensitiveKeyStore (Android Keystore / AES-256-GCM) üzerinden çözülür; anahtar
+  // hiçbir zaman düz metin localStorage'da tutulmaz.
   let provider: AIProvider = 'none';
   try {
     const rawKey = localStorage.getItem('car-launcher-storage');
@@ -829,6 +882,15 @@ export function startListening(opts?: StartListeningOpts): void {
     return;
   }
 
+  // İLK İŞ: asistan konuşuyorsa kendi sesini kes — mikrofonla çakışmasın
+  // (kullanıcı asistanın sözünü kesip konuşmaya geçebilsin). ttsCancel idempotent:
+  // konuşan bir şey yoksa zararsız no-op. TTS-end bildirimi tetiklemez (takip/idle
+  // mantığını yanlışlıkla ilerletmez).
+  ttsCancel();
+  // Yeni etkileşim bekleyen takipsiz-idle'ı geçersiz kılar (eski cevabın TTS
+  // bitişi bu turu idle'a düşürmesin).
+  _clearConvIdle();
+
   void reportVoiceDiag('voice_start');
 
   // AudioContext donma koruması — her tetiklemede suspended ise resume et
@@ -854,7 +916,9 @@ export function startListening(opts?: StartListeningOpts): void {
     }, VOICE_TUNING.listenFailsafeMs);
 
     const doSTT = () => {
-      // Warmup bitti — mikrofon donanımı gerçekten açılıyor. "Dinliyorum" ancak burada basılır.
+      // Mikrofon donanımı gerçekten açılıyor. Durum warmup başında zaten 'listening'
+      // basıldıysa bu no-op'tur (idle→listening tek sefer duck tetikler); warmup=0
+      // yolunda görsel geri bildirimi burada basar.
       push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
       void reportVoiceDiag('voice_listening');
       _startNativeVolumeListener();
@@ -953,6 +1017,11 @@ export function startListening(opts?: StartListeningOpts): void {
     };
 
     if (warmupMs > 0) {
+      // Warmup BAŞLARKEN 'listening' bas — donanım ısınırken (T507 ~ yüzlerce ms)
+      // kullanıcı görsel geri bildirim görür; eskiden yalnız warmup SONRASI
+      // basıldığı için arada "tepkisiz" bir boşluk hissediliyordu. Gerçek mikrofon
+      // + RMS/duck doSTT'de bağlanır; failsafe zaten t=0'dan beri kurulu.
+      push({ status: 'listening', error: null, suggestions: [], volumeLevel: 0 });
       _nativeSttWarmupTimer = setTimeout(() => {
         _nativeSttWarmupTimer = null;
         doSTT();
@@ -1109,6 +1178,7 @@ export function _resetVoiceServiceForTest(): void {
     clearTimeout(_followUpFallbackTimer);
     _followUpFallbackTimer = null;
   }
+  _clearConvIdle();
   _current = { ...INITIAL };
 }
 
