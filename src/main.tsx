@@ -5,7 +5,6 @@ import './i18n/config'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { applyCompatMode } from './platform/headUnitCompat.ts'
-import { applyViewportScale } from './platform/viewportScale.ts'
 import { initNativeCore } from './platform/nativeCoreService.ts'
 import { initPlatformDetection } from './platform/headUnitPlatform.ts'
 import { isNative } from './platform/bridge.ts'
@@ -26,10 +25,6 @@ try {
 
   /* ── Head unit / eski WebView uyumluluk modu — React öncesi çağrılmalı ── */
   applyCompatMode();
-
-  /* ── Bukalemun ekran uyumu — kısa/dar telefon viewport'unu orantılı küçült.
-   * Head unit (≈1024×600) doğal boyutunda kalır (zoom uygulanmaz) → sıfır risk. */
-  applyViewportScale();
 
   /* ── Gün/Gece + light-ui boot senkronu ───────────────────────────────────
    * light-ui (--oem-* açık palet + light-theme override'ları) ARTIK data-day-night
