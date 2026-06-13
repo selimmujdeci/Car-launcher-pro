@@ -259,33 +259,29 @@ const HzSpeedCard = memo(function HzSpeedCard() {
 const HzRangeCard = memo(function HzRangeCard() {
   const p = usePalH();
   const obd = useOBDState();
+  const odometer = useUnifiedVehicleStore(s => s.odometer);
   const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
   const range = obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
   const fpct = lvl != null ? Math.max(0, Math.min(lvl, 100)) : 0;
   return (
     <Panel style={{ padding: '13px 15px' }}>
       <div className="flex items-center justify-between"><HzLabel>Menzil</HzLabel><Fuel className="w-4 h-4" style={{ color: p.ink3 }} /></div>
-      <div style={{ fontWeight: 700, fontSize: 25, marginTop: 4, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
-      <div className="flex items-center" style={{ gap: 7, marginTop: 8 }}>
+      <div style={{ fontWeight: 700, fontSize: 23, marginTop: 3, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
+      <div className="flex items-center" style={{ gap: 7, marginTop: 7 }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>E</span>
         <div style={{ flex: 1, height: 6, borderRadius: 999, background: p.panelLo, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${fpct}%`, background: `linear-gradient(90deg, ${p.accentDeep}, ${p.accent})`, transition: 'width .5s ease' }} />
         </div>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>F</span>
       </div>
-    </Panel>
-  );
-});
-
-/* ─── SOL: KİLOMETRE (ODOMETRE) ──────────────────────────────────── */
-// GPS'ten beslenir (OBD'siz de çalışır) — TEK kaynak useVehicleStore.odometer.
-const HzOdometerCard = memo(function HzOdometerCard() {
-  const p = usePalH();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-  return (
-    <Panel style={{ padding: '13px 15px' }}>
-      <div className="flex items-center justify-between"><HzLabel>Kilometre</HzLabel><Gauge className="w-4 h-4" style={{ color: p.ink3 }} /></div>
-      <div style={{ fontWeight: 700, fontSize: 25, marginTop: 4, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
+      {/* Kilometre (odometre) — GPS, OBD'siz çalışır; aynı panelde ayrı etiketli okuma */}
+      <div className="flex items-center justify-between" style={{ marginTop: 9, paddingTop: 8, borderTop: `1px solid ${p.panelLo}` }}>
+        <div className="flex items-center" style={{ gap: 6 }}>
+          <Gauge className="w-4 h-4" style={{ color: p.ink3 }} />
+          <span style={{ fontWeight: 700, fontSize: 20, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>km</small></span>
+        </div>
+        <HzLabel>Kilometre</HzLabel>
+      </div>
     </Panel>
   );
 });
@@ -724,11 +720,10 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
         <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: HZ_GRID_COLS, gap: 12 }}>
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto auto' }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto' }}>
             <HzDriveModeCard />
             <HzSpeedCard />
             <HzRangeCard />
-            <HzOdometerCard />
             <HzConsumptionCard onOpenSettings={onOpenSettings} />
           </div>
 

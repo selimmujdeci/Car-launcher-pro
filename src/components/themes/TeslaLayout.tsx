@@ -228,10 +228,14 @@ const SpeedGauge = memo(function SpeedGauge() {
   );
 });
 
-/* ─── FUEL / MENZİL CARD ─────────────────────────────────────────── */
+/* ─── FUEL / MENZİL + KİLOMETRE CARD ─────────────────────────────────
+   İki ayrı etiketli okuma tek panelde: Menzil (yakıt → OBD) + Kilometre
+   (odometre, GPS'ten beslenir, OBD'siz de çalışır). Ayrı tam kart dar/kısa
+   kolonu taşırıyordu → tek panel + ince ayraç (sığma garantili). */
 const FuelCard = memo(function FuelCard() {
   const p = usePal();
   const obd = useOBDState();
+  const odometer = useUnifiedVehicleStore(s => s.odometer);
   const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
   const range = lvl != null ? Math.round((lvl / 100) * 750) : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
@@ -244,24 +248,12 @@ const FuelCard = memo(function FuelCard() {
         <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
         <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>MENZİL</span>
       </div>
-      <div className="flex gap-1 mt-2.5">
+      <div className="flex gap-1 mt-2">
         {Array.from({ length: 10 }).map((_, i) => (
           <div key={i} style={{ flex: 1, height: 6, borderRadius: 2, background: i < seg ? p.accent : p.tile }} />
         ))}
       </div>
-    </div>
-  );
-});
-
-/* ─── ODOMETRE / KİLOMETRE CARD ──────────────────────────────────── */
-// GPS'ten beslenir (OBD'siz de çalışır) — TEK kaynak useVehicleStore.odometer.
-const OdometerCard = memo(function OdometerCard() {
-  const p = usePal();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-  return (
-    <div style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
-      <Screws inset={6} />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${p.tile}` }}>
         <Gauge className="w-4 h-4" style={{ color: p.accent2 }} />
         <span style={{ fontSize: 19, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)}</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
@@ -578,7 +570,6 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
               <ClockCard />
               <SpeedGauge />
               <FuelCard />
-              <OdometerCard />
             </div>
             <div className="flex flex-col min-h-0 min-w-0 flex-1 relative" style={{ gap: 12 }}>
               <MapCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
