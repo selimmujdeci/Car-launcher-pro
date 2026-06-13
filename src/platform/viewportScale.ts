@@ -52,9 +52,17 @@ function apply(): void {
   if (scale >= APPLY_THRESHOLD) {
     // Head unit / masaüstü: dokunma — harita/WebGL ve compat-mode etkilenmesin.
     root.style.removeProperty('zoom');
+    root.style.removeProperty('width');
+    root.style.removeProperty('height');
   } else {
     // Telefon / kısa ekran: orantılı küçült (layout'a katılan zoom).
+    // ÖNEMLİ: #root position:fixed + %100. zoom onu viewport'un %scale'ine
+    // küçültür → altta/sağda boşluk kalır. Boyutu 100/scale'e çıkar ki zoom
+    // SONRASI tam viewport'u doldursun (örn. scale 0.74 → %135 → ×0.74 = %100).
+    const inv = `${(100 / scale).toFixed(3)}%`;
     root.style.setProperty('zoom', String(scale));
+    root.style.width  = inv;
+    root.style.height = inv;
   }
 }
 
@@ -84,4 +92,6 @@ export function stopViewportScale(): void {
   if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
   const root = typeof document !== 'undefined' ? document.getElementById('root') : null;
   root?.style.removeProperty('zoom');
+  root?.style.removeProperty('width');
+  root?.style.removeProperty('height');
 }
