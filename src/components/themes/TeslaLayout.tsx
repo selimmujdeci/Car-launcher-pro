@@ -1,9 +1,10 @@
-import { memo, useState, lazy, Suspense, useEffect, useMemo, createContext, useContext } from 'react';
+import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause,
   Bluetooth, Wifi, ChevronRight, Maximize2, CornerUpRight,
   Thermometer, BatteryCharging, Gauge, Fuel,
+  Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
@@ -515,24 +516,90 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   onOpenMap: () => void; onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void;
 }) {
   const p = usePal();
+  // İki sayfa: (1) imza 6 plaka + saat, (2) diğer fonksiyonlar. Yatay kaydırma +
+  // scroll-snap (DockBar ile aynı yol → K24 WebView'de kanıtlı). Saat dış katmanda
+  // overlay (kaydırma kabında DEĞİL → üstte kalır, kırpılmaz); 2. sayfada solar.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const clockRef  = useRef<HTMLDivElement>(null);
+  const dotsRef   = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let ticking = false;
+    const apply = () => {
+      const page = el.clientWidth > 0 ? el.scrollLeft / el.clientWidth : 0;
+      const op = Math.max(0, Math.min(1, 1 - page * 1.6)); // page≳0.6 → saat görünmez
+      if (clockRef.current) {
+        clockRef.current.style.opacity = String(op);
+        clockRef.current.style.pointerEvents = op < 0.5 ? 'none' : 'auto';
+      }
+      if (dotsRef.current) {
+        const active = page >= 0.5 ? 1 : 0;
+        const dots = dotsRef.current.children;
+        for (let i = 0; i < dots.length; i++) {
+          (dots[i] as HTMLElement).style.opacity = i === active ? '1' : '0.3';
+        }
+      }
+      ticking = false;
+    };
+    const onScroll = () => { if (!ticking) { requestAnimationFrame(apply); ticking = true; } };
+    apply();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const dot = (on: boolean) => ({
+    width: 6, height: 6, borderRadius: '50%', background: p.accent,
+    opacity: on ? 1 : 0.3, transition: 'opacity 0.18s',
+  });
+
   return (
-    <div className="relative w-full flex items-center" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '9px 16px', minHeight: 80, gap: 0 }}>
+    <div className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '9px 16px 13px', minHeight: 80 }}>
       <Screws inset={9} />
-      <div className="flex items-center" style={{ flex: 1, gap: 8 }}>
-        <DockPlate Icon={Navigation} label="Navigasyon" active onClick={onOpenMap} />
-        <DockPlate Icon={Music2}     label="Müzik"      onClick={() => openMusicDrawer()} />
-        <DockPlate Icon={Mic}        label="Asistan"    onClick={onVoice} />
+
+      {/* Sayfalar — yatay kaydırma (no-scrollbar: çubuk gizli) */}
+      <div ref={scrollRef} className="no-scrollbar" style={{ display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
+        {/* SAYFA 1 — imza 6 plaka (saat ortadaki boşlukta overlay) */}
+        <div style={{ flex: '0 0 100%', width: '100%', scrollSnapAlign: 'start', display: 'flex', alignItems: 'center' }}>
+          <div className="flex items-center" style={{ flex: 1, gap: 8 }}>
+            <DockPlate Icon={Navigation} label="Navigasyon" active onClick={onOpenMap} />
+            <DockPlate Icon={Music2}     label="Müzik"      onClick={() => openMusicDrawer()} />
+            <DockPlate Icon={Mic}        label="Asistan"    onClick={onVoice} />
+          </div>
+          <div style={{ width: 100, flexShrink: 0 }} />
+          <div className="flex items-center" style={{ flex: 1, gap: 8 }}>
+            <DockPlate Icon={Wind}     label="Klima"   onClick={() => openDrawer('climate')} />
+            <DockPlate Icon={Car}      label="Araç"    onClick={() => openDrawer('vehicle-reminder')} />
+            <DockPlate Icon={Settings} label="Ayarlar" onClick={onOpenSettings} />
+          </div>
+        </div>
+        {/* SAYFA 2 — diğer fonksiyonlar */}
+        <div style={{ flex: '0 0 100%', width: '100%', scrollSnapAlign: 'start', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <DockPlate Icon={Phone}         label="Telefon"  onClick={() => openDrawer('phone')} />
+          <DockPlate Icon={Bell}          label="Bildirim" onClick={() => openDrawer('notifications')} />
+          <DockPlate Icon={Cloud}         label="Hava"     onClick={() => openDrawer('weather')} />
+          <DockPlate Icon={AlertTriangle} label="Trafik"   onClick={() => openDrawer('traffic')} />
+          <DockPlate Icon={Camera}        label="Dashcam"  onClick={() => openDrawer('dashcam')} />
+          <DockPlate Icon={Route}         label="Seyir"    onClick={() => openDrawer('triplog')} />
+          <DockPlate Icon={ShieldAlert}   label="Arıza"    onClick={() => openDrawer('dtc')} />
+          <DockPlate Icon={Shield}        label="Güvenlik" onClick={() => openDrawer('security')} />
+          <DockPlate Icon={Tv2}           label="Eğlence"  onClick={() => openDrawer('entertainment')} />
+          <DockPlate Icon={Zap}           label="Sport"    onClick={() => openDrawer('sport')} />
+        </div>
       </div>
-      <div style={{ width: 100, flexShrink: 0 }} />
-      <div className="flex items-center" style={{ flex: 1, gap: 8 }}>
-        <DockPlate Icon={Wind}     label="Klima"   onClick={() => openDrawer('climate')} />
-        <DockPlate Icon={Car}      label="Araç"    onClick={() => openDrawer('vehicle-reminder')} />
-        <DockPlate Icon={Settings} label="Ayarlar" onClick={onOpenSettings} />
-      </div>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 3 }}>
+
+      {/* SAAT — dış overlay (kaydırma kabı DIŞINDA → kırpılmaz, üstte kalır) */}
+      <div ref={clockRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 3, transition: 'opacity 0.2s' }}>
         <div style={{ pointerEvents: 'auto', transform: 'translateY(-30px)' }}>
           <TeslaClock onClick={onOpenApps} />
         </div>
+      </div>
+
+      {/* Sayfa noktaları */}
+      <div ref={dotsRef} style={{ position: 'absolute', bottom: 4, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6, pointerEvents: 'none', zIndex: 3 }}>
+        <span style={dot(true)} />
+        <span style={dot(false)} />
       </div>
     </div>
   );
