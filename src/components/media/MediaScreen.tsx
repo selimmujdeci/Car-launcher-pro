@@ -666,7 +666,8 @@ function PlayerView({
           <button
             onClick={onTabSources}
             aria-label="Kaynak ayarları"
-            className="flex-shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center text-secondary hover:text-primary glass-card active:scale-90 transition-all">
+            className="flex-shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
+            style={{ color: 'var(--oem-ink-2)' }}>
             <SlidersHorizontal className="w-5 h-5" />
           </button>
         </div>
@@ -691,10 +692,10 @@ function PlayerView({
         {/* Şarkı bilgisi + beğeni */}
         <div className="flex-shrink-0 flex items-center justify-between mt-6 mb-4 px-1">
           <div className="flex-1 min-w-0 pr-4">
-            <div className="text-primary font-black text-2xl leading-tight truncate tracking-tight drop-shadow-md">
+            <div className="font-black text-2xl leading-tight truncate tracking-tight drop-shadow-md" style={{ color: 'var(--oem-ink)' }}>
               {track.title || (hasSession ? 'Bilinmeyen parça' : 'Müzik başlat')}
             </div>
-            <div className="text-secondary font-bold text-base truncate mt-1 tracking-wide uppercase text-[10px] opacity-80">
+            <div className="font-bold text-base truncate mt-1 tracking-wide uppercase text-[10px] opacity-80" style={{ color: 'var(--oem-ink-2)' }}>
               {track.artist || (hasSession ? 'Sanatçı bilinmiyor' : 'Oynat\'a dokun')}
             </div>
           </div>
@@ -716,7 +717,8 @@ function PlayerView({
               <YtDownloadButton title={track.title} artist={track.artist} />
             )}
             <button
-              className="w-12 h-12 rounded-2xl flex items-center justify-center text-secondary hover:text-red-500 glass-card active:scale-90 transition-all">
+              className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
+              style={{ color: 'var(--oem-ink-2)' }}>
               <Heart className="w-6 h-6 transition-all" />
             </button>
           </div>
@@ -899,8 +901,8 @@ function SourcesView({
   return (
     <div className="h-full overflow-y-auto scrollbar-none px-5 pt-5 pb-3">
       <div className="mb-5">
-        <div className="text-primary font-black text-base tracking-tight">Medya Kaynakları</div>
-        <div className="text-secondary text-xs mt-0.5 font-bold uppercase tracking-wider">Tercih ettiğiniz uygulamayı seçin</div>
+        <div className="font-black text-base tracking-tight" style={{ color: 'var(--oem-ink)' }}>Medya Kaynakları</div>
+        <div className="text-xs mt-0.5 font-bold uppercase tracking-wider" style={{ color: 'var(--oem-ink-2)' }}>Tercih ettiğiniz uygulamayı seçin</div>
       </div>
 
       {/* ── Özel kaynaklar (kullanıcı eklemeli internet akışı / radyo) ── */}
@@ -913,7 +915,7 @@ function SourcesView({
 
       {groups.map(({ cat, label, sources }) => (
         <div key={cat} className="mb-6">
-          <div className="text-secondary text-[10px] font-black uppercase tracking-[0.25em] mb-3 px-1">{label}</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.25em] mb-3 px-1" style={{ color: 'var(--oem-ink-3)' }}>{label}</div>
           <div className="flex flex-col gap-2">
             {sources.map((src) => {
               const isActive    = src.key === activeSourceKey;
@@ -941,7 +943,7 @@ function SourcesView({
 
                   {/* İsim + durum */}
                   <div className="flex-1 min-w-0">
-                    <div className={`font-black text-sm tracking-tight ${isActive ? 'text-primary' : 'text-secondary group-hover:text-primary'}`}>
+                    <div className="font-black text-sm tracking-tight" style={{ color: isActive ? 'var(--oem-ink)' : 'var(--oem-ink-2)' }}>
                       {src.name}
                     </div>
                     {isPlaying && (
@@ -956,10 +958,10 @@ function SourcesView({
                   {isActive ? (
                     <div className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center shadow-lg"
                       style={{ background: src.color, boxShadow: `0 0 15px ${src.color}60` }}>
-                      <Check className="w-5 h-5 text-primary" />
+                      <Check className="w-5 h-5" style={{ color: 'var(--oem-accent-ink, #fff)' }} />
                     </div>
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-secondary group-hover:text-secondary transition-colors" />
+                    <ChevronRight className="w-5 h-5 transition-colors" style={{ color: 'var(--oem-ink-3)' }} />
                   )}
                 </button>
               );
@@ -968,7 +970,7 @@ function SourcesView({
         </div>
       ))}
 
-      <p className="text-secondary text-[10px] font-bold text-center leading-relaxed pb-6 uppercase tracking-widest">
+      <p className="text-[10px] font-bold text-center leading-relaxed pb-6 uppercase tracking-widest" style={{ color: 'var(--oem-ink-3)' }}>
         Uygulama arka planda çalışırken kontroller aktif olur.
       </p>
     </div>
@@ -1010,10 +1012,11 @@ function CustomSourcesSection({
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-3 px-1">
-        <div className="text-secondary text-[10px] font-black uppercase tracking-[0.25em]">Eklenen Kaynaklar</div>
+        <div className="text-[10px] font-black uppercase tracking-[0.25em]" style={{ color: 'var(--oem-ink-3)' }}>Eklenen Kaynaklar</div>
         <button
           onClick={() => setAdding((v) => !v)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card text-[10px] font-black uppercase tracking-widest text-blue-400 active:scale-95 transition-all">
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
+          style={{ color: 'var(--oem-info, #60a5fa)' }}>
           {adding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
           {adding ? 'İptal' : 'Kaynak Ekle'}
         </button>
@@ -1026,14 +1029,16 @@ function CustomSourcesSection({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Kaynak adı (örn. Radyo Fenomen)"
-            className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-primary text-sm outline-none focus:border-blue-400/50"
+            className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors"
+            style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink)' }}
           />
           <input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Akış URL'si (https://... .mp3 / .m3u8 / radyo)"
             inputMode="url"
-            className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-primary text-sm outline-none focus:border-blue-400/50"
+            className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors"
+            style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink)' }}
           />
           <button
             onClick={handleSave}
@@ -1042,7 +1047,7 @@ function CustomSourcesSection({
             style={{ background: 'rgba(59,130,246,0.22)', border: '1.5px solid rgba(59,130,246,0.55)', color: '#60a5fa' }}>
             Ekle
           </button>
-          <div className="text-secondary text-[10px] leading-relaxed opacity-70">
+          <div className="text-[10px] leading-relaxed opacity-70" style={{ color: 'var(--oem-ink-2)' }}>
             Doğrudan ses akışı / internet radyosu URL'si. Uygulama içinde çalar, harici uygulamaya gidilmez.
           </div>
         </div>
@@ -1051,7 +1056,7 @@ function CustomSourcesSection({
       {/* Liste */}
       {customSources.length === 0 ? (
         !adding && (
-          <div className="text-secondary text-xs px-1 opacity-60">Henüz kaynak yok. "Kaynak Ekle" ile internet radyosu/akış ekleyin.</div>
+          <div className="text-xs px-1 opacity-60" style={{ color: 'var(--oem-ink-2)' }}>Henüz kaynak yok. "Kaynak Ekle" ile internet radyosu/akış ekleyin.</div>
         )
       ) : (
         <div className="flex flex-col gap-2">
@@ -1067,15 +1072,16 @@ function CustomSourcesSection({
                   <Globe className="w-5 h-5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-black text-sm tracking-tight text-primary truncate">{src.name}</div>
-                  <div className="text-secondary text-[10px] font-bold uppercase tracking-widest truncate">İnternet akışı</div>
+                  <div className="font-black text-sm tracking-tight truncate" style={{ color: 'var(--oem-ink)' }}>{src.name}</div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--oem-ink-2)' }}>İnternet akışı</div>
                 </div>
                 <Play className="w-5 h-5 flex-shrink-0" style={{ color: src.color }} />
               </button>
               <button
                 onClick={() => onRemoveCustomSource(src.id)}
                 aria-label="Kaynağı sil"
-                className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-secondary hover:text-red-400 active:scale-90 transition-all">
+                className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+                style={{ color: 'var(--oem-ink-3)' }}>
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
@@ -1157,15 +1163,16 @@ function SearchView({ onPlay, onAddSource }: SearchViewProps) {
     <div className="h-full flex flex-col overflow-hidden px-5 pt-5">
       {/* Arama kutusu */}
       <div className="flex items-center gap-2 px-4 py-3 rounded-2xl glass-card flex-shrink-0">
-        <Search className="w-5 h-5 text-secondary flex-shrink-0" />
+        <Search className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-3)' }} />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Şarkı, sanatçı veya kaynak ara…"
-          className="flex-1 bg-transparent text-primary text-sm outline-none placeholder:text-secondary"
+          className="flex-1 bg-transparent text-sm outline-none"
+          style={{ color: 'var(--oem-ink)' }}
         />
         {query && (
-          <button onClick={() => setQuery('')} aria-label="Temizle" className="text-secondary active:scale-90">
+          <button onClick={() => setQuery('')} aria-label="Temizle" className="active:scale-90" style={{ color: 'var(--oem-ink-3)' }}>
             <X className="w-4 h-4" />
           </button>
         )}
@@ -1177,12 +1184,11 @@ function SearchView({ onPlay, onAddSource }: SearchViewProps) {
           <button
             key={c.key}
             onClick={() => setFilter(c.key)}
-            className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-              filter === c.key ? 'text-blue-400' : 'text-secondary'
-            }`}
+            className="flex-shrink-0 px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
             style={{
-              background:  filter === c.key ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.04)',
-              border:      `1px solid ${filter === c.key ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.08)'}`,
+              color:      filter === c.key ? 'var(--oem-info, #60a5fa)' : 'var(--oem-ink-2)',
+              background: filter === c.key ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.04)',
+              border:     `1px solid ${filter === c.key ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.08)'}`,
             }}>
             {c.label}
           </button>
@@ -1201,15 +1207,15 @@ function SearchView({ onPlay, onAddSource }: SearchViewProps) {
               <Music2 className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-black text-sm text-primary">Spotify'a Bağlan</div>
-              <div className="text-secondary text-[11px]">Catalog'da ara, arka planda çal</div>
+              <div className="font-black text-sm" style={{ color: 'var(--oem-ink)' }}>Spotify'a Bağlan</div>
+              <div className="text-[11px]" style={{ color: 'var(--oem-ink-2)' }}>Catalog'da ara, arka planda çal</div>
             </div>
-            <ChevronRight className="w-5 h-5 text-secondary flex-shrink-0" />
+            <ChevronRight className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-3)' }} />
           </button>
         )}
 
         {searching && results.length === 0 && (
-          <div className="text-secondary text-xs px-1 py-2 opacity-70">Aranıyor…</div>
+          <div className="text-xs px-1 py-2 opacity-70" style={{ color: 'var(--oem-ink-3)' }}>Aranıyor…</div>
         )}
 
         {/* Birleşik sonuç listesi — her kaynak tek liste, rozette kaynağı görünür */}
@@ -1228,8 +1234,8 @@ function SearchView({ onPlay, onAddSource }: SearchViewProps) {
                     <Artwork src={t.artwork} id={t.providerId} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-black text-sm text-primary truncate">{t.title}</div>
-                    <div className="text-secondary text-[11px] truncate">{t.subtitle}</div>
+                    <div className="font-black text-sm truncate" style={{ color: 'var(--oem-ink)' }}>{t.title}</div>
+                    <div className="text-[11px] truncate" style={{ color: 'var(--oem-ink-2)' }}>{t.subtitle}</div>
                   </div>
                   <span className="text-[9px] font-black uppercase tracking-widest flex-shrink-0" style={{ color: meta.color }}>{meta.name}</span>
                   <Play className="w-4 h-4 flex-shrink-0" style={{ color: meta.color }} />
@@ -1242,15 +1248,16 @@ function SearchView({ onPlay, onAddSource }: SearchViewProps) {
         {/* Boş durum */}
         {nothing && (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center px-6">
-            <Search className="w-10 h-10 text-secondary opacity-40" />
-            <div className="text-secondary text-sm font-medium leading-relaxed max-w-[280px]">
+            <Search className="w-10 h-10 opacity-40" style={{ color: 'var(--oem-ink-3)' }} />
+            <div className="text-sm font-medium leading-relaxed max-w-[280px]" style={{ color: 'var(--oem-ink-2)' }}>
               {query.trim()
                 ? 'Sonuç bulunamadı.'
                 : 'Şarkı veya sanatçı yazın — Spotify, Audius, radyo ve cihazda aransın.'}
             </div>
             <button
               onClick={onAddSource}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl glass-card text-blue-400 text-xs font-black uppercase tracking-widest active:scale-95 transition-all">
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl glass-card text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+              style={{ color: 'var(--oem-info, #60a5fa)' }}>
               <Plus className="w-4 h-4" /> Kaynak Ekle
             </button>
           </div>

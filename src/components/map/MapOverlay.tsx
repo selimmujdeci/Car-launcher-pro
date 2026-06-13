@@ -39,24 +39,24 @@ export const MapOverlay = memo(function MapOverlay({
     if (servingFrom === 'local') {
       return {
         label: 'YEREL',
-        dot: 'bg-emerald-400',
-        wrap: 'bg-emerald-500/10 border-emerald-400/20',
-        text: 'text-emerald-400',
+        dot: 'bg-[var(--oem-good)]',
+        wrap: 'bg-[var(--oem-good-soft)] border-[var(--oem-good)]',
+        text: 'text-[color:var(--oem-good)]',
       };
     }
     if (servingFrom === 'cached') {
       return {
         label: 'CACHE',
-        dot: 'bg-amber-400',
-        wrap: 'bg-amber-500/10 border-amber-400/20',
-        text: 'text-amber-400',
+        dot: 'bg-[var(--oem-warn)]',
+        wrap: 'bg-[var(--oem-warn-soft)] border-[var(--oem-warn)]',
+        text: 'text-[color:var(--oem-warn)]',
       };
     }
     return {
       label: 'ONLINE',
-      dot: 'bg-[#E0A23C]',
-      wrap: 'bg-[#E0A23C]/10 border-[#E0A23C]/20',
-      text: 'text-[#E0A23C]',
+      dot: 'bg-[var(--oem-accent)]',
+      wrap: 'bg-[var(--oem-accent-soft)] border-[var(--oem-accent)]',
+      text: 'text-[color:var(--oem-accent)]',
     };
   })();
 
@@ -67,7 +67,7 @@ export const MapOverlay = memo(function MapOverlay({
 
         {/* Source badge — top-right, küçük */}
         <div className="absolute top-2 right-2">
-          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl border ${badge.wrap} shadow-sm`}>
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/50 backdrop-blur-xl border ${badge.wrap} shadow-sm`}>
             <div className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
             <span className={`text-[8px] font-black tracking-widest uppercase ${badge.text}`}>{badge.label}</span>
           </div>
@@ -76,12 +76,12 @@ export const MapOverlay = memo(function MapOverlay({
         {/* GPS bekleniyor — kompakt */}
         {!location && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-2 bg-[#0f172a]/80 backdrop-blur-xl rounded-2xl px-4 py-3 border border-white/10">
+            <div className="flex flex-col items-center gap-2 bg-black/80 backdrop-blur-xl rounded-2xl px-4 py-3 border border-white/10">
               <div className="relative w-7 h-7">
                 <div className="absolute inset-0 border-2 border-[#E0A23C]/20 border-t-[#E0A23C] rounded-full animate-spin" />
                 <Navigation2 className="absolute inset-0 m-auto w-3.5 h-3.5 text-[#E0A23C]" />
               </div>
-              <span className="text-primary text-[9px] font-black tracking-widest uppercase">
+              <span className="text-[color:var(--oem-ink)] text-[9px] font-black tracking-widest uppercase">
                 {gpsUnavailable ? 'GPS HATASI' : 'GPS BEKLENİYOR'}
               </span>
             </div>
@@ -91,14 +91,14 @@ export const MapOverlay = memo(function MapOverlay({
         {/* Hız + yön — bottom-right, kompakt */}
         {location && (
           <div className="absolute bottom-2 right-2">
-            <div className="flex items-center gap-1.5 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl rounded-xl border border-white/10 shadow-lg px-2.5 py-1.5">
-              <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-slate-400' : 'text-primary'}`}>
+            <div className="flex items-center gap-1.5 bg-black/50 backdrop-blur-xl rounded-xl border border-white/10 shadow-lg px-2.5 py-1.5">
+              <span className={`text-lg font-black font-mono leading-none tabular-nums ${Math.round(speed) === 0 ? 'text-[color:var(--oem-ink-3)]' : 'text-[color:var(--oem-ink)]'}`}>
                 {Math.round(speed)}
               </span>
               <span className="text-[8px] font-black text-[#E0A23C] uppercase leading-none">km/h</span>
               {hasHeading && (
                 <>
-                  <div className="w-px h-3 var(--panel-bg-secondary) mx-0.5" />
+                  <div className="w-px h-3 bg-white/20 mx-0.5" />
                   <svg
                     viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
                     className="w-3.5 h-3.5 text-[#E0A23C]"
@@ -125,7 +125,7 @@ export const MapOverlay = memo(function MapOverlay({
 
       {/* Source badge — top-right */}
       <div className={`absolute top-8 right-8 transition-all duration-700 ${isDriving ? 'opacity-30 scale-90 translate-x-4' : 'opacity-100'}`}>
-        <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
+        <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full bg-black/50 backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
           <div className={`w-2 h-2 rounded-full animate-pulse ${badge.dot}`} />
           <span className="text-[10px] font-black tracking-[0.2em] uppercase">{badge.label}</span>
         </div>
@@ -134,16 +134,16 @@ export const MapOverlay = memo(function MapOverlay({
       {/* GPS Status Card — center */}
       {!location && (
         <div className="absolute inset-0 flex items-center justify-center animate-in fade-in zoom-in-95 duration-1000">
-          <div className="flex flex-col items-center gap-6 bg-[#0f172a]/80 backdrop-blur-3xl rounded-[3rem] px-12 py-10 border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)]">
+          <div className="flex flex-col items-center gap-6 bg-black/80 backdrop-blur-3xl rounded-[3rem] px-12 py-10 border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)]">
             <div className="relative w-16 h-16">
               <div className="absolute inset-0 border-4 border-[#E0A23C]/10 border-t-[#E0A23C] rounded-full animate-spin" />
               <Navigation2 className="absolute inset-0 m-auto w-7 h-7 text-[#E0A23C] opacity-80" />
             </div>
             <div className="text-center">
-              <div className="text-primary text-sm font-black tracking-[0.3em] uppercase mb-1">
+              <div className="text-[color:var(--oem-ink)] text-sm font-black tracking-[0.3em] uppercase mb-1">
                 {gpsUnavailable ? 'GPS HATASI' : 'SİNYAL BEKLENİYOR'}
               </div>
-              <div className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+              <div className="text-[color:var(--oem-ink-3)] text-[10px] font-bold uppercase tracking-widest">
                 {gpsUnavailable ? 'KONUM İZİNLERİNİ KONTROL EDİN' : 'AÇIK BİR ALANA ÇIKIN'}
               </div>
             </div>

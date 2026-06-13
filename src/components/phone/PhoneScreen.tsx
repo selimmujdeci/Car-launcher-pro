@@ -40,24 +40,26 @@ function ContactRow({ contact, onCall }: {
   return (
     <button
       onClick={() => onCall(contact.name, contact.phones)}
-      className="flex items-center gap-4 w-full px-4 py-3 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] active:scale-[0.98] transition-all duration-150 text-left border border-white/5"
+      className="flex items-center gap-4 w-full px-4 py-3 rounded-2xl active:scale-[0.98] transition-all duration-150 text-left"
+      style={{ background: 'var(--oem-surface-2, rgba(255,255,255,0.04))', border: '1px solid var(--oem-line, rgba(255,255,255,0.08))' }}
     >
       {contact.avatar ? (
         <img src={contact.avatar} alt="" className="w-12 h-12 rounded-2xl object-cover flex-shrink-0" />
       ) : (
-        <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/25 flex items-center justify-center flex-shrink-0">
-          <span className="text-blue-300 text-sm font-black">{initials || <User className="w-5 h-5" />}</span>
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+          style={{ background: 'var(--oem-info-soft, rgba(59,130,246,0.15))', border: '1px solid var(--oem-info, rgba(59,130,246,0.35))' }}>
+          <span className="text-sm font-black" style={{ color: 'var(--oem-info, #60a5fa)' }}>{initials || <User className="w-5 h-5" />}</span>
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <div className="text-primary font-bold text-sm truncate">{contact.name}</div>
-        <div className="text-slate-500 text-xs mt-0.5 truncate">
+        <div className="font-bold text-sm truncate" style={{ color: 'var(--oem-ink)' }}>{contact.name}</div>
+        <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--oem-ink-3)' }}>
           {contact.phones[0]?.number ?? '—'}
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {contact.favorite && <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
-        <Phone className="w-4 h-4 text-slate-600" />
+        {contact.favorite && <Star className="w-3.5 h-3.5 fill-current" style={{ color: 'var(--oem-warn, #f59e0b)' }} />}
+        <Phone className="w-4 h-4" style={{ color: 'var(--oem-ink-3)' }} />
       </div>
     </button>
   );
@@ -75,28 +77,31 @@ function NumberPicker({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-sm">
-      <div className="bg-[rgba(255,255,255,0.05)] border border-white/10 rounded-3xl p-6 w-full max-w-xs mx-4 shadow-2xl">
-        <div className="text-primary font-black text-lg mb-1 text-center">{name}</div>
-        <div className="text-slate-500 text-xs text-center mb-5">Numara seç</div>
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="rounded-3xl p-6 w-full max-w-xs mx-4 shadow-2xl"
+        style={{ background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line)' }}>
+        <div className="font-black text-lg mb-1 text-center" style={{ color: 'var(--oem-ink)' }}>{name}</div>
+        <div className="text-xs text-center mb-5" style={{ color: 'var(--oem-ink-3)' }}>Numara seç</div>
         <div className="flex flex-col gap-2.5">
           {phones.map((p) => (
             <button
               key={p.number}
               onClick={() => { callNumber(p.number); onClose(); }}
-              className="flex items-center gap-3 p-4 rounded-2xl bg-blue-600/15 border border-blue-500/25 active:scale-95 transition-transform"
+              className="flex items-center gap-3 p-4 rounded-2xl active:scale-95 transition-transform"
+              style={{ background: 'var(--oem-info-soft, rgba(59,130,246,0.12))', border: '1px solid var(--oem-info, rgba(59,130,246,0.3))' }}
             >
-              <Phone className="w-5 h-5 text-blue-400 flex-shrink-0" />
+              <Phone className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-info, #60a5fa)' }} />
               <div className="flex-1 text-left">
-                <div className="text-primary font-bold text-sm">{p.number}</div>
-                <div className="text-blue-400/60 text-xs capitalize">{p.label}</div>
+                <div className="font-bold text-sm" style={{ color: 'var(--oem-ink)' }}>{p.number}</div>
+                <div className="text-xs capitalize" style={{ color: 'var(--oem-info, #60a5fa)', opacity: 0.65 }}>{p.label}</div>
               </div>
             </button>
           ))}
         </div>
         <button
           onClick={onClose}
-          className="mt-4 w-full py-3 rounded-2xl var(--panel-bg-secondary) text-slate-400 text-sm font-bold active:scale-95 transition-transform"
+          className="mt-4 w-full py-3 rounded-2xl text-sm font-bold active:scale-95 transition-transform"
+          style={{ background: 'var(--oem-surface-2)', color: 'var(--oem-ink-2)' }}
         >
           İptal
         </button>
@@ -138,17 +143,20 @@ export const PhoneScreen = memo(function PhoneScreen() {
 
       {/* Arama kutusu */}
       <div className="flex-shrink-0 p-4 pb-2">
-        <div className="flex items-center gap-3 var(--panel-bg-secondary) border border-white/10 rounded-2xl px-4 py-3">
-          <Search className="w-5 h-5 text-slate-500 flex-shrink-0" />
+        <div className="flex items-center gap-3 rounded-2xl px-4 py-3"
+          style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
+          <Search className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-3)' }} />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Kişi ara veya numara gir…"
-            className="flex-1 bg-transparent text-primary text-sm placeholder-slate-600 outline-none"
+            className="flex-1 bg-transparent text-sm outline-none"
+            style={{ color: 'var(--oem-ink)' }}
           />
           {query && (
-            <button onClick={() => setQuery('')} className="text-slate-600 hover:text-slate-400 text-lg leading-none">×</button>
+            <button onClick={() => setQuery('')} className="text-lg leading-none transition-colors"
+              style={{ color: 'var(--oem-ink-3)' }}>×</button>
           )}
         </div>
       </div>
@@ -158,7 +166,7 @@ export const PhoneScreen = memo(function PhoneScreen() {
         {/* Favoriler */}
         {!query && favorites.length > 0 && (
           <div>
-            <div className="text-slate-600 text-[10px] font-black uppercase tracking-widest mb-2 px-1">Favoriler</div>
+            <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'var(--oem-ink-3)' }}>Favoriler</div>
             <div className="grid grid-cols-4 gap-2">
               {favorites.slice(0, 8).map((c) => {
                 const initials = c.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -166,16 +174,18 @@ export const PhoneScreen = memo(function PhoneScreen() {
                   <button
                     key={c.id}
                     onClick={() => handleCall(c.name, c.phones)}
-                    className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-white/[0.03] border border-white/5 active:scale-95 transition-transform"
+                    className="flex flex-col items-center gap-2 p-3 rounded-2xl active:scale-95 transition-transform"
+                    style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}
                   >
                     {c.avatar ? (
                       <img src={c.avatar} alt="" className="w-12 h-12 rounded-2xl object-cover" />
                     ) : (
-                      <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
-                        <span className="text-amber-300 text-sm font-black">{initials}</span>
+                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                        style={{ background: 'var(--oem-warn-soft, rgba(245,158,11,0.12))', border: '1px solid var(--oem-warn, rgba(245,158,11,0.25))' }}>
+                        <span className="text-sm font-black" style={{ color: 'var(--oem-warn, #f59e0b)' }}>{initials}</span>
                       </div>
                     )}
-                    <span className="text-primary text-[10px] font-bold truncate w-full text-center">{c.name.split(' ')[0]}</span>
+                    <span className="text-[10px] font-bold truncate w-full text-center" style={{ color: 'var(--oem-ink)' }}>{c.name.split(' ')[0]}</span>
                   </button>
                 );
               })}
@@ -185,19 +195,19 @@ export const PhoneScreen = memo(function PhoneScreen() {
 
         {/* Kişi listesi */}
         <div>
-          {!query && <div className="text-slate-600 text-[10px] font-black uppercase tracking-widest mb-2 px-1">Tüm Kişiler</div>}
+          {!query && <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'var(--oem-ink-3)' }}>Tüm Kişiler</div>}
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-slate-600 text-sm">Kişiler yükleniyor…</div>
+            <div className="flex items-center justify-center py-16 text-sm" style={{ color: 'var(--oem-ink-3)' }}>Kişiler yükleniyor…</div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <User className="w-10 h-10 text-red-700" />
-              <div className="text-red-500 text-sm text-center">{error}</div>
-              <div className="text-slate-600 text-xs text-center">Ayarlar → Uygulama İzinleri → Kişiler</div>
+              <User className="w-10 h-10" style={{ color: 'var(--oem-danger, #ef4444)' }} />
+              <div className="text-sm text-center" style={{ color: 'var(--oem-danger, #ef4444)' }}>{error}</div>
+              <div className="text-xs text-center" style={{ color: 'var(--oem-ink-3)' }}>Ayarlar → Uygulama İzinleri → Kişiler</div>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <User className="w-10 h-10 text-slate-700" />
-              <div className="text-slate-600 text-sm text-center">
+              <User className="w-10 h-10" style={{ color: 'var(--oem-ink-3)' }} />
+              <div className="text-sm text-center" style={{ color: 'var(--oem-ink-3)' }}>
                 {query ? `"${query}" için sonuç bulunamadı` : 'Rehberde kişi yok'}
               </div>
             </div>

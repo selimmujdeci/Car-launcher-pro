@@ -49,18 +49,18 @@ const DTCCodeCard = memo(function DTCCodeCard({ code }: { code: DTCCode }) {
             <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border ${cfg.color} ${cfg.border} ${cfg.bg}`}>
               {cfg.label}
             </span>
-            <span className="text-slate-600 text-[10px]">{code.system}</span>
+            <span className="text-[color:var(--oem-ink-3)] text-[10px]">{code.system}</span>
           </div>
 
           {/* Description */}
-          <div className="text-primary text-sm font-semibold leading-snug mb-2">
+          <div className="text-[color:var(--oem-ink)] text-sm font-semibold leading-snug mb-2">
             {code.description}
           </div>
 
           {/* Possible causes */}
           {code.possibleCauses.length > 0 && (
             <div>
-              <div className="flex items-center gap-1 text-slate-600 text-[10px] uppercase tracking-widest mb-1.5">
+              <div className="flex items-center gap-1 text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest mb-1.5">
                 <Info className="w-3 h-3" />
                 Olası Nedenler
               </div>
@@ -69,7 +69,7 @@ const DTCCodeCard = memo(function DTCCodeCard({ code }: { code: DTCCode }) {
                   <span
                     key={i}
                     /* Olası neden etiketi → surface-2 / oem-line */
-                    className="text-[10px] text-secondary bg-[var(--oem-surface-2)] border border-[var(--oem-line)] px-2 py-0.5 rounded-full"
+                    className="text-[10px] text-[color:var(--oem-ink-2)] bg-[var(--oem-surface-2)] border border-[var(--oem-line)] px-2 py-0.5 rounded-full"
                   >
                     {cause}
                   </span>
@@ -113,9 +113,9 @@ function DTCPanelInner() {
               <ShieldAlert className="w-6 h-6 text-[color:var(--oem-warn)]" />
             </div>
             <div>
-              <span className="text-primary font-black text-lg uppercase tracking-widest">Arıza Teşhisi</span>
+              <span className="text-[color:var(--oem-ink)] font-black text-lg uppercase tracking-widest">Arıza Teşhisi</span>
               {lastReadStr && (
-                <div className="text-secondary text-[11px] font-bold uppercase tracking-wider mt-0.5 opacity-60">
+                <div className="text-[color:var(--oem-ink-2)] text-[11px] font-bold uppercase tracking-wider mt-0.5 opacity-60">
                   Son tarama: {lastReadStr}
                 </div>
               )}
@@ -167,7 +167,7 @@ function DTCPanelInner() {
       {/* ── Codes / empty state ────────────────────────── */}
       <div className="flex-1">
         {dtc.codes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-5 glass-card border-none !shadow-none var(--panel-bg-secondary)">
+          <div className="flex flex-col items-center justify-center py-20 gap-5 glass-card border-none !shadow-none">
             {dtc.lastReadAt && !dtc.error ? (
               <>
                 {/* Sistem temiz → good token (pozitif durum) */}
@@ -176,7 +176,7 @@ function DTCPanelInner() {
                 </div>
                 <div className="text-center">
                   <div className="text-[color:var(--oem-good)] font-black text-xl uppercase tracking-widest">SİSTEM TEMİZ</div>
-                  <div className="text-secondary text-sm font-bold mt-2 opacity-70 uppercase tracking-wider">
+                  <div className="text-[color:var(--oem-ink-2)] text-sm font-bold mt-2 opacity-70 uppercase tracking-wider">
                     Araç sistemleri normal çalışıyor
                   </div>
                 </div>
@@ -185,11 +185,11 @@ function DTCPanelInner() {
               <>
                 {/* Henüz tarama yapılmadı → surface-3 / oem-line */}
                 <div className="w-20 h-20 rounded-full bg-[var(--oem-surface-3)] flex items-center justify-center border border-[var(--oem-line-strong)]">
-                  <AlertTriangle className="w-10 h-10 text-secondary opacity-40" />
+                  <AlertTriangle className="w-10 h-10 text-[color:var(--oem-ink-2)] opacity-40" />
                 </div>
                 <div className="text-center">
-                  <div className="text-secondary font-black text-lg uppercase tracking-widest opacity-60">HENÜZ TARAMA YAPILMADI</div>
-                  <div className="text-secondary text-[11px] font-bold mt-2 opacity-40 uppercase tracking-widest">
+                  <div className="text-[color:var(--oem-ink-2)] font-black text-lg uppercase tracking-widest opacity-60">HENÜZ TARAMA YAPILMADI</div>
+                  <div className="text-[color:var(--oem-ink-2)] text-[11px] font-bold mt-2 opacity-40 uppercase tracking-widest">
                     OBD TARAMASI İÇİN BUTONA BASIN
                   </div>
                 </div>
@@ -221,7 +221,7 @@ function DTCPanelInner() {
       )}
 
       {/* Disclaimer */}
-      <p className="text-secondary text-[10px] font-bold text-center leading-relaxed opacity-40 uppercase tracking-[0.1em] px-8">
+      <p className="text-[color:var(--oem-ink-2)] text-[10px] font-bold text-center leading-relaxed opacity-40 uppercase tracking-[0.1em] px-8">
         Tanımlamalar genel OBD-II standartlarına dayanmaktadır.
         Kesin teşhis için yetkili servise başvurun.
       </p>

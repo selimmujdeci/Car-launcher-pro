@@ -35,7 +35,7 @@ function ColorRow({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
+      <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em]">
         {label}
       </span>
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -107,7 +107,7 @@ function ColorRow({
             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
           />
           {!isCustom && (
-            <span className="text-[11px] font-black text-primary drop-shadow z-10 pointer-events-none">
+            <span className="text-[11px] font-black text-[color:var(--oem-ink)] drop-shadow z-10 pointer-events-none">
               +
             </span>
           )}
@@ -122,7 +122,7 @@ function ColorRow({
               const v = e.target.value;
               if (/^#[0-9a-fA-F]{0,6}$/.test(v) && v.length === 7) onChange(v);
             }}
-            className="w-20 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-[10px] font-mono text-primary uppercase tracking-widest focus:outline-none focus:border-blue-500 flex-shrink-0"
+            className="w-20 bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-lg px-2 py-1 text-[10px] font-mono text-[color:var(--oem-ink)] uppercase tracking-widest focus:outline-none focus:border-[var(--oem-accent)] flex-shrink-0"
             maxLength={7}
             spellCheck={false}
           />
@@ -176,7 +176,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
         className="fixed left-0 right-0 z-[89] mx-2 animate-slide-up"
         style={{ bottom: 'var(--dock-h, 92px)' }}
       >
-        <div className="bg-[#050e1c]/97 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-[0_-16px_64px_rgba(0,0,0,0.8)] overflow-hidden">
+        <div className="bg-[var(--oem-surface-0)] backdrop-blur-3xl border border-[var(--oem-line)] rounded-3xl shadow-[0_-16px_64px_rgba(0,0,0,0.8)] overflow-hidden">
 
           {/* ── Başlık ── */}
           <div className="flex items-center justify-between px-5 py-3 border-b border-white/8">
@@ -185,7 +185,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 className="w-3 h-3 rounded-full border border-white/30 flex-shrink-0 transition-colors duration-150"
                 style={{ backgroundColor: indicatorColor }}
               />
-              <span className="text-primary text-sm font-black uppercase tracking-[0.12em]">
+              <span className="text-[color:var(--oem-ink)] text-sm font-black uppercase tracking-[0.12em]">
                 {info?.label ?? elementId}
               </span>
               <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
@@ -200,7 +200,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 title="Geri Al"
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12 disabled:opacity-30 disabled:pointer-events-none"
               >
-                <Undo2 className="w-3.5 h-3.5 text-slate-400" />
+                <Undo2 className="w-3.5 h-3.5 text-[color:var(--oem-ink-2)]" />
               </button>
               {/* Redo */}
               <button
@@ -209,7 +209,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 title="Yeniden Yap"
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12 disabled:opacity-30 disabled:pointer-events-none"
               >
-                <Redo2 className="w-3.5 h-3.5 text-slate-400" />
+                <Redo2 className="w-3.5 h-3.5 text-[color:var(--oem-ink-2)]" />
               </button>
               <button
                 onClick={hide}
@@ -223,13 +223,13 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 title="Bu elemanı sıfırla"
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12"
               >
-                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                <RotateCcw className="w-3.5 h-3.5 text-[color:var(--oem-ink-2)]" />
               </button>
               <button
                 onClick={onClose}
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/6 border border-white/10 active:scale-90 transition-all hover:bg-white/12"
               >
-                <X className="w-3.5 h-3.5 text-slate-400" />
+                <X className="w-3.5 h-3.5 text-[color:var(--oem-ink-2)]" />
               </button>
             </div>
           </div>
@@ -237,11 +237,11 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
           {/* ── Scope + Tab bar ── */}
           <div className="flex items-center gap-2 px-4 pt-2.5 pb-2 border-b border-white/5">
             {/* Lokal / Global toggle */}
-            <div className="flex items-center gap-0.5 var(--panel-bg-secondary) rounded-xl p-0.5 flex-shrink-0 border border-white/8">
+            <div className="flex items-center gap-0.5 bg-[var(--oem-surface-2)] rounded-xl p-0.5 flex-shrink-0 border border-[var(--oem-line)]">
               <button
                 onClick={() => setScope('local')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
-                  scope === 'local' ? 'bg-blue-600 text-primary shadow-sm' : 'text-slate-400 hover:text-slate-300'
+                  scope === 'local' ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)] shadow-sm' : 'text-[color:var(--oem-ink-2)] hover:text-[color:var(--oem-ink-2)]'
                 }`}
               >
                 <Monitor className="w-2.5 h-2.5" />
@@ -250,7 +250,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               <button
                 onClick={() => setScope('global')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
-                  scope === 'global' ? 'bg-violet-600 text-primary shadow-sm' : 'text-slate-400 hover:text-slate-300'
+                  scope === 'global' ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)] shadow-sm' : 'text-[color:var(--oem-ink-2)] hover:text-[color:var(--oem-ink-2)]'
                 }`}
               >
                 <Globe className="w-2.5 h-2.5" />
@@ -258,7 +258,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               </button>
             </div>
 
-            <div className="w-px h-5 var(--panel-bg-secondary) flex-shrink-0" />
+            <div className="w-px h-5 bg-[var(--oem-line)] flex-shrink-0" />
 
             {/* Tab'lar */}
             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
@@ -268,8 +268,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                   onClick={() => setTab(t)}
                   className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex-shrink-0 transition-all ${
                     tab === t
-                      ? 'bg-white/14 text-primary'
-                      : 'text-slate-500 hover:text-slate-300'
+                      ? 'bg-[var(--oem-surface-3)] text-[color:var(--oem-ink)]'
+                      : 'text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink-2)]'
                   }`}
                 >
                   {t}
@@ -293,10 +293,10 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 {style.bgColor && (
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
+                      <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em]">
                         Arka Plan Yoğunluğu
                       </span>
-                      <span className="text-primary text-[10px] font-black tabular-nums">
+                      <span className="text-[color:var(--oem-ink)] text-[10px] font-black tabular-nums">
                         {style.bgOpacity}%
                       </span>
                     </div>
@@ -331,7 +331,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
             {tab === 'Yazı' && (
               <div className="flex flex-col gap-4">
                 <div>
-                  <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
+                  <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
                     Yazı Kalınlığı
                   </span>
                   <div className="flex gap-2">
@@ -349,8 +349,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ fontWeight: w ?? null })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all active:scale-95 ${
                           style.fontWeight === w
-                            ? 'bg-blue-600 text-primary'
-                            : 'bg-white/6 text-slate-400 hover:bg-white/12'
+                            ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)]'
+                            : 'bg-white/6 text-[color:var(--oem-ink-2)] hover:bg-white/12'
                         }`}
                         style={{ fontWeight: w ?? undefined }}
                       >
@@ -362,10 +362,10 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
+                    <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em]">
                       Yazı Boyutu
                     </span>
-                    <span className="text-primary text-[10px] font-black tabular-nums">
+                    <span className="text-[color:var(--oem-ink)] text-[10px] font-black tabular-nums">
                       {Math.round((style.fontScale ?? 1) * 100)}%
                     </span>
                   </div>
@@ -375,7 +375,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                     onChange={(e) => update({ fontScale: Number(e.target.value) })}
                     className="w-full h-1 accent-blue-500"
                   />
-                  <div className="flex justify-between text-slate-600 text-[9px] mt-1">
+                  <div className="flex justify-between text-[color:var(--oem-ink-3)] text-[9px] mt-1">
                     <span>70%</span><span>100%</span><span>150%</span>
                   </div>
                 </div>
@@ -387,7 +387,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
               <div className="flex flex-col gap-4">
                 {/* Boyut */}
                 <div>
-                  <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
+                  <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
                     Boyut
                   </span>
                   <div className="flex gap-2">
@@ -397,8 +397,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ size: sz })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all active:scale-95 ${
                           style.size === sz
-                            ? 'bg-blue-600 text-primary'
-                            : 'bg-white/6 text-slate-400 hover:bg-white/12'
+                            ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)]'
+                            : 'bg-white/6 text-[color:var(--oem-ink-2)] hover:bg-white/12'
                         }`}
                       >
                         {sz === 'small' ? 'Küçük' : sz === 'default' ? 'Normal' : 'Büyük'}
@@ -409,7 +409,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
 
                 {/* Kenarlık kalınlığı */}
                 <div>
-                  <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
+                  <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
                     Kenarlık Kalınlığı
                   </span>
                   <div className="flex gap-2">
@@ -419,8 +419,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ borderWidth: w })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.borderWidth === w
-                            ? 'bg-blue-600 text-primary'
-                            : 'bg-white/6 text-slate-400 hover:bg-white/12'
+                            ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)]'
+                            : 'bg-white/6 text-[color:var(--oem-ink-2)] hover:bg-white/12'
                         }`}
                       >
                         {w}px
@@ -431,7 +431,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
 
                 {/* Köşe stili */}
                 <div>
-                  <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
+                  <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
                     Köşe Stili
                   </span>
                   <div className="flex gap-2">
@@ -449,8 +449,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ borderRadius: r })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.borderRadius === r
-                            ? 'bg-blue-600 text-primary'
-                            : 'bg-white/6 text-slate-400 hover:bg-white/12'
+                            ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)]'
+                            : 'bg-white/6 text-[color:var(--oem-ink-2)] hover:bg-white/12'
                         }`}
                         style={{ borderRadius: `${r * 6}px` }}
                       >
@@ -463,10 +463,10 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 {/* Saydamlık */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
+                    <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em]">
                       Saydamlık
                     </span>
-                    <span className="text-primary text-[10px] font-black tabular-nums">
+                    <span className="text-[color:var(--oem-ink)] text-[10px] font-black tabular-nums">
                       {style.opacity}%
                     </span>
                   </div>
@@ -484,7 +484,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
             {tab === 'Efekt' && (
               <div className="flex flex-col gap-4">
                 <div>
-                  <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
+                  <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
                     Parlama (Glow)
                   </span>
                   <div className="flex gap-2">
@@ -501,8 +501,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ glowLevel: lvl })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.glowLevel === lvl
-                            ? 'bg-blue-600 text-primary'
-                            : 'bg-white/6 text-slate-400 hover:bg-white/12'
+                            ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)]'
+                            : 'bg-white/6 text-[color:var(--oem-ink-2)] hover:bg-white/12'
                         }`}
                       >
                         {lbl}
@@ -512,7 +512,7 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                 </div>
 
                 <div>
-                  <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
+                  <span className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-[0.2em] block mb-2">
                     Gölge (Shadow)
                   </span>
                   <div className="flex gap-2">
@@ -529,8 +529,8 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
                         onClick={() => update({ shadowLevel: lvl })}
                         className={`flex-1 py-2 rounded-xl text-[11px] font-black transition-all active:scale-95 ${
                           style.shadowLevel === lvl
-                            ? 'bg-blue-600 text-primary'
-                            : 'bg-white/6 text-slate-400 hover:bg-white/12'
+                            ? 'bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)]'
+                            : 'bg-white/6 text-[color:var(--oem-ink-2)] hover:bg-white/12'
                         }`}
                       >
                         {lbl}
@@ -541,10 +541,10 @@ export const EditPanel = memo(function EditPanel({ elementId, onClose }: Props) 
 
                 {/* Scope bilgisi */}
                 <div className="bg-white/4 rounded-2xl px-4 py-3 border border-white/6">
-                  <div className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">
+                  <div className="text-[color:var(--oem-ink-3)] text-[9px] font-black uppercase tracking-widest mb-1">
                     {scope === 'global' ? '🌐 Global Mod' : '📌 Lokal Mod'}
                   </div>
-                  <div className="text-slate-400 text-[10px] leading-relaxed">
+                  <div className="text-[color:var(--oem-ink-2)] text-[10px] leading-relaxed">
                     {scope === 'global'
                       ? `"${elementType}" tipindeki tüm kartlara uygulanıyor.`
                       : 'Sadece bu elemana uygulanıyor. Tümüne uygulamak için "Tümü" seç.'}

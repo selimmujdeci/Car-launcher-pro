@@ -61,27 +61,27 @@ export const PassengerQRModal = memo(function PassengerQRModal({
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={handleClose}
       />
 
       {/* Panel */}
-      <div className="relative w-full max-w-sm bg-[#0a1020] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="relative w-full max-w-sm bg-[var(--oem-surface-0)] border border-[var(--oem-line)] rounded-3xl shadow-2xl overflow-hidden flex flex-col">
 
         {/* Başlık */}
-        <div className="flex items-center justify-between p-5 border-b border-white/5">
+        <div className="flex items-center justify-between p-5 border-b border-[var(--oem-line)]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 flex items-center justify-center">
-              <Music2 className="w-5 h-5 text-blue-400" />
+            <div className="w-9 h-9 rounded-xl bg-[var(--oem-info-soft)] flex items-center justify-center">
+              <Music2 className="w-5 h-5 text-[color:var(--oem-info)]" />
             </div>
             <div>
-              <div className="text-primary font-bold text-sm">Yolcu Kontrolü</div>
-              <div className="text-slate-500 text-[10px]">QR kodu okut · Müziği kontrol et</div>
+              <div className="text-[color:var(--oem-ink)] font-bold text-sm">Yolcu Kontrolü</div>
+              <div className="text-[color:var(--oem-ink-3)] text-[10px]">QR kodu okut · Müziği kontrol et</div>
             </div>
           </div>
           <button
             onClick={handleClose}
-            className="w-8 h-8 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-primary transition-colors active:scale-90"
+            className="w-8 h-8 rounded-xl bg-[var(--oem-surface-2)] flex items-center justify-center text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] transition-colors active:scale-90"
           >
             <X className="w-4 h-4" />
           </button>
@@ -92,16 +92,16 @@ export const PassengerQRModal = memo(function PassengerQRModal({
 
           {loading && (
             <div className="flex flex-col items-center gap-3 py-8">
-              <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-              <span className="text-slate-500 text-sm">Sunucu başlatılıyor…</span>
+              <Loader2 className="w-8 h-8 text-[color:var(--oem-info)] animate-spin" />
+              <span className="text-[color:var(--oem-ink-3)] text-sm">Sunucu başlatılıyor…</span>
             </div>
           )}
 
           {!loading && error && (
             <div className="flex flex-col items-center gap-3 py-6">
-              <WifiOff className="w-8 h-8 text-red-400" />
-              <div className="text-red-400 text-sm text-center font-medium">{error}</div>
-              <div className="text-slate-600 text-xs text-center">WiFi bağlantısını kontrol et</div>
+              <WifiOff className="w-8 h-8 text-[color:var(--oem-danger)]" />
+              <div className="text-[color:var(--oem-danger)] text-sm text-center font-medium">{error}</div>
+              <div className="text-[color:var(--oem-ink-3)] text-xs text-center">WiFi bağlantısını kontrol et</div>
             </div>
           )}
 
@@ -116,26 +116,26 @@ export const PassengerQRModal = memo(function PassengerQRModal({
               </div>
 
               {/* Talimat */}
-              <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 w-full">
-                <Wifi className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                <span className="text-blue-300 text-xs leading-tight">
+              <div className="flex items-center gap-2 bg-[var(--oem-info-soft)] border border-[var(--oem-info)] rounded-xl px-4 py-3 w-full">
+                <Wifi className="w-4 h-4 text-[color:var(--oem-info)] flex-shrink-0" />
+                <span className="text-[color:var(--oem-info)] text-xs leading-tight">
                   Aynı WiFi ağında arka koltuktan tarat
                 </span>
               </div>
 
               {/* Aktif parça önizlemesi */}
               {media.track.title && (
-                <div className="w-full var(--panel-bg-secondary) rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="w-full bg-[var(--oem-surface-2)] rounded-xl px-4 py-3 flex items-center gap-3">
                   <div
                     className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      media.playing ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
+                      media.playing ? 'bg-[var(--oem-good)] animate-pulse' : 'bg-[var(--oem-surface-3)]'
                     }`}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="text-primary text-xs font-bold truncate">{media.track.title}</div>
-                    <div className="text-slate-500 text-[10px] truncate">{media.track.artist}</div>
+                    <div className="text-[color:var(--oem-ink)] text-xs font-bold truncate">{media.track.title}</div>
+                    <div className="text-[color:var(--oem-ink-3)] text-[10px] truncate">{media.track.artist}</div>
                   </div>
-                  <div className="text-slate-600 text-[10px] flex-shrink-0">
+                  <div className="text-[color:var(--oem-ink-3)] text-[10px] flex-shrink-0">
                     {media.playing ? 'Çalıyor' : 'Durdu'}
                   </div>
                 </div>
@@ -149,7 +149,7 @@ export const PassengerQRModal = memo(function PassengerQRModal({
           <div className="px-5 pb-5">
             <button
               onClick={handleClose}
-              className="w-full py-3 rounded-xl var(--panel-bg-secondary) border border-white/10 text-slate-400 text-sm font-bold hover:var(--panel-bg-secondary) transition-all active:scale-95"
+              className="w-full py-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-2)] text-sm font-bold hover:bg-[var(--oem-surface-3)] transition-all active:scale-95"
             >
               Kapat
             </button>

@@ -94,8 +94,8 @@ const PinPad = memo(function PinPad({
   return (
     <div className="flex flex-col items-center gap-6 p-6">
       <div>
-        <div className="text-primary font-bold text-lg text-center">{title ?? 'PIN Gir'}</div>
-        <div className="text-slate-500 text-xs text-center mt-1">
+        <div className="font-bold text-lg text-center" style={{ color: 'var(--oem-ink)' }}>{title ?? 'PIN Gir'}</div>
+        <div className="text-xs text-center mt-1" style={{ color: 'var(--oem-ink-3)' }}>
           {locked
             ? `Çok fazla hatalı deneme — ${remaining}s bekle`
             : mode === 'set' ? 'Yeni 4 haneli PIN belirle' : '4 haneli PIN kodunu gir'}
@@ -107,18 +107,21 @@ const PinPad = memo(function PinPad({
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className={`w-4 h-4 rounded-full border-2 transition-all ${
-              locked  ? 'border-red-500/40' :
-              error   ? 'border-red-500 bg-red-500' :
-              i < pin.length ? 'border-blue-400 bg-blue-400' : 'border-white/20'
-            }`}
+            className="w-4 h-4 rounded-full border-2 transition-all"
+            style={
+              locked  ? { borderColor: 'rgba(239,68,68,0.4)' } :
+              error   ? { borderColor: 'var(--oem-danger, #ef4444)', background: 'var(--oem-danger, #ef4444)' } :
+              i < pin.length ? { borderColor: 'var(--oem-info, #60a5fa)', background: 'var(--oem-info, #60a5fa)' }
+                              : { borderColor: 'var(--oem-line-strong, rgba(255,255,255,0.22))' }
+            }
           />
         ))}
       </div>
 
       {/* Kilit uyarısı */}
       {locked && (
-        <div className="flex items-center gap-2 text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2">
+        <div className="flex items-center gap-2 text-xs rounded-xl px-4 py-2"
+          style={{ color: 'var(--oem-danger, #ef4444)', background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger, rgba(239,68,68,0.28))' }}>
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           {remaining}s sonra tekrar dene
         </div>
@@ -131,12 +134,13 @@ const PinPad = memo(function PinPad({
             key={i}
             onClick={() => d === '⌫' ? handleBackspace() : d ? handleDigit(d) : undefined}
             disabled={!d || locked || busy}
-            className={`
-              h-14 rounded-2xl text-xl font-bold transition-all active:scale-90
-              ${d === '⌫' ? 'bg-red-500/10 border border-red-500/20 text-red-400' :
-                d ? 'var(--panel-bg-secondary) border border-white/10 text-primary hover:var(--panel-bg-secondary) disabled:opacity-30' :
-                'opacity-0 pointer-events-none'}
-            `}
+            className="h-14 rounded-2xl text-xl font-bold transition-all active:scale-90 disabled:opacity-30"
+            style={
+              !d ? { opacity: 0, pointerEvents: 'none' } :
+              d === '⌫'
+                ? { background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger, rgba(239,68,68,0.25))', color: 'var(--oem-danger, #ef4444)' }
+                : { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink)' }
+            }
           >
             {d}
           </button>
@@ -146,7 +150,8 @@ const PinPad = memo(function PinPad({
       {onCancel && (
         <button
           onClick={onCancel}
-          className="text-slate-500 text-sm hover:text-primary transition-colors"
+          className="text-sm transition-colors"
+          style={{ color: 'var(--oem-ink-3)' }}
         >
           İptal
         </button>
@@ -170,8 +175,9 @@ const GeofenceMap = memo(function GeofenceMap({
 }) {
   if (!center) {
     return (
-      <div className="w-full h-32 rounded-xl var(--panel-bg-secondary) border border-white/10 flex items-center justify-center">
-        <div className="text-slate-600 text-sm text-center">
+      <div className="w-full h-32 rounded-xl flex items-center justify-center"
+        style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
+        <div className="text-sm text-center" style={{ color: 'var(--oem-ink-3)' }}>
           <MapPin className="w-6 h-6 mx-auto mb-2" />
           Merkez belirlenmedi
         </div>
@@ -183,23 +189,25 @@ const GeofenceMap = memo(function GeofenceMap({
   const color = isOutside ? '#ef4444' : pct > 80 ? '#f59e0b' : '#22c55e';
 
   return (
-    <div className="w-full rounded-xl var(--panel-bg-secondary) border border-white/5 p-4">
+    <div className="w-full rounded-xl p-4"
+      style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
       {/* Merkez konum */}
       <div className="flex items-center gap-2 mb-3">
-        <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0" />
-        <span className="text-primary text-xs font-medium truncate">
+        <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-info, #60a5fa)' }} />
+        <span className="text-xs font-medium truncate" style={{ color: 'var(--oem-ink)' }}>
           {center.lat.toFixed(4)}, {center.lng.toFixed(4)}
         </span>
       </div>
 
       {/* Mesafe göstergesi */}
       <div className="flex justify-between text-xs mb-1.5">
-        <span className="text-slate-500">Mesafe</span>
-        <span className={`font-bold ${isOutside ? 'text-red-400' : 'text-slate-300'}`}>
+        <span style={{ color: 'var(--oem-ink-3)' }}>Mesafe</span>
+        <span className="font-bold" style={{ color: isOutside ? 'var(--oem-danger, #ef4444)' : 'var(--oem-ink-2)' }}>
           {currentDistKm.toFixed(2)} / {radiusKm} km
         </span>
       </div>
-      <div className="w-full h-2 var(--panel-bg-secondary) rounded-full overflow-hidden">
+      <div className="w-full h-2 rounded-full overflow-hidden"
+        style={{ background: 'var(--oem-surface-3, rgba(255,255,255,0.08))' }}>
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${pct}%`, backgroundColor: color }}
@@ -207,7 +215,7 @@ const GeofenceMap = memo(function GeofenceMap({
       </div>
 
       {isOutside && (
-        <div className="mt-2 flex items-center gap-2 text-red-400 text-xs">
+        <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: 'var(--oem-danger, #ef4444)' }}>
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           Araç belirlenen bölgenin dışında!
         </div>
@@ -305,18 +313,17 @@ export const SecuritySuite = memo(function SecuritySuite() {
       </div>
 
       {/* Sekmeler */}
-      <div className="flex-shrink-0 flex gap-2.5 p-4 var(--panel-bg-secondary) border-b border-white/5">
+      <div className="flex-shrink-0 flex gap-2.5 p-4"
+        style={{ background: 'var(--oem-surface-0)', borderBottom: '1px solid var(--oem-line)' }}>
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
-            className={`
-              flex-1 h-11 rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2
-              transition-all active:scale-95 shadow-sm
-              ${activeTab === t.id
-                ? 'bg-amber-500 text-primary border-transparent shadow-[0_8px_20px_rgba(245,158,11,0.3)]'
-                : 'var(--panel-bg-secondary) text-secondary hover:text-primary hover:var(--panel-bg-secondary)'}
-            `}
+            className="flex-1 h-11 rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
+            style={activeTab === t.id
+              ? { background: 'var(--oem-warn, #f59e0b)', color: '#0a0a0a', border: '1px solid transparent', boxShadow: '0 8px 20px rgba(245,158,11,0.3)' }
+              : { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }
+            }
           >
             <t.icon className="w-4 h-4" />
             {t.label}
@@ -357,12 +364,13 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {activeTab === 'geofence' && (
           <>
             {/* Durum kartı */}
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between mb-4">
-                <span className="text-primary/70 text-sm font-bold">Sanal Çit</span>
+                <span className="text-sm font-bold" style={{ color: 'var(--oem-ink-2)' }}>Sanal Çit</span>
                 <button
                   onClick={handleToggleGeofence}
-                  className={`relative w-12 h-6 rounded-full transition-all ${geo.enabled ? 'bg-emerald-500' : 'var(--panel-bg-secondary)'}`}
+                  className="relative w-12 h-6 rounded-full transition-all"
+                  style={{ background: geo.enabled ? 'var(--oem-good, #22c55e)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${geo.enabled ? 'left-7' : 'left-1'}`} />
                 </button>
@@ -377,25 +385,27 @@ export const SecuritySuite = memo(function SecuritySuite() {
             </div>
 
             {/* Yarıçap ayarı */}
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-slate-500 text-xs uppercase tracking-wider">Yarıçap</span>
-                <span className="text-primary font-bold">{geo.radiusKm} km</span>
+                <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--oem-ink-3)' }}>Yarıçap</span>
+                <span className="font-bold" style={{ color: 'var(--oem-ink)' }}>{geo.radiusKm} km</span>
               </div>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setGeofenceRadius(Math.max(0.5, geo.radiusKm - 0.5))}
-                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+                  style={{ background: 'var(--oem-surface-3)', color: 'var(--oem-ink)' }}
                 ><Minus className="w-4 h-4" /></button>
-                <div className="flex-1 h-2 var(--panel-bg-secondary) rounded-full">
+                <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--oem-surface-3, rgba(255,255,255,0.08))' }}>
                   <div
-                    className="h-full bg-blue-500 rounded-full transition-all"
-                    style={{ width: `${Math.min(100, (geo.radiusKm / 20) * 100)}%` }}
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${Math.min(100, (geo.radiusKm / 20) * 100)}%`, background: 'var(--oem-info, #3b82f6)' }}
                   />
                 </div>
                 <button
                   onClick={() => setGeofenceRadius(Math.min(20, geo.radiusKm + 0.5))}
-                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+                  style={{ background: 'var(--oem-surface-3)', color: 'var(--oem-ink)' }}
                 ><Plus className="w-4 h-4" /></button>
               </div>
             </div>
@@ -412,19 +422,22 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
             {/* Uyarı geçmişi */}
             {geo.lastAlert && (
-              <div className={`rounded-2xl border p-4 flex items-start gap-3 ${
-                geo.lastAlert.type === 'exit' ? 'border-red-500/30 bg-red-500/5' : 'border-emerald-500/30 bg-emerald-500/5'
-              }`}>
-                <AlertTriangle className={`w-5 h-5 flex-shrink-0 ${geo.lastAlert.type === 'exit' ? 'text-red-400' : 'text-emerald-400'}`} />
+              <div className="rounded-2xl p-4 flex items-start gap-3"
+                style={geo.lastAlert.type === 'exit'
+                  ? { background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger, rgba(239,68,68,0.35))' }
+                  : { background: 'var(--oem-good-soft)', border: '1px solid var(--oem-good, rgba(34,197,94,0.35))' }}>
+                <AlertTriangle className="w-5 h-5 flex-shrink-0"
+                  style={{ color: geo.lastAlert.type === 'exit' ? 'var(--oem-danger, #ef4444)' : 'var(--oem-good, #22c55e)' }} />
                 <div className="flex-1">
-                  <div className={`text-sm font-bold ${geo.lastAlert.type === 'exit' ? 'text-red-400' : 'text-emerald-400'}`}>
+                  <div className="text-sm font-bold"
+                    style={{ color: geo.lastAlert.type === 'exit' ? 'var(--oem-danger, #ef4444)' : 'var(--oem-good, #22c55e)' }}>
                     {geo.lastAlert.type === 'exit' ? 'Bölge Dışına Çıkıldı' : 'Bölgeye Girildi'}
                   </div>
-                  <div className="text-slate-500 text-xs mt-0.5">
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>
                     {new Date(geo.lastAlert.timestamp).toLocaleTimeString('tr-TR')} · {geo.lastAlert.distanceKm.toFixed(2)} km
                   </div>
                 </div>
-                <button onClick={dismissGeofenceAlert} className="text-slate-600 hover:text-primary">
+                <button onClick={dismissGeofenceAlert} style={{ color: 'var(--oem-ink-3)' }}>
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -435,15 +448,16 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {/* ── Vale Modu sekmesi ────────────────────────────── */}
         {activeTab === 'vale' && (
           <>
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <div className="text-primary text-sm font-bold">Vale Modu</div>
-                  <div className="text-slate-500 text-xs mt-0.5">Hız limiti aşılınca uyarı</div>
+                  <div className="text-sm font-bold" style={{ color: 'var(--oem-ink)' }}>Vale Modu</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>Hız limiti aşılınca uyarı</div>
                 </div>
                 <button
                   onClick={handleToggleVale}
-                  className={`relative w-12 h-6 rounded-full transition-all ${geo.valeModeActive ? 'bg-amber-500' : 'var(--panel-bg-secondary)'}`}
+                  className="relative w-12 h-6 rounded-full transition-all"
+                  style={{ background: geo.valeModeActive ? 'var(--oem-warn, #f59e0b)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${geo.valeModeActive ? 'left-7' : 'left-1'}`} />
                 </button>
@@ -451,38 +465,40 @@ export const SecuritySuite = memo(function SecuritySuite() {
             </div>
 
             {/* Hız limiti */}
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-slate-500 text-xs uppercase tracking-wider">Hız Limiti</span>
-                <span className="text-amber-400 font-black text-lg">{geo.valeSpeedLimit} km/h</span>
+                <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--oem-ink-3)' }}>Hız Limiti</span>
+                <span className="font-black text-lg" style={{ color: 'var(--oem-warn, #f59e0b)' }}>{geo.valeSpeedLimit} km/h</span>
               </div>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setValeSpeedLimit(Math.max(20, geo.valeSpeedLimit - 5))}
-                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+                  style={{ background: 'var(--oem-surface-3)', color: 'var(--oem-ink)' }}
                 ><Minus className="w-4 h-4" /></button>
-                <div className="flex-1 h-2 var(--panel-bg-secondary) rounded-full">
+                <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--oem-surface-3, rgba(255,255,255,0.08))' }}>
                   <div
-                    className="h-full bg-amber-500 rounded-full transition-all"
-                    style={{ width: `${((geo.valeSpeedLimit - 20) / 160) * 100}%` }}
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${((geo.valeSpeedLimit - 20) / 160) * 100}%`, background: 'var(--oem-warn, #f59e0b)' }}
                   />
                 </div>
                 <button
                   onClick={() => setValeSpeedLimit(Math.min(180, geo.valeSpeedLimit + 5))}
-                  className="w-10 h-10 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-primary hover:var(--panel-bg-secondary) active:scale-90 transition-all"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+                  style={{ background: 'var(--oem-surface-3)', color: 'var(--oem-ink)' }}
                 ><Plus className="w-4 h-4" /></button>
               </div>
-              <div className="flex justify-between text-slate-500 text-[10px] mt-1">
+              <div className="flex justify-between text-[10px] mt-1" style={{ color: 'var(--oem-ink-3)' }}>
                 <span>20</span><span>100</span><span>180</span>
               </div>
             </div>
 
             {/* İhlal kaydı */}
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-slate-500 text-xs uppercase tracking-wider">İhlal Kaydı</span>
+                <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--oem-ink-3)' }}>İhlal Kaydı</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 text-xs">{geo.valeViolations.length} kayıt</span>
+                  <span className="text-xs" style={{ color: 'var(--oem-ink-3)' }}>{geo.valeViolations.length} kayıt</span>
                   {geo.valeViolations.length > 0 && (
                     <button onClick={clearValeViolations} className="text-slate-600 hover:text-red-400 transition-colors">
                       <X className="w-3.5 h-3.5" />
@@ -492,14 +508,15 @@ export const SecuritySuite = memo(function SecuritySuite() {
               </div>
               <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
                 {geo.valeViolations.length === 0 ? (
-                  <div className="text-slate-500 text-xs text-center py-3">İhlal yok</div>
+                  <div className="text-xs text-center py-3" style={{ color: 'var(--oem-ink-3)' }}>İhlal yok</div>
                 ) : (
                   geo.valeViolations.slice().reverse().map((v, i) => (
-                    <div key={i} className="flex items-center justify-between bg-red-500/5 border border-red-500/10 rounded-xl px-3 py-2">
-                      <span className="text-slate-500 text-xs">
+                    <div key={i} className="flex items-center justify-between rounded-xl px-3 py-2"
+                      style={{ background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger, rgba(239,68,68,0.14))' }}>
+                      <span className="text-xs" style={{ color: 'var(--oem-ink-3)' }}>
                         {new Date(v.timestamp).toLocaleTimeString('tr-TR')}
                       </span>
-                      <span className="text-red-400 text-xs font-bold">
+                      <span className="text-xs font-bold" style={{ color: 'var(--oem-danger, #ef4444)' }}>
                         {Math.round(v.speedKmh)} km/h
                       </span>
                     </div>
@@ -514,19 +531,18 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {activeTab === 'sentry' && (
           <>
             {/* Arm/Disarm toggle */}
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-primary text-sm font-bold">Gözcü Modu</div>
-                  <div className="text-slate-500 text-xs mt-0.5">
+                  <div className="text-sm font-bold" style={{ color: 'var(--oem-ink)' }}>Gözcü Modu</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>
                     {sentry.videoAvailable ? 'Video + G-Sensör aktif' : 'Yalnızca G-Sensör (kamera yok)'}
                   </div>
                 </div>
                 <button
                   onClick={handleToggleSentry}
-                  className={`relative w-12 h-6 rounded-full transition-all ${
-                    sentry.status !== 'idle' ? 'bg-red-500' : 'var(--panel-bg-secondary)'
-                  }`}
+                  className="relative w-12 h-6 rounded-full transition-all"
+                  style={{ background: sentry.status !== 'idle' ? 'var(--oem-danger, #ef4444)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${
                     sentry.status !== 'idle' ? 'left-7' : 'left-1'
@@ -537,27 +553,32 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
             {/* Tesla tarzı "Gözcü Aktif" banner */}
             {sentry.status !== 'idle' && (
-              <div className={`rounded-2xl border p-4 flex items-center gap-3 ${
-                sentry.status === 'triggered'
-                  ? 'border-red-400/50 bg-red-500/20 shadow-[0_0_24px_rgba(239,68,68,0.3)]'
-                  : 'border-red-500/20 bg-red-500/5'
-              }`}>
+              <div
+                className="rounded-2xl p-4 flex items-center gap-3"
+                style={sentry.status === 'triggered'
+                  ? { border: '1px solid var(--oem-danger, rgba(239,68,68,0.55))', background: 'var(--oem-danger-soft)', boxShadow: '0 0 24px rgba(239,68,68,0.28)' }
+                  : { border: '1px solid var(--oem-danger, rgba(239,68,68,0.22))', background: 'var(--oem-danger-soft)' }
+                }
+              >
                 <div className="relative flex-shrink-0">
-                  <Eye className={`w-8 h-8 ${sentry.status === 'triggered' ? 'text-red-400 animate-pulse' : 'text-red-500'}`} />
+                  <Eye
+                    className={`w-8 h-8 ${sentry.status === 'triggered' ? 'animate-pulse' : ''}`}
+                    style={{ color: 'var(--oem-danger, #ef4444)' }}
+                  />
                   {sentry.videoAvailable && (
-                    <Video className="w-3.5 h-3.5 text-red-400 absolute -bottom-1 -right-1" />
+                    <Video className="w-3.5 h-3.5 absolute -bottom-1 -right-1" style={{ color: 'var(--oem-danger, #ef4444)' }} />
                   )}
                 </div>
                 <div className="flex-1">
-                  <div className={`font-black text-sm tracking-wide ${sentry.status === 'triggered' ? 'text-red-300' : 'text-red-400'}`}>
+                  <div className="font-black text-sm tracking-wide" style={{ color: 'var(--oem-danger, #ef4444)' }}>
                     {sentry.status === 'triggered'
                       ? 'DARBE TESPİT EDİLDİ — KAYIT ALINIYOR'
                       : 'GÖZCÜ AKTİF — KAYIT ALINIYOR'}
                   </div>
-                  <div className="text-slate-500 text-xs mt-0.5">
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>
                     G-Kuvvet: {sentry.lastImpactG.toFixed(1)} m/s²
                     {sentry.pendingUploads > 0 && (
-                      <span className="text-amber-400 ml-2">
+                      <span className="ml-2" style={{ color: 'var(--oem-warn, #f59e0b)' }}>
                         · {sentry.pendingUploads} klip yüklenecek
                       </span>
                     )}
@@ -568,20 +589,21 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
             {/* Bekleyen yüklemeler */}
             {sentry.pendingUploads > 0 && (
-              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 flex items-center gap-3">
-                <Wifi className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                <span className="text-amber-400 text-xs">
+              <div className="rounded-2xl p-3 flex items-center gap-3"
+                style={{ background: 'var(--oem-warn-soft)', border: '1px solid var(--oem-warn, rgba(245,158,11,0.28))' }}>
+                <Wifi className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-warn, #f59e0b)' }} />
+                <span className="text-xs" style={{ color: 'var(--oem-warn, #f59e0b)' }}>
                   {sentry.pendingUploads} klip çevrimiçi olunca yüklenecek
                 </span>
               </div>
             )}
 
             {/* Alert geçmişi */}
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-slate-500 text-xs uppercase tracking-wider">Olaylar</span>
+                <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--oem-ink-3)' }}>Olaylar</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 text-xs">{sentry.alerts.length} olay</span>
+                  <span className="text-xs" style={{ color: 'var(--oem-ink-3)' }}>{sentry.alerts.length} olay</span>
                   {sentry.alerts.length > 0 && (
                     <button onClick={clearSentryAlerts} className="text-slate-600 hover:text-red-400 transition-colors">
                       <X className="w-3.5 h-3.5" />
@@ -592,20 +614,21 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
               <div className="flex flex-col gap-2 max-h-56 overflow-y-auto">
                 {sentry.alerts.length === 0 ? (
-                  <div className="text-slate-500 text-xs text-center py-4">
+                  <div className="text-xs text-center py-4" style={{ color: 'var(--oem-ink-3)' }}>
                     {sentry.status === 'idle' ? 'Gözcü kapalı' : 'Henüz olay yok'}
                   </div>
                 ) : (
                   sentry.alerts.slice().reverse().map((a) => (
                     <div
                       key={a.id}
-                      className="flex items-center gap-3 bg-red-500/5 border border-red-500/10 rounded-xl px-3 py-2.5"
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+                      style={{ background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger, rgba(239,68,68,0.14))' }}
                     >
-                      <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-danger, #ef4444)' }} />
                       <div className="flex-1 min-w-0">
-                        <div className="text-primary text-xs font-bold">
+                        <div className="text-xs font-bold" style={{ color: 'var(--oem-ink)' }}>
                           {new Date(a.triggeredAt).toLocaleTimeString('tr-TR')}
-                          <span className="text-slate-500 font-normal ml-1.5">
+                          <span className="font-normal ml-1.5" style={{ color: 'var(--oem-ink-3)' }}>
                             {a.impactG.toFixed(1)} m/s²
                           </span>
                         </div>
@@ -613,20 +636,20 @@ export const SecuritySuite = memo(function SecuritySuite() {
                       <div className="flex-shrink-0">
                         {a.uploadStatus === 'done' && a.clipUrl && (
                           <a href={a.clipUrl} target="_blank" rel="noopener noreferrer">
-                            <Video className="w-3.5 h-3.5 text-emerald-400" />
+                            <Video className="w-3.5 h-3.5" style={{ color: 'var(--oem-good, #22c55e)' }} />
                           </a>
                         )}
                         {a.uploadStatus === 'done' && !a.clipUrl && (
-                          <span className="text-emerald-400 text-[10px]">✓</span>
+                          <span className="text-[10px]" style={{ color: 'var(--oem-good, #22c55e)' }}>✓</span>
                         )}
                         {a.uploadStatus === 'uploading' && (
-                          <Upload className="w-3.5 h-3.5 text-blue-400 animate-bounce" />
+                          <Upload className="w-3.5 h-3.5 animate-bounce" style={{ color: 'var(--oem-info, #60a5fa)' }} />
                         )}
                         {a.uploadStatus === 'failed' && (
-                          <Wifi className="w-3.5 h-3.5 text-amber-400" />
+                          <Wifi className="w-3.5 h-3.5" style={{ color: 'var(--oem-warn, #f59e0b)' }} />
                         )}
                         {a.uploadStatus === 'pending' && (
-                          <div className="w-2 h-2 rounded-full bg-slate-500" />
+                          <div className="w-2 h-2 rounded-full" style={{ background: 'var(--oem-ink-3)' }} />
                         )}
                       </div>
                     </div>
@@ -640,35 +663,38 @@ export const SecuritySuite = memo(function SecuritySuite() {
         {/* ── PIN Kilit sekmesi ────────────────────────────── */}
         {activeTab === 'pin' && (
           <>
-            <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+            <div className="rounded-2xl p-4" style={{ border: '1px solid var(--oem-line)', background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-primary text-sm font-bold">PIN Kilidi</div>
-                  <div className="text-slate-500 text-xs mt-0.5">Ayarlara giriş koruması</div>
+                  <div className="text-sm font-bold" style={{ color: 'var(--oem-ink)' }}>PIN Kilidi</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>Ayarlara giriş koruması</div>
                 </div>
                 <button
                   onClick={handleTogglePin}
-                  className={`relative w-12 h-6 rounded-full transition-all ${geo.pinLockEnabled ? 'bg-emerald-500' : 'var(--panel-bg-secondary)'}`}
+                  className="relative w-12 h-6 rounded-full transition-all"
+                  style={{ background: geo.pinLockEnabled ? 'var(--oem-good, #22c55e)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${geo.pinLockEnabled ? 'left-7' : 'left-1'}`} />
                 </button>
               </div>
             </div>
 
-            <div className={`rounded-2xl border p-4 flex items-center gap-3 ${
-              geo.pinLockEnabled
-                ? 'border-emerald-500/20 bg-emerald-500/5'
-                : 'border-white/[0.1] bg-white/[0.05]'
-            }`}>
+            <div
+              className="rounded-2xl p-4 flex items-center gap-3"
+              style={geo.pinLockEnabled
+                ? { background: 'var(--oem-good-soft)', border: '1px solid var(--oem-good, rgba(34,197,94,0.28))' }
+                : { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }
+              }>
               {geo.pinLockEnabled
-                ? <Lock className="w-5 h-5 text-emerald-400" />
-                : <Unlock className="w-5 h-5 text-slate-500" />
+                ? <Lock className="w-5 h-5" style={{ color: 'var(--oem-good, #22c55e)' }} />
+                : <Unlock className="w-5 h-5" style={{ color: 'var(--oem-ink-3)' }} />
               }
               <div>
-                <div className={`text-sm font-bold ${geo.pinLockEnabled ? 'text-emerald-400' : 'text-slate-500'}`}>
+                <div className="text-sm font-bold"
+                  style={{ color: geo.pinLockEnabled ? 'var(--oem-good, #22c55e)' : 'var(--oem-ink-3)' }}>
                   {geo.pinLockEnabled ? 'Kilit Aktif' : 'Kilit Devre Dışı'}
                 </div>
-                <div className="text-slate-600 text-xs mt-0.5">
+                <div className="text-xs mt-0.5" style={{ color: 'var(--oem-ink-3)', opacity: 0.75 }}>
                   {geo.pinLockEnabled ? '4 haneli PIN ile koruma aktif' : 'PIN kilidi kapalı'}
                 </div>
               </div>
@@ -678,7 +704,8 @@ export const SecuritySuite = memo(function SecuritySuite() {
               <>
                 <button
                   onClick={() => { setShowPinPad(true); setSettingPin(false); }}
-                  className="h-12 rounded-2xl var(--panel-bg-secondary) border border-white/10 text-slate-300 text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
+                  className="h-12 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
+                  style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}
                 >
                   <Lock className="w-4 h-4" />
                   PIN'i Test Et

@@ -73,11 +73,11 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
             }}>
             <Icon className="w-5 h-5" style={{ color: colorA }} />
           </div>
-          <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{label}</span>
+          <span className="font-bold text-sm" style={{ color: 'var(--oem-ink)' }}>{label}</span>
         </div>
         <div className="flex items-baseline gap-1">
           <span className="font-black text-2xl tabular-nums" style={{ color: colorA, textShadow: `0 0 14px ${colorA}55` }}>{value}</span>
-          <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>%</span>
+          <span className="text-xs font-bold" style={{ color: 'var(--oem-ink-3)' }}>%</span>
         </div>
       </div>
       <div className="relative h-2 rounded-full"
@@ -280,11 +280,11 @@ function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
       </div>
       <div>
         <div className="text-[12px] font-black uppercase tracking-[0.2em]"
-          style={{ color: 'var(--text-primary)' }}>
+          style={{ color: 'var(--oem-ink)' }}>
           {title}
         </div>
         {sub && (
-          <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)', opacity: 0.5 }}>{sub}</div>
+          <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>{sub}</div>
         )}
       </div>
       <div className="lux-section-line" style={{ '--tw-gradient-from': color } as React.CSSProperties} />
@@ -411,7 +411,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             </div>
             <div className="flex-1 text-left">
               <div className="text-sm font-bold" style={{ color: provider === p.id ? p.color : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{p.label}</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">{p.sub}</div>
+              <div className="text-[10px] text-[color:var(--oem-ink-3)] mt-0.5">{p.sub}</div>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[9px] font-black px-2 py-0.5 rounded"
@@ -448,7 +448,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       {provider === 'gemini' && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gemini API Key</span>
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Gemini API Key</span>
             {envGeminiKey && !geminiKey
               ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
               : geminiKey
@@ -464,17 +464,17 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             <span>🔑</span>
             Ücretsiz Key Al — aistudio.google.com
           </button>
-          <p className="text-[10px] text-slate-600 text-center">Key'i kopyala → otomatik algılanacak</p>
+          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
           <div className="relative">
             <input
               type={showGeminiKey ? 'text' : 'password'}
               value={geminiKey}
               onChange={(e) => { void setGeminiKey(e.target.value); }}
               placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... (manuel giriş)'}
-              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-500 outline-none focus:border-blue-500/50 transition-all pr-10"
+              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
             />
             <button onClick={() => setShowGeminiKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
               {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
@@ -484,7 +484,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       {provider === 'haiku' && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Claude API Key</span>
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Claude API Key</span>
             {envHaikuKey && !haikuKey
               ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
               : haikuKey
@@ -500,17 +500,17 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             <span>🔑</span>
             Key Al — console.anthropic.com
           </button>
-          <p className="text-[10px] text-slate-600 text-center">Key'i kopyala → otomatik algılanacak</p>
+          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
           <div className="relative">
             <input
               type={showHaikuKey ? 'text' : 'password'}
               value={haikuKey}
               onChange={(e) => { void setHaikuKey(e.target.value); }}
               placeholder={envHaikuKey ? '● .env\'den otomatik' : 'sk-ant-... (manuel giriş)'}
-              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-500 outline-none focus:border-amber-500/50 transition-all pr-10"
+              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
             />
             <button onClick={() => setShowHaikuKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
               {showHaikuKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
@@ -548,10 +548,10 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       )}
 
       {/* Info box */}
-      <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[10px] text-slate-600 leading-relaxed">
-        <span className="text-slate-500 font-bold">Nasıl çalışır?</span>
+      <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
+        <span className="text-[color:var(--oem-ink-2)] font-bold">Nasıl çalışır?</span>
         {' '}Offline parser tanıyamadığında (%50 altı güven) AI devreye girer. İnternet yoksa otomatik olarak offline modda çalışır.
-        {' '}<span className="text-slate-500">API key cihazda şifrelenmiş olarak saklanır.</span>
+        {' '}<span className="text-[color:var(--oem-ink-3)]">API key cihazda şifrelenmiş olarak saklanır.</span>
       </div>
     </div>
   );
@@ -621,7 +621,7 @@ const CompanionPanel = memo(function CompanionPanel() {
     { id: 'sik',    label: 'Sık',    sub: 'Konuşkan yolculuk' },
   ];
 
-  const inputClass = 'w-full bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5 text-slate-200 text-sm placeholder:text-slate-500 outline-none focus:border-cyan-500/50 transition-all';
+  const inputClass = 'w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all';
 
   return (
     <div className="flex flex-col gap-3">
@@ -638,7 +638,7 @@ const CompanionPanel = memo(function CompanionPanel() {
         <div className="flex flex-col gap-5 mt-2 pl-1">
           {/* Asistan adı */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Asistan Adı</span>
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Asistan Adı</span>
             <input
               type="text"
               value={nameDraft}
@@ -652,7 +652,7 @@ const CompanionPanel = memo(function CompanionPanel() {
 
           {/* Kullanıcı hitabı */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Bana Böyle Seslen</span>
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Bana Böyle Seslen</span>
             <input
               type="text"
               value={callsignDraft}
@@ -666,7 +666,7 @@ const CompanionPanel = memo(function CompanionPanel() {
 
           {/* Kişilik */}
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Kişilik</span>
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Kişilik</span>
             <div className="grid grid-cols-2 gap-2">
               {PERSONALITIES.map(({ id, label, sub }) => {
                 const active = (settings.companionPersonality ?? 'samimi') === id;
@@ -689,7 +689,7 @@ const CompanionPanel = memo(function CompanionPanel() {
 
           {/* Konuşma sıklığı */}
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Konuşma Sıklığı</span>
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Konuşma Sıklığı</span>
             <div className="grid grid-cols-3 gap-2">
               {CHATTINESS.map(({ id, label, sub }) => {
                 const active = (settings.companionChattiness ?? 'az') === id;
@@ -724,7 +724,7 @@ const CompanionPanel = memo(function CompanionPanel() {
             <div className="flex flex-col gap-3">
               {/* Uyanma şekli */}
               <div className="flex flex-col gap-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Uyanma Şekli</span>
+                <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Uyanma Şekli</span>
                 <div className="grid grid-cols-2 gap-2">
                   {WAKE_MODES.map(({ id, label, sub }) => {
                     const active = wakeMode === id;
@@ -748,7 +748,7 @@ const CompanionPanel = memo(function CompanionPanel() {
               {/* Özel cümle girişi — yalnız 'custom' modda */}
               {wakeMode === 'custom' && (
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Özel Uyandırma Cümlesi</span>
+                  <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Özel Uyandırma Cümlesi</span>
                   <input
                     type="text"
                     value={phraseDraft}
@@ -762,7 +762,7 @@ const CompanionPanel = memo(function CompanionPanel() {
               )}
 
               {/* Aktif wake sözleri önizlemesi */}
-              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-slate-400 leading-relaxed">
+              <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[11px] text-[color:var(--oem-ink-2)] leading-relaxed">
                 Şu sözlerle uyanır: {wakePreview.map((w) => `"${w}"`).join(' · ')}
               </div>
 
@@ -776,8 +776,8 @@ const CompanionPanel = memo(function CompanionPanel() {
           )}
 
           {/* Gizlilik notu */}
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[10px] text-slate-600 leading-relaxed">
-            <span className="text-slate-500 font-bold">Gizlilik:</span>
+          <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
+            <span className="text-[color:var(--oem-ink-2)] font-bold">Gizlilik:</span>
             {' '}Ses tanıma %100 cihaz içinde çalışır. Ad ve hitap bilgisi cihaz dışına gönderilmez.
           </div>
         </div>
@@ -799,16 +799,16 @@ const MapSourcePanel = memo(function MapSourcePanel() {
   return (
     <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-secondary opacity-50">Harita Altyapısı</span>
+        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[color:var(--oem-ink-3)]">Harita Altyapısı</span>
         <div className="flex gap-2.5">
-          <span className="flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest glass-card border-none !shadow-none var(--panel-bg-secondary)"
-            style={isOnline ? { color: '#10b981' } : { color: '#ef4444' }}>
-            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse shadow-[0_0_10px_#10b981]' : 'bg-red-500'}`} />
+          <span className="flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest glass-card border-none !shadow-none bg-[var(--oem-surface-2)]"
+            style={isOnline ? { color: 'var(--oem-good)' } : { color: 'var(--oem-danger)' }}>
+            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[var(--oem-good)] animate-pulse' : 'bg-[var(--oem-danger)]'}`} />
             {isOnline ? 'Çevrimiçi' : 'Çevrimdışı'}
           </span>
           <button onClick={async () => { setRefreshing(true); await refreshMapSources(); setRefreshing(false); }}
-            className="w-10 h-10 rounded-2xl flex items-center justify-center var(--panel-bg-secondary) hover:var(--panel-bg-secondary) border border-white/10 transition-all active:rotate-180">
-            <RefreshCw className={`w-5 h-5 text-secondary ${refreshing ? 'animate-spin' : ''}`} />
+            className="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--oem-surface-2)] hover:bg-[var(--oem-surface-3)] border border-[var(--oem-line)] transition-all active:rotate-180">
+            <RefreshCw className={`w-5 h-5 text-[color:var(--oem-ink-2)] ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -820,15 +820,15 @@ const MapSourcePanel = memo(function MapSourcePanel() {
             disabled={!src.isAvailable}
             className="flex items-center gap-5 p-5 rounded-3xl transition-all duration-300 glass-card border-white/5 hover:border-white/20 shadow-md"
             style={isActive ? { backgroundColor: 'rgba(59,130,246,0.08)', borderColor: 'rgba(59,130,246,0.4)' } : { opacity: src.isAvailable ? 1 : 0.4 }}>
-            <div className="w-12 h-12 rounded-[1.25rem] flex items-center justify-center var(--panel-bg-secondary) border border-white/10 shadow-inner"
+            <div className="w-12 h-12 rounded-[1.25rem] flex items-center justify-center bg-[var(--oem-surface-2)] border border-[var(--oem-line)] shadow-inner"
               style={isActive ? { backgroundColor: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.5)' } : {}}>
-              <Icon className="w-6 h-6 transition-colors" style={{ color: isActive ? 'var(--accent-blue)' : 'var(--text-secondary)' }} />
+              <Icon className="w-6 h-6 transition-colors" style={{ color: isActive ? 'var(--oem-info)' : 'var(--oem-ink-3)' }} />
             </div>
             <div className="flex-1 text-left">
-              <div className="text-base font-black tracking-tight text-primary">{src.name}</div>
-              <div className="text-[11px] text-secondary font-bold uppercase tracking-widest mt-1 opacity-50">{src.description}</div>
+              <div className="text-base font-black tracking-tight text-[color:var(--oem-ink)]">{src.name}</div>
+              <div className="text-[11px] text-[color:var(--oem-ink-3)] font-bold uppercase tracking-widest mt-1">{src.description}</div>
             </div>
-            {isActive && <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shadow-lg"><Check className="w-5 h-5 text-primary stroke-[4px]" /></div>}
+            {isActive && <div className="w-8 h-8 rounded-full bg-[var(--oem-info)] flex items-center justify-center shadow-lg"><Check className="w-5 h-5 text-[color:var(--oem-accent-ink)] stroke-[4px]" /></div>}
           </button>
         );
       })}
@@ -1184,8 +1184,8 @@ function AboutTabContent() {
         <SectionTitle icon={Info} title="Hakkında" sub="Sürüm ve yasal bilgiler" color="#60a5fa" />
         <div className="flex items-center justify-between px-1">
           <div>
-            <div className="text-base font-black" style={{ color: 'var(--text-primary)' }}>CockpitOS Pro</div>
-            <div className="text-[11px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>Araç içi infotainment sistemi</div>
+            <div className="text-base font-black" style={{ color: 'var(--oem-ink)' }}>CockpitOS Pro</div>
+            <div className="text-[11px] font-bold mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>Araç içi infotainment sistemi</div>
           </div>
           <div className="px-3 py-1.5 rounded-xl glass-card text-[11px] font-black tabular-nums" style={{ color: '#60a5fa' }}>v1.0</div>
         </div>
@@ -1199,7 +1199,7 @@ function AboutTabContent() {
           {OSS_LICENSES.map((c) => (
             <div key={c.name} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <span className="text-[12px] font-bold truncate" style={{ color: 'var(--text-primary)' }}>{c.name}</span>
+              <span className="text-[12px] font-bold truncate" style={{ color: 'var(--oem-ink)' }}>{c.name}</span>
               <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg flex-shrink-0"
                 style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.25)', color: '#93c5fd' }}>
                 {c.license}
@@ -1208,7 +1208,7 @@ function AboutTabContent() {
           ))}
         </div>
         <div className="mt-4 px-3 py-2.5 rounded-xl text-[11px] leading-relaxed"
-          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.20)', color: 'var(--text-muted)' }}>
+          style={{ background: 'var(--oem-warn-soft)', border: '1px solid var(--oem-warn)', color: 'var(--oem-ink-2)' }}>
           Harita verileri <span style={{ color: '#fbbf24', fontWeight: 800 }}>© OpenStreetMap katkıcıları</span> tarafından sağlanır (ODbL).
           Tüm açık kaynak bileşenler izin verici (permissive) lisanslıdır ve ticari kullanıma uygundur.
         </div>
@@ -2016,9 +2016,9 @@ function SettingsPageInner({ onClose }: Props) {
           {/* Privacy */}
           <div className="flex justify-center py-10">
             <button onClick={() => setShowPrivacy(true)}
-              className="flex items-center gap-3 px-8 py-4 rounded-2xl glass-card border-white/5 hover:var(--panel-bg-secondary) transition-all group active:scale-95">
-              <Shield className="w-4 h-4 text-primary/20 group-hover:text-primary/60 transition-colors" />
-              <span className="text-[10px] font-black uppercase tracking-[0.5em] text-primary/20 group-hover:text-primary/60 transition-all">Gizlilik ve Güvenlik</span>
+              className="flex items-center gap-3 px-8 py-4 rounded-2xl glass-card border-[var(--oem-line)] hover:bg-[var(--oem-surface-2)] transition-all group active:scale-95">
+              <Shield className="w-4 h-4 text-[color:var(--oem-ink-3)] group-hover:text-[color:var(--oem-ink-2)] transition-colors" />
+              <span className="text-[10px] font-black uppercase tracking-[0.5em] text-[color:var(--oem-ink-3)] group-hover:text-[color:var(--oem-ink-2)] transition-all">Gizlilik ve Güvenlik</span>
             </button>
           </div>
         </div>

@@ -5,13 +5,13 @@ import { useUnifiedVehicleStore as useVehicleStore } from '../../platform/vehicl
 import { computeReminders, type ReminderUrgency } from '../../platform/vehicleReminderService';
 import type { MaintenanceInfo } from '../../store/useStore';
 
-/* ── Urgency badge ───────────────────────────────────────── */
+/* ── Urgency badge — kanonik --oem-* status token'ları (tema + gün/gece uyumlu) ── */
 
 const URGENCY_STYLE: Record<ReminderUrgency, string> = {
-  ok:      'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  soon:    'text-amber-400   bg-amber-500/10   border-amber-500/20',
-  urgent:  'text-red-400     bg-red-500/10     border-red-500/20',
-  overdue: 'text-red-300     bg-red-600/15     border-red-500/30',
+  ok:      'text-[color:var(--oem-good)]   bg-[var(--oem-good-soft)]   border-[var(--oem-good)]',
+  soon:    'text-[color:var(--oem-warn)]   bg-[var(--oem-warn-soft)]   border-[var(--oem-warn)]',
+  urgent:  'text-[color:var(--oem-danger)] bg-[var(--oem-danger-soft)] border-[var(--oem-danger)]',
+  overdue: 'text-[color:var(--oem-danger)] bg-[var(--oem-danger-soft)] border-[var(--oem-danger)]',
 };
 
 const URGENCY_LABEL: Record<ReminderUrgency, string> = {
@@ -22,7 +22,7 @@ const URGENCY_LABEL: Record<ReminderUrgency, string> = {
 
 function FieldLabel({ children }: { children: string }) {
   return (
-    <span className="text-slate-500 text-[10px] uppercase tracking-widest">{children}</span>
+    <span className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest">{children}</span>
   );
 }
 
@@ -40,15 +40,15 @@ function NumberField({
   return (
     <div className="flex flex-col gap-1.5">
       <FieldLabel>{label}</FieldLabel>
-      <div className="flex items-center gap-2 var(--panel-bg-secondary) border border-white/10 rounded-xl px-3 py-2.5 focus-within:border-blue-500/50 transition-colors">
+      <div className="flex items-center gap-2 bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3 py-2.5 focus-within:border-[var(--oem-accent)] transition-colors">
         <input
           type="number"
           value={value || ''}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="bg-transparent border-none outline-none text-primary text-sm flex-1 min-w-0"
+          className="bg-transparent border-none outline-none text-[color:var(--oem-ink)] text-sm flex-1 min-w-0"
           min={0}
         />
-        <span className="text-slate-500 text-xs flex-shrink-0">{unit}</span>
+        <span className="text-[color:var(--oem-ink-3)] text-xs flex-shrink-0">{unit}</span>
       </div>
     </div>
   );
@@ -70,7 +70,7 @@ function DateField({
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="var(--panel-bg-secondary) border border-white/10 rounded-xl px-3 py-2.5 text-primary text-sm outline-none focus:border-blue-500/50 transition-colors [color-scheme:dark] w-full"
+        className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3 py-2.5 text-[color:var(--oem-ink)] text-sm outline-none focus:border-[var(--oem-accent)] transition-colors w-full"
       />
     </div>
   );
@@ -128,38 +128,38 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      {/* Backdrop */}
+      {/* Backdrop — nötr koyu scrim (her iki modda da modalı ön plana çıkarır) */}
       <div
-        className="absolute inset-0 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Panel */}
-      <div className="relative w-full max-w-md bg-[#0a1020] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      {/* Panel — kanonik yüzey (gündüz açık / gece koyu, metinle daima kontrast) */}
+      <div className="relative w-full max-w-md bg-[var(--oem-surface-0)] border border-[var(--oem-line)] rounded-3xl shadow-[var(--oem-shadow-pop)] overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Başlık */}
-        <div className="flex items-center justify-between p-5 border-b border-white/5 flex-shrink-0">
+        <div className="flex items-center justify-between p-5 border-b border-[var(--oem-line)] flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 flex items-center justify-center">
-              <Wrench className="w-5 h-5 text-blue-400" />
+            <div className="w-9 h-9 rounded-xl bg-[var(--oem-accent-soft)] flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-[color:var(--oem-accent)]" />
             </div>
             <div>
-              <div className="text-primary font-bold text-sm">Araç Hatırlatıcıları</div>
-              <div className="text-slate-500 text-[10px]">Bakım ve belgeler</div>
+              <div className="text-[color:var(--oem-ink)] font-bold text-sm">Araç Hatırlatıcıları</div>
+              <div className="text-[color:var(--oem-ink-3)] text-[10px]">Bakım ve belgeler</div>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-primary transition-colors active:scale-90"
+            className="w-8 h-8 rounded-xl bg-[var(--oem-surface-2)] flex items-center justify-center text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] transition-colors active:scale-90"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Durum özeti */}
-        <div className="flex gap-2 px-5 py-3 border-b border-white/5 overflow-x-auto flex-shrink-0">
+        <div className="flex gap-2 px-5 py-3 border-b border-[var(--oem-line)] overflow-x-auto flex-shrink-0">
           {visibleReminders.length === 0 ? (
-            <span className="text-emerald-400 text-[11px] font-medium py-2">
+            <span className="text-[color:var(--oem-good)] text-[11px] font-medium py-2">
               Tüm bakımlar güncel
             </span>
           ) : (
@@ -182,8 +182,8 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           {/* Yağ değişimi */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <Droplets className="w-4 h-4 text-blue-400" />
-              <span className="text-primary text-xs font-bold">Yağ Değişimi</span>
+              <Droplets className="w-4 h-4 text-[color:var(--oem-accent)]" />
+              <span className="text-[color:var(--oem-ink)] text-xs font-bold">Yağ Değişimi</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <NumberField
@@ -204,8 +204,8 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           {/* Muayene */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <Car className="w-4 h-4 text-emerald-400" />
-              <span className="text-primary text-xs font-bold">Araç Muayenesi</span>
+              <Car className="w-4 h-4 text-[color:var(--oem-good)]" />
+              <span className="text-[color:var(--oem-ink)] text-xs font-bold">Araç Muayenesi</span>
             </div>
             <DateField
               label="Sonraki muayene tarihi"
@@ -217,8 +217,8 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           {/* Sigorta & Kasko */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-purple-400" />
-              <span className="text-primary text-xs font-bold">Sigorta & Kasko</span>
+              <Shield className="w-4 h-4 text-[color:var(--oem-info)]" />
+              <span className="text-[color:var(--oem-ink)] text-xs font-bold">Sigorta & Kasko</span>
             </div>
             <DateField
               label="Sigorta bitiş tarihi"
@@ -235,16 +235,16 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
         </div>
 
         {/* Footer */}
-        <div className="flex gap-2 p-5 border-t border-white/5 flex-shrink-0">
+        <div className="flex gap-2 p-5 border-t border-[var(--oem-line)] flex-shrink-0">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl var(--panel-bg-secondary) border border-white/10 text-slate-400 text-sm font-bold hover:var(--panel-bg-secondary) transition-all active:scale-95"
+            className="flex-1 py-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-2)] text-sm font-bold hover:bg-[var(--oem-surface-3)] transition-all active:scale-95"
           >
             İptal
           </button>
           <button
             onClick={handleSave}
-            className="flex-[2] py-3 rounded-xl bg-blue-600 text-primary text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-500 transition-all active:scale-95"
+            className="flex-[2] py-3 rounded-xl bg-[var(--oem-accent)] text-[color:var(--oem-accent-ink)] text-sm font-bold flex items-center justify-center gap-2 hover:bg-[var(--oem-accent-strong)] transition-all active:scale-95"
           >
             <Save className="w-4 h-4" />
             Kaydet
@@ -254,5 +254,3 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
     </div>
   );
 });
-
-

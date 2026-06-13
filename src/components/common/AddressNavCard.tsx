@@ -23,10 +23,10 @@ import type { GeoResult } from '../../platform/geocodingService';
 
 function phaseStyle(phase: AddressNavPhase): string {
   switch (phase) {
-    case 'searching': return 'border-blue-500/30  bg-blue-500/10';
-    case 'selecting': return 'border-white/20      bg-white/[0.07]';
-    case 'confirmed': return 'border-emerald-500/30 bg-emerald-500/10';
-    case 'error':     return 'border-red-500/30    bg-red-500/10';
+    case 'searching': return 'border-[var(--oem-info)]   bg-[var(--oem-info-soft)]';
+    case 'selecting': return 'border-[var(--oem-line)]   bg-[var(--oem-surface-2)]';
+    case 'confirmed': return 'border-[var(--oem-good)]   bg-[var(--oem-good-soft)]';
+    case 'error':     return 'border-[var(--oem-danger)] bg-[var(--oem-danger-soft)]';
     default:          return '';
   }
 }
@@ -36,10 +36,10 @@ function phaseStyle(phase: AddressNavPhase): string {
 const Searching = memo(function Searching({ query }: { query: string }) {
   return (
     <div className="flex items-center gap-3">
-      <Loader2 className="w-5 h-5 text-blue-400 animate-spin flex-shrink-0" />
+      <Loader2 className="w-5 h-5 text-[color:var(--oem-info)] animate-spin flex-shrink-0" />
       <div className="min-w-0">
-        <p className="text-primary text-sm font-semibold truncate">{query}</p>
-        <p className="text-slate-400 text-xs">Rota aranıyor…</p>
+        <p className="text-[color:var(--oem-ink)] text-sm font-semibold truncate">{query}</p>
+        <p className="text-[color:var(--oem-ink-2)] text-xs">Rota aranıyor…</p>
       </div>
     </div>
   );
@@ -55,17 +55,17 @@ const ResultRow = memo(function ResultRow({ result, index }: { result: GeoResult
   return (
     <button
       type="button"
-      className="flex items-start gap-3 w-full px-3 py-2.5 rounded-xl hover:var(--panel-bg-secondary) active:bg-white/15 text-left transition-colors"
+      className="flex items-start gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-[var(--oem-surface-3)] active:bg-[var(--oem-surface-3)] text-left transition-colors"
       onClick={() => selectAddressResult(index)}
     >
-      <Icon className="w-4 h-4 mt-0.5 text-blue-400 flex-shrink-0" />
+      <Icon className="w-4 h-4 mt-0.5 text-[color:var(--oem-info)] flex-shrink-0" />
       <div className="min-w-0">
-        <p className="text-primary text-sm font-semibold truncate">{result.name}</p>
+        <p className="text-[color:var(--oem-ink)] text-sm font-semibold truncate">{result.name}</p>
         {result.distanceKm != null && (
-          <p className="text-slate-400 text-xs">{result.distanceKm} km uzakta</p>
+          <p className="text-[color:var(--oem-ink-2)] text-xs">{result.distanceKm} km uzakta</p>
         )}
         {result.distanceKm == null && result.fullName !== result.name && (
-          <p className="text-slate-400 text-xs truncate">
+          <p className="text-[color:var(--oem-ink-2)] text-xs truncate">
             {result.fullName.split(',').slice(1, 3).join(',').trim()}
           </p>
         )}
@@ -77,9 +77,9 @@ const ResultRow = memo(function ResultRow({ result, index }: { result: GeoResult
 const Selecting = memo(function Selecting({ query, results }: { query: string; results: GeoResult[] }) {
   return (
     <div>
-      <div className="flex items-center gap-2 px-1 pb-1.5 mb-1 border-b border-white/10">
-        <Navigation2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
-        <p className="text-slate-300 text-xs font-medium truncate">
+      <div className="flex items-center gap-2 px-1 pb-1.5 mb-1 border-b border-[var(--oem-line)]">
+        <Navigation2 className="w-4 h-4 text-[color:var(--oem-ink-3)] flex-shrink-0" />
+        <p className="text-[color:var(--oem-ink-2)] text-xs font-medium truncate">
           "{query}" için {results.length} sonuç — seçin
         </p>
       </div>
@@ -97,10 +97,10 @@ const Selecting = memo(function Selecting({ query, results }: { query: string; r
 const Confirmed = memo(function Confirmed({ query }: { query: string }) {
   return (
     <div className="flex items-center gap-3">
-      <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+      <CheckCircle2 className="w-5 h-5 text-[color:var(--oem-good)] flex-shrink-0" />
       <div className="min-w-0">
-        <p className="text-primary text-sm font-semibold truncate">{query}</p>
-        <p className="text-emerald-400 text-xs">Rota başlatıldı</p>
+        <p className="text-[color:var(--oem-ink)] text-sm font-semibold truncate">{query}</p>
+        <p className="text-[color:var(--oem-good)] text-xs">Rota başlatıldı</p>
       </div>
     </div>
   );
@@ -118,8 +118,8 @@ const ErrorState = memo(function ErrorState({
   return (
     <div>
       <div className="flex items-center gap-3">
-        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-        <p className="text-red-300 text-sm font-medium">{message}</p>
+        <AlertCircle className="w-5 h-5 text-[color:var(--oem-danger)] flex-shrink-0" />
+        <p className="text-[color:var(--oem-danger)] text-sm font-medium">{message}</p>
       </div>
       {suggestions.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
@@ -127,7 +127,7 @@ const ErrorState = memo(function ErrorState({
             <button
               key={s}
               type="button"
-              className="text-xs px-2.5 py-1 rounded-full var(--panel-bg-secondary) border border-white/15 text-slate-300 hover:bg-white/15"
+              className="text-xs px-2.5 py-1 rounded-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-2)] hover:bg-[var(--oem-surface-3)]"
               onClick={() => resolveAndNavigate(s)}
             >
               {s}
@@ -156,7 +156,7 @@ export const AddressNavCard = memo(function AddressNavCard() {
       {/* Kapat butonu */}
       <button
         type="button"
-        className="absolute top-2 right-2 p-1 rounded-full hover:var(--panel-bg-secondary) text-slate-500 hover:text-primary transition-colors"
+        className="absolute top-2 right-2 p-1 rounded-full hover:bg-[var(--oem-surface-3)] text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] transition-colors"
         onClick={dismissAddressNav}
         aria-label="Kapat"
       >

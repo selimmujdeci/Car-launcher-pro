@@ -863,7 +863,8 @@ const SpeedPanel = memo(function SpeedPanel({
         >
           {roundedSpeed}
         </span>
-        <span className="text-slate-400 font-black uppercase tracking-[0.2em] text-[10px] mt-1 opacity-60">
+        <span className="font-black uppercase tracking-[0.2em] text-[10px] mt-1 opacity-60"
+          style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
           KM/H
         </span>
 
@@ -949,9 +950,9 @@ const NavInfoBar = memo(function NavInfoBar({
       {/* Offline rozeti */}
       {isOffline && (
         <div className="flex justify-center pt-2">
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-400/30">
-            <AlertCircle className="w-3 h-3 text-amber-400" />
-            <span className="text-[9px] text-amber-400 font-black uppercase tracking-[0.1em]">Çevrimdışı Mod</span>
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--oem-warn-soft)] backdrop-blur-md border border-[var(--oem-warn)]">
+            <AlertCircle className="w-3 h-3 text-[color:var(--oem-warn)]" />
+            <span className="text-[9px] text-[color:var(--oem-warn)] font-black uppercase tracking-[0.1em]">Çevrimdışı Mod</span>
           </div>
         </div>
       )}
@@ -1095,19 +1096,19 @@ function ArrivalOverlay({ destName }: { destName: string }) {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
       <div
-        className="flex flex-col items-center gap-5 px-10 py-8 rounded-[2.5rem] shadow-[0_40px_80px_rgba(0,0,0,0.85)] bg-[rgba(8,12,22,0.96)] backdrop-blur-[28px] border border-emerald-500/20 animate-in zoom-in-95 fade-in duration-500"
+        className="flex flex-col items-center gap-5 px-10 py-8 rounded-[2.5rem] shadow-[0_40px_80px_rgba(0,0,0,0.85)] bg-[rgba(8,12,22,0.96)] backdrop-blur-[28px] border border-[var(--oem-good)] animate-in zoom-in-95 fade-in duration-500"
       >
         <div
           className="w-20 h-20 rounded-full flex items-center justify-center"
-          style={{ background: 'rgba(16,185,129,0.12)', border: '1.5px solid rgba(16,185,129,0.3)', boxShadow: '0 0 40px rgba(16,185,129,0.2)' }}
+          style={{ background: 'var(--oem-good-soft)', border: '1.5px solid var(--oem-good)', boxShadow: '0 0 40px var(--oem-good-soft)' }}
         >
-          <CheckCircle2 className="w-11 h-11 text-emerald-400" />
+          <CheckCircle2 className="w-11 h-11 text-[color:var(--oem-good)]" />
         </div>
         <div className="text-center">
           <div className="text-white font-black text-[28px] tracking-[-0.02em] leading-tight uppercase tracking-widest">
             Hedefe Vardınız
           </div>
-          <div className="text-emerald-400 font-bold text-base mt-2 max-w-[260px] truncate">
+          <div className="text-[color:var(--oem-good)] font-bold text-base mt-2 max-w-[260px] truncate">
             {destName}
           </div>
         </div>
@@ -1132,17 +1133,17 @@ function ErrorOverlay({ message, onClose }: { message: string; onClose: () => vo
           className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
           style={{ background: 'linear-gradient(160deg,rgba(239,68,68,0.25),rgba(185,28,28,0.18))' }}
         >
-          <AlertCircle className="w-7 h-7 text-red-400" />
+          <AlertCircle className="w-7 h-7 text-[color:var(--oem-danger)]" />
         </div>
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-white font-black text-base leading-tight uppercase tracking-widest">Navigasyon Hatası</span>
-          <span className="text-red-300 text-sm mt-0.5 line-clamp-2">{message}</span>
+          <span className="text-[color:var(--oem-danger)] text-sm mt-0.5 line-clamp-2">{message}</span>
         </div>
         <button
           onClick={onClose}
-          className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all flex-shrink-0 bg-red-500/[0.15] border border-red-500/25"
+          className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all flex-shrink-0 bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)]"
         >
-          <X className="w-5 h-5 text-red-400" />
+          <X className="w-5 h-5 text-[color:var(--oem-danger)]" />
         </button>
       </div>
     </div>
@@ -1192,14 +1193,14 @@ const PreviewCard = memo(function PreviewCard({
               </div>
             )}
             {!loading && !error && distMeters > 0 && (
-              <div className="text-slate-400 text-sm mt-2 font-bold uppercase tracking-widest flex items-center gap-3">
+              <div className="text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] text-sm mt-2 font-bold uppercase tracking-widest flex items-center gap-3">
                 <span className="text-white">{formatDistance(distMeters)}</span>
-                <span className="w-1 h-1 rounded-full bg-slate-700" />
+                <span className="w-1 h-1 rounded-full bg-white/20" />
                 <span style={{ color: '#E0A23C' }}>{formatEta(durSeconds)}</span>
               </div>
             )}
             {!loading && error && (
-              <div className="flex items-center gap-2 text-amber-500 text-sm mt-2 font-black uppercase tracking-widest">
+              <div className="flex items-center gap-2 text-[color:var(--oem-warn)] text-sm mt-2 font-black uppercase tracking-widest">
                 <AlertCircle className="w-4 h-4" />
                 <span>Çevrimdışı Mod</span>
               </div>
@@ -1210,19 +1211,19 @@ const PreviewCard = memo(function PreviewCard({
             aria-label="Navigasyonu iptal et"
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.06] border border-white/10 mt-0.5"
           >
-            <X className="w-4 h-4 text-slate-400" />
+            <X className="w-4 h-4 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
           </button>
         </div>
 
         {!loading && (
           <div className="mb-4">
             {hasToll ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-black uppercase tracking-widest">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--oem-warn-soft)] border border-[var(--oem-warn)] text-[color:var(--oem-warn)] text-xs font-black uppercase tracking-widest">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Olası ücretli geçiş (OGS/HGS)
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500/10 border border-slate-500/20 text-slate-500 text-xs font-black uppercase tracking-widest">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-3)] text-xs font-black uppercase tracking-widest">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Ücret bilgisi yok (OSRM)
               </span>
@@ -1232,14 +1233,14 @@ const PreviewCard = memo(function PreviewCard({
 
         {hasAlts && !loading && (
           <div ref={altsRef} className="mb-4">
-            <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Rota Seçenekleri</div>
+            <div className="text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] text-[10px] font-black uppercase tracking-widest mb-2">Rota Seçenekleri</div>
             <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
               {/* Ana rota kartı */}
               <div className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-2.5 rounded-2xl border min-w-[110px]"
                 style={{ background: 'rgba(224,162,60,0.10)', borderColor: 'rgba(224,162,60,0.45)', boxShadow: '0 4px 16px rgba(224,162,60,0.22)' }}>
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#E0A23C' }}>{chipLabels[0]}</span>
-                  {hasToll && <AlertCircle className="w-3 h-3 text-amber-300 flex-shrink-0" />}
+                  {hasToll && <AlertCircle className="w-3 h-3 text-[color:var(--oem-warn)] flex-shrink-0" />}
                 </div>
                 <span className="text-sm font-black text-white leading-tight">{formatDistance(distMeters)}</span>
                 <span className="text-[11px] font-bold" style={{ color: 'rgba(224,162,60,0.85)' }}>{formatEta(durSeconds)}</span>
@@ -1262,23 +1263,23 @@ const PreviewCard = memo(function PreviewCard({
                     className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-2.5 rounded-2xl border min-w-[110px] transition-all active:scale-95 bg-white/[0.06] border-white/10"
                   >
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]">
                         {chipLabels[j + 1] ?? `Alternatif ${j + 1}`}
                       </span>
-                      {toll && <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />}
+                      {toll && <AlertCircle className="w-3 h-3 text-[color:var(--oem-warn)] flex-shrink-0" />}
                     </div>
-                    <span className="text-sm font-black text-slate-200 leading-tight">{formatDistance(dist)}</span>
+                    <span className="text-sm font-black text-[color:var(--oem-ink,#F0EBE0)] leading-tight">{formatDistance(dist)}</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-400">{formatEta(altDur)}</span>
+                      <span className="text-[11px] font-bold text-[color:var(--oem-ink-2,rgba(240,235,224,0.74))]">{formatEta(altDur)}</span>
                       {diffLabel && (
-                        <span className={`text-[10px] font-black ${diffSec > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        <span className={`text-[10px] font-black ${diffSec > 0 ? 'text-[color:var(--oem-danger)]' : 'text-[color:var(--oem-good)]'}`}>
                           {diffLabel}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <Fuel className="w-3 h-3 text-slate-500 flex-shrink-0" />
-                      <span className="text-[10px] font-bold text-slate-500">{computeFuelEstimate(dist)} L</span>
+                      <Fuel className="w-3 h-3 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] flex-shrink-0" />
+                      <span className="text-[10px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]">{computeFuelEstimate(dist)} L</span>
                     </div>
                   </button>
                 );
@@ -1292,14 +1293,14 @@ const PreviewCard = memo(function PreviewCard({
             <button
               onClick={onStart}
               disabled={!routeReady || !gpsValid}
-              className="flex-1 py-3.5 rounded-2xl text-slate-300 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink,#F0EBE0)] font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Rota Seç
             </button>
           ) : (
             <button
               onClick={onCancel}
-              className="flex-1 py-3.5 rounded-2xl text-slate-400 font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
+              className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink-2,rgba(240,235,224,0.74))] font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
             >
               Vazgeç
             </button>
@@ -1307,7 +1308,7 @@ const PreviewCard = memo(function PreviewCard({
           <button
             disabled
             title="Durak ekleme henüz mevcut değil"
-            className="flex-1 py-3.5 rounded-2xl text-slate-500 font-black text-sm uppercase tracking-widest bg-white/[0.03] border border-white/5 opacity-50 cursor-not-allowed"
+            className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] font-black text-sm uppercase tracking-widest bg-white/[0.03] border border-white/5 opacity-50 cursor-not-allowed"
           >
             Durak Ekle
           </button>
@@ -1361,7 +1362,7 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
       }}
     >
       <span className="flex-shrink-0">{icon}</span>
-      <span className="text-[10px] font-black uppercase tracking-wider text-slate-200 truncate max-w-[90px]">{label}</span>
+      <span className="text-[10px] font-black uppercase tracking-wider text-[color:var(--oem-ink,#F0EBE0)] truncate max-w-[90px]">{label}</span>
       {km && (
         <span
           className="ml-auto text-[13px] font-black tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-md leading-none"
@@ -1599,7 +1600,7 @@ const QuickDestinations = memo(function QuickDestinations({
               aria-label="Kapat"
               className="w-6 h-6 rounded-lg flex items-center justify-center active:scale-90 transition-all bg-white/[0.04] border border-white/[0.06]"
             >
-              <X className="w-3.5 h-3.5 text-slate-400" />
+              <X className="w-3.5 h-3.5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
             </button>
           </div>
 
@@ -1618,7 +1619,7 @@ const QuickDestinations = memo(function QuickDestinations({
               <span className="text-[12px] font-black uppercase tracking-wider leading-none" style={{ color: '#E8B86A' }}>
                 Konum Ekle
               </span>
-              <span className="text-[9px] font-bold text-slate-400 mt-1">
+              <span className="text-[9px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1">
                 Bulunduğun yeri kaydet
               </span>
             </div>
@@ -1634,8 +1635,8 @@ const QuickDestinations = memo(function QuickDestinations({
           <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
             {customLocations.length === 0 ? (
               <div className="px-3 py-5 text-center">
-                <MapPin className="w-5 h-5 text-slate-600 mx-auto mb-2" />
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                <MapPin className="w-5 h-5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mx-auto mb-2" />
+                <span className="text-[10px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] uppercase tracking-wider">
                   Henüz kayıtlı konum yok
                 </span>
               </div>
@@ -1666,7 +1667,7 @@ const QuickDestinations = memo(function QuickDestinations({
                       <span className="text-[11px] font-black text-white truncate leading-none">
                         {loc.name}
                       </span>
-                      <span className="text-[9px] font-mono text-slate-500 mt-1 truncate">
+                      <span className="text-[9px] font-mono text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1 truncate">
                         {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}
                       </span>
                     </div>
@@ -1680,9 +1681,9 @@ const QuickDestinations = memo(function QuickDestinations({
                   <button
                     onClick={() => removeCustomLocation(loc.id)}
                     aria-label="Sil"
-                    className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-red-500/10 border border-red-500/15"
+                    className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)]"
                   >
-                    <Trash2 className="w-3 h-3 text-red-400" />
+                    <Trash2 className="w-3 h-3 text-[color:var(--oem-danger)]" />
                   </button>
                 </div>
               ))
@@ -1891,12 +1892,12 @@ export const NavigationHUD = memo(function NavigationHUD({
                         onClick={() => { selectAltRoute(realIdx ?? (i + 1)); setShowAlts(false); }}
                         className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left futurist-glass active:scale-95 transition-all"
                       >
-                        <div className="w-8 h-8 rounded-xl bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-[var(--oem-surface-2,rgba(48,55,73,0.60))] flex items-center justify-center flex-shrink-0">
                           <GitBranch className="w-4 h-4" style={{ color: '#E0A23C' }} />
                         </div>
                         <div className="flex flex-col min-w-0">
                           <span className="text-white font-black text-sm">Alternatif {i + 1}</span>
-                          <span className="text-slate-400 text-xs font-bold">
+                          <span className="text-[color:var(--oem-ink-2,rgba(240,235,224,0.74))] text-xs font-bold">
                             {formatDistance(route.altDistances[i])} · {formatEta(route.altDurations[i])}
                           </span>
                         </div>

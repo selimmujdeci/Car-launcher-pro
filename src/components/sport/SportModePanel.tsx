@@ -65,7 +65,7 @@ const GMeter = memo(function GMeter({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <span className="text-slate-500 text-[10px] uppercase tracking-widest">G-Metre</span>
+      <span className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest">G-Metre</span>
       <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="overflow-visible">
         <defs>
           {/* G-metre arka plan gradyanı: mavi hardcoded → info-soft token */}
@@ -120,18 +120,18 @@ const GMeter = memo(function GMeter({
       {/* G değerleri */}
       <div className="flex gap-6 text-center">
         <div>
-          <div className="text-primary text-lg font-black tabular-nums">
-            {Math.abs(longG).toFixed(2)}<span className="text-slate-500 text-xs">g</span>
+          <div className="text-[color:var(--oem-ink)] text-lg font-black tabular-nums">
+            {Math.abs(longG).toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-xs">g</span>
           </div>
-          <div className="text-slate-600 text-[10px] uppercase tracking-wider">
+          <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-wider">
             {longG >= 0 ? 'İvme' : 'Fren'}
           </div>
         </div>
         <div>
-          <div className="text-primary text-lg font-black tabular-nums">
-            {Math.abs(latG).toFixed(2)}<span className="text-slate-500 text-xs">g</span>
+          <div className="text-[color:var(--oem-ink)] text-lg font-black tabular-nums">
+            {Math.abs(latG).toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-xs">g</span>
           </div>
-          <div className="text-slate-600 text-[10px] uppercase tracking-wider">
+          <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-wider">
             {latG >= 0 ? 'Sağ' : 'Sol'}
           </div>
         </div>
@@ -174,14 +174,14 @@ const TestCard = memo(function TestCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Test ikonu: tamamlandı=good, çalışıyor=warn, beklemede=nötr */}
-          <Icon className={`w-4 h-4 ${isDone ? 'text-[color:var(--oem-good)]' : isRunning ? 'text-[color:var(--oem-warn)]' : 'text-slate-500'}`} />
-          <span className="text-primary/70 text-xs font-bold uppercase tracking-wider">{title}</span>
+          <Icon className={`w-4 h-4 ${isDone ? 'text-[color:var(--oem-good)]' : isRunning ? 'text-[color:var(--oem-warn)]' : 'text-[color:var(--oem-ink-3)]'}`} />
+          <span className="text-[color:var(--oem-ink)]/70 text-xs font-bold uppercase tracking-wider">{title}</span>
         </div>
         {isRunning && (
           <button
             onClick={onCancel}
             /* İptal butonu → surface-2 / danger hover */
-            className="w-6 h-6 rounded-lg bg-[var(--oem-surface-2)] flex items-center justify-center text-slate-500 hover:text-[color:var(--oem-danger)] transition-colors"
+            className="w-6 h-6 rounded-lg bg-[var(--oem-surface-2)] flex items-center justify-center text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-danger)] transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -191,7 +191,7 @@ const TestCard = memo(function TestCard({
       {/* Sayaç / Sonuç */}
       <div className="text-center py-2">
         {state === 'idle' && (
-          <div className="text-slate-600 text-sm">Hazır</div>
+          <div className="text-[color:var(--oem-ink-3)] text-sm">Hazır</div>
         )}
         {state === 'waiting' && (
           <div className="flex flex-col items-center gap-1">
@@ -201,9 +201,9 @@ const TestCard = memo(function TestCard({
           </div>
         )}
         {state === 'running' && (
-          <div className="text-4xl font-black tabular-nums text-primary">
+          <div className="text-4xl font-black tabular-nums text-[color:var(--oem-ink)]">
             {fmtMs(elapsedMs)}
-            <span className="text-slate-500 text-lg font-light ml-1">s</span>
+            <span className="text-[color:var(--oem-ink-3)] text-lg font-light ml-1">s</span>
           </div>
         )}
         {isDone && resultTime !== null && (
@@ -214,7 +214,7 @@ const TestCard = memo(function TestCard({
               <span className="text-[color:var(--oem-good)] text-xl font-light ml-1 opacity-60">s</span>
             </div>
             {resultExtra && (
-              <div className="text-slate-400 text-xs">{resultExtra}</div>
+              <div className="text-[color:var(--oem-ink-2)] text-xs">{resultExtra}</div>
             )}
           </div>
         )}
@@ -229,7 +229,7 @@ const TestCard = memo(function TestCard({
             active:scale-95 transition-all
             /* Yeniden başlat → yüzey (nötr), Başlat → accent (birincil aksiyon) */
             ${isDone
-              ? 'bg-[var(--oem-surface-2)] border border-[var(--oem-line-strong)] text-secondary'
+              ? 'bg-[var(--oem-surface-2)] border border-[var(--oem-line-strong)] text-[color:var(--oem-ink-2)]'
               : 'bg-[var(--oem-accent-soft)] border border-[var(--oem-accent)] text-[color:var(--oem-accent)]'}
           `}
         >
@@ -256,11 +256,11 @@ const PeakCard = memo(function PeakCard({
   return (
     <div className="rounded-2xl border border-[var(--oem-line)] bg-[var(--oem-surface-2)] p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-slate-500 text-[10px] uppercase tracking-widest">Oturum Rekoru</span>
+        <span className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest">Oturum Rekoru</span>
         <button
           onClick={onReset}
           /* Sıfırla butonu → surface-2 */
-          className="w-6 h-6 rounded-lg bg-[var(--oem-surface-2)] flex items-center justify-center text-slate-500 hover:text-primary transition-colors"
+          className="w-6 h-6 rounded-lg bg-[var(--oem-surface-2)] flex items-center justify-center text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] transition-colors"
         >
           <RotateCcw className="w-3 h-3" />
         </button>
@@ -269,16 +269,16 @@ const PeakCard = memo(function PeakCard({
         <div className="text-center">
           {/* En yüksek ivme → warn token (performans eşiği uyarısı) */}
         <div className="text-[color:var(--oem-warn)] text-2xl font-black tabular-nums">
-            {peakAccelG.toFixed(2)}<span className="text-slate-500 text-sm">g</span>
+            {peakAccelG.toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-sm">g</span>
           </div>
-          <div className="text-slate-600 text-[10px] mt-0.5">En Yüksek İvme</div>
+          <div className="text-[color:var(--oem-ink-3)] text-[10px] mt-0.5">En Yüksek İvme</div>
         </div>
         <div className="text-center">
           {/* En sert fren → danger token (güvenlik eşiği) */}
           <div className="text-[color:var(--oem-danger)] text-2xl font-black tabular-nums">
-            {peakBrakeG.toFixed(2)}<span className="text-slate-500 text-sm">g</span>
+            {peakBrakeG.toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-sm">g</span>
           </div>
-          <div className="text-slate-600 text-[10px] mt-0.5">En Sert Fren</div>
+          <div className="text-[color:var(--oem-ink-3)] text-[10px] mt-0.5">En Sert Fren</div>
         </div>
       </div>
     </div>
@@ -310,7 +310,7 @@ export const SportModePanel = memo(function SportModePanel() {
   const handleCancelQM     = useCallback(() => cancelTest(), []);
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto glass-card text-primary border-none !shadow-none" data-editable="sport-mode" data-editable-type="card">
+    <div className="h-full flex flex-col overflow-y-auto glass-card text-[color:var(--oem-ink)] border-none !shadow-none" data-editable="sport-mode" data-editable-type="card">
       {/* Başlık */}
       {/* Başlık bölümü alt kenarlık → oem-line */}
       <div className="flex-shrink-0 px-6 py-5 border-b border-[var(--oem-line)]">
@@ -320,8 +320,8 @@ export const SportModePanel = memo(function SportModePanel() {
             <Zap className="w-5 h-5 text-[color:var(--oem-accent)]" />
           </div>
           <div>
-            <div className="text-primary font-bold text-lg tracking-tight">Sport Mod Pro</div>
-            <div className="text-slate-500 text-xs">Performans & Yarış İstatistikleri</div>
+            <div className="text-[color:var(--oem-ink)] font-bold text-lg tracking-tight">Sport Mod Pro</div>
+            <div className="text-[color:var(--oem-ink-3)] text-xs">Performans & Yarış İstatistikleri</div>
           </div>
         </div>
         {/* Simüle OBD uyarısı — veriler güvenilir değil — warn token */}
@@ -378,8 +378,8 @@ export const SportModePanel = memo(function SportModePanel() {
         {perf.qmState === 'running' && (
           <div className="rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] p-3">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-slate-500 text-xs">Mesafe</span>
-              <span className="text-primary font-bold tabular-nums">{Math.round(perf.qmDistanceM)} / 400 m</span>
+              <span className="text-[color:var(--oem-ink-3)] text-xs">Mesafe</span>
+              <span className="text-[color:var(--oem-ink)] font-bold tabular-nums">{Math.round(perf.qmDistanceM)} / 400 m</span>
             </div>
             {/* Mesafe çubuğu: zemin yüzey-3, dolgu accent → tema takibi */}
             <div className="w-full h-2 bg-[var(--oem-surface-3)] rounded-full overflow-hidden">
@@ -392,7 +392,7 @@ export const SportModePanel = memo(function SportModePanel() {
         )}
 
         {/* Bilgi notu */}
-        <div className="text-slate-500 text-[10px] text-center px-4 pb-2 leading-relaxed">
+        <div className="text-[color:var(--oem-ink-3)] text-[10px] text-center px-4 pb-2 leading-relaxed">
           G-metre ve testler OBD + GPS verisi gerektirir.
           Güvenli, özel bir alanda test yapınız.
         </div>

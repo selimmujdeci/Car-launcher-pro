@@ -11,11 +11,21 @@
  *     desen geri alınırsa test düşer). Her birinin NEDEN'i yorumda.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
+
+/** Bir klasör altındaki tüm .tsx dosyalarını (özyinelemeli) toplar. */
+function walkTsx(dir: string, acc: string[] = []): string[] {
+  for (const e of readdirSync(resolve(root, dir), { withFileTypes: true })) {
+    const rel = join(dir, e.name);
+    if (e.isDirectory()) walkTsx(rel, acc);
+    else if (e.name.endsWith('.tsx')) acc.push(rel);
+  }
+  return acc;
+}
 
 /* ───────────────────────────────────────────────────────────────
    1. BUKALEMUN EKRAN UYUMU — ChameleonScaler ölçek matematiği
@@ -222,6 +232,46 @@ describe('Panel tema uyumu — hardcoded renk yasağı kilidi', () => {
   it('YAPISAL: DrawerShell üst hairline aksanı --oem-accent\'e bağlı', () => {
     const src = read('src/components/layout/DrawerShell.tsx');
     expect(src).toMatch(/linear-gradient\([^)]*var\(--oem-accent\)/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   4e. CSS var() className OLARAK YAZILAMAZ — tema migrasyonu kilidi
+   Regresyon (2026-06-13): paneller className="... var(--panel-bg-secondary)
+   ..." gibi CSS var() fonksiyonunu Tailwind class adı sanıp koyuyordu.
+   Tarayıcı bunu GEÇERSİZ class adı olarak sessizce düşürüyordu → şerit/panel
+   zeminsiz kalıp light-ui gündüz modunda koyu-üstüne-koyu / okunamaz oluyordu.
+   Doğru kullanım: inline style={{ background:'var(--..)' }} VEYA Tailwind
+   arbitrary value text-[color:var(--..)] (köşeli parantez içinde).
+   ─────────────────────────────────────────────────────────────── */
+describe('CSS var() className antipattern yasağı kilidi', () => {
+  // className="..." / className='...' içeriğinde köşeli parantez DIŞINDA var( geçişi.
+  // Geçerli: text-[color:var(--x)]  → '[' ile sarılı, eşleşmez.
+  // Yasak:   className="px-3 var(--panel-bg-secondary)" → çıplak var( eşleşir.
+  const BARE_VAR_IN_CLASSNAME =
+    /className=("(?:[^"]*)"|'(?:[^']*)')/g;
+
+  const files = walkTsx('src/components');
+
+  it('hiçbir komponentte className içinde çıplak var(--…) yok (köşeli parantez hariç)', () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = read(f);
+      let m: RegExpExecArray | null;
+      const re = new RegExp(BARE_VAR_IN_CLASSNAME);
+      while ((m = re.exec(src))) {
+        const val = m[1].slice(1, -1); // tırnakları soy
+        // köşeli parantez içindeki var()'ları maskele, kalanda var( ara
+        const masked = val.replace(/\[[^\]]*\]/g, '');
+        if (/\bvar\(/.test(masked)) offenders.push(`${f}: ${val.slice(0, 80)}`);
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('YAPISAL: base.css savunma fallback\'i yerinde (eski APK\'larda geçmiş bug için)', () => {
+    const css = read('src/styles/base.css');
+    expect(css).toMatch(/\[class\*="var\(--panel-bg-secondary\)"\]/);
   });
 });
 

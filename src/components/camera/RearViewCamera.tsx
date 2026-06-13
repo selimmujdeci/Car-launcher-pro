@@ -88,7 +88,7 @@ const DevicePicker = memo(function DevicePicker({
   onClose:   () => void;
 }) {
   return (
-    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur-xl border border-white/10 rounded-2xl p-2 min-w-[240px] z-10">
+    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 min-w-[240px] z-10">
       {devices.map((d) => (
         <button
           key={d.deviceId}
@@ -96,8 +96,8 @@ const DevicePicker = memo(function DevicePicker({
           className={`
             w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all flex items-center gap-2
             ${d.deviceId === currentId
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'text-slate-300 hover:var(--panel-bg-secondary)'}
+              ? 'bg-[var(--oem-info-soft)] text-[color:var(--oem-info)]'
+              : 'text-[color:var(--oem-ink-2)] hover:bg-white/10'}
           `}
         >
           <span className="text-base">📷</span>
@@ -226,11 +226,11 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
       {/* Hata ekranı */}
       {error && (
         <div className="flex flex-col items-center gap-4 text-center px-8">
-          <CameraOff className="w-16 h-16 text-slate-600" />
-          <div className="text-primary text-base font-bold">{error}</div>
+          <CameraOff className="w-16 h-16 text-[color:var(--oem-ink-3)]" />
+          <div className="text-[color:var(--oem-ink)] text-base font-bold">{error}</div>
           <button
             onClick={() => startCamera()}
-            className="px-6 py-3 rounded-2xl bg-blue-500/20 border border-blue-500/30 text-blue-400 font-bold text-sm active:scale-95 transition-all"
+            className="px-6 py-3 rounded-2xl bg-[var(--oem-info-soft)] border border-[var(--oem-info)] text-[color:var(--oem-info)] font-bold text-sm active:scale-95 transition-all"
           >
             Tekrar Dene
           </button>
@@ -255,8 +255,8 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
       {/* Üst bar */}
       <div className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-black/70 to-transparent flex items-center justify-between px-6 pointer-events-auto">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          <span className="text-primary text-sm font-bold tracking-wider">GERİ GÖRÜŞ</span>
+          <div className="w-2 h-2 rounded-full bg-[var(--oem-danger)] animate-pulse" />
+          <span className="text-white text-sm font-bold tracking-wider">GERİ GÖRÜŞ</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -264,7 +264,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
           <button
             onClick={() => setMirrored((m) => !m)}
             className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
-              mirrored ? 'bg-blue-500/30 border border-blue-400/30 text-blue-400' : 'var(--panel-bg-secondary) text-slate-400'
+              mirrored ? 'bg-[var(--oem-info-soft)] border border-[var(--oem-info)] text-[color:var(--oem-info)]' : 'bg-black/50 text-white/60'
             }`}
             title="Yansıt"
           >
@@ -275,7 +275,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
           {devices.length > 1 && (
             <button
               onClick={() => setShowPicker((s) => !s)}
-              className="w-9 h-9 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-slate-400 hover:text-primary transition-all active:scale-90"
+              className="w-9 h-9 rounded-xl bg-black/50 flex items-center justify-center text-white/60 hover:text-white transition-all active:scale-90"
             >
               <Settings2 className="w-4 h-4" />
             </button>
@@ -284,7 +284,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
           {/* Kapat */}
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-xl var(--panel-bg-secondary) flex items-center justify-center text-slate-400 hover:text-primary transition-all active:scale-90"
+            className="w-9 h-9 rounded-xl bg-black/50 flex items-center justify-center text-white/60 hover:text-white transition-all active:scale-90"
           >
             <X className="w-4 h-4" />
           </button>
@@ -296,7 +296,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
         <div className="absolute bottom-6 inset-x-0 flex justify-center pointer-events-auto">
           <button
             onClick={() => setShowPicker((s) => !s)}
-            className="flex items-center gap-2 var(--panel-bg-secondary) backdrop-blur-md backdrop-blur border border-white/10 rounded-2xl px-4 py-2 text-slate-400 text-xs"
+            className="flex items-center gap-2 bg-black/60 backdrop-blur border border-white/10 rounded-2xl px-4 py-2 text-white/60 text-xs"
           >
             <span>📷 {devices.length} kamera mevcut</span>
             <ChevronDown className="w-3.5 h-3.5" />
