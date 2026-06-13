@@ -1,13 +1,18 @@
 import { memo } from 'react';
 
+// Living theme — Saat kolu BASİT transform rotate (brief #1). Eskiden açı her
+// tick'te x2/y2 trig'ine çevriliyordu (paint). Artık dikey statik çizgi + SVG
+// `transform: rotate` → compositor-friendly (Mali-400'de saniye başına paint yerine
+// ucuz dönüş). angle=0 → 12 yönü; saat yönünde döner. Görsel birebir aynı.
 const ClockHand = ({
   angle, length, width, color, cx, cy,
-}: { angle: number; length: number; width: number; color: string; cx: number; cy: number }) => {
-  const rad = (angle - 90) * (Math.PI / 180);
-  const x2  = cx + length * Math.cos(rad);
-  const y2  = cy + length * Math.sin(rad);
-  return <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={color} strokeWidth={width} strokeLinecap="round" />;
-};
+}: { angle: number; length: number; width: number; color: string; cx: number; cy: number }) => (
+  <line
+    x1={cx} y1={cy} x2={cx} y2={cy - length}
+    stroke={color} strokeWidth={width} strokeLinecap="round"
+    transform={`rotate(${angle} ${cx} ${cy})`}
+  />
+);
 
 export const AnalogClock = memo(function AnalogClock({
   size = 200, hours, minutes, seconds, showSeconds,
