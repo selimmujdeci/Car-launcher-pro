@@ -407,6 +407,8 @@ function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigatio
    koyu kalır (referans estetiği). Canlı 1 Hz; tek interval (zero-leak).
    WebView <79 uyumu: inset shorthand yok; explicit top/right/bottom/left. */
 const GOLD_RING = 'conic-gradient(from 218deg,#5a3d16,#f7e2a8,#c89236,#8a5e22,#fbe9b6,#a8762c,#5a3d16,#f4dd9e,#5a3d16)';
+// Gündüz: daha açık şampanya bezel (koyu kahve tonları kaldırıldı → açık temada hafif görünür)
+const GOLD_RING_DAY = 'conic-gradient(from 218deg,#b89a5e,#fbeec2,#dcb874,#c9a358,#fdf3d6,#d4ab64,#b89a5e,#f8e6b0,#b89a5e)';
 const GOLD_GLOW = 'rgba(245,201,118,0.55)';
 
 const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }) {
@@ -434,9 +436,18 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   // Altın bezel her iki modda; kadran gün/gece döner (gündüz fildişi → aydınlık OEM)
   const accent   = p.accent;
   const dark     = p.night;
+  // Konturlar + bezel gün/gece duyarlı: eskiden SABİT siyahtı (#0b0b0e/#08080a)
+  // → gündüz açık temada saat ağır/koyu görünüyordu. Gündüzde açık rim + champagne
+  // bezel + parlak kadran → temaya uyumlu.
+  const outerRim    = dark ? '#0b0b0e' : '#cfc1a3';
+  const outerShadow = dark
+    ? `0 14px 30px rgba(0,0,0,.65), 0 0 22px ${GOLD_GLOW}`
+    : `0 10px 22px rgba(120,90,40,.28), 0 0 14px ${GOLD_GLOW}`;
+  const innerRim    = dark ? '#08080a' : '#e6dabf';
+  const bezel       = dark ? GOLD_RING : GOLD_RING_DAY;
   const faceGrad = dark
     ? 'radial-gradient(circle at 50% 40%, #1b1a17 0%, #0c0c0e 62%, #050506 100%)'
-    : 'radial-gradient(circle at 50% 40%, #fbf7ec 0%, #efe5d0 64%, #ddd0b4 100%)';
+    : 'radial-gradient(circle at 50% 38%, #ffffff 0%, #f6f0e2 58%, #e9dec7 100%)';
   const faceInset = dark
     ? `inset 0 4px 12px rgba(0,0,0,.7), inset 0 0 0 1px ${accent}3a`
     : `inset 0 3px 9px rgba(120,90,40,.28), inset 0 0 0 1px ${accent}3a`;
@@ -481,12 +492,12 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
 
   return (
     <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.8)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-      {/* dış koyu kontur — gölge taşıyıcı */}
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: '#0b0b0e', boxShadow: `0 14px 30px rgba(0,0,0,.65), 0 0 22px ${GOLD_GLOW}` }} />
-      {/* altın bezel */}
-      <div style={{ position: 'absolute', top: 3, right: 3, bottom: 3, left: 3, borderRadius: '50%', background: GOLD_RING, boxShadow: 'inset 0 2px 3px rgba(255,240,200,.55), inset 0 -3px 6px rgba(0,0,0,.5)' }} />
-      {/* iç koyu kontur (kadran-bezel ayrımı) */}
-      <div style={{ position: 'absolute', top: 14, right: 14, bottom: 14, left: 14, borderRadius: '50%', background: '#08080a' }} />
+      {/* dış kontur — gölge taşıyıcı (gün/gece duyarlı) */}
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: outerRim, boxShadow: outerShadow }} />
+      {/* altın bezel (gündüz şampanya) */}
+      <div style={{ position: 'absolute', top: 3, right: 3, bottom: 3, left: 3, borderRadius: '50%', background: bezel, boxShadow: 'inset 0 2px 3px rgba(255,240,200,.55), inset 0 -3px 6px rgba(0,0,0,.5)' }} />
+      {/* iç kontur (kadran-bezel ayrımı, gün/gece duyarlı) */}
+      <div style={{ position: 'absolute', top: 14, right: 14, bottom: 14, left: 14, borderRadius: '50%', background: innerRim }} />
       {/* üst altın hale — 12 yönü ışıltı */}
       <div style={{ position: 'absolute', top: 2, right: 2, bottom: 2, left: 2, borderRadius: '50%', pointerEvents: 'none', background: `radial-gradient(70% 42% at 50% 2%, ${GOLD_GLOW}, transparent 60%)` }} />
 
