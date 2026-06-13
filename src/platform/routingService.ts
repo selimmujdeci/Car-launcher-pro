@@ -859,10 +859,19 @@ export function updateRouteProgress(lat: number, lon: number): void {
     if (d < minSegDist) minSegDist = d;
   }
 
-  if (minSegDist > REROUTE_THRESHOLD_M) {
+  // Sensor Resiliency (CLAUDE.md §2): gerçek sapma eşiği = sabit eşik + GPS hata payı.
+  // Yoğun ızgarada paralel sokaklar 30-50m aralıklıdır; ±8m GPS gürültüsü aracı
+  // yan sokakta gösterip SAHTE reroute tetikliyordu → rota sürekli sıfırlanıp
+  // "Yola çıkın"a dönüyor, güncel konumdan farklı sokağa rota çiziyordu
+  // ("rotayı şaşırıyor / farklı yere yön çiziyor"). Hata payını eşiğe ekle
+  // (maks +40m; accuracy>50 zaten yukarıda hard-reject). Gerçek (>eşik+hata)
+  // sapmalarda reroute yine tetiklenir — sadece gürültü kaynaklı olanlar elenir.
+  const effectiveRerouteThr = REROUTE_THRESHOLD_M + Math.min(accuracy, 40);
+  if (minSegDist > effectiveRerouteThr) {
     _deviationCounter++;
-    // Sapma en az 2 ardışık GPS tick'i boyunca sürerse reroute yap
-    if (_deviationCounter >= 2) {
+    // Sapma en az 3 ardışık GPS tick'i boyunca sürerse reroute yap (tek/çift
+    // gürültü patlamasını ele; gerçek sapma 3 sn sürer).
+    if (_deviationCounter >= 3) {
       _deviationCounter = 0;
       _lastRerouteMs = now; // throttle'ı hemen set et
       void _triggerReroute(lat, lon, _rerouteCtx.toLat, _rerouteCtx.toLon);
