@@ -34,6 +34,7 @@ import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/d
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazyWithRetry(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
 import { NewHomeLayout } from './NewHomeLayout';
+import { ChameleonScaler } from './ChameleonScaler';
 // ── Custom hooks ──────────────────────────────────────────────
 import { useLayoutServices } from '../../hooks/useLayoutServices';
 import { useOBDLifecycle } from '../../hooks/useOBDLifecycle';
@@ -425,18 +426,20 @@ export default function MainLayout() {
         style={theaterHide}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <NewHomeLayout
-          onOpenMap={() => setFullMapOpen(true)}
-          onOpenApps={openApps}
-          onOpenSettings={openSettings}
-          onLaunch={handleLaunch}
-          appMap={appMap}
-          dockIds={smart.dockIds}
-          fullMapOpen={fullMapOpen || homeFullyHidden}
-          onOpenRearCam={() => setRearCamOpen(true)}
-          onOpenDashcam={() => setDrawer('dashcam')}
-          smart={smart}
-        />
+        <ChameleonScaler>
+          <NewHomeLayout
+            onOpenMap={() => setFullMapOpen(true)}
+            onOpenApps={openApps}
+            onOpenSettings={openSettings}
+            onLaunch={handleLaunch}
+            appMap={appMap}
+            dockIds={smart.dockIds}
+            fullMapOpen={fullMapOpen || homeFullyHidden}
+            onOpenRearCam={() => setRearCamOpen(true)}
+            onOpenDashcam={() => setDrawer('dashcam')}
+            smart={smart}
+          />
+        </ChameleonScaler>
       </div>
 
       {/* Yolculuk özet banner — navigasyon veya tam ekran harita açıkken gizle */}
