@@ -26,6 +26,7 @@ import { RuntimeMode } from '../../core/runtime/runtimeTypes';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 // ── Extracted layout components ──────────────────────────────
 import { BootSplash, type BootPhase } from './BootSplash';
+import { GoldenHourAccent } from './GoldenHourAccent';
 import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
 import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/drawerBus';
@@ -384,6 +385,8 @@ export default function MainLayout() {
       <BootSplash phase={bootPhase} />
       <ErrorToast />
       <VolumeOverlay />
+      {/* Living theme — sabah/akşam golden-hour üst şeridi (izole; root re-render yok) */}
+      <GoldenHourAccent />
 
       {/* OBD simüle veri uyarısı */}
       {obdSource === 'mock' && bootPhase === 'done' && (
