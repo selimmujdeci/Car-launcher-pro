@@ -109,13 +109,27 @@ function applyTheme(theme: CarTheme) {
   }
 }
 
+// NewHomeLayout dispatcher YALNIZCA bu base'leri render eder; gerisi (sunlight,
+// kaldırılan mercedes/audi/cockpit, bilinmeyen) yetim fallback layout'a düşer →
+// kullanıcı "silinmiş tema açıldı" görür. setTheme'i KAYNAKTA normalize et ki
+// hangi yoldan gelirse gelsin (sesli cycle / AI / remote) geçersiz tema render
+// edilemesin. sunlight → 'pro' (rehydrate guard ile tutarlı), gerisi → 'expedition'.
+const RENDERABLE_BASES: BaseTheme[] = ['expedition', 'horizon', 'tesla', 'pro', 'oled'];
+function _normalizeTheme(t: CarTheme): CarTheme {
+  const base = baseOf(t);
+  if (RENDERABLE_BASES.includes(base)) return t;
+  if (base === 'sunlight') return 'pro';
+  return 'expedition';
+}
+
 export const useCarTheme = create<CarThemeState>()(
   persist(
     (set) => ({
       theme: 'expedition', // Default: CarOS Expedition (ana tema) — Day kum / Night pas-metal
       setTheme: (theme) => {
-        applyTheme(theme);
-        set({ theme });
+        const safe = _normalizeTheme(theme);
+        applyTheme(safe);
+        set({ theme: safe });
       },
     }),
     {

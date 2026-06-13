@@ -31,14 +31,15 @@ function applyVoiceTheme(mode: 'night' | 'day' | 'oled' | 'dark'): void {
   else                     setTheme(toNight(theme));    // 'night' | 'dark' → gece varyantı
 }
 
-// "tema değiştir" → core temalar arasında döngü; gündüz/gece tercihi korunur.
-const _THEME_CYCLE: CoreTheme[] = ['expedition', 'horizon', 'tesla', 'pro', 'sunlight'];
+// "tema değiştir" → SADECE tema seçicide sunulan temalar arasında döngü.
+// 'sunlight' ÇIKARILDI: seçicide yok + NewHomeLayout onu render etmez → yetim
+// fallback layout'a düşüp "silinmiş tema açıldı" görünümü veriyordu.
+const _THEME_CYCLE: CoreTheme[] = ['expedition', 'horizon', 'tesla', 'pro'];
 function cycleVoiceTheme(): void {
   const { theme, setTheme } = useCarTheme.getState();
   const idx  = _THEME_CYCLE.indexOf(baseOf(theme) as CoreTheme); // legacy/bilinmeyen → -1 → ilk tema
   const next = _THEME_CYCLE[(idx + 1) % _THEME_CYCLE.length];
-  // sunlight'ın -day varyantı yok; diğerlerinde gündüz tercihini koru
-  setTheme(isDay(theme) && next !== 'sunlight' ? toDay(next) : next);
+  setTheme(isDay(theme) ? toDay(next) : next); // gündüz/gece tercihini koru
 }
 
 /* ── Sesli ayar kontrolü (set_setting, toggle_wifi/bt, brightness) ─────────
