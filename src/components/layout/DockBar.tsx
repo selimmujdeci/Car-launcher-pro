@@ -7,6 +7,7 @@ import {
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
+import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import type { AppItem } from '../../data/apps';
 
 export type DrawerType =
@@ -144,6 +145,15 @@ export const DockBar = memo(function DockBar({
   const scrollRef = useRef<HTMLDivElement>(null);
   const dockRef   = useRef<HTMLDivElement>(null);
 
+  // Living theme (Kanal A — paylaşılan --oem yüzeyi): araç durumu dock üst kenarında
+  // STATİK ambient cue. Dock kalıcı → tüm temalarda görünür (Kanal B layout'larından
+  // bağımsız). Mevcut --oem-danger/-warn token'ları, yeni namespace yok. Animasyon yok
+  // (border compat-mode/K24'te hayatta kalır → Mali-safe). normal/obd-offline → cue yok.
+  const { veh } = useLivingThemeState();
+  const dockAccent =
+    veh === 'temp-high' ? 'var(--oem-danger)' :
+    veh === 'fuel-low'  ? 'var(--oem-warn)'   : null;
+
   /* Dock her zaman sabit/görünür — ana tema (ProDock) ile tutarlı (auto-hide kaldırıldı) */
 
   /* Fisheye scroll effect — throttled via rAF */
@@ -217,6 +227,8 @@ export const DockBar = memo(function DockBar({
         WebkitBackdropFilter: 'blur(12px) saturate(1.2)',
         paddingTop: 4,
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        // Araç durumu ambient cue — statik üst kenar (yalnız temp-high/fuel-low).
+        borderTop: dockAccent ? `2px solid ${dockAccent}` : undefined,
       }}
     >
       {/* Scrollable items row */}
