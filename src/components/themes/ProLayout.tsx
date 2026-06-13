@@ -476,9 +476,25 @@ function VehicleSVG({ p }: { p: Pal }) {
 }
 
 /* ─── VEHICLE STATUS CARD ───────────────────────────────────── */
+/* Living theme — araç durumu görseli (STATİK renk; animasyon yok → her tier'da
+   çalışır, K24'te bile bedava). Yeni global token açılmaz; amber/kırmızı gece+gündüz
+   ikisinde de okunur. obd-offline → soluk kart (uyarı değil, "veri yok"). */
+const VEH_STATUS: Record<
+  string,
+  { label: string; color: (p: Pal) => string; accent: string | null; dim: boolean }
+> = {
+  normal:        { label: 'Normal',             color: (p) => p.ink,  accent: null,      dim: false },
+  'fuel-low':    { label: 'Yakıt Düşük',        color: () => '#f59e0b', accent: '#f59e0b', dim: false },
+  'temp-high':   { label: 'Motor Isısı Yüksek', color: () => '#ef4444', accent: '#ef4444', dim: false },
+  'obd-offline': { label: 'OBD Bağlı Değil',    color: (p) => p.ink3, accent: null,      dim: true  },
+};
+
 const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { onOpenSettings: () => void; onLaunch: (id: string) => void }) {
   const p = usePal();
   const obd = useOBDState();
+  // Living theme — araç durumu ekseni (eşikler: fuel<=12, engineTemp>=105, OBD yok/stale).
+  const { veh } = useLivingThemeState();
+  const st = VEH_STATUS[veh] ?? VEH_STATUS.normal;
   const battery = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round(obd.fuelLevel) : 78;
   const range = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round((obd.fuelLevel / 100) * 750) : 320;
 
@@ -490,14 +506,18 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
   ];
 
   return (
-    <div style={{ ...cardStyle(p, { solid: true }), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
+    <div style={{ ...cardStyle(p, { solid: true }), padding: 16, opacity: st.dim ? 0.6 : 1 }} className="flex-1 min-h-0 flex flex-col">
+      {/* Durum şeridi — uyarı/tehlikede ince statik renk (box-shadow/blur YOK, Mali-safe) */}
+      {st.accent && (
+        <div style={{ height: 3, borderRadius: 2, background: st.accent, marginBottom: 8, opacity: 0.9 }} />
+      )}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
           <CardLabel>Araç Durumu</CardLabel>
           <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
         </div>
       </div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: p.ink, marginTop: 4 }}>Normal</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: st.color(p), marginTop: 4 }}>{st.label}</div>
 
       <div className="flex-1 min-h-0 flex items-center gap-3 my-1">
         <div className="flex-1 flex items-center justify-center min-w-0"><VehicleSVG p={p} /></div>
