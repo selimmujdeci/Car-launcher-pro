@@ -587,6 +587,14 @@ html.rt-no-shadow * {
   border: 2px solid #000000 !important;
   font-weight: 700 !important;
 }
+/* Dock saati DEKORATİF yuvarlak buton — sunlight-mode'un "net siyah border"
+   kuralı ona uygulanınca yuvarlak saatin etrafında SİYAH DİKDÖRTGEN oluşuyordu
+   (tüm temalarda). Saat butonu (aria-label "Saat — Menü") muaf tutulur; border
+   sökülür. Diğer butonların güneş-okunabilirlik border'ı KORUNUR. */
+.sunlight-mode button[aria-label="Saat — Menü"],
+[data-theme="sunlight"] button[aria-label="Saat — Menü"] {
+  border: none !important;
+}
 .sunlight-mode .text-xs { font-size: 15px !important; }
 .sunlight-mode .text-sm { font-size: 17px !important; }
 .sunlight-mode .text-base { font-size: 19px !important; }
