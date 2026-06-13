@@ -21,11 +21,17 @@ import {
 } from '../../platform/voiceService';
 import { isNative } from '../../platform/bridge';
 import { VOICE_TUNING } from '../../platform/voiceTuning';
+import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import type { AnimationLevel } from '../../platform/livingThemeState';
 
 /* ── Waveform animation ─────────────────────────────────────── */
 
-const Waveform = memo(function Waveform({ active }: { active: boolean }) {
+const Waveform = memo(function Waveform({ active, level }: { active: boolean; level: AnimationLevel }) {
   const bars = [3, 7, 11, 6, 9, 13, 5, 10, 7, 4, 8, 12, 6, 9, 5];
+  // Living theme — static tier'da (Mali-400/K24, SAFE/POWER_SAVE) sonsuz pulse YOK:
+  // çubuklar aktif renk+yükseklikte ama HAREKETSİZ kalır ("dinleniyor" göstergesi
+  // korunur, GPU yükü/flicker yok). full/reduced'da nazik pulse.
+  const animate = active && level !== 'static';
   return (
     <div className="flex items-center justify-center gap-[3px] h-12">
       {bars.map((h, i) => (
@@ -36,7 +42,7 @@ const Waveform = memo(function Waveform({ active }: { active: boolean }) {
           }`}
           style={{
             height: active ? `${h * 3}px` : '4px',
-            animation: active ? `car-pulse-subtle ${400 + i * 40}ms ease-in-out infinite alternate` : 'none',
+            animation: animate ? `car-pulse-subtle ${400 + i * 40}ms ease-in-out infinite alternate` : 'none',
             animationDelay: `${i * 50}ms`,
           }}
         />
@@ -79,6 +85,7 @@ const PulseRing = memo(function PulseRing({ active }: { active: boolean }) {
 
 const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClose: () => void; autoStart?: boolean }) {
   const voice       = useVoiceState();
+  const { level }   = useLivingThemeState(); // companion wave animasyon kademesi
 
   const isListening   = voice.status === 'listening';
   const isProcessing  = voice.status === 'processing';
@@ -205,7 +212,7 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
                   </span>
                 </div>
               ) : (
-                <Waveform active={isListening} />
+                <Waveform active={isListening} level={level} />
               )}
             </div>
 
