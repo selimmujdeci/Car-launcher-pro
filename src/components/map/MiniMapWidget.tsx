@@ -21,10 +21,17 @@ import {
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
 import { useFusedSpeed } from '../../platform/speedFusion';
-import { getMapStyle, useMapMode, setMapNight } from '../../platform/mapSourceManager';
+import { getMapStyle, useMapMode, setMapNight, notifyLowFPS } from '../../platform/mapSourceManager';
 import type { MapMode } from '../../platform/mapSourceManager';
+import { getDeviceTier } from '../../platform/deviceCapabilities';
 import { useStore } from '../../store/useStore';
 import { MapOverlay } from './MapOverlay';
+
+/* Düşük-uç (head unit / Mali-400) → MapLibre WebGL ağır. Boot anında init
+ * kara ekran/GPU çökmesi/restart yapıyordu; init boot'tan SONRAYA ertelenir
+ * (UI önce açılır) ve vektör yerine raster kilitlenir (vektör decode Mali-400'ü
+ * boğuyor). Yetenekli cihazlar etkilenmez. */
+const IS_LOW_TIER = getDeviceTier() === 'low';
 
 interface MiniMapWidgetProps {
   onFullScreenClick?: () => void;
@@ -52,6 +59,29 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const headingRef = useRef<number | null>(null);
 
   const [mapReady, setMapReady] = useState(false);
+
+  // Düşük-uç: WebGL harita init'ini boot fırtınasından SONRAYA ertele. Yetenekli
+  // cihazda anında (bootReady=true). Mali-400'de boot'ta eager WebGL = kara
+  // ekran/restart → ertelenince app açılır, harita arkadan gelir (bloklamaz).
+  const [bootReady, setBootReady] = useState(!IS_LOW_TIER);
+  useEffect(() => {
+    if (bootReady) return;
+    // Düşük-uç'ta vektör yerine raster kilitle (vektör tile decode Mali-400'ü boğar).
+    notifyLowFPS(true);
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const hardCap = setTimeout(() => setBootReady(true), 4500); // garanti üst sınır
+    let idleId: number | null = null;
+    if (typeof w.requestIdleCallback === 'function') {
+      idleId = w.requestIdleCallback(() => setBootReady(true), { timeout: 4500 });
+    }
+    return () => {
+      clearTimeout(hardCap);
+      if (idleId !== null && typeof w.cancelIdleCallback === 'function') w.cancelIdleCallback(idleId);
+    };
+  }, [bootReady]);
 
   // Harita gün/gece — navigasyon (FullMapView) ile tutarlı. Erken setMapNight →
   // initializeMap içindeki getMapStyle doğru paleti kurar; harita hazırsa raster
@@ -101,8 +131,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
   // Init map — waits for container to have actual pixel dimensions.
   // reinitKey dep'i: zombie recovery veya FullMap ownership takeover sonrası yeniden çalışır.
+  // bootReady dep'i: düşük-uç'ta init boot'tan sonraya ertelenir (yukarıdaki effect).
   useEffect(() => {
-    if (!containerRef.current || initDone.current) return;
+    if (!containerRef.current || initDone.current || !bootReady) return;
 
     const el = containerRef.current;
     let observer: ResizeObserver | null = null;
@@ -201,7 +232,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       cleanupRef.current?.();
     };
-  }, [reinitKey]);
+  }, [reinitKey, bootReady]);
 
   // Zombi WebGL context guard — Android 9 düşük bellek durumunda GPU context sessizce ölebilir.
   // checkAndHealMapContext false döndürünce reinitKey arttırılır → init effect yeniden çalışır.
