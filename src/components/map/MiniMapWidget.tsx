@@ -420,17 +420,25 @@ export const MiniMapWidget = memo(function MiniMapWidget({
                 </mask>
               </defs>
               <rect width="100%" height="100%" fill="url(#grid)" />
-              
-              {/* Fake traffic dots */}
-              <circle r="1.5" fill="#E0A23C">
-                <animateMotion dur="8s" repeatCount="indefinite" path="M 10 10 L 290 10 L 290 290 L 10 290 Z" />
-              </circle>
-              <circle r="1.5" fill="#f87171">
-                <animateMotion dur="12s" repeatCount="indefinite" path="M 150 10 L 150 290" />
-              </circle>
-              <circle r="1.5" fill="#E0A23C">
-                <animateMotion dur="10s" repeatCount="indefinite" path="M 10 150 L 290 150" />
-              </circle>
+
+              {/* Fake traffic dots — düşük-uç (Mali-400) HARİÇ. SVG SMIL animasyonu
+                  (animateMotion) CSS animation değildir → `.perf-low * { animation:none }`
+                  onu DURDURMAZ. GPS fix gelene kadar (head unit'te dakikalar sürebilir)
+                  bu 3 nokta sürekli compositing/repaint yapıp Mali-400'ü ısıtıyordu.
+                  Düşük-uçta statik grid yeterli; hareketli nokta render edilmez. */}
+              {!IS_LOW_TIER && (
+                <>
+                  <circle r="1.5" fill="#E0A23C">
+                    <animateMotion dur="8s" repeatCount="indefinite" path="M 10 10 L 290 10 L 290 290 L 10 290 Z" />
+                  </circle>
+                  <circle r="1.5" fill="#f87171">
+                    <animateMotion dur="12s" repeatCount="indefinite" path="M 150 10 L 150 290" />
+                  </circle>
+                  <circle r="1.5" fill="#E0A23C">
+                    <animateMotion dur="10s" repeatCount="indefinite" path="M 10 150 L 290 150" />
+                  </circle>
+                </>
+              )}
             </svg>
 
             {/* Merkez — radar pulse + pin */}

@@ -1,5 +1,11 @@
 import { memo, useId, type CSSProperties } from 'react';
 import { Cpu } from 'lucide-react';
+import { getDeviceTier } from '../../platform/deviceCapabilities';
+
+/* Düşük-uç (Mali-400 / head unit): SVG SMIL <animate> CSS animation değildir →
+   `.perf-low * { animation:none }` onu durdurmaz. Bu yüzden düşük-uçta nabız
+   animasyonu hiç render edilmez (statik halkalar görünür, sürekli repaint yok). */
+const IS_LOW_TIER = getDeviceTier() === 'low';
 
 /** Ağır atalet hissi — 400 ms OEM geçişleri ile uyumlu cubic-bezier */
 export const HEAVY_INERTIA_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)' as const;
@@ -56,26 +62,30 @@ export const DiagnosticPulse = memo(function DiagnosticPulse({
             strokeWidth="1.5"
             strokeOpacity="0.55"
           >
-            <animate
-              attributeName="r"
-              values="30;92"
-              dur="1s"
-              repeatCount="indefinite"
-              begin={`${i / 3}s`}
-              calcMode="spline"
-              keySplines="0.4 0 0.2 1"
-              keyTimes="0;1"
-            />
-            <animate
-              attributeName="stroke-opacity"
-              values="0.42;0"
-              dur="1s"
-              repeatCount="indefinite"
-              begin={`${i / 3}s`}
-              calcMode="spline"
-              keySplines="0.4 0 0.2 1"
-              keyTimes="0;1"
-            />
+            {!IS_LOW_TIER && (
+              <>
+                <animate
+                  attributeName="r"
+                  values="30;92"
+                  dur="1s"
+                  repeatCount="indefinite"
+                  begin={`${i / 3}s`}
+                  calcMode="spline"
+                  keySplines="0.4 0 0.2 1"
+                  keyTimes="0;1"
+                />
+                <animate
+                  attributeName="stroke-opacity"
+                  values="0.42;0"
+                  dur="1s"
+                  repeatCount="indefinite"
+                  begin={`${i / 3}s`}
+                  calcMode="spline"
+                  keySplines="0.4 0 0.2 1"
+                  keyTimes="0;1"
+                />
+              </>
+            )}
           </circle>
         ))}
       </svg>
