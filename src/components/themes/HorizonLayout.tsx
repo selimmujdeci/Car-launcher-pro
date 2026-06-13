@@ -7,6 +7,7 @@ import {
   LayoutGrid, Wind, Crosshair, Mountain, Gauge, Thermometer, Battery, Droplet,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
@@ -708,7 +709,7 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
   const { onOpenMap, onOpenApps, onOpenSettings, onLaunch, fullMapOpen, onOpenDashcam, smart } = props;
   injectHz();
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const dayNightMode = useStore(s => s.settings.dayNightMode);
+  const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY_H : NIGHT_H;
 
   return (

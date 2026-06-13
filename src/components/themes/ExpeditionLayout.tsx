@@ -7,6 +7,7 @@ import {
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
@@ -632,7 +633,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
   const { onOpenMap, onOpenApps, onOpenSettings, onLaunch, fullMapOpen, smart } = props;
   injectEx();
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const dayNightMode = useStore(s => s.settings.dayNightMode);
+  const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY : NIGHT;
 
   return (
