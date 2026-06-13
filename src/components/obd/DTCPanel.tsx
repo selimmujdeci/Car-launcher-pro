@@ -10,21 +10,24 @@ import {
 
 const SEV: Record<DTCSeverity, { color: string; bg: string; border: string; label: string }> = {
   critical: {
-    color: 'text-red-400',
-    bg: 'bg-red-500/10',
-    border: 'border-red-500/25',
+    /* Kritik arıza → danger token */
+    color: 'text-[color:var(--oem-danger)]',
+    bg:    'bg-[var(--oem-danger-soft)]',
+    border:'border-[var(--oem-danger)]',
     label: 'Kritik',
   },
   warning: {
-    color: 'text-amber-400',
-    bg: 'bg-amber-500/10',
-    border: 'border-amber-500/25',
+    /* Uyarı → warn token */
+    color: 'text-[color:var(--oem-warn)]',
+    bg:    'bg-[var(--oem-warn-soft)]',
+    border:'border-[var(--oem-warn)]',
     label: 'Uyarı',
   },
   info: {
-    color: 'text-blue-400',
-    bg: 'bg-blue-500/10',
-    border: 'border-blue-500/25',
+    /* Bilgi → info token */
+    color: 'text-[color:var(--oem-info)]',
+    bg:    'bg-[var(--oem-info-soft)]',
+    border:'border-[var(--oem-info)]',
     label: 'Bilgi',
   },
 };
@@ -65,7 +68,8 @@ const DTCCodeCard = memo(function DTCCodeCard({ code }: { code: DTCCode }) {
                 {code.possibleCauses.map((cause, i) => (
                   <span
                     key={i}
-                    className="text-[10px] text-slate-400 var(--panel-bg-secondary) border border-white/[0.06] px-2 py-0.5 rounded-full"
+                    /* Olası neden etiketi → surface-2 / oem-line */
+                    className="text-[10px] text-secondary bg-[var(--oem-surface-2)] border border-[var(--oem-line)] px-2 py-0.5 rounded-full"
                   >
                     {cause}
                   </span>
@@ -104,8 +108,9 @@ function DTCPanelInner() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-              <ShieldAlert className="w-6 h-6 text-amber-500" />
+            {/* Başlık ikonu → warn token (tanı/uyarı semantiği) */}
+            <div className="w-10 h-10 rounded-xl bg-[var(--oem-warn-soft)] border border-[var(--oem-warn)] flex items-center justify-center">
+              <ShieldAlert className="w-6 h-6 text-[color:var(--oem-warn)]" />
             </div>
             <div>
               <span className="text-primary font-black text-lg uppercase tracking-widest">Arıza Teşhisi</span>
@@ -121,12 +126,14 @@ function DTCPanelInner() {
         {/* Severity counters */}
         <div className="flex items-center gap-2.5">
           {criticalCount > 0 && (
-            <div className="bg-red-500/15 border border-red-500/30 rounded-full px-3 py-1.5 text-red-500 text-[10px] font-black uppercase tracking-wider shadow-sm">
+            /* Kritik sayaç rozeti → danger token */
+            <div className="bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)] rounded-full px-3 py-1.5 text-[color:var(--oem-danger)] text-[10px] font-black uppercase tracking-wider shadow-sm">
               {criticalCount} KRİTİK
             </div>
           )}
           {warningCount > 0 && (
-            <div className="bg-amber-500/15 border border-amber-500/30 rounded-full px-3 py-1.5 text-amber-500 text-[10px] font-black uppercase tracking-wider shadow-sm">
+            /* Uyarı sayaç rozeti → warn token */
+            <div className="bg-[var(--oem-warn-soft)] border border-[var(--oem-warn)] rounded-full px-3 py-1.5 text-[color:var(--oem-warn)] text-[10px] font-black uppercase tracking-wider shadow-sm">
               {warningCount} UYARI
             </div>
           )}
@@ -139,7 +146,8 @@ function DTCPanelInner() {
           onClick={readDTCCodes}
           disabled={dtc.isReading}
           className="flex-1 h-14 flex items-center justify-center gap-3 rounded-2xl font-black text-sm uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
-          style={{ background: 'rgba(224,162,60,0.14)', border: '1px solid rgba(224,162,60,0.40)', color: '#E0A23C' }}
+          /* Tarama butonu → accent token (aksiyon/birincil) */
+          style={{ background: 'var(--oem-accent-soft)', border: '1px solid var(--oem-accent)', color: 'var(--oem-accent)' }}
         >
           <RefreshCw className={`w-5 h-5 ${dtc.isReading ? 'animate-spin' : ''}`} />
           {dtc.isReading ? 'OKUNUYOR…' : 'TARAMAYI BAŞLAT'}
@@ -148,7 +156,8 @@ function DTCPanelInner() {
         <button
           onClick={clearDTCCodes}
           disabled={dtc.isClearing || dtc.codes.length === 0}
-          className="flex-1 h-14 flex items-center justify-center gap-3 bg-red-500/10 border border-red-500/25 text-red-600 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
+          /* Temizle butonu → danger token (yıkıcı eylem) */
+          className="flex-1 h-14 flex items-center justify-center gap-3 bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)] text-[color:var(--oem-danger)] rounded-2xl font-black text-sm uppercase tracking-widest hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md"
         >
           <Trash2 className={`w-5 h-5 ${dtc.isClearing ? 'animate-spin' : ''}`} />
           {dtc.isClearing ? 'SİLİNİYOR…' : 'HAFIZAYI TEMİZLE'}
@@ -161,11 +170,12 @@ function DTCPanelInner() {
           <div className="flex flex-col items-center justify-center py-20 gap-5 glass-card border-none !shadow-none var(--panel-bg-secondary)">
             {dtc.lastReadAt && !dtc.error ? (
               <>
-                <div className="w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                  <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                {/* Sistem temiz → good token (pozitif durum) */}
+              <div className="w-20 h-20 rounded-full bg-[var(--oem-good-soft)] flex items-center justify-center border border-[var(--oem-good)]">
+                  <CheckCircle2 className="w-10 h-10 text-[color:var(--oem-good)]" />
                 </div>
                 <div className="text-center">
-                  <div className="text-emerald-600 font-black text-xl uppercase tracking-widest">SİSTEM TEMİZ</div>
+                  <div className="text-[color:var(--oem-good)] font-black text-xl uppercase tracking-widest">SİSTEM TEMİZ</div>
                   <div className="text-secondary text-sm font-bold mt-2 opacity-70 uppercase tracking-wider">
                     Araç sistemleri normal çalışıyor
                   </div>
@@ -173,7 +183,8 @@ function DTCPanelInner() {
               </>
             ) : (
               <>
-                <div className="w-20 h-20 rounded-full var(--panel-bg-secondary) flex items-center justify-center border border-white/10">
+                {/* Henüz tarama yapılmadı → surface-3 / oem-line */}
+                <div className="w-20 h-20 rounded-full bg-[var(--oem-surface-3)] flex items-center justify-center border border-[var(--oem-line-strong)]">
                   <AlertTriangle className="w-10 h-10 text-secondary opacity-40" />
                 </div>
                 <div className="text-center">
@@ -202,7 +213,8 @@ function DTCPanelInner() {
 
       {/* ── Error ─────────────────────────────────────── */}
       {dtc.error && (
-        <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-5 text-red-600 text-sm font-bold flex items-start gap-3 shadow-lg">
+        /* Hata mesajı → danger token */
+        <div className="bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)] rounded-2xl p-5 text-[color:var(--oem-danger)] text-sm font-bold flex items-start gap-3 shadow-lg">
           <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
           {dtc.error}
         </div>

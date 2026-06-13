@@ -190,6 +190,42 @@ describe('Sesli asistan TTS senkronu kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   4d. PANEL TEMA UYUMU — hardcoded renk yasağı (--oem-* semantik katman)
+   Regresyon: paneller (OBD/trip/sport) sabit Tailwind renkleri (red/amber/
+   blue/emerald) + bg-white/border-white kullanıp temadan kopuyordu. Artık
+   yalnız --oem-* token'ları (accent/danger/warn/good/info, line, surface).
+   ─────────────────────────────────────────────────────────────── */
+describe('Panel tema uyumu — hardcoded renk yasağı kilidi', () => {
+  const PANELS = [
+    'src/components/layout/DrawerShell.tsx',
+    'src/components/obd/DTCPanel.tsx',
+    'src/components/obd/MaintenancePanel.tsx',
+    'src/components/sport/SportModePanel.tsx',
+    'src/components/trip/TripLogView.tsx',
+  ];
+  // Sabit Tailwind palet class'ları + beyaz overlay (nötr slate/gray HARİÇ — tema-dışı değil).
+  const HARDCODED = /bg-white\/|border-white\/|text-white\/\d|(?:bg|text|border|from|to|via)-(?:blue|purple|amber|red|green|cyan|yellow|orange|emerald|sky|indigo|rose)-\d/;
+
+  it.each(PANELS)('YAPISAL: %s sabit Tailwind renk/beyaz-overlay İÇERMEZ', (p) => {
+    const m = read(p).match(HARDCODED);
+    expect(m, m ? `hardcoded renk bulundu: "${m[0]}"` : '').toBeNull();
+  });
+
+  it('YAPISAL: paneller legacy --accent-primary/--accent DEĞİL --oem-* kullanır', () => {
+    for (const p of PANELS) {
+      const src = read(p);
+      expect(src, `${p} legacy --accent-primary kullanmamalı`).not.toMatch(/var\(--accent-primary\)/);
+      expect(src, `${p} legacy --accent kullanmamalı`).not.toMatch(/var\(--accent\)/);
+    }
+  });
+
+  it('YAPISAL: DrawerShell üst hairline aksanı --oem-accent\'e bağlı', () => {
+    const src = read('src/components/layout/DrawerShell.tsx');
+    expect(src).toMatch(/linear-gradient\([^)]*var\(--oem-accent\)/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    5. REROUTE — yoğun ızgarada sahte yeniden-rotalama önlemi
    Regresyon: rota sürekli sıfırlanıp "Yola çıkın"a dönüyordu.
    ─────────────────────────────────────────────────────────────── */

@@ -52,9 +52,13 @@ const GMeter = memo(function GMeter({
   const bx = CX + clampG(latG,  G_MAX) / G_MAX * (RADIUS - DOT_R - 4);
   const by = CY - clampG(longG, G_MAX) / G_MAX * (RADIUS - DOT_R - 4);
 
-  // Escalation: dinlenme nötr → orta amber → yüksek kırmızı (tek-aksan, semantik)
-  const absG    = Math.sqrt(longG ** 2 + latG ** 2);
-  const dotColor = absG > 1.5 ? '#ef4444' : absG > 0.8 ? '#E0A23C' : 'rgba(255,255,255,0.6)';
+  // Escalation: dinlenme nötr → orta uyarı → yüksek tehlike
+  // Canvas CSS değişkeni doğrudan okuyamaz → getComputedStyle ile oem token'ı al
+  const rootStyle  = getComputedStyle(document.documentElement);
+  const oemDanger  = rootStyle.getPropertyValue('--oem-danger').trim()  || '#ef4444';
+  const oemWarn    = rootStyle.getPropertyValue('--oem-warn').trim()    || '#E0A23C';
+  const absG       = Math.sqrt(longG ** 2 + latG ** 2);
+  const dotColor   = absG > 1.5 ? oemDanger : absG > 0.8 ? oemWarn : 'rgba(255,255,255,0.6)';
 
   // Konsantrik çemberler ölçek çizgileri
   const rings = [0.25, 0.5, 0.75, 1.0];
@@ -64,8 +68,9 @@ const GMeter = memo(function GMeter({
       <span className="text-slate-500 text-[10px] uppercase tracking-widest">G-Metre</span>
       <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="overflow-visible">
         <defs>
+          {/* G-metre arka plan gradyanı: mavi hardcoded → info-soft token */}
           <radialGradient id="gmBg" cx="50%" cy="50%" r="50%">
-            <stop offset="0%"   stopColor="#1e3a5f" stopOpacity="0.6" />
+            <stop offset="0%"   stopColor="var(--oem-info-soft)" stopOpacity="0.9" />
             <stop offset="100%" stopColor="var(--panel-bg)" stopOpacity="0.9" />
           </radialGradient>
           <filter id="glow">
@@ -162,19 +167,21 @@ const TestCard = memo(function TestCard({
   return (
     <div className={`
       rounded-2xl border p-4 flex flex-col gap-3 transition-all duration-300
-      ${isDone ? 'border-emerald-500/30 bg-emerald-500/5' :
-        isRunning ? 'border-amber-400/30 bg-amber-500/5' :
-        'border-white/[0.1] bg-white/[0.05]'}
+      ${isDone ? 'border-[var(--oem-good)] bg-[var(--oem-good-soft)]' :
+        isRunning ? 'border-[var(--oem-warn)] bg-[var(--oem-warn-soft)]' :
+        'border-[var(--oem-line)] bg-[var(--oem-surface-2)]'}
     `}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Icon className={`w-4 h-4 ${isDone ? 'text-emerald-400' : isRunning ? 'text-amber-400' : 'text-slate-500'}`} />
+          {/* Test ikonu: tamamlandı=good, çalışıyor=warn, beklemede=nötr */}
+          <Icon className={`w-4 h-4 ${isDone ? 'text-[color:var(--oem-good)]' : isRunning ? 'text-[color:var(--oem-warn)]' : 'text-slate-500'}`} />
           <span className="text-primary/70 text-xs font-bold uppercase tracking-wider">{title}</span>
         </div>
         {isRunning && (
           <button
             onClick={onCancel}
-            className="w-6 h-6 rounded-lg var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-red-400 transition-colors"
+            /* İptal butonu → surface-2 / danger hover */
+            className="w-6 h-6 rounded-lg bg-[var(--oem-surface-2)] flex items-center justify-center text-slate-500 hover:text-[color:var(--oem-danger)] transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -188,8 +195,9 @@ const TestCard = memo(function TestCard({
         )}
         {state === 'waiting' && (
           <div className="flex flex-col items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <div className="text-amber-400 text-sm font-bold">Çıkış bekleniyor…</div>
+            {/* Bekleme göstergesi → warn token */}
+            <div className="w-2 h-2 rounded-full bg-[var(--oem-warn)] animate-pulse" />
+            <div className="text-[color:var(--oem-warn)] text-sm font-bold">Çıkış bekleniyor…</div>
           </div>
         )}
         {state === 'running' && (
@@ -200,9 +208,10 @@ const TestCard = memo(function TestCard({
         )}
         {isDone && resultTime !== null && (
           <div className="flex flex-col items-center gap-1">
-            <div className="text-5xl font-black tabular-nums text-emerald-400">
+            {/* Test sonucu → good token (başarı/tamamlandı) */}
+            <div className="text-5xl font-black tabular-nums text-[color:var(--oem-good)]">
               {fmtMs(resultTime)}
-              <span className="text-emerald-600 text-xl font-light ml-1">s</span>
+              <span className="text-[color:var(--oem-good)] text-xl font-light ml-1 opacity-60">s</span>
             </div>
             {resultExtra && (
               <div className="text-slate-400 text-xs">{resultExtra}</div>
@@ -218,9 +227,10 @@ const TestCard = memo(function TestCard({
           className={`
             h-10 rounded-xl text-sm font-bold flex items-center justify-center gap-2
             active:scale-95 transition-all
+            /* Yeniden başlat → yüzey (nötr), Başlat → accent (birincil aksiyon) */
             ${isDone
-              ? 'var(--panel-bg-secondary) border border-white/10 text-slate-400'
-              : 'bg-amber-500/20 border border-amber-400/30 text-amber-400'}
+              ? 'bg-[var(--oem-surface-2)] border border-[var(--oem-line-strong)] text-secondary'
+              : 'bg-[var(--oem-accent-soft)] border border-[var(--oem-accent)] text-[color:var(--oem-accent)]'}
           `}
         >
           <Play className="w-3.5 h-3.5 fill-current" />
@@ -242,26 +252,30 @@ const PeakCard = memo(function PeakCard({
   peakBrakeG: number;
   onReset: () => void;
 }) {
+  /* Peak rekor kartı → oem yüzey/kenarlık */
   return (
-    <div className="rounded-2xl border border-white/[0.1] bg-white/[0.05] p-4">
+    <div className="rounded-2xl border border-[var(--oem-line)] bg-[var(--oem-surface-2)] p-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-slate-500 text-[10px] uppercase tracking-widest">Oturum Rekoru</span>
         <button
           onClick={onReset}
-          className="w-6 h-6 rounded-lg var(--panel-bg-secondary) flex items-center justify-center text-slate-500 hover:text-primary transition-colors"
+          /* Sıfırla butonu → surface-2 */
+          className="w-6 h-6 rounded-lg bg-[var(--oem-surface-2)] flex items-center justify-center text-slate-500 hover:text-primary transition-colors"
         >
           <RotateCcw className="w-3 h-3" />
         </button>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="text-center">
-          <div className="text-amber-400 text-2xl font-black tabular-nums">
+          {/* En yüksek ivme → warn token (performans eşiği uyarısı) */}
+        <div className="text-[color:var(--oem-warn)] text-2xl font-black tabular-nums">
             {peakAccelG.toFixed(2)}<span className="text-slate-500 text-sm">g</span>
           </div>
           <div className="text-slate-600 text-[10px] mt-0.5">En Yüksek İvme</div>
         </div>
         <div className="text-center">
-          <div className="text-red-400 text-2xl font-black tabular-nums">
+          {/* En sert fren → danger token (güvenlik eşiği) */}
+          <div className="text-[color:var(--oem-danger)] text-2xl font-black tabular-nums">
             {peakBrakeG.toFixed(2)}<span className="text-slate-500 text-sm">g</span>
           </div>
           <div className="text-slate-600 text-[10px] mt-0.5">En Sert Fren</div>
@@ -298,21 +312,23 @@ export const SportModePanel = memo(function SportModePanel() {
   return (
     <div className="h-full flex flex-col overflow-y-auto glass-card text-primary border-none !shadow-none" data-editable="sport-mode" data-editable-type="card">
       {/* Başlık */}
-      <div className="flex-shrink-0 px-6 py-5 border-b border-white/5">
+      {/* Başlık bölümü alt kenarlık → oem-line */}
+      <div className="flex-shrink-0 px-6 py-5 border-b border-[var(--oem-line)]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-            <Zap className="w-5 h-5 text-red-400" />
+          {/* Sport mod başlık ikonu → accent token (ana aksiyon/kimlik) */}
+          <div className="w-10 h-10 rounded-2xl bg-[var(--oem-accent-soft)] border border-[var(--oem-accent)] flex items-center justify-center">
+            <Zap className="w-5 h-5 text-[color:var(--oem-accent)]" />
           </div>
           <div>
             <div className="text-primary font-bold text-lg tracking-tight">Sport Mod Pro</div>
             <div className="text-slate-500 text-xs">Performans & Yarış İstatistikleri</div>
           </div>
         </div>
-        {/* Simüle OBD uyarısı — veriler güvenilir değil */}
+        {/* Simüle OBD uyarısı — veriler güvenilir değil — warn token */}
         {obd.source === 'mock' && (
-          <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            <span className="text-amber-400/80 text-[10px] font-semibold">
+          <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--oem-warn-soft)] border border-[var(--oem-warn)]">
+            <AlertTriangle className="w-3.5 h-3.5 text-[color:var(--oem-warn)] flex-shrink-0" />
+            <span className="text-[color:var(--oem-warn)] opacity-80 text-[10px] font-semibold">
               OBD bağlı değil — performans verileri simüle edilmektedir, gerçeği yansıtmaz
             </span>
           </div>
@@ -321,7 +337,8 @@ export const SportModePanel = memo(function SportModePanel() {
 
       <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
         {/* G-Metre */}
-        <div className="glass-card border border-white/5 p-4 flex justify-center !shadow-none">
+        {/* G-metre kart yüzeyi → oem-line kenarlık */}
+        <div className="glass-card border border-[var(--oem-line)] p-4 flex justify-center !shadow-none">
           <GMeter longG={perf.longitudinalG} latG={perf.lateralG} />
         </div>
 
@@ -357,16 +374,18 @@ export const SportModePanel = memo(function SportModePanel() {
         />
 
         {/* 400m mesafe göstergesi (test sırasında) */}
+        {/* Mesafe göstergesi (test sırasında) → surface-2 / oem-line */}
         {perf.qmState === 'running' && (
-          <div className="rounded-xl var(--panel-bg-secondary) border border-white/5 p-3">
+          <div className="rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] p-3">
             <div className="flex justify-between items-center mb-2">
               <span className="text-slate-500 text-xs">Mesafe</span>
               <span className="text-primary font-bold tabular-nums">{Math.round(perf.qmDistanceM)} / 400 m</span>
             </div>
-            <div className="w-full h-2 var(--panel-bg-secondary) rounded-full overflow-hidden">
+            {/* Mesafe çubuğu: zemin yüzey-3, dolgu accent → tema takibi */}
+            <div className="w-full h-2 bg-[var(--oem-surface-3)] rounded-full overflow-hidden">
               <div
-                className="h-full bg-amber-500 rounded-full transition-all"
-                style={{ width: `${Math.min(100, (perf.qmDistanceM / 402.336) * 100)}%` }}
+                className="h-full rounded-full transition-all"
+                style={{ width: `${Math.min(100, (perf.qmDistanceM / 402.336) * 100)}%`, background: 'var(--oem-accent)' }}
               />
             </div>
           </div>

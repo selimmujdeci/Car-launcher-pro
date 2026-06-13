@@ -54,7 +54,7 @@ function NormalDrawer({ open, onClose, children }: Omit<Props, 'fullscreen'>) {
         <div aria-hidden style={{
           position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
           width: '38%', height: 1, pointerEvents: 'none',
-          background: 'linear-gradient(90deg, transparent, rgba(224,162,60,0.55), transparent)',
+          background: 'linear-gradient(90deg, transparent, var(--oem-accent), transparent)',
           opacity: 0.6, zIndex: 2,
         }} />
         {/* Sürükle tutacağı */}

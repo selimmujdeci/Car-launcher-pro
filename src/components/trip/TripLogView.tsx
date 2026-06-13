@@ -25,8 +25,9 @@ function fmtDuration(min: number): string {
 /* ── Trip card ───────────────────────────────────────────── */
 
 const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
+  /* Seyahat kartı → oem yüzey/kenarlık */
   return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+    <div className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-2xl p-4">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div>
@@ -37,7 +38,8 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
         </div>
         <button
           onClick={() => deleteTrip(trip.id)}
-          className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors active:scale-90"
+          /* Sil butonu → hover danger (yıkıcı eylem) */
+          className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 hover:text-[color:var(--oem-danger)] hover:bg-[var(--oem-danger-soft)] transition-colors active:scale-90"
           title="Seyahati sil"
         >
           <Trash2 className="w-4 h-4" />
@@ -52,8 +54,8 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
         <Stat icon={Fuel} color="amber" value={`${trip.fuelCostTL}₺`} unit="" label="Yakıt" />
       </div>
 
-      {/* Sub-stats */}
-      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/5">
+      {/* Sub-stats bölme çizgisi → oem-line */}
+      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-[var(--oem-line)]">
         <div className="text-[11px] text-slate-600">
           Maks <span className="text-slate-400 font-bold">{trip.maxSpeedKmh} km/h</span>
         </div>
@@ -62,12 +64,13 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[10px] text-slate-600 uppercase tracking-wide">Sürüş</span>
+          {/* Sürüş skoru → semantik: iyi=good, orta=warn, kötü=danger */}
           <span className={`text-xs font-black tabular-nums px-2 py-0.5 rounded-lg ${
             trip.drivingScore >= 80
-              ? 'bg-emerald-500/15 text-emerald-400'
+              ? 'bg-[var(--oem-good-soft)] text-[color:var(--oem-good)]'
               : trip.drivingScore >= 60
-              ? 'bg-amber-500/15 text-amber-400'
-              : 'bg-red-500/15 text-red-400'
+              ? 'bg-[var(--oem-warn-soft)] text-[color:var(--oem-warn)]'
+              : 'bg-[var(--oem-danger-soft)] text-[color:var(--oem-danger)]'
           }`}>
             {trip.drivingScore}
           </span>
@@ -81,12 +84,13 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
 
 type StatColor = 'blue' | 'purple' | 'emerald' | 'amber';
 
+/* Renk haritası: dekoratif blue/purple/amber → accent token (monokrom-premium)
+   emerald (Yakıt stat) → good token (yakıt kullanımı pozitif/bilgilendirme) */
 const COLOR_MAP: Record<StatColor, { icon: string; bg: string; border: string }> = {
-  /* best-of OEM: blue/purple → tek amber'e yönlendirildi (tüm stat kartları). */
-  blue:    { icon: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
-  purple:  { icon: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
-  emerald: { icon: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
-  amber:   { icon: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
+  blue:    { icon: 'text-[color:var(--oem-accent)]', bg: 'bg-[var(--oem-accent-soft)]', border: 'border-[var(--oem-accent)]' },
+  purple:  { icon: 'text-[color:var(--oem-accent)]', bg: 'bg-[var(--oem-accent-soft)]', border: 'border-[var(--oem-accent)]' },
+  emerald: { icon: 'text-[color:var(--oem-good)]',   bg: 'bg-[var(--oem-good-soft)]',   border: 'border-[var(--oem-good)]' },
+  amber:   { icon: 'text-[color:var(--oem-accent)]', bg: 'bg-[var(--oem-accent-soft)]', border: 'border-[var(--oem-accent)]' },
 };
 
 function Stat({
@@ -133,13 +137,15 @@ function TripLogViewInner() {
       {/* ── Title ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Route className="w-5 h-5 text-amber-400" />
+          {/* Başlık ikonu → accent token */}
+          <Route className="w-5 h-5 text-[color:var(--oem-accent)]" />
           <span className="text-primary font-black text-base uppercase tracking-widest">Seyir Defteri</span>
         </div>
         {trip.history.length > 0 && (
           <button
             onClick={handleClearAll}
-            className="text-slate-500 hover:text-red-400 text-[11px] uppercase tracking-widest transition-colors"
+            /* Temizle butonu → hover danger (yıkıcı eylem) */
+            className="text-slate-500 hover:text-[color:var(--oem-danger)] text-[11px] uppercase tracking-widest transition-colors"
           >
             Temizle
           </button>
@@ -148,10 +154,11 @@ function TripLogViewInner() {
 
       {/* ── Active trip ────────────────────────────────── */}
       {trip.active && trip.current && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
+        /* Aktif sürüş → good token (çalışıyor/canlı durum) */
+        <div className="bg-[var(--oem-good-soft)] border border-[var(--oem-good)] rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">
+            <div className="w-2 h-2 bg-[var(--oem-good)] rounded-full animate-pulse" />
+            <span className="text-[color:var(--oem-good)] text-xs font-black uppercase tracking-widest">
               Aktif Sürüş
             </span>
           </div>
@@ -204,8 +211,9 @@ function TripLogViewInner() {
 
         {trip.history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-amber-400/70" />
+            {/* Boş durum ikonu → accent soft (nötr, bilgilendirme) */}
+            <div className="w-16 h-16 rounded-2xl bg-[var(--oem-accent-soft)] border border-[var(--oem-accent)] flex items-center justify-center">
+              <AlertCircle className="w-8 h-8 text-[color:var(--oem-accent)] opacity-70" />
             </div>
             <div className="text-slate-300 font-bold text-sm">
               Henüz kayıtlı seyahat yok
