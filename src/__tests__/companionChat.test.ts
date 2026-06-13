@@ -540,6 +540,85 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(await tryCompanionBrain('nasılsın', GEMINI_OPTS)).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  /* ── İNTERNET / grounding yeteneği (haber/güncel bilgi) ──────── */
+
+  it('WEB kararı: beyin type:"web" → ikinci GROUNDED çağrı (google_search) yapılır, cevap CHAT döner', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      // 1) beyin kararı: internet gerekiyor
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'web', query: 'bugün gündem haber özeti' }) }] } }] }),
+      })
+      // 2) grounded cevap (çok parçalı text → birleştirilir)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: 'Bugün öne çıkan ' }, { text: 'gelişme ekonomi oldu.' }] } }] }),
+      });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('bugünün haberlerini özetle', GEMINI_OPTS);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);                 // beyin + grounded
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.response).toBe('Bugün öne çıkan gelişme ekonomi oldu.');
+      expect(r.route).toBe('companion_gemini');
+    }
+  });
+
+  it('GROUNDED çağrı google_search aracını taşır ve JSON modu KULLANMAZ (serbest metin)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'web', query: 'dolar kuru' }) }] } }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: 'Dolar 32 lira civarında.' }] } }] }),
+      });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('dolar kaç para', GEMINI_OPTS);
+    const [, init] = fetchSpy.mock.calls[1] as [string, { body: string }];
+    const body = JSON.parse(init.body);
+    expect(body.tools).toEqual([{ google_search: {} }]);
+    expect(body.generationConfig.responseMimeType).toBeUndefined();
+  });
+
+  it('GROUNDED başarısız → "erişimim yok" demez; offline/reask zincirine düşer', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'web', query: 'haberler' }) }] } }] }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) }); // grounded çöktü
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('haberleri söyle', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_offline');             // grounding başarısız → reask
+      expect(r.response.toLowerCase()).not.toContain('erişim');
+    }
+  });
+
+  it('beyin prompt\'u: internet/web kararı + fıkra + bilmece yetenekleri içerir', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockBrainJson({ type: 'chat', say: 'Tamam.' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await tryCompanionBrain('bir şey söyle', GEMINI_OPTS);
+
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('İNTERNET ise');                  // web karar tipi
+    expect(prompt).toContain('"type":"web"');
+    expect(prompt).toContain('haberler');                      // güncel bilgi örneği
+    expect(prompt).toContain('Fıkra isteyince');               // eğlence yeteneği
+    expect(prompt).toContain('Bilmece isteyince');
+    expect(prompt).toContain('cevabı HEMEN verme');            // bilmece davranışı
+  });
 });
 
 /* ── 3c. repairMusicQuery — yerel müzik sorgusu ASR onarımı ─── */

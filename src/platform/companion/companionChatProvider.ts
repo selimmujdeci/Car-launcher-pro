@@ -389,6 +389,18 @@ export interface CompanionBrainChat {
 }
 export type CompanionBrainResult = CompanionBrainAction | CompanionBrainChat;
 
+/**
+ * Beynin "internet/grounding" kararı — DIŞA AÇIK DEĞİL. tryCompanionBrain bunu
+ * ikinci grounded çağrıyla (Google Search) gerçek bir cevaba (CompanionBrainChat)
+ * çözer; voiceService yalnız chat/action görür (dokunulmaz). query = aranacak
+ * güncel bilgi.
+ */
+interface CompanionBrainWeb {
+  kind:  'web';
+  query: string;
+}
+type BrainRaw = CompanionBrainResult | CompanionBrainWeb;
+
 /* Faz 3 — Persona Integration: kişilik beynin EN TEPESİNDE durur; hem sohbet
  * cevabının ("say") hem komut onayının ("feedback") tonunu belirler.
  * resolveCompanionIdentity dört değerden birini garanti eder; bilinmeyen
@@ -435,8 +447,21 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
     'Şive/sokak ağzı komutları da KOMUTTUR ("klimayı birez kıs kurban" gibi) — niyete odaklan, sohbete düşürme.',
     '',
+    // ── İNTERNET / GÜNCEL BİLGİ (grounding) — üçüncü karar tipi ──
+    'İNTERNET ise: {"type":"web","query":"aranacak güncel bilgi (Türkçe, net)"}',
+    'Şunlar İNTERNET\'tir → GÜNCEL, gerçek-zamanlı veya senin eğitim verinde olmayan/güncelliğini yitirmiş HER bilgi:',
+    'haberler ve gündem özeti, son dakika, hava durumu detayı/tahmin, döviz/altın/borsa, maç sonucu/fikstür, bir kişi-yer-olay hakkında GÜNCEL gerçek, "bugün ne oldu", "X kaç para", "X kimdir/nedir" (güncel), film/etkinlik, açılış saatleri.',
+    'Bu tür isteklerde ASLA kafadan cevap uydurma ve "erişimim yok" DEME — type:"web" döndür, query\'yi arama için en uygun biçimde yaz. Sistem aramayı yapıp cevabı senin yerine seslendirir.',
+    'Genel/zamansız bilgi (matematik, tanım, nasıl yapılır, fıkra, bilmece, tavsiye) için web GEREKMEZ → doğrudan type:"chat" ile cevapla.',
+    '',
     'SOHBET ise: {"type":"chat","say":"..."} — say için şu kişilik kuralları geçerli:',
     chatPersona,
+    '',
+    // ── EĞLENCE & BİLGİ YETENEKLERİ (tam donanımlı asistan) ──
+    'YETENEKLERİN (sohbet tarafında): sen tam donanımlı bir asistansın, bir komut robotu değil.',
+    'Fıkra isteyince ("fıkra anlat", "bir şaka yap") → KISA, anlamlı, gerçekten komik ve Türk kültürüne uygun TEK bir fıkra anlat; saçma/anlamsız/yarım bırakma, başını-sonunu kur.',
+    'Bilmece isteyince ("bilmece sor") → ZEKİCE tek bir bilmece SOR ve cevabı HEMEN verme; kullanıcı tahmin edince doğru/yanlış de ve doğru cevabı açıkla (geçmişten bilmeceyi hatırlarsın).',
+    'Genel kültür/bilgi sorularını (zamansız olanları) net ve doğru yanıtla; tavsiye, hikâye, kelime oyunu, motivasyon da yapabilirsin. Hepsi düz konuşma metni — liste/madde/emoji yok.',
     '',
     'ASLA ÇIKMAZ YOK: metni hiç anlayamasan bile hata döndürme, boş dönme;',
     '{"type":"chat","say":"..."} ile kişiliğine uygun kısa bir tekrar-rica cümlesi üret ("Tam yakalayamadım, bir daha söyler misin?" gibi).',
@@ -446,6 +471,11 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"acıktım bir şeyler yiyelim" → {"type":"action","intent":"SEARCH_POI","category":"RESTAURANT","query":"restoran","feedback":"Yakın restoranlar aranıyor","confidence":0.9}',
     '"uşağum şuralarda bi benzinlik bulsana" → {"type":"action","intent":"FIND_NEARBY_GAS","feedback":"Yakın benzinlikler aranıyor","confidence":0.9}',
     '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
+    '"bir fıkra anlat" → {"type":"chat","say":"Temel vapurda..."} (gerçek, başı-sonu olan kısa bir fıkra)',
+    '"bana bir bilmece sor" → {"type":"chat","say":"Benden kaçar ama hep peşimdedir, nedir? Bil bakalım."} (cevabı verme, sor)',
+    '"bugünün haberlerini özetle" → {"type":"web","query":"bugün Türkiye gündem son dakika haber özeti"}',
+    '"dolar kaç para" → {"type":"web","query":"güncel dolar TL kuru"}',
+    '"hava yarın nasıl olacak" → {"type":"web","query":"yarın hava durumu tahmini"}',
   ].join('\n');
 }
 
@@ -460,10 +490,13 @@ interface BrainJson {
   say?:         string;
 }
 
-function parseBrainJson(raw: string): CompanionBrainResult | null {
+function parseBrainJson(raw: string): BrainRaw | null {
   try {
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     const obj = JSON.parse(cleaned) as BrainJson;
+    if (obj.type === 'web' && typeof obj.query === 'string' && obj.query.trim()) {
+      return { kind: 'web', query: obj.query.replace(/\s+/g, ' ').trim().slice(0, 200) };
+    }
     if (obj.type === 'chat' && typeof obj.say === 'string' && obj.say.trim()) {
       const flat = obj.say.replace(/\s+/g, ' ').trim();
       return { kind: 'chat', response: flat.length > 300 ? `${flat.slice(0, 297)}...` : flat, route: 'companion_gemini' };
@@ -492,7 +525,7 @@ async function askCompanionBrain(
   id: CompanionIdentity,
   isDriving: boolean,
   timeoutMs?: number,
-): Promise<CompanionBrainResult | null> {
+): Promise<BrainRaw | null> {
   const contents = [
     ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
     { role: 'user', parts: [{ text }] },
@@ -524,6 +557,65 @@ async function askCompanionBrain(
   return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
 }
 
+/* ── GROUNDED yanıt (Google Search) — güncel/internet bilgisi ──
+ * Beyin type:"web" dediğinde çağrılır. google_search aracı GERÇEK ZAMANLI web
+ * sonucuna dayandırır (haber/döviz/hava/spor…). responseMimeType JSON ile
+ * BİRLEŞMEZ → serbest metin döner; çok parçalı olabilir, hepsi birleştirilir.
+ * Grounding çağrısı normal sohbetten yavaştır → ayrı (daha uzun) timeout. */
+const GROUNDED_TIMEOUT_MS = 8000;
+
+function buildGroundedSystemPrompt(id: CompanionIdentity, isDriving: boolean): string {
+  const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
+  const brevity = isDriving
+    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 2 kısa cümle, en kritik bilgiyi ver.'
+    : 'En fazla 4-5 akıcı cümle; haber/özet istenirse en önemli 2-3 gelişmeyi tek paragrafta topla.';
+  return [
+    `Sen "${id.assistantName}" adlı, araçta sürücüye eşlik eden Türkçe konuşan bir sesli asistansın.`,
+    'Sana verilen Google arama sonuçlarını kullanarak kullanıcının sorusunu GÜNCEL ve DOĞRU yanıtla.',
+    'Cevabın SESLENDİRİLECEK: yalnız düz konuşma metni. Liste, madde işareti, markdown, emoji, başlık, parantez içi kaynak/URL OKUMA.',
+    'Tarih ve rakamları doğal söyle ("dolar 32 lira 40 kuruş" gibi). Net bir sonuç yoksa bunu dürüstçe söyle, UYDURMA.',
+    personaRole,
+    brevity,
+  ].join(' ');
+}
+
+async function askGroundedGemini(
+  query: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+): Promise<string | null> {
+  const body = {
+    system_instruction: { parts: [{ text: buildGroundedSystemPrompt(id, isDriving) }] },
+    contents: [
+      ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+      { role: 'user', parts: [{ text: query }] },
+    ],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360 },
+  };
+  try {
+    const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+      signal:  signalWithTimeout(GROUNDED_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
+    });
+    if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+    if (!resp.ok) return null;
+    const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    // Grounded cevap birden çok text parçasına bölünebilir → hepsini birleştir.
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    const raw = parts.map((p) => p.text ?? '').join(' ').replace(/\s+/g, ' ').trim();
+    if (!raw) return null;
+    recordAiNetSuccess();
+    if (raw.length <= 380) return raw;
+    const head = raw.slice(0, 377);
+    const lastEnd = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
+    return lastEnd > 150 ? head.slice(0, lastEnd + 1) : `${head}...`;
+  } catch { recordAiNetFailure(); return null; }
+}
+
 /**
  * Birleşik beyin girişi — voiceService router'ı parser <0.7 her cümlede
  * bunu çağırır. Gemini kullanılamıyorsa offline sohbet fallback'i (yalnız
@@ -546,14 +638,28 @@ export async function tryCompanionBrain(
   if (geminiUsable) {
     try {
       geminiAttempted = true;
-      const result = await askCompanionBrain(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving, opts.timeoutMs);
+      const id = resolveCompanionIdentity(settings);
+      const result = await askCompanionBrain(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
       if (result) {
         recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
-        // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
-        // bağlamlı devam cümleleri için).
-        pushHistory('user', trimmed);
-        pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
-        return result;
+        // İNTERNET kararı: ikinci grounded çağrıyla (Google Search) gerçek cevabı
+        // üret; voiceService'e CHAT olarak dön (web tipini hiç görmez). Grounding
+        // başarısızsa offline/reask zincirine düş — "erişimim yok" demeyiz.
+        if (result.kind === 'web') {
+          const grounded = await askGroundedGemini(result.query, opts.apiKey as string, id, isDriving);
+          if (grounded) {
+            pushHistory('user', trimmed);
+            pushHistory('model', grounded);
+            return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+          }
+          // grounding boş/başarısız → aşağıdaki offline fallback / reask devreye girer
+        } else {
+          // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
+          // bağlamlı devam cümleleri için).
+          pushHistory('user', trimmed);
+          pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
+          return result;
+        }
       }
     } catch { recordAiNetFailure(); /* timeout / ağ — offline'a düş; kesici art arda hatada AI'yı kapatır */ }
   }
