@@ -467,3 +467,19 @@ html[data-runtime="POWER_SAVE"] * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   KRİZ MODU — süslü sonsuz animasyonları DURDUR (POWER_SAVE / SAFE_MODE)
+   runtimeConfig: bu modlarda enableAnimations:false. Akü-kritik (11.8–12.0V)
+   ve kurtarma modunda dekoratif `animation: ... infinite` GPU tier'ından
+   BAĞIMSIZ durmalı — güçlü cihaz bile düşük akümle pil yakmasın.
+   animation-iteration-count:1 → bir kez koşar, final keyframe'de durur (görünürlük
+   korunur; animation:none gibi opacity:0'da takılmaz). Bu, runtime niyetini UI'ya
+   bağlar (rapor BULGU 4 + runtimeConfig.enableAnimations çelişkisini kapatır).
+   BASIC_JS HARİÇ: crossOriginIsolated=false yüzünden GÜÇLÜ cihazda da tetiklenir
+   (SAB yok ≠ zayıf GPU); orada animasyon sorun değil, tier (data-compat-mode) karar verir.
+   ══════════════════════════════════════════════════════════════════════ */
+html[data-runtime="SAFE_MODE"] *,
+html[data-runtime="POWER_SAVE"] * {
+  animation-iteration-count: 1 !important;
+}
