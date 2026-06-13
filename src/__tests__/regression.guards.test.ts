@@ -337,6 +337,35 @@ describe('Anahtar yok yönlendirmesi kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   4g. İKİ ROUTER AYRIŞMASI — companion beyni üreten her intent'i
+   commandExecutor.dispatchIntent İŞLEMELİ.
+   Regresyon (2026-06-13): "asistan yapıyorum diyor ama köşede Komut Hatası".
+   Kök neden: Gemini beyni SEARCH_POI/CYCLE_THEME üretiyordu ama dispatchIntent
+   switch'inde case YOKTU → feedback söylenip default→_error("Anlayamadım")→
+   "Komut Hatası". routeIntent (yerel yol) işliyordu → online hata/offline çalışır.
+   Kilit: BRAIN_INTENTS'in HER üyesi dispatchIntent'te case olarak bulunmalı.
+   ─────────────────────────────────────────────────────────────── */
+describe('İki router ayrışması kilidi — beyin intent\'leri executor\'da işlenir', () => {
+  it('YAPISAL: BRAIN_INTENTS\'in her üyesi commandExecutor.dispatchIntent\'te case', () => {
+    const brainSrc = read('src/platform/companion/companionChatProvider.ts');
+    const execSrc  = read('src/platform/commandExecutor.ts');
+    // BRAIN_INTENTS = new Set<string>([ '...', '...' ])
+    const block = brainSrc.match(/const BRAIN_INTENTS\s*=\s*new Set<[^>]*>\(\[([\s\S]*?)\]\)/);
+    expect(block, 'BRAIN_INTENTS bloğu bulunamadı').toBeTruthy();
+    const intents = [...block![1].matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(intents.length).toBeGreaterThan(10);
+    const missing = intents.filter((i) => !new RegExp(`case '${i}'`).test(execSrc));
+    expect(missing, `dispatchIntent şu beyin intent'lerini KAÇIRIYOR (Komut Hatası riski): ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('DAVRANIŞ: SEARCH_POI ve CYCLE_THEME executor\'da işlenir (hata vermez)', () => {
+    const execSrc = read('src/platform/commandExecutor.ts');
+    expect(execSrc).toMatch(/case 'SEARCH_POI'/);
+    expect(execSrc).toMatch(/case 'CYCLE_THEME'/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    5. REROUTE — yoğun ızgarada sahte yeniden-rotalama önlemi
    Regresyon: rota sürekli sıfırlanıp "Yola çıkın"a dönüyordu.
    ─────────────────────────────────────────────────────────────── */

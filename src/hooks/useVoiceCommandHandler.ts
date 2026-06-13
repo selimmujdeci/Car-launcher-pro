@@ -227,6 +227,7 @@ export function useVoiceCommandHandler({
         defaultMusic: s.defaultMusic,
         launch,
         setTheme:    applyVoiceTheme,
+        cycleTheme:  cycleVoiceTheme,   // AI yolu da tema döngüsünü işlesin (yoksa "Komut Hatası")
         openDrawer:  (t) => open(t as DrawerType),
         applySetting: (key, action, value, kind) =>
           void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),

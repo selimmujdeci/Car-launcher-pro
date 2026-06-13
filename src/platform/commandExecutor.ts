@@ -48,6 +48,8 @@ export interface CommandContext {
   /** Resolve appId → actual app launch (has access to appMap in caller) */
   launch:       (appId: string) => void;
   setTheme?:    (theme: 'night' | 'day' | 'oled' | 'dark') => void;
+  /** Temalar arası döngü ("temayı değiştir"/"başka tema") — routeIntent ile aynı yol. */
+  cycleTheme?:  () => void;
   /** Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness). */
   applySetting?: (key: string, action: string, value?: string, kind?: string, label?: string) => void;
   openDrawer?:  (target: 'apps' | 'settings' | 'music' | 'none') => void;
@@ -159,6 +161,17 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         if (place && ctx.navigateToPlace) ctx.navigateToPlace(place);
         else ctx.launch(ctx.defaultNav);
         _speak(place ? `${place} aranıyor` : 'Yer aranıyor', isDriving);
+        break;
+      }
+      case 'SEARCH_POI': {
+        // Mekan/POI araması (restoran, kafe, eczane...) — companion beyni bunu
+        // üretir; routeIntent ile aynı yol. Eskiden dispatchIntent'te case YOKTU
+        // → feedback söylenip "Komut Hatası" basıyordu (iki router ayrışması).
+        const poiQuery = intent.payload.poiQuery;
+        const query = poiQuery ? `yakın ${poiQuery}` : 'yakın yer';
+        if (ctx.navigateToPlace) ctx.navigateToPlace(query);
+        else ctx.launch(ctx.defaultNav);
+        _speak(poiQuery ? `Yakın ${poiQuery} aranıyor` : 'Yakın yerler aranıyor', isDriving);
         break;
       }
       case 'FIND_NEARBY_GAS': {
@@ -298,6 +311,13 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       }
       case 'SET_THEME': {
         ctx.setTheme?.((intent.payload.mode as 'night' | 'day' | 'oled' | 'dark') ?? 'night');
+        _speak('Tema değiştirildi', isDriving);
+        break;
+      }
+      case 'CYCLE_THEME': {
+        // "temayı değiştir"/"başka tema" — beyin bunu üretir; routeIntent ile aynı.
+        // Eskiden case YOKTU → "Tema değişti" denip "Komut Hatası" basıyordu.
+        ctx.cycleTheme?.();
         _speak('Tema değiştirildi', isDriving);
         break;
       }
