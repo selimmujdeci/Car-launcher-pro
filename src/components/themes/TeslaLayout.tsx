@@ -253,6 +253,24 @@ const FuelCard = memo(function FuelCard() {
   );
 });
 
+/* ─── ODOMETRE / KİLOMETRE CARD ──────────────────────────────────── */
+// GPS'ten beslenir (OBD'siz de çalışır) — TEK kaynak useVehicleStore.odometer.
+const OdometerCard = memo(function OdometerCard() {
+  const p = usePal();
+  const odometer = useUnifiedVehicleStore(s => s.odometer);
+  return (
+    <div style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
+      <Screws inset={6} />
+      <div className="flex items-center gap-2">
+        <Gauge className="w-4 h-4" style={{ color: p.accent2 }} />
+        <span style={{ fontSize: 19, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
+        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>KİLOMETRE</span>
+      </div>
+    </div>
+  );
+});
+
 /* ─── MAP CARD ───────────────────────────────────────────────────── */
 const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
@@ -560,6 +578,7 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
               <ClockCard />
               <SpeedGauge />
               <FuelCard />
+              <OdometerCard />
             </div>
             <div className="flex flex-col min-h-0 min-w-0 flex-1 relative" style={{ gap: 12 }}>
               <MapCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />

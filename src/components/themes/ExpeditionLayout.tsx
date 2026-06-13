@@ -3,7 +3,7 @@ import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
   Bluetooth, Wifi, Volume2, ChevronRight, Maximize2, CornerUpRight,
-  BatteryCharging, Fuel,
+  BatteryCharging, Fuel, Gauge,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
@@ -31,9 +31,10 @@ import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat
 const GRID_COLS = SUPPORTS_CSS_CLAMP
   ? 'clamp(200px,24vw,330px) minmax(0,1fr) clamp(230px,27vw,360px)'
   : 'minmax(200px,330px) minmax(0,1fr) minmax(230px,360px)';
+// 3 satır: hız (1fr esner) · menzil (sabit) · kilometre (auto, kompakt).
 const LEFT_RAIL_ROWS = SUPPORTS_CSS_CLAMP
-  ? '1fr clamp(120px,18vh,160px)'
-  : '1fr minmax(120px,160px)';
+  ? '1fr clamp(120px,18vh,160px) auto'
+  : '1fr minmax(120px,160px) auto';
 const RING_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
   ? { position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }
   : { position: 'relative', width: 210, maxWidth: '100%', height: 210 };
@@ -241,6 +242,20 @@ const RangePlate = memo(function RangePlate() {
         </div>
         <span style={{ fontSize: 12, fontWeight: 700, color: p.ink2 }}>F</span>
       </div>
+    </Plate>
+  );
+});
+
+/* ─── ODOMETRE / KİLOMETRE PLATE ─────────────────────────────────── */
+// GPS'ten beslenir (OBD'siz de çalışır) — TEK kaynak useVehicleStore.odometer.
+const OdometerPlate = memo(function OdometerPlate() {
+  const p = usePal();
+  const odometer = useUnifiedVehicleStore(s => s.odometer);
+  return (
+    <Plate style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <Gauge className="w-[24px] h-[24px]" style={{ color: p.ink2 }} />
+      <span style={{ fontWeight: 800, fontSize: 28, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
+      <span style={{ marginLeft: 'auto' }}><Label>Kilometre</Label></span>
     </Plate>
   );
 });
@@ -640,6 +655,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
           <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: LEFT_RAIL_ROWS }}>
             <SpeedPlate />
             <RangePlate />
+            <OdometerPlate />
           </div>
           {/* Orta */}
           <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>

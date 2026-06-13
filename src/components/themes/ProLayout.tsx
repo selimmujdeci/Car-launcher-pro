@@ -5,7 +5,7 @@ import {
   Phone, Clock3, Mic, Bell, Wind, Settings, LayoutGrid,
   Map as MapIcon, Music2, Bluetooth, Wifi, Lock, Plug, Fan, ChevronRight,
   CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
-  AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench,
+  AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench, Gauge,
 } from 'lucide-react';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { useStore } from '../../store/useStore';
@@ -13,6 +13,7 @@ import { useClock } from '../../hooks/useClock';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { useOBDState } from '../../platform/obdService';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
@@ -497,6 +498,8 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
   const st = VEH_STATUS[veh] ?? VEH_STATUS.normal;
   const battery = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round(obd.fuelLevel) : 78;
   const range = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round((obd.fuelLevel / 100) * 750) : 320;
+  // Odometre — GPS'ten beslenir (OBD'siz de çalışır), TEK kaynak useVehicleStore.odometer.
+  const odometer = useUnifiedVehicleStore(s => s.odometer);
 
   const toggles = [
     { Icon: Lock, label: 'KİLİT', fn: onOpenSettings },
@@ -525,6 +528,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
           <Stat p={p} icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={`${battery}%`} label="Batarya" />
           <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="2.5 bar" label="Lastik" />
           <Stat p={p} icon={<Navigation className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${range} km`} label="Menzil" />
+          <Stat p={p} icon={<Gauge className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${Math.round(odometer)} km`} label="Kilometre" />
         </div>
       </div>
 

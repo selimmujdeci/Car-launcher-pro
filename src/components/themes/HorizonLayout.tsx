@@ -277,6 +277,19 @@ const HzRangeCard = memo(function HzRangeCard() {
   );
 });
 
+/* ─── SOL: KİLOMETRE (ODOMETRE) ──────────────────────────────────── */
+// GPS'ten beslenir (OBD'siz de çalışır) — TEK kaynak useVehicleStore.odometer.
+const HzOdometerCard = memo(function HzOdometerCard() {
+  const p = usePalH();
+  const odometer = useUnifiedVehicleStore(s => s.odometer);
+  return (
+    <Panel style={{ padding: '13px 15px' }}>
+      <div className="flex items-center justify-between"><HzLabel>Kilometre</HzLabel><Gauge className="w-4 h-4" style={{ color: p.ink3 }} /></div>
+      <div style={{ fontWeight: 700, fontSize: 25, marginTop: 4, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
+    </Panel>
+  );
+});
+
 /* ─── SOL: YAKIT TÜKETİMİ ────────────────────────────────────────── */
 const HzConsumptionCard = memo(function HzConsumptionCard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePalH();
@@ -711,10 +724,11 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
         <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: HZ_GRID_COLS, gap: 12 }}>
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto' }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto auto' }}>
             <HzDriveModeCard />
             <HzSpeedCard />
             <HzRangeCard />
+            <HzOdometerCard />
             <HzConsumptionCard onOpenSettings={onOpenSettings} />
           </div>
 

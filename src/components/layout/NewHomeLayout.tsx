@@ -83,6 +83,8 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
     ? Math.round((fuelLevel / 100) * 750)
     : null;
   const rangeKm   = isEV ? (rangeField >= 0 ? rangeField : null) : fuelRange;
+  // Odometre — GPS'ten beslenir (OBD'siz de çalışır), TEK kaynak useVehicleStore.odometer.
+  const odometer  = useUnifiedVehicleStore(s => s.odometer);
 
   return (
     <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
@@ -111,6 +113,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
         <HPill emoji="☀️" value="21°C" label="Güneşli" />
         <HPill emoji="🔋" value={device.ready ? `${device.battery}%` : '—'} label="Batarya" />
         <HPill emoji={isEV ? '⚡' : '⛽'} value={rangeKm != null ? `${rangeKm} km` : '— km'} label="Menzil" />
+        <HPill emoji="🛣️" value={`${Math.round(odometer)} km`} label="Kilometre" />
       </div>
 
       {/* Sağ: Eylem butonları */}
