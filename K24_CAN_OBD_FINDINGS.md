@@ -36,6 +36,14 @@ decompile edildi. İçinde üçüncü-taraf uygulamalar için tasarlanmış **re
   (alternatif: `com.nwd.can.service.impl.carcase.ACTION_CAN_SERVICE`)
 - **Paket:** `com.nwd.can.setting`
 
+### ⚠️ ERİŞİM KİMLİĞİ (gate) — DOĞRULANDI
+Servis tarafı `CanRemote4AppFeature.initSdkCfg` çağrıyı doğruluyor (`initSucess`
+bayrağı). Hardcoded kimlikler decompile'dan çıkarıldı — **üçüncü-taraf yolu var:**
+- **appName** = `"nwdthirdapp"`  ·  **appSecrets** = `"d39df3d908cf7136227987e37d5b2c7d"`  ·  **appParamJoin** = `0`
+- (OEM kendi uygulamaları: `"nwdapp"` / `"d6049e9ae396480cbd8358ed3d07df21"` / 0)
+- `nwdthirdapp` = "NWD third-party app" → resmî desteklenen yol. `initSdkCfg(appName, appSecrets, (byte)0, appDesc)` çağrılmalı; appDesc serbest.
+- Üst-seviye helper: `CanAppRemoteManager(Context, CanSdkCfg)` → `CanSdkCfg(appName, appSecrets, appDesc, (byte)appParamJoin)`. Bind/connect `AbsServiceControllerHelper` ile.
+
 ```java
 Intent it = new Intent("com.nwd.can.service.ACTION_CAN_SERVICE");
 it.setPackage("com.nwd.can.setting");

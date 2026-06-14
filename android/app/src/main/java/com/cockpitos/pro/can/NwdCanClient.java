@@ -39,11 +39,18 @@ public final class NwdCanClient {
 
     private static final String DESC_FEATURE  = "com.nwd.can.sdk.outer.adil.ICanRemote4OuterFeature";
     private static final String DESC_CALLBACK = "com.nwd.can.sdk.outer.adil.ICanRemoteModelCallback";
+    private static final String DESC_OUTERCB  = "com.nwd.can.sdk.outer.adil.ICanRemote4OuterCallback";
 
     // Transaction kodları (decompile, deklarasyon sırası)
     private static final int TX_INIT_SDK_CFG          = 2;   // initSdkCfg(String,String,byte,String)
-    private static final int TX_ADD_CAN_CARINFO_CB    = 27;  // addCanCarInfoCallBack(ICanRemoteModelCallback)
+    // CarInfo dağıtımı (distribution(CarInfo)) servis tarafında mCallbackCarInfoList'i gezer;
+    // o listeye ekleyen metod addCarInfoCallBack (kod 17). addCanCarInfoCallBack (27) AYRI
+    // listeye ekler → distribution onu kullanmaz. İkisini de kaydet (güvenli).
+    private static final int TX_ADD_CARINFO_CB        = 17;  // addCarInfoCallBack — GERÇEK dağıtım yolu
+    private static final int TX_ADD_CAN_CARINFO_CB    = 27;  // addCanCarInfoCallBack (yedek)
+    private static final int TX_ADD_CALLBACK4OUTER    = 3;   // addCallBack4Outerface(ICanRemote4OuterCallback) — ham veri
     private static final int TX_ON_DISTRIBUTE_CARINFO = 2;   // callback: onDistributeCarInfo(CarInfo)
+    // ICanRemote4OuterCallback kodları: 1=onDistributeRawData, 2=onDistributeCanData
 
     // Üçüncü-taraf erişim kimliği (servis doğruluyor → initSucess)
     private static final String APP_NAME    = "nwdthirdapp";
@@ -67,6 +74,11 @@ public final class NwdCanClient {
         @Override
         protected boolean onTransact(int code, Parcel data, Parcel reply, int flags)
                 throws RemoteException {
+            // GEÇİCİ: servis callback'i hangi kodla çağırıyor (akış teşhisi)
+            if (code != INTERFACE_TRANSACTION) {
+                long now = android.os.SystemClock.elapsedRealtime();
+                if (now - _lastCbLogMs > 1500L) { _lastCbLogMs = now; diag("callback onTransact code=" + code); }
+            }
             if (code == INTERFACE_TRANSACTION) {
                 if (reply != null) reply.writeString(DESC_CALLBACK);
                 return true;
@@ -86,12 +98,40 @@ public final class NwdCanClient {
         }
     };
 
+    // GEÇİCİ TEŞHİS: ham dış callback — distribution([B]) bu feature'ı besliyor mu?
+    private final IBinder _outerCb = new android.os.Binder() {
+        @Override
+        protected boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+                throws RemoteException {
+            if (code == INTERFACE_TRANSACTION) {
+                if (reply != null) reply.writeString(DESC_OUTERCB);
+                return true;
+            }
+            if (code == 1 || code == 2) {  // onDistributeRawData / onDistributeCanData
+                try {
+                    data.enforceInterface(DESC_OUTERCB);
+                    int present = data.readInt();
+                    int len = (present != 0) ? data.createByteArray().length : -1;
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    if (now - _lastRawLogMs > 1500L) { _lastRawLogMs = now; diag("HAM veri geldi (kod " + code + ", " + len + " byte) — distribution([B]) AKTİF"); }
+                } catch (Throwable t) { diag("ham callback parse: " + t.getMessage()); }
+                if (reply != null) reply.writeNoException();
+                return true;
+            }
+            return super.onTransact(code, data, reply, flags);
+        }
+    };
+    private long _lastRawLogMs = 0;
+
     private final ServiceConnection _conn = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder service) {
             _feature = service;
             diag("CanService bağlandı: " + name.flattenToShortString());
-            if (initSdkCfg() && registerCarInfoCallback()) {
-                diag("NWD CAN SDK init+callback OK — CarInfo akışı bekleniyor");
+            if (initSdkCfg()) {
+                boolean a = registerCallback(TX_ADD_CARINFO_CB, "addCarInfoCallBack");
+                boolean b = registerCallback(TX_ADD_CAN_CARINFO_CB, "addCanCarInfoCallBack");
+                registerOuterCallback();
+                if (a || b) diag("NWD CAN SDK init+callback OK — CarInfo akışı bekleniyor");
             }
         }
         @Override public void onServiceDisconnected(ComponentName name) {
@@ -163,7 +203,26 @@ public final class NwdCanClient {
         }
     }
 
-    private boolean registerCarInfoCallback() {
+    private void registerOuterCallback() {
+        IBinder f = _feature;
+        if (f == null) return;
+        Parcel data  = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(DESC_FEATURE);
+            data.writeStrongBinder(_outerCb);
+            f.transact(TX_ADD_CALLBACK4OUTER, data, reply, 0);
+            reply.readException();
+            diag("addCallBack4Outerface kaydedildi (kod 3, ham veri teşhisi)");
+        } catch (Throwable t) {
+            diag("addCallBack4Outerface hatası: " + t.getMessage());
+        } finally {
+            reply.recycle();
+            data.recycle();
+        }
+    }
+
+    private boolean registerCallback(int txCode, String label) {
         IBinder f = _feature;
         if (f == null) return false;
         Parcel data  = Parcel.obtain();
@@ -171,12 +230,12 @@ public final class NwdCanClient {
         try {
             data.writeInterfaceToken(DESC_FEATURE);
             data.writeStrongBinder(_callback);
-            f.transact(TX_ADD_CAN_CARINFO_CB, data, reply, 0);
+            f.transact(txCode, data, reply, 0);
             reply.readException();
-            diag("addCanCarInfoCallBack kaydedildi (kod 27)");
+            diag(label + " kaydedildi (kod " + txCode + ")");
             return true;
         } catch (Throwable t) {
-            diag("addCanCarInfoCallBack hatası: " + t.getMessage());
+            diag(label + " hatası: " + t.getMessage());
             return false;
         } finally {
             reply.recycle();
@@ -285,9 +344,23 @@ public final class NwdCanClient {
         b.tpms(new float[]{ tpmsLF, tpmsRF, tpmsLB, tpmsRB });
 
         VehicleCanData out = b.build();
+
+        // ── GEÇİCİ DOĞRULAMA TANISI (2s throttle) — cihazda CarInfo akışını teyit ──
+        // TODO: cihaz doğrulamasından sonra kaldır.
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - _lastDiagMs > 2000L) {
+            _lastDiagMs = now;
+            diag(String.format("CarInfo: hız=%d devir=%d yakıt=%.0f soğutma=%.0f vites=%d kapı=%d acc=%d elFreni=%d far=%d",
+                mInstantanSpeed, mEngineSpeed, mOilSurplus, coolant, mGear, mDoorOpen, mAccStatus, mHandbrake,
+                (mHighbeam != 0 || mDippedheadlight != 0) ? 1 : 0));
+        }
+
         DecodedListener cb = _listener;
         if (cb != null && _started) cb.onData(out);
     }
+
+    private long _lastDiagMs = 0;
+    private long _lastCbLogMs = 0;
 
     private void diag(String msg) {
         Log.d(TAG, msg);
