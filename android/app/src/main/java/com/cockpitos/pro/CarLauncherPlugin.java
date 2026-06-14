@@ -2960,6 +2960,18 @@ public class CarLauncherPlugin extends Plugin {
         notifyListeners("canDiag", o);
     };
 
+    // NWD RESMÎ üçüncü-taraf CAN SDK istemcisi (com.nwd.can.service.CanService → CarInfo).
+    // Bu ROM'da GERÇEK veri yolu budur (kör K24CanBridge bu ROM'da veri üretmez).
+    private final com.cockpitos.pro.can.NwdCanClient nwdCanClient =
+        new com.cockpitos.pro.can.NwdCanClient();
+    private final com.cockpitos.pro.can.NwdCanClient.DecodedListener _nwdDataListener =
+        this::emitVehicleData;
+    private final com.cockpitos.pro.can.NwdCanClient.DiagListener _nwdDiagListener = (msg) -> {
+        JSObject o = new JSObject();
+        o.put("msg", msg);
+        notifyListeners("canDiag", o);
+    };
+
     // MCU broadcast keşfi — non-exported provider'a erişemeyen sandboxed app için
     // tek meşru kanal: NWD/Hiworld'ün yayınladığı CAN broadcast'lerini dinler.
     // Veri ÜRETMEZ; hangi kanalın yayın yaptığını tanı günlüğüne yazar.
@@ -3106,6 +3118,8 @@ public class CarLauncherPlugin extends Plugin {
         // K24/Hiworld root'suz yol — ham seri başarısız olsa da bu çalışabilir.
         // start() içinde _started guard'ı var → tekrar çağrı güvenli (idempotent).
         k24CanBridge.start(_k24DataListener, _k24DiagListener, getContext());
+        // NWD resmî CAN SDK — bu ROM'da gerçek CarInfo akışını sağlar.
+        nwdCanClient.start(_nwdDataListener, _nwdDiagListener, getContext());
         startMcuSnifferOnce();
         // 3s sonra bağlantı durumunu JS'e bildir (transport connect denemesi için süre)
         new Handler(Looper.getMainLooper()).postDelayed(this::emitCanStatus, 3_000);
@@ -3116,6 +3130,7 @@ public class CarLauncherPlugin extends Plugin {
     public void stopCanBus(PluginCall call) {
         canBusManager.stop();
         k24CanBridge.stop();
+        nwdCanClient.stop();
         if (mcuEventSniffer != null) {
             mcuEventSniffer.stop();
             // Ölü instance yeniden kullanılmasın → sonraki startMcuSnifferOnce taze
@@ -3229,6 +3244,7 @@ public class CarLauncherPlugin extends Plugin {
             canBusManager.start(_canFrameListener, getContext(), canSignalMapper::reset);
             // K24/Hiworld root'suz köprü — tanı çıktısı canDiag'a, decoded veri canData'ya akar.
             k24CanBridge.start(_k24DataListener, _k24DiagListener, getContext());
+            nwdCanClient.start(_nwdDataListener, _nwdDiagListener, getContext());
             startMcuSnifferOnce();
         }
         call.resolve();
