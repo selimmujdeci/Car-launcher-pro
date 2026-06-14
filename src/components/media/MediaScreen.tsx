@@ -30,6 +30,7 @@ import {
   type MediaSource,
 } from '../../platform/media/carosMediaLayer';
 import { STREAM_PKG } from '../../platform/streamMusicService';
+import { setMapHeavyNeighbor } from '../../platform/mapSourceManager';
 import { isNative } from '../../platform/bridge';
 import { useStore } from '../../store/useStore';
 import type { CustomMusicSource } from '../../store/useStore';
@@ -573,17 +574,24 @@ function PlayerView({
     if (!isYouTube) return;
     if (!videoMode) {
       // Kapak modu — host gizli (rAF gerekmez). Albüm kapağını React gösterir.
+      // Ses-only: harita normal (navigasyon akıcılığı korunur) → komşu kilidi kapalı.
       setYouTubeRegion(null);
+      setMapHeavyNeighbor(false);
       return;
     }
     // Tam ekran — viewport'u kapla. Resize'da (nadiren) güncelle.
     const applyFullscreen = () =>
       setYouTubeRegion({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }, true);
     applyFullscreen();
+    // Tam ekran video harita üstünü tamamen kaplar → harita arkada boşuna WebGL
+    // render etmesin: raster'a kilitle (video decode + vektör harita Mali-400'de
+    // çakışmasın). Kapanışta düşük-uç HARİÇ kilit açılır (düşük-uç zaten kalıcı raster).
+    setMapHeavyNeighbor(true);
     window.addEventListener('resize', applyFullscreen);
     return () => {
       window.removeEventListener('resize', applyFullscreen);
       setYouTubeRegion(null);
+      setMapHeavyNeighbor(false);
     };
   }, [isYouTube, videoMode]);
 

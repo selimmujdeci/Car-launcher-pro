@@ -1,5 +1,6 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import { getTileCacheStats } from './serviceWorkerManager';
+import { getDeviceTier } from './deviceCapabilities';
 import type { MapMode, TileRenderMode, MapSource, MapSourceState } from './mapSourceTypes';
 import {
   buildVectorStyle,
@@ -492,6 +493,21 @@ export function notifyLowFPS(isLow: boolean): void {
       useMapSourceStore.setState({ tileRender: 'raster' });
     }
   }
+}
+
+/**
+ * Ağır bir GPU komşusu (YouTube tam ekran video) aktif/pasif olduğunda çağrılır.
+ * Tam ekran video harita üstünü tamamen kaplar → harita arkada boşuna WebGL render
+ * eder; Mali-400'de iki ağır GPU işi (video decode + vektör harita) çakışıp ısı/kasma
+ * yapar. active=true iken harita raster'a kilitlenir (vektörden çok daha hafif).
+ *
+ * active=false: kilit YALNIZCA düşük-uç OLMAYAN cihazda açılır. Düşük-uçta harita
+ * zaten kalıcı raster (MiniMapWidget mount'ta notifyLowFPS(true) çağırır) → buradaki
+ * tek `_thermalLock` global'ini açmak o kalıcı kilidi bozardı; bu yüzden dokunulmaz.
+ */
+export function setMapHeavyNeighbor(active: boolean): void {
+  if (active) { notifyLowFPS(true); return; }
+  if (getDeviceTier() !== 'low') notifyLowFPS(false);
 }
 
 /**
