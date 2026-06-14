@@ -1,7 +1,7 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-12. Branch: `main`. HEAD: `7bc1b07`.
+> Son güncelleme: 2026-06-14. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `44c6372`, push EDİLMEDİ; ana hedef `main`).
 
 ---
 
@@ -20,6 +20,35 @@
 ---
 
 ## 2. Son Yapılan Değişiklikler (özet)
+
+### 🔴 2026-06-14 — K24 CİHAZ SAHA OTURUMU (DevTools profili) — branch `fix/k24-perf-webgl-bundle-rotation` `44c6372`
+
+> **Bu oturum gerçek K24 head unit'te canlı yapıldı (ADB + Chrome DevTools).**
+> Branch henüz `main`'e MERGE/PUSH EDİLMEDİ. Cihazda şu an bu branch'in temiz APK'sı kurulu.
+
+**Cihaz/bağlantı gerçekleri (sonraki ajan bunları kullansın):**
+- Cihaz: **K24** (model `K2401`, `ceres_b3`, Android 15, 6GB/64GB), GPU **PowerVR Rogue GE8300** (Allwinner sun50iw10p1, 32-bit armeabi-v7a), WebView **Chrome 101**.
+- **USB-ADB ÇALIŞMAZ** (host portu). Yol: aynı WiFi + `adb connect <ip>:5555` (port açık). IP DHCP (Ayarlar→About car device→IP); bu oturumda 10.185.22.216, PC 10.185.22.209.
+- `adb`: `C:\Users\selim\AppData\Local\Android\Sdk\platform-tools\adb.exe`. JDK (gradle): `C:\Program Files\Android\Android Studio\jbr` (gradlew JAVA_HOME ister). APK build çıktısı **`C:\Temp\carlauncher\app\build\outputs\apk\debug\app-debug.apk`** (yol kısaltma redirect). `gradlew.bat -p <android>` ile, root'tan `gradlew` PATH'te yok.
+- Detay: hafıza `project_k24-adb-network.md`, `project_k24-perf-rootcause.md`.
+
+**ÇÖZÜLEN + CİHAZDA DOĞRULANAN (hepsi commit'li):**
+- **perf(map) — EN BÜYÜK KAZANIM:** `DrawerShell` çocuklarını KAPALIYKEN de mount tutuyor (sadece translateY/opacity). `TrafficPanel` canlı MiniMapWidget (MapLibre WebGL) içerdiğinden, traffic drawer kapalıyken bile 2. WebGL context ekran-dışında (y=1333) yaşıyordu → PowerVR render-target (8) dolup context lost/restore thrash → ~7fps, %100 jank. FIX: `DrawerPanel.tsx` TrafficPanel'i yalnız `drawer==='traffic'` iken mount eder. **Ölçüm: mapCount 2→1, fps ~7→~15, JS thread idle %0→%22, WebGL thrash profilden gitti.**
+- **fix(build):** Vite8 + `@vitejs/plugin-legacy@8` modern bundle'a **`import.meta.resolve`** (Chrome 105+) gömüyordu (hem HTML tespit script'i hem entry chunk guard'ı) → Chrome 101'de Bootstrap Crash → ağır legacy ES5/SystemJS'e düşüş (9.7sn UI freeze→SAFE_MODE). FIX: `vite.config.ts` `fixLegacyModernDetection()` (transformIndexHtml post + chunk generateBundle ile probe sil) + `build.modulePreload:false`. Doğrulandı: modern bundle Chrome 101'de native çalışıyor.
+- **perf(map):** MiniMap↔FullMap devir-tesliminde orphan WebGL context serbest bırakılmıyordu → `freeOrphanMapContext` (MapCore.ts) + MiniMapWidget cleanup düzeltmesi.
+- **perf(map):** `detectWeakGpu` PowerVR/Imagination tanır (`isWeakRendererString` saf fn) + regresyon kilidi.
+- **perf(can):** `K24CanBridge` var-olmayan ContentProvider'ı kalıcı kara listeye alır (234 başarısız sorgu/3sn + "Failed to find provider info" seli bitti).
+- **feat(ui):** Alt dock büyütüldü — lucide ikonları `--dock-icon`'a bağlandı (`dock-premium.css` `.dock-chip svg`), taban+breakpoint ölçüleri (`index.css`, `theme-layouts.css`). **Bukalemun (ChameleonScaler) korundu** — ona DOKUNMA.
+
+**AÇIK İŞLER (sonraki ajan — öncelik sırası):**
+1. **Rotasyon kalıcı değil (P1):** Bu ROM uygulamanın manifest yön talebini (`sensorLandscape`) YOK SAYIYOR; ekran her açılışta dikey (ROTATION_0) başlıyor, panel native portrait (720×1280, ro.boot.nwd.orientation=90). Tek çözüm sistem kilidi `settings put system accelerometer_rotation 0` + `user_rotation 1` (yatay=90) + app taze başlat — AMA ROM her açılışta auto-rotate'i sıfırlıyor → manuel adb her seferinde gerekiyor. **Kalıcı fix: app açılışta `WRITE_SETTINGS` ile (izni var) rotasyonu kendisi kilitlesin** (CarLauncherPlugin/MainActivity native). Şu an cihaz manuel kilitli (yatay).
+2. **~15fps → 30+fps (P2):** Tek MiniMap statikken bile sürekli GPU'da çiziliyor (webview renderer meşgul, maplibre draw/coveringTiles). Render-on-demand (statikte repaint durdur) + home kapatıldığında MiniMap context-free (MainLayout'ta line ~344 niyet var ama tetiklenmiyor) + dönen marker güncellemesini kıs. PowerVR GE8300 alt segment — tavan var.
+3. **CAN verisi akışı (P3):** Köprü bağlanıyor (UART /dev/ttyS1 + CanService bind) ama seansda decoded sinyal (hız/devir) dispatch'i GÖRÜLMEDİ — araç PARK halindeydi (motor kapalı→canlı veri yok normal). **Motor çalışırken doğrulanmalı.** OBD ayrı: BLE ELM327 dongle gerekir, takılı değildi.
+
+**DOĞRULAMA YÖNTEMİ (DevTools CDP — sonraki ajan tekrar kullanabilir):**
+`webContentsDebuggingEnabled` GEREKİR (şimdi prod'da `isDev`→KAPALI; teşhis için geçici `true` yap, SONRA geri al). Yol: `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>` → `http://localhost:9333/json/list` → Node (global WebSocket) ile CDP `Runtime.evaluate`/`Profiler.start/stop`. Geçici scriptler `%TEMP%\cdp.cjs`, `profile.cjs`, `expr*.js`. CPU profili + `document.querySelectorAll('.maplibregl-map').length` (mapCount) + gfxinfo jank en faydalı sinyaller.
+
+⚠️ **`capacitor.config.ts` debug bayrakları bu oturumun sonunda `isDev`'e GERİ ALINDI** (devtools/log prod'da kapalı). Yeniden teşhis için geçici açıp tekrar kapat.
 
 - **Cockpit teması silindi (2026-06-12, `7bc1b07`):** Mercedes/Audi ile aynı desen.
   CockpitLayout.tsx silindi; useCarTheme LegacyTheme/VALID/migrate (v2→v3,

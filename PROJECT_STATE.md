@@ -2,13 +2,24 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-06-12.
+> Son güncelleme: 2026-06-14.
 
 ---
 
 ## Aktif Branch
 
-- **Aktif branch:** `main` (HEAD `7bc1b07`; Cockpit tema silme)
+- **Aktif branch:** `fix/k24-perf-webgl-bundle-rotation` (HEAD `44c6372`) — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- `main` HEAD: `648fb84` (autoBrightness guard).
+
+## 🔴 K24 Cihaz Saha Oturumu — Perf/Bundle/Rotasyon (2026-06-14, `44c6372`)
+
+Gerçek K24 head unit'te (PowerVR GE8300, Chrome 101 WebView) **Chrome DevTools CDP profili** ile kasma kök nedeni bulundu ve çözüldü. **Tam devir kaydı: `HANDOFF.md` §2 (2026-06-14 girişi).** Hafıza: `project_k24-perf-rootcause.md`, `project_k24-adb-network.md`.
+
+- **Dominant fix:** `DrawerShell` çocukları kapalıyken de mount → `TrafficPanel`'in canlı MapLibre haritası 2. WebGL context tutuyordu → PowerVR thrash. `DrawerPanel.tsx`'te TrafficPanel yalnız açıkken mount. **mapCount 2→1, fps ~7→~15, JS idle %0→%22 (cihazda ölçüldü).**
+- **Bundle:** Vite8/plugin-legacy `import.meta.resolve` (Chrome 105+) → Chrome 101'de modern bundle çöküp legacy ES5'e düşüyordu (9.7sn freeze). `vite.config.ts` `fixLegacyModernDetection` + `modulePreload:false` → modern bundle native çalışır.
+- Ek: `freeOrphanMapContext` (MapCore), `detectWeakGpu` PowerVR + regresyon kilidi (41/41), `K24CanBridge` provider blacklist, dock büyütme (bukalemun korundu).
+- **Açık (HANDOFF §2): (1)** rotasyon ROM her açılışta sıfırlıyor → app native `WRITE_SETTINGS` ile kilitlemeli; **(2)** ~15→30fps için MiniMap render-on-demand; **(3)** CAN veri akışı motor çalışırken doğrulanmalı.
+- `capacitor.config.ts` debug bayrakları teşhis sonrası `isDev`'e geri alındı. tsc/build OK, guard 41/41.
 
 ## Cockpit Teması Silindi (2026-06-12, `7bc1b07`)
 
