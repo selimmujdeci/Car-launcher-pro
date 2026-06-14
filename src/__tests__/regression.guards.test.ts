@@ -403,6 +403,18 @@ describe('Auto-brightness GPS-fix timing kilidi', () => {
     const src = read('src/platform/autoBrightnessService.ts');
     expect(src).toMatch(/export function updateAutoBrightnessLocation[\s\S]{0,120}if\s*\(_state\.enabled\)/);
   });
+
+  it('SİYAH-EKRAN: gece minNight tabanı head unit panelinde okunabilir kalmalı (>=35)', () => {
+    // Regresyon (saha 2026-06-14, K24/NWD): minNight=15 → window screenBrightness
+    // 0.149 → panel görünür eşiğin ALTINA inip ekranı tamamen SİYAH gösteriyordu;
+    // akşam/gece fazında uygulama öne gelince "kapalı" sanılıyordu. Gece dimming
+    // korunur ama taban araç panelinde okunabilir kalmalı. Telefon-düşük tabanına
+    // (≤20) geri dönüş bu sessiz arızayı geri getirir → kilitle.
+    const src = read('src/platform/autoBrightnessService.ts');
+    const m = src.match(/minNight:\s*(\d+)\s*,/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(35);
+  });
 });
 
 /* ───────────────────────────────────────────────────────────────

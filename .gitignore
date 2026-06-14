@@ -105,3 +105,6 @@ deno.lock
 # Üretilmiş sunum/pazarlama binary'leri (build_deck.cjs çıktısı; kaynak değil)
 *.pptx
 
+
+# K24 CAN reverse-engineering artefaktlari (buyuk + OEM proprietary - commit etme)
+tools/can-re/

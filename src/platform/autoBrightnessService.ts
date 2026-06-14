@@ -153,7 +153,12 @@ const INITIAL: AutoBrightnessState = {
   phase:              'morning',
   sunTimes:           null,
   currentBrightness:  100,
-  minNight:           15,
+  // minNight: head unit paneli düşük backlight'ta GÖRÜNÜR EŞİĞİN ALTINA iner.
+  // K24/NWD panelinde %15 (window screenBrightness 0.149) ekranı tamamen SİYAH
+  // gösteriyordu → gece/akşam fazında uygulama "kapalı" sanılıyordu (saha bulgusu
+  // 2026-06-14). Telefon ekranıyla aynı düşük taban araç paneli için uygun değil;
+  // gece sürüşünde bile okunabilir kalmalı. 40 = göz kamaştırmayan ama net taban.
+  minNight:           40,
   maxDay:             100,
   overridden:         false,
 };
