@@ -4,6 +4,8 @@ import type { AppItem } from '../../data/apps';
 import { getNativeIcon }    from '../../platform/appDiscovery';
 import { useRoleStore }     from '../../platform/roleSystem/RoleStore';
 import { openDrawer }       from '../../platform/drawerBus';
+import { useStore }         from '../../store/useStore';
+import { RuntimeMode }      from '../../core/runtime/runtimeTypes';
 
 interface Props {
   apps: AppItem[];
@@ -17,6 +19,8 @@ interface AppItemProps {
   app: AppItem;
   isFav: boolean;
   index: number;
+  /** Giriş animasyonu aktif mi? BASIC_JS/POWER_SAVE/SAFE_MODE'da kapalı (Mali-400). */
+  animate: boolean;
   onToggleFavorite: (id: string) => void;
   onLaunch: (id: string) => void;
 }
@@ -72,14 +76,14 @@ const AppIcon = memo(function AppIcon({ app }: { app: AppItem }) {
   );
 });
 
-const AppItemCard = memo(function AppItemCard({ app, isFav, index, onToggleFavorite, onLaunch }: AppItemProps) {
+const AppItemCard = memo(function AppItemCard({ app, isFav, index, animate, onToggleFavorite, onLaunch }: AppItemProps) {
   const handleLaunch   = useCallback(() => onLaunch(app.id), [app.id, onLaunch]);
   const handleFavorite = useCallback(() => onToggleFavorite(app.id), [app.id, onToggleFavorite]);
 
   return (
     <div
-      className="relative animate-slide-up"
-      style={{ animationDelay: (Math.min(index, 5) * 15) + 'ms' }}
+      className={animate ? 'relative animate-slide-up' : 'relative'}
+      style={animate ? { animationDelay: (Math.min(index, 5) * 15) + 'ms' } : undefined}
     >
       <button
         onClick={handleLaunch}
@@ -155,6 +159,12 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
   const { can } = useRoleStore();
   const isSuperAdmin = can('accessAdminPanel');
 
+  // Giriş animasyonu yalnız BALANCED ve üzeri modlarda. BASIC_JS/POWER_SAVE/
+  // SAFE_MODE (Mali-400 / zayıf HU): animate-slide-up + animationDelay hiç
+  // uygulanmaz — ikon ızgarası ilk açılışta anında, takılmadan gelir.
+  const runtimeMode = useStore((s) => s.runtimeMode);
+  const animate = runtimeMode === RuntimeMode.PERFORMANCE || runtimeMode === RuntimeMode.BALANCED;
+
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
       <div className="p-8 pb-12">
@@ -181,6 +191,7 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
               app={app}
               isFav={favorites.includes(app.id)}
               index={index}
+              animate={animate}
               onToggleFavorite={onToggleFavorite}
               onLaunch={onLaunch}
             />

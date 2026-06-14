@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { VIEWPORT_H } from '../../utils/cssCompat';
@@ -356,9 +356,15 @@ export default function MainLayout() {
   // Theater mode: nav/widget'lar gizlenir; içerik alanı serbest kalır.
   // Giriş: 400ms fade-out (görsel geçiş).
   // Çıkış: 100ms fade-in (güvenlik — araç hareket etti, arayüz anında erişilebilir).
-  const theaterHide = isTheaterActive
-    ? { opacity: 0, pointerEvents: 'none' as const, transition: 'opacity 400ms ease' }
-    : { transition: 'opacity 100ms ease' };
+  // useMemo: stil objesi yalnız isTheaterActive değişince yeniden üretilir →
+  // ses/medya gibi alakasız re-render'larda 4 tüketici (GestureZone, AddressNav,
+  // NewHomeLayout sarmalayıcısı) aynı referansı alır, gereksiz reflow olmaz.
+  const theaterHide = useMemo(
+    () => (isTheaterActive
+      ? { opacity: 0, pointerEvents: 'none' as const, transition: 'opacity 400ms ease' }
+      : { transition: 'opacity 100ms ease' }),
+    [isTheaterActive],
+  );
 
   // ── Render ────────────────────────────────────────────────
   return (
