@@ -634,8 +634,19 @@ public final class K24CanBridge {
 
     private VehicleCanData queryUri(String uriStr) {
         try {
+            // Provider HİÇ yoksa cr.query() exception fırlatmaz, null döner ama framework
+            // her çağrıda "E/ActivityThread: Failed to find provider info" loglar. Bu
+            // ROM'da olmayan authority'ler (ör. com.hiworld.canbox) her 3sn × 234 URI
+            // tekrar sorgulanıp CPU/GC/log seli yapıyordu. Authority'yi bir kez çöz;
+            // yoksa kalıcı kara listeye al (PowerVR/Allwinner zayıf cihazda kritik).
+            Uri u = Uri.parse(uriStr);
+            String auth = u.getAuthority();
+            if (auth != null && _ctx.getPackageManager().resolveContentProvider(auth, 0) == null) {
+                _blocked.add(uriStr);
+                return null;
+            }
             ContentResolver cr = _ctx.getContentResolver();
-            try (Cursor c = cr.query(Uri.parse(uriStr), null, null, null, null)) {
+            try (Cursor c = cr.query(u, null, null, null, null)) {
                 if (c == null || c.getCount() == 0) return null;
                 c.moveToFirst();
                 return extractRow(c);

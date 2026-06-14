@@ -54,8 +54,20 @@ function _probeRenderer(): string {
   }
 }
 
+/**
+ * Zayıf GPU renderer dizesi mi? — SAF predicate (regresyon testi için dışa açık).
+ * PowerVR (Imagination): head unit'lerde daima düşük-uç (ör. Allwinner ceres'in
+ * "PowerVR Rogue GE8300"u). Mali-400 gibi backdrop-filter/blur'u software composite
+ * eder → kare başına stall. Cihazda doğrulandı: PowerVR eksikti, app yüksek tier'da
+ * kalıp renderer'ı %88 CPU'da tutuyordu (%97 jank). Rogue/SGX/GE serisini kapsar.
+ * Bilinmeyen/boş/maskeli renderer → false (yanlış pozitif yok).
+ */
+export function isWeakRendererString(renderer: string): boolean {
+  const r = (renderer ?? '').toLowerCase();
+  if (!r || r === '(webgl yok)') return false; // bilinmiyor → downgrade etme
+  return /mali-?[34]\d\d|powervr|imagination|swiftshader|llvmpipe|software|videocore/.test(r);
+}
+
 function _probe(): boolean {
-  const renderer = getGpuRenderer().toLowerCase();
-  if (!renderer || renderer === '(webgl yok)') return false; // bilinmiyor → downgrade etme
-  return /mali-?[34]\d\d|swiftshader|llvmpipe|software|videocore/.test(renderer);
+  return isWeakRendererString(getGpuRenderer());
 }

@@ -105,8 +105,13 @@ export const DrawerPanel = memo(function DrawerPanel({
         </Suspense>
       </DrawerShell>
 
+      {/* TrafficPanel canlı bir MiniMapWidget (MapLibre WebGL) içerir. DrawerShell
+          çocuklarını KAPALIYKEN DE mount tutuyor (sadece translateY/opacity ile gizler)
+          → traffic drawer kapalıyken bile 2. WebGL context yaşıyordu. PowerVR/Mali-400'de
+          iki canlı harita context'i render-target'ı tüketip kasma yapıyor (DevTools profili,
+          2026-06-14). Yalnız drawer açıkken mount et → ana ekranda tek harita kalır. */}
       <DrawerShell open={drawer === 'traffic'} onClose={onClose}>
-        <TrafficPanel />
+        {drawer === 'traffic' && <TrafficPanel />}
       </DrawerShell>
 
       <DrawerShell open={drawer === 'climate'} onClose={onClose} fullscreen>

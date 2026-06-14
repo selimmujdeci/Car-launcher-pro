@@ -84,6 +84,15 @@
 /* İkon glyph'i çip rengini miras alır (monokrom → tutarlı) */
 .dock-chip svg { color: inherit; }
 
+/* İkon boyutunu --dock-icon'a bağla: DockBar.tsx lucide size={22/24} ile SABİT
+   geliyordu → çip (calc(--dock-icon + 20px)) içinde küçük kalıp boş kenarlık
+   bırakıyordu (head unit'te belirgin). CSS width/height inline attribute'u ezer.
+   Bukalemun (ChameleonScaler) bu boyutu transform ile ekrana uyarlamaya devam eder. */
+.dock-chip svg {
+  width:  var(--dock-icon, 28px) !important;
+  height: var(--dock-icon, 28px) !important;
+}
+
 /* ── Etiket — sakin, ferah ── */
 .dock-label {
   color: var(--oem-dock-ink-dim);

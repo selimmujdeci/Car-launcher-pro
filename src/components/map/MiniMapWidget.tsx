@@ -10,6 +10,7 @@ import {
   addUserMarker,
   updateUserMarker,
   destroyOwnedMap,
+  freeOrphanMapContext,
   getMapInstance,
   switchMapStyle,
   setDrivingView,
@@ -213,13 +214,12 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
         const storeInstance = getMapInstance();
         if (storeInstance !== null && storeInstance !== map) {
-          // FullMapView sahipliği devraldı — WebGL context'i yok ETME.
-          // FullMap'in initializeMap() zaten destroyMap() → _freeContext() çağırdı;
-          // canvas DOM'dan zaten ayrıldı. Burada yalnızca artık kalıntı varsa temizle.
-          try {
-            const canvas = map.getCanvas();
-            if (canvas?.parentElement) canvas.parentElement.removeChild(canvas);
-          } catch { /* already detached */ }
+          // FullMapView sahipliği devraldı → bizim harita ORPHAN. Eski varsayım
+          // "FullMap zaten _freeContext çağırdı" bu cihazda YANLIŞ: MiniMap canvas'ı
+          // + WebGL context'i DOM'da canlı kalıyordu → PowerVR'da iki context render-
+          // target'ı tüketip kasma yapıyordu (DevTools profili, 2026-06-14). Orphan
+          // context'i TAM serbest bırak (map.remove() + WEBGL_lose_context).
+          void freeOrphanMapContext(map);
         } else {
           // Biz hâlâ sahibiz veya store boş — tam yıkım
           destroyOwnedMap(map);

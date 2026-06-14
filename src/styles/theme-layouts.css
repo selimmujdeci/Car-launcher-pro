@@ -184,7 +184,7 @@
     --speedo-font:       4rem;
     --speedo-unit-font:  0.55rem;
     --header-h:          48px;
-    --dock-h:            64px;
+    --dock-h:            74px;
     --map-radius:        1.2rem;
     --pack-radius:       12px;
   }
@@ -193,7 +193,7 @@
   .speedo-unit    { font-size: 0.55rem !important; }
   .speedo-data    { font-size: 0.7rem !important; }
 
-  [data-layout-zone="dock"]   { height: 64px !important; min-height: 64px !important; }
+  [data-layout-zone="dock"]   { height: 74px !important; min-height: 74px !important; }
   [data-layout-zone="header"] { height: 48px !important; min-height: 48px !important; }
 
   .speedometer-container { padding: 0.75rem !important; }
@@ -210,12 +210,12 @@
     --speedo-font:      5rem;
     --speedo-unit-font: 0.62rem;
     --header-h:         52px;
-    --dock-h:           72px;
+    --dock-h:           88px;
     --map-radius:       1.8rem;
   }
 
   .speedo-value   { font-size: 5rem !important; }
-  [data-layout-zone="dock"]   { height: 72px !important; min-height: 72px !important; }
+  [data-layout-zone="dock"]   { height: 88px !important; min-height: 88px !important; }
   [data-layout-zone="header"] { height: 52px !important; min-height: 52px !important; }
   .speedometer-container { padding: 1rem !important; }
 }
@@ -226,10 +226,10 @@
     --speedo-w:     17rem;
     --speedo-font:  5.5rem;
     --header-h:     56px;
-    --dock-h:       80px;
+    --dock-h:       96px;
   }
 
-  [data-layout-zone="dock"]   { height: 80px !important; min-height: 80px !important; }
+  [data-layout-zone="dock"]   { height: 96px !important; min-height: 96px !important; }
   [data-layout-zone="header"] { height: 56px !important; min-height: 56px !important; }
 }
 

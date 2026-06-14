@@ -429,8 +429,23 @@ export function destroyOwnedMap(instance: MapLibreMap): void {
   if (useMapStore.getState().mapInstance === instance) {
     destroyMap();
   } else {
-    try { instance.remove(); } catch { /* already removed */ }
+    // Store'a ait değil → orphan. Sadece remove() GPU slotunu (WebGL context)
+    // SERBEST BIRAKMAZ; loseContext şart (aşağıdaki freeOrphanMapContext).
+    void freeOrphanMapContext(instance);
   }
+}
+
+/**
+ * Store'a ait OLMAYAN (orphan) bir harita instance'ının WebGL context'ini TAM
+ * serbest bırak (map.remove() + WEBGL_lose_context). MiniMap↔FullMap devir-teslimi
+ * sırasında MiniMap'in context'i orphan kalıp serbest bırakılmıyordu → PowerVR/
+ * Mali-400'de iki canlı WebGL context render-target'ı tüketip context lost/restore
+ * döngüsüne (kasma, ~8fps) sokuyordu. Cihazda DevTools profiliyle doğrulandı (2026-06-14).
+ * Aktif singleton'a DOKUNMAZ (yanlışlıkla canlı haritayı öldürmez).
+ */
+export function freeOrphanMapContext(instance: MapLibreMap): Promise<void> {
+  if (useMapStore.getState().mapInstance === instance) return Promise.resolve();
+  return _freeContext(instance);
 }
 
 /**

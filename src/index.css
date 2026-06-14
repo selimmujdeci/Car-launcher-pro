@@ -101,20 +101,22 @@ html.rt-no-shadow * {
   --bg-card2:      rgba(24,24,28,0.90);
 
   /* ── Dynamic Driver-Centric Dock ── */
-  --dock-h:        72px;
-  --dock-icon:     28px;
-  --dock-font:     11px;
-  --dock-gap:      8px;
-  --dock-tile-w:   64px;
+  /* Boyutlar bilinçli büyütüldü: head unit'te dock fazla küçük kalıyordu.
+     Bukalemun (ChameleonScaler) bu tasarım boyutlarını ekran başına ölçekler. */
+  --dock-h:        84px;
+  --dock-icon:     32px;
+  --dock-font:     13px;
+  --dock-gap:      9px;
+  --dock-tile-w:   74px;
 }
 
 @media (min-width: 1024px) {
   :root {
-    --dock-h:      88px;
-    --dock-icon:   36px;
-    --dock-font:   13px;
-    --dock-gap:    12px;
-    --dock-tile-w: 72px;
+    --dock-h:      98px;
+    --dock-icon:   38px;
+    --dock-font:   14px;
+    --dock-gap:    14px;
+    --dock-tile-w: 84px;
   }
 }
 

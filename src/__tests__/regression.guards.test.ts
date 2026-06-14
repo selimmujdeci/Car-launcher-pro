@@ -404,3 +404,31 @@ describe('Auto-brightness GPS-fix timing kilidi', () => {
     expect(src).toMatch(/export function updateAutoBrightnessLocation[\s\S]{0,120}if\s*\(_state\.enabled\)/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   7. ZAYIF GPU TESPİTİ — PowerVR/Imagination kapsanır
+   Regresyon (cihazda doğrulandı 2026-06-14): K24 head unit GPU'su
+   "PowerVR Rogue GE8300" (Allwinner ceres). detectWeakGpu regex'i yalnız
+   Mali-400/software/videocore tanıyordu → PowerVR yüksek tier'da kalıp
+   blur/animasyonları açıyor, WebView renderer'ı %88 CPU + %97 jank yapıyordu.
+   Kilit: PowerVR sınıfı renderer zayıf sayılmalı; güçlü GPU'lar sayılmamalı.
+   ─────────────────────────────────────────────────────────────── */
+describe('Zayıf GPU tespiti kilidi (PowerVR/Imagination kapsanır)', () => {
+  it('ZAYIF: PowerVR Rogue GE8300, Mali-400 sınıfı, software → true', async () => {
+    const { isWeakRendererString } = await import('../utils/detectWeakGpu');
+    expect(isWeakRendererString('Imagination Technologies, PowerVR Rogue GE8300')).toBe(true);
+    expect(isWeakRendererString('Mali-400 MP')).toBe(true);
+    expect(isWeakRendererString('Mali-450')).toBe(true);
+    expect(isWeakRendererString('Google SwiftShader')).toBe(true);
+    expect(isWeakRendererString('llvmpipe (LLVM 12)')).toBe(true);
+    expect(isWeakRendererString('VideoCore IV HW')).toBe(true);
+  });
+  it('GÜÇLÜ/BİLİNMEYEN: Adreno, Mali-G, Apple, boş/maskeli → false (yanlış pozitif yok)', async () => {
+    const { isWeakRendererString } = await import('../utils/detectWeakGpu');
+    expect(isWeakRendererString('Adreno (TM) 640')).toBe(false);
+    expect(isWeakRendererString('Mali-G78 MP14')).toBe(false);   // G serisi güçlü, [34]\d\d değil
+    expect(isWeakRendererString('Apple GPU')).toBe(false);
+    expect(isWeakRendererString('')).toBe(false);                // maskeli renderer
+    expect(isWeakRendererString('(WebGL yok)')).toBe(false);     // WebGL yok
+  });
+});

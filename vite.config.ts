@@ -72,6 +72,47 @@ function flattenCssLayers(): Plugin {
   };
 }
 
+/**
+ * fixLegacyModernDetection — Chrome 101 WebView uyumluluk fix (KRİTİK perf)
+ *
+ * @vitejs/plugin-legacy@8 modern-tarayıcı tespit script'ine `import.meta.resolve`
+ * probe'u ekledi (Chrome 105+ özelliği). Head unit WebView'ı Chrome 101 →
+ * probe exception atıyor → __vite_is_modern_browser set EDİLMİYOR → app ağır
+ * legacy ES5/SystemJS bundle'a düşüyor (cihazda 9.7sn UI freeze + SAFE_MODE).
+ * Modern bundle target'ı es2015 → Chrome 101 zaten sorunsuz çalıştırır; sorun
+ * yalnızca aşırı-katı tespit. Bu plugin HTML'den SADECE import.meta.resolve
+ * probe'unu çıkarır; kalan testler (import.meta.url / dynamic import / async
+ * generator) korunur → gerçek eski tarayıcılar yine legacy'ye düşer.
+ */
+function fixLegacyModernDetection(): Plugin {
+  // (1) HTML tespit script'indeki probe:  import'data:...,if(!import.meta.resolve)throw...'
+  const HTML_PROBE = /import'data:text\/javascript,if\(!import\.meta\.resolve\)throw Error\("import\.meta\.resolve not supported"\)';/g;
+  // (2) Modern chunk başına enjekte edilen __vite_legacy_guard'ın probe satırı:
+  //     import'data:...,"assets/<file>";if(!import.meta.resolve)throw...'
+  const CHUNK_PROBE = /import'data:text\/javascript,"[^"]*";if\(!import\.meta\.resolve\)throw Error\("import\.meta\.resolve not supported"\)';/g;
+  return {
+    name: 'fix-legacy-modern-detection',
+    // 'post' + dizide legacy()'den SONRA → plugin-legacy tespit script'ini
+    // enjekte ETTİKTEN sonra çalışır, HTML probe'unu çıkarır.
+    transformIndexHtml: {
+      order: 'post',
+      handler(html: string) {
+        return html.replace(HTML_PROBE, '');
+      },
+    },
+    // Modern entry chunk'ına prepend edilen import.meta.resolve guard'ını sil.
+    // Kalan __vite_legacy_guard (import.meta.url / dynamic import / async gen)
+    // Chrome 101'de zaten destekli → dokunma.
+    generateBundle(_opts, bundle) {
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type === 'chunk') {
+          chunk.code = chunk.code.replace(CHUNK_PROBE, '');
+        }
+      }
+    },
+  };
+}
+
 function removeLayers(css: string): string {
   let result = '';
   let i = 0;
@@ -157,9 +198,16 @@ export default defineConfig({
       renderModernChunks: true,
       polyfills: true,
     }),
+    fixLegacyModernDetection(), // legacy()'den SONRA: enjekte edilen probe'u çıkarır
   ],
   build: {
     target: 'es2015',
+    // Vite 8 modulepreload helper'ı `import.meta.resolve` (Chrome 105+) üretiyor →
+    // Chrome 101 head unit WebView'da modern bundle bootstrap'ta çöküp ağır legacy'ye
+    // düşüyordu (9.7sn freeze + SAFE_MODE). Tek-WebView yerel asset'te preload kazancı
+    // ihmal edilebilir; kapatınca import.meta.resolve hiç emit edilmez → modern bundle
+    // Chrome 101'de native çalışır. (Detection script probe'u da fixLegacyModernDetection ile silinir.)
+    modulePreload: false,
     cssTarget: 'chrome61', // Chrome 74 support
     minify: 'terser',
     terserOptions: {
