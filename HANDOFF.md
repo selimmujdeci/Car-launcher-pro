@@ -1,7 +1,41 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-14. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `44c6372`, push EDİLMEDİ; ana hedef `main`).
+> Son güncelleme: 2026-06-14. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `03c5627`, push EDİLMEDİ; ana hedef `main`).
+
+---
+
+## 0. ⚡ EN GÜNCEL DEVİR (2026-06-14 akşam — canlı cihaz oturumu, agent değişimi)
+
+**Cihaz:** K24/NWD (K2401, ceres_b3), araç içinde, ADB AĞ üzerinden bağlanıyor.
+- adb yolu: `C:\Users\selim\AppData\Local\Android\Sdk\platform-tools\adb.exe`
+- Bağlan: `adb connect 10.185.22.216:5555` (aynı WiFi; cihaz uyursa/ACC düşerse düşer, tekrar bağlan).
+- IP değişebilir → cihazda Ayarlar > Cihaz hakkında > IP. WiFi MAC 88:00:33:77:d1:d5.
+- Gerçek Android 10 (ekranda "15" maskeli). ABI armeabi-v7a (32-bit).
+- **APK build:** `gradlew` PATH'te yok + JAVA_HOME yok. Şöyle derle:
+  `$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"; $env:PATH="$env:JAVA_HOME\bin;$env:PATH"; cd android; .\gradlew.bat assembleDebug`
+  APK çıktısı: `C:\Temp\carlauncher\app\build\outputs\apk\debug\app-debug.apk` (buildDir C:\Temp'e yönlü, path-uzunluğu için).
+  Kur: `adb -s 10.185.22.216:5555 install -r <apk>`. (Native-only değişiklikte cap sync gerekmez; web değişirse `npm run build && npx cap sync android` önce.)
+
+**Bu oturumda BİTEN (commit'li):**
+1. ✅ **Siyah ekran (parlaklık)** `2720346` — `autoBrightnessService.ts` `minNight` 15→40. Cihazda doğrulandı (sbrt 0.149→0.4). Regresyon kilidi var.
+2. ✅ **OBD/CAN bağlantısı** `57fbe77` + teşhis `03c5627` — `NwdCanClient.java` yazıldı, CarLauncherPlugin'e wire (startCanBus/setCanSnifferEnabled). NWD resmî outer CAN SDK'ya BAĞLANIYOR: bind ACTION_CAN_SERVICE → initSdkCfg("nwdthirdapp","d39df3d908cf7136227987e37d5b2c7d",(byte)0,...) → addCarInfoCallBack(tx17)+addCanCarInfoCallBack(tx27)+addCallBack4Outerface(tx3). HEPSİ BAŞARILI.
+
+**OBD'de KALDIĞIMIZ NOKTA (açık iş #1 — devam):**
+- `onDistributeCarInfo` (callback kod 2) **kayıt anında 1 KEZ** tetiklendi (snapshot): `hız=0 devir=-1 yakıt=-1 soğutma=0 vites=0 kapı=0 acc=0 elFreni=-1 far=1`. Yani link + initSucess + parse ÇALIŞIYOR.
+- **AMA canlı güncelleme YOK:** kapı/far/gaz uyaranlarıyla 14-20sn boyunca ne yeni CarInfo ne ham veri geldi → `distribution([B])` (protokol yöneticisi ham CAN beslemesi) bu araç protokolü için çağrılmıyor.
+- Snapshot değerleri şüpheli (acc=0 motor açıkken; çoğu -1) → ya bayat snapshot ya bu protokol o sinyalleri decode etmiyor ya parcel hizalama kayması (kapı aç/kapa ile `kapı=` değişmeli — TEST EDİLEMEDİ, kullanıcı yapamadı).
+- **▶ KULLANICIYA SORULACAK (kaldığımız tam soru):** OEM kendi ekranında (CanSetting `com.nwd.can.setting` MainActivity / MyCar) CANLI veri var mı + araç modeli SEÇİLİ mi?
+  - OEM canlı gösteriyorsa → protokol aktif ama ROM dış-SDK'ya akıtmıyor → DENE: (a) periyodik unregister+register ile snapshot poll (mCarInfo cache taze mi?); (b) `distribution([B])` çağıranlarını incele (tools/can-re), bu aracın protokol yöneticisi besliyor mu.
+  - OEM de boş / araç seçili değil → önce CanSetting'den doğru araç (FIAT Doblo) seçtir → sonra tekrar dene.
+- **Teşhis logları GEÇİCİ** (NwdCanClient'ta `_lastCbLogMs`, `_outerCb` ham probe, parseCarInfo CarInfo logu) — çözülünce KALDIR.
+- Tam teknik referans: `K24_CAN_OBD_FINDINGS.md` (transaction kodları, CarInfo 142-alan parcel sırası, kimlik, descriptor'lar). RE artefaktları `tools/can-re/` (gitignore'da; CanAllInOne.apk + dexdump çıktıları + carinfo_parcel_order.txt).
+
+**ROTASYON (açık iş #2 — yarım):**
+- `8e2f84b` — MainActivity'de WebView native 90° rotasyon (sh>sw iken landscape boyut + setRotation(90)). Layout LANDSCAPE oldu AMA hâlâ 90° YAN duruyor (kullanıcı "yatay oldu düzelt" dedi).
+- Donanım framebuffer'ı panele 90° basıyor; setRotation(90) yön YANLIŞ olabilir. **▶ DENE: setRotation(90)→setRotation(270)** (MainActivity.applyHeadUnitLandscapeRotation), derle/kur, ekrana bak. 270 de yanlışsa 180/0 dene. Android nav bar fiziksel SOLDA görünüyor (framebuffer-bottom→sol). Gözle iterasyon şart (screencap yanıltıcı — framebuffer'ı verir).
+
+**Küçük not:** `capacitor.config.ts` `webContentsDebuggingEnabled:true`+`loggingBehavior:'debug'` teşhis için açık → paylaşım/prod APK öncesi isDev'e al.
 
 ---
 
