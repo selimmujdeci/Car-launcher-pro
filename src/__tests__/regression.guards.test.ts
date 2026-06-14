@@ -418,6 +418,28 @@ describe('Auto-brightness GPS-fix timing kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   8. HEAD UNIT YATAY ROTASYON — native WebView 90° fix
+   Regresyon (saha 2026-06-14, K24/NWD): panel fiziksel YATAY ama Android
+   display'i 720x1280 DİKEY raporluyor + OEM manifest sensorLandscape'i
+   YOKSAYIYOR (sistem kilidi). Sonuç: UI ekranda 90° yan + "Telefonu Yatay
+   Tutun" uyarısı. Çözüm MainActivity'de WebView'i landscape boyutlandırıp
+   native 90° döndürmek (JS innerWidth>innerHeight görür → uyarı çıkmaz,
+   dokunma View transform ile eşlenir). Bu fix silinirse cihazda ekran yine
+   yan döner → yapısal kilit.
+   ─────────────────────────────────────────────────────────────── */
+describe('Head unit yatay rotasyon kilidi (native WebView 90°)', () => {
+  it('YAPISAL: MainActivity dikey-yüzeyde WebView\'i 90° döndürür', () => {
+    const src = read('android/app/src/main/java/com/cockpitos/pro/MainActivity.java');
+    // Rotasyon metodu çağrılıyor
+    expect(src).toMatch(/applyHeadUnitLandscapeRotation\s*\(\s*\)\s*;/);
+    // Yalnızca display dikey raporladığında (sh > sw) devreye girer
+    expect(src).toMatch(/if\s*\(\s*sh\s*<=\s*sw\s*\)\s*return\s*;/);
+    // WebView gerçekten döndürülüyor
+    expect(src).toMatch(/setRotation\s*\(\s*90f?\s*\)/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    7. ZAYIF GPU TESPİTİ — PowerVR/Imagination kapsanır
    Regresyon (cihazda doğrulandı 2026-06-14): K24 head unit GPU'su
    "PowerVR Rogue GE8300" (Allwinner ceres). detectWeakGpu regex'i yalnız

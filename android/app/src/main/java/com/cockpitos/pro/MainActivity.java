@@ -127,6 +127,66 @@ public class MainActivity extends BridgeActivity {
 
         // ── ANR Watchdog başlat ──
         startAnrWatchdog();
+
+        // ── Head unit yatay rotasyon düzeltmesi ──
+        // K24/NWD paneli fiziksel YATAY ama Android display'i 720x1280 DİKEY raporluyor
+        // ve OEM manifest screenOrientation'ı (sensorLandscape) YOKSAYIYOR (sistem kilidi).
+        // Sonuç: landscape-tasarımlı UI dikey yüzeye sıkışıp ekranda 90° yan görünüyor +
+        // "Telefonu Yatay Tutun" uyarısı çıkıyor. Çözüm: WebView'i landscape (h×w) boyutta
+        // layout edip 90° CW döndür → WebView iç viewport'u 1280x720 olur, app doğal yatay
+        // render eder (JS innerWidth>innerHeight → uyarı çıkmaz), dokunma View transform ile
+        // otomatik eşlenir. (Saha doğrulaması 2026-06-14: framebuffer panele 90° CCW basılıyor.)
+        applyHeadUnitLandscapeRotation();
+    }
+
+    /** Rotasyon bir kez uygulandı mı (gereksiz tekrar layout önler). */
+    private boolean huRotationApplied = false;
+
+    /**
+     * WebView'i fiziksel yatay panele oturtmak için native 90° döndürür.
+     * Yalnızca display DİKEY raporladığında (heightPixels > widthPixels) devreye girer;
+     * gerçekten yatay raporlayan cihazlara DOKUNMAZ. Hata olursa sessizce geçer
+     * (uygulama döndürülmemiş haliyle yine çalışır — fail-soft).
+     */
+    private void applyHeadUnitLandscapeRotation() {
+        try {
+            if (huRotationApplied || getBridge() == null) return;
+            final android.webkit.WebView wv = getBridge().getWebView();
+            if (wv == null) return;
+            wv.post(() -> {
+                try {
+                    android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                    final int sw = dm.widthPixels;   // dikey yüzey: ~720
+                    final int sh = dm.heightPixels;  // dikey yüzey: ~1280
+                    if (sh <= sw) return;            // panel zaten yatay → dokunma
+
+                    // Parent clip'i kapat — döndürmeden önce layout sınırları ekran dışına taşar
+                    if (wv.getParent() instanceof android.view.ViewGroup) {
+                        ((android.view.ViewGroup) wv.getParent()).setClipChildren(false);
+                    }
+
+                    // WebView'i YATAY boyutta layout et → iç viewport landscape (1280x720)
+                    android.view.ViewGroup.LayoutParams lp = wv.getLayoutParams();
+                    lp.width  = sh;  // 1280
+                    lp.height = sw;  // 720
+                    wv.setLayoutParams(lp);
+
+                    // Merkezi ekran merkezine hizala + 90° saat yönü (donanım CCW'sini iptal)
+                    wv.setPivotX(sh / 2f);
+                    wv.setPivotY(sw / 2f);
+                    wv.setTranslationX((sw - sh) / 2f);  // (720-1280)/2 = -280
+                    wv.setTranslationY((sh - sw) / 2f);  // (1280-720)/2 = +280
+                    wv.setRotation(90f);
+
+                    huRotationApplied = true;
+                    Log.i(TAG, "HU landscape rotation uygulandı: viewport=" + sh + "x" + sw + " rot=90");
+                } catch (Throwable t) {
+                    Log.e(TAG, "HU rotation hata: " + t.getMessage());
+                }
+            });
+        } catch (Throwable ignored) {
+            // fail-soft: rotasyon uygulanamazsa app döndürülmemiş çalışır
+        }
     }
 
     /**
