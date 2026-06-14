@@ -376,3 +376,31 @@ describe('Reroute sahte-tetik önlemi kilidi', () => {
     expect(src).toMatch(/_deviationCounter\s*>=\s*3/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   6. AUTO-BRIGHTNESS — GPS fix timing
+   Regresyon (0484a4d): açılışta GPS fix yokken autoBrightness başlatma
+   effect'i else-dalıyla servisi kapatıyordu; fix sonradan gelince effect
+   (deps'inde location yok) tekrar tetiklenmediği için otomatik parlaklık +
+   otomatik gece/gündüz teması o oturum boyunca HİÇ başlamıyordu. Head unit'te
+   fix gecikmesi yaygın → sık yaşanan sessiz arıza.
+   ─────────────────────────────────────────────────────────────── */
+describe('Auto-brightness GPS-fix timing kilidi', () => {
+  it('YAPISAL: başlatma effect\'i GPS fix VARLIĞINI (hasGpsFix) deps olarak izler', () => {
+    const src = read('src/hooks/useLayoutServices.ts');
+    // Fix varlığı türetilir (koordinat değil → her tick restart yok)
+    expect(src).toMatch(/const hasGpsFix\s*=\s*location\?\.latitude\s*!=\s*null/);
+    // ve autoBrightness start/stop effect deps'inde yer alır
+    expect(src).toMatch(/settings\.autoThemeEnabled,\s*hasGpsFix\s*\]/);
+  });
+
+  it('YAPISAL: updateAutoBrightnessLocation start şartına bağlı (servis kapalıyken no-op)', () => {
+    // Bug'ın diğer yarısı: konum-update tek başına servisi başlatamamalı; aksi halde
+    // yapısal deps kilidi gevşetilse bile sessizce "çalışıyor" sanılırdı. _state.enabled
+    // guard'ı update'in start'ı ikame etmesini engeller → effect'in fix'te start
+    // çağırması zorunlu kalır. (Davranış importu jsdom side-effect'i nedeniyle kaynak
+    // değişmezi olarak kilitlendi.)
+    const src = read('src/platform/autoBrightnessService.ts');
+    expect(src).toMatch(/export function updateAutoBrightnessLocation[\s\S]{0,120}if\s*\(_state\.enabled\)/);
+  });
+});
