@@ -48,11 +48,16 @@ public final class NwdCanClient {
     // listeye ekler → distribution onu kullanmaz. İkisini de kaydet (güvenli).
     private static final int TX_ADD_CARINFO_CB        = 17;  // addCarInfoCallBack — GERÇEK dağıtım yolu
     private static final int TX_ADD_CAN_CARINFO_CB    = 27;  // addCanCarInfoCallBack (yedek)
+    private static final int TX_ADD_CANDATA_CB        = 23;  // addCanDataCallBack(ICanRemoteModelCallback) — HAM CAN [B] akışı
     private static final int TX_ADD_CALLBACK4OUTER    = 3;   // addCallBack4Outerface(ICanRemote4OuterCallback) — ham veri
+    // ICanRemoteModelCallback kodları: 1=onDistributeCanData([B]), 2=onDistributeCarInfo, 3=AmpState, 4=Tpms
+    private static final int TX_ON_DISTRIBUTE_CANDATA = 1;   // callback: onDistributeCanData(byte[])
     private static final int TX_ON_DISTRIBUTE_CARINFO = 2;   // callback: onDistributeCarInfo(CarInfo)
     // ICanRemote4OuterCallback kodları: 1=onDistributeRawData, 2=onDistributeCanData
 
     // Üçüncü-taraf erişim kimliği (servis doğruluyor → initSucess)
+    // NOT (2026-06-14 saha): nwdapp (OEM) kimliği de denendi — sonuç AYNI (sporadik stub
+    // snapshot, canlı akış yok). Yani sorun kimlik değil; ROM outer SDK'ya canlı telemetri vermiyor.
     private static final String APP_NAME    = "nwdthirdapp";
     private static final String APP_SECRETS = "d39df3d908cf7136227987e37d5b2c7d";
     private static final byte   APP_PARAM_JOIN = 0;
@@ -94,6 +99,18 @@ public final class NwdCanClient {
                 if (reply != null) reply.writeNoException();
                 return true;
             }
+            if (code == TX_ON_DISTRIBUTE_CANDATA) {
+                // GEÇİCİ TEŞHİS: ham CAN frame akışı — Hiworld bu yoldan veri veriyor mu?
+                try {
+                    data.enforceInterface(DESC_CALLBACK);
+                    byte[] frame = data.createByteArray();   // [B] doğrudan (null=boş)
+                    logRawFrame(frame);
+                } catch (Throwable t) {
+                    diag("onDistributeCanData parse hatası: " + t.getMessage());
+                }
+                if (reply != null) reply.writeNoException();
+                return true;
+            }
             return super.onTransact(code, data, reply, flags);
         }
     };
@@ -130,8 +147,9 @@ public final class NwdCanClient {
             if (initSdkCfg()) {
                 boolean a = registerCallback(TX_ADD_CARINFO_CB, "addCarInfoCallBack");
                 boolean b = registerCallback(TX_ADD_CAN_CARINFO_CB, "addCanCarInfoCallBack");
+                boolean c = registerCallback(TX_ADD_CANDATA_CB, "addCanDataCallBack");  // ham [B] akışı
                 registerOuterCallback();
-                if (a || b) diag("NWD CAN SDK init+callback OK — CarInfo akışı bekleniyor");
+                if (a || b || c) diag("NWD CAN SDK init+callback OK — CarInfo/HAM akışı bekleniyor");
             }
         }
         @Override public void onServiceDisconnected(ComponentName name) {
@@ -357,6 +375,24 @@ public final class NwdCanClient {
 
         DecodedListener cb = _listener;
         if (cb != null && _started) cb.onData(out);
+    }
+
+    // GEÇİCİ TEŞHİS: ham CAN frame sayacı + hex log (her ~800ms, ilk 24 byte)
+    private long _lastRawFrameLogMs = 0;
+    private int  _rawFrameCount = 0;
+    private void logRawFrame(byte[] frame) {
+        _rawFrameCount++;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - _lastRawFrameLogMs < 800L) return;
+        _lastRawFrameLogMs = now;
+        int len = (frame == null) ? -1 : frame.length;
+        StringBuilder hex = new StringBuilder();
+        if (frame != null) {
+            int n = Math.min(frame.length, 24);
+            for (int i = 0; i < n; i++) hex.append(String.format("%02X ", frame[i]));
+            if (frame.length > 24) hex.append("…");
+        }
+        diag("HAM CAN frame #" + _rawFrameCount + " len=" + len + " hex=[" + hex.toString().trim() + "]");
     }
 
     private long _lastDiagMs = 0;

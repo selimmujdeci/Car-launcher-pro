@@ -128,14 +128,12 @@ public class MainActivity extends BridgeActivity {
         // ── ANR Watchdog başlat ──
         startAnrWatchdog();
 
-        // ── Head unit yatay rotasyon düzeltmesi ──
-        // K24/NWD paneli fiziksel YATAY ama Android display'i 720x1280 DİKEY raporluyor
-        // ve OEM manifest screenOrientation'ı (sensorLandscape) YOKSAYIYOR (sistem kilidi).
-        // Sonuç: landscape-tasarımlı UI dikey yüzeye sıkışıp ekranda 90° yan görünüyor +
-        // "Telefonu Yatay Tutun" uyarısı çıkıyor. Çözüm: WebView'i landscape (h×w) boyutta
-        // layout edip 90° CW döndür → WebView iç viewport'u 1280x720 olur, app doğal yatay
-        // render eder (JS innerWidth>innerHeight → uyarı çıkmaz), dokunma View transform ile
-        // otomatik eşlenir. (Saha doğrulaması 2026-06-14: framebuffer panele 90° CCW basılıyor.)
+        // ── Head unit yatay rotasyon kilidi ──
+        // K24/NWD paneli fiziksel YATAY ama Android display'i 720x1280 DİKEY raporluyor ve
+        // OEM manifest screenOrientation'ı (sensorLandscape) YOKSAYIYOR. ROM her boot'ta
+        // otomatik-döndürmeyi sıfırlıyor → app açılışta sistem rotasyonunu YATAY'a kendisi kilitler.
+        // (Saha doğrulaması 2026-06-14: accelerometer_rotation=0 + user_rotation=90 ile CarOS Pro
+        // düz yatay görünüyor — kullanıcı teyit etti. Eski WebView setRotation hack'i kaldırıldı.)
         applyHeadUnitLandscapeRotation();
     }
 
@@ -150,42 +148,34 @@ public class MainActivity extends BridgeActivity {
      */
     private void applyHeadUnitLandscapeRotation() {
         try {
-            if (huRotationApplied || getBridge() == null) return;
-            final android.webkit.WebView wv = getBridge().getWebView();
-            if (wv == null) return;
-            wv.post(() -> {
-                try {
-                    android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-                    final int sw = dm.widthPixels;   // dikey yüzey: ~720
-                    final int sh = dm.heightPixels;  // dikey yüzey: ~1280
-                    if (sh <= sw) return;            // panel zaten yatay → dokunma
+            if (huRotationApplied) return;
+            // Sadece NWD head unit panelinde (fiziksel yatay, Android dikey raporluyor).
+            // ro.boot.nwd.orientation=90 → panel döndürülmüş. Normal telefon/tablette boş → DOKUNMA.
+            String nwdOri = getSystemProp("ro.boot.nwd.orientation");
+            if (nwdOri == null || nwdOri.isEmpty() || "0".equals(nwdOri)) return;
 
-                    // Parent clip'i kapat — döndürmeden önce layout sınırları ekran dışına taşar
-                    if (wv.getParent() instanceof android.view.ViewGroup) {
-                        ((android.view.ViewGroup) wv.getParent()).setClipChildren(false);
-                    }
+            if (!Settings.System.canWrite(this)) {
+                Log.w(TAG, "HU rotation: WRITE_SETTINGS izni yok — sistem rotasyonu kilitlenemiyor");
+                return;
+            }
+            // Otomatik döndürmeyi kapat + kullanıcı rotasyonunu YATAY (90°) sabitle.
+            Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 0);
+            Settings.System.putInt(getContentResolver(), Settings.System.USER_ROTATION, android.view.Surface.ROTATION_90);
+            huRotationApplied = true;
+            Log.i(TAG, "HU rotation: sistem yatay kilitlendi (accel=0, user_rotation=90, nwdOri=" + nwdOri + ")");
+        } catch (Throwable t) {
+            // fail-soft: kilitlenemezse app yine çalışır
+            Log.e(TAG, "HU rotation hata: " + t.getMessage());
+        }
+    }
 
-                    // WebView'i YATAY boyutta layout et → iç viewport landscape (1280x720)
-                    android.view.ViewGroup.LayoutParams lp = wv.getLayoutParams();
-                    lp.width  = sh;  // 1280
-                    lp.height = sw;  // 720
-                    wv.setLayoutParams(lp);
-
-                    // Merkezi ekran merkezine hizala + 90° saat yönü (donanım CCW'sini iptal)
-                    wv.setPivotX(sh / 2f);
-                    wv.setPivotY(sw / 2f);
-                    wv.setTranslationX((sw - sh) / 2f);  // (720-1280)/2 = -280
-                    wv.setTranslationY((sh - sw) / 2f);  // (1280-720)/2 = +280
-                    wv.setRotation(90f);
-
-                    huRotationApplied = true;
-                    Log.i(TAG, "HU landscape rotation uygulandı: viewport=" + sh + "x" + sw + " rot=90");
-                } catch (Throwable t) {
-                    Log.e(TAG, "HU rotation hata: " + t.getMessage());
-                }
-            });
-        } catch (Throwable ignored) {
-            // fail-soft: rotasyon uygulanamazsa app döndürülmemiş çalışır
+    /** SystemProperties.get — head unit tespiti için (reflection, gizli API). */
+    private String getSystemProp(String key) {
+        try {
+            Class<?> sp = Class.forName("android.os.SystemProperties");
+            return (String) sp.getMethod("get", String.class, String.class).invoke(null, key, "");
+        } catch (Throwable t) {
+            return "";
         }
     }
 
