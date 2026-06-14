@@ -295,6 +295,15 @@ export function useLayoutServices({
   }, [location?.latitude]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto brightness start/stop
+  // TIMING FIX: GPS fix'in VARLIĞI (hasGpsFix) deps'e dahil edildi. Önceden deps yalnız
+  // [autoBrightnessEnabled, autoThemeEnabled] idi; açılışta fix yokken (garaj/soğuk
+  // başlangıç) else dalı stopAutoBrightness çağırıp _state.enabled=false yapıyordu. Fix
+  // sonradan gelince (head unit'te yaygın) bu effect tekrar tetiklenmediğinden
+  // startAutoBrightness HİÇ çağrılmıyor, updateAutoBrightnessLocation da _state.enabled
+  // false olduğu için no-op kalıyordu → otomatik parlaklık/gece-gündüz teması o oturum
+  // boyunca çalışmıyordu. Koordinat değil yalnız fix-varlığı (boolean) izlenir → her GPS
+  // tick'inde gereksiz restart olmaz (koordinat güncellemesi ayrı effect'te yapılır).
+  const hasGpsFix = location?.latitude != null;
   useEffect(() => {
     if (settings.autoBrightnessEnabled && location?.latitude) {
       startAutoBrightness({
@@ -305,7 +314,7 @@ export function useLayoutServices({
       stopAutoBrightness();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.autoBrightnessEnabled, settings.autoThemeEnabled]);
+  }, [settings.autoBrightnessEnabled, settings.autoThemeEnabled, hasGpsFix]);
 
   // Auto brightness location update
   useEffect(() => {
