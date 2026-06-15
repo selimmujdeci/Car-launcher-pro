@@ -2964,6 +2964,9 @@ public class CarLauncherPlugin extends Plugin {
     // Bu ROM'da GERÇEK veri yolu budur (kör K24CanBridge bu ROM'da veri üretmez).
     private final com.cockpitos.pro.can.NwdCanClient nwdCanClient =
         new com.cockpitos.pro.can.NwdCanClient();
+    // NWD gövde sinyalleri — OEM 'system' ayar tablosu (kapı/elfreni/gerivites; root yok).
+    private final com.cockpitos.pro.can.NwdSettingsReader nwdSettingsReader =
+        new com.cockpitos.pro.can.NwdSettingsReader();
     private final com.cockpitos.pro.can.NwdCanClient.DecodedListener _nwdDataListener =
         this::emitVehicleData;
     private final com.cockpitos.pro.can.NwdCanClient.DiagListener _nwdDiagListener = (msg) -> {
@@ -3120,6 +3123,9 @@ public class CarLauncherPlugin extends Plugin {
         k24CanBridge.start(_k24DataListener, _k24DiagListener, getContext());
         // NWD resmî CAN SDK — bu ROM'da gerçek CarInfo akışını sağlar.
         nwdCanClient.start(_nwdDataListener, _nwdDiagListener, getContext());
+        // NWD gövde sinyalleri — OEM 'system' ayar tablosundan (kapı/elfreni/gerivites).
+        // CarInfo akışı sporadik olduğundan bu kanal anlık+güvenilir (ContentObserver).
+        nwdSettingsReader.start(_nwdDataListener, getContext());
         startMcuSnifferOnce();
         // 3s sonra bağlantı durumunu JS'e bildir (transport connect denemesi için süre)
         new Handler(Looper.getMainLooper()).postDelayed(this::emitCanStatus, 3_000);
@@ -3131,6 +3137,7 @@ public class CarLauncherPlugin extends Plugin {
         canBusManager.stop();
         k24CanBridge.stop();
         nwdCanClient.stop();
+        nwdSettingsReader.stop();
         if (mcuEventSniffer != null) {
             mcuEventSniffer.stop();
             // Ölü instance yeniden kullanılmasın → sonraki startMcuSnifferOnce taze

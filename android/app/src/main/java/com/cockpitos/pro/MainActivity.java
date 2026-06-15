@@ -135,10 +135,47 @@ public class MainActivity extends BridgeActivity {
         // (Saha doğrulaması 2026-06-14: accelerometer_rotation=0 + user_rotation=90 ile CarOS Pro
         // düz yatay görünüyor — kullanıcı teyit etti. Eski WebView setRotation hack'i kaldırıldı.)
         applyHeadUnitLandscapeRotation();
+
+        // ── NWD CAN bilgi yönlendirmesi (canlı CarInfo akışı bize gelsin) ──
+        // NWD CanService tam CarInfo'yu (hız vb.) yalnız `can_send_info_package_name`'deki
+        // pakete sürekli push eder (default OEM launcher). CarOS Pro launcher olduğundan
+        // kendini bu pakete yazar → NwdCanClient sürekli canlı CarInfo alır.
+        // (Saha doğrulaması 2026-06-15: bu ayar bizi gösterince app'e canlı hız aktı.)
+        applyCanInfoRouting();
     }
 
     /** Rotasyon bir kez uygulandı mı (gereksiz tekrar layout önler). */
     private boolean huRotationApplied = false;
+    /** CAN yönlendirmesi bir kez uygulandı mı. */
+    private boolean canRoutingApplied = false;
+
+    /**
+     * NWD head unit'te kendimizi `can_send_info_package_name`'e yazarız ki CanService
+     * tam CarInfo akışını (hız vb.) sürekli bizim app'e push etsin (outer SDK / NwdCanClient).
+     * Per-package opt-in flag'leri de set edilir. Yalnız NWD head unit'inde; WRITE_SETTINGS
+     * yoksa veya hata olursa sessizce geçer (NwdCanClient yine sporadik veri alır — fail-soft).
+     */
+    private void applyCanInfoRouting() {
+        try {
+            if (canRoutingApplied) return;
+            String nwdOri = getSystemProp("ro.boot.nwd.orientation");
+            if (nwdOri == null || nwdOri.isEmpty() || "0".equals(nwdOri)) return;
+            if (!Settings.System.canWrite(this)) {
+                Log.w(TAG, "CAN routing: WRITE_SETTINGS izni yok — can_send_info_package_name yazılamıyor");
+                return;
+            }
+            String pkg = getPackageName();
+            Settings.System.putString(getContentResolver(), "can_send_info_package_name", pkg);
+            // Per-package opt-in: "<pkg>can_send_carinfo_data_to_out" / "...doorinfo...".
+            Settings.System.putInt(getContentResolver(), pkg + "can_send_carinfo_data_to_out", 1);
+            Settings.System.putInt(getContentResolver(), pkg + "can_send_doorinfo_data_to_out", 1);
+            canRoutingApplied = true;
+            Log.i(TAG, "CAN routing: can_send_info_package_name=" + pkg + " (CarInfo akışı bu app'e yönlendirildi)");
+        } catch (Throwable t) {
+            // fail-soft: yönlendirilemezse NwdCanClient yine sporadik CarInfo alır
+            Log.e(TAG, "CAN routing hata: " + t.getMessage());
+        }
+    }
 
     /**
      * WebView'i fiziksel yatay panele oturtmak için native 90° döndürür.
