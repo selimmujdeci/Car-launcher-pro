@@ -304,20 +304,24 @@ class SystemHealthMonitor {
    * 8s eşiği → düşük segment cihazlarda harita yükü sırasındaki false-alarm'ları bastırır.
    */
   private _startUiWatchdog(): void {
-    if (typeof requestAnimationFrame === 'undefined') return;
+    // PERF 2026-06-17: UI (ana JS thread) donma izleme artık setInterval-DRIFT ile.
+    // Eski sürüm her frame requestAnimationFrame ile heartbeat atıyordu (kalıcı 60fps
+    // döngü) → WebView'ı SÜREKLI composite ettirip idle'da yüksek CPU + harita sürekli
+    // render yan etkisi yaratıyordu (cihaz profili: idle'da ~%50+ CPU bu döngüdendi).
+    // Drift yöntemi: periyodik timer kendi GECİKMESİNİ ölçer — ana thread bloklanırsa
+    // timer geç ateşler, gecikme = donma süresi. Hem ~sıfır idle CPU, hem daha doğru
+    // (arka planda rAF durması artık sahte "donma" üretmez).
     this._uiRafLastMs = performance.now();
 
-    const tick = () => {
-      this._uiRafLastMs = performance.now();
-      this._uiRafId     = requestAnimationFrame(tick);
-    };
-    this._uiRafId = requestAnimationFrame(tick);
-
     this._uiCheckTimer = setInterval(() => {
-      const gapMs = performance.now() - this._uiRafLastMs;
-      if (gapMs > UI_FREEZE_THRESHOLD_MS) {
+      const now   = performance.now();
+      const gapMs = now - this._uiRafLastMs;   // bu tick gerçekte ne kadar sonra ateşledi
+      this._uiRafLastMs = now;
+      // Beklenen ~UI_FREEZE_CHECK_INTERVAL_MS; üstündeki fazla gecikme = ana thread donması.
+      const frozenMs = gapMs - UI_FREEZE_CHECK_INTERVAL_MS;
+      if (frozenMs > UI_FREEZE_THRESHOLD_MS) {
         this._uiFreezeCount++;
-        const freezeSec = (gapMs / 1000).toFixed(1);
+        const freezeSec = (frozenMs / 1000).toFixed(1);
         console.warn(
           `[HealthMonitor:UIWatchdog] HEARTBEAT_UI_FREEZE — UI thread ${freezeSec}s dondu`,
         );
