@@ -614,16 +614,20 @@ async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string;
   try {
     const rawKey = localStorage.getItem('car-launcher-storage');
     const stored: unknown = rawKey ? JSON.parse(rawKey)?.state?.settings?.aiVoiceProvider : undefined;
-    if (stored === 'gemini' || stored === 'haiku') provider = stored;
+    if (stored === 'gemini' || stored === 'haiku' || stored === 'groq') provider = stored;
   } catch { /* bozuk JSON → AI katmanı yok sayılır */ }
   let apiKey = '';
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
-    const [geminiKey, haikuKey] = await Promise.all([
+    const [geminiKey, haikuKey, groqKey] = await Promise.all([
       sks.get('geminiApiKey'),
       sks.get('claudeHaikuApiKey'),
+      sks.get('groqApiKey'),
     ]);
-    apiKey = resolveApiKey(provider, provider === 'gemini' ? geminiKey : haikuKey);
+    apiKey = resolveApiKey(
+      provider,
+      provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
+    );
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında

@@ -17,7 +17,7 @@ import {
   suggestWakePhrase, resolveWakeWords, resolveCompanionIdentity,
   type CompanionPersonality, type CompanionChattiness, type CompanionWakeMode,
 } from '../../platform/companion/companionIdentity';
-import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, type AIProvider } from '../../platform/aiVoiceService';
+import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, getEnvGroqKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
 import { Clipboard } from '@capacitor/clipboard';
 import { isNative, bridge } from '../../platform/bridge';
@@ -300,19 +300,25 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const { settings, updateSettings } = useStore();
   const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
   const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
-  const [showGeminiKey, setShowGeminiKey]   = useState(false);
-  const [showHaikuKey,  setShowHaikuKey]    = useState(false);
-  const [testing,       setTesting]         = useState(false);
-  const [testResult,    setTestResult]      = useState<{ ok: boolean; message: string } | null>(null);
-  const [clipboardHint, setClipboardHint]   = useState<string | null>(null);
-  const [waitingClip,   setWaitingClip]     = useState(false);
+  const [groqKey,    setGroqKey]    = useSensitiveKey('groqApiKey');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showHaikuKey,  setShowHaikuKey]  = useState(false);
+  const [showGroqKey,   setShowGroqKey]   = useState(false);
+  const [testing,       setTesting]       = useState(false);
+  const [testResult,    setTestResult]    = useState<{ ok: boolean; message: string } | null>(null);
+  const [clipboardHint, setClipboardHint] = useState<string | null>(null);
+  const [waitingClip,   setWaitingClip]   = useState(false);
   const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const provider     = settings.aiVoiceProvider ?? 'none';
-  const activeKey    = provider === 'gemini' ? geminiKey : haikuKey;
   const envGeminiKey = getEnvGeminiKey();
   const envHaikuKey  = getEnvHaikuKey();
+  const envGroqKey   = getEnvGroqKey();
+  const activeKey    = provider === 'gemini' ? (geminiKey || envGeminiKey)
+                     : provider === 'haiku'  ? (haikuKey  || envHaikuKey)
+                     : provider === 'groq'   ? (groqKey   || envGroqKey)
+                     : '';
 
   /** Clipboard'u oku, key pattern'i varsa otomatik kaydet */
   const checkClipboard = useCallback(async () => {
@@ -328,6 +334,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
 
       const isGeminiKey = /^AIza[A-Za-z0-9_-]{35,}$/.test(text);
       const isHaikuKey  = /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(text);
+      const isGroqKey   = /^gsk_[A-Za-z0-9]{20,}$/.test(text);
 
       if (isGeminiKey && provider === 'gemini') {
         void setGeminiKey(text);
@@ -335,6 +342,10 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         setWaitingClip(false);
       } else if (isHaikuKey && provider === 'haiku') {
         void setHaikuKey(text);
+        setClipboardHint('Key otomatik algılandı!');
+        setWaitingClip(false);
+      } else if (isGroqKey && provider === 'groq') {
+        void setGroqKey(text);
         setClipboardHint('Key otomatik algılandı!');
         setWaitingClip(false);
       }
@@ -380,9 +391,10 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   }, []);
 
   const PROVIDERS: { id: AIProvider; label: string; sub: string; color: string; badge: string }[] = [
-    { id: 'none',   label: 'Kapalı',         sub: 'Sadece offline parser',    color: '#64748b', badge: 'ÜCRETSİZ' },
-    { id: 'gemini', label: 'Gemini Flash',   sub: 'Google AI — 1500 istek/gün ücretsiz', color: '#4285f4', badge: 'ÜCRETSİZ' },
-    { id: 'haiku',  label: 'Claude Haiku',   sub: 'Anthropic — ~$0.13/ay',    color: '#d97706', badge: 'DÜŞÜK MALİYET' },
+    { id: 'none',   label: 'Kapalı',         sub: 'Sadece offline parser',                     color: '#64748b', badge: 'ÜCRETSİZ'      },
+    { id: 'gemini', label: 'Gemini Flash',   sub: 'Google AI — 1500 istek/gün ücretsiz',       color: '#4285f4', badge: 'ÜCRETSİZ'      },
+    { id: 'groq',   label: 'Groq (Llama)',   sub: 'Anthropic değil — tamamen ücretsiz',         color: '#f55036', badge: 'ÜCRETSİZ'      },
+    { id: 'haiku',  label: 'Claude Haiku',   sub: 'Anthropic — ~$0.13/ay',                     color: '#d97706', badge: 'DÜŞÜK MALİYET' },
   ];
 
   return (
@@ -512,6 +524,42 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             <button onClick={() => setShowHaikuKey((v) => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
               {showHaikuKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {provider === 'groq' && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Groq API Key</span>
+            {envGroqKey && !groqKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
+              : groqKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
+              : null
+            }
+          </div>
+          {/* Ücretsiz key al butonu */}
+          <button
+            onClick={() => handleOpenKeyPage('https://console.groq.com/keys')}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#f55036]/30 bg-[#f55036]/10 text-[#f55036] text-sm font-bold hover:bg-[#f55036]/20 active:scale-[0.98] transition-all"
+          >
+            <span>🔑</span>
+            Ücretsiz Key Al — console.groq.com
+          </button>
+          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+          <div className="relative">
+            <input
+              type={showGroqKey ? 'text' : 'password'}
+              value={groqKey}
+              onChange={(e) => { void setGroqKey(e.target.value); }}
+              placeholder={envGroqKey ? '● .env\'den otomatik' : 'gsk_... (manuel giriş)'}
+              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+            />
+            <button onClick={() => setShowGroqKey((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+              {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
         </div>

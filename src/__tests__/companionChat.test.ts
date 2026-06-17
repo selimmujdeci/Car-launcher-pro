@@ -651,6 +651,127 @@ describe('repairMusicQuery — bozuk sanatçı adı onarımı', () => {
   });
 });
 
+/* ── 3d. Groq sohbet ve beyin senaryoları ───────────────────── */
+
+describe('Groq — companion sohbet ve beyin desteği', () => {
+  const GROQ_OPTS = { provider: 'groq', apiKey: 'gsk_testkey', hasNet: true } as const;
+
+  function mockGroqOk(content = 'İyiyim, teşekkürler!') {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content } }] }),
+    });
+  }
+
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setupCompanion(false);
+  });
+
+  it('Groq sohbet: companion açıkken Groq endpoint\'e istek atılır, companion_groq route döner', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockGroqOk('Merhaba, yolculuk nasıl gidiyor?');
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionChat('nasılsın', GROQ_OPTS);
+    expect(r!.route).toBe('companion_groq');
+    expect(r!.response).toBe('Merhaba, yolculuk nasıl gidiyor?');
+    const [url] = fetchSpy.mock.calls[0] as [string];
+    expect(url).toContain('api.groq.com');
+  });
+
+  it('Groq beyin: ACTION kararı → aksiyon döner, Groq endpoint kullanılır', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({
+        type: 'action', intent: 'PLAY_MUSIC_SEARCH', query: 'Tarkan',
+        feedback: 'Tarkan açılıyor', confidence: 0.9,
+      }) } }] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('tarkan çal', GROQ_OPTS);
+    expect(r!.kind).toBe('action');
+    if (r!.kind === 'action') expect(r.semantic.intent).toBe('PLAY_MUSIC_SEARCH');
+    const [url] = fetchSpy.mock.calls[0] as [string];
+    expect(url).toContain('api.groq.com');
+  });
+
+  it('Groq beyin promptu internet talimatı içermez (supportsGrounding:false), action/chat kuralları var', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ type: 'chat', say: 'Tamam.' }) } }] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('bir şey söyle', GROQ_OPTS);
+    const [, init] = fetchSpy.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
+    const systemMsg = body.messages.find((m) => m.role === 'system')!.content;
+    // Grounding talimatı OLMAMALI (Groq internet desteği yok)
+    expect(systemMsg).not.toContain('İNTERNET ise');
+    expect(systemMsg).not.toContain('"type":"web"');
+    // Groq'ta dürüst uyarı olmalı
+    expect(systemMsg).toContain('canlı/güncel internet erişimin YOK');
+    // Komut kuralları yine de var
+    expect(systemMsg).toContain('PLAY_MUSIC_SEARCH');
+    expect(systemMsg).toContain('ASLA ÇIKMAZ YOK');
+  });
+
+  it('Groq beyin: Groq type:"web" üretirse sohbete dönüştürülür (No Dead-Ends, grounding yapılmaz)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      // Groq'un yanlışlıkla type:"web" ürettiği senaryo
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ type: 'web', query: 'haberler' }) } }] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('haberleri söyle', GROQ_OPTS);
+    // Groq'ta web→chat dönüşümü askCompanionBrainGroq içinde yapılır; 2. istek YOK
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.response.toLowerCase()).not.toContain('hata');
+      expect(r.response).toContain('canlı');               // dürüst ama doğal yanıt
+    }
+  });
+
+  it('Groq 429 → soğuma penceresi: ikinci çağrıda Groq denenmez', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r1 = await tryCompanionChat('nasılsın', GROQ_OPTS);
+    expect(r1!.route).toBe('companion_offline');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const r2 = await tryCompanionChat('naber', GROQ_OPTS);
+    expect(r2!.route).toBe('companion_offline');
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // pencere içinde tekrar istek YOK
+  });
+
+  it('Groq mesaj formatı: Authorization header ve messages dizisi doğru', async () => {
+    setupCompanion(true);
+    const fetchSpy = mockGroqOk('Tamam.');
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionChat('merhaba', GROQ_OPTS);
+    const [, init] = fetchSpy.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
+    expect(init.headers['Authorization']).toBe('Bearer gsk_testkey');
+    const body = JSON.parse(init.body) as { messages: { role: string }[]; model: string };
+    expect(body.messages[0].role).toBe('system');
+    expect(body.messages[body.messages.length - 1].role).toBe('user');
+    expect(typeof body.model).toBe('string');
+  });
+});
+
 /* ── 4. Tanı şeması ─────────────────────────────────────────── */
 
 describe('voice_diag — route aşaması', () => {

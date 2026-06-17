@@ -21,7 +21,7 @@ import { recordAiNetFailure, recordAiNetSuccess } from './aiHealth';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
-export type AIProvider = 'gemini' | 'haiku' | 'none';
+export type AIProvider = 'gemini' | 'haiku' | 'groq' | 'none';
 
 export interface AIVoiceResult {
   intent:     IntentType;
@@ -189,7 +189,8 @@ function parseAIJson(text: string): AIVoiceResult | null {
 /* ── Gemini ────────────────────────────────────────────────── */
 
 const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  // gemini-2.0-flash: ücretsiz 1.500 istek/gün (2.5-flash 250) — düşük kota 429'unu azaltır.
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
   const body = {
@@ -222,6 +223,44 @@ async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Pr
 
 const HAIKU_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const HAIKU_MODEL    = 'claude-haiku-4-5-20251001';
+
+/* ── Groq (OpenAI-uyumlu) ──────────────────────────────────── */
+
+// Groq endpoint — OpenAI Chat Completions formatını destekler.
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+// Groq model adları değişebilir — güncel listeyi console.groq.com/docs adresinden doğrula.
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+async function askGroq(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
+  const body = {
+    model:           GROQ_MODEL,
+    max_tokens:      ctx?.isDriving ? 128 : 256, // Sürüşte daha kısa yanıt → düşük gecikme
+    temperature:     0.1,
+    response_format: { type: 'json_object' as const },
+    messages: [
+      { role: 'system' as const, content: buildSystemPrompt(ctx) },
+      { role: 'user'   as const, content: text },
+    ],
+  };
+
+  const resp = await fetch(GROQ_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+    signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
+  });
+
+  if (!resp.ok) return null;
+
+  const data = await resp.json() as {
+    choices?: { message?: { content?: string } }[]
+  };
+  const raw = data.choices?.[0]?.message?.content ?? '';
+  return parseAIJson(raw);
+}
 
 async function askHaiku(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
   const body = {
@@ -265,6 +304,10 @@ export function getEnvHaikuKey(): string {
   return (import.meta.env['VITE_CLAUDE_API_KEY'] as string | undefined) ?? '';
 }
 
+export function getEnvGroqKey(): string {
+  return (import.meta.env['VITE_GROQ_API_KEY'] as string | undefined) ?? '';
+}
+
 /**
  * Resolve effective API key: settings key takes priority, env key is fallback.
  */
@@ -272,6 +315,7 @@ export function resolveApiKey(provider: AIProvider, settingsKey: string): string
   if (settingsKey.trim()) return settingsKey.trim();
   if (provider === 'gemini') return getEnvGeminiKey();
   if (provider === 'haiku')  return getEnvHaikuKey();
+  if (provider === 'groq')   return getEnvGroqKey();
   return '';
 }
 
@@ -304,6 +348,7 @@ export async function askAI(
     let result: AIVoiceResult | null = null;
     if (provider === 'gemini') result = await askGemini(text, key, ctx);
     if (provider === 'haiku')  result = await askHaiku(text, key, ctx);
+    if (provider === 'groq')   result = await askGroq(text, key, ctx);
     if (result) recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
     return result;
   } catch {

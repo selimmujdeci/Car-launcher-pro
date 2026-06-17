@@ -36,7 +36,7 @@ import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_offline';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_offline';
 
 export interface CompanionChatResult {
   response: string;
@@ -185,7 +185,10 @@ function buildInterpretedVehicleContext(): string {
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */
 
 const GEMINI_CHAT_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  // gemini-2.0-flash: ücretsiz katmanda 1.500 istek/gün (2.5-flash 250/gün) +
+  // google_search grounding destekler. Düşük günlük kotada 429→sessiz offline
+  // düşüşünü (saha 2026-06-17) azaltır. Model yükseltmesi tek noktadan.
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GEMINI_TIMEOUT_MS = 6000;
 
 /**
@@ -294,6 +297,120 @@ async function askCompanionGemini(
     head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
   );
   return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+}
+
+/* ── Groq sohbet çağrısı (OpenAI-uyumlu) ───────────────────── */
+
+// Groq timeout — Gemini ile aynı; abortCompat ile Chrome <103'te güvenli.
+const GROQ_COMPANION_TIMEOUT_MS = 6000;
+// Groq model adları değişebilir — güncel listeyi console.groq.com'dan doğrula.
+const GROQ_COMPANION_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_COMPANION_MODEL    = 'llama-3.3-70b-versatile';
+
+/** RAM geçmişini OpenAI messages formatına dönüştürür ('model' → 'assistant'). */
+function historyToOpenAI(): { role: 'user' | 'assistant'; content: string }[] {
+  return _history.map((t) => ({
+    role:    t.role === 'model' ? 'assistant' : 'user',
+    content: t.text,
+  }));
+}
+
+async function askCompanionGroq(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+): Promise<string | null> {
+  const body = {
+    model:       GROQ_COMPANION_MODEL,
+    temperature: 0.7,
+    // 2-3 doğal cümleye alan tanır; üst sınır TTS kırpma katmanıyla sigortalı.
+    max_tokens:  isDriving ? 100 : 160,
+    messages: [
+      { role: 'system' as const, content: buildCompanionSystemPrompt(id, isDriving, buildInterpretedVehicleContext()) },
+      ...historyToOpenAI(),
+      { role: 'user' as const, content: text },
+    ],
+  };
+
+  const resp = await fetch(GROQ_COMPANION_ENDPOINT, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body:   JSON.stringify(body),
+    signal: signalWithTimeout(GROQ_COMPANION_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
+  });
+
+  if (resp.status === 429) {
+    // Rate limit: soğuma penceresi boyunca Groq denenmez.
+    _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
+    return null;
+  }
+  if (!resp.ok) return null;
+
+  const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
+  const raw = (data.choices?.[0]?.message?.content ?? '').trim();
+  if (!raw) return null;
+  // TTS güvenliği: tek satıra indir, aşırı uzunsa cümle sınırında kırp.
+  const flat = raw.replace(/\s+/g, ' ').trim();
+  if (flat.length <= 300) return flat;
+  const head = flat.slice(0, 297);
+  const lastSentenceEnd = Math.max(
+    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
+  );
+  return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+}
+
+async function askCompanionBrainGroq(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  timeoutMs?: number,
+): Promise<CompanionBrainResult | null> {
+  // Dönüş tipi web'i İÇERMEZ: Groq grounding desteklemediğinden type:"web"
+  // aşağıda sohbete çevrilir → çağıran yalnız action/chat görür (tip güvenli).
+  const decisionMs = Math.min(timeoutMs ?? GROQ_COMPANION_TIMEOUT_MS, GROQ_COMPANION_TIMEOUT_MS);
+  const body = {
+    model:           GROQ_COMPANION_MODEL,
+    temperature:     0.4,
+    max_tokens:      isDriving ? 160 : 220,
+    // Groq JSON modu: response_format ile güvenli JSON çıktısı
+    response_format: { type: 'json_object' as const },
+    messages: [
+      // Groq internet erişimini DESTEKLEMEZ → supportsGrounding: false
+      { role: 'system' as const, content: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), false) },
+      ...historyToOpenAI(),
+      { role: 'user' as const, content: text },
+    ],
+  };
+
+  const resp = await fetch(GROQ_COMPANION_ENDPOINT, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body:   JSON.stringify(body),
+    signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
+  });
+
+  if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+  if (!resp.ok) return null;
+
+  const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
+  const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
+  // Groq'tan gelen type:"web" kararı: canlı internet erişimi yok.
+  // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
+  const parsed = parseBrainJson(raw);
+  if (parsed && parsed.kind === 'web') {
+    // Groq'ta grounding çağrısı yapılamaz; dürüst ama doğal bir yanıt üret.
+    const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
+    return { kind: 'chat', response: reply, route: 'companion_groq' };
+  }
+  return parsed;
 }
 
 /* ── Offline fallback yanıtları ─────────────────────────────── */
@@ -423,7 +540,12 @@ const REASK_BY_PERSONALITY: Record<string, string> = {
 };
 const REASK_DEFAULT = 'Tam anlayamadım, bir daha söyler misin?';
 
-function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string): string {
+/**
+ * Beyin system prompt'u.
+ * @param supportsGrounding true → Gemini (google_search grounding mevcut);
+ *                          false → Groq gibi modeller (canlı internet YOK).
+ */
+function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string, supportsGrounding = true): string {
   const chatPersona = buildCompanionSystemPrompt(id, isDriving, vehicleContext);
   const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
   return [
@@ -447,12 +569,18 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
     'Şive/sokak ağzı komutları da KOMUTTUR ("klimayı birez kıs kurban" gibi) — niyete odaklan, sohbete düşürme.',
     '',
-    // ── İNTERNET / GÜNCEL BİLGİ (grounding) — üçüncü karar tipi ──
-    'İNTERNET ise: {"type":"web","query":"aranacak güncel bilgi (Türkçe, net)"}',
-    'Şunlar İNTERNET\'tir → GÜNCEL, gerçek-zamanlı veya senin eğitim verinde olmayan/güncelliğini yitirmiş HER bilgi:',
-    'haberler ve gündem özeti, son dakika, hava durumu detayı/tahmin, döviz/altın/borsa, maç sonucu/fikstür, bir kişi-yer-olay hakkında GÜNCEL gerçek, "bugün ne oldu", "X kaç para", "X kimdir/nedir" (güncel), film/etkinlik, açılış saatleri.',
-    'Bu tür isteklerde ASLA kafadan cevap uydurma ve "erişimim yok" DEME — type:"web" döndür, query\'yi arama için en uygun biçimde yaz. Sistem aramayı yapıp cevabı senin yerine seslendirir.',
-    'Genel/zamansız bilgi (matematik, tanım, nasıl yapılır, fıkra, bilmece, tavsiye) için web GEREKMEZ → doğrudan type:"chat" ile cevapla.',
+    // ── İNTERNET / GÜNCEL BİLGİ (grounding) — supportsGrounding'e göre değişir ──
+    ...(supportsGrounding ? [
+      'İNTERNET ise: {"type":"web","query":"aranacak güncel bilgi (Türkçe, net)"}',
+      'Şunlar İNTERNET\'tir → GÜNCEL, gerçek-zamanlı veya senin eğitim verinde olmayan/güncelliğini yitirmiş HER bilgi:',
+      'haberler ve gündem özeti, son dakika, hava durumu detayı/tahmin, döviz/altın/borsa, maç sonucu/fikstür, bir kişi-yer-olay hakkında GÜNCEL gerçek, "bugün ne oldu", "X kaç para", "X kimdir/nedir" (güncel), film/etkinlik, açılış saatleri.',
+      'Bu tür isteklerde ASLA kafadan cevap uydurma ve "erişimim yok" DEME — type:"web" döndür, query\'yi arama için en uygun biçimde yaz. Sistem aramayı yapıp cevabı senin yerine seslendirir.',
+      'Genel/zamansız bilgi (matematik, tanım, nasıl yapılır, fıkra, bilmece, tavsiye) için web GEREKMEZ → doğrudan type:"chat" ile cevapla.',
+    ] : [
+      // Groq (ve grounding desteklemeyen modeller): canlı internet YOK.
+      // type:"web" asla döndürme — bildiğin kadarıyla yanıtla, emin değilsen dürüstçe belirt.
+      'Senin canlı/güncel internet erişimin YOK. Haber/döviz/hava/maç gibi anlık veri sorulursa bildiğin kadarıyla yanıtla ama emin olmadığında "kesin değil, değişmiş olabilir" diye dürüstçe belirt. ASLA type:"web" döndürme.',
+    ]),
     '',
     'SOHBET ise: {"type":"chat","say":"..."} — say için şu kişilik kuralları geçerli:',
     chatPersona,
@@ -473,9 +601,14 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
     '"bir fıkra anlat" → {"type":"chat","say":"Temel vapurda..."} (gerçek, başı-sonu olan kısa bir fıkra)',
     '"bana bir bilmece sor" → {"type":"chat","say":"Benden kaçar ama hep peşimdedir, nedir? Bil bakalım."} (cevabı verme, sor)',
-    '"bugünün haberlerini özetle" → {"type":"web","query":"bugün Türkiye gündem son dakika haber özeti"}',
-    '"dolar kaç para" → {"type":"web","query":"güncel dolar TL kuru"}',
-    '"hava yarın nasıl olacak" → {"type":"web","query":"yarın hava durumu tahmini"}',
+    // Web örnek komutları yalnız grounding destekli modellere gösterilir.
+    ...(supportsGrounding ? [
+      '"bugünün haberlerini özetle" → {"type":"web","query":"bugün Türkiye gündem son dakika haber özeti"}',
+      '"dolar kaç para" → {"type":"web","query":"güncel dolar TL kuru"}',
+      '"hava yarın nasıl olacak" → {"type":"web","query":"yarın hava durumu tahmini"}',
+    ] : [
+      '"bugünün haberlerini özetle" → {"type":"chat","say":"Güncel haberlere şu an bakamıyorum ama yardımcı olmaya çalışırım."}',
+    ]),
   ].join('\n');
 }
 
@@ -532,7 +665,8 @@ async function askCompanionBrain(
   ];
   const body = {
     system_instruction: {
-      parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext()) }],
+      // Gemini grounding'i destekler → supportsGrounding: true (varsayılan)
+      parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), true) }],
     },
     contents,
     generationConfig: {
@@ -633,29 +767,48 @@ export async function tryCompanionBrain(
 
   const geminiUsable =
     opts.provider === 'gemini' && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
+  const groqUsable =
+    opts.provider === 'groq'   && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
 
-  let geminiAttempted = false;
-  if (geminiUsable) {
+  // aiUsable: herhangi bir desteklenen online AI kullanılabilir mi?
+  const aiUsable = geminiUsable || groqUsable;
+  let aiAttempted = false;
+
+  if (aiUsable) {
     try {
-      geminiAttempted = true;
+      aiAttempted = true;
       const id = resolveCompanionIdentity(settings);
-      const result = await askCompanionBrain(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
-      if (result) {
-        recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
-        // İNTERNET kararı: ikinci grounded çağrıyla (Google Search) gerçek cevabı
-        // üret; voiceService'e CHAT olarak dön (web tipini hiç görmez). Grounding
-        // başarısızsa offline/reask zincirine düş — "erişimim yok" demeyiz.
-        if (result.kind === 'web') {
-          const grounded = await askGroundedGemini(result.query, opts.apiKey as string, id, isDriving);
-          if (grounded) {
+
+      if (geminiUsable) {
+        const result = await askCompanionBrain(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
+        if (result) {
+          recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+          // İNTERNET kararı: ikinci grounded çağrıyla (Google Search) gerçek cevabı
+          // üret; voiceService'e CHAT olarak dön (web tipini hiç görmez). Grounding
+          // başarısızsa offline/reask zincirine düş — "erişimim yok" demeyiz.
+          if (result.kind === 'web') {
+            const grounded = await askGroundedGemini(result.query, opts.apiKey as string, id, isDriving);
+            if (grounded) {
+              pushHistory('user', trimmed);
+              pushHistory('model', grounded);
+              return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+            }
+            // grounding boş/başarısız → aşağıdaki offline fallback / reask devreye girer
+          } else {
+            // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
+            // bağlamlı devam cümleleri için).
             pushHistory('user', trimmed);
-            pushHistory('model', grounded);
-            return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+            pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
+            return result;
           }
-          // grounding boş/başarısız → aşağıdaki offline fallback / reask devreye girer
-        } else {
-          // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
-          // bağlamlı devam cümleleri için).
+        }
+      } else if (groqUsable) {
+        // Groq: grounding YOK; beyin internet kararı veremez; aksiyonlar + sohbet çalışır.
+        const result = await askCompanionBrainGroq(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
+        if (result) {
+          recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+          // askCompanionBrainGroq type:"web" gelirse kendi içinde sohbete çevirir;
+          // buraya action veya chat gelir.
           pushHistory('user', trimmed);
           pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
           return result;
@@ -671,9 +824,9 @@ export async function tryCompanionBrain(
   // Faz 3 — No Dead-Ends: ONLINE deneme yapıldı ama beyin/ağ/parse başarısız
   // VE offline'ın da söyleyecek sözü yoksa kullanıcı "Hata/anlaşılamadı" değil,
   // kişiliğe uygun bir tekrar-rica duyar (takip dinlemesi açılır → tekrar söyler).
-  // Gemini HİÇ denenmediyse (offline) null korunur: eski dürüst zincir
+  // AI HİÇ denenmediyse (offline) null korunur: eski dürüst zincir
   // (yerel öneriler + offline müzik kapısı) bozulmaz.
-  if (geminiAttempted) {
+  if (aiAttempted) {
     const reask = REASK_BY_PERSONALITY[resolveCompanionIdentity(settings).personality] ?? REASK_DEFAULT;
     return { kind: 'chat', response: reask, route: 'companion_offline' };
   }
@@ -740,9 +893,15 @@ export async function tryCompanionChat(
 
   const isDriving = opts.isDriving === true;
 
-  // ── Öncelikli yol: GERÇEK Gemini sohbeti ──
+  // ── Öncelikli yol: GERÇEK AI sohbeti (Gemini veya Groq) ──
   const geminiUsable =
     opts.provider === 'gemini' &&
+    !!opts.apiKey &&
+    opts.hasNet === true &&
+    _now() >= _rateLimitedUntil;
+
+  const groqUsable =
+    opts.provider === 'groq' &&
     !!opts.apiKey &&
     opts.hasNet === true &&
     _now() >= _rateLimitedUntil;
@@ -755,6 +914,16 @@ export async function tryCompanionChat(
         pushHistory('user', trimmed);
         pushHistory('model', reply);
         return { response: reply, route: 'companion_gemini' };
+      }
+    } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
+  } else if (groqUsable) {
+    try {
+      const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      if (reply) {
+        recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+        pushHistory('user', trimmed);
+        pushHistory('model', reply);
+        return { response: reply, route: 'companion_groq' };
       }
     } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
   }

@@ -189,7 +189,7 @@ export interface AppSettings {
   musicFavorites: MusicFavorite[];
   /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
   customMusicSources: CustomMusicSource[];
-  aiVoiceProvider: 'gemini' | 'haiku' | 'none';
+  aiVoiceProvider: 'gemini' | 'haiku' | 'groq' | 'none';
   // S1: gemini/claude API anahtarları BURADA tutulmaz — sensitiveKeyStore'da
   // (Keystore-backed). Settings persist'i localStorage'a plaintext yazdığından
   // bu hassas değerler için ölü/yanıltıcı alanlar kaldırıldı. Yazma: SettingsPage
