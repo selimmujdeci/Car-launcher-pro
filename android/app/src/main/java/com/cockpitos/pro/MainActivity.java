@@ -81,6 +81,34 @@ public class MainActivity extends BridgeActivity {
     private volatile long  lastUiPing  = 0;
     private volatile boolean anrRunning = false;
 
+    /**
+     * ANR watchdog tick — TEK seferlik kendini yeniden planlar (callback çoğalması YOK).
+     * Eski sürümde her tick hem bir gecikmeli "check" hem kendini planlıyor, check de
+     * tekrar planlıyordu → pending callback sayısı katlanarak büyüyor, AnrWatchdog thread'i
+     * giderek artan CPU yakıp cihazı ısıtıyordu. Bu Runnable döngü başına TAM 1 sonraki
+     * tick planlar.
+     */
+    private final Runnable anrTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!anrRunning) return;
+
+            // UI thread önceki ping'i işledi mi? İşlemediyse lastUiPing eskir, elapsed büyür.
+            long elapsed = System.currentTimeMillis() - lastUiPing;
+            if (elapsed > ANR_TIMEOUT_MS) {
+                Log.e(TAG, "ANR tespit edildi (" + elapsed + "ms) — restart tetikleniyor");
+                triggerRestart();
+                return; // restart yolu — yeniden planlama yok
+            }
+
+            // UI thread'e taze ping gönder (yanıt verirse lastUiPing güncellenir).
+            anrHandler.post(() -> lastUiPing = System.currentTimeMillis());
+
+            // Bir sonraki kontrolü TEK SEFER planla.
+            bgHandler.postDelayed(this, ANR_CHECK_INTERVAL_MS);
+        }
+    };
+
     private ActivityResultLauncher<String[]> permissionLauncher;
 
     @Override
@@ -364,31 +392,8 @@ public class MainActivity extends BridgeActivity {
         if (anrRunning) return;
         anrRunning  = true;
         lastUiPing  = System.currentTimeMillis();
-
-        bgHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (!anrRunning) return;
-
-                // UI thread'e ping gönder
-                anrHandler.post(() -> lastUiPing = System.currentTimeMillis());
-
-                // ANR_TIMEOUT_MS sonra kontrol et
-                bgHandler.postDelayed(() -> {
-                    if (!anrRunning) return;
-                    long elapsed = System.currentTimeMillis() - lastUiPing;
-                    if (elapsed > ANR_TIMEOUT_MS) {
-                        Log.e(TAG, "ANR tespit edildi (" + elapsed + "ms) — restart tetikleniyor");
-                        triggerRestart();
-                    } else {
-                        // Bir sonraki check'i planla
-                        bgHandler.postDelayed(this, ANR_CHECK_INTERVAL_MS);
-                    }
-                }, ANR_TIMEOUT_MS);
-
-                bgHandler.postDelayed(this, ANR_CHECK_INTERVAL_MS);
-            }
-        });
+        // Tek tick zinciri — anrTick kendini döngü başına TAM 1 kez yeniden planlar.
+        bgHandler.postDelayed(anrTick, ANR_CHECK_INTERVAL_MS);
     }
 
     private void stopAnrWatchdog() {
