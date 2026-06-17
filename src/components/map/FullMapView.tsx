@@ -208,6 +208,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     gpsLostWarnRef.current  = gpsLostWarn;
     destinationRef.current  = destination;
     thermalLevelRef.current = thermalLevel;
+
+    // Wake tetikleyicisi: navStatus veya drivingMode değişince döngüyü uyandır.
+    // Navigasyon başlarken / sürüş modu açılırken döngünün uyuyor olması kabul edilemez.
+    const navActive =
+      navStatus === NavStatus.ACTIVE   ||
+      navStatus === NavStatus.REROUTING ||
+      navStatus === NavStatus.PREVIEW   ||
+      navStatus === NavStatus.ROUTING;
+    if (navActive || drivingMode) {
+      wakeLoopRef.current?.();
+    }
   }, [navStatus, drivingMode, obdState.speed, gpsLostWarn, destination, thermalLevel]);
 
   const [mapStatus, setMapStatus]     = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
@@ -277,6 +288,11 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const buffer = navPointsRef.current;
         buffer.push(newPoint);
         if (buffer.length > 2) buffer.shift();
+
+        // Wake: yeni GPS pozisyonu hareket taşıyorsa döngüyü uyandır.
+        // 1.5 km/h eşiği: durağan GPS titremesi (gürültü) döngüyü sürekli açmasın.
+        const speedKmh = (loc.speed ?? 0) * 3.6;
+        if (speedKmh >= 1.5) wakeLoopRef.current?.();
 
         // Hız bazlı katman gizleme + POI proximity — queryRenderedFeatures pahalı, 2s throttle
         const nowMs = performance.now();
@@ -436,20 +452,36 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     });
   }, []);
 
-  // ── Adaptive Performance — FPS monitörü ─────────────────────────────
-  // Sürüş (ACTIVE/REROUTING) her zaman perf-low → blur yok.
-  // Sürüş dışında FPS < 20 → perf-low, FPS 20-40 → perf-med.
-  // Unmount'ta rAF temizlenir ve thermal lock kaldırılır (Zero-Leak).
+  // ── Adaptive Performance — on-demand rAF döngüsü + hafif FPS örnekleyicisi ──────
+  //
+  // BOŞTA = {navStatus IDLE, drivingMode kapalı, hız < 1.5 km/h, takip kapalı,
+  //          etkileşim yok, bekleyen GPS tamponu yok} koşullarının TAMAMI doğruysa.
+  //
+  // Boşta → rAF döngüsü uykuya girer (reschedule DURUR).
+  // Wake tetikleyicileri: yeni GPS hareketi, navStatus değişimi, drivingMode açılması,
+  // harita etkileşimi (drag/zoom/pitch/rotate), isFollowing açılması.
+  //
+  // FPS monitörü: 60fps sayımla değil, setInterval(1000ms) + kare zaman damgası ile
+  // hafif örnekleyici — idle'da çalışmaz, sadece döngü aktifken tick sayar.
+  //
+  // Unmount: rAF + interval + tüm timer'lar temizlenir (Zero-Leak).
   const lastLowFPSRef = useRef(false);
+
+  // wake() referansı — GPS aboneliği ve map event'leri buraya erişir.
+  const wakeLoopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const el = outerDivRef.current;
     if (!el) return;
 
-    let frameCount  = 0;
-    let lastT       = performance.now();
-    let rafId:      number;
+    let rafId:      number = 0;
+    let loopActive  = false; // rAF döngüsü çalışıyor mu?
     let activeClass = '';
+
+    // Idle hysteresis: son hareket/uyandırmadan bu kadar ms sonra tekrar idle sayılır.
+    // Stop-and-go trafikte sürekli uyku/uyandırma flicker'ını önler.
+    const IDLE_HYSTERESIS_MS = 2500;
+    let lastWakeTs = performance.now(); // son wake zamanı
 
     const applyClass = (cls: string) => {
       if (cls === activeClass) return;
@@ -458,16 +490,104 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       activeClass = cls;
     };
 
-    let lastCameraUpdate = 0;
-    let lastMarkerUpdate = 0;
-    let isPerfLowCached  = false; // DOM classList sorgusunu önler — applyClass'la senkronize
-    let lastThermalFrameTs = 0;   // termal FPS gate — son ağır-iş frame zamanı
+    // ── Hafif FPS örnekleyicisi — setInterval(1000ms) bazlı ──────────────────
+    // 60fps sayımla değil; döngü içinde tickCount artırılır, interval ölçer.
+    // Döngü durduğunda interval da durur → idle'da CPU sıfır.
+    let tickCount   = 0;          // aktif kare sayacı (döngü içinden artar)
+    let isPerfLowCached = false;  // applyClass ile senkronize — DOM sorgusu önler
+    let fpsIntervalId: ReturnType<typeof setInterval> | null = null;
+
+    const startFpsMonitor = () => {
+      if (fpsIntervalId !== null) return; // zaten çalışıyor
+      fpsIntervalId = setInterval(() => {
+        const fps = tickCount;
+        tickCount  = 0;
+
+        if (fps < 20) {
+          applyClass('perf-low');
+          isPerfLowCached = true;
+        } else if (fps < 40) {
+          applyClass('perf-med');
+          isPerfLowCached = false;
+        } else {
+          applyClass('');
+          isPerfLowCached = false;
+        }
+
+        // Thermal lock — sadece geçiş anında tetiklenir
+        const fpsIsLow = fps < 20;
+        if (fpsIsLow !== lastLowFPSRef.current) {
+          lastLowFPSRef.current = fpsIsLow;
+          notifyLowFPS(fpsIsLow);
+        }
+      }, 1000);
+    };
+
+    const stopFpsMonitor = () => {
+      if (fpsIntervalId === null) return;
+      clearInterval(fpsIntervalId);
+      fpsIntervalId = null;
+      tickCount     = 0;
+    };
+
+    // ── Idle tespiti ────────────────────────────────────────────────────────
+    // Tüm koşullar doğruysa döngü durabilir.
+    const isIdleNow = (now: number): boolean => {
+      // Hysteresis: son wake'den IDLE_HYSTERESIS_MS geçmediyse idle sayma
+      if (now - lastWakeTs < IDLE_HYSTERESIS_MS) return false;
+
+      const status = navStatusRef.current;
+      const navActive =
+        status === NavStatus.ACTIVE   ||
+        status === NavStatus.REROUTING ||
+        status === NavStatus.PREVIEW   ||
+        status === NavStatus.ROUTING;
+      if (navActive)                          return false;
+      if (drivingModeRef.current)             return false;
+      if (isFollowingRef.current)             return false;
+      if (userInteractingRef.current)         return false;
+
+      // GPS tamponu hareket taşıyor mu?
+      const buf = navPointsRef.current;
+      if (buf.length >= 2) {
+        const speedMs = locationRef.current?.speed ?? 0;
+        const speedKmh = speedMs * 3.6;
+        if (speedKmh >= 1.5) return false;   // araç hareket ediyor
+      }
+
+      return true;
+    };
+
+    // ── Wake — döngüyü uyandır ───────────────────────────────────────────────
+    const wake = () => {
+      lastWakeTs = performance.now();
+      if (loopActive) return; // zaten çalışıyor
+      loopActive = true;
+      startFpsMonitor();
+      rafId = requestAnimationFrame(tick);
+    };
+
+    // Dış erişim için ref'e ata (GPS aboneliği ve map event'leri kullanır)
+    wakeLoopRef.current = wake;
+
+    let lastCameraUpdate    = 0;
+    let lastMarkerUpdate    = 0;
+    let lastThermalFrameTs  = 0; // termal FPS gate — son ağır-iş frame zamanı
 
     const tick = (now: number) => {
+      // ── Idle kontrolü: boştaysa döngüyü durdur ───────────────────────────
+      if (isIdleNow(now)) {
+        loopActive = false;
+        stopFpsMonitor();
+        // perf sınıfını temizleme — son ölçüm geçerliliğini koru; yalnız CSS'i bırak.
+        return; // rAF yeniden planlanmıyor → döngü uyudu
+      }
+
+      // Aktif kare sayacı (FPS örnekleyicisi için)
+      tickCount++;
+
       // ── Termal FPS kısıtlaması ────────────────────────────────────────────
       // level>0 → hedef FPS = 30/level (L1≈30, L2≈15, L3≈10 fps).
-      // Min frame süresi dolmadıysa ağır iş (DR + interpolasyon + kamera/marker)
-      // atlanır; rAF zinciri ve FPS sayacı çalışmaya devam eder.
       let _doHeavy = true;
       const _tl = thermalLevelRef.current;
       if (_tl > 0) {
@@ -629,40 +749,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       }
       } // ── _doHeavy (termal FPS gate) sonu ──
 
-      // 2. FPS & Performance Monitörü — termal throttle'dan bağımsız, her frame çalışır
-      frameCount++;
-      if (now - lastT >= 1000) {
-        const fps = frameCount;
-        frameCount = 0;
-        lastT      = now;
-
-        // CSS sınıfı — her ölçümde güncellenir; isPerfLowCached ile RAF'taki DOM sorgusu kaldırıldı
-        if (fps < 20) {
-          applyClass('perf-low');
-          isPerfLowCached = true;
-        } else if (fps < 40) {
-          applyClass('perf-med');
-          isPerfLowCached = false;
-        } else {
-          applyClass('');
-          isPerfLowCached = false;
-        }
-
-        // Thermal lock — sadece high↔low geçişinde çağrılır (her saniye değil)
-        const fpsIsLow = fps < 20;
-        if (fpsIsLow !== lastLowFPSRef.current) {
-          lastLowFPSRef.current = fpsIsLow;
-          notifyLowFPS(fpsIsLow);
-        }
-      }
-
       rafId = requestAnimationFrame(tick);
     };
 
-    rafId = requestAnimationFrame(tick);
+    // İlk başlangıçta döngüyü çalıştır (harita mount olunca aktif olsun)
+    wake();
 
     return () => {
       cancelAnimationFrame(rafId);
+      stopFpsMonitor();
+      loopActive = false;
+      wakeLoopRef.current = null;
       applyClass('');
       lastLowFPSRef.current = false;
       notifyLowFPS(false);
@@ -691,6 +788,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const _onInteractStart = useCallback(() => {
     userInteractingRef.current = true;
     if (interactTimerRef.current) { clearTimeout(interactTimerRef.current); interactTimerRef.current = null; }
+    // Wake: kullanıcı haritayla etkileşince döngüyü uyandır
+    wakeLoopRef.current?.();
   }, []);
   const _onInteractEnd = useCallback(() => {
     if (interactTimerRef.current) clearTimeout(interactTimerRef.current);
@@ -783,6 +882,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         if (!mountedRef.current) return;
         isFollowingRef.current = true;
         setIsFollowing(true);
+        // Takip yeniden başladığında döngüyü uyandır
+        wakeLoopRef.current?.();
         const loc  = locationRef.current;
         const bear = headingRef.current ?? 0;
         const h    = containerRef.current?.offsetHeight ?? 600;
