@@ -2003,11 +2003,26 @@ public class CarLauncherPlugin extends Plugin {
 
                     final float gain = wakeWordGain;
                     short[] buf = new short[frameSamples];
+                    // ── VAD (ses-aktivite kapısı) — idle CPU tasarrufu ───────────────
+                    // PERF 2026-06-17: eskiden acceptWaveForm HER frame çağrılıyordu →
+                    // Vosk akustik modeli sessizlikte bile (idle'ın ~%99'u) sürekli decode
+                    // edip ~%39 CPU yakıyordu (cihaz profili). Artık ucuz RMS kapısı:
+                    // sessizlikte decode ATLANIR. Kelimeyi kaçırmamak için:
+                    //   - pre-roll: konuşmadan ÖNCEKİ son frame de beslenir (kelime başı kırpılmaz)
+                    //   - hangover: eşik altına düşse de ~1.2sn decode sürer (kelime kuyruğu)
+                    // Eşik DÜŞÜK tutuldu (fail-safe: kaçırmaktansa biraz fazla decode).
+                    final double VAD_RMS_ON  = 0.012; // gain sonrası normalize RMS konuşma eşiği
+                    final int    VAD_HANGOVER = 12;   // ~1.2sn (100ms/frame)
+                    final short[] preRoll = new short[frameSamples]; // allocation-free pre-roll
+                    int  preRollLen   = 0;
+                    boolean preRollValid = false;
+                    int  hangover     = 0;
                     while (wakeWordActive && !wakeMicMustYield()
                             && !Thread.currentThread().isInterrupted()) {
                         int n = recorder.read(buf, 0, buf.length);
                         if (n <= 0) continue;
-                        // Adaptif kazanç — runVoskListening ile aynı clipping koruması
+                        // Adaptif kazanç — runVoskListening ile aynı clipping koruması.
+                        // Aynı geçişte RMS de hesaplanır (VAD için, ekstra döngü yok).
                         int peak = 0;
                         for (int i = 0; i < n; i++) {
                             int a = buf[i] >= 0 ? buf[i] : -buf[i];
@@ -2017,10 +2032,30 @@ public class CarLauncherPlugin extends Plugin {
                         if (peak > 0 && peak * gApplied > VOSK_CLIP_HEADROOM) {
                             gApplied = Math.max(1.0f, VOSK_CLIP_HEADROOM / peak);
                         }
+                        double sumSq = 0;
                         for (int i = 0; i < n; i++) {
                             int v = Math.round(buf[i] * gApplied);
                             if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
                             buf[i] = (short) v;
+                            sumSq += (double) v * v;
+                        }
+                        double rms = Math.sqrt(sumSq / n) / 32768.0;
+
+                        // VAD kapısı: konuşma varsa hangover'ı yenile.
+                        if (rms >= VAD_RMS_ON) hangover = VAD_HANGOVER;
+                        if (hangover <= 0) {
+                            // Sessizlik → Vosk decode ATLANIR (CPU tasarrufu).
+                            // Bu frame'i pre-roll olarak sakla (konuşma başlarsa beslenir).
+                            System.arraycopy(buf, 0, preRoll, 0, n);
+                            preRollLen   = n;
+                            preRollValid = true;
+                            continue;
+                        }
+                        hangover--;
+                        // Konuşma başı: önce pre-roll frame'ini besle (kelime başı kırpılmaz).
+                        if (preRollValid) {
+                            recognizer.acceptWaveForm(preRoll, preRollLen);
+                            preRollValid = false;
                         }
 
                         // REFLEKS: endpoint beklenmez — partial her pencerede kontrol edilir
