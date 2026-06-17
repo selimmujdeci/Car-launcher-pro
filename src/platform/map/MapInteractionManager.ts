@@ -115,6 +115,12 @@ export function _setupRouteInteractions(map: MapLibreMap): void {
  * @param obdSpeedKmh    GPS hız sıfırsa OBD fallback
  * @param nextTurnBearing Manevra sonrası yön — turn anticipation için (opsiyonel)
  */
+/** Driving-view şu an aktif mi — exitDrivingView'i İDEMPOTENT yapar.
+ *  Yoksa MiniMapWidget her heading (pusula) değişiminde exitDrivingView çağırıp
+ *  her seferinde 800ms easeTo başlatıyor → kamera animasyonları bitmeden yenileniyor
+ *  → map.isMoving() kalıcı true → MapLibre idle'da 90fps render (cihaz profili 2026-06-17). */
+let _drivingViewActive = false;
+
 export function setDrivingView(
   map: MapLibreMap,
   lat: number,
@@ -127,6 +133,7 @@ export function setDrivingView(
   nextTurnBearing?: number,
 ) {
   if (!map || !map.isStyleLoaded()) return;
+  _drivingViewActive = true;
 
   // ── Dead Reckoning speed fusion ──────────────────────────────────────────
   const effectiveSpeed = speedKmh > 0 ? speedKmh : (obdSpeedKmh ?? 0);
@@ -316,6 +323,10 @@ export function enterNavigationView(
  */
 export function exitDrivingView(map: MapLibreMap) {
   if (!map) return;
+  // İDEMPOTENT: zaten driving-view dışındaysak HİÇBİR ŞEY yapma. Aksi halde her
+  // heading değişiminde easeTo başlar → isMoving kalıcı true → sürekli render.
+  if (!_drivingViewActive) return;
+  _drivingViewActive = false;
   M.lastPerspectiveScale  = 1.0;
   M.lastManeuverTier      = 0;
   M.lastShadowPitch       = -1.0;
