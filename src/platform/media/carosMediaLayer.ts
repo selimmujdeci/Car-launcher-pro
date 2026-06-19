@@ -281,6 +281,16 @@ function _startPositionSave(): void {
   }, 10_000);
 }
 
+/** Pozisyon-kaydetme timer'ını durdur (Zero-Leak §1) — idempotent. */
+function _stopPositionSave(): void {
+  if (_saveTimer != null) { clearInterval(_saveTimer); _saveTimer = null; }
+}
+
+// HMR / test re-init'te orphan interval bırakma — modül atılırken timer'ı temizle.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => _stopPositionSave());
+}
+
 export function getLastMedia(): LastMedia | null {
   try {
     const raw = safeGetRaw(LAST_KEY);

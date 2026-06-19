@@ -82,6 +82,18 @@ class CacheLRUManager {
     }
   }
 
+  /**
+   * Tüm zamanlayıcıları durdur ve protokol kaydını kaldır (Zero-Leak §1).
+   * Prod'da nadiren çağrılır (singleton ömür-boyu) ama HMR / test re-init'te
+   * orphan timer + çift protokol kaydını önler — idempotent.
+   */
+  dispose(): void {
+    if (this._statsTimer !== null) { clearInterval(this._statsTimer); this._statsTimer = null; }
+    if (this._flushTimer !== null) { clearTimeout(this._flushTimer); this._flushTimer = null; }
+    try { maplibregl.removeProtocol(PROTOCOL); } catch { /* zaten kayıtlı değil */ }
+    this._registered = false;
+  }
+
   /** Navigasyon bitti — tüm koridor korumalarını kaldır. */
   clearCorridorProtection(): void {
     for (const entry of this._manifest.values()) {
