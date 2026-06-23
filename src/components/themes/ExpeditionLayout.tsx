@@ -14,6 +14,7 @@ import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
+import { useEngineReadout } from '../../hooks/useEngineReadout';
 import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
@@ -224,9 +225,9 @@ const SpeedPlate = memo(function SpeedPlate() {
 /* ─── RANGE / FUEL PLATE ─────────────────────────────────────────── */
 const RangePlate = memo(function RangePlate() {
   const p = usePal();
-  const obd = useOBDState();
+  const eng = useEngineReadout();
   const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
+  const lvl = eng.fuel;
   const range = lvl != null ? Math.round((lvl / 100) * 750) : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
@@ -353,8 +354,10 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
   const obd = useOBDState();
   const gps = useGPSLocation();
   const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
+  const eng = useEngineReadout();
   const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
-  const motor = obd.engineTemp != null ? Math.round(obd.engineTemp) : null;
+  const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
+  const rpm = eng.rpm;
   return (
     <Plate style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
@@ -371,6 +374,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
       </div>
       <div className="flex" style={{ borderTop: `1px solid ${p.hairline}`, position: 'relative', zIndex: 2 }} onClick={e => e.stopPropagation()}>
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
+        <Metric k="Devir" v={rpm != null ? `${Math.round(rpm)}` : '—'} unit="" border />
         <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border />
         <Metric k="Hız"  v={`${speed}`} unit=" km/h" border />
       </div>

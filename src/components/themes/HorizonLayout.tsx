@@ -14,6 +14,7 @@ import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
+import { useEngineReadout } from '../../hooks/useEngineReadout';
 import { useClock, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
@@ -261,8 +262,9 @@ const HzSpeedCard = memo(function HzSpeedCard() {
 const HzRangeCard = memo(function HzRangeCard() {
   const p = usePalH();
   const obd = useOBDState();
+  const eng = useEngineReadout();
   const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
+  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
   const range = obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
   const fpct = lvl != null ? Math.max(0, Math.min(lvl, 100)) : 0;
   return (
@@ -485,11 +487,11 @@ function HzBar({ Icon, label, value, unit, fill, danger }: {
 
 const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePalH();
-  const obd = useOBDState();
+  const eng = useEngineReadout();
   const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
-  const motor = obd.engineTemp != null && obd.engineTemp >= 0 ? Math.round(obd.engineTemp) : null;
-  const rpm = obd.rpm != null && obd.rpm >= 0 ? obd.rpm : null;
-  const fuel = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round(obd.fuelLevel) : null;
+  const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
+  const rpm = eng.rpm;
+  const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
   return (
     <Panel style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
       <div className="flex items-center justify-between">
