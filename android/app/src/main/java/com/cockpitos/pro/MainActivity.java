@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -176,6 +177,9 @@ public class MainActivity extends BridgeActivity {
     private boolean huRotationApplied = false;
     /** CAN yönlendirmesi bir kez uygulandı mı. */
     private boolean canRoutingApplied = false;
+    /** can_send_info_package_name'i savunan observer (OEM listeye launcher eklerse geri yazar). */
+    private ContentObserver _canRoutingObserver = null;
+    private static final String CAN_ROUTING_KEY = "can_send_info_package_name";
 
     /**
      * NWD head unit'te kendimizi `can_send_info_package_name`'e yazarız ki CanService
@@ -193,15 +197,51 @@ public class MainActivity extends BridgeActivity {
                 return;
             }
             String pkg = getPackageName();
-            Settings.System.putString(getContentResolver(), "can_send_info_package_name", pkg);
-            // Per-package opt-in: "<pkg>can_send_carinfo_data_to_out" / "...doorinfo...".
-            Settings.System.putInt(getContentResolver(), pkg + "can_send_carinfo_data_to_out", 1);
-            Settings.System.putInt(getContentResolver(), pkg + "can_send_doorinfo_data_to_out", 1);
+            // 1) EN KRİTİK: can_send_info_package_name (OEM'in BİLDİĞİ anahtar — yazılabilir olabilir).
+            //    CİHAZDA KANIT (2026-06-23): OEM CanService bu anahtarda TEK-PAKET TAM string eşleşmesi
+            //    yapar; OEM boot'ta/çalışırken launcher'ı EKLER ("...pro,com.android.launcher") →
+            //    virgüllü listede CarInfo akışı DURUR. assertCanRouting değeri tam paketimize yazar.
+            boolean routed = assertCanRouting(pkg);
+            // 2) Per-package opt-in flag'leri — DİNAMİK adlı anahtarlar; bu ROM bunları reddedebilir
+            //    ("secure settings" hatası). Ayrı try'larda — biri düşse de routing/observer bozulmaz.
+            try { Settings.System.putInt(getContentResolver(), pkg + "can_send_carinfo_data_to_out", 1); }
+            catch (Throwable t) { Log.w(TAG, "opt-in carinfo yazılamadı (zararsız): " + t.getMessage()); }
+            try { Settings.System.putInt(getContentResolver(), pkg + "can_send_doorinfo_data_to_out", 1); }
+            catch (Throwable t) { Log.w(TAG, "opt-in doorinfo yazılamadı (zararsız): " + t.getMessage()); }
+            // 3) Savunma observer'ı — değer yazılabiliyorsa anlamlı (OEM listeye launcher eklerse geri yaz).
+            if (routed) {
+                _canRoutingObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
+                    @Override public void onChange(boolean selfChange) { assertCanRouting(getPackageName()); }
+                };
+                getContentResolver().registerContentObserver(
+                    Settings.System.getUriFor(CAN_ROUTING_KEY), false, _canRoutingObserver);
+                Log.i(TAG, "CAN routing: can_send_info_package_name=" + pkg + " (savunmalı — observer aktif)");
+            } else {
+                Log.w(TAG, "CAN routing: anahtar yazılamadı (OEM koruması) — sistem-app gerekir; sporadik CarInfo");
+            }
             canRoutingApplied = true;
-            Log.i(TAG, "CAN routing: can_send_info_package_name=" + pkg + " (CarInfo akışı bu app'e yönlendirildi)");
         } catch (Throwable t) {
             // fail-soft: yönlendirilemezse NwdCanClient yine sporadik CarInfo alır
             Log.e(TAG, "CAN routing hata: " + t.getMessage());
+        }
+    }
+
+    /**
+     * can_send_info_package_name'i yalnız değer tam paketimiz DEĞİLSE geri yazar.
+     * Eşitse yazmaz → ContentObserver geri-besleme döngüsü oluşmaz.
+     * @return değer (artık) tam paketimiz mi — yani yönlendirme aktif mi.
+     */
+    private boolean assertCanRouting(String pkg) {
+        try {
+            String cur = Settings.System.getString(getContentResolver(), CAN_ROUTING_KEY);
+            if (pkg.equals(cur)) return true;
+            Settings.System.putString(getContentResolver(), CAN_ROUTING_KEY, pkg);
+            Log.i(TAG, "CAN routing yeniden uygulandı (eski: " + cur + ")");
+            // Yazma reddedilmiş olabilir (OEM secure) — gerçekten oturdu mu doğrula.
+            return pkg.equals(Settings.System.getString(getContentResolver(), CAN_ROUTING_KEY));
+        } catch (Throwable t) {
+            Log.e(TAG, "assertCanRouting hata: " + t.getMessage());
+            return false;
         }
     }
 
@@ -296,6 +336,11 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         stopAnrWatchdog();
+        if (_canRoutingObserver != null) {
+            try { getContentResolver().unregisterContentObserver(_canRoutingObserver); }
+            catch (Throwable ignored) {}
+            _canRoutingObserver = null;
+        }
         super.onDestroy();
     }
 
