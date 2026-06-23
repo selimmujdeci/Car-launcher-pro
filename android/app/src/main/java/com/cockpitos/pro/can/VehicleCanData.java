@@ -39,6 +39,10 @@ public final class VehicleCanData {
     // ── Kapı / aydınlatma ────────────────────────────────────────────────────
     public final Boolean doorOpen;
     public final Boolean headlightsOn;
+    public final Boolean highBeam;       // uzun far
+    public final Boolean turnLeft;       // sol sinyal
+    public final Boolean turnRight;      // sağ sinyal
+    public final Boolean hazard;         // dörtlü flaşör
 
     // ── TPMS ─────────────────────────────────────────────────────────────────
     public final float[] tpms; // [fl, fr, rl, rr] kPa — null if unavailable
@@ -64,6 +68,10 @@ public final class VehicleCanData {
         this.cruiseControl  = b.cruiseControl;
         this.doorOpen       = b.doorOpen;
         this.headlightsOn   = b.headlightsOn;
+        this.highBeam       = b.highBeam;
+        this.turnLeft       = b.turnLeft;
+        this.turnRight      = b.turnRight;
+        this.hazard         = b.hazard;
         this.tpms           = b.tpms;
     }
 
@@ -75,6 +83,7 @@ public final class VehicleCanData {
         Boolean parkingBrake; Boolean seatbelt;
         Boolean wipers; Boolean airCondition; Boolean cruiseControl;
         Boolean doorOpen; Boolean headlightsOn; float[] tpms;
+        Boolean highBeam; Boolean turnLeft; Boolean turnRight; Boolean hazard;
 
         public Builder speed(float v)             { speed          = v; return this; }
         public Builder reverse(boolean v)         { reverse        = v; return this; }
@@ -96,6 +105,10 @@ public final class VehicleCanData {
         public Builder cruiseControl(boolean v)   { cruiseControl  = v; return this; }
         public Builder doorOpen(boolean v)        { doorOpen       = v; return this; }
         public Builder headlights(boolean v)      { headlightsOn   = v; return this; }
+        public Builder highBeam(boolean v)        { highBeam       = v; return this; }
+        public Builder turnLeft(boolean v)        { turnLeft       = v; return this; }
+        public Builder turnRight(boolean v)       { turnRight      = v; return this; }
+        public Builder hazard(boolean v)          { hazard         = v; return this; }
         public Builder tpms(float[] v)            { tpms           = v; return this; }
         public VehicleCanData build()             { return new VehicleCanData(this); }
     }

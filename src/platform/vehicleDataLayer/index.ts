@@ -129,6 +129,10 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
       // Kapı / aydınlatma
       doorOpen:          d.doorOpen,
       headlightsOn:      d.headlightsOn,
+      highBeam:          d.highBeam,
+      turnLeft:          d.turnLeft,
+      turnRight:         d.turnRight,
+      hazard:            d.hazard,
       tpms:              d.tpms?.length === 4
                            ? (d.tpms as [number, number, number, number])
                            : undefined,

@@ -52,6 +52,10 @@ public final class NativeToJsBridge {
         // ── Kapı / aydınlatma ────────────────────────────────────────────────
         if (data.doorOpen     != null) p.put("doorOpen",        data.doorOpen);
         if (data.headlightsOn != null) p.put("headlightsOn",    data.headlightsOn);
+        if (data.highBeam     != null) p.put("highBeam",        data.highBeam);
+        if (data.turnLeft     != null) p.put("turnLeft",        data.turnLeft);
+        if (data.turnRight    != null) p.put("turnRight",       data.turnRight);
+        if (data.hazard       != null) p.put("hazard",          data.hazard);
 
         // ── Şasi bayrakları ──────────────────────────────────────────────────
         if (data.abs              != null) p.put("abs",              data.abs);

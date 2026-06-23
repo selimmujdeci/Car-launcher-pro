@@ -755,6 +755,10 @@ export interface CanData {
   // ── Kapı / aydınlatma ─────────────────────────────────────────────────────
   doorOpen?:         boolean;
   headlightsOn?:     boolean;
+  highBeam?:         boolean;    // uzun far
+  turnLeft?:         boolean;    // sol sinyal
+  turnRight?:        boolean;    // sağ sinyal
+  hazard?:           boolean;    // dörtlü flaşör
   // ── Şasi güvenliği ────────────────────────────────────────────────────────
   abs?:              boolean;
   tractionControl?:  boolean;

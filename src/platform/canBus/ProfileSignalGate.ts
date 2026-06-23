@@ -77,6 +77,7 @@ const CAN_ONLY_FIELDS: ReadonlyArray<keyof CanAdapterData> = [
   'reverse', 'doorOpen', 'headlightsOn', 'parkingBrake', 'seatbelt',
   'gearPos', 'abs', 'tractionControl', 'stabilityControl',
   'wipers', 'airCondition', 'cruiseControl', 'ambientTemp', 'tpms',
+  'highBeam', 'turnLeft', 'turnRight', 'hazard',
 ];
 
 // ── Karantina: kaynak değil sinyal bazlı ─────────────────────────────────────

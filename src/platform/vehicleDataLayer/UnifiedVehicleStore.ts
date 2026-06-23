@@ -37,6 +37,10 @@ export interface CanExtrasPatch {
   // Kapı / aydınlatma
   doorOpen?:          boolean;
   headlightsOn?:      boolean;
+  highBeam?:          boolean;
+  turnLeft?:          boolean;
+  turnRight?:         boolean;
+  hazard?:            boolean;
   // TPMS
   tpms?:              [number, number, number, number]; // [fl,fr,rl,rr] kPa
   // Motor
@@ -73,6 +77,10 @@ export interface UnifiedVehicleState {
   // ── CAN extras: kapı / far / TPMS ────────────────────────────────────────
   canDoorOpen:   boolean;
   canHeadlights: boolean;
+  canHighBeam:   boolean;
+  canTurnLeft:   boolean;
+  canTurnRight:  boolean;
+  canHazard:     boolean;
   canTpmsKpa:    readonly [number, number, number, number] | null;
 
   // ── CAN extras: motor ─────────────────────────────────────────────────────
@@ -136,6 +144,10 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
       reverse:        false,
       canDoorOpen:    false,
       canHeadlights:  false,
+      canHighBeam:    false,
+      canTurnLeft:    false,
+      canTurnRight:   false,
+      canHazard:      false,
       canTpmsKpa:     null,
       canRpm:         null,
       canCoolantTemp: null,
@@ -295,6 +307,10 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         // Kapı / aydınlatma
         if (patch.doorOpen     != null) chkBool('canDoorOpen',   patch.doorOpen);
         if (patch.headlightsOn != null) chkBool('canHeadlights', patch.headlightsOn);
+        if (patch.highBeam     != null) chkBool('canHighBeam',   patch.highBeam);
+        if (patch.turnLeft     != null) chkBool('canTurnLeft',   patch.turnLeft);
+        if (patch.turnRight    != null) chkBool('canTurnRight',  patch.turnRight);
+        if (patch.hazard       != null) chkBool('canHazard',     patch.hazard);
         if (patch.tpms != null)         { u.canTpmsKpa = patch.tpms; dirty = true; }
 
         // Motor
@@ -339,6 +355,10 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
           // Boolean CAN sinyalleri — bilinmiyor → güvenli varsayılan
           canDoorOpen:         false,
           canHeadlights:       false,
+          canHighBeam:         false,
+          canTurnLeft:         false,
+          canTurnRight:        false,
+          canHazard:           false,
           canAbs:              false,
           canTractionControl:  false,
           canStabilityControl: false,

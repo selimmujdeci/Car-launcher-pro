@@ -31,10 +31,15 @@ public final class NwdSettingsReader {
 
     private static final String TAG = "NwdSettingsReader";
 
-    // OEM 'system' ayar anahtarları (saha doğrulaması 2026-06-15)
+    // OEM 'system' ayar anahtarları (saha doğrulaması 2026-06-15 / 2026-06-23)
     private static final String K_DOOR    = "can_door_show_state";
     private static final String K_HBRAKE  = "hand_brake_state";
     private static final String K_REVERSE = "mcu_backcar_state";
+    // 2026-06-23: bu araçta MEVCUT ek gövde sinyalleri (cihazda doğrulandı)
+    private static final String K_TURN_L  = "can_left_turn_light_onoff";   // sol sinyal
+    private static final String K_TURN_R  = "can_right_turn_light_onoff";  // sağ sinyal
+    private static final String K_HAZARD  = "can_double_light_onoff";      // dörtlü
+    private static final String K_HIBEAM  = "high_beam_state";             // uzun far
 
     private volatile boolean _started = false;
     private Context  _ctx = null;
@@ -56,7 +61,11 @@ public final class NwdSettingsReader {
             cr.registerContentObserver(Settings.System.getUriFor(K_DOOR),    false, _observer);
             cr.registerContentObserver(Settings.System.getUriFor(K_HBRAKE),  false, _observer);
             cr.registerContentObserver(Settings.System.getUriFor(K_REVERSE), false, _observer);
-            Log.d(TAG, "NwdSettingsReader başladı — gövde sinyalleri (kapı/elfreni/gerivites) izleniyor");
+            cr.registerContentObserver(Settings.System.getUriFor(K_TURN_L),  false, _observer);
+            cr.registerContentObserver(Settings.System.getUriFor(K_TURN_R),  false, _observer);
+            cr.registerContentObserver(Settings.System.getUriFor(K_HAZARD),  false, _observer);
+            cr.registerContentObserver(Settings.System.getUriFor(K_HIBEAM),  false, _observer);
+            Log.d(TAG, "NwdSettingsReader başladı — gövde sinyalleri (kapı/elfreni/gerivites/sinyal/dörtlü/uzunfar) izleniyor");
         } catch (Throwable t) {
             Log.w(TAG, "ContentObserver kaydı başarısız: " + t.getMessage());
         }
@@ -82,14 +91,23 @@ public final class NwdSettingsReader {
         int door    = getInt(cr, K_DOOR);
         int hbrake  = getInt(cr, K_HBRAKE);
         int reverse = getInt(cr, K_REVERSE);
+        int turnL   = getInt(cr, K_TURN_L);
+        int turnR   = getInt(cr, K_TURN_R);
+        int hazard  = getInt(cr, K_HAZARD);
+        int hibeam  = getInt(cr, K_HIBEAM);
 
         // Hiçbir anahtar yoksa (NWD-dışı cihaz) → emit etme
-        if (door < 0 && hbrake < 0 && reverse < 0) return;
+        if (door < 0 && hbrake < 0 && reverse < 0
+                && turnL < 0 && turnR < 0 && hazard < 0 && hibeam < 0) return;
 
         VehicleCanData.Builder b = new VehicleCanData.Builder();
         if (door    >= 0) b.doorOpen(door       != 0);
         if (hbrake  >= 0) b.parkingBrake(hbrake  != 0);
         if (reverse >= 0) b.reverse(reverse      != 0);
+        if (turnL   >= 0) b.turnLeft(turnL       != 0);
+        if (turnR   >= 0) b.turnRight(turnR      != 0);
+        if (hazard  >= 0) b.hazard(hazard        != 0);
+        if (hibeam  >= 0) b.highBeam(hibeam      != 0);
 
         NwdCanClient.DecodedListener cb = _listener;
         if (cb != null && _started) cb.onData(b.build());

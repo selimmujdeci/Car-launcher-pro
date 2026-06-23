@@ -90,6 +90,10 @@ export class CanAdapter implements ICanAdapter {
       // ── Kapı / aydınlatma ─────────────────────────────────────────────────
       this._data.doorOpen     = raw.doorOpen     ?? undefined;
       this._data.headlightsOn = raw.headlightsOn ?? undefined;
+      this._data.highBeam     = raw.highBeam     ?? undefined;
+      this._data.turnLeft     = raw.turnLeft     ?? undefined;
+      this._data.turnRight    = raw.turnRight    ?? undefined;
+      this._data.hazard       = raw.hazard       ?? undefined;
 
       // ── Şasi güvenliği ────────────────────────────────────────────────────
       this._data.abs              = raw.abs              ?? undefined;
