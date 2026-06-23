@@ -13,6 +13,7 @@ import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
@@ -196,8 +197,8 @@ const SpeedPlate = memo(function SpeedPlate() {
   return (
     <Plate style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div>
-        <div style={{ fontWeight: 700, fontSize: 46, lineHeight: 0.95, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
-        <div style={{ marginTop: 5, color: p.ink2, fontSize: 14, fontWeight: 500 }}>{date}</div>
+        <div style={{ fontWeight: 700, fontSize: 52, lineHeight: 0.95, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
+        <div style={{ marginTop: 5, color: p.ink2, fontSize: 15, fontWeight: 500 }}>{date}</div>
       </div>
       <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', marginTop: 6, minHeight: 0 }}>
         <div style={RING_BOX}>
@@ -206,14 +207,15 @@ const SpeedPlate = memo(function SpeedPlate() {
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.accent} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
           </svg>
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <div style={{ fontWeight: 800, fontSize: 76, lineHeight: 0.8, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
+            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
           </div>
         </div>
       </div>
-      <div className="flex items-center justify-center" style={{ gap: 14, marginTop: 4 }}>
-        <div style={{ width: 58, height: 58, borderRadius: '50%', display: 'grid', placeItems: 'center', background: p.plateSunk, border: `1px solid ${p.edge}`, boxShadow: `inset 0 3px 6px rgba(0,0,0,.5), inset 0 -1px 0 ${p.edgeLight}`, fontWeight: 800, fontSize: 28, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>D</div>
-        <div style={{ fontWeight: 800, fontSize: 17, letterSpacing: '0.12em', color: p.accent }}>4WD</div>
+      {/* Gerçek araç gövde sinyalleri (CAN) — kapı/elfreni/sinyal/dörtlü/far/gerivites.
+          Sahte "D / 4WD" kaldırıldı: bu araçta vites verisi CAN'da yok (yanıltıcıydı). */}
+      <div className="flex-shrink-0" style={{ marginTop: 6 }}>
+        <VehicleTellTales />
       </div>
     </Plate>
   );
@@ -230,8 +232,8 @@ const RangePlate = memo(function RangePlate() {
   return (
     <Plate style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
-        <Fuel className="w-[24px] h-[24px]" style={{ color: p.ink2 }} />
-        <span style={{ fontWeight: 800, fontSize: 26, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>km</small></span>
+        <Fuel className="w-[27px] h-[27px]" style={{ color: p.ink2 }} />
+        <span style={{ fontWeight: 800, fontSize: 30, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
         <span style={{ marginLeft: 'auto' }}><Label>Menzil</Label></span>
       </div>
       <div className="flex items-center" style={{ gap: 12 }}>
@@ -245,8 +247,8 @@ const RangePlate = memo(function RangePlate() {
       </div>
       {/* Kilometre (odometre) — GPS, OBD'siz çalışır; aynı panelde ayrı etiketli okuma */}
       <div className="flex items-center" style={{ gap: 12, marginTop: 2, paddingTop: 9, borderTop: `1px solid ${p.edge}` }}>
-        <Gauge className="w-[24px] h-[24px]" style={{ color: p.ink2 }} />
-        <span style={{ fontWeight: 800, fontSize: 26, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>km</small></span>
+        <Gauge className="w-[27px] h-[27px]" style={{ color: p.ink2 }} />
+        <span style={{ fontWeight: 800, fontSize: 30, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
         <span style={{ marginLeft: 'auto' }}><Label>Kilometre</Label></span>
       </div>
     </Plate>
@@ -321,8 +323,8 @@ const MusicPlate = memo(function MusicPlate() {
           {track.albumArt ? <img src={track.albumArt} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
         </button>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 23, lineHeight: 1.05, color: p.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title || 'Çalmıyor'}</div>
-          <div style={{ color: p.ink2, fontSize: 14, fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist || 'Oynatmak için dokun'}</div>
+          <div style={{ fontWeight: 700, fontSize: 26, lineHeight: 1.05, color: p.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title || 'Çalmıyor'}</div>
+          <div style={{ color: p.ink2, fontSize: 15, fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist || 'Oynatmak için dokun'}</div>
         </div>
         <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink3, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
       </div>
@@ -358,8 +360,8 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
-          <span style={{ fontWeight: 700, fontSize: 28, lineHeight: 1, color: p.ink }}>Normal</span>
-          <ChevronRight className="w-4 h-4" style={{ color: p.ink3 }} />
+          <span style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: p.ink }}>Normal</span>
+          <ChevronRight className="w-5 h-5" style={{ color: p.ink3 }} />
         </div>
       </div>
       {/* Rover görseli — dekor (canlı metrikler altında) */}
@@ -379,8 +381,8 @@ function Metric({ k, v, unit, border }: { k: string; v: string; unit: string; bo
   const p = usePal();
   return (
     <div style={{ flex: 1, padding: border ? '12px 4px 16px 16px' : '12px 4px 16px', borderLeft: border ? `1px solid ${p.hairline}` : undefined }}>
-      <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase' }}>{k}</div>
-      <div style={{ fontWeight: 700, fontSize: 24, marginTop: 2, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 14, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
+      <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase' }}>{k}</div>
+      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
     </div>
   );
 }
@@ -390,12 +392,12 @@ function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigatio
   const p = usePal();
   // flex 0 0 33.333% → her zaman 3 buton görünür; fazlası yatay kaydırmayla gelir.
   return (
-    <button onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flexBasis: '33.333%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 5, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative' }}>
+    <button onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
       {active && !p.night
-        ? <span style={{ width: 36, height: 36, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-5 h-5" /></span>
-        : <Icon className="w-[22px] h-[22px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
-      <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{cap}</span>
-      {!!badge && <span style={{ position: 'absolute', top: 6, right: '22%', minWidth: 15, height: 15, background: p.accent, color: '#1a120a', fontSize: 9, fontWeight: 900, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
+        ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
+        : <Icon className="w-[34px] h-[34px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
+      <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{cap}</span>
+      {!!badge && <span style={{ position: 'absolute', top: 6, right: '22%', minWidth: 17, height: 17, background: p.accent, color: '#1a120a', fontSize: 10, fontWeight: 900, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
     </button>
   );
 }
@@ -491,7 +493,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.8)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
       {/* dış kontur — gölge taşıyıcı (gün/gece duyarlı) */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: outerRim, boxShadow: outerShadow }} />
       {/* altın bezel (gündüz şampanya) */}
@@ -580,7 +582,7 @@ const DockScrollZone = memo(function DockScrollZone({ children }: { children: Re
   return (
     <div ref={ref} className="ex-dock-scroll"
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} onClickCapture={onClickCapture}
-      style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', cursor: 'grab', touchAction: 'pan-x' }}>
+      style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x proximity', scrollbarWidth: 'none', msOverflowStyle: 'none', cursor: 'grab', touchAction: 'pan-x', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
       {children}
     </div>
   );
@@ -594,7 +596,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // İki yan grup yatay kaydırılabilir; her birinde 3 buton görünür (toplam 6),
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
-    <div style={{ position: 'relative', flex: '0 0 auto', height: 96 }}>
+    <div style={{ position: 'relative', flex: '0 0 auto', height: 124 }}>
       <div style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
@@ -607,7 +609,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockBtn Icon={LayoutGrid} cap="Menü"       onClick={onOpenApps} />
         </DockScrollZone>
         {/* Pusula boşluğu */}
-        <div style={{ flex: '0 0 132px' }} />
+        <div style={{ flex: '0 0 164px' }} />
         {/* Sağ grup — kaydırılabilir */}
         <DockScrollZone>
           <DockBtn Icon={Wind}          cap="Klima"    onClick={() => openDrawer('climate')} />

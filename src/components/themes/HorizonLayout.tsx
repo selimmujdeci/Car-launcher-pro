@@ -13,6 +13,7 @@ import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useClock, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
@@ -33,7 +34,7 @@ const HZ_GRID_COLS = SUPPORTS_CSS_CLAMP
   ? 'clamp(184px,17.8vw,300px) minmax(0,1fr) clamp(244px,25.8vw,400px)'
   : 'minmax(184px,300px) minmax(0,1fr) minmax(244px,400px)';
 const HZ_TOPBAR_H   = cssClamp('58px', '9.4vh', '74px', '64px');
-const HZ_DOCK_H     = cssClamp('94px', '14.6vh', '122px', '106px');
+const HZ_DOCK_H     = cssClamp('106px', '16vh', '134px', '118px');
 const HZ_DOCK_GAP_W = cssClamp('168px', '26vh', '210px', '188px');
 const HZ_COMPASS_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
   ? { width: 'clamp(150px, 24vh, 188px)', aspectRatio: '1' }
@@ -509,6 +510,10 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
         <HzBar Icon={Droplet} label="Yakıt" value={fuel != null ? `${fuel}` : '—'} unit="%" fill={fuel ?? 0} danger={fuel != null && fuel <= 12} />
         <HzBar Icon={Gauge} label="Devir" value={rpm != null ? `${rpm}` : '—'} unit="" fill={rpm != null ? (rpm / 6000) * 100 : 0} />
       </div>
+      {/* Gerçek araç gövde sinyalleri (CAN) — kapı/elfreni/sinyal/dörtlü/far/gerivites */}
+      <div className="flex-shrink-0" style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${p.edge}` }} onClick={e => e.stopPropagation()}>
+        <VehicleTellTales />
+      </div>
     </Panel>
   );
 });
@@ -520,8 +525,8 @@ function HzDockBtn({ Icon, cap, active, onClick, badge }: {
   const p = usePalH();
   return (
     <button onClick={onClick} className="hz-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flexBasis: '33.333%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 7, color: active ? p.accent : p.onDark2, position: 'relative' }}>
-      <span style={{ width: 40, height: 40, borderRadius: 12, display: 'grid', placeItems: 'center', background: active ? p.accent : 'transparent', color: active ? p.accentInk : 'inherit', boxShadow: active ? `0 6px 16px ${p.accentGlow}` : 'none' }}><Icon className="w-[22px] h-[22px]" /></span>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{cap}</span>
+      <span style={{ width: 50, height: 50, borderRadius: 14, display: 'grid', placeItems: 'center', background: active ? p.accent : 'transparent', color: active ? p.accentInk : 'inherit', boxShadow: active ? `0 6px 16px ${p.accentGlow}` : 'none' }}><Icon className="w-[27px] h-[27px]" /></span>
+      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{cap}</span>
       {!!badge && <span style={{ position: 'absolute', top: 0, right: '24%', minWidth: 15, height: 15, background: p.accent, color: p.accentInk, fontSize: 9, fontWeight: 800, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
     </button>
   );
