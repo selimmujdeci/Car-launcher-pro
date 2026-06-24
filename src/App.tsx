@@ -20,6 +20,7 @@ import { GlobalAlert }        from './components/common/GlobalAlert';
 import { VolumeGestureLayer } from './components/common/VolumeGestureLayer';
 import { signalReverse }      from './platform/cameraService';
 import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
+import { SafetyOverlay }         from './components/safety/SafetyOverlay';
 import { useSystemStore }     from './store/useSystemStore';
 import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
 import { systemBoot }         from './platform/system/SystemBoot';
@@ -175,6 +176,9 @@ function App() {
          * olarak bastırılır (conditional render). Kamera görüntüsü kesinlikle
          * temiz kalır — CLAUDE.md §Safety First.
          */}
+        {/* Safety Assistant FAZ 3A — reverse/banner/ikon UI; reverse'i kendi içinde ele alır */}
+        <SafetyOverlay />
+
         {!storeReverse && <GlobalAlert />}
         {!storeReverse && <DisclaimerBanner />}
         {!storeReverse && <RadarAlertHUD />}
