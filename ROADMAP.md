@@ -2,11 +2,17 @@
 
 > Yol haritası ve öncelik sırası. Detaylı anlık durum için `PROJECT_STATE.md`,
 > mimari için `ARCHITECTURE.md`, devir notları için `HANDOFF.md`.
-> Son güncelleme: 2026-06-06. Branch: `feature/ble-obd-support`.
+> Son güncelleme: 2026-06-24. Branch: `fix/k24-perf-webgl-bundle-rotation`.
 
 ---
 
 ## ✅ Tamamlanan İşler (kod tabanında doğrulandı)
+
+- **Safety Assistant Faz 1–3A** (commit `9617664` `feat(safety): add vehicle safety overlay`):
+  saf `SafetyRuleEngine` (10 kural) → durumlu `SafetyAlertQueue` (debounce/repeat/mute/öncelik) →
+  izole `safetyStateMapper`+`useSafetyAlerts` → `SafetyOverlay` UI (K24 uyumlu). Standart:
+  `SAFETY_ASSISTANT_STANDARD.md`. Test: engine 78/queue 24/bridge 31/tick 21/overlay 8 yeşil, guard 45.
+  **VoiceSafetyAnnouncer ve CAN canlı bağlantı HENÜZ YOK** (Faz 3B + handshake).
 
 - **Faz 1 GPU yükü azaltma** (commit 2fbbd57): `.up-blob` blur `--rt-blur` guard'ına
   bağlandı, ambient blob koşullu render (`blurEnabled`), MiniMap WebGL `homeFullyHidden`
@@ -38,6 +44,10 @@
 
 ## ⏳ Başlanmamış İşler
 
+- **Safety Assistant Faz 3B — VoiceSafetyAnnouncer:** sesli anons + chime + ducking + Sustur
+  butonu (`useSafetyMute`). İzole `<SafetyAnnouncer />`, `voiceAnnouncementAlert`'i offline TTS'e
+  yönlendirir. Ayrıca `signalsAvailable`'ı CAN handshake/profile'a bağla (gerçek araç canlı verisi).
+  **VoiceSafetyAnnouncer + CAN canlı bağlantı henüz yapılmadı.**
 - **Faz 2 — Interval gating** (onay bekliyor): VehicleSignalResolver 20→10/5Hz,
   NativeHALAdapter 2→1Hz, CognitivePriorityEngine 1→0.5Hz, vehicleIntelligenceService
   durağanda 2→1Hz. (Hedef dosya/satırlar PROJECT_STATE.md'de.)

@@ -1,7 +1,28 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-14. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `03c5627`, push EDİLMEDİ; ana hedef `main`).
+> Son güncelleme: 2026-06-24. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `9617664`, push EDİLMEDİ; ana hedef `main`).
+
+---
+
+## ⚡ EN GÜNCEL DEVİR (2026-06-24 — Safety Assistant Faz 1–3A, `9617664`)
+
+**Safety Assistant** (CAN→sürücü güvenlik uyarısı) **izole** katmanı eklendi. Commit
+`feat(safety): add vehicle safety overlay` (push EDİLMEDİ). Standart: `SAFETY_ASSISTANT_STANDARD.md`.
+Kod: `src/platform/safety/*` + `src/components/safety/SafetyOverlay.tsx`.
+
+**BİTEN (commit'li; ana oturumda tsc/test/build BİZZAT doğrulandı — ajan rapor sayılarına güvenilmedi):**
+- Faz 1 `SafetyRuleEngine` (saf/durumsuz, 10 kural) · Faz 2 `SafetyAlertQueue` (debounce/repeat/mute/öncelik)
+- Faz 2.5 bridge (`safetyStateMapper` + `useSafetyAlerts`) · Faz 2.6 `safetyOutputsEqual` + `safetyTicker`
+- Faz 3A `SafetyOverlay` UI (App.tsx mount; K24/Chrome 64-78 uyumlu; reverse → `ReversePriorityOverlay`)
+- Test: engine 78 / queue 24 / bridge 31 / tick 21 / overlay 8 yeşil; guard 45 korunur.
+
+**HENÜZ YOK / SIRADAKİ:**
+- ▶ **Faz 3B — VoiceSafetyAnnouncer + ducking + mute** (Sustur butonu + `useSafetyMute` hook).
+  `SafetyQueueOutput.voiceAnnouncementAlert` zaten hazır; izole `<SafetyAnnouncer />` bağlanacak.
+- **CAN/native canlı bağlantı YOK:** `signalsAvailable` profile/handshake'e bağlanmalı; gerçek araç
+  CAN akışı hâlâ açık iş (bkz. aşağıda OBD/CAN devir notu). Sinyal yokken kurallar sönük (yanlış alarm yok).
+- Voice katmanında Faz 2.6 `safetyOutputsEqual` varsayımı (her ses öncesi null tick) cihazda test edilmeli.
 
 ---
 

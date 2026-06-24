@@ -3,7 +3,7 @@
 > NOT: Bu repoda zaten `ARCHITECTURE.md` var (üst-düzey "Sistem Manifestosu" — vizyon
 > ve standartlar). O dosyaya DOKUNULMADI. Bu dosya onu tamamlar: **somut veri akışları
 > ve kod tabanından doğrulanmış referanslar**. Üst-düzey vizyon için `ARCHITECTURE.md`.
-> Son güncelleme: 2026-06-06.
+> Son güncelleme: 2026-06-24.
 
 ---
 
@@ -112,6 +112,39 @@ AKTİF gauge bileşenleri (SpeedCard vb.) ← useUnifiedVehicleStore / useOBDSta
 - **Mimari risk:** Tek nokta arıza — instance düşerse YouTube arama/stream çalışmaz.
 - **YouTube gömülü oynatma REVERT:** carosMediaLayer.ts içinde `_playYouTubeLight` yok,
   yalnızca standart `playYouTube` (satır 32, 203). Müzik kaynakları: local + stream.
+
+---
+
+## 7. Safety Assistant Veri Akışı (2026-06-24, commit `9617664`)
+
+```
+UnifiedVehicleStore (CAN/OBD/GPS)
+   │  createSafetyStateFromVehicleStore (saf mapper; seatbelt/headlights yanlış-alarm gating;
+   │                                     updatedAt.speed = _vehicleSpeedTs)   [safetyStateMapper.ts]
+   ▼
+SafetyVehicleState ──▶ evaluateSafetyRules(state, now, updatedAt)   ← saf/durumsuz, 10 kural
+   │                        [SafetyRuleEngine.ts]                      (Date.now() yok; deterministik)
+   ▼  SafetyAlert[]
+SafetyAlertQueue.update(alerts, now)   ← DURUMLU: debounce / repeat / maxRepeats / mute / öncelik
+   │                                       [SafetyAlertQueue.ts]
+   │  SafetyQueueOutput { visibleAlerts, primaryBannerAlert, voiceAnnouncementAlert, muted, suppressed }
+   ▼
+useSafetyAlerts (hook)   ← safetyOutputsEqual (ts hariç kıyas → gereksiz re-render yok);
+   │                        safetyTicker 500ms (aktif alert varken; idle'da timer YOK)
+   ▼
+SafetyOverlay (UI)   ← banner + ikon şeridi (App.tsx mount); reverse → ReversePriorityOverlay
+```
+
+- **Saf çekirdek + durumlu kuyruk ayrımı:** engine saf (regresyon kilidi/test kolay);
+  tekrar/mute durumu yalnız Queue'da → yanlış-alarm hata yüzeyi küçük.
+- **Tek doğru kaynak:** `UnifiedVehicleStore` → tek mapper → engine/queue/UI aynı state'i okur
+  (asistan ≠ ekran tutarsızlığı imkânsız).
+- **Stale disiplini:** sadece `speed` gerçek timestamp'e (`_vehicleSpeedTs`, `performance.now()`)
+  sahip → hook/tick `now` da `performance.now()`. CAN için stale yerine `resetCanData()` reset-safe.
+- **HENÜZ YOK:** `voiceAnnouncementAlert` tüketicisi (VoiceSafetyAnnouncer — Faz 3B);
+  `signalsAvailable`'ın CAN handshake/profile bağlantısı (gerçek araç canlı verisi).
+- Standart: `SAFETY_ASSISTANT_STANDARD.md`; kod: `src/platform/safety/*`,
+  `src/components/safety/SafetyOverlay.tsx`.
 
 ---
 

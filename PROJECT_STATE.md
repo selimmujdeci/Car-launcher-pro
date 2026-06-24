@@ -2,14 +2,46 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-06-14.
+> Son güncelleme: 2026-06-24.
 
 ---
 
 ## Aktif Branch
 
-- **Aktif branch:** `fix/k24-perf-webgl-bundle-rotation` (HEAD `44c6372`) — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- **Aktif branch:** `fix/k24-perf-webgl-bundle-rotation` (HEAD `9617664` — Safety Assistant) — **push EDİLMEDİ**, `main`'e merge bekliyor.
 - `main` HEAD: `648fb84` (autoBrightness guard).
+
+## 🛡️ Safety Assistant — Faz 1–3A Tamamlandı (2026-06-24, `9617664`)
+
+CAN/araç sinyallerini sürücü güvenlik uyarılarına çeviren **izole** katman eklendi.
+Commit: **`feat(safety): add vehicle safety overlay`** (14 dosya, +3797; push EDİLMEDİ).
+Ürün+mimari standardı: `SAFETY_ASSISTANT_STANDARD.md`. Kod: `src/platform/safety/*` +
+`src/components/safety/SafetyOverlay.tsx`.
+
+- **Faz 1 — SafetyRuleEngine** (`SafetyRuleEngine.ts`): saf/durumsuz
+  `evaluateSafetyRules(state, now, updatedAt?)`, 10 kural (reverse.active, door.open.moving,
+  parking_brake.moving, engine.overheat, seatbelt.unfastened.moving, hood_or_trunk.open.moving,
+  headlights.off.dark, low_fuel, battery_or_oil.warning, park.door.open). Hız histerezisi
+  (moving>5, stopped<3), stale guard (>2s; overheat 10s istisna), priority sıralı çıktı.
+- **Faz 2 — SafetyAlertQueue** (durumlu): debounce, repeat/maxRepeats, mute (tek olay;
+  critical oturumluk susturulamaz), critical>warning>info önceliği, condition-clear.
+- **Faz 2.5 — Bridge:** `safetyStateMapper` (saf store→SafetyVehicleState; seatbelt/headlights
+  yanlış-alarm gating; speed stale `_vehicleSpeedTs`) + `useSafetyAlerts` hook.
+- **Faz 2.6 — Risk kapatma:** `safetyOutputsEqual` (ts hariç derin kıyas → anons kaçmaz) +
+  `safetyTicker` (aktif alert varken 500ms tick; idle'da timer yok).
+- **Faz 3A — SafetyOverlay UI**: K24/Chrome 64-78 uyumlu (inset-0/blur/animasyon yok),
+  tam-genişlik critical + ince warning banner + ikon şeridi; App.tsx'e mount. Reverse tamamen
+  mevcut `ReversePriorityOverlay`'e bırakıldı.
+
+**Test (ana oturumda bizzat doğrulandı):** engine 78 · queue 24 · bridge 31 · tick 21 ·
+overlay 8 — tümü yeşil; guard 45 korunur; tsc temiz; build OK.
+
+**HENÜZ YAPILMADI:**
+- **VoiceSafetyAnnouncer YOK** — sesli anons / chime / ducking yazılmadı.
+- **CAN adapter / native canlı bağlantı YOK** — `signalsAvailable` profile/handshake'e
+  bağlanmadı; sinyal yokken seatbelt/headlights kuralları sönük (yanlış alarm yok). Gerçek araç
+  CAN akışı ayrı açık iş (bkz. HANDOFF OBD/CAN devir notu).
+- **Faz 3B sıradaki iş:** VoiceSafetyAnnouncer + ducking + mute (Sustur butonu + `useSafetyMute`).
 
 ## 🔴 K24 Cihaz Saha Oturumu — Perf/Bundle/Rotasyon (2026-06-14, `44c6372`)
 
