@@ -21,6 +21,7 @@ import { VolumeGestureLayer } from './components/common/VolumeGestureLayer';
 import { signalReverse }      from './platform/cameraService';
 import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
 import { SafetyOverlay }         from './components/safety/SafetyOverlay';
+import { SafetyAnnouncer }       from './components/safety/SafetyAnnouncer';
 import { useSystemStore }     from './store/useSystemStore';
 import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
 import { systemBoot }         from './platform/system/SystemBoot';
@@ -178,6 +179,8 @@ function App() {
          */}
         {/* Safety Assistant FAZ 3A — reverse/banner/ikon UI; reverse'i kendi içinde ele alır */}
         <SafetyOverlay />
+        {/* Safety Assistant FAZ 3B — TTS + chime; null render, DOM yok */}
+        <SafetyAnnouncer />
 
         {!storeReverse && <GlobalAlert />}
         {!storeReverse && <DisclaimerBanner />}
