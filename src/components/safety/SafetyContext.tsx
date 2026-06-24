@@ -22,11 +22,16 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
+  useState,
   type JSX,
   type ReactNode,
 } from 'react';
 import { useSafetyAlerts } from '../../platform/safety/useSafetyAlerts';
+import { deriveSignalsAvailable } from '../../platform/safety/signalsAvailability';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import type { SafetySignalsAvailable } from '../../platform/safety/signalsAvailability';
 import type { SafetyMapOptions } from '../../platform/safety/safetyStateMapper';
 import type { SafetyQueueOutput } from '../../platform/safety/types';
 
@@ -63,8 +68,38 @@ export function SafetyProvider({
   children: ReactNode;
   opts?: SafetyMapOptions;
 }): JSX.Element {
+  // ── FAZ 4B: signalsAvailable türetimi ──────────────────────────────────────
+  // Hangi opsiyonel CAN sinyali bu araçta gerçekten var (profil + safeMode).
+  // Handshake async tamamlanır (OBD bağlandıktan sonra) → store değişimini
+  // render-tetikleyici olarak kullan; availability değişmezse setState yok.
+  const [signalsAvailable, setSignalsAvailable] = useState<SafetySignalsAvailable>(
+    () => deriveSignalsAvailable(),
+  );
+  useEffect(() => {
+    const recompute = (): void => {
+      const next = deriveSignalsAvailable();
+      setSignalsAvailable((prev) =>
+        prev.seatbelt === next.seatbelt && prev.headlights === next.headlights
+          ? prev
+          : next,
+      );
+    };
+    recompute(); // mount anında
+    // CAN aktıkça store güncellenir → availability'yi tazele (cache'li, ucuz).
+    const unsub = useUnifiedVehicleStore.subscribe(recompute);
+    return unsub;
+  }, []);
+
+  // Derived signalsAvailable'ı opts ile birleştir (caller açıkça verirse o kazanır).
+  // NOT: availability handshake'te bir kez flip edince useSafetyAlerts effect cleanup
+  // queue.reset() çağırır (Faz 2.6 davranışı) → nadir + erken; kabul edilir.
+  const mergedOpts = useMemo<SafetyMapOptions>(
+    () => ({ ...opts, signalsAvailable: { ...signalsAvailable, ...opts?.signalsAvailable } }),
+    [opts, signalsAvailable],
+  );
+
   // TEK hook çağrısı — tek queue, tek ticker, tek state.
-  const { output, mute } = useSafetyAlerts(opts);
+  const { output, mute } = useSafetyAlerts(mergedOpts);
 
   // value: output veya mute referansı değişince yeniden oluşturulur.
   // output: safetyOutputsEqual ile korunan → gereksiz re-render minimumdur.

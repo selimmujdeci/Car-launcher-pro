@@ -149,6 +149,25 @@ export function isGateSafeMode(): boolean {
   return _confirmedSafeMode;
 }
 
+// ── Aktif profil sinyal adları (FAZ 4B — read-only, davranış değişmez) ─────────
+// safetyStateMapper signalsAvailable türetimi için: bu araç profilinin hangi CAN
+// sinyallerini desteklediğini bildirir. _outcome referansına göre cache'lenir
+// (her çağrıda yeni Set allocate edilmez). Hiçbir mevcut state'i DEĞİŞTİRMEZ.
+let _cachedSignalSet:   ReadonlySet<string> | null = null;
+let _cachedForOutcome:  HandshakeOutcome | null = null;
+const _EMPTY_SIGNAL_SET: ReadonlySet<string> = new Set();
+
+/** Aktif handshake profilinin desteklediği CAN sinyal adları (saf okuma). */
+export function getActiveProfileSignalNames(): ReadonlySet<string> {
+  if (_outcome === null) return _EMPTY_SIGNAL_SET;
+  if (_outcome === _cachedForOutcome && _cachedSignalSet !== null) {
+    return _cachedSignalSet;
+  }
+  _cachedForOutcome = _outcome;
+  _cachedSignalSet  = new Set(_outcome.profile.signals.map((s) => s.name));
+  return _cachedSignalSet;
+}
+
 /** Safe Mode sebebi (enum). */
 export function getSafeModeReason(): SafeModeReason {
   return _safeModeReason;
