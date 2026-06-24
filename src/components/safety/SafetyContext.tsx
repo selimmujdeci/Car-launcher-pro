@@ -30,7 +30,9 @@ import {
 } from 'react';
 import { useSafetyAlerts } from '../../platform/safety/useSafetyAlerts';
 import { deriveSignalsAvailable } from '../../platform/safety/signalsAvailability';
+import { deriveIsDark } from '../../platform/safety/isDark';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useStore } from '../../store/useStore';
 import type { SafetySignalsAvailable } from '../../platform/safety/signalsAvailability';
 import type { SafetyMapOptions } from '../../platform/safety/safetyStateMapper';
 import type { SafetyQueueOutput } from '../../platform/safety/types';
@@ -90,12 +92,22 @@ export function SafetyProvider({
     return unsub;
   }, []);
 
-  // Derived signalsAvailable'ı opts ile birleştir (caller açıkça verirse o kazanır).
+  // ── FAZ 4C: isDark (gece/karanlık) tema dayNightMode'undan ─────────────────
+  // headlights.off.dark kuralı isDark gerektirir. İlk sürüm: tema gece modu
+  // (settings.dayNightMode). Reaktif: dayNightMode değişince provider re-render.
+  const dayNightMode = useStore((s) => s.settings.dayNightMode);
+  const isDark = deriveIsDark(dayNightMode);
+
+  // Derived signalsAvailable + isDark'ı opts ile birleştir (caller açıkça verirse o kazanır).
   // NOT: availability handshake'te bir kez flip edince useSafetyAlerts effect cleanup
   // queue.reset() çağırır (Faz 2.6 davranışı) → nadir + erken; kabul edilir.
   const mergedOpts = useMemo<SafetyMapOptions>(
-    () => ({ ...opts, signalsAvailable: { ...signalsAvailable, ...opts?.signalsAvailable } }),
-    [opts, signalsAvailable],
+    () => ({
+      ...opts,
+      isDark: opts?.isDark ?? isDark,
+      signalsAvailable: { ...signalsAvailable, ...opts?.signalsAvailable },
+    }),
+    [opts, isDark, signalsAvailable],
   );
 
   // TEK hook çağrısı — tek queue, tek ticker, tek state.
