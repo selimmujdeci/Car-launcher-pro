@@ -1,18 +1,19 @@
 /**
- * SafetyAnnouncer — Safety Assistant FAZ 3B
+ * SafetyAnnouncer — Safety Assistant FAZ 3B / FAZ 4A
  *
  * Görsel DOM üretmeyen, effect tabanlı bileşen.
- * useSafetyAlerts() çıktısını dinler → çekirdeğe iletir → TTS + chime.
+ * useSafetyContext() çıktısını dinler → çekirdeğe iletir → TTS + chime.
  *
  * Neden null render:
  *  - Ses kararı tamamen effect katmanında; UI payload yok.
- *  - SafetyOverlay'den bağımsız: aynı hook iki kez çağrılır (bkz. Risk notu).
+ *  - FAZ 4A: SafetyProvider üzerinden tek queue/ticker instance paylaşılır;
+ *    SafetyOverlay ile artık ayrı instance YOK.
  *
- * Mount noktası: App.tsx içinde SafetyOverlay yanına, ErrorBoundary içinde.
+ * Mount noktası: App.tsx içinde SafetyProvider altında, SafetyOverlay yanında.
  */
 
 import { useEffect, useRef } from 'react';
-import { useSafetyAlerts } from '../../platform/safety/useSafetyAlerts';
+import { useSafetyContext } from './SafetyContext';
 import {
   createSafetyAnnouncerCore,
 } from '../../platform/safety/safetyAnnouncerCore';
@@ -33,10 +34,9 @@ export function SafetyAnnouncer(): null {
     coreRef.current = createSafetyAnnouncerCore();
   }
 
-  // useSafetyAlerts: kendi queue/ticker'ını yönetir
-  // NOT: SafetyOverlay da aynı hook'u çağırır → iki ayrı queue instance
-  // (bkz. safetyAnnouncerCore.ts; FAZ 4'te tek context ile birleştirilmeli)
-  const output = useSafetyAlerts();
+  // useSafetyContext: SafetyProvider'ın tek queue/ticker instance'ından gelir (FAZ 4A).
+  // Artık iki ayrı instance yok — SafetyOverlay ile aynı output paylaşılır.
+  const { output } = useSafetyContext();
 
   // voiceAnnouncementAlert.ruleId değişince duyuru yap
   // undefined (null tick) de effect'i tetikler → lastRuleId sıfırlanır

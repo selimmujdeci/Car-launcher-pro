@@ -22,6 +22,7 @@ import { signalReverse }      from './platform/cameraService';
 import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
 import { SafetyOverlay }         from './components/safety/SafetyOverlay';
 import { SafetyAnnouncer }       from './components/safety/SafetyAnnouncer';
+import { SafetyProvider }        from './components/safety/SafetyContext';
 import { useSystemStore }     from './store/useSystemStore';
 import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
 import { systemBoot }         from './platform/system/SystemBoot';
@@ -177,10 +178,13 @@ function App() {
          * olarak bastırılır (conditional render). Kamera görüntüsü kesinlikle
          * temiz kalır — CLAUDE.md §Safety First.
          */}
-        {/* Safety Assistant FAZ 3A — reverse/banner/ikon UI; reverse'i kendi içinde ele alır */}
-        <SafetyOverlay />
-        {/* Safety Assistant FAZ 3B — TTS + chime; null render, DOM yok */}
-        <SafetyAnnouncer />
+        {/* Safety Assistant FAZ 4A — tek queue/ticker/state; provider tüm consumer'ları sarar */}
+        <SafetyProvider>
+          {/* FAZ 3A — reverse/banner/ikon UI; context'ten output alır */}
+          <SafetyOverlay />
+          {/* FAZ 3B — TTS + chime; null render, DOM yok; context'ten output alır */}
+          <SafetyAnnouncer />
+        </SafetyProvider>
 
         {!storeReverse && <GlobalAlert />}
         {!storeReverse && <DisclaimerBanner />}

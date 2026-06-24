@@ -32,7 +32,7 @@
  *   useSafetyMute() hook'u veya context üzerinden bağlanacak.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { SafetyAlertQueue } from './SafetyAlertQueue';
 import {
@@ -42,6 +42,20 @@ import {
 import { createSafetyTicker } from './safetyTicker';
 import type { SafetyMapOptions } from './safetyStateMapper';
 import type { SafetyQueueOutput } from './types';
+
+// ── Hook dönüş tipi ───────────────────────────────────────────────────────────
+/**
+ * useSafetyAlerts dönüş tipi.
+ * output: mevcut SafetyQueueOutput.
+ * mute: ruleId bazında sesi sustururur (SafetyProvider üzerinden erişilir).
+ *
+ * NOT: Bu hook artık yalnız SafetyProvider tarafından çağrılır.
+ * Consumer bileşenler useSafetyContext() ile output ve mute alır.
+ */
+export interface UseSafetyAlertsResult {
+  output: SafetyQueueOutput;
+  mute: (ruleId: string) => void;
+}
 
 // ── Sabit boş çıktı (başlangıç state + "hiçbir alert yok" durumu) ─────────────
 // Her render'da yeni obje oluşturmamak için modül seviyesi sabiti.
@@ -58,9 +72,12 @@ const EMPTY_OUTPUT: SafetyQueueOutput = {
  *
  * @param opts - Gece/sinyal mevcudiyeti seçenekleri (stabil referans önerilir;
  *               her render'da yeni obje gönderilirse opts ref ile sarın).
- * @returns SafetyQueueOutput — visibleAlerts, primaryBannerAlert ve ses kararı.
+ * @returns UseSafetyAlertsResult — output (SafetyQueueOutput) ve mute fonksiyonu.
+ *
+ * NOT: Artık yalnız SafetyProvider çağırır. Consumer bileşenler
+ * useSafetyContext() ile bağlanır (tek queue, tek ticker, tek state).
  */
-export function useSafetyAlerts(opts?: SafetyMapOptions): SafetyQueueOutput {
+export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult {
   // ── Queue lifecycle: her render'da new ÇAĞRILMAZ ──────────────────────────
   const queueRef = useRef<SafetyAlertQueue | null>(null);
   if (queueRef.current === null) {
@@ -144,5 +161,11 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): SafetyQueueOutput {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opts?.isDark, opts?.signalsAvailable?.seatbelt, opts?.signalsAvailable?.headlights]);
 
-  return output;
+  // mute: stabil referans (useCallback, yalnız queueRef bağımlılığı)
+  // queueRef.current lazy init garantisi ile her zaman dolu → null guard yok.
+  const mute = useCallback((ruleId: string) => {
+    queueRef.current?.mute(ruleId);
+  }, []);
+
+  return { output, mute };
 }

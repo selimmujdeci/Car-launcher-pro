@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import type { ComponentType, ReactElement } from 'react';
-import { useSafetyAlerts } from '../../platform/safety/useSafetyAlerts';
+import { useSafetyContext } from './SafetyContext';
 import type { SafetyAlert, SafetyQueueOutput } from '../../platform/safety/types';
 
 // ── İkon eşleme tablosu ───────────────────────────────────────────────────────
@@ -183,10 +183,11 @@ export function SafetyOverlayView({ output }: { output: SafetyQueueOutput }): Re
 // ── Bağlı bileşen ─────────────────────────────────────────────────────────────
 
 /**
- * SafetyOverlay — useSafetyAlerts() çağırır, SafetyOverlayView'a iletir.
- * App.tsx'e mount edilir. opts verilmez (signalsAvailable profile bağlanmaz — FAZ 3A).
+ * SafetyOverlay — context'ten output alır, SafetyOverlayView'a iletir.
+ * useSafetyAlerts() doğrudan ÇAĞIRILMAZ — SafetyProvider üzerinden gelir (FAZ 4A).
+ * App.tsx'te SafetyProvider içine sarıldığında çalışır.
  */
 export function SafetyOverlay(): ReactElement | null {
-  const output = useSafetyAlerts();
+  const { output } = useSafetyContext();
   return <SafetyOverlayView output={output} />;
 }
