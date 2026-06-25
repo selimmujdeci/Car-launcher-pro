@@ -1,7 +1,68 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-24. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `9617664`, push EDİLMEDİ; ana hedef `main`).
+> Son güncelleme: 2026-06-25. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `9617664`, push EDİLMEDİ; ana hedef `main`).
+
+---
+
+## 🔴 AÇIK SAHA BUG'LARI (2026-06-25 — gerçek araç testi, KANIT BEKLİYOR)
+
+İki bağımsız bug saha testinde raporlandı. **Kök neden analizi yapıldı (kod okundu),
+ama HAM LOG ALINMADAN düzeltme YOK** (araç o an yanımızda değildi). Saha test
+prosedürleri hazır:
+
+### 1. ParkingBrake yanlış (el freni inik ama app "çekili" gösteriyor)
+- **Durum:** AÇIK — ham değer testi bekliyor. **Henüz invert/patch YAPILMADI.**
+- **Kök neden adayı (en güçlü):** K24'te el freni NWD CarInfo'dan geliyor
+  (`NwdCanClient.parseCarInfo` → `byte mHandbrake` alan 39 → `b.parkingBrake(mHandbrake != 0)`
+  NwdCanClient.java:356). `!= 0` testi çok-durumlu byte'ı yanlış okuyor olabilir
+  (tri-state: 1=bırakılmış/2=çekili → `!=0` her zaman true) **veya** gerçek polarite ters.
+- **İnvert/profil desteği YOK** hiçbir katmanda. Mapper (safetyStateMapper.ts:124) ve
+  ekran (VehicleTellTales.tsx:52) ham değeri aynen gösteriyor.
+- **Aynı `!= 0` riski:** doorOpen/seatbelt/headlights/wipers/esp/abs (NwdCanClient.java:355-361).
+- **▶ Prosedür:** `PARKING_BRAKE_FIELD_TEST.md` — el freni inik/çekili + kapı çapraz
+  kontrol; `parseCarInfo` zaten `elFreni=%d kapı=%d` ham diag basıyor (NwdCanClient.java:371,
+  2sn throttle). Karar tablosu dosyada (0→1 doğru / 1→2 `==2` gerekli / 1→0 invert / sabit=offset).
+- **Kural:** ham log (A inik & B çekili) gelmeden invert ETME.
+
+### 2. K24 head unit TTS sessiz (telefonda ses var, head unit'te yok — safety dahil)
+- **Durum:** AÇIK — TTS motor envanteri + chime/TTS gözlemi bekliyor.
+- **Kök neden adayı (en güçlü):** Head unit ROM'unda **çalışan TTS motoru yok** →
+  `ttsReady` hiç true olmuyor (CarLauncherPlugin.java:238-256) → `speak()` "TTS_NOT_READY"
+  ile **sessizce reject** (CarLauncherPlugin.java:3064; JS catch yutuyor ttsService.ts:155).
+- **Teşhis anahtarı:** Chime = Web Audio (safetyChime.ts), TTS = native Android TTS
+  (CarLauncherPlugin.java:3060). **Chime çalıp TTS susuyorsa** → native TTS motoru/stream
+  sorunu (en olası). İkisi de susuyorsa → genel ses çıkışı kısık.
+- **İkincil aday:** `speak(text, QUEUE_FLUSH, null, …)` params null → varsayılan stream;
+  bazı ROM'larda TTS stream'i kısık/route dışı.
+- **▶ Prosedür:** `TTS_FIELD_TEST.md` — `pm list packages | grep tts`,
+  `settings get secure tts_default_synth/locale`, logcat'te `TTS_NOT_READY`, chime/TTS gözlemi.
+- **Kural:** TTS motoru yoksa kodla zorlama; stream'i logla kanıtlamadan değiştirme.
+
+### 3. K24 harita takip / heading bug (harita sabit kalıyor + yön ters algılanıyor)
+- **Durum:** AÇIK — araç logu bekleniyor. **Henüz patch YAPILMADI.**
+- **Belirti:** Araç hareket ederken harita bazen sabit kalıyor (takip etmiyor), bazen
+  yön ters algılanıyor (ileri giderken ikon/harita geri gidiyor gibi). İki ayrı kök.
+- **Kök neden adayları:**
+  - **A (ters yön):** Düşük hızda course-over-ground null kalıyor — `computeCourseDelta`
+    4m eşiği (speedCore.ts:82) + `_prevForSpeed` her fix'te güncellenip yer değişimi
+    BİRİKMİYOR (gpsService.ts:428) → ~14-29 km/h altında heading her tick null → donuyor
+    (dönüş sonrası eski yön).
+  - **B (sabit harita):** MiniMap `isDriving` HAM GPS hızına bağlı (`location.speed`,
+    MiniMapWidget.tsx:293,297), fused speed (CAN/OBD) DEĞİL → head unit GPS hız vermeyince
+    park dalına düşüyor, ~200m'de bir recenter (MiniMapWidget.tsx:325,333).
+  - **D (tam ekran):** FullMapView nav-dışı follow kilidi — toparlama watchdog'u sadece
+    nav ACTIVE/REROUTING'te (FullMapView.tsx:665-671); casual sürüşte follow kapalı kalabilir.
+  - **C:** Park dalı bearing'siz recenter + heading null→0 kuzey → ters algıyı pekiştirir.
+- **F (ELENDİ):** Dead Reckoning neden DEĞİL — yerel DR projeksiyonu NO-OP
+  (`_startDeadReckoning` boş, gpsService.ts:714-719), `isDeadReckoningActive()` daima false.
+  Marker/harita çift-rotasyonu da elendi (marker map-align + harita bearing=heading doğru).
+- **▶ Prosedür:** `MAP_FOLLOW_FIELD_TEST.md` — 30s düz / 10s duruş / sağ-sol dönüş / tekrar
+  düz senaryosu; coords.heading-speed null mı, effectiveCourse null mı, isDriving, isFollowing
+  logları. Karar tablosu + minimal patch planı dosyada.
+- **Kural:** log gelmeden DR/heading kapatma yok, follow zorla-açık yok, Safety/OBD/CAN'e dokunma yok.
+
+> Üç dosyada da ("Raporlanacak sonuç") saha sonucunu doldur, sonra karar tablosuna göre izole patch.
 
 ---
 

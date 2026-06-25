@@ -40,6 +40,21 @@
 - **Vosk mikrofon cihaz testi:** Native compile OK, head unit'te STT kalitesi/ducking
   test edilmedi.
 
+### 🔴 Açık saha testleri (kanıt bekleyen bug'lar — gerçek araç gerekli)
+
+> Kök neden analizi yapıldı (kod okundu), HAM LOG gelmeden patch YOK. Prosedür dosyaları hazır.
+
+- **ParkingBrake yanlış** (`PARKING_BRAKE_FIELD_TEST.md`): el freni inik ama app çekili
+  gösteriyor. Aday: NWD CarInfo `mHandbrake != 0` testi (NwdCanClient.java:356) çok-durumlu
+  byte'ı/polariteyi yanlış okuyor. El freni inik/çekili + kapı çapraz ham değer bekleniyor.
+- **K24 head unit TTS sessiz** (`TTS_FIELD_TEST.md`): telefonda ses var, head unit'te yok
+  (safety dahil). Aday: ROM'da TTS motoru yok → `ttsReady=false` → sessiz reject
+  (CarLauncherPlugin.java:3064). `pm list packages | grep tts` + chime/TTS gözlemi bekleniyor.
+- **Harita takip / heading** (`MAP_FOLLOW_FIELD_TEST.md`): harita bazen sabit, bazen yön ters.
+  Adaylar: **A** düşük hızda course-over-ground null (4m eşiği + birikmeyen prevPos) → heading
+  donuyor; **B** MiniMap `isDriving` ham GPS hızına bağlı (fused değil); **D** FullMapView
+  nav-dışı follow kilidi. **DR elendi.** 30s düz/10s duruş/dönüş/düz senaryosu logu bekleniyor.
+
 ---
 
 ## ⏳ Başlanmamış İşler
