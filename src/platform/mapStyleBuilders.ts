@@ -278,9 +278,9 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#f59e0b',
           'circle-radius':       6,
-          'circle-opacity':      0.85,
+          'circle-opacity':      0.55,
           'circle-stroke-color': '#fbbf24',
-          'circle-stroke-width': 1.5,
+          'circle-stroke-width': 1,
         } } as LayerSpecification,
       { id: 'poi-parking',
         type: 'circle',
@@ -291,9 +291,9 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#3b82f6',
           'circle-radius':       5,
-          'circle-opacity':      0.8,
+          'circle-opacity':      0.45,
           'circle-stroke-color': '#60a5fa',
-          'circle-stroke-width': 1.5,
+          'circle-stroke-width': 1,
         } } as LayerSpecification,
       { id: 'poi-hospital',
         type: 'circle',
@@ -304,9 +304,9 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#ef4444',
           'circle-radius':       6,
-          'circle-opacity':      0.85,
+          'circle-opacity':      0.6,
           'circle-stroke-color': '#f87171',
-          'circle-stroke-width': 1.5,
+          'circle-stroke-width': 1,
         } } as LayerSpecification,
       { id: 'poi-police',
         type: 'circle',
@@ -317,9 +317,9 @@ export function buildVectorStyle(
         paint: {
           'circle-color':        '#8b5cf6',
           'circle-radius':       5,
-          'circle-opacity':      0.8,
+          'circle-opacity':      0.45,
           'circle-stroke-color': '#a78bfa',
-          'circle-stroke-width': 1.5,
+          'circle-stroke-width': 1,
         } } as LayerSpecification,
 
       // ── Labels (online only) ──────────────────────────────
@@ -389,14 +389,15 @@ export function buildVectorStyle(
 
 /** Raster (OSM) day/night paint setleri — applyMapDayNight canlı geçişte de bunu kullanır. */
 export const RASTER_PAINT_NIGHT = {
-  // OEM gece tonu — OKUNUR dimmed (saha 2026-06-13: "gece çok koyu, yazılar
-  // okunmuyor"). brightness-max 0.30→0.62: zemin orta-koyu gri (siyah değil),
-  // OSM'nin koyu etiketleri artık kontrastla okunur. Gündüzden belirgin daha
-  // sönük ama gözü yormayan, kullanıcının aydınlık-OEM tercihine uygun.
+  // OEM gece tonu — Night UX Polish 2026-06-25: harita gece "ekranın en parlak
+  // bloğu" olmamalı (MBUX/iDrive/PCM ergonomisi). brightness-max 0.62→0.50
+  // (~%20 daha koyu) AMA contrast 0.42→0.52 ile yükseltilir → OSM'nin koyu
+  // etiketleri OKUNUR kalır (saha 2026-06-13 "çok koyu, yazı okunmuyor" geri
+  // gelmesin; 0.30'a İNİLMEZ). Net etki: zemin daha sönük, kontrast korunur.
   'raster-opacity': 1,
-  'raster-contrast': 0.42,
+  'raster-contrast': 0.52,
   'raster-brightness-min': 0,
-  'raster-brightness-max': 0.62,
+  'raster-brightness-max': 0.50,
   'raster-saturation': -0.55,
   'raster-hue-rotate': 15,
 } as const;

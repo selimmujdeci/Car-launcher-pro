@@ -41,6 +41,7 @@ interface Pal {
   card: string;        // cam kart yüzeyi
   cardSolid: string;   // opak kart (medya/araç)
   border: string;
+  inkCritical: string;
   ink: string;
   ink2: string;
   ink3: string;
@@ -59,9 +60,10 @@ function buildPal(night: boolean): Pal {
     ? {
         night: true,
         bg: 'radial-gradient(120% 90% at 70% -10%, #11203a 0%, transparent 55%), linear-gradient(160deg,#070a12 0%,#0a0f1c 45%,#070b15 100%)',
-        card: 'rgba(20,26,40,0.66)',
+        card: 'rgba(27,34,52,0.72)',
         cardSolid: 'rgba(17,22,34,0.94)',
         border: '1px solid rgba(255,255,255,0.07)',
+        inkCritical: '#FBFCFF',
         ink: '#eef2f8',
         ink2: 'rgba(225,231,242,0.66)',
         ink3: 'rgba(225,231,242,0.40)',
@@ -87,6 +89,7 @@ function buildPal(night: boolean): Pal {
         border: '1px solid rgba(47,107,255,0.18)',
         // Güneş okunabilirliği (WCAG AAA / ISO 15008): tam-opak koyu mürekkep,
         // ikincil/üçüncül yazılar da yüksek kontrast (sönük gri yok).
+        inkCritical: '#05090F',
         ink: '#0c1420',
         ink2: 'rgba(16,26,42,0.88)',
         ink3: 'rgba(16,26,42,0.72)',
@@ -207,7 +210,7 @@ const GaugeCard = memo(function GaugeCard() {
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span style={{ fontSize: 40, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speedKmh}</span>
+          <span style={{ fontSize: 40, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speedKmh}</span>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/S</span>
         </div>
       </div>
@@ -289,7 +292,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
               <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
             </div>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                 2.4 <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
               </div>
               <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>

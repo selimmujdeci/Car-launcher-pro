@@ -56,7 +56,7 @@ interface Pal {
   night: boolean;
   desk: string;
   panel: string; panelHi: string; panelLo: string;
-  ink: string; ink2: string; ink3: string;
+  inkCritical: string; ink: string; ink2: string; ink3: string;
   accent: string; accent2: string; accentDeep: string; accentGlow: string; accentInk: string;
   edge: string; edgeHi: string;
   metal: string; bolt: string;
@@ -69,9 +69,9 @@ const NIGHT_H: Pal = {
   night: true,
   desk: 'radial-gradient(150% 130% at 50% -15%, #1d1812 0%, #15110b 55%, #0c0906 100%)',
   panel: '#221d15', panelHi: '#2a2418', panelLo: '#15110a',
-  ink: '#ECE3D2', ink2: '#AE9F82', ink3: '#6E6149',
+  inkCritical: '#FBF4E6', ink: '#ECE3D2', ink2: '#AE9F82', ink3: '#6E6149',
   accent: '#F2871C', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(242,135,28,.42)', accentInk: '#1A0D02',
-  edge: 'rgba(196,158,98,.16)', edgeHi: 'rgba(228,192,128,.22)',
+  edge: 'rgba(196,158,98,.11)', edgeHi: 'rgba(228,192,128,.22)',
   metal: 'linear-gradient(160deg,#473d2c 0%,#2a2417 55%,#181309 100%)',
   bolt: 'radial-gradient(circle at 36% 30%, #b59a6a, #4a3d24 70%)',
   elev: '0 16px 36px rgba(0,0,0,.58), 0 3px 9px rgba(0,0,0,.5)',
@@ -85,7 +85,7 @@ const DAY_H: Pal = {
   night: false,
   desk: 'radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%)',
   panel: '#F2ECDE', panelHi: '#F8F3E9', panelLo: '#E2D8C4',
-  ink: '#2E281C', ink2: '#6C6250', ink3: '#9A907A',
+  inkCritical: '#221C12', ink: '#2E281C', ink2: '#6C6250', ink3: '#9A907A',
   accent: '#DA801A', accent2: '#E89A3C', accentDeep: '#A85C0C', accentGlow: 'rgba(218,128,26,.28)', accentInk: '#FFF6E9',
   edge: 'rgba(92,72,38,.20)', edgeHi: 'rgba(255,250,238,.7)',
   metal: 'linear-gradient(160deg,#d3c9b3 0%,#b8ac90 55%,#9c9075 100%)',
@@ -248,7 +248,7 @@ const HzSpeedCard = memo(function HzSpeedCard() {
     <Panel style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
       <HzLabel>Hız</HzLabel>
       <div className="flex items-baseline" style={{ gap: 8, marginTop: 6 }}>
-        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{speed}</div>
+        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{speed}</div>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', color: p.ink3 }}>KM/H</div>
       </div>
       <div style={{ height: 5, borderRadius: 999, background: p.panelLo, marginTop: 14, overflow: 'hidden' }}>
@@ -345,7 +345,7 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
             <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
           </div>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 500, color: p.ink3 }}>km</span></div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 500, color: p.ink3 }}>km</span></div>
             <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 3 }}>D400 · Kaş Yolu</div>
           </div>
         </div>

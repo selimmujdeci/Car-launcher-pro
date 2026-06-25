@@ -182,11 +182,13 @@ export const getOnlineTileStyle = (night = false): maplibregl.StyleSpecification
       source: 'map-tiles',
       paint: night
         ? {
-            // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı
+            // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı (lock: mapDayNightStyle.test).
+            // Night UX Polish 2026-06-25: harita gece "en parlak blok" olmasın → ~%20 koyu
+            // (brightness 0.62→0.50) + contrast 0.42→0.52 (OSM koyu etiketleri okunur kalsın).
             'raster-opacity': 1,
-            'raster-contrast': 0.42,
+            'raster-contrast': 0.52,
             'raster-brightness-min': 0,
-            'raster-brightness-max': 0.62,
+            'raster-brightness-max': 0.50,
             'raster-saturation': -0.55,
             'raster-hue-rotate': 15,
           }

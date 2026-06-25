@@ -58,7 +58,7 @@ const NOISE = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg
 interface Pal {
   night: boolean;
   accent: string; accentDeep: string; accentGlow: string;
-  ink: string; ink2: string; ink3: string;
+  inkCritical: string; ink: string; ink2: string; ink3: string;
   plate: string; plateRaised: string; plateSunk: string;
   edge: string; edgeLight: string; hairline: string;
   rivetL: string; rivetD: string;
@@ -69,7 +69,7 @@ interface Pal {
 const DAY: Pal = {
   night: false,
   accent: '#E07B14', accentDeep: '#B65F0C', accentGlow: 'rgba(255,154,46,0.45)',
-  ink: '#2A2620', ink2: '#6E665A', ink3: '#A79E90',
+  inkCritical: '#181410', ink: '#2A2620', ink2: '#6E665A', ink3: '#A79E90',
   plate: '#F4F0E8', plateRaised: '#FBF8F2', plateSunk: '#EBE5DA',
   edge: '#B3AA99', edgeLight: 'rgba(255,255,255,.85)', hairline: 'rgba(60,48,28,.12)',
   rivetL: '#EDE7DA', rivetD: '#8A8276',
@@ -83,8 +83,8 @@ const DAY: Pal = {
 const NIGHT: Pal = {
   night: true,
   accent: '#F2871C', accentDeep: '#B65F0C', accentGlow: 'rgba(242,135,28,0.5)',
-  ink: '#EDE4D2', ink2: '#AE9C7E', ink3: '#6E6049',
-  plate: '#1c1610', plateRaised: '#251d12', plateSunk: '#100c07',
+  inkCritical: '#FCF7EE', ink: '#EDE4D2', ink2: '#A89678', ink3: '#6E6049',
+  plate: '#1c1610', plateRaised: '#2c2215', plateSunk: '#0b0805',
   edge: '#4a3820', edgeLight: 'rgba(176,134,76,.40)', hairline: 'rgba(176,134,76,.16)',
   rivetL: '#93724a', rivetD: '#0c0905',
   plateTex: `radial-gradient(62% 52% at 20% 4%, rgba(200,148,68,.26), transparent 56%), ${NOISE}, linear-gradient(162deg,#2c2216 0%,#1b1310 50%,#0f0c09 100%)`,
@@ -208,7 +208,7 @@ const SpeedPlate = memo(function SpeedPlate() {
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.accent} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
           </svg>
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
+            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
             <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
           </div>
         </div>
@@ -275,7 +275,7 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
           <div className="flex items-center" style={{ gap: 12 }}>
             <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
             <div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
+              <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
               <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
             </div>
           </div>
