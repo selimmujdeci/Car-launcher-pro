@@ -1,4 +1,5 @@
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
+import type { ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react';
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause,
@@ -35,7 +36,7 @@ const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => (
 interface Pal {
   night: boolean;
   accent: string; accent2: string; accentSoft: string; accentGlow: string;
-  ink: string; ink2: string; ink3: string;
+  inkCritical: string; ink: string; ink2: string; ink3: string;
   card: string; cardSolid: string; cardBorder: string; cardShadow: string;
   tile: string;
   plate: string; plateActive: string; plateBorder: string; plateShadow: string;
@@ -49,7 +50,7 @@ interface Pal {
 const SAND: Pal = {
   night: false,
   accent: '#E0822E', accent2: '#B85C16', accentSoft: 'rgba(224,130,46,0.16)', accentGlow: 'rgba(224,130,46,0.30)',
-  ink: '#2A2014', ink2: 'rgba(42,32,20,0.66)', ink3: 'rgba(42,32,20,0.45)',
+  inkCritical: '#160F06', ink: '#2A2014', ink2: 'rgba(42,32,20,0.66)', ink3: 'rgba(42,32,20,0.45)',
   card: 'linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%)', cardSolid: '#f6efe0',
   cardBorder: '1px solid rgba(120,92,52,0.26)',
   cardShadow: '0 6px 16px -8px rgba(90,68,38,0.34), inset 0 1px 0 rgba(255,255,255,0.75)',
@@ -68,8 +69,8 @@ const SAND: Pal = {
 const LAVA: Pal = {
   night: true,
   accent: '#E0822E', accent2: '#F4A24E', accentSoft: 'rgba(224,130,46,0.14)', accentGlow: 'rgba(224,130,46,0.45)',
-  ink: '#F2ECE0', ink2: 'rgba(242,236,224,0.62)', ink3: 'rgba(242,236,224,0.40)',
-  card: 'rgba(30,35,25,0.86)', cardSolid: 'rgba(25,29,20,0.96)',
+  inkCritical: '#FDFAF3', ink: '#F2ECE0', ink2: 'rgba(242,236,224,0.60)', ink3: 'rgba(242,236,224,0.34)',
+  card: 'rgba(45,51,38,0.92)', cardSolid: 'rgba(37,43,31,0.97)',
   cardBorder: '1px solid rgba(224,130,46,0.18)',
   cardShadow: '0 14px 32px -16px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
   tile: 'rgba(255,255,255,0.05)',
@@ -184,8 +185,8 @@ const ClockCard = memo(function ClockCard() {
   return (
     <div style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
       <Screws />
-      <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
-      <div style={{ fontSize: 11.5, fontWeight: 500, color: p.ink2, marginTop: 5 }}>{date}</div>
+      <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
+      <div style={{ fontSize: 14, fontWeight: 500, color: p.ink2, marginTop: 6 }}>{date}</div>
     </div>
   );
 });
@@ -213,17 +214,17 @@ const SpeedGauge = memo(function SpeedGauge() {
           {arc.fill && <path d={arc.fill} fill="none" stroke={p.accent} strokeWidth="9" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span style={{ fontSize: 42, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speed}</span>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/H</span>
+          <span style={{ fontSize: 52, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speed}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 3 }}>KM/H</span>
         </div>
       </div>
       <div className="w-full flex items-center justify-between px-1">
         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
-          <span style={{ fontSize: 14, fontWeight: 800, color: p.accent2 }}>D</span>
-          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>AUTO</span>
+          <span style={{ fontSize: 17, fontWeight: 800, color: p.accent2 }}>D</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>AUTO</span>
         </div>
         <div className="px-2.5 py-1.5 rounded-xl" style={{ background: p.accentSoft, border: `1px solid ${p.accent}55` }}>
-          <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.06em', color: p.accent2 }}>4WD</span>
+          <span style={{ fontSize: 14.5, fontWeight: 900, letterSpacing: '0.06em', color: p.accent2 }}>4WD</span>
         </div>
       </div>
     </div>
@@ -245,10 +246,10 @@ const FuelCard = memo(function FuelCard() {
     <div style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
       <Screws inset={6} />
       <div className="flex items-center gap-2">
-        <Fuel className="w-4 h-4" style={{ color: p.accent2 }} />
-        <span style={{ fontSize: 19, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
-        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>MENZİL</span>
+        <Fuel className="w-5 h-5" style={{ color: p.accent2 }} />
+        <span style={{ fontSize: 24, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>MENZİL</span>
       </div>
       <div className="flex gap-1 mt-2">
         {Array.from({ length: 10 }).map((_, i) => (
@@ -256,10 +257,10 @@ const FuelCard = memo(function FuelCard() {
         ))}
       </div>
       <div className="flex items-center gap-2" style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${p.tile}` }}>
-        <Gauge className="w-4 h-4" style={{ color: p.accent2 }} />
-        <span style={{ fontSize: 19, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
-        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>KİLOMETRE</span>
+        <Gauge className="w-5 h-5" style={{ color: p.accent2 }} />
+        <span style={{ fontSize: 24, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>KİLOMETRE</span>
       </div>
     </div>
   );
@@ -329,19 +330,19 @@ const MusicCard = memo(function MusicCard() {
   return (
     <div style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
       <Screws />
-      <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 56, height: 56, background: p.accentSoft, border: `1px solid ${p.accent}33`, cursor: 'pointer' }}>
-        {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-6 h-6" style={{ color: p.accent }} />}
+      <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 66, height: 66, background: p.accentSoft, border: `1px solid ${p.accent}33`, cursor: 'pointer' }}>
+        {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
       </button>
       <div className="flex-1 min-w-0">
-        <div className="truncate" style={{ fontSize: 14, fontWeight: 800, color: p.ink }}>{track.title || 'Çalmıyor'}</div>
-        <div className="truncate" style={{ fontSize: 12, color: p.ink2, marginTop: 2 }}>{track.artist || 'Oynatmak için dokun'}</div>
+        <div className="truncate" style={{ fontSize: 17, fontWeight: 800, color: p.ink }}>{track.title || 'Çalmıyor'}</div>
+        <div className="truncate" style={{ fontSize: 14, color: p.ink2, marginTop: 3 }}>{track.artist || 'Oynatmak için dokun'}</div>
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
-        <button onClick={() => previous()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipBack className="w-5 h-5" /></button>
-        <button onClick={() => togglePlayPause()} className="ex-btn flex items-center justify-center rounded-full" style={{ width: 40, height: 40, background: p.accent, boxShadow: `0 5px 16px ${p.accentGlow}`, border: 'none', cursor: 'pointer' }}>
-          {playing ? <Pause className="w-5 h-5" style={{ color: '#fff' }} /> : <Play className="w-5 h-5 ml-0.5" style={{ color: '#fff' }} />}
+        <button onClick={() => previous()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipBack className="w-6 h-6" /></button>
+        <button onClick={() => togglePlayPause()} className="ex-btn flex items-center justify-center rounded-full" style={{ width: 48, height: 48, background: p.accent, boxShadow: `0 5px 16px ${p.accentGlow}`, border: 'none', cursor: 'pointer' }}>
+          {playing ? <Pause className="w-6 h-6" style={{ color: '#fff' }} /> : <Play className="w-6 h-6 ml-0.5" style={{ color: '#fff' }} />}
         </button>
-        <button onClick={() => next()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipForward className="w-5 h-5" /></button>
+        <button onClick={() => next()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipForward className="w-6 h-6" /></button>
       </div>
     </div>
   );
@@ -422,12 +423,12 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
         <Label>Araç Durumu</Label>
         <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
       </div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: p.ink, marginTop: 3 }}>Normal</div>
+      <div style={{ fontSize: 26, fontWeight: 800, color: p.ink, marginTop: 4 }}>Normal</div>
       <div className="flex-1 min-h-0 flex items-center justify-center my-1"><RuggedSUV /></div>
       <div className="flex items-stretch gap-2" onClick={e => e.stopPropagation()}>
-        <Stat icon={<Thermometer className="w-4 h-4" style={{ color: p.accent2 }} />} value={motor} label="Motor" />
-        <Stat icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={aku} label="Akü" />
-        <Stat icon={<Gauge className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${speed}`} label="Hız" />
+        <Stat icon={<Thermometer className="w-5 h-5" style={{ color: p.accent2 }} />} value={motor} label="Motor" />
+        <Stat icon={<BatteryCharging className="w-5 h-5" style={{ color: p.good }} />} value={aku} label="Akü" />
+        <Stat icon={<Gauge className="w-5 h-5" style={{ color: p.ink2 }} />} value={`${speed}`} label="Hız" />
       </div>
     </div>
   );
@@ -437,8 +438,8 @@ function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; la
   return (
     <div className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl" style={{ background: p.tile }}>
       {icon}
-      <div style={{ fontSize: 13.5, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', color: p.ink2 }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', color: p.ink2 }}>{label}</div>
     </div>
   );
 }
@@ -447,9 +448,9 @@ function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; la
 function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; label: string; onClick: () => void; active?: boolean }) {
   const p = usePal();
   return (
-    <button onClick={onClick} className="ex-btn relative flex items-center justify-center" style={{ flex: '1 1 0', minWidth: 0, height: 56, borderRadius: 12, background: active ? p.plateActive : p.plate, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 8, padding: '0 8px', cursor: 'pointer' }}>
-      <Icon className="w-[19px] h-[19px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
-      <span className="uppercase truncate" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.05em', color: active ? '#241405' : p.ink2 }}>{label}</span>
+    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 18, background: active ? p.plateActive : p.plate, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
+      <Icon className="w-[37px] h-[37px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
+      <span className="uppercase truncate" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
     </button>
   );
 }
@@ -512,72 +513,77 @@ const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }
   );
 });
 
+/* Yatay kaydırma bölgesi — DİĞER TEMALARIN (Expedition/Pro) KANITLI MANTIĞI:
+   dokunmatik native scroll; fare için tekerlek→yatay + sürükle-kaydır. Sayfa/snap
+   pager YOK → serbest sürekli kaydırma. */
+const DockScrollZone = memo(function DockScrollZone({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const drag = useRef({ down: false, startX: 0, startLeft: 0, moved: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (d !== 0) { el.scrollLeft += d; e.preventDefault(); }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (e.pointerType !== 'mouse') return; // dokunmatikte native scroll
+    drag.current = { down: true, startX: e.clientX, startLeft: ref.current?.scrollLeft ?? 0, moved: false };
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    const d = drag.current;
+    if (!d.down || !ref.current) return;
+    const dx = e.clientX - d.startX;
+    if (Math.abs(dx) > 5) d.moved = true;
+    ref.current.scrollLeft = d.startLeft - dx;
+  };
+  const onPointerUp = () => { drag.current.down = false; };
+  // Sürükleme sonrası yanlışlıkla buton tıklamasını bastır
+  const onClickCapture = (e: ReactMouseEvent) => {
+    if (drag.current.moved) { e.stopPropagation(); e.preventDefault(); drag.current.moved = false; }
+  };
+  return (
+    <div ref={ref} className="no-scrollbar"
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} onClickCapture={onClickCapture}
+      style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch', gap: 8, overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x proximity', scrollbarWidth: 'none', msOverflowStyle: 'none', cursor: 'grab', touchAction: 'pan-x', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
+      {children}
+    </div>
+  );
+});
+
 const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onOpenSettings, onVoice }: {
   onOpenMap: () => void; onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void;
 }) {
   const p = usePal();
-  // İki sayfa: (1) imza 6 plaka + saat, (2) diğer fonksiyonlar. Yatay kaydırma +
-  // scroll-snap (DockBar ile aynı yol → K24 WebView'de kanıtlı). Saat dış katmanda
-  // overlay (kaydırma kabında DEĞİL → üstte kalır, kırpılmaz); 2. sayfada solar.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const clockRef  = useRef<HTMLDivElement>(null);
-  const dotsRef   = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    let ticking = false;
-    const apply = () => {
-      const page = el.clientWidth > 0 ? el.scrollLeft / el.clientWidth : 0;
-      const op = Math.max(0, Math.min(1, 1 - page * 1.6)); // page≳0.6 → saat görünmez
-      if (clockRef.current) {
-        clockRef.current.style.opacity = String(op);
-        clockRef.current.style.pointerEvents = op < 0.5 ? 'none' : 'auto';
-      }
-      if (dotsRef.current) {
-        const active = page >= 0.5 ? 1 : 0;
-        const dots = dotsRef.current.children;
-        for (let i = 0; i < dots.length; i++) {
-          (dots[i] as HTMLElement).style.opacity = i === active ? '1' : '0.3';
-        }
-      }
-      ticking = false;
-    };
-    const onScroll = () => { if (!ticking) { requestAnimationFrame(apply); ticking = true; } };
-    apply();
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const dot = (on: boolean) => ({
-    width: 6, height: 6, borderRadius: '50%', background: p.accent,
-    opacity: on ? 1 : 0.3, transition: 'opacity 0.18s',
-  });
-
+  // Expedition mantığı: iki BAĞIMSIZ sürekli-kaydırma bölgesi, ortada her zaman
+  // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
+  // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
   return (
-    <div className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '9px 16px 13px', minHeight: 80 }}>
+    <div className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
       <Screws inset={9} />
 
-      {/* Sayfalar — yatay kaydırma (no-scrollbar: çubuk gizli) */}
-      <div ref={scrollRef} className="no-scrollbar" style={{ display: 'flex', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
-        {/* SAYFA 1 — imza 6 plaka (saat ortadaki boşlukta overlay) */}
-        <div style={{ flex: '0 0 100%', width: '100%', scrollSnapAlign: 'start', display: 'flex', alignItems: 'center' }}>
-          <div className="flex items-center" style={{ flex: 1, gap: 8 }}>
-            <DockPlate Icon={Navigation} label="Navigasyon" active onClick={onOpenMap} />
-            <DockPlate Icon={Music2}     label="Müzik"      onClick={() => openMusicDrawer()} />
-            <DockPlate Icon={Mic}        label="Asistan"    onClick={onVoice} />
-          </div>
-          <div style={{ width: 100, flexShrink: 0 }} />
-          <div className="flex items-center" style={{ flex: 1, gap: 8 }}>
-            <DockPlate Icon={Wind}     label="Klima"   onClick={() => openDrawer('climate')} />
-            <DockPlate Icon={Car}      label="Araç"    onClick={() => openDrawer('vehicle-reminder')} />
-            <DockPlate Icon={Settings} label="Ayarlar" onClick={onOpenSettings} />
-          </div>
-        </div>
-        {/* SAYFA 2 — diğer fonksiyonlar */}
-        <div style={{ flex: '0 0 100%', width: '100%', scrollSnapAlign: 'start', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <DockPlate Icon={Phone}         label="Telefon"  onClick={() => openDrawer('phone')} />
-          <DockPlate Icon={Bell}          label="Bildirim" onClick={() => openDrawer('notifications')} />
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+        {/* Sol grup — sürekli kaydırılabilir */}
+        <DockScrollZone>
+          <DockPlate Icon={Navigation} label="Navigasyon" active onClick={onOpenMap} />
+          <DockPlate Icon={Music2}     label="Müzik"      onClick={() => openMusicDrawer()} />
+          <DockPlate Icon={Mic}        label="Asistan"    onClick={onVoice} />
+          <DockPlate Icon={Phone}      label="Telefon"    onClick={() => openDrawer('phone')} />
+          <DockPlate Icon={Bell}       label="Bildirim"   onClick={() => openDrawer('notifications')} />
+        </DockScrollZone>
+
+        {/* Saat boşluğu */}
+        <div style={{ flex: '0 0 140px' }} />
+
+        {/* Sağ grup — sürekli kaydırılabilir */}
+        <DockScrollZone>
+          <DockPlate Icon={Wind}          label="Klima"    onClick={() => openDrawer('climate')} />
+          <DockPlate Icon={Car}           label="Araç"     onClick={() => openDrawer('vehicle-reminder')} />
+          <DockPlate Icon={Settings}      label="Ayarlar"  onClick={onOpenSettings} />
           <DockPlate Icon={Cloud}         label="Hava"     onClick={() => openDrawer('weather')} />
           <DockPlate Icon={AlertTriangle} label="Trafik"   onClick={() => openDrawer('traffic')} />
           <DockPlate Icon={Camera}        label="Dashcam"  onClick={() => openDrawer('dashcam')} />
@@ -586,20 +592,14 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockPlate Icon={Shield}        label="Güvenlik" onClick={() => openDrawer('security')} />
           <DockPlate Icon={Tv2}           label="Eğlence"  onClick={() => openDrawer('entertainment')} />
           <DockPlate Icon={Zap}           label="Sport"    onClick={() => openDrawer('sport')} />
-        </div>
+        </DockScrollZone>
       </div>
 
-      {/* SAAT — dış overlay (kaydırma kabı DIŞINDA → kırpılmaz, üstte kalır) */}
-      <div ref={clockRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 3, transition: 'opacity 0.2s' }}>
-        <div style={{ pointerEvents: 'auto', transform: 'translateY(-30px)' }}>
+      {/* SAAT — dış overlay (kaydırma kabı DIŞINDA → kırpılmaz, her zaman görünür) */}
+      <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 3 }}>
+        <div style={{ pointerEvents: 'auto', transform: 'translateY(-14px) scale(1.26)' }}>
           <TeslaClock onClick={onOpenApps} />
         </div>
-      </div>
-
-      {/* Sayfa noktaları */}
-      <div ref={dotsRef} style={{ position: 'absolute', bottom: 4, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6, pointerEvents: 'none', zIndex: 3 }}>
-        <span style={dot(true)} />
-        <span style={dot(false)} />
       </div>
     </div>
   );
