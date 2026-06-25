@@ -14,6 +14,9 @@ import { duckMedia, unduckMedia } from './audioService';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { useHazardStore } from '../store/useHazardStore';
+import { normalizeForSpeech } from './speechText';
+import { segmentSpeech, type SpeechSegment } from './speechSegment';
+import { isLowEndDevice } from './headUnitCompat';
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -114,6 +117,11 @@ interface SpeakOptions {
   onEnd?: () => void;
   /** MIN_REPEAT_MS deduplikasyonunu atla — güvenlik uyarıları için */
   force?: boolean;
+  /**
+   * Segmentasyon + mikro-duraklama uygula (P0-2). Varsayılan true.
+   * Güvenlik/acil uyarılarında false verilir → tek utterance, gecikmesiz.
+   */
+  segment?: boolean;
 }
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
@@ -129,18 +137,29 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   _lastSpokenText = text;
   _lastSpokenAt   = now;
 
+  // ── Ön-işleme (P0-1) + segmentasyon/prozodi (P0-2 + P1-1) — platformdan ÖNCE ──
+  // Taban değerler: native motor 1.0, web 1.05 (eski davranış korunur).
+  const baseRate  = opts.rate  ?? (_isNative ? 1.0 : 1.05);
+  const basePitch = opts.pitch ?? 1.0;
+  const spoken    = normalizeForSpeech(text);
+  // segment === false → güvenlik/acil uyarısı: tek utterance, gecikmesiz, prozodi yok.
+  const segments: SpeechSegment[] = opts.segment === false
+    ? [{ text: spoken, rate: baseRate, pitch: basePitch, pauseMs: 0 }]
+    : segmentSpeech(spoken, { rate: baseRate, pitch: basePitch, lowEnd: isLowEndDevice() });
+  if (segments.length === 0) return;
+
   // ── Native path: Android TextToSpeech (güvenilir, Türkçe destekli) ──
   if (_isNative) {
     const seq = ++_speakSeq;
     if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
-    // speak() Promise'i artık seslendirme BİTİNCE çözülür (UtteranceProgressListener).
-    // Bazı OEM TTS motorları onDone'u hiç çağırmayabilir → süre tahminli emniyet
-    // zamanlayıcısı: hangisi önce gelirse bir kez işlenir (çift unduck/çift onEnd yok).
+    // speak()/speakSegments() Promise'i seslendirme BİTİNCE çözülür (UtteranceProgressListener;
+    // segmentlerde yalnız SON segmentin onDone'u). Bazı OEM motorları onDone'u hiç çağırmayabilir
+    // → süre tahminli emniyet zamanlayıcısı: hangisi önce gelirse bir kez işlenir.
     let settled = false;
     const settle = () => {
       if (settled) return;
       settled = true;
-      // Yalnız en son utterance global durumu kapatır (flush edilen eskiler dokunmaz)
+      // Yalnız en son seslendirme global durumu kapatır (flush edilen eskiler dokunmaz)
       if (seq === _speakSeq) {
         _ttsDucking = false;
         unduckMedia();
@@ -148,9 +167,16 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
       }
       opts.onEnd?.();
     };
-    const estimatedMs = Math.min(30_000, 3_000 + text.length * 110);
+    const estimatedMs = Math.min(30_000, 3_000 + spoken.length * 110);
     const safety = setTimeout(settle, estimatedMs);
-    CarLauncher.speak({ text, rate: opts.rate ?? 1.0 })
+    // Çok segmentli → speakSegments (kuyruk native'de yönetilir, son segmentte çözülür).
+    // Tek segment → klasik speak (pitch artık native'de uygulanır).
+    // Eski APK'da speakSegments yoksa reject → tek-utterance'a düş (asla sessiz kalma).
+    const nativeCall = segments.length > 1
+      ? CarLauncher.speakSegments({ segments }).catch(() =>
+          CarLauncher.speak({ text: spoken, rate: baseRate, pitch: basePitch }))
+      : CarLauncher.speak({ text: segments[0].text, rate: segments[0].rate, pitch: segments[0].pitch });
+    nativeCall
       .then(() => { clearTimeout(safety); settle(); })
       .catch(() => { clearTimeout(safety); settle(); });
     return;
@@ -162,34 +188,34 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!opts.queue) window.speechSynthesis.cancel();
 
   // duckMedia() TTS engine init'inden ÖNCE çağrılır — gain ramp başlangıç avantajı.
-  // SpeechSynthesisUtterance oluşturma ve ses seçimi ~birkaç ms alabilir;
-  // bu sürede gain zaten düşmeye başlamış olur → örtüşme (overlap) sıfır.
   // _ttsDucking guard: önceki TTS henüz bitmeden yeni çağrı gelirse çift duck önlenir.
   if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
 
-  const utter    = new SpeechSynthesisUtterance(text);
-  utter.lang     = 'tr-TR';
-  utter.rate     = opts.rate  ?? 1.05;
-  utter.pitch    = opts.pitch ?? 1.0;
-  utter.volume   = 1.0;
-
+  const voice = _getTurkishVoice();
   const userOnEnd = opts.onEnd;
-  utter.onend = () => {
+  let webSettled = false;
+  // Yalnız SON segmentin bitişi (veya herhangi bir segment hatası) durumu kapatır.
+  const webSettle = () => {
+    if (webSettled) return;
+    webSettled = true;
     _ttsDucking = false;
     unduckMedia();
     userOnEnd?.();
     _notifyTtsEnd();
   };
-  utter.onerror = () => {
-    _ttsDucking = false;
-    unduckMedia();
-    _notifyTtsEnd();
-  };
 
-  const voice = _getTurkishVoice();
-  if (voice) utter.voice = voice;
-
-  window.speechSynthesis.speak(utter);
+  segments.forEach((seg, i) => {
+    const utter  = new SpeechSynthesisUtterance(seg.text);
+    utter.lang   = 'tr-TR';
+    utter.rate   = seg.rate;
+    utter.pitch  = seg.pitch;
+    utter.volume = 1.0;
+    if (voice) utter.voice = voice;
+    // Segmentler art arda kuyruğa eklenir (cancel yalnız en başta yapıldı).
+    if (i === segments.length - 1) utter.onend = webSettle;
+    utter.onerror = webSettle; // fail-soft: herhangi bir segment hatası ducking'i geri açar
+    window.speechSynthesis.speak(utter);
+  });
 }
 
 /** Devam eden seslendirmeyi anında durdur */
@@ -262,8 +288,9 @@ export function speakHazardAlert(type: string, distanceM?: number): void {
       : `${(distanceM / 1000).toFixed(1)} kilometre ileride`;
   }
   const text = dist ? `Dikkat! ${label}, ${dist}.` : `Dikkat! ${label}.`;
-  // Daha ağır ve yavaş ton — sürücüde aciliyet hissi yaratır
-  ttsSpeak(text, { rate: 0.86, pitch: 0.85, queue: false });
+  // Daha ağır ve yavaş ton — sürücüde aciliyet hissi yaratır.
+  // segment: false → tek utterance, mikro-duraklama gecikmesi yok (aciliyet korunur).
+  ttsSpeak(text, { rate: 0.86, pitch: 0.85, queue: false, segment: false });
 }
 
 /**
@@ -277,7 +304,8 @@ export function speakHazardAlert(type: string, distanceM?: number): void {
  *  - Arbitraj: yakın dönüş (<50m) varsa safetyService zaten atlar.
  */
 export function speakSafetyAlert(message: string): void {
-  ttsSpeak(message, { rate: 0.82, pitch: 0.82, queue: false, force: true });
+  // segment: false → en yüksek öncelik kanalı gecikmesiz tek utterance olarak gider.
+  ttsSpeak(message, { rate: 0.82, pitch: 0.82, queue: false, force: true, segment: false });
 }
 
 /* ── Semantic helpers ────────────────────────────────────── */

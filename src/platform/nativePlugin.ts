@@ -496,7 +496,14 @@ export interface CarLauncherPlugin {
   loadRecoveryKey(options: { key: string }): Promise<{ value: string }>;
 
   // Native TTS — Android TextToSpeech API (WebView speechSynthesis'den daha güvenilir)
-  speak(options: { text: string; rate?: number }): Promise<void>;
+  // pitch (P1-1): setPitch() ile perde; varsayılan 1.0. Her çağrı perdeyi sıfırlar
+  // (segmentli çağrıdan kalan perde sonraki tek çağrıya sızmasın).
+  speak(options: { text: string; rate?: number; pitch?: number }): Promise<void>;
+  // Segmentli seslendirme (P0-2): ilk segment QUEUE_FLUSH, sonrakiler QUEUE_ADD,
+  // aralara playSilentUtterance(pauseMs). Promise yalnız SON segment bitince çözülür.
+  speakSegments(options: {
+    segments: { text: string; rate: number; pitch: number; pauseMs: number }[];
+  }): Promise<void>;
   ttsStop(): Promise<void>;
 
   // Android contacts (READ_CONTACTS permission required)

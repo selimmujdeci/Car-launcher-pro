@@ -3060,9 +3060,13 @@ public class CarLauncherPlugin extends Plugin {
     public void speak(PluginCall call) {
         String text = call.getString("text", "");
         float  rate = call.getFloat("rate", 1.0f);
+        // P1-1: pitch (setPitch). Her çağrıda set edilir → segmentli çağrıdan kalan
+        // perde sonraki tek çağrıya SIZMASIN (engine setPitch küreseldir).
+        float  pitch = call.getFloat("pitch", 1.0f);
         if (text == null || text.trim().isEmpty()) { call.resolve(); return; }
         if (!ttsReady || ttsEngine == null) { call.reject("TTS_NOT_READY"); return; }
         ttsEngine.setSpeechRate(rate);
+        ttsEngine.setPitch(pitch);
         // Promise seslendirme BİTİNCE çözülür (UtteranceProgressListener) — JS tarafı
         // ducking restore + takip dinlemesini doğru ana bağlar. speak() kuyruğa
         // alınamazsa anında çöz (asılı Promise bırakma).
@@ -3074,6 +3078,78 @@ public class CarLauncherPlugin extends Plugin {
         if (queued != android.speech.tts.TextToSpeech.SUCCESS) {
             settleTtsCall(utteranceId);
         }
+    }
+
+    /**
+     * Segmentli seslendirme (P0-2 + P1-1).
+     *
+     * JS speechSegment katmanı metni cümleciklere böler; her segmentin kendi
+     * rate/pitch'i ve sonrasına eklenecek sessizliği (pauseMs) vardır. Burada:
+     *   - i==0 → QUEUE_FLUSH (öncekini kes), i>0 → QUEUE_ADD (sıraya ekle),
+     *   - her segment ÖNCESİ setSpeechRate/setPitch (engine param'ı o utterance'a
+     *     enqueue anında bağlanır → segment-başı prozodi),
+     *   - aralara playSilentUtterance(pauseMs) ile doğal duraklama,
+     *   - bekleyen Capacitor çağrısı YALNIZ son gerçek segmentin utteranceId'sine
+     *     bağlanır → "konuşma bitti" yalnız sonda tetiklenir (ducking/takip zinciri korunur).
+     */
+    @PluginMethod
+    public void speakSegments(PluginCall call) {
+        if (!ttsReady || ttsEngine == null) { call.reject("TTS_NOT_READY"); return; }
+        JSArray segments = call.getArray("segments");
+        if (segments == null || segments.length() == 0) { call.resolve(); return; }
+
+        nativeTtsSpeaking = true; // half-duplex: tüm segment dizisi boyunca mikrofon bırakılır
+        nativeTtsSpeakingSinceMs = android.os.SystemClock.elapsedRealtime();
+
+        String lastId = null;
+        int lastQueued = android.speech.tts.TextToSpeech.SUCCESS;
+        try {
+            int n = segments.length();
+            boolean first = true;
+            for (int i = 0; i < n; i++) {
+                org.json.JSONObject o = segments.getJSONObject(i);
+                String t = o.optString("text", "");
+                if (t == null || t.trim().isEmpty()) continue;
+                float rate  = (float) o.optDouble("rate", 1.0);
+                float pitch = (float) o.optDouble("pitch", 1.0);
+                int   pause = o.optInt("pauseMs", 0);
+
+                ttsEngine.setSpeechRate(rate);
+                ttsEngine.setPitch(pitch);
+                int mode = first ? android.speech.tts.TextToSpeech.QUEUE_FLUSH
+                                 : android.speech.tts.TextToSpeech.QUEUE_ADD;
+                first = false;
+                String id = "cockpitos_tts_" + ttsUtteranceSeq.incrementAndGet();
+                lastQueued = ttsEngine.speak(t, mode, null, id);
+                lastId = id;
+
+                // Segmentler arası sessizlik (son segmentten sonra eklenmez).
+                if (pause > 0 && i < n - 1) {
+                    String sid = "cockpitos_sil_" + ttsUtteranceSeq.incrementAndGet();
+                    ttsEngine.playSilentUtterance(pause, android.speech.tts.TextToSpeech.QUEUE_ADD, sid);
+                }
+            }
+        } catch (org.json.JSONException e) {
+            // Bozuk segment verisi — asılı kalma, hemen çöz.
+            nativeTtsSpeaking = false;
+            call.resolve();
+            return;
+        }
+
+        if (lastId == null) {
+            // Hiç geçerli segment yok → çöz.
+            nativeTtsSpeaking = false;
+            call.resolve();
+            return;
+        }
+        if (lastQueued != android.speech.tts.TextToSpeech.SUCCESS) {
+            // Son segment kuyruğa alınamadı → onDone gelmeyebilir, hemen çöz.
+            nativeTtsSpeaking = false;
+            call.resolve();
+            return;
+        }
+        // Promise yalnız SON gerçek segmentin bitişinde çözülür.
+        ttsPendingCalls.put(lastId, call);
     }
 
     @PluginMethod
