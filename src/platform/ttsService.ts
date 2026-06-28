@@ -17,6 +17,7 @@ import { useHazardStore } from '../store/useHazardStore';
 import { normalizeForSpeech } from './speechText';
 import { segmentSpeech, type SpeechSegment } from './speechSegment';
 import { isLowEndDevice } from './headUnitCompat';
+import { tryPlayClip, cancelClip } from './voiceClips';
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -137,6 +138,11 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   _lastSpokenText = text;
   _lastSpokenAt   = now;
 
+  // ── Premium ses bankası (hibrit Phase 1) — sabit/kritik ifadeler stüdyo kalite
+  // klipten çalınır; native/web TTS atlanır. Eşleşmezse normal TTS yoluna düşer.
+  // Klip bitiş semantiği TTS ile aynı: takip dinlemesi (_notifyTtsEnd) + onEnd.
+  if (tryPlayClip(text, () => { _notifyTtsEnd(); opts.onEnd?.(); })) return;
+
   // ── Ön-işleme (P0-1) + segmentasyon/prozodi (P0-2 + P1-1) — platformdan ÖNCE ──
   // Taban değerler: native motor 1.0, web 1.05 (eski davranış korunur).
   const baseRate  = opts.rate  ?? (_isNative ? 1.0 : 1.05);
@@ -220,6 +226,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
+  cancelClip();  // çalan premium klibi de durdur
   if (_isNative) {
     CarLauncher.ttsStop()
       .then(() => { if (_ttsDucking) { _ttsDucking = false; unduckMedia(); } })

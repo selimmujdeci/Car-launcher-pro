@@ -90,6 +90,32 @@ function _error(msg: string): void {
   showToast({ type: 'error', title: 'Komut Hatası', message: msg, duration: 3000 });
 }
 
+/**
+ * Sesli müzik araması — ÖNCE uygulama-içi gömülü oynatıcıda çal (YouTube IFrame /
+ * Spotify / radyo / cihaz kütüphanesi); `playByQuery` tüm kaynaklarda arar.
+ * Çalınabilir sonuç çıkmazsa harici uygulamaya (Play Store fallback'li deep-link)
+ * düş. Dış uygulama SON ÇARE — sürücü uygulamadan uzaklaşmamalı.
+ * SAHA FİX 2026-06-21: "X'ten müzik aç" gömülü oynatıcı yerine Play Store'a düşüyordu.
+ */
+async function _playMusicInAppOrFallback(
+  query: string,
+  ctx: CommandContext,
+  isDriving: boolean,
+  fallback: () => void,
+): Promise<void> {
+  try {
+    // Lazy import: carosMediaLayer mediaService'i import ettiğinden statik döngüyü kır.
+    const { playByQuery } = await import('./media/carosMediaLayer');
+    const track = await playByQuery(query);
+    if (track) {
+      ctx.openDrawer?.('music');         // uygulama-içi çalma ekranını öne getir
+      _speak(`${track.title} çalınıyor`, isDriving);
+      return;
+    }
+  } catch { /* gömülü oynatıcı hatası → harici uygulamaya düş */ }
+  fallback();                            // uygulama-içi sonuç yok → dış uygulama
+}
+
 /** Anlık DTC durumunu senkron olarak alır (onDTCState hemen çağırır). */
 function _getDTCSnapshot(): DTCState {
   let snap!: DTCState;
@@ -203,8 +229,11 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
       case 'PLAY_MUSIC_SEARCH': {
         const query = intent.payload.searchQuery ?? '';
         if (query) {
-          bridge.launchMusicSearch(ctx.defaultMusic, query);
-          _speak(`${query} aranıyor`, isDriving);
+          // ÖNCE gömülü oynatıcı; çalınabilir sonuç yoksa harici uygulamaya düş.
+          void _playMusicInAppOrFallback(query, ctx, isDriving, () => {
+            bridge.launchMusicSearch(ctx.defaultMusic, query);
+            _speak(`${query} aranıyor`, isDriving);
+          });
         } else {
           play();
           ctx.openDrawer?.('music');
@@ -216,12 +245,19 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         const pkg        = intent.payload.musicSourcePkg ?? '';
         const searchUri  = intent.payload.musicSearchUri ?? '';
         const query      = intent.payload.musicQuery ?? '';
-        if (searchUri || query) {
-          // Belirli bir parça araması → harici uygulama deep-link gerekir.
+        if (query) {
+          // ÖNCE gömülü oynatıcı (kaynak adı dahil tüm sağlayıcılarda aranır);
+          // sonuç yoksa harici uygulama deep-link'ine düş.
           // SAHA FİX 2026-06-12: NE DUYDUĞUNU söyle — ASR yanlış anladıysa
           // sürücü bunu yanlış şarkı çalmadan ÖNCE duyup düzeltebilir.
+          void _playMusicInAppOrFallback(query, ctx, isDriving, () => {
+            bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
+            _speak(`${query} aranıyor`, isDriving);
+          });
+        } else if (searchUri) {
+          // Query metni yok, yalnız deep-link URI var → gömülüde arayamayız.
           bridge.launchMusicQuery(pkg, searchUri, ctx.defaultMusic);
-          _speak(query ? `${query} aranıyor` : 'Müzik aranıyor', isDriving);
+          _speak('Müzik aranıyor', isDriving);
         } else {
           // Sadece kaynak söylendi → arka planda çal + ekranı göster
           if (pkg) setMediaPreferredPackage(pkg);
@@ -367,7 +403,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         }
 
         if (parts.length === 0) {
-          _speak('Araç verisi alınamıyor, OBD bağlantısını kontrol et', isDriving);
+          _speak('Araç verisi alınamıyor. OBD bağlantısını kontrol edin.', isDriving);
           break;
         }
 
