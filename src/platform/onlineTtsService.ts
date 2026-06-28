@@ -37,8 +37,12 @@ let _seq = 0;
 
 function _now(): number { return Date.now(); }
 
-/** base64 PCM (16-bit LE mono) → çalınabilir WAV blob URL. */
-function _pcmToWavUrl(b64: string, sampleRate: number): string {
+/**
+ * base64 PCM (16-bit LE mono) → WAV byte dizisi (44-byte header + PCM).
+ * Saf/yan-etkisiz — header offset'leri kritik, regresyon testiyle kilitli.
+ * (test: src/__tests__/onlineTts.test.ts)
+ */
+export function pcmBase64ToWavBytes(b64: string, sampleRate: number): Uint8Array {
   const bin = atob(b64);
   const len = bin.length;
   const buffer = new ArrayBuffer(44 + len);
@@ -61,13 +65,19 @@ function _pcmToWavUrl(b64: string, sampleRate: number): string {
   view.setUint32(40, len, true);
   const pcm = new Uint8Array(buffer, 44);
   for (let i = 0; i < len; i++) pcm[i] = bin.charCodeAt(i);
-  return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+  return new Uint8Array(buffer);
 }
 
 /** mimeType'tan örnekleme hızını çıkar (ör. "audio/L16;codec=pcm;rate=24000"). */
-function _rateFromMime(mime: string | undefined): number {
+export function rateFromMime(mime: string | undefined): number {
   const m = mime?.match(/rate=(\d+)/);
   return m ? parseInt(m[1], 10) : 24_000;
+}
+
+/** base64 PCM → çalınabilir WAV blob URL. */
+function _pcmToWavUrl(b64: string, sampleRate: number): string {
+  const bytes = pcmBase64ToWavBytes(b64, sampleRate);
+  return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
 }
 
 /** Online TTS şu an kullanılabilir mi (online + anahtar var + kota açık). */
@@ -119,7 +129,7 @@ async function _synthesize(text: string): Promise<string | null> {
   if (!part?.data) return null;
 
   let url: string;
-  try { url = _pcmToWavUrl(part.data, _rateFromMime(part.mimeType)); } catch { return null; }
+  try { url = _pcmToWavUrl(part.data, rateFromMime(part.mimeType)); } catch { return null; }
 
   // LRU yerleştir (en eskiyi düşür, blob URL'yi serbest bırak)
   _cache.set(text, url);
