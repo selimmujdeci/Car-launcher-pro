@@ -15,7 +15,7 @@ import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
-import { speakFeedback, registerTtsEndListener, ttsCancel } from './ttsService';
+import { speakFeedback, speakAssistant, registerTtsEndListener, ttsCancel } from './ttsService';
 import { duckMedia, unduckMedia } from './audioService';
 import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext } from './aiVoiceService';
 import { isAiNetHealthy } from './aiHealth';
@@ -496,7 +496,8 @@ function _dispatchConversation(response: string, raw: string, armFollowUp: boole
   // TTS bitişine bağla — aksi halde re-listen yolu idle'ı devralır. Böylece durum
   // hiçbir koşulda 'success'te asılı kalmaz (eski 3.5s timer'ın emniyet rolü).
   if (!_followUpArmed) _armConvIdleOnTtsEnd();
-  speakFeedback(response);
+  // Sohbet/serbest cevap: klip → online TTS → native (motorsuz ünitede de sesli)
+  speakAssistant(response);
   push({ status: 'success', transcript: raw, error: null, suggestions: [], lastCommand: null });
 }
 
@@ -605,7 +606,7 @@ let _pendingAt  = 0;
 /* ── AI anahtar çözümü (tembel — yalnız AI yolları çağırır) ──
  * Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
  * 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2). */
-async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string; hasNet: boolean }> {
+async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string }> {
   // GÜVENLİK: localStorage'dan SADECE hassas-olmayan provider SEÇİMİ okunur
   // (gemini|haiku enum'u). API ANAHTARLARI burada DEĞİL — aşağıda
   // sensitiveKeyStore (Android Keystore / AES-256-GCM) üzerinden çözülür; anahtar
@@ -617,24 +618,27 @@ async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string;
     if (stored === 'gemini' || stored === 'haiku' || stored === 'groq') provider = stored;
   } catch { /* bozuk JSON → AI katmanı yok sayılır */ }
   let apiKey = '';
+  let tavilyKey = '';
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
-    const [geminiKey, haikuKey, groqKey] = await Promise.all([
+    const [geminiKey, haikuKey, groqKey, tavily] = await Promise.all([
       sks.get('geminiApiKey'),
       sks.get('claudeHaikuApiKey'),
       sks.get('groqApiKey'),
+      sks.get('tavilyApiKey'),
     ]);
     apiKey = resolveApiKey(
       provider,
       provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
     );
+    tavilyKey = (tavily ?? '').trim();
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
   // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
   const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
-  return { provider, apiKey, hasNet };
+  return { provider, apiKey, hasNet, tavilyKey };
 }
 
 /* ── ASR müzik sorgu onarımı ─────────────────────────────────
@@ -766,9 +770,13 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   }
 
   // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
-  const { provider, apiKey, hasNet } = await _resolveAiKeys();
+  const { provider, apiKey, hasNet, tavilyKey } = await _resolveAiKeys();
 
-  const geminiUsable = provider === 'gemini' && !!apiKey && hasNet;
+  // Online beyin (companionChatProvider) HEM gemini HEM groq destekler. Eskiden
+  // bu gate sadece 'gemini' idi → Groq/Haiku seçildiğinde komutlar online beyne
+  // hiç ulaşmayıp OFFLINE asistana düşüyordu (#saha fix 2026-06-21). Desteklenmeyen
+  // provider'da tryCompanionBrain zaten null döner → güvenle offline zincire iner.
+  const aiUsable = (provider === 'gemini' || provider === 'groq') && !!apiKey && hasNet;
 
   // ── 1b. ANAHTAR YOK + AÇIK AI/İNTERNET İSTEĞİ → ayarlardan anahtar ekle ──
   // Anahtar yokken haber/döviz/fıkra/bilmece/"X kimdir" gibi YALNIZ yapay zekayla
@@ -806,7 +814,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // yerel parser/semantic bir daha KONUŞMAZ. Offline'da bu blok atlanır,
   // doğrudan yerel zincir çalışır.
   let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
-  if (geminiUsable) try {
+  if (aiUsable) try {
     const { tryCompanionBrain } = await import('./companion/companionChatProvider');
     // TEK spinner: cevap THINKING_FEEDBACK_DELAY_MS'yi aşarsa kısa NÖTR ara söz
     // ("Bir saniye..."). Hızlı cevapta timer iptal; geç ara sözü cevap TTS'i keser.
@@ -817,6 +825,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
       provider,
       apiKey,
       hasNet,
+      tavilyKey,
       timeoutMs: BRAIN_DECISION_TIMEOUT_MS,
     });
     if (brain) {

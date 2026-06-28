@@ -18,6 +18,7 @@ import { normalizeForSpeech } from './speechText';
 import { segmentSpeech, type SpeechSegment } from './speechSegment';
 import { isLowEndDevice } from './headUnitCompat';
 import { tryPlayClip, cancelClip } from './voiceClips';
+import { speakOnline, isOnlineTtsAvailable, cancelOnline } from './onlineTtsService';
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -226,7 +227,8 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
-  cancelClip();  // çalan premium klibi de durdur
+  cancelClip();    // çalan premium klibi de durdur
+  cancelOnline();  // uçuştaki/çalan online asistan sesini de durdur
   if (_isNative) {
     CarLauncher.ttsStop()
       .then(() => { if (_ttsDucking) { _ttsDucking = false; unduckMedia(); } })
@@ -321,6 +323,33 @@ export function speakSafetyAlert(message: string): void {
 export function speakFeedback(feedback: string): void {
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
   ttsSpeak(feedback, { rate: 1.05 });
+}
+
+/**
+ * Akıllı asistan (Gemini/Claude/Grok) cevabını seslendirir — hibrit öncelik zinciri:
+ *   1) Sabit ifade klibi (offline premium, anında, maliyetsiz)
+ *   2) Online TTS (serbest/akıllı cevap — asistan zaten online; motor/kurulum gerekmez)
+ *   3) Native/web TTS yedeği (varsa)
+ * Böylece TTS motoru OLMAYAN head unit'lerde bile asistan tam sesli çalışır.
+ */
+export function speakAssistant(text: string, onEnd?: () => void): void {
+  const t = text?.trim();
+  if (!t) return;
+  if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
+
+  // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)
+  if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) return;
+
+  // 2) Online TTS → 3) native yedek
+  void (async () => {
+    try {
+      if (await isOnlineTtsAvailable()) {
+        const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); });
+        if (ok) return;
+      }
+    } catch { /* online yolu kırılırsa sessizce yedeğe düş */ }
+    ttsSpeak(t, { onEnd });
+  })();
 }
 
 /**

@@ -49,7 +49,7 @@ import { onOBDData } from '../obdService';
 import { onTripState } from '../tripLogService';
 import { getMediaState } from '../mediaService';
 import { getVoiceSnapshot, isVoicePaused, registerCommandHandler } from '../voiceService';
-import { ttsSpeak, registerTtsEndListener } from '../ttsService';
+import { speakAssistant, registerTtsEndListener } from '../ttsService';
 
 /* ── Zamanlama sabitleri (dakika) ───────────────────────────── */
 
@@ -147,12 +147,11 @@ function speak(text: string): void {
   // her durumda sıfırlar (asılı _speaking = sonsuza dek susmuş motor olurdu).
   if (_speakSafetyTimer) clearTimeout(_speakSafetyTimer);
   _speakSafetyTimer = setTimeout(() => { _speaking = false; }, SPEAK_SAFETY_TIMEOUT_MS);
-  ttsSpeak(text, {
-    onEnd: () => {
-      _speaking = false;
-      markActivity();
-      if (_speakSafetyTimer) { clearTimeout(_speakSafetyTimer); _speakSafetyTimer = null; }
-    },
+  // Akıllı asistan cevabı: klip → online TTS → native zinciri (motorsuz ünitede de sesli)
+  speakAssistant(text, () => {
+    _speaking = false;
+    markActivity();
+    if (_speakSafetyTimer) { clearTimeout(_speakSafetyTimer); _speakSafetyTimer = null; }
   });
 }
 
