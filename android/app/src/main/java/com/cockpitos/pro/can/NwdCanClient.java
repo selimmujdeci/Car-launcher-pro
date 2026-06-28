@@ -66,6 +66,10 @@ public final class NwdCanClient {
     // Sanity sınırları
     private static final float SPEED_MAX = 300f, RPM_MAX = 12_000f;
     private static final float TEMP_MIN = -40f, TEMP_MAX = 200f;
+    // OEM "veri yok / desteklenmiyor" sentinel'i: byte 0xFF (-1). Bu aracın CAN'i
+    // taşımadığı alanları 0xFF olarak verir; "!= 0" testi bunu yanlışlıkla "açık"
+    // sanıp tell-tale'i kalıcı yakar (saha bug'ı: Fiat Doblo el freni hep kırmızı).
+    private static final byte SENTINEL = (byte) 0xFF;
 
     private volatile boolean   _started  = false;
     private DecodedListener    _listener = null;
@@ -352,13 +356,17 @@ public final class NwdCanClient {
         if (!Float.isNaN(coolant)) b.coolantTemp(coolant);
         if (mBatteryVoltage > 0 && mBatteryVoltage < 32) b.batteryVolt(mBatteryVoltage);
         b.gearPos(mGear);
-        b.doorOpen(mDoorOpen != 0);
-        b.parkingBrake(mHandbrake != 0);
-        b.seatbelt(mSafetyBelt != 0);
-        b.headlights(mHighbeam != 0 || mDippedheadlight != 0);
-        b.wipers(mRainWipwerLevel > 0);
-        b.stabilityControl(mEspStatus != 0);
-        b.abs(mABSIndicator != 0);
+        // 0xFF (-1) sentinel → alan desteklenmiyor: göstergeyi HİÇ yazma (default kapalı
+        // kalsın + system-settings yolunu ezme). Araç gerçekten taşıyorsa (0/1) yazılır.
+        if (mDoorOpen   != SENTINEL) b.doorOpen(mDoorOpen != 0);
+        if (mHandbrake  != SENTINEL) b.parkingBrake(mHandbrake != 0);
+        if (mSafetyBelt != SENTINEL) b.seatbelt(mSafetyBelt != 0);
+        boolean hbKnown = mHighbeam        != SENTINEL;
+        boolean dlKnown = mDippedheadlight != SENTINEL;
+        if (hbKnown || dlKnown) b.headlights((hbKnown && mHighbeam != 0) || (dlKnown && mDippedheadlight != 0));
+        if (mRainWipwerLevel != SENTINEL) b.wipers(mRainWipwerLevel > 0);
+        if (mEspStatus    != SENTINEL) b.stabilityControl(mEspStatus != 0);
+        if (mABSIndicator != SENTINEL) b.abs(mABSIndicator != 0);
         b.tpms(new float[]{ tpmsLF, tpmsRF, tpmsLB, tpmsRB });
 
         VehicleCanData out = b.build();
