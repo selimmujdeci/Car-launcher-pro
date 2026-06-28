@@ -11,19 +11,21 @@
 ama HAM LOG ALINMADAN düzeltme YOK** (araç o an yanımızda değildi). Saha test
 prosedürleri hazır:
 
-### 1. ParkingBrake yanlış (el freni inik ama app "çekili" gösteriyor)
-- **Durum:** AÇIK — ham değer testi bekliyor. **Henüz invert/patch YAPILMADI.**
-- **Kök neden adayı (en güçlü):** K24'te el freni NWD CarInfo'dan geliyor
-  (`NwdCanClient.parseCarInfo` → `byte mHandbrake` alan 39 → `b.parkingBrake(mHandbrake != 0)`
-  NwdCanClient.java:356). `!= 0` testi çok-durumlu byte'ı yanlış okuyor olabilir
-  (tri-state: 1=bırakılmış/2=çekili → `!=0` her zaman true) **veya** gerçek polarite ters.
-- **İnvert/profil desteği YOK** hiçbir katmanda. Mapper (safetyStateMapper.ts:124) ve
-  ekran (VehicleTellTales.tsx:52) ham değeri aynen gösteriyor.
-- **Aynı `!= 0` riski:** doorOpen/seatbelt/headlights/wipers/esp/abs (NwdCanClient.java:355-361).
-- **▶ Prosedür:** `PARKING_BRAKE_FIELD_TEST.md` — el freni inik/çekili + kapı çapraz
-  kontrol; `parseCarInfo` zaten `elFreni=%d kapı=%d` ham diag basıyor (NwdCanClient.java:371,
-  2sn throttle). Karar tablosu dosyada (0→1 doğru / 1→2 `==2` gerekli / 1→0 invert / sabit=offset).
-- **Kural:** ham log (A inik & B çekili) gelmeden invert ETME.
+### 1. ParkingBrake yanlış (el freni inik ama app "çekili" gösteriyor) — ✅ ÇÖZÜLDÜ (2026-06-28, `5212c97`)
+- **Durum:** ÇÖZÜLDÜ — cihazda kanıtlandı (araçta, canlı). Fix + APK kuruldu + screenshot doğrulandı.
+- **GERÇEK kök neden (saha logcat ile kesin):** CarInfo `byte mHandbrake` bu araç için
+  **0xFF (-1) = "veri yok"** sentinel'i geliyor (`elFreni=-1` diag'da görüldü). Eski
+  `b.parkingBrake(mHandbrake != 0)` testi `-1 != 0 → TRUE` yapıp tell-tale'i kalıcı KIRMIZI
+  kilitliyordu. Aynı sentinel `far` göstergesini de yanlış yeşil yakıyordu (`far=1`).
+- **Saha doğrulaması:** Kapı sinyali (`can_door_show_state`) canlı 0↔1 oynadı (system-settings
+  yolu sağlam), ama `hand_brake_state` el freni çekilince bile sabit 0 kaldı → bu araç el frenini
+  HİÇBİR yoldan bildirmiyor. Tek kaynak CarInfo'nun bozuk -1 sentinel'iydi.
+- **Fix:** `NwdCanClient.java` — `SENTINEL=(byte)0xFF` eklendi; tüm CarInfo boolean alanları
+  (parkingBrake/doorOpen/seatbelt/headlights/wipers/esp/abs) `if (x != SENTINEL)` ile korundu →
+  desteklenmeyen alan yazılmıyor, system-settings yolunu ezmiyor. Önce kırmızı EL FR + yeşil FAR,
+  sonra ikisi de sönük (screenshot kanıtlı: tools/hbrake-app.png vs hbrake-fixed2.png).
+- **NOT (regresyon):** Java parse katmanında olduğu için vitest kapsamı dışında; cihaz screenshot'ı
+  kanıt. İdeal kilit bir Java unit test ister (mevcut infra'da yok).
 
 ### 2. K24 head unit TTS sessiz (telefonda ses var, head unit'te yok — safety dahil)
 - **Durum:** AÇIK — TTS motor envanteri + chime/TTS gözlemi bekliyor.
