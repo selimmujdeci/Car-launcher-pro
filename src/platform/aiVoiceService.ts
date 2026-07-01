@@ -203,9 +203,9 @@ async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Pr
     },
   };
 
-  const resp = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  const resp = await fetch(GEMINI_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify(body),
     signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
   });

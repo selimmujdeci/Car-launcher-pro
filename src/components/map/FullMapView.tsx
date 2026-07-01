@@ -39,6 +39,8 @@ import {
 } from '../../platform/mapService';
 import { useHazardStore } from '../../store/useHazardStore';
 import { useGPSSource, onGPSLocation, type GPSLocation } from '../../platform/gpsService';
+import { enterMapLiteInteraction, exitMapLiteInteraction } from '../../platform/map/mapLiteMode';
+import { pauseWakeWordForInteraction, resumeWakeWordAfterInteraction } from '../../platform/wakeWordService';
 import { useThermalState } from '../../platform/thermalWatchdog';
 import {
   setMapMode,
@@ -388,25 +390,23 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (mapStatus !== 'LOADING') return;
 
     let running  = true;
-    let lastPump = 0;
-    let rafId:   number;
 
-    const pump = (now: number) => {
+    // 200ms'lik resize pump'u rAF yerine setInterval ile sürülür. İşin doğası zaman-
+    // tabanlı (her 200ms bir resize); rAF kullanmak her render frame'inde gereksiz JS
+    // context geçişi demekti ve LOADING fazı yavaş GPU'da 15s'ye kadar sürdüğünden tüm
+    // o süre boyunca UI thread'e yük bindiriyordu (soğuk-açılış jank). setInterval bu
+    // overhead'i ~75× azaltır (16ms frame yerine 200ms tick).
+    const pumpId = setInterval(() => {
       if (!running) return;
-      if (now - lastPump >= 200) {
-        const container = containerRef.current;
-        if (mapRef.current && container && container.offsetWidth > 0 && container.offsetHeight > 0) {
-          try { mapRef.current.resize(); } catch { /* ignore */ }
-          lastPump = now;
-        }
+      const container = containerRef.current;
+      if (mapRef.current && container && container.offsetWidth > 0 && container.offsetHeight > 0) {
+        try { mapRef.current.resize(); } catch { /* ignore */ }
       }
-      rafId = requestAnimationFrame(pump);
-    };
-    rafId = requestAnimationFrame(pump);
+    }, 200);
 
     const t = setTimeout(() => {
       running = false;
-      cancelAnimationFrame(rafId);
+      clearInterval(pumpId);
       if (mountedRef.current) {
         console.warn('[MAP] style.load timeout — forcing READY');
         if ((containerRef.current?.offsetWidth ?? 0) > 0) {
@@ -417,7 +417,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       }
     }, 15_000); // K250: yavaş GPU — 15s bekle
 
-    return () => { running = false; cancelAnimationFrame(rafId); clearTimeout(t); };
+    return () => { running = false; clearInterval(pumpId); clearTimeout(t); };
   }, [mapStatus]);
 
   // Unmount guard — mount-once, sets false on cleanup
@@ -544,8 +544,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         status === NavStatus.ROUTING;
       if (navActive)                          return false;
       if (drivingModeRef.current)             return false;
-      if (isFollowingRef.current)             return false;
       if (userInteractingRef.current)         return false;
+      // NOT: isFollowing TEK BAŞINA idle'ı engellemez. Araç park halindeyken (hız<1.5,
+      // nav yok) takip edilecek hareket olmadığından döngü uykuya geçebilir; GPS yeniden
+      // hareket taşıdığında onGPSLocation→wake() döngüyü uyandırır. Eski davranışta
+      // isFollowing başlangıçta true olduğundan döngü HİÇ idle'a giremiyor, park halinde
+      // bile %100 jank üretiyordu (Slow UI thread). Hareket gözcüsü aşağıdaki hız kontrolü.
 
       // GPS tamponu hareket taşıyor mu?
       const buf = navPointsRef.current;
@@ -790,10 +794,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     if (interactTimerRef.current) { clearTimeout(interactTimerRef.current); interactTimerRef.current = null; }
     // Wake: kullanıcı haritayla etkileşince döngüyü uyandır
     wakeLoopRef.current?.();
+    // Map Lite Mode: zayıf GPU'da harekette dekoratif overlay'leri gizle (no-op normalde).
+    enterMapLiteInteraction(mapRef.current);
+    // Vosk: ağır etkileşim sırasında wake grammar thread'ini (~%22 CPU) duraklat.
+    pauseWakeWordForInteraction();
   }, []);
   const _onInteractEnd = useCallback(() => {
     if (interactTimerRef.current) clearTimeout(interactTimerRef.current);
     interactTimerRef.current = setTimeout(() => { userInteractingRef.current = false; }, 120);
+    // Etkileşim bitti → debounce'lu geri yükleme (overlay görünürlüğü + wake dinleme).
+    exitMapLiteInteraction(mapRef.current);
+    resumeWakeWordAfterInteraction();
   }, []);
   useEffect(() => {
     if (mapStatus !== 'READY' || !mapRef.current) return;

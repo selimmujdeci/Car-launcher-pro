@@ -24,6 +24,7 @@ export type SensitiveKey =
   | 'geminiApiKey'
   | 'claudeHaikuApiKey'
   | 'groqApiKey'
+  | 'tavilyApiKey'          // Tavily web-arama anahtarı — Groq'a internet grounding sağlar
   | 'car-e2e-private-key'   // ECDH P-256 private key (JWK) — NativeCryptoManager alias'ı ile aynı (C4)
   | 'veh_device_id'
   | 'veh_api_key'
@@ -49,7 +50,7 @@ const _isNative = Capacitor.isNativePlatform();
  * bu depo Android Auto Backup ile Google Drive'a yedeklenir ve geri gelir.
  * Yalnızca geminiApiKey ve claudeHaikuApiKey bu depoya yazılır.
  */
-const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey'];
+const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey', 'tavilyApiKey'];
 
 async function _recoverySet(key: SensitiveKey, value: string): Promise<void> {
   if (!_isNative || !RECOVERY_KEYS.includes(key)) return;

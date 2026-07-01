@@ -78,14 +78,21 @@ public final class BtSerialTransport implements ICanTransport {
             }
         }
 
-        // Önce öncelikli, sonra diğerleri
-        priority.addAll(secondary);
+        // SADECE CAN/serial benzeri (CAN/UART/MCU/Serial/HC-0x/ESP) cihazları dene.
+        // Rastgele eşleştirilmiş cihazlara (telefon, araç ses sistemi: "NEVEL-N1",
+        // "LINKAGE PRO10S" vb.) RFCOMM SPP bağlanmaya çalışmak HER BİRİ için ~3s bloke
+        // olur, boşuna CPU/IO yakar ve okuma thread'ini kilitler (jank kaynağı).
+        if (priority.isEmpty()) {
+            Log.d(TAG, "CAN/serial benzeri eşleştirilmiş BT cihazı yok (" + secondary.size()
+                + " ilgisiz cihaz atlandı) — BT transport atlanıyor");
+            return false;
+        }
 
         for (BluetoothDevice dev : priority) {
             if (tryConnectDevice(dev)) return true;
         }
 
-        Log.d(TAG, "Hiçbir BT cihazına bağlanılamadı");
+        Log.d(TAG, "CAN/serial BT cihazına bağlanılamadı");
         return false;
     }
 

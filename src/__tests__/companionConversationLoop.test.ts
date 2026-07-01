@@ -65,6 +65,7 @@ vi.mock('../platform/offlineConversationEngine', () => ({
 vi.mock('../platform/performanceMode', () => ({ getConfig: () => ({ enableRecommendations: true }) }));
 vi.mock('../platform/ttsService', () => ({
   speakFeedback: (...a: unknown[]) => M.speak(...a),
+  speakAssistant: (...a: unknown[]) => M.speak(...a),
   speakAlert: vi.fn(),
   ttsCancel: vi.fn(),
   registerTtsEndListener: (cb: () => void) => { M.ttsEnd = cb; return () => {}; },

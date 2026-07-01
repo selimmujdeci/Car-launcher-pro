@@ -59,8 +59,12 @@ function buildPal(night: boolean): Pal {
   return night
     ? {
         night: true,
-        bg: 'radial-gradient(120% 90% at 70% -10%, #11203a 0%, transparent 55%), linear-gradient(160deg,#070a12 0%,#0a0f1c 45%,#070b15 100%)',
-        card: 'rgba(27,34,52,0.72)',
+        // CarOS Night Collection — Pro = MBUX / BMW OS: SAF koyu ANTRASİT, en sade ve
+        // en temiz tema. Nötr antrasit taban + ÇOK HAFİF mavi-grafit geçiş (üst-sağ küçük
+        // glow). Horizon'ın laciverdinden ayrışsın diye taban nötr gri tutuldu; mavi yalnız
+        // accent + minik parıltıda. Kurumsal, profesyonel, temiz.
+        bg: 'radial-gradient(115% 85% at 72% -10%, #162232 0%, transparent 48%), linear-gradient(160deg,#0c0d11 0%,#101117 45%,#0a0b0e 100%)',
+        card: 'rgba(30,34,43,0.74)',
         cardSolid: 'rgba(17,22,34,0.94)',
         border: '1px solid rgba(255,255,255,0.07)',
         inkCritical: '#FBFCFF',

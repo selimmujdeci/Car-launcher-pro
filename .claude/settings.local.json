@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
@@ -62,6 +61,10 @@
       "PowerShell($env:JAVA_HOME = 'C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr'; Set-Location \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\android\"; & \".\\\\gradlew.bat\" assembleDebug 2>&1 | Select-Object -Last 30)",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\selim\\\\OneDrive\\\\Desktop\\\\caros pro\\\\android\\\\app\\\\release\" | ForEach-Object { \"$\\($_.Name\\) | $\\($_.Length\\) bytes\" })",
       "PowerShell(npm run *)"
-    ]
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "remote": {
+    "defaultEnvironmentId": "env_01XeksbESyvKZjfPZou5o97f"
   }
 }

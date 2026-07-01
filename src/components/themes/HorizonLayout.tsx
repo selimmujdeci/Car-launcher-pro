@@ -8,7 +8,10 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
-import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
+import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { getPerformanceMode } from '../../platform/performanceMode';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
@@ -67,18 +70,21 @@ interface Pal {
 
 const NIGHT_H: Pal = {
   night: true,
-  desk: 'radial-gradient(150% 130% at 50% -15%, #1d1812 0%, #15110b 55%, #0c0906 100%)',
-  panel: '#221d15', panelHi: '#2a2418', panelLo: '#15110a',
-  inkCritical: '#FBF4E6', ink: '#ECE3D2', ink2: '#AE9F82', ink3: '#6E6149',
+  // CarOS Night Collection — Horizon = navigasyon odaklı SOĞUK grafit/mavi-gri
+  // (BMW iDrive / Audi MMI). Zemin nötr-soğuk → harita ön planda, paneller geri
+  // planda; turuncu accent rota vurgusu olarak soğuk zeminde pop yapar.
+  desk: 'radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%)',
+  panel: '#19233a', panelHi: '#222e49', panelLo: '#0f141f',
+  inkCritical: '#F2F6FE', ink: '#E2E8F3', ink2: '#94A0B8', ink3: '#556077',
   accent: '#F2871C', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(242,135,28,.42)', accentInk: '#1A0D02',
-  edge: 'rgba(196,158,98,.11)', edgeHi: 'rgba(228,192,128,.22)',
-  metal: 'linear-gradient(160deg,#473d2c 0%,#2a2417 55%,#181309 100%)',
-  bolt: 'radial-gradient(circle at 36% 30%, #b59a6a, #4a3d24 70%)',
+  edge: 'rgba(120,150,210,.14)', edgeHi: 'rgba(165,195,242,.20)',
+  metal: 'linear-gradient(160deg,#283448 0%,#1a2336 55%,#111726 100%)',
+  bolt: 'radial-gradient(circle at 36% 30%, #7d8db2, #283042 70%)',
   elev: '0 16px 36px rgba(0,0,0,.58), 0 3px 9px rgba(0,0,0,.5)',
-  bevel: 'inset 0 1px 0 rgba(232,200,140,.18)',
-  mapveil: 'linear-gradient(180deg, rgba(8,6,4,0) 38%, rgba(8,6,4,.6))',
-  onDark: '#ECE3D2', onDark2: '#AE9F82',
-  ok: '#86B85E',
+  bevel: 'inset 0 1px 0 rgba(200,214,238,.14)',
+  mapveil: 'linear-gradient(180deg, rgba(6,9,14,0) 38%, rgba(6,9,14,.62))',
+  onDark: '#E4E9F1', onDark2: '#97A1B3',
+  ok: '#7FB87E',
 };
 
 const DAY_H: Pal = {
@@ -402,12 +408,50 @@ function HzTripCell({ k, v, accent }: { k: string; v: string; accent?: boolean }
 /* ─── SAĞ: MEDYA ─────────────────────────────────────────────────── */
 const HzMediaCard = memo(function HzMediaCard() {
   const p = usePalH();
-  const { playing, track } = useMediaState();
-  useEffect(() => { startMediaHub(); return () => stopMediaHub(); }, []);
+  const { playing, track, hasSession } = useMediaState();
+  useEffect(() => {
+    startMediaHub();
+    previewLastMedia();
+    if (getPerformanceMode() === 'lite') {
+      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      return () => { window.clearTimeout(id); stopMediaHub(); };
+    }
+    void ensureYouTubeReady().catch(() => {});
+    return () => stopMediaHub();
+  }, []);
   const total = track.durationSec || 0;
   const elapsed = track.positionSec || 0;
   const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 0;
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const handlePlay = () => {
+    if (hasSession) togglePlayPause();
+    else if (!resumeLastMedia()) openMusicDrawer();
+  };
+  const barRef = useRef<HTMLDivElement>(null);
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const ratioFromX = (clientX: number) => {
+    const el = barRef.current;
+    if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    return Math.min(Math.max((clientX - r.left) / r.width, 0), 1);
+  };
+  const onBarDown = (e: React.PointerEvent) => {
+    if (total <= 0) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDragPct(ratioFromX(e.clientX) * 100);
+  };
+  const onBarMove = (e: React.PointerEvent) => {
+    if (dragPct == null) return;
+    setDragPct(ratioFromX(e.clientX) * 100);
+  };
+  const onBarUp = (e: React.PointerEvent) => {
+    if (dragPct == null) return;
+    e.stopPropagation();
+    seek(ratioFromX(e.clientX) * total);
+    setDragPct(null);
+  };
+  const shownPct = total > 0 ? (dragPct ?? pct) : pct;
   return (
     <Panel style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
@@ -421,15 +465,15 @@ const HzMediaCard = memo(function HzMediaCard() {
         <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink3, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
       </div>
       <div className="flex items-center" style={{ gap: 9 }}>
-        <span style={{ fontSize: 10, fontWeight: 500, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(elapsed) : '0:00'}</span>
-        <div style={{ flex: 1, height: 4, borderRadius: 999, background: p.panelLo, position: 'relative' }}>
-          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, borderRadius: 999, background: p.accent }} />
+        <span style={{ fontSize: 10, fontWeight: 500, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt((dragPct ?? pct) / 100 * total) : '0:00'}</span>
+        <div ref={barRef} onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} style={{ flex: 1, height: 4, borderRadius: 999, background: p.panelLo, position: 'relative', cursor: total > 0 ? 'pointer' : 'default', touchAction: 'none' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${shownPct}%`, borderRadius: 999, background: p.accent }} />
         </div>
         <span style={{ fontSize: 10, fontWeight: 500, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(total) : '--:--'}</span>
       </div>
       <div className="flex items-center justify-center" style={{ gap: 24, flex: 1, minHeight: 0 }}>
         <button onClick={() => previous()} className="hz-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink }}><SkipBack className="w-6 h-6" style={{ fill: 'currentColor' }} /></button>
-        <button onClick={() => togglePlayPause()} className="hz-btn" style={{ width: 46, height: 46, borderRadius: '50%', display: 'grid', placeItems: 'center', cursor: 'pointer', background: p.accent, color: p.accentInk, border: 'none', boxShadow: `0 6px 18px ${p.accentGlow}` }}>
+        <button onClick={() => handlePlay()} className="hz-btn" style={{ width: 46, height: 46, borderRadius: '50%', display: 'grid', placeItems: 'center', cursor: 'pointer', background: p.accent, color: p.accentInk, border: 'none', boxShadow: `0 6px 18px ${p.accentGlow}` }}>
           {playing ? <Pause className="w-5 h-5" style={{ fill: 'currentColor' }} /> : <Play className="w-5 h-5 ml-0.5" style={{ fill: 'currentColor' }} />}
         </button>
         <button onClick={() => next()} className="hz-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink }}><SkipForward className="w-6 h-6" style={{ fill: 'currentColor' }} /></button>
@@ -574,11 +618,14 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
   }, []);
 
   const ink   = p.ink;
-  const faceA = p.night ? '#26201400' : '#ffffff00';
-  const fcOut = p.night ? '#241d12' : '#f7f1e4';
-  const fcIn  = p.night ? '#15110a' : '#ece3d0';
-  const bzOut = p.night ? '#5a4d36' : '#e7ddc6';
-  const bzIn  = p.night ? '#332a1b' : '#b9ad90';
+  // Night Collection — Horizon gece saati: ÇELİK/navy pilot saati (tema lacivert).
+  // Yüz radial'i merkezde hafif açık → iç parlaklık (glow değil); turuncu accent
+  // akrepler soğuk çelik üstünde pop yapar. Gündüz krem-warm korunur.
+  const faceA = p.night ? '#10182400' : '#ffffff00';
+  const fcOut = p.night ? '#1f2a3e' : '#f7f1e4';
+  const fcIn  = p.night ? '#0d1320' : '#ece3d0';
+  const bzOut = p.night ? '#41506c' : '#e7ddc6';
+  const bzIn  = p.night ? '#1d2636' : '#b9ad90';
 
   return (
     <button onClick={onClick} className="hz-btn" aria-label="Saat — Menü" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
@@ -602,7 +649,7 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
         <text x="90" y="68" textAnchor="middle" style={{ fontSize: 7.5, fontWeight: 700, letterSpacing: '4px', fill: p.accent }}>PRO</text>
 
         {/* ALT dijital pencere — pilot altpencere */}
-        <rect x="61" y="104" width="58" height="30" rx="6" fill={p.night ? '#0d0a05' : '#fffdf7'} stroke={p.accent} strokeOpacity=".5" strokeWidth="1" />
+        <rect x="61" y="104" width="58" height="30" rx="6" fill={p.night ? '#080d16' : '#fffdf7'} stroke={p.accent} strokeOpacity=".5" strokeWidth="1" />
         <text x="90" y="120" textAnchor="middle" style={{ fontSize: 15, fontWeight: 700, fill: ink, fontVariantNumeric: 'tabular-nums' }}>{digital}</text>
         <text x="90" y="130" textAnchor="middle" style={{ fontSize: 7, fontWeight: 700, letterSpacing: '1px', fill: p.accent }}>{dateLine}</text>
 

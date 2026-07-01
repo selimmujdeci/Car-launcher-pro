@@ -173,7 +173,9 @@ export default defineConfig({
   // host 127.0.0.1: Spotify OAuth loopback redirect'i IPv4 ister. Varsayılan
   // "localhost" Windows'ta ::1'e (IPv6) bağlanıp 127.0.0.1'i reddediyordu.
   server:  { host: '127.0.0.1', port: 5173, strictPort: true, headers: _coopCoepHeaders },
-  preview: { headers: _coopCoepHeaders },
+  // allowedHosts: cloudflared/ngrok hızlı tünelle uzaktan önizleme (cihazda test).
+  // Vite preview varsayılan Host kontrolünü geçer; sadece tünel domain'leri açık.
+  preview: { headers: _coopCoepHeaders, allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok.io'] },
   optimizeDeps: {
     // Vite 8/rolldown CJS interop fix: react-i18next → use-sync-external-store/shim
     // require("react") çağrısı React chunk'u hazır olmadan çalıştığında null döner.

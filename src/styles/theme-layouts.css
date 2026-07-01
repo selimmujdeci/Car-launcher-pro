@@ -184,7 +184,7 @@
     --speedo-font:       4rem;
     --speedo-unit-font:  0.55rem;
     --header-h:          48px;
-    --dock-h:            74px;
+    --dock-h:            86px;
     --map-radius:        1.2rem;
     --pack-radius:       12px;
   }
@@ -193,7 +193,7 @@
   .speedo-unit    { font-size: 0.55rem !important; }
   .speedo-data    { font-size: 0.7rem !important; }
 
-  [data-layout-zone="dock"]   { height: 74px !important; min-height: 74px !important; }
+  [data-layout-zone="dock"]   { height: 86px !important; min-height: 86px !important; }
   [data-layout-zone="header"] { height: 48px !important; min-height: 48px !important; }
 
   .speedometer-container { padding: 0.75rem !important; }
@@ -210,12 +210,12 @@
     --speedo-font:      5rem;
     --speedo-unit-font: 0.62rem;
     --header-h:         52px;
-    --dock-h:           88px;
+    --dock-h:           102px;
     --map-radius:       1.8rem;
   }
 
   .speedo-value   { font-size: 5rem !important; }
-  [data-layout-zone="dock"]   { height: 88px !important; min-height: 88px !important; }
+  [data-layout-zone="dock"]   { height: 102px !important; min-height: 102px !important; }
   [data-layout-zone="header"] { height: 52px !important; min-height: 52px !important; }
   .speedometer-container { padding: 1rem !important; }
 }
@@ -226,10 +226,10 @@
     --speedo-w:     17rem;
     --speedo-font:  5.5rem;
     --header-h:     56px;
-    --dock-h:       96px;
+    --dock-h:       110px;
   }
 
-  [data-layout-zone="dock"]   { height: 96px !important; min-height: 96px !important; }
+  [data-layout-zone="dock"]   { height: 110px !important; min-height: 110px !important; }
   [data-layout-zone="header"] { height: 56px !important; min-height: 56px !important; }
 }
 
@@ -240,11 +240,11 @@
     --speedo-font:       8rem;
     --speedo-unit-font:  0.9rem;
     --header-h:          72px;
-    --dock-h:            100px;
+    --dock-h:            116px;
   }
 
   .speedo-value { font-size: 8rem !important; }
-  [data-layout-zone="dock"]   { height: 100px !important; }
+  [data-layout-zone="dock"]   { height: 116px !important; }
   [data-layout-zone="header"] { height: 72px !important; }
 }
 
@@ -254,7 +254,7 @@
     --speedo-w:    90vw;
     --speedo-font: 5rem;
     --header-h:    52px;
-    --dock-h:      70px;
+    --dock-h:      78px;
   }
 
   .speedometer-container {
@@ -265,7 +265,7 @@
 
   .map-container { min-height: 35vh !important; }
 
-  [data-layout-zone="dock"] { height: 70px !important; }
+  [data-layout-zone="dock"] { height: 78px !important; }
 
   .dock-card { min-width: 52px !important; padding: 0.4rem !important; }
 }
@@ -555,9 +555,9 @@ button, [role="button"], .dock-card, .up-nav-item, .glass-card > button {
      (NHTSA/ISO 15005 ≥44px). Gerçek değişken adları --dock-h/--dock-icon
      (proje --dock-height/--dock-icon-size kullanmaz). */
   :root {
-    --lp-dock-h: 52px;
-    --dock-h:    64px !important;
-    --dock-icon: 24px;
+    --lp-dock-h: 58px;
+    --dock-h:    72px !important;
+    --dock-icon: 26px;
   }
 
   .speedometer-container { width: 100% !important; }

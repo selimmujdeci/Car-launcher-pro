@@ -25,7 +25,7 @@ import {
 import { RuntimeMode } from '../../core/runtime/runtimeTypes';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 // ── Extracted layout components ──────────────────────────────
-import { BootSplash, type BootPhase } from './BootSplash';
+import { BootSplash, type BootPhase, BOOT_SHOW_MS, BOOT_FADE_MS } from './BootSplash';
 import { GoldenHourAccent } from './GoldenHourAccent';
 import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
@@ -136,8 +136,8 @@ export default function MainLayout() {
   }, []);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setBootPhase('fade'), 850);
-    const t2 = setTimeout(() => setBootPhase('done'), 1150);
+    const t1 = setTimeout(() => setBootPhase('fade'), BOOT_SHOW_MS);
+    const t2 = setTimeout(() => setBootPhase('done'), BOOT_SHOW_MS + BOOT_FADE_MS);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 

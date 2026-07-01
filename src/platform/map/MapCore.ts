@@ -18,6 +18,7 @@ import { M, useMapStore, getOnlineTileStyle, type MapConfig } from './_mapState'
 import { _applyRouteGeometry } from './MapLayerManager';
 import { _setupRouteInteractions, _cleanupRouteInteractions } from './MapInteractionManager';
 import { hasWeakGpu } from '../../utils/detectWeakGpu';
+import { getDeviceTier } from '../deviceCapabilities';
 
 // Ensure smart-tile protocol is never active
 try { maplibregl.removeProtocol('smart-tile'); } catch { /* not registered */ }
@@ -196,6 +197,12 @@ async function _initCore(
     const TURKEY_CENTER: [number, number] = [35, 39];
     const TURKEY_ZOOM = 6;
 
+    // Düşük tier (head unit / Android<12 / zayıf GPU): pan sırasında PowerVR/Mali sınıfı
+    // GPU'da darboğaz HAM map render + canvas→HWUI texture upload'dır (Davey: büyük
+    // DrawStart/SwapBuffers boşlukları). fadeDuration=0 pan-sonrası raster/label fade
+    // repaint kuyruğunu tamamen keser; maxTileCacheSize tavanı bellek baskısını (GC) sınırlar.
+    const _lowTier = getDeviceTier() === 'low';
+
     const map = new MapLibreMap({
       container,
       style,
@@ -207,6 +214,16 @@ async function _initCore(
       // MSAA: Mali-400 sınıfı (Utgard) bant-genişliği aç → her kare çoklu örnekleme
       // fragment yükünü katlar. Zayıf GPU'da kapat; capable cihazda kenar yumuşatma kalsın.
       antialias: !hasWeakGpu(),
+      // NOT: statik pixelRatio downscale DENENDİ ve GERİ ALINDI — pan-jank'a etkisi
+      // olmadı. Kök neden: pan darboğazı RenderThread'in full-screen WebView yüzeyini
+      // EKRAN çözünürlüğünde HWUI'ye composite etmesi (Slow draw commands 52/52);
+      // pixelRatio yalnız WebGL çizim-buffer'ını küçültür (Chrome_InProcGpu %13-23),
+      // ama canvas elemanı yine 1280×720 composite edilir → darboğaz hareketsiz kalır.
+      // Netliği bozup kazanç vermediği için kaldırıldı (bkz. mapLiteMode — dinamik,
+      // zayıf-GPU'da pan sırasında overlay gizleme; dinamik resize/pixelRatio YASAK,
+      // bu cihazda canlı GL realloc 250-750ms stall yapıyor).
+      fadeDuration: _lowTier ? 0 : 300,
+      maxTileCacheSize: _lowTier ? 256 : undefined,
       attributionControl: false,
     });
 

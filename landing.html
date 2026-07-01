@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CarOS Pro — Arabanızın ekranı, yeniden doğdu</title>
+<meta name="description" content="Aftermarket araç ekranları için offline-first premium araç-içi işletim sistemi. İnternetsiz navigasyon, OBD/CAN teşhis, Türkçe sesli asistan, uzaktan kontrol.">
+<style>
+  :root{
+    --bg:#0D0F13; --bg-2:#14181F; --bg-3:#1A1F28;
+    --acc:#F2871C; --acc-2:#E07B14; --acc-soft:rgba(242,135,28,.14);
+    --txt:#F2F4F7; --dim:#9AA2AD; --faint:#5A636F;
+    --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--txt); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; line-height:1.5; overflow-x:hidden;
+  }
+  /* Kokpit atmosfer: radial glow + ince HUD grid */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 600px at 78% -8%, rgba(242,135,28,.16), transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, rgba(60,110,160,.10), transparent 55%);
+  }
+  body::after{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:64px 64px;
+    -webkit-mask-image:radial-gradient(circle at 50% 30%,#000,transparent 75%);
+            mask-image:radial-gradient(circle at 50% 30%,#000,transparent 75%);
+  }
+  .wrap{position:relative; z-index:1; max-width:1180px; margin:0 auto; padding:0 28px}
+
+  /* ── Etiket / mono detay ── */
+  .tag{
+    font-family:var(--mono); font-size:11px; letter-spacing:.32em; text-transform:uppercase;
+    color:var(--acc); display:inline-flex; align-items:center; gap:9px;
+  }
+  .tag::before{content:""; width:22px; height:1px; background:var(--acc)}
+
+  /* ── NAV ── */
+  nav{
+    position:relative; z-index:5; display:flex; align-items:center; justify-content:space-between;
+    max-width:1180px; margin:0 auto; padding:24px 28px;
+  }
+  .brand{font-family:var(--mono); font-weight:700; letter-spacing:.14em; font-size:15px}
+  .brand b{color:var(--acc)}
+  .nav-cta{
+    font-family:var(--mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--txt); text-decoration:none; border:1px solid var(--line-2);
+    padding:10px 18px; border-radius:2px; transition:.25s;
+  }
+  .nav-cta:hover{border-color:var(--acc); color:var(--acc); background:var(--acc-soft)}
+
+  /* ── HERO ── */
+  .hero{padding:72px 0 96px; position:relative}
+  .hero-grid{display:grid; grid-template-columns:1.25fr .75fr; gap:48px; align-items:center}
+  .hero h1{
+    font-size:clamp(40px,6.4vw,82px); line-height:.98; font-weight:800;
+    letter-spacing:-.02em; margin:22px 0 24px;
+  }
+  .hero h1 .or{color:var(--acc); display:block}
+  .hero p.lead{font-size:clamp(16px,1.9vw,20px); color:var(--dim); max-width:540px; margin-bottom:36px}
+  .cta-row{display:flex; gap:14px; flex-wrap:wrap}
+  .btn{
+    font-family:var(--mono); font-size:13px; letter-spacing:.1em; text-transform:uppercase;
+    text-decoration:none; padding:16px 30px; border-radius:3px; transition:.25s; font-weight:600;
+  }
+  .btn-p{background:var(--acc); color:#0A0A0A; box-shadow:0 8px 30px rgba(242,135,28,.28)}
+  .btn-p:hover{background:#FF9A2E; transform:translateY(-2px); box-shadow:0 12px 38px rgba(242,135,28,.42)}
+  .btn-s{border:1px solid var(--line-2); color:var(--txt)}
+  .btn-s:hover{border-color:var(--acc); color:var(--acc)}
+
+  /* Gauge görseli */
+  .gauge-card{
+    background:linear-gradient(160deg,var(--bg-2),var(--bg)); border:1px solid var(--line);
+    border-radius:14px; padding:30px; position:relative; overflow:hidden;
+  }
+  .gauge-card::before{content:""; position:absolute; top:0; left:0; right:0; height:1px;
+    background:linear-gradient(90deg,transparent,var(--acc),transparent)}
+  .gauge{
+    width:200px; height:200px; margin:6px auto 18px; border-radius:50%; position:relative;
+    background:conic-gradient(from 135deg,var(--acc) 0deg,var(--acc-2) 150deg,var(--bg-3) 150deg 270deg,transparent 270deg);
+    -webkit-mask:radial-gradient(transparent 58%,#000 59%);
+            mask:radial-gradient(transparent 58%,#000 59%);
+    transform:rotate(0deg);
+  }
+  .gauge-num{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center}
+  .gauge-num b{font-family:var(--mono); font-size:46px; font-weight:700; letter-spacing:-.02em}
+  .gauge-num span{font-family:var(--mono); font-size:11px; letter-spacing:.3em; color:var(--dim); text-transform:uppercase}
+  .gstat{display:flex; justify-content:space-between; font-family:var(--mono); font-size:12px; padding:9px 0; border-top:1px solid var(--line)}
+  .gstat span{color:var(--dim); letter-spacing:.08em}
+  .gstat b{color:var(--acc); letter-spacing:.05em}
+  .live{display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:10px; letter-spacing:.24em; color:var(--dim); text-transform:uppercase; margin-bottom:14px}
+  .live i{width:7px; height:7px; border-radius:50%; background:var(--acc); box-shadow:0 0 0 0 rgba(242,135,28,.6); animation:pulse 2s infinite}
+  @keyframes pulse{70%{box-shadow:0 0 0 9px rgba(242,135,28,0)}100%{box-shadow:0 0 0 0 rgba(242,135,28,0)}}
+
+  /* ── SECTION başlık ── */
+  section{padding:90px 0; position:relative}
+  .sec-head{max-width:640px; margin-bottom:54px}
+  .sec-head h2{font-size:clamp(28px,4vw,46px); font-weight:800; letter-spacing:-.02em; margin:16px 0 14px; line-height:1.05}
+  .sec-head p{color:var(--dim); font-size:17px}
+
+  /* ── FAYDA kartları ── */
+  .cards{display:grid; grid-template-columns:repeat(3,1fr); gap:18px}
+  .card{
+    background:var(--bg-2); border:1px solid var(--line); border-radius:12px; padding:30px 26px;
+    position:relative; overflow:hidden; transition:.3s;
+  }
+  .card::after{content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--acc); transform:scaleY(0); transform-origin:top; transition:.3s}
+  .card:hover{transform:translateY(-5px); border-color:var(--line-2); background:var(--bg-3); box-shadow:0 18px 50px rgba(0,0,0,.4)}
+  .card:hover::after{transform:scaleY(1)}
+  .card .ic{font-size:26px; margin-bottom:16px; display:block}
+  .card h3{font-size:19px; font-weight:700; margin-bottom:10px; letter-spacing:-.01em}
+  .card p{color:var(--dim); font-size:14.5px}
+  .card .k{font-family:var(--mono); font-size:10px; letter-spacing:.24em; color:var(--faint); text-transform:uppercase; position:absolute; top:22px; right:24px}
+
+  /* ── ÖNE ÇIKANLAR grid ── */
+  .feat{background:var(--bg-2); border-block:1px solid var(--line)}
+  .feat-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  .fcell{background:var(--bg); padding:26px 22px; transition:.25s}
+  .fcell:hover{background:var(--bg-3)}
+  .fcell .ic{font-size:20px}
+  .fcell h4{font-size:15px; font-weight:700; margin:12px 0 6px}
+  .fcell p{font-size:13px; color:var(--dim)}
+
+  /* ── HEDEF KİTLE ── */
+  .aud{display:grid; grid-template-columns:repeat(3,1fr); gap:18px}
+  .aud-card{border:1px solid var(--line); border-radius:12px; padding:32px 28px; background:linear-gradient(180deg,var(--bg-2),transparent)}
+  .aud-card .n{font-family:var(--mono); color:var(--acc); font-size:13px; letter-spacing:.2em}
+  .aud-card h3{font-size:18px; margin:14px 0 9px}
+  .aud-card p{color:var(--dim); font-size:14.5px}
+
+  /* ── PİLLER (offline/türkçe/güvenli) ── */
+  .pills{display:flex; gap:10px; flex-wrap:wrap; margin-top:30px}
+  .pill{font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); border:1px solid var(--line-2); padding:8px 15px; border-radius:100px}
+  .pill b{color:var(--acc)}
+
+  /* ── FOOTER ── */
+  footer{padding:90px 0 60px; text-align:center; border-top:1px solid var(--line); margin-top:40px}
+  footer .slogan{font-size:clamp(30px,5vw,56px); font-weight:800; letter-spacing:-.02em; margin-bottom:18px}
+  footer .slogan em{color:var(--acc); font-style:normal}
+  footer .meta{font-family:var(--mono); font-size:12px; letter-spacing:.16em; color:var(--faint); text-transform:uppercase}
+
+  /* ── Load animasyon ── */
+  .rise{opacity:0; transform:translateY(22px); animation:rise .8s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1; transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.15s}.d3{animation-delay:.25s}
+  .d4{animation-delay:.35s}.d5{animation-delay:.45s}.d6{animation-delay:.55s}
+
+  @media (max-width:900px){
+    .hero-grid{grid-template-columns:1fr; gap:36px}
+    .gauge-card{max-width:380px}
+    .cards{grid-template-columns:1fr 1fr}
+    .feat-grid{grid-template-columns:1fr 1fr}
+    .aud{grid-template-columns:1fr}
+  }
+  @media (max-width:560px){
+    .cards{grid-template-columns:1fr}
+    .feat-grid{grid-template-columns:1fr}
+    nav .nav-cta{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}.rise{opacity:1; transform:none}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">CAR<b>OS</b> PRO</div>
+  <a href="#iletisim" class="nav-cta">Demo İste</a>
+</nav>
+
+<header class="hero wrap">
+  <div class="hero-grid">
+    <div>
+      <span class="tag rise d1">Araç-İçi İşletim Sistemi</span>
+      <h1 class="rise d2">Arabanızın ekranı,<span class="or">yeniden doğdu.</span></h1>
+      <p class="lead rise d3">Aftermarket araç ekranınızı; <strong style="color:var(--txt)">internetsiz çalışan navigasyon</strong>, gerçek araç teşhisi, Türkçe sesli asistan ve telefondan uzaktan kontrol sunan premium bir araç beynine dönüştürün.</p>
+      <div class="cta-row rise d4">
+        <a href="#iletisim" class="btn btn-p">Demo İste</a>
+        <a href="#ozellikler" class="btn btn-s">Özellikleri Gör</a>
+      </div>
+    </div>
+    <div class="gauge-card rise d5">
+      <span class="live"><i></i> Canlı Araç Verisi</span>
+      <div class="gauge"><div class="gauge-num"><b>78</b><span>km/s</span></div></div>
+      <div class="gstat"><span>Motor Dev.</span><b>2 350 rpm</b></div>
+      <div class="gstat"><span>Yakıt</span><b>%64</b></div>
+      <div class="gstat"><span>Motor Isısı</span><b>91°C</b></div>
+      <div class="gstat"><span>Bağlantı</span><b>OBD · CAN</b></div>
+    </div>
+  </div>
+</header>
+
+<section id="ozellikler" class="wrap">
+  <div class="sec-head">
+    <span class="tag">Ne Sunar</span>
+    <h2>Yolun her metresinde yanınızda.</h2>
+    <p>İnternet olsun olmasın çalışan, aracınızı gerçekten dinleyen ve sizi koruyan bir sistem.</p>
+  </div>
+  <div class="cards">
+    <div class="card rise d1"><span class="k">01</span><span class="ic">🗺️</span><h3>İnternetsiz Navigasyon</h3><p>Çevrimdışı harita, rota hesaplama ve POI arama. Tünelde, kırsalda, sinyalsiz — yön bulmaya devam eder.</p></div>
+    <div class="card rise d2"><span class="k">02</span><span class="ic">🚙</span><h3>OBD & CAN Teşhis</h3><p>Anlık hız, devir, yakıt, motor ısısı ve arıza kodları. Aracınız sorun yaşamadan önce uyarır.</p></div>
+    <div class="card rise d3"><span class="k">03</span><span class="ic">🛡️</span><h3>Güvenlik Co-Pilot</h3><p>Radar uyarısı, geri vites kamerası, kaza kara kutusu, viraj hız ve güvenli mesafe önerisi.</p></div>
+    <div class="card rise d4"><span class="k">04</span><span class="ic">🎙️</span><h3>Türkçe Sesli Asistan</h3><p>Cihazda çalışan, internet gerektirmeyen Türkçe komut. Navigasyon, müzik, ayar — sesinizle.</p></div>
+    <div class="card rise d5"><span class="k">05</span><span class="ic">📱</span><h3>Araba Cebinizde</h3><p>Telefondan kapı kilitle/aç, korna, rota gönder. Uçtan uca şifreli, güvenli uzaktan kontrol.</p></div>
+    <div class="card rise d6"><span class="k">06</span><span class="ic">🎨</span><h3>Tamamen Sizin</h3><p>Premium temalar, gündüz/gece otomatik geçiş ve ekrandaki her şeyi düzenleyebilen kişiselleştirme.</p></div>
+  </div>
+</section>
+
+<section class="feat">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="tag">Öne Çıkanlar</span>
+      <h2>Tek bir ekranda, eksiksiz.</h2>
+    </div>
+    <div class="feat-grid">
+      <div class="fcell"><span class="ic">🛰️</span><h4>Tünel Modu</h4><p>GPS kaybında hız ile konum tahmini.</p></div>
+      <div class="fcell"><span class="ic">🔧</span><h4>Bakım Tahmini</h4><p>Yağ ömrü, aşınma, muayene hatırlatıcı.</p></div>
+      <div class="fcell"><span class="ic">🎵</span><h4>Müzik & Radyo</h4><p>Akış servisleri, internet radyosu, yerel.</p></div>
+      <div class="fcell"><span class="ic">🎬</span><h4>Sinema Modu</h4><p>Park halinde tam ekran video keyfi.</p></div>
+      <div class="fcell"><span class="ic">📍</span><h4>Geofence & Vale</h4><p>Araç bölgeden çıkarsa anında alarm.</p></div>
+      <div class="fcell"><span class="ic">🔋</span><h4>Akü & Isı Koruma</h4><p>Düşük donanımda bile akıcı ve serin.</p></div>
+      <div class="fcell"><span class="ic">📦</span><h4>Kaza Kara Kutusu</h4><p>Darbe anının kaydı, adli güvence.</p></div>
+      <div class="fcell"><span class="ic">🧩</span><h4>OTA & Filo</h4><p>Uzaktan güncelleme ve yapılandırma.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="sec-head">
+    <span class="tag">Kimler İçin</span>
+    <h2>Sürücüler, üreticiler, filolar.</h2>
+  </div>
+  <div class="aud">
+    <div class="aud-card rise d1"><div class="n">01 / SÜRÜCÜ</div><h3>Premium deneyim isteyenler</h3><p>Aracına aftermarket ekran takmış, stock yazılımın yavaşlığından ve çirkinliğinden bıkmış sürücüler.</p></div>
+    <div class="aud-card rise d2"><div class="n">02 / ÜRETİCİ</div><h3>Head unit üreticileri</h3><p>Donanımı iyi ama yazılımı zayıf cihazlara anahtar teslim premium katman arayan markalar.</p></div>
+    <div class="aud-card rise d3"><div class="n">03 / FİLO</div><h3>Filo & ticari kullanım</h3><p>Uzaktan yapılandırma, telemetri ve güvenlik takibi gereken araç filoları.</p></div>
+  </div>
+  <div class="pills">
+    <span class="pill"><b>●</b> Offline-First</span>
+    <span class="pill"><b>●</b> Türkçe</span>
+    <span class="pill"><b>●</b> Uçtan Uca Güvenli</span>
+    <span class="pill"><b>●</b> Düşük Donanım Dostu</span>
+    <span class="pill"><b>●</b> Premium</span>
+  </div>
+</section>
+
+<footer id="iletisim" class="wrap">
+  <div class="slogan">Yolda <em>yalnız</em> değilsiniz.</div>
+  <p style="color:var(--dim); max-width:440px; margin:0 auto 30px">Demo, lisanslama ve iş birliği için bizimle iletişime geçin.</p>
+  <a href="#" class="btn btn-p" style="display:inline-block">Demo & İletişim</a>
+  <p class="meta" style="margin-top:46px">CarOS Pro · Offline · Türkçe · Güvenli · Premium</p>
+</footer>
+
+</body>
+</html>

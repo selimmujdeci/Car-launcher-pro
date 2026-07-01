@@ -1,0 +1,53 @@
+﻿--------- beginning of main
+06-15 20:00:43.797 W/can     (18479): car_config_shielded_rear_door not found!
+--------- beginning of system
+06-15 20:00:43.800 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:21 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 android.os.Handler.dispatchMessage:107 
+06-15 20:00:43.808 D/nwdapp_KernelUtils(18479): showSystemUI
+06-15 20:00:43.808 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.showSystemUI:23 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:64 
+06-15 20:00:43.812 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 1,result = true
+06-15 20:00:43.817 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 0,result = true
+06-15 20:00:43.818 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:81 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 
+06-15 20:00:44.738 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:00:44.743 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:47 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:105 android.os.Handler.dispatchMessage:107 
+06-15 20:00:44.747 D/nwdapp_KernelUtils(18479): hideSystemUI
+06-15 20:00:44.748 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.hideSystemUI:17 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:84 
+06-15 20:00:44.753 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 0,result = true
+06-15 20:00:44.773 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 1,result = true
+06-15 20:00:44.774 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:144 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:105 
+06-15 20:00:46.711 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:00:46.716 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:21 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 android.os.Handler.dispatchMessage:107 
+06-15 20:00:46.719 D/nwdapp_KernelUtils(18479): showSystemUI
+06-15 20:00:46.720 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.showSystemUI:23 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:64 
+06-15 20:00:46.726 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 1,result = true
+06-15 20:00:46.736 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 0,result = true
+06-15 20:00:46.737 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:81 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 
+06-15 20:00:47.539 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:00:47.542 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:47 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:105 android.os.Handler.dispatchMessage:107 
+06-15 20:00:47.545 D/nwdapp_KernelUtils(18479): hideSystemUI
+06-15 20:00:47.545 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.hideSystemUI:17 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:84 
+06-15 20:00:47.548 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 0,result = true
+06-15 20:00:47.562 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 1,result = true
+06-15 20:00:47.563 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:144 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:105 
+06-15 20:00:49.517 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:00:49.519 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:21 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 android.os.Handler.dispatchMessage:107 
+06-15 20:00:49.521 D/nwdapp_KernelUtils(18479): showSystemUI
+06-15 20:00:49.522 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.showSystemUI:23 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:64 
+06-15 20:00:49.524 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 1,result = true
+06-15 20:00:49.529 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 0,result = true
+06-15 20:00:49.529 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:81 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 
+06-15 20:00:50.457 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:00:50.465 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:47 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:105 android.os.Handler.dispatchMessage:107 
+06-15 20:00:50.469 D/nwdapp_KernelUtils(18479): hideSystemUI
+06-15 20:00:50.470 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.hideSystemUI:17 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:84 
+06-15 20:00:50.477 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 0,result = true
+06-15 20:00:50.493 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 1,result = true
+06-15 20:00:50.494 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.showDoorInfoView:144 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:105 
+06-15 20:00:51.702 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:00:51.708 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:21 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 android.os.Handler.dispatchMessage:107 
+06-15 20:00:51.710 D/nwdapp_KernelUtils(18479): showSystemUI
+06-15 20:00:51.711 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.sdk.util.CanConfigUtil$$ExternalSyntheticOutline0.m:6 com.nwd.kernel.utils.KernelUtils.showSystemUI:23 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:64 
+06-15 20:00:51.715 D/nwdapp_SettingTableKey(18479): key = system_ui_visibility,value = 1,result = true
+06-15 20:00:51.722 D/nwdapp_SettingTableKey(18479): key = can_door_show_state,value = 0,result = true
+06-15 20:00:51.723 W/ContextImpl(18479): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1050 android.content.ContextWrapper.sendBroadcast:448 com.nwd.can.setting.ui.common.view.CarDoorView.notifyCarDoorState:27 com.nwd.can.setting.ui.common.view.CarDoorView.hideDoorInfoView:81 com.nwd.can.setting.ui.common.view.CarDoorView$1.handleMessage:43 
+06-15 20:00:57.003 W/can     (18479): car_config_shielded_rear_door not found!
+06-15 20:01:00.951 D/nwdapp_UartCommunication(18479): 5AA50ACB1A060F1401010000000019

@@ -44,6 +44,19 @@ import {
   MOOD_HYSTERESIS,
 } from './_mapState';
 
+// ── Zero-Allocation marker zarfı (V8 Hot-Path kuralı) ────────────────────
+// updateUserMarker GPS tick'inde (~16fps, her 60ms) çağrılır. Her çağrıda taze
+// GeoJSON nesnesi tahsis etmek (feature + geometry + coordinates + properties +
+// FeatureCollection = çağrı başına 5 nesne) 32-bit heap'te sürekli minor GC
+// tetikliyordu (ölçülen GC pause'ları 190–235ms → "Slow UI thread" jank). Modül
+// seviyesinde TEK bir zarf önceden tahsis edilir; tick'te yalnız sayısal alanlar
+// mutate edilir. Hidden-class kararlı (alan sırası ve tipleri hiç değişmez).
+const _markerCoords: [number, number] = [0, 0];
+const _markerGeometry   = { type: 'Point' as const,   coordinates: _markerCoords };
+const _markerProps      = { heading: 0 };
+const _markerFeature    = { type: 'Feature' as const, geometry: _markerGeometry, properties: _markerProps };
+const _markerCollection = { type: 'FeatureCollection' as const, features: [_markerFeature] };
+
 // ── CarOS Rover konum göstergesi (marka imzası) ──────────────────────────
 
 /** Köşeleri yuvarlatılmış dikdörtgen yolu — ctx.roundRect tüm WebView'larda yok, kendi çiziyoruz. */
@@ -351,19 +364,11 @@ export function updateUserMarker(latitude: number, longitude: number, heading?: 
     } catch { /* stil yeniden yükleniyor */ }
   }
 
-  const feature = {
-    type: 'Feature' as const,
-    geometry: {
-      type: 'Point' as const,
-      coordinates: [longitude, latitude],
-    },
-    properties: { heading: heading ?? 0 },
-  };
-
-  source.setData({
-    type: 'FeatureCollection',
-    features: [feature],
-  } as any);
+  // Zero-allocation: önceden tahsisli zarfı mutate et (yukarıdaki _marker* sabitleri).
+  _markerCoords[0]     = longitude;
+  _markerCoords[1]     = latitude;
+  _markerProps.heading = heading ?? 0;
+  source.setData(_markerCollection as any);
 }
 
 /**
@@ -576,6 +581,30 @@ function _startLightTrail(): void {
 function _stopLightTrail(): void {
   if (M.flowRafId !== null) { cancelAnimationFrame(M.flowRafId); M.flowRafId = null; }
   M.flowProgress = 0;
+}
+
+/* ── Map Lite Mode köprüsü: rota akış rAF'ını etkileşimde geçici duraklat ──────
+ * Pan/zoom sırasında ROUTE_FLOW KATMANINI gizlemek tek başına yetmez — flow rAF
+ * döngüsü (setPaintProperty + breathing glow + mood, her 80ms; her kare rAF) çalışmaya
+ * devam edip compositor'u her kare uyandırır. Zayıf GPU'da etkileşim boyunca döngüyü
+ * tamamen durdurmak rota-aktif pan maliyetini düşürür. Yalnız mapLiteMode çağırır
+ * (hasWeakGpu gate). Rota yoksa no-op; resume rota hâlâ varsa yeniden başlatır. */
+let _flowPausedForInteraction = false;
+
+export function pauseRouteFlowAnimation(): void {
+  if (M.flowRafId !== null) {
+    cancelAnimationFrame(M.flowRafId);
+    M.flowRafId = null;
+    _flowPausedForInteraction = true;
+  }
+}
+
+export function resumeRouteFlowAnimation(): void {
+  if (!_flowPausedForInteraction) return;
+  _flowPausedForInteraction = false;
+  const map = useMapStore.getState().mapInstance;
+  // Yalnız rota hâlâ aktifse yeniden başlat (etkileşim sırasında rota iptal edilmiş olabilir)
+  if (map && map.getLayer(ROUTE_FLOW)) _startLightTrail();
 }
 
 /* ── Movement Energy — pulse speed scales with vehicle velocity (Faz 3.3) ─── */

@@ -143,6 +143,34 @@ describe('Sesli navigasyon uygulama-içi kilidi', () => {
    4b. WiFi/Bluetooth — DOĞRUDAN toggle (ekran açma değil)
    Regresyon: "bluetooth aç" sistem ekranını açıyordu; doğrudan açmalı.
    ─────────────────────────────────────────────────────────────── */
+/* ───────────────────────────────────────────────────────────────
+   4a-bis. Sesli müzik araması — ÖNCE gömülü oynatıcı kilidi
+   Regresyon (2026-06-21): "X'ten müzik aç" gömülü YouTube/Spotify oynatıcı
+   yerine harici uygulamaya → kurulu değilse Play Store'a düşüyordu. Sesli
+   müzik araması ÖNCE playByQuery (uygulama-içi) denemeli; dış uygulama SON ÇARE.
+   ─────────────────────────────────────────────────────────────── */
+describe('Sesli müzik araması uygulama-içi kilidi', () => {
+  it('YAPISAL: PLAY_MUSIC_SEARCH harici launchMusicSearch\'ten ÖNCE gömülü oynatıcıyı dener', () => {
+    const src = read('src/platform/commandExecutor.ts');
+    const i = src.indexOf("case 'PLAY_MUSIC_SEARCH'");
+    const block = src.slice(i, i + 400);
+    // Gömülü-önce çağrısı, harici fallback'ten önce gelmeli.
+    const embedIdx = block.indexOf('_playMusicInAppOrFallback');
+    const extIdx   = block.indexOf('bridge.launchMusicSearch');
+    expect(embedIdx, 'PLAY_MUSIC_SEARCH gömülü oynatıcıyı (_playMusicInAppOrFallback) çağırmalı').toBeGreaterThanOrEqual(0);
+    expect(extIdx).toBeGreaterThanOrEqual(0);
+    expect(embedIdx, 'gömülü deneme harici launch\'tan ÖNCE olmalı').toBeLessThan(extIdx);
+  });
+
+  it('YAPISAL: _playMusicInAppOrFallback playByQuery ile arar, başarısızsa fallback() çağırır', () => {
+    const src = read('src/platform/commandExecutor.ts');
+    const i = src.indexOf('async function _playMusicInAppOrFallback');
+    const fn = src.slice(i, i + 1000);
+    expect(fn).toMatch(/playByQuery/);
+    expect(fn).toMatch(/fallback\(\)/);
+  });
+});
+
 describe('WiFi/Bluetooth doğrudan toggle kilidi', () => {
   it('YAPISAL: applyVoiceSetting setWifi/setBluetooth (doğrudan) dener, salt panel açmaz', () => {
     const src = read('src/hooks/useVoiceCommandHandler.ts');
@@ -418,24 +446,27 @@ describe('Auto-brightness GPS-fix timing kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
-   8. HEAD UNIT YATAY ROTASYON — native WebView 90° fix
+   8. HEAD UNIT YATAY ROTASYON — native sistem rotasyon kilidi
    Regresyon (saha 2026-06-14, K24/NWD): panel fiziksel YATAY ama Android
    display'i 720x1280 DİKEY raporluyor + OEM manifest sensorLandscape'i
-   YOKSAYIYOR (sistem kilidi). Sonuç: UI ekranda 90° yan + "Telefonu Yatay
-   Tutun" uyarısı. Çözüm MainActivity'de WebView'i landscape boyutlandırıp
-   native 90° döndürmek (JS innerWidth>innerHeight görür → uyarı çıkmaz,
-   dokunma View transform ile eşlenir). Bu fix silinirse cihazda ekran yine
-   yan döner → yapısal kilit.
+   YOKSAYIYOR. Sonuç: UI ekranda 90° yan + "Telefonu Yatay Tutun" uyarısı.
+   Çözüm (d89bb31 — eski WebView setRotation hack'i KALDIRILDI): MainActivity'de
+   sistem rotasyonunu native kilitle → otomatik döndürmeyi kapat
+   (ACCELEROMETER_ROTATION=0) + USER_ROTATION=ROTATION_90. Yalnız NWD head
+   unit'te (ro.boot.nwd.orientation set) devreye girer; normal cihaza DOKUNMAZ.
+   Bu fix silinirse cihazda ekran yine yan döner → yapısal kilit.
    ─────────────────────────────────────────────────────────────── */
-describe('Head unit yatay rotasyon kilidi (native WebView 90°)', () => {
-  it('YAPISAL: MainActivity dikey-yüzeyde WebView\'i 90° döndürür', () => {
+describe('Head unit yatay rotasyon kilidi (native sistem rotasyon)', () => {
+  it('YAPISAL: MainActivity NWD head unit\'te sistem rotasyonunu yatay kilitler', () => {
     const src = read('android/app/src/main/java/com/cockpitos/pro/MainActivity.java');
     // Rotasyon metodu çağrılıyor
     expect(src).toMatch(/applyHeadUnitLandscapeRotation\s*\(\s*\)\s*;/);
-    // Yalnızca display dikey raporladığında (sh > sw) devreye girer
-    expect(src).toMatch(/if\s*\(\s*sh\s*<=\s*sw\s*\)\s*return\s*;/);
-    // WebView gerçekten döndürülüyor
-    expect(src).toMatch(/setRotation\s*\(\s*90f?\s*\)/);
+    // Yalnızca NWD head unit panelinde (ro.boot.nwd.orientation) devreye girer
+    expect(src).toMatch(/ro\.boot\.nwd\.orientation/);
+    // Otomatik döndürme kapatılıyor (sensör rotasyonu devre dışı)
+    expect(src).toMatch(/ACCELEROMETER_ROTATION\s*,\s*0\s*\)/);
+    // Kullanıcı rotasyonu YATAY (90°) sabitleniyor
+    expect(src).toMatch(/USER_ROTATION\s*,\s*android\.view\.Surface\.ROTATION_90\s*\)/);
   });
 });
 

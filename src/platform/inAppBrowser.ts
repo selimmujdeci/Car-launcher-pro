@@ -16,7 +16,7 @@ const BLOCKED_HOSTS = [
   'waze.com', 'apple.com', 'facebook.com', 'instagram.com',
   'twitter.com', 'x.com', 'play.google.com', 'market://',
   // API key konsolları — iframe'i reddeder (X-Frame-Options/CSP frame-ancestors)
-  'anthropic.com', 'aistudio.google.com',
+  'anthropic.com', 'aistudio.google.com', 'groq.com', 'tavily.com',
 ];
 
 function isBlocked(url: string): boolean {

@@ -177,9 +177,11 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     const r = await tryCompanionChat('nasılsın', GEMINI_OPTS);
     expect(r!.route).toBe('companion_gemini');
 
-    const [url] = fetchSpy.mock.calls[0] as [string];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('generativelanguage.googleapis.com');
-    expect(url).toContain('key=AIzaTest');
+    // Key artık URL'de değil, X-goog-api-key header'ında (2026 API key sistemi).
+    expect(url).not.toContain('key=');
+    expect((init.headers as Record<string, string>)['X-goog-api-key']).toBe('AIzaTest');
     const body = lastRequestBody(fetchSpy);
     expect(body.system_instruction.parts[0].text).toContain('Mavi Test');
     expect(body.generationConfig.responseMimeType).toBeUndefined(); // intent JSON değil, sohbet

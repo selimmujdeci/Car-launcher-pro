@@ -5,7 +5,7 @@ import { checkGeofence } from './geofenceService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
-import { applySpeedFilters, computeSpeedDelta } from './gps/speedCore';
+import { applySpeedFilters, computeSpeedDelta, computeCourseDelta } from './gps/speedCore';
 import type { PrevPosition } from './gps/speedCore';
 import { isJumpInvalid, calculateFusionRamp, DR_THRESHOLD_MS, DR_MIN_SPEED_MS } from './gps/fusionCore';
 import type { FusedPosition } from './gps/fusionCore';
@@ -433,8 +433,13 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
 
   // GPS course: Geolocation spec → null/NaN when stationary; safe-guard before blend
   const gpsCourse = Number.isFinite(coords.heading ?? NaN) ? (coords.heading ?? null) : null;
+  // SAHA FIX: GPS bearing yoksa konum farkından "course over ground" hesapla.
+  // Head unit'lerde manyetometre (pusula) yoktur ve çoğu GPS modülü heading vermez →
+  // bu fallback olmadan yön null kalır, FullMapView'da `heading ?? 0` ile KUZEY'e
+  // kilitlenir ve harita gidiş yönünden bağımsız döner ("harita ters dönüyor").
+  const effectiveCourse = gpsCourse ?? computeCourseDelta(coords.latitude, coords.longitude, prevPos);
   // Heading blend: filteredSpeed kullan — ham gürültü pusula/GPS ağırlık hesabını bozmasın
-  const heading   = _blendHeading(gpsCourse, filteredSpeed ?? 0);
+  const heading   = _blendHeading(effectiveCourse, filteredSpeed ?? 0);
 
   // ── Fusion Ramp: DR→GPS weighted blend (3 saniyelik yumuşak geçiş) ────────
   let _fusedLat = coords.latitude;

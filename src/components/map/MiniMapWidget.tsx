@@ -58,6 +58,13 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const lastStyleModeRef = useRef<MapMode | null>(null);
   const locationRef = useRef<ReturnType<typeof useGPSLocation>>(null);
   const headingRef = useRef<number | null>(null);
+  // P2-B perf: PowerVR/zayıf GPU'da park halinde her GPS fix'i (≈2sn, konum titremesiyle)
+  // harita kamerasını sürüp RenderThread'i patlatıyordu. Sürüş→park geçişini ve
+  // uygulanmış son konumu izleyerek; park halinde hareket eşik altındaysa kamera/marker
+  // işini TAMAMEN atlarız (GL render burst'ü kesilir). Sürüşte davranış değişmez.
+  const wasDrivingRef = useRef(false);
+  const lastAppliedLatRef = useRef(0);
+  const lastAppliedLngRef = useRef(0);
 
   const [mapReady, setMapReady] = useState(false);
 
@@ -294,16 +301,31 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       // Başlangıç zoom: sokak seviyesi (16 = tek tek sokaklar görünür)
       setMapCenter(mapRef.current, [longitude, latitude], 16, true);
       mapRef.current._initialized = true;
-    } else {
+      wasDrivingRef.current = isDriving;
+      lastAppliedLatRef.current = latitude;
+      lastAppliedLngRef.current = longitude;
+    } else if (isDriving) {
+      // Sürüş modu: hıza göre zoom + heading rotasyonu + look-ahead offset (her fix uygulanır)
       updateUserMarker(latitude, longitude, hdg);
-
-      if (isDriving) {
-        // Sürüş modu: hıza göre zoom + heading rotasyonu + look-ahead offset
-        const containerH = containerRef.current?.offsetHeight ?? 400;
-        setDrivingView(mapRef.current, latitude, longitude, hdg, speedKmh, containerH);
-      } else {
-        // Dur/yavaş: sokak seviyesinde statik merkez
+      const containerH = containerRef.current?.offsetHeight ?? 400;
+      setDrivingView(mapRef.current, latitude, longitude, hdg, speedKmh, containerH);
+      wasDrivingRef.current = true;
+      lastAppliedLatRef.current = latitude;
+      lastAppliedLngRef.current = longitude;
+    } else {
+      // P2-B: Dur/park. Sürüşten YENİ çıktıysak bir kez kamerayı düzleştir (exitDrivingView);
+      // aksi halde GPS titremesi (≈metre-altı) için hiçbir GL işi yapma — RenderThread burst'ü
+      // önlenir. Konum gerçekten kayda değer kadar (≈25m, 0.00025°) değiştiyse marker+merkez güncellenir.
+      const movedDeg = Math.abs(latitude - lastAppliedLatRef.current) +
+                       Math.abs(longitude - lastAppliedLngRef.current);
+      if (wasDrivingRef.current) {
         exitDrivingView(mapRef.current);
+        wasDrivingRef.current = false;
+      }
+      if (movedDeg > 0.00025) {
+        updateUserMarker(latitude, longitude, hdg);
+        lastAppliedLatRef.current = latitude;
+        lastAppliedLngRef.current = longitude;
         const center = mapRef.current.getCenter();
         const dist = Math.sqrt(
           Math.pow(longitude - center.lng, 2) + Math.pow(latitude - center.lat, 2)

@@ -1,4 +1,8 @@
-import { _haversineMeters } from './gpsMath';
+import { _haversineMeters, _bearingDeg } from './gpsMath';
+
+/** Course-delta için minimum yer değiştirme (metre). Bunun altında GPS jitter'ı
+ *  yön üretir → park/durağan halde harita döner. ~4m: 1Hz'de ~14 km/h üstü hareket. */
+export const COURSE_DELTA_MIN_M = 4;
 
 /** Durağan araç jitter bastırma eşiği (km/h) — altındaki değerler 0 sayılır.
  *  0.8 km/h: trafik sürünmesi Doppler'den geçer; park/otopark GPS kaymasını bastırır. */
@@ -58,4 +62,23 @@ export function computeSpeedDelta(
   const distM = _haversineMeters(prev.lat, prev.lng, lat, lng);
   if (!Number.isFinite(distM)) return undefined;
   return distM / dt; // m/s
+}
+
+/**
+ * GPS, bearing (coords.heading) sağlamadığında konum farkından "course over ground"
+ * yönü hesaplar. Head unit'lerde pusula (manyetometre) yoktur ve bazı GPS modülleri
+ * heading vermez → yön bu fallback olmadan null/0 (kuzey) kalır ve harita YANLIŞ
+ * (ters) yöne döner. Yalnız yeterli yer değiştirme varsa döner (jitter koruması).
+ *
+ * @returns Yön (0–360°) veya null (ilk fix / yetersiz hareket / geçersiz dt)
+ */
+export function computeCourseDelta(
+  lat: number,
+  lng: number,
+  prev: PrevPosition | null,
+): number | null {
+  if (!prev) return null;
+  const distM = _haversineMeters(prev.lat, prev.lng, lat, lng);
+  if (!Number.isFinite(distM) || distM < COURSE_DELTA_MIN_M) return null;
+  return _bearingDeg(prev.lat, prev.lng, lat, lng);
 }

@@ -8,6 +8,8 @@ import android.content.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -67,6 +69,10 @@ public final class OBDManager {
     private volatile InputStream     obdInput   = null;
     private volatile OutputStream    obdOutput  = null;
     private volatile boolean         obdRunning = false;
+
+    // TCP (WiFi ELM327) bağlantısı — Classic BT alanlarından AYRI tutulur.
+    // disconnect() her ikisini de kapatır (idempotent).
+    private volatile Socket tcpSocket = null;
 
     // Transport-agnostik ELM327 protokol katmanı (init + PID parse).
     // RFCOMM stream'leri üzerinde RfcommChannel ile çalışır; davranış birebir korunur.

@@ -149,9 +149,9 @@ function parseSemanticJson(raw: string): SemanticResult | null {
 
 async function _askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<SemanticResult | null> {
   const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-  const resp = await fetch(`${endpoint}?key=${apiKey}`, {
+  const resp = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: buildContextPrompt(ctx) }] },
       contents: [{ role: 'user', parts: [{ text }] }],

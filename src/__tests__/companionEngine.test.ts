@@ -42,9 +42,9 @@ vi.mock('../platform/voiceService', () => ({
   registerCommandHandler: (fn: () => void) => { h.cmdHandlers.push(fn); return () => {}; },
 }));
 vi.mock('../platform/ttsService', () => ({
-  ttsSpeak: (text: string, opts?: { onEnd?: () => void }) => {
+  speakAssistant: (text: string, onEnd?: () => void) => {
     h.spoken.push(text);
-    opts?.onEnd?.(); // uçuş bayrağı senkron çözülür — sonraki tick engellenmez
+    onEnd?.(); // uçuş bayrağı senkron çözülür — sonraki tick engellenmez
   },
   registerTtsEndListener: () => () => {},
 }));

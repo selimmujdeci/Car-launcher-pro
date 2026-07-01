@@ -8,7 +8,10 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
-import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
+import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { getPerformanceMode } from '../../platform/performanceMode';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
@@ -82,16 +85,19 @@ const DAY: Pal = {
 
 const NIGHT: Pal = {
   night: true,
+  // CarOS Night Collection — Expedition = OLIVE / orman yeşili off-road taban.
+  // Sıcak amber aksan + krem ink (askeri harita hissi) korunur; yalnız zemin/yüzey
+  // hue'su yeşile çekildi → Tesla'nın espresso kahvesinden NET ayrışır.
   accent: '#F2871C', accentDeep: '#B65F0C', accentGlow: 'rgba(242,135,28,0.5)',
   inkCritical: '#FCF7EE', ink: '#EDE4D2', ink2: '#A89678', ink3: '#6E6049',
-  plate: '#1c1610', plateRaised: '#2c2215', plateSunk: '#0b0805',
-  edge: '#4a3820', edgeLight: 'rgba(176,134,76,.40)', hairline: 'rgba(176,134,76,.16)',
-  rivetL: '#93724a', rivetD: '#0c0905',
-  plateTex: `radial-gradient(62% 52% at 20% 4%, rgba(200,148,68,.26), transparent 56%), ${NOISE}, linear-gradient(162deg,#2c2216 0%,#1b1310 50%,#0f0c09 100%)`,
+  plate: '#1a241a', plateRaised: '#26331f', plateSunk: '#0a0f0a',
+  edge: '#3a4a2a', edgeLight: 'rgba(150,180,92,.36)', hairline: 'rgba(150,180,92,.15)',
+  rivetL: '#7d8a5a', rivetD: '#0a0d07',
+  plateTex: `radial-gradient(62% 52% at 20% 4%, rgba(196,164,72,.22), transparent 56%), ${NOISE}, linear-gradient(162deg,#283019 0%,#1a2113 50%,#0e120b 100%)`,
   plateBlend: 'soft-light, overlay, normal',
   plateShadow: '0 14px 30px rgba(0,0,0,.62), 0 3px 8px rgba(0,0,0,.55)',
-  bevel: 'inset 0 2px 0 rgba(176,134,76,.40), inset 0 2px 10px rgba(0,0,0,.45), inset 0 -4px 12px rgba(0,0,0,.78)',
-  desk: 'radial-gradient(160% 140% at 50% -8%, #16130e 0%, #0c0a07 60%, #060508 100%)',
+  bevel: 'inset 0 2px 0 rgba(150,180,92,.34), inset 0 2px 10px rgba(0,0,0,.45), inset 0 -4px 12px rgba(0,0,0,.78)',
+  desk: 'radial-gradient(160% 140% at 50% -8%, #1a2416 0%, #131c10 58%, #0a0f0a 100%)',
 };
 
 const PalCtx = createContext<Pal>(NIGHT);
@@ -308,12 +314,54 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
 /* ─── MUSIC PLATE ────────────────────────────────────────────────── */
 const MusicPlate = memo(function MusicPlate() {
   const p = usePal();
-  const { playing, track } = useMediaState();
-  useEffect(() => { startMediaHub(); return () => stopMediaHub(); }, []);
+  const { playing, track, hasSession } = useMediaState();
+  // Mount: son parçayı önizle (oturum yoksa) + YouTube IFrame'i ısıt → "devam" tıklamasında
+  // user-gesture korunur (cold-start await'i autoplay'i engellerdi).
+  useEffect(() => {
+    startMediaHub();
+    previewLastMedia();
+    if (getPerformanceMode() === 'lite') {
+      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      return () => { window.clearTimeout(id); stopMediaHub(); };
+    }
+    void ensureYouTubeReady().catch(() => {});
+    return () => stopMediaHub();
+  }, []);
   const total = track.durationSec || 0;
   const elapsed = track.positionSec || 0;
   const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 36;
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  // Play: oturum varsa duraklat/sürdür; boştaysa son parçayı sürdür, o da yoksa drawer aç.
+  const handlePlay = () => {
+    if (hasSession) togglePlayPause();
+    else if (!resumeLastMedia()) openMusicDrawer();
+  };
+  // İlerleme çubuğu — dokun/sürükle ile sarma (seek)
+  const barRef = useRef<HTMLDivElement>(null);
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const ratioFromX = (clientX: number) => {
+    const el = barRef.current;
+    if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    return Math.min(Math.max((clientX - r.left) / r.width, 0), 1);
+  };
+  const onBarDown = (e: React.PointerEvent) => {
+    if (total <= 0) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDragPct(ratioFromX(e.clientX) * 100);
+  };
+  const onBarMove = (e: React.PointerEvent) => {
+    if (dragPct == null) return;
+    setDragPct(ratioFromX(e.clientX) * 100);
+  };
+  const onBarUp = (e: React.PointerEvent) => {
+    if (dragPct == null) return;
+    e.stopPropagation();
+    seek(ratioFromX(e.clientX) * total);
+    setDragPct(null);
+  };
+  const shownPct = total > 0 ? (dragPct ?? pct) : pct;
   const playBtn: React.CSSProperties = p.night
     ? { background: 'transparent', color: p.accent, border: `2.5px solid ${p.accent}`, boxShadow: `0 0 18px ${p.accentGlow}` }
     : { background: p.accent, color: '#1a0f02', border: 'none', boxShadow: `0 6px 16px ${p.accentGlow}, inset 0 2px 0 rgba(255,255,255,.35)` };
@@ -331,16 +379,16 @@ const MusicPlate = memo(function MusicPlate() {
       </div>
       <div className="flex items-center justify-center" style={{ flex: 1, gap: 30, minHeight: 0 }}>
         <button onClick={() => previous()} className="ex-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink }}><SkipBack className="w-7 h-7" style={{ fill: 'currentColor' }} /></button>
-        <button onClick={() => togglePlayPause()} className="ex-btn" style={{ width: 64, height: 64, borderRadius: '50%', display: 'grid', placeItems: 'center', cursor: 'pointer', ...playBtn }}>
+        <button onClick={() => handlePlay()} className="ex-btn" style={{ width: 64, height: 64, borderRadius: '50%', display: 'grid', placeItems: 'center', cursor: 'pointer', ...playBtn }}>
           {playing ? <Pause className="w-7 h-7" style={{ fill: 'currentColor' }} /> : <Play className="w-7 h-7 ml-0.5" style={{ fill: 'currentColor' }} />}
         </button>
         <button onClick={() => next()} className="ex-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink }}><SkipForward className="w-7 h-7" style={{ fill: 'currentColor' }} /></button>
       </div>
       <div className="flex items-center" style={{ gap: 12 }}>
-        <span style={{ fontWeight: 600, fontSize: 14, color: p.ink2, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(elapsed) : '0:00'}</span>
-        <div style={{ flex: 1, height: 6, borderRadius: 3, background: p.plateSunk, boxShadow: 'inset 0 1px 2px rgba(0,0,0,.55)', position: 'relative' }}>
-          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, borderRadius: 3, background: p.accent }} />
-          <div style={{ position: 'absolute', left: `${pct}%`, top: '50%', width: 14, height: 14, borderRadius: '50%', background: p.accent, transform: 'translate(-50%,-50%)', boxShadow: `0 0 6px ${p.accent}` }} />
+        <span style={{ fontWeight: 600, fontSize: 14, color: p.ink2, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt((dragPct ?? pct) / 100 * total) : '0:00'}</span>
+        <div ref={barRef} onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} style={{ flex: 1, height: 6, borderRadius: 3, background: p.plateSunk, boxShadow: 'inset 0 1px 2px rgba(0,0,0,.55)', position: 'relative', cursor: total > 0 ? 'pointer' : 'default', touchAction: 'none' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${shownPct}%`, borderRadius: 3, background: p.accent }} />
+          <div style={{ position: 'absolute', left: `${shownPct}%`, top: '50%', width: 14, height: 14, borderRadius: '50%', background: p.accent, transform: 'translate(-50%,-50%)', boxShadow: `0 0 6px ${p.accent}` }} />
         </div>
         <span style={{ fontWeight: 600, fontSize: 14, color: p.ink2, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(total) : '--:--'}</span>
       </div>
@@ -446,8 +494,10 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   // → gündüz açık temada saat ağır/koyu görünüyordu. Gündüzde açık rim + champagne
   // bezel + parlak kadran → temaya uyumlu.
   const outerRim    = dark ? '#0b0b0e' : '#cfc1a3';
+  // Night Collection — gece: dış glow KALDIRILDI (glow değil kuralı); premium gold
+  // bezel + derinlik gölgesi kalır. Gündüz hafif sıcak halo korunur.
   const outerShadow = dark
-    ? `0 14px 30px rgba(0,0,0,.65), 0 0 22px ${GOLD_GLOW}`
+    ? `0 14px 30px rgba(0,0,0,.65), 0 2px 10px rgba(0,0,0,.45)`
     : `0 10px 22px rgba(120,90,40,.28), 0 0 14px ${GOLD_GLOW}`;
   const innerRim    = dark ? '#08080a' : '#e6dabf';
   const bezel       = dark ? GOLD_RING : GOLD_RING_DAY;

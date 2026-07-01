@@ -77,7 +77,8 @@ export function rateFromMime(mime: string | undefined): number {
 /** base64 PCM → çalınabilir WAV blob URL. */
 function _pcmToWavUrl(b64: string, sampleRate: number): string {
   const bytes = pcmBase64ToWavBytes(b64, sampleRate);
-  return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+  // bytes saf ArrayBuffer destekli (SAB değil); TS 5.9 generic'i daralt (BlobPart = ArrayBuffer view).
+  return URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'audio/wav' }));
 }
 
 /** Online TTS şu an kullanılabilir mi (online + anahtar var + kota açık). */
@@ -101,9 +102,9 @@ async function _synthesize(text: string): Promise<string | null> {
 
   let resp: Response;
   try {
-    resp = await fetch(`${TTS_ENDPOINT}?key=${apiKey}`, {
+    resp = await fetch(TTS_ENDPOINT, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text }] }],
         generationConfig: {

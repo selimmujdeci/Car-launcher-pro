@@ -301,9 +301,11 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
   const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
   const [groqKey,    setGroqKey]    = useSensitiveKey('groqApiKey');
+  const [tavilyKey,  setTavilyKey]  = useSensitiveKey('tavilyApiKey');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showHaikuKey,  setShowHaikuKey]  = useState(false);
   const [showGroqKey,   setShowGroqKey]   = useState(false);
+  const [showTavilyKey, setShowTavilyKey] = useState(false);
   const [testing,       setTesting]       = useState(false);
   const [testResult,    setTestResult]    = useState<{ ok: boolean; message: string } | null>(null);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
@@ -332,9 +334,11 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       }
       text = text.trim();
 
-      const isGeminiKey = /^AIza[A-Za-z0-9_-]{35,}$/.test(text);
+      // Gemini key formatları: eski `AIza...` + yeni `AQ.Ab8...` (2026 API key sistemi).
+      const isGeminiKey = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,})$/.test(text);
       const isHaikuKey  = /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(text);
       const isGroqKey   = /^gsk_[A-Za-z0-9]{20,}$/.test(text);
+      const isTavilyKey = /^tvly-[A-Za-z0-9_-]{10,}$/.test(text);
 
       if (isGeminiKey && provider === 'gemini') {
         void setGeminiKey(text);
@@ -343,6 +347,11 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       } else if (isHaikuKey && provider === 'haiku') {
         void setHaikuKey(text);
         setClipboardHint('Key otomatik algılandı!');
+        setWaitingClip(false);
+      } else if (isTavilyKey && provider === 'groq') {
+        // Tavily anahtarı (internet araması) — Groq seçiliyken algılanır.
+        void setTavilyKey(text);
+        setClipboardHint('Tavily anahtarı algılandı — internet araması açık!');
         setWaitingClip(false);
       } else if (isGroqKey && provider === 'groq') {
         void setGroqKey(text);
@@ -482,7 +491,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
               type={showGeminiKey ? 'text' : 'password'}
               value={geminiKey}
               onChange={(e) => { void setGeminiKey(e.target.value); }}
-              placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... (manuel giriş)'}
+              placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... / AQ... (manuel giriş)'}
               className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
             />
             <button onClick={() => setShowGeminiKey((v) => !v)}
@@ -560,6 +569,43 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             <button onClick={() => setShowGroqKey((v) => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
               {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* İnternet araması (Tavily) — Groq'a güncel bilgi/haber/hava yeteneği verir */}
+      {provider === 'groq' && (
+        <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-[var(--oem-line)]">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">İnternet Araması (Tavily)</span>
+            {tavilyKey
+              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Açık ✓</span>
+              : <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Opsiyonel</span>
+            }
+          </div>
+          <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
+            Groq tek başına interneti göremez. Tavily anahtarı eklersen haber, döviz, hava ve güncel bilgileri arayıp yanıtlar.
+          </p>
+          <button
+            onClick={() => handleOpenKeyPage('https://app.tavily.com')}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-sky-400/30 bg-sky-400/10 text-sky-300 text-sm font-bold hover:bg-sky-400/20 active:scale-[0.98] transition-all"
+          >
+            <span>🌐</span>
+            Ücretsiz Arama Key Al — app.tavily.com
+          </button>
+          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+          <div className="relative">
+            <input
+              type={showTavilyKey ? 'text' : 'password'}
+              value={tavilyKey}
+              onChange={(e) => { void setTavilyKey(e.target.value); }}
+              placeholder="tvly-... (manuel giriş)"
+              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+            />
+            <button onClick={() => setShowTavilyKey((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+              {showTavilyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
         </div>

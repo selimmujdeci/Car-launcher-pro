@@ -207,12 +207,12 @@ export async function playYouTube(videoId: string, title: string, artist: string
   // Hazır değilse (cold start): API yüklenir — bu durumda gesture kaybolabilir,
   // bu yüzden çağıranlar player'ı önceden ensureYouTubeReady() ile ısıtmalıdır.
   if (_player && _host) {
-    _host.style.display = 'block';
+    _ensureHostRendered();
     try { _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (warm) çağrıldı'); }
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   } else {
     await ensureYouTubeReady();
-    if (_host) _host.style.display = 'block';
+    _ensureHostRendered();
     try { _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (cold) çağrıldı'); }
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   }
@@ -225,6 +225,26 @@ export async function playYouTube(videoId: string, title: string, artist: string
   import('./streamMusicService')
     .then(({ streamStop, isStreamActive }) => { if (isStreamActive()) streamStop(); })
     .catch(() => { /* ignore */ });
+}
+
+/** Host'u DOM'da render et ama UI'ı kaplamadan.
+ *
+ * Ana ekran müzik kartından YouTube çalınca MediaScreen mount DEĞİLDİR → kimse
+ * setYouTubeRegion ile host'u konumlandırmaz. Eskiden burada koşulsuz
+ * `display:block` veriliyordu → siyah video kutusu konumsuz biçimde ekranı kaplardı
+ * ("uygulama açılıp kapanıyor / başka bir şey açılıyor" izlenimi).
+ *
+ * Çözüm: host hâlihazırda MediaScreen tarafından GÖRÜNÜR konumlandırılmışsa ona
+ * dokunma; aksi halde render et ama ekran dışına gizli park et (ses çalar, video
+ * UI'ı kaplamaz). MediaScreen videoMode'a geçince setYouTubeRegion ile görünür kılar.
+ */
+function _ensureHostRendered(): void {
+  if (!_host) return;
+  if (_host.style.visibility === 'visible') { _host.style.display = 'block'; return; }
+  _host.style.display    = 'block';
+  _host.style.left       = '-10000px';
+  _host.style.top        = '0px';
+  _host.style.visibility = 'hidden';
 }
 
 /** Mevcut ses düzeyini IFrame player'a uygular (player hazırsa). */

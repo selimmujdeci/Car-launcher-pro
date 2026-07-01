@@ -401,6 +401,9 @@ export function disableWakeWord(): void {
   _loopGen++; // in-flight döngü adımı uyanınca kendini sonlandırır
   _pendingNativeGen = null;   // bekleyen (ertelenmiş) native start iptal
   _clearVoskBackstop();
+  // Etkileşim-duraklatma durumunu sıfırla: geç gelen resume timer'ı yeniden başlatmasın
+  _interactionPaused = false;
+  if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   void stopGrammarMode(); // Faz 5: native grammar thread + event listener kapanır
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   push({ enabled: false, status: 'disabled' });
@@ -409,6 +412,38 @@ export function disableWakeWord(): void {
 
 export function setWakeWord(word: string): void {
   push({ wakeWords: [word] });
+}
+
+/* ── Etkileşim-bağlı geçici duraklatma (ağır harita pan/zoom) ─────────────────
+ * Native grammar thread'i (vosk-wake-gramm) sürekli ~%22 CPU yer. Ağır harita
+ * etkileşimi sırasında geçici durdurulur, etkileşim bitince geri kurulur.
+ * `enabled` durumu DEĞİŞMEZ — yalnız native dinleme askıya alınır; ayar/boot
+ * orkestrasyonu (startWakeWordService) etkilenmez. Güvenli: etkileşim sırasında
+ * kullanıcı genelde wake sözü söylemez (spec: "pause during heavy map interaction
+ * if safe"). Geri kurma jenerasyon-artışlı → çift dinleme oturumu oluşmaz. */
+let _interactionPaused = false;
+let _interactionResumeTimer: ReturnType<typeof setTimeout> | null = null;
+const INTERACTION_RESUME_MS = 450;
+
+export function pauseWakeWordForInteraction(): void {
+  if (!isNative) return;
+  // Bekleyen geri-kurma varsa iptal (kesintisiz gesture dizisinde thread thrash yok)
+  if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
+  if (!_state.enabled || _interactionPaused) return;
+  _interactionPaused = true;
+  _nativeLoopActive = false;     // legacy polling döngüsü adımında kendini sonlandırır
+  void stopGrammarMode();        // grammar thread (vosk-wake-gramm) durur → CPU geri gelir
+}
+
+export function resumeWakeWordAfterInteraction(): void {
+  if (!isNative || !_interactionPaused) return;
+  if (_interactionResumeTimer) clearTimeout(_interactionResumeTimer);
+  _interactionResumeTimer = setTimeout(() => {
+    _interactionResumeTimer = null;
+    _interactionPaused = false;
+    // Hâlâ açık ve model hazırsa yeniden kur (jenerasyon artır → eski instance ölür)
+    if (_state.enabled && _voskReady) _startNativeWake(++_loopGen);
+  }, INTERACTION_RESUME_MS);
 }
 
 export function getWakeWordState(): WakeWordState { return _state; }
@@ -495,6 +530,8 @@ export function _resetWakeWordForTest(): void {
   _voskReady = true;
   _pendingNativeGen = null;
   _clearVoskBackstop();
+  _interactionPaused = false;
+  if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
   clearRestartTimer();
   _greetCounter = 0;

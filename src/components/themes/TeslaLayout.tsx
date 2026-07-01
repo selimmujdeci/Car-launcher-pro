@@ -9,7 +9,10 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
-import { useMediaState, togglePlayPause, next, previous, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
+import { next, previous, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
+import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { getPerformanceMode } from '../../platform/performanceMode';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
@@ -70,17 +73,20 @@ const LAVA: Pal = {
   night: true,
   accent: '#E0822E', accent2: '#F4A24E', accentSoft: 'rgba(224,130,46,0.14)', accentGlow: 'rgba(224,130,46,0.45)',
   inkCritical: '#FDFAF3', ink: '#F2ECE0', ink2: 'rgba(242,236,224,0.60)', ink3: 'rgba(242,236,224,0.34)',
-  card: 'rgba(45,51,38,0.92)', cardSolid: 'rgba(37,43,31,0.97)',
+  // CarOS Night Collection — Tesla = koyu ESPRESSO / sıcak kahve. Olive yeşilden
+  // espresso kahveye çekildi (Expedition'ın yeşilinden NET ayrışır); çok hafif amber
+  // yansıma, premium ve sakin. Accent/ink/plateActive korunur; yalnız zemin/yüzey hue.
+  card: 'rgba(48,40,31,0.92)', cardSolid: 'rgba(40,33,25,0.97)',
   cardBorder: '1px solid rgba(224,130,46,0.18)',
   cardShadow: '0 14px 32px -16px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
   tile: 'rgba(255,255,255,0.05)',
-  plate: 'linear-gradient(180deg,#2e3422 0%,#1c2114 100%)', plateActive: 'linear-gradient(180deg,#f2a24c 0%,#e0822e 100%)',
+  plate: 'linear-gradient(180deg,#332a1f 0%,#201a12 100%)', plateActive: 'linear-gradient(180deg,#f2a24c 0%,#e0822e 100%)',
   plateBorder: '1px solid rgba(224,130,46,0.20)', plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.5)',
-  metal: 'linear-gradient(180deg,#39402e 0%,#23291a 55%,#171b10 100%)', metalBorder: '1px solid rgba(0,0,0,0.5)',
+  metal: 'linear-gradient(180deg,#42352a 0%,#2a2218 55%,#1a140d 100%)', metalBorder: '1px solid rgba(0,0,0,0.5)',
   good: '#9DB857',
-  screw: '#4a5236', screwHi: 'rgba(255,255,255,0.12)',
-  bg: 'radial-gradient(120% 100% at 50% -8%, #313c26 0%, #232a1a 46%, #161b11 100%)',
-  topo: '#54643c', topoOpacity: 0.55,
+  screw: '#52453a', screwHi: 'rgba(255,255,255,0.12)',
+  bg: 'radial-gradient(120% 100% at 50% -8%, #2f2619 0%, #221b13 46%, #16100b 100%)',
+  topo: '#5c4c38', topoOpacity: 0.45,
   vignette: 'radial-gradient(120% 92% at 50% 42%, transparent 38%, rgba(0,0,0,0.5) 100%)',
   glass: 'rgba(0,0,0,0.5)', glassBorder: '1px solid rgba(255,255,255,0.08)',
 };
@@ -325,8 +331,21 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
 /* ─── MUSIC CARD ─────────────────────────────────────────────────── */
 const MusicCard = memo(function MusicCard() {
   const p = usePal();
-  const { playing, track } = useMediaState();
-  useEffect(() => { startMediaHub(); return () => stopMediaHub(); }, []);
+  const { playing, track, hasSession } = useMediaState();
+  useEffect(() => {
+    startMediaHub();
+    previewLastMedia();
+    if (getPerformanceMode() === 'lite') {
+      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      return () => { window.clearTimeout(id); stopMediaHub(); };
+    }
+    void ensureYouTubeReady().catch(() => {});
+    return () => stopMediaHub();
+  }, []);
+  const handlePlay = () => {
+    if (hasSession) togglePlayPause();
+    else if (!resumeLastMedia()) openMusicDrawer();
+  };
   return (
     <div style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
       <Screws />
@@ -339,7 +358,7 @@ const MusicCard = memo(function MusicCard() {
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
         <button onClick={() => previous()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipBack className="w-6 h-6" /></button>
-        <button onClick={() => togglePlayPause()} className="ex-btn flex items-center justify-center rounded-full" style={{ width: 48, height: 48, background: p.accent, boxShadow: `0 5px 16px ${p.accentGlow}`, border: 'none', cursor: 'pointer' }}>
+        <button onClick={() => handlePlay()} className="ex-btn flex items-center justify-center rounded-full" style={{ width: 48, height: 48, background: p.accent, boxShadow: `0 5px 16px ${p.accentGlow}`, border: 'none', cursor: 'pointer' }}>
           {playing ? <Pause className="w-6 h-6" style={{ color: '#fff' }} /> : <Play className="w-6 h-6 ml-0.5" style={{ color: '#fff' }} />}
         </button>
         <button onClick={() => next()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipForward className="w-6 h-6" /></button>
@@ -472,12 +491,14 @@ const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }
   const minDeg  = m * 6 + s * 0.1;
   const secDeg  = s * 6;
 
+  // Night Collection — Tesla gece saati: ESPRESSO kadran (tema kahve). Merkez
+  // radial hafif açık → iç parlaklık (glow değil); krem akrep + turuncu saniye pop.
   const face = p.night
-    ? 'radial-gradient(circle at 50% 36%, #232a1b 0%, #0f120b 82%)'
+    ? 'radial-gradient(circle at 50% 34%, #2f2519 0%, #120d08 84%)'
     : 'radial-gradient(circle at 50% 34%, #faf4e6 0%, #e2d4ba 84%)';
   const ink = p.night ? '#F2ECE0' : '#2A2014';
   const dim = p.night ? 'rgba(242,236,224,0.34)' : 'rgba(42,32,20,0.32)';
-  const hubRing = p.night ? '#0f120b' : '#e2d4ba';
+  const hubRing = p.night ? '#120d08' : '#e2d4ba';
 
   const ticks = [];
   for (let i = 0; i < 12; i++) {
@@ -496,7 +517,7 @@ const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }
   return (
     <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'relative', width: 110, height: 110, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
       {/* tek ince aksan halka + kadran */}
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: face, border: `2px solid ${p.accent}`, boxShadow: p.night ? `0 0 24px -4px ${p.accentGlow}, inset 0 2px 7px rgba(0,0,0,0.6)` : `0 5px 16px -5px rgba(90,68,38,0.5), inset 0 2px 6px rgba(255,255,255,0.6)` }} />
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: face, border: `2px solid ${p.accent}`, boxShadow: p.night ? `0 6px 18px -8px rgba(0,0,0,0.7), inset 0 2px 7px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,236,205,0.10)` : `0 5px 16px -5px rgba(90,68,38,0.5), inset 0 2px 6px rgba(255,255,255,0.6)` }} />
       {/* ince iç hairline */}
       <div style={{ position: 'absolute', top: 7, right: 7, bottom: 7, left: 7, borderRadius: '50%', border: `1px solid ${dim}`, pointerEvents: 'none' }} />
       {ticks}

@@ -32,6 +32,7 @@ import { onOBDData } from '../obdService';
 import { getTripSnapshot } from '../tripLogService';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
+import { tavilySearch } from '../webSearchService';
 import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
@@ -51,6 +52,9 @@ export interface CompanionChatOpts {
   /** resolveApiKey çıktısı — boş string = key yok. */
   apiKey?:    string;
   hasNet?:    boolean;
+  /** Tavily web-arama anahtarı (opsiyonel) — Groq'a internet grounding sağlar.
+   *  Varsa Groq da haber/döviz/canlı bilgi sorularını arayıp yanıtlar. */
+  tavilyKey?: string;
   /**
    * Single Brain karar bütçesi (ms). voiceService 2.5sn iletir: beyin bu süre
    * içinde ACTION/CHAT kararı veremezse fetch iptal edilir → yerel graceful
@@ -269,9 +273,9 @@ async function askCompanionGemini(
     },
   };
 
-  const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+  const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body:    JSON.stringify(body),
     signal:  signalWithTimeout(GEMINI_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
   });
@@ -369,9 +373,11 @@ async function askCompanionBrainGroq(
   id: CompanionIdentity,
   isDriving: boolean,
   timeoutMs?: number,
+  tavilyKey?: string,
 ): Promise<CompanionBrainResult | null> {
-  // Dönüş tipi web'i İÇERMEZ: Groq grounding desteklemediğinden type:"web"
-  // aşağıda sohbete çevrilir → çağıran yalnız action/chat görür (tip güvenli).
+  // Tavily anahtarı varsa Groq da internet arayabilir → type:"web" kararına izin ver.
+  // Yoksa eski davranış: type:"web" sohbete çevrilir (canlı bilgi yok).
+  const canGround = !!tavilyKey && tavilyKey.trim().length > 8;
   const decisionMs = Math.min(timeoutMs ?? GROQ_COMPANION_TIMEOUT_MS, GROQ_COMPANION_TIMEOUT_MS);
   const body = {
     model:           GROQ_COMPANION_MODEL,
@@ -380,8 +386,8 @@ async function askCompanionBrainGroq(
     // Groq JSON modu: response_format ile güvenli JSON çıktısı
     response_format: { type: 'json_object' as const },
     messages: [
-      // Groq internet erişimini DESTEKLEMEZ → supportsGrounding: false
-      { role: 'system' as const, content: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), false) },
+      // supportsGrounding: Tavily anahtarı varsa true → internet sorularında type:"web" döner
+      { role: 'system' as const, content: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround) },
       ...historyToOpenAI(),
       { role: 'user' as const, content: text },
     ],
@@ -406,11 +412,75 @@ async function askCompanionBrainGroq(
   // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
   const parsed = parseBrainJson(raw);
   if (parsed && parsed.kind === 'web') {
-    // Groq'ta grounding çağrısı yapılamaz; dürüst ama doğal bir yanıt üret.
+    // İNTERNET kararı. Tavily anahtarı varsa gerçekten ara + Groq ile Türkçe yanıt
+    // sentezle; yoksa dürüst fallback.
+    if (canGround) {
+      const grounded = await groundGroqWithTavily(parsed.query, text, apiKey, id, isDriving, tavilyKey as string);
+      if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
+      // arama boş/başarısız → dürüst söyle
+      return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
+    }
     const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
     return { kind: 'chat', response: reply, route: 'companion_groq' };
   }
   return parsed;
+}
+
+/**
+ * Groq grounding: Tavily ile web'i arar, sonuçları Groq'a verip doğal Türkçe
+ * yanıt sentezletir. Hata/boş sonuçta null → çağıran dürüst fallback yapar.
+ */
+async function groundGroqWithTavily(
+  searchQuery: string,
+  userText: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  tavilyKey: string,
+): Promise<string | null> {
+  const search = await tavilySearch(searchQuery, tavilyKey);
+  if (!search) return null;
+
+  // Tavily hazır cevabı + kaynak özetleri → Groq sentezi (kişilik + kısa Türkçe + TTS güvenli)
+  const ctxBlock = [
+    search.answer ? `Özet: ${search.answer}` : '',
+    search.context ? `Kaynaklar:\n${search.context}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  const sysPrompt =
+    `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
+    `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
+    `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
+    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'En fazla 3-4 cümle.'} ` +
+    `Kaynak numarası/URL okuma.`;
+
+  const body = {
+    model:       GROQ_COMPANION_MODEL,
+    temperature: 0.3,
+    max_tokens:  isDriving ? 120 : 240,
+    messages: [
+      { role: 'system' as const, content: sysPrompt },
+      { role: 'user' as const, content: `Soru: ${userText}\n\n${ctxBlock}` },
+    ],
+  };
+
+  try {
+    const resp = await fetch(GROQ_COMPANION_ENDPOINT, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body:    JSON.stringify(body),
+      signal:  signalWithTimeout(GROQ_COMPANION_TIMEOUT_MS),
+    });
+    if (!resp.ok) {
+      // Groq sentezi başarısız → en azından Tavily'nin hazır cevabını seslendir
+      return search.answer || null;
+    }
+    const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
+    const out = (data.choices?.[0]?.message?.content ?? '').replace(/\s+/g, ' ').trim();
+    return out || search.answer || null;
+  } catch {
+    return search.answer || null; // ağ hatası → Tavily özetine düş
+  }
 }
 
 /* ── Offline fallback yanıtları ─────────────────────────────── */
@@ -679,9 +749,9 @@ async function askCompanionBrain(
   // tavanına clamp'lenir → beyin ASLA 6sn'den uzun bloklamaz; süre dolunca fetch
   // abort olur, çağıran (tryCompanionBrain) recordAiNetFailure + fallback'e düşer.
   const decisionMs = Math.min(timeoutMs ?? GEMINI_TIMEOUT_MS, GEMINI_TIMEOUT_MS);
-  const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+  const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body:    JSON.stringify(body),
     signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
@@ -729,9 +799,9 @@ async function askGroundedGemini(
     generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360 },
   };
   try {
-    const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify(body),
       signal:  signalWithTimeout(GROUNDED_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
     });
@@ -804,7 +874,7 @@ export async function tryCompanionBrain(
         }
       } else if (groqUsable) {
         // Groq: grounding YOK; beyin internet kararı veremez; aksiyonlar + sohbet çalışır.
-        const result = await askCompanionBrainGroq(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
+        const result = await askCompanionBrainGroq(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs, opts.tavilyKey);
         if (result) {
           recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
           // askCompanionBrainGroq type:"web" gelirse kendi içinde sohbete çevirir;
@@ -853,9 +923,9 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
       contents: [{ role: 'user', parts: [{ text: q }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50 },
     };
-    const resp = await fetch(`${GEMINI_CHAT_ENDPOINT}?key=${apiKey}`, {
+    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify(body),
       signal:  signalWithTimeout(REPAIR_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
     });

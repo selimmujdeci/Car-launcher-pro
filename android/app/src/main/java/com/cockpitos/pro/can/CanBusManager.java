@@ -37,6 +37,11 @@ public final class CanBusManager {
     };
 
     private static final long RECONNECT_DELAY_MS = 5_000L;
+    // Donanım yokken (telefon/garaj) her 5s'de tüm transportları taramak CPU/IO
+    // yakar ve okuma thread'ini bloke eder. Başarısız denemelerde aralık katlanır
+    // (5s→10→20…→cap), bağlanınca sıfırlanır. Araç bağlanınca cap içinde yakalar.
+    private static final long RECONNECT_MAX_MS   = 120_000L; // 2 dk tavan
+    private volatile long _backoffMs = RECONNECT_DELAY_MS;
 
     public enum ConnectionMode { UART, USB, BLUETOOTH, NONE }
 
@@ -63,6 +68,7 @@ public final class CanBusManager {
         _listener        = listener;
         _onTransportLost = onTransportLost;
         _running         = true;
+        _backoffMs       = RECONNECT_DELAY_MS;   // taze başlangıçta tabandan başla
         _readThread      = new Thread(this::readLoop, "CanBusReader");
         _readThread.setDaemon(true);
         _readThread.start();
@@ -116,8 +122,14 @@ public final class CanBusManager {
                 ICanTransport transport = _active;
 
                 if (transport == null || !transport.isConnected()) {
-                    Thread.sleep(RECONNECT_DELAY_MS);
-                    if (_running) tryConnect();
+                    Thread.sleep(_backoffMs);
+                    if (_running) {
+                        if (tryConnect()) {
+                            _backoffMs = RECONNECT_DELAY_MS;            // bağlandı → sıfırla
+                        } else {
+                            _backoffMs = Math.min(_backoffMs * 2, RECONNECT_MAX_MS); // katla
+                        }
+                    }
                     continue;
                 }
 

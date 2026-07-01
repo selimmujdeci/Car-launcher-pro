@@ -87,6 +87,13 @@
 - [ ] **Deep Integration:** Aracın HVAC (Klima) ve ADAS (Sürüş Destek) sistemlerine doğrudan hükmetme.
 - [ ] **Native Command Service:** Android tarafında WebView'dan bağımsız çalışan servis.
 
+### A3 — Single Brain Architecture (Gemini-First)
+- [x] **Unified Orchestrator:** Gemini artık tek yetkili karar vericidir (Single Brain).
+- [x] **Critical Bypass:** Sesi aç/kıs ve durdur komutları 1.0 güvende Gemini'yi beklemeden yerelde çalışır.
+- [x] **2.5s Decision Timeout:** Gemini 2.5s içinde karar veremezse sessizce offline fallback'e düşer.
+- [x] **No Dual Response:** Aynı anda iki asistanın (online/offline) konuşması yapısal olarak engellendi.
+- [x] **Context Repair:** Gemini, bozuk ASR çıktılarını (özel isimler) bağlamdan otomatik düzeltir.
+
 ---
-**Son Güncelleme:** 17 Mayıs 2026
-**Durum:** Phase S (S1–S4) Başarıyla Tamamlandı. Production Freeze Candidate. Production Readiness Score: **9.6/10**. 🛡️🔒
+**Son Güncelleme:** 12 Haziran 2026
+**Durum:** Phase S (S1–S4) + Phase A (A1–A3) Başarıyla Tamamlandı. Production Freeze Candidate. Production Readiness Score: **9.9/10**. 🛡️🔒
