@@ -11,6 +11,7 @@
 import { supabaseBrowser, isSupabaseConfigured } from './supabase';
 import { encryptPayload } from './commandCrypto';
 import { getStoredApiKey } from './pairingService';
+import { TIMING } from './constants';
 
 // ── Kritik komut tipi listesi ─────────────────────────────────────────────────
 const CRITICAL_COMMANDS: CommandType[] = ['unlock', 'alarm_off'];
@@ -97,16 +98,19 @@ async function triggerPushWake(vehicleId: string, commandId: string): Promise<vo
   } catch { /* fire-and-forget */ }
 }
 
-// ── Araç çevrimiçi mi? (son telemetri 30s içinde) ────────────────────────────
+// ── Araç çevrimiçi mi? (son telemetri OFFLINE_TIMEOUT_MS içinde) ─────────────
+// vehicle_telemetry.updated_at kullanılır: park halindeki araç konum satırı
+// üretmez ama her heartbeat'te telemetry upsert eder — komutlar realtime ile
+// park halindeki araca da anında ulaştığından bu pencere UI eşiğiyle aynıdır.
 
 export async function isVehicleOnline(vehicleId: string): Promise<boolean> {
   if (!supabaseBrowser) return false;
-  const since = new Date(Date.now() - 30_000).toISOString();
+  const since = new Date(Date.now() - TIMING.OFFLINE_TIMEOUT_MS).toISOString();
   const { count } = await supabaseBrowser
-    .from('vehicle_locations')
+    .from('vehicle_telemetry')
     .select('id', { count: 'exact', head: true })
     .eq('vehicle_id', vehicleId)
-    .gte('created_at', since);
+    .gte('updated_at', since);
   return (count ?? 0) > 0;
 }
 

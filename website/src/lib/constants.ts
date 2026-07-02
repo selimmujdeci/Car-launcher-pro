@@ -7,7 +7,10 @@ export const ALERT_THRESHOLDS = {
 } as const;
 
 export const TIMING = {
-  OFFLINE_TIMEOUT_MS: 10_000,
+  // Araç park halinde 10 dk'da bir heartbeat atar (telemetryService
+  // HEARTBEAT_PARKED_MS) — eşik bunu +1 dk toleransla kapsar. "Online" =
+  // bağlı ve haber veriyor; sürüş/park ayrımı hız verisinden yapılır.
+  OFFLINE_TIMEOUT_MS: 11 * 60_000,
   WATCHDOG_INTERVAL_MS: 5_000,
   GEOFENCE_DEBOUNCE_MS: 5_000,
   ALERT_DEBOUNCE_MS: 30_000, // same alert type won't re-fire per vehicle for 30s

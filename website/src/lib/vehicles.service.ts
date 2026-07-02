@@ -1,5 +1,6 @@
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 import { formatLastSeen } from '@/lib/utils';
+import { TIMING } from '@/lib/constants';
 import type { LiveVehicle } from '@/types/realtime';
 
 interface VehicleRow {
@@ -80,7 +81,7 @@ export async function fetchVehicles(): Promise<LiveVehicle[]> {
       plate: vehicle.plate ?? vehicle.id,
       name: vehicle.name ?? 'Araç',
       driver: vehicle.driver_name ?? '—',
-      status: timestamp > 0 && Date.now() - timestamp < 10_000 ? 'online' : 'offline',
+      status: timestamp > 0 && Date.now() - timestamp < TIMING.OFFLINE_TIMEOUT_MS ? 'online' : 'offline',
       lat: loc?.lat ?? 0,
       lng: loc?.lng ?? 0,
       speed: tel?.speed ?? 0,

@@ -78,7 +78,7 @@ describe('(a) Rota Gönderim Başarısı', () => {
     const routeInsert = makeInsertChain();
 
     mockSupabase.from.mockImplementation((table: string) => {
-      if (table === 'vehicle_locations') return locChain;
+      if (table === 'vehicle_telemetry') return locChain;
       if (table === 'vehicle_commands')  return insertChain;
       if (table === 'route_commands')    return routeInsert;
       return {};
@@ -105,7 +105,7 @@ describe('(a) Rota Gönderim Başarısı', () => {
     const routeInsert = makeInsertChain();
 
     mockSupabase.from.mockImplementation((table: string) => {
-      if (table === 'vehicle_locations') return locChain;
+      if (table === 'vehicle_telemetry') return locChain;
       if (table === 'vehicle_commands')  return insertChain;
       if (table === 'route_commands')    return routeInsert;
       return {};
@@ -209,7 +209,7 @@ describe('(c) Yetkisiz Erişim Reddi', () => {
     const locChain = makeSelectChain({ count: 1 });
 
     mockSupabase.from.mockImplementation((table: string) => {
-      if (table === 'vehicle_locations') return locChain;
+      if (table === 'vehicle_telemetry') return locChain;
       return errorChain;
     });
 
@@ -248,7 +248,7 @@ describe('(d) Koordinat Sınır Kontrolü', () => {
     const routeChain  = makeInsertChain();
 
     mockSupabase.from.mockImplementation((t: string) => {
-      if (t === 'vehicle_locations') return locChain;
+      if (t === 'vehicle_telemetry') return locChain;
       if (t === 'vehicle_commands')  return insertChain;
       return routeChain;
     });
@@ -272,7 +272,7 @@ describe('(e) TTL Koruması', () => {
     const locChain    = makeSelectChain({ count: 1 });
 
     mockSupabase.from.mockImplementation((t: string) => {
-      if (t === 'vehicle_locations') return locChain;
+      if (t === 'vehicle_telemetry') return locChain;
       return insertChain;
     });
 
