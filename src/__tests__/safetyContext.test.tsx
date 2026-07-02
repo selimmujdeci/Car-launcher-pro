@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
 import { SafetyProvider, useSafetyContext } from '../components/safety/SafetyContext';
 import type { SafetyQueueOutput } from '../platform/safety/types';
 

@@ -13,7 +13,7 @@
  * Tüm zaman kararları sabit referans değerleri üzerinden yapılır.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   createSafetyStateFromVehicleStore,
   computeSafetyOutput,

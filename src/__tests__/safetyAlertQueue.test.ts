@@ -6,7 +6,7 @@
  * SafetyRuleEngine'e DOKUNULMAZ; alertler elle oluşturulur.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { SafetyAlertQueue } from '../platform/safety/SafetyAlertQueue';
 import type { SafetyAlert } from '../platform/safety/types';
 
