@@ -33,6 +33,7 @@ import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { MobileLinkWidget } from './MobileLinkWidget';
+import { KeyBeamPanel } from './KeyBeamPanel';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
@@ -310,6 +311,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const [testResult,    setTestResult]    = useState<{ ok: boolean; message: string } | null>(null);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
   const [waitingClip,   setWaitingClip]   = useState(false);
+  const [showKeyBeam,   setShowKeyBeam]   = useState(false);
   const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -485,6 +487,20 @@ const AIVoicePanel = memo(function AIVoicePanel() {
             <span>🔑</span>
             Ücretsiz Key Al — aistudio.google.com
           </button>
+          {/* Telefonla QR ile getir */}
+          <button
+            onClick={() => setShowKeyBeam((v) => !v)}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
+          >
+            <span>📱</span>
+            {showKeyBeam ? 'QR\'ı Gizle' : 'Telefonla Getir (QR)'}
+          </button>
+          {showKeyBeam && (
+            <KeyBeamPanel
+              onKeySaved={setGeminiKey}
+              onClose={() => setShowKeyBeam(false)}
+            />
+          )}
           <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
           <div className="relative">
             <input
