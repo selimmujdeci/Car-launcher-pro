@@ -336,14 +336,20 @@ class AdaptiveRuntimeManager {
     const config = getRuntimeConfig(mode);
     const root   = document.documentElement;
 
-    root.style.setProperty('--rt-blur',   config.enableBlur       ? '1' : '0');
-    root.style.setProperty('--rt-anim',   config.enableAnimations ? '1' : '0');
-    root.style.setProperty('--rt-shadow', config.enableShadows    ? '1' : '0');
+    // Aynı değeri her tikte yeniden YAZMA: html style attr mutasyonu zayıf
+    // GPU'da (PowerVR GE8300 saha bulgusu) geniş style invalidation + ~60ms
+    // tam boyama tetikliyor. Değer değişmediyse DOM'a dokunma.
+    const rtBlur   = config.enableBlur       ? '1' : '0';
+    const rtAnim   = config.enableAnimations ? '1' : '0';
+    const rtShadow = config.enableShadows    ? '1' : '0';
+    if (root.style.getPropertyValue('--rt-blur')   !== rtBlur)   root.style.setProperty('--rt-blur',   rtBlur);
+    if (root.style.getPropertyValue('--rt-anim')   !== rtAnim)   root.style.setProperty('--rt-anim',   rtAnim);
+    if (root.style.getPropertyValue('--rt-shadow') !== rtShadow) root.style.setProperty('--rt-shadow', rtShadow);
     // box-shadow string'i calc(var()) ile ölçeklenemez → CSS sınıf anahtarı.
     // enableShadows=false (BASIC_JS/POWER_SAVE/SAFE_MODE) → html.rt-no-shadow →
     // index.css tüm box-shadow'ları sıfırlar (Mali-400 kompozit katman tasarrufu).
     root.classList.toggle('rt-no-shadow', !config.enableShadows);
-    root.setAttribute('data-runtime', mode);
+    if (root.getAttribute('data-runtime') !== mode) root.setAttribute('data-runtime', mode);
   }
 
   /* ══════════════════════════════════════════════════════════════

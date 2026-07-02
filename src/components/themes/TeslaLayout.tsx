@@ -13,6 +13,7 @@ import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../
 import { next, previous, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
 import { ensureYouTubeReady } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
+import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
@@ -480,11 +481,15 @@ function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; 
    Day = kum kadran + koyu akrep · Night = kömür kadran + krem akrep. */
 const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }) {
   const p = usePal();
+  // Zayıf GPU (PowerVR/Mali sınıfı): her saniye re-render = her tik ~60ms tam
+  // boyama (saha ölçümü, %100 jank ana etkeni). Düşük cihazda saniye ibresi
+  // çizilmez, saat 30 sn'de bir tazelenir (dakika hassasiyeti korunur).
+  const lowEnd = isLowEndDevice();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), lowEnd ? 30_000 : 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [lowEnd]);
   const m = now.getMinutes();
   const s = now.getSeconds();
   const hourDeg = (now.getHours() % 12) * 30 + m * 0.5;
@@ -515,7 +520,7 @@ const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'relative', width: 110, height: 110, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'relative', width: 110, height: 110, borderRadius: '50%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent', contain: 'paint' }}>
       {/* tek ince aksan halka + kadran */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: face, border: `2px solid ${p.accent}`, boxShadow: p.night ? `0 6px 18px -8px rgba(0,0,0,0.7), inset 0 2px 7px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,236,205,0.10)` : `0 5px 16px -5px rgba(90,68,38,0.5), inset 0 2px 6px rgba(255,255,255,0.6)` }} />
       {/* ince iç hairline */}
@@ -527,7 +532,7 @@ const TeslaClock = memo(function TeslaClock({ onClick }: { onClick: () => void }
       {/* akrepler */}
       <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 3.4, height: 24, background: ink, borderRadius: 3, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${hourDeg}deg)`, boxShadow: '0 1px 2px rgba(0,0,0,.4)' }} />
       <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 2.2, height: 35, background: ink, borderRadius: 3, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${minDeg}deg)`, boxShadow: '0 1px 2px rgba(0,0,0,.4)' }} />
-      <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 1.3, height: 39, background: p.accent, borderRadius: 2, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${secDeg}deg)`, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+      {!lowEnd && <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 1.3, height: 39, background: p.accent, borderRadius: 2, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${secDeg}deg)`, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />}
       {/* merkez */}
       <span style={{ position: 'absolute', left: '50%', top: '50%', width: 9, height: 9, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: p.accent, boxShadow: `0 0 0 2.5px ${hubRing}`, zIndex: 2 }} />
     </button>

@@ -330,7 +330,7 @@ button:active {
   color: var(--text-primary) !important;
 }
 
-/* ── COMPAT MODE (eski WebView) ──────────────────────────────── */
+/* ── COMPAT MODE (eski WebView / zayıf GPU) ──────────────────── */
 html[data-compat-mode="true"] * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -338,6 +338,11 @@ html[data-compat-mode="true"] * {
   transition-duration: 100ms !important;
   box-shadow: none !important;
   text-shadow: none !important;
+  /* Gradyan/doku rasterizasyonu tek-raster-thread'li zayıf GPU'da (PowerVR
+     GE8300 saha ölçümü: 65ms/kare) ana maliyet — inline stiller dahil tüm
+     background-image'ları (linear/radial/conic gradient, noise) düzleştir.
+     <img> etiketleri etkilenmez (content image ≠ background-image). */
+  background-image: none !important;
 }
 html[data-compat-mode="true"] {
   --pack-blur: 0px !important;

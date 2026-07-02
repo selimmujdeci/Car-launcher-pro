@@ -12,6 +12,7 @@ import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../
 import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
 import { ensureYouTubeReady } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
+import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useOBDState } from '../../platform/obdService';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
@@ -468,11 +469,15 @@ const GOLD_GLOW = 'rgba(245,201,118,0.55)';
 const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }) {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
+  // Zayıf GPU (PowerVR/Mali sınıfı): saniye ibresi = her saniye re-render =
+  // her tik ~60ms tam boyama (saha ölçümü, boşta %100 jank ana etkeni).
+  // Düşük cihazda saniye ibresi çizilmez, saat 30 sn'de bir tazelenir.
+  const lowEnd = isLowEndDevice();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), lowEnd ? 30_000 : 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [lowEnd]);
 
   const h24 = now.getHours();
   const m = now.getMinutes();
@@ -547,7 +552,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
+    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent', contain: 'paint' }}>
       {/* dış kontur — gölge taşıyıcı (gün/gece duyarlı) */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: outerRim, boxShadow: outerShadow }} />
       {/* altın bezel (gündüz şampanya) */}
@@ -585,9 +590,9 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
         <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 4, height: 34, background: handGrad, borderRadius: 4, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${hourDeg}deg)`, boxShadow: handShadow, zIndex: 5 }} />
         {/* yelkovan (dakika) */}
         <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 2.8, height: 50, background: handGrad, borderRadius: 4, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${minDeg}deg)`, boxShadow: handShadow, zIndex: 5 }} />
-        {/* saniye akrebi — turuncu + kuyruk */}
-        <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 1.4, height: 56, background: accent, borderRadius: 2, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${secDeg}deg)`, filter: `drop-shadow(0 0 4px ${p.accentGlow})`, zIndex: 6 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '50%', width: 1.4, height: 15, background: accent, borderRadius: 2, transformOrigin: '50% 0%', transform: `translateX(-50%) rotate(${secDeg + 180}deg)`, zIndex: 6 }} />
+        {/* saniye akrebi — turuncu + kuyruk (zayıf cihazda çizilmez) */}
+        {!lowEnd && <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 1.4, height: 56, background: accent, borderRadius: 2, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${secDeg}deg)`, filter: `drop-shadow(0 0 4px ${p.accentGlow})`, zIndex: 6 }} />}
+        {!lowEnd && <div style={{ position: 'absolute', left: '50%', top: '50%', width: 1.4, height: 15, background: accent, borderRadius: 2, transformOrigin: '50% 0%', transform: `translateX(-50%) rotate(${secDeg + 180}deg)`, zIndex: 6 }} />}
 
         {/* merkez hub — turuncu amblem kapağı */}
         <span style={{ position: 'absolute', left: '50%', top: '50%', width: 18, height: 18, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: `radial-gradient(circle at 38% 32%, ${accent}, ${p.accentDeep})`, boxShadow: `0 0 0 2px ${hubRing}, 0 0 8px ${p.accentGlow}, inset 0 1px 2px rgba(255,255,255,.45)`, display: 'grid', placeItems: 'center', zIndex: 7 }}>

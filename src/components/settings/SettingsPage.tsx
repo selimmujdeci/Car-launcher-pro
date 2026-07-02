@@ -24,6 +24,7 @@ import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { useEditStore } from '../../store/useEditStore';
 import { useStore, type VehicleType } from '../../store/useStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   getPerformanceMode, setPerformanceMode,
   isAutoModeEnabled, enableAutoMode, disableAutoMode,
@@ -298,7 +299,11 @@ function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
    AI VOICE PANEL
 ════════════════════════════════════════ */
 const AIVoicePanel = memo(function AIVoicePanel() {
-  const { settings, updateSettings } = useStore();
+  // Seçicisiz useStore() store'daki HER yazımda (volume/park/telemetri...) tüm
+  // bölümü yeniden render ediyordu — zayıf GPU'da saha-ölçülmüş jank etkeni.
+  const { settings, updateSettings } = useStore(
+    useShallow((s) => ({ settings: s.settings, updateSettings: s.updateSettings })),
+  );
   const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
   const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
   const [groqKey,    setGroqKey]    = useSensitiveKey('groqApiKey');
@@ -674,7 +679,11 @@ const AIVoicePanel = memo(function AIVoicePanel() {
    store'a yazılır; store'da asla ham riskli metin kalmaz.
 ════════════════════════════════════════ */
 const CompanionPanel = memo(function CompanionPanel() {
-  const { settings, updateSettings } = useStore();
+  // Seçicisiz useStore() store'daki HER yazımda (volume/park/telemetri...) tüm
+  // bölümü yeniden render ediyordu — zayıf GPU'da saha-ölçülmüş jank etkeni.
+  const { settings, updateSettings } = useStore(
+    useShallow((s) => ({ settings: s.settings, updateSettings: s.updateSettings })),
+  );
 
   // Taslak değerler — yazarken sanitize ETME (kullanıcı deneyimi),
   // blur/commit anında sanitize et.
@@ -904,7 +913,7 @@ const MapSourcePanel = memo(function MapSourcePanel() {
   const sources: MapSource[] = Array.from(mapState.sources.values());
   const activeId = mapState.activeSourceId;
   const { isOnline } = useMapNetworkStatus();
-  const { updateSettings } = useStore();
+  const updateSettings = useStore((s) => s.updateSettings);
   const [refreshing, setRefreshing] = useState(false);
   return (
     <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-4">
@@ -1422,7 +1431,12 @@ const TAB_IDS: Tab[] = ['general', 'appearance', 'performance', 'maintenance', '
 const TAB_STORAGE_KEY = 'caros.settings.tab';
 
 function SettingsPageInner({ onClose }: Props) {
-  const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile, addVehicleProfile, removeVehicleProfile } = useStore();
+  const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile, addVehicleProfile, removeVehicleProfile } = useStore(
+    useShallow((s) => ({
+      settings: s.settings, updateSettings: s.updateSettings, updateVehicleProfile: s.updateVehicleProfile,
+      setActiveVehicleProfile: s.setActiveVehicleProfile, addVehicleProfile: s.addVehicleProfile, removeVehicleProfile: s.removeVehicleProfile,
+    })),
+  );
   // Tab persists across the session (CLAUDE.md Faz 8 task 3).
   const [tab, setTab] = useState<Tab>(() => {
     try {
