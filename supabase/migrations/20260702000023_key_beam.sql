@@ -33,6 +33,10 @@ CREATE INDEX IF NOT EXISTS key_beams_expires_at_idx ON public.key_beams (expires
 -- SECURITY DEFINER olduğu için tablo GRANT'ına ihtiyaç duymaz. Yine de
 -- checklist gereği açıkça beyan edilir (service_role tam yetkili).
 GRANT ALL ON public.key_beams TO service_role;
+-- Supabase şema varsayılanları (default privileges) anon/authenticated'a
+-- tablo GRANT'ı bırakabilir — erişim yalnızca RPC üzerinden olacağı için
+-- doğrudan tablo erişimini açıkça kapat.
+REVOKE ALL ON public.key_beams FROM anon, authenticated;
 
 -- ── 3. RLS ───────────────────────────────────────────────────────────
 ALTER TABLE public.key_beams ENABLE ROW LEVEL SECURITY;
