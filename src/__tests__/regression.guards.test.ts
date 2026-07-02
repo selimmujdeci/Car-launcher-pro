@@ -551,3 +551,23 @@ describe('K24 CAN-flood perf düzeltmesi — connectivityService IDB cache kilid
     expect(src).toMatch(/if\s*\(_dbPromise\)\s*return\s*_dbPromise;/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   11. K24 CAN-FLOOD PERF DÜZELTMESİ — Fix 4: hot-path allocation (2026-07-02)
+   Regresyon (yol açan gerçek bug): vehicleDataLayer/index.ts'te recordEvent'in
+   'accepted' bayrağı `d !== raw || Object.keys(d).length > 0` idi — OR'un sol
+   tarafı kısa devre yaptığından bayrak PRATİKTE HER ZAMAN true dönüyordu (Safe
+   Mode'da tüm alanlar undefined olsa bile d yeni bir referans olduğu için).
+   Kilit: _hasAnyField allocation-free VE doğru semantiği (gerçekten boşsa false)
+   uygular; bir daha sessizce eski dead-code deseni geri gelmemeli.
+   ─────────────────────────────────────────────────────────────── */
+describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', () => {
+  it('DAVRANIŞ: _hasAnyField boş objede false döner — eski "d !== raw ||" kısa devresi HER ZAMAN true dönen dead-code bug\'ıydı', async () => {
+    const { _hasAnyField } = await import('../platform/vehicleDataLayer');
+    // Bug: applyProfileGate Safe Mode'da tüm alanlar undefined olsa bile
+    // YENİ bir referans döndürüyordu → eski kod (d !== raw || ...) OR kısa
+    // devresiyle Object.keys(d).length hiç değerlendirilmeden true dönüyordu.
+    expect(_hasAnyField({})).toBe(false);
+    expect(_hasAnyField({ speed: 42 })).toBe(true);
+  });
+});

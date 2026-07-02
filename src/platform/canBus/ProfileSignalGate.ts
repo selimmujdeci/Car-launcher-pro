@@ -65,6 +65,13 @@ const SPIKE_LIMITS: Partial<Record<keyof CanAdapterData, { min: number; max: num
   batteryVolt: { min: 8,   max: 20    },
 };
 
+// K24 perf düzeltmesi: Object.entries(SPIKE_LIMITS) modül yüklenirken BİR KEZ
+// hesaplanır. _detectAndFilterSpikes CAN hot-path'te her frame'de çağrılır —
+// SPIKE_LIMITS sabit olduğundan entries dizisini her çağrıda yeniden üretmek
+// gereksiz allocation'dı.
+const SPIKE_LIMIT_ENTRIES =
+  Object.entries(SPIKE_LIMITS) as Array<[keyof CanAdapterData, { min: number; max: number }]>;
+
 // ── OBD-II güvenli alanlar (Safe Mode'da geçen) ───────────────────────────────
 
 const OBD_SAFE_FIELDS = new Set<keyof CanAdapterData>([
@@ -334,7 +341,7 @@ function _detectAndFilterSpikes(data: CanAdapterData): CanAdapterData {
   let   result = data as Record<string, unknown>;
   let   copied = false;  // lazy copy — sıfır spike'ta allocation yok
 
-  for (const [field, limits] of Object.entries(SPIKE_LIMITS) as Array<[keyof CanAdapterData, { min: number; max: number }]>) {
+  for (const [field, limits] of SPIKE_LIMIT_ENTRIES) {
     const val = data[field];
 
     // Boolean veya undefined alanları atla

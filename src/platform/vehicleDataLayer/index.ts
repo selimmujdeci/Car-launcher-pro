@@ -57,6 +57,21 @@ export function chaosTriggerBitflip(): void {
 }
 
 /**
+ * Bir CanAdapterData nesnesinin en az bir alanı var mı? (K24 perf düzeltmesi)
+ *
+ * Eskiden `Object.keys(d).length > 0` kullanılıyordu — bu her çağrıda TÜM
+ * anahtarları içeren bir dizi allocate ediyordu (CAN hot-path'te her frame'de).
+ * for...in ilk anahtarda erken döner → allocation YOK, aynı semantik sonuç
+ * ("en az bir own-enumerable alan var mı") — plain object olduğu için
+ * (CanAdapterData literal/spread ile üretilir, custom prototype yok) inherited
+ * property riski de yok.
+ */
+export function _hasAnyField(d: object): boolean {
+  for (const _k in d) return true;
+  return false;
+}
+
+/**
  * startVehicleDataLayer — OBD/GPS/CAN veri hattını, telemetri push'unu
  * ve uzaktan komut kanalını başlatır.
  *
@@ -124,7 +139,14 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
   // Gate uygula: Safe Mode'da CAN-only alanlar (reverse/door/gear vb.) bloklanır.
   const unsubCanExtras = can.onData((raw) => {
     const d = applyProfileGate(raw);   // Patch 5: gate bypass düzeltmesi
-    recordEvent('signal', 'MCU', `CAN frame`, { accepted: d !== raw || Object.keys(d).length > 0 });
+    // K24 perf düzeltmesi: eski `d !== raw || Object.keys(d).length > 0` her
+    // çağrıda dizi allocate ediyordu VE d!==raw kısmı OR'da kısa devre yaparak
+    // ifadeyi fiilen HER ZAMAN true'ya düşürüyordu (Safe Mode'da tüm alanlar
+    // undefined olsa bile d yeni bir referans olduğu için true dönüyordu).
+    // _hasAnyField allocation-free ve "en az bir alan geçti mi" semantiğini
+    // doğru yansıtır — normal/spike/safe-mode akışlarının HEPSİNDE aynı sonucu
+    // üretir, yalnız tamamen boş safe-mode köşe durumunda (artık doğru şekilde) false döner.
+    recordEvent('signal', 'MCU', `CAN frame`, { accepted: _hasAnyField(d) });
     useUnifiedVehicleStore.getState().updateCanExtras({
       // Kapı / aydınlatma
       doorOpen:          d.doorOpen,
