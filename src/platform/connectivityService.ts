@@ -46,8 +46,16 @@ const DB_NAME    = 'caros-connectivity-v1';
 const STORE_NAME = 'queue';
 const DB_VERSION = 1;
 
+// Modül-seviyesi bağlantı cache'i (K24 perf düzeltmesi): her IDB işlemi ayrı
+// indexedDB.open() ÇAĞIRMAZ — bağlantı bir kez açılır, açma Promise'i cache'lenir.
+// onclose/onversionchange'de cache düşürülür ki bir sonraki çağrı taze bağlantı
+// açsın (bozuk/kapalı bağlantıyla sonsuza dek kalınmaz).
+let _dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (_dbPromise) return _dbPromise;
+
+  _dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db    = req.result;
@@ -55,9 +63,41 @@ function openDB(): Promise<IDBDatabase> {
       store.createIndex('priority',    'priority');
       store.createIndex('nextRetryAt', 'nextRetryAt');
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Bağlantı beklenmedik şekilde kapanırsa (örn. sekme/uygulama tarafından
+      // dışarıdan) veya versiyon değişimi gelirse cache'i düş — sonraki
+      // dbGetAll/dbPut/dbDelete çağrısı taze bağlantı açar.
+      db.onclose = () => { _dbPromise = null; };
+      db.onversionchange = () => {
+        db.close();
+        _dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      _dbPromise = null; // açma başarısız — bir sonraki çağrı yeniden dener
+      reject(req.error);
+    };
   });
+
+  return _dbPromise;
+}
+
+/**
+ * Cache'lenmiş bağlantıyı kapatır ve cache'i düşürür (destroy() tarafından çağrılır).
+ * Test izolasyonu için de gerekli: testler her senaryoda `globalThis.indexedDB`'yi
+ * TAZE bir fake factory ile değiştirir (bkz. `installFakeIDB` test yardımcıları);
+ * cache burada düşürülmezse servis bir SONRAKİ testte hâlâ ESKİ (kapatılmış/temizlenmiş)
+ * fake bağlantıyı kullanmaya devam eder.
+ */
+function closeDB(): void {
+  if (!_dbPromise) return;
+  const pending = _dbPromise;
+  _dbPromise = null;
+  pending.then((db) => {
+    try { db.close(); } catch { /* fake/test IDB'de close() olmayabilir — yoksay */ }
+  }).catch(() => { /* açma zaten başarısızdı — kapatacak bir şey yok */ });
 }
 
 async function dbGetAll(): Promise<QueueEntry[]> {
@@ -139,6 +179,7 @@ class ConnectivityService {
   destroy(): void {
     this._networkListener?.();
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    closeDB(); // IDB bağlantı cache'ini düşür — yeniden init() sonrası taze bağlantı açılır
   }
 
   /**
@@ -183,7 +224,7 @@ class ConnectivityService {
     this._running = true;
 
     try {
-      let entries = await dbGetAll();
+      const entries = await dbGetAll();
 
       // Önce critical, sonra high, sonra normal; aynı öncelikte enqueuedAt sırası
       entries.sort((a, b) => {
@@ -193,6 +234,14 @@ class ConnectivityService {
 
       const now = Date.now();
 
+      // Kalan (kuyrukta hâlâ bekleyen) öğelerin bellek-içi takibi — döngü sonunda
+      // ikinci bir dbGetAll YERİNE bu liste kullanılır (K24 perf düzeltmesi).
+      // Başlangıçta tüm öğeleri içerir; entries ile AYNI obje referanslarını taşır,
+      // bu yüzden retry dalındaki entry.attempts/nextRetryAt mutasyonu buraya da yansır.
+      // Silinen (başarılı) öğeler listeden çıkarılır. Davranış (retry zamanlaması,
+      // öncelik sırası, kuyrukta kalan öğeler) BİREBİR aynıdır.
+      const remaining: QueueEntry[] = [...entries];
+
       for (const entry of entries) {
         if (!this._online) break;
         if (entry.nextRetryAt > now) continue; // backoff süresi dolmadı
@@ -201,8 +250,10 @@ class ConnectivityService {
 
         if (ok) {
           await dbDelete(entry.id);
+          const idx = remaining.findIndex((e) => e.id === entry.id);
+          if (idx !== -1) remaining.splice(idx, 1);
         } else {
-          // Retry: attempts++ ve backoff
+          // Retry: attempts++ ve backoff (aynı referans remaining'de de güncellenir)
           entry.attempts    += 1;
           entry.nextRetryAt  = nextRetry(entry.attempts);
           await dbPut(entry);
@@ -215,9 +266,8 @@ class ConnectivityService {
       }
 
       // Kalan varsa timer kur
-      entries = await dbGetAll();
-      if (entries.length > 0 && this._online) {
-        const earliestRetry = Math.min(...entries.map((e) => e.nextRetryAt));
+      if (remaining.length > 0 && this._online) {
+        const earliestRetry = Math.min(...remaining.map((e) => e.nextRetryAt));
         const delay = Math.max(500, earliestRetry - Date.now());
         if (this._timer) clearTimeout(this._timer);
         this._timer = setTimeout(() => {

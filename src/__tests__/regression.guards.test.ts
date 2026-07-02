@@ -538,3 +538,16 @@ describe('K24 CAN-flood perf düzeltmesi — useSafetyAlerts seçicili subscribe
     expect(src).toMatch(/safetyRelevantFieldsChanged\(/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   10. K24 CAN-FLOOD PERF DÜZELTMESİ — Fix 3: connectivityService IDB cache (2026-07-02)
+   Regresyon: her dbGetAll/dbPut/dbDelete ayrı indexedDB.open() çağırıyordu.
+   Kilit: bağlantı modül-seviyesinde cache'lenir (_dbPromise), tekrar açılmaz.
+   ─────────────────────────────────────────────────────────────── */
+describe('K24 CAN-flood perf düzeltmesi — connectivityService IDB cache kilidi', () => {
+  it('YAPISAL: connectivityService IDB bağlantısı modül-seviyesinde cache\'lenir (_dbPromise)', () => {
+    const src = read('src/platform/connectivityService.ts');
+    expect(src).toMatch(/let\s+_dbPromise:\s*Promise<IDBDatabase>\s*\|\s*null\s*=\s*null;/);
+    expect(src).toMatch(/if\s*\(_dbPromise\)\s*return\s*_dbPromise;/);
+  });
+});

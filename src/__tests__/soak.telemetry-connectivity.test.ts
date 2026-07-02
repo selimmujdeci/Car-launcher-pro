@@ -271,6 +271,39 @@ describe('T4 — connectivity endurance (PART B)', () => {
     expect(sizeAfter).toBe(0);   // kuyruk boşaldı
     expect(fetches).toBe(20);    // her entry TAM 1 kez → paralel drain / dup yok
   });
+
+  it('IDB bağlantı cache: init() sonrası çoklu enqueue/queueSize TEK bağlantıyı yeniden kullanır', async () => {
+    net.connected = true;
+    await connectivityService.init(); // ilk açma burada olur (spy'dan ÖNCE)
+
+    const openSpy = vi.spyOn(globalThis.indexedDB, 'open');
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 } as Response));
+
+    for (let i = 0; i < 5; i++) {
+      await connectivityService.enqueue('https://x', 'POST', {}, { i }, 'normal', 'telemetry');
+    }
+    await connectivityService.queueSize();
+
+    // 5 enqueue + 1 queueSize → onlarca dbPut/dbGetAll işlemi, ama TEK bağlantı
+    // cache'lendiği için indexedDB.open() bu noktadan sonra hiç çağrılmamalı.
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('IDB bağlantı cache: destroy() sonrası bir SONRAKİ işlem bağlantıyı yeniden açar', async () => {
+    // Gerçek IndexedDB'de onclose/onversionchange cache'i düşürür; bu fake şimde
+    // (installFakeIDB) DOM close event'i simüle edilmediği için eşdeğer tetikleyici
+    // olarak destroy() kullanılır — ikisi de AYNI closeDB() reset yolunu çalıştırır.
+    net.connected = false; // init() sırasında arka plan drain tetiklenmesin (yarış riski yok)
+    await connectivityService.init();
+    await connectivityService.enqueue('https://x', 'POST', {}, { a: 1 }, 'normal', 'telemetry');
+
+    connectivityService.destroy(); // cache düşer (_dbPromise = null)
+
+    const openSpy = vi.spyOn(globalThis.indexedDB, 'open');
+    await connectivityService.queueSize(); // doğrudan dbGetAll — init() gerekmez, arka plan drain yok
+
+    expect(openSpy).toHaveBeenCalledTimes(1); // cache boştu → yeniden açıldı
+  });
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
