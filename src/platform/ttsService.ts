@@ -19,6 +19,7 @@ import { segmentSpeech, type SpeechSegment } from './speechSegment';
 import { isLowEndDevice } from './headUnitCompat';
 import { tryPlayClip, cancelClip } from './voiceClips';
 import { speakOnline, isOnlineTtsAvailable, cancelOnline } from './onlineTtsService';
+import { speakEdge, isEdgeTtsAvailable, cancelEdge } from './edgeTtsService';
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -228,6 +229,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
   cancelClip();    // çalan premium klibi de durdur
+  cancelEdge();    // uçuştaki/çalan Edge asistan sesini de durdur
   cancelOnline();  // uçuştaki/çalan online asistan sesini de durdur
   if (_isNative) {
     CarLauncher.ttsStop()
@@ -340,8 +342,16 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)
   if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) return;
 
-  // 2) Online TTS → 3) native yedek
+  // Hibrit ses zinciri: 2) Edge (premium TR, kotasız) → 3) Gemini TTS (kotalı)
+  //   → 4) native eSpeak yedek. Gemini kotası bitince (saha 2026-07-03) Edge
+  // premium sesi sürdürür; ikisi de düşerse asla sessiz kalmaz (eSpeak).
   void (async () => {
+    try {
+      if (isEdgeTtsAvailable()) {
+        const ok = await speakEdge(t, () => { _notifyTtsEnd(); onEnd?.(); });
+        if (ok) return;
+      }
+    } catch { /* Edge yolu kırılırsa Gemini'ye düş */ }
     try {
       if (await isOnlineTtsAvailable()) {
         const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); });
