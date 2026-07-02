@@ -570,4 +570,24 @@ describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', () => 
     expect(_hasAnyField({})).toBe(false);
     expect(_hasAnyField({ speed: 42 })).toBe(true);
   });
+
+  it('DAVRANIŞ: updateCanExtras TPMS\'i eleman eleman kıyaslar — aynı değerler YENİ dizi referansıyla gelse bile dirty tetiklenmez', async () => {
+    // Bug: `if (patch.tpms != null) { u.canTpmsKpa = patch.tpms; dirty = true; }`
+    // diğer TÜM alanların aksine (chk/chkBool önce cur[key] ile kıyaslar) hiç
+    // kıyaslama yapmadan koşulsuz dirty=true set ediyordu. patch.tpms her CAN
+    // frame'inde YENİ bir tuple referansıyla geldiğinden bu satır PRATİKTE HER
+    // TPMS frame'inde set() tetikliyor, store'a subscribe olan her şeyi
+    // gereksiz yere uyandırıyordu.
+    const { useUnifiedVehicleStore } = await import('../platform/vehicleDataLayer/UnifiedVehicleStore');
+    const s = useUnifiedVehicleStore.getState();
+    s.resetCanData();
+    s.updateCanExtras({ tpms: [220, 221, 219, 218] }); // baseline
+
+    let notified = 0;
+    const unsub = useUnifiedVehicleStore.subscribe(() => { notified++; });
+    s.updateCanExtras({ tpms: [220, 221, 219, 218] }); // yeni referans, aynı içerik
+    unsub();
+
+    expect(notified).toBe(0);
+  });
 });

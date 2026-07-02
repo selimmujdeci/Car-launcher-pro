@@ -303,6 +303,20 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
             (u as Record<string, unknown>)[key] = val; dirty = true;
           }
         }
+        // TPMS: patch.tpms her CAN frame'inde YENİ bir tuple referansıyla gelir
+        // (JSON parse/map'ten üretilir) — referans eşitliği hiçbir zaman tutmaz.
+        // Diğer alanlar gibi ELEMAN ELEMAN kıyaslanır; 4 değer de aynıysa dirty
+        // tetiklenmez (gereksiz set() → gereksiz store aboneliği uyanışı önlenir).
+        function chkTpms(val: readonly [number, number, number, number] | undefined) {
+          if (val == null) return;
+          const prev = cur.canTpmsKpa;
+          if (prev != null
+            && prev[0] === val[0] && prev[1] === val[1]
+            && prev[2] === val[2] && prev[3] === val[3]) {
+            return; // 4 tekerlek de (fl/fr/rl/rr) aynı — dirty YOK
+          }
+          u.canTpmsKpa = val; dirty = true;
+        }
 
         // Kapı / aydınlatma
         if (patch.doorOpen     != null) chkBool('canDoorOpen',   patch.doorOpen);
@@ -311,7 +325,7 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         if (patch.turnLeft     != null) chkBool('canTurnLeft',   patch.turnLeft);
         if (patch.turnRight    != null) chkBool('canTurnRight',  patch.turnRight);
         if (patch.hazard       != null) chkBool('canHazard',     patch.hazard);
-        if (patch.tpms != null)         { u.canTpmsKpa = patch.tpms; dirty = true; }
+        chkTpms(patch.tpms);
 
         // Motor
         chk('canRpm',         patch.rpm);
