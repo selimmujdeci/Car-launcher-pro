@@ -497,3 +497,30 @@ describe('Zayıf GPU tespiti kilidi (PowerVR/Imagination kapsanır)', () => {
     expect(isWeakRendererString('(WebGL yok)')).toBe(false);     // WebGL yok
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   8. K24 CAN-FLOOD PERF DÜZELTMESİ — Fix 1: native throttle/dedup (2026-07-02)
+   Regresyon (caros-performance analizi "K24"): CAN→JS köprüsü (emitVehicleData)
+   throttle'sız emit ediyordu → hızlı CAN trafiğinde JS köprüsü taşıyor,
+   uygulama kasıyordu. Kilit: 80ms coalescing throttle + dedup + reverse/
+   parkingBrake güvenlik-kritik bypass kodda KALICI olmalı.
+   ─────────────────────────────────────────────────────────────── */
+describe('K24 CAN-flood perf düzeltmesi — native throttle/dedup kilidi', () => {
+  it('YAPISAL: emitVehicleData 80ms throttle + dedup üzerinden JS\'e emit eder (native, tek nokta)', () => {
+    const src = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    // Throttle penceresi 80ms (10-20Hz bandı) olarak sabitlenmiş
+    expect(src).toMatch(/CAN_EMIT_MIN_INTERVAL_MS\s*=\s*80L/);
+    // emitVehicleData artık doğrudan canJsBridge.emit ÇAĞIRMAZ — throttle/dedup yoluna girer
+    expect(src).toMatch(/scheduleOrEmitToJs\(filtered\)/);
+    // Dedup: aynı veri seti tekrar emit edilmez
+    expect(src).toMatch(/sameEmittedData\(/);
+  });
+
+  it('YAPISAL: reverse ve parkingBrake güvenlik-kritik alanlar throttle\'ı bypass eder', () => {
+    const src = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(src).toMatch(/isSafetyCriticalChange/);
+    expect(src).toMatch(/incoming\.reverse,\s*lastEmitted\.reverse/);
+    expect(src).toMatch(/incoming\.parkingBrake,\s*lastEmitted\.parkingBrake/);
+  });
+});
+

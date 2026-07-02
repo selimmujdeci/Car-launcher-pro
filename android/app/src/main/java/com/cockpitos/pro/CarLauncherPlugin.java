@@ -118,6 +118,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
+import java.util.Objects;
+import java.util.Arrays;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -2980,6 +2982,21 @@ public class CarLauncherPlugin extends Plugin {
     private       NativeToJsBridge  canJsBridge;
     private volatile boolean _canSnifferActive = false;
 
+    // ── K24 CAN-flood perf düzeltmesi: coalescing throttle + dedup (native, tek nokta) ──
+    // emitVehicleData() üç kaynaktan (ham CAN frame listener, K24CanBridge, NwdCanClient,
+    // NwdSettingsReader) çağrılabilir — farklı thread'lerden (CAN read thread, binder
+    // callback, ContentObserver callback) eş zamanlı çağrı mümkün olduğu için TÜM paylaşılan
+    // throttle state'i _emitLock ile korunur. JS'e gerçek emit ise kilit DIŞINDA yapılır
+    // (notifyListeners'ı kilit altında tutup olası yeniden-giriş/gecikme riskini önlemek için).
+    private static final long CAN_EMIT_MIN_INTERVAL_MS = 80L; // ~12.5Hz (CLAUDE.md 10-20Hz bandı)
+    private final Object     _emitLock            = new Object();
+    private final Handler    _emitHandler         = new Handler(Looper.getMainLooper());
+    private final Runnable   _flushEmitRunnable   = this::flushPendingEmit;
+    private VehicleCanData    _pendingEmitData     = null;  // throttle penceresinde biriken SON değer (trailing-edge)
+    private VehicleCanData    _lastEmittedData     = null;  // JS'e gerçekten gönderilen son veri (dedup referansı)
+    private long              _lastEmitAtMs        = 0L;    // SystemClock.elapsedRealtime bazlı
+    private boolean           _emitScheduled       = false; // trailing-edge zamanlayıcısı kurulu mu
+
     // K24/Hiworld head unit'leri root GEREKTİRMEDEN okur (ContentProvider +
     // ServiceManager binder'ları üzerinden). Ham seri (canBusManager) root'suz
     // /dev/ttyS*'e erişemediği için bu cihazlarda tek çalışan CAN yolu budur.
@@ -3190,8 +3207,10 @@ public class CarLauncherPlugin extends Plugin {
     };
 
     /**
-     * reverseGuard filtreleme + JS emit. Hem ham CAN (_canFrameListener) hem de
-     * K24/Hiworld köprüsü (_k24DataListener) bu tek yolu kullanır.
+     * reverseGuard filtreleme + JS emit. Hem ham CAN (_canFrameListener), K24/Hiworld
+     * köprüsü (_k24DataListener), NWD CarInfo (_nwdDataListener) hem de NWD 'system'
+     * ayar okuyucusu (nwdSettingsReader) bu TEK yolu kullanır — bu yüzden JS köprü
+     * throttle/dedup'ı da burada, tek noktada uygulanır (K24 CAN-flood perf düzeltmesi).
      */
     private void emitVehicleData(VehicleCanData data) {
         if (data == null) return;
@@ -3206,11 +3225,12 @@ public class CarLauncherPlugin extends Plugin {
                 .build();
         }
 
-        if (canJsBridge != null) canJsBridge.emit(filtered);
+        scheduleOrEmitToJs(filtered);
 
         // ── Native-Core side-stream (Phase N4) ──────────────────────────────
         // Ham CAN değerlerini native katmana KOPYALA. JS akışını (canJsBridge.emit)
-        // etkilemez. Float→double lossless widening (.doubleValue()).
+        // etkilemez — throttle'a TABİ DEĞİL (native tüketiciler kendi örnekleme
+        // hızını yönetir). Float→double lossless widening (.doubleValue()).
         if (VehicleNativeBridge.INSTANCE.isAvailable()) {
             long ts = System.nanoTime();
             if (data.speed != null)
@@ -3223,6 +3243,124 @@ public class CarLauncherPlugin extends Plugin {
                 VehicleNativeBridge.INSTANCE.pushSignal(
                         VehicleNativeBridge.Signal.FUEL, data.fuel.doubleValue(), ts);
         }
+    }
+
+    /**
+     * CAN→JS köprüsü için coalescing throttle + dedup (K24 CAN-flood perf düzeltmesi).
+     *
+     * - Pencere: {@link #CAN_EMIT_MIN_INTERVAL_MS} (80ms, ~12.5Hz — CLAUDE.md 10-20Hz bandı).
+     * - Trailing-edge coalescing: pencere içinde gelen ardışık güncellemeler SON DEĞER olarak
+     *   {@link #_pendingEmitData}'da üzerine yazılır; ara değerler JS'e HİÇ gitmez ama son
+     *   durum asla kaybolmaz (sinyal/dörtlü flaşör gibi hızlı yanıp-sönen alanlar dahil).
+     * - Leading-edge: pencere zaten boşsa (son emitten CAN_EMIT_MIN_INTERVAL_MS'den uzun süre
+     *   geçmişse) yeni veri BEKLEMEDEN hemen gider — gecikme yalnız burst durumunda oluşur.
+     * - Dedup: gidecek alan seti son gönderilenle birebir aynıysa emit atlanır (gereksiz JS
+     *   köprü trafiği kesilir).
+     * - Güvenlik istisnası: reverse (geri vites, geri görüş kamerası) veya parkingBrake
+     *   (el/park freni — sürüşte devreye girmesi/çıkması anlık uyarı gerektirir) ÖNCEKİ
+     *   emit edilen değerden farklıysa throttle'ı BEKLEMEDEN anında emit edilir.
+     * - Thread-safety: bu metod CAN read thread'i, binder callback'i (NwdCanClient) ve
+     *   ContentObserver callback'i (NwdSettingsReader) gibi farklı thread'lerden çağrılabilir;
+     *   tüm paylaşılan state _emitLock ile korunur. JS'e gerçek emit kilit DIŞINDA yapılır.
+     */
+    private void scheduleOrEmitToJs(VehicleCanData filtered) {
+        if (canJsBridge == null) return;
+
+        VehicleCanData dataToEmitNow = null;
+        boolean        scheduleFlush = false;
+        long           delay         = 0L;
+
+        synchronized (_emitLock) {
+            if (isSafetyCriticalChange(filtered, _lastEmittedData)) {
+                // Güvenlik-kritik alan değişti — bekleyen pencereyi iptal et (zaten en
+                // güncel veriyi taşıyoruz) ve anında gönder.
+                _emitHandler.removeCallbacks(_flushEmitRunnable);
+                _emitScheduled   = false;
+                _pendingEmitData = null;
+                dataToEmitNow    = filtered;
+                _lastEmittedData = filtered;
+                _lastEmitAtMs    = SystemClock.elapsedRealtime();
+            } else if (!sameEmittedData(filtered, _lastEmittedData)) {
+                _pendingEmitData = filtered;
+                long now     = SystemClock.elapsedRealtime();
+                long elapsed = now - _lastEmitAtMs;
+                if (elapsed >= CAN_EMIT_MIN_INTERVAL_MS) {
+                    dataToEmitNow    = _pendingEmitData;
+                    _pendingEmitData = null;
+                    _lastEmittedData = dataToEmitNow;
+                    _lastEmitAtMs    = now;
+                } else if (!_emitScheduled) {
+                    _emitScheduled = true;
+                    scheduleFlush  = true;
+                    delay          = CAN_EMIT_MIN_INTERVAL_MS - elapsed;
+                }
+                // else: zamanlayıcı zaten kurulu — _pendingEmitData güncellendi, aynı
+                // runnable pencere sonunda en güncel değeri gönderecek.
+            }
+            // else: dedup — değer seti son emit edilenle aynı, hiçbir şey yapma.
+        }
+
+        if (dataToEmitNow != null) canJsBridge.emit(dataToEmitNow);
+        if (scheduleFlush)         _emitHandler.postDelayed(_flushEmitRunnable, delay);
+    }
+
+    /** Trailing-edge zamanlayıcısı dolunca çağrılır (ana thread — Handler). */
+    private void flushPendingEmit() {
+        VehicleCanData dataToEmit;
+        synchronized (_emitLock) {
+            _emitScheduled = false;
+            dataToEmit     = _pendingEmitData;
+            _pendingEmitData = null;
+            if (dataToEmit != null) {
+                _lastEmittedData = dataToEmit;
+                _lastEmitAtMs    = SystemClock.elapsedRealtime();
+            }
+        }
+        if (dataToEmit != null && canJsBridge != null) canJsBridge.emit(dataToEmit);
+    }
+
+    /**
+     * Güvenlik-kritik alan değişti mi? Yalnız kodda GERÇEKTEN var olan ve anlık geçmesi
+     * gereken alanlar: reverse (geri görüş kamerası) ve parkingBrake (el freni sürüş
+     * sırasında devreye girerse/çıkarsa anlık uyarı). lastEmitted null ise (ilk veri)
+     * zaten leading-edge yoluyla hemen gönderilir — burada true dönmeye gerek yok.
+     */
+    private static boolean isSafetyCriticalChange(VehicleCanData incoming, VehicleCanData lastEmitted) {
+        if (lastEmitted == null) return false;
+        if (!Objects.equals(incoming.reverse, lastEmitted.reverse)) return true;
+        if (!Objects.equals(incoming.parkingBrake, lastEmitted.parkingBrake)) return true;
+        return false;
+    }
+
+    /** JS'e emit edilecek TÜM alan kümesinin birebir aynı olup olmadığını kontrol eder. */
+    private static boolean sameEmittedData(VehicleCanData a, VehicleCanData b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Objects.equals(a.speed, b.speed)
+            && Objects.equals(a.reverse, b.reverse)
+            && Objects.equals(a.fuel, b.fuel)
+            && Objects.equals(a.rpm, b.rpm)
+            && Objects.equals(a.coolantTemp, b.coolantTemp)
+            && Objects.equals(a.oilTemp, b.oilTemp)
+            && Objects.equals(a.throttle, b.throttle)
+            && Objects.equals(a.batteryVolt, b.batteryVolt)
+            && Objects.equals(a.gearPos, b.gearPos)
+            && Objects.equals(a.ambientTemp, b.ambientTemp)
+            && Objects.equals(a.abs, b.abs)
+            && Objects.equals(a.tractionControl, b.tractionControl)
+            && Objects.equals(a.stabilityControl, b.stabilityControl)
+            && Objects.equals(a.parkingBrake, b.parkingBrake)
+            && Objects.equals(a.seatbelt, b.seatbelt)
+            && Objects.equals(a.wipers, b.wipers)
+            && Objects.equals(a.airCondition, b.airCondition)
+            && Objects.equals(a.cruiseControl, b.cruiseControl)
+            && Objects.equals(a.doorOpen, b.doorOpen)
+            && Objects.equals(a.headlightsOn, b.headlightsOn)
+            && Objects.equals(a.highBeam, b.highBeam)
+            && Objects.equals(a.turnLeft, b.turnLeft)
+            && Objects.equals(a.turnRight, b.turnRight)
+            && Objects.equals(a.hazard, b.hazard)
+            && Arrays.equals(a.tpms, b.tpms);
     }
 
     @PluginMethod
@@ -3254,6 +3392,16 @@ public class CarLauncherPlugin extends Plugin {
             // Ölü instance yeniden kullanılmasın → sonraki startMcuSnifferOnce taze
             // nesne yaratır. (A patch'i executor'u zaten kurtarıyor; bu ek güvenlik.)
             mcuEventSniffer = null;
+        }
+        // Throttle/dedup state'i sıfırla: JS tarafı stopCanBus'ta resetCanData() çağırır
+        // (store'u boşaltır) — _lastEmittedData eski (dolu) kalırsa, restart sonrası AYNI
+        // veri tekrar gelirse dedup onu JS'e hiç göndermez ve JS boş kalmaya devam eder.
+        synchronized (_emitLock) {
+            _emitHandler.removeCallbacks(_flushEmitRunnable);
+            _emitScheduled    = false;
+            _pendingEmitData  = null;
+            _lastEmittedData  = null;
+            _lastEmitAtMs     = 0L;
         }
         emitCanStatus();
         call.resolve();
