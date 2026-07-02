@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   safetyOutputsEqual,
   computeSafetyTick,
+  safetyRelevantFieldsChanged,
 } from '../platform/safety/safetyStateMapper';
 import { createSafetyTicker } from '../platform/safety/safetyTicker';
 import { SafetyAlertQueue } from '../platform/safety/SafetyAlertQueue';
@@ -393,6 +394,92 @@ describe('createSafetyTicker — idempotency', () => {
       ticker.dispose();
     }).not.toThrow();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+});
+
+// ── 4. safetyRelevantFieldsChanged — seçicili subscribe testleri (K24 perf düzeltmesi) ──
+
+describe('safetyRelevantFieldsChanged', () => {
+
+  it('ilgisiz bir alan (örn. rpm) değişirse false döner — yeniden hesaplama gerekmez', () => {
+    const prev = makeV({});
+    const next = makeV({});
+    // Safety mapper'ın OKUMADIĞI bir alan (rpm, tema/map ile eşdeğer "ilgisiz" örnek).
+    (next as unknown as { rpm: number }).rpm = 3000;
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(false);
+  });
+
+  it('hiçbir alan değişmezse false döner', () => {
+    const v = makeV({ speed: 42 });
+    expect(safetyRelevantFieldsChanged(v, v)).toBe(false);
+  });
+
+  it('speed değişirse true döner', () => {
+    const prev = makeV({ speed: 0 });
+    const next = makeV({ speed: 50 });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('reverse değişirse true döner', () => {
+    const prev = makeV({ reverse: false });
+    const next = makeV({ reverse: true });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('canDoorOpen değişirse true döner', () => {
+    const prev = makeV({ canDoorOpen: false });
+    const next = makeV({ canDoorOpen: true });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('canParkingBrake değişirse true döner', () => {
+    const prev = makeV({ canParkingBrake: false });
+    const next = makeV({ canParkingBrake: true });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('canCoolantTemp değişirse true döner', () => {
+    const prev = makeV({ canCoolantTemp: 90 });
+    const next = makeV({ canCoolantTemp: 115 });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('fuel değişirse true döner', () => {
+    const prev = makeV({ fuel: 50 });
+    const next = makeV({ fuel: 5 });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('canBatteryVolt değişirse true döner', () => {
+    const prev = makeV({ canBatteryVolt: 12.6 });
+    const next = makeV({ canBatteryVolt: 10.5 });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(true);
+  });
+
+  it('canSeatbelt değişir ama signalsAvailable.seatbelt verilmemiş → false (mapper zaten undefined\'a eşler)', () => {
+    const prev = makeV({ canSeatbelt: false });
+    const next = makeV({ canSeatbelt: true });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(false);
+    expect(safetyRelevantFieldsChanged(next, prev, { seatbelt: false })).toBe(false);
+  });
+
+  it('canSeatbelt değişir ve signalsAvailable.seatbelt=true → true', () => {
+    const prev = makeV({ canSeatbelt: false });
+    const next = makeV({ canSeatbelt: true });
+    expect(safetyRelevantFieldsChanged(next, prev, { seatbelt: true })).toBe(true);
+  });
+
+  it('canHeadlights değişir ama signalsAvailable.headlights verilmemiş → false', () => {
+    const prev = makeV({ canHeadlights: false });
+    const next = makeV({ canHeadlights: true });
+    expect(safetyRelevantFieldsChanged(next, prev)).toBe(false);
+  });
+
+  it('canHeadlights değişir ve signalsAvailable.headlights=true → true', () => {
+    const prev = makeV({ canHeadlights: false });
+    const next = makeV({ canHeadlights: true });
+    expect(safetyRelevantFieldsChanged(next, prev, { headlights: true })).toBe(true);
   });
 
 });

@@ -147,6 +147,50 @@ export function createSafetyStateFromVehicleStore(
   return { state, updatedAt };
 }
 
+// ── Store subscribe seçicisi (K24 perf düzeltmesi — FAZ 2.6b) ─────────────────
+
+/**
+ * İki ardışık UnifiedVehicleStore snapshot'ı arasında, createSafetyStateFromVehicleStore'un
+ * GERÇEKTEN OKUDUĞU alanlardan (yukarıdaki MAPPING TABLOSU) herhangi biri değişti mi?
+ *
+ * NEDEN: useSafetyAlerts eskiden `useUnifiedVehicleStore.subscribe(() => runCompute())`
+ * ile seçicisiz abone oluyordu — store'daki HER değişiklikte (örn. sadece map/tema state'i
+ * güncellenince) gereksiz yere computeSafetyTick tetikleniyordu. Bu fonksiyon yalnızca
+ * mapper'ın kullandığı alanları karşılaştırır; ilgisiz store değişimlerinde false döner.
+ *
+ * seatbelt/headlights: signalsAvailable bayrağı false ise mapper bu alanları HER ZAMAN
+ * undefined'a eşler (bkz. createSafetyStateFromVehicleStore) — yani değerleri değişse
+ * bile çıktıyı etkilemez, bu yüzden bayrak kapalıyken karşılaştırmaya HİÇ dahil edilmez.
+ *
+ * NOT: _vehicleSpeedTs kasıtlı olarak karşılaştırılmaz — zaman bazlı "stale" kontrolü
+ * 500ms'lik safetyTicker tarafından periyodik yapılır (bkz. useSafetyAlerts); bu seçici
+ * yalnızca ANLIK değer değişikliklerinde erken tetikleme sağlar.
+ */
+export function safetyRelevantFieldsChanged(
+  state: UnifiedVehicleState,
+  prevState: UnifiedVehicleState,
+  signalsAvailable?: SafetyMapOptions['signalsAvailable'],
+): boolean {
+  if (
+    state.speed           !== prevState.speed ||
+    state.reverse         !== prevState.reverse ||
+    state.canDoorOpen     !== prevState.canDoorOpen ||
+    state.canParkingBrake !== prevState.canParkingBrake ||
+    state.canCoolantTemp  !== prevState.canCoolantTemp ||
+    state.fuel             !== prevState.fuel ||
+    state.canBatteryVolt  !== prevState.canBatteryVolt
+  ) {
+    return true;
+  }
+  if (signalsAvailable?.seatbelt === true && state.canSeatbelt !== prevState.canSeatbelt) {
+    return true;
+  }
+  if (signalsAvailable?.headlights === true && state.canHeadlights !== prevState.canHeadlights) {
+    return true;
+  }
+  return false;
+}
+
 // ── Orchestrator (React bağımsız, tam test edilebilir) ────────────────────────
 
 /**

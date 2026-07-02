@@ -524,3 +524,17 @@ describe('K24 CAN-flood perf düzeltmesi — native throttle/dedup kilidi', () =
   });
 });
 
+/* ───────────────────────────────────────────────────────────────
+   9. K24 CAN-FLOOD PERF DÜZELTMESİ — Fix 2: useSafetyAlerts seçicili subscribe (2026-07-02)
+   Regresyon: useUnifiedVehicleStore.subscribe(() => runCompute()) seçicisizdi —
+   store'daki HER değişiklikte (map/tema dahil) safety kural motoru tetikleniyordu.
+   Kilit: subscribe artık safetyRelevantFieldsChanged ile seçicili filtrelenir.
+   ─────────────────────────────────────────────────────────────── */
+describe('K24 CAN-flood perf düzeltmesi — useSafetyAlerts seçicili subscribe kilidi', () => {
+  it('YAPISAL: useSafetyAlerts store subscribe\'ı seçicili (safetyRelevantFieldsChanged) — çıplak seçicisiz abonelik DEĞİL', () => {
+    const src = read('src/platform/safety/useSafetyAlerts.ts');
+    // Eski buggy desen `subscribe(() => runCompute(...))` bir daha geri gelmemeli
+    expect(src).not.toMatch(/subscribe\(\(\)\s*=>\s*\{?\s*runCompute/);
+    expect(src).toMatch(/safetyRelevantFieldsChanged\(/);
+  });
+});

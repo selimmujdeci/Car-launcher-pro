@@ -38,6 +38,7 @@ import { SafetyAlertQueue } from './SafetyAlertQueue';
 import {
   computeSafetyTick,
   safetyOutputsEqual,
+  safetyRelevantFieldsChanged,
 } from './safetyStateMapper';
 import { createSafetyTicker } from './safetyTicker';
 import type { SafetyMapOptions } from './safetyStateMapper';
@@ -142,8 +143,17 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
     // İlk değeri hemen hesapla (mount anında store snapshot'ı ile)
     runCompute(performance.now());
 
-    // Store değişimlerini dinle
-    const unsub = useUnifiedVehicleStore.subscribe(() => {
+    // Store değişimlerini dinle — SEÇİCİLİ: yalnız safety kural motorunun
+    // gerçekten okuduğu alanlar değişince runCompute tetiklenir (K24 perf
+    // düzeltmesi). subscribeWithSelector middleware'i store'a EKLENMEDİ (diğer
+    // tüm store tüketicilerini etkiler, kapsam dışı) — bunun yerine base
+    // Zustand subscribe'ın (state, prevState) imzasıyla elle karşılaştırma
+    // yapılır. safetyRelevantFieldsChanged mapper'ın MAPPING TABLOSU'na göre
+    // hangi alanların ilgili olduğunu bilir (bkz. safetyStateMapper.ts).
+    const unsub = useUnifiedVehicleStore.subscribe((state, prevState) => {
+      if (!safetyRelevantFieldsChanged(state, prevState, optsRef.current?.signalsAvailable)) {
+        return; // ilgisiz değişiklik (örn. map/tema state'i) — yeniden hesaplama YOK
+      }
       runCompute(performance.now());
     });
 
