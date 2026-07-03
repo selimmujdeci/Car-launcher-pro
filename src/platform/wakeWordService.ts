@@ -127,12 +127,35 @@ function _matches(transcript: string): boolean {
     : matchesLegacy(transcript, _state.wakeWords);
 }
 
+/* ── Wake yalnız SOĞUK BAŞLATIR (asistan meşgulken yeniden tetiklenmez) ──
+ * SAHA (2026-07-03): "cevap verirken 'seni dinliyorum' + 'merhaba ben Mavi'
+ * diyor." Kök neden: asistan cevabını HOPARLÖRDEN konuşurken grammar wake thread
+ * kendi sesini (echo) duyup yeniden tetikleniyordu → wake selamı ("Seni
+ * dinliyorum") + boş/echo dinleme → beyin jenerik selam ("Merhaba ben Mavi").
+ * Kural: wake YALNIZ voiceService idle iken oturum başlatır. Aktif oturumda
+ * (listening/processing/success/error VEYA takip döngüsü) VEYA az önce kabul
+ * edilmiş bir tetik varsa (debounce — selamlama/echo penceresi) tetik YUTULUR. */
+let _lastWakeAcceptedAt = 0;
+const WAKE_REACCEPT_DEBOUNCE_MS = 4_000;
+
 function onWakeWordDetected(): void {
   // PROTECTION/CRITICAL: wake tetiklense bile sohbet/eğlence BAŞLAMAZ.
   // Sessizce yut — pasif döngü sürer, sürücü dikkat yükü altında rahatsız edilmez.
   if (isVoicePaused()) return;
 
-  push({ status: 'detected', lastTrigger: Date.now() });
+  // Asistan zaten aktif mi? (dinliyor/işliyor/cevap veriyor VEYA takip döngüsü açık)
+  // → wake yeni oturum AÇMAZ. Aksi halde cevap TTS'i mikrofona echo yapıp wake'i
+  // yeniden tetikliyor, sohbetin ortasında "Seni dinliyorum" + jenerik selam basıyordu.
+  const vs = getVoiceSnapshot();
+  if (vs.status !== 'idle' || vs.followUp) return;
+
+  // Selamlama/echo debounce: kabul edilen tetikten sonra kısa süre (selam TTS'i
+  // + mikrofon açılma rampası) yeni tetik yutulur — çift selam olmaz.
+  const now = Date.now();
+  if (now - _lastWakeAcceptedAt < WAKE_REACCEPT_DEBOUNCE_MS) return;
+  _lastWakeAcceptedAt = now;
+
+  push({ status: 'detected', lastTrigger: now });
 
   if (_state.companion) {
     // Kısa selamlama → TTS bitince aktif dinleme (TTS konuşurken STT açılmaz;
@@ -229,10 +252,13 @@ function _pushHeard(transcript: string): void {
 async function nativeLoop(gen: number): Promise<void> {
   if (gen !== _loopGen || !_nativeLoopActive || !_state.enabled) return;
 
-  // Aktif dinleme/işleme sürerken pasif döngü mikrofon AÇMAZ — voiceService
-  // ile startSpeechRecognition çakışması (wake'in cevabı yutması) önlenir.
-  const vs = getVoiceSnapshot().status;
-  if (vs === 'listening' || vs === 'processing') {
+  // Asistan aktifken (dinliyor/işliyor/CEVAP VERİYOR/hata VEYA takip döngüsü)
+  // pasif döngü mikrofon AÇMAZ — hem startSpeechRecognition çakışması hem de
+  // cevap TTS'inin mikrofona echo yapıp wake'i yeniden tetiklemesi önlenir
+  // (SAHA 2026-07-03: eskiden yalnız listening/processing bekletiliyordu →
+  // 'success' penceresinde cevap konuşulurken döngü açılıp echo tetikliyordu).
+  const snap = getVoiceSnapshot();
+  if (snap.status !== 'idle' || snap.followUp) {
     setTimeout(() => { void nativeLoop(gen); }, 1500);
     return;
   }
@@ -523,6 +549,7 @@ export function _resetWakeWordForTest(): void {
   _nativeLoopActive = false;
   _loopGen++;
   _consecErrors = 0;
+  _lastWakeAcceptedAt = 0;   // wake re-accept debounce sıfırla (testler arası izolasyon)
   _grammarMode = false;
   _grammarHandle = null;
   // Testler enableWakeWord'ün ANINDA native akışı kurmasını bekler → kapı açık

@@ -302,6 +302,33 @@ describe('wakeWordService — companion wake akışı', () => {
     expect(M.sttCalls).toBeGreaterThanOrEqual(1);
   });
 
+  it('asistan CEVAP VERİRKEN (status success) wake yeni oturum AÇMAZ — echo self-trigger yok', async () => {
+    // SAHA 2026-07-03: cevap TTS'i hoparlörden çalarken grammar thread kendi
+    // sesini duyup yeniden tetikleniyordu → "Seni dinliyorum" + jenerik selam.
+    // KİLİT: voiceService idle değilken (burada 'success' = cevap konuşuluyor)
+    // wake tetiği YUTULUR — selamlama yok, dinleme yeniden açılmaz.
+    M.voiceStatus = 'success';
+    M.sttQueue = ['hey mavi'];
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await runOneLoopTurn();
+
+    expect(M.spoken).toHaveLength(0);                   // "Seni dinliyorum" tekrarı YOK
+    expect(M.startListening).not.toHaveBeenCalled();    // sohbet kesilmedi
+  });
+
+  it('debounce: kabul edilen wake\'ten hemen sonra ikinci tetik (echo) YUTULUR', async () => {
+    M.grammarAvailable = true;
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    M.wakeHandler!({ transcript: 'hey mavi' });          // 1. tetik kabul → selamlama
+    await vi.advanceTimersByTimeAsync(5);
+    expect(M.spoken).toHaveLength(1);
+
+    M.wakeHandler!({ transcript: 'hey mavi' });          // hemen 2. tetik (echo) → yut
+    await vi.advanceTimersByTimeAsync(5);
+    expect(M.spoken).toHaveLength(1);                   // çift selam YOK
+  });
+
   it('legacy ("hey car") davranışı korunur: selamlamasız doğrudan dinleme', async () => {
     M.sttQueue = ['hey car aç'];
     enableWakeWord('hey car');                          // companion DEĞİL
