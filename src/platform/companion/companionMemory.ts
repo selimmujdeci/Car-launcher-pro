@@ -101,17 +101,19 @@ export function forgetFact(query: string): string | 'all' | null {
   if (facts.length === 0) return null;
   // En iyi eşleşme: query fact içinde ya da fact query içinde geçiyorsa; yoksa
   // en fazla ortak kelimeli fact. Sıfır örtüşmede silme (yanlış fact silinmesin).
-  let best: { idx: number; score: number } | null = null;
+  // Primitive index takibi (closure-narrowing tuzağından kaçınır).
   const qWords = q.split(' ').filter((w) => w.length > 1);
-  facts.forEach((f, idx) => {
-    const fn = _norm(f.text);
+  let bestIdx = -1;
+  let bestScore = 0;
+  for (let idx = 0; idx < facts.length; idx++) {
+    const fn = _norm(facts[idx].text);
     let score = 0;
     if (fn.includes(q) || q.includes(fn)) score = 100;
     else score = qWords.filter((w) => fn.includes(w)).length;
-    if (score > 0 && (!best || score > best.score)) best = { idx, score };
-  });
-  if (!best) return null;
-  const [removed] = facts.splice(best.idx, 1);
+    if (score > 0 && score > bestScore) { bestScore = score; bestIdx = idx; }
+  }
+  if (bestIdx < 0) return null;
+  const [removed] = facts.splice(bestIdx, 1);
   _save();
   return removed.text;
 }
