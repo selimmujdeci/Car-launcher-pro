@@ -772,6 +772,32 @@ describe('Groq — companion sohbet ve beyin desteği', () => {
     }
   });
 
+  it('Groq birincil + searchKey (Gemini arama) → Groq type:"web" grounding\'i Gemini google_search\'e devreder', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      // 1) Groq beyin: internet gerekiyor (searchKey varken web üretmesine izin var)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ type: 'web', query: 'güncel dolar kuru' }) } }] }) })
+      // 2) Gemini grounded cevap (google_search) — arama Gemini'ye devredildi
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: 'Dolar bugün 32 lira civarında.' }] } }] }) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('dolar kaç para', {
+      hasNet: true,
+      searchKey: 'AIzaSearchKey',
+      chain: [{ provider: 'groq' as const, apiKey: 'gsk_testkey' }],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [groqUrl] = fetchSpy.mock.calls[0] as [string];
+    const [gemUrl]  = fetchSpy.mock.calls[1] as [string];
+    expect(groqUrl).toContain('api.groq.com');
+    expect(gemUrl).toContain('generativelanguage.googleapis.com'); // Gemini yalnız arama motoru
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.response).toContain('Dolar');
+      expect(r.route).toBe('companion_groq'); // asistan Groq, arama Gemini
+    }
+  });
+
   it('Groq 429 → soğuma penceresi: ikinci çağrıda Groq denenmez', async () => {
     setupCompanion(true);
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });

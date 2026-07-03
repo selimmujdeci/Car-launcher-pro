@@ -614,10 +614,20 @@ let _pendingAt  = 0;
 async function _resolveAiKeys(): Promise<{
   provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string;
   /**
-   * HİBRİT BEYİN ZİNCİRİ (SIRA SABİT): Gemini → Groq → Haiku. Yalnız anahtarı
-   * GİRİLMİŞ sağlayıcılar zincire girer (sıra bu üçlüde her zaman sabittir —
-   * settings.aiVoiceProvider'daki eski "seçili sağlayıcı" kavramı artık yalnız
-   * geriye-uyum `provider` alanı için kullanılır, zinciri etkilemez).
+   * Gemini = ARAMA MOTORU anahtarı. Sohbet zincirinde olsun olmasın, web/güncel
+   * bilgi sorgularının grounding'i (google_search) HER ZAMAN bu anahtarla yapılır.
+   * Groq/Haiku tek başına internete bakamaz → web kararlarını Gemini'ye devreder.
+   * Boşsa (Gemini anahtarı yok) canlı arama yapılamaz (hava yine yerelden gelir).
+   */
+  searchKey: string;
+  /**
+   * SOHBET BEYNİ ZİNCİRİ — DİNAMİK (kullanıcı isteği 2026-07-03):
+   *  • Groq VARSA → Groq birincil sohbet beyni; Gemini sohbet zincirine GİRMEZ,
+   *    yalnız arama motoru olur (sınırlı Gemini kotası aramaya saklanır). Haiku
+   *    yedek; Gemini en sona EMNİYET olarak eklenir (Groq+Haiku ikisi de düşerse
+   *    asistan offline'a düşmesin — normalde tetiklenmez, kota yakmaz).
+   *  • Groq YOKSA → Gemini hem sohbet hem arama (birincil), Haiku yedek.
+   * Yalnız anahtarı GİRİLMİŞ sağlayıcılar zincire girer.
    */
   chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
 }> {
@@ -633,6 +643,7 @@ async function _resolveAiKeys(): Promise<{
   } catch { /* bozuk JSON → AI katmanı yok sayılır */ }
   let apiKey = '';
   let tavilyKey = '';
+  let searchKey = '';
   const chain: { provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }[] = [];
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
@@ -647,22 +658,28 @@ async function _resolveAiKeys(): Promise<{
       provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
     );
     tavilyKey = (tavily ?? '').trim();
-    // Zincir SIRA SABİT kurulur — settings'teki eski tekli-seçim yoksayılır;
-    // Ayarlar sayfası artık üç anahtarı da aynı anda gösterir/kaydeder (3 numaralı
-    // görev), hangileri doluysa hepsi hibrit beyne katılır.
     const resolvedGemini = resolveApiKey('gemini', geminiKey);
     const resolvedGroq   = resolveApiKey('groq', groqKey);
     const resolvedHaiku  = resolveApiKey('haiku', haikuKey);
-    if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
-    if (resolvedGroq)   chain.push({ provider: 'groq',   apiKey: resolvedGroq });
-    if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
+    // Gemini = arama motoru anahtarı (sohbet zincirinde olsun olmasın grounding onunla).
+    searchKey = resolvedGemini;
+    // DİNAMİK zincir: Groq varsa Groq birincil sohbet beyni, Gemini yalnız arama
+    // (en sona emniyet); Groq yoksa Gemini hem sohbet hem arama. (bkz. dönüş tipi doc.)
+    if (resolvedGroq) {
+      chain.push({ provider: 'groq', apiKey: resolvedGroq });
+      if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
+      if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini }); // emniyet — son halka
+    } else {
+      if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
+      if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
+    }
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
   // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
   const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
-  return { provider, apiKey, hasNet, tavilyKey, chain };
+  return { provider, apiKey, hasNet, tavilyKey, searchKey, chain };
 }
 
 /* ── ASR müzik sorgu onarımı ─────────────────────────────────
@@ -812,7 +829,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   }
 
   // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
-  const { provider, apiKey, hasNet, tavilyKey, chain } = await _resolveAiKeys();
+  const { provider, apiKey, hasNet, tavilyKey, searchKey, chain } = await _resolveAiKeys();
 
   // Online beyin (companionChatProvider) hibrit zinciri destekler: Gemini →
   // Groq → Haiku (yalnız anahtarı girilmiş sağlayıcılar zincire girer).
@@ -871,6 +888,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
       apiKey,
       hasNet,
       tavilyKey,
+      searchKey,
       chain,
       timeoutMs: ctx?.isDriving ? BRAIN_TIMEOUT_DRIVING_MS : BRAIN_TIMEOUT_PARKED_MS,
     });

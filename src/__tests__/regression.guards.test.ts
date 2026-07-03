@@ -621,12 +621,26 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
   });
 
-  it('YAPISAL: voiceService hibrit zinciri SIRA SABİT kurar (gemini → groq → haiku) ve beyne iletir', () => {
+  it('YAPISAL: voiceService DİNAMİK zincir — Groq varsa Groq birincil + Gemini yalnız arama; Groq yoksa Gemini birincil', () => {
     const src = read('src/platform/voiceService.ts');
-    expect(src).toMatch(/if \(resolvedGemini\) chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\);/);
-    expect(src).toMatch(/if \(resolvedGroq\)\s+chain\.push\(\{ provider: 'groq',\s+apiKey: resolvedGroq \}\);/);
-    expect(src).toMatch(/if \(resolvedHaiku\)\s+chain\.push\(\{ provider: 'haiku',\s+apiKey: resolvedHaiku \}\);/);
+    // Gemini = arama motoru anahtarı (sohbet zincirinde olsun olmasın grounding onunla)
+    expect(src).toMatch(/searchKey = resolvedGemini;/);
+    // Groq VARSA: Groq önce, Haiku yedek, Gemini EN SONA emniyet (sohbet zincirine
+    // birincil olarak GİRMEZ — sınırlı Gemini kotası aramaya saklanır).
+    expect(src).toMatch(/if \(resolvedGroq\)\s*\{/);
+    expect(src).toMatch(/chain\.push\(\{ provider: 'groq', apiKey: resolvedGroq \}\);/);
+    expect(src).toMatch(/chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\); \/\/ emniyet/);
+    // searchKey beyne iletilir (Groq/Haiku web kararı Gemini google_search'e devreder)
+    expect(src).toMatch(/searchKey,\s*\n\s*chain,/);
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
+  });
+
+  it('YAPISAL: Groq/Haiku web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
+    const src = read('src/platform/companion/companionChatProvider.ts');
+    // searchKey opsiyonu + "önce Gemini google_search, yoksa Tavily" sırası
+    expect(src).toMatch(/searchKey\?:\s*string/);
+    // hem Groq hem Haiku dalında hasGeminiSearch → askGroundedGemini(parsed.query, searchKey
+    expect((src.match(/await askGroundedGemini\(parsed\.query, searchKey as string/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   it('YAPISAL: "hava durumu" yerel bypass — beyne (Gemini/Groq/Haiku) GİTMEDEN yerelde cevaplanır', () => {

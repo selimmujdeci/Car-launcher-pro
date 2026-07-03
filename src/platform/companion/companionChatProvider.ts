@@ -57,6 +57,14 @@ export interface CompanionChatOpts {
    *  Varsa Groq/Haiku da haber/döviz/canlı bilgi sorularını arayıp yanıtlar. */
   tavilyKey?: string;
   /**
+   * Gemini ARAMA MOTORU anahtarı (opsiyonel). Groq/Haiku birincil beyinken bile
+   * web/güncel bilgi sorguları HER ZAMAN Gemini google_search ile yanıtlanır —
+   * yani "Groq asistan, Gemini yalnız arama" düzeni. Varsa Groq/Haiku type:"web"
+   * üretebilir ve grounding Gemini'ye devredilir (Tavily'den ÖNCE denenir).
+   * Boşsa eski davranış: Groq/Haiku canlı bilgi arayamaz (dürüst fallback).
+   */
+  searchKey?: string;
+  /**
    * HİBRİT BEYİN ZİNCİRİ (SIRA SABİT): tryCompanionBrain adayları bu sırayla
    * dener — biri kota/hata/429 verirse (veya Gemini soğuma penceresindeyse)
    * sıradaki devreye girer. Yalnız anahtarı GİRİLMİŞ sağlayıcılar zincire girer
@@ -418,10 +426,14 @@ async function askCompanionBrainGroq(
   isDriving: boolean,
   timeoutMs?: number,
   tavilyKey?: string,
+  searchKey?: string,
 ): Promise<CompanionBrainResult | null> {
-  // Tavily anahtarı varsa Groq da internet arayabilir → type:"web" kararına izin ver.
+  // Groq tek başına internete bakamaz. Arama motoru olarak Gemini (searchKey) VEYA
+  // Tavily varsa type:"web" kararına izin ver (grounding aşağıda devredilir).
   // Yoksa eski davranış: type:"web" sohbete çevrilir (canlı bilgi yok).
-  const canGround = !!tavilyKey && tavilyKey.trim().length > 8;
+  const hasGeminiSearch = !!searchKey && searchKey.trim().length > 8;
+  const hasTavily       = !!tavilyKey && tavilyKey.trim().length > 8;
+  const canGround = hasGeminiSearch || hasTavily;
   const decisionMs = Math.min(timeoutMs ?? GROQ_COMPANION_TIMEOUT_MS, GROQ_COMPANION_TIMEOUT_MS);
   const body = {
     model:           GROQ_COMPANION_MODEL,
@@ -456,17 +468,24 @@ async function askCompanionBrainGroq(
   // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
   const parsed = parseBrainJson(raw);
   if (parsed && parsed.kind === 'web') {
-    // Hava sorgusu mu? → Tavily/AI harcamadan ÖNCE yerel hava servisi denenir
+    // Hava sorgusu mu? → arama harcamadan ÖNCE yerel hava servisi denenir
     // (Groq'un "canlı bilgilere bakamıyorum" demesi böyle önlenir — hava zaten
     // cihazda gerçek veri olarak var).
     const localWeather = await tryLocalWeatherAnswer(parsed.query);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_groq' };
-    // İNTERNET kararı. Tavily anahtarı varsa gerçekten ara + Groq ile Türkçe yanıt
-    // sentezle; yoksa dürüst fallback.
-    if (canGround) {
+    // İNTERNET kararı → ÖNCE Gemini google_search (arama motoru), yoksa Tavily.
+    // "Groq asistan, Gemini yalnız arama" düzeni: canlı bilgi Gemini'ye devredilir.
+    if (hasGeminiSearch) {
+      const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
+      if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
+    }
+    if (hasTavily) {
       const grounded = await groundGroqWithTavily(parsed.query, text, apiKey, id, isDriving, tavilyKey as string);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
-      // arama boş/başarısız → dürüst söyle
+      return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
+    }
+    if (hasGeminiSearch) {
+      // Gemini araması boş/başarısız döndü (ör. kota) → dürüst söyle.
       return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
     }
     const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
@@ -492,8 +511,9 @@ async function tryGroqBrainAndRecord(
   isDriving: boolean,
   timeoutMs?: number,
   tavilyKey?: string,
+  searchKey?: string,
 ): Promise<CompanionBrainResult | null> {
-  const result = await askCompanionBrainGroq(text, apiKey, id, isDriving, timeoutMs, tavilyKey);
+  const result = await askCompanionBrainGroq(text, apiKey, id, isDriving, timeoutMs, tavilyKey, searchKey);
   if (!result) return null;
   recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
   pushHistory('user', text);
@@ -575,10 +595,14 @@ async function askCompanionBrainHaiku(
   isDriving: boolean,
   timeoutMs?: number,
   tavilyKey?: string,
+  searchKey?: string,
 ): Promise<CompanionBrainResult | null> {
-  // Haiku da Groq gibi kendi başına canlı internete erişemez; Tavily anahtarı
-  // varsa aynı sentezleme yoluyla internet sorularını yanıtlar (yoksa dürüst fallback).
-  const canGround = !!tavilyKey && tavilyKey.trim().length > 8;
+  // Haiku da Groq gibi kendi başına canlı internete erişemez. Arama motoru olarak
+  // Gemini (searchKey) VEYA Tavily varsa type:"web" üretebilir; grounding aşağıda
+  // önce Gemini google_search'e devredilir (yoksa dürüst fallback).
+  const hasGeminiSearch = !!searchKey && searchKey.trim().length > 8;
+  const hasTavily       = !!tavilyKey && tavilyKey.trim().length > 8;
+  const canGround = hasGeminiSearch || hasTavily;
   const decisionMs = Math.min(timeoutMs ?? HAIKU_COMPANION_TIMEOUT_MS, HAIKU_COMPANION_TIMEOUT_MS);
   const body = {
     model:      HAIKU_COMPANION_MODEL,
@@ -608,12 +632,20 @@ async function askCompanionBrainHaiku(
   const raw  = (data.content?.find((c) => c.type === 'text')?.text ?? '').trim();
   const parsed = parseBrainJson(raw);
   if (parsed && parsed.kind === 'web') {
-    // Hava sorgusu mu? → yerel hava servisi Tavily'den ÖNCE denenir (bkz. Groq).
+    // Hava sorgusu mu? → yerel hava servisi aramadan ÖNCE denenir (bkz. Groq).
     const localWeather = await tryLocalWeatherAnswer(parsed.query);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_haiku' };
-    if (canGround) {
+    // İNTERNET → ÖNCE Gemini google_search (arama motoru), yoksa Tavily.
+    if (hasGeminiSearch) {
+      const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
+      if (grounded) return { kind: 'chat', response: grounded, route: 'companion_haiku' };
+    }
+    if (hasTavily) {
       const grounded = await groundHaikuWithTavily(parsed.query, text, apiKey, id, isDriving, tavilyKey as string);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_haiku' };
+      return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_haiku' };
+    }
+    if (hasGeminiSearch) {
       return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_haiku' };
     }
     const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
@@ -636,8 +668,9 @@ async function tryHaikuBrainAndRecord(
   isDriving: boolean,
   timeoutMs?: number,
   tavilyKey?: string,
+  searchKey?: string,
 ): Promise<CompanionBrainResult | null> {
-  const result = await askCompanionBrainHaiku(text, apiKey, id, isDriving, timeoutMs, tavilyKey);
+  const result = await askCompanionBrainHaiku(text, apiKey, id, isDriving, timeoutMs, tavilyKey, searchKey);
   if (!result) return null;
   recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
   pushHistory('user', text);
@@ -1117,14 +1150,14 @@ export async function tryCompanionBrain(
         }
 
         if (cand.provider === 'groq') {
-          const result = await tryGroqBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+          const result = await tryGroqBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
           if (result) return result;
           sawFailure = true;
           continue;
         }
 
         // cand.provider === 'haiku' — zincirin son halkası
-        const result = await tryHaikuBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+        const result = await tryHaikuBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
         if (result) return result;
         sawFailure = true;
       } catch { sawFailure = true; /* bu adayda ağ hatası — sıradakine geç */ }
