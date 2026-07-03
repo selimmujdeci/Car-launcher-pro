@@ -9,7 +9,11 @@ const config: CapacitorConfig = {
   appName: 'Caros Pro',
   webDir: 'dist',
   android: {
-    allowMixedContent: true,
+    // Release'te https origin altında http kaynak yüklemeyi engelle (güvenlik
+    // sertleştirme). Uygulama WebView'i prod'da hiçbir http:// kaynağı yüklemiyor
+    // (harita tile'ları local asset, hava/Nominatim https; yolcu paneli http
+    // linki AYRI cihazın tarayıcısında açılır, bu WebView'de değil).
+    allowMixedContent: isDev,
     captureInput: true,
     webContentsDebuggingEnabled: isDev,
     backgroundColor: '#060d1a',
