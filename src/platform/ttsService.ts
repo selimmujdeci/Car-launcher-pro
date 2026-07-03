@@ -104,6 +104,18 @@ let _lastSpokenText = '';
 let _lastSpokenAt   = 0;
 const MIN_REPEAT_MS = 3_000;
 
+/** speakFeedback dedupe (premium yola devredildi → ttsSpeak dedupe'undan bağımsız). */
+let _lastFeedbackText = '';
+let _lastFeedbackAt   = 0;
+
+/**
+ * Asistan/geri bildirim seslendirme "nesli" — premium hibrit zincirde (Edge→online→
+ * tarayıcı) daha yeni bir çağrı başladığında ESKİ çağrının alt yedeğe (erkek tarayıcı
+ * sesi) DÜŞMESİNİ engeller. speakEdge supersede'de false döner; guard olmadan eski
+ * çağrı online/tarayıcı yedeğine kaçıp erkek sesle çakışırdı.
+ */
+let _assistantGen = 0;
+
 /** Aktif bir duckMedia çağrısı var mı — çakışan duck çağrısını önler */
 let _ttsDucking = false;
 
@@ -339,10 +351,18 @@ export function speakSafetyAlert(message: string): void {
 
 /* ── Semantic helpers ────────────────────────────────────── */
 
-/** Sesli komut tanındığında geri bildirim sesi */
+/** Sesli komut tanındığında geri bildirim sesi.
+ *  ÖNEMLİ: premium KADIN hibrit zincirine (klip→Edge→online→son çare tarayıcı)
+ *  yönlendirilir — doğrudan tarayıcı `speechSynthesis` KULLANILMAZ; çünkü tarayıcı
+ *  Türkçe sesi (Windows'ta "Tolga") ERKEK ve asistan sesiyle (Edge kadın) tutarsız
+ *  olur. Online'da hep kadın; yalnız tam offline'da tarayıcı/eSpeak yedeği. */
 export function speakFeedback(feedback: string): void {
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
-  ttsSpeak(feedback, { rate: 1.05 });
+  const now = Date.now();
+  if (feedback === _lastFeedbackText && now - _lastFeedbackAt < MIN_REPEAT_MS) return; // dedupe
+  _lastFeedbackText = feedback;
+  _lastFeedbackAt   = now;
+  speakAssistant(feedback);
 }
 
 /**
@@ -365,13 +385,16 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
   cancelClip(); cancelEdge(); cancelOnline();
   _speakSeq++;
+  const gen = ++_assistantGen; // bu cevabın nesli — supersede'de yedeğe düşmeyi engeller
 
   // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)
   if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) return;
 
-  // Hibrit ses zinciri: 2) Edge (premium TR, kotasız) → 3) Gemini TTS (kotalı)
-  //   → 4) native eSpeak yedek. Gemini kotası bitince (saha 2026-07-03) Edge
-  // premium sesi sürdürür; ikisi de düşerse asla sessiz kalmaz (eSpeak).
+  // Hibrit ses zinciri: 2) Edge (premium TR KADIN, kotasız) → 3) Gemini TTS (kotalı)
+  //   → 4) native/tarayıcı eSpeak yedek. Gemini kotası bitince (saha 2026-07-03) Edge
+  // premium sesi sürdürür; ikisi de düşerse asla sessiz kalmaz.
+  // gen guard: daha yeni bir cevap başladıysa (supersede) alt tiere DÜŞME — aksi
+  // halde eski çağrı erkek tarayıcı sesine kaçıp yeni cevapla çakışırdı.
   void (async () => {
     try {
       if (isEdgeTtsAvailable()) {
@@ -379,12 +402,14 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
         if (ok) return;
       }
     } catch { /* Edge yolu kırılırsa Gemini'ye düş */ }
+    if (gen !== _assistantGen) return; // yeni cevap devraldı → yedeğe düşme
     try {
       if (await isOnlineTtsAvailable()) {
         const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); });
         if (ok) return;
       }
     } catch { /* online yolu kırılırsa sessizce yedeğe düş */ }
+    if (gen !== _assistantGen) return; // yeni cevap devraldı → tarayıcıya (erkek) düşme
     ttsSpeak(t, { onEnd });
   })();
 }
@@ -430,10 +455,11 @@ export function speakNavigation(instruction: string): void {
   ttsSpeak(text, { rate: 0.92, queue: false });
 }
 
-/** Uyarı / hata mesajı — biraz yüksek pitch ile dikkat çeker */
+/** Uyarı / hata mesajı ("Anlayamadım" vb.) — asistan sesiyle TUTARLI kadın ses
+ *  (premium hibrit). Eskiden tarayıcı erkek sesiyle yüksek pitch'te çıkıyordu. */
 export function speakAlert(message: string): void {
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
-  ttsSpeak(message, { rate: 0.98, pitch: 1.15 });
+  speakAssistant(message);
 }
 
 /* ── T-12: Donanım komut geri bildirimleri ──────────────── */
