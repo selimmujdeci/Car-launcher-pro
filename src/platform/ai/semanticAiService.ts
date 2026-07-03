@@ -44,6 +44,7 @@ export interface SemanticResult {
   settingKind?:   string;      // 'bool' | 'enum' | 'number' | 'openTab'
   settingAction?: string;      // 'on' | 'off' | 'inc' | 'dec' | 'set' | 'toggle' | 'open'
   settingValue?:  string;      // enum değeri ya da number (yüzde)
+  appName?:     string;        // OPEN_APP: açılacak uygulamanın serbest adı
   feedback:     string;        // ≤8 kelime Türkçe
   confidence:   number;        // 0–1
   source:       'edge_fn' | 'direct_ai' | 'offline';
@@ -57,7 +58,7 @@ const VALID_INTENTS = new Set<string>([
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
-  'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
+  'OPEN_PHONE', 'OPEN_APP', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
   'ENABLE_NIGHT_MODE', 'SET_THEME', 'ENABLE_DRIVING_MODE',
   'TOGGLE_SLEEP_MODE', 'SHOW_WEATHER',
   'CHECK_VEHICLE_HEALTH', 'CLEAR_DTC_CODES', 'CHECK_MAINTENANCE',
@@ -141,6 +142,7 @@ function parseSemanticJson(raw: string): SemanticResult | null {
       category,
       query:        typeof obj['query']       === 'string' ? obj['query']       : undefined,
       destination:  typeof obj['destination'] === 'string' ? obj['destination'] : undefined,
+      appName:      typeof obj['appName']     === 'string' ? obj['appName']     : undefined,
       feedback:     typeof obj['feedback']    === 'string' ? obj['feedback']    : 'Anlaşıldı',
       confidence:   typeof obj['confidence']  === 'number' ? obj['confidence']  : 0.7,
       source:       'direct_ai',

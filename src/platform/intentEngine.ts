@@ -20,6 +20,7 @@
  */
 import type { ParsedCommand, CommandType } from './commandParser';
 import type { CommandResult } from './bridge';
+import { resolveAppByName } from './appRegistry';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -35,6 +36,7 @@ export type IntentType =
   | 'PLAY_MUSIC_QUERY'
   | 'ADD_MUSIC_FAVORITE'
   | 'OPEN_PHONE'
+  | 'OPEN_APP'            // Genel uygulama açma (isimle): kamera, radyo, WhatsApp…
   | 'OPEN_SETTINGS'
   | 'PLAY_MEDIA'
   | 'PAUSE_MEDIA'
@@ -73,6 +75,7 @@ export type IntentType =
 
 export interface IntentPayload {
   targetApp?:   string;   // app ID to launch (maps, spotify, phone …)
+  appName?:     string;   // OPEN_APP: serbest/sesli uygulama adı ("kamera", "radyo")
   destination?: string;   // navigation destination hint (e.g. "home")
   mode?:        string;   // theme or driving mode value
   sourceText?:  string;   // original user input — for logging / feedback
@@ -352,6 +355,12 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       if (appId) ctx.launch(appId);
       break;
     }
+    case 'OPEN_APP': {
+      // Genel uygulama açma: serbest adı yüklü uygulamaya çöz → launch.
+      const app = intent.payload.appName ? resolveAppByName(intent.payload.appName) : null;
+      if (app) ctx.launch(app.id);
+      break;
+    }
     case 'NAVIGATE_ADDRESS':
     case 'NAVIGATE_PLACE': {
       const query = intent.payload.destination ?? intent.payload.sourceText ?? '';
@@ -490,7 +499,7 @@ const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
-  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_SETTINGS',
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
   'SET_THEME', 'CYCLE_THEME', 'SET_SETTING', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
@@ -534,6 +543,9 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
     payload.settingKind   = result.settingKind;
     payload.settingAction = result.settingAction;
     payload.settingValue  = result.settingValue;
+  } else if (intentType === 'OPEN_APP') {
+    // Genel uygulama açma — serbest ad (isim çözümü executor/dispatch'te yapılır).
+    payload.appName = result.appName ?? result.query;
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';

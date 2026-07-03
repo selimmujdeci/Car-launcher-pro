@@ -805,6 +805,10 @@ const BRAIN_INTENTS = new Set<string>([
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'SHOW_WEATHER',
+  // SAHA 2026-07-03: "kamerayı aç", "radyoyu aç", "whatsapp aç" gibi GENEL uygulama
+  // açma beyinde YOKTU → beyin sahte "açıyorum" deyip iş yapmıyordu. OPEN_APP eklendi
+  // (appName ile herhangi bir yüklü uygulama; resolveAppByName isimle çözer).
+  'OPEN_APP',
   'CHECK_VEHICLE_HEALTH', 'CHECK_MAINTENANCE',
   // Tema/görünüm (saha 2026-06-11: ASR bozuk "tema değiştir" yerel parser'ı
   // kaçırınca beyin devralabilmeli — eskiden listede yoktu, sohbete düşüyordu)
@@ -889,6 +893,9 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'Müzik istekleri ("X\'ten müzik aç", "X çal", "X dinleyelim") → PLAY_MUSIC_SEARCH + query=DÜZELTİLMİŞ sanatçı/şarkı adı.',
     'Yer/mekan aramaları → SEARCH_POI + category + query. Adres/yere gitme → NAVIGATE_ADDRESS + destination.',
     'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
+    // ── GENEL UYGULAMA AÇMA (OPEN_APP) ──
+    'Bir uygulamayı açma ("X\'i aç", "X uygulamasını aç", "X\'i başlat") → OPEN_APP + appName=YALNIZ uygulamanın adı (fiil/ek yok, sadece ad: "kamera", "radyo", "whatsapp", "youtube", "hesap makinesi", "galeri").',
+    'AMA şu özel durumlarda OPEN_APP KULLANMA, özel intent kullan: telefon/arama → OPEN_PHONE; müzik/çalar → OPEN_MUSIC; harita/navigasyon/trafik → OPEN_NAVIGATION; ayarlar → OPEN_SETTINGS. Bunların DIŞINDAKİ her uygulama adı için OPEN_APP.',
     'Şive/sokak ağzı komutları da KOMUTTUR ("klimayı birez kıs kurban" gibi) — niyete odaklan, sohbete düşürme.',
     // ── AYAR KOMUTLARI (SET_SETTING) — parlaklık/wifi/bluetooth/ses ──
     'AYAR değiştirme → SET_SETTING + şu alanlar: settingKey ("brightness"|"wifi"|"bluetooth"|"volume"), settingKind ("number"|"bool"), settingAction ("inc"|"dec"|"on"|"off"|"toggle"|"set"), settingValue (opsiyonel, yüzde/enum).',
@@ -929,6 +936,10 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"ekran parlaklığını aç" → {"type":"action","intent":"SET_SETTING","settingKey":"brightness","settingKind":"number","settingAction":"inc","feedback":"Parlaklık artırılıyor","confidence":0.9}',
     '"parlaklığı kıs" → {"type":"action","intent":"SET_SETTING","settingKey":"brightness","settingKind":"number","settingAction":"dec","feedback":"Parlaklık azaltılıyor","confidence":0.9}',
     '"trafik panelini aç" → {"type":"action","intent":"OPEN_NAVIGATION","feedback":"Harita açılıyor","confidence":0.9}',
+    '"kamerayı aç" → {"type":"action","intent":"OPEN_APP","appName":"kamera","feedback":"Kamera açılıyor","confidence":0.92}',
+    '"radyoyu açar mısın" → {"type":"action","intent":"OPEN_APP","appName":"radyo","feedback":"Radyo açılıyor","confidence":0.9}',
+    '"whatsapp\'ı aç" → {"type":"action","intent":"OPEN_APP","appName":"whatsapp","feedback":"WhatsApp açılıyor","confidence":0.92}',
+    '"hesap makinesini aç" → {"type":"action","intent":"OPEN_APP","appName":"hesap makinesi","feedback":"Hesap makinesi açılıyor","confidence":0.9}',
     '"wifiyi kapat" → {"type":"action","intent":"SET_SETTING","settingKey":"wifi","settingKind":"bool","settingAction":"off","feedback":"Wi-Fi kapatılıyor","confidence":0.9}',
     '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
     '"bir fıkra anlat" → {"type":"chat","say":"Temel vapurda..."} (gerçek, başı-sonu olan kısa bir fıkra)',
@@ -954,6 +965,7 @@ interface BrainJson {
   settingKind?:   string;
   settingAction?: string;
   settingValue?:  string;
+  appName?:     string;
   feedback?:    string;
   confidence?:  number;
   say?:         string;
@@ -983,6 +995,8 @@ function parseBrainJson(raw: string): BrainRaw | null {
           settingKind:   typeof obj.settingKind === 'string' ? obj.settingKind : undefined,
           settingAction: typeof obj.settingAction === 'string' ? obj.settingAction : undefined,
           settingValue:  typeof obj.settingValue === 'string' ? obj.settingValue : undefined,
+          // OPEN_APP — açılacak uygulamanın serbest adı ("kamera", "radyo", "whatsapp").
+          appName:     typeof obj.appName === 'string' ? obj.appName : undefined,
           feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
           confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
           source:      'direct_ai',

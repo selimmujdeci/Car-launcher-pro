@@ -25,6 +25,7 @@ import { openInApp } from './inAppBrowser';
 import { applyLiveStyle } from './liveStyleEngine';
 import { getWeatherNarrative } from './weatherService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { resolveAppByName } from './appRegistry';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -325,6 +326,19 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         if (appId) {
           ctx.launch(appId);
           _speak('Son uygulama açılıyor', isDriving);
+        }
+        break;
+      }
+      case 'OPEN_APP': {
+        // Genel uygulama açma: beynin verdiği serbest adı yüklü uygulamaya çöz.
+        // Bulunamazsa SAHTE ONAY YOK — dürüstçe "bulamadım" der (CLAUDE.md kuralı).
+        const name = (intent.payload.appName ?? '').trim();
+        const app  = name ? resolveAppByName(name) : null;
+        if (app) {
+          ctx.launch(app.id);
+          _speak(`${app.name} açılıyor`, isDriving);
+        } else {
+          _speak(name ? `${name} uygulamasını bulamadım` : 'Hangi uygulamayı açayım?', isDriving);
         }
         break;
       }

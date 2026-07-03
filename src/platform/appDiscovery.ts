@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { CarLauncher, type NativeApp } from './nativePlugin';
 import { ALL_APPS, type AppItem, type AppCategory } from '../data/apps';
 import { isNative } from './bridge';
+import { setAppIndex } from './appRegistry';
 
 /** requestIdleCallback yoksa (Safari <16) setTimeout(0) ile fallback */
 const _rIdle: (fn: () => void) => void =
@@ -177,6 +178,10 @@ export function useApps(): AppDiscoveryResult {
   const mergedMap = useMemo(() => {
     return Object.fromEntries(mergedApps.map(a => [a.id, a]));
   }, [mergedApps]);
+
+  // Sesli "X uygulamasını aç" çözümleyicisine güncel listeyi yayınla (React'siz
+  // resolveAppByName bu anlık görüntüyü okur). Liste her değiştiğinde tazelenir.
+  useEffect(() => { setAppIndex(mergedApps); }, [mergedApps]);
 
   return { apps: mergedApps, appMap: mergedMap, loading };
 }
