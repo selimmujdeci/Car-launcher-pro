@@ -73,6 +73,7 @@ import {
   tryCompanionChat,
   tryCompanionBrain,
   repairMusicQuery,
+  _withAltHint,
   _resetCompanionChatForTest,
 } from '../platform/companion/companionChatProvider';
 import { fromSemanticResult } from '../platform/intentEngine';
@@ -362,6 +363,29 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     expect(body.contents.length).toBe(3); // user + model + yeni user
     expect(body.contents[0].role).toBe('user');
     expect(body.contents[1].role).toBe('model');
+  });
+});
+
+/* ── 3a2. n-best: STT alternatiflerini prompt'a ipucu ekleme ──── */
+
+describe('_withAltHint — n-best STT belirsizliği prompt ipucu', () => {
+  it('tek/boş alternatif → metin AYNEN (eski davranış, hint yok)', () => {
+    expect(_withAltHint('sesi aç')).toBe('sesi aç');
+    expect(_withAltHint('sesi aç', ['sesi aç'])).toBe('sesi aç');
+    expect(_withAltHint('sesi aç', [])).toBe('sesi aç');
+  });
+
+  it('birden çok alternatif → top + diğerleri ipucu olarak eklenir', () => {
+    const out = _withAltHint('sesi aç', ['sesi aç', 'sesli aç', 'sesi as']);
+    expect(out.startsWith('sesi aç')).toBe(true);   // top birincil kalır
+    expect(out).toContain('sesli aç');
+    expect(out).toContain('sesi as');
+    expect(out).toContain('alternatifler');
+  });
+
+  it('top ile aynı olan alternatifler (case-insensitive) ipuçtan elenir', () => {
+    // Yalnız top'un tekrarları varsa hint eklenmez.
+    expect(_withAltHint('Sesi Aç', ['sesi aç', 'SESI AÇ'])).toBe('Sesi Aç');
   });
 });
 

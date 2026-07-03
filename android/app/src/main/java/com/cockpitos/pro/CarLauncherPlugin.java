@@ -1331,6 +1331,7 @@ public class CarLauncherPlugin extends Plugin {
     private Model         voskModel           = null;   // bir kez yüklenir, tekrar kullanılır
     private volatile Thread voskCaptureThread = null;   // aktif dinleme thread'i (özel AudioRecord döngüsü)
     private volatile boolean voskCapturing    = false;  // capture döngüsü çalışıyor mu
+    private volatile int   voskMaxAlternatives = 1;     // n-best: >1 ise Recognizer.setMaxAlternatives (STT belirsizliğini beyin çözer)
     private boolean       voskModelLoading    = false;
     private Handler       voskTimeoutHandler  = null;
     private Runnable      voskTimeoutRunnable = null;
@@ -1424,6 +1425,14 @@ public class CarLauncherPlugin extends Plugin {
     private static final long  VOSK_MAX_LISTEN_MS_DEFAULT = 9000; // sessizlik endpoint'i daha erken çözer
     private static final long  VOSK_MAX_LISTEN_MIN_MS     = 5000;
     private static final long  VOSK_MAX_LISTEN_MAX_MS     = 20000;
+    // RMS-VAD endpoint yardımcısı — SAHA 2026-07-03: araç/yol gürültüsünde (AGC
+    // gürültüyü de yükseltir) Vosk'un kendi endpointer'ı hiç tetiklenmiyor ve
+    // oturum 9sn tavana takılıyordu ("Dinliyorum" askısı). Konuşma görüldükten
+    // sonra RMS, gürültü tabanının altına düşüp bu süre boyunca orada kalırsa
+    // beklemeden finalize edilir. Taban ilk 4 pencereden (~1sn) öğrenilir.
+    private static final long  VOSK_VAD_SILENCE_MS   = 900;
+    private static final float VOSK_VAD_MIN_THRESH   = 0.015f; // mutlak alt eşik (sessiz kabin)
+    private static final float VOSK_VAD_FLOOR_FACTOR = 2.5f;   // taban × bu = konuşma eşiği
     private volatile float voskGain        = VOSK_GAIN_DEFAULT;
     private volatile long  voskMaxListenMs = VOSK_MAX_LISTEN_MS_DEFAULT;
     // Wake word pasif döngüsü müziği KISMAMALI (sürekli %12 duck = müzik
@@ -1539,6 +1548,10 @@ public class CarLauncherPlugin extends Plugin {
                         if (matches != null && !matches.isEmpty()) {
                             JSObject r = new JSObject();
                             r.put("transcript", matches.get(0));
+                            // n-best: tüm alternatifleri JS'e ver (beyin doğru olanı seçsin).
+                            JSArray alts = new JSArray();
+                            for (String m : matches) if (m != null && !m.trim().isEmpty()) alts.put(m.trim());
+                            r.put("alternatives", alts);
                             c.resolve(r);
                         } else {
                             c.reject("Sonuç alınamadı", "NO_RESULT");
@@ -1625,6 +1638,8 @@ public class CarLauncherPlugin extends Plugin {
 
     private void startVoskRecognition(String language, int maxResults,
                                       boolean preferOffline, boolean onlineFallback) {
+        // n-best: Recognizer.setMaxAlternatives için (runVoskListening argümansız çağrılıyor).
+        voskMaxAlternatives = Math.max(1, Math.min(5, maxResults));
         // Model yüklemesi (gerekirse) ensureVoskModel'de kuyruklanır — yükleme sürerken
         // gelen istek REDDEDİLMEZ, model hazır olunca dinleme başlar. savedSpeechCall
         // korunur; runVoskListening onu çözer.
@@ -1748,10 +1763,17 @@ public class CarLauncherPlugin extends Plugin {
                 try { if (AcousticEchoCanceler.isAvailable())  { aec = AcousticEchoCanceler.create(sid);   if (aec != null) aec.setEnabled(true); } } catch (Exception ignored) {}
 
                 recognizer = new Recognizer(voskModel, (float) VOSK_SAMPLE_RATE);
+                // n-best: >1 istenirse Vosk alternatifleri JSON'da {"alternatives":[...]} döndürür.
+                if (voskMaxAlternatives > 1) {
+                    try { recognizer.setMaxAlternatives(voskMaxAlternatives); } catch (Throwable ignored) {}
+                }
                 recorder.startRecording();
 
                 short[] buf = new short[bufBytes / 2];
                 int rmsThrottle = 0;
+                // RMS-VAD durumu (pencere ~250ms): taban öğrenimi → konuşma → sessizlik
+                double vadFloorSum = 0; int vadFloorWin = 0; double vadFloor = 0;
+                boolean vadSpeechSeen = false; long vadSilenceStart = 0;
                 while (voskCapturing && !Thread.currentThread().isInterrupted()) {
                     int n = recorder.read(buf, 0, buf.length);
                     if (n <= 0) {
@@ -1788,15 +1810,42 @@ public class CarLauncherPlugin extends Plugin {
 
                     if (recognizer.acceptWaveForm(buf, n)) {
                         // Endpoint (konuşma + sessizlik) → sonuç hazır
-                        String text = extractVoskText(recognizer.getResult());
-                        if (text != null && !text.isEmpty()) { gotResult = true; resolveVosk(text); break; }
+                        String json = recognizer.getResult();
+                        String text = extractVoskText(json);
+                        if (text != null && !text.isEmpty()) { gotResult = true; resolveVosk(text, extractVoskAlternatives(json)); break; }
+                    }
+
+                    // ── RMS-VAD endpoint yardımcısı ─────────────────────────
+                    // Vosk endpointer gürültüde tetiklenmezse: konuşma sonrası
+                    // ~900ms süren sessizlikte oturumu beklemeden finalize et.
+                    double vadRms = Math.sqrt(sumSq / n) / 32768.0;
+                    if (vadFloorWin < 4) {
+                        vadFloorSum += vadRms; vadFloorWin++;
+                        if (vadFloorWin == 4) vadFloor = vadFloorSum / 4.0;
+                    } else {
+                        double thresh = Math.max(vadFloor * VOSK_VAD_FLOOR_FACTOR, VOSK_VAD_MIN_THRESH);
+                        if (vadRms >= thresh) {
+                            vadSpeechSeen = true; vadSilenceStart = 0;
+                        } else if (vadSpeechSeen) {
+                            long nowMs = System.currentTimeMillis();
+                            if (vadSilenceStart == 0) vadSilenceStart = nowMs;
+                            else if (nowMs - vadSilenceStart >= VOSK_VAD_SILENCE_MS) {
+                                gotResult = true; // final iki kez ÇAĞRILMAZ (aşağıdaki blok atlanır)
+                                String json = recognizer.getFinalResult();
+                                String text = extractVoskText(json);
+                                if (text != null && !text.isEmpty()) resolveVosk(text, extractVoskAlternatives(json));
+                                else rejectVosk("No speech detected");
+                                break;
+                            }
+                        }
                     }
                     if (System.currentTimeMillis() - startedAt > sessionMaxMs) break;
                 }
 
                 if (!gotResult && voskCapturing) {
-                    String text = extractVoskText(recognizer.getFinalResult());
-                    if (text != null && !text.isEmpty()) resolveVosk(text);
+                    String json = recognizer.getFinalResult();
+                    String text = extractVoskText(json);
+                    if (text != null && !text.isEmpty()) resolveVosk(text, extractVoskAlternatives(json));
                     else rejectVosk("No speech detected"); // JS bunu sessizce idle eder
                 }
             } catch (Throwable th) {
@@ -1815,12 +1864,19 @@ public class CarLauncherPlugin extends Plugin {
         t.start();
     }
 
-    private void resolveVosk(String text) {
+    private void resolveVosk(String text) { resolveVosk(text, null); }
+
+    private void resolveVosk(String text, java.util.List<String> alts) {
         PluginCall c = savedSpeechCall;
         savedSpeechCall = null;
         if (c != null) {
             JSObject r = new JSObject();
             r.put("transcript", text);
+            // n-best: alternatifleri JS'e ver (beyin STT belirsizliğini çözer).
+            JSArray arr = new JSArray();
+            if (alts != null && !alts.isEmpty()) { for (String a : alts) arr.put(a); }
+            else if (text != null && !text.isEmpty()) { arr.put(text); }
+            r.put("alternatives", arr);
             c.resolve(r);
         }
         stopVosk();
@@ -1858,8 +1914,33 @@ public class CarLauncherPlugin extends Plugin {
             org.json.JSONObject o = new org.json.JSONObject(json);
             if (o.has("text"))    return o.optString("text", "").trim();
             if (o.has("partial")) return o.optString("partial", "").trim();
+            // n-best modu (setMaxAlternatives): {"alternatives":[{"text":..}]} — en iyi metin.
+            if (o.has("alternatives")) {
+                org.json.JSONArray a = o.optJSONArray("alternatives");
+                if (a != null && a.length() > 0) return a.getJSONObject(0).optString("text", "").trim();
+            }
         } catch (Exception ignored) {}
         return "";
+    }
+
+    /** n-best: Vosk final JSON'ından tüm alternatif metinleri (tekrarsız, sırayla). */
+    private java.util.List<String> extractVoskAlternatives(String json) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (json == null) return out;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            org.json.JSONArray a = o.optJSONArray("alternatives");
+            if (a != null) {
+                for (int i = 0; i < a.length(); i++) {
+                    String t = a.getJSONObject(i).optString("text", "").trim();
+                    if (!t.isEmpty() && !out.contains(t)) out.add(t);
+                }
+            } else {
+                String t = o.optString("text", "").trim();
+                if (!t.isEmpty()) out.add(t);
+            }
+        } catch (Exception ignored) {}
+        return out;
     }
 
     /* ── Faz 5: Grammar-kısıtlı wake word thread ("Native Refleksler") ────────

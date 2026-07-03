@@ -172,6 +172,11 @@ export interface WakeWordEvent {
 
 export interface SpeechRecognitionResult {
   transcript: string; // top recognition result
+  /**
+   * n-best: STT'nin ürettiği alternatif tanımalar (en olası ilk). Beyin STT
+   * belirsizliğini bunlardan seçerek çözer. Eski native / tek sonuç → [transcript].
+   */
+  alternatives?: string[];
 }
 
 /* ── Contacts types ──────────────────────────────────────── */

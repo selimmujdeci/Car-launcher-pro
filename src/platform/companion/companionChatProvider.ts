@@ -78,6 +78,26 @@ export interface CompanionChatOpts {
    * fallback zinciri zamanında devreye girer. Verilmezse GEMINI_TIMEOUT_MS.
    */
   timeoutMs?: number;
+  /**
+   * n-best: STT'nin ürettiği alternatif tanımalar (en olası ilk, `raw` ile aynı).
+   * Verilirse (>1) prompt'a "sürücü şunlardan birini dedi, en anlamlısını yorumla"
+   * diye eklenir → beyin STT belirsizliğini bağlamla çözer. Ekstra çağrı/gecikme YOK.
+   */
+  alternatives?: string[];
+}
+
+/* ── n-best: STT belirsizliğini prompt'a ipucu olarak ekle ─────
+ * Beyne gönderilen kullanıcı metnini, STT'nin ürettiği diğer alternatiflerle
+ * zenginleştirir → beyin bağlamla doğru yorumu seçer. Ekstra çağrı YOK; sadece
+ * mevcut çağrının user içeriği. Tek/boş alternatif → metin AYNEN (eski davranış). */
+export function _withAltHint(top: string, alternatives?: string[]): string {
+  if (!alternatives || alternatives.length < 2) return top;
+  const others = alternatives
+    .slice(1, 5)
+    .map((a) => (a ?? '').trim())
+    .filter((a) => a && a.toLowerCase() !== top.toLowerCase());
+  if (others.length === 0) return top;
+  return `${top}\n\n(Not: ses tanıma kesin değil; olası alternatifler: ${others.join(' / ')}. En anlamlı olanı dikkate alıp yanıtla.)`;
 }
 
 /* ── Offline kategori ipuçları (ANA YOL DEĞİL — yalnız fallback) ── */
@@ -1252,6 +1272,10 @@ export async function tryCompanionBrain(
   if (netUsable) {
     const id = resolveCompanionIdentity(settings);
     let sawFailure = false;
+    // n-best: beyne gönderilecek metin (STT alternatifleriyle zenginleştirilmiş).
+    // pushHistory/local yollar TEMİZ `trimmed` kullanmaya devam eder — yalnız
+    // sağlayıcı çağrılarının user içeriği ipuçlu olur.
+    const brainInput = _withAltHint(trimmed, opts.alternatives);
 
     for (const cand of chain) {
       // Gemini adayı soğuma penceresindeyse ATLANIR (sıradaki aday denenir) —
@@ -1268,7 +1292,7 @@ export async function tryCompanionBrain(
           // edilir — dıştaki catch yalnız TÜM zincir tükendiğinde bir kez sayar.
           let result: BrainRaw | null = null;
           try {
-            result = await askCompanionBrain(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs);
+            result = await askCompanionBrain(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs);
           } catch { result = null; /* aşağıda sıradaki aday denenecek */ }
 
           if (result) {
@@ -1320,14 +1344,14 @@ export async function tryCompanionBrain(
         }
 
         if (cand.provider === 'groq') {
-          const result = await tryGroqBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
+          const result = await tryGroqBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
           if (result) return result;
           sawFailure = true;
           continue;
         }
 
         // cand.provider === 'haiku' — zincirin son halkası
-        const result = await tryHaikuBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
+        const result = await tryHaikuBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
         if (result) return result;
         sawFailure = true;
       } catch { sawFailure = true; /* bu adayda ağ hatası — sıradakine geç */ }

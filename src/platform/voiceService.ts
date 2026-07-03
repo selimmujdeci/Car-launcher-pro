@@ -63,6 +63,8 @@ export type AIResultHandler = (result: AIVoiceResult, ctx?: VehicleContext) => v
 /* ── Module-level state ──────────────────────────────────── */
 
 const MAX_HISTORY = 5;
+/** n-best: STT'den istenen alternatif sayısı (beyin/parser doğru olanı seçer). */
+const STT_MAX_ALTERNATIVES = 4;
 const MIC_AVAILABLE = isNative || (typeof window !== 'undefined' && !!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition));
 
 const INITIAL: VoiceState = {
@@ -734,9 +736,44 @@ async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
 
 /* ── Processing ───────────────────────────────────────────── */
 
-export async function processTextCommand(text: string, ctx?: VehicleContext): Promise<boolean> {
+/* ── n-best yardımcıları ───────────────────────────────────────
+ * STT tek "en iyi tahmin"de sık yanılıyor (Vosk küçük TR modeli). Alternatifleri
+ * (a) yerel parser'da dener, en yüksek güvenli komutu seçer; (b) beyne verir,
+ * beyin bağlamla doğru yorumu seçer. Tek alternatif/eski native → eski davranış. */
+
+/** @internal — n-best: alternatif listesini temizler: top ilk, tekrarsız, max N. */
+export function _dedupeAlts(alternatives: string[] | undefined, top: string): string[] {
+  const out: string[] = [];
+  const add = (s: string): void => {
+    const t = s.trim();
+    if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  };
+  add(top);
+  if (alternatives) for (const a of alternatives) add(a);
+  return out.slice(0, STT_MAX_ALTERNATIVES);
+}
+
+/** @internal — n-best: en yüksek güvenli komutu üreten parse'ı seçer (eşitte top). */
+export function _bestLocalParse(alts: string[]): ReturnType<typeof parseCommandFull> {
+  let best = parseCommandFull(alts[0]);
+  let bestConf = best.command?.confidence ?? 0;
+  for (let i = 1; i < alts.length; i++) {
+    const r = parseCommandFull(alts[i]);
+    const c = r.command?.confidence ?? 0;
+    if (c > bestConf) { best = r; bestConf = c; }
+  }
+  return best;
+}
+
+export async function processTextCommand(
+  text: string,
+  ctx?: VehicleContext,
+  alternatives?: string[],
+): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  // n-best alternatifleri (top ilk). Metin girişinde (buton) tek eleman kalır.
+  const alts = _dedupeAlts(alternatives, trimmed);
 
   void reportVoiceDiag('voice_processing', { transcriptLength: trimmed.length });
 
@@ -813,7 +850,9 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   // BEKLENMEZ. Eskiden her komut — "müziği aç" dahil — anahtar deposu
   // gidiş-dönüşünü bekliyordu; düşük donanımda yüzlerce ms gecikme demekti.
   // Anahtarlar yalnız AI gerektiren yollarda (_resolveAiKeys) tembel çözülür.
-  const result = parseCommandFull(trimmed);
+  // n-best: alternatifler içinde en yüksek güvenli komutu seç (STT top'u yanlışsa
+  // alt sıradaki doğru komut yakalanır; tek alternatifte davranış birebir aynı).
+  const result = _bestLocalParse(alts);
 
   // ── 1. ANINDA BYPASS (Single Brain istisnası) ────────────────
   // YALNIZ kritik refleks komutları (ses aç/kıs, duraklat/dur, wifi/bluetooth
@@ -920,6 +959,8 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
       tavilyKey,
       searchKey,
       chain,
+      // n-best: STT belirsizse beyin doğru yorumu bu alternatiflerden seçer.
+      alternatives: alts.length > 1 ? alts : undefined,
       timeoutMs: ctx?.isDriving ? BRAIN_TIMEOUT_DRIVING_MS : BRAIN_TIMEOUT_PARKED_MS,
     });
     if (brain) {
@@ -1121,7 +1162,9 @@ export function startListening(opts?: StartListeningOpts): void {
         // kapatır; 90s soğuma). Böylece: internetli head unit ≈ Siri (online STT + Gemini),
         // internetsiz/sahte-online head unit → Vosk. Cihaz tier'ından BAĞIMSIZ.
         preferOffline: !(typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy()),
-        onlineFallback: true, language: 'tr-TR', maxResults: 1,
+        // n-best: STT'nin ilk birkaç alternatifini iste — beyin doğru olanı seçer
+        // (Vosk küçük TR modeli tek "en iyi"de sık yanılıyor). Wake yolu kendi path'i.
+        onlineFallback: true, language: 'tr-TR', maxResults: STT_MAX_ALTERNATIVES,
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
         // Takip dinlemesi (sohbet modu) KISA pencere kullanır — sessizlikte hızlı idle.
@@ -1139,7 +1182,7 @@ export function startListening(opts?: StartListeningOpts): void {
             void reportVoiceDiag('voice_transcript', { transcriptLength: transcript.length });
             // CarLauncher bitti → anında "işleniyor" hissi ver, ardından processTextCommand çalışır
             push({ status: 'processing', transcript });
-            void processTextCommand(transcript);
+            void processTextCommand(transcript, undefined, result.alternatives);
           } else {
             // Boş transcript: kullanıcı sessiz kaldı → sohbet döngüsü biter.
             _endConvSession();
