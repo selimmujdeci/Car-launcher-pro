@@ -210,7 +210,33 @@ const GEMINI_CHAT_ENDPOINT =
   // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest çalışıyor
   // (SAHA 2026-07-03: kullanıcı anahtarıyla canlı doğrulandı). Model tek noktadan.
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
-const GEMINI_TIMEOUT_MS = 6000;
+// SAHA 2026-07-04: gemini-flash-latest artık gemini-3.5-flash'a çözülüyor; SICAK
+// çağrı ~1-1.8sn ama DERİN SOĞUK BAŞLANGIÇ ~7sn (kullanıcı anahtarıyla ölçüldü).
+// 6sn tavan soğuk başlangıcı kesip null→REASK ("of orayı kaçırdım") üretiyordu.
+// 9sn'ye çıkarıldı; asıl çözüm warmupGemini (aşağıda) — mikrofon açılınca modeli
+// ısıtır, gerçek komut sıcak gelir. "Bir saniye..." ara sözü bekleme hissini örter.
+const GEMINI_TIMEOUT_MS = 9000;
+
+/**
+ * Gemini modelini ÖNDEN ISITIR (fire-and-forget). Mikrofon açılınca çağrılır:
+ * kullanıcı komutunu bitirene kadar model sıcak olur → gerçek beyin çağrısı
+ * soğuk-başlangıç cezası (~7sn) yerine ~1sn'de döner. Sonuç önemsiz; hata yutulur.
+ * Küçük istek (maxOutputTokens:1) → ihmal edilebilir kota.
+ */
+export async function warmupGemini(apiKey: string): Promise<void> {
+  if (!apiKey || !apiKey.trim()) return;
+  try {
+    await fetch(GEMINI_CHAT_ENDPOINT, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+      body:    JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+        generationConfig: { maxOutputTokens: 1, thinkingConfig: { thinkingBudget: 0 } },
+      }),
+      signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
+    });
+  } catch { /* ısıtma best-effort — sonuç/hata önemsiz */ }
+}
 
 /**
  * "Yol Arkadaşı" ruhu (Faz 1, 2026-06-11): Siri'den ayrışma noktaları —

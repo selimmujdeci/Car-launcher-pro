@@ -601,8 +601,13 @@ let _aiKeyHintAt = 0;
  * tutulur; PARK halinde acele yok, yavaş head-unit ağında (2.5sn) erken kesip
  * sahte fallback'e düşmek yerine 4sn'ye kadar beyni bekleriz (daha derin/doğru
  * yanıt > hız kazancı). */
-const BRAIN_TIMEOUT_DRIVING_MS = 2_500;
-const BRAIN_TIMEOUT_PARKED_MS  = 4_000;
+// SAHA 2026-07-04: gemini-flash-latest (→gemini-3.5-flash) DERİN SOĞUK BAŞLANGIÇTA
+// ~7sn dönüyor (sıcakta ~1sn). Eski 2.5/4sn bütçe soğuk başlangıcı kesip null→REASK
+// ("of orayı kaçırdım") üretiyordu — kullanıcı aralıklı konuşunca HER SEFERİNDE.
+// Bütçeler soğuk başlangıcı da yakalayacak şekilde yükseltildi; asıl çözüm
+// _warmupBrain (mikrofon açılınca ısıtma) → gerçek komut sıcak gelir.
+const BRAIN_TIMEOUT_DRIVING_MS = 4_500;
+const BRAIN_TIMEOUT_PARKED_MS  = 8_000;
 const AFFIRM_RE = /^\s*(evet|tabii|tabi|olur|tamam|aynen|onayla|onayliyorum|onaylıyorum|he|hi hi|yap|elbette|kesinlikle|dogru|doğru)\b/i;
 const NEGATE_RE = /^\s*(hayir|hayır|yok|iptal|vazgec|vazgeç|gerek yok|istemiyorum|olmaz|dur|bos ver|boş ver)\b/i;
 let _pendingCmd: ParsedCommand | null = null;
@@ -678,6 +683,28 @@ async function _resolveAiKeys(): Promise<{
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
   const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
   return { provider, apiKey, hasNet, tavilyKey, searchKey, chain };
+}
+
+/* ── Beyin ısıtma (soğuk-başlangıç cezasını gizler) ───────────
+ * Mikrofon açılınca Gemini modelini fire-and-forget ısıtır → kullanıcı komutunu
+ * bitirene kadar model sıcak olur, gerçek beyin çağrısı ~7sn soğuk yerine ~1sn'de
+ * döner (timeout aşmaz → REASK olmaz). Throttle: art arda açılışlarda kotayı ve
+ * ağı yormamak için 45sn'de bir. hasNet/anahtar yoksa sessizce atlar. */
+let _lastWarmupAt = 0;
+const WARMUP_COOLDOWN_MS = 45_000;
+
+async function _warmupBrain(): Promise<void> {
+  const now = Date.now();
+  if (now - _lastWarmupAt < WARMUP_COOLDOWN_MS) return;
+  _lastWarmupAt = now;
+  try {
+    const { chain, hasNet } = await _resolveAiKeys();
+    if (!hasNet || chain.length === 0) return;
+    const gem = chain.find((c) => c.provider === 'gemini');
+    if (!gem) return; // yalnız Gemini soğuk-başlangıç yaşıyor; Groq/Haiku ısıtma gerekmez
+    const { warmupGemini } = await import('./companion/companionChatProvider');
+    await warmupGemini(gem.apiKey);
+  } catch { /* ısıtma best-effort — komut akışını asla etkilemez */ }
 }
 
 /* ── ASR müzik sorgu onarımı ─────────────────────────────────
@@ -1037,6 +1064,10 @@ export function startListening(opts?: StartListeningOpts): void {
   // Yeni etkileşim bekleyen takipsiz-idle'ı geçersiz kılar (eski cevabın TTS
   // bitişi bu turu idle'a düşürmesin).
   _clearConvIdle();
+
+  // Beyni ÖNDEN ısıt: kullanıcı konuşurken model uyanır → gerçek komut sıcak gelir
+  // (~1sn), soğuk-başlangıç (~7sn) timeout'u aşıp REASK üretmez. Fire-and-forget.
+  void _warmupBrain();
 
   void reportVoiceDiag('voice_start');
 

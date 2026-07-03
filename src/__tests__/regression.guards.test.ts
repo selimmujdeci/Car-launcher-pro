@@ -678,8 +678,10 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
   it('YAPISAL: voiceService bağlama duyarlı beyin bütçesi — tek sabit (BRAIN_DECISION_TIMEOUT_MS) DEĞİL, sürüş/park ayrık', () => {
     const src = read('src/platform/voiceService.ts');
     expect(src).not.toMatch(/const BRAIN_DECISION_TIMEOUT_MS/);
-    expect(src).toMatch(/const BRAIN_TIMEOUT_DRIVING_MS = 2_500/);
-    expect(src).toMatch(/const BRAIN_TIMEOUT_PARKED_MS\s*=\s*4_000/);
+    // SAHA 2026-07-04: değerler yükseltildi (soğuk-başlangıç ~7sn'yi yakalasın →
+    // REASH yerine gerçek cevap). YAPISAL kilit korunur: sürüş < park, İKİSİ AYRI.
+    expect(src).toMatch(/const BRAIN_TIMEOUT_DRIVING_MS = 4_500/);
+    expect(src).toMatch(/const BRAIN_TIMEOUT_PARKED_MS\s*=\s*8_000/);
     expect(src).toMatch(/timeoutMs:\s*ctx\?\.isDriving\s*\?\s*BRAIN_TIMEOUT_DRIVING_MS\s*:\s*BRAIN_TIMEOUT_PARKED_MS/);
   });
 });
