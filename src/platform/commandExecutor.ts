@@ -28,6 +28,7 @@ import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
 import { searchContacts, recordCall } from './contactsService';
+import { addFact, forgetFact } from './companion/companionMemory';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -538,6 +539,25 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         } else {
           _error('Kapı açma başarısız: ' + (unlockResult.error ?? unlockResult.status));
         }
+        break;
+      }
+
+      /* ── Uzun-dönem kişisel hafıza ──────────────────────── */
+      case 'REMEMBER': {
+        // Kullanıcının açıkça istediği kalıcı fact'i sakla. Boş/geçersizse
+        // SAHTE ONAY YOK — dürüstçe "neyi hatırlayayım" der.
+        const fact = addFact(intent.payload.memoryText ?? '');
+        _speak(fact ? 'Tamam, aklımda tutuyorum' : 'Neyi hatırlamamı istersin?', isDriving);
+        break;
+      }
+      case 'FORGET': {
+        const removed = forgetFact(intent.payload.memoryText ?? '');
+        _speak(
+          removed === 'all' ? 'Hepsini unuttum'
+          : removed          ? 'Tamam, unuttum'
+          :                    'Öyle bir şey hatırlamıyorum zaten',
+          isDriving,
+        );
         break;
       }
 

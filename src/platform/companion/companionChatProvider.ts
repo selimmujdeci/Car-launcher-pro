@@ -31,6 +31,7 @@ import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { getTripSnapshot } from '../tripLogService';
 import { getNavigationState } from '../navigationService';
+import { buildMemoryPromptSection } from './companionMemory';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { tavilySearch } from '../webSearchService';
@@ -339,6 +340,11 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
       'Günlük sohbette araç verisinden hiç bahsetme.',
     );
   }
+  // Uzun-dönem kişisel hafıza — kullanıcının kalıcı fact'leri (varsa) enjekte
+  // edilir; buildBrainSystemPrompt bunu chatPersona olarak sardığından hem sohbet
+  // hem komut onayı bu bağlamı görür. Fact yoksa boş string (satır eklenmez).
+  const memory = buildMemoryPromptSection();
+  if (memory) lines.push(memory);
   return lines.join(' ');
 }
 
@@ -902,6 +908,9 @@ const BRAIN_INTENTS = new Set<string>([
   'SET_SETTING',
   // Yaygın istekler (VALID_INTENTS'te wired, beyinde eksikti → sohbete düşüyordu):
   'OPEN_FAVORITES', 'ENABLE_DRIVING_MODE', 'TOGGLE_SLEEP_MODE',
+  // Uzun-dönem kişisel hafıza — kullanıcı AÇIKÇA "şunu unutma / aklında tut"
+  // derse REMEMBER; "unut / hepsini unut" → FORGET (companionMemory store).
+  'REMEMBER', 'FORGET',
 ]);
 
 export interface CompanionBrainAction {
@@ -994,6 +1003,10 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'Uygulama ÖZELLİĞİ aç/kapat → SET_SETTING settingKind="bool" settingAction ("on"|"off"|"toggle") + settingKey şunlardan biri: performanceMode (performans/güç modu), offlineMap (çevrimdışı harita), autoThemeEnabled (otomatik gece-gündüz teması), autoBrightnessEnabled (otomatik parlaklık), breakReminderEnabled (mola hatırlatma), dockAutoHide (dock otomatik gizle), smartContextEnabled (akıllı bağlam), obdAutoSleep (obd uyku), autoNavOnStart (açılışta navigasyon), companionEnabled (yol arkadaşı/asistan), companionWakeWordEnabled (uyanma kelimesi/"beni dinle"), use24Hour (24 saat), showSeconds (saniye göster).',
     'Özel modlar için özel intent kullan: gece modu → ENABLE_NIGHT_MODE; uyku modu → TOGGLE_SLEEP_MODE; sürüş modu → ENABLE_DRIVING_MODE. Bunları SET_SETTING yapma.',
     'Trafik/harita/navigasyon açma ("trafik panelini aç", "haritayı aç", "trafiğe bak") → OPEN_NAVIGATION.',
+    // ── UZUN-DÖNEM KİŞİSEL HAFIZA (REMEMBER / FORGET) ──
+    'HAFIZA: kullanıcı AÇIKÇA bir şeyi hatırlamanı isterse ("şunu unutma", "aklında tut", "not al", "beni ... olarak bil", "arabam dizel", "ben hep 95 alırım") → REMEMBER + memoryText=hatırlanacak KISA fact (sade cümle, "unutma ki" gibi ekleri at). Yalnız KALICI kişisel bilgi/tercih için; geçici komutları (aç/kapat) hafızaya YAZMA.',
+    'HAFIZA SİLME: "unut", "aklından çıkar", "bunu unut", "hepsini unut", "hafızanı temizle" → FORGET + memoryText=unutulacak konu (hepsi için "hepsi").',
+    'Kullanıcı "beni tanıyor musun / ne biliyorsun / neyi hatırlıyorsun" derse → HAFIZA bağlamındaki fact\'lerden doğal biçimde type:"chat" ile cevapla (yoksa dürüstçe "henüz bir şey not etmedim" de).',
     // ── SAHTE ONAY YASAĞI (SAHA 2026-07-03 — en kritik) ──
     'ÇOK ÖNEMLİ — SAHTE ONAY YASAK: bir ARAÇ EYLEMİ (aç/kapat/ayarla/göster) istendiğinde SADECE yukarıdaki intent listesinden GERÇEK bir karşılığı varsa type:"action" döndür. Karşılığı YOKSA sakın type:"chat" ile "tamam, açıyorum / açılıyor / hallettim" gibi YAPMIŞ GİBİ cevap verme — bu KULLANICIYI KANDIRMAKTIR. Onun yerine dürüstçe söyle: type:"chat" say="Bunu şu an yapamıyorum" (kişiliğine uygun). Var olmayan bir eylemi asla onaylama.',
     '',
@@ -1035,6 +1048,10 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"hesap makinesini aç" → {"type":"action","intent":"OPEN_APP","appName":"hesap makinesi","feedback":"Hesap makinesi açılıyor","confidence":0.9}',
     '"Selim\'i ara" → {"type":"action","intent":"OPEN_PHONE","contactName":"Selim","feedback":"Selim aranıyor","confidence":0.93}',
     '"annemi telefonla ara" → {"type":"action","intent":"OPEN_PHONE","contactName":"annem","feedback":"Annem aranıyor","confidence":0.9}',
+    '"arabam dizel, unutma" → {"type":"action","intent":"REMEMBER","memoryText":"Arabası dizel","feedback":"Aklımda tuttum","confidence":0.92}',
+    '"ben hep 95 benzin alırım" → {"type":"action","intent":"REMEMBER","memoryText":"Hep 95 benzin alır","feedback":"Not ettim","confidence":0.9}',
+    '"benzin tercihimi unut" → {"type":"action","intent":"FORGET","memoryText":"benzin","feedback":"Unuttum","confidence":0.9}',
+    '"hakkımda ne biliyorsun" → {"type":"chat","say":"..."} (hafızandaki fact\'lerden doğal biçimde anlat)',
     // OPEN_SCREEN — uygulamanın iç ekranları/panelleri.
     '"trafiği aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"trafik","screenAction":"open","feedback":"Trafik paneli açılıyor","confidence":0.92}',
     '"klimayı aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"klima","screenAction":"open","feedback":"Klima açılıyor","confidence":0.9}',
@@ -1077,6 +1094,7 @@ interface BrainJson {
   screen?:      string;
   screenAction?: string;
   contactName?: string;
+  memoryText?:  string;
   feedback?:    string;
   confidence?:  number;
   say?:         string;
@@ -1113,6 +1131,8 @@ function parseBrainJson(raw: string): BrainRaw | null {
           screenAction: typeof obj.screenAction === 'string' ? obj.screenAction : undefined,
           // OPEN_PHONE — aranacak kişi adı ("Selim", "annem"); rehberde aranır.
           contactName: typeof obj.contactName === 'string' ? obj.contactName : undefined,
+          // REMEMBER/FORGET — kalıcı kişisel fact metni (companionMemory).
+          memoryText:  typeof obj.memoryText === 'string' ? obj.memoryText : undefined,
           feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
           confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
           source:      'direct_ai',

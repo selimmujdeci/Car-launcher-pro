@@ -52,3 +52,32 @@ describe('OPEN_PHONE kişi köprüsü — beyin → AppIntent', () => {
     expect(intent?.type).toBe('OPEN_PHONE');
   });
 });
+
+describe('REMEMBER/FORGET köprüsü — kişisel hafıza (#7)', () => {
+  it('REMEMBER memoryText\'i payload\'a taşır', () => {
+    const semantic: SemanticResult = {
+      intent: 'REMEMBER', memoryText: 'Arabası dizel',
+      feedback: 'Aklımda tuttum', confidence: 0.92, source: 'direct_ai',
+    };
+    const intent = fromSemanticResult(semantic, 'arabam dizel unutma');
+    expect(intent?.type).toBe('REMEMBER');
+    expect(intent?.payload.memoryText).toBe('Arabası dizel');
+  });
+
+  it('memoryText yoksa query\'e düşer (esneklik)', () => {
+    const semantic: SemanticResult = {
+      intent: 'FORGET', query: 'benzin',
+      feedback: 'Unuttum', confidence: 0.9, source: 'direct_ai',
+    };
+    expect(fromSemanticResult(semantic, 'benzini unut')?.payload.memoryText).toBe('benzin');
+  });
+
+  it('fromAIResponse REMEMBER\'ı GEÇİRİR (VALID_INTENTS kapısı)', () => {
+    const intent = fromAIResponse(
+      { intent: 'REMEMBER', payload: { memoryText: 'Hep 95 alır' }, confidence: 0.9 },
+      'ben hep 95 alırım',
+    );
+    expect(intent).not.toBeNull();
+    expect(intent?.type).toBe('REMEMBER');
+  });
+});

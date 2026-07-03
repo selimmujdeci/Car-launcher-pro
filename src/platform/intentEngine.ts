@@ -73,6 +73,8 @@ export type IntentType =
   | 'HARDWARE_LIGHTS_OFF'
   | 'HARDWARE_SCREEN_OFF'
   | 'VEHICLE_STATUS'
+  | 'REMEMBER'           // Kişisel hafıza: kalıcı fact ekle ("şunu unutma …")
+  | 'FORGET'             // Kişisel hafıza: fact sil / "hepsini unut"
   | 'UNKNOWN';
 
 export interface IntentPayload {
@@ -81,6 +83,7 @@ export interface IntentPayload {
   screen?:      string;   // OPEN_SCREEN: iç ekran adı ("trafik", "klima", "gemini qr")
   screenAction?: string;  // OPEN_SCREEN: 'open' | 'close'
   contactName?: string;   // OPEN_PHONE: aranacak kişi adı ("Selim", "annem") — rehberde aranır
+  memoryText?:  string;   // REMEMBER/FORGET: hatırlanacak/unutulacak kişisel fact
   destination?: string;   // navigation destination hint (e.g. "home")
   mode?:        string;   // theme or driving mode value
   sourceText?:  string;   // original user input — for logging / feedback
@@ -521,6 +524,7 @@ const VALID_INTENTS = new Set<IntentType>([
   'SHOW_WEATHER', 'CHECK_VEHICLE_HEALTH', 'CLEAR_DTC_CODES',
   'CHECK_MAINTENANCE', 'OPEN_APPOINTMENT_LINK',
   'SET_STYLE',
+  'REMEMBER', 'FORGET',
   'UNKNOWN',
 ]);
 
@@ -568,6 +572,9 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
     // Kişi adıyla arama — varsa rehberde aranacak ad taşınır (çözüm dispatch'te);
     // yoksa telefon uygulaması açılır. query'ye düşme: yanlış ada aramamak için.
     if (result.contactName) payload.contactName = result.contactName;
+  } else if (intentType === 'REMEMBER' || intentType === 'FORGET') {
+    // Kişisel hafıza — hatırlanacak/unutulacak metin (çözüm dispatch'te store'a).
+    payload.memoryText = result.memoryText ?? result.query;
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';
