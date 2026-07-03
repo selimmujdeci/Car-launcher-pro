@@ -17,6 +17,7 @@ import {
   useVoiceState,
   startListening,
   stopListening,
+  interruptAndListen,
   processTextCommand,
 } from '../../platform/voiceService';
 import { isNative } from '../../platform/bridge';
@@ -276,6 +277,17 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
               </p>
             )}
 
+            {/* BARGE-IN: asistan cevabı konuşurken kesip yeni tura geç
+                (cevabın bitmesini bekleme). Yalnız seslendirme aşamasında. */}
+            {isSuccess && (
+              <button
+                onClick={() => interruptAndListen()}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-blue-500/10 border border-blue-400/30 text-blue-300 text-xs font-bold active:scale-[0.98] transition-transform hover:bg-blue-500/15"
+              >
+                <Mic className="w-3.5 h-3.5" /> Kesip konuş
+              </button>
+            )}
+
           </div>
         </div>
       </div>
@@ -359,7 +371,9 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
         border: `1px solid ${accent}44`,
         boxShadow: `0 4px 24px rgba(0,0,0,0.55), 0 0 0 1px ${accent}22`,
       }}
-      onClick={() => { stopListening(); onClose(); }}
+      // BARGE-IN: asistan cevabı konuşurken pile dokunmak KESER + yeni tur açar
+      // (kapatmaz). Diğer durumlarda dokunmak eskiden olduğu gibi kapatır.
+      onClick={() => { if (isSuccess) { interruptAndListen(); } else { stopListening(); onClose(); } }}
     >
       {/* Animated mic dot */}
       <div className="relative w-8 h-8 flex-shrink-0">

@@ -1345,6 +1345,20 @@ export function startListening(opts?: StartListeningOpts): void {
   }
 }
 
+/**
+ * BARGE-IN: asistan cevabını KONUŞURKEN kullanıcı araya girer — çalan TTS anında
+ * kesilir ve YENİ tur için mikrofon açılır (kullanıcı cevabın bitmesini beklemez).
+ * startListening zaten ilk iş ttsCancel yapar; bu sarmalayıcı niyeti netleştirir,
+ * eski cevabın takip/idle zamanlayıcısını temizler ve tek giriş noktası olur (UI +
+ * testler). Zaten dinliyor/işliyorsa no-op (işleme turu yarıda kesilmez — yalnız
+ * seslendirme aşamasında barge-in; brain çağrısı yarış oluşturmaz). */
+export function interruptAndListen(): void {
+  if (_current.status === 'listening' || _current.status === 'processing') return;
+  void reportVoiceDiag('voice_route', { route: 'barge_in' });
+  _clearConvIdle();
+  startListening(); // içinde ttsCancel (çalan cevabı keser) + taze dinleme penceresi
+}
+
 export function stopListening(): void {
   // Kullanıcı isteğiyle durdurma — sohbet döngüsü her durumda biter
   // (TTS çalarken X'e basılması dahil; durum 'listening' olmayabilir).

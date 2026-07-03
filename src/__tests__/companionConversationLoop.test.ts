@@ -111,6 +111,7 @@ vi.mock('../platform/companion/companionChatProvider', () => ({
 
 import {
   startListening,
+  interruptAndListen,
   setVoicePaused,
   registerAIResultHandler,
   _resetVoiceServiceForTest,
@@ -210,6 +211,35 @@ describe('sürekli sohbet döngüsü — companion cevabı sonrası', () => {
     // TTS bitişi GELMEDEN uzun bekleme — mikrofon kapalı kalır
     await vi.advanceTimersByTimeAsync(5_000);
     expect(M.sttCalls).toHaveLength(1);
+  });
+});
+
+/* ── 1c. Barge-in — asistan konuşurken kesip yeni tur ──────────── */
+
+describe('barge-in (interruptAndListen)', () => {
+  it('cevap KONUŞULURKEN (success) kesip yeni dinleme açar', async () => {
+    M.sttQueue = ['nasılsın'];
+    await speakTurn();
+    expect(_getVoiceStateForTest().status).toBe('success');   // cevap seslendiriliyor
+    const before = M.sttCalls.length;
+
+    // Kuyruk boş → barge-in ile açılan yeni STT 'listening'de asılı kalır (transcript
+    // gelmediği için döngü tamamlanmaz) → barge-in'in mikrofonu açtığını izole doğrular.
+    interruptAndListen();                                     // asistanı kes + dinle
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 100);
+
+    expect(M.sttCalls.length).toBe(before + 1);               // yeni STT açıldı (cevap kesildi)
+    expect(_getVoiceStateForTest().status).toBe('listening'); // yeni tur dinlemede
+  });
+
+  it('DİNLERKEN no-op (aktif dinlemeyi kesip kendini yeniden açmaz)', async () => {
+    startListening();
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 100);
+    expect(_getVoiceStateForTest().status).toBe('listening');
+    const before = M.sttCalls.length;
+    interruptAndListen();                                     // listening → no-op
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 100);
+    expect(M.sttCalls.length).toBe(before);
   });
 });
 
