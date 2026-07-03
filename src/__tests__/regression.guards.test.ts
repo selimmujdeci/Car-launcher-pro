@@ -637,6 +637,22 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
   });
 
+  it('YAPISAL: beyin AYAR komutlarını (SET_SETTING) üretebilir + sahte onay YASAK — "açıyorum" deyip iş yapmama önlemi', () => {
+    const brain = read('src/platform/companion/companionChatProvider.ts');
+    // SET_SETTING (parlaklık/wifi/bluetooth) + yaygın eylemler beyin sözlüğünde OLMALI —
+    // yoksa beyin bu komutları sahte "açıyorum" ile geçiştiriyordu (SAHA 2026-07-03).
+    expect(brain).toMatch(/'SET_SETTING'/);
+    expect(brain).toMatch(/'OPEN_FAVORITES', 'ENABLE_DRIVING_MODE', 'TOGGLE_SLEEP_MODE'/);
+    // parseBrainJson setting alanlarını taşımalı (yoksa parlaklık yönü kaybolur → no-op)
+    expect(brain).toMatch(/settingKey:\s+typeof obj\.settingKey/);
+    // SAHTE ONAY YASAĞI prompt'ta olmalı — bir daha sessizce kaldırılmasın
+    expect(brain).toMatch(/SAHTE ONAY YASAK/);
+    // Köprü SET_SETTING alanlarını payload'a yazmalı (executeAIResult → applyVoiceSetting)
+    const engine = read('src/platform/intentEngine.ts');
+    expect(engine).toMatch(/intentType === 'SET_SETTING'/);
+    expect(engine).toMatch(/payload\.settingKey\s+= result\.settingKey/);
+  });
+
   it('YAPISAL: Groq/Haiku (yedekteyken) web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
     // searchKey opsiyonu + "önce Gemini google_search, yoksa Tavily" sırası

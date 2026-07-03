@@ -809,6 +809,12 @@ const BRAIN_INTENTS = new Set<string>([
   // Tema/görünüm (saha 2026-06-11: ASR bozuk "tema değiştir" yerel parser'ı
   // kaçırınca beyin devralabilmeli — eskiden listede yoktu, sohbete düşüyordu)
   'CYCLE_THEME', 'ENABLE_NIGHT_MODE',
+  // SAHA 2026-07-03: "parlaklığı aç", "wifi'yi kapat" gibi AYAR komutları beyinde
+  // YOKTU → beyin sahte "açıyorum" deyip iş yapmıyordu. SET_SETTING eklendi
+  // (parlaklık/wifi/bluetooth/ses; alanlar parseBrainJson + fromSemanticResult ile taşınır).
+  'SET_SETTING',
+  // Yaygın istekler (VALID_INTENTS'te wired, beyinde eksikti → sohbete düşüyordu):
+  'OPEN_FAVORITES', 'ENABLE_DRIVING_MODE', 'TOGGLE_SLEEP_MODE',
 ]);
 
 export interface CompanionBrainAction {
@@ -884,6 +890,12 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'Yer/mekan aramaları → SEARCH_POI + category + query. Adres/yere gitme → NAVIGATE_ADDRESS + destination.',
     'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
     'Şive/sokak ağzı komutları da KOMUTTUR ("klimayı birez kıs kurban" gibi) — niyete odaklan, sohbete düşürme.',
+    // ── AYAR KOMUTLARI (SET_SETTING) — parlaklık/wifi/bluetooth/ses ──
+    'AYAR değiştirme → SET_SETTING + şu alanlar: settingKey ("brightness"|"wifi"|"bluetooth"|"volume"), settingKind ("number"|"bool"), settingAction ("inc"|"dec"|"on"|"off"|"toggle"|"set"), settingValue (opsiyonel, yüzde/enum).',
+    'Örnekler: "ekran parlaklığını aç/artır" → SET_SETTING settingKey="brightness" settingKind="number" settingAction="inc". "parlaklığı kıs/azalt" → settingAction="dec". "wifi\'yi kapat" → settingKey="wifi" settingKind="bool" settingAction="off". "sesi aç" → settingKey="volume" settingKind="number" settingAction="inc".',
+    'Trafik/harita/navigasyon açma ("trafik panelini aç", "haritayı aç", "trafiğe bak") → OPEN_NAVIGATION.',
+    // ── SAHTE ONAY YASAĞI (SAHA 2026-07-03 — en kritik) ──
+    'ÇOK ÖNEMLİ — SAHTE ONAY YASAK: bir ARAÇ EYLEMİ (aç/kapat/ayarla/göster) istendiğinde SADECE yukarıdaki intent listesinden GERÇEK bir karşılığı varsa type:"action" döndür. Karşılığı YOKSA sakın type:"chat" ile "tamam, açıyorum / açılıyor / hallettim" gibi YAPMIŞ GİBİ cevap verme — bu KULLANICIYI KANDIRMAKTIR. Onun yerine dürüstçe söyle: type:"chat" say="Bunu şu an yapamıyorum" (kişiliğine uygun). Var olmayan bir eylemi asla onaylama.',
     '',
     // ── İNTERNET / GÜNCEL BİLGİ (grounding) — supportsGrounding'e göre değişir ──
     ...(supportsGrounding ? [
@@ -914,6 +926,10 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"ibrahim tatlısesden müzik açar mısın" → {"type":"action","intent":"PLAY_MUSIC_SEARCH","query":"İbrahim Tatlıses","feedback":"İbrahim Tatlıses açılıyor","confidence":0.95}',
     '"acıktım bir şeyler yiyelim" → {"type":"action","intent":"SEARCH_POI","category":"RESTAURANT","query":"restoran","feedback":"Yakın restoranlar aranıyor","confidence":0.9}',
     '"uşağum şuralarda bi benzinlik bulsana" → {"type":"action","intent":"FIND_NEARBY_GAS","feedback":"Yakın benzinlikler aranıyor","confidence":0.9}',
+    '"ekran parlaklığını aç" → {"type":"action","intent":"SET_SETTING","settingKey":"brightness","settingKind":"number","settingAction":"inc","feedback":"Parlaklık artırılıyor","confidence":0.9}',
+    '"parlaklığı kıs" → {"type":"action","intent":"SET_SETTING","settingKey":"brightness","settingKind":"number","settingAction":"dec","feedback":"Parlaklık azaltılıyor","confidence":0.9}',
+    '"trafik panelini aç" → {"type":"action","intent":"OPEN_NAVIGATION","feedback":"Harita açılıyor","confidence":0.9}',
+    '"wifiyi kapat" → {"type":"action","intent":"SET_SETTING","settingKey":"wifi","settingKind":"bool","settingAction":"off","feedback":"Wi-Fi kapatılıyor","confidence":0.9}',
     '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
     '"bir fıkra anlat" → {"type":"chat","say":"Temel vapurda..."} (gerçek, başı-sonu olan kısa bir fıkra)',
     '"bana bir bilmece sor" → {"type":"chat","say":"Benden kaçar ama hep peşimdedir, nedir? Bil bakalım."} (cevabı verme, sor)',
@@ -934,6 +950,10 @@ interface BrainJson {
   query?:       string;
   destination?: string;
   category?:    string;
+  settingKey?:    string;
+  settingKind?:   string;
+  settingAction?: string;
+  settingValue?:  string;
   feedback?:    string;
   confidence?:  number;
   say?:         string;
@@ -958,6 +978,11 @@ function parseBrainJson(raw: string): BrainRaw | null {
           category:    obj.category as SemanticResult['category'],
           query:       typeof obj.query === 'string' ? obj.query : undefined,
           destination: typeof obj.destination === 'string' ? obj.destination : undefined,
+          // SET_SETTING alanları — beyin parlaklık/wifi/bluetooth/ses ayarını taşır.
+          settingKey:    typeof obj.settingKey === 'string' ? obj.settingKey : undefined,
+          settingKind:   typeof obj.settingKind === 'string' ? obj.settingKind : undefined,
+          settingAction: typeof obj.settingAction === 'string' ? obj.settingAction : undefined,
+          settingValue:  typeof obj.settingValue === 'string' ? obj.settingValue : undefined,
           feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
           confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
           source:      'direct_ai',

@@ -39,6 +39,11 @@ export interface SemanticResult {
   category?:    PoiCategory;   // yalnızca SEARCH_POI
   query?:       string;        // normalize edilmiş arama terimi
   destination?: string;        // navigasyon hedefi
+  // SET_SETTING alanları (parlaklık/wifi/bluetooth/ses/tema… beyin üzerinden):
+  settingKey?:    string;      // 'brightness' | 'wifi' | 'bluetooth' | AppSettings anahtarı
+  settingKind?:   string;      // 'bool' | 'enum' | 'number' | 'openTab'
+  settingAction?: string;      // 'on' | 'off' | 'inc' | 'dec' | 'set' | 'toggle' | 'open'
+  settingValue?:  string;      // enum değeri ya da number (yüzde)
   feedback:     string;        // ≤8 kelime Türkçe
   confidence:   number;        // 0–1
   source:       'edge_fn' | 'direct_ai' | 'offline';

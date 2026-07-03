@@ -527,6 +527,13 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
     // BUG FIX (2026-06-11): query payload'a hiç yazılmıyordu → executor
     // sorgusuz kalıp yalnız uygulamayı açıyordu (arama YAPILMIYORDU).
     payload.searchQuery = result.query ?? '';
+  } else if (intentType === 'SET_SETTING') {
+    // Sesli ayar (parlaklık/wifi/bluetooth/ses…) beyin üzerinden — alanlar
+    // routeIntent → applyVoiceSetting'e taşınır. Yoksa "açıyorum" der ama iş yapmazdı.
+    payload.settingKey    = result.settingKey;
+    payload.settingKind   = result.settingKind;
+    payload.settingAction = result.settingAction;
+    payload.settingValue  = result.settingValue;
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';
