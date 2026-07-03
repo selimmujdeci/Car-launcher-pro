@@ -464,13 +464,22 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         <span className="ml-auto text-[9px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 font-mono">İnternet gerektirir</span>
       </div>
 
-      {/* Bilgi bandı — TEK anahtar yeter. Gemini tek başına sohbet + Google
-          araması + (yerel) hava yapar; yedek beyin opsiyonel/katlı. */}
-      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
-        <Info className="w-4 h-4 text-purple-300 flex-shrink-0 mt-0.5" />
-        <p className="text-[11px] text-[color:var(--oem-ink-2)] leading-relaxed">
-          <span className="font-bold text-purple-300">Tek anahtar yeter:</span> Gemini sohbeti, komutları,
-          {' '}internet aramasını (haber/döviz) ve havayı tek başına yapar. Yedek beyin eklemek zorunda değilsin.
+      {/* Rol rehberi — her anahtarın NE İŞE YARADIĞI düz Türkçe. Ticari ürün:
+          kullanıcı geliştirici değil, ne aldığını/niye aldığını anlamalı.
+          NOT: Gemini'nin KENDİ internet araması ücretsiz katmanda kısıtlı (429) →
+          arama için Tavily önerilir; bu banda yanlış "Gemini arar" iddiası KOYMA. */}
+      <div className="flex flex-col gap-2 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-purple-300 flex-shrink-0" />
+          <span className="text-[11px] font-bold text-purple-200">Asistan senin ücretsiz anahtarlarınla çalışır. Hepsi ücretsiz alınır:</span>
+        </div>
+        <ul className="flex flex-col gap-1.5 pl-1 text-[11px] text-[color:var(--oem-ink-2)] leading-snug">
+          <li><span className="font-bold text-purple-300">Gemini</span> — asistanın <span className="text-[color:var(--oem-ink)]">beyni</span>: seni anlar, konuşur, komutları uygular. <span className="text-emerald-300 font-semibold">Gerekli.</span></li>
+          <li><span className="font-bold text-sky-300">Tavily</span> — <span className="text-[color:var(--oem-ink)]">internet araması</span>: haber, döviz, altın gibi güncel bilgi. <span className="text-sky-300 font-semibold">Önerilir.</span></li>
+          <li><span className="font-bold text-[#f7a072]">Groq / Haiku</span> — <span className="text-[color:var(--oem-ink)]">yedek beyin</span>: Gemini yoğun/kesik olduğunda asistan susmaz. <span className="text-[color:var(--oem-ink-3)]">İsteğe bağlı.</span></li>
+        </ul>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug pl-1">
+          Hava durumu anahtar gerektirmez — cihazdan gelir.
         </p>
       </div>
 
@@ -489,17 +498,20 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         </div>
       )}
 
-      {/* Gemini — TEK gerekli anahtar */}
+      {/* Gemini — asistanın beyni (GEREKLI) */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Gemini API Key · tek gerekli anahtar</span>
+          <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Gemini · Asistanın Beyni</span>
           {envGeminiKey && !geminiKey
             ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
             : geminiKey
             ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-            : null
+            : <span className="text-[9px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-400/30">Gerekli</span>
           }
         </div>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug -mt-1">
+          Bunu girince asistan konuşur, seni anlar ve komutları uygular. En az bu gerekli.
+        </p>
         {/* Ücretsiz key al butonu */}
         <button
           onClick={() => handleOpenKeyPage('https://aistudio.google.com/apikey')}
