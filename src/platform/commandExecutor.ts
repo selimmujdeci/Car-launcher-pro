@@ -27,6 +27,7 @@ import { getWeatherNarrative } from './weatherService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
+import { searchContacts, recordCall } from './contactsService';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -318,6 +319,22 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
 
       /* ── Uygulama açma ──────────────────────────────────── */
       case 'OPEN_PHONE': {
+        // Kişi adı verildiyse rehberde ara → en uygun numarayı çevir. Ad yoksa
+        // telefon uygulamasını aç. Bulunamazsa SAHTE ONAY YOK — dürüstçe söyle.
+        const contactName = (intent.payload.contactName ?? '').trim();
+        if (contactName) {
+          // 'frequent': aynı ada birden çok eşleşmede en sık aranan öne gelir.
+          const contact = searchContacts(contactName, 'frequent')[0];
+          const phone = contact?.phones.find((p) => p.label === 'mobile') ?? contact?.phones[0];
+          if (contact && phone) {
+            bridge.callNumber(phone.number);
+            recordCall(contact.id);
+            _speak(`${contact.name} aranıyor`, isDriving);
+          } else {
+            _speak(`${contactName} rehberde bulunamadı`, isDriving);
+          }
+          break;
+        }
         ctx.launch(intent.payload.targetApp ?? 'phone');
         _speak('Telefon açılıyor', isDriving);
         break;

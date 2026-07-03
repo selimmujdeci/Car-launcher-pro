@@ -80,6 +80,7 @@ export interface IntentPayload {
   appName?:     string;   // OPEN_APP: serbest/sesli uygulama adı ("kamera", "radyo")
   screen?:      string;   // OPEN_SCREEN: iç ekran adı ("trafik", "klima", "gemini qr")
   screenAction?: string;  // OPEN_SCREEN: 'open' | 'close'
+  contactName?: string;   // OPEN_PHONE: aranacak kişi adı ("Selim", "annem") — rehberde aranır
   destination?: string;   // navigation destination hint (e.g. "home")
   mode?:        string;   // theme or driving mode value
   sourceText?:  string;   // original user input — for logging / feedback
@@ -563,6 +564,10 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
     // İç ekran aç-kapat — ekran adı + eylem (çözüm executor/dispatch'te).
     payload.screen       = result.screen ?? result.query;
     payload.screenAction = result.screenAction ?? 'open';
+  } else if (intentType === 'OPEN_PHONE') {
+    // Kişi adıyla arama — varsa rehberde aranacak ad taşınır (çözüm dispatch'te);
+    // yoksa telefon uygulaması açılır. query'ye düşme: yanlış ada aramamak için.
+    if (result.contactName) payload.contactName = result.contactName;
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';

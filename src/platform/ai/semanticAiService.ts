@@ -47,6 +47,7 @@ export interface SemanticResult {
   appName?:     string;        // OPEN_APP: açılacak uygulamanın serbest adı
   screen?:      string;        // OPEN_SCREEN: iç ekran adı
   screenAction?: string;       // OPEN_SCREEN: 'open' | 'close'
+  contactName?: string;        // OPEN_PHONE: aranacak kişinin adı ("Selim", "annem")
   feedback:     string;        // ≤8 kelime Türkçe
   confidence:   number;        // 0–1
   source:       'edge_fn' | 'direct_ai' | 'offline';

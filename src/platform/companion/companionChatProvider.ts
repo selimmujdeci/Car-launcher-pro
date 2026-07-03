@@ -964,6 +964,9 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     // ── GENEL UYGULAMA AÇMA (OPEN_APP) ──
     'Bir uygulamayı açma ("X\'i aç", "X uygulamasını aç", "X\'i başlat") → OPEN_APP + appName=YALNIZ uygulamanın adı (fiil/ek yok, sadece ad: "kamera", "radyo", "whatsapp", "youtube", "hesap makinesi", "galeri").',
     'AMA şu özel durumlarda OPEN_APP KULLANMA, özel intent kullan: telefon/arama → OPEN_PHONE; müzik/çalar → OPEN_MUSIC; harita/navigasyon → OPEN_NAVIGATION; ayarlar → OPEN_SETTINGS. Bunların DIŞINDAKİ her uygulama adı için OPEN_APP.',
+    // ── KİŞİ ADIYLA ARAMA (OPEN_PHONE + contactName) ──
+    'Birini ARAMA ("X\'i ara", "X\'i telefonla ara", "annemi ara", "Selim\'e bağlan") → OPEN_PHONE + contactName=YALNIZ kişinin adı (fiil/ek yok: "Selim", "annem", "Ahmet Demir"). Ad rehberde aranır; feedback="X aranıyor".',
+    'Kişi adı YOKSA, sadece "telefonu aç"/"arama ekranı" denmişse → OPEN_PHONE (contactName BOŞ bırak). Numarayı UYDURMA; yalnız adı taşı.',
     // ── İÇ EKRAN / PANEL AÇ-KAPAT (OPEN_SCREEN) ──
     'Uygulamanın KENDİ İÇ EKRANINI/panelini açma-kapatma → OPEN_SCREEN + screen=ekran adı + screenAction ("open"|"close"). İç ekranlar: "trafik", "hava durumu", "klima", "dashcam"/"araç kamerası"/"kayıt", "yolculuk defteri"/"seyir defteri", "arıza kodları"/"hata kodları", "bildirimler", "spor modu", "güvenlik", "eğlence", "bakım hatırlatma", "gemini qr"/"qr kodu".',
     'OPEN_SCREEN örnekleri: "trafiği aç", "klimayı aç", "arıza kodlarını göster", "yolculuk defterini aç", "gemini qr\'ı aç", "bildirimleri kapat". screen alanına YALNIZ ekran adını yaz (fiil/ek yok).',
@@ -1015,6 +1018,8 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"radyoyu açar mısın" → {"type":"action","intent":"OPEN_APP","appName":"radyo","feedback":"Radyo açılıyor","confidence":0.9}',
     '"whatsapp\'ı aç" → {"type":"action","intent":"OPEN_APP","appName":"whatsapp","feedback":"WhatsApp açılıyor","confidence":0.92}',
     '"hesap makinesini aç" → {"type":"action","intent":"OPEN_APP","appName":"hesap makinesi","feedback":"Hesap makinesi açılıyor","confidence":0.9}',
+    '"Selim\'i ara" → {"type":"action","intent":"OPEN_PHONE","contactName":"Selim","feedback":"Selim aranıyor","confidence":0.93}',
+    '"annemi telefonla ara" → {"type":"action","intent":"OPEN_PHONE","contactName":"annem","feedback":"Annem aranıyor","confidence":0.9}',
     // OPEN_SCREEN — uygulamanın iç ekranları/panelleri.
     '"trafiği aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"trafik","screenAction":"open","feedback":"Trafik paneli açılıyor","confidence":0.92}',
     '"klimayı aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"klima","screenAction":"open","feedback":"Klima açılıyor","confidence":0.9}',
@@ -1056,6 +1061,7 @@ interface BrainJson {
   appName?:     string;
   screen?:      string;
   screenAction?: string;
+  contactName?: string;
   feedback?:    string;
   confidence?:  number;
   say?:         string;
@@ -1090,6 +1096,8 @@ function parseBrainJson(raw: string): BrainRaw | null {
           // OPEN_SCREEN — iç ekran adı + eylem ("trafik" / "gemini qr", open|close).
           screen:      typeof obj.screen === 'string' ? obj.screen : undefined,
           screenAction: typeof obj.screenAction === 'string' ? obj.screenAction : undefined,
+          // OPEN_PHONE — aranacak kişi adı ("Selim", "annem"); rehberde aranır.
+          contactName: typeof obj.contactName === 'string' ? obj.contactName : undefined,
           feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
           confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
           source:      'direct_ai',
