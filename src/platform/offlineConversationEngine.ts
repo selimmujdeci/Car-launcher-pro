@@ -17,6 +17,7 @@ import { getMediaState }  from './mediaService';
 import { getGPSState }    from './gpsService';
 import { onOBDData }      from './obdService';
 import { getRouteState }  from './routingService';
+import { getWeatherNarrative, refreshWeather } from './weatherService';
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -223,6 +224,48 @@ function buildDistance(): string {
   return `Hedefe yaklaşık ${km.toFixed(1)} kilometre yol var.`;
 }
 
+/* ── Hava / Trafik ───────────────────────────────────────────── *
+ * weatherService gerçek (Open-Meteo) veri tutar — burada stub UYDURMA,
+ * önbellekte veri VARSA onu söyle; yoksa dürüst "şu an alamadım" + arka
+ * planda bir SONRAKİ soru için sessizce tazele (fire-and-forget). */
+
+/** getWeatherNarrative'in "veri yok" stub'unun imzası — bu geçtiyse gerçek veri YOK demektir. */
+const WEATHER_NO_DATA_MARK = 'henüz alınamadı';
+
+function buildWeather(isDriving?: boolean): string {
+  const narrative = getWeatherNarrative();
+  if (!narrative.includes(WEATHER_NO_DATA_MARK)) {
+    // Gerçek veri (ya da geçerli önbellek) var — sürüşte de aynen kısa/dürüst.
+    return drive(narrative, narrative, isDriving);
+  }
+  // Veri yok — bir sonraki soru için arka planda sessizce tazele (bu cevabı bekletmez).
+  void refreshWeather().catch(() => undefined);
+  const online = typeof navigator !== 'undefined' && navigator.onLine;
+  if (online) {
+    return drive(
+      'Hava verisine şu an ulaşamadım, birazdan tekrar sorabilirsin.',
+      'Hava verisine şu an ulaşamadım.',
+      isDriving,
+    );
+  }
+  return drive(WEATHER_OFFLINE, 'İnternet yok, hava bilinmiyor.', isDriving);
+}
+
+function buildTraffic(isDriving?: boolean): string {
+  // Trafik için gerçek veri kaynağı yok (kapsam dışı) — yalnız dürüst mesaj:
+  // online iken "bilmiyorum" değil "şu an ulaşamadım" (veri kaynağı eklenince
+  // aynı yerden gerçek veriye bağlanabilir).
+  const online = typeof navigator !== 'undefined' && navigator.onLine;
+  if (online) {
+    return drive(
+      'Trafik bilgisine şu an ulaşamadım.',
+      'Trafik bilgisine şu an ulaşamadım.',
+      isDriving,
+    );
+  }
+  return drive(TRAFFIC_OFFLINE, 'İnternet yok, trafik bilinmiyor.', isDriving);
+}
+
 /* ── Müzik ───────────────────────────────────────────────────── */
 
 function buildMusic(): string {
@@ -327,11 +370,11 @@ const INTENTS: Intent[] = [
     'sarkinin adi', 'bu sarki ne'],
     build: (drv) => drive(buildMusic(), buildMusic(), drv) },
 
-  // ── Hava / Trafik (offline stub) ──
+  // ── Hava / Trafik (gerçek veri varsa söyle, yoksa dürüst fallback) ──
   { kw: ['hava durumu', 'hava nasil', 'dis sicaklik', 'dis hava', 'hava kac derece', 'yagmur var mi'],
-    build: (drv) => drive(WEATHER_OFFLINE, 'İnternet yok, hava bilinmiyor.', drv) },
+    build: (drv) => buildWeather(drv) },
   { kw: ['trafik nasil', 'trafik var mi', 'trafik durumu', 'yol acik mi', 'yogunluk var mi'],
-    build: (drv) => drive(TRAFFIC_OFFLINE, 'İnternet yok, trafik bilinmiyor.', drv) },
+    build: (drv) => buildTraffic(drv) },
 
   // ── Sohbet ──
   { kw: ['merhaba', 'selam', 'gunaydin', 'iyi gunler', 'iyi aksamlar', 'iyi sabahlar', 'alo', 'hey'],

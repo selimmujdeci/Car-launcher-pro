@@ -591,3 +591,40 @@ describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', () => 
     expect(notified).toBe(0);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   12. SESLİ ASİSTAN — DÜRÜST HAVA/TRAFİK + GEMİNI→GROQ YEDEKLEME (2026-07-03)
+   Regresyon (kök neden, ana oturum analizi): Single Brain başarısız olunca
+   "hava durumu" sorusu her zaman sahte WEATHER_OFFLINE stub'una düşüyordu —
+   uygulamada GERÇEK hava verisi (weatherService) olsa bile. Ayrıca Gemini
+   429/timeout'ta kullanıcının Groq anahtarı varsa dahi hiç denenmiyordu
+   (asistan aptallaşıyordu). BRAIN_DECISION_TIMEOUT_MS sürüş/park ayrımı
+   yapmadan 2.5sn'de kesiyordu (parkta yavaş ağda gereksiz erken fallback).
+   Kilit: gerçek veri varsa söylenir, yoksa dürüst "ulaşamadım" + arka planda
+   tazeleme; Gemini→Groq failover; sürüş/park bütçesi ayrık.
+   ─────────────────────────────────────────────────────────────── */
+describe('Sesli asistan — hava/trafik dürüstlüğü + Gemini→Groq yedekleme kilidi', () => {
+  it('YAPISAL: offlineConversationEngine hava/trafik niyetleri artık sabit stub DEĞİL, weatherService\'e bağlı', () => {
+    const src = read('src/platform/offlineConversationEngine.ts');
+    expect(src).toMatch(/import\s*\{\s*getWeatherNarrative,\s*refreshWeather\s*\}\s*from\s*'\.\/weatherService'/);
+    // Eski buggy desen: INTENTS tablosunda hava niyeti doğrudan WEATHER_OFFLINE'a bağlıydı.
+    expect(src).not.toMatch(/kw:\s*\[[^\]]*'hava durumu'[^\]]*\][^}]*build:\s*\(drv\)\s*=>\s*drive\(WEATHER_OFFLINE/);
+    expect(src).toMatch(/build:\s*\(drv\)\s*=>\s*buildWeather\(drv\)/);
+  });
+
+  it('YAPISAL: CompanionChatOpts.groqFallbackKey + tryCompanionBrain\'de Gemini soğuma/hata → Groq yedeği kilidi', () => {
+    const src = read('src/platform/companion/companionChatProvider.ts');
+    expect(src).toMatch(/groqFallbackKey\?:\s*string/);
+    // Gemini birincil provider'ken _rateLimitedUntil'a BAKMADAN Groq'a düşen yol
+    // (429 soğumasında asistan aptallaşmasın) bir daha sessizce kaldırılmamalı.
+    expect(src).toMatch(/groqFallbackUsable\s*=\s*\n?\s*opts\.provider === 'gemini' && !!opts\.groqFallbackKey/);
+  });
+
+  it('YAPISAL: voiceService bağlama duyarlı beyin bütçesi — tek sabit (BRAIN_DECISION_TIMEOUT_MS) DEĞİL, sürüş/park ayrık', () => {
+    const src = read('src/platform/voiceService.ts');
+    expect(src).not.toMatch(/const BRAIN_DECISION_TIMEOUT_MS/);
+    expect(src).toMatch(/const BRAIN_TIMEOUT_DRIVING_MS = 2_500/);
+    expect(src).toMatch(/const BRAIN_TIMEOUT_PARKED_MS\s*=\s*4_000/);
+    expect(src).toMatch(/timeoutMs:\s*ctx\?\.isDriving\s*\?\s*BRAIN_TIMEOUT_DRIVING_MS\s*:\s*BRAIN_TIMEOUT_PARKED_MS/);
+  });
+});

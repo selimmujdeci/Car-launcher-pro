@@ -774,6 +774,126 @@ describe('Groq — companion sohbet ve beyin desteği', () => {
   });
 });
 
+/* ── 3e. tryCompanionBrain — Gemini→Groq yedekleme (failover) ── *
+ * Kullanıcının Gemini anahtarı 429/timeout verdiğinde Groq anahtarı boşa
+ * durmasın diye devreye giren yedek yol (bkz. CompanionChatOpts.groqFallbackKey). */
+
+describe('tryCompanionBrain — Gemini→Groq yedekleme (429/timeout sırasında asistan aptallaşmaz)', () => {
+  const GEMINI_WITH_FALLBACK = { ...GEMINI_OPTS, groqFallbackKey: 'gsk_fallback' } as const;
+
+  function mockBrainJson(obj: Record<string, unknown>) {
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }) };
+  }
+  function mockGroqBrainJson(obj: Record<string, unknown>) {
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify(obj) } }] }) };
+  }
+
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setupCompanion(false);
+  });
+
+  it('Gemini timeout/hata + groqFallbackKey → Groq denenir, endpoint\'e istek atılır, sonuç döner', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockRejectedValueOnce(new Error('timeout')) // 1) Gemini attı
+      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Groq yedek cevap.' })); // 2) Groq yedeği
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('nasılsın', GEMINI_WITH_FALLBACK);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [groqUrl] = fetchSpy.mock.calls[1] as [string];
+    expect(groqUrl).toContain('api.groq.com');
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.response).toBe('Groq yedek cevap.');
+      expect(r.route).toBe('companion_groq');
+    }
+  });
+
+  it('Gemini null döndü (geçersiz/boş yanıt) + groqFallbackKey → Groq yedeği devreye girer', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) }) // 1) Gemini başarısız (null)
+      .mockResolvedValueOnce(mockGroqBrainJson({
+        type: 'action', intent: 'PLAY_MUSIC_SEARCH', query: 'Tarkan', feedback: 'Tarkan açılıyor', confidence: 0.9,
+      }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('tarkan çal', GEMINI_WITH_FALLBACK);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(r!.kind).toBe('action');
+    if (r!.kind === 'action') expect(r.semantic.intent).toBe('PLAY_MUSIC_SEARCH');
+  });
+
+  it('groqFallbackKey YOKKEN Gemini attı → eski davranış (yalnız Gemini denenir, Groq\'a istek atılmaz)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('timeout'));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // groqFallbackKey YOK
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // yalnız Gemini denendi
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline'); // reask zinciri
+  });
+
+  it('Gemini 429 soğuma penceresindeyken + groqFallbackKey → doğrudan Groq kullanılır (geminiUsable=false olsa da)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) }) // 1) Gemini 429 → soğuma başlar
+      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Soğuma sırasında Groq cevabı.' }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // groqFallbackKey yok → soğumaya düşer
+    expect(r1!.kind).toBe('chat');
+    if (r1!.kind === 'chat') expect(r1.route).toBe('companion_offline');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // İkinci çağrı: hâlâ soğuma penceresinde ama groqFallbackKey VAR → Groq'a doğrudan gider.
+    const r2 = await tryCompanionBrain('naber', GEMINI_WITH_FALLBACK);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [groqUrl] = fetchSpy.mock.calls[1] as [string];
+    expect(groqUrl).toContain('api.groq.com');
+    expect(r2!.kind).toBe('chat');
+    if (r2!.kind === 'chat') {
+      expect(r2.response).toBe('Soğuma sırasında Groq cevabı.');
+      expect(r2.route).toBe('companion_groq');
+    }
+  });
+
+  it('Gemini VE Groq ikisi de attı → çökmez, kişiliğe uygun tekrar-rica ile döner (No Dead-Ends)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('timeout')); // her iki çağrı da atar
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_WITH_FALLBACK);
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // Gemini + Groq yedeği denendi
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline');
+  });
+
+  it('Gemini web kararı verdi ama grounding çöktü + groqFallbackKey → Groq yedeği dener', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(mockBrainJson({ type: 'web', query: 'haberler' })) // 1) beyin: internet gerekiyor
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) }) // 2) grounded çağrı çöktü
+      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Groq ile devam ediyoruz.' })); // 3) Groq yedeği
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('haberleri söyle', GEMINI_WITH_FALLBACK);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.response).toBe('Groq ile devam ediyoruz.');
+      expect(r.route).toBe('companion_groq');
+    }
+  });
+});
+
 /* ── 4. Tanı şeması ─────────────────────────────────────────── */
 
 describe('voice_diag — route aşaması', () => {

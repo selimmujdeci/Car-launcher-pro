@@ -15,6 +15,14 @@ vi.mock('../platform/gpsService', () => ({
 vi.mock('../platform/routingService', () => ({
   getRouteState: () => ({ geometry: null, totalDistanceMeters: 0, totalDurationSeconds: 0 }),
 }));
+const WEATHER = vi.hoisted(() => ({
+  narrative: 'Hava durumu verisi henüz alınamadı.',
+  refreshCalls: 0,
+}));
+vi.mock('../platform/weatherService', () => ({
+  getWeatherNarrative: () => WEATHER.narrative,
+  refreshWeather: () => { WEATHER.refreshCalls++; return Promise.resolve(); },
+}));
 vi.mock('../platform/obdService', () => ({
   onOBDData: (cb: (d: Record<string, unknown>) => void) => {
     cb({
@@ -104,6 +112,69 @@ describe('offlineConversationEngine — sohbet + eşleşmeme', () => {
 
   it('boş giriş → handled:false', () => {
     expect(tryOfflineConversation('   ').handled).toBe(false);
+  });
+});
+
+/* ── Hava durumu: gerçek veri + dürüst fallback (weatherService entegrasyonu) ──
+ * ESKİDEN: beyin başarısız olunca hep sahte "internet gerekiyor" stub'una
+ * düşülüyordu — gerçek hava verisi cihazda VARSA bile. ARTIK: weatherService
+ * önbelleğinde gerçek veri varsa o söylenir; yoksa dürüst "şu an alamadım" +
+ * arka planda sessiz tazeleme (bir sonraki soru için). */
+describe('offlineConversationEngine — hava durumu (gerçek veri + dürüst fallback)', () => {
+  beforeEach(() => {
+    WEATHER.narrative = 'Hava durumu verisi henüz alınamadı.'; // weatherService'in "veri yok" stub'u
+    WEATHER.refreshCalls = 0;
+  });
+
+  it('gerçek veri VARSA → weatherService narrative\'i aynen döner, tazeleme tetiklenmez', () => {
+    WEATHER.narrative = "Mersin'de hava açık ve güneşli, sıcaklık 28 derece.";
+    const r = tryOfflineConversation('hava nasıl');
+    expect(r.handled).toBe(true);
+    expect(r.response).toBe("Mersin'de hava açık ve güneşli, sıcaklık 28 derece.");
+    expect(WEATHER.refreshCalls).toBe(0);
+  });
+
+  it('veri YOK + online → dürüst "ulaşamadım" mesajı + arka planda sessiz tazeleme tetiklenir', () => {
+    const orig = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    try {
+      const r = tryOfflineConversation('hava durumu nasıl');
+      expect(r.handled).toBe(true);
+      expect(r.response).toContain('ulaşamadım');
+      expect(r.response).not.toContain('çevrimdışısın');
+      expect(WEATHER.refreshCalls).toBe(1);
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { value: orig, configurable: true });
+    }
+  });
+
+  it('veri YOK + offline → mevcut "çevrimdışısın" dürüst mesajı (uydurma yok)', () => {
+    const orig = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    try {
+      const r = tryOfflineConversation('hava kaç derece');
+      expect(r.handled).toBe(true);
+      expect(r.response).toContain('çevrimdışısın');
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { value: orig, configurable: true });
+    }
+  });
+
+  it('trafik: online iken dürüst "ulaşamadım", offline iken mevcut çevrimdışı mesajı', () => {
+    const orig = navigator.onLine;
+    try {
+      Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+      const rOnline = tryOfflineConversation('trafik nasıl');
+      expect(rOnline.handled).toBe(true);
+      expect(rOnline.response).toContain('ulaşamadım');
+
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      const rOffline = tryOfflineConversation('trafik durumu');
+      expect(rOffline.handled).toBe(true);
+      expect(rOffline.response).toContain('internet bağlantısı gerekli');
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { value: orig, configurable: true });
+    }
   });
 });
 

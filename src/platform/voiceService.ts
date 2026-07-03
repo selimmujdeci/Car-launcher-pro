@@ -596,8 +596,13 @@ let _aiKeyHintAt = 0;
 
 /* Gemini-first karar penceresi: beyin bu süre içinde ACTION/CHAT kararı
  * veremezse (yavaş ağ/timeout) yerel graceful-fallback zincirine düşülür.
- * (companionChatProvider askCompanionBrain'e timeoutMs olarak iletilir.) */
-const BRAIN_DECISION_TIMEOUT_MS = 2_500;
+ * (companionChatProvider askCompanionBrain'e timeoutMs olarak iletilir.)
+ * Bağlama duyarlı bütçe: sürüşte gecikme/dikkat dağıtma riski yüksek → kısa
+ * tutulur; PARK halinde acele yok, yavaş head-unit ağında (2.5sn) erken kesip
+ * sahte fallback'e düşmek yerine 4sn'ye kadar beyni bekleriz (daha derin/doğru
+ * yanıt > hız kazancı). */
+const BRAIN_TIMEOUT_DRIVING_MS = 2_500;
+const BRAIN_TIMEOUT_PARKED_MS  = 4_000;
 const AFFIRM_RE = /^\s*(evet|tabii|tabi|olur|tamam|aynen|onayla|onayliyorum|onaylıyorum|he|hi hi|yap|elbette|kesinlikle|dogru|doğru)\b/i;
 const NEGATE_RE = /^\s*(hayir|hayır|yok|iptal|vazgec|vazgeç|gerek yok|istemiyorum|olmaz|dur|bos ver|boş ver)\b/i;
 let _pendingCmd: ParsedCommand | null = null;
@@ -606,7 +611,11 @@ let _pendingAt  = 0;
 /* ── AI anahtar çözümü (tembel — yalnız AI yolları çağırır) ──
  * Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
  * 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2). */
-async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string }> {
+async function _resolveAiKeys(): Promise<{
+  provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string;
+  /** provider 'gemini' ise Groq'un çözülmüş anahtarı (yedek beyin) — değilse ''. */
+  groqFallbackKey: string;
+}> {
   // GÜVENLİK: localStorage'dan SADECE hassas-olmayan provider SEÇİMİ okunur
   // (gemini|haiku enum'u). API ANAHTARLARI burada DEĞİL — aşağıda
   // sensitiveKeyStore (Android Keystore / AES-256-GCM) üzerinden çözülür; anahtar
@@ -619,6 +628,7 @@ async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string;
   } catch { /* bozuk JSON → AI katmanı yok sayılır */ }
   let apiKey = '';
   let tavilyKey = '';
+  let groqFallbackKey = '';
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
     const [geminiKey, haikuKey, groqKey, tavily] = await Promise.all([
@@ -632,13 +642,16 @@ async function _resolveAiKeys(): Promise<{ provider: AIProvider; apiKey: string;
       provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
     );
     tavilyKey = (tavily ?? '').trim();
+    // Gemini birincil provider'ken Groq'un KENDİ anahtarını da çöz (yedek beyin) —
+    // Gemini 429/timeout'ta companionChatProvider bu anahtarla Groq'a düşer.
+    if (provider === 'gemini') groqFallbackKey = resolveApiKey('groq', groqKey);
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
   // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
   const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
-  return { provider, apiKey, hasNet, tavilyKey };
+  return { provider, apiKey, hasNet, tavilyKey, groqFallbackKey };
 }
 
 /* ── ASR müzik sorgu onarımı ─────────────────────────────────
@@ -770,7 +783,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   }
 
   // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
-  const { provider, apiKey, hasNet, tavilyKey } = await _resolveAiKeys();
+  const { provider, apiKey, hasNet, tavilyKey, groqFallbackKey } = await _resolveAiKeys();
 
   // Online beyin (companionChatProvider) HEM gemini HEM groq destekler. Eskiden
   // bu gate sadece 'gemini' idi → Groq/Haiku seçildiğinde komutlar online beyne
@@ -826,7 +839,8 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
       apiKey,
       hasNet,
       tavilyKey,
-      timeoutMs: BRAIN_DECISION_TIMEOUT_MS,
+      groqFallbackKey,
+      timeoutMs: ctx?.isDriving ? BRAIN_TIMEOUT_DRIVING_MS : BRAIN_TIMEOUT_PARKED_MS,
     });
     if (brain) {
       _lastCommandTime = now;

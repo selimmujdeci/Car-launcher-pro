@@ -56,6 +56,14 @@ export interface CompanionChatOpts {
    *  Varsa Groq da haber/döviz/canlı bilgi sorularını arayıp yanıtlar. */
   tavilyKey?: string;
   /**
+   * Groq YEDEK anahtarı (opsiyonel) — yalnız `provider: 'gemini'` iken kullanılır.
+   * tryCompanionBrain'de Gemini denemesi başarısız olursa (throw/null/grounding
+   * çökmesi) VEYA Gemini 429 soğuma penceresindeyse (`_rateLimitedUntil`) beyin
+   * bu anahtarla Groq'a düşer — 429/timeout sırasında asistan tamamen
+   * aptallaşmasın diye (kullanıcının Groq anahtarı varsa boşa durmasın).
+   */
+  groqFallbackKey?: string;
+  /**
    * Single Brain karar bütçesi (ms). voiceService 2.5sn iletir: beyin bu süre
    * içinde ACTION/CHAT kararı veremezse fetch iptal edilir → yerel graceful
    * fallback zinciri zamanında devreye girer. Verilmezse GEMINI_TIMEOUT_MS.
@@ -426,7 +434,33 @@ async function askCompanionBrainGroq(
     const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
     return { kind: 'chat', response: reply, route: 'companion_groq' };
   }
+  // parseBrainJson CHAT kararına HER ZAMAN 'companion_gemini' rotası yazar (paylaşılan
+  // parser Gemini birincil çağrıyı varsayar) — Groq'tan geldiğinde burada düzeltilir,
+  // aksi halde Groq'un cevabı tanı/log'larda yanlışlıkla Gemini'ye ait görünür.
+  if (parsed && parsed.kind === 'chat') return { ...parsed, route: 'companion_groq' };
   return parsed;
+}
+
+/**
+ * Groq beyin çağrısını yapıp başarılıysa geçmişe/devre-kesiciye işler.
+ * tryCompanionBrain'de üç yerde (birincil Groq, Gemini-sonrası yedek, Gemini
+ * soğuma-penceresi yedeği) aynı "çağır → başarılıysa kaydet" deseni tekrar
+ * etmesin diye ortak noktaya alındı.
+ */
+async function tryGroqBrainAndRecord(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  timeoutMs?: number,
+  tavilyKey?: string,
+): Promise<CompanionBrainResult | null> {
+  const result = await askCompanionBrainGroq(text, apiKey, id, isDriving, timeoutMs, tavilyKey);
+  if (!result) return null;
+  recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+  pushHistory('user', text);
+  pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
+  return result;
 }
 
 /**
@@ -843,9 +877,15 @@ export async function tryCompanionBrain(
     opts.provider === 'gemini' && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
   const groqUsable =
     opts.provider === 'groq'   && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
+  // Groq YEDEK beyni: yalnız Gemini birincil provider'ken anlamlıdır.
+  // _rateLimitedUntil'a KASITLI olarak bakılmaz — Gemini 429 soğumasındayken
+  // (geminiUsable false) bile Groq'u dener; aksi halde 60sn'lik soğuma boyunca
+  // kullanıcının Groq anahtarı olsa dahi asistan tamamen aptallaşırdı.
+  const groqFallbackUsable =
+    opts.provider === 'gemini' && !!opts.groqFallbackKey && opts.hasNet === true;
 
-  // aiUsable: herhangi bir desteklenen online AI kullanılabilir mi?
-  const aiUsable = geminiUsable || groqUsable;
+  // aiUsable: herhangi bir desteklenen online AI (birincil veya yedek) kullanılabilir mi?
+  const aiUsable = geminiUsable || groqUsable || groqFallbackUsable;
   let aiAttempted = false;
 
   if (aiUsable) {
@@ -854,12 +894,19 @@ export async function tryCompanionBrain(
       const id = resolveCompanionIdentity(settings);
 
       if (geminiUsable) {
-        const result = await askCompanionBrain(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
+        // Gemini attarsa (timeout/ağ hatası) Groq yedeğini de deneyebilmek için
+        // yalnız Gemini çağrısı kendi try/catch'inde izole edilir — dıştaki catch
+        // yalnız TÜM yollar (Gemini + Groq yedeği) tükendiğinde bir kez sayar.
+        let result: BrainRaw | null = null;
+        try {
+          result = await askCompanionBrain(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
+        } catch { result = null; /* aşağıda Groq yedeği denenecek */ }
+
         if (result) {
           recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
           // İNTERNET kararı: ikinci grounded çağrıyla (Google Search) gerçek cevabı
           // üret; voiceService'e CHAT olarak dön (web tipini hiç görmez). Grounding
-          // başarısızsa offline/reask zincirine düş — "erişimim yok" demeyiz.
+          // başarısızsa offline fallback / Groq yedeği / reask devreye girer.
           if (result.kind === 'web') {
             const grounded = await askGroundedGemini(result.query, opts.apiKey as string, id, isDriving);
             if (grounded) {
@@ -867,7 +914,7 @@ export async function tryCompanionBrain(
               pushHistory('model', grounded);
               return { kind: 'chat', response: grounded, route: 'companion_gemini' };
             }
-            // grounding boş/başarısız → aşağıdaki offline fallback / reask devreye girer
+            // grounding boş/başarısız → aşağıdaki Groq yedeği / offline fallback devreye girer
           } else {
             // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
             // bağlamlı devam cümleleri için).
@@ -876,19 +923,22 @@ export async function tryCompanionBrain(
             return result;
           }
         }
+
+        // Gemini başarısız (throw / null / grounding çöktü) — Groq yedeği varsa dene.
+        if (opts.groqFallbackKey && opts.hasNet === true) {
+          const fb = await tryGroqBrainAndRecord(trimmed, opts.groqFallbackKey, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+          if (fb) return fb;
+        }
       } else if (groqUsable) {
         // Groq: grounding YOK; beyin internet kararı veremez; aksiyonlar + sohbet çalışır.
-        const result = await askCompanionBrainGroq(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs, opts.tavilyKey);
-        if (result) {
-          recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
-          // askCompanionBrainGroq type:"web" gelirse kendi içinde sohbete çevirir;
-          // buraya action veya chat gelir.
-          pushHistory('user', trimmed);
-          pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
-          return result;
-        }
+        const result = await tryGroqBrainAndRecord(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+        if (result) return result;
+      } else if (groqFallbackUsable) {
+        // Gemini 429 soğuma penceresinde — doğrudan Groq yedeğiyle devam et.
+        const result = await tryGroqBrainAndRecord(trimmed, opts.groqFallbackKey as string, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+        if (result) return result;
       }
-    } catch { recordAiNetFailure(); /* timeout / ağ — offline'a düş; kesici art arda hatada AI'yı kapatır */ }
+    } catch { recordAiNetFailure(); /* timeout / ağ — offline'a düş; kesici art arda hatada AI'yı kapatır (failover da düşerse bir kez sayılır) */ }
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
