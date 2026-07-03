@@ -310,21 +310,23 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
   const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
   const [groqKey,    setGroqKey]    = useSensitiveKey('groqApiKey');
+  const [tavilyKey,  setTavilyKey]  = useSensitiveKey('tavilyApiKey');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showHaikuKey,  setShowHaikuKey]  = useState(false);
   const [showGroqKey,   setShowGroqKey]   = useState(false);
+  const [showTavilyKey, setShowTavilyKey] = useState(false);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
   const [waitingClip,   setWaitingClip]   = useState(false);
   const [showKeyBeam,   setShowKeyBeam]   = useState(false);
   // Anahtar boğması YOK: normal kullanıcı YALNIZ Gemini anahtarıyla tam çalışır
-  // (sohbet + Google araması + yerel hava). Groq/Haiku "Gelişmiş — opsiyonel
-  // yedek beyin" altında KATLI durur; yalnız kota derdi olan ileri kullanıcı açar.
+  // (sohbet + Google araması + yerel hava). Groq/Haiku/Tavily "Gelişmiş" altında
+  // KATLI durur; yalnız kota derdi olan / arama isteyen ileri kullanıcı açar.
   const [showAdvanced, setShowAdvanced] = useState(false);
-  // Dönen kullanıcı: daha önce yedek anahtar kaydettiyse panel otomatik açılsın
+  // Dönen kullanıcı: daha önce yedek/arama anahtarı kaydettiyse panel otomatik açılsın
   // (anahtar deposu async yüklenir → truthy olunca genişlet).
   useEffect(() => {
-    if (groqKey || haikuKey) setShowAdvanced(true);
-  }, [groqKey, haikuKey]);
+    if (groqKey || haikuKey || tavilyKey) setShowAdvanced(true);
+  }, [groqKey, haikuKey, tavilyKey]);
 
   // Hibrit zincirde sağlayıcı başına ayrı test durumu — tek genel test butonu
   // artık yanlış anahtarı test ediyormuş izlenimi verirdi (3 numaralı görev).
@@ -359,6 +361,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       const isGeminiKey = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,})$/.test(text);
       const isHaikuKey  = /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(text);
       const isGroqKey   = /^gsk_[A-Za-z0-9]{20,}$/.test(text);
+      const isTavilyKey = /^tvly-[A-Za-z0-9_-]{10,}$/.test(text);
 
       if (isGeminiKey) {
         void setGeminiKey(text);
@@ -368,6 +371,11 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         void setHaikuKey(text);
         setShowAdvanced(true); // yedek beyin girildi → gelişmiş panel açık kalsın
         setClipboardHint('Haiku key otomatik algılandı!');
+        setWaitingClip(false);
+      } else if (isTavilyKey) {
+        void setTavilyKey(text);
+        setShowAdvanced(true); // arama anahtarı girildi → gelişmiş panel açık kalsın
+        setClipboardHint('Tavily anahtarı algılandı — internet araması açık!');
         setWaitingClip(false);
       } else if (isGroqKey) {
         void setGroqKey(text);
@@ -552,8 +560,9 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       {showAdvanced && (
       <div className="flex flex-col gap-5">
       <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
-        Zorunlu değil. Girersen Gemini kotası bittiğinde asistan susmaz — sırayla Groq, sonra Haiku devreye girer.
-        Bu yedekler tek başına internette arayamaz; canlı bilgi için Gemini gerekir (hava yine yerelden gelir).
+        Zorunlu değil. <span className="text-[color:var(--oem-ink-2)] font-semibold">Groq/Haiku</span> = yedek beyin (Gemini kotası bitince asistan susmaz).
+        {' '}<span className="text-sky-300 font-semibold">Tavily</span> = internet araması: Gemini'nin kendi arama kotası çok küçük ve çabuk doluyor
+        (haber/döviz sorunca "bulamadım" dersen sebebi budur) — Tavily eklersen arama <span className="text-[color:var(--oem-ink-2)]">her zaman</span> çalışır. Hava zaten yerelden gelir.
       </p>
 
       {/* Yedek 1 — Groq */}
@@ -634,6 +643,45 @@ const AIVoicePanel = memo(function AIVoicePanel() {
           disabled={!haikuKey && !envHaikuKey}
           onTest={() => void runTest('haiku', haikuKey, envHaikuKey, setHaikuTest, haikuTestTimerRef)}
         />
+      </div>
+
+      {/* İnternet Araması — Tavily. Gemini'nin google_search kotası çok küçük
+          (saha: 429 RESOURCE_EXHAUSTED → "bulamadım"); Tavily bağımsız + cömert
+          arama sağlar. Backend zincir: web kararında önce Gemini grounding, o
+          429/boş dönerse Tavily devreye girer → arama her zaman çalışır. */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--oem-line)]">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-sky-300 uppercase tracking-wider">İnternet Araması — Tavily</span>
+          {tavilyKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Açık ✓</span>
+            : <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Önerilir</span>
+          }
+        </div>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
+          Haber, döviz, altın gibi <span className="text-[color:var(--oem-ink-2)]">canlı bilgi</span> aramaları için. Gemini'nin kendi arama kotası
+          günde çok az; dolunca "bulamadım" der. Ücretsiz Tavily anahtarı (aylık ~1000 arama) eklersen arama kesintisiz çalışır.
+        </p>
+        <button
+          onClick={() => handleOpenKeyPage('https://app.tavily.com')}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-sky-400/30 bg-sky-400/10 text-sky-300 text-sm font-bold hover:bg-sky-400/20 active:scale-[0.98] transition-all"
+        >
+          <span>🌐</span>
+          Ücretsiz Arama Key Al — app.tavily.com
+        </button>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+        <div className="relative">
+          <input
+            type={showTavilyKey ? 'text' : 'password'}
+            value={tavilyKey}
+            onChange={(e) => { void setTavilyKey(e.target.value); }}
+            placeholder="tvly-... (manuel giriş)"
+            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+          />
+          <button onClick={() => setShowTavilyKey((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+            {showTavilyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
       </div>

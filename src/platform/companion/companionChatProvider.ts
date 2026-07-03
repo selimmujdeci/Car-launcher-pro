@@ -473,9 +473,10 @@ async function askCompanionBrainGroq(
     // cihazda gerçek veri olarak var).
     const localWeather = await tryLocalWeatherAnswer(parsed.query);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_groq' };
-    // İNTERNET kararı → ÖNCE Gemini google_search (arama motoru), yoksa Tavily.
-    // "Groq asistan, Gemini yalnız arama" düzeni: canlı bilgi Gemini'ye devredilir.
-    if (hasGeminiSearch) {
+    // İNTERNET kararı → ÖNCE Gemini google_search, o 429/soğumadaysa Tavily.
+    // Gemini soğuma penceresindeyse (grounding 429 verdi) tekrar çağırıp boş yere
+    // 429 yemeyiz — doğrudan Tavily'ye düşeriz (saha: Gemini arama kotası çok küçük).
+    if (hasGeminiSearch && _now() >= _rateLimitedUntil) {
       const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
     }
@@ -485,7 +486,7 @@ async function askCompanionBrainGroq(
       return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
     }
     if (hasGeminiSearch) {
-      // Gemini araması boş/başarısız döndü (ör. kota) → dürüst söyle.
+      // Gemini araması boş/başarısız döndü (ör. kota) ve Tavily yok → dürüst söyle.
       return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
     }
     const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
@@ -635,8 +636,8 @@ async function askCompanionBrainHaiku(
     // Hava sorgusu mu? → yerel hava servisi aramadan ÖNCE denenir (bkz. Groq).
     const localWeather = await tryLocalWeatherAnswer(parsed.query);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_haiku' };
-    // İNTERNET → ÖNCE Gemini google_search (arama motoru), yoksa Tavily.
-    if (hasGeminiSearch) {
+    // İNTERNET → ÖNCE Gemini google_search, o 429/soğumadaysa Tavily (bkz. Groq).
+    if (hasGeminiSearch && _now() >= _rateLimitedUntil) {
       const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_haiku' };
     }
