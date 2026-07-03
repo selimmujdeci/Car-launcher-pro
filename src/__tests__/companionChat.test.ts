@@ -619,6 +619,35 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     }
   });
 
+  it('SAHA 2026-07-04: Gemini grounding 429 BEYNİ öldürmez — Tavily yedeği + sonraki sorguda beyin YİNE çalışır', async () => {
+    // Kök bug: grounding (google_search) 429'u _rateLimitedUntil'ı kurup 60sn TÜM
+    // Gemini beynini atlatıyordu → "bir kere çalışıp sonra ölüyor". Artık grounding
+    // 429 AYRI soğuma (_groundingCooldownUntil) → beyin çalışmaya devam eder, Tavily devrede.
+    setupCompanion(true);
+    const OPTS = { provider: 'gemini', apiKey: 'AIzaTest', hasNet: true, tavilyKey: 'tvly-test-key-123', searchKey: 'AIzaTest' } as const;
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'web', query: 'dolar kuru' }) }] } }] }) }) // 1: beyin → web
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) })                                                                                                     // 2: grounding 429
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ answer: 'Dolar 34 lira 20 kuruş.', results: [{ title: 't', content: 'c', url: 'u' }] }) })                 // 3: Tavily
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: 'Dolar 34 lira 20 kuruş.' }] } }] }) })                          // 4: Tavily→Gemini sentez
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'chat', say: 'İyiyim, teşekkürler.' }) }] } }] }) }); // 5: sorgu 2 beyin
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r1 = await tryCompanionBrain('dolar kaç para', OPTS);
+    expect(r1!.kind).toBe('chat');
+    if (r1!.kind === 'chat') {
+      expect(r1.response).toContain('Dolar');
+      expect(r1.route).toBe('companion_gemini');   // Tavily yedeği Gemini yolunda çalıştı
+    }
+
+    const r2 = await tryCompanionBrain('nasılsın', OPTS);
+    expect(r2!.kind).toBe('chat');
+    if (r2!.kind === 'chat') {
+      expect(r2.route).toBe('companion_gemini');   // KRİTİK: beyin YİNE çalıştı (grounding 429 atlatmadı)
+      expect(r2.response).toContain('İyiyim');
+    }
+  });
+
   it('WEB + HAVA kesişimi: beyin type:"web" hava sorgusu döndürdü + gerçek hava verisi VAR → yerel narrative döner, GROUNDED çağrı YAPILMAZ', async () => {
     setupCompanion(true);
     WEATHER.narrative = 'Bugün hava açık, sıcaklık 24 derece.'; // "henüz alınamadı" İÇERMEZ → veri hazır sayılır

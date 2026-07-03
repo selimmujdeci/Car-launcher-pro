@@ -134,7 +134,15 @@ function pushHistory(role: ChatTurn['role'], text: string): void {
 /* ── 429 rate-limit soğuma penceresi ────────────────────────── */
 
 export const RATE_LIMIT_COOLDOWN_MS = 60_000;
+// Gemini BEYİN/sohbet çağrısı (düzenli generateContent) kotası soğuması — Gemini
+// adayını zincirde atlar.
 let _rateLimitedUntil = 0;
+// google_search GROUNDING kotası soğuması AYRI (SAHA 2026-07-04): grounding ücretsiz
+// katmanda çok küçük kotalı, sık 429 verir. Eskiden bu 429 _rateLimitedUntil'ı
+// kurup TÜM Gemini beynini 60sn öldürüyordu → "bir kere çalışıp sonra ölüyor".
+// Ayrı pencere: grounding kotası bitince yalnız grounding atlanır (→ Tavily), beyin
+// karar/sentez çağrıları (düzenli generateContent, 200 dönüyor) çalışmaya devam eder.
+let _groundingCooldownUntil = 0;
 
 function _now(): number {
   return typeof performance !== 'undefined' ? performance.now() : 0;
@@ -145,6 +153,7 @@ export function _resetCompanionChatForTest(): void {
   _history = [];
   _offlineCounter = 0;
   _rateLimitedUntil = 0;
+  _groundingCooldownUntil = 0;
 }
 
 /* ── Yorumlanmış araç bağlamı (HAM VERİ DEĞİL) ──────────────── */
@@ -503,10 +512,10 @@ async function askCompanionBrainGroq(
     // cihazda gerçek veri olarak var).
     const localWeather = await tryLocalWeatherAnswer(parsed.query);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_groq' };
-    // İNTERNET kararı → ÖNCE Gemini google_search, o 429/soğumadaysa Tavily.
-    // Gemini soğuma penceresindeyse (grounding 429 verdi) tekrar çağırıp boş yere
-    // 429 yemeyiz — doğrudan Tavily'ye düşeriz (saha: Gemini arama kotası çok küçük).
-    if (hasGeminiSearch && _now() >= _rateLimitedUntil) {
+    // İNTERNET kararı → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily.
+    // Grounding kendi penceresindeyse (429 verdi) tekrar çağırıp boş yere 429 yemeyiz —
+    // doğrudan Tavily'ye düşeriz (grounding cooldown BEYİN cooldown'ından ayrı).
+    if (hasGeminiSearch && _now() >= _groundingCooldownUntil) {
       const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
     }
@@ -666,8 +675,8 @@ async function askCompanionBrainHaiku(
     // Hava sorgusu mu? → yerel hava servisi aramadan ÖNCE denenir (bkz. Groq).
     const localWeather = await tryLocalWeatherAnswer(parsed.query);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_haiku' };
-    // İNTERNET → ÖNCE Gemini google_search, o 429/soğumadaysa Tavily (bkz. Groq).
-    if (hasGeminiSearch && _now() >= _rateLimitedUntil) {
+    // İNTERNET → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily (bkz. Groq).
+    if (hasGeminiSearch && _now() >= _groundingCooldownUntil) {
       const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_haiku' };
     }
@@ -1150,7 +1159,9 @@ async function askGroundedGemini(
       body:    JSON.stringify(body),
       signal:  signalWithTimeout(GROUNDED_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
     });
-    if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+    // GROUNDING 429 → yalnız GROUNDING soğuması (beyin cooldown'ını KİRLETME).
+    // Beyin karar/sentez çağrıları çalışmaya devam eder; grounding atlanır → Tavily.
+    if (resp.status === 429) { _groundingCooldownUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
     if (!resp.ok) return null;
     const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     // Grounded cevap birden çok text parçasına bölünebilir → hepsini birleştir.
@@ -1272,13 +1283,17 @@ export async function tryCompanionBrain(
                 pushHistory('model', localWeather);
                 return { kind: 'chat', response: localWeather, route: 'companion_gemini' };
               }
-              const grounded = await askGroundedGemini(result.query, cand.apiKey, id, isDriving);
-              if (grounded) {
-                pushHistory('user', trimmed);
-                pushHistory('model', grounded);
-                return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+              // Grounding yalnız KENDİ soğuma penceresi dışındaysa denenir — kota
+              // 429'unda tekrar tekrar 1sn yemeyip doğrudan Tavily'ye geçilir.
+              if (_now() >= _groundingCooldownUntil) {
+                const grounded = await askGroundedGemini(result.query, cand.apiKey, id, isDriving);
+                if (grounded) {
+                  pushHistory('user', trimmed);
+                  pushHistory('model', grounded);
+                  return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+                }
               }
-              // Gemini google_search 429/başarısız → TAVILY YEDEĞİ (SAHA 2026-07-04).
+              // Gemini google_search 429/başarısız/soğumada → TAVILY YEDEĞİ (SAHA 2026-07-04).
               // Gemini grounding ücretsiz kotası çok küçük; kullanıcının Tavily anahtarı
               // eskiden yalnız Groq/Haiku'ya bağlıydı → Gemini birincilken web ölüydü.
               const hasTavily = !!opts.tavilyKey && opts.tavilyKey.trim().length > 8;
