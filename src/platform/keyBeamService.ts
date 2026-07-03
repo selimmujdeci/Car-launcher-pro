@@ -16,7 +16,7 @@ import {
   generateBeamCode,
   generateBeamKey,
   decryptBeamPayload,
-  GEMINI_KEY_BEAM_REGEX,
+  API_KEY_BEAM_REGEX,
   KEY_BEAM_TTL_MS,
 } from './keyBeamCrypto';
 
@@ -96,7 +96,7 @@ export async function pollBeamOnce(
 
     try {
       const apiKey = await decryptBeamPayload(data.ciphertext, data.iv, session.cryptoKey);
-      if (!GEMINI_KEY_BEAM_REGEX.test(apiKey)) return { status: 'invalid' };
+      if (!API_KEY_BEAM_REGEX.test(apiKey)) return { status: 'invalid' };
       return { status: 'found', apiKey };
     } catch {
       return { status: 'invalid' };

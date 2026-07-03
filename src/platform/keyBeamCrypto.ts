@@ -23,8 +23,12 @@ export const KEY_BEAM_CODE_LENGTH = 8;
 /** QR/Supabase satırının geçerlilik süresi. */
 export const KEY_BEAM_TTL_MS = 5 * 60_000;
 
-/** Gemini API key formatı — SettingsPage'deki (AIVoicePanel) regex ile AYNI. */
-export const GEMINI_KEY_BEAM_REGEX = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,})$/;
+/**
+ * QR beam ile aktarılabilen API anahtar formatları — SettingsPage/AIVoicePanel'in
+ * clipboard-algılama regex'leriyle AYNI: Gemini · Groq · Haiku · Tavily.
+ * (Eskiden yalnız Gemini kabul ediliyordu → Tavily/Groq/Haiku QR ile getirilemiyordu.)
+ */
+export const API_KEY_BEAM_REGEX = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,}|gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{10,})$/;
 
 // ── Base64 / Base64url yardımcıları ───────────────────────────────────────────
 

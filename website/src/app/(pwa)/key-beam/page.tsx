@@ -19,7 +19,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabaseBrowser, isSupabaseConfigured } from '@/lib/supabase';
-import { importBeamKey, encryptBeamPayload, GEMINI_KEY_BEAM_REGEX } from '@/lib/keyBeamCrypto';
+import { importBeamKey, encryptBeamPayload, API_KEY_BEAM_REGEX } from '@/lib/keyBeamCrypto';
 
 type Status = 'idle' | 'sending' | 'sent' | 'error';
 
@@ -51,7 +51,7 @@ function KeyBeamInner() {
 
   const isExpired = exp !== null && Date.now() > exp;
   const isValidLink = Boolean(code) && Boolean(fragmentKey);
-  const isValidFormat = GEMINI_KEY_BEAM_REGEX.test(value.trim());
+  const isValidFormat = API_KEY_BEAM_REGEX.test(value.trim());
 
   const handleSend = useCallback(async () => {
     if (!isValidLink || !fragmentKey || !isValidFormat || status === 'sending') return;

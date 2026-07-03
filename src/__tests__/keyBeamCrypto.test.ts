@@ -6,7 +6,7 @@
  *  - generateBeamKey + decryptBeamPayload: round-trip (website tarafı burada
  *    fragment'taki base64url anahtarı yeniden import ederek simüle edilir —
  *    website/src/lib/keyBeamCrypto.ts ile AYNI sözleşme)
- *  - GEMINI_KEY_BEAM_REGEX: SettingsPage ile aynı formatları kabul/red eder
+ *  - API_KEY_BEAM_REGEX: SettingsPage ile aynı formatları kabul/red eder (Gemini/Groq/Haiku/Tavily)
  *  - Hata yolları: yanlış anahtar, bozuk ciphertext/iv
  */
 
@@ -15,7 +15,7 @@ import {
   generateBeamCode,
   generateBeamKey,
   decryptBeamPayload,
-  GEMINI_KEY_BEAM_REGEX,
+  API_KEY_BEAM_REGEX,
   KEY_BEAM_CODE_LENGTH,
   KEY_BEAM_TTL_MS,
 } from '../platform/keyBeamCrypto';
@@ -137,25 +137,43 @@ describe('decryptBeamPayload — hata yolları', () => {
    4. FORMAT DOĞRULAMA — SettingsPage ile AYNI regex
 ═══════════════════════════════════════════════════════════════ */
 
-describe('GEMINI_KEY_BEAM_REGEX', () => {
-  it('geçerli eski format (AIza...) kabul edilir', () => {
-    expect(GEMINI_KEY_BEAM_REGEX.test('AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ01234567')).toBe(true);
+describe('API_KEY_BEAM_REGEX', () => {
+  it('geçerli eski Gemini format (AIza...) kabul edilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ01234567')).toBe(true);
   });
 
-  it('geçerli yeni format (AQ....) kabul edilir', () => {
-    expect(GEMINI_KEY_BEAM_REGEX.test('AQ.Ab8xxxxxxxxxxxxxxxxxxxxxxxxxxxx')).toBe(true);
+  it('geçerli yeni Gemini format (AQ....) kabul edilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('AQ.Ab8xxxxxxxxxxxxxxxxxxxxxxxxxxxx')).toBe(true);
+  });
+
+  // QR beam artık yalnız Gemini değil; Groq/Haiku/Tavily de aktarılabilir
+  // (SettingsPage clipboard-algılama formatlarıyla birebir aynı).
+  it('geçerli Tavily format (tvly-...) kabul edilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('tvly-dev-ABCDEFGHIJKLMNOPqrstuvwx')).toBe(true);
+  });
+
+  it('geçerli Groq format (gsk_...) kabul edilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('gsk_ABCDEFGHIJKLMNOPQRSTUVWX')).toBe(true);
+  });
+
+  it('geçerli Haiku format (sk-ant-...) kabul edilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('sk-ant-ABCDEFGHIJKLMNOPQRSTUV')).toBe(true);
   });
 
   it('rastgele metin reddedilir', () => {
-    expect(GEMINI_KEY_BEAM_REGEX.test('merhaba dünya')).toBe(false);
+    expect(API_KEY_BEAM_REGEX.test('merhaba dünya')).toBe(false);
   });
 
   it('kısa/eksik AIza reddedilir', () => {
-    expect(GEMINI_KEY_BEAM_REGEX.test('AIzaShort')).toBe(false);
+    expect(API_KEY_BEAM_REGEX.test('AIzaShort')).toBe(false);
+  });
+
+  it('kısa/eksik tvly reddedilir', () => {
+    expect(API_KEY_BEAM_REGEX.test('tvly-')).toBe(false);
   });
 
   it('boş string reddedilir', () => {
-    expect(GEMINI_KEY_BEAM_REGEX.test('')).toBe(false);
+    expect(API_KEY_BEAM_REGEX.test('')).toBe(false);
   });
 });
 

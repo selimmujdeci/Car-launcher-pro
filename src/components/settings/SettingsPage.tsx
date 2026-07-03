@@ -318,6 +318,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
   const [waitingClip,   setWaitingClip]   = useState(false);
   const [showKeyBeam,   setShowKeyBeam]   = useState(false);
+  const [showTavilyBeam, setShowTavilyBeam] = useState(false);
   // Anahtar boğması YOK: normal kullanıcı YALNIZ Gemini anahtarıyla tam çalışır
   // (sohbet + Google araması + yerel hava). Groq/Haiku/Tavily "Gelişmiş" altında
   // KATLI durur; yalnız kota derdi olan / arama isteyen ileri kullanıcı açar.
@@ -680,6 +681,20 @@ const AIVoicePanel = memo(function AIVoicePanel() {
           <span>🌐</span>
           Ücretsiz Arama Key Al — app.tavily.com
         </button>
+        {/* Telefonla QR ile getir — Gemini'deki akışın aynısı (KeyBeamPanel jenerik). */}
+        <button
+          onClick={() => setShowTavilyBeam((v) => !v)}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
+        >
+          <span>📱</span>
+          {showTavilyBeam ? 'QR\'ı Gizle' : 'Telefonla Getir (QR)'}
+        </button>
+        {showTavilyBeam && (
+          <KeyBeamPanel
+            onKeySaved={setTavilyKey}
+            onClose={() => setShowTavilyBeam(false)}
+          />
+        )}
         <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
         <div className="relative">
           <input
