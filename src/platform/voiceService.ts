@@ -621,13 +621,12 @@ async function _resolveAiKeys(): Promise<{
    */
   searchKey: string;
   /**
-   * SOHBET BEYNİ ZİNCİRİ — DİNAMİK (kullanıcı isteği 2026-07-03):
-   *  • Groq VARSA → Groq birincil sohbet beyni; Gemini sohbet zincirine GİRMEZ,
-   *    yalnız arama motoru olur (sınırlı Gemini kotası aramaya saklanır). Haiku
-   *    yedek; Gemini en sona EMNİYET olarak eklenir (Groq+Haiku ikisi de düşerse
-   *    asistan offline'a düşmesin — normalde tetiklenmez, kota yakmaz).
-   *  • Groq YOKSA → Gemini hem sohbet hem arama (birincil), Haiku yedek.
-   * Yalnız anahtarı GİRİLMİŞ sağlayıcılar zincire girer.
+   * SOHBET BEYNİ ZİNCİRİ — SIRA SABİT: Gemini → Groq → Haiku (yalnız anahtarı
+   * GİRİLMİŞ sağlayıcılar). Gemini birincil çünkü hem güvenilir sohbet/komut
+   * kararı hem YERLEŞİK google_search araması onda; Groq/Haiku, Gemini 429/hata
+   * olunca otomatik yedek. ("Groq birincil, Gemini yalnız arama" denemesi saha
+   * geri bildirimiyle geri alındı — Groq web/komut kararında yeterince güvenilir
+   * değildi.)
    */
   chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
 }> {
@@ -661,18 +660,17 @@ async function _resolveAiKeys(): Promise<{
     const resolvedGemini = resolveApiKey('gemini', geminiKey);
     const resolvedGroq   = resolveApiKey('groq', groqKey);
     const resolvedHaiku  = resolveApiKey('haiku', haikuKey);
-    // Gemini = arama motoru anahtarı (sohbet zincirinde olsun olmasın grounding onunla).
+    // Gemini = arama motoru anahtarı (Groq/Haiku yedekteyken web kararını buna devreder).
     searchKey = resolvedGemini;
-    // DİNAMİK zincir: Groq varsa Groq birincil sohbet beyni, Gemini yalnız arama
-    // (en sona emniyet); Groq yoksa Gemini hem sohbet hem arama. (bkz. dönüş tipi doc.)
-    if (resolvedGroq) {
-      chain.push({ provider: 'groq', apiKey: resolvedGroq });
-      if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
-      if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini }); // emniyet — son halka
-    } else {
-      if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
-      if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
-    }
+    // ZİNCİR SIRA SABİT: Gemini → Groq → Haiku (yalnız girilmiş anahtarlar).
+    // SAHA 2026-07-03: "Groq birincil, Gemini yalnız arama" denemesi GERİ ALINDI —
+    // Groq (Llama) type:"web" kararını Gemini kadar güvenilir üretmiyordu → haber/
+    // altın/döviz araması tetiklenmiyor + JSON komut kararı zayıf ("anladım ama iş
+    // yapmadı"). Gemini birincil: hem güvenilir sohbet/komut hem YERLEŞİK google_search.
+    // Groq/Haiku Gemini 429/hata olunca otomatik yedek (asistan aptallaşmaz).
+    if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
+    if (resolvedGroq)   chain.push({ provider: 'groq',   apiKey: resolvedGroq });
+    if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında

@@ -621,21 +621,23 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
   });
 
-  it('YAPISAL: voiceService DİNAMİK zincir — Groq varsa Groq birincil + Gemini yalnız arama; Groq yoksa Gemini birincil', () => {
+  it('YAPISAL: voiceService zincir SIRA SABİT — Gemini → Groq → Haiku (birincil Gemini; SAHA geri-alma)', () => {
     const src = read('src/platform/voiceService.ts');
-    // Gemini = arama motoru anahtarı (sohbet zincirinde olsun olmasın grounding onunla)
+    // Gemini = arama motoru anahtarı; Groq/Haiku yedekteyken web kararını buna devreder.
     expect(src).toMatch(/searchKey = resolvedGemini;/);
-    // Groq VARSA: Groq önce, Haiku yedek, Gemini EN SONA emniyet (sohbet zincirine
-    // birincil olarak GİRMEZ — sınırlı Gemini kotası aramaya saklanır).
-    expect(src).toMatch(/if \(resolvedGroq\)\s*\{/);
-    expect(src).toMatch(/chain\.push\(\{ provider: 'groq', apiKey: resolvedGroq \}\);/);
-    expect(src).toMatch(/chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\); \/\/ emniyet/);
-    // searchKey beyne iletilir (Groq/Haiku web kararı Gemini google_search'e devreder)
+    // SABİT sıra: Gemini önce (birincil — güvenilir sohbet/komut + yerleşik google_search).
+    // "Groq birincil" denemesi geri alındı; bu sıra bir daha sessizce ters çevrilmemeli.
+    expect(src).toMatch(/if \(resolvedGemini\) chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\);/);
+    expect(src).toMatch(/if \(resolvedGroq\)\s+chain\.push\(\{ provider: 'groq',\s+apiKey: resolvedGroq \}\);/);
+    expect(src).toMatch(/if \(resolvedHaiku\)\s+chain\.push\(\{ provider: 'haiku',\s+apiKey: resolvedHaiku \}\);/);
+    // Gemini push, Groq push'tan ÖNCE gelmeli (birincil sıra korunsun)
+    expect(src.indexOf("provider: 'gemini', apiKey: resolvedGemini")).toBeLessThan(src.indexOf("provider: 'groq',   apiKey: resolvedGroq"));
+    // searchKey yine beyne iletilir (Groq/Haiku YEDEKTEyken web kararını Gemini'ye devreder)
     expect(src).toMatch(/searchKey,\s*\n\s*chain,/);
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
   });
 
-  it('YAPISAL: Groq/Haiku web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
+  it('YAPISAL: Groq/Haiku (yedekteyken) web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
     // searchKey opsiyonu + "önce Gemini google_search, yoksa Tavily" sırası
     expect(src).toMatch(/searchKey\?:\s*string/);
