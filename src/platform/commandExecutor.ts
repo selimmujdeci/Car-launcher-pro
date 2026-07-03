@@ -26,6 +26,7 @@ import { applyLiveStyle } from './liveStyleEngine';
 import { getWeatherNarrative } from './weatherService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { resolveAppByName } from './appRegistry';
+import { resolveScreen } from './screenRegistry';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -339,6 +340,21 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           _speak(`${app.name} açılıyor`, isDriving);
         } else {
           _speak(name ? `${name} uygulamasını bulamadım` : 'Hangi uygulamayı açayım?', isDriving);
+        }
+        break;
+      }
+      case 'OPEN_SCREEN': {
+        // İç ekran/panel aç-kapat (trafik, klima, arıza kodları, Gemini QR…).
+        // Bulunamazsa SAHTE ONAY YOK — dürüstçe söyler.
+        const scr    = (intent.payload.screen ?? '').trim();
+        const screen = scr ? resolveScreen(scr) : null;
+        const closing = intent.payload.screenAction === 'close';
+        if (screen) {
+          if (closing) (screen.close ?? (() => {}))();
+          else screen.open();
+          _speak(`${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`, isDriving);
+        } else {
+          _speak(scr ? `${scr} ekranını bulamadım` : 'Hangi ekranı açayım?', isDriving);
         }
         break;
       }

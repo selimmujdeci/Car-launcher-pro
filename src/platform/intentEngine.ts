@@ -21,6 +21,7 @@
 import type { ParsedCommand, CommandType } from './commandParser';
 import type { CommandResult } from './bridge';
 import { resolveAppByName } from './appRegistry';
+import { resolveScreen } from './screenRegistry';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -37,6 +38,7 @@ export type IntentType =
   | 'ADD_MUSIC_FAVORITE'
   | 'OPEN_PHONE'
   | 'OPEN_APP'            // Genel uygulama açma (isimle): kamera, radyo, WhatsApp…
+  | 'OPEN_SCREEN'         // İç ekran/panel aç-kapat: trafik, klima, arıza kodları, Gemini QR…
   | 'OPEN_SETTINGS'
   | 'PLAY_MEDIA'
   | 'PAUSE_MEDIA'
@@ -76,6 +78,8 @@ export type IntentType =
 export interface IntentPayload {
   targetApp?:   string;   // app ID to launch (maps, spotify, phone …)
   appName?:     string;   // OPEN_APP: serbest/sesli uygulama adı ("kamera", "radyo")
+  screen?:      string;   // OPEN_SCREEN: iç ekran adı ("trafik", "klima", "gemini qr")
+  screenAction?: string;  // OPEN_SCREEN: 'open' | 'close'
   destination?: string;   // navigation destination hint (e.g. "home")
   mode?:        string;   // theme or driving mode value
   sourceText?:  string;   // original user input — for logging / feedback
@@ -361,6 +365,15 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       if (app) ctx.launch(app.id);
       break;
     }
+    case 'OPEN_SCREEN': {
+      // İç ekran/panel aç-kapat (trafik, klima, arıza kodları, Gemini QR…).
+      const screen = intent.payload.screen ? resolveScreen(intent.payload.screen) : null;
+      if (screen) {
+        if (intent.payload.screenAction === 'close') (screen.close ?? (() => {}))();
+        else screen.open();
+      }
+      break;
+    }
     case 'NAVIGATE_ADDRESS':
     case 'NAVIGATE_PLACE': {
       const query = intent.payload.destination ?? intent.payload.sourceText ?? '';
@@ -499,7 +512,7 @@ const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
-  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SETTINGS',
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
   'SET_THEME', 'CYCLE_THEME', 'SET_SETTING', 'SET_MUSIC', 'TOGGLE_SLEEP_MODE',
@@ -546,6 +559,10 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
   } else if (intentType === 'OPEN_APP') {
     // Genel uygulama açma — serbest ad (isim çözümü executor/dispatch'te yapılır).
     payload.appName = result.appName ?? result.query;
+  } else if (intentType === 'OPEN_SCREEN') {
+    // İç ekran aç-kapat — ekran adı + eylem (çözüm executor/dispatch'te).
+    payload.screen       = result.screen ?? result.query;
+    payload.screenAction = result.screenAction ?? 'open';
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';

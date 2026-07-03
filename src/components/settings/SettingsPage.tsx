@@ -18,6 +18,7 @@ import {
 } from '../../platform/companion/companionIdentity';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, getEnvGroqKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
+import { registerSettingsFocus } from '../../platform/settingsFocusBus';
 import { Clipboard } from '@capacitor/clipboard';
 import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
@@ -340,6 +341,20 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const haikuTestTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Sesli "Gemini QR'ı aç" — SettingsPage bu paneli 'general' sekmesinde mount
+  // ettikten sonra settingsFocusBus 'gemini-qr' odağını buraya iletir; QR panelini
+  // genişletip görünür kılarız (geç mount → bus bekleyen odağı tekrar iletir).
+  const keyBeamBtnRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    return registerSettingsFocus((section) => {
+      if (section !== 'gemini-qr') return;
+      setShowKeyBeam(true);
+      requestAnimationFrame(() => {
+        keyBeamBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }, []);
+
   const envGeminiKey = getEnvGeminiKey();
   const envHaikuKey  = getEnvHaikuKey();
   const envGroqKey   = getEnvGroqKey();
@@ -523,6 +538,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         </button>
         {/* Telefonla QR ile getir */}
         <button
+          ref={keyBeamBtnRef}
           onClick={() => setShowKeyBeam((v) => !v)}
           className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
         >
@@ -1686,6 +1702,17 @@ function SettingsPageInner({ onClose }: Props) {
   useEffect(() => {
     try { sessionStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* quota / private mode */ }
   }, [tab]);
+  // Sesli "X ayarını/QR'ı aç" — doğru sekmeye geç (hedef panel yalnız o sekmede
+  // mount olur; panelin kendisi AIVoicePanel içinde ayrıca odaklanır).
+  useEffect(() => {
+    const SECTION_TO_TAB: Record<string, Tab> = {
+      'gemini-qr': 'general', 'assistant': 'general', 'sound': 'sound', 'appearance': 'appearance',
+    };
+    return registerSettingsFocus((section) => {
+      const target = SECTION_TO_TAB[section];
+      if (target) setTab(target);
+    });
+  }, []);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showOBDConnect, setShowOBDConnect] = useState(false);
   const { locked: layoutLocked, toggleLock } = useEditStore();

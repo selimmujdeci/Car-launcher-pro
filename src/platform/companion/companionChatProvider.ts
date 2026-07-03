@@ -809,6 +809,10 @@ const BRAIN_INTENTS = new Set<string>([
   // açma beyinde YOKTU → beyin sahte "açıyorum" deyip iş yapmıyordu. OPEN_APP eklendi
   // (appName ile herhangi bir yüklü uygulama; resolveAppByName isimle çözer).
   'OPEN_APP',
+  // İÇ EKRAN/PANEL aç-kapat (trafik, klima, arıza kodları, yolculuk defteri, Gemini
+  // QR…) — screenRegistry drawerBus/settingsFocusBus ile çözer. Uygulamanın kendi
+  // yüzeyine sesli erişim (OPEN_APP yüklü Android uygulaması; OPEN_SCREEN iç ekran).
+  'OPEN_SCREEN',
   'CHECK_VEHICLE_HEALTH', 'CHECK_MAINTENANCE',
   // Tema/görünüm (saha 2026-06-11: ASR bozuk "tema değiştir" yerel parser'ı
   // kaçırınca beyin devralabilmeli — eskiden listede yoktu, sohbete düşüyordu)
@@ -895,11 +899,18 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
     // ── GENEL UYGULAMA AÇMA (OPEN_APP) ──
     'Bir uygulamayı açma ("X\'i aç", "X uygulamasını aç", "X\'i başlat") → OPEN_APP + appName=YALNIZ uygulamanın adı (fiil/ek yok, sadece ad: "kamera", "radyo", "whatsapp", "youtube", "hesap makinesi", "galeri").',
-    'AMA şu özel durumlarda OPEN_APP KULLANMA, özel intent kullan: telefon/arama → OPEN_PHONE; müzik/çalar → OPEN_MUSIC; harita/navigasyon/trafik → OPEN_NAVIGATION; ayarlar → OPEN_SETTINGS. Bunların DIŞINDAKİ her uygulama adı için OPEN_APP.',
+    'AMA şu özel durumlarda OPEN_APP KULLANMA, özel intent kullan: telefon/arama → OPEN_PHONE; müzik/çalar → OPEN_MUSIC; harita/navigasyon → OPEN_NAVIGATION; ayarlar → OPEN_SETTINGS. Bunların DIŞINDAKİ her uygulama adı için OPEN_APP.',
+    // ── İÇ EKRAN / PANEL AÇ-KAPAT (OPEN_SCREEN) ──
+    'Uygulamanın KENDİ İÇ EKRANINI/panelini açma-kapatma → OPEN_SCREEN + screen=ekran adı + screenAction ("open"|"close"). İç ekranlar: "trafik", "hava durumu", "klima", "dashcam"/"araç kamerası"/"kayıt", "yolculuk defteri"/"seyir defteri", "arıza kodları"/"hata kodları", "bildirimler", "spor modu", "güvenlik", "eğlence", "bakım hatırlatma", "gemini qr"/"qr kodu".',
+    'OPEN_SCREEN örnekleri: "trafiği aç", "klimayı aç", "arıza kodlarını göster", "yolculuk defterini aç", "gemini qr\'ı aç", "bildirimleri kapat". screen alanına YALNIZ ekran adını yaz (fiil/ek yok).',
+    'AYRIM: yüklü bir Android uygulaması (kamera, whatsapp, youtube) → OPEN_APP. Uygulamanın kendi paneli/ekranı (trafik, klima, arıza kodları, gemini qr) → OPEN_SCREEN. Emin değilsen iç panel adıysa OPEN_SCREEN.',
     'Şive/sokak ağzı komutları da KOMUTTUR ("klimayı birez kıs kurban" gibi) — niyete odaklan, sohbete düşürme.',
     // ── AYAR KOMUTLARI (SET_SETTING) — parlaklık/wifi/bluetooth/ses ──
     'AYAR değiştirme → SET_SETTING + şu alanlar: settingKey ("brightness"|"wifi"|"bluetooth"|"volume"), settingKind ("number"|"bool"), settingAction ("inc"|"dec"|"on"|"off"|"toggle"|"set"), settingValue (opsiyonel, yüzde/enum).',
     'Örnekler: "ekran parlaklığını aç/artır" → SET_SETTING settingKey="brightness" settingKind="number" settingAction="inc". "parlaklığı kıs/azalt" → settingAction="dec". "wifi\'yi kapat" → settingKey="wifi" settingKind="bool" settingAction="off". "sesi aç" → settingKey="volume" settingKind="number" settingAction="inc".',
+    // ── ÖZELLİK AÇ/KAPA TOGGLE\'LARI (SET_SETTING settingKind="bool") ──
+    'Uygulama ÖZELLİĞİ aç/kapat → SET_SETTING settingKind="bool" settingAction ("on"|"off"|"toggle") + settingKey şunlardan biri: performanceMode (performans/güç modu), offlineMap (çevrimdışı harita), autoThemeEnabled (otomatik gece-gündüz teması), autoBrightnessEnabled (otomatik parlaklık), breakReminderEnabled (mola hatırlatma), dockAutoHide (dock otomatik gizle), smartContextEnabled (akıllı bağlam), obdAutoSleep (obd uyku), autoNavOnStart (açılışta navigasyon), companionEnabled (yol arkadaşı/asistan), companionWakeWordEnabled (uyanma kelimesi/"beni dinle"), use24Hour (24 saat), showSeconds (saniye göster).',
+    'Özel modlar için özel intent kullan: gece modu → ENABLE_NIGHT_MODE; uyku modu → TOGGLE_SLEEP_MODE; sürüş modu → ENABLE_DRIVING_MODE. Bunları SET_SETTING yapma.',
     'Trafik/harita/navigasyon açma ("trafik panelini aç", "haritayı aç", "trafiğe bak") → OPEN_NAVIGATION.',
     // ── SAHTE ONAY YASAĞI (SAHA 2026-07-03 — en kritik) ──
     'ÇOK ÖNEMLİ — SAHTE ONAY YASAK: bir ARAÇ EYLEMİ (aç/kapat/ayarla/göster) istendiğinde SADECE yukarıdaki intent listesinden GERÇEK bir karşılığı varsa type:"action" döndür. Karşılığı YOKSA sakın type:"chat" ile "tamam, açıyorum / açılıyor / hallettim" gibi YAPMIŞ GİBİ cevap verme — bu KULLANICIYI KANDIRMAKTIR. Onun yerine dürüstçe söyle: type:"chat" say="Bunu şu an yapamıyorum" (kişiliğine uygun). Var olmayan bir eylemi asla onaylama.',
@@ -935,11 +946,20 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"uşağum şuralarda bi benzinlik bulsana" → {"type":"action","intent":"FIND_NEARBY_GAS","feedback":"Yakın benzinlikler aranıyor","confidence":0.9}',
     '"ekran parlaklığını aç" → {"type":"action","intent":"SET_SETTING","settingKey":"brightness","settingKind":"number","settingAction":"inc","feedback":"Parlaklık artırılıyor","confidence":0.9}',
     '"parlaklığı kıs" → {"type":"action","intent":"SET_SETTING","settingKey":"brightness","settingKind":"number","settingAction":"dec","feedback":"Parlaklık azaltılıyor","confidence":0.9}',
-    '"trafik panelini aç" → {"type":"action","intent":"OPEN_NAVIGATION","feedback":"Harita açılıyor","confidence":0.9}',
+    '"haritayı aç" → {"type":"action","intent":"OPEN_NAVIGATION","feedback":"Harita açılıyor","confidence":0.9}',
     '"kamerayı aç" → {"type":"action","intent":"OPEN_APP","appName":"kamera","feedback":"Kamera açılıyor","confidence":0.92}',
     '"radyoyu açar mısın" → {"type":"action","intent":"OPEN_APP","appName":"radyo","feedback":"Radyo açılıyor","confidence":0.9}',
     '"whatsapp\'ı aç" → {"type":"action","intent":"OPEN_APP","appName":"whatsapp","feedback":"WhatsApp açılıyor","confidence":0.92}',
     '"hesap makinesini aç" → {"type":"action","intent":"OPEN_APP","appName":"hesap makinesi","feedback":"Hesap makinesi açılıyor","confidence":0.9}',
+    // OPEN_SCREEN — uygulamanın iç ekranları/panelleri.
+    '"trafiği aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"trafik","screenAction":"open","feedback":"Trafik paneli açılıyor","confidence":0.92}',
+    '"klimayı aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"klima","screenAction":"open","feedback":"Klima açılıyor","confidence":0.9}',
+    '"arıza kodlarını göster" → {"type":"action","intent":"OPEN_SCREEN","screen":"arıza kodları","screenAction":"open","feedback":"Arıza kodları açılıyor","confidence":0.92}',
+    '"gemini qr\'ı aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"gemini qr","screenAction":"open","feedback":"Gemini QR açılıyor","confidence":0.92}',
+    '"bildirimleri kapat" → {"type":"action","intent":"OPEN_SCREEN","screen":"bildirimler","screenAction":"close","feedback":"Bildirimler kapatılıyor","confidence":0.9}',
+    // Özellik aç/kapa toggle'ları — SET_SETTING settingKind="bool".
+    '"performans modunu aç" → {"type":"action","intent":"SET_SETTING","settingKey":"performanceMode","settingKind":"bool","settingAction":"on","feedback":"Performans modu açık","confidence":0.9}',
+    '"uyku modunu kapat" → {"type":"action","intent":"TOGGLE_SLEEP_MODE","feedback":"Uyku modu değişti","confidence":0.9}',
     '"wifiyi kapat" → {"type":"action","intent":"SET_SETTING","settingKey":"wifi","settingKind":"bool","settingAction":"off","feedback":"Wi-Fi kapatılıyor","confidence":0.9}',
     '"nasılsın bugün" → {"type":"chat","say":"İyiyim, teşekkürler. Yol nasıl gidiyor?"}',
     '"bir fıkra anlat" → {"type":"chat","say":"Temel vapurda..."} (gerçek, başı-sonu olan kısa bir fıkra)',
@@ -966,6 +986,8 @@ interface BrainJson {
   settingAction?: string;
   settingValue?:  string;
   appName?:     string;
+  screen?:      string;
+  screenAction?: string;
   feedback?:    string;
   confidence?:  number;
   say?:         string;
@@ -997,6 +1019,9 @@ function parseBrainJson(raw: string): BrainRaw | null {
           settingValue:  typeof obj.settingValue === 'string' ? obj.settingValue : undefined,
           // OPEN_APP — açılacak uygulamanın serbest adı ("kamera", "radyo", "whatsapp").
           appName:     typeof obj.appName === 'string' ? obj.appName : undefined,
+          // OPEN_SCREEN — iç ekran adı + eylem ("trafik" / "gemini qr", open|close).
+          screen:      typeof obj.screen === 'string' ? obj.screen : undefined,
+          screenAction: typeof obj.screenAction === 'string' ? obj.screenAction : undefined,
           feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
           confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
           source:      'direct_ai',
