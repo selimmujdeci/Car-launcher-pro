@@ -1,6 +1,5 @@
 import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m => ({ default: m.SecureAccessModal })));
-const CanDiagPanel      = lazy(() => import('./CanDiagPanel').then(m => ({ default: m.CanDiagPanel })));
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
@@ -2022,13 +2021,9 @@ function SettingsPageInner({ onClose }: Props) {
                 </div>
               </Panel>
 
-              {/* ── CAN Bus Teşhis ── */}
-              <Panel accent="#22d3ee">
-                <SectionTitle icon={Cpu} title="CAN Bus Teşhis" sub="CAN ID yapılandırması ve sniffer — araç sinyallerini tanımla" color="#22d3ee" />
-                <Suspense fallback={<div style={{ height: 80, opacity: 0.3, fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Yükleniyor…</div>}>
-                  <CanDiagPanel />
-                </Suspense>
-              </Panel>
+              {/* CAN Bus Teşhis paneli KALDIRILDI (2026-07-03): sniffer/log-yakalama
+                  geliştirme aracıydı; teşhis artık doğrudan ADB ile yapılıyor.
+                  Alt servisler (canDiag listener, EventRecorder) duruyor — UI'sız uyur. */}
 
               {/* ── Expert Mode (AI Safety Layer) ── */}
               <Panel accent="#10b981">
