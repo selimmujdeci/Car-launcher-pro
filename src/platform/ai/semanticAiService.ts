@@ -148,14 +148,17 @@ function parseSemanticJson(raw: string): SemanticResult | null {
 /* ── Gemini çağrısı ──────────────────────────────────────────── */
 
 async function _askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<SemanticResult | null> {
-  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  // gemini-flash-latest: yeni "AQ." anahtarlarda sabit-adlı modeller 429 veriyor (SAHA 2026-07-03).
+  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
   const resp = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: buildContextPrompt(ctx) }] },
       contents: [{ role: 'user', parts: [{ text }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128 },
+      // thinkingBudget:0 — flash-latest düşünen model; bütçesizde düşünme token'ları
+      // yiyip MAX_TOKENS ile metinsiz dönüyor (SAHA 2026-07-03).
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128, thinkingConfig: { thinkingBudget: 0 } },
     }),
     signal: signalWithTimeout(5_000), // Chrome <103 WebView güvenli (abortCompat)
   });

@@ -189,8 +189,10 @@ function parseAIJson(text: string): AIVoiceResult | null {
 /* ── Gemini ────────────────────────────────────────────────── */
 
 const GEMINI_ENDPOINT =
-  // gemini-2.0-flash: ücretsiz 1.500 istek/gün (2.5-flash 250) — düşük kota 429'unu azaltır.
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  // gemini-flash-latest: yeni "AQ." anahtarların ücretsiz katmanı sabit-adlı eski
+  // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest 200 dönüyor
+  // (SAHA 2026-07-03: kullanıcı anahtarıyla iki model de canlı test edildi).
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 
 async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
   const body = {
@@ -200,6 +202,10 @@ async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Pr
       responseMimeType: 'application/json',
       temperature: 0.1,
       maxOutputTokens: 256,
+      // flash-latest DÜŞÜNEN model: bütçesiz istekte düşünme 256 token'ı yiyip
+      // MAX_TOKENS + markdown-sargılı yarım metin dönüyordu ("Geçersiz yanıt").
+      // Araç içi komutta gecikme > derinlik → düşünme kapalı (SAHA 2026-07-03).
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 

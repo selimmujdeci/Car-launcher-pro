@@ -189,10 +189,10 @@ function buildInterpretedVehicleContext(): string {
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */
 
 const GEMINI_CHAT_ENDPOINT =
-  // gemini-2.0-flash: ücretsiz katmanda 1.500 istek/gün (2.5-flash 250/gün) +
-  // google_search grounding destekler. Düşük günlük kotada 429→sessiz offline
-  // düşüşünü (saha 2026-06-17) azaltır. Model yükseltmesi tek noktadan.
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  // gemini-flash-latest: yeni "AQ." anahtarların ücretsiz katmanı sabit-adlı eski
+  // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest çalışıyor
+  // (SAHA 2026-07-03: kullanıcı anahtarıyla canlı doğrulandı). Model tek noktadan.
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 const GEMINI_TIMEOUT_MS = 6000;
 
 /**
@@ -270,6 +270,9 @@ async function askCompanionGemini(
       // 2-3 doğal cümleye alan tanır (eski 60/120 cevapları ortadan kesiyordu);
       // üst sınır yine TTS kırpma katmanıyla (aşağıda) sigortalı.
       maxOutputTokens: isDriving ? 100 : 160,
+      // flash-latest düşünen model: düşünme kapalı — küçük bütçeyi yemesin,
+      // araç içi gecikme kısa kalsın (SAHA 2026-07-03).
+      thinkingConfig:  { thinkingBudget: 0 },
     },
   };
 
@@ -743,6 +746,7 @@ async function askCompanionBrain(
       responseMimeType: 'application/json',
       temperature:      0.4,
       maxOutputTokens:  isDriving ? 160 : 220,
+      thinkingConfig:   { thinkingBudget: 0 }, // düşünen model bütçe koruması (SAHA 2026-07-03)
     },
   };
   // Single Brain karar bütçesi: voiceService 2.5sn iletir. GEMINI_TIMEOUT_MS
@@ -796,7 +800,7 @@ async function askGroundedGemini(
       { role: 'user', parts: [{ text: query }] },
     ],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360 },
+    generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360, thinkingConfig: { thinkingBudget: 0 } },
   };
   try {
     const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
@@ -921,7 +925,7 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
         'En olası GERÇEK adı döndür; emin değilsen metni AYNEN döndür. SADECE JSON: {"q":"..."}',
       }] },
       contents: [{ role: 'user', parts: [{ text: q }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50 },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50, thinkingConfig: { thinkingBudget: 0 } },
     };
     const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
       method:  'POST',
