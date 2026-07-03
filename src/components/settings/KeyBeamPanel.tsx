@@ -98,11 +98,14 @@ export const KeyBeamPanel = memo(function KeyBeamPanel({ onKeySaved, onClose }: 
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // SAHA 2026-07-03: 200px + seviye M araç ekranından okunamıyordu (yoğun
+    // desen + panel parlaması). 320px + seviye L + saf siyah + geniş sessiz
+    // bölge → modül boyutu ~2.4 kat büyüdü, telefon kamerası anında çözüyor.
     void QRCode.toCanvas(canvas, session.qrUrl, {
-      width:                200,
-      margin:               2,
-      color:                { dark: '#0b1220', light: '#ffffff' },
-      errorCorrectionLevel: 'M',
+      width:                320,
+      margin:               3,
+      color:                { dark: '#000000', light: '#ffffff' },
+      errorCorrectionLevel: 'L',
     }).catch(() => { /* non-critical: render hatası kullanıcıya kod göstermeyle telafi edilir */ });
   }, [status, session]);
 
@@ -228,7 +231,7 @@ export const KeyBeamPanel = memo(function KeyBeamPanel({ onKeySaved, onClose }: 
               transition:  'all 0.4s',
             }}
           >
-            <canvas ref={canvasRef} width={200} height={200} style={{ display: 'block' }} />
+            <canvas ref={canvasRef} width={320} height={320} style={{ display: 'block' }} />
           </div>
 
           <div className="flex items-center gap-2">

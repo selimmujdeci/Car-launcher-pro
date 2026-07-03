@@ -33,11 +33,12 @@ import { getTripSnapshot } from '../tripLogService';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { tavilySearch } from '../webSearchService';
+import { getWeatherNarrative, refreshWeather, onWeatherState, type WeatherState } from '../weatherService';
 import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_offline';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline';
 
 export interface CompanionChatResult {
   response: string;
@@ -52,17 +53,17 @@ export interface CompanionChatOpts {
   /** resolveApiKey çıktısı — boş string = key yok. */
   apiKey?:    string;
   hasNet?:    boolean;
-  /** Tavily web-arama anahtarı (opsiyonel) — Groq'a internet grounding sağlar.
-   *  Varsa Groq da haber/döviz/canlı bilgi sorularını arayıp yanıtlar. */
+  /** Tavily web-arama anahtarı (opsiyonel) — Groq/Haiku'ya internet grounding sağlar.
+   *  Varsa Groq/Haiku da haber/döviz/canlı bilgi sorularını arayıp yanıtlar. */
   tavilyKey?: string;
   /**
-   * Groq YEDEK anahtarı (opsiyonel) — yalnız `provider: 'gemini'` iken kullanılır.
-   * tryCompanionBrain'de Gemini denemesi başarısız olursa (throw/null/grounding
-   * çökmesi) VEYA Gemini 429 soğuma penceresindeyse (`_rateLimitedUntil`) beyin
-   * bu anahtarla Groq'a düşer — 429/timeout sırasında asistan tamamen
-   * aptallaşmasın diye (kullanıcının Groq anahtarı varsa boşa durmasın).
+   * HİBRİT BEYİN ZİNCİRİ (SIRA SABİT): tryCompanionBrain adayları bu sırayla
+   * dener — biri kota/hata/429 verirse (veya Gemini soğuma penceresindeyse)
+   * sıradaki devreye girer. Yalnız anahtarı GİRİLMİŞ sağlayıcılar zincire girer
+   * (voiceService._resolveAiKeys kurar). Boşsa/verilmezse `provider`+`apiKey`
+   * alanlarıyla eski tek-sağlayıcı davranışına geriye-uyum sağlanır.
    */
-  groqFallbackKey?: string;
+  chain?: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
   /**
    * Single Brain karar bütçesi (ms). voiceService 2.5sn iletir: beyin bu süre
    * içinde ACTION/CHAT kararı veremezse fetch iptal edilir → yerel graceful
@@ -378,6 +379,38 @@ async function askCompanionGroq(
   return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
 }
 
+/* ── Hava sorusu — beyin öncesi/web-kesişimi kısayolu ─────────
+ * "hava durumu" tipi sorular beyne (Gemini/Groq/Haiku) HİÇ gitmeden ya da
+ * beyin type:"web" dediğinde Tavily/grounded aramadan ÖNCE yerel hava
+ * servisinden (weatherService) gerçek veriyle cevaplanır. Groq/Haiku gibi
+ * kendi başına canlı internete erişemeyen sağlayıcılar "canlı bilgilere
+ * bakamıyorum" diyordu (saha 2026-07-03) — hava zaten cihazda gerçek veri
+ * olarak mevcut, AI'ya hiç ihtiyaç yok. Eşleşme yoksa null → çağıran mevcut
+ * grounding/tavily/dürüst-fallback zincirine değişmeden devam eder. */
+const WEATHER_QUERY_RE = /\b(hava|yagmur|kar yag|sicaklik|derece|ruzgar)\b/;
+
+async function tryLocalWeatherAnswer(query: string): Promise<string | null> {
+  if (!WEATHER_QUERY_RE.test(norm(query))) return null;
+  const narrative = getWeatherNarrative();
+  if (!/henüz alınamadı/i.test(narrative)) return narrative;
+  try {
+    refreshWeather().catch(() => { /* ignore */ });
+    const s = await new Promise<WeatherState | null>((resolve) => {
+      let done = false;
+      const finish = (v: WeatherState | null) => {
+        if (done) return;
+        done = true;
+        try { unsub(); } catch { /* ignore */ }
+        clearTimeout(timer);
+        resolve(v);
+      };
+      const timer = setTimeout(() => finish(null), 3500);
+      const unsub = onWeatherState((st) => { if (st.weather) finish(st); });
+    });
+    return s?.weather ? getWeatherNarrative(s) : null;
+  } catch { return null; }
+}
+
 async function askCompanionBrainGroq(
   text: string,
   apiKey: string,
@@ -423,6 +456,11 @@ async function askCompanionBrainGroq(
   // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
   const parsed = parseBrainJson(raw);
   if (parsed && parsed.kind === 'web') {
+    // Hava sorgusu mu? → Tavily/AI harcamadan ÖNCE yerel hava servisi denenir
+    // (Groq'un "canlı bilgilere bakamıyorum" demesi böyle önlenir — hava zaten
+    // cihazda gerçek veri olarak var).
+    const localWeather = await tryLocalWeatherAnswer(parsed.query);
+    if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_groq' };
     // İNTERNET kararı. Tavily anahtarı varsa gerçekten ara + Groq ile Türkçe yanıt
     // sentezle; yoksa dürüst fallback.
     if (canGround) {
@@ -514,6 +552,143 @@ async function groundGroqWithTavily(
     }
     const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
     const out = (data.choices?.[0]?.message?.content ?? '').replace(/\s+/g, ' ').trim();
+    return out || search.answer || null;
+  } catch {
+    return search.answer || null; // ağ hatası → Tavily özetine düş
+  }
+}
+
+/* ── Haiku (Anthropic) beyin çağrısı ────────────────────────── *
+ * Hibrit zincirin son halkası: Gemini → Groq → Haiku. Anthropic Messages API
+ * deseni aiVoiceService.askHaiku ile AYNI (endpoint/model/header'lar) — beyin
+ * kararı burada da SADECE düz metin JSON talimatıyla istenir (responseMimeType
+ * Anthropic'te yok, buildBrainSystemPrompt zaten "SADECE JSON" der). */
+
+const HAIKU_COMPANION_ENDPOINT   = 'https://api.anthropic.com/v1/messages';
+const HAIKU_COMPANION_MODEL      = 'claude-haiku-4-5-20251001';
+const HAIKU_COMPANION_TIMEOUT_MS = 6000;
+
+async function askCompanionBrainHaiku(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  timeoutMs?: number,
+  tavilyKey?: string,
+): Promise<CompanionBrainResult | null> {
+  // Haiku da Groq gibi kendi başına canlı internete erişemez; Tavily anahtarı
+  // varsa aynı sentezleme yoluyla internet sorularını yanıtlar (yoksa dürüst fallback).
+  const canGround = !!tavilyKey && tavilyKey.trim().length > 8;
+  const decisionMs = Math.min(timeoutMs ?? HAIKU_COMPANION_TIMEOUT_MS, HAIKU_COMPANION_TIMEOUT_MS);
+  const body = {
+    model:      HAIKU_COMPANION_MODEL,
+    max_tokens: isDriving ? 160 : 220,
+    system:     buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround),
+    messages: [
+      ...historyToOpenAI(),
+      { role: 'user' as const, content: text },
+    ],
+  };
+
+  const resp = await fetch(HAIKU_COMPANION_ENDPOINT, {
+    method:  'POST',
+    headers: {
+      'Content-Type':      'application/json',
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body:   JSON.stringify(body),
+    signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
+  });
+
+  if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+  if (!resp.ok) return null;
+
+  const data = await resp.json() as { content?: { type?: string; text?: string }[] };
+  const raw  = (data.content?.find((c) => c.type === 'text')?.text ?? '').trim();
+  const parsed = parseBrainJson(raw);
+  if (parsed && parsed.kind === 'web') {
+    // Hava sorgusu mu? → yerel hava servisi Tavily'den ÖNCE denenir (bkz. Groq).
+    const localWeather = await tryLocalWeatherAnswer(parsed.query);
+    if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_haiku' };
+    if (canGround) {
+      const grounded = await groundHaikuWithTavily(parsed.query, text, apiKey, id, isDriving, tavilyKey as string);
+      if (grounded) return { kind: 'chat', response: grounded, route: 'companion_haiku' };
+      return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_haiku' };
+    }
+    const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
+    return { kind: 'chat', response: reply, route: 'companion_haiku' };
+  }
+  // parseBrainJson CHAT kararına HER ZAMAN 'companion_gemini' rotası yazar (paylaşılan
+  // parser Gemini birincil çağrıyı varsayar) — Haiku'dan geldiğinde burada düzeltilir.
+  if (parsed && parsed.kind === 'chat') return { ...parsed, route: 'companion_haiku' };
+  return parsed;
+}
+
+/**
+ * Haiku beyin çağrısını yapıp başarılıysa geçmişe/devre-kesiciye işler
+ * (tryGroqBrainAndRecord ile aynı desen — hibrit zincirin son halkası).
+ */
+async function tryHaikuBrainAndRecord(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  timeoutMs?: number,
+  tavilyKey?: string,
+): Promise<CompanionBrainResult | null> {
+  const result = await askCompanionBrainHaiku(text, apiKey, id, isDriving, timeoutMs, tavilyKey);
+  if (!result) return null;
+  recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+  pushHistory('user', text);
+  pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
+  return result;
+}
+
+/**
+ * Haiku grounding: Tavily ile web'i arar, sonuçları Haiku'ya (Anthropic) verip
+ * doğal Türkçe yanıt sentezletir. Hata/boş sonuçta null → çağıran dürüst fallback yapar.
+ */
+async function groundHaikuWithTavily(
+  searchQuery: string,
+  userText: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  tavilyKey: string,
+): Promise<string | null> {
+  const search = await tavilySearch(searchQuery, tavilyKey);
+  if (!search) return null;
+
+  const ctxBlock = [
+    search.answer ? `Özet: ${search.answer}` : '',
+    search.context ? `Kaynaklar:\n${search.context}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  const sysPrompt =
+    `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
+    `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
+    `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
+    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'En fazla 3-4 cümle.'} ` +
+    `Kaynak numarası/URL okuma.`;
+
+  const body = {
+    model:      HAIKU_COMPANION_MODEL,
+    max_tokens: isDriving ? 120 : 240,
+    system:     sysPrompt,
+    messages: [{ role: 'user' as const, content: `Soru: ${userText}\n\n${ctxBlock}` }],
+  };
+
+  try {
+    const resp = await fetch(HAIKU_COMPANION_ENDPOINT, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body:    JSON.stringify(body),
+      signal:  signalWithTimeout(HAIKU_COMPANION_TIMEOUT_MS),
+    });
+    if (!resp.ok) return search.answer || null;
+    const data = await resp.json() as { content?: { type?: string; text?: string }[] };
+    const out = (data.content?.find((c) => c.type === 'text')?.text ?? '').replace(/\s+/g, ' ').trim();
     return out || search.answer || null;
   } catch {
     return search.answer || null; // ağ hatası → Tavily özetine düş
@@ -860,8 +1035,10 @@ async function askGroundedGemini(
 
 /**
  * Birleşik beyin girişi — voiceService router'ı parser <0.7 her cümlede
- * bunu çağırır. Gemini kullanılamıyorsa offline sohbet fallback'i (yalnız
- * chat) döner; o da yoksa null → eski zincir devam eder.
+ * bunu çağırır. HİBRİT ZİNCİR (SIRA SABİT): Gemini → Groq → Haiku — biri
+ * kota/hata/429 verirse (veya Gemini soğuma penceresindeyse) sıradaki
+ * dener. Zincirin tamamı düşerse offline sohbet fallback'i (yalnız chat)
+ * döner; o da yoksa null → eski zincir devam eder.
  */
 export async function tryCompanionBrain(
   raw: string,
@@ -873,72 +1050,89 @@ export async function tryCompanionBrain(
   if (!trimmed) return null;
   const isDriving = opts.isDriving === true;
 
-  const geminiUsable =
-    opts.provider === 'gemini' && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
-  const groqUsable =
-    opts.provider === 'groq'   && !!opts.apiKey && opts.hasNet === true && _now() >= _rateLimitedUntil;
-  // Groq YEDEK beyni: yalnız Gemini birincil provider'ken anlamlıdır.
-  // _rateLimitedUntil'a KASITLI olarak bakılmaz — Gemini 429 soğumasındayken
-  // (geminiUsable false) bile Groq'u dener; aksi halde 60sn'lik soğuma boyunca
-  // kullanıcının Groq anahtarı olsa dahi asistan tamamen aptallaşırdı.
-  const groqFallbackUsable =
-    opts.provider === 'gemini' && !!opts.groqFallbackKey && opts.hasNet === true;
+  // Geriye uyum: chain verilmezse opts.provider/apiKey ile eski tek-sağlayıcı
+  // davranışı üretilir (testler ve tryCompanionChat gibi diğer çağıranlar için).
+  const chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }> =
+    opts.chain && opts.chain.length > 0
+      ? opts.chain
+      : (opts.provider === 'gemini' || opts.provider === 'groq' || opts.provider === 'haiku') && opts.apiKey
+        ? [{ provider: opts.provider, apiKey: opts.apiKey }]
+        : [];
 
-  // aiUsable: herhangi bir desteklenen online AI (birincil veya yedek) kullanılabilir mi?
-  const aiUsable = geminiUsable || groqUsable || groqFallbackUsable;
+  const netUsable = opts.hasNet === true && chain.length > 0;
   let aiAttempted = false;
 
-  if (aiUsable) {
-    try {
+  if (netUsable) {
+    const id = resolveCompanionIdentity(settings);
+    let sawFailure = false;
+
+    for (const cand of chain) {
+      // Gemini adayı soğuma penceresindeyse ATLANIR (sıradaki aday denenir) —
+      // Groq/Haiku _rateLimitedUntil'a KASITLI olarak bakılmaz, aksi halde
+      // 60sn'lik soğuma boyunca kullanıcının Groq/Haiku anahtarı olsa dahi
+      // asistan tamamen aptallaşırdı.
+      if (cand.provider === 'gemini' && _now() < _rateLimitedUntil) continue;
       aiAttempted = true;
-      const id = resolveCompanionIdentity(settings);
 
-      if (geminiUsable) {
-        // Gemini attarsa (timeout/ağ hatası) Groq yedeğini de deneyebilmek için
-        // yalnız Gemini çağrısı kendi try/catch'inde izole edilir — dıştaki catch
-        // yalnız TÜM yollar (Gemini + Groq yedeği) tükendiğinde bir kez sayar.
-        let result: BrainRaw | null = null;
-        try {
-          result = await askCompanionBrain(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs);
-        } catch { result = null; /* aşağıda Groq yedeği denenecek */ }
+      try {
+        if (cand.provider === 'gemini') {
+          // Gemini attarsa (timeout/ağ hatası) zincirdeki sıradakini de
+          // deneyebilmek için yalnız Gemini çağrısı kendi try/catch'inde izole
+          // edilir — dıştaki catch yalnız TÜM zincir tükendiğinde bir kez sayar.
+          let result: BrainRaw | null = null;
+          try {
+            result = await askCompanionBrain(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs);
+          } catch { result = null; /* aşağıda sıradaki aday denenecek */ }
 
-        if (result) {
-          recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
-          // İNTERNET kararı: ikinci grounded çağrıyla (Google Search) gerçek cevabı
-          // üret; voiceService'e CHAT olarak dön (web tipini hiç görmez). Grounding
-          // başarısızsa offline fallback / Groq yedeği / reask devreye girer.
-          if (result.kind === 'web') {
-            const grounded = await askGroundedGemini(result.query, opts.apiKey as string, id, isDriving);
-            if (grounded) {
-              pushHistory('user', trimmed);
-              pushHistory('model', grounded);
-              return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+          if (result) {
+            recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
+            // İNTERNET kararı: hava-benzeri sorguda önce yerel hava servisi,
+            // yoksa ikinci grounded çağrıyla (Google Search) gerçek cevabı üret;
+            // voiceService'e CHAT olarak dön (web tipini hiç görmez).
+            if (result.kind === 'web') {
+              const localWeather = await tryLocalWeatherAnswer(result.query);
+              if (localWeather) {
+                pushHistory('user', trimmed);
+                pushHistory('model', localWeather);
+                return { kind: 'chat', response: localWeather, route: 'companion_gemini' };
+              }
+              const grounded = await askGroundedGemini(result.query, cand.apiKey, id, isDriving);
+              if (grounded) {
+                pushHistory('user', trimmed);
+                pushHistory('model', grounded);
+                return { kind: 'chat', response: grounded, route: 'companion_gemini' };
+              }
+              // grounding boş/başarısız → sıradaki aday / offline fallback devreye girer
+              sawFailure = true;
+              continue;
             }
-            // grounding boş/başarısız → aşağıdaki Groq yedeği / offline fallback devreye girer
-          } else {
             // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
             // bağlamlı devam cümleleri için).
             pushHistory('user', trimmed);
             pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
             return result;
           }
+          sawFailure = true;
+          continue;
         }
 
-        // Gemini başarısız (throw / null / grounding çöktü) — Groq yedeği varsa dene.
-        if (opts.groqFallbackKey && opts.hasNet === true) {
-          const fb = await tryGroqBrainAndRecord(trimmed, opts.groqFallbackKey, id, isDriving, opts.timeoutMs, opts.tavilyKey);
-          if (fb) return fb;
+        if (cand.provider === 'groq') {
+          const result = await tryGroqBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+          if (result) return result;
+          sawFailure = true;
+          continue;
         }
-      } else if (groqUsable) {
-        // Groq: grounding YOK; beyin internet kararı veremez; aksiyonlar + sohbet çalışır.
-        const result = await tryGroqBrainAndRecord(trimmed, opts.apiKey as string, id, isDriving, opts.timeoutMs, opts.tavilyKey);
+
+        // cand.provider === 'haiku' — zincirin son halkası
+        const result = await tryHaikuBrainAndRecord(trimmed, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey);
         if (result) return result;
-      } else if (groqFallbackUsable) {
-        // Gemini 429 soğuma penceresinde — doğrudan Groq yedeğiyle devam et.
-        const result = await tryGroqBrainAndRecord(trimmed, opts.groqFallbackKey as string, id, isDriving, opts.timeoutMs, opts.tavilyKey);
-        if (result) return result;
-      }
-    } catch { recordAiNetFailure(); /* timeout / ağ — offline'a düş; kesici art arda hatada AI'yı kapatır (failover da düşerse bir kez sayılır) */ }
+        sawFailure = true;
+      } catch { sawFailure = true; /* bu adayda ağ hatası — sıradakine geç */ }
+    }
+
+    // Zincirin tamamı düştüyse (throw/null/grounding çöktü) bir KEZ say — kesici
+    // her adayda ayrı ayrı değil, tüm zincir tükendiğinde bir kez tetiklenir.
+    if (sawFailure) recordAiNetFailure();
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)

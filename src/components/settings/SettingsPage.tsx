@@ -303,11 +303,10 @@ function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
    AI VOICE PANEL
 ════════════════════════════════════════ */
 const AIVoicePanel = memo(function AIVoicePanel() {
-  // Seçicisiz useStore() store'daki HER yazımda (volume/park/telemetri...) tüm
-  // bölümü yeniden render ediyordu — zayıf GPU'da saha-ölçülmüş jank etkeni.
-  const { settings, updateSettings } = useStore(
-    useShallow((s) => ({ settings: s.settings, updateSettings: s.updateSettings })),
-  );
+  // Sağlayıcı seçici KALDIRILDI (3 numaralı görev — üç anahtar da her zaman
+  // görünür/kayıtlı): bu panel artık ayarlar store'undan aiVoiceProvider
+  // OKUMUYOR/YAZMIYOR — settings.aiVoiceProvider alanı yalnız voiceService'in
+  // geriye-uyum `provider` alanı için varlığını sürdürüyor (dokunulmadı).
   const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
   const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
   const [groqKey,    setGroqKey]    = useSensitiveKey('groqApiKey');
@@ -316,24 +315,28 @@ const AIVoicePanel = memo(function AIVoicePanel() {
   const [showHaikuKey,  setShowHaikuKey]  = useState(false);
   const [showGroqKey,   setShowGroqKey]   = useState(false);
   const [showTavilyKey, setShowTavilyKey] = useState(false);
-  const [testing,       setTesting]       = useState(false);
-  const [testResult,    setTestResult]    = useState<{ ok: boolean; message: string } | null>(null);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
   const [waitingClip,   setWaitingClip]   = useState(false);
   const [showKeyBeam,   setShowKeyBeam]   = useState(false);
-  const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hibrit zincirde sağlayıcı başına ayrı test durumu — tek genel test butonu
+  // artık yanlış anahtarı test ediyormuş izlenimi verirdi (3 numaralı görev).
+  type TestState = { testing: boolean; result: { ok: boolean; message: string } | null };
+  const [geminiTest, setGeminiTest] = useState<TestState>({ testing: false, result: null });
+  const [groqTest,   setGroqTest]   = useState<TestState>({ testing: false, result: null });
+  const [haikuTest,  setHaikuTest]  = useState<TestState>({ testing: false, result: null });
+  const geminiTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const groqTestTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const haikuTestTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const provider     = settings.aiVoiceProvider ?? 'none';
   const envGeminiKey = getEnvGeminiKey();
   const envHaikuKey  = getEnvHaikuKey();
   const envGroqKey   = getEnvGroqKey();
-  const activeKey    = provider === 'gemini' ? (geminiKey || envGeminiKey)
-                     : provider === 'haiku'  ? (haikuKey  || envHaikuKey)
-                     : provider === 'groq'   ? (groqKey   || envGroqKey)
-                     : '';
 
-  /** Clipboard'u oku, key pattern'i varsa otomatik kaydet */
+  /** Clipboard'u oku, key pattern'ine göre doğru alana otomatik kaydet.
+   *  Artık tek bir "seçili sağlayıcı" kavramı YOK — üç alan da her zaman
+   *  görünür, bu yüzden algılama yalnız pattern'e bakar (provider'a değil). */
   const checkClipboard = useCallback(async () => {
     try {
       let text = '';
@@ -351,28 +354,27 @@ const AIVoicePanel = memo(function AIVoicePanel() {
       const isGroqKey   = /^gsk_[A-Za-z0-9]{20,}$/.test(text);
       const isTavilyKey = /^tvly-[A-Za-z0-9_-]{10,}$/.test(text);
 
-      if (isGeminiKey && provider === 'gemini') {
+      if (isGeminiKey) {
         void setGeminiKey(text);
-        setClipboardHint('Key otomatik algılandı!');
+        setClipboardHint('Gemini key otomatik algılandı!');
         setWaitingClip(false);
-      } else if (isHaikuKey && provider === 'haiku') {
+      } else if (isHaikuKey) {
         void setHaikuKey(text);
-        setClipboardHint('Key otomatik algılandı!');
+        setClipboardHint('Haiku key otomatik algılandı!');
         setWaitingClip(false);
-      } else if (isTavilyKey && provider === 'groq') {
-        // Tavily anahtarı (internet araması) — Groq seçiliyken algılanır.
+      } else if (isTavilyKey) {
         void setTavilyKey(text);
         setClipboardHint('Tavily anahtarı algılandı — internet araması açık!');
         setWaitingClip(false);
-      } else if (isGroqKey && provider === 'groq') {
+      } else if (isGroqKey) {
         void setGroqKey(text);
-        setClipboardHint('Key otomatik algılandı!');
+        setClipboardHint('Groq key otomatik algılandı!');
         setWaitingClip(false);
       }
       if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
       clipTimerRef.current = setTimeout(() => setClipboardHint(null), 4000);
     } catch { /* clipboard izni yok */ }
-  }, [provider, updateSettings]);
+  }, []);
 
   /** Sayfa odağa döndüğünde clipboard kontrol et */
   useEffect(() => {
@@ -394,28 +396,53 @@ const AIVoicePanel = memo(function AIVoicePanel() {
     setClipboardHint('Key\'i kopyalayıp geri dönün — otomatik algılanacak');
   }, []);
 
-  const handleTest = useCallback(async () => {
-    if (testing || provider === 'none' || !activeKey) return;
-    setTesting(true);
-    setTestResult(null);
-    const result = await testAIConnection(provider, activeKey);
-    setTesting(false);
-    setTestResult(result);
-    if (testTimerRef.current) clearTimeout(testTimerRef.current);
-    testTimerRef.current = setTimeout(() => setTestResult(null), 5000);
-  }, [testing, provider, activeKey]);
+  /** Bölüm başına bağlantı testi — kendi anahtarını test eder. */
+  const runTest = useCallback(async (
+    prov: AIProvider,
+    key: string,
+    envKey: string,
+    setState: React.Dispatch<React.SetStateAction<TestState>>,
+    timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  ) => {
+    const effectiveKey = key || envKey;
+    if (!effectiveKey) return;
+    setState({ testing: true, result: null });
+    const result = await testAIConnection(prov, effectiveKey);
+    setState({ testing: false, result });
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setState((prev) => ({ ...prev, result: null })), 5000);
+  }, []);
 
   useEffect(() => () => {
-    if (testTimerRef.current) clearTimeout(testTimerRef.current);
+    if (geminiTestTimerRef.current) clearTimeout(geminiTestTimerRef.current);
+    if (groqTestTimerRef.current)   clearTimeout(groqTestTimerRef.current);
+    if (haikuTestTimerRef.current)  clearTimeout(haikuTestTimerRef.current);
     if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
   }, []);
 
-  const PROVIDERS: { id: AIProvider; label: string; sub: string; color: string; badge: string }[] = [
-    { id: 'none',   label: 'Kapalı',         sub: 'Sadece offline parser',                     color: '#64748b', badge: 'ÜCRETSİZ'      },
-    { id: 'gemini', label: 'Gemini Flash',   sub: 'Google AI — 1500 istek/gün ücretsiz',       color: '#4285f4', badge: 'ÜCRETSİZ'      },
-    { id: 'groq',   label: 'Groq (Llama)',   sub: 'Anthropic değil — tamamen ücretsiz',         color: '#f55036', badge: 'ÜCRETSİZ'      },
-    { id: 'haiku',  label: 'Claude Haiku',   sub: 'Anthropic — ~$0.13/ay',                     color: '#d97706', badge: 'DÜŞÜK MALİYET' },
-  ];
+  /** Küçük, bölüm-içi test butonu + sonuç göstergesi. */
+  const TestRow = ({ state, onTest, disabled }: { state: TestState; onTest: () => void; disabled: boolean }) => (
+    <div className="flex items-center gap-2 mt-1">
+      <button
+        onClick={onTest}
+        disabled={state.testing || disabled}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all active:scale-95 disabled:opacity-40"
+        style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--oem-ink-2, rgba(255,255,255,0.6))' }}
+      >
+        {state.testing ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+        {state.testing ? 'Test ediliyor…' : 'Bağlantıyı Test Et'}
+      </button>
+      {state.result && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium">
+          {state.result.ok
+            ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+            : <XCircle className="w-3.5 h-3.5 text-red-400" />
+          }
+          <span className={state.result.ok ? 'text-emerald-400' : 'text-red-400'}>{state.result.message}</span>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-5">
@@ -425,43 +452,16 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         <span className="ml-auto text-[9px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 font-mono">İnternet gerektirir</span>
       </div>
 
-      {/* Provider selection */}
-      <div className="flex flex-col gap-2">
-        {PROVIDERS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => updateSettings({ aiVoiceProvider: p.id as AIProvider })}
-            className="flex items-center gap-4 p-4 rounded-2xl border transition-all active:scale-[0.98]"
-            style={provider === p.id
-              ? { backgroundColor: `${p.color}12`, borderColor: `${p.color}50` }
-              : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }
-            }
-          >
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: `${p.color}18`, border: `1px solid ${p.color}30` }}>
-              <Mic className="w-5 h-5" style={{ color: provider === p.id ? p.color : 'var(--oem-ink-3, rgba(255,255,255,0.3))' }} />
-            </div>
-            <div className="flex-1 text-left">
-              <div className="text-sm font-bold" style={{ color: provider === p.id ? p.color : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{p.label}</div>
-              <div className="text-[10px] text-[color:var(--oem-ink-3)] mt-0.5">{p.sub}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black px-2 py-0.5 rounded"
-                style={{ backgroundColor: `${p.color}15`, color: p.color, border: `1px solid ${p.color}30` }}>
-                {p.badge}
-              </span>
-              {provider === p.id && (
-                <div className="w-5 h-5 rounded-full flex items-center justify-center"
-                  style={{ backgroundColor: p.color }}>
-                  <Check className="w-3 h-3 text-black stroke-[3px]" />
-                </div>
-              )}
-            </div>
-          </button>
-        ))}
+      {/* Hibrit beyin bilgi bandı — sağlayıcı seçici YOK, anahtarı girilen her
+          sağlayıcı sabit sırayla zincire katılır. */}
+      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+        <Info className="w-4 h-4 text-purple-300 flex-shrink-0 mt-0.5" />
+        <p className="text-[11px] text-[color:var(--oem-ink-2)] leading-relaxed">
+          <span className="font-bold text-purple-300">Hibrit beyin:</span> Gemini → Groq → Haiku.
+          {' '}Anahtarı girilen her sağlayıcı zincire katılır; ilki kota/hata verirse sıradaki devreye girer.
+        </p>
       </div>
 
-      {/* API key inputs */}
       {/* Clipboard hint */}
       {clipboardHint && (
         <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border ${
@@ -477,194 +477,175 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         </div>
       )}
 
-      {provider === 'gemini' && (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Gemini API Key</span>
-            {envGeminiKey && !geminiKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
-              : geminiKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-              : null
-            }
-          </div>
-          {/* Ücretsiz key al butonu */}
-          <button
-            onClick={() => handleOpenKeyPage('https://aistudio.google.com/apikey')}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
-          >
-            <span>🔑</span>
-            Ücretsiz Key Al — aistudio.google.com
-          </button>
-          {/* Telefonla QR ile getir */}
-          <button
-            onClick={() => setShowKeyBeam((v) => !v)}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
-          >
-            <span>📱</span>
-            {showKeyBeam ? 'QR\'ı Gizle' : 'Telefonla Getir (QR)'}
-          </button>
-          {showKeyBeam && (
-            <KeyBeamPanel
-              onKeySaved={setGeminiKey}
-              onClose={() => setShowKeyBeam(false)}
-            />
-          )}
-          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-          <div className="relative">
-            <input
-              type={showGeminiKey ? 'text' : 'password'}
-              value={geminiKey}
-              onChange={(e) => { void setGeminiKey(e.target.value); }}
-              placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... / AQ... (manuel giriş)'}
-              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-            />
-            <button onClick={() => setShowGeminiKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-              {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
+      {/* 1 · Birincil — Gemini */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">1 · Birincil — Gemini API Key</span>
+          {envGeminiKey && !geminiKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
+            : geminiKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
+            : null
+          }
         </div>
-      )}
-
-      {provider === 'haiku' && (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Claude API Key</span>
-            {envHaikuKey && !haikuKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
-              : haikuKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-              : null
-            }
-          </div>
-          {/* Key al butonu */}
-          <button
-            onClick={() => handleOpenKeyPage('https://console.anthropic.com/settings/keys')}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 text-sm font-bold hover:bg-amber-500/20 active:scale-[0.98] transition-all"
-          >
-            <span>🔑</span>
-            Key Al — console.anthropic.com
+        {/* Ücretsiz key al butonu */}
+        <button
+          onClick={() => handleOpenKeyPage('https://aistudio.google.com/apikey')}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
+        >
+          <span>🔑</span>
+          Ücretsiz Key Al — aistudio.google.com
+        </button>
+        {/* Telefonla QR ile getir */}
+        <button
+          onClick={() => setShowKeyBeam((v) => !v)}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
+        >
+          <span>📱</span>
+          {showKeyBeam ? 'QR\'ı Gizle' : 'Telefonla Getir (QR)'}
+        </button>
+        {showKeyBeam && (
+          <KeyBeamPanel
+            onKeySaved={setGeminiKey}
+            onClose={() => setShowKeyBeam(false)}
+          />
+        )}
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+        <div className="relative">
+          <input
+            type={showGeminiKey ? 'text' : 'password'}
+            value={geminiKey}
+            onChange={(e) => { void setGeminiKey(e.target.value); }}
+            placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... / AQ... (manuel giriş)'}
+            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+          />
+          <button onClick={() => setShowGeminiKey((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+            {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
-          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-          <div className="relative">
-            <input
-              type={showHaikuKey ? 'text' : 'password'}
-              value={haikuKey}
-              onChange={(e) => { void setHaikuKey(e.target.value); }}
-              placeholder={envHaikuKey ? '● .env\'den otomatik' : 'sk-ant-... (manuel giriş)'}
-              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-            />
-            <button onClick={() => setShowHaikuKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-              {showHaikuKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
         </div>
-      )}
+        <TestRow
+          state={geminiTest}
+          disabled={!geminiKey && !envGeminiKey}
+          onTest={() => void runTest('gemini', geminiKey, envGeminiKey, setGeminiTest, geminiTestTimerRef)}
+        />
+      </div>
 
-      {provider === 'groq' && (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Groq API Key</span>
-            {envGroqKey && !groqKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
-              : groqKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-              : null
-            }
-          </div>
-          {/* Ücretsiz key al butonu */}
-          <button
-            onClick={() => handleOpenKeyPage('https://console.groq.com/keys')}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#f55036]/30 bg-[#f55036]/10 text-[#f55036] text-sm font-bold hover:bg-[#f55036]/20 active:scale-[0.98] transition-all"
-          >
-            <span>🔑</span>
-            Ücretsiz Key Al — console.groq.com
+      {/* 2 · Yedek — Groq */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--oem-line)]">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">2 · Yedek — Groq API Key</span>
+          {envGroqKey && !groqKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
+            : groqKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
+            : null
+          }
+        </div>
+        {/* Ücretsiz key al butonu */}
+        <button
+          onClick={() => handleOpenKeyPage('https://console.groq.com/keys')}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#f55036]/30 bg-[#f55036]/10 text-[#f55036] text-sm font-bold hover:bg-[#f55036]/20 active:scale-[0.98] transition-all"
+        >
+          <span>🔑</span>
+          Ücretsiz Key Al — console.groq.com
+        </button>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+        <div className="relative">
+          <input
+            type={showGroqKey ? 'text' : 'password'}
+            value={groqKey}
+            onChange={(e) => { void setGroqKey(e.target.value); }}
+            placeholder={envGroqKey ? '● .env\'den otomatik' : 'gsk_... (manuel giriş)'}
+            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+          />
+          <button onClick={() => setShowGroqKey((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+            {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
-          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-          <div className="relative">
-            <input
-              type={showGroqKey ? 'text' : 'password'}
-              value={groqKey}
-              onChange={(e) => { void setGroqKey(e.target.value); }}
-              placeholder={envGroqKey ? '● .env\'den otomatik' : 'gsk_... (manuel giriş)'}
-              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-            />
-            <button onClick={() => setShowGroqKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-              {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
         </div>
-      )}
+        <TestRow
+          state={groqTest}
+          disabled={!groqKey && !envGroqKey}
+          onTest={() => void runTest('groq', groqKey, envGroqKey, setGroqTest, groqTestTimerRef)}
+        />
+      </div>
 
-      {/* İnternet araması (Tavily) — Groq'a güncel bilgi/haber/hava yeteneği verir */}
-      {provider === 'groq' && (
-        <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-[var(--oem-line)]">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">İnternet Araması (Tavily)</span>
-            {tavilyKey
-              ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Açık ✓</span>
-              : <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Opsiyonel</span>
-            }
-          </div>
-          <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
-            Groq tek başına interneti göremez. Tavily anahtarı eklersen haber, döviz, hava ve güncel bilgileri arayıp yanıtlar.
-          </p>
-          <button
-            onClick={() => handleOpenKeyPage('https://app.tavily.com')}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-sky-400/30 bg-sky-400/10 text-sky-300 text-sm font-bold hover:bg-sky-400/20 active:scale-[0.98] transition-all"
-          >
-            <span>🌐</span>
-            Ücretsiz Arama Key Al — app.tavily.com
+      {/* 3 · Yedek — Haiku */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--oem-line)]">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">3 · Yedek — Claude Haiku API Key</span>
+          {envHaikuKey && !haikuKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
+            : haikuKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
+            : null
+          }
+        </div>
+        {/* Key al butonu */}
+        <button
+          onClick={() => handleOpenKeyPage('https://console.anthropic.com/settings/keys')}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 text-sm font-bold hover:bg-amber-500/20 active:scale-[0.98] transition-all"
+        >
+          <span>🔑</span>
+          Key Al — console.anthropic.com
+        </button>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+        <div className="relative">
+          <input
+            type={showHaikuKey ? 'text' : 'password'}
+            value={haikuKey}
+            onChange={(e) => { void setHaikuKey(e.target.value); }}
+            placeholder={envHaikuKey ? '● .env\'den otomatik' : 'sk-ant-... (manuel giriş)'}
+            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+          />
+          <button onClick={() => setShowHaikuKey((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+            {showHaikuKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
-          <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-          <div className="relative">
-            <input
-              type={showTavilyKey ? 'text' : 'password'}
-              value={tavilyKey}
-              onChange={(e) => { void setTavilyKey(e.target.value); }}
-              placeholder="tvly-... (manuel giriş)"
-              className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-            />
-            <button onClick={() => setShowTavilyKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-              {showTavilyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
         </div>
-      )}
+        <TestRow
+          state={haikuTest}
+          disabled={!haikuKey && !envHaikuKey}
+          onTest={() => void runTest('haiku', haikuKey, envHaikuKey, setHaikuTest, haikuTestTimerRef)}
+        />
+      </div>
 
-      {/* Test button */}
-      {provider !== 'none' && (
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleTest}
-            disabled={testing || !activeKey}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-bold transition-all active:scale-95 disabled:opacity-40"
-            style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--oem-ink-2, rgba(255,255,255,0.6))' }}
-          >
-            {testing
-              ? <Loader className="w-4 h-4 animate-spin" />
-              : <Mic className="w-4 h-4" />
-            }
-            {testing ? 'Test ediliyor…' : 'Bağlantıyı Test Et'}
+      {/* İnternet araması (Tavily) — Groq/Haiku'ya güncel bilgi/haber yeteneği verir
+          (hava durumu artık yerel serviste — bu anahtar gerekmez). */}
+      <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-[var(--oem-line)]">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">İnternet Araması (Tavily)</span>
+          {tavilyKey
+            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Açık ✓</span>
+            : <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Opsiyonel</span>
+          }
+        </div>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
+          Groq ve Haiku tek başına interneti göremez (Gemini'nin aksine). Tavily anahtarı eklersen ikisi de haber, döviz ve güncel bilgileri arayıp yanıtlar.
+        </p>
+        <button
+          onClick={() => handleOpenKeyPage('https://app.tavily.com')}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-sky-400/30 bg-sky-400/10 text-sky-300 text-sm font-bold hover:bg-sky-400/20 active:scale-[0.98] transition-all"
+        >
+          <span>🌐</span>
+          Ücretsiz Arama Key Al — app.tavily.com
+        </button>
+        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
+        <div className="relative">
+          <input
+            type={showTavilyKey ? 'text' : 'password'}
+            value={tavilyKey}
+            onChange={(e) => { void setTavilyKey(e.target.value); }}
+            placeholder="tvly-... (manuel giriş)"
+            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
+          />
+          <button onClick={() => setShowTavilyKey((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
+            {showTavilyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
-
-          {testResult && (
-            <div className="flex items-center gap-1.5 text-xs font-medium">
-              {testResult.ok
-                ? <CheckCircle className="w-4 h-4 text-emerald-400" />
-                : <XCircle className="w-4 h-4 text-red-400" />
-              }
-              <span className={testResult.ok ? 'text-emerald-400' : 'text-red-400'}>
-                {testResult.message}
-              </span>
-            </div>
-          )}
         </div>
-      )}
+      </div>
 
       {/* Info box */}
       <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">

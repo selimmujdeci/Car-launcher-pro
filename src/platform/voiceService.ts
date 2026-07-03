@@ -613,8 +613,13 @@ let _pendingAt  = 0;
  * 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2). */
 async function _resolveAiKeys(): Promise<{
   provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string;
-  /** provider 'gemini' ise Groq'un çözülmüş anahtarı (yedek beyin) — değilse ''. */
-  groqFallbackKey: string;
+  /**
+   * HİBRİT BEYİN ZİNCİRİ (SIRA SABİT): Gemini → Groq → Haiku. Yalnız anahtarı
+   * GİRİLMİŞ sağlayıcılar zincire girer (sıra bu üçlüde her zaman sabittir —
+   * settings.aiVoiceProvider'daki eski "seçili sağlayıcı" kavramı artık yalnız
+   * geriye-uyum `provider` alanı için kullanılır, zinciri etkilemez).
+   */
+  chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
 }> {
   // GÜVENLİK: localStorage'dan SADECE hassas-olmayan provider SEÇİMİ okunur
   // (gemini|haiku enum'u). API ANAHTARLARI burada DEĞİL — aşağıda
@@ -628,7 +633,7 @@ async function _resolveAiKeys(): Promise<{
   } catch { /* bozuk JSON → AI katmanı yok sayılır */ }
   let apiKey = '';
   let tavilyKey = '';
-  let groqFallbackKey = '';
+  const chain: { provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }[] = [];
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
     const [geminiKey, haikuKey, groqKey, tavily] = await Promise.all([
@@ -642,16 +647,22 @@ async function _resolveAiKeys(): Promise<{
       provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
     );
     tavilyKey = (tavily ?? '').trim();
-    // Gemini birincil provider'ken Groq'un KENDİ anahtarını da çöz (yedek beyin) —
-    // Gemini 429/timeout'ta companionChatProvider bu anahtarla Groq'a düşer.
-    if (provider === 'gemini') groqFallbackKey = resolveApiKey('groq', groqKey);
+    // Zincir SIRA SABİT kurulur — settings'teki eski tekli-seçim yoksayılır;
+    // Ayarlar sayfası artık üç anahtarı da aynı anda gösterir/kaydeder (3 numaralı
+    // görev), hangileri doluysa hepsi hibrit beyne katılır.
+    const resolvedGemini = resolveApiKey('gemini', geminiKey);
+    const resolvedGroq   = resolveApiKey('groq', groqKey);
+    const resolvedHaiku  = resolveApiKey('haiku', haikuKey);
+    if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
+    if (resolvedGroq)   chain.push({ provider: 'groq',   apiKey: resolvedGroq });
+    if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
   // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
   const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
-  return { provider, apiKey, hasNet, tavilyKey, groqFallbackKey };
+  return { provider, apiKey, hasNet, tavilyKey, chain };
 }
 
 /* ── ASR müzik sorgu onarımı ─────────────────────────────────
@@ -782,23 +793,44 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
     return true;
   }
 
+  // ── 1b. HAVA DURUMU BYPASS — yerel hava servisi kotasız/anında cevaplar ──
+  // "hava durumu nasıl" gibi net (≥0.7) yerel eşleşmeler beyne (Gemini/Groq/
+  // Haiku) HİÇ GİTMEZ: hava zaten yerelde gerçek veriyle cevaplanıyor
+  // (dispatch/dispatchDriving → answerInformational → weatherService). Groq gibi
+  // grounding'i olmayan sağlayıcılar "canlı bilgilere bakamıyorum" diyip
+  // kullanıcıyı yanıltıyordu (saha 2026-07-03) — bu bypass hem o sorunu çözer
+  // hem de Gemini kotasını gereksiz yere harcamaz.
+  if (
+    result.command &&
+    result.command.type === 'show_weather' &&
+    result.command.confidence >= 0.7
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'weather_local_bypass' });
+    if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    return true;
+  }
+
   // ── API anahtarları + ağ sağlığı (devre kesici dahil) ────────
-  const { provider, apiKey, hasNet, tavilyKey, groqFallbackKey } = await _resolveAiKeys();
+  const { provider, apiKey, hasNet, tavilyKey, chain } = await _resolveAiKeys();
 
-  // Online beyin (companionChatProvider) HEM gemini HEM groq destekler. Eskiden
-  // bu gate sadece 'gemini' idi → Groq/Haiku seçildiğinde komutlar online beyne
-  // hiç ulaşmayıp OFFLINE asistana düşüyordu (#saha fix 2026-06-21). Desteklenmeyen
-  // provider'da tryCompanionBrain zaten null döner → güvenle offline zincire iner.
-  const aiUsable = (provider === 'gemini' || provider === 'groq') && !!apiKey && hasNet;
+  // Online beyin (companionChatProvider) hibrit zinciri destekler: Gemini →
+  // Groq → Haiku (yalnız anahtarı girilmiş sağlayıcılar zincire girer).
+  // Eskiden bu gate sadece 'gemini' idi → Groq/Haiku seçildiğinde komutlar
+  // online beyne hiç ulaşmayıp OFFLINE asistana düşüyordu (#saha fix
+  // 2026-06-21). Zincir boşsa tryCompanionBrain zaten null döner → güvenle
+  // offline zincire iner.
+  const aiUsable = chain.length > 0 && hasNet;
 
-  // ── 1b. ANAHTAR YOK + AÇIK AI/İNTERNET İSTEĞİ → ayarlardan anahtar ekle ──
+  // ── 1c. ANAHTAR YOK + AÇIK AI/İNTERNET İSTEĞİ → ayarlardan anahtar ekle ──
   // Anahtar yokken haber/döviz/fıkra/bilmece/"X kimdir" gibi YALNIZ yapay zekayla
   // yanıtlanabilen istekler gelir. Yerel parser bunlara sahte düşük-güven komut
   // üretebildiğinden (ör. "haberleri özetle"→vehicle_status@0.82) auto-dispatch'ten
   // ÖNCE yakalanır; aksi halde kullanıcı yanlış komut görür. Exact (1.0) gerçek
-  // komutlar korunur (AI-token içermezler zaten); anahtar VARSA bu blok atlanır
-  // (o yol beyne/offline'a gider). Soğuma: TTS ile her cümlede dürtmeyiz.
-  if (!apiKey && _looksLikeAiRequest(trimmed) && (result.command?.confidence ?? 0) < 1.0) {
+  // komutlar korunur (AI-token içermezler zaten); zincirde EN AZ bir anahtar
+  // VARSA bu blok atlanır (o yol beyne/offline'a gider). Soğuma: TTS ile her
+  // cümlede dürtmeyiz.
+  if (chain.length === 0 && _looksLikeAiRequest(trimmed) && (result.command?.confidence ?? 0) < 1.0) {
     _lastCommandTime = now;
     _endConvSession();
     const within = now - _aiKeyHintAt <= _AI_KEY_HINT_COOLDOWN_MS;
@@ -839,7 +871,7 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
       apiKey,
       hasNet,
       tavilyKey,
-      groqFallbackKey,
+      chain,
       timeoutMs: ctx?.isDriving ? BRAIN_TIMEOUT_DRIVING_MS : BRAIN_TIMEOUT_PARKED_MS,
     });
     if (brain) {

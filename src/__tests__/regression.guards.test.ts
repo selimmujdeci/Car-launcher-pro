@@ -343,7 +343,7 @@ describe('Anahtar yok yönlendirmesi kilidi', () => {
   it('YAPISAL: anahtarsız AI isteği yönlendirmesi var (Gemini + Claude Haiku + ayarlar)', () => {
     const src = vs();
     expect(src).toMatch(/_looksLikeAiRequest/);
-    expect(src).toMatch(/!apiKey && _looksLikeAiRequest/);              // koşul: anahtar YOK
+    expect(src).toMatch(/chain\.length === 0 && _looksLikeAiRequest/);  // koşul: zincirde HİÇ anahtar YOK
     expect(src).toMatch(/Gemini ya da Claude Haiku/);                   // her iki sağlayıcı önerilir
     expect(src).toMatch(/ai_key_missing_hint/);                         // tanı rotası
   });
@@ -593,7 +593,7 @@ describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', () => 
 });
 
 /* ───────────────────────────────────────────────────────────────
-   12. SESLİ ASİSTAN — DÜRÜST HAVA/TRAFİK + GEMİNI→GROQ YEDEKLEME (2026-07-03)
+   12. SESLİ ASİSTAN — DÜRÜST HAVA/TRAFİK + HİBRİT BEYİN ZİNCİRİ (2026-07-03)
    Regresyon (kök neden, ana oturum analizi): Single Brain başarısız olunca
    "hava durumu" sorusu her zaman sahte WEATHER_OFFLINE stub'una düşüyordu —
    uygulamada GERÇEK hava verisi (weatherService) olsa bile. Ayrıca Gemini
@@ -601,9 +601,9 @@ describe('K24 CAN-flood perf düzeltmesi — hot-path allocation kilidi', () => 
    (asistan aptallaşıyordu). BRAIN_DECISION_TIMEOUT_MS sürüş/park ayrımı
    yapmadan 2.5sn'de kesiyordu (parkta yavaş ağda gereksiz erken fallback).
    Kilit: gerçek veri varsa söylenir, yoksa dürüst "ulaşamadım" + arka planda
-   tazeleme; Gemini→Groq failover; sürüş/park bütçesi ayrık.
+   tazeleme; Gemini→Groq→Haiku hibrit zincir failover; sürüş/park bütçesi ayrık.
    ─────────────────────────────────────────────────────────────── */
-describe('Sesli asistan — hava/trafik dürüstlüğü + Gemini→Groq yedekleme kilidi', () => {
+describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri kilidi', () => {
   it('YAPISAL: offlineConversationEngine hava/trafik niyetleri artık sabit stub DEĞİL, weatherService\'e bağlı', () => {
     const src = read('src/platform/offlineConversationEngine.ts');
     expect(src).toMatch(/import\s*\{\s*getWeatherNarrative,\s*refreshWeather\s*\}\s*from\s*'\.\/weatherService'/);
@@ -612,12 +612,35 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + Gemini→Groq yedeklem
     expect(src).toMatch(/build:\s*\(drv\)\s*=>\s*buildWeather\(drv\)/);
   });
 
-  it('YAPISAL: CompanionChatOpts.groqFallbackKey + tryCompanionBrain\'de Gemini soğuma/hata → Groq yedeği kilidi', () => {
+  it('YAPISAL: CompanionChatOpts.chain (Gemini→Groq→Haiku) + tryCompanionBrain\'de Gemini soğuma/hata → sıradaki aday kilidi', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
-    expect(src).toMatch(/groqFallbackKey\?:\s*string/);
-    // Gemini birincil provider'ken _rateLimitedUntil'a BAKMADAN Groq'a düşen yol
-    // (429 soğumasında asistan aptallaşmasın) bir daha sessizce kaldırılmamalı.
-    expect(src).toMatch(/groqFallbackUsable\s*=\s*\n?\s*opts\.provider === 'gemini' && !!opts\.groqFallbackKey/);
+    expect(src).toMatch(/chain\?:\s*ReadonlyArray<\{\s*provider:\s*'gemini'\s*\|\s*'groq'\s*\|\s*'haiku';\s*apiKey:\s*string\s*\}>/);
+    // Gemini adayı _rateLimitedUntil soğumasındaysa ATLANIR (sıradaki aday denenir) —
+    // bu davranış (429 soğumasında asistan aptallaşmasın) bir daha sessizce kaldırılmamalı.
+    expect(src).toMatch(/cand\.provider === 'gemini' && _now\(\) < _rateLimitedUntil\) continue/);
+    expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
+  });
+
+  it('YAPISAL: voiceService hibrit zinciri SIRA SABİT kurar (gemini → groq → haiku) ve beyne iletir', () => {
+    const src = read('src/platform/voiceService.ts');
+    expect(src).toMatch(/if \(resolvedGemini\) chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\);/);
+    expect(src).toMatch(/if \(resolvedGroq\)\s+chain\.push\(\{ provider: 'groq',\s+apiKey: resolvedGroq \}\);/);
+    expect(src).toMatch(/if \(resolvedHaiku\)\s+chain\.push\(\{ provider: 'haiku',\s+apiKey: resolvedHaiku \}\);/);
+    expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
+  });
+
+  it('YAPISAL: "hava durumu" yerel bypass — beyne (Gemini/Groq/Haiku) GİTMEDEN yerelde cevaplanır', () => {
+    const src = read('src/platform/voiceService.ts');
+    expect(src).toMatch(/result\.command\.type === 'show_weather' &&/);
+    expect(src).toMatch(/result\.command\.confidence >= 0\.7/);
+    expect(src).toMatch(/weather_local_bypass/);
+  });
+
+  it('YAPISAL: beyin web+hava kesişimi — tryLocalWeatherAnswer Tavily/grounded\'dan ÖNCE denenir', () => {
+    const src = read('src/platform/companion/companionChatProvider.ts');
+    expect(src).toMatch(/async function tryLocalWeatherAnswer/);
+    // Gemini grounded, Groq ve Haiku'nun web dallarının ÜÇÜ de yerel hava kısayolunu kullanır.
+    expect((src.match(/tryLocalWeatherAnswer\(/g) ?? []).length).toBeGreaterThanOrEqual(4); // tanım + 3 kullanım
   });
 
   it('YAPISAL: voiceService bağlama duyarlı beyin bütçesi — tek sabit (BRAIN_DECISION_TIMEOUT_MS) DEĞİL, sürüş/park ayrık', () => {

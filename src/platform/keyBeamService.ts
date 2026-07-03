@@ -69,7 +69,10 @@ export async function createBeamSession(): Promise<BeamSession> {
   const code = generateBeamCode();
   const { cryptoKey, keyB64url } = await generateBeamKey();
   const expiresAt = Date.now() + KEY_BEAM_TTL_MS;
-  const qrUrl = `${KEY_BEAM_BASE_URL}?code=${code}&exp=${expiresAt}#k=${keyB64url}`;
+  // exp parametresi URL'de YOK: TTL sunucuda (key_beams.expires_at) ve araçtaki
+  // sayaçta zaten uygulanıyor; URL kısaldıkça QR seyrekleşir → araç ekranından
+  // telefonla okunabilirlik artar (SAHA 2026-07-03: yoğun QR okunmuyordu).
+  const qrUrl = `${KEY_BEAM_BASE_URL}?code=${code}#k=${keyB64url}`;
   return { code, qrUrl, expiresAt, cryptoKey };
 }
 

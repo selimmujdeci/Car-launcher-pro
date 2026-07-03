@@ -282,6 +282,8 @@ async function askHaiku(text: string, apiKey: string, ctx?: VehicleContext): Pro
       'Content-Type':      'application/json',
       'x-api-key':         apiKey,
       'anthropic-version': '2023-06-01',
+      // WebView/tarayıcı CORS: bu header olmadan Anthropic API preflight'ı reddeder.
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(body),
     signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
