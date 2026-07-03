@@ -126,6 +126,20 @@ export function sanitizeWakePhrase(raw: unknown): string {
   return sanitizeCompanionText(raw, DEFAULT_WAKE_PHRASE);
 }
 
+/** Öğretilen wake örnekleri (Vosk çıktısı) — normalize, max 5, boşlar elenir. */
+export const WAKE_ENROLLMENT_MAX = 5;
+export function sanitizeWakeEnrollment(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const n = normalizeWakeText(item);
+    if (n.length >= 2 && !out.includes(n)) out.push(n);
+    if (out.length >= WAKE_ENROLLMENT_MAX) break;
+  }
+  return out;
+}
+
 /* ── Wake word türetme + eşleşme (asistan adı merkezli) ─────── */
 
 /** Önerilen wake cümlesi — asistan adı değişince UI bu öneriyi gösterir. */
@@ -213,6 +227,94 @@ export function matchesWakeTranscript(transcript: string, wakeWords: readonly st
   return false;
 }
 
+/* ── Fonetik ESNEK eşleşme (sözlük-dışı / özel wake kelimeleri) ──
+ * Vosk grammar YALNIZ modelin sözlüğündeki kelimeleri tanır → kullanıcının
+ * yazdığı uydurma/sözlük-dışı kelime ("asist", "kaptan3") grammar'dan sessizce
+ * düşer ve wake HİÇ tetiklenmez. Çözüm: özel modda SERBEST tanıma yapılır (Vosk
+ * en yakın gerçek kelimeleri döker) ve bu çıktı hedefe FONETİK olarak yakınsa
+ * (normalize Levenshtein) eşleşir. İki kaynak:
+ *   - typed: kullanıcının yazdığı cümle (tolerans yüksek — telaffuz tahmini)
+ *   - enrolled: kullanıcının SÖYLEYEREK öğrettiği örnekler = Vosk'un gerçekte
+ *     duyduğu çıktı (yüksek güven — daha sıkı eşik). */
+
+function _levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    const cur = new Array<number>(n + 1);
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+/** İki wake dizesinin normalize benzerliği (0..1). Boşlukları kaldırır. */
+export function wakeSimilarity(a: string, b: string): number {
+  const na = normalizeWakeText(a).replace(/\s+/g, '');
+  const nb = normalizeWakeText(b).replace(/\s+/g, '');
+  if (!na || !nb) return 0;
+  const maxLen = Math.max(na.length, nb.length);
+  return 1 - _levenshtein(na, nb) / maxLen;
+}
+
+// Eşikler saha ile ayarlanır: düşük = daha çok yanlış tetik, yüksek = uyanmama.
+const FUZZY_TYPED_THRESHOLD  = 0.72;  // yazılan cümle (telaffuz tahmini toleransı)
+const FUZZY_TYPED_MIN_LEN    = 4;     // <4 harf tek başına fonetik eşleşmez (yanlış tetik)
+const FUZZY_ENROLL_THRESHOLD = 0.82;  // öğretilen örnek = Vosk'un duyduğu → daha sıkı
+const FUZZY_ENROLL_MIN_LEN   = 3;
+
+function _fuzzyHit(
+  tWords: readonly string[],
+  targets: readonly string[],
+  threshold: number,
+  minLen: number,
+): boolean {
+  for (const raw of targets) {
+    const P = normalizeWakeText(raw).split(' ').filter(Boolean);
+    const targetStr = P.join('');
+    if (targetStr.length < minLen) continue;
+    const pLen = P.length;
+    // Vosk hedefi bölebilir/birleştirebilir → ±1 kelimelik pencereler dene.
+    for (let w = Math.max(1, pLen - 1); w <= pLen + 1; w++) {
+      for (let i = 0; i + w <= tWords.length; i++) {
+        const cand = tWords.slice(i, i + w).join('');
+        if (!cand) continue;
+        const sim = 1 - _levenshtein(cand, targetStr) / Math.max(cand.length, targetStr.length);
+        if (sim >= threshold) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * ÖZEL/sözlük-dışı wake eşleşmesi: serbest tanıma çıktısını (transcript) hem
+ * yazılan hedeflere hem öğretilen örneklere fonetik yakınlıkla dener.
+ * Kelime-sınırlı TAM eşleşme (matchesWakeTranscript) yetersiz kaldığında kullanılır.
+ */
+export function fuzzyMatchesWake(
+  transcript: string,
+  typedTargets: readonly string[],
+  enrolled: readonly string[] = [],
+): boolean {
+  const tWords = normalizeWakeText(transcript).split(' ').filter(Boolean);
+  if (tWords.length === 0) return false;
+  // 1) Önce TAM eşleşme (in-vocab kelimeler + öğretilen örnekler birebir).
+  if (matchesWakeTranscript(transcript, typedTargets)) return true;
+  if (enrolled.length && matchesWakeTranscript(transcript, enrolled)) return true;
+  // 2) Öğretilen örnekler (Vosk'un duyduğu) — yüksek güven, sıkı eşik.
+  if (enrolled.length && _fuzzyHit(tWords, enrolled, FUZZY_ENROLL_THRESHOLD, FUZZY_ENROLL_MIN_LEN)) return true;
+  // 3) Yazılan cümle — fonetik tolerans.
+  return _fuzzyHit(tWords, typedTargets, FUZZY_TYPED_THRESHOLD, FUZZY_TYPED_MIN_LEN);
+}
+
 /* ── Wake phrase risk uyarısı ───────────────────────────────── */
 
 const TURKISH_VOWELS = /[aeıioöuüâîûAEIİOÖUÜÂÎÛ]/g;
@@ -243,6 +345,8 @@ export interface CompanionIdentity {
   wakeWordEnabled: boolean;
   wakeMode:        CompanionWakeMode;
   wakePhrase:      string;
+  /** Söyleyerek öğretilen wake örnekleri (Vosk çıktısı, normalize). */
+  wakeEnrollment:  string[];
 }
 
 /** Ayarlardan okunan ham değerler (persist'ten bozuk gelebilir). */
@@ -255,6 +359,7 @@ export interface CompanionSettingsInput {
   companionWakeWordEnabled?: unknown;
   companionWakeMode?:        unknown;
   companionWakePhrase?:      unknown;
+  companionWakeEnrollment?:  unknown;
 }
 
 function asPersonality(raw: unknown): CompanionPersonality {
@@ -290,5 +395,6 @@ export function resolveCompanionIdentity(
     wakeWordEnabled: settings.companionWakeWordEnabled === true,
     wakeMode:        asWakeMode(settings.companionWakeMode),
     wakePhrase:      sanitizeWakePhrase(settings.companionWakePhrase),
+    wakeEnrollment:  sanitizeWakeEnrollment(settings.companionWakeEnrollment),
   };
 }

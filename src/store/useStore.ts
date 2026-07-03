@@ -127,6 +127,10 @@ export interface VehicleProfile {
   oilType?: OilType;
   /** İkinci el araç için başlangıç aşınma oranı (0–1); 0 = sıfır km */
   initialWearOffset?: number;
+  /** Sürücü tercihi: sürüş modu (özet + gelecekte tema/gaz tepkisi) */
+  driveMode?: 'comfort' | 'sport' | 'eco';
+  /** Sürücü tercihi: iklim sıcaklığı (°C) */
+  climateTempC?: number;
 }
 
 export interface AppSettings {
@@ -218,6 +222,12 @@ export interface AppSettings {
   companionWakeMode: CompanionWakeMode;
   /** ÖZEL uyandırma cümlesi — yalnız companionWakeMode='custom' iken kullanılır */
   companionWakePhrase: string;
+  /**
+   * Söyleyerek ÖĞRETİLEN wake örnekleri (Vosk çıktısı, normalize). Sözlük-dışı
+   * özel kelimeler için: kullanıcı birkaç kez söyler, Vosk'un duyduğu buraya
+   * yazılır, wake eşleşmesi bunlara fonetik yakınlıkla da bakar. Max 5.
+   */
+  companionWakeEnrollment: string[];
   /**
    * Adaptive Runtime Engine mod seçimi.
    * 'AUTO' → cihaz metriğine göre otomatik algılama.
@@ -367,6 +377,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionWakeWordEnabled: false,
   companionWakeMode: DEFAULT_WAKE_MODE,
   companionWakePhrase: DEFAULT_WAKE_PHRASE,
+  companionWakeEnrollment: [],
   runtimeOverride: 'AUTO',
 };
 

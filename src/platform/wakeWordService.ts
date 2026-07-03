@@ -30,6 +30,7 @@ import { isNative } from './bridge';
 import { startListening, isVoicePaused, getVoiceSnapshot } from './voiceService';
 import {
   matchesWakeTranscript,
+  fuzzyMatchesWake,
   normalizeWakeText,
   resolveCompanionIdentity,
   resolveWakeWords,
@@ -48,6 +49,13 @@ export interface WakeWordState {
   wakeWords:   string[];
   /** Companion kaynağı mı (selamlama + kelime-sınırlı eşleşme). */
   companion:   boolean;
+  /**
+   * ÖZEL/sözlük-dışı wake modu: grammar YOK (sözlük-dışı kelimeyi düşürür),
+   * serbest tanıma + fonetik fuzzy eşleşme kullanılır. Öğretilen örneklerle güçlenir.
+   */
+  custom:      boolean;
+  /** Söyleyerek öğretilen wake örnekleri (Vosk çıktısı, normalize). */
+  enrollment:  string[];
   lastTrigger: number | null;
   errorMsg:    string | null;
   /**
@@ -91,6 +99,8 @@ const INITIAL: WakeWordState = {
   enabled:     false,
   wakeWords:   [DEFAULT_WAKE_WORD],
   companion:   false,
+  custom:      false,
+  enrollment:  [],
   lastTrigger: null,
   errorMsg:    null,
   lastHeard:   [],
@@ -122,6 +132,10 @@ function clearRestartTimer(): void {
 }
 
 function _matches(transcript: string): boolean {
+  // ÖZEL/sözlük-dışı mod: serbest tanıma çıktısını yazılan hedefe + öğretilen
+  // örneklere FONETİK yakınlıkla eşle (grammar sözlük-dışı kelimeyi düşürdüğü için
+  // tam eşleşme yetersiz). Diğer modlar birebir/kelime-sınırlı kalır.
+  if (_state.custom) return fuzzyMatchesWake(transcript, _state.wakeWords, _state.enrollment);
   return _state.companion
     ? matchesWakeTranscript(transcript, _state.wakeWords)  // TR-normalize + kelime sınırı
     : matchesLegacy(transcript, _state.wakeWords);
@@ -219,6 +233,14 @@ function _clearVoskBackstop(): void {
 
 /** Native wake akışını kur: önce grammar (event-driven), olmazsa eski polling. */
 function _startNativeWake(gen: number): void {
+  // ÖZEL/sözlük-dışı mod: grammar KULLANMA — sözlük-dışı kelimeyi native düşürür
+  // ("Ignoring word missing in vocabulary") ve wake sağır kalır. Serbest tanıma
+  // döngüsü + fonetik fuzzy eşleşme (nativeLoop → _matches) ile her kelime çalışır.
+  if (_state.custom) {
+    _nativeLoopActive = true;
+    void nativeLoop(gen);
+    return;
+  }
   void (async () => {
     const grammarOk = await startGrammarMode(gen);
     if (gen !== _loopGen) return;       // bu arada disable/yeniden enable oldu
@@ -380,12 +402,18 @@ async function stopGrammarMode(): Promise<void> {
 export interface EnableWakeWordOpts {
   /** Companion kaynağı: selamlama + TR kelime-sınırlı eşleşme. */
   companion?: boolean;
+  /** ÖZEL/sözlük-dışı mod: grammar yok, serbest tanıma + fonetik fuzzy eşleşme. */
+  custom?: boolean;
+  /** Söyleyerek öğretilen wake örnekleri (Vosk çıktısı) — fuzzy eşleşmeyi güçlendirir. */
+  enrollment?: string[];
 }
 
 export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordOpts): void {
   const list = (Array.isArray(words) ? words : [words ?? DEFAULT_WAKE_WORD])
     .filter((w): w is string => typeof w === 'string' && w.trim().length > 0);
   const companion = opts?.companion === true;
+  const custom = opts?.custom === true;
+  const enrollment = (opts?.enrollment ?? []).map(normalizeWakeText).filter(Boolean);
   const wakeWords = list.length > 0
     ? (companion ? list.map(normalizeWakeText).filter(Boolean) : list)
     : [DEFAULT_WAKE_WORD];
@@ -394,7 +422,7 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
     // Native Android: arka plan wake word dinlemesi.
     // NOT: pasif beklerken status 'idle' kalır — UI "Dinliyorum" GÖSTERMEZ;
     // görünür durum yalnız tetiklenme sonrası aktif dinlemede (voiceService).
-    push({ enabled: true, wakeWords, companion, status: 'idle', errorMsg: null });
+    push({ enabled: true, wakeWords, companion, custom, enrollment, status: 'idle', errorMsg: null });
     _consecErrors = 0;
     // Jenerasyon artır: olası eski döngü/grammar instance'ı ölür; yeni akış
     // tek başına çalışır (paralel dinleme = karşılıklı STT iptali).
@@ -418,7 +446,7 @@ export function enableWakeWord(words?: string | string[], opts?: EnableWakeWordO
   } else {
     // Web: sürekli dinleme yok — push-to-talk yeterli
     // Wake word toggle ayarları kayıt altında kalır ama web'de mikrofon açılmaz
-    push({ enabled: false, status: 'disabled', wakeWords, companion, errorMsg: null });
+    push({ enabled: false, status: 'disabled', wakeWords, companion, custom, enrollment, errorMsg: null });
   }
 }
 
@@ -474,6 +502,43 @@ export function resumeWakeWordAfterInteraction(): void {
 
 export function getWakeWordState(): WakeWordState { return _state; }
 
+/* ── Söyleyerek ÖĞRET (enrollment) ─────────────────────────────
+ * Kullanıcı wake kelimesini bir kez söyler; Vosk'un GERÇEKTE duyduğu (normalize)
+ * transcript döner. Çağıran (ayar UI'ı) bunu companionWakeEnrollment'a ekler →
+ * fuzzy eşleşme bu örneğe de bakar, böylece SÖZLÜK-DIŞI/uydurma kelime de çalışır
+ * (Vosk yazımı tanımasa bile "duyduğu şey"e eşler). Yakalama sırasında pasif döngü
+ * durur (mikrofon çakışması yok); ardından ayar değişimi wake'i yeniden kurar.
+ * Başarısız/sessizse '' döner (fail-soft). */
+const ENROLL_LISTEN_MS = 5_000;
+
+export async function enrollWakeWord(): Promise<string> {
+  if (!isNative) return '';
+  // Pasif dinlemeyi durdur — aynı anda iki STT karşılıklı iptal eder.
+  const wasEnabled = _state.enabled;
+  _nativeLoopActive = false;
+  _loopGen++;
+  await stopGrammarMode();
+  try {
+    const { CarLauncher } = await import('./nativePlugin');
+    const res = await CarLauncher.startSpeechRecognition({
+      preferOffline:      true,   // öğretme, offline Vosk'un duyduğunu yakalamalı
+      onlineFallback:     false,
+      language:           'tr-TR',
+      maxResults:         1,
+      gain:               VOICE_TUNING.wakeGainX,
+      maxListenMs:        ENROLL_LISTEN_MS,
+      duckWhileListening: true,
+    });
+    return normalizeWakeText(res.transcript ?? '');
+  } catch {
+    return '';
+  } finally {
+    // Wake hâlâ açıksa döngüyü geri kur (ayar değişimi de kuracak — gen++ ile
+    // eski instance ölür, çift oturum olmaz).
+    if (wasEnabled && _state.enabled && _voskReady) _startNativeWake(++_loopGen);
+  }
+}
+
 /* ── Boot orkestratörü: ayar-tabanlı wake aç/kapa ────────────────
  * SystemBoot Wave 4'te çağrılır. React mount'una BAĞLI DEĞİL (modül-düzeyi
  * store aboneliği — her zaman canlı, layout takılsa bile çalışır). useStore'a
@@ -493,6 +558,7 @@ function _wakeKey(s: AppSettings): string {
     s.companionAssistantName ?? '',
     s.companionWakeMode ?? '',
     s.companionWakePhrase ?? '',
+    (s.companionWakeEnrollment ?? []).join(','),  // öğretilen örnek değişince yeniden kur
   ].join('|');
 }
 
@@ -505,8 +571,16 @@ function _applyWakeFromSettings(s: AppSettings): void {
       companionAssistantName: s.companionAssistantName,
       companionWakeMode:      s.companionWakeMode,
       companionWakePhrase:    s.companionWakePhrase,
+      companionWakeEnrollment: s.companionWakeEnrollment,
     });
-    enableWakeWord(resolveWakeWords(identity), { companion: true });
+    // ÖZEL mod (kullanıcının yazdığı serbest cümle) sözlük-dışı olabilir →
+    // grammar yerine serbest tanıma + fonetik fuzzy + öğretilen örnekler.
+    const isCustom = identity.wakeMode === 'custom';
+    enableWakeWord(resolveWakeWords(identity), {
+      companion: true,
+      custom: isCustom,
+      enrollment: isCustom ? identity.wakeEnrollment : [],
+    });
   } else if (s.wakeWordEnabled) {
     enableWakeWord(s.wakeWord ?? DEFAULT_WAKE_WORD);   // eski "hey car" sistemi
   } else {

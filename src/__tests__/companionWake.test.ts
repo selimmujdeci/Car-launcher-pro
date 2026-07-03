@@ -85,6 +85,9 @@ vi.mock('../platform/nativePlugin', () => {
 import {
   resolveWakeWords,
   matchesWakeTranscript,
+  fuzzyMatchesWake,
+  wakeSimilarity,
+  sanitizeWakeEnrollment,
   normalizeWakeText,
   suggestWakePhrase,
   resolveCompanionIdentity,
@@ -190,6 +193,66 @@ describe('resolveWakeWords — wake sözleri asistan adından türer', () => {
     expect(matchesWakeTranscript('ey mavi', words)).toBe(true);
     expect(matchesWakeTranscript('hay mavi naber', words)).toBe(true);
     expect(matchesWakeTranscript('mavi', words)).toBe(false); // yalnız ad bu modda yetmez
+  });
+});
+
+/* ── 1b. ÖZEL/sözlük-dışı wake — fonetik fuzzy eşleşme ──────────
+ * Saha (2026-07-03): kullanıcı "ne istersem yazarım" — Vosk sözlük-dışı kelimeyi
+ * ("asist") grammar'dan düşürüyordu → hiç uyanmıyordu. Çözüm: serbest tanıma +
+ * fonetik yakınlık (yazılan hedef) + öğretilen örnekler. Bu kilidi zayıflatma. */
+
+describe('wakeSimilarity — normalize Levenshtein benzerliği (0..1)', () => {
+  it('birebir aynı → 1', () => {
+    expect(wakeSimilarity('asist', 'asist')).toBe(1);
+    expect(wakeSimilarity('Asİst', 'asist')).toBe(1); // TR normalize
+  });
+  it('bir harf fark → oransal düşüş (asist↔asit = 0.8)', () => {
+    expect(wakeSimilarity('asist', 'asit')).toBeCloseTo(0.8, 5);
+  });
+  it('boş taraf → 0', () => {
+    expect(wakeSimilarity('', 'asist')).toBe(0);
+  });
+});
+
+describe('fuzzyMatchesWake — sözlük-dışı özel kelime çalışır', () => {
+  it('birebir in-vocab yine eşleşir', () => {
+    expect(fuzzyMatchesWake('asistan', ['asistan'])).toBe(true);
+  });
+  it('Vosk yaklaşık duyduysa eşleşir: yazılan "asist" ↔ duyulan "asit"', () => {
+    expect(fuzzyMatchesWake('asit', ['asist'])).toBe(true);
+  });
+  it('Vosk kelimeyi BÖLDÜYSE eşleşir: "a sist" ↔ "asist"', () => {
+    expect(fuzzyMatchesWake('a sist naber', ['asist'])).toBe(true);
+  });
+  it('öğretilen örnek (Vosk çıktısı) birebir eşleşir — yazılan hedef alakasız olsa bile', () => {
+    // typed hedef "xyzq" hiç eşleşmez; match YALNIZ öğretilen örnekten gelir.
+    expect(fuzzyMatchesWake('kaptan', ['xyzq'], ['kaptan'])).toBe(true);   // birebir
+    expect(fuzzyMatchesWake('kaptane', ['xyzq'], ['kaptan'])).toBe(true);  // fonetik yakın (0.857≥0.82)
+  });
+  it('alakasız konuşma tetiklemez (yanlış tetik koruması)', () => {
+    expect(fuzzyMatchesWake('bugün hava çok güzel', ['asist'])).toBe(false);
+    expect(fuzzyMatchesWake('kalkanı getir', ['kaptan'])).toBe(false);
+  });
+  it('çok kısa (<4) yazılan hedef fuzzy tetiklemez (yalnız birebir)', () => {
+    expect(fuzzyMatchesWake('abd', ['abc'])).toBe(false);   // fuzzy yok
+    expect(fuzzyMatchesWake('abc', ['abc'])).toBe(true);    // birebir var
+  });
+  it('boş transcript eşleşmez', () => {
+    expect(fuzzyMatchesWake('', ['asist'])).toBe(false);
+  });
+});
+
+describe('sanitizeWakeEnrollment — normalize, dedupe, max 5', () => {
+  it('normalize + dedupe + boş/kısa ele', () => {
+    expect(sanitizeWakeEnrollment(['Asİst', 'asist', 'a', '', 'kaptan']))
+      .toEqual(['asist', 'kaptan']);
+  });
+  it('dizi değilse boş', () => {
+    expect(sanitizeWakeEnrollment('asist')).toEqual([]);
+    expect(sanitizeWakeEnrollment(undefined)).toEqual([]);
+  });
+  it('en fazla 5 örnek', () => {
+    expect(sanitizeWakeEnrollment(['a1','b2','c3','d4','e5','f6','g7']).length).toBe(5);
   });
 });
 
@@ -483,6 +546,36 @@ describe('FAZ 5 — native grammar wake modu', () => {
     expect(M.grammarStarts).toHaveLength(0);
     expect(M.sttCalls).toBe(1);
     expect(M.spoken).toHaveLength(1);
+  });
+});
+
+/* ── 5c. ÖZEL/sözlük-dışı wake — grammar YOK, serbest tanıma + fuzzy ── */
+
+describe('ÖZEL wake (custom): grammar atlanır, fonetik fuzzy tetikler', () => {
+  it('grammar mevcut OLSA BİLE custom modda kullanılmaz; Vosk yaklaşık çıktısı fuzzy ile uyandırır', async () => {
+    M.grammarAvailable = true;             // grammar var ama sözlük-dışı kelimeyi düşürürdü
+    M.sttQueue = ['a sist'];               // yazılan "asist"i Vosk böyle duydu (bölünmüş)
+    enableWakeWord(['asist'], { companion: true, custom: true });
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(M.grammarStarts).toHaveLength(0);       // grammar HİÇ açılmadı
+    expect(M.sttCalls).toBeGreaterThanOrEqual(1);  // serbest tanıma döngüsü
+    expect(M.spoken).toHaveLength(1);              // fuzzy eşleşti → selamlama
+  });
+
+  it('öğretilen örnek eşleşmeyi güçlendirir (yazılan hedef alakasız olsa bile)', async () => {
+    M.sttQueue = ['kaptane'];
+    enableWakeWord(['xyzq'], { companion: true, custom: true, enrollment: ['kaptan'] });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(1);              // enrolled fonetik yakınlık tetikledi
+  });
+
+  it('alakasız konuşma custom modda da tetiklemez', async () => {
+    M.sttQueue = ['bugün hava çok güzel'];
+    enableWakeWord(['asist'], { companion: true, custom: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(0);
+    expect(M.startListening).not.toHaveBeenCalled();
   });
 });
 

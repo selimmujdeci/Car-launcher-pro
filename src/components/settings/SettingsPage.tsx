@@ -14,8 +14,10 @@ import {
   getWakePhraseWarning, COMPANION_TEXT_MAX_LEN,
   DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE, DEFAULT_WAKE_MODE,
   suggestWakePhrase, resolveWakeWords, resolveCompanionIdentity,
+  sanitizeWakeEnrollment, WAKE_ENROLLMENT_MAX,
   type CompanionPersonality, type CompanionChattiness, type CompanionWakeMode,
 } from '../../platform/companion/companionIdentity';
+import { enrollWakeWord } from '../../platform/wakeWordService';
 import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, getEnvGroqKey, type AIProvider } from '../../platform/aiVoiceService';
 import { openInApp } from '../../platform/inAppBrowser';
 import { registerSettingsFocus } from '../../platform/settingsFocusBus';
@@ -779,6 +781,30 @@ const CompanionPanel = memo(function CompanionPanel() {
     updateSettings({ companionWakePhrase: clean });
   }, [phraseDraft, updateSettings]);
 
+  // ── Söyleyerek öğret (enrollment) — sözlük-dışı/özel kelime için ──
+  const enrollment = sanitizeWakeEnrollment(settings.companionWakeEnrollment);
+  const [enrollState, setEnrollState] = useState<'idle' | 'recording' | 'ok' | 'fail'>('idle');
+  const [enrollHeard, setEnrollHeard] = useState('');
+
+  const handleEnroll = useCallback(async () => {
+    setEnrollState('recording');
+    setEnrollHeard('');
+    const heard = await enrollWakeWord();          // Vosk'un DUYDUĞU (normalize)
+    if (!heard) { setEnrollState('fail'); return; }
+    const next = sanitizeWakeEnrollment([
+      ...(Array.isArray(settings.companionWakeEnrollment) ? settings.companionWakeEnrollment : []),
+      heard,
+    ]);
+    updateSettings({ companionWakeEnrollment: next });
+    setEnrollHeard(heard);
+    setEnrollState('ok');
+  }, [settings.companionWakeEnrollment, updateSettings]);
+
+  const removeEnroll = useCallback((sample: string) => {
+    const next = enrollment.filter((s) => s !== sample);
+    updateSettings({ companionWakeEnrollment: next });
+  }, [enrollment, updateSettings]);
+
   // Wake sözleri asistan ADINDAN türetilir — ad/şekil değişince önizleme
   // ve uyarı otomatik güncellenir (öneri: "Hey {ad}").
   const wakeMode  = settings.companionWakeMode ?? DEFAULT_WAKE_MODE;
@@ -947,6 +973,45 @@ const CompanionPanel = memo(function CompanionPanel() {
                     placeholder={suggestWakePhrase(settings.companionAssistantName)}
                     className={inputClass}
                   />
+
+                  {/* Söyleyerek öğret — sözlük-dışı/uydurma kelime de çalışsın diye
+                      Vosk'un DUYDUĞUNU kaydeder. İstediğin kelimeyi yaz + birkaç kez söyle. */}
+                  <div className="flex flex-col gap-2 mt-1">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleEnroll}
+                        disabled={enrollState === 'recording' || enrollment.length >= WAKE_ENROLLMENT_MAX}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-bold transition-all active:scale-[0.98] disabled:opacity-50"
+                        style={{ backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'rgba(167,139,250,0.45)', color: '#a78bfa' }}
+                      >
+                        {enrollState === 'recording'
+                          ? (<><Loader className="w-4 h-4 animate-spin" /> Dinliyorum, söyle…</>)
+                          : (<><Mic className="w-4 h-4" /> Söyleyerek öğret</>)}
+                      </button>
+                      {enrollState === 'ok' && enrollHeard && (
+                        <span className="flex items-center gap-1 text-[11px] text-emerald-400"><Check className="w-3.5 h-3.5" /> Duydum: "{enrollHeard}"</span>
+                      )}
+                      {enrollState === 'fail' && (
+                        <span className="text-[11px] text-amber-400">Ses alınamadı, tekrar dene</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
+                      İstediğin kelimeyi yukarı yaz; tanınması zorsa (uydurma/yabancı kelime)
+                      "Söyleyerek öğret" ile <b>2-3 kez</b> söyle — cihaz senin sesinle eşleştirir.
+                    </span>
+                    {enrollment.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {enrollment.map((s) => (
+                          <span key={s} className="flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-lg text-[11px] bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-2)]">
+                            {s}
+                            <button onClick={() => removeEnroll(s)} className="p-0.5 rounded hover:bg-white/10" aria-label="Kaldır">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
