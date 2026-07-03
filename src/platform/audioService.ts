@@ -150,7 +150,13 @@ function _saveEqBands(): void {
   safeSetRaw(EQ_PERSIST_KEY, JSON.stringify(_eqBands));
 }
 
+/** Kalıcı durum bir kez yüklenir — getter'lar AudioContext başlatmadan da doğru değeri görür. */
+let _persistLoaded = false;
+
 function _loadPersistedState(): void {
+  if (_persistLoaded) return;
+  _persistLoaded = true;
+
   const eqRaw = safeGetRaw(EQ_PERSIST_KEY);
   if (eqRaw) {
     try {
@@ -493,7 +499,7 @@ export function setSvcEnabled(enabled: boolean): void {
   _applySvcSystemVolume();
 }
 
-export function getSvcEnabled(): boolean { return _svcEnabled; }
+export function getSvcEnabled(): boolean { _loadPersistedState(); return _svcEnabled; }
 
 /**
  * Native platform için SVC baz sistem sesini ayarlar (0–100).
@@ -583,7 +589,7 @@ export function setAGCEnabled(enabled: boolean): void {
   _applyAGCParams();
 }
 
-export function getAGCEnabled(): boolean { return _agcEnabled; }
+export function getAGCEnabled(): boolean { _loadPersistedState(); return _agcEnabled; }
 
 /**
  * Sürücü Odaklı Ses (Driver Focus) — Haas Effect + StereoPanner.
@@ -611,7 +617,7 @@ export function setDriverFocus(enabled: boolean): void {
   }
 }
 
-export function getDriverFocusEnabled(): boolean { return _driverFocusEnabled; }
+export function getDriverFocusEnabled(): boolean { _loadPersistedState(); return _driverFocusEnabled; }
 
 /**
  * Termal mod bildirimi — L2/L3 thermal'da AGC gevşetilir.
