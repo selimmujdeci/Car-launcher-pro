@@ -406,6 +406,32 @@ export function useWeatherState(): WeatherState {
  *   "Mersin'de hava açık ve güneşli, sıcaklık 28 derece,
  *    hissedilen 26, rüzgar 14 kilometre."
  */
+/**
+ * Bir hava sorgusunun BELİRLİ BİR ŞEHİR/YER içerip içermediğini sezer
+ * ("İstanbul için hava durumu" → true; "hava nasıl", "dışarısı kaç derece" → false).
+ * true ise yerel (GPS) hava YERİNE web araması yapılmalı — aksi halde kullanıcı
+ * İstanbul sorsa bile bulunduğu yerin (ör. Tarsus) havasını duyar (SAHA 2026-07-04).
+ * Hava/zaman/soru kelimelerini eleyip anlamlı bir kalıntı token (≥3 harf) varsa
+ * onu yer adı sayar. Nadir yanlış-pozitif zararsız (web yine hava döndürür).
+ */
+const _WEATHER_GENERIC = new Set([
+  'hava', 'havalar', 'havasi', 'durum', 'durumu', 'durumunu', 'durumuna', 'nasil', 'nasildir',
+  'bugun', 'bugunku', 'yarin', 'yarinki', 'simdi', 'disari', 'disarisi', 'disarida', 'disarda',
+  'kac', 'derece', 'sicaklik', 'sicakligi', 'sicak', 'soguk', 'yagmur', 'yagis', 'kar', 'ruzgar',
+  'ne', 'olacak', 'olur', 'mi', 'mu', 'icin', 'bu', 'su', 'aksam', 'sabah', 'gece', 'gunduz',
+  'ogle', 'ogleden', 'sonra', 'var', 'yok', 'gibi', 'peki', 'acaba', 'bana', 'soyle', 'soyler',
+  'misin', 'misiniz', 'de', 'da', 'deki', 'daki', 'cok', 'biraz', 'fazla', 'hala', 'iyi', 'guzel',
+  'kotu', 'bak', 'bakar', 'ver', 'nedir', 'peki', 'hey',
+]);
+
+export function weatherQueryNamesCity(text: string): boolean {
+  const n = text.toLowerCase()
+    .replace(/ı/g, 'i').replace(/İ/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return n.split(' ').some((w) => w.length >= 3 && !_WEATHER_GENERIC.has(w));
+}
+
 export function getWeatherNarrative(state?: WeatherState): string {
   const w = (state ?? _state).weather;
   if (!w) return 'Hava durumu verisi henüz alınamadı.';

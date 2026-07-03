@@ -33,7 +33,7 @@ import { getTripSnapshot } from '../tripLogService';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { tavilySearch } from '../webSearchService';
-import { getWeatherNarrative, refreshWeather, onWeatherState, type WeatherState } from '../weatherService';
+import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
 import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
@@ -425,6 +425,10 @@ const WEATHER_QUERY_RE = /\b(hava|yagmur|kar yag|sicaklik|derece|ruzgar)\b/;
 
 async function tryLocalWeatherAnswer(query: string): Promise<string | null> {
   if (!WEATHER_QUERY_RE.test(norm(query))) return null;
+  // BELİRLİ BİR ŞEHİR sorulduysa (İstanbul hava durumu) yerel/GPS havayı DÖNME —
+  // null ver ki çağıran web aramasına (grounding/Tavily) gitsin; aksi halde
+  // kullanıcı İstanbul sorup bulunduğu yerin (Tarsus) havasını duyuyordu.
+  if (weatherQueryNamesCity(query)) return null;
   const narrative = getWeatherNarrative();
   if (!/henüz alınamadı/i.test(narrative)) return narrative;
   try {
@@ -995,6 +999,10 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
       '"bugünün haberlerini özetle" → {"type":"web","query":"bugün Türkiye gündem son dakika haber özeti"}',
       '"dolar kaç para" → {"type":"web","query":"güncel dolar TL kuru"}',
       '"hava yarın nasıl olacak" → {"type":"web","query":"yarın hava durumu tahmini"}',
+      // ŞEHİR ADI geçen hava → web (SHOW_WEATHER yalnız BULUNDUĞUN yer içindir; şehir
+      // adı verilince yerel hava YANLIŞ olur — İstanbul sorulup Tarsus dönüyordu).
+      '"İstanbul için hava durumu" → {"type":"web","query":"İstanbul güncel hava durumu"}',
+      '"Ankara\'da hava nasıl" → {"type":"web","query":"Ankara güncel hava durumu"}',
     ] : [
       '"bugünün haberlerini özetle" → {"type":"chat","say":"Güncel haberlere şu an bakamıyorum ama yardımcı olmaya çalışırım."}',
     ]),
@@ -1158,6 +1166,50 @@ async function askGroundedGemini(
 }
 
 /**
+ * GEMINI yolunda Tavily yedeği (SAHA 2026-07-04): Gemini google_search grounding
+ * ücretsiz katmanda çok küçük kotalı → 429 veriyor. Eskiden Tavily YALNIZ Groq/Haiku
+ * beynine bağlıydı; Gemini birincil olunca kullanıcının Tavily anahtarı HİÇ
+ * kullanılmıyor, web araması komple ölüyordu. Bu yardımcı Tavily ile arar, sonucu
+ * DÜZENLİ Gemini (429 olan google_search DEĞİL, sıradan generateContent) ile doğal
+ * Türkçe cevaba sentezler. Sentez düşerse Tavily'nin hazır cevabına düşer.
+ */
+async function groundGeminiViaTavily(
+  searchQuery: string,
+  userText: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  tavilyKey: string,
+): Promise<string | null> {
+  const search = await tavilySearch(searchQuery, tavilyKey);
+  if (!search) return null;
+  const ctxBlock = [
+    search.answer ? `Özet: ${search.answer}` : '',
+    search.context ? `Kaynaklar:\n${search.context}` : '',
+  ].filter(Boolean).join('\n\n');
+  const sysPrompt =
+    `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
+    `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. Sadece sonuçlardaki bilgiyi ` +
+    `kullan, uydurma. ${isDriving ? 'Sürüş halinde: 1-2 cümle.' : 'En fazla 3-4 cümle.'} Kaynak numarası/URL okuma.`;
+  try {
+    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+      body:    JSON.stringify({
+        system_instruction: { parts: [{ text: sysPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: `Soru: ${userText}\n\n${ctxBlock}` }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 120 : 240, thinkingConfig: { thinkingBudget: 0 } },
+      }),
+      signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
+    });
+    if (!resp.ok) return search.answer || null; // sentez başarısız → Tavily özeti
+    const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    const out = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').replace(/\s+/g, ' ').trim();
+    return out || search.answer || null;
+  } catch { return search.answer || null; }
+}
+
+/**
  * Birleşik beyin girişi — voiceService router'ı parser <0.7 her cümlede
  * bunu çağırır. HİBRİT ZİNCİR (SIRA SABİT): Gemini → Groq → Haiku — biri
  * kota/hata/429 verirse (veya Gemini soğuma penceresindeyse) sıradaki
@@ -1226,7 +1278,19 @@ export async function tryCompanionBrain(
                 pushHistory('model', grounded);
                 return { kind: 'chat', response: grounded, route: 'companion_gemini' };
               }
-              // grounding boş/başarısız → sıradaki aday / offline fallback devreye girer
+              // Gemini google_search 429/başarısız → TAVILY YEDEĞİ (SAHA 2026-07-04).
+              // Gemini grounding ücretsiz kotası çok küçük; kullanıcının Tavily anahtarı
+              // eskiden yalnız Groq/Haiku'ya bağlıydı → Gemini birincilken web ölüydü.
+              const hasTavily = !!opts.tavilyKey && opts.tavilyKey.trim().length > 8;
+              if (hasTavily) {
+                const tav = await groundGeminiViaTavily(result.query, trimmed, cand.apiKey, id, isDriving, opts.tavilyKey as string);
+                if (tav) {
+                  pushHistory('user', trimmed);
+                  pushHistory('model', tav);
+                  return { kind: 'chat', response: tav, route: 'companion_gemini' };
+                }
+              }
+              // grounding+Tavily boş/başarısız → sıradaki aday / offline fallback
               sawFailure = true;
               continue;
             }

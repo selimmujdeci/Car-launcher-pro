@@ -62,6 +62,10 @@ vi.mock('../platform/weatherService', () => ({
   getWeatherNarrative: () => WEATHER.narrative,
   refreshWeather: async () => { /* test'te kullanılmıyor */ },
   onWeatherState: (_cb: (s: unknown) => void) => () => {},
+  // Şehir-tespit: belirli şehir adı geçen hava sorgusu → true (yerel yerine web).
+  // Testlerdeki "hava durumu nasıl olacak" gibi genel sorgular → false.
+  weatherQueryNamesCity: (t: string) =>
+    /\b(istanbul|ankara|izmir|bursa|antalya|adana|mersin|tarsus|konya|gaziantep|trabzon)\b/i.test(t),
 }));
 
 import {

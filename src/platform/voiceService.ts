@@ -21,6 +21,7 @@ import { resolveApiKey, type AIProvider, type AIVoiceResult, type VehicleContext
 import { isAiNetHealthy } from './aiHealth';
 import { fromSemanticResult } from './intentEngine';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
+import { weatherQueryNamesCity } from './weatherService';
 import { VOICE_TUNING } from './voiceTuning';
 import { reportVoiceDiag } from './voiceDiagService';
 
@@ -845,7 +846,11 @@ export async function processTextCommand(text: string, ctx?: VehicleContext): Pr
   if (
     result.command &&
     result.command.type === 'show_weather' &&
-    result.command.confidence >= 0.7
+    result.command.confidence >= 0.7 &&
+    // BELİRLİ BİR ŞEHİR adı geçiyorsa yerel kestirmeyi ATLA — beyne git → web araması
+    // o şehrin havasını getirsin. Aksi halde "İstanbul hava durumu" bulunduğun yerin
+    // (Tarsus) havasını veriyordu (SAHA 2026-07-04).
+    !weatherQueryNamesCity(trimmed)
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'weather_local_bypass' });
