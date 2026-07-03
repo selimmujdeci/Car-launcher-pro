@@ -26,7 +26,7 @@
 
 import { useStore } from '../../store/useStore';
 import { resolveCompanionIdentity, type CompanionIdentity } from './companionIdentity';
-import { interpretFuel, interpretEngineTempConcern, interpretTripDuration } from './companionContext';
+import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration } from './companionContext';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { getTripSnapshot } from '../tripLogService';
@@ -212,7 +212,12 @@ function buildInterpretedVehicleContext(): string {
                     : (d.range >= 0 ? d.range : undefined);
       const fuel = interpretFuel(d.fuelLevel, rangeKm);
       const temp = interpretEngineTempConcern(d.engineTemp);
+      // EV/hibrit enerji bağlamı: ICE'de batteryLevel=-1 → null (dokunmaz).
+      // EV menzili d.range'den gelir (estimatedRangeKm yakıt-tabanlı, EV'de -1).
+      const charging = d.chargingState === 'charging' || d.chargingState === 'fast_charging';
+      const battery = interpretBatteryCharge(d.batteryLevel, d.range >= 0 ? d.range : undefined, charging);
       if (fuel) parts.push(fuel);
+      if (battery) parts.push(battery);
       if (temp) parts.push(temp);
     });
     unsub();

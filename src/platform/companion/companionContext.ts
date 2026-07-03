@@ -131,6 +131,46 @@ export function interpretRange(rangeKm: number): string | null {
   return `Kalan yakıtla yaklaşık ${approx} kilometre gidersin.`;
 }
 
+/* ── Batarya / şarj (EV / hibrit) ───────────────────────────── */
+
+/**
+ * "Şarjım / menzilim ne durumda?" yorumu — EV/hibrit karşılığı interpretFuel.
+ * interpretFuel'in benzin mantığını batarya SoC'ye taşır; iki fark:
+ *  - EV'de menzil kaygısı erken başlar → az eşiği %20, kritik %10.
+ *  - Şarj OLUYORSA uyarı değil GÜVEN verilir (prizde "az kaldı" demek anlamsız).
+ * socPercent 0–100 dışında / sayı değilse → null (ICE'de batteryLevel=-1 = sus).
+ * rangeKm EV menzili (obdData.range); charging = chargingState fast/normal.
+ */
+export function interpretBatteryCharge(socPercent: number, rangeKm?: number, charging?: boolean): string | null {
+  if (!isFiniteNonNegative(socPercent) || socPercent > 100) return null;
+  const pct = Math.round(socPercent);
+  const approx = rangeKm !== undefined ? approxRangeKm(rangeKm) : null;
+  const rangePart = approx !== null && approx > 0
+    ? ` Kalan şarjla yaklaşık ${approx} kilometre yolun var.`
+    : '';
+
+  // Şarjdayken uyarı yerine güven: priz/istasyonda "az kaldı" demek gereksiz.
+  if (charging) {
+    if (pct >= 95) return `Batarya neredeyse dolu, yüzde ${pct} — az sonra hazırız.`;
+    return `Şarj oluyoruz, batarya yüzde ${pct} ve artıyor.${rangePart}`;
+  }
+
+  // Menzil 100 km altına düştüyse proaktif şarj teklifi (interpretFuel paraleli).
+  if (approx !== null && approx > 0 && approx < 100) {
+    if (pct < 10) {
+      return `Batarya kritik, yüzde ${pct} — yaklaşık ${approx} kilometre menzilin kaldı. Bunu riske atmayalım; istersen rotanın üstündeki en yakın şarj istasyonuna yönlendireyim.`;
+    }
+    if (pct < 20) {
+      return `Şarj azalıyor, yüzde ${pct} — bu gidişle yaklaşık ${approx} kilometre yolun var. İstersen yol üstünde uygun bir şarj istasyonu bulup rotana ekleyeyim.`;
+    }
+    return `Batarya yüzde ${pct} ama menzil yaklaşık ${approx} kilometreye düştü. İstersen ileride bir şarj istasyonuna uğrayacak şekilde rota önereyim.`;
+  }
+
+  if (pct < 10) return `Batarya kritik seviyede, yüzde ${pct}.${rangePart} İlk fırsatta şarja bağlanalım.`;
+  if (pct < 20) return `Şarj azalıyor, yüzde ${pct}.${rangePart} Yakında şarj etmek iyi olur.`;
+  return `Batarya yüzde ${pct}, durum iyi.${rangePart}`;
+}
+
 /* ── Yolculuk süresi / mola ─────────────────────────────────── */
 
 /**

@@ -19,6 +19,7 @@ import {
   approxRangeKm,
   interpretFuel,
   interpretRange,
+  interpretBatteryCharge,
   interpretTripDuration,
   interpretBreakNeed,
   interpretFatigue,
@@ -150,6 +151,48 @@ describe('interpretRange', () => {
   it('geçersiz → null', () => {
     expect(interpretRange(NaN)).toBeNull();
     expect(interpretRange(2500)).toBeNull();
+  });
+});
+
+/* ── 5b. interpretBatteryCharge — EV/hibrit enerji bağlamı ──── */
+
+describe('interpretBatteryCharge', () => {
+  it('normal şarj → "durum iyi"', () => {
+    const r = interpretBatteryCharge(80);
+    expect(r).toContain('yüzde 80');
+    expect(r).toContain('durum iyi');
+  });
+
+  it('az şarj eşiği EV\'de erken (%20 altı)', () => {
+    expect(interpretBatteryCharge(18)).toContain('azalıyor');
+    // %25 EV\'de hâlâ "iyi" (benzinden farklı eşik)
+    expect(interpretBatteryCharge(25)).toContain('durum iyi');
+  });
+
+  it('kritik şarj (%10 altı)', () => {
+    expect(interpretBatteryCharge(8)).toContain('kritik');
+  });
+
+  it('düşük menzilde proaktif ŞARJ İSTASYONU teklifi (benzinlik değil)', () => {
+    const r = interpretBatteryCharge(15, 60);
+    expect(r).toContain('şarj istasyonu');
+    expect(r).not.toContain('benzin');
+  });
+
+  it('şarj oluyorsa uyarı değil GÜVEN verir', () => {
+    const r = interpretBatteryCharge(15, 60, true);
+    expect(r).toContain('Şarj oluyoruz');
+    expect(r).not.toContain('kritik');
+  });
+
+  it('şarjda neredeyse dolu → "az sonra hazırız"', () => {
+    expect(interpretBatteryCharge(97, undefined, true)).toContain('az sonra hazırız');
+  });
+
+  it('geçersiz/ICE (batteryLevel=-1) → null (sus)', () => {
+    expect(interpretBatteryCharge(-1)).toBeNull();
+    expect(interpretBatteryCharge(NaN)).toBeNull();
+    expect(interpretBatteryCharge(101)).toBeNull();
   });
 });
 
