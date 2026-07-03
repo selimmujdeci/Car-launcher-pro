@@ -140,6 +140,19 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   _lastSpokenText = text;
   _lastSpokenAt   = now;
 
+  // ── Üst üste binme önleme (kuyruğa alınmadıkça) ──────────────────────────────
+  // Yeni bir söz, uçuştaki HER kanalı (premium klip + tarayıcı SpeechSynthesis)
+  // susturur. KRİTİK: bu, aşağıdaki tryPlayClip'ten ÖNCE olur — eskiden klip yolu
+  // web `speechSynthesis.cancel()`'dan ÖNCE return ediyordu, bu yüzden tarayıcı ara
+  // sözü ("Bir saniye...") ile premium klip AYNI ANDA çalıyordu (kız+erkek sesi
+  // üst üste). _speakSeq bumplanır → kesilen web sözünün bitişi (aşağıda seq-korumalı)
+  // follow-up/idle'ı erken tetiklemez.
+  if (!opts.queue) {
+    cancelClip();
+    if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
+    _speakSeq++;
+  }
+
   // ── Premium ses bankası (hibrit Phase 1) — sabit/kritik ifadeler stüdyo kalite
   // klipten çalınır; native/web TTS atlanır. Eşleşmezse normal TTS yoluna düşer.
   // Klip bitiş semantiği TTS ile aynı: takip dinlemesi (_notifyTtsEnd) + onEnd.
@@ -199,6 +212,10 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   // _ttsDucking guard: önceki TTS henüz bitmeden yeni çağrı gelirse çift duck önlenir.
   if (!_ttsDucking) { _ttsDucking = true; duckMedia(); }
 
+  // Bu web sözünün sıra numarası — yalnız EN SON söz global durumu (follow-up/idle)
+  // sürükler. Kesilen/eski söz (yeni bir söz başladı → _speakSeq arttı) bitişinde
+  // _notifyTtsEnd YAPMAZ; aksi halde premium cevap sürerken mikrofon erken açılıyordu.
+  const seq = ++_speakSeq;
   const voice = _getTurkishVoice();
   const userOnEnd = opts.onEnd;
   let webSettled = false;
@@ -209,7 +226,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     _ttsDucking = false;
     unduckMedia();
     userOnEnd?.();
-    _notifyTtsEnd();
+    if (seq === _speakSeq) _notifyTtsEnd(); // yalnız güncel söz takip/idle tetikler
   };
 
   segments.forEach((seg, i) => {
@@ -228,6 +245,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
 
 /** Devam eden seslendirmeyi anında durdur */
 export function ttsCancel(): void {
+  _speakSeq++;     // uçuştaki sözü bayatlat → kesilen bitiş follow-up/idle tetiklemesin
   cancelClip();    // çalan premium klibi de durdur
   cancelEdge();    // uçuştaki/çalan Edge asistan sesini de durdur
   cancelOnline();  // uçuştaki/çalan online asistan sesini de durdur
@@ -338,6 +356,15 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   const t = text?.trim();
   if (!t) return;
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
+
+  // Premium/asistan cevabı BAŞLARKEN uçuştaki HER kanalı sustur: tarayıcı ara sözü
+  // ("Bir saniye..." — speakFeedback/SpeechSynthesis), önceki klip ve önceki premium
+  // (Edge/online) ses. Aksi halde tarayıcı sesi + premium ses AYNI ANDA (kız+erkek)
+  // duyuluyordu. _speakSeq bumplanır → kesilen web ara sözünün bitişi follow-up'ı
+  // erken tetiklemez (web settle seq-korumalı).
+  if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
+  cancelClip(); cancelEdge(); cancelOnline();
+  _speakSeq++;
 
   // 1) Sabit ifade → premium klip (online olsa bile: hızlı + maliyetsiz + offline)
   if (tryPlayClip(t, () => { _notifyTtsEnd(); onEnd?.(); })) return;
