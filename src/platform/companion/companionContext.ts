@@ -131,6 +131,40 @@ export function interpretRange(rangeKm: number): string | null {
   return `Kalan yakıtla yaklaşık ${approx} kilometre gidersin.`;
 }
 
+/* ── Menzil vs. aktif rota (yakıt yeterlilik köprüsü) ───────── */
+
+/**
+ * "Yakıtım X'e yeter mi?" — aktif rotanın kalan mesafesini araç menziliyle
+ * karşılaştırır. İki sinyal birleştirir: OBD menzil + navigasyon kalan mesafe.
+ * Yalnız NAVİGASYON AKTİFKEN çağrılır (çağıran getNavigationState ile besler);
+ * rota yoksa bağlama hiç girmez.
+ *
+ * Üç kademe (güvenlik tarafı temkinli — menzil ABARTILMAZ, ham karşılaştırma):
+ *  - yetmez  (menzil < yol): yolda yakıt şart + benzinlik teklifi.
+ *  - sınırda (menzil < yol×1.15): tampon az, yakıt alması önerilir.
+ *  - rahat   (aksi): kısaca "yeter".
+ * İmkânsız değer (menzil>2000, yol>5000 km, negatif, NaN) → null.
+ */
+export function interpretRangeVsRoute(rangeKm: number, routeRemainingKm: number, destName?: string): string | null {
+  if (!isFiniteNonNegative(rangeKm) || rangeKm > MAX_PLAUSIBLE_RANGE_KM) return null;
+  if (!isFiniteNonNegative(routeRemainingKm) || routeRemainingKm > 5000) return null;
+  if (routeRemainingKm < 2) return null; // neredeyse vardık — karşılaştırma anlamsız
+  const y = Math.round(routeRemainingKm / 10) * 10 || Math.round(routeRemainingKm);
+  const x = Math.round(rangeKm / 10) * 10 || Math.round(rangeKm);
+  const dest = destName?.trim();
+  const lead = dest
+    ? `${dest} rotasında yaklaşık ${y} kilometre yolun var`
+    : `Rotanda yaklaşık ${y} kilometre yol var`;
+  const rangePart = `menzilin yaklaşık ${x} kilometre`;
+  if (rangeKm < routeRemainingKm) {
+    return `${lead}; ${rangePart} — bu mesafeye yetmez, yolda en az bir kez yakıt almamız gerekecek. İstersen uygun bir benzinlik planlayayım.`;
+  }
+  if (rangeKm < routeRemainingKm * 1.15) {
+    return `${lead}; ${rangePart} — sınırda kalıyor, yolda bir yerde yakıt alsan içim rahat eder.`;
+  }
+  return `${lead}; ${rangePart} — rahatça yeter.`;
+}
+
 /* ── Batarya / şarj (EV / hibrit) ───────────────────────────── */
 
 /**

@@ -26,10 +26,11 @@
 
 import { useStore } from '../../store/useStore';
 import { resolveCompanionIdentity, type CompanionIdentity } from './companionIdentity';
-import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration } from './companionContext';
+import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration, interpretRangeVsRoute } from './companionContext';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { getTripSnapshot } from '../tripLogService';
+import { getNavigationState } from '../navigationService';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { tavilySearch } from '../webSearchService';
@@ -204,12 +205,14 @@ function vehicleCapabilityNote(vt?: string): string {
 function buildInterpretedVehicleContext(): string {
   const parts: string[] = [];
   let vehicleType: string | undefined;
+  let capturedRangeKm: number | undefined; // rota köprüsü (adım 4) için son menzil
   // (1) OBD: yakıt + motor sıcaklığı (yorumlanmış — ham veri DEĞİL).
   try {
     const unsub = onOBDData((d) => {
       vehicleType = d.vehicleType;
       const rangeKm = d.estimatedRangeKm >= 0 ? d.estimatedRangeKm
                     : (d.range >= 0 ? d.range : undefined);
+      capturedRangeKm = rangeKm;
       const fuel = interpretFuel(d.fuelLevel, rangeKm);
       const temp = interpretEngineTempConcern(d.engineTemp);
       // EV/hibrit enerji bağlamı: ICE'de batteryLevel=-1 → null (dokunmaz).
@@ -231,6 +234,18 @@ function buildInterpretedVehicleContext(): string {
       if (t) parts.push(t);
     }
   } catch { /* trip servisi yok — süresiz bağlam */ }
+  // (4) Menzil vs. aktif rota: "yakıtım X'e yeter mi" gerçek veriyle. Yalnız
+  //     navigasyon aktifken + geçerli menzil varken (aksi hâlde bağlama girmez).
+  try {
+    const nav = getNavigationState();
+    if (nav.isNavigating && typeof nav.distanceMeters === 'number' && nav.distanceMeters > 0
+        && capturedRangeKm !== undefined) {
+      const line = interpretRangeVsRoute(
+        capturedRangeKm, nav.distanceMeters / 1000, nav.destination?.name,
+      );
+      if (line) parts.push(line);
+    }
+  } catch { /* navigasyon servisi yok — rota köprüsü atlanır */ }
   // (3) Araç-tipi yetenek notu — olmayan özellik (EV'de RPM/yakıt) için Gemini'yi
   //     yapısal olarak susturur. EV'de canlı yorum boş olsa bile not eklenir.
   const note = vehicleCapabilityNote(vehicleType);

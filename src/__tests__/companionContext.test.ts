@@ -28,6 +28,7 @@ import {
   interpretDoorAjar,
   interpretTirePressure,
   interpretVisibilityLights,
+  interpretRangeVsRoute,
 } from '../platform/companion/companionContext';
 
 /* ── 1. interpretTimeOfDay ──────────────────────────────────── */
@@ -437,6 +438,49 @@ describe('interpretVisibilityLights', () => {
   it('geçersiz kod → null', () => {
     expect(interpretVisibilityLights(-1, false)).toBeNull();
     expect(interpretVisibilityLights(NaN, false)).toBeNull();
+  });
+});
+
+/* ── 10e. interpretRangeVsRoute — yakıt yeterlilik köprüsü ──── */
+
+describe('interpretRangeVsRoute', () => {
+  it('menzil yola yetmez → "yetmez" + benzinlik teklifi', () => {
+    const r = interpretRangeVsRoute(180, 340, 'Ankara');
+    expect(r).toContain('Ankara rotasında');
+    expect(r).toContain('yetmez');
+    expect(r).toContain('benzinlik');
+  });
+
+  it('sınırda (tampon <%15) → "sınırda"', () => {
+    // menzil 360, yol 340 → 360 < 340*1.15(391) → sınırda
+    expect(interpretRangeVsRoute(360, 340)).toContain('sınırda');
+  });
+
+  it('rahat yeter → kısa "rahatça yeter"', () => {
+    expect(interpretRangeVsRoute(500, 200, 'İzmir')).toContain('rahatça yeter');
+  });
+
+  it('hedef adı yoksa "Rotanda" jenerik ifade', () => {
+    const r = interpretRangeVsRoute(180, 340);
+    expect(r).toContain('Rotanda');
+    expect(r).not.toContain('undefined');
+  });
+
+  it('mesafeler yuvarlanır (sahte hassasiyet yok)', () => {
+    const r = interpretRangeVsRoute(183, 337, 'Bursa');
+    expect(r).toContain('340 kilometre');   // 337 → 340
+    expect(r).toContain('180 kilometre');   // 183 → 180
+  });
+
+  it('neredeyse varış (<2km) → null (karşılaştırma anlamsız)', () => {
+    expect(interpretRangeVsRoute(180, 1)).toBeNull();
+  });
+
+  it('imkânsız değer (menzil>2000, yol>5000, NaN, negatif) → null', () => {
+    expect(interpretRangeVsRoute(3000, 340)).toBeNull();
+    expect(interpretRangeVsRoute(180, 6000)).toBeNull();
+    expect(interpretRangeVsRoute(NaN, 340)).toBeNull();
+    expect(interpretRangeVsRoute(-1, 340)).toBeNull();
   });
 });
 
