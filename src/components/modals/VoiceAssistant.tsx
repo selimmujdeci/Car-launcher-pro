@@ -26,6 +26,16 @@ import type { AnimationLevel } from '../../platform/livingThemeState';
 
 /* ── Waveform animation ─────────────────────────────────────── */
 
+/* ── Otomatik kapanma kilidi (SAF — regresyon testi bunu kilitler) ──
+ * Saha bug (2026-07-03): asistan soru sorup cevap beklerken (companion sohbeti
+ * ya da "bunu mu demek istedin?" onayı) success/error otokapat, followUp bayrağını
+ * yok sayıp pencereyi kapatıyordu → kullanıcı cevabını söyleyemeden "kapanıyordu".
+ * Kural: takip dinlemesi KURULUYKEN (followUp=true) pencere ASLA otomatik kapanmaz;
+ * cevap TTS'i bitince mikrofon yeniden açılır, döngü kullanıcı susunca kapanır. */
+export function voiceOverlayShouldAutoClose(followUp: boolean): boolean {
+  return !followUp;
+}
+
 const Waveform = memo(function Waveform({ active, level }: { active: boolean; level: AnimationLevel }) {
   const bars = [3, 7, 11, 6, 9, 13, 5, 10, 7, 4, 8, 12, 6, 9, 5];
   // Living theme — static tier'da (Mali-400/K24, SAFE/POWER_SAVE) sonsuz pulse YOK:
@@ -112,6 +122,13 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
   // Auto-close — başarı, hata VE idle. Aksi halde STT bitince/başarısız olunca
   // pencere ekranda asılı kalır ("ANLAŞILAMADI" → "SESLİ ASİSTAN" idle, açık kalır).
   useEffect(() => {
+    // TAKİP DİNLEMESİ KURULU → pencereyi KAPATMA. Asistan bir soru sordu
+    // (companion sohbeti ya da "bunu mu demek istedin?" onayı) ve cevabı bekliyor:
+    // cevap TTS'i bitince mikrofon otomatik yeniden açılır (status → listening).
+    // Eskiden success(2200ms)/error(3000ms) otokapat bu bayrağı yok sayıp pencereyi
+    // kapatıyordu → kullanıcı cevabını söyleyemeden "kapanıyordu". Döngü, kullanıcı
+    // susunca (_endConvSession → followUp=false, status idle) normal şekilde kapanır.
+    if (!voiceOverlayShouldAutoClose(voice.followUp)) return;
     if (isSuccess) {
       const id = setTimeout(onClose, 2200);
       return () => clearTimeout(id);
@@ -128,7 +145,7 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
       const id = setTimeout(onClose, 200);    // dinleme bitti, sonuç yok → kapan
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, voice.status, onClose]);
+  }, [isSuccess, isError, voice.status, voice.followUp, onClose]);
 
   const handleQuickCmd = useCallback((cmd: string) => {
     processTextCommand(cmd);
@@ -301,6 +318,12 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
 
   // idle → kapat AMA yalnızca dinleme başladıysa (warmup penceresinde erken kapanma yok)
   useEffect(() => {
+    // TAKİP DİNLEMESİ KURULU → kapatma + stopListening YAPMA. Sürüşte de asistan
+    // soru sorup cevap bekleyebilir (companion sohbeti); eskiden success/error
+    // otokapat 1800ms'de stopListening() çağırıp _endConvSession ile takip döngüsünü
+    // ÖLDÜRÜYORDU → kullanıcının cevabı hiç alınmıyordu. Cevap TTS'i bitince mikrofon
+    // yeniden açılır (status → listening); döngü kullanıcı susunca normal kapanır.
+    if (!voiceOverlayShouldAutoClose(voice.followUp)) return;
     if (voice.status === 'idle') {
       if (!startedRef.current) return; // warmup sürüyor → henüz kapatma
       const id = setTimeout(() => { onCloseRef.current(); }, 80);
@@ -310,7 +333,7 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
       const id = setTimeout(() => { stopListening(); onCloseRef.current(); }, 1800);
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, voice.status]);
+  }, [isSuccess, isError, voice.status, voice.followUp]);
 
   // idle iken hiçbir şey render etme — "Hazır" görüntüsü yok
   if (voice.status === 'idle') return null;
