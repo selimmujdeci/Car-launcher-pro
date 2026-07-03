@@ -37,6 +37,16 @@ function KeyBeamInner() {
   const expParam = searchParams.get('exp');
   const exp = expParam ? Number(expParam) : null;
 
+  // kind: araç QR'ı hangi sağlayıcı için üretti → doğru talimat + "Key Al" linki.
+  // Verilmezse (eski QR / jenerik) "API" fallback'i gösterilir.
+  const kind = searchParams.get('kind') ?? '';
+  const PROVIDER: { name: string; paste: string; url: string; host: string } = ({
+    gemini: { name: 'Gemini',        paste: 'Gemini API anahtarınızı',        url: 'https://aistudio.google.com/apikey',            host: 'aistudio.google.com' },
+    tavily: { name: 'Tavily',        paste: 'Tavily arama anahtarınızı',      url: 'https://app.tavily.com',                        host: 'app.tavily.com' },
+    groq:   { name: 'Groq',          paste: 'Groq API anahtarınızı',          url: 'https://console.groq.com/keys',                 host: 'console.groq.com' },
+    haiku:  { name: 'Claude Haiku',  paste: 'Claude Haiku API anahtarınızı',  url: 'https://console.anthropic.com/settings/keys',   host: 'console.anthropic.com' },
+  } as const)[kind as 'gemini' | 'tavily' | 'groq' | 'haiku'] ?? { name: 'API', paste: 'API anahtarınızı', url: '', host: '' };
+
   const [fragmentKey, setFragmentKey] = useState<string | null>(null);
   const [value, setValue]             = useState('');
   const [status, setStatus]           = useState<Status>('idle');
@@ -111,9 +121,9 @@ function KeyBeamInner() {
           >
             <span className="text-2xl">🔑</span>
           </div>
-          <h1 className="text-white font-bold text-base">Anahtarını Araca Gönder</h1>
+          <h1 className="text-white font-bold text-base">{PROVIDER.name} Anahtarını Araca Gönder</h1>
           <p className="text-white/40 text-xs leading-relaxed max-w-[260px]">
-            Gemini API anahtarınızı buraya yapıştırın — uçtan uca şifrelenip
+            {PROVIDER.paste} buraya yapıştırın — uçtan uca şifrelenip
             doğrudan aracınıza iletilecek.
           </p>
         </div>
@@ -132,14 +142,16 @@ function KeyBeamInner() {
 
         {isValidLink && !isExpired && status !== 'sent' && (
           <div className="flex flex-col gap-3">
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
-            >
-              🔑 Key Al — aistudio.google.com
-            </a>
+            {PROVIDER.url && (
+              <a
+                href={PROVIDER.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
+              >
+                🔑 Key Al — {PROVIDER.host}
+              </a>
+            )}
 
             <input
               type="text"

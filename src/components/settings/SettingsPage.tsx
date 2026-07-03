@@ -531,6 +531,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         </button>
         {showKeyBeam && (
           <KeyBeamPanel
+            keyKind="gemini"
             onKeySaved={setGeminiKey}
             onClose={() => setShowKeyBeam(false)}
           />
@@ -691,6 +692,7 @@ const AIVoicePanel = memo(function AIVoicePanel() {
         </button>
         {showTavilyBeam && (
           <KeyBeamPanel
+            keyKind="tavily"
             onKeySaved={setTavilyKey}
             onClose={() => setShowTavilyBeam(false)}
           />

@@ -17,7 +17,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Smartphone, RefreshCw, CheckCircle2, X, WifiOff } from 'lucide-react';
-import { createBeamSession, pollBeamOnce, type BeamSession } from '../../platform/keyBeamService';
+import { createBeamSession, pollBeamOnce, type BeamSession, type KeyBeamKind } from '../../platform/keyBeamService';
 import { KEY_BEAM_TTL_MS } from '../../platform/keyBeamCrypto';
 import { HEAVY_INERTIA_EASE, HEAVY_INERTIA_MS } from '../common/DiagnosticPulse';
 
@@ -33,13 +33,16 @@ interface Props {
   onKeySaved: (key: string) => void | Promise<void>;
   /** Panel kapatılmak istendiğinde (başarı sonrası otomatik veya kullanıcı X'e basınca). */
   onClose: () => void;
+  /** Hangi sağlayıcı için — QR URL'sine eklenir, telefon sayfası doğru talimatı
+   *  gösterir (gemini→Gemini/aistudio, tavily→Tavily/app.tavily.com…). Verilmezse jenerik. */
+  keyKind?: KeyBeamKind;
 }
 
 function secsLeft(expiresAt: number): number {
   return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
 }
 
-export const KeyBeamPanel = memo(function KeyBeamPanel({ onKeySaved, onClose }: Props) {
+export const KeyBeamPanel = memo(function KeyBeamPanel({ onKeySaved, onClose, keyKind }: Props) {
   const [session, setSession]   = useState<BeamSession | null>(null);
   const [remaining, setRemain]  = useState(0);
   const [status, setStatus]     = useState<Status>('loading');
@@ -75,7 +78,7 @@ export const KeyBeamPanel = memo(function KeyBeamPanel({ onKeySaved, onClose }: 
     clearPoll();
     clearTick();
     try {
-      const s = await createBeamSession();
+      const s = await createBeamSession(keyKind);
       if (!mountedRef.current) return;
       setSession(s);
       setRemain(secsLeft(s.expiresAt));
@@ -85,7 +88,7 @@ export const KeyBeamPanel = memo(function KeyBeamPanel({ onKeySaved, onClose }: 
       setStatus('error');
       setErrorMsg('QR oluşturulamadı');
     }
-  }, [clearPoll, clearTick]);
+  }, [clearPoll, clearTick, keyKind]);
 
   useEffect(() => { void startSession(); }, [startSession]);
 

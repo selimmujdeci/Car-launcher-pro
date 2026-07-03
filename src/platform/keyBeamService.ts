@@ -64,15 +64,22 @@ export type BeamPollResult =
 
 /* ── Public API ─────────────────────────────────────────────── */
 
-/** Yeni bir kod + tek kullanımlık anahtar üretir. Ağ çağrısı yapmaz (kod yalnızca üretildikten sonra Supabase'e telefon tarafından yazılır). */
-export async function createBeamSession(): Promise<BeamSession> {
+/** QR beam ile getirilebilen anahtar tipleri — telefon sayfası buna göre
+ *  doğru talimatı/link'i gösterir (gemini→aistudio, tavily→app.tavily.com…). */
+export type KeyBeamKind = 'gemini' | 'groq' | 'haiku' | 'tavily';
+
+/** Yeni bir kod + tek kullanımlık anahtar üretir. Ağ çağrısı yapmaz (kod yalnızca üretildikten sonra Supabase'e telefon tarafından yazılır).
+ *  @param kind Hangi sağlayıcı için (telefon sayfası buna göre "Gemini/Tavily… anahtarını yapıştır" gösterir). Verilmezse eski jenerik davranış. */
+export async function createBeamSession(kind?: KeyBeamKind): Promise<BeamSession> {
   const code = generateBeamCode();
   const { cryptoKey, keyB64url } = await generateBeamKey();
   const expiresAt = Date.now() + KEY_BEAM_TTL_MS;
   // exp parametresi URL'de YOK: TTL sunucuda (key_beams.expires_at) ve araçtaki
   // sayaçta zaten uygulanıyor; URL kısaldıkça QR seyrekleşir → araç ekranından
   // telefonla okunabilirlik artar (SAHA 2026-07-03: yoğun QR okunmuyordu).
-  const qrUrl = `${KEY_BEAM_BASE_URL}?code=${code}#k=${keyB64url}`;
+  // kind: telefon sayfasının doğru sağlayıcı talimatını göstermesi için (kısa).
+  const kindParam = kind ? `&kind=${kind}` : '';
+  const qrUrl = `${KEY_BEAM_BASE_URL}?code=${code}${kindParam}#k=${keyB64url}`;
   return { code, qrUrl, expiresAt, cryptoKey };
 }
 
