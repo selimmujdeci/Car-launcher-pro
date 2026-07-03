@@ -44,7 +44,10 @@ import {
   interpretRange,
   interpretBreakNeed,
   interpretTripDuration,
+  interpretDoorAjar,
+  interpretTirePressure,
 } from './companionContext';
+import type { OBDData } from '../obdTypes';
 import { onOBDData } from '../obdService';
 import { onTripState } from '../tripLogService';
 import { getMediaState } from '../mediaService';
@@ -60,6 +63,8 @@ const BUDGET_GAP_MIN: Record<string, number> = { az: 45, normal: 20, sik: 10 };
 
 const FUEL_CRITICAL_RANGE_KM   = 50;  // tetik #1 eşiği
 const FUEL_WARN_COOLDOWN_MIN   = 15;  // kritik yakıt tekrar aralığı
+const DOOR_WARN_COOLDOWN_MIN   = 3;   // kapı açık (seyir hâlinde) tekrar aralığı — acil ama gevezeleşmesin
+const TPMS_WARN_COOLDOWN_MIN   = 30;  // lastik basıncı kalıcı durum → seyrek hatırlat
 const DROWSY_MIN_TRIP_MIN      = 30;  // uyku kontrolü için minimum sürüş
 const DROWSY_SILENCE_MIN       = 20;  // "uzun sessizlik" eşiği
 const DROWSY_COOLDOWN_MIN      = 25;  // iki uyku sorusu arası minimum
@@ -126,12 +131,16 @@ let _lastSpokeAtMin   = -Infinity;      // frequency budget saati
 let _lastFuelWarnMin  = -Infinity;
 let _lastDrowsyMin    = -Infinity;
 let _lastBreakMin     = -Infinity;
+let _lastDoorWarnMin  = -Infinity;
+let _lastTpmsWarnMin  = -Infinity;
 
 // Sinyal önbellekleri (abonelikler doldurur — tick içinde senkron okunur)
 let _rangeKm      = -1;                 // -1 = veri yok
 let _tripActive   = false;
 let _tripMin      = 0;
 let _tripKm       = 0;
+let _doors: OBDData['doors'] = undefined; // CAN gövde durumu (undefined = sensör yok)
+let _tpms:  OBDData['tpms']  = undefined;
 
 /* ── Yardımcılar ────────────────────────────────────────────── */
 
@@ -193,8 +202,30 @@ function tick(): void {
       }
     }
 
+    // ── 1b. Kapı/bagaj açık + araç SEYİR HÂLİNDE (GÜVENLİK — medyayı da keser) ──
+    //     Park hâlinde (trip yok) uyarmaz: yükleme yaparken "kapı açık" demek
+    //     rahatsız eder. Trip aktif = araç sürülüyor → açık kapı gerçek tehlike.
+    if (_tripActive && t - _lastDoorWarnMin >= DOOR_WARN_COOLDOWN_MIN) {
+      const line = interpretDoorAjar(_doors);
+      if (line) {
+        _lastDoorWarnMin = t;
+        speak(line);
+        return;
+      }
+    }
+
     // Medya prominent (çalıyor): müzik/video kesilmez — gerisi duraklara kalır.
     if (media.playing) return;
+
+    // ── 1c. Lastik basıncı düşük (GÜVENLİK — kalıcı durum, bütçeden bağımsız) ──
+    if (t - _lastTpmsWarnMin >= TPMS_WARN_COOLDOWN_MIN) {
+      const line = interpretTirePressure(_tpms);
+      if (line) {
+        _lastTpmsWarnMin = t;
+        speak(line);
+        return;
+      }
+    }
 
     // ── 2. Uyku önleme (GÜVENLİK): gece + sürüş + uzun sessizlik ──
     if (isNight && _tripActive && _tripMin >= DROWSY_MIN_TRIP_MIN &&
@@ -251,6 +282,8 @@ export function startCompanionEngine(): () => void {
   _unsubs.push(onOBDData((d) => {
     const r = d.estimatedRangeKm >= 0 ? d.estimatedRangeKm : (d.range >= 0 ? d.range : -1);
     _rangeKm = typeof r === 'number' && Number.isFinite(r) ? r : -1;
+    _doors = d.doors;   // CAN gövde durumu — tetik #1b/#1c için (undefined = sensör yok)
+    _tpms  = d.tpms;
   }));
   _unsubs.push(onTripState((s) => {
     _tripActive = s.active;
@@ -295,9 +328,13 @@ export function _resetCompanionEngineForTest(): void {
   _lastFuelWarnMin = -Infinity;
   _lastDrowsyMin   = -Infinity;
   _lastBreakMin    = -Infinity;
+  _lastDoorWarnMin = -Infinity;
+  _lastTpmsWarnMin = -Infinity;
   _drowsyVariant   = 0;
   _rangeKm    = -1;
   _tripActive = false;
   _tripMin    = 0;
   _tripKm     = 0;
+  _doors      = undefined;
+  _tpms       = undefined;
 }

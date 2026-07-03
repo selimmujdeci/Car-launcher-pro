@@ -290,6 +290,71 @@ describe('frequency budget ve bütçeli tetikler', () => {
   });
 });
 
+/* ── 5b. Kapı açık + TPMS (gövde güvenliği) ─────────────────── */
+
+describe('gövde güvenliği tetikleri (kapı / lastik)', () => {
+  // Selamlama penceresini gate'siz geçir, sonra tam OBD anlık görüntüsü yayınla.
+  function ready(): void { atMin(10); tick(); h.spoken = []; }
+  function emitObd(patch: Record<string, unknown>): void {
+    h.obdCb?.({ estimatedRangeKm: 400, range: -1, doors: undefined, tpms: undefined, ...patch });
+  }
+  const shut = { fl: false, fr: false, rl: false, rr: false, trunk: false };
+
+  it('SEYİR hâlinde açık kapı uyarır; PARK hâlinde susar', () => {
+    ready();
+    emitObd({ doors: { ...shut, fr: true } });
+    setTrip(false);                    // park → yükleme normal, uyarma
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(0);
+    setTrip(true, 5, 3);               // seyir hâli → gerçek tehlike
+    atMin(12); tick();
+    expect(h.spoken).toHaveLength(1);
+    expect(h.spoken[0]).toContain('yolcu');
+  });
+
+  it('kapı uyarısı medya çalarken BİLE konuşur (güvenlik istisnası)', () => {
+    ready();
+    emitObd({ doors: { ...shut, trunk: true } });
+    setTrip(true, 5, 3);
+    h.media = { playing: true };
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(1);
+    expect(h.spoken[0]).toContain('Bagaj');
+  });
+
+  it('kapı cooldown (3 dk) içinde tekrar etmez', () => {
+    ready();
+    emitObd({ doors: { ...shut, fl: true } });
+    setTrip(true, 5, 3);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(1);
+    atMin(13); tick();                 // 2 dk < 3 dk cooldown
+    expect(h.spoken).toHaveLength(1);
+    atMin(15); tick();                 // cooldown doldu
+    expect(h.spoken).toHaveLength(2);
+  });
+
+  it('TPMS düşük basınç uyarır; uzun cooldown (30 dk)', () => {
+    ready();
+    emitObd({ tpms: { fl: 230, fr: 150, rl: 240, rr: 235 } });
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(1);
+    expect(h.spoken[0]).toContain('Sağ ön');
+    atMin(30); tick();                 // 19 dk < 30 dk
+    expect(h.spoken).toHaveLength(1);
+    atMin(42); tick();                 // cooldown doldu
+    expect(h.spoken).toHaveLength(2);
+  });
+
+  it('TPMS normalse / kapılar kapalıysa susar', () => {
+    ready();
+    emitObd({ doors: shut, tpms: { fl: 230, fr: 235, rl: 240, rr: 235 } });
+    setTrip(true, 5, 3);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(0);
+  });
+});
+
 /* ── 6. Yaşam döngüsü ───────────────────────────────────────── */
 
 describe('yaşam döngüsü', () => {

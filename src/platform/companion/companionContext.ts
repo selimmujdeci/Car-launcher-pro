@@ -272,3 +272,92 @@ export function interpretEngineTempConcern(tempC: number): string | null {
   if (tempC < 50)  return 'Motor daha soğuk — hadi biraz ısınsın, öyle basarız. İlk birkaç dakika yumuşak kullanmak ona iyi gelir.';
   return null;
 }
+
+/* ── Gövde güvenliği: kapı / lastik (CAN bus body status) ───── */
+
+/**
+ * Türkçe liste birleştirici: ["a","b","c"] → "a, b ve c". Tek eleman → kendisi.
+ */
+function joinTr(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} ve ${items[items.length - 1]}`;
+}
+
+/** Cümle başı büyük harf (Türkçe yerel — "ö"→"Ö"). */
+function capTr(s: string): string {
+  return s.length ? s.charAt(0).toLocaleUpperCase('tr') + s.slice(1) : s;
+}
+
+/** Kapı açıklık girdisi — obdData.doors ile yapısal uyumlu (servis bağı YOK). */
+export interface DoorAjarInput {
+  fl?: boolean; fr?: boolean; rl?: boolean; rr?: boolean; trunk?: boolean;
+}
+
+const DOOR_LABEL_TR: Array<[keyof DoorAjarInput, string]> = [
+  ['fl', 'sürücü kapısı'],
+  ['fr', 'ön yolcu kapısı'],
+  ['rl', 'arka sol kapı'],
+  ['rr', 'arka sağ kapı'],
+  ['trunk', 'bagaj'],
+];
+
+/**
+ * Kapı/bagaj açık uyarısı — CAN gövde durumundan. Yalnız GERÇEKTEN açık
+ * (=== true) olanları sayar; undefined/false = sensör yok ya da kapalı → sus.
+ * Hiçbiri açık değilse null. Proaktif motor bunu seyir hâlinde (trip aktif)
+ * çağırır — park hâlinde yükleme yaparken "kapı açık" dememek için.
+ */
+export function interpretDoorAjar(doors?: DoorAjarInput | null): string | null {
+  if (!doors || typeof doors !== 'object') return null;
+  const open: string[] = [];
+  for (const [key, label] of DOOR_LABEL_TR) {
+    if (doors[key] === true) open.push(label);
+  }
+  if (open.length === 0) return null;
+  if (open.length === 1) {
+    if (open[0] === 'bagaj') return 'Bagaj tam kapanmamış — yolda açılmasın, bir kontrol edelim.';
+    return `${capTr(open[0]!)} tam kapanmamış görünüyor — emin olmak için bir bakalım.`;
+  }
+  return `${capTr(joinTr(open))} açık görünüyor — durup kapatmakta fayda var.`;
+}
+
+/** TPMS lastik basıncı girdisi (kPa) — obdData.tpms ile yapısal uyumlu. */
+export interface TpmsInput {
+  fl?: number; fr?: number; rl?: number; rr?: number;
+}
+
+const TIRE_LABEL_TR: Array<[keyof TpmsInput, string]> = [
+  ['fl', 'sol ön'],
+  ['fr', 'sağ ön'],
+  ['rl', 'sol arka'],
+  ['rr', 'sağ arka'],
+];
+
+// TPMS eşikleri (kPa). Düşük ~1.8 bar: TPMS uyarı lambası eşiği civarı (placard
+// ~2.2-2.5 bar'ın %25 altı). Absolüt eşik yanlış-alarmı azaltmak için temkinli;
+// placard basıncı OBD'den gelmediğinden adaptif değil. <50 = sensör yok/bozuk.
+const TPMS_LOW_KPA          = 180;
+const TPMS_MIN_PLAUSIBLE_KPA = 50;
+const TPMS_MAX_PLAUSIBLE_KPA = 450;
+
+/**
+ * Lastik basıncı düşük uyarısı — TPMS'ten. İmkânsız/eksik değer (undefined,
+ * NaN, <50 veya >450 kPa) sensör yok sayılır → o lastik atlanır. Düşük lastik
+ * yoksa null. Kalıcı durum → proaktif motor uzun cooldown ile çağırır.
+ */
+export function interpretTirePressure(tpms?: TpmsInput | null): string | null {
+  if (!tpms || typeof tpms !== 'object') return null;
+  const low: string[] = [];
+  for (const [key, label] of TIRE_LABEL_TR) {
+    const v = tpms[key];
+    if (typeof v === 'number' && Number.isFinite(v) &&
+        v >= TPMS_MIN_PLAUSIBLE_KPA && v <= TPMS_MAX_PLAUSIBLE_KPA && v < TPMS_LOW_KPA) {
+      low.push(label);
+    }
+  }
+  if (low.length === 0) return null;
+  if (low.length === 1) {
+    return `${capTr(low[0]!)} lastiğin basıncı düşük görünüyor — ilk fırsatta kontrol edelim.`;
+  }
+  return `${capTr(joinTr(low))} lastiklerin basıncı düşük — güvenlik için bir kontrol iyi olur.`;
+}

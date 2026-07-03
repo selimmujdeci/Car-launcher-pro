@@ -25,6 +25,8 @@ import {
   interpretFatigue,
   interpretArrival,
   interpretEngineTempConcern,
+  interpretDoorAjar,
+  interpretTirePressure,
 } from '../platform/companion/companionContext';
 
 /* ── 1. interpretTimeOfDay ──────────────────────────────────── */
@@ -338,6 +340,71 @@ describe('interpretEngineTempConcern — yalnız konuşmaya değer durumlar', ()
     expect(interpretEngineTempConcern(-50)).toBeNull();
     expect(interpretEngineTempConcern(250)).toBeNull();
     expect(interpretEngineTempConcern(NaN)).toBeNull();
+  });
+});
+
+/* ── 10b. interpretDoorAjar — kapı/bagaj açık ───────────────── */
+
+describe('interpretDoorAjar', () => {
+  const shut = { fl: false, fr: false, rl: false, rr: false, trunk: false };
+
+  it('hepsi kapalı → null (sus)', () => {
+    expect(interpretDoorAjar(shut)).toBeNull();
+  });
+
+  it('tek kapı açık → o kapının adıyla uyarır', () => {
+    expect(interpretDoorAjar({ ...shut, fl: true })).toContain('Sürücü kapısı');
+    expect(interpretDoorAjar({ ...shut, fr: true })).toContain('Ön yolcu kapısı');
+  });
+
+  it('bagaj tekil özel ifade', () => {
+    const r = interpretDoorAjar({ ...shut, trunk: true });
+    expect(r).toContain('Bagaj');
+    expect(r).toContain('kapanmamış');
+  });
+
+  it('birden fazla açık → "ve" ile listeler', () => {
+    const r = interpretDoorAjar({ ...shut, fl: true, rr: true });
+    expect(r).toContain('ve');
+    expect(r).toContain('durup kapat');
+  });
+
+  it('undefined/sensör yok → null', () => {
+    expect(interpretDoorAjar(undefined)).toBeNull();
+    expect(interpretDoorAjar(null)).toBeNull();
+    expect(interpretDoorAjar({})).toBeNull(); // hiç alan yok = kapalı say
+  });
+});
+
+/* ── 10c. interpretTirePressure — TPMS düşük basınç ─────────── */
+
+describe('interpretTirePressure', () => {
+  const ok = { fl: 230, fr: 235, rl: 240, rr: 235 };
+
+  it('hepsi normal → null', () => {
+    expect(interpretTirePressure(ok)).toBeNull();
+  });
+
+  it('tek düşük lastik → konumuyla uyarır', () => {
+    expect(interpretTirePressure({ ...ok, fr: 150 })).toContain('Sağ ön');
+    expect(interpretTirePressure({ ...ok, rl: 120 })).toContain('Sol arka');
+  });
+
+  it('birden fazla düşük → liste + çoğul', () => {
+    const r = interpretTirePressure({ fl: 160, fr: 150, rl: 240, rr: 235 });
+    expect(r).toContain('ve');
+    expect(r).toContain('lastiklerin');
+  });
+
+  it('imkânsız değer (0, NaN, >450) sensör yok sayılır → atlanır', () => {
+    expect(interpretTirePressure({ fl: 0, fr: 235, rl: 240, rr: 235 })).toBeNull();
+    expect(interpretTirePressure({ fl: NaN, fr: 235, rl: 240, rr: 235 })).toBeNull();
+    expect(interpretTirePressure({ fl: 9999, fr: 235, rl: 240, rr: 235 })).toBeNull();
+  });
+
+  it('undefined → null', () => {
+    expect(interpretTirePressure(undefined)).toBeNull();
+    expect(interpretTirePressure(null)).toBeNull();
   });
 });
 
