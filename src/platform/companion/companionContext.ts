@@ -361,3 +361,33 @@ export function interpretTirePressure(tpms?: TpmsInput | null): string | null {
   }
   return `${capTr(joinTr(low))} lastiklerin basıncı düşük — güvenlik için bir kontrol iyi olur.`;
 }
+
+/* ── Bağlam köprüsü: kötü hava + farlar (görünürlük) ────────── */
+
+// Görünürlük düşüren WMO hava kodları: sis (45/48), çiseleme (51-55),
+// yağmur (61-65), kar (71-77), sağanak (80-82), karlı sağanak (85/86),
+// gök gürültülü fırtına (95-99). Kaynak: weatherService _wmoDesc ile hizalı.
+const LOW_VISIBILITY_WMO = new Set([
+  45, 48, 51, 53, 55, 61, 63, 65, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99,
+]);
+
+/**
+ * Bağlam köprüsü — kötü hava + farlar: görünürlük düşüren havada (yağmur/kar/
+ * sis) FAR HATIRLATMASI. İki sinyal birleştirir: WMO hava kodu + far durumu.
+ *
+ * ⚠️ headlightsOn boolean'dır: "kapalı" ile "veri yok"u AYIRT EDEMEYİZ (OBD
+ * far durumu bildirmezse false gelir). Bu yüzden:
+ *  - headlightsOn === true (BİLİNEN açık) → sustur (null); gereksiz hatırlatma yok.
+ *  - aksi (kapalı VEYA bilinmiyor) → İDDİA değil SORU sor ("farların açık mı?").
+ *    Bu ifade her iki durumda da dürüst ve güvenli (yanlış "farın kapalı" demez).
+ * Hava kodu görünürlük listesinde değilse (açık/bulutlu) → null.
+ */
+export function interpretVisibilityLights(weatherCode: number, headlightsOn: boolean): string | null {
+  if (typeof weatherCode !== 'number' || !Number.isFinite(weatherCode)) return null;
+  if (!LOW_VISIBILITY_WMO.has(weatherCode)) return null;
+  if (headlightsOn === true) return null; // farlar zaten açık — hatırlatma gereksiz
+  const isFog  = weatherCode === 45 || weatherCode === 48;
+  const isSnow = (weatherCode >= 71 && weatherCode <= 77) || weatherCode === 85 || weatherCode === 86;
+  const cause  = isFog ? 'Sis bastırdı' : isSnow ? 'Kar başladı' : 'Yağmur başladı';
+  return `${cause}, görünürlük düştü — farların açık mı? Değilse açmakta fayda var.`;
+}

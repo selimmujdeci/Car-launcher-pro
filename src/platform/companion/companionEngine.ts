@@ -46,10 +46,12 @@ import {
   interpretTripDuration,
   interpretDoorAjar,
   interpretTirePressure,
+  interpretVisibilityLights,
 } from './companionContext';
 import type { OBDData } from '../obdTypes';
 import { onOBDData } from '../obdService';
 import { onTripState } from '../tripLogService';
+import { onWeatherState } from '../weatherService';
 import { getMediaState } from '../mediaService';
 import { getVoiceSnapshot, isVoicePaused, registerCommandHandler } from '../voiceService';
 import { speakAssistant, registerTtsEndListener } from '../ttsService';
@@ -65,6 +67,7 @@ const FUEL_CRITICAL_RANGE_KM   = 50;  // tetik #1 eşiği
 const FUEL_WARN_COOLDOWN_MIN   = 15;  // kritik yakıt tekrar aralığı
 const DOOR_WARN_COOLDOWN_MIN   = 3;   // kapı açık (seyir hâlinde) tekrar aralığı — acil ama gevezeleşmesin
 const TPMS_WARN_COOLDOWN_MIN   = 30;  // lastik basıncı kalıcı durum → seyrek hatırlat
+const VIS_LIGHTS_COOLDOWN_MIN  = 25;  // kötü hava + far hatırlatması → nazik, seyrek
 const DROWSY_MIN_TRIP_MIN      = 30;  // uyku kontrolü için minimum sürüş
 const DROWSY_SILENCE_MIN       = 20;  // "uzun sessizlik" eşiği
 const DROWSY_COOLDOWN_MIN      = 25;  // iki uyku sorusu arası minimum
@@ -133,6 +136,7 @@ let _lastDrowsyMin    = -Infinity;
 let _lastBreakMin     = -Infinity;
 let _lastDoorWarnMin  = -Infinity;
 let _lastTpmsWarnMin  = -Infinity;
+let _lastVisLightsMin = -Infinity;
 
 // Sinyal önbellekleri (abonelikler doldurur — tick içinde senkron okunur)
 let _rangeKm      = -1;                 // -1 = veri yok
@@ -141,6 +145,8 @@ let _tripMin      = 0;
 let _tripKm       = 0;
 let _doors: OBDData['doors'] = undefined; // CAN gövde durumu (undefined = sensör yok)
 let _tpms:  OBDData['tpms']  = undefined;
+let _headlights   = false;              // OBD far durumu (universal; veri yoksa false)
+let _weatherCode  = -1;                 // WMO hava kodu (-1 = hava verisi yok)
 
 /* ── Yardımcılar ────────────────────────────────────────────── */
 
@@ -227,6 +233,18 @@ function tick(): void {
       }
     }
 
+    // ── 1d. Bağlam köprüsü: kötü hava + far hatırlatması (seyir hâlinde) ──
+    //     Görünürlük düşüren havada (yağmur/kar/sis) farların kapalı/bilinmiyor
+    //     olması → nazik far sorusu. Yalnız sürüşte anlamlı; bütçeden bağımsız.
+    if (_tripActive && t - _lastVisLightsMin >= VIS_LIGHTS_COOLDOWN_MIN) {
+      const line = interpretVisibilityLights(_weatherCode, _headlights);
+      if (line) {
+        _lastVisLightsMin = t;
+        speak(line);
+        return;
+      }
+    }
+
     // ── 2. Uyku önleme (GÜVENLİK): gece + sürüş + uzun sessizlik ──
     if (isNight && _tripActive && _tripMin >= DROWSY_MIN_TRIP_MIN &&
         t - _silenceStartMin >= DROWSY_SILENCE_MIN &&
@@ -284,6 +302,11 @@ export function startCompanionEngine(): () => void {
     _rangeKm = typeof r === 'number' && Number.isFinite(r) ? r : -1;
     _doors = d.doors;   // CAN gövde durumu — tetik #1b/#1c için (undefined = sensör yok)
     _tpms  = d.tpms;
+    _headlights = d.headlights === true; // far durumu — tetik #1d (hava köprüsü)
+  }));
+  _unsubs.push(onWeatherState((s) => {
+    // WMO hava kodu — tetik #1d. Veri yoksa -1 (görünürlük köprüsü sessiz kalır).
+    _weatherCode = typeof s.weather?.code === 'number' ? s.weather.code : -1;
   }));
   _unsubs.push(onTripState((s) => {
     _tripActive = s.active;
@@ -330,6 +353,7 @@ export function _resetCompanionEngineForTest(): void {
   _lastBreakMin    = -Infinity;
   _lastDoorWarnMin = -Infinity;
   _lastTpmsWarnMin = -Infinity;
+  _lastVisLightsMin = -Infinity;
   _drowsyVariant   = 0;
   _rangeKm    = -1;
   _tripActive = false;
@@ -337,4 +361,6 @@ export function _resetCompanionEngineForTest(): void {
   _tripKm     = 0;
   _doors      = undefined;
   _tpms       = undefined;
+  _headlights = false;
+  _weatherCode = -1;
 }

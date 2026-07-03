@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const h = vi.hoisted(() => ({
   obdCb:  null as null | ((d: Record<string, unknown>) => void),
   tripCb: null as null | ((s: Record<string, unknown>) => void),
+  weatherCb: null as null | ((s: Record<string, unknown>) => void),
   media:  { playing: false },
   voice:  { status: 'idle', followUp: false },
   paused: false,
@@ -32,6 +33,11 @@ vi.mock('../platform/obdService', () => ({
 }));
 vi.mock('../platform/tripLogService', () => ({
   onTripState: (cb: (s: Record<string, unknown>) => void) => { h.tripCb = cb; return () => {}; },
+}));
+vi.mock('../platform/weatherService', () => ({
+  onWeatherState: (cb: (s: Record<string, unknown>) => void) => {
+    h.weatherCb = cb; cb({ weather: null }); return () => {};
+  },
 }));
 vi.mock('../platform/mediaService', () => ({
   getMediaState: () => h.media,
@@ -76,6 +82,16 @@ function setRange(km: number): void {
   h.obdCb?.({ estimatedRangeKm: km, range: -1 });
 }
 
+/** OBD anlık görüntüsü (far/hava köprüsü testleri için tam kontrol). */
+function setObd(patch: Record<string, unknown>): void {
+  h.obdCb?.({ estimatedRangeKm: 400, range: -1, headlights: false, doors: undefined, tpms: undefined, ...patch });
+}
+
+/** WMO hava kodu yayınla (weatherCb önbelleğini doldurur). */
+function setWeather(code: number): void {
+  h.weatherCb?.({ weather: { code } });
+}
+
 /* ── Kurulum ────────────────────────────────────────────────── */
 
 beforeEach(() => {
@@ -84,7 +100,7 @@ beforeEach(() => {
   _nowMs = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => _nowMs);
 
-  h.obdCb = null; h.tripCb = null;
+  h.obdCb = null; h.tripCb = null; h.weatherCb = null;
   h.media  = { playing: false };
   h.voice  = { status: 'idle', followUp: false };
   h.paused = false;
@@ -352,6 +368,64 @@ describe('gövde güvenliği tetikleri (kapı / lastik)', () => {
     setTrip(true, 5, 3);
     atMin(11); tick();
     expect(h.spoken).toHaveLength(0);
+  });
+});
+
+/* ── 5c. Bağlam köprüsü: kötü hava + farlar ─────────────────── */
+
+describe('bağlam köprüsü (yağmur/sis + far hatırlatması)', () => {
+  function ready(): void { atMin(10); tick(); h.spoken = []; }
+
+  it('yağmur + farlar bilinmiyor/kapalı + seyir → nazik far sorusu', () => {
+    ready();
+    setObd({ headlights: false });
+    setWeather(61);                    // hafif yağmur
+    setTrip(true, 5, 3);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(1);
+    expect(h.spoken[0]).toContain('Yağmur başladı');
+    expect(h.spoken[0]).toContain('farların açık mı');
+  });
+
+  it('farlar BİLİNEN açıksa hatırlatma YOK', () => {
+    ready();
+    setObd({ headlights: true });
+    setWeather(65);                    // yoğun yağmur ama farlar açık
+    setTrip(true, 5, 3);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(0);
+  });
+
+  it('açık havada (görünürlük iyi) tetiklenmez', () => {
+    ready();
+    setObd({ headlights: false });
+    setWeather(0);                     // açık ve güneşli
+    setTrip(true, 5, 3);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(0);
+  });
+
+  it('park hâlinde (trip yok) tetiklenmez', () => {
+    ready();
+    setObd({ headlights: false });
+    setWeather(45);                    // sis
+    setTrip(false);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(0);
+  });
+
+  it('sis → "Sis bastırdı"; uzun cooldown (25 dk)', () => {
+    ready();
+    setObd({ headlights: false });
+    setWeather(48);                    // sis
+    setTrip(true, 5, 3);
+    atMin(11); tick();
+    expect(h.spoken).toHaveLength(1);
+    expect(h.spoken[0]).toContain('Sis bastırdı');
+    atMin(30); tick();                 // 19 dk < 25 dk
+    expect(h.spoken).toHaveLength(1);
+    atMin(37); tick();                 // cooldown doldu
+    expect(h.spoken).toHaveLength(2);
   });
 });
 

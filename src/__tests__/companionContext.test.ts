@@ -27,6 +27,7 @@ import {
   interpretEngineTempConcern,
   interpretDoorAjar,
   interpretTirePressure,
+  interpretVisibilityLights,
 } from '../platform/companion/companionContext';
 
 /* ── 1. interpretTimeOfDay ──────────────────────────────────── */
@@ -405,6 +406,37 @@ describe('interpretTirePressure', () => {
   it('undefined → null', () => {
     expect(interpretTirePressure(undefined)).toBeNull();
     expect(interpretTirePressure(null)).toBeNull();
+  });
+});
+
+/* ── 10d. interpretVisibilityLights — hava + far köprüsü ────── */
+
+describe('interpretVisibilityLights', () => {
+  it('yağmurda farlar kapalı/bilinmiyor → far SORUSU (iddia değil)', () => {
+    const r = interpretVisibilityLights(61, false);
+    expect(r).toContain('Yağmur başladı');
+    expect(r).toContain('farların açık mı');
+  });
+
+  it('farlar BİLİNEN açıksa → null (hatırlatma yok)', () => {
+    expect(interpretVisibilityLights(61, true)).toBeNull();
+    expect(interpretVisibilityLights(45, true)).toBeNull();
+  });
+
+  it('sis → "Sis bastırdı", kar → "Kar başladı"', () => {
+    expect(interpretVisibilityLights(48, false)).toContain('Sis bastırdı');
+    expect(interpretVisibilityLights(73, false)).toContain('Kar başladı');
+  });
+
+  it('açık/bulutlu hava (görünürlük iyi) → null', () => {
+    expect(interpretVisibilityLights(0, false)).toBeNull();  // açık
+    expect(interpretVisibilityLights(2, false)).toBeNull();  // parçalı bulutlu
+    expect(interpretVisibilityLights(3, false)).toBeNull();  // kapalı ama yağış yok
+  });
+
+  it('geçersiz kod → null', () => {
+    expect(interpretVisibilityLights(-1, false)).toBeNull();
+    expect(interpretVisibilityLights(NaN, false)).toBeNull();
   });
 });
 
