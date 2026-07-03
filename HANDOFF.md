@@ -1,7 +1,15 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-06-25. Branch: `fix/k24-perf-webgl-bundle-rotation` (HEAD `9617664`, push EDİLMEDİ; ana hedef `main`).
+> Son güncelleme: 2026-07-03. Branch: `fix/k24-can-flood-perf` (HEAD `548d3d4`).
+
+## ✅ SON İŞ (2026-07-03): Settings stub sekmeleri gerçek verilere bağlandı
+
+`548d3d4` — SettingsPage sahte verileri (Math.random CPU/TEMP, sabit "EvAg" Wi-Fi,
+sahte OTA toggle, "Chromium 114/42°C/Certified") gerçek kaynaklara bağlandı; detay
+PROJECT_STATE.md son bölümde. Yan bug fix: audioService kalıcı tercihler artık
+AudioContext başlamadan da getter'larda doğru (reboot sonrası UI yanlış gösteriyordu).
+Canlı Playwright ile doğrulandı; 1648 test + tsc yeşil. Cihazda APK testi YAPILMADI.
 
 ---
 
