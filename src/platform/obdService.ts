@@ -1198,6 +1198,14 @@ export function getOBDStatusSnapshot(): {
   };
 }
 
+/**
+ * Patch 9B: anlık tam OBD verisi (kopya) — sensorQueryService (sesli asistan veri
+ * sorguları) senkron okur. React dışı tüketiciler için; UI hook'ları useOBDState kullanır.
+ */
+export function getOBDDataSnapshot(): OBDData {
+  return { ..._current };
+}
+
 export function onOBDData(fn: (d: OBDData) => void): () => void {
   _dataListeners.add(fn);
   return () => _dataListeners.delete(fn);
