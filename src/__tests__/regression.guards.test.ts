@@ -26,6 +26,8 @@ import vehicleResolverSrc from '../platform/vehicleDataLayer/VehicleSignalResolv
 import visionCoreSrc from '../platform/vision/visionCore.ts?raw';
 import offlineRoutingSrc from '../platform/offlineRoutingService.ts?raw';
 import deviceCapabilitiesSrc from '../platform/deviceCapabilities.ts?raw';
+import pushServiceSrc from '../platform/pushService.ts?raw';
+import fcmServiceSrc from '../platform/fcmService.ts?raw';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -1062,5 +1064,29 @@ describe('Boot hard-guard kilidi (adb yok → ekran = teşhis aracı)', () => {
       .not.toMatch(/\?\./);
     expect(guard, 'boot-guard nullish (??) içeriyor — Chrome<80 parse hatası')
       .not.toMatch(/\?\?/);
+  });
+});
+
+describe('Play Services yok sertleştirme kilidi (dağıtıcı GApps\'siz ROM — Faz 3)', () => {
+  // Dağıtıcı ROM'unda Play Services silinmiş olabilir (§HEAD_UNIT_MATRIX §3.5).
+  // FCM register() throw eder → yakalanmazsa boot servisi kırılır + uzak komut ölür.
+  // Fix: register try/catch + Play Services yok → uzak komutları kalıcı WS fallback'e devret.
+  it('YAPISAL: pushService FCM register try/catch ile sarılı (GApps yok → boot kırılmaz)', () => {
+    expect(pushServiceSrc, 'register() try/catch dışında — Play Services yok olan ROM\'da initPushService reject eder, boot servisi çöker')
+      .toMatch(/try\s*{[\s\S]*PushNotifications\.register\(\)[\s\S]*catch/);
+  });
+
+  it('YAPISAL: pushService uzak komut WS fallback + durum getter', () => {
+    expect(pushServiceSrc, '_startCommandFallback kaldırılmış — Play Services yoksa push-to-wake ölür, uzak komutlar hiç çalışmaz')
+      .toMatch(/_startCommandFallback/);
+    expect(pushServiceSrc, 'registrationError → fallback bağlantısı kopmuş — async FCM hatası uzak komutu WS\'e devretmiyor')
+      .toMatch(/registrationError[\s\S]*_startCommandFallback/);
+    expect(pushServiceSrc, 'getPushStatus export kaldırılmış — teşhis kartı Play Services durumunu okuyamaz')
+      .toMatch(/export function getPushStatus/);
+  });
+
+  it('YAPISAL: fcmService register try/catch (unhandled rejection önlenir)', () => {
+    expect(fcmServiceSrc, 'fcmService register() korumasız — .catch()\'siz .then() ile çağrılıyor, GApps yoksa unhandled rejection')
+      .toMatch(/try\s*{[\s\S]*PushNotifications\.register\(\)[\s\S]*catch/);
   });
 });

@@ -20,6 +20,15 @@ import { Capacitor } from '@capacitor/core';
 import { getCapabilities, getDeviceTier, supportsModuleWorker } from '../../platform/deviceCapabilities';
 import { getGpuRenderer } from '../../utils/detectWeakGpu';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
+import { getPushStatus } from '../../platform/pushService';
+
+const PUSH_TEXT: Record<string, string> = {
+  web:         '— (web)',
+  active:      'var (FCM aktif)',
+  unavailable: 'YOK (uzak komut WS fallback)',
+  denied:      'izin reddedildi',
+  unpaired:    'eşli değil',
+};
 
 const TIER_COLOR: Record<string, string> = {
   low:  '#fbbf24',
@@ -70,6 +79,7 @@ export function DeviceDiagnosticCard() {
     `Ekran       : ${w}×${h} @${dpr}x (${orient})`,
     `Modül worker: ${yn(modWkr)}  ·  SAB: ${yn(c.hasWorkerSAB)}`,
     `Özellikler  : WebGL ${yn(c.supportsWebGL)} · backdrop ${yn(c.supportsBackdropFilter)} · dvh ${yn(c.supportsDvh)} · @layer ${yn(c.supportsCssLayer)}`,
+    `Play Services: ${PUSH_TEXT[getPushStatus()] ?? getPushStatus()}`,
     `CAN kaynağı : ${activeSource || 'yok'} (${canPhase})`,
     `UA          : ${ua}`,
   ].join('\n');

@@ -33,6 +33,35 @@ const WAKE_TIMEOUT_MS = 30_000;  // 30s işlem yoksa CommandListener uyutulur
 let _initialized = false;
 let _wakeTimer: ReturnType<typeof setTimeout> | null = null;
 let _isWaking   = false;  // async wake devam ederken çift çağrıyı engeller
+let _fallbackActive = false; // Play Services yok → kalıcı WS CommandListener açık mı
+
+/**
+ * Push/GApps durumu — teşhis kartı (DeviceDiagnosticCard) okur.
+ *   web         : native değil (tarayıcı) — push yok
+ *   active      : FCM token alındı, push-to-wake çalışıyor
+ *   unavailable : FCM register başarısız → Play Services YOK olabilir; uzak
+ *                 komutlar kalıcı WS fallback ile sürüyor (push-to-wake yerine)
+ *   denied      : kullanıcı push iznini reddetti
+ *   unpaired    : cihaz eşlenmemiş — uzak komut yok, fallback gereksiz
+ */
+export type PushStatus = 'web' | 'active' | 'unavailable' | 'denied' | 'unpaired';
+let _status: PushStatus = 'web';
+export function getPushStatus(): PushStatus { return _status; }
+
+/**
+ * Play Services yok / FCM register başarısız → uzak komutlar push-to-wake ile
+ * gelemez. Cihaz EŞLİYSE CommandListener'ı KALICI aç (idle-stop YOK, çünkü
+ * yeniden uyandıracak push gelmeyecek) → companion komutları WS üzerinden çalışır.
+ * Head unit sürekli beslemeli olduğundan sürekli WS akü riski düşük (§HEAD_UNIT_MATRIX §3.5).
+ */
+async function _startCommandFallback(): Promise<void> {
+  if (_fallbackActive) return;
+  const vehicleId = await sensitiveKeyStore.get('veh_vehicle_id');
+  if (!vehicleId) { _status = 'unpaired'; return; } // eşli değil → uzak komut yok
+  _fallbackActive = true;
+  if (!isCommandListenerActive()) startCommandListener(vehicleId);
+  logInfo('[PushService] Play Services yok → uzak komut kalıcı WS fallback (push-to-wake devre dışı)');
+}
 
 // ── FCM Token kaydı ───────────────────────────────────────────────────────────
 
@@ -130,21 +159,27 @@ export async function initPushService(): Promise<() => void> {
   if (permResult.receive !== 'granted') {
     console.warn('[PushService] Push bildirimi izni reddedildi');
     _initialized = false;
+    _status = 'denied';
     return () => {};
   }
 
-  await PushNotifications.register();
-
-  // Token alındığında Supabase'e kaydet
+  // Dinleyiciler register'DAN ÖNCE bağlanır — registrationError ASYNC gelir
+  // (Play Services yok olan bir ROM'da register() resolve edip sonra hata basabilir).
+  // Token alındığında Supabase'e kaydet + push aktif işaretle
   const tokenL = await PushNotifications.addListener(
     'registration',
-    ({ value }) => void _saveFcmToken(value),
+    ({ value }) => { _status = 'active'; void _saveFcmToken(value); },
   );
 
-  // Token hatası — servisi durdurmaz, sadece loglar
+  // Token hatası — Play Services YOK olabilir. Servisi durdurmaz; uzak komutları
+  // kalıcı WS fallback'ine devret (push-to-wake yerine).
   const errL = await PushNotifications.addListener(
     'registrationError',
-    (err) => console.error('[PushService] FCM kayıt hatası:', err),
+    (err) => {
+      console.error('[PushService] FCM kayıt hatası — Play Services yok olabilir:', err);
+      _status = 'unavailable';
+      void _startCommandFallback();
+    },
   );
 
   // Ön plan (foreground) push — en hızlı wake yolu
@@ -165,12 +200,24 @@ export async function initPushService(): Promise<() => void> {
     },
   );
 
+  // FCM register — Play Services YOK olan dağıtıcı ROM'unda SENKRON throw edebilir.
+  // Yakalanmazsa initPushService reject eder → boot servisi kırılır. Yakala ve
+  // uzak komutları kalıcı WS fallback'ine devret (registrationError async yolu da aynı yere gider).
+  try {
+    await PushNotifications.register();
+  } catch (e) {
+    console.warn('[PushService] FCM register başarısız — Play Services yok olabilir:', e);
+    _status = 'unavailable';
+    void _startCommandFallback();
+  }
+
   return () => {
     tokenL.remove();
     errL.remove();
     pushL.remove();
     actionL.remove();
     if (_wakeTimer) { clearTimeout(_wakeTimer); _wakeTimer = null; }
+    if (_fallbackActive) { stopCommandListener(); _fallbackActive = false; }
     _initialized = false;
   };
 }

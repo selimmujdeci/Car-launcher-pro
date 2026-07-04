@@ -89,14 +89,31 @@ export async function initFcmService(): Promise<() => void> {
   if (_registered) return () => {};
   _registered = true;
 
-  // İzin iste
-  const { receive } = await PushNotifications.requestPermissions();
+  // İzin iste (Play Services yok olan ROM'da bile permission Android-seviyesi → try/catch güvenlik)
+  let receive: string;
+  try {
+    ({ receive } = await PushNotifications.requestPermissions());
+  } catch (e) {
+    console.warn('[FCM] İzin isteği başarısız:', e);
+    _registered = false;
+    return () => {};
+  }
   if (receive !== 'granted') {
     console.warn('[FCM] Push izni reddedildi');
+    _registered = false;
     return () => {};
   }
 
-  await PushNotifications.register();
+  // Play Services YOK olan dağıtıcı ROM'unda register() throw edebilir. Yakalanmazsa
+  // bu fonksiyon reject eder; useLayoutServices .catch()'siz .then() ile çağırdığından
+  // unhandled rejection olurdu. Uzak komut fallback'ini pushService yönetir (§Faz 3).
+  try {
+    await PushNotifications.register();
+  } catch (e) {
+    console.warn('[FCM] register başarısız — Play Services yok olabilir:', e);
+    _registered = false;
+    return () => {};
+  }
 
   // H-4: Startup kuyruk boşaltma — CommandService.java'nın offline çalıştırdığı
   // MCU komutlarının sonuçlarını Supabase'e bildir.
