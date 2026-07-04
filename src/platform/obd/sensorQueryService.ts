@@ -23,8 +23,9 @@ import { watchDid, getDidValue, isDidSupported, getSupportedDids } from './manuf
 export interface SensorAnswer {
   /** İnsan-okur sensör adı ("Motor yağı sıcaklığı"). */
   name: string;
-  /** Çözülen değer; null = şu anda okunamıyor (bağlantı yok / desteklenmiyor / zaman aşımı). */
-  value: number | null;
+  /** Çözülen değer; null = şu anda okunamıyor (bağlantı yok / desteklenmiyor / zaman aşımı).
+   *  Patch 12C: 'manufacturer' kaynaklı metin DID'lerde (VIN vb.) string de olabilir. */
+  value: number | string | null;
   unit: string;
   /** TTS'e hazır Türkçe cevap cümlesi. */
   text: string;
@@ -124,8 +125,10 @@ export function resolveSensor(spoken: string): Target | null {
 
 /* ── Cevap üretimi ───────────────────────────────────────────────────────── */
 
-/** Birimi konuşma diline çevirip cümle kurar. */
-function speak(name: string, value: number, unit: string): string {
+/** Birimi konuşma diline çevirip cümle kurar. Patch 12C: metin DID'leri (VIN vb.) birimsiz
+ *  düz cümle olarak okunur — sayısal yuvarlama/ondalık mantığı yalnız number'da çalışır. */
+function speak(name: string, value: number | string, unit: string): string {
+  if (typeof value === 'string') return `${name}: ${value}.`;
   const v = Math.abs(value % 1) < 0.05 ? String(Math.round(value)) : value.toFixed(1).replace('.', ',');
   switch (unit) {
     case '°C':   return `${name} ${v} derece.`;

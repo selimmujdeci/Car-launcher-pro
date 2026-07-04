@@ -18,18 +18,21 @@
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import { logError } from '../crashLogger';
+import { recordDiag } from '../obdDiagnosticRecorder';
+import { getHandshakeVin } from '../safety/vinContext';
 import {
   validateVehicleDidProfile,
   compileVehicleDidProfile,
   decodeCompiledDid,
 } from './vehicleDidProfile';
-import type { CompiledDidDef } from './vehicleDidProfile';
+import type { CompiledDidDef, VehicleDidValue } from './vehicleDidProfile';
 
 /** Round-robin zamanlayıcı aralığı (ms) — üretici verileri yavaş değişir, 2-5s yeter. */
 export const MANUFACTURER_POLL_INTERVAL_MS = 3000;
 
 export interface ManufacturerDidValue {
-  value: number;
+  /** Patch 12C: sayısal (fiziksel ölçüm) VEYA metin (VIN/parça no gibi kimlik DID'i). */
+  value: VehicleDidValue;
   def: CompiledDidDef;
   updatedAt: number;
 }
@@ -119,7 +122,9 @@ async function _tick(): Promise<void> {
     }
     if (!r.data) return; // fail-soft: veri yok ama açıkça "desteklenmiyor" da değil
     const value = decodeCompiledDid(def, r.data);
-    if (Number.isNaN(value)) return; // sınır dışı/bozuk — sessizce atla
+    // NaN yalnız sayısal daldan gelir (metin dalı boş string yerine NaN döner) — type guard
+    // `typeof value === 'string'` durumunda Number.isNaN çağrısını atlar (TS + doğruluk).
+    if (typeof value === 'number' && Number.isNaN(value)) return; // sınır dışı/bozuk — sessizce atla
     const entry: ManufacturerDidValue = { value, def, updatedAt: Date.now() };
     _values.set(did, entry);
     _watchers.get(did)?.forEach((cb) => {
@@ -174,6 +179,54 @@ export function isDidSupported(did: string): boolean | null {
 /** Yüklü profildeki TÜM DID tanımları (kopya) — UI/keşif ekranı + sensorQueryService köprüsü için. */
 export function getSupportedDids(): CompiledDidDef[] {
   return _profile ? [..._profile.values()] : [];
+}
+
+/* ── VIN çapraz doğrulama (Patch 12C) ────────────────────────────────────── */
+
+export interface VinCrossCheckResult {
+  /** null = karşılaştırma yapılamadı (F190 henüz okunmadı veya Mode 09 VIN yok — dürüst
+   *  "bilinmiyor", sahte eşleşme/uyuşmazlık İDDİA EDİLMEZ). */
+  matched: boolean | null;
+  f190Vin: string | null;
+  mode09Vin: string | null;
+}
+
+/**
+ * F190 (UDS ReadDataByIdentifier VIN) DID'ini mevcut el sıkışma VIN'iyle (Mode 09 —
+ * buildHandshakeResult → persistHandshakeVin → vinContext yolu) karşılaştırır. Boru hattının
+ * uçtan uca kanıtı: iki farklı OBD modu AYNI VIN'i okuyorsa header/ECU adresleme doğrudur.
+ *
+ * F190 henüz okunmamışsa (profil yüklü değil / DID desteklenmiyor / watchDid ile henüz
+ * sorgulanmadı) veya Mode 09 VIN yoksa (el sıkışma başarısız/simülasyon modu) dürüstçe
+ * `matched:null` döner — karşılaştırma YAPILMADI demektir, "eşleşmiyor" değil.
+ *
+ * Eşleşme/uyuşmazlık teşhis zaman çizelgesine (`obdDiagnosticRecorder`) kaydedilir; uyuşmazlık
+ * UYARI (`status:'warn'`) — header sızıntısı veya yanlış ECU'ya sorulmuş olabileceğinin işareti.
+ */
+export function verifyVinAgainstMode09(): VinCrossCheckResult {
+  const f190 = getDidValue('F190');
+  const f190Vin = typeof f190?.value === 'string' && f190.value.length > 0
+    ? f190.value.trim().toUpperCase()
+    : null;
+  const mode09Raw = getHandshakeVin();
+  const mode09Vin = mode09Raw && mode09Raw.trim().length > 0 ? mode09Raw.trim().toUpperCase() : null;
+
+  if (!f190Vin || !mode09Vin) {
+    return { matched: null, f190Vin, mode09Vin };
+  }
+
+  const matched = f190Vin === mode09Vin;
+  recordDiag({
+    stage: 'ecuQuery',
+    status: matched ? 'success' : 'warn',
+    command: '22F190',
+    response: f190Vin,
+    userMessage: matched
+      ? 'VIN doğrulandı: UDS F190, Mode 09 ile eşleşiyor.'
+      : 'VIN uyuşmazlığı: UDS F190, Mode 09 VIN\'inden farklı (header sızıntısı veya yanlış ECU işareti olabilir).',
+    technicalMessage: `F190=${f190Vin} Mode09=${mode09Vin}`,
+  });
+  return { matched, f190Vin, mode09Vin };
 }
 
 /** Test yardımcıları — üretim kodu çağırmaz. */

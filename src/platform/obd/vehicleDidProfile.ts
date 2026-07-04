@@ -16,8 +16,15 @@
 
 /* ── Şema tipleri ─────────────────────────────────────────────────────────── */
 
-/** Önceden tanımlı çözücü adları — DSL/eval YOK, yalnız bu sabit küme. */
-export type DidDecodeFn = 'A' | 'AB' | 'temp40' | 'pct' | 'linear' | 'div';
+/** Önceden tanımlı çözücü adları — DSL/eval YOK, yalnız bu sabit küme.
+ *  Patch 12C: 'ascii' — sayısal değil METİN döner (VIN/parça no/seri no/versiyon gibi
+ *  ISO 14229-1 kimlik DID'leri için; a/b katsayılarını yoksayar). */
+export type DidDecodeFn = 'A' | 'AB' | 'temp40' | 'pct' | 'linear' | 'div' | 'ascii';
+
+/** Patch 12C: bir DID'in çözülmüş değeri — sayısal (fiziksel ölçüm) VEYA metin (kimlik
+ *  alanı: VIN/parça no/versiyon). Mevcut sayısal yol (StandardPidRegistry ile aynı sözleşme:
+ *  sınır dışı/bozuk → NaN) DEĞİŞMEDİ — yalnız 'ascii' decode.fn'i ek olarak string döner. */
+export type VehicleDidValue = number | string;
 
 /** `linear`/`div` için katsayılar; diğer fn'ler a/b'yi yoksayar. */
 export interface DidDecodeSpec {
@@ -73,7 +80,7 @@ export type VehicleDidProfileValidation =
   | { valid: true; profile: VehicleDidProfile }
   | { valid: false; errors: string[] };
 
-const VALID_DECODE_FNS: ReadonlySet<string> = new Set(['A', 'AB', 'temp40', 'pct', 'linear', 'div']);
+const VALID_DECODE_FNS: ReadonlySet<string> = new Set(['A', 'AB', 'temp40', 'pct', 'linear', 'div', 'ascii']);
 const DID_HEX_RE = /^[0-9A-Fa-f]{4}$/;
 const ECU_ADDR_RE = /^[0-9A-Fa-f]{3,8}$/;
 
@@ -186,8 +193,14 @@ export interface CompiledDidDef {
   min: number;
   max: number;
   category: string;
-  /** Ham data baytları → fiziksel değer. Geçersiz girişte NaN (StandardPidRegistry ile aynı sözleşme). */
-  decode: (b: number[]) => number;
+  /** Ham data baytları → fiziksel değer VEYA metin (Patch 12C `ascii`). Geçersiz sayısal
+   *  girişte NaN (StandardPidRegistry ile aynı sözleşme); metin DID'lerinde boş olmayan string. */
+  decode: (b: number[]) => VehicleDidValue;
+  /** Patch 12C: `decode.fn === 'ascii'` mi — decodeCompiledDid'in hangi dalı izleyeceğini
+   *  belirler (metin alanları OEM'e göre DEĞİŞKEN uzunlukta olur, VIN hariç ISO sabit bayt
+   *  sayısı garanti etmez; bu yüzden metin DID'lerinde TÜM gelen veri tüketilir, bytes alanı
+   *  yalnız asgari/dokümantasyon amaçlıdır). */
+  isText: boolean;
 }
 
 const A = (b: number[]) => b[0]!;
@@ -195,12 +208,23 @@ const AB = (b: number[]) => b[0]! * 256 + b[1]!;
 /** `linear`/`div` için "raw" seçimi: 1 bayt → A, ≥2 bayt → AB (StandardPidRegistry formülleriyle tutarlı). */
 const rawFor = (bytes: number, b: number[]): number => (bytes <= 1 ? A(b) : AB(b));
 
-function compileDidDecoder(spec: DidDecodeSpec, bytes: number): (b: number[]) => number {
+/** Yazdırılabilir ASCII (0x20-0x7E) baytlarını metne çevirir, diğerlerini ATAR (OBDHandshake.ts
+ *  parseVIN ile AYNI süzme kuralı — dolgu/null bayt gürültüsünü sessizce temizler). */
+function decodeAscii(b: number[]): string {
+  let out = '';
+  for (const byte of b) {
+    if (byte >= 0x20 && byte <= 0x7E) out += String.fromCharCode(byte);
+  }
+  return out.trim();
+}
+
+function compileDidDecoder(spec: DidDecodeSpec, bytes: number): (b: number[]) => VehicleDidValue {
   switch (spec.fn) {
     case 'A': return (b) => A(b);
     case 'AB': return (b) => AB(b);
     case 'temp40': return (b) => A(b) - 40;
     case 'pct': return (b) => A(b) / 2.55;
+    case 'ascii': return (b) => decodeAscii(b);
     case 'linear': {
       const a = spec.a ?? 1;
       const bb = spec.b ?? 0;
@@ -239,24 +263,45 @@ export function compileVehicleDidProfile(profile: VehicleDidProfile): ReadonlyMa
       max: d.max,
       category: d.category,
       decode: compileDidDecoder(d.decode, d.bytes),
+      isText: d.decode.fn === 'ascii',
     });
   }
   return out;
 }
 
 /**
- * Ham hex data string'ini derlenmiş DID tanımıyla çözer (StandardPidRegistry.decodeStandardPid
- * ile AYNI sözleşme): bayt sayısı yetersiz / sınır dışı / NaN → NaN (çağıran atlar, fail-soft).
+ * Ham hex data string'ini derlenmiş DID tanımıyla çözer.
+ *
+ * Sayısal yol (StandardPidRegistry.decodeStandardPid ile AYNI sözleşme, Patch 12C'de
+ * DEĞİŞMEDİ): bayt sayısı yetersiz / sınır dışı / NaN → NaN (çağıran atlar, fail-soft).
+ *
+ * Metin yolu (`isText`, Patch 12C): OEM'e göre DEĞİŞKEN uzunluk olabileceğinden `def.bytes`
+ * yalnız "en az bu kadar bayt" asgari kontrolü değil — TÜM gelen veri tüketilir (VIN gibi
+ * ISO'nun sabit uzunluk garantilediği alanlarda zaten `def.bytes` ile birebir eşleşir).
+ * Boş/okunamaz metin → NaN (aynı fail-soft sözleşmesi, çağıran type-guard ile ayırt eder).
  */
-export function decodeCompiledDid(def: CompiledDidDef, dataHex: string): number {
+export function decodeCompiledDid(def: CompiledDidDef, dataHex: string): VehicleDidValue {
   const clean = dataHex.replace(/[^0-9A-Fa-f]/g, '');
+
+  if (def.isText) {
+    if (clean.length < 2) return NaN; // en az 1 bayt yoksa okunacak bir şey yok
+    const byteCount = Math.floor(clean.length / 2);
+    const bytes: number[] = [];
+    for (let i = 0; i < byteCount; i++) {
+      bytes.push(parseInt(clean.substring(i * 2, i * 2 + 2), 16));
+    }
+    if (bytes.some((x) => Number.isNaN(x))) return NaN;
+    const text = def.decode(bytes) as string;
+    return text.length > 0 ? text : NaN;
+  }
+
   if (clean.length < def.bytes * 2) return NaN;
   const bytes: number[] = [];
   for (let i = 0; i < def.bytes; i++) {
     bytes.push(parseInt(clean.substring(i * 2, i * 2 + 2), 16));
   }
   if (bytes.some((x) => Number.isNaN(x))) return NaN;
-  const value = def.decode(bytes);
+  const value = def.decode(bytes) as number;
   if (!Number.isFinite(value) || value < def.min || value > def.max) return NaN;
   return value;
 }
