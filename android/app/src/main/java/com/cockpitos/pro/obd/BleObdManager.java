@@ -116,6 +116,9 @@ public final class BleObdManager {
     private volatile String      obdProtocol = null;
     private volatile Set<String> obdPidSet   = null;
 
+    /** Patch 5: bkz. OBDManager.cmdQueue — aynı öncelik-sıralı komut kuyruğu deseni. */
+    private final ElmCommandQueue cmdQueue = new ElmCommandQueue();
+
     // ── GATT operasyon senkronizasyonu ───────────────────────────────────────────
     // Android GATT seri olduğundan tek bir "op sonucu" kanalı yeterli. Her bloklayıcı
     // operasyon (connect / discover / mtu / descriptor-write) bu kuyruktan sonuç bekler.
@@ -239,12 +242,16 @@ public final class BleObdManager {
             promptSeen = false;
             rxLock.notifyAll();
         }
+        // Patch 5: bu bağlantıya ait BEKLEYEN kuyruk görevleri artık anlamsız (elm=null) —
+        // proaktif temizle (bkz. OBDManager.disconnect() aynı desen).
+        cmdQueue.clearPending();
     }
 
     /** Tam kapanış — bağlantı + executor (Plugin.handleOnDestroy'dan çağrılır). */
     public void shutdown() {
         disconnect();
         obdExecutor.shutdownNow();
+        cmdQueue.shutdown();
     }
 
     // ── Polling ──────────────────────────────────────────────────────────────────
@@ -253,15 +260,14 @@ public final class BleObdManager {
         while (obdRunning && gatt != null) {
             try {
                 Set<String> pidSet = obdPidSet;
-                int speed, rpm, engineTemp, fuelLevel;
-                // elmLock: DTC okuma/silme (plugin thread'i) ile PID polling aynı
-                // GATT kanalını paylaşır — send() tek-thread sözleşmesi korunur.
-                synchronized (elmLock) {
-                    speed      = shouldQuery(pidSet, "0D") ? elm.readPID_speed() : -1;
-                    rpm        = shouldQuery(pidSet, "0C") ? elm.readPID_rpm()   : -1;
-                    engineTemp = shouldQuery(pidSet, "05") ? elm.readPID_temp()  : -1;
-                    fuelLevel  = shouldQuery(pidSet, "2F") ? elm.readPID_fuel()  : -1;
-                }
+                final ElmProtocol p = elm;
+                if (p == null) throw new IOException("ELM protokol katmanı yok");
+                // Patch 5: her PID okuması ayrı bir kuyruk görevi (elmLock kalktı) — DTC
+                // (USER önceliği) bu 4 komuttan herhangi birinin arasına girebilir.
+                int speed      = shouldQuery(pidSet, "0D") ? queuedPidRead(p::readPID_speed) : -1;
+                int rpm        = shouldQuery(pidSet, "0C") ? queuedPidRead(p::readPID_rpm)   : -1;
+                int engineTemp = shouldQuery(pidSet, "05") ? queuedPidRead(p::readPID_temp)  : -1;
+                int fuelLevel  = shouldQuery(pidSet, "2F") ? queuedPidRead(p::readPID_fuel)  : -1;
 
                 listener.onObdData(speed, rpm, engineTemp, fuelLevel);
 
@@ -278,34 +284,56 @@ public final class BleObdManager {
         }
     }
 
+    /** Bir PID okumasını POLL_FAST öncelikli kuyruğa gönderir ve sonucu bekler (Patch 5). */
+    private int queuedPidRead(java.util.concurrent.Callable<Integer> action) throws Exception {
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_FAST, null, action).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
     /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */
     private static boolean shouldQuery(Set<String> set, String pid) {
         return set == null || set.contains(pid);
     }
 
     // ── DTC API (plugin thread'inden çağrılır) ───────────────────────────────
-
-    /** Polling ile aynı GATT kanalını paylaşan komutların serileştirme kilidi. */
-    private final Object elmLock = new Object();
+    // Patch 5: elmLock (synchronized) kaldırıldı — cmdQueue TEK yürütücü thread'i
+    // ile serileştirme zaten garanti; DTC istekleri USER önceliğiyle kuyruğa girer.
 
     /** Aktif BLE ELM bağlantısı var mı (plugin'in transport seçimi için). */
     public boolean isConnected() { return obdRunning; }
 
     /**
-     * Kayıtlı arıza kodlarını okur (Mode 03). Polling döngüsüyle elmLock
-     * üzerinden serileşir — GattChannel.send tek-thread sözleşmesi bozulmaz.
+     * Kayıtlı arıza kodlarını okur (Mode 03). USER önceliğiyle kuyruğa girer — en kötü
+     * ihtimalle ÇALIŞMAKTA olan TEK bir poll komutunun bitmesini bekler.
      */
     public java.util.List<String> readDTCs() throws Exception {
-        ElmProtocol p = elm;
+        final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
-        synchronized (elmLock) { return p.readDTCs(); }
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::readDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
     }
 
-    /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. */
+    /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. USER önceliğiyle kuyruğa girer. */
     public boolean clearDTCs() throws Exception {
-        ElmProtocol p = elm;
+        final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
-        synchronized (elmLock) { return p.clearDTCs(); }
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::clearDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
     }
 
     // ── Characteristic seçimi (hibrit: bilinen UUID önce, sonra heuristik) ──────────

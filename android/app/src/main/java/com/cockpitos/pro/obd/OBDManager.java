@@ -104,6 +104,14 @@ public final class OBDManager {
     private volatile String                 obdProtocol = null;
     private volatile Set<String>            obdPidSet   = null;
 
+    /**
+     * Patch 5: tüm ELM327 komutları (poll PID okumaları + DTC oku/sil) bu ÖNCELİK SIRALI
+     * kuyruktan geçer — eski elmLock (synchronized) serileştirmesinin yerini alır. USER
+     * (DTC isteği) önceliği POLL_FAST/POLL_SLOW'un önüne geçer; en kötü ihtimalle TEK bir
+     * komut kadar (~1.5s) bekler, eskiden olduğu gibi bir poll turu (4 komut, ~6s) kadar DEĞİL.
+     */
+    private final ElmCommandQueue cmdQueue = new ElmCommandQueue();
+
     public OBDManager(Context context, OnOBDDataListener listener) {
         this.mContext = context.getApplicationContext();
         this.listener = listener;
@@ -247,15 +255,12 @@ public final class OBDManager {
                 // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
                 // (ör. 012F yakıt desteklenmeyen araçta cycle başına 1500ms kazandırır).
                 Set<String> pidSet = obdPidSet;
-                int speed, rpm, engineTemp, fuelLevel;
-                // elmLock: DTC okuma/silme (plugin thread'i) ile PID polling aynı
-                // RFCOMM stream'ini paylaşır — komutlar ASLA iç içe geçmemeli.
-                synchronized (elmLock) {
-                    speed      = shouldQuery(pidSet, "0D") ? readPID_speed() : -1;
-                    rpm        = shouldQuery(pidSet, "0C") ? readPID_rpm()   : -1;
-                    engineTemp = shouldQuery(pidSet, "05") ? readPID_temp()  : -1;
-                    fuelLevel  = shouldQuery(pidSet, "2F") ? readPID_fuel()  : -1;
-                }
+                // Patch 5: her PID okuması ayrı bir kuyruk görevi — DTC (USER önceliği)
+                // bu 4 komuttan HERHANGİ BİRİNİN arasına girebilir (en geç 1 komut bekler).
+                int speed      = shouldQuery(pidSet, "0D") ? queuedPidRead(this::readPID_speed) : -1;
+                int rpm        = shouldQuery(pidSet, "0C") ? queuedPidRead(this::readPID_rpm)   : -1;
+                int engineTemp = shouldQuery(pidSet, "05") ? queuedPidRead(this::readPID_temp)  : -1;
+                int fuelLevel  = shouldQuery(pidSet, "2F") ? queuedPidRead(this::readPID_fuel)  : -1;
 
                 // Veriyi köprü katmanına bildir — JSObject/notifyListeners/SAB Plugin'de.
                 listener.onObdData(speed, rpm, engineTemp, fuelLevel);
@@ -270,6 +275,17 @@ public final class OBDManager {
                 listener.onStatusChanged("disconnected", e.getMessage());
                 break;
             }
+        }
+    }
+
+    /** Bir PID okumasını POLL_FAST öncelikli kuyruğa gönderir ve sonucu bekler (Patch 5). */
+    private int queuedPidRead(java.util.concurrent.Callable<Integer> action) throws Exception {
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_FAST, null, action).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
         }
     }
 
@@ -290,37 +306,53 @@ public final class OBDManager {
         try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}
         elm = null;
         detectedProtocol = null;
+        // Patch 5: bu bağlantıya ait BEKLEYEN (henüz çalışmamış) kuyruk görevleri artık
+        // anlamsız (elm=null → NPE ile başarısız olurlardı) — proaktif temizle.
+        cmdQueue.clearPending();
     }
 
     /** Tam kapanış — bağlantı + executor (Plugin.handleOnDestroy'dan çağrılır). */
     public void shutdown() {
         disconnect();
         obdExecutor.shutdownNow();
+        cmdQueue.shutdown();
     }
 
     // ── DTC API (plugin thread'inden çağrılır) ───────────────────────────────
-
-    /** Polling ile aynı stream'i paylaşan komutların serileştirme kilidi. */
-    private final Object elmLock = new Object();
+    // Patch 5: elmLock (synchronized) kaldırıldı — cmdQueue TEK yürütücü thread'i
+    // ile serileştirme zaten garanti; DTC istekleri USER önceliğiyle kuyruğa girer.
 
     /** Aktif ELM bağlantısı var mı (plugin'in transport seçimi için). */
     public boolean isConnected() { return obdRunning; }
 
     /**
-     * Kayıtlı arıza kodlarını okur (Mode 03). Polling döngüsüyle elmLock
-     * üzerinden serileşir — en kötü ihtimal bir poll turu (~6 sn) bekler.
+     * Kayıtlı arıza kodlarını okur (Mode 03). USER önceliğiyle kuyruğa girer — en kötü
+     * ihtimalle ÇALIŞMAKTA olan TEK bir poll komutunun (~1.5s) bitmesini bekler (eskiden
+     * elmLock ile bir TÜM poll turunun, ~6s, bitmesini bekliyordu).
      */
     public java.util.List<String> readDTCs() throws Exception {
-        ElmProtocol p = elm;
+        final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
-        synchronized (elmLock) { return p.readDTCs(); }
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::readDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
     }
 
-    /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. */
+    /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. USER önceliğiyle kuyruğa girer. */
     public boolean clearDTCs() throws Exception {
-        ElmProtocol p = elm;
+        final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
-        synchronized (elmLock) { return p.clearDTCs(); }
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::clearDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
     }
 
     // ── PID readers (ElmProtocol'e delege — davranış birebir korunur) ────────
