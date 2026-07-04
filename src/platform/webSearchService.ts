@@ -41,9 +41,15 @@ export async function tavilySearch(query: string, apiKey: string): Promise<WebSe
   try {
     const resp = await fetch(TAVILY_ENDPOINT, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // SAHA 2026-07-04: Tavily güncel API anahtarı YALNIZ `Authorization: Bearer`
+      // header'ında kabul ediyor. Eski gövde-içi `api_key` alanı ARTIK desteklenmiyor
+      // → 401 → tavilySearch null → grounding 429 sonrası web araması komple ölüyordu
+      // ("iki istekten sonra offline", kota DEĞİL). Anahtar header'a taşındı.
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        api_key:        apiKey,
         query:          q,
         search_depth:   'basic',   // 'basic' hızlı + ucuz; araç içi gecikme için yeterli
         include_answer: true,

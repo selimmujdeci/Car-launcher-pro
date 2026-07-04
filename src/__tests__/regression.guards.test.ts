@@ -428,6 +428,16 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(web, 'web dalı (result.kind === \'web\') bulunamadı').toBeTruthy();
     expect(web![0], 'web dalı grounding miss\'inde sawFailure=true → breaker çift sayımı geri geldi (iki istekte offline)').not.toMatch(/sawFailure\s*=\s*true/);
   });
+
+  it('YAPISAL: Tavily anahtarı Authorization Bearer header\'ında (gövde api_key DEĞİL)', () => {
+    // SAHA 2026-07-04: Tavily güncel API anahtarı yalnız Bearer header'ında kabul
+    // ediyor; eski gövde-içi `api_key` alanı 401 veriyor → grounding 429 sonrası
+    // web araması ölüp "iki istekte offline" oluyordu. tavilySearch Bearer header
+    // KULLANMALI ve gövdeye api_key KOYMAMALI.
+    const web = read('src/platform/webSearchService.ts');
+    expect(web, 'Tavily fetch\'i Authorization Bearer header kullanmıyor (401 → web araması ölür)').toMatch(/'Authorization':\s*`Bearer \$\{apiKey\}`/);
+    expect(web, 'Tavily istek GÖVDESİNDE api_key alanı var — güncel API 401 verir').not.toMatch(/api_key:\s*apiKey/);
+  });
 });
 
 /* ───────────────────────────────────────────────────────────────
