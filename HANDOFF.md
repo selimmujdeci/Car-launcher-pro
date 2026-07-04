@@ -3,7 +3,18 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-04 #9): OBD Core v2 — Patch 9 UI + sesli sorgu (COMMIT'LENDİ)
+## ⭐ SON İŞ (2026-07-04 #10): OBD Core v2 — Patch 10 WiFi ELM327 TCP transport
+
+`4c02cbe` (caros-obd-canbus ajanına delege edildi, ana oturumda doğrulandı):
+suite **1951 yeşil** + vite build + Java derlemesi OK. K24'te BT OEM-kilitli
+olduğundan OBD'nin tek yolu buydu. Native `connectTcp` mevcut ELM hattını aynen
+paylaşır (Patch 2 iptal + link_lost reconnect sözleşmeleri korundu); TS'te TCP
+otomatik ble↔classic fallback'ine KATILMAZ (kullanıcının kesin seçimi); UI'da
+OBDConnectModal'a IP:Port giriş bölümü. **Devralan bilsin:** cihaz doğrulaması
+YOK — K24'e bağlanınca sıra: (1) can_send lever'ı geri aç, (2) WiFi ELM327
+adaptörle gerçek bağlantı testi (timeout 8s/15s tahmini, sahada ayarlanabilir).
+
+## ⭐ ÖNCEKİ İŞ (2026-07-04 #9): OBD Core v2 — Patch 9 UI + sesli sorgu (COMMIT'LENDİ)
 
 Önceki oturum limitinde kesilmişti; bu oturumda tamamlandı. Suite **1938 yeşil**
 (124 dosya) + vite build OK, iki atomik commit: **9A `a35de62`** (SensorPanel +

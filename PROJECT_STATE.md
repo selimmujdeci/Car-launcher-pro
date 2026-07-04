@@ -10,6 +10,28 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ OBD CORE V2 — Patch 10: WiFi ELM327 TCP TRANSPORT (2026-07-04)
+
+K24'te standart BT OEM-kilitli → OBD'nin TEK yolu WiFi ELM327. Tek commit
+(`4c02cbe`), suite **1951 yeşil** (13 yeni kilit: `obdCoreV2.patch10.tcp.test.ts`)
++ vite build + `compileDebugJavaWithJavac` OK:
+
+- **Native** — `OBDManager.connectTcp()` ("ip:port"); `pendingTcpSocket` Patch 2
+  iptal sözleşmesiyle birebir; bağlantı sonrası mevcut ELM init/kuyruk/poll hattı
+  AYNEN paylaşılır (RfcommChannel transport'a kör); `pollLoop` transport-agnostik;
+  kopma → `link_lost` → aynı reconnect zinciri. Plugin `transport='tcp'` dispatch'i
+  BT izin/adapter kontrollerini bilinçli atlar (WiFi'de BT kapalı olabilir).
+- **TS** — `ObdTransport += 'tcp'`; **TCP otomatik ble↔classic fallback'ine
+  KATILMAZ** (tek deneme → reconnect; yanlış IP'de BT taramasına düşmez, BT
+  başarısızken TCP'ye sıçranmaz); `isValidTcpAddress` erken doğrulama (geçersiz
+  adres native'e gitmez); protokol öğrenme TCP'de aynen.
+- **UI** — OBDConnectModal "WiFi Adaptör (IP:Port)" manuel giriş; adres+transport
+  kullanıcının kesin seçimi olarak hemen persist.
+
+**Açık:** CİHAZDA DOĞRULANMADI — gerçek WiFi ELM327 adaptörüyle hiç test edilmedi;
+`TCP_CONNECT_TIMEOUT_MS=8s` / `TCP_SO_TIMEOUT_MS=15s` tahmini, sahada ayar
+gerekebilir; WiFi bağlantısına özel görsel durum ayrımı yok (genel connecting/error).
+
 ## ⭐ OBD CORE V2 — Patch 9: SENSÖR UI + SESLİ VERİ SORGUSU (2026-07-04)
 
 Patch 8'in tüketici katmanı. İki commit (`a35de62` + `5423a82`), suite **1938 yeşil**
