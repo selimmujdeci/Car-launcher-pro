@@ -835,3 +835,38 @@ describe('Satış-APK güvenlik bayrakları kilidi — capacitor.config.ts', () 
     expect(src).toMatch(/loggingBehavior:\s*isDev\s*\?\s*'debug'\s*:\s*'none'/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   HAREKET TESPİTİ HIZA MAHKÛM DEĞİL — "harita ters gidiyor + takip etmiyor"
+   Regresyon (SAHA 2026-07-04, telefon): bazı GPS çipleri/WebView'ler hareket
+   halinde coords.speed=0 bildirir ("Doppler'e saplanma"). Yalnız hıza bakan
+   üç kapı birden ölüyordu: (1) gpsService `gpsSpeed ?? delta` — 0 finite
+   olduğundan delta fallback HİÇ çalışmıyordu; (2) MiniMapWidget isDriving
+   (speedKmh>5) sürüş görünümünü açmıyordu → rotasyon yok (kuzey-yukarı),
+   merkez ~200m'de bir sıçrama; (3) FullMapView rAF wake (speed≥1.5) uyanmıyor
+   → takip ölü. Kuzey-yukarı haritada güneye sürüş = "geriye gidiyoruz" algısı.
+   Kural: hareket = hız VEYA yer değiştirme (fail-soft, CLAUDE.md §2).
+   ─────────────────────────────────────────────────────────────── */
+describe('Hareket tespiti hız-bağımsız kilidi — Doppler 0 saplanması', () => {
+  it('YAPISAL: gpsService ham hızı pickRawSpeed ile seçer (?? fallback yasak)', () => {
+    const src = read('src/platform/gpsService.ts');
+    expect(src, 'pickRawSpeed kaldırılmış — Doppler=0 saplanması geri gelir').toMatch(/pickRawSpeed\(gpsSpeed,\s*deltaSpeed\)/);
+    expect(src, 'eski `gpsSpeed ?? computeSpeedDelta` deseni geri gelmiş (0 finite → fallback ölü)').not.toMatch(/gpsSpeed\s*\?\?\s*computeSpeedDelta/);
+  });
+
+  it('YAPISAL: FullMapView rAF wake yer değiştirmeyle de uyanır (yalnız hız DEĞİL)', () => {
+    const src = read('src/components/map/FullMapView.tsx');
+    expect(src, 'GPS wake yer-değiştirme koşulu kaldırılmış').toMatch(/speedKmh >= 1\.5 \|\| _movedM >= 8/);
+  });
+
+  it('YAPISAL: FullMapView isIdleNow yer değiştirme taşıyan tamponla uyumaz', () => {
+    const src = read('src/components/map/FullMapView.tsx');
+    expect(src, 'idle tespiti yalnız hıza bakıyor — hız 0 saplanınca takip uyur').toMatch(/movedM >= 8\) return false/);
+  });
+
+  it('YAPISAL: MiniMapWidget isDriving yer değiştirme + histerezis kullanır', () => {
+    const src = read('src/components/map/MiniMapWidget.tsx');
+    expect(src, 'isDriving yalnız hıza dönmüş — Doppler=0 cihazda sürüş görünümü hiç açılmaz').toMatch(/_movedDegNow > 0\.00005 \? true/);
+    expect(src, 'histerezis (çıkış eşiği) kaldırılmış — stop-and-go flicker döner').toMatch(/_movedDegNow < 0\.00002 \? false/);
+  });
+});

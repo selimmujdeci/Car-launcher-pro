@@ -64,6 +64,29 @@ export function computeSpeedDelta(
   return distM / dt; // m/s
 }
 
+/** Doppler hızına güvenmek için alt eşik (m/s). Bazı GPS çipleri/WebView'ler
+ *  hareket halindeyken bile coords.speed=0 bildirir ("Doppler'e saplanma") —
+ *  0 finite olduğu için eski `gpsSpeed ?? delta` fallback'i HİÇ devreye girmiyordu. */
+export const DOPPLER_TRUST_MIN_MS = 0.15;
+
+/**
+ * Ham hız seçimi — SAHA FIX (2026-07-04, "harita ters gidiyor + takip etmiyor"):
+ * cihaz Doppler hızını 0'a saplarsa tüm hareket tespiti (sürüş görünümü,
+ * kamera takibi, rAF uyandırma) ölüyordu. Kural: Doppler > eşik ise ona güven;
+ * aksi halde konum-delta hızı (varsa) kullan; o da yoksa Doppler'i aynen döndür
+ * (0 = gerçekten durağan senaryosu bozulmaz — delta da 0'a yakın çıkar).
+ */
+export function pickRawSpeed(
+  dopplerMs: number | undefined,
+  deltaMs: number | undefined,
+): number | undefined {
+  if (dopplerMs != null && Number.isFinite(dopplerMs) && dopplerMs > DOPPLER_TRUST_MIN_MS) {
+    return dopplerMs;
+  }
+  if (deltaMs != null && Number.isFinite(deltaMs)) return deltaMs;
+  return dopplerMs;
+}
+
 /**
  * GPS, bearing (coords.heading) sağlamadığında konum farkından "course over ground"
  * yönü hesaplar. Head unit'lerde pusula (manyetometre) yoktur ve bazı GPS modülleri

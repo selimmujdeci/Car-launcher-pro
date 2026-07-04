@@ -294,7 +294,19 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       ? location.speed * 3.6
       : 0;
     const hdg = heading || 0;
-    const isDriving = speedKmh > 5; // 5 km/h eşiği — park/yürüyüş ayrımı
+    // SAHA FIX (2026-07-04, "harita ters gidiyor + takip etmiyor"): bazı cihazlar
+    // hareket halinde coords.speed=0 bildirir → yalnız hıza bakan eski eşik
+    // (speedKmh>5) sürüş görünümünü HİÇ açmıyordu: rotasyon yok (kuzey-yukarı),
+    // merkez ~200m'de bir sıçrıyordu. Hareket artık YER DEĞİŞTİRMEDEN de tespit
+    // edilir (fail-soft, CLAUDE.md §2). Histerezis: giriş ~5.5m/fix, çıkış ~2m/fix,
+    // aradaki bölge önceki durumu korur (stop-and-go flicker önlemi, §2 hysteresis).
+    const _movedDegNow = Math.abs(latitude - lastAppliedLatRef.current) +
+                         Math.abs(longitude - lastAppliedLngRef.current);
+    const isDriving = speedKmh > 5
+      ? true
+      : _movedDegNow > 0.00005 ? true
+      : _movedDegNow < 0.00002 ? false
+      : wasDrivingRef.current;
 
     if (!mapRef.current._initialized) {
       addUserMarker(mapRef.current, latitude, longitude, hdg);

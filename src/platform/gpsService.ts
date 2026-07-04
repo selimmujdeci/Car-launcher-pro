@@ -5,7 +5,7 @@ import { checkGeofence } from './geofenceService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
-import { applySpeedFilters, computeSpeedDelta, computeCourseDelta } from './gps/speedCore';
+import { applySpeedFilters, computeSpeedDelta, computeCourseDelta, pickRawSpeed } from './gps/speedCore';
 import type { PrevPosition } from './gps/speedCore';
 import { isJumpInvalid, calculateFusionRamp, DR_THRESHOLD_MS, DR_MIN_SPEED_MS } from './gps/fusionCore';
 import type { FusedPosition } from './gps/fusionCore';
@@ -422,11 +422,20 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     _drLastPos = { lat: _prevLoc.latitude, lng: _prevLoc.longitude };
   }
 
-  // GPS speed yoksa pozisyon delta'sından hesapla
+  // GPS speed yoksa VEYA 0'a saplanmışsa pozisyon delta'sından hesapla.
+  // SAHA FIX (2026-07-04): bazı cihazlar hareket halinde coords.speed=0 bildirir;
+  // 0 finite olduğundan eski `??` fallback'i hiç çalışmıyordu → hız 0 → sürüş
+  // görünümü/kamera takibi/rAF uyandırma ölü ("harita ters gidiyor, takip etmiyor").
   const gpsSpeed = Number.isFinite(coords.speed ?? NaN) ? (coords.speed ?? undefined) : undefined;
   const prevPos  = _prevForSpeed;
-  _prevForSpeed  = { lat: coords.latitude, lng: coords.longitude, ts: timestamp ?? now };
-  const rawSpeed = gpsSpeed ?? computeSpeedDelta(coords.latitude, coords.longitude, timestamp ?? now, prevPos);
+  // Delta çapası yalnız ≥500ms'de bir ilerler: 5Hz fix akışında dt=0.2s kalıp hem
+  // computeSpeedDelta (dt<0.5 guard) hem computeCourseDelta (4m eşik) hiç üretemiyordu.
+  const _fixTs = timestamp ?? now;
+  if (!prevPos || _fixTs - prevPos.ts >= 500) {
+    _prevForSpeed = { lat: coords.latitude, lng: coords.longitude, ts: _fixTs };
+  }
+  const deltaSpeed = computeSpeedDelta(coords.latitude, coords.longitude, _fixTs, prevPos);
+  const rawSpeed   = pickRawSpeed(gpsSpeed, deltaSpeed);
 
   const dataAge     = Math.abs(now - (timestamp ?? now));
   const filteredSpeed = rawSpeed != null ? applySpeedFilters(rawSpeed, dataAge) : undefined;

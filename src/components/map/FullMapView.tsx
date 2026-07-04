@@ -293,8 +293,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
         // Wake: yeni GPS pozisyonu hareket taşıyorsa döngüyü uyandır.
         // 1.5 km/h eşiği: durağan GPS titremesi (gürültü) döngüyü sürekli açmasın.
+        // SAHA FIX (2026-07-04): bazı cihazlar hareket halinde coords.speed=0
+        // bildirir → yalnız hıza bakan wake HİÇ tetiklenmiyor, takip ölüyordu.
+        // Yer değiştirme (~8m/fix) da hareket sayılır (fail-soft).
         const speedKmh = (loc.speed ?? 0) * 3.6;
-        if (speedKmh >= 1.5) wakeLoopRef.current?.();
+        const _prevPt  = buffer.length >= 2 ? buffer[buffer.length - 2] : null;
+        const _movedM  = _prevPt
+          ? Math.hypot(
+              (newPoint.lat - _prevPt.lat) * 111_320,
+              (newPoint.lng - _prevPt.lng) * 111_320 * Math.cos((newPoint.lat * Math.PI) / 180),
+            )
+          : 0;
+        if (speedKmh >= 1.5 || _movedM >= 8) wakeLoopRef.current?.();
 
         // Hız bazlı katman gizleme + POI proximity — queryRenderedFeatures pahalı, 2s throttle
         const nowMs = performance.now();
@@ -557,6 +567,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const speedMs = locationRef.current?.speed ?? 0;
         const speedKmh = speedMs * 3.6;
         if (speedKmh >= 1.5) return false;   // araç hareket ediyor
+        // SAHA FIX (2026-07-04): hız 0'a saplansa bile son iki fix arası gerçek
+        // yer değiştirme (~8m) hareket sayılır — takip döngüsü uyumaz (fail-soft).
+        const a = buf[buf.length - 2];
+        const b = buf[buf.length - 1];
+        const movedM = Math.hypot(
+          (b.lat - a.lat) * 111_320,
+          (b.lng - a.lng) * 111_320 * Math.cos((b.lat * Math.PI) / 180),
+        );
+        if (movedM >= 8) return false;       // hız sinyalsiz gerçek hareket
       }
 
       return true;
