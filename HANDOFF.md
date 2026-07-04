@@ -3,7 +3,34 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #14): OBD Core v2 — Patch 12D TAMAMLANDI (profil bağlaması + UI + testler)
+## ⭐ SON İŞ (2026-07-05 #15): Navigasyon denetimi + P0/P1 fix'leri
+
+Kapsamlı nav denetimi (10 alan, bulgular: hafıza `project_nav-audit-2026-07-05.md`)
++ iki commit (`84a05df` + `6cd52d1`), suite 2037 yeşil (7 yeni kilit dahil) + tsc + build OK:
+
+1. **TBT off-by-one (P0, `84a05df`):** TurnPanel + sesli anons + LimpHomeHUD
+   `steps[currentStepIndex]`'i okuyordu = az önce GEÇİLMİŞ manevra (OSRM'de
+   instruction adımın başındaki manevradır, index manevra geçilince ilerler,
+   mesafe `steps[i+1]`'e sayar). Fix: `upcomingStep = steps[i+1]` her üç
+   tüketicide; `followStep = steps[i+2]` "Sonra…" satırı (mesafe kaynağı
+   `step.distance` oldu). RoadSignsPanel `currentStep.streetName`'de KALDI
+   (üzerinde gidilen yol — bilinçli). Kilit: `navigationHud.turnStep.test.tsx`.
+2. **Tünel sürekliliği (P1, `6cd52d1`):** GPS kesilince adım/anons/ETA donuyordu.
+   FullMapView rAF DR dalı 1 Hz'de ilerleme hattını besler;
+   `updateRouteProgress(..., {allowReroute:false})` yeni opsiyonel parametre —
+   DR konumunda sapma tespiti ATLANIR (sahte reroute offline'da rotayı düz-çizgiyle
+   ezerdi). Varsayılan davranış bit değişmeden korunur (test kilitli).
+
+**Devralan bilsin:** (a) bu fix'ler CİHAZDA DOĞRULANMADI — sonraki saha oturumunda
+gerçek sürüşte anons sırası ("X metre sonra <YAKLAŞAN dönüş>") gözlenmeli;
+(b) test notu: `react-dom/client` bu repoda import EDİLEMEZ (setup.ts navigator
+mock'u prototype getter'ları düşürüyor) → bileşen testleri `renderToStaticMarkup`
++ `?raw` yapısal kilit deseniyle yazılır (bkz. safetyContext.test.tsx);
+(c) denetimin yapılmayan işleri: offline routing verisi (`public/maps/` HİÇ YOK —
+kod hazır, tooling koşulmadı), gpsService ölü DR iskeleti temizliği, casual follow
+watchdog (açık bug D — saha logu şart), K24 eSpeak nav-TTS doğrulaması.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #14): OBD Core v2 — Patch 12D TAMAMLANDI (profil bağlaması + UI + testler)
 
 12C'nin bıraktığı 4 eksik kapandı (bkz. #13):
 

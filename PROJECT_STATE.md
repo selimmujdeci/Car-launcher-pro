@@ -10,6 +10,33 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ NAVİGASYON DENETİMİ + P0/P1 FIX'LERİ (2026-07-05)
+
+Kapsamlı navigasyon denetimi (10 alan) yapıldı; iki commit atıldı, suite yeşil:
+
+- **`84a05df` — TBT talimat off-by-one (P0):** OSRM'de `steps[i].instruction`
+  adımın BAŞINDAKİ manevradır; `currentStepIndex` manevra geçilince ilerler ve
+  `distanceToNextTurnMeters` `steps[i+1]`'e sayar. TurnPanel + kademeli sesli
+  anons + LimpHomeHUD `steps[i]`'yi okuyordu → sürücüye hep az önce GEÇİLMİŞ
+  manevra söyleniyordu. Fix: `upcomingStep = steps[i+1]` (sentinel/arrive'da
+  kendisi), `followStep = steps[i+2]` devam satırı (mesafesi `step.distance`).
+  Kilit: `navigationHud.turnStep.test.tsx` (SSR davranış + ?raw yapısal;
+  react-dom/client bu repo'da import edilemez — setup.ts navigator mock'u).
+- **`6cd52d1` — Tünel sürekliliği (P1):** ilerleme hattı yalnız GPS aboneliğinden
+  besleniyordu → GPS kesilince adım sayacı/anons/ETA donuyordu (marker DR ile
+  ilerlerken). FullMapView rAF DR dalı 1 Hz'de `updateRouteProgress(lat, lon,
+  {allowReroute:false})` + `updateNavigationProgress` besler. `allowReroute:false`
+  sapma tespitini atlar (DR virajda rotadan sapar → sahte reroute offline'da
+  gerçek rotayı düz-çizgiyle değiştirirdi). Kilit: `routingService.drReroute.test.ts`.
+
+**Denetimin açık kalan bulguları (yapılmadı):** (a) offline routing VERİSİ yok —
+`public/maps/` hiç yok (routing-graph.bin + poi.db + tile üretimi ayrı tooling işi);
+(b) merkezi DR iskeleti gpsService'te ölü (isDeadReckoningActive daima false, dış
+tüketici yok — temizlik ayrı iş); (c) SAB prod'da pasif (crossOriginIsolated=false);
+(d) casual (nav-dışı) follow watchdog'u yok — HANDOFF açık bug D, saha logu şart;
+(e) K24 eSpeak nav-TTS + bu fix'ler CİHAZDA DOĞRULANMADI. Tam bulgu listesi:
+hafıza `project_nav-audit-2026-07-05.md`.
+
 ## ⭐ OBD CORE V2 — Patch 12D: PROFİL BAĞLAMASI + UI + TESTLER (2026-07-05)
 
 12C çekirdeğinin (ölü kod kalan profiller) gerçek bağlanması:
