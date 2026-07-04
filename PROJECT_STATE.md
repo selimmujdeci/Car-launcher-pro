@@ -25,9 +25,15 @@ Tek commit (`c5b7bb5`), suite **2007 yeşil** (+34) + 31 Java testi (+17) + buil
   zamanlayıcı kurulmaz, 7F-31 kalıcı işaret); querySensor DID köprüsü
   (profil yüklüyse üretici verileri sesli cevaplanır; profilsiz davranış aynı).
 
-**Açık:** 12C (ISO 14229 kamu DID'leri + Renault/Dacia profili + saha keşif
-aracı) ve 12D UI sırada; cihaz doğrulaması yok (ATAR/ATCRA klon davranışı +
-0x78 zinciri sahada); henüz hiçbir gerçek profil yüklenmiyor (yalnız altyapı).
+**12C KISMİ (`6c171ae`, 2026-07-05):** ajan oturum limitinde kesildi; çekirdek
+tamam ve doğrulandı (tsc + 2007 suite): `ascii` decode (metin DID'leri),
+`verifyVinAgainstMode09` (F190↔Mode09 çapraz doğrulama), `didDiscoveryService`
+(22xx tarama + cihaz-üstü JSON export), universal + Renault/Dacia profilleri
+(yalnız kaynaklı ISO DID'ler — Renault-özel doğrulanmış DID bilinçli olarak YOK).
+
+**Açık (12D):** profil yükleme bağlaması (profiller şu an ölü kod), SensorPanel
+"Marka verileri" bölümü, keşif ekranı UI, 12C birim testleri/kilitleri; cihaz
+doğrulaması yok (ATAR/ATCRA klon davranışı + 0x78 zinciri sahada).
 
 ## ⭐ OBD CORE V2 — Patch 11: TEŞHİS DERİNLİĞİ (2026-07-05)
 

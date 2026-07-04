@@ -3,7 +3,22 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #12): OBD Core v2 — Patch 12A+B UDS altyapısı
+## ⭐ SON İŞ (2026-07-05 #13): OBD Core v2 — Patch 12C KISMİ (ajan limitte kesildi)
+
+`6c171ae` (caros-obd-canbus ajanı oturum limitinde öldü; ana oturum diskteki işi
+doğrulayıp — tsc temiz + suite 2007/2007 + guard 97 — SADECE 12C çekirdeğini
+commit'ledi): `ascii` decode yolu (VehicleDidValue = number|string, sayısal NaN
+sözleşmesi değişmedi), `verifyVinAgainstMode09` (F190 ↔ Mode 09, karşılaştırılamazsa
+dürüst matched:null), `didDiscoveryService` (22xx tarama, iptal/kısmi-sonuç, cihaz-üstü
+JSON export — T507 adb'siz), `profiles/universalUdsProfile` (ISO 14229-1 Annex C.1) +
+`profiles/renaultDaciaProfile` (Renault-özel doğrulanmış DID YOK — bilinçli, keşifle
+büyüyecek). **Devralan bilsin — 12D EKSİK:** (1) profiller hiçbir yerden YÜKLENMİYOR
+(loadProfile bağlaması yok → şu an ölü kod), (2) SensorPanel "Marka verileri" bölümü
+yok, (3) keşif ekranı UI yok, (4) 12C için YENİ TEST YOK (suite sayısı 12A+B ile aynı;
+ascii decode + VIN çapraz doğrulama + keşif servisi kilitleri eklenecek). Çalışma
+ağacındaki Freeze/worker-iife/wav değişiklikleri BAŞKA işin WIP'i — karıştırma.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #12): OBD Core v2 — Patch 12A+B UDS altyapısı
 
 `c5b7bb5` (caros-obd-canbus, ana oturumda doğrulandı): UDS Mode 22 boru hattı —
 withEcuHeader (restore garantili, başarısızlık sessiz değil), readDid (7F
