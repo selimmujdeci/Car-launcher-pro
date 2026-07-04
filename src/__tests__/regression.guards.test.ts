@@ -960,3 +960,24 @@ describe('Sürüş kamerası stil-kapısı yasağı kilidi (harita sabit/dönmü
       .not.toMatch(/buffer\.length >= 2 && mapRef\.current && mapRef\.current\.isStyleLoaded\(\)/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   ESKİ WEBVIEW MODERN PAKET SÖZDİZİMİ KİLİDİ — Duster "BAŞLATILAMADI"
+   Regresyon (SAHA 2026-07-04, Duster T507 açılış ekranı fotoğraflı):
+   "Uncaught SyntaxError: Unexpected token . (satır: 1)". Kök neden:
+   @vitejs/plugin-legacy `modernTargets` verilmezse build.target'ı (es2015)
+   SESSİZCE EZİP modern chunk'ları chrome>=105 hedefiyle derler → ?. / ??
+   sözdizimi pakette kalır. Modern-tarayıcı tespiti ise yalnız ~Chrome 64
+   özelliklerini yoklar → Chrome 64-79 WebView (Duster) tespiti GEÇER ama
+   paketi PARSE EDEMEZ. Kural: modernTargets tespit eşiğiyle aynı tabana
+   (chrome>=64) sabitlenir; modernPolyfills açık kalır.
+   ─────────────────────────────────────────────────────────────── */
+describe('Eski WebView modern paket sözdizimi kilidi (Duster BAŞLATILAMADI)', () => {
+  it('YAPISAL: plugin-legacy modernTargets chrome>=64 tabanına sabit', () => {
+    const src = read('vite.config.ts');
+    expect(src, "modernTargets kaldırılmış — plugin-legacy modern chunk'ları chrome105'e derler, Chrome 64-79 WebView satır 1'de ölür")
+      .toMatch(/modernTargets:\s*'chrome>=64/);
+    expect(src, 'modernPolyfills kapatılmış — Chrome 64-78 runtime API eksikleri (Object.fromEntries vb.) çöker')
+      .toMatch(/modernPolyfills:\s*true/);
+  });
+});

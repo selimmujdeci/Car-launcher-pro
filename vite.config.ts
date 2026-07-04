@@ -199,10 +199,25 @@ export default defineConfig({
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
       renderModernChunks: true,
       polyfills: true,
+      // ⭐ SAHA KÖK NEDEN (2026-07-04, Duster T507 "BAŞLATILAMADI / Unexpected token ."):
+      // plugin-legacy modernTargets verilmezse build.target'ı (es2015) SESSİZCE EZİP
+      // modern chunk'ları chrome>=105'e derler → ?. / ?? sözdizimi pakette kalır.
+      // Ancak modern-tarayıcı TESPİTİ yalnız ~Chrome 64 özelliklerini yoklar
+      // (dynamic import + import.meta + async generator) → Chrome 64-79 WebView
+      // (Duster head unit) tespiti GEÇER ama modern paketi PARSE EDEMEZ:
+      // satır 1'de "Uncaught SyntaxError: Unexpected token ." + boot guard ekranı.
+      // Taban tespit eşiğiyle AYNI olmalı: chrome>=64. K24 (Chrome 101) yine hızlı
+      // modern ESM yolunda kalır (SystemJS 9.7sn freeze'ine dönüş YOK), <64 legacy'ye düşer.
+      modernTargets: 'chrome>=64, chromeAndroid>=64',
+      // Chrome 64-78'de eksik runtime API'ler (Object.fromEntries 73, flat 69 vb.)
+      // için kullanım-bazlı core-js enjeksiyonu — modern chunk'lar da güvenli çalışsın.
+      modernPolyfills: true,
     }),
     fixLegacyModernDetection(), // legacy()'den SONRA: enjekte edilen probe'u çıkarır
   ],
   build: {
+    // NOT: plugin-legacy bu değeri modernTargets ile EZER (chrome64) — burada
+    // es2015 yalnız plugin-legacy'siz olası build'ler için emniyet kemeridir.
     target: 'es2015',
     // Vite 8 modulepreload helper'ı `import.meta.resolve` (Chrome 105+) üretiyor →
     // Chrome 101 head unit WebView'da modern bundle bootstrap'ta çöküp ağır legacy'ye

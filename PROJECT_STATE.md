@@ -10,6 +10,28 @@
 
 - **Aktif branch:** `feat/assistant-open-app` — **push EDİLMEDİ**, `main`'e merge bekliyor.
 
+## ⭐ DUSTER "BAŞLATILAMADI / Unexpected token ." — plugin-legacy modernTargets (2026-07-04)
+
+Duster T507 açılışta boot-guard ekranı: `Uncaught SyntaxError: Unexpected token .
+(satır: 1)`. Teşhis dist üzerinde kanıtlı: modern giriş paketi `main-*.js` içinde
+238 `?.` + 183 `??` vardı — `build.target: 'es2015'` hiç uygulanmıyordu çünkü
+**plugin-legacy, `modernTargets` verilmediğinde build.target'ı sessizce ezip modern
+chunk'ları chrome>=105 hedefiyle derliyor** (dist/index.js:213-218, uyarısı build
+logunda). Modern-tarayıcı tespiti ise yalnız ~Chrome 64 özelliklerini yoklar →
+Chrome 64-79 WebView (Duster) tespiti geçip parse'ta ölüyordu; K24 (Chrome 101)
+şans eseri çalışıyordu (?. Chrome 80+).
+
+**Fix (vite.config.ts):** `modernTargets: 'chrome>=64, chromeAndroid>=64'` (tespit
+eşiğiyle aynı taban) + `modernPolyfills: true` (Chrome 64-78 runtime API eksikleri).
+Doğrulama: acorn ES2018 parse taraması — boot zincirindeki tüm modern chunk'lar
+temiz (kalan "ES2020" bayrakları dynamic import/import.meta = Chrome 63-64 natif).
+Kilit: "Eski WebView modern paket sözdizimi kilidi". Suite 1832 yeşil.
+
+⚠️ Bilinen açık (ayrı iş): 3 Compute worker'ı (Navigation/Vehicle/Vision) hedef
+indirgemeden geçmiyor (`||=`, class field, `?.` içeriyor) — boot'u bloklamaz ve
+`type:"module"` worker zaten Chrome <80'de yok (BASIC_JS fallback devrede olmalı);
+Duster'da worker fallback davranışı sahada doğrulanmalı.
+
 ## ⭐ HARİTA "SABİT + DÖNMÜYOR" GERÇEK KÖK NEDENİ: isStyleLoaded KAPILARI (2026-07-04)
 
 4bd4ed5 sonrası saha şikayeti sürdü ("harita sabit kalıyor, gitme yönüne dönmüyor",

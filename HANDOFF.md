@@ -3,7 +3,22 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app`.
 
-## ⭐ SON İŞ (2026-07-04 #5): Harita "sabit + dönmüyor" GERÇEK kök nedeni — isStyleLoaded kapıları
+## ⭐ SON İŞ (2026-07-04 #6): Duster "BAŞLATILAMADI / Unexpected token ." — plugin-legacy modernTargets
+
+Duster T507 ilk kurulumda boot-guard'a düştü (fotoğraflı). Kanıt dist'te: modern
+`main-*.js` 238 `?.` + 183 `??` taşıyordu — plugin-legacy `modernTargets` verilmeyince
+`build.target: es2015`'i sessizce ezip modern chunk'ları **chrome>=105**'e derliyor;
+modern-tespit script'i ise yalnız ~Chrome 64 özelliklerini yokluyor → Chrome 64-79
+WebView tespiti geçip satır 1'de parse ölümü. K24 (101) şans eseri sağlamdı.
+**Fix:** `modernTargets: 'chrome>=64, chromeAndroid>=64'` + `modernPolyfills: true`
+(vite.config.ts). Acorn ES2018 taramasıyla boot zinciri doğrulandı; kilit eklendi
+("Eski WebView modern paket sözdizimi kilidi"). Suite **1832 yeşil**.
+⚠️ Açık iş: 3 Compute worker'ı hâlâ modern sözdizimli (worker pipeline'ı hedef
+indirgemeden geçmiyor) — boot'u bloklamaz (module worker <80'de zaten yok, BASIC_JS
+fallback bekleniyor) ama Duster'da worker-fallback davranışı sahada test edilmeli.
+APK henüz derlenmedi — "apk ver" denince 733883f+bu fix birlikte gider.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-04 #5): Harita "sabit + dönmüyor" GERÇEK kök nedeni — isStyleLoaded kapıları
 
 Saha şikayeti 4bd4ed5'ten SONRA da sürdü (hız 33 gösterirken mini harita kuzey-yukarı,
 kamera sabit). Tarayıcıda Playwright + sahte watchPosition ile **Doppler-0 sürüş simülasyonu**
