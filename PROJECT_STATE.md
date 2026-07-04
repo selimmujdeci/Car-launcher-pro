@@ -10,6 +10,25 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ OBD CORE V2 — Patch 12A+B: UDS MODE 22 ALTYAPISI (2026-07-05)
+
+Üretici-özel PID katmanının boru hattı (plan: `docs/OBD_PATCH12_PLAN.md`).
+Tek commit (`c5b7bb5`), suite **2007 yeşil** (+34) + 31 Java testi (+17) + build OK:
+
+- **12A** — `withEcuHeader` (ATSH/ATCRA atomik, restore her yolda,
+  başarısızlık ASLA sessiz değil: HeaderRestoreException/addSuppressed);
+  `readDid` (ISO-TP birleştirme paylaşılan yardımcıyla; 7F22-31/33 →
+  desteklenmiyor, 0x78 pending → bekle-devam 10s üst sınır); OBDManager +
+  BleObdManager aynası + plugin `readObdDid`.
+- **12B** — `vehicleDidProfile` (şema doğrulayıcı + eval'sız decode tablosu +
+  zorunlu `source`); `manufacturerPidService` (watchDid, izleyici yokken
+  zamanlayıcı kurulmaz, 7F-31 kalıcı işaret); querySensor DID köprüsü
+  (profil yüklüyse üretici verileri sesli cevaplanır; profilsiz davranış aynı).
+
+**Açık:** 12C (ISO 14229 kamu DID'leri + Renault/Dacia profili + saha keşif
+aracı) ve 12D UI sırada; cihaz doğrulaması yok (ATAR/ATCRA klon davranışı +
+0x78 zinciri sahada); henüz hiçbir gerçek profil yüklenmiyor (yalnız altyapı).
+
 ## ⭐ OBD CORE V2 — Patch 11: TEŞHİS DERİNLİĞİ (2026-07-05)
 
 Car Scanner makası — teşhis tarafı kapandı. Tek commit (`1d7b53e`), suite

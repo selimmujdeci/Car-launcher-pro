@@ -3,7 +3,17 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #11): OBD Core v2 — Patch 11 teşhis derinliği
+## ⭐ SON İŞ (2026-07-05 #12): OBD Core v2 — Patch 12A+B UDS altyapısı
+
+`c5b7bb5` (caros-obd-canbus, ana oturumda doğrulandı): UDS Mode 22 boru hattı —
+withEcuHeader (restore garantili, başarısızlık sessiz değil), readDid (7F
+disiplini, 0x78 pending 10s), eval'sız profil formatı, manufacturerPidService
+(boşta sıfır maliyet), querySensor DID köprüsü. Suite 2007 + 31 Java testi.
+Plan: `docs/OBD_PATCH12_PLAN.md`. **Devralan bilsin:** 12C+D (kamu DID'leri +
+Renault profili + keşif aracı + UI) sırada/aşama-2 ajanında; gerçek profil
+henüz YOK; ATAR/ATCRA klon davranışı sahada test edilmeli.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #11): OBD Core v2 — Patch 11 teşhis derinliği
 
 `1d7b53e` (caros-obd-canbus ajanı, ana oturumda doğrulandı): Mode 07 bekleyen +
 0A kalıcı DTC (tek parser 43/47/4A; 0A "desteklenmiyor" ≠ "kod yok" dürüst ayrımı)
