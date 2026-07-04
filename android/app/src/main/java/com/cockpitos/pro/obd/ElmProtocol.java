@@ -126,6 +126,10 @@ public final class ElmProtocol {
      * Formül BURADA YOK — tek doğruluk kaynağı TS tablosudur (test edilebilirlik + tek yer).
      * Desteklenen-PID bitmask'leri (00/20/40/60) de bu yoldan okunur.
      *
+     * Patch 11C: bit/enum PID'ler (01, 03, 1C — StandardPidEnums.ts) de AYNI jenerik
+     * yoldan tek-seferlik okunur — sayısal registry'ye girmezler ama formül BURADA
+     * yazılmaz, ham baytı TS çözer (tek doğruluk kaynağı kuralı burada da geçerli).
+     *
      * @return ham data hex; NO_DATA/hata/desteklenmiyor → null (çağıran atlar).
      */
     public String readPidRaw(String pid) {
@@ -137,6 +141,42 @@ public final class ElmProtocol {
         return null;
     }
 
+    /**
+     * Patch 11B: Mode 02 freeze frame — jenerik ham PID okuma (frame index 0 sabit).
+     * Mode 01 ile AYNI PID formülleri geçerlidir (SAE J1979) → TS'te StandardPidRegistry.decode
+     * AYNEN kullanılır, formül BURADA TEKRAR YAZILMAZ. Yanıt "42 <PID> <frame#=00> <data>"
+     * biçiminde; frame# baytı (her zaman 00) burada soyulur, TS yalnız data'yı görür.
+     *
+     * @return ham data hex (frame# soyulmuş); NO_DATA/hata/desteklenmiyor/FF yok → null.
+     */
+    public String readFreezeFramePidRaw(String pid) {
+        String p = pid.toUpperCase(java.util.Locale.ROOT);
+        ElmResponseParser.Result r = sendAndClassify("02" + p + "00", 1500, "42", p);
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            return r.dataHex.substring(2); // frame# (ilk bayt) soyulur
+        }
+        return null;
+    }
+
+    /**
+     * Patch 11B: Freeze frame'i tetikleyen DTC'yi okur (Mode 02, PID 02). Yanıt
+     * "42 02 <frame#=00> <DTC 2 bayt>" — DTC kodlaması Mode 03 ile AYNI (decodeDtcPair).
+     * "00 00" DTC baytı → freeze frame kayıtlı DEĞİL (arıza yok/temizlenmiş).
+     *
+     * @return DTC kodu ('P0301'…); null = freeze frame yok/desteklenmiyor.
+     */
+    public String readFreezeFrameDtcRaw() {
+        ElmResponseParser.Result r = sendAndClassify("020200", 1500, "42", "02");
+        if (r.kind != ElmResponseParser.Kind.OK || r.dataHex == null || r.dataHex.length() < 6) return null;
+        String dtcHex = r.dataHex.substring(2, 6); // frame# soyulmuş, 2 bayt DTC kalır
+        if (dtcHex.equals("0000")) return null; // freeze frame yok
+        try {
+            return decodeDtcPair(dtcHex);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** channel.send() + ElmResponseParser.classify() — iletişim hatasını ERROR sınıfına çevirir. */
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
         try {
@@ -146,7 +186,7 @@ public final class ElmProtocol {
         }
     }
 
-    // ── DTC (SAE J1979 Mode 03 / 04) ────────────────────────────────────────
+    // ── DTC (SAE J1979 Mode 03 / 04 / 07 / 0A) ───────────────────────────────
 
     /**
      * Kayıtlı arıza kodlarını okur (Mode 03).
@@ -158,12 +198,61 @@ public final class ElmProtocol {
     public java.util.List<String> readDTCs() throws IOException {
         try {
             // Mode 03 yanıtı çok-çerçeveli olabilir (3+ kod, ISO-TP) → geniş timeout.
-            return parseDtcResponse(channel.send("03", 4000));
+            return parseDtcResponse(channel.send("03", 4000), "43");
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
             throw new IOException(e.getMessage(), e);
         }
+    }
+
+    /**
+     * Patch 11A: BEKLEYEN (henüz onaylanmamış/pending) arıza kodlarını okur (Mode 07).
+     * Mode 03 ile AYNI parser (yanıt öneki "47") — Mode 07 SAE J1979'da ZORUNLU
+     * moddur (her OBD-II uyumlu araç destekler), bu yüzden Mode 0A'nın aksine
+     * "desteklenmiyor" ayrımına gerek yoktur — NO DATA her zaman "bekleyen kod yok" demektir.
+     *
+     * @return kod listesi; kod yoksa BOŞ liste.
+     * @throws IOException adaptör/iletişim hatası.
+     */
+    public java.util.List<String> readPendingDTCs() throws IOException {
+        try {
+            return parseDtcResponse(channel.send("07", 4000), "47");
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Patch 11A: KALICI (permanent/emissions-related) arıza kodlarını okur (Mode 0A).
+     * Mode 0A, SAE J1979'a 2010 civarı eklendi — ESKİ (2010 öncesi) araçlarda hiç
+     * DESTEKLENMEZ. Bu durum "kalıcı kod yok" ile KARIŞTIRILMAMALI (dürüstlük ilkesi):
+     * ECU'nun açık negatif yanıtı ("7F 0A <NRC>") veya ELM327'nin anlaşılmadı yanıtı ("?")
+     * → mod desteklenmiyor → null. "NO DATA" → mod destekleniyor ama kalıcı kod yok → boş liste.
+     *
+     * NOT (dürüst sınır): bazı ELM327 klonları desteklenmeyen modda da sessizce "NO DATA"
+     * döner (açık 7F yerine) — bu durumda ayrım YAPILAMAZ, "kalıcı kod yok" varsayılır.
+     * Bu, donanım/protokol katmanının doğal belirsizliği; TS tarafı `supported` alanını
+     * yalnızca AÇIK negatif/anlaşılmadı yanıtları için false işaretler.
+     *
+     * @return kod listesi (boş = destekleniyor, kod yok); null = mod desteklenmiyor (açık NRC/"?").
+     * @throws IOException adaptör/iletişim hatası (STOPPED/CAN ERROR/bağlantı kopması).
+     */
+    public java.util.List<String> readPermanentDTCs() throws IOException {
+        String raw;
+        try {
+            raw = channel.send("0A", 4000);
+        } catch (Exception e) {
+            throw new IOException(e.getMessage(), e);
+        }
+        if (raw == null) throw new IOException("ELM327 yanıt vermedi");
+        String compact = raw.replaceAll("\\s+", "").toUpperCase();
+        if (compact.isEmpty()) throw new IOException("ELM327 yanıt vermedi");
+        // Açık negatif yanıt (7F 0A <NRC>) veya ELM327 "anlaşılmadı" → mod desteklenmiyor.
+        if (compact.contains("7F0A") || compact.equals("?")) return null;
+        return parseDtcResponse(raw, "4A");
     }
 
     /**
@@ -182,20 +271,25 @@ public final class ElmProtocol {
     }
 
     /**
-     * Ham Mode 03 yanıtını DTC listesine çevirir.
+     * Ham Mode 03/07/0A yanıtını DTC listesine çevirir (Patch 11A: yanıt öneki
+     * parametreli — 43/47/4A TEK parser paylaşır, kopyalama YOK).
      *
      * Desteklenen biçimler (ATE0 + ATH0 varsayımı):
      *  - CAN (ISO 15765-4): "43 02 01 71 04 20" — 43'ten sonra 1 SAYAÇ baytı +
      *    kod çiftleri → 43 sonrası bayt sayısı TEK olur, ilk bayt atılır.
      *  - K-line (ISO 9141/14230): "43 01 71 00 00 00 00" — sayaç yok, çerçeve
      *    başına 3 çift (sıfır dolgulu) → bayt sayısı ÇİFT olur.
-     *  - Çok-ECU: her ECU yanıtı ayrı satırda ayrı "43" bloğu.
+     *  - Çok-ECU: her ECU yanıtı ayrı satırda ayrı "43"/"47"/"4A" bloğu.
      *  - ISO-TP uzun yanıt: "0:", "1:" segment önekli satırlar → birleştirilir.
      *
      * "NO DATA" → boş liste (kod yok). "ERROR"/"UNABLE TO CONNECT"/"STOPPED"
      * → IOException (adaptör/araç iletişim sorunu — boş listeyle KARIŞTIRILMAZ).
+     *
+     * @param mode pozitif yanıt öneki: "43" (Mode 03/kayıtlı), "47" (Mode 07/bekleyen),
+     *             "4A" (Mode 0A/kalıcı — bu metoda gelmeden önce "desteklenmiyor" ayrımı
+     *             {@link #readPermanentDTCs()} tarafında yapılmış olmalı).
      */
-    static java.util.List<String> parseDtcResponse(String raw) throws IOException {
+    static java.util.List<String> parseDtcResponse(String raw, String mode) throws IOException {
         java.util.LinkedHashSet<String> codes = new java.util.LinkedHashSet<>();
         if (raw == null) throw new IOException("ELM327 yanıt vermedi");
 
@@ -224,22 +318,30 @@ public final class ElmProtocol {
         if (segmented.length() > 0) bodies.add(segmented.toString());
 
         for (String hex : bodies) {
-            int idx = hex.startsWith("43") ? 0 : hex.indexOf("43");
+            int idx = hex.startsWith(mode) ? 0 : hex.indexOf(mode);
             if (idx < 0) continue;
-            String payload = hex.substring(idx + 2);
+            String payload = hex.substring(idx + mode.length());
             if (payload.length() % 2 == 1) payload = payload.substring(0, payload.length() - 1);
-            // CAN sayaç baytı: 43 sonrası bayt sayısı tekse ilk bayt sayaçtır → at.
+            // CAN sayaç baytı: mode sonrası bayt sayısı tekse ilk bayt sayaçtır → at.
             if ((payload.length() / 2) % 2 == 1) payload = payload.substring(2);
 
             for (int i = 0; i + 4 <= payload.length(); i += 4) {
                 String pair = payload.substring(i, i + 4);
                 if (pair.equals("0000")) continue; // K-line sıfır dolgusu
-                int b1 = Integer.parseInt(pair.substring(0, 2), 16);
-                char letter = "PCBU".charAt((b1 >> 6) & 0x03);
-                codes.add(String.format("%c%d%X%s",
-                    letter, (b1 >> 4) & 0x03, b1 & 0x0F, pair.substring(2)));
+                codes.add(decodeDtcPair(pair));
             }
         }
         return new java.util.ArrayList<>(codes);
+    }
+
+    /**
+     * 2 baytlık (4 hex hane) DTC çiftini P/B/C/U kod string'ine çevirir — Mode 03/07/0A
+     * kod listesi VE Mode 02 freeze-frame tetikleyici DTC'si tarafından paylaşılır
+     * (kopyalama YOK, tek yer).
+     */
+    private static String decodeDtcPair(String pairHex) {
+        int b1 = Integer.parseInt(pairHex.substring(0, 2), 16);
+        char letter = "PCBU".charAt((b1 >> 6) & 0x03);
+        return String.format("%c%d%X%s", letter, (b1 >> 4) & 0x03, b1 & 0x0F, pairHex.substring(2));
     }
 }

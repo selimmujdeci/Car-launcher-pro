@@ -594,6 +594,78 @@ public final class OBDManager {
         }
     }
 
+    /** Patch 11A: BEKLEYEN arıza kodlarını okur (Mode 07). USER önceliğiyle kuyruğa girer. */
+    public java.util.List<String> readPendingDTCs() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::readPendingDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * Patch 11A: KALICI arıza kodlarını okur (Mode 0A). null = mod desteklenmiyor
+     * (bkz. {@link ElmProtocol#readPermanentDTCs()}). USER önceliğiyle kuyruğa girer.
+     */
+    public java.util.List<String> readPermanentDTCs() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::readPermanentDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /** Patch 11B: freeze frame'i tetikleyen DTC'yi okur (Mode 02 PID 02). USER önceliğiyle kuyruğa girer. */
+    public String readFreezeFrameDtc() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::readFreezeFrameDtcRaw).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /** Patch 11B: freeze frame'den jenerik PID okur (Mode 02, frame 0). USER önceliğiyle kuyruğa girer. */
+    public String readFreezeFramePid(String pid) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, () -> p.readFreezeFramePidRaw(pid)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * Patch 11C: tek-seferlik jenerik Mode 01 PID okuma (USER önceliği) — readiness/enum
+     * PID'leri (01/03/1C) için; watchPid rotasyonuna/EXTENDED sürekli poll grubuna DAHİL
+     * DEĞİL (Mali-400 boşta-sıfır-maliyet sözleşmesi bozulmaz — yalnız talep anında çalışır).
+     */
+    public String readPidOnce(String pid) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, () -> p.readPidRaw(pid)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
     // ── PID readers (ElmProtocol'e delege — davranış birebir korunur) ────────
 
     private int readPID_speed() { return elm.readPID_speed(); }

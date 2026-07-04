@@ -1387,6 +1387,136 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-dtc-clear").start();
     }
 
+    // ── Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC ─────────────────
+
+    /** Aktif transport üzerinden BEKLEYEN DTC okur; hiçbiri bağlı değilse IOException. */
+    private java.util.List<String> dtcReadPendingFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readPendingDTCs();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readPendingDTCs();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    /** Aktif transport üzerinden KALICI DTC okur; null = mod desteklenmiyor. */
+    private java.util.List<String> dtcReadPermanentFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readPermanentDTCs();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readPermanentDTCs();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    @PluginMethod
+    public void readPendingDTC(PluginCall call) {
+        new Thread(() -> {
+            try {
+                java.util.List<String> codes = dtcReadPendingFromActive();
+                JSArray arr = new JSArray();
+                for (String c : codes) arr.put(c);
+                JSObject ret = new JSObject();
+                ret.put("codes", arr);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Bekleyen arıza kodu okunamadı";
+                mainHandler.post(() -> call.reject("DTC_READ_FAILED", msg));
+            }
+        }, "obd-dtc-read-pending").start();
+    }
+
+    @PluginMethod
+    public void readPermanentDTC(PluginCall call) {
+        new Thread(() -> {
+            try {
+                // null = Mode 0A desteklenmiyor (2010 öncesi araç) — "kod yok"tan AYRI durum.
+                java.util.List<String> codes = dtcReadPermanentFromActive();
+                JSObject ret = new JSObject();
+                if (codes == null) {
+                    ret.put("supported", false);
+                    ret.put("codes", new JSArray());
+                } else {
+                    JSArray arr = new JSArray();
+                    for (String c : codes) arr.put(c);
+                    ret.put("supported", true);
+                    ret.put("codes", arr);
+                }
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Kalıcı arıza kodu okunamadı";
+                mainHandler.post(() -> call.reject("DTC_READ_FAILED", msg));
+            }
+        }, "obd-dtc-read-permanent").start();
+    }
+
+    // ── Patch 11B: Mode 02 freeze frame ──────────────────────────────────────
+
+    private String freezeFrameDtcFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readFreezeFrameDtc();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readFreezeFrameDtc();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    private String freezeFramePidFromActive(String pid) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readFreezeFramePid(pid);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readFreezeFramePid(pid);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    @PluginMethod
+    public void readFreezeFrameDtc(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String dtc = freezeFrameDtcFromActive();
+                JSObject ret = new JSObject();
+                ret.put("dtc", dtc != null ? dtc : org.json.JSONObject.NULL);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Freeze frame DTC okunamadı";
+                mainHandler.post(() -> call.reject("FREEZE_FRAME_FAILED", msg));
+            }
+        }, "obd-freeze-frame-dtc").start();
+    }
+
+    @PluginMethod
+    public void readFreezeFramePid(PluginCall call) {
+        String pid = call.getString("pid");
+        if (pid == null || pid.isEmpty()) { call.reject("FREEZE_FRAME_FAILED", "pid parametresi eksik"); return; }
+        final String p = pid.toUpperCase(java.util.Locale.ROOT);
+        new Thread(() -> {
+            try {
+                String data = freezeFramePidFromActive(p);
+                JSObject ret = new JSObject();
+                ret.put("data", data != null ? data : org.json.JSONObject.NULL);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Freeze frame PID okunamadı";
+                mainHandler.post(() -> call.reject("FREEZE_FRAME_FAILED", msg));
+            }
+        }, "obd-freeze-frame-pid").start();
+    }
+
+    // ── Patch 11C: tek-seferlik jenerik Mode 01 PID okuma (readiness/enum PID'ler) ──
+
+    private String pidOnceFromActive(String pid) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readPidOnce(pid);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readPidOnce(pid);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    @PluginMethod
+    public void readPidOnce(PluginCall call) {
+        String pid = call.getString("pid");
+        if (pid == null || pid.isEmpty()) { call.reject("PID_ONCE_FAILED", "pid parametresi eksik"); return; }
+        final String p = pid.toUpperCase(java.util.Locale.ROOT);
+        new Thread(() -> {
+            try {
+                String data = pidOnceFromActive(p);
+                JSObject ret = new JSObject();
+                ret.put("data", data != null ? data : org.json.JSONObject.NULL);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "PID okunamadı";
+                mainHandler.post(() -> call.reject("PID_ONCE_FAILED", msg));
+            }
+        }, "obd-pid-once").start();
+    }
+
     // ── OBD internals ───────────────────────────────────────────────────────
 
     /**

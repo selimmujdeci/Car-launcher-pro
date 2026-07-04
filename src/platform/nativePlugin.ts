@@ -481,6 +481,23 @@ export interface CarLauncherPlugin {
   readDTC(): Promise<{ codes: string[] }>;
   clearDTC(): Promise<void>;
 
+  // Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC. Opsiyonel: eski plugin
+  // sürümlerinde bulunmayabilir (dtcService fail-soft çağırır).
+  readPendingDTC?(): Promise<{ codes: string[] }>;
+  // supported=false → araç/adaptör Mode 0A'yı hiç desteklemiyor (2010 öncesi araçlar) —
+  // "kalıcı kod yok" (supported:true, codes:[]) ile KARIŞTIRILMAZ.
+  readPermanentDTC?(): Promise<{ codes: string[]; supported: boolean }>;
+
+  // Patch 11B: Mode 02 freeze frame — native yalnız HAM veri döner, çözümleme TS'te
+  // (StandardPidRegistry.decode, Mode 01 ile AYNI formül). Opsiyonel: eski plugin.
+  readFreezeFrameDtc?(): Promise<{ dtc: string | null }>;
+  readFreezeFramePid?(opts: { pid: string }): Promise<{ data: string | null }>;
+
+  // Patch 11C: tek-seferlik jenerik Mode 01 PID okuma — watchPid rotasyonuna dahil
+  // olmayan bit/enum PID'ler (01/03/1C) için. Opsiyonel: eski plugin sürümlerinde
+  // bulunmayabilir (fail-soft çağrılır).
+  readPidOnce?(opts: { pid: string }): Promise<{ data: string | null }>;
+
   // Uygulama içi OBD cihaz tarama (pair gerektirmeden keşfeder)
   startOBDDiscovery(): Promise<void>;
   stopOBDDiscovery(): Promise<void>;

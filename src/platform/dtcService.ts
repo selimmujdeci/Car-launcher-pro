@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { logError } from './crashLogger';
+import { STANDARD_PID_MAP, decodeStandardPid } from './obd/StandardPidRegistry';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -34,6 +35,41 @@ export interface DTCState {
   /** true → son okuma başarısız; codes bir önceki başarılı okumanın verisini korur */
   isStale: boolean;
 }
+
+/** Patch 11A: Mode 03/07/0A birleşik sonuç — hangi moddan geldiğini `status` taşır. */
+export type DTCStatus = 'stored' | 'pending' | 'permanent';
+
+export interface DTCCodeWithStatus extends DTCCode {
+  status: DTCStatus;
+}
+
+export interface ReadAllDTCsResult {
+  /** stored + pending + permanent birleşik liste (status alanıyla ayrışır). */
+  codes: DTCCodeWithStatus[];
+  /**
+   * false = araç/adaptör Mode 0A'yı (kalıcı kod) HİÇ desteklemiyor (tipik olarak 2010
+   * öncesi araçlar) — bu durum "kalıcı kod yok" (permanentSupported:true, permanent kod
+   * bulunmaz) ile KARIŞTIRILMAMALI; UI bu ayrımı dürüstçe göstermeli.
+   */
+  permanentSupported: boolean;
+}
+
+/** Patch 11B: Mode 02 freeze frame — arızayı tetikleyen an'ın PID anlık görüntüsü. */
+export interface FreezeFrameValue {
+  pid: string;
+  name: string;
+  value: number;
+  unit: string;
+}
+
+export interface FreezeFrameResult {
+  /** Freeze frame'i tetikleyen DTC kodu. */
+  dtc: string;
+  values: FreezeFrameValue[];
+}
+
+/** Freeze frame'de anlamlı görülen PID alt kümesi (Patch 11B görev tanımı). */
+const FREEZE_FRAME_PIDS: readonly string[] = ['0C', '0D', '05', '04', '0B', '0F', '11'];
 
 /* ── DTC Database (Turkish) ──────────────────────────────── */
 
@@ -242,6 +278,92 @@ export async function clearDTCCodes(): Promise<void> {
       isClearing: false,
       error: err instanceof Error ? err.message : 'Silme sırasında hata oluştu',
     });
+  }
+}
+
+/**
+ * Patch 11A: kayıtlı (Mode 03) + bekleyen (Mode 07) + kalıcı (Mode 0A) arıza kodlarını
+ * TEK çağrıda okur. Her mod BAĞIMSIZ dener (fail-soft) — biri hata verirse/eski native
+ * plugin'de yoksa diğerleri yine döner. Web/demo modda boş sonuç (bu API yalnız native
+ * cihazda anlamlı; mock akışı readDTCCodes() üzerinden ayrı yürür).
+ *
+ * DTCState/readDTCCodes() modül durumuna DOKUNMAZ — bağımsız, saf-async bir okuma
+ * yüzeyi (gelecekte sesli asistan/bakım beyni de aynı API'yi tüketecek).
+ */
+export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
+  if (!Capacitor.isNativePlatform()) return { codes: [], permanentSupported: true };
+
+  const codes: DTCCodeWithStatus[] = [];
+  let permanentSupported = true;
+
+  try {
+    const r = await CarLauncher.readDTC();
+    (r.codes ?? []).forEach((c) => codes.push({ ..._lookupCode(c), status: 'stored' }));
+  } catch (e) {
+    logError('DTC:ReadAllStoredFailed', e);
+  }
+
+  try {
+    if (CarLauncher.readPendingDTC) {
+      const r = await CarLauncher.readPendingDTC();
+      (r.codes ?? []).forEach((c) => codes.push({ ..._lookupCode(c), status: 'pending' }));
+    }
+  } catch (e) {
+    logError('DTC:ReadAllPendingFailed', e);
+  }
+
+  try {
+    if (CarLauncher.readPermanentDTC) {
+      const r = await CarLauncher.readPermanentDTC();
+      permanentSupported = r.supported;
+      if (r.supported) (r.codes ?? []).forEach((c) => codes.push({ ..._lookupCode(c), status: 'permanent' }));
+    } else {
+      // Eski native plugin — metod hiç yok, "desteklenmiyor" sayılır (dürüst varsayılan).
+      permanentSupported = false;
+    }
+  } catch (e) {
+    logError('DTC:ReadAllPermanentFailed', e);
+    permanentSupported = false;
+  }
+
+  return { codes, permanentSupported };
+}
+
+/**
+ * Patch 11B: Mode 02 freeze frame — arızayı tetikleyen DTC + o anki PID anlık görüntüsü.
+ * Formül çözümlemesi StandardPidRegistry.decode İLE AYNI (Mode 01/02 formülleri özdeş) —
+ * native yalnız ham baytı döner, kopya formül YOK. Her PID bağımsız denenir (fail-soft):
+ * araç bir PID'i freeze frame'de desteklemiyorsa yalnız o PID atlanır, diğerleri gelir.
+ *
+ * @returns null = freeze frame yok / araç desteklemiyor / eski native plugin.
+ */
+export async function readFreezeFrame(): Promise<FreezeFrameResult | null> {
+  if (!Capacitor.isNativePlatform() || !CarLauncher.readFreezeFrameDtc) return null;
+
+  try {
+    const { dtc } = await CarLauncher.readFreezeFrameDtc();
+    if (!dtc) return null; // freeze frame kayıtlı değil
+
+    const values: FreezeFrameValue[] = [];
+    if (CarLauncher.readFreezeFramePid) {
+      for (const pid of FREEZE_FRAME_PIDS) {
+        try {
+          const { data } = await CarLauncher.readFreezeFramePid({ pid });
+          if (!data) continue; // NO DATA/desteklenmiyor — bu PID atlanır, tarama durmaz
+          const value = decodeStandardPid(pid, data);
+          if (Number.isNaN(value)) continue;
+          const def = STANDARD_PID_MAP.get(pid);
+          if (!def) continue;
+          values.push({ pid, name: def.name, value, unit: def.unit });
+        } catch (e) {
+          logError('DTC:FreezeFramePidFailed', e); // tek PID hatası diğerlerini engellemez
+        }
+      }
+    }
+    return { dtc, values };
+  } catch (e) {
+    logError('DTC:FreezeFrameFailed', e);
+    return null;
   }
 }
 
