@@ -42,6 +42,34 @@ public class ElmProtocolTest {
         public void close() { /* no-op */ }
     }
 
+    /**
+     * Patch 12A testleri için: gönderilen HER komutu sırayla kaydeder (header-restore komut
+     * sırasını doğrulamak için) + komut başına SIRALI yanıt kuyruğu destekler (0x78 pending
+     * zincirini simüle etmek için — kuyruktaki SON öğe kalıcı olarak tekrarlanır).
+     */
+    private static final class RecordingFakeChannel implements ElmCommandChannel {
+        final java.util.List<String> sent = new java.util.ArrayList<>();
+        private final java.util.Map<String, java.util.Deque<String>> queues = new java.util.HashMap<>();
+        private final String defaultResponse = "NO DATA";
+
+        RecordingFakeChannel on(String cmd, String... responses) {
+            java.util.Deque<String> q = queues.computeIfAbsent(cmd, k -> new java.util.ArrayDeque<>());
+            for (String r : responses) q.addLast(r);
+            return this;
+        }
+
+        @Override
+        public String send(String cmd, int timeoutMs) {
+            sent.add(cmd);
+            java.util.Deque<String> q = queues.get(cmd);
+            if (q == null || q.isEmpty()) return defaultResponse;
+            return q.size() > 1 ? q.pollFirst() : q.peekFirst();
+        }
+
+        @Override
+        public void close() { /* no-op */ }
+    }
+
     // ── Mode 03 (kayıtlı) — davranış korumasi ───────────────────────────────
 
     @Test
@@ -169,5 +197,182 @@ public class ElmProtocolTest {
         FakeChannel ch = new FakeChannel().on("020C00", "NO DATA");
         ElmProtocol elm = new ElmProtocol(ch);
         assertNull(elm.readFreezeFramePidRaw("0C"));
+    }
+
+    // ── Patch 12A: withEcuHeader — atomik ECU adresleme + restore ───────────
+
+    @Test
+    public void withEcuHeader_basliktaAyarlar_okurVeVarsayilanaRestoreEder() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("22F190", "62 F1 90 30 31")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        String result = elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+
+        assertEquals("3031", result);
+        assertEquals(java.util.Arrays.asList("ATSH7E0", "ATCRA7E8", "22F190", "ATSH7DF", "ATAR"), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader_actionExceptionAtsaBile_restoreCalisir_orijinalFirlatilir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+        RuntimeException boom = new RuntimeException("action patladi");
+
+        try {
+            elm.withEcuHeader("7E0", "7E8", () -> { throw boom; });
+            fail("exception bekleniyordu");
+        } catch (RuntimeException e) {
+            assertEquals(boom, e);
+        }
+        assertEquals(java.util.Arrays.asList("ATSH7E0", "ATCRA7E8", "ATSH7DF", "ATAR"), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader_atarBasarisiz_atcraBosFallbackIleBasarir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("22F190", "62F19031")
+            .on("ATSH7DF", "OK").on("ATAR", "?").on("ATCRA", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        String result = elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+
+        assertEquals("31", result);
+        assertTrue(ch.sent.contains("ATCRA"));
+    }
+
+    @Test
+    public void withEcuHeader_restoreTamamenBasarisiz_actionBasariliysaHeaderRestoreExceptionFirlatir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("22F190", "62F19031")
+            .on("ATSH7DF", "OK").on("ATAR", "?").on("ATCRA", "?");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        try {
+            elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+            fail("HeaderRestoreException bekleniyordu");
+        } catch (ElmProtocol.HeaderRestoreException expected) {
+            // beklenen — action başarılı olsa da restore başarısızlığı sessiz geçilmez.
+        }
+    }
+
+    @Test
+    public void withEcuHeader_actionHemFirlatirHemRestoreBasarisiz_orijinalOncelikli_suppressedEklenir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("ATSH7DF", "?"); // restore ilk adımda başarısız
+        ElmProtocol elm = new ElmProtocol(ch);
+        RuntimeException boom = new RuntimeException("action patladi");
+
+        try {
+            elm.withEcuHeader("7E0", "7E8", () -> { throw boom; });
+            fail("exception bekleniyordu");
+        } catch (RuntimeException e) {
+            assertEquals(boom, e);
+            assertEquals(1, e.getSuppressed().length);
+            assertTrue(e.getSuppressed()[0] instanceof ElmProtocol.HeaderRestoreException);
+        }
+    }
+
+    @Test(expected = IOException.class)
+    public void withEcuHeader_headerAyarlanamazsa_actionCalismazAmaRestoreDenenir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "?") // header kurulamadı
+            .on("ATCRA7E8", "OK")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+        final boolean[] actionCalled = { false };
+
+        try {
+            elm.withEcuHeader("7E0", "7E8", () -> { actionCalled[0] = true; return "unused"; });
+        } finally {
+            assertFalse(actionCalled[0]);
+            assertTrue(ch.sent.contains("ATSH7DF")); // restore yine de denendi
+        }
+    }
+
+    // ── Patch 12A: readDid — UDS Mode 22 ReadDataByIdentifier ────────────────
+
+    @Test
+    public void readDid_pozitifYanit_tekCerceve_dataDoner() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "62 F1 90 30 31 32 33");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertEquals("30313233", elm.readDid("F190"));
+    }
+
+    @Test
+    public void readDid_isoTpCokCerceve_birlesir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("22F190", "0:62 F1 90 30 31 32\n1:33 34 35 36 37 38");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertEquals("303132333435363738", elm.readDid("F190"));
+    }
+
+    @Test
+    public void readDid_nrc31_requestOutOfRange_desteklenmiyor_null() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 31");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertNull(elm.readDid("F190"));
+    }
+
+    @Test
+    public void readDid_nrc33_securityAccessDenied_desteklenmiyor_null() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 33");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertNull(elm.readDid("F190"));
+    }
+
+    @Test
+    public void readDid_nrc78_responsePending_bekleyipBasariliSonucDoner() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("22F190", "7F 22 78")
+            .on("", "62 F1 90 41 42");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertEquals("4142", elm.readDid("F190"));
+        assertEquals(java.util.Arrays.asList("22F190", ""), ch.sent);
+    }
+
+    @Test
+    public void readDid_nrc78_pekCokKezTekrarEttiktenSonraBasarir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("22F190", "7F 22 78")
+            .on("", "7F 22 78", "7F 22 78", "62 F1 90 41");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertEquals("41", elm.readDid("F190"));
+    }
+
+    @Test(expected = IOException.class)
+    public void readDid_digerNrc_hataFirlatir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 22"); // conditionsNotCorrect
+        ElmProtocol elm = new ElmProtocol(ch);
+        elm.readDid("F190");
+    }
+
+    @Test
+    public void readDid_noData_desteklenmiyor_null() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "NO DATA");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertNull(elm.readDid("F190"));
+    }
+
+    @Test(expected = IOException.class)
+    public void readDid_stopped_hataFirlatir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "STOPPED");
+        ElmProtocol elm = new ElmProtocol(ch);
+        elm.readDid("F190");
+    }
+
+    @Test(expected = IOException.class)
+    public void readDid_pendingZamanAsimi_kisaTimeoutIleHizliBiter() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("22F190", "7F 22 78").on("", "7F 22 78");
+        ElmProtocol elm = new ElmProtocol(ch);
+        elm.readDid("F190", 30); // 30ms kısa üst sınır — test 10sn değil, hızlı biter
     }
 }

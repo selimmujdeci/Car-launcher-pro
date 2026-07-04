@@ -498,6 +498,13 @@ export interface CarLauncherPlugin {
   // bulunmayabilir (fail-soft çağrılır).
   readPidOnce?(opts: { pid: string }): Promise<{ data: string | null }>;
 
+  // Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — üretici-özel DID okuma. ECU header
+  // (tx/rx, ör. '7E0'/'7E8') native tarafta ATOMİK ayarlanır+restore edilir (bkz.
+  // ElmProtocol.withEcuHeader). supported:false → DID desteklenmiyor (7F22 31/33 veya
+  // NO DATA) — kalıcı işaretlenmeli, bir daha sorulmamalı. Opsiyonel: eski plugin
+  // sürümlerinde bulunmayabilir (manufacturerPidService fail-soft çağırır).
+  readObdDid?(opts: { tx: string; rx: string; did: string }): Promise<{ data: string | null; supported: boolean }>;
+
   // Uygulama içi OBD cihaz tarama (pair gerektirmeden keşfeder)
   startOBDDiscovery(): Promise<void>;
   stopOBDDiscovery(): Promise<void>;

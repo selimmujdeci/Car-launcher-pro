@@ -487,6 +487,26 @@ public final class BleObdManager {
         }
     }
 
+    /**
+     * Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — bkz. OBDManager.readObdDid aynı desen
+     * (ECU header ayarlama + oku + restore TEK kuyruk görevinde ATOMİK, USER önceliği).
+     *
+     * @return ham data hex (62&lt;DID&gt; soyulmuş); null = DID desteklenmiyor (7F22 31/33 / NO DATA).
+     * @throws Exception iletişim hatası / diğer negatif yanıt / pending zaman aşımı / header restore hatası.
+     */
+    public String readObdDid(String tx, String rx, String did) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readDid(did))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
     // ── Characteristic seçimi (hibrit: bilinen UUID önce, sonra heuristik) ──────────
 
     private void selectCharacteristics(BluetoothGatt g) {

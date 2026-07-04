@@ -666,6 +666,28 @@ public final class OBDManager {
         }
     }
 
+    /**
+     * Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — üretici-özel tek DID okuma.
+     * ECU header (tx/rx) ayarlama + oku + varsayılana restore TEK kuyruk görevinde (USER
+     * önceliği) ATOMİK çalışır — {@link ElmProtocol#withEcuHeader} finally'de restore'u
+     * garanti eder, cmdQueue'nun tek worker thread'i araya başka komut girmesini engeller.
+     *
+     * @return ham data hex (62&lt;DID&gt; soyulmuş); null = DID desteklenmiyor (7F22 31/33 / NO DATA).
+     * @throws Exception iletişim hatası / diğer negatif yanıt / pending zaman aşımı / header restore hatası.
+     */
+    public String readObdDid(String tx, String rx, String did) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readDid(did))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
     // ── PID readers (ElmProtocol'e delege — davranış birebir korunur) ────────
 
     private int readPID_speed() { return elm.readPID_speed(); }

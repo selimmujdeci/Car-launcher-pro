@@ -1517,6 +1517,45 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-pid-once").start();
     }
 
+    // ── Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — üretici-özel DID okuma ──────
+
+    private String readObdDidFromActive(String tx, String rx, String did) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readObdDid(tx, rx, did);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readObdDid(tx, rx, did);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    @PluginMethod
+    public void readObdDid(PluginCall call) {
+        String tx = call.getString("tx");
+        String rx = call.getString("rx");
+        String did = call.getString("did");
+        if (tx == null || tx.isEmpty() || rx == null || rx.isEmpty() || did == null || did.isEmpty()) {
+            call.reject("OBD_DID_FAILED", "tx/rx/did parametreleri eksik");
+            return;
+        }
+        final String t = tx.toUpperCase(java.util.Locale.ROOT);
+        final String r = rx.toUpperCase(java.util.Locale.ROOT);
+        final String d = did.toUpperCase(java.util.Locale.ROOT);
+        new Thread(() -> {
+            try {
+                String data = readObdDidFromActive(t, r, d);
+                JSObject ret = new JSObject();
+                if (data != null) {
+                    ret.put("data", data);
+                    ret.put("supported", true);
+                } else {
+                    ret.put("data", org.json.JSONObject.NULL);
+                    ret.put("supported", false);
+                }
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "DID okunamadı";
+                mainHandler.post(() -> call.reject("OBD_DID_FAILED", msg));
+            }
+        }, "obd-read-did").start();
+    }
+
     // ── OBD internals ───────────────────────────────────────────────────────
 
     /**

@@ -18,6 +18,7 @@ import { getOBDDataSnapshot } from '../obdService';
 import type { OBDData } from '../obdTypes';
 import { watchPid, getPidValue, isPidSupported } from './extendedPidService';
 import { STANDARD_PID_MAP } from './StandardPidRegistry';
+import { watchDid, getDidValue, isDidSupported, getSupportedDids } from './manufacturerPidService';
 
 export interface SensorAnswer {
   /** İnsan-okur sensör adı ("Motor yağı sıcaklığı"). */
@@ -27,7 +28,8 @@ export interface SensorAnswer {
   unit: string;
   /** TTS'e hazır Türkçe cevap cümlesi. */
   text: string;
-  source: 'core' | 'extended';
+  /** Patch 12B: 'manufacturer' = yüklü VehicleDidProfile üzerinden (UDS Mode 22). */
+  source: 'core' | 'extended' | 'manufacturer';
   pid?: string;
 }
 
@@ -46,7 +48,9 @@ function norm(s: string): string {
 
 interface CoreTarget  { kind: 'core'; field: keyof OBDData; name: string; unit: string }
 interface ExtTarget   { kind: 'ext';  pid: string }
-type Target = CoreTarget | ExtTarget;
+/** Patch 12B: yüklü VehicleDidProfile'daki bir DID (manufacturerPidService). */
+interface DidTarget   { kind: 'did';  did: string }
+type Target = CoreTarget | ExtTarget | DidTarget;
 
 /** Normalize edilmiş tetikleyici → hedef. UZUN alias'lar önce denenir (spesifik kazanır). */
 const ALIASES: ReadonlyArray<[string, Target]> = [
@@ -95,12 +99,23 @@ const ALIASES: ReadonlyArray<[string, Target]> = [
   ['voltaj',          { kind: 'core', field: 'batteryVoltage', name: 'Akü voltajı',        unit: 'V'    }],
 ];
 
+/**
+ * Patch 12B: yüklü profildeki DID'lerin Türkçe adlarını alias'a çevirir. Profil YOKSA
+ * (getSupportedDids() boş liste döner) [] — resolveSensor'un davranışı mevcut ALIASES'e
+ * göre DEĞİŞMEZ (profilsiz 15 kilit yeşil kalır). Her çağrıda TAZE üretilir (profil
+ * runtime'da yüklenip kaldırılabilir — modül-yükleme anında SABİTLENEMEZ).
+ */
+function _profileAliases(): Array<[string, Target]> {
+  return getSupportedDids().map((def) => [norm(def.name), { kind: 'did', did: def.did }] as [string, Target]);
+}
+
 /** Soruyu hedefe çözer — uzun (spesifik) alias önce; bulunamazsa null. */
 export function resolveSensor(spoken: string): Target | null {
   const q = norm(spoken);
   if (q.length < 2) return null;
   // Uzunluk sırasına göre: "motor yagi sicakligi" "yag"dan önce denenmeli.
-  const sorted = [...ALIASES].sort((a, b) => b[0].length - a[0].length);
+  const combined: ReadonlyArray<[string, Target]> = [...ALIASES, ..._profileAliases()];
+  const sorted = [...combined].sort((a, b) => b[0].length - a[0].length);
   for (const [alias, target] of sorted) {
     if (q === alias || q.includes(alias)) return target;
   }
@@ -125,7 +140,7 @@ function speak(name: string, value: number, unit: string): string {
   }
 }
 
-function unavailable(name: string, source: 'core' | 'extended', pid?: string): SensorAnswer {
+function unavailable(name: string, source: 'core' | 'extended' | 'manufacturer', pid?: string): SensorAnswer {
   return {
     name, value: null, unit: '', source, pid,
     text: `${name} şu anda okunamıyor.`,
@@ -155,6 +170,49 @@ export async function querySensor(spoken: string): Promise<SensorAnswer | null> 
       name: target.name, value, unit: target.unit, source: 'core',
       text: speak(target.name, value, target.unit),
     };
+  }
+
+  if (target.kind === 'did') {
+    const didDef = getSupportedDids().find((d) => d.did === target.did);
+    if (!didDef) return null; // profil kaldırılmış olabilir — tabloyla senkron değilse dürüstçe null
+
+    // 1) Taze önbellek → anında cevap.
+    const cachedDid = getDidValue(target.did);
+    if (cachedDid && Date.now() - cachedDid.updatedAt < EXT_CACHE_FRESH_MS) {
+      return {
+        name: didDef.name, value: cachedDid.value, unit: didDef.unit, source: 'manufacturer', pid: didDef.did,
+        text: speak(didDef.name, cachedDid.value, didDef.unit),
+      };
+    }
+
+    // 2) KALICI desteklenmiyor (7F-31/33) → bekleme, dürüst cevap.
+    if (isDidSupported(target.did) === false) {
+      return {
+        name: didDef.name, value: null, unit: didDef.unit, source: 'manufacturer', pid: didDef.did,
+        text: `${didDef.name} bu araçta desteklenmiyor.`,
+      };
+    }
+
+    // 3) Geçici abonelik: TAZE ilk değeri bekle, sonra aboneliği bırak (round-robin zamanlayıcı durur).
+    const didStartedAt = Date.now();
+    return new Promise<SensorAnswer>((resolve) => {
+      let done = false;
+      const finish = (answer: SensorAnswer) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        unsub();
+        resolve(answer);
+      };
+      const unsub = watchDid(target.did, (v) => {
+        if (v.updatedAt < didStartedAt) return; // bayat önbellek yankısı — taze okumayı bekle
+        finish({
+          name: didDef.name, value: v.value, unit: didDef.unit, source: 'manufacturer', pid: didDef.did,
+          text: speak(didDef.name, v.value, didDef.unit),
+        });
+      });
+      const timer = setTimeout(() => finish(unavailable(didDef.name, 'manufacturer', didDef.did)), EXT_WAIT_TIMEOUT_MS);
+    });
   }
 
   const def = STANDARD_PID_MAP.get(target.pid);
