@@ -76,6 +76,16 @@
   aktif rota varken nav-intent eşiği düşer ("vazgeç/ne kadar kaldı" navigasyona
   yapışır). Dosya-düzeyi ayrım = "nav parser'a dokundum, müzik bozulmadı"
   garantisi (offline hassasiyet dersinin devamı).
+- **OBD hibrit kapsam ilkesi (İLKE 2026-07-05) + iki boşluk:** ürün GENEL —
+  hiçbir özellik tek transporta/adaptöre göre tasarlanMAZ. Mevcut hibrit:
+  classic BT (3-yol RFCOMM) + BLE GATT + WiFi TCP; otomatik BLE-önce/classic-
+  fallback + transport persist; TCP yalnız açık seçim. Protokol döngüsü CAN'a
+  zorlamaz (KWP/ISO9141 dahil); klon toleransları init'te. BOŞLUKLAR: (1) USB
+  OTG seri ELM327 transportu yok (CH340/FTDI usb-serial; BT+WiFi'si sorunlu
+  ünitelerde en sağlam yol olabilir — aday patch); (2) BLE GATT UUID çeşitliliği
+  (üretici başına farklı servis; yaygın FFE0/FFF0 ailelerinin kapsamı saha
+  testine muhtaç). Yeni OBD özellikleri her üç (ileride dört) transportta da
+  çalışmak zorunda — BleObdManager'a API aynalama disiplini bunun için.
 - **Filo Telemetrisi (VİZYON — B2B ürün, 2026-07-05):** OBD+GPS verisinin buluta
   akışı + web filo panosu. Filo değer önerisi: canlı konum/rota, yakıt takibi
   (hırsızlık tespiti), sürücü davranışı (ani fren/hızlanma/rölanti/aşırı hız),
