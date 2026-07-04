@@ -59,6 +59,14 @@
 
 ## ⏳ Başlanmamış İşler
 
+- **OBD Patch 12 — üretici-özel PID katmanı (UDS Mode 22/ISO-TP):** plan HAZIR →
+  `docs/OBD_PATCH12_PLAN.md` (2026-07-05). ECU adresleme + readDid + 7F/0x78
+  disiplini + profil formatı (eval'sız decode tablosu) + ISO 14229 kesin-kamu
+  başlangıç DID'leri + saha DID keşif aracı. İki ajan aşaması; Patch 11 sonrası.
+- **OBD entegrasyon dalgası (Patch 11-12 sonrası):** querySensor + readAllDTCs +
+  freeze frame + readiness → bakım beyni kartları + sesli asistan araç bağlamı
+  (feat/assistant-open-app işiyle birleşir) + BYOK AI teşhis sentezi (offline'da
+  statik tabloya zarif düşüş; tespit deterministik kalır, AI yalnız yorumlar).
 - **Safety Assistant Faz 3B — VoiceSafetyAnnouncer:** sesli anons + chime + ducking + Sustur
   butonu (`useSafetyMute`). İzole `<SafetyAnnouncer />`, `voiceAnnouncementAlert`'i offline TTS'e
   yönlendirir. Ayrıca `signalsAvailable`'ı CAN handshake/profile'a bağla (gerçek araç canlı verisi).
