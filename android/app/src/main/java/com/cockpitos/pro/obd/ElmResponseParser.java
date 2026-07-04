@@ -1,0 +1,117 @@
+package com.cockpitos.pro.obd;
+
+import java.util.Locale;
+
+/**
+ * ElmResponseParser — ELM327 / SAE J1979 ham yanıt SINIFLANDIRMASI (Patch 4).
+ *
+ * KÖK NEDEN: eski PID okuyucular ({@code ElmProtocol.readPID_*}) yalnızca
+ * {@code indexOf("41XX")} arıyordu — 7F (negatif ECU yanıtı), STOPPED, BUS INIT,
+ * BUFFER FULL, CAN ERROR gibi ELM327/ECU hata sınıfları hiç ayrışmıyor, hepsiyle
+ * "41XX bulunamadı" aynı şekilde -1 (sessizce "desteklenmiyor") sayılıyordu.
+ * RfcommChannel/GattChannel.send() de timeout'ta ne oldu bilgisini kaybederek
+ * kısmi/boş yanıtı sessizce döndürüyordu.
+ *
+ * Bu sınıf METİN İÇERİĞİNDEN sınıflandırma yapar (channel sözleşmesi DEĞİŞMEDİ —
+ * {@link ElmCommandChannel#send} imzası ve davranışı aynı): boş/tanınmayan/eksik
+ * bir yanıt TIMEOUT_PARTIAL sayılır (muhtemelen deadline dolarken yarım kalmış
+ * bayt akışı); "NO DATA" metni NO_DATA; "SEARCHING.../BUS INIT" BUSY; 7F<mode>
+ * NEG_7F; STOPPED/BUFFER FULL/CAN ERROR/BUS ERROR ERROR sayılır.
+ *
+ * DAVRANIŞ KORUMASI (Zero-Change): OK durumunda döndürülen {@code dataHex},
+ * eski {@code indexOf("41XX")} + {@code substring(idx+4, ...)} ile TAM AYNI baytları
+ * verir (İLK eşleşen blok — çok-ECU'da "en iyi" ECU seçimi YAPILMAZ, bu bilinçli
+ * bir kapsam dışı bırakmadır: PID parse formülleri birebir korunmalı). PID
+ * FORMÜLLERİ bu sınıfa hiç taşınmadı — ElmProtocol'de aynen kalır.
+ */
+public final class ElmResponseParser {
+
+    /** Sınıflandırılmış sonuç türü. */
+    public enum Kind {
+        /** Beklenen mode+pid veri bloğu bulundu — {@link Result#dataHex} geçerli. */
+        OK,
+        /** ELM327 "NO DATA" — ECU bu PID'i desteklemiyor / yanıt vermedi (ARIZA DEĞİL). */
+        NO_DATA,
+        /** "SEARCHING..." / "BUS INIT..." — protokol/ECU araması sürüyor. */
+        BUSY,
+        /** "7F <mode> <NRC>" — ECU'nun ayrık NEGATİF yanıtı (Mode desteklenmiyor / koşul sağlanmadı). */
+        NEG_7F,
+        /** "STOPPED" / "BUFFER FULL" / "CAN ERROR" / "BUS ERROR" / "UNABLE TO CONNECT" / "?" — donanım/protokol hatası. */
+        ERROR,
+        /** Boş veya tanınmayan/eksik yanıt — muhtemelen iletişim timeout'u (yarım kalmış bayt akışı). */
+        TIMEOUT_PARTIAL,
+    }
+
+    /** Sınıflandırma sonucu — değişmez (immutable). */
+    public static final class Result {
+        public final Kind kind;
+        /** Kind.OK ise mode+pid'den SONRAKİ ham hex baytlar (boşluksuz, büyük harf); değilse null. */
+        public final String dataHex;
+        /** Ham (trim edilmiş) yanıt — teşhis/loglama için. */
+        public final String raw;
+
+        Result(Kind kind, String dataHex, String raw) {
+            this.kind = kind;
+            this.dataHex = dataHex;
+            this.raw = raw;
+        }
+    }
+
+    private ElmResponseParser() { /* yalnız statik metodlar */ }
+
+    /**
+     * SAE J1979 pozitif yanıt önekinden (ör. "41") ORİJİNAL istek modunu ("01") türetir
+     * (kural: pozitif yanıt = istek modu + 0x40). Geçersiz/anlaşılamayan girişte null döner
+     * (7F kontrolü sessizce atlanır — kritik değil, yalnız sınıflandırma hassasiyeti).
+     */
+    private static String requestModeHex(String positiveModeHex) {
+        try {
+            int v = Integer.parseInt(positiveModeHex, 16) - 0x40;
+            if (v < 0) return null;
+            return String.format(Locale.ROOT, "%02X", v);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Ham ELM327 yanıtını sınıflandırır ve (Kind.OK ise) {@code mode+pid} veri
+     * bloğunu çıkarır.
+     *
+     * @param raw  channel.send() sonucu — trim edilmiş ham yanıt ('\r'/'>' zaten temiz)
+     * @param mode SAE J1979 pozitif yanıt modu hex öneki (ör. Mode 01 → "41", Mode 09 → "49")
+     * @param pid  PID hex (ör. "0D")
+     */
+    public static Result classify(String raw, String mode, String pid) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new Result(Kind.TIMEOUT_PARTIAL, null, raw);
+        }
+        String compact = raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+
+        if (compact.contains("NODATA")) return new Result(Kind.NO_DATA, null, raw);
+        if (compact.contains("SEARCHING") || compact.contains("BUSINIT")) return new Result(Kind.BUSY, null, raw);
+        if (compact.contains("UNABLETOCONNECT") || compact.contains("CANERROR")
+            || compact.contains("BUSERROR") || compact.contains("STOPPED")
+            || compact.contains("BUFFERFULL")) {
+            return new Result(Kind.ERROR, null, raw);
+        }
+
+        // Beklenen veri bloğu — İLK eşleşme (eski indexOf davranışıyla birebir aynı;
+        // çok-ECU "en iyi" seçimi bilinçli olarak yapılmaz, bkz. sınıf yorumu).
+        String needle = mode + pid;
+        int idx = compact.indexOf(needle);
+        if (idx >= 0) {
+            return new Result(Kind.OK, compact.substring(idx + needle.length()), raw);
+        }
+
+        // 7F <request-mode> <NRC> — negatif yanıt REQUEST modunu taşır (pozitif yanıt
+        // önekinden 0x40 az, SAE J1979 kuralı: 41→01, 49→09, vb.), "mode" (pozitif önek) DEĞİL.
+        String reqMode = requestModeHex(mode);
+        if (reqMode != null && compact.contains("7F" + reqMode)) return new Result(Kind.NEG_7F, null, raw);
+        if (compact.equals("?") || compact.contains("ERROR")) return new Result(Kind.ERROR, null, raw);
+
+        // Tanınan bir kalıp yok ve beklenen blok da bulunamadı — muhtemelen kısmi/
+        // gürültülü yanıt (deadline dolarken yarım kalmış bayt akışı).
+        return new Result(Kind.TIMEOUT_PARTIAL, null, raw);
+    }
+}

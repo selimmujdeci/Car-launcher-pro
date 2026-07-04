@@ -34,50 +34,54 @@ public final class ElmProtocol {
         return new ElmInitSequencer(channel).init(protocol);
     }
 
-    // ── PID readers ─────────────────────────────────────────────────────────
-    // Parse formülleri OBDManager'daki orijinalleriyle birebir aynıdır.
+    // ── PID readers (Patch 4: ElmResponseParser ile SINIFLANDIRILMIŞ) ────────
+    // Parse FORMÜLLERİ (bayt→değer dönüşümü) eski OBDManager orijinaliyle birebir
+    // aynı — yalnızca 7F/BUSY/ERROR/TIMEOUT_PARTIAL sınıfları artık ayrışıyor
+    // (son sonuç yine -1, ama diag katmanı ileride bu ayrımı loglayabilir).
 
     public int readPID_speed() {
-        try {
-            String r = channel.send("010D", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("410D");
-            if (idx >= 0 && r.length() >= idx + 6)
-                return Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-        } catch (Exception ignored) {}
+        ElmResponseParser.Result r = sendAndClassify("010D", 1500, "41", "0D");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            try { return Integer.parseInt(r.dataHex.substring(0, 2), 16); } catch (Exception ignored) {}
+        }
         return -1;
     }
 
     public int readPID_rpm() {
-        try {
-            String r = channel.send("010C", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("410C");
-            if (idx >= 0 && r.length() >= idx + 8) {
-                int a = Integer.parseInt(r.substring(idx + 4, idx + 6), 16);
-                int b = Integer.parseInt(r.substring(idx + 6, idx + 8), 16);
+        ElmResponseParser.Result r = sendAndClassify("010C", 1500, "41", "0C");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 4) {
+            try {
+                int a = Integer.parseInt(r.dataHex.substring(0, 2), 16);
+                int b = Integer.parseInt(r.dataHex.substring(2, 4), 16);
                 return ((a * 256) + b) / 4;
-            }
-        } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+        }
         return -1;
     }
 
     public int readPID_temp() {
-        try {
-            String r = channel.send("0105", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("4105");
-            if (idx >= 0 && r.length() >= idx + 6)
-                return Integer.parseInt(r.substring(idx + 4, idx + 6), 16) - 40;
-        } catch (Exception ignored) {}
+        ElmResponseParser.Result r = sendAndClassify("0105", 1500, "41", "05");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            try { return Integer.parseInt(r.dataHex.substring(0, 2), 16) - 40; } catch (Exception ignored) {}
+        }
         return -1;
     }
 
     public int readPID_fuel() {
-        try {
-            String r = channel.send("012F", 1500).replaceAll("\\s+", "").toUpperCase();
-            int idx = r.indexOf("412F");
-            if (idx >= 0 && r.length() >= idx + 6)
-                return (int) (Integer.parseInt(r.substring(idx + 4, idx + 6), 16) * 100.0 / 255.0);
-        } catch (Exception ignored) {}
+        ElmResponseParser.Result r = sendAndClassify("012F", 1500, "41", "2F");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            try { return (int) (Integer.parseInt(r.dataHex.substring(0, 2), 16) * 100.0 / 255.0); } catch (Exception ignored) {}
+        }
         return -1;
+    }
+
+    /** channel.send() + ElmResponseParser.classify() — iletişim hatasını ERROR sınıfına çevirir. */
+    private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
+        try {
+            return ElmResponseParser.classify(channel.send(cmd, timeoutMs), mode, pid);
+        } catch (Exception e) {
+            return new ElmResponseParser.Result(ElmResponseParser.Kind.ERROR, null, null);
+        }
     }
 
     // ── DTC (SAE J1979 Mode 03 / 04) ────────────────────────────────────────
