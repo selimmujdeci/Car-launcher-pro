@@ -1,7 +1,25 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app`.
+> Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
+
+## ⭐ SON İŞ (2026-07-04 #7): OBD Core v2 — Patch 1-7 tamamlandı
+
+`feat/obd-core-v2` dalında 7 atomik patch (`f3996a4..371c7c2`, push edilmedi). BC8
+kararsız döngü kök nedenleri kapatıldı: obdStatus reason disiplini (P1), iptal
+edilebilir connect (P2), doğrulamalı init + protokol öğrenme (P3), yanıt parser (P4),
+öncelikli komut kuyruğu (P5), adaptif kademeli polling + yeni PID'ler
+throttle/intake/boost/ATRV-voltaj (P6), sağlık skorları `getObdHealth()` (P7).
+P6-P7'nin TS tarafı önceki oturum limitinde yarım kalmıştı — bu oturumda tamamlandı.
+Doğrulama: vitest **1885 yeşil**, vite build OK, `compileDebugJavaWithJavac` OK.
+Kilit testler: `obdCoreV2.patch6.test.ts` + `obdCoreV2.patch7.test.ts`.
+
+**Devralan bilsin:** (1) cihaz doğrulaması YAPILMADI — K24'e bağlanınca İLK İŞ
+`settings put system can_send_info_package_name com.cockpitos.pro` (TTS testi
+lever'ı kapatmıştı); (2) K24 için sıradaki yol WiFi ELM327 TCP transport (native
+`tcpSocket` ölü alan, `ObdTransport`'ta 'tcp' yok); (3) sağlık skorları + yeni
+PID'ler UI'a bağlanmadı; (4) çalışma ağacındaki DrawerShell/Freeze/voice-wav
+değişiklikleri BAŞKA işin WIP'i — OBD commit'lerine bilinçli dahil edilmedi.
 
 ## ⭐ SON İŞ (2026-07-04 #6): Duster "BAŞLATILAMADI / Unexpected token ." — plugin-legacy modernTargets
 

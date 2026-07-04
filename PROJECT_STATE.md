@@ -8,7 +8,35 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `feat/assistant-open-app` — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
+
+## ⭐ OBD CORE V2 — Patch 1-7 TAMAM (2026-07-04)
+
+BC8 kararsız bağlantı döngüsü + ELM327 güvenilirlik yükseltmesi. 7 atomik patch,
+hepsi commit'li (`f3996a4..371c7c2`), suite **1885 yeşil** + `compileDebugJavaWithJavac` OK:
+
+1. **obdStatus reason disiplini** — reconnect fırtınası kök nedeni: dinleyici içeriğe
+   bakmadan her event'te reconnect tetikliyordu; artık yalnız `link_lost` (veya eski
+   APK geri-uyum: reason yok) tetikler.
+2. **İptal edilebilir native connect** — bloklu `socket.connect()` disconnect ile kesilebilir.
+3. **Doğrulamalı ELM init + protokol öğrenme** — ElmInitSequencer yanıtları doğrular
+   (SEARCHING/klon toleransı), ATDPN ile öğrenilen protokol persist → sonraki bağlantı aramasız.
+4. **ElmResponseParser** — yapılandırılmış yanıt sınıflandırması (OK/NO_DATA/ERROR/…).
+5. **ElmCommandQueue** — öncelik sıralı tek-komut kuyruğu; DTC (USER) poll komutlarının arasına girer.
+6. **AdaptivePollingController + kademeli PID grupları** — FAST (hız/RPM, 250-1000ms
+   tier'a göre; weak head unit ≥5s modda moda uyar) / SLOW (temp/fuel/throttle/intake/boost,
+   5 turda bir) / ATRV voltaj (10 turda bir). `setObdPollProfile` köprüsü fail-soft (eski APK'da
+   native 3s varsayılanı). Yeni PID'ler 0x11/0x0F/0x0B + ATRV artık GERÇEKTEN okunuyor
+   (obdPidConfig iletiyordu, native hiç sorgulamıyordu). Sanitizer SAE sınırları + ATRV→batteryVoltage.
+7. **ObdHealthMonitor** — `getObdHealth()`: connectionQuality 0-100 (sönümlü reconnect
+   baskısı + aktif periyoda göreli bayatlık), sensorReliability alan→0-100 (sanitizer
+   kabul/red, yarı-ömür 5dk). `src/platform/obd/`.
+
+**Açık işler:** (a) cihazda canlı doğrulama YOK (K24: `settings put system
+can_send_info_package_name com.cockpitos.pro` İLK İŞ — TTS lever kapalı kalmıştı);
+(b) WiFi ELM327 TCP transport hâlâ yok (`OBDManager.tcpSocket` ölü alan, `ObdTransport`
+tipinde 'tcp' yok) — K24 için sıradaki yol; (c) sağlık skorları + yeni PID'lerin UI
+widget bağlantısı yapılmadı; (d) sesli komut entegrasyonu (MVP #16) yapılmadı.
 
 ## ⭐ DUSTER "BAŞLATILAMADI / Unexpected token ." — plugin-legacy modernTargets (2026-07-04)
 
