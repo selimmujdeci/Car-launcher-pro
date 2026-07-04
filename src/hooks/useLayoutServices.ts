@@ -20,6 +20,7 @@ import {
 } from '../platform/systemSettingsService';
 import { startGPSTracking, stopGPSTracking, feedBackgroundLocation } from '../platform/gpsService';
 import { startOBD, stopOBD, setObdFuelConfig } from '../platform/obdService';
+import { syncManufacturerDidProfile } from '../platform/obd/profiles';
 import { startWifiService, stopWifiService } from '../platform/wifiService';
 import { isNative } from '../platform/bridge';
 import { CarLauncher } from '../platform/nativePlugin';
@@ -89,6 +90,19 @@ export function useLayoutServices({
     startOBD();
     return () => { stopOBD(); };
   }, []);
+
+  // Patch 12D: üretici-özel UDS DID profili — boot'ta VE ayar değiştiğinde AYNI yoldan
+  // bağlanır (manufacturerPidService.loadProfile öncesi bu hiçbir yerden çağrılmıyordu,
+  // profiller ölü kod kalıyordu). Mali-400 sözleşmesi bozulmaz: loadProfile yalnız DID
+  // tablosunu belleğe derler, izleyici yokken (SensorPanel kapalı + sesli sorgu yok)
+  // zamanlayıcı hiç kurulmaz — bkz. manufacturerPidService._syncTimer.
+  useEffect(() => {
+    const result = syncManufacturerDidProfile(settings.manufacturerDidProfileId);
+    if (!result.ok) {
+      logError('useLayoutServices:manufacturerDidProfile', new Error(result.errors?.join('; ') ?? 'bilinmeyen doğrulama hatası'));
+    }
+    return () => { syncManufacturerDidProfile('none'); };
+  }, [settings.manufacturerDidProfileId]);
 
   // OBD yakıt konfigürasyonu — aktif araç profili değiştiğinde güncelle
   // Fix 5: ham fuelLevel % → fuelRemainingL + estimatedRangeKm hesabı için gerekli

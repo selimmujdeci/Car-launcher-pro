@@ -32,6 +32,7 @@ import { ExpertTrustGauge, HEAVY_INERTIA_STYLE } from './expert/ExpertTrustGauge
 import { ExpertRecoveryAction } from './expert/ExpertRecoveryAction';
 import { CRMInspector }        from './expert/CRMInspector';
 import { CognitiveInspector }  from './expert/CognitiveInspector';
+import { ManufacturerDidInspector } from './expert/ManufacturerDidInspector';
 
 export type ExpertModeState = 'INIT' | 'SEARCHING' | 'UNVERIFIED' | 'SECURE';
 
@@ -346,6 +347,9 @@ export const ExpertModePanel = memo(function ExpertModePanel() {
 
       {/* Bilişsel Motor Teşhis Paneli */}
       <CognitiveInspector />
+
+      {/* Üretici DID Profili + Saha Keşif Aracı (Patch 12D) */}
+      <ManufacturerDidInspector />
 
     </div>
   );

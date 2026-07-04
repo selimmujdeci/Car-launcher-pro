@@ -2,13 +2,54 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-07-04.
+> Son güncelleme: 2026-07-05.
 
 ---
 
 ## Aktif Branch
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
+
+## ⭐ OBD CORE V2 — Patch 12D: PROFİL BAĞLAMASI + UI + TESTLER (2026-07-05)
+
+12C çekirdeğinin (ölü kod kalan profiller) gerçek bağlanması:
+
+- **Profil yükleme bağlaması** — `src/platform/obd/profiles/index.ts` (yeni):
+  `MANUFACTURER_DID_PROFILES` kayıt defteri (`universal-uds`→universalUdsProfile,
+  `renault-dacia`→renaultDaciaProfile) + `syncManufacturerDidProfile(id)` (React'siz
+  saf fonksiyon, loadProfile/unloadProfile'ı sarar). `useStore.ts` yeni ayar alanı
+  `settings.manufacturerDidProfileId` (varsayılan **`universal-uds`** — marka bağımsız
+  ISO 14229-1 seti, Mali-400 sıfır-maliyet sözleşmesi sayesinde izleyici yokken hiç
+  ek trafik yaratmaz). `useLayoutServices.ts` yeni effect: boot'ta VE ayar
+  değiştiğinde AYNI yoldan `syncManufacturerDidProfile` çağrılır (önceden
+  `loadProfile` HİÇBİR yerden çağrılmıyordu).
+- **SensorPanel "Marka Verileri" bölümü** (`src/components/obd/SensorPanel.tsx`) —
+  profil yüklüyse (`getSupportedDids().length>0`) görünür; `watchDid` ile `active`
+  prop disiplini (drawer kapanınca abonelik bırakılır); metin DID'ler (VIN vb.)
+  string gösterilir; F190 değeri DEĞİŞTİĞİNDE (edge-triggered, her render'da DEĞİL —
+  `verifyVinAgainstMode09` her çağrıda teşhis timeline'a event yazıyor, spam
+  önlendi) VIN çapraz doğrulama rozeti (`matched:null` iken rozet YOK — dürüstlük).
+- **DID keşif ekranı** — `src/components/settings/expert/ManufacturerDidInspector.tsx`
+  (yeni), `ExpertModePanel`'e eklendi (CRMInspector/CognitiveInspector deseniyle
+  aynı): profil seçici (none/universal-uds/renault-dacia radio → `updateSettings`,
+  gerçek yükleme hook'ta tek noktadan) + keşif aracı (tx/rx/from/to varsayılan
+  7E0/7E8/2200/22FF, ilerleme çubuğu, iptal, pozitif sonuç listesi, JSON dışa
+  aktarma — `@capacitor/clipboard` ile panoya kopyala, `OBDDiagnosticTimeline`
+  ile AYNI fail-soft desen; T507 gibi adb'siz cihazlar için seçilebilir textarea).
+- **Testler** — yeni `src/__tests__/obdCoreV2.patch12c.test.ts` (23 test): ascii
+  decode (çok baytlı, temizleme, yetersiz/boş veri → NaN, trim), verifyVinAgainstMode09
+  (henüz okunmadı/mode09 yok/eşleşme/uyuşmazlık), didDiscoveryService (tam tarama,
+  plugin_unavailable, abort — mevcut DID biter sıradaki başlamaz, baştan aborted
+  signal, connection_lost kısmi sonuç, JSON export şekli), her iki gerçek profil
+  dosyasının şema doğrulamasından geçtiği, profiles/index registry + sync davranışı.
+  Suite **2030 yeşil** (+23), tsc temiz, vite build OK. Java'ya dokunulmadı.
+
+**Bilinçli bırakılan eksikler:** cihaz doğrulaması YOK (varsayılan `universal-uds`
+profilinin K24/T507'de gerçekten 7E0/7E8 üzerinden yanıt alıp almadığı sahada test
+edilmedi); Renault/Dacia profili hâlâ yalnız evrensel DID'leri içeriyor (marka-özel
+DID keşif aracıyla sahada büyütülecek — bilinçli, plan gereği); React hook
+(`useLayoutServices` effect'i) doğrudan render-test edilmedi, yalnız sarmalanan saf
+fonksiyon (`syncManufacturerDidProfile`) test edildi (projede renderHook deseni yok).
 
 ## ⭐ OBD CORE V2 — Patch 12A+B: UDS MODE 22 ALTYAPISI (2026-07-05)
 

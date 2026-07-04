@@ -6,6 +6,7 @@ import { RuntimeMode }           from '../core/runtime/runtimeTypes';
 import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
 import { setObdVehicleType } from '../platform/obdService';
 import { safeStorage } from '../utils/safeStorage';
+import type { ManufacturerDidProfileId } from '../platform/obd/profiles';
 import {
   DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE, DEFAULT_WAKE_MODE,
   DEFAULT_PERSONALITY, DEFAULT_CHATTINESS,
@@ -185,6 +186,14 @@ export interface AppSettings {
   editMode: boolean;
   obdAutoSleep: boolean;
   obdSleepDelayMin: number;
+  /**
+   * Patch 12D: üretici-özel UDS DID profili seçimi (Mode 22 / ISO-TP katmanı).
+   * 'universal-uds' = marka bağımsız ISO 14229-1 kimlik DID'leri (VIN/parça no/versiyon vb.),
+   * 'renault-dacia' = Renault/Dacia için kamu-doğrulanabilir başlangıç seti (aynı DID'ler,
+   * yalnız etiket farklı — henüz marka-özel doğrulanmış DID yok, bkz. profiles/renaultDaciaProfile).
+   * 'none' = marka verisi tamamen kapalı. Bkz. platform/obd/profiles/index.ts.
+   */
+  manufacturerDidProfileId: ManufacturerDidProfileId;
   weatherFallbackCity: { lat: number; lng: number; name: string } | null;
   vehicleProfiles: VehicleProfile[];
   activeVehicleProfileId: string | null;
@@ -359,6 +368,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   editMode: false,
   obdAutoSleep: false,
   obdSleepDelayMin: 5,
+  // Marka bağımsız ISO 14229-1 kimlik seti varsayılan AÇIK — Mali-400 sıfır-maliyet
+  // sözleşmesi sayesinde izleyici yokken hiçbir ek trafik yaratmaz (bkz. profiles/index.ts).
+  manufacturerDidProfileId: 'universal-uds',
   weatherFallbackCity: null,
   vehicleProfiles: [],
   activeVehicleProfileId: null,

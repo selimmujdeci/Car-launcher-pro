@@ -1,9 +1,45 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
+> Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #13): OBD Core v2 — Patch 12C KISMİ (ajan limitte kesildi)
+## ⭐ SON İŞ (2026-07-05 #14): OBD Core v2 — Patch 12D TAMAMLANDI (profil bağlaması + UI + testler)
+
+12C'nin bıraktığı 4 eksik kapandı (bkz. #13):
+
+1. **Profil yükleme bağlaması** — `src/platform/obd/profiles/index.ts` (yeni):
+   `MANUFACTURER_DID_PROFILES` registry + `syncManufacturerDidProfile(id)` (saf
+   fonksiyon, React'siz). `useStore.ts`: yeni `settings.manufacturerDidProfileId`
+   (`'none'|'universal-uds'|'renault-dacia'`, varsayılan `'universal-uds'` — Mali-400
+   sıfır-maliyet sözleşmesi nedeniyle zararsız, marka-bağımsız). `useLayoutServices.ts`:
+   yeni effect boot'ta VE ayar değişince `syncManufacturerDidProfile` çağırır.
+2. **SensorPanel "Marka Verileri"** — `src/components/obd/SensorPanel.tsx`: profil
+   yüklüyse görünür, `watchDid`+`active` disiplini, metin DID string, VIN çapraz
+   doğrulama rozeti EDGE-TRIGGERED (F190 değişiminde, her render'da DEĞİL —
+   `verifyVinAgainstMode09` her çağrıda `recordDiag` yazıyor, spam'i önlemek için).
+3. **Keşif ekranı** — `src/components/settings/expert/ManufacturerDidInspector.tsx`
+   (yeni), `ExpertModePanel`'e eklendi: profil seçici + tx/rx/from/to keşif aracı
+   (ilerleme/iptal/JSON export/panoya kopyala — T507 adb'siz cihaz için).
+4. **Testler** — `src/__tests__/obdCoreV2.patch12c.test.ts` (yeni, 23 test): ascii
+   decode, verifyVinAgainstMode09 (4 dal), didDiscoveryService (tam tarama/abort
+   ikisi/connection_lost/plugin_unavailable/export), iki gerçek profilin şema
+   doğrulaması, profiles/index registry+sync. **Suite 2030 yeşil** (+23), tsc temiz,
+   vite build OK. Native/Java'ya DOKUNULMADI (12A'nın readObdDid'i aynen kullanıldı).
+
+**Devralan bilsin:** hâlâ CİHAZ DOĞRULAMASI YOK — varsayılan `universal-uds`
+profilinin K24/T507'de 7E0/7E8 üzerinden gerçekten yanıt alıp almadığı sahada
+bilinmiyor (loadProfile zararsız olsa da, ilk sahada test "F190 hiç okunamıyor"
+çıkabilir — bu NORMAL, keşif aracıyla doğru tx/rx bulunur). Renault/Dacia profili
+hâlâ yalnız evrensel DID'leri taşıyor — marka-özel DID keşif aracıyla BÜYÜTÜLECEK
+(bilinçli, plan gereği). `useLayoutServices` effect'i React-render olarak test
+edilmedi (proje renderHook kullanmıyor), yalnız sarmalanan saf fonksiyon test edildi.
+Çalışma ağacında ilgisiz WIP'ler (Freeze/DrawerShell/voice-wav/vite.config/
+gen-clips.mjs/cdp-longtask.mjs/supabase/.temp + yeni görülen
+`navigationHud.turnStep.test.tsx` — başka bir navigasyon oturumunun WIP'i, mevcut
+mock hoisting hatasıyla FAIL ediyor, OBD işine dahil edilmedi/dokunulmadı) bilinçli
+olarak commit dışı bırakıldı.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #13): OBD Core v2 — Patch 12C KISMİ (ajan limitte kesildi)
 
 `6c171ae` (caros-obd-canbus ajanı oturum limitinde öldü; ana oturum diskteki işi
 doğrulayıp — tsc temiz + suite 2007/2007 + guard 97 — SADECE 12C çekirdeğini
