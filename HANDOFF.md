@@ -3,7 +3,17 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-04 #10): OBD Core v2 — Patch 10 WiFi ELM327 TCP transport
+## ⭐ SON İŞ (2026-07-05 #11): OBD Core v2 — Patch 11 teşhis derinliği
+
+`1d7b53e` (caros-obd-canbus ajanı, ana oturumda doğrulandı): Mode 07 bekleyen +
+0A kalıcı DTC (tek parser 43/47/4A; 0A "desteklenmiyor" ≠ "kod yok" dürüst ayrımı)
++ Mode 02 freeze frame (formül TS registry'den, tekrar yok) + readiness/enum
+PID'ler (`StandardPidEnums.ts`, benzin-dizel bit ayrımı) + DTCPanel bölümleri.
+Suite 1973 + 15 Java testi. **Devralan bilsin:** OS entegrasyon dalgası sırada —
+`readAllDTCs`/`readFreezeFrame`/`readDiagnosticStatus` API'leri bakım beyni +
+sesli asistana bağlanacak (ROADMAP'te); Patch 12 planı `docs/OBD_PATCH12_PLAN.md`.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-04 #10): OBD Core v2 — Patch 10 WiFi ELM327 TCP transport
 
 `4c02cbe` (caros-obd-canbus ajanına delege edildi, ana oturumda doğrulandı):
 suite **1951 yeşil** + vite build + Java derlemesi OK. K24'te BT OEM-kilitli

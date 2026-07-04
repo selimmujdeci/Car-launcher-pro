@@ -10,6 +10,25 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ OBD CORE V2 — Patch 11: TEŞHİS DERİNLİĞİ (2026-07-05)
+
+Car Scanner makası — teşhis tarafı kapandı. Tek commit (`1d7b53e`), suite
+**1973 yeşil** (+22 kilit) + 15 Java unit testi + vite build + Java derleme OK:
+
+- **11A** — Bekleyen (Mode 07) + kalıcı (Mode 0A) DTC; 43/47/4A TEK parser
+  (Mode 03 bit-birebir korundu); 0A dürüst ayrım: 7F0A/"?" → null
+  (desteklenmiyor) ≠ NO DATA → boş liste (kod yok).
+- **11B** — Mode 02 freeze frame: native ham bayt, formül TS'te
+  StandardPidRegistry.decode (tekrar yok); readFreezeFrame() DTC + arıza anı.
+- **11C** — `StandardPidEnums.ts`: PID 01 (MIL/DTC sayısı/readiness,
+  benzin-dizel ayrımı), 03 (yakıt çevrimi), 1C (OBD standardı);
+  `readDiagnosticStatus()` fail-soft + allReady muayene özeti.
+- **11D** — DTCPanel bölümleri + muayene rozeti; tek buton tümünü okur.
+
+**Açık:** cihaz doğrulaması yok (0A sessiz-NO-DATA klon riski); readPidOnce
+throttle'sız (sık çağıran tüketici gelirse eklenmeli); bakım beyni/sesli
+asistan entegrasyonu sıradaki dalga (API'ler hazır).
+
 ## ⭐ OBD CORE V2 — Patch 10: WiFi ELM327 TCP TRANSPORT (2026-07-04)
 
 K24'te standart BT OEM-kilitli → OBD'nin TEK yolu WiFi ELM327. Tek commit
