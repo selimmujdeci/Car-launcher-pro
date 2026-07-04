@@ -13,6 +13,7 @@ import { isNative } from './bridge';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
 import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import { repairTranscript } from './asrRepair';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
 import { speakFeedback, speakAssistant, registerTtsEndListener, ttsCancel } from './ttsService';
@@ -753,12 +754,33 @@ export function _dedupeAlts(alternatives: string[] | undefined, top: string): st
   return out.slice(0, STT_MAX_ALTERNATIVES);
 }
 
-/** @internal — n-best: en yüksek güvenli komutu üreten parse'ı seçer (eşitte top). */
+/** n-best aday tavanı: her alternatif + onarılmış varyantı eklenince sınırsız
+ * büyümesin diye (asrRepair.repairTranscript entegrasyonu). */
+const MAX_LOCAL_PARSE_CANDIDATES = 8;
+
+/**
+ * @internal — n-best: en yüksek güvenli komutu üreten parse'ı seçer (eşitte top).
+ *
+ * Offline ASR onarımı (asrRepair.repairTranscript): her alternatifin hemen
+ * ardından onarılmış varyantı da aday listesine eklenir. Onarılmış varyant
+ * YALNIZ orijinalden DAHA YÜKSEK confidence üretirse kazanır (>, ≥ değil) —
+ * eşitlikte orijinal (listede önce gelen) kazanır, fail-soft garantisi budur:
+ * onarım asla mevcut davranışı bozamaz, yalnız iyileştirebilir.
+ */
 export function _bestLocalParse(alts: string[]): ReturnType<typeof parseCommandFull> {
-  let best = parseCommandFull(alts[0]);
+  const candidates: string[] = [];
+  for (const a of alts) {
+    if (candidates.length >= MAX_LOCAL_PARSE_CANDIDATES) break;
+    candidates.push(a);
+    if (candidates.length >= MAX_LOCAL_PARSE_CANDIDATES) break;
+    const repaired = repairTranscript(a);
+    if (repaired && repaired !== a) candidates.push(repaired);
+  }
+
+  let best = parseCommandFull(candidates[0]);
   let bestConf = best.command?.confidence ?? 0;
-  for (let i = 1; i < alts.length; i++) {
-    const r = parseCommandFull(alts[i]);
+  for (let i = 1; i < candidates.length; i++) {
+    const r = parseCommandFull(candidates[i]);
     const c = r.command?.confidence ?? 0;
     if (c > bestConf) { best = r; bestConf = c; }
   }
