@@ -8,8 +8,21 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `feat/assistant-open-app` (HEAD `2a333fa` — offline ASR onarımı) — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- **Aktif branch:** `feat/assistant-open-app` (HEAD `0f1d38a` — 429 kota fix paketi) — **push EDİLMEDİ**, `main`'e merge bekliyor.
 - `main` HEAD: `648fb84` (autoBrightness guard).
+
+## Asistan 429 Kota Fix Paketi (2026-07-04, `0f1d38a`)
+
+Saha: "ilk istek online, sonrakiler offline". Kök neden: 429 kota soğuması sahte
+offline yaşatıyordu. `companionChatProvider.ts` dört düzeltme:
+- 429 pencereleri **sağlayıcı-bazlı** (Groq/Haiku 429'u Gemini'yi kilitlemez).
+- Gemini 429 → **`RetryInfo.retryDelay`** kadar soğuma (5-60sn; sabit 60sn yerine).
+- Tüm adaylar soğumadaysa **dürüst kota cevabı** (`companion_rate_limited` rotası);
+  warmup soğumada atlanır.
+- `repairMusicQuery` timeout'u artık **beyin devre kesicisini beslemez** (eskiden
+  iki müzik komutu = 90sn tam offline kilidi).
+Suite 1814 yeşil + 3 yapısal kilit. **Cihazda canlı doğrulanmadı.** Kalıcı çözüm
+notu: kota şikayeti sürerse Gemini billing.
 
 ## Offline ASR Onarımı (2026-07-04, `2a333fa`)
 

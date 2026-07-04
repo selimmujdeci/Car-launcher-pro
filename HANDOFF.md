@@ -1,9 +1,31 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-07-03. Branch: `fix/k24-can-flood-perf` (HEAD `548d3d4`).
+> Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app` (HEAD `0f1d38a`).
 
-## ✅ SON İŞ (2026-07-04): Offline ASR onarımı — Vosk karışıklık sözlüğü + lexicon snap
+## ✅ SON İŞ (2026-07-04 #2): "İlk istek online, sonrakiler offline" — 429 kota fix paketi
+
+`0f1d38a` (branch `feat/assistant-open-app`) — saha şikayeti: asistan ilk isteği online
+yanıtlıyor, sonrakiler "offline'a düşüyor". Uzak telemetri boştu (cihazdan voice_diag
+hiç gelmemiş), teşhis kod analiziyle: **429 kota soğuma penceresi sahte offline yaşatıyordu.**
+Dört kusur düzeltildi (`companionChatProvider.ts`):
+1. **Çapraz kirlenme:** Groq/Haiku 429'u paylaşılan `_rateLimitedUntil`'ı kurup
+   GEMINI'yi 60sn kilitliyordu → pencereler artık sağlayıcı-bazlı
+   (`_groqRateLimitedUntil`, `_haikuRateLimitedUntil`).
+2. **Sabit 60sn pencere:** Gemini 429 artık Google'ın `RetryInfo.retryDelay`'i kadar
+   bekliyor (`_cooldownFrom429`, taban 5sn/tavan 60sn) — RPM kotasında 5-30sn'de toparlar.
+3. **Sahte aptallaşma:** zincirdeki TÜM adaylar soğumadan atlanınca artık DÜRÜST kota
+   cevabı: "Yapay zeka kotam şu an dolu…" (`companion_rate_limited` rotası — voice_diag'da
+   görünür). Smalltalk yine offline motorda. Warmup soğumada atlanır (kota yakmaz).
+4. **Kesici kirlenmesi:** `repairMusicQuery` (1.8sn mikro-bütçeli opsiyonel müzik-isim
+   onarımı) timeout'u `recordAiNetFailure`'a sayılıyordu → iki müzik komutu üst üste =
+   breaker 90sn TAM offline. Artık kesiciyi beslemez (fail-soft, komut ham sorguyla sürer).
+Test: 5 yeni davranış testi + 3 yapısal regresyon kilidi; tam suite **1814 yeşil**, tsc temiz.
+**Cihazda CANLI doğrulanmadı** — kullanıcının anahtarıyla saha testi gerek. Teşhis ipucu:
+şikayet tekrarlarsa `companion_rate_limited` rotası artık gerçek nedeni söylüyor/logluyor;
+kalıcıysa Gemini faturalandırma (billing) açtırmak kalıcı çözüm.
+
+## ✅ ÖNCEKİ İŞ (2026-07-04): Offline ASR onarımı — Vosk karışıklık sözlüğü + lexicon snap
 
 `2a333fa` (branch `feat/assistant-open-app`) — offline'da Gemini onarımı yokken bozuk
 Vosk transcript'i artık parse öncesi onarılıyor. YENİ saf modül `src/platform/asrRepair.ts`:
