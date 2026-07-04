@@ -429,6 +429,27 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(web![0], 'web dalı grounding miss\'inde sawFailure=true → breaker çift sayımı geri geldi (iki istekte offline)').not.toMatch(/sawFailure\s*=\s*true/);
   });
 
+  it('YAPISAL: named-city hava durumu ham kullanıcı metniyle korunur (Tarsus bug\'ı)', () => {
+    // SAHA 2026-07-04: "İstanbul hava durumu" birkaç turdan sonra Tarsus (yerel/GPS
+    // şehri) havasını söylüyordu. Kök neden: tryLocalWeatherAnswer şehir korumasını
+    // YALNIZ beynin `query`'sine yapıyordu; beyin biriken _history bağlamında şehri
+    // düşürünce weatherQueryNamesCity false → yerel hava dönüyordu. Ham kullanıcı
+    // metni ("İstanbul...") her zaman şehri içerir → o da kontrol edilmeli, ve TÜM
+    // çağrılar ham metni 2. argüman olarak geçmeli.
+    const fn = src.match(/async function tryLocalWeatherAnswer\([\s\S]*?\n\}/);
+    expect(fn, 'tryLocalWeatherAnswer bulunamadı').toBeTruthy();
+    expect(fn![0], 'tryLocalWeatherAnswer ham metni almıyor (rawUserText yok)').toMatch(/rawUserText/);
+    const guardCount = (fn![0].match(/weatherQueryNamesCity\(/g) ?? []).length;
+    expect(guardCount, 'şehir koruması hem query hem ham metin için çalışmalı (≥2 weatherQueryNamesCity)').toBeGreaterThanOrEqual(2);
+    // Tüm ÇAĞRILAR (tanım hariç) ham metni 2. argüman olarak geçmeli
+    const invocations = [...src.matchAll(/(?<!function )tryLocalWeatherAnswer\(([^)]*)\)/g)]
+      .filter((m) => !/:\s*string/.test(m[1])); // tanımı ele
+    expect(invocations.length, 'tryLocalWeatherAnswer çağrısı bulunamadı').toBeGreaterThanOrEqual(3);
+    invocations.forEach((m) => {
+      expect(m[1], `tek-argümanlı çağrı (ham metin geçilmiyor → Tarsus bug'ı): ${m[0]}`).toMatch(/,/);
+    });
+  });
+
   it('YAPISAL: Tavily anahtarı Authorization Bearer header\'ında (gövde api_key DEĞİL)', () => {
     // SAHA 2026-07-04: Tavily güncel API anahtarı yalnız Bearer header'ında kabul
     // ediyor; eski gövde-içi `api_key` alanı 401 veriyor → grounding 429 sonrası

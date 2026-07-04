@@ -478,12 +478,22 @@ async function askCompanionGroq(
  * grounding/tavily/dürüst-fallback zincirine değişmeden devam eder. */
 const WEATHER_QUERY_RE = /\b(hava|yagmur|kar yag|sicaklik|derece|ruzgar)\b/;
 
-async function tryLocalWeatherAnswer(query: string): Promise<string | null> {
-  if (!WEATHER_QUERY_RE.test(norm(query))) return null;
+async function tryLocalWeatherAnswer(query: string, rawUserText?: string): Promise<string | null> {
+  // Hava sorgusu mu? — beyin sorgusu VEYA ham kullanıcı metni "hava/sıcaklık…" içermeli.
+  const isWeather = WEATHER_QUERY_RE.test(norm(query)) ||
+    (rawUserText != null && WEATHER_QUERY_RE.test(norm(rawUserText)));
+  if (!isWeather) return null;
   // BELİRLİ BİR ŞEHİR sorulduysa (İstanbul hava durumu) yerel/GPS havayı DÖNME —
   // null ver ki çağıran web aramasına (grounding/Tavily) gitsin; aksi halde
   // kullanıcı İstanbul sorup bulunduğu yerin (Tarsus) havasını duyuyordu.
+  //
+  // SAHA 2026-07-04 (KÖK NEDEN): şehir kontrolü YALNIZ beynin `query`'sine bakıyordu;
+  // beyin "İstanbul hava durumu"nu web sorgusuna çevirirken şehri DÜŞÜREBİLİYOR
+  // (temp 0.4 + biriken _history bağlamı "şehir anlaşıldı" sayıyor) → weatherQueryNamesCity
+  // false → yerel Tarsus havası dönüyordu. Ham kullanıcı metni ("İstanbul hava durumu")
+  // her zaman şehri içerir → ONU da kontrol et (biri şehir adı verirse yerel havayı DÖNME).
   if (weatherQueryNamesCity(query)) return null;
+  if (rawUserText != null && weatherQueryNamesCity(rawUserText)) return null;
   const narrative = getWeatherNarrative();
   if (!/henüz alınamadı/i.test(narrative)) return narrative;
   try {
@@ -556,7 +566,7 @@ async function askCompanionBrainGroq(
     // Hava sorgusu mu? → arama harcamadan ÖNCE yerel hava servisi denenir
     // (Groq'un "canlı bilgilere bakamıyorum" demesi böyle önlenir — hava zaten
     // cihazda gerçek veri olarak var).
-    const localWeather = await tryLocalWeatherAnswer(parsed.query);
+    const localWeather = await tryLocalWeatherAnswer(parsed.query, text);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_groq' };
     // İNTERNET kararı → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily.
     // Grounding kendi penceresindeyse (429 verdi) tekrar çağırıp boş yere 429 yemeyiz —
@@ -719,7 +729,7 @@ async function askCompanionBrainHaiku(
   const parsed = parseBrainJson(raw);
   if (parsed && parsed.kind === 'web') {
     // Hava sorgusu mu? → yerel hava servisi aramadan ÖNCE denenir (bkz. Groq).
-    const localWeather = await tryLocalWeatherAnswer(parsed.query);
+    const localWeather = await tryLocalWeatherAnswer(parsed.query, text);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_haiku' };
     // İNTERNET → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily (bkz. Groq).
     if (hasGeminiSearch && _now() >= _groundingCooldownUntil) {
@@ -1358,7 +1368,7 @@ export async function tryCompanionBrain(
             // yoksa ikinci grounded çağrıyla (Google Search) gerçek cevabı üret;
             // voiceService'e CHAT olarak dön (web tipini hiç görmez).
             if (result.kind === 'web') {
-              const localWeather = await tryLocalWeatherAnswer(result.query);
+              const localWeather = await tryLocalWeatherAnswer(result.query, trimmed);
               if (localWeather) {
                 pushHistory('user', trimmed);
                 pushHistory('model', localWeather);
