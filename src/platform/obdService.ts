@@ -30,7 +30,7 @@ import {
 import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdProtocol, saveObdProtocol, clearObdProtocol, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -822,9 +822,14 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //     'classic' raporlar ama verileri BLE GATT'tan akar → BLE'yi ÖNCE dene (bounded
   //     BLE_FIRST_TIMEOUT_MS); olmazsa classic'e TAM timeout ile geç. Böylece BLE adaptörde 15s
   //     classic timeout'u boşa beklenmez; gerçek classic adaptör de fallback'te bağlanır.
-  const _primaryTp:  ObdTransport = _transportConfirmed ? (_lastKnownTransport ?? 'ble') : 'ble';
-  const _fallbackTp: ObdTransport = _primaryTp === 'ble' ? 'classic' : 'ble';
-  const _primaryTimeoutMs  = _transportConfirmed ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS;
+  // Patch 10: TCP (WiFi ELM327) kullanıcı/persist AÇIKÇA seçtiğinde devrededir — hibrit
+  // ble↔classic otomatik fallback'ine KATILMAZ. Yanlış IP'de 15s BT taramasına düşmek
+  // saçma olurdu; BT tarafı başarısız olunca TCP'ye sıçramak da YOK (TCP yalnız açık
+  // seçimle). _fallbackTp === null → tek deneme, başarısızsa doğrudan reconnect zincirine düş.
+  const _isTcp = _lastKnownTransport === 'tcp';
+  const _primaryTp:  ObdTransport = _isTcp ? 'tcp' : (_transportConfirmed ? (_lastKnownTransport ?? 'ble') : 'ble');
+  const _fallbackTp: ObdTransport | null = _isTcp ? null : (_primaryTp === 'ble' ? 'classic' : 'ble');
+  const _primaryTimeoutMs  = _isTcp ? CONNECT_TIMEOUT_MS : (_transportConfirmed ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS);
   const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : CONNECT_TIMEOUT_MS;
   let _connectedTp = _primaryTp;
   let _connectResult: { protocol?: string } | void;
@@ -832,6 +837,36 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     _connectResult = await _tryConnectTransport(_primaryTp, _primaryTimeoutMs);
   } catch (ePrimary) {
     if (_stale()) { void _removeNativeHandles(); return; }
+
+    if (_fallbackTp === null) {
+      // TCP: otomatik fallback YOK — tek deneme başarısız oldu, doğrudan yukarı fırlat
+      // (çağıran _scheduleReconnect ile aynı transport'u tekrar dener; BLE/classic'e sıçramaz).
+      if (_isUnableToConnectError(ePrimary)) {
+        _protocolCycleIndex++;
+        if (!_stale()) {
+          recordDiag({
+            stage: 'protocol', status: 'warn',
+            transport: 'tcp',
+            protocol: forcedProtocol ?? null,
+            userMessage: 'Araç protokolü uyuşmadı, farklı protokol deneniyor…',
+            technicalMessage: `UNABLE_TO_CONNECT (tcp) → protokol döngüsü ilerledi (index=${_protocolCycleIndex})`,
+          });
+        }
+      }
+      if (!_stale()) {
+        const timedOut = ePrimary instanceof Error && ePrimary.message.includes('zaman aşımı');
+        emitObdDiag('connect', timedOut ? 'OBD_CONNECT_TIMEOUT' : 'OBD_CONNECT_FAIL', {
+          ..._diagCommon(),
+          transport: 'tcp',
+          protocol:  forcedProtocol ?? 'auto',
+          attempts:  _reconnectAttempts,
+          elapsedMs: performance.now() - _diagT0,
+          msg:       'WiFi (TCP) bağlantısı başarısız',
+        });
+      }
+      throw ePrimary;
+    }
+
     console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
     _merge({ connectionState: 'connecting', deviceName: cand.name });
     try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
@@ -886,7 +921,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     saveObdProtocol(_connectResult.protocol);
     recordDiag({
       stage: 'protocol', status: 'success',
-      transport: _connectedTp === 'ble' ? 'ble' : 'classic',
+      transport: _connectedTp,
       protocol: _connectResult.protocol,
       userMessage: 'Araç protokolü öğrenildi.',
       technicalMessage: `ATDPN → protokol ${_connectResult.protocol} — sonraki bağlantı aramasız`,
@@ -1014,11 +1049,23 @@ const MOCK_ENABLED = import.meta.env['VITE_ENABLE_OBD_MOCK'] === 'true';
  *   Omitted → uses _lastKnownAddress from localStorage (also skips scan);
  *   only falls back to full scan if no address was ever saved.
  *
- * @param transport — optional 'classic' | 'ble'. Persisted alongside the address so
+ * @param transport — optional 'classic' | 'ble' | 'tcp'. Persisted alongside the address so
  *   direct-reconnect uses the correct transport. Omitted → keeps the current Classic
  *   RFCOMM default (backward compatible).
+ *   'tcp' (Patch 10 — WiFi ELM327): address MUST be "ip:port"; does NOT participate in the
+ *   automatic ble↔classic fallback — a single failed attempt goes straight to the reconnect
+ *   chain (no silent jump to Bluetooth on a bad IP).
  */
 export function startOBD(address?: string, pin?: string, transport?: ObdTransport): void {
+  // Patch 10: WiFi ELM327 adresi "ip:port" biçiminde olmalı — kullanıcı elle girer,
+  // native'e HİÇ gönderilmeden dürüst hata (yanlış format 15s BT taramasına düşmez,
+  // TCP zaten fallback'e katılmaz — bu yüzden burada erken elenmezse tek deneme
+  // anlamsız bir soket hatasıyla boşa gider).
+  if (transport === 'tcp' && address && !isValidTcpAddress(address)) {
+    logError('OBD:TcpAddressInvalid', new Error(`Geçersiz WiFi adaptör adresi (ip:port bekleniyor): ${address}`));
+    _merge({ connectionState: 'error', source: 'none' });
+    return;
+  }
   if (address) {
     _lastKnownAddress = address;
     saveObdAddress(address);

@@ -30,7 +30,7 @@ export type ObdStage =
 
 export type ObdDiagStatus = 'pending' | 'success' | 'fail' | 'warn' | 'info';
 
-export type ObdTransport = 'ble' | 'classic' | 'unknown';
+export type ObdTransport = 'ble' | 'classic' | 'tcp' | 'unknown';
 
 export type ObdSeverity = 'low' | 'medium' | 'high';
 

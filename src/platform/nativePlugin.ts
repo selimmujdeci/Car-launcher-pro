@@ -73,10 +73,11 @@ export interface OBDConnectOptions {
   pin?: string;
   /**
    * Bağlantı taşıma katmanı.
-   * 'classic' = Classic Bluetooth SPP/RFCOMM (varsayılan), 'ble' = Bluetooth Low Energy GATT.
+   * 'classic' = Classic Bluetooth SPP/RFCOMM (varsayılan), 'ble' = Bluetooth Low Energy GATT,
+   * 'tcp' = WiFi ELM327 (AP modu, address "ip:port" biçiminde — Patch 10).
    * Belirtilmezse native taraf mevcut Classic RFCOMM yolunu kullanır (geriye dönük uyumlu).
    */
-  transport?: 'classic' | 'ble';
+  transport?: 'classic' | 'ble' | 'tcp';
 }
 
 /**

@@ -1166,9 +1166,9 @@ public class CarLauncherPlugin extends Plugin {
         String protocol = call.getString("protocol");
         java.util.Set<String> pidSet = parsePidSet(call.getArray("pids"));
 
-        // Faz 3: transport bilgisi frontend'den iletilir ('classic' | 'ble').
-        // 'ble' → BLE GATT yolu (BleObdManager); aksi halde (classic/null/eksik/diğer)
-        // mevcut Classic RFCOMM yolu BİREBİR korunur.
+        // Faz 3 + Patch 10: transport bilgisi frontend'den iletilir ('classic' | 'ble' | 'tcp').
+        // 'ble' → BLE GATT yolu (BleObdManager), 'tcp' → WiFi ELM327 yolu (OBDManager.connectTcp),
+        // aksi halde (classic/null/eksik/diğer) mevcut Classic RFCOMM yolu BİREBİR korunur.
         String transport = call.getString("transport");
         android.util.Log.i("OBD", "connectOBD transport=" + (present(transport) ? transport : "classic(default)"));
 
@@ -1202,6 +1202,39 @@ public class CarLauncherPlugin extends Plugin {
                     notifyListeners("obdStatus", event);
 
                     // Patch 3: code — "OBD_UNABLE_TO_CONNECT" | "CONNECT_FAILED" (bkz. ConnectCallback).
+                    mainHandler.post(() -> call.reject(code, error));
+                }
+            });
+            return;
+        }
+
+        if ("tcp".equals(transport)) {
+            // Patch 10: WiFi ELM327 (AP modu) yolu — address "ip:port" biçiminde (ör.
+            // 192.168.0.10:35000). BLUETOOTH_CONNECT/BLUETOOTH_SCAN izin/adapter kontrolleri
+            // BİLİNÇLİ OLARAK YOK: WiFi'de Bluetooth adaptörü kapalı/desteksiz olabilir (K24
+            // gerçeği — standart BT OEM tarafından kilitli) ve TCP soketi bunlardan bağımsızdır.
+            // Tek aktif bağlantı: TCP'ye geçmeden önce varsa BLE'yi temiz kapat (Classic zaten
+            // OBDManager.connectTcp() içinde kendi disconnect()'ini çağırır).
+            if (bleObdManager != null) {
+                try { bleObdManager.disconnect(); } catch (Exception ignored) {}
+            }
+            obd().connectTcp(address, protocol, pidSet, new OBDManager.ConnectCallback() {
+                @Override
+                public void onConnected(String detectedProtocol) {
+                    JSObject result = new JSObject();
+                    if (present(detectedProtocol)) result.put("protocol", detectedProtocol);
+                    mainHandler.post(() -> call.resolve(result));
+                }
+
+                @Override
+                public void onFailed(String error, String code) {
+                    JSObject event = new JSObject();
+                    event.put("state",   "error");
+                    event.put("message", error);
+                    // Patch 1 sözleşmesiyle aynı: bu DENEMENİN başarısızlığı, obdService
+                    // reconnect kararını reject/catch zincirinden alır.
+                    event.put("reason",  "connect_failed");
+                    notifyListeners("obdStatus", event);
                     mainHandler.post(() -> call.reject(code, error));
                 }
             });

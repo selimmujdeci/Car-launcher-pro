@@ -5,7 +5,22 @@ export const OBD_PROFILE_KEY = 'obd:detectedProfile';
 export const OBD_TRANSPORT_KEY = 'obd:lastTransport';
 export const OBD_PROTOCOL_KEY = 'obd:lastProtocol';
 
-export type ObdTransport = 'classic' | 'ble';
+export type ObdTransport = 'classic' | 'ble' | 'tcp';
+
+/**
+ * WiFi ELM327 (AP modu) adres biçimi: "ip:port" (ör. 192.168.0.10:35000).
+ * Host: IPv4 dotted-quad veya hostname karakter seti. Port: 1-65535.
+ */
+const TCP_ADDRESS_RE = /^([a-zA-Z0-9.-]+):(\d{1,5})$/;
+
+/** Patch 10: girilen adresin "ip:port" biçiminde ve port aralığının geçerli olup olmadığını doğrular. */
+export function isValidTcpAddress(address: string): boolean {
+  const m = TCP_ADDRESS_RE.exec(address.trim());
+  if (!m) return false;
+  const host = m[1];
+  const port = Number(m[2]);
+  return !!host && port >= 1 && port <= 65535;
+}
 
 /** Son bilinen BT MAC adresini localStorage'dan okur. */
 export function loadObdAddress(): string | null {
@@ -22,11 +37,11 @@ export function clearObdAddress(): void {
   try { localStorage.removeItem(OBD_ADDRESS_KEY); } catch { /* ignore */ }
 }
 
-/** Son kullanılan taşıma katmanını localStorage'dan okur ('classic' | 'ble'). */
+/** Son kullanılan taşıma katmanını localStorage'dan okur ('classic' | 'ble' | 'tcp'). */
 export function loadObdTransport(): ObdTransport | null {
   try {
     const v = localStorage.getItem(OBD_TRANSPORT_KEY);
-    return v === 'classic' || v === 'ble' ? v : null;
+    return v === 'classic' || v === 'ble' || v === 'tcp' ? v : null;
   } catch { return null; }
 }
 

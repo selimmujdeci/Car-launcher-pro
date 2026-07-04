@@ -100,6 +100,26 @@ public final class OBDManager {
     // disconnect() her ikisini de kapatır (idempotent).
     private volatile Socket tcpSocket = null;
 
+    /**
+     * Patch 10 (WiFi ELM327 TCP transport): deneme soketi — connect() ÇAĞRISINDAN ÖNCE
+     * atanır. pendingSocket'teki Patch 2 sözleşmesiyle BİREBİR aynı: disconnect() başka
+     * thread'den close() çağırırsa bloklu Socket.connect() IOException ile uyanır —
+     * java.net.Socket de BluetoothSocket gibi bu sözleşmeyi sağlar.
+     */
+    private volatile Socket pendingTcpSocket = null;
+
+    /** WiFi ELM327 adaptörüne (AP modu, ör. 192.168.0.10:35000) bağlantı timeout'u. */
+    private static final int TCP_CONNECT_TIMEOUT_MS = 8_000;
+
+    /**
+     * Savunmacı okuma-kilidi backstop'u — RfcommChannel.send() zaten kendi deadline'ını
+     * (timeoutMs parametresi) available()/poll döngüsüyle yönetir; read() yalnız
+     * available()>0 iken çağrılır, bu yüzden normal koşulda hiç bloklamaz. Bu soTimeout
+     * yalnız soket/ağ seviyesinde donmuş bir bağlantıya karşı son çare korumasıdır —
+     * ELM yanıt bekleme disiplinini DEĞİŞTİRMEZ.
+     */
+    private static final int TCP_SO_TIMEOUT_MS = 15_000;
+
     // Transport-agnostik ELM327 protokol katmanı (init + PID parse).
     // RFCOMM stream'leri üzerinde RfcommChannel ile çalışır; davranış birebir korunur.
     private volatile ElmProtocol     elm        = null;
@@ -273,6 +293,89 @@ public final class OBDManager {
         });
     }
 
+    /**
+     * Patch 10 — WiFi ELM327 (TCP) bağlantı yolu. Adres "ip:port" biçiminde (ör.
+     * 192.168.0.10:35000, tipik ELM327 WiFi adaptör AP modu varsayılanı).
+     *
+     * Classic RFCOMM yolundaki SDP/pairing/silent-PIN 3 katmanlı dansı BURADA YOK —
+     * WiFi ELM327 adaptörleri TCP soketini doğrudan kabul eder; eşleşme/izin kavramı
+     * yoktur (BLUETOOTH_CONNECT/BLUETOOTH_SCAN izinleri de gerekmez — çağıran taraf
+     * (CarLauncherPlugin) bu yolu BT izin/adapter kontrollerinden muaf tutar).
+     *
+     * Bağlantı sonrası akış (initELM327 → pollLoop → cmdQueue) Classic ile AYNI —
+     * RfcommChannel yalnız obdInput/obdOutput alanlarını kullanır, transport'a kör.
+     */
+    public void connectTcp(final String ipPort, final String protocol,
+                           final Set<String> pidSet, final ConnectCallback cb) {
+        obdProtocol = present(protocol) ? protocol : null;
+        obdPidSet   = pidSet;
+
+        disconnect();
+
+        obdExecutor.submit(() -> {
+            Thread.currentThread().setName("obd-tcp-connect");
+            try {
+                String[] hostPort = splitIpPort(ipPort);
+                if (hostPort == null) {
+                    throw new IOException("Geçersiz WiFi adaptör adresi (ip:port bekleniyor): " + ipPort);
+                }
+                String host = hostPort[0];
+                int    port = Integer.parseInt(hostPort[1]);
+
+                Socket socket = new Socket();
+                pendingTcpSocket = socket; // Patch 10: connect() ÇAĞRISINDAN ÖNCE — iptal edilebilir (Patch 2 sözleşmesi)
+                try {
+                    socket.connect(new InetSocketAddress(host, port), TCP_CONNECT_TIMEOUT_MS);
+                } catch (Exception connectEx) {
+                    try { socket.close(); } catch (Exception ignored) {}
+                    pendingTcpSocket = null;
+                    throw connectEx;
+                }
+                socket.setSoTimeout(TCP_SO_TIMEOUT_MS);
+
+                tcpSocket = socket;
+                pendingTcpSocket = null; // Patch 10: bağlantı başarılı — sahiplik tcpSocket'e geçti
+                obdInput  = socket.getInputStream();
+                obdOutput = socket.getOutputStream();
+
+                // Transport-agnostik ELM327 protokol katmanı — Classic ile BİREBİR aynı kanal.
+                elm = new ElmProtocol(new RfcommChannel());
+
+                initELM327();
+
+                obdRunning = true;
+                cb.onConnected(detectedProtocol);
+
+                pollLoop();
+
+            } catch (Exception e) {
+                disconnect();
+                String code = (e instanceof ElmInitSequencer.UnableToConnectException)
+                    ? "OBD_UNABLE_TO_CONNECT" : "CONNECT_FAILED";
+                cb.onFailed(e.getMessage(), code);
+            }
+        });
+    }
+
+    /**
+     * "ip:port" adresini ayrıştırır (ör. "192.168.0.10:35000" → {"192.168.0.10","35000"}).
+     * Host boş olamaz, port 1-65535 aralığında sayısal olmalı. Geçersizse null.
+     */
+    private static String[] splitIpPort(String s) {
+        if (s == null) return null;
+        int idx = s.lastIndexOf(':');
+        if (idx <= 0 || idx == s.length() - 1) return null;
+        String host    = s.substring(0, idx);
+        String portStr = s.substring(idx + 1);
+        try {
+            int port = Integer.parseInt(portStr);
+            if (port < 1 || port > 65535) return null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        return new String[] { host, portStr };
+    }
+
     /** ELM327 init dizisi — ElmProtocol'e delege edilir (davranış birebir korunur). */
     private void initELM327() throws IOException {
         detectedProtocol = elm.initELM327(obdProtocol);
@@ -283,8 +386,21 @@ public final class OBDManager {
         return set == null || set.contains(pid);
     }
 
+    /**
+     * Patch 10: pollLoop artık transport-agnostik — obdSocket (Classic) VEYA tcpSocket
+     * (WiFi) hangisi aktifse onun canlılığını kontrol eder. Aynı anda yalnız biri dolu
+     * olur (disconnect() her ikisini de temizler, connect()/connectTcp() başında disconnect()
+     * çağrılır) → çakışma riski yok.
+     */
+    private boolean isTransportAlive() {
+        BluetoothSocket bs = obdSocket;
+        if (bs != null) return bs.isConnected();
+        Socket ts = tcpSocket;
+        return ts != null && ts.isConnected();
+    }
+
     private void pollLoop() {
-        while (obdRunning && obdSocket != null && obdSocket.isConnected()) {
+        while (obdRunning && isTransportAlive()) {
             try {
                 // P2/P3: yalnızca JS'ten gelen PID listesindekiler sorgulanır.
                 // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
@@ -413,9 +529,15 @@ public final class OBDManager {
         // regresyon değil.
         try { BluetoothSocket p = pendingSocket; if (p != null) p.close(); } catch (IOException ignored) {}
         pendingSocket = null;
+        // Patch 10: bekleyen TCP bağlantı denemesi de aynı iptal sözleşmesiyle kapatılır.
+        try { Socket pt = pendingTcpSocket; if (pt != null) pt.close(); } catch (IOException ignored) {}
+        pendingTcpSocket = null;
         try { if (obdInput  != null) { obdInput.close();  obdInput  = null; } } catch (IOException ignored) {}
         try { if (obdOutput != null) { obdOutput.close(); obdOutput = null; } } catch (IOException ignored) {}
         try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}
+        // Patch 10: aktif WiFi (TCP) bağlantısı da kapatılır — idempotent, Classic ile
+        // aynı anda yalnız biri dolu olacağından çift kapanış riski yok.
+        try { if (tcpSocket != null) { tcpSocket.close(); tcpSocket = null; } } catch (IOException ignored) {}
         elm = null;
         detectedProtocol = null;
         // Patch 6: yeni bağlantı staggered poll döngüsünü sıfırdan başlatır.

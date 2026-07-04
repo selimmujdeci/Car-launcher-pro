@@ -12,6 +12,7 @@ import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loade
 import { CarLauncher } from '../../platform/nativePlugin';
 import { startOBD, stopOBD, useOBDConnectionState, useOBDState } from '../../platform/obdService';
 import { looksLikeObd } from '../../platform/obdDiscovery';
+import { saveObdAddress, saveObdTransport, isValidTcpAddress } from '../../platform/obdStorage';
 import { OBDDiagnosticTimeline } from './OBDDiagnosticTimeline';
 import { startSession, setSessionDevice, endSession, recordDiag } from '../../platform/obdDiagnosticRecorder';
 
@@ -53,6 +54,10 @@ export function OBDConnectModal({ open, onClose }: Props) {
   const [pinValue,    setPinValue]    = useState('');
   const [showAll,     setShowAll]     = useState(false);
   const [showDiag,    setShowDiag]    = useState(false);   // teşhis timeline — varsayılan KAPALI
+  // Patch 10: WiFi ELM327 (AP modu) manuel adres girişi — K24 gibi standart BT'si
+  // OEM tarafından kilitli head unit'lerde OBD'ye ulaşmanın TEK yolu.
+  const [wifiAddress, setWifiAddress] = useState('');
+  const [wifiError,   setWifiError]   = useState<string | null>(null);
 
   // Teşhis: bu oturumda "cihaz bulundu" event'i kaydedilen adres → kaynak eşlemesi.
   // (Yalnız spam önleme değil; 'bonded' kaydedilmiş bir adres sonradan canlı gelirse
@@ -270,6 +275,36 @@ export function OBDConnectModal({ open, onClose }: Props) {
 
     stopOBD();
     startOBD(dev.address, pin, dev.transport);
+  };
+
+  /**
+   * Patch 10 — WiFi ELM327 (AP modu) manuel bağlantı. BLE/classic tarama seçimi bir
+   * TAHMİNdir (dual-mod adaptör 'classic' raporlayabilir); burada ise kullanıcı adresi
+   * ELLE ve AÇIKÇA giriyor — belirsizlik yok. Bu yüzden BT tarama akışının aksine adres +
+   * transport BURADA hemen kalıcılaştırılır (startOBD zaten adresi kaydeder; transport'u
+   * yalnız BAŞARILI bağlantı sonrası kaydeder — TCP'de "doğrulanmamış tahmin" kavramı
+   * anlamsız, kullanıcı seçimi zaten kesin).
+   */
+  const handleConnectWifi = () => {
+    const addr = wifiAddress.trim();
+    if (!isValidTcpAddress(addr)) {
+      setWifiError('Geçersiz adres — "ip:port" biçiminde girin (ör. 192.168.0.10:35000).');
+      return;
+    }
+    setWifiError(null);
+    setConnecting(addr);
+    setError(null);
+    setPinTarget(null);
+
+    setSessionDevice({ name: 'WiFi ELM327', address: addr, transport: 'tcp' });
+    recordDiag({ stage: 'select', status: 'info', transport: 'tcp', userMessage: `WiFi adaptör seçildi: ${addr}` });
+    recordDiag({ stage: 'connectClassic', status: 'pending', transport: 'tcp', userMessage: 'WiFi (TCP) adaptörüne bağlanılıyor…' });
+
+    saveObdAddress(addr);
+    saveObdTransport('tcp');
+
+    stopOBD();
+    startOBD(addr, undefined, 'tcp');
   };
 
   // Eski/erişilemez "Eşli" cihazı kaldır (unpair) → listeden çıkar.
@@ -719,6 +754,63 @@ export function OBDConnectModal({ open, onClose }: Props) {
               </>
             );
           })()}
+
+          {/* ── WiFi ELM327 (AP modu) manuel adres girişi — Patch 10 ── */}
+          <div
+            className="flex flex-col"
+            style={{
+              gap: spSm,
+              marginTop: spSm,
+              padding: spMd,
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: rMd,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Wifi style={{ width: iconSm, height: iconSm }} className="text-white/40 shrink-0" />
+              <span className="font-bold uppercase tracking-wider text-white/50" style={{ fontSize: fxs }}>
+                WiFi Adaptör (IP:Port)
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="url"
+                placeholder="192.168.0.10:35000"
+                value={wifiAddress}
+                disabled={!!connecting || !!connected}
+                onChange={(e) => { setWifiAddress(e.target.value); setWifiError(null); }}
+                className="flex-1 min-w-0 bg-transparent outline-none font-mono"
+                style={{
+                  padding: spSm,
+                  fontSize: fsm,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: rSm,
+                  color: 'rgba(255,255,255,0.85)',
+                }}
+              />
+              <button
+                onClick={handleConnectWifi}
+                disabled={!!connecting || !!connected || !wifiAddress.trim()}
+                className="shrink-0 flex items-center justify-center gap-1.5 font-bold uppercase tracking-wider transition-all active:scale-95 disabled:opacity-40"
+                style={{
+                  padding: `${spSm} ${spMd}`,
+                  fontSize: fxs,
+                  borderRadius: rSm,
+                  background: 'rgba(56,189,248,0.12)',
+                  border: '1px solid rgba(56,189,248,0.25)',
+                  color: '#38bdf8',
+                }}
+              >
+                <Wifi style={{ width: iconSm, height: iconSm }} />
+                Bağlan
+              </button>
+            </div>
+            {wifiError && (
+              <span className="text-red-400" style={{ fontSize: fxs }}>{wifiError}</span>
+            )}
+          </div>
 
           {/* ── Teşhis zaman çizelgesi (katlanabilir, varsayılan KAPALI) ── */}
           <div style={{ marginTop: spMd, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: spMd }}>
