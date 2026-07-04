@@ -48,9 +48,11 @@ let _vsabGen      = 0;     // Vision SAB generation sayacı
 
 function _createVisionWorker(): Worker | null {
   try {
+    // CLASSIC (IIFE) worker — modül worker DEĞİL (Chrome 80+ şartını kaldırır);
+    // VisionCompute yalnız statik import kullanır → Chrome 52+'da yüklenir. (§HEAD_UNIT_MATRIX)
     const w = new Worker(
       new URL('./VisionCompute.worker.ts', import.meta.url),
-      { type: 'module', name: 'VisionCompute' },
+      { name: 'VisionCompute' },
     );
     w.onmessage = (e: MessageEvent) => {
       _workerBusy = false;

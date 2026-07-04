@@ -71,20 +71,34 @@ export class VehicleSignalResolver {
     this.gps = gps;
     this.hal = new NativeHALAdapter();
     this._onCrash = onCrash;
-    this._worker = new Worker(
-      new URL('./VehicleCompute.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
-    this._onWorkerMessageBound = this._onWorkerMessage.bind(this);
-    this._worker.addEventListener('message', this._onWorkerMessageBound);
-    this._worker.onerror = (err) => {
-      logError('VehicleCompute:onerror', new Error(err.message ?? 'Worker crash'));
-      runtimeManager.reportFailure('VehicleCompute');
-      runtimeManager.unregisterWorker('VehicleCompute');
-      this._onWorkerMessageBound = null; // crash path'te referansı temizle
+    // ⭐ CLASSIC (IIFE) worker — modül worker DEĞİL. Modül worker Chrome 80+
+    // gerektirir; Duster T507 (64-79) / 8227L (52-74) gibi eski head unit
+    // WebView'larında YÜKLENMEZ (bazı WebView constructor'da senkron throw eder →
+    // eski hâlde CAN katmanı komple ölürdü). VehicleCompute.worker yalnız statik
+    // import + tree-shake edilen import.meta.env.DEV kullanır → Vite bunu classic
+    // IIFE olarak paketler, Chrome 52+'da yüklenir. (§HEAD_UNIT_MATRIX)
+    try {
+      this._worker = new Worker(
+        new URL('./VehicleCompute.worker.ts', import.meta.url),
+        { name: 'VehicleCompute' },
+      );
+      this._onWorkerMessageBound = this._onWorkerMessage.bind(this);
+      this._worker.addEventListener('message', this._onWorkerMessageBound);
+      this._worker.onerror = (err) => {
+        logError('VehicleCompute:onerror', new Error(err.message ?? 'Worker crash'));
+        runtimeManager.reportFailure('VehicleCompute');
+        runtimeManager.unregisterWorker('VehicleCompute');
+        this._onWorkerMessageBound = null; // crash path'te referansı temizle
+        this._worker = null;
+        this._onCrash?.();
+      };
+    } catch (e) {
+      // typeof Worker === 'undefined' veya WebView worker'ı reddetti → fail-soft.
+      // VehicleCompute'un ana-thread karşılığı yok; göstergeler boş kalır ama
+      // boot/UI ayakta. _send null-safe, registerWorker null kabul eder.
+      logError('VehicleCompute:create', e instanceof Error ? e : new Error(String(e)));
       this._worker = null;
-      this._onCrash?.();
-    };
+    }
   }
 
   start(): void {

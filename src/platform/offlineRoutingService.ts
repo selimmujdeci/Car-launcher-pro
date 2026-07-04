@@ -27,6 +27,7 @@ import { Capacitor }        from '@capacitor/core';
 import { logError }          from './crashLogger';
 import { runtimeManager }    from '../core/runtime/AdaptiveRuntimeManager';
 import { systemBoot }        from './system/SystemBoot';
+import { supportsModuleWorker } from './deviceCapabilities';
 import type { RouteStep }    from './routingService';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
@@ -180,6 +181,11 @@ const SEARCH_TIMEOUT_MS = 3_000;
 
 function _getOrCreateNavWorker(): Worker | null {
   if (_navWorker) return _navWorker;
+  // NavigationCompute sql.js (WASM + dinamik import) kullanır → classic IIFE'ye
+  // çevrilemez, modül worker şart (Chrome 80+). Eski head unit WebView'ında
+  // (Duster 64-79 / 8227L 52-74) worker YÜKLENMEZ → null dön, çağıran
+  // computeOfflineRoute straightLineRoute fallback'ine düşer. (§HEAD_UNIT_MATRIX)
+  if (!supportsModuleWorker()) return null;
   try {
     const w = new Worker(
       new URL('./navigation/NavigationCompute.worker.ts', import.meta.url),

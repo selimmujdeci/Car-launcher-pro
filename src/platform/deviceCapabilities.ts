@@ -184,6 +184,26 @@ export function getDeviceTier(): DeviceTier {
   return _tier;
 }
 
+/**
+ * Modül worker (`new Worker(url, { type: 'module' })`) desteği.
+ *
+ * Modül worker'lar **Chrome 80+** gerektirir. Duster T507 (Chrome 64-79) ve
+ * 8227L (52-74) gibi eski head unit WebView'larında `new Worker(...,{type:'module'})`
+ * YÜKLENMEZ (bazı WebView'larda constructor senkron throw eder → boot ölümü).
+ *
+ * Bu yüzden dinamik `import()` / WASM gerektiren ve bu nedenle classic IIFE'ye
+ * çevrilemeyen worker'lar (ör. NavigationCompute → sql.js) bu kapıdan geçmeli;
+ * kapı kapalıysa ana-thread fallback'e düşülür. Classic (IIFE) worker'lar
+ * (VehicleCompute / VisionCompute) bu kısıta tabi DEĞİLDİR — Chrome 52+'da yüklenir.
+ */
+export function supportsModuleWorker(): boolean {
+  if (typeof Worker === 'undefined') return false;
+  const c = getCapabilities();
+  // webViewVersion 0 = bilinmiyor (Android değil / masaüstü dev) → engelleme.
+  if (c.webViewVersion > 0 && c.webViewVersion < 80) return false;
+  return true;
+}
+
 /** Test/teşhis için cache sıfırla. Prod kodu çağırmamalı. */
 export function _resetCapabilitiesForTest(): void {
   _caps = null;

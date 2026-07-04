@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import legacy from '@vitejs/plugin-legacy'
+import { transformWithOxc } from 'vite'
 import type { Plugin } from 'vite'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -113,6 +114,37 @@ function fixLegacyModernDetection(): Plugin {
   };
 }
 
+/**
+ * transpileWorkerToES2015 — Web Worker chunk'larını eski WebView'a indirger.
+ *
+ * ⭐ SAHA KÖK NEDEN (2026-07-04): plugin-legacy Web Worker chunk'larını İŞLEMEZ
+ * (worker'ın `-legacy-` varyantı üretilmez) ve Vite worker alt-build'i
+ * `build.target: es2015`'i UYGULAMIYOR → VehicleCompute/VisionCompute worker
+ * çıktısında `?.` `??` `??=` (ES2020/2021) KALIYOR. Bu sözdizimi Chrome <80'de
+ * (Duster 64-79, 8227L 52-74) satır-1 SyntaxError = worker ölümü. VehicleCompute
+ * artık classic IIFE olarak YÜKLENSE de PARSE edilemiyordu.
+ *
+ * Bu plugin `worker.plugins` içinde renderChunk'ta çalışır; her worker chunk'ını
+ * esbuild ile `es2015`'e indirir (`?.`/`??`/`??=` → eski eşdeğer, inline, polyfill
+ * gerektirmez). NavigationCompute HARİÇ tutulur: o sql.js (WASM + dinamik import)
+ * kullanır, zaten modül-worker/Chrome80+ kapılıdır (bkz. supportsModuleWorker),
+ * es2015'e indirme dinamik import'u bozabilir → dokunma.
+ */
+function transpileWorkerToES2015(): Plugin {
+  return {
+    name: 'transpile-worker-to-es2015',
+    async renderChunk(code, chunk) {
+      // NavigationCompute: modül worker (Chrome 80+), dinamik import/sql.js — dokunma.
+      if (/NavigationCompute/.test(chunk.fileName)) return null;
+      const res = await transformWithOxc(code, chunk.fileName, {
+        lang: 'js',
+        target: 'es2015',       // ?./??/??= → ES2015 eşdeğeri (Chrome 52+ parse eder)
+      });
+      return { code: res.code, map: res.map ?? null };
+    },
+  };
+}
+
 function removeLayers(css: string): string {
   let result = '';
   let i = 0;
@@ -215,6 +247,11 @@ export default defineConfig({
     }),
     fixLegacyModernDetection(), // legacy()'den SONRA: enjekte edilen probe'u çıkarır
   ],
+  // Web Worker chunk'ları plugin-legacy'den GEÇMEZ + worker alt-build build.target'ı
+  // uygulamaz → esbuild ile es2015'e indir (eski WebView'da ?./?? parse hatası fix).
+  worker: {
+    plugins: () => [transpileWorkerToES2015()],
+  },
   build: {
     // NOT: plugin-legacy bu değeri modernTargets ile EZER (chrome64) — burada
     // es2015 yalnız plugin-legacy'siz olası build'ler için emniyet kemeridir.

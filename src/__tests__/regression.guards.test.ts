@@ -22,6 +22,10 @@ import { resolve, join } from 'node:path';
    sabitler → runtime fs yarışına/mock'a/kısmi okumaya PROVABLY bağışık. */
 import commandExecutorSrc from '../platform/commandExecutor.ts?raw';
 import companionChatProviderSrc from '../platform/companion/companionChatProvider.ts?raw';
+import vehicleResolverSrc from '../platform/vehicleDataLayer/VehicleSignalResolver.ts?raw';
+import visionCoreSrc from '../platform/vision/visionCore.ts?raw';
+import offlineRoutingSrc from '../platform/offlineRoutingService.ts?raw';
+import deviceCapabilitiesSrc from '../platform/deviceCapabilities.ts?raw';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -979,5 +983,52 @@ describe('Eski WebView modern paket sözdizimi kilidi (Duster BAŞLATILAMADI)', 
       .toMatch(/modernTargets:\s*'chrome>=64/);
     expect(src, 'modernPolyfills kapatılmış — Chrome 64-78 runtime API eksikleri (Object.fromEntries vb.) çöker')
       .toMatch(/modernPolyfills:\s*true/);
+  });
+});
+
+describe('Eski WebView compute-worker kilidi (VehicleCompute/VisionCompute Chrome 52+)', () => {
+  // KÖK NEDEN (2026-07-04): 3 compute worker `{ type: 'module' }` ile açılıyordu →
+  // modül worker Chrome 80+ ister, Duster (64-79)/8227L (52-74) WebView'ında YÜKLENMEZ.
+  // Ayrıca worker chunk'ları plugin-legacy'den geçmez + build.target uygulanmaz →
+  // ?./??/??= sözdizimi kalır, parse hatası. Fix: Vehicle/Vision classic IIFE +
+  // vite.config transpileWorkerToES2015 (oxc es2015); Navigation modül-worker kapılı.
+
+  it('YAPISAL: VehicleCompute worker classic (type:module DEĞİL) + try/catch fail-soft', () => {
+    expect(vehicleResolverSrc, "VehicleCompute yeniden `type:'module'` yapılmış — Chrome<80 WebView'da worker yüklenmez, CAN katmanı ölür")
+      .not.toMatch(/type:\s*['"]module['"]/);
+    expect(vehicleResolverSrc, 'VehicleCompute.worker referansı kaybolmuş')
+      .toMatch(/VehicleCompute\.worker/);
+    expect(vehicleResolverSrc, 'Worker yaratımı try/catch ile sarılmamış — çok eski WebView constructor throw ederse boot çöker')
+      .toMatch(/try\s*{[\s\S]*new Worker\([\s\S]*catch/);
+  });
+
+  it('YAPISAL: VisionCompute worker classic (type:module DEĞİL)', () => {
+    expect(visionCoreSrc, "VisionCompute yeniden `type:'module'` yapılmış — Chrome<80'de yüklenmez")
+      .not.toMatch(/type:\s*['"]module['"]/);
+    expect(visionCoreSrc).toMatch(/VisionCompute\.worker/);
+  });
+
+  it('YAPISAL: NavigationCompute WebView<80 kapısı (supportsModuleWorker) + modül kalır', () => {
+    expect(offlineRoutingSrc, 'NavigationCompute supportsModuleWorker kapısı kaldırılmış — eski WebView modül worker/sql.js yüklemeye çalışıp çöker')
+      .toMatch(/supportsModuleWorker/);
+    expect(offlineRoutingSrc, "NavigationCompute modül worker olmalı (sql.js dinamik import/WASM) — classic'e çevrilirse build kırılır")
+      .toMatch(/type:\s*['"]module['"]/);
+  });
+
+  it('YAPISAL: supportsModuleWorker Chrome<80 kapısı sabit', () => {
+    expect(deviceCapabilitiesSrc, 'supportsModuleWorker export kaldırılmış')
+      .toMatch(/export function supportsModuleWorker/);
+    expect(deviceCapabilitiesSrc, 'webViewVersion < 80 eşiği kaldırılmış — modül worker Chrome 80+ gerektirir')
+      .toMatch(/webViewVersion\s*<\s*80/);
+  });
+
+  it('YAPISAL: vite.config worker chunk es2015 transpile adımı sabit', () => {
+    const src = read('vite.config.ts');
+    expect(src, 'transpileWorkerToES2015 plugin kaldırılmış — worker chunk ?./?? sözdizimi eski WebView\'da parse hatası')
+      .toMatch(/transpileWorkerToES2015/);
+    expect(src, 'worker.plugins wiring kaldırılmış — transpile adımı worker alt-build\'e bağlanmıyor')
+      .toMatch(/worker:\s*{[\s\S]*plugins:\s*\(\)\s*=>\s*\[\s*transpileWorkerToES2015/);
+    expect(src, 'worker transpile hedefi es2015 değil — ?. ??  Chrome<80\'de düşmez')
+      .toMatch(/target:\s*'es2015'/);
   });
 });
