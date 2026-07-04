@@ -86,6 +86,16 @@ export interface OBDConnectOptions {
 export interface OBDStatusEvent {
   state: 'disconnected' | 'error';
   message?: string;
+  /**
+   * Patch 1 (obdStatus olay disiplini — reconnect fırtınası fix): native taraf obdStatus'u
+   * ÜÇ farklı anlamda yayınlar. Eski native APK bu alanı hiç göndermez (geri-uyum: undefined
+   * → 'link_lost' gibi davranılır).
+   *   'link_lost'       — pollLoop sırasında RFCOMM/GATT beklenmedik koptu → GERÇEK kopma.
+   *   'connect_failed'  — bir connectOBD() DENEMESİ başarısız oldu (zaten reject/catch zincirinde ele alınır).
+   *   'user_disconnect' — bizim kendi disconnectOBD() çağrımızın onayı (kullanıcı eylemi veya
+   *                       transport-fallback geçişi) — reconnect tetiklememeli.
+   */
+  reason?: 'link_lost' | 'connect_failed' | 'user_disconnect';
 }
 
 /**

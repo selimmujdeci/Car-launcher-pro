@@ -444,3 +444,99 @@ describe('obdService — native modu, reconnect backoff', () => {
     unsub();
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   8. PATCH 1 — obdStatus reason disiplini (reconnect fırtınası fix)
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — obdStatus reason disiplini', () => {
+  afterEach(() => {
+    stopOBD();
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("reason='connect_failed'/'user_disconnect' reconnect TETİKLEMEZ (fallback disconnectOBD yankısı)", async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+
+    let statusCallback: ((e: unknown) => void) | null = null;
+    let dataCallback:   ((e: unknown) => void) | null = null;
+    vi.mocked(CarLauncher.addListener).mockImplementation(
+      async (event: string, cb: (e: unknown) => void) => {
+        if (event === 'obdStatus') statusCallback = cb;
+        if (event === 'obdData')   dataCallback   = cb;
+        return { remove: vi.fn() };
+      },
+    );
+
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
+
+    const states: string[] = [];
+    const unsub = onOBDData((d) => states.push(d.connectionState));
+
+    startOBD('AA:BB:CC:DD:EE:FF');
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2_001);
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+
+    // Data gate geçilir — 'connected' state'e ulaşılır.
+    dataCallback?.({ speed: 50, rpm: 1_500 });
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    expect(states).toContain('connected');
+
+    const connectCallsBefore = vi.mocked(CarLauncher.connectOBD).mock.calls.length;
+
+    // Gerçek fallback yankısı: obdService._startNative() transport-fallback yolunda
+    // KENDİ disconnectOBD() çağrısını yapar → native bunu reason='user_disconnect' ile
+    // yayınlar. Bu event bu (aktif/connected) generation'a da düşebilir — reconnect
+    // TETİKLEMEMELİ (BC8 kararsız döngü kök nedeni).
+    statusCallback?.({ state: 'disconnected', reason: 'user_disconnect' });
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(states[states.length - 1]).toBe('connected'); // hâlâ connected — reconnect YOK
+
+    // connect_failed de aynı şekilde yok sayılır (bağlantı DENEMESİ başarısızlığı, ayrı zincirde ele alınır).
+    statusCallback?.({ state: 'error', reason: 'connect_failed' });
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(states[states.length - 1]).toBe('connected');
+
+    // Hiçbir ek connectOBD çağrısı yapılmadı — paralel reconnect başlamadı.
+    expect(vi.mocked(CarLauncher.connectOBD).mock.calls.length).toBe(connectCallsBefore);
+
+    unsub();
+  });
+
+  it("reason='link_lost' reconnect'i BEKLENDİĞİ gibi tetikler", async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+
+    let statusCallback: ((e: unknown) => void) | null = null;
+    let dataCallback:   ((e: unknown) => void) | null = null;
+    vi.mocked(CarLauncher.addListener).mockImplementation(
+      async (event: string, cb: (e: unknown) => void) => {
+        if (event === 'obdStatus') statusCallback = cb;
+        if (event === 'obdData')   dataCallback   = cb;
+        return { remove: vi.fn() };
+      },
+    );
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
+
+    const states: string[] = [];
+    const unsub = onOBDData((d) => states.push(d.connectionState));
+
+    startOBD('AA:BB:CC:DD:EE:FF');
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2_001);
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    dataCallback?.({ speed: 50, rpm: 1_500 });
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    expect(states).toContain('connected');
+
+    statusCallback?.({ state: 'disconnected', reason: 'link_lost' });
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(states).toContain('reconnecting');
+
+    await vi.advanceTimersByTimeAsync(500);
+    unsub();
+  });
+});

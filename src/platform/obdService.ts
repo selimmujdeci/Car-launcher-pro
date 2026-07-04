@@ -185,7 +185,14 @@ let _testOBDOverride: Partial<OBDData> | null = null;
 function _notify(): void {
   const now = Date.now();
   const debounceMs = getConfig().obdListenerDebounce;
-  if (now - _lastNotifyTime < debounceMs) return;
+  // Clock Jump Protection (CLAUDE.md §4): sistem saati GERİYE sıçrarsa (NTP senkronu,
+  // RTC/DST düzeltmesi, saat dilimi değişimi) `now - _lastNotifyTime` NEGATİF olur →
+  // debounce koşulu sonsuza dek doğru kalır ve bildirim SESSİZCE boğulur (UI donmuş
+  // görünür, `_current` güncellenmeye devam eder ama hiçbir dinleyici haberdar olmaz).
+  // Negatif delta HER ZAMAN "debounce süresi dolmuş" sayılır — bildirim hemen geçer
+  // ve saat referansı derhal düzeltilir.
+  const elapsed = now - _lastNotifyTime;
+  if (elapsed >= 0 && elapsed < debounceMs) return;
   _lastNotifyTime = now;
   // DEV: override varsa merge et, production build'de tree-shaked
   const snap: OBDData = (import.meta.env.DEV && _testOBDOverride)
@@ -655,10 +662,20 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   }
 
   // 2. Register disconnect / error listener — set handle immediately to ensure cleanup
+  //
+  // Patch 1 (obdStatus olay disiplini — reconnect fırtınası fix): native taraf obdStatus'u
+  // ÜÇ farklı anlamda yayınlıyor (bkz. CarLauncherPlugin.java onStatusChanged/onFailed×2/
+  // disconnectOBD). Eskiden İÇERİĞE BAKILMADAN her event reconnect tetikliyordu — özellikle
+  // transport-fallback yolunda (aşağıda `CarLauncher.disconnectOBD()` çağrısı, satır ~753)
+  // KENDİ disconnect'imizin yankısı aynı generation'daki bu handle'a "gerçek kopma" gibi
+  // görünüp PARALEL bir reconnect turu başlatıyordu (BC8 kararsız döngü kök nedeni).
+  // Fix: yalnız reason==='link_lost' VEYA reason alanı hiç yoksa (eski APK geri-uyum)
+  // reconnect tetiklenir; 'connect_failed' ve 'user_disconnect' bilinçli olarak yok sayılır.
   const statusHandle = await CarLauncher.addListener(
     'obdStatus',
-    () => {
+    (event: { reason?: 'link_lost' | 'connect_failed' | 'user_disconnect' }) => {
       if (!_running || _nativeGeneration !== myGen) return;
+      if (event.reason !== undefined && event.reason !== 'link_lost') return;
       void _removeNativeHandles().then(() => _scheduleReconnect());
     },
   );

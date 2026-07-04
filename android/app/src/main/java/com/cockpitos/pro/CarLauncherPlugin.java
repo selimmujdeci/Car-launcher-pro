@@ -787,6 +787,10 @@ public class CarLauncherPlugin extends Plugin {
             JSObject event = new JSObject();
             event.put("state",   state);
             event.put("message", message);
+            // Patch 1 (obdStatus disiplini): pollLoop sırasında RFCOMM/GATT beklenmedik koptu
+            // (OBDManager/BleObdManager pollLoop catch → onStatusChanged("disconnected", ...)).
+            // Bu GERÇEK bir link kaybı → obdService reconnect tetiklemeli.
+            event.put("reason",  "link_lost");
             notifyListeners("obdStatus", event);
         }
 
@@ -1159,6 +1163,11 @@ public class CarLauncherPlugin extends Plugin {
                     JSObject event = new JSObject();
                     event.put("state",   "error");
                     event.put("message", error);
+                    // Patch 1: bu bağlantı DENEMESİNİN başarısızlığı — çağıran zaten call.reject
+                    // ile aynı anda haberdar olur (tek hata, çift reaksiyon riski). obdService bu
+                    // olayı YOK SAYAR (reconnect tetiklemez); asıl reconnect kararı reject/catch
+                    // zincirinde (fallback transport deneme / _scheduleReconnect) verilir.
+                    event.put("reason",  "connect_failed");
                     notifyListeners("obdStatus", event);
 
                     mainHandler.post(() -> call.reject("CONNECT_FAILED", error));
@@ -1185,6 +1194,9 @@ public class CarLauncherPlugin extends Plugin {
                 JSObject event = new JSObject();
                 event.put("state",   "error");
                 event.put("message", error);
+                // Patch 1: bkz. BLE onFailed yorumu — bu bağlantı DENEMESİNİN başarısızlığı,
+                // obdService reconnect kararını reject/catch zincirinden alır (çift reaksiyon yok).
+                event.put("reason",  "connect_failed");
                 notifyListeners("obdStatus", event);
 
                 mainHandler.post(() -> call.reject("CONNECT_FAILED", error));
@@ -1203,6 +1215,12 @@ public class CarLauncherPlugin extends Plugin {
 
         JSObject event = new JSObject();
         event.put("state", "disconnected");
+        // Patch 1: bu bizim KENDİ disconnectOBD() çağrımızın onayı (kullanıcı eylemi VEYA
+        // obdService içi transport-fallback geçişi — obdService.ts:753 önce disconnectOBD()
+        // çağırıp sonra fallback transport dener). obdService bu yankıyı YOK SAYAR — aksi halde
+        // aynı generation'daki obdStatus handle'ı bunu "gerçek kopma" sanıp paralel reconnect
+        // başlatırdı (BC8 kararsız döngü kök nedeni).
+        event.put("reason", "user_disconnect");
         notifyListeners("obdStatus", event);
 
         call.resolve();
