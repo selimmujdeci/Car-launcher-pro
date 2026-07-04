@@ -160,6 +160,19 @@ dekoder kutusu** girer; kutu araç CAN'ini okur → head unit'in anladığı **s
 (NWD SDK / SimpleSoft broadcast / seri protokol). `VehicleDataLayer` her soy için
 ayrı dekoder ile beslenmeli; tek protokole gömülü kod yanlış mimari.
 
+### Uygulama durumu (Faz 4)
+- **NWD (K24), SimpleSoft (Duster):** native katmanda çözülür → `CarLauncher.canData`
+  zaten-çözülmüş veri verir.
+- **Raise / Hiworld:** TS `src/platform/canBus/boxProtocol/` — framed-UART çözücü.
+  - ✅ **Framing + checksum BİRİM-TEST'li** (canbox referans wire-format'ı;
+    Raise `[0x2E][type][size][data][chk=(Σ)⊕0xFF]`, Hiworld `[0x5A A5][size][type][data][chk=(Σ)−1]`).
+    `boxProtocol.test.ts` 12 test: parçalı besleme, resync, bit-maske.
+  - ⚠️ **Sinyal byte-map'leri `experimental`** — firmware sürümüne göre değişir;
+    değerler fiziksel sınırlarda doğrulanır (yanlış-ölçek GÖSTERİLMEZ). Canlı
+    kullanım öncesi **saha frame-capture ile firmware başına doğrulanmalı.**
+  - ⏳ **Transport bekliyor:** native seri byte'larını TS'e taşıma (gerçek Raise/Hiworld
+    kutulu cihaz gerekir). Çözücü kütüphane hazır ve transport'tan bağımsız.
+
 ## 6. PAZAR DAĞILIMI VE HEDEFLEME 📚
 
 **Hacim piramidi (kabaca):**
