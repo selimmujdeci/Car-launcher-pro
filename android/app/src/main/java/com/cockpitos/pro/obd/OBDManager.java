@@ -70,6 +70,18 @@ public final class OBDManager {
     private volatile OutputStream    obdOutput  = null;
     private volatile boolean         obdRunning = false;
 
+    /**
+     * Patch 2 (iptal edilebilir native connect): deneme soketi — connect() ÇAĞRISINDAN
+     * ÖNCE atanır (obdSocket'ten AYRI; obdSocket yalnız BAŞARILI bağlantıda dolar).
+     * disconnect() bunu da kapatır → JS Promise.race timeout'u artık native tarafta
+     * bloklu socket.connect()'i GERÇEKTEN iptal edebilir (close() başka thread'den
+     * çağrıldığında bloklu connect() IOException ile uyanır — Android BluetoothSocket
+     * sözleşmesi). Eskiden obdSocket yalnız dönüşte atandığından disconnect() burada
+     * null görüyordu ve tek-thread executor'daki (obdExecutor) tıkalı deneme sonsuza
+     * kadar arkasında kuyruklanan sonraki connect() çağrısını bloke ediyordu.
+     */
+    private volatile BluetoothSocket pendingSocket = null;
+
     // TCP (WiFi ELM327) bağlantısı — Classic BT alanlarından AYRI tutulur.
     // disconnect() her ikisini de kapatır (idempotent).
     private volatile Socket tcpSocket = null;
@@ -144,28 +156,34 @@ public final class OBDManager {
 
                 try {
                     socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                    pendingSocket = socket; // Patch 2: connect() ÇAĞRISINDAN ÖNCE ata — iptal edilebilir
                     socket.connect();
                 } catch (Exception secureEx) {
                     firstErr = secureEx;
                     try { if (socket != null) socket.close(); } catch (Exception ignored) {}
                     socket = null;
+                    pendingSocket = null;
 
                     // 2) Insecure ToServiceRecord
                     try {
                         socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+                        pendingSocket = socket; // Patch 2
                         socket.connect();
                     } catch (Exception insecureEx) {
                         try { if (socket != null) socket.close(); } catch (Exception ignored) {}
                         socket = null;
+                        pendingSocket = null;
 
                         // 3) Reflection createRfcommSocket(1) — SDP'yi tamamen atlar.
                         try { bt.cancelDiscovery(); } catch (Exception ignored) {}
                         try {
                             socket = createReflectionRfcommSocket(device);
+                            pendingSocket = socket; // Patch 2
                             socket.connect();
                         } catch (Exception reflectEx) {
                             try { if (socket != null) socket.close(); } catch (Exception ignored) {}
                             socket = null;
+                            pendingSocket = null;
                             android.util.Log.w("OBD", "RFCOMM 3 yol da başarısız: secure="
                                 + secureEx.getMessage() + " | insecure=" + insecureEx.getMessage()
                                 + " | reflection=" + reflectEx.getMessage());
@@ -176,6 +194,7 @@ public final class OBDManager {
                 }
 
                 obdSocket = socket;
+                pendingSocket = null; // Patch 2: bağlantı başarılı — sahiplik obdSocket'e geçti
                 obdInput  = socket.getInputStream();
                 obdOutput = socket.getOutputStream();
 
@@ -243,6 +262,15 @@ public final class OBDManager {
     /** Bağlantıyı kapatır, akışları serbest bırakır (idempotent). */
     public void disconnect() {
         obdRunning = false;
+        // Patch 2: bekleyen (henüz obdSocket'e taşınmamış) bir bağlantı DENEMESİ varsa
+        // onu da kapat — bloklu socket.connect() IOException ile uyanır, executor
+        // kuyruğunda tıkalı kalmaz. NOT (bilinen sınır): 3 katmanlı yolun bir sonraki
+        // adımı bu kapanıştan HEMEN sonra kendi pendingSocket'ini kurup denemeye devam
+        // edebilir; bu Patch 2 kapsamı dışında (ayrı bir connect-generation iptal
+        // mekanizması gerektirir) — mevcut davranışla aynı risk sınıfında, yeni bir
+        // regresyon değil.
+        try { BluetoothSocket p = pendingSocket; if (p != null) p.close(); } catch (IOException ignored) {}
+        pendingSocket = null;
         try { if (obdInput  != null) { obdInput.close();  obdInput  = null; } } catch (IOException ignored) {}
         try { if (obdOutput != null) { obdOutput.close(); obdOutput = null; } } catch (IOException ignored) {}
         try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}

@@ -122,6 +122,16 @@ public final class OBDBluetoothManager {
     private BluetoothSocket _socket;
     private Future<?>       _activeFuture;
 
+    /**
+     * Patch 2 (iptal edilebilir native connect): deneme soketi — connect() ÇAĞRISINDAN ÖNCE
+     * atanır. `_socket` yalnız BAŞARILI bağlantıda dolar; `Future.cancel(true)` (aşağıda
+     * cancelActiveFuture()) Android'in BluetoothSocket.connect()'inde Thread.interrupt()'a
+     * GÜVENİLİR biçimde yanıt VERMEDİĞİ için tek başına yeterli değildir — gerçek iptal
+     * ancak socket.close() başka bir thread'den çağrılınca (bloklu connect() IOException
+     * ile uyanır) gerçekleşir. closeSocket() artık bunu da kapatır.
+     */
+    private volatile BluetoothSocket _pendingSocket;
+
     private int     _pinIndex          = 0;
     private int     _reconnectAttempts = 0;
     private boolean _userConfirmed     = false;
@@ -369,12 +379,15 @@ public final class OBDBluetoothManager {
             BluetoothSocket socket = null;
             try {
                 socket = _targetDevice.createRfcommSocketToServiceRecord(SPP_UUID);
-                socket.connect(); // bloke — Future.cancel(true) interrupt eder
+                _pendingSocket = socket; // Patch 2: connect() ÇAĞRISINDAN ÖNCE ata — iptal edilebilir
+                socket.connect(); // bloke — closeSocket() ile başka thread'den kesilebilir
                 final BluetoothSocket connected = socket;
                 _socket = connected;
+                _pendingSocket = null; // sahiplik _socket'e geçti
                 _handler.post(this::onSocketConnected);
             } catch (IOException | SecurityException | IllegalArgumentException e) {
                 Log.w(TAG, "Socket hatası: " + e.getMessage());
+                _pendingSocket = null;
                 if (socket != null) {
                     try { socket.close(); } catch (IOException ignored) {}
                 }
@@ -672,6 +685,14 @@ public final class OBDBluetoothManager {
         _socket = null;
         if (s != null) {
             try { s.close(); } catch (IOException ignored) {}
+        }
+        // Patch 2: bekleyen (henüz _socket'e taşınmamış) bir bağlantı DENEMESİ varsa onu da
+        // kapat — bloklu socket.connect() IOException ile uyanır (Future.cancel(true) tek
+        // başına Android'de bunu garanti ETMEZ).
+        BluetoothSocket p = _pendingSocket;
+        _pendingSocket = null;
+        if (p != null) {
+            try { p.close(); } catch (IOException ignored) {}
         }
     }
 
