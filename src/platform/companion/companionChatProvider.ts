@@ -1241,7 +1241,16 @@ async function askGroundedGemini(
     const head = raw.slice(0, 377);
     const lastEnd = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
     return lastEnd > 150 ? head.slice(0, lastEnd + 1) : `${head}...`;
-  } catch { recordAiNetFailure(); return null; }
+  } catch {
+    // Grounding (ağır google_search) timeout/ağ hatası — beyin KARAR çağrısı hemen
+    // ÖNCE başarılıydı (ağ ayakta). Bunu BEYİN devre kesicisine YAZMA: yazarsak tek
+    // grounding timeout'u recordAiNetFailure sayar, dıştaki sawFailure ile ÇİFT
+    // sayılır (0→1→2) ve FAIL_THRESHOLD=2 breaker'ı 90sn açıp TÜM AI'yı offline'a
+    // kilitler ("iki istekte offline" bug'ı). 429 ile aynı: yalnız grounding'i
+    // soğut → Tavily'ye düş.
+    _groundingCooldownUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
+    return null;
+  }
 }
 
 /**
@@ -1377,8 +1386,13 @@ export async function tryCompanionBrain(
                   return { kind: 'chat', response: tav, route: 'companion_gemini' };
                 }
               }
-              // grounding+Tavily boş/başarısız → sıradaki aday / offline fallback
-              sawFailure = true;
+              // grounding+Tavily boş/başarısız → CANLI VERİ alınamadı, ama BEYİN
+              // BAŞARILIYDI (yukarıda recordAiNetSuccess, sayaç=0). Bu bir AĞ
+              // hatası DEĞİL, yalnız güncel-bilgi eksiği → devre kesiciyi TETİKLEME
+              // (sawFailure YOK). Sıradaki adayı (Groq/Haiku + searchKey/Tavily)
+              // dene; o da yoksa offline fallback dürüstçe cevap/tekrar-rica verir.
+              // Böylece tek başarısız web sorgusu TÜM asistanı 90sn offline'a
+              // KİLİTLEMEZ (eski davranış: grounding + sawFailure çift sayım).
               continue;
             }
             // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
