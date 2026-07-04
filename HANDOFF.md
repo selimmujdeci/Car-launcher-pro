@@ -3,7 +3,32 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-04 #8): OBD Core v2 — Patch 8 standart PID tam kapsam
+## ⭐ SON İŞ (2026-07-04 #9): OBD Core v2 — Patch 9 UI + sesli sorgu (COMMIT'LENDİ)
+
+Önceki oturum limitinde kesilmişti; bu oturumda tamamlandı. Suite **1938 yeşil**
+(124 dosya) + vite build OK, iki atomik commit: **9A `a35de62`** (SensorPanel +
+DTCPanel `active` + DrawerPanel + screenRegistry 'sensors') ve **9B `5423a82`**
+(getOBDDataSnapshot + sensorQueryService + 15 kilit). Native değişiklik yok.
+Çalışma ağacındaki DİĞER değişiklikler (DrawerShell/Freeze/voice-wav/vite.config/
+VehicleSignalResolver/visionCore/regression.guards worker-compat) BAŞKA işin WIP'i —
+bilinçli commit dışı bırakıldı, dokunma.
+
+**9A tasarım notları:** SensorPanel abonelikleri `active` prop'una bağlı — DrawerShell
+çocukları unmount ETMEZ (Freeze başka işin WIP'i, ona güvenilmedi); drawer kapanınca
+watchPid abonelikleri bırakılır → native EXTENDED polling durur (Mali-400 sözleşmesi).
+12 PID izlenir (5C/04/42/46/5E/10/06/07/0E/33/3C/2C); isPidSupported false satırı gizler;
+başlıkta getObdHealth bağlantı kalitesi rozeti. Tailwind sınıfları TAM LİTERAL
+(şablon-enterpolasyon Tailwind'de üretilmez — QUALITY_STYLES tablosu).
+
+**9B tasarım notları:** `querySensor(soru)` → {name,value,unit,text} | null. CORE alanlar
+getOBDDataSnapshot'tan senkron; EXTENDED: taze önbellek (≤30s) anında, desteklenmiyorsa
+dürüst cevap, yoksa GEÇİCİ watchPid ile taze ilk değer beklenir (bayat önbellek yankısı
+`updatedAt < startedAt` ile elenir; 12s timeout; abonelik HER yolda bırakılır).
+SIRADA: intent/beyin katmanına bağlama (feat/assistant-open-app dalının araç-bağlamı
+işiyle birleşir — orada VOICE tarafına `querySensor` çağrısı eklenecek; bu dalda
+intentEngine'e bilinçli DOKUNULMADI, çapraz dal çakışması riski).
+
+## ⭐ ÖNCEKİ İŞ (2026-07-04 #8): OBD Core v2 — Patch 8 standart PID tam kapsam
 
 `df4f4cf..e7a3c21`: SAE J1979 Mode 01 ~60 sayısal PID (StandardPidRegistry, yalnız
 kamu standardı formülleri) + native EXTENDED poll grubu (turda 1 PID round-robin,

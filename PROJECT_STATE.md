@@ -10,6 +10,25 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ OBD CORE V2 — Patch 9: SENSÖR UI + SESLİ VERİ SORGUSU (2026-07-04)
+
+Patch 8'in tüketici katmanı. İki commit (`a35de62` + `5423a82`), suite **1938 yeşil**
+(15 yeni kilit: `obdCoreV2.patch9.query.test.ts`) + vite build OK:
+
+- **9A `SensorPanel.tsx`** — DTC drawer'ında canlı sensör bölümü; 12 EXTENDED PID
+  watchPid ile izlenir, `active` prop'una bağlı abonelik (DrawerShell unmount etmez;
+  drawer kapanınca watchPid bırakılır → native EXTENDED polling durur, boşta sıfır
+  maliyet). isPidSupported=false satırı gizler; getObdHealth kalite rozeti.
+  screenRegistry 'sensors' girişi: "canlı sensörler / motor verileri" sesle açar.
+- **9B `sensorQueryService.ts`** — `querySensor(soru)` sesli asistan veri API'si.
+  Türkçe alias eşleştirme (spesifik kazanır); CORE senkron (getOBDDataSnapshot),
+  geçersiz değer → dürüst "okunamıyor"; EXTENDED taze önbellek ≤30s anında,
+  desteklenmiyorsa dürüst, yoksa geçici watchPid ile taze ilk değer (12s timeout,
+  abonelik her yolda bırakılır). Eşleşmeyen soru → null, sahte cevap yok.
+
+**Açık:** intent/beyin bağlanması `feat/assistant-open-app` dalının araç-bağlamı
+işine bırakıldı (bu dalda intentEngine'e bilinçli dokunulmadı); cihaz doğrulaması yok.
+
 ## ⭐ OBD CORE V2 — Patch 8: STANDART PID TAM KAPSAM (2026-07-04)
 
 Hedef: Car Scanner'dan bağımsız, onun kadar geniş standart kapsam + OS entegrasyonu.
