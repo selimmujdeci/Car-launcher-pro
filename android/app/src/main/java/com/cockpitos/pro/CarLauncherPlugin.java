@@ -97,6 +97,7 @@ import com.cockpitos.pro.obd.BleObdManager;
 import com.cockpitos.pro.obd.BleObdScanner;
 import com.cockpitos.pro.obd.OBDBluetoothManager;
 import com.cockpitos.pro.obd.OBDManager;
+import com.cockpitos.pro.obd.ObdPollSample;
 import com.cockpitos.pro.can.ReverseSignalGuard;
 import com.cockpitos.pro.can.NativeToJsBridge;
 import com.cockpitos.pro.can.VehicleCanData;
@@ -741,8 +742,8 @@ public class CarLauncherPlugin extends Plugin {
      */
     private final BleObdManager.OnOBDDataListener bleObdListener = new BleObdManager.OnOBDDataListener() {
         @Override
-        public void onObdData(int speed, int rpm, int engineTemp, int fuelLevel) {
-            obdListener.onObdData(speed, rpm, engineTemp, fuelLevel);
+        public void onObdData(ObdPollSample sample) {
+            obdListener.onObdData(sample);
         }
 
         @Override
@@ -759,26 +760,36 @@ public class CarLauncherPlugin extends Plugin {
     /** OBD motoru → köprü: gelen veriyi mevcut notifyListeners + SAB yoluyla JS'e ilet. */
     private final OBDManager.OnOBDDataListener obdListener = new OBDManager.OnOBDDataListener() {
         @Override
-        public void onObdData(int speed, int rpm, int engineTemp, int fuelLevel) {
+        public void onObdData(ObdPollSample sample) {
             JSObject data = new JSObject();
-            data.put("speed",      speed);
-            data.put("rpm",        rpm);
-            data.put("engineTemp", engineTemp);
-            data.put("fuelLevel",  fuelLevel);
+            data.put("speed",      sample.speed);
+            data.put("rpm",        sample.rpm);
+            data.put("engineTemp", sample.engineTemp);
+            data.put("fuelLevel",  sample.fuelLevel);
             data.put("headlights", false);
+            // Patch 6 (AdaptivePollingController): obdPidConfig.ts ICE/DIESEL setinde iletilen
+            // ama eskiden hiç okunmayan PID'ler + ATRV 12V akü voltajı.
+            data.put("throttle",      sample.throttle);
+            data.put("intakeTemp",    sample.intakeTemp);
+            data.put("boostPressure", sample.boostPressure);
+            data.put("voltage",       sample.voltage);
             notifyListeners("obdData", data);
 
             // ── Native-Core side-stream (Phase N4) — DEĞİŞMEDİ ─────────────
             // Geçerli (>= 0) OBD değerlerini native katmana KOPYALA. obdData
             // JS event'i değişmedi. int→double tam dönüşüm (kayıpsız).
+            // NOT: voltage/throttle/intakeTemp/boostPressure BİLİNÇLİ olarak buraya
+            // eklenmedi — VehicleNativeBridge.Signal SharedArrayBuffer'ı yalnızca
+            // SPEED/RPM/FUEL slotlarını tanımlıyor; yeni slot eklemek SAB düzenini
+            // değiştiren ayrı bir (Patch 6 kapsamı dışı) değişiklik olurdu.
             if (VehicleNativeBridge.INSTANCE.isAvailable()) {
                 long ts = System.nanoTime();
-                if (speed     >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
-                        VehicleNativeBridge.Signal.SPEED, (double) speed, ts);
-                if (rpm       >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
-                        VehicleNativeBridge.Signal.RPM, (double) rpm, ts);
-                if (fuelLevel >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
-                        VehicleNativeBridge.Signal.FUEL, (double) fuelLevel, ts);
+                if (sample.speed     >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.SPEED, (double) sample.speed, ts);
+                if (sample.rpm       >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.RPM, (double) sample.rpm, ts);
+                if (sample.fuelLevel >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
+                        VehicleNativeBridge.Signal.FUEL, (double) sample.fuelLevel, ts);
             }
         }
 
@@ -1232,6 +1243,25 @@ public class CarLauncherPlugin extends Plugin {
         event.put("reason", "user_disconnect");
         notifyListeners("obdStatus", event);
 
+        call.resolve();
+    }
+
+    /**
+     * Patch 6 (AdaptivePollingController): TS tarafı deviceTier + aktif RuntimeMode'a göre
+     * hesapladığı FAST grup poll periyodunu ({@code fastMs}) buradan native tarafa iletir.
+     * {@code uiHz} şu an native tarafında kullanılmıyor (yalnız JS-taraflı UI bildirim tavanı
+     * içindir) — burada kabul edilip yoksayılır, gelecekte native-taraflı throttling için
+     * saklı tutulur. Aktif olan hangi transport ise (Classic/BLE) onun poll periyodu güncellenir;
+     * her ikisi de aktif değilse sessizce no-op (henüz bağlantı yok — sonraki connect() zaten
+     * başlangıç profiliyle başlar).
+     */
+    @PluginMethod
+    public void setObdPollProfile(PluginCall call) {
+        Integer fastMs = call.getInt("fastMs");
+        if (fastMs != null) {
+            if (obdManager != null) obdManager.setFastPollMs(fastMs);
+            if (bleObdManager != null) bleObdManager.setFastPollMs(fastMs);
+        }
         call.resolve();
     }
 

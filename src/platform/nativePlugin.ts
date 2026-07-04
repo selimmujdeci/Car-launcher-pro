@@ -123,6 +123,9 @@ export interface NativeOBDData {
   throttle?: number;    // PID 0x11 — 0–100% (-1 = not supported)
   intakeTemp?: number;  // PID 0x0F — °C     (-1 = not supported)
   maf?: number;         // PID 0x10 — g/s    (-1 = not supported)
+  /** ELM327 ATRV — 12V akü/besleme voltajı (V). SAE PID değil, AT komutu.
+   *  -1 = bu turda ölçülmedi/desteklenmiyor (Patch 6 staggered polling). */
+  voltage?: number;
 
   // ── EV / Hybrid ─────────────────────────────────────────
   batteryLevel?: number;      // % SoC (0–100)         (-1 = not supported)
@@ -489,6 +492,12 @@ export interface CarLauncherPlugin {
   // bağlantı sonrası cihaz bonded ise PIN'e bir daha gerek yoktur (bonding kalıcı).
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (obdService try/catch ile çağırır).
   getObdBondState?(opts: { address: string }): Promise<{ bonded: boolean }>;
+
+  // Patch 6 (AdaptivePollingController): FAST grup (hız/RPM) native poll periyodunu
+  // cihaz sınıfı + aktif RuntimeMode'a göre günceller. uiHz native'de şu an yoksayılır
+  // (ileride native-taraflı throttling için saklı). Opsiyonel: eski plugin sürümlerinde
+  // bulunmayabilir (obdService varlık kontrolü + catch ile çağırır — fail-soft).
+  setObdPollProfile?(opts: { fastMs: number; uiHz?: number }): Promise<void>;
 
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(

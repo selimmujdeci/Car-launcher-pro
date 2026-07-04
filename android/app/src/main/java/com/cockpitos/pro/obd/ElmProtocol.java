@@ -75,6 +75,51 @@ public final class ElmProtocol {
         return -1;
     }
 
+    // ── Patch 6: obdPidConfig.ts ICE/DIESEL setine dahil ama eskiden HİÇ sorgulanmayan
+    // PID'ler — SAE J1979 Mode 01 standart formülleri (ISO 15031-5 Tablo B.1).
+
+    /** PID 0x11 — Gaz kelebeği konumu (Throttle Position), 0-100%. */
+    public int readPID_throttle() {
+        ElmResponseParser.Result r = sendAndClassify("0111", 1500, "41", "11");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            try { return (int) (Integer.parseInt(r.dataHex.substring(0, 2), 16) * 100.0 / 255.0); } catch (Exception ignored) {}
+        }
+        return -1;
+    }
+
+    /** PID 0x0F — Emme havası sıcaklığı (Intake Air Temperature), °C. */
+    public int readPID_intakeTemp() {
+        ElmResponseParser.Result r = sendAndClassify("010F", 1500, "41", "0F");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            try { return Integer.parseInt(r.dataHex.substring(0, 2), 16) - 40; } catch (Exception ignored) {}
+        }
+        return -1;
+    }
+
+    /** PID 0x0B — Emme manifoldu mutlak basıncı (MAP / turbo boost), kPa (0-255, 1 bayt = 1 kPa). */
+    public int readPID_map() {
+        ElmResponseParser.Result r = sendAndClassify("010B", 1500, "41", "0B");
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && r.dataHex.length() >= 2) {
+            try { return Integer.parseInt(r.dataHex.substring(0, 2), 16); } catch (Exception ignored) {}
+        }
+        return -1;
+    }
+
+    /**
+     * ATRV — ELM327'nin OBD-II 16 pin konektöründen ölçtüğü 12V akü/besleme voltajı.
+     * SAE J1979 PID DEĞİL; ELM327'ye özgü AT komutu — yanıt ASCII metindir (ör. "12.4V"),
+     * hex PID formatında DEĞİLDİR. -1.0 = okunamadı/desteklenmiyor.
+     */
+    public double readVoltage() {
+        try {
+            String r = channel.send("ATRV", 500);
+            if (r == null) return -1.0;
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)").matcher(r);
+            if (m.find()) return Double.parseDouble(m.group(1));
+        } catch (Exception ignored) {}
+        return -1.0;
+    }
+
     /** channel.send() + ElmResponseParser.classify() — iletişim hatasını ERROR sınıfına çevirir. */
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
         try {

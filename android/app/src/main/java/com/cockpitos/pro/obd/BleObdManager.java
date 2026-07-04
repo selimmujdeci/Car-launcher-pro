@@ -54,8 +54,8 @@ public final class BleObdManager {
 
     /** OBD motoru → Plugin (köprü katmanı) bildirim arayüzü. */
     public interface OnOBDDataListener {
-        /** Her poll döngüsünde çözümlenmiş PID değerleri (desteklenmeyen = -1). */
-        void onObdData(int speed, int rpm, int engineTemp, int fuelLevel);
+        /** Patch 6: her poll döngüsünde çözümlenmiş TÜM PID değerleri (bkz. {@link ObdPollSample}). */
+        void onObdData(ObdPollSample sample);
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
@@ -118,6 +118,13 @@ public final class BleObdManager {
 
     /** Patch 5: bkz. OBDManager.cmdQueue — aynı öncelik-sıralı komut kuyruğu deseni. */
     private final ElmCommandQueue cmdQueue = new ElmCommandQueue();
+
+    /** Patch 6 (AdaptivePollingController): bkz. OBDManager.fastPollMs — aynı desen. */
+    private volatile int fastPollMs = POLL_INTERVAL_MS;
+    private static final int SLOW_GROUP_EVERY_N_CYCLES = 5;
+    private static final int VOLTAGE_EVERY_N_CYCLES = 10;
+    private long pollCycle = 0;
+    private volatile double lastVoltage = -1.0;
 
     // ── GATT operasyon senkronizasyonu ───────────────────────────────────────────
     // Android GATT seri olduğundan tek bir "op sonucu" kanalı yeterli. Her bloklayıcı
@@ -245,6 +252,9 @@ public final class BleObdManager {
         // Patch 5: bu bağlantıya ait BEKLEYEN kuyruk görevleri artık anlamsız (elm=null) —
         // proaktif temizle (bkz. OBDManager.disconnect() aynı desen).
         cmdQueue.clearPending();
+        // Patch 6: yeni bağlantı staggered poll döngüsünü sıfırdan başlatır.
+        pollCycle = 0;
+        lastVoltage = -1.0;
     }
 
     /** Tam kapanış — bağlantı + executor (Plugin.handleOnDestroy'dan çağrılır). */
@@ -262,16 +272,30 @@ public final class BleObdManager {
                 Set<String> pidSet = obdPidSet;
                 final ElmProtocol p = elm;
                 if (p == null) throw new IOException("ELM protokol katmanı yok");
-                // Patch 5: her PID okuması ayrı bir kuyruk görevi (elmLock kalktı) — DTC
-                // (USER önceliği) bu 4 komuttan herhangi birinin arasına girebilir.
-                int speed      = shouldQuery(pidSet, "0D") ? queuedPidRead(p::readPID_speed) : -1;
-                int rpm        = shouldQuery(pidSet, "0C") ? queuedPidRead(p::readPID_rpm)   : -1;
-                int engineTemp = shouldQuery(pidSet, "05") ? queuedPidRead(p::readPID_temp)  : -1;
-                int fuelLevel  = shouldQuery(pidSet, "2F") ? queuedPidRead(p::readPID_fuel)  : -1;
 
-                listener.onObdData(speed, rpm, engineTemp, fuelLevel);
+                // Patch 6: FAST grup — HER turda. Patch 5: her PID okuması ayrı bir kuyruk
+                // görevi (elmLock kalktı) — DTC (USER önceliği) aralarına girebilir.
+                int speed = shouldQuery(pidSet, "0D") ? queuedPidRead(ElmCommandQueue.Priority.POLL_FAST, p::readPID_speed) : -1;
+                int rpm   = shouldQuery(pidSet, "0C") ? queuedPidRead(ElmCommandQueue.Priority.POLL_FAST, p::readPID_rpm)   : -1;
 
-                Thread.sleep(POLL_INTERVAL_MS);
+                // Patch 6: SLOW grup — bkz. OBDManager.pollLoop() aynı desen/gerekçe.
+                int engineTemp = -1, fuelLevel = -1, throttle = -1, intakeTemp = -1, boostPressure = -1;
+                if (pollCycle % SLOW_GROUP_EVERY_N_CYCLES == 0) {
+                    engineTemp    = shouldQuery(pidSet, "05") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_temp)       : -1;
+                    fuelLevel     = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_fuel)        : -1;
+                    throttle      = shouldQuery(pidSet, "11") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_throttle)    : -1;
+                    intakeTemp    = shouldQuery(pidSet, "0F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_intakeTemp)  : -1;
+                    boostPressure = shouldQuery(pidSet, "0B") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_map)         : -1;
+                }
+                if (pollCycle % VOLTAGE_EVERY_N_CYCLES == 0) {
+                    lastVoltage = queuedVoltageRead(p);
+                }
+                pollCycle++;
+
+                listener.onObdData(new ObdPollSample(speed, rpm, engineTemp, fuelLevel,
+                    throttle, intakeTemp, boostPressure, lastVoltage));
+
+                Thread.sleep(fastPollMs);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -284,15 +308,32 @@ public final class BleObdManager {
         }
     }
 
-    /** Bir PID okumasını POLL_FAST öncelikli kuyruğa gönderir ve sonucu bekler (Patch 5). */
-    private int queuedPidRead(java.util.concurrent.Callable<Integer> action) throws Exception {
+    /** Bir PID okumasını verilen öncelikle kuyruğa gönderir ve sonucu bekler (Patch 5/6). */
+    private int queuedPidRead(ElmCommandQueue.Priority priority, java.util.concurrent.Callable<Integer> action) throws Exception {
         try {
-            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_FAST, null, action).get();
+            return cmdQueue.submit(priority, null, action).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
             throw ee;
         }
+    }
+
+    /** ATRV okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 6). */
+    private double queuedVoltageRead(ElmProtocol p) throws Exception {
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_SLOW, null, p::readVoltage).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            return -1.0;
+        }
+    }
+
+    /**
+     * Patch 6 (AdaptivePollingController): FAST grup poll periyodunu günceller.
+     * @param ms yeni periyot (ms) — 100ms altı reddedilir.
+     */
+    public void setFastPollMs(int ms) {
+        this.fastPollMs = Math.max(100, ms);
     }
 
     /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */

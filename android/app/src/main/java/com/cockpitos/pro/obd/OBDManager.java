@@ -41,8 +41,8 @@ public final class OBDManager {
      * etmeyi gerektirir ve "JSON formatını/SAB'ı değiştirme" yasağını ihlal ederdi.
      */
     public interface OnOBDDataListener {
-        /** Her poll döngüsünde çözümlenmiş PID değerleri (desteklenmeyen = -1). */
-        void onObdData(int speed, int rpm, int engineTemp, int fuelLevel);
+        /** Patch 6: her poll döngüsünde çözümlenmiş TÜM PID değerleri (bkz. {@link ObdPollSample}). */
+        void onObdData(ObdPollSample sample);
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
@@ -111,6 +111,23 @@ public final class OBDManager {
      * komut kadar (~1.5s) bekler, eskiden olduğu gibi bir poll turu (4 komut, ~6s) kadar DEĞİL.
      */
     private final ElmCommandQueue cmdQueue = new ElmCommandQueue();
+
+    /**
+     * Patch 6 (AdaptivePollingController): FAST grup (hız/RPM) poll periyodu — eski sabit
+     * Thread.sleep(3000) yerine geçer. setFastPollMs() ile TS tarafından (deviceTier + aktif
+     * RuntimeMode) güncellenir; varsayılan 3000ms ESKİ davranışla birebir aynıdır.
+     */
+    private volatile int fastPollMs = 3000;
+
+    /** SLOW grup (temp/fuel/throttle/intakeTemp/boostPressure) kaç FAST turda bir sorgulanır. */
+    private static final int SLOW_GROUP_EVERY_N_CYCLES = 5;
+    /** ATRV (12V akü voltajı) kaç FAST turda bir sorgulanır. */
+    private static final int VOLTAGE_EVERY_N_CYCLES = 10;
+
+    /** pollLoop() içindeki tur sayacı — yalnız o thread'den erişilir (volatile gerekmez). */
+    private long pollCycle = 0;
+    /** ATRV'nin son okunan değeri — aradaki turlarda bu değer JS'e tekrar gönderilir. */
+    private volatile double lastVoltage = -1.0;
 
     public OBDManager(Context context, OnOBDDataListener listener) {
         this.mContext = context.getApplicationContext();
@@ -255,17 +272,37 @@ public final class OBDManager {
                 // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
                 // (ör. 012F yakıt desteklenmeyen araçta cycle başına 1500ms kazandırır).
                 Set<String> pidSet = obdPidSet;
-                // Patch 5: her PID okuması ayrı bir kuyruk görevi — DTC (USER önceliği)
-                // bu 4 komuttan HERHANGİ BİRİNİN arasına girebilir (en geç 1 komut bekler).
-                int speed      = shouldQuery(pidSet, "0D") ? queuedPidRead(this::readPID_speed) : -1;
-                int rpm        = shouldQuery(pidSet, "0C") ? queuedPidRead(this::readPID_rpm)   : -1;
-                int engineTemp = shouldQuery(pidSet, "05") ? queuedPidRead(this::readPID_temp)  : -1;
-                int fuelLevel  = shouldQuery(pidSet, "2F") ? queuedPidRead(this::readPID_fuel)  : -1;
+
+                // Patch 6: FAST grup — HER turda (hız/RPM en yüksek öncelik). Patch 5: her
+                // PID okuması ayrı bir kuyruk görevi — DTC (USER önceliği) aralarına girebilir.
+                int speed = shouldQuery(pidSet, "0D") ? queuedPidRead(ElmCommandQueue.Priority.POLL_FAST, this::readPID_speed) : -1;
+                int rpm   = shouldQuery(pidSet, "0C") ? queuedPidRead(ElmCommandQueue.Priority.POLL_FAST, this::readPID_rpm)   : -1;
+
+                // Patch 6: SLOW grup — düşük frekanslı sinyaller SLOW_GROUP_EVERY_N_CYCLES
+                // turda bir sorgulanır. Aradaki turlarda -1 gönderilir → obdSanitizer/
+                // obdService bu alanları ATLAR (önceki değer korunur, "kademeli polling").
+                int engineTemp = -1, fuelLevel = -1, throttle = -1, intakeTemp = -1, boostPressure = -1;
+                if (pollCycle % SLOW_GROUP_EVERY_N_CYCLES == 0) {
+                    engineTemp    = shouldQuery(pidSet, "05") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_temp)       : -1;
+                    fuelLevel     = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_fuel)        : -1;
+                    // obdPidConfig.ts ICE/DIESEL setinde iletiliyordu ama eskiden HİÇ sorgulanmıyordu.
+                    throttle      = shouldQuery(pidSet, "11") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_throttle)    : -1;
+                    intakeTemp    = shouldQuery(pidSet, "0F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_intakeTemp)  : -1;
+                    boostPressure = shouldQuery(pidSet, "0B") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, this::readPID_map)         : -1;
+                }
+
+                // Patch 6: ATRV (12V akü voltajı) — VOLTAGE_EVERY_N_CYCLES turda bir. Aradaki
+                // turlarda SON bilinen değer JS'e tekrar gönderilir (aniden "yok" görünmesin).
+                if (pollCycle % VOLTAGE_EVERY_N_CYCLES == 0) {
+                    lastVoltage = queuedVoltageRead();
+                }
+                pollCycle++;
 
                 // Veriyi köprü katmanına bildir — JSObject/notifyListeners/SAB Plugin'de.
-                listener.onObdData(speed, rpm, engineTemp, fuelLevel);
+                listener.onObdData(new ObdPollSample(speed, rpm, engineTemp, fuelLevel,
+                    throttle, intakeTemp, boostPressure, lastVoltage));
 
-                Thread.sleep(3000);
+                Thread.sleep(fastPollMs);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -278,15 +315,34 @@ public final class OBDManager {
         }
     }
 
-    /** Bir PID okumasını POLL_FAST öncelikli kuyruğa gönderir ve sonucu bekler (Patch 5). */
-    private int queuedPidRead(java.util.concurrent.Callable<Integer> action) throws Exception {
+    /** Bir PID okumasını verilen öncelikle kuyruğa gönderir ve sonucu bekler (Patch 5/6). */
+    private int queuedPidRead(ElmCommandQueue.Priority priority, java.util.concurrent.Callable<Integer> action) throws Exception {
         try {
-            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_FAST, null, action).get();
+            return cmdQueue.submit(priority, null, action).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
             throw ee;
         }
+    }
+
+    /** ATRV okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 6). */
+    private double queuedVoltageRead() throws Exception {
+        final ElmProtocol p = elm;
+        if (p == null) return -1.0;
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_SLOW, null, p::readVoltage).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            return -1.0; // ATRV opsiyonel/kritik değil — hata durumunda sessizce -1
+        }
+    }
+
+    /**
+     * Patch 6 (AdaptivePollingController): FAST grup poll periyodunu günceller.
+     * @param ms yeni periyot (ms) — 100ms altı reddedilir (adaptörü/ECU'yu boğmamak için taban).
+     */
+    public void setFastPollMs(int ms) {
+        this.fastPollMs = Math.max(100, ms);
     }
 
     /** Bağlantıyı kapatır, akışları serbest bırakır (idempotent). */
@@ -306,6 +362,9 @@ public final class OBDManager {
         try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}
         elm = null;
         detectedProtocol = null;
+        // Patch 6: yeni bağlantı staggered poll döngüsünü sıfırdan başlatır.
+        pollCycle = 0;
+        lastVoltage = -1.0;
         // Patch 5: bu bağlantıya ait BEKLEYEN (henüz çalışmamış) kuyruk görevleri artık
         // anlamsız (elm=null → NPE ile başarısız olurlardı) — proaktif temizle.
         cmdQueue.clearPending();
@@ -361,6 +420,10 @@ public final class OBDManager {
     private int readPID_rpm()   { return elm.readPID_rpm();   }
     private int readPID_temp()  { return elm.readPID_temp();  }
     private int readPID_fuel()  { return elm.readPID_fuel();  }
+    // Patch 6 — SLOW grup ek PID'ler
+    private int readPID_throttle()   { return elm.readPID_throttle();   }
+    private int readPID_intakeTemp() { return elm.readPID_intakeTemp(); }
+    private int readPID_map()        { return elm.readPID_map();        }
 
     /**
      * RFCOMM (Classic Bluetooth SPP) taşıma kanalı — {@link ElmCommandChannel} implementasyonu.

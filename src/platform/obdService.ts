@@ -38,6 +38,8 @@ import { sanitizeNativeOBDPacket } from './obdSanitizer';
 import { computeFuelMetrics } from './obdMetrics';
 import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle } from './obdPidConfig';
+import { computeObdPollProfile } from './obd/AdaptivePollingController';
+import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
@@ -179,7 +181,11 @@ const _unsubPerfMode = onPerformanceModeChange(() => {
 // RuntimeEngine mod değişimini dinle — obdPollingMs mock interval'ını güncelle.
 // Zero-Leak: HMR dispose'da _unsubRuntime çağrılır.
 const _unsubRuntime = runtimeManager.subscribe((_mode, config) => {
-  if (!_running || _current.source !== 'mock' || _mockTimerId === null) return;
+  if (!_running) return;
+  // Patch 6 (AdaptivePollingController): gerçek bağlantıda mod değişimi → native FAST
+  // grup poll periyodunu yeni moda göre güncelle (ör. termal kısıtlamada yavaşlat).
+  if (_current.source === 'real') _applyObdPollProfile();
+  if (_current.source !== 'mock' || _mockTimerId === null) return;
   // Merkezi runtime config'den gelen polling hızı → mock timer'ı yeniden kur
   clearInterval(_mockTimerId);
   _mockTimerId = setInterval(_tickMock, config.obdPollingMs);
@@ -288,6 +294,18 @@ function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null 
   const { patch, nextRpm } = sanitizeNativeOBDPacket(data, _prevRpm);
   _prevRpm = nextRpm;
   return patch;
+}
+
+/**
+ * Patch 6 (AdaptivePollingController): cihaz sınıfı + aktif RuntimeMode'dan türetilen
+ * poll profilini native tarafa iletir. Fail-soft: eski APK'da metod yoksa sessizce atlanır
+ * (native varsayılan 3s ile devam eder — ESKİ davranışla birebir aynı).
+ */
+function _applyObdPollProfile(): void {
+  if (!Capacitor.isNativePlatform() || !CarLauncher.setObdPollProfile) return;
+  const profile = computeObdPollProfile(getDeviceTier(), runtimeManager.getConfig().obdPollingMs);
+  void CarLauncher.setObdPollProfile(profile)
+    .catch(() => { /* eski native sürüm / geçici köprü hatası → varsayılan periyot kalır */ });
 }
 
 /* ── Mock simulation ─────────────────────────────────────── */
@@ -862,8 +880,11 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   _merge({ connectionState: 'initializing', source: 'none' });
 
   // 6. INSTANT DATA LOOP — veri kapısını HEMEN aç (handshake'ten ÖNCE). Native poll
-  //    döngüsü bağlantıyla birlikte PID isteklerini göndermeye başlar → adaptör ışığı
-  //    yanıp söner; ilk geçerli PID gelince _onRealData 'connected'/'real'e geçirir.
+  //    döngüsü bağlantıyla birlikte PID isteklerini göndermeye başlar; ilk geçerli PID
+  //    gelince _onRealData 'connected'/'real'e geçirir.
+  //    Patch 6: native poll başlarken FAST grup periyodu cihaz sınıfı + aktif moda göre
+  //    ayarlanır (varsayılan 3s yerine 250-1000ms; weak head unit modunda moda uyar).
+  _applyObdPollProfile();
   _startDataValidationGate(myGen);
 
   // 7. PIN Resilience — bonding doğrulaması ARKA PLANDA (veri akışını BLOKLAMAZ).
