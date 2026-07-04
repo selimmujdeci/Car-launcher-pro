@@ -38,6 +38,13 @@ const SCREENS: readonly ScreenEntry[] = [
   drawerScreen('dashcam',          'Araç kamerası',      ['dashcam', 'arac kamerasi', 'kayit', 'kara kutu', 'kamera kaydi', 'sürüş kaydi', 'surus kaydi']),
   drawerScreen('triplog',          'Yolculuk defteri',   ['yolculuk defteri', 'seyir defteri', 'yolculuk gecmisi', 'gezi kaydi', 'yolculuklar', 'triplog', 'yol defteri']),
   drawerScreen('dtc',              'Arıza kodları',      ['ariza kodlari', 'hata kodlari', 'ariza teshis', 'dtc', 'ariza']),
+  // Patch 9A: canlı sensör bölümü DTC drawer'ının içinde — ayrı sesli kimlikle açılır.
+  {
+    id: 'sensors', label: 'Canlı sensörler',
+    aliases: ['sensorler', 'sensor paneli', 'canli sensorler', 'canli veri', 'motor verileri', 'arac verileri', 'telemetri'],
+    open:  () => openDrawer('dtc'),
+    close: () => openDrawer('none'),
+  },
   drawerScreen('notifications',    'Bildirimler',        ['bildirimler', 'bildirim', 'uyarilar', 'bildirim merkezi']),
   drawerScreen('sport',            'Spor modu',          ['spor modu', 'spor', 'performans paneli', 'sport']),
   drawerScreen('security',         'Güvenlik',           ['guvenlik', 'guvenlik paneli']),

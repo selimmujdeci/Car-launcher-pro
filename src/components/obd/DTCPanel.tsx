@@ -5,6 +5,7 @@ import {
   readDTCCodes, clearDTCCodes,
   type DTCCode, type DTCSeverity,
 } from '../../platform/dtcService';
+import { SensorPanel } from './SensorPanel';
 
 /* ── Severity config ─────────────────────────────────────── */
 
@@ -87,7 +88,7 @@ const DTCCodeCard = memo(function DTCCodeCard({ code }: { code: DTCCode }) {
 
 /* ── Main panel ──────────────────────────────────────────── */
 
-function DTCPanelInner() {
+function DTCPanelInner({ active = false }: { active?: boolean }) {
   const dtc = useDTCState();
 
   const criticalCount = dtc.codes.filter((c) => c.severity === 'critical').length;
@@ -210,6 +211,11 @@ function DTCPanelInner() {
           </div>
         )}
       </div>
+
+      {/* ── Canlı sensörler (Patch 9A) ─────────────────── */}
+      {/* Abonelik yaşam döngüsü `active`e bağlı: drawer kapaliyken native EXTENDED
+          polling tamamen durur (DrawerShell unmount etmez — görünürlük prop'la gelir). */}
+      <SensorPanel active={active} />
 
       {/* ── Error ─────────────────────────────────────── */}
       {dtc.error && (

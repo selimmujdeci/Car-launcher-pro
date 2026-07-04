@@ -74,7 +74,8 @@ export const DrawerPanel = memo(function DrawerPanel({
       </DrawerShell>
 
       <DrawerShell open={drawer === 'dtc'} onClose={onClose}>
-        <DTCPanel />
+        {/* active: canlı sensör abonelikleri yalnız drawer AÇIKKEN yaşar (Patch 9A) */}
+        <DTCPanel active={drawer === 'dtc'} />
       </DrawerShell>
 
       <DrawerShell open={drawer === 'notifications'} onClose={onClose}>
