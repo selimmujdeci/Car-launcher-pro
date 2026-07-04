@@ -132,7 +132,17 @@ export function setDrivingView(
   obdSpeedKmh?: number,
   nextTurnBearing?: number,
 ) {
-  if (!map || !map.isStyleLoaded()) return;
+  // ⭐ SAHA KÖK NEDEN (2026-07-04, "harita sabit kalıyor + gitme yönüne dönmüyor"):
+  // Buradaki eski `!map.isStyleLoaded()` guard'ı sürüş kamerasını YAPISAL olarak
+  // öldürüyordu — isStyleLoaded() şu iki durumda false döner ve ikisi de sürüşte
+  // NORMAL haldir:
+  //   1) updateUserMarker'ın setData'sı stili aynı senkron karede "kirli" işaretler
+  //      → marker'dan hemen sonra çağrılan setDrivingView %100 erken dönüyordu.
+  //   2) Hareket halinde sürekli yeni tile yüklenir → sourceCache.loaded()=false.
+  // jumpTo/easeTo kamera işlemleri stil GEREKTİRMEZ; aşağıdaki stil-bağımlı işler
+  // zaten getLayer() + try/catch korumalı. Bu yüzden guard yalnız map varlığıdır.
+  // (84237ff + 4bd4ed5 hareket-tespiti fix'leri semptomu tedavi ediyordu; katil buydu.)
+  if (!map) return;
   _drivingViewActive = true;
 
   // ── Dead Reckoning speed fusion ──────────────────────────────────────────
@@ -290,7 +300,10 @@ export function enterNavigationView(
   bearing: number,
   containerHeight: number,
 ) {
-  if (!map || !map.isStyleLoaded()) return;
+  // easeTo kamera işlemi stil gerektirmez — isStyleLoaded() tile yüklenirken de
+  // false döndüğünden "Başlat" anında giriş animasyonunu sessizce yutuyordu
+  // (setDrivingView'daki kök nedenin kardeşi, 2026-07-04).
+  if (!map) return;
 
   const TARGET_ZOOM    = 18.0; // Yakın yol detayı
   const TARGET_PITCH   = 38;   // 40°+ üzerinde siyah köşe riski artar

@@ -289,7 +289,11 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // Update map when location changes (or map/style becomes ready)
   useEffect(() => {
     if (!mapRef.current || !location || !mapReady) return;
-    if (!mapRef.current.isStyleLoaded()) return;
+    // ⭐ KÖK NEDEN FIX (2026-07-04): isStyleLoaded() yalnız İLK KURULUM (katman
+    // ekleyen addUserMarker) için şarttır. Güncelleme yolunda (marker setData +
+    // kamera jumpTo) bu kapı ZARARLI: tile yüklenirken ve her setData sonrası
+    // false döner → sürüşte fix'lerin çoğu yutuluyor, harita "sabit" kalıyordu.
+    if (!mapRef.current._initialized && !mapRef.current.isStyleLoaded()) return;
 
     const { latitude, longitude } = location;
     // speed: GPS m/s → km/h (null/undefined → 0)

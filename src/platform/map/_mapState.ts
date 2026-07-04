@@ -38,6 +38,15 @@ export const useMapStore = create<MapState>(() => ({
   drivingMode: false,
 }));
 
+// ── Saha teşhis kancası ──────────────────────────────────────────────────────
+// Kamera durumunu canlı okumak için (CDP-over-adb / Playwright probe):
+//   __MAP_STORE__.getState().mapInstance?.getBearing()
+// Maliyet: tek global referans. Cihazda uzaktan teşhis iş akışı gereği
+// production'da da açık bırakılır (bkz. project_assistant-429-quota CDP yöntemi).
+if (typeof window !== 'undefined') {
+  (window as { __MAP_STORE__?: unknown }).__MAP_STORE__ = useMapStore;
+}
+
 // ── Rota geometri cache tipi ─────────────────────────────────────────────────
 export interface RouteGeom {
   coords: [number, number][];

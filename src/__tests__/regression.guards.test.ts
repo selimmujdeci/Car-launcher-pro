@@ -902,3 +902,61 @@ describe('Horizon harita kartı sahte veri yasağı kilidi', () => {
     expect(s, 'seyahat satırı isNavigating + etaSeconds kapısını kaybetmiş').toMatch(/\{isNavigating && etaSeconds != null && etaSeconds > 0 && \(/);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────
+   SÜRÜŞ KAMERASI STİL-KAPISI YASAĞI — "harita sabit + dönmüyor" KÖK NEDENİ
+   Regresyon (SAHA 2026-07-04, tarayıcıda Doppler-0 simülasyonuyla kanıtlı):
+   setDrivingView'ın tepesindeki `!map.isStyleLoaded()` guard'ı kamerayı
+   YAPISAL olarak öldürüyordu — isStyleLoaded() şu iki NORMAL durumda false:
+     1) updateUserMarker'ın setData'sı stili aynı senkron karede kirletir
+        → marker'dan hemen sonra çağrılan setDrivingView %100 erken döner.
+     2) Sürüşte sürekli yeni tile yüklenir → sourceCache.loaded()=false.
+   Sonuç: rotasyon + merkezleme HİÇ çalışmıyordu; 84237ff ve 4bd4ed5'teki
+   hareket-tespiti fix'leri semptom tedavisiydi. Kural: kamera işlemleri
+   (jumpTo/easeTo) stil kapısına BAĞLANAMAZ; katman işleri kendi getLayer()
+   + try/catch guard'ını taşır.
+   ─────────────────────────────────────────────────────────────── */
+describe('Sürüş kamerası stil-kapısı yasağı kilidi (harita sabit/dönmüyor)', () => {
+  it('DAVRANIŞ: setDrivingView isStyleLoaded()=false iken bile jumpTo uygular', async () => {
+    const { setDrivingView } = await import('../platform/map/MapInteractionManager');
+    const { resetCameraSmooth } = await import('../platform/cameraEngine');
+    resetCameraSmooth(); // deterministik başlangıç (bearing=0)
+    const jumps: Array<{ bearing: number }> = [];
+    const mockMap = {
+      isStyleLoaded: () => false,          // tile yükleniyor / setData sonrası kirli stil
+      jumpTo: (o: { bearing: number }) => { jumps.push(o); },
+      getZoom: () => 16,
+      getLayer: () => undefined,
+      setPaintProperty: () => {},
+    } as unknown as import('maplibre-gl').Map;
+    // 40 km/h, heading 45° (KD) — jitter filtresine takılmayacak gerçek sürüş girdisi
+    setDrivingView(mockMap, 36.9146, 34.8973, 45, 40, 600);
+    expect(jumps.length, 'stil-kapısı geri gelmiş: kamera tile yüklenirken ölür').toBe(1);
+    expect(jumps[0].bearing, 'bearing 45° hedefe akmalı, kuzeye çivili kalmamalı').toBeGreaterThan(0);
+  });
+
+  it('DAVRANIŞ: enterNavigationView stil yüklenmemişken easeTo yutmaz', async () => {
+    const { enterNavigationView } = await import('../platform/map/MapInteractionManager');
+    let eased = 0;
+    const mockMap = {
+      isStyleLoaded: () => false,
+      easeTo: () => { eased++; },
+    } as unknown as import('maplibre-gl').Map;
+    enterNavigationView(mockMap, 36.9146, 34.8973, 45, 600);
+    expect(eased, '"Başlat" anı tile yüklenirken giriş animasyonu sessizce yutulur').toBe(1);
+  });
+
+  it('YAPISAL: MiniMapWidget güncelleme yolu çıplak isStyleLoaded kapısıyla kilitli DEĞİL', () => {
+    const src = read('src/components/map/MiniMapWidget.tsx');
+    expect(src, 'kare-başı çıplak stil kapısı geri gelmiş — sürüşte fix\'ler yutulur')
+      .not.toMatch(/if \(!mapRef\.current\.isStyleLoaded\(\)\) return;/);
+    expect(src, 'stil kapısı yalnız init yoluna uygulanmalı (_initialized && guard)')
+      .toMatch(/!mapRef\.current\._initialized && !mapRef\.current\.isStyleLoaded\(\)/);
+  });
+
+  it('YAPISAL: FullMapView rAF tick takip yolu isStyleLoaded ile kapılanmaz', () => {
+    const src = read('src/components/map/FullMapView.tsx');
+    expect(src, 'tick interpolasyon yolu stil kapısına bağlanmış — takip tile yükünde durur')
+      .not.toMatch(/buffer\.length >= 2 && mapRef\.current && mapRef\.current\.isStyleLoaded\(\)/);
+  });
+});

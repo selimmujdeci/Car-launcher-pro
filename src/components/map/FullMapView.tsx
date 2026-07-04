@@ -670,7 +670,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const isPerfLow = isPerfLowCached;
         const drInterval = isPerfLow ? 500 : 16;
 
-        if (!userInteractingRef.current && mapRef.current && mapRef.current.isStyleLoaded() && (now - lastCameraUpdate > drInterval)) {
+        // KÖK NEDEN FIX (2026-07-04): kare-başı isStyleLoaded() kapısı kaldırıldı —
+        // tile yüklenirken/setData sonrası false döner, DR kamera takibini yutuyordu.
+        if (!userInteractingRef.current && mapRef.current && (now - lastCameraUpdate > drInterval)) {
           // Dead Reckoning: s = v × t, kartezyen tahmini (saf matematik utils'te)
           const { lat: drLat, lng: drLng } = projectDeadReckon(lastKnown, obdKmh, now);
 
@@ -707,7 +709,12 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       // 1. Interpolation Mantığı — 60 FPS Araç Hareketi
       const buffer = navPointsRef.current;
-      if (buffer.length >= 2 && mapRef.current && mapRef.current.isStyleLoaded()) {
+      // KÖK NEDEN FIX (2026-07-04): isStyleLoaded() kapısı kaldırıldı — sürüşte
+      // sürekli tile yüklendiğinden çoğu karede false dönüp TÜM takip yolunu
+      // (marker + kamera + rotasyon) yutuyordu → "harita sabit, dönmüyor".
+      // updateUserMarker self-healing'i ve setDrivingView içi katman işleri
+      // kendi guard'larını taşır; kamera (jumpTo) stil gerektirmez.
+      if (buffer.length >= 2 && mapRef.current) {
         const p1 = buffer[0];
         const p2 = buffer[1];
         const interpolated = interpolateNavPoint(p1, p2, now);
@@ -781,7 +788,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
             lastCameraUpdate = now;
           }
         }
-      } else if (buffer.length === 1 && mapRef.current && mapRef.current.isStyleLoaded()) {
+      } else if (buffer.length === 1 && mapRef.current) {
         // Tek nokta varsa (başlangıç) doğrudan oraya git
         const p = buffer[0];
         updateUserMarker(p.lat, p.lng, p.heading, 0);
@@ -933,7 +940,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         const loc  = locationRef.current;
         const bear = headingRef.current ?? 0;
         const h    = containerRef.current?.offsetHeight ?? 600;
-        if (mapRef.current && loc && mapRef.current.isStyleLoaded()) {
+        // enterNavigationView kamera-tek işlemdir; isStyleLoaded kapısı tile
+        // yüklenirken auto-follow dönüşünü sessizce yutuyordu (KÖK NEDEN ailesi).
+        if (mapRef.current && loc) {
           if (drivingModeRef.current || isNav) {
             enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
           }
@@ -963,7 +972,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       const loc  = locationRef.current;
       const bear = headingRef.current ?? 0;
       const h    = containerRef.current?.offsetHeight ?? 600;
-      if (mapRef.current && loc && mapRef.current.isStyleLoaded()) {
+      if (mapRef.current && loc) {
         enterNavigationView(mapRef.current, loc.latitude, loc.longitude, bear, h);
       }
     }

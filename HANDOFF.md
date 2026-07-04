@@ -1,9 +1,29 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app` (HEAD `84237ff`).
+> Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app`.
 
-## ✅ SON İŞ (2026-07-04 #3): Harita "ters gidiyor + takip etmiyor" — hız-bağımsız hareket tespiti
+## ⭐ SON İŞ (2026-07-04 #5): Harita "sabit + dönmüyor" GERÇEK kök nedeni — isStyleLoaded kapıları
+
+Saha şikayeti 4bd4ed5'ten SONRA da sürdü (hız 33 gösterirken mini harita kuzey-yukarı,
+kamera sabit). Tarayıcıda Playwright + sahte watchPosition ile **Doppler-0 sürüş simülasyonu**
+kuruldu → lokal repro + adım adım enstrümantasyon şunu kanıtladı: hareket tespiti DOĞRU
+çalışıyor (isDriving=true, hdg=45), ama `setDrivingView` tepesindeki `!map.isStyleLoaded()`
+guard'ı HER çağrıda erken dönüyor. İki tetik: (1) updateUserMarker'ın setData'sı stili aynı
+senkron karede kirletir — MiniMap'te sıra hep marker→kamera olduğundan kamera %100 ölü;
+(2) sürüşte tile yüklenirken isStyleLoaded zaten çoğunlukla false → FullMapView rAF tick'inin
+kare-başı kapıları takip yolunu topluca yutuyor. 84237ff+4bd4ed5 semptom tedavisiydi.
+
+**Fix:** setDrivingView/enterNavigationView guard'ı yalnız `!map` (kamera stil gerektirmez;
+katman işleri zaten getLayer+try/catch'li); MiniMapWidget stil kapısı yalnız init yoluna;
+FullMapView tick + auto-follow + drivingMode girişindeki kare-başı kapılar kaldırıldı.
+Teşhis kancası: `window.__MAP_STORE__` (cihazda CDP ile `getState().mapInstance.getBearing()`).
+Simülasyonda bearing 0→45° kilitlendi, merkez aracı izliyor. Suite **1831 yeşil** (+4 kilit:
+"Sürüş kamerası stil-kapısı yasağı"). **Cihazda canlı doğrulanmadı** — APK istek üzerine.
+⚠️ Çalışma ağacında BAŞKASININ WIP'i duruyor: DrawerShell+Freeze (drawer dondurma) ve
+freeze.test.tsx commit'lenmemiş — bu işe dahil edilmedi, sahibi karar verecek.
+
+## ✅ ÖNCEKİ İŞ (2026-07-04 #3): Harita "ters gidiyor + takip etmiyor" — hız-bağımsız hareket tespiti
 
 `84237ff` — saha (telefon): araç ikonu doğru yönü gösteriyor ama harita ters akıyor,
 konum takibi yok; hız fark etmiyor, tüm harita yüzeylerinde. Teşhis: kullanıcıya 3 soru

@@ -8,7 +8,46 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `feat/assistant-open-app` (HEAD `84237ff` — harita hareket tespiti fix) — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- **Aktif branch:** `feat/assistant-open-app` — **push EDİLMEDİ**, `main`'e merge bekliyor.
+
+## ⭐ HARİTA "SABİT + DÖNMÜYOR" GERÇEK KÖK NEDENİ: isStyleLoaded KAPILARI (2026-07-04)
+
+4bd4ed5 sonrası saha şikayeti sürdü ("harita sabit kalıyor, gitme yönüne dönmüyor",
+hız 33 gösterirken). Tarayıcıda Doppler-0 sürüş simülasyonuyla (Playwright, sahte
+watchPosition) **lokal repro alındı** ve adım adım enstrümantasyonla kanıtlandı:
+
+- `setDrivingView`'ın tepe guard'ı `!map.isStyleLoaded()` **her çağrıda** erken
+  dönüyordu. isStyleLoaded() şu iki NORMAL durumda false verir:
+  1. `updateUserMarker` → GeoJSON `setData` stili aynı senkron karede "kirli"
+     işaretler → hemen ardından çağrılan setDrivingView %100 ölür (MiniMap'te
+     sıra hep marker→kamera olduğundan mini haritada kamera HİÇ çalışmıyordu).
+  2. Sürüşte sürekli yeni tile yüklenir → sourceCache.loaded()=false → FullMapView
+     rAF tick'inin kare-başı isStyleLoaded kapıları takip yolunu topluca yutuyordu.
+- 84237ff + 4bd4ed5'teki hareket-tespiti fix'leri **semptom tedavisiydi**; sürüş
+  tespiti doğru çalışsa bile kamera bu kapılara takılıyordu.
+
+**Fix:** kamera işlemleri (jumpTo/easeTo) stil gerektirmez → `setDrivingView` ve
+`enterNavigationView` guard'ı yalnız `!map`; MiniMapWidget'ta stil kapısı yalnız
+init yoluna (`!_initialized && !isStyleLoaded`); FullMapView tick + auto-follow +
+drivingMode giriş yollarından kare-başı isStyleLoaded kapıları kaldırıldı (katman
+işleri zaten getLayer+try/catch korumalı). Teşhis için `window.__MAP_STORE__`
+kancası eklendi (_mapState.ts — cihazda CDP-over-adb ile canlı bearing okumak için).
+
+**Doğrulama:** simülasyonda bearing 0→45° kilitlendi, pitch ~30, merkez her fix'te
+aracı izliyor. Suite 1831 yeşil (+4 kilit: "Sürüş kamerası stil-kapısı yasağı").
+Cihazda canlı doğrulama bekliyor — APK istek üzerine derlenecek.
+
+## Horizon Sahte Katmanlar + Kadans-Bağımsız Hareket (2026-07-04, `4bd4ed5`)
+
+Screenshot teşhisi: HzMap mockup süsleri taşıyordu — ekrana çivili sahte konum oku
+("iki araç göstergesi" illüzyonu), hardcoded "2.4 km D400" nav şeridi, sabit
+"2:15/137/15:39" seyahat satırı (rota yokken bile). Kaldırıldı; nav şeridi +
+seyahat satırı yalnız GERÇEK isNavigating iken gerçek store verisiyle; N/+/−/
+crosshair butonları paylaşılan haritaya gerçek komut gönderir. Ayrıca 84237ff'in
+metre/fix eşikleri fix kadansına duyarlıydı → zaman-normalize km/h'ye çevrildi
+(MiniMap ts-çapalı dispKmh >5/<3 histerezis; FullMapView ≥1.2s pencereli wake
+çapası ≥5 km/h + ≥3m). Kilitler: "Horizon harita kartı sahte veri yasağı" (3) +
+hareket kilitleri güncellendi. Suite 1827 yeşil. Cihazda doğrulama bekliyor.
 - `main` HEAD: `648fb84` (autoBrightness guard).
 
 ## Harita "Ters Gidiyor + Takip Etmiyor" Fix (2026-07-04, `84237ff`)
