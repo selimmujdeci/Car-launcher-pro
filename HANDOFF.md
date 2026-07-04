@@ -3,7 +3,20 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-03. Branch: `fix/k24-can-flood-perf` (HEAD `548d3d4`).
 
-## ✅ SON İŞ (2026-07-03): Settings stub sekmeleri gerçek verilere bağlandı
+## ✅ SON İŞ (2026-07-04): Offline ASR onarımı — Vosk karışıklık sözlüğü + lexicon snap
+
+`2a333fa` (branch `feat/assistant-open-app`) — offline'da Gemini onarımı yokken bozuk
+Vosk transcript'i artık parse öncesi onarılıyor. YENİ saf modül `src/platform/asrRepair.ts`:
+(a) ~27 gerçekçi Vosk TR karışıklık çifti (`KNOWN_CONFUSIONS`), (b) muhafazakâr domain
+lexicon snap (token ≥4 harf, mesafe ≤1/4-6 ≤2/≥7, lexicon'daki + çekimli (kök+ek)
+kelimeye dokunmaz, ≤3 harf hedef alınmaz — "zayıf fiil aç" kuralı gevşemedi).
+Entegrasyon TEK nokta: `voiceService._bestLocalParse` — her alternatifin onarılmış
+varyantı aday havuzuna girer (tavan 8); onarım YALNIZ sıkı `>` confidence ile kazanır,
+eşitlikte orijinal (fail-soft: mevcut davranış gerileyemez). Test: +14 (`asrRepair.test.ts`)
+→ tam suite 1803 yeşil, guard 65/65, tsc temiz (ajan koştu + ana oturumda tsc/guard/asrRepair
+bizzat tekrar doğrulandı). **Cihazda gerçek Vosk çıktısıyla DOĞRULANMADI.**
+
+## ✅ ÖNCEKİ İŞ (2026-07-03): Settings stub sekmeleri gerçek verilere bağlandı
 
 `548d3d4` — SettingsPage sahte verileri (Math.random CPU/TEMP, sabit "EvAg" Wi-Fi,
 sahte OTA toggle, "Chromium 114/42°C/Certified") gerçek kaynaklara bağlandı; detay

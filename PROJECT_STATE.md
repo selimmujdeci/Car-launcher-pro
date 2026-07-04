@@ -2,14 +2,29 @@
 
 > Bu dosya projenin **anlık gerçek durumunu** tutar. Ajan/oturum değişince
 > "şu an neredeyiz?" sorusunun cevabı burada. İddialar kod tabanından doğrulandı.
-> Son güncelleme: 2026-06-24.
+> Son güncelleme: 2026-07-04.
 
 ---
 
 ## Aktif Branch
 
-- **Aktif branch:** `fix/k24-perf-webgl-bundle-rotation` (HEAD `9617664` — Safety Assistant) — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- **Aktif branch:** `feat/assistant-open-app` (HEAD `2a333fa` — offline ASR onarımı) — **push EDİLMEDİ**, `main`'e merge bekliyor.
 - `main` HEAD: `648fb84` (autoBrightness guard).
+
+## Offline ASR Onarımı (2026-07-04, `2a333fa`)
+
+Offline'da (Gemini onarımı yokken) bozuk Vosk transcript'i parse ÖNCESİ onarılıyor.
+- **YENİ `src/platform/asrRepair.ts`** (saf, servis import'u sıfır): (a) `KNOWN_CONFUSIONS`
+  ~27 gerçekçi Vosk TR fonetik hata çifti; (b) `domainLexiconSnap` — çekirdek komut
+  kelimelerine muhafazakâr snap (≥4 harf, mesafe ≤1/4-6 ≤2/≥7; lexicon'daki, çekimli
+  (kök+ek) ve ≤3 harf kelimeye DOKUNMAZ — offline "zayıf fiil aç" hassasiyeti gevşemedi).
+- **Entegrasyon tek nokta:** `voiceService._bestLocalParse` — onarılmış varyantlar aday
+  havuzuna girer (tavan 8), YALNIZ sıkı `>` confidence ile kazanır; eşitlikte orijinal
+  (fail-soft: mevcut davranış gerileyemez). Wake word / beyin promptu / müzik query
+  onarımı akışlarına DOKUNULMADI.
+- Test +14 (`asrRepair.test.ts`) → suite **1803/1803** · guard 65/65 · tsc temiz
+  (caros-coder yazdı; ana oturumda tsc + guard + asrRepair bizzat tekrar koşuldu).
+  **Cihazda gerçek Vosk çıktısıyla doğrulanmadı.**
 
 ## 🛡️ Safety Assistant — Faz 1–3A Tamamlandı (2026-06-24, `9617664`)
 
