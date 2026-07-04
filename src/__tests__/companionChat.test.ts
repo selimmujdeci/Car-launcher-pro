@@ -73,9 +73,11 @@ import {
   tryCompanionChat,
   tryCompanionBrain,
   repairMusicQuery,
+  warmupGemini,
   _withAltHint,
   _resetCompanionChatForTest,
 } from '../platform/companion/companionChatProvider';
+import { isAiNetHealthy, _resetAiHealthForTest } from '../platform/aiHealth';
 import { fromSemanticResult } from '../platform/intentEngine';
 import { parseCommandFull } from '../platform/commandParser';
 import { VOICE_DIAG_STAGES } from '../platform/voiceDiagService';
@@ -1070,5 +1072,90 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
 describe('voice_diag — route aşaması', () => {
   it("'voice_route' aşaması şemada kayıtlı", () => {
     expect(VOICE_DIAG_STAGES).toContain('voice_route');
+  });
+});
+
+/* ── 5. SAHA 2026-07-04: "ilk istek online, sonrakiler offline" ──
+ * Kota (429) soğuma penceresi kullanıcıya SAHTE offline yaşatıyordu:
+ *  (a) tüm adaylar soğumadan atlanınca sessizce aptallaşmak yerine
+ *      DÜRÜST kota cevabı verilir (companion_rate_limited);
+ *  (b) pencereler sağlayıcı-bazlıdır — Groq/Haiku 429'u Gemini'yi kilitlemez;
+ *  (c) soğumadayken warmup atlanır (429 penceresinde boşa kota yakma);
+ *  (d) repairMusicQuery (1.8s mikro-bütçe) timeout'u BEYİN kesicisini beslemez. */
+
+describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-07-04)', () => {
+  const GEMINI_CHAIN = { hasNet: true, chain: [{ provider: 'gemini' as const, apiKey: 'AIzaTest' }] };
+
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    _resetAiHealthForTest();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setupCompanion(false);
+  });
+
+  it('beyin 429 → soğumada ikinci istek DÜRÜST kota cevabı (sahte offline/reask değil)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r1 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // denendi → 429 → soğuma
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(r1!.kind).toBe('chat');
+
+    const r2 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // soğumada: Gemini HİÇ denenmez
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(r2!.kind).toBe('chat');
+    if (r2!.kind === 'chat') {
+      expect(r2.route).toBe('companion_rate_limited');
+      expect(r2.response.toLowerCase()).toContain('kota');
+    }
+  });
+
+  it('soğumada smalltalk yine OFFLINE motora gider (kota cevabı sohbeti bozmaz)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // soğumayı başlat
+    const r = await tryCompanionBrain('nasılsın', GEMINI_CHAIN);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline'); // doğal smalltalk cevabı
+  });
+
+  it('Groq 429 Gemini penceresini KİRLETMEZ — sonraki istekte Gemini çalışır', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) }) // 1) Groq 429
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'chat', say: 'Gemini cevapladı.' }) }] } }] }) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('naber', { hasNet: true, chain: [{ provider: 'groq' as const, apiKey: 'gsk_test' }] });
+    const r2 = await tryCompanionBrain('naber', GEMINI_CHAIN);
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // Gemini DENENDİ — eski paylaşılan pencere onu da atlatıyordu
+    expect(r2!.kind).toBe('chat');
+    if (r2!.kind === 'chat') expect(r2.response).toBe('Gemini cevapladı.');
+  });
+
+  it('kota soğumasındayken warmup ATLANIR (429 penceresinde boşa istek yok)', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // 429 → soğuma başladı
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await warmupGemini('AIzaTest');
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // warmup fetch ATMADI
+  });
+
+  it('repairMusicQuery timeout\'u beyin devre kesicisini BESLEMEZ (iki müzik komutu ≠ 90sn offline)', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
+
+    await repairMusicQuery('leyla türk şarkısı', 'AIzaTest'); // 1. timeout
+    await repairMusicQuery('mahzuni şerif çal', 'AIzaTest');  // 2. timeout — eskiden breaker açılırdı
+    expect(isAiNetHealthy(), 'onarım timeout\'ları FAIL_THRESHOLD=2 kesicisini açtı — tüm asistan offline\'a kilitlenir').toBe(true);
   });
 });

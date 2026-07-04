@@ -40,7 +40,7 @@ import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited';
 
 export interface CompanionChatResult {
   response: string;
@@ -158,7 +158,36 @@ function pushHistory(role: ChatTurn['role'], text: string): void {
 export const RATE_LIMIT_COOLDOWN_MS = 60_000;
 // Gemini BEYİN/sohbet çağrısı (düzenli generateContent) kotası soğuması — Gemini
 // adayını zincirde atlar.
-let _rateLimitedUntil = 0;
+// ⚠️ SAĞLAYICI-BAZLI (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
+// eskiden TEK paylaşılan pencereydi — Groq/Haiku 429'u da bunu kuruyordu ve
+// GEMINI 60sn kilitleniyordu (çapraz kirlenme). Artık her sağlayıcının kendi
+// penceresi var; birinin kotası diğerini asla susturmaz.
+let _rateLimitedUntil = 0;      // yalnız GEMINI
+let _groqRateLimitedUntil  = 0; // yalnız GROQ
+let _haikuRateLimitedUntil = 0; // yalnız HAIKU
+
+/**
+ * Gemini 429 gövdesinden gerçek bekleme süresini okur (google.rpc.RetryInfo
+ * retryDelay: "7s" gibi). RPM-tipi kotalarda Google çoğu zaman 5-30sn söyler —
+ * sabit 60sn pencere asistanı gereksiz uzun "offline" bırakıyordu (SAHA
+ * 2026-07-04: "ilk istek online, sonrakiler offline"). Okunamazsa/yoksa
+ * varsayılan pencere; taban 5sn, tavan RATE_LIMIT_COOLDOWN_MS.
+ */
+async function _cooldownFrom429(resp: Response): Promise<number> {
+  try {
+    const data = await resp.json() as { error?: { details?: { retryDelay?: string }[] } };
+    const d = data.error?.details?.find((x) => typeof x?.retryDelay === 'string');
+    const m = d?.retryDelay?.match(/^(\d+(?:\.\d+)?)s$/);
+    if (m) return Math.min(RATE_LIMIT_COOLDOWN_MS, Math.max(5_000, Math.round(parseFloat(m[1]) * 1000)));
+  } catch { /* gövde okunamadı → varsayılan pencere */ }
+  return RATE_LIMIT_COOLDOWN_MS;
+}
+
+/* Kota penceresinde dürüst cevap (SAHA 2026-07-04): zincirdeki TÜM adaylar
+ * soğumadayken kullanıcı "offline'a düştü" sanıyordu — asistan sahte aptallaşma
+ * yerine gerçek nedeni söyler; pencere kapanınca kendiliğinden normale döner. */
+const RATE_LIMIT_REPLY =
+  'Yapay zeka kotam şu an dolu, bir dakikaya kalmaz toparlarım — birazdan tekrar sor.';
 // google_search GROUNDING kotası soğuması AYRI (SAHA 2026-07-04): grounding ücretsiz
 // katmanda çok küçük kotalı, sık 429 verir. Eskiden bu 429 _rateLimitedUntil'ı
 // kurup TÜM Gemini beynini 60sn öldürüyordu → "bir kere çalışıp sonra ölüyor".
@@ -175,6 +204,8 @@ export function _resetCompanionChatForTest(): void {
   _history = [];
   _offlineCounter = 0;
   _rateLimitedUntil = 0;
+  _groqRateLimitedUntil = 0;
+  _haikuRateLimitedUntil = 0;
   _groundingCooldownUntil = 0;
 }
 
@@ -275,6 +306,9 @@ const GEMINI_TIMEOUT_MS = 9000;
  */
 export async function warmupGemini(apiKey: string): Promise<void> {
   if (!apiKey || !apiKey.trim()) return;
+  // Kota soğumasındayken ısıtma da atlanır — 429 penceresinde ekstra istek hem
+  // boşa kota yakar hem pencereyi tazeleyebilir (SAHA 2026-07-04).
+  if (_now() < _rateLimitedUntil) return;
   try {
     await fetch(GEMINI_CHAT_ENDPOINT, {
       method:  'POST',
@@ -382,8 +416,8 @@ async function askCompanionGemini(
   });
   if (resp.status === 429) {
     // Rate limit: soğuma penceresi boyunca Gemini denenmez (kullanıcı faturası
-    // + art arda başarısız istek gecikmesi). Pencere boyunca offline yanıtlar.
-    _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
+    // + art arda başarısız istek gecikmesi). Süre Google'ın söylediği kadar.
+    _rateLimitedUntil = _now() + await _cooldownFrom429(resp);
     return null;
   }
   if (!resp.ok) return null;
@@ -449,8 +483,8 @@ async function askCompanionGroq(
   });
 
   if (resp.status === 429) {
-    // Rate limit: soğuma penceresi boyunca Groq denenmez.
-    _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
+    // Rate limit: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
+    _groqRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
     return null;
   }
   if (!resp.ok) return null;
@@ -554,7 +588,8 @@ async function askCompanionBrainGroq(
     signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
 
-  if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+  // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
+  if (resp.status === 429) { _groqRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
   if (!resp.ok) return null;
 
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
@@ -721,7 +756,8 @@ async function askCompanionBrainHaiku(
     signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
 
-  if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+  // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
+  if (resp.status === 429) { _haikuRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
   if (!resp.ok) return null;
 
   const data = await resp.json() as { content?: { type?: string; text?: string }[] };
@@ -1187,7 +1223,9 @@ async function askCompanionBrain(
     body:    JSON.stringify(body),
     signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
-  if (resp.status === 429) { _rateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+  // 429: Google'ın söylediği kadar bekle (retryDelay) — sabit 60sn asistanı
+  // gereksiz uzun "offline" bırakıyordu (SAHA 2026-07-04).
+  if (resp.status === 429) { _rateLimitedUntil = _now() + await _cooldownFrom429(resp); return null; }
   if (!resp.ok) return null;
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
@@ -1239,7 +1277,7 @@ async function askGroundedGemini(
     });
     // GROUNDING 429 → yalnız GROUNDING soğuması (beyin cooldown'ını KİRLETME).
     // Beyin karar/sentez çağrıları çalışmaya devam eder; grounding atlanır → Tavily.
-    if (resp.status === 429) { _groundingCooldownUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
+    if (resp.status === 429) { _groundingCooldownUntil = _now() + await _cooldownFrom429(resp); return null; }
     if (!resp.ok) return null;
     const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     // Grounded cevap birden çok text parçasına bölünebilir → hepsini birleştir.
@@ -1334,6 +1372,9 @@ export async function tryCompanionBrain(
 
   const netUsable = opts.hasNet === true && chain.length > 0;
   let aiAttempted = false;
+  // TÜM adaylar kota soğumasından atlandı (hiçbiri denenmedi) → aşağıda dürüst
+  // kota cevabı (offline motorun söyleyecek sözü yoksa).
+  let rateLimitedOnly = false;
 
   if (netUsable) {
     const id = resolveCompanionIdentity(settings);
@@ -1344,17 +1385,22 @@ export async function tryCompanionBrain(
     // Eski davranış: sağlayıcı null'ları da sayılıyordu → 2 cümlede breaker açılıp
     // 90sn TÜM asistanı (STT dahil) offline'a kilitliyordu.
     let sawNetFailure = false;
+    // Kota teşhisi (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
+    // adaylar 429 soğumasından atlanınca kullanıcı sahte "offline" yaşıyordu —
+    // hepsi soğumadaysa aşağıda dürüst kota cevabı verilir.
+    let skippedByCooldown = false;
     // n-best: beyne gönderilecek metin (STT alternatifleriyle zenginleştirilmiş).
     // pushHistory/local yollar TEMİZ `trimmed` kullanmaya devam eder — yalnız
     // sağlayıcı çağrılarının user içeriği ipuçlu olur.
     const brainInput = _withAltHint(trimmed, opts.alternatives);
 
     for (const cand of chain) {
-      // Gemini adayı soğuma penceresindeyse ATLANIR (sıradaki aday denenir) —
-      // Groq/Haiku _rateLimitedUntil'a KASITLI olarak bakılmaz, aksi halde
-      // 60sn'lik soğuma boyunca kullanıcının Groq/Haiku anahtarı olsa dahi
-      // asistan tamamen aptallaşırdı.
-      if (cand.provider === 'gemini' && _now() < _rateLimitedUntil) continue;
+      // KENDİ soğuma penceresindeki aday ATLANIR (sıradaki denenir). Pencereler
+      // sağlayıcı-bazlıdır: birinin 429'u diğerini asla kilitlemez — eski paylaşılan
+      // pencere Groq 429'unda Gemini'yi de susturuyordu (çapraz kirlenme).
+      if (cand.provider === 'gemini' && _now() < _rateLimitedUntil)      { skippedByCooldown = true; continue; }
+      if (cand.provider === 'groq'   && _now() < _groqRateLimitedUntil)  { skippedByCooldown = true; continue; }
+      if (cand.provider === 'haiku'  && _now() < _haikuRateLimitedUntil) { skippedByCooldown = true; continue; }
       aiAttempted = true;
 
       try {
@@ -1438,11 +1484,22 @@ export async function tryCompanionBrain(
     // Sağlayıcı-null'ları (429/4xx/parse) buraya HİÇ girmez: internet varken
     // kesici açılmaz, asistan "internet yok" moduna düşmez.
     if (sawNetFailure) recordAiNetFailure();
+
+    rateLimitedOnly = !aiAttempted && skippedByCooldown;
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
   const offline = offlineCompanionReply(trimmed, opts);
   if (offline !== null) return { kind: 'chat', response: offline, route: 'companion_offline' };
+
+  // Kota soğuması: sahte aptallaşma yerine DÜRÜST cevap (SAHA 2026-07-04, "ilk
+  // istek online sonrakiler offline") — kullanıcı "internet gitti" değil gerçek
+  // nedeni duyar; pencere kapanınca kendiliğinden normale döner. Smalltalk yukarıda
+  // offline motora bırakıldı (o cevaplar zaten doğal), buraya yalnız bilgi/sohbet
+  // soruları düşer.
+  if (rateLimitedOnly) {
+    return { kind: 'chat', response: RATE_LIMIT_REPLY, route: 'companion_rate_limited' };
+  }
 
   // Faz 3 — No Dead-Ends: ONLINE deneme yapıldı ama beyin/ağ/parse başarısız
   // VE offline'ın da söyleyecek sözü yoksa kullanıcı "Hata/anlaşılamadı" değil,
@@ -1490,7 +1547,14 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
     if (!fixed || fixed.length > 80) return null;
     recordAiNetSuccess();
     return fixed === q ? null : fixed;
-  } catch { recordAiNetFailure(); return null; }
+  } catch {
+    // 1.8sn mikro-bütçeli OPSİYONEL süsleme çağrısı — timeout'u BEKLENEN durumdur
+    // (soğuk modelde ~7sn). BEYİN devre kesicisine YAZILMAZ: eskiden iki müzik
+    // komutu üst üste onarım timeout'u yiyince breaker 90sn TÜM asistanı offline'a
+    // kilitliyordu ("ilk istek online, sonrakiler offline" — SAHA 2026-07-04).
+    // Komut ham sorguyla aynen devam eder (fail-soft).
+    return null;
+  }
 }
 
 /* ── Ana giriş — Companion Router'ın sohbet ucu ─────────────── */
@@ -1527,7 +1591,7 @@ export async function tryCompanionChat(
     opts.provider === 'groq' &&
     !!opts.apiKey &&
     opts.hasNet === true &&
-    _now() >= _rateLimitedUntil;
+    _now() >= _groqRateLimitedUntil; // Groq KENDİ penceresi (Gemini'ninki değil)
 
   if (geminiUsable) {
     try {

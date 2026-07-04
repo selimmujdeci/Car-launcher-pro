@@ -446,6 +446,36 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(src, 'eski sawFailure deseni geri gelmiş').not.toMatch(/\bsawFailure\b/);
   });
 
+  it('YAPISAL: repairMusicQuery catch BEYİN kesicisini BESLEMEZ (mikro-bütçe timeout ≠ ağ ölümü)', () => {
+    // SAHA 2026-07-04 ("ilk istek online, sonrakiler offline"): 1.8sn mikro-bütçeli
+    // OPSİYONEL onarım çağrısının timeout'u recordAiNetFailure'a sayılıyordu →
+    // iki müzik komutu üst üste = FAIL_THRESHOLD(2) = breaker 90sn TÜM asistanı kapattı.
+    const fn = src.match(/export async function repairMusicQuery\([\s\S]*?\n\}/);
+    expect(fn, 'repairMusicQuery bulunamadı').toBeTruthy();
+    expect(fn![0], 'repairMusicQuery hatası recordAiNetFailure() ile BEYİN kesicisine yazılıyor (iki müzik komutu → 90sn offline)').not.toMatch(/recordAiNetFailure\s*\(/);
+  });
+
+  it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Groq/Haiku 429\'u Gemini\'yi kilitlemez', () => {
+    // SAHA 2026-07-04: tek paylaşılan _rateLimitedUntil vardı — Groq/Haiku 429'u
+    // Gemini'yi de 60sn susturuyordu (çapraz kirlenme → sahte offline).
+    // _rateLimitedUntil'a atama yalnız GEMİNİ yollarında ve retryDelay ile olmalı.
+    const geminiAssigns = [...src.matchAll(/_rateLimitedUntil\s*=\s*_now\(\)\s*\+\s*([^;]+);/g)];
+    expect(geminiAssigns.length, 'Gemini 429 ataması bulunamadı').toBeGreaterThanOrEqual(2);
+    for (const m of geminiAssigns) {
+      expect(m[1], 'Gemini 429 penceresi Google\'ın retryDelay\'ini kullanmalı (_cooldownFrom429) — sabit 60sn asistanı gereksiz uzun offline bırakır').toContain('_cooldownFrom429');
+    }
+    expect(src, 'Groq 429 kendi penceresini kurmalı (_groqRateLimitedUntil)').toMatch(/_groqRateLimitedUntil\s*=\s*_now\(\)/);
+    expect(src, 'Haiku 429 kendi penceresini kurmalı (_haikuRateLimitedUntil)').toMatch(/_haikuRateLimitedUntil\s*=\s*_now\(\)/);
+  });
+
+  it('YAPISAL: tüm adaylar kota soğumasındayken DÜRÜST kota cevabı (sahte offline yasak)', () => {
+    // SAHA 2026-07-04: soğumada asistan sessizce aptallaşıyordu; kullanıcı
+    // "internet gitti" sanıyordu. Zincir hiç denenemeden atlandıysa kullanıcı
+    // gerçek nedeni duymalı (companion_rate_limited).
+    expect(src, 'companion_rate_limited rotası kaldırılmış').toMatch(/companion_rate_limited/);
+    expect(src, 'kota soğuması dürüst-cevap yolu (rateLimitedOnly) kaldırılmış').toMatch(/rateLimitedOnly/);
+  });
+
   it('YAPISAL: named-city hava durumu ham kullanıcı metniyle korunur (Tarsus bug\'ı)', () => {
     // SAHA 2026-07-04: "İstanbul hava durumu" birkaç turdan sonra Tarsus (yerel/GPS
     // şehri) havasını söylüyordu. Kök neden: tryLocalWeatherAnswer şehir korumasını
@@ -700,9 +730,11 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
   it('YAPISAL: CompanionChatOpts.chain (Gemini→Groq→Haiku) + tryCompanionBrain\'de Gemini soğuma/hata → sıradaki aday kilidi', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
     expect(src).toMatch(/chain\?:\s*ReadonlyArray<\{\s*provider:\s*'gemini'\s*\|\s*'groq'\s*\|\s*'haiku';\s*apiKey:\s*string\s*\}>/);
-    // Gemini adayı _rateLimitedUntil soğumasındaysa ATLANIR (sıradaki aday denenir) —
-    // bu davranış (429 soğumasında asistan aptallaşmasın) bir daha sessizce kaldırılmamalı.
-    expect(src).toMatch(/cand\.provider === 'gemini' && _now\(\) < _rateLimitedUntil\) continue/);
+    // Gemini adayı KENDİ _rateLimitedUntil soğumasındaysa ATLANIR (sıradaki aday
+    // denenir) — bu davranış (429 soğumasında asistan aptallaşmasın) bir daha
+    // sessizce kaldırılmamalı. SAHA 2026-07-04: atlama artık skippedByCooldown
+    // işaretler (dürüst kota cevabı) — pencereler sağlayıcı-bazlı.
+    expect(src).toMatch(/cand\.provider === 'gemini' && _now\(\) < _rateLimitedUntil\)\s*\{ skippedByCooldown = true; continue; \}/);
     expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
   });
 
