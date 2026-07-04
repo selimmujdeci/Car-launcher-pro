@@ -856,17 +856,49 @@ describe('Hareket tespiti hız-bağımsız kilidi — Doppler 0 saplanması', ()
 
   it('YAPISAL: FullMapView rAF wake yer değiştirmeyle de uyanır (yalnız hız DEĞİL)', () => {
     const src = read('src/components/map/FullMapView.tsx');
-    expect(src, 'GPS wake yer-değiştirme koşulu kaldırılmış').toMatch(/speedKmh >= 1\.5 \|\| _movedM >= 8/);
+    expect(src, 'GPS wake yer-değiştirme çapası (wakeAnchorRef) kaldırılmış — hız 0 saplanınca takip ölür').toMatch(/wakeAnchorRef/);
+    expect(src, 'wake çapası zaman-normalize hız eşiğini kaybetmiş').toMatch(/\(_movedM \/ _dtS\) \* 3\.6 >= 5\) wakeLoopRef/);
   });
 
   it('YAPISAL: FullMapView isIdleNow yer değiştirme taşıyan tamponla uyumaz', () => {
     const src = read('src/components/map/FullMapView.tsx');
-    expect(src, 'idle tespiti yalnız hıza bakıyor — hız 0 saplanınca takip uyur').toMatch(/movedM >= 8\) return false/);
+    expect(src, 'idle tespiti yalnız hıza bakıyor — hız 0 saplanınca takip uyur').toMatch(/\(movedM \/ dtS\) \* 3\.6 >= 5\) return false/);
   });
 
-  it('YAPISAL: MiniMapWidget isDriving yer değiştirme + histerezis kullanır', () => {
+  it('YAPISAL: MiniMapWidget isDriving yer değiştirme hızı + histerezis kullanır', () => {
     const src = read('src/components/map/MiniMapWidget.tsx');
-    expect(src, 'isDriving yalnız hıza dönmüş — Doppler=0 cihazda sürüş görünümü hiç açılmaz').toMatch(/_movedDegNow > 0\.00005 \? true/);
-    expect(src, 'histerezis (çıkış eşiği) kaldırılmış — stop-and-go flicker döner').toMatch(/_movedDegNow < 0\.00002 \? false/);
+    expect(src, 'isDriving yalnız Doppler hıza dönmüş — Doppler=0 cihazda sürüş görünümü hiç açılmaz').toMatch(/Math\.max\(speedKmh, _dispKmh\)/);
+    expect(src, 'histerezis (giriş >5 / çıkış <3) kaldırılmış — stop-and-go flicker döner').toMatch(/_effKmh < 3 \? false/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   HORIZON HARİTA KARTI SAHTE VERİ YASAĞI — "iki araç göstergesi"
+   Regresyon (SAHA 2026-07-04, screenshot'lı): HzMap mockup'tan kalan SAHTE
+   katmanlar taşıyordu — ekrana %46/%55'e çivili dekoratif konum oku (gerçek
+   Rover işaretçisiyle birlikte İKİ araç göstergesi illüzyonu), hardcoded
+   "2.4 km D400 · Kaş Yolu" nav şeridi ve "2:15/137/15:39" seyahat satırı
+   (rota yokken bile). Kullanıcı aktif rota + ters giden harita sanıyordu.
+   Kural: harita kartında sahte/hardcoded sürüş verisi YASAK; nav şeridi ve
+   seyahat satırı yalnız GERÇEK isNavigating iken gerçek store verisiyle.
+   ─────────────────────────────────────────────────────────────── */
+describe('Horizon harita kartı sahte veri yasağı kilidi', () => {
+  const src = () => read('src/components/themes/HorizonLayout.tsx');
+
+  it('YAPISAL: sabit dekoratif konum oku YOK (gerçek marker haritanın katmanı)', () => {
+    expect(src(), 'ekrana çivili sahte konum oku geri gelmiş (iki araç göstergesi illüzyonu)').not.toMatch(/left: '46%', top: '55%'/);
+  });
+
+  it('YAPISAL: nav şeridi hardcoded DEĞİL, isNavigating + gerçek rota verisiyle', () => {
+    const s = src();
+    expect(s, 'hardcoded "D400 · Kaş Yolu" sahte nav şeridi geri gelmiş').not.toMatch(/Kaş Yolu/);
+    expect(s, 'nav şeridi isNavigating kapısını kaybetmiş').toMatch(/\{isNavigating && turnDist && \(/);
+    expect(s, 'manevra mesafesi gerçek distanceToNextTurnMeters\'ten gelmeli').toMatch(/fmtTurnDist\(route\.distanceToNextTurnMeters\)/);
+  });
+
+  it('YAPISAL: seyahat satırı hardcoded DEĞİL, gerçek ETA/kalan-km ile', () => {
+    const s = src();
+    expect(s, 'hardcoded "2:15/137/15:39" seyahat satırı geri gelmiş').not.toMatch(/v="2:15"|v="137"|v="15:39"/);
+    expect(s, 'seyahat satırı isNavigating + etaSeconds kapısını kaybetmiş').toMatch(/\{isNavigating && etaSeconds != null && etaSeconds > 0 && \(/);
   });
 });

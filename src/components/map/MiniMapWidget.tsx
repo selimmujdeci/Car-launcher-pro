@@ -65,6 +65,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   const wasDrivingRef = useRef(false);
   const lastAppliedLatRef = useRef(0);
   const lastAppliedLngRef = useRef(0);
+  // SAHA 2026-07-04: yer-değiştirme hızı için zaman çapası — fix kadansından
+  // (200ms…2s) bağımsız km/h üretir; Doppler=0 saplanan cihazda sürüş tespiti.
+  const lastAppliedTsRef  = useRef(0);
 
   const [mapReady, setMapReady] = useState(false);
 
@@ -297,15 +300,19 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     // SAHA FIX (2026-07-04, "harita ters gidiyor + takip etmiyor"): bazı cihazlar
     // hareket halinde coords.speed=0 bildirir → yalnız hıza bakan eski eşik
     // (speedKmh>5) sürüş görünümünü HİÇ açmıyordu: rotasyon yok (kuzey-yukarı),
-    // merkez ~200m'de bir sıçrıyordu. Hareket artık YER DEĞİŞTİRMEDEN de tespit
-    // edilir (fail-soft, CLAUDE.md §2). Histerezis: giriş ~5.5m/fix, çıkış ~2m/fix,
-    // aradaki bölge önceki durumu korur (stop-and-go flicker önlemi, §2 hysteresis).
-    const _movedDegNow = Math.abs(latitude - lastAppliedLatRef.current) +
-                         Math.abs(longitude - lastAppliedLngRef.current);
-    const isDriving = speedKmh > 5
+    // merkez ~200m'de bir sıçrıyordu. Hareket artık YER DEĞİŞTİRME HIZINDAN da
+    // tespit edilir (fail-soft, CLAUDE.md §2). Hız zaman-normalize (km/h) —
+    // fix kadansı 200ms de olsa 2s de olsa aynı eşik çalışır. Histerezis:
+    // giriş >5 km/h, çıkış <3 km/h, arası önceki durumu korur (§2 hysteresis).
+    const _nowTs   = performance.now();
+    const _dtSec   = (_nowTs - lastAppliedTsRef.current) / 1000;
+    const _movedM  = (Math.abs(latitude - lastAppliedLatRef.current) +
+                      Math.abs(longitude - lastAppliedLngRef.current)) * 111_320;
+    const _dispKmh = (_dtSec > 0.15 && _dtSec < 30) ? (_movedM / _dtSec) * 3.6 : 0;
+    const _effKmh  = Math.max(speedKmh, _dispKmh);
+    const isDriving = _effKmh > 5
       ? true
-      : _movedDegNow > 0.00005 ? true
-      : _movedDegNow < 0.00002 ? false
+      : _effKmh < 3 ? false
       : wasDrivingRef.current;
 
     if (!mapRef.current._initialized) {
@@ -316,14 +323,17 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       wasDrivingRef.current = isDriving;
       lastAppliedLatRef.current = latitude;
       lastAppliedLngRef.current = longitude;
+      lastAppliedTsRef.current  = _nowTs;
     } else if (isDriving) {
       // Sürüş modu: hıza göre zoom + heading rotasyonu + look-ahead offset (her fix uygulanır)
+      // Kamera hızı _effKmh: Doppler 0'a saplansa bile zoom/pitch gerçek harekete uyar.
       updateUserMarker(latitude, longitude, hdg);
       const containerH = containerRef.current?.offsetHeight ?? 400;
-      setDrivingView(mapRef.current, latitude, longitude, hdg, speedKmh, containerH);
+      setDrivingView(mapRef.current, latitude, longitude, hdg, _effKmh, containerH);
       wasDrivingRef.current = true;
       lastAppliedLatRef.current = latitude;
       lastAppliedLngRef.current = longitude;
+      lastAppliedTsRef.current  = _nowTs;
     } else {
       // P2-B: Dur/park. Sürüşten YENİ çıktıysak bir kez kamerayı düzleştir (exitDrivingView);
       // aksi halde GPS titremesi (≈metre-altı) için hiçbir GL işi yapma — RenderThread burst'ü
@@ -338,6 +348,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         updateUserMarker(latitude, longitude, hdg);
         lastAppliedLatRef.current = latitude;
         lastAppliedLngRef.current = longitude;
+        lastAppliedTsRef.current  = _nowTs;
         const center = mapRef.current.getCenter();
         const dist = Math.sqrt(
           Math.pow(longitude - center.lng, 2) + Math.pow(latitude - center.lat, 2)

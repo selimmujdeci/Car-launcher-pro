@@ -23,6 +23,10 @@ import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { useNavigation } from '../../platform/navigationService';
+import { useRouteState } from '../../platform/routingService';
+import { useMapStore } from '../../platform/map/_mapState';
+import { setMapCenter, setMapHeading } from '../../platform/mapService';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -314,15 +318,33 @@ const HzConsumptionCard = memo(function HzConsumptionCard({ onOpenSettings }: { 
 });
 
 /* ─── MERKEZ: HARİTA HERO ────────────────────────────────────────── */
-function HzMapBtn({ children }: { children: React.ReactNode }) {
+function HzMapBtn({ children, onPress }: { children: React.ReactNode; onPress?: () => void }) {
   const p = usePalH();
-  return <button className="hz-btn flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 12, background: p.panel, border: `1px solid ${p.edge}`, color: p.ink2, cursor: 'pointer', boxShadow: p.elev }} onClick={e => e.stopPropagation()}>{children}</button>;
+  return <button className="hz-btn flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 12, background: p.panel, border: `1px solid ${p.edge}`, color: p.ink2, cursor: 'pointer', boxShadow: p.elev }} onClick={e => { e.stopPropagation(); onPress?.(); }}>{children}</button>;
+}
+
+/** Manevra mesafesi biçimi: 1000m+ → "2.4 km", altı → "350 m" (10'a yuvarlı). */
+function fmtTurnDist(m: number): { v: string; u: string } {
+  if (m >= 1000) return { v: (m / 1000).toFixed(1), u: 'km' };
+  return { v: String(Math.max(0, Math.round(m / 10) * 10)), u: 'm' };
+}
+
+/** ETA saniyesini "1:45" (saat:dk) ya da "12 dk" biçimine çevirir. */
+function fmtEta(sec: number): string {
+  const min = Math.max(1, Math.round(sec / 60));
+  if (min < 60) return `${min} dk`;
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
 }
 
 const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePalH();
   const gps = useGPSLocation();
-  const heading = gps?.heading ?? 0;
+  // GERÇEK navigasyon durumu — mockup'tan kalan hardcoded nav şeridi kaldırıldı
+  // (SAHA 2026-07-04: rota yokken bile hep görünüyordu, sürücü aktif rota sanıyordu).
+  const { isNavigating, distanceMeters, etaSeconds } = useNavigation();
+  const route = useRouteState();
+  const nextStep = isNavigating ? (route.steps[route.currentStepIndex + 1] ?? null) : null;
+  const turnDist = isNavigating ? fmtTurnDist(route.distanceToNextTurnMeters) : null;
   const chip: React.CSSProperties = { background: p.panel, border: `1px solid ${p.edge}`, boxShadow: p.elev };
   // sıcak arazi fallback zemini (MiniMapWidget yüklenene kadar / şeffaf bölgelerde)
   const terrain = 'radial-gradient(130% 100% at 62% 40%, #6b6a3e 0%, #4f5530 30%, #36492f 52%, #1f3a3e 72%, #16303c 100%)';
@@ -344,18 +366,20 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 17, background: p.mapveil }} />
       </div>
 
-      {/* nav talimatı — sol üst */}
-      <div className="absolute" style={{ top: 15, left: 15, pointerEvents: 'auto' }}>
-        <div className="flex items-center" style={{ gap: 12, padding: '11px 15px', borderRadius: 14, ...chip }}>
-          <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(135deg, ${p.accent}, ${p.accentDeep})`, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
-            <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 500, color: p.ink3 }}>km</span></div>
-            <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 3 }}>D400 · Kaş Yolu</div>
+      {/* nav talimatı — sol üst (YALNIZ gerçek aktif rotada; sahte mockup verisi YASAK) */}
+      {isNavigating && turnDist && (
+        <div className="absolute" style={{ top: 15, left: 15, pointerEvents: 'auto' }}>
+          <div className="flex items-center" style={{ gap: 12, padding: '11px 15px', borderRadius: 14, ...chip }}>
+            <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(135deg, ${p.accent}, ${p.accentDeep})`, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+              <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{turnDist.v} <span style={{ fontSize: 12, fontWeight: 500, color: p.ink3 }}>{turnDist.u}</span></div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 3 }}>{(nextStep?.streetName || nextStep?.instruction || 'Rotayı takip et').slice(0, 34)}</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* online */}
       <div className="absolute" style={{ top: 15, right: 15 }}>
@@ -365,32 +389,37 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
         </div>
       </div>
 
-      {/* kontroller */}
+      {/* kontroller — paylaşılan harita instance'ına GERÇEK komut gönderir */}
       <div className="absolute flex flex-col" style={{ right: 15, top: '50%', transform: 'translateY(-50%)', gap: 9 }}>
-        <HzMapBtn><span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>N</span></HzMapBtn>
-        <HzMapBtn><Plus className="w-[18px] h-[18px]" /></HzMapBtn>
-        <HzMapBtn><Minus className="w-[18px] h-[18px]" /></HzMapBtn>
-        <HzMapBtn><Crosshair className="w-[18px] h-[18px]" /></HzMapBtn>
+        <HzMapBtn onPress={() => { const m = useMapStore.getState().mapInstance; if (m) setMapHeading(m, 0); }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>N</span>
+        </HzMapBtn>
+        <HzMapBtn onPress={() => { try { useMapStore.getState().mapInstance?.zoomIn(); } catch { /* stil yükleniyor */ } }}><Plus className="w-[18px] h-[18px]" /></HzMapBtn>
+        <HzMapBtn onPress={() => { try { useMapStore.getState().mapInstance?.zoomOut(); } catch { /* stil yükleniyor */ } }}><Minus className="w-[18px] h-[18px]" /></HzMapBtn>
+        <HzMapBtn onPress={() => {
+          const m = useMapStore.getState().mapInstance;
+          if (m && gps) setMapCenter(m, [gps.longitude, gps.latitude], 16, true);
+        }}><Crosshair className="w-[18px] h-[18px]" /></HzMapBtn>
       </div>
 
-      {/* konum marker */}
-      <div className="absolute" style={{ left: '46%', top: '55%', transform: 'translate(-50%,-50%)', pointerEvents: 'none' }}>
-        <span style={{ position: 'absolute', left: '50%', top: '50%', width: 48, height: 48, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: p.accentGlow, animation: 'hzRing 2.4s ease-out infinite' }} />
-        <div style={{ position: 'relative', width: 36, height: 36, borderRadius: '50%', background: p.panel, border: `2px solid ${p.accent}`, display: 'grid', placeItems: 'center', boxShadow: `0 4px 12px ${p.accentGlow}` }}>
-          <Navigation className="w-4 h-4" style={{ color: p.accent, fill: p.accent, transform: `rotate(${heading}deg)` }} />
-        </div>
-      </div>
+      {/* NOT: eski sabit "konum marker" overlay'i KALDIRILDI (SAHA 2026-07-04).
+          Ekrana %46/%55'e çivili dekoratif ok, haritadaki GERÇEK Rover işaretçisiyle
+          birlikte "iki araç göstergesi" illüzyonu yaratıyor, kamera takip etmeyince
+          "harita ters gidiyor" algısını besliyordu. Gerçek işaretçi haritanın kendi
+          katmanıdır (MapLayerManager user-vehicle). */}
 
-      {/* seyahat bilgisi — pusula yuvasıyla çakışmasın diye sol-alt */}
-      <div className="absolute" style={{ bottom: 15, left: 15, pointerEvents: 'auto' }}>
-        <div className="flex items-center" style={{ borderRadius: 14, ...chip }}>
-          <HzTripCell k="Saat" v="2:15" />
-          <span style={{ width: 1, height: 28, background: p.edge }} />
-          <HzTripCell k="KM" v="137" />
-          <span style={{ width: 1, height: 28, background: p.edge }} />
-          <HzTripCell k="Varış" v="15:39" accent />
+      {/* seyahat bilgisi — YALNIZ gerçek aktif rotada (kalan süre / kalan km / varış) */}
+      {isNavigating && etaSeconds != null && etaSeconds > 0 && (
+        <div className="absolute" style={{ bottom: 15, left: 15, pointerEvents: 'auto' }}>
+          <div className="flex items-center" style={{ borderRadius: 14, ...chip }}>
+            <HzTripCell k="Süre" v={fmtEta(etaSeconds)} />
+            <span style={{ width: 1, height: 28, background: p.edge }} />
+            <HzTripCell k="KM" v={((distanceMeters ?? 0) / 1000).toFixed(1)} />
+            <span style={{ width: 1, height: 28, background: p.edge }} />
+            <HzTripCell k="Varış" v={new Date(Date.now() + etaSeconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} accent />
+          </div>
         </div>
-      </div>
+      )}
     </Panel>
   );
 });
