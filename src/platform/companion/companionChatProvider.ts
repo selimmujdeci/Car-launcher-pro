@@ -1254,10 +1254,9 @@ async function askGroundedGemini(
   } catch {
     // Grounding (ağır google_search) timeout/ağ hatası — beyin KARAR çağrısı hemen
     // ÖNCE başarılıydı (ağ ayakta). Bunu BEYİN devre kesicisine YAZMA: yazarsak tek
-    // grounding timeout'u recordAiNetFailure sayar, dıştaki sawFailure ile ÇİFT
-    // sayılır (0→1→2) ve FAIL_THRESHOLD=2 breaker'ı 90sn açıp TÜM AI'yı offline'a
-    // kilitler ("iki istekte offline" bug'ı). 429 ile aynı: yalnız grounding'i
-    // soğut → Tavily'ye düş.
+    // grounding timeout'u kesici sayacını kirletir ve FAIL_THRESHOLD=2 breaker'ı
+    // 90sn açıp TÜM AI'yı offline'a kilitleyebilir ("iki istekte offline" bug'ı).
+    // 429 ile aynı: yalnız grounding'i soğut → Tavily'ye düş.
     _groundingCooldownUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
     return null;
   }
@@ -1338,7 +1337,13 @@ export async function tryCompanionBrain(
 
   if (netUsable) {
     const id = resolveCompanionIdentity(settings);
-    let sawFailure = false;
+    // ⚠️ AĞ hatası ≠ SAĞLAYICI hatası (SAHA 2026-07-04, "internetim var ama offline
+    // sanıyor"): sunucudan HTTP yanıtı gelen HER durum (429 kota, 400/401, bozuk
+    // JSON parse) ağın CANLI olduğunun kanıtıdır — devre kesiciye YAZILMAZ. Kesici
+    // yalnız fetch'in THROW ettiği gerçek ağ ölümünde (timeout/DNS/kopma) sayar.
+    // Eski davranış: sağlayıcı null'ları da sayılıyordu → 2 cümlede breaker açılıp
+    // 90sn TÜM asistanı (STT dahil) offline'a kilitliyordu.
+    let sawNetFailure = false;
     // n-best: beyne gönderilecek metin (STT alternatifleriyle zenginleştirilmiş).
     // pushHistory/local yollar TEMİZ `trimmed` kullanmaya devam eder — yalnız
     // sağlayıcı çağrılarının user içeriği ipuçlu olur.
@@ -1360,7 +1365,7 @@ export async function tryCompanionBrain(
           let result: BrainRaw | null = null;
           try {
             result = await askCompanionBrain(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs);
-          } catch { result = null; /* aşağıda sıradaki aday denenecek */ }
+          } catch { result = null; sawNetFailure = true; /* GERÇEK ağ hatası (throw) — sıradaki aday denenecek */ }
 
           if (result) {
             recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
@@ -1398,11 +1403,10 @@ export async function tryCompanionBrain(
               }
               // grounding+Tavily boş/başarısız → CANLI VERİ alınamadı, ama BEYİN
               // BAŞARILIYDI (yukarıda recordAiNetSuccess, sayaç=0). Bu bir AĞ
-              // hatası DEĞİL, yalnız güncel-bilgi eksiği → devre kesiciyi TETİKLEME
-              // (sawFailure YOK). Sıradaki adayı (Groq/Haiku + searchKey/Tavily)
-              // dene; o da yoksa offline fallback dürüstçe cevap/tekrar-rica verir.
-              // Böylece tek başarısız web sorgusu TÜM asistanı 90sn offline'a
-              // KİLİTLEMEZ (eski davranış: grounding + sawFailure çift sayım).
+              // hatası DEĞİL, yalnız güncel-bilgi eksiği → devre kesiciyi TETİKLEME.
+              // Sıradaki adayı (Groq/Haiku + searchKey/Tavily) dene; o da yoksa
+              // offline fallback dürüstçe cevap/tekrar-rica verir. Böylece tek
+              // başarısız web sorgusu TÜM asistanı 90sn offline'a KİLİTLEMEZ.
               continue;
             }
             // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
@@ -1411,27 +1415,29 @@ export async function tryCompanionBrain(
             pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
             return result;
           }
-          sawFailure = true;
+          // result null ama THROW YOK = HTTP yanıtı alındı (429/4xx/parse) → ağ
+          // canlı, kesiciye sayma; sıradaki adaya geç.
           continue;
         }
 
         if (cand.provider === 'groq') {
           const result = await tryGroqBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
           if (result) return result;
-          sawFailure = true;
-          continue;
+          continue; // null = HTTP-yanıtlı sağlayıcı hatası → ağ canlı, sayma
         }
 
         // cand.provider === 'haiku' — zincirin son halkası
         const result = await tryHaikuBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
         if (result) return result;
-        sawFailure = true;
-      } catch { sawFailure = true; /* bu adayda ağ hatası — sıradakine geç */ }
+        // null → HTTP-yanıtlı sağlayıcı hatası; ağ canlı, sayma
+      } catch { sawNetFailure = true; /* bu adayda GERÇEK ağ hatası (throw) — sıradakine geç */ }
     }
 
-    // Zincirin tamamı düştüyse (throw/null/grounding çöktü) bir KEZ say — kesici
+    // Yalnız GERÇEK ağ hatası (throw/timeout) görüldüyse bir KEZ say — kesici
     // her adayda ayrı ayrı değil, tüm zincir tükendiğinde bir kez tetiklenir.
-    if (sawFailure) recordAiNetFailure();
+    // Sağlayıcı-null'ları (429/4xx/parse) buraya HİÇ girmez: internet varken
+    // kesici açılmaz, asistan "internet yok" moduna düşmez.
+    if (sawNetFailure) recordAiNetFailure();
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)

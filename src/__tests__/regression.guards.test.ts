@@ -429,6 +429,23 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(web![0], 'web dalı grounding miss\'inde sawFailure=true → breaker çift sayımı geri geldi (iki istekte offline)').not.toMatch(/sawFailure\s*=\s*true/);
   });
 
+  it('YAPISAL: sağlayıcı hatası (HTTP-yanıtlı 429/4xx/parse) devre kesiciyi TETİKLEMEZ', () => {
+    // SAHA 2026-07-04 ("internetim var ama offline sanıyor"): zincirde sağlayıcı
+    // null döndüğünde (429 kota / 400 / bozuk JSON — hepsi HTTP yanıtı almış = AĞ
+    // CANLI) sawFailure=true yazılıp recordAiNetFailure'a sayılıyordu → 2 cümlede
+    // breaker 90sn TÜM asistanı (STT dahil) offline'a kilitliyordu. Kural: kesici
+    // YALNIZ gerçek throw'da (timeout/DNS/kopma) artar → sawNetFailure yalnız
+    // catch bloklarında set edilir.
+    expect(src, 'sawNetFailure ayrımı kaldırılmış (sağlayıcı hatası yine ağ hatası sayılıyor olabilir)').toMatch(/if \(sawNetFailure\) recordAiNetFailure\(\)/);
+    const assignments = [...src.matchAll(/sawNetFailure = true/g)];
+    expect(assignments.length, 'sawNetFailure set eden yol yok — throw yolu kesiciye hiç sayılmıyor').toBeGreaterThanOrEqual(2);
+    // Her set YALNIZ catch içinde olmalı (throw = gerçek ağ hatası)
+    const inCatch = [...src.matchAll(/catch \{[^}]*sawNetFailure = true/g)];
+    expect(inCatch.length, 'sawNetFailure = true catch DIŞINDA set ediliyor → HTTP-yanıtlı sağlayıcı hatası yine "internet yok" sayılır').toBe(assignments.length);
+    // Eski isim geri gelmesin (null-yollarında sayan desen)
+    expect(src, 'eski sawFailure deseni geri gelmiş').not.toMatch(/\bsawFailure\b/);
+  });
+
   it('YAPISAL: named-city hava durumu ham kullanıcı metniyle korunur (Tarsus bug\'ı)', () => {
     // SAHA 2026-07-04: "İstanbul hava durumu" birkaç turdan sonra Tarsus (yerel/GPS
     // şehri) havasını söylüyordu. Kök neden: tryLocalWeatherAnswer şehir korumasını
