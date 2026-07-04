@@ -1,9 +1,22 @@
 # HANDOFF — CarOS Pro Devir Notları
 
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
-> Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app` (HEAD `0f1d38a`).
+> Son güncelleme: 2026-07-04. Branch: `feat/assistant-open-app` (HEAD `84237ff`).
 
-## ✅ SON İŞ (2026-07-04 #2): "İlk istek online, sonrakiler offline" — 429 kota fix paketi
+## ✅ SON İŞ (2026-07-04 #3): Harita "ters gidiyor + takip etmiyor" — hız-bağımsız hareket tespiti
+
+`84237ff` — saha (telefon): araç ikonu doğru yönü gösteriyor ama harita ters akıyor,
+konum takibi yok; hız fark etmiyor, tüm harita yüzeylerinde. Teşhis: kullanıcıya 3 soru
+(ekran/ikon/hız) + kod analizi → **cihaz Doppler hızını 0'a saplıyor** (coords.heading
+çalışıyor — ikon o yüzden doğru). Hıza-mahkûm üç kapı öldü: gpsService `??` fallback
+(0 finite!), MiniMapWidget `isDriving=speedKmh>5` (kuzey-yukarı kilidi = "geriye
+gidiyoruz" algısı), FullMapView rAF wake/isIdleNow. Fix: `pickRawSpeed` (Doppler>0.15m/s
+değilse konum-delta hızı) + delta çapası ≥500ms + yer-değiştirme tabanlı hareket
+tespiti (MiniMap histerezisli ~5.5m/2m, FullMap ≥8m). Suite **1824 yeşil**.
+**Cihazda canlı doğrulanmadı** — 429 fix'iyle aynı APK'da sahada test bekliyor.
+Detay: PROJECT_STATE.md.
+
+## ✅ ÖNCEKİ İŞ (2026-07-04 #2): "İlk istek online, sonrakiler offline" — 429 kota fix paketi
 
 `0f1d38a` (branch `feat/assistant-open-app`) — saha şikayeti: asistan ilk isteği online
 yanıtlıyor, sonrakiler "offline'a düşüyor". Uzak telemetri boştu (cihazdan voice_diag

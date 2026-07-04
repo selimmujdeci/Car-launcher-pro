@@ -8,8 +8,24 @@
 
 ## Aktif Branch
 
-- **Aktif branch:** `feat/assistant-open-app` (HEAD `0f1d38a` — 429 kota fix paketi) — **push EDİLMEDİ**, `main`'e merge bekliyor.
+- **Aktif branch:** `feat/assistant-open-app` (HEAD `84237ff` — harita hareket tespiti fix) — **push EDİLMEDİ**, `main`'e merge bekliyor.
 - `main` HEAD: `648fb84` (autoBrightness guard).
+
+## Harita "Ters Gidiyor + Takip Etmiyor" Fix (2026-07-04, `84237ff`)
+
+Saha (telefon): araç ikonu doğru ama harita ters akıyor + konum takibi yok, tüm
+hızlarda. Kök neden: cihaz Doppler hızını 0'a saplıyor (heading çalışıyor) ve
+üç kapı YALNIZ hıza bakıyordu:
+- `gpsService`: `gpsSpeed ?? delta` — 0 finite → delta fallback ölü. Fix:
+  `pickRawSpeed` (Doppler yalnız >0.15 m/s ise güvenilir) + delta çapası ≥500ms
+  (5Hz fix'te dt<0.5s guard'ı delta+course üretimini öldürüyordu).
+- `MiniMapWidget.isDriving` (speedKmh>5): sürüş görünümü hiç açılmıyordu →
+  kuzey-yukarı + ~200m'de bir merkez sıçraması ("geriye gidiyoruz" algısı).
+  Fix: yer değiştirme eşiği + histerezis (giriş ~5.5m / çıkış ~2m).
+- `FullMapView` rAF wake + isIdleNow: hız 0 → takip döngüsü uyuyordu. Fix:
+  son iki fix arası ≥8m yer değiştirme hareket sayılır.
+Suite **1824 yeşil** + 4 yapısal kilit + 6 pickRawSpeed birim testi.
+**Cihazda canlı doğrulanmadı** — 429 kota fix'iyle aynı APK'da sahaya verildi.
 
 ## Asistan 429 Kota Fix Paketi (2026-07-04, `0f1d38a`)
 
