@@ -499,6 +499,11 @@ export interface CarLauncherPlugin {
   // bulunmayabilir (obdService varlık kontrolü + catch ile çağırır — fail-soft).
   setObdPollProfile?(opts: { fastMs: number; uiHz?: number }): Promise<void>;
 
+  // Patch 8: EXTENDED grup PID listesi (talep-güdümlü — extendedPidService yönetir).
+  // Boş liste = devre dışı (native poll turu ek komut çalıştırmaz, sıfır maliyet).
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).
+  setObdExtendedPids?(opts: { pids: string[] }): Promise<void>;
+
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(
     event: 'btChanged',
@@ -624,6 +629,12 @@ export interface CarLauncherPlugin {
   addListener(
     event: 'obdData',
     handler: (data: NativeOBDData) => void,
+  ): Promise<PluginListenerHandle>;
+  // Patch 8: EXTENDED grup ham PID sonucu — pid: 2 hane hex ('5C'), data: başlığı
+  // soyulmuş ham data hex ('8C'). Çözümleme StandardPidRegistry'de (TS).
+  addListener(
+    event: 'obdExtendedData',
+    handler: (data: { pid: string; data: string }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     event: 'mediaChanged',

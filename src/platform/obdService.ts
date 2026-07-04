@@ -40,6 +40,7 @@ import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle } from './obdPidConfig';
 import { computeObdPollProfile } from './obd/AdaptivePollingController';
 import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
+import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag } from './obdDiagEmitter';
@@ -911,6 +912,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // Patch 7: bağlantı kuruldu — sağlık monitörünün bayatlık referansı sıfırlanır
   // (önceki oturumun sessizliği yeni bağlantının kalitesini düşürmesin).
   obdHealthMonitor.noteConnected();
+  // Patch 8: extended PID izleyicisi varsa keşif + native liste tazelenir (yoksa no-op).
+  notifyExtendedPids();
   _startDataValidationGate(myGen);
 
   // 7. PIN Resilience — bonding doğrulaması ARKA PLANDA (veri akışını BLOKLAMAZ).
