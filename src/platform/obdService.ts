@@ -39,6 +39,7 @@ import { computeFuelMetrics } from './obdMetrics';
 import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle } from './obdPidConfig';
 import { computeObdPollProfile } from './obd/AdaptivePollingController';
+import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag } from './obdDiagEmitter';
@@ -66,6 +67,10 @@ const BLE_FIRST_TIMEOUT_MS = 8_000;
 import { INITIAL } from './obdTypes';
 import type { OBDConnectionState, VehicleType, OBDData } from './obdTypes';
 export type { OBDConnectionState, VehicleType, OBDData } from './obdTypes';
+// Patch 7: OBD sağlık skorları (bağlantı kalitesi + sensör güvenilirliği) — UI/teşhis
+// tek import yüzeyinden okusun diye buradan da dışa açılır.
+export { getObdHealth } from './obd/ObdHealthMonitor';
+export type { ObdHealthSnapshot } from './obd/ObdHealthMonitor';
 
 /* ── Module state ────────────────────────────────────────── */
 
@@ -293,6 +298,18 @@ function _merge(partial: Partial<OBDData>): void {
 function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null {
   const { patch, nextRpm } = sanitizeNativeOBDPacket(data, _prevRpm);
   _prevRpm = nextRpm;
+  // Patch 7 (ObdHealthMonitor): alan bazlı kabul/red istatistiği — fail-soft gözlemci,
+  // veri yolunu ASLA etkilemez. Sunulmayan (-1 sentinel = bu turda sorgulanmadı) alanlar
+  // istatistiğe girmez (staggered polling güvenilirlik skorunu düşürmesin).
+  try {
+    for (const f of HEALTH_FIELDS) {
+      const offered = data[f];
+      if (offered === undefined || offered < 0) continue;
+      const patchKey = f === 'voltage' ? 'batteryVoltage' : f; // ATRV → OBDData eşlemesi
+      obdHealthMonitor.noteField(f, patch !== null && (patch as Record<string, unknown>)[patchKey] !== undefined);
+    }
+    if (patch) obdHealthMonitor.notePacketAccepted();
+  } catch { /* gözlemci hatası veri akışını düşürmez */ }
   return patch;
 }
 
@@ -304,6 +321,9 @@ function _sanitizeNative(data: Partial<NativeOBDData>): Partial<OBDData> | null 
 function _applyObdPollProfile(): void {
   if (!Capacitor.isNativePlatform() || !CarLauncher.setObdPollProfile) return;
   const profile = computeObdPollProfile(getDeviceTier(), runtimeManager.getConfig().obdPollingMs);
+  // Patch 7: sağlık monitörü bayatlığı AKTİF periyoda göre ölçer (250ms'de 3s sessizlik
+  // anormal, 15s weak modda normaldir).
+  obdHealthMonitor.setExpectedIntervalMs(profile.fastMs);
   void CarLauncher.setObdPollProfile(profile)
     .catch(() => { /* eski native sürüm / geçici köprü hatası → varsayılan periyot kalır */ });
 }
@@ -509,6 +529,9 @@ function _onRealData(patch: Partial<OBDData>): void {
  */
 function _scheduleReconnect(): void {
   if (!_running) return;
+
+  // Patch 7: gerçek kopma → sağlık monitörüne reconnect baskısı (sönümlü sayaç).
+  obdHealthMonitor.noteReconnect();
 
   clearAccumulatedBuffer(); // T507: parçalı paket tamponunu temizle
   _clearDataGate();         // önceki gate/timer sızıntısını önle
@@ -885,6 +908,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    Patch 6: native poll başlarken FAST grup periyodu cihaz sınıfı + aktif moda göre
   //    ayarlanır (varsayılan 3s yerine 250-1000ms; weak head unit modunda moda uyar).
   _applyObdPollProfile();
+  // Patch 7: bağlantı kuruldu — sağlık monitörünün bayatlık referansı sıfırlanır
+  // (önceki oturumun sessizliği yeni bağlantının kalitesini düşürmesin).
+  obdHealthMonitor.noteConnected();
   _startDataValidationGate(myGen);
 
   // 7. PIN Resilience — bonding doğrulaması ARKA PLANDA (veri akışını BLOKLAMAZ).
