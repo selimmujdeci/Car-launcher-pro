@@ -3,7 +3,17 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-04. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-04 #7): OBD Core v2 — Patch 1-7 tamamlandı
+## ⭐ SON İŞ (2026-07-04 #8): OBD Core v2 — Patch 8 standart PID tam kapsam
+
+`df4f4cf..e7a3c21`: SAE J1979 Mode 01 ~60 sayısal PID (StandardPidRegistry, yalnız
+kamu standardı formülleri) + native EXTENDED poll grubu (turda 1 PID round-robin,
+liste boşken sıfır maliyet) + extendedPidService (talep-güdümlü izleme, bitmask keşif
+zinciri 0100→0160, desteklenmeyen PID sorgulanmaz). Suite **1923 yeşil**, Java OK.
+**Devralan bilsin:** UI/sesli asistan henüz bağlanmadı — tüketici `watchPid`/
+`getPidValue` (src/platform/obd/extendedPidService.ts) kullanmalı; enum PID'ler +
+Mode 22/ISO-TP (üretici-özel katman) sonraki faz; cihaz doğrulaması hâlâ yok.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-04 #7): OBD Core v2 — Patch 1-7 tamamlandı
 
 `feat/obd-core-v2` dalında 7 atomik patch (`f3996a4..371c7c2`, push edilmedi). BC8
 kararsız döngü kök nedenleri kapatıldı: obdStatus reason disiplini (P1), iptal

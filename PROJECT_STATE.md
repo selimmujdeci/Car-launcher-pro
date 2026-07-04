@@ -10,6 +10,25 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ OBD CORE V2 — Patch 8: STANDART PID TAM KAPSAM (2026-07-04)
+
+Hedef: Car Scanner'dan bağımsız, onun kadar geniş standart kapsam + OS entegrasyonu.
+Üç commit (`df4f4cf..e7a3c21`), suite **1923 yeşil** + Java derlemesi OK:
+
+- **8A `StandardPidRegistry.ts`** — SAE J1979 Mode 01'in formülü tanımlı ~60 sayısal
+  PID'i (yakıt trim, MAF, O2, katalizör/yağ sıcaklığı, tork, EGR/EVAP, tüketim…).
+  Yalnız kamu standardı — üçüncü taraf liste/formül YOK. Enum/bitfield PID'ler v2'ye.
+- **8B native EXTENDED grubu** — `readPidRaw` jenerik okuma; turda EN FAZLA 1 PID
+  round-robin POLL_SLOW; liste boşken sıfır maliyet; `setObdExtendedPids` +
+  `obdExtendedData` olayı (obdData hızlı yol paketi DEĞİŞMEDİ).
+- **8C `extendedPidService.ts`** — talep-güdümlü: `watchPid` ilk izleyicide keşfi
+  (0100→0120→0140→0160 zinciri, aynı kanaldan) başlatır; desteklenmeyen PID native'e
+  gitmez; izleyici kalmayınca sıfır maliyete döner. API: watchPid/getPidValue/
+  isPidSupported/getSupportedPids — dashboard/teşhis/sesli asistan buradan okur.
+
+**Açık:** UI widget bağlantısı yok; sesli asistan bağlanmadı; enum PID'ler +
+Mode 22/ISO-TP (üretici-özel) sonraki faz; cihaz doğrulaması yok.
+
 ## ⭐ OBD CORE V2 — Patch 1-7 TAMAM (2026-07-04)
 
 BC8 kararsız bağlantı döngüsü + ELM327 güvenilirlik yükseltmesi. 7 atomik patch,
