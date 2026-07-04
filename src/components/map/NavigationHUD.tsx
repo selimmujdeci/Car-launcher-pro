@@ -515,9 +515,11 @@ const TurnPanel = memo(function TurnPanel({
   const isArrive = step.maneuverType === 'arrive';
   const turnLabel = isArrive ? '—' : fmtTurn(distToTurn);
 
-  // "Sonra X km düz devam" — next-step continuation hint
-  const continuation = nextStep && !isArrive && nextStep.distance > 0
-    ? fmtTurn(nextStep.distance)
+  // "Sonra X km …" devam satırı — gösterilen manevradan SONRAKİ yol uzunluğu
+  // OSRM'de step.distance'tır (adımın manevrası + ardından kat edilen mesafe);
+  // nextStep bu mesafenin SONUNDAKİ manevradır (ok + sokak adı oradan gelir).
+  const continuation = nextStep && !isArrive && step.distance > 0
+    ? fmtTurn(step.distance)
     : null;
 
   return (
@@ -1761,18 +1763,36 @@ export const NavigationHUD = memo(function NavigationHUD({
     }
   }, [isLimp]);
 
+  // Durum türetmeleri
+  const isActiveNav   = status === NavStatus.ACTIVE || status === NavStatus.REROUTING;
+  const isShowPreview = status === NavStatus.PREVIEW || status === NavStatus.ROUTING;
+  const isShowArrived = status === NavStatus.ARRIVED;
+  const isShowError   = status === NavStatus.ERROR;
+
+  // ── Adım semantiği (off-by-one fix, 2026-07-05 nav denetimi) ──────────────
+  // OSRM: steps[i].instruction = adımın BAŞINDAKİ manevra. currentStepIndex
+  // manevra GEÇİLİNCE ilerler (routingService.updateRouteProgress) ve
+  // distanceToNextTurnMeters steps[i+1]'in manevra noktasına sayar.
+  // → Panelde gösterilecek/seste okunacak talimat steps[i+1] (YAKLAŞAN manevra)
+  //   olmalıdır; steps[i] az önce GEÇİLMİŞ manevradır. Tek adım kalmışsa
+  //   (sentinel / arrive) kendisi gösterilir. currentStep yalnız "üzerinde
+  //   gidilen yol" (RoadSignsPanel streetName) ve steps-boş kapısı için kullanılır.
+  const currentStep  = route.steps[route.currentStepIndex];
+  const upcomingStep = route.steps[route.currentStepIndex + 1] ?? currentStep;
+  const followStep   = route.steps[route.currentStepIndex + 2];
+
   // ── Sesli yönlendirme — kademeli yaklaşım anonsları (saha fix 2026-06-12) ──
   // ESKİDEN yalnız adım DEĞİŞİNCE konuşuyordu = anons dönüşün üzerinden geçerken
   // geliyordu; sürücü "sağa dön / sola dön" uyarısını hiç duymuyordu.
   // Şimdi Google tarzı üç kademe (her adım için en fazla 1'er kez):
-  //   ~500 m → "500 metre sonra sağa dönün"
-  //   ~200 m → "200 metre sonra sağa dönün"
-  //   ~60 m  → "Şimdi sağa dönün"
+  //   ≤600 m → "550 metre sonra sola dönün"
+  //   ≤250 m → "200 metre sonra sola dönün"
+  //   ≤80 m  → "Şimdi sola dönün"
   // Kademeler bitmask ile adım başına kilitlenir; adım değişince sıfırlanır.
   // Mesafe useRouteState'ten her GPS tick'inde gelir (TurnPanel ile aynı kaynak).
   const _spokenRef = useRef<{ step: number; tiers: number }>({ step: -1, tiers: 0 });
   useEffect(() => {
-    if (!isActiveNav || isRerouting || !currentStep) return;
+    if (!isActiveNav || isRerouting || !upcomingStep) return;
     const d = route.distanceToNextTurnMeters;
     if (!Number.isFinite(d) || d <= 0) return;
 
@@ -1780,8 +1800,8 @@ export const NavigationHUD = memo(function NavigationHUD({
       _spokenRef.current = { step: route.currentStepIndex, tiers: 0 };
     }
     const s = _spokenRef.current;
-    // Talimatı cümle ortasına uydur: "Sağa dönün" → "sağa dönün"
-    const inst = currentStep.instruction.charAt(0).toLowerCase() + currentStep.instruction.slice(1);
+    // Talimatı cümle ortasına uydur: "Sola dönün" → "sola dönün"
+    const inst = upcomingStep.instruction.charAt(0).toLowerCase() + upcomingStep.instruction.slice(1);
 
     if (d <= 80 && !(s.tiers & 4)) {
       s.tiers |= 4 | 2 | 1; // yakın kademede uzaktakiler de kapanır (üst üste konuşmaz)
@@ -1793,17 +1813,7 @@ export const NavigationHUD = memo(function NavigationHUD({
       s.tiers |= 1;
       speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.distanceToNextTurnMeters, route.currentStepIndex, isRerouting]);
-
-  // Durum türetmeleri
-  const isActiveNav   = status === NavStatus.ACTIVE || status === NavStatus.REROUTING;
-  const isShowPreview = status === NavStatus.PREVIEW || status === NavStatus.ROUTING;
-  const isShowArrived = status === NavStatus.ARRIVED;
-  const isShowError   = status === NavStatus.ERROR;
-
-  const currentStep = route.steps[route.currentStepIndex];
-  const nextStep    = route.steps[route.currentStepIndex + 1];
+  }, [route.distanceToNextTurnMeters, route.currentStepIndex, isRerouting, isActiveNav, upcomingStep]);
 
   // İlk GPS tick'inde distanceMeters=0 olabilir — toplam mesafeye fallback
   const effectiveDist = (distanceMeters && distanceMeters > 10)
@@ -1826,7 +1836,7 @@ export const NavigationHUD = memo(function NavigationHUD({
           {isLimp && (
             <LimpHomeHUD
               speedKmh={speedKmh}
-              currentStep={currentStep}
+              currentStep={upcomingStep}
               distToTurn={route.distanceToNextTurnMeters}
               onStop={handleStop}
             />
@@ -1839,10 +1849,12 @@ export const NavigationHUD = memo(function NavigationHUD({
 
           {!isRerouting && currentStep && (
             <>
+              {/* step = YAKLAŞAN manevra (upcomingStep) — distToTurn bu noktaya sayar.
+                * followStep = onun ardındaki manevra ("Sonra …" devam satırı). */}
               <TurnPanel
-                step={currentStep}
+                step={upcomingStep}
                 distToTurn={route.distanceToNextTurnMeters}
-                nextStep={isLimp ? undefined : nextStep}
+                nextStep={isLimp ? undefined : followStep}
                 hazardActive={isHazardAttn}
               />
               <FadeMount visible={!suppCrit}>
