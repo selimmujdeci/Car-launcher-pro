@@ -612,6 +612,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     let lastCameraUpdate    = 0;
     let lastMarkerUpdate    = 0;
     let lastThermalFrameTs  = 0; // termal FPS gate — son ağır-iş frame zamanı
+    let lastDrProgressMs    = 0; // tünel DR → ilerleme hattı beslemesi (1 Hz)
 
     const tick = (now: number) => {
       // ── Idle kontrolü: boştaysa döngüyü durdur ───────────────────────────
@@ -669,6 +670,21 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // perf-low modda DR hesaplama sıklığını azalt (her 500ms)
         const isPerfLow = isPerfLowCached;
         const drInterval = isPerfLow ? 500 : 16;
+
+        // ── Tünel sürekliliği (2026-07-05 nav denetimi P1) ─────────────────
+        // İlerleme hattı yalnız GPS aboneliğinden besleniyordu → GPS kesilince
+        // adım sayacı + kademeli sesli anons + mesafe/ETA topluca donuyordu
+        // (marker DR ile ilerlerken). DR konumu 1 Hz ile aynı hatta beslenir.
+        // allowReroute:false — DR projeksiyonu virajda rotadan sapar; sahte
+        // reroute internet yokken gerçek rotayı düz-çizgiyle değiştirirdi.
+        const _navActiveDr = navStatusRef.current === NavStatus.ACTIVE ||
+                             navStatusRef.current === NavStatus.REROUTING;
+        if (_navActiveDr && obdKmh >= 1 && now - lastDrProgressMs > 1_000) {
+          lastDrProgressMs = now;
+          const { lat: pLat, lng: pLng } = projectDeadReckon(lastKnown, obdKmh, now);
+          updateRouteProgress(pLat, pLng, { allowReroute: false });
+          updateNavigationProgress(pLat, pLng, lastKnown.heading, routeGeometryRef.current ?? undefined);
+        }
 
         // KÖK NEDEN FIX (2026-07-04): kare-başı isStyleLoaded() kapısı kaldırıldı —
         // tile yüklenirken/setData sonrası false döner, DR kamera takibini yutuyordu.

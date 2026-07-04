@@ -757,8 +757,17 @@ function _getRerouteThrottleMs(speedKmh: number): number {
  * GPS güncellenince çağrılır — hangi adımdayız, sonraki dönüşe ne kadar?
  * 30m'den yaklaşılınca otomatik adım ilerler.
  * Sapma + hız-bağımlı throttle → otomatik yeniden rotalama.
+ *
+ * opts.allowReroute=false: adım ilerleme + mesafe güncellenir ama sapma tespiti
+ * ATLANIR. Dead-reckoning (tünel) konumları için — DR projeksiyonu virajda
+ * rotadan doğal olarak sapar; sahte reroute internet yokken gerçek rotayı
+ * düz-çizgi fallback'iyle değiştirirdi (geri dönüşü yok).
  */
-export function updateRouteProgress(lat: number, lon: number): void {
+export function updateRouteProgress(
+  lat: number,
+  lon: number,
+  opts?: { allowReroute?: boolean },
+): void {
   const { steps, currentStepIndex, geometry } = useRouteStore.getState();
   if (!steps.length) return;
 
@@ -814,6 +823,7 @@ export function updateRouteProgress(lat: number, lon: number): void {
   }
 
   // ── Sapma tespiti & Histerezis ────────────────────────────────
+  if (opts?.allowReroute === false) return; // DR/tünel konumu — reroute değerlendirmesi yok
   if (!geometry || geometry.length < 2 || !_rerouteCtx) return;
 
   // Reroute-loop guard: straight-line fallback rotada gerçek yol ağı yok.
