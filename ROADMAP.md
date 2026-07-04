@@ -67,6 +67,15 @@
   freeze frame + readiness → bakım beyni kartları + sesli asistan araç bağlamı
   (feat/assistant-open-app işiyle birleşir) + BYOK AI teşhis sentezi (offline'da
   statik tabloya zarif düşüş; tespit deterministik kalır, AI yalnız yorumlar).
+  **Aynı dalgada — asistan alan-modülü ayrıştırması (KARAR 2026-07-05):** ürün
+  TEK asistan kalır (tek wake word — sürüşte "hangisine sesleneceğim" yükü
+  olmaz, K24'te ikinci Vosk hattı taşınmaz); içeride intentEngine alan
+  modüllerine bölünür: NavIntents / VehicleIntents / MediaIntents / AppControl —
+  deterministik yerel hızlı yol, eşleşmezse beyin zinciri. Navigasyon offline +
+  anında çalışmak ZORUNDA (rota sürerken beyin beklenmez) + **bağlam önceliği**:
+  aktif rota varken nav-intent eşiği düşer ("vazgeç/ne kadar kaldı" navigasyona
+  yapışır). Dosya-düzeyi ayrım = "nav parser'a dokundum, müzik bozulmadı"
+  garantisi (offline hassasiyet dersinin devamı).
 - **Filo Telemetrisi (VİZYON — B2B ürün, 2026-07-05):** OBD+GPS verisinin buluta
   akışı + web filo panosu. Filo değer önerisi: canlı konum/rota, yakıt takibi
   (hırsızlık tespiti), sürücü davranışı (ani fren/hızlanma/rölanti/aşırı hız),
