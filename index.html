@@ -41,14 +41,52 @@
       padding:24px;
     "></div>
 
+    <!-- ⭐ BOOT HARD-GUARD (ES5-güvenli — guard'ın KENDİSİ Chrome 52+ eski WebView'da
+         çalışmalı, o yüzden var/function/string-concat; ?./??/arrow/template YOK).
+         React MOUNT ÖNCESİ katman: parse hatası / worker throw / dinamik import reddi
+         React'e ulaşmadan burada yakalanır (React ErrorBoundary yalnız mount SONRASI
+         hataları görür). adb garantisi olmayan head unit'lerde EKRANIN KENDİSİ teşhis
+         aracıdır → başarısızlıkta gerçek Chrome/Android sürümü + ekran + hata basılır
+         (bu ekranın fotoğrafı sahadaki en değerli veri — §HEAD_UNIT_MATRIX). -->
     <script>
-    // Global error capture — React başlamadan önceki hataları yakalar
+    // Global hata yakalama — React başlamadan önceki senkron + async hatalar.
+    // İLK hata kök nedendir → sonraki kaskad hatalarla ezme.
     var bootstrapError = null;
+    function _recordBootError(text) {
+      if (!bootstrapError) bootstrapError = text;
+    }
     window.onerror = function(msg, url, line, col, error) {
-      bootstrapError = msg + " (satır: " + line + ")";
-      console.error("Bootstrap Crash:", msg, error);
+      _recordBootError(String(msg) + ' (satır ' + line + ':' + col + ')');
+      try { console.error('Bootstrap Crash:', msg, error); } catch (e) {}
       return false;
     };
+    // Modül worker reddi / dinamik import / fetch reddi senkron değildir → ayrıca yakala.
+    window.addEventListener('unhandledrejection', function(ev) {
+      var r = ev && ev.reason;
+      var t = r && r.message ? r.message : String(r);
+      _recordBootError('Promise reddi: ' + t);
+      try { console.error('Bootstrap Rejection:', r); } catch (e) {}
+    });
+
+    // Cihaz teşhis satırı — compat bandını belirleyen gerçek değerler (UA yalan
+    // söyleyebilir ama Chrome/ token motoru gösterir; §HEAD_UNIT_MATRIX §3.5/§6).
+    function _deviceDiag() {
+      var ua = '';
+      try { ua = navigator.userAgent || ''; } catch (e) {}
+      var chrome = 'Chrome ?';
+      var m = ua.match(/Chrome\/(\d+)/);
+      if (m) { chrome = 'Chrome ' + m[1]; }
+      var android = '';
+      var am = ua.match(/Android\s+(\d+)/);
+      if (am) { android = ' · Android ' + am[1]; }
+      var w = 0, h = 0, dpr = 1;
+      try {
+        w = window.innerWidth || (screen && screen.width) || 0;
+        h = window.innerHeight || (screen && screen.height) || 0;
+        dpr = window.devicePixelRatio || 1;
+      } catch (e) {}
+      return { line: chrome + android, screen: w + '×' + h + ' @' + dpr + 'x', ua: ua };
+    }
 
     (function() {
       try {
@@ -66,13 +104,15 @@
         }, 200);
 
         // 10 saniye sonra hala açılmadıysa: kurtarma ekranını GÖSTER
-        // (normalde görünmeyen safe-loader içinde hata + Yeniden Dene kurulur).
+        // (normalde görünmeyen safe-loader içinde teşhis + hata + Yeniden Dene kurulur).
         setTimeout(function() {
           var root = document.getElementById('root');
           var loader = document.getElementById('safe-loader');
           if (root && root.childElementCount === 0 && loader) {
+            var diag = _deviceDiag();
+
             var box = document.createElement('div');
-            box.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;max-width:300px;';
+            box.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:14px;max-width:340px;';
 
             var status = document.createElement('div');
             status.style.cssText = 'font-size:15px;font-weight:bold;color:#ef4444;letter-spacing:0.1em;';
@@ -80,9 +120,15 @@
             box.appendChild(status);
 
             var errBox = document.createElement('div');
-            errBox.style.cssText = 'background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);padding:12px;border-radius:8px;font-size:11px;color:#f87171;font-family:monospace;';
-            errBox.textContent = bootstrapError || 'Bilinmeyen bir script hatası veya ağ sorunu oluştu.';
+            errBox.style.cssText = 'background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);padding:12px;border-radius:8px;font-size:11px;color:#f87171;font-family:monospace;word-break:break-word;';
+            errBox.textContent = bootstrapError || 'Bilinmeyen script hatası veya ağ sorunu.';
             box.appendChild(errBox);
+
+            // Cihaz teşhis kartı — bu ekranın FOTOĞRAFI sahadaki en değerli veri.
+            var diagBox = document.createElement('div');
+            diagBox.style.cssText = 'background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.2);padding:10px;border-radius:8px;font-size:11px;color:#94a3b8;font-family:monospace;text-align:left;line-height:1.5;width:100%;box-sizing:border-box;';
+            diagBox.textContent = diag.line + '\n' + diag.screen + '\n' + diag.ua;
+            box.appendChild(diagBox);
 
             var retryBtn = document.createElement('button');
             retryBtn.textContent = 'YENİDEN DENE';
@@ -93,7 +139,7 @@
             loader.appendChild(box);
           }
         }, 10000);
-      } catch(e) {}
+      } catch (e) {}
     })();
     </script>
 

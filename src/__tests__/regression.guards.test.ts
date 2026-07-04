@@ -1032,3 +1032,35 @@ describe('Eski WebView compute-worker kilidi (VehicleCompute/VisionCompute Chrom
       .toMatch(/target:\s*'es2015'/);
   });
 });
+
+describe('Boot hard-guard kilidi (adb yok → ekran = teşhis aracı)', () => {
+  // React MOUNT ÖNCESİ katman: parse hatası / worker throw / dinamik import reddi
+  // React'e ulaşmadan index.html'de yakalanmalı (ErrorBoundary yalnız mount SONRASI).
+  // adb garantisi olmayan head unit'lerde başarısızlık ekranı gerçek cihaz bilgisini
+  // (Chrome/Android sürümü) basmalı — o ekranın fotoğrafı sahadaki en değerli veri.
+  it('YAPISAL: index.html boot-guard senkron+async hata + cihaz teşhisi basar', () => {
+    const html = read('index.html');
+    expect(html, 'window.onerror kaldırılmış — parse/senkron boot hatası yakalanamaz')
+      .toMatch(/window\.onerror/);
+    expect(html, 'unhandledrejection dinleyici kaldırılmış — modül worker/dinamik import reddi kaçar')
+      .toMatch(/unhandledrejection/);
+    expect(html, 'cihaz teşhisi (_deviceDiag) kaldırılmış — hata ekranı Chrome/Android sürümünü göstermezse sahada kör kalırız')
+      .toMatch(/_deviceDiag/);
+    expect(html, 'Chrome sürüm ayrıştırma kaldırılmış — compat bandını belirleyen değer bu')
+      .toMatch(/Chrome\\\/\(/);
+    expect(html, 'BAŞLATILAMADI kurtarma ekranı kaldırılmış')
+      .toMatch(/BAŞLATILAMADI/);
+  });
+
+  it('YAPISAL: boot-guard ES5-güvenli — kendisi eski WebView\'da çalışmalı (?./?? YOK)', () => {
+    const html = read('index.html');
+    // Guard script bloğunu izole et (bootstrapError içeren <script>).
+    const m = html.match(/<script>([\s\S]*?bootstrapError[\s\S]*?)<\/script>/);
+    expect(m, 'bootstrapError içeren boot-guard script bloğu bulunamadı').toBeTruthy();
+    const guard = m ? m[1] : '';
+    expect(guard, 'boot-guard optional chaining (?.) içeriyor — Chrome<80 guard\'ın KENDİSİ parse edemez, kurtarma ekranı da ölür')
+      .not.toMatch(/\?\./);
+    expect(guard, 'boot-guard nullish (??) içeriyor — Chrome<80 parse hatası')
+      .not.toMatch(/\?\?/);
+  });
+});
