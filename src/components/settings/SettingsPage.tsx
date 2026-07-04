@@ -40,6 +40,7 @@ import { MobileLinkWidget } from './MobileLinkWidget';
 import { KeyBeamPanel } from './KeyBeamPanel';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
+import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import {
   useMapSources, useMapNetworkStatus, setActiveMapSource,
@@ -1486,6 +1487,7 @@ function AboutTabContent() {
           <div className="px-3 py-1.5 rounded-xl glass-card text-[11px] font-black tabular-nums" style={{ color: '#60a5fa' }}>v1.0</div>
         </div>
         <OtaUpdateCard />
+        <DeviceDiagnosticCard />
         <SupportSnapshotCard />
       </Panel>
 
