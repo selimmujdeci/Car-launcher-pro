@@ -30,7 +30,7 @@ import {
 import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdProtocol, saveObdProtocol, clearObdProtocol, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -90,6 +90,14 @@ let _lastNotifyTime          = 0;
 // Exponential back-off reconnect state
 let _reconnectAttempts = 0;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ── Patch 3: protokol döngüsü — YALNIZ UNABLE_TO_CONNECT sınıfı hatada ilerler ──
+// Eskiden PROTOCOL_CYCLE doğrudan _reconnectAttempts'e (her türlü hata — BT/soket/
+// timeout dahil) bağlıydı; bu, geçerli bir protokolü BT gürültüsü yüzünden gereksiz
+// yere terk edip yanlış protokole geçmeye zorluyordu. Artık yalnızca native'in
+// yapılandırılmış 'OBD_UNABLE_TO_CONNECT' reject kodu (ElmInitSequencer 0100 warm-up
+// "UNABLE TO CONNECT" — araç/protokolden gerçekten yanıt alınamadı) bu sayacı artırır.
+let _protocolCycleIndex = 0;
 
 // Generation counter — prevents stale in-flight _startNative() from writing
 // state after a stop/restart cycle. Each startOBD() call increments this.
@@ -542,6 +550,10 @@ function _scheduleReconnect(): void {
     // farklı adaptörde yanlış GATT dallanmasına yol açmasın (adres+transport birlikte persist).
     _lastKnownTransport = null;
     clearObdTransport();
+    // Patch 3: adaptör muhtemelen değişti — öğrenilen protokol de stale sayılır (yeni
+    // adaptör/araç farklı protokol kullanabilir); bir sonraki bağlantı ATSP0'dan başlar.
+    clearObdProtocol();
+    _protocolCycleIndex = 0;
     if (MOCK_ENABLED && !nativePlatform) {
       _startMock();
     } else {
@@ -725,11 +737,19 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // ELM327 ATSP numaraları: undefined=ATSP0 otomatik · 6=CAN 11/500 · 5=KWP hızlı init ·
   // 4=KWP 5-baud · 3=ISO 9141-2 · 7=CAN 29/500. Otomatik çoğu aracı bulur; bulamazsa sırayla denenir.
   const PROTOCOL_CYCLE: (string | undefined)[] = [undefined, '6', '5', '4', '3', '7'];
-  const forcedProtocol = PROTOCOL_CYCLE[_reconnectAttempts % PROTOCOL_CYCLE.length];
+  // Patch 3: ÖNCE bu oturumda/önceki oturumda ÖĞRENİLMİŞ protokolü (ElmInitSequencer ATDPN)
+  // dene — ATSP0 otomatik arama YOK, ARAMASIZ bağlan. Yalnız gerçek bir UNABLE_TO_CONNECT
+  // hatası yaşandıysa (_protocolCycleIndex>0) sırayla bir sonraki adaya geçilir.
+  const _learnedProtocol = loadObdProtocol();
+  const forcedProtocol = _protocolCycleIndex > 0
+    ? PROTOCOL_CYCLE[_protocolCycleIndex % PROTOCOL_CYCLE.length]
+    : (_learnedProtocol ?? PROTOCOL_CYCLE[0]);
   const cand = candidate!;
 
   // Tek transport ile bağlantı denemesi — verilen timeout ile yarışır (askıda kalmasın).
-  const _tryConnectTransport = (tp: ObdTransport, timeoutMs: number): Promise<void> => Promise.race([
+  // Patch 3: dönüş değeri {protocol?} taşır — ElmInitSequencer'ın ATDPN ile okuduğu aktif
+  // protokol numarası (öğrenilirse persist edilip sonraki bağlantı aramasız yapılır).
+  const _tryConnectTransport = (tp: ObdTransport, timeoutMs: number): Promise<{ protocol?: string } | void> => Promise.race([
     CarLauncher.connectOBD({
       address: cand.address,
       pids: pidList,
@@ -744,6 +764,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       )
     ),
   ]);
+
+  /** Patch 3: native reject CODE'una göre sınıflandırır — mesaj string parse'ı YAPMAZ. */
+  const _isUnableToConnectError = (e: unknown): boolean =>
+    !!e && typeof e === 'object' && (e as { code?: string }).code === 'OBD_UNABLE_TO_CONNECT';
 
   // TRANSPORT BYPASS (zero-latency): _lastKnownTransport BİLİNİYORSA (önceki başarılı
   // bağlantıdan veya kullanıcı seçiminden) primary onu kullanır; fallback'e yalnızca KISA
@@ -761,8 +785,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   const _primaryTimeoutMs  = _transportConfirmed ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS;
   const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : CONNECT_TIMEOUT_MS;
   let _connectedTp = _primaryTp;
+  let _connectResult: { protocol?: string } | void;
   try {
-    await _tryConnectTransport(_primaryTp, _primaryTimeoutMs);
+    _connectResult = await _tryConnectTransport(_primaryTp, _primaryTimeoutMs);
   } catch (ePrimary) {
     if (_stale()) { void _removeNativeHandles(); return; }
     console.warn(`[OBD] ${_primaryTp} başarısız → ${_fallbackTp} deneniyor (${_fallbackTimeoutMs / 1000}s)`, ePrimary);
@@ -770,8 +795,22 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
     if (_stale()) { void _removeNativeHandles(); return; }
     try {
-      await _tryConnectTransport(_fallbackTp, _fallbackTimeoutMs); // bu da olmazsa throw → reconnect
+      _connectResult = await _tryConnectTransport(_fallbackTp, _fallbackTimeoutMs); // bu da olmazsa throw → reconnect
     } catch (eFallback) {
+      // Patch 3: PROTOCOL_CYCLE YALNIZ gerçek bir UNABLE_TO_CONNECT hatasında ilerler —
+      // BT/soket/timeout kaynaklı hatalar geçerli bir protokol tahminini terk ETTİRMEZ.
+      if (_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)) {
+        _protocolCycleIndex++;
+        if (!_stale()) {
+          recordDiag({
+            stage: 'protocol', status: 'warn',
+            transport: _fallbackTp === 'ble' ? 'ble' : 'classic',
+            protocol: forcedProtocol ?? null,
+            userMessage: 'Araç protokolü uyuşmadı, farklı protokol deneniyor…',
+            technicalMessage: `UNABLE_TO_CONNECT → protokol döngüsü ilerledi (index=${_protocolCycleIndex})`,
+          });
+        }
+      }
       // Her iki transport da başarısız — tanı eventi (cihaz adı/MAC YOK,
       // msg statik; alt hata mesajı cihaz adı içerdiğinden payload'a girmez)
       if (!_stale()) {
@@ -795,6 +834,21 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   if (_connectedTp !== _lastKnownTransport) {
     _lastKnownTransport = _connectedTp;
     saveObdTransport(_connectedTp);
+  }
+
+  // Patch 3: bağlantı BAŞARILI — protokol döngüsü sıfırlanır (bir sonraki oturum
+  // yeniden ATSP0'dan değil, öğrenilen/doğrulanmış protokolden başlar). ATDPN ile
+  // okunan protokol varsa persist edilir — sonraki bağlantı ARAMASIZ bağlanır.
+  _protocolCycleIndex = 0;
+  if (_connectResult && typeof _connectResult === 'object' && _connectResult.protocol) {
+    saveObdProtocol(_connectResult.protocol);
+    recordDiag({
+      stage: 'protocol', status: 'success',
+      transport: _connectedTp === 'ble' ? 'ble' : 'classic',
+      protocol: _connectResult.protocol,
+      userMessage: 'Araç protokolü öğrenildi.',
+      technicalMessage: `ATDPN → protokol ${_connectResult.protocol} — sonraki bağlantı aramasız`,
+    });
   }
 
   if (_stale()) { void _removeNativeHandles(); return; }

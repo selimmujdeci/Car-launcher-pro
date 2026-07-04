@@ -540,3 +540,84 @@ describe('obdService — obdStatus reason disiplini', () => {
     unsub();
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   9. PATCH 3 — protokol öğrenme (ElmInitSequencer ATDPN persist +
+      PROTOCOL_CYCLE yalnız UNABLE_TO_CONNECT sınıfında ilerler)
+
+   NOT: bu dosya obdStorage'ı MOCK'LAMIYOR (gerçek localStorage kullanılır) —
+   bu yüzden her test öncesi/sonrası 'obd:lastProtocol' anahtarı temizlenir.
+   Bu describe dosyanın SON bloğu; _protocolCycleIndex (yalnız bellek-içi,
+   dışa açık reset'i yok) burada artırılsa bile sonraki bir test dosyasını
+   ETKİLEMEZ (her test dosyası kendi modül örneğini yükler).
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — Patch 3: protokol öğrenme', () => {
+  beforeEach(() => {
+    localStorage.removeItem('obd:lastProtocol');
+  });
+  afterEach(() => {
+    stopOBD();
+    localStorage.removeItem('obd:lastProtocol');
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('öğrenilmiş protokol varsa ilk denemede ATSP<n> ile ZORLANIR (arama yok)', async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    localStorage.setItem('obd:lastProtocol', '6');
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValue(undefined);
+
+    startOBD('AA:BB:CC:DD:EE:02');
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const firstCall = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string };
+    expect(firstCall.protocol).toBe('6');
+  });
+
+  it('bağlantı başarılı + native ATDPN protokol döndürürse persist edilir', async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValue({ protocol: '5' });
+
+    startOBD('AA:BB:CC:DD:EE:03');
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
+  });
+
+  it("OBD_UNABLE_TO_CONNECT hatası PROTOCOL_CYCLE'ı ilerletir; diğer hatalar İLERLETMEZ", async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+
+    const unableErr  = Object.assign(new Error('ELM327: UNABLE TO CONNECT'), { code: 'OBD_UNABLE_TO_CONNECT' });
+    const genericErr = new Error('RFCOMM soket hatası'); // code YOK — BT/soket sınıfı hata
+
+    // 1. deneme: öğrenilmiş protokol yok → auto (undefined). Her iki transport da
+    // UNABLE_TO_CONNECT ile reddedilir → _protocolCycleIndex 0'dan 1'e çıkar.
+    vi.mocked(CarLauncher.connectOBD).mockRejectedValue(unableErr);
+    startOBD('AA:BB:CC:DD:EE:04');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const firstCall = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string };
+    expect(firstCall.protocol).toBeUndefined();
+
+    // 2. deneme (manuel retry — aynı adres), bu kez GENERİK hata (code YOK):
+    // _protocolCycleIndex hâlâ 1 → PROTOCOL_CYCLE[1] = '6' zorlanmalı, VE bu generik
+    // hata döngüyü İLERLETMEMELİ (BT/soket/timeout protokol tahminini terk ettirmez).
+    vi.mocked(CarLauncher.connectOBD).mockClear();
+    vi.mocked(CarLauncher.connectOBD).mockRejectedValue(genericErr);
+    startOBD('AA:BB:CC:DD:EE:04');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const secondCall = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string };
+    expect(secondCall.protocol).toBe('6');
+
+    // 3. deneme: yine GENERİK hata — index hâlâ 1 ise protokol yine '6' olmalı
+    // (art arda iki generik hata döngüyü HİÇ ilerletmemiş olmalı).
+    vi.mocked(CarLauncher.connectOBD).mockClear();
+    startOBD('AA:BB:CC:DD:EE:04');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const thirdCall = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string };
+    expect(thirdCall.protocol).toBe('6');
+  });
+});

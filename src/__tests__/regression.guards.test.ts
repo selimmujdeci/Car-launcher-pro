@@ -1113,4 +1113,24 @@ describe('OBD Core v2 — obdStatus reason disiplini kilidi (reconnect fırtına
     expect(obdServiceSrc, 'elapsed >= 0 guard\'ı kaldırılmış — saat geriye sıçrarsa _notify() sessizce boğulur')
       .toMatch(/elapsed\s*>=\s*0\s*&&\s*elapsed\s*<\s*debounceMs/);
   });
+
+  it("YAPISAL: PROTOCOL_CYCLE yalnız OBD_UNABLE_TO_CONNECT sınıfı hatada ilerler (Patch 3)", () => {
+    // Kök neden: eski kod PROTOCOL_CYCLE'ı _reconnectAttempts'e (HER türlü hata — BT/soket/
+    // timeout dahil) bağlıyordu → geçerli bir protokolü BT gürültüsü yüzünden gereksiz yere
+    // terk edip yanlış protokole geçmeye zorluyordu. Bu kilit düşerse protokol döngüsü tekrar
+    // her hatada ilerlemeye başlar.
+    expect(obdServiceSrc, '_isUnableToConnectError sınıflandırıcısı kaldırılmış')
+      .toMatch(/_isUnableToConnectError/);
+    expect(obdServiceSrc, "code==='OBD_UNABLE_TO_CONNECT' kontrolü kaldırılmış — mesaj string parse'ına geri dönülmüş olabilir")
+      .toMatch(/code\s*===\s*'OBD_UNABLE_TO_CONNECT'/);
+    expect(obdServiceSrc, '_protocolCycleIndex artık _isUnableToConnectError sonucuna bağlı değil')
+      .toMatch(/_isUnableToConnectError\(ePrimary\)\s*\|\|\s*_isUnableToConnectError\(eFallback\)[\s\S]{0,80}_protocolCycleIndex\+\+/);
+  });
+
+  it('YAPISAL: öğrenilen ELM327 protokolü persist edilir, sonraki bağlantı aramasız (Patch 3)', () => {
+    expect(obdServiceSrc, 'loadObdProtocol import kaldırılmış — öğrenilen protokol artık okunmuyor')
+      .toMatch(/loadObdProtocol/);
+    expect(obdServiceSrc, 'saveObdProtocol çağrısı kaldırılmış — ATDPN ile öğrenilen protokol persist edilmiyor')
+      .toMatch(/saveObdProtocol\(/);
+  });
 });

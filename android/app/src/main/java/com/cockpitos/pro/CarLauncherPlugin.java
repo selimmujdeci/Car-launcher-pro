@@ -1154,12 +1154,16 @@ public class CarLauncherPlugin extends Plugin {
             // BLE imzasında PIN yoktur (GATT pairing ELM327 klonlarında gerekmiyor).
             bleObd().connect(address, protocol, pidSet, new BleObdManager.ConnectCallback() {
                 @Override
-                public void onConnected() {
-                    mainHandler.post(call::resolve);
+                public void onConnected(String detectedProtocol) {
+                    // Patch 3: ATDPN ile öğrenilen protokol resolve payload'ına eklenir —
+                    // obdService.ts bunu persist edip sonraki bağlantıda ARAMASIZ (ATSP<n>) bağlanır.
+                    JSObject result = new JSObject();
+                    if (present(detectedProtocol)) result.put("protocol", detectedProtocol);
+                    mainHandler.post(() -> call.resolve(result));
                 }
 
                 @Override
-                public void onFailed(String error) {
+                public void onFailed(String error, String code) {
                     JSObject event = new JSObject();
                     event.put("state",   "error");
                     event.put("message", error);
@@ -1170,7 +1174,8 @@ public class CarLauncherPlugin extends Plugin {
                     event.put("reason",  "connect_failed");
                     notifyListeners("obdStatus", event);
 
-                    mainHandler.post(() -> call.reject("CONNECT_FAILED", error));
+                    // Patch 3: code — "OBD_UNABLE_TO_CONNECT" | "CONNECT_FAILED" (bkz. ConnectCallback).
+                    mainHandler.post(() -> call.reject(code, error));
                 }
             });
             return;
@@ -1185,12 +1190,15 @@ public class CarLauncherPlugin extends Plugin {
         // Motor OBDManager'da; PluginCall resolve/reject + obdStatus event'i köprüde.
         obd().connect(address, pin, protocol, pidSet, new OBDManager.ConnectCallback() {
             @Override
-            public void onConnected() {
-                mainHandler.post(call::resolve);
+            public void onConnected(String detectedProtocol) {
+                // Patch 3: bkz. BLE onConnected yorumu — öğrenilen protokol resolve payload'ında.
+                JSObject result = new JSObject();
+                if (present(detectedProtocol)) result.put("protocol", detectedProtocol);
+                mainHandler.post(() -> call.resolve(result));
             }
 
             @Override
-            public void onFailed(String error) {
+            public void onFailed(String error, String code) {
                 JSObject event = new JSObject();
                 event.put("state",   "error");
                 event.put("message", error);
@@ -1199,7 +1207,8 @@ public class CarLauncherPlugin extends Plugin {
                 event.put("reason",  "connect_failed");
                 notifyListeners("obdStatus", event);
 
-                mainHandler.post(() -> call.reject("CONNECT_FAILED", error));
+                // Patch 3: code — "OBD_UNABLE_TO_CONNECT" | "CONNECT_FAILED" (bkz. ConnectCallback).
+                mainHandler.post(() -> call.reject(code, error));
             }
         });
     }

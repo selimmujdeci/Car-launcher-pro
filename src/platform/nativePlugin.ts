@@ -466,7 +466,13 @@ export interface CarLauncherPlugin {
 
   // OBD-II Bluetooth Serial
   scanOBD(): Promise<OBDScanResult>;
-  connectOBD(options: OBDConnectOptions): Promise<void>;
+  /**
+   * Patch 3: resolve payload'ı ELM327 ATDPN ile okunan aktif protokol numarasını taşıyabilir
+   * (ör. `{ protocol: '6' }`) — obdService.ts bunu persist edip sonraki bağlantıda ATSP<n>
+   * ile ARAMASIZ bağlanmak için kullanır. Eski native plugin / protokol okunamadıysa `{}`
+   * (veya `void`) döner — geri-uyumlu.
+   */
+  connectOBD(options: OBDConnectOptions): Promise<{ protocol?: string } | void>;
   disconnectOBD(): Promise<void>;
   readDTC(): Promise<{ codes: string[] }>;
   clearDTC(): Promise<void>;

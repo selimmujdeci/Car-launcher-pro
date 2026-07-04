@@ -64,8 +64,13 @@ public final class BleObdManager {
 
     /** connect() için tek-seferlik sonuç callback'i — PluginCall resolve/reject Plugin'de kalır. */
     public interface ConnectCallback {
-        void onConnected();
-        void onFailed(String error);
+        /** Patch 3: ATDPN ile okunan aktif protokol numarası (tek karakter) — yoksa null. */
+        void onConnected(String detectedProtocol);
+        /**
+         * @param code "OBD_UNABLE_TO_CONNECT" (ELM327 protokol/araç yanıtı alınamadı) veya
+         *             "CONNECT_FAILED" (diğer tüm GATT/bağlantı hataları) — bkz. OBDManager.ConnectCallback.
+         */
+        void onFailed(String error, String code);
     }
 
     // ── Bilinen BLE ELM327 servis/karakteristik UUID setleri ─────────────────────
@@ -197,16 +202,19 @@ public final class BleObdManager {
 
                 // 6) Protokol katmanını GATT kanalıyla kur ve ELM327 init dizisini çalıştır.
                 elm = new ElmProtocol(new GattChannel());
-                elm.initELM327(obdProtocol);
+                String detectedProtocol = elm.initELM327(obdProtocol);
 
                 obdRunning = true;
-                cb.onConnected();
+                cb.onConnected(detectedProtocol);
 
                 pollLoop();
 
             } catch (Exception e) {
                 disconnect();
-                cb.onFailed(e.getMessage());
+                // Patch 3: yapılandırılmış hata kodu — bkz. OBDManager.connect() aynı desen.
+                String code = (e instanceof ElmInitSequencer.UnableToConnectException)
+                    ? "OBD_UNABLE_TO_CONNECT" : "CONNECT_FAILED";
+                cb.onFailed(e.getMessage(), code);
             }
         });
     }

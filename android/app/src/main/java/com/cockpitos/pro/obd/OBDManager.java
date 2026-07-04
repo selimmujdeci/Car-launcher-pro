@@ -51,8 +51,15 @@ public final class OBDManager {
 
     /** connect() için tek-seferlik (per-call) sonuç callback'i — PluginCall resolve/reject Plugin'de kalır. */
     public interface ConnectCallback {
-        void onConnected();
-        void onFailed(String error);
+        /** Patch 3: ATDPN ile okunan aktif protokol numarası (tek karakter) — yoksa null. */
+        void onConnected(String detectedProtocol);
+        /**
+         * @param code Yapılandırılmış hata kodu — JS tarafı mesaj string'i parse ETMEDEN
+         *             PROTOCOL_CYCLE ilerletme kararını buna göre verir.
+         *             "OBD_UNABLE_TO_CONNECT" → ELM327 protokol/araç yanıtı alınamadı (0100 warm-up).
+         *             "CONNECT_FAILED"        → diğer tüm bağlantı hataları (BT/soket/timeout).
+         */
+        void onFailed(String error, String code);
     }
 
     // SPP (Serial Port Profile) UUID — RFCOMM ELM327 adaptörleri için standart.
@@ -89,6 +96,9 @@ public final class OBDManager {
     // Transport-agnostik ELM327 protokol katmanı (init + PID parse).
     // RFCOMM stream'leri üzerinde RfcommChannel ile çalışır; davranış birebir korunur.
     private volatile ElmProtocol     elm        = null;
+
+    /** Patch 3: initELM327()'den ATDPN ile okunan aktif protokol numarası (yoksa null). */
+    private volatile String detectedProtocol = null;
 
     // JS → Native OBD contract (P2): connect ile gelen protokol + PID listesi.
     private volatile String                 obdProtocol = null;
@@ -205,20 +215,24 @@ public final class OBDManager {
                 initELM327();
 
                 obdRunning = true;
-                cb.onConnected();
+                cb.onConnected(detectedProtocol);
 
                 pollLoop();
 
             } catch (Exception e) {
                 disconnect();
-                cb.onFailed(e.getMessage());
+                // Patch 3: yapılandırılmış hata kodu — JS mesaj string'i parse ETMEDEN
+                // PROTOCOL_CYCLE ilerletme kararını verebilsin.
+                String code = (e instanceof ElmInitSequencer.UnableToConnectException)
+                    ? "OBD_UNABLE_TO_CONNECT" : "CONNECT_FAILED";
+                cb.onFailed(e.getMessage(), code);
             }
         });
     }
 
     /** ELM327 init dizisi — ElmProtocol'e delege edilir (davranış birebir korunur). */
     private void initELM327() throws IOException {
-        elm.initELM327(obdProtocol);
+        detectedProtocol = elm.initELM327(obdProtocol);
     }
 
     /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */
@@ -275,6 +289,7 @@ public final class OBDManager {
         try { if (obdOutput != null) { obdOutput.close(); obdOutput = null; } } catch (IOException ignored) {}
         try { if (obdSocket != null) { obdSocket.close(); obdSocket = null; } } catch (IOException ignored) {}
         elm = null;
+        detectedProtocol = null;
     }
 
     /** Tam kapanış — bağlantı + executor (Plugin.handleOnDestroy'dan çağrılır). */

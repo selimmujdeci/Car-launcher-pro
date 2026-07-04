@@ -23,30 +23,15 @@ public final class ElmProtocol {
     }
 
     /**
-     * ELM327 adaptörünü başlatır.
+     * ELM327 adaptörünü başlatır — Patch 3: {@link ElmInitSequencer}'a delege eder
+     * (DOĞRULAMALI init dizisi: ATS0 + ATAT1 + 0100 warm-up + ATDPN protokol okuma).
      *
-     * @param protocol JS'ten gelen ATSP protokol numarası (örn. "6"); null/boş → otomatik (ATSP0).
-     *
-     * Davranış {@code OBDManager.initELM327()} ile birebir aynıdır.
+     * @param protocol JS'ten gelen / öğrenilmiş ATSP protokol numarası (örn. "6"); null/boş → otomatik (ATSP0).
+     * @return ATDPN ile okunan aktif protokol numarası (tek karakter); okunamazsa null.
+     * @throws ElmInitSequencer.UnableToConnectException araç/protokolden gerçekten yanıt alınamadı.
      */
-    public void initELM327(String protocol) throws IOException {
-        try {
-            channel.send("ATZ",   2500);
-            channel.send("ATE0",  1000);
-            channel.send("ATL0",   500);
-            channel.send("ATH0",   500);
-            // P2: JS protokol gönderdiyse zorla (ör. '6' → ISO 15765-4 CAN); yoksa otomatik.
-            String sp = protocol;
-            if (sp != null && sp.length() == 1) {
-                channel.send("ATSP" + sp, 1000);
-            } else {
-                channel.send("ATSP0", 1000);
-            }
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IOException(e.getMessage(), e);
-        }
+    public String initELM327(String protocol) throws IOException {
+        return new ElmInitSequencer(channel).init(protocol);
     }
 
     // ── PID readers ─────────────────────────────────────────────────────────

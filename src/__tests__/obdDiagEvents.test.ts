@@ -88,6 +88,10 @@ vi.mock('../platform/obdStorage', () => ({
   clearObdTransport: vi.fn(),
   loadObdProfileId:  vi.fn(() => null),
   saveObdProfileId:  vi.fn(),
+  // Patch 3 — protokol öğrenme (ElmInitSequencer ATDPN persist)
+  loadObdProtocol:   vi.fn(() => null),
+  saveObdProtocol:   vi.fn(),
+  clearObdProtocol:  vi.fn(),
 }));
 
 vi.mock('../platform/vehicleProfileService', () => ({ persistHandshakeVin: vi.fn() }));

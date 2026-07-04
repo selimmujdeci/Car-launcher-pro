@@ -3,6 +3,7 @@ import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
 export const OBD_ADDRESS_KEY = 'obd:lastAddress';
 export const OBD_PROFILE_KEY = 'obd:detectedProfile';
 export const OBD_TRANSPORT_KEY = 'obd:lastTransport';
+export const OBD_PROTOCOL_KEY = 'obd:lastProtocol';
 
 export type ObdTransport = 'classic' | 'ble';
 
@@ -37,6 +38,25 @@ export function saveObdTransport(transport: ObdTransport): void {
 /** Kayıtlı taşıma katmanını siler (adaptör değişimi temizliği ile birlikte). */
 export function clearObdTransport(): void {
   try { localStorage.removeItem(OBD_TRANSPORT_KEY); } catch { /* ignore */ }
+}
+
+/**
+ * Patch 3: ElmInitSequencer'ın ATDPN ile okuduğu ELM327 ATSP protokol numarasını
+ * (ör. '6' = ISO 15765-4 CAN 11/500) okur. Varsa sonraki bağlantı bu protokolü
+ * ATSP<n> ile ZORLAR — ATSP0 otomatik arama YOK, aramasız/hızlı bağlanır.
+ */
+export function loadObdProtocol(): string | null {
+  try { return localStorage.getItem(OBD_PROTOCOL_KEY); } catch { return null; }
+}
+
+/** Öğrenilen protokolü kalıcılaştırır. Kota hatalarını sessizce yok sayar. */
+export function saveObdProtocol(protocol: string): void {
+  try { localStorage.setItem(OBD_PROTOCOL_KEY, protocol); } catch { /* quota */ }
+}
+
+/** Öğrenilen protokolü siler (adaptör/araç değişimi temizliği ile birlikte kullanılabilir). */
+export function clearObdProtocol(): void {
+  try { localStorage.removeItem(OBD_PROTOCOL_KEY); } catch { /* ignore */ }
 }
 
 /** Kalıcı OBD profil kimliğini safeStorage'dan okur. */
