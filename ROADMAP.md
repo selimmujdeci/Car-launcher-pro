@@ -67,6 +67,19 @@
   freeze frame + readiness → bakım beyni kartları + sesli asistan araç bağlamı
   (feat/assistant-open-app işiyle birleşir) + BYOK AI teşhis sentezi (offline'da
   statik tabloya zarif düşüş; tespit deterministik kalır, AI yalnız yorumlar).
+- **Filo Telemetrisi (VİZYON — B2B ürün, 2026-07-05):** OBD+GPS verisinin buluta
+  akışı + web filo panosu. Filo değer önerisi: canlı konum/rota, yakıt takibi
+  (hırsızlık tespiti), sürücü davranışı (ani fren/hızlanma/rölanti/aşırı hız),
+  uzaktan arıza yönetimi (BEKLEYEN kod = lamba yanmadan servise çağır, readiness
+  = muayene planlama). Mimari ilkeler: (1) araçta `telemetryService` — 30-60s
+  özet paketler + olaylar (DTC/sert fren), ASLA ham 10Hz akış; offline kuyruk
+  (safeStorage), internet değince toplu yükleme — "canlı", bağlantı varken
+  canlıdır (head unit çoğu zaman WiFi-only; filo kurulumu SIM/hotspot varsayar).
+  (2) Supabase: araç-başına RLS + GRANT üçlüsü (CLAUDE.md kuralları), multi-tenant
+  (filo→araç→sürücü). (3) Web panosu AYRI ürün/repo — bu repo yalnız araç ucunu
+  taşır. (4) KVKK/consent katmanı kurumsal sözleşme işi — sürücü konum takibi
+  açık rıza ister. Gelir modeli: cihaz lisansı + filo aboneliği. ÖN KOŞUL:
+  Patch 11-12 + saha doğrulaması (satılan verinin kendisi o patch'lerde üretiliyor).
 - **Safety Assistant Faz 3B — VoiceSafetyAnnouncer:** sesli anons + chime + ducking + Sustur
   butonu (`useSafetyMute`). İzole `<SafetyAnnouncer />`, `voiceAnnouncementAlert`'i offline TTS'e
   yönlendirir. Ayrıca `signalsAvailable`'ı CAN handshake/profile'a bağla (gerçek araç canlı verisi).
