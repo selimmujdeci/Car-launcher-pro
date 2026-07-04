@@ -43,6 +43,13 @@ public final class OBDManager {
     public interface OnOBDDataListener {
         /** Patch 6: her poll döngüsünde çözümlenmiş TÜM PID değerleri (bkz. {@link ObdPollSample}). */
         void onObdData(ObdPollSample sample);
+        /**
+         * Patch 8: EXTENDED grup ham PID sonucu — çözümleme TS'te (StandardPidRegistry,
+         * tek doğruluk kaynağı). Yalnız BAŞARILI okumada çağrılır (NO_DATA iletilmez).
+         * @param pid    2 hane hex PID (ör. "5C")
+         * @param rawHex mode/pid başlığı soyulmuş ham data hex (ör. "8C")
+         */
+        void onExtendedPid(String pid, String rawHex);
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
@@ -128,6 +135,17 @@ public final class OBDManager {
     private long pollCycle = 0;
     /** ATRV'nin son okunan değeri — aradaki turlarda bu değer JS'e tekrar gönderilir. */
     private volatile double lastVoltage = -1.0;
+
+    /**
+     * Patch 8: EXTENDED grup — TS'in setObdExtendedPids ile ilettiği (talep-güdümlü)
+     * PID listesi. BOŞKEN TAM SIFIR maliyet: poll turu tek komut bile eklemez —
+     * Mali-400/zayıf head unit kuralının native yarısı budur; kimse izlemiyorsa
+     * adaptöre fazladan trafik gitmez. Doluyken turda EN FAZLA BİR PID round-robin
+     * sorgulanır (FAST kadansı ne olursa olsun ek yük sabit ve düşük öncelikli).
+     */
+    private volatile java.util.List<String> extendedPids = java.util.Collections.emptyList();
+    /** Round-robin imleci — yalnız pollLoop thread'inden erişilir. */
+    private int extendedIdx = 0;
 
     public OBDManager(Context context, OnOBDDataListener listener) {
         this.mContext = context.getApplicationContext();
@@ -296,6 +314,16 @@ public final class OBDManager {
                 if (pollCycle % VOLTAGE_EVERY_N_CYCLES == 0) {
                     lastVoltage = queuedVoltageRead();
                 }
+
+                // Patch 8: EXTENDED grup — turda EN FAZLA BİR PID, round-robin, POLL_SLOW
+                // önceliğinde (DTC/USER her zaman öne geçer). Liste boşken sıfır maliyet.
+                java.util.List<String> ext = extendedPids;
+                if (!ext.isEmpty()) {
+                    final String extPid = ext.get(extendedIdx % ext.size());
+                    extendedIdx++;
+                    String extRaw = queuedExtendedRead(extPid);
+                    if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                }
                 pollCycle++;
 
                 // Veriyi köprü katmanına bildir — JSObject/notifyListeners/SAB Plugin'de.
@@ -345,6 +373,34 @@ public final class OBDManager {
         this.fastPollMs = Math.max(100, ms);
     }
 
+    /**
+     * Patch 8: EXTENDED grup PID listesini değiştirir (TS talep-güdümlü — izleyici yoksa
+     * TS boş liste gönderir, poll turu ek komut çalıştırmaz). Savunmacı üst sınır 32:
+     * daha uzun liste zaten rotasyonda anlamsız gecikme üretir (32 PID × 1 tur ≈ tam tur
+     * süresi dakikalar) — TS tarafı da kendi tavanını uygular.
+     */
+    public void setExtendedPids(java.util.List<String> pids) {
+        if (pids == null || pids.isEmpty()) {
+            this.extendedPids = java.util.Collections.emptyList();
+            return;
+        }
+        java.util.List<String> copy = new java.util.ArrayList<>(
+            pids.subList(0, Math.min(pids.size(), 32)));
+        this.extendedPids = java.util.Collections.unmodifiableList(copy);
+    }
+
+    /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 8). */
+    private String queuedExtendedRead(String pid) {
+        final ElmProtocol p = elm;
+        if (p == null) return null;
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_SLOW, null,
+                () -> p.readPidRaw(pid)).get();
+        } catch (Exception e) {
+            return null; // EXTENDED opsiyonel — hata sessizce atlanır (fail-soft)
+        }
+    }
+
     /** Bağlantıyı kapatır, akışları serbest bırakır (idempotent). */
     public void disconnect() {
         obdRunning = false;
@@ -365,6 +421,8 @@ public final class OBDManager {
         // Patch 6: yeni bağlantı staggered poll döngüsünü sıfırdan başlatır.
         pollCycle = 0;
         lastVoltage = -1.0;
+        // Patch 8: EXTENDED rotasyon imleci de sıfırlanır (liste TS yönetiminde, korunur).
+        extendedIdx = 0;
         // Patch 5: bu bağlantıya ait BEKLEYEN (henüz çalışmamış) kuyruk görevleri artık
         // anlamsız (elm=null → NPE ile başarısız olurlardı) — proaktif temizle.
         cmdQueue.clearPending();

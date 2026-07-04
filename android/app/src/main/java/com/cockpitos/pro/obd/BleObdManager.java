@@ -56,6 +56,8 @@ public final class BleObdManager {
     public interface OnOBDDataListener {
         /** Patch 6: her poll döngüsünde çözümlenmiş TÜM PID değerleri (bkz. {@link ObdPollSample}). */
         void onObdData(ObdPollSample sample);
+        /** Patch 8: EXTENDED grup ham PID sonucu — bkz. OBDManager.OnOBDDataListener.onExtendedPid. */
+        void onExtendedPid(String pid, String rawHex);
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
@@ -125,6 +127,10 @@ public final class BleObdManager {
     private static final int VOLTAGE_EVERY_N_CYCLES = 10;
     private long pollCycle = 0;
     private volatile double lastVoltage = -1.0;
+
+    /** Patch 8: bkz. OBDManager.extendedPids — aynı talep-güdümlü/sıfır-maliyet deseni. */
+    private volatile java.util.List<String> extendedPids = java.util.Collections.emptyList();
+    private int extendedIdx = 0;
 
     // ── GATT operasyon senkronizasyonu ───────────────────────────────────────────
     // Android GATT seri olduğundan tek bir "op sonucu" kanalı yeterli. Her bloklayıcı
@@ -255,6 +261,8 @@ public final class BleObdManager {
         // Patch 6: yeni bağlantı staggered poll döngüsünü sıfırdan başlatır.
         pollCycle = 0;
         lastVoltage = -1.0;
+        // Patch 8: EXTENDED rotasyon imleci de sıfırlanır (liste TS yönetiminde, korunur).
+        extendedIdx = 0;
     }
 
     /** Tam kapanış — bağlantı + executor (Plugin.handleOnDestroy'dan çağrılır). */
@@ -289,6 +297,15 @@ public final class BleObdManager {
                 }
                 if (pollCycle % VOLTAGE_EVERY_N_CYCLES == 0) {
                     lastVoltage = queuedVoltageRead(p);
+                }
+
+                // Patch 8: EXTENDED grup — bkz. OBDManager.pollLoop() aynı desen/gerekçe.
+                java.util.List<String> ext = extendedPids;
+                if (!ext.isEmpty()) {
+                    final String extPid = ext.get(extendedIdx % ext.size());
+                    extendedIdx++;
+                    String extRaw = queuedExtendedRead(p, extPid);
+                    if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
                 }
                 pollCycle++;
 
@@ -334,6 +351,27 @@ public final class BleObdManager {
      */
     public void setFastPollMs(int ms) {
         this.fastPollMs = Math.max(100, ms);
+    }
+
+    /** Patch 8: bkz. OBDManager.setExtendedPids — aynı sözleşme (boş=devre dışı, tavan 32). */
+    public void setExtendedPids(java.util.List<String> pids) {
+        if (pids == null || pids.isEmpty()) {
+            this.extendedPids = java.util.Collections.emptyList();
+            return;
+        }
+        java.util.List<String> copy = new java.util.ArrayList<>(
+            pids.subList(0, Math.min(pids.size(), 32)));
+        this.extendedPids = java.util.Collections.unmodifiableList(copy);
+    }
+
+    /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 8). */
+    private String queuedExtendedRead(ElmProtocol p, String pid) {
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.POLL_SLOW, null,
+                () -> p.readPidRaw(pid)).get();
+        } catch (Exception e) {
+            return null; // EXTENDED opsiyonel — fail-soft
+        }
     }
 
     /** PID seti null/boş ise (geriye dönük uyumluluk) tüm PID'ler sorgulanır. */

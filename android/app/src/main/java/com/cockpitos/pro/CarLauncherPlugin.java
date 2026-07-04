@@ -747,6 +747,11 @@ public class CarLauncherPlugin extends Plugin {
         }
 
         @Override
+        public void onExtendedPid(String pid, String rawHex) {
+            obdListener.onExtendedPid(pid, rawHex);
+        }
+
+        @Override
         public void onStatusChanged(String state, String message) {
             obdListener.onStatusChanged(state, message);
         }
@@ -791,6 +796,17 @@ public class CarLauncherPlugin extends Plugin {
                 if (sample.fuelLevel >= 0) VehicleNativeBridge.INSTANCE.pushSignal(
                         VehicleNativeBridge.Signal.FUEL, (double) sample.fuelLevel, ts);
             }
+        }
+
+        @Override
+        public void onExtendedPid(String pid, String rawHex) {
+            // Patch 8: EXTENDED grup ham PID sonucu — çözümleme TS'te (StandardPidRegistry).
+            // obdData olayından AYRI kanal: hızlı yol paketine alan eklemez (SAB/JSON
+            // sözleşmesi değişmedi), turda en fazla 1 olay → köprü trafiği ihmal edilebilir.
+            JSObject event = new JSObject();
+            event.put("pid",  pid);
+            event.put("data", rawHex);
+            notifyListeners("obdExtendedData", event);
         }
 
         @Override
@@ -1262,6 +1278,28 @@ public class CarLauncherPlugin extends Plugin {
             if (obdManager != null) obdManager.setFastPollMs(fastMs);
             if (bleObdManager != null) bleObdManager.setFastPollMs(fastMs);
         }
+        call.resolve();
+    }
+
+    /**
+     * Patch 8: EXTENDED grup PID listesi — TS talep-güdümlü (extendedPidService). Boş/eksik
+     * liste = devre dışı (poll turu ek komut çalıştırmaz, sıfır maliyet). Her iki transport'a
+     * da uygulanır; aktif olmayan yöneticide sonraki bağlantıda geçerli olur.
+     */
+    @PluginMethod
+    public void setObdExtendedPids(PluginCall call) {
+        java.util.List<String> pids = new java.util.ArrayList<>();
+        com.getcapacitor.JSArray arr = call.getArray("pids");
+        if (arr != null) {
+            try {
+                for (int i = 0; i < arr.length(); i++) {
+                    Object v = arr.get(i);
+                    if (v instanceof String) pids.add(((String) v).toUpperCase(java.util.Locale.ROOT));
+                }
+            } catch (Exception ignored) { /* bozuk eleman atlanır — fail-soft */ }
+        }
+        if (obdManager != null) obdManager.setExtendedPids(pids);
+        if (bleObdManager != null) bleObdManager.setExtendedPids(pids);
         call.resolve();
     }
 

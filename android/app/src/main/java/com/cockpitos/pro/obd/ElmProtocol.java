@@ -120,6 +120,23 @@ public final class ElmProtocol {
         return -1.0;
     }
 
+    /**
+     * Patch 8: JENERİK Mode 01 PID okuma — TS tarafındaki StandardPidRegistry çözümlemesi
+     * için HAM data hex'i döner (mode/pid başlığı SOYULMUŞ, ör. 010C → "1AF8").
+     * Formül BURADA YOK — tek doğruluk kaynağı TS tablosudur (test edilebilirlik + tek yer).
+     * Desteklenen-PID bitmask'leri (00/20/40/60) de bu yoldan okunur.
+     *
+     * @return ham data hex; NO_DATA/hata/desteklenmiyor → null (çağıran atlar).
+     */
+    public String readPidRaw(String pid) {
+        String p = pid.toUpperCase(java.util.Locale.ROOT);
+        ElmResponseParser.Result r = sendAndClassify("01" + p, 1500, "41", p);
+        if (r.kind == ElmResponseParser.Kind.OK && r.dataHex != null && !r.dataHex.isEmpty()) {
+            return r.dataHex;
+        }
+        return null;
+    }
+
     /** channel.send() + ElmResponseParser.classify() — iletişim hatasını ERROR sınıfına çevirir. */
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
         try {
