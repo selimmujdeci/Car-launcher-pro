@@ -22,9 +22,11 @@
   (AES-GCM/SSAID), sensitiveKeyStore 3. kurtarma basamağı, remove() tüm katmanları
   temizler, SettingsPage durum satırı + Tüm Dosyalara Erişim akışı, giriş trim.
 - **Fix 2:** dürüst `companion_key_invalid` cevabı (kota dürüstlüğü deseni).
-- Suite **2122 yeşil** (135 dosya), tsc temiz, Java derleme OK. **CİHAZDA sil-kur
-  senaryosu doğrulanmadı**; `.env` ölü anahtarı yenilenecek/silinecek (BYOK);
-  head unit STT "anlama kıtlığı" ayrı açık iş.
+- Suite **2122 yeşil** (135 dosya), tsc temiz, Java derleme OK. ✅ **CİHAZDA
+  DOĞRULANDI** (telefon, sil-kur döngüsü: dosya kaldı, anahtar otomatik geri
+  geldi, Google'a canlı test 200). Açık: `.env` ölü anahtarı yenilenecek/
+  silinecek (BYOK); izin-sonrası restore ancak sonraki boot'ta (küçük UX
+  boşluğu, HANDOFF #20); head unit STT "anlama kıtlığı" ayrı açık iş.
 
 ## ⭐ OBD CORE V2 — Patch 13: 29-BİT UDS ADRESLEME (ATCP/ATSP7) + ZOE PH2 EVC/LBC (2026-07-05)
 

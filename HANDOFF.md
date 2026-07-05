@@ -31,8 +31,16 @@ Google zaten yok.
    gerekiyor") — kota dürüstlüğüyle (companion_rate_limited) aynı ilke; 200'de işaret
    temizlenir; kesici beslenmez. 4 kilit (companionChat.test.ts §6).
 
-**Devralan bilsin:** (a) CİHAZDA sil-kur senaryosu + Tüm Dosyalara Erişim izin akışı
-DOĞRULANMADI (APK kuruldu, kullanıcı geçerli anahtar girip test edecek); (b) `.env`
+**Devralan bilsin:** (a) ✅ CİHAZDA DOĞRULANDI (2026-07-05, Xiaomi telefon):
+geçerli anahtar girildi → `/sdcard/CarOSPro/.cockpitos.keys` yazıldı → `adb
+uninstall` → dosya kaldı → yeniden kurulum + boot → anahtar OTOMATİK geri geldi
+(secureStoreGet 53 kars AQ.A…, Google'a canlı test HTTP 200). İzin adb'den
+verildi (`appops set … MANAGE_EXTERNAL_STORAGE allow`) — normal kullanıcı
+akışında Ayarlar'daki "İzin ver" butonu. ⚠️ Bilinen küçük UX boşluğu: izin İLK
+boot'tan SONRA verilirse restore bir sonraki uygulama başlatmasında çalışır
+(`_deviceRestoreTried` boot-başına-1 bayrağı) — head unit'lerde (Android 10,
+izin gerekmez) etkisiz; istenirse "İzin ver" dönüşünde bayrak sıfırlama eklenir.
+(b) `.env`
 içindeki VITE_GEMINI_API_KEY ÖLÜ — ya yenilenmeli ya silinmeli (BYOK kuralına da
 aykırı, teşhisi bulandırıyor; kullanıcının Google hesabı gerekli); (c) head unit
 "10 denemede 1 anlama" (Vosk STT) AYRI açık iş — n-best+asrRepair bu dalda ama head
