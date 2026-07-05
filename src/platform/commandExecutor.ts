@@ -20,6 +20,7 @@ import { speakFeedback, speakAlert } from './ttsService';
 import { showToast }                    from './errorBus';
 import type { NavOptionKey, MusicOptionKey } from '../data/apps';
 import { readDTCCodes, clearDTCCodes, onDTCState, type DTCState } from './dtcService';
+import { querySensor } from './obd/sensorQueryService';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { openInApp } from './inAppBrowser';
 import { applyLiveStyle } from './liveStyleEngine';
@@ -486,6 +487,27 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         _speak('Araç bakım durumu kontrol ediliyor', isDriving);
         const summary = await getMaintenanceSummaryText();
         _speak(summary, isDriving);
+        break;
+      }
+      /* ── Araç Sensör Sorgusu (V1 — QUERY_SENSOR, beyin yolu) ─────
+         Beyin DEĞER üretmez, yalnız sorulan sensörün adını taşır — gerçek
+         değer HER ZAMAN buradan (sensorQueryService.querySensor) gelir.
+         EXTENDED/manufacturer hedefler ilk okumayı 12s'e kadar bekleyebilir
+         (sensorQueryService) — sessizlik "ölü" sanılmasın diye önce kısa bir
+         onay söylenir (yerel bypass'la AYNI desen, bkz. voiceService). */
+      case 'QUERY_SENSOR': {
+        const sensorQuery = intent.payload.sensorQuery ?? '';
+        if (!sensorQuery) { _speak('Hangi sensörü soruyorsun?', isDriving); break; }
+        _speak('Bakıyorum', isDriving);
+        const answer = await querySensor(sensorQuery);
+        if (!answer) { _speak('Bu sensörü tanımıyorum', isDriving); break; }
+        // VIN gibi uzun metin DID'leri TTS'te OKUNMAZ (ISO 15008) — ekrana yönlendir.
+        if (typeof answer.value === 'string' && answer.value.length > 20) {
+          _speak(`${answer.name} ekranda gösteriliyor`, isDriving);
+          showToast({ type: 'info', title: answer.name, message: answer.value, duration: 8000 });
+          break;
+        }
+        _speak(answer.text, isDriving);
         break;
       }
       case 'OPEN_APPOINTMENT_LINK': {

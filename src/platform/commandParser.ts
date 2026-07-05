@@ -19,6 +19,7 @@
 import { tryParseNavAddress } from './addressParser';
 import { tryParseMusicCommand } from './musicCommandParser';
 import { matchVoiceSetting, type VoiceSettingMatch } from './settingsVoice';
+import { tryParseVehicleQuery } from './vehicleIntents';
 
 /* ── Music search pre-check ──────────────────────────────── */
 
@@ -84,7 +85,9 @@ export type CommandType =
   | 'hw_lights_off'
   | 'hw_screen_off'
   | 'vehicle_status'
-  | 'open_radio';
+  | 'open_radio'
+  // V1 — araç sensör sorgusu (vehicleIntents.ts tohumu, extra.sensorQuery ile)
+  | 'query_sensor';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -1092,6 +1095,36 @@ export function parseCommandFull(input: string): ParseResult {
   scored.sort((a, b) => b.score - a.score);
 
   const best = scored[0];
+
+  // ── Araç sensör sorgusu (V1 — vehicleIntents.ts tohumu) ──────────────
+  // Yalnız best.score TAM EŞLEŞME (1.0) DEĞİLSE denenir: hız/yakıt/motor
+  // sıcaklığı/bakım/durum gibi ZATEN kapsanan sorular kendi EXACT (1.0)
+  // keyword'leriyle üstteki scored path'te yakalanır — bu patch onlara HİÇ
+  // DOKUNMAZ, mevcut davranış birebir korunur (V3'ün işi).
+  // <1.0 durumunda (belirsiz Tier-2/3 tahmin YA DA hiç eşleşme) ÖNCE burası
+  // denenir: aksi halde "yağ sıcaklığı kaç"/"turbo basıncı ne kadar" gibi
+  // commandParser'da karşılığı OLMAYAN sensörler, genel 'kaç'/'ne kadar' gibi
+  // token'ların ALAKASIZ bir kalıpla (ör. vehicle_speed'in 'kac' token'ı)
+  // yanlışlıkla Tier-2/3 eşleşmesine YEM olurdu (saha gözlemi — bkz. testler).
+  // resolveSensor doğrulamazsa (null) eski davranışa (scored/suggestions) düşülür.
+  if (best.score < EXACT_SCORE) {
+    const vehicleQuery = tryParseVehicleQuery(trimmed);
+    if (vehicleQuery) {
+      return {
+        command: {
+          type:       'query_sensor',
+          raw:        input.trim(),
+          confidence: vehicleQuery.confidence,
+          feedback:   'Sensör verisine bakılıyor',
+          priority:   'normal',
+          extra:      { sensorQuery: vehicleQuery.sensorQuery },
+        },
+        suggestions:   [],
+        needsSemantic: false,
+      };
+    }
+  }
+
   if (best.score >= THRESHOLD) {
     return {
       command: {

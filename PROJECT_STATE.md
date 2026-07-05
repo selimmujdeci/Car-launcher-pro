@@ -10,6 +10,69 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ ASİSTAN ↔ ARAÇ ENTEGRASYONU V1 — QUERY_SENSOR UÇTAN UCA (2026-07-05)
+
+`docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V1 tamamlandı. Önceden commandParser'da
+karşılığı OLMAYAN sensör soruları ("yağ sıcaklığı kaç", "turbo basıncı ne kadar",
+"akü voltajı nedir") artık `sensorQueryService.querySensor`'dan GERÇEK veriyle
+cevaplanıyor — hem yerel yol (beyne hiç gitmeden) hem beyin yolu (Gemini yerel
+parser'ın kaçırdığı sensör adını `QUERY_SENSOR` ile taşır, DEĞER UYDURMAZ).
+
+**Yeni:** `src/platform/vehicleIntents.ts` — alan-modülü ayrıştırmasının V1 tohumu
+(ROADMAP kararı). "kaç/ne kadar/nedir/söyle" ipucu + `resolveSensor` doğrulaması +
+aç/kapat fiili negatif koruması.
+
+**Mimari karar (kritik):** `commandParser.parseCommandFull` içinde `vehicleIntents`
+YALNIZ `best.score < EXACT_SCORE (1.0)` iken denenir — yani scored pattern'lerden
+TAM eşleşme (1.0) çıkmadıysa. İlk tasarım "yalnız hiç eşleşme yoksa dene"ydi
+(`best.score < THRESHOLD`) ama YANLIŞ çıktı: `vehicle_speed` deseninin genel `'kac'`
+token'ı (Tier-2, confidence 0.82) "kaç" geçen HER cümleyi (dahil "yağ sıcaklığı
+kaç") yanlışlıkla yakalıyordu — testle bulundu, `EXACT_SCORE` eşiğine çekilince
+düzeldi. Mevcut `vehicle_speed/vehicle_fuel/vehicle_temp/vehicle_maintenance/
+vehicle_status` kalıplarının TAM (1.0) eşleşmeleri bu sayede birebir korunuyor;
+yalnız bu 5 pattern'in BELİRSİZ (Tier-2/3, <1.0) tahminleri artık doğru sensöre
+yönlendiriliyor (regresyon değil, düzeltme — eskiden zaten "belirsiz" tahminlerdi).
+
+**Yerel bypass (voiceService.ts, "1b2"):** hava durumu bypass'ı (1b) ile AYNI
+desen — `query_sensor` + confidence≥0.7 → beyne hiç gitmeden `_answerSensorQuery()`:
+kısa "Bakıyorum..." onayı (EXTENDED/manufacturer hedefler 12s'e kadar sürebilir,
+bu yüzden UI durumu 'processing'de tutulup overlay kapanmıyor) → `await querySensor`
+→ gerçek cevap. VIN gibi >20 karakter string değerler TTS'te OKUNMAZ, toast ile
+ekrana yönlendirilir.
+
+**Beyin yolu:** `companionChatProvider.BRAIN_INTENTS` + prompt kuralı ("sensör
+değeri UYDURMA, QUERY_SENSOR döndür") + `parseBrainJson` `sensorQuery` alanı →
+`intentEngine.fromSemanticResult`/`toIntent` → `commandExecutor.dispatchIntent`
+`QUERY_SENSOR` case'i AYNI `querySensor` + ack + uzun-metin-toast akışını çalıştırır.
+Şemada DEĞER alanı YOK (yapısal garanti — beyin sahte sayı üretemez); kilit testte.
+
+**Yan-etki fix'i (mimari bütünlük — önemli):** `sensorQueryService.ts`'te
+`getOBDDataSnapshot` (obdService'ten) STATİK importtu. `resolveSensor`'u
+(senkron, obdService'e ihtiyacı yok) `commandParser.ts`'e bağlayınca, commandParser
+("Pure function module: no state, no side effects" diye dokümante — sesli asistan
+her karakter/komutta çalıştırır) obdService'in TÜM modül grafiğini (AdaptiveRuntimeManager,
+SafetyBrain, useExpertStore, import-anında `onPerformanceModeChange` aboneliği…)
+transitif olarak yüklemeye başladı: iki test (`asrRepair.test.ts`, `voiceNbest.test.ts`
+— gerçek commandParser + kısmi `performanceMode` mock'u kullanıyorlardı) bu yüzden
+ÇÖKTÜ, ayrıca "boşta sıfır maliyet" (Mali-400) ilkesini ihlal ediyordu (commandParser
+yüklenince obdService modülü de sessizce başlatılmış oluyordu). **Fix:**
+`getOBDDataSnapshot` importu `querySensor`'un 'core' dalı içine `await import(...)`
+ile taşındı (tek kullanım yeri). Build'de doğrulandı: `sensorQueryService` artık
+kendi ayrı chunk'ında (27kB), obdService'e yalnız gerçek bir sensör OKUNDUĞUNDA
+bağlanıyor.
+
+**Doğrulama:** tsc temiz + **suite 2061/2061 yeşil** (132 dosya, +22 yeni test:
+`src/__tests__/assistantQuerySensor.test.ts` + `assistantQuerySensorBypass.test.ts`)
++ `npm run build` OK (`npm run lint` 0 hata, mevcut uyarılar dokunulmadı). Kilitler
+BİLİNÇLİ olarak `regression.guards.test.ts`'e DEĞİL kendi dosyalarına eklendi (o
+dosya paralel bir WIP'in — Freeze/worker — parçası olarak zaten farklı durumda).
+
+**Sırada (bilinçli eksik):** CİHAZDA/CANLI SESLE DOĞRULANMADI. V2 — araç bağlamının
+(DTC sayısı, bakım uyarısı) beyne yorum satırı olarak eklenmesi + "bağlamdan sensör
+değeri söyleme" kuralı. V3 — mevcut vehicle_speed/fuel/temp/maintenance/status yerel
+kurallarının `vehicleIntents.ts`'e taşınması (davranış BİREBİR aynı kalacak şekilde).
+V4 — teşhis derinliği sesli (Patch 11 API'lerinin tüketimi).
+
 ## ⭐ NAVİGASYON DENETİMİ + P0/P1 FIX'LERİ (2026-07-05)
 
 Kapsamlı navigasyon denetimi (10 alan) yapıldı; iki commit atıldı, suite yeşil:

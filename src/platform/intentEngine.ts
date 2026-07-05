@@ -73,6 +73,7 @@ export type IntentType =
   | 'HARDWARE_LIGHTS_OFF'
   | 'HARDWARE_SCREEN_OFF'
   | 'VEHICLE_STATUS'
+  | 'QUERY_SENSOR'       // V1: araç sensör DEĞERİ sorgusu (sensorQuery ile) — beyin değer UYDURMAZ
   | 'REMEMBER'           // Kişisel hafıza: kalıcı fact ekle ("şunu unutma …")
   | 'FORGET'             // Kişisel hafıza: fact sil / "hepsini unut"
   | 'UNKNOWN';
@@ -84,6 +85,7 @@ export interface IntentPayload {
   screenAction?: string;  // OPEN_SCREEN: 'open' | 'close'
   contactName?: string;   // OPEN_PHONE: aranacak kişi adı ("Selim", "annem") — rehberde aranır
   memoryText?:  string;   // REMEMBER/FORGET: hatırlanacak/unutulacak kişisel fact
+  sensorQuery?: string;   // QUERY_SENSOR: sensör sorusu metni — sensorQueryService.querySensor'a AYNEN geçirilir
   destination?: string;   // navigation destination hint (e.g. "home")
   mode?:        string;   // theme or driving mode value
   sourceText?:  string;   // original user input — for logging / feedback
@@ -222,6 +224,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   hw_lights_off:   'HARDWARE_LIGHTS_OFF',
   hw_screen_off:   'HARDWARE_SCREEN_OFF',
   vehicle_status:  'VEHICLE_STATUS',
+  query_sensor:    'QUERY_SENSOR',
 };
 
 /* ── toIntent ────────────────────────────────────────────── */
@@ -330,6 +333,9 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'toggle_sleep_mode':
       payload.mode = 'toggle_sleep';
+      break;
+    case 'query_sensor':
+      payload.sensorQuery = cmd.extra?.['sensorQuery'] ?? cmd.raw;
       break;
   }
 
@@ -478,7 +484,8 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       break;
     case 'CHECK_VEHICLE_HEALTH':
     case 'CLEAR_DTC_CODES':
-      // Async DTC operations — handled by commandExecutor.dispatchIntent
+    case 'QUERY_SENSOR':
+      // Async DTC/sensör işlemleri — commandExecutor.dispatchIntent'te ele alınır.
       break;
     // T-12: Donanım komutları — L2 ACK beklenir; fire-and-forget değil
     case 'HARDWARE_LOCK':
@@ -525,6 +532,7 @@ const VALID_INTENTS = new Set<IntentType>([
   'CHECK_MAINTENANCE', 'OPEN_APPOINTMENT_LINK',
   'SET_STYLE',
   'REMEMBER', 'FORGET',
+  'QUERY_SENSOR',
   'UNKNOWN',
 ]);
 
@@ -575,6 +583,10 @@ export function fromSemanticResult(result: SemanticResult, sourceText: string): 
   } else if (intentType === 'REMEMBER' || intentType === 'FORGET') {
     // Kişisel hafıza — hatırlanacak/unutulacak metin (çözüm dispatch'te store'a).
     payload.memoryText = result.memoryText ?? result.query;
+  } else if (intentType === 'QUERY_SENSOR') {
+    // Araç sensör DEĞERİ sorgusu — beyin DEĞERİ UYDURMAZ, yalnız soruyu taşır;
+    // gerçek değer commandExecutor'da sensorQueryService.querySensor'dan gelir.
+    payload.sensorQuery = result.sensorQuery ?? result.query ?? sourceText;
   } else if (result.destination) {
     payload.destination = result.destination;
     payload.targetApp   = 'maps';

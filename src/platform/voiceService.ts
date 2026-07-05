@@ -23,6 +23,7 @@ import { isAiNetHealthy } from './aiHealth';
 import { fromSemanticResult } from './intentEngine';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
 import { weatherQueryNamesCity } from './weatherService';
+import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
 import { reportVoiceDiag } from './voiceDiagService';
 
@@ -439,6 +440,48 @@ function dispatchDriving(cmd: ParsedCommand): void {
   pushHistory(cmd);
   _commandHandlers.forEach((fn) => fn(cmd));
   void reportVoiceDiag('voice_success', { intent: cmd.type });
+}
+
+/**
+ * QUERY_SENSOR yerel bypass'ının çalıştırıcısı (V1 — ASSISTANT_VEHICLE_INTEGRATION_PLAN.md).
+ * Hava durumu bypass'ıyla (1b) AYNI ilke: beyne HİÇ gitmeden querySensor'dan
+ * taze veriyle cevap verir. dispatch()'ten FARKI: EXTENDED/manufacturer hedefler
+ * ilk okumayı 12s'e kadar bekleyebilir (sensorQueryService) — dispatch()'in anlık
+ * "success → 2.2s sonra otokapat" akışı bu süreyi beklemeden pencereyi kapatırdı.
+ * Bunun yerine durum 'processing'de tutulur (overlay açık kalır — processing
+ * failsafe 20s, EXT_WAIT_TIMEOUT_MS 12s'in üstünde, güvenli), önce kısa bir
+ * onay söylenir, sonra gerçek cevap. VIN gibi uzun metin cevaplar (>20 karakter
+ * string değer) TTS'te OKUNMAZ (ISO 15008) — toast ile ekrana yönlendirilir.
+ */
+async function _answerSensorQuery(sensorQuery: string): Promise<void> {
+  _endConvSession(); // araç sorgusu = araç komutu → sohbet döngüsü başlatmaz (dispatch ile aynı)
+  push({ status: 'processing', transcript: sensorQuery, error: null, suggestions: [] });
+  speakFeedback('Bakıyorum...');
+  try {
+    const { querySensor } = await import('./obd/sensorQueryService');
+    const answer = await querySensor(sensorQuery);
+    if (!answer) {
+      speakFeedback('Bu sensörü tanımıyorum.');
+      push({ status: 'error', error: 'Sensör bulunamadı', transcript: sensorQuery, suggestions: [] });
+      setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+      return;
+    }
+    if (typeof answer.value === 'string' && answer.value.length > 20) {
+      speakFeedback(`${answer.name} ekranda gösteriliyor.`);
+      showToast({ type: 'info', title: answer.name, message: answer.value, duration: 8000 });
+    } else {
+      speakFeedback(answer.text);
+    }
+    push({ status: 'success', error: null, transcript: sensorQuery, suggestions: [] });
+    const delays = getResetDelays();
+    setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, delays.normal ?? 2500);
+  } catch {
+    // fail-soft: sensör okuma hatası komut akışını kesmez (CLAUDE.md §2)
+    speakFeedback('Sensör verisi alınamadı.');
+    push({ status: 'error', error: 'Sensör hatası', transcript: sensorQuery, suggestions: [] });
+    setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+  }
+  void reportVoiceDiag('voice_success', { intent: 'query_sensor' });
 }
 
 /* ── Komut zincirleme ("müziği aç ve eve git") ─────────────────
@@ -916,6 +959,24 @@ export async function processTextCommand(
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'weather_local_bypass' });
     if (ctx?.isDriving) { dispatchDriving(result.command); } else { dispatch(result.command); }
+    return true;
+  }
+
+  // ── 1b2. SENSÖR SORGUSU BYPASS — yerel sensorQueryService kotasız/anında cevaplar ──
+  // "yağ sıcaklığı kaç", "turbo basıncı ne kadar" gibi net (≥0.7) yerel eşleşmeler
+  // (vehicleIntents.ts) beyne HİÇ GİTMEZ: querySensor taze OBD/EXTENDED/manufacturer
+  // veriyle doğrudan cevaplar — hava bypass'ıyla (1b) AYNI desen/ilke (plan §V1 madde
+  // 4). Beyin sensör DEĞERİ UYDURMAZ ilkesi (plan §1); yerel parser'ın kaçırdığı
+  // sensör isimlerinde QUERY_SENSOR komutu beyinden gelir (plan §5, companionChatProvider).
+  if (
+    result.command &&
+    result.command.type === 'query_sensor' &&
+    result.command.confidence >= 0.7
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'sensor_local_bypass' });
+    pushHistory(result.command);
+    void _answerSensorQuery(result.command.extra?.sensorQuery ?? trimmed);
     return true;
   }
 

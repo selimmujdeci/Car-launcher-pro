@@ -14,7 +14,6 @@
  * etkisiz (geçici abonelik hariç) — her beyin sürümü kullanabilir.
  */
 
-import { getOBDDataSnapshot } from '../obdService';
 import type { OBDData } from '../obdTypes';
 import { watchPid, getPidValue, isPidSupported } from './extendedPidService';
 import { STANDARD_PID_MAP } from './StandardPidRegistry';
@@ -165,6 +164,13 @@ export async function querySensor(spoken: string): Promise<SensorAnswer | null> 
   if (!target) return null;
 
   if (target.kind === 'core') {
+    // Tembel import (V1 — vehicleIntents.ts): obdService devasa bir modül grafiği
+    // (AdaptiveRuntimeManager, SafetyBrain, import-anında onPerformanceModeChange
+    // aboneliği…) sürükler. resolveSensor() SENKRON ve obdService'e ihtiyaç duymaz;
+    // yalnız querySensor'un bu dalı duyar. Statik import commandParser'ı (resolveSensor
+    // üzerinden vehicleIntents'i çağırır — "pure, no side effects" modülü) obdService'e
+    // zincirler ve boştayken bile abonelik açardı (Mali-400/"boşta sıfır maliyet" ihlali).
+    const { getOBDDataSnapshot } = await import('../obdService');
     const data = getOBDDataSnapshot();
     const raw = data[target.field];
     const value = typeof raw === 'number' && raw >= 0 && Number.isFinite(raw) ? raw : null;

@@ -49,6 +49,7 @@ export interface SemanticResult {
   screenAction?: string;       // OPEN_SCREEN: 'open' | 'close'
   contactName?: string;        // OPEN_PHONE: aranacak kişinin adı ("Selim", "annem")
   memoryText?:  string;        // REMEMBER/FORGET: kalıcı kişisel fact metni
+  sensorQuery?: string;        // QUERY_SENSOR: sensör sorusu metni (beyin DEĞER üretmez, yalnız soruyu taşır)
   feedback:     string;        // ≤8 kelime Türkçe
   confidence:   number;        // 0–1
   source:       'edge_fn' | 'direct_ai' | 'offline';

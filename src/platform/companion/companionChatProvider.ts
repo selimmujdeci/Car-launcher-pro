@@ -957,6 +957,11 @@ const BRAIN_INTENTS = new Set<string>([
   // Uzun-dönem kişisel hafıza — kullanıcı AÇIKÇA "şunu unutma / aklında tut"
   // derse REMEMBER; "unut / hepsini unut" → FORGET (companionMemory store).
   'REMEMBER', 'FORGET',
+  // V1 (ASSISTANT_VEHICLE_INTEGRATION_PLAN.md): araç SENSÖR DEĞERİ sorgusu.
+  // Beyin DEĞER UYDURMAZ — yalnız QUERY_SENSOR + sensorQuery döner, gerçek
+  // değeri sensorQueryService.querySensor okur (yerel parser zaten kaçırdı,
+  // buraya yalnız TANIMADIĞI sensör adı düşer).
+  'QUERY_SENSOR',
 ]);
 
 export interface CompanionBrainAction {
@@ -1053,6 +1058,9 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'HAFIZA: kullanıcı AÇIKÇA bir şeyi hatırlamanı isterse ("şunu unutma", "aklında tut", "not al", "beni ... olarak bil", "arabam dizel", "ben hep 95 alırım") → REMEMBER + memoryText=hatırlanacak KISA fact (sade cümle, "unutma ki" gibi ekleri at). Yalnız KALICI kişisel bilgi/tercih için; geçici komutları (aç/kapat) hafızaya YAZMA.',
     'HAFIZA SİLME: "unut", "aklından çıkar", "bunu unut", "hepsini unut", "hafızanı temizle" → FORGET + memoryText=unutulacak konu (hepsi için "hepsi").',
     'Kullanıcı "beni tanıyor musun / ne biliyorsun / neyi hatırlıyorsun" derse → HAFIZA bağlamındaki fact\'lerden doğal biçimde type:"chat" ile cevapla (yoksa dürüstçe "henüz bir şey not etmedim" de).',
+    // ── ARAÇ SENSÖR DEĞERİ SORGUSU (QUERY_SENSOR) ──
+    'ÇOK ÖNEMLİ — SENSÖR DEĞERİ UYDURMA: kullanıcı aracın GERÇEK ZAMANLI bir sensör/veri değerini sorarsa ("yağ sıcaklığı kaç", "turbo basıncı ne kadar", "akü voltajı nedir", "şasi numarası ne", "motor devri kaç") ASLA kafadan bir sayı/değer UYDURMA — sen bu veriye erişemezsin. Bunun yerine → QUERY_SENSOR + sensorQuery=sorulan sensörün adı (soru ekleri olmadan, sade: "yağ sıcaklığı", "turbo basıncı", "akü voltajı", "şasi numarası"). Gerçek değeri araç okur, sen asla söylemezsin.',
+    'AYRIM: hız/yakıt/motor sıcaklığı/genel araç durumu gibi TEMEL sorular zaten yerel olarak cevaplanıyor (bu cümleler sana hiç ulaşmaz); buraya ulaşan sensör soruları senin BİLMEDİĞİN/tanımadığın özel sensörlerdir — yine de değer UYDURMA, QUERY_SENSOR döndür.',
     // ── SAHTE ONAY YASAĞI (SAHA 2026-07-03 — en kritik) ──
     'ÇOK ÖNEMLİ — SAHTE ONAY YASAK: bir ARAÇ EYLEMİ (aç/kapat/ayarla/göster) istendiğinde SADECE yukarıdaki intent listesinden GERÇEK bir karşılığı varsa type:"action" döndür. Karşılığı YOKSA sakın type:"chat" ile "tamam, açıyorum / açılıyor / hallettim" gibi YAPMIŞ GİBİ cevap verme — bu KULLANICIYI KANDIRMAKTIR. Onun yerine dürüstçe söyle: type:"chat" say="Bunu şu an yapamıyorum" (kişiliğine uygun). Var olmayan bir eylemi asla onaylama.',
     '',
@@ -1098,6 +1106,9 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"ben hep 95 benzin alırım" → {"type":"action","intent":"REMEMBER","memoryText":"Hep 95 benzin alır","feedback":"Not ettim","confidence":0.9}',
     '"benzin tercihimi unut" → {"type":"action","intent":"FORGET","memoryText":"benzin","feedback":"Unuttum","confidence":0.9}',
     '"hakkımda ne biliyorsun" → {"type":"chat","say":"..."} (hafızandaki fact\'lerden doğal biçimde anlat)',
+    // QUERY_SENSOR — sensör DEĞERİNİ ASLA uydurma, yalnız soruyu taşı.
+    '"yağ sıcaklığı kaç" → {"type":"action","intent":"QUERY_SENSOR","sensorQuery":"yağ sıcaklığı","feedback":"Bakıyorum","confidence":0.9}',
+    '"şasi numarası nedir" → {"type":"action","intent":"QUERY_SENSOR","sensorQuery":"şasi numarası","feedback":"Bakıyorum","confidence":0.85}',
     // OPEN_SCREEN — uygulamanın iç ekranları/panelleri.
     '"trafiği aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"trafik","screenAction":"open","feedback":"Trafik paneli açılıyor","confidence":0.92}',
     '"klimayı aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"klima","screenAction":"open","feedback":"Klima açılıyor","confidence":0.9}',
@@ -1141,6 +1152,7 @@ interface BrainJson {
   screenAction?: string;
   contactName?: string;
   memoryText?:  string;
+  sensorQuery?: string;
   feedback?:    string;
   confidence?:  number;
   say?:         string;
@@ -1179,6 +1191,8 @@ function parseBrainJson(raw: string): BrainRaw | null {
           contactName: typeof obj.contactName === 'string' ? obj.contactName : undefined,
           // REMEMBER/FORGET — kalıcı kişisel fact metni (companionMemory).
           memoryText:  typeof obj.memoryText === 'string' ? obj.memoryText : undefined,
+          // QUERY_SENSOR — sorulan sensörün adı (DEĞER YOK — şemada bilinçli eksik).
+          sensorQuery: typeof obj.sensorQuery === 'string' ? obj.sensorQuery : undefined,
           feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
           confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
           source:      'direct_ai',

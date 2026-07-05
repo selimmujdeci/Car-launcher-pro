@@ -3,7 +3,67 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #15): Navigasyon denetimi + P0/P1 fix'leri
+## ⭐ SON İŞ (2026-07-05 #16): Asistan ↔ Araç Entegrasyonu V1 — QUERY_SENSOR uçtan uca
+
+`docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V1 maddesi tamamlandı: "yağ sıcaklığı
+kaç", "turbo basıncı ne kadar" gibi commandParser'da karşılığı OLMAYAN sensör
+sorularının artık `sensorQueryService.querySensor`'dan GERÇEK veriyle cevaplandığı
+uçtan uca hat (yerel yol + beyin yolu). tsc temiz + suite **2061 yeşil** (132 dosya,
++22 yeni test) + `npm run build` OK.
+
+**Yeni dosya:** `src/platform/vehicleIntents.ts` — "X kaç/ne kadar/nedir/söyle"
+kalıbını yakalayan, adayı `resolveSensor` ile DOĞRULAYAN saf parser (alan-modülü
+ayrıştırmasının V1 tohumu, ROADMAP kararı). Aç/kapat fiili içeren cümlelerde
+tetiklenmez (negatif koruma).
+
+**Değişen dosyalar:**
+- `commandParser.ts` — yeni `query_sensor` tipi; `vehicleIntents` **YALNIZ best.score
+  TAM EŞLEŞME (1.0) DEĞİLKEN** denenir (scored pattern'lerden SONRA, ama return'den
+  önce). **Önemli tasarım notu:** ilk denemede "yalnız hiçbir kalıp eşleşmezse dene"
+  (best.score < THRESHOLD) yeterli SANILDI ama YANLIŞ çıktı — vehicle_speed'in genel
+  `'kac'` token'ı (Tier-2, 0.82) HER "... kaç" sorusunu yakalıyordu ("yağ sıcaklığı
+  kaç" → yanlışlıkla vehicle_speed/hız kazanıyordu, testle YAKALANDI). Fix: eşik
+  `best.score < EXACT_SCORE (1.0)` yapıldı — mevcut 5 informational pattern'in EXACT
+  keyword eşleşmeleri (hız/yakıt/motor sıcaklığı/bakım/durum, hepsi confidence 1.0)
+  BİREBİR korunur, ama Tier-2/3'ün BELİRSİZ tahminleri artık sensör sorgusuna öncelik
+  verir (bu zaten "belirsiz" tahminlerdi — doğru sensöre yönlendirmek regresyon değil
+  İYİLEŞTİRME).
+- `voiceService.ts` — yeni bypass "1b2" (hava durumu bypass'ı 1b ile AYNI desen):
+  `query_sensor` + confidence≥0.7 → beyne HİÇ gitmeden `_answerSensorQuery()` çağrılır:
+  "Bakıyorum..." kısa onay → `await querySensor()` (EXTENDED/manufacturer 12s'e kadar
+  sürebilir, bu yüzden durum 'processing'de tutulur, overlay kapanmaz) → gerçek cevap.
+  VIN gibi >20 karakter string değer TTS'te OKUNMAZ → toast ile ekrana yönlendirilir.
+- `intentEngine.ts` / `semanticAiService.ts` / `companionChatProvider.ts` /
+  `commandExecutor.ts` — **beyin yolu**: yerel parser kaçırırsa (bilmediği/nadir bir
+  sensör adı) Gemini `QUERY_SENSOR` + `sensorQuery` döner (şemada DEĞER alanı YOK —
+  beyin sahte sayı uyduramaz, yapısal garanti); `fromSemanticResult`→AppIntent→
+  `commandExecutor.dispatchIntent` case'i AYNI `querySensor` akışını çalıştırır.
+- **`obd/sensorQueryService.ts` — kritik yan-etki fix'i:** `getOBDDataSnapshot`
+  importu STATİK'ten `querySensor`'un 'core' dalı içinde TEMBEL (`await import`)
+  hale getirildi. Sebep: `resolveSensor`'u (senkron, obdService'e ihtiyaç duymaz)
+  `vehicleIntents.ts` üzerinden `commandParser.ts`'e bağlayınca, commandParser
+  (dokümante "pure, no side effects" modülü — voice UI'da HER karakterde/komutta
+  yükleniyor) obdService'in DEVASA modül grafiğini (AdaptiveRuntimeManager,
+  SafetyBrain, import-anında `onPerformanceModeChange` aboneliği…) transitif olarak
+  sürüklüyordu — iki test dosyası (`asrRepair.test.ts`, `voiceNbest.test.ts`, gerçek
+  commandParser kullanıp performanceMode'u kısmi mock'luyorlardı) bu yüzden ÇÖKTÜ,
+  ayrıca "boşta sıfır maliyet" ilkesini ihlal ediyordu. Fix build'de doğrulandı:
+  `sensorQueryService` artık kendi ayrı chunk'ında (27kB), obdService'e sadece
+  gerçekten sensör OKUNDUĞUNDA bağlanıyor.
+- **Testler:** `src/__tests__/assistantQuerySensor.test.ts` (parser + yapısal kilitler)
+  + `assistantQuerySensorBypass.test.ts` (voiceService bypass, mock'lu). **Bilinçli
+  karar:** `regression.guards.test.ts`'e DOKUNULMADI (o dosya bu oturumda paralel bir
+  WIP'in — Freeze/worker — parçası olarak zaten değişik durumda; kilitler kendi
+  dosyalarında tutuldu, commit çakışma riski önlendi).
+
+**Devralan bilsin:** CİHAZDA/CANLI SESLE DOĞRULANMADI (12s EXTENDED bekleme UX'i
+özellikle sahada dinlenmeli — "bakıyorum" + sessizlik "ölü" hissi verebilir).
+V2 (araç bağlamı beyne — DTC sayısı/bakım uyarısı satırları + "bağlamdan sensör
+değeri söyleme" kuralı) ve V3 (mevcut vehicle_speed/fuel/temp/maintenance/status
+yerel kurallarının vehicleIntents.ts'e taşınması, davranış DEĞİŞMEDEN) planda
+sırada; kapsamı `docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md`'de.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #15): Navigasyon denetimi + P0/P1 fix'leri
 
 Kapsamlı nav denetimi (10 alan, bulgular: hafıza `project_nav-audit-2026-07-05.md`)
 + iki commit (`84a05df` + `6cd52d1`), suite 2037 yeşil (7 yeni kilit dahil) + tsc + build OK:
