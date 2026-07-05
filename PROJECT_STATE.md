@@ -10,6 +10,28 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ OBD CORE V2 — Patch 13: 29-BİT UDS ADRESLEME (ATCP/ATSP7) + ZOE PH2 EVC/LBC (2026-07-05)
+
+`2d31393` — ajan limitte kesildi, ana oturum devralıp tamamladı (detay HANDOFF #19):
+
+- **Native:** `ElmProtocol.withEcuHeader` tx uzunluğuna göre dallanır — 3 hane →
+  11-bit (Patch 12A BİREBİR korunur), 8 hane → `withEcuHeader29Bit`: ATDPN ile
+  protokol öğren → zaten 7/9 değilse ATSP7 → ATCP öncelik baytı (tx ilk 2 hane) →
+  ATSH (son 6 hane) + ATCRA (8 hane) → action → HER durumda restore (protokol +
+  CAN önceliği + header; yalnız gerçekten değiştirilen alanlar; Patch 12A restore
+  yasası genişledi). Klon "?" (ATSP7/ATCP) → action çağrılmadan null =
+  "desteklenmiyor" (supported:false, kalıcı işaret). ATDPN ayrıştırması
+  `ElmResponseParser.parseActiveProtocolDigit`'te paylaşıldı.
+- **TS:** Zoe Ph2 profiline EVC (18DADAF1/18DAF1DA) + LBC (18DADBF1/18DAF1DB)
+  9 DID (odometre/12V/dış sıcaklık/devir/SOC/SOH/batarya V-°C/enerji, OVMS3
+  rz2_pids_EVC+LBC.cpp MIT birebir); `rawFor` 3-bayt ABC (CAN_UINT24);
+  doğrulayıcı ECU adresi TAM 3|8 hane. BLE tarafı paylaşılan `withEcuHeader`
+  sayesinde otomatik aynalandı.
+- **Testler:** 8 yeni Java testi + 9 formül kilidi; eski "yalnız 11-bit" kilidi
+  Patch 13 davranışına GÜNCELLENDİ (silinmedi). Konsolide doğrulama: tsc temiz +
+  tam suite **2108 yeşil** (134 dosya, V3 `69a7c90` dahil) + Java OBD testleri OK.
+- **CİHAZDA DOĞRULANMADI** — gerçek Zoe Ph2/WiFi ELM327 saha testi açık iş.
+
 ## ⭐ ASİSTAN ↔ ARAÇ ENTEGRASYONU V2 — ARAÇ BAĞLAMI BEYNE (2026-07-05)
 
 `docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V2 tamamlandı. V0 keşfi zaten

@@ -3,24 +3,49 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⚠️ UÇUŞTA (2026-07-05, limit riski — devralan İLK BUNU OKUSUN)
+## ⭐ SON İŞ (2026-07-05 #19): UÇUŞTA kapandı — Patch 13 (29-bit UDS) devralındı + V3 commit'li
 
-İki ajan bu yazı yazılırken HÂLÂ ÇALIŞIYORDU; limit koparsa yarım iş bırakmış
-olabilirler. Devralma prosedürü (dün 12C'de işe yaradı): `git status` → yarım
-dosyaları incele → `npx tsc --noEmit` + hedefli testler → tutarlıysa SADECE
-ilgili dosyaları ayıklayıp commit'le (İKİ WIP'e karıştırma: Freeze/worker grubu
-+ navigasyon oturumu dosyaları).
-1. **Patch 13 ajanı (OBD):** native 29-bit UDS (ELM327 ATCP/ATSP7; restore
-   yasası protokole genişler, klon '?' → dürüst desteklenmiyor) + Zoe Ph2
-   profiline EVC/LBC DID'leri (OVMS3'ten, dosya bazında MIT teyidi ŞART;
-   rz2_pids_EVC.cpp + rz2_pids_LBC.cpp) + doğrulayıcıda ECU adresi 3|8 hane.
-2. **V3 ajanı (asistan):** commandParser'daki araç-alanı kalıplarını
-   (vehicle_status/arıza/bakım) `vehicleIntents.ts`'e taşıma — davranış SIFIR
-   değişiklik, mevcut testler aynen geçmeli.
-İkisine de HANDOFF/PROJECT_STATE'e DOKUNMAMA talimatı verildi — bitince devir
-notunu ana oturum/devralan yazar. Konsolide doğrulama (tam suite + Java) YAPILMADI.
+Önceki "UÇUŞTA" bölümündeki iki ajanın akıbeti (ikisi de KAPANDI):
 
-## ⭐ SON İŞ (2026-07-05 #18): Zoe Ph2 profili (OVMS3/MIT) + yasal kaynak haritası
+1. **V3 ajanı (asistan):** limit kopmadan KENDİ commit'ini atmış — `69a7c90`
+   (commandParser araç-alanı kalıpları `vehicleIntents.ts`'e taşındı, davranış
+   sıfır değişiklik). Ayrı iş kalmadı; tam suite doğrulaması aşağıdaki
+   konsolide koşuda yapıldı.
+2. **Patch 13 ajanı (OBD):** oturum limitinde ÖLDÜ, iş çalışma ağacında yarım
+   kaldı → ana oturum devraldı, tamamlayıp `2d31393` olarak commit'ledi:
+   - `ElmProtocol.withEcuHeader` dispatcher: 3 hane → 11-bit (Patch 12A
+     BİREBİR), 8 hane → `withEcuHeader29Bit` (ATDPN protokol öğren → gerekirse
+     ATSP7 → ATCP öncelik baytı → ATSH/ATCRA → restore HER durumda; yalnız
+     gerçekten değiştirilen alanlar restore edilir, hatalar addSuppressed).
+   - Klon dürüstlüğü: ATSP7/ATCP'ye "?" → action HİÇ çağrılmaz, null =
+     "desteklenmiyor" (supported:false kanalı, 7F-31/33 ile aynı kalıcı işaret).
+   - ATDPN ayrıştırması `ElmResponseParser.parseActiveProtocolDigit`'te
+     paylaşıldı (ElmInitSequencer + 29-bit yolu, kopyalama yok).
+   - Zoe Ph2 profiline EVC (18DADAF1/18DAF1DA) + LBC (18DADBF1/18DAF1DB) 9 DID:
+     odometre/12V/dış sıcaklık/devir/SOC/SOH/batarya V-°C/enerji — OVMS3
+     rz2_pids_EVC.cpp + rz2_pids_LBC.cpp (MIT dosya bazında teyitli) birebir;
+     `rawFor`'a 3-bayt ABC (CAN_UINT24) eklendi; doğrulayıcı ECU adresi
+     TAM 3|8 hane (4-7 belirsiz, reddedilir).
+   - **Ajanın bıraktığı 2 kusur ana oturumda düzeltildi:** (a) `ElmProtocol`'e
+     `android.util.Log` sokmuştu → JVM testleri "not mocked" ile patladı;
+     log satırı KALDIRILDI (sınıf saf JVM kalır — FakeChannel testleri
+     Android'siz koşar; bilgi kaybolmaz, supported:false + TS diag'ı taşıyor);
+     (b) ATSH hard-fail testinin beklentisi `setEcuHeader`'ın gerçek davranışını
+     (ATSH+ATCRA önce İKİSİ gönderilir sonra doğrulanır — Patch 12A) yansıtmıyordu
+     → beklenti düzeltildi.
+   - Eski "yalnız 11-bit ECU" kilidi SİLİNMEDİ, Patch 13 davranışına GÜNCELLENDİ
+     + 9 yeni formül-sadakat kilidi (`obdProfiles.renaultZoePh2.test.ts`).
+
+**Konsolide doğrulama (bu oturumda BİZZAT, V3+Patch 13 birlikte):** tsc temiz +
+tam vitest suite **2108 yeşil** (134 dosya) + Java OBD testleri
+(`testDebugUnitTest --tests com.cockpitos.pro.obd.*`) yeşil.
+**CİHAZDA DOĞRULANMADI** — gerçek Zoe Ph2 + WiFi ELM327'de ATSP7/ATCP davranışı
+ve EVC/LBC yanıtları sahada test edilmeli (ucuz klonda "?" → dürüst
+"desteklenmiyor" BEKLENEN davranıştır, hata değil). Çalışma ağacındaki diğer
+WIP'ler (Freeze/worker grubu + voice-wav + vite.config + navigasyon dosyaları)
+yine BİLİNÇLİ commit dışı bırakıldı — karıştırma.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #18): Zoe Ph2 profili (OVMS3/MIT) + yasal kaynak haritası
 
 Ana oturum işi, commit'li + doğrulanmış (hedefli 32/32 + o anki tam suite 2070):
 - `69873fb` — `profiles/renaultZoePh2Profile.ts`: BCM (745/765) VIN + 4 lastik
