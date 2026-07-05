@@ -1472,6 +1472,7 @@ const OSS_LICENSES: { name: string; license: string }[] = [
   { name: 'Tailwind CSS',                license: 'MIT' },
   { name: 'Lucide Icons',                license: 'ISC' },
   { name: 'usb-serial-for-android',      license: 'MIT' },
+  { name: 'OVMS3 — Renault Zoe DID tanımları', license: 'MIT' },
 ];
 
 function AboutTabContent() {
