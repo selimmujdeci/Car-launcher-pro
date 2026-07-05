@@ -198,6 +198,25 @@ public final class OBDManager {
      */
     private static final int TCP_SO_TIMEOUT_MS = 15_000;
 
+    // ── Auto-reconnect (kendini iyileştiren transport) ─────────────────────────
+    // Broken pipe / "stream kapandı" olduğunda poll döngüsü ölü sokete SONSUZA
+    // kadar yazmak yerine SON başarılı bağlantıyı (BT MAC ya da ip:port) sınırlı
+    // backoff'la yeniden kurar. Java Socket.isConnected() kopan sokette true kaldığı
+    // için (close() çağrılana dek) transport canlılığına güvenilemez — bu yüzden
+    // ardışık send hatası sayacı (commFailStreak) kopmayı tespit eder.
+    // disconnect() bu defteri temizler → bilinçli kapanış sonrası reconnect DENENMEZ.
+    private volatile String lastTransport = null;   // "bt" | "tcp" | null
+    private volatile String lastAddress   = null;   // BT MAC ya da "ip:port"
+    private volatile String lastPin       = null;   // BT PIN (yalnız ilk bağlantı; reconnect pairing yapmaz)
+    /** Ardışık iletişim (send) hatası sayısı — send() thread'i yazar, pollLoop okur. */
+    private volatile int    commFailStreak = 0;
+    /** Kaç ardışık send hatasından sonra yeniden bağlanma tetiklenir. */
+    private static final int RECONNECT_AFTER_FAILS  = 2;
+    /** Bir kopma başına en fazla yeniden bağlanma denemesi. */
+    private static final int MAX_RECONNECT_ATTEMPTS = 3;
+    /** Denemeler arası backoff (adaptörün AP'yi/soketi toparlaması için). */
+    private static final int RECONNECT_BACKOFF_MS   = 1500;
+
     // Transport-agnostik ELM327 protokol katmanı (init + PID parse).
     // RFCOMM stream'leri üzerinde RfcommChannel ile çalışır; davranış birebir korunur.
     private volatile ElmProtocol     elm        = null;
@@ -261,6 +280,12 @@ public final class OBDManager {
         obdPidSet   = pidSet;
 
         disconnect();
+
+        // Auto-reconnect defteri: disconnect() az önce temizledi — reconnect'in aynı
+        // cihaza dönebilmesi için SON başarılı bağlantı parametrelerini burada kaydet.
+        lastTransport = "bt";
+        lastAddress   = address;
+        lastPin       = pin;
 
         obdExecutor.submit(() -> {
             try {
@@ -390,6 +415,11 @@ public final class OBDManager {
 
         disconnect();
 
+        // Auto-reconnect defteri (WiFi/TCP yolu) — bkz. connect().
+        lastTransport = "tcp";
+        lastAddress   = ipPort;
+        lastPin       = null;
+
         obdExecutor.submit(() -> {
             Thread.currentThread().setName("obd-tcp-connect");
             try {
@@ -480,6 +510,18 @@ public final class OBDManager {
     private void pollLoop() {
         while (obdRunning && isTransportAlive()) {
             try {
+                // Kendini iyileştirme: PID okumaları hataları fail-soft yutar (ERROR→-1),
+                // bu yüzden kopma catch'e DÜŞMEZ — ardışık send hatası eşiği aşılırsa
+                // burada, tur başında yakala ve transport'u yeniden kur.
+                if (commFailStreak >= RECONNECT_AFTER_FAILS && lastTransport != null) {
+                    if (attemptReconnect()) {
+                        continue; // taze bağlantı — turu baştan başlat
+                    }
+                    disconnect();
+                    listener.onStatusChanged("disconnected", "OBD bağlantısı koptu (yeniden bağlanılamadı)");
+                    break;
+                }
+
                 // P2/P3: yalnızca JS'ten gelen PID listesindekiler sorgulanır.
                 // Listede olmayan PID gönderilmez → gereksiz NO-DATA timeout'u oluşmaz
                 // (ör. 012F yakıt desteklenmeyen araçta cycle başına 1500ms kazandırır).
@@ -530,6 +572,11 @@ public final class OBDManager {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Bir okuma gerçekten fırlattıysa (fail-soft yakalamadıysa) yine de
+                // önce yeniden bağlanmayı dene — ancak sonra "disconnected" ver.
+                if (lastTransport != null && attemptReconnect()) {
+                    continue;
+                }
                 disconnect();
                 listener.onStatusChanged("disconnected", e.getMessage());
                 break;
@@ -626,6 +673,141 @@ public final class OBDManager {
         // Patch 5: bu bağlantıya ait BEKLEYEN (henüz çalışmamış) kuyruk görevleri artık
         // anlamsız (elm=null → NPE ile başarısız olurlardı) — proaktif temizle.
         cmdQueue.clearPending();
+        // Auto-reconnect defteri temizlenir → BİLİNÇLİ kapanış sonrası yeniden bağlanma
+        // DENENMEZ. connect()/connectTcp() disconnect()'ten SONRA last* set eder, bu
+        // yüzden sıralama doğru (temizle → yeni bağlantı defterini yaz).
+        lastTransport  = null;
+        lastAddress    = null;
+        lastPin        = null;
+        commFailStreak = 0;
+    }
+
+    /**
+     * Kopan transport'u (Broken pipe / stream kapandı) SON başarılı bağlantı
+     * parametreleriyle yeniden kurar — pollLoop thread'inden SENKRON çağrılır.
+     * Poll döngüsünü ÖLDÜRMEDEN kendini iyileştirir: ölü soketi kapatır, backoff
+     * bekler, aynı transport'la (TCP/BT) yeniden bağlanıp ELM327'yi yeniden init eder.
+     * Başarısızsa false → çağıran mevcut "disconnected" davranışına döner.
+     *
+     * NOT: obdRunning, last-defteri ve cmdQueue'ya DOKUNMAZ (disconnect() değil) —
+     * yalnız ölü stream'leri kapatıp yeni soketi kurar; kuyruk ve poll durumu korunur.
+     */
+    private boolean attemptReconnect() {
+        final String transport = lastTransport;
+        final String address   = lastAddress;
+        if (transport == null || address == null) return false;
+
+        listener.onStatusChanged("reconnecting", null);
+
+        for (int attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS && obdRunning; attempt++) {
+            closeStreamsOnly(); // ölü soket/stream'leri bırak (obdRunning'e dokunmadan)
+            try {
+                Thread.sleep(RECONNECT_BACKOFF_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            try {
+                if ("tcp".equals(transport)) reopenTcp(address);
+                else                          reopenBt(address);
+
+                // Transport yeniden kuruldu — protokol katmanını ve ELM init'i tazele.
+                elm = new ElmProtocol(new RfcommChannel());
+                initELM327();
+
+                commFailStreak = 0;
+                listener.onStatusChanged("connected", detectedProtocol);
+                return true;
+            } catch (Exception e) {
+                closeStreamsOnly(); // bu deneme battı — sıradaki tur temiz başlasın
+                // son denemede döngü biter → false döner
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Auto-reconnect yardımcısı: yalnız ölü stream/soketleri kapatır. disconnect()'ten
+     * FARKI: obdRunning, last* defteri, cmdQueue ve poll sayaçlarına DOKUNMAZ — poll
+     * döngüsü ve kuyruk durumu korunur, sadece transport tazelenir.
+     */
+    private void closeStreamsOnly() {
+        try { if (obdInput  != null) obdInput.close();  } catch (IOException ignored) {}
+        try { if (obdOutput != null) obdOutput.close(); } catch (IOException ignored) {}
+        try { if (obdSocket != null) obdSocket.close(); } catch (IOException ignored) {}
+        try { if (tcpSocket != null) tcpSocket.close(); } catch (IOException ignored) {}
+        obdInput = null; obdOutput = null; obdSocket = null; tcpSocket = null;
+    }
+
+    /**
+     * Auto-reconnect: WiFi (TCP) soketini yeniden açar — connectTcp()'nin soket kurulum
+     * bloğuyla davranışça AYNI (pendingTcpSocket iptal sözleşmesi dahil). Başarıda
+     * tcpSocket/obdInput/obdOutput doldurulur.
+     */
+    private void reopenTcp(String ipPort) throws IOException {
+        String[] hostPort = splitIpPort(ipPort);
+        if (hostPort == null) throw new IOException("Geçersiz WiFi adaptör adresi: " + ipPort);
+        Socket socket = new Socket();
+        pendingTcpSocket = socket;
+        try {
+            socket.connect(new InetSocketAddress(hostPort[0], Integer.parseInt(hostPort[1])),
+                TCP_CONNECT_TIMEOUT_MS);
+        } catch (Exception e) {
+            try { socket.close(); } catch (Exception ignored) {}
+            pendingTcpSocket = null;
+            throw (e instanceof IOException) ? (IOException) e : new IOException(e.getMessage());
+        }
+        socket.setSoTimeout(TCP_SO_TIMEOUT_MS);
+        tcpSocket = socket;
+        pendingTcpSocket = null;
+        obdInput  = socket.getInputStream();
+        obdOutput = socket.getOutputStream();
+    }
+
+    /**
+     * Auto-reconnect: RFCOMM soketini yeniden açar (3 katman: secure → insecure →
+     * reflection). connect()'in soket kurulum yolunu davranışça yansıtır AMA
+     * PAIRING YAPMAZ — reconnect anında cihaz zaten bonded'dır; yalnız soket tazelenir.
+     */
+    private void reopenBt(String address) throws Exception {
+        BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
+        if (bt == null) throw new IOException("Bluetooth desteklenmiyor");
+        BluetoothDevice device = bt.getRemoteDevice(address);
+        try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
+
+        BluetoothSocket socket = null;
+        Exception firstErr = null;
+        try {
+            socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+            pendingSocket = socket;
+            socket.connect();
+        } catch (Exception secureEx) {
+            firstErr = secureEx;
+            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+            socket = null; pendingSocket = null;
+            try {
+                socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+                pendingSocket = socket;
+                socket.connect();
+            } catch (Exception insecureEx) {
+                try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                socket = null; pendingSocket = null;
+                try { bt.cancelDiscovery(); } catch (Exception ignored) {}
+                try {
+                    socket = createReflectionRfcommSocket(device);
+                    pendingSocket = socket;
+                    socket.connect();
+                } catch (Exception reflectEx) {
+                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                    pendingSocket = null;
+                    throw firstErr; // ilk (en açıklayıcı) hatayı yükselt
+                }
+            }
+        }
+        obdSocket = socket;
+        pendingSocket = null;
+        obdInput  = socket.getInputStream();
+        obdOutput = socket.getOutputStream();
     }
 
     /** Tam kapanış — bağlantı + executor (Plugin.handleOnDestroy'dan çağrılır). */
@@ -818,10 +1000,14 @@ public final class OBDManager {
                 }
                 String resp = sb.toString().trim();
                 emitTraffic(cmd, resp, started);
+                commFailStreak = 0; // başarılı I/O → kopma serisini sıfırla
                 return resp;
             } catch (IOException e) {
                 // Teşhis: hatayı da yakala — "araç yanıt vermiyor mu, kanal mı öldü" ekrandan görülür.
                 emitTraffic(cmd, "⚠ " + e.getMessage(), started);
+                // Auto-reconnect tetiği: Broken pipe / stream kapandı gibi yazma/okuma
+                // hataları burada sayılır; pollLoop eşiği görünce transport'u yeniden kurar.
+                commFailStreak++;
                 throw e;
             }
         }
