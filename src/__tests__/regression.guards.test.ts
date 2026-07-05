@@ -29,6 +29,7 @@ import deviceCapabilitiesSrc from '../platform/deviceCapabilities.ts?raw';
 import pushServiceSrc from '../platform/pushService.ts?raw';
 import fcmServiceSrc from '../platform/fcmService.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
+import mainLayoutSrc from '../components/layout/MainLayout.tsx?raw';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -593,6 +594,27 @@ describe('Head unit yatay rotasyon kilidi (native sistem rotasyon)', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   Donanım geri tuşu köprüsü — event adı/hedefi EŞLEŞMELİ
+   Regresyon: MainActivity.onBackPressed → triggerWindowJSEvent(
+   "carlauncherBackButton") window'da yolluyordu; MainLayout ise
+   document'ta 'backbutton' (Cordova API'si — Capacitor'da HİÇ gelmez)
+   dinliyordu → geri tuşu ölüydü (drawer/modal kapanmıyor, çıkış yok).
+   Kilit: iki taraf aynı adı (carlauncherBackButton) + doğru hedefi
+   (window) kullanmalı; 'backbutton'/document'a geri dönülmemeli.
+   ─────────────────────────────────────────────────────────────── */
+describe('Donanım geri tuşu köprüsü (event adı eşleşmesi)', () => {
+  it('YAPISAL: MainActivity yolladığı back-event adını MainLayout window\'da dinler', () => {
+    const activitySrc = read('android/app/src/main/java/com/cockpitos/pro/MainActivity.java');
+    // Native taraf 'carlauncherBackButton' yollar
+    expect(activitySrc).toMatch(/triggerWindowJSEvent\(\s*"carlauncherBackButton"/);
+    // JS taraf AYNI adı window'da dinler
+    expect(mainLayoutSrc).toMatch(/window\.addEventListener\(\s*['"]carlauncherBackButton['"]/);
+    // Eski kopuk köprüye (Cordova 'backbutton' + document) geri dönülmemeli
+    expect(mainLayoutSrc).not.toMatch(/document\.addEventListener\(\s*['"]backbutton['"]/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    7. ZAYIF GPU TESPİTİ — PowerVR/Imagination kapsanır
    Regresyon (cihazda doğrulandı 2026-06-14): K24 head unit GPU'su
    "PowerVR Rogue GE8300" (Allwinner ceres). detectWeakGpu regex'i yalnız
@@ -996,18 +1018,18 @@ describe('Eski WebView compute-worker kilidi (VehicleCompute/VisionCompute Chrom
   // ?./??/??= sözdizimi kalır, parse hatası. Fix: Vehicle/Vision classic IIFE +
   // vite.config transpileWorkerToES2015 (oxc es2015); Navigation modül-worker kapılı.
 
-  it('YAPISAL: VehicleCompute worker classic (type:module DEĞİL) + try/catch fail-soft', () => {
-    expect(vehicleResolverSrc, "VehicleCompute yeniden `type:'module'` yapılmış — Chrome<80 WebView'da worker yüklenmez, CAN katmanı ölür")
-      .not.toMatch(/type:\s*['"]module['"]/);
+  // NOT: prod-classic (Chrome 52+ IIFE) garantisi vite.config `worker.format:'iife'`
+  // + build-çıktısı compat kapısıdır (verify-webview-compat.mjs, ES2015/script parse).
+  // Kaynakta {type:'module'} kalır → Vite DEV worker'ı modül servis eder (import çalışır);
+  // format:'iife' build'de classic'e zorlar. (Ternary Vite'ı kırıyor: options statik olmalı.)
+  it('YAPISAL: VehicleCompute worker referansı + try/catch fail-soft', () => {
     expect(vehicleResolverSrc, 'VehicleCompute.worker referansı kaybolmuş')
       .toMatch(/VehicleCompute\.worker/);
     expect(vehicleResolverSrc, 'Worker yaratımı try/catch ile sarılmamış — çok eski WebView constructor throw ederse boot çöker')
       .toMatch(/try\s*{[\s\S]*new Worker\([\s\S]*catch/);
   });
 
-  it('YAPISAL: VisionCompute worker classic (type:module DEĞİL)', () => {
-    expect(visionCoreSrc, "VisionCompute yeniden `type:'module'` yapılmış — Chrome<80'de yüklenmez")
-      .not.toMatch(/type:\s*['"]module['"]/);
+  it('YAPISAL: VisionCompute worker referansı', () => {
     expect(visionCoreSrc).toMatch(/VisionCompute\.worker/);
   });
 

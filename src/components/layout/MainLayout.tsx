@@ -190,8 +190,11 @@ export default function MainLayout() {
         );
       }
     };
-    document.addEventListener('backbutton', handler);
-    return () => document.removeEventListener('backbutton', handler);
+    // MainActivity.onBackPressed → getBridge().triggerWindowJSEvent("carlauncherBackButton")
+    // → window'da 'carlauncherBackButton'. (Eskiden document'ta 'backbutton' dinleniyordu —
+    // Cordova API'si, Capacitor'da hiç gelmez → geri tuşu ölüydü.)
+    window.addEventListener('carlauncherBackButton', handler);
+    return () => window.removeEventListener('carlauncherBackButton', handler);
   }, [drawer, fullMapOpen, splitOpen, rearCamOpen, passengerOpen]);
 
   // ── Smart engine ──────────────────────────────────────────
