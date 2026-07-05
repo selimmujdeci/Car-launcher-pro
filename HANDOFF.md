@@ -3,7 +3,44 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #19): UÇUŞTA kapandı — Patch 13 (29-bit UDS) devralındı + V3 commit'li
+## ⭐ SON İŞ (2026-07-05 #20): "Online asistan offline'a düşüyor" KÖK NEDEN + anahtar cihaz-yedeği
+
+Telefon (Xiaomi zircon) USB'de, CDP-over-adb canlı teşhis oturumu (`8d9c492` + `8e02596`):
+
+**Kök neden zinciri (KANITLI — tahmin değil):** kullanıcı uygulamayı silip kurunca
+anahtarı KAYBOLDU (secureStore boş — CDP ile cihazdan doğrulandı) → uygulama
+`.env`'e gömülü VITE_GEMINI_API_KEY'e sessizce düştü (SettingsPage "● .env'den
+otomatik" gösterip "anahtar girili" yanılgısı yarattı) → o gömülü anahtar GEÇERSİZ
+(PC'den test: HTTP 400 API_KEY_INVALID) → her beyin çağrısı 400 → sağlayıcı zinciri
+tükendi (Groq/Haiku girili değil) → her soru SESSİZCE offline motora. Eski recovery
+katmanı (cockpitos_recovery + Google Auto Backup) hiç çalışmamıştı: `bmgr restore`
+→ "No available restore sets" (Xiaomi'de Google yedeği hiç oluşmamış); head unit'te
+Google zaten yok.
+
+**Yapılan (iki commit, suite 2122 yeşil + tsc + Java derleme + guard 97):**
+1. `8d9c492` — **cihaz-içi anahtar yedeği** (caros-coder ajanına delege edildi, ana
+   oturumda doğrulandı+tamamlandı): native deviceKeyBackupWrite/Read/Status +
+   requestAllFilesAccess (`/sdcard/CarOSPro/.cockpitos.keys`, AES-256-GCM, anahtar
+   SSAID'den — dürüst not: Keystore seviyesi DEĞİL, uninstall-kalıcılığı ödünleşimi);
+   sensitiveKeyStore 3. kurtarma basamağı (boot'ta 1 kez, tüm RECOVERY_KEYS geri
+   dolar); remove() artık recovery+blob'u da temizler (ana oturum eki); SettingsPage
+   yedek durum satırı + "İzin ver" (Android 11+ Tüm Dosyalara Erişim); 4 elle-giriş
+   alanına trim. 10 kilit (`sensitiveKeyStore.deviceBackup.test.ts`).
+2. `8e02596` — **dürüst "anahtar geçersiz" cevabı**: Gemini 400/403 gövdesi
+   API_KEY_INVALID ise `companion_key_invalid` rotası ("...anahtarını kontrol etmen
+   gerekiyor") — kota dürüstlüğüyle (companion_rate_limited) aynı ilke; 200'de işaret
+   temizlenir; kesici beslenmez. 4 kilit (companionChat.test.ts §6).
+
+**Devralan bilsin:** (a) CİHAZDA sil-kur senaryosu + Tüm Dosyalara Erişim izin akışı
+DOĞRULANMADI (APK kuruldu, kullanıcı geçerli anahtar girip test edecek); (b) `.env`
+içindeki VITE_GEMINI_API_KEY ÖLÜ — ya yenilenmeli ya silinmeli (BYOK kuralına da
+aykırı, teşhisi bulandırıyor; kullanıcının Google hesabı gerekli); (c) head unit
+"10 denemede 1 anlama" (Vosk STT) AYRI açık iş — n-best+asrRepair bu dalda ama head
+unit APK'sı eski, cihaz bağlanınca güncel APK + saha testi; (d) CDP izleme aracı:
+scratchpad `cdp-assistant-monitor.mjs` (konsol+AI ağ trafiği+onLine, 4xx gövdesi
+dahil) — gelecek saha teşhislerinde yeniden kullanılabilir desen.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #19): UÇUŞTA kapandı — Patch 13 (29-bit UDS) devralındı + V3 commit'li
 
 Önceki "UÇUŞTA" bölümündeki iki ajanın akıbeti (ikisi de KAPANDI):
 

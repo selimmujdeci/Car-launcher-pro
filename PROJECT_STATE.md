@@ -10,6 +10,22 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ ASİSTAN "OFFLINE'A DÜŞÜYOR" KÖK NEDENİ + ANAHTAR CİHAZ-YEDEĞİ (2026-07-05)
+
+`8d9c492` + `8e02596` — CDP-over-adb canlı saha teşhisi (Xiaomi telefon), detay HANDOFF #20:
+
+- **Kök neden (kanıtlı):** uninstall → anahtar kayboldu → `.env` gömülü anahtara
+  sessiz düşüş → o anahtar GEÇERSİZ (400 API_KEY_INVALID) → zincir tükendi →
+  sessiz offline. Google Auto Backup tabanlı eski recovery hiç çalışmamıştı
+  ("No available restore sets"); head unit'te Google yok.
+- **Fix 1:** Google'sız cihaz-içi anahtar yedeği — `/sdcard/CarOSPro/.cockpitos.keys`
+  (AES-GCM/SSAID), sensitiveKeyStore 3. kurtarma basamağı, remove() tüm katmanları
+  temizler, SettingsPage durum satırı + Tüm Dosyalara Erişim akışı, giriş trim.
+- **Fix 2:** dürüst `companion_key_invalid` cevabı (kota dürüstlüğü deseni).
+- Suite **2122 yeşil** (135 dosya), tsc temiz, Java derleme OK. **CİHAZDA sil-kur
+  senaryosu doğrulanmadı**; `.env` ölü anahtarı yenilenecek/silinecek (BYOK);
+  head unit STT "anlama kıtlığı" ayrı açık iş.
+
 ## ⭐ OBD CORE V2 — Patch 13: 29-BİT UDS ADRESLEME (ATCP/ATSP7) + ZOE PH2 EVC/LBC (2026-07-05)
 
 `2d31393` — ajan limitte kesildi, ana oturum devralıp tamamladı (detay HANDOFF #19):
