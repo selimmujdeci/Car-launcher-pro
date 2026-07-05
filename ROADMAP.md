@@ -84,8 +84,12 @@
   OTG seri ELM327 transportu yok (CH340/FTDI usb-serial; BT+WiFi'si sorunlu
   ünitelerde en sağlam yol olabilir — aday patch); (2) BLE GATT UUID çeşitliliği
   (üretici başına farklı servis; yaygın FFE0/FFF0 ailelerinin kapsamı saha
-  testine muhtaç). Yeni OBD özellikleri her üç (ileride dört) transportta da
-  çalışmak zorunda — BleObdManager'a API aynalama disiplini bunun için.
+  testine muhtaç); (3) 29-bit UDS adresleme yok — withEcuHeader yalnız 11-bit
+  ATSH/ATCRA, ELM327 ATCP (öncelik baytı) desteği eklenmeli; Renault Zoe Ph2
+  EVC/BMS DID'leri (SOC/odometre/RPM, OVMS3-MIT kaynağı hazır) buna kilitli
+  (bkz. profiles/renaultZoePh2Profile.ts kapsam notu). Yeni OBD özellikleri her
+  üç (ileride dört) transportta da çalışmak zorunda — BleObdManager'a API
+  aynalama disiplini bunun için.
 - **Filo Telemetrisi (VİZYON — B2B ürün, 2026-07-05):** OBD+GPS verisinin buluta
   akışı + web filo panosu. Filo değer önerisi: canlı konum/rota, yakıt takibi
   (hırsızlık tespiti), sürücü davranışı (ani fren/hızlanma/rölanti/aşırı hız),
