@@ -110,6 +110,26 @@ public class ElmProtocolTest {
         assertTrue(elm.readDTCs().isEmpty());
     }
 
+    /**
+     * REGRESYON KİLİDİ: Mode 03 pozitif yanıt SID'i (43) + sıfır sayaç, hizalama
+     * kayması sonucu bir DTC çiftine ("4300") düşerse SAHTE C0300 üretiyordu — araçta
+     * kod yokken (Car Scanner temiz) uygulama arıza gösteriyordu. Artık "<mode>00"
+     * kalıbı elenir; gerçek kodlar etkilenmez.
+     */
+    @Test
+    public void readDTCs_modOnekArtigi_sahteC0300Uretmez() throws Exception {
+        FakeChannel ch = new FakeChannel().on("03", "43 01 43 00");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertFalse(elm.readDTCs().contains("C0300"));
+    }
+
+    @Test
+    public void readPendingDTCs_modOnekArtigi_sahteC0700Uretmez() throws Exception {
+        FakeChannel ch = new FakeChannel().on("07", "47 01 47 00");
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertFalse(elm.readPendingDTCs().contains("C0700"));
+    }
+
     @Test(expected = IOException.class)
     public void readDTCs_error_istisnaFirlatir() throws Exception {
         FakeChannel ch = new FakeChannel().on("03", "STOPPED");

@@ -679,7 +679,12 @@ public final class ElmProtocol {
 
             for (int i = 0; i + 4 <= payload.length(); i += 4) {
                 String pair = payload.substring(i, i + 4);
-                if (pair.equals("0000")) continue; // K-line sıfır dolgusu
+                if (pair.equals("0000")) continue;        // K-line sıfır dolgusu
+                // "Kod yok" yanıtının artığını DTC sanma: pozitif yanıt SID'i + sıfır
+                // sayaç ("43 00"/"47 00"/"4A 00") hizalama kayması sonucu pair'e düşerse
+                // sahte C0300/C0700/C0A00 üretiyordu (araçta kod yok — Car Scanner temiz).
+                // Gerçek arıza kodları etkilenmez: yalnız tam "<mode>00" kalıbı elenir.
+                if (pair.equals(mode + "00")) continue;
                 codes.add(decodeDtcPair(pair));
             }
         }
