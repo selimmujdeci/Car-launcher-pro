@@ -229,9 +229,26 @@ export function OBDConnectModal({ open, onClose }: Props) {
     try {
       await CarLauncher.startOBDDiscovery();
     } catch (e) {
-      setError((e as Error).message ?? 'Tarama başlatılamadı');
-      setScanning(false);
-      stopDiscovery();
+      const msg = (e as Error).message ?? '';
+      // BT kapalıysa: taramaya basınca Bluetooth'u otomatik aç, kısa bekle, bir kez daha dene.
+      // (ELM327 klasik BT adaptörü BT kapalıyken hiç bağlanamaz — kullanıcı isteği.)
+      const btOff = /BT_DISABLED|Bluetooth kapal/i.test(msg);
+      if (btOff && CarLauncher.setBluetooth) {
+        try {
+          await CarLauncher.setBluetooth({ enabled: true });
+          // BT donanımının açılıp hazır olması için kısa bekleme (enable() asenkron).
+          await new Promise<void>((r) => setTimeout(r, 2500));
+          await CarLauncher.startOBDDiscovery();
+        } catch (e2) {
+          setError((e2 as Error).message ?? 'Bluetooth açılamadı — ayarlardan elle açın');
+          setScanning(false);
+          stopDiscovery();
+        }
+      } else {
+        setError(msg || 'Tarama başlatılamadı');
+        setScanning(false);
+        stopDiscovery();
+      }
     }
 
     // 30 saniye sonra taramayı otomatik durdur
