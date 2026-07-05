@@ -52,6 +52,7 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -108,6 +109,9 @@ import com.cockpitos.pro.media.MediaManager;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -132,10 +136,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 
+import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -4440,6 +4449,153 @@ public class CarLauncherPlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("value", "");
             call.resolve(result);
+        }
+    }
+
+    // ── Device Key Backup (Google'sız, uninstall'a dayanıklı dosya yedeği) ──
+    //
+    // Yukarıdaki Recovery Store (EncryptedSharedPreferences + Android Auto Backup)
+    // Google hesabı/Play Services olmayan cihazlarda (head unit'ler, ana hedef)
+    // ASLA geri gelmiyor — sahada doğrulandı ("No available restore sets").
+    // Bu katman paylaşımlı harici depolamaya yazar: uygulama SİLİNSE bile dosya
+    // kalır, reinstall sonrası bu dosyadan geri okunur. Google'a bağımlı DEĞİL.
+    //
+    // DÜRÜST NOT: Bu Android Keystore seviyesinde güvenli DEĞİLDİR — şifreleme
+    // anahtarı cihazın ANDROID_ID'sinden türetilir (gizli/hardware-backed değil);
+    // root erişimi veya dosya sistemine doğrudan erişimi olan biri çözebilir.
+    // Tehdit modeli: dosya gezgini ile rastgele bakan göz — hedefli saldırgan
+    // DEĞİL. Android Keystore burada kullanılamaz çünkü uninstall'da Keystore
+    // anahtarı da silinir; bu, cihaz-içi kalıcılık için bilinçli bir ödünleşim.
+
+    private static final String DEVICE_BACKUP_DIR_NAME  = "CarOSPro";
+    private static final String DEVICE_BACKUP_FILE_NAME = ".cockpitos.keys";
+    private static final String DEVICE_BACKUP_KEY_SALT  = "cockpitos-keybak-v1|";
+
+    private File getDeviceBackupFile() {
+        File dir = new File(Environment.getExternalStorageDirectory(), DEVICE_BACKUP_DIR_NAME);
+        return new File(dir, DEVICE_BACKUP_FILE_NAME);
+    }
+
+    /** SSAID'den sabit 256-bit AES anahtarı türetir — aynı paket+imza için reinstall'da SABİT kalır. */
+    private SecretKeySpec getDeviceBackupKey() throws Exception {
+        String ssaid = Settings.Secure.getString(getContext().getContentResolver(), Settings.Secure.ANDROID_ID);
+        if (ssaid == null || ssaid.isEmpty()) ssaid = "unknown-device";
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] keyBytes = digest.digest((DEVICE_BACKUP_KEY_SALT + ssaid).getBytes(StandardCharsets.UTF_8));
+        return new SecretKeySpec(keyBytes, "AES");
+    }
+
+    /**
+     * JS → Native: Tüm API anahtarlarını tek JSON blob olarak şifreleyip
+     * paylaşımlı harici depoya yazar. params: { blob: string }
+     */
+    @PluginMethod
+    public void deviceKeyBackupWrite(PluginCall call) {
+        String blob = call.getString("blob", "");
+        if (blob == null || blob.isEmpty()) { call.reject("blob gerekli"); return; }
+        try {
+            SecretKeySpec key = getDeviceBackupKey();
+            byte[] iv = new byte[12];
+            new SecureRandom().nextBytes(iv);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
+            byte[] cipherText = cipher.doFinal(blob.getBytes(StandardCharsets.UTF_8));
+
+            byte[] out = new byte[iv.length + cipherText.length];
+            System.arraycopy(iv, 0, out, 0, iv.length);
+            System.arraycopy(cipherText, 0, out, iv.length, cipherText.length);
+
+            File file = getDeviceBackupFile();
+            File dir  = file.getParentFile();
+            if (dir != null && !dir.exists()) dir.mkdirs();
+
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                fos.write(Base64.encode(out, Base64.NO_WRAP));
+            }
+            call.resolve();
+        } catch (Exception e) {
+            // Yazma başarısız olsa bile anahtar EncryptedSharedPreferences +
+            // Recovery Store'da kalmaya devam eder — bu yalnızca EK bir katman.
+            call.reject("deviceKeyBackupWrite hatası: " + e.getMessage());
+        }
+    }
+
+    /**
+     * JS → Native: Cihaz-içi yedek dosyasını okur ve çözer.
+     * Dosya yoksa/çözülemezse (farklı cihaz, bozuk dosya) blob alanı ATLANIR —
+     * JS tarafı bunu null olarak yorumlar. ASLA reject etmez (fail-soft).
+     */
+    @PluginMethod
+    public void deviceKeyBackupRead(PluginCall call) {
+        JSObject result = new JSObject();
+        try {
+            File file = getDeviceBackupFile();
+            if (!file.exists()) { call.resolve(result); return; }
+
+            byte[] encoded;
+            try (FileInputStream fis = new FileInputStream(file)) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = fis.read(buf)) != -1) baos.write(buf, 0, n);
+                encoded = baos.toByteArray();
+            }
+            byte[] raw = Base64.decode(encoded, Base64.NO_WRAP);
+            if (raw.length < 13) { call.resolve(result); return; }
+
+            byte[] iv         = Arrays.copyOfRange(raw, 0, 12);
+            byte[] cipherText = Arrays.copyOfRange(raw, 12, raw.length);
+
+            SecretKeySpec key = getDeviceBackupKey();
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
+            byte[] plain = cipher.doFinal(cipherText);
+
+            result.put("blob", new String(plain, StandardCharsets.UTF_8));
+            call.resolve(result);
+        } catch (Exception e) {
+            // Farklı cihaz (SSAID farklı → çözülemez) veya bozuk dosya — sessizce
+            // boş dön, ASLA reject etme.
+            call.resolve(result);
+        }
+    }
+
+    /**
+     * JS → Native: Cihaz-içi yedek dosyasının yazılabilir olup olmadığını bildirir.
+     * API 30+ (Android 11+): MANAGE_EXTERNAL_STORAGE (Tüm Dosyalara Erişim) gerekir.
+     */
+    @PluginMethod
+    public void deviceKeyBackupStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean writable;
+        boolean needsAllFiles = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            writable = Environment.isExternalStorageManager();
+            needsAllFiles = !writable;
+        } else {
+            writable = Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState());
+        }
+        result.put("writable", writable);
+        result.put("needsAllFiles", needsAllFiles);
+        call.resolve(result);
+    }
+
+    /**
+     * JS → Native: "Tüm Dosyalara Erişim" izin ekranını açar (Android 11+).
+     * Bu uygulama Play Store'da değil (B2B sideload) — policy riski yok.
+     */
+    @PluginMethod
+    public void requestAllFilesAccess(PluginCall call) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("requestAllFilesAccess hatası: " + e.getMessage());
         }
     }
 

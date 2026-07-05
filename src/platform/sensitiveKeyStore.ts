@@ -93,6 +93,80 @@ async function nativeRemove(key: string): Promise<void> {
   }).secureStoreRemove({ key });
 }
 
+// ── Device Key Backup (Google'sız, uninstall'a dayanıklı dosya yedeği) ──────
+//
+// Yukarıdaki Recovery Store (EncryptedSharedPreferences silinmeden önce
+// SharedPreferences'a yazılan + Android Auto Backup'a dayanan yedek) Google
+// hesabı / Google Play Services olmayan cihazlarda (head unit — ana hedef)
+// hiçbir zaman geri gelmiyor: sahada `bmgr restore` "No available restore
+// sets" verdi. Bu katman anahtarları tek JSON blob olarak native tarafta
+// paylaşımlı harici depolamaya (uninstall'da silinmeyen) yazar; Google'a
+// bağımlı değildir. Yalnızca RECOVERY_KEYS bu blob'a girer.
+
+interface DeviceBackupBlob {
+  v: 1;
+  keys: Partial<Record<SensitiveKey, string>>;
+}
+
+/** Bu boot'ta cihaz-içi geri yükleme zaten denendi mi (yalnızca 1 kez denenir). */
+let _deviceRestoreTried = false;
+
+/** Art arda set() çağrılarında yarış olmasın diye basit zincirleme kuyruk. */
+let _backupChain: Promise<void> = Promise.resolve();
+
+async function _deviceBackupSync(): Promise<void> {
+  if (!_isNative) return;
+  _backupChain = _backupChain.then(async () => {
+    try {
+      const keys: Partial<Record<SensitiveKey, string>> = {};
+      for (const k of RECOVERY_KEYS) {
+        const v = await nativeGet(k);
+        if (v) keys[k] = v;
+      }
+      const blob: DeviceBackupBlob = { v: 1, keys };
+      await (CarLauncher as unknown as {
+        deviceKeyBackupWrite: (opts: { blob: string }) => Promise<void>;
+      }).deviceKeyBackupWrite({ blob: JSON.stringify(blob) });
+    } catch {
+      // Yazma başarısız (izin yok, depolama uygun değil vb.) — anahtar yine
+      // EncryptedSharedPreferences + Recovery Store'da kalmaya devam eder;
+      // bu yalnızca EK bir yedek katmanıdır, davranış kötüleşmez.
+    }
+  });
+  await _backupChain.catch(() => {});
+}
+
+/**
+ * Cihaz-içi yedek dosyasından TÜM RECOVERY_KEYS'i geri doldurur.
+ * Bulunan anahtar/değer haritasını döndürür (çağıran istenen anahtarı
+ * doğrudan haritadan okuyabilir — ekstra native round-trip gerekmez).
+ * Hiçbir hata dışarı fırlatmaz (fail-soft); boot başına yalnızca 1 kez denenir.
+ */
+async function _deviceBackupRestore(): Promise<DeviceBackupBlob['keys'] | null> {
+  if (!_isNative || _deviceRestoreTried) return null;
+  _deviceRestoreTried = true;
+  try {
+    const res = await (CarLauncher as unknown as {
+      deviceKeyBackupRead: () => Promise<{ blob?: string | null }>;
+    }).deviceKeyBackupRead();
+    const raw = res?.blob;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DeviceBackupBlob;
+    if (!parsed?.keys) return null;
+    for (const k of RECOVERY_KEYS) {
+      const v = parsed.keys[k];
+      if (v) {
+        await nativeSet(k, v).catch(() => {});
+        await _recoverySet(k, v);
+      }
+    }
+    return parsed.keys;
+  } catch {
+    // Farklı cihaz (çözülemez) veya bozuk dosya — sessizce vazgeç.
+    return null;
+  }
+}
+
 // ── Web Crypto Fallback (browser/demo mod) ────────────────────────────────
 // Static secret YOK — her cihaza özgü rastgele anahtar türetilir.
 // Bu fallback yalnızca tarayıcı geliştirme ortamında kullanılır.
@@ -190,8 +264,16 @@ export const sensitiveKeyStore = {
       if (recovered) {
         // Bulundu → EncryptedSharedPreferences'a geri yaz (bir sonraki okumada hızlı)
         await nativeSet(key, recovered).catch(() => {});
+        return recovered;
       }
-      return recovered;
+      // Üçüncü basamak: Google Auto Backup hiç oluşmamış olabilir (head unit'te
+      // Google Play Services yok) — cihaz-içi dosya yedeğinden geri yükle.
+      if (RECOVERY_KEYS.includes(key)) {
+        const restoredKeys = await _deviceBackupRestore();
+        const fromDevice = restoredKeys?.[key];
+        if (fromDevice) return fromDevice;
+      }
+      return '';
     }
     return _webGet(key);
   },
@@ -202,6 +284,11 @@ export const sensitiveKeyStore = {
       await nativeSet(key, value);
       // Recovery store'a da yaz — reinstall/güncelleme sonrası kaybolmasın
       await _recoverySet(key, value);
+      // Cihaz-içi dosya yedeği — Google'a bağımlı olmayan üçüncü katman.
+      // Yalnızca RECOVERY_KEYS blob içeriğini etkiler; alakasız anahtar
+      // (nav_history, geofence_* vb.) set'i gereksiz disk yazımı tetiklemez.
+      // Fire-and-forget: anahtar kaydı nadir bir olay, kullanıcıyı bloklamaz.
+      if (RECOVERY_KEYS.includes(key)) void _deviceBackupSync();
       return;
     }
     await _webSet(key, value);
@@ -213,7 +300,16 @@ export const sensitiveKeyStore = {
   },
 
   async remove(key: SensitiveKey): Promise<void> {
-    if (_isNative) { await nativeRemove(key); return; }
+    if (_isNative) {
+      await nativeRemove(key);
+      // Bilinçli silme TÜM yedek katmanlarına yansımalı — yoksa anahtar bir
+      // sonraki get()'te recovery'den, reinstall'da da cihaz blob'undan geri
+      // dirilirdi. Recovery boş değerle ezilir; cihaz blob sync'i güncel
+      // değerleri nativeGet ile topladığından silinen anahtar otomatik düşer.
+      await _recoverySet(key, '');
+      if (RECOVERY_KEYS.includes(key)) void _deviceBackupSync();
+      return;
+    }
     const store = _webLoadRaw();
     delete store[key];
     _webSaveRaw(store);

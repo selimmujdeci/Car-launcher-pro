@@ -555,6 +555,14 @@ export interface CarLauncherPlugin {
   saveRecoveryKey(options: { key: string; value: string }): Promise<void>;
   loadRecoveryKey(options: { key: string }): Promise<{ value: string }>;
 
+  // Device Key Backup — Google'sız, uninstall'a dayanıklı cihaz-içi dosya yedeği.
+  // Head unit'lerde (Google Play Services yok) Android Auto Backup hiç oluşmuyor;
+  // bu yol paylaşımlı harici depolamaya yazar (uygulama silinse bile kalır).
+  deviceKeyBackupWrite(options: { blob: string }): Promise<void>;
+  deviceKeyBackupRead(): Promise<{ blob?: string | null }>;
+  deviceKeyBackupStatus(): Promise<{ writable: boolean; needsAllFiles: boolean }>;
+  requestAllFilesAccess(): Promise<void>;
+
   // Native TTS — Android TextToSpeech API (WebView speechSynthesis'den daha güvenilir)
   // pitch (P1-1): setPitch() ile perde; varsayılan 1.0. Her çağrı perdeyi sıfırlar
   // (segmentli çağrıdan kalan perde sonraki tek çağrıya sızmasın).

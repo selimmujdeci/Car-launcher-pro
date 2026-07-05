@@ -50,6 +50,7 @@
         android:supportsRtl="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@style/AppTheme">
 
         <!-- ── Ana Activity ─────────────────────────────────────────────── -->
@@ -216,11 +217,11 @@
     <!-- Kişiler — Android rehber senkronizasyonu -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- Depolama — dashcam kayıtları -->
-    <!-- API 28 ve altı -->
+    <!-- Depolama — dashcam kayıtları + cihaz-içi API anahtarı yedeği -->
+    <!-- API 29 ve altı (requestLegacyExternalStorage ile API 29 dahil legacy davranış) -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+        android:maxSdkVersion="29" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -228,6 +229,12 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- API 30+ (Android 11+) — Tüm Dosyalara Erişim: cihaz-içi API anahtarı
+         yedeği uninstall'da silinmeyen paylaşımlı depoya yazılır. Uygulama
+         Play Store'da değil (B2B sideload) — policy riski yok. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <!-- Sistem ayarları — ekran parlaklığı (WRITE_SETTINGS) -->
     <!-- Uygulama normal WRITE_SETTINGS talep edebilir;
