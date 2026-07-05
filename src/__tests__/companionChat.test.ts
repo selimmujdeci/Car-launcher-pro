@@ -1192,3 +1192,74 @@ describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-0
     expect(isAiNetHealthy(), 'onarım timeout\'ları FAIL_THRESHOLD=2 kesicisini açtı — tüm asistan offline\'a kilitlenir').toBe(true);
   });
 });
+
+/* ── 6. SAHA 2026-07-05: 400 API_KEY_INVALID — dürüst anahtar cevabı ──
+ * Cihazdaki anahtar boş kalınca .env'e gömülü ESKİ anahtar devreye girdi;
+ * Google her isteğe 400 API_KEY_INVALID döndü ve asistan bunu sessizce yutup
+ * offline'a düşüyordu ("anahtarlar düzgün ama offline'a düşüyor" şikayeti).
+ * Kota (429) dürüstlüğüyle AYNI ilke: gerçek neden konuşulur. */
+
+describe('400 API_KEY_INVALID — dürüst anahtar cevabı (SAHA 2026-07-05)', () => {
+  const GEMINI_CHAIN = { hasNet: true, chain: [{ provider: 'gemini' as const, apiKey: 'AIzaOlu' }] };
+  const keyInvalid400 = {
+    ok: false, status: 400,
+    json: async () => ({ error: {
+      code: 400, message: 'API key not valid. Please pass a valid API key.',
+      status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }],
+    } }),
+  };
+
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    _resetAiHealthForTest();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setupCompanion(false);
+  });
+
+  it('Gemini 400 API_KEY_INVALID → sahte offline/reask değil DÜRÜST anahtar cevabı', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(keyInvalid400));
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_key_invalid');
+      expect(r.response.toLowerCase()).toContain('anahtar');
+    }
+  });
+
+  it('400 anahtar hatası devre kesiciyi AÇMAZ (HTTP yanıtı = ağ canlı)', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(keyInvalid400));
+
+    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    expect(isAiNetHealthy(), '400 anahtar hatası kesiciyi besledi — asistan 90sn tam offline kilitlenir').toBe(true);
+  });
+
+  it('smalltalk yine OFFLINE motora gider (anahtar cevabı doğal sohbeti bozmaz)', async () => {
+    setupCompanion(true);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(keyInvalid400));
+
+    const r = await tryCompanionBrain('nasılsın', GEMINI_CHAIN);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline');
+  });
+
+  it('anahtar düzelince (200) işaret temizlenir — normal cevap döner', async () => {
+    setupCompanion(true);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(keyInvalid400)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'chat', say: 'Anahtar tamam.' }) }] } }] }) });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r1 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    if (r1!.kind === 'chat') expect(r1.route).toBe('companion_key_invalid');
+    const r2 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    expect(r2!.kind).toBe('chat');
+    if (r2!.kind === 'chat') expect(r2.response).toBe('Anahtar tamam.');
+  });
+});

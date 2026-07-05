@@ -41,7 +41,7 @@ import type { SemanticResult } from '../ai/semanticAiService';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid';
 
 export interface CompanionChatResult {
   response: string;
@@ -189,6 +189,32 @@ async function _cooldownFrom429(resp: Response): Promise<number> {
  * yerine gerçek nedeni söyler; pencere kapanınca kendiliğinden normale döner. */
 const RATE_LIMIT_REPLY =
   'Yapay zeka kotam şu an dolu, bir dakikaya kalmaz toparlarım — birazdan tekrar sor.';
+
+/* Geçersiz anahtar dürüstlüğü (SAHA 2026-07-05, "online asistan offline'a
+ * düşüyor"): cihazdaki anahtar boş kalınca .env'e gömülü ESKİ anahtar devreye
+ * girdi ve Google her isteğe 400 API_KEY_INVALID döndü — asistan bunu sessizce
+ * yutup offline'a düşüyordu; kullanıcı "anahtarlar düzgün, internet var" diye
+ * saatlerce yanlış yerde arıyordu. Kota cevabıyla AYNI ilke: sahte aptallaşma
+ * yerine GERÇEK neden söylenir. 400/403 gövdesi API_KEY_INVALID taşıyorsa
+ * işaretlenir; o turda beyin cevabı çıkmazsa dürüst anahtar uyarısı konuşulur. */
+const KEY_INVALID_REPLY =
+  'Yapay zeka anahtarım geçersiz görünüyor. Ayarlar ekranından Gemini anahtarını kontrol etmen gerekiyor.';
+let _geminiKeyInvalidAtMs = 0;
+
+/** Gemini 400/403 gövdesini sınıflandırır — anahtar hatasıysa işaretler.
+ *  Gövde okunamazsa sınıflandırma YAPILMAZ (yanlış alarm > sessizlikten kötü). */
+async function _noteGeminiAuthFailure(resp: Response): Promise<void> {
+  if (resp.status !== 400 && resp.status !== 403) return;
+  try {
+    const data = await resp.json() as {
+      error?: { message?: string; details?: { reason?: string }[] };
+    };
+    const reason = data.error?.details?.find((d) => typeof d?.reason === 'string')?.reason;
+    if (reason === 'API_KEY_INVALID' || /api key not valid/i.test(data.error?.message ?? '')) {
+      _geminiKeyInvalidAtMs = _now();
+    }
+  } catch { /* gövde okunamadı — sınıflandırma yapılmaz */ }
+}
 // google_search GROUNDING kotası soğuması AYRI (SAHA 2026-07-04): grounding ücretsiz
 // katmanda çok küçük kotalı, sık 429 verir. Eskiden bu 429 _rateLimitedUntil'ı
 // kurup TÜM Gemini beynini 60sn öldürüyordu → "bir kere çalışıp sonra ölüyor".
@@ -208,6 +234,7 @@ export function _resetCompanionChatForTest(): void {
   _groqRateLimitedUntil = 0;
   _haikuRateLimitedUntil = 0;
   _groundingCooldownUntil = 0;
+  _geminiKeyInvalidAtMs = 0;
 }
 
 /* ── Yorumlanmış araç bağlamı (HAM VERİ DEĞİL) ──────────────── */
@@ -443,7 +470,8 @@ async function askCompanionGemini(
     _rateLimitedUntil = _now() + await _cooldownFrom429(resp);
     return null;
   }
-  if (!resp.ok) return null;
+  if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
+  _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
 
   const data = await resp.json() as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
@@ -1263,7 +1291,8 @@ async function askCompanionBrain(
   // 429: Google'ın söylediği kadar bekle (retryDelay) — sabit 60sn asistanı
   // gereksiz uzun "offline" bırakıyordu (SAHA 2026-07-04).
   if (resp.status === 429) { _rateLimitedUntil = _now() + await _cooldownFrom429(resp); return null; }
-  if (!resp.ok) return null;
+  if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
+  _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
 }
@@ -1528,6 +1557,14 @@ export async function tryCompanionBrain(
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
   const offline = offlineCompanionReply(trimmed, opts);
   if (offline !== null) return { kind: 'chat', response: offline, route: 'companion_offline' };
+
+  // Geçersiz anahtar dürüstlüğü (SAHA 2026-07-05): bu turda Gemini denendi ve
+  // 400 API_KEY_INVALID yediyse kullanıcı "internet gitti" değil GERÇEK nedeni
+  // duyar (kota cevabıyla aynı ilke). İşaret taze olmalı (bu turun hatası) —
+  // eski bir turdan kalma bayrak yeni turda konuşturmaz.
+  if (aiAttempted && _geminiKeyInvalidAtMs > 0 && _now() - _geminiKeyInvalidAtMs < 10_000) {
+    return { kind: 'chat', response: KEY_INVALID_REPLY, route: 'companion_key_invalid' };
+  }
 
   // Kota soğuması: sahte aptallaşma yerine DÜRÜST cevap (SAHA 2026-07-04, "ilk
   // istek online sonrakiler offline") — kullanıcı "internet gitti" değil gerçek
