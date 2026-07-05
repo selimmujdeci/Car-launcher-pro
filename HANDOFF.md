@@ -3,7 +3,38 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #17): Asistan ↔ Araç Entegrasyonu V2 — araç bağlamı beyne
+## ⚠️ UÇUŞTA (2026-07-05, limit riski — devralan İLK BUNU OKUSUN)
+
+İki ajan bu yazı yazılırken HÂLÂ ÇALIŞIYORDU; limit koparsa yarım iş bırakmış
+olabilirler. Devralma prosedürü (dün 12C'de işe yaradı): `git status` → yarım
+dosyaları incele → `npx tsc --noEmit` + hedefli testler → tutarlıysa SADECE
+ilgili dosyaları ayıklayıp commit'le (İKİ WIP'e karıştırma: Freeze/worker grubu
++ navigasyon oturumu dosyaları).
+1. **Patch 13 ajanı (OBD):** native 29-bit UDS (ELM327 ATCP/ATSP7; restore
+   yasası protokole genişler, klon '?' → dürüst desteklenmiyor) + Zoe Ph2
+   profiline EVC/LBC DID'leri (OVMS3'ten, dosya bazında MIT teyidi ŞART;
+   rz2_pids_EVC.cpp + rz2_pids_LBC.cpp) + doğrulayıcıda ECU adresi 3|8 hane.
+2. **V3 ajanı (asistan):** commandParser'daki araç-alanı kalıplarını
+   (vehicle_status/arıza/bakım) `vehicleIntents.ts`'e taşıma — davranış SIFIR
+   değişiklik, mevcut testler aynen geçmeli.
+İkisine de HANDOFF/PROJECT_STATE'e DOKUNMAMA talimatı verildi — bitince devir
+notunu ana oturum/devralan yazar. Konsolide doğrulama (tam suite + Java) YAPILMADI.
+
+## ⭐ SON İŞ (2026-07-05 #18): Zoe Ph2 profili (OVMS3/MIT) + yasal kaynak haritası
+
+Ana oturum işi, commit'li + doğrulanmış (hedefli 32/32 + o anki tam suite 2070):
+- `69873fb` — `profiles/renaultZoePh2Profile.ts`: BCM (745/765) VIN + 4 lastik
+  basıncı (raw16×0.75 kPa) + 4 lastik sıcaklığı (raw8−30) + HVAC (744/764) kabin
+  sıcaklığı ((raw16−400)/10). Formüller OVMS3 kaynağından BİREBİR, lisans DOSYA
+  BAZINDA MIT teyitli, atıf SettingsPage OSS_LICENSES'ta, 9 formül-sadakat kilidi
+  (`obdProfiles.renaultZoePh2.test.ts`). EVC/BMS (SOC/odometre/RPM) 29-bit
+  gerektirdiği için BİLİNÇLİ dışarıda → Patch 13'ün işi.
+- `88f6bd9` — `docs/OBD_DATA_SOURCES_LEGAL.md`: veri kaynağı karar tablosu
+  (OVMS3 MIT ✅ / opendbc MIT ama Renault yok / CanZE GPLv3 yalnız ipucu /
+  AB 2018/858 RMI yasal hak / Car Scanner-DDT ASLA) + eylem planı.
+- `3e96454` — ROADMAP boşluk (3): 29-bit UDS adresleme eksiği.
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #17): Asistan ↔ Araç Entegrasyonu V2 — araç bağlamı beyne
 
 `docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V2 tamamlandı. V0 keşfi (plan
 dosyasında commit'li) zaten `buildInterpretedVehicleContext()`'in yakıt/batarya/
