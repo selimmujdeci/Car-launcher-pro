@@ -10,6 +10,64 @@
 
 - **Aktif branch:** `feat/obd-core-v2` — **push EDİLMEDİ**. (Önceki: `feat/assistant-open-app`, hâlâ merge bekliyor.)
 
+## ⭐ ASİSTAN ↔ ARAÇ ENTEGRASYONU V2 — ARAÇ BAĞLAMI BEYNE (2026-07-05)
+
+`docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V2 tamamlandı. V0 keşfi zaten
+`companionChatProvider.buildInterpretedVehicleContext()`'in yakıt/batarya/motor
+sıcaklığı/yolculuk süresi/menzil-vs-rota yorumlarını TÜM beyin yollarının
+(Gemini chat/brain, Groq, Haiku, grounded) system prompt'una verdiğini bulmuştu
+— V2'nin kapsamı bu yüzden yalnız (a) DTC (arıza kodu) sayısını bağlama eklemek
+ve (b) ölü kod temizliğiydi.
+
+**`companionContext.ts` — iki yeni SAF yorumlayıcı** (servis import'u YOK,
+deterministik, imkânsız değer → null): `interpretDtcStatus(activeCount, pendingCount?)`
+— 0 arıza → null (token tasarrufu), aksi hâlde "Araçta N aktif arıza kaydı var."
+tarzı tek cümle; `interpretMaintenanceDue(items)` — bakım kalemlerinden (status
+warning/critical) EN ACİL olanı tek cümlede özetler, negatif daysLeft/kmsLeft
+"süresi geçmiş" sayılır (reddedilmez, NaN/Infinity reddedilir).
+
+**`companionChatProvider.buildInterpretedVehicleContext()`'e DTC bloğu eklendi:**
+`dtcService.onDTCState` senkron son-değer yakalama (onOBDData ile AYNI desen) →
+`interpretDtcStatus(codes.length)` → ham kod listesi DEĞİL, yorum cümlesi
+prompt'a girer. **Bakım satırı BİLİNÇLİ OLARAK EKLENMEDİ:**
+`vehicleMaintenanceService.getMaintenanceAssessment()` zincirinin ucu
+`sensitiveKeyStore` (async şifreli depolama) — senkron anlık-değer yolu yok;
+`buildInterpretedVehicleContext` HER beyin çağrısında senkron çalışır (await'siz),
+bunu async'e çevirmek beyin isteğini geciktirir (plan'ın "boşta sıfır maliyet" +
+"beyin çağrısını asla geciktirme" ilkeleriyle çelişir). `interpretMaintenanceDue`
+yine de yazıldı + unit-testli — ileride zaten async çalışan bir katman
+(companionEngine/proaktif motor gibi) besleyebilir.
+
+**Ölü kod temizliği:** `voiceContextBuilder.ts` SİLİNDİ — hiçbir üretim dosyası
+`buildEnrichedCtx`'i import etmiyordu (V0 bulgusu), yalnız 4 test dosyasında
+vestigial `vi.mock` vardı (`companionConversationLoop.test.ts`, `voiceCogPause.test.ts`,
+`voiceTuning.test.ts`, `assistantQuerySensorBypass.test.ts` — plandaki "3 dosya"
+tahmininden bir fazla çıktı, hepsi temizlendi). `voiceTypes.VehicleContext` tipi
+BAŞKA dosyalarda (voiceService/commandExecutor/semanticAiService/aiVoiceService)
+kullanıldığından DOKUNULMADI.
+
+**"Sensör değeri sorulursa bağlamdan cevap verme" kuralı:** V1'de zaten eklenip
+kilitlenmişti (`assistantQuerySensor.test.ts` — "system prompt sensör değeri
+uydurma kuralını içerir"); V2 bunu TEKRAR eklemedi, yalnız DTC/bakım bağlamının
+bu kuralla çelişmediğini doğruladı (DTC satırı yalnız SAYI taşır, kod/nedenini
+söylemez — kod detayı sorulursa QUERY_SENSOR/DTCPanel'in işi).
+
+**Testler:** `companionContext.test.ts`'e `interpretDtcStatus` (8 test: sınır
+redleri NaN/negatif, tekil/çoğul, aktif+bekleyen birleşik) + `interpretMaintenanceDue`
+(9 test: boş/ok/warning/critical/negatif-geçmiş/çoklu-kalem-aciliyet-sıralaması)
+eklendi. `companionChat.test.ts`'e DTC mock (`DTC.codes` hoisted) + 2 entegrasyon
+testi ("0 arıza → satır yok", "N arıza → yorum var, ham kod YOK") eklendi.
+
+**Doğrulama:** `npx tsc --noEmit` temiz + **suite 2088/2088 yeşil** (133 dosya,
++17 yeni test) + `npx eslint` (değişen dosyalar) 0 hata. Commit `<COMMIT_HASH>`.
+
+**Sırada:** V3 — mevcut vehicle_speed/fuel/temp/maintenance/status yerel
+kurallarının `vehicleIntents.ts`'e taşınması (davranış BİREBİR aynı kalacak
+şekilde, suite yeşil = tek kanıt). V4 — teşhis derinliği sesli (Patch 11
+API'lerinin tüketimi: readDiagnosticStatus, Mode 07, freeze frame özeti).
+**Bilinçli eksik:** CİHAZDA/CANLI SESLE DOĞRULANMADI (DTC satırının gerçek
+araçta prompt'a doğru girdiği yalnız unit test seviyesinde doğrulandı).
+
 ## ⭐ ASİSTAN ↔ ARAÇ ENTEGRASYONU V1 — QUERY_SENSOR UÇTAN UCA (2026-07-05)
 
 `docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V1 tamamlandı. Önceden commandParser'da
@@ -67,11 +125,12 @@ bağlanıyor.
 BİLİNÇLİ olarak `regression.guards.test.ts`'e DEĞİL kendi dosyalarına eklendi (o
 dosya paralel bir WIP'in — Freeze/worker — parçası olarak zaten farklı durumda).
 
-**Sırada (bilinçli eksik):** CİHAZDA/CANLI SESLE DOĞRULANMADI. V2 — araç bağlamının
-(DTC sayısı, bakım uyarısı) beyne yorum satırı olarak eklenmesi + "bağlamdan sensör
-değeri söyleme" kuralı. V3 — mevcut vehicle_speed/fuel/temp/maintenance/status yerel
-kurallarının `vehicleIntents.ts`'e taşınması (davranış BİREBİR aynı kalacak şekilde).
-V4 — teşhis derinliği sesli (Patch 11 API'lerinin tüketimi).
+**Sırada (bilinçli eksik):** CİHAZDA/CANLI SESLE DOĞRULANMADI. ~~V2 — araç bağlamının
+(DTC sayısı, bakım uyarısı) beyne yorum satırı olarak eklenmesi~~ **TAMAMLANDI**
+(yukarıda, "ASİSTAN ↔ ARAÇ ENTEGRASYONU V2" bölümü). V3 — mevcut vehicle_speed/
+fuel/temp/maintenance/status yerel kurallarının `vehicleIntents.ts`'e taşınması
+(davranış BİREBİR aynı kalacak şekilde). V4 — teşhis derinliği sesli (Patch 11
+API'lerinin tüketimi).
 
 ## ⭐ NAVİGASYON DENETİMİ + P0/P1 FIX'LERİ (2026-07-05)
 

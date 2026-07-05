@@ -26,9 +26,10 @@
 
 import { useStore } from '../../store/useStore';
 import { resolveCompanionIdentity, type CompanionIdentity } from './companionIdentity';
-import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration, interpretRangeVsRoute } from './companionContext';
+import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration, interpretRangeVsRoute, interpretDtcStatus } from './companionContext';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
+import { onDTCState } from '../dtcService';
 import { getTripSnapshot } from '../tripLogService';
 import { getNavigationState } from '../navigationService';
 import { buildMemoryPromptSection } from './companionMemory';
@@ -278,6 +279,28 @@ function buildInterpretedVehicleContext(): string {
       if (line) parts.push(line);
     }
   } catch { /* navigasyon servisi yok — rota köprüsü atlanır */ }
+  // (5) DTC (arıza kodu) durumu — onDTCState senkron son-değer yakalama
+  //     (onOBDData ile AYNI desen). Ham kod listesi DEĞİL, yalnız SAYI
+  //     yorumlanır (interpretDtcStatus). 0 arıza → satır üretilmez (token
+  //     tasarrufu, plan V2 "boşta sıfır maliyet" ilkesi).
+  try {
+    let dtcCount: number | undefined;
+    const unsubDtc = onDTCState((s) => { dtcCount = s.codes.length; });
+    unsubDtc();
+    if (dtcCount !== undefined) {
+      const dtc = interpretDtcStatus(dtcCount);
+      if (dtc) parts.push(dtc);
+    }
+  } catch { /* DTC servisi yok — arıza bağlamı atlanır */ }
+  // (6) Bakım uyarısı: BİLİNÇLİ OLARAK EKLENMEDİ (plan V2 kapsam kararı).
+  //     vehicleMaintenanceService.getMaintenanceAssessment() zincirinin ucu
+  //     sensitiveKeyStore (async şifreli depolama) — senkron anlık-değer yolu
+  //     YOK. Bu fonksiyon HER beyin çağrısında SENKRON çalışır (await'siz);
+  //     bakımı buraya bağlamak bağlam üretimini async'e çevirip beyin isteğini
+  //     geciktirir ("boşta sıfır maliyet" + "beyin çağrısını asla geciktirme"
+  //     ilkeleriyle çelişir). interpretMaintenanceDue yorumlayıcısı yine de
+  //     yazıldı + unit-testli (companionContext.ts) — gelecekte zaten async
+  //     çalışan bir katman (ör. companionEngine/proaktif motor) besleyebilir.
   // (3) Araç-tipi yetenek notu — olmayan özellik (EV'de RPM/yakıt) için Gemini'yi
   //     yapısal olarak susturur. EV'de canlı yorum boş olsa bile not eklenir.
   const note = vehicleCapabilityNote(vehicleType);

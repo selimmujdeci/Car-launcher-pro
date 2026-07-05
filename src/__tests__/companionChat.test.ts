@@ -55,6 +55,14 @@ vi.mock('../platform/tripLogService', () => ({
     history: [], totalDistanceKm: 0, totalTrips: 0,
   }),
 }));
+// V2 — DTC durumu (arıza kodu sayısı) kontrolü; varsayılan 0 kod (bağlama girmez).
+const DTC = vi.hoisted(() => ({ codes: [] as { code: string }[] }));
+vi.mock('../platform/dtcService', () => ({
+  onDTCState: (cb: (s: { codes: { code: string }[] }) => void) => {
+    cb({ codes: DTC.codes });
+    return () => {};
+  },
+}));
 // Yerel hava kısayolu (tryLocalWeatherAnswer) — beyin web+hava kesişimi testi
 // gerçek veri VARMIŞ gibi davranır; varsayılan "henüz alınamadı" (bypass devre dışı).
 const WEATHER = vi.hoisted(() => ({ narrative: 'Hava durumu henüz alınamadı.' as string }));
@@ -217,6 +225,31 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     expect(prompt).not.toContain('fuelLevel');
     expect(prompt).not.toContain('estimatedRangeKm');
     expect(prompt).not.toContain('fuel=');
+  });
+
+  it('V2 — 0 arıza kodu → DTC satırı promptta YOK (token tasarrufu)', async () => {
+    setupCompanion(true);
+    DTC.codes = [];
+    const fetchSpy = mockGeminiOk();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).not.toContain('arıza');
+  });
+
+  it('V2 — aktif arıza kodu VAR → yorumlanmış DTC satırı promptta, HAM KOD YOK', async () => {
+    setupCompanion(true);
+    DTC.codes = [{ code: 'P0300' }, { code: 'P0171' }];
+    const fetchSpy = mockGeminiOk();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    const prompt = lastRequestBody(fetchSpy).system_instruction.parts[0].text;
+    expect(prompt).toContain('2 aktif arıza kaydı');
+    expect(prompt).not.toContain('P0300');
+    expect(prompt).not.toContain('P0171');
+    DTC.codes = [];
   });
 
   it('key YOK → offline fallback, Gemini\'ye İSTEK ATILMAZ', async () => {

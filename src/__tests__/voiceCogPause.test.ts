@@ -41,7 +41,6 @@ vi.mock('../platform/ai/semanticAiService', () => ({
   enrichBackground: vi.fn(),
 }));
 vi.mock('../platform/intentEngine', () => ({ fromSemanticResult: () => null }));
-vi.mock('../platform/voiceContextBuilder', () => ({ buildEnrichedCtx: async (c?: unknown) => c ?? {} }));
 vi.mock('../platform/voiceInfoService', () => ({
   isInformationalCommand: () => false,
   answerInformational: vi.fn(),

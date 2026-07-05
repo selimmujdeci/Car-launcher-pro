@@ -29,6 +29,8 @@ import {
   interpretTirePressure,
   interpretVisibilityLights,
   interpretRangeVsRoute,
+  interpretDtcStatus,
+  interpretMaintenanceDue,
 } from '../platform/companion/companionContext';
 
 /* ── 1. interpretTimeOfDay ──────────────────────────────────── */
@@ -481,6 +483,110 @@ describe('interpretRangeVsRoute', () => {
     expect(interpretRangeVsRoute(180, 6000)).toBeNull();
     expect(interpretRangeVsRoute(NaN, 340)).toBeNull();
     expect(interpretRangeVsRoute(-1, 340)).toBeNull();
+  });
+});
+
+/* ── 10f. interpretDtcStatus — arıza kodu sayısı (V2) ───────── */
+
+describe('interpretDtcStatus', () => {
+  it('0 aktif + 0 bekleyen → null (sorun yok = bağlama girme)', () => {
+    expect(interpretDtcStatus(0)).toBeNull();
+    expect(interpretDtcStatus(0, 0)).toBeNull();
+  });
+
+  it('yalnız aktif kod var (tekil/çoğul ifade)', () => {
+    expect(interpretDtcStatus(1)).toContain('1 aktif arıza kaydı');
+    expect(interpretDtcStatus(3)).toContain('3 aktif arıza kaydı');
+  });
+
+  it('yalnız bekleyen kod var', () => {
+    expect(interpretDtcStatus(0, 1)).toContain('1 bekleyen arıza kodu');
+    expect(interpretDtcStatus(0, 2)).toContain('2 bekleyen arıza kodu');
+  });
+
+  it('aktif + bekleyen birlikte → tek cümlede ikisi de geçer', () => {
+    const r = interpretDtcStatus(2, 1);
+    expect(r).toContain('2 aktif');
+    expect(r).toContain('1 bekleyen');
+  });
+
+  it('activeCount geçersiz (negatif/NaN) → null (tüm sonuç reddedilir)', () => {
+    expect(interpretDtcStatus(-1)).toBeNull();
+    expect(interpretDtcStatus(NaN)).toBeNull();
+  });
+
+  it('pendingCount geçersiz (negatif/NaN) → yok sayılır, activeCount yine yorumlanır', () => {
+    expect(interpretDtcStatus(2, -1)).toContain('2 aktif arıza kaydı');
+    expect(interpretDtcStatus(2, NaN)).toContain('2 aktif arıza kaydı');
+    expect(interpretDtcStatus(2, -1)).not.toContain('bekleyen');
+  });
+
+  it('ISO 15008 — kısa cümle (<120 karakter)', () => {
+    expect(interpretDtcStatus(2, 1)!.length).toBeLessThan(120);
+  });
+});
+
+/* ── 10g. interpretMaintenanceDue — bakım uyarısı (V2) ──────── */
+
+describe('interpretMaintenanceDue', () => {
+  it('girdi yok / boş dizi → null', () => {
+    expect(interpretMaintenanceDue()).toBeNull();
+    expect(interpretMaintenanceDue(null)).toBeNull();
+    expect(interpretMaintenanceDue([])).toBeNull();
+  });
+
+  it('hepsi ok → null (yaklaşan bakım yok)', () => {
+    expect(interpretMaintenanceDue([
+      { label: 'Muayene', status: 'ok', daysLeft: 200 },
+      { label: 'Yağ Değişimi', status: 'ok', kmsLeft: 5000 },
+    ])).toBeNull();
+  });
+
+  it('tek warning kalemi → "yaklaşıyor" cümlesi', () => {
+    const r = interpretMaintenanceDue([{ label: 'Sigorta', status: 'warning', daysLeft: 20 }]);
+    expect(r).toContain('Sigorta');
+    expect(r).toContain('yaklaşıyor');
+  });
+
+  it('critical kalem → randevu öneren daha aciliyetli cümle', () => {
+    const r = interpretMaintenanceDue([{ label: 'Muayene', status: 'critical', daysLeft: 5 }]);
+    expect(r).toContain('Muayene');
+    expect(r).toContain('randevu');
+  });
+
+  it('süresi/kilometresi GEÇMİŞ (negatif) → "süresi geçmiş" cümlesi (negatif reddedilmez)', () => {
+    const r = interpretMaintenanceDue([{ label: 'Muayene', status: 'critical', daysLeft: -3 }]);
+    expect(r).toContain('süresi geçmiş');
+  });
+
+  it('birden fazla kalem → yalnız EN ACİL olan (critical > warning) tek cümlede', () => {
+    const r = interpretMaintenanceDue([
+      { label: 'Sigorta', status: 'warning', daysLeft: 25 },
+      { label: 'Muayene', status: 'critical', daysLeft: 3 },
+    ]);
+    expect(r).toContain('Muayene');
+    expect(r).not.toContain('Sigorta');
+  });
+
+  it('eşit aciliyette kalan süresi/mesafesi en az olan öne alınır', () => {
+    const r = interpretMaintenanceDue([
+      { label: 'Yağ Değişimi', status: 'warning', kmsLeft: 900 },
+      { label: 'Sigorta', status: 'warning', daysLeft: 10 },
+    ]);
+    expect(r).toContain('Sigorta');
+  });
+
+  it('bozuk/NaN süre alanı olan kalem diğerlerine göre en son sıralanır ama reddedilmez', () => {
+    const r = interpretMaintenanceDue([
+      { label: 'Bilinmeyen', status: 'warning', daysLeft: NaN },
+      { label: 'Sigorta', status: 'warning', daysLeft: 10 },
+    ]);
+    expect(r).toContain('Sigorta');
+  });
+
+  it('ISO 15008 — kısa cümle (<140 karakter)', () => {
+    const r = interpretMaintenanceDue([{ label: 'Muayene', status: 'critical', daysLeft: -3 }]);
+    expect(r!.length).toBeLessThan(140);
   });
 });
 

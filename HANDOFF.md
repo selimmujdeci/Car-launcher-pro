@@ -3,7 +3,56 @@
 > Yeni ajan/oturum buradan başlasın. Projeyi kaldığı yerden devralma rehberi.
 > Son güncelleme: 2026-07-05. Branch: `feat/obd-core-v2`.
 
-## ⭐ SON İŞ (2026-07-05 #16): Asistan ↔ Araç Entegrasyonu V1 — QUERY_SENSOR uçtan uca
+## ⭐ SON İŞ (2026-07-05 #17): Asistan ↔ Araç Entegrasyonu V2 — araç bağlamı beyne
+
+`docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V2 tamamlandı. V0 keşfi (plan
+dosyasında commit'li) zaten `buildInterpretedVehicleContext()`'in yakıt/batarya/
+motor sıcaklığı/yolculuk süresi/menzil-vs-rota yorumlarını TÜM beyin yollarına
+(Gemini chat/brain, Groq, Haiku, grounded) verdiğini bulmuştu — V2 kapsamı yalnız
+DTC sayısı ekleme + ölü kod temizliğiydi (bakım satırı BİLİNÇLİ atlandı, aşağıda).
+tsc temiz + suite **2088 yeşil** (133 dosya, +17 yeni test) + eslint 0 hata.
+
+**`src/platform/companion/companionContext.ts` — 2 yeni saf yorumlayıcı:**
+`interpretDtcStatus(activeCount, pendingCount?)` (0 arıza → null; aksi hâlde
+"Araçta N aktif arıza kaydı var." tek cümle) + `interpretMaintenanceDue(items)`
+(bakım kalemlerinden EN ACİL olanı — critical > warning, eşitlikte kalan
+süre/km'si en az olan — tek cümlede; negatif daysLeft/kmsLeft "süresi geçmiş"
+sayılır, NaN/Infinity reddedilir).
+
+**`companionChatProvider.buildInterpretedVehicleContext()`'e DTC bloğu:**
+`dtcService.onDTCState` senkron son-değer yakalama (mevcut `onOBDData` deseniyle
+AYNI) → yalnız SAYI (`codes.length`) `interpretDtcStatus`'a girer, ham kod listesi
+prompt'a HİÇ gitmez. **Bakım satırı EKLENMEDİ (bilinçli):**
+`vehicleMaintenanceService.getMaintenanceAssessment()`'in ucu `sensitiveKeyStore`
+(async şifreli depolama) — bu fonksiyon senkron çalışır (await yok, her beyin
+çağrısında); bakımı bağlamak async'e çevirip beyin isteğini geciktirirdi ("boşta
+sıfır maliyet" + "beyin çağrısını asla geciktirme" ilkeleri). `interpretMaintenanceDue`
+yine yazıldı + test edildi; V3/V4'te zaten async bir katman (companionEngine gibi)
+tüketebilir.
+
+**Ölü kod temizliği:** `src/platform/voiceContextBuilder.ts` SİLİNDİ (V0 bulgusu:
+hiçbir üretim dosyası `buildEnrichedCtx`'i import etmiyordu). 4 test dosyasındaki
+vestigial `vi.mock('../platform/voiceContextBuilder', ...)` satırı kaldırıldı
+(`companionConversationLoop.test.ts`, `voiceCogPause.test.ts`, `voiceTuning.test.ts`
++ plan tahmininde olmayan 4.'sü: `assistantQuerySensorBypass.test.ts`).
+`voiceTypes.VehicleContext` tipine DOKUNULMADI — başka dosyalarda (voiceService,
+commandExecutor, semanticAiService, aiVoiceService) hâlâ kullanılıyor.
+
+**"Bağlamdan sensör değeri söyleme" kuralı:** V1'de zaten eklenip kilitlenmişti
+(`assistantQuerySensor.test.ts`) — V2 tekrar eklemedi, yalnız DTC bağlamının bu
+kuralla çelişmediğini doğruladı (yalnız SAYI, kod/neden yok).
+
+**Testler:** `companionContext.test.ts` +17 test (`interpretDtcStatus` 8,
+`interpretMaintenanceDue` 9); `companionChat.test.ts`'e `DTC` hoisted mock +
+2 entegrasyon testi ("0 arıza → satır yok" / "N arıza → yorum var, ham kod yok").
+
+**Devralan bilsin:** CİHAZDA/CANLI SESLE DOĞRULANMADI (yalnız unit test
+seviyesinde). Dokunulmayan iki WIP (Freeze/worker + navigasyon oturumu
+dosyaları) bu commit'e karışmadı — yalnız kendi dosyaları `git add` edildi.
+Sırada V3 (vehicleIntents.ts'e mevcut yerel kuralların taşınması, davranış
+BİREBİR aynı) + V4 (teşhis derinliği sesli).
+
+## ⭐ ÖNCEKİ İŞ (2026-07-05 #16): Asistan ↔ Araç Entegrasyonu V1 — QUERY_SENSOR uçtan uca
 
 `docs/ASSISTANT_VEHICLE_INTEGRATION_PLAN.md` V1 maddesi tamamlandı: "yağ sıcaklığı
 kaç", "turbo basıncı ne kadar" gibi commandParser'da karşılığı OLMAYAN sensör

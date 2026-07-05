@@ -396,6 +396,85 @@ export function interpretTirePressure(tpms?: TpmsInput | null): string | null {
   return `${capTr(joinTr(low))} lastiklerin basıncı düşük — güvenlik için bir kontrol iyi olur.`;
 }
 
+/* ── Arıza kodu (DTC) durumu ─────────────────────────────────── */
+
+/**
+ * "Arızam var mı?" yorumu — dtcService.onDTCState senkron son-değer
+ * yakalamasından (V2, ASSISTANT_VEHICLE_INTEGRATION_PLAN.md) beslenir.
+ * Ham kod listesi (P0300 vb.) BEYNE GİTMEZ, yalnız SAYI yorumlanır —
+ * kodun kendisi/nedeni sorulursa dtcService/DTCPanel ekranına yönlendirilir
+ * (bu modülün işi değil).
+ *
+ * 0 aktif + 0 bekleyen → null: SORUN YOKSA bağlama hiç girme (token
+ * tasarrufu — plan §"boşta sıfır maliyet" ilkesiyle hizalı).
+ * pendingCount imkânsız/eksikse (negatif, NaN, verilmemiş) yok sayılır —
+ * yalnız activeCount geçersizse (negatif/NaN) TÜM sonuç null olur.
+ */
+export function interpretDtcStatus(activeCount: number, pendingCount?: number): string | null {
+  if (!isFiniteNonNegative(activeCount)) return null;
+  const active  = Math.round(activeCount);
+  const pending = isFiniteNonNegative(pendingCount) ? Math.round(pendingCount as number) : 0;
+  if (active === 0 && pending === 0) return null;
+
+  if (active > 0 && pending > 0) {
+    return `Araçta ${active} aktif arıza kaydı, ${pending} bekleyen kod daha var.`;
+  }
+  if (active > 0) {
+    return active === 1
+      ? 'Araçta 1 aktif arıza kaydı var.'
+      : `Araçta ${active} aktif arıza kaydı var.`;
+  }
+  return pending === 1
+    ? 'Araçta henüz kesinleşmemiş 1 bekleyen arıza kodu var.'
+    : `Araçta henüz kesinleşmemiş ${pending} bekleyen arıza kodu var.`;
+}
+
+/* ── Bakım hatırlatması ──────────────────────────────────────── */
+
+/**
+ * Bakım kalemi girdisi — vehicleMaintenanceService.MaintenanceAssessment ile
+ * yapısal uyumlu (servis import'u YOK, yalnız gerekli ham alanlar taşınır).
+ */
+export interface MaintenanceItemInput {
+  label: string;
+  status: 'ok' | 'warning' | 'critical';
+  daysLeft?: number;
+  kmsLeft?: number;
+}
+
+/**
+ * "Bakımım ne durumda?" yorumu — status !== 'ok' olan kalemlerden EN ACİL
+ * olanı tek cümleyle özetler (çoklu kalem varsa bile tek satır — token
+ * bütçesi). Aciliyet sırası: critical > warning; eşitlikte kalan gün/km'si
+ * en az olan öne alınır. Süre/km NEGATİF ise (tarihi/kilometresi geçmiş)
+ * bu GEÇERLİ bir sinyaldir — calculateDaysLeft zaten negatif döner, red
+ * EDİLMEZ (yalnız NaN/Infinity reddedilir).
+ * Hepsi 'ok' veya girdi yoksa → null (bağlama girmez).
+ */
+export function interpretMaintenanceDue(items?: MaintenanceItemInput[] | null): string | null {
+  if (!items || !Array.isArray(items) || items.length === 0) return null;
+  const due = items.filter((i) =>
+    i && (i.status === 'warning' || i.status === 'critical') && typeof i.label === 'string');
+  if (due.length === 0) return null;
+
+  const remain = (i: MaintenanceItemInput): number => {
+    const d = typeof i.daysLeft === 'number' && Number.isFinite(i.daysLeft) ? i.daysLeft : Infinity;
+    const k = typeof i.kmsLeft === 'number' && Number.isFinite(i.kmsLeft) ? i.kmsLeft : Infinity;
+    return Math.min(d, k);
+  };
+  const rank = (i: MaintenanceItemInput): number => (i.status === 'critical' ? 0 : 1);
+  const top = [...due].sort((a, b) => rank(a) - rank(b) || remain(a) - remain(b))[0];
+
+  const label = top.label.trim() || 'Bir bakım kalemi';
+  const overdue =
+    (typeof top.daysLeft === 'number' && Number.isFinite(top.daysLeft) && top.daysLeft < 0) ||
+    (typeof top.kmsLeft === 'number' && Number.isFinite(top.kmsLeft) && top.kmsLeft < 0);
+
+  if (overdue) return `${label} süresi geçmiş görünüyor — bir an önce ilgilenelim.`;
+  if (top.status === 'critical') return `${label} için süre daralıyor — yakında bir randevu iyi olur.`;
+  return `${label} yaklaşıyor, aklında olsun.`;
+}
+
 /* ── Bağlam köprüsü: kötü hava + farlar (görünürlük) ────────── */
 
 // Görünürlük düşüren WMO hava kodları: sis (45/48), çiseleme (51-55),

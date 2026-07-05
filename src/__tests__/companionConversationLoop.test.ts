@@ -93,7 +93,6 @@ vi.mock('../platform/intentEngine', () => ({
       ? null
       : { type: r.intent, payload: { searchQuery: r.query ?? '', confidence: r.confidence }, priority: 'normal' },
 }));
-vi.mock('../platform/voiceContextBuilder', () => ({ buildEnrichedCtx: async (c?: unknown) => c ?? {} }));
 vi.mock('../platform/voiceInfoService', () => ({
   isInformationalCommand: () => false,
   answerInformational: vi.fn(),
