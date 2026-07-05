@@ -837,7 +837,34 @@ public class CarLauncherPlugin extends Plugin {
             event.put("message", error);
             notifyListeners("obdStatus", event);
         }
+
+        @Override
+        public void onObdTraffic(String cmd, String resp, long ms) {
+            // Teşhis ham trafik → JS "obdTraffic" olayı (yalnız capture açıkken gelir).
+            // Ekrandan-okunur OBD el sıkışması + ham DTC yanıtı (adb'siz teşhis).
+            JSObject event = new JSObject();
+            event.put("cmd",  cmd);
+            event.put("resp", resp);
+            event.put("ms",   ms);
+            event.put("ts",   System.currentTimeMillis());
+            notifyListeners("obdTraffic", event);
+        }
     };
+
+    /**
+     * Teşhis: ELM327 ham komut/yanıt trafiği yakalamayı aç/kapat. JS teşhis paneli
+     * açılınca true, kapanınca false çağırır. Varsayılan KAPALI — normal sürüşte sıfır
+     * ek yük. adb/logcat erişimi olmayan head unit'lerde (T507 Dacia) OBD el sıkışması +
+     * ham DTC yanıtını ekranda görmenin tek yolu.
+     */
+    @PluginMethod
+    public void setObdTrafficCapture(PluginCall call) {
+        boolean enable = call.getBoolean("enable", false);
+        OBDManager.setTrafficCapture(enable);
+        JSObject ret = new JSObject();
+        ret.put("enabled", enable);
+        call.resolve(ret);
+    }
 
     // ── Aktif BT Tarama (uygulama içi OBD eşleştirme) ──────────────────────
 

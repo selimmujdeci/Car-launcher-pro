@@ -481,6 +481,13 @@ export interface CarLauncherPlugin {
   readDTC(): Promise<{ codes: string[] }>;
   clearDTC(): Promise<void>;
 
+  /**
+   * Teşhis: ELM327 ham komut/yanıt trafiği yakalamayı aç/kapat. Açıkken her AT/OBD
+   * komut çifti 'obdTraffic' olayı olarak akar (OBD el sıkışması + ham DTC yanıtı —
+   * adb'siz, ekrandan-okunur teşhis). Varsayılan KAPALI. Opsiyonel: eski plugin'de yok.
+   */
+  setObdTrafficCapture?(opts: { enable: boolean }): Promise<{ enabled: boolean }>;
+
   // Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC. Opsiyonel: eski plugin
   // sürümlerinde bulunmayabilir (dtcService fail-soft çağırır).
   readPendingDTC?(): Promise<{ codes: string[] }>;
@@ -668,6 +675,12 @@ export interface CarLauncherPlugin {
   addListener(
     event: 'obdExtendedData',
     handler: (data: { pid: string; data: string }) => void,
+  ): Promise<PluginListenerHandle>;
+  // Teşhis ham trafik: cmd=gönderilen komut, resp=ham yanıt ('⚠ ' öneki=hata),
+  // ms=süre, ts=epoch. Yalnız setObdTrafficCapture(true) sonrası akar.
+  addListener(
+    event: 'obdTraffic',
+    handler: (data: { cmd: string; resp: string; ms: number; ts: number }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     event: 'mediaChanged',

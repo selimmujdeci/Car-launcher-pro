@@ -1,15 +1,20 @@
-import { memo, useState, useCallback, lazy, Suspense } from 'react';
+import { memo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { Capacitor } from '@capacitor/core';
+import type { PluginListenerHandle } from '@capacitor/core';
 import { useDebugStore } from '../../platform/debug';
+import { CarLauncher } from '../../platform/nativePlugin';
 import { CanRawView }         from './CanRawView';
+import { ObdRawView }         from './ObdRawView';
 import { SignalView }         from './SignalView';
 import { ReverseLogView }     from './ReverseLogView';
 import { PerformanceView }    from './PerformanceView';
 import { BlackBoxReplayView } from './BlackBoxReplayView';
 const TestControlPanel = lazy(() => import('./TestControlPanel'));
-type Tab = 'can' | 'signals' | 'reverse' | 'perf' | 'replay' | 'tests';
+type Tab = 'can' | 'obd' | 'signals' | 'reverse' | 'perf' | 'replay' | 'tests';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'can',     label: 'CAN LOG'      },
+  { id: 'obd',     label: 'OBD TRAFİK'   },
   { id: 'signals', label: 'SIGNALS'      },
   { id: 'reverse', label: 'REVERSE'      },
   { id: 'perf',    label: 'PERF / HATA'  },
@@ -48,6 +53,29 @@ export const DebugPanel = memo(function DebugPanel({ onClose }: { onClose: () =>
     useDebugStore.getState().setCollecting(true);
     return () => useDebugStore.getState().setCollecting(false);
   });
+
+  // OBD ham trafik: panel açıkken native yakalamayı aç + olayı store'a köprüle,
+  // kapanınca kapat (normal sürüşte sıfır ek yük). adb'siz teşhis kanalı.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: PluginListenerHandle | null = null;
+    let cancelled = false;
+
+    CarLauncher.setObdTrafficCapture?.({ enable: true }).catch(() => {});
+    CarLauncher.addListener('obdTraffic', (e) => {
+      useDebugStore.getState().pushObdTraffic({
+        ts: e.ts || Date.now(), cmd: e.cmd, resp: e.resp, ms: e.ms,
+      });
+    })
+      .then((h) => { if (cancelled) h.remove(); else handle = h; })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      handle?.remove();
+      CarLauncher.setObdTrafficCapture?.({ enable: false }).catch(() => {});
+    };
+  }, []);
 
   return (
     <div
@@ -106,6 +134,7 @@ export const DebugPanel = memo(function DebugPanel({ onClose }: { onClose: () =>
       {/* Tab content */}
       <div className="flex-1 overflow-hidden p-3">
         {tab === 'can'     && <CanRawView />}
+        {tab === 'obd'     && <ObdRawView />}
         {tab === 'signals' && <SignalView />}
         {tab === 'reverse' && <ReverseLogView />}
         {tab === 'perf'    && <PerformanceView />}

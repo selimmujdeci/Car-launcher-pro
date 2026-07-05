@@ -18,6 +18,7 @@ export { useDebugStore } from './debugStore';
 export type {
   SignalSource,
   CanRawEntry,
+  ObdTrafficEntry,
   ReverseLogEntry,
   ErrorEntry,
   PerfStats,

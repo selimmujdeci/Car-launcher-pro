@@ -54,6 +54,18 @@ public final class OBDManager {
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
         void onError(String error);
+        /**
+         * Teşhis (ekrandan-okunur ham trafik): her ELM327 komut/yanıt çifti.
+         * YALNIZ {@link #setTrafficCapture(boolean)} açıkken çağrılır (varsayılan KAPALI —
+         * normal sürüşte sıfır ek yük). adb/logcat erişimi olmayan head unit'lerde
+         * (T507 Dacia) OBD el sıkışması + ham DTC yanıtını ekranda görmek için tek yol.
+         * default: geriye uyumlu — eski implementasyonlar kırılmaz.
+         *
+         * @param cmd  gönderilen komut (ör. "ATZ", "03")
+         * @param resp ham yanıt (ör. "ELM327 v1.5", "43 01 71") — hata ise "⚠ ..." öneki
+         * @param ms   komut→yanıt süresi (ms)
+         */
+        default void onObdTraffic(String cmd, String resp, long ms) {}
     }
 
     /** connect() için tek-seferlik (per-call) sonuç callback'i — PluginCall resolve/reject Plugin'de kalır. */
@@ -76,6 +88,16 @@ public final class OBDManager {
     // Bluetooth/Intent işlemleri için saklanan uygulama context'i (constructor'dan).
     private final Context mContext;
     private final OnOBDDataListener listener;
+
+    /**
+     * Teşhis ham-trafik yakalama bayrağı — varsayılan KAPALI. JS teşhis paneli açılınca
+     * {@link #setTrafficCapture(boolean)} ile açılır, kapanınca kapatılır. Static: tek
+     * doğruluk kaynağı, RfcommChannel (Classic + WiFi TCP aynı kanal) buradan okur.
+     */
+    private static volatile boolean sTrafficCapture = false;
+
+    /** Teşhis paneli köprüsü — ham trafik yakalamayı aç/kapat (bkz. {@link #sTrafficCapture}). */
+    public static void setTrafficCapture(boolean on) { sTrafficCapture = on; }
 
     private final ExecutorService obdExecutor = Executors.newSingleThreadExecutor();
 
@@ -708,34 +730,54 @@ public final class OBDManager {
     private final class RfcommChannel implements ElmCommandChannel {
         @Override
         public String send(String cmd, int timeoutMs) throws IOException {
+            // Teşhis: komut→yanıt süresini ölç (yalnız capture açıkken listener'a iletilir).
+            final long started = sTrafficCapture ? System.currentTimeMillis() : 0L;
             InputStream  in  = obdInput;
             OutputStream out = obdOutput;
             if (in == null || out == null) throw new IOException("OBD bağlantısı yok");
 
-            int stale = in.available();
-            if (stale > 0) in.skip(stale);
+            try {
+                int stale = in.available();
+                if (stale > 0) in.skip(stale);
 
-            out.write((cmd + "\r").getBytes("ASCII"));
-            out.flush();
+                out.write((cmd + "\r").getBytes("ASCII"));
+                out.flush();
 
-            StringBuilder sb   = new StringBuilder();
-            long          dead = System.currentTimeMillis() + timeoutMs;
+                StringBuilder sb   = new StringBuilder();
+                long          dead = System.currentTimeMillis() + timeoutMs;
 
-            while (System.currentTimeMillis() < dead) {
-                if (in.available() > 0) {
-                    int c = in.read();
-                    if (c < 0) throw new IOException("Stream kapandı");
-                    if (c == '>') break;
-                    if (c != '\r') sb.append((char) c);
-                } else {
-                    try { Thread.sleep(20); }
-                    catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("Kesintiye uğradı");
+                while (System.currentTimeMillis() < dead) {
+                    if (in.available() > 0) {
+                        int c = in.read();
+                        if (c < 0) throw new IOException("Stream kapandı");
+                        if (c == '>') break;
+                        if (c != '\r') sb.append((char) c);
+                    } else {
+                        try { Thread.sleep(20); }
+                        catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("Kesintiye uğradı");
+                        }
                     }
                 }
+                String resp = sb.toString().trim();
+                emitTraffic(cmd, resp, started);
+                return resp;
+            } catch (IOException e) {
+                // Teşhis: hatayı da yakala — "araç yanıt vermiyor mu, kanal mı öldü" ekrandan görülür.
+                emitTraffic(cmd, "⚠ " + e.getMessage(), started);
+                throw e;
             }
-            return sb.toString().trim();
+        }
+
+        /** Ham trafik çiftini teşhis listener'ına iletir — yalnız capture açıkken. */
+        private void emitTraffic(String cmd, String resp, long started) {
+            if (!sTrafficCapture || started == 0L) return;
+            try {
+                listener.onObdTraffic(cmd, resp, System.currentTimeMillis() - started);
+            } catch (Exception ignored) {
+                // Teşhis köprüsü asla OBD akışını bozmaz — listener hatası yutulur.
+            }
         }
 
         /** Stream sahipliği OBDManager.disconnect()'tedir; kanal kendi başına kapatmaz. */

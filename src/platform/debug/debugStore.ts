@@ -15,6 +15,17 @@ export interface CanRawEntry {
   payload: string;
 }
 
+/** ELM327 ham komut/yanıt çifti (teşhis — OBD el sıkışması + ham DTC yanıtı). */
+export interface ObdTrafficEntry {
+  ts: number;
+  /** Gönderilen komut (ör. "ATZ", "03"). */
+  cmd: string;
+  /** Ham yanıt (ör. "ELM327 v1.5", "43 01 71"); "⚠ " öneki = hata/timeout. */
+  resp: string;
+  /** Komut→yanıt süresi (ms). */
+  ms: number;
+}
+
 export interface SignalEntry {
   ts: number;
   signal: string;
@@ -84,6 +95,7 @@ export interface CanExtras {
 interface DebugStore {
   // Ring buffers
   canRawLog: CanRawEntry[];
+  obdTrafficLog: ObdTrafficEntry[];
   reverseLog: ReverseLogEntry[];
   errorLog: ErrorEntry[];
   // Live state (updated in-place, not logged per event)
@@ -96,6 +108,7 @@ interface DebugStore {
   collecting: boolean; // true when panel is open → canRawLog fills
 
   pushCanRaw: (e: CanRawEntry) => void;
+  pushObdTraffic: (e: ObdTrafficEntry) => void;
   pushReverseLog: (e: ReverseLogEntry) => void;
   pushError: (e: ErrorEntry) => void;
   updateLiveSignal: (signal: string, value: string, source: SignalSource) => void;
@@ -105,6 +118,7 @@ interface DebugStore {
   updateCacheStats: (stats: CacheStats) => void;
   setCollecting: (v: boolean) => void;
   clearCanRaw: () => void;
+  clearObdTraffic: () => void;
   clearReverseLog: () => void;
   clearErrorLog: () => void;
   exportSnapshot: () => object;
@@ -128,6 +142,7 @@ const DEFAULT_FALLBACK: FallbackStatus = {
 
 export const useDebugStore = create<DebugStore>((set, get) => ({
   canRawLog: [],
+  obdTrafficLog: [],
   reverseLog: [],
   errorLog: [],
   liveSignals: {},
@@ -141,6 +156,9 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
     if (!get().collecting) return;
     set((s) => ({ canRawLog: ringPush(s.canRawLog, e) }));
   },
+  pushObdTraffic: (e) =>
+    // Guard native tarafta (setObdTrafficCapture) — event yalnız capture açıkken gelir.
+    set((s) => ({ obdTrafficLog: ringPush(s.obdTrafficLog, e) })),
   pushReverseLog: (e) => set((s) => ({ reverseLog: ringPush(s.reverseLog, e) })),
   pushError: (e) => set((s) => ({ errorLog: ringPush(s.errorLog, e) })),
 
@@ -161,6 +179,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
   setCollecting: (v) => set({ collecting: v }),
 
   clearCanRaw: () => set({ canRawLog: [] }),
+  clearObdTraffic: () => set({ obdTrafficLog: [] }),
   clearReverseLog: () => set({ reverseLog: [] }),
   clearErrorLog: () => set({ errorLog: [] }),
 
@@ -169,6 +188,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
     return {
       exportedAt: new Date().toISOString(),
       canRawLog: s.canRawLog,
+      obdTrafficLog: s.obdTrafficLog,
       reverseLog: s.reverseLog,
       errorLog: s.errorLog,
       liveSignals: s.liveSignals,

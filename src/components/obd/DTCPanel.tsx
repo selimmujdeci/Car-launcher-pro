@@ -1,7 +1,9 @@
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
+import type { PluginListenerHandle } from '@capacitor/core';
 import {
   AlertTriangle, CheckCircle2, RefreshCw, Trash2, Info, ShieldAlert,
-  ChevronDown, ChevronUp, Clock, Lock, Camera, Gauge,
+  ChevronDown, ChevronUp, Clock, Lock, Camera, Gauge, Terminal,
 } from 'lucide-react';
 import {
   useDTCState,
@@ -9,6 +11,9 @@ import {
   type DTCCode, type DTCSeverity, type DTCCodeWithStatus, type FreezeFrameResult,
 } from '../../platform/dtcService';
 import { readDiagnosticStatus, type DiagnosticStatusResult } from '../../platform/obd/StandardPidEnums';
+import { CarLauncher } from '../../platform/nativePlugin';
+import { useDebugStore } from '../../platform/debug';
+import { ObdRawView } from '../debug/ObdRawView';
 import { SensorPanel } from './SensorPanel';
 
 /* ── Severity config ─────────────────────────────────────── */
@@ -133,6 +138,32 @@ const DTCCodeCard = memo(function DTCCodeCard({
 
 function DTCPanelInner({ active = false }: { active?: boolean }) {
   const dtc = useDTCState();
+
+  // ── Ham OBD trafik teşhisi (adb'siz) ────────────────────────────────────────
+  // Panel görünürken ELM327 komut/yanıt yakalamayı aç → "obdTraffic" olayını debug
+  // store'a köprüle. Head unit'te adb/logcat yoksa OBD el sıkışması + ham DTC yanıtını
+  // ekrandan okumanın tek yolu. Panel gizlenince/unmount'ta kapatılır (sıfır ek yük).
+  const [showRaw, setShowRaw] = useState(false);
+  useEffect(() => {
+    if (!active || !Capacitor.isNativePlatform()) return;
+    let handle: PluginListenerHandle | null = null;
+    let cancelled = false;
+
+    CarLauncher.setObdTrafficCapture?.({ enable: true }).catch(() => {});
+    CarLauncher.addListener('obdTraffic', (e) => {
+      useDebugStore.getState().pushObdTraffic({
+        ts: e.ts || Date.now(), cmd: e.cmd, resp: e.resp, ms: e.ms,
+      });
+    })
+      .then((h) => { if (cancelled) h.remove(); else handle = h; })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      handle?.remove();
+      CarLauncher.setObdTrafficCapture?.({ enable: false }).catch(() => {});
+    };
+  }, [active]);
 
   // Patch 11: Mode 07/0A/02/readiness — dtcService/StandardPidEnums'in modül durumuna
   // dokunmaz (regresyon-kilitli DTCState/readDTCCodes AYNEN korunur), yalnız bu panelin
@@ -410,6 +441,32 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       {/* Abonelik yaşam döngüsü `active`e bağlı: drawer kapaliyken native EXTENDED
           polling tamamen durur (DrawerShell unmount etmez — görünürlük prop'la gelir). */}
       <SensorPanel active={active} />
+
+      {/* ── Ham OBD Trafiği (adb'siz teşhis) ───────────── */}
+      {/* Aracın verdiği HAM ELM327 yanıtını gösterir — "hata var ama başka tarayıcıda
+          yok" farkının kanıtı burada (ham 43... yanıtı vs çözümlenen kod). */}
+      <div>
+        <button
+          onClick={() => setShowRaw((v) => !v)}
+          className="w-full flex items-center justify-between rounded-2xl border border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] p-4 transition-all active:scale-[0.98]"
+        >
+          <div className="flex items-center gap-2.5">
+            <Terminal className="w-5 h-5 text-[color:var(--oem-ink-2)]" />
+            <span className="text-sm font-black uppercase tracking-widest text-[color:var(--oem-ink-2)]">
+              Ham OBD Trafiği
+            </span>
+          </div>
+          {showRaw
+            ? <ChevronUp className="w-4 h-4 text-[color:var(--oem-ink-2)]" />
+            : <ChevronDown className="w-4 h-4 text-[color:var(--oem-ink-2)]" />}
+        </button>
+
+        {showRaw && (
+          <div className="mt-2 rounded-2xl border border-[var(--oem-line)] bg-gray-950 p-3 h-80">
+            <ObdRawView />
+          </div>
+        )}
+      </div>
 
       {/* ── Error ─────────────────────────────────────── */}
       {dtc.error && (
