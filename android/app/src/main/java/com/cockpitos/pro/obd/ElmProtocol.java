@@ -201,11 +201,28 @@ public final class ElmProtocol {
     private static final int UDS_PENDING_TOTAL_TIMEOUT_MS = 10_000;
 
     /**
-     * ECU adresleme atomik bloğu: {@code ATSH<tx>} + {@code ATCRA<rx>} ayarlanır, {@code action}
-     * çalıştırılır, action exception fırlatsa BİLE finally'de MUTLAKA varsayılana (7DF fonksiyonel
-     * header + otomatik CAN alım filtresi) restore edilir. Bu metod {@link ElmCommandQueue}'nun
-     * TEK worker thread'i üzerinden çağrılmalıdır (ör. {@code cmdQueue.submit(USER, ...)}) — böylece
-     * header ayarlama → okuma → restore ATOMİK olur, araya başka bir komut giremez.
+     * ECU adresleme atomik bloğu — tx'in uzunluğuna göre dallanır (Patch 13):
+     *  - 3 hex hane (standart 11-bit ISO 15765-4) → {@link #withEcuHeader11Bit} (Patch 12A,
+     *    DEĞİŞMEDİ — davranış BİREBİR aynı).
+     *  - 8 hex hane (29-bit genişletilmiş adresleme, ör. "18DADAF1") → {@link #withEcuHeader29Bit}
+     *    (ATCP öncelik baytı + ATSP7 protokol geçişi, ROADMAP boşluk (3)).
+     *
+     * Bu metod {@link ElmCommandQueue}'nun TEK worker thread'i üzerinden çağrılmalıdır (ör.
+     * {@code cmdQueue.submit(USER, ...)}) — böylece header ayarlama → okuma → restore ATOMİK
+     * olur, araya başka bir komut giremez (her iki dal için de geçerli).
+     */
+    public <T> T withEcuHeader(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
+        if (tx != null && tx.length() == 8) {
+            return withEcuHeader29Bit(tx, rx, action);
+        }
+        return withEcuHeader11Bit(tx, rx, action);
+    }
+
+    /**
+     * Standart 11-bit ISO 15765-4 ECU adresleme (Patch 12A — DEĞİŞMEDİ): {@code ATSH<tx>} +
+     * {@code ATCRA<rx>} ayarlanır, {@code action} çalıştırılır, action exception fırlatsa BİLE
+     * finally'de MUTLAKA varsayılana (7DF fonksiyonel header + otomatik CAN alım filtresi)
+     * restore edilir.
      *
      * Restore başarısızlığı SESSİZCE YUTULMAZ: action başarılıysa {@link HeaderRestoreException}
      * fırlatılır (yanlış header'la sessiz yanlış veriden iyidir). action zaten bir exception
@@ -215,7 +232,7 @@ public final class ElmProtocol {
      * @throws IOException  ATSH/ATCRA "OK" dönmedi (header hiç kurulamadı — action ÇALIŞTIRILMAZ,
      *                       ama restore YİNE DE denenir çünkü adaptör durumu değişmiş olabilir).
      */
-    public <T> T withEcuHeader(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
+    private <T> T withEcuHeader11Bit(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
         T result = null;
         Exception primary = null;
         try {
@@ -231,6 +248,165 @@ public final class ElmProtocol {
         }
         if (restoreFailure != null) throw restoreFailure;
         return result;
+    }
+
+    /** ELM327 varsayılan CAN önceliği (öncelik baytı) — 29-bit restore hedefi (Patch 13). */
+    private static final String DEFAULT_29BIT_CAN_PRIORITY = "18";
+
+    /**
+     * İç kısayol sinyali (Patch 13) — 29-bit AT komut zincirinde YALNIZ {@code ATSP7}/{@code ATCP}
+     * için: klon adaptör "?" (desteklenmeyen komut) dönerse fırlatılır. {@link #withEcuHeader29Bit}
+     * bunu YAKALAR, {@code action}'ı HİÇ ÇAĞIRMADAN {@code null} döner — {@link #readDid}'in
+     * "DID desteklenmiyor" null sözleşmesiyle AYNI kanaldan akar (CarLauncherPlugin.readObdDid
+     * {@code supported:false} çözer, manufacturerPidService.ts bunu 7F-31/33 ile AYNI şekilde
+     * KALICI "desteklenmiyor" işaretler — standart Mode 01 poll döngüsüne SIFIR etkisi olur, bu
+     * ayrı bir USER-öncelikli kuyruk görevidir).
+     *
+     * {@code ATSH}/{@code ATCRA} için bu tolerans YOK (gerçek {@link IOException} fırlatılır) —
+     * bunlar 11-bit yolunda zaten TEMEL komutlar sayılır (her ELM327/klonun desteklediği
+     * varsayılır); yalnız 29-bit'e özgü {@code ATCP} ve {@code ATSP7} bazı ucuz klonlarda hiç
+     * yok olabilir.
+     */
+    private static final class Unsupported29BitCommandException extends RuntimeException {
+        Unsupported29BitCommandException(String message) { super(message); }
+    }
+
+    /**
+     * 29-bit genişletilmiş UDS adresleme (Patch 13, ROADMAP boşluk (3)) — ELM327 {@code ATCP}
+     * (CAN önceliği/öncelik baytı) + {@code ATSH} (header'ın son 6 hanesi) + {@code ATCRA}
+     * (29-bit alım filtresi) + gerekirse {@code ATSP7} (ISO 15765-4 29-bit/500k) protokol geçişi.
+     *
+     * Sıra: (1) ATDPN ile mevcut protokolü öğren — zaten 29-bit (7/9) ise ATSP DEĞİŞTİRİLMEZ;
+     * (2) değilse ATSP7; (3) {@code ATCP<tx ilk 2 hane>} (öncelik baytı); (4) {@code ATSH<tx son
+     * 6 hane>}; (5) {@code ATCRA<rx>}; (6) action. HER durumda (başarı/istisna/klon-desteklemiyor)
+     * restore denenir — Patch 12A yasası burada da geçerli, artık protokol + CAN önceliği dahil;
+     * yalnız GERÇEKTEN değiştirilmiş alanlar restore edilir (hiç set edilmemiş bir şeyi restore
+     * etmeye çalışmak aynı "?" yanıtını tekrar üretir ve haksız yere hata fırlatırdı).
+     *
+     * 11-bit bus'ta 500k CAN hızı aynıdır — yalnız header formatı değişir (basitleştirme: bilinen
+     * 250k 29-bit varyantı — protokol 9 — buraya öğrenilmiş protokolse dokunulmaz, ama otomatik
+     * geçişte her zaman 500k/ATSP7 hedeflenir; ROADMAP notu).
+     */
+    private <T> T withEcuHeader29Bit(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
+        T result = null;
+        Exception primary = null;
+        final String priorProtocol = queryActiveProtocolDigit();
+        boolean protocolSwitched = false;
+        boolean cpSet = false;
+        try {
+            if (!is29BitProtocol(priorProtocol)) {
+                sendGuarded29Bit("ATSP7", 1000, "ATSP7 (29-bit protokol geçişi)");
+                protocolSwitched = true;
+            }
+            String priorityByte = tx.substring(0, 2);
+            String shSuffix = tx.substring(2);
+            sendGuarded29Bit("ATCP" + priorityByte, 500, "ATCP" + priorityByte + " (CAN öncelik baytı)");
+            cpSet = true;
+            // ATSH<shSuffix> + ATCRA<rx> — 11-bit yolundaki setEcuHeader ile AYNI hard-fail
+            // semantiği (kopyalama yok); ilk parametre burada tx'in son 6 hanesidir (shSuffix),
+            // ikinci parametre rx'in TAM 8 hanesidir — setEcuHeader yalnız "ATSH<a>"+"ATCRA<b>"
+            // gönderir, uzunluk varsayımı yapmaz.
+            setEcuHeader(shSuffix, rx);
+            result = action.call();
+        } catch (Unsupported29BitCommandException clone) {
+            // Klon dürüstlüğü — DID "desteklenmiyor" say (7F-31/33 ile AYNI null kanalı).
+            // Burada android.util.Log KULLANILMAZ: ElmProtocol saf JVM sınıfıdır (FakeChannel
+            // testleri Android runtime'sız koşar); bilgi kaybolmaz — null, plugin katmanında
+            // supported:false olarak TS'e ulaşır ve manufacturerPidService diag'a kaydeder.
+            result = null;
+        } catch (Exception e) {
+            primary = e;
+        }
+        Exception restoreFailure = restoreDefault29Bit(cpSet, protocolSwitched, priorProtocol);
+        if (primary != null) {
+            if (restoreFailure != null) primary.addSuppressed(restoreFailure);
+            throw primary;
+        }
+        if (restoreFailure != null) throw restoreFailure;
+        return result;
+    }
+
+    /**
+     * ATSP7/ATCP komutları için: yanıt "OK" ise sessizce döner; "?" ise
+     * {@link Unsupported29BitCommandException} (klon dürüstlüğü — bkz. sınıf yorumu); diğer
+     * başarısız/timeout/istisna yanıtlar gerçek {@link IOException} (donanım/protokol hatası).
+     */
+    private String sendGuarded29Bit(String cmd, int timeoutMs, String stepDesc) throws IOException {
+        String resp;
+        try {
+            resp = channel.send(cmd, timeoutMs);
+        } catch (Exception e) {
+            throw new IOException("29-bit UDS: " + stepDesc + " istisna: " + e.getMessage(), e);
+        }
+        if (resp != null && resp.trim().equals("?")) {
+            throw new Unsupported29BitCommandException(stepDesc + " desteklenmiyor (klon adaptör): " + summarize(resp));
+        }
+        if (!okish(resp)) {
+            throw new IOException("29-bit UDS: " + stepDesc + " başarısız: " + summarize(resp));
+        }
+        return resp;
+    }
+
+    /** ATDPN ile aktif protokolü öğrenir — {@link ElmResponseParser#parseActiveProtocolDigit}
+     *  ile {@link ElmInitSequencer} PAYLAŞIR (kopyalama yok). Okunamazsa null (sessiz — protokol
+     *  bilgisi olmadan devam edilir, ElmInitSequencer ile AYNI felsefe). */
+    private String queryActiveProtocolDigit() {
+        try {
+            return ElmResponseParser.parseActiveProtocolDigit(channel.send("ATDPN", 1000));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** ELM327 protokol numaraları 7 (29-bit/500k) ve 9 (29-bit/250k) — ISO 15765-4 29-bit ID. */
+    private static boolean is29BitProtocol(String protocolDigit) {
+        return "7".equals(protocolDigit) || "9".equals(protocolDigit);
+    }
+
+    /**
+     * 29-bit restore: yalnız GERÇEKTEN değiştirilmiş alanlar restore edilir —
+     *  (1) {@code cpSet} ise {@code ATCP18} (varsayılan CAN önceliği); (2) {@code protocolSwitched}
+     *  ise {@code ATSP<önceki protokol>} (öğrenilemediyse ATSP0 otomatik-arama fallback);
+     *  (3) HER ZAMAN {@link #restoreDefaultHeader()} ({@code ATSH7DF}+{@code ATAR}/{@code ATCRA}-off
+     *  — 11-bit ile PAYLAŞILAN, kopyalama yok). Restore başarısızlığı SESSİZCE YUTULMAZ (Patch 12A
+     *  yasası — artık protokol/CAN önceliği restore'unu da kapsar); {@link HeaderRestoreException}
+     *  ile raporlanır, {@code addSuppressed} zinciri korunur.
+     */
+    private Exception restoreDefault29Bit(boolean cpSet, boolean protocolSwitched, String priorProtocol) {
+        Exception failure = null;
+        if (cpSet) {
+            try {
+                String cp = channel.send("ATCP" + DEFAULT_29BIT_CAN_PRIORITY, 500);
+                if (!okish(cp)) {
+                    failure = chain(failure, new HeaderRestoreException(
+                        "CAN öncelik baytı restore (ATCP" + DEFAULT_29BIT_CAN_PRIORITY + ") başarısız: " + summarize(cp)));
+                }
+            } catch (Exception e) {
+                failure = chain(failure, new HeaderRestoreException(
+                    "CAN öncelik baytı restore (ATCP" + DEFAULT_29BIT_CAN_PRIORITY + ") istisna: " + e.getMessage()));
+            }
+        }
+        if (protocolSwitched) {
+            String target = (priorProtocol != null && !priorProtocol.isEmpty()) ? priorProtocol : "0";
+            try {
+                String sp = channel.send("ATSP" + target, 1000);
+                if (!okish(sp)) {
+                    failure = chain(failure, new HeaderRestoreException(
+                        "Protokol restore (ATSP" + target + ") başarısız: " + summarize(sp)));
+                }
+            } catch (Exception e) {
+                failure = chain(failure, new HeaderRestoreException(
+                    "Protokol restore (ATSP" + target + ") istisna: " + e.getMessage()));
+            }
+        }
+        return chain(failure, restoreDefaultHeader());
+    }
+
+    /** İki restore hatasını TEK zincire birleştirir ({@code addSuppressed}) — ilk null ise ikinciyi döner. */
+    private static Exception chain(Exception first, Exception second) {
+        if (first == null) return second;
+        if (second != null) first.addSuppressed(second);
+        return first;
     }
 
     /** {@code ATSH<tx>} + {@code ATCRA<rx>} — ikisi de "OK" dönmezse header kurulamadı sayılır. */

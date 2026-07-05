@@ -104,16 +104,13 @@ public final class ElmInitSequencer {
         return readActiveProtocol();
     }
 
+    /**
+     * Patch 13: ayrıştırma {@link ElmResponseParser#parseActiveProtocolDigit} ile PAYLAŞILIR
+     * (kopyalama yok — {@link ElmProtocol#withEcuHeader} 29-bit yolu AYNI ayrıştırmayı kullanır).
+     */
     private String readActiveProtocol() {
         try {
-            String dpn = compact(channel.send("ATDPN", 1000));
-            if (dpn.isEmpty()) return null;
-            char last = dpn.charAt(dpn.length() - 1);
-            // ELM327 ATDPN: "A6" (otomatik-tespit + protokol 6) veya "6" (manuel). Tek hane
-            // (0-9) ya da CAN-ötesi harf kodları (A/B/C) — obdService.ts PROTOCOL_CYCLE'ı
-            // yalnız rakam kullanıyor, harf kodları zararsızca yoksayılır (null döner).
-            if (Character.isDigit(last)) return String.valueOf(last);
-            return null;
+            return ElmResponseParser.parseActiveProtocolDigit(channel.send("ATDPN", 1000));
         } catch (Exception e) {
             return null; // ATDPN opsiyonel — protokol bilgisi olmadan da devam edilir
         }

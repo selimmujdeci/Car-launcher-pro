@@ -297,6 +297,179 @@ public class ElmProtocolTest {
         }
     }
 
+    // ── Patch 13: withEcuHeader — 29-bit genişletilmiş adresleme (ATCP/ATSP7) ────
+
+    @Test
+    public void withEcuHeader29Bit_dogruSiradaKurarOkurVeRestoreEder() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6") // henüz 29-bit değil → ATSP7 gerekir
+            .on("ATSP7", "OK")
+            .on("ATCP18", "OK")
+            .on("ATSHDADAF1", "OK")
+            .on("ATCRA18DAF1DA", "OK")
+            .on("229002", "62 90 02 12 C0")
+            .on("ATSP6", "OK")
+            .on("ATSH7DF", "OK")
+            .on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        String result = elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> elm.readDid("9002"));
+
+        assertEquals("12C0", result);
+        assertEquals(java.util.Arrays.asList(
+            "ATDPN", "ATSP7", "ATCP18", "ATSHDADAF1", "ATCRA18DAF1DA", "229002",
+            "ATCP18", "ATSP6", "ATSH7DF", "ATAR"
+        ), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader29Bit_zatenProtokol7ise_atsp7AtlanirVeRestoreEdilmez() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "A7") // ELM327 otomatik-tespit + protokol 7 (zaten 29-bit)
+            .on("ATCP18", "OK")
+            .on("ATSHDADAF1", "OK")
+            .on("ATCRA18DAF1DA", "OK")
+            .on("229002", "62900212C0")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        String result = elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> elm.readDid("9002"));
+
+        assertEquals("12C0", result);
+        // ATSP7 hiç gönderilmedi (zaten 29-bit) VE protokol restore'u da yok (protocolSwitched=false).
+        assertFalse(ch.sent.contains("ATSP7"));
+        assertFalse(ch.sent.contains("ATSP6"));
+        assertEquals(java.util.Arrays.asList(
+            "ATDPN", "ATCP18", "ATSHDADAF1", "ATCRA18DAF1DA", "229002",
+            "ATCP18", "ATSH7DF", "ATAR"
+        ), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader29Bit_atcpDesteklenmiyor_klonDurustlugu_actionCagrilmazNullDoner() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6")
+            .on("ATSP7", "OK")
+            .on("ATCP18", "?") // klon ATCP'yi desteklemiyor
+            .on("ATSP6", "OK")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+        final boolean[] actionCalled = { false };
+
+        String result = elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> { actionCalled[0] = true; return "unused"; });
+
+        assertNull(result);
+        assertFalse("action hiç çağrılmamalı (klon dürüstlüğü)", actionCalled[0]);
+        // ATCP hiç set edilemediği için restore'da TEKRAR denenmez (cpSet=false) — yalnız
+        // protokol restore (gerçekten değiştirilmişti) + her zaman header restore.
+        assertEquals(java.util.Arrays.asList(
+            "ATDPN", "ATSP7", "ATCP18", "ATSP6", "ATSH7DF", "ATAR"
+        ), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader29Bit_atsp7Desteklenmiyor_klonDurustlugu_atcpHicDenenmez() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6")
+            .on("ATSP7", "?") // klon 29-bit protokolü hiç desteklemiyor
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+        final boolean[] actionCalled = { false };
+
+        String result = elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> { actionCalled[0] = true; return "unused"; });
+
+        assertNull(result);
+        assertFalse(actionCalled[0]);
+        // ATCP'ye hiç ulaşılmadı (protokol geçişi başarısız) — restore'da ne ATCP18 ne ATSP
+        // denenir (ikisi de hiç set edilmedi), yalnız her-zaman header restore çalışır.
+        assertEquals(java.util.Arrays.asList("ATDPN", "ATSP7", "ATSH7DF", "ATAR"), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader29Bit_actionExceptionAtsaBile_tamRestoreCalisir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6").on("ATSP7", "OK").on("ATCP18", "OK")
+            .on("ATSHDADAF1", "OK").on("ATCRA18DAF1DA", "OK")
+            .on("ATSP6", "OK").on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+        RuntimeException boom = new RuntimeException("action patladi");
+
+        try {
+            elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> { throw boom; });
+            fail("exception bekleniyordu");
+        } catch (RuntimeException e) {
+            assertEquals(boom, e);
+        }
+        assertEquals(java.util.Arrays.asList(
+            "ATDPN", "ATSP7", "ATCP18", "ATSHDADAF1", "ATCRA18DAF1DA",
+            "ATCP18", "ATSP6", "ATSH7DF", "ATAR"
+        ), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader29Bit_protokolRestoreBasarisiz_actionBasariliysaHataFirlatir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6").on("ATSP7", "OK").on("ATCP18", "OK")
+            .on("ATSHDADAF1", "OK").on("ATCRA18DAF1DA", "OK")
+            .on("229002", "62900212C0")
+            .on("ATSP6", "?") // protokol restore başarısız
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        try {
+            elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> elm.readDid("9002"));
+            fail("HeaderRestoreException bekleniyordu");
+        } catch (ElmProtocol.HeaderRestoreException expected) {
+            // beklenen — action başarılı olsa da protokol restore başarısızlığı sessiz geçilmez.
+        }
+        // Header restore YİNE DE denendi (protokol restore başarısız olsa bile).
+        assertTrue(ch.sent.contains("ATSH7DF"));
+        assertTrue(ch.sent.contains("ATAR"));
+    }
+
+    @Test
+    public void withEcuHeader29Bit_atshBasarisiz_hardFailIOException_cpVeProtokolRestoreEdilir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6").on("ATSP7", "OK").on("ATCP18", "OK")
+            .on("ATSHDADAF1", "?") // ATSH/ATCRA için klon toleransı YOK — hard fail
+            .on("ATCRA18DAF1DA", "OK")
+            .on("ATSP6", "OK").on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+        final boolean[] actionCalled = { false };
+
+        try {
+            elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> { actionCalled[0] = true; return "unused"; });
+            fail("IOException bekleniyordu (ATSH/ATCRA için klon toleransı yok)");
+        } catch (IOException expected) {
+            // beklenen — ATSH/ATCRA başarısızlığı HER ZAMAN hard-fail (11-bit ile aynı disiplin).
+        }
+        assertFalse(actionCalled[0]);
+        // setEcuHeader ATSH+ATCRA'yı ÖNCE gönderir SONRA ikisini doğrular (Patch 12A davranışı,
+        // 11-bit ile AYNI) — ATSH "?" dönse bile ATCRA da gönderilmiş olur. cpSet=true olduğu
+        // için ATCP18 restore DENENİR, protokol de restore edilir.
+        assertEquals(java.util.Arrays.asList(
+            "ATDPN", "ATSP7", "ATCP18", "ATSHDADAF1", "ATCRA18DAF1DA",
+            "ATCP18", "ATSP6", "ATSH7DF", "ATAR"
+        ), ch.sent);
+    }
+
+    @Test
+    public void withEcuHeader11Bit_29BitEklendiktenSonraDaDegismez() throws Exception {
+        // Regresyon: 3 hex hane tx'ler HÂLÂ eski 11-bit yoluna gider — ATDPN/ATSP7/ATCP'ye
+        // hiç dokunmaz (dispatcher tx.length()==8 kontrolüyle dallanıyor).
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("22F190", "62 F1 90 30 31")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        String result = elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+
+        assertEquals("3031", result);
+        assertEquals(java.util.Arrays.asList("ATSH7E0", "ATCRA7E8", "22F190", "ATSH7DF", "ATAR"), ch.sent);
+        assertFalse(ch.sent.contains("ATDPN"));
+    }
+
     // ── Patch 12A: readDid — UDS Mode 22 ReadDataByIdentifier ────────────────
 
     @Test

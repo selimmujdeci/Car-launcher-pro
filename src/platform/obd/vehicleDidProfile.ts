@@ -82,7 +82,12 @@ export type VehicleDidProfileValidation =
 
 const VALID_DECODE_FNS: ReadonlySet<string> = new Set(['A', 'AB', 'temp40', 'pct', 'linear', 'div', 'ascii']);
 const DID_HEX_RE = /^[0-9A-Fa-f]{4}$/;
-const ECU_ADDR_RE = /^[0-9A-Fa-f]{3,8}$/;
+/** Patch 13: ECU adresi YALNIZ 3 hex hane (standart 11-bit ISO 15765-4, ör. '7E0') VEYA
+ *  8 hex hane (29-bit genişletilmiş adresleme, ör. '18DADAF1') olabilir — ara uzunluklar
+ *  (4-7 hane) belirsizdir ve native withEcuHeader'ın hiçbir dalıyla eşleşmez (ElmProtocol.java,
+ *  tx.length()==8 → 29-bit, aksi halde 11-bit varsayılır — 4-7 haneli bir tx yanlışlıkla
+ *  11-bit dalına düşüp "ATSH<4-7 hane>" gibi anlamsız bir komut üretirdi, sessizce). */
+const ECU_ADDR_RE = /^(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{8})$/;
 
 /**
  * Profili doğrular. Bozuk/eksik/tutarsız profil YÜKLENMEZ — `valid:false` + insan-okur
@@ -120,8 +125,12 @@ export function validateVehicleDidProfile(input: unknown): VehicleDidProfileVali
         ecuIds.add(e.id);
       }
       if (typeof e.name !== 'string' || e.name.trim().length === 0) errors.push(`ecus[${i}].name: boş olmayan string olmalı`);
-      if (typeof e.tx !== 'string' || !ECU_ADDR_RE.test(e.tx)) errors.push(`ecus[${i}].tx: geçersiz hex adres`);
-      if (typeof e.rx !== 'string' || !ECU_ADDR_RE.test(e.rx)) errors.push(`ecus[${i}].rx: geçersiz hex adres`);
+      if (typeof e.tx !== 'string' || !ECU_ADDR_RE.test(e.tx)) {
+        errors.push(`ecus[${i}].tx: geçersiz hex adres — TAM 3 hane (11-bit, ör. '7E0') VEYA TAM 8 hane (29-bit, ör. '18DADAF1') olmalı, ara uzunluklar (4-7 hane) belirsizdir: '${String(e.tx)}'`);
+      }
+      if (typeof e.rx !== 'string' || !ECU_ADDR_RE.test(e.rx)) {
+        errors.push(`ecus[${i}].rx: geçersiz hex adres — TAM 3 hane (11-bit, ör. '7E8') VEYA TAM 8 hane (29-bit, ör. '18DAF1DA') olmalı, ara uzunluklar (4-7 hane) belirsizdir: '${String(e.rx)}'`);
+      }
     });
   }
 
@@ -205,8 +214,12 @@ export interface CompiledDidDef {
 
 const A = (b: number[]) => b[0]!;
 const AB = (b: number[]) => b[0]! * 256 + b[1]!;
-/** `linear`/`div` için "raw" seçimi: 1 bayt → A, ≥2 bayt → AB (StandardPidRegistry formülleriyle tutarlı). */
-const rawFor = (bytes: number, b: number[]): number => (bytes <= 1 ? A(b) : AB(b));
+/** Patch 13: 3 baytlık büyük-uçlu (big-endian) ham değer — OVMS3 CAN_UINT24 ile AYNI birleştirme
+ *  (ör. Renault Zoe Ph2 EVC odometre 0x2006, LBC kullanılabilir enerji 0x91C8). */
+const ABC = (b: number[]) => b[0]! * 65536 + b[1]! * 256 + b[2]!;
+/** `linear`/`div` için "raw" seçimi: 1 bayt → A, 2 bayt → AB, ≥3 bayt → ABC (24-bit büyük-uçlu —
+ *  StandardPidRegistry formülleriyle VE OVMS3 CAN_UINT/CAN_UINT24 makrolarıyla tutarlı). */
+const rawFor = (bytes: number, b: number[]): number => (bytes <= 1 ? A(b) : bytes === 2 ? AB(b) : ABC(b));
 
 /** Yazdırılabilir ASCII (0x20-0x7E) baytlarını metne çevirir, diğerlerini ATAR (OBDHandshake.ts
  *  parseVIN ile AYNI süzme kuralı — dolgu/null bayt gürültüsünü sessizce temizler). */

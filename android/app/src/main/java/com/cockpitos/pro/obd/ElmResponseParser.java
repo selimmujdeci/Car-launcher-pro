@@ -60,6 +60,24 @@ public final class ElmResponseParser {
     private ElmResponseParser() { /* yalnız statik metodlar */ }
 
     /**
+     * ATDPN yanıtından tek haneli aktif protokol numarasını çıkarır (Patch 3 {@link ElmInitSequencer}
+     * + Patch 13 {@link ElmProtocol#withEcuHeader} 29-bit yolu PAYLAŞIR — kopyalama yok, tek
+     * doğruluk kaynağı). ELM327 ATDPN "A6" (otomatik-tespit + protokol 6) veya "6" (manuel
+     * zorlanmış) döner — yalnız SON hane okunur; harf kodları (A/B/C, CAN-ötesi protokoller)
+     * zararsızca yoksayılır (null döner, çağıran otomatik/varsayılan davranışa düşer).
+     *
+     * @param rawDpnResponse channel.send("ATDPN", ...) sonucu (null/boş olabilir).
+     * @return tek karakter protokol numarası ("0"-"9"); okunamaz/boş/harf-koduysa null.
+     */
+    public static String parseActiveProtocolDigit(String rawDpnResponse) {
+        if (rawDpnResponse == null) return null;
+        String compact = rawDpnResponse.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+        if (compact.isEmpty()) return null;
+        char last = compact.charAt(compact.length() - 1);
+        return Character.isDigit(last) ? String.valueOf(last) : null;
+    }
+
+    /**
      * SAE J1979 pozitif yanıt önekinden (ör. "41") ORİJİNAL istek modunu ("01") türetir
      * (kural: pozitif yanıt = istek modu + 0x40). Geçersiz/anlaşılamayan girişte null döner
      * (7F kontrolü sessizce atlanır — kritik değil, yalnız sınıflandırma hassasiyeti).
