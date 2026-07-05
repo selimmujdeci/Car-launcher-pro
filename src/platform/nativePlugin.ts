@@ -488,6 +488,14 @@ export interface CarLauncherPlugin {
    */
   setObdTrafficCapture?(opts: { enable: boolean }): Promise<{ enabled: boolean }>;
 
+  /**
+   * Teşhis HTTP sunucusunu başlatır (sabit port 8899). PC aynı WiFi'dan
+   * http://<ip>:8899/ ile ham OBD trafiğini JSON çeker — adb'siz teşhis.
+   * Opsiyonel: eski plugin'de yok.
+   */
+  startDiagServer?(): Promise<{ ip: string; port: number }>;
+  stopDiagServer?(): Promise<void>;
+
   // Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC. Opsiyonel: eski plugin
   // sürümlerinde bulunmayabilir (dtcService fail-soft çağırır).
   readPendingDTC?(): Promise<{ codes: string[] }>;

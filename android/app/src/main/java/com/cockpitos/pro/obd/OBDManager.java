@@ -99,6 +99,62 @@ public final class OBDManager {
     /** Teşhis paneli köprüsü — ham trafik yakalamayı aç/kapat (bkz. {@link #sTrafficCapture}). */
     public static void setTrafficCapture(boolean on) { sTrafficCapture = on; }
 
+    /**
+     * Teşhis ham-trafik halka tamponu — son N komut/yanıt çifti. PC'nin ağdan (teşhis
+     * HTTP sunucusu) çekebilmesi için native'de tutulur; JS köprüsünden (onObdTraffic)
+     * BAĞIMSIZ. adb/logcat olmayan head unit'te PC'den ham OBD trafiğini okumanın yolu.
+     */
+    private static final int TRAFFIC_MAX = 300;
+    private static final java.util.ArrayDeque<String[]> sTrafficRing = new java.util.ArrayDeque<>();
+
+    /** Ham trafik çiftini halka tampona yazar (thread-safe). */
+    private static void recordTraffic(long ts, String cmd, String resp, long ms) {
+        synchronized (sTrafficRing) {
+            if (sTrafficRing.size() >= TRAFFIC_MAX) sTrafficRing.pollFirst();
+            sTrafficRing.addLast(new String[] { Long.toString(ts), cmd, resp, Long.toString(ms) });
+        }
+    }
+
+    /** Halka tamponu JSON dizisi olarak döker (teşhis HTTP sunucusu tüketir). */
+    public static String dumpTrafficJson() {
+        StringBuilder sb = new StringBuilder(4096).append('[');
+        synchronized (sTrafficRing) {
+            boolean first = true;
+            for (String[] e : sTrafficRing) {
+                if (!first) sb.append(',');
+                sb.append("{\"ts\":").append(e[0])
+                  .append(",\"cmd\":\"").append(jsonEsc(e[1]))
+                  .append("\",\"resp\":\"").append(jsonEsc(e[2]))
+                  .append("\",\"ms\":").append(e[3]).append('}');
+                first = false;
+            }
+        }
+        return sb.append(']').toString();
+    }
+
+    /** Teşhis tamponunu temizler. */
+    public static void clearTraffic() { synchronized (sTrafficRing) { sTrafficRing.clear(); } }
+
+    /** Minimal JSON string kaçışı (tırnak, ters bölü, kontrol karakterleri). */
+    private static String jsonEsc(String s) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  b.append("\\\""); break;
+                case '\\': b.append("\\\\"); break;
+                case '\n': b.append("\\n");  break;
+                case '\r': b.append("\\r");  break;
+                case '\t': b.append("\\t");  break;
+                default:
+                    if (c < 0x20) b.append(String.format("\\u%04x", (int) c));
+                    else b.append(c);
+            }
+        }
+        return b.toString();
+    }
+
     private final ExecutorService obdExecutor = Executors.newSingleThreadExecutor();
 
     private volatile BluetoothSocket obdSocket  = null;
@@ -770,11 +826,13 @@ public final class OBDManager {
             }
         }
 
-        /** Ham trafik çiftini teşhis listener'ına iletir — yalnız capture açıkken. */
+        /** Ham trafik çiftini teşhis listener'ına + halka tampona iletir — yalnız capture açıkken. */
         private void emitTraffic(String cmd, String resp, long started) {
             if (!sTrafficCapture || started == 0L) return;
+            long ms = System.currentTimeMillis() - started;
+            recordTraffic(System.currentTimeMillis(), cmd, resp, ms); // PC'nin HTTP ile çekeceği tampon
             try {
-                listener.onObdTraffic(cmd, resp, System.currentTimeMillis() - started);
+                listener.onObdTraffic(cmd, resp, ms);
             } catch (Exception ignored) {
                 // Teşhis köprüsü asla OBD akışını bozmaz — listener hatası yutulur.
             }

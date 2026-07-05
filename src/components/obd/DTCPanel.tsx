@@ -144,12 +144,18 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   // store'a köprüle. Head unit'te adb/logcat yoksa OBD el sıkışması + ham DTC yanıtını
   // ekrandan okumanın tek yolu. Panel gizlenince/unmount'ta kapatılır (sıfır ek yük).
   const [showRaw, setShowRaw] = useState(false);
+  // Teşhis HTTP sunucusu adresi (PC aynı WiFi'dan ham trafiği JSON çeker) — adb'siz.
+  const [diagAddr, setDiagAddr] = useState<string | null>(null);
   useEffect(() => {
     if (!active || !Capacitor.isNativePlatform()) return;
     let handle: PluginListenerHandle | null = null;
     let cancelled = false;
 
     CarLauncher.setObdTrafficCapture?.({ enable: true }).catch(() => {});
+    // Teşhis portunu aç → PC http://<ip>:8899/ ile ham OBD trafiğini çeker.
+    CarLauncher.startDiagServer?.()
+      .then((r) => { if (!cancelled && r?.ip) setDiagAddr(`http://${r.ip}:${r.port}/`); })
+      .catch(() => {});
     CarLauncher.addListener('obdTraffic', (e) => {
       useDebugStore.getState().pushObdTraffic({
         ts: e.ts || Date.now(), cmd: e.cmd, resp: e.resp, ms: e.ms,
@@ -162,6 +168,8 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       cancelled = true;
       handle?.remove();
       CarLauncher.setObdTrafficCapture?.({ enable: false }).catch(() => {});
+      CarLauncher.stopDiagServer?.().catch(() => {});
+      setDiagAddr(null);
     };
   }, [active]);
 
@@ -462,8 +470,20 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
         </button>
 
         {showRaw && (
-          <div className="mt-2 rounded-2xl border border-[var(--oem-line)] bg-gray-950 p-3 h-80">
-            <ObdRawView />
+          <div className="mt-2 flex flex-col gap-2">
+            {diagAddr && (
+              <div className="rounded-xl border border-[var(--oem-info)] bg-[var(--oem-info-soft)] px-3 py-2">
+                <div className="text-[9px] uppercase tracking-widest text-[color:var(--oem-ink-3)] mb-0.5">
+                  PC'den ham trafik (aynı WiFi)
+                </div>
+                <div className="text-sm font-mono font-bold text-[color:var(--oem-info)] break-all select-all">
+                  {diagAddr}
+                </div>
+              </div>
+            )}
+            <div className="rounded-2xl border border-[var(--oem-line)] bg-gray-950 p-3 h-80">
+              <ObdRawView />
+            </div>
           </div>
         )}
       </div>

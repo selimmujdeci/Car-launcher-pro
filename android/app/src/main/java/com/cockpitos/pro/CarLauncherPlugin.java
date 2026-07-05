@@ -2952,6 +2952,134 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    // ── Teşhis HTTP Server (adb'siz PC erişimi) ───────────────────────────────
+    // Uygulama cihazda sabit bir port dinler; PC aynı WiFi'dan http://<ip>:8899/ ile
+    // ham OBD trafiğini JSON çeker. adb/logcat olmayan head unit'lerde (T507 Dacia)
+    // teşhis verisini PC'ye taşımanın yolu — ekran görüntüsü döngüsünü bitirir.
+
+    private volatile ServerSocket diagSocket = null;
+    private static final int DIAG_PORT = 8899;
+
+    @PluginMethod
+    public void startDiagServer(PluginCall call) {
+        stopDiagServerInternal();
+        try {
+            diagSocket = new ServerSocket(DIAG_PORT);
+            Thread srv = new Thread(this::runDiagServer, "DiagHTTP");
+            srv.setDaemon(true);
+            srv.start();
+            JSObject r = new JSObject();
+            r.put("ip", getLocalIPv4());
+            r.put("port", DIAG_PORT);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("DIAG_SERVER_ERROR", e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopDiagServer(PluginCall call) {
+        stopDiagServerInternal();
+        call.resolve();
+    }
+
+    private void stopDiagServerInternal() {
+        ServerSocket s = diagSocket;
+        diagSocket = null;
+        if (s != null) { try { s.close(); } catch (IOException ignored) {} }
+    }
+
+    private void runDiagServer() {
+        ServerSocket srv = diagSocket;
+        while (srv != null && !srv.isClosed()) {
+            try {
+                Socket client = srv.accept();
+                client.setSoTimeout(8000);
+                new Thread(() -> handleDiagClient(client), "DiagReq").start();
+            } catch (IOException ignored) {}
+        }
+    }
+
+    private void handleDiagClient(Socket client) {
+        try (
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+            OutputStream out = client.getOutputStream()
+        ) {
+            String requestLine = reader.readLine();
+            if (requestLine == null) return;
+            String[] parts = requestLine.split(" ", 3);
+            if (parts.length < 2) return;
+            String fullPath = parts[1];
+            // Kalan header'ları tüket
+            String hdr;
+            while ((hdr = reader.readLine()) != null && !hdr.isEmpty()) {}
+
+            int qi = fullPath.indexOf('?');
+            String path = (qi >= 0) ? fullPath.substring(0, qi) : fullPath;
+
+            // CORS + JSON — tarayıcıdan da açılabilir
+            if ("/clear".equals(path)) {
+                OBDManager.clearTraffic();
+                sendHttpResponse(out, 200, "application/json; charset=utf-8", "{\"cleared\":true}");
+                return;
+            }
+            // Root testi: su var mı? (adb açmadan önce kontrol)
+            if ("/root-check".equals(path)) {
+                String r = runRootShell("id");
+                sendHttpResponse(out, 200, "application/json; charset=utf-8",
+                    "{\"hasRoot\":" + (r.contains("uid=0") ? "true" : "false")
+                    + ",\"out\":\"" + jsonEscP(r) + "\"}");
+                return;
+            }
+            // Ağ ADB'sini aç (root gerektirir): adbd'yi 5555'te dinlet → PC 'adb connect'
+            // ile TAM kontrol alır. Root yoksa 'su' bulunamaz → hata döner.
+            if ("/enable-adb".equals(path)) {
+                String r = runRootShell("setprop service.adb.tcp.port 5555; stop adbd; start adbd; echo DONE");
+                boolean ok = r.contains("DONE");
+                sendHttpResponse(out, 200, "application/json; charset=utf-8",
+                    "{\"enabled\":" + ok + ",\"port\":5555,\"out\":\"" + jsonEscP(r) + "\"}");
+                return;
+            }
+            // Varsayılan (/ veya /obd): ham OBD trafik dökümü
+            String json = "{\"port\":" + DIAG_PORT
+                + ",\"traffic\":" + OBDManager.dumpTrafficJson() + "}";
+            sendHttpResponse(out, 200, "application/json; charset=utf-8", json);
+        } catch (IOException ignored) {}
+    }
+
+    /**
+     * Root kabuğunda komut çalıştırır (su -c). stdout+stderr birleşik döner. Root yoksa
+     * "su" bulunamaz → exception mesajı döner (çağıran hasRoot=false yorumlar).
+     */
+    private static String runRootShell(String cmd) {
+        StringBuilder sb = new StringBuilder();
+        try {
+            Process p = Runtime.getRuntime().exec(new String[] { "su", "-c", cmd });
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line).append('\n');
+            }
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(p.getErrorStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) sb.append("ERR:").append(line).append('\n');
+            }
+            p.waitFor();
+        } catch (Exception e) {
+            sb.append("EXC:").append(e.getMessage());
+        }
+        return sb.toString().trim();
+    }
+
+    /** Minimal JSON string kaçışı (plugin-yerel; OBDManager.jsonEsc'in eşi). */
+    private static String jsonEscP(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+    }
+
     // ── Passenger HTTP Server ─────────────────────────────────────────────────
 
     private volatile ServerSocket psSocket  = null;
