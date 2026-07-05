@@ -93,6 +93,46 @@
 - Bakım beyni kartları + BYOK AI teşhis sentezi (offline'da statik tabloya
   zarif düşüş) — ROADMAP entegrasyon dalgasının kalanı; ayrı planlanabilir.
 
+## V0 bulguları (2026-07-05, ana oturum keşfi — koddan doğrulandı)
+
+**1. Araç bağlamı beyne ZATEN GİDİYOR — V2'nin kapsamı küçüldü.**
+`companionChatProvider.buildInterpretedVehicleContext()` (satır ~237) yakıt,
+batarya/şarj, motor sıcaklığı, yolculuk süresi, menzil-vs-rota yorumlarını
+(companionContext saf yorumlayıcıları — ham veri değil) üretip TÜM beyin
+yollarının system prompt'una veriyor (chat 397/469, brain 575/741, grounded 1206).
+V2'de kalan iş: (a) DTC sayısı + bakım uyarısı satırlarını bu fonksiyona eklemek,
+(b) "sensör değeri sorulursa bağlamdan cevap verme → QUERY_SENSOR döndür" kuralı.
+
+**2. `voiceContextBuilder.buildEnrichedCtx` üretimde ÖLÜ KOD.**
+Hiçbir üretim dosyası import etmiyor (yalnız 3 test dosyasında vestigial vi.mock).
+Beyin bağlamı 1'deki yoldan gidiyor. V2'de bu dosya SİLİNİR (test mock'ları da),
+"iki bağlam kaynağı" karışıklığı bitirilir.
+
+**3. Yerel akış ve n-best — QUERY_SENSOR eklenirse otomatik n-best'li olur.**
+STT alternatifleri → `processTextCommand(text, ctx, alternatives)` →
+`_bestLocalParse(alts)` (repairTranscript varyantları dahil, en yüksek confidence
+kazanır) → `parseCommandFull` (commandParser; yerel tipler snake_case, ör.
+`vehicle_status`). Yeni yerel kalıp commandParser'dan çağrılan `vehicleIntents`
+modülüne eklenince n-best bedavaya çalışır. Beyin tarafında `_withAltHint`
+alternatifleri prompt ipucusuna zaten taşıyor.
+
+**4. Yerel sensör bypass'ı için hazır desen VAR: hava durumu bypass'ı (1b).**
+`voiceService` ~907: `show_weather` + confidence ≥0.7 → beyne HİÇ gitmeden yerel
+gerçek veriyle cevap (kotasız/anında; Groq "canlı veriye bakamam" yalanını da
+önler). QUERY_SENSOR AYNI DESENLE eklenir: yerel kalıp net eşleşirse (≥0.7)
+`querySensor` doğrudan cevaplar — beyin yalnız yerel parser'ın kaçırdığı
+ifadelerde devreye girer ve QUERY_SENSOR komutu döndürür.
+
+**5. Beyin komut şeması (V1'in ekleme noktaları):**
+JSON kalıbı `{"type":"action","intent":"...","<alanlar>","feedback","confidence"}`;
+payload alanları düz string alanlar (appName / screen+screenAction /
+settingKey-Kind-Action-Value). QUERY_SENSOR için değişecek yerler:
+`BRAIN_INTENTS` seti (~932), `buildBrainSystemPrompt` kural+örnekler (~1034/1088),
+`parseBrainJson` alan çıkarımı (~1149, yeni `sensorQuery` string alanı),
+`SemanticResult`/`fromSemanticResult` (semanticAiService) → `intentEngine`
+`fromAIResponse` → executor. Şemada DEĞER alanı yok — beyin değer uyduramaz
+(yapısal garanti planın 1. ilkesi).
+
 ## Riskler / bilinçli kabuller
 
 - **K24 hibrit TTS**: dinamik sensör cevapları Piper klip bankasında YOK →
