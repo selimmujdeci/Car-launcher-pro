@@ -21,7 +21,7 @@ export const DisclaimerBanner = memo(function DisclaimerBanner() {
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-6"
-      style={{ background: 'rgba(8,10,14,0.62)', backdropFilter: 'blur(10px) saturate(120%)' }}
+      style={{ background: 'rgba(8,10,14,0.94)', backdropFilter: 'blur(6px) saturate(120%)' }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="disclaimer-title"
@@ -29,8 +29,11 @@ export const DisclaimerBanner = memo(function DisclaimerBanner() {
       <div
         className="w-full max-w-md flex flex-col overflow-hidden"
         style={{
-          background:
-            'linear-gradient(180deg, var(--oem-surface-1) 0%, var(--oem-surface-0) 100%)',
+          // Opak zemin: değişken tanımsızsa (erken boot) bile arka görünmesin diye
+          // koyu opak fallback + katı taban rengi gradient'in ALTINDA.
+          backgroundColor: 'var(--oem-surface-0, #1E2331)',
+          backgroundImage:
+            'linear-gradient(180deg, var(--oem-surface-1, #262C3C) 0%, var(--oem-surface-0, #1E2331) 100%)',
           border: '1px solid var(--oem-line-strong)',
           borderRadius: 'var(--oem-radius-card)',
           boxShadow: 'var(--oem-shadow-pop)',
