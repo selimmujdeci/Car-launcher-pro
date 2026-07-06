@@ -544,6 +544,11 @@ export interface CarLauncherPlugin {
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).
   setObdExtendedPids?(opts: { pids: string[] }): Promise<void>;
 
+  // Teşhis BURST modu (OBD Canlı Test ekranı) — açıkken EXTENDED grubunun tüm izlenen
+  // PID'leri her poll turunda okunur (hızlı tazeleme). Ekran kapanınca kapatılır.
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).
+  setObdDiagnosticBurst?(opts: { enable: boolean }): Promise<{ enabled: boolean }>;
+
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(
     event: 'btChanged',

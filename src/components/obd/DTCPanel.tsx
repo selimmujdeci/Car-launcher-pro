@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
 import {
   AlertTriangle, CheckCircle2, RefreshCw, Trash2, Info, ShieldAlert,
-  ChevronDown, ChevronUp, Clock, Lock, Camera, Gauge, Terminal,
+  ChevronDown, ChevronUp, Clock, Lock, Camera, Gauge, Terminal, FlaskConical,
 } from 'lucide-react';
 import {
   useDTCState,
@@ -15,6 +15,7 @@ import { CarLauncher } from '../../platform/nativePlugin';
 import { useDebugStore } from '../../platform/debug';
 import { ObdRawView } from '../debug/ObdRawView';
 import { SensorPanel } from './SensorPanel';
+import { ObdLiveTestPanel } from './ObdLiveTestPanel';
 
 /* ── Severity config ─────────────────────────────────────── */
 
@@ -144,6 +145,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   // store'a köprüle. Head unit'te adb/logcat yoksa OBD el sıkışması + ham DTC yanıtını
   // ekrandan okumanın tek yolu. Panel gizlenince/unmount'ta kapatılır (sıfır ek yük).
   const [showRaw, setShowRaw] = useState(false);
+  const [showLiveTest, setShowLiveTest] = useState(false);
   // Teşhis HTTP sunucusu adresi (PC aynı WiFi'dan ham trafiği JSON çeker) — adb'siz.
   const [diagAddr, setDiagAddr] = useState<string | null>(null);
   useEffect(() => {
@@ -449,6 +451,28 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       {/* Abonelik yaşam döngüsü `active`e bağlı: drawer kapaliyken native EXTENDED
           polling tamamen durur (DrawerShell unmount etmez — görünürlük prop'la gelir). */}
       <SensorPanel active={active} />
+
+      {/* ── OBD Canlı Test (tüm PID'ler + ham hex + durum) ─────────── */}
+      {/* Burst modu + tüm-PID aboneliği YALNIZ bu accordion açıkken çalışır (active &&
+          showLiveTest) → kapaliyken native düşük-yük round-robin'e döner. */}
+      <div>
+        <button
+          onClick={() => setShowLiveTest((v) => !v)}
+          className="w-full flex items-center justify-between rounded-2xl border border-[var(--oem-line-strong)] bg-[var(--oem-surface-2)] p-4 transition-all active:scale-[0.98]"
+        >
+          <div className="flex items-center gap-2.5">
+            <FlaskConical className="w-5 h-5 text-[color:var(--oem-accent)]" />
+            <span className="text-sm font-black uppercase tracking-widest text-[color:var(--oem-ink-2)]">
+              OBD Canlı Test (Tüm Veriler)
+            </span>
+          </div>
+          {showLiveTest
+            ? <ChevronUp className="w-4 h-4 text-[color:var(--oem-ink-2)]" />
+            : <ChevronDown className="w-4 h-4 text-[color:var(--oem-ink-2)]" />}
+        </button>
+
+        {showLiveTest && <ObdLiveTestPanel active={active && showLiveTest} />}
+      </div>
 
       {/* ── Ham OBD Trafiği (adb'siz teşhis) ───────────── */}
       {/* Aracın verdiği HAM ELM327 yanıtını gösterir — "hata var ama başka tarayıcıda

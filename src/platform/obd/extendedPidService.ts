@@ -29,16 +29,21 @@ import { logError } from '../crashLogger';
 /** İzlenebilir PID sayısı TS tavanı — rotasyon gecikmesi makul kalsın (16 PID ≈ 16 tur). */
 export const ELM_WATCH_CAP = 16;
 
+/** BURST modu (Canlı Test) tavanı — tüm çekirdek-olmayan PID'ler izlenebilsin. */
+export const ELM_WATCH_CAP_BURST = 48;
+
 /** Bitmask keşif PID'leri — sırayla zincirlenir. */
 const DISCOVERY_PIDS = ['00', '20', '40', '60'] as const;
 
 export interface ExtendedPidValue {
-  /** Çözülmüş fiziksel değer. */
+  /** Çözülmüş fiziksel değer (valid=false ise NaN). */
   value: number;
   /** Kayıt tanımı (ad/birim/kategori). */
   def: StandardPidDef;
   /** Değerin alındığı an (ms, monotonik değil — UI gösterimi için yeterli). */
   updatedAt: number;
+  /** Ham data hex (mode/pid başlığı soyulmuş) — Canlı Test doğruluk denetimi için. */
+  raw: string;
 }
 
 type Watcher = (v: ExtendedPidValue) => void;
@@ -50,6 +55,7 @@ let _supported: Set<string> | null = null;              // null = keşif tamamla
 let _discoveryQueue: string[] = [];                     // bekleyen bitmask PID'leri
 let _listenerHandle: PluginListenerHandle | null = null;
 let _listenerStarting = false;
+let _burst = false;                                     // Canlı Test burst modu (cap+native hız)
 
 /* ── Bitmask çözümleme (saf — test edilebilir) ────────────────────────────── */
 
@@ -87,7 +93,7 @@ function _buildNativeList(): string[] {
     if (STANDARD_PID_MAP.get(pid)!.core) continue;         // core zaten ana yoldan akıyor
     if (_supported !== null && !_supported.has(pid)) continue; // araç desteklemiyor
     watched.push(pid);
-    if (watched.length >= ELM_WATCH_CAP) break;
+    if (watched.length >= (_burst ? ELM_WATCH_CAP_BURST : ELM_WATCH_CAP)) break;
   }
   return [..._discoveryQueue, ...watched];
 }
@@ -124,8 +130,14 @@ function _onExtendedData(event: { pid: string; data: string }): void {
     const def = STANDARD_PID_MAP.get(pid);
     if (!def) return;
     const value = decodeStandardPid(pid, event.data);
-    if (Number.isNaN(value)) return; // bozuk/sınır dışı — sessizce atla (fail-soft)
-    const entry: ExtendedPidValue = { value, def, updatedAt: Date.now() };
+    if (Number.isNaN(value)) return; // bozuk/sınır dışı — sessizce atla (fail-soft, eski sözleşme)
+    // raw: ham data hex de saklanır — Canlı Test ekranı doğruluk denetimi için gösterir.
+    const entry: ExtendedPidValue = {
+      value,
+      def,
+      updatedAt: Date.now(),
+      raw: (event.data ?? '').trim(),
+    };
     _values.set(pid, entry);
     _watchers.get(pid)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ExtPidWatcher', e); }
@@ -212,6 +224,22 @@ export function notifyObdConnected(): void {
   _pushToNative();
 }
 
+/**
+ * Teşhis BURST modunu aç/kapat (OBD Canlı Test ekranı görünürlüğüne bağlı). Açıkken:
+ *  - TS tavanı ELM_WATCH_CAP_BURST'e yükselir (tüm çekirdek-olmayan PID izlenebilir),
+ *  - native pollLoop EXTENDED grubunu her turda TÜMÜYLE okur (setObdDiagnosticBurst).
+ * Kapanınca eski düşük-yük rotasyonuna döner (Malı-400 sıfır-maliyet sözleşmesi).
+ */
+export function setDiagnosticBurst(on: boolean): void {
+  if (_burst === on) return;
+  _burst = on;
+  if (Capacitor.isNativePlatform() && CarLauncher.setObdDiagnosticBurst) {
+    void CarLauncher.setObdDiagnosticBurst({ enable: on })
+      .catch(() => { /* eski APK / köprü hatası → fail-soft */ });
+  }
+  _pushToNative(); // cap değişti → native izlenen liste büyür/küçülür
+}
+
 /** Test yardımcıları — üretim kodu çağırmaz. */
 export const _internals = {
   reset(): void {
@@ -221,6 +249,7 @@ export const _internals = {
     _discoveryQueue = [];
     _listenerHandle = null;
     _listenerStarting = false;
+    _burst = false;
   },
   onExtendedData: _onExtendedData,
   buildNativeList: _buildNativeList,

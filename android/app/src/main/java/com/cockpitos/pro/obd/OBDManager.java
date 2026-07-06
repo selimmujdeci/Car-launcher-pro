@@ -264,6 +264,17 @@ public final class OBDManager {
     /** Round-robin imleci — yalnız pollLoop thread'inden erişilir. */
     private int extendedIdx = 0;
 
+    /**
+     * Teşhis BURST modu (OBD Canlı Test ekranı): açıkken pollLoop EXTENDED grubunun
+     * TÜM izlenen PID'lerini HER turda okur (round-robin "turda 1" yerine) ve tur arası
+     * bekleme kısaltılır → tüm sensörler ~saniyeler içinde tazelenir. Yalnız test ekranı
+     * GÖRÜNÜRKEN açılır (setDiagnosticBurst(false) ile kapanır) — Malı-400 sıfır-maliyet
+     * sözleşmesi korunur: kimse izlemiyorken ekstra trafik yok.
+     */
+    private volatile boolean diagnosticBurst = false;
+    /** BURST modunda tur arası minimum bekleme (ms) — ECU'yu boğmadan hızlı tazeleme. */
+    private static final int BURST_POLL_MS = 400;
+
     public OBDManager(Context context, OnOBDDataListener listener) {
         this.mContext = context.getApplicationContext();
         this.listener = listener;
@@ -551,14 +562,24 @@ public final class OBDManager {
                     lastVoltage = queuedVoltageRead();
                 }
 
-                // Patch 8: EXTENDED grup — turda EN FAZLA BİR PID, round-robin, POLL_SLOW
-                // önceliğinde (DTC/USER her zaman öne geçer). Liste boşken sıfır maliyet.
+                // Patch 8: EXTENDED grup — normalde turda EN FAZLA BİR PID, round-robin,
+                // POLL_SLOW önceliğinde (DTC/USER her zaman öne geçer). Liste boşken sıfır
+                // maliyet. BURST modunda (Canlı Test ekranı) turda TÜM liste okunur.
                 java.util.List<String> ext = extendedPids;
                 if (!ext.isEmpty()) {
-                    final String extPid = ext.get(extendedIdx % ext.size());
-                    extendedIdx++;
-                    String extRaw = queuedExtendedRead(extPid);
-                    if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                    if (diagnosticBurst) {
+                        // Teşhis burst: tüm izlenen PID'ler bu turda okunur → hızlı tazeleme.
+                        for (String extPid : ext) {
+                            if (!obdRunning) break;
+                            String extRaw = queuedExtendedRead(extPid);
+                            if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                        }
+                    } else {
+                        final String extPid = ext.get(extendedIdx % ext.size());
+                        extendedIdx++;
+                        String extRaw = queuedExtendedRead(extPid);
+                        if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                    }
                 }
                 pollCycle++;
 
@@ -566,7 +587,9 @@ public final class OBDManager {
                 listener.onObdData(new ObdPollSample(speed, rpm, engineTemp, fuelLevel,
                     throttle, intakeTemp, boostPressure, lastVoltage));
 
-                Thread.sleep(fastPollMs);
+                // BURST modunda tur arası bekleme kısaltılır (tüm PID'ler zaten bu turda
+                // okundu → tur uzun; ek uzun bekleme "sabit" hissi verirdi).
+                Thread.sleep(diagnosticBurst ? BURST_POLL_MS : fastPollMs);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -626,8 +649,17 @@ public final class OBDManager {
             return;
         }
         java.util.List<String> copy = new java.util.ArrayList<>(
-            pids.subList(0, Math.min(pids.size(), 32)));
+            pids.subList(0, Math.min(pids.size(), 48)));
         this.extendedPids = java.util.Collections.unmodifiableList(copy);
+    }
+
+    /**
+     * Teşhis BURST modunu aç/kapat (OBD Canlı Test ekranı görünürlüğüne bağlı). Açıkken
+     * pollLoop EXTENDED grubunun tüm izlenen PID'lerini her turda okur (hızlı tazeleme).
+     * Kapanınca eski düşük-yük round-robin davranışına döner.
+     */
+    public void setDiagnosticBurst(boolean on) {
+        this.diagnosticBurst = on;
     }
 
     /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 8). */

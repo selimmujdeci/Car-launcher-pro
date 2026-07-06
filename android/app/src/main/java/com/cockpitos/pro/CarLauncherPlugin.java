@@ -1372,6 +1372,20 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * Teşhis BURST modu (OBD Canlı Test ekranı) — açıkken EXTENDED grubunun tüm izlenen
+     * PID'leri her poll turunda okunur (hızlı tazeleme). Ekran kapanınca kapatılır →
+     * düşük-yük round-robin'e döner (Malı-400 sözleşmesi). Classic/TCP (OBDManager) yolu.
+     */
+    @PluginMethod
+    public void setObdDiagnosticBurst(PluginCall call) {
+        boolean enable = call.getBoolean("enable", false);
+        if (obdManager != null) obdManager.setDiagnosticBurst(enable);
+        JSObject ret = new JSObject();
+        ret.put("enabled", enable);
+        call.resolve(ret);
+    }
+
     // ── DTC (Mode 03 / 04) ──────────────────────────────────────────────────
     // dtcService.ts bu metotları çağırır. Eskiden native implementasyon HİÇ
     // YOKTU → her tarama "method not implemented" reject → UI her zaman
