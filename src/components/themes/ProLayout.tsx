@@ -3,7 +3,7 @@ const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => (
 import {
   Navigation, Maximize2, SkipBack, SkipForward, Play, Pause,
   Phone, Clock3, Mic, Bell, Wind, Settings, LayoutGrid,
-  Map as MapIcon, Music2, Bluetooth, Wifi, Lock, Plug, Fan, ChevronRight,
+  Map as MapIcon, Music2, Lock, Plug, Fan, ChevronRight,
   CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
   AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench, Gauge,
 } from 'lucide-react';
@@ -12,6 +12,7 @@ import { useStore } from '../../store/useStore';
 import { useClock } from '../../hooks/useClock';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useDeviceStatus } from '../../platform/deviceApi';
+import { StatusControls } from '../common/StatusControls';
 import { useOBDState } from '../../platform/obdService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
@@ -152,13 +153,7 @@ const StatusCluster = memo(function StatusCluster() {
           opacity:    online ? 1 : 0.4,
         }}
       />
-      <Bluetooth className="w-3.5 h-3.5" />
-      <div className="flex items-end gap-[2px] h-3.5">
-        {[4, 7, 10, 13].map((h, i) => (
-          <div key={i} style={{ width: 2.5, height: h, background: p.ink2, borderRadius: 1 }} />
-        ))}
-      </div>
-      <Wifi className="w-3.5 h-3.5" />
+      <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent }} size={15} />
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
         {device.ready ? `${device.battery}%` : '—'}
       </span>

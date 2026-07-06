@@ -2,7 +2,7 @@ import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createConte
 import {
   Navigation, Music2, Mic, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
-  Bluetooth, Wifi, Volume2, ChevronRight, CornerUpRight,
+  ChevronRight, CornerUpRight,
   Fuel, Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   LayoutGrid, Wind, Crosshair, Mountain, Gauge, Thermometer, Battery, Droplet,
 } from 'lucide-react';
@@ -22,6 +22,7 @@ import { useClock, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
+import { StatusControls } from '../common/StatusControls';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { useNavigation } from '../../platform/navigationService';
 import { useRouteState } from '../../platform/routingService';
@@ -215,12 +216,7 @@ const HzTopBar = memo(function HzTopBar() {
       <div className="flex items-center" style={{ gap: 13, color: p.onDark2 }}>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
-        <Bluetooth className="w-[17px] h-[17px]" />
-        <div className="flex items-end" style={{ gap: 2, height: 14 }}>
-          {[5, 8, 11, 14].map((h, i) => <div key={i} style={{ width: 3, height: h, background: 'currentColor', borderRadius: 1 }} />)}
-        </div>
-        <Wifi className="w-[17px] h-[17px]" />
-        <Volume2 className="w-[17px] h-[17px]" />
+        <StatusControls palette={{ ink: p.ink, ink2: p.onDark2, accent: p.accent, surface: p.panel, line: p.edge }} size={17} />
         <span className="flex items-center" style={{ gap: 6, padding: '6px 11px', borderRadius: 999, background: p.panel, border: `1px solid ${p.edge}`, boxShadow: p.elev }}>
           <span style={{ fontWeight: 700, fontSize: 13, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
         </span>

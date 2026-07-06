@@ -20,6 +20,7 @@ import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
+import { StatusControls } from '../common/StatusControls';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
@@ -173,11 +174,7 @@ const StatusCluster = memo(function StatusCluster() {
           </span>
         )}
       </button>
-      <Bluetooth className="w-3.5 h-3.5" />
-      <div className="flex items-end gap-[2px] h-3.5">
-        {[4, 7, 10, 13].map((h, i) => <div key={i} style={{ width: 2.5, height: h, background: p.ink2, borderRadius: 1 }} />)}
-      </div>
-      <Wifi className="w-3.5 h-3.5" />
+      <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{device.ready ? `${device.battery}%` : '—'}</span>
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
     </div>

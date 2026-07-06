@@ -95,6 +95,43 @@ export function updateDeviceStatus(partial: Partial<DeviceStatus>): void {
   _listeners.forEach((fn) => fn(_current));
 }
 
+/* ── Canlı yoklama (BT/WiFi durumu güncel kalsın) ─────────── */
+
+/** getDeviceStatus yoklama periyodu — durum düğmeleri "bağlı/sönük" görünümünü
+ *  güncel tutar (kullanıcı WiFi/BT açıp kapatınca ikon birkaç sn içinde değişir). */
+const DEVICE_POLL_MS = 8_000;
+
+let _pollTimer: ReturnType<typeof setInterval> | null = null;
+let _pollRefs = 0;
+
+function _refreshDeviceStatus(): void {
+  if (!isNative) return;
+  CarLauncher.getDeviceStatus()
+    .then((s) => { try { updateDeviceStatus({ ...s, ready: true }); } catch { /* ignore */ } })
+    .catch(() => { try { updateDeviceStatus({ ready: true }); } catch { /* ignore */ } });
+}
+
+/** Ref-count'lu tek yoklayıcı — kaç useDeviceStatus abonesi olursa olsun TEK interval. */
+function _startPolling(): void {
+  _pollRefs++;
+  if (_pollTimer !== null || !isNative) return;
+  _refreshDeviceStatus();                                   // mount'ta anında ilk okuma
+  _pollTimer = setInterval(_refreshDeviceStatus, DEVICE_POLL_MS);
+}
+
+function _stopPolling(): void {
+  _pollRefs = Math.max(0, _pollRefs - 1);
+  if (_pollRefs === 0 && _pollTimer !== null) {
+    clearInterval(_pollTimer);
+    _pollTimer = null;
+  }
+}
+
+/** Native durum panelinden dönünce anında tazele (poll periyodunu bekleme). */
+export function refreshDeviceStatusNow(): void {
+  _refreshDeviceStatus();
+}
+
 /* ── React hook ──────────────────────────────────────────── */
 
 export function useDeviceStatus(): DeviceStatus {
@@ -108,13 +145,12 @@ export function useDeviceStatus(): DeviceStatus {
   );
 
   useEffect(() => {
-    // Native: fetch real device state on mount; mark ready regardless of outcome
-    if (isNative && !status.ready) {
-      CarLauncher.getDeviceStatus()
-        .then((s) => { try { updateDeviceStatus({ ...s, ready: true }); } catch { /* ignore */ } })
-        .catch(() => { try { updateDeviceStatus({ ready: true }); } catch { /* ignore */ } });
-    }
-  }, [status.ready]);
+    // Native: mount'ta gerçek durumu oku + periyodik yokla (BT/WiFi canlı yansısın).
+    // Ref-count'lu → 4 tema aynı anda useDeviceStatus çağırsa da tek interval çalışır.
+    if (!isNative) return;
+    _startPolling();
+    return () => _stopPolling();
+  }, []);
 
   return status;
 }

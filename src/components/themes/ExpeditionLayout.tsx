@@ -2,7 +2,7 @@ import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createConte
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
-  Bluetooth, Wifi, Volume2, ChevronRight, Maximize2, CornerUpRight,
+  ChevronRight, Maximize2, CornerUpRight,
   BatteryCharging, Fuel, Gauge,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
 } from 'lucide-react';
@@ -22,6 +22,7 @@ import { useEngineReadout } from '../../hooks/useEngineReadout';
 import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
+import { StatusControls } from '../common/StatusControls';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { type AppItem } from '../../data/apps';
@@ -178,12 +179,7 @@ const Header = memo(function Header() {
         </button>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
-        <Bluetooth className="w-4 h-4" />
-        <div className="flex items-end" style={{ gap: 2, height: 15 }}>
-          {[5, 8, 11, 14].map((h, i) => <div key={i} style={{ width: 3, height: h, background: p.ink2, borderRadius: 1 }} />)}
-        </div>
-        <Wifi className="w-[18px] h-[18px]" />
-        <Volume2 className="w-[18px] h-[18px]" />
+        <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, line: p.hairline }} size={17} />
         <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
         <span style={{ width: 1, height: 18, background: p.hairline }} />
         <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{time}</span>
