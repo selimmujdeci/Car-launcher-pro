@@ -466,8 +466,24 @@ function _startDataValidationGate(gen: number): void {
 }
 
 /**
+ * Data gate'i açacak "araç gerçekten yanıt veriyor" sinyali — HERHANGİ bir çekirdek
+ * ECU PID'i (hız/RPM/su/yakıt/gaz/emme/boost). Eskiden yalnız speed|rpm bakılıyordu;
+ * ama 010C/010D bazı araçlarda (Renault EMS 7E0 header, motor kapalı, protokol sırası)
+ * NO-DATA (-1) döner → sanitizer bunları patch'e koymaz → gate hiç açılmaz →
+ * connectionState 'initializing'de takılır → araç bağlı + veri akarken UI "bağlan"
+ * gösterir (saha hatası). batteryVoltage (ATRV) BİLİNÇLİ HARİÇ: adaptör seviyesinden
+ * ECU'suz da gelebilir → yanlış "bağlı" pozitifi vermesin.
+ */
+function _hasEcuData(patch: Partial<OBDData>): boolean {
+  return patch.speed !== undefined || patch.rpm !== undefined
+    || patch.engineTemp !== undefined || patch.fuelLevel !== undefined
+    || patch.throttle !== undefined || patch.intakeTemp !== undefined
+    || patch.boostPressure !== undefined;
+}
+
+/**
  * Native veri olayı için merkezi yönlendirici.
- * Gate geçilmemişse: hız veya RPM içeren ilk pakette 'connected'/'real'e geç.
+ * Gate geçilmemişse: çekirdek ECU PID'i içeren ilk pakette 'connected'/'real'e geç.
  * Gate geçildikten sonra: tüm patch'ler doğrudan merge edilir.
  *
  * ValidationGuard: EV profili aktifken OBD speed=0 ama GPS speed>10 durumu
@@ -476,14 +492,14 @@ function _startDataValidationGate(gen: number): void {
 function _onRealData(patch: Partial<OBDData>): void {
   _lastRealDataMs = Date.now();
 
-  // Fix 3: ısınma devam ediyorken geçerli PID (speed/RPM) gelirse 2s deadline'ı iptal et
-  if (_warmupActive && _warmupResolve && (patch.speed !== undefined || patch.rpm !== undefined)) {
+  // Fix 3: ısınma devam ediyorken geçerli çekirdek PID gelirse 2s deadline'ı iptal et
+  if (_warmupActive && _warmupResolve && _hasEcuData(patch)) {
     _warmupResolve();
     return; // gate açılana kadar bu paket görmezden gelinir; sonraki paket connected'e geçirir
   }
 
   if (!_dataGatePassed) {
-    if (patch.speed !== undefined || patch.rpm !== undefined) {
+    if (_hasEcuData(patch)) {
       _dataGatePassed = true;
       if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
       _merge({ ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real' });
