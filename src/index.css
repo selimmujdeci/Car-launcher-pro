@@ -17,6 +17,8 @@
 @import "./styles/dock-premium.css";
 /* Açık tema EN SON — load-order ile koyu kuralları ezer (html.light-ui ile tetiklenir) */
 @import "./styles/light-theme.css";
+/* Eski head unit WebView (Chrome<87) inset shorthand fallback — EN SON yüklenir */
+@import "./styles/webview-compat.css";
 
 /* ═══════════════════════════════════════════════════════════
    SUNLIGHT MODE — autoBrightnessService.ts tarafından yönetilir

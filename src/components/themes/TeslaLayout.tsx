@@ -3,7 +3,7 @@ import type { ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactM
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause,
-  Bluetooth, Wifi, ChevronRight, Maximize2, CornerUpRight,
+  ChevronRight, Maximize2, CornerUpRight,
   Thermometer, BatteryCharging, Gauge, Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
 } from 'lucide-react';

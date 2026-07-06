@@ -1,0 +1,20 @@
+/**
+ * webview-compat — eski head unit WebView (Chrome 64–86) CSS shorthand fallback'leri.
+ *
+ * `inset` property Chrome 87+'da geldi. Tailwind v4 `.inset-0` / `.inset-x-0` / `.inset-y-0`
+ * utility'leri `inset:` SHORTHAND üretir; Vite (cssTarget:chrome61) bunu ayrı
+ * top/right/bottom/left'e AÇMIYOR → derlenmiş CSS'te `inset:calc(var(--spacing)*0)` kalıyor
+ * → Chrome<87 head unit'te TÜM kural GEÇERSİZ sayılıp düşüyor → `fixed inset-0` / `absolute
+ * inset-0` elemanlar konumsuz+boyutsuz kalıyor. Saha hatası: tam ekran harita (FullMapView)
+ * head unit'te açılmıyor; telefonda (modern Chrome) sorunsuz.
+ *
+ * Fallback: aynı utility'lere AYRI uzun-biçim property'ler EKLE. `top/right/bottom/left`
+ * Chrome 1+'dan beri var → head unit'te tutar. Modern tarayıcıda `inset` de uygulanır,
+ * sonuç birebir aynı (yalnız zararsız fazlalık). Böylece TÜM inset-0 kullanan yerler
+ * (harita, drawer, overlay, modal) tek kuralla eski WebView'de düzelir.
+ */
+@layer utilities {
+  .inset-0   { top: 0; right: 0; bottom: 0; left: 0; }
+  .inset-x-0 { left: 0; right: 0; }
+  .inset-y-0 { top: 0; bottom: 0; }
+}
