@@ -1777,9 +1777,13 @@ public class CarLauncherPlugin extends Plugin {
     // oturum 9sn tavana takılıyordu ("Dinliyorum" askısı). Konuşma görüldükten
     // sonra RMS, gürültü tabanının altına düşüp bu süre boyunca orada kalırsa
     // beklemeden finalize edilir. Taban ilk 4 pencereden (~1sn) öğrenilir.
-    private static final long  VOSK_VAD_SILENCE_MS   = 900;
-    private static final float VOSK_VAD_MIN_THRESH   = 0.015f; // mutlak alt eşik (sessiz kabin)
-    private static final float VOSK_VAD_FLOOR_FACTOR = 2.5f;   // taban × bu = konuşma eşiği
+    // SAHA 2026-07-06 ("araç içinde duymuyor, hassas değil"): VAD eşiği araç/yol
+    // gürültüsünde çok yüksek kalıp konuşmayı "gürültü" sayıyordu → hassaslaştırıldı.
+    // Konuşma eşiği (taban×FACTOR) ve mutlak alt eşik düşürüldü; sessizlik penceresi
+    // biraz uzatıldı ki kullanıcı cümle ortasında duraklayınca erken kesilmesin.
+    private static final long  VOSK_VAD_SILENCE_MS   = 1100;   // 900 → 1100 (duraklama toleransı)
+    private static final float VOSK_VAD_MIN_THRESH   = 0.010f; // 0.015 → 0.010 (sessiz kabinde daha hassas)
+    private static final float VOSK_VAD_FLOOR_FACTOR = 1.9f;   // 2.5 → 1.9 (gürültü tabanına daha yakın konuşmayı yakala)
     private volatile float voskGain        = VOSK_GAIN_DEFAULT;
     private volatile long  voskMaxListenMs = VOSK_MAX_LISTEN_MS_DEFAULT;
     // Wake word pasif döngüsü müziği KISMAMALI (sürekli %12 duck = müzik
