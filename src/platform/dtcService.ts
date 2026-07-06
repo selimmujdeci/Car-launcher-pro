@@ -373,6 +373,11 @@ export function onDTCState(fn: (s: DTCState) => void): () => void {
   return () => { _listeners.delete(fn); };
 }
 
+/** Tanı raporu için anlık DTC durumu (kopya — dış mutasyona kapalı). */
+export function getDTCStateSnapshot(): DTCState {
+  return { ..._state, codes: [..._state.codes] };
+}
+
 export function useDTCState(): DTCState {
   const [s, setS] = useState<DTCState>({ ..._state, codes: [..._state.codes] });
   useEffect(() => onDTCState(setS), []);

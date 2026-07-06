@@ -25,6 +25,7 @@
  */
 
 import { create } from 'zustand';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ─────────────────────────────────────────────────────────────── */
 /* TYPES                                                           */
@@ -82,7 +83,7 @@ let _initialized       = false;
 let _absOrientHandler:  ((e: Event) => void) | null = null;
 let _relOrientHandler:  ((e: Event) => void) | null = null;
 let _motionHandler:     ((e: Event) => void) | null = null;
-let _syncTimer:         ReturnType<typeof setInterval> | null = null;
+let _syncTimer:         (() => void) | null = null;
 
 /* ─────────────────────────────────────────────────────────────── */
 /* ANGLE MATH                                                      */
@@ -239,6 +240,12 @@ const _useARStore = create<ARAlignment>(() => ({
   sensorActive:     false,
 }));
 
+/**
+ * FAZ 16 grup-2: scheduler görevi (§L.0, periodMs=500). Saf "modül-seviyesi
+ * güncel durumu Zustand'a yaz" — tick-sayımına dayalı birikim yok, idempotent;
+ * periyot düşük-tier'da uzasa da (BASIC_JS ~1000ms) yalnız UI güncelleme
+ * pürüzsüzlüğü hafif düşer (kabul edilebilir — AR overlay kritik değil).
+ */
 function _syncStore(): void {
   _useARStore.setState({
     fusedHeadingDeg:  _fusedHeadingDeg,
@@ -268,8 +275,10 @@ export function startARAlignment(): void {
   // Motion (gyro integration + pitch/roll from accelerometer)
   window.addEventListener('devicemotion', _motionHandler, true);
 
-  // Sync to Zustand store at 2 fps — 10fps gereksiz CPU harcıyor
-  _syncTimer = setInterval(_syncStore, 500);
+  // Sync to Zustand store at 2 fps — 10fps gereksiz CPU harcıyor (§L.0, FAZ 16).
+  _syncTimer = runtimeManager.scheduleTask({
+    id: 'ar-align-sync', periodMs: 500, criticality: 'NORMAL', fn: _syncStore,
+  });
 }
 
 /** Stop all sensor listeners and reset alignment state. */
@@ -286,7 +295,7 @@ export function stopARAlignment(): void {
     window.removeEventListener('devicemotion', _motionHandler, true);
     _motionHandler = null;
   }
-  if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
+  if (_syncTimer) { _syncTimer(); _syncTimer = null; }
 
   _fusedHeadingDeg   = 0;
   _pitchDeg          = 15;

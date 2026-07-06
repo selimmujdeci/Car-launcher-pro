@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Sabitler ────────────────────────────────────────────── */
 
@@ -16,6 +17,7 @@ const SPEED_THRESHOLD_KMH = 5;
 const STOP_RESET_MIN      = 5;     // dk — araç durursa sayaç sıfırlanır
 const DEFAULT_INTERVAL_MIN = 120;  // 2 saat
 const SNOOZE_MIN           = 30;   // dismiss sonrası gecikme
+const TICKER_PERIOD_MS     = 30_000; // FAZ 16 — scheduler periodMs (BALANCED'ta AYNEN korunur)
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -49,32 +51,45 @@ function push(partial: Partial<BreakReminderState>): void {
 
 /* ── Sayaç ticker ────────────────────────────────────────── */
 
-let _tickerId: ReturnType<typeof setInterval> | null = null;
+let _tickerId: (() => void) | null = null;
 let _stoppedAt: number | null = null;
 
+/**
+ * FAZ 16 — sabit 30s `setInterval` yerine scheduler (§L.0, periodMs API).
+ * BALANCED/PERFORMANCE'ta 30s AYNEN korunur (mod çarpanı=1); düşük-tier'da
+ * yavaşlar. DENETİM (coordinator "EN RİSKLİ" uyarısı): tick gövdesi tick-
+ * SAYIMINA göre süre biriktirmiyor — `elapsedMin` her seferinde
+ * `performance.now() - _state.drivingStartedAt` MUTLAK farkından yeniden
+ * hesaplanıyor (yorumdaki "clock-jump immune" tasarımı zaten buna göre).
+ * Periyot moda göre uzasa bile `drivingElapsedMin` ve mola uyarısı eşiği HER
+ * ZAMAN doğru kalır — tek fark kontrol sıklığı (sonuç bozulmaz).
+ */
 function startTicker(): void {
   if (_tickerId) return;
-  _tickerId = setInterval(() => {
-    try {
-      if (!_state.enabled || !_state.drivingStartedAt) return;
-      const elapsedMin = (performance.now() - _state.drivingStartedAt) / 60000;
-      push({ drivingElapsedMin: elapsedMin });
+  _tickerId = runtimeManager.scheduleTask({
+    id: 'break-reminder', periodMs: TICKER_PERIOD_MS, criticality: 'NORMAL',
+    fn: () => {
+      try {
+        if (!_state.enabled || !_state.drivingStartedAt) return;
+        const elapsedMin = (performance.now() - _state.drivingStartedAt) / 60000;
+        push({ drivingElapsedMin: elapsedMin });
 
-      if (!_state.alertVisible && elapsedMin >= _state.intervalMin) {
-        // Snooze kontrolü
-        const sinceSnooze = _state.lastDismissedAt
-          ? (performance.now() - _state.lastDismissedAt) / 60000
-          : Infinity;
-        if (sinceSnooze >= SNOOZE_MIN) {
-          push({ alertVisible: true });
+        if (!_state.alertVisible && elapsedMin >= _state.intervalMin) {
+          // Snooze kontrolü
+          const sinceSnooze = _state.lastDismissedAt
+            ? (performance.now() - _state.lastDismissedAt) / 60000
+            : Infinity;
+          if (sinceSnooze >= SNOOZE_MIN) {
+            push({ alertVisible: true });
+          }
         }
-      }
-    } catch { /* interval must never crash */ }
-  }, 30000); // 30 sn'de bir kontrol
+      } catch { /* görev hiçbir zaman scheduler'ı çökertmemeli (fail-soft) */ }
+    },
+  });
 }
 
 function stopTicker(): void {
-  if (_tickerId) { clearInterval(_tickerId); _tickerId = null; }
+  if (_tickerId) { _tickerId(); _tickerId = null; }
 }
 
 /* ── Hız güncellemesi ────────────────────────────────────── */

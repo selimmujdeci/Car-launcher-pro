@@ -105,10 +105,23 @@ const LOW_FUEL_OFF  = 17;
 const CRIT_FUEL_ON  = 5;
 const CRIT_FUEL_OFF = 7;
 
+// Motor soğutma suyu (ECT, PID 0x05) — histerezis: trigger≠reset (flicker önleme).
+// 105°C eşiği kod tabanındaki mevcut konvansiyonla tutarlı (ENGINE_TEMP_HIGH_C —
+// livingThemeState.ts, contextEngine.ts, offlineConversationEngine.ts). 5°C reset
+// bandı 8s poll periyoduna göre gürültüye karşı yeterli (motor termal kütlesi yavaş
+// değişir — CLAUDE.md "Hysteresis" kuralı).
+const ENGINE_OVERHEAT_ON  = 105;
+const ENGINE_OVERHEAT_OFF = 100;
+// Sanity: obdSanitizer.ts _BOUNDS.engineTemp ile aynı NTC sensör aralığı — PID 0x05
+// formülünün ham sınırı -40..215°C'dir (StandardPidRegistry) ama gerçekçi üst sınır
+// ~130°C; bunun dışı "imkânsız veri" sayılır ve reddedilir (CLAUDE.md Sensor Resiliency).
+const COOLANT_TEMP_MIN = -40;
+const COOLANT_TEMP_MAX = 130;
+
 // ── Sensör durumu (in-place mutasyon, GC baskısı 0) ──────────────────────
 
-const _can: CanAdapterData & { speed?: number; reverse?: boolean; fuel?: number } = {};
-const _obd: ObdAdapterData & { speed?: number; fuel?: number; rpm?: number; reverse?: boolean; totalDistance?: number } = {};
+const _can: CanAdapterData & { speed?: number; reverse?: boolean; fuel?: number; coolantTemp?: number } = {};
+const _obd: ObdAdapterData & { speed?: number; fuel?: number; rpm?: number; reverse?: boolean; totalDistance?: number; coolantTemp?: number } = {};
 
 // GPS: location buffer pre-allocated; null durumu _gpsLocActive flag ile temsil edilir
 const _gpsLocBuf = { lat: 0, lng: 0, accuracy: 0 };
@@ -240,6 +253,7 @@ let _isDriving     = false;
 let _lowFuelFired  = false;
 let _critFuelFired = false;
 let _isReverse     = false;
+let _overheatFired = false;
 
 // ── Geofence durumu ───────────────────────────────────────────────────────
 //
@@ -299,6 +313,7 @@ function _sabEndWrite():   void { Atomics.add(_sabI32!, SAB_GEN_IDX, 1); }
 
 let _speedTimer:    ReturnType<typeof setInterval> | null = null;
 let _fuelTimer:     ReturnType<typeof setInterval> | null = null;
+let _coolantTimer:  ReturnType<typeof setInterval> | null = null;
 let _watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Pre-allocated outbound envelope'lar (zero-allocation) ────────────────
@@ -336,6 +351,7 @@ const _evReverseEngaged:    Extract<VehicleEvent, { type: 'REVERSE_ENGAGED' }>  
 const _evReverseDisengaged: Extract<VehicleEvent, { type: 'REVERSE_DISENGAGED' }> = { type: 'REVERSE_DISENGAGED', severity: 'CRITICAL', ts: 0 };
 const _evGeofenceExit:  Extract<VehicleEvent, { type: 'GEOFENCE_EXIT' }>  = { type: 'GEOFENCE_EXIT',  severity: 'CRITICAL', zoneId: '', zoneName: '', ts: 0 };
 const _evGeofenceEnter: Extract<VehicleEvent, { type: 'GEOFENCE_ENTER' }> = { type: 'GEOFENCE_ENTER', severity: 'INFO',     zoneId: '', zoneName: '', ts: 0 };
+const _evEngineOverheat: Extract<VehicleEvent, { type: 'ENGINE_OVERHEAT' }> = { type: 'ENGINE_OVERHEAT', severity: 'CRITICAL', coolantTempC: 0, ts: 0 };
 
 // ── Odometer persist helper ───────────────────────────────────────────────
 // Google Maps mantığı: her GPS/DR tick'inde _odoKm değişince hem SAB hem Zustand güncellenir.
@@ -476,6 +492,19 @@ function _handleEventFuel(fuel: number): void {
     _evLowFuel.ts       = Date.now();
     _postEvent(_evLowFuel);
   }
+}
+
+function _handleEventEngineTemp(coolantTempC: number): void {
+  // Re-arming: sıcaklık düşünce histerezis eşiğini aç (flicker önleme, CLAUDE.md Hysteresis)
+  if (_overheatFired && coolantTempC <= ENGINE_OVERHEAT_OFF) _overheatFired = false;
+
+  if (!_overheatFired && coolantTempC >= ENGINE_OVERHEAT_ON) {
+    _overheatFired               = true;
+    _evEngineOverheat.coolantTempC = coolantTempC;
+    _evEngineOverheat.ts           = Date.now();
+    _postEvent(_evEngineOverheat);
+  }
+  // ENGINE_OVERHEAT_OFF ≤ coolantTempC < ENGINE_OVERHEAT_ON → histerezis bandı, olay yok
 }
 
 function _handleEventReverse(reverse: boolean): void {
@@ -952,6 +981,32 @@ function _emitFuel(): void {
   _handleEventFuel(raw);
 }
 
+/**
+ * Motor soğutma suyu sıcaklığı — fuzyon CAN > OBD (fuel/hız ile aynı öncelik),
+ * sanity reddi + histerezisli ENGINE_OVERHEAT üretimi.
+ *
+ * Not: fuel/speed'in aksine sürekli bir VehicleState alanı YOK — yalnızca
+ * histerezis eşiği geçildiğinde semantik olay üretilir (Rule Engine deseni,
+ * bkz. _handleEventFuel). Sensör yoksa (raw==null) event üretilmez (fail-soft,
+ * sahte uyarı yasak — CLAUDE.md Sensor Resiliency).
+ */
+function _emitCoolant(): void {
+  let raw: number | undefined;
+
+  if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
+    raw = _can.coolantTemp;
+  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+    raw = _obd.coolantTemp;
+  }
+
+  if (raw == null) return; // sensör yok — sahte uyarı YASAK
+
+  // Sanity: imkânsız/aralık dışı okuma → tüm örneği reddet (adaptör glitch'i)
+  if (raw < COOLANT_TEMP_MIN || raw > COOLANT_TEMP_MAX) return;
+
+  _handleEventEngineTemp(raw);
+}
+
 function _watchdog(): void {
   const canAlive = _alive(_canLastSeen, SRC_TIMEOUT_CAN_MS);
   const obdAlive = _alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS);
@@ -1041,6 +1096,8 @@ function _checkGpsQuality(): void {
 function _startTimers(): void {
   _speedTimer    = setInterval(_emitSpeed,   SPEED_INTERVAL_MS);
   _fuelTimer     = setInterval(_emitFuel,    FUEL_INTERVAL_MS);
+  // Coolant, yakıttan da yavaş değişir — aynı 8s poll periyodu yeterli.
+  _coolantTimer  = setInterval(_emitCoolant, FUEL_INTERVAL_MS);
   _watchdogTimer = setInterval(_watchdog,    WATCHDOG_INTERVAL_MS);
 }
 
@@ -1074,10 +1131,11 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
   // ── Legacy buffer'ları da güncelle (odometer/geofence/DR uyumluluğu) ──
   const nowPerf = performance.now();
   if (source === 'CAN') {
-    _canLastSeen  = nowPerf;
-    _can.speed    = signals.speed?.value;
-    _can.reverse  = signals.reverse?.value;
-    _can.fuel     = signals.fuel?.value;
+    _canLastSeen      = nowPerf;
+    _can.speed        = signals.speed?.value;
+    _can.reverse      = signals.reverse?.value;
+    _can.fuel         = signals.fuel?.value;
+    _can.coolantTemp  = signals.coolantTemp?.value;
     if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
   } else if (source === 'OBD') {
     _obdLastSeen       = nowPerf;
@@ -1086,15 +1144,17 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     _obd.rpm           = signals.rpm?.value;
     _obd.reverse       = signals.reverse?.value;
     _obd.totalDistance = signals.totalDistance?.value;
+    _obd.coolantTemp   = signals.coolantTemp?.value;
     if (signals.reverse?.value != null)      _handleObdReverse(signals.reverse.value);
     if (signals.totalDistance?.value != null) _syncObdOdometer(signals.totalDistance.value);
   } else if (source === 'HAL') {
     // HAL: CanAdapterData uyumlu yapı — CAN legacy buffer'larını güncelle.
     // _emitFuel() ve watchdog legacy yolu üzerinden HAL yakıt/geri vites verisini görmesi için.
-    _canLastSeen  = nowPerf;
-    _can.speed    = signals.speed?.value;
-    _can.reverse  = signals.reverse?.value;
-    _can.fuel     = signals.fuel?.value;
+    _canLastSeen      = nowPerf;
+    _can.speed        = signals.speed?.value;
+    _can.reverse      = signals.reverse?.value;
+    _can.fuel         = signals.fuel?.value;
+    _can.coolantTemp  = signals.coolantTemp?.value;
     if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
   } else if (source === 'GPS') {
     const dtMs = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
@@ -1214,6 +1274,7 @@ function _handleRestoreOdo(msg: Extract<WorkerInMessage, { type: 'RESTORE_ODO' }
 function _handleStop(): void {
   if (_speedTimer    !== null) { clearInterval(_speedTimer);    _speedTimer    = null; }
   if (_fuelTimer     !== null) { clearInterval(_fuelTimer);     _fuelTimer     = null; }
+  if (_coolantTimer  !== null) { clearInterval(_coolantTimer);  _coolantTimer  = null; }
   if (_watchdogTimer !== null) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
   _clearReverseTimers();
 }

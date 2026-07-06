@@ -11,7 +11,7 @@
  *     desen geri alınırsa test düşer). Her birinin NEDEN'i yorumda.
  */
 /// <reference types="vite/client" />
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
@@ -30,6 +30,13 @@ import pushServiceSrc from '../platform/pushService.ts?raw';
 import fcmServiceSrc from '../platform/fcmService.ts?raw';
 import obdServiceSrc from '../platform/obdService.ts?raw';
 import mainLayoutSrc from '../components/layout/MainLayout.tsx?raw';
+import vehicleComputeWorkerSrc from '../platform/vehicleDataLayer/VehicleCompute.worker.ts?raw';
+import vehicleEventHubSrc from '../platform/vehicleDataLayer/VehicleEventHub.ts?raw';
+import systemOrchestratorSrc from '../platform/system/SystemOrchestrator.ts?raw';
+import healthMonitorSrc from '../platform/system/SystemHealthMonitor.ts?raw';
+import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import { RuntimeMode } from '../core/runtime/runtimeTypes';
+import { forceMode } from './sim/runtimeSimulator';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -1056,6 +1063,22 @@ describe('Eski WebView compute-worker kilidi (VehicleCompute/VisionCompute Chrom
     expect(src, 'worker transpile hedefi es2015 değil — ?. ??  Chrome<80\'de düşmez')
       .toMatch(/target:\s*'es2015'/);
   });
+
+  // KÖK NEDEN (SAHA 2026-07-06, /admin/tani olay izi + robot): VehicleCompute worker
+  // satır-1'de "Uncaught ReferenceError: require is not defined" ile ölüyordu → araç
+  // veri katmanı ölü (heartbeat yok). Sebep: oxc es2015'e indirirken class-field'ı
+  // (`x = 0`, ör. OdometerGuard) `_defineProperty` helper'ına çeviriyor ve onu Runtime
+  // modunda `require("@oxc-project/runtime/helpers/defineProperty")` ile çağırıyor;
+  // IIFE worker'da `require` YOK. Fix: transformWithOxc'a assumptions.setPublicClassFields
+  // → class-field düz atamaya iner, helper üretilmez. İKİ kilit: (1) seçenek sabit,
+  // (2) build-guard helper require'ı kalırsa build'i düşürür (sessiz worker-ölümü yok).
+  it('YAPISAL: worker es2015 transpile class-field\'ı düz atamaya indirir (require helper YOK)', () => {
+    const src = read('vite.config.ts');
+    expect(src, 'assumptions.setPublicClassFields kaldırılmış — oxc class-field\'ı _defineProperty helper\'ına çevirir, IIFE worker\'da require yok → "require is not defined" ile worker ölür')
+      .toMatch(/setPublicClassFields:\s*true/);
+    expect(src, 'worker chunk\'ında oxc-runtime require kalırsa build\'i DÜŞÜREN guard kaldırılmış — regresyon sessizce satışa gidebilir')
+      .toMatch(/runtime helper require'ı üretti/);
+  });
 });
 
 describe('Boot hard-guard kilidi (adb yok → ekran = teşhis aracı)', () => {
@@ -1154,5 +1177,158 @@ describe('OBD Core v2 — obdStatus reason disiplini kilidi (reconnect fırtına
       .toMatch(/loadObdProtocol/);
     expect(obdServiceSrc, 'saveObdProtocol çağrısı kaldırılmış — ATDPN ile öğrenilen protokol persist edilmiyor')
       .toMatch(/saveObdProtocol\(/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   ENGINE_OVERHEAT ZİNCİRİ (Vehicle Intelligence Architecture FAZ 1)
+   0x05 (ECT) → VAL coolantTemp → worker histerezis → VehicleEvent →
+   SystemOrchestrator (kırmızı kart + safety-overheat.wav sesli uyarı).
+   Regresyon: eşik geçilince event üretilmezse veya histerezis bandı
+   kaldırılırsa (trigger===reset) dur-kalk sıcaklık dalgalanmasında
+   uyarı flicker eder — CLAUDE.md "Hysteresis" kuralının canlı örneği.
+   ─────────────────────────────────────────────────────────────── */
+describe('ENGINE_OVERHEAT zinciri kilidi (motor aşırı ısınma histerezisi)', () => {
+  it('YAPISAL: trigger ≠ reset eşiği (histerezis bandı kaldırılırsa flicker döner)', () => {
+    expect(vehicleComputeWorkerSrc, 'ENGINE_OVERHEAT_ON sabiti kaldırılmış')
+      .toMatch(/const ENGINE_OVERHEAT_ON\s*=\s*(\d+)/);
+    expect(vehicleComputeWorkerSrc, 'ENGINE_OVERHEAT_OFF sabiti kaldırılmış')
+      .toMatch(/const ENGINE_OVERHEAT_OFF\s*=\s*(\d+)/);
+
+    const onMatch  = vehicleComputeWorkerSrc.match(/const ENGINE_OVERHEAT_ON\s*=\s*(\d+)/);
+    const offMatch = vehicleComputeWorkerSrc.match(/const ENGINE_OVERHEAT_OFF\s*=\s*(\d+)/);
+    const on  = Number(onMatch?.[1]);
+    const off = Number(offMatch?.[1]);
+    expect(off, 'reset eşiği trigger eşiğine eşit/üstünde — histerezis yok, dur-kalk sıcaklıkta flicker garanti').toBeLessThan(on);
+  });
+
+  it('YAPISAL: eşik geçilince (re-arming) tek seferlik ENGINE_OVERHEAT üretilir', () => {
+    expect(vehicleComputeWorkerSrc, '_overheatFired bayrağı kaldırılmış — histerezis takibi olmadan her tick\'te olay tekrar üretilir')
+      .toMatch(/_overheatFired/);
+    expect(vehicleComputeWorkerSrc, 'Re-arming (OFF eşiğinde bayrak sıfırlama) kaldırılmış — sıcaklık bir daha ASLA yeniden uyarmaz')
+      .toMatch(/_overheatFired\s*&&\s*coolantTempC\s*<=\s*ENGINE_OVERHEAT_OFF\)\s*_overheatFired\s*=\s*false/);
+    expect(vehicleComputeWorkerSrc, 'ON eşiğinde tetikleme guard\'ı kaldırılmış')
+      .toMatch(/!_overheatFired\s*&&\s*coolantTempC\s*>=\s*ENGINE_OVERHEAT_ON/);
+  });
+
+  it('YAPISAL: sensör yoksa (raw==null) sahte ENGINE_OVERHEAT üretilmez (fail-soft)', () => {
+    expect(vehicleComputeWorkerSrc, '_emitCoolant erken-çıkışı kaldırılmış — sensörsüz araçta/OBD kopukken sahte uyarı üretilebilir')
+      .toMatch(/function _emitCoolant\(\)[\s\S]{0,400}if\s*\(raw\s*==\s*null\)\s*return/);
+  });
+
+  it('YAPISAL: imkânsız sıcaklık okuması reddedilir (sensör/adaptör glitch sanitization)', () => {
+    expect(vehicleComputeWorkerSrc, 'COOLANT_TEMP_MIN/MAX sanity sınırı kaldırılmış — adaptör glitch\'i (ör. >130°C) doğrudan olaya sızabilir')
+      .toMatch(/raw\s*<\s*COOLANT_TEMP_MIN\s*\|\|\s*raw\s*>\s*COOLANT_TEMP_MAX/);
+  });
+
+  it('YAPISAL: VehicleEventHub ENGINE_OVERHEAT tipini tanımlar (severity CRITICAL)', () => {
+    expect(vehicleEventHubSrc, "'ENGINE_OVERHEAT' VehicleEventType union'undan kaldırılmış")
+      .toMatch(/'ENGINE_OVERHEAT'/);
+    expect(vehicleEventHubSrc, "ENGINE_OVERHEAT severity CRITICAL değil — P1 preemption zayıflar")
+      .toMatch(/type:\s*'ENGINE_OVERHEAT';\s*severity:\s*'CRITICAL'/);
+  });
+
+  it('YAPISAL: SystemOrchestrator ENGINE_OVERHEAT\'i kırmızı kart + premium ses klibiyle işler', () => {
+    expect(systemOrchestratorSrc, "case 'ENGINE_OVERHEAT' kaldırılmış — Action Engine motor aşırı ısınmasını UI'a bağlamıyor")
+      .toMatch(/case 'ENGINE_OVERHEAT':/);
+    expect(systemOrchestratorSrc, "severity CRITICAL kaldırılmış — alert artık P1 önceliğinde değil")
+      .toMatch(/case 'ENGINE_OVERHEAT':[\s\S]{0,200}severity:\s*'CRITICAL'/);
+    // Metin voiceClips.ts CLIP_MANIFEST anahtarıyla BİREBİR eşleşmeli — aksi halde
+    // public/voice/safety-overheat.wav çalınmaz, sessizce eSpeak yedeğine düşer.
+    expect(systemOrchestratorSrc, "speakAlert metni voiceClips.ts safety-overheat klip anahtarıyla eşleşmiyor — premium ses çalınmaz")
+      .toMatch(/speakAlert\('Motor sıcaklığı yüksek, lütfen güvenli yerde durun\.'\)/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   FAZ 13/16 — §L.0 Hibrit Runtime Scheduler kilitleri (tek tick-wheel).
+   docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md:1176-1241. Ayrıntılı
+   davranış paketi src/__tests__/runtimeScheduler.test.ts'te; burada yalnız
+   temel invaryantlar kilitlenir: SAFETY periodMs'i hiçbir tier'da kısılmaz,
+   NORMAL görevler (kısa periyotlu olsalar bile) düşük tier'da GERÇEKTEN
+   yavaşlar (FAZ 16: eski "HOT sınıfı muaf" ayrıcalığı KALDIRILDI — yalnız
+   SAFETY muaf), destroy() wheel timer'ı gerçekten durdurur (Zero-Leak).
+   Not: forceMode() gerçek getDeviceTier()/hasWeakGpu()'yu kullanır — mock
+   gerekmez, çünkü SAFE_MODE her zaman en düşük rank (downgrade anlık uygulanır,
+   baseline ne olursa olsun).
+   ─────────────────────────────────────────────────────────────── */
+describe('Scheduler: SAFETY periodMs her tier\'da sabit, NORMAL düşük modda GERÇEKTEN kısılır kilidi', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    AdaptiveRuntimeManager._resetForTest();
+  });
+
+  it('SAFE_MODE\'da (en düşük tier) SAFETY görevi hâlâ taban periodMs\'te (5000ms→15 tik) koşar', () => {
+    vi.useFakeTimers();
+    const m = forceMode(RuntimeMode.SAFE_MODE);
+    let calls = 0;
+    m.scheduleTask({ id: 'lock-safety', periodMs: 5000, criticality: 'SAFETY', fn: () => { calls++; } });
+
+    vi.advanceTimersByTime(333 * 15); // round(5000/333)=15 tik — mod çarpanı SAFETY'yi kısamaz
+    expect(calls, 'SAFETY görevi SAFE_MODE\'da kısıldı — güvenlik-kritik katman artık her tier garanti açık değil')
+      .toBe(1);
+  });
+
+  it('SAFE_MODE\'da kısa periyotlu NORMAL görev de GERÇEKTEN yavaşlar (eski "HOT muafiyeti" kaldırıldı)', () => {
+    vi.useFakeTimers();
+    const m = forceMode(RuntimeMode.SAFE_MODE);
+    let calls = 0;
+    // periodMs=333 (BALANCED'ta her tik) — FAZ 16 öncesi 'HOT' sınıfı bunu her
+    // tier'da sabit tutardı; artık yalnız SAFETY muaf, bu görev NORMAL →
+    // SAFE_MODE çarpanı(4) uygulanır: effectiveMs=333×4=1332 → round(1332/333)=4 tik.
+    m.scheduleTask({ id: 'lock-normal-fast', periodMs: 333, criticality: 'NORMAL', fn: () => { calls++; } });
+
+    vi.advanceTimersByTime(333 * 16); // 16 tik / 4 = 4 tetiklenme beklenir (her tik DEĞİL)
+    expect(calls, 'kısa periyotlu NORMAL görev SAFE_MODE\'da hâlâ her tikte koşuyor — eski HOT-muafiyeti geri gelmiş olabilir (tasarım kusuru: yavaş timer\'lar yanlışlıkla hızlandırılıyordu)')
+      .toBe(4);
+  });
+});
+
+describe('Scheduler destroy sonrası aktif timer=0 kilidi', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    AdaptiveRuntimeManager._resetForTest();
+  });
+
+  it('destroy() sonrası wheel timer null, görev tetiklenmeye devam etmez', () => {
+    vi.useFakeTimers();
+    // forceMode(BALANCED) bu dosyada MOCK'suz gerçek getDeviceTier()'a bağlı;
+    // baseline BALANCED'ın altındaysa upgrade 30s hysteresis bekler (anlık
+    // olmayabilir) → SAFETY kullanılır: periodMs mod çarpanından muaf olduğundan
+    // test, ortam algısının hangi mod'da kaldığından BAĞIMSIZ deterministik kalır
+    // (bu testin amacı destroy() yaşam döngüsü, mod ölçeklemesi değil).
+    const m = forceMode(RuntimeMode.BALANCED);
+    let calls = 0;
+    m.scheduleTask({ id: 'lock-destroy', periodMs: 333, criticality: 'SAFETY', fn: () => { calls++; } });
+    vi.advanceTimersByTime(333);
+    expect(calls).toBe(1);
+
+    m.destroy();
+
+    const wheelTimer = (m as unknown as { _wheelTimer: unknown })._wheelTimer;
+    expect(wheelTimer, 'destroy() sonrası wheel timer temizlenmiyor — Zero-Leak ihlali (boşta uyanış devam eder)')
+      .toBeNull();
+
+    calls = 0;
+    vi.advanceTimersByTime(333 * 10);
+    expect(calls, 'destroy() sonrası görev hâlâ tetikleniyor — timer gerçekten durmamış')
+      .toBe(0);
+  });
+});
+
+describe('Sağlık rollup — donanımsız cihazda false-critical kilidi', () => {
+  // SAHA BULGUSU 2026-07-06 (robot self-test'in bulduğu): getGlobalHealthSnapshot
+  // "healthy"yi yalnız ham heartbeat tazeliğinden hesaplıyordu → OBD'siz + GPS
+  // izinsiz HER cihaz tanıda overallHealth:critical gösteriyordu (VehicleDataLayer
+  // + GPS pasif monitörleri veri kaynağı yokken unhealthy = BEKLENEN, arıza değil).
+  // Fix: rollup, veri-kaynağı-yoksa (obd source==='none' + taze GPS fix yok) pasif
+  // monitör yokluğunu 'critical'den DÜŞÜRÜR; kaynak VARKEN kopma yine 'critical'.
+
+  it('overallHealth rollup beklenen-yokluk düşürmesini uygular', () => {
+    expect(healthMonitorSrc).toContain('isExpectedAbsence');
+    expect(healthMonitorSrc).toContain('PASSIVE_MONITORS');
+    expect(healthMonitorSrc).toMatch(/getOBDStatusSnapshot\(\)\.source !== 'none'/);
+    // hasCritical MUTLAKA beklenen-yokluğu dışlamalı (yoksa false-critical geri gelir).
+    expect(healthMonitorSrc).toMatch(/!s\.healthy && s\.criticality === 'critical' && !isExpectedAbsence/);
   });
 });

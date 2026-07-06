@@ -38,6 +38,13 @@ import { getOBDStatusSnapshot } from './obdService';
 import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../utils/safeStorage';
 import { getCapabilities, getDeviceTier } from './deviceCapabilities';
+import { getUiActivitySnapshot } from './uiActivityRecorder';
+import { getDiagnosticTrail } from './diagnosticTrail';
+import { getPerfSeriesSnapshot } from './perfSeriesRecorder';
+import {
+  buildObdDeepSnapshot, buildNetAiSnapshot,
+  buildGpsDeepSnapshot, buildVoiceSnapshot, buildGeofenceSnapshot, buildStorageQueueSnapshot,
+} from './diagnosticSections';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -254,6 +261,16 @@ export async function reportSupportSnapshot(): Promise<Record<string, unknown>> 
   return payload;
 }
 
+/** Bölüm toplayıcısı tamamen düşse bile payload üretilsin (fail-soft). */
+function _safeSection<T>(fn: () => T): T | null {
+  try { return fn(); } catch { return null; }
+}
+
+/** _safeSection'ın async toplayıcılar için karşılığı (GPS izin kontrolü Promise döner). */
+async function _safeSectionAsync<T>(fn: () => Promise<T>): Promise<T | null> {
+  try { return await fn(); } catch { return null; }
+}
+
 /** Ortak snapshot gövdesi — reportSupportSnapshot ve reportDiagnosticSnapshot kullanır. */
 async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> {
   const obd    = getOBDStatusSnapshot();
@@ -261,14 +278,16 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
   const ota    = useOtaStore.getState();
   const versionCode = await getCurrentVersionCode().catch(() => 0);
 
-  // Son 5 hata — yalnız ts/ctx/msg/severity; stack ve replayBuffer
-  // (kara kutu: konum içerir) bilinçli olarak DIŞARIDA.
+  // Son 15 hata (genişlik — eskiden 5) + kısaltılmış stack (ilk kare; PII'siz —
+  // _maskString VIN/MAC/koordinat/token maskeler). replayBuffer (kara kutu:
+  // konum içerir) yine bilinçli DIŞARIDA.
   const entries    = getErrorLog();
-  const lastErrors = entries.slice(-5).map((e) => ({
+  const lastErrors = entries.slice(-15).map((e) => ({
     ts:       e.ts,
     ctx:      _maskString(e.ctx),
     msg:      _maskString(e.msg.slice(0, 256)),
     severity: e.severity ?? 'error',
+    stack:    e.stack ? _maskString(e.stack.split('\n').slice(0, 2).join(' | ').slice(0, 240)) : undefined,
   }));
 
   // Son critical hata özeti — yoksa null
@@ -280,6 +299,13 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
   // Cihaz profili — saha teşhisi için (Duster vakası: eski WebView'de inline
   // modern CSS düşüp dashboard çöküyordu). PII yok: sürüm/çekirdek/ekran sayısal.
   const caps = getCapabilities();
+
+  // Async genişlik bölümleri — GPS izin kontrolü (Capacitor) ve depolama/kuyruk
+  // (navigator.storage.estimate + connectivityService.queueSize) Promise döner.
+  const [gps, storageQueue] = await Promise.all([
+    _safeSectionAsync(buildGpsDeepSnapshot),
+    buildStorageQueueSnapshot().catch(() => ({ queuePending: 0, storagePct: -1, storageWarn: false })),
+  ]);
 
   const payload = _deepSanitize({
     appVersion:  health.appVersion,
@@ -315,6 +341,30 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
       targetVersionCode: ota.release?.versionCode ?? null,
       lastCheckTs:       ota.lastCheckTs,
     },
+    // UI aktivite izi — zamansız açılan modal/overlay tespiti (açık yüzeyler +
+    // son olaylar + zamansız açılış sayısı). PII yok (yalnız tag/class/z/alan).
+    uiActivity: getUiActivitySnapshot(),
+    // Olay izi (breadcrumb) — mod/OBD/ekran/hata/modal kronolojik hikâyesi
+    // ("soruna ne yol açtı"). Genişlik backbone'u.
+    trail: getDiagnosticTrail(),
+    // OBD derin — adaptör/kaynak + sensör tazeliği + canlı sinyaller + keşfedilen
+    // extended PID'ler + DTC arıza kodları. Fail-soft (kaynak yoksa boş/–1).
+    obdDeep: _safeSection(buildObdDeepSnapshot),
+    // Perf zaman serisi — oturum boyu termal/bellek/fps/lag halka tamponu (trend:
+    // ısınma/sızıntı/kasma anlık snapshot'ta görünmez).
+    perfSeries: getPerfSeriesSnapshot(),
+    // Ağ/AI sağlığı — online + AI devre kesici + sağlayıcı 429/kota pencereleri.
+    netAi: _safeSection(buildNetAiSnapshot),
+    // GPS derin — izin durumu + fix tazeliği + doğruluk + DR aktif mi.
+    // 🔒 KOORDİNAT YOK (mahremiyet kilidi) — yalnız durum/sayısal alanlar.
+    gps,
+    // Sesli asistan/STT — Vosk model hazırlığı + wake word + son sonuç (ham
+    // transkript YOK — PII değil).
+    voice: _safeSection(buildVoiceSnapshot),
+    // Güvenli bölge (geofence) — bulut-okuma durumu + bölge sayısı + senkron aktif mi.
+    geofence: _safeSection(buildGeofenceSnapshot),
+    // Depolama + kuyruk — bekleyen at-least-once event sayısı + disk kullanımı.
+    storageQueue,
   }, 0) as Record<string, unknown>;
 
   return payload;
@@ -343,6 +393,22 @@ export async function reportDiagnosticSnapshot(
     source:    'dev_inspector',
     inspector: _deepSanitize(inspector, 1),
   };
+  await pushVehicleEvent('support_snapshot', payload);
+  return payload;
+}
+
+/* ── self-test snapshot ("Tanı Robotu" — aktif tarama) ───────────
+ * support_snapshot gövdesine aktif self-test raporunu (her alt sistemin
+ * kapısı çalınıp geçti/uyarı/kaldı) ekler. Tip yine 'support_snapshot'
+ * (panel mevcut filtre/detayla görür); `source:'self_test'` kaynağı ayırır.
+ * Robot raporu zaten PII'siz üretilir (yalnız durum/metrik/kısa açıklama). */
+export async function reportSelfTestSnapshot(): Promise<Record<string, unknown>> {
+  const [base, { runSelfTest }] = await Promise.all([
+    _buildSupportSnapshotPayload(),
+    import('./selfTestEngine'),
+  ]);
+  const selfTest = await runSelfTest();
+  const payload: Record<string, unknown> = { ...base, source: 'self_test', selfTest };
   await pushVehicleEvent('support_snapshot', payload);
   return payload;
 }
@@ -378,6 +444,15 @@ export async function triggerDiagnosticSnapshot(
   inspector: Record<string, unknown>,
 ): Promise<SnapshotTriggerResult> {
   return _triggerSnapshot(() => reportDiagnosticSnapshot(inspector));
+}
+
+/**
+ * "Tanı Robotu" aksiyonu — aktif self-test taraması koşturup raporu gönderir.
+ * Global "Tanı Gönder" butonu bunu kullanır. Aynı cooldown/eşleşme kapısını
+ * paylaşır (pencere başına tek gönderim). Tarama ~2-4 sn sürer (fail-soft).
+ */
+export async function triggerSelfTestSnapshot(): Promise<SnapshotTriggerResult> {
+  return _triggerSnapshot(() => reportSelfTestSnapshot());
 }
 
 /** Ortak tetikleme iskeleti: cooldown → gönder → sonucu sınıflandır. */

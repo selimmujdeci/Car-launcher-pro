@@ -40,6 +40,21 @@ export function isAiNetHealthy(): boolean {
   return performance.now() >= _blockedUntilMs;
 }
 
+/**
+ * Tanı raporu için devre kesici anlık görüntüsü (PII yok).
+ * `blockedForMs` = devre daha ne kadar açık kalacak (0 = sağlıklı).
+ */
+export function getAiHealthSnapshot(): {
+  healthy: boolean; consecFails: number; blockedForMs: number;
+} {
+  const now = performance.now();
+  return {
+    healthy:      now >= _blockedUntilMs,
+    consecFails:  _consecFails,
+    blockedForMs: _blockedUntilMs > now ? Math.round(_blockedUntilMs - now) : 0,
+  };
+}
+
 /** @internal — testler arası izolasyon. */
 export function _resetAiHealthForTest(): void {
   _consecFails    = 0;

@@ -21,9 +21,17 @@ import {
   type ThermalStatus,
 } from '../store/useVehicleIntelligenceStore';
 import { addEvent } from './communityService';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── T1/T2 sabitler ──────────────────────────────────────── */
 
+/**
+ * FAZ 14 — artık gerçek tick periyodunu BELİRLEMEZ (o karar runtimeManager
+ * scheduler'ının WARM sınıfına ait: §L.0, BALANCED/PERFORMANCE ~666ms,
+ * BASIC_JS ~1332ms, POWER_SAVE ~2s, SAFE_MODE ~2.66s). Yalnız _tick()'in İLK
+ * çağrısında (henüz önceki tick zaman damgası yokken) `deltaMs` için makul bir
+ * başlangıç varsayımı olarak kalır — bootstrap-only, kendini 2. tick'te düzeltir.
+ */
 const TICK_MS               = 500;
 const RPM_JUMP_THRESHOLD    = 4000;
 const COOLANT_JUMP_THRESHOLD= 5;
@@ -203,19 +211,32 @@ function _computeSmoothness(): number {
 
 /* ── T3: Sıcaklık dairesel tamponu ──────────────────────── */
 
-const _tempBuf     = new Float32Array(TEMP_BUF_SIZE);
-let   _tempBufIdx  = 0;
-let   _tempBufFull = false;
+/**
+ * FAZ 14 NOTU: eskiden bu tampon "TEMP_BUF_SIZE ör. × TICK_MS=500ms = tam 60s
+ * pencere" varsayımıyla dTdt'yi BÖLMEDEN hesaplıyordu (bkz. git geçmişi) — artık
+ * scheduler WARM periyodunu moda göre ölçeklediğinden (§L.0: BALANCED ~666ms,
+ * BASIC_JS ~1332ms…) bu varsayım YANLIŞ olurdu (120 örnek artık 60s değil,
+ * ~80-160s). Bu yüzden her örnekle birlikte GERÇEK zaman damgası (`_tempBufTsMs`)
+ * tutulur; dTdt her zaman gerçek geçen dakikaya bölünerek hesaplanır — periyot
+ * ne olursa olsun °C/dakika birimi doğru kalır (sessiz zaman hatası önlenir).
+ */
+const _tempBuf      = new Float32Array(TEMP_BUF_SIZE);
+const _tempBufTsMs  = new Float64Array(TEMP_BUF_SIZE); // her örneğin gerçek performance.now() zamanı
+let   _tempBufIdx   = 0;
+let   _tempBufFull  = false;
 
-function _derivativeAndPush(currentC: number): number {
+function _derivativeAndPush(currentC: number, nowMs: number): number {
   let dTdt = 0;
   if (_tempBufFull) {
-    dTdt = currentC - _tempBuf[_tempBufIdx]; // (T_now - T_60s_ago) / 1dak
+    // T_now - T_(yaklaşık TEMP_BUF_SIZE örnek önce) — gerçek aradaki dakikaya bölünür
+    const elapsedMin = (nowMs - _tempBufTsMs[_tempBufIdx]) / 60_000;
+    dTdt = elapsedMin > 0 ? (currentC - _tempBuf[_tempBufIdx]) / elapsedMin : 0;
   } else if (_tempBufIdx >= 2) {
-    const elapsedMin = _tempBufIdx * (TICK_MS / 1000) / 60;
-    dTdt = (currentC - _tempBuf[0]) / elapsedMin;
+    const elapsedMin = (nowMs - _tempBufTsMs[0]) / 60_000;
+    dTdt = elapsedMin > 0 ? (currentC - _tempBuf[0]) / elapsedMin : 0;
   }
-  _tempBuf[_tempBufIdx] = currentC;
+  _tempBuf[_tempBufIdx]     = currentC;
+  _tempBufTsMs[_tempBufIdx] = nowMs;
   _tempBufIdx = (_tempBufIdx + 1) % TEMP_BUF_SIZE;
   if (_tempBufIdx === 0) _tempBufFull = true;
   return dTdt;
@@ -411,7 +432,7 @@ function _tick(): void {
 
   // ── 5. T3: Termal Bellek ──────────────────────────────────────────────
   let dTdt = 0;
-  if (coolant !== null) dTdt = _derivativeAndPush(coolant);
+  if (coolant !== null) dTdt = _derivativeAndPush(coolant, nowMs);
   if (dTdt > _maxCoolantTrend) _maxCoolantTrend = dTdt;
 
   if (coolant !== null && coolant > COOLANT_DEBT_ACCUM && speedKmh < 10)
@@ -419,8 +440,13 @@ function _tick(): void {
   else if (coolant !== null && coolant < COOLANT_DEBT_CLEAR)
     _thermalDebt = Math.max(0, _thermalDebt - DEBT_CLEAR_RATE);
 
-  if (coolant !== null && _prevCoolantCool !== null) {
-    const dropPerMin = (_prevCoolantCool - coolant) * 120;
+  // FAZ 14 NOTU: eskiden "* 120" (=60000ms / TICK_MS=500ms) sabit çarpanı
+  // her tick'in tam 500ms sürdüğünü varsayıyordu — scheduler artık WARM
+  // periyodunu moda göre ölçeklediğinden (666ms/1332ms/…) bu sabit çarpan
+  // sessizce YANLIŞ °C/dk oranı üretirdi. Gerçek `deltaMs`den türetilen
+  // (60000/deltaMs) oranı periyottan bağımsız doğru sonuç verir.
+  if (coolant !== null && _prevCoolantCool !== null && deltaMs > 0) {
+    const dropPerMin = (_prevCoolantCool - coolant) * (60_000 / deltaMs);
     if (dropPerMin > 0 && _prevCoolantCool > COOLANT_WARM) {
       const effEvent = Math.min(1, dropPerMin / COOLING_IDEAL_RATE);
       _coolingEfficiency = _coolingEfficiency * (1 - COOLING_EFF_ALPHA) + effEvent * COOLING_EFF_ALPHA;
@@ -519,7 +545,18 @@ function _tick(): void {
 
 /* ── Observer lifecycle ──────────────────────────────────── */
 
-let _timer:  ReturnType<typeof setInterval> | null = null;
+/**
+ * FAZ 14 — sabit `setInterval(_tick, TICK_MS)` yerine tek tik-wheel scheduler'a
+ * taşındı (§L.0, docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md:1176-1241).
+ * `_timer` artık bir `clearInterval` handle'ı DEĞİL — `scheduleTask()`'ın
+ * döndürdüğü cleanup thunk. WARM sınıfı: BALANCED/PERFORMANCE'ta taban periyot
+ * korunur (mod çarpanı=1 → ~666ms — eski 500ms'e yakın), BASIC_JS'te 2× yavaşlar
+ * (~1332ms) — düşük-uçta CPU/ısı tasarrufu (CLAUDE.md Performans-Uyarlanabilir
+ * Hibrit). `_tick()` içi tüm zaman hesapları delta-time/gerçek-zaman-damgası
+ * tabanlı olduğundan (bkz. `_derivativeAndPush`, `dropPerMin` düzeltmeleri)
+ * periyot değişimi sonuçların doğruluğunu bozmaz.
+ */
+let _timer:  (() => void) | null = null;
 let _running = false;
 
 export function startVehicleIntelligenceService(): () => void {
@@ -538,13 +575,18 @@ export function startVehicleIntelligenceService(): () => void {
   });
 
   _tick();
-  _timer = setInterval(_tick, TICK_MS);
+  // FAZ 16 — periodMs=TICK_MS (500): BALANCED/PERFORMANCE'ta (çarpan=1) wheel
+  // en yakın tike (666ms) yuvarlar — FAZ 14 delta-time analizi bu sapmanın
+  // sonuçları bozmadığını zaten kanıtladı. BASIC_JS'te ×2, vs.
+  _timer = runtimeManager.scheduleTask({
+    id: 'vehicle-intel', periodMs: TICK_MS, criticality: 'NORMAL', fn: _tick,
+  });
   return stopVehicleIntelligenceService;
 }
 
 export function stopVehicleIntelligenceService(): void {
   _running = false;
-  if (_timer !== null) { clearInterval(_timer); _timer = null; }
+  if (_timer !== null) { _timer(); _timer = null; }
   _unsubObd?.(); _unsubObd = null;
 
   // T1/T2 sıfırla
@@ -557,7 +599,7 @@ export function stopVehicleIntelligenceService(): void {
 
   // T3 sıfırla
   _thermalDebt = 0; _maxCoolantTrend = 0; _coolingEfficiency = 0.5; _prevCoolantCool = null;
-  _tempBuf.fill(0); _tempBufIdx = 0; _tempBufFull = false;
+  _tempBuf.fill(0); _tempBufTsMs.fill(0); _tempBufIdx = 0; _tempBufFull = false;
 
   // T4 sıfırla
   _pendingHealthState   = 'HEALTHY';
@@ -583,7 +625,7 @@ export function clearAllFaults(): void {
   for (const k of Object.keys(_stale)) delete _stale[k];
   _jBuf.fill(0);  _jBufIdx = 0;  _jBufFull = false;
   _sdBuf.fill(0); _sdBufIdx = 0; _sdBufFull = false;
-  _tempBuf.fill(0); _tempBufIdx = 0; _tempBufFull = false;
+  _tempBuf.fill(0); _tempBufTsMs.fill(0); _tempBufIdx = 0; _tempBufFull = false;
   _thermalDebt = 0; _maxCoolantTrend = 0; _coolingEfficiency = 0.5;
   _pendingHealthState = 'HEALTHY'; _pendingSinceMs = 0; _displayedHealthState = 'HEALTHY';
 }

@@ -96,10 +96,35 @@ function _persist(): void {
  *   Her hata anında getReplayData() çağrılır → son 60s araç durumu CrashEntry'ye eklenir.
  *   replayBuffer disk'e safeSetRawImmediate ile anında yazılır (uygulama ölmeden önce).
  */
+/**
+ * Error-olmayan değerleri OKUNUR mesaja çevirir. `String(obj)` → "[object Object]"
+ * tanıyı köreltiyordu (SAHA 2026-07-06: geofence Supabase PostgrestError'ı iz'de
+ * "[object Object]" göründü). Supabase/fetch hata objelerinden message/code/
+ * details/hint çıkarır; olmazsa JSON'a düşer; o da olmazsa String().
+ */
+function _errToMsg(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const o = error as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof o.message === 'string' && o.message) parts.push(o.message);
+    if (typeof o.code === 'string' || typeof o.code === 'number') parts.push(`[${o.code}]`);
+    if (typeof o.details === 'string' && o.details) parts.push(o.details);
+    if (typeof o.hint === 'string' && o.hint) parts.push(`hint: ${o.hint}`);
+    if (parts.length) return parts.join(' ');
+    try {
+      const j = JSON.stringify(o);
+      if (j && j !== '{}') return j.slice(0, 240);
+    } catch { /* döngüsel referans → String'e düş */ }
+  }
+  return String(error);
+}
+
 export function logError(ctx: string, error: unknown, severity: CrashSeverity = 'error'): void {
   try {
     _ensureLoaded();
-    const msg   = error instanceof Error ? error.message : String(error);
+    const msg   = _errToMsg(error);
     const stack = error instanceof Error ? error.stack?.slice(0, 1024) : undefined;
 
     const entry: CrashEntry = { ts: Date.now(), ctx, msg, stack, severity };

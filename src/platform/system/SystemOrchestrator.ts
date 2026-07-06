@@ -213,6 +213,25 @@ export function startSystemOrchestrator(): () => void {
         break;
       }
 
+      /* ── Motor aşırı ısınma (P1 — reverse'i ezmez, konfor/temayı ezer) ──── */
+
+      case 'ENGINE_OVERHEAT': {
+        const tempC = Math.round(e.coolantTempC);
+        store().addAlert({
+          type:     'ENGINE_OVERHEAT',
+          severity: 'CRITICAL',
+          label:    `Motor Aşırı Isındı: ${tempC}°C`,
+          sublabel: 'Güvenli bir yere çekin',
+          ts:       e.ts,
+        });
+        // Metin BİREBİR voiceClips.ts CLIP_MANIFEST anahtarıyla eşleşmeli —
+        // premium kayıtlı klip (public/voice/safety-overheat.wav) çalınsın.
+        speakAlert('Motor sıcaklığı yüksek, lütfen güvenli yerde durun.');
+        const latest = useSystemStore.getState().activeAlerts.at(-1);
+        if (latest) _scheduleAutoDismiss(latest.id, AUTO_DISMISS_CRITICAL_MS);
+        break;
+      }
+
       case 'CRASH_DETECTED': {
         const g = e.peakG.toFixed(1);
         store().addAlert({

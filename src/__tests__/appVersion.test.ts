@@ -192,3 +192,65 @@ describe('SystemHealthMonitor appVersion', () => {
     }
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   5. SystemHealthMonitor — GPS izin-reddi ile "healthy" çelişkisi (BUG FIX)
+   SAHA: rapor "GPS healthy:true" + "permission denied" çelişkisi gösteriyordu —
+   heartbeat bazlı hesap izin durumunu hiç görmüyordu (register() anındaki
+   lastBeat deadline'ı henüz doldurmadığı için erken healthy=true görünüyordu).
+═══════════════════════════════════════════════════════════════ */
+
+describe('SystemHealthMonitor — GPS izin reddi ile healthy çelişkisi (BUG FIX)', () => {
+  let healthMonitor: typeof import('../platform/system/SystemHealthMonitor')['healthMonitor'];
+  let setGPSTestOverride: typeof import('../platform/gpsService')['setGPSTestOverride'];
+  let nowSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    capState.native = false;
+    ({ healthMonitor } = await import('../platform/system/SystemHealthMonitor'));
+    ({ setGPSTestOverride } = await import('../platform/gpsService'));
+  }, 30_000);
+
+  beforeEach(() => {
+    nowSpy = vi.spyOn(performance, 'now').mockReturnValue(0);
+    healthMonitor.register({
+      name:       'GPS',
+      criticality: 'warning',
+      deadlineMs:  20_000,
+      alertTitle:  'GPS Sinyali Yok',
+      alertMsg:    'Konum verisi alınamıyor.',
+    });
+    healthMonitor.start();
+  });
+
+  afterEach(() => {
+    healthMonitor.stop();
+    setGPSTestOverride(null); // override'ı ve store alanlarını gerçek (varsayılan) duruma döndür
+    nowSpy.mockRestore();
+  });
+
+  it('STARTUP_GRACE (45s) sonrası izin reddi → healthy:false + sebep', () => {
+    setGPSTestOverride({ unavailable: true, error: 'GPS permission denied' });
+    nowSpy.mockReturnValue(46_000);
+    const gps = healthMonitor.getGlobalHealthSnapshot().services.find((s) => s.name === 'GPS');
+    expect(gps?.healthy).toBe(false);
+    expect(gps?.unhealthyReason).toBe('gps_permission_denied');
+  });
+
+  it('grace penceresi içinde (erken) izin reddi tek başına healthy:false yapmaz (cold-start koruması penceresiyle aynı)', () => {
+    setGPSTestOverride({ unavailable: true, error: 'GPS permission denied' });
+    nowSpy.mockReturnValue(10_000); // 45s grace içinde
+    const gps = healthMonitor.getGlobalHealthSnapshot().services.find((s) => s.name === 'GPS');
+    expect(gps?.healthy).toBe(true);
+    expect(gps?.unhealthyReason).toBeUndefined();
+  });
+
+  it('izin reddi YOKSA taze heartbeat ile healthy:true kalır (regresyon yok)', () => {
+    nowSpy.mockReturnValue(46_000);
+    healthMonitor.beat('GPS');
+    const gps = healthMonitor.getGlobalHealthSnapshot().services.find((s) => s.name === 'GPS');
+    expect(gps?.healthy).toBe(true);
+    expect(gps?.unhealthyReason).toBeUndefined();
+  });
+});

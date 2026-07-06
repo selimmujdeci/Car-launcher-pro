@@ -5,7 +5,7 @@
  */
 
 import { memo } from 'react';
-import { AlertTriangle, Fuel, ShieldAlert, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Fuel, ShieldAlert, Thermometer, Wrench, X } from 'lucide-react';
 import { useSystemStore, type SystemAlert } from '../../store/useSystemStore';
 
 export const GlobalAlert = memo(function GlobalAlert() {
@@ -71,6 +71,8 @@ function AlertCard({
             ? <Wrench size={16} />
             : alert.type === 'CRASH_DETECTED'
             ? <ShieldAlert size={16} />
+            : alert.type === 'ENGINE_OVERHEAT'
+            ? <Thermometer size={16} />
             : <AlertTriangle size={16} />
           }
         </div>

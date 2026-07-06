@@ -60,6 +60,8 @@ export interface ObdAdapterData {
   reverse?: boolean;
   /** Araç kümülatif kilometre sayacı (km). Varsa GPS hesabına göre önceliklidir. */
   totalDistance?: number;
+  /** Motor soğutma suyu sıcaklığı (°C, PID 0x05). EV veya desteklenmeyen PID için undefined. */
+  coolantTemp?: number;
 }
 
 export interface GpsAdapterData {

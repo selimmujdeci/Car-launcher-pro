@@ -6,7 +6,10 @@
 ![Android](https://img.shields.io/badge/Platform-Android_Automotive-orange.svg)
 ![Architecture](https://img.shields.io/badge/Architecture-Worker--Centric-red.svg)
 
-CockpitOS Pro is an automotive-grade application runtime and high-performance dashboard designed for Android-based head units. Engineered as a robust middleware layer, it prioritizes deterministic performance, thermal stability, and low-latency sensor fusion for the modern vehicle environment.
+CockpitOS Pro is an aftermarket **Vehicle Intelligence OS** — not a launcher, but the vehicle's *second brain*. Built for Android-based head units, it turns raw OBD-II / CAN telemetry into **decisions**: it validates, interprets, predicts, and acts on the driver's behalf. Unlike single-brand systems, it learns hundreds of *unknown* makes and models through confidence-driven, **zero-trust** sensor fusion — all while preserving deterministic performance and thermal stability on low-power hardware.
+
+> **No data is read merely to be displayed. Every signal is part of a decision.**
+> Adding a PID is not success — extracting *meaning* from it is.
 
 ---
 
@@ -22,12 +25,15 @@ CockpitOS Pro is an automotive-grade application runtime and high-performance da
 
 ## 🏎️ Vision & Philosophy
 
-Modern automotive interfaces often suffer from UI jitter and thermal throttling due to inefficient resource management. CockpitOS Pro is built on the principle of **Zero-Fluff Engineering** — every byte of memory and every CPU cycle is accounted for, ensuring that navigation, media, and vehicle telemetry remain fluid even under extreme hardware stress.
+CockpitOS Pro is built to be the aftermarket answer to single-brand vehicle intelligence: a system that understands *any* car, not just one. It rests on two pillars — **Zero-Fluff Engineering** (every byte of memory and every CPU cycle is accounted for) and **Zero-Trust Telemetry** (no aftermarket signal is trusted blindly; every value carries a confidence score).
 
-- Deterministic UI with 60FPS rendering targets
-- Graceful degradation under thermal stress
+Because we read hundreds of unknown ECUs rather than one known platform, our intelligence must be *stronger* than a factory system — it has to earn trust from noisy data. Every signal passes an **8-gate decision contract**: *Is it true? Is it important? Should the user know? Should only the system know? What does it mean combined? What happens in 5 minutes? What can we decide for the driver? What is the right action now?*
+
+- **Controlled Evolution** — stability invariants are non-negotiable; features ship on a performance budget
+- **Performance-Adaptive Hybrid** — all intelligence layers on; each subscribes to a DeviceTier budget
+- Deterministic UI with adaptive FPS targets (60 → 15) and graceful thermal degradation
+- Safety-critical layers guaranteed on every hardware tier; heavy analysis stays cold-path
 - High-contrast, distraction-minimized UX
-- Embedded-system-level performance optimization
 
 ---
 
@@ -216,9 +222,15 @@ npx cap sync android
 - [x] Offline routing infrastructure
 - [x] Dead reckoning navigation
 - [x] ECDH encrypted remote command system
-- [ ] AI-assisted driver intelligence
-- [ ] Dynamic HUD support
-- [ ] Vehicle telemetry AI analysis
+- [x] Vehicle State Engine (multi-source confidence fusion)
+- [x] Rule / Action engine (semantic events, safety preemption)
+- [x] Engine thermal chain (ENGINE_OVERHEAT, hysteresis)
+- [~] Confidence Engine (zero-trust per-signal scoring) — in progress
+- [ ] Prediction Engine (multi-variate trend projection)
+- [ ] Vehicle Digital Twin (component-level health)
+- [ ] Driver DNA (self-learning driver profile)
+- [ ] Intent Engine (context → user intent)
+- [ ] Vehicle Brain (unified decision arbitration)
 
 ---
 

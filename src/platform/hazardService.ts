@@ -25,10 +25,18 @@ import {
 import { getSnappedMarkerPosition } from './navigationService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { logError } from './crashLogger';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
 export const CONFIDENCE_REMOVAL_THRESHOLD = 0.10;
+// FAZ 16 — decay döngüsü scheduler'a devredildi (§L.0, periodMs API);
+// BALANCED/PERFORMANCE'ta DECAY_INTERVAL_MS AYNEN korunur (mod çarpanı=1).
+// _runDecayCycle() PERİYOT-BAĞIMSIZ: calculateCurrentConfidence() güveni her
+// zaman `Date.now() - hazard.timestamp` MUTLAK farkından üstel olarak yeniden
+// hesaplar (tick-sayımına dayalı sabit-miktar düşüş YOK) → periyot düşük-
+// tier'da uzasa da çürüme oranı DOĞRU kalır, yalnız örnekleme sıklığı azalır
+// (denetlendi, düzeltme gerekmedi).
 const DECAY_INTERVAL_MS   = 10_000;
 
 /** Topluluk verisinin çürüme oranı (saat başına). ~1 saat içinde eşik altına düşer. */
@@ -83,7 +91,7 @@ const NORMAL_SPEED_THRESHOLD: Record<HazardType, number> = {
 
 /* ── Module state ────────────────────────────────────────────────────────── */
 
-let _decayTimer:  ReturnType<typeof setInterval> | null = null;
+let _decayTimer:  (() => void) | null = null;
 let _engineRunning = false;
 
 /* ── EMA Risk Filter (H5) ────────────────────────────────────────────────── */
@@ -417,14 +425,18 @@ export function startHazardEngine(): void {
 
   _runDecayCycle();
 
-  _decayTimer = setInterval(() => {
-    try { _runDecayCycle(); } catch (e) { logError('HazardEngine:Decay', e); }
-  }, DECAY_INTERVAL_MS);
+  // FAZ 16 — sabit 10s `setInterval` yerine scheduler (§L.0, periodMs API).
+  _decayTimer = runtimeManager.scheduleTask({
+    id: 'hazard-decay', periodMs: DECAY_INTERVAL_MS, criticality: 'NORMAL',
+    fn: () => {
+      try { _runDecayCycle(); } catch (e) { logError('HazardEngine:Decay', e); }
+    },
+  });
 }
 
 export function stopHazardEngine(): void {
   _engineRunning = false;
-  if (_decayTimer !== null) { clearInterval(_decayTimer); _decayTimer = null; }
+  if (_decayTimer !== null) { _decayTimer(); _decayTimer = null; }
   // EMA ve durum makinesi sıfırla — sonraki oturumda temiz başlat
   _filteredRiskScore    = 0;
   _hazardStatusInternal = HazardStatus.IDLE;

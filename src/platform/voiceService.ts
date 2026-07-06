@@ -26,6 +26,7 @@ import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
 import { reportVoiceDiag } from './voiceDiagService';
+import { pushTrail } from './diagnosticTrailCore';  // çekirdek: ağır obd/store zinciri GİRMESİN
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -84,6 +85,14 @@ const INITIAL: VoiceState = {
 let _current: VoiceState = { ...INITIAL };
 const _stateListeners  = new Set<(s: VoiceState) => void>();
 
+/**
+ * Tanı: son STT/komut SONUCUNUN (başarı/hata) zamanı — push() içinde terminal
+ * durum geçişinde güncellenir (tek funnel). Ham transkript YOK — yalnız
+ * zaman+bayrak (PII değil).
+ */
+let _lastSttOutcomeAt = -1;
+let _lastSttOk: boolean | null = null;
+
 /** Bilişsel Pause: true iken TTS ve AI işleme atlanır; dinleme (VAD) devam eder. */
 let _voiceCogPaused = false;
 
@@ -102,6 +111,11 @@ export function isVoicePaused(): boolean {
 /** Anlık ses durumu görüntüsü (hook'suz) — wake döngüsü mikrofon çakışmasını önler. */
 export function getVoiceSnapshot(): VoiceState {
   return _current;
+}
+
+/** Tanı: son STT/komut sonucunun zamanı + başarı/hata bayrağı (ham transkript YOK — PII değil). */
+export function getLastSttOutcome(): { atMs: number; ok: boolean | null } {
+  return { atMs: _lastSttOutcomeAt, ok: _lastSttOk };
 }
 const _commandHandlers = new Set<CommandHandler>();
 const _aiHandlers      = new Set<AIResultHandler>();
@@ -365,6 +379,10 @@ function push(partial: Partial<VoiceState>): void {
     _applyAssistantDuck(prevStatus, _current.status);
     if (_current.status === 'processing') _armProcessingFailsafe();
     else _clearProcessingFailsafe();
+    // Tanı: terminal STT sonucu — 'success' başarı, 'error' hata. 'throttled'
+    // gerçek bir tanıma sonucu değil (hız sınırı) — bilinçli olarak sayılmaz.
+    if (_current.status === 'success') { _lastSttOutcomeAt = Date.now(); _lastSttOk = true; }
+    else if (_current.status === 'error') { _lastSttOutcomeAt = Date.now(); _lastSttOk = false; }
   }
   _stateListeners.forEach((fn) => fn(_current));
 }
@@ -401,6 +419,7 @@ function getResetDelays(): Record<string, number> {
 
 function dispatch(cmd: ParsedCommand): void {
   void reportVoiceDiag('voice_intent', { intent: cmd.type });
+  pushTrail('action', `sesli komut: ${cmd.type}`);  // olay izi (PII yok — yalnız intent tipi)
   push({
     status:      'success',
     lastCommand: cmd,
@@ -431,6 +450,7 @@ function dispatch(cmd: ParsedCommand): void {
 
 function dispatchDriving(cmd: ParsedCommand): void {
   void reportVoiceDiag('voice_intent', { intent: cmd.type });
+  pushTrail('action', `sesli komut (sürüşte): ${cmd.type}`);  // olay izi (PII yok)
   _endConvSession(); // araç komutu → sohbet döngüsü biter (yalnız companion sohbeti sürer)
   if (isInformationalCommand(cmd.type)) {
     void answerInformational(cmd.type);

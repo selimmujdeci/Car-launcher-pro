@@ -35,6 +35,15 @@ export class ObdAdapter {
         this._data.rpm = undefined;
       }
 
+      // Soğutma suyu sıcaklığı (PID 0x05) — EV'de -1 gelir; obdSanitizer.ts ile
+      // aynı sentinel kuralı: negatif = "yok/desteklenmiyor" (bilinen kısıt:
+      // 0°C altı gerçek okumalar da elenir — obdSanitizer.ts:104-105 ile tutarlı).
+      if (obd.engineTemp >= 0) {
+        this._data.coolantTemp = obd.engineTemp;
+      } else {
+        this._data.coolantTemp = undefined;
+      }
+
       // reverse: CAN bus'tan gelir, OBD'de yok
       this._data.reverse = undefined;
 
@@ -48,10 +57,11 @@ export class ObdAdapter {
     this._unsub = null;
     this._listeners.clear();
     // Pre-allocated nesneyi temizle — bir sonraki start() için hazırla
-    this._data.speed   = undefined;
-    this._data.fuel    = undefined;
-    this._data.rpm     = undefined;
-    this._data.reverse = undefined;
+    this._data.speed       = undefined;
+    this._data.fuel        = undefined;
+    this._data.rpm         = undefined;
+    this._data.coolantTemp = undefined;
+    this._data.reverse     = undefined;
   }
 
   onData(cb: Callback): () => void {

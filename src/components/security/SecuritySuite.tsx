@@ -19,7 +19,9 @@ import {
   clearValeViolations,
   dismissGeofenceAlert,
   checkGeofence,
+  getGeofenceState,
 } from '../../platform/geofenceService';
+import { pushZoneToCloud } from '../../platform/security/geofenceService';
 import { setupPin, clearPin, getLockoutState } from '../../platform/pinService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useOBDState } from '../../platform/obdService';
@@ -242,11 +244,25 @@ export const SecuritySuite = memo(function SecuritySuite() {
     }
   }, [gps?.latitude, gps?.longitude, obd.speed]);
 
+  // Yerel 'default' bölgeyi buluta senkronla (head unit yukarı senkronlar).
+  // Fail-soft: eşli değilse/offline'da sessiz no-op — yerel geofence çalışmaya
+  // devam eder. Yerel mutasyon senkron olduğundan getGeofenceState() güncel.
+  const syncDefaultZoneToCloud = useCallback(() => {
+    const zone = getGeofenceState().zones.find((z) => z.id === 'default');
+    if (zone) void pushZoneToCloud(zone);
+  }, []);
+
   const handleSetCurrentLocation = useCallback(() => {
     if (gps?.latitude) {
       setGeofenceCenter({ lat: gps.latitude, lng: gps.longitude });
+      syncDefaultZoneToCloud();
     }
-  }, [gps]);
+  }, [gps, syncDefaultZoneToCloud]);
+
+  const handleRadiusChange = useCallback((radiusKm: number) => {
+    setGeofenceRadius(radiusKm);
+    syncDefaultZoneToCloud();
+  }, [syncDefaultZoneToCloud]);
 
   const handleToggleGeofence = useCallback(() => {
     setGeofenceEnabled(!geo.enabled);
@@ -392,7 +408,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setGeofenceRadius(Math.max(0.5, geo.radiusKm - 0.5))}
+                  onClick={() => handleRadiusChange(Math.max(0.5, geo.radiusKm - 0.5))}
                   className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
                   style={{ background: 'var(--oem-surface-3)', color: 'var(--oem-ink)' }}
                 ><Minus className="w-4 h-4" /></button>
@@ -403,7 +419,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
                   />
                 </div>
                 <button
-                  onClick={() => setGeofenceRadius(Math.min(20, geo.radiusKm + 0.5))}
+                  onClick={() => handleRadiusChange(Math.min(20, geo.radiusKm + 0.5))}
                   className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
                   style={{ background: 'var(--oem-surface-3)', color: 'var(--oem-ink)' }}
                 ><Plus className="w-4 h-4" /></button>

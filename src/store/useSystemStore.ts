@@ -13,7 +13,7 @@ import type { TripRecord } from '../platform/tripLogService';
 /* ── Alert tipi ──────────────────────────────────────────── */
 
 export type AlertSeverity = 'WARNING' | 'CRITICAL';
-export type AlertEventType = 'LOW_FUEL' | 'CRITICAL_FUEL' | 'MAINTENANCE_REQUIRED' | 'CRASH_DETECTED';
+export type AlertEventType = 'LOW_FUEL' | 'CRITICAL_FUEL' | 'MAINTENANCE_REQUIRED' | 'CRASH_DETECTED' | 'ENGINE_OVERHEAT';
 
 export interface SystemAlert {
   id:         number;

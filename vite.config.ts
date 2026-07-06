@@ -139,7 +139,32 @@ function transpileWorkerToES2015(): Plugin {
       const res = await transformWithOxc(code, chunk.fileName, {
         lang: 'js',
         target: 'es2015',       // ?./??/??= → ES2015 eşdeğeri (Chrome 52+ parse eder)
+        // 🔴 KRİTİK (2026-07-06 saha bulgusu): es2015'e indirirken class-field'ları
+        // (`x = 0`) DÜZ ATAMAYA çevir (`this.x = 0`), `_defineProperty` helper'ına
+        // DEĞİL. Varsayılan (false) helper üretir ve onu Runtime modunda
+        // `require("@oxc-project/runtime/helpers/defineProperty")` ile çağırır;
+        // IIFE worker'da `require` yok → "require is not defined" ile worker satır-1'de
+        // ÖLÜR (VehicleCompute → tüm araç veri katmanı ölü, eski WebView'da sessiz).
+        // Bu tek satır tüm worker modüllerindeki her class-field'ı bağışıklar.
+        assumptions: { setPublicClassFields: true },
       });
+      // 🔒 REGRESYON KAPISI (2026-07-06 saha bulgusu): oxc es2015'e indirirken
+      // class-field/spread gibi sözdizimi için `_defineProperty` vb. helper üretir
+      // ve Runtime modunda onu `require("@oxc-project/runtime/…")` ile çağırır.
+      // IIFE worker'da module loader/`require` YOKTUR → "require is not defined"
+      // ile worker satır-1'de sessizce ölür (VehicleCompute → araç veri katmanı ölü).
+      // Bunu ÇALIŞMA ZAMANINDA değil, BUILD'de yakala: helper require'ı kalan bir
+      // worker chunk'ı ASLA paketlenmesin. Çözüm: tetikleyen kaynağı düz sözdizimine
+      // çevir (ör. class-field initializer → constructor ataması; bkz. OdometerGuard).
+      if (/\brequire\s*\(\s*["'`]@oxc-project\/runtime/.test(res.code)) {
+        const m = res.code.match(/@oxc-project\/runtime\/helpers\/([A-Za-z0-9_]+)/);
+        throw new Error(
+          `[transpile-worker-to-es2015] ${chunk.fileName}: es2015 indirmesi çözülemez ` +
+          `oxc runtime helper require'ı üretti (${m ? m[1] : 'helper'}). IIFE worker'da ` +
+          `\`require\` yok → çalışma zamanında "require is not defined" ile worker ÖLÜR. ` +
+          `Tetikleyen sözdizimini (class-field initializer / obj spread) düz eşdeğerine çevir.`,
+        );
+      }
       return { code: res.code, map: res.map ?? null };
     },
   };
@@ -247,9 +272,13 @@ export default defineConfig({
     }),
     fixLegacyModernDetection(), // legacy()'den SONRA: enjekte edilen probe'u çıkarır
   ],
-  // Web Worker chunk'ları plugin-legacy'den GEÇMEZ + worker alt-build build.target'ı
-  // uygulamaz → esbuild ile es2015'e indir (eski WebView'da ?./?? parse hatası fix).
+  // Web Worker uyumluluğu (eski head unit WebView):
+  //  - format:'iife' → BUILD tüm worker chunk'larını classic IIFE'ye zorlar (modül
+  //    worker Chrome 80+ ister; IIFE Chrome 52+ yüklenir). Kaynakta {type:'module'}
+  //    kalır → Vite DEV worker'ı modül servis eder (import cümleleri dev'de çalışır).
+  //  - plugins → chunk'ları es2015'e indir (?./?? eski WebView'da parse hatası fix).
   worker: {
+    format: 'iife',
     plugins: () => [transpileWorkerToES2015()],
   },
   build: {

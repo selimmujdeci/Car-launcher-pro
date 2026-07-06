@@ -24,6 +24,8 @@ export const NAV: NavGroup[] = [
     items: [
       { path: '/users',     label: 'Kullanıcılar', icon: 'Users',           minRole: 'operator' },
       { path: '/vehicles',  label: 'Araçlar',      icon: 'Truck',           minRole: 'viewer' },
+      // Tanı (saha verisi) — super_admin GEREKTİRMEZ; Araçlar'ı gören her admin görür.
+      { path: '/tani',      label: 'Tanı',         icon: 'Stethoscope',     minRole: 'viewer' },
     ],
   },
   {

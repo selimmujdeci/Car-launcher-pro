@@ -26,7 +26,8 @@ export type VehicleEventType =
   | 'CRASH_DETECTED'
   | 'GEOFENCE_ENTER'
   | 'GEOFENCE_EXIT'
-  | 'GEOFENCE_VIOLATION';
+  | 'GEOFENCE_VIOLATION'
+  | 'ENGINE_OVERHEAT';
 
 export type EventSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
 
@@ -41,7 +42,9 @@ export type VehicleEvent =
   | { type: 'CRASH_DETECTED';       severity: 'CRITICAL'; peakG:       number; ts: number }
   | { type: 'GEOFENCE_ENTER';       severity: 'INFO';     zoneId: string; zoneName: string; ts: number }
   | { type: 'GEOFENCE_EXIT';        severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number }
-  | { type: 'GEOFENCE_VIOLATION';   severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number };
+  | { type: 'GEOFENCE_VIOLATION';   severity: 'CRITICAL'; zoneId: string; zoneName: string; ts: number }
+  /** Motor soğutma suyu histerezis eşiğini aştı (P1 — Safety Engine'i ezmez, konfor/temayı ezer). */
+  | { type: 'ENGINE_OVERHEAT';      severity: 'CRITICAL'; coolantTempC: number; ts: number };
 
 /* ── Modül-düzeyi listener kümesi ────────────────────────────── */
 

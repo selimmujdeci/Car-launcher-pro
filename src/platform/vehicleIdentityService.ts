@@ -265,6 +265,47 @@ export async function isDevicePaired(): Promise<boolean> {
   }
 }
 
+/* ── Otomatik eşleştirme (saha veri toplama fazı) ─────────────────────────
+ * SORUN: Eşlenmemiş cihaz hiçbir tanı/telemetri gönderemiyordu — "Tanı
+ * Gönder" not_paired dönüyor, system_health/obd_diag/critical_error api_key
+ * yok diye düşüyor, admin tablosu boş kalıyordu. Geliştirme/saha fazında
+ * kullanıcı elle "Mobil Bağlantı"dan eşleştirmediği için uzak tanı ölüydü.
+ *
+ * ÇÖZÜM: boot'ta bir kez sessiz self-pair. register_vehicle RPC zaten
+ * idempotent — cihaz api_key alınca MEVCUT hat (pushVehicleEvent → RPC →
+ * vehicle_events) hiçbir sunucu değişikliği olmadan uçtan uca akar. */
+
+/** Boot-time otomatik eşleştirme sadece bir kez denensin (idempotent guard). */
+let _autoPairTried = false;
+
+/**
+ * Cihaz henüz eşlenmemişse (veh_api_key yok) sessizce register_vehicle
+ * çağırıp api_key'i saklar. Linking code GÖSTERMEZ — kullanıcı akışı yok.
+ *
+ *  - Supabase yapılandırılmamışsa (BYOK/env yok) → no-op (müşteri telemetri
+ *    istemiyorsa env'i boş bırakır; bu fonksiyon zorlamaz).
+ *  - Zaten eşliyse → dokunmaz, true döner.
+ *  - Offline/RPC hatası → false; _autoPairTried sıfırlanır, sonraki boot dener.
+ *
+ * Dönüş: eşleşme mevcut/sağlandıysa true.
+ */
+export async function ensureDeviceRegistered(): Promise<boolean> {
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) return false; // BYOK yok → no-op
+  if (await isDevicePaired()) return true;           // zaten eşli
+  if (_autoPairTried) return false;                  // bu oturumda bir kez dene
+  _autoPairTried = true;
+
+  try {
+    await registerVehicle();                         // idempotent; api_key saklanır
+    const paired = await isDevicePaired();
+    if (!paired) _autoPairTried = false;             // api_key gelmedi → tekrar denenebilir
+    return paired;
+  } catch {
+    _autoPairTried = false;                          // offline → sonraki boot yeniden dener
+    return false;
+  }
+}
+
 /** Düşen event'i say + throttle'lı uyar (60sn'de 1 — logcat spam'i yok). */
 function _noteDroppedEvent(reason: string, type: string): void {
   _droppedNoKeyCount++;

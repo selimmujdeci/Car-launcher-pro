@@ -37,13 +37,13 @@ SADECE Claude tarafından yapılacaktır.
 
 6. Gemini kesinlikle kod yazmayacak. Gemini: mimar, denetçi, operasyon yöneticisi; Claude: uygulayıcı mühendis olacak.
 
-7. STABILITY FIRST prensibi zorunlu. Öncelik sırası: 1. Stabilite, 2. Memory, 3. Thermal, 4. Runtime Resilience, 5. FPS, 6. UX, 7. Yeni özellik.
+7. STABILITY-GATED EVOLUTION zorunlu. Öncelik sırası: 1. Stabilite, 2. Memory, 3. Thermal, 4. Runtime Resilience, 5. FPS, 6. UX, 7. Vizyon-hizalı yeni özellik (performans bütçesi içinde). Yeni özellik YASAK DEĞİL; **bütçesiz/kanıtsız** özellik yasak. Güvenlik-kritik zekâ katmanları her DeviceTier'da açık kalır; ağır analiz yalnızca soğuk-yol/düşük-frekans/idle.
 
 8. Her büyük faz sonunda: listener leak, timer leak, worker lifecycle, style-switch persistence, rerender storm, SafeStorage pressure, low-end Android davranışı denetlenecek.
 
 9. FLEET-GRADE RUNTIME: CarOS Pro filo araçlarında 8–12 saat kesintisiz çalışacak şekilde tasarlanmalı. Bellek büyümesi, OBD reconnect loop'ları, GPS drift recovery ve watchdog davranışları öncelikli denetim alanıdır.
 
-10. ANA GÖREV: Özellik eklemek değil, CarOS Pro’yu çökmeyen, otomotiv standartlarında bir runtime haline getirmektir.
+10. ANA GÖREV: CarOS Pro'yu çökmeyen, otomotiv standartlarında bir runtime OLARAK KORURKEN, onu aftermarket'in evrensel Vehicle Intelligence OS'una dönüştürmektir (bkz. docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md — "Kuzey Yıldızı" + "8 Kapı"). Stabilite, vizyonun aracıdır — engeli değil. Bir PID eklemek başarı değil; ondan anlam üretmek başarıdır.
 
 --------------------------------------------------
 # CODE OWNERSHIP POLICY

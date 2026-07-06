@@ -7,6 +7,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Users } from './pages/Users'
 import { Vehicles } from './pages/Vehicles'
 import { Settings } from './pages/Settings'
+import { Diagnostics } from './pages/Diagnostics'
 import { SuperAdmin } from './pages/SuperAdmin'
 import { ChaosSimulator } from './ChaosSimulator'
 import { SuperAdminGuard } from './components/auth/SuperAdminGuard'
@@ -48,6 +49,8 @@ export function AdminApp() {
               <Route index element={<Dashboard />} />
               <Route path="users"      element={<Users />} />
               <Route path="vehicles"   element={<Vehicles />} />
+              {/* Tanı (saha verisi) — super_admin gerektirmez; yalnız giriş şart. */}
+              <Route path="tani"       element={<Diagnostics />} />
               <Route path="settings"   element={<Settings />} />
               <Route path="superadmin" element={<SuperAdmin />} />
               {/* DEV-only: /admin/chaos — sidebar'da görünmez, doğrudan URL ile erişilir */}

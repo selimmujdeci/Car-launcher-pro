@@ -4,6 +4,45 @@
 
 **Tüm yanıtlar Türkçe olacak.** Kod dışındaki her şey — açıklamalar, sorular, öneriler, hata mesajları, yorumlar — Türkçe yazılacak. İstisna yok.
 
+## 🎯 VİZYON ANAYASASI (KUZEY YILDIZI — BAĞLAYICI)
+
+**CarOS Pro bir launcher değildir; aracın ikinci beynidir** — evrensel, aftermarket
+bir **Vehicle Intelligence OS**. Referans Tesla DEĞİL: Tesla yalnızca kendi aracını
+tanır; biz yüzlerce **bilinmeyen** marka/modeli **öğreniriz** → bu yüzden daha güçlü
+olmak zorundayız (garantili OEM verisi değil, güvenilmez aftermarket telemetri →
+**zero-trust telemetry**).
+
+**Sinyal Karar Sözleşmesi — "8 Kapı":** Hiçbir veri yalnızca ekranda gösterilmek için
+okunmaz; her sinyal bir kararın parçasıdır. Bir PID eklemek başarı değildir, ondan
+**anlam** üretmek başarıdır. Her sinyal 8 kapıdan geçer:
+(1) doğru mu? → Confidence · (2) önemli mi? → Rule · (3) kullanıcı bilmeli mi? → Action ·
+(4) sadece sistem mi bilmeli? → Digital Twin · (5) neyle birleşince anlam kazanır? →
+Fusion/Context · (6) 5 dk sonra ne olacak? → Prediction · (7) yerine ne karar alabiliriz?
+→ Intent/Vehicle Brain · (8) en doğru aksiyon? → Vehicle Brain → Action.
+
+**Tasarım testi (her PR için):** *"Bu özellik Tesla'dan daha akıllı mı? Sadece
+gösteriyor mu, yoksa doğruluyor + yorumluyor + öngörüyor + karar veriyor mu?"*
+Değilse yeniden tasarla. Tam mimari: `docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md`.
+
+## ⚡ CONTROLLED EVOLUTION + PERFORMANS-UYARLANABİLİR HİBRİT (ZORUNLU)
+
+Proje modu: **CONTROLLED EVOLUTION** (eski STABILIZATION'ın yerine — `AI.md` ile senkron).
+Stabilite invaryantları **pazarlıksız korunur** (fail-soft · zero-leak · atomik/minimal
+patch · real-device doğrulama · performans bütçesi); vizyon-hizalı yeni zekâ katmanları
+**açıktır** — ama her biri **Performans-Uyarlanabilir Hibrit** kuralına tabidir:
+
+- **Tüm katmanlar hibrit/açık**, ama her biri DeviceTier bütçesine abone (AdaptiveRuntimeManager).
+- **Güvenlik-kritik katmanlar** (overheat, düşük yağ basıncı, reverse) HER tier'da garanti açık — ucuzdurlar.
+- **Ağır analiz** (Digital Twin, Prediction, Driver DNA) soğuk-yolda / düşük frekansta / idle'da; hot-path'e (3Hz hız/RPM) ASLA girmez.
+- **Süslü görsel** (3D twin, ağır animasyon) düşük-uçta feda edilir — feda edilen zekâ değil, yalnızca gösterim.
+- **Altın kural:** *"bütçesiz/kanıtsız özellik ekleme yasak"* — bütçeli + kanıtlı + hibrit özellik anayasanın **görevidir**.
+
+**🔴 SAHA DOĞRULAMA KÜTÜĞÜ (ZORUNLU):** Test yeşil + tsc temiz olması bir özelliği
+"başarılı" YAPMAZ. Her yeni özellik `docs/DEVICE_VALIDATION_LEDGER.md` kütüğüne önce
+**🔴 "cihazda test edilmedi"** olarak, *ölçülebilir bir kabul ölçütüyle* eklenir;
+gerçek araçta o ölçüt gözlemlenince **🟢 "doğrulandı"**ya taşınır, cihazda düşerse
+**❌ "düştü"**ye. Kütükte 🔴 bekleyen bir özelliği "tamam/çalışıyor" diye sunma.
+
 ## 🤖 OTOMATİK AJAN/MODEL YÖNLENDİRME (KULLANICI POLİTİKASI — ZORUNLU)
 
 Kullanıcı ajan/model ADI VERMEZ. Görev geldiğinde ana oturum görevi sınıflandırır

@@ -4,6 +4,7 @@
  * MainLayout mount olduğunda registerDrawerHandler ile handler kaydeder.
  */
 import type { DrawerType } from '../components/layout/DockBar';
+import { pushTrail } from './diagnosticTrail';
 
 let _handler: ((d: DrawerType) => void) | null = null;
 
@@ -16,5 +17,7 @@ export function unregisterDrawerHandler(): void {
 }
 
 export function openDrawer(d: DrawerType): void {
+  // Tanı olay izi — ekran/çekmece geçişi ("soruna ne yol açtı" hikâyesi).
+  try { pushTrail('screen', d === 'none' ? 'çekmece kapandı' : `ekran: ${d}`); } catch { /* fail-soft */ }
   _handler?.(d);
 }

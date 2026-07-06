@@ -17,6 +17,7 @@ import { useRadarSystem }     from './hooks/useRadarSystem';
 import { RadarAlertHUD }      from './components/layout/RadarAlertHUD';
 import { SentryOverlay }      from './components/security/SentryOverlay';
 import { GlobalAlert }        from './components/common/GlobalAlert';
+import { GlobalDiagnosticButton } from './components/common/GlobalDiagnosticButton';
 import { VolumeGestureLayer } from './components/common/VolumeGestureLayer';
 import { signalReverse }      from './platform/cameraService';
 import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
@@ -187,6 +188,9 @@ function App() {
         </SafetyProvider>
 
         {!storeReverse && <GlobalAlert />}
+        {/* Global "Tanı Gönder" — her ekranda erişilebilir tek tetik (saha veri
+            toplama fazı); geri viteste gizli (kamera temiz). */}
+        {!storeReverse && <GlobalDiagnosticButton />}
         {!storeReverse && <DisclaimerBanner />}
         {!storeReverse && <RadarAlertHUD />}
         {!storeReverse && <SentryOverlay />}

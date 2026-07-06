@@ -226,6 +226,23 @@ function _now(): number {
   return typeof performance !== 'undefined' ? performance.now() : 0;
 }
 
+/**
+ * Tanı raporu için AI sağlayıcı kota (429) pencereleri anlık görüntüsü.
+ * Her sağlayıcı için kalan soğuma süresi (ms; 0 = açık/kotasız). PII yok.
+ * Sağlayıcı-bazlı pencereler (çapraz kirlenme yok) — SAHA 2026-07-04 dersi.
+ */
+export function getProviderQuotaSnapshot(): {
+  geminiCooldownMs: number; groqCooldownMs: number; haikuCooldownMs: number;
+} {
+  const now = _now();
+  const left = (until: number): number => (until > now ? Math.round(until - now) : 0);
+  return {
+    geminiCooldownMs: left(_rateLimitedUntil),
+    groqCooldownMs:   left(_groqRateLimitedUntil),
+    haikuCooldownMs:  left(_haikuRateLimitedUntil),
+  };
+}
+
 /** @internal — testler arası izolasyon. */
 export function _resetCompanionChatForTest(): void {
   _history = [];

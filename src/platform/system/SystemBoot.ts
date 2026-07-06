@@ -25,6 +25,9 @@ import { hydrateSafetyBrainFromStorage } from '../safety/SafetyBrain';
 import { isNative }                from '../bridge';
 import { CarLauncher }             from '../nativePlugin';
 import { startNativeGuardBridge }  from '../native/NativeGuardBridge';
+import { startUiActivityRecorder } from '../uiActivityRecorder';
+import { startDiagnosticTrail }    from '../diagnosticTrail';
+import { startPerfSeries }         from '../perfSeriesRecorder';
 import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
   startVehicleDataLayer,
@@ -46,6 +49,7 @@ import { turkiyeStaticRadars }     from '../radar/staticRadarData';
 import { startTheaterService }     from '../theaterModeService';
 import { startOtaService, stopOtaService } from '../otaUpdateService';
 import { startRemoteLogService }   from '../remoteLogService';
+import { ensureDeviceRegistered }  from '../vehicleIdentityService';
 import { startMemoryWatchdog, stopMemoryWatchdog } from '../memoryWatchdog';
 import {
   startSmartCardEngine,
@@ -384,6 +388,21 @@ class SystemBoot {
   private async _wave1(): Promise<void> {
     _log('Starting Wave 1 (Core)...');
 
+    // UI aktivite kaydedici (zamansız-modal avcısı) — EN ERKEN kurulur ki
+    // disclaimer gibi boot-time modaller de yakalansın; kurulumda zaten açık
+    // yüzeyler seed taramasıyla alınır. Yan-etkisiz gözlem (MutationObserver).
+    _log('  › startUiActivityRecorder()');
+    this._cleanups.push(startUiActivityRecorder());
+
+    // Olay izi (breadcrumb) — mod/OBD/ekran/hata/modal kronolojik hikâyesi.
+    _log('  › startDiagnosticTrail()');
+    this._cleanups.push(startDiagnosticTrail());
+
+    // Perf zaman serisi — oturum boyu termal/bellek/fps/lag halka tamponu (trend).
+    // Düşük frekans (12s) + düşük-tier'da fps salvosu atlanır (ısı/CPU dostu).
+    _log('  › startPerfSeries()');
+    this._cleanups.push(startPerfSeries());
+
     // runtimeManager: crash recovery + ilk mod logu
     _log('  › runtimeManager.start()');
     runtimeManager.setZombieRestartCallback((key) => {
@@ -563,6 +582,14 @@ class SystemBoot {
     _log('  › OtaUpdateService');
     startOtaService();
     this._reg(stopOtaService);
+
+    // Otomatik eşleştirme: eşlenmemiş cihaz tanı/telemetri gönderemiyordu
+    // ("Tanı Gönder" → not_paired, admin tablosu boş). Saha veri toplama
+    // fazı için sessiz self-pair — bir kez api_key alınca RemoteLogService
+    // hattı çalışır. Fire-and-forget (boot ağ beklemez); başarısızsa sonraki
+    // boot yeniden dener. Supabase env yoksa no-op.
+    _log('  › DeviceAutoPair');
+    void ensureDeviceRegistered();
 
     // Uzak log hattı: crashLogger sink kaydı + önceki oturum crash drain'i
     // (Remote Log v1 / Commit 2)

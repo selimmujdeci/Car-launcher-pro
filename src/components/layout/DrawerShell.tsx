@@ -1,5 +1,6 @@
-import { memo, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { Freeze } from './Freeze';
 
 interface Props {
   open:        boolean;
@@ -126,8 +127,20 @@ function FullscreenDrawer({ open, children }: Omit<Props, 'fullscreen'>) {
 }
 
 export const DrawerShell = memo(function DrawerShell({ open, onClose, children, fullscreen }: Props) {
+  // Kapalı drawer'ın alt ağacını DONDUR (render+effect+paint durur, state kalır).
+  // Kapanışta 700ms bekle → kapanış animasyonu içerik doluyken tamamlansın
+  // (anında donunca Suspense içeriği gizler, panel boş kayarak inerdi).
+  const [frozen, setFrozen] = useState(!open);
+  useEffect(() => {
+    if (open) { setFrozen(false); return; }
+    const t = setTimeout(() => setFrozen(true), 700);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  const frozenChildren = <Freeze freeze={frozen && !open}>{children}</Freeze>;
+
   if (fullscreen) {
-    return <FullscreenDrawer open={open} onClose={onClose}>{children}</FullscreenDrawer>;
+    return <FullscreenDrawer open={open} onClose={onClose}>{frozenChildren}</FullscreenDrawer>;
   }
-  return <NormalDrawer open={open} onClose={onClose}>{children}</NormalDrawer>;
+  return <NormalDrawer open={open} onClose={onClose}>{frozenChildren}</NormalDrawer>;
 });

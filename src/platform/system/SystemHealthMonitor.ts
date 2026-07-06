@@ -21,7 +21,8 @@
  */
 
 import { useUnifiedVehicleStore }   from '../vehicleDataLayer/UnifiedVehicleStore';
-import { onGPSLocation }            from '../gpsService';
+import { onGPSLocation, getGPSState } from '../gpsService';
+import { getOBDStatusSnapshot }     from '../obdService';
 import { showToast, dismissToast }  from '../errorBus';
 import { logError }                 from '../crashLogger';
 import { useCognitiveStore }        from '../../store/useCognitiveStore';
@@ -45,6 +46,24 @@ function _primeAppVersion(): void {
   void getAppVersionInfo()
     .then((info) => { if (info?.versionName) _appVersion = info.versionName; })
     .catch(() => { /* web/dev veya köprü hatası — build-time değer kalır */ });
+}
+
+/**
+ * BUG FIX (SAHA): GPS izni KESİN reddedildiğinde gpsService.unavailable=true +
+ * spesifik hata mesajı basar (bkz. gpsService.startNativeGPSTracking) — ama
+ * heartbeat bazlı `healthy` hesaplaması bunu YOK SAYIYORDU: kayıt anına
+ * (register()) yakın bir lastBeat varsa deadlineMs dolmadığı için "healthy:true"
+ * görünüyordu, saha raporunda "GPS healthy:true" + "permission denied" çelişkisi
+ * buradan geliyordu. Fail-soft: GPS state API'sine erişilemezse false (eski
+ * davranış — heartbeat tek başına karar verir).
+ */
+function _isGpsPermissionDenied(): boolean {
+  try {
+    const s = getGPSState();
+    return s.unavailable === true && s.error === 'GPS permission denied';
+  } catch {
+    return false;
+  }
 }
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
@@ -83,6 +102,8 @@ export interface GlobalHealthSnapshot {
     healthy:      boolean;
     restartCount: number;
     criticality:  ServiceCriticality;
+    /** Yalnız healthy=false iken ve nedeni heartbeat DIŞI bir sinyalse dolu (örn. GPS izni reddedildi). */
+    unhealthyReason?: string;
   }>;
   overallHealth: 'healthy' | 'degraded' | 'critical';
 }
@@ -136,6 +157,11 @@ class SystemHealthMonitor {
   private _uiCheckTimer: ReturnType<typeof setInterval> | null = null;
   /** Oturum boyunca tespit edilen toplam UI donma olayı sayısı */
   private _uiFreezeCount = 0;
+  /** Görünürlük değişimi (arka plan/uyku) sonrası bir sonraki UI ölçümünü atla —
+   *  askıya alınan setInterval sahte "donma" üretmesin (saha 2026-07-07: 210s). */
+  private _uiVisibilitySuspect = false;
+  /** visibilitychange dinleyicisi — stop()'ta sökülür (zero-leak). */
+  private _onUiVisibility: (() => void) | null = null;
   /** Worker GPS kalite arızası — aktif toast id + durum (setGpsQuality yönetir) */
   private _gpsQualityToastId: string | null = null;
   private _gpsQualityBad     = false;
@@ -313,10 +339,32 @@ class SystemHealthMonitor {
     // (arka planda rAF durması artık sahte "donma" üretmez).
     this._uiRafLastMs = performance.now();
 
+    // ARKA PLAN/UYKU GUARD (saha 2026-07-07): drift yöntemi setInterval'e geçince
+    // "arka planda sahte donma üretmez" varsayıldı — YANLIŞ. Android WebView app'i
+    // backgrounded/ekran-kapalı olunca setInterval'i de askıya alır; app dönünce
+    // tek tick devasa boşluk ölçüp sahte "UI freeze 210s" basıyordu (panic snapshot
+    // + thermal panic marker + escalation Step 0 tetikliyordu). Görünürlük her
+    // değiştiğinde (iki yönde de) bir sonraki ölçümü işaretle → askı süresi donma
+    // sayılmaz. Gerçek foreground donması görünürlüğü değiştirmez → yakalanmaya devam.
+    if (typeof document !== 'undefined' && !this._onUiVisibility) {
+      this._onUiVisibility = () => {
+        this._uiVisibilitySuspect = true;
+        this._uiRafLastMs = performance.now(); // taban sıfırla (askı süresini sayma)
+      };
+      document.addEventListener('visibilitychange', this._onUiVisibility);
+    }
+
     this._uiCheckTimer = setInterval(() => {
       const now   = performance.now();
       const gapMs = now - this._uiRafLastMs;   // bu tick gerçekte ne kadar sonra ateşledi
       this._uiRafLastMs = now;
+      // Görünürlük yakın zamanda değiştiyse VEYA şu an gizliyse: timer askıya alınmış
+      // olabilir → ölçülen boşluk askı süresidir, gerçek donma DEĞİL → bu ölçümü at.
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      if (this._uiVisibilitySuspect || hidden) {
+        this._uiVisibilitySuspect = false;
+        return;
+      }
       // Beklenen ~UI_FREEZE_CHECK_INTERVAL_MS; üstündeki fazla gecikme = ana thread donması.
       const frozenMs = gapMs - UI_FREEZE_CHECK_INTERVAL_MS;
       if (frozenMs > UI_FREEZE_THRESHOLD_MS) {
@@ -336,6 +384,11 @@ class SystemHealthMonitor {
   private _stopUiWatchdog(): void {
     if (this._uiRafId !== null) { cancelAnimationFrame(this._uiRafId); this._uiRafId = null; }
     if (this._uiCheckTimer !== null) { clearInterval(this._uiCheckTimer); this._uiCheckTimer = null; }
+    if (this._onUiVisibility && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._onUiVisibility);
+    }
+    this._onUiVisibility = null;
+    this._uiVisibilitySuspect = false;
   }
 
   // ── Pasif İzleyiciler ────────────────────────────────────────────────────────
@@ -529,17 +582,51 @@ class SystemHealthMonitor {
 
     let restartTotal = 0;
     const services: GlobalHealthSnapshot['services'] = [];
+    // STARTUP_GRACE_MS geçmeden izin-reddi kesinleşmemiş sayılır (cold-start koruması
+    // ile aynı pencere) — erken "healthy:false" false-alarm olmasın.
+    const gpsDenied = (now - this._startedAt >= STARTUP_GRACE_MS) && _isGpsPermissionDenied();
     for (const e of this._registry.values()) {
       restartTotal += e.restartCount;
+      const heartbeatHealthy = (now - e.lastBeat) < e.deadlineMs;
+      const isGpsDenied = e.name === 'GPS' && gpsDenied;
       services.push({
         name:         e.name,
-        healthy:      (now - e.lastBeat) < e.deadlineMs,
+        healthy:      isGpsDenied ? false : heartbeatHealthy,
         restartCount: e.restartCount,
         criticality:  e.criticality,
+        ...(isGpsDenied ? { unhealthyReason: 'gps_permission_denied' } : {}),
       });
     }
 
-    const hasCritical = services.some((s) => !s.healthy && s.criticality === 'critical');
+    // ── Beklenen-yokluk (fail-soft rollup) ─────────────────────────────────
+    // Pasif monitörler (GPS/VehicleDataLayer) araçta HİÇ veri kaynağı yokken
+    // unhealthy olması BEKLENEN — bu "critical sistem arızası" DEĞİL, araç bağlı
+    // değil. Alert/restart tarafı cold-start (_neverBeaten) ile ayrıca susturulur;
+    // snapshot rollup'ı da aynı posture'ı yansıtmalı, yoksa OBD/GPS'siz HER cihaz
+    // (tezgah/telefon/ilk boot) tanıda sahte 'critical' gösterir (saha bulgusu
+    // 2026-07-06). Servis DETAYI ham/dürüst kalır (healthy=false görünür); yalnız
+    // rollup yumuşar. KAYNAK VARKEN kopma (OBD bağlı→error) yine gerçek 'critical'.
+    const vs  = useUnifiedVehicleStore.getState();
+    const loc = vs.location;
+    const freshLocation = !!(
+      loc &&
+      Number.isFinite(loc.latitude) &&
+      Number.isFinite(loc.longitude) &&
+      (Date.now() - loc.timestamp) < 30_000
+    );
+    let obdPresent = false;
+    try { obdPresent = getOBDStatusSnapshot().source !== 'none'; } catch { /* fail-soft */ }
+    const noVehicleSource = !obdPresent && !freshLocation;
+    const PASSIVE_MONITORS = new Set(['GPS', 'VehicleDataLayer']);
+    const isExpectedAbsence = (name: string): boolean => {
+      if (!PASSIVE_MONITORS.has(name)) return false;
+      if (name === 'GPS' && vs.gpsUnavailable) return true;
+      return noVehicleSource;
+    };
+
+    const hasCritical = services.some(
+      (s) => !s.healthy && s.criticality === 'critical' && !isExpectedAbsence(s.name),
+    );
     const hasDegraded = services.some((s) => !s.healthy);
     const overallHealth: GlobalHealthSnapshot['overallHealth'] = hasCritical
       ? 'critical'

@@ -184,6 +184,7 @@ export class SignalNormalizer {
     if (raw.rpm   != null)         out.rpm           = sig(raw.rpm,           ts, CONF_OBD);
     if (raw.reverse != null)       out.reverse       = sig(raw.reverse,       ts, CONF_OBD);
     if (raw.totalDistance != null) out.totalDistance = sig(raw.totalDistance, ts, CONF_OBD);
+    if (raw.coolantTemp != null)   out.coolantTemp   = sig(raw.coolantTemp,   ts, CONF_OBD);
 
     return out;
   }

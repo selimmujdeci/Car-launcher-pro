@@ -78,9 +78,13 @@ export class VehicleSignalResolver {
     // import + tree-shake edilen import.meta.env.DEV kullanır → Vite bunu classic
     // IIFE olarak paketler, Chrome 52+'da yüklenir. (§HEAD_UNIT_MATRIX)
     try {
+      // type:'module' — Vite dev worker'ı MODÜL olarak servis eder (import cümleleri
+      // çalışır; dev tarayıcısı modern). PROD'da vite.config `worker.format:'iife'`
+      // bunu classic IIFE'ye ZORLAR → Chrome 52+ eski WebView'da yüklenir+parse edilir
+      // (modül worker Chrome 80+ ister). Böylece dev+prod ikisi de çalışır. (§HEAD_UNIT_MATRIX)
       this._worker = new Worker(
         new URL('./VehicleCompute.worker.ts', import.meta.url),
-        { name: 'VehicleCompute' },
+        { type: 'module', name: 'VehicleCompute' },
       );
       this._onWorkerMessageBound = this._onWorkerMessage.bind(this);
       this._worker.addEventListener('message', this._onWorkerMessageBound);

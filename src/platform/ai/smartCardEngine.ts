@@ -20,9 +20,11 @@
  *    50 maintenance-soon   — Bakım yaklaşıyor
  *    30 music-suggestion   — Akşam müzik önerisi
  *
- * Not: engine-warning kartı VehicleState'de engineTemp yokluğu nedeniyle
- * bu motordan çıkarıldı. VehicleEventHub'a ENGINE_OVERHEAT eventi eklendiğinde
- * aşağıdaki onVehicleEvent aboneliğine eklemek yeterli olacak.
+ * Not: ENGINE_OVERHEAT artık VehicleEventHub'da mevcut (worker histerezisi,
+ * bkz. VehicleCompute.worker.ts _handleEventEngineTemp). Bilinçli olarak bu
+ * motora eklenmedi — P1 kritik uyarı SystemOrchestrator → GlobalAlert
+ * (kırmızı kart + sesli uyarı) üzerinden akar; smartCardEngine yalnız
+ * düşük-öncelikli proaktif önerileri (bakım/yakıt/rota/müzik) üretir.
  *
  * CLAUDE.md §1 (Memory): tüm abonelikler stopSmartCardEngine'de temizlenir.
  * CLAUDE.md §3 (Performance): poll 8s, subscribe callback O(1) field assign.
@@ -33,9 +35,16 @@ import { onVehicleEvent }         from '../vehicleDataLayer/VehicleEventHub';
 import { computeReminders }       from '../vehicleReminderService';
 import { getLocationCtx, getTimeCtx } from '../contextEngine';
 import { useStore, type SmartCard } from '../../store/useStore';
+import { runtimeManager }         from '../../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Sabitler ────────────────────────────────────────────────── */
 
+// FAZ 16 — poll runtimeManager scheduler'ına devredildi (§L.0, periodMs API).
+// BALANCED/PERFORMANCE'ta (mod çarpanı=1) POLL_MS AYNEN korunur — eski sabit
+// 8s davranışı yüksek-tier'da BOZULMAZ; yalnız düşük-tier'da moda göre yavaşlar
+// (BASIC_JS ×2, POWER_SAVE ×3, SAFE_MODE ×4). _compute() idempotent bir "mevcut
+// durumu yeniden hesapla" fonksiyonudur (tick-sayımına dayalı birikim YOK) →
+// periyot uzasa da sonuç her zaman doğru kalır, yalnız güncelleme sıklığı düşer.
 const POLL_MS         = 8_000;  // 8 saniye — CLAUDE.md §3
 const FUEL_THRESHOLD  = 15;     // %15 altında yakıt uyarısı
 const MORNING_START_H = 7;
@@ -46,7 +55,7 @@ const EVENING_START_H = 18;
 
 const EVENT_DEBOUNCE_MS = 150;  // 150ms içinde gelen olayları tek _compute()'a indir
 
-let _pollTimer:     ReturnType<typeof setInterval> | null = null;
+let _pollTimer:     (() => void) | null = null;
 let _debounceTimer: ReturnType<typeof setTimeout>  | null = null;
 let _unsubVehicle:  (() => void) | null                   = null;
 let _unsubEvent:    (() => void) | null                   = null;
@@ -312,7 +321,7 @@ export function startSmartCardEngine(): void {
       case 'DRIVING_STOPPED':
         break;
       default:
-        return; // REVERSE_ENGAGED/DISENGAGED → smartCardEngine kart göstermiyor
+        return; // REVERSE_ENGAGED/DISENGAGED/ENGINE_OVERHEAT → smartCardEngine kart göstermiyor (bkz. üstteki Not)
     }
 
     if (e.severity === 'CRITICAL') {
@@ -327,12 +336,13 @@ export function startSmartCardEngine(): void {
         _compute();
       }, EVENT_DEBOUNCE_MS);
     }
-    // ENGINE_OVERHEAT: VehicleEventHub'a eklendiğinde case listesine dahil edilecek
   });
 
-  // İlk hesaplama hemen, sonrası 8s'de bir
+  // İlk hesaplama hemen, sonrası scheduler'ın COOL sınıfında (§L.0, FAZ 16)
   _compute();
-  _pollTimer = setInterval(_compute, POLL_MS);
+  _pollTimer = runtimeManager.scheduleTask({
+    id: 'smartcard-compute', periodMs: POLL_MS, criticality: 'NORMAL', fn: _compute,
+  });
 }
 
 /**
@@ -343,7 +353,7 @@ export function stopSmartCardEngine(): void {
   if (!_started) return;
   _started = false;
 
-  if (_pollTimer)     { clearInterval(_pollTimer);    _pollTimer     = null; }
+  if (_pollTimer)     { _pollTimer();                 _pollTimer     = null; }
   if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
   _unsubVehicle?.(); _unsubVehicle = null;
   _unsubEvent?.();   _unsubEvent   = null;

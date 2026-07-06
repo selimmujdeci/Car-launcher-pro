@@ -301,7 +301,11 @@ describe('reportSupportSnapshot', () => {
     expect(lastErrors).toHaveLength(1);
     expect(lastErrors[0]!.ctx).toBe('OBD');
     expect(lastErrors[0]!.msg as string).toContain('[COORD]'); // koordinat maskelendi
-    expect(lastErrors[0]!).not.toHaveProperty('stack');        // stack snapshot'a girmez
+    // GENİŞLİK: stack ARTIK dahil (kısaltılmış 2 satır + _maskString) — ama ham
+    // koordinat stack'te DE maskeli olmalı (PII garantisi genişlemeye rağmen korunur).
+    expect(lastErrors[0]!).toHaveProperty('stack');
+    const stk = String(lastErrors[0]!.stack ?? '');
+    expect(stk).not.toMatch(/41\.008|28\.978/);                // koordinat stack'te de sızmaz
 
     const health = payload.health as Record<string, unknown>;
     expect(health.overallHealth).toBe('healthy');

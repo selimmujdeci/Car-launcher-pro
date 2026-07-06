@@ -3,11 +3,15 @@ You must follow this file strictly.
 Do not ignore any rule.
 ---
 ## MODE
-STABILIZATION MODE active.
-- No new features
-- No UI redesign
-- No big refactor
-- One bug = one fix
+CONTROLLED EVOLUTION MODE active.
+- Vision-aligned features ALLOWED — but ONLY under the Hybrid Performance Budget
+- Every new intelligence layer subscribes to DeviceTier budget (no unbudgeted feature)
+- Safety-critical layers always on; heavy analysis cold-path / low-freq / idle only
+- Never touch the hot-path (3Hz speed/RPM) with new layers
+- No UI redesign for its own sake; no big-bang refactor
+- One root cause = one atomic fix
+- Stability invariants below are NON-NEGOTIABLE — they are the cost of admission, not the ceiling
+- North Star: docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md ("8 Gates" + hybrid)
 ---
 ## CORE RULE
 Fix root cause, not symptoms.

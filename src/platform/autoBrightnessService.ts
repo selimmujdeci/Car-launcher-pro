@@ -16,6 +16,7 @@
 import { useState, useEffect } from 'react';
 import { setBrightness } from './systemSettingsService';
 import { onOBDData } from './obdService';
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -171,7 +172,7 @@ function push(partial: Partial<AutoBrightnessState>): void {
   _listeners.forEach((fn) => fn(_state));
 }
 
-let _tickerId:        ReturnType<typeof setInterval> | null = null;
+let _tickerId:        (() => void) | null = null;
 let _onThemeChange:   ((theme: 'dark' | 'oled') => void) | null = null;
 let _obdUnsubscribe:  (() => void) | null = null;
 let _prevHeadlights:  boolean | null = null;
@@ -303,8 +304,16 @@ export function startAutoBrightness(opts: {
   push({ enabled: true, sunTimes, overridden: false });
   applyBrightness();
 
-  if (_tickerId) clearInterval(_tickerId);
-  _tickerId = setInterval(applyBrightness, 60_000);
+  // FAZ 16 — sabit 60s setInterval yerine scheduler (§L.0, periodMs API).
+  // BALANCED/PERFORMANCE'ta 60s AYNEN korunur (mod çarpanı=1); düşük-tier'da
+  // yavaşlar. applyBrightness() saf "şu anki güneş fazını/parlaklığı uygula"
+  // hesabıdır (nowMinutes() = mutlak duvar saati) → tick-sayımına dayalı
+  // birikim yok, periyot uzasa da sonuç doğru kalır. deferIdle: UI'a etkisi
+  // yok — requestIdleCallback'e ötelenir (varsa).
+  if (_tickerId) { _tickerId(); _tickerId = null; }
+  _tickerId = runtimeManager.scheduleTask({
+    id: 'auto-brightness', periodMs: 60_000, criticality: 'NORMAL', fn: applyBrightness, deferIdle: true,
+  });
 
   // OBD far sinyalini dinle — tünel geçişleri için
   if (!_obdUnsubscribe) {
@@ -318,7 +327,7 @@ export function startAutoBrightness(opts: {
 }
 
 export function stopAutoBrightness(): void {
-  if (_tickerId)  { clearInterval(_tickerId); _tickerId = null; }
+  if (_tickerId)  { _tickerId(); _tickerId = null; }
   if (_obdUnsubscribe) { _obdUnsubscribe(); _obdUnsubscribe = null; }
   // Zero-Leak: bekleyen RAF'ı iptal et + sunlight-mode CSS'i temizle
   if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }

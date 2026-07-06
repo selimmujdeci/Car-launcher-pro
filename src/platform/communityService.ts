@@ -26,12 +26,15 @@ import { useVehicleIntelligenceStore }   from '../store/useVehicleIntelligenceSt
 import { useUnifiedVehicleStore }        from './vehicleDataLayer/UnifiedVehicleStore';
 import { injectCommunityHazard }         from './hazardService';
 import type { HazardType }               from '../store/useHazardStore';
+import { runtimeManager }                from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
 const QUEUE_KEY          = 'community_queue';
 const TTL_MS             = 24 * 60 * 60 * 1000; // 24 saat
 const SAVE_DELAY_MS      = 10_000;               // 10s throttle — eMMC ömrü (CLAUDE.md §3)
+// FAZ 16 — periyodik sync scheduler'a devredildi (§L.0, periodMs API);
+// BALANCED/PERFORMANCE'ta bu değer AYNEN korunur (mod çarpanı=1).
 const SYNC_INTERVAL_MS   = 5 * 60 * 1000;        // 5 dakika periyodik sync
 const BATCH_TRIGGER_SIZE = 10;                   // kuyruk > 10 → anında sync
 const PULL_INTERVAL_MS   = 7 * 60 * 1000;        // 7 dakika cloud pull döngüsü
@@ -62,7 +65,10 @@ const _SESSION_TOKEN: string =
 /* ── Throttled kayıt ─────────────────────────────────────────────────────── */
 
 let _saveTimer:  ReturnType<typeof setTimeout>  | null = null;
-let _syncTimer:  ReturnType<typeof setInterval> | null = null;
+/** FAZ 16 — scheduler'ın IDLE sınıfına taşındı (§L.0); cleanup thunk tutar. */
+let _syncTimer:  (() => void) | null = null;
+// _pullTimer (cloud pull) BİLİNÇLİ OLARAK taşınmadı — FAZ 16 grup-1 kapsamı
+// yalnız _syncTimer'ı kapsıyor (atomik migrasyon, AI.md "big-bang YASAK").
 let _pullTimer:  ReturnType<typeof setInterval> | null = null;
 
 /** Rate limit sayaçları — yalnızca bellekte, diske yazılmaz */
@@ -148,11 +154,16 @@ export function initCommunityService(): void {
       .forEach((e) => store.pushEvent(e));
   }
 
-  // Periyodik sync — 5 dakikada bir (UI'a etki yok: idle zamanlı)
-  if (_syncTimer) clearInterval(_syncTimer);
-  _syncTimer = setInterval(() => {
-    _idleSync();
-  }, SYNC_INTERVAL_MS);
+  // FAZ 16 — sabit 5dk `setInterval` yerine scheduler (§L.0, periodMs API).
+  // BALANCED/PERFORMANCE'ta SYNC_INTERVAL_MS (5dk) AYNEN korunur — düzeltme
+  // öncesi (freqClass='IDLE') taban ~15s'e yuvarlanmıştı = 20× fazla ağ
+  // senkronu; artık gerçek periyot birebir taşınıyor. _idleSync() zaten
+  // idempotent bir "kuyruğu boşaltmayı dene" tetikleyicisi — tick-sayımına
+  // dayalı biriktirme yok, periyot düşük-tier'da uzasa da davranış bozulmaz.
+  if (_syncTimer) { _syncTimer(); _syncTimer = null; }
+  _syncTimer = runtimeManager.scheduleTask({
+    id: 'community-sync', periodMs: SYNC_INTERVAL_MS, criticality: 'NORMAL', fn: _idleSync, deferIdle: true,
+  });
 
   // Cloud pull — 7 dakikada bir topluluk verisini çek ve Hazard motoruna besle
   if (_pullTimer) clearInterval(_pullTimer);
@@ -169,7 +180,7 @@ export function initCommunityService(): void {
 export function stopCommunityService(): void {
   // Kuyruk önce mühürlenir — eMMC ömrü koruması (timer'lardan önce)
   _flushQueue();
-  if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
+  if (_syncTimer) { _syncTimer(); _syncTimer = null; }
   if (_pullTimer) { clearInterval(_pullTimer); _pullTimer = null; }
   if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
   console.info('[CRM] Shutdown complete - All timers cleared');
@@ -522,7 +533,7 @@ function _idlePull(): void {
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
+    if (_syncTimer) { _syncTimer(); _syncTimer = null; }
     if (_pullTimer) { clearInterval(_pullTimer); _pullTimer = null; }
     if (_saveTimer) {
       clearTimeout(_saveTimer);

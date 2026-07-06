@@ -266,6 +266,11 @@ export function notifyVoskModelReady(): void {
   _pendingNativeGen = null;
 }
 
+/** Tanı: Vosk modeli hazır mı (native'de unpack+load bitti mi; web'de her zaman true). */
+export function isVoskModelReady(): boolean {
+  return _voskReady;
+}
+
 function _pushHeard(transcript: string): void {
   const lastHeard = [transcript, ..._state.lastHeard].slice(0, 5);
   push({ lastHeard });

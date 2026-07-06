@@ -37,6 +37,18 @@ const MODE_RANK: Readonly<Record<RuntimeMode, number>> = {
   [RuntimeMode.PERFORMANCE]: 4,  // eski 3 → 4
 } as const;
 
+/* ── §L.0 Hibrit Runtime Scheduler — mod çarpanı tablosu ─────────
+   docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md:1176-1241.
+   SAFETY görevlere ASLA uygulanmaz (sabit — CLAUDE.md "güvenlik-kritik HER
+   tier'da garanti açık"); yalnız NORMAL görevlerin periodMs'ini ölçekler. */
+const MODE_MULTIPLIER: Readonly<Record<RuntimeMode, number>> = {
+  [RuntimeMode.PERFORMANCE]: 1,
+  [RuntimeMode.BALANCED]:    1,
+  [RuntimeMode.BASIC_JS]:    2,
+  [RuntimeMode.POWER_SAVE]:  3,
+  [RuntimeMode.SAFE_MODE]:   4,
+} as const;
+
 /* ── Sabitler ────────────────────────────────────────────────────── */
 
 const UPGRADE_DELAY_MS   = 30_000; // 30 saniye stabilite penceresi
@@ -66,6 +78,22 @@ const _THERMAL_CEILING: readonly (RuntimeMode | null)[] = [
 /** Crash-recovery: son aktif modu safeStorage'a yazarız; yeniden başlatmada okuruz. */
 const PERSIST_KEY = 'rt-last-mode';
 
+/* ── §L.0 Hibrit Runtime Scheduler — tek "tick-wheel" sabiti ─────
+   Tek master timer ~3Hz'te döner; her görev KENDİ periodMs'ini bildirir,
+   wheel bunu en yakın tik katına yuvarlar (dört-beş ayrı interval yerine
+   tek uyanış — zayıf HU'da termal/pil kazancı, aynı zombie-ping ilkesi).
+   FAZ 16 DEĞİŞİKLİĞİ: eskiden görevler 4 sabit "frekans sınıfı" (HOT/WARM/
+   COOL/IDLE, taban tik sayısı önceden sabitlenmiş) ile kaydoluyordu — bu
+   sınıf modeli >15s'lik gerçek periyotları (community sync 5dk, brightness
+   60s, breakReminder 30s) TEMSİL EDEMİYORDU: taşınan tüketiciler kendi
+   gerçek periyotlarından çok daha hızlı bir sınıfa yuvarlanıp orta/yüksek
+   tier'da OLMASI GEREKENDEN ÇOK DAHA SIK çalışmaya başladı (ör. community
+   sync 5dk yerine COOL sınıfının ~5s tabanına düştü — 20× fazla ağ senkronu,
+   CPU/pil kazancı yerine KAYIP). Çözüm: her görev kendi `periodMs`'ini verir
+   (yüksek-tier'da ORİJİNAL periyot birebir korunur), mod çarpanı yalnız
+   düşük-tier'da bunu YAVAŞLATIR — asla bir sınıf tablosuna zorla sığdırılmaz. */
+const MASTER_TICK_MS = 333; // ~3Hz — wheel çözünürlüğü
+
 /* ── Tip tanımları ───────────────────────────────────────────────── */
 
 /** setMode() çağrısının hangi kaynaktan geldiğini belirtir. */
@@ -81,6 +109,47 @@ export type WorkerCriticality = 'CRITICAL' | 'OPTIONAL';
 interface WorkerEntry {
   worker:       Worker | null;
   criticality:  WorkerCriticality;
+}
+
+/* ── §L.0 Hibrit Runtime Scheduler — tipler (FAZ 13 iskelet, FAZ 16 periodMs) ──
+   docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md:1176-1241. */
+
+/**
+ * Görev kritiklik sınıfı:
+ *   SAFETY  — overheat/yağ basıncı/reverse gibi güvenlik uyarıları; HER tier'da
+ *             `periodMs` AYNEN korunur, mod çarpanıyla ASLA kısılmaz.
+ *   NORMAL  — geri kalan tüm analiz/intelligence görevleri; mod çarpanına tabi
+ *             (yüksek-tier'da `periodMs` birebir, düşük-tier'da yavaşlar).
+ */
+export type TaskCriticality = 'SAFETY' | 'NORMAL';
+
+/** scheduleTask() ile kaydedilen periyodik görev tanımı. */
+export interface ScheduledTask {
+  /** Benzersiz kimlik — çift kayıt öncekini DEĞİŞTİRİR (idempotent, sızıntı yok). */
+  id:          string;
+  /** İstenen taban periyot (ms) — BALANCED/PERFORMANCE'ta (mod çarpanı=1) AYNEN uygulanır. */
+  periodMs:    number;
+  /** SAFETY → her tier'da periodMs sabit, ASLA kısılmaz. */
+  criticality: TaskCriticality;
+  /** Saf, zero-alloc gövde beklenir — hot-path'te çalışabilir. */
+  fn:          () => void;
+  /** true → tetiklenince fn requestIdleCallback'e ötelenir (varsa); yoksa senkron çalışır. */
+  deferIdle?:  boolean;
+}
+
+/** Dahili görev kaydı — kullanıcı ScheduledTask'ına önceden hesaplanmış tik periyodu eklenir. */
+interface InternalScheduledTask extends ScheduledTask {
+  /** _rescaleTasks() içinde mod değişince yeniden hesaplanan tik periyodu (zero-alloc hot-path cache). */
+  _effectiveTicks: number;
+}
+
+/**
+ * Bir görevin SAFETY önceliğini (0=önce) NORMAL'e (1) göre sıralar.
+ * Eşitlikte (aynı kritiklik) `periodMs` ARTAN sıralanır (§L.0 FAZ 16) — kısa
+ * periyot = daha zaman-hassas görev, wheel'de önce dispatch edilir.
+ */
+function _taskPriority(t: ScheduledTask): number {
+  return t.criticality === 'SAFETY' ? 0 : 1;
 }
 
 /** subscribe() callback imzası. */
@@ -143,6 +212,24 @@ class AdaptiveRuntimeManager {
   private readonly _workerMsgHandlers   = new Map<string, (e: MessageEvent) => void>();
   private readonly _pendingTerminateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private _zombieRestartCallback: ((key: string) => void) | null = null;
+
+  /* ── §L.0 Hibrit Runtime Scheduler state (FAZ 13 iskelet) ──────
+     Tek yazar invaryantı: bu wheel, runtimeManager'ın PARÇASI — ikinci bir
+     paralel zamanlayıcı otoritesi doğmaz. */
+
+  /** Kayıtlı görevler (id → görev + önbelleklenmiş tik periyodu). */
+  private readonly _tasks = new Map<string, InternalScheduledTask>();
+
+  /** Önceden hesaplanmış, önceliğe göre sıralı görev dizisi — yalnız görev
+   *  ekleme/çıkarmada yeniden kurulur (zero-alloc hot-path: _tick() içinde
+   *  hiçbir dizi/obje yaratılmaz). */
+  private _taskOrder: ReadonlyArray<InternalScheduledTask> = [];
+
+  /** Tek master timer handle — 0 görevde kurulmaz (boşta uyanış yok). */
+  private _wheelTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Master tik sayacı — her MASTER_TICK_MS'de bir artar. */
+  private _tickCounter = 0;
 
   /* ── Constructor ────────────────────────────────────────────── */
 
@@ -261,6 +348,10 @@ class AdaptiveRuntimeManager {
 
     const config = getRuntimeConfig(mode);
     this._listeners.forEach(cb => cb(mode, config, reason));
+
+    // §L.0 Scheduler: mod değişince NORMAL görevlerin tik periyodunu yeniden
+    // ölçekle (SAFETY sabit kalır — _computeEffectiveTicks içinde).
+    this._rescaleTasks();
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -481,6 +572,131 @@ class AdaptiveRuntimeManager {
   }
 
   /* ══════════════════════════════════════════════════════════════
+     §L.0 Hibrit Runtime Scheduler — tek "tick-wheel" (FAZ 13 iskelet)
+  ══════════════════════════════════════════════════════════════ */
+
+  /**
+   * Periyodik bir görevi tek tik-wheel üstünde kaydeder.
+   *
+   * Aynı `id` ile yeniden çağrılırsa önceki görev GÜNCELLENİR (registerWorker
+   * ile aynı idempotent desen — çift kayıt/sızıntı yok). İlk görev eklenince
+   * wheel timer'ı LAZY başlar; son görev silinince durur (boşta uyanış yok).
+   *
+   * `periodMs` — istenen taban periyot; BALANCED/PERFORMANCE'ta (mod
+   * çarpanı=1) AYNEN uygulanır, düşük-tier'da moda göre yavaşlatılır (§L.0
+   * FAZ 16). SAFETY görevler periodMs'i HER tier'da sabit korur, ASLA
+   * kısılmaz (§L.1, CLAUDE.md "güvenlik-kritik HER tier'da garanti açık").
+   *
+   * @param task  Kaydedilecek periyodik görev
+   * @returns     Cleanup thunk — görevi wheel'den kaldırır (subscribe deseni)
+   */
+  scheduleTask(task: ScheduledTask): () => void {
+    const wasEmpty = this._tasks.size === 0;
+    this._tasks.set(task.id, { ...task, _effectiveTicks: this._computeEffectiveTicks(task) });
+    this._rebuildTaskOrder();
+    if (wasEmpty) this._startWheel();
+    return () => this._unscheduleTask(task.id);
+  }
+
+  private _unscheduleTask(id: string): void {
+    if (!this._tasks.delete(id)) return; // zaten kaldırılmış — no-op
+    this._rebuildTaskOrder();
+    if (this._tasks.size === 0) this._stopWheel();
+  }
+
+  /**
+   * Bir görevin efektif tik periyodunu hesaplar.
+   *   SAFETY  → effectiveMs = periodMs (sabit, mod ne olursa olsun kısılmaz).
+   *   NORMAL  → effectiveMs = periodMs × MODE_MULTIPLIER[mode].
+   * Wheel çözünürlüğü MASTER_TICK_MS olduğundan sonuç en yakın tike yuvarlanır
+   * (min 1 tik — asla 0/negatif periyot).
+   */
+  private _computeEffectiveTicks(task: ScheduledTask): number {
+    const effectiveMs = task.criticality === 'SAFETY'
+      ? task.periodMs
+      : task.periodMs * MODE_MULTIPLIER[this._mode];
+    return Math.max(1, Math.round(effectiveMs / MASTER_TICK_MS));
+  }
+
+  /**
+   * Mod değişince tüm görevlerin efektif tik periyodunu yeniden hesaplar.
+   * `_commit()` içinden çağrılır — self-subscribe GEREKMEZ, scheduler zaten
+   * manager'ın bir parçası. Sık çağrılmaz (mod geçişi yüksek frekanslı değil);
+   * hot-path olan `_tick()` bu maliyeti ASLA taşımaz (cache önceden hesaplı).
+   */
+  private _rescaleTasks(): void {
+    if (this._tasks.size === 0) return;
+    for (const [id, task] of this._tasks) {
+      this._tasks.set(id, { ...task, _effectiveTicks: this._computeEffectiveTicks(task) });
+    }
+    this._rebuildTaskOrder();
+  }
+
+  /**
+   * Görev dizisini önceliğe göre yeniden kurar: SAFETY önce, NORMAL sonra;
+   * eşitlikte periodMs ARTAN (kısa periyot = daha zaman-hassas, önce dispatch).
+   */
+  private _rebuildTaskOrder(): void {
+    this._taskOrder = Array.from(this._tasks.values())
+      .sort((a, b) => {
+        const pa = _taskPriority(a), pb = _taskPriority(b);
+        return pa !== pb ? pa - pb : a.periodMs - b.periodMs;
+      });
+  }
+
+  /** Wheel'i lazy başlatır — yalnız ilk görev eklenince çağrılır (idempotent). */
+  private _startWheel(): void {
+    if (this._wheelTimer !== null) return;
+    this._tickCounter = 0;
+    this._wheelTimer = setInterval(() => this._tick(), MASTER_TICK_MS);
+  }
+
+  /** Wheel'i durdurur — son görev silinince veya destroy()'da çağrılır (idempotent). */
+  private _stopWheel(): void {
+    if (this._wheelTimer !== null) {
+      clearInterval(this._wheelTimer);
+      this._wheelTimer = null;
+    }
+    this._tickCounter = 0;
+  }
+
+  /**
+   * Master tik gövdesi — zero-alloc, monomorfik dispatch.
+   * Önceden hesaplı `_taskOrder` dizisi üstünde döner; tik başına yeni
+   * obje/dizi/closure YARATILMAZ (#4 Zero-Allocation Hot-Paths).
+   *
+   * Sıra: SAFETY görevler önce (safety preemption, §L.0 #5), ardından NORMAL
+   * (eşitlikte kısa periodMs önce). Bir görev fırlatırsa yakalanır+loglanır —
+   * diğer görevler ETKİLENMEZ (fail-soft).
+   */
+  private _tick(): void {
+    this._tickCounter++;
+    const order = this._taskOrder;
+    for (let i = 0; i < order.length; i++) {
+      const task = order[i];
+      if (this._tickCounter % task._effectiveTicks !== 0) continue;
+      this._dispatchTask(task);
+    }
+  }
+
+  /** deferIdle=true görevleri requestIdleCallback varsa ona öteler; yoksa senkron çalıştırır. */
+  private _dispatchTask(task: InternalScheduledTask): void {
+    if (task.deferIdle === true && typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => this._invokeTask(task));
+      return;
+    }
+    this._invokeTask(task);
+  }
+
+  private _invokeTask(task: InternalScheduledTask): void {
+    try {
+      task.fn();
+    } catch (err) {
+      console.error(`[Runtime:Scheduler] görev '${task.id}' fırlattı — diğer görevler etkilenmedi`, err);
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════════
      Kaynak Temizleme — Zero-Leak garantisi
   ══════════════════════════════════════════════════════════════ */
 
@@ -651,6 +867,10 @@ class AdaptiveRuntimeManager {
     this._cancelUpgrade();
     this._cancelThermalRecovery();
     this._stopZombieDetection();
+    // §L.0 Scheduler: wheel timer'ı durdur + görev kaydını temizle (Zero-Leak).
+    this._stopWheel();
+    this._tasks.clear();
+    this._taskOrder = [];
     // Zero-Leak: pending terminate timer'larını temizle
     for (const timerId of this._pendingTerminateTimers.values()) {
       clearTimeout(timerId);

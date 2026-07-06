@@ -24,6 +24,7 @@ import {
 } from '../mediaService';
 import { safeSetRaw, safeGetRaw } from '../../utils/safeStorage';
 import { audiusProvider } from './audiusProvider';
+import { pushTrail } from '../diagnosticTrailCore';  // çekirdek: ağır obd/store zinciri GİRMESİN
 import { radioBrowserProvider } from './radioBrowserProvider';
 import { jamendoProvider } from './jamendoProvider';
 import { archiveProvider, ARCHIVE_SCHEME, resolveArchiveStream } from './archiveProvider';
@@ -33,6 +34,7 @@ import {
 } from '../youtubeService';
 import { timeoutSignal, type ProviderId, type UnifiedTrack } from './providers';
 import { isNative } from '../bridge';
+import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 
 const SPOTIFY_PKG = 'com.spotify.music';
 const LOCAL_PKG   = 'com.cockpitos.pro';
@@ -218,6 +220,7 @@ export function playMedia(t: UnifiedTrack, queue?: UnifiedTrack[]): void {
   _playTrack(t);
   _persistLast(0);
   _startPositionSave();
+  pushTrail('action', 'medya: çal', t.providerId);  // olay izi (PII yok — yalnız kaynak, başlık DEĞİL)
 }
 
 /**
@@ -272,18 +275,26 @@ function _persistLast(positionSec: number): void {
 }
 
 // 10sn'de bir pozisyonu kaydet (CLAUDE.md §3: yüksek frekanslı yazım kısıtlaması).
-let _saveTimer: ReturnType<typeof setInterval> | null = null;
+// FAZ 16 grup-2: sabit setInterval yerine scheduler (§L.0, periodMs API);
+// BALANCED/PERFORMANCE'ta 10s AYNEN korunur. fn saf "mevcut çalma pozisyonunu
+// oku ve kaydet" anlık görüntüsüdür (tick-sayımına dayalı birikim YOK) →
+// periyot düşük-tier'da uzasa da yanlış veri yazılmaz, yalnız kayıt sıklığı
+// azalır. deferIdle: eMMC yazımı UI'a öncelikli değil.
+let _saveTimer: (() => void) | null = null;
 function _startPositionSave(): void {
   if (_saveTimer != null) return;
-  _saveTimer = setInterval(() => {
-    const st = getMediaState();
-    if (st.hasSession && _qIndex >= 0) _persistLast(st.track.positionSec || 0);
-  }, 10_000);
+  _saveTimer = runtimeManager.scheduleTask({
+    id: 'media-pos-save', periodMs: 10_000, criticality: 'NORMAL', deferIdle: true,
+    fn: () => {
+      const st = getMediaState();
+      if (st.hasSession && _qIndex >= 0) _persistLast(st.track.positionSec || 0);
+    },
+  });
 }
 
 /** Pozisyon-kaydetme timer'ını durdur (Zero-Leak §1) — idempotent. */
 function _stopPositionSave(): void {
-  if (_saveTimer != null) { clearInterval(_saveTimer); _saveTimer = null; }
+  if (_saveTimer != null) { _saveTimer(); _saveTimer = null; }
 }
 
 // HMR / test re-init'te orphan interval bırakma — modül atılırken timer'ı temizle.

@@ -6,6 +6,12 @@
  * Tetikler şablon + companionContext yorumlayıcısından üretilir — proaktif
  * konuşma GEMİNİ'YE GİTMEZ (mimari §2.8: maliyet + internetsiz head unit).
  *
+ * FAZ 16 grup-2: tick artık sabit `setInterval` DEĞİL, runtimeManager
+ * scheduler'ının periodMs=60000 görevi (§L.0) — BALANCED/PERFORMANCE'ta 60s
+ * AYNEN korunur, düşük-tier'da moda göre yavaşlar. Tüm zamanlama kararları
+ * (`nowMin()` = MONOTONİK `performance.now()`) mutlak farklarla hesaplandığından
+ * (tick-sayımına dayalı birikim YOK) periyodun uzaması sonuçları bozmaz.
+ *
  * Tetikleyiciler (öncelik sırası):
  *  1. Yakıt menzili < 50 km  — GÜVENLİK: medya çalarken bile konuşur (duck'lı)
  *  2. Uyku önleme            — GÜVENLİK: gece + sürüş + uzun sessizlik → açık
@@ -55,6 +61,7 @@ import { onWeatherState } from '../weatherService';
 import { getMediaState } from '../mediaService';
 import { getVoiceSnapshot, isVoicePaused, registerCommandHandler } from '../voiceService';
 import { speakAssistant, registerTtsEndListener } from '../ttsService';
+import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Zamanlama sabitleri (dakika) ───────────────────────────── */
 
@@ -122,7 +129,7 @@ function nowMin(): number {
 /* ── Modül durumu ───────────────────────────────────────────── */
 
 let _started = false;
-let _timer: ReturnType<typeof setInterval> | null = null;
+let _timer: (() => void) | null = null;
 let _unsubs: Array<() => void> = [];
 let _speakSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -318,7 +325,10 @@ export function startCompanionEngine(): () => void {
   _unsubs.push(registerCommandHandler(() => markActivity()));
   _unsubs.push(registerTtsEndListener(() => markActivity()));
 
-  _timer = setInterval(tick, COMPANION_TICK_MS);
+  // FAZ 16 — sabit setInterval yerine scheduler (§L.0, periodMs API).
+  _timer = runtimeManager.scheduleTask({
+    id: 'companion-tick', periodMs: COMPANION_TICK_MS, criticality: 'NORMAL', fn: tick,
+  });
 
   return stopCompanionEngine;
 }
@@ -326,7 +336,7 @@ export function startCompanionEngine(): () => void {
 export function stopCompanionEngine(): void {
   if (!_started) return;
   _started = false;
-  if (_timer) { clearInterval(_timer); _timer = null; }
+  if (_timer) { _timer(); _timer = null; }
   if (_speakSafetyTimer) { clearTimeout(_speakSafetyTimer); _speakSafetyTimer = null; }
   for (const u of _unsubs) { try { u(); } catch { /* abone kapanışı motoru kırmasın */ } }
   _unsubs = [];
