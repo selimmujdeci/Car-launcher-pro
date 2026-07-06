@@ -426,12 +426,13 @@ function VideoFullscreenChrome({
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, [scheduleHide]);
 
-  // Boş ekrana dokunma → kontrolleri aç/kapat (açılırsa gizleme sayacını yeniden kur).
+  // Ekrana dokunma → kontrolleri GÖSTER + gizleme sayacını yeniden kur.
+  // (Toggle DEĞİL: saha hatası "auto-hide sonrası dokununca geri gelmiyor". Standart
+  // video-player davranışı: dokunma her zaman gösterir, gizleme yalnız 3.5s timer'la
+  // olur. Ayrıca onPointerDown+onClick ile çift tetiklense de idempotent — güvenli.)
   const onBgTap = useCallback(() => {
-    setShow((v) => {
-      if (!v) scheduleHide();
-      return !v;
-    });
+    setShow(true);
+    scheduleHide();
   }, [scheduleHide]);
 
   // Bir butona basınca kontroller görünür kalsın + sayacı sıfırla.
@@ -460,8 +461,11 @@ function VideoFullscreenChrome({
 
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 2147483600 }}>
-      {/* Dokunma yakalayıcı — tüm ekran; dokununca kontrolleri aç/kapat */}
-      <div onPointerDown={onBgTap} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto' }} />
+      {/* Dokunma yakalayıcı — tüm ekran; dokununca kontrolleri gösterir. onClick +
+          onPointerDown BİRLİKTE: bazı head unit WebView'lerinde onPointerDown touch'ta
+          tetiklenmiyor (butonlar onClick kullandığı için çalışıyordu, yakalayıcı değil →
+          "geri gelmiyor" kök nedeni). onClick her yerde çalışır; ikisi birlikte güvenli. */}
+      <div onPointerDown={onBgTap} onClick={onBgTap} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto' }} />
 
       {/* Kontroller — show'a göre fade; container pointer-events:none (boş alan alttaki yakalayıcıya düşer) */}
       <div
