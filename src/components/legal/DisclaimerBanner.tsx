@@ -94,9 +94,12 @@ export const DisclaimerBanner = memo(function DisclaimerBanner() {
             style={{
               padding: '15px 0',
               borderRadius: 'var(--oem-radius-tile)',
-              color: 'var(--oem-accent-ink)',
-              background:
-                'linear-gradient(180deg, var(--oem-accent) 0%, var(--oem-accent-strong) 100%)',
+              // Fallback'ler: erken boot'ta aksan değişkenleri tanımsızken bile buton
+              // zemini + "Anladım" metni görünür kalsın (aksi halde boş/görünmez kutu).
+              color: 'var(--oem-accent-ink, #1A140A)',
+              backgroundColor: 'var(--oem-accent, #E0A23C)',
+              backgroundImage:
+                'linear-gradient(180deg, var(--oem-accent, #E0A23C) 0%, var(--oem-accent-strong, #C9831A) 100%)',
               boxShadow:
                 '0 1px 0 rgba(255,255,255,0.18) inset, 0 14px 30px -14px var(--oem-accent-glow)',
               transitionDuration: 'var(--oem-dur-fast)',
