@@ -8,13 +8,17 @@ import { supabaseBrowser } from '@/lib/supabase';
 import { isSuperAdminToken } from '@/lib/superAdminClaim';
 
 /**
- * Command Center (Super Admin) — admin SPA ayrı projede yaşar
- * (car-launcher-pro.vercel.app); carospro.com'da /admin route'u YOKTUR.
- * Bu yüzden mutlak URL — path sözleşmesi /admin/sa/health.
+ * Süper Admin bölümü (Command Center · Tanı · Süper Admin) — admin SPA ayrı
+ * projede (car-launcher-pro) build edilir AMA carospro.com/admin üzerinden
+ * REVERSE-PROXY'lenir (next.config rewrites + ADMIN_APP_URL). Bu yüzden linkler
+ * artık AYNI-ORIGIN göreli yollar → carospro.com Supabase session'ı paylaşılır,
+ * kullanıcı AYNI hesapla girer (ikinci login YOK). NEXT_PUBLIC_ADMIN_PANEL_ORIGIN
+ * set edilirse mutlak URL'e (cross-domain, ayrı login) döner — varsayılan boş = göreli.
  */
-const COMMAND_CENTER_URL = `${
-  process.env.NEXT_PUBLIC_ADMIN_PANEL_ORIGIN ?? 'https://car-launcher-pro.vercel.app'
-}/admin/sa/health`;
+const ADMIN_ORIGIN = process.env.NEXT_PUBLIC_ADMIN_PANEL_ORIGIN ?? '';
+const COMMAND_CENTER_URL = `${ADMIN_ORIGIN}/admin/sa/health`;
+const TANI_URL           = `${ADMIN_ORIGIN}/admin/tani`;
+const SUPERADMIN_URL     = `${ADMIN_ORIGIN}/admin/superadmin`;
 
 const navItems = [
   {
@@ -183,9 +187,43 @@ export default function Sidebar({ onClose }: SidebarProps) {
         })}
       </nav>
 
-      {/* Command Center — yalnız super_admin (JWT claim); tek giriş noktası */}
+      {/* Süper Admin bölümü — yalnız super_admin (JWT claim). Linkler AYNI-ORIGIN
+          (carospro.com/admin proxy) → aynı hesap/session, ikinci login yok. */}
       {isSuperAdmin && (
-        <div className="px-3 pb-3 flex-shrink-0" data-testid="command-center-nav">
+        <div className="px-3 pb-3 flex-shrink-0 space-y-0.5" data-testid="command-center-nav">
+          <p className="px-3 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/25">
+            Süper Admin
+          </p>
+
+          {/* Tanı — admin SPA tanı/incident paneli */}
+          <a
+            href={TANI_URL}
+            onClick={onClose}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-white/55 hover:text-white hover:bg-white/[0.06]"
+          >
+            {/* Activity/pulse */}
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+              <path d="M2 9h3l2-5 4 10 2-5h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span>Tanı</span>
+          </a>
+
+          {/* Süper Admin — tüm şirketler/üyeler */}
+          <a
+            href={SUPERADMIN_URL}
+            onClick={onClose}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-white/55 hover:text-white hover:bg-white/[0.06]"
+          >
+            {/* Users */}
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+              <circle cx="6.5" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.4"/>
+              <path d="M2 15c0-2.5 2-4 4.5-4S11 12.5 11 15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M12 4.5a2.5 2.5 0 010 5M13.5 15c0-2-1-3.4-2.5-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            <span>Süper Admin</span>
+          </a>
+
+          {/* Command Center — admin SPA sa/health giriş noktası */}
           <a
             href={COMMAND_CENTER_URL}
             onClick={onClose}
