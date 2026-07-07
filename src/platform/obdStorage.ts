@@ -3,6 +3,10 @@ import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
 export const OBD_ADDRESS_KEY = 'obd:lastAddress';
 export const OBD_PROFILE_KEY = 'obd:detectedProfile';
 export const OBD_TRANSPORT_KEY = 'obd:lastTransport';
+// A-fix: transport'un GERÇEKTEN doğrulandığı (canlı PID verisi akan) bilgisi. Yalnız veri
+// akınca '1' yazılır → boot'ta persisted+verified transport doğrudan denenir (BLE turu atlanır).
+// Dual-mod adaptör TAHMİNİ (henüz veri akmamış) verified sayılmaz → yanlış yönlendirme olmaz.
+export const OBD_TRANSPORT_VERIFIED_KEY = 'obd:transportVerified';
 export const OBD_PROTOCOL_KEY = 'obd:lastProtocol';
 
 export type ObdTransport = 'classic' | 'ble' | 'tcp';
@@ -45,14 +49,35 @@ export function loadObdTransport(): ObdTransport | null {
   } catch { return null; }
 }
 
-/** Taşıma katmanını localStorage'a yazar. Kota hatalarını sessizce yok sayar. */
+/** Taşıma katmanını localStorage'a yazar. Kota hatalarını sessizce yok sayar.
+ *  YENİ transport yazımı verified'ı SIFIRLAR — bu transport henüz veri akıtmadı;
+ *  gerçek PID verisi gelince saveObdTransportVerified(true) ile doğrulanır. */
 export function saveObdTransport(transport: ObdTransport): void {
-  try { localStorage.setItem(OBD_TRANSPORT_KEY, transport); } catch { /* quota */ }
+  try {
+    localStorage.setItem(OBD_TRANSPORT_KEY, transport);
+    localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY); // yeni transport = doğrulanmamış
+  } catch { /* quota */ }
 }
 
-/** Kayıtlı taşıma katmanını siler (adaptör değişimi temizliği ile birlikte). */
+/** A-fix: transport'un canlı-veri ile doğrulandığını persist eder. */
+export function saveObdTransportVerified(verified: boolean): void {
+  try {
+    if (verified) localStorage.setItem(OBD_TRANSPORT_VERIFIED_KEY, '1');
+    else localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY);
+  } catch { /* quota */ }
+}
+
+/** A-fix: persisted transport'un daha önce canlı-veri ile doğrulanıp doğrulanmadığı. */
+export function loadObdTransportVerified(): boolean {
+  try { return localStorage.getItem(OBD_TRANSPORT_VERIFIED_KEY) === '1'; } catch { return false; }
+}
+
+/** Kayıtlı taşıma katmanını siler (adaptör değişimi temizliği ile birlikte). Verified de silinir. */
 export function clearObdTransport(): void {
-  try { localStorage.removeItem(OBD_TRANSPORT_KEY); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(OBD_TRANSPORT_KEY);
+    localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY);
+  } catch { /* ignore */ }
 }
 
 /**

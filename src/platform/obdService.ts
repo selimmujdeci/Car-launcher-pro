@@ -30,7 +30,7 @@ import {
 import { buildHandshakeResult } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -149,6 +149,12 @@ let _lastKnownTransport: ObdTransport | null = loadObdTransport();
 // halde modal tahmini (saveObdTransport ile kaydedilen 'classic') gelecek oturumda
 // "doğrulanmış" sanılıp BLE fallback'i 3s'e sıkıştırıyordu (dual-mod V-LINK/iCar bağlanamıyordu).
 let _transportConfirmed = false;
+
+// A-fix (verified-transport-persist): persisted transport ÖNCEKİ oturumda CANLI PID verisiyle
+// doğrulandı mı? `verified` yalnız veri-kapısı (_dataGatePassed) geçilince yazılır → true ise
+// persisted transport boot'ta DOĞRUDAN primary denenir (gereksiz BLE-first turu ~10-15s atlanır).
+// Modal/tarama tahmini veri akmadan ASLA verified olmaz → dual-mod adaptörde yanlış yönlendirme yok.
+let _lastTransportVerified = loadObdTransportVerified();
 
 // ── Vehicle Profile Auto-Detection ──────────────────────────
 let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
@@ -504,6 +510,12 @@ function _onRealData(patch: Partial<OBDData>): void {
       if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
       _merge({ ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real' });
       _startStaleWatchdog();
+      // A-fix: CANLI PID verisi doğrulandı → aktif transport'u kalıcı "verified" işaretle.
+      // Sonraki boot bu transport'u doğrudan dener (BLE-first turu atlanır). TCP hariç (ayrı yol).
+      if (_lastKnownTransport != null && _lastKnownTransport !== 'tcp' && !_lastTransportVerified) {
+        _lastTransportVerified = true;
+        saveObdTransportVerified(true);
+      }
     }
     return; // gate geçilmemişse diğer PID'ler ısınma dönemi boyunca görmezden gelinir
   }
@@ -607,7 +619,8 @@ function _scheduleReconnect(): void {
     // Adres temizlenince transport da temizlenir: stale 'ble' transport bir sonraki
     // farklı adaptörde yanlış GATT dallanmasına yol açmasın (adres+transport birlikte persist).
     _lastKnownTransport = null;
-    clearObdTransport();
+    clearObdTransport();           // storage'da transport + verified silinir
+    _lastTransportVerified = false; // adaptör değişti → doğrulama geçersiz
     // Patch 3: adaptör muhtemelen değişti — öğrenilen protokol de stale sayılır (yeni
     // adaptör/araç farklı protokol kullanabilir); bir sonraki bağlantı ATSP0'dan başlar.
     clearObdProtocol();
@@ -843,9 +856,16 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // saçma olurdu; BT tarafı başarısız olunca TCP'ye sıçramak da YOK (TCP yalnız açık
   // seçimle). _fallbackTp === null → tek deneme, başarısızsa doğrudan reconnect zincirine düş.
   const _isTcp = _lastKnownTransport === 'tcp';
-  const _primaryTp:  ObdTransport = _isTcp ? 'tcp' : (_transportConfirmed ? (_lastKnownTransport ?? 'ble') : 'ble');
+  // A-fix: persisted transport ÖNCEKİ oturumda canlı-veri ile doğrulandıysa (verified) ona
+  // boot'ta güven → BLE-first turunu ATLA, doğrudan o transport'u primary dene. Doğrulanmamış
+  // (tahmin) ise mevcut güvenli BLE-first fallback akışı korunur (dual-mod adaptör bozulmaz).
+  const _trustPersisted = !_isTcp && _lastKnownTransport != null && _lastTransportVerified;
+  const _directPrimary  = _transportConfirmed || _trustPersisted;
+  const _primaryTp:  ObdTransport = _isTcp ? 'tcp' : (_directPrimary ? (_lastKnownTransport ?? 'ble') : 'ble');
   const _fallbackTp: ObdTransport | null = _isTcp ? null : (_primaryTp === 'ble' ? 'classic' : 'ble');
-  const _primaryTimeoutMs  = _isTcp ? CONNECT_TIMEOUT_MS : (_transportConfirmed ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS);
+  const _primaryTimeoutMs  = _isTcp ? CONNECT_TIMEOUT_MS : (_directPrimary ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS);
+  // Oturum-içi doğrulanmış → yanlış yolda 3s hızlı-fallback. Persist-verified (ama bu oturumda
+  // henüz bağlanmadı) → fallback'e TAM timeout (adaptör değiştiyse doğru yol açlık çekmesin).
   const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : CONNECT_TIMEOUT_MS;
   let _connectedTp = _primaryTp;
   let _connectResult: { protocol?: string } | void;
@@ -926,7 +946,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   _transportConfirmed = true;
   if (_connectedTp !== _lastKnownTransport) {
     _lastKnownTransport = _connectedTp;
-    saveObdTransport(_connectedTp);
+    saveObdTransport(_connectedTp);   // yeni transport → storage'da verified SIFIRLANIR
+    _lastTransportVerified = false;   // canlı veri (data-gate) gelince tekrar true olur
   }
 
   // Patch 3: bağlantı BAŞARILI — protokol döngüsü sıfırlanır (bir sonraki oturum

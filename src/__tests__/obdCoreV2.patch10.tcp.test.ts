@@ -108,7 +108,7 @@ vi.mock('../platform/crashLogger', () => ({
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../platform/nativePlugin';
 import { startOBD, stopOBD, onOBDData } from '../platform/obdService';
-import { isValidTcpAddress, saveObdTransport, loadObdTransport, clearObdTransport } from '../platform/obdStorage';
+import { isValidTcpAddress, saveObdTransport, loadObdTransport, clearObdTransport, saveObdTransportVerified, loadObdTransportVerified } from '../platform/obdStorage';
 
 /* ═══════════════════════════════════════════════════════════════
    (b) isValidTcpAddress — "ip:port" regex doğrulaması
@@ -162,6 +162,38 @@ describe('Patch 10 — transport persist/restore (tcp)', () => {
     saveObdTransport('tcp');
     clearObdTransport();
     expect(loadObdTransport()).toBeNull();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   A-fix — verified transport persist (ilk-bağlantı BLE turu atlama kilidi)
+═══════════════════════════════════════════════════════════════ */
+
+describe('A-fix — transport verified persist', () => {
+  afterEach(() => { clearObdTransport(); });
+
+  it('saveObdTransport verified\'ı SIFIRLAR (yeni transport doğrulanmamış)', () => {
+    saveObdTransport('classic');
+    saveObdTransportVerified(true);
+    expect(loadObdTransportVerified()).toBe(true);
+    // yeni transport yazımı → verified sıfırlanmalı (dual-mod tahmin yanlış yönlendirmesin)
+    saveObdTransport('ble');
+    expect(loadObdTransportVerified()).toBe(false);
+  });
+
+  it('canlı-veri doğrulaması round-trip: verified=true persist edilir', () => {
+    saveObdTransport('classic');
+    expect(loadObdTransportVerified()).toBe(false); // henüz veri akmadı
+    saveObdTransportVerified(true);                  // data-gate geçildi
+    expect(loadObdTransportVerified()).toBe(true);
+  });
+
+  it('clearObdTransport verified\'ı da siler', () => {
+    saveObdTransport('classic');
+    saveObdTransportVerified(true);
+    clearObdTransport();
+    expect(loadObdTransport()).toBeNull();
+    expect(loadObdTransportVerified()).toBe(false);
   });
 });
 

@@ -85,6 +85,8 @@ vi.mock('../platform/obdStorage', () => ({
   clearObdAddress:   vi.fn(),
   loadObdTransport:  vi.fn(() => null),
   saveObdTransport:  vi.fn(),
+  loadObdTransportVerified: vi.fn(() => false),
+  saveObdTransportVerified: vi.fn(),
   clearObdTransport: vi.fn(),
   loadObdProfileId:  vi.fn(() => null),
   saveObdProfileId:  vi.fn(),
