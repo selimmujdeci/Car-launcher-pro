@@ -151,8 +151,9 @@ describe('kayıtlı adres yok', () => {
 
 describe('connect fail', () => {
   it('her iki transport reddeder → obd_diag phase=connect; transport/protocol doğru', async () => {
-    // PERF 2026-06-11 sözleşmesi: otomatik tarama yok → testler adresle bağlanır
-    vi.mocked(CarLauncher.connectOBD).mockRejectedValue(new Error('GATT bağlantı reddetti'));
+    // PERF 2026-06-11 sözleşmesi: otomatik tarama yok → testler adresle bağlanır.
+    // Native soket hatası "Device or resource busy" (başka app tutuyor) → reason=resource_busy.
+    vi.mocked(CarLauncher.connectOBD).mockRejectedValue(new Error('Device or resource busy'));
     startOBD(DEVICE.address);
 
     await vi.waitFor(() => expect(diagsOf('connect')).toHaveLength(1));
@@ -161,7 +162,9 @@ describe('connect fail', () => {
     expect(d.transport).toBe('ble+classic');           // doğrulanmamış oturum: BLE önce
     expect(d.protocol).toBe('auto');                   // ilk deneme → ATSP0 otomatik
     expect(d.attempts).toBe(0);
-    expect(d.msg).toBe('Her iki transport ile bağlantı başarısız');
+    // C-fix: soket hata KATEGORİSİ msg'e + reason alanına eklenir (PII-güvenli).
+    expect(d.reason).toBe('resource_busy');
+    expect(d.msg).toBe('Her iki transport ile bağlantı başarısız · resource_busy');
   });
 
   it('payload\'da MAC / cihaz adı / adres YOK', async () => {

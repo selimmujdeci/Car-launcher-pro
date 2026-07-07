@@ -34,6 +34,8 @@ export type ObdDiagPhase =
 export interface ObdDiagDetail {
   transport?:   string | null;
   protocol?:    string | null;
+  /** PII-güvenli soket/bağlantı hata KATEGORİSİ (classifyObdErrorReason çıktısı). Ham mesaj DEĞİL. */
+  reason?:      string;
   attempts?:    number;
   elapsedMs?:   number;
   source?:      string;
@@ -53,6 +55,33 @@ const _lastEmit = new Map<string, number>();
 
 /** Transport/Bağlantı Sağlığı tanı bölümü — son kopma nedeni (Date.now, fmtAge uyumlu). */
 let _lastReason: { phase: ObdDiagPhase; errorCode: string; atMs: number } | null = null;
+
+/**
+ * Native/JS bağlantı hatasını PII-GÜVENLİ bir kategoriye sınıflandırır.
+ * Ham mesaj cihaz adı/MAC içerebildiğinden ASLA yayılmaz — yalnız sabit etiket döner.
+ * Kategoriler "tekel mi, kontak mı, gerçek bug mı" ayrımını doğrudan verir:
+ *   resource_busy       → adaptör başka app tarafından tutuluyor (Car Scanner vb.)
+ *   no_vehicle_response → ELM327 bağlandı ama araç ECU'su yanıt vermedi (kontak/uyku)
+ *   connection_refused / socket_closed / broken_pipe / read_failed → transport düştü
+ *   permission_denied   → BLUETOOTH_CONNECT izni yok
+ *   timeout             → bağlantı zaman aşımı
+ *   bt_disabled / device_not_found → adaptör erişilemez
+ */
+export function classifyObdErrorReason(err: unknown): string {
+  const m = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase();
+  if (!m) return 'unknown';
+  if (/resource busy|device or resource busy|ebusy|busy/.test(m))                          return 'resource_busy';
+  if (/connection refused|econnrefused/.test(m))                                           return 'connection_refused';
+  if (/broken pipe|epipe/.test(m))                                                         return 'broken_pipe';
+  if (/socket might be closed|socket closed|bt socket closed|already closed|read ret|read return|closed or timeout/.test(m)) return 'socket_closed';
+  if (/read failed/.test(m))                                                               return 'read_failed';
+  if (/permission|eacces|izin yok|not allowed/.test(m))                                    return 'permission_denied';
+  if (/unable to connect|no data|araç yanıt|ecu|vin\/pid|protokol uyuş/.test(m))           return 'no_vehicle_response';
+  if (/timeout|timed out|zaman aşımı/.test(m))                                             return 'timeout';
+  if (/bluetooth (kapalı|disabled)|bt_disabled|adapter.*(off|kapalı)/.test(m))             return 'bt_disabled';
+  if (/not found|bulunamadı|no such device|does not exist/.test(m))                        return 'device_not_found';
+  return 'other'; // ham mesaj ASLA payload'a girmez (PII güvenliği)
+}
 
 /**
  * OBD tanı eventi üretir (fire-and-forget).
@@ -77,11 +106,14 @@ export function emitObdDiag(
     if (_lastEmit.size >= MAP_MAX) _lastEmit.clear(); // tavan koruması
     _lastEmit.set(key, now);
 
+    const _baseMsg = detail.msg ?? `${phase} hatası`;
     void reportObdDiag({
       ctx:         'OBD',
       phase,
       errorCode,
-      msg:         detail.msg ?? `${phase} hatası`,
+      // reason (PII-güvenli kategori) mevcut rapor görünümünde msg'e eklenir → tek bakışta neden.
+      msg:         detail.reason ? `${_baseMsg} · ${detail.reason}` : _baseMsg,
+      reason:      detail.reason      ?? undefined,
       transport:   detail.transport   ?? undefined,
       protocol:    detail.protocol    ?? undefined,
       attempts:    detail.attempts,

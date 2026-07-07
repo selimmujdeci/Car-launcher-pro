@@ -43,7 +43,7 @@ import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
 import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
-import { emitObdDiag, getLastObdDiagReason } from './obdDiagEmitter';
+import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
   CONNECT_TIMEOUT_MS,
@@ -897,6 +897,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           protocol:  forcedProtocol ?? 'auto',
           attempts:  _reconnectAttempts,
           elapsedMs: performance.now() - _diagT0,
+          reason:    classifyObdErrorReason(ePrimary),
           msg:       'WiFi (TCP) bağlantısı başarısız',
         });
       }
@@ -928,12 +929,17 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       // msg statik; alt hata mesajı cihaz adı içerdiğinden payload'a girmez)
       if (!_stale()) {
         const timedOut = eFallback instanceof Error && eFallback.message.includes('zaman aşımı');
+        // Native soket hatasını PII-güvenli kategoriye sınıflandır (busy/refused/closed/…).
+        // Fallback (son denenen transport) hatası daha alakalı; generic ise primary'e düş.
+        const _rFb = classifyObdErrorReason(eFallback);
+        const _reason = (_rFb !== 'other' && _rFb !== 'unknown') ? _rFb : classifyObdErrorReason(ePrimary);
         emitObdDiag('connect', timedOut ? 'OBD_CONNECT_TIMEOUT' : 'OBD_CONNECT_FAIL', {
           ..._diagCommon(),
           transport: `${_primaryTp}+${_fallbackTp}`,
           protocol:  forcedProtocol ?? 'auto',
           attempts:  _reconnectAttempts,
           elapsedMs: performance.now() - _diagT0,
+          reason:    _reason,
           msg:       'Her iki transport ile bağlantı başarısız',
         });
       }
@@ -1023,6 +1029,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
             protocol:  forcedProtocol ?? 'auto',
             attempts:  _reconnectAttempts,
             elapsedMs: performance.now() - _diagT0,
+            reason:    classifyObdErrorReason(err),
             msg:       'ELM327 el sıkışması başarısız (VIN/PID alınamadı)',
           });
         }
