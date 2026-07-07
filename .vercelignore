@@ -1,4 +1,21 @@
-/*
-!/website
+# İki Vercel projesi bu repoyu paylaşır:
+#   car-launcher-pro  → Root Directory "."       (Vite; index.html + admin.html ŞART)
+#   carospro          → Root Directory "website" (Next.js → carospro.com)
+#
+# ESKİ içerik "/*  +  !/website" kökteki index.html'i de siliyordu →
+# car-launcher-pro build'i 24 gündür "Cannot resolve entry module index.html"
+# ile kırıktı (carospro root'u website olduğu için etkilenmiyordu, "Removed 0").
+# Artık kök Vite kaynağı korunur; yalnızca iki build'in de kullanmadığı ağır
+# dizinler elenir. Anchored (/) pattern'lar website/ içine dokunmaz.
+node_modules
+/dist
+/android
+/tools
+/supabase
+/e2e
+/docs
+/scripts
+/playwright-report
+*.apk
 website/node_modules
 website/.next
