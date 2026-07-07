@@ -73,6 +73,20 @@ export function startSystemOrchestrator(): () => void {
   let _navFiredThisSession = false; // oturum başına bir kez harita aç
   let _pendingTripSummary  = false; // DRIVING_STOPPED → trip bitmesini bekle
   let _prevTripActive      = false; // onTripState geçiş tespiti için
+  let _lastResumeAt        = 0;     // en son foreground dönüşü (visibilitychange visible)
+
+  // RESUME-GUARD (saha 2026-07-07): app arka plan/uykudan dönünce birikmiş GPS
+  // tek tick'te işlenip hız spike'ı (≥DRIVE_ON_KMH) üretiyor → worker sahte
+  // DRIVING_STARTED/STOPPED → park halde sahte "Yolculuk Tamamlandı" banner (0.1km/2dk).
+  // Gerçek yolculuk resume anında bitmez → dönüşten sonraki bu pencerede finalize
+  // edilen trip artefakt sayılıp banner bastırılır (trip yine kaydedilir, yalnız modal yok).
+  const RESUME_TRIP_GRACE_MS = 5_000;
+  const _onOrchVisibility = () => {
+    if (typeof document !== 'undefined' && !document.hidden) _lastResumeAt = Date.now();
+  };
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', _onOrchVisibility);
+  }
 
   startCognitiveEngine();
   thermalJournal.start();
@@ -289,6 +303,9 @@ export function startSystemOrchestrator(): () => void {
 
     if (justEnded && _pendingTripSummary && state.history.length > 0) {
       _pendingTripSummary = false;
+      // Resume-guard: foreground dönüşünün hemen ardından biten "trip" = arka-plan/
+      // uyku resume artefaktı → banner gösterme (gerçek yolculuk resume anında bitmez).
+      if (Date.now() - _lastResumeAt < RESUME_TRIP_GRACE_MS) return;
       useSystemStore.getState().setTripSummary(state.history[0]);
     }
   });
@@ -301,6 +318,9 @@ export function startSystemOrchestrator(): () => void {
     unsubThermal();
     unsubVehicle();
     unsubTrip();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', _onOrchVisibility);
+    }
     _timers.forEach((t) => clearTimeout(t));
     _timers.clear();
   };
