@@ -32,6 +32,7 @@ const CMD_LABELS: Record<CommandType, string> = {
   route_send:        'Rota Araca İletildi',
   navigation_start:  'Navigasyon Başlatıldı',
   theme_change:      'Tema Değiştirildi',
+  layout_change:     'Ekran Düzeni Gönderildi',
   read_dtc:          'Arıza Kodları Okundu',
   clear_dtc:         'Arıza Kodları Temizlendi',
   read_voltage:      'Akü Voltajı Okundu',

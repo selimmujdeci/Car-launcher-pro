@@ -1,7 +1,11 @@
 'use client';
 
-import { memo, useState, useCallback, useRef, useEffect } from 'react';
+import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { sendCommand } from '@/lib/commandService';
+import {
+  PRO_MANIFEST, SIZES, GROW_BY_SIZE, defaultIntent, normalizeIntent, solveLayout,
+  type LayoutIntent, type Zone, type ManifestEntry,
+} from '@/lib/layoutSolver';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -278,6 +282,190 @@ function LivePreview({ t }: { t: ThemeToken }) {
   );
 }
 
+// ── Yerleşim Stüdyo (Faz 2) — gerçek minyatür + sürükle/boyut + Araca Gönder ──
+
+const LAYOUT_LS_KEY = 'caros-theme-layout';
+
+const MANIFEST_MAP: Record<string, ManifestEntry> = {};
+PRO_MANIFEST.forEach((m) => { MANIFEST_MAP[m.id] = m; });
+
+const RAIL_ZONES: Zone[] = ['left-rail', 'center-stage', 'right-rail'];
+const ZONE_LABEL: Record<Zone, string> = {
+  'left-rail': 'SOL RAY', 'center-stage': 'ORTA SAHNE', 'right-rail': 'SAĞ RAY', 'dock': 'DOCK',
+};
+const ZONE_STYLE: Record<Zone, React.CSSProperties> = {
+  'left-rail': { width: '22%' }, 'center-stage': { flex: 1 }, 'right-rail': { width: '32%' }, 'dock': {},
+};
+
+function loadLayout(): LayoutIntent {
+  try { const raw = localStorage.getItem(LAYOUT_LS_KEY); if (raw) return normalizeIntent(JSON.parse(raw)); } catch { /* ignore */ }
+  return defaultIntent();
+}
+function saveLayout(l: LayoutIntent) { try { localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify(l)); } catch { /* ignore */ } }
+
+function MiniTileInner({ id, t }: { id: string; t: ThemeToken }) {
+  const acc = t.accentPrimary, ink = t.textPrimary, ink2 = t.textSecondary;
+  const chip = (txt: string) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: `${acc}14`, color: ink2, borderRadius: 6, padding: '2px 6px', fontSize: 8, width: 'fit-content' }}>{txt}</span>
+  );
+  const lbl = (txt: string) => <span style={{ fontSize: 7, letterSpacing: '0.12em', color: ink2, textTransform: 'uppercase' }}>{txt}</span>;
+  switch (id) {
+    case 'clock':    return (<>{lbl('Saat')}<span style={{ fontSize: 18, fontWeight: 800, color: ink, lineHeight: 1 }}>12:16</span><span style={{ fontSize: 8, color: ink2 }}>Salı, 7 Tem</span></>);
+    case 'gauge':    return (<>{lbl('Sürüş')}<span style={{ fontSize: 22, fontWeight: 800, color: ink, lineHeight: 1 }}>72</span><span style={{ fontSize: 7, color: acc }}>KM/S</span>{chip('⚡ 320 km')}</>);
+    case 'settings': return (<>{lbl('Sistem')}<span style={{ fontSize: 11, fontWeight: 700, color: ink }}>Ayarlar</span></>);
+    case 'nav':      return (<><div style={{ flex: 1, minHeight: 20, borderRadius: 6, background: `linear-gradient(135deg, ${acc}b0, ${acc}30)` }} />{chip('↱ 2.4 km · Sahil Yolu')}</>);
+    case 'music':    return (<>{lbl('Müzik')}<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><div style={{ width: 26, height: 26, borderRadius: 6, background: 'linear-gradient(135deg,#7c3aed,#db2777)', flexShrink: 0 }} /><span style={{ fontSize: 10, fontWeight: 700, color: ink }}>Çalmıyor</span></div></>);
+    case 'vehicle':  return (<>{lbl('Araç Durumu')}<span style={{ fontSize: 11, fontWeight: 700, color: '#34d399' }}>Normal</span><div style={{ display: 'flex', gap: 4 }}>{chip('🔋 78%')}{chip('320 km')}</div></>);
+    default: return null;
+  }
+}
+
+function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: string | null }) {
+  const [intent, setIntent] = useState<LayoutIntent>(() => loadLayout());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [sync, setSync] = useState<'idle' | 'sending' | 'ok' | 'fail'>('idle');
+  const dragRef = useRef<{ id: string; zone: Zone } | null>(null);
+  const resizeRef = useRef<{ id: string; startX: number; startY: number; base: number } | null>(null);
+
+  const solved = useMemo(() => solveLayout(intent), [intent]);
+  const commit = useCallback((next: LayoutIntent) => { setIntent(next); saveLayout(next); }, []);
+
+  // Global pointer takibi — sürükle (zone içi sırala) + köşe-çek (boyut). Refs → bayat closure yok.
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const rz = resizeRef.current;
+      if (rz) {
+        const d = ((e.clientX - rz.startX) + (e.clientY - rz.startY)) / 60;
+        const g = Math.max(0.5, Math.min(5, rz.base + d));
+        setIntent((prev) => { const n = { ...prev, [rz.id]: { ...prev[rz.id], growCustom: g } }; saveLayout(n); return n; });
+        return;
+      }
+      const dg = dragRef.current;
+      if (!dg) return;
+      const under = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const overEl = under?.closest('[data-card]') as HTMLElement | null;
+      const overId = overEl?.getAttribute('data-card');
+      if (!overId || overId === dg.id) return;
+      const om = MANIFEST_MAP[overId];
+      if (!om || om.zone !== dg.zone) return;
+      setIntent((prev) => {
+        const a = prev[dg.id].ord, b = prev[overId].ord;
+        const n = { ...prev, [dg.id]: { ...prev[dg.id], ord: b }, [overId]: { ...prev[overId], ord: a } };
+        saveLayout(n); return n;
+      });
+    };
+    const up = () => { dragRef.current = null; resizeRef.current = null; setDraggingId(null); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  }, []);
+
+  const onCardDown = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if ((e.target as HTMLElement).closest('[data-resize]')) return;
+    const m = MANIFEST_MAP[id]; if (!m || m.zone === 'dock') return;
+    dragRef.current = { id, zone: m.zone }; setDraggingId(id);
+  };
+  const onResizeDown = (e: React.PointerEvent<HTMLSpanElement>, id: string) => {
+    e.stopPropagation();
+    const c = intent[id];
+    resizeRef.current = { id, startX: e.clientX, startY: e.clientY, base: c.growCustom != null ? c.growCustom : GROW_BY_SIZE[c.size] };
+  };
+
+  const cycleSize = (id: string) => { const c = intent[id]; const nx = SIZES[(SIZES.indexOf(c.size) + 1) % 3]; commit({ ...intent, [id]: { ...c, size: nx, growCustom: null } }); };
+  const toggleVis = (id: string) => { if (MANIFEST_MAP[id].locked) return; const c = intent[id]; commit({ ...intent, [id]: { ...c, visible: !c.visible } }); };
+  const bump = (id: string) => { const z = MANIFEST_MAP[id].zone; const min = Math.min(...PRO_MANIFEST.filter((m) => m.zone === z).map((m) => intent[m.id].ord)); commit({ ...intent, [id]: { ...intent[id], ord: min - 1 } }); };
+
+  const send = async () => {
+    if (!vehicleId) return;
+    setSync('sending');
+    const res = await sendCommand(vehicleId, 'layout_change', { layout: intent });
+    setSync(res.ok ? 'ok' : 'fail');
+    setTimeout(() => setSync('idle'), 2000);
+  };
+
+  const cardStyle = (id: string, grow: number): React.CSSProperties => ({
+    flexGrow: grow, flexBasis: 0, minHeight: 26, position: 'relative', overflow: 'hidden',
+    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, padding: '7px 9px',
+    borderRadius: Math.min(token.radiusTile + 4, 14), background: token.bgCard,
+    border: `1px solid ${token.borderColor}`, color: token.textPrimary,
+    cursor: MANIFEST_MAP[id].zone === 'dock' ? 'default' : 'grab', touchAction: 'none', userSelect: 'none',
+    boxShadow: draggingId === id ? '0 10px 24px rgba(0,0,0,0.5)' : 'none',
+    transform: draggingId === id ? 'scale(1.03)' : 'none',
+    transition: 'flex-grow .45s cubic-bezier(.34,1.2,.64,1), box-shadow .2s, transform .15s',
+  });
+
+  const sendColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : token.accentPrimary;
+  const sendLabel = sync === 'ok' ? '✓ Araca gönderildi' : sync === 'fail' ? '✗ Gönderilemedi' : sync === 'sending' ? '● Gönderiliyor…' : 'Araca Gönder';
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Minyatür — token renkleriyle canlı; kartları elle çek/boyutlandır */}
+      <div style={{ background: token.bgPrimary, border: `1px solid ${token.borderColor}`, borderRadius: token.radiusCard, padding: 10, aspectRatio: '16 / 8', display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 7 }}>
+          {RAIL_ZONES.map((z) => (
+            <div key={z} style={{ ...ZONE_STYLE[z], display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
+              {solved[z].items.map((it) => (
+                <div key={it.id} data-card={it.id} onPointerDown={(e) => onCardDown(e, it.id)} style={cardStyle(it.id, it.grow)}>
+                  {MANIFEST_MAP[it.id].locked && <span style={{ position: 'absolute', top: 5, right: 6, fontSize: 8, color: token.accentPrimary }}>🔒</span>}
+                  <MiniTileInner id={it.id} t={token} />
+                  <span data-resize={it.id} onPointerDown={(e) => onResizeDown(e, it.id)} style={{ position: 'absolute', right: 2, bottom: 2, width: 15, height: 15, display: 'grid', placeItems: 'center', cursor: 'nwse-resize', color: token.textSecondary, fontSize: 10, touchAction: 'none' }}>⤡</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        {/* Dock — kilitli chrome */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 9px', background: token.bgCard, border: `1px solid ${token.borderColor}`, borderRadius: Math.min(token.radiusDock + 6, 12), overflow: 'hidden' }}>
+          {['🗺️', '🎵', '🎙️', '📞', '🔔', '🚗', '❄️', '▦'].map((ic, i) => (
+            <div key={i} style={{ width: 22, height: 22, borderRadius: 7, background: `${token.accentPrimary}14`, display: 'grid', placeItems: 'center', fontSize: 11, flexShrink: 0 }}>{ic}</div>
+          ))}
+          <span style={{ marginLeft: 'auto', fontSize: 8, color: token.accentPrimary }}>🔒</span>
+        </div>
+      </div>
+
+      <p className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>⠿ tut-sürükle · ⤡ köşeden boyutlandır · aşağıdan gizle/üste al</p>
+
+      {/* Kart kontrolleri */}
+      <div className="flex flex-col rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+        {PRO_MANIFEST.filter((m) => m.id !== 'dock').map((m) => {
+          const c = intent[m.id];
+          return (
+            <div key={m.id} className="flex items-center justify-between px-3 py-2"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}>
+              <div className="flex items-center gap-2 min-w-0">
+                {m.locked && <span style={{ fontSize: 10, color: token.accentPrimary }}>🔒</span>}
+                <span className="text-[12px] font-bold text-white/80 truncate">{m.label}</span>
+                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{ color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.04)' }}>{ZONE_LABEL[m.zone]}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => cycleSize(m.id)} title="Boyut" className="text-[10px] font-mono font-bold px-2 py-1 rounded-md" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>{c.size}</button>
+                <button onClick={() => bump(m.id)} title="Üste al" className="text-[10px] px-2 py-1 rounded-md" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>▲</button>
+                <button onClick={() => toggleVis(m.id)} disabled={m.locked} title="Göster/Gizle" className="text-[10px] px-2 py-1 rounded-md"
+                  style={{ background: c.visible ? `${token.accentPrimary}18` : 'rgba(255,255,255,0.05)', border: `1px solid ${c.visible ? `${token.accentPrimary}55` : 'rgba(255,255,255,0.1)'}`, color: m.locked ? 'rgba(255,255,255,0.3)' : c.visible ? token.accentPrimary : 'rgba(255,255,255,0.6)', cursor: m.locked ? 'not-allowed' : 'pointer' }}>
+                  {m.locked ? '🔒' : c.visible ? '👁' : '⨯'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Araca Gönder (commit) + Sıfırla */}
+      <div className="flex gap-2">
+        <button onClick={() => commit(defaultIntent())} className="text-[11px] font-bold px-3 py-2.5 rounded-xl"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}>
+          Sıfırla
+        </button>
+        <button onClick={send} disabled={!vehicleId || sync === 'sending'}
+          className="flex-1 text-[12px] font-black uppercase tracking-wider px-3 py-2.5 rounded-xl transition-all active:scale-[0.98]"
+          style={{ background: `${sendColor}18`, border: `1.5px solid ${sendColor}55`, color: sendColor, opacity: vehicleId ? 1 : 0.5 }}>
+          {!vehicleId ? '⚠ Araç Bağlı Değil' : sendLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 interface Props { vehicleId: string | null }
@@ -353,8 +541,14 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
         </div>
       </div>
 
-      {/* Live preview */}
+      {/* Live preview — hızlı renk önizleme */}
       <LivePreview t={token} />
+
+      {/* Yerleşim editörü — gerçek minyatür, sürükle/boyut/gizle + Araca Gönder */}
+      <div>
+        <SectionTitle>Ekran Düzeni · Sürükle & Boyutlandır</SectionTitle>
+        <LayoutStudio token={token} vehicleId={vehicleId} />
+      </div>
 
       {/* Base theme row */}
       <div>

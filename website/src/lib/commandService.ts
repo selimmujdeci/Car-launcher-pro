@@ -33,7 +33,7 @@ export async function hashPin(pin: string): Promise<string> {
 
 export type CommandType =
   | 'lock' | 'unlock' | 'horn' | 'alarm_on' | 'alarm_off' | 'lights_on'
-  | 'route_send' | 'navigation_start' | 'theme_change'
+  | 'route_send' | 'navigation_start' | 'theme_change' | 'layout_change'
   | 'read_dtc' | 'clear_dtc' | 'read_voltage'
   | 'set_speed_alert';
 
