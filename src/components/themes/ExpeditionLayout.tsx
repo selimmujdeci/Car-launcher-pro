@@ -28,6 +28,8 @@ import { MiniMapWidget } from '../map/MiniMapWidget';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayoutStore } from '../../store/useLayoutStore';
+import { solveLayout, normalizeIntent, EXPEDITION_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
 import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat';
@@ -39,9 +41,6 @@ import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat
 const GRID_COLS = SUPPORTS_CSS_CLAMP
   ? 'clamp(200px,24vw,330px) minmax(0,1fr) clamp(230px,27vw,360px)'
   : 'minmax(200px,330px) minmax(0,1fr) minmax(230px,360px)';
-const LEFT_RAIL_ROWS = SUPPORTS_CSS_CLAMP
-  ? '1fr clamp(120px,18vh,160px)'
-  : '1fr minmax(120px,160px)';
 const RING_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
   ? { position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }
   : { position: 'relative', width: 210, maxWidth: '100%', height: 210 };
@@ -704,6 +703,32 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY : NIGHT;
 
+  // ── Yerleşim Motoru — Tema Stüdyo niyetinden çöz (özelleştirme yoksa = mevcut ekran) ──
+  // Ham niyet EXPEDITION_MANIFEST ile normalize edilir (pro/diğer tema kartları elenir).
+  const rawIntent = useLayoutStore((s) => s.intent);
+  const intent = useMemo(() => normalizeIntent(rawIntent, EXPEDITION_MANIFEST), [rawIntent]);
+  const solved = useMemo(() => solveLayout(intent, EXPEDITION_MANIFEST), [intent]);
+
+  const renderExCard = (id: string) => {
+    switch (id) {
+      case 'speed':   return <SpeedPlate />;
+      case 'range':   return <RangePlate />;
+      case 'music':   return <MusicPlate />;
+      case 'vehicle': return <VehiclePlate onOpenSettings={onOpenSettings} />;
+      default:        return null;
+    }
+  };
+  // Satır boyu: growCustom varsa onu, RangePlate doğal boy (mevcut LEFT_RAIL alt hücresi),
+  // diğerleri (speed/music/vehicle) doğal doldurma (eşit 1fr) → varsayılan = bugünkü ekran.
+  const exRowSize = (id: string): string => {
+    const gc = intent[id]?.growCustom;
+    if (gc != null) return `minmax(0, ${gc}fr)`;
+    if (id === 'range') return SUPPORTS_CSS_CLAMP ? 'clamp(120px,18vh,160px)' : 'minmax(120px,160px)';
+    return 'minmax(0, 1fr)';
+  };
+  const exRailRows = (zone: Zone) =>
+    solved[zone].items.map((it) => exRowSize(it.id)).join(' ') || 'minmax(0,1fr)';
+
   return (
     <PalCtx.Provider value={pal}>
       <div className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 16, gap: 14 }}>
@@ -712,10 +737,11 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
         <Header />
 
         <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: GRID_COLS, gap: 14 }}>
-          {/* Sol ray */}
-          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: LEFT_RAIL_ROWS }}>
-            <SpeedPlate />
-            <RangePlate />
+          {/* Sol ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran) */}
+          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
+            {solved['left-rail'].items.map((it) => (
+              <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
+            ))}
           </div>
           {/* Orta */}
           <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -726,10 +752,11 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
               </div>
             )}
           </div>
-          {/* Sağ ray */}
-          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: '1fr 1fr' }}>
-            <MusicPlate />
-            <VehiclePlate onOpenSettings={onOpenSettings} />
+          {/* Sağ ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre) */}
+          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('right-rail') }}>
+            {solved['right-rail'].items.map((it) => (
+              <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
+            ))}
           </div>
         </div>
 

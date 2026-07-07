@@ -29,6 +29,8 @@ import { MiniMapWidget } from '../map/MiniMapWidget';
 import type { AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayoutStore } from '../../store/useLayoutStore';
+import { solveLayout, normalizeIntent, PRO_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 /* ════════════════════════════════════════════════════════════
    PRO LAYOUT — OEM CAM TILE DASHBOARD (gündüz / gece adaptif)
@@ -787,6 +789,11 @@ function injectStyles() {
   document.head.appendChild(el);
 }
 
+// Dolgu kartları (alanı doldurur) vs içerik kartları (kendi boyu). Varsayılan
+// yerleşimin BUGÜNKÜ ekranı üretmesi için doğal rol; growCustom bunları ezer.
+const FILL_CARDS = new Set<string>(['gauge', 'nav', 'music', 'vehicle']);
+const RAIL_ZONES: Zone[] = ['left-rail', 'center-stage', 'right-rail'];
+
 /* ─── ROOT LAYOUT ───────────────────────────────────────────── */
 interface Props {
   onOpenMap:       () => void;
@@ -812,6 +819,42 @@ export const ProLayout = memo(function ProLayout({
 
   const isPortrait = screen.height > screen.width;
 
+  // ── Yerleşim Motoru — Tema Stüdyo niyetinden çöz (özelleştirme yoksa = mevcut ekran) ──
+  // Ham niyeti PRO_MANIFEST ile normalize et (zero-trust okuma tarafında; diğer
+  // temaların kartları bu manifest'te olmadığından elenir → pro davranışı değişmez).
+  const rawIntent = useLayoutStore((s) => s.intent);
+  const intent = useMemo(() => normalizeIntent(rawIntent, PRO_MANIFEST), [rawIntent]);
+  const solved = useMemo(() => solveLayout(intent, PRO_MANIFEST), [intent]);
+
+  const renderCard = (id: string) => {
+    switch (id) {
+      case 'clock':    return <ClockCard />;
+      case 'gauge':    return <GaugeCard />;
+      case 'settings': return <SettingsCard onOpenSettings={onOpenSettings} />;
+      case 'nav':      return <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />;
+      case 'music':    return <MusicCard />;
+      case 'vehicle':  return <VehicleCard onOpenSettings={onOpenSettings} onLaunch={onLaunch} />;
+      default:         return null;
+    }
+  };
+
+  const zoneOuterStyle = (zone: Zone): React.CSSProperties => {
+    if (zone === 'center-stage') return { gap: 12, flex: 1, minHeight: 0 };
+    const w = zone === 'left-rail' ? 'clamp(132px, 13vw, 168px)' : 'clamp(260px, 27vw, 340px)';
+    return { gap: 12, minHeight: 0, width: isPortrait ? '100%' : w, flexShrink: 0 };
+  };
+
+  // Sarmalayıcı flex: growCustom (elle boyut) varsa onu kullan; yoksa doğal rol.
+  const itemStyle = (id: string): React.CSSProperties => {
+    const custom = intent[id]?.growCustom;
+    if (custom != null) {
+      return { flexGrow: custom, flexBasis: 0, flexShrink: 1, minHeight: 0, display: 'flex', flexDirection: 'column' };
+    }
+    return FILL_CARDS.has(id)
+      ? { flexGrow: 1, flexBasis: 0, flexShrink: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
+      : { flexShrink: 0, display: 'flex', flexDirection: 'column' };
+  };
+
   return (
     <PalCtx.Provider value={pal}>
       {voiceOpen && (
@@ -825,23 +868,16 @@ export const ProLayout = memo(function ProLayout({
         {/* İçerik */}
         <div className="flex-1 min-h-0 overflow-hidden" style={{ padding: '12px 14px 6px' }}>
           <div className="h-full min-h-0 flex" style={{ flexDirection: isPortrait ? 'column' : 'row', gap: 12 }}>
-            {/* Sol kolon */}
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: isPortrait ? '100%' : 'clamp(132px, 13vw, 168px)', flexShrink: 0 }}>
-              <ClockCard />
-              <GaugeCard />
-              <SettingsCard onOpenSettings={onOpenSettings} />
-            </div>
-
-            {/* Orta kolon — büyük harita tüm yüksekliği kaplar (alt 3 kart kaldırıldı) */}
-            <div className="flex flex-col min-h-0 flex-1" style={{ gap: 12 }}>
-              <NavCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
-            </div>
-
-            {/* Sağ kolon */}
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: isPortrait ? '100%' : 'clamp(260px, 27vw, 340px)', flexShrink: 0 }}>
-              <MusicCard />
-              <VehicleCard onOpenSettings={onOpenSettings} onLaunch={onLaunch} />
-            </div>
+            {/* Zone'lar Yerleşim Motoru'ndan — sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran */}
+            {RAIL_ZONES.map((zone) => (
+              <div key={zone} className="flex flex-col" style={zoneOuterStyle(zone)}>
+                {solved[zone].items.map((it) => (
+                  <div key={it.id} style={itemStyle(it.id)}>
+                    {renderCard(it.id)}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
 

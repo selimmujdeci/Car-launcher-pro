@@ -19,6 +19,7 @@ import { sensitiveKeyStore }                       from './sensitiveKeyStore';
 import { connectivityService }                     from './connectivityService';
 import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
 import { logInfo }                                 from './debug';
+import { useLayoutStore }                          from '../store/useLayoutStore';
 
 // buildNavIntent — website/ fork bağımlılığından koparıldı; ana app içinde (navIntent.ts).
 import { buildNavIntent } from './navIntent';
@@ -45,7 +46,7 @@ const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefin
 
 export type CommandType =
   | 'lock' | 'unlock' | 'horn' | 'alarm_on' | 'alarm_off'
-  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change';
+  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change' | 'layout_change';
 
 interface VehicleCommand {
   id:              string;
@@ -179,6 +180,13 @@ async function executeCommand(
           });
         }
         localStorage.setItem('theme', theme);
+        return 'completed';
+      }
+
+      case 'layout_change': {
+        // Tema Stüdyo ekran düzeni niyeti — zero-trust normalize + store'a uygula.
+        // ProLayout store'u okuyup solveLayout ile yeniden render eder (fail-soft: bozuksa varsayılan).
+        useLayoutStore.getState().applyIntent(payload.layout);
         return 'completed';
       }
 

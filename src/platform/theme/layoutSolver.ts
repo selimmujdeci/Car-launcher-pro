@@ -1,15 +1,20 @@
 /**
- * layoutSolver.ts (PWA) — araç uygulamasındaki src/platform/theme/layoutSolver.ts'in
- * PWA kopyası. Next ayrı paket olduğu için mantık burada AYNEN yansıtılır (kurallar
- * bozulmadan senkron tutulmalı — araç solver'ıyla BİREBİR).
+ * Yerleşim Motoru (Layout Solver) — araç tarafı.
+ * PWA'daki website/src/lib/layoutSolver.ts ile BİREBİR aynı kurallar (senkron tutulmalı).
  *
  * İlke: kullanıcı NİYET söyler (sıra + boyut + göster/gizle), solver GEOMETRİYİ çözer.
  * Çıktı piksel değil FLOW modeli (flex-grow ağırlığı) → her ekranda kendi kendine oturur.
  * Güvenlik: locked kart gizlenemez/taşmaz.
  *
+ * Öncelikler MEVCUT görsel sırayı üretir (geri-uyum): defaultIntent → sol ray
+ * clock>gauge>settings, sağ ray music>vehicle. Böylece hiç özelleştirme
+ * yapılmamışsa ekran BUGÜNKÜYLE AYNI görünür.
+ *
  * ÇOK-TEMA: solveLayout/defaultIntent/normalizeIntent bir `manifest` alır
- * (varsayılan PRO_MANIFEST — geri-uyum). Pro/Expedition/… kendi kart kümesini kendi
- * manifest'iyle çözer; niyet ham saklanır, tema OKUMA anında normalize eder.
+ * (varsayılan PRO_MANIFEST — geri-uyum). Her tema (Pro/Expedition/…) kendi
+ * kart kümesini kendi manifest'iyle çözer; niyet ham blob olarak saklanır,
+ * her tema OKUMA anında kendi manifest'ine göre normalize eder → temalar
+ * birbirinin kartını ezmez.
  */
 
 export type Zone = 'left-rail' | 'center-stage' | 'right-rail' | 'dock';
@@ -29,7 +34,7 @@ export interface ManifestEntry {
 
 export type Manifest = ManifestEntry[];
 
-/** ProLayout'un gerçek kartları (araçtaki PRO_MANIFEST ile birebir). */
+/** ProLayout'un gerçek kartları. priority = varsayılan görsel sıra (desc). */
 export const PRO_MANIFEST: Manifest = [
   { id: 'clock',    label: 'Saat',         zone: 'left-rail',    size: 'S', priority: 90 },
   { id: 'gauge',    label: 'Hız & Menzil', zone: 'left-rail',    size: 'L', priority: 80, locked: true },
@@ -40,7 +45,9 @@ export const PRO_MANIFEST: Manifest = [
   { id: 'dock',     label: 'Dock',         zone: 'dock',         size: 'L', priority: 100, locked: true },
 ];
 
-/** ExpeditionLayout'un gerçek kartları (araçtaki EXPEDITION_MANIFEST ile birebir). */
+/** ExpeditionLayout'un gerçek kartları (bolted-metal cockpit).
+ *  Sol ray: SpeedPlate (saat+hız+telltale, güvenlik → locked) + RangePlate (menzil/km).
+ *  Orta: MapPlate (harita → locked). Sağ ray: MusicPlate + VehiclePlate. */
 export const EXPEDITION_MANIFEST: Manifest = [
   { id: 'speed',   label: 'Hız & Saat',   zone: 'left-rail',    size: 'L', priority: 90, locked: true },
   { id: 'range',   label: 'Menzil',       zone: 'left-rail',    size: 'M', priority: 70 },
@@ -77,7 +84,7 @@ function manifestMap(manifest: Manifest): Record<string, ManifestEntry> {
   return m;
 }
 
-/** Varsayılan niyet: her zone içinde priority desc → ord. */
+/** Varsayılan niyet: her zone içinde priority desc → ord (mevcut ekran sırası). */
 export function defaultIntent(manifest: Manifest = PRO_MANIFEST): LayoutIntent {
   const byZone: Record<string, ManifestEntry[]> = {};
   ZONES.forEach((z) => (byZone[z] = []));
@@ -92,7 +99,7 @@ export function defaultIntent(manifest: Manifest = PRO_MANIFEST): LayoutIntent {
   return intent;
 }
 
-/** Eksik/bozuk niyeti varsayılanla tamamla (zero-trust — bilinmeyen id atılır). */
+/** Eksik/bozuk niyeti varsayılanla tamamla (zero-trust — bilinmeyen id atılır, locked gizlenemez). */
 export function normalizeIntent(raw: unknown, manifest: Manifest = PRO_MANIFEST): LayoutIntent {
   const base = defaultIntent(manifest);
   const MAP = manifestMap(manifest);
@@ -105,7 +112,9 @@ export function normalizeIntent(raw: unknown, manifest: Manifest = PRO_MANIFEST)
     const size = SIZES.includes(cc.size as SizeClass) ? (cc.size as SizeClass) : base[id].size;
     const ord = Number.isFinite(cc.ord) ? Number(cc.ord) : base[id].ord;
     const gc = cc.growCustom;
-    const growCustom = gc === null ? null : (Number.isFinite(gc) ? Math.max(0.5, Math.min(5, Number(gc))) : base[id].growCustom);
+    const growCustom = gc === null
+      ? null
+      : (Number.isFinite(gc) ? Math.max(0.5, Math.min(5, Number(gc))) : base[id].growCustom);
     const locked = !!MAP[id]?.locked;
     const visible = locked ? true : (typeof cc.visible === 'boolean' ? cc.visible : base[id].visible);
     base[id] = { visible, size, ord, growCustom };
