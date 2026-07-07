@@ -818,9 +818,10 @@ function ObdDeepSection({ deep }: { deep: ObdDeepLike }) {
       <div className="sa-mono" style={{ fontSize: 10, color: '#6b7280', marginBottom: 4 }}>
         Extended PID: {ext.discovered ? `${ext.supportedCount ?? 0} desteklenen (keşif tamam)` : 'keşif yapılmadı'}
       </div>
-      {(ext.samples ?? []).length > 0 && (
+      {(ext.samples ?? []).filter((s) => s != null).length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 8 }}>
-          {(ext.samples ?? []).map((s, i) => (
+          {/* fail-soft: seyrek dizi/bozuk kayıtta null sample gelebilir → ele (yoksa s.pid null-crash) */}
+          {(ext.samples ?? []).filter((s) => s != null).map((s, i) => (
             <div key={`${s.pid}-${i}`} className="sa-mono" style={{ display: 'flex', gap: 8, fontSize: 9, color: '#6b7280' }}>
               <span style={{ width: 44, color: '#374151' }}>{s.pid}</span>
               <span style={{ flex: 1, color: '#9ca3af' }}>{s.name}</span>
