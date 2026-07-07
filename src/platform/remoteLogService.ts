@@ -46,6 +46,7 @@ import {
   buildGpsDeepSnapshot, buildVoiceSnapshot, buildGeofenceSnapshot, buildStorageQueueSnapshot,
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
 } from './diagnosticSections';
+import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -258,6 +259,7 @@ export async function reportObdDiag(diag: Record<string, unknown>): Promise<void
  */
 export async function reportSupportSnapshot(): Promise<Record<string, unknown>> {
   const payload = await _buildSupportSnapshotPayload();
+  _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload);
   return payload;
 }
@@ -270,6 +272,17 @@ function _safeSection<T>(fn: () => T): T | null {
 /** _safeSection'ın async toplayıcılar için karşılığı (GPS izin kontrolü Promise döner). */
 async function _safeSectionAsync<T>(fn: () => Promise<T>): Promise<T | null> {
   try { return await fn(); } catch { return null; }
+}
+
+/**
+ * ÖNCELİKLİ BULGU TRİYAJI — payload TAMAMEN kurulduktan SONRA (selfTest/
+ * inspector dahil, hangisi varsa) çağrılır ki kural motoru en zengin veriyle
+ * çalışsın. Fail-soft: triyaj patlarsa ana rapor gövdesi ETKİLENMEZ.
+ */
+function _attachTriage(payload: Record<string, unknown>): void {
+  try {
+    payload.triage = buildTriageSnapshot(payload as TriageSections);
+  } catch { /* triyaj asla ana raporu bozmaz */ }
 }
 
 /** Ortak snapshot gövdesi — reportSupportSnapshot ve reportDiagnosticSnapshot kullanır. */
@@ -404,6 +417,7 @@ export async function reportDiagnosticSnapshot(
     source:    'dev_inspector',
     inspector: _deepSanitize(inspector, 1),
   };
+  _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload);
   return payload;
 }
@@ -420,6 +434,7 @@ export async function reportSelfTestSnapshot(): Promise<Record<string, unknown>>
   ]);
   const selfTest = await runSelfTest();
   const payload: Record<string, unknown> = { ...base, source: 'self_test', selfTest };
+  _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload);
   return payload;
 }

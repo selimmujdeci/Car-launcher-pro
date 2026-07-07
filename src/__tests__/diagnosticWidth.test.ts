@@ -13,6 +13,7 @@ import {
   buildGpsDeepSnapshot, buildVoiceSnapshot, buildGeofenceSnapshot, buildStorageQueueSnapshot,
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
 } from '../platform/diagnosticSections';
+import { buildTriageSnapshot, type TriageSections } from '../platform/diagnosticTriage';
 import {
   startPerfSeries, getPerfSeriesSnapshot, _resetPerfSeriesForTest,
 } from '../platform/perfSeriesRecorder';
@@ -342,5 +343,104 @@ describe('TRANSPORT / BAĞLANTI SAĞLIĞI bölümü — fail-soft yapı', () => 
     for (const forbidden of ['address', 'mac', 'devicename']) {
       expect(keys).not.toContain(forbidden);
     }
+  });
+});
+
+describe('ÖNCELİKLİ BULGU TRİYAJI — buildTriageSnapshot (diagnosticTriage.ts)', () => {
+  it('(a) health.overallHealth=critical → critical finding üretir', () => {
+    const snap = buildTriageSnapshot({
+      health: { overallHealth: 'critical', services: [{ name: 'VehicleDataLayer', healthy: false, restartCount: 2 }] },
+    });
+    expect(snap.topSeverity).toBe('critical');
+    const f = snap.findings.find((x) => x.code === 'HEALTH_CRITICAL');
+    expect(f).toBeTruthy();
+    expect(f?.severity).toBe('critical');
+    expect(f?.sources).toContain('health');
+  });
+
+  it('(b) çapraz-korelasyon: yavaş boot + termal L2+ → BOOT_SLOW_THERMAL tetiklenir (2 bölümden)', () => {
+    const snap = buildTriageSnapshot({
+      bootTiming: { totalMs: 12_000, slowestWave: 'Wave 2 (Backbone)' },
+      perfSeries: { installed: true, samples: [
+        { ts: 1, tempC: 40, level: 0, memMb: 50, fps: 30, lagMs: 5 },
+        { ts: 2, tempC: 60, level: 2, memMb: 55, fps: 20, lagMs: 10 },
+      ] },
+    });
+    const f = snap.findings.find((x) => x.code === 'BOOT_SLOW_THERMAL');
+    expect(f).toBeTruthy();
+    expect(f?.sources).toEqual(expect.arrayContaining(['bootTiming', 'perfSeries']));
+    expect(f?.sources.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('(c) veri yoksa/boşsa sahte bulgu ÜRETMEZ (boş sections → findings boş)', () => {
+    const snap = buildTriageSnapshot({});
+    expect(snap.findings).toEqual([]);
+    expect(snap.topSeverity).toBe('none');
+    expect(snap.scanned).toBe(0);
+  });
+
+  it('(c2) kısmi/eşik-altı veri de sahte bulgu üretmez (health healthy, boot hızlı)', () => {
+    const snap = buildTriageSnapshot({
+      health: { overallHealth: 'healthy', services: [] },
+      bootTiming: { totalMs: 2_000, slowestWave: 'Wave 1 (Core)' },
+      power: { severity: 'normal', voltageV: 12.6 },
+    });
+    expect(snap.findings).toEqual([]);
+    expect(snap.topSeverity).toBe('none');
+    expect(snap.scanned).toBe(3);
+  });
+
+  it('(d) 🔒 PII KİLİDİ: findings JSON\'unda koordinat/VIN/MAC deseni YOK', () => {
+    const sections: TriageSections = {
+      health: { overallHealth: 'critical', services: [{ name: 'GPS', healthy: false, restartCount: 1 }] },
+      power: { severity: 'critical', voltageV: 11.2 },
+      fusion: { confidence: 'low', diffKmh: 22 },
+      gps: { permission: 'denied', fixAgeMs: -1, accuracyM: -1, tracking: false },
+      transport: { reconnectAttempts: 9 },
+      obdDeep: { health: { connectionQuality: 20 }, dtc: { count: 2, codes: [{ code: 'P0301', severity: 'critical', system: 'engine' }] } },
+      netAi: { online: false, ai: { healthy: false, consecFails: 5, blockedForMs: 30_000 }, quota: { geminiCooldownMs: 1000, groqCooldownMs: 0, haikuCooldownMs: 0 } },
+      selfTest: { worst: 'fail', summary: { fail: 2, warn: 1, pass: 10, skip: 0 } },
+      uiActivity: { untimelyCount: 5 },
+      storageQueue: { queuePending: 30, storagePct: 95, storageWarn: true },
+      geofence: { readState: 'error' },
+    };
+    const snap = buildTriageSnapshot(sections);
+    const json = JSON.stringify(snap.findings);
+    // aynı maskeler remoteLogService._maskString'de kullanılan desenler
+    expect(json).not.toMatch(/-?\d{1,3}\.\d{4,}\s*,\s*-?\d{1,3}\.\d{4,}/); // [COORD]
+    expect(json).not.toMatch(/\b[A-HJ-NPR-Z0-9]{17}\b/); // VIN
+    expect(json).not.toMatch(/\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\b/); // MAC
+  });
+
+  it('(e) sıralama: critical > warning > info', () => {
+    const snap = buildTriageSnapshot({
+      health: { overallHealth: 'critical' },       // critical
+      geofence: { readState: 'error' },            // info
+      power: { severity: 'low', voltageV: 12.0 },  // warning
+    });
+    expect(snap.findings.length).toBeGreaterThanOrEqual(3);
+    const ranks: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+    for (let i = 1; i < snap.findings.length; i++) {
+      expect(ranks[snap.findings[i - 1].severity]).toBeLessThanOrEqual(ranks[snap.findings[i].severity]);
+    }
+    expect(snap.findings[0].severity).toBe('critical');
+    expect(snap.topSeverity).toBe('critical');
+  });
+
+  it('en fazla 8 bulgu tutulur (tavan koruması)', () => {
+    const snap = buildTriageSnapshot({
+      health: { overallHealth: 'critical' },
+      power: { severity: 'critical', voltageV: 10.5 },
+      fusion: { confidence: 'low', diffKmh: 30 },
+      gps: { permission: 'denied' },
+      transport: { reconnectAttempts: 9 },
+      obdDeep: { health: { connectionQuality: 10 }, dtc: { count: 1, codes: [{ code: 'P0100', severity: 'warning', system: 'engine' }] } },
+      netAi: { ai: { healthy: false, consecFails: 3, blockedForMs: 5000 } },
+      selfTest: { worst: 'fail', summary: { fail: 1 } },
+      uiActivity: { untimelyCount: 4 },
+      storageQueue: { storageWarn: true, storagePct: 99 },
+      geofence: { readState: 'error' },
+    });
+    expect(snap.findings.length).toBeLessThanOrEqual(8);
   });
 });

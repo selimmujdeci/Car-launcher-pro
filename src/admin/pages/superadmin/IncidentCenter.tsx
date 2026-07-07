@@ -400,6 +400,12 @@ function IncidentDetail({ entry, onClose }: { entry: IncidentEntry; onClose: () 
 
       {isSnapshot ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+          {/* ÖNCELİKLİ BULGU TRİYAJI — raporun EN TEPESİ; robot 15 ham bölümü okuyup
+              kök-neden çıkarır (bkz. diagnosticTriage.ts). Yoksa bile "kritik bulgu
+              yok" gösterir (eski kayıtlarda triage alanı olmayabilir → fail-soft). */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <TriageSection triage={(md['triage'] ?? { findings: [], scanned: 0, topSeverity: 'none' }) as TriageSnapshotLike} />
+          </div>
           <SnapshotSection title="SAĞLIK"     value={md['health']} />
           <SnapshotSection title="OBD"        value={md['obd']} />
           <SnapshotSection title="OTA"        value={md['ota']} />
@@ -512,6 +518,68 @@ function SnapshotSection({ title, value, critical }: { title: string; value: unk
       <div className="sa-diff-panel" style={critical && value ? { borderColor: '#dc262640' } : undefined}>
         {renderJson(value ?? null)}
       </div>
+    </div>
+  )
+}
+
+// ── ÖNCELİKLİ BULGU TRİYAJI render (raporun tepesi) ────────────────────────────
+// Yapısal (decoupled) tip — diagnosticTriage.ts'yi admin bundle'ına bağlamamak için.
+type TriageSeverityLike = 'critical' | 'warning' | 'info'
+interface TriageFindingLike {
+  severity: TriageSeverityLike; code: string; title: string; reason: string; action: string; sources: string[]
+}
+interface TriageSnapshotLike {
+  findings?: TriageFindingLike[]; scanned?: number; topSeverity?: TriageSeverityLike | 'none'
+}
+
+const TRIAGE_SEVERITY_COLOR: Record<string, string> = {
+  critical: '#dc2626', warning: '#d97706', info: '#60a5fa', none: '#16a34a',
+}
+const TRIAGE_SEVERITY_LABEL: Record<TriageSeverityLike, string> = {
+  critical: 'KRİTİK', warning: 'UYARI', info: 'BİLGİ',
+}
+
+function TriageSection({ triage }: { triage: TriageSnapshotLike }) {
+  const findings = Array.isArray(triage.findings) ? triage.findings : []
+  const top = triage.topSeverity ?? 'none'
+  const color = TRIAGE_SEVERITY_COLOR[top] ?? '#6b7280'
+  return (
+    <div style={{ padding: '10px 12px', background: '#0a0a0a', border: `1px solid ${color}40`, borderRadius: 2 }}>
+      <p className="sa-label" style={{ marginBottom: 6, color }}>
+        ÖNCELİKLİ BULGU TRİYAJI{findings.length > 0 ? ` (${findings.length})` : ''}
+      </p>
+      {findings.length === 0 ? (
+        <span className="sa-mono" style={{ color: '#16a34a', fontSize: 11 }}>
+          ✓ kritik bulgu yok — {triage.scanned ?? 0} bölüm tarandı
+        </span>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {findings.map((f, i) => {
+            const c = TRIAGE_SEVERITY_COLOR[f.severity] ?? '#6b7280'
+            return (
+              <div
+                key={`${f.code}-${i}`}
+                style={{ padding: '6px 10px', borderRadius: 2, background: '#0d0d0d', borderLeft: `3px solid ${c}` }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+                  <span className="sa-mono" style={{ color: c, fontSize: 9, fontWeight: 700, letterSpacing: '0.06em' }}>
+                    {TRIAGE_SEVERITY_LABEL[f.severity] ?? f.severity}
+                  </span>
+                  <span className="sa-mono" style={{ color: '#e5e7eb', fontSize: 11, fontWeight: 600 }}>{f.title}</span>
+                  <span className="sa-mono" style={{ color: '#374151', fontSize: 9, marginLeft: 'auto' }}>
+                    {(f.sources ?? []).join(' + ')}
+                  </span>
+                </div>
+                <div className="sa-mono" style={{ color: '#6b7280', fontSize: 10 }}>{f.reason}</div>
+                <div className="sa-mono" style={{ color: '#4b5563', fontSize: 10, marginTop: 2 }}>→ {f.action}</div>
+              </div>
+            )
+          })}
+          <span className="sa-mono" style={{ color: '#374151', fontSize: 9, marginTop: 2 }}>
+            {triage.scanned ?? 0} bölüm tarandı
+          </span>
+        </div>
+      )}
     </div>
   )
 }
