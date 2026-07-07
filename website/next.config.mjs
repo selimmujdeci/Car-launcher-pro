@@ -10,6 +10,11 @@ const nextConfig = {
   async rewrites() {
     const adminUrl = process.env.ADMIN_APP_URL;
     if (!adminUrl) return [];
+    // Süper-admin paneli ayrı bir Vite deploy'unda (car-launcher-pro). Buradan
+    // reverse-proxy'liyoruz → carospro.com/admin/tani gerçek paneli gösterir.
+    // admin.html asset'lerini /assets/* kök yolundan yükler; website Next.js
+    // kendi asset'lerini /_next altında tutar → /assets çakışmasız, güvenle
+    // proxy'lenir (yoksa panel HTML gelir ama JS/CSS 404 → beyaz ekran).
     return [
       {
         source:      '/admin/:path*',
@@ -18,6 +23,10 @@ const nextConfig = {
       {
         source:      '/admin',
         destination: `${adminUrl}/admin`,
+      },
+      {
+        source:      '/assets/:path*',
+        destination: `${adminUrl}/assets/:path*`,
       },
     ];
   },
