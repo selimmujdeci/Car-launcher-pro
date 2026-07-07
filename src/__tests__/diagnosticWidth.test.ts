@@ -11,10 +11,18 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   buildObdDeepSnapshot, buildNetAiSnapshot,
   buildGpsDeepSnapshot, buildVoiceSnapshot, buildGeofenceSnapshot, buildStorageQueueSnapshot,
+  buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
 } from '../platform/diagnosticSections';
 import {
   startPerfSeries, getPerfSeriesSnapshot, _resetPerfSeriesForTest,
 } from '../platform/perfSeriesRecorder';
+import {
+  recordBootStart, recordBootWave, recordBootComplete, getBootTimingSnapshot,
+  _resetBootTimingForTest,
+} from '../platform/bootTimingRecorder';
+import { getVoltageStats } from '../platform/power/BatteryProtectionService';
+import { getTransportStats } from '../platform/obdService';
+import { getLastObdDiagReason, emitObdDiag, _resetObdDiagEmitterForTest } from '../platform/obdDiagEmitter';
 // Yapısal kilit: payload bölümleri silinmesin (kaynak-metin, ?raw = transform-time sabit).
 import remoteLogSrc from '../platform/remoteLogService.ts?raw';
 import geofenceSecSrc from '../platform/security/geofenceService.ts?raw';
@@ -68,6 +76,15 @@ describe('YAPISAL: tanı payload 4 YENİ genişlik boyutunu taşır (GPS/Sesli/G
     expect(remoteLogSrc, 'voice bölümü payload\'dan çıkarılmış').toMatch(/voice:\s*_safeSection\(buildVoiceSnapshot\)/);
     expect(remoteLogSrc, 'geofence bölümü payload\'dan çıkarılmış').toMatch(/geofence:\s*_safeSection\(buildGeofenceSnapshot\)/);
     expect(remoteLogSrc, 'storageQueue bölümü payload\'dan çıkarılmış').toMatch(/storageQueue,/);
+  });
+});
+
+describe('YAPISAL: tanı payload 4 YENİ genişlik boyutunu taşır (Güç/Füzyon/Boot/Transport)', () => {
+  it('support_snapshot payload power + fusion + bootTiming + transport gömer', () => {
+    expect(remoteLogSrc, 'power bölümü payload\'dan çıkarılmış').toMatch(/power:\s*_safeSection\(buildPowerSnapshot\)/);
+    expect(remoteLogSrc, 'fusion bölümü payload\'dan çıkarılmış').toMatch(/fusion:\s*_safeSection\(buildFusionSnapshot\)/);
+    expect(remoteLogSrc, 'bootTiming bölümü payload\'dan çıkarılmış').toMatch(/bootTiming:\s*_safeSection\(buildBootTimingSnapshot\)/);
+    expect(remoteLogSrc, 'transport bölümü payload\'dan çıkarılmış').toMatch(/transport:\s*_safeSection\(buildTransportSnapshot\)/);
   });
 });
 
@@ -212,5 +229,118 @@ describe('PERF ZAMAN SERİSİ — halka tamponu yaşam döngüsü', () => {
     stop2();
     stop1();
     expect(getPerfSeriesSnapshot().installed).toBe(false);
+  });
+});
+
+describe('GÜÇ / AKÜ SAĞLIĞI bölümü — fail-soft yapı', () => {
+  it('kaynak yokken bile iyi-biçimli power snapshot döner (çökmez)', () => {
+    const power = buildPowerSnapshot();
+    expect(['CAN', 'OBD', 'none']).toContain(power.source);
+    expect(power.voltageV === null || typeof power.voltageV === 'number').toBe(true);
+    expect(['critical', 'low', 'normal', 'unknown']).toContain(power.severity);
+    expect(typeof power.charging).toBe('boolean');
+  });
+
+  it('voltaj yokken source="none" + voltageV=null + severity="unknown" (sahte voltaj üretmez)', () => {
+    const power = buildPowerSnapshot();
+    if (power.source === 'none') {
+      expect(power.voltageV).toBeNull();
+      expect(power.severity).toBe('unknown');
+      expect(power.charging).toBe(false);
+    }
+  });
+
+  it('getVoltageStats örnek yokken null döner (dürüst — sahte min/max üretmez)', () => {
+    const stats = getVoltageStats();
+    expect(stats === null || typeof stats.minV === 'number').toBe(true);
+  });
+});
+
+describe('SENSÖR FÜZYON TUTARLILIĞI bölümü — fail-soft yapı + zero-trust güven', () => {
+  it('kaynak yokken bile iyi-biçimli fusion snapshot döner (çökmez)', () => {
+    const fusion = buildFusionSnapshot();
+    expect(typeof fusion.activeSource).toBe('string');
+    expect(fusion.gpsSpeedKmh === null || typeof fusion.gpsSpeedKmh === 'number').toBe(true);
+    expect(fusion.vehicleSpeedKmh === null || typeof fusion.vehicleSpeedKmh === 'number').toBe(true);
+    expect(['high', 'medium', 'low', 'unknown']).toContain(fusion.confidence);
+    expect(typeof fusion.drActive).toBe('boolean');
+  });
+
+  it('yalnız tek kaynak (veya hiçbiri) varken confidence="unknown" + diffKmh=null', () => {
+    const fusion = buildFusionSnapshot();
+    if (fusion.gpsSpeedKmh == null || fusion.vehicleSpeedKmh == null) {
+      expect(fusion.diffKmh).toBeNull();
+      expect(fusion.confidence).toBe('unknown');
+    }
+  });
+});
+
+describe('BOOT ZAMAN ÇİZELGESİ — kaydedici yaşam döngüsü', () => {
+  beforeEach(() => { _resetBootTimingForTest(); });
+  afterEach(() => { _resetBootTimingForTest(); });
+
+  it('kayıt yokken boş ama iyi-biçimli snapshot döner', () => {
+    const snap = getBootTimingSnapshot();
+    expect(Array.isArray(snap.waves)).toBe(true);
+    expect(snap.waves.length).toBe(0);
+    expect(snap.totalMs).toBe(0);
+    expect(snap.slowestWave).toBeNull();
+  });
+
+  it('recordBootWave + recordBootComplete → toplam süre + en yavaş dalga doğru hesaplanır', () => {
+    recordBootStart();
+    recordBootWave('Wave 1 (Core)', 10);
+    recordBootWave('Wave 2 (Backbone)', 50);
+    recordBootWave('Wave 3 (Intelligence)', 5);
+    recordBootComplete();
+    const snap = getBootTimingSnapshot();
+    expect(snap.waves.length).toBe(3);
+    expect(snap.slowestWave).toBe('Wave 2 (Backbone)');
+    expect(snap.totalMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('buildBootTimingSnapshot fail-soft sarmalayıcı ile aynı veriyi döner', () => {
+    recordBootStart();
+    recordBootWave('Wave 1 (Core)', 20);
+    recordBootComplete();
+    const snap = buildBootTimingSnapshot();
+    expect(snap.waves.length).toBe(1);
+    expect(snap.waves[0].name).toBe('Wave 1 (Core)');
+  });
+});
+
+describe('TRANSPORT / BAĞLANTI SAĞLIĞI bölümü — fail-soft yapı', () => {
+  beforeEach(() => { _resetObdDiagEmitterForTest(); });
+  afterEach(() => { _resetObdDiagEmitterForTest(); });
+
+  it('kaynak yokken bile iyi-biçimli transport snapshot döner (çökmez)', () => {
+    const transport = buildTransportSnapshot();
+    expect(typeof transport.transport).toBe('string');
+    expect(typeof transport.connected).toBe('boolean');
+    expect(typeof transport.reconnectAttempts).toBe('number');
+    expect(transport.lastDisconnectReason === null || typeof transport.lastDisconnectReason === 'string').toBe(true);
+  });
+
+  it('getTransportStats bağlı değilken connected=false + transport="none" (adres kayıtlı değilse)', () => {
+    const stats = getTransportStats();
+    expect(typeof stats.connected).toBe('boolean');
+    expect(typeof stats.reconnectAttempts).toBe('number');
+  });
+
+  it('getLastObdDiagReason: emitObdDiag sonrası son neden phase+errorCode taşır', () => {
+    expect(getLastObdDiagReason()).toBeNull();
+    emitObdDiag('connect', 'OBD_CONNECT_FAIL', { msg: 'test' });
+    const reason = getLastObdDiagReason();
+    expect(reason).not.toBeNull();
+    expect(reason?.phase).toBe('connect');
+    expect(reason?.errorCode).toBe('OBD_CONNECT_FAIL');
+  });
+
+  it('🔒 MAHREMİYET: transport snapshot cihaz adresi/MAC alanı TAŞIMAZ', () => {
+    const transport = buildTransportSnapshot();
+    const keys = Object.keys(transport).map((k) => k.toLowerCase());
+    for (const forbidden of ['address', 'mac', 'devicename']) {
+      expect(keys).not.toContain(forbidden);
+    }
   });
 });

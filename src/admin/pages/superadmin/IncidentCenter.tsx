@@ -462,6 +462,30 @@ function IncidentDetail({ entry, onClose }: { entry: IncidentEntry; onClose: () 
               <StorageQueueSection sq={md['storageQueue'] as StorageQueueLike} />
             </div>
           )}
+          {/* Güç/Akü sağlığı — 12V voltaj + kaynak + rozet + son 10sn min/max */}
+          {md['power'] != null && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <PowerSection power={md['power'] as PowerLike} />
+            </div>
+          )}
+          {/* Sensör füzyon tutarlılığı — aktif hız kaynağı + GPS/donanım farkı + güven */}
+          {md['fusion'] != null && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <FusionSection fusion={md['fusion'] as FusionLike} />
+            </div>
+          )}
+          {/* Boot zaman çizelgesi — her Wave süresi + toplam cold-start + en yavaş dalga */}
+          {md['bootTiming'] != null && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <BootTimingSection timing={md['bootTiming'] as BootTimingLike} />
+            </div>
+          )}
+          {/* Transport/bağlantı sağlığı — aktif transport + reconnect sayısı + son kopma nedeni */}
+          {md['transport'] != null && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <TransportSection transport={md['transport'] as TransportLike} />
+            </div>
+          )}
           {/* Olay izi (breadcrumb) — soruna ne yol açtı */}
           {Array.isArray(md['trail']) && (md['trail'] as unknown[]).length > 0 && (
             <div style={{ gridColumn: '1 / -1' }}>
@@ -958,6 +982,141 @@ function StorageQueueSection({ sq }: { sq: StorageQueueLike }) {
         <span style={{ color: sq.storageWarn ? '#dc2626' : '#374151' }}>
           disk: {hasStorage ? `${sq.storagePct}%` : 'bilinmiyor'}{sq.storageWarn ? ' ⚠' : ''}
         </span>
+      </div>
+    </div>
+  )
+}
+
+// ── GÜÇ / AKÜ SAĞLIĞI render ──────────────────────────────────────────────────
+interface PowerLike {
+  source?:   string
+  voltageV?: number | null
+  severity?: string
+  charging?: boolean
+  stats?:    { minV: number; maxV: number; sampleCount: number; windowMs: number } | null
+}
+
+const POWER_SEVERITY_COLOR: Record<string, string> = {
+  critical: '#dc2626', low: '#d97706', normal: '#16a34a', unknown: '#6b7280',
+}
+
+function PowerSection({ power }: { power: PowerLike }) {
+  const color = POWER_SEVERITY_COLOR[power.severity ?? 'unknown'] ?? '#6b7280'
+  const hasV = power.voltageV != null
+  const stats = power.stats
+  return (
+    <div style={{ padding: '10px 12px', borderTop: '1px solid #1a1a1a' }}>
+      <p className="sa-label" style={{ marginBottom: 6, color }}>
+        GÜÇ / AKÜ SAĞLIĞI — 12V VOLTAJ · KAYNAK · EĞİLİM
+      </p>
+      <div className="sa-mono" style={{ fontSize: 10, color: '#6b7280', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ color }}>voltaj: {hasV ? `${power.voltageV!.toFixed(1)} V` : 'ölçüm yok'}</span>
+        <span>kaynak: {power.source ?? 'none'}</span>
+        <span style={{ color }}>durum: {power.severity ?? 'unknown'}</span>
+        {power.charging && <span style={{ color: '#16a34a' }}>⚡ şarj oluyor</span>}
+      </div>
+      {stats && (
+        <div className="sa-mono" style={{ fontSize: 9, color: '#4b5563', marginTop: 4 }}>
+          son {Math.round(stats.windowMs / 1000)}sn: min {stats.minV.toFixed(2)}V · maks {stats.maxV.toFixed(2)}V
+          {(stats.maxV - stats.minV) > 0.5 ? ' — ani düşüş (marş/güç sorunu olabilir)' : ''} ({stats.sampleCount} örnek)
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SENSÖR FÜZYON TUTARLILIĞI render ──────────────────────────────────────────
+interface FusionLike {
+  activeSource?:    string
+  gpsSpeedKmh?:     number | null
+  vehicleSpeedKmh?: number | null
+  diffKmh?:         number | null
+  confidence?:      string
+  drActive?:        boolean
+}
+
+const FUSION_CONFIDENCE_COLOR: Record<string, string> = {
+  high: '#16a34a', medium: '#d97706', low: '#dc2626', unknown: '#6b7280',
+}
+
+function FusionSection({ fusion }: { fusion: FusionLike }) {
+  const color = FUSION_CONFIDENCE_COLOR[fusion.confidence ?? 'unknown'] ?? '#6b7280'
+  return (
+    <div style={{ padding: '10px 12px', borderTop: '1px solid #1a1a1a' }}>
+      <p className="sa-label" style={{ marginBottom: 6, color }}>
+        SENSÖR FÜZYON TUTARLILIĞI — GÜVEN: {(fusion.confidence ?? 'unknown').toUpperCase()}
+      </p>
+      <div className="sa-mono" style={{ fontSize: 10, color: '#6b7280', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <span>aktif kaynak: {fusion.activeSource ?? 'none'}</span>
+        <span>GPS: {fusion.gpsSpeedKmh != null ? `${fusion.gpsSpeedKmh} km/h` : '—'}</span>
+        <span>donanım: {fusion.vehicleSpeedKmh != null ? `${fusion.vehicleSpeedKmh} km/h` : '—'}</span>
+        {fusion.diffKmh != null && (
+          <span style={{ color }}>fark: {fusion.diffKmh} km/h</span>
+        )}
+        <span style={{ color: fusion.drActive ? '#d97706' : '#374151' }}>{fusion.drActive ? 'DR (tünel) aktif' : 'DR kapalı'}</span>
+      </div>
+    </div>
+  )
+}
+
+// ── BOOT ZAMAN ÇİZELGESİ render ────────────────────────────────────────────────
+interface BootWaveLike { name: string; durationMs: number }
+interface BootTimingLike {
+  waves?:       BootWaveLike[]
+  totalMs?:     number
+  slowestWave?: string | null
+}
+
+function BootTimingSection({ timing }: { timing: BootTimingLike }) {
+  const waves = timing.waves ?? []
+  return (
+    <div style={{ padding: '10px 12px', borderTop: '1px solid #1a1a1a' }}>
+      <p className="sa-label" style={{ marginBottom: 6, color: '#9ca3af' }}>
+        BOOT ZAMAN ÇİZELGESİ — TOPLAM {timing.totalMs != null ? fmtAge(timing.totalMs) : '?'}
+      </p>
+      {waves.length === 0 ? (
+        <span className="sa-mono" style={{ color: '#4b5563', fontSize: 10 }}>ölçüm yok</span>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {waves.map((w, i) => (
+            <div key={`${w.name}-${i}`} className="sa-mono" style={{ display: 'flex', gap: 8, fontSize: 9 }}>
+              <span style={{ flex: 1, color: w.name === timing.slowestWave ? '#d97706' : '#6b7280' }}>
+                {w.name}{w.name === timing.slowestWave ? ' ← en yavaş' : ''}
+              </span>
+              <span style={{ color: '#9ca3af' }}>{fmtAge(w.durationMs)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── TRANSPORT / BAĞLANTI SAĞLIĞI render ────────────────────────────────────────
+interface TransportLike {
+  transport?:            string
+  connected?:            boolean
+  reconnectAttempts?:    number
+  lastDisconnectReason?: string | null
+}
+
+function TransportSection({ transport }: { transport: TransportLike }) {
+  return (
+    <div style={{ padding: '10px 12px', borderTop: '1px solid #1a1a1a' }}>
+      <p className="sa-label" style={{ marginBottom: 6, color: transport.connected ? '#16a34a' : '#d97706' }}>
+        TRANSPORT / BAĞLANTI SAĞLIĞI
+      </p>
+      <div className="sa-mono" style={{ fontSize: 10, color: '#6b7280', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ color: transport.connected ? '#16a34a' : '#dc2626' }}>
+          {transport.connected ? '● bağlı' : '○ bağlı değil'}
+        </span>
+        <span>transport: {transport.transport ?? 'none'}</span>
+        <span style={{ color: (transport.reconnectAttempts ?? 0) > 0 ? '#d97706' : '#374151' }}>
+          reconnect denemesi: {transport.reconnectAttempts ?? 0}
+        </span>
+        {transport.lastDisconnectReason && (
+          <span style={{ color: '#dc2626' }}>son kopma: {transport.lastDisconnectReason}</span>
+        )}
       </div>
     </div>
   )

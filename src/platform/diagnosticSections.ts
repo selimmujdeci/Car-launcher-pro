@@ -10,7 +10,7 @@
  * PII yok — koordinat/VIN/plaka/MAC/token bölümlere hiç girmez.
  */
 
-import { getOBDStatusSnapshot, getOBDDataSnapshot } from './obdService';
+import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats } from './obdService';
 import { getObdHealth } from './obd/ObdHealthMonitor';
 import { getSupportedPids, getPidValue } from './obd/extendedPidService';
 import { getDTCStateSnapshot } from './dtcService';
@@ -21,6 +21,14 @@ import { getVoiceSnapshot, getLastSttOutcome } from './voiceService';
 import { getWakeWordState, isVoskModelReady } from './wakeWordService';
 import { getGeofenceStatus } from './security/geofenceService';
 import { connectivityService } from './connectivityService';
+import { getVoltageStats } from './power/BatteryProtectionService';
+import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { useHALStatusStore } from './vehicleDataLayer/halStatusStore';
+import type { SignalSource } from './vehicleDataLayer/valTypes';
+import {
+  getBootTimingSnapshot as _getBootTimingSnapshot,
+  type BootTimingSnapshot,
+} from './bootTimingRecorder';
 
 /* ── OBD DERİN ───────────────────────────────────────────────── */
 
@@ -267,6 +275,143 @@ export async function buildStorageQueueSnapshot(): Promise<StorageQueueSnapshot>
     queuePending,
     storagePct,
     storageWarn: storagePct >= STORAGE_WARN_PCT,
+  };
+}
+
+/* ── GÜÇ / AKÜ SAĞLIĞI ───────────────────────────────────────── */
+
+export interface PowerSnapshot {
+  /** Voltajın geldiği kaynak — CAN gövde veriyolu OBD'den önceliklidir (daha evrensel). */
+  source: 'CAN' | 'OBD' | 'none';
+  /** 12V akü voltajı (V) — kaynak yoksa null (sahte değer YASAK). */
+  voltageV: number | null;
+  severity: 'critical' | 'low' | 'normal' | 'unknown';
+  /** Alternatör şarj ediyor gibi görünüyor mu (voltaj eşik üstü). */
+  charging: boolean;
+  /** Son 10sn penceresinde min/max — ani düşüş (marş/güç sorunu) işareti. Örnek yoksa null. */
+  stats: { minV: number; maxV: number; sampleCount: number; windowMs: number } | null;
+}
+
+// Eşikler (task-spec): kritik <11.8V · düşük <12.2V · normal 12.2–14.8V · şarj >13.2V.
+const VOLT_CRITICAL_V = 11.8;
+const VOLT_LOW_V      = 12.2;
+const VOLT_CHARGING_V = 13.2;
+
+export function buildPowerSnapshot(): PowerSnapshot {
+  // CAN (gövde veriyolu, ProfileSignalGate → UnifiedVehicleStore.canBatteryVolt)
+  const canV = _safe(() => useUnifiedVehicleStore.getState().canBatteryVolt, null as number | null);
+  // OBD (PID 0x42 ATRV, obdSanitizer → OBDData.batteryVoltage; -1 = desteklenmiyor)
+  const obdV = _safe(() => getOBDDataSnapshot().batteryVoltage, undefined as number | undefined);
+
+  let source: PowerSnapshot['source'] = 'none';
+  let voltageV: number | null = null;
+  if (canV != null && Number.isFinite(canV) && canV > 0) {
+    source = 'CAN'; voltageV = canV;
+  } else if (obdV != null && Number.isFinite(obdV) && obdV > 0 && obdV !== -1) {
+    source = 'OBD'; voltageV = obdV;
+  }
+
+  let severity: PowerSnapshot['severity'] = 'unknown';
+  if (voltageV != null) {
+    severity = voltageV < VOLT_CRITICAL_V ? 'critical' : voltageV < VOLT_LOW_V ? 'low' : 'normal';
+  }
+
+  return {
+    source,
+    voltageV,
+    severity,
+    charging: voltageV != null && voltageV > VOLT_CHARGING_V,
+    stats: _safe(() => getVoltageStats(), null),
+  };
+}
+
+/* ── SENSÖR FÜZYON TUTARLILIĞI ───────────────────────────────── */
+
+export interface FusionSnapshot {
+  /** VehicleCompute worker'ın seçtiği aktif hız kaynağı (HAL/CAN/OBD/GPS/FUSED). */
+  activeSource: string;
+  /** GPS Doppler hızı (km/h) — fix yoksa null. */
+  gpsSpeedKmh: number | null;
+  /** Donanım (OBD ham PID) hızı (km/h) — desteklenmiyorsa null. */
+  vehicleSpeedKmh: number | null;
+  /** İki kaynak arası mutlak fark (km/h) — ikisi de yoksa null. */
+  diffKmh: number | null;
+  /** Zero-trust güven rozeti: fark büyüdükçe düşer; tek kaynak varsa 'unknown'. */
+  confidence: 'high' | 'medium' | 'low' | 'unknown';
+  drActive: boolean;
+}
+
+const FUSION_DIFF_HIGH_KMH = 5;   // ≤5 km/h fark → yüksek güven
+const FUSION_DIFF_MED_KMH  = 15;  // ≤15 km/h fark → orta güven, üstü düşük
+
+export function buildFusionSnapshot(): FusionSnapshot {
+  const activeSource = _safe<SignalSource | null>(
+    () => useHALStatusStore.getState().activeSource, null,
+  ) ?? 'none';
+
+  const gpsState = _safe(() => getGPSState(), { location: null } as ReturnType<typeof getGPSState>);
+  const gpsSpeedRawMs = gpsState.location?.speed;
+  const gpsSpeedKmh = typeof gpsSpeedRawMs === 'number' && Number.isFinite(gpsSpeedRawMs)
+    ? Math.round(gpsSpeedRawMs * 3.6 * 10) / 10
+    : null;
+
+  const obdSpeedRaw = _safe(() => getOBDDataSnapshot().speed, -1);
+  const vehicleSpeedKmh = typeof obdSpeedRaw === 'number' && obdSpeedRaw !== -1
+    ? Math.round(obdSpeedRaw * 10) / 10
+    : null;
+
+  let diffKmh: number | null = null;
+  let confidence: FusionSnapshot['confidence'] = 'unknown';
+  if (gpsSpeedKmh != null && vehicleSpeedKmh != null) {
+    diffKmh = Math.round(Math.abs(gpsSpeedKmh - vehicleSpeedKmh) * 10) / 10;
+    confidence = diffKmh <= FUSION_DIFF_HIGH_KMH ? 'high'
+      : diffKmh <= FUSION_DIFF_MED_KMH ? 'medium' : 'low';
+  }
+
+  return {
+    activeSource,
+    gpsSpeedKmh,
+    vehicleSpeedKmh,
+    diffKmh,
+    confidence,
+    drActive: _safe(() => isDeadReckoningActive(), false),
+  };
+}
+
+/* ── BOOT ZAMAN ÇİZELGESİ ────────────────────────────────────── */
+
+export function buildBootTimingSnapshot(): BootTimingSnapshot {
+  return _safe(() => _getBootTimingSnapshot(), { waves: [], totalMs: 0, slowestWave: null });
+}
+
+/* ── TRANSPORT / BAĞLANTI SAĞLIĞI ────────────────────────────── */
+
+export interface TransportSnapshot {
+  /** Aktif transport — CAN (gövde) OBD-BT transport'undan önceliklidir. */
+  transport: string;
+  connected: boolean;
+  /** Oturum boyu OBD reconnect deneme sayısı. */
+  reconnectAttempts: number;
+  /** Son kopma/hata nedeni (kısa statik etiket) — hiç yoksa null. */
+  lastDisconnectReason: string | null;
+}
+
+export function buildTransportSnapshot(): TransportSnapshot {
+  const obd = _safe(() => getTransportStats(), {
+    transport: 'none' as const, connected: false, reconnectAttempts: 0,
+    lastDisconnectReason: null as string | null,
+  });
+  const canConnected = _safe(() => useHALStatusStore.getState().halConnected, false);
+
+  if (canConnected) {
+    return {
+      transport: 'CAN', connected: true,
+      reconnectAttempts: obd.reconnectAttempts, lastDisconnectReason: obd.lastDisconnectReason,
+    };
+  }
+  return {
+    transport: obd.transport, connected: obd.connected,
+    reconnectAttempts: obd.reconnectAttempts, lastDisconnectReason: obd.lastDisconnectReason,
   };
 }
 

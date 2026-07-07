@@ -51,6 +51,9 @@ const MAP_MAX = 64;
 
 const _lastEmit = new Map<string, number>();
 
+/** Transport/Bağlantı Sağlığı tanı bölümü — son kopma nedeni (Date.now, fmtAge uyumlu). */
+let _lastReason: { phase: ObdDiagPhase; errorCode: string; atMs: number } | null = null;
+
 /**
  * OBD tanı eventi üretir (fire-and-forget).
  * Dönüş: true = reportObdDiag'a iletildi; false = pencere içinde bastırıldı.
@@ -62,6 +65,10 @@ export function emitObdDiag(
   detail: ObdDiagDetail = {},
 ): boolean {
   try {
+    // Bastırılsa bile (fırtına penceresi) "son kopma nedeni" gerçek zamanlıdır —
+    // Transport tanı bölümü bu yüzden suppress kontrolünden ÖNCE kaydeder.
+    _lastReason = { phase, errorCode, atMs: Date.now() };
+
     const key = `${phase}:${errorCode}`;
     const now = performance.now();
     const prev = _lastEmit.get(key);
@@ -89,7 +96,16 @@ export function emitObdDiag(
   }
 }
 
+/**
+ * Transport/Bağlantı Sağlığı tanı bölümü — en son OBD bağlantı-kopma/hata
+ * nedenini döner (kısa etiket: phase+errorCode). PII yok — statik kod adları.
+ */
+export function getLastObdDiagReason(): { phase: ObdDiagPhase; errorCode: string; atMs: number } | null {
+  return _lastReason;
+}
+
 /** Vitest: suppression penceresini sıfırlar. */
 export function _resetObdDiagEmitterForTest(): void {
   _lastEmit.clear();
+  _lastReason = null;
 }

@@ -28,6 +28,7 @@ import { startNativeGuardBridge }  from '../native/NativeGuardBridge';
 import { startUiActivityRecorder } from '../uiActivityRecorder';
 import { startDiagnosticTrail }    from '../diagnosticTrail';
 import { startPerfSeries }         from '../perfSeriesRecorder';
+import { resetBootTiming, recordBootStart, recordBootWave, recordBootComplete } from '../bootTimingRecorder';
 import { useUnifiedVehicleStore as useVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
 import {
   startVehicleDataLayer,
@@ -326,11 +327,24 @@ class SystemBoot {
     this._started = true;
     this._bootAbort = new AbortController();
 
+    // Boot Zaman Çizelgesi (tanı genişliği) — yalnız ölçüm, dalga sırası/mantığı DEĞİŞMEZ.
+    resetBootTiming();
+    recordBootStart();
+
     try {
+      let _t0 = performance.now();
       await this._wave1(); if (this._aborted) return this._onBootAborted();
+      recordBootWave('Wave 1 (Core)', performance.now() - _t0);
+      _t0 = performance.now();
       await this._wave2(); if (this._aborted) return this._onBootAborted();
+      recordBootWave('Wave 2 (Backbone)', performance.now() - _t0);
+      _t0 = performance.now();
       await this._wave3(); if (this._aborted) return this._onBootAborted();
+      recordBootWave('Wave 3 (Intelligence)', performance.now() - _t0);
+      _t0 = performance.now();
       await this._wave4(); if (this._aborted) return this._onBootAborted();
+      recordBootWave('Wave 4 (UI Services)', performance.now() - _t0);
+      recordBootComplete();
       window.__APP_READY__ = true;
       _log('Boot complete ✓');
 

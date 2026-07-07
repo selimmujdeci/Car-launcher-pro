@@ -250,6 +250,23 @@ export function updateBatteryVoltage(v: number): void {
 export function getBatteryLevel(): BatteryLevel { return _level; }
 
 /**
+ * Güç/Akü Sağlığı tanı bölümü — son 10sn'lik pencerede min/max voltaj
+ * (ani düşüş = marş/güç sorunu işareti). Örnek yoksa null (dürüst — sahte
+ * değer üretmez). Mevcut _samples tamponu (_pushSample) yeniden kullanılır,
+ * yeni bir kayıt mekanizması EKLENMEZ.
+ */
+export function getVoltageStats(): { minV: number; maxV: number; sampleCount: number; windowMs: number } | null {
+  if (_samples.length === 0) return null;
+  let min = _samples[0]!.v;
+  let max = _samples[0]!.v;
+  for (const s of _samples) {
+    if (s.v < min) min = s.v;
+    if (s.v > max) max = s.v;
+  }
+  return { minV: min, maxV: max, sampleCount: _samples.length, windowMs: MA_WINDOW_MS };
+}
+
+/**
  * Seviye değişimlerine abone ol.
  * EMERGENCY_SHUTDOWN'da servisler kendi shutdown mantığını çalıştırabilir.
  *

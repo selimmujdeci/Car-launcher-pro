@@ -43,7 +43,7 @@ import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
 import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
-import { emitObdDiag } from './obdDiagEmitter';
+import { emitObdDiag, getLastObdDiagReason } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
   CONNECT_TIMEOUT_MS,
@@ -1258,6 +1258,26 @@ export function getOBDStatusSnapshot(): {
     source:          _current.source,
     vehicleType:     _current.vehicleType,
     lastSeenMs:      _current.lastSeenMs,
+  };
+}
+
+/**
+ * Transport/Bağlantı Sağlığı tanı bölümü — anlık OBD adaptör transport
+ * durumunun hook-dışı görünümü. remoteLogService support_snapshot için.
+ * Bilinçli olarak DAR: adres/cihaz adı YOK (uzak log gizlilik kuralı).
+ */
+export function getTransportStats(): {
+  transport:             ObdTransport | 'none';
+  connected:             boolean;
+  reconnectAttempts:     number;
+  lastDisconnectReason:  string | null;
+} {
+  const reason = getLastObdDiagReason();
+  return {
+    transport:            _lastKnownTransport ?? 'none',
+    connected:            _current.connectionState === 'connected',
+    reconnectAttempts:    _reconnectAttempts,
+    lastDisconnectReason: reason ? reason.errorCode : null,
   };
 }
 

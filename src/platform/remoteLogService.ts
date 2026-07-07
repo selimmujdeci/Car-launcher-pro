@@ -44,6 +44,7 @@ import { getPerfSeriesSnapshot } from './perfSeriesRecorder';
 import {
   buildObdDeepSnapshot, buildNetAiSnapshot,
   buildGpsDeepSnapshot, buildVoiceSnapshot, buildGeofenceSnapshot, buildStorageQueueSnapshot,
+  buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
 } from './diagnosticSections';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
@@ -365,6 +366,16 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     geofence: _safeSection(buildGeofenceSnapshot),
     // Depolama + kuyruk — bekleyen at-least-once event sayısı + disk kullanımı.
     storageQueue,
+    // Güç/Akü sağlığı — 12V voltaj + kaynak (CAN/OBD) + rozet + son 10sn min/max.
+    power: _safeSection(buildPowerSnapshot),
+    // Sensör füzyon tutarlılığı — aktif hız kaynağı + GPS/donanım farkı + güven
+    // rozeti (zero-trust: kaynaklar çelişiyorsa confidence düşer) + DR aktif mi.
+    fusion: _safeSection(buildFusionSnapshot),
+    // Boot zaman çizelgesi — her Wave'in süresi + toplam cold-start + en yavaş dalga.
+    bootTiming: _safeSection(buildBootTimingSnapshot),
+    // Transport/bağlantı sağlığı — aktif transport (CAN/classic/ble/tcp) + reconnect
+    // deneme sayısı + son kopma nedeni.
+    transport: _safeSection(buildTransportSnapshot),
   }, 0) as Record<string, unknown>;
 
   return payload;
