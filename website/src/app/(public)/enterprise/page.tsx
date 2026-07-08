@@ -62,7 +62,7 @@ export default function Enterprise() {
         <div className="absolute inset-0 grid-bg opacity-60" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_50%_0%,rgba(59,130,246,0.1)_0%,transparent_60%)]" />
         <div className="relative max-w-6xl mx-auto px-6 text-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-accent/25 bg-accent/10 text-accent text-xs font-medium tracking-wide mb-8">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-accent/25 bg-accent/10 text-accent-ink text-xs font-medium tracking-wide mb-8">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <rect x="1" y="4" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
               <path d="M4 4V3a2 2 0 014 0v1" stroke="currentColor" strokeWidth="1.2"/>
@@ -72,7 +72,7 @@ export default function Enterprise() {
           <h1 className="text-4xl md:text-5xl font-bold text-gradient mb-5">
             Filoyu Merkezi Yönet
           </h1>
-          <p className="text-white/45 text-lg max-w-2xl mx-auto leading-relaxed mb-10">
+          <p className="text-ink-3 text-lg max-w-2xl mx-auto leading-relaxed mb-10">
             Tek araçtan yüzlerce araca. Web paneli, rol yönetimi ve gerçek zamanlı
             takip ile kurumsal filoyu tam kontrol altına al.
           </p>
@@ -87,21 +87,21 @@ export default function Enterprise() {
       <section className="py-20">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-3">Kullanım Senaryoları</p>
+            <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-3">Kullanım Senaryoları</p>
             <h2 className="text-3xl font-bold text-gradient mb-4">Her Sektöre Uygun</h2>
           </div>
 
           <div className="grid md:grid-cols-3 gap-6">
             {useCases.map(({ icon, title, desc, points }) => (
-              <div key={title} className="p-8 rounded-2xl glass border border-white/[0.07] hover:border-white/[0.12] transition-colors flex flex-col">
-                <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center mb-6">
+              <div key={title} className="p-8 rounded-2xl glass border border-line hover:border-line-2 transition-colors flex flex-col">
+                <div className="w-12 h-12 rounded-xl bg-surface border border-line flex items-center justify-center mb-6">
                   {icon}
                 </div>
-                <h3 className="font-semibold text-white text-lg mb-3">{title}</h3>
-                <p className="text-sm text-white/45 leading-relaxed mb-6">{desc}</p>
+                <h3 className="font-semibold text-ink text-lg mb-3">{title}</h3>
+                <p className="text-sm text-ink-3 leading-relaxed mb-6">{desc}</p>
                 <ul className="flex flex-col gap-2 mt-auto">
                   {points.map((p) => (
-                    <li key={p} className="flex items-center gap-2.5 text-sm text-white/55">
+                    <li key={p} className="flex items-center gap-2.5 text-sm text-ink-2">
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                         <path d="M2 6l3 3 5-5" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
@@ -116,15 +116,15 @@ export default function Enterprise() {
       </section>
 
       {/* Web Panel Features */}
-      <section className="py-20 border-y border-white/[0.06]">
+      <section className="py-20 border-y border-line">
         <div className="max-w-6xl mx-auto px-6">
           <div className="grid md:grid-cols-2 gap-16 items-center">
             <div>
-              <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-4">Web Paneli</p>
+              <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-4">Web Paneli</p>
               <h2 className="text-3xl font-bold text-gradient mb-5">
                 Tam Kontrol,<br />Her Yerden
               </h2>
-              <p className="text-white/45 text-base leading-relaxed mb-8">
+              <p className="text-ink-3 text-base leading-relaxed mb-8">
                 Herhangi bir tarayıcıdan erişilebilen web kontrol paneli.
                 Araç, sürücü ve raporları merkezi olarak yönet.
               </p>
@@ -133,10 +133,10 @@ export default function Enterprise() {
 
             <div className="grid grid-cols-2 gap-3">
               {panelFeatures.map(({ title, desc }) => (
-                <div key={title} className="p-5 rounded-xl glass border border-white/[0.06] hover:border-white/[0.1] transition-colors">
+                <div key={title} className="p-5 rounded-xl glass border border-line hover:border-line transition-colors">
                   <div className="w-1.5 h-1.5 rounded-full bg-accent mb-3" />
-                  <p className="font-medium text-white text-sm mb-1">{title}</p>
-                  <p className="text-xs text-white/40 leading-relaxed">{desc}</p>
+                  <p className="font-medium text-ink text-sm mb-1">{title}</p>
+                  <p className="text-xs text-ink-3 leading-relaxed">{desc}</p>
                 </div>
               ))}
             </div>
@@ -148,7 +148,7 @@ export default function Enterprise() {
       <section className="py-20">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-12">
-            <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-3">Yetkilendirme</p>
+            <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-3">Yetkilendirme</p>
             <h2 className="text-3xl font-bold text-gradient mb-4">Rol Bazlı Erişim Kontrolü</h2>
           </div>
 
@@ -178,15 +178,15 @@ export default function Enterprise() {
                   : 'border-emerald-500/20 bg-emerald-500/[0.04]'
               }`}>
                 <div className={`text-xs font-semibold tracking-widest uppercase mb-5 ${
-                  color === 'blue' ? 'text-accent' : color === 'purple' ? 'text-violet-400' : 'text-emerald-400'
+                  color === 'blue' ? 'text-accent-ink' : color === 'purple' ? 'text-violet-ink' : 'text-emerald-ink'
                 }`}>
                   {role}
                 </div>
                 <ul className="flex flex-col gap-2.5">
                   {perms.map((p) => (
-                    <li key={p} className="flex items-center gap-2.5 text-sm text-white/60">
+                    <li key={p} className="flex items-center gap-2.5 text-sm text-ink-2">
                       <span className={`w-1 h-1 rounded-full flex-shrink-0 ${
-                        color === 'blue' ? 'bg-accent' : color === 'purple' ? 'bg-violet-400' : 'bg-emerald-400'
+                        color === 'blue' ? 'bg-accent' : color === 'purple' ? 'bg-violet-ink' : 'bg-emerald-ink'
                       }`} />
                       {p}
                     </li>
@@ -205,7 +205,7 @@ export default function Enterprise() {
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(59,130,246,0.1)_0%,transparent_70%)] pointer-events-none" />
             <div className="relative">
               <h2 className="text-2xl font-bold text-gradient mb-3">Kurumsal Demo Talep Et</h2>
-              <p className="text-white/45 text-sm mb-8 max-w-sm mx-auto">
+              <p className="text-ink-3 text-sm mb-8 max-w-sm mx-auto">
                 Ekibiniz için özelleştirilmiş demo ve fiyat teklifi alın.
               </p>
               <Button href="/contact" size="lg">İletişime Geç</Button>

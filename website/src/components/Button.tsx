@@ -14,9 +14,9 @@ interface ButtonProps {
 }
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-accent hover:bg-accent/90 text-white shadow-glow-sm',
-  secondary: 'bg-white/[0.06] hover:bg-white/[0.1] text-white border border-white/[0.1]',
-  ghost: 'text-white/60 hover:text-white hover:bg-white/[0.04]',
+  primary: 'bg-accent-solid hover:bg-accent-strong text-white shadow-glow-sm hover:shadow-glow',
+  secondary: 'bg-surface hover:bg-surface-2 text-ink border border-line hover:border-line-2',
+  ghost: 'text-ink-2 hover:text-ink hover:bg-surface',
 };
 
 const sizes: Record<Size, string> = {

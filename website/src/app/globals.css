@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Fontlar next/font (Inter + JetBrains Mono) ile yükleniyor — render-blocking
+   @import kaldırıldı; --font-sans / --font-mono değişkenleri layout'ta bind edilir. */
 
 @tailwind base;
 @tailwind components;
@@ -10,6 +11,74 @@
     --sar: env(safe-area-inset-right);
     --sab: env(safe-area-inset-bottom);
     --sal: env(safe-area-inset-left);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     SİTE TEMA SİSTEMİ (pazarlama sayfaları) — light + dark tek dil
+     data-theme yoksa veya 'dark' ise koyu kimlik korunur; 'light' premium
+     aydınlık tema. Dashboard literal hex kullandığından bu tokenlar onu etkilemez.
+     ────────────────────────────────────────────────────────────────────────── */
+  :root,
+  [data-theme='dark'] {
+    --st-bg:          #060d1a;
+    --st-surface:     rgba(255,255,255,0.035);
+    --st-surface-2:   rgba(255,255,255,0.06);
+    --st-card:        rgba(255,255,255,0.03);
+    --st-elevated:    #0a1628;
+    --st-border:      rgba(255,255,255,0.08);
+    --st-border-2:    rgba(255,255,255,0.13);
+    --st-ink:         #ffffff;
+    --st-ink-2:       rgba(255,255,255,0.74);   /* AA: ~7:1 */
+    --st-ink-3:       rgba(255,255,255,0.60);   /* AA: ~5.6:1 */
+    --st-ink-4:       rgba(255,255,255,0.50);   /* AA: ~4.6:1 */
+    --st-accent-ink:  #60a5fa;
+    --st-accent-solid: #2563eb;   /* dolu buton zemini — beyaz metin AA (~5.1:1) */
+    --st-accent-strong: #1d4ed8;  /* dolu buton hover */
+    --st-emerald-ink: #34d399;
+    --st-violet-ink:  #a78bfa;
+    --st-amber-ink:   #fbbf24;
+    /* Feature kart tonları — dark'ta canlı */
+    --tone-blue:      #60a5fa;
+    --tone-emerald:   #34d399;
+    --tone-violet:    #a78bfa;
+    --tone-orange:    #fb923c;
+    --st-nav-bg:      rgba(6,13,26,0.80);
+    --st-grid:        rgba(255,255,255,0.022);
+    --st-shadow-soft:    0 1px 2px rgba(0,0,0,0.3);
+    --st-shadow-soft-lg: 0 20px 60px rgba(0,0,0,0.45);
+    --st-shadow-soft-xl: 0 40px 120px rgba(0,0,0,0.7);
+    color-scheme: dark;
+  }
+
+  [data-theme='light'] {
+    --st-bg:          #f6f8fb;
+    --st-surface:     #ffffff;
+    --st-surface-2:   #eef2f8;
+    --st-card:        #ffffff;
+    --st-elevated:    #ffffff;
+    --st-border:      rgba(15,23,42,0.09);
+    --st-border-2:    rgba(15,23,42,0.16);
+    --st-ink:         #0f1b2d;
+    --st-ink-2:       #384453;   /* AA: ~8.5:1 */
+    --st-ink-3:       #566373;   /* AA: ~5.4:1 */
+    --st-ink-4:       #626d7d;   /* AA: ~4.6:1 */
+    --st-accent-ink:  #1d4ed8;   /* koyu mavi — link/eyebrow beyaz üstünde AA */
+    --st-accent-solid: #2563eb;
+    --st-accent-strong: #1d4ed8;
+    --st-emerald-ink: #047857;   /* emerald-700 — küçük rozet/etiket AA */
+    --st-violet-ink:  #7c3aed;
+    --st-amber-ink:   #b45309;
+    /* Feature kart tonları — light'ta beyaz üstünde AA */
+    --tone-blue:      #2563eb;
+    --tone-emerald:   #047857;
+    --tone-violet:    #7c3aed;
+    --tone-orange:    #c2410c;   /* orange-700 — küçük rozet AA */
+    --st-nav-bg:      rgba(246,248,251,0.82);
+    --st-grid:        rgba(15,23,42,0.04);
+    --st-shadow-soft:    0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06);
+    --st-shadow-soft-lg: 0 4px 12px rgba(15,23,42,0.05), 0 18px 40px rgba(15,23,42,0.08);
+    --st-shadow-soft-xl: 0 8px 24px rgba(15,23,42,0.06), 0 40px 90px rgba(15,23,42,0.12);
+    color-scheme: light;
   }
 
   /* ── PWA tema katmanı (gece varsayılan / gündüz override) ──────────────────
@@ -65,26 +134,46 @@
   body {
     overflow-x: hidden;
     overflow-y: auto;
-    background-color: #000000;
-    color: #ffffff;
-    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--st-bg);
+    color: var(--st-ink);
+    font-family: var(--font-sans), 'Inter', system-ui, sans-serif;
   }
   ::selection {
-    background-color: rgba(59, 130, 246, 0.3);
-    color: #fff;
+    background-color: rgba(59, 130, 246, 0.28);
+    color: var(--st-ink);
   }
   ::-webkit-scrollbar {
-    width: 5px;
+    width: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #060d1a;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--st-border-2);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--st-ink-4);
+  }
+
+  /* Görünür klavye focus halkası — iki temada da tutarlı (WCAG 2.4.7).
+     :where() = 0 özgüllük → inputların kendi focus-border'ı korunur. */
+  :where(a, button, [role='button'], summary):focus-visible {
+    outline: 2px solid var(--st-accent-solid);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  /* Tema geçişi — yalnız switch anında animasyon (ambient animasyon yok). */
+  @media (prefers-reduced-motion: no-preference) {
+    html.theme-switching,
+    html.theme-switching * {
+      transition:
+        background-color 0.4s ease,
+        border-color 0.4s ease,
+        color 0.4s ease,
+        fill 0.4s ease !important;
+    }
   }
 }
 
@@ -159,11 +248,19 @@
 .card-enter-4 { animation-delay: 0.16s; }
 
 @layer utilities {
+  /* Başlık gradyanı — dark: beyazdan yumuşak beyaza; light: koyu lacivert-slate.
+     Değişken tabanlı, iki temada da güçlü kontrast. */
   .text-gradient {
-    background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.72) 100%);
+    background: linear-gradient(135deg, var(--tg-a) 0%, var(--tg-b) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+  :root .text-gradient, [data-theme='dark'] .text-gradient {
+    --tg-a: #ffffff; --tg-b: rgba(255,255,255,0.70);
+  }
+  [data-theme='light'] .text-gradient {
+    --tg-a: #0f1b2d; --tg-b: rgba(15,27,45,0.68);
   }
   .text-gradient-blue {
     background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 45%, #818cf8 100%);
@@ -171,16 +268,32 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+  [data-theme='light'] .text-gradient-blue {
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #6366f1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  /* Cam efekti — dark: hafif beyaz sis; light: yarı saydam beyaz + ince kenar. */
   .glass {
-    background: rgba(255, 255, 255, 0.035);
+    background: var(--st-surface);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
+  [data-theme='light'] .glass {
+    background: rgba(255,255,255,0.72);
+  }
   .grid-bg {
     background-image:
-      linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
+      linear-gradient(var(--st-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--st-grid) 1px, transparent 1px);
     background-size: 48px 48px;
+  }
+  /* Yapışkan navbar zemini — tema-farkında yarı saydam + blur. */
+  .nav-blur {
+    background-color: var(--st-nav-bg);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
   }
 
   /* ── PWA tema yardımcıları (nötr — var(--pwa-*)'a bağlı) ──────────── */
