@@ -209,6 +209,41 @@ describe('VID Mirror Layer (Sprint 2)', () => {
       stopVehicleDetection();
       expect(() => stopVehicleDetection()).not.toThrow();
     });
+
+    it('(f) startVehicleDetection boot\'ta aktif profili HEMEN aynalar (profil değişimi beklemeden)', () => {
+      // Boot senaryosu: aktif profil ZATEN kurulu (detection henüz başlamadan).
+      // btDeviceName → demo _detectProfile bu profili eşler, aktif profil korunur
+      // (test sırasından bağımsız cold-boot senkronunu izole eder).
+      const store = useStore.getState();
+      store.addVehicleProfile({ ...BASE_PROFILE, btDeviceName: 'HIWORLD' });
+      store.setActiveVehicleProfile('p1');
+      // VID'i temizle → start'ın HEMEN doldurduğunu izole gör.
+      useVidStore.getState().resetStore();
+      expect(useVidStore.getState().vehicle.model).toBeNull();
+
+      startVehicleDetection(); // cold-boot senkron mirror → profil DEĞİŞİMİ beklemeden doldurur
+
+      expect(useVidStore.getState().vehicle.model).toBe('Test Duster');
+      expect(useVidStore.getState().vehicle.vehicleType).toBe('diesel');
+    });
+
+    it('(g) araç-DIŞI useStore değişimi (tema) VID.vehicle\'a redundant yazmaz (shallow guard)', () => {
+      startVehicleDetection();
+
+      const store = useStore.getState();
+      store.addVehicleProfile({ ...BASE_PROFILE });
+      store.setActiveVehicleProfile('p1');
+      const ref1 = useVidStore.getState().vehicle;
+      expect(ref1.model).toBe('Test Duster');
+
+      // Araç kimliğiyle İLGİSİZ ayar değişimi (tema) → subscription tetiklenir ama
+      // shallow-guard aynı key üretir → VID.vehicle YAZILMAZ (referans değişmez).
+      useStore.getState().updateSettings({ theme: 'dark' });
+      useStore.getState().updateSettings({ theme: 'light' });
+      const ref2 = useVidStore.getState().vehicle;
+
+      expect(ref2).toBe(ref1); // aynı referans → redundant yazma yok
+    });
   });
 
   /* ── Telemetri aynalaması (Sprint 4) ─────────────────────────────────── */
