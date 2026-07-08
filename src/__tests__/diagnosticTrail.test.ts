@@ -55,7 +55,7 @@ import {
   stopVehicleIntelligenceService,
 } from '../platform/vehicleIntelligenceService';
 import { connectivityService } from '../platform/connectivityService';
-import { _setConnStateForTest } from '../platform/obdService';
+import { _setConnStateForTest, _runHandshakeForTest } from '../platform/obdService';
 
 /* ── Minimal in-memory IndexedDB shim (connectivityService drain'i jsdom'da IDB
       ister; yalnız kullandığı yüzey — soak.telemetry-connectivity.test.ts deseni). */
@@ -383,5 +383,59 @@ describe('OBD bağlantı yaşam döngüsü eventleri', () => {
       expect(e.label).toMatch(/^obd:(connect:start|connect:success|disconnect|reconnect:start|reconnect:success|reconnect:failed)$/);
       expect(e.detail).toBeUndefined();
     }
+  });
+});
+
+/* ── Black Box v2 — OBD handshake milestone eventleri (Patch 4A) ──── */
+
+describe('OBD handshake milestone eventleri', () => {
+  beforeEach(() => { resetOwnTrail(); });
+
+  const notStale = (): boolean => false;
+  const isStale  = (): boolean => true;
+
+  it('handshake start → obd:handshake:start', async () => {
+    await _runHandshakeForTest(() => Promise.resolve({}), notStale);
+    expect(getOwnTrail().some((e) => e.kind === 'obd' && e.label === 'obd:handshake:start')).toBe(true);
+  });
+
+  it('handshake success → obd:handshake:success (stale değil)', async () => {
+    await _runHandshakeForTest(() => Promise.resolve({}), notStale);
+    const labels = getOwnTrail().filter((e) => e.kind === 'obd').map((e) => e.label);
+    expect(labels).toContain('obd:handshake:start');
+    expect(labels).toContain('obd:handshake:success');
+    expect(labels).not.toContain('obd:handshake:failed');
+  });
+
+  it('handshake failed → obd:handshake:failed (stale değil)', async () => {
+    await _runHandshakeForTest(() => Promise.reject(new Error('elm327 yanıt yok')), notStale);
+    const labels = getOwnTrail().filter((e) => e.kind === 'obd').map((e) => e.label);
+    expect(labels).toContain('obd:handshake:start');
+    expect(labels).toContain('obd:handshake:failed');
+    expect(labels).not.toContain('obd:handshake:success');
+  });
+
+  it('stale callback geç gelirse success/failed YAZILMAZ (yalnız start)', async () => {
+    await _runHandshakeForTest(() => Promise.resolve({}), isStale);   // stale success
+    await _runHandshakeForTest(() => Promise.reject(new Error('x')), isStale); // stale failure
+    const labels = getOwnTrail().filter((e) => e.kind === 'obd').map((e) => e.label);
+    // start koşulsuz (2 kez) ama stale → ne success ne failed
+    expect(labels.filter((l) => l === 'obd:handshake:start')).toHaveLength(2);
+    expect(labels).not.toContain('obd:handshake:success');
+    expect(labels).not.toContain('obd:handshake:failed');
+  });
+
+  it('handshake etiketleri statik + PII\'siz + detail undefined', async () => {
+    await _runHandshakeForTest(() => Promise.resolve({}), notStale);
+    await _runHandshakeForTest(() => Promise.reject(new Error('vin WVWZZZ1JZXW000001 mac AA:BB:CC:DD:EE:FF')), notStale);
+    const obdEvents = getOwnTrail().filter((e) => e.kind === 'obd');
+    expect(obdEvents.length).toBeGreaterThan(0);
+    for (const e of obdEvents) {
+      expect(e.label).toMatch(/^obd:handshake:(start|success|failed)$/);
+      expect(e.detail).toBeUndefined();
+    }
+    // Reject error'ı içindeki VIN/MAC hiçbir event'e sızmadı (statik etiket → değer taşımaz)
+    expect(JSON.stringify(getOwnTrail())).not.toContain('WVWZZZ1JZXW000001');
+    expect(JSON.stringify(getOwnTrail())).not.toContain('AA:BB:CC:DD:EE:FF');
   });
 });

@@ -1039,9 +1039,14 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    bloklamaz; sonuç gelince profil güncellenir (sonraki poll doğru PID listesini kullanır).
   //    performHandshake() opsiyoneldir (eski plugin'de yok) → guard + .catch ile korunur.
   if (CarLauncher.performHandshake) {
+    // Black Box v2 (Patch 4A) — handshake başlangıcı: performHandshake çağrılmadan
+    // HEMEN önce (statik, detail yok, PII yok; fail-soft — akışı etkilemez).
+    _pushObdTrail('obd:handshake:start');
     void CarLauncher.performHandshake()
       .then(({ raw09, raw0100 }) => {
         if (_stale()) return;
+        // _stale guard'ından SONRA: geç gelen (stale) callback event yazmaz.
+        _pushObdTrail('obd:handshake:success');
         const result  = buildHandshakeResult(raw09, raw0100);
         const profile = vehicleProfileRegistry.findBestMatch(result.vin, result.supportedPids);
         _applyDetectedProfile(profile);
@@ -1055,6 +1060,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
         console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
         if (!_stale()) {
+          // stale değilse handshake:failed (geç/iptal olmuş callback event yazmaz).
+          _pushObdTrail('obd:handshake:failed');
           emitObdDiag('handshake', 'OBD_HANDSHAKE_FAIL', {
             ..._diagCommon(),
             transport: _connectedTp,
@@ -1381,6 +1388,24 @@ export function setOBDTestOverride(data: Partial<OBDData> | null): void {
 export function _setConnStateForTest(state: OBDConnectionState): void {
   if (!import.meta.env.DEV) return;
   _merge({ connectionState: state });
+}
+
+/**
+ * DEV only — handshake milestone gating'ini test için sürer. Production'daki
+ * (_startNative "8. OBD Handshake") then/catch + _stale iskeletinin BİREBİR aynısı:
+ * start koşulsuz (performHandshake'ten hemen önce) · success yalnız !stale ·
+ * failed yalnız !stale. performHandshake/stale enjekte edilir → gerçek async
+ * gating (geç/stale callback event yazmaz) doğrulanır. Prod APK'da no-op.
+ */
+export function _runHandshakeForTest(
+  performHandshake: () => Promise<unknown>,
+  stale: () => boolean,
+): Promise<void> {
+  if (!import.meta.env.DEV) return Promise.resolve();
+  _pushObdTrail('obd:handshake:start');
+  return performHandshake()
+    .then(() => { if (stale()) return; _pushObdTrail('obd:handshake:success'); })
+    .catch(() => { if (!stale()) _pushObdTrail('obd:handshake:failed'); });
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */
