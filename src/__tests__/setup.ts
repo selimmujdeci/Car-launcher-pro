@@ -5,6 +5,24 @@
  */
 
 import { vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
+
+/* ── Deterministik ortam: timezone + WebCrypto ─────────
+ * CI (Linux/UTC) ile yerel (Windows/İstanbul) farkını kapatır; ikisinde de
+ * aynı sonuç:
+ *  - TZ: sunTimes gibi YEREL-saat testleri İstanbul varsayar. UTC'de düşüyordu
+ *    ("expected 151 to be greater than 295"). İstanbul'a pinlenir.
+ *  - crypto: jsdom'un SubtleCrypto'su cross-realm ArrayBuffer'ı reddediyor
+ *    ("Failed to execute 'importKey' on 'SubtleCrypto': ... not instance of
+ *    ArrayBuffer"); Node webcrypto tutarlı realm kullanır → keyBeam/expertTrust
+ *    round-trip'leri her ortamda geçer. (Yerelde zaten geçiyordu — no-op/uyumlu.)
+ */
+process.env.TZ = 'Europe/Istanbul';
+Object.defineProperty(globalThis, 'crypto', {
+  value: webcrypto,
+  configurable: true,
+  writable: true,
+});
 
 /* ── Global mocks ─────────────────────────────────── */
 
