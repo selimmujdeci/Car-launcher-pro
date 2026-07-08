@@ -1,3 +1,6 @@
+// @vitest-environment node
+// expertTrustSeal WebCrypto (crypto.subtle) kullanır — Node realm'de koşar (jsdom
+// SubtleCrypto cross-realm buffer reddediyor, CI). localStorage: setup shim'i sağlar.
 /**
  * TrustEngine + expertTrustSeal birim testleri
  */

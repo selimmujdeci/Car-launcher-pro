@@ -5,24 +5,38 @@
  */
 
 import { vi } from 'vitest';
-import { webcrypto } from 'node:crypto';
 
-/* ── Deterministik ortam: timezone + WebCrypto ─────────
- * CI (Linux/UTC) ile yerel (Windows/İstanbul) farkını kapatır; ikisinde de
- * aynı sonuç:
- *  - TZ: sunTimes gibi YEREL-saat testleri İstanbul varsayar. UTC'de düşüyordu
- *    ("expected 151 to be greater than 295"). İstanbul'a pinlenir.
- *  - crypto: jsdom'un SubtleCrypto'su cross-realm ArrayBuffer'ı reddediyor
- *    ("Failed to execute 'importKey' on 'SubtleCrypto': ... not instance of
- *    ArrayBuffer"); Node webcrypto tutarlı realm kullanır → keyBeam/expertTrust
- *    round-trip'leri her ortamda geçer. (Yerelde zaten geçiyordu — no-op/uyumlu.)
+/* ── Deterministik timezone ────────────────────────────
+ * sunTimes gibi YEREL-saat testleri İstanbul varsayar; CI UTC'de kosunca
+ * düşüyordu ("expected 151 to be greater than 295"). İstanbul'a pinlenir
+ * (kabuk TZ=UTC altında bile override eder — doğrulandı).
+ * NOT: WebCrypto realm sorunu (keyBeam ve expertTrust: "Failed to execute
+ * 'importKey'... not instance of ArrayBuffer") jsdom'un SubtleCrypto wrapper'ından
+ * kaynaklanıyor; o testler `// @vitest-environment node` ile Node realm'de koşar
+ * (jsdom crypto hiç devreye girmez). Bu setup her iki environment'ta çalışır.
  */
 process.env.TZ = 'Europe/Istanbul';
-Object.defineProperty(globalThis, 'crypto', {
-  value: webcrypto,
-  configurable: true,
-  writable: true,
-});
+
+/* ── node environment localStorage shim ────────────────
+ * `@vitest-environment node` kullanan test dosyalarında (keyBeam*, expertTrust)
+ * jsdom yok → localStorage tanımsız. Minimal in-memory shim: hem SUT'un
+ * (expertTrustSeal localStorage) hem aşağıdaki beforeEach temizliğinin çalışması
+ * için. jsdom environment'ta localStorage zaten var → shim atlanır. */
+if (typeof globalThis.localStorage === 'undefined') {
+  const makeStore = () => {
+    const m = new Map<string, string>();
+    return {
+      getItem: (k: string) => (m.has(k) ? m.get(k)! : null),
+      setItem: (k: string, v: string) => { m.set(k, String(v)); },
+      removeItem: (k: string) => { m.delete(k); },
+      clear: () => { m.clear(); },
+      key: (i: number) => [...m.keys()][i] ?? null,
+      get length() { return m.size; },
+    } as Storage;
+  };
+  Object.defineProperty(globalThis, 'localStorage',   { value: makeStore(), writable: true, configurable: true });
+  Object.defineProperty(globalThis, 'sessionStorage', { value: makeStore(), writable: true, configurable: true });
+}
 
 /* ── Global mocks ─────────────────────────────────── */
 

@@ -1,3 +1,7 @@
+// @vitest-environment node
+// WebCrypto (crypto.subtle) testleri Node realm'de koşar — jsdom'un SubtleCrypto
+// wrapper'ı cross-realm ArrayBuffer'ı reddediyor (CI'da "Failed to execute
+// 'importKey'... not instance of ArrayBuffer"). Node realm tutarlı. DOM kullanılmıyor.
 /**
  * keyBeamCrypto.test.ts — QR Key Beam şifreleme katmanı testleri.
  *

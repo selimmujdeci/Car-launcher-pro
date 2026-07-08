@@ -1,3 +1,6 @@
+// @vitest-environment node
+// WebCrypto (crypto.subtle) Node realm'de — jsdom SubtleCrypto cross-realm buffer
+// reddediyor (CI). DOM kullanılmıyor (fetch mock'lu). setup localStorage shim'i var.
 /**
  * keyBeamService.test.ts — QR Key Beam oturum yönetimi (araç tarafı) testleri.
  *
