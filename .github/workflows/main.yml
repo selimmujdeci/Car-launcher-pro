@@ -111,8 +111,10 @@ jobs:
         if: always()
         shell: bash
         run: |
+          # vitest junit classname = tam dosya yolu (ör. classname="src/__tests__/geofence.test.ts")
+          # → suite adını yol önekinden sonra ara ("baştan" değil, "içerir").
           for suite in "geofence" "obdService"; do
-            if ! grep -q "classname=\"${suite}" reports/junit.xml 2>/dev/null; then
+            if ! grep -q "classname=\"[^\"]*${suite}" reports/junit.xml 2>/dev/null; then
               echo "::error::Automotive critical test suite '${suite}' not found in JUnit report. Build blocked."
               exit 1
             fi
