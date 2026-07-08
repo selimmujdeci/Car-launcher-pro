@@ -18,6 +18,7 @@ import type { HeadUnitPlatform } from './headUnitPlatform';
 import { setHandshakeVin, getHandshakeVin } from './safety/vinContext';
 import { decodeWmi, decodeVinYear } from './canBus/VehicleHandshake';
 import { useVidStore } from '../store/useVidStore';
+import { pushTrail } from './diagnosticTrailCore';
 
 /* ── Preset araç profilleri — platforma göre otomatik oluşturulur ── */
 
@@ -266,6 +267,10 @@ export function startVehicleDetection(): void {
   if (_running) return;
   _running = true;
 
+  // Black Box v2 — Service Lifecycle event (RAM-only, PII'siz statik etiket).
+  // Guard'dan SONRA: mükerrer start erken döner → duplicate event olmaz. Fail-soft.
+  try { pushTrail('boot', 'vehicle-profile-service:start'); } catch { /* iz servisi akışı bozmaz */ }
+
   void _detectProfile();
   _intervalId = setInterval(() => { void _detectProfile(); }, 15_000);
 
@@ -286,6 +291,10 @@ export function startVehicleDetection(): void {
  */
 export function stopVehicleDetection(): void {
   _running = false;
+
+  // Black Box v2 — Service Lifecycle event (RAM-only, PII'siz statik etiket). Fail-soft.
+  try { pushTrail('boot', 'vehicle-profile-service:stop'); } catch { /* iz servisi akışı bozmaz */ }
+
   if (_intervalId !== null) {
     clearInterval(_intervalId);
     _intervalId = null;

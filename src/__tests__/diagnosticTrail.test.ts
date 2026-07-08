@@ -24,7 +24,7 @@ vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => ({
   },
 }));
 vi.mock('../platform/obdService', () => ({ getOBDStatusSnapshot: () => ({ source: obd.source }) }));
-vi.mock('../platform/crashLogger', () => ({ getErrorLog: () => errs.list }));
+vi.mock('../platform/crashLogger', () => ({ getErrorLog: () => errs.list, logError: vi.fn() }));
 vi.mock('../platform/uiActivityRecorder', () => ({ getUiActivitySnapshot: () => ({ recent: [] }) }));
 
 import {
@@ -33,6 +33,12 @@ import {
   getDiagnosticTrail,
   _resetDiagnosticTrailForTest,
 } from '../platform/diagnosticTrail';
+import { getOwnTrail, resetOwnTrail } from '../platform/diagnosticTrailCore';
+import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
+import {
+  startVehicleIntelligenceService,
+  stopVehicleIntelligenceService,
+} from '../platform/vehicleIntelligenceService';
 
 let cleanup: (() => void) | null = null;
 afterEach(() => {
@@ -109,5 +115,77 @@ describe('diagnosticTrail — olay izi', () => {
     cleanup();
     cleanup = null;
     expect(store.listener).toBeNull();
+  });
+});
+
+/* ── Black Box v2 — Service Lifecycle eventleri (Patch 1) ────────── */
+
+describe('Service Lifecycle boot eventleri', () => {
+  afterEach(() => {
+    // Servis _running durumunu ve iz halkasını tazele (testler arası sızma yok).
+    stopVehicleDetection();
+    stopVehicleIntelligenceService();
+    resetOwnTrail();
+  });
+
+  const ownLabels = (): string[] => getOwnTrail().map((e) => e.label);
+  const countBoot = (label: string): number =>
+    getOwnTrail().filter((e) => e.kind === 'boot' && e.label === label).length;
+
+  it('startVehicleDetection/stop → vehicle-profile-service boot eventleri izde', () => {
+    resetOwnTrail();
+    startVehicleDetection();
+    expect(ownLabels()).toContain('vehicle-profile-service:start');
+
+    stopVehicleDetection();
+    expect(ownLabels()).toContain('vehicle-profile-service:stop');
+  });
+
+  it('startVehicleIntelligenceService/stop → vehicle-intelligence-service boot eventleri izde', () => {
+    resetOwnTrail();
+    const stop = startVehicleIntelligenceService();
+    expect(ownLabels()).toContain('vehicle-intelligence-service:start');
+
+    stop();
+    expect(ownLabels()).toContain('vehicle-intelligence-service:stop');
+  });
+
+  it('mükerrer start duplicate event ÜRETMEZ (idempotent guard)', () => {
+    resetOwnTrail();
+    startVehicleDetection();
+    startVehicleDetection();   // erken döner
+    startVehicleDetection();
+    expect(countBoot('vehicle-profile-service:start')).toBe(1);
+
+    const stop = startVehicleIntelligenceService();
+    startVehicleIntelligenceService(); // erken döner
+    expect(countBoot('vehicle-intelligence-service:start')).toBe(1);
+    stop();
+  });
+
+  it('stop cleanup bozulmuyor (çift stop hata vermez)', () => {
+    startVehicleDetection();
+    const stop = startVehicleIntelligenceService();
+    expect(() => {
+      stopVehicleDetection();
+      stopVehicleDetection();      // ikinci stop — idempotent
+      stop();
+      stopVehicleIntelligenceService();
+    }).not.toThrow();
+  });
+
+  it('boot eventleri statik + PII\'siz (VIN/MAC/GPS/SSID yok)', () => {
+    resetOwnTrail();
+    startVehicleDetection();
+    const stop = startVehicleIntelligenceService();
+    stop();
+    stopVehicleDetection();
+
+    for (const e of getOwnTrail()) {
+      if (e.kind !== 'boot') continue;
+      // statik etiket kalıbı: yalnız "<servis>:start|stop"
+      expect(e.label).toMatch(/^vehicle-(profile|intelligence)-service:(start|stop)$/);
+      expect(e.detail).toBeUndefined();        // detail kullanılmadı
+    }
   });
 });
