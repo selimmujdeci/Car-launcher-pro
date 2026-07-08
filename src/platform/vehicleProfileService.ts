@@ -71,6 +71,8 @@ let _intervalId: ReturnType<typeof setInterval> | null = null;
 let _running = false;
 /** VID pasif aynalama aboneliği (useStore.subscribe) — start'ta kurulur, stop'ta temizlenir. */
 let _vidUnsub: (() => void) | null = null;
+/** VID araç aynalaması shallow-guard anahtarı (son yansıtılan payload JSON'u); stop'ta sıfırlanır. */
+let _lastVehicleMirrorKey = '';
 
 /* ── Internal helpers ────────────────────────────────────── */
 
@@ -97,13 +99,21 @@ function _mirrorVehicleToVid(): void {
     const make = vin ? decodeWmi(vin) : null;
     const modelYear = vin ? decodeVinYear(vin) : null;
 
-    useVidStore.getState().updateVehicleInfo({
+    const payload = {
       vin,
       make,
       model: profile?.name ?? null,
       modelYear,
       vehicleType: profile?.vehicleType ?? 'ice',
-    });
+    };
+
+    // Shallow-guard: yalnız araç kimliği alanları DEĞİŞTİĞİNDE VID'ye yaz →
+    // useStore'un araç-DIŞI değişimlerinde (tema/ses vb.) redundant yazma olmaz.
+    const key = JSON.stringify(payload);
+    if (key === _lastVehicleMirrorKey) return;
+    _lastVehicleMirrorKey = key;
+
+    useVidStore.getState().updateVehicleInfo(payload);
   } catch { /* fail-soft — aynalama profil tespitini asla bozmaz */ }
 }
 
@@ -265,6 +275,9 @@ export function startVehicleDetection(): void {
   // engelliyor; bu ek koşul tek-abonelik invaryantını yerel olarak da garantiler.
   if (!_vidUnsub) {
     _vidUnsub = useStore.subscribe(() => { _mirrorVehicleToVid(); });
+    // Cold-boot senkron: boot'ta mevcut aktif profili HEMEN çek (profil DEĞİŞİMİ
+    // beklemeden). Shallow-guard tekrar çağrıda redundant yazmayı önler.
+    _mirrorVehicleToVid();
   }
 }
 
@@ -282,6 +295,8 @@ export function stopVehicleDetection(): void {
     _vidUnsub();
     _vidUnsub = null;
   }
+  // Shallow-guard anahtarını sıfırla → sonraki start cold-boot senkronunda taze yansıtsın.
+  _lastVehicleMirrorKey = '';
 }
 
 /**
