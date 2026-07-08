@@ -242,19 +242,109 @@ function loadLayout(): LayoutIntent {
 }
 function saveLayout(l: LayoutIntent) { try { localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify(l)); } catch { /* ignore */ } }
 
+// Dock çizgi ikonları (gerçek DockBar dili — emoji değil). stroke=currentColor.
+const DOCK_ICONS: React.ReactNode[] = [
+  <><path d="M9 3L3 5v16l6-2 6 2 6-2V3l-6 2-6-2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M9 3v16M15 5v16" stroke="currentColor" strokeWidth="1.8" /></>,
+  <><path d="M9 18V5l12-2v11" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="1.8" /><circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="1.8" /></>,
+  <><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" /><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></>,
+  <path d="M5 4h3.5l1.8 4.5-2.3 1.5a11 11 0 005 5l1.5-2.3L20 15.5V19a2 2 0 01-2 2A15 15 0 013 6a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />,
+  <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M14 21a2 2 0 01-4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />,
+  <><path d="M5 11l2-5h10l2 5M3 11h18v5H4a1 1 0 01-1-1v-4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M7 16v2M17 16v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></>,
+  <path d="M12 12c2-4-1-7-1-9 4 1 6 4 5 7M12 12c4 2 7-1 9-1-1 4-4 6-7 5M12 12c-2 4 1 7 1 9-4-1-6-4-5-7M12 12c-4-2-7 1-9 1 1-4 4-6 7-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />,
+  <><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8" /><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8" /><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8" /><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8" /></>,
+];
+
 function MiniTileInner({ id, t }: { id: string; t: ThemeToken }) {
   const acc = t.accentPrimary, ink = t.textPrimary, ink2 = t.textSecondary;
+  const tile = `${ink2}22`;
   const chip = (txt: string) => (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: `${acc}14`, color: ink2, borderRadius: 6, padding: '2px 6px', fontSize: 8, width: 'fit-content' }}>{txt}</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: tile, color: ink2, borderRadius: 5, padding: '1px 5px', fontSize: 7, fontWeight: 600, width: 'fit-content' }}>{txt}</span>
   );
-  const lbl = (txt: string) => <span style={{ fontSize: 7, letterSpacing: '0.12em', color: ink2, textTransform: 'uppercase' }}>{txt}</span>;
   switch (id) {
-    case 'clock':    return (<>{lbl('Saat')}<span style={{ fontSize: 18, fontWeight: 800, color: ink, lineHeight: 1 }}>12:16</span><span style={{ fontSize: 8, color: ink2 }}>Salı, 7 Tem</span></>);
-    case 'gauge':    return (<>{lbl('Sürüş')}<span style={{ fontSize: 22, fontWeight: 800, color: ink, lineHeight: 1 }}>72</span><span style={{ fontSize: 7, color: acc }}>KM/S</span>{chip('⚡ 320 km')}</>);
-    case 'settings': return (<>{lbl('Sistem')}<span style={{ fontSize: 11, fontWeight: 700, color: ink }}>Ayarlar</span></>);
-    case 'nav':      return (<><div style={{ flex: 1, minHeight: 20, borderRadius: 6, background: `linear-gradient(135deg, ${acc}b0, ${acc}30)` }} />{chip('↱ 2.4 km · Sahil Yolu')}</>);
-    case 'music':    return (<>{lbl('Müzik')}<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><div style={{ width: 26, height: 26, borderRadius: 6, background: 'linear-gradient(135deg,#7c3aed,#db2777)', flexShrink: 0 }} /><span style={{ fontSize: 10, fontWeight: 700, color: ink }}>Çalmıyor</span></div></>);
-    case 'vehicle':  return (<>{lbl('Araç Durumu')}<span style={{ fontSize: 11, fontWeight: 700, color: '#34d399' }}>Normal</span><div style={{ display: 'flex', gap: 4 }}>{chip('🔋 78%')}{chip('320 km')}</div></>);
+    // Saat — gerçek ClockCard: büyük saat + tarih (etiketsiz)
+    case 'clock':
+      return (<>
+        <span style={{ fontSize: 21, fontWeight: 800, color: ink, lineHeight: 1, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>12:16</span>
+        <span style={{ fontSize: 8, fontWeight: 500, color: ink2, marginTop: 3 }}>Salı, 7 Tem</span>
+      </>);
+    // Sürüş — gerçek GaugeCard imzası: 270° hız halkası + ortada hız + D chip
+    case 'gauge': {
+      const R = 15, cx = 18, cy = 18, START = 135, SPAN = 270, pct = 0.36;
+      const rad = (d: number) => (d * Math.PI) / 180;
+      const pt = (a: number) => `${(cx + R * Math.cos(rad(a))).toFixed(2)} ${(cy + R * Math.sin(rad(a))).toFixed(2)}`;
+      const arcP = (a1: number, a2: number) => `M${pt(a1)} A${R} ${R} 0 ${a2 - a1 > 180 ? 1 : 0} 1 ${pt(a2)}`;
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: '100%' }}>
+          <div style={{ position: 'relative', width: 36, height: 36 }}>
+            <svg viewBox="0 0 36 36" width="36" height="36" style={{ overflow: 'visible' }}>
+              <path d={arcP(START, START + SPAN)} fill="none" stroke={tile} strokeWidth="3.5" strokeLinecap="round" />
+              <path d={arcP(START, START + pct * SPAN)} fill="none" stroke={acc} strokeWidth="3.5" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 3px ${acc})` }} />
+            </svg>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>72</span>
+              <span style={{ fontSize: 4, fontWeight: 700, letterSpacing: '0.15em', color: ink2, marginTop: 1 }}>KM/S</span>
+            </div>
+          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: tile, borderRadius: 5, padding: '1px 5px', fontSize: 7, fontWeight: 600, color: ink2 }}>
+            <span style={{ color: acc, fontWeight: 800 }}>D</span>320 km
+          </span>
+        </div>
+      );
+    }
+    // Ayarlar — gerçek SettingsCard: dişli ikon karesi + başlık + alt satır
+    case 'settings':
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%' }}>
+          <div style={{ width: 22, height: 22, borderRadius: 7, background: tile, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: ink2 }}>
+              <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: ink, lineHeight: 1 }}>Ayarlar</div>
+            <div style={{ fontSize: 7, color: ink2, marginTop: 2 }}>Sistem · Tema</div>
+          </div>
+        </div>
+      );
+    // Harita — gerçek NavCard: harita tuvali (yollar + rota + pin + dönüş kartı)
+    case 'nav':
+      return (
+        <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 30, borderRadius: 7, overflow: 'hidden' }}>
+          <svg viewBox="0 0 100 60" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+            <rect width="100" height="60" fill={`${ink2}10`} />
+            <path d="M8 60 L22 32 L52 22" fill="none" stroke={ink2} strokeWidth="1" opacity="0.35" />
+            <path d="M58 60 L72 38 L100 32" fill="none" stroke={ink2} strokeWidth="1" opacity="0.35" />
+            <path d="M-5 46 Q28 42 44 26 T105 10" fill="none" stroke={acc} strokeWidth="3.2" strokeLinecap="round" />
+          </svg>
+          <div style={{ position: 'absolute', left: '42%', top: '34%', width: 7, height: 7, borderRadius: '50% 50% 50% 0', background: acc, transform: 'rotate(-45deg)', boxShadow: `0 0 4px ${acc}` }} />
+          <span style={{ position: 'absolute', left: 4, bottom: 4, fontSize: 7, fontWeight: 600, color: ink, background: t.bgCard, borderRadius: 4, padding: '1px 4px' }}>↱ 2.4 km · Sahil Yolu</span>
+        </div>
+      );
+    // Müzik — albüm + EQ çubukları (gerçek mini medya)
+    case 'music':
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+          <div style={{ width: 24, height: 24, borderRadius: 6, background: 'linear-gradient(135deg,#7c3aed,#db2777)', flexShrink: 0, display: 'grid', placeItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 10 }}>
+              {[0.5, 0.9, 0.6, 1].map((s, i) => (<div key={i} style={{ width: 2, height: `${s * 100}%`, background: '#fff', borderRadius: 1, opacity: 0.9 }} />))}
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: ink, lineHeight: 1 }}>Çalmıyor</div>
+            <div style={{ fontSize: 7, color: ink2, marginTop: 2 }}>Medya</div>
+          </div>
+        </div>
+      );
+    // Araç Durumu — durum + batarya/menzil chip'leri
+    case 'vehicle':
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+          <span style={{ fontSize: 6, letterSpacing: '0.14em', color: ink2, textTransform: 'uppercase' }}>Araç Durumu</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#34d399', lineHeight: 1 }}>Normal</span>
+          <div style={{ display: 'flex', gap: 4 }}>{chip('🔋 78%')}{chip('320 km')}</div>
+        </div>
+      );
     default: return null;
   }
 }
@@ -376,12 +466,16 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
             </div>
           ))}
         </div>
-        {/* Dock — kilitli chrome */}
+        {/* Dock — kilitli chrome (gerçek DockBar: çizgi ikonlar, dock-ikon rengi) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 9px', background: token.bgCard, border: `1px solid ${token.borderColor}`, borderRadius: Math.min(token.radiusDock + 6, 12), overflow: 'hidden' }}>
-          {['🗺️', '🎵', '🎙️', '📞', '🔔', '🚗', '❄️', '▦'].map((ic, i) => (
-            <div key={i} style={{ width: 22, height: 22, borderRadius: 7, background: `${token.accentPrimary}14`, display: 'grid', placeItems: 'center', fontSize: 11, flexShrink: 0 }}>{ic}</div>
+          {DOCK_ICONS.map((icon, i) => (
+            <div key={i} style={{ width: 22, height: 22, borderRadius: 7, background: `${token.iconDock}1f`, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: token.iconDock }}>{icon}</svg>
+            </div>
           ))}
-          <span style={{ marginLeft: 'auto', fontSize: 8, color: token.accentPrimary }}>🔒</span>
+          <span style={{ marginLeft: 'auto', display: 'grid', placeItems: 'center', color: token.accentPrimary }}>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" strokeWidth="2" /><path d="M8 11V8a4 4 0 018 0v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+          </span>
         </div>
       </div>
 
