@@ -74,18 +74,18 @@ describe('YAPISAL: tanı payload 4 genişlik boyutunu taşır', () => {
 describe('YAPISAL: tanı payload 4 YENİ genişlik boyutunu taşır (GPS/Sesli/Geofence/Depolama)', () => {
   it('support_snapshot payload gps + voice + geofence + storageQueue gömer', () => {
     expect(remoteLogSrc, 'gps bölümü payload\'dan çıkarılmış').toMatch(/gps,/);
-    expect(remoteLogSrc, 'voice bölümü payload\'dan çıkarılmış').toMatch(/voice:\s*_safeSection\(buildVoiceSnapshot\)/);
-    expect(remoteLogSrc, 'geofence bölümü payload\'dan çıkarılmış').toMatch(/geofence:\s*_safeSection\(buildGeofenceSnapshot\)/);
+    expect(remoteLogSrc, 'voice bölümü payload\'dan çıkarılmış').toMatch(/voice:\s*safe\('voice', buildVoiceSnapshot\)/);
+    expect(remoteLogSrc, 'geofence bölümü payload\'dan çıkarılmış').toMatch(/geofence:\s*safe\('geofence', buildGeofenceSnapshot\)/);
     expect(remoteLogSrc, 'storageQueue bölümü payload\'dan çıkarılmış').toMatch(/storageQueue,/);
   });
 });
 
 describe('YAPISAL: tanı payload 4 YENİ genişlik boyutunu taşır (Güç/Füzyon/Boot/Transport)', () => {
   it('support_snapshot payload power + fusion + bootTiming + transport gömer', () => {
-    expect(remoteLogSrc, 'power bölümü payload\'dan çıkarılmış').toMatch(/power:\s*_safeSection\(buildPowerSnapshot\)/);
-    expect(remoteLogSrc, 'fusion bölümü payload\'dan çıkarılmış').toMatch(/fusion:\s*_safeSection\(buildFusionSnapshot\)/);
-    expect(remoteLogSrc, 'bootTiming bölümü payload\'dan çıkarılmış').toMatch(/bootTiming:\s*_safeSection\(buildBootTimingSnapshot\)/);
-    expect(remoteLogSrc, 'transport bölümü payload\'dan çıkarılmış').toMatch(/transport:\s*_safeSection\(buildTransportSnapshot\)/);
+    expect(remoteLogSrc, 'power bölümü payload\'dan çıkarılmış').toMatch(/power:\s*safe\('power', buildPowerSnapshot\)/);
+    expect(remoteLogSrc, 'fusion bölümü payload\'dan çıkarılmış').toMatch(/fusion:\s*safe\('fusion', buildFusionSnapshot\)/);
+    expect(remoteLogSrc, 'bootTiming bölümü payload\'dan çıkarılmış').toMatch(/bootTiming:\s*safe\('bootTiming', buildBootTimingSnapshot\)/);
+    expect(remoteLogSrc, 'transport bölümü payload\'dan çıkarılmış').toMatch(/transport:\s*safe\('transport', buildTransportSnapshot\)/);
   });
 });
 

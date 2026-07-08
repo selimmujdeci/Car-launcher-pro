@@ -276,6 +276,28 @@ async function _safeSectionAsync<T>(fn: () => Promise<T>): Promise<T | null> {
   try { return await fn(); } catch { return null; }
 }
 
+/** Section Failure Report tavanları — mesaj/stack en fazla bu kadar karakter. */
+const MAX_SECTION_ERR_LEN = 240;
+
+/**
+ * Bir bölüm toplayıcısının fırlattığı hatayı PII'siz, kısa bir kayda dönüştürür.
+ * Kurallar: message ≤ 240 · stack yalnız ilk 3 satır ≤ 240 · Error değilse
+ * String(err). Tümü _maskString'den geçer (VIN/MAC/koordinat/token maskesi) →
+ * ham VIN/MAC/koordinat/token sızamaz; payload gövdesinin _deepSanitize'ı ise
+ * son savunma katmanı olarak üstüne biner.
+ */
+function _describeSectionError(err: unknown): { message: string; stack?: string } {
+  if (err instanceof Error) {
+    const message = _maskString(err.message ?? '').slice(0, MAX_SECTION_ERR_LEN);
+    if (err.stack) {
+      const stack = _maskString(err.stack.split('\n').slice(0, 3).join(' | ')).slice(0, MAX_SECTION_ERR_LEN);
+      return { message, stack };
+    }
+    return { message };
+  }
+  return { message: _maskString(String(err)).slice(0, MAX_SECTION_ERR_LEN) };
+}
+
 /**
  * ÖNCELİKLİ BULGU TRİYAJI — payload TAMAMEN kurulduktan SONRA (selfTest/
  * inspector dahil, hangisi varsa) çağrılır ki kural motoru en zengin veriyle
@@ -354,6 +376,26 @@ function _buildVidMirror(): Record<string, unknown> {
 
 /** Ortak snapshot gövdesi — reportSupportSnapshot ve reportDiagnosticSnapshot kullanır. */
 async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> {
+  // Section Failure Report — LOKAL wrapper'lar (global _safeSection imzası DEĞİŞMEZ).
+  // Bir bölüm toplayıcısı fırlatırsa: bölüm YİNE null döner (geriye dönük uyum +
+  // mevcut null davranışı korunur), AMA nedeni sectionFailures[name]'e yazılır.
+  // Harita en son payload'a opsiyonel `sectionFailures` alanı olarak eklenir; boşsa
+  // {} kalır. _deepSanitize gövdenin tamamına (bu alan dahil) son savunma uygular.
+  // Not: null davranışı GLOBAL _safeSection/_safeSectionAsync'e delege edilir
+  // (imzaları değişmez); lokal wrapper yalnız hatayı yutulmadan ÖNCE kaydeder,
+  // sonra yeniden fırlatır → global bölümü null'a düşürür (geriye dönük uyum).
+  const sectionFailures: Record<string, { message: string; stack?: string }> = {};
+  const safe = <T>(name: string, fn: () => T): T | null =>
+    _safeSection(() => {
+      try { return fn(); }
+      catch (err) { sectionFailures[name] = _describeSectionError(err); throw err; }
+    });
+  const safeAsync = <T>(name: string, fn: () => Promise<T>): Promise<T | null> =>
+    _safeSectionAsync(async () => {
+      try { return await fn(); }
+      catch (err) { sectionFailures[name] = _describeSectionError(err); throw err; }
+    });
+
   const obd    = getOBDStatusSnapshot();
   const health = healthMonitor.getGlobalHealthSnapshot();
   const ota    = useOtaStore.getState();
@@ -385,7 +427,7 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
   // Async genişlik bölümleri — GPS izin kontrolü (Capacitor) ve depolama/kuyruk
   // (navigator.storage.estimate + connectivityService.queueSize) Promise döner.
   const [gps, storageQueue] = await Promise.all([
-    _safeSectionAsync(buildGpsDeepSnapshot),
+    safeAsync('gps', buildGpsDeepSnapshot),
     buildStorageQueueSnapshot().catch(() => ({ queuePending: 0, storagePct: -1, storageWarn: false })),
   ]);
 
@@ -431,40 +473,43 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     trail: getDiagnosticTrail(),
     // OBD derin — adaptör/kaynak + sensör tazeliği + canlı sinyaller + keşfedilen
     // extended PID'ler + DTC arıza kodları. Fail-soft (kaynak yoksa boş/–1).
-    obdDeep: _safeSection(buildObdDeepSnapshot),
+    obdDeep: safe('obdDeep', buildObdDeepSnapshot),
     // Perf zaman serisi — oturum boyu termal/bellek/fps/lag halka tamponu (trend:
     // ısınma/sızıntı/kasma anlık snapshot'ta görünmez).
     perfSeries: getPerfSeriesSnapshot(),
     // Ağ/AI sağlığı — online + AI devre kesici + sağlayıcı 429/kota pencereleri.
-    netAi: _safeSection(buildNetAiSnapshot),
+    netAi: safe('netAi', buildNetAiSnapshot),
     // GPS derin — izin durumu + fix tazeliği + doğruluk + DR aktif mi.
     // 🔒 KOORDİNAT YOK (mahremiyet kilidi) — yalnız durum/sayısal alanlar.
     gps,
     // Sesli asistan/STT — Vosk model hazırlığı + wake word + son sonuç (ham
     // transkript YOK — PII değil).
-    voice: _safeSection(buildVoiceSnapshot),
+    voice: safe('voice', buildVoiceSnapshot),
     // Güvenli bölge (geofence) — bulut-okuma durumu + bölge sayısı + senkron aktif mi.
-    geofence: _safeSection(buildGeofenceSnapshot),
+    geofence: safe('geofence', buildGeofenceSnapshot),
     // Depolama + kuyruk — bekleyen at-least-once event sayısı + disk kullanımı.
     storageQueue,
     // Güç/Akü sağlığı — 12V voltaj + kaynak (CAN/OBD) + rozet + son 10sn min/max.
-    power: _safeSection(buildPowerSnapshot),
+    power: safe('power', buildPowerSnapshot),
     // Sensör füzyon tutarlılığı — aktif hız kaynağı + GPS/donanım farkı + güven
     // rozeti (zero-trust: kaynaklar çelişiyorsa confidence düşer) + DR aktif mi.
-    fusion: _safeSection(buildFusionSnapshot),
+    fusion: safe('fusion', buildFusionSnapshot),
     // Boot zaman çizelgesi — her Wave'in süresi + toplam cold-start + en yavaş dalga.
-    bootTiming: _safeSection(buildBootTimingSnapshot),
+    bootTiming: safe('bootTiming', buildBootTimingSnapshot),
     // Transport/bağlantı sağlığı — aktif transport (CAN/classic/ble/tcp) + reconnect
     // deneme sayısı + son kopma nedeni.
-    transport: _safeSection(buildTransportSnapshot),
+    transport: safe('transport', buildTransportSnapshot),
     // VID aynası — araç/head unit/OBD adaptör/telemetri özeti. EXPLICIT ALLOWLIST
     // (ham VIN/MAC/cihaz adı/uygulama listesi yapısal olarak dışarıda); fail-soft.
-    vidMirror: _safeSection(_buildVidMirror),
+    vidMirror: safe('vidMirror', _buildVidMirror),
     // Kara Kutu replay — son 1Hz sistem-durumu ring'i (post-mortem). getReplayData()
     // KONUM-İÇERMEYEN varyanttır (lat/lng/adres yapısal olarak yok; yalnız hız/rpm/
     // vites/yakıt + worker durumu + termal/bellek + son intent). En yeni 20 örnek;
     // _deepSanitize son savunma (DENY_KEYS + VIN/MAC/koordinat/token maskesi). Fail-soft.
-    replayBuffer: _safeSection(() => getReplayData().slice(-20)),
+    replayBuffer: safe('replayBuffer', () => getReplayData().slice(-20)),
+    // Section Failure Report — hangi bölüm neden çöktü (opsiyonel; boşsa {}). Yeni
+    // alan; mevcut bölümlerin tipi/null davranışı değişmez. _deepSanitize son savunma.
+    sectionFailures,
   }, 0) as Record<string, unknown>;
 
   return payload;
