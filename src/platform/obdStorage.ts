@@ -1,4 +1,14 @@
 import { safeGetRaw, safeSetRaw } from '../utils/safeStorage';
+import { useVidStore, type VidObdAdapterInfo } from '../store/useVidStore';
+
+/**
+ * VID aynalama (Sprint 2 Mirror Layer, fail-soft): OBD adaptör son-bilinen
+ * alanlarını VID store'a yansıtır. localStorage TEK doğru kaynaktır; aynalama
+ * hiçbir yazma/okuma yolunu değiştirmez ve hataları kendi try/catch'inde yutulur.
+ */
+function mirrorObdToVid(info: Partial<VidObdAdapterInfo>): void {
+  try { useVidStore.getState().updateObdAdapterInfo(info); } catch { /* fail-soft */ }
+}
 
 export const OBD_ADDRESS_KEY = 'obd:lastAddress';
 export const OBD_PROFILE_KEY = 'obd:detectedProfile';
@@ -34,11 +44,13 @@ export function loadObdAddress(): string | null {
 /** BT MAC adresini localStorage'a yazar. Kota hatalarını sessizce yok sayar. */
 export function saveObdAddress(address: string): void {
   try { localStorage.setItem(OBD_ADDRESS_KEY, address); } catch { /* quota */ }
+  mirrorObdToVid({ lastAddress: address });
 }
 
 /** Kayıtlı BT MAC adresini siler (adaptör değişimi: stale MAC temizliği → tam scan'e düşer). */
 export function clearObdAddress(): void {
   try { localStorage.removeItem(OBD_ADDRESS_KEY); } catch { /* ignore */ }
+  mirrorObdToVid({ lastAddress: null });
 }
 
 /** Son kullanılan taşıma katmanını localStorage'dan okur ('classic' | 'ble' | 'tcp'). */
@@ -57,6 +69,7 @@ export function saveObdTransport(transport: ObdTransport): void {
     localStorage.setItem(OBD_TRANSPORT_KEY, transport);
     localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY); // yeni transport = doğrulanmamış
   } catch { /* quota */ }
+  mirrorObdToVid({ lastTransport: transport, isTransportVerified: false });
 }
 
 /** A-fix: transport'un canlı-veri ile doğrulandığını persist eder. */
@@ -65,6 +78,7 @@ export function saveObdTransportVerified(verified: boolean): void {
     if (verified) localStorage.setItem(OBD_TRANSPORT_VERIFIED_KEY, '1');
     else localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY);
   } catch { /* quota */ }
+  mirrorObdToVid({ isTransportVerified: verified });
 }
 
 /** A-fix: persisted transport'un daha önce canlı-veri ile doğrulanıp doğrulanmadığı. */
@@ -78,6 +92,7 @@ export function clearObdTransport(): void {
     localStorage.removeItem(OBD_TRANSPORT_KEY);
     localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY);
   } catch { /* ignore */ }
+  mirrorObdToVid({ lastTransport: null, isTransportVerified: false });
 }
 
 /**
@@ -92,11 +107,13 @@ export function loadObdProtocol(): string | null {
 /** Öğrenilen protokolü kalıcılaştırır. Kota hatalarını sessizce yok sayar. */
 export function saveObdProtocol(protocol: string): void {
   try { localStorage.setItem(OBD_PROTOCOL_KEY, protocol); } catch { /* quota */ }
+  mirrorObdToVid({ lastProtocolNum: protocol });
 }
 
 /** Öğrenilen protokolü siler (adaptör/araç değişimi temizliği ile birlikte kullanılabilir). */
 export function clearObdProtocol(): void {
   try { localStorage.removeItem(OBD_PROTOCOL_KEY); } catch { /* ignore */ }
+  mirrorObdToVid({ lastProtocolNum: null });
 }
 
 /** Kalıcı OBD profil kimliğini safeStorage'dan okur. */
