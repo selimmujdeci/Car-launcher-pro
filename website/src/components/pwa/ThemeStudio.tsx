@@ -3,7 +3,7 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { sendCommand } from '@/lib/commandService';
 import {
-  PRO_MANIFEST, SIZES, GROW_BY_SIZE, defaultIntent, normalizeIntent, solveLayout,
+  PRO_MANIFEST, GROW_BY_SIZE, defaultIntent, normalizeIntent, solveLayout,
   type LayoutIntent, type Zone, type ManifestEntry,
 } from '@/lib/layoutSolver';
 
@@ -224,64 +224,6 @@ function ColorPicker({ label, value, presets, onChange }: {
   );
 }
 
-function LivePreview({ t }: { t: ThemeToken }) {
-  return (
-    <div className="rounded-2xl overflow-hidden"
-      style={{
-        background: t.bgCard,
-        border: `1px solid ${t.borderColor}`,
-        boxShadow: `0 0 20px ${t.glowColor}`,
-        backdropFilter: `blur(${t.cardBlurPx}px)`,
-        borderRadius: t.radiusCard,
-        padding: '12px',
-      }}>
-      <div className="flex items-center gap-2 mb-2.5">
-        <div className="w-2 h-2 rounded-full" style={{ background: t.accentPrimary, boxShadow: `0 0 6px ${t.accentPrimary}` }} />
-        <span className="text-[10px] font-bold" style={{
-          color: t.textPrimary,
-          fontFamily: FONT_CSS[t.fontFamily],
-          fontWeight: t.fontWeight,
-          letterSpacing: `${t.letterSpacing}px`,
-        }}>
-          ÖNIZLEME
-        </span>
-        <div className="ml-auto px-1.5 py-0.5 rounded text-[8px] font-bold"
-          style={{
-            background: `${t.accentPrimary}22`,
-            color: t.accentPrimary,
-            borderRadius: t.radiusBtn,
-            border: `1px solid ${t.accentPrimary}44`,
-          }}>
-          Canlı
-        </div>
-      </div>
-      <div className="flex gap-1.5 mb-2">
-        {['KİLİTLE', 'AÇ'].map((lbl, i) => (
-          <div key={lbl} className="flex-1 py-1.5 text-center text-[8px] font-black"
-            style={{
-              background: `${i === 0 ? t.accentSecondary : t.accentPrimary}18`,
-              color: i === 0 ? t.accentSecondary : t.accentPrimary,
-              border: `1.5px solid ${i === 0 ? t.accentSecondary : t.accentPrimary}44`,
-              borderRadius: t.radiusBtn,
-            }}>
-            {lbl}
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-1">
-        {[{ l: 'Hız', v: '72', u: 'km/h' }, { l: 'Yakıt', v: '68', u: '%' }, { l: 'Motor', v: '88', u: '°C' }].map(({ l, v, u }) => (
-          <div key={l} className="flex-1 py-1 text-center"
-            style={{ background: `${t.accentPrimary}10`, borderRadius: t.radiusTile, border: `1px solid ${t.accentPrimary}20` }}>
-            <div className="text-[7px] font-bold" style={{ color: t.textSecondary }}>{l}</div>
-            <div className="text-[11px] font-black tabular-nums" style={{ color: t.accentPrimary }}>{v}</div>
-            <div className="text-[7px]" style={{ color: `${t.textSecondary}88` }}>{u}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Yerleşim Stüdyo (Faz 2) — gerçek minyatür + sürükle/boyut + Araca Gönder ──
 
 const LAYOUT_LS_KEY = 'caros-theme-layout';
@@ -290,9 +232,6 @@ const MANIFEST_MAP: Record<string, ManifestEntry> = {};
 PRO_MANIFEST.forEach((m) => { MANIFEST_MAP[m.id] = m; });
 
 const RAIL_ZONES: Zone[] = ['left-rail', 'center-stage', 'right-rail'];
-const ZONE_LABEL: Record<Zone, string> = {
-  'left-rail': 'SOL RAY', 'center-stage': 'ORTA SAHNE', 'right-rail': 'SAĞ RAY', 'dock': 'DOCK',
-};
 const ZONE_STYLE: Record<Zone, React.CSSProperties> = {
   'left-rail': { width: '22%' }, 'center-stage': { flex: 1 }, 'right-rail': { width: '32%' }, 'dock': {},
 };
@@ -323,14 +262,19 @@ function MiniTileInner({ id, t }: { id: string; t: ThemeToken }) {
 function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: string | null }) {
   const [intent, setIntent] = useState<LayoutIntent>(() => loadLayout());
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [sync, setSync] = useState<'idle' | 'sending' | 'ok' | 'fail'>('idle');
   const dragRef = useRef<{ id: string; zone: Zone } | null>(null);
   const resizeRef = useRef<{ id: string; startX: number; startY: number; base: number } | null>(null);
+  // Basılı-tut → boyutlandır: parmak ~300ms sabit kalırsa resize moduna geç;
+  // eşik üstü hareket önce olursa sürükle (sırala) moduna düşer.
+  const pressRef = useRef<{ id: string; zone: Zone; startX: number; startY: number; base: number; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   const solved = useMemo(() => solveLayout(intent), [intent]);
   const commit = useCallback((next: LayoutIntent) => { setIntent(next); saveLayout(next); }, []);
+  const clearPress = () => { if (pressRef.current) { clearTimeout(pressRef.current.timer); pressRef.current = null; } };
 
-  // Global pointer takibi — sürükle (zone içi sırala) + köşe-çek (boyut). Refs → bayat closure yok.
+  // Global pointer takibi — sürükle (zone içi sırala) + basılı-tut/köşe-çek (boyut). Refs → bayat closure yok.
   useEffect(() => {
     const move = (e: PointerEvent) => {
       const rz = resizeRef.current;
@@ -339,6 +283,16 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
         const g = Math.max(0.5, Math.min(5, rz.base + d));
         setIntent((prev) => { const n = { ...prev, [rz.id]: { ...prev[rz.id], growCustom: g } }; saveLayout(n); return n; });
         return;
+      }
+      const pr = pressRef.current;
+      if (pr) {
+        // Eşiği aşan hareket → basılı-tut iptal, sürükle (sırala) başlat.
+        if (Math.abs(e.clientX - pr.startX) > 8 || Math.abs(e.clientY - pr.startY) > 8) {
+          clearTimeout(pr.timer);
+          dragRef.current = { id: pr.id, zone: pr.zone };
+          setDraggingId(pr.id);
+          pressRef.current = null;
+        }
       }
       const dg = dragRef.current;
       if (!dg) return;
@@ -354,7 +308,7 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
         saveLayout(n); return n;
       });
     };
-    const up = () => { dragRef.current = null; resizeRef.current = null; setDraggingId(null); };
+    const up = () => { clearPress(); dragRef.current = null; resizeRef.current = null; setDraggingId(null); setResizingId(null); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
@@ -363,17 +317,24 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
   const onCardDown = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
     if ((e.target as HTMLElement).closest('[data-resize]')) return;
     const m = MANIFEST_MAP[id]; if (!m || m.zone === 'dock') return;
-    dragRef.current = { id, zone: m.zone }; setDraggingId(id);
+    const c = intent[id];
+    const base = c.growCustom != null ? c.growCustom : GROW_BY_SIZE[c.size];
+    const startX = e.clientX, startY = e.clientY;
+    const timer = setTimeout(() => {
+      // Sabit basılı tutuldu → boyutlandır moduna gir (aynı parmak hareketiyle boyut değişir).
+      resizeRef.current = { id, startX, startY, base };
+      setResizingId(id);
+      pressRef.current = null;
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) { try { navigator.vibrate(15); } catch { /* yoksa yok */ } }
+    }, 300);
+    pressRef.current = { id, zone: m.zone, startX, startY, base, timer };
   };
   const onResizeDown = (e: React.PointerEvent<HTMLSpanElement>, id: string) => {
     e.stopPropagation();
     const c = intent[id];
     resizeRef.current = { id, startX: e.clientX, startY: e.clientY, base: c.growCustom != null ? c.growCustom : GROW_BY_SIZE[c.size] };
+    setResizingId(id);
   };
-
-  const cycleSize = (id: string) => { const c = intent[id]; const nx = SIZES[(SIZES.indexOf(c.size) + 1) % 3]; commit({ ...intent, [id]: { ...c, size: nx, growCustom: null } }); };
-  const toggleVis = (id: string) => { if (MANIFEST_MAP[id].locked) return; const c = intent[id]; commit({ ...intent, [id]: { ...c, visible: !c.visible } }); };
-  const bump = (id: string) => { const z = MANIFEST_MAP[id].zone; const min = Math.min(...PRO_MANIFEST.filter((m) => m.zone === z).map((m) => intent[m.id].ord)); commit({ ...intent, [id]: { ...intent[id], ord: min - 1 } }); };
 
   const send = async () => {
     if (!vehicleId) return;
@@ -389,8 +350,9 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
     borderRadius: Math.min(token.radiusTile + 4, 14), background: token.bgCard,
     border: `1px solid ${token.borderColor}`, color: token.textPrimary,
     cursor: MANIFEST_MAP[id].zone === 'dock' ? 'default' : 'grab', touchAction: 'none', userSelect: 'none',
-    boxShadow: draggingId === id ? '0 10px 24px rgba(0,0,0,0.5)' : 'none',
-    transform: draggingId === id ? 'scale(1.03)' : 'none',
+    boxShadow: draggingId === id ? '0 10px 24px rgba(0,0,0,0.5)'
+      : resizingId === id ? `0 0 0 2px ${token.accentPrimary}, 0 6px 18px rgba(0,0,0,0.4)` : 'none',
+    transform: draggingId === id ? 'scale(1.03)' : resizingId === id ? 'scale(1.01)' : 'none',
     transition: 'flex-grow .45s cubic-bezier(.34,1.2,.64,1), box-shadow .2s, transform .15s',
   });
 
@@ -423,32 +385,7 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
         </div>
       </div>
 
-      <p className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>⠿ tut-sürükle · ⤡ köşeden boyutlandır · aşağıdan gizle/üste al</p>
-
-      {/* Kart kontrolleri */}
-      <div className="flex flex-col rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
-        {PRO_MANIFEST.filter((m) => m.id !== 'dock').map((m) => {
-          const c = intent[m.id];
-          return (
-            <div key={m.id} className="flex items-center justify-between px-3 py-2"
-              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}>
-              <div className="flex items-center gap-2 min-w-0">
-                {m.locked && <span style={{ fontSize: 10, color: token.accentPrimary }}>🔒</span>}
-                <span className="text-[12px] font-bold text-white/80 truncate">{m.label}</span>
-                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{ color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.04)' }}>{ZONE_LABEL[m.zone]}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button onClick={() => cycleSize(m.id)} title="Boyut" className="text-[10px] font-mono font-bold px-2 py-1 rounded-md" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>{c.size}</button>
-                <button onClick={() => bump(m.id)} title="Üste al" className="text-[10px] px-2 py-1 rounded-md" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}>▲</button>
-                <button onClick={() => toggleVis(m.id)} disabled={m.locked} title="Göster/Gizle" className="text-[10px] px-2 py-1 rounded-md"
-                  style={{ background: c.visible ? `${token.accentPrimary}18` : 'rgba(255,255,255,0.05)', border: `1px solid ${c.visible ? `${token.accentPrimary}55` : 'rgba(255,255,255,0.1)'}`, color: m.locked ? 'rgba(255,255,255,0.3)' : c.visible ? token.accentPrimary : 'rgba(255,255,255,0.6)', cursor: m.locked ? 'not-allowed' : 'pointer' }}>
-                  {m.locked ? '🔒' : c.visible ? '👁' : '⨯'}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <p className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>⠿ tut-sürükle · basılı tut ↔ boyutlandır (ya da ⤡ köşe)</p>
 
       {/* Araca Gönder (commit) + Sıfırla */}
       <div className="flex gap-2">
@@ -523,32 +460,40 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const syncLabel = sync === 'ok' ? '✓ Gönderildi' : sync === 'fail' ? '✗ Hata' : sync === 'sending' ? '● Gönderiliyor…' : '● Araca İletiliyor';
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-black text-white">Tema Stüdyo</p>
-          <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Her detayı özelleştir · Canlı önizleme</p>
+      {/* ── SABİT ÜST: başlık + CANLI MAKET + Araca Gönder — ayarlar altında kayarken sabit kalır ── */}
+      <div
+        style={{
+          position: 'sticky', top: 0, zIndex: 20,
+          marginTop: -20, paddingTop: 16, paddingBottom: 12, marginBottom: 4,
+          background: '#0b1626',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          boxShadow: '0 14px 22px -12px rgba(0,0,0,0.6)',
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-sm font-black text-white">Tema Stüdyo</p>
+            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Maket sabit · aşağıdan renk &amp; şekil ver</p>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all"
+            style={{
+              background: sync !== 'idle' ? `${syncColor}15` : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${syncColor}40`,
+              color: syncColor,
+            }}>
+            {!vehicleId ? '⚠ Araç Bağlı Değil' : syncLabel}
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all"
-          style={{
-            background: sync !== 'idle' ? `${syncColor}15` : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${syncColor}40`,
-            color: syncColor,
-          }}>
-          {!vehicleId ? '⚠ Araç Bağlı Değil' : syncLabel}
-        </div>
-      </div>
 
-      {/* Live preview — hızlı renk önizleme */}
-      <LivePreview t={token} />
-
-      {/* Yerleşim editörü — gerçek minyatür, sürükle/boyut/gizle + Araca Gönder */}
-      <div>
-        <SectionTitle>Ekran Düzeni · Sürükle & Boyutlandır</SectionTitle>
+        {/* Canlı maket — kartları elle sürükle / basılı tutup boyutlandır + Araca Gönder */}
         <LayoutStudio token={token} vehicleId={vehicleId} />
       </div>
+
+      {/* ── KAYAN AYARLAR (renk / şekil / efekt / yazı / ikon) ── */}
+      <div className="flex flex-col gap-4 pt-4">
 
       {/* Base theme row */}
       <div>
@@ -747,6 +692,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );
