@@ -14,6 +14,7 @@ import { signalReverse } from './platform/cameraService.ts'
 import { CarLauncher } from './platform/nativePlugin.ts'
 import { captureSpotifyRedirect } from './platform/spotify/spotifyAuth.ts'
 import { installConsoleGate } from './platform/system/logGate.ts'
+import { initThemePreviewBridge } from './platform/themePreviewBridge.ts'
 
 /* ── Bootstrap Launcher ── */
 (async () => {
@@ -22,6 +23,9 @@ try {
    * Capable cihaz/tarayıcı (BALANCED/PERF) tam log korur. En başta kurulur ki
    * boot logları da gate'lensin; console.error her zaman geçer (silent hariç). */
   installConsoleGate();
+
+  /* ── Tema Stüdyo iframe canlı önizleme köprüsü (carospro.com'dan postMessage) ── */
+  initThemePreviewBridge();
 
   /* ── Head unit / eski WebView uyumluluk modu — React öncesi çağrılmalı ── */
   applyCompatMode();
