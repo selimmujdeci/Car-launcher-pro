@@ -23,6 +23,7 @@ import {
 import { addEvent } from './communityService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useVidStore } from '../store/useVidStore';
+import { pushTrail } from './diagnosticTrailCore';
 
 /* ── T1/T2 sabitler ──────────────────────────────────────── */
 
@@ -567,6 +568,10 @@ export function startVehicleIntelligenceService(): () => void {
   _running = true; _lastTickMs = 0;
   _lastSpsWindowMs = performance.now(); _obdSampleCount = 0;
 
+  // Black Box v2 — Service Lifecycle event (RAM-only, PII'siz statik etiket).
+  // Guard'dan SONRA: mükerrer start erken döner → duplicate event olmaz. Fail-soft.
+  try { pushTrail('boot', 'vehicle-intelligence-service:start'); } catch { /* iz servisi akışı bozmaz */ }
+
   _unsubObd = useUnifiedVehicleStore.subscribe((cur, prev) => {
     if (
       cur.speed          !== prev.speed          ||
@@ -629,6 +634,10 @@ export function startVehicleIntelligenceService(): () => void {
 
 export function stopVehicleIntelligenceService(): void {
   _running = false;
+
+  // Black Box v2 — Service Lifecycle event (RAM-only, PII'siz statik etiket). Fail-soft.
+  try { pushTrail('boot', 'vehicle-intelligence-service:stop'); } catch { /* iz servisi akışı bozmaz */ }
+
   if (_timer !== null) { _timer(); _timer = null; }
   _unsubObd?.(); _unsubObd = null;
   // VID telemetri aynalama aboneliğini temizle (zero-leak).
