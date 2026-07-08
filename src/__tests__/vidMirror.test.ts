@@ -27,12 +27,15 @@ vi.mock('../platform/nativePlugin', () => ({
   },
 }));
 
-// seedDefaultProfile yan etkisini izole et (bu test kapsamı dışı).
-vi.mock('../platform/vehicleProfileService', () => ({
-  seedDefaultProfile: vi.fn(),
-}));
+// seedDefaultProfile yan etkisini izole et; diğer TÜM export'lar GERÇEK kalır
+// (Sprint 3 vehicle mirror testleri startVehicleDetection/persistHandshakeVin kullanır).
+vi.mock('../platform/vehicleProfileService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../platform/vehicleProfileService')>();
+  return { ...actual, seedDefaultProfile: vi.fn() };
+});
 
 import { useVidStore } from '../store/useVidStore';
+import { useStore } from '../store/useStore';
 import {
   saveObdAddress,
   clearObdAddress,
@@ -43,6 +46,11 @@ import {
   clearObdTransport,
 } from '../platform/obdStorage';
 import { initPlatformDetection } from '../platform/headUnitPlatform';
+import {
+  startVehicleDetection,
+  stopVehicleDetection,
+  persistHandshakeVin,
+} from '../platform/vehicleProfileService';
 
 describe('VID Mirror Layer (Sprint 2)', () => {
   beforeEach(() => {
@@ -104,6 +112,97 @@ describe('VID Mirror Layer (Sprint 2)', () => {
       const { obdAdapter } = useVidStore.getState();
       expect(obdAdapter.lastTransport).toBeNull();
       expect(obdAdapter.isTransportVerified).toBe(false);
+    });
+  });
+
+  /* ── Araç profili / VIN aynalaması (Sprint 3) ────────────────────────── */
+
+  describe('Vehicle profile + VIN aynalaması', () => {
+    const BASE_PROFILE = {
+      id: 'p1',
+      name: 'Test Duster',
+      vehicleType: 'diesel' as const,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      lastUsedAt: null,
+    };
+
+    beforeEach(() => {
+      // useStore izole başlasın (profiller boş) → startVehicleDetection güvenli
+      // (_detectProfile erken döner, aktif profili yanlışlıkla temizlemez).
+      useStore.getState().resetSettings();
+    });
+
+    afterEach(() => {
+      // Zero-leak: interval + VID subscription temizlensin.
+      stopVehicleDetection();
+    });
+
+    it('(a) aktif profil değişince VID.vehicle otomatik güncellenir', () => {
+      startVehicleDetection(); // profiller boş → subscription kurulur, tespit erken döner
+
+      const store = useStore.getState();
+      store.addVehicleProfile({ ...BASE_PROFILE });
+      store.setActiveVehicleProfile('p1'); // store değişimi → subscription → mirror
+
+      const { vehicle } = useVidStore.getState();
+      expect(vehicle.model).toBe('Test Duster');
+      expect(vehicle.vehicleType).toBe('diesel');
+    });
+
+    it('(b) geçerli VIN persistHandshakeVin ile aynalanır → marka/yıl decode edilir', () => {
+      startVehicleDetection();
+
+      const store = useStore.getState();
+      store.addVehicleProfile({ ...BASE_PROFILE });
+      store.setActiveVehicleProfile('p1');
+
+      // VF1 → Renault; VIN index 9 = 'N' → model yılı 2022
+      persistHandshakeVin('VF1RFB000N1234567');
+
+      const { vehicle } = useVidStore.getState();
+      expect(vehicle.vin).toBe('VF1RFB000N1234567');
+      expect(vehicle.make).toBe('Renault');
+      expect(vehicle.modelYear).toBe(2022);
+    });
+
+    it('(c) stopVehicleDetection subscription\'ı temizler (sonraki değişim aynalanmaz)', () => {
+      startVehicleDetection();
+
+      const store = useStore.getState();
+      store.addVehicleProfile({ ...BASE_PROFILE });
+      store.setActiveVehicleProfile('p1');
+      expect(useVidStore.getState().vehicle.model).toBe('Test Duster');
+
+      stopVehicleDetection();
+      // VID'i sıfırla → temizlenmiş subscription sonraki store değişimini YAZMAMALI.
+      useVidStore.getState().resetStore();
+      store.updateVehicleProfile('p1', { name: 'Değişti' });
+
+      expect(useVidStore.getState().vehicle.model).toBeNull();
+    });
+
+    it('(d) mükerrer startVehicleDetection duplicate subscription oluşturmaz', () => {
+      startVehicleDetection();
+      startVehicleDetection(); // idempotent — ikinci çağrı TEK subscription'ı korur
+
+      const store = useStore.getState();
+      store.addVehicleProfile({ ...BASE_PROFILE });
+      store.setActiveVehicleProfile('p1');
+      expect(useVidStore.getState().vehicle.model).toBe('Test Duster');
+
+      // TEK stop → TEK subscription temizlenmeli. Duplicate abonelik OLSAYDI, tek stop
+      // yalnız birini sökerdi ve aşağıdaki değişim hâlâ aynalanırdı.
+      stopVehicleDetection();
+      useVidStore.getState().resetStore();
+      store.updateVehicleProfile('p1', { name: 'Değişti' });
+
+      expect(useVidStore.getState().vehicle.model).toBeNull(); // aynalanmadı → tek subscription vardı
+    });
+
+    it('(e) çift stopVehicleDetection hata vermez (idempotent temizlik)', () => {
+      startVehicleDetection();
+      stopVehicleDetection();
+      expect(() => stopVehicleDetection()).not.toThrow();
     });
   });
 

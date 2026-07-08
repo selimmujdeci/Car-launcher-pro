@@ -15,7 +15,9 @@ import { logError } from './crashLogger';
 import { useStore } from '../store/useStore';
 import type { VehicleProfile, AppSettings } from '../store/useStore';
 import type { HeadUnitPlatform } from './headUnitPlatform';
-import { setHandshakeVin } from './safety/vinContext';
+import { setHandshakeVin, getHandshakeVin } from './safety/vinContext';
+import { decodeWmi, decodeVinYear } from './canBus/VehicleHandshake';
+import { useVidStore } from '../store/useVidStore';
 
 /* ── Preset araç profilleri — platforma göre otomatik oluşturulur ── */
 
@@ -67,12 +69,42 @@ let _state: VehicleDetectionState = {
 const _listeners = new Set<(s: VehicleDetectionState) => void>();
 let _intervalId: ReturnType<typeof setInterval> | null = null;
 let _running = false;
+/** VID pasif aynalama aboneliği (useStore.subscribe) — start'ta kurulur, stop'ta temizlenir. */
+let _vidUnsub: (() => void) | null = null;
 
 /* ── Internal helpers ────────────────────────────────────── */
 
 function _notify(): void {
   const snap = { ..._state };
   _listeners.forEach((fn) => fn(snap));
+}
+
+/**
+ * VID aynalama (Sprint 3 Mirror Layer, PASİF + fail-soft): aktif araç profilinden
+ * VIN + çözülmüş marka/yıl + model/tip'i VID store'a yansıtır. useStore TEK doğru
+ * kaynaktır; aynalama tek-yönlüdür (VID'ye yazar, ondan OKUMAZ) ve hataları kendi
+ * try/catch'inde yutulur → araç profili tespit akışını ASLA bozmaz.
+ */
+function _mirrorVehicleToVid(): void {
+  try {
+    const { settings } = useStore.getState();
+    const { activeVehicleProfileId, vehicleProfiles } = settings;
+    const profile = activeVehicleProfileId
+      ? vehicleProfiles.find((p) => p.id === activeVehicleProfileId) ?? null
+      : null;
+
+    const vin = (profile?.vin ?? getHandshakeVin()) || null;
+    const make = vin ? decodeWmi(vin) : null;
+    const modelYear = vin ? decodeVinYear(vin) : null;
+
+    useVidStore.getState().updateVehicleInfo({
+      vin,
+      make,
+      model: profile?.name ?? null,
+      modelYear,
+      vehicleType: profile?.vehicleType ?? 'ice',
+    });
+  } catch { /* fail-soft — aynalama profil tespitini asla bozmaz */ }
 }
 
 function _applyProfileSettings(profile: VehicleProfile): void {
@@ -226,6 +258,14 @@ export function startVehicleDetection(): void {
 
   void _detectProfile();
   _intervalId = setInterval(() => { void _detectProfile(); }, 15_000);
+
+  // VID pasif aynalama: useStore değişimlerinde aktif profil → VID yansıt (fail-soft).
+  // Tek-yönlü mirror; VID'den okuma yok, mevcut tespit/uygulama akışı değişmez.
+  // Guard: yalnız TEK subscription — `if (_running) return` zaten mükerrer start'ı
+  // engelliyor; bu ek koşul tek-abonelik invaryantını yerel olarak da garantiler.
+  if (!_vidUnsub) {
+    _vidUnsub = useStore.subscribe(() => { _mirrorVehicleToVid(); });
+  }
 }
 
 /**
@@ -236,6 +276,11 @@ export function stopVehicleDetection(): void {
   if (_intervalId !== null) {
     clearInterval(_intervalId);
     _intervalId = null;
+  }
+  // VID aynalama aboneliğini temizle (zero-leak).
+  if (_vidUnsub !== null) {
+    _vidUnsub();
+    _vidUnsub = null;
   }
 }
 
