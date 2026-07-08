@@ -22,6 +22,7 @@ import {
 } from '../store/useVehicleIntelligenceStore';
 import { addEvent } from './communityService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import { useVidStore } from '../store/useVidStore';
 
 /* ── T1/T2 sabitler ──────────────────────────────────────── */
 
@@ -280,6 +281,8 @@ let _obdSampleCount  = 0;
 let _lastSpsWindowMs = 0;
 let _measuredSps     = 2.0;
 let _unsubObd: (() => void) | null = null;
+/** VID telemetri pasif aynalama aboneliği (start'ta kurulur, stop'ta temizlenir). */
+let _unsubIntel: (() => void) | null = null;
 
 /* ── Stale izleyici ──────────────────────────────────────── */
 
@@ -581,6 +584,46 @@ export function startVehicleIntelligenceService(): () => void {
   _timer = runtimeManager.scheduleTask({
     id: 'vehicle-intel', periodMs: TICK_MS, criticality: 'NORMAL', fn: _tick,
   });
+
+  // VID telemetri pasif aynalama (Sprint 4): intel store değişiminde 5 şema alanını
+  // VID'ye yansıt. Shallow-guard (JSON key) yalnız gerçek değişimde yazar → mirror
+  // hesabı-dışı alan (sampleCount vb.) değişse bile VID'ye gereksiz yazma yapılmaz.
+  // Tek-yönlü + fail-soft: VID'den okuma yok, hata tick döngüsünü ASLA etkilemez.
+  let lastMirrorKey = '';
+  _unsubIntel = useVehicleIntelligenceStore.subscribe((state) => {
+    try {
+      // 1. Extract only the 5 schema fields we want to mirror
+      const trustScore = state.telemetryTrustScore;
+      const healthState = state.healthState;
+      const thermalStatus = state.thermalStatus;
+      const isDiagnosticDegraded = state.isDiagnosticDegraded;
+
+      // Filter plausibilityReport to failures only (isValid === false)
+      const plausibilityFailures: Record<string, string> = {};
+      for (const [k, v] of Object.entries(state.plausibilityReport)) {
+        if (v && !v.isValid) {
+          plausibilityFailures[k] = v.reason ?? 'Sensor validation failed';
+        }
+      }
+
+      // 2. Generate a comparison key to check if values actually changed (shallow guard)
+      const currentKey = JSON.stringify({ trustScore, healthState, thermalStatus, isDiagnosticDegraded, plausibilityFailures });
+      if (currentKey === lastMirrorKey) return;
+      lastMirrorKey = currentKey;
+
+      // 3. Mirror to useVidStore (fail-soft wrapper)
+      useVidStore.getState().updateTelemetryInfo({
+        trustScore,
+        healthState,
+        thermalStatus,
+        isDiagnosticDegraded,
+        plausibilityFailures,
+      });
+    } catch {
+      // fail-soft: do not impact the vehicle intelligence tick loop
+    }
+  });
+
   return stopVehicleIntelligenceService;
 }
 
@@ -588,6 +631,8 @@ export function stopVehicleIntelligenceService(): void {
   _running = false;
   if (_timer !== null) { _timer(); _timer = null; }
   _unsubObd?.(); _unsubObd = null;
+  // VID telemetri aynalama aboneliğini temizle (zero-leak).
+  _unsubIntel?.(); _unsubIntel = null;
 
   // T1/T2 sıfırla
   _prevRpmRaw = null; _prevCoolantRaw = null; _lastTickMs = 0;
