@@ -51,6 +51,11 @@ import {
   stopVehicleDetection,
   persistHandshakeVin,
 } from '../platform/vehicleProfileService';
+import { useVehicleIntelligenceStore } from '../store/useVehicleIntelligenceStore';
+import {
+  startVehicleIntelligenceService,
+  stopVehicleIntelligenceService,
+} from '../platform/vehicleIntelligenceService';
 
 describe('VID Mirror Layer (Sprint 2)', () => {
   beforeEach(() => {
@@ -203,6 +208,65 @@ describe('VID Mirror Layer (Sprint 2)', () => {
       startVehicleDetection();
       stopVehicleDetection();
       expect(() => stopVehicleDetection()).not.toThrow();
+    });
+  });
+
+  /* ── Telemetri aynalaması (Sprint 4) ─────────────────────────────────── */
+
+  describe('Telemetry aynalaması', () => {
+    beforeEach(() => {
+      // Scheduler wheel'i gerçek zamanlı çalışmasın (yalnız start'taki tek _tick);
+      // timing assert etmiyoruz, subscription davranışını izole ediyoruz.
+      vi.useFakeTimers();
+      useVehicleIntelligenceStore.getState().reset();
+    });
+    afterEach(() => {
+      stopVehicleIntelligenceService();
+      vi.useRealTimers();
+    });
+
+    it('(a) intel store değişimi VID.telemetry\'yi günceller', () => {
+      startVehicleIntelligenceService();
+
+      const intel = useVehicleIntelligenceStore.getState();
+      intel.setDiagnosticState('STRESSED', 'STRESSED', true);
+      intel.updateTrustScore(0.42);
+      intel.updatePlausibility('rpm', { isValid: false, reason: 'jump>5000' });
+
+      const { telemetry } = useVidStore.getState();
+      expect(telemetry.trustScore).toBe(0.42);
+      expect(telemetry.healthState).toBe('STRESSED');
+      expect(telemetry.isDiagnosticDegraded).toBe(true);
+      expect(telemetry.plausibilityFailures).toEqual({ rpm: 'jump>5000' });
+    });
+
+    it('(b) ardışık aynı değerli güncellemeler VID\'ye redundant yazmaz (shallow guard)', () => {
+      startVehicleIntelligenceService();
+
+      useVehicleIntelligenceStore.getState().updateTrustScore(0.5);
+      const ref1 = useVidStore.getState().telemetry;
+
+      // AYNI trust değeri + mirror-DIŞI alan (sampleCount) değişimi → shallow guard
+      // aynı JSON key üretir → VID'ye YAZILMAZ (referans değişmez).
+      useVehicleIntelligenceStore.getState().updateTrustScore(0.5);
+      useVehicleIntelligenceStore.getState().incrementSampleCount();
+      const ref2 = useVidStore.getState().telemetry;
+
+      expect(ref2).toBe(ref1); // aynı referans → redundant güncelleme yok
+    });
+
+    it('(c) stopVehicleIntelligenceService subscription\'ı temizler', () => {
+      startVehicleIntelligenceService();
+
+      useVehicleIntelligenceStore.getState().updateTrustScore(0.3);
+      expect(useVidStore.getState().telemetry.trustScore).toBe(0.3);
+
+      stopVehicleIntelligenceService();
+      // VID'i sıfırla (trustScore → 1.0) → temizlenmiş subscription sonraki değişimi YAZMAMALI.
+      useVidStore.getState().resetStore();
+      useVehicleIntelligenceStore.getState().updateTrustScore(0.9);
+
+      expect(useVidStore.getState().telemetry.trustScore).toBe(1.0);
     });
   });
 
