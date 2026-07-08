@@ -1,7 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ağ güvenlik politikası (P0 Bulgu #2 — cleartext sertleştirme).
+
+  Varsayılan: TÜM cleartext (http) trafiği REDDEDİLİR → dış API'ler (hava, Nominatim,
+  Supabase, AI sağlayıcıları) yalnız https. MITM yüzeyi kapatılır.
+
+  Tek istisna: loopback (localhost / 127.0.0.1) — cihaz-İÇİ OSRM offline routing
+  daemon'ı (offlineRoutingService.ts → http://localhost:5000) + Capacitor'ın debug
+  build'de app'i servis ettiği http://localhost origin'i. Loopback ağ dışıdır,
+  dinlenemez → güvenli.
+
+  Not: passenger/teşhis ham ServerSocket'leri (8765/8899) bu politikadan ETKİLENMEZ;
+  network-security-config yalnız uygulamanın GİDEN HTTP kütüphanelerini kapsar.
+-->
 <network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.1.12</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
     </domain-config>
