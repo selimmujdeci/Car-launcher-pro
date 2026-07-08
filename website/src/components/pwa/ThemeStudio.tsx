@@ -159,7 +159,7 @@ const FONTS = [
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2"
-      style={{ color: 'rgba(255,255,255,0.25)' }}>
+      style={{ color: 'var(--pwa-text-3)' }}>
       {children}
     </p>
   );
@@ -172,8 +172,8 @@ function Slider({ label, value, min, max, step = 1, unit, onChange }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex justify-between items-baseline">
-        <span className="text-[10px] font-semibold" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</span>
-        <span className="text-[10px] font-mono tabular-nums" style={{ color: 'rgba(255,255,255,0.65)' }}>
+        <span className="text-[10px] font-semibold" style={{ color: 'var(--pwa-text-2)' }}>{label}</span>
+        <span className="text-[10px] font-mono tabular-nums" style={{ color: 'var(--pwa-text-2)' }}>
           {Number.isInteger(value) ? value : value.toFixed(1)}{unit}
         </span>
       </div>
@@ -194,12 +194,12 @@ function ColorPicker({ label, value, presets, onChange }: {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</span>
+        <span className="text-[10px] font-semibold" style={{ color: 'var(--pwa-text-2)' }}>{label}</span>
         <div className="flex items-center gap-2">
-          <span className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>{value}</span>
+          <span className="text-[9px] font-mono" style={{ color: 'var(--pwa-text-3)' }}>{value}</span>
           <label className="relative cursor-pointer">
             <div className="w-7 h-7 rounded-lg border-2 overflow-hidden"
-              style={{ borderColor: 'rgba(255,255,255,0.15)', backgroundColor: value }}>
+              style={{ borderColor: 'var(--pwa-border)', backgroundColor: value }}>
               <input type="color" value={value.startsWith('#') ? value : '#000000'}
                 onChange={(e) => onChange(e.target.value)}
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
@@ -214,7 +214,7 @@ function ColorPicker({ label, value, presets, onChange }: {
               className="w-7 h-7 rounded-lg transition-all active:scale-90"
               style={{
                 backgroundColor: c,
-                border: value === c ? '2px solid white' : '1.5px solid rgba(255,255,255,0.1)',
+                border: value === c ? '2px solid white' : '1.5px solid var(--pwa-border)',
                 boxShadow: value === c ? `0 0 8px ${c}80` : 'none',
               }} />
           ))}
@@ -385,12 +385,12 @@ function LayoutStudio({ token, vehicleId }: { token: ThemeToken; vehicleId: stri
         </div>
       </div>
 
-      <p className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>⠿ tut-sürükle · basılı tut ↔ boyutlandır (ya da ⤡ köşe)</p>
+      <p className="text-[9px] font-mono" style={{ color: 'var(--pwa-text-3)' }}>⠿ tut-sürükle · basılı tut ↔ boyutlandır (ya da ⤡ köşe)</p>
 
       {/* Araca Gönder (commit) + Sıfırla */}
       <div className="flex gap-2">
         <button onClick={() => commit(defaultIntent())} className="text-[11px] font-bold px-3 py-2.5 rounded-xl"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}>
+          style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}>
           Sıfırla
         </button>
         <button onClick={send} disabled={!vehicleId || sync === 'sending'}
@@ -456,7 +456,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     { id: 'ikonlar',  label: 'İkonlar'  },
   ];
 
-  const syncColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : 'rgba(255,255,255,0.2)';
+  const syncColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : 'var(--pwa-text-3)';
   const syncLabel = sync === 'ok' ? '✓ Gönderildi' : sync === 'fail' ? '✗ Hata' : sync === 'sending' ? '● Gönderiliyor…' : '● Araca İletiliyor';
 
   return (
@@ -467,20 +467,20 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
         style={{
           position: 'sticky', top: 0, zIndex: 20,
           marginTop: -20, paddingTop: 16, paddingBottom: 12, marginBottom: 4,
-          background: '#0b1626',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          background: 'var(--pwa-panel)',
+          borderBottom: '1px solid var(--pwa-border-soft)',
           boxShadow: '0 14px 22px -12px rgba(0,0,0,0.6)',
         }}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-sm font-black text-white">Tema Stüdyo</p>
-            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Maket sabit · aşağıdan renk &amp; şekil ver</p>
+            <p className="text-sm font-black pwa-text">Tema Stüdyo</p>
+            <p className="text-[10px] mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>Maket sabit · aşağıdan renk &amp; şekil ver</p>
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all"
             style={{
-              background: sync !== 'idle' ? `${syncColor}15` : 'rgba(255,255,255,0.04)',
+              background: sync !== 'idle' ? `${syncColor}15` : 'var(--pwa-surface)',
               border: `1px solid ${syncColor}40`,
               color: syncColor,
             }}>
@@ -503,15 +503,15 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             <button key={key} onClick={() => applyPreset(key)}
               className="flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl transition-all active:scale-90"
               style={{
-                background: token.baseTheme === key ? `${preset.accentPrimary}18` : 'rgba(255,255,255,0.04)',
-                border: `1.5px solid ${token.baseTheme === key ? `${preset.accentPrimary}60` : 'rgba(255,255,255,0.08)'}`,
+                background: token.baseTheme === key ? `${preset.accentPrimary}18` : 'var(--pwa-surface)',
+                border: `1.5px solid ${token.baseTheme === key ? `${preset.accentPrimary}60` : 'var(--pwa-border)'}`,
               }}>
               <div className="w-4 h-4 rounded-full" style={{
                 background: preset.accentPrimary,
                 boxShadow: token.baseTheme === key ? `0 0 8px ${preset.accentPrimary}` : 'none',
               }} />
               <span className="text-[8px] font-black uppercase tracking-widest" style={{
-                color: token.baseTheme === key ? preset.accentPrimary : 'rgba(255,255,255,0.3)',
+                color: token.baseTheme === key ? preset.accentPrimary : 'var(--pwa-text-3)',
               }}>
                 {preset.name}
               </span>
@@ -526,9 +526,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           <button key={id} onClick={() => setTab(id)}
             className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
             style={{
-              background: tab === id ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.04)',
-              color:       tab === id ? '#60a5fa' : 'rgba(255,255,255,0.35)',
-              border:      `1px solid ${tab === id ? 'rgba(59,130,246,0.4)' : 'rgba(255,255,255,0.07)'}`,
+              background: tab === id ? 'rgba(59,130,246,0.2)' : 'var(--pwa-surface)',
+              color:       tab === id ? '#60a5fa' : 'var(--pwa-text-3)',
+              border:      `1px solid ${tab === id ? 'rgba(59,130,246,0.4)' : 'var(--pwa-border-soft)'}`,
             }}>
             {label}
           </button>
@@ -569,7 +569,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
         {tab === 'sekiller' && (
           <>
             <div className="p-3 rounded-2xl flex flex-col gap-4"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
               <SectionTitle>Köşe Yuvarlaklığı</SectionTitle>
               <Slider label="Kart"         value={token.radiusCard} min={0} max={40} unit="px" onChange={(v) => patch({ radiusCard: v })} />
               <Slider label="Buton"        value={token.radiusBtn}  min={0} max={28} unit="px" onChange={(v) => patch({ radiusBtn: v })} />
@@ -586,9 +586,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                 ].map(({ label, icon, r }) => (
                   <button key={label} onClick={() => patch(r)}
                     className="flex flex-col items-center gap-1 py-3 rounded-xl transition-all active:scale-95"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
                     <span className="text-xl">{icon}</span>
-                    <span className="text-[9px] font-bold text-white/50">{label}</span>
+                    <span className="text-[9px] font-bold pwa-text-2">{label}</span>
                   </button>
                 ))}
               </div>
@@ -600,7 +600,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
         {tab === 'efektler' && (
           <div className="flex flex-col gap-5">
             <div className="p-3 rounded-2xl flex flex-col gap-4"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
               <SectionTitle>Cam / Blur Efekti</SectionTitle>
               <Slider label="Bulanıklık"         value={token.cardBlurPx}    min={0} max={40} unit="px" onChange={(v) => patch({ cardBlurPx: v })} />
               <Slider label="Parlaklık Yoğunluğu" value={token.glowIntensity} min={0} max={100} unit="%" onChange={(v) => patch({ glowIntensity: v })} />
@@ -616,9 +616,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                   <button key={label}
                     onClick={() => patch({ cardBlurPx: blur, glowIntensity: glow })}
                     className="flex flex-col items-center gap-1 py-3 rounded-xl transition-all active:scale-95"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <span className="text-[9px] font-bold text-white/50 text-center leading-snug whitespace-pre-line">{label}</span>
-                    <span className="text-[8px] text-white/25">{blur}px / %{glow}</span>
+                    style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
+                    <span className="text-[9px] font-bold pwa-text-2 text-center leading-snug whitespace-pre-line">{label}</span>
+                    <span className="text-[8px] pwa-text-3">{blur}px / %{glow}</span>
                   </button>
                 ))}
               </div>
@@ -636,13 +636,13 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                   <button key={id} onClick={() => patch({ fontFamily: id })}
                     className="flex items-center justify-between px-3 py-3 rounded-xl transition-all active:scale-[0.98]"
                     style={{
-                      background: token.fontFamily === id ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.04)',
-                      border: `1.5px solid ${token.fontFamily === id ? 'rgba(59,130,246,0.4)' : 'rgba(255,255,255,0.07)'}`,
+                      background: token.fontFamily === id ? 'rgba(59,130,246,0.12)' : 'var(--pwa-surface)',
+                      border: `1.5px solid ${token.fontFamily === id ? 'rgba(59,130,246,0.4)' : 'var(--pwa-border-soft)'}`,
                     }}>
-                    <span className="text-xs text-white/60">{label}</span>
+                    <span className="text-xs pwa-text-2">{label}</span>
                     <span className="text-sm" style={{
                       fontFamily: FONT_CSS[id],
-                      color: token.fontFamily === id ? '#60a5fa' : 'rgba(255,255,255,0.3)',
+                      color: token.fontFamily === id ? '#60a5fa' : 'var(--pwa-text-3)',
                     }}>
                       CAROS
                     </span>
@@ -651,7 +651,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               </div>
             </div>
             <div className="p-3 rounded-2xl flex flex-col gap-4"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
               <SectionTitle>Yazı Ayarları</SectionTitle>
               <Slider label="Kalınlık"     value={token.fontWeight}    min={400} max={900} step={100} unit=""   onChange={(v) => patch({ fontWeight: v })} />
               <Slider label="Harf Aralığı" value={token.letterSpacing} min={0}   max={6}   step={0.5} unit="px" onChange={(v) => patch({ letterSpacing: v })} />
@@ -664,13 +664,13 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           <>
             <button onClick={() => patch({ iconNav: token.accentPrimary, iconMedia: token.accentPrimary, iconDock: token.accentPrimary })}
               className="w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-[0.97]"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}>
+              style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}>
               Tümünü Ana Renge Eşitle
             </button>
             <ColorPicker label="Navigasyon İkonları" value={token.iconNav}   presets={ACCENT_COLORS} onChange={(v) => patch({ iconNav: v })} />
             <ColorPicker label="Medya İkonları"      value={token.iconMedia} presets={ACCENT_COLORS} onChange={(v) => patch({ iconMedia: v })} />
             <ColorPicker label="Dock İkonları"       value={token.iconDock}  presets={ACCENT_COLORS} onChange={(v) => patch({ iconDock: v })} />
-            <div className="p-3 rounded-2xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="p-3 rounded-2xl" style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
               <SectionTitle>İkon Önizlemesi</SectionTitle>
               <div className="flex items-center justify-around py-2">
                 {[
@@ -685,7 +685,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                         <path d={path} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
-                    <span className="text-[8px] font-bold" style={{ color: 'rgba(255,255,255,0.3)' }}>{label}</span>
+                    <span className="text-[8px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>{label}</span>
                   </div>
                 ))}
               </div>
