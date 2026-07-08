@@ -11,6 +11,7 @@
  * var'larını set eder (rastgele DOM/JS yok); fail-soft.
  */
 import { useLayoutStore } from '../store/useLayoutStore';
+import { useCarTheme, type CarTheme } from '../store/useCarTheme';
 
 const TRUSTED = [
   /^https:\/\/carospro\.com$/,
@@ -33,11 +34,18 @@ export function initThemePreviewBridge(): void {
       const root = document.documentElement;
       const vars = data.vars;
       if (vars && typeof vars === 'object') {
+        // Baz tema → gerçek kanal: useCarTheme.setTheme (React layout'u yeniden
+        // seçer + data-theme uygular). Salt data-theme setAttribute layout'u
+        // değiştirmez (store'dan okunur) — bu yüzden store'a yazıyoruz.
+        const base = (vars as Record<string, unknown>).__baseTheme;
+        if (typeof base === 'string') {
+          try { useCarTheme.getState().setTheme(base as CarTheme); } catch { /* fail-soft */ }
+        }
+        // İnce token'lar (accent/bg/radius/font…) — CSS var'larını da uygula
+        // (bazı bileşenler var kullanır; layout'lar sabit palet → kısmi yansır).
         for (const [k, v] of Object.entries(vars)) {
           if (k.startsWith('--')) root.style.setProperty(k, String(v));
         }
-        const base = (vars as Record<string, unknown>).__baseTheme;
-        if (typeof base === 'string') root.setAttribute('data-theme', base);
       }
       if (data.layout) {
         try { useLayoutStore.getState().applyIntent(data.layout); } catch { /* fail-soft */ }

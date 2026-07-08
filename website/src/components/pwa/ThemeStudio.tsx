@@ -242,7 +242,6 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const [sync,    setSync]    = useState<'idle' | 'sending' | 'ok' | 'fail'>('idle');
 
   const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestRef = useRef<Record<string, string>>({});
   const mountedRef = useRef(true);
 
   // Gerçek uygulama iframe önizlemesi (canlı tema postMessage ile)
@@ -290,21 +289,10 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     tokenRef.current = next;
     setToken({ ...next });
     save(next);
-    postPreview(next);   // iframe önizlemesine anında yansıt
-
-    if (!vehicleId) return;
-    latestRef.current = tokenToVars(next);
-    if (timerRef.current) return;
-    timerRef.current = setTimeout(async () => {
-      timerRef.current = null;
-      if (!mountedRef.current) return;
-      setSync('sending');
-      const result = await sendCommand(vehicleId, 'theme_change', { themeVars: latestRef.current });
-      if (!mountedRef.current) return;
-      setSync(result.ok ? 'ok' : 'fail');
-      setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 2000);
-    }, 150);
-  }, [vehicleId, postPreview]);
+    // YALNIZ iframe önizlemesine yansıt — araca DOKUNMA. Araç ancak
+    // kullanıcı "Araca Gönder" deyince değişir (sendToVehicle).
+    postPreview(next);
+  }, [postPreview]);
 
   const applyPreset = useCallback((key: string) => {
     const preset = PRESETS[key];
