@@ -33,8 +33,9 @@ export const metadata: Metadata = {
     title: 'CLP Dashboard',
   },
   icons: {
-    icon: '/icons/icon-192.png',
-    apple: '/icons/icon-192.png',
+    // public/'te yalnız SVG var; .png referansı 404 veriyordu (konsol hatası → BP).
+    icon: '/icons/icon-192.svg',
+    apple: '/icons/icon-192.svg',
   },
   // Sayfa zaten Türkçe; tarayıcı çevirisi DOM'u bozup React'i çökertiyor
   // (removeChild NotFoundError). Çeviriyi tamamen devre dışı bırak.
