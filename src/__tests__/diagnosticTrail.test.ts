@@ -55,7 +55,7 @@ import {
   stopVehicleIntelligenceService,
 } from '../platform/vehicleIntelligenceService';
 import { connectivityService } from '../platform/connectivityService';
-import { _setConnStateForTest, _runHandshakeForTest } from '../platform/obdService';
+import { _setConnStateForTest, _runHandshakeForTest, _runProtocolTrailForTest } from '../platform/obdService';
 
 /* ── Minimal in-memory IndexedDB shim (connectivityService drain'i jsdom'da IDB
       ister; yalnız kullandığı yüzey — soak.telemetry-connectivity.test.ts deseni). */
@@ -437,5 +437,51 @@ describe('OBD handshake milestone eventleri', () => {
     // Reject error'ı içindeki VIN/MAC hiçbir event'e sızmadı (statik etiket → değer taşımaz)
     expect(JSON.stringify(getOwnTrail())).not.toContain('WVWZZZ1JZXW000001');
     expect(JSON.stringify(getOwnTrail())).not.toContain('AA:BB:CC:DD:EE:FF');
+  });
+});
+
+/* ── Black Box v2 — OBD protocol milestone eventleri (Patch 4B) ───── */
+
+describe('OBD protocol milestone eventleri', () => {
+  beforeEach(() => { resetOwnTrail(); });
+
+  const obdLabels = (): string[] =>
+    getOwnTrail().filter((e) => e.kind === 'obd').map((e) => e.label);
+
+  // PROTOCOL_CYCLE.length production'da 6 (undefined,'6','5','4','3','7').
+  const CYCLE_LEN = 6;
+
+  it('protocol verified → obd:protocol:verified', () => {
+    _runProtocolTrailForTest('verified');
+    expect(obdLabels()).toContain('obd:protocol:verified');
+  });
+
+  it('protocol fallback → obd:protocol:fallback (döngü tükenmedi)', () => {
+    _runProtocolTrailForTest('advance', 1, CYCLE_LEN); // index 1 < 6 → hâlâ aday var
+    expect(obdLabels()).toContain('obd:protocol:fallback');
+    expect(obdLabels()).not.toContain('obd:protocol:failed');
+  });
+
+  it('protocol failed → obd:protocol:failed (döngü tükendi)', () => {
+    _runProtocolTrailForTest('advance', CYCLE_LEN, CYCLE_LEN); // index 6 >= 6 → tüm adaylar denendi
+    expect(obdLabels()).toContain('obd:protocol:failed');
+    expect(obdLabels()).not.toContain('obd:protocol:fallback');
+  });
+
+  it('etiketler statik + detail undefined + protokol no/adı payload\'a girmiyor', () => {
+    _runProtocolTrailForTest('verified');
+    _runProtocolTrailForTest('advance', 2, CYCLE_LEN);   // fallback
+    _runProtocolTrailForTest('advance', CYCLE_LEN, CYCLE_LEN); // failed
+    const obdEvents = getOwnTrail().filter((e) => e.kind === 'obd');
+    expect(obdEvents.length).toBe(3);
+    for (const e of obdEvents) {
+      expect(e.label).toMatch(/^obd:protocol:(verified|fallback|failed)$/);
+      expect(e.detail).toBeUndefined();
+    }
+    // Statik etiket → protokol numarası ('6','5',…) veya adı (ISO/KWP/CAN) sızmaz.
+    const flat = JSON.stringify(obdEvents);
+    for (const proto of ['ISO', 'KWP', 'CAN', 'ATSP', 'protocol 6', '"6"']) {
+      expect(flat).not.toContain(proto);
+    }
   });
 });
