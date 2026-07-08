@@ -44,8 +44,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Yakınlaştırma serbest (WCAG 1.4.4) — maximum-scale/user-scalable kilidi kaldırıldı.
   viewportFit: 'cover',
   // theme-color statik değil — no-flash script aktif temaya göre <meta>'yı kurar.
 };
