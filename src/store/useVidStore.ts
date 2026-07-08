@@ -76,15 +76,19 @@ function clamp01(val: number): number {
 }
 
 /**
- * Sığ birleştirme: patch içindeki YALNIZ undefined/null OLMAYAN alanları base'e
- * kopyalar (yanlışlıkla alan sıfırlamayı önler). Derin kopya yok — performans dostu;
- * her grup düz nesne olduğu için sığ birleştirme yeterlidir.
+ * Sığ birleştirme: patch içindeki alanları base'e kopyalar. Derin kopya yok —
+ * performans dostu; her grup düz nesne olduğu için sığ birleştirme yeterlidir.
+ *
+ * Filtre kuralı: YALNIZ `undefined` atlanır → Partial'da VERİLMEYEN alan mevcut
+ * durumu clobber etmez. `null` ise KASITLI temizleme sinyalidir (ör. adaptör
+ * değişiminde `{ lastAddress: null }`) → uygulanır. Bu ayrım, mirror katmanının
+ * (Sprint 2) hem yazma hem temizleme aynalamasını doğru yansıtmasını sağlar.
  */
 function mergeDefined<T extends object>(base: T, patch: Partial<T>): T {
   const out: T = { ...base };
   for (const key of Object.keys(patch) as Array<keyof T>) {
     const value = patch[key];
-    if (value !== undefined && value !== null) {
+    if (value !== undefined) {
       out[key] = value as T[keyof T];
     }
   }

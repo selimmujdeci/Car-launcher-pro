@@ -16,6 +16,7 @@
 
 import { CarLauncher } from './nativePlugin';
 import { seedDefaultProfile } from './vehicleProfileService';
+import { useVidStore } from '../store/useVidStore';
 
 /* ── Platform tipleri ──────────────────────────────────────── */
 
@@ -142,6 +143,32 @@ function detectFromPackageList(packageNames: Set<string>): HeadUnitPlatform {
   return 'stock';
 }
 
+/** UserAgent'tan Chrome ANA sürüm numarasını eler; bulunamazsa 0 (fail-soft). */
+function parseChromeMajorVersion(): number {
+  try {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    const m = /Chrome\/(\d+)/.exec(ua);
+    return m ? Number(m[1]) : 0;
+  } catch { return 0; }
+}
+
+/**
+ * VID aynalama (Sprint 2 Mirror Layer, fail-soft): tespit edilen head unit
+ * platformu + kabiliyetini VID store'a yansıtır. Aynalama tek doğru kaynağı
+ * (platform tespiti) DEĞİŞTİRMEZ ve HİÇBİR koşulda tespit akışını bozmaz —
+ * hataları kendi try/catch'inde yutulur (aksi halde dış catch stock'a düşürürdü).
+ */
+function mirrorHeadUnitToVid(platform: HeadUnitPlatform, pkgSet: Set<string>): void {
+  try {
+    useVidStore.getState().updateHeadUnitInfo({
+      detectedPlatform: platform,
+      installedPackages: Array.from(pkgSet),
+      webViewChromeVersion: parseChromeMajorVersion(),
+      isPlayServicesAvailable: pkgSet.has('com.google.android.gms'),
+    });
+  } catch { /* mirror fail-soft — tespit akışını asla etkileme */ }
+}
+
 /**
  * Cihazda yüklü paketleri tarayarak head unit platformunu tespit eder.
  * Sonuç localStorage'a cache'lenir; bir sonraki açılışta anında döner.
@@ -163,11 +190,15 @@ export async function initPlatformDetection(): Promise<PlatformInfo> {
     saveToCache(info);
     // Platforma göre varsayılan araç profili oluştur (ilk kurulum)
     seedDefaultProfile(platform);
+    // VID aynalama (fail-soft) — platform bilgisi başarıyla elde edildikten sonra.
+    mirrorHeadUnitToVid(platform, pkgSet);
     return info;
   } catch {
     // Native yoksa veya hata varsa stock döner
     const info: PlatformInfo = { platform: 'stock', ...PLATFORM_APPS.stock };
     _platformInfo = info;
+    // VID aynalama (fail-soft) — native tespit başarısız olsa da store güncel kalsın.
+    mirrorHeadUnitToVid('stock', new Set());
     return info;
   }
 }
