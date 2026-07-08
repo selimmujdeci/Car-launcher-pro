@@ -43,6 +43,7 @@ import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
 import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
+import { pushTrail } from './diagnosticTrailCore';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
@@ -238,6 +239,23 @@ function _notify(): void {
  * etkisi yoktur — yalnızca recordDiag çağırır. scanning/connecting/initializing
  * modal tarafında (transport bilgisiyle) kaydedilir; burada yalnız sonuçlar.
  */
+/**
+ * Black Box v2 (Patch 3) — OBD bağlantı yaşam döngüsü timeline'ı. YALNIZ statik
+ * milestone etiketi (detail yok, PII yok: VIN/MAC/cihaz adı/transport adresi/GPS
+ * ASLA gönderilmez). Fail-soft: iz OBD akışını hiçbir durumda etkilemez.
+ *
+ * `_trailInReconnect`: SALT-TIMELINE gözlem bayrağı — reconnect turu 'reconnecting'
+ * ile başlar, ara durumlardan (connecting/initializing) geçerek 'connected'e ulaştığında
+ * "reconnect success"i "ilk connect success"ten ayırmak için taşınır. State machine'e,
+ * reconnect algoritmasına veya timeout mantığına HİÇBİR etkisi yoktur (yalnız burada
+ * okunur/yazılır).
+ */
+let _trailInReconnect = false;
+
+function _pushObdTrail(label: string): void {
+  try { pushTrail('obd', label); } catch { /* iz OBD akışını asla bozmaz */ }
+}
+
 function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState): void {
   switch (next) {
     case 'connected':
@@ -247,6 +265,9 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlandı — canlı veri akıyor.',
         technicalMessage: `connectionState ${prev}→connected`,
       });
+      // Reconnect turundaysak reconnect:success, değilse ilk connect:success.
+      _pushObdTrail(_trailInReconnect ? 'obd:reconnect:success' : 'obd:connect:success');
+      _trailInReconnect = false;
       break;
     case 'reconnecting':
       recordDiag({
@@ -254,6 +275,9 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlantı koptu, yeniden deneniyor…',
         technicalMessage: `connectionState ${prev}→reconnecting`,
       });
+      // 'reconnecting'e İLK geçiş = reconnect başlangıcı (_merge aynı-durumu dedup eder).
+      _trailInReconnect = true;
+      _pushObdTrail('obd:reconnect:start');
       break;
     case 'error':
       recordDiag({
@@ -261,6 +285,9 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlantı hatası oluştu.',
         technicalMessage: `connectionState ${prev}→error`,
       });
+      // error = üstel reconnect turu tükendi → yalnız reconnect bağlamında failed.
+      if (_trailInReconnect) _pushObdTrail('obd:reconnect:failed');
+      _trailInReconnect = false;
       break;
     case 'idle':
       // Aktif bir durumdan idle'a düşüş = gerçek disconnect (boot-idle değil).
@@ -269,9 +296,14 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlantı kapatıldı.',
         technicalMessage: `connectionState ${prev}→idle`,
       });
+      _pushObdTrail('obd:disconnect');
+      _trailInReconnect = false;
       break;
     default:
-      break; // scanning / connecting / initializing → modal kaydeder
+      // scanning / connecting / initializing → modal kaydeder. idle'dan İLK çıkış =
+      // yeni bir connect başlangıcı (reconnect ara-geçişleri prev!==idle → tetiklemez).
+      if (prev === 'idle') { _trailInReconnect = false; _pushObdTrail('obd:connect:start'); }
+      break;
   }
 }
 
@@ -1338,6 +1370,17 @@ export function setOBDTestOverride(data: Partial<OBDData> | null): void {
   const snap: OBDData = data ? { ..._current, ...data } : { ..._current };
   _dataListeners.forEach((fn) => fn(snap));
   _storeListeners.forEach((fn) => fn());
+}
+
+/**
+ * DEV only — connectionState geçişini test için sürer (_merge üzerinden, böylece
+ * gerçek milestone/timeline gözlemcisi tetiklenir). Reconnect algoritması, timer'lar
+ * ve state machine'e DOKUNMAZ; yalnızca mevcut _merge giriş noktasını kullanır.
+ * Production APK'da no-op (import.meta.env.DEV tree-shaking ile elenir).
+ */
+export function _setConnStateForTest(state: OBDConnectionState): void {
+  if (!import.meta.env.DEV) return;
+  _merge({ connectionState: state });
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */

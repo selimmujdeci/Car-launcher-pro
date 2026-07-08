@@ -24,7 +24,12 @@ vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => ({
     },
   },
 }));
-vi.mock('../platform/obdService', () => ({ getOBDStatusSnapshot: () => ({ source: obd.source }) }));
+// Partial mock: GERÇEK obdService (bağlantı milestone mantığı) korunur; yalnız
+// getOBDStatusSnapshot diagnosticTrail'in OBD-kaynak gözlemi için override edilir.
+vi.mock('../platform/obdService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../platform/obdService')>();
+  return { ...actual, getOBDStatusSnapshot: () => ({ source: obd.source }) };
+});
 vi.mock('../platform/crashLogger', () => ({ getErrorLog: () => errs.list, logError: vi.fn() }));
 vi.mock('../platform/uiActivityRecorder', () => ({ getUiActivitySnapshot: () => ({ recent: [] }) }));
 vi.mock('@capacitor/network', () => ({
@@ -50,6 +55,7 @@ import {
   stopVehicleIntelligenceService,
 } from '../platform/vehicleIntelligenceService';
 import { connectivityService } from '../platform/connectivityService';
+import { _setConnStateForTest } from '../platform/obdService';
 
 /* ── Minimal in-memory IndexedDB shim (connectivityService drain'i jsdom'da IDB
       ister; yalnız kullandığı yüzey — soak.telemetry-connectivity.test.ts deseni). */
@@ -294,6 +300,87 @@ describe('Network online/offline eventleri', () => {
       if (!e.label.startsWith('network:')) continue;
       expect(e.label).toMatch(/^network:(online|offline)$/);
       expect(e.kind).toBe('action');
+      expect(e.detail).toBeUndefined();
+    }
+  });
+});
+
+/* ── Black Box v2 — OBD bağlantı yaşam döngüsü eventleri (Patch 3) ── */
+
+describe('OBD bağlantı yaşam döngüsü eventleri', () => {
+  beforeEach(() => {
+    // Normalize: bilinen bir geçişle 'idle'a in → _trailInReconnect sıfırlanır;
+    // sonra izi temizle (yalnız test senaryosunun eventlerini izole gör).
+    _setConnStateForTest('connecting');
+    _setConnStateForTest('idle');
+    resetOwnTrail();
+  });
+
+  const obdLabels = (): string[] =>
+    getOwnTrail().filter((e) => e.kind === 'obd').map((e) => e.label);
+  const count = (label: string): number => obdLabels().filter((l) => l === label).length;
+
+  it('connect başlangıcı → obd:connect:start', () => {
+    _setConnStateForTest('scanning'); // idle → scanning
+    expect(obdLabels()).toContain('obd:connect:start');
+  });
+
+  it('connect success → obd:connect:success (reconnect değil)', () => {
+    _setConnStateForTest('scanning');    // idle → scanning (connect:start)
+    _setConnStateForTest('connecting');  // ara geçiş
+    _setConnStateForTest('connected');   // → connect:success
+    expect(obdLabels()).toContain('obd:connect:success');
+    expect(obdLabels()).not.toContain('obd:reconnect:success');
+  });
+
+  it('disconnect → obd:disconnect', () => {
+    _setConnStateForTest('connected'); // idle → connected
+    _setConnStateForTest('idle');      // connected → idle (disconnect)
+    expect(obdLabels()).toContain('obd:disconnect');
+  });
+
+  it('reconnect start → obd:reconnect:start', () => {
+    _setConnStateForTest('connected');     // canlı
+    _setConnStateForTest('reconnecting');  // kopma → reconnect:start
+    expect(obdLabels()).toContain('obd:reconnect:start');
+  });
+
+  it('reconnect success → obd:reconnect:success (connect:success DEĞİL)', () => {
+    _setConnStateForTest('connected');    // baseline canlı bağlantı (connect:success)
+    resetOwnTrail();                      // kurulum eventini temizle → yalnız reconnect turunu gör
+    _setConnStateForTest('reconnecting'); // reconnect:start
+    _setConnStateForTest('connecting');   // ara geçiş (reconnect turu sürüyor)
+    _setConnStateForTest('connected');    // → reconnect:success
+    expect(obdLabels()).toContain('obd:reconnect:success');
+    expect(count('obd:connect:success')).toBe(0); // reconnect turu connect:success üretmez
+  });
+
+  it('reconnect failed → obd:reconnect:failed', () => {
+    _setConnStateForTest('connected');
+    _setConnStateForTest('reconnecting'); // reconnect:start
+    _setConnStateForTest('error');        // tur tükendi → reconnect:failed
+    expect(obdLabels()).toContain('obd:reconnect:failed');
+  });
+
+  it('aynı state tekrarı gereksiz event ÜRETMEZ (yalnız gerçek geçişte)', () => {
+    _setConnStateForTest('scanning');    // connect:start (1)
+    _setConnStateForTest('scanning');    // aynı state → _merge dedup, event yok
+    _setConnStateForTest('scanning');
+    expect(count('obd:connect:start')).toBe(1);
+
+    _setConnStateForTest('connected');   // connect:success (1)
+    _setConnStateForTest('connected');   // aynı state → event yok
+    expect(count('obd:connect:success')).toBe(1);
+  });
+
+  it('milestone etiketleri statik + PII\'siz (VIN/MAC/cihaz adı/adres yok)', () => {
+    _setConnStateForTest('scanning');
+    _setConnStateForTest('connected');
+    _setConnStateForTest('reconnecting');
+    _setConnStateForTest('error');
+    for (const e of getOwnTrail()) {
+      if (e.kind !== 'obd') continue;
+      expect(e.label).toMatch(/^obd:(connect:start|connect:success|disconnect|reconnect:start|reconnect:success|reconnect:failed)$/);
       expect(e.detail).toBeUndefined();
     }
   });
