@@ -66,17 +66,20 @@ function buildPal(night: boolean): Pal {
         // en temiz tema. Nötr antrasit taban + ÇOK HAFİF mavi-grafit geçiş (üst-sağ küçük
         // glow). Horizon'ın laciverdinden ayrışsın diye taban nötr gri tutuldu; mavi yalnız
         // accent + minik parıltıda. Kurumsal, profesyonel, temiz.
-        bg: 'radial-gradient(115% 85% at 72% -10%, #162232 0%, transparent 48%), linear-gradient(160deg,#0c0d11 0%,#101117 45%,#0a0b0e 100%)',
-        card: 'rgba(30,34,43,0.74)',
+        // Tema Stüdyo — özelleştirme yoksa fallback = mevcut hex/gradient (görünüm AYNI);
+        // PWA `--bg-primary`/`--bg-card`/`--text-primary`/`--text-secondary`/`--accent-primary`
+        // yollarsa CANLI yansır. Alfa gereken accent tonları --accent-rgb üzerinden (rgba(var(...))).
+        bg: 'var(--bg-primary, radial-gradient(115% 85% at 72% -10%, #162232 0%, transparent 48%), linear-gradient(160deg,#0c0d11 0%,#101117 45%,#0a0b0e 100%))',
+        card: 'var(--bg-card, rgba(30,34,43,0.74))',
         cardSolid: 'rgba(17,22,34,0.94)',
         border: '1px solid rgba(255,255,255,0.07)',
         inkCritical: '#FBFCFF',
-        ink: '#eef2f8',
-        ink2: 'rgba(225,231,242,0.66)',
+        ink: 'var(--text-primary, #eef2f8)',
+        ink2: 'var(--text-secondary, rgba(225,231,242,0.66))',
         ink3: 'rgba(225,231,242,0.40)',
-        accent: '#5b8dff',
-        accentSoft: 'rgba(91,141,255,0.18)',
-        accentGlow: 'rgba(91,141,255,0.40)',
+        accent: 'var(--accent-primary, #5b8dff)',
+        accentSoft: 'rgba(var(--accent-rgb, 91,141,255), 0.18)',
+        accentGlow: 'rgba(var(--accent-rgb, 91,141,255), 0.40)',
         good: '#34d399',
         shadow: '0 18px 48px -22px rgba(0,0,0,0.72), 0 2px 10px rgba(0,0,0,0.45)',
         dockBg: 'rgba(16,21,33,0.62)',
@@ -87,22 +90,22 @@ function buildPal(night: boolean): Pal {
         night: false,
         // Hafif mavimsi serin zemin: sol-altta yumuşak mavi wash + sağ-üstte ışık.
         bg:
-          'radial-gradient(88% 76% at 7% 113%, rgba(47,107,255,0.16) 0%, rgba(47,107,255,0.05) 32%, transparent 58%),' +
+          'var(--bg-primary, radial-gradient(88% 76% at 7% 113%, rgba(47,107,255,0.16) 0%, rgba(47,107,255,0.05) 32%, transparent 58%),' +
           'radial-gradient(120% 88% at 80% -12%, rgba(236,243,253,0.95) 0%, transparent 54%),' +
-          'linear-gradient(160deg,#dbe4f1 0%,#e7eef7 46%,#e0e9f4 100%)',
+          'linear-gradient(160deg,#dbe4f1 0%,#e7eef7 46%,#e0e9f4 100%))',
         // Kart yüzeyleri neredeyse opak (güneşte saydamlık kontrastı düşürür) + hafif mavimsi
-        card: 'linear-gradient(150deg, rgba(249,251,255,0.97) 0%, rgba(234,242,253,0.96) 100%)',
+        card: 'var(--bg-card, linear-gradient(150deg, rgba(249,251,255,0.97) 0%, rgba(234,242,253,0.96) 100%))',
         cardSolid: 'linear-gradient(150deg, #f8fbff 0%, #e9f1fd 100%)',
         border: '1px solid rgba(47,107,255,0.18)',
         // Güneş okunabilirliği (WCAG AAA / ISO 15008): tam-opak koyu mürekkep,
         // ikincil/üçüncül yazılar da yüksek kontrast (sönük gri yok).
         inkCritical: '#05090F',
-        ink: '#0c1420',
-        ink2: 'rgba(16,26,42,0.88)',
+        ink: 'var(--text-primary, #0c1420)',
+        ink2: 'var(--text-secondary, rgba(16,26,42,0.88))',
         ink3: 'rgba(16,26,42,0.72)',
-        accent: '#2f6bff',
-        accentSoft: 'rgba(47,107,255,0.12)',
-        accentGlow: 'rgba(47,107,255,0.28)',
+        accent: 'var(--accent-primary, #2f6bff)',
+        accentSoft: 'rgba(var(--accent-rgb, 47,107,255), 0.12)',
+        accentGlow: 'rgba(var(--accent-rgb, 47,107,255), 0.28)',
         good: '#0e9f6e',
         shadow: '0 14px 34px -16px rgba(40,70,120,0.30), 0 2px 8px rgba(40,70,120,0.10)',
         dockBg: 'linear-gradient(150deg, rgba(249,251,255,0.84) 0%, rgba(232,241,253,0.80) 100%)',
@@ -206,8 +209,8 @@ const GaugeCard = memo(function GaugeCard() {
         <svg viewBox="0 0 128 128" width="128" height="128" style={{ overflow: 'visible' }}>
           <path d={arc.track} fill="none" stroke={p.tile} strokeWidth="9" strokeLinecap="round" />
           {arc.fill && (
-            <path d={arc.fill} fill="none" stroke={p.accent} strokeWidth="9" strokeLinecap="round"
-              style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />
+            <path d={arc.fill} fill="none" strokeWidth="9" strokeLinecap="round"
+              style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -447,8 +450,8 @@ function VehicleSVG({ p }: { p: Pal }) {
           <stop offset="100%" stopColor={bodyDeep} />
         </linearGradient>
         <radialGradient id="proSuvGnd" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor={p.accent} stopOpacity="0.16" />
-          <stop offset="100%" stopColor={p.accent} stopOpacity="0" />
+          <stop offset="0%" style={{ stopColor: p.accent }} stopOpacity="0.16" />
+          <stop offset="100%" style={{ stopColor: p.accent }} stopOpacity="0" />
         </radialGradient>
       </defs>
       {/* zemin yansıması */}

@@ -91,9 +91,20 @@ const FONT_CSS: Record<string, string> = {
   sharetech: "'Share Tech Mono', monospace",
 };
 
+// Hex → "r, g, b" (araç tarafında rgba(var(--accent-rgb), a) ile alfa üretmek için).
+// Geçersiz/eksik hex'te fail-soft: nötr gri döner (BOŞ STRİNG DÖNME — CSS custom
+// property set edilip boş bırakılırsa var(--x, fallback) fallback'i DEVREYE GİRMEZ,
+// rgba() geçersiz olur ve tüm stil çöker; bu yüzden her zaman geçerli bir triplet).
+function hexToRgb(hex: string): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!m) return '128, 128, 128';
+  return `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`;
+}
+
 function tokenToVars(t: ThemeToken): Record<string, string> {
   return {
     '--accent-primary':      t.accentPrimary,
+    '--accent-rgb':          hexToRgb(t.accentPrimary),
     '--accent-secondary':    t.accentSecondary,
     '--pack-accent':         t.accentPrimary,
     '--premium-accent':      t.accentPrimary,
