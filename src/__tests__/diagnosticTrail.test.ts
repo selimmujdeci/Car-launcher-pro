@@ -56,6 +56,7 @@ import {
 } from '../platform/vehicleIntelligenceService';
 import { connectivityService } from '../platform/connectivityService';
 import { _setConnStateForTest, _runHandshakeForTest, _runProtocolTrailForTest } from '../platform/obdService';
+import { useVehicleIntelligenceStore } from '../store/useVehicleIntelligenceStore';
 
 /* ── Minimal in-memory IndexedDB shim (connectivityService drain'i jsdom'da IDB
       ister; yalnız kullandığı yüzey — soak.telemetry-connectivity.test.ts deseni). */
@@ -482,6 +483,91 @@ describe('OBD protocol milestone eventleri', () => {
     const flat = JSON.stringify(obdEvents);
     for (const proto of ['ISO', 'KWP', 'CAN', 'ATSP', 'protocol 6', '"6"']) {
       expect(flat).not.toContain(proto);
+    }
+  });
+});
+
+/* ── Black Box v2 — Diagnostic degraded / recovery eventleri (Patch 5A) ── */
+
+describe('Diagnostic degraded / recovery eventleri', () => {
+  afterEach(() => {
+    stopVehicleIntelligenceService();
+    useVehicleIntelligenceStore.getState().reset();
+    resetOwnTrail();
+  });
+
+  const errLabels = (): string[] =>
+    getOwnTrail().filter((e) => e.kind === 'error').map((e) => e.label);
+
+  it('ilk state event üretmez (ilk gözlem)', () => {
+    startVehicleIntelligenceService();
+    resetOwnTrail(); // start boot eventini temizle
+    // start sonrası İLK store değişimi → _prevDiagDegraded null → set, event YOK
+    useVehicleIntelligenceStore.getState().setDiagnosticState('MONITOR', 'MONITOR', false);
+    expect(errLabels()).not.toContain('diagnostic:degraded');
+    expect(errLabels()).not.toContain('diagnostic:recovered');
+  });
+
+  it('false → true degraded event üretir', () => {
+    startVehicleIntelligenceService();
+    const s = useVehicleIntelligenceStore.getState();
+    s.setDiagnosticState('MONITOR', 'MONITOR', false); // ilk gözlem (false)
+    resetOwnTrail();
+    s.setDiagnosticState('STRESSED', 'STRESSED', true); // false → true
+    expect(errLabels()).toContain('diagnostic:degraded');
+    expect(errLabels()).not.toContain('diagnostic:recovered');
+  });
+
+  it('true → false recovered event üretir', () => {
+    startVehicleIntelligenceService();
+    const s = useVehicleIntelligenceStore.getState();
+    s.setDiagnosticState('MONITOR', 'MONITOR', false); // ilk gözlem
+    s.setDiagnosticState('STRESSED', 'STRESSED', true); // degraded
+    resetOwnTrail();
+    s.setDiagnosticState('HEALTHY', 'HEALTHY', false);  // true → false
+    expect(errLabels()).toContain('diagnostic:recovered');
+    expect(errLabels()).not.toContain('diagnostic:degraded');
+  });
+
+  it('aynı state tekrarı event üretmez', () => {
+    startVehicleIntelligenceService();
+    const s = useVehicleIntelligenceStore.getState();
+    s.setDiagnosticState('MONITOR', 'MONITOR', false);  // ilk gözlem
+    s.setDiagnosticState('STRESSED', 'STRESSED', true); // degraded
+    resetOwnTrail();
+    s.setDiagnosticState('STRESSED', 'STRESSED', true);   // aynı true → event yok
+    s.setDiagnosticState('ATTENTION', 'ATTENTION', true); // hâlâ true → event yok
+    expect(errLabels()).not.toContain('diagnostic:degraded');
+    expect(errLabels()).not.toContain('diagnostic:recovered');
+  });
+
+  it('stop sonrası reset: yeni start ilk değeri tekrar event üretmez', () => {
+    startVehicleIntelligenceService();
+    let s = useVehicleIntelligenceStore.getState();
+    s.setDiagnosticState('MONITOR', 'MONITOR', false);
+    s.setDiagnosticState('STRESSED', 'STRESSED', true); // degraded
+    stopVehicleIntelligenceService();                   // _prevDiagDegraded = null
+    resetOwnTrail();
+
+    // Yeni start — store hâlâ degraded=true; ilk gözlem event ÜRETMEMELİ
+    startVehicleIntelligenceService();
+    s = useVehicleIntelligenceStore.getState();
+    s.setDiagnosticState('STRESSED', 'STRESSED', true); // yeni turda ilk gözlem → event YOK
+    expect(errLabels()).not.toContain('diagnostic:degraded');
+    expect(errLabels()).not.toContain('diagnostic:recovered');
+  });
+
+  it('etiketler statik + PII\'siz + detail undefined', () => {
+    startVehicleIntelligenceService();
+    const s = useVehicleIntelligenceStore.getState();
+    s.setDiagnosticState('MONITOR', 'MONITOR', false);  // ilk gözlem
+    s.setDiagnosticState('STRESSED', 'STRESSED', true); // degraded
+    s.setDiagnosticState('HEALTHY', 'HEALTHY', false);  // recovered
+    const errEvents = getOwnTrail().filter((e) => e.kind === 'error');
+    expect(errEvents.length).toBeGreaterThan(0);
+    for (const e of errEvents) {
+      expect(e.label).toMatch(/^diagnostic:(degraded|recovered)$/);
+      expect(e.detail).toBeUndefined();
     }
   });
 });
