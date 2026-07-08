@@ -48,6 +48,7 @@ import {
 } from './diagnosticSections';
 import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
 import { useVidStore } from '../store/useVidStore';
+import { getReplayData } from './security/blackBoxService';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -359,8 +360,9 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
   const versionCode = await getCurrentVersionCode().catch(() => 0);
 
   // Son 15 hata (genişlik — eskiden 5) + kısaltılmış stack (ilk kare; PII'siz —
-  // _maskString VIN/MAC/koordinat/token maskeler). replayBuffer (kara kutu:
-  // konum içerir) yine bilinçli DIŞARIDA.
+  // _maskString VIN/MAC/koordinat/token maskeler). Not: ham 10Hz kaza buffer'ı
+  // (lat/lng slotları içerir) yine bilinçli DIŞARIDA; aşağıda ayrı `replayBuffer`
+  // bölümü YALNIZ konum-içermeyen getReplayData() 1Hz ring'ini taşır.
   const entries    = getErrorLog();
   const lastErrors = entries.slice(-15).map((e) => ({
     ts:       e.ts,
@@ -458,6 +460,11 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     // VID aynası — araç/head unit/OBD adaptör/telemetri özeti. EXPLICIT ALLOWLIST
     // (ham VIN/MAC/cihaz adı/uygulama listesi yapısal olarak dışarıda); fail-soft.
     vidMirror: _safeSection(_buildVidMirror),
+    // Kara Kutu replay — son 1Hz sistem-durumu ring'i (post-mortem). getReplayData()
+    // KONUM-İÇERMEYEN varyanttır (lat/lng/adres yapısal olarak yok; yalnız hız/rpm/
+    // vites/yakıt + worker durumu + termal/bellek + son intent). En yeni 20 örnek;
+    // _deepSanitize son savunma (DENY_KEYS + VIN/MAC/koordinat/token maskesi). Fail-soft.
+    replayBuffer: _safeSection(() => getReplayData().slice(-20)),
   }, 0) as Record<string, unknown>;
 
   return payload;
