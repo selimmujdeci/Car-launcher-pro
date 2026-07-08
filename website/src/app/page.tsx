@@ -261,7 +261,7 @@ export default function Home() {
               { step: '03', title: 'Yönet', desc: 'Web panelinden tüm araç ve sürücüleri merkezi olarak takip et.' },
             ].map(({ step, title, desc }) => (
               <div key={step} className="p-8 rounded-2xl glass border border-line relative overflow-hidden">
-                <div className="absolute top-5 right-6 font-mono text-6xl font-bold text-ink-4 opacity-40">{step}</div>
+                <div aria-hidden="true" className="absolute top-5 right-6 font-mono text-6xl font-bold text-ink-4 opacity-40 select-none">{step}</div>
                 <div className="font-mono text-xs text-accent-ink mb-3">Adım {step}</div>
                 <h3 className="font-semibold text-ink text-lg mb-2">{title}</h3>
                 <p className="text-sm text-ink-3 leading-relaxed">{desc}</p>
