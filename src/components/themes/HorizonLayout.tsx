@@ -78,10 +78,13 @@ const NIGHT_H: Pal = {
   // CarOS Night Collection — Horizon = navigasyon odaklı SOĞUK grafit/mavi-gri
   // (BMW iDrive / Audi MMI). Zemin nötr-soğuk → harita ön planda, paneller geri
   // planda; turuncu accent rota vurgusu olarak soğuk zeminde pop yapar.
-  desk: 'radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%)',
-  panel: '#19233a', panelHi: '#222e49', panelLo: '#0f141f',
-  inkCritical: '#F2F6FE', ink: '#E2E8F3', ink2: '#94A0B8', ink3: '#556077',
-  accent: '#F2871C', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(242,135,28,.42)', accentInk: '#1A0D02',
+  // Tema Stüdyo — özelleştirme yoksa fallback = mevcut hex/gradient (görünüm AYNI);
+  // PWA `--bg-primary`/`--bg-card`/`--text-primary`/`--text-secondary`/`--accent-primary`/
+  // `--accent-rgb` yollarsa CANLI yansır.
+  desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%))',
+  panel: 'var(--bg-card, #19233a)', panelHi: '#222e49', panelLo: '#0f141f',
+  inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: '#556077',
+  accent: 'var(--accent-primary, #F2871C)', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), .42)', accentInk: '#1A0D02',
   edge: 'rgba(120,150,210,.14)', edgeHi: 'rgba(165,195,242,.20)',
   metal: 'linear-gradient(160deg,#283448 0%,#1a2336 55%,#111726 100%)',
   bolt: 'radial-gradient(circle at 36% 30%, #7d8db2, #283042 70%)',
@@ -94,10 +97,10 @@ const NIGHT_H: Pal = {
 
 const DAY_H: Pal = {
   night: false,
-  desk: 'radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%)',
-  panel: '#F2ECDE', panelHi: '#F8F3E9', panelLo: '#E2D8C4',
-  inkCritical: '#221C12', ink: '#2E281C', ink2: '#6C6250', ink3: '#9A907A',
-  accent: '#DA801A', accent2: '#E89A3C', accentDeep: '#A85C0C', accentGlow: 'rgba(218,128,26,.28)', accentInk: '#FFF6E9',
+  desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%))',
+  panel: 'var(--bg-card, #F2ECDE)', panelHi: '#F8F3E9', panelLo: '#E2D8C4',
+  inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: '#9A907A',
+  accent: 'var(--accent-primary, #DA801A)', accent2: '#E89A3C', accentDeep: '#A85C0C', accentGlow: 'rgba(var(--accent-rgb, 218,128,26), .28)', accentInk: '#FFF6E9',
   edge: 'rgba(92,72,38,.20)', edgeHi: 'rgba(255,250,238,.7)',
   metal: 'linear-gradient(160deg,#d3c9b3 0%,#b8ac90 55%,#9c9075 100%)',
   bolt: 'radial-gradient(circle at 36% 30%, #fdf8ec, #8d815f 72%)',
@@ -160,13 +163,13 @@ function HzMark({ size = 40 }: { size?: number }) {
   const p = usePalH();
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={{ flexShrink: 0, filter: 'drop-shadow(0 2px 3px rgba(0,0,0,.45))' }}>
-      <circle cx="24" cy="24" r="21" stroke={p.accent} strokeWidth="1.6" opacity="0.75" />
+      <circle cx="24" cy="24" r="21" strokeWidth="1.6" opacity="0.75" style={{ stroke: p.accent }} />
       <circle cx="24" cy="24" r="15" stroke={p.onDark2} strokeWidth="1" opacity="0.6" />
-      <path d="M24 3 L28 22 L24 24 L20 22 Z" fill={p.accent} />
+      <path d="M24 3 L28 22 L24 24 L20 22 Z" style={{ fill: p.accent }} />
       <path d="M24 45 L20 26 L24 24 L28 26 Z" fill={p.onDark2} />
       <path d="M45 24 L26 28 L24 24 L26 20 Z" fill={p.onDark2} />
       <path d="M3 24 L22 20 L24 24 L22 28 Z" fill={p.onDark2} />
-      <circle cx="24" cy="24" r="2.6" fill={p.accent} />
+      <circle cx="24" cy="24" r="2.6" style={{ fill: p.accent }} />
     </svg>
   );
 }
@@ -527,7 +530,7 @@ function HzVehicleRender() {
       <rect x="62" y="66" width="40" height="18" rx="2" fill="url(#hzGl)" />
       <path d="M110 50 L196 48 L210 64 L110 66 Z" fill="url(#hzGl)" />
       <path d="M50 96 C100 90 210 90 264 100" fill="none" stroke={p.night ? '#7a6f52' : '#a89770'} strokeWidth="2" opacity=".5" />
-      <rect x="258" y="92" width="12" height="10" rx="2" fill={p.accent} opacity=".9" />
+      <rect x="258" y="92" width="12" height="10" rx="2" opacity=".9" style={{ fill: p.accent }} />
       <circle cx="96" cy="116" r="23" fill="url(#hzTi)" /><circle cx="96" cy="116" r="10" fill="url(#hzRi)" />
       <circle cx="228" cy="116" r="23" fill="url(#hzTi)" /><circle cx="228" cy="116" r="10" fill="url(#hzRi)" />
     </svg>
@@ -662,7 +665,7 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
         {/* ince metal bezel */}
         <circle cx="90" cy="90" r="88" fill="url(#hzClkBz)" stroke={p.edgeHi} strokeWidth="1" />
         {/* mat ferah kadran */}
-        <circle cx="90" cy="90" r="80" fill="url(#hzClkFc)" stroke={p.accent} strokeOpacity=".35" strokeWidth="1" />
+        <circle cx="90" cy="90" r="80" fill="url(#hzClkFc)" strokeOpacity=".35" strokeWidth="1" style={{ stroke: p.accent }} />
         <circle cx="90" cy="90" r="80" fill={faceA} />
         {/* dakika ince çizgiler */}
         {idx.mn.map((t, i) => <line key={`mn${i}`} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={p.ink3} strokeWidth="1" opacity=".5" />)}
@@ -674,7 +677,7 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
         <text x="90" y="68" textAnchor="middle" style={{ fontSize: 7.5, fontWeight: 700, letterSpacing: '4px', fill: p.accent }}>PRO</text>
 
         {/* ALT dijital pencere — pilot altpencere */}
-        <rect x="61" y="104" width="58" height="30" rx="6" fill={p.night ? '#080d16' : '#fffdf7'} stroke={p.accent} strokeOpacity=".5" strokeWidth="1" />
+        <rect x="61" y="104" width="58" height="30" rx="6" fill={p.night ? '#080d16' : '#fffdf7'} strokeOpacity=".5" strokeWidth="1" style={{ stroke: p.accent }} />
         <text x="90" y="120" textAnchor="middle" style={{ fontSize: 15, fontWeight: 700, fill: ink, fontVariantNumeric: 'tabular-nums' }}>{digital}</text>
         <text x="90" y="130" textAnchor="middle" style={{ fontSize: 7, fontWeight: 700, letterSpacing: '1px', fill: p.accent }}>{dateLine}</text>
 
@@ -682,11 +685,11 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
         <g style={{ transition: 'transform .2s ease' }}>
           <line x1="90" y1="90" x2="90" y2="56" stroke={ink} strokeWidth="3.4" strokeLinecap="round" transform={`rotate(${hourDeg} 90 90)`} />
           <line x1="90" y1="90" x2="90" y2="40" stroke={ink} strokeWidth="2.4" strokeLinecap="round" transform={`rotate(${minDeg} 90 90)`} />
-          <line x1="90" y1="98" x2="90" y2="36" stroke={p.accent} strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+          <line x1="90" y1="98" x2="90" y2="36" strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ stroke: p.accent, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
         </g>
         {/* merkez hub */}
-        <circle cx="90" cy="90" r="5.5" fill={p.night ? '#15110a' : '#f7f1e4'} stroke={p.accent} strokeWidth="2" />
-        <circle cx="90" cy="90" r="1.8" fill={p.accent} />
+        <circle cx="90" cy="90" r="5.5" fill={p.night ? '#15110a' : '#f7f1e4'} strokeWidth="2" style={{ stroke: p.accent }} />
+        <circle cx="90" cy="90" r="1.8" style={{ fill: p.accent }} />
       </svg>
     </button>
   );

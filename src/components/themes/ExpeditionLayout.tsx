@@ -62,6 +62,9 @@ const NOISE = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg
 interface Pal {
   night: boolean;
   accent: string; accentDeep: string; accentGlow: string;
+  // Eski hex-alfa concatenation'ların (${accent}3a/66/88) yerine ayrık, WebView-güvenli
+  // rgba(var(--accent-rgb, ...)) girdileri — Tema Stüdyo özelleştirmeyince görünüm AYNI.
+  accentA23: string; accentA40: string; accentA53: string;
   inkCritical: string; ink: string; ink2: string; ink3: string;
   plate: string; plateRaised: string; plateSunk: string;
   edge: string; edgeLight: string; hairline: string;
@@ -72,16 +75,20 @@ interface Pal {
 
 const DAY: Pal = {
   night: false,
-  accent: '#E07B14', accentDeep: '#B65F0C', accentGlow: 'rgba(255,154,46,0.45)',
-  inkCritical: '#181410', ink: '#2A2620', ink2: '#6E665A', ink3: '#A79E90',
-  plate: '#F4F0E8', plateRaised: '#FBF8F2', plateSunk: '#EBE5DA',
+  // Tema Stüdyo — özelleştirme yoksa fallback = mevcut hex (görünüm AYNI); PWA
+  // `--bg-primary`/`--bg-card`/`--text-primary`/`--text-secondary`/`--accent-primary`/
+  // `--accent-rgb` yollarsa CANLI yansır.
+  accent: 'var(--accent-primary, #E07B14)', accentDeep: '#B65F0C', accentGlow: 'rgba(var(--accent-rgb, 255,154,46), 0.45)',
+  accentA23: 'rgba(var(--accent-rgb, 224,123,20), 0.23)', accentA40: 'rgba(var(--accent-rgb, 224,123,20), 0.4)', accentA53: 'rgba(var(--accent-rgb, 224,123,20), 0.53)',
+  inkCritical: '#181410', ink: 'var(--text-primary, #2A2620)', ink2: 'var(--text-secondary, #6E665A)', ink3: '#A79E90',
+  plate: 'var(--bg-card, #F4F0E8)', plateRaised: '#FBF8F2', plateSunk: '#EBE5DA',
   edge: '#B3AA99', edgeLight: 'rgba(255,255,255,.85)', hairline: 'rgba(60,48,28,.12)',
   rivetL: '#EDE7DA', rivetD: '#8A8276',
   plateTex: `radial-gradient(70% 60% at 25% 12%, rgba(255,255,255,.5), transparent 60%), ${NOISE}, linear-gradient(165deg,#FBF7EF,#ECE5D7)`,
   plateBlend: 'normal, soft-light, normal',
   plateShadow: '0 8px 22px rgba(54,40,18,.16), 0 2px 5px rgba(54,40,18,.12)',
   bevel: 'inset 0 2px 0 rgba(255,255,255,.85), inset 0 1px 6px rgba(0,0,0,.10), inset 0 -3px 7px rgba(60,48,28,.18)',
-  desk: 'radial-gradient(140% 120% at 30% 0%, #FBF7EF, #E7DECF 55%, #DED3C0)',
+  desk: 'var(--bg-primary, radial-gradient(140% 120% at 30% 0%, #FBF7EF, #E7DECF 55%, #DED3C0))',
 };
 
 const NIGHT: Pal = {
@@ -89,16 +96,17 @@ const NIGHT: Pal = {
   // CarOS Night Collection — Expedition = OLIVE / orman yeşili off-road taban.
   // Sıcak amber aksan + krem ink (askeri harita hissi) korunur; yalnız zemin/yüzey
   // hue'su yeşile çekildi → Tesla'nın espresso kahvesinden NET ayrışır.
-  accent: '#F2871C', accentDeep: '#B65F0C', accentGlow: 'rgba(242,135,28,0.5)',
-  inkCritical: '#FCF7EE', ink: '#EDE4D2', ink2: '#A89678', ink3: '#6E6049',
-  plate: '#1a241a', plateRaised: '#26331f', plateSunk: '#0a0f0a',
+  accent: 'var(--accent-primary, #F2871C)', accentDeep: '#B65F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), 0.5)',
+  accentA23: 'rgba(var(--accent-rgb, 242,135,28), 0.23)', accentA40: 'rgba(var(--accent-rgb, 242,135,28), 0.4)', accentA53: 'rgba(var(--accent-rgb, 242,135,28), 0.53)',
+  inkCritical: '#FCF7EE', ink: 'var(--text-primary, #EDE4D2)', ink2: 'var(--text-secondary, #A89678)', ink3: '#6E6049',
+  plate: 'var(--bg-card, #1a241a)', plateRaised: '#26331f', plateSunk: '#0a0f0a',
   edge: '#3a4a2a', edgeLight: 'rgba(150,180,92,.36)', hairline: 'rgba(150,180,92,.15)',
   rivetL: '#7d8a5a', rivetD: '#0a0d07',
   plateTex: `radial-gradient(62% 52% at 20% 4%, rgba(196,164,72,.22), transparent 56%), ${NOISE}, linear-gradient(162deg,#283019 0%,#1a2113 50%,#0e120b 100%)`,
   plateBlend: 'soft-light, overlay, normal',
   plateShadow: '0 14px 30px rgba(0,0,0,.62), 0 3px 8px rgba(0,0,0,.55)',
   bevel: 'inset 0 2px 0 rgba(150,180,92,.34), inset 0 2px 10px rgba(0,0,0,.45), inset 0 -4px 12px rgba(0,0,0,.78)',
-  desk: 'radial-gradient(160% 140% at 50% -8%, #1a2416 0%, #131c10 58%, #0a0f0a 100%)',
+  desk: 'var(--bg-primary, radial-gradient(160% 140% at 50% -8%, #1a2416 0%, #131c10 58%, #0a0f0a 100%))',
 };
 
 const PalCtx = createContext<Pal>(NIGHT);
@@ -207,7 +215,7 @@ const SpeedPlate = memo(function SpeedPlate() {
         <div style={RING_BOX}>
           <svg viewBox="0 0 232 232" width="100%" height="100%" style={{ transform: 'rotate(135deg)' }}>
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.plateSunk} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" />
-            <circle cx="116" cy="116" r="100" fill="none" stroke={p.accent} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
+            <circle cx="116" cy="116" r="100" fill="none" strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
           </svg>
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
             <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
@@ -505,8 +513,8 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
     ? 'radial-gradient(circle at 50% 40%, #1b1a17 0%, #0c0c0e 62%, #050506 100%)'
     : 'radial-gradient(circle at 50% 38%, #ffffff 0%, #f6f0e2 58%, #e9dec7 100%)';
   const faceInset = dark
-    ? `inset 0 4px 12px rgba(0,0,0,.7), inset 0 0 0 1px ${accent}3a`
-    : `inset 0 3px 9px rgba(120,90,40,.28), inset 0 0 0 1px ${accent}3a`;
+    ? `inset 0 4px 12px rgba(0,0,0,.7), inset 0 0 0 1px ${p.accentA23}`
+    : `inset 0 3px 9px rgba(120,90,40,.28), inset 0 0 0 1px ${p.accentA23}`;
   const sunburst = dark
     ? 'repeating-conic-gradient(from 0deg, rgba(255,255,255,.030) 0 0.6deg, transparent 0.6deg 1.6deg)'
     : 'repeating-conic-gradient(from 0deg, rgba(90,64,20,.045) 0 0.6deg, transparent 0.6deg 1.6deg)';
@@ -530,7 +538,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
         background: tickCol, borderRadius: 2,
         transform: `translate(-50%,-50%) rotate(${i * 30}deg) translateY(-54px)`,
         transformOrigin: 'center',
-        boxShadow: `0 0 4px ${accent}66`,
+        boxShadow: `0 0 4px ${p.accentA40}`,
       }} />,
     );
   }
@@ -568,7 +576,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
         {ticks}
 
         {/* C amblem — 12 altı */}
-        <img src={emblemUrl} alt="" style={{ position: 'absolute', top: 30, left: '50%', transform: 'translateX(-50%)', width: 17, height: 17, objectFit: 'contain', filter: `drop-shadow(0 0 5px ${accent}88)` }} />
+        <img src={emblemUrl} alt="" style={{ position: 'absolute', top: 30, left: '50%', transform: 'translateX(-50%)', width: 17, height: 17, objectFit: 'contain', filter: `drop-shadow(0 0 5px ${p.accentA53})` }} />
         {/* CAROS */}
         <span style={{ position: 'absolute', top: 49, left: '50%', transform: 'translateX(-50%)', fontSize: 11, fontWeight: 700, letterSpacing: '0.10em', color: brandCol, whiteSpace: 'nowrap' }}>CAROS</span>
         {/* PRO */}

@@ -41,6 +41,9 @@ const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => (
 interface Pal {
   night: boolean;
   accent: string; accent2: string; accentSoft: string; accentGlow: string;
+  // Eski hex-alfa concatenation'ların (${p.accent}55/33) yerine ayrık, WebView-güvenli
+  // rgba(var(--accent-rgb, ...)) girdileri — Tema Stüdyo özelleştirmeyince görünüm AYNI.
+  accentA33: string; accentA20: string;
   inkCritical: string; ink: string; ink2: string; ink3: string;
   card: string; cardSolid: string; cardBorder: string; cardShadow: string;
   tile: string;
@@ -54,9 +57,13 @@ interface Pal {
 
 const SAND: Pal = {
   night: false,
-  accent: '#E0822E', accent2: '#B85C16', accentSoft: 'rgba(224,130,46,0.16)', accentGlow: 'rgba(224,130,46,0.30)',
-  inkCritical: '#160F06', ink: '#2A2014', ink2: 'rgba(42,32,20,0.66)', ink3: 'rgba(42,32,20,0.45)',
-  card: 'linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%)', cardSolid: '#f6efe0',
+  // Tema Stüdyo — özelleştirme yoksa fallback = mevcut hex (görünüm AYNI); PWA
+  // `--bg-primary`/`--bg-card`/`--text-primary`/`--text-secondary`/`--accent-primary`/
+  // `--accent-rgb` yollarsa CANLI yansır.
+  accent: 'var(--accent-primary, #E0822E)', accent2: '#B85C16', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.16)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.30)',
+  accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
+  inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'rgba(42,32,20,0.45)',
+  card: 'var(--bg-card, linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%))', cardSolid: '#f6efe0',
   cardBorder: '1px solid rgba(120,92,52,0.26)',
   cardShadow: '0 6px 16px -8px rgba(90,68,38,0.34), inset 0 1px 0 rgba(255,255,255,0.75)',
   tile: 'rgba(120,92,52,0.10)',
@@ -65,7 +72,7 @@ const SAND: Pal = {
   metal: 'linear-gradient(180deg,#e9dcc4 0%,#d3c0a0 60%,#c2ad89 100%)', metalBorder: '1px solid rgba(120,92,52,0.4)',
   good: '#5E8A34',
   screw: '#b29a73', screwHi: 'rgba(255,255,255,0.7)',
-  bg: 'radial-gradient(120% 100% at 50% -10%, #f1e6d0 0%, #e6d6ba 45%, #d8c6a2 100%)',
+  bg: 'var(--bg-primary, radial-gradient(120% 100% at 50% -10%, #f1e6d0 0%, #e6d6ba 45%, #d8c6a2 100%))',
   topo: '#c7b083', topoOpacity: 0.5,
   vignette: 'radial-gradient(120% 92% at 50% 42%, transparent 45%, rgba(120,90,50,0.18) 100%)',
   glass: 'rgba(250,244,232,0.88)', glassBorder: '1px solid rgba(120,92,52,0.22)',
@@ -73,12 +80,13 @@ const SAND: Pal = {
 
 const LAVA: Pal = {
   night: true,
-  accent: '#E0822E', accent2: '#F4A24E', accentSoft: 'rgba(224,130,46,0.14)', accentGlow: 'rgba(224,130,46,0.45)',
-  inkCritical: '#FDFAF3', ink: '#F2ECE0', ink2: 'rgba(242,236,224,0.60)', ink3: 'rgba(242,236,224,0.34)',
+  accent: 'var(--accent-primary, #E0822E)', accent2: '#F4A24E', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.14)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.45)',
+  accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
+  inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'rgba(242,236,224,0.34)',
   // CarOS Night Collection — Tesla = koyu ESPRESSO / sıcak kahve. Olive yeşilden
   // espresso kahveye çekildi (Expedition'ın yeşilinden NET ayrışır); çok hafif amber
   // yansıma, premium ve sakin. Accent/ink/plateActive korunur; yalnız zemin/yüzey hue.
-  card: 'rgba(48,40,31,0.92)', cardSolid: 'rgba(40,33,25,0.97)',
+  card: 'var(--bg-card, rgba(48,40,31,0.92))', cardSolid: 'rgba(40,33,25,0.97)',
   cardBorder: '1px solid rgba(224,130,46,0.18)',
   cardShadow: '0 14px 32px -16px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
   tile: 'rgba(255,255,255,0.05)',
@@ -87,7 +95,7 @@ const LAVA: Pal = {
   metal: 'linear-gradient(180deg,#42352a 0%,#2a2218 55%,#1a140d 100%)', metalBorder: '1px solid rgba(0,0,0,0.5)',
   good: '#9DB857',
   screw: '#52453a', screwHi: 'rgba(255,255,255,0.12)',
-  bg: 'radial-gradient(120% 100% at 50% -8%, #2f2619 0%, #221b13 46%, #16100b 100%)',
+  bg: 'var(--bg-primary, radial-gradient(120% 100% at 50% -8%, #2f2619 0%, #221b13 46%, #16100b 100%))',
   topo: '#5c4c38', topoOpacity: 0.45,
   vignette: 'radial-gradient(120% 92% at 50% 42%, transparent 38%, rgba(0,0,0,0.5) 100%)',
   glass: 'rgba(0,0,0,0.5)', glassBorder: '1px solid rgba(255,255,255,0.08)',
@@ -215,7 +223,7 @@ const SpeedGauge = memo(function SpeedGauge() {
       <div style={{ position: 'relative', width: 128, height: 128 }}>
         <svg viewBox="0 0 128 128" width="128" height="128" style={{ overflow: 'visible' }}>
           <path d={arc.track} fill="none" stroke={p.night ? 'rgba(255,255,255,0.08)' : 'rgba(120,92,52,0.18)'} strokeWidth="9" strokeLinecap="round" />
-          {arc.fill && <path d={arc.fill} fill="none" stroke={p.accent} strokeWidth="9" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />}
+          {arc.fill && <path d={arc.fill} fill="none" strokeWidth="9" strokeLinecap="round" style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span style={{ fontSize: 52, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speed}</span>
@@ -227,7 +235,7 @@ const SpeedGauge = memo(function SpeedGauge() {
           <span style={{ fontSize: 17, fontWeight: 800, color: p.accent2 }}>D</span>
           <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>AUTO</span>
         </div>
-        <div className="px-2.5 py-1.5 rounded-xl" style={{ background: p.accentSoft, border: `1px solid ${p.accent}55` }}>
+        <div className="px-2.5 py-1.5 rounded-xl" style={{ background: p.accentSoft, border: `1px solid ${p.accentA33}` }}>
           <span style={{ fontSize: 14.5, fontWeight: 900, letterSpacing: '0.06em', color: p.accent2 }}>4WD</span>
         </div>
       </div>
@@ -347,7 +355,7 @@ const MusicCard = memo(function MusicCard() {
   return (
     <div style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
       <Screws />
-      <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 66, height: 66, background: p.accentSoft, border: `1px solid ${p.accent}33`, cursor: 'pointer' }}>
+      <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 66, height: 66, background: p.accentSoft, border: `1px solid ${p.accentA20}`, cursor: 'pointer' }}>
         {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
       </button>
       <div className="flex-1 min-w-0">
@@ -393,14 +401,14 @@ const RuggedSUV = memo(function RuggedSUV() {
       <path d="M44 98 L44 80 L52 72 L96 72 L104 48 L110 44 L190 44 L210 72 L256 72 L266 84 L266 98 Z" fill="url(#exBody)" stroke={p.night ? '#6f6442' : '#5a4f33'} strokeWidth="0.6" />
       <rect x="106" y="37" width="88" height="6" rx="2" fill={dark} />
       {Array.from({ length: 7 }).map((_, i) => <line key={i} x1={114 + i * 11} y1="37" x2={114 + i * 11} y2="43" stroke={p.night ? '#2c3122' : '#4a4430'} strokeWidth="2" />)}
-      <rect x="190" y="39" width="14" height="4" rx="2" fill={p.accent} opacity="0.9" />
+      <rect x="190" y="39" width="14" height="4" rx="2" opacity="0.9" style={{ fill: p.accent }} />
       <path d="M200 72 L200 46 Q200 42 204 42 L207 42 L207 72 Z" fill={dark} stroke="#0e1009" strokeWidth="0.5" />
       <path d="M112 68 L116 51 L145 51 L145 68 Z" fill="url(#exGlass)" />
       <path d="M150 68 L150 51 L184 51 L197 68 Z" fill="url(#exGlass)" />
       <path d="M52 100 A30 30 0 0 1 108 100" fill="none" stroke={dark} strokeWidth="9" strokeLinecap="round" />
       <path d="M200 100 A30 30 0 0 1 256 100" fill="none" stroke={dark} strokeWidth="9" strokeLinecap="round" />
       <rect x="106" y="95" width="96" height="6" rx="2" fill={dark} />
-      <rect x="106" y="92.5" width="96" height="2" rx="1" fill={p.accent} opacity="0.65" />
+      <rect x="106" y="92.5" width="96" height="2" rx="1" opacity="0.65" style={{ fill: p.accent }} />
       <line x1="150" y1="72" x2="150" y2="95" stroke={p.night ? '#6f6442' : '#5a4f33'} strokeWidth="0.8" />
       <rect x="158" y="64" width="9" height="2.4" rx="1" fill={p.night ? '#5c5238' : '#4a4230'} />
       <rect x="252" y="74" width="10" height="7" rx="2" fill="#ffe9bf" stroke="#caa86a" strokeWidth="0.5" />
