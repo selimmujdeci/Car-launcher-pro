@@ -256,6 +256,16 @@ function _pushObdTrail(label: string): void {
   try { pushTrail('obd', label); } catch { /* iz OBD akışını asla bozmaz */ }
 }
 
+/**
+ * Black Box v2 (Patch 4B) — protokol döngüsü ilerlemesini statik timeline etiketine
+ * çevirir (SAF; protokol no/adı taşımaz). Tüm adaylar denendiyse (döngü tükendi)
+ * 'obd:protocol:failed', hâlâ denenecek aday varsa 'obd:protocol:fallback'. Protokol
+ * fallback algoritmasına (PROTOCOL_CYCLE/forcedProtocol/_protocolCycleIndex) etkisi YOK.
+ */
+function _protocolAdvanceLabel(cycleIndex: number, cycleLen: number): string {
+  return cycleIndex >= cycleLen ? 'obd:protocol:failed' : 'obd:protocol:fallback';
+}
+
 function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState): void {
   switch (next) {
     case 'connected':
@@ -912,6 +922,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       if (_isUnableToConnectError(ePrimary)) {
         _protocolCycleIndex++;
         if (!_stale()) {
+          _pushObdTrail(_protocolAdvanceLabel(_protocolCycleIndex, PROTOCOL_CYCLE.length));
           recordDiag({
             stage: 'protocol', status: 'warn',
             transport: 'tcp',
@@ -948,6 +959,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       if (_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)) {
         _protocolCycleIndex++;
         if (!_stale()) {
+          _pushObdTrail(_protocolAdvanceLabel(_protocolCycleIndex, PROTOCOL_CYCLE.length));
           recordDiag({
             stage: 'protocol', status: 'warn',
             transport: _fallbackTp === 'ble' ? 'ble' : 'classic',
@@ -994,6 +1006,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   _protocolCycleIndex = 0;
   if (_connectResult && typeof _connectResult === 'object' && _connectResult.protocol) {
     saveObdProtocol(_connectResult.protocol);
+    // Black Box v2 (Patch 4B): protokol doğrulandı + persist edildi (statik, PII'siz).
+    _pushObdTrail('obd:protocol:verified');
     recordDiag({
       stage: 'protocol', status: 'success',
       transport: _connectedTp,
@@ -1406,6 +1420,22 @@ export function _runHandshakeForTest(
   return performHandshake()
     .then(() => { if (stale()) return; _pushObdTrail('obd:handshake:success'); })
     .catch(() => { if (!stale()) _pushObdTrail('obd:handshake:failed'); });
+}
+
+/**
+ * DEV only — protokol milestone gating'ini test için sürer. Production ile AYNI
+ * karar yollarını kullanır: 'verified' → doğrulanmış+persist akışındaki statik push;
+ * 'advance' → _protocolAdvanceLabel(cycleIndex, cycleLen) (fallback vs failed = döngü
+ * tükendi mi). Protokol no/adı ASLA taşınmaz. Prod APK'da no-op.
+ */
+export function _runProtocolTrailForTest(
+  event: 'verified' | 'advance',
+  cycleIndex = 0,
+  cycleLen = 0,
+): void {
+  if (!import.meta.env.DEV) return;
+  if (event === 'verified') { _pushObdTrail('obd:protocol:verified'); return; }
+  _pushObdTrail(_protocolAdvanceLabel(cycleIndex, cycleLen));
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */
