@@ -324,6 +324,86 @@ describe('replayBuffer (Kara Kutu) bölümü', () => {
   });
 });
 
+/* ── Section Failure Report ──────────────────────────────────── */
+
+describe('sectionFailures (Section Failure Report)', () => {
+  /** getReplayData'yı tek seferlik throw ettir → replayBuffer bölümü çöker. */
+  async function throwReplayOnce(err: unknown): Promise<void> {
+    const bb = await import('../platform/security/blackBoxService');
+    (bb.getReplayData as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw err;
+    });
+  }
+
+  it('bir section throw edince snapshot crash etmez; section null kalır; sectionFailures dolar', async () => {
+    await throwReplayOnce(new Error('replay ring bozuldu'));
+
+    const payload = await reportSupportSnapshot();
+
+    expect(payload.replayBuffer).toBeNull();   // null davranışı korunur (geriye dönük uyum)
+    expect(payload.appVersion).toBe('2.4.0');  // snapshot yine üretildi (crash yok)
+
+    const sf = payload.sectionFailures as Record<string, { message: string; stack?: string }>;
+    expect(sf.replayBuffer).toBeDefined();
+    expect(sf.replayBuffer.message).toContain('replay ring bozuldu');
+  });
+
+  it('başarılı section sectionFailures\'a girmez; sectionFailures her zaman obje', async () => {
+    M.replay = [{ ts: 1, signals: { spd: 10, rpm: 0, gear: 0, fuel: 0 }, workers: {}, env: { therm: 0, mem: 'OK' } }];
+    const payload = await reportSupportSnapshot();
+
+    expect(typeof payload.sectionFailures).toBe('object');
+    expect(payload.sectionFailures).not.toBeNull();
+    const sf = payload.sectionFailures as Record<string, unknown>;
+    expect(sf.replayBuffer).toBeUndefined();                 // başarılı → kayıt yok
+    expect(payload.replayBuffer as unknown[]).toHaveLength(1);
+  });
+
+  it('sectionFailures mesajındaki VIN maskelenir (PII sızmaz)', async () => {
+    await throwReplayOnce(new Error('decode failed for vin WVWZZZ1JZXW000001'));
+
+    const payload = await reportSupportSnapshot();
+    const sf = payload.sectionFailures as Record<string, { message: string }>;
+
+    expect(sf.replayBuffer.message).toContain('[VIN]');
+    expect(sf.replayBuffer.message).not.toContain('WVWZZZ1JZXW000001');
+    expect(JSON.stringify(payload)).not.toContain('WVWZZZ1JZXW000001');
+  });
+
+  it('sectionFailures message 240 karakterle sınırlı', async () => {
+    await throwReplayOnce(new Error('E'.repeat(500)));
+
+    const payload = await reportSupportSnapshot();
+    const sf = payload.sectionFailures as Record<string, { message: string }>;
+    expect(sf.replayBuffer.message.length).toBe(240);
+  });
+
+  it('sectionFailures stack yalnız ilk 3 satır ve ≤240 karakter', async () => {
+    const err = new Error('boom');
+    err.stack = Array.from({ length: 10 }, (_, i) => `at frame${i} (` + 'x'.repeat(80) + ')').join('\n');
+    await throwReplayOnce(err);
+
+    const payload = await reportSupportSnapshot();
+    const sf = payload.sectionFailures as Record<string, { message: string; stack?: string }>;
+
+    expect(sf.replayBuffer.stack).toBeDefined();
+    expect(sf.replayBuffer.stack!.length).toBeLessThanOrEqual(240);
+    expect(sf.replayBuffer.stack).toContain('frame0'); // ilk satır var
+    expect(sf.replayBuffer.stack).not.toContain('frame3'); // 4. satır ve sonrası kesildi
+  });
+
+  it('Error olmayan throw değeri de kaydedilir (String(err))', async () => {
+    const notAnError = 'ham string hata'; // literal throw'dan kaçın (no-throw-literal)
+    await throwReplayOnce(notAnError);
+
+    const payload = await reportSupportSnapshot();
+    const sf = payload.sectionFailures as Record<string, { message: string; stack?: string }>;
+
+    expect(sf.replayBuffer.message).toBe('ham string hata');
+    expect(sf.replayBuffer.stack).toBeUndefined();
+  });
+});
+
 /* ── Cooldown ────────────────────────────────────────────────── */
 
 describe('cooldown', () => {
