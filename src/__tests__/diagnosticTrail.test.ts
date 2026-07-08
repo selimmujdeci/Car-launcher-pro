@@ -13,6 +13,7 @@ const store = vi.hoisted(() => ({
 }));
 const obd = vi.hoisted(() => ({ source: 'none' }));
 const errs = vi.hoisted(() => ({ list: [] as Array<{ ts: number; ctx: string; msg: string; severity: string }> }));
+const net = vi.hoisted(() => ({ connected: true, cb: null as ((s: { connected: boolean }) => void) | null }));
 
 vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => ({
   useUnifiedVehicleStore: {
@@ -26,6 +27,15 @@ vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => ({
 vi.mock('../platform/obdService', () => ({ getOBDStatusSnapshot: () => ({ source: obd.source }) }));
 vi.mock('../platform/crashLogger', () => ({ getErrorLog: () => errs.list, logError: vi.fn() }));
 vi.mock('../platform/uiActivityRecorder', () => ({ getUiActivitySnapshot: () => ({ recent: [] }) }));
+vi.mock('@capacitor/network', () => ({
+  Network: {
+    getStatus:   vi.fn(async () => ({ connected: net.connected })),
+    addListener: vi.fn(async (_evt: string, cb: (s: { connected: boolean }) => void) => {
+      net.cb = cb;
+      return { remove: vi.fn() };
+    }),
+  },
+}));
 
 import {
   startDiagnosticTrail,
@@ -39,6 +49,42 @@ import {
   startVehicleIntelligenceService,
   stopVehicleIntelligenceService,
 } from '../platform/vehicleIntelligenceService';
+import { connectivityService } from '../platform/connectivityService';
+
+/* ── Minimal in-memory IndexedDB shim (connectivityService drain'i jsdom'da IDB
+      ister; yalnız kullandığı yüzey — soak.telemetry-connectivity.test.ts deseni). */
+type IdbHandler = (() => void) | null;
+interface FakeReq { result: unknown; error: unknown; onsuccess: IdbHandler; onerror: IdbHandler; onupgradeneeded: IdbHandler }
+function installFakeIDB(): { clear: () => void } {
+  const data = new Map<string, { id: string }>();
+  let created = false;
+  const makeStore = () => ({
+    createIndex: () => {},
+    getAll: () => {
+      const req: FakeReq = { result: undefined, error: null, onsuccess: null, onerror: null, onupgradeneeded: null };
+      queueMicrotask(() => { req.result = [...data.values()]; req.onsuccess?.(); });
+      return req;
+    },
+    put:    (e: { id: string }) => { data.set(e.id, e); },
+    delete: (id: string) => { data.delete(id); },
+  });
+  const makeDb = () => ({
+    createObjectStore: () => makeStore(),
+    transaction: () => {
+      const tx = { objectStore: () => makeStore(), oncomplete: null as IdbHandler, onerror: null as IdbHandler, error: null };
+      queueMicrotask(() => { tx.oncomplete?.(); });
+      return tx;
+    },
+  });
+  (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+    open: () => {
+      const req: FakeReq = { result: makeDb(), error: null, onsuccess: null, onerror: null, onupgradeneeded: null };
+      queueMicrotask(() => { if (!created) { created = true; req.onupgradeneeded?.(); } req.onsuccess?.(); });
+      return req;
+    },
+  };
+  return { clear: () => data.clear() };
+}
 
 let cleanup: (() => void) | null = null;
 afterEach(() => {
@@ -186,6 +232,69 @@ describe('Service Lifecycle boot eventleri', () => {
       // statik etiket kalıbı: yalnız "<servis>:start|stop"
       expect(e.label).toMatch(/^vehicle-(profile|intelligence)-service:(start|stop)$/);
       expect(e.detail).toBeUndefined();        // detail kullanılmadı
+    }
+  });
+});
+
+/* ── Black Box v2 — Network online/offline eventleri (Patch 2) ───── */
+
+describe('Network online/offline eventleri', () => {
+  let idb: { clear: () => void };
+  beforeEach(() => { idb = installFakeIDB(); });
+  afterEach(() => {
+    connectivityService.destroy();
+    idb.clear();
+    resetOwnTrail();
+    net.cb = null;
+  });
+
+  /** Servisi belirli başlangıç durumuyla başlat, izi temizle (yalnız geçişleri izole gör). */
+  async function initAt(connected: boolean): Promise<void> {
+    net.connected = connected;
+    await connectivityService.init();
+    resetOwnTrail();
+  }
+
+  it('offline geçişi network:offline eventi üretir', async () => {
+    await initAt(true);            // _online = true
+    net.cb!({ connected: false }); // true → false
+    expect(getOwnTrail().some((e) => e.kind === 'action' && e.label === 'network:offline')).toBe(true);
+  });
+
+  it('online geçişi network:online eventi üretir', async () => {
+    await initAt(false);          // _online = false
+    net.cb!({ connected: true }); // false → true
+    expect(getOwnTrail().some((e) => e.kind === 'action' && e.label === 'network:online')).toBe(true);
+  });
+
+  it('aynı state tekrarı gereksiz event ÜRETMEZ (yalnız değişimde push)', async () => {
+    await initAt(true);            // _online = true
+    net.cb!({ connected: false }); // true → false → 1 offline
+    net.cb!({ connected: false }); // değişim yok → event yok
+    net.cb!({ connected: false });
+    expect(getOwnTrail().filter((e) => e.label === 'network:offline')).toHaveLength(1);
+
+    net.cb!({ connected: true });  // false → true → 1 online
+    net.cb!({ connected: true });  // değişim yok
+    expect(getOwnTrail().filter((e) => e.label === 'network:online')).toHaveLength(1);
+  });
+
+  it('boot init tek başına network eventi ÜRETMEZ (yalnız gerçek değişim)', async () => {
+    net.connected = true;
+    resetOwnTrail();
+    await connectivityService.init();
+    expect(getOwnTrail().filter((e) => e.label.startsWith('network:'))).toHaveLength(0);
+  });
+
+  it('network eventleri statik + PII\'siz (SSID/IP yok)', async () => {
+    await initAt(false);
+    net.cb!({ connected: true });
+    net.cb!({ connected: false });
+    for (const e of getOwnTrail()) {
+      if (!e.label.startsWith('network:')) continue;
+      expect(e.label).toMatch(/^network:(online|offline)$/);
+      expect(e.kind).toBe('action');
+      expect(e.detail).toBeUndefined();
     }
   });
 });
