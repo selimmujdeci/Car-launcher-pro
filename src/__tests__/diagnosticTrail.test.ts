@@ -57,6 +57,7 @@ import {
 import { connectivityService } from '../platform/connectivityService';
 import { _setConnStateForTest, _runHandshakeForTest, _runProtocolTrailForTest } from '../platform/obdService';
 import { useVehicleIntelligenceStore } from '../store/useVehicleIntelligenceStore';
+import { startThermalWatchdog, stopThermalWatchdog, injectDeviceTemp } from '../platform/thermalWatchdog';
 
 /* ── Minimal in-memory IndexedDB shim (connectivityService drain'i jsdom'da IDB
       ister; yalnız kullandığı yüzey — soak.telemetry-connectivity.test.ts deseni). */
@@ -567,6 +568,65 @@ describe('Diagnostic degraded / recovery eventleri', () => {
     expect(errEvents.length).toBeGreaterThan(0);
     for (const e of errEvents) {
       expect(e.label).toMatch(/^diagnostic:(degraded|recovered)$/);
+      expect(e.detail).toBeUndefined();
+    }
+  });
+});
+
+/* ── Black Box v2 — Thermal timeline eventleri (Patch 5B) ─────────── */
+
+describe('Thermal timeline eventleri', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    startThermalWatchdog();      // temiz state (_level=0, history boş)
+    injectDeviceTemp(20);        // kesin level 0'a normalize (restore olduysa soğut)
+    vi.runOnlyPendingTimers();   // bekleyen debounce varsa flush
+    resetOwnTrail();
+  });
+  afterEach(() => {
+    stopThermalWatchdog();
+    vi.useRealTimers();
+    resetOwnTrail();
+  });
+
+  const thermalLabels = (): string[] =>
+    getOwnTrail().filter((e) => e.label.startsWith('thermal:')).map((e) => e.label);
+
+  it('level artışı → thermal:throttle:up', () => {
+    injectDeviceTemp(46);            // L0 → L1 (ısınma: 2s debounce)
+    vi.advanceTimersByTime(2_000);   // debounce commit
+    expect(thermalLabels()).toContain('thermal:throttle:up');
+    expect(thermalLabels()).not.toContain('thermal:throttle:down');
+  });
+
+  it('level düşüşü → thermal:throttle:down', () => {
+    injectDeviceTemp(46);            // L0 → L1
+    vi.advanceTimersByTime(2_000);
+    resetOwnTrail();
+    injectDeviceTemp(30);            // L1 → L0 (soğuma: anında commit)
+    expect(thermalLabels()).toContain('thermal:throttle:down');
+    expect(thermalLabels()).not.toContain('thermal:throttle:up');
+  });
+
+  it('aynı level tekrar event üretmez', () => {
+    injectDeviceTemp(46);            // L0 → L1
+    vi.advanceTimersByTime(2_000);
+    resetOwnTrail();
+    injectDeviceTemp(47);            // hâlâ L1 (45–54) → geçiş yok
+    injectDeviceTemp(48);
+    vi.advanceTimersByTime(2_000);
+    expect(thermalLabels()).toHaveLength(0);
+  });
+
+  it('etiketler statik + detail undefined', () => {
+    injectDeviceTemp(46);
+    vi.advanceTimersByTime(2_000);   // up
+    injectDeviceTemp(30);            // down
+    const thermalEvents = getOwnTrail().filter((e) => e.label.startsWith('thermal:'));
+    expect(thermalEvents.length).toBeGreaterThan(0);
+    for (const e of thermalEvents) {
+      expect(e.label).toMatch(/^thermal:throttle:(up|down)$/);
+      expect(e.kind).toBe('action');
       expect(e.detail).toBeUndefined();
     }
   });
