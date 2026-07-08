@@ -23,6 +23,7 @@ const M = vi.hoisted(() => ({
     lastCheckTs: 1765000000000,
   } as Record<string, unknown>,
   versionCode: 7,
+  replay: [] as unknown[], // blackBox getReplayData() dönüşü (test başına ayarlanır)
 }));
 
 vi.mock('../platform/vehicleIdentityService', () => ({
@@ -56,6 +57,13 @@ vi.mock('../platform/otaUpdateService', () => ({
   getCurrentVersionCode: vi.fn(async () => M.versionCode),
 }));
 
+// Kara Kutu replay: getReplayData() kontrollü örnek döndürsün (gerçek servis
+// startBlackBox olmadan boş ring döner). Yalnız bu alanı mock'la — diğer export'lara
+// dokunmaya gerek yok (remoteLogService yalnız getReplayData çağırır).
+vi.mock('../platform/security/blackBoxService', () => ({
+  getReplayData: vi.fn(() => M.replay),
+}));
+
 import {
   reportSupportSnapshot,
   triggerSupportSnapshot,
@@ -73,6 +81,7 @@ beforeEach(() => {
   M.pushed = [];
   M.pushError = null;
   M.versionCode = 7;
+  M.replay = [];
 });
 
 afterEach(() => {
@@ -244,6 +253,74 @@ describe('vidMirror allowlist + gizlilik', () => {
     expect(flat).toContain('[COORD]');            // plausibility reason'daki koordinat maskelendi
     expect(flat).not.toContain('41.00821');
     expect(flat).not.toContain('WVWZZZ1JZXW000001'); // ham VIN hiçbir yerde yok
+  });
+});
+
+/* ── Black Box replayBuffer ──────────────────────────────────── */
+
+describe('replayBuffer (Kara Kutu) bölümü', () => {
+  it('support snapshot içinde replayBuffer bölümü var', async () => {
+    M.replay = [
+      { ts: 1000, signals: { spd: 40, rpm: 1800, gear: 3, fuel: 55 }, workers: { 'vehicle-intel': 'active' }, env: { therm: 1, mem: 'OK' }, lastCmd: 'OPEN_APP' },
+    ];
+    const payload = await reportSupportSnapshot();
+    expect(payload).toHaveProperty('replayBuffer');
+    expect(Array.isArray(payload.replayBuffer)).toBe(true);
+  });
+
+  it('replayBuffer örnekleri payload\'a giriyor (en yeni örnekler)', async () => {
+    M.replay = [
+      { ts: 1000, signals: { spd: 40, rpm: 1800, gear: 3, fuel: 55 }, workers: { core: 'active' }, env: { therm: 1, mem: 'OK' }, lastCmd: 'OPEN_APP' },
+      { ts: 2000, signals: { spd: 0, rpm: 0, gear: 0, fuel: 54 }, workers: { core: 'dead' }, env: { therm: 2, mem: 'MOD' }, lastCmd: 'STOP' },
+    ];
+    const payload = await reportSupportSnapshot();
+    const rb = payload.replayBuffer as Array<Record<string, unknown>>;
+
+    expect(rb).toHaveLength(2);
+    expect(rb[0]).toMatchObject({ ts: 1000, signals: { spd: 40, rpm: 1800 }, lastCmd: 'OPEN_APP' });
+    expect(rb[1]).toMatchObject({ ts: 2000, env: { therm: 2, mem: 'MOD' }, lastCmd: 'STOP' });
+  });
+
+  it('en fazla son 20 örnek gönderilir (genişlik tavanı)', async () => {
+    M.replay = Array.from({ length: 60 }, (_, i) => ({
+      ts: i, signals: { spd: i, rpm: null, gear: null, fuel: null }, workers: {}, env: { therm: 0, mem: 'OK' },
+    }));
+    const payload = await reportSupportSnapshot();
+    const rb = payload.replayBuffer as Array<Record<string, unknown>>;
+    expect(rb).toHaveLength(20);
+    // En yeni pencere: ts 40..59 (son 20)
+    expect((rb[0].signals as Record<string, unknown>).spd).toBe(40);
+    expect((rb[19].signals as Record<string, unknown>).spd).toBe(59);
+  });
+
+  it('PII son savunma: replay örneğine sızan koordinat/konum anahtarı temizlenir', async () => {
+    // Kötü senaryo — blackBox bir şekilde konum sızdırsa bile _deepSanitize keser:
+    // lat/lng anahtarları DENY_KEYS ile düşer; koordinat string'i [COORD] maskelenir.
+    M.replay = [{
+      ts: 1000,
+      signals: { spd: 40, rpm: 1800, gear: 3, fuel: 55 },
+      lat: 41.00821, lng: 28.97842,
+      lastCmd: 'poz 41.00821, 28.97842',
+      workers: {}, env: { therm: 0, mem: 'OK' },
+    }];
+    const payload = await reportSupportSnapshot();
+    const rb = payload.replayBuffer as Array<Record<string, unknown>>;
+
+    expect(rb[0]).not.toHaveProperty('lat');
+    expect(rb[0]).not.toHaveProperty('lng');
+    const flat = JSON.stringify(payload);
+    expect(flat).not.toContain('41.00821');   // koordinat hiçbir biçimde kalmadı
+    expect(flat).toContain('[COORD]');         // lastCmd içindeki koordinat maskelendi
+  });
+
+  it('fail-soft: getReplayData patlarsa replayBuffer null, snapshot yine üretilir', async () => {
+    const bb = await import('../platform/security/blackBoxService');
+    (bb.getReplayData as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('blackbox down');
+    });
+    const payload = await reportSupportSnapshot();
+    expect(payload.replayBuffer).toBeNull();
+    expect(payload.appVersion).toBe('2.4.0'); // ana gövde etkilenmedi
   });
 });
 
