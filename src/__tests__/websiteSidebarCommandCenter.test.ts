@@ -2,11 +2,14 @@
  * websiteSidebarCommandCenter.test.ts — carospro.com dashboard sidebar'ı
  * Command Center giriş noktası sözleşmesi.
  *
- * UX kararı: Command Center'ın TEK girişi sol sidebar'daki madde
- * (footer'daki "Admin / Süper Admin" alanının hemen üstü). Yalnız
+ * UX kararı: Süper Admin bölümü (Command Center · Tanı · Süper Admin) sol
+ * sidebar'da, footer'daki "Admin / Süper Admin" alanının hemen üstü. Yalnız
  * JWT app_metadata.role === 'super_admin' görür. Admin SPA ayrı projede
- * (car-launcher-pro.vercel.app) yaşadığı için hedef mutlak URL'dir;
- * path sözleşmesi /admin/sa/health.
+ * (car-launcher-pro) build edilse de carospro.com/admin proxy'siyle AYNI-ORIGIN
+ * sunulur → hedefler GÖRELİ (/admin/sa/health, /admin/tani, /admin/superadmin).
+ * Böylece website Supabase session cookie'si paylaşılır (AYNI hesap, ikinci login
+ * yok). Cross-domain mutlak URL gömülü DEĞİL (ayrı origin → oturum paylaşılmaz →
+ * boş sayfa). NEXT_PUBLIC_ADMIN_PANEL_ORIGIN ile override edilebilir; varsayılan boş.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -66,10 +69,15 @@ describe('website Sidebar — Command Center maddesi', () => {
     expect(src).toContain('isSuperAdminToken(');
   });
 
-  it('tıklama hedefi /admin/sa/health (mutlak admin SPA origin\'i ile)', () => {
-    expect(src).toContain('/admin/sa/health');
-    expect(src).toContain('car-launcher-pro.vercel.app');
+  it('tıklama hedefleri same-origin göreli (carospro.com/admin proxy) — cross-domain URL gömülü DEĞİL', () => {
+    // Aynı-origin proxy → website Supabase session cookie'si paylaşılır (aynı hesap).
+    expect(src).toContain('/admin/sa/health');       // Command Center
+    expect(src).toContain('/admin/tani');            // Tanı
+    expect(src).toContain('/admin/superadmin');      // Süper Admin
     expect(src).toContain('data-testid="command-center-nav"');
+    // Varsayılan hedef göreli olmalı: hardcoded cross-domain mutlak URL YASAK
+    // (o ayrı origin → oturum paylaşılmaz → boş sayfa; bu regresyon geri gelmesin).
+    expect(src).not.toContain('car-launcher-pro.vercel.app');
   });
 
   it('konum: nav\'dan sonra, footer (border-t\'li Admin/Süper Admin alanı) öncesi', () => {
