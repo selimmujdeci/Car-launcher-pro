@@ -22,6 +22,11 @@ android {
     compileSdk = rootProject.ext.compileSdkVersion
     // Native-Core (Phase N1): pin'li NDK + CMake toolchain
     ndkVersion rootProject.ext.ndkVersion
+    // BuildConfig üretimi (AGP 8+ varsayılan KAPALI). CarLauncherPlugin teşhis
+    // sunucusu guard'ı BuildConfig.DEBUG'a bağlı → release'te R8 ölü-kod eler.
+    buildFeatures {
+        buildConfig = true
+    }
     defaultConfig {
         applicationId "com.cockpitos.pro"
         minSdkVersion rootProject.ext.minSdkVersion
