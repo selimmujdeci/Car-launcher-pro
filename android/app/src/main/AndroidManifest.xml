@@ -226,7 +226,8 @@
         android:maxSdkVersion="32" />
     <!-- API 33+ (Android 13) — granular media permissions -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- READ_MEDIA_IMAGES KALDIRILDI (P0.5-A, least-privilege): kod tarafında hiçbir
+         MediaStore.Images tüketicisi yok; medya tarayıcı yalnız Audio + Video okur. -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- API 30+ (Android 11+) — Tüm Dosyalara Erişim: cihaz-içi API anahtarı
