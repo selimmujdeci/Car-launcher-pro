@@ -773,7 +773,7 @@ export default function MobileCarControl({ vehicle }: Props) {
         </div>
         <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg"
           style={{
-            color:      isOnline ? '#34d399' : '#ffffff40',
+            color:      isOnline ? '#34d399' : 'var(--pwa-text-3)',
             background: isOnline ? 'rgba(52,211,153,0.1)' : 'var(--pwa-surface)',
             border:     `1px solid ${isOnline ? 'rgba(52,211,153,0.25)' : 'var(--pwa-border)'}`,
           }}>

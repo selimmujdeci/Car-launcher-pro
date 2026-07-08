@@ -34,21 +34,21 @@
     color-scheme: dark;
   }
   [data-pwa-theme='light'] {
-    --pwa-bg:          #e9edf3;
+    --pwa-bg:          #d7dee9;   /* daha gri zemin → beyaz kartlar ayrışsın */
     --pwa-card-a:      #ffffff;
-    --pwa-card-b:      #f2f5fa;
-    --pwa-panel:       #ffffff;
-    --pwa-surface:     rgba(15,27,45,0.045);
-    --pwa-surface-2:   rgba(15,27,45,0.10);
-    --pwa-surface-3:   rgba(15,27,45,0.028);
-    --pwa-border:      rgba(15,27,45,0.12);
-    --pwa-border-soft: rgba(15,27,45,0.08);
-    --pwa-text:        #0f1b2d;
-    --pwa-text-2:      rgba(15,27,45,0.62);
-    --pwa-text-3:      rgba(15,27,45,0.42);
-    --pwa-nav-bg:      rgba(255,255,255,0.90);
-    --pwa-glow:        rgba(37,99,235,0.09);
-    --pwa-grid:        rgba(15,27,45,0.03);
+    --pwa-card-b:      #eef2f8;
+    --pwa-panel:       #f4f7fb;
+    --pwa-surface:     rgba(15,27,45,0.065);
+    --pwa-surface-2:   rgba(15,27,45,0.14);
+    --pwa-surface-3:   rgba(15,27,45,0.045);
+    --pwa-border:      rgba(15,27,45,0.17);
+    --pwa-border-soft: rgba(15,27,45,0.11);
+    --pwa-text:        #0b1622;   /* neredeyse siyah — okunur */
+    --pwa-text-2:      rgba(11,22,34,0.76);
+    --pwa-text-3:      rgba(11,22,34,0.58);
+    --pwa-nav-bg:      rgba(244,247,251,0.94);
+    --pwa-glow:        rgba(37,99,235,0.10);
+    --pwa-grid:        rgba(15,27,45,0.045);
     color-scheme: light;
   }
 

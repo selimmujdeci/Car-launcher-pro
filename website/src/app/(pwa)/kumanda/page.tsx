@@ -161,7 +161,7 @@ export default function KumandaPage() {
     <PwaErrorBoundary>
     <div
       data-pwa-theme={pwaTheme}
-      className="min-h-[100dvh] flex flex-col"
+      className="h-[100dvh] flex flex-col overflow-hidden"
       style={{ background: 'var(--pwa-bg)', color: 'var(--pwa-text)' }}
     >
       {/* Ambient glow */}
