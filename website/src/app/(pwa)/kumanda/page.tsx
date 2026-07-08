@@ -24,6 +24,22 @@ export default function KumandaPage() {
   const vehicles = useVehicleStore((s) => s.getList());
 
   const [activeTab, setActiveTab] = useState<Tab>('kumanda');
+  const [pwaTheme, setPwaTheme] = useState<'dark' | 'light'>('dark');
+
+  // Tema tercihi (gece/gündüz) — localStorage'dan; SSR default gece, mount'ta oku.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pwa-theme');
+      if (saved === 'light' || saved === 'dark') setPwaTheme(saved);
+    } catch { /* ignore */ }
+  }, []);
+  const togglePwaTheme = useCallback(() => {
+    setPwaTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('pwa-theme', next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   const vehicle = useMemo(
     () => vehicles.find((v) => v.status === 'online') ?? vehicles[0] ?? null,
@@ -55,7 +71,7 @@ export default function KumandaPage() {
   }, []);
 
   const lazySpinner = (
-    <div className="flex items-center justify-center gap-2 py-10 text-sm text-white/30">
+    <div className="flex items-center justify-center gap-2 py-10 text-sm pwa-text-3">
       <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
         <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"
           strokeDasharray="28" strokeDashoffset="9" opacity="0.4"/>
@@ -74,7 +90,7 @@ export default function KumandaPage() {
     if (activeTab === 'kumanda') {
       if (loading) {
         return (
-          <div className="flex items-center justify-center gap-3 py-10 text-sm text-white/50">
+          <div className="flex items-center justify-center gap-3 py-10 text-sm pwa-text-2">
             <svg className="animate-spin w-5 h-5" viewBox="0 0 20 20" fill="none">
               <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
                 strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
@@ -105,7 +121,7 @@ export default function KumandaPage() {
           {hasPairedVehicle && (
             <button
               onClick={handleUnpair}
-              className="mt-4 w-full text-xs text-white/20 hover:text-red-400/60 transition-colors py-2"
+              className="mt-4 w-full text-xs pwa-text-3 hover:text-red-400/60 transition-colors py-2"
             >
               Araç bağlantısını kes
             </button>
@@ -144,18 +160,19 @@ export default function KumandaPage() {
   return (
     <PwaErrorBoundary>
     <div
+      data-pwa-theme={pwaTheme}
       className="min-h-[100dvh] flex flex-col"
-      style={{ background: '#060d1a' }}
+      style={{ background: 'var(--pwa-bg)', color: 'var(--pwa-text)' }}
     >
       {/* Ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-64 rounded-full bg-blue-500/[0.06] blur-[80px]" />
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-80 h-48 rounded-full bg-blue-600/[0.04] blur-[60px]" />
         <div
-          className="absolute inset-0 opacity-[0.025]"
+          className="absolute inset-0"
           style={{
             backgroundImage:
-              'linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)',
+              'linear-gradient(var(--pwa-grid) 1px, transparent 1px), linear-gradient(90deg, var(--pwa-grid) 1px, transparent 1px)',
             backgroundSize: '40px 40px',
           }}
         />
@@ -177,26 +194,51 @@ export default function KumandaPage() {
             </svg>
           </div>
           <div>
-            <p className="text-white font-bold text-sm leading-none">Arabam Cebimde</p>
-            <p className="text-white/30 text-[10px] mt-0.5">
+            <p className="pwa-text font-bold text-sm leading-none">Arabam Cebimde</p>
+            <p className="pwa-text-3 text-[10px] mt-0.5">
               {hasPairedVehicle ? 'Canlı Bağlantı' : 'Araç Eşleştir'}
             </p>
           </div>
         </div>
 
-        <Link
-          href="/dashboard"
-          className="text-[11px] font-semibold text-blue-400/70 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/[0.06]"
-        >
-          Panele Git →
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* Gece / Gündüz teması */}
+          <button
+            onClick={togglePwaTheme}
+            aria-label={pwaTheme === 'dark' ? 'Gündüz moduna geç' : 'Gece moduna geç'}
+            className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors pwa-surface pwa-border"
+            style={{ border: '1px solid var(--pwa-border)' }}
+          >
+            {pwaTheme === 'dark' ? (
+              /* Güneş — gündüze geç */
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ color: '#fbbf24' }}>
+                <circle cx="10" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6L16 16M16 4l-1.4 1.4M5.4 14.6L4 16"
+                  stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            ) : (
+              /* Ay — geceye geç */
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ color: '#60a5fa' }}>
+                <path d="M16 11.5A6.5 6.5 0 018.5 4a6.5 6.5 0 100 12 6.5 6.5 0 007.5-4.5z"
+                  stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+
+          <Link
+            href="/dashboard"
+            className="text-[11px] font-semibold text-blue-400/80 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/25 bg-blue-500/[0.08]"
+          >
+            Panele Git →
+          </Link>
+        </div>
       </header>
 
       {/* Main */}
       {activeTab === 'harita' ? (
         <main className="relative z-10 flex-1" style={{ minHeight: 0 }}>
           <Suspense fallback={
-            <div className="flex items-center justify-center h-full gap-2 text-white/30 text-sm">
+            <div className="flex items-center justify-center h-full gap-2 pwa-text-3 text-sm">
               <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"
                   strokeDasharray="28" strokeDashoffset="9" opacity="0.4"/>
@@ -213,9 +255,9 @@ export default function KumandaPage() {
           <div
             className="rounded-3xl p-5 mb-4"
             style={{
-              background: 'linear-gradient(145deg, #0c1a2e 0%, #070f1d 100%)',
-              border: '1px solid rgba(59,130,246,0.12)',
-              boxShadow: '0 0 40px rgba(59,130,246,0.06), 0 20px 60px rgba(0,0,0,0.5)',
+              background: 'linear-gradient(145deg, var(--pwa-card-a) 0%, var(--pwa-card-b) 100%)',
+              border: '1px solid var(--pwa-border)',
+              boxShadow: '0 0 40px var(--pwa-glow), 0 20px 60px rgba(0,0,0,0.18)',
             }}
           >
             {renderMain()}
@@ -227,14 +269,14 @@ export default function KumandaPage() {
       {/* Bottom nav */}
       <nav
         className="relative z-10 pb-safe"
-        style={{ background: 'rgba(6,13,26,0.9)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ background: 'var(--pwa-nav-bg)', backdropFilter: 'blur(20px)', borderTop: '1px solid var(--pwa-border-soft)' }}
       >
         <div className="flex items-center justify-around py-2">
           {/* Kumanda */}
           <button
             onClick={() => setActiveTab('kumanda')}
             className="flex flex-col items-center gap-1 py-1 px-3 transition-colors"
-            style={{ color: activeTab === 'kumanda' ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
+            style={{ color: activeTab === 'kumanda' ? '#3b82f6' : 'var(--pwa-text-3)' }}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <rect x="4" y="9" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5"/>
@@ -248,7 +290,7 @@ export default function KumandaPage() {
           <button
             onClick={() => setActiveTab('eslestir')}
             className="flex flex-col items-center gap-1 py-1 px-3 transition-colors"
-            style={{ color: activeTab === 'eslestir' ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
+            style={{ color: activeTab === 'eslestir' ? '#3b82f6' : 'var(--pwa-text-3)' }}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M10 2C7.24 2 5 4.24 5 7c0 3.75 5 11 5 11s5-7.25 5-11c0-2.76-2.24-5-5-5z"
@@ -262,7 +304,7 @@ export default function KumandaPage() {
           <button
             onClick={() => setActiveTab('harita')}
             className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
-            style={{ color: activeTab === 'harita' ? '#3b82f6' : 'rgba(255,255,255,0.3)' }}
+            style={{ color: activeTab === 'harita' ? '#3b82f6' : 'var(--pwa-text-3)' }}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M2 5l5.5-2.5 5 2.5 5-2.5V15l-5 2.5-5-2.5-5.5 2.5V5z"
@@ -276,7 +318,7 @@ export default function KumandaPage() {
           <button
             onClick={() => setActiveTab('teshis')}
             className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
-            style={{ color: activeTab === 'teshis' ? '#fbbf24' : 'rgba(255,255,255,0.3)' }}
+            style={{ color: activeTab === 'teshis' ? '#fbbf24' : 'var(--pwa-text-3)' }}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M10 2L18 16H2L10 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
@@ -289,7 +331,7 @@ export default function KumandaPage() {
           <button
             onClick={() => setActiveTab('kayitlar')}
             className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
-            style={{ color: activeTab === 'kayitlar' ? '#34d399' : 'rgba(255,255,255,0.3)' }}
+            style={{ color: activeTab === 'kayitlar' ? '#34d399' : 'var(--pwa-text-3)' }}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M4 5h12M4 9h8M4 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -302,7 +344,7 @@ export default function KumandaPage() {
           <button
             onClick={() => setActiveTab('tema')}
             className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
-            style={{ color: activeTab === 'tema' ? '#a78bfa' : 'rgba(255,255,255,0.3)' }}
+            style={{ color: activeTab === 'tema' ? '#a78bfa' : 'var(--pwa-text-3)' }}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/>

@@ -250,9 +250,9 @@ function ProviderRow({
           onClick={() => onSelect(id)}
           className="flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
           style={{
-            background:  selected === id ? `${color}18` : 'rgba(255,255,255,0.03)',
-            border:      `1.5px solid ${selected === id ? `${color}60` : 'rgba(255,255,255,0.08)'}`,
-            color:       selected === id ? color : 'rgba(255,255,255,0.3)',
+            background:  selected === id ? `${color}18` : 'var(--pwa-surface-3)',
+            border:      `1.5px solid ${selected === id ? `${color}60` : 'var(--pwa-border)'}`,
+            color:       selected === id ? color : 'var(--pwa-text-3)',
             boxShadow:   selected === id ? `0 0 12px ${color}25` : 'none',
           }}
         >
@@ -391,12 +391,12 @@ function NavPanel({
             </svg>
           </div>
           <div className="text-left">
-            <p className="text-xs font-bold text-white/80 leading-tight">Navigasyon Gönder</p>
-            <p className="text-[10px] text-white/30 mt-0.5">Konum veya adres araca ilet</p>
+            <p className="text-xs font-bold pwa-text leading-tight">Navigasyon Gönder</p>
+            <p className="text-[10px] pwa-text-3 mt-0.5">Konum veya adres araca ilet</p>
           </div>
         </div>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M5 3l4 4-4 4" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M5 3l4 4-4 4" stroke="var(--pwa-text-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
     );
@@ -426,9 +426,9 @@ function NavPanel({
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-400/70">Navigasyon</p>
           <button onClick={() => setStep('closed')}
             className="w-6 h-6 flex items-center justify-center rounded-lg"
-            style={{ background: 'rgba(255,255,255,0.05)' }}>
+            style={{ background: 'var(--pwa-surface)' }}>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M2 2l6 6M8 2l-6 6" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M2 2l6 6M8 2l-6 6" stroke="var(--pwa-text-3)" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
@@ -486,9 +486,9 @@ function NavPanel({
         <div className="flex items-center gap-2">
           <button onClick={() => setStep('menu')}
             className="w-7 h-7 flex items-center justify-center rounded-xl flex-shrink-0"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M8 2L4 6l4 4" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M8 2L4 6l4 4" stroke="var(--pwa-text-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
           <div className="flex-1 relative">
@@ -498,8 +498,8 @@ function NavPanel({
               placeholder="Adres, şehir veya yer adı girin…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full px-3 py-2.5 pr-8 rounded-xl text-sm text-white placeholder-white/20 outline-none"
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+              className="w-full px-3 py-2.5 pr-8 rounded-xl text-sm pwa-text placeholder-white/20 outline-none"
+              style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
             />
             {searching && (
               <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
@@ -520,7 +520,7 @@ function NavPanel({
                 key={i}
                 onClick={() => handleSelectResult(r)}
                 className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all active:scale-[0.98]"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="mt-0.5 flex-shrink-0">
                   <path d="M7 1C4.79 1 3 2.79 3 5c0 2.94 4 8 4 8s4-5.06 4-8c0-2.21-1.79-4-4-4z"
@@ -528,8 +528,8 @@ function NavPanel({
                   <circle cx="7" cy="5" r="1.2" stroke="#3b82f6" strokeWidth="1.2"/>
                 </svg>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-white/80 leading-tight truncate">{r.short_name}</p>
-                  <p className="text-[9px] text-white/30 mt-0.5 truncate">{r.display_name}</p>
+                  <p className="text-xs font-semibold pwa-text leading-tight truncate">{r.short_name}</p>
+                  <p className="text-[9px] pwa-text-3 mt-0.5 truncate">{r.display_name}</p>
                 </div>
               </button>
             ))}
@@ -537,7 +537,7 @@ function NavPanel({
         )}
 
         {query.trim().length >= 3 && !searching && results.length === 0 && (
-          <p className="text-center text-[11px] text-white/25 py-3">Sonuç bulunamadı</p>
+          <p className="text-center text-[11px] pwa-text-3 py-3">Sonuç bulunamadı</p>
         )}
       </div>
     );
@@ -551,29 +551,29 @@ function NavPanel({
         <div className="flex items-start gap-2.5">
           <button onClick={() => setStep('menu')}
             className="w-7 h-7 flex items-center justify-center rounded-xl flex-shrink-0 mt-0.5"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M8 2L4 6l4 4" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M8 2L4 6l4 4" stroke="var(--pwa-text-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
           <div className="flex-1 min-w-0">
             <p className="text-[9px] font-black uppercase tracking-widest text-blue-400/60 mb-1">Hedef Konum</p>
-            <p className="text-sm font-semibold text-white/90 leading-snug line-clamp-2">{selected.short_name}</p>
-            <p className="text-[9px] text-white/30 mt-0.5 font-mono">
+            <p className="text-sm font-semibold pwa-text leading-snug line-clamp-2">{selected.short_name}</p>
+            <p className="text-[9px] pwa-text-3 mt-0.5 font-mono">
               {selected.lat.toFixed(5)}, {selected.lng.toFixed(5)}
             </p>
           </div>
         </div>
 
         <div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5 px-1">Navigasyon Uygulaması</p>
+          <p className="text-[9px] font-black uppercase tracking-widest pwa-text-3 mb-1.5 px-1">Navigasyon Uygulaması</p>
           <ProviderRow selected={provider} onSelect={setProvider} />
         </div>
 
         <button
           onClick={handleSend}
           disabled={busy}
-          className="w-full py-3.5 rounded-xl font-black text-sm uppercase tracking-widest text-white transition-all active:scale-[0.97] disabled:opacity-50"
+          className="w-full py-3.5 rounded-xl font-black text-sm uppercase tracking-widest pwa-text transition-all active:scale-[0.97] disabled:opacity-50"
           style={{
             background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
             boxShadow:  '0 6px 20px rgba(59,130,246,0.3)',
@@ -638,26 +638,26 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all active:scale-[0.98]"
         style={{
-          background: cfg.enabled ? 'rgba(239,68,68,0.06)' : 'rgba(255,255,255,0.03)',
-          border:     `1.5px solid ${cfg.enabled ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`,
+          background: cfg.enabled ? 'rgba(239,68,68,0.06)' : 'var(--pwa-surface-3)',
+          border:     `1.5px solid ${cfg.enabled ? 'rgba(239,68,68,0.2)' : 'var(--pwa-border-soft)'}`,
         }}
       >
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{
-              background: cfg.enabled ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.05)',
-              border:     `1px solid ${cfg.enabled ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.08)'}`,
+              background: cfg.enabled ? 'rgba(239,68,68,0.12)' : 'var(--pwa-surface)',
+              border:     `1px solid ${cfg.enabled ? 'rgba(239,68,68,0.25)' : 'var(--pwa-border)'}`,
             }}>
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M6.5 1L12 11H1L6.5 1Z" stroke={cfg.enabled ? '#ef4444' : 'rgba(255,255,255,0.3)'} strokeWidth="1.2" strokeLinejoin="round"/>
-              <path d="M6.5 5v2.5M6.5 9v.5" stroke={cfg.enabled ? '#ef4444' : 'rgba(255,255,255,0.3)'} strokeWidth="1.2" strokeLinecap="round"/>
+              <path d="M6.5 1L12 11H1L6.5 1Z" stroke={cfg.enabled ? '#ef4444' : 'var(--pwa-text-3)'} strokeWidth="1.2" strokeLinejoin="round"/>
+              <path d="M6.5 5v2.5M6.5 9v.5" stroke={cfg.enabled ? '#ef4444' : 'var(--pwa-text-3)'} strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
           </div>
           <div className="text-left">
-            <p className="text-xs font-bold leading-tight" style={{ color: cfg.enabled ? '#f87171' : 'rgba(255,255,255,0.6)' }}>
+            <p className="text-xs font-bold leading-tight" style={{ color: cfg.enabled ? '#f87171' : 'var(--pwa-text-2)' }}>
               Hız Uyarısı
             </p>
-            <p className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            <p className="text-[9px] mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
               {cfg.enabled ? `${cfg.threshold} km/h üzerinde uyar` : 'Devre dışı'}
             </p>
           </div>
@@ -667,7 +667,7 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
             <span className="text-[9px] font-black text-emerald-400">Kaydedildi ✓</span>
           )}
           {saving && (
-            <svg className="animate-spin w-3 h-3 text-white/30" viewBox="0 0 12 12" fill="none">
+            <svg className="animate-spin w-3 h-3 pwa-text-3" viewBox="0 0 12 12" fill="none">
               <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2"
                 strokeDasharray="18" strokeDashoffset="6" opacity="0.4"/>
               <path d="M6 1.5a4.5 4.5 0 014.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -677,11 +677,11 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
           <div
             onClick={(e) => { e.stopPropagation(); update({ enabled: !cfg.enabled }); }}
             className="w-9 h-5 rounded-full relative cursor-pointer transition-all"
-            style={{ background: cfg.enabled ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)' }}
+            style={{ background: cfg.enabled ? 'rgba(239,68,68,0.5)' : 'var(--pwa-border)' }}
           >
             <div className="absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200"
               style={{
-                background: cfg.enabled ? '#ef4444' : 'rgba(255,255,255,0.3)',
+                background: cfg.enabled ? '#ef4444' : 'var(--pwa-text-3)',
                 left:       cfg.enabled ? '18px' : '2px',
                 boxShadow:  cfg.enabled ? '0 0 6px rgba(239,68,68,0.6)' : 'none',
               }} />
@@ -691,7 +691,7 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
             style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
             width="12" height="12" viewBox="0 0 12 12" fill="none"
           >
-            <path d="M3 4.5l3 3 3-3" stroke="rgba(255,255,255,0.3)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M3 4.5l3 3 3-3" stroke="var(--pwa-text-3)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
       </button>
@@ -705,9 +705,9 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
               onClick={() => update({ threshold: spd, enabled: true })}
               className="flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95"
               style={{
-                background:  cfg.threshold === spd ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.03)',
-                border:      `1.5px solid ${cfg.threshold === spd ? 'rgba(239,68,68,0.35)' : 'rgba(255,255,255,0.07)'}`,
-                color:       cfg.threshold === spd ? '#f87171' : 'rgba(255,255,255,0.3)',
+                background:  cfg.threshold === spd ? 'rgba(239,68,68,0.12)' : 'var(--pwa-surface-3)',
+                border:      `1.5px solid ${cfg.threshold === spd ? 'rgba(239,68,68,0.35)' : 'var(--pwa-border-soft)'}`,
+                color:       cfg.threshold === spd ? '#f87171' : 'var(--pwa-text-3)',
                 boxShadow:   cfg.threshold === spd ? '0 0 10px rgba(239,68,68,0.2)' : 'none',
               }}
             >
@@ -744,13 +744,13 @@ export default function MobileCarControl({ vehicle }: Props) {
   if (!vehicle) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-        <div className="w-16 h-16 rounded-3xl bg-white/[0.03] border border-white/[0.07] flex items-center justify-center">
+        <div className="w-16 h-16 rounded-3xl pwa-surface border border-white/[0.07] flex items-center justify-center">
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
             <path d="M4 18L8 10Q9.5 7 12 7H16Q18.5 7 20 10L24 18V22Q24 24 22 24H6Q4 24 4 22Z"
-              stroke="rgba(255,255,255,0.2)" strokeWidth="1.8" strokeLinejoin="round"/>
+              stroke="var(--pwa-text-3)" strokeWidth="1.8" strokeLinejoin="round"/>
           </svg>
         </div>
-        <p className="text-sm text-white/30">Araç seçilmedi</p>
+        <p className="text-sm pwa-text-3">Araç seçilmedi</p>
       </div>
     );
   }
@@ -762,20 +762,20 @@ export default function MobileCarControl({ vehicle }: Props) {
 
       {/* Vehicle identity */}
       <div className="flex items-center gap-3 px-4 py-3 rounded-2xl"
-        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
           vehicle.status === 'online' ? 'bg-emerald-400 neon-online' :
           vehicle.status === 'alarm'  ? 'bg-red-400 neon-alarm animate-pulse' : 'bg-white/20'
         }`} />
         <div className="flex-1 min-w-0">
-          <p className="font-mono font-bold text-white text-sm">{vehicle.plate}</p>
-          <p className="text-[10px] text-white/35 truncate">{vehicle.name} · {vehicle.driver}</p>
+          <p className="font-mono font-bold pwa-text text-sm">{vehicle.plate}</p>
+          <p className="text-[10px] pwa-text-3 truncate">{vehicle.name} · {vehicle.driver}</p>
         </div>
         <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg"
           style={{
             color:      isOnline ? '#34d399' : '#ffffff40',
-            background: isOnline ? 'rgba(52,211,153,0.1)' : 'rgba(255,255,255,0.04)',
-            border:     `1px solid ${isOnline ? 'rgba(52,211,153,0.25)' : 'rgba(255,255,255,0.08)'}`,
+            background: isOnline ? 'rgba(52,211,153,0.1)' : 'var(--pwa-surface)',
+            border:     `1px solid ${isOnline ? 'rgba(52,211,153,0.25)' : 'var(--pwa-border)'}`,
           }}>
           {vehicle.status === 'online' ? 'Online' : vehicle.status === 'alarm' ? 'Alarm' : 'Offline'}
         </span>
@@ -878,7 +878,7 @@ export default function MobileCarControl({ vehicle }: Props) {
         ].map(({ label, value, unit, color }) => (
           <div key={label} className="flex flex-col items-center py-3 rounded-xl"
             style={{ background: `${color}09`, border: `1px solid ${color}20` }}>
-            <span className="text-[8px] font-black uppercase tracking-widest text-white/30 mb-1">{label}</span>
+            <span className="text-[8px] font-black uppercase tracking-widest pwa-text-3 mb-1">{label}</span>
             <span className="text-lg font-black tabular-nums leading-none" style={{ color }}>{value}</span>
             <span className="text-[9px] font-mono mt-0.5" style={{ color: `${color}60` }}>{unit}</span>
           </div>
