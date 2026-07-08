@@ -1,6 +1,6 @@
 export default function MockDashboard() {
   return (
-    <div className="relative w-full max-w-4xl mx-auto rounded-2xl overflow-hidden border border-white/[0.1] shadow-[0_40px_120px_rgba(0,0,0,0.7)] bg-surface">
+    <div data-mock className="relative w-full max-w-4xl mx-auto rounded-2xl overflow-hidden border border-white/[0.1] shadow-soft-xl bg-[#0a1628]">
       {/* Browser chrome */}
       <div className="flex items-center gap-2 px-4 h-9 bg-[#0a1628] border-b border-white/[0.06]">
         <div className="flex gap-1.5 flex-shrink-0">
@@ -142,7 +142,7 @@ export default function MockDashboard() {
       </div>
 
       {/* Bottom glow */}
-      <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-bg via-transparent to-transparent pointer-events-none" />
+      <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-[#060d1a] via-transparent to-transparent pointer-events-none" />
     </div>
   );
 }

@@ -39,9 +39,9 @@ export default function Contact() {
         <div className="absolute inset-0 grid-bg opacity-60" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_50%_0%,rgba(59,130,246,0.1)_0%,transparent_60%)]" />
         <div className="relative max-w-6xl mx-auto px-6 text-center">
-          <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-4">İletişim</p>
+          <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-4">İletişim</p>
           <h1 className="text-4xl md:text-5xl font-bold text-gradient mb-5">Bizimle İletişime Geç</h1>
-          <p className="text-white/45 text-lg max-w-xl mx-auto">
+          <p className="text-ink-3 text-lg max-w-xl mx-auto">
             Demo talebi, kurumsal teklif veya teknik destek için aşağıdaki formu kullanabilirsiniz.
           </p>
         </div>
@@ -55,8 +55,8 @@ export default function Contact() {
             {/* Info side */}
             <div className="md:col-span-2 flex flex-col gap-6">
               <div>
-                <h2 className="font-semibold text-white mb-2">Kurumsal Satış</h2>
-                <p className="text-sm text-white/45 leading-relaxed">
+                <h2 className="font-semibold text-ink mb-2">Kurumsal Satış</h2>
+                <p className="text-sm text-ink-3 leading-relaxed">
                   Filo yönetimi, kurumsal lisans ve özel entegrasyon için
                   satış ekibimizle iletişime geçin.
                 </p>
@@ -67,90 +67,90 @@ export default function Contact() {
                   <a
                     key={label}
                     href={href}
-                    className="flex items-center gap-4 p-4 rounded-xl glass border border-white/[0.06] hover:border-white/[0.12] transition-colors group"
+                    className="flex items-center gap-4 p-4 rounded-xl glass border border-line hover:border-line-2 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0 group-hover:border-accent/35 transition-colors">
                       {icon}
                     </div>
                     <div>
-                      <p className="text-xs text-white/35 mb-0.5">{label}</p>
-                      <p className="text-sm text-white/70 group-hover:text-white transition-colors">{value}</p>
+                      <p className="text-xs text-ink-3 mb-0.5">{label}</p>
+                      <p className="text-sm text-ink-2 group-hover:text-ink transition-colors">{value}</p>
                     </div>
                   </a>
                 ))}
               </div>
 
-              <div className="p-5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+              <div className="p-5 rounded-xl border border-line bg-surface">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-xs font-medium text-emerald-400">Yanıt süresi</span>
+                  <span className="text-xs font-medium text-emerald-ink">Yanıt süresi</span>
                 </div>
-                <p className="text-sm text-white/50">
-                  Kurumsal talepler genellikle <span className="text-white/80">24 saat</span> içinde yanıtlanır.
+                <p className="text-sm text-ink-3">
+                  Kurumsal talepler genellikle <span className="text-ink-2">24 saat</span> içinde yanıtlanır.
                 </p>
               </div>
             </div>
 
             {/* Form */}
             <div className="md:col-span-3">
-              <div className="p-8 rounded-2xl glass border border-white/[0.07]">
+              <div className="p-8 rounded-2xl glass border border-line">
                 <form className="flex flex-col gap-5">
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs text-white/40 mb-2 font-medium">Ad Soyad</label>
+                      <label className="block text-xs text-ink-3 mb-2 font-medium">Ad Soyad</label>
                       <input
                         type="text"
                         placeholder="Ahmet Yılmaz"
-                        className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all"
+                        className="w-full bg-surface border border-line rounded-xl px-4 py-3 text-sm text-ink placeholder-ink-4 focus:outline-none focus:border-accent/50 focus:bg-surface-2 transition-all"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-white/40 mb-2 font-medium">Şirket</label>
+                      <label className="block text-xs text-ink-3 mb-2 font-medium">Şirket</label>
                       <input
                         type="text"
                         placeholder="ABC Lojistik A.Ş."
-                        className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all"
+                        className="w-full bg-surface border border-line rounded-xl px-4 py-3 text-sm text-ink placeholder-ink-4 focus:outline-none focus:border-accent/50 focus:bg-surface-2 transition-all"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-white/40 mb-2 font-medium">E-posta</label>
+                    <label className="block text-xs text-ink-3 mb-2 font-medium">E-posta</label>
                     <input
                       type="email"
                       placeholder="ahmet@sirket.com"
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all"
+                      className="w-full bg-surface border border-line rounded-xl px-4 py-3 text-sm text-ink placeholder-ink-4 focus:outline-none focus:border-accent/50 focus:bg-surface-2 transition-all"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs text-white/40 mb-2 font-medium">Filo Büyüklüğü</label>
-                    <select className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl px-4 py-3 text-sm text-white/70 focus:outline-none focus:border-accent/50 transition-all appearance-none cursor-pointer">
-                      <option value="" className="bg-[#0a1628]">Seçiniz</option>
-                      <option value="1-10" className="bg-[#0a1628]">1–10 araç</option>
-                      <option value="11-50" className="bg-[#0a1628]">11–50 araç</option>
-                      <option value="51-200" className="bg-[#0a1628]">51–200 araç</option>
-                      <option value="200+" className="bg-[#0a1628]">200+ araç</option>
+                    <label className="block text-xs text-ink-3 mb-2 font-medium">Filo Büyüklüğü</label>
+                    <select className="w-full bg-surface border border-line rounded-xl px-4 py-3 text-sm text-ink-2 focus:outline-none focus:border-accent/50 transition-all appearance-none cursor-pointer">
+                      <option value="" className="bg-elevated text-ink">Seçiniz</option>
+                      <option value="1-10" className="bg-elevated text-ink">1–10 araç</option>
+                      <option value="11-50" className="bg-elevated text-ink">11–50 araç</option>
+                      <option value="51-200" className="bg-elevated text-ink">51–200 araç</option>
+                      <option value="200+" className="bg-elevated text-ink">200+ araç</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-white/40 mb-2 font-medium">Mesaj</label>
+                    <label className="block text-xs text-ink-3 mb-2 font-medium">Mesaj</label>
                     <textarea
                       rows={4}
                       placeholder="Kurumsal demo, entegrasyon veya destek talebinizi açıklayın..."
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-accent/50 focus:bg-white/[0.06] transition-all resize-none"
+                      className="w-full bg-surface border border-line rounded-xl px-4 py-3 text-sm text-ink placeholder-ink-4 focus:outline-none focus:border-accent/50 focus:bg-surface-2 transition-all resize-none"
                     />
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full bg-accent hover:bg-accent/90 text-white font-medium py-3.5 rounded-xl transition-colors text-sm"
+                    className="w-full bg-accent-solid hover:bg-accent-dark text-white font-medium py-3.5 rounded-xl transition-colors text-sm"
                   >
                     Gönder
                   </button>
 
-                  <p className="text-center text-xs text-white/25">
+                  <p className="text-center text-xs text-ink-4">
                     Formunuz güvenli şekilde iletilir. Spam göndermeyiz.
                   </p>
                 </form>
