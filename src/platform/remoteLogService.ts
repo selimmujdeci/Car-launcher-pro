@@ -47,6 +47,7 @@ import {
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
 } from './diagnosticSections';
 import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
+import { useVidStore } from '../store/useVidStore';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -285,6 +286,71 @@ function _attachTriage(payload: Record<string, unknown>): void {
   } catch { /* triyaj asla ana raporu bozmaz */ }
 }
 
+/* ── VID aynası (vidMirror) — EXPLICIT ALLOWLIST ─────────────────────
+ * VID store'un HAM objesi payload'a ASLA doğrudan konmaz. Aşağıdaki dört
+ * bölüm alan-alan elle kurulur; allowlist DIŞINDA hiçbir şey uzağa gidemez:
+ *   • Ham VIN yok  → yalnız vinMasked (maskeli türev)
+ *   • Ham MAC/adres yok → lastAddress bilinçli DIŞARIDA
+ *   • Bluetooth cihaz adı yok · installedPackages (uygulama listesi) yok
+ *   • Store action fonksiyonları yapısal olarak dışarıda (üst-seviye vid
+ *     nesnesi hiç spread edilmez; ayrıca _deepSanitize function'ı düşürür)
+ * _buildVidMirror çağrısı _safeSection ile fail-soft; üretilen nesne yine
+ * payload gövdesinin _deepSanitize'ından (deny + VIN/MAC/koordinat maskesi)
+ * geçer — allowlist ile son savunma katmanı üst üste biner. */
+
+/** VIN'i maskeler: yalnız WMI (ilk 3 — marka/bölge, kişi-tanımlayıcı değil)
+ *  açık kalır; benzersiz seri (VDS/VIS) '*' ile gizlenir. Çıktı '*' içerdiği
+ *  için 17-karakter VIN regex'ine takılmaz → maske kendisi de korunur. */
+function _maskVin(vin: string): string {
+  const v = vin.trim().toUpperCase();
+  if (v.length < 6) return '*'.repeat(v.length); // kısa/geçersiz → tamamen gizle
+  return v.slice(0, 3) + '*'.repeat(v.length - 3);
+}
+
+/** VID şemasında henüz bulunmayan (ileride eklenebilecek) opsiyonel alanı
+ *  tip-güvenli okur — allowlist ileriye-dönük olsun, `any` gerekmesin. */
+function _readOptional(obj: object, key: string): unknown {
+  const rec = obj as Record<string, unknown>;
+  return key in rec ? rec[key] : undefined;
+}
+
+/** VID store'dan yalnız allowlist alanlarını içeren yeni nesne kurar. */
+function _buildVidMirror(): Record<string, unknown> {
+  const vid = useVidStore.getState();
+  const rawVin = vid.vehicle.vin;
+  return {
+    headUnit: {
+      detectedPlatform:        vid.headUnit.detectedPlatform,
+      webViewChromeVersion:    vid.headUnit.webViewChromeVersion,
+      isPlayServicesAvailable: vid.headUnit.isPlayServicesAvailable,
+    },
+    obdAdapter: {
+      lastTransport:        vid.obdAdapter.lastTransport,
+      transportVerified:    vid.obdAdapter.isTransportVerified,
+      lastProtocolNum:      vid.obdAdapter.lastProtocolNum,
+      // connectionHealth / lastDisconnectReason: VID şemasında henüz yok →
+      // undefined döner, _deepSanitize düşürür (şema büyürse otomatik akar).
+      connectionHealth:     _readOptional(vid.obdAdapter, 'connectionHealth'),
+      lastDisconnectReason: _readOptional(vid.obdAdapter, 'lastDisconnectReason'),
+    },
+    vehicle: {
+      make:        vid.vehicle.make,
+      model:       vid.vehicle.model,
+      modelYear:   vid.vehicle.modelYear,
+      vehicleType: vid.vehicle.vehicleType,
+      // Ham VIN ASLA girmez — yalnız maskelenmiş türev (VIN yoksa null).
+      vinMasked:   rawVin ? _maskVin(rawVin) : null,
+    },
+    telemetry: {
+      trustScore:           vid.telemetry.trustScore,
+      healthState:          vid.telemetry.healthState,
+      thermalStatus:        vid.telemetry.thermalStatus,
+      isDiagnosticDegraded: vid.telemetry.isDiagnosticDegraded,
+      plausibilityFailures: vid.telemetry.plausibilityFailures,
+    },
+  };
+}
+
 /** Ortak snapshot gövdesi — reportSupportSnapshot ve reportDiagnosticSnapshot kullanır. */
 async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> {
   const obd    = getOBDStatusSnapshot();
@@ -389,6 +455,9 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     // Transport/bağlantı sağlığı — aktif transport (CAN/classic/ble/tcp) + reconnect
     // deneme sayısı + son kopma nedeni.
     transport: _safeSection(buildTransportSnapshot),
+    // VID aynası — araç/head unit/OBD adaptör/telemetri özeti. EXPLICIT ALLOWLIST
+    // (ham VIN/MAC/cihaz adı/uygulama listesi yapısal olarak dışarıda); fail-soft.
+    vidMirror: _safeSection(_buildVidMirror),
   }, 0) as Record<string, unknown>;
 
   return payload;

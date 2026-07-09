@@ -93,13 +93,15 @@ const VIN_YEAR_MAP: Readonly<Record<string, number>> = {
   '6': 2006, '7': 2007, '8': 2008, '9': 2009,
 };
 
-function _decodeVinYear(vin: string): number | null {
+/** VIN pozisyon 10'dan (0-indexed 9) model yılını çözer. Sözlük/davranış değişmez. */
+export function decodeVinYear(vin: string): number | null {
   const char = vin[9]?.toUpperCase();
   if (!char) return null;
   return VIN_YEAR_MAP[char] ?? null;
 }
 
-function _decodeWmi(vin: string): string | null {
+/** VIN'in ilk 3 karakterinden (WMI) markayı çözer. Sözlük/davranış değişmez. */
+export function decodeWmi(vin: string): string | null {
   const wmi = vin.substring(0, 3).toUpperCase();
   return WMI_MAKE[wmi] ?? null;
 }
@@ -179,8 +181,8 @@ export async function runVehicleHandshake(
   // 1. VIN + PID parse (mevcut OBDHandshake — değişmez)
   const vin           = parseVIN(raw09);
   const supportedPids = parseSupportedPIDs(raw0100);
-  const make          = vin ? _decodeWmi(vin)      : null;
-  const modelYear     = vin ? _decodeVinYear(vin)   : null;
+  const make          = vin ? decodeWmi(vin)      : null;
+  const modelYear     = vin ? decodeVinYear(vin)   : null;
 
   const _log = (msg: string) => {
     logInfo(`[VehicleHandshake] ${msg}`);
