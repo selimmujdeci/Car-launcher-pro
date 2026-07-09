@@ -26,6 +26,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { STANDARD_PID_MAP, decodeStandardPid } from './StandardPidRegistry';
 import type { StandardPidDef } from './StandardPidRegistry';
 import { logError } from '../crashLogger';
+import { discoveryCaptureService } from './discovery';
 
 /** İzlenebilir PID sayısı TS tavanı — rotasyon gecikmesi makul kalsın (16 PID ≈ 16 tur). */
 export const ELM_WATCH_CAP = 16;
@@ -123,6 +124,25 @@ function _onExtendedData(event: { pid: string; data: string }): void {
       const found = parseSupportedBitmask(pid, event.data);
       if (_supported === null) _supported = new Set<string>();
       found.forEach((p) => _supported!.add(p));
+
+      // PR-DISC-2: keşif bitmask'inde araç DESTEKLİYOR ama registry'de OLMAYAN standart
+      // PID'leri yakala (aralık-bayrağı PID'leri 00/20/40/… gerçek sinyal değil → atla;
+      // registry'dekiler zaten bilinir → DiscoveryCaptureService onları da eler). Fail-soft:
+      // yakalama hatası keşfi ETKİLEMEZ. Hot-poll / native listeye DOKUNMAZ (yalnız kayıt).
+      for (const foundPid of found) {
+        if ((DISCOVERY_PIDS as readonly string[]).includes(foundPid)) continue;
+        if (STANDARD_PID_MAP.has(foundPid)) continue;
+        try {
+          discoveryCaptureService.capture({
+            discoverySource: 'PID',
+            mode:            '01',
+            pidOrDid:        foundPid,
+            request:         `01${pid}`,   // hangi supported-bitmask sorgusundan bulundu
+            rawResponse:     event.data,
+            supported:       true,          // bitmask "destekleniyor" diyor
+          });
+        } catch (e) { logError('OBD:DiscoveryCapturePid', e); }
+      }
       // Zincir: bir sonraki aralığın bitmask PID'i destekliyse kuyruğa ekle.
       const idx = DISCOVERY_PIDS.indexOf(pid as (typeof DISCOVERY_PIDS)[number]);
       const next = idx >= 0 ? DISCOVERY_PIDS[idx + 1] : undefined;

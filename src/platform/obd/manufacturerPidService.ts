@@ -26,6 +26,7 @@ import {
   decodeCompiledDid,
 } from './vehicleDidProfile';
 import type { CompiledDidDef, VehicleDidValue } from './vehicleDidProfile';
+import { discoveryCaptureService } from './discovery';
 
 /** Round-robin zamanlayıcı aralığı (ms) — üretici verileri yavaş değişir, 2-5s yeter. */
 export const MANUFACTURER_POLL_INTERVAL_MS = 3000;
@@ -59,6 +60,8 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
   const result = validateVehicleDidProfile(rawProfile);
   if (!result.valid) return { ok: false, errors: result.errors };
   _profile = compileVehicleDidProfile(result.profile);
+  // PR-DISC-2: profildeki DID'ler = "katalog" → keşif yakalayıcı bunları "yeni" saymasın.
+  discoveryCaptureService.setKnownDids(_profile.keys());
   _unsupported.clear();
   _values.clear();
   _rrIndex = 0;
@@ -69,6 +72,7 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
 /** Profili kaldırır — izleyici kalmışsa bile zamanlayıcı durur (profilsiz okunacak DID yok). */
 export function unloadProfile(): void {
   _profile = null;
+  discoveryCaptureService.setKnownDids([]); // katalog boşaldı
   _unsupported.clear();
   _values.clear();
   _syncTimer();
@@ -125,6 +129,23 @@ async function _tick(): Promise<void> {
     // NaN yalnız sayısal daldan gelir (metin dalı boş string yerine NaN döner) — type guard
     // `typeof value === 'string'` durumunda Number.isNaN çağrısını atlar (TS + doğruluk).
     if (typeof value === 'number' && Number.isNaN(value)) return; // sınır dışı/bozuk — sessizce atla
+
+    // PR-DISC-2: manufacturer çözümlemesinde KATALOG DIŞI DID varsa keşif hattına düşür.
+    // Profildeki (katalog) DID'ler setKnownDids ile "bilinir" işaretli → DiscoveryCaptureService
+    // onları ELER (tekrar kaydetmez); yalnız katalog dışı bir DID okunursa yakalanır. Fail-soft.
+    try {
+      discoveryCaptureService.capture({
+        discoverySource: 'DID',
+        mode:            '22',
+        ecuAddress:      def.rx,
+        pidOrDid:        def.did,
+        request:         `22${def.did}`,
+        rawResponse:     r.data,
+        supported:       true,
+        decodedValue:    value,
+      });
+    } catch (e) { logError('OBD:DiscoveryCaptureManufacturerDid', e); }
+
     const entry: ManufacturerDidValue = { value, def, updatedAt: Date.now() };
     _values.set(did, entry);
     _watchers.get(did)?.forEach((cb) => {
