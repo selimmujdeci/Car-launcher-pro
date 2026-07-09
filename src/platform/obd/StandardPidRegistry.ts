@@ -5,9 +5,13 @@
  * uygulamadan liste/formül alınmadı — ticari lisans kuralı (CLAUDE.md) gereği.
  *
  * KAPSAM v1: formülü tanımlı SAYISAL PID'ler (~55 adet). Bit/enum kodlu durum PID'leri
- * (0x03 yakıt sistemi durumu, 0x12, 0x13, 0x1C-0x1E…) ve çok-sensörlü destek-baytlı
- * PID'ler (0x66+) bilinçli olarak v2'ye bırakıldı — yanlış çözümleme riski taşımadan
- * önce sayısal çekirdek sahada doğrulansın.
+ * (0x03 yakıt sistemi durumu, 0x12, 0x13, 0x1C-0x1E…) StandardPidEnums'ta ayrı çözülür.
+ *
+ * KAPSAM v2 (PR-PID-1): 0x64-0x98 dizel/egzoz/emisyon aralığından yalnız formülü kamu
+ * standardında NET olan skaler PID'ler eklendi (EGR/EGT/DPF sıcaklığı, NOx, sürtünme
+ * torku). Bu PID'lerin çoğu ilk baytta bir "veri destek" bitmask'i taşır; decode İLK
+ * sensörü (A'dan sonraki baytlar) çözer. İç yapısı belirsiz olanlar (DPF fark basıncı
+ * 0x7A/0x7B, 0x8B Diesel Aftertreatment bit-durum) sahada doğrulanana dek DIŞARIDA.
  *
  * TASARIM: veri-güdümlü — her PID bir kayıt: ham veri baytları → değer saf fonksiyonla
  * çözülür, sınır dışı NaN döner (çağıran atlar, paket düşmez — obdSanitizer felsefesi).
@@ -130,6 +134,22 @@ const DEFS: StandardPidDef[] = [
   { pid: '61', name: 'Sürücü talep torku',           unit: '%',    bytes: 1, min: -125, max: 130,   category: 'tork',     decode: (b) => A(b) - 125 },
   { pid: '62', name: 'Gerçek motor torku',           unit: '%',    bytes: 1, min: -125, max: 130,   category: 'tork',     decode: (b) => A(b) - 125 },
   { pid: '63', name: 'Referans motor torku',         unit: 'Nm',   bytes: 2, min: 0,    max: 65535, category: 'tork',     decode: AB },
+
+  /* ── v2 dizel / egzoz / emisyon genişlemesi (PR-PID-1) ──────────────────────
+   * SAE J1979-2 Service 01 0x64-0x98 aralığı. Bu PID'lerin ÇOĞU ilk baytta bir
+   * "veri destek / mevcudiyet" bitmask'i (A) taşır; sensör değerleri onu izler.
+   * Bu yüzden decode İLK sensörü (A'dan SONRAKİ baytlar) çözer — A atlanır.
+   * Yalnızca formülü kamu standardında NET olan skaler PID'ler eklendi; DPF fark
+   * basıncı (0x7A/0x7B iç yapı belirsizliği) ve 0x8B "Diesel Aftertreatment"
+   * (bit/durum) sahada doğrulanana dek KASITLI dışarıda — uydurma çözümleme yok.
+   * Not: 0x6B standartta EGR sıcaklığıdır (DPF fark basıncı DEĞİL). */
+  // egtTemp: [A=destek] B,C = sensör 1 sıcaklığı = (256B+C)/10 − 40  (EGT/DPF sıcaklık ölçeği)
+  { pid: '6B', name: 'EGR sıcaklığı (Banka 1)',       unit: '°C',   bytes: 2, min: -40,  max: 215,    category: 'emisyon',  decode: (b) => b[1]! - 40 },
+  { pid: '78', name: 'Egzoz gazı sıcaklığı (EGT B1)', unit: '°C',   bytes: 3, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => (b[1]! * 256 + b[2]!) / 10 - 40 },
+  { pid: '79', name: 'Egzoz gazı sıcaklığı (EGT B2)', unit: '°C',   bytes: 3, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => (b[1]! * 256 + b[2]!) / 10 - 40 },
+  { pid: '7C', name: 'DPF sıcaklığı (Banka 1)',        unit: '°C',   bytes: 3, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => (b[1]! * 256 + b[2]!) / 10 - 40 },
+  { pid: '83', name: 'NOx konsantrasyonu (Sensör 1)', unit: 'ppm',  bytes: 3, min: 0,    max: 65535,  category: 'emisyon',  decode: (b) => b[1]! * 256 + b[2]! },
+  { pid: '8E', name: 'Motor sürtünme torku',          unit: '%',    bytes: 1, min: -125, max: 130,    category: 'tork',     decode: (b) => A(b) - 125 },
 ];
 
 /** PID ('04') → tanım. Büyük-harf 2 hane hex anahtar. */
