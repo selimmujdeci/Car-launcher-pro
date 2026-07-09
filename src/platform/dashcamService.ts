@@ -35,6 +35,10 @@ const LOCK_COOLDOWN_MS     = 5_000;
 // Sentry pre-buffer: 12s ring-buffer → 10s öncesi + 2s margin
 const PRE_BUFFER_SEC       = 12;
 
+// Güvenlik supabı: sentryEngine.disarmSentry() herhangi bir nedenle çağrılmazsa bile
+// kamera+mik süresiz açık kalmasın diye pre-buffer kendi kendine kapanır.
+const PRE_BUFFER_MAX_DURATION_MS = 4 * 60 * 60_000; // 4 saat
+
 /* ── Module state ────────────────────────────────────────── */
 
 const INITIAL_STATE: DashcamState = {
@@ -69,6 +73,7 @@ let _segmentStart    = 0;
 let _preBufferRecorder: MediaRecorder | null = null;
 let _preBufferStream:   MediaStream | null   = null;
 let _preBufferActive                         = false;
+let _preBufferSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 interface TimestampedChunk { blob: Blob; t: number; }
 let _preBufferChunks: TimestampedChunk[]     = [];
 
@@ -286,6 +291,14 @@ export async function startSentryPreBuffer(): Promise<boolean> {
 
     mr.start(500); // 500 ms dilimler → ince taneli ring buffer
     _preBufferActive = true;
+
+    if (_preBufferSafetyTimer) clearTimeout(_preBufferSafetyTimer);
+    _preBufferSafetyTimer = setTimeout(() => {
+      _preBufferSafetyTimer = null;
+      console.warn('[Dashcam] Sentry pre-buffer güvenlik supabı — maksimum süre doldu, kendi kendine kapatılıyor');
+      stopSentryPreBuffer();
+    }, PRE_BUFFER_MAX_DURATION_MS);
+
     return true;
   } catch {
     return false; // İzin yok veya kamera meşgul
@@ -296,6 +309,8 @@ export async function startSentryPreBuffer(): Promise<boolean> {
 export function stopSentryPreBuffer(): void {
   if (!_preBufferActive) return;
   _preBufferActive = false;
+
+  if (_preBufferSafetyTimer) { clearTimeout(_preBufferSafetyTimer); _preBufferSafetyTimer = null; }
 
   if (_preBufferRecorder && _preBufferRecorder.state !== 'inactive') {
     _preBufferRecorder.ondataavailable = null; // son flush'u yok say
@@ -327,6 +342,7 @@ export function captureEmergencyClip(postDurationSec = 20): Promise<Blob> {
       _preBufferRecorder = null;
     }
     _preBufferActive = false;
+    if (_preBufferSafetyTimer) { clearTimeout(_preBufferSafetyTimer); _preBufferSafetyTimer = null; }
 
     if (!_preBufferStream) {
       resolve(new Blob(preBlobs, { type: 'video/webm' }));
