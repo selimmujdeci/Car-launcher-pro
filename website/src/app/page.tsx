@@ -11,10 +11,11 @@ const features = [
     title: 'Akıllı Navigasyon',
     description: 'MapLibre tabanlı çevrimdışı haritalar. İnternet olmadan tam navigasyon, tünel modu ve rota optimizasyonu.',
     badge: 'Offline',
+    tone: 'blue' as const,
     icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2C6.686 2 4 4.686 4 8c0 4.5 6 10 6 10s6-5.5 6-10c0-3.314-2.686-6-6-6z" stroke="#3b82f6" strokeWidth="1.5"/>
-        <circle cx="10" cy="8" r="2" stroke="#3b82f6" strokeWidth="1.5"/>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ color: 'var(--fc-ink)' }}>
+        <path d="M10 2C6.686 2 4 4.686 4 8c0 4.5 6 10 6 10s6-5.5 6-10c0-3.314-2.686-6-6-6z" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="10" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/>
       </svg>
     ),
   },
@@ -22,10 +23,11 @@ const features = [
     title: 'Araç Verisi Entegrasyonu',
     description: 'OBD-II / ELM327 Bluetooth bağlantısı. Anlık hız, RPM, motor sıcaklığı ve yakıt seviyesi okuma.',
     badge: 'OBD-II',
+    tone: 'emerald' as const,
     icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M3 10a7 7 0 1014 0A7 7 0 003 10z" stroke="#3b82f6" strokeWidth="1.5"/>
-        <path d="M10 6v4l3 1.5" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ color: 'var(--fc-ink)' }}>
+        <path d="M3 10a7 7 0 1014 0A7 7 0 003 10z" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M10 6v4l3 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     ),
   },
@@ -33,10 +35,11 @@ const features = [
     title: 'Diagnostic AI',
     description: 'Motor arızalarını yapay zeka ile analiz et. P0300, P0420 ve yüzlerce DTC kodunu Türkçe açıklamalarla öğren.',
     badge: 'AI',
+    tone: 'violet' as const,
     icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <rect x="3" y="5" width="14" height="10" rx="2" stroke="#3b82f6" strokeWidth="1.5"/>
-        <path d="M7 9h6M7 12h4" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ color: 'var(--fc-ink)' }}>
+        <rect x="3" y="5" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M7 9h6M7 12h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     ),
   },
@@ -44,22 +47,24 @@ const features = [
     title: 'Web Kontrol Paneli',
     description: 'Uzaktan filo takibi, cihaz yönetimi ve sürücü raporları. Rol bazlı yetkilendirme ile kurumsal yönetim.',
     badge: 'Kurumsal',
+    tone: 'orange' as const,
     icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <rect x="2" y="4" width="16" height="12" rx="2" stroke="#3b82f6" strokeWidth="1.5"/>
-        <path d="M2 8h16" stroke="#3b82f6" strokeWidth="1.5"/>
-        <circle cx="5" cy="6" r="0.75" fill="#3b82f6"/>
-        <circle cx="7.5" cy="6" r="0.75" fill="#3b82f6"/>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ color: 'var(--fc-ink)' }}>
+        <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M2 8h16" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="5" cy="6" r="0.75" fill="currentColor"/>
+        <circle cx="7.5" cy="6" r="0.75" fill="currentColor"/>
       </svg>
     ),
   },
 ];
 
-const stats = [
-  { value: '10+', label: 'Aktif Araç' },
-  { value: '99.9%', label: 'Uptime' },
-  { value: '4.8★', label: 'Kullanıcı Puanı' },
-  { value: 'Offline', label: 'Harita Desteği' },
+// Uydurma metrik yok — yalnız doğrulanabilir, gerçek ürün yetenekleri.
+const capabilities = [
+  { label: 'Çevrimdışı-öncelikli harita', sub: 'MapLibre GL' },
+  { label: 'OBD-II · ELM327 · CAN', sub: 'Canlı telemetri' },
+  { label: 'Yerinde Diagnostic AI', sub: 'Türkçe DTC analizi' },
+  { label: 'Web kontrol paneli', sub: 'Rol bazlı filo' },
 ];
 
 export default function Home() {
@@ -73,18 +78,18 @@ export default function Home() {
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full bg-accent/[0.04] blur-[140px] pointer-events-none" />
 
         <div className="relative max-w-6xl mx-auto px-6 pt-24 pb-8 text-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-accent/25 bg-accent/10 text-accent text-xs font-medium tracking-wide mb-8">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-accent/25 bg-accent/10 text-accent-ink text-xs font-medium tracking-wide mb-8 shadow-glow-sm">
             <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
             v2.0 — Android &amp; Kurumsal Platform
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-[1.08]">
+          <h1 className="text-[2.75rem] leading-[1.05] sm:text-6xl md:text-7xl lg:text-[5rem] font-bold tracking-tightest mb-6">
             <span className="text-gradient">Araç İçi Yazılımın</span>
             <br />
             <span className="text-gradient-blue">Yeni Standardı</span>
           </h1>
 
-          <p className="text-white/50 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
+          <p className="text-ink-2 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
             Caros Pro — navigasyon, araç verisi, medya ve filo yönetimini
             tek platformda birleştiren profesyonel araç içi yazılım.
           </p>
@@ -110,12 +115,20 @@ export default function Home() {
             <PWAInstallButton />
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto mb-16">
-            {stats.map(({ value, label }) => (
-              <div key={label} className="p-4 rounded-xl glass text-center">
-                <div className="text-xl font-bold text-white mb-0.5">{value}</div>
-                <div className="text-xs text-white/35">{label}</div>
+          {/* Yetenek şeridi — dürüst, doğrulanabilir; uydurma sayı yok */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl mx-auto mb-16">
+            {capabilities.map(({ label, sub }) => (
+              <div
+                key={label}
+                className="flex flex-col items-center gap-1 p-4 rounded-xl glass border border-line text-center shadow-soft"
+              >
+                <div className="flex items-center gap-1.5">
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="text-accent-ink flex-shrink-0">
+                    <path d="M2.5 7.5l3 3 6-7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="text-[13px] font-semibold text-ink leading-tight">{label}</span>
+                </div>
+                <span className="text-[11px] text-ink-3">{sub}</span>
               </div>
             ))}
           </div>
@@ -132,9 +145,9 @@ export default function Home() {
       <section className="py-24 relative" id="features">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-3">Yetenekler</p>
+            <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-3">Yetenekler</p>
             <h2 className="text-3xl md:text-4xl font-bold text-gradient mb-4">Her Şey Tek Platformda</h2>
-            <p className="text-white/40 text-base max-w-xl mx-auto">
+            <p className="text-ink-3 text-base max-w-xl mx-auto">
               Araç içi deneyimi yeniden tanımlayan entegre özellik seti.
             </p>
           </div>
@@ -150,10 +163,10 @@ export default function Home() {
       </section>
 
       {/* ── Edition Comparison ── */}
-      <section className="py-24 border-y border-white/[0.06]" id="editions">
+      <section className="py-24 border-y border-line" id="editions">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-3">Sürümler</p>
+            <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-3">Sürümler</p>
             <h2 className="text-3xl md:text-4xl font-bold text-gradient mb-4">
               Bireysel veya Kurumsal
             </h2>
@@ -161,7 +174,7 @@ export default function Home() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {/* Play Store */}
-            <div className="p-8 rounded-2xl glass border border-white/[0.06] flex flex-col">
+            <div className="p-8 rounded-2xl glass border border-line flex flex-col">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -169,14 +182,14 @@ export default function Home() {
                   </svg>
                 </div>
                 <div>
-                  <p className="font-semibold text-white">Play Store Sürümü</p>
-                  <p className="text-xs text-white/40">Bireysel kullanım</p>
+                  <p className="font-semibold text-ink">Play Store Sürümü</p>
+                  <p className="text-xs text-ink-3">Bireysel kullanım</p>
                 </div>
               </div>
               <ul className="flex flex-col gap-3 mb-8">
                 {['Navigasyon & Harita', 'OBD Okuma', 'Medya Kontrolü', 'GPS Takibi', 'Sesli Asistan'].map((item) => (
-                  <li key={item} className="flex items-center gap-2.5 text-sm text-white/60">
-                    <span className="w-1 h-1 rounded-full bg-white/20 flex-shrink-0" />
+                  <li key={item} className="flex items-center gap-2.5 text-sm text-ink-2">
+                    <span className="w-1 h-1 rounded-full bg-ink-4 flex-shrink-0" />
                     {item}
                   </li>
                 ))}
@@ -190,7 +203,7 @@ export default function Home() {
 
             {/* Enterprise */}
             <div className="relative p-8 rounded-2xl bg-accent/[0.06] border border-accent/25 flex flex-col overflow-hidden">
-              <div className="absolute top-4 right-4 text-[10px] font-semibold tracking-widest uppercase px-2.5 py-1 rounded-full bg-accent/20 text-accent border border-accent/25">
+              <div className="absolute top-4 right-4 text-[10px] font-semibold tracking-widest uppercase px-2.5 py-1 rounded-full bg-accent/20 text-accent-ink border border-accent/25">
                 Önerilen
               </div>
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(59,130,246,0.08)_0%,transparent_60%)] pointer-events-none" />
@@ -203,8 +216,8 @@ export default function Home() {
                   </svg>
                 </div>
                 <div>
-                  <p className="font-semibold text-white">Kurumsal Sürüm</p>
-                  <p className="text-xs text-white/40">Filo &amp; ekip yönetimi</p>
+                  <p className="font-semibold text-ink">Kurumsal Sürüm</p>
+                  <p className="text-xs text-ink-3">Filo &amp; ekip yönetimi</p>
                 </div>
               </div>
 
@@ -217,7 +230,7 @@ export default function Home() {
                   'Uzaktan Araç Yönetimi',
                   'Kurumsal Destek & SLA',
                 ].map((item) => (
-                  <li key={item} className="flex items-center gap-2.5 text-sm text-white/70">
+                  <li key={item} className="flex items-center gap-2.5 text-sm text-ink-2">
                     <span className="w-1 h-1 rounded-full bg-accent flex-shrink-0" />
                     {item}
                   </li>
@@ -237,7 +250,7 @@ export default function Home() {
       <section className="py-24" id="how-it-works">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="text-xs font-semibold tracking-widest text-accent/70 uppercase mb-3">Platform</p>
+            <p className="text-xs font-semibold tracking-widest text-accent-ink uppercase mb-3">Platform</p>
             <h2 className="text-3xl md:text-4xl font-bold text-gradient mb-4">Nasıl Çalışır?</h2>
           </div>
 
@@ -247,11 +260,11 @@ export default function Home() {
               { step: '02', title: 'Bağlan', desc: 'OBD adaptörü ile araca bağlan. GPS ve Bluetooth otomatik devreye girer.' },
               { step: '03', title: 'Yönet', desc: 'Web panelinden tüm araç ve sürücüleri merkezi olarak takip et.' },
             ].map(({ step, title, desc }) => (
-              <div key={step} className="p-8 rounded-2xl glass border border-white/[0.06] relative overflow-hidden">
-                <div className="absolute top-5 right-6 font-mono text-6xl font-bold text-white/[0.04]">{step}</div>
-                <div className="font-mono text-xs text-accent/60 mb-3">Adım {step}</div>
-                <h3 className="font-semibold text-white text-lg mb-2">{title}</h3>
-                <p className="text-sm text-white/45 leading-relaxed">{desc}</p>
+              <div key={step} className="p-8 rounded-2xl glass border border-line relative overflow-hidden">
+                <div aria-hidden="true" className="absolute top-5 right-6 font-mono text-6xl font-bold text-ink-4 select-none">{step}</div>
+                <div className="font-mono text-xs text-accent-ink mb-3">Adım {step}</div>
+                <h3 className="font-semibold text-ink text-lg mb-2">{title}</h3>
+                <p className="text-sm text-ink-3 leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
@@ -263,10 +276,10 @@ export default function Home() {
         <div className="rounded-3xl bg-accent/[0.07] border border-accent/20 relative overflow-hidden py-16">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(59,130,246,0.1)_0%,transparent_70%)] pointer-events-none" />
           <div className="relative text-center px-6">
-            <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">
+            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
               Hemen Başla
             </h2>
-            <p className="text-white/50 mb-8 max-w-md mx-auto text-sm">
+            <p className="text-ink-3 mb-8 max-w-md mx-auto text-sm">
               Filo yönetimini dijitalleştir. Kurumsal demo için bizimle iletişime geç.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

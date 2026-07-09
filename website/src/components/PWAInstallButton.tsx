@@ -44,19 +44,14 @@ export default function PWAInstallButton() {
   return (
     <button
       onClick={prompt ? install : () => window.location.href = '/kumanda'}
-      className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-      style={{
-        background: 'linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(99,102,241,0.15) 100%)',
-        border: '1px solid rgba(59,130,246,0.3)',
-        boxShadow: '0 0 20px rgba(59,130,246,0.1)',
-      }}
+      className="group inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold text-ink bg-accent/10 border border-accent/30 shadow-glow-sm hover:bg-accent/[0.16] hover:border-accent/40 transition-all active:scale-95"
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M8 2v8M5 7l3 3 3-3" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M2 11v1.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V11" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round"/>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-accent-ink">
+        <path d="M8 2v8M5 7l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M2 11v1.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
       <span>Arabam Cebimde</span>
-      <span className="text-white/40 text-xs font-normal">— Ücretsiz İndir</span>
+      <span className="text-ink-3 text-xs font-normal">— Ücretsiz İndir</span>
     </button>
   );
 }
