@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CarOS Pro — CodeQL (SAST / statik güvenlik analizi)
+#
+# JS/TS kod tabanını güvenlik açıkları için tarar (araç uygulaması + website).
+# Sonuçlar repo → Security → Code scanning altında görünür.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1"   # her Pazartesi 04:00 UTC (haftalık derin tarama)
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write   # bulguları Security sekmesine yazmak için
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"

@@ -1,0 +1,62 @@
+name: "🔴 Saha Doğrulama Raporu (Field Report)"
+description: "Gerçek araç/head unit üzerinde bir özelliğin doğrulanması veya düşmesi."
+title: "[field]: "
+labels: ["field-test", "device"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Saha Doğrulama Kütüğü** ile eşleşir (`docs/DEVICE_VALIDATION_LEDGER.md`).
+        Kural (`CLAUDE.md`): test yeşili + tsc temiz bir özelliği "başarılı" YAPMAZ.
+        Gerçek cihazda ölçülebilir kabul ölçütü gözlemlenmeden 🟢 denmez.
+
+  - type: input
+    id: feature
+    attributes:
+      label: "Özellik / kütük satırı"
+      placeholder: "Örn: OBD reconnect (B), ENGINE_OVERHEAT #1..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: "Saha durumu"
+      options:
+        - "🔴 Cihazda test edilmedi (bekliyor)"
+        - "🟢 Doğrulandı (kabul ölçütü gözlemlendi)"
+        - "❌ Düştü (cihazda başarısız)"
+        - "🟡 Kısmen / belirsiz (asıl dal tetiklenmedi)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Ölçülebilir kabul ölçütü"
+      description: "Neyi gözlemlersek 🟢 sayılır? (rakamla)"
+      placeholder: "Örn: kopma sonrası 15 sn içinde otomatik yeniden bağlanma; RPM canlı akış..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: "Saha gözlemi"
+      description: "Ne görüldü? Log/tanı/foto. PII/anahtar paylaşma."
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: "Cihaz / head unit + araç"
+      placeholder: "Örn: T507 Dacia Duster / Renault OEM ELM327"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: "APK / commit"
+      placeholder: "commit hash veya APK tarihi"

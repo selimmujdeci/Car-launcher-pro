@@ -20,6 +20,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import java.io.OutputStream;
@@ -57,6 +58,9 @@ public class CarLauncherForegroundService extends Service {
     private static final float MOVING_KMH        = 5f;
     private static final long  PARKED_TIMEOUT_MS = 5 * 60_000L;
     private static final long  BREAK_INTERVAL_MS = 120 * 60_000L;
+    /** Park modunda NETWORK_PROVIDER'dan gelen konum, park referansından bu kadar
+     *  uzaklaşırsa (hız verisi güvenilmez olsa bile) hareket kabul edilir. */
+    private static final float PARK_RESUME_DISTANCE_M = 60f;
 
     // ── Wake-up sabitleri ──────────────────────────────────────────────────
     /** JS tarafının servis uyandırma süresi (ms) */
@@ -101,6 +105,15 @@ public class CarLauncherForegroundService extends Service {
     private long drivingStartMs = 0;
     private long lastMovingMs   = 0;
 
+    /** GPS_PROVIDER 1Hz yüksek-doğruluk akışı şu an aktif mi. Park'ta false olur;
+     *  NETWORK_PROVIDER düşük güçle hareket algılamak için açık kalır (pil tasarrufu). */
+    private boolean gpsHighAccuracyActive = false;
+    /** GPS park moduna geçerken son bilinen konum — uzaklaşma/hareket algılamak için referans. */
+    private Location parkAnchorLocation = null;
+    /** GPS park algılama için son hareket zamanı — mola sayacından (lastMovingMs) bağımsız,
+     *  araç hiç sürüşe başlamadan da (uygulama parkta açılırsa) doğru çalışsın diye ayrı tutulur. */
+    private long lastGpsMotionMs = 0;
+
     private final Handler        mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService netExecutor = Executors.newSingleThreadExecutor();
 
@@ -142,6 +155,7 @@ public class CarLauncherForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        lastGpsMotionMs = System.currentTimeMillis();
         createNotificationChannels();
         startForeground(NOTIF_ID, buildNotification("GPS takibi aktif", false));
         startLocationUpdates();
@@ -246,7 +260,7 @@ public class CarLauncherForegroundService extends Service {
             @Override
             public void onLocationChanged(@NonNull Location loc) {
                 float speedKmh = loc.getSpeed() * 3.6f;
-                updateDrivingState(speedKmh);
+                updateDrivingState(loc, speedKmh);
 
                 LocationCallback cb = sLocationCallback;
                 if (cb != null) {
@@ -271,12 +285,26 @@ public class CarLauncherForegroundService extends Service {
             @Override public void onProviderDisabled(@NonNull String provider) {}
         };
 
+        requestGpsHighAccuracy();
+        requestNetworkUpdates();
+    }
+
+    /** GPS_PROVIDER 1Hz yüksek-doğruluk akışını ister. İdempotent — zaten aktifse no-op. */
+    private void requestGpsHighAccuracy() {
+        if (gpsHighAccuracyActive) return;
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER, GPS_INTERVAL_MS, GPS_MIN_DIST_M,
                     locationListener, Looper.getMainLooper());
+                gpsHighAccuracyActive = true;
             }
+        } catch (SecurityException ignored) {}
+    }
+
+    /** NETWORK_PROVIDER düşük güçlü konum akışını ister — park modunda hareket algılamak için de kullanılır. */
+    private void requestNetworkUpdates() {
+        try {
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER, 10_000L, 50f,
@@ -285,11 +313,35 @@ public class CarLauncherForegroundService extends Service {
         } catch (SecurityException ignored) {}
     }
 
+    /**
+     * Park algılandığında GPS_PROVIDER'ın pahalı 1Hz akışını durdurur (pil sızıntısı düzeltmesi).
+     * NETWORK_PROVIDER düşük güçle açık kalır; hareket/uzaklaşma algılanınca resumeGpsHighAccuracy()
+     * yeniden 1Hz'e döner. İdempotent — zaten durduysa no-op.
+     */
+    private void stopGpsHighAccuracy(@Nullable Location anchor) {
+        if (!gpsHighAccuracyActive) return;
+        try { locationManager.removeUpdates(locationListener); } // aynı listener → GPS + NETWORK ikisi de kalkar
+        catch (SecurityException ignored) {}
+        gpsHighAccuracyActive = false;
+        parkAnchorLocation = anchor;
+        requestNetworkUpdates(); // düşük güçle hareket izlemeye devam et
+        Log.d(TAG, "Park algılandı — GPS 1Hz durduruldu, NETWORK_PROVIDER ile düşük güçle izleniyor");
+    }
+
+    /** Hareket/uzaklaşma algılanınca GPS_PROVIDER 1Hz akışını yeniden başlatır. İdempotent. */
+    private void resumeGpsHighAccuracy() {
+        if (gpsHighAccuracyActive) return;
+        parkAnchorLocation = null;
+        requestGpsHighAccuracy();
+        Log.d(TAG, "Hareket algılandı — GPS 1Hz yeniden başlatıldı");
+    }
+
     private void stopLocationUpdates() {
         if (locationManager != null && locationListener != null) {
             try { locationManager.removeUpdates(locationListener); }
             catch (SecurityException ignored) {}
         }
+        gpsHighAccuracyActive = false;
     }
 
     // ── Native Heartbeat (WebView ölünce) ──────────────────────────────────
@@ -396,16 +448,37 @@ public class CarLauncherForegroundService extends Service {
 
     // ── Sürüş süresi takibi ───────────────────────────────────────────────
 
-    private void updateDrivingState(float speedKmh) {
+    private void updateDrivingState(Location loc, float speedKmh) {
         long now = System.currentTimeMillis();
         if (speedKmh >= MOVING_KMH) {
             if (drivingStartMs == 0) drivingStartMs = now;
-            lastMovingMs = now;
-        } else if (drivingStartMs > 0) {
-            if ((now - lastMovingMs) > PARKED_TIMEOUT_MS) {
-                drivingStartMs = 0;
-                lastMovingMs   = 0;
-            }
+            lastMovingMs    = now;
+            lastGpsMotionMs = now;
+            // Hareket algılandı — park modundaysa GPS 1Hz'e geri dön (idempotent).
+            resumeGpsHighAccuracy();
+            return;
+        }
+
+        if (drivingStartMs > 0 && (now - lastMovingMs) > PARKED_TIMEOUT_MS) {
+            drivingStartMs = 0;
+            lastMovingMs   = 0;
+        }
+
+        // GPS park modu: PARKED_TIMEOUT_MS boyunca doğrulanmış hareketsizlik sonrası 1Hz GPS'i durdur.
+        // NOT: bu, mevcut break-reminder zaman aşımı ile aynı eşiği (PARKED_TIMEOUT_MS) kullanır —
+        // uzun trafik ışığı/dur-kalk gibi 5 dk'yı aşan duraklamalarda (nadir) GPS de durur; hareket
+        // NETWORK_PROVIDER ile algılanıp otomatik yeniden açılır (aşağıdaki uzaklaşma kontrolü dahil).
+        if (gpsHighAccuracyActive && (now - lastGpsMotionMs) > PARKED_TIMEOUT_MS) {
+            stopGpsHighAccuracy(loc);
+            return;
+        }
+
+        // Park modundayken NETWORK_PROVIDER hız bilgisi güvenilmez olabilir; konum park
+        // referansından belirgin şekilde uzaklaşmışsa yine de hareket kabul edilir.
+        if (!gpsHighAccuracyActive && parkAnchorLocation != null
+            && loc.distanceTo(parkAnchorLocation) > PARK_RESUME_DISTANCE_M) {
+            lastGpsMotionMs = now;
+            resumeGpsHighAccuracy();
         }
     }
 

@@ -36,9 +36,9 @@ export const HotspotPromptModal = memo(function HotspotPromptModal({
       <div
         className="w-full max-w-sm rounded-3xl overflow-hidden"
         style={{
-          background: 'linear-gradient(160deg, #0d1b2e 0%, #060d1a 100%)',
-          border: '1px solid rgba(59,130,246,0.2)',
-          boxShadow: '0 -4px 40px rgba(59,130,246,0.12), 0 32px 64px rgba(0,0,0,0.7)',
+          background: 'var(--oem-surface-0)',
+          border: '1px solid var(--oem-info)',
+          boxShadow: '0 -4px 40px rgba(59,130,246,0.12), var(--oem-shadow-pop)',
           animation: 'slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1)',
         }}
       >
@@ -47,40 +47,40 @@ export const HotspotPromptModal = memo(function HotspotPromptModal({
           <div className="flex items-center gap-3">
             <div
               className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)' }}
+              style={{ background: 'var(--oem-info-soft)', border: '1px solid var(--oem-info)' }}
             >
-              <Wifi size={18} className="text-blue-400" />
+              <Wifi size={18} className="text-[color:var(--oem-info)]" />
             </div>
             <div>
-              <p className="text-white font-bold text-sm leading-tight">Bluetooth İnternet</p>
-              <p className="text-white/40 text-[11px] mt-0.5">Cihaz internete bağlı değil</p>
+              <p className="text-[color:var(--oem-ink)] font-bold text-sm leading-tight">Bluetooth İnternet</p>
+              <p className="text-[color:var(--oem-ink-3)] text-[11px] mt-0.5">Cihaz internete bağlı değil</p>
             </div>
           </div>
           <button
             onClick={onDismiss}
             className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-            style={{ background: 'rgba(255,255,255,0.06)' }}
+            style={{ background: 'var(--oem-surface-2)' }}
           >
-            <X size={13} className="text-white/50" />
+            <X size={13} className="text-[color:var(--oem-ink-3)]" />
           </button>
         </div>
 
         {/* Body */}
         <div className="px-5 pb-2">
-          <p className="text-white/60 text-sm leading-relaxed">
+          <p className="text-[color:var(--oem-ink-2)] text-sm leading-relaxed">
             Telefonunuzdan Bluetooth üzerinden internet paylaşmak ister misiniz?
           </p>
 
           {/* Info pill */}
           <div
             className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl"
-            style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.18)' }}
+            style={{ background: 'var(--oem-warn-soft)', border: '1px solid var(--oem-warn)' }}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <circle cx="7" cy="7" r="6" stroke="#fbbf24" strokeWidth="1.3"/>
-              <path d="M7 5v3M7 9.5v.5" stroke="#fbbf24" strokeWidth="1.3" strokeLinecap="round"/>
+              <circle cx="7" cy="7" r="6" stroke="var(--oem-warn)" strokeWidth="1.3"/>
+              <path d="M7 5v3M7 9.5v.5" stroke="var(--oem-warn)" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            <span className="text-[10px] text-yellow-300/70 font-medium leading-tight">
+            <span className="text-[10px] text-[color:var(--oem-warn)] font-medium leading-tight">
               Bluetooth Ayarları açılır → telefonunuza tıklayın → "İnternet erişimi" açın
             </span>
           </div>
@@ -105,9 +105,9 @@ export const HotspotPromptModal = memo(function HotspotPromptModal({
             onClick={handleAlwaysAuto}
             className="w-full py-3 rounded-2xl font-semibold text-xs tracking-wide transition-all active:scale-95"
             style={{
-              background: 'rgba(59,130,246,0.08)',
-              border: '1px solid rgba(59,130,246,0.2)',
-              color: 'rgba(147,197,253,0.8)',
+              background: 'var(--oem-info-soft)',
+              border: '1px solid var(--oem-info)',
+              color: 'var(--oem-info)',
             }}
           >
             Her seferinde otomatik aç
@@ -117,7 +117,7 @@ export const HotspotPromptModal = memo(function HotspotPromptModal({
           <button
             onClick={onDismiss}
             className="w-full py-2.5 rounded-xl font-semibold text-xs transition-all active:scale-95"
-            style={{ color: 'rgba(255,255,255,0.25)' }}
+            style={{ color: 'var(--oem-ink-4)' }}
           >
             Hayır, gerek yok
           </button>

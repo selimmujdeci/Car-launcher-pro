@@ -24,12 +24,18 @@ import {
   captureEmergencyClip,
 } from '../dashcamService';
 import { uploadSentryClip, insertVehicleEvent, getSupabaseClient } from '../supabaseClient';
+import { showToast } from '../errorBus';
 
 /* ── Sabitler ────────────────────────────────────────────────── */
 
 const IMPACT_THRESHOLD = 25;     // m/s² — park halinde darbe eşiği (false-positive azaltmak için dashcam'den yüksek)
 const COOLDOWN_MS      = 30_000; // Aynı olaydan ard arda tetiklenmeyi engeller
 const POST_BUFFER_SEC  = 20;     // Olay sonrası kaç saniye kayıt devam etsin
+
+// Pil sızıntısı güvenlik supabı: armSentry() süresiz açık kalmasın (kamera+mik+G-Sensor).
+const MAX_ARMED_DURATION_MS = 3 * 60 * 60_000; // 3 saat — makul üst sınır
+// Uygulama arka plana alınınca (ekran kapandı/başka app) bu süre sonunda hâlâ armed ise oto-disarm.
+const BACKGROUND_GRACE_MS   = 5 * 60_000;      // 5 dk grace — kısa süreli arka plana almalarda kapatma
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -67,6 +73,10 @@ const _listeners        = new Set<(s: SentryState) => void>();
 let _unsubAccel: (() => void) | null = null;
 let _vehicleId:  string | null       = null;
 let _lastTrigger = 0;
+
+// Zero-Leak: arm süresi boyunca yaşayan zamanlayıcılar — disarmSentry() hepsini temizler.
+let _maxDurationTimer:     ReturnType<typeof setTimeout> | null = null;
+let _backgroundGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Zero-Leak: blob retry kuyruğu boyut sınırı — bellek growth önler (CLAUDE.md §1) */
 const MAX_PENDING_BLOBS = 5;
@@ -215,6 +225,36 @@ async function _doUpload(alertId: string, blob: Blob | null): Promise<string | n
   return clipUrl ?? ''; // '' = başarılı ama video yok
 }
 
+/* ── Arka plan güvenlik supabı ───────────────────────────────── */
+
+/**
+ * Uygulama arka plana alınınca (document.hidden) BACKGROUND_GRACE_MS sonra hâlâ
+ * armed/triggered ise oto-disarm eder. Öne dönülürse grace iptal edilir.
+ * Amaç: panel kapansa/uygulama arkaya alınsa da kamera+mik süresiz açık kalmasın.
+ */
+function _onVisibilityChange(): void {
+  if (_state.status === 'idle') return;
+
+  if (document.hidden) {
+    if (_backgroundGraceTimer) clearTimeout(_backgroundGraceTimer);
+    _backgroundGraceTimer = setTimeout(() => {
+      _backgroundGraceTimer = null;
+      if (_state.status === 'idle') return;
+      console.warn('[Sentry] Arka plan güvenlik supabı — oto-disarm ediliyor');
+      showToast({
+        type:     'warning',
+        title:    'Gözcü Modu Kapatıldı',
+        message:  'Uygulama arka planda kaldığı için Gözcü Modu otomatik kapatıldı.',
+        duration: 8_000,
+      });
+      disarmSentry();
+    }, BACKGROUND_GRACE_MS);
+  } else if (_backgroundGraceTimer) {
+    clearTimeout(_backgroundGraceTimer);
+    _backgroundGraceTimer = null;
+  }
+}
+
 /* ── Çevrimiçi retry ─────────────────────────────────────────── */
 
 async function _retryPending(): Promise<void> {
@@ -256,6 +296,23 @@ export async function armSentry(vehicleId?: string): Promise<void> {
   // Bağlantı gelince bekleyen klipler yüklensin
   window.addEventListener('online', _retryPending);
 
+  // Pil sızıntısı güvenlik supapları: maksimum süre + arka plan grace
+  if (_maxDurationTimer) clearTimeout(_maxDurationTimer);
+  _maxDurationTimer = setTimeout(() => {
+    _maxDurationTimer = null;
+    if (_state.status === 'idle') return;
+    console.warn('[Sentry] Maksimum aktif süre doldu — oto-disarm ediliyor');
+    showToast({
+      type:     'info',
+      title:    'Gözcü Modu Kapatıldı',
+      message:  'Maksimum aktif süre doldu — Gözcü Modu otomatik kapatıldı.',
+      duration: 8_000,
+    });
+    disarmSentry();
+  }, MAX_ARMED_DURATION_MS);
+
+  document.addEventListener('visibilitychange', _onVisibilityChange);
+
   _set({ status: 'armed', lastImpactG: 0, videoAvailable: videoOk });
 }
 
@@ -269,6 +326,10 @@ export function disarmSentry(): void {
   stopSentryPreBuffer();
 
   window.removeEventListener('online', _retryPending);
+  document.removeEventListener('visibilitychange', _onVisibilityChange);
+
+  if (_maxDurationTimer)     { clearTimeout(_maxDurationTimer);     _maxDurationTimer     = null; }
+  if (_backgroundGraceTimer) { clearTimeout(_backgroundGraceTimer); _backgroundGraceTimer = null; }
 
   _set({ status: 'idle', lastImpactG: 0 });
 }

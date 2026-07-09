@@ -20,11 +20,11 @@ interface Props {
 
 const AUTO_CLOSE_MS = 12_000;
 
-/* ── Sürüş skoru rengi ───────────────────────────────────── */
+/* ── Sürüş skoru rengi (kanonik --oem-* durum token'ları) ─── */
 function scoreColor(score: number): string {
-  if (score >= 80) return 'text-emerald-400';
-  if (score >= 60) return 'text-amber-400';
-  return 'text-red-400';
+  if (score >= 80) return 'text-[color:var(--oem-good)]';
+  if (score >= 60) return 'text-[color:var(--oem-warn)]';
+  return 'text-[color:var(--oem-danger)]';
 }
 
 /* ── Bileşen ─────────────────────────────────────────────── */
@@ -49,19 +49,19 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
       role="status"
       aria-label="Yolculuk özeti"
     >
-      <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl backdrop-blur-md bg-gray-900/92">
+      <div className="relative rounded-2xl overflow-hidden border border-[var(--oem-line)] shadow-[var(--oem-shadow-pop)] backdrop-blur-md bg-[var(--oem-surface-0)]">
 
         {/* Üst başlık şeridi */}
-        <div className="flex items-center justify-between px-4 py-2.5 bg-white/5 border-b border-white/8">
+        <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--oem-surface-2)] border-b border-[var(--oem-line)]">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">
+            <div className="w-2 h-2 rounded-full bg-[var(--oem-good)] animate-pulse" />
+            <span className="text-xs font-semibold text-[color:var(--oem-ink-2)] uppercase tracking-wider">
               Yolculuk Tamamlandı
             </span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+            className="p-1 rounded-full text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] hover:bg-[var(--oem-surface-3)] transition-colors"
             aria-label="Kapat"
           >
             <X size={14} />
@@ -69,7 +69,7 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
         </div>
 
         {/* İstatistik grid */}
-        <div className="grid grid-cols-3 gap-px bg-white/5 border-b border-white/8">
+        <div className="grid grid-cols-3 gap-px bg-[var(--oem-surface-2)] border-b border-[var(--oem-line)]">
           <StatCell icon={<MapPin size={13} />} value={`${trip.distanceKm} km`} label="Mesafe" />
           <StatCell icon={<Clock size={13} />} value={`${trip.durationMin} dk`} label="Süre" />
           <StatCell icon={<Gauge size={13} />} value={`${trip.avgSpeedKmh} km/s`} label="Ort. Hız" />
@@ -77,7 +77,7 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
 
         {/* Alt bilgiler + butonlar */}
         <div className="flex items-center justify-between px-4 py-3 gap-3">
-          <div className="flex items-center gap-3 text-xs text-white/50">
+          <div className="flex items-center gap-3 text-xs text-[color:var(--oem-ink-2)]">
             {/* Sürüş skoru */}
             <span className="flex items-center gap-1">
               <Star size={12} className={scoreColor(trip.drivingScore)} />
@@ -97,7 +97,7 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
 
           <button
             onClick={() => { onClose(); onViewDetails(); }}
-            className="flex items-center gap-1 text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors shrink-0"
+            className="flex items-center gap-1 text-xs font-semibold text-[color:var(--oem-info)] hover:opacity-80 transition-opacity shrink-0"
           >
             Detaylar
             <ChevronRight size={13} />
@@ -119,12 +119,12 @@ function StatCell({
   label: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 py-3 px-2 bg-gray-900/80">
-      <div className="flex items-center gap-1 text-white/40">
+    <div className="flex flex-col items-center gap-0.5 py-3 px-2 bg-[var(--oem-surface-1)]">
+      <div className="flex items-center gap-1 text-[color:var(--oem-ink-3)]">
         {icon}
         <span className="text-[10px] uppercase tracking-wide">{label}</span>
       </div>
-      <span className="text-sm font-bold text-white">{value}</span>
+      <span className="text-sm font-bold text-[color:var(--oem-ink)]">{value}</span>
     </div>
   );
 }

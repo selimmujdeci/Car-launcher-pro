@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Güvenlik açığı bildirimi"
+    url: https://github.com/selimmujdeci/Car-launcher-pro/security/advisories/new
+    about: "Güvenlik açıklarını herkese açık issue olarak AÇMAYIN. Buradan özel bildirin (bkz. SECURITY.md)."
+  - name: "💬 Soru / tartışma"
+    url: https://github.com/selimmujdeci/Car-launcher-pro/discussions
+    about: "Genel sorular, fikirler ve mimari tartışmalar için Discussions kullanın."
+  - name: "📄 Ticari lisans / OEM talebi"
+    url: mailto:aybarsselimaybars@gmail.com
+    about: "Ticari lisans, OEM entegrasyonu veya izin talepleri için e-posta."
