@@ -1,0 +1,66 @@
+name: "✨ Özellik Talebi (Feature Request)"
+description: "Yeni bir yetenek veya iyileştirme öner."
+title: "[feat]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        CarOS Pro bir launcher değil, "aracın ikinci beyni"dir. Öneriler **8 Kapı**
+        karar sözleşmesine göre değerlendirilir (bkz. `CLAUDE.md` Vizyon Anayasası).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Hangi problemi çözüyor?"
+      description: "Kullanıcı/sürüş bağlamında gerçek ihtiyaç."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Önerilen çözüm"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: eight-gates
+    attributes:
+      label: "Bu özellik sadece gösteriyor mu, yoksa karar veriyor mu?"
+      description: "Tasarım testi: Tesla'dan daha akıllı mı? (doğrular + yorumlar + öngörür + karar verir)"
+      options:
+        - "Karar veriyor (doğrular/yorumlar/öngörür → aksiyon)"
+        - "Şimdilik sadece gösteriyor (henüz karar katmanı yok)"
+        - "Emin değilim"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "İlgili alan"
+      options:
+        - "OBD / CAN / BLE"
+        - "Navigasyon / GPS / Harita"
+        - "Performans / termal"
+        - "Asistan / STT / TTS"
+        - "UI / Tema"
+        - "Website / Companion PWA"
+        - "Filo / B2B / SaaS"
+        - "Diğer"
+    validations:
+      required: true
+
+  - type: textarea
+    id: perf-budget
+    attributes:
+      label: "Performans / tier notu"
+      description: "Hot-path'e girer mi? Hangi DeviceTier'da açık? (Performans-Uyarlanabilir Hibrit kuralı)"
+
+  - type: checkboxes
+    id: license
+    attributes:
+      label: "Lisans onayı"
+      options:
+        - label: "Yeni bağımlılık gerekiyorsa lisansı permissive (MIT/Apache/BSD/ISC). Copyleft/NC YOK."
