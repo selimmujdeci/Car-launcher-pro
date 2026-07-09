@@ -1,0 +1,33 @@
+# CODEOWNERS — CarOS Pro
+# Otomatik reviewer ataması. Bir yol değişince ilgili sahip PR'a otomatik eklenir.
+# Format: <yol>  <sahip(ler)>   (son eşleşen kural kazanır)
+# Not: Ekip büyüdükçe alan sahiplerini burada güncelleyin.
+
+# ── Varsayılan: tüm depo ──
+*                           @selimmujdeci
+
+# ── Araç uygulaması (React/Vite frontend) ──
+/src/                       @selimmujdeci
+/src/platform/              @selimmujdeci
+/src/components/            @selimmujdeci
+
+# ── Native / Android köprüsü (OBD/CAN/BLE, head unit) ──
+/android/                   @selimmujdeci
+
+# ── Web sitesi + companion PWA (Next.js) ──
+/website/                   @selimmujdeci
+
+# ── Backend / veritabanı (Supabase — RLS/GRANT güvenlik-kritik) ──
+/supabase/                  @selimmujdeci
+/website/supabase/          @selimmujdeci
+
+# ── CI/CD, güvenlik ve depo yönetişimi ──
+/.github/                   @selimmujdeci
+/.github/workflows/         @selimmujdeci
+
+# ── Anayasa dosyaları (dikkatle değiştirilir) ──
+/CLAUDE.md                  @selimmujdeci
+/AI.md                      @selimmujdeci
+/GEMINI.md                  @selimmujdeci
+/LICENSE-PROPRIETARY.md     @selimmujdeci
+/SECURITY.md                @selimmujdeci

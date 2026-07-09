@@ -1,0 +1,84 @@
+name: "🐛 Hata Bildirimi (Bug Report)"
+description: "CarOS Pro'da bir hata / beklenmeyen davranış bildir."
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Teşekkürler! Doğru teşhis için lütfen kanıta dayalı doldurun (GEMINI.md kültürü: tahmin değil, gözlem).
+        Güvenlik açıkları için bu formu KULLANMAYIN → `SECURITY.md`.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "Ne oldu?"
+      description: "Gözlemlenen davranışı net yaz."
+      placeholder: "OBD bağlıyken hız göstergesi 0'da takılı kaldı..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Beklenen davranış"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Yeniden üretme adımları"
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Etkilenen alan"
+      options:
+        - "OBD / CAN / BLE"
+        - "Navigasyon / GPS / Harita"
+        - "Performans / termal / FPS"
+        - "Asistan / STT / TTS"
+        - "UI / Tema"
+        - "Website / Companion PWA"
+        - "Supabase / Backend"
+        - "Diğer / bilinmiyor"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Ortam"
+      options:
+        - "Gerçek head unit (araçta)"
+        - "Android cihaz (masada)"
+        - "Tarayıcı (npm run dev)"
+        - "E2E / test"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: "Cihaz / head unit modeli"
+      placeholder: "Örn: K24, Allwinner T507, Renault OEM ELM327..."
+
+  - type: input
+    id: version
+    attributes:
+      label: "Sürüm / commit"
+      placeholder: "v1.0.0 veya commit hash"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Log / ekran görüntüsü / tanı raporu"
+      description: "Varsa /admin/tani çıktısı, logcat veya CDP logu. PII/anahtar paylaşma."
+      render: shell
