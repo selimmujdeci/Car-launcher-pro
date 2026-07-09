@@ -1098,7 +1098,7 @@ function ArrivalOverlay({ destName }: { destName: string }) {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
       <div
-        className="flex flex-col items-center gap-5 px-10 py-8 rounded-[2.5rem] shadow-[0_40px_80px_rgba(0,0,0,0.85)] bg-[rgba(8,12,22,0.96)] backdrop-blur-[28px] border border-[var(--oem-good)] animate-in zoom-in-95 fade-in duration-500"
+        className="flex flex-col items-center gap-5 px-10 py-8 rounded-[2.5rem] shadow-[var(--oem-shadow-pop)] bg-[var(--oem-surface-0)] backdrop-blur-[28px] border border-[var(--oem-good)] animate-in zoom-in-95 fade-in duration-500"
       >
         <div
           className="w-20 h-20 rounded-full flex items-center justify-center"
@@ -1107,7 +1107,7 @@ function ArrivalOverlay({ destName }: { destName: string }) {
           <CheckCircle2 className="w-11 h-11 text-[color:var(--oem-good)]" />
         </div>
         <div className="text-center">
-          <div className="text-white font-black text-[28px] tracking-[-0.02em] leading-tight uppercase tracking-widest">
+          <div className="text-[color:var(--oem-ink)] font-black text-[28px] tracking-[-0.02em] leading-tight uppercase tracking-widest">
             Hedefe Vardınız
           </div>
           <div className="text-[color:var(--oem-good)] font-bold text-base mt-2 max-w-[260px] truncate">
@@ -1176,17 +1176,17 @@ const PreviewCard = memo(function PreviewCard({
       className="absolute inset-x-4 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
       style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 20px)' }}
     >
-      <div className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[0_40px_80px_rgba(0,0,0,0.7)] bg-[rgba(8,12,22,0.95)] backdrop-blur-[28px] border border-white/10">
+      <div className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[var(--oem-shadow-pop)] bg-[var(--oem-surface-0)] backdrop-blur-[28px] border border-[var(--oem-line)]">
         <div className="absolute top-0 left-0 w-full h-1 rounded-t-[2.5rem]"
-          style={{ background: 'linear-gradient(90deg, #C9831A, #E0A23C, #C9831A)' }} />
+          style={{ background: 'linear-gradient(90deg, var(--oem-accent-strong), var(--oem-accent), var(--oem-accent-strong))' }} />
 
         <div className="flex items-start gap-4 mb-4">
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(224,162,60,0.12)', border: '1px solid rgba(224,162,60,0.28)' }}>
-            <MapPin className="w-7 h-7" style={{ color: '#E0A23C' }} />
+            style={{ background: 'var(--oem-accent-soft)', border: '1px solid var(--oem-accent-glow)' }}>
+            <MapPin className="w-7 h-7" style={{ color: 'var(--oem-accent)' }} />
           </div>
           <div className="flex-1 min-w-0 pt-1">
-            <div className="text-white font-black text-2xl truncate leading-tight tracking-tight">{destName}</div>
+            <div className="text-[color:var(--oem-ink)] font-black text-2xl truncate leading-tight tracking-tight">{destName}</div>
             {loading && (
               <div className="flex items-center gap-2 text-sm mt-2 font-bold uppercase tracking-widest"
                 style={{ color: 'rgba(224,162,60,0.75)' }}>
@@ -1196,9 +1196,9 @@ const PreviewCard = memo(function PreviewCard({
             )}
             {!loading && !error && distMeters > 0 && (
               <div className="text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] text-sm mt-2 font-bold uppercase tracking-widest flex items-center gap-3">
-                <span className="text-white">{formatDistance(distMeters)}</span>
-                <span className="w-1 h-1 rounded-full bg-white/20" />
-                <span style={{ color: '#E0A23C' }}>{formatEta(durSeconds)}</span>
+                <span className="text-[color:var(--oem-ink)]">{formatDistance(distMeters)}</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--oem-ink-4)]" />
+                <span style={{ color: 'var(--oem-accent)' }}>{formatEta(durSeconds)}</span>
               </div>
             )}
             {!loading && error && (
@@ -1211,7 +1211,7 @@ const PreviewCard = memo(function PreviewCard({
           <button
             onClick={onCancel}
             aria-label="Navigasyonu iptal et"
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.06] border border-white/10 mt-0.5"
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)] mt-0.5"
           >
             <X className="w-4 h-4 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
           </button>
@@ -1244,8 +1244,8 @@ const PreviewCard = memo(function PreviewCard({
                   <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#E0A23C' }}>{chipLabels[0]}</span>
                   {hasToll && <AlertCircle className="w-3 h-3 text-[color:var(--oem-warn)] flex-shrink-0" />}
                 </div>
-                <span className="text-sm font-black text-white leading-tight">{formatDistance(distMeters)}</span>
-                <span className="text-[11px] font-bold" style={{ color: 'rgba(224,162,60,0.85)' }}>{formatEta(durSeconds)}</span>
+                <span className="text-sm font-black text-[color:var(--oem-ink)] leading-tight">{formatDistance(distMeters)}</span>
+                <span className="text-[11px] font-bold" style={{ color: 'var(--oem-accent)' }}>{formatEta(durSeconds)}</span>
                 <div className="flex items-center gap-1 mt-0.5">
                   <Fuel className="w-3 h-3 flex-shrink-0" style={{ color: 'rgba(224,162,60,0.75)' }} />
                   <span className="text-[10px] font-bold" style={{ color: 'rgba(224,162,60,0.85)' }}>{computeFuelEstimate(distMeters)} L</span>
@@ -1262,7 +1262,7 @@ const PreviewCard = memo(function PreviewCard({
                   <button
                     key={altRealIndices[j] ?? j}
                     onClick={() => selectAltRoute(altRealIndices[j] ?? (j + 1))}
-                    className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-2.5 rounded-2xl border min-w-[110px] transition-all active:scale-95 bg-white/[0.06] border-white/10"
+                    className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-2.5 rounded-2xl border min-w-[110px] transition-all active:scale-95 bg-[var(--oem-surface-2)] border-[var(--oem-line)]"
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]">
@@ -1295,14 +1295,14 @@ const PreviewCard = memo(function PreviewCard({
             <button
               onClick={onStart}
               disabled={!routeReady || !gpsValid}
-              className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink,#F0EBE0)] font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink,#F0EBE0)] font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Rota Seç
             </button>
           ) : (
             <button
               onClick={onCancel}
-              className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink-2,rgba(240,235,224,0.74))] font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-white/[0.06] border border-white/10"
+              className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink-2,rgba(240,235,224,0.74))] font-black text-sm uppercase tracking-widest active:scale-95 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)]"
             >
               Vazgeç
             </button>
@@ -1310,7 +1310,7 @@ const PreviewCard = memo(function PreviewCard({
           <button
             disabled
             title="Durak ekleme henüz mevcut değil"
-            className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] font-black text-sm uppercase tracking-widest bg-white/[0.03] border border-white/5 opacity-50 cursor-not-allowed"
+            className="flex-1 py-3.5 rounded-2xl text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] font-black text-sm uppercase tracking-widest bg-[var(--oem-surface-2)] border border-[var(--oem-line)] opacity-50 cursor-not-allowed"
           >
             Durak Ekle
           </button>

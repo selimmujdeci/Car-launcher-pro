@@ -75,13 +75,13 @@ export const ExpertRecoveryAction = memo(function ExpertRecoveryAction({
             role="dialog"
             aria-modal="true"
             aria-labelledby="expert-reset-title"
-            className="max-w-md rounded-2xl border border-white/10 bg-zinc-900/95 p-6 shadow-2xl"
+            className="max-w-md rounded-2xl border border-[var(--oem-line)] bg-[var(--oem-surface-0)] p-6 shadow-2xl"
             style={HEAVY_INERTIA_STYLE}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center gap-2">
               <Lock className="h-5 w-5 text-amber-400" />
-              <h2 id="expert-reset-title" className="text-sm font-black uppercase tracking-widest text-white">
+              <h2 id="expert-reset-title" className="text-sm font-black uppercase tracking-widest text-[color:var(--oem-ink)]">
                 Araç profilini temizlemeyi onayla
               </h2>
             </div>
@@ -96,17 +96,17 @@ export const ExpertRecoveryAction = memo(function ExpertRecoveryAction({
                 Bu araç anahtarı için temizleme kalıcıdır. SafetyBrain durumu sıfırlanır; Expert güven mührü kaldırılmaz.
               </p>
             </div>
-            <p className="mt-3 text-[12px] leading-relaxed text-white/50">
+            <p className="mt-3 text-[12px] leading-relaxed text-[color:var(--oem-ink-2)]">
               Kapsam: yalnızca güvenlik sayaçları ve koşullu özellik bayrakları. İşlem sonrası politika durumunu taban
               çizgisinden yeniden oluşturun.
             </p>
-            <p className="mt-2 font-mono text-[11px] text-white/40">
+            <p className="mt-2 font-mono text-[11px] text-[color:var(--oem-ink-3)]">
               Anahtar: {vinKey === NO_VIN_KEY ? 'atanmamış' : vinKey}
             </p>
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-white/10 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white/60 hover:bg-white/5"
+                className="rounded-xl border border-[var(--oem-line)] px-4 py-2 text-[11px] font-black uppercase tracking-widest text-[color:var(--oem-ink-2)] hover:bg-[var(--oem-surface-2)]"
                 style={HEAVY_INERTIA_STYLE}
                 onClick={() => setShowDialog(false)}
               >
