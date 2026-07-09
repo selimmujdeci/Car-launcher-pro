@@ -154,10 +154,15 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
     let cancelled = false;
 
     CarLauncher.setObdTrafficCapture?.({ enable: true }).catch(() => {});
-    // Teşhis portunu aç → PC http://<ip>:8899/ ile ham OBD trafiğini çeker.
-    CarLauncher.startDiagServer?.()
-      .then((r) => { if (!cancelled && r?.ip) setDiagAddr(`http://${r.ip}:${r.port}/`); })
-      .catch(() => {});
+    // GÜVENLİK (P0): Teşhis HTTP sunucusu (port 8899) ağ üzerinden ham OBD + /enable-adb
+    // ifşa eder → yalnız development build'de başlat. Release'te native taraf da no-op
+    // (BuildConfig.DEBUG) — bu guard ikinci savunma katmanı + gereksiz native çağrıyı önler.
+    if (import.meta.env.DEV) {
+      // Teşhis portunu aç → PC http://<ip>:8899/ ile ham OBD trafiğini çeker.
+      CarLauncher.startDiagServer?.()
+        .then((r) => { if (!cancelled && r?.ip) setDiagAddr(`http://${r.ip}:${r.port}/`); })
+        .catch(() => {});
+    }
     CarLauncher.addListener('obdTraffic', (e) => {
       useDebugStore.getState().pushObdTraffic({
         ts: e.ts || Date.now(), cmd: e.cmd, resp: e.resp, ms: e.ms,

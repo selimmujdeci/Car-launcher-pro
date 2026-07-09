@@ -23,6 +23,16 @@ const _versionProps = (() => {
   }
 })()
 
+// ── Log hijyeni (P0 Bulgu #4 — production log observability) ──────────────────
+// Önceki davranış: terser `drop_console: true` TÜM console'ı (error+warn dahil)
+// her build'de siliyordu → üretimde hata gözlemlenebilirliği YOK + logGate ölü kod
+// + debug APK'da cihaz-üstü inspector boş. Yeni davranış (capacitor.config.ts ile
+// AYNI ölçüt): release'te yalnız DEBUG-seviye console (log/info/debug/trace)
+// bundle'dan çıkarılır; `console.error` + `console.warn` KORUNUR → runtime'da
+// logGate (main.tsx) adaptif olarak susturur/gösterir. Debug build hiçbir console'ı
+// çıkarmaz → cihaz-üstü Chrome inspector ile hata ayıklama korunur.
+const _isDevBuild = process.env['NODE_ENV'] === 'development';
+
 /**
  * addWebkitBackdropFilter — Android WebView uyumluluk fix
  *
@@ -295,7 +305,10 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
+        // Release: yalnız debug-seviye console çıkar (log/info/debug/trace) — hot-path
+        // maliyeti sıfırlanır. error + warn KORUNUR → gözlemlenebilirlik + logGate
+        // adaptif susturması çalışır. Debug build (_isDevBuild): hiçbiri çıkarılmaz.
+        drop_console: _isDevBuild ? false : ['log', 'info', 'debug', 'trace'],
         drop_debugger: true,
       },
     },

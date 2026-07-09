@@ -56,7 +56,8 @@ public class MainActivity extends BridgeActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // API 33
             perms.add(Manifest.permission.READ_MEDIA_VIDEO);
-            perms.add(Manifest.permission.READ_MEDIA_IMAGES);
+            // READ_MEDIA_IMAGES KALDIRILDI (P0.5-A): hiçbir MediaStore.Images tüketicisi
+            // yok — medya tarayıcı yalnız Audio + Video okur. Least-privilege.
             perms.add(Manifest.permission.POST_NOTIFICATIONS); // Bildirim izni — Kısıtlanmış ayar hatasını engeller
         } else if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
             perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
