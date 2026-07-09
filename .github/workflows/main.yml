@@ -165,7 +165,7 @@ jobs:
 
       # Cache Vite/Rolldown transform cache between builds on the same branch
       - name: Restore Vite build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules/.vite
           key:  vite-${{ runner.os }}-${{ hashFiles('package-lock.json', 'vite.config.*') }}
