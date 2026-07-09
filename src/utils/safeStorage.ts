@@ -85,6 +85,7 @@ const LRU_PROTECTED = new Set<string>([
   'car-expert-trust-store', // Expert Trust mühürlü durum
   'car-expert-trust-hmac-seed', // Expert Trust HMAC tohumu
   'car-safety-brain-v1',      // Safety Brain VIN profilleri
+  'car-vehicle-fingerprints', // Araç parmak izi bounded LRU cache (max 8 araç kimliği)
 ]);
 
 /**
