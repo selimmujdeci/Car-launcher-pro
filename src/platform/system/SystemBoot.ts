@@ -61,6 +61,7 @@ import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { startAutomaticVehicleFingerprint } from '../vehicleFingerprintBuilder';
 import { startAutoLearningEngine } from '../autoLearningEngine';
+import { startVehicleKnowledgeBase } from '../vehicleKnowledgeBase';
 import { logError }                from '../crashLogger';
 import { showToast, dismissToast } from '../errorBus';
 import { healthMonitor }           from './SystemHealthMonitor';
@@ -535,6 +536,11 @@ class SystemBoot {
     // (PID/DID seenCount/confidence) + staged VIN merge. Additive + fail-soft; cleanup _reg'le.
     _log('  › AutoLearningEngine');
     this._reg(startAutoLearningEngine());
+
+    // VehicleKnowledgeBase (PR-28): öğrenilen bilgiyi araç bazlı yerel bilgi tabanına
+    // (istatistik + kalıcı) organize et. SALT-OKUNUR projeksiyon; additive + fail-soft.
+    _log('  › VehicleKnowledgeBase');
+    this._reg(startVehicleKnowledgeBase());
 
     // GeofenceService: async (Supabase zona sorgusu)
     _log('  › GeofenceService (async)');
