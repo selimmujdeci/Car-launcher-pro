@@ -30,15 +30,20 @@ import {
 export type { DTCCode, DTCSeverity, DtcRecord } from './obd/dtcDataSource';
 export type { DriveSafety, EstimatedCost, DtcCatalog } from './obd/dtcDataSource';
 
-// Geniş DTC kataloğunu (163 standart kod → toplam 200+) LAZY kaynak olarak kaydet.
+// Geniş DTC kataloğunu (163 standart kod) LAZY kaynak olarak kaydet.
 // Bu satır yalnız bir yükleyici PUSH eder — dtcExtendedCatalog dinamik import'u
 // (ve ~30KB veri) YALNIZ preloadExtendedDtcCatalog() çağrılınca indirilir → Vite
 // ayrı chunk'a böler, ilk yükleme (Mali-400) bütçesine girmez.
 registerLazyDtcSource(() => import('./obd/data/dtcExtendedCatalog').then((m) => m.default));
 
+// PR-DTC-3: İkinci geniş katalog (335 ek standart generic kod → çekirdek 49 + 163 + 335
+// = 500+ toplam). AYNI lazy mimari (çoklu kaynak); yine yalnız preloadExtendedDtcCatalog()
+// çağrılınca ayrı chunk olarak indirilir → ilk yükleme bütçesi korunur.
+registerLazyDtcSource(() => import('./obd/data/dtcExtendedCatalog2').then((m) => m.default));
+
 /**
- * Geniş DTC kataloğunu (P0 uzun kuyruk / P2 / B / C / U — 163 kod) talep üzerine
- * yükler ve senkron kayıt defterine birleştirir. İlk çağrıda dinamik import (~1 chunk),
+ * Geniş DTC kataloglarını (P0 uzun kuyruk / P2 / P0A / B / C / U — 163 + 335 kod)
+ * talep üzerine yükler ve senkron kayıt defterine birleştirir. İlk çağrıda dinamik import,
  * sonraki çağrılar anında (memoize). Native DTC okuma yolları bunu otomatik çağırır;
  * UI de (ör. DTC paneli açılırken) çağırarak tam kataloğu önden hazırlayabilir.
  */
