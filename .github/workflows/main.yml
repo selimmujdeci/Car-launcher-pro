@@ -124,7 +124,7 @@ jobs:
       - name: Publish test results
         # Posts inline annotations and a summary table to the PR / commit check.
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name:              Unit Test Results
           path:              reports/junit.xml
