@@ -31,7 +31,7 @@ export function TrafficPanel() {
     <div className="p-4 space-y-3">
       {/* ── Başlık ── */}
       <div className="flex items-center justify-between">
-        <h2 className="text-white text-xl font-bold">Trafik Durumu</h2>
+        <h2 className="text-[color:var(--oem-ink)] text-xl font-bold">Trafik Durumu</h2>
         {meta && (
           <span
             className="flex items-center gap-1 text-[10px] border rounded px-2 py-0.5 uppercase tracking-widest font-bold"
@@ -55,10 +55,10 @@ export function TrafficPanel() {
 
       {/* ── Yükleniyor ── */}
       {traffic.loading && !s && (
-        <p className="text-white/60 text-sm">Trafik verisi alınıyor…</p>
+        <p className="text-[color:var(--oem-ink-2)] text-sm">Trafik verisi alınıyor…</p>
       )}
       {!traffic.loading && !s && (
-        <p className="text-white/60 text-sm">Veri yok — GPS bekleniyor</p>
+        <p className="text-[color:var(--oem-ink-2)] text-sm">Veri yok — GPS bekleniyor</p>
       )}
 
       {/* ── Özet + segment listesi ── */}
@@ -67,18 +67,18 @@ export function TrafficPanel() {
           {/* Genel durum kartı */}
           <div
             className="flex items-center gap-3 p-3 rounded-2xl"
-            style={{ background: 'rgba(255,255,255,0.04)' }}
+            style={{ background: 'var(--oem-surface-2)' }}
           >
             <span
               className="w-4 h-4 rounded-full flex-shrink-0"
               style={{ backgroundColor: TRAFFIC_COLORS[s.level] }}
             />
             <div>
-              <p className="text-white font-semibold text-base">
+              <p className="text-[color:var(--oem-ink)] font-semibold text-base">
                 {LEVEL_LABELS[s.level] ?? s.level}
               </p>
               {s.delayMin > 0 && (
-                <p className="text-white/60 text-sm">Tahmini gecikme: ~{s.delayMin} dk</p>
+                <p className="text-[color:var(--oem-ink-2)] text-sm">Tahmini gecikme: ~{s.delayMin} dk</p>
               )}
             </div>
           </div>
@@ -89,27 +89,27 @@ export function TrafficPanel() {
               <div
                 key={i}
                 className="flex items-center gap-3 p-3 rounded-xl"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
+                style={{ background: 'var(--oem-surface-1)' }}
               >
                 <span
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                   style={{ backgroundColor: TRAFFIC_COLORS[seg.level] }}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-white/85 text-sm font-semibold truncate">{seg.label}</p>
+                  <p className="text-[color:var(--oem-ink)] text-sm font-semibold truncate">{seg.label}</p>
                   {seg.direction && (
-                    <p className="text-white/50 text-xs truncate">{seg.direction}</p>
+                    <p className="text-[color:var(--oem-ink-2)] text-xs truncate">{seg.direction}</p>
                   )}
                 </div>
                 {seg.delayMin > 0 && (
-                  <span className="text-white/55 text-xs flex-shrink-0">+{seg.delayMin} dk</span>
+                  <span className="text-[color:var(--oem-ink-2)] text-xs flex-shrink-0">+{seg.delayMin} dk</span>
                 )}
               </div>
             ))}
           </div>
 
           {/* Güncelleme zamanı */}
-          <p className="text-white/35 text-xs text-center pt-1">
+          <p className="text-[color:var(--oem-ink-3)] text-xs text-center pt-1">
             {new Date(s.updatedAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} güncellendi
           </p>
         </>
