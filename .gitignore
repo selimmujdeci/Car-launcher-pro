@@ -108,3 +108,10 @@ deno.lock
 
 # K24 CAN reverse-engineering artefaktlari (buyuk + OEM proprietary - commit etme)
 tools/can-re/
+
+# Yerel dev/profiling yardımcıları (CDP long-task + klip üretimi) — kaynak değil
+/cdp-longtask.mjs
+/gen-clips.mjs
+
+# Supabase CLI geçici durum dosyaları (supabase link/start üretir; kaynak değil)
+/supabase/.temp/
