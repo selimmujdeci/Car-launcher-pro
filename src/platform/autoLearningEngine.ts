@@ -217,13 +217,22 @@ export function mergeKnowledge(primary: VehicleKnowledge, secondary: VehicleKnow
 export class AutoLearningEngine {
   private _unsubDisc: (() => void) | null = null;
   private _unsubVid: (() => void) | null = null;
+  private readonly _store: VehicleFingerprintStore;
+  private readonly _readVid: () => VidStore;
+  private readonly _readObs: () => DiscoveryObservation[];
+  private readonly _now: () => number;
 
   constructor(
-    private readonly _store: VehicleFingerprintStore = vehicleFingerprintStore,
-    private readonly _readVid: () => VidStore = () => useVidStore.getState(),
-    private readonly _readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
-    private readonly _now: () => number = () => Date.now(),
-  ) {}
+    store: VehicleFingerprintStore = vehicleFingerprintStore,
+    readVid: () => VidStore = () => useVidStore.getState(),
+    readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
+    now: () => number = () => Date.now(),
+  ) {
+    this._store = store;
+    this._readVid = readVid;
+    this._readObs = readObs;
+    this._now = now;
+  }
 
   /** Discovery + VID aboneliklerini başlatır (idempotent). Döndürülen fonksiyon durdurur (zero-leak). */
   start(): () => void {
@@ -251,7 +260,7 @@ export class AutoLearningEngine {
 
       const input = assembleFingerprintInput(vid, this._readObs());
       const base = buildFingerprint(input);
-      const loaded = this._store.load(base.hash);
+      const loaded = this._store.load(base.hash) as VehicleKnowledge | null;
       // Fingerprint yoksa builder henüz oluşturmamış olabilir → burada oluştur (idempotent).
       let fp: VehicleKnowledge = initKnowledge(loaded ?? ingestVehicleFingerprint(input, this._store));
 

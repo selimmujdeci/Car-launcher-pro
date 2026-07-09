@@ -196,11 +196,16 @@ export function buildProfileCandidates(
 
 export class ManufacturerProfileBuilder {
   private _candidates: ProfileCandidate[] = [];
+  private readonly _readManufacturers: () => ManufacturerKnowledge[];
+  private readonly _opts: ProfileCandidateOptions;
 
   constructor(
-    private readonly _readManufacturers: () => ManufacturerKnowledge[],
-    private readonly _opts: ProfileCandidateOptions = {},
-  ) {}
+    readManufacturers: () => ManufacturerKnowledge[],
+    opts: ProfileCandidateOptions = {},
+  ) {
+    this._readManufacturers = readManufacturers;
+    this._opts = opts;
+  }
 
   /** MIE çıktısından adayları yeniden üretir. FAIL-SOFT. */
   build(): ProfileCandidate[] {
