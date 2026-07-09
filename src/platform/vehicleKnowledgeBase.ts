@@ -292,14 +292,25 @@ export function upsertKnowledge(
 export class VehicleKnowledgeBase {
   private _unsubDisc: (() => void) | null = null;
   private _unsubVid: (() => void) | null = null;
+  private readonly _kbStore: VehicleKnowledgeBaseStore;
+  private readonly _fpStore: VehicleFingerprintStore;
+  private readonly _readVid: () => VidStore;
+  private readonly _readObs: () => DiscoveryObservation[];
+  private readonly _now: () => number;
 
   constructor(
-    private readonly _kbStore: VehicleKnowledgeBaseStore = vehicleKnowledgeBaseStore,
-    private readonly _fpStore: VehicleFingerprintStore = vehicleFingerprintStore,
-    private readonly _readVid: () => VidStore = () => useVidStore.getState(),
-    private readonly _readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
-    private readonly _now: () => number = () => Date.now(),
-  ) {}
+    kbStore: VehicleKnowledgeBaseStore = vehicleKnowledgeBaseStore,
+    fpStore: VehicleFingerprintStore = vehicleFingerprintStore,
+    readVid: () => VidStore = () => useVidStore.getState(),
+    readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
+    now: () => number = () => Date.now(),
+  ) {
+    this._kbStore = kbStore;
+    this._fpStore = fpStore;
+    this._readVid = readVid;
+    this._readObs = readObs;
+    this._now = now;
+  }
 
   /** Discovery + VID aboneliklerini başlatır (idempotent). Döndürülen fonksiyon durdurur. */
   start(): () => void {
