@@ -13,18 +13,29 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { logError } from './crashLogger';
 import { STANDARD_PID_MAP, decodeStandardPid } from './obd/StandardPidRegistry';
+import {
+  registerDtcCatalog,
+  resolveDtcRecord,
+  ensureExtendedDtcLoaded,
+  type DtcRecord,
+  type DTCCode,
+} from './obd/dtcDataSource';
 
 /* ── Types ───────────────────────────────────────────────── */
 
-export type DTCSeverity = 'critical' | 'warning' | 'info';
+// DTC tip tanımları veri-kaynağı katmanına (dtcDataSource) taşındı; geriye dönük
+// uyumluluk için buradan re-export edilir — mevcut `import { DTCCode } from './dtcService'`
+// tüketicileri değişmeden çalışmaya devam eder.
+export type { DTCCode, DTCSeverity, DtcRecord } from './obd/dtcDataSource';
+export type { DriveSafety, EstimatedCost, DtcCatalog } from './obd/dtcDataSource';
 
-export interface DTCCode {
-  code: string;
-  description: string;
-  system: string;
-  severity: DTCSeverity;
-  possibleCauses: string[];
-}
+/**
+ * Geniş DTC kataloğunu (P0 uzun kuyruk / P1 / B / C / U) talep üzerine yükler.
+ * Bu PR'da kayıtlı lazy kaynak YOK → anında çözülür (hot-core davranışı değişmez).
+ * Gelecek PR'lar registerLazyDtcSource ile katalog ekleyecek; UI bu fonksiyonu
+ * (ör. DTC paneli açılırken) çağırarak tam kataloğu hazırlar.
+ */
+export const preloadExtendedDtcCatalog = ensureExtendedDtcLoaded;
 
 export interface DTCState {
   codes: DTCCode[];
@@ -73,7 +84,7 @@ const FREEZE_FRAME_PIDS: readonly string[] = ['0C', '0D', '05', '04', '0B', '0F'
 
 /* ── DTC Database (Turkish) ──────────────────────────────── */
 
-const DTC_DB: Record<string, Omit<DTCCode, 'code'>> = {
+const DTC_DB: Record<string, DtcRecord> = {
   // ── Ateşleme / Silindir ──────────────────────────────────
   P0300: { description: 'Tespit Edilemeyen Silindir Ateşleme Hatası', system: 'Motor', severity: 'critical', possibleCauses: ['Bujiler', 'Yakıt enjektörü', 'Kompresyon düşük', 'Ateşleme bobini'] },
   P0301: { description: '1. Silindir Ateşleme Hatası', system: 'Motor', severity: 'critical', possibleCauses: ['Buji (1. silindir)', 'Ateşleme bobini', 'Yakıt enjektörü'] },
@@ -150,6 +161,10 @@ const DTC_DB: Record<string, Omit<DTCCode, 'code'>> = {
   U0155: { description: 'Gösterge Paneli ile İletişim Hatası', system: 'CAN Ağı', severity: 'info', possibleCauses: ['Gösterge paneli modülü', 'CAN bağlantısı'] },
 };
 
+// Hot-core kataloğu senkron kayıt defterine yükle — lookupDtc bu kaynaktan çözer.
+// (Mevcut 49 kodun davranışı birebir korunur; lazy kaynaklar ileride eklenir.)
+registerDtcCatalog(DTC_DB);
+
 const MOCK_CODES = ['P0171', 'P0420', 'P0300', 'P0128', 'P0455', 'C0034', 'U0100'];
 
 /* ── Module state ────────────────────────────────────────── */
@@ -177,9 +192,14 @@ function _setState(partial: Partial<DTCState>): void {
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
-function _lookupCode(raw: string): DTCCode {
+/**
+ * Ham DTC kodunu tam kayda çözer — çekirdek + kayıtlı (lazy dahil) kaynaklardan.
+ * Kaynak bulunamazsa prefix tabanlı dürüst fallback döner ("Bilinmeyen" değil,
+ * en azından sistem grubu). Saf/senkron — sesli asistan & bakım beyni de tüketir.
+ */
+export function lookupDtc(raw: string): DTCCode {
   const code = raw.toUpperCase().trim();
-  const entry = DTC_DB[code];
+  const entry = resolveDtcRecord(code);
   if (entry) return { code, ...entry };
 
   const systemMap: Record<string, string> = {
@@ -202,7 +222,7 @@ function _getMockCodes(): DTCCode[] {
   return MOCK_CODES
     .sort(() => Math.random() - 0.5)
     .slice(0, n)
-    .map(_lookupCode);
+    .map(lookupDtc);
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -216,7 +236,7 @@ export async function readDTCCodes(): Promise<void> {
       // Native cihazda gerçek ECU okuma — mock'a asla düşme
       try {
         const result = await CarLauncher.readDTC();
-        const codes = (result.codes ?? []).map(_lookupCode);
+        const codes = (result.codes ?? []).map(lookupDtc);
         _setState({ codes, isReading: false, lastReadAt: Date.now(), isStale: false });
       } catch (err) {
         // Fix 4: hata durumunda mevcut codes listesi korunur, isStale=true ile işaretlenir.
@@ -298,7 +318,7 @@ export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
 
   try {
     const r = await CarLauncher.readDTC();
-    (r.codes ?? []).forEach((c) => codes.push({ ..._lookupCode(c), status: 'stored' }));
+    (r.codes ?? []).forEach((c) => codes.push({ ...lookupDtc(c), status: 'stored' }));
   } catch (e) {
     logError('DTC:ReadAllStoredFailed', e);
   }
@@ -306,7 +326,7 @@ export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
   try {
     if (CarLauncher.readPendingDTC) {
       const r = await CarLauncher.readPendingDTC();
-      (r.codes ?? []).forEach((c) => codes.push({ ..._lookupCode(c), status: 'pending' }));
+      (r.codes ?? []).forEach((c) => codes.push({ ...lookupDtc(c), status: 'pending' }));
     }
   } catch (e) {
     logError('DTC:ReadAllPendingFailed', e);
@@ -316,7 +336,7 @@ export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
     if (CarLauncher.readPermanentDTC) {
       const r = await CarLauncher.readPermanentDTC();
       permanentSupported = r.supported;
-      if (r.supported) (r.codes ?? []).forEach((c) => codes.push({ ..._lookupCode(c), status: 'permanent' }));
+      if (r.supported) (r.codes ?? []).forEach((c) => codes.push({ ...lookupDtc(c), status: 'permanent' }));
     } else {
       // Eski native plugin — metod hiç yok, "desteklenmiyor" sayılır (dürüst varsayılan).
       permanentSupported = false;
