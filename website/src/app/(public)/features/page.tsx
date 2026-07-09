@@ -32,7 +32,7 @@ const sections = [
     category: 'Yapay Zeka',
     color: 'purple',
     items: [
-      { title: 'Diagnostic AI', desc: 'P0300, P0420 gibi 200+ DTC kodunu Türkçe açıklamalarla analiz et.', badge: 'AI' },
+      { title: 'Diagnostic AI', desc: 'P0300, P0420 gibi 200+ standart OBD-II DTC kodunu Türkçe açıklamalarla analiz et.', badge: 'AI' },
       { title: 'Sesli Asistan', desc: 'Türkçe sesli komutlarla navigasyon ve araç kontrolü.' },
       { title: 'Mola Önerisi', desc: 'Sürüş süresi ve yorgunluk analizine göre otomatik mola hatırlatıcısı.' },
     ],

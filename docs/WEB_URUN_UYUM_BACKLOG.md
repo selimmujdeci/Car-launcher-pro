@@ -16,11 +16,12 @@
 Bunlar yeni özellik değil; **metin↔ürün yalanını** kapatır. En hızlı yol: ya vaadi
 gerçeğe indir, ya ürünü vaade çıkar.
 
-- [ ] 🔴 **"200+ DTC" → gerçek 37.** `dtcService.ts` `DTC_DB` yalnız 37 kod içeriyor,
-  web "200+ DTC Türkçe" diyor (uydurma sayı).
-  **Karar:** (a) web metnini "40+ DTC" yap **VEYA** (b) `DTC_DB`'yi gerçekten 200+'a
-  genişlet. **Kabul:** web'deki sayı = `DTC_DB` anahtar sayısı (test ile kilitlenir).
-  Kanıt: `src/platform/dtcService.ts:76`
+- [x] 🟢 **"200+ DTC" → gerçek 212 (ÇÖZÜLDÜ 2026-07-09).** (b) yolu seçildi: DTC veritabanı
+  gerçekten genişletildi. `dtcService.ts` hot-core (49) + `obd/data/dtcExtendedCatalog.ts`
+  lazy standart katalog (163) = **212 gerçek SAE J2012 standart DTC**; hepsi Türkçe açıklamalı.
+  Web metni "200+ standart OBD-II DTC" olarak kesinleştirildi (uydurma değil, gerçek sayı ≥ vaat).
+  **Kabul:** test `dtcExtendedCatalog.test.ts` toplam ≥200'ü kilitler (PR-DTC-2, #18).
+  Kanıt: `src/platform/obd/data/dtcExtendedCatalog.ts` + `src/__tests__/dtcExtendedCatalog.test.ts`
 
 - [ ] 🔴 **TPMS görsel-only.** Web/3D lastik basıncını ima ediyor ama gerçek TPMS
   veri kaynağı yok (yalnız `Vehicle3DViewer.tsx` renk eşlemesi).
@@ -89,8 +90,9 @@ gerçeğe indir, ya ürünü vaade çıkar.
   **Yap:** varsayılan bölge ön-paketle VEYA ilk-açılış "bölge indir" akışı.
   **Kabul:** yeni kurulumda internet olmadan harita görünüyor. Kanıt: `src/platform/mapDownloadManager.ts`
 
-- [ ] 🟡 **DTC_DB genişletme (37 → 200+).** (P0-1'in (b) yolu seçilirse.)
-  **Kabul:** ≥200 yaygın DTC + Türkçe açıklama; test kilidi. Kanıt: `src/platform/dtcService.ts:76`
+- [x] 🟢 **DTC_DB genişletme (37 → 212) — ÇÖZÜLDÜ 2026-07-09.** P0-1'in (b) yolu uygulandı:
+  lazy `dtcExtendedCatalog` (bundle-güvenli) ile 163 standart kod eklendi; toplam 212, test kilitli.
+  Kanıt: `src/platform/obd/data/dtcExtendedCatalog.ts` (PR-DTC-1 #17 iskele + PR-DTC-2 #18 veri)
 
 - [ ] 🟡 **Yakıt seviyesi raw-CAN kapsamı.** OBD 0x2F kaldırılmış; yakıt raw-CAN'e bağlı,
   araç-bağımlı. **Yap:** desteklenen marka/model CAN yakıt DID'lerini genişlet + fallback.
