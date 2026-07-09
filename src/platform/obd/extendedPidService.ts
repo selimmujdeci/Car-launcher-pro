@@ -13,8 +13,9 @@
  *  - İzlenen liste TS tavanı ELM_WATCH_CAP (16) ile sınırlı (native tavanı 32 ayrıca var).
  *  - Değer bildirimleri zaten ≤1 olay/poll-turu — UI thread'e yük binmez.
  *
- * KEŞİF: SAE J1979 Mode 01 PID 00/20/40/60 bitmask'leri AYNI extended kanaldan okunur
- * (ekstra native API yok). Zincirleme: 00 → (0x20 destekliyse) 20 → 40 → 60.
+ * KEŞİF: SAE J1979 Mode 01 PID 00/20/40/60/80/A0/C0/E0 bitmask'leri AYNI extended
+ * kanaldan okunur (ekstra native API yok). Zincirleme: 00 → (destekliyse) 20 → 40 →
+ * 60 → 80 → A0 → C0 → E0; her adım yalnız önceki bitmask sonraki bayrağı set ettiyse.
  * Keşif tamamlanınca desteklenmeyen izlenen PID'ler native listeden çıkarılır
  * (ELM327'de her desteklenmeyen sorgu ~200ms NO-DATA bekletir — obdPidConfig dersi).
  */
@@ -32,8 +33,14 @@ export const ELM_WATCH_CAP = 16;
 /** BURST modu (Canlı Test) tavanı — tüm çekirdek-olmayan PID'ler izlenebilsin. */
 export const ELM_WATCH_CAP_BURST = 48;
 
-/** Bitmask keşif PID'leri — sırayla zincirlenir. */
-const DISCOVERY_PIDS = ['00', '20', '40', '60'] as const;
+/**
+ * Bitmask keşif PID'leri — sırayla zincirlenir. Her 0x_0 PID, bir sonraki 32'lik
+ * aralığın "desteklenen-PID" bayrağıdır; zincir yalnız bir önceki bitmask o bayrağı
+ * set ettiyse ilerler (araç desteklemiyorsa boşa sorgu yok — Mali-400 kuralı).
+ * PR-PID-1: dizel/emisyon PID'leri (0x64-0x98) 0x60/0x80 bloklarında yaşadığından
+ * keşif aralığı 0x80/0xA0/0xC0/0xE0 bloklarına genişletildi.
+ */
+const DISCOVERY_PIDS = ['00', '20', '40', '60', '80', 'A0', 'C0', 'E0'] as const;
 
 export interface ExtendedPidValue {
   /** Çözülmüş fiziksel değer (valid=false ise NaN). */
