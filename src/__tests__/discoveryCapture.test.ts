@@ -24,7 +24,7 @@ import {
   type DiscoveryRecord,
   type DiscoveryCaptureOptions,
 } from '../platform/obd/discovery';
-import { recordDiag, clear as clearDiag, getEvents } from '../platform/obdDiagnosticRecorder';
+import { clear as clearDiag, getEvents } from '../platform/obdDiagnosticRecorder';
 
 /** Her testte benzersiz storage anahtarı (kalıcı kuyruk çapraz-kirlenme yok). */
 let _k = 0;
