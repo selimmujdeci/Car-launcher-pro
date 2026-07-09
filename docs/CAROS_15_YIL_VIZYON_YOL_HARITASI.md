@@ -28,7 +28,7 @@ zeki katmanı"** — özellikle EU/TR/MENA/Güney Asya'daki OEM-dışı devasa a
 | Kurumsal | RBAC, panel, SLA, API | RBAC var; API/SLA **yok** |
 | Kamu | Öncelikli rota, merkezi komuta, vardiya | **Hiç yok** (marketing) |
 | OEM üreticiler | Beyaz-etiket cockpit + SDK | **Hiç yok** (SDK/plugin yok) |
-| Yetkili servis / Servisler | DTC teşhis, bakım geçmişi, uzaktan tanı | DTC var (37 kod), servis-portalı **yok** |
+| Yetkili servis / Servisler | DTC teşhis, bakım geçmişi, uzaktan tanı | DTC var (212 kod), servis-portalı **yok** |
 | Araç üreticileri | Derin araç entegrasyonu | Aftermarket zorunluluğu = derin entegrasyon **yok** |
 | Yedek parça sektörü | Parça-öneri, arıza→parça eşleme | **Hiç yok** |
 

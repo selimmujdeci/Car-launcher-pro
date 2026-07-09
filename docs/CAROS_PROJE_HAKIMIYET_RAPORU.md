@@ -98,7 +98,7 @@ supabase/migrations/  28 SQL (RLS/RPC/realtime/geofence/ota/key-beam...)
 ### 4. Web Sitesi (carospro.com) — **%80** (yeni redesign)
 - **İşlev:** Pazarlama + light/dark tema + PWA install.
 - **Dosyalar:** `website/src/app/(public)/*`, bileşenler, `globals.css`, `tailwind.config.ts`.
-- **Hazırlık:** Prod'da; Lighthouse 99/100/100/100. **⚠️ Metin↔ürün uyumsuzluğu** (bkz. backlog: "200+ DTC" vb.).
+- **Hazırlık:** Prod'da; Lighthouse 99/100/100/100. ✅ "200+ DTC" iddiası çözüldü (gerçek 212 kod, 2026-07-09); kalan metin↔ürün maddeleri için bkz. backlog.
 - **Risk:** Pazarlama ürünün önünde (hukuki/güven).
 - **Dikkat:** Semantik token sistemi (`--st-*`); opacity-modifier var-renkte kırılır.
 - **Bağlantılı:** PWA, dashboard.
