@@ -37,4 +37,6 @@ export {
   type DiscoveryInput,
   type CaptureResult,
   type DiscoveryCaptureOptions,
+  type DiscoveryObservation,
+  type DiscoveryObservationStatus,
 } from './DiscoveryCaptureService';
