@@ -24,6 +24,7 @@ import { exportDiscoveryJson } from './discoveryExport';
 import {
   createDiscoveryRecord,
   normalizeHex,
+  discoveryHash,
   type DiscoveryRecord,
   type DiscoverySource,
 } from './discoveryModel';
@@ -38,6 +39,26 @@ export type DiscoveryInput = Partial<DiscoveryRecord> & {
 export type CaptureResult =
   | { captured: true;  record: DiscoveryRecord }
   | { captured: false; reason: 'known' | 'duplicate' };
+
+/**
+ * Gözlem kaydı (SALT-OKUNUR gözlemlenebilirlik — Dashboard için, PR-DISC-3).
+ * capture() KARARINI DEĞİŞTİRMEZ; her benzersiz kimlik için (dedupKey) tek gözlem tutulur:
+ *   status 'new'  = katalog dışı (yakalandı/kuyruğa girdi)
+ *   status 'known'= registry/profil'de var (yakalanmadı)
+ *   seenCount > 1 = aynı sinyal tekrar gözlemlendi (duplicate göstergesi)
+ */
+export type DiscoveryObservationStatus = 'new' | 'known';
+
+export interface DiscoveryObservation {
+  record:    DiscoveryRecord;
+  status:    DiscoveryObservationStatus;
+  seenCount: number;
+  firstAt:   number;
+  lastAt:    number;
+}
+
+/** Gözlem halkası tavanı — benzersiz sinyal başına 1 kayıt (zero-leak). */
+const MAX_OBSERVATIONS = 4096;
 
 export interface DiscoveryCaptureOptions {
   /** PID katalogda var mı (varsayılan: standart registry — salt-okunur). */
@@ -74,6 +95,10 @@ export class DiscoveryCaptureService {
   private readonly _emitDiagnostic: (record: DiscoveryRecord) => void;
   /** setKnownDids ile beslenen bilinen DID kümesi (varsayılan isDidKnown bunu okur). */
   private _knownDids = new Set<string>();
+  /** SALT-OKUNUR gözlem katmanı (Dashboard) — kimlik başına 1 kayıt; capture kararını ETKİLEMEZ. */
+  private readonly _obs = new Map<string, DiscoveryObservation>();
+  /** Canlı güncelleme aboneleri (UI) — her gözlemde tetiklenir. */
+  private readonly _subscribers = new Set<() => void>();
 
   constructor(opts: DiscoveryCaptureOptions = {}) {
     this._cache = opts.cache ?? new DiscoveryCache();
@@ -98,6 +123,10 @@ export class DiscoveryCaptureService {
     const known = record.discoverySource === 'PID'
       ? this._isPidKnown(record.pidOrDid)
       : this._isDidKnown(record.pidOrDid);
+
+    // Gözlemlenebilirlik (Dashboard) — capture KARARINI değiştirmez, yalnız kaydeder + bildirir.
+    this._observe(record, known ? 'known' : 'new');
+
     if (known) return { captured: false, reason: 'known' };
 
     // Katalogda YOK → yeni aday; hash-dedup (aynı ECU+mode+PID/DID ikinci gözlemi elenir).
@@ -107,6 +136,41 @@ export class DiscoveryCaptureService {
     this._queue.enqueue(record);
     try { this._emitDiagnostic(record); } catch { /* tanı log hatası yakalamayı engellemez */ }
     return { captured: true, record };
+  }
+
+  /** Kimlik başına gözlemi günceller (seenCount++/lastAt) veya ekler; sonra abonelere bildirir. */
+  private _observe(record: DiscoveryRecord, status: DiscoveryObservationStatus): void {
+    const h = discoveryHash(record);
+    const existing = this._obs.get(h);
+    if (existing) {
+      existing.seenCount++;
+      existing.lastAt = record.timestamp;
+    } else {
+      this._obs.set(h, { record, status, seenCount: 1, firstAt: record.timestamp, lastAt: record.timestamp });
+      if (this._obs.size > MAX_OBSERVATIONS) {
+        const oldest = this._obs.keys().next().value;
+        if (oldest !== undefined) this._obs.delete(oldest);
+      }
+    }
+    this._notify();
+  }
+
+  private _notify(): void {
+    this._subscribers.forEach((cb) => { try { cb(); } catch { /* abone hatası diğerlerini engellemez */ } });
+  }
+
+  /**
+   * Canlı güncelleme aboneliği (UI Dashboard) — her yeni gözlemde çağrılır. Döndürdüğü
+   * fonksiyon aboneliği kaldırır (zero-leak: bileşen unmount'ta çağırmalı).
+   */
+  subscribe(cb: () => void): () => void {
+    this._subscribers.add(cb);
+    return () => { this._subscribers.delete(cb); };
+  }
+
+  /** Gözlemlenen benzersiz sinyallerin kopyası (Dashboard listesi) — kimlik başına 1. */
+  getObservations(): DiscoveryObservation[] {
+    return [...this._obs.values()].map((o) => ({ ...o, record: { ...o.record } }));
   }
 
   /** Yakalanmış (kuyruktaki) tüm keşiflerin kopyası. */
@@ -124,11 +188,13 @@ export class DiscoveryCaptureService {
     return this._cache.size;
   }
 
-  /** Cache + kuyruğu sıfırlar (oturum kapanışı / araç değişimi). */
+  /** Cache + kuyruğu + gözlemleri sıfırlar (oturum kapanışı / araç değişimi). Aboneler KALIR. */
   reset(): void {
     this._cache.clear();
     this._queue.clear();
     this._knownDids.clear();
+    this._obs.clear();
+    this._notify();
   }
 }
 
