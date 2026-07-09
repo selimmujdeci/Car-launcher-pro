@@ -224,11 +224,13 @@ export function buildManufacturerIntelligence(
 
 export class ManufacturerIntelligenceEngine {
   private _snapshot: ManufacturerKnowledge[] = [];
+  private readonly _readRecords: () => VehicleKnowledgeRecord[];
 
   constructor(
-    private readonly _readRecords: () => VehicleKnowledgeRecord[] =
-      () => vehicleKnowledgeBaseStore.list(),
-  ) {}
+    readRecords: () => VehicleKnowledgeRecord[] = () => vehicleKnowledgeBaseStore.list(),
+  ) {
+    this._readRecords = readRecords;
+  }
 
   /** VKB'den yeniden hesaplar ve iç anlık görüntüyü günceller. FAIL-SOFT. */
   refresh(): ManufacturerKnowledge[] {
