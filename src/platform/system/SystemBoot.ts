@@ -59,6 +59,7 @@ import {
 import { initPushService }         from '../pushService';
 import { startBatteryProtection }  from '../power/BatteryProtectionService';
 import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
+import { startAutomaticVehicleFingerprint } from '../vehicleFingerprintBuilder';
 import { logError }                from '../crashLogger';
 import { showToast, dismissToast } from '../errorBus';
 import { healthMonitor }           from './SystemHealthMonitor';
@@ -523,6 +524,11 @@ class SystemBoot {
     // VehicleIntelligenceService: SPE sensör plausibility + güven skoru
     _log('  › VehicleIntelligenceService');
     this._reg(startVehicleIntelligenceService());
+
+    // AutomaticVehicleFingerprint (PR-26): araç bağlanınca VID+Discovery'den otomatik
+    // fingerprint üret. Fail-soft + kimlik-imza guard (hot-path'e girmez); cleanup _reg'le.
+    _log('  › AutomaticVehicleFingerprint');
+    this._reg(startAutomaticVehicleFingerprint());
 
     // GeofenceService: async (Supabase zona sorgusu)
     _log('  › GeofenceService (async)');
