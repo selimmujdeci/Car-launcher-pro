@@ -15,6 +15,7 @@ import { logError } from './crashLogger';
 import { STANDARD_PID_MAP, decodeStandardPid } from './obd/StandardPidRegistry';
 import {
   registerDtcCatalog,
+  registerLazyDtcSource,
   resolveDtcRecord,
   ensureExtendedDtcLoaded,
   type DtcRecord,
@@ -29,11 +30,17 @@ import {
 export type { DTCCode, DTCSeverity, DtcRecord } from './obd/dtcDataSource';
 export type { DriveSafety, EstimatedCost, DtcCatalog } from './obd/dtcDataSource';
 
+// Geniş DTC kataloğunu (163 standart kod → toplam 200+) LAZY kaynak olarak kaydet.
+// Bu satır yalnız bir yükleyici PUSH eder — dtcExtendedCatalog dinamik import'u
+// (ve ~30KB veri) YALNIZ preloadExtendedDtcCatalog() çağrılınca indirilir → Vite
+// ayrı chunk'a böler, ilk yükleme (Mali-400) bütçesine girmez.
+registerLazyDtcSource(() => import('./obd/data/dtcExtendedCatalog').then((m) => m.default));
+
 /**
- * Geniş DTC kataloğunu (P0 uzun kuyruk / P1 / B / C / U) talep üzerine yükler.
- * Bu PR'da kayıtlı lazy kaynak YOK → anında çözülür (hot-core davranışı değişmez).
- * Gelecek PR'lar registerLazyDtcSource ile katalog ekleyecek; UI bu fonksiyonu
- * (ör. DTC paneli açılırken) çağırarak tam kataloğu hazırlar.
+ * Geniş DTC kataloğunu (P0 uzun kuyruk / P2 / B / C / U — 163 kod) talep üzerine
+ * yükler ve senkron kayıt defterine birleştirir. İlk çağrıda dinamik import (~1 chunk),
+ * sonraki çağrılar anında (memoize). Native DTC okuma yolları bunu otomatik çağırır;
+ * UI de (ör. DTC paneli açılırken) çağırarak tam kataloğu önden hazırlayabilir.
  */
 export const preloadExtendedDtcCatalog = ensureExtendedDtcLoaded;
 
@@ -235,6 +242,8 @@ export async function readDTCCodes(): Promise<void> {
     if (Capacitor.isNativePlatform()) {
       // Native cihazda gerçek ECU okuma — mock'a asla düşme
       try {
+        // Geniş kataloğu (200+) çözümlemeden ÖNCE yükle (fail-soft; hot-core her hâlde hazır)
+        await ensureExtendedDtcLoaded();
         const result = await CarLauncher.readDTC();
         const codes = (result.codes ?? []).map(lookupDtc);
         _setState({ codes, isReading: false, lastReadAt: Date.now(), isStale: false });
@@ -312,6 +321,8 @@ export async function clearDTCCodes(): Promise<void> {
  */
 export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
   if (!Capacitor.isNativePlatform()) return { codes: [], permanentSupported: true };
+
+  await ensureExtendedDtcLoaded(); // 200+ katalog hazır (fail-soft)
 
   const codes: DTCCodeWithStatus[] = [];
   let permanentSupported = true;
