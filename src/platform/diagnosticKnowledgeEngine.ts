@@ -296,13 +296,22 @@ function _recommendedChecks(systems: readonly string[], relatedPids: readonly st
  * ════════════════════════════════════════════════════════════════════════ */
 
 export class DiagnosticKnowledgeEngine {
+  private readonly _resolveDtc: (code: string) => DtcRecord | undefined;
+  private readonly _readVehicle: () => VehicleKnowledgeRecord | null;
+  private readonly _readManufacturers: () => ManufacturerKnowledge[];
+  private readonly _now: () => number;
+
   constructor(
-    private readonly _resolveDtc: (code: string) => DtcRecord | undefined = resolveDtcRecord,
-    private readonly _readVehicle: () => VehicleKnowledgeRecord | null =
-      () => vehicleKnowledgeBaseStore.list()[0] ?? null,
-    private readonly _readManufacturers: () => ManufacturerKnowledge[] = () => getManufacturerIntelligence(),
-    private readonly _now: () => number = () => Date.now(),
-  ) {}
+    resolveDtc: (code: string) => DtcRecord | undefined = resolveDtcRecord,
+    readVehicle: () => VehicleKnowledgeRecord | null = () => vehicleKnowledgeBaseStore.list()[0] ?? null,
+    readManufacturers: () => ManufacturerKnowledge[] = () => getManufacturerIntelligence(),
+    now: () => number = () => Date.now(),
+  ) {
+    this._resolveDtc = resolveDtc;
+    this._readVehicle = readVehicle;
+    this._readManufacturers = readManufacturers;
+    this._now = now;
+  }
 
   /** Bir DTC için tüm kaynakları birleştirip tek Diagnostic Insight üretir. FAIL-SOFT. */
   diagnose(dtc: string): DiagnosticInsight {
