@@ -200,12 +200,19 @@ export class AutomaticVehicleFingerprint {
   private _unsub: (() => void) | null = null;
   /** Son işlenen kimlik imzası — aynıysa (telemetri tick'i vb.) atla. */
   private _lastSig: string | null = null;
+  private readonly _store: VehicleFingerprintStore;
+  private readonly _readVid: () => VidStore;
+  private readonly _readObs: () => DiscoveryObservation[];
 
   constructor(
-    private readonly _store: VehicleFingerprintStore = vehicleFingerprintStore,
-    private readonly _readVid: () => VidStore = () => useVidStore.getState(),
-    private readonly _readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
-  ) {}
+    store: VehicleFingerprintStore = vehicleFingerprintStore,
+    readVid: () => VidStore = () => useVidStore.getState(),
+    readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
+  ) {
+    this._store = store;
+    this._readVid = readVid;
+    this._readObs = readObs;
+  }
 
   /** Aboneliği başlatır (idempotent). Döndürülen fonksiyon durdurur (zero-leak). */
   start(): () => void {
