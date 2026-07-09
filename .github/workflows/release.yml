@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CarOS Pro — Release
+#
+# Bir sürüm etiketi (v*) push'landığında:
+#   1) Web varlıklarını üretir (tsc -b && vite build) ve dist'i paketler,
+#   2) Otomatik sürüm notları ile bir GitHub Release oluşturur,
+#   3) dist zip'ini Release'e ekler.
+#
+# NOT: APK/AAB üretimi bilinçli olarak buraya DAHİL EDİLMEDİ — imzalama anahtarı
+#      ve Android SDK gerektirir; RELEASE_CHECKLIST.md + apk:safe ile ELLE alınır.
+#      İleride imza anahtarı secret'a eklenince ayrı bir job olarak açılabilir.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # Release oluşturmak/varlık yüklemek için
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+      VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL      || 'https://placeholder.supabase.co' }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # sürüm notları için tam geçmiş
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Verify dist output
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html yok — build sessizce başarısız olmuş olabilir."
+            exit 1
+          fi
+          echo "✓ dist/index.html mevcut"
+
+      - name: Package dist
+        run: |
+          zip -r "caros-pro-web-${{ github.ref_name }}.zip" dist
+          ls -lh caros-pro-web-*.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "CarOS Pro ${{ github.ref_name }}"
+          generate_release_notes: true   # PR/commit'lerden otomatik notlar
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}   # v1.2.0-rc.1 → prerelease
+          files: |
+            caros-pro-web-${{ github.ref_name }}.zip
