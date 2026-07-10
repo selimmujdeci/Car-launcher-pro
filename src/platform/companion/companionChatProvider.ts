@@ -38,10 +38,14 @@ import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
 import type { SemanticResult } from '../ai/semanticAiService';
+import {
+  buildSafetyContext, evaluatePreGate, verifyResponse,
+  type SafetyContext,
+} from '../assistant/assistantSafetyKernel';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_safety';
 
 export interface CompanionChatResult {
   response: string;
@@ -1434,9 +1438,10 @@ async function groundGeminiViaTavily(
  * dener. Zincirin tamamı düşerse offline sohbet fallback'i (yalnız chat)
  * döner; o da yoksa null → eski zincir devam eder.
  */
-export async function tryCompanionBrain(
+async function runCompanionBrain(
   raw: string,
-  opts: CompanionChatOpts = {},
+  opts: CompanionChatOpts,
+  allowOnline: boolean,
 ): Promise<CompanionBrainResult | null> {
   const settings = useStore.getState().settings;
   if (settings.companionEnabled !== true) return null;
@@ -1453,7 +1458,9 @@ export async function tryCompanionBrain(
         ? [{ provider: opts.provider, apiKey: opts.apiKey }]
         : [];
 
-  const netUsable = opts.hasNet === true && chain.length > 0;
+  // Safety Kernel PRE-GATE: allowOnline=false ise online zincir HİÇ denenmez;
+  // offline fallback doğal olarak devreye girer (provider sırası korunur).
+  const netUsable = allowOnline && opts.hasNet === true && chain.length > 0;
   let aiAttempted = false;
   // TÜM adaylar kota soğumasından atlandı (hiçbiri denenmedi) → aşağıda dürüst
   // kota cevabı (offline motorun söyleyecek sözü yoksa).
@@ -1604,6 +1611,65 @@ export async function tryCompanionBrain(
   return null;
 }
 
+/* ── Safety Kernel entegrasyonu (PR-A) ──────────────────────────
+ * PRE-GATE: kritik araç durumunda online zincir hiç denenmez (allowOnline=false)
+ * → aktif güvenlik durumunda yerel deterministic şablon; bilişsel/kernel-hata
+ *   durumunda offline'a düşülür. POST-GATE: yalnız ONLINE üretilmiş CHAT metni
+ *   doğrulanır (offline/rate/key/safety metni zaten yereldir → dokunulmaz). */
+
+const ONLINE_ROUTES: ReadonlySet<CompanionChatRoute> = new Set<CompanionChatRoute>([
+  'companion_gemini', 'companion_groq', 'companion_haiku',
+]);
+
+/** Online CHAT cevabını POST-GATE'ten geçirir; değişirse yeni sonuç döner. */
+function _postGateBrain(
+  result: CompanionBrainResult | null,
+  ctx: SafetyContext,
+  isDriving: boolean,
+): CompanionBrainResult | null {
+  if (!result || result.kind !== 'chat' || !ONLINE_ROUTES.has(result.route)) return result;
+  const pg = verifyResponse(result.response, ctx, { isDriving });
+  if (pg.response === result.response) return result;
+  return {
+    kind: 'chat',
+    response: pg.response,
+    route: pg.action === 'replaced' ? 'companion_safety' : result.route,
+  };
+}
+
+/**
+ * Companion beyin girişi — Safety Kernel PRE/POST gate'li sarmalayıcı.
+ * İç zincir (runCompanionBrain) ve SAĞLAYICI SIRASI DEĞİŞMEZ; kernel yalnız
+ * online'ı kapatır (kritik durum) ve online CHAT cevabını doğrular. Fail-closed:
+ * kernel throw ederse online AÇILMAZ (offline'a düşülür).
+ */
+export async function tryCompanionBrain(
+  raw: string,
+  opts: CompanionChatOpts = {},
+): Promise<CompanionBrainResult | null> {
+  const settings = useStore.getState().settings;
+  if (settings.companionEnabled !== true) return null;
+  if (!raw.trim()) return null;
+  const isDriving = opts.isDriving === true;
+
+  let ctx: SafetyContext = {};
+  let allowOnline = true;
+  let safetyReply: string | null = null;
+  try {
+    ctx = buildSafetyContext();
+    const pre = evaluatePreGate(ctx);
+    allowOnline = pre.allowOnline;
+    // Aktif fiziksel güvenlik durumu → yerel şablonu doğrudan konuş (online YOK).
+    if (!pre.allowOnline && pre.deterministicResponse) safetyReply = pre.deterministicResponse;
+  } catch {
+    allowOnline = false; // fail-closed: kernel hatası online'ı AÇMAZ
+  }
+  if (safetyReply) return { kind: 'chat', response: safetyReply, route: 'companion_safety' };
+
+  const result = await runCompanionBrain(raw, opts, allowOnline);
+  return _postGateBrain(result, ctx, isDriving);
+}
+
 /* ── ASR müzik sorgu onarımı (yerel parser yakaladığında) ───── *
  * "leyla türkten müzik çal" yerel parser'da 0.93 ile yakalanır ama İSİM
  * ASR'de bozulmuş olabilir. Online'ken sorgu hızlı bir Gemini çağrısıyla
@@ -1659,9 +1725,10 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
  *
  * null dönerse çağıran zincire devam eder (semantic → AI intent → öneriler).
  */
-export async function tryCompanionChat(
+async function runCompanionChat(
   raw: string,
-  opts: CompanionChatOpts = {},
+  opts: CompanionChatOpts,
+  allowOnline: boolean,
 ): Promise<CompanionChatResult | null> {
   const settings = useStore.getState().settings;
   if (settings.companionEnabled !== true) return null;
@@ -1671,14 +1738,17 @@ export async function tryCompanionChat(
 
   const isDriving = opts.isDriving === true;
 
-  // ── Öncelikli yol: GERÇEK AI sohbeti (Gemini veya Groq) ──
+  // ── Öncelikli yol: GERÇEK AI sohbeti (Gemini veya Groq) — Safety Kernel
+  //    PRE-GATE kapattıysa (allowOnline=false) online atlanır, offline'a düşülür.
   const geminiUsable =
+    allowOnline &&
     opts.provider === 'gemini' &&
     !!opts.apiKey &&
     opts.hasNet === true &&
     _now() >= _rateLimitedUntil;
 
   const groqUsable =
+    allowOnline &&
     opts.provider === 'groq' &&
     !!opts.apiKey &&
     opts.hasNet === true &&
@@ -1710,4 +1780,41 @@ export async function tryCompanionChat(
   const offline = offlineCompanionReply(trimmed, opts);
   if (offline !== null) return { response: offline, route: 'companion_offline' };
   return null;
+}
+
+/**
+ * Companion sohbet girişi — Safety Kernel PRE/POST gate'li sarmalayıcı.
+ * İç akış (runCompanionChat) ve sağlayıcı davranışı DEĞİŞMEZ. Fail-closed:
+ * kernel throw ederse online AÇILMAZ.
+ */
+export async function tryCompanionChat(
+  raw: string,
+  opts: CompanionChatOpts = {},
+): Promise<CompanionChatResult | null> {
+  const settings = useStore.getState().settings;
+  if (settings.companionEnabled !== true) return null;
+  if (!raw.trim()) return null;
+  const isDriving = opts.isDriving === true;
+
+  let ctx: SafetyContext = {};
+  let allowOnline = true;
+  let safetyReply: string | null = null;
+  try {
+    ctx = buildSafetyContext();
+    const pre = evaluatePreGate(ctx);
+    allowOnline = pre.allowOnline;
+    if (!pre.allowOnline && pre.deterministicResponse) safetyReply = pre.deterministicResponse;
+  } catch {
+    allowOnline = false; // fail-closed
+  }
+  if (safetyReply) return { response: safetyReply, route: 'companion_safety' };
+
+  const result = await runCompanionChat(raw, opts, allowOnline);
+  if (result && ONLINE_ROUTES.has(result.route)) {
+    const pg = verifyResponse(result.response, ctx, { isDriving });
+    if (pg.response !== result.response) {
+      return { response: pg.response, route: pg.action === 'replaced' ? 'companion_safety' : result.route };
+    }
+  }
+  return result;
 }

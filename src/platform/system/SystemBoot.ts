@@ -62,6 +62,7 @@ import { startVehicleIntelligenceService } from '../vehicleIntelligenceService';
 import { startAutomaticVehicleFingerprint } from '../vehicleFingerprintBuilder';
 import { startAutoLearningEngine } from '../autoLearningEngine';
 import { startVehicleKnowledgeBase } from '../vehicleKnowledgeBase';
+import { startVehicleLearningEvidenceBridge } from '../vehicleLearningEvidenceBridge';
 import { logError }                from '../crashLogger';
 import { showToast, dismissToast } from '../errorBus';
 import { healthMonitor }           from './SystemHealthMonitor';
@@ -541,6 +542,12 @@ class SystemBoot {
     // (istatistik + kalıcı) organize et. SALT-OKUNUR projeksiyon; additive + fail-soft.
     _log('  › VehicleKnowledgeBase');
     this._reg(startVehicleKnowledgeBase());
+
+    // VehicleLearningEvidenceBridge (P2-6): VKB güncellenince computeEvidence() → Evidence
+    // Store'a idempotent yazar (debounce'lu cold-path). VKB'DEN SONRA başlar (ona bağlı).
+    // 3Hz hot-path'e girmez; fail-soft + zero-leak (cleanup _reg'le).
+    _log('  › VehicleLearningEvidenceBridge');
+    this._reg(startVehicleLearningEvidenceBridge());
 
     // GeofenceService: async (Supabase zona sorgusu)
     _log('  › GeofenceService (async)');
