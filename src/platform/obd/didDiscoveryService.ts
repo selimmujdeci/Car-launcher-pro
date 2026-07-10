@@ -17,6 +17,7 @@
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import { logError } from '../crashLogger';
+import { discoveryCaptureService } from './discovery';
 
 /** DID'ler arası bekleme (ms) — ECU'yu ardışık sorgularla boğmamak için. */
 export const DISCOVERY_INTER_DID_DELAY_MS = 150;
@@ -131,8 +132,22 @@ export async function startDiscovery(opts: StartDiscoveryOptions): Promise<DidDi
       if (r.supported && r.data) {
         results.push({ did, dataHex: r.data, bytes: hexToBytes(r.data) });
         positive++;
+        // PR-DISC-2: yalnız POZİTİF (supported && data) DID keşif hattına yakalanır;
+        // 7F/NO DATA aşağıdaki negatif dalda KAYDEDİLMEZ. DiscoveryCaptureService
+        // katalogdaki (profil) DID'leri + tekrarları eler. Fail-soft: taramayı etkilemez.
+        try {
+          discoveryCaptureService.capture({
+            discoverySource: 'DID',
+            mode:            '22',
+            ecuAddress:      rx,
+            pidOrDid:        did,
+            request:         `22${did}`,
+            rawResponse:     r.data,
+            supported:       true,
+          });
+        } catch (e) { logError('OBD:DiscoveryCaptureDid', e); }
       } else {
-        negative++; // 7F / desteklenmiyor — sayılır, listeye GİRMEZ
+        negative++; // 7F / desteklenmiyor — sayılır, listeye GİRMEZ, KEŞİF YAKALANMAZ
       }
     } catch (e) {
       // Bağlantı koptu (native reject) — KISMİ sonuçla dürüst dur, hatayı yutma.
