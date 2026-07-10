@@ -87,6 +87,7 @@ const LRU_PROTECTED = new Set<string>([
   'car-safety-brain-v1',      // Safety Brain VIN profilleri
   'car-vehicle-fingerprints', // Araç parmak izi bounded LRU cache (max 8 araç kimliği)
   'car-vehicle-knowledge-base', // Araç bilgi tabanı (öğrenilen PID/DID istatistikleri, bounded LRU)
+  'car-vehicle-learning-evidence', // Araç öğrenme kanıtları (marka bazlı evidence, bounded LRU)
 ]);
 
 /**
