@@ -23,6 +23,7 @@ import {
 import { addEvent } from './communityService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { useVidStore } from '../store/useVidStore';
+import { pushTrail } from './diagnosticTrailCore';
 
 /* ── T1/T2 sabitler ──────────────────────────────────────── */
 
@@ -283,6 +284,9 @@ let _measuredSps     = 2.0;
 let _unsubObd: (() => void) | null = null;
 /** VID telemetri pasif aynalama aboneliği (start'ta kurulur, stop'ta temizlenir). */
 let _unsubIntel: (() => void) | null = null;
+/** Black Box v2 (Patch 5A) — son görülen isDiagnosticDegraded; null=henüz set edilmedi
+ *  (ilk değer event üretmez). stop'ta null'a resetlenir. */
+let _prevDiagDegraded: boolean | null = null;
 
 /* ── Stale izleyici ──────────────────────────────────────── */
 
@@ -567,6 +571,10 @@ export function startVehicleIntelligenceService(): () => void {
   _running = true; _lastTickMs = 0;
   _lastSpsWindowMs = performance.now(); _obdSampleCount = 0;
 
+  // Black Box v2 — Service Lifecycle event (RAM-only, PII'siz statik etiket).
+  // Guard'dan SONRA: mükerrer start erken döner → duplicate event olmaz. Fail-soft.
+  try { pushTrail('boot', 'vehicle-intelligence-service:start'); } catch { /* iz servisi akışı bozmaz */ }
+
   _unsubObd = useUnifiedVehicleStore.subscribe((cur, prev) => {
     if (
       cur.speed          !== prev.speed          ||
@@ -591,6 +599,20 @@ export function startVehicleIntelligenceService(): () => void {
   // Tek-yönlü + fail-soft: VID'den okuma yok, hata tick döngüsünü ASLA etkilemez.
   let lastMirrorKey = '';
   _unsubIntel = useVehicleIntelligenceStore.subscribe((state) => {
+    // Black Box v2 (Patch 5A) — diagnostic degraded/recovered geçişleri. Mevcut
+    // subscription'ı yeniden kullanır (yeni abonelik YOK); BAĞIMSIZ try/catch → mirror
+    // davranışını ETKİLEMEZ. İlk değer event üretmez; yalnız gerçek geçişte statik,
+    // PII'siz, fail-soft event.
+    try {
+      const degraded = state.isDiagnosticDegraded;
+      if (_prevDiagDegraded === null) {
+        _prevDiagDegraded = degraded;            // ilk gözlem → event YOK
+      } else if (degraded !== _prevDiagDegraded) {
+        _prevDiagDegraded = degraded;
+        pushTrail('error', degraded ? 'diagnostic:degraded' : 'diagnostic:recovered');
+      }
+    } catch { /* iz mirror/tick akışını asla bozmaz */ }
+
     try {
       // 1. Extract only the 5 schema fields we want to mirror
       const trustScore = state.telemetryTrustScore;
@@ -629,10 +651,17 @@ export function startVehicleIntelligenceService(): () => void {
 
 export function stopVehicleIntelligenceService(): void {
   _running = false;
+
+  // Black Box v2 — Service Lifecycle event (RAM-only, PII'siz statik etiket). Fail-soft.
+  try { pushTrail('boot', 'vehicle-intelligence-service:stop'); } catch { /* iz servisi akışı bozmaz */ }
+
   if (_timer !== null) { _timer(); _timer = null; }
   _unsubObd?.(); _unsubObd = null;
   // VID telemetri aynalama aboneliğini temizle (zero-leak).
   _unsubIntel?.(); _unsubIntel = null;
+  // Black Box v2 (Patch 5A): degraded izleyiciyi resetle → sonraki start'ın ilk
+  // değeri yeniden "ilk gözlem" (event üretmez) sayılsın.
+  _prevDiagDegraded = null;
 
   // T1/T2 sıfırla
   _prevRpmRaw = null; _prevCoolantRaw = null; _lastTickMs = 0;

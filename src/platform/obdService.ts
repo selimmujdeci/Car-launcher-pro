@@ -43,6 +43,7 @@ import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
 import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
+import { pushTrail } from './diagnosticTrailCore';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
@@ -238,6 +239,33 @@ function _notify(): void {
  * etkisi yoktur — yalnızca recordDiag çağırır. scanning/connecting/initializing
  * modal tarafında (transport bilgisiyle) kaydedilir; burada yalnız sonuçlar.
  */
+/**
+ * Black Box v2 (Patch 3) — OBD bağlantı yaşam döngüsü timeline'ı. YALNIZ statik
+ * milestone etiketi (detail yok, PII yok: VIN/MAC/cihaz adı/transport adresi/GPS
+ * ASLA gönderilmez). Fail-soft: iz OBD akışını hiçbir durumda etkilemez.
+ *
+ * `_trailInReconnect`: SALT-TIMELINE gözlem bayrağı — reconnect turu 'reconnecting'
+ * ile başlar, ara durumlardan (connecting/initializing) geçerek 'connected'e ulaştığında
+ * "reconnect success"i "ilk connect success"ten ayırmak için taşınır. State machine'e,
+ * reconnect algoritmasına veya timeout mantığına HİÇBİR etkisi yoktur (yalnız burada
+ * okunur/yazılır).
+ */
+let _trailInReconnect = false;
+
+function _pushObdTrail(label: string): void {
+  try { pushTrail('obd', label); } catch { /* iz OBD akışını asla bozmaz */ }
+}
+
+/**
+ * Black Box v2 (Patch 4B) — protokol döngüsü ilerlemesini statik timeline etiketine
+ * çevirir (SAF; protokol no/adı taşımaz). Tüm adaylar denendiyse (döngü tükendi)
+ * 'obd:protocol:failed', hâlâ denenecek aday varsa 'obd:protocol:fallback'. Protokol
+ * fallback algoritmasına (PROTOCOL_CYCLE/forcedProtocol/_protocolCycleIndex) etkisi YOK.
+ */
+function _protocolAdvanceLabel(cycleIndex: number, cycleLen: number): string {
+  return cycleIndex >= cycleLen ? 'obd:protocol:failed' : 'obd:protocol:fallback';
+}
+
 function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState): void {
   switch (next) {
     case 'connected':
@@ -247,6 +275,9 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlandı — canlı veri akıyor.',
         technicalMessage: `connectionState ${prev}→connected`,
       });
+      // Reconnect turundaysak reconnect:success, değilse ilk connect:success.
+      _pushObdTrail(_trailInReconnect ? 'obd:reconnect:success' : 'obd:connect:success');
+      _trailInReconnect = false;
       break;
     case 'reconnecting':
       recordDiag({
@@ -254,6 +285,9 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlantı koptu, yeniden deneniyor…',
         technicalMessage: `connectionState ${prev}→reconnecting`,
       });
+      // 'reconnecting'e İLK geçiş = reconnect başlangıcı (_merge aynı-durumu dedup eder).
+      _trailInReconnect = true;
+      _pushObdTrail('obd:reconnect:start');
       break;
     case 'error':
       recordDiag({
@@ -261,6 +295,9 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlantı hatası oluştu.',
         technicalMessage: `connectionState ${prev}→error`,
       });
+      // error = üstel reconnect turu tükendi → yalnız reconnect bağlamında failed.
+      if (_trailInReconnect) _pushObdTrail('obd:reconnect:failed');
+      _trailInReconnect = false;
       break;
     case 'idle':
       // Aktif bir durumdan idle'a düşüş = gerçek disconnect (boot-idle değil).
@@ -269,9 +306,14 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
         userMessage: 'Bağlantı kapatıldı.',
         technicalMessage: `connectionState ${prev}→idle`,
       });
+      _pushObdTrail('obd:disconnect');
+      _trailInReconnect = false;
       break;
     default:
-      break; // scanning / connecting / initializing → modal kaydeder
+      // scanning / connecting / initializing → modal kaydeder. idle'dan İLK çıkış =
+      // yeni bir connect başlangıcı (reconnect ara-geçişleri prev!==idle → tetiklemez).
+      if (prev === 'idle') { _trailInReconnect = false; _pushObdTrail('obd:connect:start'); }
+      break;
   }
 }
 
@@ -880,6 +922,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       if (_isUnableToConnectError(ePrimary)) {
         _protocolCycleIndex++;
         if (!_stale()) {
+          _pushObdTrail(_protocolAdvanceLabel(_protocolCycleIndex, PROTOCOL_CYCLE.length));
           recordDiag({
             stage: 'protocol', status: 'warn',
             transport: 'tcp',
@@ -916,6 +959,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       if (_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)) {
         _protocolCycleIndex++;
         if (!_stale()) {
+          _pushObdTrail(_protocolAdvanceLabel(_protocolCycleIndex, PROTOCOL_CYCLE.length));
           recordDiag({
             stage: 'protocol', status: 'warn',
             transport: _fallbackTp === 'ble' ? 'ble' : 'classic',
@@ -962,6 +1006,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   _protocolCycleIndex = 0;
   if (_connectResult && typeof _connectResult === 'object' && _connectResult.protocol) {
     saveObdProtocol(_connectResult.protocol);
+    // Black Box v2 (Patch 4B): protokol doğrulandı + persist edildi (statik, PII'siz).
+    _pushObdTrail('obd:protocol:verified');
     recordDiag({
       stage: 'protocol', status: 'success',
       transport: _connectedTp,
@@ -1007,9 +1053,14 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    bloklamaz; sonuç gelince profil güncellenir (sonraki poll doğru PID listesini kullanır).
   //    performHandshake() opsiyoneldir (eski plugin'de yok) → guard + .catch ile korunur.
   if (CarLauncher.performHandshake) {
+    // Black Box v2 (Patch 4A) — handshake başlangıcı: performHandshake çağrılmadan
+    // HEMEN önce (statik, detail yok, PII yok; fail-soft — akışı etkilemez).
+    _pushObdTrail('obd:handshake:start');
     void CarLauncher.performHandshake()
       .then(({ raw09, raw0100 }) => {
         if (_stale()) return;
+        // _stale guard'ından SONRA: geç gelen (stale) callback event yazmaz.
+        _pushObdTrail('obd:handshake:success');
         const result  = buildHandshakeResult(raw09, raw0100);
         const profile = vehicleProfileRegistry.findBestMatch(result.vin, result.supportedPids);
         _applyDetectedProfile(profile);
@@ -1023,6 +1074,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
         console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
         if (!_stale()) {
+          // stale değilse handshake:failed (geç/iptal olmuş callback event yazmaz).
+          _pushObdTrail('obd:handshake:failed');
           emitObdDiag('handshake', 'OBD_HANDSHAKE_FAIL', {
             ..._diagCommon(),
             transport: _connectedTp,
@@ -1338,6 +1391,51 @@ export function setOBDTestOverride(data: Partial<OBDData> | null): void {
   const snap: OBDData = data ? { ..._current, ...data } : { ..._current };
   _dataListeners.forEach((fn) => fn(snap));
   _storeListeners.forEach((fn) => fn());
+}
+
+/**
+ * DEV only — connectionState geçişini test için sürer (_merge üzerinden, böylece
+ * gerçek milestone/timeline gözlemcisi tetiklenir). Reconnect algoritması, timer'lar
+ * ve state machine'e DOKUNMAZ; yalnızca mevcut _merge giriş noktasını kullanır.
+ * Production APK'da no-op (import.meta.env.DEV tree-shaking ile elenir).
+ */
+export function _setConnStateForTest(state: OBDConnectionState): void {
+  if (!import.meta.env.DEV) return;
+  _merge({ connectionState: state });
+}
+
+/**
+ * DEV only — handshake milestone gating'ini test için sürer. Production'daki
+ * (_startNative "8. OBD Handshake") then/catch + _stale iskeletinin BİREBİR aynısı:
+ * start koşulsuz (performHandshake'ten hemen önce) · success yalnız !stale ·
+ * failed yalnız !stale. performHandshake/stale enjekte edilir → gerçek async
+ * gating (geç/stale callback event yazmaz) doğrulanır. Prod APK'da no-op.
+ */
+export function _runHandshakeForTest(
+  performHandshake: () => Promise<unknown>,
+  stale: () => boolean,
+): Promise<void> {
+  if (!import.meta.env.DEV) return Promise.resolve();
+  _pushObdTrail('obd:handshake:start');
+  return performHandshake()
+    .then(() => { if (stale()) return; _pushObdTrail('obd:handshake:success'); })
+    .catch(() => { if (!stale()) _pushObdTrail('obd:handshake:failed'); });
+}
+
+/**
+ * DEV only — protokol milestone gating'ini test için sürer. Production ile AYNI
+ * karar yollarını kullanır: 'verified' → doğrulanmış+persist akışındaki statik push;
+ * 'advance' → _protocolAdvanceLabel(cycleIndex, cycleLen) (fallback vs failed = döngü
+ * tükendi mi). Protokol no/adı ASLA taşınmaz. Prod APK'da no-op.
+ */
+export function _runProtocolTrailForTest(
+  event: 'verified' | 'advance',
+  cycleIndex = 0,
+  cycleLen = 0,
+): void {
+  if (!import.meta.env.DEV) return;
+  if (event === 'verified') { _pushObdTrail('obd:protocol:verified'); return; }
+  _pushObdTrail(_protocolAdvanceLabel(cycleIndex, cycleLen));
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da OBD timer/listener sızıntısını önle ── */

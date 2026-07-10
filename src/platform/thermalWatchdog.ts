@@ -36,6 +36,7 @@ import { useStore }                                     from '../store/useStore'
 import { safeSetRaw, safeGetRaw }                       from '../utils/safeStorage';
 import { runtimeManager }                               from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode }                                  from '../core/runtime/runtimeTypes';
+import { pushTrail }                                    from './diagnosticTrailCore';
 
 /* ══════════════════════════════════════════════════════════════════════════
    Tipler
@@ -371,6 +372,15 @@ function _onExit(fromLevel: ThermalLevel, toLevel: ThermalLevel): void {
 function _commitLevel(next: ThermalLevel): void {
   const prev = _level;
   _level = next;
+
+  // Black Box v2 (Patch 5B) — thermal level GEÇİŞİ timeline'ı. Bu commit noktası
+  // yalnız hysteresis/debounce SONRASI çağrılır → gerçek geçiş. Statik etiket
+  // (sıcaklık/cihaz modeli YAZILMAZ), detail yok, PII yok, fail-soft. next===prev
+  // durumunda yazılmaz (duplicate önlenir); throttling/debounce mantığı DEĞİŞMEZ.
+  if (next !== prev) {
+    try { pushTrail('action', next > prev ? 'thermal:throttle:up' : 'thermal:throttle:down'); }
+    catch { /* iz termal akışını asla bozmaz */ }
+  }
 
   if (next > prev) {
     _onEnter(next);

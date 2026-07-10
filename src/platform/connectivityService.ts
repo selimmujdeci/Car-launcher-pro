@@ -16,6 +16,7 @@
 import { signalWithTimeout } from '../utils/abortCompat';
 import { Network } from '@capacitor/network';
 import { logInfo } from './debug';
+import { pushTrail } from './diagnosticTrailCore';
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -164,7 +165,17 @@ class ConnectivityService {
     // Ağ değişimlerini dinle
     const { remove } = await Network.addListener('networkStatusChange', ({ connected }: { connected: boolean }) => {
       const wasOffline = !this._online;
+      const changed    = connected !== this._online;
       this._online = connected;
+
+      // Black Box v2 (Patch 2) — network durum DEĞİŞİMİ eventi (RAM-only, statik,
+      // PII'siz). Yalnız gerçek geçişte push → aynı state tekrarı gereksiz event
+      // üretmez. Fail-soft: iz servisi connectivity kuyruk/retry akışını ASLA bozmaz.
+      if (changed) {
+        try { pushTrail('action', connected ? 'network:online' : 'network:offline'); }
+        catch { /* iz servisi bağlantı akışını bozmaz */ }
+      }
+
       if (connected && wasOffline) {
         logInfo('[Connectivity] Bağlantı geldi — kuyruk boşaltılıyor');
         void this._drainQueue();
