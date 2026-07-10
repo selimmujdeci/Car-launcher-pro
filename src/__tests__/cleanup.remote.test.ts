@@ -35,6 +35,7 @@ vi.mock('../utils/safeStorage', () => ({
   safeFlushKey: () => {},
   safeGetRaw:   () => null,
   safeSetRaw:   () => {},
+  safeRemoveRaw: () => {},
 }));
 
 /* ── Imports (mock'lardan sonra) ── */
