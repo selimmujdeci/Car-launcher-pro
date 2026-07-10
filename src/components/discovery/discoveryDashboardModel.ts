@@ -8,6 +8,14 @@
  */
 
 import type { DiscoveryObservation } from '../../platform/obd/discovery';
+import type { LearningDiscoveryAnnotation } from '../../platform/vehicleLearningIntegrationService';
+
+/**
+ * Bir gözlemin öğrenme anotasyonunu çözen fonksiyon (salt-okunur). Dashboard, integration
+ * service'ten türetilmiş `${source}:${pidOrDid}` haritasını sağlar. Sağlanmazsa öğrenme
+ * filtreleri fail-soft tümünü döndürür (mevcut davranış bozulmaz).
+ */
+export type AnnotationResolver = (o: DiscoveryObservation) => LearningDiscoveryAnnotation | null;
 
 /* ── Rozetler ─────────────────────────────────────────────────────────────── */
 
@@ -48,11 +56,20 @@ export function computeSummary(observations: readonly DiscoveryObservation[]): D
 
 /* ── Filtre ───────────────────────────────────────────────────────────────── */
 
-export type DiscoveryFilter = 'all' | 'pid' | 'did' | 'new' | 'duplicate' | 'known';
+/** Mevcut keşif filtreleri + P2-5 öğrenme filtreleri (strong/candidate/manual/conflict). */
+export type DiscoveryFilter =
+  | 'all' | 'pid' | 'did' | 'new' | 'duplicate' | 'known'
+  | 'strong' | 'candidate' | 'manual' | 'conflict';
+
+/** Bir öğrenme filtresi mi (annotation gerektirir). */
+export function isLearningFilter(filter: DiscoveryFilter): boolean {
+  return filter === 'strong' || filter === 'candidate' || filter === 'manual' || filter === 'conflict';
+}
 
 export function filterObservations(
   observations: readonly DiscoveryObservation[],
   filter: DiscoveryFilter,
+  annotationOf?: AnnotationResolver,
 ): DiscoveryObservation[] {
   switch (filter) {
     case 'pid':       return observations.filter((o) => o.record.discoverySource === 'PID');
@@ -60,6 +77,11 @@ export function filterObservations(
     case 'new':       return observations.filter((o) => o.status === 'new');
     case 'known':     return observations.filter((o) => o.status === 'known');
     case 'duplicate': return observations.filter((o) => o.seenCount > 1);
+    // Öğrenme filtreleri — resolver yoksa fail-soft tümü (mevcut davranış korunur).
+    case 'strong':    return annotationOf ? observations.filter((o) => (annotationOf(o)?.patternStatus ?? annotationOf(o)?.evidenceStatus) === 'strong') : observations.slice();
+    case 'candidate': return annotationOf ? observations.filter((o) => { const a = annotationOf(o); return (a?.patternStatus ?? a?.evidenceStatus) === 'candidate'; }) : observations.slice();
+    case 'manual':    return annotationOf ? observations.filter((o) => annotationOf(o)?.requiresManualReview === true) : observations.slice();
+    case 'conflict':  return annotationOf ? observations.filter((o) => (annotationOf(o)?.conflictReasons.length ?? 0) > 0) : observations.slice();
     case 'all':
     default:          return observations.slice();
   }
@@ -87,13 +109,14 @@ export function searchObservations(
   return observations.filter((o) => searchHaystack(o).includes(q));
 }
 
-/** Filtre + arama zinciri (Dashboard'un görünen listesi). */
+/** Filtre + arama zinciri (Dashboard'un görünen listesi). Öğrenme filtreleri için resolver. */
 export function selectVisible(
   observations: readonly DiscoveryObservation[],
   filter: DiscoveryFilter,
   query: string,
+  annotationOf?: AnnotationResolver,
 ): DiscoveryObservation[] {
-  return searchObservations(filterObservations(observations, filter), query);
+  return searchObservations(filterObservations(observations, filter, annotationOf), query);
 }
 
 /* ── Virtualization (sanallaştırma penceresi) ─────────────────────────────── */
