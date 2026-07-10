@@ -16,6 +16,12 @@ import { Clipboard } from '@capacitor/clipboard';
 import { discoveryCaptureService } from '../../platform/obd/discovery';
 import { useDiscoveryObservations } from './useDiscoveryObservations';
 import {
+  vehicleLearningIntegrationService,
+  learningBadgesFor,
+  type LearningBadge,
+  type LearningDiscoveryAnnotation,
+} from '../../platform/vehicleLearningIntegrationService';
+import {
   computeSummary,
   selectVisible,
   computeVirtualWindow,
@@ -36,6 +42,11 @@ const FILTERS: readonly { id: DiscoveryFilter; label: string }[] = [
   { id: 'new',       label: 'Yeni' },
   { id: 'duplicate', label: 'Duplicate' },
   { id: 'known',     label: 'Bilinen' },
+  // P2-5 öğrenme filtreleri (salt-okunur)
+  { id: 'strong',    label: 'Strong' },
+  { id: 'candidate', label: 'Candidate' },
+  { id: 'manual',    label: 'Manuel İnceleme' },
+  { id: 'conflict',  label: 'Conflict' },
 ];
 
 const BADGE_CLASS: Record<DiscoveryBadge, string> = {
@@ -44,6 +55,22 @@ const BADGE_CLASS: Record<DiscoveryBadge, string> = {
   DUPLICATE:   'bg-amber-500/15 text-amber-300 border-amber-500/30',
   UNSUPPORTED: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
 };
+
+/** P2-5 öğrenme rozetleri renkleri (salt-okunur görünürlük). */
+const LEARNING_BADGE_CLASS: Record<LearningBadge, string> = {
+  WEAK:          'bg-white/10 text-white/60 border-white/20',
+  CANDIDATE:     'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+  STRONG:        'bg-emerald-500/20 text-emerald-200 border-emerald-500/40',
+  MANUAL_REVIEW: 'bg-amber-500/20 text-amber-200 border-amber-500/40',
+  STALE:         'bg-zinc-500/15 text-zinc-300 border-zinc-500/30',
+  CONFLICT:      'bg-rose-500/20 text-rose-200 border-rose-500/40',
+};
+
+/** Discovery record'un öğrenme anahtarı (integration service ile aynı normalizasyon). */
+function learningKey(source: string, pidOrDid: string): string {
+  const id = (pidOrDid ?? '').toString().trim().toUpperCase().replace(/\s+/g, '').replace(/^0X/, '');
+  return `${source === 'DID' ? 'DID' : 'PID'}:${id}`;
+}
 
 function formatTime(ms: number | null): string {
   if (!ms) return '—';
@@ -69,8 +96,20 @@ export const DiscoveryDashboard = memo(function DiscoveryDashboard() {
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // P2-5: öğrenme anotasyon haritası (salt-okunur; service içi memoize). Evidence deposu bu
+  // katmanda yazılmadığından oturum içinde sabittir → mount'ta bir kez hesaplanır (zero-leak).
+  const annotationMap = useMemo<Map<string, LearningDiscoveryAnnotation>>(
+    () => vehicleLearningIntegrationService.getAnnotationMap(),
+    [],
+  );
+  const annotationOf = useCallback(
+    (o: { record: { discoverySource: string; pidOrDid: string } }): LearningDiscoveryAnnotation | null =>
+      annotationMap.get(learningKey(o.record.discoverySource, o.record.pidOrDid)) ?? null,
+    [annotationMap],
+  );
+
   const summary = useMemo(() => computeSummary(observations), [observations]);
-  const visible = useMemo(() => selectVisible(observations, filter, query), [observations, filter, query]);
+  const visible = useMemo(() => selectVisible(observations, filter, query, annotationOf), [observations, filter, query, annotationOf]);
   const win = useMemo(
     () => computeVirtualWindow({ scrollTop, rowHeight: ROW_HEIGHT, viewportHeight: LIST_VIEWPORT, itemCount: visible.length }),
     [scrollTop, visible.length],
@@ -173,6 +212,8 @@ export const DiscoveryDashboard = memo(function DiscoveryDashboard() {
               {rows.map((o) => {
                 const r = o.record;
                 const badges = observationBadges(o);
+                const ann = annotationOf(o);
+                const learningBadges = learningBadgesFor(ann);
                 return (
                   <div
                     key={`${r.discoverySource}-${r.mode}-${r.ecuAddress}-${r.pidOrDid}`}
@@ -191,6 +232,9 @@ export const DiscoveryDashboard = memo(function DiscoveryDashboard() {
                         {badges.map((b) => (
                           <span key={b} className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${BADGE_CLASS[b]}`}>{b}</span>
                         ))}
+                        {learningBadges.map((b) => (
+                          <span key={`L-${b}`} className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${LEARNING_BADGE_CLASS[b]}`}>{b.replace('_', ' ')}</span>
+                        ))}
                       </div>
                     </div>
                     <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px] text-white/55 sm:grid-cols-3">
@@ -204,6 +248,19 @@ export const DiscoveryDashboard = memo(function DiscoveryDashboard() {
                       <span className="truncate">Profil: {r.vehicleProfile || '—'}</span>
                       <span className="truncate">FW: {r.firmwareVersion || '—'}</span>
                     </div>
+                    {ann && (
+                      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 border-t border-white/5 pt-1 font-mono text-[10px] text-emerald-200/60 sm:grid-cols-3">
+                        <span>Güven: {ann.confidence.toFixed(2)}</span>
+                        <span>Decay: {ann.decayedConfidence.toFixed(2)}</span>
+                        <span>Araç: {ann.vehicleCount}</span>
+                        <span>Gözlem: {ann.observationCount}</span>
+                        <span>ECU#: {ann.ecuCount}</span>
+                        <span>Statü: {(ann.patternStatus ?? ann.evidenceStatus).toUpperCase()}</span>
+                        {ann.conflictReasons.length > 0 && (
+                          <span className="col-span-2 truncate text-rose-300/70 sm:col-span-3">Çelişki: {ann.conflictReasons.join(', ')}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

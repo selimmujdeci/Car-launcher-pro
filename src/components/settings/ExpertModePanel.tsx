@@ -33,6 +33,7 @@ import { ExpertRecoveryAction } from './expert/ExpertRecoveryAction';
 import { CRMInspector }        from './expert/CRMInspector';
 import { CognitiveInspector }  from './expert/CognitiveInspector';
 import { ManufacturerDidInspector } from './expert/ManufacturerDidInspector';
+import { VehicleLearningInspector } from './expert/VehicleLearningInspector';
 import { DiscoveryDashboard } from '../discovery/DiscoveryDashboard';
 
 export type ExpertModeState = 'INIT' | 'SEARCHING' | 'UNVERIFIED' | 'SECURE';
@@ -351,6 +352,9 @@ export const ExpertModePanel = memo(function ExpertModePanel() {
 
       {/* Üretici DID Profili + Saha Keşif Aracı (Patch 12D) */}
       <ManufacturerDidInspector />
+
+      {/* Araç Öğrenme özeti — salt-okunur evidence/pattern görünürlüğü (P2-5) */}
+      <VehicleLearningInspector />
 
       {/* Keşif Panosu — katalog-dışı PID/DID canlı görünümü (PR-DISC-3) */}
       <DiscoveryDashboard />
