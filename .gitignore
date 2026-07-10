@@ -115,3 +115,6 @@ tools/can-re/
 
 # Supabase CLI geçici durum dosyaları (supabase link/start üretir; kaynak değil)
 /supabase/.temp/
+
+# Canlı DB introspection çıktıları (hassas: grants/policies/row counts) — ASLA commit edilmez
+/docs-local/db-truth/
