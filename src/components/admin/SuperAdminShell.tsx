@@ -514,7 +514,7 @@ export function SuperAdminShell() {
                 </div>
               ) : policiesList.length === 0 ? (
                 <p style={{ fontSize:9, color:DIM, padding:'8px 14px', fontFamily:'monospace' }}>
-                  POLİTİKA_YOK: system_configs tablosu boş
+                  POLİTİKA_YOK: runtime_policies tablosu boş
                 </p>
               ) : (
                 policiesList.map((policy) => (

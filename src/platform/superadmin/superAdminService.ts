@@ -587,7 +587,9 @@ export async function updateRolloutStatus(
 }
 
 /**
- * system_configs tablosundaki aktif politikaları döner.
+ * runtime_policies tablosundaki aktif politikaları döner.
+ * (İsim hizalama: eski `system_configs` adı canlı/kanonik `runtime_policies` ile eşitlendi;
+ *  kolon paritesi doğrulandı — id/key/name/value/unit/updated_at mevcut.)
  */
 export async function getSystemPolicies(): Promise<SystemPolicy[]> {
   const client = getAdminClient();
@@ -595,7 +597,7 @@ export async function getSystemPolicies(): Promise<SystemPolicy[]> {
 
   try {
     const { data, error } = await client
-      .from('system_configs')
+      .from('runtime_policies')
       .select('id, key, name, value, unit, updated_at')
       .order('key', { ascending: true });
 
@@ -638,7 +640,7 @@ export async function updatePolicy(
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (client.from('system_configs') as any)
+  const { error } = await (client.from('runtime_policies') as any)
     .update({ value: String(value), updated_at: new Date().toISOString() })
     .eq('key', key);
 

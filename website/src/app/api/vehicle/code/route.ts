@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
     const { error } = await supabaseAdmin
-      .from('linking_codes')
+      .from('vehicle_linking_codes')
       .insert({ vehicle_id: vehicle.id, code, expires_at: expiresAt });
 
     if (error) {
