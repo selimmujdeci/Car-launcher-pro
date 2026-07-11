@@ -88,6 +88,7 @@ const LRU_PROTECTED = new Set<string>([
   'car-vehicle-fingerprints', // Araç parmak izi bounded LRU cache (max 8 araç kimliği)
   'car-vehicle-knowledge-base', // Araç bilgi tabanı (öğrenilen PID/DID istatistikleri, bounded LRU)
   'car-vehicle-learning-evidence', // Araç öğrenme kanıtları (marka bazlı evidence, bounded LRU)
+  'car-deep-scan-history',    // Deep Scan araç geçmişi (mode kararı için, kendi 16-araç LRU tavanı var)
 ]);
 
 /**
