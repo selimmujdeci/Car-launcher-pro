@@ -1,18 +1,26 @@
 import type { DeviceStatus } from './deviceApi';
 import type { DrivingMode, _SpeedEstimate } from './smartTypes';
 import { DECAY_RATE_PER_S, DECAY_MAX_SEC, ACCEL_MOTION_MS2 } from './smartConstants';
+import { subscribeMotion } from './sensors';
 
-/* ── Accelerometer motion detection ─────────────────────────
+/* ── Accelerometer motion detection (TALEP-GÜDÜMLÜ) ──────────
  *
  * DeviceMotionEvent'in yatay bileşeni (yerçekimi hariç) araç hareketini
  * GPS/OBD olmadan tespit eder: fren, ivme, viraj → DrivingMode='normal'.
  *
- * Güvenlik: sadece pasif dinleyici (passive:true), UI thread'i bloklamaz.
- * Hassasiyet: 2.5 m/s² ≈ 0.25g — rahat sürüş değişimlerini yakalar.
+ * PR 3 talep-güdümlü kapı: İvmeölçer YALNIZ `detectDrivingMode` Kademe 4'te,
+ * yani OBD+GPS+decayed hız kaynaklarının HEPSİ yok/stale iken okunur → yardımcı
+ * SON-ÇARE fallback. Bu yüzden ham/sürekli abonelik yerine yalnız TAZE güvenilir
+ * hız kaynağı YOKKEN Orientation Sensor Gate üzerinden abone olunur; taze kaynak
+ * (OBD veya GPS — `recordSpeed` ile beslenen `_lastSpeedEstimate`) varken abonelik
+ * BIRAKILIR. Hiç kaynak yokken (ör. GPS fix yok + OBD yok) fail-safe açık kalır.
+ * Gate arka planda (visibility hidden) fiziksel listener'ı kendisi söker.
+ * İvmeölçer TEK BAŞINA safety-critical karar veya kesin araç hareketi ÜRETMEZ.
  */
 
-let _accelMagnitude  = 0;    // yerçekimsiz yatay ivme büyüklüğü (m/s²)
-let _accelAttached   = false;
+let _accelMagnitude      = 0;      // yerçekimsiz yatay ivme büyüklüğü (m/s²)
+let _accelFeatureEnabled = false;  // hook mount → özellik açık
+let _accelRelease: (() => void) | null = null;  // gate aboneliği aktifse release
 
 function _handleDeviceMotion(e: DeviceMotionEvent): void {
   const a = e.accelerationIncludingGravity;
@@ -22,18 +30,41 @@ function _handleDeviceMotion(e: DeviceMotionEvent): void {
   _accelMagnitude = Math.abs(raw - 9.81);
 }
 
-/** Accelerometer'ı bir kez global olarak bağla. Hook mount edildiğinde çağrılır. */
-export function attachAccelerometer(): void {
-  if (_accelAttached || typeof window === 'undefined' || !window.DeviceMotionEvent) return;
-  _accelAttached = true;
-  window.addEventListener('devicemotion', _handleDeviceMotion, { passive: true });
+/**
+ * İvmeölçer talebi: yalnız TAZE güvenilir hız kaynağı YOKKEN gerekli.
+ * `_lastSpeedEstimate` hem OBD hem GPS ile beslenir (recordSpeed); yaş
+ * DECAY_MAX_SEC'i aşarsa kaynak stale sayılır → yardımcı fallback gerekir.
+ * (Magic number yok — DECAY_MAX_SEC mevcut decay penceresi sabiti.)
+ */
+function _accelDemandNeeded(): boolean {
+  if (!_lastSpeedEstimate) return true;                          // hiç hız yok → fallback
+  const ageSec = (performance.now() - _lastSpeedEstimate.tsMs) / 1000;
+  return ageSec > DECAY_MAX_SEC;                                 // stale → fallback
 }
 
-/** Accelerometer'ı ayır — HMR cleanup ve app teardown için. */
+/** Talep durumuna göre gate aboneliğini aç/kapat (idempotent). */
+function _evaluateAccelDemand(): void {
+  if (typeof window === 'undefined' || !window.DeviceMotionEvent) return;  // destek yok — permission davranışı korunur
+  const need = _accelFeatureEnabled && _accelDemandNeeded();
+  if (need && !_accelRelease) {
+    _accelRelease = subscribeMotion(_handleDeviceMotion);       // ham window yerine gate
+  } else if (!need && _accelRelease) {
+    _accelRelease(); _accelRelease = null;                      // taze kaynak → bırak
+    _accelMagnitude = 0;                                        // stale okuma kalmasın
+  }
+}
+
+/** İvmeölçer özelliğini aç (hook mount). İdempotent. Talep varsa gate'ten abone olur. */
+export function attachAccelerometer(): void {
+  if (_accelFeatureEnabled) return;
+  _accelFeatureEnabled = true;
+  _evaluateAccelDemand();                                       // fail-safe: kaynak yoksa acquire
+}
+
+/** İvmeölçer özelliğini kapat — HMR cleanup ve app teardown. Gate aboneliğini bırakır. */
 export function detachAccelerometer(): void {
-  if (!_accelAttached || typeof window === 'undefined') return;
-  window.removeEventListener('devicemotion', _handleDeviceMotion);
-  _accelAttached  = false;
+  _accelFeatureEnabled = false;
+  if (_accelRelease) { _accelRelease(); _accelRelease = null; }
   _accelMagnitude = 0;
 }
 
@@ -56,6 +87,10 @@ let _lastSpeedEstimate: _SpeedEstimate | null = null;
 export function recordSpeed(kmh: number): void {
   // B30: performance.now() monotonic — DST/NTP clock jump'ta hız spike yok
   _lastSpeedEstimate = { kmh, tsMs: performance.now() };
+  // Taze güvenilir hız kaynağı geldi → yardımcı ivmeölçer fallback'i bırak
+  // (talep-güdümlü kapı). Kaynak yok/stale olduğunda attachAccelerometer veya
+  // sonraki değerlendirme yeniden acquire eder.
+  _evaluateAccelDemand();
 }
 
 function _decayedSpeed(): number | undefined {
