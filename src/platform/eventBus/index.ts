@@ -26,3 +26,21 @@ export {
   type PlatformEventBusDeps,
   type RecentEventFilter,
 } from './platformEventBus';
+export {
+  createVehicleHalEventBridge,
+  VehicleHalEventBridge,
+  createCapabilityEventBridge,
+  CapabilityEventBridge,
+  type VehicleHalSource,
+  type HalSignalLike,
+  type HalSnapshotLike,
+  type HalIdentityLike,
+  type VehicleHalEventBridgeDeps,
+  type VehicleHalEventBridgeStatus,
+  type CapabilityRegistrySource,
+  type CapabilityChangeEventLike,
+  type CapabilityRecordLike,
+  type CapabilitySnapshotLike,
+  type CapabilityEventBridgeDeps,
+  type CapabilityEventBridgeStatus,
+} from './bridges';
