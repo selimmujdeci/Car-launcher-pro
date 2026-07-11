@@ -29,6 +29,7 @@
     "qa:oem:host": "node qa/index.mjs --profile host-only",
     "qa:oem:report": "node qa/index.mjs --render-only",
     "qa:oem:validate-profile": "node qa/index.mjs --validate-profile",
+    "qa:oem:device-info": "node qa/device/index.mjs",
     "fetch:vosk": "node scripts/fetch-vosk-model.mjs",
     "release:bump": "node scripts/bump-version.mjs",
     "release:apk": "npm run build && npx cap sync android && cd android && gradlew assembleRelease",

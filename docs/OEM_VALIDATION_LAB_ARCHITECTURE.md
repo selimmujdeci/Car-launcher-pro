@@ -274,8 +274,9 @@ her çağrıda `SKIPPED_NA` üretir.
 | `npm run qa:oem:host` | Host lane koşusu (cihazsız). Verdict `REJECTED` ise **exit 1** (CI kapısı). |
 | `npm run qa:oem:report` | Son koşunun `report.json`'undan markdown'ları yeniden üretir |
 | `npm run qa:oem:validate-profile` | Tüm profilleri şemaya karşı doğrular (+ bilinmeyen faz kontrolü) |
+| `npm run qa:oem:device-info` | **(PR-2)** Cihazı yoklar → `device.json`. ADB yoksa `SKIPPED_NA` yazar ve **exit 0** (cihazsız makinede de koşar; cihaz yokluğu hata değil, kanıt boşluğudur). Cihaz seçimi: `CAROS_QA_DEVICE=<seri>`. |
 
-Planlanan: `qa:oem:device` (PR-3) · `qa:oem:vehicle` (PR-6) · `qa:oem:full`.
+Planlanan: `qa:oem:device` (PR-3, cihaz lane fazları) · `qa:oem:vehicle` (PR-6) · `qa:oem:full`.
 
 ---
 
@@ -291,21 +292,55 @@ korur; QA lane'i ayrı bir PR'da eklenecek (kırmızı CI riski almadan).
 
 ---
 
-## 13. Device lane (PR-3+ — tasarlandı, yazılmadı)
+## 13. Device lane
 
 **Faz 1: mühendis bilgisayarı + USB/ADB.** Self-hosted GitHub device runner **sonraki faz**.
 
+### 13.1 Transport katmanı (PR-2 ✅ uygulandı)
+
 ```
-qa:oem:device → profil device-bench (lane: device)
-  1. transport: adb devices → seri no (rapora REDAKTE girer)
-  2. install:   adb install -r <apk>  (yalnız debug variant)
-  3. boot:      am start + logcat → ANR/FATAL taraması, boot süresi
-  4. perf:      dumpsys gfxinfo (jank), meminfo (PSS), termal
-  5. sensor:    sensör servisleri, GPS fix, OBD bağlantısı
-  6. uninstall / temizlik (zorunlu — cihazda artık bırakma)
+qa/device/
+  interfaces/transport.mjs        # TEK GİRİŞ: createTransport() → 'adb' | 'none'
+  transport/adb.mjs               # ADB transport (bounded, retry≤1, broken-pipe fail-soft)
+  transport/capability-probe.mjs  # TEK SEFER yoklama (memoize): hangi servis var/yok
+  transport/device-info.mjs       # kimlik: model/CPU/GPU/RAM/ekran/ABI/batarya/termal
+  types/device-types.mjs          # durum sözlüğü + SAF parser'lar (cihazsız test edilir)
+  index.mjs                       # scanDevice() + device.json (qa:oem:device-info)
+```
+
+**Sözleşme:**
+- **Public API ASLA throw etmez** → her şey `OpResult { ok, status, reason }`.
+  Durumlar: `ok` · `failed` (cihaz "hayır" dedi) · `skipped_na` (koşulamadı) · `timeout` · `broken`.
+- **ADB yoksa → null transport:** her çağrı `SKIPPED_NA`. Hiçbir faz çökmez, hiçbir
+  eksik kanıt "geçti" sayılmaz. **T507 gibi ADB'si olmayan head unit'lerin doğru yanıtı budur.**
+- **Retry en fazla 1**, yalnız geçici transport hatasında (broken pipe / device offline /
+  protocol fault). **Timeout retry EDİLMEZ** — zaman bütçesi iki katına çıkmasın.
+- Israrlı kopma → `BROKEN`, transport ölü işaretlenir, sonraki çağrılar `SKIPPED_NA`.
+- **Ham seri no rapora girmez** (`4L45****`; ağ seri no → `<REDACTED_IP>:5555`).
+
+**Çıktı: yalnız `device.json`** — `scope` bayrakları kapsamı açıkça söyler:
+`transportOnly: true`, `performanceMeasured: false`, `sensorsAnalyzed: false`,
+`vehicleHalVerified: false`. Bu PR uygulamaya **dokunmaz** (install / `am start` yok —
+testler kaynak taramasıyla kilitler).
+
+**Mevcut araçların yeniden kullanımı:** adb arama sırası `tools/diag-restart.ps1`'in aday
+listesinden; root ölçütü (`uid=0`) `tools/hu-probe.sh`'ten. `tools/hu-probe.ps1`'in
+**sabit mutlak adb yolu bilinçli olarak taşınmadı** (makineye özgü, taşınabilir değil).
+`hu-probe.sh` derin CAN/UART/BT sınıflandırması için **hâlâ doğru araçtır** — Lab onu
+değiştirmez, ileride bir fazın artefaktı olarak push edip çalıştırabilir.
+
+### 13.2 Sonraki adımlar (yazılmadı)
+
+```
+PR-3  install-boot   : adb install -r → am start → logcat ANR/FATAL taraması → temizlik
+PR-4  performance    : dumpsys gfxinfo (jank), meminfo (PSS), thermalservice
+PR-5  sensor         : sensorservice, GPS fix, orientation gate
+PR-6  vehicle        : OBD canlı, CAN, güvenlik overlay
 ```
 
 Cihaz coverage > 0 olduğunda verdict merdiveni **açılır** (test #38b bunu şimdiden kilitler).
+**PR-2 hiçbir faz kaydetmez** → device coverage hâlâ 0, verdict tavanı hâlâ `HOST_VERIFIED`.
+İlk cihaz **fazı** PR-3'te gelir; merdiveni açan odur, transport değil.
 
 ---
 
