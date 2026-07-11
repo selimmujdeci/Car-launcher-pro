@@ -110,6 +110,20 @@ export function redactText(value, repoRoot) {
 }
 
 /**
+ * Cihaz seri numarası → kısmi maske. Tam seri no bir cihaz kimliğidir (kişisel veri
+ * sayılır) ve rapora GİRMEZ; ama koşuları eşleştirebilmek için ayırt edici bir ön ek
+ * bırakılır. Ağ seri numarasında (10.0.0.5:5555) IP GİZLENİR, port kalır.
+ */
+export function redactSerial(serial) {
+  const s = String(serial ?? '').trim();
+  if (!s) return null;
+  const net = s.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)$/);
+  if (net) return `<REDACTED_IP>:${net[2]}`;
+  if (s.length <= 4) return '****';
+  return `${s.slice(0, 4)}****`;
+}
+
+/**
  * Nesne ağacını derinlemesine redakte eder (report.json son kapısı).
  * Sadece string yaprakları dokunur; sayı/boolean/null olduğu gibi kalır.
  * Döngüsel referans güvenli, derinlik sınırlı (bounded — sonsuz özyineleme yok).
