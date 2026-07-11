@@ -1,0 +1,47 @@
+{
+  "_comment": "Skor/verdict eşikleri. Bir eşiği DÜŞÜRMEK kanıt standardını düşürmektir — PR'da gerekçelendir.",
+
+  "minScore": {
+    "HOST_VERIFIED": 70,
+    "OEM_READY": 85,
+    "PRODUCTION_READY": 92,
+    "FLAGSHIP_READY": 97
+  },
+
+  "minDeviceCoverage": {
+    "OEM_READY": 0.6,
+    "PRODUCTION_READY": 0.8,
+    "FLAGSHIP_READY": 0.95
+  },
+
+  "minVehicleCoverage": {
+    "OEM_READY": 0,
+    "PRODUCTION_READY": 0.5,
+    "FLAGSHIP_READY": 0.9
+  },
+
+  "categoryMultipliers": {
+    "general": 1,
+    "build": 1,
+    "ux": 1,
+    "security": 2,
+    "performance": 2,
+    "vehicle": 2
+  },
+
+  "resultScores": {
+    "PASS": 1,
+    "PASS_WITH_WARNINGS": 0.75,
+    "FAIL": 0,
+    "INCOMPLETE": 0
+  },
+
+  "artifacts": {
+    "maxFiles": 200,
+    "maxBytesPerFile": 524288
+  },
+
+  "exec": {
+    "defaultTimeoutMs": 120000
+  }
+}
