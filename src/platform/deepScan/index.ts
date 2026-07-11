@@ -30,3 +30,21 @@ export {
   type DeepScanPersistInput,
   type DeepScanStoreIO,
 } from './deepScanPersistence';
+export {
+  DeepScanIgnitionSource,
+  createDeepScanIgnitionSource,
+  deepScanIgnitionSource,
+  resolveIgnitionState,
+  IGNITION_STALE_MS_DEFAULT,
+  IGNITION_MIN_CONFIDENCE_DEFAULT,
+  MAX_IGNITION_EVIDENCE,
+  MAX_IGNITION_LISTENERS,
+  type IgnitionState,
+  type IgnitionEvidenceSource,
+  type IgnitionEvidence,
+  type IgnitionSnapshot,
+  type IgnitionListener,
+  type IgnitionEvidenceProvider,
+  type DeepScanIgnitionDeps,
+  type ResolveConfig,
+} from './deepScanIgnitionSource';
