@@ -33,3 +33,14 @@ export {
   type CapabilityListener,
   type CapabilityRegistryDeps,
 } from './capabilityRegistry';
+export {
+  CapabilityProviderAdapter,
+  createCapabilityProviderAdapter,
+  MAX_CAPABILITY_PROVIDERS,
+  type CapabilityRefreshPolicy,
+  type CapabilityProviderResult,
+  type CapabilityProvider,
+  type CapabilityRegistryTarget,
+  type CapabilityProviderAdapterDeps,
+  type CapabilityProviderAdapterStatus,
+} from './capabilityProviderAdapter';
