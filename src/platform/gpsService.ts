@@ -77,6 +77,36 @@ let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
 // 200ms taban throttle — 1s GPS interval'de her fix'i işle
 const POSITION_THROTTLE_BASE_MS = 200;
 
+/* ── ÇİFT GPS ABONELİĞİ TEKİLLEŞTİRME (saha fix 2026-07-11, cihaz QA) ─────────
+ * BULGU (`dumpsys location`, gerçek cihaz): uygulama AYNI ANDA iki yüksek-doğruluk
+ * konum akışı tutuyordu:
+ *   (1) WebView  → Capacitor `Geolocation.watchPosition({enableHighAccuracy:true})`
+ *                  → GMS fused provider, HIGH_ACCURACY (8219 fix)
+ *   (2) Native   → CarLauncherForegroundService `LocationManager.GPS_PROVIDER` 1 Hz
+ *                  → `backgroundLocation` olayı → feedBackgroundLocation() → handlePosition()
+ * İkisi de AYNI `handlePosition`'a akıyor. handlePosition'ın throttle'ı ikinciyi zaten
+ * atıyordu → iş iki kez yapılmıyor AMA İŞLETİM SİSTEMİ İKİ AKIŞI DA BESLİYOR (pil/CPU),
+ * üstelik iki kaynağın koordinatları birkaç metre farklı olduğundan `_prevForSpeed`
+ * çapası kaynaklar arası karışıyor (park hâlinde "1 km/h" gürültüsünün kaynağı).
+ *
+ * ÇÖZÜM: TEK ABONELİK. Native besleme CANLI olduğu KANITLANINCA (yeterli sayıda taze
+ * fix) Capacitor watch'ı BIRAK — native akış tek kaynak olsun. Native besleme kesilirse
+ * (FGS öldü / GPS_PROVIDER kapalı / iç mekân) watch'ı GERİ AÇ (fail-soft, self-healing).
+ * Davranış değişmez: handlePosition, store, tüketiciler aynı; yalnız fazla OS aboneliği
+ * kalkar.
+ */
+const NATIVE_FEED_CONFIRM_FIXES = 8;      // native akışın "canlı" sayılması için gereken fix
+const NATIVE_FEED_CONFIRM_MS    = 12_000; // ve bu kadar süredir kesintisiz beslemesi
+const NATIVE_FEED_STALE_MS      = 10_000; // bu kadar fix gelmezse native akış ÖLÜ sayılır
+const NATIVE_FEED_WATCHDOG_MS   = 5_000;  // ölülük kontrolü periyodu
+
+let _nativeFeedCount     = 0;
+// -1 = "henüz native fix gelmedi" (0 GEÇERLİ bir performance.now() değeridir → sentinel olamaz)
+let _nativeFeedFirstPerf = -1;   // ilk native fix'in performance.now()'u
+let _lastNativeFixPerf   = -1;   // son native fix
+let _capacitorWatchSuspended = false;
+let _nativeFeedWatchdog: ReturnType<typeof setInterval> | null = null;
+
 // ── Termal-adaptif konum throttle ───────────────────────────────────────────
 // L2 (≥55°C) ve üzerinde GPS işleme sıklığını 500ms'ye düşür → her fix'te yapılan
 // jump-guard / heading-blend / geofence / store-emit yükü yarıdan aza iner (CPU/ısı).
@@ -348,6 +378,77 @@ async function startNativeGPSTracking(): Promise<void> {
   }
 }
 
+/* ── Tek-abonelik yöneticisi ───────────────────────────────────────────────── */
+
+/** Native besleme sayaçlarını sıfırla (stop / yeniden başlat). */
+function _resetNativeFeedState(): void {
+  _nativeFeedCount     = 0;
+  _nativeFeedFirstPerf = -1;
+  _lastNativeFixPerf   = -1;
+  _capacitorWatchSuspended = false;
+  if (_nativeFeedWatchdog) { clearInterval(_nativeFeedWatchdog); _nativeFeedWatchdog = null; }
+}
+
+/** Capacitor watch'ı bırak (native akış tek kaynak olur). Fail-soft: hata yutulur. */
+async function _suspendCapacitorWatch(): Promise<void> {
+  if (watchId == null) return;
+  const id = watchId;
+  watchId = null;                 // önce state → yarış koşulunda çift clearWatch olmasın
+  _capacitorWatchSuspended = true;
+  try {
+    const { Geolocation } = await import('@capacitor/geolocation');
+    await Geolocation.clearWatch({ id: String(id) });
+  } catch (e) {
+    logError('GPS:SuspendWatch', e);
+  }
+}
+
+/** Native akış öldüyse Capacitor watch'ı geri aç (self-healing). */
+async function _resumeCapacitorWatch(): Promise<void> {
+  if (!_capacitorWatchSuspended || watchId != null) return;
+  _capacitorWatchSuspended = false;
+  _nativeFeedCount     = 0;      // yeniden kanıt iste (flapping'i engeller)
+  _nativeFeedFirstPerf = -1;
+  try {
+    await startNativeGPSTracking();
+  } catch (e) {
+    logError('GPS:ResumeWatch', e);
+  }
+}
+
+/** Native besleme ölülük gözcüsü — yalnız watch askıdayken çalışır (zero-leak). */
+function _startNativeFeedWatchdog(): void {
+  if (_nativeFeedWatchdog) return;
+  _nativeFeedWatchdog = setInterval(() => {
+    if (!_capacitorWatchSuspended) {
+      if (_nativeFeedWatchdog) { clearInterval(_nativeFeedWatchdog); _nativeFeedWatchdog = null; }
+      return;
+    }
+    if (performance.now() - _lastNativeFixPerf > NATIVE_FEED_STALE_MS) {
+      // Native akış kesildi (FGS öldü / GPS_PROVIDER kapandı / iç mekân) → geri dön.
+      if (_nativeFeedWatchdog) { clearInterval(_nativeFeedWatchdog); _nativeFeedWatchdog = null; }
+      void _resumeCapacitorWatch();
+    }
+  }, NATIVE_FEED_WATCHDOG_MS);
+}
+
+/**
+ * Native besleme "canlı" kanıtlandıysa fazla Capacitor aboneliğini bırak.
+ * Kanıt ölçütü: ≥NATIVE_FEED_CONFIRM_FIXES fix VE ≥NATIVE_FEED_CONFIRM_MS süredir akıyor.
+ */
+function _maybeSuspendCapacitorWatch(): void {
+  if (!isNativePlatform()) return;          // web'de native besleme yok
+  if (_capacitorWatchSuspended) return;
+  if (watchId == null) return;              // zaten watch yok
+  if (_nativeFeedCount < NATIVE_FEED_CONFIRM_FIXES) return;
+  if (_nativeFeedFirstPerf < 0) return;
+  if (performance.now() - _nativeFeedFirstPerf < NATIVE_FEED_CONFIRM_MS) return;
+
+  void _suspendCapacitorWatch().then(() => {
+    _startNativeFeedWatchdog();
+  });
+}
+
 /**
  * Web (browser navigator.geolocation) GPS tracking
  */
@@ -519,6 +620,9 @@ export async function stopGPSTracking(): Promise<void> {
   _lastPositionPerf         = 0; // reset throttle — next position always accepted after restart
   _lastGeofenceCheckTime    = 0; // geofence throttle sıfırla
   _lastGeofenceCheckPos     = null;
+  // Tek-abonelik durumu + gözcü timer'ı (zero-leak): watch askıdayken stop çağrılırsa
+  // interval arkada kalmamalı.
+  _resetNativeFeedState();
 
   if (watchId == null) {
     useGPSStore.setState({ isTracking: false, location: null, error: null });
@@ -676,6 +780,15 @@ export function feedBackgroundLocation(data: {
     logError('GPS:Background', new Error(`Out-of-range coords: ${data.lat},${data.lng}`));
     return;
   }
+  // ── Tek-abonelik kanıtı: native akış canlı mı? ──────────────────────────
+  // Bu sayaçlar SADECE gerçek (doğrulanmış) native fix'lerle ilerler. Yeterli
+  // kanıt birikince fazla Capacitor watch'ı bırakılır (bkz. _maybeSuspendCapacitorWatch).
+  const _perfNow = performance.now();
+  if (_nativeFeedFirstPerf < 0) _nativeFeedFirstPerf = _perfNow;
+  _lastNativeFixPerf = _perfNow;
+  _nativeFeedCount++;
+  _maybeSuspendCapacitorWatch();
+
   handlePosition(
     {
       latitude:  data.lat,
