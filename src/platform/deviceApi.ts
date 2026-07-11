@@ -17,6 +17,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import { showToast } from './errorBus';
+import { subscribeMotion } from './sensors';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -179,6 +180,7 @@ export function subscribeToAccelerometer(
     callback(x, y, z, Math.sqrt(x * x + y * y + z * z));
   };
 
-  window.addEventListener('devicemotion', handler);
-  return () => window.removeEventListener('devicemotion', handler);
+  // Ham window aboneliği yerine merkezi Orientation Sensor Gate; gate release'i
+  // aynen döndürülür (çağıran unsubscribe sözleşmesi değişmez).
+  return subscribeMotion(handler);
 }
