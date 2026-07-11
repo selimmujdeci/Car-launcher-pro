@@ -35,3 +35,10 @@ export {
   type VehicleHalProviderDeps,
   type VehicleHalProviderStatus,
 } from './vehicleHalProviderAdapter';
+export {
+  createUnifiedVehicleStoreProvider,
+  type UnifiedVehicleStateReadable,
+  type UnifiedVehicleStoreLike,
+  type UnifiedVehicleStoreProviderDeps,
+  type UnifiedVehicleStoreProvider,
+} from './providers';
