@@ -263,18 +263,21 @@ describe('Orientation Gate — On-Demand Consumer Migration (PR 2)', () => {
     expect(Object.keys(e).length).toBe(keysBefore);
   });
 
-  /* 21 — gpsService DEĞİŞMEDİ */
-  it('21: gpsService bu PR\'da değişmedi (hâlâ ham compass listener, gate import YOK)', () => {
-    expect(gpsSrc).toMatch(/addEventListener\('deviceorientationabsolute'/);
-    expect(gpsSrc).not.toMatch(/from '\.\/sensors'/);
-    expect(gpsSrc).not.toMatch(/subscribeOrientation|subscribeMotion/);
+  /* 21 — gpsService KİLİDİ PR 3'te GÜNCELLENDİ: compass artık gate'e taşındı */
+  // NOT: PR 2'de bu kilit "gpsService değişmedi" idi. PR 3 compass'ı BİLİNÇLİ
+  // olarak Orientation Sensor Gate'e taşıdı (background-pause) → kilit yeni doğru
+  // davranışa güncellendi (kaldırılmadı).
+  it('21: gpsService compass gate\'e taşındı (ham deviceorientation aboneliği yok)', () => {
+    expect(gpsSrc).toMatch(/from '\.\/sensors'/);
+    expect(gpsSrc).toMatch(/subscribeOrientationAbsolute\(_onDeviceOrientation\)/);
+    expect(gpsSrc).not.toMatch(/addEventListener\('deviceorientationabsolute'/);
   });
 
-  /* 22 — smartDrivingEngine DEĞİŞMEDİ */
-  it('22: smartDrivingEngine bu PR\'da değişmedi (hâlâ ham devicemotion, gate import YOK)', () => {
-    expect(smartDrivingSrc).toMatch(/addEventListener\('devicemotion'/);
-    expect(smartDrivingSrc).not.toMatch(/from '\.\/sensors'/);
-    expect(smartDrivingSrc).not.toMatch(/subscribeMotion/);
+  /* 22 — smartDrivingEngine KİLİDİ PR 3'te GÜNCELLENDİ: accel gate'e taşındı */
+  it('22: smartDrivingEngine accel gate\'e taşındı (ham devicemotion aboneliği yok)', () => {
+    expect(smartDrivingSrc).toMatch(/from '\.\/sensors'/);
+    expect(smartDrivingSrc).toMatch(/subscribeMotion\(_handleDeviceMotion\)/);
+    expect(smartDrivingSrc).not.toMatch(/addEventListener\('devicemotion'/);
   });
 
   /* 23 — native sampling rate iddiası yok */

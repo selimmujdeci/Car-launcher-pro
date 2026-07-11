@@ -17,6 +17,7 @@ import {
   GPS_FIRST_FIX_MS,
 } from './gps/gpsUtils';
 import { getThermalLevel } from './thermalWatchdog';
+import { subscribeOrientationAbsolute, subscribeOrientation } from './sensors';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -180,6 +181,9 @@ function _startFirstFixFallback(): void {
 let _compassHeading:     number | null = null;
 let _smoothedHeading:    number | null = null;
 let _compassListenerOn   = false;
+// Orientation Sensor Gate release fonksiyonları (ham window aboneliği yerine).
+let _compassAbsRelease:  (() => void) | null = null;
+let _compassRelRelease:  (() => void) | null = null;
 
 // Compass throttle: 60Hz → 10Hz (100ms) — pil tasarrufu
 let _compassLastMs = 0;
@@ -207,17 +211,21 @@ function _onDeviceOrientation(e: DeviceOrientationEvent): void {
 function _startCompassListener(): void {
   if (_compassListenerOn) return;
   _compassListenerOn = true;
-  // deviceorientationabsolute: Android Chrome 65+ — manyetik kuzey referanslı
-  window.addEventListener('deviceorientationabsolute', _onDeviceOrientation as EventListener);
-  // Fallback: deviceorientation (iOS absolute=false için webkitCompassHeading kolundan okunur)
-  window.addEventListener('deviceorientation', _onDeviceOrientation as EventListener);
+  // Ham window aboneliği yerine merkezi Orientation Sensor Gate: gate aynı ham
+  // event için tek fiziksel listener paylaştırır ve arka planda (visibility
+  // hidden) fiziksel listener'ı kendisi söker → gereksiz background sensör yükü
+  // kalkar. Mevcut JS throttle (_onDeviceOrientation içinde) ve heading davranışı
+  // KORUNUR. NOT: bu PR compass'ı Settings ekranında kapatmaz (foreground
+  // demand-gating tüketici sinyali gerektirir — bkz. PR notu).
+  _compassAbsRelease = subscribeOrientationAbsolute(_onDeviceOrientation);
+  _compassRelRelease = subscribeOrientation(_onDeviceOrientation);
 }
 
 function _stopCompassListener(): void {
   if (!_compassListenerOn) return;
   _compassListenerOn = false;
-  window.removeEventListener('deviceorientationabsolute', _onDeviceOrientation as EventListener);
-  window.removeEventListener('deviceorientation', _onDeviceOrientation as EventListener);
+  if (_compassAbsRelease) { _compassAbsRelease(); _compassAbsRelease = null; }
+  if (_compassRelRelease) { _compassRelRelease(); _compassRelRelease = null; }
   _compassHeading  = null;
   _smoothedHeading = null;
 }
