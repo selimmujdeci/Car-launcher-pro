@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
+import { subscribeMotion } from './sensors';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -64,6 +65,7 @@ const _lockedSegments: Blob[][]              = [];   // impact recordings
 let _segmentTimer: ReturnType<typeof setInterval> | null = null;
 let _durationTimer: ReturnType<typeof setInterval> | null = null;
 let _lockFlashTimer: ReturnType<typeof setTimeout> | null = null;
+let _motionRelease: (() => void) | null = null;   // Orientation Sensor Gate release
 
 let _lastLockTime    = 0;
 let _segmentStart    = 0;
@@ -174,7 +176,7 @@ export async function startDashcam(): Promise<void> {
       _setState({ currentDurationSec: Math.floor((Date.now() - _segmentStart) / 1_000) });
     }, 1_000);
 
-    window.addEventListener('devicemotion', _onMotion);
+    _motionRelease = subscribeMotion(_onMotion);   // ham window aboneliği yerine gate
     _setState({ active: true, hasPermission: true, error: null, segments: 0 });
 
     // Foreground servis bildirimini "Kayıt aktif" olarak güncelle
@@ -191,7 +193,7 @@ export async function startDashcam(): Promise<void> {
 export function stopDashcam(): void {
   if (!_state.active) return;
 
-  window.removeEventListener('devicemotion', _onMotion);
+  if (_motionRelease) { _motionRelease(); _motionRelease = null; }   // gate release (idempotent)
 
   if (_segmentTimer)  { clearInterval(_segmentTimer);  _segmentTimer  = null; }
   if (_durationTimer) { clearInterval(_durationTimer); _durationTimer = null; }
