@@ -26,3 +26,12 @@ export {
   type VehicleHalListener,
   type VehicleHalDeps,
 } from './vehicleHal';
+export {
+  VehicleHalProviderAdapter,
+  createVehicleHalProviderAdapter,
+  type VehicleHalIngestTarget,
+  type NormalizedVehicleSnapshot,
+  type VehicleStoreSource,
+  type VehicleHalProviderDeps,
+  type VehicleHalProviderStatus,
+} from './vehicleHalProviderAdapter';
