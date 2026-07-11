@@ -285,8 +285,13 @@ public class CarLauncherForegroundService extends Service {
             @Override public void onProviderDisabled(@NonNull String provider) {}
         };
 
+        // TEK AKIŞ (saha fix 2026-07-11, cihaz QA): GPS_PROVIDER 1 Hz ile
+        // NETWORK_PROVIDER 10s/50m AYNI ANDA isteniyordu (dumpsys: iki ayrı
+        // ProviderRequest). GPS yüksek doğrulukla akarken NETWORK gereksizdir —
+        // yalnız GPS kapalı/yokken (iç mekân, sağlayıcı devre dışı) veya park
+        // modunda (GPS 1 Hz durdurulduğunda) düşük güçlü yedek olarak istenir.
         requestGpsHighAccuracy();
-        requestNetworkUpdates();
+        if (!gpsHighAccuracyActive) requestNetworkUpdates();
     }
 
     /** GPS_PROVIDER 1Hz yüksek-doğruluk akışını ister. İdempotent — zaten aktifse no-op. */
@@ -332,8 +337,13 @@ public class CarLauncherForegroundService extends Service {
     private void resumeGpsHighAccuracy() {
         if (gpsHighAccuracyActive) return;
         parkAnchorLocation = null;
+        // TEK AKIŞ: park modunda açık kalan NETWORK_PROVIDER aboneliğini önce KALDIR —
+        // aksi hâlde GPS 1 Hz yeniden başladığında ikisi birlikte çalışır (eski davranış).
+        try { locationManager.removeUpdates(locationListener); }
+        catch (SecurityException ignored) {}
         requestGpsHighAccuracy();
-        Log.d(TAG, "Hareket algılandı — GPS 1Hz yeniden başlatıldı");
+        if (!gpsHighAccuracyActive) requestNetworkUpdates(); // GPS açılamadıysa yedeği geri al
+        Log.d(TAG, "Hareket algılandı — GPS 1Hz yeniden başlatıldı (NETWORK yedeği kapatıldı)");
     }
 
     private void stopLocationUpdates() {
