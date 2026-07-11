@@ -118,3 +118,7 @@ tools/can-re/
 
 # Canlı DB introspection çıktıları (hassas: grants/policies/row counts) — ASLA commit edilmez
 /docs-local/db-truth/
+
+# OEM Validation Lab koşu çıktıları (ham cihaz/host komut çıktısı, APK hash'leri,
+# yerel yollar) — redakte edilseler de git'e GİRMEZ; kanıt Ledger'a özetlenir.
+/docs-local/qa-runs/

@@ -1,0 +1,62 @@
+{
+  "_comment": "Build Validation fazının beklenti sözleşmesi. Bir izin bilinçli EKLENDİYSE burayı güncelle — fazı zayıflatma. Kaynak: android/app/src/main/AndroidManifest.xml (2026-07-11).",
+  "expectedPackage": "com.cockpitos.pro",
+  "allowedPermissions": [
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.CHANGE_WIFI_STATE",
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    "android.permission.WAKE_LOCK",
+    "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_BACKGROUND_LOCATION",
+    "android.permission.BLUETOOTH",
+    "android.permission.BLUETOOTH_ADMIN",
+    "android.permission.BLUETOOTH_CONNECT",
+    "android.permission.BLUETOOTH_SCAN",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.CAMERA",
+    "android.permission.READ_CONTACTS",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.READ_MEDIA_VIDEO",
+    "android.permission.READ_MEDIA_AUDIO",
+    "android.permission.MANAGE_EXTERNAL_STORAGE",
+    "android.permission.WRITE_SETTINGS",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_LOCATION",
+    "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+    "android.permission.REQUEST_INSTALL_PACKAGES"
+  ],
+  "_mergedComment": "Kaynak AndroidManifest.xml'de YOK ama sevk edilen APK'da VAR — Gradle manifest-merge ile kütüphanelerden gelir (Capacitor push-notifications/FCM ve AndroidX). İlk host koşusunda tespit edildi (2026-07-11). Bu liste 'kaynak manifest ≠ sevk edilen izin yüzeyi' gerçeğini BELGELEMEK içindir; yeni bir satır eklemeden önce izni gerçekten hangi kütüphanenin enjekte ettiğini doğrula.",
+  "mergedPermissions": [
+    "com.google.android.c2dm.permission.RECEIVE",
+    "com.cockpitos.pro.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+
+  "criticalPermissions": [
+    "android.permission.MANAGE_EXTERNAL_STORAGE",
+    "android.permission.REQUEST_INSTALL_PACKAGES",
+    "android.permission.WRITE_SETTINGS",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.CAMERA",
+    "android.permission.READ_CONTACTS",
+    "android.permission.ACCESS_BACKGROUND_LOCATION"
+  ],
+  "forbiddenPermissions": [
+    "android.permission.READ_SMS",
+    "android.permission.SEND_SMS",
+    "android.permission.RECEIVE_SMS",
+    "android.permission.READ_CALL_LOG",
+    "android.permission.WRITE_CALL_LOG",
+    "android.permission.READ_PHONE_NUMBERS",
+    "android.permission.PROCESS_OUTGOING_CALLS",
+    "android.permission.QUERY_ALL_PACKAGES"
+  ],
+  "release": {
+    "debuggableForbidden": true,
+    "requireSignature": true
+  }
+}

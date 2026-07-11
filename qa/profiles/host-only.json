@@ -1,0 +1,14 @@
+{
+  "_comment": "Cihaz gerektirmeyen lane. CI'da ve mühendis makinesinde koşar. Tavan HOST_VERIFIED — cihaz kanıtı olmadan daha üstü YAPISAL olarak imkânsız (qa/core/verdict.mjs KAPI 2 + profiles/_schema.mjs kilidi).",
+  "id": "host-only",
+  "name": "Host-Only Validation (cihazsız)",
+  "lane": "host",
+  "maxVerdict": "HOST_VERIFIED",
+  "phases": ["build-validation"],
+  "phaseTimeoutMs": 600000,
+  "build": {
+    "variant": "debug",
+    "buildIfMissing": false
+  },
+  "manualFallbacks": {}
+}
