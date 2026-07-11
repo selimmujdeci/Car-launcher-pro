@@ -18,6 +18,7 @@ import {
 } from './gps/gpsUtils';
 import { getThermalLevel } from './thermalWatchdog';
 import { subscribeOrientationAbsolute, subscribeOrientation } from './sensors';
+import { hasCompassDemand, subscribeCompassDemand } from './gps/compassDemand';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -181,6 +182,8 @@ function _startFirstFixFallback(): void {
 let _compassHeading:     number | null = null;
 let _smoothedHeading:    number | null = null;
 let _compassListenerOn   = false;
+// GPS takibi açık mı — compass talebi yalnız takip açıkken uygulanır.
+let _gpsTrackingOn       = false;
 // Orientation Sensor Gate release fonksiyonları (ham window aboneliği yerine).
 let _compassAbsRelease:  (() => void) | null = null;
 let _compassRelRelease:  (() => void) | null = null;
@@ -206,6 +209,25 @@ function _onDeviceOrientation(e: DeviceOrientationEvent): void {
   }
 
   _compassHeading = applyCompassSmoothing(_compassHeading, deg);
+}
+
+/* ── Compass TALEP kapısı (saha fix 2026-07-11) ────────────────────────────────
+ * ÖNCE: _startCompassListener() startGPSTracking() ile birlikte açılıyor ve uygulama
+ * ön plandayken HİÇ kapanmıyordu → cihaz QA'sında boşta ana ekranda `rot_vec` +
+ * `game_rotvec` 60 Hz açık ölçüldü (Ledger #42'deki bilinen sınırlama).
+ * ŞİMDİ: compass yalnız GERÇEK bir heading tüketicisi (heading-up harita / aktif
+ * navigasyon) talep ettiğinde açılır; son tüketici bırakınca kapanır.
+ * KONUM TAKİBİ ETKİLENMEZ — talep yokken GPS watch aynen çalışır, yalnız compass kapanır.
+ * Blend/smoothing, izin ve fallback davranışı DEĞİŞMEZ; native örnekleme hızı (60 Hz)
+ * bu PR'da DÜŞÜRÜLMEZ (Chromium sabiti).
+ */
+let _compassDemandUnsub: (() => void) | null = null;
+
+/** Talep durumuna göre compass gate aboneliğini aç/kapat. İdempotent. */
+function _applyCompassDemand(): void {
+  // GPS takibi kapalıysa compass da kapalı (talep olsa bile).
+  if (_gpsTrackingOn && hasCompassDemand()) _startCompassListener();
+  else                                      _stopCompassListener();
 }
 
 function _startCompassListener(): void {
@@ -263,7 +285,12 @@ export async function startGPSTracking(): Promise<void> {
 
   // 5 saniye içinde gerçek fix gelmezse fallback devreye girer
   _startFirstFixFallback();
-  _startCompassListener();
+
+  // Compass TALEP-GÜDÜMLÜ: artık koşulsuz açılmıyor. Talep değişimlerini dinle ve
+  // mevcut talebi hemen uygula (harita/navigasyon zaten açıksa compass anında açılır).
+  _gpsTrackingOn = true;
+  if (!_compassDemandUnsub) _compassDemandUnsub = subscribeCompassDemand(() => _applyCompassDemand());
+  _applyCompassDemand();
 
   if (isNativePlatform()) {
     await startNativeGPSTracking();
@@ -510,6 +537,8 @@ export async function stopGPSTracking(): Promise<void> {
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _clearFirstFixTimer();
   _hasValidFirstFix = false;
+  _gpsTrackingOn = false;
+  if (_compassDemandUnsub) { _compassDemandUnsub(); _compassDemandUnsub = null; }   // zero-leak
   _stopCompassListener();
   _prevForSpeed             = null;
   _smoothedHeading          = null;
