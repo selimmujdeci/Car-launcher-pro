@@ -48,3 +48,22 @@ export {
   type DeepScanIgnitionDeps,
   type ResolveConfig,
 } from './deepScanIgnitionSource';
+export {
+  DeepScanOrchestrator,
+  createDeepScanOrchestrator,
+  deepScanOrchestrator,
+  DEEP_SCAN_PHASE_SEQUENCE,
+  type OrchestratorStatus,
+  type PhaseOutcomeStatus,
+  type PhaseResult,
+  type PhaseContext,
+  type PhaseHandler,
+  type DiscoverySignalResult,
+  type FirmwareResultEntry,
+  type OrchestratorEventType,
+  type OrchestratorEvent,
+  type OrchestratorListener,
+  type OrchestratorSnapshot,
+  type StartOrchestrationInput,
+  type DeepScanOrchestratorDeps,
+} from './deepScanOrchestrator';
