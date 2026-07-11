@@ -39,6 +39,7 @@ import {
 } from '../../platform/mapService';
 import { useHazardStore } from '../../store/useHazardStore';
 import { useGPSSource, onGPSLocation, type GPSLocation } from '../../platform/gpsService';
+import { acquireCompassDemand } from '../../platform/gps/compassDemand';
 import { enterMapLiteInteraction, exitMapLiteInteraction } from '../../platform/map/mapLiteMode';
 import { pauseWakeWordForInteraction, resumeWakeWordAfterInteraction } from '../../platform/wakeWordService';
 import { useThermalState } from '../../platform/thermalWatchdog';
@@ -368,6 +369,17 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     });
 
     return unsub;
+  }, []);
+
+  // ── Compass TALEBİ (saha fix 2026-07-11) ─────────────────────────────────
+  // Tam ekran harita heading-up çalışır (setDrivingView / setMapHeading takip kamerası
+  // ve Rover marker yönü blend edilmiş heading'i kullanır) → compass'a GERÇEKTEN
+  // ihtiyaç duyar. Mount'ta talep açılır, unmount'ta bırakılır; talep yokken
+  // gpsService compass aboneliğini kapatır (konum takibi ETKİLENMEZ).
+  // NOT: bu efekt yalnız talep kaydeder — sensör aboneliğinin sahibi gpsService/gate'tir.
+  useEffect(() => {
+    const release = acquireCompassDemand('map:full');
+    return release;
   }, []);
 
   // Testability: DOM attribute set — ana thread'den tahliye: kritik render yoluna girmiyor

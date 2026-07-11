@@ -3,10 +3,12 @@
  *
  * İki always-on tüketici talep-güdümlü hale getirildi:
  *   • gpsService COMPASS → Orientation Sensor Gate (background auto-pause + dedup).
- *     Foreground davranışı KORUNUR (GPS tracking'te acquire). ⚠️ Bu PR compass'ı
- *     Settings ekranında KAPATMAZ — foreground Settings-gating "harita ekranda mı"
- *     tüketici sinyali gerektirir (global görünüm store'u yok, MainLayout lokal
- *     drawer state'i; tüketiciye dokunmak KAPSAM DIŞI). Bkz. PR notu.
+ *     ✅ GÜNCELLEME (Compass Foreground Demand Gating, 2026-07-11): PR #58'in bıraktığı
+ *     "foreground Settings-gating KAPSAM DIŞI" sınırlaması ARTIK KAPATILDI. Compass
+ *     koşulsuz açılmaz; yalnız gerçek bir heading tüketicisi (heading-up harita /
+ *     aktif navigasyon) `acquireCompassDemand` ile talep ettiğinde açılır, son
+ *     tüketici bırakınca kapanır. Aşağıdaki 1/3/5/6/7 kilitleri bu YENİ davranışa
+ *     göre güncellendi (talep var → gate acquire; talep yok → gate boş).
  *   • smartDrivingEngine ACCELEROMETER → gate + TALEP-GÜDÜMLÜ: yalnız TAZE
  *     güvenilir hız kaynağı (OBD/GPS, recordSpeed) YOKKEN acquire; taze kaynak
  *     varken release. Fail-safe: hiç kaynak yoksa açık.
@@ -31,6 +33,7 @@ vi.mock('../platform/crashLogger', () => ({ logError: vi.fn() }));
 
 import { getSubscriberCounts, getStatus, reset as gateReset } from '../platform/sensors';
 import { startGPSTracking, stopGPSTracking, getGPSState } from '../platform/gpsService';
+import { acquireCompassDemand, resetCompassDemand } from '../platform/gps/compassDemand';
 import {
   attachAccelerometer, detachAccelerometer, recordSpeed, detectDrivingMode,
 } from '../platform/smartDrivingEngine';
@@ -78,15 +81,18 @@ describe('PR 3 — gpsService compass gate demand/visibility', () => {
     mockNavigatorGeolocation();
     await stopGPSTracking();
     gateReset();
+    resetCompassDemand();   // her test taze talep tablosuyla başlar
   });
   afterEach(async () => {
     await stopGPSTracking();
     gateReset();
+    resetCompassDemand();
     vi.clearAllMocks();
   });
 
-  /* 1 — gps start compass acquire eder */
-  it('1: GPS tracking başlayınca compass gate\'ten acquire edilir', async () => {
+  /* 1 — talep varken gps start compass acquire eder (talep-güdümlü) */
+  it('1: compass talebi varken GPS tracking gate\'ten acquire eder', async () => {
+    acquireCompassDemand('test:map');   // heading tüketicisi (ör. harita) talep etti
     await startGPSTracking();
     const c = getSubscriberCounts();
     expect(c.orientationAbsolute).toBe(1);
@@ -101,8 +107,9 @@ describe('PR 3 — gpsService compass gate demand/visibility', () => {
     expect(getSubscriberCounts().orientation).toBe(0);
   });
 
-  /* 3 — duplicate start ekstra abonelik yok */
+  /* 3 — duplicate start ekstra abonelik yok (talep varken) */
   it('3: duplicate GPS start ekstra compass aboneliği oluşturmaz', async () => {
+    acquireCompassDemand('test:map');
     await startGPSTracking();
     await startGPSTracking();
     expect(getSubscriberCounts().orientationAbsolute).toBe(1);
@@ -114,8 +121,9 @@ describe('PR 3 — gpsService compass gate demand/visibility', () => {
     expect(getGPSState()).toHaveProperty('heading');   // null olabilir — yapı korunur
   });
 
-  /* 5 — background'da fiziksel compass listener sökülür */
+  /* 5 — background'da fiziksel compass listener sökülür (talep varken) */
   it('5: background (hidden) → compass fiziksel listener sökülür, kayıt korunur', async () => {
+    acquireCompassDemand('test:map');
     await startGPSTracking();
     expect(getStatus().channels.orientationAbsolute.listenerAttached).toBe(true);
     setVisibility('hidden');
@@ -123,21 +131,25 @@ describe('PR 3 — gpsService compass gate demand/visibility', () => {
     expect(getSubscriberCounts().orientationAbsolute).toBe(1); // consumer kaydı korunur
   });
 
-  /* 6 — foreground dönüşünde geri bağlanır */
+  /* 6 — foreground dönüşünde geri bağlanır (talep sürerken) */
   it('6: foreground dönüşünde compass yeniden bağlanır', async () => {
+    acquireCompassDemand('test:map');
     await startGPSTracking();
     setVisibility('hidden');
     setVisibility('visible');
     expect(getStatus().channels.orientationAbsolute.listenerAttached).toBe(true);
   });
 
-  /* 7 — DÜRÜST SINIR: compass Settings'te KAPATILMADI (foreground korunur) */
-  it('7: compass foreground davranışı korunur (bu PR Settings-gating YAPMAZ)', async () => {
-    // Compass, GPS tracking aktifken ekrandan bağımsız acquire edilir (bugünkü
-    // davranış korunur). Settings-foreground-gating tüketici demand sinyali
-    // gerektirir → bu PR KAPSAMI DIŞI. Kaynakta ekran/nav koşulu YOK.
-    await startGPSTracking();
+  /* 7 — YENİ DAVRANIŞ: talep YOKKEN compass açılmaz; talep gelince açılır */
+  it('7: talep YOKKEN GPS tracking compass açmaz, talep gelince açar (foreground demand-gating)', async () => {
+    // PR #58'de compass GPS tracking'te KOŞULSUZ açılırdı (Settings/haritasız
+    // ekranlarda dahi sensör açıktı). Bu PR onu talep-güdümlü yaptı:
+    await startGPSTracking();                                   // hiç heading tüketicisi yok
+    expect(getSubscriberCounts().orientationAbsolute).toBe(0);  // → compass KAPALI
+    // Bir harita/navigasyon tüketicisi talep edince gate anında açılır:
+    acquireCompassDemand('test:map');
     expect(getSubscriberCounts().orientationAbsolute).toBe(1);
+    // gpsService gate'in sahibi değildir — kendi içinde ekran/nav koşulu barındırmaz.
     expect(gpsSrc).not.toMatch(/isNavigating|drawer|activeScreen|currentView/);
   });
 });
