@@ -81,7 +81,11 @@ export function createContext({
      * orchestrator bunu yakalar, faz INCOMPLETE olur, Lab çökmez.
      */
     async exec(command, args = [], opts = {}) {
-      const bin = basename(String(command)).replace(/\.(exe|bat|cmd)$/i, '').toLowerCase();
+      // Ayraçları ÖNCE normalleştir: POSIX'te basename('C:\\sdk\\adb.exe') tüm
+      // dizeyi döndürür (ters bölü ayraç değildir) → Windows tarzı bir adb yolu
+      // Linux CI'da kapıdan SIZAR. (Bu hatayı CI yakaladı.)
+      const normalized = String(command).replace(/\\/g, '/');
+      const bin = basename(normalized).replace(/\.(exe|bat|cmd)$/i, '').toLowerCase();
       if (lane === 'host' && HOST_LANE_DENY.includes(bin)) {
         throw new Error(`Host lane'de '${bin}' çalıştırılamaz — cihaz katmanı bu PR'ın kapsamı dışında.`);
       }

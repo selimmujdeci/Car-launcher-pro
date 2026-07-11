@@ -699,9 +699,12 @@ describe('PR-1 kapsam kilitleri', () => {
       expect(src).not.toMatch(/['"`]adb\s+(shell|devices|install)/);
     }
 
-    // (b) Davranışsal kilit: host lane adb'yi REDDEDER.
+    // (b) Davranışsal kilit: host lane adb'yi REDDEDER — yol biçimi ne olursa olsun.
+    // (Ters-bölülü Windows yolu POSIX CI'da kapıdan SIZIYORDU; bu kilit onu tutar.)
     await expect(ctx().exec('adb', ['devices'])).rejects.toThrow(/host lane/i);
     await expect(ctx().exec('C:\\sdk\\platform-tools\\adb.exe', ['shell', 'ls'])).rejects.toThrow(/host lane/i);
+    await expect(ctx().exec('/opt/android-sdk/platform-tools/adb', ['devices'])).rejects.toThrow(/host lane/i);
+    await expect(ctx().exec('fastboot', ['reboot'])).rejects.toThrow(/host lane/i);
   });
 
   it('37b. faz kataloğunda cihaz fazı YOK (PR-1 host foundation)', () => {
