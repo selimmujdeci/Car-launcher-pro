@@ -44,3 +44,17 @@ export {
   type CapabilityProviderAdapterDeps,
   type CapabilityProviderAdapterStatus,
 } from './capabilityProviderAdapter';
+export {
+  createRuntimeCapabilityProviders,
+  MAX_RUNTIME_CAPABILITY_PROVIDERS,
+  type SecureStorageEvidence,
+  type AiProviderEvidence,
+  type ModuleRuntimeEvidence,
+  type LocalModelEvidence,
+  type ResourcePresenceEvidence,
+  type AiProviderId,
+  type NavigatorLike,
+  type RuntimeProbeEnv,
+  type RuntimeProbes,
+  type RuntimeCapabilityProvidersDeps,
+} from './providers';
