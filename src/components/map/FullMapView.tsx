@@ -138,6 +138,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   // TEMP DEBUG — rota katmanı haritada gerçekten var mı (teşhis rozeti için, sonra kaldırılacak)
   const [isFollowing, setIsFollowing] = useState(true);
   const isFollowingRef  = useRef(true);
+  // Kamera/marker dedup çapasını GEÇERSİZ kıl: kullanıcı haritayı gezdirdikten sonra
+  // (araç yerinde dursa bile) takip kamerası MUTLAKA geri merkezlemeli; stil yeniden
+  // yüklendiğinde marker MUTLAKA yeniden çizilmeli. Dedup bunları yutmasın.
+  const redrawDirtyRef  = useRef(true);
   const autoFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drivingModeRef  = useRef(false);
   const routeGeometryRef  = useRef<[number, number][] | null>(null);
@@ -301,6 +305,27 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // Yer değiştirme HIZI da hareket sayılır: ≥1.2s zaman penceresi üstünden
         // km/h (fix kadansından bağımsız); ≥3m mutlak taban jitter'ı eler.
         const speedKmh = (loc.speed ?? 0) * 3.6;
+
+        // ── SAHA FIX (2026-07-12, cihaz CDP teşhisi): WAKE-tarafı park gürültü tutucusu ──
+        // KÖK NEDEN: displacement-wake accuracy-BLIND'dı → park hâlinde GPS doğruluğu ±Nm
+        // olunca ardışık fix'ler ~Nm zıplayıp "≥3m / ≥5km/h" eşiğini geçiyor → wake SPAM
+        // (cihazda ~2.8/sn ölçüldü) → isIdleNow histerezisi (IDLE_HYSTERESIS_MS=2500) HİÇ
+        // dolmuyor → döngü HİÇ uyumuyordu (cihaz: idle CPU ~108%, rAF 137/sn, %100 histerezis
+        // bloğu). #61'in park tutucusu yalnız isIdleNow (döngü ÇIKIŞI) tarafındaydı; wake
+        // GİRİŞİ korunmamıştı → yarım fix. ÇÖZÜM: isIdleNow ile TUTARLI semantik — park
+        // (nav/sürüş yok + hız<STANDSTILL_KMH) hâlinde, fix'in KENDİ doğruluk yarıçapı
+        // (≥STANDSTILL_HOLD_M) altındaki kayma GPS jitter'ıdır → wake ETME. Gerçek hareket
+        // hız alanında (≥1.5 km/h) görünür → tutucu es geçilir, takip bozulmaz.
+        const _WAKE_STANDSTILL_KMH = 1.5; // isIdleNow STANDSTILL_KMH ile aynı
+        const _WAKE_STANDSTILL_M   = 5;   // isIdleNow STANDSTILL_HOLD_M ile aynı
+        const _navOrDrive =
+          drivingModeRef.current ||
+          navStatusRef.current === NavStatus.ACTIVE    ||
+          navStatusRef.current === NavStatus.REROUTING ||
+          navStatusRef.current === NavStatus.PREVIEW   ||
+          navStatusRef.current === NavStatus.ROUTING;
+        const _noiseFloorM = Math.max(_WAKE_STANDSTILL_M, loc.accuracy ?? 0);
+
         const _anchor = wakeAnchorRef.current;
         if (!_anchor) {
           wakeAnchorRef.current = { lat: newPoint.lat, lng: newPoint.lng, ts: newPoint.ts };
@@ -311,7 +336,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               (newPoint.lat - _anchor.lat) * 111_320,
               (newPoint.lng - _anchor.lng) * 111_320 * Math.cos((newPoint.lat * Math.PI) / 180),
             );
-            if (_movedM >= 3 && (_movedM / _dtS) * 3.6 >= 5) wakeLoopRef.current?.();
+            // Park gürültüsü: park + doğruluk yarıçapı altı kayma → hareket DEĞİL, wake etme
+            const _standstillNoise = !_navOrDrive && speedKmh < _WAKE_STANDSTILL_KMH && _movedM < _noiseFloorM;
+            if (!_standstillNoise && _movedM >= 3 && (_movedM / _dtS) * 3.6 >= 5) wakeLoopRef.current?.();
             wakeAnchorRef.current = { lat: newPoint.lat, lng: newPoint.lng, ts: newPoint.ts };
           }
         }
@@ -515,6 +542,49 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     const IDLE_HYSTERESIS_MS = 2500;
     let lastWakeTs = performance.now(); // son wake zamanı
 
+    /* ── SAHA FIX (2026-07-11, cihaz QA): harita boşta %43-212 CPU ──────────────
+     * KÖK NEDEN (iki katman):
+     *  (1) Idle kapısı GPS GÜRÜLTÜSÜNÜ hareket sanıyordu: park hâlinde ±3 m doğrulukla
+     *      gelen fix'ler "3 m yer değiştirme ≈ 10 km/h" üretiyor → wake + isIdleNow=false
+     *      → rAF döngüsü HİÇ uyumuyordu.
+     *  (2) Döngü uyanıkken tick, DEĞİŞİKLİK OLMASA DA iş yapıyordu: updateUserMarker()
+     *      sonunda KOŞULSUZ `source.setData()` çağırır (MapLayerManager.ts) → her 60 ms'de
+     *      bir MapLibre repaint; kamera da 150-500 ms'de bir yeniden hesaplanıyordu.
+     *      → sürekli GPU/compositor yükü (mali-event-hand + Chrome_InProcGp).
+     *
+     * ÇÖZÜM: "yapılan iş" ölçütü. Marker/kamera yalnız GERÇEKTEN değiştiğinde gönderilir;
+     * NO_WORK_IDLE_MS boyunca hiç iş çıkmadıysa harita gerçekten sabittir → döngü uyur.
+     * Wake tetikleyicileri ve hareket semantiği DEĞİŞMEDİ (nav/sürüş davranışı aynı).
+     */
+    const MARKER_EPS_M      = 0.3;   // altındaki kayma ekranda fark edilmez
+    const MARKER_EPS_BEAR   = 0.5;   // derece
+    const MARKER_EPS_SPEED  = 0.5;   // km/h
+    const CAM_EPS_M         = 0.5;
+    const CAM_EPS_BEAR      = 0.5;
+    // Park gürültü tutucusu: hız < 1.5 km/h ve nav/sürüş yokken, fix'in KENDİ doğruluk
+    // yarıçapı altındaki kayma HAREKET DEĞİLDİR (GPS jitter). Marker sabit tutulur.
+    const STANDSTILL_KMH    = 1.5;
+    const STANDSTILL_HOLD_M = 5;
+    const STANDSTILL_BEAR   = 15;    // park hâlinde heading gürültüsü de yok sayılır
+    const NO_WORK_IDLE_MS   = 2500;  // bu süre boyunca iş yoksa döngü uyur
+
+    // Son GÖNDERİLEN (committed) marker/kamera durumu — dedup çapası
+    let sentMarkerLat = NaN, sentMarkerLng = NaN, sentMarkerBear = NaN, sentMarkerSpeed = NaN;
+    let sentCamLat    = NaN, sentCamLng    = NaN, sentCamBear    = NaN, sentCamSpeed    = NaN;
+    let sentCamTurn   = NaN;
+    let lastWorkTs    = performance.now(); // son GERÇEK güncelleme (marker/kamera) zamanı
+
+    /** İki koordinat arası metre (düz yaklaşım — tick hot-path, allocation yok). */
+    const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =>
+      Math.hypot(
+        (bLat - aLat) * 111_320,
+        (bLng - aLng) * 111_320 * Math.cos((bLat * Math.PI) / 180),
+      );
+
+    /** İki açı arası en kısa fark (derece). */
+    const bearDelta = (a: number, b: number): number =>
+      Math.abs(((b - a + 540) % 360) - 180);
+
     const applyClass = (cls: string) => {
       if (cls === activeClass) return;
       if (activeClass) el.classList.remove(activeClass);
@@ -577,6 +647,14 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       if (navActive)                          return false;
       if (drivingModeRef.current)             return false;
       if (userInteractingRef.current)         return false;
+
+      // ── YAPILAN İŞ ÖLÇÜTÜ (kök-neden kapısı) ──────────────────────────────
+      // Marker ve kamera NO_WORK_IDLE_MS boyunca hiç güncellenmediyse harita
+      // gerçekten sabittir. Bu, aşağıdaki hız/yer-değiştirme SEZGİLERİNDEN daha
+      // güvenilirdir: onlar park hâlindeki GPS gürültüsünü "hareket" sanıp döngüyü
+      // sonsuza dek ayakta tutuyordu (cihaz QA: %43-212 CPU). Gerçek hareket varsa
+      // her karede iş çıkar → lastWorkTs tazedir → burada uyunmaz.
+      if (now - lastWorkTs >= NO_WORK_IDLE_MS) return true;
       // NOT: isFollowing TEK BAŞINA idle'ı engellemez. Araç park halindeyken (hız<1.5,
       // nav yok) takip edilecek hareket olmadığından döngü uykuya geçebilir; GPS yeniden
       // hareket taşıdığında onGPSLocation→wake() döngüyü uyandırır. Eski davranışta
@@ -612,6 +690,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     // ── Wake — döngüyü uyandır ───────────────────────────────────────────────
     const wake = () => {
       lastWakeTs = performance.now();
+      // Uyandırma "iş var" varsayımıdır: döngüye histerezis kadar süre tanı, iş
+      // çıkmazsa (dedup her şeyi elerse) NO_WORK_IDLE_MS sonunda kendiliğinden uyur.
+      lastWorkTs = lastWakeTs;
       if (loopActive) return; // zaten çalışıyor
       loopActive = true;
       startFpsMonitor();
@@ -637,6 +718,20 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
       // Aktif kare sayacı (FPS örnekleyicisi için)
       tickCount++;
+
+      // ── Dedup GEÇERSİZLEME (force) ────────────────────────────────────────
+      // (a) Kullanıcı haritayı gezdirdi → kamera çapası bayat (redrawDirtyRef).
+      // (b) Stil yeniden yüklendi / katman düştü → marker source'u yok; updateUserMarker
+      //     self-healing için ÇAĞRILMALI, dedup bunu yutmamalı.
+      const _layerMissing = !!mapRef.current && !mapRef.current.getLayer('user-vehicle');
+      const _force = redrawDirtyRef.current || _layerMissing;
+      if (_force) {
+        sentMarkerLat = NaN; sentMarkerLng = NaN; sentMarkerBear = NaN; sentMarkerSpeed = NaN;
+        sentCamLat    = NaN; sentCamLng    = NaN; sentCamBear    = NaN; sentCamSpeed    = NaN;
+        sentCamTurn   = NaN;
+        redrawDirtyRef.current = false;
+        lastWorkTs = now;   // force → bir sonraki karede iş çıkacak; hemen uyuma
+      }
 
       // ── Termal FPS kısıtlaması ────────────────────────────────────────────
       // level>0 → hedef FPS = 30/level (L1≈30, L2≈15, L3≈10 fps).
@@ -704,15 +799,34 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           // Dead Reckoning: s = v × t, kartezyen tahmini (saf matematik utils'te)
           const { lat: drLat, lng: drLng } = projectDeadReckon(lastKnown, obdKmh, now);
 
-          if (now - lastMarkerUpdate > 100) {
+          // DEDUP: DR duruyorsa (obdKmh≈0) projeksiyon aynı noktayı üretir → repaint etme.
+          const _drMoved = Number.isNaN(sentMarkerLat)
+            ? Infinity
+            : distM(sentMarkerLat, sentMarkerLng, drLat, drLng);
+          const _drBearD = Number.isNaN(sentMarkerBear)
+            ? Infinity
+            : bearDelta(sentMarkerBear, lastKnown.heading);
+          const _drChanged = _drMoved >= MARKER_EPS_M || _drBearD >= MARKER_EPS_BEAR;
+
+          if (now - lastMarkerUpdate > 100 && _drChanged) {
             updateUserMarker(drLat, drLng, lastKnown.heading, obdKmh);
             lastMarkerUpdate = now;
+            sentMarkerLat   = drLat;
+            sentMarkerLng   = drLng;
+            sentMarkerBear  = lastKnown.heading;
+            sentMarkerSpeed = obdKmh;
+            lastWorkTs      = now;
           }
-          if (isFollowingRef.current) {
+          if (isFollowingRef.current && _drChanged) {
             const h = containerRef.current?.offsetHeight ?? 600;
             setDrivingView(mapRef.current, drLat, drLng, lastKnown.heading, obdKmh, h);
-            lastCameraUpdate = now;
+            sentCamLat   = drLat;
+            sentCamLng   = drLng;
+            sentCamBear  = lastKnown.heading;
+            sentCamSpeed = obdKmh;
+            lastWorkTs   = now;
           }
+          lastCameraUpdate = now;
         }
       } else {
         // GPS geri geldi — DR state ve uyarıyı temizle
@@ -775,9 +889,42 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // Marker 60ms (~16fps): tek nokta source.setData ucuz → araç ekstrapole yol boyunca
         // daha akıcı kayar (önceki 100ms/10fps'te basamaklı/geride hissi). Kamera throttle'ı
         // (150ms, Mali-400 GPU) ayrı tutulur — marker hızı GPU'yu yük etmez.
-        if (!userInteractingRef.current && now - lastMarkerUpdate > 60) {
+        //
+        // DEDUP (2026-07-11): updateUserMarker KOŞULSUZ `source.setData()` çağırır →
+        // her çağrı bir MapLibre repaint'idir. Konum/heading/hız GERÇEKTEN değişmediyse
+        // çağırma. Park hâlinde (hız < 1.5 km/h, nav/sürüş yok) fix'in doğruluk yarıçapı
+        // altındaki kayma GPS gürültüsüdür — marker sabit tutulur.
+        const _navOrDriving =
+          drivingModeRef.current ||
+          navStatusRef.current === NavStatus.ACTIVE ||
+          navStatusRef.current === NavStatus.REROUTING ||
+          navStatusRef.current === NavStatus.PREVIEW ||
+          navStatusRef.current === NavStatus.ROUTING;
+        const _stationary = !_navOrDriving && speedKmh < STANDSTILL_KMH;
+        const _accM       = locationRef.current?.accuracy ?? 0;
+        const _moveThreshM = _stationary
+          ? Math.max(STANDSTILL_HOLD_M, Number.isFinite(_accM) ? _accM : 0)
+          : MARKER_EPS_M;
+        const _bearThresh  = _stationary ? STANDSTILL_BEAR : MARKER_EPS_BEAR;
+
+        const _markerMovedM   = Number.isNaN(sentMarkerLat)
+          ? Infinity
+          : distM(sentMarkerLat, sentMarkerLng, displayLat, displayLng);
+        const _markerBearD    = Number.isNaN(sentMarkerBear) ? Infinity : bearDelta(sentMarkerBear, bear);
+        const _markerSpeedD   = Number.isNaN(sentMarkerSpeed) ? Infinity : Math.abs(speedKmh - sentMarkerSpeed);
+        const _markerChanged  =
+          _markerMovedM >= _moveThreshM ||
+          _markerBearD  >= _bearThresh  ||
+          _markerSpeedD >= MARKER_EPS_SPEED;
+
+        if (!userInteractingRef.current && now - lastMarkerUpdate > 60 && _markerChanged) {
           updateUserMarker(displayLat, displayLng, bear, speedKmh);
           lastMarkerUpdate = now;
+          sentMarkerLat   = displayLat;
+          sentMarkerLng   = displayLng;
+          sentMarkerBear  = bear;
+          sentMarkerSpeed = speedKmh;
+          lastWorkTs      = now;   // gerçek iş → döngü uyanık kalır
         }
 
         const isPreviewTracking =
@@ -804,22 +951,66 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               const [bLon, bLat] = _rs.steps[_ni2].coordinate;
               _nextTurnBearing = bearingBetween(aLat, aLon, bLat, bLon);
             }
-            // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
-            setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing);
-            lastCameraUpdate = now;
+            // Kamera DEDUP: girdiler (konum/heading/hız/dönüş mesafesi) değişmediyse
+            // kamerayı yeniden hesaplama — setDrivingView her çağrıda MapLibre'yi
+            // yeniden çizdirir. Değişiklik yoksa görüntü zaten doğrudur.
+            const _camMovedM = Number.isNaN(sentCamLat)
+              ? Infinity
+              : distM(sentCamLat, sentCamLng, displayLat, displayLng);
+            const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, bear);
+            const _camSpeedD = Number.isNaN(sentCamSpeed) ? Infinity : Math.abs(speedKmh - sentCamSpeed);
+            const _turnKey   = turnDist ?? -1;
+            const _camChanged =
+              _camMovedM >= CAM_EPS_M ||
+              _camBearD  >= CAM_EPS_BEAR ||
+              _camSpeedD >= MARKER_EPS_SPEED ||
+              _turnKey !== sentCamTurn;
+
+            if (_camChanged) {
+              // Kamera snapped pozisyonu takip eder → GPS zıplamalarını sürücüye hissettirmez
+              setDrivingView(mapRef.current, displayLat, displayLng, bear, speedKmh, h, turnDist, obdSpeedRef.current, _nextTurnBearing);
+              sentCamLat   = displayLat;
+              sentCamLng   = displayLng;
+              sentCamBear  = bear;
+              sentCamSpeed = speedKmh;
+              sentCamTurn  = _turnKey;
+              lastWorkTs   = now;   // gerçek iş
+            }
+            lastCameraUpdate = now; // throttle penceresi her koşulda ilerler
           }
         } else if (!userInteractingRef.current && isFollowingRef.current) {
-          // Nav dışı takip modu (2D) — 500ms'de bir merkezle
+          // Nav dışı takip modu (2D) — 500ms'de bir merkezle (değişiklik varsa)
           if (now - lastCameraUpdate > 500) {
-            setMapCenter(mapRef.current, [lng, lat], 15, false);
-            setMapHeading(mapRef.current, bear);
+            const _camMovedM = Number.isNaN(sentCamLat) ? Infinity : distM(sentCamLat, sentCamLng, lat, lng);
+            const _camBearD  = Number.isNaN(sentCamBear) ? Infinity : bearDelta(sentCamBear, bear);
+            if (_camMovedM >= CAM_EPS_M || _camBearD >= CAM_EPS_BEAR) {
+              setMapCenter(mapRef.current, [lng, lat], 15, false);
+              setMapHeading(mapRef.current, bear);
+              sentCamLat  = lat;
+              sentCamLng  = lng;
+              sentCamBear = bear;
+              lastWorkTs  = now;   // gerçek iş
+            }
             lastCameraUpdate = now;
           }
         }
       } else if (buffer.length === 1 && mapRef.current) {
-        // Tek nokta varsa (başlangıç) doğrudan oraya git
+        // Tek nokta varsa (başlangıç) doğrudan oraya git.
+        // DEDUP: bu dal HER KAREDE koşuyordu → tek fix varken 60 fps repaint (setData).
+        // Nokta değişmediyse çizdirme.
         const p = buffer[0];
-        updateUserMarker(p.lat, p.lng, p.heading, 0);
+        const _pMoved = Number.isNaN(sentMarkerLat)
+          ? Infinity
+          : distM(sentMarkerLat, sentMarkerLng, p.lat, p.lng);
+        const _pBearD = Number.isNaN(sentMarkerBear) ? Infinity : bearDelta(sentMarkerBear, p.heading);
+        if (_pMoved >= MARKER_EPS_M || _pBearD >= MARKER_EPS_BEAR) {
+          updateUserMarker(p.lat, p.lng, p.heading, 0);
+          sentMarkerLat   = p.lat;
+          sentMarkerLng   = p.lng;
+          sentMarkerBear  = p.heading;
+          sentMarkerSpeed = 0;
+          lastWorkTs      = now;
+        }
       }
       } // ── _doHeavy (termal FPS gate) sonu ──
 
@@ -862,6 +1053,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const _onInteractStart = useCallback(() => {
     userInteractingRef.current = true;
     if (interactTimerRef.current) { clearTimeout(interactTimerRef.current); interactTimerRef.current = null; }
+    // Kullanıcı kamerayı elle oynattı → dedup çapası artık kamerayı temsil etmiyor.
+    // Etkileşim bitince takip kamerası (araç yerinde dursa bile) geri merkezlemeli.
+    redrawDirtyRef.current = true;
     // Wake: kullanıcı haritayla etkileşince döngüyü uyandır
     wakeLoopRef.current?.();
     // Map Lite Mode: zayıf GPU'da harekette dekoratif overlay'leri gizle (no-op normalde).
@@ -997,6 +1191,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
       isFollowingRef.current   = true;
       setIsFollowing(true);
       lastDrivingPosRef.current = null; // throttle sıfırla → sonraki GPS tick'inde kesinlikle setDrivingView çalışır
+      redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
       const loc  = locationRef.current;
       const bear = headingRef.current ?? 0;
       const h    = containerRef.current?.offsetHeight ?? 600;
@@ -1168,6 +1363,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   useEffect(() => {
     if (!drivingMode && mapRef.current) {
       lastDrivingPosRef.current = null; // throttle sıfırla — sonraki aktivasyonda hemen çalışsın
+      redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
       exitDrivingView(mapRef.current);
     }
   }, [drivingMode]);
@@ -1244,6 +1440,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     isFollowingRef.current = true;
     setIsFollowing(true);
     lastDrivingPosRef.current = null; // throttle sıfırla → hemen setDrivingView çalışır
+    redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
   }, [navStatus]);
 
   // ACTIVE/REROUTING: sürüş modunu garantile + haritayı 3D nav görünümüne al
@@ -1471,6 +1668,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         if (drivingModeRef.current) {
           const h = containerRef.current?.offsetHeight ?? 600;
           lastDrivingPosRef.current = null;
+          redrawDirtyRef.current = true;    // dedup çapasını da sıfırla → kamera/marker kesinlikle yeniden çizilsin
           enterNavigationView(map, loc.latitude, loc.longitude, hdg || 0, h);
         } else {
           setMapCenter(map, [loc.longitude, loc.latitude], 15, false);
