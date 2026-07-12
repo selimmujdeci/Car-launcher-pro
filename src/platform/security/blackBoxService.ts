@@ -47,6 +47,7 @@ import { getThermalLevel }         from '../thermalWatchdog';
 import { onMemoryPressure }        from '../memoryWatchdog';
 import { getLastIntent }           from '../commandExecutor';
 import { registerBlackBoxGetter }  from '../crashLogger';
+import { subscribeMotion }         from '../sensors';
 
 /* ── Sabitler ────────────────────────────────────────────────── */
 
@@ -334,8 +335,9 @@ function _startAccelerometer(): () => void {
     }
   };
 
-  window.addEventListener('devicemotion', handler);
-  return () => window.removeEventListener('devicemotion', handler);
+  // Ham window aboneliği yerine merkezi Orientation Sensor Gate; gate release'i
+  // aynen döndürülür (çağıran _accelUnsub sözleşmesi değişmez).
+  return subscribeMotion(handler);
 }
 
 /* ── OBD snapshot listener ───────────────────────────────────── */

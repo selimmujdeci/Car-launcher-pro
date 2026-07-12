@@ -21,6 +21,10 @@ import {
   applyMapDayNight,
 } from '../../platform/mapService';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
+import { acquireCompassDemand, releaseCompassDemand } from '../../platform/gps/compassDemand';
+
+/** Mini haritanın compass talep kimliği (owner) — tek örnek varsayımı korunur. */
+const MINI_MAP_COMPASS_OWNER = 'map:mini';
 import { useFusedSpeed } from '../../platform/speedFusion';
 import { getMapStyle, useMapMode, setMapNight, notifyLowFPS } from '../../platform/mapSourceManager';
 import type { MapMode } from '../../platform/mapSourceManager';
@@ -63,6 +67,25 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // uygulanmış son konumu izleyerek; park halinde hareket eşik altındaysa kamera/marker
   // işini TAMAMEN atlarız (GL render burst'ü kesilir). Sürüşte davranış değişmez.
   const wasDrivingRef = useRef(false);
+  // ── Compass TALEBİ (saha fix 2026-07-11) ────────────────────────────────
+  // Mini harita heading'i YALNIZ sürüş dalında kullanır (setDrivingView rotasyonu +
+  // marker yönü). Park/dur dalında kuzey-yukarı statiktir → compass İSTEMEZ.
+  // Bu yüzden talep, widget'ın KENDİ mevcut isDriving histerezisine (giriş >5 km/h,
+  // çıkış <3 km/h) bağlanır; yeni eşik/yeni state EKLENMEZ.
+  const compassHeldRef = useRef(false);
+  const _setCompassDemand = (want: boolean): void => {
+    if (want === compassHeldRef.current) return;          // idempotent
+    compassHeldRef.current = want;
+    if (want) acquireCompassDemand(MINI_MAP_COMPASS_OWNER);
+    else      releaseCompassDemand(MINI_MAP_COMPASS_OWNER);
+  };
+  // Zero-leak: widget unmount olursa (drawer/ekran değişimi) talep MUTLAKA bırakılır.
+  useEffect(() => () => {
+    if (compassHeldRef.current) {
+      compassHeldRef.current = false;
+      releaseCompassDemand(MINI_MAP_COMPASS_OWNER);
+    }
+  }, []);
   const lastAppliedLatRef = useRef(0);
   const lastAppliedLngRef = useRef(0);
   // SAHA 2026-07-04: yer-değiştirme hızı için zaman çapası — fix kadansından
@@ -318,6 +341,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       ? true
       : _effKmh < 3 ? false
       : wasDrivingRef.current;
+
+    // Sürüş → heading-up rotasyon var → compass gerekli. Park → kuzey-yukarı → gereksiz.
+    _setCompassDemand(isDriving);
 
     if (!mapRef.current._initialized) {
       addUserMarker(mapRef.current, latitude, longitude, hdg);

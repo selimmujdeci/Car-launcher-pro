@@ -34,6 +34,7 @@ import vehicleComputeWorkerSrc from '../platform/vehicleDataLayer/VehicleCompute
 import vehicleEventHubSrc from '../platform/vehicleDataLayer/VehicleEventHub.ts?raw';
 import systemOrchestratorSrc from '../platform/system/SystemOrchestrator.ts?raw';
 import healthMonitorSrc from '../platform/system/SystemHealthMonitor.ts?raw';
+import orientationGateSrc from '../platform/sensors/orientationSensorGate.ts?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -1345,5 +1346,37 @@ describe('Sağlık rollup — donanımsız cihazda false-critical kilidi', () =>
     expect(healthMonitorSrc).toMatch(/getOBDStatusSnapshot\(\)\.source !== 'none'/);
     // hasCritical MUTLAKA beklenen-yokluğu dışlamalı (yoksa false-critical geri gelir).
     expect(healthMonitorSrc).toMatch(/!s\.healthy && s\.criticality === 'critical' && !isExpectedAbsence/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   PR 1 — Orientation Sensor Gate Foundation kilitleri.
+
+   Kapı, ham DeviceOrientation/DeviceMotion event'lerinin MERKEZİ ref-count'lu
+   sahibidir. İki davranış defalarca sessizce bozulabilir: (a) visibility
+   listener'ının dispose'ta sökülmemesi (zero-leak ihlali), (b) modülün bir
+   tüketici/motor import ederek bağımsızlığını + import-yan-etkisizliğini
+   kaybetmesi. Bu kilitler ikisini de dondurur.
+   ─────────────────────────────────────────────────────────────── */
+describe('Orientation Sensor Gate — foundation kilitleri', () => {
+  it('YAPISAL: gate tek visibilitychange listener kurar VE dispose\'ta söker (zero-leak)', () => {
+    expect(orientationGateSrc, 'visibilitychange dinleyicisi eklenmiyor — hidden/visible gate çalışmaz')
+      .toMatch(/addEventListener\(\s*'visibilitychange'\s*,\s*_onVisibilityChange\s*\)/);
+    expect(orientationGateSrc, 'visibilitychange dinleyicisi sökülmüyor — zero-leak ihlali')
+      .toMatch(/removeEventListener\(\s*'visibilitychange'\s*,\s*_onVisibilityChange\s*\)/);
+  });
+
+  it('YAPISAL: gate tamamen bağımsız — hiç import yok (import yan etkisiz, GPS/MapLibre/Kernel etkilenmez)', () => {
+    // Tek bir top-level `import` bile yok → hiçbir tüketici/motoru import edip
+    // etkileyemez; modül yüklenmesi yan etkisizdir.
+    expect(orientationGateSrc, 'gate artık bağımsız değil — bir modül import edilmiş')
+      .not.toMatch(/^\s*import\s/m);
+  });
+
+  it('YAPISAL: gate native sampling rate iddiası taşımaz (legacy event API frekans kontrolü yok)', () => {
+    // Generic Sensor API / frekans ayarı EKLENMEMELİ — bu PR yalnız JS-tarafı
+    // abonelik yönetir; native samplingPeriod PR 2/3 wiring'i ile değişir.
+    expect(orientationGateSrc).not.toMatch(/new\s+(Gyroscope|Accelerometer|AbsoluteOrientationSensor|RelativeOrientationSensor)/);
+    expect(orientationGateSrc).not.toMatch(/frequency\s*:/);
   });
 });

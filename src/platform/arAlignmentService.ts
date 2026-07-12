@@ -26,6 +26,11 @@
 
 import { create } from 'zustand';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import {
+  subscribeOrientationAbsolute,
+  subscribeOrientation,
+  subscribeMotion,
+} from './sensors';
 
 /* ─────────────────────────────────────────────────────────────── */
 /* TYPES                                                           */
@@ -80,10 +85,11 @@ let _orientationActive = false;  // true once we get a reliable absolute orienta
 let _gyroLastMs        = 0;
 let _initialized       = false;
 
-let _absOrientHandler:  ((e: Event) => void) | null = null;
-let _relOrientHandler:  ((e: Event) => void) | null = null;
-let _motionHandler:     ((e: Event) => void) | null = null;
-let _syncTimer:         (() => void) | null = null;
+// Orientation Sensor Gate release fonksiyonları (ham window aboneliği yerine).
+let _absRelease:    (() => void) | null = null;
+let _relRelease:    (() => void) | null = null;
+let _motionRelease: (() => void) | null = null;
+let _syncTimer:     (() => void) | null = null;
 
 /* ─────────────────────────────────────────────────────────────── */
 /* ANGLE MATH                                                      */
@@ -262,18 +268,16 @@ function _syncStore(): void {
 
 /** Start listening to device sensors. Idempotent. */
 export function startARAlignment(): void {
-  if (_absOrientHandler) return; // already running
+  if (_absRelease) return; // already running
 
-  _absOrientHandler = _onAbsoluteOrientation;
-  _relOrientHandler = _onRelativeOrientation;
-  _motionHandler    = _onMotion;
-
-  // Absolute orientation (primary — Android, reports at ~60 Hz)
-  window.addEventListener('deviceorientationabsolute', _absOrientHandler, true);
-  // Standard orientation (iOS webkitCompassHeading, or Android fallback)
-  window.addEventListener('deviceorientation', _relOrientHandler, true);
-  // Motion (gyro integration + pitch/roll from accelerometer)
-  window.addEventListener('devicemotion', _motionHandler, true);
+  // Ham window aboneliği yerine merkezi Orientation Sensor Gate üzerinden abone
+  // ol. Handler'lar, callback sırası ve event içeriği aynen korunur; gate aynı
+  // ham event için tek fiziksel listener paylaştırır ve görünürlükle yönetir.
+  // (capture-fazı kaldırıldı — pencere-hedefli device event'lerinde teslim
+  //  faz-bağımsızdır, davranış değişmez.)
+  _absRelease    = subscribeOrientationAbsolute(_onAbsoluteOrientation);
+  _relRelease    = subscribeOrientation(_onRelativeOrientation);
+  _motionRelease = subscribeMotion(_onMotion);
 
   // Sync to Zustand store at 2 fps — 10fps gereksiz CPU harcıyor (§L.0, FAZ 16).
   _syncTimer = runtimeManager.scheduleTask({
@@ -283,18 +287,11 @@ export function startARAlignment(): void {
 
 /** Stop all sensor listeners and reset alignment state. */
 export function stopARAlignment(): void {
-  if (_absOrientHandler) {
-    window.removeEventListener('deviceorientationabsolute', _absOrientHandler, true);
-    _absOrientHandler = null;
-  }
-  if (_relOrientHandler) {
-    window.removeEventListener('deviceorientation', _relOrientHandler, true);
-    _relOrientHandler = null;
-  }
-  if (_motionHandler) {
-    window.removeEventListener('devicemotion', _motionHandler, true);
-    _motionHandler = null;
-  }
+  // Gate release'leri çağır (idempotent) — son consumer ayrılınca gate fiziksel
+  // listener'ı kendisi söker.
+  if (_absRelease)    { _absRelease();    _absRelease = null; }
+  if (_relRelease)    { _relRelease();    _relRelease = null; }
+  if (_motionRelease) { _motionRelease(); _motionRelease = null; }
   if (_syncTimer) { _syncTimer(); _syncTimer = null; }
 
   _fusedHeadingDeg   = 0;
