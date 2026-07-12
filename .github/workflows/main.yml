@@ -187,6 +187,12 @@ jobs:
           echo "✓ dist/index.html present"
           du -sh dist/
 
+      - name: Secret leak scan (release bundle)
+        # Gizli AI anahtarı (Gemini/Claude/Groq/xAI) derlenmiş bundle'a sızmışsa
+        # release'i BLOKLAR. Kaynak nokta-erişim düzeltmesinin son savunması —
+        # biri .env'e tekrar anahtar koyup bracket erişim eklerse yakalar.
+        run: npm run scan:secrets
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
