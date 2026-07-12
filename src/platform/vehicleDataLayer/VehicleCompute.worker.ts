@@ -20,6 +20,7 @@ import type { CanAdapterData, ObdAdapterData, GpsAdapterData, VehicleState, Work
 import type { VehicleEvent } from './VehicleEventHub';
 import type { NormalizedVehicleData, SignalSource } from './valTypes';
 import { OdometerGuard } from './OdometerGuard';
+import { createSourceHealthGate } from './sourceHealthGate';
 
 // ── Mesaj protokolü ──────────────────────────────────────────────────────
 
@@ -43,6 +44,12 @@ export type WorkerInMessage =
   | { type: 'RESTORE_ODO';      km: number }
   /** DEV-only kaos: _odoTMR'a bit-flip enjekte et (median recovery testi). */
   | { type: 'CHAOS_BITFLIP' }
+  /**
+   * Uygulama görünürlüğü (ana thread `visibilitychange` → resolver). YALNIZ kaynak sağlığı
+   * (SOURCE_HEALTH) kararını etkiler: arka planda timer kısılması + frame sessizliği sahte
+   * "ölü" üretmesin. Fusion/reverse/SAB/odometre davranışına DOKUNMAZ, timer AÇMAZ/KAPATMAZ.
+   */
+  | { type: 'VISIBILITY';       visible: boolean }
   | { type: 'STOP' };
 
 export type WorkerOutMessage =
@@ -423,12 +430,23 @@ let _prevCanAlive: boolean | null = null;
 let _prevObdAlive: boolean | null = null;
 let _prevGpsAlive: boolean | null = null;
 
+/* Görünürlük kapısı: arka planda watchdog kısılması + frame sessizliği SAHTE "ölü" üretmesin
+ * (bkz. sourceHealthGate). Yalnız bu bloğu etkiler; fusion/reverse/SAB kararları HAM kalır. */
+const _healthGate = createSourceHealthGate();
+
 const _outSourceHealth: Extract<WorkerOutMessage, { type: 'SOURCE_HEALTH' }> = {
   type: 'SOURCE_HEALTH', can: false, obd: false, gps: false, ts: 0,
 };
 
 /** Yalnız DEĞİŞİMDE postlar (duplicate durum mesaj üretmez). Yeni timer AÇMAZ. */
-function _postSourceHealthIfChanged(can: boolean, obd: boolean, gps: boolean): void {
+function _postSourceHealthIfChanged(canRaw: boolean, obdRaw: boolean, gpsRaw: boolean): void {
+  if (!_healthGate.isVisible()) return;   // arka plan → sağlık GEÇİŞİ DONDURULUR
+  const now = performance.now();
+  const can = _healthGate.decide(now, _canLastSeen, SRC_TIMEOUT_CAN_MS, canRaw, _prevCanAlive);
+  const obd = _healthGate.decide(now, _obdLastSeen, SRC_TIMEOUT_OBD_MS, obdRaw, _prevObdAlive);
+  const gps = _healthGate.decide(now, _gpsLastSeen, SRC_TIMEOUT_GPS_MS, gpsRaw, _prevGpsAlive);
+  // Foreground yeniden-tabanlama penceresi: karar verilemiyor → POSTLAMA (unknown korunur)
+  if (can === null || obd === null || gps === null) return;
   if (can === _prevCanAlive && obd === _prevObdAlive && gps === _prevGpsAlive) return;
   _prevCanAlive = can;
   _prevObdAlive = obd;
@@ -436,8 +454,13 @@ function _postSourceHealthIfChanged(can: boolean, obd: boolean, gps: boolean): v
   _outSourceHealth.can = can;
   _outSourceHealth.obd = obd;
   _outSourceHealth.gps = gps;
-  _outSourceHealth.ts  = performance.now();   // monotonik; araç verisi/PII YOK
+  _outSourceHealth.ts  = now;                 // monotonik; araç verisi/PII YOK
   self.postMessage(_outSourceHealth);
+}
+
+/** Ana thread görünürlük bildirimi — YALNIZ sağlık kapısını besler (timer'lara DOKUNMAZ). */
+function _handleVisibility(msg: Extract<WorkerInMessage, { type: 'VISIBILITY' }>): void {
+  _healthGate.setVisible(msg.visible === true, performance.now());
 }
 
 function _postEvent(ev: VehicleEvent): void {
@@ -1356,6 +1379,7 @@ self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
     case 'UPDATE_GEOFENCE': _handleUpdateGeofence(msg);  break;
     case 'RESTORE_ODO':     _handleRestoreOdo(msg);      break;
     case 'CHAOS_BITFLIP':   if (import.meta.env.DEV) _handleChaosBitflip(); break;
+    case 'VISIBILITY':      _handleVisibility(msg);      break;
     case 'STOP':            _handleStop();               break;
   }
 };

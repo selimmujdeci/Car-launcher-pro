@@ -50,6 +50,9 @@ export class VehicleSignalResolver {
   private readonly _onCrash?: () => void;
   // Bound referans saklanır → removeEventListener doğru çalışsın
   private _onWorkerMessageBound: ((e: MessageEvent) => void) | null = null;
+  // Görünürlük kanalı (worker sağlık kapısı) — start()'ta bağlanır, stop()'ta SÖKÜLÜR
+  private _onVisibilityBound:    (() => void) | null = null;
+  private _lastVisibleSent:      boolean | null      = null;
 
   // SAB zero-copy channel — null when fallback (old WebView / no COOP+COEP)
   private _sab:       SharedArrayBuffer | null = null;
@@ -162,15 +165,42 @@ export class VehicleSignalResolver {
     );
     this.hal.start();
 
+    // ── Görünürlük kanalı ────────────────────────────────────────────────
+    // Arka planda WebView timer'ları kısılır ve adaptör frame'leri durur; worker'ın
+    // 1 Hz watchdog'u `performance.now() - lastSeen` ile ölçtüğü için dönüşte SAHTE
+    // "kaynak öldü" kararı üretebilir. Görünürlüğü worker'a bildiririz — worker yalnız
+    // SOURCE_HEALTH kararını dondurur/yeniden tabanlar (bkz. sourceHealthGate).
+    // YENİ TIMER YOK: tek `visibilitychange` dinleyicisi (mevcut proje deseni).
+    if (typeof document !== 'undefined') {
+      this._onVisibilityBound = () => this._sendVisibility();
+      document.addEventListener('visibilitychange', this._onVisibilityBound);
+      this._sendVisibility();   // ilk durum (uygulama arka planda başlatılmış olabilir)
+    }
+
     this.can.start();
     this.obd.start();
     this.gps.start();
+  }
+
+  /** Görünürlük DEĞİŞİMİNDE worker'a bildirir (aynı durum tekrar POSTLANMAZ — spam yok). */
+  private _sendVisibility(): void {
+    if (typeof document === 'undefined') return;
+    const visible = document.visibilityState === 'visible';
+    if (visible === this._lastVisibleSent) return;
+    this._lastVisibleSent = visible;
+    this._send({ type: 'VISIBILITY', visible });
   }
 
   stop(): void {
     this._started = false;
     clearSABChannel();
     this._stopSabPolling();
+    // Görünürlük dinleyicisi SÖKÜLÜR (zero-leak) → dispose sonrası worker'a mesaj GİTMEZ
+    if (this._onVisibilityBound && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._onVisibilityBound);
+    }
+    this._onVisibilityBound = null;
+    this._lastVisibleSent   = null;
     this.can.stop();
     this.obd.stop();
     this.gps.stop();
