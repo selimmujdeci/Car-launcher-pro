@@ -329,6 +329,13 @@ export class VehicleSignalResolver {
         // Worker GPS kalite arızası → HealthMonitor bilsin (garbage fix beat'i maskelemesin)
         healthMonitor.setGpsQuality(!msg.active, msg.accuracy);
         break;
+      case 'SOURCE_HEALTH':
+        // PR-1: worker'ın 1 Hz watchdog'unda hesapladığı per-kaynak canlılık (yalnız GEÇİŞTE gelir)
+        // → halStatusStore. Bu PR'da hiçbir sinyali unsupported YAPMAZ (tüketim ayrı PR).
+        useHALStatusStore.getState().setSourceHealth({
+          can: msg.can, obd: msg.obd, gps: msg.gps, ts: msg.ts,
+        });
+        break;
     }
   }
 }

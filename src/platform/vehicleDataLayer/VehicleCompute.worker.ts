@@ -54,7 +54,18 @@ export type WorkerOutMessage =
    * active=true → arıza başladı, active=false → kalite normale döndü.
    * SystemHealthMonitor bu olayı dinler (garbage fix'ler beat'i maskeleyemez).
    */
-  | { type: 'GPS_FAILURE';  active: boolean; accuracy: number; ts: number };
+  | { type: 'GPS_FAILURE';  active: boolean; accuracy: number; ts: number }
+  /**
+   * Kaynak sağlığı (PR-1 "Source Health Transport"): worker'ın ZATEN hesapladığı per-kaynak
+   * canlılık (`_alive(_xLastSeen, SRC_TIMEOUT_X_MS)`) ana thread'e taşınır. YENİ TIMER YOK —
+   * mevcut 1 Hz `_watchdog()` kullanılır. YALNIZ DEĞİŞİM ANINDA gönderilir (kenar-tetikli):
+   * aynı durum tekrar tekrar POSTLANMAZ. Payload YALNIZ boolean + timestamp — araç verisi
+   * (hız/RPM/CAN frame), VIN veya PII TAŞIMAZ.
+   *
+   * ⚠️ Bu mesaj sinyalleri unsupported YAPMAZ ve HAL/adapter/Event Bus/bridge davranışını
+   * DEĞİŞTİRMEZ; yalnız bilgi taşır (tüketim AYRI PR).
+   */
+  | { type: 'SOURCE_HEALTH'; can: boolean; obd: boolean; gps: boolean; ts: number };
 
 // ── Sabitler ─────────────────────────────────────────────────────────────
 
@@ -402,6 +413,31 @@ function _alive(lastSeen: number, timeout: number): boolean {
 function _postPatch(patch: Partial<VehicleState>): void {
   _outState.patch = patch;
   self.postMessage(_outState);
+}
+
+/* ── Kaynak sağlığı (PR-1) — kenar-tetikli, allocation'sız ────────────────────
+ * Önceki durum `null` = BİLİNMİYOR (henüz hiç watchdog turu geçmedi). "unknown" ile
+ * "false" KARIŞTIRILMAZ: ilk tur mutlaka gönderilir (bilinmiyor → bilinen), sonrasında
+ * YALNIZ değişimde. Pre-allocated envelope (V8 hidden-class stabilitesi, zero-allocation). */
+let _prevCanAlive: boolean | null = null;
+let _prevObdAlive: boolean | null = null;
+let _prevGpsAlive: boolean | null = null;
+
+const _outSourceHealth: Extract<WorkerOutMessage, { type: 'SOURCE_HEALTH' }> = {
+  type: 'SOURCE_HEALTH', can: false, obd: false, gps: false, ts: 0,
+};
+
+/** Yalnız DEĞİŞİMDE postlar (duplicate durum mesaj üretmez). Yeni timer AÇMAZ. */
+function _postSourceHealthIfChanged(can: boolean, obd: boolean, gps: boolean): void {
+  if (can === _prevCanAlive && obd === _prevObdAlive && gps === _prevGpsAlive) return;
+  _prevCanAlive = can;
+  _prevObdAlive = obd;
+  _prevGpsAlive = gps;
+  _outSourceHealth.can = can;
+  _outSourceHealth.obd = obd;
+  _outSourceHealth.gps = gps;
+  _outSourceHealth.ts  = performance.now();   // monotonik; araç verisi/PII YOK
+  self.postMessage(_outSourceHealth);
 }
 
 function _postEvent(ev: VehicleEvent): void {
@@ -1011,6 +1047,10 @@ function _watchdog(): void {
   const canAlive = _alive(_canLastSeen, SRC_TIMEOUT_CAN_MS);
   const obdAlive = _alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS);
   const gpsAlive = _alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS);
+
+  // PR-1: kaynak sağlığını ana thread'e taşı — MEVCUT 1 Hz watchdog, yeni timer YOK.
+  // Yalnız geçişte postlanır; sinyalleri unsupported YAPMAZ (tüketim ayrı PR).
+  _postSourceHealthIfChanged(canAlive, obdAlive, gpsAlive);
 
   // CAN + OBD ikisi de stale → geri vites overlay'ini sıfırla
   if (!canAlive && !obdAlive) {
