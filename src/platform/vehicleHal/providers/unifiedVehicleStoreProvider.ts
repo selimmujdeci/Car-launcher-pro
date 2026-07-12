@@ -28,7 +28,7 @@
  * `getState()` throw ederse `getSnapshot()` null döner; subscribe kurulamazsa no-op unsub.
  */
 
-import type { NormalizedVehicleSnapshot, VehicleStoreSource } from '../vehicleHalProviderAdapter';
+import type { NormalizedVehicleSnapshot, VehicleStoreSource, SourceHealth } from '../vehicleHalProviderAdapter';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * DI hedefi — zustand `useUnifiedVehicleStore` yapısal olarak uyar (doğrudan import YOK)
@@ -60,8 +60,26 @@ export interface UnifiedVehicleStoreLike {
   subscribe: (listener: (state: UnifiedVehicleStateReadable) => void) => (() => void);
 }
 
+/**
+ * Kaynak sağlığı store'u (PR-1 `halStatusStore.sourceHealth`) — yapısal DI (doğrudan import YOK).
+ * `null` = BİLİNMİYOR (worker hiç bildirmedi); `false` = kaynak KESİN ölü; `true` = canlı.
+ */
+export interface SourceHealthReadable {
+  readonly canAlive: boolean | null;
+  readonly obdAlive: boolean | null;
+  readonly gpsAlive: boolean | null;
+  readonly updatedAt: number | null;
+}
+
+export interface HalStatusStoreLike {
+  getState: () => { sourceHealth?: SourceHealthReadable };
+  subscribe: (listener: () => void) => (() => void);
+}
+
 export interface UnifiedVehicleStoreProviderDeps {
   readonly store: UnifiedVehicleStoreLike | null | undefined;
+  /** Opsiyonel: verilmezse snapshot'ta `sourceHealth` UNKNOWN kalır (sahte disconnect YOK). */
+  readonly healthStore?: HalStatusStoreLike | null;
 }
 
 /** VehicleStoreSource + açık yaşam döngüsü (adapter yalnız getSnapshot/subscribe kullanır). */
@@ -91,8 +109,26 @@ function _tpms(v: unknown): readonly [number, number, number, number] | null {
   return [v[0], v[1], v[2], v[3]];
 }
 
+/** Bilinmiyor (worker sağlık bildirmedi) — `false` (ölü) ile ASLA karıştırılmaz. */
+const _UNKNOWN_HEALTH: SourceHealth = Object.freeze({ can: null, obd: null, gps: null, ts: null });
+
+/** Yalnız gerçek boolean geçer; her şey (undefined/NaN/metin) → null = BİLİNMİYOR. */
+function _alive(v: unknown): boolean | null {
+  return typeof v === 'boolean' ? v : null;
+}
+
+function _mapHealth(h: SourceHealthReadable | undefined): SourceHealth {
+  if (!h || typeof h !== 'object') return _UNKNOWN_HEALTH;
+  return Object.freeze({
+    can: _alive(h.canAlive),
+    obd: _alive(h.obdAlive),
+    gps: _alive(h.gpsAlive),
+    ts: typeof h.updatedAt === 'number' && Number.isFinite(h.updatedAt) ? h.updatedAt : null,
+  });
+}
+
 /** Store state → HAL alt-kümesi (yeni dondurulmuş obje; ignition/metadata UYDURULMAZ). */
-function _mapSnapshot(s: UnifiedVehicleStateReadable): NormalizedVehicleSnapshot {
+function _mapSnapshot(s: UnifiedVehicleStateReadable, health: SourceHealth): NormalizedVehicleSnapshot {
   return Object.freeze({
     speed: _num(s.speed),
     rpm: _num(s.rpm),
@@ -109,6 +145,7 @@ function _mapSnapshot(s: UnifiedVehicleStateReadable): NormalizedVehicleSnapshot
     canTpmsKpa: _tpms(s.canTpmsKpa),
     canDoorOpen: _bool(s.canDoorOpen),
     canParkingBrake: _bool(s.canParkingBrake),
+    sourceHealth: health,
   });
 }
 
@@ -125,31 +162,55 @@ export function createUnifiedVehicleStoreProvider(
   deps: UnifiedVehicleStoreProviderDeps,
 ): UnifiedVehicleStoreProvider {
   const store = deps && deps.store ? deps.store : null;
+  const healthStore = deps && deps.healthStore ? deps.healthStore : null;
   // Aktif abonelikleri izle (dispose zero-leak + duplicate koruması).
+  // NOT: sayaç ADAPTER aboneliği başına 1'dir — araç + sağlık store'u TEK unsub'a sarılır
+  // (teşhisteki `activeSubscriptionCount=1` invaryantı korunur).
   const unsubs = new Set<() => void>();
+
+  /** Sağlık store'u yoksa/okunamazsa UNKNOWN (fail-soft) — sahte disconnect ÜRETİLMEZ. */
+  function readHealth(): SourceHealth {
+    if (!healthStore) return _UNKNOWN_HEALTH;
+    try { return _mapHealth(healthStore.getState()?.sourceHealth); } catch { return _UNKNOWN_HEALTH; }
+  }
 
   function getSnapshot(): NormalizedVehicleSnapshot | null {
     if (!store) return null;                          // store yok → fail-soft
     let raw: UnifiedVehicleStateReadable | null = null;
     try { raw = store.getState(); } catch { return null; } // getState throw → fail-soft
     if (!raw || typeof raw !== 'object') return null;
-    return _mapSnapshot(raw);                          // store state MUTATE EDİLMEZ
+    return _mapSnapshot(raw, readHealth());            // store state MUTATE EDİLMEZ
   }
 
   function subscribe(listener: () => void): () => void {
     if (!store) return () => { /* store yok → no-op unsub */ };
-    let real: (() => void) | null = null;
+    const safe = () => { try { listener(); } catch { /* listener izole */ } };
+    let realStore: (() => void) | null = null;
+    let realHealth: (() => void) | null = null;
     try {
-      real = store.subscribe(() => { try { listener(); } catch { /* listener izole */ } });
+      realStore = store.subscribe(safe);
     } catch {
-      real = null;                                     // abonelik kurulamadı → fail-soft
+      realStore = null;                                // abonelik kurulamadı → fail-soft
     }
-    if (real) unsubs.add(real);
+    if (healthStore) {
+      // Sağlık DEĞİŞİMİ de refresh tetiklemeli (CAN ölünce store yazımı GELMEZ).
+      try { realHealth = healthStore.subscribe(safe); } catch { realHealth = null; }
+    }
+    if (!realStore && !realHealth) return () => { /* hiçbiri kurulamadı → no-op */ };
+
+    // İki alt-abonelik TEK kayıt olarak tutulur → activeSubscriptionCount 1 kalır.
+    const combined = () => {
+      if (realStore) { try { realStore(); } catch { /* */ } realStore = null; }
+      if (realHealth) { try { realHealth(); } catch { /* */ } realHealth = null; }
+    };
+    unsubs.add(combined);
+
     let done = false;                                  // İDEMPOTENT unsubscribe
     return () => {
       if (done) return;
       done = true;
-      if (real) { unsubs.delete(real); try { real(); } catch { /* */ } real = null; }
+      unsubs.delete(combined);
+      combined();
     };
   }
 

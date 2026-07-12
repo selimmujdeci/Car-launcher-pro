@@ -173,8 +173,12 @@ describe('PR-1 — kapsam sınırı', () => {
     }
   });
 
-  it('adapter hâlâ halStatusStore OKUMAZ (fail-closed tüketim AYRI PR)', () => {
-    expect(adapterSrc).not.toMatch(/halStatusStore|sourceHealth/i);
+  it('adapter sağlığı YALNIZ snapshot üzerinden tüketir; halStatusStore DOĞRUDAN import EDİLMEZ', () => {
+    // KİLİT GÜNCELLENDİ (PR-2): fail-closed tüketim geldi → adapter artık `sourceHealth`'i
+    // provider snapshot'ından okur. DEĞİŞMEYEN invaryant: store'lar yapısal DI ile gelir,
+    // adapter/provider halStatusStore'u DOĞRUDAN import ETMEZ (import yan etkisiz kalır).
+    expect(adapterSrc).toMatch(/sourceHealth/);
+    expect(adapterSrc).not.toMatch(/from\s+['"][^'"]*halStatusStore/);
   });
 
   it('sağlık bloğu hiçbir sinyali unsupported YAPMAZ (source:none üretmez)', () => {

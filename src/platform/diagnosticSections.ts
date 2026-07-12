@@ -484,11 +484,29 @@ export interface PlatformHalBridgeDiag {
   lastPublishAt: number | null;
 }
 
+/**
+ * Kaynak sağlığı (PR-1 worker watchdog → halStatusStore). `null` = **BİLİNMİYOR**
+ * (worker hiç bildirmedi) — `false` (kaynak ÖLÜ) ile ASLA karıştırılmaz.
+ * Yalnız 3 boolean|null + monotonik ts: sinyal DEĞERİ (hız/RPM), CAN frame, VIN,
+ * koordinat, ham payload GİRMEZ.
+ */
+export interface PlatformSourceHealthDiag {
+  can: boolean | null;
+  obd: boolean | null;
+  gps: boolean | null;
+  lastChangeAt: number | null;
+}
+
 export interface PlatformRuntimeSnapshot {
   eventBus: PlatformEventBusDiag;
   halWiring: PlatformHalWiringDiag;
   halBridge: PlatformHalBridgeDiag;
+  sourceHealth: PlatformSourceHealthDiag;
 }
+
+const _SOURCE_HEALTH_UNKNOWN: PlatformSourceHealthDiag = {
+  can: null, obd: null, gps: null, lastChangeAt: null,
+};
 
 const _EVENT_BUS_ABSENT: PlatformEventBusDiag = {
   present: false, disposed: false,
@@ -571,7 +589,19 @@ export function buildPlatformRuntimeSnapshot(): PlatformRuntimeSnapshot {
     };
   }, _HAL_BRIDGE_ABSENT);
 
-  return { eventBus: bus, halWiring, halBridge };
+  const sourceHealth = _safe<PlatformSourceHealthDiag>(() => {
+    const h = useHALStatusStore.getState().sourceHealth;
+    if (!h || typeof h !== 'object') return _SOURCE_HEALTH_UNKNOWN;
+    const b = (v: unknown) => (typeof v === 'boolean' ? v : null);   // null = BİLİNMİYOR
+    return {
+      can: b(h.canAlive),
+      obd: b(h.obdAlive),
+      gps: b(h.gpsAlive),
+      lastChangeAt: _ts(h.updatedAt),
+    };
+  }, _SOURCE_HEALTH_UNKNOWN);
+
+  return { eventBus: bus, halWiring, halBridge, sourceHealth };
 }
 
 /* ── util ────────────────────────────────────────────────────── */
