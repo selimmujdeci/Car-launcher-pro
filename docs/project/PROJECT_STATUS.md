@@ -15,9 +15,9 @@
 
 | Alan | Değer |
 |------|-------|
-| **Current main HEAD** | `86d6087` — Merge PR #76 (Deep Scan runtime ownership wiring, W5-1) |
-| **Bir önceki** | `6959fc5` — Merge PR #75 (Capability → Event Bus bridge, W4) |
-| **Branch (aktif çalışma ağacı)** | `main` |
+| **Current main HEAD** | `2ecf627` — Merge PR #78 (docs/project bootstrap, yalnız dokümantasyon) |
+| **Bir önceki** | `86d6087` — Merge PR #76 (Deep Scan runtime ownership wiring, W5-1) |
+| **Branch (aktif çalışma ağacı)** | `main` (local = `origin/main` = `2ecf627`) |
 
 ---
 
@@ -25,6 +25,7 @@
 
 | PR | Konu | Wave | Commit |
 |----|------|------|--------|
+| #78 | docs/project çalışma altyapısı (kod YOK, 9 doküman) | — | 2ecf627 / 62f724f |
 | #76 | Deep Scan runtime ownership wiring | W5-1 | 86d6087 / e05a066 |
 | #75 | Capability → Event Bus bridge wiring | W4 | 6959fc5 / f8db22c |
 | #74 | Capability Registry runtime wiring | W3 | 518a7cb / 9337cf0 |
@@ -73,14 +74,14 @@ Detay: `ROADMAP.md`.
 |------|-------|
 | **Son cihaz doğrulaması** | 🟢 #56 (Xiaomi, background sahte-dead kapısı, ~20dk) — araç kanıtı hâlâ eksik |
 | **Son host doğrulama** | W5-1 test suite 3677, tsc/lint/build temiz (PR#76 raporu) |
-| **Son CI** | main yeşil (PR#76 merge sonrası) |
+| **Son CI** | 🟢 main yeşil @ `2ecf627` — Lint & Type-Check ✅ · Unit Tests ✅ · Production Build ✅ · CodeQL ✅ |
 | **Son APK** | Bu oturumda üretilmedi (APK yalnız "apk ver" isteği üzerine) |
 
 ---
 
 ## Bilinen blockerlar
 
-- **Araç doğrulaması yok:** Tüm W2–W5 platform core wiring'leri host-verified ama gerçek araçta/OBD ile kanıtlanmadı (Ledger #49–#61 🔴).
+- **Araç doğrulaması yok:** Tüm W2–W5 platform core wiring'leri host-verified ama gerçek araçta/OBD ile kanıtlanmadı (Ledger #49–#61 🔴). PR #78 dokümantasyon olduğu için Ledger'a girmez.
 - **Gömülü AI anahtarı sızıntısı (SATIŞ BLOCKER):** `.env` VITE_GEMINI/CLAUDE anahtarları dist+APK'ya literal gömülü — fix PR #73 AÇIK, rotate + kaldır bekliyor.
 - **Supabase anon FULL grant:** 19/21 tabloda `anon` full grant (SQL PR #32–34 AÇIK, canlıya uygulanmadı).
 
@@ -91,3 +92,14 @@ Detay: `ROADMAP.md`.
 - SAB/COI prod'da KAPALI (YouTube/müzik COEP çatışması) — bilinçli, fail-soft kanıtlı. Kör COOP/COEP patch YASAK.
 - Native `canStatus` transport-only; sessiz frame kaybı yalnız worker watchdog ile görülür (PR#71/#72 ile kapatıldı, araç kanıtı bekliyor).
 - Deep Scan foundation main'de PASİF: W5-1 yalnız ownership, `start()/run()` çağrılmıyor → aktif ECU/PID/DID sorgusu YOK (bilinçli).
+- **🔴 W5-3 analizinde bulundu — persistence zehirlenme tuzağı** (henüz kod yazılmadı; main'de tarama koşmadığı için **şu an sömürülmüyor**):
+  Deep Scan offline fazları mevcut faz sırasıyla sonuna kadar koşturulursa `_finalize()` → `persistence.completeScan()`
+  → `hasCompletedFullScan = true` olur; **hiç keşif içermeyen boş bir tarama "tam tarama" sayılır** ve sonraki gerçek
+  tarama kalıcı olarak CHANGE_CHECK'e düşer (`deepScanPersistence.ts:430-436` + `deepScanOrchestrator.ts:504`).
+  W5-3 tasarımı bunu yapısal olarak yasaklar (offline pass `_finalize()`/`completeScan()` çağırmaz).
+- **🔴 W5-3 analizinde bulundu — aktif-kayıt kapısı tuzağı** (aynı şekilde henüz sömürülmüyor):
+  `_applyResult()` handler payload'ını **faz sınıfına bakmadan** runtime'ın aktif-kayıt API'lerine yollar;
+  kontak `true` değilse `_acceptActiveRecord` → `_requireIgnition` → durum `waiting_for_ignition`'a düşer
+  (`deepScanOrchestrator.ts:281-324` + `deepScanRuntimeService.ts:349-353`). Yani bir OFFLINE faz pasif
+  gözlem döndürse bile — **hiç aktif sorgu göndermeden** — durum bozulur. Kontak-serbest tek yol:
+  `recordChangeDetection()`. Detay: `ROADMAP.md` → W5-3.
