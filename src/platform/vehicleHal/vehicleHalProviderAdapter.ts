@@ -18,6 +18,18 @@
  * `inferred`; confidence VAL SIGNAL_SOURCE_DEFAULTS taban gerekçesiyle muhafazakâr sabit
  * (magic uydurma yok). Provider/HAL hatası HAL'e/çağırana SIZMAZ (fail-soft).
  *
+ * 🔒 KAYNAK KAYBI / FAIL-CLOSED (W4B): Daha önce HAL'e aktarılmış bir sinyalin store'daki
+ * değeri KAYBOLURSA (worker kaynak-timeout'unda `null` yayar; `resetCanData()` CAN alanlarını
+ * `null`'lar), bu KESİN kopma kanıtıdır → sinyal `source:'none'` ile ingest edilir → HAL'de
+ * `supported=false` + değer `null` (eski değer "hâlâ geçerli" gibi durmaz). **unknown ≠ disconnected:**
+ * hiç aktarılmamış sinyal için (boot, kaynak hiç gelmemiş) HİÇBİR ŞEY yapılmaz — sahte disconnect
+ * ÜRETİLMEZ. Kayıp yalnız o sinyali düşürür: başka kaynaktan beslenen sinyaller (ör. GPS/OBD ile
+ * canlı kalan füzyon `speed`) supported KALIR — toptan "CAN koptu → HAL'i kapat" YAPILMAZ.
+ * Kaynak geri gelince değer normal yoldan yeniden ingest edilir (`supported=true`, gerçek source).
+ * Aynı disconnected durum TEKRAR ingest edilmez (duplicate emit yok). **Zaman-tabanlı stale
+ * sweeper KAPSAM DIŞI** (`VehicleHal.refresh()` çağrılmaz, timer açılmaz); bu PR yalnız KESİN
+ * kaynak kaybını ele alır. ignition: kaynak yok → hâlâ ASLA üretilmez.
+ *
  * ⚡ BATCH INGEST (W4A — emit amplifikasyonu düzeltmesi): bir `refresh()` içinde değişen
  * TÜM sinyaller tek `hal.ingest(batch)` çağrısıyla verilir. Eskiden sinyal başına
  * `hal.ingestSignal()` çağrılıyordu ve HAL **her değişimde** revision artırıp 15 sinyallik
@@ -115,20 +127,29 @@ interface SignalMapSpec {
   readonly source: VehicleSignalSource;
   readonly quality: SignalQuality;
   readonly confidence: number;
-  /** Değer yoksa (kaynak yok) → null → ingest EDİLMEZ (supported=false kalır). */
-  readonly extract: (s: NormalizedVehicleSnapshot, live: boolean) => ExtractResult;
+  /**
+   * Değer yoksa (kaynak yok) → null. Sinyal DAHA ÖNCE aktarılmışsa bu, kaynağın KAYBI
+   * demektir → `source:'none'` ile fail-closed ingest edilir (supported=false). Hiç
+   * aktarılmamışsa (unknown) HİÇBİR ŞEY yapılmaz — sahte disconnect üretilmez.
+   */
+  readonly extract: (s: NormalizedVehicleSnapshot, live: boolean, canLive: boolean) => ExtractResult;
 }
 
 function _num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-/** Aktif araç kanıtı: en az bir numerik sinyal mevcutsa (boolean sinyaller buna kapılanır). */
-function _isLive(s: NormalizedVehicleSnapshot): boolean {
-  return _num(s.speed) !== null || _num(s.rpm) !== null || _num(s.canRpm) !== null ||
-    _num(s.canCoolantTemp) !== null || _num(s.canBatteryVolt) !== null || _num(s.canGearPos) !== null ||
-    _num(s.canThrottle) !== null || _num(s.canOilTemp) !== null || _num(s.canAmbientTemp) !== null ||
+/** CAN kaynağı canlı mı: CAN-ÖZEL numerik alanlardan en az biri mevcutsa. */
+function _isCanLive(s: NormalizedVehicleSnapshot): boolean {
+  return _num(s.canRpm) !== null || _num(s.canCoolantTemp) !== null || _num(s.canOilTemp) !== null ||
+    _num(s.canThrottle) !== null || _num(s.canBatteryVolt) !== null || _num(s.canGearPos) !== null ||
+    _num(s.canAmbientTemp) !== null ||
     (Array.isArray(s.canTpmsKpa) && s.canTpmsKpa.length === 4);
+}
+
+/** Aktif araç kanıtı: en az bir numerik sinyal mevcutsa (füzyon boolean'ları buna kapılanır). */
+function _isLive(s: NormalizedVehicleSnapshot): boolean {
+  return _num(s.speed) !== null || _num(s.rpm) !== null || _isCanLive(s);
 }
 
 const CAN = (id: VehicleSignalId, extract: SignalMapSpec['extract']): SignalMapSpec =>
@@ -153,10 +174,13 @@ const SIGNAL_MAP: readonly SignalMapSpec[] = [
     if (!Array.isArray(t) || t.length !== 4 || !t.every((x) => typeof x === 'number' && Number.isFinite(x))) return null;
     return { value: [t[0], t[1], t[2], t[3]] };
   }),
-  // Boolean sinyaller: yalnız aktif araç varken (aksi hâlde default false'u kaynak sanma).
+  // Boolean sinyaller: yalnız kaynak canlıyken (aksi hâlde default/reset `false`'u kaynak sanma).
+  // reverse FÜZYON (CAN veya OBD) → genel canlılık; door/parking CAN-ÖZEL → CAN canlılığı.
+  // (W4B: `resetCanData()` CAN boolean'larını `false`'a çeker; genel canlılık GPS hızıyla
+  //  sağlanabildiği için CAN-özel boolean'lar o reset artığını "gerçek veri" sanabiliyordu.)
   INF('vehicle.reverse', (s, live) => (live && typeof s.reverse === 'boolean' ? { value: s.reverse } : null)),
-  CAN('vehicle.door_state', (s, live) => (live && typeof s.canDoorOpen === 'boolean' ? { value: s.canDoorOpen } : null)),
-  CAN('vehicle.parking_brake', (s, live) => (live && typeof s.canParkingBrake === 'boolean' ? { value: s.canParkingBrake } : null)),
+  CAN('vehicle.door_state', (s, _live, canLive) => (canLive && typeof s.canDoorOpen === 'boolean' ? { value: s.canDoorOpen } : null)),
+  CAN('vehicle.parking_brake', (s, _live, canLive) => (canLive && typeof s.canParkingBrake === 'boolean' ? { value: s.canParkingBrake } : null)),
 ];
 
 function _valueEqual(a: unknown, b: unknown): boolean {
@@ -226,16 +250,38 @@ export class VehicleHalProviderAdapter {
     if (!snap || typeof snap !== 'object') return;
 
     const live = _isLive(snap);
+    const canLive = _isCanLive(snap);
     const ts = this._nowSafe();                                       // refresh başına TEK ortak zaman
 
     // Değişiklik yoksa hiç allocation yapma (hot-path): ilk değişimde oluştur.
     let batch: Partial<Record<VehicleSignalId, VehicleSignalInput>> | null = null;
     let pending: PendingIngest[] | null = null;
+    let lost: VehicleSignalId[] | null = null;   // kaynağı kaybolan (fail-closed) sinyaller
 
     for (const spec of SIGNAL_MAP) {                                  // SIGNAL_MAP sırası KORUNUR
       let res: ExtractResult = null;
-      try { res = spec.extract(snap, live); } catch { res = null; } // tek sinyal bozuk → diğerleri sürer
-      if (res === null) continue;                                    // kaynak yok → ingest yok
+      try { res = spec.extract(snap, live, canLive); } catch { res = null; } // tek sinyal bozuk → diğerleri sürer
+
+      if (res === null) {
+        // KAYNAK YOK. İki durum AYRIDIR:
+        //  • unknown  → sinyal hiç aktarılmadı (`_last`'ta yok) → HİÇBİR ŞEY yapma (sahte disconnect YOK).
+        //  • KAYIP    → daha önce aktarılmıştı, artık değeri yok → KESİN kopma kanıtı (worker kaynak
+        //    timeout'unda null yayar; `resetCanData()` CAN alanlarını null'lar) → fail-closed.
+        if (!this._last.has(spec.id)) continue;                       // unknown → sessiz
+        const noneInput: VehicleSignalInput = {
+          value: null,                     // HAL zaten source==='none' için değeri null'a çeker
+          source: 'none',                  // → supported=false
+          quality: 'unknown',              // uydurma kalite YOK
+          confidence: 0,                   // kaynağı yok → güven 0
+          timestamp: ts,                   // GEÇİŞ anı
+        };
+        if (batch === null) { batch = {}; pending = []; }
+        if (lost === null) lost = [];
+        batch[spec.id] = noneInput;
+        lost.push(spec.id);
+        continue;
+      }
+
       const prev = this._last.get(spec.id);
       if (prev !== undefined && _valueEqual(prev, res.value)) continue; // duplicate → ingest yok
       const input: VehicleSignalInput = {
@@ -246,17 +292,24 @@ export class VehicleHalProviderAdapter {
       pending!.push({ id: spec.id, value: res.value });
     }
 
-    if (batch === null || pending === null || pending.length === 0) return; // değişiklik yok → HAL çağrısı YOK
+    if (batch === null || pending === null) return;   // değişiklik/kayıp yok → HAL çağrısı YOK
 
     try {
       this._hal.ingest(batch);          // TEK çağrı → HAL tüm girdileri uygular ve TEK kez emit eder
+                                        // (değer güncellemeleri + kaynak kayıpları AYNI batch'te)
     } catch {
-      return;   // batch TÜMDEN düştü → `_last` GÜNCELLENMEZ: sinyaller "aktarılmış" sayılmaz, sonraki
-                // refresh'te yeniden denenir (HAL idempotenttir: aynı değer → değişim yok → emit yok).
+      return;   // batch TÜMDEN düştü → `_last` GÜNCELLENMEZ: sinyaller "aktarılmış"/"kaybolmuş" sayılmaz,
+                // sonraki refresh'te yeniden denenir (HAL idempotenttir: aynı değer → değişim yok → emit yok).
     }
     // Yalnız BAŞARILI ingest sonrası dedupe kaydı güncellenir (dizi değerler kopyalanır).
     for (const p of pending) {
       this._last.set(p.id, Array.isArray(p.value) ? [...p.value] : p.value);
+    }
+    // Kaynağı kaybolan sinyaller `_last`'tan DÜŞÜRÜLÜR → (a) aynı disconnected durum bir daha
+    // ingest edilmez (duplicate emit yok); (b) kaynak geri gelince değer normal yoldan yeniden
+    // ingest edilir (supported=true + gerçek source geri döner).
+    if (lost !== null) {
+      for (const id of lost) this._last.delete(id);
     }
   }
 
