@@ -83,6 +83,19 @@ export interface NormalizedVehicleSnapshot {
   readonly canTpmsKpa?: readonly [number, number, number, number] | null;
   readonly canDoorOpen?: boolean;
   readonly canParkingBrake?: boolean;
+  /**
+   * Kaynak sağlığı (PR-1 worker watchdog → halStatusStore → provider). `null` = BİLİNMİYOR,
+   * `false` = kaynak KESİN ölü, `true` = canlı. Alan yoksa/UNKNOWN ise SAHTE disconnect YOK.
+   */
+  readonly sourceHealth?: SourceHealth;
+}
+
+/** Bounded kaynak sağlığı — yalnız 3 boolean|null + monotonik ts (araç verisi/PII YOK). */
+export interface SourceHealth {
+  readonly can: boolean | null;
+  readonly obd: boolean | null;
+  readonly gps: boolean | null;
+  readonly ts: number | null;
 }
 
 /** Store bağlama (DI) — gerçek wiring PR'ı `useUnifiedVehicleStore.getState/subscribe` geçirir. */
@@ -122,8 +135,12 @@ interface PendingIngest {
   readonly value: number | boolean | number[];
 }
 
+/** Sinyalin veri kaynağı sınıfı: CAN-ÖZEL (yalnız CAN besler) vs FÜZYON (CAN/OBD/GPS/worker). */
+type SignalSourceKind = 'can_only' | 'fusion';
+
 interface SignalMapSpec {
   readonly id: VehicleSignalId;
+  readonly kind: SignalSourceKind;
   readonly source: VehicleSignalSource;
   readonly quality: SignalQuality;
   readonly confidence: number;
@@ -152,15 +169,22 @@ function _isLive(s: NormalizedVehicleSnapshot): boolean {
   return _num(s.speed) !== null || _num(s.rpm) !== null || _isCanLive(s);
 }
 
+/** CAN-ÖZEL sinyal: yalnız CAN besler → `can=false` (kesin ölü) ise KAYNAKSIZ sayılır. */
 const CAN = (id: VehicleSignalId, extract: SignalMapSpec['extract']): SignalMapSpec =>
-  ({ id, source: 'can', quality: CAN_QUALITY, confidence: CAN_CONFIDENCE, extract });
+  ({ id, kind: 'can_only', source: 'can', quality: CAN_QUALITY, confidence: CAN_CONFIDENCE, extract });
+/** FÜZYON sinyali: CAN ölse de OBD/GPS/worker besleyebilir → sağlık TEK BAŞINA düşürmez. */
 const INF = (id: VehicleSignalId, extract: SignalMapSpec['extract']): SignalMapSpec =>
-  ({ id, source: 'inferred', quality: INFERRED_QUALITY, confidence: INFERRED_CONFIDENCE, extract });
+  ({ id, kind: 'fusion', source: 'inferred', quality: INFERRED_QUALITY, confidence: INFERRED_CONFIDENCE, extract });
 
 /** Sinyal eşleme tablosu. ignition YOK (kaynak yok → supported=false kalır). */
 const SIGNAL_MAP: readonly SignalMapSpec[] = [
   INF('vehicle.speed', (s) => { const v = _num(s.speed); return v === null ? null : { value: v }; }),
-  INF('vehicle.rpm', (s) => { const v = _num(s.rpm) ?? _num(s.canRpm); return v === null ? null : { value: v }; }),
+  // rpm FÜZYON: fused `rpm` yoksa CAN fallback — ama CAN KESİN ÖLÜYSE bayat `canRpm` KULLANILMAZ.
+  INF('vehicle.rpm', (s) => {
+    const canDead = s.sourceHealth?.can === false;
+    const v = _num(s.rpm) ?? (canDead ? null : _num(s.canRpm));
+    return v === null ? null : { value: v };
+  }),
   INF('vehicle.fuel_level', (s) => { const v = _num(s.fuel); return v === null ? null : { value: v }; }),
   INF('vehicle.odometer', (s) => { const v = _num(s.odometer); return v === null || v <= 0 ? null : { value: v }; }),
   CAN('vehicle.coolant_temp', (s) => { const v = _num(s.canCoolantTemp); return v === null ? null : { value: v }; }),
@@ -208,6 +232,11 @@ export class VehicleHalProviderAdapter {
   private _refreshCount = 0;
   /** Sinyal başına son ingest edilen değer (duplicate ingest önleme, O(1)). */
   private readonly _last = new Map<VehicleSignalId, number | boolean | number[]>();
+  /**
+   * CAN ölümü anında donan değerler — kaynak geri gelince AYNI değerle sinyal DİRİLTİLMEZ
+   * (store frame gelmeyince eski değeri tutar; taze veri ancak değer DEĞİŞİNCE kanıtlanır).
+   */
+  private readonly _canDeadValue = new Map<VehicleSignalId, number | boolean | number[]>();
 
   constructor(deps: VehicleHalProviderDeps) {
     this._hal = deps.hal;
@@ -258,9 +287,33 @@ export class VehicleHalProviderAdapter {
     let pending: PendingIngest[] | null = null;
     let lost: VehicleSignalId[] | null = null;   // kaynağı kaybolan (fail-closed) sinyaller
 
+    // KAYNAK SAĞLIĞI (PR-1 worker watchdog): `false` = CAN KESİN ölü · `null` = BİLİNMİYOR.
+    // Bilinmiyorsa HİÇBİR ŞEY yapılmaz (sahte disconnect YOK) → davranış W4B ile aynı kalır.
+    const canDead = snap.sourceHealth?.can === false;
+
     for (const spec of SIGNAL_MAP) {                                  // SIGNAL_MAP sırası KORUNUR
       let res: ExtractResult = null;
       try { res = spec.extract(snap, live, canLive); } catch { res = null; } // tek sinyal bozuk → diğerleri sürer
+
+      if (spec.kind === 'can_only') {
+        if (canDead) {
+          // CAN KESİN ÖLÜ → CAN-ÖZEL sinyal KAYNAKSIZ sayılır. Store'daki DONMUŞ eski değer
+          // (frame gelmediği için null'a dönmez) "geçerli veri" gibi davranamaz.
+          if (res !== null) {
+            // Ölüm anındaki değeri sakla: kaynak geri gelince AYNI (bayat) değer sinyali
+            // DİRİLTMESİN — yalnız GERÇEKTEN YENİ veri supported yapar.
+            if (this._last.has(spec.id) && !this._canDeadValue.has(spec.id)) {
+              this._canDeadValue.set(spec.id, res.value);
+            }
+          }
+          res = null;                                                 // → aşağıdaki fail-closed yolu
+        } else if (res !== null && this._canDeadValue.has(spec.id)) {
+          // CAN yeniden canlı, AMA değer hâlâ ölüm anındaki değerle aynı → henüz TAZE frame yok.
+          // Sahte diriltme YASAK: değer değişene kadar unsupported KALIR (ingest yok).
+          if (_valueEqual(this._canDeadValue.get(spec.id), res.value)) continue;
+          this._canDeadValue.delete(spec.id);                         // gerçekten yeni veri geldi
+        }
+      }
 
       if (res === null) {
         // KAYNAK YOK. İki durum AYRIDIR:
@@ -339,6 +392,7 @@ export class VehicleHalProviderAdapter {
     if (this._disposed) return;
     this.stop();
     this._last.clear();
+    this._canDeadValue.clear();
     this._disposed = true;
   }
 

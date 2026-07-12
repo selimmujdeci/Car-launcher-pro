@@ -11,4 +11,6 @@ export {
   type UnifiedVehicleStoreLike,
   type UnifiedVehicleStoreProviderDeps,
   type UnifiedVehicleStoreProvider,
+  type HalStatusStoreLike,
+  type SourceHealthReadable,
 } from './unifiedVehicleStoreProvider';

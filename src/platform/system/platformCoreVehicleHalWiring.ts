@@ -43,7 +43,11 @@ import {
   createUnifiedVehicleStoreProvider,
   type UnifiedVehicleStoreLike,
   type UnifiedVehicleStoreProvider,
+  type HalStatusStoreLike,
 } from '../vehicleHal/providers';
+// Kaynak sağlığı (PR-1): worker watchdog → halStatusStore. Yalnız SALT-OKUNUR okunur;
+// import yan etkisiz (zustand store yaratımı; abonelik yalnız provider `subscribe()`'ında).
+import { useHALStatusStore } from '../vehicleDataLayer/halStatusStore';
 
 /** Wiring bağımlılıkları — store DI zorunlu; hal opsiyonel (test), varsayılan singleton. */
 export interface VehicleHalWiringDeps {
@@ -51,6 +55,8 @@ export interface VehicleHalWiringDeps {
   readonly store: UnifiedVehicleStoreLike | null | undefined;
   /** Test için HAL enjeksiyonu; verilmezse üretim `vehicleHal` singleton'ı kullanılır. */
   readonly hal?: VehicleHalIngestTarget;
+  /** Test için kaynak-sağlığı store'u; verilmezse üretim `useHALStatusStore`. */
+  readonly healthStore?: HalStatusStoreLike | null;
 }
 
 /** Tek cleanup thunk — İDEMPOTENT + fail-soft. HAL'i dispose ETMEZ. */
@@ -106,7 +112,11 @@ export function startPlatformCoreVehicleHalWiring(deps: VehicleHalWiringDeps): V
     const store = deps && deps.store ? deps.store : null;
     const hal: VehicleHalIngestTarget = deps && deps.hal ? deps.hal : vehicleHal;
 
-    const provider = createUnifiedVehicleStoreProvider({ store });
+    // Kaynak sağlığı: CAN KESİN ölünce (worker watchdog) CAN-özel sinyaller fail-closed olur.
+    // `undefined` → üretim store'u; test `null` geçerek sağlığı BİLİNMİYOR bırakabilir.
+    const healthStore: HalStatusStoreLike | null =
+      deps && 'healthStore' in deps ? (deps.healthStore ?? null) : useHALStatusStore;
+    const provider = createUnifiedVehicleStoreProvider({ store, healthStore });
     const adapter = createVehicleHalProviderAdapter({ hal, source: provider });
 
     // Store yoksa wiring inert kalır (abonelik açılmaz) → aktif kayıt TUTULMAZ ki

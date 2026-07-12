@@ -70,9 +70,15 @@ describe('W4E — teşhis üretimi runtime wiring BAŞLATMAZ', () => {
     // KİLİT GÜNCELLENDİ (W4C): bridge artık üretimde bağlı → teşhis onun BOUNDED sayaçlarını
     // OKUR. Değişmeyen invaryant: teşhis kendisi bridge/consumer YARATMAZ ve publish/subscribe ETMEZ.
     const snap = buildPlatformRuntimeSnapshot();
-    expect(Object.keys(snap)).toEqual(['eventBus', 'halWiring', 'halBridge']);
+    // KİLİT GÜNCELLENDİ (PR-2): bounded `sourceHealth` bölümü eklendi (worker watchdog → store).
+    expect(Object.keys(snap)).toEqual(['eventBus', 'halWiring', 'halBridge', 'sourceHealth']);
     expect(snap.halBridge.present).toBe(false);     // wiring çalışmadı → "ölçülemiyor" (0 değil)
     expect(snap.halBridge.publishedCount).toBeNull();
+    // sourceHealth: worker hiç bildirmediyse UNKNOWN (null) — `false` (ölü) ile KARIŞMAZ.
+    expect(snap.sourceHealth.can).toBeNull();
+    expect(snap.sourceHealth.obd).toBeNull();
+    expect(snap.sourceHealth.gps).toBeNull();
+    expect(snap.sourceHealth.lastChangeAt).toBeNull();
     const platformBlock = SECTIONS_SRC.slice(SECTIONS_SRC.indexOf('PLATFORM RUNTIME'));
     expect(platformBlock).not.toMatch(/createVehicleHalEventBridge|\.subscribe\(|\.publish\(/);
   });
@@ -190,6 +196,7 @@ describe('W4E — whitelist ve privacy sınırı', () => {
       eventBus: scrub(snap.eventBus as unknown as Record<string, unknown>),
       halWiring: scrub(snap.halWiring as unknown as Record<string, unknown>),
       halBridge: scrub(snap.halBridge as unknown as Record<string, unknown>),
+      sourceHealth: scrub(snap.sourceHealth as unknown as Record<string, unknown>),
     });
     expect(json).not.toMatch(/137|91|14\.4/);      // sinyal değerleri yok (yalnız sayaçlar)
     expect(json).not.toMatch(/speed|rpm|coolant|voltage|lat|lon/i);
