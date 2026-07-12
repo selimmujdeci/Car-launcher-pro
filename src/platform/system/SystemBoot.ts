@@ -38,6 +38,7 @@ import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
 import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
 import { startPlatformCoreCapabilityWiring } from './platformCoreCapabilityWiring';
+import { startPlatformCoreCapabilityBridgeWiring } from './platformCoreCapabilityBridgeWiring';
 import {
   startPlatformCoreEventBusWiring,
   publishRuntimeStarted,
@@ -559,6 +560,18 @@ class SystemBoot {
       this._reg(startPlatformCoreCapabilityWiring());
     } catch (e) {
       logError('SystemBoot:capabilityWiring', e);
+    }
+
+    // Platform Core: Capability Registry → Event Bus bridge (W4). Capability wiring'den SONRA
+    // kaydedilir → registry önce beslenir, bridge sonra abone olur; LIFO shutdown'da bridge,
+    // registry wiring'den ve (Wave 1'deki) Event Bus'tan ÖNCE dispose olur → bridge kapanırken
+    // Registry ve Bus hâlâ AYAKTA. Bus yoksa wiring sessizce no-op döner (fail-soft). Bu PR'da
+    // bus'a ABONE YOK (consumer migration ayrı PR); capability değişimleri NADİR → hot-path yok.
+    _log('  › Capability → Event Bus bridge (Platform Core)');
+    try {
+      this._reg(startPlatformCoreCapabilityBridgeWiring());
+    } catch (e) {
+      logError('SystemBoot:capabilityBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
