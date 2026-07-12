@@ -36,6 +36,7 @@ function createFakeOrchestrator(opts?: { snapshot?: OrchestratorSnapshot; getSna
   let disposed = false;
   let disposeCalls = 0;
   return {
+    subscribe: () => () => { /* no-op unsub */ },   // W5-2: OwnedOrchestrator artık subscribe içerir
     getSnapshot: () => { if (opts?.getSnapshotThrows) throw new Error('snap boom'); return opts?.snapshot ?? snap(); },
     dispose: () => { disposeCalls++; disposed = true; },
     get isDisposed() { return disposed; },

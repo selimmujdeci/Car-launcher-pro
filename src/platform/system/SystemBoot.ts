@@ -40,6 +40,7 @@ import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHa
 import { startPlatformCoreCapabilityWiring } from './platformCoreCapabilityWiring';
 import { startPlatformCoreCapabilityBridgeWiring } from './platformCoreCapabilityBridgeWiring';
 import { startPlatformCoreDeepScanWiring } from './platformCoreDeepScanWiring';
+import { startPlatformCoreDeepScanBridgeWiring } from './platformCoreDeepScanBridgeWiring';
 import {
   startPlatformCoreEventBusWiring,
   publishRuntimeStarted,
@@ -586,6 +587,17 @@ class SystemBoot {
       this._reg(startPlatformCoreDeepScanWiring());
     } catch (e) {
       logError('SystemBoot:deepScanWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
+    }
+
+    // Platform Core: Deep Scan → Event Bus bridge (W5-2). Deep Scan ownership'ten SONRA
+    // kaydedilir → orchestrator önce kurulur, bridge sonra abone olur; LIFO shutdown'da bridge
+    // ÖNCE dispose (orchestrator ve bus hâlâ ayakta). Orchestrator/bus yoksa no-op (fail-soft).
+    // Tarama BAŞLATMAZ, abone YOK; scan yürümezken 0 event. Bu PR yalnız olay köprüsü.
+    _log('  › Deep Scan → Event Bus bridge (Platform Core)');
+    try {
+      this._reg(startPlatformCoreDeepScanBridgeWiring());
+    } catch (e) {
+      logError('SystemBoot:deepScanBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
