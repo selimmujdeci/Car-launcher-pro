@@ -45,16 +45,27 @@ import {
   type DeepScanOrchestratorDeps,
   type OrchestratorStatus,
   type OrchestratorSnapshot,
+  type OrchestratorEvent,
   type DeepScanStatus,
   type DeepScanMode,
   type DeepScanPhase,
 } from '../deepScan';
 
-/** Wiring'in SAHİPLENDİĞİ orchestrator — yalnız gereken salt-okunur yüzey (yapısal). */
+/** Wiring'in SAHİPLENDİĞİ orchestrator — yalnız gereken salt-okunur yüzey (yapısal).
+ *  `subscribe` DAHİL: W5-2 event bridge owned orchestrator'a abone olur. `start`/`run`/
+ *  `runNextPhase` bu tipte YOK → wiring/bridge taramayı BAŞLATAMAZ (compile-time garanti). */
 export interface OwnedOrchestrator {
+  subscribe(listener: (event: OrchestratorEvent) => void): () => void;
   getSnapshot(): OrchestratorSnapshot;
   dispose(): void;
   readonly isDisposed: boolean;
+}
+
+/** Owned orchestrator'ın ABONE-OLUNABİLİR salt-okunur görünümü (dispose YOK → tüketici
+ *  orchestrator'ı dispose EDEMEZ). W5-2 bridge bunu `getActiveDeepScanOrchestrator()`'dan alır. */
+export interface DeepScanOrchestratorSubscribable {
+  subscribe(listener: (event: OrchestratorEvent) => void): () => void;
+  getSnapshot(): OrchestratorSnapshot;
 }
 
 /** Bağımlılıklar — hepsi opsiyonel (test enjeksiyonu); üretimde paylaşılan singleton'lar + gerçek fabrika. */
@@ -171,6 +182,17 @@ export function startPlatformCoreDeepScanWiring(deps: DeepScanWiringDeps = {}): 
     logError('deepScanWiring:init', e);                    // ham telemetri/VIN LOGLANMAZ
     return NOOP_CLEANUP;                                   // boot devam eder (fail-soft)
   }
+}
+
+/**
+ * Aktif (owned) orchestrator'ın ABONE-OLUNABİLİR görünümü — YOKSA `null`. W5-2 event bridge
+ * bunu tüketir (W4'ün `getAppEventBus()` deseni gibi). Gizlice orchestrator YARATMAZ; dispose
+ * edilmiş/kayıtsızsa null döner. Dönen görünümde `dispose` YOK → tüketici orchestrator'ı
+ * dispose EDEMEZ (sahiplik wiring'de kalır).
+ */
+export function getActiveDeepScanOrchestrator(): DeepScanOrchestratorSubscribable | null {
+  _pruneStale();
+  return _active ? _active.orchestrator : null;
 }
 
 /** Bounded teşhis görünümü (payload/telemetri YOK). Throw ETMEZ. */
