@@ -194,7 +194,10 @@ describe('unifiedVehicleStoreProvider', () => {
     const store = fakeStore(BASE);
     const source = createUnifiedVehicleStoreProvider({ store });
     const ingested: string[] = [];
-    const hal: VehicleHalIngestTarget = { ingestSignal: (id) => { ingested.push(id); return undefined; } };
+    // W4A: adapter HAL'i TOPLU besler (tek `ingest(batch)` → tek emit).
+    const hal: VehicleHalIngestTarget = {
+      ingest: (signals) => { ingested.push(...Object.keys(signals)); return undefined; },
+    };
     const adapter = createVehicleHalProviderAdapter({ hal, source });
     adapter.start();
     expect(ingested.length).toBeGreaterThan(0); // ilk refresh sinyalleri aktardı

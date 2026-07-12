@@ -36,17 +36,30 @@ function fakeSource(initial: NormalizedVehicleSnapshot | null = {}) {
   };
 }
 
+/**
+ * W4A: HAL artık TOPLU beslenir (`ingest(batch)`). Fake, batch'i düz listeye açar ki
+ * mevcut sinyal-bazlı beklentiler (countFor/lastFor) aynı sözleşmeyi doğrulamaya devam etsin;
+ * ek olarak batch çağrı sayısını (emit sayısının birebir karşılığı) sayar.
+ */
 function fakeHal() {
   const ingests: { id: VehicleSignalId; input: VehicleSignalInput }[] = [];
-  let throwFor: VehicleSignalId | null = null;
+  const batches: Partial<Record<VehicleSignalId, VehicleSignalInput>>[] = [];
+  let throwAll = false;
   const hal: VehicleHalIngestTarget = {
-    ingestSignal: (id, input) => { if (id === throwFor) throw new Error('hal boom'); ingests.push({ id, input }); },
+    ingest: (signals) => {
+      if (throwAll) throw new Error('hal boom');   // batch TÜMDEN düşer (HAL'de sinyal-bazlı catch YOK)
+      batches.push(signals);
+      for (const [id, input] of Object.entries(signals)) {
+        if (input) ingests.push({ id: id as VehicleSignalId, input });
+      }
+    },
   };
   return {
-    hal, ingests,
+    hal, ingests, batches,
+    batchCount: () => batches.length,
     countFor: (id: VehicleSignalId) => ingests.filter((x) => x.id === id).length,
     lastFor: (id: VehicleSignalId) => [...ingests].reverse().find((x) => x.id === id),
-    setThrowFor: (id: VehicleSignalId | null) => { throwFor = id; },
+    setThrowAll: (v: boolean) => { throwAll = v; },
   };
 }
 
@@ -151,10 +164,20 @@ describe('değişiklik ve fail-soft', () => {
     expect(h.ingests.length).toBe(0);
   });
 
-  it('14) HAL ingest hatası fail-soft — diğer sinyaller aktarılır', () => {
-    const h = fakeHal(); h.setThrowFor('vehicle.speed');
-    adapter(fakeSource({ speed: 54, rpm: 1000 }), h).start();
-    expect(h.countFor('vehicle.speed')).toBe(0); // atıldı
+  it('14) HAL batch ingest hatası fail-soft — adapter throw etmez, dedupe KİRLENMEZ (W4A)', () => {
+    // W4A: HAL toplu beslenir ve `ingest()` sinyal-bazlı catch içermez → batch TÜMDEN düşer.
+    // Doğru sözleşme: adapter çökmez VE sinyalleri "aktarılmış" saymaz → sonraki refresh yeniden dener.
+    const s = fakeSource({ speed: 54, rpm: 1000 }); const h = fakeHal();
+    h.setThrowAll(true);
+    const a = adapter(s, h);
+    expect(() => a.start()).not.toThrow();
+    expect(h.ingests.length).toBe(0);
+    expect(a.getStatus().ingestedSignalCount).toBe(0);   // dedupe kaydı YOK
+
+    h.setThrowAll(false);
+    a.refresh();                                          // aynı değerlerle yeniden dene
+    expect(h.batchCount()).toBe(1);
+    expect(h.lastFor('vehicle.speed')?.input.value).toBe(54);
     expect(h.lastFor('vehicle.rpm')?.input.value).toBe(1000);
   });
 });
