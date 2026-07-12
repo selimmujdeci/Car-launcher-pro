@@ -36,6 +36,11 @@ import {
 }                                  from '../vehicleDataLayer';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
+import {
+  startPlatformCoreEventBusWiring,
+  publishRuntimeStarted,
+  publishRuntimeStopped,
+} from './platformCoreEventBusWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
 import { startFuelAdvisor }        from '../diagnostic/fuelAdvisorService';
 import { startBlackBox }           from '../security/blackBoxService';
@@ -353,6 +358,10 @@ class SystemBoot {
       window.__APP_READY__ = true;
       _log('Boot complete ✓');
 
+      // platform.runtime.started (retained) — YALNIZ tüm dalgalar başarıyla bittiğinde, BİR KEZ.
+      // Yarım/iptal edilen boot bu satıra ULAŞMAZ → sahte "started" yayınlanmaz. Fail-soft.
+      publishRuntimeStarted();
+
       // Soak Test: window.__START_SOAK_TEST__ bayrağı ile DEV + üretimde opsiyonel olarak tetiklenir.
       // Üretimde varsayılan kapalı; DevTools'ta "window.__START_SOAK_TEST__ = true" ile açılır.
       if (window.__START_SOAK_TEST__) {
@@ -382,6 +391,10 @@ class SystemBoot {
    */
   stop(): void {
     _log('Stopping all services (LIFO)...');
+    // platform.runtime.stopped — LIFO cleanup'lardan (ve bus dispose'undan) ÖNCE, BİR KEZ.
+    // "started" hiç yayınlanmadıysa (hiç başlamamış / yarım boot) SESSİZ kalır; tekrar stop()
+    // duplicate üretmez. Publish hatası shutdown'ı ENGELLEMEZ (fonksiyon throw etmez).
+    publishRuntimeStopped();
     // Havada bekleyen async boot adımlarını iptal et (zombi servis önleme)
     this._bootAbort?.abort();
     // CognitivePriorityEngine + LIMP izleyici
@@ -406,6 +419,17 @@ class SystemBoot {
 
   private async _wave1(): Promise<void> {
     _log('Starting Wave 1 (Core)...');
+
+    // Platform Event Bus (PR-W3) — EN ÖNCE kurulur: publisher/bridge/Kernel'den ÖNCE var olmalı.
+    // _reg (İSİMSİZ) ile kaydedilir → restartService adayı DEĞİL (restart = sessiz abonelik ölümü).
+    // İlk kaydedilen olduğu için LIFO shutdown'da EN SON dispose olur → bridge/publisher'lar
+    // kapanırken bus hâlâ ayaktadır. Bu PR'da bus'a publisher/consumer BAĞLANMAZ (W4 ayrı PR).
+    _log('  › Platform Event Bus (ownership)');
+    try {
+      this._reg(startPlatformCoreEventBusWiring());
+    } catch (e) {
+      logError('SystemBoot:eventBusWiring', e);   // wiring zaten fail-soft; bu yalnız sözleşme ihlali için
+    }
 
     // UI aktivite kaydedici (zamansız-modal avcısı) — EN ERKEN kurulur ki
     // disclaimer gibi boot-time modaller de yakalansın; kurulumda zaten açık
