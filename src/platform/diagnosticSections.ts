@@ -29,6 +29,10 @@ import {
   getBootTimingSnapshot as _getBootTimingSnapshot,
   type BootTimingSnapshot,
 } from './bootTimingRecorder';
+// Platform runtime wiring — YALNIZ bounded status accessor'ları (import YAN ETKİSİZ:
+// bu modüller çağrılmadan bus/adapter YARATMAZ; teşhis okuma runtime instance oluşturmaz).
+import { getEventBusStatus } from './system/platformCoreEventBusWiring';
+import { getVehicleHalWiringStatus } from './system/platformCoreVehicleHalWiring';
 
 /* ── OBD DERİN ───────────────────────────────────────────────── */
 
@@ -413,6 +417,127 @@ export function buildTransportSnapshot(): TransportSnapshot {
     transport: obd.transport, connected: obd.connected,
     reconnectAttempts: obd.reconnectAttempts, lastDisconnectReason: obd.lastDisconnectReason,
   };
+}
+
+/* ── PLATFORM RUNTIME (Event Bus + Vehicle HAL wiring) ───────── */
+
+/**
+ * Platform runtime wiring katmanlarının BOUNDED durum sayaçları (W4E).
+ *
+ * AMAÇ: "tek instance / tek abonelik / event sayaçları" gibi invaryantların cihazda
+ * ADB, CDP veya geçici global debug expose OLMADAN okunabilmesi.
+ *
+ * YALNIZ SAYAÇ VE DURUM: event payload'ı · event history içeriği · topic detayı ·
+ * correlation/causation · VIN · fingerprint · koordinat · MAC · CAN frame · ham hex ·
+ * araç sinyal DEĞERLERİ (hız/RPM/konum) · stack trace BURAYA GİRMEZ. Runtime status
+ * nesnesi asla doğrudan spread EDİLMEZ — her alan tek tek whitelist'lenir.
+ *
+ * "0" ile "ölçülemiyor" AYRIDIR: wiring yoksa sayaçlar `null` döner (0 değil).
+ * `lastErrorCode` kaynaktaki SABİT kod kümesinden gelir (serbest metin/stack değil).
+ *
+ * ⚠️ Bridge (Vehicle HAL → Event Bus) üretimde HENÜZ BAĞLI DEĞİL ve status accessor'ı
+ * YOK → bridge bölümü ÜRETİLMEZ (sahte "started"/present üretmek yerine W4C'ye bırakıldı).
+ *
+ * FAIL-SOFT: accessor throw ederse bölüm `present:false` + null sayaçlarla döner ve
+ * raporun diğer bölümleri ETKİLENMEZ. Import YAN ETKİSİZ: wiring modülleri yalnız
+ * accessor sağlar, çağrılmaları runtime instance YARATMAZ.
+ */
+export interface PlatformEventBusDiag {
+  present: boolean;
+  disposed: boolean;
+  publishedCount: number | null;
+  deliveredCount: number | null;
+  droppedCount: number | null;
+  listenerErrorCount: number | null;
+  duplicateSubscriptionCount: number | null;
+  recursionDropCount: number | null;
+  activeListenerCount: number | null;
+  retainedEventCount: number | null;
+  historyCount: number | null;
+  lastEventAt: number | null;
+  runtimeStartedPublished: boolean;
+  runtimeStoppedPublished: boolean;
+}
+
+export interface PlatformHalWiringDiag {
+  started: boolean;
+  lastRefreshAt: number | null;
+  refreshCount: number | null;
+  ingestedSignalCount: number | null;
+  activeSubscriptionCount: number | null;
+  /** Sabit kod: 'init_failed' | 'cleanup_failed' | null (serbest metin/stack DEĞİL). */
+  lastErrorCode: string | null;
+}
+
+export interface PlatformRuntimeSnapshot {
+  eventBus: PlatformEventBusDiag;
+  halWiring: PlatformHalWiringDiag;
+}
+
+const _EVENT_BUS_ABSENT: PlatformEventBusDiag = {
+  present: false, disposed: false,
+  publishedCount: null, deliveredCount: null, droppedCount: null, listenerErrorCount: null,
+  duplicateSubscriptionCount: null, recursionDropCount: null, activeListenerCount: null,
+  retainedEventCount: null, historyCount: null, lastEventAt: null,
+  runtimeStartedPublished: false, runtimeStoppedPublished: false,
+};
+
+const _HAL_WIRING_ABSENT: PlatformHalWiringDiag = {
+  started: false, lastRefreshAt: null, refreshCount: null,
+  ingestedSignalCount: null, activeSubscriptionCount: null, lastErrorCode: null,
+};
+
+/** Sayaç normalizasyonu: NaN/Infinity/negatif-olmayan olmayan → null (ölçülemiyor). */
+function _count(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Zaman damgası: yalnız sonlu sayı (payload/metin YOK). */
+function _ts(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Sabit hata kodu — bilinmeyen/serbest metin KABUL EDİLMEZ. */
+function _errCode(v: unknown): string | null {
+  return v === 'init_failed' || v === 'cleanup_failed' ? v : null;
+}
+
+export function buildPlatformRuntimeSnapshot(): PlatformRuntimeSnapshot {
+  const bus = _safe<PlatformEventBusDiag>(() => {
+    const s = getEventBusStatus();
+    if (!s || s.present !== true) return _EVENT_BUS_ABSENT;   // wiring yok → sayaç YOK (0 değil)
+    return {
+      present: true,
+      disposed: s.disposed === true,
+      publishedCount:             _count(s.publishedCount),
+      deliveredCount:             _count(s.deliveredCount),
+      droppedCount:               _count(s.droppedCount),
+      listenerErrorCount:         _count(s.listenerErrorCount),
+      duplicateSubscriptionCount: _count(s.duplicateSubscriptionCount),
+      recursionDropCount:         _count(s.recursionDropCount),
+      activeListenerCount:        _count(s.activeListenerCount),
+      retainedEventCount:         _count(s.retainedEventCount),
+      historyCount:               _count(s.historyCount),
+      lastEventAt:                _ts(s.lastEventAt),
+      runtimeStartedPublished:    s.runtimeStartedPublished === true,
+      runtimeStoppedPublished:    s.runtimeStoppedPublished === true,
+    };
+  }, _EVENT_BUS_ABSENT);
+
+  const halWiring = _safe<PlatformHalWiringDiag>(() => {
+    const s = getVehicleHalWiringStatus();
+    if (!s || s.started !== true) return _HAL_WIRING_ABSENT;  // wiring yok/durmuş → sayaç YOK
+    return {
+      started: true,
+      lastRefreshAt:           _ts(s.lastRefreshAt),
+      refreshCount:            _count(s.refreshCount),
+      ingestedSignalCount:     _count(s.ingestedSignalCount),
+      activeSubscriptionCount: _count(s.activeSubscriptionCount),
+      lastErrorCode:           _errCode(s.lastErrorCode),
+    };
+  }, _HAL_WIRING_ABSENT);
+
+  return { eventBus: bus, halWiring };
 }
 
 /* ── util ────────────────────────────────────────────────────── */

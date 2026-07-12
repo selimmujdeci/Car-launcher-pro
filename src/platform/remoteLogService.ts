@@ -45,6 +45,7 @@ import {
   buildObdDeepSnapshot, buildNetAiSnapshot,
   buildGpsDeepSnapshot, buildVoiceSnapshot, buildGeofenceSnapshot, buildStorageQueueSnapshot,
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
+  buildPlatformRuntimeSnapshot,
 } from './diagnosticSections';
 import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
 import { useVidStore } from '../store/useVidStore';
@@ -458,6 +459,12 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     // VID aynası — araç/head unit/OBD adaptör/telemetri özeti. EXPLICIT ALLOWLIST
     // (ham VIN/MAC/cihaz adı/uygulama listesi yapısal olarak dışarıda); fail-soft.
     vidMirror: _safeSection(_buildVidMirror),
+    // Platform runtime (W4E) — Event Bus + Vehicle HAL wiring BOUNDED sayaçları:
+    // tek instance / tek abonelik / event sayaçları cihazda ADB veya geçici debug
+    // expose OLMADAN okunabilsin diye. YALNIZ durum+sayaç (event payload'ı, history
+    // içeriği, araç sinyal DEĞERLERİ, VIN/koordinat/CAN YOK). Wiring yoksa sayaçlar
+    // null ("ölçülemiyor" ≠ 0). Bridge henüz bağlı değil → bölümü YOK.
+    platform: _safeSection(buildPlatformRuntimeSnapshot),
   }, 0) as Record<string, unknown>;
 
   return payload;
