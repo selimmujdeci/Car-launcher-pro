@@ -571,9 +571,19 @@ export const VisionOverlay = memo(function VisionOverlay({
 
     const frame = vision.frame;
 
-    // Skip all drawing when AR is off or not in hybrid mode
+    // Skip all drawing when AR is off or not in hybrid mode.
+    // SAHA FIX (2026-07-12, cihaz QA + DevTools trace): AR/kamera KAPALIYKEN bu döngü
+    // eskiden `requestAnimationFrame(renderAR)` ile KOŞULSUZ yeniden planlanıyordu →
+    // FullMapView mount olduğu sürece 60 fps boşa dönüp (getContext(willReadFrequently)
+    // + getBoundingClientRect + clearRect her kare) idle harita ana thread'inin ~yarısını
+    // + compositor'ı yakıyordu (ölçüm: process 35%→20%, main 11%→6%, 5.2→0.3 fps).
+    // ÇÖZÜM: AR kapalıyken döngüyü DURDUR (yukarıdaki clearRect canvas'ı zaten temizledi).
+    // Yeniden başlatma otomatiktir: renderAR'ın deps'i (isHybrid/confidenceLevel/vision.frame/
+    // currentLat/currentLon) değişince renderAR yeniden yaratılır → aşağıdaki useEffect
+    // ([renderAR]) döngüyü tekrar başlatır. AR aktif çizim yolu DEĞİŞMEZ. Zero-leak: rafRef=null.
+    // (Aynı desen satır ~550'de `if (!canvas) return;` ile de kullanılıyor.)
     if (!frame || !isHybrid || confidenceLevel === 'off') {
-      rafRef.current = requestAnimationFrame(renderAR);
+      rafRef.current = null;
       return;
     }
 
