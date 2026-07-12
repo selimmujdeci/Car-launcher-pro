@@ -305,6 +305,27 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // Yer değiştirme HIZI da hareket sayılır: ≥1.2s zaman penceresi üstünden
         // km/h (fix kadansından bağımsız); ≥3m mutlak taban jitter'ı eler.
         const speedKmh = (loc.speed ?? 0) * 3.6;
+
+        // ── SAHA FIX (2026-07-12, cihaz CDP teşhisi): WAKE-tarafı park gürültü tutucusu ──
+        // KÖK NEDEN: displacement-wake accuracy-BLIND'dı → park hâlinde GPS doğruluğu ±Nm
+        // olunca ardışık fix'ler ~Nm zıplayıp "≥3m / ≥5km/h" eşiğini geçiyor → wake SPAM
+        // (cihazda ~2.8/sn ölçüldü) → isIdleNow histerezisi (IDLE_HYSTERESIS_MS=2500) HİÇ
+        // dolmuyor → döngü HİÇ uyumuyordu (cihaz: idle CPU ~108%, rAF 137/sn, %100 histerezis
+        // bloğu). #61'in park tutucusu yalnız isIdleNow (döngü ÇIKIŞI) tarafındaydı; wake
+        // GİRİŞİ korunmamıştı → yarım fix. ÇÖZÜM: isIdleNow ile TUTARLI semantik — park
+        // (nav/sürüş yok + hız<STANDSTILL_KMH) hâlinde, fix'in KENDİ doğruluk yarıçapı
+        // (≥STANDSTILL_HOLD_M) altındaki kayma GPS jitter'ıdır → wake ETME. Gerçek hareket
+        // hız alanında (≥1.5 km/h) görünür → tutucu es geçilir, takip bozulmaz.
+        const _WAKE_STANDSTILL_KMH = 1.5; // isIdleNow STANDSTILL_KMH ile aynı
+        const _WAKE_STANDSTILL_M   = 5;   // isIdleNow STANDSTILL_HOLD_M ile aynı
+        const _navOrDrive =
+          drivingModeRef.current ||
+          navStatusRef.current === NavStatus.ACTIVE    ||
+          navStatusRef.current === NavStatus.REROUTING ||
+          navStatusRef.current === NavStatus.PREVIEW   ||
+          navStatusRef.current === NavStatus.ROUTING;
+        const _noiseFloorM = Math.max(_WAKE_STANDSTILL_M, loc.accuracy ?? 0);
+
         const _anchor = wakeAnchorRef.current;
         if (!_anchor) {
           wakeAnchorRef.current = { lat: newPoint.lat, lng: newPoint.lng, ts: newPoint.ts };
@@ -315,7 +336,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               (newPoint.lat - _anchor.lat) * 111_320,
               (newPoint.lng - _anchor.lng) * 111_320 * Math.cos((newPoint.lat * Math.PI) / 180),
             );
-            if (_movedM >= 3 && (_movedM / _dtS) * 3.6 >= 5) wakeLoopRef.current?.();
+            // Park gürültüsü: park + doğruluk yarıçapı altı kayma → hareket DEĞİL, wake etme
+            const _standstillNoise = !_navOrDrive && speedKmh < _WAKE_STANDSTILL_KMH && _movedM < _noiseFloorM;
+            if (!_standstillNoise && _movedM >= 3 && (_movedM / _dtS) * 3.6 >= 5) wakeLoopRef.current?.();
             wakeAnchorRef.current = { lat: newPoint.lat, lng: newPoint.lng, ts: newPoint.ts };
           }
         }

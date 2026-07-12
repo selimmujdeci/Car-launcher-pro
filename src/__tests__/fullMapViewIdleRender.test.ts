@@ -55,12 +55,13 @@ interface Model {
   fpsIntervalRunning: boolean;
   loopActive:         boolean;
   timers:             number;   // aktif timer sayısı (zero-leak)
+  wakeCount:          number;   // wake() çağrı sayısı (spam tespiti — loopActive olsa da artar)
 }
 
 function createMapLoop(opts: { navActive?: boolean; driving?: boolean; layerPresent?: boolean } = {}) {
   const m: Model = {
     markerSetDataCount: 0, cameraUpdateCount: 0, rafScheduled: 0,
-    fpsIntervalRunning: false, loopActive: false, timers: 0,
+    fpsIntervalRunning: false, loopActive: false, timers: 0, wakeCount: 0,
   };
 
   let navActive     = opts.navActive ?? false;
@@ -89,6 +90,7 @@ function createMapLoop(opts: { navActive?: boolean; driving?: boolean; layerPres
   };
 
   const wake = (now: number) => {
+    m.wakeCount += 1;                 // spam tespiti: loopActive true olsa da lastWakeTs tazelenir
     lastWakeTs = now;
     lastWorkTs = now;
     if (m.loopActive) return;         // duplicate rAF/timer YOK
@@ -96,6 +98,34 @@ function createMapLoop(opts: { navActive?: boolean; driving?: boolean; layerPres
     m.fpsIntervalRunning = true;
     m.timers += 1;                    // fps interval
     m.rafScheduled += 1;
+  };
+
+  // ── onGPSLocation WAKE mantığının birebir karşılığı (FullMapView.tsx GPS handler) ──
+  // Model'in kendi eksikliğiydi: wake() eskiden yalnız TEST tarafından manuel çağrılıyordu →
+  // park GPS gürültüsünün wake SPAM üretip histerezisi hiç doldurmaması (SAHA 2026-07-12)
+  // hiç modellenmemişti (bu yüzden 25 test yeşilken cihazda düştü). feedGps o gerçek yolu
+  // simüle eder: park (nav/sürüş yok + hız<STANDSTILL_KMH) + doğruluk yarıçapı altı kayma →
+  // wake ETME; gerçek hareket (displacement veya hız) → wake.
+  let wakeAnchor: { lat: number; lng: number; ts: number } | null = null;
+  const WAKE_STANDSTILL_KMH = STANDSTILL_KMH;
+  const WAKE_STANDSTILL_M   = STANDSTILL_HOLD_M;
+  const feedGps = (f: Fix, now: number) => {
+    fix = f;
+    const speedKmh   = f.speedKmh;
+    const navOrDrive = driving || navActive;
+    const noiseFloor = Math.max(WAKE_STANDSTILL_M, f.accuracy);
+    if (!wakeAnchor) {
+      wakeAnchor = { lat: f.lat, lng: f.lng, ts: now };
+    } else {
+      const dtS = (now - wakeAnchor.ts) / 1000;
+      if (dtS >= 1.2) {
+        const movedM = distM(wakeAnchor.lat, wakeAnchor.lng, f.lat, f.lng);
+        const standstillNoise = !navOrDrive && speedKmh < WAKE_STANDSTILL_KMH && movedM < noiseFloor;
+        if (!standstillNoise && movedM >= 3 && (movedM / dtS) * 3.6 >= 5) wake(now);
+        wakeAnchor = { lat: f.lat, lng: f.lng, ts: now };
+      }
+    }
+    if (speedKmh >= 1.5) wake(now);
   };
 
   /** Bir rAF karesi — FullMapView tick'inin birebir karşılığı. */
@@ -167,6 +197,7 @@ function createMapLoop(opts: { navActive?: boolean; driving?: boolean; layerPres
     tick,
     run,
     unmount,
+    feedGps,
     setFix:         (f: Fix) => { fix = f; },
     setNavActive:   (v: boolean) => { navActive = v; },
     setDriving:     (v: boolean) => { driving = v; },
@@ -483,5 +514,80 @@ describe('Regresyon kilitleri — gerçek FullMapView.tsx kaynağı', () => {
 
   it('22. import yan etkisiz: test dosyası yalnız kaynağı OKUR, modül import ETMEZ', () => {
     expect(SRC.length).toBeGreaterThan(1000);   // dosya gerçekten okundu
+  });
+});
+
+/* ── WAKE-tarafı park gürültü tutucusu (SAHA 2026-07-12 — cihaz CDP kök-neden) ─────
+ * REGRESYON: #61 park tutucusunu yalnız isIdleNow (döngü çıkışı) tarafına koymuştu;
+ * onGPSLocation displacement-wake accuracy-BLIND kaldı → park GPS gürültüsü (±accuracy m
+ * zıplama) "≥3m/≥5km/h" eşiğini geçip wake SPAM üretti → histerezis (2500ms) HİÇ dolmadı
+ * → döngü HİÇ uyumadı (cihaz: idle CPU ~108%, rAF 137/sn). Eski 25 test bunu KAÇIRDI çünkü
+ * model wake()'i yalnız manuel çağırıyordu; feedGps gerçek GPS-wake yolunu modeller.
+ * BU KİLİTLERİ ASLA ZAYIFLATMA — wake-tarafı tutucu kaldırılırsa buradan yakalanır. */
+describe('WAKE-tarafı park gürültü tutucusu — cihaz kök-neden kilidi', () => {
+  // Park GPS gürültüsü: sabit merkez, doğruluk yarıçapı İÇİNDE (±~1m) deterministik kayma.
+  const noiseFix = (i: number): Fix => {
+    const ang  = i * 1.7;                 // deterministik "rastgele" yön
+    const dM   = 1;                       // ~1m kayma (accuracy 3m yarıçapı içinde)
+    const dLat = (Math.cos(ang) * dM) / 111_320;
+    const dLng = (Math.sin(ang) * dM) / (111_320 * Math.cos((PARKED.lat * Math.PI) / 180));
+    // bear sabit: park'ta araç dönmez; heading gürültüsü marker-tarafı STANDSTILL_BEAR'ın işi.
+    // Bu test WAKE-tarafını izole eder → konum jitter'ı ver, heading'i sabit tut.
+    return { lat: PARKED.lat + dLat, lng: PARKED.lng + dLng, bear: 0, speedKmh: 0, accuracy: 3 };
+  };
+  const feedNoise = (map: ReturnType<typeof createMapLoop>, seconds: number) => {
+    for (let s = 1; s <= seconds; s++) { map.feedGps(noiseFix(s), s * 1000); map.run(s * 1000, 6); }
+  };
+
+  it('R1. park GPS gürültüsü wake SPAM üretmez (mount dışında wake yok)', () => {
+    const map = createMapLoop();
+    map.setFix(PARKED);
+    map.wake(0);                                  // mount wake
+    const afterMount = map.model.wakeCount;       // = 1
+    feedNoise(map, 10);                           // 10 sn park gürültüsü @1Hz
+    expect(map.model.wakeCount).toBe(afterMount); // gürültü HİÇ wake etmedi
+  });
+
+  it('R2. wake spam olmayınca histerezis dolar → döngü UYUR (idle CPU düşer)', () => {
+    // WAKE-tarafını izole eder: following kapalı → kamera dedup gürültüsü (CAM_EPS, ayrı
+    // kamera-tarafı concern) elenir; kalan tek uyanma yolu wake(). Cihazda (following AÇIK)
+    // da uyudu çünkü gerçek ardışık-fix jitter < CAM_EPS_M. Burada kanıtlanan: park gürültüsü
+    // wake TETİKLEMEDİĞİ için histerezis dolar ve döngü uyur (fix'siz: wake spam → hiç uyumaz).
+    const map = createMapLoop();
+    map.setFix(PARKED);
+    map.setFollowing(false);
+    map.wake(0);
+    feedNoise(map, 10);
+    expect(map.model.loopActive).toBe(false);     // döngü uyudu
+    expect(map.model.timers).toBe(0);             // zero-leak
+  });
+
+  it('R3. gerçek hareket (hız≥1.5) wake TETİKLER → döngü uyanık (takip bozulmaz)', () => {
+    const map = createMapLoop();
+    map.setFix(DRIVING);
+    map.wake(0);
+    for (let s = 1; s <= 6; s++) { map.feedGps({ ...DRIVING, lat: DRIVING.lat + s * 0.0002 }, s * 1000); map.run(s * 1000, 6); }
+    expect(map.model.wakeCount).toBeGreaterThan(1);   // hareket wake etti
+    expect(map.model.loopActive).toBe(true);          // uyanık kaldı
+  });
+
+  it('R4. speed=0 ama GERÇEK yer değiştirme (>doğruluk yarıçapı) wake eder (fail-soft korunur)', () => {
+    // coords.speed=0 bildiren cihaz ama konum gerçekten ilerliyor → displacement-wake çalışmalı
+    const map = createMapLoop();
+    map.setFix(PARKED);
+    map.wake(0);
+    const afterMount = map.model.wakeCount;
+    for (let s = 1; s <= 4; s++) {
+      const dLat = (s * 8) / 111_320;             // her sn +8m (accuracy 3m/noiseFloor 5m üstü = gerçek)
+      map.feedGps({ lat: PARKED.lat + dLat, lng: PARKED.lng, bear: 0, speedKmh: 0, accuracy: 3 }, s * 1000);
+      map.run(s * 1000, 6);
+    }
+    expect(map.model.wakeCount).toBeGreaterThan(afterMount);  // gerçek hareket bastırılmadı
+  });
+
+  it('R5. kaynak-kilidi: FullMapView wake-tarafı park tutucusunu İÇERİR', () => {
+    // Tutucu kaldırılırsa (regresyon) bu kilit kırılır.
+    expect(SRC).toMatch(/_standstillNoise/);
+    expect(SRC).toMatch(/_noiseFloorM/);
   });
 });
