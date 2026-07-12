@@ -736,9 +736,14 @@ describe('gizlilik — hassas veri snapshot\'a sızmaz', () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('foundation güvencesi — yan etki ve wiring yok', () => {
-  it('SystemBoot Deep Scan servisini BAŞLATMAZ (wiring yok)', () => {
-    expect(systemBootSrc).not.toContain('deepScan');
-    expect(systemBootSrc).not.toContain('DeepScan');
+  it('SystemBoot Deep Scan OWNERSHIP wiring bağlar ama TARAMA BAŞLATMAZ (W5-1)', () => {
+    // W5-1 (2026-07-12): ownership wiring EKLENDİ → SystemBoot artık deep scan wiring'i
+    // `_reg` ile kaydeder (kilit foundation'dan W5-1'e GÜNCELLENDİ, kaldırılmadı).
+    expect(systemBootSrc).toContain('startPlatformCoreDeepScanWiring');
+    // ANCAK hiçbir tarama BAŞLATILMAZ — scan-yürütme API'leri SystemBoot'ta YOK:
+    expect(systemBootSrc).not.toContain('startScan');     // runtime.startScan çağrısı yok
+    expect(systemBootSrc).not.toContain('runNextPhase');  // faz yürütülmez
+    expect(systemBootSrc).not.toContain('deepScanOrchestrator'); // singleton run edilmez (factory kullanılır)
   });
 
   it('modül import\'u yan etki üretmez — tekil servis idle ve dinleyicisiz', () => {
