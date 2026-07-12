@@ -304,16 +304,19 @@ async function askHaiku(text: string, apiKey: string, ctx?: VehicleContext): Pro
  * Env-based key fallbacks — if no key is set in settings,
  * use VITE_GEMINI_API_KEY / VITE_CLAUDE_API_KEY from .env
  */
+// NOT: Statik NOKTA erişimi (bracket DEĞİL) — Vite yalnız bu tek değeri gömer;
+// bracket/dinamik erişim TÜM `import.meta.env` objesini bundle'a serialize edip
+// gizli anahtar sızıntısı yüzeyi açardı (bkz. scripts/scan-secrets.mjs guard'ı).
 export function getEnvGeminiKey(): string {
-  return (import.meta.env['VITE_GEMINI_API_KEY'] as string | undefined) ?? '';
+  return (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) ?? '';
 }
 
 export function getEnvHaikuKey(): string {
-  return (import.meta.env['VITE_CLAUDE_API_KEY'] as string | undefined) ?? '';
+  return (import.meta.env.VITE_CLAUDE_API_KEY as string | undefined) ?? '';
 }
 
 export function getEnvGroqKey(): string {
-  return (import.meta.env['VITE_GROQ_API_KEY'] as string | undefined) ?? '';
+  return (import.meta.env.VITE_GROQ_API_KEY as string | undefined) ?? '';
 }
 
 /**

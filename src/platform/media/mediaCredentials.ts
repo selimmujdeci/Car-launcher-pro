@@ -28,20 +28,22 @@ function _userOverride(key: string): string {
   }
 }
 
-function _envValue(name: 'VITE_JAMENDO_CLIENT_ID' | 'VITE_SPOTIFY_CLIENT_ID'): string {
-  const v = import.meta.env[name] as string | undefined;
+// NOT: Statik NOKTA erişimi — dinamik `import.meta.env[name]` Vite'ın per-key
+// değiştirmesini kırıp TÜM env objesini bundle'a serialize ederdi (gizli anahtar
+// sızıntı vektörü). Her değişken açıkça, ayrı nokta-erişimiyle okunur.
+function _trimEnv(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
 export function getJamendoClientId(): string {
   return _userOverride(JAMENDO_KEY)
-      || _envValue('VITE_JAMENDO_CLIENT_ID')
+      || _trimEnv(import.meta.env.VITE_JAMENDO_CLIENT_ID)
       || (import.meta.env.DEV ? DEV_JAMENDO_CLIENT_ID : '');
 }
 
 export function getSpotifyClientId(): string {
   return _userOverride(SPOTIFY_KEY)
-      || _envValue('VITE_SPOTIFY_CLIENT_ID')
+      || _trimEnv(import.meta.env.VITE_SPOTIFY_CLIENT_ID)
       || (import.meta.env.DEV ? DEV_SPOTIFY_CLIENT_ID : '');
 }
 
