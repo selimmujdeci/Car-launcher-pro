@@ -35,6 +35,7 @@ import {
   restoreOdometer,
 }                                  from '../vehicleDataLayer';
 import { startSystemOrchestrator } from './SystemOrchestrator';
+import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
 import { startFuelAdvisor }        from '../diagnostic/fuelAdvisorService';
 import { startBlackBox }           from '../security/blackBoxService';
@@ -498,6 +499,18 @@ class SystemBoot {
       alertTitle:  'GPS Sinyali Yok',
       alertMsg:    'Konum verisi alınamıyor — tünel veya sinyal kesintisi.',
     });
+
+    // Platform Core: Vehicle HAL runtime wiring (PR-W2) — store→provider→adapter→HAL AYNA modu.
+    // Additive; Wave sırası bozulmaz. VehicleDataLayer'dan SONRA kaydedilir → LIFO shutdown'da
+    // VDL'den ÖNCE kapanır (store hâlâ ayaktayken adapter dispose olur). Wiring fonksiyonu init
+    // hatasını kendi içinde yutar (fail-soft); buradaki savunmacı catch YALNIZ sözleşme ihlali
+    // (dışarı exception) için — çift-log YOK. HAL beslenir ama okuyan yok (tüketici migrasyonu W7).
+    _log('  › Vehicle HAL wiring (Platform Core)');
+    try {
+      this._reg(startPlatformCoreVehicleHalWiring({ store: useVehicleStore }));
+    } catch (e) {
+      logError('SystemBoot:vehicleHalWiring', e);
+    }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
     _log('  › SystemOrchestrator');
