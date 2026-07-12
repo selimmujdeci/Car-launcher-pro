@@ -36,6 +36,7 @@ import {
 }                                  from '../vehicleDataLayer';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
+import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
 import {
   startPlatformCoreEventBusWiring,
   publishRuntimeStarted,
@@ -534,6 +535,17 @@ class SystemBoot {
       this._reg(startPlatformCoreVehicleHalWiring({ store: useVehicleStore }));
     } catch (e) {
       logError('SystemBoot:vehicleHalWiring', e);
+    }
+
+    // Platform Core: Vehicle HAL → Event Bus bridge (W4C). HAL wiring'den SONRA kaydedilir →
+    // LIFO shutdown'da bridge, HAL wiring'den ve (Wave 1'deki) Event Bus'tan ÖNCE dispose olur,
+    // yani bridge kapanırken HAL ve Bus hâlâ AYAKTA. Bus yoksa wiring sessizce no-op döner
+    // (fail-soft). Bu PR'da bus'a ABONE YOK (consumer migration ayrı PR); throttle/coalescing W4D.
+    _log('  › Vehicle HAL → Event Bus bridge (Platform Core)');
+    try {
+      this._reg(startPlatformCoreVehicleHalBridgeWiring());
+    } catch (e) {
+      logError('SystemBoot:vehicleHalBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür

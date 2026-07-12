@@ -66,9 +66,13 @@ describe('W4E — teşhis üretimi runtime wiring BAŞLATMAZ', () => {
     expect(platformBlock).not.toMatch(/setInterval|setTimeout|requestAnimationFrame/);
   });
 
-  it('teşhis bridge/consumer wiring EKLEMEZ (bridge bölümü yok — W4C)', () => {
+  it('teşhis bridge/consumer wiring KURMAZ (W4C ile bridge bölümü OKUNUR, ama yaratılmaz)', () => {
+    // KİLİT GÜNCELLENDİ (W4C): bridge artık üretimde bağlı → teşhis onun BOUNDED sayaçlarını
+    // OKUR. Değişmeyen invaryant: teşhis kendisi bridge/consumer YARATMAZ ve publish/subscribe ETMEZ.
     const snap = buildPlatformRuntimeSnapshot();
-    expect(Object.keys(snap)).toEqual(['eventBus', 'halWiring']);   // bridge bölümü YOK
+    expect(Object.keys(snap)).toEqual(['eventBus', 'halWiring', 'halBridge']);
+    expect(snap.halBridge.present).toBe(false);     // wiring çalışmadı → "ölçülemiyor" (0 değil)
+    expect(snap.halBridge.publishedCount).toBeNull();
     const platformBlock = SECTIONS_SRC.slice(SECTIONS_SRC.indexOf('PLATFORM RUNTIME'));
     expect(platformBlock).not.toMatch(/createVehicleHalEventBridge|\.subscribe\(|\.publish\(/);
   });
@@ -174,7 +178,19 @@ describe('W4E — whitelist ve privacy sınırı', () => {
       store: fakeStore({ speed: 137, canCoolantTemp: 91, canBatteryVolt: 14.4 }), hal: fakeHal,
     }));
     publishRuntimeStarted();
-    const json = JSON.stringify(buildPlatformRuntimeSnapshot());
+    // Zaman damgaları (epoch ms) rakam dizisi olarak sinyal değerlerini "içerebilir" — alt-dize
+    // taraması onlara takılmasın diye ölçüm-zamanı alanları çıkarılır (kilit KIRILGAN değil).
+    const snap = buildPlatformRuntimeSnapshot();
+    const scrub = (o: Record<string, unknown>) => {
+      const c = { ...o };
+      delete c.lastEventAt; delete c.lastRefreshAt; delete c.lastPublishAt;
+      return c;
+    };
+    const json = JSON.stringify({
+      eventBus: scrub(snap.eventBus as unknown as Record<string, unknown>),
+      halWiring: scrub(snap.halWiring as unknown as Record<string, unknown>),
+      halBridge: scrub(snap.halBridge as unknown as Record<string, unknown>),
+    });
     expect(json).not.toMatch(/137|91|14\.4/);      // sinyal değerleri yok (yalnız sayaçlar)
     expect(json).not.toMatch(/speed|rpm|coolant|voltage|lat|lon/i);
   });

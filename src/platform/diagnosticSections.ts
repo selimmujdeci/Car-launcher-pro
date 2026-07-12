@@ -33,6 +33,7 @@ import {
 // bu modüller çağrılmadan bus/adapter YARATMAZ; teşhis okuma runtime instance oluşturmaz).
 import { getEventBusStatus } from './system/platformCoreEventBusWiring';
 import { getVehicleHalWiringStatus } from './system/platformCoreVehicleHalWiring';
+import { getVehicleHalBridgeStatus } from './system/platformCoreVehicleHalBridgeWiring';
 
 /* ── OBD DERİN ───────────────────────────────────────────────── */
 
@@ -469,9 +470,24 @@ export interface PlatformHalWiringDiag {
   lastErrorCode: string | null;
 }
 
+/**
+ * Vehicle HAL → Event Bus bridge (W4C). `present:false` = bridge RUNTIME'DA YOK
+ * ("ölçülemiyor"); `present:true` + `publishedCount:0` = bridge var ama henüz event yok.
+ * Bu ikisi KARIŞTIRILMAZ. Event payload'ı / signal id-değer listesi / topic detayı GİRMEZ.
+ */
+export interface PlatformHalBridgeDiag {
+  present: boolean;
+  started: boolean;
+  disposed: boolean;
+  publishedCount: number | null;
+  droppedCount: number | null;
+  lastPublishAt: number | null;
+}
+
 export interface PlatformRuntimeSnapshot {
   eventBus: PlatformEventBusDiag;
   halWiring: PlatformHalWiringDiag;
+  halBridge: PlatformHalBridgeDiag;
 }
 
 const _EVENT_BUS_ABSENT: PlatformEventBusDiag = {
@@ -480,6 +496,11 @@ const _EVENT_BUS_ABSENT: PlatformEventBusDiag = {
   duplicateSubscriptionCount: null, recursionDropCount: null, activeListenerCount: null,
   retainedEventCount: null, historyCount: null, lastEventAt: null,
   runtimeStartedPublished: false, runtimeStoppedPublished: false,
+};
+
+const _HAL_BRIDGE_ABSENT: PlatformHalBridgeDiag = {
+  present: false, started: false, disposed: false,
+  publishedCount: null, droppedCount: null, lastPublishAt: null,
 };
 
 const _HAL_WIRING_ABSENT: PlatformHalWiringDiag = {
@@ -537,7 +558,20 @@ export function buildPlatformRuntimeSnapshot(): PlatformRuntimeSnapshot {
     };
   }, _HAL_WIRING_ABSENT);
 
-  return { eventBus: bus, halWiring };
+  const halBridge = _safe<PlatformHalBridgeDiag>(() => {
+    const s = getVehicleHalBridgeStatus();
+    if (!s || s.present !== true) return _HAL_BRIDGE_ABSENT;   // bridge yok → sayaç YOK (0 değil)
+    return {
+      present: true,
+      started: s.started === true,
+      disposed: s.disposed === true,
+      publishedCount: _count(s.publishedCount),
+      droppedCount:   _count(s.droppedCount),
+      lastPublishAt:  _ts(s.lastPublishAt),
+    };
+  }, _HAL_BRIDGE_ABSENT);
+
+  return { eventBus: bus, halWiring, halBridge };
 }
 
 /* ── util ────────────────────────────────────────────────────── */
