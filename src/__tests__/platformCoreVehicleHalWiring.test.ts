@@ -18,14 +18,24 @@ import type { UnifiedVehicleStoreLike, UnifiedVehicleStateReadable } from '../pl
 
 /* ── Fake'ler (yapısal DI — gerçek singleton'a dokunulmaz) ─────────────────── */
 
+/** W4A: HAL TOPLU beslenir (`ingest(batch)`); fake batch'i düz listeye açar. */
 interface FakeHal extends VehicleHalIngestTarget {
   readonly ingests: Array<{ id: string; value: unknown }>;
+  readonly batches: Array<Record<string, unknown>>;
 }
 function createFakeHal(): FakeHal {
   const ingests: Array<{ id: string; value: unknown }> = [];
+  const batches: Array<Record<string, unknown>> = [];
   return {
-    ingestSignal(id, input) { ingests.push({ id: String(id), value: input.value }); return null; },
+    ingest(signals) {
+      batches.push(signals as Record<string, unknown>);
+      for (const [id, input] of Object.entries(signals)) {
+        if (input) ingests.push({ id, value: input.value });
+      }
+      return null;
+    },
     ingests,
+    batches,
   };
 }
 
@@ -270,14 +280,15 @@ describe('PR-W2 wiring — fail-soft', () => {
     expect(valuesOf(hal, 'vehicle.speed')).toContain(42);   // ilk refresh yine de aktı
   });
 
-  it('23) HAL ingest hatası diğer sinyalleri engellemez (tek sinyal bozuksa diğerleri sürer)', () => {
+  it('23) HAL batch ingest hatası wiring\'i çökertmez (W4A: batch tümden düşer, fail-soft)', () => {
     let calls = 0;
     const flakyHal: VehicleHalIngestTarget = {
-      ingestSignal(id) { calls++; if (String(id) === 'vehicle.speed') throw new Error('hal fail'); return null; },
+      ingest() { calls++; throw new Error('hal fail'); },
     };
     const store = createFakeStore({ speed: 50, canCoolantTemp: 90 });
     expect(() => { start({ store, hal: flakyHal }); }).not.toThrow();
-    expect(calls).toBeGreaterThan(1);
+    expect(calls).toBe(1);                          // TEK batch denemesi (sinyal başına değil)
+    expect(() => store.set({ speed: 60 })).not.toThrow();   // sonraki tick de çökertmez
   });
 
   it('24) cleanup hatası shutdown\'ı ENGELLEMEZ (throw etmez)', () => {

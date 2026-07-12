@@ -18,6 +18,16 @@
  * `inferred`; confidence VAL SIGNAL_SOURCE_DEFAULTS taban gerekçesiyle muhafazakâr sabit
  * (magic uydurma yok). Provider/HAL hatası HAL'e/çağırana SIZMAZ (fail-soft).
  *
+ * ⚡ BATCH INGEST (W4A — emit amplifikasyonu düzeltmesi): bir `refresh()` içinde değişen
+ * TÜM sinyaller tek `hal.ingest(batch)` çağrısıyla verilir. Eskiden sinyal başına
+ * `hal.ingestSignal()` çağrılıyordu ve HAL **her değişimde** revision artırıp 15 sinyallik
+ * tam snapshot'ı kopyalayıp/sıralayıp/dondurup emit ediyordu → tek store tick'inde N değişim
+ * = N emit (+ N snapshot). Artık: N değişim = **1 ingest = 1 emit** (HAL tüm girdileri
+ * uygulayıp SONUNDA tek kez emit eder). BİLİNÇLİ FARKLAR: (1) HAL `revision` sinyal başına
+ * değil **batch başına 1** artar; (2) HAL aboneleri ara (kısmi) snapshot'ları görmez, yalnız
+ * **nihai tutarlı** snapshot'ı görür. Yayınlanan nihai sinyal kümesi, değerler ve metadata
+ * (source/quality/confidence/timestamp) DEĞİŞMEZ; adapter dedupe semantiği DEĞİŞMEZ.
+ *
  * NE YAPMAZ (bilinçli — bu PR yalnız köprü FOUNDATION'ıdır):
  *  - Event Bus'a YAYINLAMAZ · Capability Registry'yi GÜNCELLEMEZ · SystemBoot'a BAĞLANMAZ ·
  *    native/OBD/CAN sorgusu BAŞLATMAZ · poll listesi/frekans DEĞİŞTİRMEZ · UI/SQL YOK.
@@ -35,9 +45,13 @@ import type { VehicleSignalId, VehicleSignalInput, VehicleSignalSource, SignalQu
  * Tipler (DI — store'a yapısal olarak uyumlu, doğrudan import YOK)
  * ════════════════════════════════════════════════════════════════════════ */
 
-/** HAL hedefi — yalnız `ingestSignal` gerekir (VehicleHal yapısal olarak uyar). */
+/**
+ * HAL hedefi — yalnız TOPLU besleme (`ingest`) gerekir (VehicleHal yapısal olarak uyar).
+ * Adapter tek `refresh()` içinde değişen tüm sinyalleri TEK çağrıda verir → HAL tek emit üretir.
+ * Gereksiz HAL API'leri (ingestSignal/refresh/getSnapshot…) bu sözleşmeye TAŞINMAZ.
+ */
 export interface VehicleHalIngestTarget {
-  ingestSignal(id: VehicleSignalId, input: VehicleSignalInput): unknown;
+  ingest(signals: Partial<Record<VehicleSignalId, VehicleSignalInput>>): unknown;
 }
 
 /** Okunacak normalize araç durumu (UnifiedVehicleState alt kümesi — yapısal). */
@@ -89,6 +103,12 @@ const CAN_QUALITY: SignalQuality = 'high';
 const INFERRED_QUALITY: SignalQuality = 'medium';
 
 type ExtractResult = { value: number | boolean | number[] } | null;
+
+/** Batch içinde HAL'e verilen sinyalin dedupe kaydı (yalnız BAŞARILI ingest sonrası işlenir). */
+interface PendingIngest {
+  readonly id: VehicleSignalId;
+  readonly value: number | boolean | number[];
+}
 
 interface SignalMapSpec {
   readonly id: VehicleSignalId;
@@ -192,7 +212,10 @@ export class VehicleHalProviderAdapter {
     this.refresh();
   }
 
-  /** Store snapshot'ını okuyup YALNIZ değişen sinyalleri HAL'e ingest eder. Fail-soft. */
+  /**
+   * Store snapshot'ını okuyup YALNIZ değişen sinyalleri HAL'e TEK batch ile ingest eder.
+   * N değişim → 1 `hal.ingest()` → HAL'de 1 emit (eskiden N ingestSignal → N emit). Fail-soft.
+   */
   refresh(): void {
     if (this._disposed) return;
     this._refreshCount++;
@@ -203,9 +226,13 @@ export class VehicleHalProviderAdapter {
     if (!snap || typeof snap !== 'object') return;
 
     const live = _isLive(snap);
-    const ts = this._nowSafe();
+    const ts = this._nowSafe();                                       // refresh başına TEK ortak zaman
 
-    for (const spec of SIGNAL_MAP) {
+    // Değişiklik yoksa hiç allocation yapma (hot-path): ilk değişimde oluştur.
+    let batch: Partial<Record<VehicleSignalId, VehicleSignalInput>> | null = null;
+    let pending: PendingIngest[] | null = null;
+
+    for (const spec of SIGNAL_MAP) {                                  // SIGNAL_MAP sırası KORUNUR
       let res: ExtractResult = null;
       try { res = spec.extract(snap, live); } catch { res = null; } // tek sinyal bozuk → diğerleri sürer
       if (res === null) continue;                                    // kaynak yok → ingest yok
@@ -214,10 +241,22 @@ export class VehicleHalProviderAdapter {
       const input: VehicleSignalInput = {
         value: res.value, source: spec.source, quality: spec.quality, confidence: spec.confidence, timestamp: ts,
       };
-      try {
-        this._hal.ingestSignal(spec.id, input);
-        this._last.set(spec.id, Array.isArray(res.value) ? [...res.value] : res.value); // kopya sakla
-      } catch { /* HAL ingest hatası diğer sinyalleri engellemez */ }
+      if (batch === null) { batch = {}; pending = []; }
+      batch[spec.id] = input;
+      pending!.push({ id: spec.id, value: res.value });
+    }
+
+    if (batch === null || pending === null || pending.length === 0) return; // değişiklik yok → HAL çağrısı YOK
+
+    try {
+      this._hal.ingest(batch);          // TEK çağrı → HAL tüm girdileri uygular ve TEK kez emit eder
+    } catch {
+      return;   // batch TÜMDEN düştü → `_last` GÜNCELLENMEZ: sinyaller "aktarılmış" sayılmaz, sonraki
+                // refresh'te yeniden denenir (HAL idempotenttir: aynı değer → değişim yok → emit yok).
+    }
+    // Yalnız BAŞARILI ingest sonrası dedupe kaydı güncellenir (dizi değerler kopyalanır).
+    for (const p of pending) {
+      this._last.set(p.id, Array.isArray(p.value) ? [...p.value] : p.value);
     }
   }
 
