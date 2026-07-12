@@ -39,6 +39,7 @@ import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWirin
 import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
 import { startPlatformCoreCapabilityWiring } from './platformCoreCapabilityWiring';
 import { startPlatformCoreCapabilityBridgeWiring } from './platformCoreCapabilityBridgeWiring';
+import { startPlatformCoreDeepScanWiring } from './platformCoreDeepScanWiring';
 import {
   startPlatformCoreEventBusWiring,
   publishRuntimeStarted,
@@ -572,6 +573,19 @@ class SystemBoot {
       this._reg(startPlatformCoreCapabilityBridgeWiring());
     } catch (e) {
       logError('SystemBoot:capabilityBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
+    }
+
+    // Platform Core: Deep Scan runtime ownership wiring (W5-1). HAL/Capability/Event Bus
+    // wiring'lerden SONRA, intelligence servislerinden ÖNCE. YALNIZ sahiplik: orchestrator'ı
+    // paylaşılan runtime/persistence/ignition singleton'larıyla KURAR ama ÇALIŞTIRMAZ (start/run
+    // YOK, handler YOK, aktif sorgu YOK, tarama YOK). Ignition kaynağı yok → ignitionConfirmed
+    // null → aktif fazlar (ileride başlatılırsa) fail-closed bloke. LIFO shutdown'da orchestrator
+    // önce dispose olur; paylaşılan singleton'lar (başka tüketicileri olabilir) DISPOSE EDİLMEZ.
+    _log('  › Deep Scan runtime ownership (Platform Core)');
+    try {
+      this._reg(startPlatformCoreDeepScanWiring());
+    } catch (e) {
+      logError('SystemBoot:deepScanWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
