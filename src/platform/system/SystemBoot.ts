@@ -37,6 +37,7 @@ import {
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
 import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
+import { startPlatformCoreCapabilityWiring } from './platformCoreCapabilityWiring';
 import {
   startPlatformCoreEventBusWiring,
   publishRuntimeStarted,
@@ -546,6 +547,18 @@ class SystemBoot {
       this._reg(startPlatformCoreVehicleHalBridgeWiring());
     } catch (e) {
       logError('SystemBoot:vehicleHalBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
+    }
+
+    // Platform Core: Capability Registry runtime wiring (PR-W3) — providers→adapter→registry
+    // AYNA modu. Additive; Wave sırası bozulmaz. Vehicle store'a BAĞIMSIZDIR (yalnız navigator +
+    // deviceTier okur). Wiring fonksiyonu init hatasını kendi içinde yutar (fail-soft); buradaki
+    // savunmacı catch YALNIZ sözleşme ihlali (dışarı exception) için — çift-log YOK. Registry
+    // beslenir ama okuyan yok (tüketici migrasyonu ayrı PR); yalnız yan-etkisiz browser-API kanıtı.
+    _log('  › Capability Registry wiring (Platform Core)');
+    try {
+      this._reg(startPlatformCoreCapabilityWiring());
+    } catch (e) {
+      logError('SystemBoot:capabilityWiring', e);
     }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
