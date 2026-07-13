@@ -62,11 +62,30 @@ export function isTerminalStatus(status: DeepScanStatus): boolean {
  * ════════════════════════════════════════════════════════════════════════ */
 
 /**
+ * Araca AKTİF sorgu gönderen faz ADLARI (tip düzeyi). `OfflinePhase` bu kümenin
+ * tümleyeni olarak TÜRETİLİR → offline yüzeyler aktif faz KABUL EDEMEZ (compile-time).
+ */
+export type ActivePhase =
+  | 'vehicle_identity'
+  | 'protocol_detection'
+  | 'ecu_discovery'
+  | 'standard_pid_discovery'
+  | 'manufacturer_did_discovery'
+  | 'firmware_inventory';
+
+/**
+ * Araca HİÇ sorgu göndermeyen faz adları — `DeepScanPhase` eksi `ActivePhase`.
+ * `Exclude` ile türetildiği için yeni bir faz eklenirse ikisinden birine düşmek
+ * ZORUNDADIR; sessizce "sınıflandırılmamış" faz oluşamaz.
+ */
+export type OfflinePhase = Exclude<DeepScanPhase, ActivePhase>;
+
+/**
  * Araca AKTİF sorgu gönderen fazlar. Bunlar YALNIZ `ignitionConfirmed === true`
  * iken çalışabilir. `vehicle_identity` (Mode 09 VIN sorgusu) ve
  * `firmware_inventory` (DID sorgusu) de araca istek gönderir → aktif sayılır.
  */
-export const ACTIVE_PHASES: readonly DeepScanPhase[] = [
+export const ACTIVE_PHASES: readonly ActivePhase[] = [
   'vehicle_identity',
   'protocol_detection',
   'ecu_discovery',
@@ -79,7 +98,7 @@ export const ACTIVE_PHASES: readonly DeepScanPhase[] = [
  * Araca hiç sorgu göndermeyen, önceden toplanmış veriyi işleyen fazlar.
  * Kontak kapalı/bilinmiyorken de çalışabilirler.
  */
-export const OFFLINE_PHASES: readonly DeepScanPhase[] = [
+export const OFFLINE_PHASES: readonly OfflinePhase[] = [
   'capability_analysis',
   'fingerprint_update',
   'knowledge_update',
@@ -88,9 +107,29 @@ export const OFFLINE_PHASES: readonly DeepScanPhase[] = [
   'report_generation',
 ];
 
-/** Faz araca aktif sorgu gönderir mi. */
-export function isActivePhase(phase: DeepScanPhase): boolean {
-  return ACTIVE_PHASES.includes(phase);
+/**
+ * Offline pass'in DETERMİNİSTİK yürütme sırası. `DEEP_SCAN_PHASE_SEQUENCE`'in offline
+ * alt-dizisiyle AYNI göreli sırayı korur — ama aktif fazlar kümede HİÇ YOKTUR: offline
+ * pass onları "atlamaz", göremez bile. Sekans tuzağı (aktif faz faz-0'da bloke eder)
+ * bu yüzden yapısal olarak oluşamaz.
+ */
+export const OFFLINE_PHASE_SEQUENCE: readonly OfflinePhase[] = [
+  'capability_analysis',
+  'fingerprint_update',
+  'knowledge_update',
+  'evidence_update',
+  'change_detection',
+  'report_generation',
+];
+
+/** Faz offline mı (tip daraltıcı — aktif faz yüzeylerinde çalışma-zamanı ikinci kilidi). */
+export function isOfflinePhase(phase: DeepScanPhase): phase is OfflinePhase {
+  return !isActivePhase(phase);
+}
+
+/** Faz araca aktif sorgu gönderir mi (tip daraltıcı). */
+export function isActivePhase(phase: DeepScanPhase): phase is ActivePhase {
+  return (ACTIVE_PHASES as readonly DeepScanPhase[]).includes(phase);
 }
 
 /**
