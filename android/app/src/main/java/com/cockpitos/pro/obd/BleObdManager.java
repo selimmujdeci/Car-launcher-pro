@@ -488,6 +488,22 @@ public final class BleObdManager {
     }
 
     /**
+     * W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi) — BLE GATT yolu.
+     * OBDManager.performHandshake ile aynı desen (USER önceliği, tek atomik kuyruk görevi).
+     */
+    public ElmProtocol.HandshakeRaw performHandshake() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::performHandshakeRaw).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
      * Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — bkz. OBDManager.readObdDid aynı desen
      * (ECU header ayarlama + oku + restore TEK kuyruk görevinde ATOMİK, USER önceliği).
      *

@@ -27,7 +27,7 @@ import {
   flushCanSnapshotNow,
   stopCanSnapshot,
 } from './canSnapshotService';
-import { buildHandshakeResult } from '../core/val/OBDHandshake';
+import { buildHandshakeResult, classifyHandshakeResponse } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
 import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, type ObdTransport } from './obdStorage';
@@ -37,7 +37,7 @@ import { useExpertStore } from '../store/useExpertStore';
 import { sanitizeNativeOBDPacket } from './obdSanitizer';
 import { computeFuelMetrics } from './obdMetrics';
 import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
-import { getPidListForVehicle } from './obdPidConfig';
+import { getPidListForVehicle, refinePidList } from './obdPidConfig';
 import { computeObdPollProfile } from './obd/AdaptivePollingController';
 import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
 import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
@@ -160,6 +160,14 @@ let _lastTransportVerified = loadObdTransportVerified();
 let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
   loadObdProfileId() ?? '',
 ) ?? vehicleProfileRegistry.getById('standard')!;
+
+// ── Handshake capability discovery (W5-OBD-PR1) ──────────────
+// Handshake bitmap keşfinden gelen KANIT (session-içi). Bir sonraki reconnect'te
+// _getPidList refinePidList ile bunu kullanır → desteklenmeyen PID poll edilmez,
+// desteklenen 0x2F (yakıt) oto-aktive olur. Kanıt yokken (null/boş) statik liste
+// AYNEN kullanılır — fail-soft, mevcut poll zinciri regresyonsuz.
+let _handshakeSupportedPids: Set<number> = new Set();
+let _handshakeReadBlocks:    Set<number> = new Set();
 
 // ValidationGuard: ardışık "OBD speed=0 iken GPS>10 km/h" sayacı
 let _validationMisses = 0;
@@ -804,7 +812,13 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    ("Car Scanner bağlanıyor ama biz bağlanmıyoruz, hep aynı döngü"). Artık deneme
   //    sayısına göre ELM327 protokolü döndürülür → CAN, KWP ve ISO9141 araçlar da bağlanır.
   //    Race against a timeout so a non-responsive BT device doesn't hang.
-  const pidList = getPidListForVehicle(_current.vehicleType);
+  // W5-OBD-PR1: statik taban → handshake bitmap KANITIYLA rafine edilir.
+  // Kanıt yoksa (ilk bağlantı / handshake başarısız) taban aynen kullanılır (fail-soft).
+  const pidList = refinePidList(
+    getPidListForVehicle(_current.vehicleType),
+    _handshakeSupportedPids,
+    _handshakeReadBlocks,
+  );
   // ELM327 ATSP numaraları: undefined=ATSP0 otomatik · 6=CAN 11/500 · 5=KWP hızlı init ·
   // 4=KWP 5-baud · 3=ISO 9141-2 · 7=CAN 29/500. Otomatik çoğu aracı bulur; bulamazsa sırayla denenir.
   const PROTOCOL_CYCLE: (string | undefined)[] = [undefined, '6', '5', '4', '3', '7'];
@@ -1008,15 +1022,28 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    performHandshake() opsiyoneldir (eski plugin'de yok) → guard + .catch ile korunur.
   if (CarLauncher.performHandshake) {
     void CarLauncher.performHandshake()
-      .then(({ raw09, raw0100 }) => {
+      .then((raw) => {
         if (_stale()) return;
-        const result  = buildHandshakeResult(raw09, raw0100);
+        const result  = buildHandshakeResult(raw);
         const profile = vehicleProfileRegistry.findBestMatch(result.vin, result.supportedPids);
         _applyDetectedProfile(profile);
         persistHandshakeVin(result.vin ?? null);
+
+        // Capability keşif kanıtını sakla — bir sonraki reconnect'te refinePidList
+        // desteklenmeyen PID'i eler, desteklenen 0x2F yakıtı oto-aktive eder.
+        _handshakeSupportedPids = result.supportedPids;
+        _handshakeReadBlocks    = result.readBlocks;
+
+        // Timeout türü ayrımı (item 5): NO DATA / TIMEOUT / UNSUPPORTED sessizce
+        // yutulmaz — VIN + zorunlu 0100 bloğunun sınıfı loglanır (teşhis şeffaflığı).
+        const vinClass  = classifyHandshakeResponse(raw.raw09, '49', '02');
+        const b00Class  = classifyHandshakeResponse(raw.raw0100, '41', '00');
         console.info('[OBD:Handshake]',
-          result.vin ? 'VIN: ' + result.vin : 'VIN yok, PID heuristic',
-          '→ profil:', profile.name);
+          result.vin ? 'VIN: ' + result.vin : `VIN yok (${vinClass}), PID heuristic`,
+          `bitmap[00]=${b00Class} bloklar=${[...result.readBlocks].map((b) => b.toString(16)).join(',') || 'yok'}`,
+          `desteklenen=${result.supportedPids.size} PID`,
+          '→ profil:', profile.name,
+          result.supportedPids.has(0x2F) ? '· yakıt(2F) destekli' : '');
       })
       .catch((err: unknown) => {
         persistHandshakeVin(null);
