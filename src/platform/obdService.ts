@@ -30,7 +30,7 @@ import {
 import { buildHandshakeResult, classifyHandshakeResponse } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -40,7 +40,7 @@ import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle, refinePidList } from './obdPidConfig';
 import { computeObdPollProfile } from './obd/AdaptivePollingController';
 import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
-import { notifyObdConnected as notifyExtendedPids } from './obd/extendedPidService';
+import { notifyObdConnected as notifyExtendedPids, seedSupportedPids as seedExtendedSupported } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
@@ -523,6 +523,12 @@ function _onRealData(patch: Partial<OBDData>): void {
       if (_lastKnownTransport != null && _lastKnownTransport !== 'tcp' && !_lastTransportVerified) {
         _lastTransportVerified = true;
         saveObdTransportVerified(true);
+      }
+      // Keşif kanıt defteri: gerçek ECU verisi AKTI → bu adres kanıtlanmış bir OBD
+      // adaptörüdür. Tarama listesi bunu okuyup 'verified' rozeti basar (tahmin değil).
+      // Kanıt anı BURASIDIR: bağlantı kurmak veri akıtmak demek değildir.
+      if (_lastKnownAddress && _lastKnownTransport !== 'tcp') {
+        markObdAddressVerified(_lastKnownAddress);
       }
     }
     return; // gate geçilmemişse diğer PID'ler ısınma dönemi boyunca görmezden gelinir
@@ -1033,6 +1039,12 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         // desteklenmeyen PID'i eler, desteklenen 0x2F yakıtı oto-aktive eder.
         _handshakeSupportedPids = result.supportedPids;
         _handshakeReadBlocks    = result.readBlocks;
+
+        // Handshake keşfini extended katmana TOHUMLA — Canlı Test / SensorPanel extended
+        // kanaldan YENİDEN bitmask keşfi beklemez (aksi halde _supported=null iken izlenen
+        // tüm PID'ler native'e gidip NO-DATA fırtınasıyla keşfi tıkıyordu). Yalnız EKLER,
+        // izleyici yoksa no-op. readBlocks boşsa (kanıt yok) seed boş → fail-soft dokunmaz.
+        if (result.readBlocks.size > 0) seedExtendedSupported(result.supportedPids);
 
         // Timeout türü ayrımı (item 5): NO DATA / TIMEOUT / UNSUPPORTED sessizce
         // yutulmaz — VIN + zorunlu 0100 bloğunun sınıfı loglanır (teşhis şeffaflığı).

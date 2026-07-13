@@ -217,6 +217,35 @@ export function getSupportedPids(): Set<string> | null {
 }
 
 /**
+ * Native Handshake keşif sonucunu (tek doğruluk kaynağı) extended katmana TOHUMLAR —
+ * extended kanaldan YENİDEN bitmask keşfi beklemeye gerek kalmaz.
+ *
+ * NEDEN (gerçek araç blocker'ı): `_supported === null` iken `_buildNativeList` destek
+ * filtresi uygulayamaz → izlenen TÜM PID'ler (burst'te ≤48) native'e gider; araç
+ * desteklemeyen her biri ELM327'de ~200 ms NO-DATA bekletir → poll turu tıkanır
+ * (Canlı Test ekranında "araç desteği keşfediliyor"da kalıcı takılma). Handshake bitmap'i
+ * blok 00–A0'ı (PID 1–160) kapsar; `StandardPidRegistry`'nin en yüksek PID'i 0x8E (142) →
+ * TÜM çözülebilir PID'ler kapsam içindedir (C0/E0 blokları yalnız kayıtta OLMAYAN
+ * PID 193+ taşır → yanlış-negatif riski YOK). Yalnız EKLER (hiçbir PID'i "desteksiz"e
+ * çevirmez); mevcut extended keşif yanıtları geldikçe UNION'lanmaya devam eder (idempotent).
+ *
+ * @param supportedPidNums Handshake'ten desteklenen PID numaraları (ör. 0x2F=47).
+ */
+export function seedSupportedPids(supportedPidNums: Iterable<number>): void {
+  const seed = _supported ?? new Set<string>();
+  let added = 0;
+  for (const n of supportedPidNums) {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 255) continue;
+    const key = n.toString(16).toUpperCase().padStart(2, '0');
+    if (!seed.has(key)) { seed.add(key); added++; }
+  }
+  // Kanıt yoksa dokunma (fail-soft): boş seed + zaten null ise keşif yolu bozulmasın.
+  if (seed.size === 0) return;
+  _supported = seed;
+  if (added > 0 || _watchers.size > 0) _pushToNative(); // destek daraldı → NO-DATA fırtınası biter
+}
+
+/**
  * obdService bağlantı kancası — bağlantı kurulunca çağrılır: izleyici varsa native
  * listeyi tazeler ve (gerekiyorsa) keşfi yeniden başlatır. İzleyici yoksa NO-OP
  * (boş liste zaten native varsayılanı).
