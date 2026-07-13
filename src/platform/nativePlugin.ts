@@ -799,18 +799,34 @@ export interface CarLauncherPlugin {
   clearNativeCommandQueue?(): Promise<void>;
 
   /**
-   * OBD El Sıkışması — bağlantı ısınma sonrası çağrılır.
-   * Native katman iki komut gönderir:
-   *   • `09 02` → SAE J1979 Mode 09 PID 02 — VIN (ASCII)
-   *   • `01 00` → SAE J1979 Mode 01 PID 00 — Desteklenen PID bitmask
+   * OBD El Sıkışması — bağlantı ısınma sonrası çağrılır (W5-OBD-PR1).
+   * Native katman ham ELM327 yanıtlarını döndürür; ayrıştırma TS'te
+   * (`buildHandshakeResult`, tek doğruluk kaynağı). Sorgular:
+   *   • `09 02` → Mode 09 PID 02 — VIN (ASCII)
+   *   • `01 00` → Mode 01 PID 00 — desteklenen PID bitmask (PIDs 01–20)
+   *   • `01 20/40/60/80/A0` → süreklilik-bit'i set ise ek bitmap blokları
+   *     (PIDs 21–192). Native, önceki bloğun son bit'i (PID 0x20/0x40 …) set
+   *     DEĞİLSE sonraki bloğu HİÇ sormaz → desteklenmeyen PID poll edilmez,
+   *     NO-DATA fırtınası oluşmaz.
    *
-   * @returns raw09   — ELM327 `09 02` ham ASCII yanıtı
-   *          raw0100 — ELM327 `01 00` ham ASCII yanıtı
+   * @returns raw09   — `09 02` ham ASCII yanıtı (VIN)
+   *          raw0100 — `01 00` ham ASCII yanıtı (zorunlu)
+   *          raw0120…raw01A0 — sorgulanmayan blok için boş string ('')
    *
    * Opsiyonel (`?`): eski plugin versiyonlarında graceful degrade için.
-   * Eğer çağrı başarısız olursa obdService try/catch ile yakalayıp devam eder.
+   * Native hiçbir exception dışarı sızdırmaz (fail-soft); yine de çağrı
+   * başarısız olursa obdService .catch ile yakalar. Eski native yalnız
+   * {raw09, raw0100} döndürebilir — ek alanlar undefined (geriye dönük uyumlu).
    */
-  performHandshake?(): Promise<{ raw09: string; raw0100: string }>;
+  performHandshake?(): Promise<{
+    raw09:    string;
+    raw0100:  string;
+    raw0120?: string;
+    raw0140?: string;
+    raw0160?: string;
+    raw0180?: string;
+    raw01A0?: string;
+  }>;
 
   /** CAN bus araç sinyalleri — read-only, native katmandan gelir */
   addListener(

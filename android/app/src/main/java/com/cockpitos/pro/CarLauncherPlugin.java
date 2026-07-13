@@ -1606,6 +1606,41 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-read-did").start();
     }
 
+    // ── W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi) ─────
+
+    /** Aktif transport üzerinden el sıkışması ham yanıtlarını okur; hiçbiri bağlı değilse IOException. */
+    private com.cockpitos.pro.obd.ElmProtocol.HandshakeRaw handshakeFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.performHandshake();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.performHandshake();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    /**
+     * OBD el sıkışması — HAM ELM327 yanıtlarını (VIN + bitmap blokları) döndürür;
+     * ayrıştırma TS'te ({@code OBDHandshake.buildHandshakeResult}). Ayrı thread:
+     * el sıkışması ELM kuyruğunda birkaç komut sürebilir, plugin handler bloklanmamalı.
+     */
+    @PluginMethod
+    public void performHandshake(PluginCall call) {
+        new Thread(() -> {
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.HandshakeRaw hs = handshakeFromActive();
+                JSObject ret = new JSObject();
+                ret.put("raw09",   hs.raw09);
+                ret.put("raw0100", hs.raw0100);
+                ret.put("raw0120", hs.raw0120);
+                ret.put("raw0140", hs.raw0140);
+                ret.put("raw0160", hs.raw0160);
+                ret.put("raw0180", hs.raw0180);
+                ret.put("raw01A0", hs.raw01A0);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "El sıkışması başarısız";
+                mainHandler.post(() -> call.reject("OBD_HANDSHAKE_FAILED", msg));
+            }
+        }, "obd-handshake").start();
+    }
+
     // ── OBD internals ───────────────────────────────────────────────────────
 
     /**

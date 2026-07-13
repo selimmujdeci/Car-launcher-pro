@@ -142,6 +142,102 @@ public final class ElmProtocol {
         return null;
     }
 
+    // ── W5-OBD-PR1: El sıkışması (VIN + desteklenen-PID bitmap keşfi) ──────────
+
+    /** VIN (Mode 09 PID 02) sorgu timeout'u — multi-frame ISO-TP için biraz uzun. */
+    private static final int HANDSHAKE_VIN_TIMEOUT_MS    = 2000;
+    /** Bitmap bloğu (Mode 01 PID 00/20/…) sorgu timeout'u. */
+    private static final int HANDSHAKE_BITMAP_TIMEOUT_MS = 1200;
+
+    /**
+     * El sıkışması HAM yanıtları — ayrıştırma YAPILMAZ (tek doğruluk kaynağı TS:
+     * {@code OBDHandshake.buildHandshakeResult}). Sorgulanmayan blok = "" (boş).
+     * Değişmez (immutable) — JIT hidden-class stabilitesi için tüm alanlar sabit sıralı.
+     */
+    public static final class HandshakeRaw {
+        public final String raw09;
+        public final String raw0100;
+        public final String raw0120;
+        public final String raw0140;
+        public final String raw0160;
+        public final String raw0180;
+        public final String raw01A0;
+
+        HandshakeRaw(String raw09, String raw0100, String raw0120, String raw0140,
+                     String raw0160, String raw0180, String raw01A0) {
+            this.raw09   = raw09;
+            this.raw0100 = raw0100;
+            this.raw0120 = raw0120;
+            this.raw0140 = raw0140;
+            this.raw0160 = raw0160;
+            this.raw0180 = raw0180;
+            this.raw01A0 = raw01A0;
+        }
+    }
+
+    /**
+     * OBD el sıkışması — VIN + desteklenen-PID bitmap keşfi. HAM ELM327 yanıtlarını
+     * döndürür (formül/parse YOK; TS ayrıştırır). {@code cmdQueue}'nun TEK worker
+     * thread'inde tek görev olarak çağrılmalıdır (araya poll komutu girmesin).
+     *
+     * Süreklilik-bit disiplini (SAE J1979): bir bitmap bloğunun SON PID'i
+     * (0x20/0x40/0x60/0x80/0xA0) set DEĞİLSE sonraki blok HİÇ sorgulanmaz →
+     * desteklenmeyen blok poll edilmez, NO-DATA fırtınası oluşmaz.
+     *
+     * FAIL-SOFT: her sorgu {@link #safeSend} ile sarılır — hiçbir exception dışarı
+     * sızmaz (item 7). Tamamen başarısız olsa bile tüm alanları "" olan bir sonuç döner.
+     */
+    public HandshakeRaw performHandshakeRaw() {
+        final String raw09   = safeSend("0902", HANDSHAKE_VIN_TIMEOUT_MS);
+        final String raw0100 = safeSend("0100", HANDSHAKE_BITMAP_TIMEOUT_MS);
+
+        String raw0120 = "", raw0140 = "", raw0160 = "", raw0180 = "", raw01A0 = "";
+        if (hasContinuationBit(raw0100, "41", "00")) {
+            raw0120 = safeSend("0120", HANDSHAKE_BITMAP_TIMEOUT_MS);
+            if (hasContinuationBit(raw0120, "41", "20")) {
+                raw0140 = safeSend("0140", HANDSHAKE_BITMAP_TIMEOUT_MS);
+                if (hasContinuationBit(raw0140, "41", "40")) {
+                    raw0160 = safeSend("0160", HANDSHAKE_BITMAP_TIMEOUT_MS);
+                    if (hasContinuationBit(raw0160, "41", "60")) {
+                        raw0180 = safeSend("0180", HANDSHAKE_BITMAP_TIMEOUT_MS);
+                        if (hasContinuationBit(raw0180, "41", "80")) {
+                            raw01A0 = safeSend("01A0", HANDSHAKE_BITMAP_TIMEOUT_MS);
+                        }
+                    }
+                }
+            }
+        }
+        return new HandshakeRaw(raw09, raw0100, raw0120, raw0140, raw0160, raw0180, raw01A0);
+    }
+
+    /** channel.send() — hata/exception'ı "" boş stringe çevirir (handshake fail-soft). */
+    private String safeSend(String cmd, int timeoutMs) {
+        try {
+            return sendChecked(cmd, timeoutMs);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * Bir bitmap bloğunun SON bit'i (blok+0x20 PID'i, örn. 0100→0x20) set mi?
+     * Set ise sonraki blok ({@code 01<blok+0x20>}) sorgulanmalıdır.
+     * {@link ElmResponseParser#classify} ile ayrıştırır — kopya parse YOK.
+     */
+    private static boolean hasContinuationBit(String raw, String posMode, String pid) {
+        ElmResponseParser.Result r = ElmResponseParser.classify(raw, posMode, pid);
+        if (r.kind != ElmResponseParser.Kind.OK || r.dataHex == null || r.dataHex.length() < 8) {
+            return false;
+        }
+        try {
+            // İlk 4 data byte = A B C D; byte D (son) bit0 = sonraki blok göstergesi.
+            int lastByte = Integer.parseInt(r.dataHex.substring(6, 8), 16);
+            return (lastByte & 0x01) != 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /**
      * Patch 11B: Mode 02 freeze frame — jenerik ham PID okuma (frame index 0 sabit).
      * Mode 01 ile AYNI PID formülleri geçerlidir (SAE J1979) → TS'te StandardPidRegistry.decode
