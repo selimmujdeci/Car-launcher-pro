@@ -73,3 +73,9 @@ export {
   type StartOrchestrationInput,
   type DeepScanOrchestratorDeps,
 } from './deepScanOrchestrator';
+export {
+  createOfflineChangeDetectionHandler,
+  type ChangeBaseline,
+  type ChangeDetectionReason,
+  type OfflineChangeDetectionDeps,
+} from './offlineChangeDetectionHandler';
