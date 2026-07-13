@@ -62,10 +62,31 @@ const RATE_REFILL_MS = 3_600_000 / RATE_CAPACITY; // 1 jeton / 6 dk
 /** Dedup seti tavanı — sınırsız büyüme yok (zero-leak) */
 const DEDUP_MAX = 200;
 
-/** String alan tavanları — sunucu 16KB guard'ından önce client kırpar */
+/** String alan tavanları — sunucu payload guard'ından önce client kırpar */
 const MAX_MSG_LEN   = 2_048;
 const MAX_STR_LEN   = 2_048;
-const MAX_DEPTH     = 4;
+
+/**
+ * Sanitize derinlik tavanı — ÖLÇÜLMÜŞ değer, keyfi değil.
+ *
+ * `_deepSanitize` derinlik >= MAX_DEPTH olan KABI (nesne/dizi) düşürür; ilkeller
+ * (string/sayı/boolean) derinlikten bağımsız akar. Payload gövdesindeki en derin
+ * kaplar derinlik 4'te:
+ *   root(0) → obdDeep(1) → dtc(2)      → codes[](3)    → kod nesnesi(4)
+ *   root(0) → obdDeep(1) → extended(2) → samples[](3)  → örnek nesnesi(4)
+ *   root(0) → uiActivity(1) → recent[](2) → olay(3)    → reasons[](4)
+ *   inspector(1) → timeline(2) → kayıt(3) → signals/env(4)   [_deepSanitize(…, 1)]
+ *   inspector(1) → runtime(2)  → workers[](3) → worker(4)
+ *
+ * MAX_DEPTH=4 iken bunların HEPSİ düşüyordu — DTC kodları kabloda `[null, null]`
+ * gidiyor, DTC varken triyaj çöküyordu (denetim 2026-07-12, P0).
+ *
+ * 5 = ölçülen minimum yeterli değer. 6 seçildi: derinlik-1'den başlayan girişler
+ * (sanitizeForRemote :143, inspector :494) için bir seviye pay bırakır ve ölçülen
+ * payload'da derinlik >= 5'te KAP OLMADIĞI için bugün 0 ek bayt akıtır.
+ * Yükseltmeden önce derinlik haritasını yeniden ölç — bu sabit körlemesine artmaz.
+ */
+const MAX_DEPTH     = 6;
 const MAX_ARRAY_LEN = 20;
 
 /** Oturum kimliği — 8 karakter (17 karakterlik VIN maskesine takılmaz) */
@@ -115,7 +136,13 @@ function _deepSanitize(value: unknown, depth: number): unknown {
   if (depth >= MAX_DEPTH) return undefined; // derin ağaç → düş
 
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_ARRAY_LEN).map((v) => _deepSanitize(v, depth + 1));
+    // Düşen eleman diziden ÇIKARILIR — `.map` ile yerinde bırakılırsa `undefined`
+    // olur ve JSON'da `null`a döner: tüketici (triyaj) bunu "kod var ama boş" diye
+    // okur ve patlar. Sessiz `null` yerine kısa dizi (dürüst eksiklik).
+    return value
+      .slice(0, MAX_ARRAY_LEN)
+      .map((v) => _deepSanitize(v, depth + 1))
+      .filter((v) => v !== undefined);
   }
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
