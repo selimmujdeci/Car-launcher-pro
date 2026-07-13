@@ -251,13 +251,13 @@ describe('vidMirror allowlist + gizlilik', () => {
 
 describe('cooldown', () => {
   it('ilk basış sent; pencere içinde ikinci basış cooldown (push üretmez)', async () => {
-    expect(await triggerSupportSnapshot()).toBe('sent');
+    expect(await triggerSupportSnapshot()).toBe('queued');
     expect(await triggerSupportSnapshot()).toBe('cooldown');
     expect(await triggerSupportSnapshot()).toBe('cooldown');
     expect(M.pushed).toHaveLength(1);
 
     vi.advanceTimersByTime(SNAPSHOT_COOLDOWN_MS + 1);
-    expect(await triggerSupportSnapshot()).toBe('sent');
+    expect(await triggerSupportSnapshot()).toBe('queued');
     expect(M.pushed).toHaveLength(2);
   });
 });
@@ -288,7 +288,7 @@ describe('hata durumunda', () => {
     expect(M.pushed).toHaveLength(0);
 
     M.pushError = null; // hata giderildi — beklemeden tekrar denenebilmeli
-    expect(await triggerSupportSnapshot()).toBe('sent');
+    expect(await triggerSupportSnapshot()).toBe('queued');
     expect(M.pushed).toHaveLength(1);
   });
 });
@@ -301,23 +301,32 @@ describe('SupportSnapshotCard — UI sözleşmesi', () => {
   const page = readFileSync(join(process.cwd(),
     'src/components/settings/SettingsPage.tsx'), 'utf-8');
 
-  it('buton triggerSupportSnapshot çağırır (reportSupportSnapshot zinciri)', () => {
+  it('buton triggerSupportSnapshotEx çağırır (reportId + teslimat gerçeği zinciri)', () => {
     expect(card).toContain("from '../../platform/remoteLogService'");
-    expect(card).toMatch(/await triggerSupportSnapshot\(\)/);
+    expect(card).toMatch(/await triggerSupportSnapshotEx\(\)/);
+    expect(card).toContain('awaitDelivery');   // gerçek teslim beklenir (yalancı "sent" yok)
     expect(card).toContain('Tanı Gönder');
   });
 
-  it('dört sonuç mesajı da kullanıcıya gösteriliyor (hata dahil)', () => {
-    expect(card).toContain('Tanı raporu gönderildi');
+  it('DELIVERY TRUTH: kabul mesajı "Kuyrukta", yalancı "Gönderildi" YOK', () => {
+    // Kabul anı asla "gönderildi" demez — yalnız "Kuyrukta" / teslim beklenir.
+    expect(card).toContain('Kuyrukta');
     expect(card).toContain('internet gelince gönderilecek');   // offline mesajı
     expect(card).toContain('lütfen biraz bekleyin');           // cooldown mesajı
-    expect(card).toContain('Gönderilemedi — tekrar deneyin');  // hata mesajı
-    expect(card).toMatch(/RESULT_MSG\[status\]/);
+    // Gerçek teslim etiketi diagnosticDelivery.deliveryLabel'dan gelir (tek gerçek kaynak).
+    expect(card).toContain('deliveryLabel');
+    // Eski yalancı kabul-anı metni ("Tanı raporu gönderildi") KALDIRILDI olmalı.
+    expect(card).not.toContain('Tanı raporu gönderildi');
   });
 
-  it('art arda basış koruması: sending sırasında buton kilitli', () => {
-    expect(card).toMatch(/disabled=\{status === 'sending'\}/);
-    expect(card).toMatch(/if \(status === 'sending'\) return/);
+  it('rapor No (reportId) kullanıcıya gösterilir', () => {
+    expect(card).toContain('Rapor No');
+    expect(card).toMatch(/reportId/);
+  });
+
+  it('art arda basış koruması: sending/accepted sırasında buton kilitli', () => {
+    expect(card).toMatch(/phase === 'sending'/);
+    expect(card).toContain("phase === 'accepted'");
   });
 
   it('SettingsPage "Hakkında" paneli kartı render ediyor', () => {

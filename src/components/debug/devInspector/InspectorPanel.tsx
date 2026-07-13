@@ -170,7 +170,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
   const SEND_LABEL: Record<SendState, string> = {
     idle:           'Tanı Gönder',
     sending:        'Gönderiliyor…',
-    sent:           'Gönderildi ✓',
+    queued:         'Kuyruğa alındı ✓',
     queued_offline: 'İnternet gelince gönderilecek',
     cooldown:       'Az önce gönderildi — bekleyin',
     error:          'Gönderilemedi',
@@ -179,7 +179,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
   const SEND_COLOR: Record<SendState, string> = {
     idle:           'rgba(255,255,255,0.4)',
     sending:        '#3b82f6',
-    sent:           '#22c55e',
+    queued:         '#60a5fa',
     queued_offline: '#eab308',
     cooldown:       '#eab308',
     error:          '#ef4444',
@@ -546,7 +546,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
             style={{ color: SEND_COLOR[sendState] }}>
             {sendState === 'sending'
               ? <Loader2 size={11} className="animate-spin" />
-              : sendState === 'sent'
+              : sendState === 'queued'
                 ? <CheckCheck size={11} />
                 : <Send size={11} />}
             {SEND_LABEL[sendState]}

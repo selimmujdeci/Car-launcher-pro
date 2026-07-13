@@ -168,21 +168,21 @@ describe('payload güvenliği — inspector verisi de sanitize edilir', () => {
 
 describe('cooldown — spam koruması', () => {
   it('ilk basış sent; pencere içinde ikinci basış cooldown (push üretmez)', async () => {
-    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('sent');
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('queued');
     expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('cooldown');
     expect(M.pushed).toHaveLength(1);
 
     vi.advanceTimersByTime(SNAPSHOT_COOLDOWN_MS + 1);
-    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('sent');
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('queued');
     expect(M.pushed).toHaveLength(2);
   });
 
   it('triggerSupportSnapshot ile AYNI pencereyi paylaşır (iki buton tek bütçe)', async () => {
-    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('sent');
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('queued');
     expect(await triggerSupportSnapshot()).toBe('cooldown');
 
     vi.advanceTimersByTime(SNAPSHOT_COOLDOWN_MS + 1);
-    expect(await triggerSupportSnapshot()).toBe('sent');
+    expect(await triggerSupportSnapshot()).toBe('queued');
     expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('cooldown');
   });
 });
@@ -211,7 +211,7 @@ describe('hata durumunda', () => {
     expect(M.pushed).toHaveLength(0);
 
     M.pushError = null;
-    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('sent');
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('queued');
     expect(M.pushed).toHaveLength(1);
   });
 });
@@ -241,8 +241,9 @@ describe('InspectorPanel — UI sözleşmesi', () => {
     expect(panel).toMatch(/JSON\.stringify\(buildExportPayload\(\), null, 2\)/); // copy yolu
   });
 
-  it('dört kullanıcı durumu da gösteriliyor (sent/queued/cooldown/error)', () => {
-    expect(panel).toContain('Gönderildi ✓');
+  it('dört kullanıcı durumu da gösteriliyor (queued/cooldown/error) — yalancı "Gönderildi" YOK', () => {
+    expect(panel).toContain('Kuyruğa alındı ✓');   // teslimat gerçeği: kabul ≠ teslim
+    expect(panel).not.toContain('Gönderildi ✓');   // eski yalancı kabul-anı metni kaldırıldı
     expect(panel).toContain('İnternet gelince gönderilecek');
     expect(panel).toContain('Az önce gönderildi — bekleyin');
     expect(panel).toContain('Gönderilemedi');
@@ -291,7 +292,7 @@ describe('not_paired — eşlenmemiş cihazda dürüst sonuç', () => {
     M.paired = false;
     expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('not_paired');
     M.paired = true;
-    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('sent');
+    expect(await triggerDiagnosticSnapshot(sampleInspector())).toBe('queued');
     expect(M.pushed).toHaveLength(1);
   });
 });

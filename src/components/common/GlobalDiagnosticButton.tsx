@@ -25,7 +25,7 @@ type BtnState = 'idle' | 'sending' | SnapshotTriggerResult;
 
 const LABEL: Record<Exclude<BtnState, 'idle'>, string> = {
   sending:        'Taranıyor…',
-  sent:           'Tarama gönderildi ✓',
+  queued:         'Kuyruğa alındı ✓',
   queued_offline: 'İnternet gelince gönderilecek',
   cooldown:       'Az önce gönderildi — bekleyin',
   error:          'Gönderilemedi — tekrar deneyin',
@@ -34,7 +34,7 @@ const LABEL: Record<Exclude<BtnState, 'idle'>, string> = {
 
 const COLOR: Record<Exclude<BtnState, 'idle'>, string> = {
   sending:        '#93c5fd',
-  sent:           '#34d399',
+  queued:         '#60a5fa',
   queued_offline: '#fbbf24',
   cooldown:       '#fbbf24',
   error:          '#f87171',
@@ -94,7 +94,7 @@ export function GlobalDiagnosticButton() {
       >
         {state === 'sending'
           ? <Loader2 size={16} className="animate-spin" />
-          : state === 'sent'
+          : state === 'queued'
             ? <Check size={16} />
             : <Stethoscope size={16} />}
       </button>

@@ -49,6 +49,11 @@ import {
 } from './diagnosticSections';
 import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
 import { useVidStore } from '../store/useVidStore';
+import {
+  beginDelivery, getDelivery, deriveReportId, isTerminal,
+  _resetDeliveryLedgerForTest,
+  type DeliveryState,
+} from './diagnosticDelivery';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -365,10 +370,10 @@ export async function reportObdDiag(diag: Record<string, unknown>): Promise<void
  * Enqueue hatası PROPAGATE eder — triggerSupportSnapshot bunu kullanıcıya
  * "gönderilemedi" olarak yansıtır.
  */
-export async function reportSupportSnapshot(): Promise<Record<string, unknown>> {
+export async function reportSupportSnapshot(reportId?: string): Promise<Record<string, unknown>> {
   const payload = await _buildSupportSnapshotPayload();
   _attachTriage(payload);
-  await pushVehicleEvent('support_snapshot', payload);
+  await pushVehicleEvent('support_snapshot', payload, reportId);
   return payload;
 }
 
@@ -592,6 +597,7 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
  */
 export async function reportDiagnosticSnapshot(
   inspector: Record<string, unknown>,
+  reportId?: string,
 ): Promise<Record<string, unknown>> {
   const base = await _buildSupportSnapshotPayload();
   const payload: Record<string, unknown> = {
@@ -600,7 +606,7 @@ export async function reportDiagnosticSnapshot(
     inspector: _sanitizeSection(inspector),
   };
   _attachTriage(payload);
-  await pushVehicleEvent('support_snapshot', payload);
+  await pushVehicleEvent('support_snapshot', payload, reportId);
   return payload;
 }
 
@@ -615,7 +621,7 @@ export async function reportDiagnosticSnapshot(
  * Bu bölüm eskiden sanitize'ı TAMAMEN atlıyordu (ham spread) → deny-list, VIN/MAC/
  * koordinat/api_key maskeleri ve derinlik tavanı uygulanmıyordu. Artık inspector
  * ile AYNI kapıdan geçer. */
-export async function reportSelfTestSnapshot(): Promise<Record<string, unknown>> {
+export async function reportSelfTestSnapshot(reportId?: string): Promise<Record<string, unknown>> {
   const [base, { runSelfTest }] = await Promise.all([
     _buildSupportSnapshotPayload(),
     import('./selfTestEngine'),
@@ -623,58 +629,93 @@ export async function reportSelfTestSnapshot(): Promise<Record<string, unknown>>
   const selfTest = _sanitizeSection(await runSelfTest());
   const payload: Record<string, unknown> = { ...base, source: 'self_test', selfTest };
   _attachTriage(payload);
-  await pushVehicleEvent('support_snapshot', payload);
+  await pushVehicleEvent('support_snapshot', payload, reportId);
   return payload;
 }
 
 /* ── Kullanıcı tetiklemeli snapshot (Settings "Tanı Gönder") ── */
 
-export type SnapshotTriggerResult = 'sent' | 'queued_offline' | 'cooldown' | 'error' | 'not_paired';
+/**
+ * Tetikleme SONUCU — "kabul" durumu (senkron). DİKKAT: 'queued' = kuyruğa kabul
+ * edildi, TESLİM EDİLDİ DEĞİL. Gerçek teslim (sunucu UUID'si) daha sonra drain
+ * döngüsünde olur; UI onu `awaitDelivery(reportId)` ile öğrenir. Eski 'sent'
+ * değeri (yalancı "Gönderildi") KALDIRILDI — enqueue çözülmesi teslim kanıtı değildi.
+ *   - queued         : kuyruğa kabul edildi (çevrimiçi) — teslim HENÜZ değil
+ *   - queued_offline : çevrimdışı — at-least-once kuyruğa alındı, internet gelince
+ *   - cooldown       : SNAPSHOT_COOLDOWN_MS içinde ikinci basış → snapshot üretilmez
+ *   - error          : enqueue hatası — cooldown YANMAZ, hemen yeniden denenebilir
+ *   - not_paired     : cihaz eşlenmemiş — loglar gönderilemez
+ */
+export type SnapshotTriggerResult = 'queued' | 'queued_offline' | 'cooldown' | 'error' | 'not_paired';
+
+/** Zengin tetikleme sonucu — kabul durumu + teslimat korelasyon anahtarı (reportId).
+ *  UI reportId ile `awaitDelivery` çağırıp "Kuyrukta" → "Gönderildi" yükseltir. */
+export interface SnapshotTriggerOutcome {
+  status:   SnapshotTriggerResult;
+  reportId: string | null; // yalnız queued/queued_offline'da dolu
+}
 
 /** Art arda basma spam koruması — pencere içinde tek snapshot */
 export const SNAPSHOT_COOLDOWN_MS = 60_000;
 
 let _lastSnapshotAt = Number.NEGATIVE_INFINITY; // monotonic (performance.now)
 
-/**
- * Settings/Destek "Tanı raporu gönder" aksiyonu:
- *  - cooldown      : SNAPSHOT_COOLDOWN_MS içinde ikinci basış → snapshot üretilmez
- *  - queued_offline: çevrimdışı — connectivityService at-least-once kuyruğuna
- *                    alındı, internet gelince gönderilecek
- *  - sent          : kuyruğa kabul edildi (çevrimiçi)
- *  - error         : enqueue hatası — cooldown YANMAZ, kullanıcı hemen
- *                    yeniden deneyebilir
- */
+/* String-dönüşlü API (geriye uyumlu): mevcut tüketiciler yalnız durumu okur. */
 export async function triggerSupportSnapshot(): Promise<SnapshotTriggerResult> {
-  return _triggerSnapshot(() => reportSupportSnapshot());
+  return (await triggerSupportSnapshotEx()).status;
 }
-
-/**
- * Dev Inspector "Tanı Gönder" aksiyonu — triggerSupportSnapshot ile AYNI
- * cooldown penceresini paylaşır (iki buton arka arkaya basılsa da pencere
- * başına tek snapshot; spam koruması tek yerden).
- */
 export async function triggerDiagnosticSnapshot(
   inspector: Record<string, unknown>,
 ): Promise<SnapshotTriggerResult> {
-  return _triggerSnapshot(() => reportDiagnosticSnapshot(inspector));
+  return (await triggerDiagnosticSnapshotEx(inspector)).status;
+}
+export async function triggerSelfTestSnapshot(): Promise<SnapshotTriggerResult> {
+  return (await triggerSelfTestSnapshotEx()).status;
+}
+
+/* Zengin API (reportId taşır) — UI teslimat gerçeğini bununla izler. */
+export async function triggerSupportSnapshotEx(): Promise<SnapshotTriggerOutcome> {
+  return _triggerSnapshot('support_snapshot', (rid) => reportSupportSnapshot(rid));
+}
+export async function triggerDiagnosticSnapshotEx(
+  inspector: Record<string, unknown>,
+): Promise<SnapshotTriggerOutcome> {
+  return _triggerSnapshot('support_snapshot', (rid) => reportDiagnosticSnapshot(inspector, rid));
+}
+export async function triggerSelfTestSnapshotEx(): Promise<SnapshotTriggerOutcome> {
+  return _triggerSnapshot('support_snapshot', (rid) => reportSelfTestSnapshot(rid));
 }
 
 /**
- * "Tanı Robotu" aksiyonu — aktif self-test taraması koşturup raporu gönderir.
- * Global "Tanı Gönder" butonu bunu kullanır. Aynı cooldown/eşleşme kapısını
- * paylaşır (pencere başına tek gönderim). Tarama ~2-4 sn sürer (fail-soft).
+ * Teslimatı bekler (UI polling): reportId terminal duruma ulaşınca (delivered/
+ * truncated/rejected/failed) döner, aksi timeout'ta son bilinen durumu verir.
+ * Drain döngüsü asenkron çalıştığından kısa aralıkla defter yoklanır. Fail-soft:
+ * timer yoksa (test) tek okuma döner.
  */
-export async function triggerSelfTestSnapshot(): Promise<SnapshotTriggerResult> {
-  return _triggerSnapshot(() => reportSelfTestSnapshot());
+export async function awaitDelivery(
+  reportId: string,
+  timeoutMs = 30_000,
+  pollMs = 500,
+): Promise<DeliveryState> {
+  const start = (typeof performance !== 'undefined' ? performance.now() : 0);
+  for (;;) {
+    const rec = getDelivery(reportId);
+    if (rec && isTerminal(rec.state)) return rec.state;
+    const elapsed = (typeof performance !== 'undefined' ? performance.now() : 0) - start;
+    if (elapsed >= timeoutMs || typeof setTimeout === 'undefined') {
+      return rec?.state ?? 'queued';
+    }
+    await new Promise<void>((r) => setTimeout(r, pollMs));
+  }
 }
 
-/** Ortak tetikleme iskeleti: cooldown → gönder → sonucu sınıflandır. */
+/** Ortak tetikleme iskeleti: cooldown → reportId üret → gönder → durumu sınıflandır. */
 async function _triggerSnapshot(
-  send: () => Promise<Record<string, unknown>>,
-): Promise<SnapshotTriggerResult> {
+  type: string,
+  send: (reportId: string) => Promise<Record<string, unknown>>,
+): Promise<SnapshotTriggerOutcome> {
   const now = performance.now();
-  if (now - _lastSnapshotAt < SNAPSHOT_COOLDOWN_MS) return 'cooldown';
+  if (now - _lastSnapshotAt < SNAPSHOT_COOLDOWN_MS) return { status: 'cooldown', reportId: null };
 
   // Eşleme ön-kontrolü: cihaz eşlenmemişse pushVehicleEvent event'i düşürür —
   // eskiden burası yine 'sent' diyordu (yalancı başarı). Kullanıcıya gerçek
@@ -683,20 +724,26 @@ async function _triggerSnapshot(
   try {
     const vis = await import('./vehicleIdentityService');
     if (typeof vis.isDevicePaired === 'function' && !(await vis.isDevicePaired())) {
-      return 'not_paired';
+      return { status: 'not_paired', reportId: null };
     }
   } catch { /* tanı ön-kontrolü snapshot akışını asla kıramaz */ }
 
   // Fail-open: yalnız onLine === false kesin "çevrimdışı"dır; alan yoksa
-  // (eski WebView / test ortamı) çevrimiçi varsayılır — kuyruk zaten
-  // at-least-once olduğundan yanlış 'sent' veri kaybettirmez.
+  // (eski WebView / test ortamı) çevrimiçi varsayılır — kuyruk at-least-once
+  // olduğundan yanlış 'queued' veri kaybettirmez.
   const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+
+  // Idempotency: her tetikleme deterministik-benzersiz reportId alır; kuyruğun
+  // retry'leri AYNI reportId'yi taşır → defter tek kayıt tutar (duplicate yok).
+  const reportId = deriveReportId(type, `${BOOT_ID}:${Math.round(now * 1000)}`);
+  beginDelivery(reportId, type, Date.now());
+
   try {
-    await send();
+    await send(reportId);
     _lastSnapshotAt = now;
-    return online ? 'sent' : 'queued_offline';
+    return { status: online ? 'queued' : 'queued_offline', reportId };
   } catch {
-    return 'error'; // cooldown yanmaz — kullanıcı hemen yeniden deneyebilir
+    return { status: 'error', reportId: null }; // cooldown yanmaz
   }
 }
 
@@ -792,5 +839,6 @@ export function _resetRemoteLogServiceForTest(opts?: { keepWatermark?: boolean }
   _lastSnapshotAt = Number.NEGATIVE_INFINITY;
   _running    = false;
   registerRemoteSink(null);
+  _resetDeliveryLedgerForTest();
   if (!opts?.keepWatermark) safeRemoveRaw(WATERMARK_KEY);
 }
