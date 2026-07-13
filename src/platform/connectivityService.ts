@@ -16,22 +16,38 @@
 import { signalWithTimeout } from '../utils/abortCompat';
 import { Network } from '@capacitor/network';
 import { logInfo } from './debug';
+import {
+  classifyHttpOutcome, classifyGenericOutcome, shouldKeepInQueue, markSending, applyOutcome,
+  type HttpOutcome, type DeliveryClassification,
+} from './diagnosticDelivery';
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
 export type QueuePriority = 'critical' | 'high' | 'normal';
 
 export interface QueueEntry {
-  id:          string;
-  url:         string;
-  method:      string;
-  headers:     Record<string, string>;
-  body:        string;
-  priority:    QueuePriority;
-  type:        string;         // log/dedup için ('telemetry', 'cmd_status', vb.)
-  enqueuedAt:  number;         // performance.now() — monotonic
-  attempts:    number;
-  nextRetryAt: number;         // Date.now() — absolute, retry schedule için
+  id:            string;
+  url:           string;
+  method:        string;
+  headers:       Record<string, string>;
+  body:          string;
+  priority:      QueuePriority;
+  type:          string;         // log/dedup için ('telemetry', 'cmd_status', vb.)
+  enqueuedAt:    number;         // performance.now() — monotonic
+  attempts:      number;
+  nextRetryAt:   number;         // Date.now() — absolute, retry schedule için
+  /** Date.now() — ilk kuyruğa giriş (wall-clock). TTL/bounded-retry kapısı için;
+   *  performance.now() oturum başına sıfırlandığından TTL'de kullanılamaz. */
+  createdAtWall?: number;
+  /** Teslimat defteri korelasyon anahtarı (kullanıcı-tetikli raporlar). Yoksa
+   *  bu event izlenmez (bulk telemetri/critical_error) — kuyruk davranışı aynı. */
+  reportId?:     string;
+}
+
+/** UTF-8 octet uzunluğu — Postgres octet_length ile aynı (64 KB truncation ölçümü). */
+function _octetLen(s: string): number {
+  try { return new TextEncoder().encode(s).length; }
+  catch { return s.length; } // TextEncoder yoksa (çok eski WebView) yaklaşık
 }
 
 const PRIORITY_ORDER: Record<QueuePriority, number> = {
@@ -196,18 +212,21 @@ class ConnectivityService {
     body:     Record<string, unknown>,
     priority: QueuePriority = 'normal',
     type = 'generic',
-  ): Promise<void> {
+    reportId?: string,
+  ): Promise<string> {
     const entry: QueueEntry = {
-      id:          uid(),
+      id:            uid(),
       url,
       method,
       headers,
-      body:        JSON.stringify(body),
+      body:          JSON.stringify(body),
       priority,
       type,
-      enqueuedAt:  performance.now(),
-      attempts:    0,
-      nextRetryAt: Date.now(),
+      enqueuedAt:    performance.now(),
+      attempts:      0,
+      nextRetryAt:   Date.now(),
+      createdAtWall: Date.now(),
+      reportId,
     };
 
     await dbPut(entry);
@@ -215,6 +234,7 @@ class ConnectivityService {
     if (this._online && !this._running) {
       void this._drainQueue();
     }
+    return entry.id;
   }
 
   // ── Kuyruk boşaltma ───────────────────────────────────────────────────────
@@ -246,21 +266,31 @@ class ConnectivityService {
         if (!this._online) break;
         if (entry.nextRetryAt > now) continue; // backoff süresi dolmadı
 
-        const ok = await this._sendEntry(entry);
+        const cls = await this._sendEntry(entry);
 
-        if (ok) {
+        // keep/delete kararı. İzlenen tanı raporları (reportId'li): bounded-retry +
+        // TTL kapısı (sonsuz retry yok). Jenerik kuyruk öğeleri (telemetri/cmd):
+        // eski at-least-once sözleşmesi — 5xx/ağ'da SINIRSIZ retry (soak kilidi).
+        const nowW = Date.now();
+        const keep = entry.reportId
+          ? shouldKeepInQueue(cls, entry.attempts + 1, entry.createdAtWall ?? nowW, nowW)
+          : cls.keepInQueue;
+
+        if (!keep) {
+          // delivered / truncated / rejected / failed(cap/TTL) → kuyruktan sil
           await dbDelete(entry.id);
           const idx = remaining.findIndex((e) => e.id === entry.id);
           if (idx !== -1) remaining.splice(idx, 1);
         } else {
-          // Retry: attempts++ ve backoff (aynı referans remaining'de de güncellenir)
+          // retry_scheduled / rate_limited → kuyrukta kal, attempts++ ve backoff.
+          // (rate_limited SESSİZCE SİLİNMEZ — window açılınca yeniden denenir.)
           entry.attempts    += 1;
           entry.nextRetryAt  = nextRetry(entry.attempts);
           await dbPut(entry);
 
-          // Critical olmayan öğelerde hata varsa diğerlerine geç
+          // Critical olmayan öğelerde bekletme varsa diğerlerine geç
           if (entry.priority !== 'critical') continue;
-          // Critical hatada kısa bekle, tekrar dene
+          // Critical bekletmede kısa bekle, tekrar dene
           break;
         }
       }
@@ -280,7 +310,20 @@ class ConnectivityService {
     }
   }
 
-  private async _sendEntry(entry: QueueEntry): Promise<boolean> {
+  /**
+   * Tek öğeyi gönderir ve sunucu yanıtını TESLİMAT DURUMUNA sınıflar.
+   *
+   * Eski sürüm yalnız `res.ok` bakıyordu → RPC'nin rate-limit `RETURN NULL`
+   * yanıtını (HTTP 200 + gövde `null`) BAŞARI sanıp kuyruktan sessizce siliyordu.
+   * Artık yanıt GÖVDESİ okunur: UUID → teslim; null → rate_limited (kuyrukta kal);
+   * 4xx → rejected; 5xx/ağ → retry. reportId varsa teslimat defteri güncellenir.
+   */
+  private async _sendEntry(entry: QueueEntry): Promise<DeliveryClassification> {
+    const now = Date.now();
+    if (entry.reportId) markSending(entry.reportId, now);
+
+    const sentBytes = _octetLen(entry.body);
+    let outcome: HttpOutcome;
     try {
       const res = await fetch(entry.url, {
         method:  entry.method,
@@ -288,23 +331,28 @@ class ConnectivityService {
         body:    entry.body,
         signal:  signalWithTimeout(10_000),
       });
-
-      // 2xx → başarılı, kuyruktan sil
-      if (res.ok) return true;
-
-      // 4xx → client hatası (bad payload) — retry faydasız, kuyruktan sil
-      if (res.status >= 400 && res.status < 500) {
-        console.warn(`[Connectivity] 4xx (${res.status}) — kuyruktan siliniyor: ${entry.type}`);
-        return true;
-      }
-
-      // 5xx → geçici sunucu hatası — SILME, tekrar dene
-      console.warn(`[Connectivity] 5xx (${res.status}) — kuyrukta bekletiliyor: ${entry.type}`);
-      return false;
+      // Gövdeyi oku (UUID/null çıkarımı). Gövde okuma hatası BAŞARILI fetch'i asla
+      // ağ-hatasına çevirmemeli (aksi halde 2xx yanlışlıkla retry olur) → izole try.
+      let bodyText = '';
+      try { if (typeof res.text === 'function') bodyText = await res.text(); }
+      catch { bodyText = ''; }
+      outcome = { status: res.status, bodyText, sentBytes };
     } catch {
-      // Ağ hatası (timeout, offline) — SILME, tekrar dene
-      return false;
+      // Ağ hatası (timeout, offline, DNS) — geçici
+      outcome = { networkError: true, sentBytes };
     }
+
+    // Teslimat-kanıtı sözleşmesi (UUID/null/64KB) YALNIZ izlenen tanı raporlarına
+    // (reportId'li) uygulanır; jenerik kuyruk tüketicileri eski 2xx=başarı kuralında.
+    const cls = entry.reportId ? classifyHttpOutcome(outcome) : classifyGenericOutcome(outcome);
+    if (entry.reportId) applyOutcome(entry.reportId, cls, now);
+
+    if (cls.state === 'rejected') {
+      console.warn(`[Connectivity] rejected (4xx) — kuyruktan siliniyor: ${entry.type}`);
+    } else if (cls.state === 'rate_limited') {
+      console.warn(`[Connectivity] rate_limited (RPC null/429) — kuyrukta: ${entry.type}`);
+    }
+    return cls;
   }
 
   /** Kuyruktaki öğe sayısı */

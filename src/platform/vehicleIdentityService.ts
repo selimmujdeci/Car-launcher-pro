@@ -331,28 +331,32 @@ export function _resetVehicleEventGuardForTest(): void {
 export async function pushVehicleEvent(
   type: string,
   payload: Record<string, unknown>,
-): Promise<void> {
+  reportId?: string,
+): Promise<string | null> {
   if (!RPC_BASE || !SUPABASE_ANON_KEY) {
     _noteDroppedEvent('Supabase env eksik (VITE_SUPABASE_URL/ANON_KEY build\'e gömülmemiş)', type);
-    return;
+    return null;
   }
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
   if (!apiKey) {
     _noteDroppedEvent('missing veh_api_key; device not paired', type);
-    return;
+    return null;
   }
 
   // Alarm/kaza eventi kritik — önce işlenir
   const isCritical = type === 'alarm' || type === 'crash' || type === 'sos';
   const priority   = isCritical ? 'critical' : 'normal';
 
-  await connectivityService.enqueue(
+  // reportId verilmişse teslimat defterine bağlanır (kullanıcı-tetikli raporlar);
+  // verilmezse (bulk telemetri) izlenmez — kuyruk davranışı aynı. Dönüş: kuyruk id'si.
+  return connectivityService.enqueue(
     `${RPC_BASE}/push_vehicle_event`,
     'POST',
     { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
     { p_api_key: apiKey, p_type: type, p_payload: payload },
     priority,
     'telemetry',
+    reportId,
   );
 }
 
