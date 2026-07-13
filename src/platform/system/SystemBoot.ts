@@ -39,7 +39,7 @@ import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWirin
 import { startPlatformCoreVehicleHalBridgeWiring } from './platformCoreVehicleHalBridgeWiring';
 import { startPlatformCoreCapabilityWiring } from './platformCoreCapabilityWiring';
 import { startPlatformCoreCapabilityBridgeWiring } from './platformCoreCapabilityBridgeWiring';
-import { startPlatformCoreDeepScanWiring } from './platformCoreDeepScanWiring';
+import { startPlatformCoreDeepScanWiring, triggerDeepScanOfflinePass } from './platformCoreDeepScanWiring';
 import {
   startPlatformCoreEventBusWiring,
   publishRuntimeStarted,
@@ -657,6 +657,14 @@ class SystemBoot {
     _log('  › CognitivePriorityEngine');
     startCognitiveEngine();
     this._startLimpMonitor();
+
+    // Platform Core: Deep Scan offline pass TRIGGER (W5-3b). Wave 2'deki ownership wiring
+    // KURULDUKTAN SONRA, tek deterministik giriş noktasından offline pass'i EN FAZLA bir kez
+    // tetikler (hash/dedup guard). HANDLER YOK → gerçek iş yapılmaz, aktif ECU/PID/DID sorgusu
+    // YOK, üretim davranışı değişmez (runtime idle→running→idle). Fire-and-forget: boot'u
+    // BLOKLAMAZ; trigger fail-soft (dışarı throw kaçırmaz), yine de savunmacı .catch.
+    _log('  › Deep Scan offline pass trigger (Platform Core)');
+    void triggerDeepScanOfflinePass().catch((e: unknown) => logError('SystemBoot:deepScanOfflineTrigger', e));
 
     _log('Wave 3 ready ✓');
   }

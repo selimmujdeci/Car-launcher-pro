@@ -1,10 +1,18 @@
 /**
- * platformCoreDeepScanWiring — Deep Scan RUNTIME OWNERSHIP WIRING (W5-1).
+ * platformCoreDeepScanWiring — Deep Scan RUNTIME OWNERSHIP WIRING (W5-1)
+ *                              + OFFLINE PASS TRIGGER (W5-3b).
  *
  * AMAÇ: Daha önce foundation olarak hazırlanmış Deep Scan singleton'larını (runtime /
  * persistence / ignition source) üretim yaşam döngüsüne bağlar ve bunları besleyen bir
  * `DeepScanOrchestrator` örneğini DI fabrikasıyla OLUŞTURUP SAHİPLENİR. Yalnız SAHİPLİK +
- * erişim + cleanup + bounded status. Zincir yalnız KURULUR — ÇALIŞTIRILMAZ.
+ * erişim + cleanup + bounded status. Aktif tarama zinciri yalnız KURULUR — ÇALIŞTIRILMAZ.
+ *
+ * W5-3b (offline trigger): `runOfflinePass()` İLK kez üretim wiring'ine bağlanır —
+ * `triggerDeepScanOfflinePass()` tek deterministik giriş noktasıdır (hash/dedup guard,
+ * single-flight). HANDLER YOK (W5-3c ayrı PR) → tüm offline fazlar `skipped` → GERÇEK
+ * İŞ YAPILMAZ, üretim davranışı DEĞİŞMEZ. Aktif ECU/PID/DID/Firmware sorgusu YOK; change
+ * detection / knowledge / fingerprint / evidence / report ÇALIŞMAZ; runtime
+ * `idle → running → idle` döner (pass sonunda `runtime.reset()` W5-3a garantisi).
  *
  * NE YAPMAZ (bilinçli — W5-1 yalnız ownership'tir):
  *  - `start()`/`run()`/`runNextPhase()` ÇAĞIRMAZ → hiçbir tarama başlamaz, hiçbir faz yürümez.
@@ -48,11 +56,25 @@ import {
   type DeepScanStatus,
   type DeepScanMode,
   type DeepScanPhase,
+  type OfflinePassInput,
+  type OfflinePassSummary,
+  type OfflinePassBlockedReason,
 } from '../deepScan';
 
-/** Wiring'in SAHİPLENDİĞİ orchestrator — yalnız gereken salt-okunur yüzey (yapısal). */
+/**
+ * Wiring'in SAHİPLENDİĞİ orchestrator — yalnız gereken salt-okunur yüzey (yapısal).
+ *
+ * ⚠️ Aktif tarama API'leri (`start`/`run`/`runNextPhase`) BİLİNÇLİ OLARAK YOK →
+ * compile-time garanti: bu wiring hiçbir AKTİF tarama (araca sorgu) başlatamaz.
+ * W5-3b'de yalnız `runOfflinePass` (araca sorgu GÖNDERMEYEN offline yüzey) + iptal
+ * eklendi; trigger onu çağırır. Offline yüzey aktif tarama DEĞİLDİR.
+ */
 export interface OwnedOrchestrator {
   getSnapshot(): OrchestratorSnapshot;
+  /** W5-3b: offline (non-active) pass yüzeyi — deterministik trigger tarafından çağrılır. */
+  runOfflinePass(input?: OfflinePassInput): Promise<OfflinePassSummary>;
+  /** Yürüyen offline pass'i iptal eder (fail-soft; pass yoksa no-op). */
+  cancelOfflinePass(): void;
   dispose(): void;
   readonly isDisposed: boolean;
 }
@@ -93,12 +115,102 @@ export interface DeepScanWiringStatus {
   readonly lastTransitionAt: number | null;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * W5-3b — OFFLINE PASS TRIGGER + BOUNDED DIAGNOSTICS
+ *
+ * `runOfflinePass()` İLK kez üretim wiring'ine bağlanır: tek deterministik giriş
+ * noktası (`triggerDeepScanOfflinePass`) hash/dedup guard'ıyla pass'i EN FAZLA bir
+ * kez başlatır. HANDLER YOK (W5-3c) → tüm fazlar `skipped` → GERÇEK İŞ YAPILMAZ →
+ * üretim davranışı DEĞİŞMEZ. Aktif ECU/PID/DID/Firmware sorgusu YOK (offline yüzey).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Offline pass tetikleme sonucu (bounded — VIN/GPS/secret/ham CAN-OBD TAŞIMAZ). */
+export type OfflinePassResult = 'ran' | 'blocked';
+
+/** Bounded teşhis görünümü — offline pass tetikleme durumu. Ham telemetri TAŞIMAZ. */
+export interface DeepScanOfflinePassStatus {
+  /** Wiring aktif ve trigger çağrılabilir mi. */
+  readonly present: boolean;
+  /** En az bir kez tetiklenmeye çalışıldı mı. */
+  readonly started: boolean;
+  /** Şu an bir pass yürüyor mu (wiring bookkeeping). */
+  readonly running: boolean;
+  /** Orchestrator canlı + çağrılabilir mi (dispose edilmemiş). */
+  readonly active: boolean;
+  /** Son pass iptal edildi mi. */
+  readonly cancelled: boolean;
+  /** Kaç kez tetiklendi (dedup kanıtı — guard çalışıyorsa ≤1 kalır). */
+  readonly triggerCount: number;
+  /** Son pass başlangıç zamanı (monotonik değil; yalnız teşhis). */
+  readonly lastRun: number | null;
+  readonly lastDuration: number | null;
+  readonly lastResult: OfflinePassResult | null;
+  /** `blocked` ise sebep (offline pass yüzeyinden). */
+  readonly lastReason: OfflinePassBlockedReason | null;
+  /** Temizlenmiş hata kodu (yoksa null). Ham veri TAŞIMAZ. */
+  readonly lastError: 'trigger_failed' | null;
+  readonly phaseCount: number;
+  readonly summaryAvailable: boolean;
+}
+
+/** Deterministik guard varsayılan anahtarı — boot'ta pass EN FAZLA bir kez tetiklenir. */
+export const DEEP_SCAN_OFFLINE_TRIGGER_KEY = 'deepscan.offline.boot';
+
+/** Wiring örneğine bağlı (restart'ta doğal sıfırlanan) mutable pass durumu. */
+interface OfflinePassWiringState {
+  triggeredKey: string | null;
+  triggerCount: number;
+  running: boolean;
+  cancelled: boolean;
+  lastRun: number | null;
+  lastDuration: number | null;
+  lastResult: OfflinePassResult | null;
+  lastReason: OfflinePassBlockedReason | null;
+  lastError: 'trigger_failed' | null;
+  lastPhaseCount: number;
+  lastSummaryAvailable: boolean;
+}
+
+function _freshOfflineState(): OfflinePassWiringState {
+  return {
+    triggeredKey: null,
+    triggerCount: 0,
+    running: false,
+    cancelled: false,
+    lastRun: null,
+    lastDuration: null,
+    lastResult: null,
+    lastReason: null,
+    lastError: null,
+    lastPhaseCount: 0,
+    lastSummaryAvailable: false,
+  };
+}
+
+const IDLE_OFFLINE_STATUS: DeepScanOfflinePassStatus = Object.freeze({
+  present: false,
+  started: false,
+  running: false,
+  active: false,
+  cancelled: false,
+  triggerCount: 0,
+  lastRun: null,
+  lastDuration: null,
+  lastResult: null,
+  lastReason: null,
+  lastError: null,
+  phaseCount: 0,
+  summaryAvailable: false,
+});
+
 const NOOP_CLEANUP: DeepScanWiringCleanup = () => { /* no-op */ };
 
 interface ActiveWiring {
   readonly orchestrator: OwnedOrchestrator;
   readonly ignition: DeepScanIgnitionSource;
   readonly startedAt: number;
+  readonly now: () => number;
+  readonly offline: OfflinePassWiringState;
 }
 
 let _active: ActiveWiring | null = null;
@@ -149,7 +261,7 @@ export function startPlatformCoreDeepScanWiring(deps: DeepScanWiringDeps = {}): 
     let startedAt = 0;
     try { const n = now(); startedAt = Number.isFinite(n) ? n : 0; } catch { startedAt = 0; }
 
-    active = { orchestrator, ignition, startedAt };
+    active = { orchestrator, ignition, startedAt, now, offline: _freshOfflineState() };
     _active = active;
     _lastErrorCode = null;
 
@@ -203,4 +315,103 @@ export function getDeepScanWiringStatus(): DeepScanWiringStatus {
   } catch {
     return IDLE_STATUS;   // teşhis yolu asla çökmez
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * W5-3b — Offline pass trigger (tek deterministik giriş noktası) + teşhis
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Deep Scan offline pass'i TEK giriş noktasından, deterministik dedup guard'ıyla
+ * tetikler. Boot'ta yalnız uygun koşul (wiring aktif) varsa çağrılır ve aynı guard
+ * anahtarı için EN FAZLA BİR KEZ çalışır (tekrar/duplicate YOK). Handler bağlanmadığı
+ * için (W5-3c) pass GERÇEK İŞ YAPMAZ → üretim davranışı değişmez; runtime
+ * `idle → running → idle` döner (pass sonunda `runtime.reset()` W5-3a garantisi).
+ *
+ * Fail-soft: wiring yoksa / zaten yürüyorsa / aynı guard tekrar gelirse → `null` (no-op).
+ * Dışarı EXCEPTION KAÇIRMAZ. Boot'u BLOKLAMAZ (çağıran await etmeyebilir).
+ *
+ * @returns pass özeti; tetiklenmediyse (guard/no-op) `null`.
+ */
+export async function triggerDeepScanOfflinePass(
+  opts: { readonly triggerKey?: string; readonly phaseTimeoutMs?: number } = {},
+): Promise<OfflinePassSummary | null> {
+  _pruneStale();
+  const a = _active;
+  if (!a) return null;                         // wiring yok → tetiklenemez
+  const st = a.offline;
+  if (st.running) return null;                 // SINGLE-FLIGHT: yürüyen pass varken tetiklenmez
+
+  // DETERMİNİSTİK DEDUP GUARD: aynı anahtar ikinci kez pass BAŞLATMAZ.
+  const key = typeof opts.triggerKey === 'string' && opts.triggerKey.length > 0
+    ? opts.triggerKey
+    : DEEP_SCAN_OFFLINE_TRIGGER_KEY;
+  if (st.triggeredKey === key) return null;    // aynı guard → tekrar YOK
+
+  st.triggeredKey = key;
+  st.triggerCount += 1;
+  st.running = true;
+  st.cancelled = false;
+
+  let startedAt = 0;
+  try { const n = a.now(); startedAt = Number.isFinite(n) ? n : 0; } catch { startedAt = 0; }
+  st.lastRun = startedAt;
+
+  try {
+    // Handler GEÇİLMEZ → tüm offline fazlar `skipped`; aktif-kayıt yolu tetiklenmez.
+    // Vehicle fingerprint verilmez (HAL/fingerprint bu PR'da bağlanmaz).
+    const summary = await a.orchestrator.runOfflinePass({ phaseTimeoutMs: opts.phaseTimeoutMs });
+    st.lastResult = summary.ran ? 'ran' : 'blocked';
+    st.lastReason = summary.blockedReason;
+    st.lastPhaseCount = summary.phaseCount;
+    st.cancelled = summary.cancelled;
+    st.lastSummaryAvailable = true;
+    st.lastError = null;
+    let doneAt = startedAt;
+    try { const n = a.now(); doneAt = Number.isFinite(n) ? n : startedAt; } catch { doneAt = startedAt; }
+    st.lastDuration = Math.max(0, doneAt - startedAt);
+    return summary;
+  } catch (e) {
+    st.lastResult = 'blocked';
+    st.lastError = 'trigger_failed';
+    st.lastSummaryAvailable = false;
+    logError('deepScanWiring:offlineTrigger', e);   // ham telemetri/VIN LOGLANMAZ
+    return null;
+  } finally {
+    st.running = false;                        // ZERO-LEAK: her yolda bookkeeping temizlenir
+  }
+}
+
+/** Yürüyen offline pass'i iptal eder (fail-soft; wiring/pass yoksa no-op). */
+export function cancelDeepScanOfflinePass(): void {
+  _pruneStale();
+  const a = _active;
+  if (!a) return;
+  a.offline.cancelled = true;
+  try { a.orchestrator.cancelOfflinePass(); } catch (e) { logError('deepScanWiring:offlineCancel', e); }
+}
+
+/** Bounded teşhis görünümü — offline pass tetikleme durumu. Throw ETMEZ; payload TAŞIMAZ. */
+export function getDeepScanOfflinePassStatus(): DeepScanOfflinePassStatus {
+  _pruneStale();
+  const a = _active;
+  if (!a) return IDLE_OFFLINE_STATUS;
+  const st = a.offline;
+  let active = false;
+  try { active = !a.orchestrator.isDisposed; } catch { active = false; }
+  return Object.freeze({
+    present: true,
+    started: st.triggerCount > 0,
+    running: st.running,
+    active,
+    cancelled: st.cancelled,
+    triggerCount: st.triggerCount,
+    lastRun: st.lastRun,
+    lastDuration: st.lastDuration,
+    lastResult: st.lastResult,
+    lastReason: st.lastReason,
+    lastError: st.lastError,
+    phaseCount: st.lastPhaseCount,
+    summaryAvailable: st.lastSummaryAvailable,
+  });
 }
