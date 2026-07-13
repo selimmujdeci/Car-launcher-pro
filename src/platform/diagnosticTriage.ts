@@ -15,7 +15,11 @@
  *
  * KURALLAR (CLAUDE.md):
  *  - Saf/fail-soft: her kural kendi alanını null-check eder; bölüm eksik/
- *    bozuksa kural sessizce atlanır (try/catch YOK — sahte bulgu YASAK).
+ *    bozuksa kural null döner (sahte bulgu YASAK — varsayım üretilmez).
+ *  - Kural İZOLASYONU (motor seviyesi): kural yine de patlarsa YALNIZ o kural
+ *    düşer, diğerleri çalışmaya devam eder ve `ruleErrors` sayacına yazılır.
+ *    Tek bozuk bölüm TÜM triyajı düşüremez (denetim 2026-07-12 P0: DTC varken
+ *    tek TypeError raporun triyajını komple siliyordu).
  *  - PII yok: reason/action yalnız sayısal/enum değer + statik Türkçe metin —
  *    koordinat/VIN/plaka/transkript ASLA girmez.
  *  - Zero-alloc dostu: hot-path DEĞİL, snapshot anında bir kez çalışır.
@@ -41,6 +45,11 @@ export interface TriageSnapshot {
   /** Kaç bölüm okundu (veri vardı) — insan "robot gerçekten baktı mı" görsün. */
   scanned: number;
   topSeverity: TriageSeverity | 'none';
+  /**
+   * Bozuk bölüm yüzünden ATLANAN kural sayısı (normalde 0). Kural izolasyonu
+   * sessiz olmasın: triyaj eksik çalıştıysa bu sayı > 0 olur ve raporda görünür.
+   */
+  ruleErrors: number;
 }
 
 /* ── Girdi şekli — decoupled, yalnız kullanılan alanlar ─────────── */
@@ -51,7 +60,13 @@ interface HealthSectionLike {
 }
 interface ObdDeepSectionLike {
   health?: { connectionQuality?: number; reconnectPressure?: number };
-  dtc?: { count?: number; codes?: { code: string; severity: string; system: string }[] };
+  // ZERO-TRUST: bu bölüm sanitize edilmiş payload'dan gelir — eleman düşmüş/bozuk
+  // olabilir. Tip runtime gerçeğini yansıtır (null-yapılabilir), kuralı yalan
+  // güvenceye dayandırmaz.
+  dtc?: {
+    count?: number;
+    codes?: ({ code?: string; severity?: string; system?: string } | null)[];
+  };
 }
 interface PerfSampleLike { ts: number; tempC: number; level: number; memMb: number; fps: number; lagMs: number }
 interface PerfSeriesSectionLike { installed?: boolean; samples?: PerfSampleLike[] }
@@ -375,16 +390,31 @@ function ruleGps(s: TriageSections): TriageFinding | null {
   return null;
 }
 
+/**
+ * DTC bulgusu. KARAR: `dtc.count` "arıza var" kanıtıdır; kod METNİ yalnız
+ * zenginleştirmedir. Kod listesi boş/bozuk gelse bile bulgu ÜRETİLİR — aksi halde
+ * arızanın olduğu tam anda triyaj susar (denetim 2026-07-12 P0).
+ */
 function ruleObdDtc(s: TriageSections): TriageFinding | null {
   const dtc = s.obdDeep?.dtc;
   if (!dtc || typeof dtc.count !== 'number' || dtc.count <= 0) return null;
-  const codes = Array.isArray(dtc.codes) ? dtc.codes : [];
-  const hasCritical = codes.some((c) => c && c.severity === 'critical');
+
+  // Bozuk/düşmüş elemanlar ELENİR; kalanların `code`'u string olmayabilir.
+  const codes = (Array.isArray(dtc.codes) ? dtc.codes : []).filter((c) => c != null);
+  const labels = codes
+    .map((c) => (typeof c.code === 'string' ? c.code : null))
+    .filter((code): code is string => code !== null);
+
+  const hasCritical = codes.some((c) => c.severity === 'critical');
+  const listed = labels.length > 0
+    ? ` (${labels.slice(0, 3).join(', ')}${labels.length > 3 ? '…' : ''})`
+    : '';
+
   return {
     severity: hasCritical ? 'critical' : 'warning',
     code: 'OBD_DTC_PRESENT',
     title: hasCritical ? 'Kritik arıza kodu (DTC) mevcut' : 'Arıza kodu (DTC) mevcut',
-    reason: `${dtc.count} DTC okundu${codes.length > 0 ? ` (${codes.slice(0, 3).map((c) => c.code).join(', ')}${codes.length > 3 ? '…' : ''})` : ''}`,
+    reason: `${dtc.count} DTC okundu${listed}`,
     action: 'DTC listesini inceleyin, ilgili sistemleri kontrol ettirin',
     sources: ['obdDeep'],
   };
@@ -413,15 +443,28 @@ function countScanned(s: TriageSections): number {
  */
 export function buildTriageSnapshot(sections: TriageSections): TriageSnapshot {
   const findings: TriageFinding[] = [];
+  let ruleErrors = 0;
+
   for (const rule of RULES) {
-    const f = rule(sections);
+    // KURAL İZOLASYONU: bir kural bozuk bölüm yüzünden patlarsa YALNIZ o kural
+    // düşer. Eskiden tek TypeError döngüyü kırıyor, _attachTriage'ın yutucu
+    // catch'i TÜM triyajı sessizce siliyordu → admin "kritik bulgu yok" görüyordu.
+    // Sahte bulgu ÜRETİLMEZ (patlayan kural bulgu döndürmez), yalnız sayılır.
+    let f: TriageFinding | null = null;
+    try {
+      f = rule(sections);
+    } catch {
+      ruleErrors++;
+    }
     if (f) findings.push(f);
   }
+
   findings.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const topSeverity: TriageSnapshot['topSeverity'] = findings.length > 0 ? findings[0].severity : 'none';
   return {
     findings: findings.slice(0, MAX_FINDINGS),
     scanned: countScanned(sections),
     topSeverity,
+    ruleErrors,
   };
 }

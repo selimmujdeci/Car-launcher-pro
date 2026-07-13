@@ -35,6 +35,8 @@ import vehicleEventHubSrc from '../platform/vehicleDataLayer/VehicleEventHub.ts?
 import systemOrchestratorSrc from '../platform/system/SystemOrchestrator.ts?raw';
 import healthMonitorSrc from '../platform/system/SystemHealthMonitor.ts?raw';
 import orientationGateSrc from '../platform/sensors/orientationSensorGate.ts?raw';
+import remoteLogServiceSrc from '../platform/remoteLogService.ts?raw';
+import diagnosticTriageSrc from '../platform/diagnosticTriage.ts?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -1378,5 +1380,44 @@ describe('Orientation Sensor Gate — foundation kilitleri', () => {
     // abonelik yönetir; native samplingPeriod PR 2/3 wiring'i ile değişir.
     expect(orientationGateSrc).not.toMatch(/new\s+(Gyroscope|Accelerometer|AbsoluteOrientationSensor|RelativeOrientationSensor)/);
     expect(orientationGateSrc).not.toMatch(/frequency\s*:/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   TANI RAPORU — DTC sanitize derinliği + triyaj null-guard
+   Regresyon (denetim 2026-07-12, KANITLI P0): `MAX_DEPTH = 4` yüzünden DTC kod
+   nesneleri (derinlik 4) sanitize'da düşüyor → kabloda `codes: [null, null]`;
+   ardından triyaj `c.code` üzerinde TypeError atıp TÜM `payload.triage`
+   bölümünü sessizce siliyordu → admin arıza anında "kritik bulgu yok" görüyordu.
+   Davranış kilitleri: diagnosticDtcDepthTriage.test.ts (uçtan uca).
+   Buradakiler KAYNAK-METİN kilitleri: sabit sessizce 4'e geri düşmesin.
+   ─────────────────────────────────────────────────────────────── */
+describe('Tanı raporu DTC derinlik + triyaj dayanıklılık kilidi', () => {
+  it('MAX_DEPTH >= 5 — DTC kod nesneleri (derinlik 4) sanitize\'ı sağ geçmeli', () => {
+    const m = remoteLogServiceSrc.match(/const\s+MAX_DEPTH\s*=\s*(\d+)/);
+    expect(m, 'MAX_DEPTH sabiti bulunamadı — sanitize derinlik tavanı yeniden adlandırılmış').toBeTruthy();
+    const depth = Number(m![1]);
+    // 4 = DTC kodları + extended.samples + inspector timeline signals DÜŞER (P0).
+    expect(depth, `MAX_DEPTH=${depth} → derinlik-4 kapları düşer; DTC kodları kabloda null gider`)
+      .toBeGreaterThanOrEqual(5);
+  });
+
+  it('sanitize dizi dalı düşen elemanı ELER (sessiz null yerine kısa dizi)', () => {
+    expect(remoteLogServiceSrc, 'dizi dalındaki undefined filtresi kaldırılmış — düşen eleman JSON\'da null olur')
+      .toMatch(/\.filter\(\(v\)\s*=>\s*v\s*!==\s*undefined\)/);
+  });
+
+  it('triyaj motoru KURAL-İZOLE — tek bozuk kural tüm triyajı düşüremez', () => {
+    // buildTriageSnapshot döngüsü kural çağrısını try/catch ile sarmalı.
+    expect(diagnosticTriageSrc, 'kural izolasyonu (try/catch) kaldırılmış — tek TypeError tüm triyajı siler')
+      .toMatch(/try\s*\{[\s\S]{0,80}rule\(sections\)[\s\S]{0,120}catch/);
+    expect(diagnosticTriageSrc, 'ruleErrors sayacı kaldırılmış — kural düşmesi sessizleşir')
+      .toMatch(/ruleErrors/);
+  });
+
+  it('ruleObdDtc null-guard\'lı — bozuk kod listesinde ham `c.code` okunmaz', () => {
+    // Guard'sız `.map((c) => c.code)` DTC varken TypeError atıyordu.
+    expect(diagnosticTriageSrc, 'ruleObdDtc yine guard\'sız c.code okuyor — TypeError riski geri geldi')
+      .not.toMatch(/codes\.slice\(0,\s*3\)\.map\(\(c\)\s*=>\s*c\.code\)/);
   });
 });
