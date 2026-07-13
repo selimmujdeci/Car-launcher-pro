@@ -15,7 +15,15 @@ import {
   type DeepScanWiringDeps,
   type OwnedOrchestrator,
 } from '../platform/system/platformCoreDeepScanWiring';
-import type { OrchestratorSnapshot, DeepScanOrchestratorDeps } from '../platform/deepScan';
+import type { OrchestratorSnapshot, DeepScanOrchestratorDeps, OfflinePassSummary } from '../platform/deepScan';
+
+/** W5-3b: OwnedOrchestrator artık offline yüzeyi de içerir → fake minimal özet döndürür. */
+const FAKE_OFFLINE_SUMMARY: OfflinePassSummary = Object.freeze({
+  ran: true, blockedReason: null, mode: null, phaseCount: 0,
+  successCount: 0, skippedCount: 0, errorCount: 0, cancelled: false,
+  outcomes: Object.freeze([]), changedFirmware: false, changedEcu: false,
+  warnings: Object.freeze([]), startedAt: 0, completedAt: 0, durationMs: 0,
+});
 
 /* ── Fake'ler ──────────────────────────────────────────────────────────────── */
 
@@ -43,6 +51,9 @@ function createFakeOrchestrator(opts?: { snapshot?: OrchestratorSnapshot; getSna
     start: vi.fn(),
     run: vi.fn(),
     runNextPhase: vi.fn(),
+    // W5-3b: OwnedOrchestrator offline yüzeyi (W5-1 wiring bunları ÇAĞIRMAZ — trigger ayrı).
+    runOfflinePass: async () => FAKE_OFFLINE_SUMMARY,
+    cancelOfflinePass: () => { /* no-op */ },
   };
 }
 

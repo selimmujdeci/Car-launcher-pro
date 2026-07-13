@@ -381,25 +381,29 @@ describe('W5-3a — fail-soft', () => {
  * ═════════════════════════════════════════════════════════════════════ */
 
 describe('W5-3a — kapsam kilitleri (bu PR çağrılmıyor, davranış değişmiyor)', () => {
-  it('SystemBoot offline pass ÇAĞIRMAZ (trigger/wiring W5-3b’de)', () => {
-    expect(systemBootSource).not.toContain('runOfflinePass');
+  it('SystemBoot offline pass’i TEK giriş noktasından (trigger wrapper) tetikler; raw scan API’si YOK (W5-3b GÜNCELLENDİ)', () => {
+    // W5-3a→W5-3b (regresyon kasası GÜNCELLEMESİ): W5-3a’da SystemBoot pass’i HİÇ tetiklemiyordu;
+    // W5-3b’de deterministik trigger wrapper ile tetikler — AMA raw pass/scan API’lerini DOĞRUDAN çağırmaz.
+    expect(systemBootSource).toContain('triggerDeepScanOfflinePass');
+    expect(systemBootSource).not.toContain('.runOfflinePass(');   // pass’ı DOĞRUDAN koşmaz (wrapper üzerinden)
     expect(systemBootSource).not.toContain('cancelOfflinePass');
-    // W5-1 kilidi korunur: SystemBoot gerçek tarama da başlatmaz.
+    // W5-1 kilidi korunur: SystemBoot gerçek/aktif tarama başlatmaz.
     expect(systemBootSource).not.toContain('startScan');
     expect(systemBootSource).not.toContain('runNextPhase');
     expect(systemBootSource).toContain('startPlatformCoreDeepScanWiring');
   });
 
-  it('ownership wiring tipi start/run/runNextPhase/runOfflinePass GÖSTERMEZ', () => {
-    // OwnedOrchestrator yüzeyi W5-3a’da DEĞİŞMEDİ → wiring pass koşamaz (compile-time).
+  it('ownership wiring tipi start/run/runNextPhase GÖSTERMEZ; offline yüzey (runOfflinePass) W5-3b’de eklendi', () => {
+    // W5-3a→W5-3b (regresyon kasası GÜNCELLEMESİ): OwnedOrchestrator artık offline (non-active)
+    // yüzeyi gösterir (trigger onu çağırır); AKTİF tarama API’leri ASLA görünmez (compile-time garanti).
     const ifaceStart = wiringSource.indexOf('export interface OwnedOrchestrator');
     expect(ifaceStart).toBeGreaterThan(-1);
     const iface = wiringSource.slice(ifaceStart, wiringSource.indexOf('}', ifaceStart));
     expect(iface).not.toContain('start(');
     expect(iface).not.toContain('run(');
     expect(iface).not.toContain('runNextPhase');
-    expect(iface).not.toContain('runOfflinePass');
-    expect(wiringSource).not.toContain('runOfflinePass');
+    expect(iface).toContain('runOfflinePass');            // W5-3b: offline yüzey görünür
+    expect(wiringSource).toContain('triggerDeepScanOfflinePass');
   });
 
   it('orchestrator Event Bus’a publish ETMEZ (köprü bu PR’da değişmedi)', () => {
