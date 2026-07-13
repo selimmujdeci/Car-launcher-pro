@@ -129,19 +129,22 @@ describe('pushVehicleEvent — apiKey varken normal akış', () => {
 /* ── 3. UI kaynak-sözleşmesi ────────────────────────────────── */
 
 describe('UI — not_paired mesajı ve Mobil Bağlantı yönlendirmesi', () => {
-  it('SupportSnapshotCard not_paired mesajını ve yönlendirmeyi içerir', () => {
+  // PR-4: not_paired mesajı artık TEK kaynakta — ortak DiagnosticReportModal.
+  // Tüm giriş noktaları bu modalı kullandığından yönlendirme her yerde tutarlı.
+  it('DiagnosticReportModal not_paired mesajını ve Mobil Bağlantı yönlendirmesini içerir', () => {
     const src = readFileSync(
-      join(process.cwd(), 'src', 'components', 'settings', 'SupportSnapshotCard.tsx'), 'utf-8');
+      join(process.cwd(), 'src', 'components', 'common', 'DiagnosticReportModal.tsx'), 'utf-8');
     expect(src).toContain('not_paired');
     expect(src).toContain('Cihaz eşlenmemiş');
     expect(src).toContain('Mobil Bağlantı');
   });
 
-  it('InspectorPanel (dev inspector) not_paired durumunu gösterir', () => {
-    const src = readFileSync(
+  it('SupportSnapshotCard ve InspectorPanel ortak modalı kullanır (tek kaynak)', () => {
+    const card = readFileSync(
+      join(process.cwd(), 'src', 'components', 'settings', 'SupportSnapshotCard.tsx'), 'utf-8');
+    const panel = readFileSync(
       join(process.cwd(), 'src', 'components', 'debug', 'devInspector', 'InspectorPanel.tsx'), 'utf-8');
-    expect(src).toContain('not_paired');
-    expect(src).toContain('Cihaz eşlenmemiş');
-    expect(src).toContain('Mobil Bağlantı');
+    expect(card).toContain('DiagnosticReportModal');
+    expect(panel).toContain('DiagnosticReportModal');
   });
 });

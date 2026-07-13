@@ -24,11 +24,12 @@ describe('GlobalDiagnosticButton — global "Tanı Gönder" kilidi', () => {
     expect(appSrc).toContain('!storeReverse && <GlobalDiagnosticButton />');
   });
 
-  it('aktif self-test taramasını (Tanı Robotu) tetikler', () => {
-    // Buton artık pasif snapshot yerine robotu koşturur: her alt sistemin
-    // kapısı çalınıp rapor gönderilir (triggerSelfTestSnapshot → runSelfTest).
-    expect(btnSrc).toContain('triggerSelfTestSnapshot');
-    // not_paired dahil tüm sonuç durumları etiketlenir (yalancı başarı yok)
-    expect(btnSrc).toContain('not_paired');
+  it('PR-4: ortak Tanı modalını açar, aktif self-test taramasını (Tanı Robotu) tetikler', () => {
+    // Buton artık doğrudan göndermez; ortak DiagnosticReportModal'ı açar
+    // (açıklama + kategori + önizleme + AÇIK RIZA + rapor numarası). Gönderim
+    // rıza sonrası triggerSelfTestSnapshotEx → runSelfTest (aktif tarama).
+    expect(btnSrc).toContain('DiagnosticReportModal');
+    expect(btnSrc).toContain('triggerSelfTestSnapshotEx');
+    expect(btnSrc).toMatch(/onClick=\{\(\) => setOpen\(true\)\}/);
   });
 });

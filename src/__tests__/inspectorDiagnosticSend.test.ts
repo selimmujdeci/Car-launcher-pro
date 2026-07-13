@@ -222,9 +222,10 @@ describe('InspectorPanel — UI sözleşmesi', () => {
   const panel = readFileSync(join(process.cwd(),
     'src/components/debug/devInspector/InspectorPanel.tsx'), 'utf-8');
 
-  it('"Tanı Gönder" butonu triggerDiagnosticSnapshot çağırır', () => {
+  it('PR-4: "Tanı Gönder" ortak DiagnosticReportModal açar (Ex + buildExportPayload)', () => {
     expect(panel).toContain("from '../../../platform/remoteLogService'");
-    expect(panel).toMatch(/triggerDiagnosticSnapshot\(buildExportPayload\(\)\)/);
+    expect(panel).toContain('DiagnosticReportModal');
+    expect(panel).toMatch(/triggerDiagnosticSnapshotEx\(buildExportPayload\(\), meta\)/);
     expect(panel).toContain('Tanı Gönder');
   });
 
@@ -241,17 +242,11 @@ describe('InspectorPanel — UI sözleşmesi', () => {
     expect(panel).toMatch(/JSON\.stringify\(buildExportPayload\(\), null, 2\)/); // copy yolu
   });
 
-  it('dört kullanıcı durumu da gösteriliyor (queued/cooldown/error) — yalancı "Gönderildi" YOK', () => {
-    expect(panel).toContain('Kuyruğa alındı ✓');   // teslimat gerçeği: kabul ≠ teslim
-    expect(panel).not.toContain('Gönderildi ✓');   // eski yalancı kabul-anı metni kaldırıldı
-    expect(panel).toContain('İnternet gelince gönderilecek');
-    expect(panel).toContain('Az önce gönderildi — bekleyin');
-    expect(panel).toContain('Gönderilemedi');
-  });
-
-  it('gönderim sırasında buton kilitli (çift tıklama koruması)', () => {
-    expect(panel).toMatch(/disabled=\{sendState === 'sending'\}/);
-    expect(panel).toMatch(/if \(sendState === 'sending'\) return/);
+  it('PR-4: panel DOĞRUDAN göndermez — durum/rıza/teslim akışı modalda', () => {
+    // Buton yalnız modalı açar; kullanıcı durumları DiagnosticReportModal'da.
+    expect(panel).toMatch(/onClick=\{\(\) => setDiagOpen\(true\)\}/);
+    expect(panel).toContain('<DiagnosticReportModal');
+    expect(panel).not.toContain("sendState === 'sending'"); // eski inline akış kaldırıldı
   });
 });
 
