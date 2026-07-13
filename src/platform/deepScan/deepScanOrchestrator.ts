@@ -32,12 +32,15 @@
 
 import {
   isActivePhase,
+  isOfflinePhase,
   sanitizeText,
+  OFFLINE_PHASE_SEQUENCE,
   type DeepScanMode,
   type DeepScanPhase,
   type DeepScanReportSummary,
   type DeepScanSnapshot,
   type DeepScanStatus,
+  type OfflinePhase,
 } from './deepScanModel';
 import { DeepScanRuntimeService, deepScanRuntimeService } from './deepScanRuntimeService';
 import { DeepScanPersistenceStore, deepScanPersistenceStore } from './deepScanPersistence';
@@ -161,6 +164,70 @@ export interface DeepScanOrchestratorDeps {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * OFFLINE PASS (W5-3a) — kontak BİLİNMİYORKEN araca HİÇ sorgu göndermeden
+ * yalnız offline fazları yürüten, SONLANDIRMAYAN yüzey.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Offline pass handler haritası — anahtar tipi `OfflinePhase`. Aktif faza handler
+ * bağlamak DERLEME HATASIDIR (tip düzeyi kilit; çalışma-zamanı kontrolüne gerek yok).
+ */
+export type OfflinePhaseHandlers = Partial<Record<OfflinePhase, PhaseHandler>>;
+
+/** Offline pass koşmayı REDDETME nedeni (fail-soft — throw yerine sebep döner). */
+export type OfflinePassBlockedReason =
+  | 'disposed'
+  | 'scan_in_progress'      // orchestrator gerçek tarama yürütüyor (start() çağrılmış)
+  | 'pass_already_running'  // yeniden-giriş (single-flight)
+  | 'runtime_not_idle'      // paylaşılan runtime başka bir tarama tarafından tutuluyor
+  | 'runtime_start_failed';
+
+/** Tek bir offline fazın sonucu (bounded, dondurulmuş). */
+export interface OfflinePassPhaseOutcome {
+  readonly phase: OfflinePhase;
+  readonly status: PhaseOutcomeStatus;
+  /** Temizlenmiş hata kodu (yoksa null). Ham veri/VIN TAŞIMAZ. */
+  readonly errorCode: string | null;
+}
+
+/**
+ * Offline pass özeti — BOUNDED + IMMUTABLE. Ham telemetri, VIN, koordinat, keşif
+ * kimliği TAŞIMAZ; yalnız sayımlar + faz sonuçları + temizlenmiş uyarılar.
+ * `completed` bir tarama DEĞİLDİR: `reportSummary` üretilmez, persistence'a yazılmaz.
+ */
+export interface OfflinePassSummary {
+  /** Pass gerçekten koştu mu (false → `blockedReason` dolu). */
+  readonly ran: boolean;
+  readonly blockedReason: OfflinePassBlockedReason | null;
+  readonly mode: DeepScanMode | null;
+  readonly phaseCount: number;
+  readonly successCount: number;
+  readonly skippedCount: number;
+  readonly errorCount: number;
+  readonly cancelled: boolean;
+  readonly outcomes: readonly OfflinePassPhaseOutcome[];
+  readonly changedFirmware: boolean;
+  readonly changedEcu: boolean;
+  readonly warnings: readonly string[];
+  readonly startedAt: number;
+  readonly completedAt: number;
+  readonly durationMs: number;
+}
+
+/** Offline pass girdisi — SALT-OKUNUR, mutate EDİLMEZ. */
+export interface OfflinePassInput {
+  /** Araç parmak izi hash'i (VIN DEĞİL). Yalnız mod kararı için OKUNUR. */
+  readonly vehicleFingerprintHash?: string;
+  /** Offline faz handler'ları. Aktif faz anahtarı TİP HATASI. Verilmezse tüm fazlar `skipped`. */
+  readonly handlers?: OfflinePhaseHandlers;
+  /** Faz başına üst süre sınırı (ms). ≤0/geçersiz → varsayılan. */
+  readonly phaseTimeoutMs?: number;
+}
+
+/** Faz başına varsayılan üst süre sınırı — asılı handler pass'i sonsuza kilitlemesin. */
+export const OFFLINE_PASS_PHASE_TIMEOUT_MS = 5000;
+
+/* ══════════════════════════════════════════════════════════════════════════
  * Saf yardımcılar
  * ════════════════════════════════════════════════════════════════════════ */
 
@@ -194,6 +261,12 @@ export class DeepScanOrchestrator {
   private _lastProgress = 0;
   private _disposed = false;
   private _warnings: string[] = [];
+
+  /* Offline pass (W5-3a) — gerçek tarama alanlarından AYRI tutulur (kirlenme yok). */
+  private _offlinePassRunning = false;
+  private _offlinePassCancelled = false;
+  private _offlinePassChangedFirmware = false;
+  private _offlinePassChangedEcu = false;
 
   /* Persistence'a yansıtılacak keşif kimlik birikimi (bounded). */
   private _ecus = new Set<string>();
@@ -348,6 +421,10 @@ export class DeepScanOrchestrator {
    */
   start(input: StartOrchestrationInput = {}): OrchestratorSnapshot {
     if (this._disposed || this._started) return this.getSnapshot();
+    // YARIŞ KİLİDİ: offline pass yürürken gerçek tarama BAŞLATILAMAZ. Aksi hâlde pass'in
+    // `finally`'sindeki `runtime.reset()` yeni başlayan taramayı SİLERDİ (runtime paylaşılan).
+    // Pass tek-atış ve kısa; çağıran pass bitince tekrar dener.
+    if (this._offlinePassRunning) return this.getSnapshot();
     this._started = true;
     this._cancelled = false;
     this._finalized = false;
@@ -465,6 +542,232 @@ export class DeepScanOrchestrator {
       if (this._index === beforeIndex && this._deriveStatus() !== 'completed') break;
     }
     return this.getSnapshot();
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * OFFLINE PASS (W5-3a) — koruma bandı
+   *
+   * NE YAPAR: YALNIZ `OFFLINE_PHASE_SEQUENCE` fazlarını deterministik sırayla yürütür.
+   * Kontak BİLİNMİYORKEN (`ignitionConfirmed === null`) çalışır — çünkü offline fazlar
+   * araca sorgu göndermez (`canRunPhase()` offline'a koşulsuz izin verir).
+   *
+   * NE YAPMAZ (bilinçli — bu yüzey "tarama tamamlamaz"):
+   *  - `_finalize()` ÇAĞIRMAZ · `runtime.completeScan()` ÇAĞIRMAZ · `persistence.completeScan()`
+   *    ÇAĞIRMAZ → `hasCompletedFullScan` / `completedScanCount` / `changeCheckCount` DEĞİŞMEZ.
+   *  - Persistence'a HİÇ YAZMAZ (yalnız mod kararı için `hasCompletedFullScan()` OKUR).
+   *  - `_applyResult()` ÇAĞIRMAZ → handler'ın döndürdüğü `ecus/pids/dids/firmware` payload'ı
+   *    runtime'ın AKTİF-KAYIT API'lerine (`recordEcuDiscovery` vb.) GÖNDERİLMEZ. Bu kritik:
+   *    o API'ler kontak doğrulanmadan `_requireIgnition()` tetikler ve durumu
+   *    `waiting_for_ignition`'a düşürürdü — hiç aktif sorgu gönderilmemiş olsa bile.
+   *  - Aktif faza DOKUNMAZ (kümede yok — atlamıyor, göremiyor) · `_index`/`_started`/`_mode`
+   *    gerçek tarama alanlarını DEĞİŞTİRMEZ · orchestrator OLAYI YAYINLAMAZ (Event Bus köprüsü
+   *    bu PR'da değişmez; gözlemlenebilirlik dönen özet üzerinden).
+   *
+   * KONTAK-SERBEST TEK YAZMA YOLU: `recordChangeDetection()` (kontak GEREKTİRMEZ —
+   * `deepScanRuntimeService`). Handler yalnız `changedFirmware`/`changedEcu` bildirebilir.
+   *
+   * FAIL-SOFT: handler throw/timeout tek fazı düşürür, KALAN OFFLINE FAZLAR DEVAM EDER
+   * (offline fazların hiçbiri CRITICAL değil). `runtime.reportPhaseFailure()` ÇAĞRILMAZ →
+   * runtime `failed`'a düşmez.
+   *
+   * ZERO-LEAK: timeout timer'ı `finally`'de temizlenir. Pass sonunda `runtime.reset()`
+   * ZORUNLU (`try/finally`) — aksi hâlde runtime `analyzing`'de kalır ve `startScan()`
+   * yalnız `idle`'dan çalıştığı için GERÇEK tarama bir daha HİÇ başlayamaz.
+   */
+  async runOfflinePass(input: OfflinePassInput = {}): Promise<OfflinePassSummary> {
+    const startedAt = this._nowSafe();
+
+    if (this._disposed)            return this._blockedSummary('disposed', startedAt);
+    if (this._started)             return this._blockedSummary('scan_in_progress', startedAt);
+    if (this._offlinePassRunning)  return this._blockedSummary('pass_already_running', startedAt);
+
+    // Paylaşılan runtime başka bir tarama tutuyorsa DOKUNMA (fail-closed).
+    let runtimeIdle = false;
+    try { runtimeIdle = this._runtime.getSnapshot().status === 'idle'; } catch { runtimeIdle = false; }
+    if (!runtimeIdle) return this._blockedSummary('runtime_not_idle', startedAt);
+
+    this._offlinePassRunning = true;
+    this._offlinePassCancelled = false;
+    this._offlinePassChangedFirmware = false;
+    this._offlinePassChangedEcu = false;
+    const warnings: string[] = [];
+    const outcomes: OfflinePassPhaseOutcome[] = [];
+    let mode: DeepScanMode | null = null;
+
+    try {
+      const hash = input.vehicleFingerprintHash;
+
+      // Persistence YALNIZ OKUNUR (mod kararı) — yazma yok.
+      let hasCompleted = false;
+      try { hasCompleted = this._persistence.hasCompletedFullScan(hash); } catch { hasCompleted = false; }
+      mode = hasCompleted ? 'CHANGE_CHECK' : 'FULL_SCAN';
+
+      // Runtime'ı mutable yap. Kontak BİLEREK `null` verilir (fail-closed; çıkarsama YOK):
+      // startScan → `waiting_for_ignition` (mutable), updatePhase(offline) → `analyzing`.
+      try {
+        this._runtime.startScan({
+          vehicleFingerprintHash: hash,
+          hasCompletedScanBefore: hasCompleted,
+          ignitionConfirmed: null,
+        });
+      } catch (err) {
+        console.error('[DeepScanOrchestrator] offline pass runtime.startScan fail-soft', err);
+        return this._blockedSummary('runtime_start_failed', startedAt);
+      }
+
+      const timeoutMs = this._resolveTimeout(input.phaseTimeoutMs);
+
+      for (const phase of OFFLINE_PHASE_SEQUENCE) {
+        if (this._offlinePassCancelled) break;
+
+        // Çalışma-zamanı İKİNCİ kilit (tip zaten garanti eder; savunma amaçlı).
+        if (!isOfflinePhase(phase)) continue;
+
+        try { this._runtime.updatePhase(phase); } catch { /* fail-soft */ }
+
+        const handler = input.handlers?.[phase];
+        if (typeof handler !== 'function') {
+          outcomes.push(Object.freeze({ phase, status: 'skipped' as PhaseOutcomeStatus, errorCode: null }));
+          continue;
+        }
+
+        const result = await this._runOfflineHandler(phase, handler, mode, timeoutMs);
+        outcomes.push(result.outcome);
+        if (result.outcome.status === 'error' || result.outcome.status === 'timeout') {
+          const w = sanitizeText(`offline_phase_${result.outcome.status}:${phase}`);
+          if (w) warnings.push(w);
+        }
+        // KONTAK-SERBEST tek yazma yolu — keşif payload'ı BİLİNÇLİ OLARAK yok sayılır.
+        this._applyOfflineResult(result.value);
+      }
+    } finally {
+      // ZORUNLU: runtime'ı `idle`'a döndür — gerçek tarama sonradan başlayabilsin.
+      try { this._runtime.reset(); } catch (err) {
+        console.error('[DeepScanOrchestrator] offline pass runtime.reset fail-soft', err);
+      }
+      this._offlinePassRunning = false;
+    }
+
+    return this._buildOfflineSummary({ ran: true, blockedReason: null, mode, outcomes, warnings, startedAt });
+  }
+
+  /** Yürüyen offline pass'i iptal eder (fail-soft; pass yoksa no-op). */
+  cancelOfflinePass(): void {
+    if (this._disposed || !this._offlinePassRunning) return;
+    this._offlinePassCancelled = true;
+  }
+
+  get isOfflinePassRunning(): boolean {
+    return this._offlinePassRunning;
+  }
+
+  private _resolveTimeout(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return OFFLINE_PASS_PHASE_TIMEOUT_MS;
+    return value;
+  }
+
+  /** Handler'ı timeout + hata izolasyonuyla koşturur. Timer HER YOLDA temizlenir. */
+  private async _runOfflineHandler(
+    phase: OfflinePhase,
+    handler: PhaseHandler,
+    mode: DeepScanMode,
+    timeoutMs: number,
+  ): Promise<{ outcome: OfflinePassPhaseOutcome; value: PhaseResult | null }> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const ctx: PhaseContext = Object.freeze({
+        phase,
+        mode,
+        snapshot: this._runtimeSnapshot(),
+        isCancelled: () => this._offlinePassCancelled,
+      });
+
+      const TIMED_OUT = Symbol('offline_phase_timeout');
+      const timeoutPromise = new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+      });
+
+      const raw = await Promise.race([Promise.resolve(handler(ctx)), timeoutPromise]);
+
+      if (raw === TIMED_OUT) {
+        return { outcome: Object.freeze({ phase, status: 'timeout' as PhaseOutcomeStatus, errorCode: 'phase_timeout' }), value: null };
+      }
+      const result = raw as PhaseResult;
+      if (!result || typeof result !== 'object') {
+        return { outcome: Object.freeze({ phase, status: 'error' as PhaseOutcomeStatus, errorCode: 'invalid_result' }), value: null };
+      }
+      const code = result.errorCode ? (sanitizeText(result.errorCode, 64) || null) : null;
+      return { outcome: Object.freeze({ phase, status: result.status, errorCode: code }), value: result };
+    } catch (err) {
+      console.error(`[DeepScanOrchestrator] offline handler hatası (${phase}) fail-soft`, err);
+      return { outcome: Object.freeze({ phase, status: 'error' as PhaseOutcomeStatus, errorCode: 'handler_exception' }), value: null };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);   // ZERO-LEAK: asılı timer bırakma
+    }
+  }
+
+  /**
+   * Offline sonucu runtime'a yansıtır — AKTİF-KAYIT YOLUNA DÜŞMEZ.
+   * Yalnız `updateProgress` (ölçülmüş) + `recordChangeDetection` (kontak-serbest).
+   * `ecus/pids/dids/firmware` BİLİNÇLİ OLARAK YOK SAYILIR.
+   */
+  private _applyOfflineResult(result: PhaseResult | null): void {
+    if (!result) return;
+    if (result.status === 'cancelled') this._offlinePassCancelled = true;
+    if (typeof result.progress === 'number') {
+      try { this._runtime.updateProgress(result.progress); } catch { /* fail-soft */ }
+    }
+    if (result.changedFirmware === true || result.changedEcu === true) {
+      if (result.changedFirmware === true) this._offlinePassChangedFirmware = true;
+      if (result.changedEcu === true) this._offlinePassChangedEcu = true;
+      try {
+        this._runtime.recordChangeDetection({
+          changedFirmware: result.changedFirmware,
+          changedEcu: result.changedEcu,
+          reason: result.reason,
+        });
+      } catch { /* fail-soft */ }
+    }
+  }
+
+  private _blockedSummary(reason: OfflinePassBlockedReason, startedAt: number): OfflinePassSummary {
+    return this._buildOfflineSummary({ ran: false, blockedReason: reason, mode: null, outcomes: [], warnings: [], startedAt });
+  }
+
+  private _buildOfflineSummary(p: {
+    ran: boolean;
+    blockedReason: OfflinePassBlockedReason | null;
+    mode: DeepScanMode | null;
+    outcomes: readonly OfflinePassPhaseOutcome[];
+    warnings: readonly string[];
+    startedAt: number;
+  }): OfflinePassSummary {
+    const completedAt = this._nowSafe();
+    let successCount = 0, skippedCount = 0, errorCount = 0;
+    for (const o of p.outcomes) {
+      if (o.status === 'success') successCount += 1;
+      else if (o.status === 'skipped') skippedCount += 1;
+      else if (o.status === 'error' || o.status === 'timeout') errorCount += 1;
+    }
+    // Değişiklik bayrakları pass-yerel alanlardan okunur: runtime `finally`'de reset
+    // edildiği için snapshot'tan okunamaz.
+    return Object.freeze({
+      ran: p.ran,
+      blockedReason: p.blockedReason,
+      mode: p.mode,
+      phaseCount: p.outcomes.length,
+      successCount,
+      skippedCount,
+      errorCount,
+      cancelled: this._offlinePassCancelled,
+      outcomes: Object.freeze([...p.outcomes]),
+      changedFirmware: this._offlinePassChangedFirmware,
+      changedEcu: this._offlinePassChangedEcu,
+      warnings: Object.freeze([...p.warnings]),
+      startedAt: p.startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - p.startedAt),
+    });
   }
 
   private _mapOutcome(phase: DeepScanPhase, result: PhaseResult): void {
@@ -588,6 +891,7 @@ export class DeepScanOrchestrator {
   /** Zero-leak: yalnız kendi dinleyicilerini bırakır (enjekte deps çağıranındır). */
   dispose(): void {
     if (this._disposed) return;
+    this._offlinePassCancelled = true;   // yürüyen offline pass bir sonraki fazda durur
     this._listeners.clear();
     this._ecus = new Set();
     this._pids = new Set();
