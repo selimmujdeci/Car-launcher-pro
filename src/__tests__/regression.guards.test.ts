@@ -1403,8 +1403,11 @@ describe('Tanı raporu DTC derinlik + triyaj dayanıklılık kilidi', () => {
   });
 
   it('sanitize dizi dalı düşen elemanı ELER (sessiz null yerine kısa dizi)', () => {
-    expect(remoteLogServiceSrc, 'dizi dalındaki undefined filtresi kaldırılmış — düşen eleman JSON\'da null olur')
-      .toMatch(/\.filter\(\(v\)\s*=>\s*v\s*!==\s*undefined\)/);
+    // KİLİT GÜNCELLENDİ (kaldırılmadı): Sanitize Hardening'de dizi dalı `.map().filter()`
+    // yerine döngüye geçti (eleman-bazlı getter fail-soft için) — DAVRANIŞ AYNI:
+    // `undefined` eleman diziye EKLENMEZ, JSON'da `null` üretmez.
+    expect(remoteLogServiceSrc, 'düşen dizi elemanı artık elenmiyor — JSON\'da null olur')
+      .toMatch(/if\s*\(v\s*!==\s*undefined\)\s*out\.push\(v\)/);
   });
 
   it('triyaj motoru KURAL-İZOLE — tek bozuk kural tüm triyajı düşüremez', () => {
@@ -1419,5 +1422,51 @@ describe('Tanı raporu DTC derinlik + triyaj dayanıklılık kilidi', () => {
     // Guard'sız `.map((c) => c.code)` DTC varken TypeError atıyordu.
     expect(diagnosticTriageSrc, 'ruleObdDtc yine guard\'sız c.code okuyor — TypeError riski geri geldi')
       .not.toMatch(/codes\.slice\(0,\s*3\)\.map\(\(c\)\s*=>\s*c\.code\)/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   TANI RAPORU — sanitize sertleştirme (selfTest + deny + cycle)
+   Regresyon: (1) selfTest bölümü sanitize'ı TAMAMEN atlıyordu (ham spread) →
+   prob detail'indeki ham Error/fetch metni ve stack karesi maskesiz gidiyordu;
+   (2) deny-list `key.toLowerCase()` ile çalışıyordu → `apiKey` ≠ `api_key` →
+   camelCase sırlar SIZIYORDU; (3) cycle guard yoktu → dairesel graf MAX_DEPTH'e
+   kadar açılıyor, getter throw'u TÜM raporu düşürebiliyordu.
+   Davranış kilitleri: diagnosticSanitizeHardening.test.ts.
+   ─────────────────────────────────────────────────────────────── */
+describe('Tanı raporu sanitize sertleştirme kilidi', () => {
+  it('selfTest bölümü sanitize hattından geçer (ham runSelfTest çıktısı YASAK)', () => {
+    // Eskiden: `const selfTest = await runSelfTest();` → payload'a HAM spread ediliyordu.
+    expect(remoteLogServiceSrc, 'selfTest yine ham atanıyor — sanitize atlanıyor')
+      .not.toMatch(/const\s+selfTest\s*=\s*await\s+runSelfTest\(\)/);
+    expect(remoteLogServiceSrc, 'selfTest ortak sanitize kapısından (_sanitizeSection) geçmiyor')
+      .toMatch(/_sanitizeSection\(await\s+runSelfTest\(\)\)/);
+    // Inspector da AYNI kapıyı kullanmalı — tek kapı, atlanamaz.
+    expect(remoteLogServiceSrc, 'inspector ortak sanitize kapısını kullanmıyor')
+      .toMatch(/inspector:\s*_sanitizeSection\(inspector\)/);
+  });
+
+  it('deny-list anahtarı NORMALİZE edilir (camelCase/snake_case/case-insensitive)', () => {
+    expect(remoteLogServiceSrc, 'anahtar normalizasyonu kaldırılmış — apiKey yine sızar')
+      .toMatch(/toLowerCase\(\)\.replace\(\/\[\^a-z0-9\]\/g,\s*''\)/);
+    // Çıplak toLowerCase() eşleşmesi GERİ GELMEMELİ.
+    expect(remoteLogServiceSrc, 'DENY_KEYS yine çıplak toLowerCase() ile eşleşiyor')
+      .not.toMatch(/DENY_KEYS\.has\(\s*key\.toLowerCase\(\)\s*\)/);
+    for (const k of ['apikey', 'accesstoken', 'authorization', 'bearer', 'secret', 'password', 'jwt', 'email']) {
+      expect(remoteLogServiceSrc, `deny anahtarı kaldırılmış: ${k}`).toMatch(new RegExp(`'${k}'`));
+    }
+  });
+
+  it('_deepSanitize cycle-guard\'lı ve PAYLAŞILAN referansı cycle SANMAZ', () => {
+    // Ancestor-path deseni: girerken ekle, finally ile çıkarken sil.
+    expect(remoteLogServiceSrc, 'cycle guard kaldırılmış')
+      .toMatch(/CYCLE_MARKER/);
+    expect(remoteLogServiceSrc, 'ancestor yolundan çıkış (finally + delete) yok — DAG cycle sanılır')
+      .toMatch(/finally\s*\{[\s\S]{0,160}\.delete\(obj\)/);
+  });
+
+  it('sanitize düğüm-bazlı fail-soft — tek zehirli alan raporu öldürmez', () => {
+    expect(remoteLogServiceSrc, 'UNREADABLE işareti kaldırılmış — getter throw tüm raporu düşürebilir')
+      .toMatch(/UNREADABLE_MARKER/);
   });
 });
