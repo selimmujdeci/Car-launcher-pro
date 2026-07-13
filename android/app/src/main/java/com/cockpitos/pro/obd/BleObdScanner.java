@@ -45,10 +45,13 @@ public final class BleObdScanner {
         /**
          * Bir BLE cihazı bulunduğunda ana thread'den çağrılır.
          *
-         * @param name    Cihaz adı (yoksa adres döner)
-         * @param address MAC adresi
+         * @param name         Cihaz adı (yoksa adres döner — JS tarafı bunu "isim yok" sayar)
+         * @param address      MAC adresi
+         * @param serviceUuids Reklam paketinde duyurulan GATT servis UUID'leri (boş olabilir).
+         *                     İsimsiz adaptörler için TEK pozitif kanıttır → JS sınıflandırması
+         *                     bilinen OBD köprü servislerini (FFF0/FFE0/18F0…) burada arar.
          */
-        void onBleDeviceFound(String name, String address);
+        void onBleDeviceFound(String name, String address, java.util.List<String> serviceUuids);
 
         /** BLE taraması durduğunda (süre dolumu veya manuel stop) ana thread'den çağrılır. */
         void onBleScanFinished();
@@ -190,10 +193,20 @@ public final class BleObdScanner {
             resolvedName = address;
         }
 
+        // Reklam edilen GATT servis UUID'leri — isimsiz cihazlar için tek pozitif kanıt.
+        final java.util.List<String> uuids = new java.util.ArrayList<>(2);
+        try {
+            if (result.getScanRecord() != null && result.getScanRecord().getServiceUuids() != null) {
+                for (android.os.ParcelUuid pu : result.getScanRecord().getServiceUuids()) {
+                    if (pu != null) uuids.add(pu.getUuid().toString());
+                }
+            }
+        } catch (Exception ignored) { /* reklam çözümlenemedi → kanıt yok, akış bozulmaz */ }
+
         final String name = resolvedName;
         _handler.post(() -> {
             Listener l = _listener;
-            if (l != null) l.onBleDeviceFound(name, address);
+            if (l != null) l.onBleDeviceFound(name, address, uuids);
         });
     }
 

@@ -15,9 +15,21 @@
 /* ── Yardımcılar ────────────────────────────────────────────────────────── */
 
 /**
- * ELM327 yanıtından hex çiftlerini ayıklar.
+ * ELM327 yanıtından hex bayt çiftlerini ayıklar.
  * Boşlukları, '>', '\r', '\n' karakterlerini ve prompt'u temizler.
  * "NODATA", "ERROR", "?" → boş array döner.
+ *
+ * İKİ FORMAT DA DESTEKLENİR (tek doğruluk kaynağı):
+ *   • Boşluklu (ATS1):  "41 00 98 3B 00 11"  → her parça zaten 1 bayt
+ *   • Bitişik  (ATS0):  "4100983B001100"     → parça 2'şer bayta bölünür
+ * ELM327 init'i ATS0 (boşluk kapalı) gönderdiğinde gerçek adaptörler bitişik hex
+ * döner; bu tokenizer her iki biçimi de AYNI bayt dizisine indirger. (Gerçek araç
+ * blocker'ı: eski sürüm yalnız boşlukla ayrılmış 2-hane token kabul ediyordu →
+ * bitişik akış tek uzun token → filtreleniyor → supportedPids BOŞ → yakıt göstergesi boş.)
+ *
+ * FAIL-SOFT: hex olmayan / tek (odd) uzunluklu parça sessizce atılır (asla throw etmez).
+ * Böylece '0:'/'1:' satır-önekli çok-frame VIN gibi karışık parçalar toptan elenir
+ * (yanlış hizalama / sahte parse yok).
  */
 function _hexTokens(raw: string): string[] {
   const clean = raw
@@ -25,7 +37,13 @@ function _hexTokens(raw: string): string[] {
     .replace(/NODATA|ERROR|\?|SEARCHING\.\.\./gi, '')
     .trim()
     .toUpperCase();
-  return clean.split(/\s+/).filter((t) => /^[0-9A-F]{2}$/.test(t));
+  const out: string[] = [];
+  for (const part of clean.split(/\s+/)) {
+    // Yalnız TAM hex ve ÇİFT uzunluklu parçalar geçerli; gerisi fail-soft atılır.
+    if (!part || part.length % 2 !== 0 || !/^[0-9A-F]+$/.test(part)) continue;
+    for (let i = 0; i < part.length; i += 2) out.push(part.slice(i, i + 2));
+  }
+  return out;
 }
 
 /**

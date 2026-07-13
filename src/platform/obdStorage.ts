@@ -18,6 +18,12 @@ export const OBD_TRANSPORT_KEY = 'obd:lastTransport';
 // Dual-mod adaptör TAHMİNİ (henüz veri akmamış) verified sayılmaz → yanlış yönlendirme olmaz.
 export const OBD_TRANSPORT_VERIFIED_KEY = 'obd:transportVerified';
 export const OBD_PROTOCOL_KEY = 'obd:lastProtocol';
+// Keşif kanıt defteri: bu adreslerden GERÇEK OBD verisi aktı (canlı PID doğrulandı).
+// Tarama listesinde 'verified' rozetini bunlar alır — tahmin değil, kanıt.
+export const OBD_VERIFIED_ADDRESSES_KEY = 'obd:verifiedAddresses';
+
+/** Kanıt defterinde tutulan en fazla adres sayısı (bounded — sınırsız büyümez). */
+const MAX_VERIFIED_ADDRESSES = 8;
 
 export type ObdTransport = 'classic' | 'ble' | 'tcp';
 
@@ -93,6 +99,46 @@ export function clearObdTransport(): void {
     localStorage.removeItem(OBD_TRANSPORT_VERIFIED_KEY);
   } catch { /* ignore */ }
   mirrorObdToVid({ lastTransport: null, isTransportVerified: false });
+}
+
+/* ── Keşif kanıt defteri (doğrulanmış OBD adresleri) ──────────────────────── */
+
+/**
+ * Bu adreslerden daha önce GERÇEK OBD verisi aktı. Tarama listesi bu defteri
+ * okuyup 'verified' rozetini basar → kullanıcı tahmin ile kanıtı ayırt eder.
+ * Adresler büyük harfe normalize edilir (BT MAC karşılaştırması büyük/küçük duyarsız).
+ */
+export function loadVerifiedObdAddresses(): Set<string> {
+  try {
+    const raw = localStorage.getItem(OBD_VERIFIED_ADDRESSES_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed.filter((a): a is string => typeof a === 'string').map((a) => a.toUpperCase()),
+    );
+  } catch { return new Set(); }  // bozuk kayıt → boş defter (fail-soft)
+}
+
+/**
+ * Bir adresi "gerçek OBD verisi aktı" olarak mühürler. En yeni adres başa gelir,
+ * defter MAX_VERIFIED_ADDRESSES ile sınırlıdır (LRU).
+ * Canlı PID verisi doğrulandığında çağrılır — bağlantı kurulduğunda DEĞİL
+ * (bağlanmak veri akıtmak demek değildir).
+ */
+export function markObdAddressVerified(address: string): void {
+  const addr = address.trim().toUpperCase();
+  if (!addr) return;
+  try {
+    const existing = [...loadVerifiedObdAddresses()].filter((a) => a !== addr);
+    const next = [addr, ...existing].slice(0, MAX_VERIFIED_ADDRESSES);
+    localStorage.setItem(OBD_VERIFIED_ADDRESSES_KEY, JSON.stringify(next));
+  } catch { /* quota / bozuk JSON → sessiz geç, rozet düşer ama akış bozulmaz */ }
+}
+
+/** Kanıt defterini temizler (adaptör değişimi / fabrika ayarları). */
+export function clearVerifiedObdAddresses(): void {
+  try { localStorage.removeItem(OBD_VERIFIED_ADDRESSES_KEY); } catch { /* ignore */ }
 }
 
 /**
