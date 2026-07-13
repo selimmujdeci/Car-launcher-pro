@@ -105,12 +105,42 @@ const ALLOW_KEYS = new Set([
   'phase', 'vehicleType', 'lastSeenMs',
 ]);
 
-/** Her derinlikte düşülen alanlar (küçük harf karşılaştırma) */
+/**
+ * Anahtar normalizasyonu — küçült + alfanümerik olmayanı at.
+ *   api_key · apiKey · API_KEY · Api-Key   → 'apikey'
+ *   access_token · accessToken · Access-Token → 'accesstoken'
+ * Eskiden yalnız `key.toLowerCase()` yapılıyordu → `apiKey` → 'apikey' ≠ 'api_key'
+ * → deny listesine TAKILMIYOR, SIZIYORDU.
+ */
+function _normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Her derinlikte düşülen alanlar — NORMALİZE edilmiş anahtarlar, TAM EŞLEŞME.
+ *
+ * ⚠️ TAM eşleşme ZORUNLU; substring/prefix eşleşmesi YASAK. Kanıt: `lat` deny'i
+ * substring olsaydı `platform` (p·LAT·form → W4E runtime teşhis bölümünün TAMAMI)
+ * ve `detectedPlatform` düşerdi; `vin` prefix olsaydı `vinMasked` (VIN sızıntısını
+ * ÖNLEMEK için üretilen maskeli türev) silinirdi. Yani gevşek eşleşme, korumaya
+ * çalıştığımız raporu sessizce boşaltır.
+ */
 const DENY_KEYS = new Set([
+  // konum
   'lat', 'lng', 'latitude', 'longitude', 'location', 'address',
-  'vin', 'plate', 'plaka', 'phone', 'contact',
-  'ssid', 'bssid', 'mac', 'api_key', 'token',
+  // araç / kişi kimliği
+  'vin', 'plate', 'plaka', 'phone', 'contact', 'email',
+  // ağ kimliği
+  'ssid', 'bssid', 'mac',
+  // kimlik bilgisi / sır (api_key ve accessToken gibi yazımlar normalize ile aynı girişe düşer)
+  'apikey', 'accesstoken', 'refreshtoken', 'authorization', 'bearer',
+  'secret', 'password', 'jwt', 'token',
 ]);
+
+/** Dairesel referans işareti — "alan yoktu" ile "alan dairesel olduğu için atıldı" AYRI. */
+const CYCLE_MARKER = '[CYCLE]';
+/** Okunamayan düğüm (getter throw / Proxy trap) — tek zehirli alan raporu öldürmesin. */
+const UNREADABLE_MARKER = '[UNREADABLE]';
 
 /** Regex maskeleri — sıra önemli: key=value önce (VIN maskesi değeri yutmasın) */
 const MASKS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -127,47 +157,96 @@ function _maskString(s: string): string {
   return out;
 }
 
-/** Deny-list + regex maskesi — her derinlikte uygulanır */
-function _deepSanitize(value: unknown, depth: number): unknown {
+/**
+ * Deny-list + regex maskesi — her derinlikte uygulanır.
+ *
+ * `ancestors` = ŞU ANKİ özyineleme yolundaki (kendi ATALARI) kaplar. Dairesel
+ * referans YALNIZ bir nesne kendi atası olduğunda vardır. Naif "görülen nesneler"
+ * seti KULLANILMAZ: paylaşılan referansı (aynı nesne iki KARDEŞ dalda) cycle sanar
+ * ve ikinci dalı sessizce boşaltırdı — DTC `[null,null]` ile aynı sınıf sessiz kayıp.
+ * Girerken ekle, `finally` ile çıkarken sil.
+ *
+ * ASLA THROW ETMEZ: getter/Proxy patlarsa o DÜĞÜM `[UNREADABLE]` olur, kardeş
+ * alanlar akmaya devam eder (`_safeSection`'ın düğüm-bazlı karşılığı) — tek zehirli
+ * alan tüm tanı raporunu öldüremez.
+ */
+function _deepSanitize(value: unknown, depth: number, ancestors?: Set<object>): unknown {
   if (value == null) return value;
   if (typeof value === 'string')  return _maskString(value);
   if (typeof value === 'number')  return Number.isFinite(value) ? value : null;
   if (typeof value === 'boolean') return value;
-  if (depth >= MAX_DEPTH) return undefined; // derin ağaç → düş
+  if (typeof value !== 'object')  return undefined; // function / symbol / bigint → düş
+  if (depth >= MAX_DEPTH)         return undefined; // derin ağaç → düş
 
-  if (Array.isArray(value)) {
-    // Düşen eleman diziden ÇIKARILIR — `.map` ile yerinde bırakılırsa `undefined`
-    // olur ve JSON'da `null`a döner: tüketici (triyaj) bunu "kod var ama boş" diye
-    // okur ve patlar. Sessiz `null` yerine kısa dizi (dürüst eksiklik).
-    return value
-      .slice(0, MAX_ARRAY_LEN)
-      .map((v) => _deepSanitize(v, depth + 1))
-      .filter((v) => v !== undefined);
-  }
-  if (typeof value === 'object') {
+  const obj  = value as object;
+  const path = ancestors ?? new Set<object>();
+  if (path.has(obj)) return CYCLE_MARKER; // kendi atası → dairesel
+
+  path.add(obj);
+  try {
+    if (Array.isArray(value)) {
+      // Düşen eleman diziden ÇIKARILIR — `.map` ile yerinde bırakılırsa `undefined`
+      // olur ve JSON'da `null`a döner: tüketici (triyaj) bunu "kod var ama boş" diye
+      // okur ve patlar. Sessiz `null` yerine kısa dizi (dürüst eksiklik).
+      // Cycle `[CYCLE]` döndüğü için elenmez → dizi uzunluğu korunur.
+      const out: unknown[] = [];
+      const len = Math.min(value.length, MAX_ARRAY_LEN);
+      for (let i = 0; i < len; i++) {
+        let v: unknown;
+        try { v = _deepSanitize(value[i], depth + 1, path); }
+        catch { v = UNREADABLE_MARKER; } // eleman getter'ı patladı → yalnız o eleman
+        if (v !== undefined) out.push(v);
+      }
+      return out;
+    }
+
+    let keys: string[];
+    try { keys = Object.keys(obj as Record<string, unknown>); }
+    catch { return UNREADABLE_MARKER; } // Proxy ownKeys trap'i patladı → düğüm okunamaz
+
     const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      if (DENY_KEYS.has(key.toLowerCase())) continue; // konum/kimlik → düş
-      const v = _deepSanitize((value as Record<string, unknown>)[key], depth + 1);
+    for (const key of keys) {
+      if (DENY_KEYS.has(_normalizeKey(key))) continue; // konum/kimlik/sır → düş
+      let v: unknown;
+      try { v = _deepSanitize((obj as Record<string, unknown>)[key], depth + 1, path); }
+      catch { v = UNREADABLE_MARKER; }  // getter patladı → yalnız o anahtar
       if (v !== undefined) out[key] = v;
     }
     return out;
+  } finally {
+    path.delete(obj); // yoldan çık — kardeş dal aynı nesneyi cycle SANMASIN
   }
-  return undefined; // function / symbol / bigint → düş
+}
+
+/**
+ * Rapor gövdesine SONRADAN eklenen üst-seviye bölümler (inspector, selfTest) için
+ * ortak sanitize kapısı. Gövde alanları `_deepSanitize(payload, 0)` içinde derinlik
+ * 1'de değerlendirilir; sonradan eklenen bölüm de aynı bütçeye tabi olsun diye 1.
+ * TEK KAPI: yeni bir bölüm eklendiğinde sanitize'ı atlamak imkânsızlaşsın.
+ */
+function _sanitizeSection(value: unknown): unknown {
+  return _deepSanitize(value, 1);
 }
 
 /**
  * Uzağa gidecek payload'ı temizler:
  *  1. Üst seviye allowlist — ALLOW_KEYS dışındaki her alan düşer
- *  2. Her derinlikte DENY_KEYS düşer
+ *  2. Her derinlikte DENY_KEYS düşer (normalize edilmiş anahtar, TAM eşleşme)
  *  3. String'lerde VIN/MAC/koordinat/api_key=/token= maskelenir
+ *
+ * ASLA THROW ETMEZ — hata yolundan (crashLogger) çağrılmaya güvenlidir.
  */
 export function sanitizeForRemote(payload: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of Object.keys(payload)) {
+  let keys: string[];
+  try { keys = Object.keys(payload); } catch { return out; }
+
+  for (const key of keys) {
     if (!ALLOW_KEYS.has(key)) continue;
-    if (DENY_KEYS.has(key.toLowerCase())) continue;
-    const v = _deepSanitize(payload[key], 1);
+    if (DENY_KEYS.has(_normalizeKey(key))) continue;
+    let v: unknown;
+    try { v = _deepSanitize(payload[key], 1); }
+    catch { v = UNREADABLE_MARKER; }
     if (v !== undefined) out[key] = v;
   }
   return out;
@@ -518,7 +597,7 @@ export async function reportDiagnosticSnapshot(
   const payload: Record<string, unknown> = {
     ...base,
     source:    'dev_inspector',
-    inspector: _deepSanitize(inspector, 1),
+    inspector: _sanitizeSection(inspector),
   };
   _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload);
@@ -529,13 +608,19 @@ export async function reportDiagnosticSnapshot(
  * support_snapshot gövdesine aktif self-test raporunu (her alt sistemin
  * kapısı çalınıp geçti/uyarı/kaldı) ekler. Tip yine 'support_snapshot'
  * (panel mevcut filtre/detayla görür); `source:'self_test'` kaynağı ayırır.
- * Robot raporu zaten PII'siz üretilir (yalnız durum/metrik/kısa açıklama). */
+ *
+ * ⚠️ Robot raporu PII'siz ÜRETİLİR ama GARANTİ ETMEZ: prob `detail` alanları
+ * SERBEST METİN taşır — ham `Error.message` (selfTestEngine runProbe catch), ham
+ * fetch hata metni (probeBackend) ve stack karesi/dosya yolu (probeIdleRenderLoop).
+ * Bu bölüm eskiden sanitize'ı TAMAMEN atlıyordu (ham spread) → deny-list, VIN/MAC/
+ * koordinat/api_key maskeleri ve derinlik tavanı uygulanmıyordu. Artık inspector
+ * ile AYNI kapıdan geçer. */
 export async function reportSelfTestSnapshot(): Promise<Record<string, unknown>> {
   const [base, { runSelfTest }] = await Promise.all([
     _buildSupportSnapshotPayload(),
     import('./selfTestEngine'),
   ]);
-  const selfTest = await runSelfTest();
+  const selfTest = _sanitizeSection(await runSelfTest());
   const payload: Record<string, unknown> = { ...base, source: 'self_test', selfTest };
   _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload);
