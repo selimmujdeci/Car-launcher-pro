@@ -50,7 +50,7 @@ import {
 import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
 import { useVidStore } from '../store/useVidStore';
 import {
-  beginDelivery, getDelivery, deriveReportId, isTerminal,
+  beginDelivery, getDelivery, deriveReportId, isTerminal, SERVER_MAX_BYTES,
   _resetDeliveryLedgerForTest,
   type DeliveryState,
 } from './diagnosticDelivery';
@@ -370,8 +370,12 @@ export async function reportObdDiag(diag: Record<string, unknown>): Promise<void
  * Enqueue hatası PROPAGATE eder — triggerSupportSnapshot bunu kullanıcıya
  * "gönderilemedi" olarak yansıtır.
  */
-export async function reportSupportSnapshot(reportId?: string): Promise<Record<string, unknown>> {
+export async function reportSupportSnapshot(
+  reportId?: string,
+  meta?: DiagnosticReportMeta,
+): Promise<Record<string, unknown>> {
   const payload = await _buildSupportSnapshotPayload();
+  _attachUserReport(payload, meta);
   _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload, reportId);
   return payload;
@@ -598,6 +602,7 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
 export async function reportDiagnosticSnapshot(
   inspector: Record<string, unknown>,
   reportId?: string,
+  meta?: DiagnosticReportMeta,
 ): Promise<Record<string, unknown>> {
   const base = await _buildSupportSnapshotPayload();
   const payload: Record<string, unknown> = {
@@ -605,6 +610,7 @@ export async function reportDiagnosticSnapshot(
     source:    'dev_inspector',
     inspector: _sanitizeSection(inspector),
   };
+  _attachUserReport(payload, meta);
   _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload, reportId);
   return payload;
@@ -621,16 +627,124 @@ export async function reportDiagnosticSnapshot(
  * Bu bölüm eskiden sanitize'ı TAMAMEN atlıyordu (ham spread) → deny-list, VIN/MAC/
  * koordinat/api_key maskeleri ve derinlik tavanı uygulanmıyordu. Artık inspector
  * ile AYNI kapıdan geçer. */
-export async function reportSelfTestSnapshot(reportId?: string): Promise<Record<string, unknown>> {
+export async function reportSelfTestSnapshot(
+  reportId?: string,
+  meta?: DiagnosticReportMeta,
+): Promise<Record<string, unknown>> {
   const [base, { runSelfTest }] = await Promise.all([
     _buildSupportSnapshotPayload(),
     import('./selfTestEngine'),
   ]);
   const selfTest = _sanitizeSection(await runSelfTest());
   const payload: Record<string, unknown> = { ...base, source: 'self_test', selfTest };
+  _attachUserReport(payload, meta);
   _attachTriage(payload);
   await pushVehicleEvent('support_snapshot', payload, reportId);
   return payload;
+}
+
+/* ── Kullanıcı raporu meta + önizleme (PR-4: açıklama/kategori/önizleme/rıza) ──
+ * PR-4 kullanıcı-yüzeyi katmanıdır: teknik payload'ı BOZMAZ; yalnız kullanıcının
+ * yazdığı serbest metni + kategoriyi ekler ve gönderim-öncesi önizleme üretir.
+ * Yeni veri kaynağı / telemetri / tracking YOK; PII kuralları ve redaction AYNEN
+ * korunur (not alanı da _maskString'den geçer). */
+
+/** Kullanıcı tarafından girilebilecek kategoriler (enum — PII değil). */
+export const DIAGNOSTIC_CATEGORIES = [
+  'OBD', 'GPS', 'Harita', 'Performans', 'Bluetooth', 'Ses', 'AI', 'Çökme', 'Donma', 'Diğer',
+] as const;
+export type DiagnosticCategory = typeof DIAGNOSTIC_CATEGORIES[number];
+
+/** Kullanıcı rapor meta'sı — modaldan gelir. */
+export interface DiagnosticReportMeta {
+  note?:     string; // problem açıklaması (serbest metin — maskelenir + kırpılır)
+  category?: string; // kategori etiketi (allowlist dışı → düşer)
+}
+
+const MAX_NOTE_LEN = 1_000;
+
+/** UTF-8 octet uzunluğu (önizleme boyutu — sunucu octet_length ile aynı). */
+function _octetLenLocal(s: string): number {
+  try { return new TextEncoder().encode(s).length; }
+  catch { return s.length; }
+}
+
+/**
+ * Kullanıcı raporunu güvenli hale getirir: not _maskString'den geçer (VIN/MAC/
+ * koordinat/token maskesi — serbest metinde PII sızıntısı önlenir) + uzunluk
+ * kırpılır; kategori yalnız allowlist'ten kabul edilir. İkisi de yoksa undefined.
+ */
+function _sanitizeUserReport(meta?: DiagnosticReportMeta): { note?: string; category?: string } | undefined {
+  if (!meta) return undefined;
+  const rawNote = typeof meta.note === 'string' ? meta.note.trim() : '';
+  const note = rawNote ? _maskString(rawNote.slice(0, MAX_NOTE_LEN)) : undefined;
+  const category = typeof meta.category === 'string'
+    && (DIAGNOSTIC_CATEGORIES as readonly string[]).includes(meta.category)
+    ? meta.category : undefined;
+  if (note === undefined && category === undefined) return undefined;
+  return { note, category };
+}
+
+/** payload'a kullanıcı raporunu ekler (varsa) — teknik bölümler ETKİLENMEZ. */
+function _attachUserReport(payload: Record<string, unknown>, meta?: DiagnosticReportMeta): void {
+  const ur = _sanitizeUserReport(meta);
+  if (ur) payload.userReport = ur;
+}
+
+/** Gönderim-öncesi önizleme — payload'ı KURAR ama GÖNDERMEZ (rıza öncesi upload yok). */
+export interface DiagnosticPreview {
+  sizeBytes:    number;                               // tahmini gövde boyutu
+  willTruncate: boolean;                              // > 64KB → sunucu kırpar
+  sections:     { key: string; label: string }[];    // gönderilecek bölümler
+  masked:       string[];                             // maskelenen bilgi türleri
+  notSent:      string[];                             // yapısal olarak gönderilmeyenler
+}
+
+const _SECTION_LABELS: Record<string, string> = {
+  appVersion: 'Sürüm', versionCode: 'Sürüm kodu', bootId: 'Oturum kimliği',
+  device: 'Cihaz profili', obd: 'OBD durumu', lastErrors: 'Son hatalar',
+  lastCritical: 'Son kritik hata', health: 'Sistem sağlığı', ota: 'Güncelleme durumu',
+  uiActivity: 'Arayüz aktivitesi', trail: 'Olay izi', obdDeep: 'OBD derin veri',
+  perfSeries: 'Performans serisi', netAi: 'Ağ / AI sağlığı', gps: 'GPS durumu (konumsuz)',
+  voice: 'Sesli asistan', geofence: 'Güvenli bölge', storageQueue: 'Depolama / kuyruk',
+  power: 'Güç / akü', fusion: 'Sensör füzyon', bootTiming: 'Açılış zamanları',
+  transport: 'Bağlantı sağlığı', vidMirror: 'Araç özeti', platform: 'Platform runtime',
+  triage: 'Öncelikli bulgular', inspector: 'Geliştirici izi', selfTest: 'Otomatik test',
+  userReport: 'Açıklamanız', source: 'Kaynak',
+};
+
+const _MASKED_INFO = [
+  'VIN (araç kimliği) → maskelenir', 'MAC / SSID (ağ) → maskelenir',
+  'Koordinat (konum) → maskelenir', 'API anahtarı / token → maskelenir',
+];
+const _NOT_SENT_INFO = [
+  'Ham konum / koordinatlar', 'VIN (yalnız maskeli türev gider)', 'MAC / BSSID / SSID',
+  'Telefon / kişi / e-posta', 'Plaka', 'Bluetooth cihaz adı', 'Yüklü uygulama listesi',
+  'Kara kutu (kaza tamponu)', 'Depolama yolları',
+];
+
+/**
+ * "Tanı Gönder" önizlemesi: destek snapshot gövdesini KURAR (upload YOK), boyut +
+ * gönderilecek bölümler + maskelenen/gönderilmeyen bilgi özetini döndürür. self_test/
+ * inspector varyantları bu gövdeye tek bölüm ekler; boyut TAHMİNİDİR. Fail-soft:
+ * gövde kurulamazsa boş/güvenli önizleme.
+ */
+export async function buildDiagnosticPreview(): Promise<DiagnosticPreview> {
+  let payload: Record<string, unknown>;
+  try { payload = await _buildSupportSnapshotPayload(); }
+  catch { return { sizeBytes: 0, willTruncate: false, sections: [], masked: _MASKED_INFO, notSent: _NOT_SENT_INFO }; }
+
+  const sizeBytes = _octetLenLocal(JSON.stringify(payload));
+  const sections = Object.keys(payload)
+    .filter((k) => payload[k] != null)
+    .map((k) => ({ key: k, label: _SECTION_LABELS[k] ?? k }));
+  return {
+    sizeBytes,
+    willTruncate: sizeBytes > SERVER_MAX_BYTES,
+    sections,
+    masked:  _MASKED_INFO,
+    notSent: _NOT_SENT_INFO,
+  };
 }
 
 /* ── Kullanıcı tetiklemeli snapshot (Settings "Tanı Gönder") ── */
@@ -673,17 +787,19 @@ export async function triggerSelfTestSnapshot(): Promise<SnapshotTriggerResult> 
   return (await triggerSelfTestSnapshotEx()).status;
 }
 
-/* Zengin API (reportId taşır) — UI teslimat gerçeğini bununla izler. */
-export async function triggerSupportSnapshotEx(): Promise<SnapshotTriggerOutcome> {
-  return _triggerSnapshot('support_snapshot', (rid) => reportSupportSnapshot(rid));
+/* Zengin API (reportId + kullanıcı meta taşır) — UI teslimat gerçeğini bununla izler.
+ * meta (PR-4): kullanıcı açıklaması + kategori; verilmezse eski davranış (PR-3). */
+export async function triggerSupportSnapshotEx(meta?: DiagnosticReportMeta): Promise<SnapshotTriggerOutcome> {
+  return _triggerSnapshot('support_snapshot', (rid) => reportSupportSnapshot(rid, meta));
 }
 export async function triggerDiagnosticSnapshotEx(
   inspector: Record<string, unknown>,
+  meta?: DiagnosticReportMeta,
 ): Promise<SnapshotTriggerOutcome> {
-  return _triggerSnapshot('support_snapshot', (rid) => reportDiagnosticSnapshot(inspector, rid));
+  return _triggerSnapshot('support_snapshot', (rid) => reportDiagnosticSnapshot(inspector, rid, meta));
 }
-export async function triggerSelfTestSnapshotEx(): Promise<SnapshotTriggerOutcome> {
-  return _triggerSnapshot('support_snapshot', (rid) => reportSelfTestSnapshot(rid));
+export async function triggerSelfTestSnapshotEx(meta?: DiagnosticReportMeta): Promise<SnapshotTriggerOutcome> {
+  return _triggerSnapshot('support_snapshot', (rid) => reportSelfTestSnapshot(rid, meta));
 }
 
 /**

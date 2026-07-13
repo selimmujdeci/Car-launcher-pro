@@ -59,6 +59,9 @@ vi.mock('../platform/otaUpdateService', () => ({
 import {
   reportSupportSnapshot,
   triggerSupportSnapshot,
+  triggerSupportSnapshotEx,
+  buildDiagnosticPreview,
+  DIAGNOSTIC_CATEGORIES,
   SNAPSHOT_COOLDOWN_MS,
   _resetRemoteLogServiceForTest,
 } from '../platform/remoteLogService';
@@ -293,6 +296,57 @@ describe('hata durumunda', () => {
   });
 });
 
+/* ── PR-4: kullanıcı raporu (açıklama + kategori) + önizleme ──── */
+
+describe('PR-4 — kullanıcı raporu meta threading + önizleme', () => {
+  it('meta {note, category} → payload.userReport (teknik bölümler korunur)', async () => {
+    await triggerSupportSnapshotEx({ note: 'motor titriyor', category: 'OBD' });
+    const p = M.pushed.at(-1)!;
+    expect(p.type).toBe('support_snapshot');
+    expect(p.payload.userReport).toEqual({ note: 'motor titriyor', category: 'OBD' });
+    // Teknik bölümler DURUYOR (PR-1/2/3 bozulmaz)
+    expect(p.payload.appVersion).toBeDefined();
+    expect(p.payload.obd).toBeDefined();
+    expect(p.payload.health).toBeDefined();
+  });
+
+  it('SANITIZE: not içindeki VIN/koordinat MASKELENİR (serbest metin PII sızıntısı yok)', async () => {
+    await triggerSupportSnapshotEx({ note: 'VIN WBA12345678901234 konum 41.0082,28.9784', category: 'GPS' });
+    const ur = M.pushed.at(-1)!.payload.userReport as { note: string };
+    expect(ur.note).toContain('[VIN]');
+    expect(ur.note).toContain('[COORD]');
+    expect(ur.note).not.toContain('WBA12345678901234');
+    expect(ur.note).not.toContain('41.0082');
+  });
+
+  it('geçersiz kategori DÜŞER (allowlist); not boşsa userReport üretilmez', async () => {
+    await triggerSupportSnapshotEx({ note: '', category: 'HACK' });
+    expect(M.pushed.at(-1)!.payload.userReport).toBeUndefined();
+  });
+
+  it('meta VERİLMEZSE eski davranış — userReport yok (PR-3 geriye uyumlu)', async () => {
+    await triggerSupportSnapshotEx();
+    expect(M.pushed.at(-1)!.payload.userReport).toBeUndefined();
+  });
+
+  it('kategori listesi 10 örnek içerir (OBD/GPS/…/Diğer)', () => {
+    expect(DIAGNOSTIC_CATEGORIES).toContain('OBD');
+    expect(DIAGNOSTIC_CATEGORIES).toContain('Çökme');
+    expect(DIAGNOSTIC_CATEGORIES).toContain('Diğer');
+    expect(DIAGNOSTIC_CATEGORIES.length).toBe(10);
+  });
+
+  it('ÖNİZLEME upload YAPMAZ (rıza öncesi gönderim yok) ama boyut+bölüm döndürür', async () => {
+    const before = M.pushed.length;
+    const preview = await buildDiagnosticPreview();
+    expect(M.pushed.length).toBe(before);       // hiçbir şey gönderilmedi
+    expect(preview.sizeBytes).toBeGreaterThan(0);
+    expect(preview.sections.length).toBeGreaterThan(0);
+    expect(preview.masked.some((m) => m.includes('VIN'))).toBe(true);
+    expect(preview.notSent.some((n) => n.includes('konum'))).toBe(true);
+  });
+});
+
 /* ── UI kaynak-sözleşmesi ────────────────────────────────────── */
 
 describe('SupportSnapshotCard — UI sözleşmesi', () => {
@@ -301,32 +355,19 @@ describe('SupportSnapshotCard — UI sözleşmesi', () => {
   const page = readFileSync(join(process.cwd(),
     'src/components/settings/SettingsPage.tsx'), 'utf-8');
 
-  it('buton triggerSupportSnapshotEx çağırır (reportId + teslimat gerçeği zinciri)', () => {
+  it('PR-4: kart ortak DiagnosticReportModal açar (triggerSupportSnapshotEx send)', () => {
     expect(card).toContain("from '../../platform/remoteLogService'");
-    expect(card).toMatch(/await triggerSupportSnapshotEx\(\)/);
-    expect(card).toContain('awaitDelivery');   // gerçek teslim beklenir (yalancı "sent" yok)
+    expect(card).toContain("import { DiagnosticReportModal }");
+    expect(card).toContain('<DiagnosticReportModal');
+    // Gönderim yalnız modal içinden (rıza sonrası) — send prop'u Ex tetikleyici.
+    expect(card).toMatch(/send=\{\(meta\) => triggerSupportSnapshotEx\(meta\)\}/);
     expect(card).toContain('Tanı Gönder');
   });
 
-  it('DELIVERY TRUTH: kabul mesajı "Kuyrukta", yalancı "Gönderildi" YOK', () => {
-    // Kabul anı asla "gönderildi" demez — yalnız "Kuyrukta" / teslim beklenir.
-    expect(card).toContain('Kuyrukta');
-    expect(card).toContain('internet gelince gönderilecek');   // offline mesajı
-    expect(card).toContain('lütfen biraz bekleyin');           // cooldown mesajı
-    // Gerçek teslim etiketi diagnosticDelivery.deliveryLabel'dan gelir (tek gerçek kaynak).
-    expect(card).toContain('deliveryLabel');
-    // Eski yalancı kabul-anı metni ("Tanı raporu gönderildi") KALDIRILDI olmalı.
-    expect(card).not.toContain('Tanı raporu gönderildi');
-  });
-
-  it('rapor No (reportId) kullanıcıya gösterilir', () => {
-    expect(card).toContain('Rapor No');
-    expect(card).toMatch(/reportId/);
-  });
-
-  it('art arda basış koruması: sending/accepted sırasında buton kilitli', () => {
-    expect(card).toMatch(/phase === 'sending'/);
-    expect(card).toContain("phase === 'accepted'");
+  it('kart DOĞRUDAN göndermez — akış (rıza/önizleme/teslim) modalda', () => {
+    // Buton yalnız modalı açar; upload rıza olmadan başlamaz (DiagnosticReportModal).
+    expect(card).toMatch(/onClick=\{\(\) => setOpen\(true\)\}/);
+    expect(card).not.toContain('awaitDelivery'); // teslim bekleme modalda
   });
 
   it('SettingsPage "Hakkında" paneli kartı render ediyor', () => {

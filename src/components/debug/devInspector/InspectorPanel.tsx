@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, Copy, CheckCheck, Send, Loader2 } from 'lucide-react';
-import { triggerDiagnosticSnapshot, type SnapshotTriggerResult } from '../../../platform/remoteLogService';
+import { X, Copy, CheckCheck, Send } from 'lucide-react';
+import { triggerDiagnosticSnapshotEx } from '../../../platform/remoteLogService';
+import { DiagnosticReportModal } from '../../common/DiagnosticReportModal';
 import { runtimeManager }  from '../../../core/runtime/AdaptiveRuntimeManager';
 import { getReplayData, type BlackBoxSample } from '../../../platform/security/blackBoxService';
 import { getNetworkEntries, clearNetworkEntries, type NetEntry } from './NetworkInterceptor';
@@ -149,42 +150,12 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
-  /* ── "Tanı Gönder" — inspector payload'ını remote log sistemine yollar ──
-   * Araç ekranında pano kullanışsız (yapıştıracak yer yok) → snapshot doğrudan
-   * vehicle_events'e (support_snapshot, source: dev_inspector) gider; Admin
-   * Incident Center'da görünür. Cooldown + offline queue remoteLogService'te. */
-  type SendState = 'idle' | 'sending' | SnapshotTriggerResult;
-  const [sendState, setSendState] = useState<SendState>('idle');
-  const sendResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (sendResetTimer.current) clearTimeout(sendResetTimer.current); }, []);
-
-  async function handleSendDiag(): Promise<void> {
-    if (sendState === 'sending') return; // çift tıklama koruması (cooldown'a ek)
-    setSendState('sending');
-    const result = await triggerDiagnosticSnapshot(buildExportPayload());
-    setSendState(result);
-    if (sendResetTimer.current) clearTimeout(sendResetTimer.current);
-    sendResetTimer.current = setTimeout(() => setSendState('idle'), 4000);
-  }
-
-  const SEND_LABEL: Record<SendState, string> = {
-    idle:           'Tanı Gönder',
-    sending:        'Gönderiliyor…',
-    queued:         'Kuyruğa alındı ✓',
-    queued_offline: 'İnternet gelince gönderilecek',
-    cooldown:       'Az önce gönderildi — bekleyin',
-    error:          'Gönderilemedi',
-    not_paired:     'Cihaz eşlenmemiş — loglar gönderilemez (Ayarlar → Mobil Bağlantı)',
-  };
-  const SEND_COLOR: Record<SendState, string> = {
-    idle:           'rgba(255,255,255,0.4)',
-    sending:        '#3b82f6',
-    queued:         '#60a5fa',
-    queued_offline: '#eab308',
-    cooldown:       '#eab308',
-    error:          '#ef4444',
-    not_paired:     '#ef4444',
-  };
+  /* ── "Tanı Gönder" — ortak DiagnosticReportModal'ı açar (PR-4) ──
+   * Araç ekranında pano kullanışsız → snapshot doğrudan vehicle_events'e
+   * (support_snapshot, source: dev_inspector) gider; Admin Incident Center'da
+   * görünür. Modal: açıklama + kategori + önizleme + AÇIK RIZA + rapor numarası.
+   * Gönderim triggerDiagnosticSnapshotEx (inspector payload + meta) ile. */
+  const [diagOpen, setDiagOpen] = useState(false);
 
   /* ── Render ──────────────────────────────────────────────────────────── */
   return (
@@ -539,17 +510,12 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
           dev only
         </span>
         <div className="flex items-center gap-3 min-w-0">
-          {/* Araç ekranı için: panoya değil doğrudan remote incidents'a gönderir */}
-          <button onClick={() => { void handleSendDiag(); }}
-            disabled={sendState === 'sending'}
+          {/* Araç ekranı için: panoya değil ortak Tanı modalını açar (açıklama+rıza) */}
+          <button onClick={() => setDiagOpen(true)}
             className="flex items-center gap-1 text-[10px] font-mono transition-colors truncate"
-            style={{ color: SEND_COLOR[sendState] }}>
-            {sendState === 'sending'
-              ? <Loader2 size={11} className="animate-spin" />
-              : sendState === 'queued'
-                ? <CheckCheck size={11} />
-                : <Send size={11} />}
-            {SEND_LABEL[sendState]}
+            style={{ color: 'rgba(255,255,255,0.4)' }}>
+            <Send size={11} />
+            Tanı Gönder
           </button>
           <button onClick={handleCopy}
             className="flex items-center gap-1 text-[10px] font-mono transition-colors shrink-0"
@@ -559,6 +525,13 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+
+      <DiagnosticReportModal
+        open={diagOpen}
+        onClose={() => setDiagOpen(false)}
+        title="Tanı Gönder (Geliştirici)"
+        send={(meta) => triggerDiagnosticSnapshotEx(buildExportPayload(), meta)}
+      />
     </div>
     </>
   );
