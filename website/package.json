@@ -8,11 +8,11 @@
     "start": "next start"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.0",
+    "@supabase/ssr": "^0.12.1",
     "@supabase/supabase-js": "^2.104.0",
-    "lucide-react": "^1.23.0",
+    "lucide-react": "^1.24.0",
     "maplibre-gl": "^5.24.0",
-    "msedge-tts": "^2.0.6",
+    "msedge-tts": "^2.0.7",
     "next": "^14.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
