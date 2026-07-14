@@ -47,7 +47,8 @@ import {
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
   buildPlatformRuntimeSnapshot,
 } from './diagnosticSections';
-import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
+import { buildTriageSnapshot, buildRootCauseSnapshot, buildDiagnosticVerdict, type TriageSections, type ErrorLedgerLike } from './diagnosticTriage';
+import { buildErrorLedger, type RawErrorLike } from './errorLedger';
 import { useVidStore } from '../store/useVidStore';
 import {
   beginDelivery, getDelivery, deriveReportId, isTerminal, SERVER_MAX_BYTES,
@@ -99,6 +100,11 @@ const BOOT_ID: string = (() => {
   try { return crypto.randomUUID().slice(0, 8); }
   catch { return Math.random().toString(36).slice(2, 10); }
 })();
+
+/** Bu oturumun (app boot) başlangıç zamanı — errorLedger'da eski/yeni sınırı
+ *  (PR-2). Modül erken boot'ta yüklendiği için app oturumu başlangıcına yakındır;
+ *  lastErrors KALICI ring olduğundan bundan ÖNCEKİ ts'ler önceki boot'tandır. */
+const SESSION_START_MS: number = Date.now();
 
 /* ── Sanitize katmanı ───────────────────────────────────────── */
 
@@ -400,6 +406,31 @@ function _attachTriage(payload: Record<string, unknown>): void {
   try {
     payload.triage = buildTriageSnapshot(payload as TriageSections);
   } catch { /* triyaj asla ana raporu bozmaz */ }
+  // V2 (Root Cause Engine, PR-1) — AYRI fail-soft: rootCause patlasa bile
+  // ne ana rapor ne de klasik triage etkilenir (bağımsız geçiş).
+  try {
+    payload.rootCause = buildRootCauseSnapshot(payload as TriageSections);
+  } catch { /* kök-neden bloğu asla ana raporu/triyajı bozmaz */ }
+  // V2 (PR-2) — ESKİ/YENİ hata ayrımı: lastErrors (+ lastCritical) → dedup defter.
+  // Ayrı fail-soft geçiş; kalıcı ring'teki önceki-boot hataları activeNow:false olur.
+  try {
+    const raw: RawErrorLike[] = [];
+    if (Array.isArray(payload.lastErrors)) raw.push(...(payload.lastErrors as RawErrorLike[]));
+    if (payload.lastCritical && typeof payload.lastCritical === 'object') {
+      raw.push(payload.lastCritical as RawErrorLike);
+    }
+    payload.errorLedger = buildErrorLedger(raw, {
+      nowMs: Date.now(), sessionStartMs: SESSION_START_MS, bootId: BOOT_ID,
+    });
+  } catch { /* defter bloğu asla ana raporu/triyajı bozmaz */ }
+  // V2 (PR-7) — BİRLEŞİK VERDİKT: rootCause + inconclusive + errorLedger old/new →
+  // tek bakılacak nesne. Ayrı fail-soft geçiş; errorLedger yoksa da çalışır.
+  try {
+    payload.diagnosticVerdict = buildDiagnosticVerdict(
+      payload as TriageSections,
+      (payload.errorLedger as ErrorLedgerLike | undefined) ?? null,
+    );
+  } catch { /* verdict bloğu asla ana raporu/triyajı bozmaz */ }
 }
 
 /* ── VID aynası (vidMirror) — EXPLICIT ALLOWLIST ─────────────────────
@@ -710,7 +741,8 @@ const _SECTION_LABELS: Record<string, string> = {
   power: 'Güç / akü', fusion: 'Sensör füzyon', bootTiming: 'Açılış zamanları',
   transport: 'Bağlantı sağlığı', vidMirror: 'Araç özeti', platform: 'Platform runtime',
   triage: 'Öncelikli bulgular', inspector: 'Geliştirici izi', selfTest: 'Otomatik test',
-  userReport: 'Açıklamanız', source: 'Kaynak',
+  userReport: 'Açıklamanız', source: 'Kaynak', rootCause: 'Kök neden',
+  errorLedger: 'Hata defteri (eski/yeni)', diagnosticVerdict: 'Tanı verdikti',
 };
 
 const _MASKED_INFO = [

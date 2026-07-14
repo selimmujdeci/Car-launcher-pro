@@ -175,6 +175,19 @@ describe('IncidentCenter — UI sözleşmesi', () => {
     expect(page).toMatch(/md\['lastCritical'\]/);
   });
 
+  // Diagnostics V2 · PR-8: TANI VERDİKTİ (TOP-10 kök-neden) raporun EN TEPESİNDE render edilir.
+  it('diagnosticVerdict → VerdictSection raporun tepesinde render edilir', () => {
+    expect(page).toContain('VerdictSection');
+    expect(page).toMatch(/md\['diagnosticVerdict'\]/);
+    // fail-soft: eski kayıtlarda alan yoksa render edilmez
+    expect(page).toMatch(/md\['diagnosticVerdict'\] != null/);
+    // TOP-10 sunumu: güven barı + dosya/fonksiyon işaretçisi + eksik kanıt
+    expect(page).toContain('confidenceBar');
+    expect(page).toMatch(/codePointer\?\.(file|symbol)/);
+    expect(page).toContain('EKSİK KANIT');
+    expect(page).toContain('bayat (önceki oturum)');
+  });
+
   it('satır kolonları: vehicle/type/ctx-phase/errorCode/msg/created_at', () => {
     expect(page).toContain("'ZAMAN', 'ARAÇ', 'TİP', 'BAĞLAM/AŞAMA', 'HATA KODU', 'MESAJ / SÜRÜM'");
     expect(page).toMatch(/md\['phase'\] \?\? md\['ctx'\]/);

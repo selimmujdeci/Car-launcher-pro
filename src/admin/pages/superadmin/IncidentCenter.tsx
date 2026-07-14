@@ -400,9 +400,15 @@ function IncidentDetail({ entry, onClose }: { entry: IncidentEntry; onClose: () 
 
       {isSnapshot ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-          {/* ÖNCELİKLİ BULGU TRİYAJI — raporun EN TEPESİ; robot 15 ham bölümü okuyup
-              kök-neden çıkarır (bkz. diagnosticTriage.ts). Yoksa bile "kritik bulgu
-              yok" gösterir (eski kayıtlarda triage alanı olmayabilir → fail-soft). */}
+          {/* TANI VERDİKTİ (Diagnostics V2) — raporun EN TEPESİ. TOP-10 kök-neden +
+              güven % + dosya/fonksiyon + eski/yeni + eksik kanıt. Eski kayıtlarda
+              diagnosticVerdict yoksa hiç render edilmez (fail-soft). */}
+          {md['diagnosticVerdict'] != null && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <VerdictSection verdict={md['diagnosticVerdict'] as DiagnosticVerdictLike} />
+            </div>
+          )}
+          {/* ÖNCELİKLİ BULGU TRİYAJI — klasik triyaj (V2 yanında korunur). */}
           <div style={{ gridColumn: '1 / -1' }}>
             <TriageSection triage={(md['triage'] ?? { findings: [], scanned: 0, topSeverity: 'none' }) as TriageSnapshotLike} />
           </div>
@@ -578,6 +584,115 @@ function TriageSection({ triage }: { triage: TriageSnapshotLike }) {
           <span className="sa-mono" style={{ color: '#374151', fontSize: 9, marginTop: 2 }}>
             {triage.scanned ?? 0} bölüm tarandı
           </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Tanı Verdikti (Diagnostics V2 — TOP-10 kök-neden) ──────────────────────────
+interface CodePointerLike { file?: string; symbol?: string; fixHint?: string }
+interface RootCauseHypothesisLike {
+  problem?: string; severity?: TriageSeverityLike; code?: string; confidence?: number
+  evidence?: string[]; analysis?: string; recommendedFix?: string
+  codePointer?: CodePointerLike | null; sources?: string[]
+}
+interface InconclusiveNoteLike {
+  subsystem?: string; code?: string; reason?: string
+  blockedConclusions?: string[]; missingEvidence?: string[]
+}
+interface DiagnosticVerdictLike {
+  headline?: string
+  topRootCauses?: RootCauseHypothesisLike[]
+  inconclusive?: InconclusiveNoteLike[]
+  errorFreshness?: { activeNowCount?: number; previousBootCount?: number; staleRatio?: number; topActive?: string[] }
+  hasActiveRootCause?: boolean
+}
+
+/** Güven barı — 0-100 → renkli dolu/boş blok dizisi (monospace). */
+function confidenceBar(pct: number): string {
+  const n = Math.max(0, Math.min(10, Math.round(pct / 10)))
+  return '█'.repeat(n) + '░'.repeat(10 - n)
+}
+
+function VerdictSection({ verdict }: { verdict: DiagnosticVerdictLike }) {
+  const causes = Array.isArray(verdict.topRootCauses) ? verdict.topRootCauses : []
+  const inconclusive = Array.isArray(verdict.inconclusive) ? verdict.inconclusive : []
+  const fresh = verdict.errorFreshness ?? {}
+  const active = fresh.activeNowCount ?? 0
+  const stale = fresh.previousBootCount ?? 0
+  const topColor = verdict.hasActiveRootCause
+    ? (TRIAGE_SEVERITY_COLOR[causes[0]?.severity ?? 'warning'] ?? '#d97706')
+    : '#16a34a'
+  return (
+    <div style={{ padding: '10px 12px', background: '#0a0a0a', border: `1px solid ${topColor}55`, borderRadius: 2 }}>
+      <p className="sa-label" style={{ marginBottom: 6, color: topColor }}>
+        TANI VERDİKTİ — KÖK NEDEN{causes.length > 0 ? ` (TOP ${causes.length})` : ''}
+      </p>
+
+      {/* Headline — mühendisin İLK okuyacağı tek satır */}
+      <div className="sa-mono" style={{ color: '#e5e7eb', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+        {verdict.headline ?? '—'}
+      </div>
+
+      {/* Hata tazeliği rozeti (eski/yeni) */}
+      <div className="sa-mono" style={{ fontSize: 9, marginBottom: 8, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ color: active > 0 ? '#d97706' : '#16a34a' }}>● {active} aktif (bu oturum)</span>
+        <span style={{ color: '#4b5563' }}>○ {stale} bayat (önceki oturum)</span>
+        {(fresh.topActive ?? []).length > 0 && (
+          <span style={{ color: '#6b7280' }}>aktif: {(fresh.topActive ?? []).join(', ')}</span>
+        )}
+      </div>
+
+      {/* TOP-10 hipotez */}
+      {causes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {causes.map((h, i) => {
+            const c = TRIAGE_SEVERITY_COLOR[h.severity ?? 'info'] ?? '#6b7280'
+            const conf = typeof h.confidence === 'number' ? h.confidence : 0
+            return (
+              <div key={`${h.code}-${i}`} style={{ padding: '6px 10px', borderRadius: 2, background: '#0d0d0d', borderLeft: `3px solid ${c}` }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+                  <span className="sa-mono" style={{ color: c, fontSize: 10, fontWeight: 700, letterSpacing: '0.05em' }}>
+                    {confidenceBar(conf)} %{conf}
+                  </span>
+                  <span className="sa-mono" style={{ color: '#e5e7eb', fontSize: 11, fontWeight: 600 }}>{h.problem}</span>
+                  <span className="sa-mono" style={{ color: '#374151', fontSize: 9, marginLeft: 'auto' }}>{h.code}</span>
+                </div>
+                {h.codePointer?.file && (
+                  <div className="sa-mono" style={{ color: '#60a5fa', fontSize: 10 }}>
+                    → {h.codePointer.file}{h.codePointer.symbol ? ` · ${h.codePointer.symbol}()` : ''}
+                  </div>
+                )}
+                {h.codePointer?.fixHint && (
+                  <div className="sa-mono" style={{ color: '#4b5563', fontSize: 10, marginTop: 2 }}>⚙ {h.codePointer.fixHint}</div>
+                )}
+                {(h.evidence ?? []).length > 0 && (
+                  <div className="sa-mono" style={{ color: '#6b7280', fontSize: 9, marginTop: 2 }}>
+                    kanıt: {(h.evidence ?? []).join(' · ')}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Eksik kanıt / sonuçsuzluk */}
+      {inconclusive.length > 0 && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span className="sa-mono" style={{ color: '#a16207', fontSize: 9, fontWeight: 700 }}>EKSİK KANIT — DOĞRULANAMADI</span>
+          {inconclusive.map((n, i) => (
+            <div key={`${n.code}-${i}`} className="sa-mono" style={{ fontSize: 10, color: '#6b7280' }}>
+              <span style={{ color: '#d97706' }}>[{n.subsystem}]</span> {n.reason}
+              {(n.blockedConclusions ?? []).length > 0 && (
+                <span style={{ color: '#4b5563' }}> → doğrulanamadı: {(n.blockedConclusions ?? []).join(', ')}</span>
+              )}
+              {(n.missingEvidence ?? []).length > 0 && (
+                <div style={{ color: '#4b5563' }}>eksik: {(n.missingEvidence ?? []).join(', ')}</div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

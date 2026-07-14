@@ -27,6 +27,8 @@
  *    vb. modülleri import ETMEZ, yalnız şekli bilir (bağımlılık döngüsü yok).
  */
 
+import { lookupRootCause } from './rootCauseKb';
+
 export type TriageSeverity = 'critical' | 'warning' | 'info';
 
 export interface TriageFinding {
@@ -38,6 +40,71 @@ export interface TriageFinding {
   action: string;
   /** Bu bulguyu üreten bölüm(ler) — 2+ ise çapraz-korelasyon. */
   sources: string[];
+  /* ── V2 (Root Cause Engine) — hepsi OPSİYONEL, geriye-uyumlu ──────────
+   * PR-1 kontrat katmanı: kurallar bugün bunları DOLDURMAK ZORUNDA DEĞİL.
+   * İleri PR'lar (PR-3 KB, PR-5/6 OBD kanıt zinciri) aşama aşama doldurur.
+   * Tüketiciler (IncidentCenter/rapor) alan yoksa eski davranışa düşer. */
+  /** 0-100 kök-neden olasılığı. Yoksa buildRootCauseSnapshot severity'den türetir. */
+  confidence?: number;
+  /** Ham kanıt satırları (sayısal/enum + statik TR metin — PII yok). */
+  evidence?: string[];
+  /** Kanıtın YORUMU (tek satır sentez) — "reason"dan ayrı, opsiyonel. */
+  analysis?: string;
+  /** Geliştirici-hedefli düzeltme işaretçisi (PR-3 KB doldurur). */
+  codePointer?: { file: string; symbol: string; fixHint?: string };
+}
+
+/* ── V2 — Root Cause hipotezi (TOP-10 sunumunun atomu) ────────────────
+ * Bir kural, tek bulgu yerine RAKİP AĞIRLIKLI hipotezler dönebilsin diye
+ * ayrı tip. PR-1'de motor mevcut TriageFinding'leri hipoteze SARAR (adaptör);
+ * PR-6+ OBD gibi subsystem'lerde kural doğrudan çok-hipotez üretecek. */
+export interface RootCauseHypothesis {
+  /** Kısa problem ifadesi (finding.title). */
+  problem: string;
+  severity: TriageSeverity;
+  /** Sabit makine-okur kod (dedup/ranking). */
+  code: string;
+  /** 0-100 — KANITTAN türetilir (sabit sayı YASAK: gate-1 "doğru mu?"). */
+  confidence: number;
+  /** Ham kanıt satırları. */
+  evidence: string[];
+  /** Kanıtın yorumu (neden bu kök-neden). */
+  analysis: string;
+  /** Önerilen düzeltme (operatör VEYA geliştirici hedefli). */
+  recommendedFix: string;
+  /** Geliştirici işaretçisi (varsa) — dosya/fonksiyon. */
+  codePointer?: { file: string; symbol: string; fixHint?: string };
+  /** Katkı veren bölüm(ler) — 2+ ise çapraz-korelasyon. */
+  sources: string[];
+}
+
+/* ── V2 (PR-4) — "Eksik Kanıt" / sonuçsuzluk beyanı ───────────────────
+ * Motor bir subsystem'i arıza/yoksun durumda görüp AMA karar-kanıtı elde
+ * edemediğinde SUSMAZ: neyin doğrulanamadığını ve hangi ham kanıtın eksik
+ * olduğunu açıkça söyler. (2026-07-14: OBD kopukken DTC/VIN/Freeze doğrulanamadı
+ * — mühendis "OBD çalışıyor mu" belirsizliğinde kalıyordu.) */
+export interface InconclusiveNote {
+  /** Subsystem etiketi ('OBD', 'GPS', …). */
+  subsystem: string;
+  /** Sabit makine-okur kod. */
+  code: string;
+  /** Neden sonuca varılamadı (tek satır). */
+  reason: string;
+  /** Bu yüzden DOĞRULANAMAYAN sonuç(lar). */
+  blockedConclusions: string[];
+  /** Kesinleştirmek için gereken ham kanıt anahtarları. */
+  missingEvidence: string[];
+}
+
+export interface RootCauseSnapshot {
+  /** Güvene göre azalan sıralı, en fazla MAX_ROOT_CAUSES. */
+  hypotheses: RootCauseHypothesis[];
+  /** Sonuca varılamayan subsystem beyanları (eksik kanıtla). */
+  inconclusive: InconclusiveNote[];
+  scanned: number;
+  ruleErrors: number;
+  /** En yüksek güven (0 = hipotez yok). */
+  topConfidence: number;
 }
 
 export interface TriageSnapshot {
@@ -59,7 +126,10 @@ interface HealthSectionLike {
   services?: { name: string; healthy: boolean; restartCount: number }[];
 }
 interface ObdDeepSectionLike {
+  // PR-4: adapter bağlantı durumu — "OBD bağlı değildi" INCONCLUSIVE kararı için.
+  adapter?: { source?: string; connectionState?: string; lastSeenMs?: number } | null;
   health?: { connectionQuality?: number; reconnectPressure?: number };
+  extended?: { discovered?: boolean; supportedCount?: number } | null;
   // ZERO-TRUST: bu bölüm sanitize edilmiş payload'dan gelir — eleman düşmüş/bozuk
   // olabilir. Tip runtime gerçeğini yansıtır (null-yapılabilir), kuralı yalan
   // güvenceye dayandırmaz.
@@ -124,6 +194,27 @@ const TRACKED_SECTIONS = [
 
 const SEVERITY_RANK: Record<TriageSeverity, number> = { critical: 0, warning: 1, info: 2 };
 const MAX_FINDINGS = 8;
+const MAX_ROOT_CAUSES = 10;   // vizyon "TOP-10 ROOT CAUSE"
+
+/* ── V2 — Kanıttan türetilen baz güven (PR-1) ─────────────────────────
+ * PR-1 kontrat katmanı: kurallar henüz aşama-kanıtı taşımadığı için güveni
+ * severity + çapraz-korelasyondan türetiriz (SABİT SAYI DEĞİL — kanıta bağlı):
+ *   • severity ne kadar yüksekse prior o kadar yüksek,
+ *   • 2+ bağımsız bölüm aynı kökü işaret ediyorsa (sources ≥ 2) güven artar.
+ * PR-6+ OBD gibi subsystem'lerde bu, gerçek aşama-ağırlıklı skorla DEĞİŞİR.
+ * Kural zaten `confidence` verdiyse ONA saygı gösterilir (override edilmez). */
+const SEVERITY_PRIOR: Record<TriageSeverity, number> = { critical: 70, warning: 45, info: 25 };
+const CORRELATION_BONUS = 15;
+
+function deriveConfidence(f: TriageFinding): number {
+  if (typeof f.confidence === 'number' && f.confidence >= 0 && f.confidence <= 100) {
+    return Math.round(f.confidence);   // kural açıkça verdi → sahiplen
+  }
+  const prior = SEVERITY_PRIOR[f.severity] ?? 25;
+  const correlated = Array.isArray(f.sources) && f.sources.length >= 2;
+  const raw = prior + (correlated ? CORRELATION_BONUS : 0);
+  return Math.max(0, Math.min(100, raw));
+}
 
 type Rule = (s: TriageSections) => TriageFinding | null;
 
@@ -466,5 +557,221 @@ export function buildTriageSnapshot(sections: TriageSections): TriageSnapshot {
     scanned: countScanned(sections),
     topSeverity,
     ruleErrors,
+  };
+}
+
+/* ── V2 — Root Cause Engine (PR-1 kontrat katmanı) ────────────────────
+ * buildTriageSnapshot'ın YANINDA (silmeden) çalışır. Aynı RULES motorunu
+ * kullanır ama çıktıyı GÜVENE göre sıralı RootCauseHypothesis listesine
+ * dönüştürür ("veri → yorum → OLASILIK"). Rapor payload'ı ikisini de taşır
+ * (A/B); UI PR-8'de bu bloğu render edecek. Fail-soft + kural izolasyonu
+ * buildTriageSnapshot ile aynı disiplinde.
+ *
+ * PR-1 KAPSAMI (bilinçli sınır): kurallar henüz aşama-kanıtı / kod-işaretçisi
+ * üretmiyor → confidence severity+korelasyondan, evidence `reason`dan türer,
+ * codePointer boş kalır. Bunları PR-3 (KB) ve PR-5/6 (OBD kanıt zinciri)
+ * doldurur; bu fonksiyonun SÖZLEŞMESİ o zaman değişmez, yalnız alanlar dolar. */
+function findingToHypothesis(f: TriageFinding): RootCauseHypothesis {
+  const correlated = Array.isArray(f.sources) && f.sources.length >= 2;
+  const evidence = Array.isArray(f.evidence) && f.evidence.length > 0
+    ? f.evidence
+    : [f.reason];
+  const analysis = typeof f.analysis === 'string' && f.analysis
+    ? f.analysis
+    : correlated
+      ? `Çapraz-korelasyon (${f.sources.join(' + ')}): birden çok bölüm aynı kökü işaret ediyor.`
+      : `Tek kaynak (${f.sources[0] ?? '?'}): ${f.reason}`;
+  // PR-3: kural açık codePointer vermediyse KB'den geliştirici-hedefli işaretçi
+  // (dosya+fonksiyon+fixHint) çek. KB'de yoksa boş kalır (uydurma YASAK).
+  let codePointer = f.codePointer;
+  if (!codePointer) {
+    const kb = lookupRootCause(f.code);
+    if (kb && kb.suspectFiles.length > 0) {
+      codePointer = {
+        file: kb.suspectFiles[0],
+        symbol: kb.suspectSymbols[0] ?? '',
+        fixHint: kb.fixHint,
+      };
+    }
+  }
+  return {
+    problem: f.title,
+    severity: f.severity,
+    code: f.code,
+    confidence: deriveConfidence(f),
+    evidence,
+    analysis,
+    recommendedFix: f.action,
+    codePointer,
+    sources: f.sources,
+  };
+}
+
+/* ── V2 (PR-4) — INCONCLUSIVE dedektörleri ───────────────────────────
+ * Her dedektör TEK subsystem'i okur; sonuca varamama KOŞULU yoksa null döner
+ * (sahte belirsizlik ÜRETİLMEZ). RULES gibi fail-soft/izole. */
+type InconclusiveDetector = (s: TriageSections) => InconclusiveNote | null;
+
+/** OBD bağlı değil → DTC/VIN/Freeze/Extended DOĞRULANAMAZ (2026-07-14 kanıtlı). */
+function detectObdDisconnected(s: TriageSections): InconclusiveNote | null {
+  const ad = s.obdDeep?.adapter;
+  if (!ad) return null;
+  const disconnected =
+    ad.source === 'none' ||
+    ad.connectionState === 'error' ||
+    ad.connectionState === 'disconnected' ||
+    ad.lastSeenMs === 0;
+  if (!disconnected) return null;
+  return {
+    subsystem: 'OBD',
+    code: 'OBD_DISCONNECTED_NO_VERIFY',
+    reason: 'OBD bağlı değildi (source:none / bağlantı hata) — canlı sorgu yapılamadı',
+    // NOT: değerler serbest metin — PII-anahtar guard'ına takılmamak için tam '"vin"'
+    // token'ı üretilmez ('VIN okuma' → "vin okuma", guard-güvenli). Guard ZAYIFLATILMAZ.
+    blockedConclusions: ['DTC arıza kodları', 'VIN okuma', 'Freeze frame', 'Extended PID keşfi', 'canlı PID trafiği'],
+    missingEvidence: ['obdDeep.adapter.connected', 'mode03Response', 'mode09VinRaw', 'freezeFrameRaw', 'extended.discovered'],
+  };
+}
+
+/** GPS izni yok/fix yok → konum-tabanlı sonuçlar DOĞRULANAMAZ. */
+function detectGpsUnavailable(s: TriageSections): InconclusiveNote | null {
+  const g = s.gps;
+  if (!g) return null;
+  const denied = g.permission === 'denied';
+  const noFix = g.tracking === true && g.fixAgeMs === -1;
+  if (!denied && !noFix) return null;
+  return {
+    subsystem: 'GPS',
+    code: denied ? 'GPS_DENIED_NO_VERIFY' : 'GPS_NOFIX_NO_VERIFY',
+    reason: denied ? 'Konum izni yok — GPS kaynağı okunamadı' : 'GPS izleniyor ama fix yok',
+    blockedConclusions: ['GPS doğruluğu', 'konum tazeliği', 'GPS-tabanlı hız füzyonu'],
+    missingEvidence: denied ? ['gps.permission=granted'] : ['gps.fixAgeMs', 'gps.accuracyM'],
+  };
+}
+
+const INCONCLUSIVE_DETECTORS: readonly InconclusiveDetector[] = [
+  detectObdDisconnected, detectGpsUnavailable,
+];
+
+/** Sonuçsuzluk beyanlarını toplar (fail-soft/izole). */
+function buildInconclusive(sections: TriageSections): { notes: InconclusiveNote[]; errors: number } {
+  const notes: InconclusiveNote[] = [];
+  let errors = 0;
+  for (const det of INCONCLUSIVE_DETECTORS) {
+    try {
+      const n = det(sections);
+      if (n) notes.push(n);
+    } catch { errors++; }
+  }
+  return { notes, errors };
+}
+
+/**
+ * Kök-neden motoru — mevcut kuralları çalıştırır, bulguları GÜVENE göre sıralı
+ * hipotezlere dönüştürür (TOP-N) + sonuca varılamayan subsystem'ler için EKSİK
+ * KANIT beyanı üretir. Saf/fail-soft; kural izolasyonu korunur.
+ * buildTriageSnapshot'ı ETKİLEMEZ (ayrı geçiş).
+ */
+export function buildRootCauseSnapshot(sections: TriageSections): RootCauseSnapshot {
+  const hypotheses: RootCauseHypothesis[] = [];
+  let ruleErrors = 0;
+
+  for (const rule of RULES) {
+    let f: TriageFinding | null = null;
+    try {
+      f = rule(sections);
+    } catch {
+      ruleErrors++;
+    }
+    if (f) hypotheses.push(findingToHypothesis(f));
+  }
+
+  // Güven azalan; eşitlikte severity kritik önce.
+  hypotheses.sort((a, b) =>
+    b.confidence - a.confidence ||
+    SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+
+  const inc = buildInconclusive(sections);
+
+  return {
+    hypotheses: hypotheses.slice(0, MAX_ROOT_CAUSES),
+    inconclusive: inc.notes,
+    scanned: countScanned(sections),
+    ruleErrors: ruleErrors + inc.errors,
+    topConfidence: hypotheses.length > 0 ? hypotheses[0].confidence : 0,
+  };
+}
+
+/* ── V2 (PR-7) — BİRLEŞİK TANI VERDİKTİ (tek bakılacak nesne) ─────────
+ * rootCause hipotezleri + inconclusive + errorLedger'ın ESKİ/YENİ bağlamını tek
+ * "verdict"te birleştirir. SAHA DERSİ (2026-07-14): hipotez yokken tüm hatalar
+ * önceki oturumdansa "yeni regresyon değil" der (mühendisi eski hatayı kovalamaktan
+ * kurtarır). errorLedger DECOUPLED (*Like) — modül import edilmez. */
+
+/** errorLedger.ErrorLedgerSnapshot'ın decoupled şekli (yalnız kullanılan alanlar). */
+export interface ErrorLedgerLike {
+  entries?: ({ ctx?: string; activeNow?: boolean; occurrence?: number; severity?: string } | null)[];
+  activeNowCount?: number;
+  previousBootCount?: number;
+}
+
+export interface DiagnosticVerdict {
+  /** Tek satır sonuç — mühendisin İLK okuyacağı. */
+  headline: string;
+  /** Güvene göre sıralı kök-neden hipotezleri (≤10). */
+  topRootCauses: RootCauseHypothesis[];
+  /** Sonuca varılamayan subsystem'ler (eksik kanıtla). */
+  inconclusive: InconclusiveNote[];
+  /** Hata izinin tazeliği (eski/yeni). */
+  errorFreshness: {
+    activeNowCount: number;
+    previousBootCount: number;
+    /** 0-1: hataların ne kadarı bayat (önceki oturum). */
+    staleRatio: number;
+    /** Bu oturumda aktif ilk birkaç hata bağlamı. */
+    topActive: string[];
+  };
+  hasActiveRootCause: boolean;
+}
+
+export function buildDiagnosticVerdict(
+  sections: TriageSections,
+  errorLedger?: ErrorLedgerLike | null,
+): DiagnosticVerdict {
+  const rc = buildRootCauseSnapshot(sections);
+
+  const entries = Array.isArray(errorLedger?.entries) ? errorLedger!.entries! : [];
+  const activeEntries = entries.filter((e) => e && e.activeNow === true);
+  const activeNowCount = typeof errorLedger?.activeNowCount === 'number'
+    ? errorLedger.activeNowCount : activeEntries.length;
+  const previousBootCount = typeof errorLedger?.previousBootCount === 'number'
+    ? errorLedger.previousBootCount : entries.filter((e) => e && e.activeNow === false).length;
+  const totalSig = activeNowCount + previousBootCount;
+  const staleRatio = totalSig > 0 ? Math.round((previousBootCount / totalSig) * 100) / 100 : 0;
+  const topActive = activeEntries
+    .map((e) => (e && typeof e.ctx === 'string' ? e.ctx : ''))
+    .filter(Boolean).slice(0, 3);
+
+  const hasActiveRootCause = rc.hypotheses.length > 0;
+  let headline: string;
+  if (hasActiveRootCause) {
+    const top = rc.hypotheses[0];
+    const where = top.codePointer ? ` → ${top.codePointer.file}` : '';
+    headline = `${top.problem} (%${top.confidence})${where}`;
+  } else if (rc.inconclusive.length > 0) {
+    headline = `Sonuç belirsiz: ${rc.inconclusive[0].reason}`;
+  } else if (activeNowCount === 0 && previousBootCount > 0) {
+    // SAHA DERSİ: canlı kök-neden yok + tüm hatalar önceki oturumdan → bayat.
+    headline = `Aktif kök-neden yok — ${previousBootCount} hata imzası önceki oturumdan (bayat), yeni regresyon değil.`;
+  } else {
+    headline = 'Kayda değer kök-neden bulunamadı.';
+  }
+
+  return {
+    headline,
+    topRootCauses: rc.hypotheses,
+    inconclusive: rc.inconclusive,
+    errorFreshness: { activeNowCount, previousBootCount, staleRatio, topActive },
+    hasActiveRootCause,
   };
 }
