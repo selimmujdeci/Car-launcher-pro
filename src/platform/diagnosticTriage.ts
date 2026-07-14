@@ -130,6 +130,17 @@ interface ObdDeepSectionLike {
   adapter?: { source?: string; connectionState?: string; lastSeenMs?: number } | null;
   health?: { connectionQuality?: number; reconnectPressure?: number };
   extended?: { discovered?: boolean; supportedCount?: number } | null;
+  // PR-5a/PR-1a: handshake yaşam-döngüsü kanıtı (non-PII) — PR-6 OBD analizörü tüketir.
+  handshake?: {
+    outcome?: string; vinClass?: string | null; vinPresent?: boolean;
+    bitmapClass?: string | null; readBlocks?: string[]; supportedCount?: number;
+    failReason?: string | null;
+    // PR-1a
+    timeoutStage?: string | null; durationMs?: number | null;
+    protocolTried?: string | null; protocolActive?: string | null;
+    lastSuccessAt?: number | null; reconnectReason?: string | null;
+    reconnectHistory?: ({ ts?: number; reason?: string } | null)[];
+  } | null;
   // ZERO-TRUST: bu bölüm sanitize edilmiş payload'dan gelir — eleman düşmüş/bozuk
   // olabilir. Tip runtime gerçeğini yansıtır (null-yapılabilir), kuralı yalan
   // güvenceye dayandırmaz.
@@ -607,6 +618,138 @@ function findingToHypothesis(f: TriageFinding): RootCauseHypothesis {
   };
 }
 
+/* ── V2 (PR-6) — OBD çok-hipotez kök-neden analizörü ─────────────────
+ * PR-5a handshake AŞAMA kanıtını (obdDeep.handshake) okuyup RAKİP AĞIRLIKLI
+ * hipotezler üretir (vizyon: "85% native performHandshake / 12% ELM timeout /
+ * 3% desteklenmiyor"). Klasik ruleTransportObd/ruleObdDtc ile ÇAKIŞMAZ (yeni
+ * OBD_HS_* kodları). Yalnız BAĞLI-ama-sorunlu durumda konuşur; hiç bağlanmadıysa
+ * INCONCLUSIVE (detectObdDisconnected) devrededir. Kanıt-güdümlü confidence. */
+function obdHyp(
+  code: string, confidence: number, problem: string, analysis: string,
+  recommendedFix: string, file: string, symbol: string, evidence: string[],
+  severity: TriageSeverity = 'warning',
+): RootCauseHypothesis {
+  return {
+    problem, severity, code, confidence, evidence, analysis, recommendedFix,
+    codePointer: { file, symbol, fixHint: recommendedFix }, sources: ['obdDeep'],
+  };
+}
+
+function buildObdHypotheses(sections: TriageSections): RootCauseHypothesis[] {
+  const od = sections.obdDeep;
+  const hs = od?.handshake;
+  if (!hs || typeof hs.outcome !== 'string') return [];
+  // Hiç bağlanmadıysa handshake teşhisi anlamsız (INCONCLUSIVE devrede).
+  const ad = od?.adapter;
+  if (ad && ad.source === 'none') return [];
+
+  const NATIVE = 'android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java';
+  const OBDHS = 'src/core/val/OBDHandshake.ts';
+  const OBDSVC = 'src/platform/obdService.ts';
+  const ev = (extra: string[] = []) =>
+    [`handshake.outcome=${hs.outcome}`, `bitmapClass=${hs.bitmapClass ?? '?'}`,
+      `vinClass=${hs.vinClass ?? '?'}`, `supportedCount=${hs.supportedCount ?? 0}`, ...extra];
+
+  if (hs.outcome === 'not_run') return [];
+
+  if (hs.outcome === 'not_supported') {
+    return [obdHyp('OBD_HS_NATIVE_MISSING', 90,
+      'Native performHandshake eksik (eski plugin)',
+      'Native köprü performHandshake taşımıyor → VIN/supported-PID keşfi hiç çalışmıyor.',
+      'CarLauncherPlugin.performHandshake() implementasyonunu ekle/doğrula (Mode09 + 0100 blokları).',
+      NATIVE, 'performHandshake', ev(), 'critical')];
+  }
+
+  if (hs.outcome === 'fail') {
+    const r = hs.failReason ?? 'unknown';
+
+    // PR-1a: PROTOKOL UYUŞMAZLIĞI — zorlanan protokol var ama AKTİF protokol yok
+    // (ATDPN yanıtsız) → araç-değişimi/önbellek-protokol sinyali (dongle başka araçtan
+    // geldi). Confidence KANITTAN türer: reconnectHistory'deki timeout sayısı arttıkça
+    // ısrarlı uyuşmazlık güveni artar. Mevcut davranış korunur: protocolTried yoksa atla.
+    const tried = hs.protocolTried, active = hs.protocolActive;
+    if (tried && !active) {
+      const hist = Array.isArray(hs.reconnectHistory) ? hs.reconnectHistory : [];
+      const timeouts = hist.filter((h) => h && h.reason === 'timeout').length;
+      const conf = Math.max(60, Math.min(90, 72 + timeouts * 6));
+      return [
+        obdHyp('OBD_HS_PROTOCOL_MISMATCH', conf,
+          'Bağlantı takıldı — zorlanan protokol araca uymuyor (araç değişimi?)',
+          `protocolTried=${tried} ama protocolActive yok (ATDPN yanıtsız); ${timeouts}× timeout. Önbellek protokolü yeni araca yanlış olabilir.`,
+          'obdService.performHandshake — obd:lastProtocol önbelleğini sıfırla, ATSP0-otomatik dene (araç-değişimi kurtarması).',
+          OBDSVC, 'performHandshake',
+          ev([`protocolTried=${tried}`, 'protocolActive=none', `timeouts=${timeouts}`, `stage=${hs.timeoutStage ?? '?'}`])),
+        obdHyp('OBD_HS_FAIL_TRANSPORT', Math.max(5, 100 - conf - 5),
+          'Adaptör/transport yanıt vermedi',
+          'BLE menzil/güç veya ELM init sorunu da aynı timeout\'u üretebilir.',
+          'Adaptör gücü/menzilini + transport kararlılığını doğrula.',
+          OBDSVC, 'performHandshake', ev([`failReason=${r}`])),
+      ];
+    }
+
+    const transportW = r === 'timeout' || r === 'no_response' ? 80 : 65;
+    return [
+      obdHyp('OBD_HS_FAIL_TRANSPORT', transportW,
+        'Handshake başarısız — native/ELM yanıt vermedi (transport/adaptör)',
+        `Handshake ${r} ile düştü; ECU haberleşmesi kurulamadı (BLE menzil/güç veya ELM init).`,
+        'obdService performHandshake .catch reason + transport kararlılığını incele; adaptör gücü/menzili doğrula.',
+        OBDSVC, 'performHandshake', ev([`failReason=${r}`])),
+      obdHyp('OBD_HS_FAIL_UNSUPPORTED', 100 - transportW - 5,
+        'Araç handshake moduna yanıt vermiyor (desteklenmiyor)',
+        'Bazı araçlar 0100/0902 moduna yanıt vermez; handshake düşse de temel PID akabilir.',
+        'Araç profilini/protokolü doğrula; desteklenmiyorsa statik profil fallback.',
+        OBDHS, 'buildHandshakeResult', ev([`failReason=${r}`])),
+      obdHyp('OBD_HS_FAIL_PROTOCOL', 5,
+        'Protokol/init yanlış',
+        'Yanlış protokol seçimi handshake yanıtını bozabilir.',
+        'forcedProtocol/auto seçimini ve ATSP init sırasını doğrula.',
+        OBDSVC, 'forcedProtocol', ev([`failReason=${r}`])),
+    ];
+  }
+
+  if (hs.outcome === 'ok') {
+    // Bitmap (0100) alınamadı → Mode01 zinciri.
+    if (hs.bitmapClass && hs.bitmapClass !== 'ok') {
+      return [
+        obdHyp('OBD_HS_BITMAP_FAIL', 80,
+          'Handshake bağlandı ama 0100 bitmap alınamadı → Mode01 zinciri',
+          `bitmapClass=${hs.bitmapClass}: supported-PID bitmap yanıtı yok → keşif tıkanır, PID poll NO-DATA fırtınası.`,
+          'CarLauncherPlugin 0100 blok okumasını + OBDHandshake.parseSupportedPIDs classify\'ını doğrula.',
+          OBDHS, 'parseSupportedPIDs', ev(), 'warning'),
+        obdHyp('OBD_HS_BITMAP_UNSUPPORTED', 15,
+          'Araç 0100 bitmap sorgusuna yanıt vermiyor',
+          'Nadir araçlarda 0100 desteklenmez; heuristic PID listesine düşülür.',
+          'Statik/heuristic PID listesi fallback\'ini doğrula.',
+          OBDHS, 'buildHandshakeResult', ev()),
+      ];
+    }
+    // Bitmap OK ama VIN alınamadı → Mode09 zinciri (VİZYONUN TAM ÖRNEĞİ).
+    if (!hs.vinPresent && hs.vinClass && hs.vinClass !== 'ok') {
+      return [
+        obdHyp('OBD_HS_VIN_FAIL', 70,
+          'Handshake+bitmap OK ama VIN (0902) alınamadı → Mode09 zinciri',
+          `vinClass=${hs.vinClass}: ECU haberleşmesi çalışıyor (bitmap OK) ama Mode09/VIN yanıtı ${hs.vinClass}.`,
+          'CarLauncherPlugin raw09 okumasını + OBDHandshake.parseVIN\'i doğrula; multi-frame ISO-TP birleştirme kontrol et.',
+          OBDHS, 'parseVIN', ev()),
+        obdHyp('OBD_HS_VIN_UNSUPPORTED', 25,
+          'Araç Mode09/VIN desteklemiyor (yaygın)',
+          'Birçok araç 0902\'yi desteklemez; bu bir arıza değil, VIN-siz profil normaldir.',
+          'VIN-siz profil eşleşmesini (protocol+supportedPids) doğrula.',
+          OBDHS, 'findBestMatch', ev()),
+      ];
+    }
+    // Handshake OK ama hiç PID keşfedilmedi.
+    if ((hs.supportedCount ?? 0) === 0) {
+      return [obdHyp('OBD_HS_NO_PIDS', 60,
+        'Handshake OK ama desteklenen PID 0',
+        'bitmap/VIN sınıfı OK ama supportedCount 0 → bitmap parse veya refinePidList seed sorunu.',
+        'OBDHandshake.parseSupportedPIDs çıktısı + obdService seedExtendedSupported/refinePidList zincirini incele.',
+        OBDSVC, 'seedExtendedSupported', ev())];
+    }
+  }
+  return [];
+}
+
 /* ── V2 (PR-4) — INCONCLUSIVE dedektörleri ───────────────────────────
  * Her dedektör TEK subsystem'i okur; sonuca varamama KOŞULU yoksa null döner
  * (sahte belirsizlik ÜRETİLMEZ). RULES gibi fail-soft/izole. */
@@ -685,6 +828,12 @@ export function buildRootCauseSnapshot(sections: TriageSections): RootCauseSnaps
     }
     if (f) hypotheses.push(findingToHypothesis(f));
   }
+
+  // PR-6: OBD çok-hipotez analizörü — handshake kanıtından rakip ağırlıklı
+  // hipotezler (fail-soft/izole; yeni OBD_HS_* kodları, çakışma yok).
+  try {
+    hypotheses.push(...buildObdHypotheses(sections));
+  } catch { ruleErrors++; }
 
   // Güven azalan; eşitlikte severity kritik önce.
   hypotheses.sort((a, b) =>

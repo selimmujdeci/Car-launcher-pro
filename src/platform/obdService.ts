@@ -107,6 +107,16 @@ let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 // "UNABLE TO CONNECT" — araç/protokolden gerçekten yanıt alınamadı) bu sayacı artırır.
 let _protocolCycleIndex = 0;
 
+// ARAÇ-DEĞİŞİMİ KURTARMASI (2026-07-14 saha): dongle bir araçtan diğerine taşınınca
+// (Doblo→Trafic) önbellekteki ÖĞRENİLMİŞ protokol (obd:lastProtocol) yeni araca yanlış
+// olabilir. Yanlış protokol UNABLE_TO_CONNECT değil TIMEOUT üretir → protokol döngüsü
+// ilerlemez (bilinçli: geçici BT gürültüsünde protokolü terk etme) → sonsuz "Bağlanıyor…".
+// ÇÖZÜM: öğrenilmiş protokolde ARDIŞIK timeout say; eşiği aşınca protokolü SIFIRLA
+// (bir sonraki bağlantı ATSP0-otomatik → yeni aracı kendi algılar). 2-strike: tek geçici
+// takılma protokolü terk ETTİRMEZ, ısrarlı uyuşmazlık kendini onarır.
+let _learnedProtocolTimeouts = 0;
+const LEARNED_PROTOCOL_TIMEOUT_LIMIT = 2;
+
 // Generation counter — prevents stale in-flight _startNative() from writing
 // state after a stop/restart cycle. Each startOBD() call increments this.
 let _nativeGeneration = 0;
@@ -168,6 +178,86 @@ let _activeProfile: IVehicleProfile = vehicleProfileRegistry.getById(
 // AYNEN kullanılır — fail-soft, mevcut poll zinciri regresyonsuz.
 let _handshakeSupportedPids: Set<number> = new Set();
 let _handshakeReadBlocks:    Set<number> = new Set();
+
+/* Diagnostics V2 · PR-5a: handshake AŞAMA kanıtı (non-PII) — tanı snapshot'ı
+ * yüzeye çıkarabilsin (root-cause "handshake başladı ama bitmap gelmedi/VIN timeout"
+ * diyebilsin). Ham VIN ASLA saklanmaz; yalnız sınıf (ok/no_data/timeout/…) + sayılar. */
+export type HandshakeOutcome = 'not_run' | 'not_supported' | 'ok' | 'fail';
+/** PR-1a: hangi aşamada takıldı — JS görünürlük sınırıyla (native init 'connect' altında). */
+export type HandshakeTimeoutStage = 'transport' | 'connect' | 'pid0100' | 'mode0902';
+/** PR-1a: reconnect nedeni (non-PII enum). */
+export type ReconnectReason = 'timeout' | 'unable_to_connect' | 'data_gate_loss' | 'connect_fail' | 'user';
+export interface HandshakeDiagnostics {
+  outcome: HandshakeOutcome;
+  ranAt: number | null;
+  /** VIN yanıtı (0902) sınıfı — ham VIN değil. */
+  vinClass: string | null;
+  /** Var-olma bayrağı (ham VIN değil). */
+  vinPresent: boolean;
+  /** Zorunlu 0100 bitmap yanıtı sınıfı. */
+  bitmapClass: string | null;
+  /** Yanıt veren bitmap blokları (hex, örn ['0','20']). */
+  readBlocks: string[];
+  /** Handshake sonucu desteklenen PID sayısı. */
+  supportedCount: number;
+  /** Başarısızlıkta sınıflandırılmış sebep. */
+  failReason: string | null;
+  /* ── PR-1a: handshake yaşam-döngüsü kanıtı (hepsi enum/sayı/timestamp — ham veri YOK) ── */
+  /** Timeout hangi aşamada oldu (null = timeout değil). */
+  timeoutStage: HandshakeTimeoutStage | null;
+  /** Bu denemenin süresi (ms) — connect başlangıcından sonuca. */
+  durationMs: number | null;
+  /** ZORLANAN protokol (ATSP<n>, önbellek/döngü). Araç-değişimi tespitinin yarısı. */
+  protocolTried: string | null;
+  /** GERÇEK aktif protokol (ATDPN ile okunan). protocolTried ile UYUŞMAZ → araç değişimi. */
+  protocolActive: string | null;
+  /** Son BAŞARILI handshake zaman damgası (null = hiç). */
+  lastSuccessAt: number | null;
+  /** Son reconnect nedeni. */
+  reconnectReason: ReconnectReason | null;
+  /** Bounded reconnect geçmişi (son N) — döngü neden dönüyor. */
+  reconnectHistory: { ts: number; reason: ReconnectReason }[];
+}
+
+// PR-1a carry-over durumu (denemeler arası korunur; wholesale _handshakeDiag'a okunur).
+let _lastHandshakeSuccessAt: number | null = null;
+let _lastReconnectReason:    ReconnectReason | null = null;
+const _reconnectHistory:     { ts: number; reason: ReconnectReason }[] = [];
+let _lastProtocolTried:      string | null = null;
+let _lastProtocolActive:     string | null = null;
+const RECONNECT_HISTORY_MAX = 8;
+
+/** PR-1a: reconnect nedenini kaydeder + bounded geçmişe ekler (non-PII). */
+function _recordReconnect(reason: ReconnectReason): void {
+  _lastReconnectReason = reason;
+  _reconnectHistory.push({ ts: Date.now(), reason });
+  if (_reconnectHistory.length > RECONNECT_HISTORY_MAX) _reconnectHistory.shift();
+}
+
+/** PR-1a: carry-over alanları doldurarak _handshakeDiag üretir (DRY, tek gerçek kaynak). */
+function _mkHandshakeDiag(partial: Partial<HandshakeDiagnostics>): HandshakeDiagnostics {
+  return {
+    outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
+    bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,
+    timeoutStage: null, durationMs: null,
+    protocolTried: _lastProtocolTried, protocolActive: _lastProtocolActive,
+    lastSuccessAt: _lastHandshakeSuccessAt,
+    reconnectReason: _lastReconnectReason,
+    reconnectHistory: _reconnectHistory.slice(-RECONNECT_HISTORY_MAX),
+    ...partial,
+  };
+}
+
+let _handshakeDiag: HandshakeDiagnostics = _mkHandshakeDiag({});
+
+/** Tanı snapshot'ı için handshake aşama kanıtı (non-PII kopya). PR-5a/PR-1a. */
+export function getHandshakeDiagnostics(): HandshakeDiagnostics {
+  return {
+    ..._handshakeDiag,
+    readBlocks: [..._handshakeDiag.readBlocks],
+    reconnectHistory: _handshakeDiag.reconnectHistory.map((r) => ({ ...r })),
+  };
+}
 
 // ValidationGuard: ardışık "OBD speed=0 iken GPS>10 km/h" sayacı
 let _validationMisses = 0;
@@ -472,6 +562,9 @@ function _startDataValidationGate(gen: number): void {
         msg:       'Bağlandı fakat PID verisi alınamadı (stale bağlantı)',
       });
       _stopStaleWatchdog();
+      // PR-1a: reconnect nedeni = data-gate loss (bağlandı ama PID akmadı — mode-B).
+      // reconnectHistory'de 'timeout' (connect düştü) ile ayrışır → kök-neden netleşir.
+      _recordReconnect('data_gate_loss');
       void _removeNativeHandles().then(() => {
         if (isFeatureEnabled('obdDataGateAutoReconnect')) _scheduleReconnect();
       });
@@ -837,6 +930,33 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
     : (_learnedProtocol ?? PROTOCOL_CYCLE[0]);
   const cand = candidate!;
 
+  // ARAÇ-DEĞİŞİMİ KURTARMASI: bu deneme ÖĞRENİLMİŞ (önbellek) protokolü mü zorluyor?
+  const _wasForcingLearned = _protocolCycleIndex === 0 && _learnedProtocol != null
+    && forcedProtocol === _learnedProtocol;
+  /** Öğrenilmiş protokolde ısrarlı TIMEOUT → araç değişmiş olabilir; eşikte protokolü sıfırla. */
+  const _noteLearnedProtocolTimeout = (timedOut: boolean): void => {
+    if (!timedOut || !_wasForcingLearned) return;
+    _learnedProtocolTimeouts++;
+    if (_learnedProtocolTimeouts >= LEARNED_PROTOCOL_TIMEOUT_LIMIT) {
+      clearObdProtocol();               // önbellek protokol stale → sil
+      _learnedProtocolTimeouts = 0;
+      _protocolCycleIndex = 0;          // _learnedProtocol artık yok → sonraki deneme ATSP0-otomatik
+      if (!_stale()) {
+        recordDiag({
+          stage: 'protocol', status: 'warn', transport: _connectedTp,
+          protocol: forcedProtocol ?? null,
+          userMessage: 'Araç değişmiş olabilir — otomatik protokol algılamaya geçiliyor…',
+          technicalMessage: `Öğrenilmiş protokol (${forcedProtocol}) ${LEARNED_PROTOCOL_TIMEOUT_LIMIT}× timeout → sıfırlandı, sonraki bağlantı ATSP0`,
+        });
+      }
+    }
+  };
+
+  // PR-1a: bu denemede ZORLANAN protokolü izle; aktif (ATDPN) protokol connect başarısında
+  // set edilir. protocolTried≠protocolActive → araç-değişimi protokol uyuşmazlığı kanıtı.
+  _lastProtocolTried  = forcedProtocol ?? null;
+  _lastProtocolActive = null;
+
   // Tek transport ile bağlantı denemesi — verilen timeout ile yarışır (askıda kalmasın).
   // Patch 3: dönüş değeri {protocol?} taşır — ElmInitSequencer'ın ATDPN ile okuduğu aktif
   // protokol numarası (öğrenilirse persist edilip sonraki bağlantı aramasız yapılır).
@@ -911,6 +1031,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       }
       if (!_stale()) {
         const timedOut = ePrimary instanceof Error && ePrimary.message.includes('zaman aşımı');
+        // ARAÇ-DEĞİŞİMİ KURTARMASI (TCP tek-deneme yolu için de) — bkz. çift-transport yolu.
+        _noteLearnedProtocolTimeout(timedOut);
         emitObdDiag('connect', timedOut ? 'OBD_CONNECT_TIMEOUT' : 'OBD_CONNECT_FAIL', {
           ..._diagCommon(),
           transport: 'tcp',
@@ -919,6 +1041,14 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           elapsedMs: performance.now() - _diagT0,
           reason:    classifyObdErrorReason(ePrimary),
           msg:       'WiFi (TCP) bağlantısı başarısız',
+        });
+        // PR-1a: handshake yaşam-döngüsü kanıtı (TCP yolu).
+        _recordReconnect(timedOut ? 'timeout' : (_isUnableToConnectError(ePrimary) ? 'unable_to_connect' : 'connect_fail'));
+        _handshakeDiag = _mkHandshakeDiag({
+          outcome: 'fail', ranAt: Date.now(),
+          timeoutStage: timedOut ? 'connect' : null,
+          durationMs: Math.round(performance.now() - _diagT0),
+          failReason: classifyObdErrorReason(ePrimary),
         });
       }
       throw ePrimary;
@@ -949,6 +1079,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       // msg statik; alt hata mesajı cihaz adı içerdiğinden payload'a girmez)
       if (!_stale()) {
         const timedOut = eFallback instanceof Error && eFallback.message.includes('zaman aşımı');
+        // ARAÇ-DEĞİŞİMİ KURTARMASI: her iki transport da timeout + öğrenilmiş protokol
+        // zorlanıyordu → ısrarlı uyuşmazlık sayacı; eşikte protokol sıfırlanır.
+        _noteLearnedProtocolTimeout(timedOut);
         // Native soket hatasını PII-güvenli kategoriye sınıflandır (busy/refused/closed/…).
         // Fallback (son denenen transport) hatası daha alakalı; generic ise primary'e düş.
         const _rFb = classifyObdErrorReason(eFallback);
@@ -961,6 +1094,19 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           elapsedMs: performance.now() - _diagT0,
           reason:    _reason,
           msg:       'Her iki transport ile bağlantı başarısız',
+        });
+        // PR-1a: handshake yaşam-döngüsü kanıtı — connect aşamasında (native init) düştü.
+        // protocolTried set + protocolActive null → araç-değişimi uyuşmazlığı sinyali.
+        const _reconReason: ReconnectReason =
+          timedOut ? 'timeout'
+          : (_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)) ? 'unable_to_connect'
+          : 'connect_fail';
+        _recordReconnect(_reconReason);
+        _handshakeDiag = _mkHandshakeDiag({
+          outcome: 'fail', ranAt: Date.now(),
+          timeoutStage: timedOut ? 'connect' : null,
+          durationMs: Math.round(performance.now() - _diagT0),
+          failReason: _reason,
         });
       }
       throw eFallback;
@@ -980,7 +1126,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // yeniden ATSP0'dan değil, öğrenilen/doğrulanmış protokolden başlar). ATDPN ile
   // okunan protokol varsa persist edilir — sonraki bağlantı ARAMASIZ bağlanır.
   _protocolCycleIndex = 0;
+  _learnedProtocolTimeouts = 0;   // bağlantı başarılı → araç-değişimi sayacı sıfırlanır
   if (_connectResult && typeof _connectResult === 'object' && _connectResult.protocol) {
+    _lastProtocolActive = _connectResult.protocol;   // PR-1a: GERÇEK aktif protokol (ATDPN)
     saveObdProtocol(_connectResult.protocol);
     recordDiag({
       stage: 'protocol', status: 'success',
@@ -1050,6 +1198,15 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         // yutulmaz — VIN + zorunlu 0100 bloğunun sınıfı loglanır (teşhis şeffaflığı).
         const vinClass  = classifyHandshakeResponse(raw.raw09, '49', '02');
         const b00Class  = classifyHandshakeResponse(raw.raw0100, '41', '00');
+        // PR-5a/PR-1a: aşama kanıtını sakla (non-PII) — tanı snapshot'ı okuyacak.
+        _lastHandshakeSuccessAt = Date.now();   // son başarılı handshake damgası
+        _handshakeDiag = _mkHandshakeDiag({
+          outcome: 'ok', ranAt: Date.now(),
+          vinClass, vinPresent: !!result.vin, bitmapClass: b00Class,
+          readBlocks: [...result.readBlocks].map((b) => b.toString(16)),
+          supportedCount: result.supportedPids.size, failReason: null,
+          durationMs: Math.round(performance.now() - _diagT0),
+        });
         console.info('[OBD:Handshake]',
           result.vin ? 'VIN: ' + result.vin : `VIN yok (${vinClass}), PID heuristic`,
           `bitmap[00]=${b00Class} bloklar=${[...result.readBlocks].map((b) => b.toString(16)).join(',') || 'yok'}`,
@@ -1059,6 +1216,14 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       })
       .catch((err: unknown) => {
         persistHandshakeVin(null);
+        // PR-5a/PR-1a: başarısızlık aşama kanıtı (non-PII). connectOBD BAŞARDI (protocolActive
+        // set) → protokol değil, handshake/Mode09 zinciri sorunu; timeoutStage sub-aşama JS'ten
+        // kesin ayrılamaz → null (dürüst), failReason + protocolActive hikâyeyi anlatır.
+        _handshakeDiag = _mkHandshakeDiag({
+          outcome: 'fail', ranAt: Date.now(),
+          failReason: classifyObdErrorReason(err),
+          durationMs: Math.round(performance.now() - _diagT0),
+        });
         // Eski native plugin veya ELM327 yanıt vermedi — mevcut profil korunur
         console.warn('[OBD:Handshake] El sıkışması başarısız, varsayılan profil:', _activeProfile.name, err);
         if (!_stale()) {
@@ -1073,6 +1238,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           });
         }
       });
+  } else {
+    // PR-5a: eski plugin performHandshake taşımıyor → aşama kanıtı 'desteklenmiyor'.
+    _handshakeDiag = _mkHandshakeDiag({ outcome: 'not_supported', ranAt: Date.now() });
   }
 }
 

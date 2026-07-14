@@ -10,7 +10,7 @@
  * PII yok — koordinat/VIN/plaka/MAC/token bölümlere hiç girmez.
  */
 
-import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats } from './obdService';
+import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats, getHandshakeDiagnostics } from './obdService';
 import { getObdHealth } from './obd/ObdHealthMonitor';
 import { getSupportedPids, getPidValue } from './obd/extendedPidService';
 import { getDTCStateSnapshot } from './dtcService';
@@ -50,6 +50,17 @@ export interface ObdDeepSnapshot {
   extended: {
     discovered: boolean; supportedCount: number;
     samples: { pid: string; name: string; value: number; ageMs: number }[];
+  };
+  /** PR-5a/PR-1a: handshake yaşam-döngüsü kanıtı (non-PII) — root-cause zinciri için. */
+  handshake: {
+    outcome: string; ranAt: number | null; vinClass: string | null; vinPresent: boolean;
+    bitmapClass: string | null; readBlocks: string[]; supportedCount: number;
+    failReason: string | null;
+    // PR-1a
+    timeoutStage: string | null; durationMs: number | null;
+    protocolTried: string | null; protocolActive: string | null;
+    lastSuccessAt: number | null; reconnectReason: string | null;
+    reconnectHistory: { ts: number; reason: string }[];
   };
   dtc: {
     count: number; isStale: boolean; error: string | null; lastReadAt: number | null;
@@ -138,6 +149,12 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
       supportedCount: supported ? supported.size : 0,
       samples,
     },
+    handshake: _safe(() => getHandshakeDiagnostics(), {
+      outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
+      bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,
+      timeoutStage: null, durationMs: null, protocolTried: null, protocolActive: null,
+      lastSuccessAt: null, reconnectReason: null, reconnectHistory: [],
+    }),
     dtc: {
       count: dtcCount, isStale: dtcIsStale, error: dtcError,
       lastReadAt: dtcLastReadAt, codes,
