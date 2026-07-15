@@ -476,8 +476,15 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
           _speak('Temizlenecek arıza kodu yok', isDriving);
           break;
         }
+        // OBD-OS-F0-6: sesli komut da WriteGate'ten GEÇER — seyir halinde ECU'ya yazılmaz.
+        // Sesli istek açık kullanıcı talebidir (confirmed), ama hız/tazelik kapıları geçerli.
+        // SAHTE ONAY YASAK: silinmediyse "silindi" DENMEZ — kapının sebebi söylenir.
         _speak('Arıza kayıtları siliniyor', isDriving);
-        await clearDTCCodes();
+        const clearResult = await clearDTCCodes({ confirmed: true });
+        if (!clearResult.allowed) {
+          _speak(clearResult.userMessage, isDriving);
+          break;
+        }
         _speak('Arıza kayıtları silindi', isDriving);
         break;
       }

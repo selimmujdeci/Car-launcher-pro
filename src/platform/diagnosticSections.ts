@@ -15,6 +15,7 @@ import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
 import { getSupportedPids, getPidValue } from './obd/extendedPidService';
 import { getExtendedPollEvidence, type ExtendedPollEvidenceSnapshot } from './obd/extendedPollEvidence';
+import { getMode22Evidence, type Mode22Evidence } from './obd/manufacturerPidService';
 import { getDTCStateSnapshot } from './dtcService';
 import { getAiHealthSnapshot } from './aiHealth';
 import { getProviderQuotaSnapshot } from './companion/companionChatProvider';
@@ -57,6 +58,8 @@ export interface ObdDeepSnapshot {
   extendedPollEvidence: ExtendedPollEvidenceSnapshot | null;
   /** PR-OBD-CONN-1: bağlantı yaşam-döngüsü — reset/disconnect/reconnect gerçekten çalıştı mı. */
   connLifecycle: ReturnType<typeof getObdConnLifecycle> | null;
+  /** PR-OBD-DATA-1: Mode-22 acquisition kanıtı — gerçek değer mi, fail-closed unsupported mu. */
+  mode22: Mode22Evidence | null;
   /** PR-5a/PR-1a: handshake yaşam-döngüsü kanıtı (non-PII) — root-cause zinciri için. */
   handshake: {
     outcome: string; ranAt: number | null; vinClass: string | null; vinPresent: boolean;
@@ -163,6 +166,8 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
     extendedPollEvidence: _safe(() => getExtendedPollEvidence(), null),
     // PR-OBD-CONN-1: bağlantı yaşam-döngüsü kanıtı (reset/disconnect/reconnect sayaçları).
     connLifecycle: _safe(() => getObdConnLifecycle(), null),
+    // PR-OBD-DATA-1: Mode-22 acquisition kanıtı (gerçek değer VEYA fail-closed unsupported).
+    mode22: _safe(() => getMode22Evidence(), null),
     handshake: _safe(() => getHandshakeDiagnostics(), {
       outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
       bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,

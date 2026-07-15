@@ -212,7 +212,11 @@ describe('Patch 11A — readAllDTCs', () => {
   it('web/non-native ortamda boş sonuç döner', async () => {
     M.isNative = false;
     const r = await readAllDTCs();
-    expect(r).toEqual({ codes: [], permanentSupported: true });
+    expect(r).toEqual({
+      codes: [],
+      permanentSupported: true,
+      completeness: { stored: 'ok', pending: 'ok', permanent: 'ok' },
+    });
   });
 
   it('üç mod da başarılı → status alanıyla ayrışan birleşik liste', async () => {

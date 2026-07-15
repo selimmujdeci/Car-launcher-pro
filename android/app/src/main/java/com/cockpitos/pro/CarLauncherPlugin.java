@@ -827,7 +827,19 @@ public class CarLauncherPlugin extends Plugin {
             // Patch 1 (obdStatus disiplini): pollLoop sırasında RFCOMM/GATT beklenmedik koptu
             // (OBDManager/BleObdManager pollLoop catch → onStatusChanged("disconnected", ...)).
             // Bu GERÇEK bir link kaybı → obdService reconnect tetiklemeli.
-            event.put("reason",  "link_lost");
+            //
+            // OBD-OS-F0-5 (TEK RECONNECT OTORİTESİ): reason artık STATE'e göre ayrışır.
+            // KÖK NEDEN: burası state'e BAKMADAN her bildirime "link_lost" damgası vuruyordu.
+            // Native kendi attemptReconnect()'ini yürütürken önce onStatusChanged("reconnecting")
+            // der → TS bunu "kopma" sanıp PARALEL bir reconnect turu başlatır (çift motor:
+            // TS native'in soketini kapatır, native yeniden kurmaya çalışır). Daha kötüsü:
+            // native reconnect BAŞARILI olduğunda ("connected") bile TS bunu link kaybı sanıp
+            // az önce iyileşmiş bağlantıyı yeniden kuruyordu.
+            final String reason;
+            if ("reconnecting".equals(state))     reason = "native_reconnecting"; // TS: KARIŞMA, bekle
+            else if ("connected".equals(state))   reason = "native_reconnected";  // TS: iyileşti, izlemeye dön
+            else                                  reason = "link_lost";           // gerçek kopma → TS otoritesi
+            event.put("reason", reason);
             notifyListeners("obdStatus", event);
         }
 
@@ -968,7 +980,7 @@ public class CarLauncherPlugin extends Plugin {
         _bleScanner = new BleObdScanner();
         boolean bleStarted = _bleScanner.start(new BleObdScanner.Listener() {
             @Override
-            public void onBleDeviceFound(String name, String address) {
+            public void onBleDeviceFound(String name, String address, java.util.List<String> serviceUuids) {
                 JSObject event = new JSObject();
                 event.put("name",    name);
                 event.put("address", address);
@@ -978,6 +990,11 @@ public class CarLauncherPlugin extends Plugin {
                 event.put("transport", "ble");
                 // BLE advertise = cihaz GERÇEKTEN menzilde → canlı.
                 event.put("source", "live");
+                // Reklam edilen GATT servisleri — JS sınıflandırması isimsiz bir cihazı
+                // ancak bilinen bir OBD köprü servisi duyuruyorsa aday sayar.
+                JSArray uuidArr = new JSArray();
+                if (serviceUuids != null) for (String u : serviceUuids) uuidArr.put(u);
+                event.put("serviceUuids", uuidArr);
                 notifyListeners("obdDeviceFound", event);
             }
 
@@ -1708,6 +1725,120 @@ public class CarLauncherPlugin extends Plugin {
                 mainHandler.post(() -> call.reject("OBD_HANDSHAKE_FAILED", msg));
             }
         }, "obd-handshake").start();
+    }
+
+    // ── OBD-OS-F2-1: ECU keşfi (fonksiyonel prob) ───────────────────────────
+
+    /** Aktif transport üzerinden ECU probu; hiçbiri bağlı değilse IOException. */
+    private String probeEcusFromActive() throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.probeEcus();
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.probeEcus();
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    /** Aktif transport üzerinden UDS 0x19 (F3-1). */
+    private String readUdsDtcsActive(String tx, String rx, String mask) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readUdsDtcs(tx, rx, mask);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readUdsDtcs(tx, rx, mask);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    /**
+     * OBD-OS-F3-1 — UDS Service 0x19-02 (ReadDTCInformation): ÜRETİCİ-ÖZEL DTC'ler.
+     * Standart Mode 03/07/0A yalnız emisyon (P0…) kodlarını verir; Renault DF…, VAG, BMW
+     * kodları BURADA yaşar. Ham hex döner — ayrıştırma TS'te (`udsDtc.ts` tek kaynak).
+     *
+     * @return raw: "5902" soyulmuş hex · supported: false = ECU 0x19'u desteklemiyor.
+     */
+    @PluginMethod
+    public void readUdsDtcs(PluginCall call) {
+        final String tx   = call.getString("tx");
+        final String rx   = call.getString("rx");
+        final String mask = call.getString("statusMask", "FF");
+        if (!present(tx) || !present(rx)) {
+            call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String raw = readUdsDtcsActive(tx, rx, mask);
+                JSObject ret = new JSObject();
+                if (raw == null) {
+                    ret.put("raw", "");
+                    ret.put("supported", false);   // ECU 0x19'u bilmiyor — hata DEĞİL
+                } else {
+                    ret.put("raw", raw);
+                    ret.put("supported", true);
+                }
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "UDS DTC okunamadı";
+                mainHandler.post(() -> call.reject("OBD_UDS_DTC_FAILED", msg));
+            }
+        }, "obd-uds-dtc").start();
+    }
+
+    /** Aktif transport üzerinden ECU-başına DTC (F2-3). */
+    private java.util.List<String> readDtcsFromEcuActive(String tx, String rx, String mode) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcsFromEcu(tx, rx, mode);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcsFromEcu(tx, rx, mode);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
+    /**
+     * OBD-OS-F2-3 — Belirli bir ECU'dan DTC okur (Mode 03/07/0A, fiziksel adresleme).
+     * Bugüne kadar DTC yalnız motor ECU'sundan geliyordu; bu metod ABS/airbag/şanzıman
+     * gibi diğer ECU'ların kodlarını da erişilebilir kılar (Car Scanner farkı).
+     *
+     * @return codes: kod listesi · supported: false = ECU o modu desteklemiyor (0A yolu).
+     */
+    @PluginMethod
+    public void readDtcFromEcu(PluginCall call) {
+        final String tx   = call.getString("tx");
+        final String rx   = call.getString("rx");
+        final String mode = call.getString("mode", "03");
+        if (!present(tx) || !present(rx)) {
+            call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                java.util.List<String> codes = readDtcsFromEcuActive(tx, rx, mode);
+                JSObject ret = new JSObject();
+                if (codes == null) {
+                    // Mode 0A desteklenmiyor — hata DEĞİL, bilgi (fail-soft sözleşme).
+                    ret.put("codes", new org.json.JSONArray());
+                    ret.put("supported", false);
+                } else {
+                    ret.put("codes", new org.json.JSONArray(codes));
+                    ret.put("supported", true);
+                }
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "ECU DTC okunamadı";
+                mainHandler.post(() -> call.reject("OBD_ECU_DTC_FAILED", msg));
+            }
+        }, "obd-ecu-dtc").start();
+    }
+
+    /**
+     * OBD-OS-F2-1 — Fonksiyonel ECU probu: ATH1 + 0100 (7DF broadcast) → araçtaki yanıt veren
+     * TÜM ECU'ların header'lı ham cevabı. Ayrıştırma TS'te ({@code ecuDiscovery.ts} tek kaynak).
+     * Ayrı thread: prob ELM kuyruğunda birkaç saniye sürebilir, plugin handler bloklanmamalı.
+     */
+    @PluginMethod
+    public void probeEcus(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String raw = probeEcusFromActive();
+                JSObject ret = new JSObject();
+                ret.put("raw", raw != null ? raw : "");
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "ECU probu başarısız";
+                mainHandler.post(() -> call.reject("OBD_ECU_PROBE_FAILED", msg));
+            }
+        }, "obd-ecu-probe").start();
     }
 
     // ── OBD internals ───────────────────────────────────────────────────────

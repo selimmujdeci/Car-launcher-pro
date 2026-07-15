@@ -12,6 +12,9 @@ import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { logError } from './crashLogger';
+import { getOBDDataSnapshot } from './obdService';
+import { evaluateDtcClearGate, type WriteGateDecision } from './obd/writeGate';
+import { getSupportedPids } from './obd/extendedPidService';
 import { STANDARD_PID_MAP, decodeStandardPid } from './obd/StandardPidRegistry';
 import {
   registerDtcCatalog,
@@ -61,6 +64,17 @@ export interface DTCCodeWithStatus extends DTCCode {
   status: DTCStatus;
 }
 
+/**
+ * OBD-OS-F0-1: her modun okuma SONUCU — fail-closed verdi için. 'ok' = okuma başarılı
+ * (boş liste de başarıdır); 'failed' = gerçek hata/timeout (tarama KISMİ kalır); 'unsupported'
+ * = araç/adaptör o modu hiç bildirmiyor (hata DEĞİL, belirsizlik yapmaz).
+ */
+export interface DtcScanCompleteness {
+  stored:    'ok' | 'failed';
+  pending:   'ok' | 'failed' | 'unsupported';
+  permanent: 'ok' | 'failed' | 'unsupported';
+}
+
 export interface ReadAllDTCsResult {
   /** stored + pending + permanent birleşik liste (status alanıyla ayrışır). */
   codes: DTCCodeWithStatus[];
@@ -70,6 +84,8 @@ export interface ReadAllDTCsResult {
    * bulunmaz) ile KARIŞTIRILMAMALI; UI bu ayrımı dürüstçe göstermeli.
    */
   permanentSupported: boolean;
+  /** OBD-OS-F0-1: mod-bazlı okuma sonucu — fail-closed verdi bunu kullanır (kısmi tarama tespiti). */
+  completeness: DtcScanCompleteness;
 }
 
 /** Patch 11B: Mode 02 freeze frame — arızayı tetikleyen an'ın PID anlık görüntüsü. */
@@ -86,8 +102,51 @@ export interface FreezeFrameResult {
   values: FreezeFrameValue[];
 }
 
-/** Freeze frame'de anlamlı görülen PID alt kümesi (Patch 11B görev tanımı). */
+/**
+ * Freeze frame'de anlamlı görülen PID alt kümesi (Patch 11B görev tanımı).
+ * OBD-OS-F1-3: artık TABAN — kanıt (desteklenen-PID keşfi) varsa aşağıdaki öncelik
+ * listesiyle GENİŞLETİLİR; kanıt yoksa AYNEN bu 7 PID kullanılır (fail-soft, regresyonsuz).
+ */
 const FREEZE_FRAME_PIDS: readonly string[] = ['0C', '0D', '05', '04', '0B', '0F', '11'];
+
+/**
+ * OBD-OS-F1-3 — Freeze frame PID ÖNCELİK listesi (teşhis değeri sırasına göre).
+ *
+ * NEDEN TAVAN VAR: freeze frame'de her PID AYRI bir ELM327 sorgusudur (~200 ms; araç
+ * desteklemiyorsa NO-DATA beklemesi de aynı maliyette). Desteklenen 60+ PID'in hepsini
+ * sormak taramayı 12+ saniyeye çıkarır — Mali-400 bütçe kuralı bunu yasaklar. Bu yüzden
+ * arızanın "donmuş anını" en iyi anlatan PID'ler ÖNCE sorulur ve MAX_FREEZE_FRAME_PIDS'te
+ * kesilir. Sıra rastgele değil: motor devri/hız/yük/sıcaklık = arıza anının bağlamı;
+ * trim/lambda = karışım kanıtı; MAF/MAP = hava yolu; voltaj/yakıt = besleme.
+ */
+const FREEZE_FRAME_PRIORITY: readonly string[] = [
+  // 1) Arıza anının çekirdek bağlamı (mevcut 7 — sıra korunur)
+  '0C', '0D', '05', '04', '0B', '0F', '11',
+  // 2) Karışım/yanma kanıtı (yakıt trim + lambda + ateşleme avansı)
+  '06', '07', '08', '09', '0E', '44',
+  // 3) Hava yolu + besleme
+  '10', '33', '42', '2F', '43',
+  // 4) Bağlam/süre (arıza ne zaman, hangi koşulda)
+  '1F', '46', '5C', '5E',
+];
+
+/** Freeze frame'de sorulacak azami PID sayısı (tarama süresi bütçesi ~≤4 s). */
+const MAX_FREEZE_FRAME_PIDS = 16;
+
+/**
+ * OBD-OS-F1-3: bu araçta freeze frame için sorulacak PID listesini seçer (SAF — test edilebilir).
+ *
+ * @param supported desteklenen-PID kanıtı (Mode 01 bitmap keşfi); null = kanıt YOK.
+ * @returns kanıt varsa öncelik listesinden DESTEKLENENLER (tavanla kesilmiş);
+ *          kanıt yoksa mevcut statik 7'li taban (fail-soft — kör genişleme YAPILMAZ).
+ */
+export function selectFreezeFramePids(supported: Set<string> | null): string[] {
+  if (!supported || supported.size === 0) return [...FREEZE_FRAME_PIDS];
+  const picked = FREEZE_FRAME_PRIORITY.filter((pid) => supported.has(pid));
+  // Kanıt var ama kesişim boşsa (tuhaf bitmap) tabana düş — boş liste dönüp FF'i öldürme.
+  if (picked.length === 0) return [...FREEZE_FRAME_PIDS];
+  return picked.slice(0, MAX_FREEZE_FRAME_PIDS);
+}
 
 /* ── DTC Database (Turkish) ──────────────────────────────── */
 
@@ -277,8 +336,39 @@ export async function readDTCCodes(): Promise<void> {
   }
 }
 
-export async function clearDTCCodes(): Promise<void> {
-  if (_state.isClearing || _state.codes.length === 0) return;
+/**
+ * OBD-OS-F0-6: DTC hafızasını siler (Mode 04) — WriteGate'ten GEÇMEDEN native'e gitmez.
+ *
+ * Kapı kanıtını ÇAĞIRANDAN ALMAZ, OBD servisinden kendi okur (`getOBDDataSnapshot`):
+ * çağıran "hız 0" diye yalan söyleyemez → salt-okuma vaadi kod düzeyinde zorlanır.
+ * Çağırandan alınan TEK şey `confirmed` (kullanıcının açık rızası — bunu yalnız UI bilir).
+ *
+ * Reddedilirse: native `clearDTC()` ÇAĞRILMAZ, kod listesi KORUNUR, sebep `error`'a yazılır.
+ */
+export async function clearDTCCodes(opts: { confirmed: boolean }): Promise<WriteGateDecision> {
+  const gateDenied = (d: WriteGateDecision): WriteGateDecision => {
+    if (!d.allowed) _setState({ isClearing: false, error: d.userMessage });
+    return d;
+  };
+
+  if (_state.isClearing || _state.codes.length === 0) {
+    return { allowed: false, reason: 'not_connected', userMessage: 'Silinecek arıza kodu yok.', advisories: [] };
+  }
+
+  // ── WRITE GATE (fail-closed) ────────────────────────────────────────────
+  const obd = getOBDDataSnapshot();
+  const decision = evaluateDtcClearGate({
+    connectionState: obd.connectionState,
+    speedKmh:        obd.speed,
+    rpm:             obd.rpm,
+    lastSeenMs:      obd.lastSeenMs,
+    nowMs:           Date.now(),
+    confirmed:       opts.confirmed,
+  });
+  // Web/demo modunda gerçek araç yoktur (native yazma da yapılmaz) → kapı yalnız
+  // native'de zorunlu. Bu, tarayıcı demosunu bozmadan sahadaki yazmayı korur.
+  if (!decision.allowed && Capacitor.isNativePlatform()) return gateDenied(decision);
+
   _setState({ isClearing: true, error: null });
 
   try {
@@ -294,7 +384,7 @@ export async function clearDTCCodes(): Promise<void> {
           isStale:    true,
           error:      'Arıza kodları araçtan silinemedi — OBD okuyucu bu işlemi desteklemiyor olabilir',
         });
-        return; // codes listesi KORUNUR — yalancı temizleme yok
+        return decision; // codes listesi KORUNUR — yalancı temizleme yok
       }
     }
 
@@ -308,6 +398,7 @@ export async function clearDTCCodes(): Promise<void> {
       error: err instanceof Error ? err.message : 'Silme sırasında hata oluştu',
     });
   }
+  return decision;
 }
 
 /**
@@ -320,27 +411,36 @@ export async function clearDTCCodes(): Promise<void> {
  * yüzeyi (gelecekte sesli asistan/bakım beyni de aynı API'yi tüketecek).
  */
 export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
-  if (!Capacitor.isNativePlatform()) return { codes: [], permanentSupported: true };
+  if (!Capacitor.isNativePlatform()) {
+    // Web/demo: gerçek okuma yok → bilinçli boş, "tam" sayılır (belirsizlik üretmez).
+    return { codes: [], permanentSupported: true, completeness: { stored: 'ok', pending: 'ok', permanent: 'ok' } };
+  }
 
   await ensureExtendedDtcLoaded(); // 200+ katalog hazır (fail-soft)
 
   const codes: DTCCodeWithStatus[] = [];
   let permanentSupported = true;
+  // OBD-OS-F0-1: mod-bazlı okuma sonucu — hata olan mod 'failed' işaretlenir → verdi belirsizleşir.
+  const completeness: DtcScanCompleteness = { stored: 'ok', pending: 'ok', permanent: 'ok' };
 
   try {
     const r = await CarLauncher.readDTC();
     (r.codes ?? []).forEach((c) => codes.push({ ...lookupDtc(c), status: 'stored' }));
   } catch (e) {
     logError('DTC:ReadAllStoredFailed', e);
+    completeness.stored = 'failed';
   }
 
   try {
     if (CarLauncher.readPendingDTC) {
       const r = await CarLauncher.readPendingDTC();
       (r.codes ?? []).forEach((c) => codes.push({ ...lookupDtc(c), status: 'pending' }));
+    } else {
+      completeness.pending = 'unsupported'; // eski native plugin — Mode 07 metodu yok
     }
   } catch (e) {
     logError('DTC:ReadAllPendingFailed', e);
+    completeness.pending = 'failed';
   }
 
   try {
@@ -348,16 +448,19 @@ export async function readAllDTCs(): Promise<ReadAllDTCsResult> {
       const r = await CarLauncher.readPermanentDTC();
       permanentSupported = r.supported;
       if (r.supported) (r.codes ?? []).forEach((c) => codes.push({ ...lookupDtc(c), status: 'permanent' }));
+      // supported:false → mod desteklenmiyor (dürüst), okuma yine BAŞARILI (completeness 'ok').
     } else {
       // Eski native plugin — metod hiç yok, "desteklenmiyor" sayılır (dürüst varsayılan).
       permanentSupported = false;
+      completeness.permanent = 'unsupported';
     }
   } catch (e) {
     logError('DTC:ReadAllPermanentFailed', e);
     permanentSupported = false;
+    completeness.permanent = 'failed';
   }
 
-  return { codes, permanentSupported };
+  return { codes, permanentSupported, completeness };
 }
 
 /**
@@ -377,7 +480,8 @@ export async function readFreezeFrame(): Promise<FreezeFrameResult | null> {
 
     const values: FreezeFrameValue[] = [];
     if (CarLauncher.readFreezeFramePid) {
-      for (const pid of FREEZE_FRAME_PIDS) {
+      // F1-3: sabit 7 PID yerine ARACIN DESTEKLEDİĞİ set (kanıt varsa). Kanıt yoksa taban.
+      for (const pid of selectFreezeFramePids(getSupportedPids())) {
         try {
           const { data } = await CarLauncher.readFreezeFramePid({ pid });
           if (!data) continue; // NO DATA/desteklenmiyor — bu PID atlanır, tarama durmaz

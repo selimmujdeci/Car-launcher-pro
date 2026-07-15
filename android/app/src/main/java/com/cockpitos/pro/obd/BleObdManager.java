@@ -549,13 +549,65 @@ public final class BleObdManager {
 
     /**
      * W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi) — BLE GATT yolu.
-     * OBDManager.performHandshake ile aynı desen (USER önceliği, tek atomik kuyruk görevi).
+     * OBD-OS-F0-3: OBDManager.performHandshake ile aynı desen — adım adım DISCOVERY
+     * görevleri (POLL_FAST'i preempt etmez, hot-path aç kalmaz).
      */
     public ElmProtocol.HandshakeRaw performHandshake() throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        return p.performHandshakeRaw(step -> {
+            try {
+                return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, step).get();
+            } catch (java.util.concurrent.ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof Exception) throw (Exception) cause;
+                throw ee;
+            }
+        });
+    }
+
+    /**
+     * OBD-OS-F3-1: UDS 0x19-02 (üretici-özel DTC) — BLE GATT yolu, aynı desen.
+     */
+    public String readUdsDtcs(String tx, String rx, String statusMask) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
-            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::performHandshakeRaw).get();
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readUdsDtcsRaw(statusMask))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * OBD-OS-F2-3: ECU-başına DTC — BLE GATT yolu (OBDManager.readDtcsFromEcu ile aynı desen).
+     * USER önceliği + atomik header set/restore.
+     */
+    public java.util.List<String> readDtcsFromEcu(String tx, String rx, String mode) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.readDtcsFromEcu(tx, rx, mode)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * OBD-OS-F2-1: fonksiyonel ECU probu — BLE GATT yolu (OBDManager.probeEcus ile aynı desen).
+     * DISCOVERY önceliği: hot-path'i preempt etmez (F0-3).
+     */
+    public String probeEcus() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, p::probeEcusRaw).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;

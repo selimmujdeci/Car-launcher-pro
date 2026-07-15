@@ -48,6 +48,39 @@ let _timer: ReturnType<typeof setInterval> | null = null;
 let _rrIndex = 0;
 let _inFlight = false; // önceki tur bitmeden yenisi başlamaz (yavaş ECU/pending zinciri)
 
+/* ── PR-OBD-DATA-1: Mode-22 acquisition KANITI (bounded, fail-closed, provenance) ──
+ * "Trafic'te Mode-22'den gerçek değer mi geliyor yoksa fail-closed 'desteklenmiyor/kanıt
+ * yok' mu" sorusunu tek raporla yanıtlar (DIAG-3'ün DID-yolu karşılığı). Her _tick sonucu
+ * (SUPPORTED/UNSUPPORTED/NO_DATA/DECODE_FAIL/COMM_ERROR) sayaca + son-8 halkasına işlenir.
+ * SAHTE DEĞER ÜRETİLMEZ: yalnız native readObdDid gerçekliği kaydedilir. PII yok (DID/ECU
+ * header enum'dur; değer GÖVDESİ saklanmaz, yalnız valuePresent bayrağı). */
+type M22Outcome = 'SUPPORTED' | 'UNSUPPORTED' | 'NO_DATA' | 'DECODE_FAIL' | 'COMM_ERROR';
+const M22_RING_CAP = 8;
+const _m22 = {
+  probed: 0, supported: 0, unsupported: 0, noData: 0, decodeFail: 0, commError: 0,
+  lastOutcome: null as M22Outcome | null,
+  lastDid: null as string | null,
+  lastSupportedDid: null as string | null,
+  lastAt: 0,
+  ring: [] as { did: string; outcome: M22Outcome; tx: string; rx: string; valuePresent: boolean }[],
+};
+const _m22Sat = (n: number): number => (n >= 1_000_000_000 ? n : n + 1);
+function _recordM22(def: CompiledDidDef, outcome: M22Outcome, valuePresent: boolean): void {
+  _m22.probed = _m22Sat(_m22.probed);
+  switch (outcome) {
+    case 'SUPPORTED':   _m22.supported = _m22Sat(_m22.supported); _m22.lastSupportedDid = def.did; break;
+    case 'UNSUPPORTED': _m22.unsupported = _m22Sat(_m22.unsupported); break;
+    case 'NO_DATA':     _m22.noData = _m22Sat(_m22.noData); break;
+    case 'DECODE_FAIL': _m22.decodeFail = _m22Sat(_m22.decodeFail); break;
+    case 'COMM_ERROR':  _m22.commError = _m22Sat(_m22.commError); break;
+  }
+  _m22.lastOutcome = outcome;
+  _m22.lastDid = def.did;
+  _m22.lastAt = Date.now();
+  if (_m22.ring.length >= M22_RING_CAP) _m22.ring.shift();
+  _m22.ring.push({ did: def.did, outcome, tx: def.tx, rx: def.rx, valuePresent });
+}
+
 /* ── Profil yönetimi ──────────────────────────────────────────────────────── */
 
 /**
@@ -62,6 +95,7 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
   _unsupported.clear();
   _values.clear();
   _rrIndex = 0;
+  _resetM22(); // PR-OBD-DATA-1: yeni profil = yeni acquisition oturumu
   _syncTimer();
   return { ok: true };
 }
@@ -71,6 +105,7 @@ export function unloadProfile(): void {
   _profile = null;
   _unsupported.clear();
   _values.clear();
+  _resetM22(); // PR-OBD-DATA-1: profil kaldırıldı → kanıt sıfırlanır
   _syncTimer();
 }
 
@@ -118,20 +153,23 @@ async function _tick(): Promise<void> {
     const r = await CarLauncher.readObdDid({ tx: def.tx, rx: def.rx, did: def.did });
     if (!r.supported) {
       _unsupported.add(did); // KALICI — bir daha sorulmaz
+      _recordM22(def, 'UNSUPPORTED', false); // PR-OBD-DATA-1: fail-closed kanıt (7F)
       return;
     }
-    if (!r.data) return; // fail-soft: veri yok ama açıkça "desteklenmiyor" da değil
+    if (!r.data) { _recordM22(def, 'NO_DATA', false); return; } // fail-soft: veri yok ama 7F de değil
     const value = decodeCompiledDid(def, r.data);
     // NaN yalnız sayısal daldan gelir (metin dalı boş string yerine NaN döner) — type guard
     // `typeof value === 'string'` durumunda Number.isNaN çağrısını atlar (TS + doğruluk).
-    if (typeof value === 'number' && Number.isNaN(value)) return; // sınır dışı/bozuk — sessizce atla
+    if (typeof value === 'number' && Number.isNaN(value)) { _recordM22(def, 'DECODE_FAIL', false); return; } // sınır dışı/bozuk
     const entry: ManufacturerDidValue = { value, def, updatedAt: Date.now() };
     _values.set(did, entry);
+    _recordM22(def, 'SUPPORTED', true); // PR-OBD-DATA-1: gerçek manufacturer value okundu (provenance)
     _watchers.get(did)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ManufacturerDidWatcher', e); }
     });
   } catch (e) {
     // Bağlantı yok / geçici iletişim hatası — fail-soft, dürüst boş kalır (değer güncellenmez).
+    _recordM22(def, 'COMM_ERROR', false); // PR-OBD-DATA-1: link/adresleme hatası (KWP uyumsuzluğu işareti)
     logError('OBD:ManufacturerDidRead', e);
   } finally {
     _inFlight = false;
@@ -179,6 +217,74 @@ export function isDidSupported(did: string): boolean | null {
 /** Yüklü profildeki TÜM DID tanımları (kopya) — UI/keşif ekranı + sensorQueryService köprüsü için. */
 export function getSupportedDids(): CompiledDidDef[] {
   return _profile ? [..._profile.values()] : [];
+}
+
+/* ── PR-OBD-DATA-1: Mode-22 acquisition kanıtı (fail-closed karar) ─────────── */
+
+export type Mode22Decision =
+  | 'NO_PROFILE'      // üretici DID profili yüklü değil → kanıt yok (fail-closed)
+  | 'NOT_PROBED'      // profil var ama henüz DID sorgulanmadı (izleyici yok / yeni)
+  | 'HAS_REAL_VALUE'  // en az bir gerçek manufacturer value okundu
+  | 'ALL_UNSUPPORTED' // sorgulandı, tümü 7F → araç bu DID'leri DESTEKLEMİYOR (fail-closed)
+  | 'COMM_FAILING'    // sorgulandı, değer yok + iletişim hatası baskın (KWP adresleme/flaky link)
+  | 'INCONCLUSIVE';   // karışık/eksik — kanıt tam değil
+
+export interface Mode22Evidence {
+  profileLoaded: boolean;
+  watchedCount: number;
+  probed: number; supported: number; unsupported: number; noData: number;
+  decodeFail: number; commError: number;
+  lastOutcome: M22Outcome | null;
+  lastDid: string | null;
+  lastSupportedDid: string | null;
+  lastAt: number;
+  lastAttempts: { did: string; outcome: M22Outcome; tx: string; rx: string; valuePresent: boolean }[];
+  decision: Mode22Decision;
+  evidenceComplete: boolean;
+}
+
+/** Fail-closed karar — SAHTE değer yok; yalnız native gerçekliğinden türetilir. */
+export function classifyMode22(e: {
+  profileLoaded: boolean; watchedCount: number; probed: number; supported: number;
+  unsupported: number; commError: number;
+}): Mode22Decision {
+  if (!e.profileLoaded) return 'NO_PROFILE';
+  if (e.probed === 0) return 'NOT_PROBED';
+  if (e.supported > 0) return 'HAS_REAL_VALUE';
+  if (e.unsupported > 0 && e.commError === 0) return 'ALL_UNSUPPORTED';
+  if (e.commError > 0) return 'COMM_FAILING';
+  return 'INCONCLUSIVE';
+}
+
+/** Bounded Mode-22 acquisition kanıtı — Tanı Gönder (obdDeep.mode22) için. */
+export function getMode22Evidence(): Mode22Evidence {
+  const profileLoaded = _profile !== null;
+  const watchedCount = _watchers.size;
+  const base = {
+    profileLoaded, watchedCount,
+    probed: _m22.probed, supported: _m22.supported, unsupported: _m22.unsupported,
+    commError: _m22.commError,
+  };
+  const decision = classifyMode22(base);
+  return {
+    profileLoaded, watchedCount,
+    probed: _m22.probed, supported: _m22.supported, unsupported: _m22.unsupported,
+    noData: _m22.noData, decodeFail: _m22.decodeFail, commError: _m22.commError,
+    lastOutcome: _m22.lastOutcome, lastDid: _m22.lastDid, lastSupportedDid: _m22.lastSupportedDid,
+    lastAt: _m22.lastAt, lastAttempts: [..._m22.ring],
+    decision,
+    // Kanıt "tam" sayılır: karar belirsiz değil VE (probe olduysa) sayaç tutarlı.
+    evidenceComplete: decision !== 'INCONCLUSIVE'
+      && (_m22.probed === 0
+        || _m22.probed === _m22.supported + _m22.unsupported + _m22.noData + _m22.decodeFail + _m22.commError),
+  };
+}
+
+/** Yeni oturum/profil değişiminde Mode-22 kanıtını sıfırla. */
+function _resetM22(): void {
+  _m22.probed = _m22.supported = _m22.unsupported = _m22.noData = _m22.decodeFail = _m22.commError = 0;
+  _m22.lastOutcome = null; _m22.lastDid = null; _m22.lastSupportedDid = null; _m22.lastAt = 0;
+  _m22.ring = [];
 }
 
 /* ── VIN çapraz doğrulama (Patch 12C) ────────────────────────────────────── */
@@ -239,6 +345,7 @@ export const _internals = {
     _unsupported.clear();
     _rrIndex = 0;
     _inFlight = false;
+    _resetM22();
   },
   tick: (): Promise<void> => _tick(),
   hasTimer: (): boolean => _timer !== null,

@@ -192,38 +192,185 @@ public final class ElmProtocol {
     }
 
     /**
+     * OBD-OS-F0-3: el sıkışmasının TEK bir adımını (tek ELM komutu) çalıştıran strateji.
+     * Manager'lar bunu {@code step -> cmdQueue.submit(DISCOVERY, null, step).get()} olarak
+     * verir → her adım AYRI kuyruk görevi olur, adımlar ARASINA POLL_FAST girebilir.
+     */
+    public interface HandshakeStepRunner {
+        String run(java.util.concurrent.Callable<String> step) throws Exception;
+    }
+
+    /**
      * OBD el sıkışması — VIN + desteklenen-PID bitmap keşfi. HAM ELM327 yanıtlarını
-     * döndürür (formül/parse YOK; TS ayrıştırır). {@code cmdQueue}'nun TEK worker
-     * thread'inde tek görev olarak çağrılmalıdır (araya poll komutu girmesin).
+     * döndürür (formül/parse YOK; TS ayrıştırır).
      *
-     * Süreklilik-bit disiplini (SAE J1979): bir bitmap bloğunun SON PID'i
+     * OBD-OS-F0-3: zincir artık TEK atomik görev DEĞİL — her ELM komutu {@code runner}
+     * üzerinden ayrı kuyruk görevi olarak çalışır. Böylece en kötü ~10 sn süren keşif,
+     * hız/RPM hot-path'ini (3 Hz) aç bırakmaz; data-gate açlıktan kopmaz. Zincir MANTIĞI
+     * burada TEK yerde durur (iki manager'da kopyalanmaz).
+     *
+     * Süreklilik-bit disiplini (SAE J1979) AYNEN korunur: bir bitmap bloğunun SON PID'i
      * (0x20/0x40/0x60/0x80/0xA0) set DEĞİLSE sonraki blok HİÇ sorgulanmaz →
      * desteklenmeyen blok poll edilmez, NO-DATA fırtınası oluşmaz.
      *
-     * FAIL-SOFT: her sorgu {@link #safeSend} ile sarılır — hiçbir exception dışarı
-     * sızmaz (item 7). Tamamen başarısız olsa bile tüm alanları "" olan bir sonuç döner.
+     * FAIL-SOFT: her sorgu {@link #safeSend} ile sarılır — komut düzeyinde exception
+     * sızmaz. Tamamen başarısız olsa bile tüm alanları "" olan bir sonuç döner.
+     *
+     * @throws Exception yalnız {@code runner} kuyruk hatası (bağlantı koptu / görev iptal).
      */
-    public HandshakeRaw performHandshakeRaw() {
-        final String raw09   = safeSend("0902", HANDSHAKE_VIN_TIMEOUT_MS);
-        final String raw0100 = safeSend("0100", HANDSHAKE_BITMAP_TIMEOUT_MS);
+    public HandshakeRaw performHandshakeRaw(HandshakeStepRunner runner) throws Exception {
+        final String raw09 = runner.run(this::handshakeVinRaw);
 
-        String raw0120 = "", raw0140 = "", raw0160 = "", raw0180 = "", raw01A0 = "";
-        if (hasContinuationBit(raw0100, "41", "00")) {
-            raw0120 = safeSend("0120", HANDSHAKE_BITMAP_TIMEOUT_MS);
-            if (hasContinuationBit(raw0120, "41", "20")) {
-                raw0140 = safeSend("0140", HANDSHAKE_BITMAP_TIMEOUT_MS);
-                if (hasContinuationBit(raw0140, "41", "40")) {
-                    raw0160 = safeSend("0160", HANDSHAKE_BITMAP_TIMEOUT_MS);
-                    if (hasContinuationBit(raw0160, "41", "60")) {
-                        raw0180 = safeSend("0180", HANDSHAKE_BITMAP_TIMEOUT_MS);
-                        if (hasContinuationBit(raw0180, "41", "80")) {
-                            raw01A0 = safeSend("01A0", HANDSHAKE_BITMAP_TIMEOUT_MS);
-                        }
-                    }
-                }
-            }
+        final String[] raws = { "", "", "", "", "", "" };
+        for (int i = 0; i < HANDSHAKE_BLOCKS.length; i++) {
+            final String block = HANDSHAKE_BLOCKS[i];
+            raws[i] = runner.run(() -> handshakeBitmapRaw(block));
+            if (!handshakeHasContinuation(raws[i], block)) break;  // süreklilik yok → zincir biter
         }
-        return new HandshakeRaw(raw09, raw0100, raw0120, raw0140, raw0160, raw0180, raw01A0);
+        return new HandshakeRaw(raw09, raws[0], raws[1], raws[2], raws[3], raws[4], raws[5]);
+    }
+
+    /**
+     * OBD-OS-F0-3 — el sıkışması ADIM yüzeyi: her metot TEK ELM komutu çalıştırır.
+     *
+     * NEDEN: {@link #performHandshakeRaw} tüm zinciri (VIN + 6 bitmap bloğu, en kötü
+     * ~10 sn) TEK atomik kuyruk görevinde koşuyordu. Kuyrukta ÇALIŞAN görev kesilemez
+     * (ELM327 senkron protokol) → bu süre boyunca POLL_FAST (hız/RPM) tamamen aç kalıyor,
+     * data-gate "veri gelmiyor" deyip bağlantıyı koparıyordu. Adımlara bölününce her
+     * komut ayrı görev olur → bloklar ARASINA hot-path poll'u girebilir.
+     *
+     * Süreklilik-bit disiplini (SAE J1979) DEĞİŞMEZ; kararı çağıran verir
+     * ({@link #handshakeHasContinuation}) — desteklenmeyen blok yine HİÇ sorgulanmaz.
+     */
+    public String handshakeVinRaw() {
+        return safeSend("0902", HANDSHAKE_VIN_TIMEOUT_MS);
+    }
+
+    /** Tek bitmap bloğu okur. {@code block} = "00" | "20" | "40" | "60" | "80" | "A0". */
+    public String handshakeBitmapRaw(String block) {
+        return safeSend("01" + block, HANDSHAKE_BITMAP_TIMEOUT_MS);
+    }
+
+    /** Bu bloğun süreklilik biti set mi (→ bir sonraki blok sorgulanmalı mı)? */
+    public static boolean handshakeHasContinuation(String raw, String block) {
+        return hasContinuationBit(raw, "41", block);
+    }
+
+    /** Bitmap blok sırası — süreklilik zinciri bu sırayla yürür. */
+    public static final String[] HANDSHAKE_BLOCKS = { "00", "20", "40", "60", "80", "A0" };
+
+    /* ── OBD-OS-F2-3: ECU-başına DTC okuma ──────────────────────────────────── */
+
+    /**
+     * OBD-OS-F2-3 — Belirli bir ECU'dan DTC okur (Mode 03 stored / 07 pending / 0A permanent).
+     *
+     * Bugüne kadar DTC yalnız FONKSİYONEL adrese (7DF) soruluyordu; pratikte buna genelde
+     * tek ECU (motor) cevap veriyordu → ABS/airbag/şanzıman arızaları GÖRÜNMÜYORDU.
+     * Burada istek FİZİKSEL adrese ({@code tx}) gönderilir, yanıt {@code rx}'ten alınır.
+     *
+     * PARSE KOPYALANMAZ: mevcut {@link #readDTCs()}/{@link #readPendingDTCs()}/
+     * {@link #readPermanentDTCs()} AYNEN yeniden kullanılır — yalnız ECU header'ı ile
+     * SARILIR. {@link #withEcuHeader} header set → oku → restore'u ATOMİK yapar (finally ile
+     * restore garantili); bu yüzden çağıran TEK kuyruk görevi içinde olmalıdır.
+     *
+     * @param mode "03" (onaylı) | "07" (bekleyen) | "0A" (kalıcı)
+     * @return kod listesi; 0A desteklenmiyorsa null (mevcut sözleşme korunur).
+     */
+    public java.util.List<String> readDtcsFromEcu(String tx, String rx, String mode) throws Exception {
+        return withEcuHeader(tx, rx, () -> {
+            switch (mode) {
+                case "07": return readPendingDTCs();
+                case "0A": return readPermanentDTCs();
+                default:   return readDTCs();
+            }
+        });
+    }
+
+    /* ── OBD-OS-F3-3: KWP2000 ReadDTCByStatus (servis 0x18) ─────────────────── */
+
+    /**
+     * OBD-OS-F3-3 — KWP2000 (ISO 14230) ReadDTCByStatus, servis 0x18.
+     *
+     * UDS 0x19'un KWP KARŞILIĞIDIR: KWP araçlarda (Renault Trafic, eski Fiat/Doblo, çoğu
+     * 2000-2008 Avrupa aracı) üretici DTC'leri BURADA yaşar — 0x19 o araçlarda YOKTUR.
+     * F1-2'nin "MIL yanıyor ama standart kod yok" uyarısının KWP tarafındaki cevabı budur.
+     *
+     * ISO 14230-3: istek {@code 18 <statusOfDTC> <groupHi> <groupLo>}
+     *   - statusOfDTC 0x00 → filtre yok (tüm durumlar)
+     *   - group 0xFF00     → tüm DTC grupları
+     * Olumlu yanıt: {@code 58 <count> (<DTC hi><DTC lo><status>)*}
+     *
+     * KWP DTC 2 BAYTTIR (UDS'te 3) → ayrıştırma FARKLI; TS'te ayrı çözücü
+     * ({@code kwpDtc.ts}). Ham hex döner ("58" SOYULMUŞ), ayrıştırma YAPILMAZ.
+     *
+     * @return "58" soyulmuş ham hex (count + kayıtlar); ECU 0x18'i desteklemiyorsa null.
+     */
+    public String readKwpDtcsRaw() throws IOException {
+        return udsRequest("1800FF00", "18", "58", UDS_PENDING_TOTAL_TIMEOUT_MS, "KWP DTC");
+    }
+
+    /* ── OBD-OS-F3-5: Adaptör kimliği & yetenek probu ───────────────────────── */
+
+    /**
+     * OBD-OS-F3-5 — Adaptör kimliğini ham okur: {@code ATI} (sürüm) + {@code AT@1} (cihaz
+     * tanımı) + {@code STDI} (STN-özel; gerçek ELM327'de "?" döner).
+     *
+     * NEDEN: "ELM327 v1.5" yazan adaptörlerin ÇOĞU klondur ve gerçek v1.5 özelliklerini
+     * (ATCP 29-bit, ATCFC flow-control, yüksek throughput) TAŞIMAZ. Klonu gerçek sanmak,
+     * desteklemediği komutu göndermeye ve sessiz başarısızlığa yol açar. Kimlik KANITTIR:
+     * ne desteklediğini VARSAYMAK yerine SORARIZ (zero-trust).
+     *
+     * AYRIŞTIRMA YAPILMAZ — ham yanıtlar TS'e döner ({@code adapterCapability.ts} tek kaynak).
+     * Her komut fail-soft: desteklenmeyen komut "" olur, prob asla patlamaz.
+     *
+     * @return "ATI|AT@1|STDI" — üç ham yanıt, '|' ile ayrılmış (boş olabilir).
+     */
+    public String probeAdapterIdentityRaw() {
+        String ati  = safeSend("ATI",  1000);   // ör. "ELM327 v1.5"
+        String at1  = safeSend("AT@1", 1000);   // cihaz tanımlayıcı (klonlarda genelde boş/'?')
+        String stdi = safeSend("STDI", 1000);   // STN-özel: gerçek STN'de sürüm, ELM/klonda '?'
+        return (ati == null ? "" : ati.trim()) + "|"
+             + (at1 == null ? "" : at1.trim()) + "|"
+             + (stdi == null ? "" : stdi.trim());
+    }
+
+    /* ── OBD-OS-F2-1: ECU keşfi (fonksiyonel prob) ──────────────────────────── */
+
+    /** ECU probu yanıt penceresi — çok ECU'lu araçta tüm ECU'lar sırayla yanıtlar. */
+    private static final int ECU_PROBE_TIMEOUT_MS = 4000;
+
+    /**
+     * OBD-OS-F2-1 — Fonksiyonel ECU probu: araçta HANGİ ECU'ların yaşadığını KANITLA bulur.
+     *
+     * YÖNTEM: {@code ATH1} ile yanıt başlıklarını AÇ, ardından {@code 0100}'ü FONKSİYONEL
+     * adrese (7DF broadcast) gönder. ISO 15765-4'te bu isteği araçtaki HER OBD-uyumlu ECU
+     * yanıtlar ve her yanıt KENDİ header'ını taşır (7E8 = motor, 7E9/7EA… = diğerleri).
+     * Yani tek komutla ECU envanteri çıkar — kör adres taramasına (7E0-7EF tek tek) gerek yok.
+     *
+     * ZERO-TRUST: burada AYRIŞTIRMA YAPILMAZ — ham yanıt TS'e döner ({@code ecuDiscovery.ts}
+     * tek doğruluk kaynağı). Yanıt vermeyen ECU envantere GİRMEZ (uydurma topoloji yok).
+     *
+     * HEADER RESTORE ZORUNLU: ATH1 açık kalırsa mevcut poll parser'ı her yanıtta beklenmedik
+     * header görür → TÜM standart PID akışı sessizce bozulur. Bu yüzden ATH0 doğrulanır,
+     * bir kez daha denenir, yine olmazsa {@link HeaderRestoreException} fırlatılır (sessiz
+     * yanlış veri, açık hatadan kötüdür — bu sınıfın mevcut dürüstlük ilkesi).
+     *
+     * @return ham çok-satırlı ELM327 yanıtı (her satır bir ECU'nun header'lı cevabı).
+     */
+    public String probeEcusRaw() throws IOException {
+        safeSend("ATH1", 500);
+        final String raw = safeSend("0100", ECU_PROBE_TIMEOUT_MS);
+
+        String off = safeSend("ATH0", 500);
+        if (!containsOk(off)) off = safeSend("ATH0", 500);   // tek retry
+        if (!containsOk(off)) {
+            throw new HeaderRestoreException("ATH0 geri alınamadı — yanıt başlıkları açık kalmış olabilir (poll parse riski)");
+        }
+        return raw;
+    }
+
+    private static boolean containsOk(String s) {
+        return s != null && s.toUpperCase(java.util.Locale.ROOT).contains("OK");
     }
 
     /** channel.send() — hata/exception'ı "" boş stringe çevirir (handshake fail-soft). */
@@ -619,51 +766,200 @@ public final class ElmProtocol {
      */
     String readDid(String did, int totalTimeoutMs) throws IOException {
         String d = did.toUpperCase(Locale.ROOT);
-        String cmd = "22" + d;
-        long deadline = System.currentTimeMillis() + totalTimeoutMs;
+        // OBD-OS-F3-1/F3-6: ortak UDS istek motoru (aşağıda). Davranış BİREBİR korunur —
+        // yalnız NRC sınıflandırması genişledi (0x21 artık retry, eskiden IOException'dı).
+        return udsRequest("22" + d, "22", "62" + d, totalTimeoutMs, "DID " + d);
+    }
+
+    /**
+     * OBD-OS-F3-6 — UDS negatif yanıt kodu (NRC) sınıflandırması (ISO 14229-1 Tablo A.1).
+     *
+     * KÖK: eskiden 0x31/0x33/0x78 DIŞINDAKİ her NRC generic IOException'a düşüyordu —
+     * "ECU meşgul, tekrar dene" (0x21) ile "ECU bu servisi hiç bilmiyor" (0x11) aynı
+     * kefeye giriyordu. Bunlar FARKLI kararlar gerektirir: biri RETRY, diğeri KALICI
+     * "desteklenmiyor". Yanlış sınıflandırma ya boşuna vazgeçmeye ya boşuna beklemeye yol açar.
+     */
+    enum NrcAction {
+        /** Desteklenmiyor (kalıcı) → null döndür; çağıran bir daha SORMAZ. */
+        UNSUPPORTED,
+        /** ECU yanıtı hazırlıyor / meşgul → BEKLE ve tekrar dene (deadline'a kadar). */
+        RETRY,
+        /**
+         * OBD-OS-F3-4: servis VAR ama AKTİF OTURUMDA yok → extended diagnostic session
+         * (0x10 0x03) açıp BİR KEZ tekrar dene. Bunu "desteklenmiyor" saymak, üretici
+         * DTC'lerini (0x19) okunamaz kılardı — Car Scanner'ın açtığı oturumu biz açmazsak
+         * aynı araçta o "görmüyor" olurduk.
+         */
+        SESSION_REQUIRED,
+        /** Gerçek hata → anlamlı mesajla IOException. */
+        FATAL,
+    }
+
+    /** NRC → alınacak aksiyon + TR açıklama (teşhis mesajı uydurulmaz, standarttan gelir). */
+    static NrcAction classifyNrc(String nrc) {
+        switch (nrc) {
+            // Servis/alt-fonksiyon/DID bu ECU'da YOK → bir daha sorma (kalıcı).
+            case "11":  // serviceNotSupported
+            case "12":  // subFunctionNotSupported
+            case "31":  // requestOutOfRange
+            case "33":  // securityAccessDenied (security kapsam dışı — desteklenmiyor say)
+                return NrcAction.UNSUPPORTED;
+            // F3-4: servis var ama bu OTURUMDA kapalı → extended session aç, tekrar dene.
+            case "7E":  // subFunctionNotSupportedInActiveSession
+            case "7F":  // serviceNotSupportedInActiveSession
+            case "22":  // conditionsNotCorrect (bazı ECU'lar extended session'da açar)
+            case "24":  // requestSequenceError (önce oturum bekleniyor)
+                return NrcAction.SESSION_REQUIRED;
+            // ECU meşgul / yanıt hazırlanıyor → BEKLE, tekrar dene.
+            case "21":  // busyRepeatRequest
+            case "78":  // responsePending
+                return NrcAction.RETRY;
+            default:
+                return NrcAction.FATAL;
+        }
+    }
+
+    /**
+     * OBD-OS-F3-4 — UDS DiagnosticSessionControl (0x10 0x03): EXTENDED oturum açar.
+     * Bazı ECU'lar 0x19 (üretici DTC) gibi servisleri yalnız bu oturumda verir.
+     *
+     * {@code withEcuHeader} bloğu İÇİNDE, hedef ECU header'ı ayarlıyken çağrılmalıdır.
+     * TesterPresent (0x3E) GEREKMEZ: oturum + istek AYNI atomik kuyruk görevinde ardışık
+     * çalışır → ECU'nun S3 oturum zaman aşımı (tipik 5 sn) penceresine girilmez.
+     *
+     * @return true = oturum açıldı (olumlu yanıt 50 03); false = ECU açamadı/desteklemiyor.
+     */
+    public boolean openExtendedSession() {
+        try {
+            String raw = sendChecked("1003", 2000);
+            String compact = raw == null ? "" : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+            return compact.contains("5003");   // olumlu yanıt: 50 03 <P2 timing…>
+        } catch (Exception e) {
+            return false;   // fail-soft: oturum açılamadı → çağıran mevcut sonuca döner
+        }
+    }
+
+    /** NRC'nin insan-okunur karşılığı (log/teşhis; uydurma yok — ISO 14229-1). */
+    static String describeNrc(String nrc) {
+        switch (nrc) {
+            case "11": return "serviceNotSupported (ECU bu servisi bilmiyor)";
+            case "12": return "subFunctionNotSupported";
+            case "13": return "incorrectMessageLengthOrInvalidFormat";
+            case "21": return "busyRepeatRequest (ECU meşgul)";
+            case "22": return "conditionsNotCorrect (ön koşul sağlanmadı — ör. motor durumu)";
+            case "24": return "requestSequenceError (önce oturum/ön adım gerekiyor)";
+            case "31": return "requestOutOfRange (bu DID/DTC aralığı yok)";
+            case "33": return "securityAccessDenied (güvenlik erişimi gerekiyor)";
+            case "35": return "invalidKey";
+            case "36": return "exceedNumberOfAttempts";
+            case "37": return "requiredTimeDelayNotExpired (bekleme süresi dolmadı)";
+            case "78": return "responsePending (ECU yanıtı hazırlıyor)";
+            default:   return "NRC 0x" + nrc;
+        }
+    }
+
+    /**
+     * OBD-OS-F3-1/F3-6 — Ortak UDS istek motoru. {@link #readDid} ve {@link #readUdsDtcsRaw}
+     * bunun üstünde çalışır (NRC disiplini + ISO-TP birleştirme + pending/busy retry TEK yerde;
+     * kopya mantık YOK). {@code withEcuHeader} bloğu İÇİNDE çağrılmalıdır (header yönetmez).
+     *
+     * @param cmd            ham istek ("22F190" / "1902FF")
+     * @param service        servis baytı ("22" / "19") — negatif yanıt eşleşmesi (7F&lt;service&gt;) için
+     * @param positiveNeedle olumlu yanıt öneki ("62F190" / "5902") — gövde bunun ARDINDAN başlar
+     * @param label          hata mesajlarında geçecek bağlam ("DID F190" / "UDS DTC")
+     * @return {@code positiveNeedle} SOYULMUŞ ham hex gövde; desteklenmiyorsa null.
+     */
+    private String udsRequest(String cmd, String service, String positiveNeedle,
+                              int totalTimeoutMs, String label) throws IOException {
+        final long deadline = System.currentTimeMillis() + totalTimeoutMs;
+        // F3-4: extended session YALNIZ BİR KEZ denenir — açıldıktan sonra hâlâ reddediliyorsa
+        // servis gerçekten yok demektir (sonsuz session→retry→session döngüsü YASAK).
+        boolean sessionTried = false;
         String raw = sendChecked(cmd, 2000);
 
         while (true) {
             String compact = raw == null ? "" : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
-            if (compact.isEmpty()) throw new IOException("ELM327 yanıt vermedi (DID " + d + ")");
-            if (compact.contains("NODATA")) return null; // ECU DID'i tanımıyor — desteklenmiyor say
+            if (compact.isEmpty()) throw new IOException("ELM327 yanıt vermedi (" + label + ")");
+            if (compact.contains("NODATA")) return null; // ECU isteği hiç tanımıyor → desteklenmiyor
 
             if (compact.contains("UNABLETOCONNECT") || compact.contains("CANERROR")
                 || compact.contains("BUSERROR") || compact.contains("STOPPED")
                 || compact.contains("BUFFERFULL")) {
-                throw new IOException("ELM327 hata yanıtı (DID " + d + "): " + summarize(raw));
+                throw new IOException("ELM327 hata yanıtı (" + label + "): " + summarize(raw));
             }
 
-            int negIdx = compact.indexOf("7F22");
+            int negIdx = compact.indexOf("7F" + service);
             if (negIdx >= 0 && compact.length() >= negIdx + 6) {
                 String nrc = compact.substring(negIdx + 4, negIdx + 6);
-                if (nrc.equals("31") || nrc.equals("33")) return null; // requestOutOfRange / securityAccessDenied
-                if (nrc.equals("78")) {
-                    if (System.currentTimeMillis() >= deadline) {
-                        throw new IOException("UDS responsePending (0x78) zaman aşımı (DID " + d + ")");
-                    }
-                    raw = sendChecked("", 2000); // ELM327: boş komut → devam eden yanıtı bekle
-                    continue;
+                switch (classifyNrc(nrc)) {
+                    case UNSUPPORTED:
+                        return null;
+                    case RETRY:
+                        if (System.currentTimeMillis() >= deadline) {
+                            throw new IOException("UDS " + describeNrc(nrc) + " zaman aşımı (" + label + ")");
+                        }
+                        raw = sendChecked("", 2000); // ELM327: boş komut → devam eden yanıtı bekle
+                        continue;
+                    case SESSION_REQUIRED:
+                        // F3-4: servis var ama bu oturumda kapalı → extended session aç, TEK KEZ tekrar dene.
+                        if (sessionTried || System.currentTimeMillis() >= deadline) {
+                            return null;   // oturum açıldı ama yine reddetti → gerçekten desteklenmiyor
+                        }
+                        sessionTried = true;
+                        if (!openExtendedSession()) {
+                            return null;   // ECU extended session'ı da açamadı → desteklenmiyor say
+                        }
+                        raw = sendChecked(cmd, 2000);   // aynı isteği yeni oturumda tekrarla
+                        continue;
+                    default:
+                        throw new IOException("UDS negatif yanıt: " + describeNrc(nrc) + " (" + label + ")");
                 }
-                throw new IOException("UDS negatif yanıt NRC=" + nrc + " (DID " + d + ")");
             }
 
             if (compact.contains("SEARCHING") || compact.contains("BUSINIT")) {
                 if (System.currentTimeMillis() >= deadline) {
-                    throw new IOException("ELM327 arama zaman aşımı (DID " + d + ")");
+                    throw new IOException("ELM327 arama zaman aşımı (" + label + ")");
                 }
                 raw = sendChecked("", 2000);
                 continue;
             }
-            if (compact.equals("?")) throw new IOException("ELM327 komutu anlaşılmadı (DID " + d + ")");
+            if (compact.equals("?")) throw new IOException("ELM327 komutu anlaşılmadı (" + label + ")");
 
-            String needle = "62" + d;
             for (String body : splitResponseBodies(raw)) {
-                int idx = body.indexOf(needle);
-                if (idx >= 0) return body.substring(idx + needle.length());
+                int idx = body.indexOf(positiveNeedle);
+                if (idx >= 0) return body.substring(idx + positiveNeedle.length());
             }
-            throw new IOException("Beklenmeyen UDS yanıtı (DID " + d + "): " + summarize(raw));
+            throw new IOException("Beklenmeyen UDS yanıtı (" + label + "): " + summarize(raw));
         }
+    }
+
+    /* ── OBD-OS-F3-1: UDS Service 0x19 (ReadDTCInformation) ─────────────────── */
+
+    /** UDS 0x19-02 varsayılan status maskesi: "onaylı VEYA test başarısız" (0xFF = tümü). */
+    public static final String UDS_DTC_MASK_ALL = "FF";
+
+    /**
+     * OBD-OS-F3-1 — UDS Service 0x19-02 (reportDTCByStatusMask): ÜRETİCİ-ÖZEL DTC'leri okur.
+     *
+     * NEDEN KRİTİK: standart Mode 03/07/0A yalnız emisyonla ilgili (P0…) kodları döner.
+     * Renault DF…, VAG, BMW vb. üretici kodları BURADA yaşar — F1-2'nin "MIL yanıyor ama
+     * standart kod yok" uyarısının cevabı tam olarak bu servistir. Car Scanner'ın gördüğü,
+     * bizim göremediğimiz kodlar.
+     *
+     * ISO 14229-1: istek {@code 19 02 <statusMask>}, olumlu yanıt {@code 59 02 <availabilityMask>
+     * (<DTC 3 bayt> <status 1 bayt>)*}. AYRIŞTIRMA YAPILMAZ — ham hex TS'e döner
+     * ({@code udsDtc.ts} tek doğruluk kaynağı; handshake/probe ile aynı felsefe).
+     *
+     * {@code withEcuHeader} bloğu İÇİNDE çağrılmalıdır (hangi ECU'ya sorulduğu çağıranın kararı).
+     *
+     * @return "5902" SOYULMUŞ ham hex (availabilityMask + DTC kayıtları); ECU 0x19'u
+     *         desteklemiyorsa null (NRC 0x11/0x12/0x31 → UNSUPPORTED).
+     */
+    public String readUdsDtcsRaw(String statusMask) throws IOException {
+        String mask = (statusMask == null || statusMask.isEmpty())
+            ? UDS_DTC_MASK_ALL
+            : statusMask.toUpperCase(Locale.ROOT);
+        return udsRequest("1902" + mask, "19", "5902", UDS_PENDING_TOTAL_TIMEOUT_MS, "UDS DTC");
     }
 
     // ── DTC (SAE J1979 Mode 03 / 04 / 07 / 0A) ───────────────────────────────

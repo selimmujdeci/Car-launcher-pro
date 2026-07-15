@@ -83,6 +83,9 @@ public final class ElmInitSequencer {
         String sp = protocol;
         if (sp != null && sp.length() == 1) {
             checkOk("ATSP" + sp, safeSend("ATSP" + sp, 1000));
+            // OBD-OS-F0-4: protokol BİLİNİYOR → sınıf profilini warm-up'tan ÖNCE uygula
+            // (yavaş seri hatta 0100 warm-up da geniş yanıt penceresinden faydalanır).
+            applyProtocolProfile(sp);
         } else {
             checkOk("ATSP0", safeSend("ATSP0", 1000));
         }
@@ -101,7 +104,43 @@ public final class ElmInitSequencer {
         }
 
         // 7) ATDPN — aktif protokol numarasını oku (opsiyonel; okunamazsa null döner, akış bozulmaz).
-        return readActiveProtocol();
+        String active = readActiveProtocol();
+
+        // OBD-OS-F0-4: ATSP0 (otomatik) yolunda protokol ancak BURADA öğrenilir → profili
+        // şimdi uygula. Böylece ilk bağlantıda da (protokol önceden bilinmezken) KWP/ISO9141
+        // aracı doğru yanıt penceresiyle poll edilir; sonraki bağlantı zaten (5)'te uygular.
+        if (sp == null && active != null) {
+            applyProtocolProfile(active);
+        }
+        return active;
+    }
+
+    /**
+     * OBD-OS-F0-4 — protokol-sınıfı ELM327 ayarı. YALNIZ yavaş seri protokollerde (ISO 9141-2,
+     * KWP2000) devreye girer; CAN/J1850'de HİÇBİR komut gönderilmez → çalışan CAN davranışı
+     * BİREBİR korunur (ATAT1 adaptif zamanlama zaten devrede).
+     *
+     * NEDEN: KWP/ISO9141 10.4 kbit/s SERİ hattır. ELM327'nin varsayılan yanıt bekleme süresi
+     * (ATST varsayılanı ~200 ms) bu ECU'lar için kısadır → adaptör erken vazgeçip NO DATA
+     * döner, biz de "PID desteklenmiyor" sanırız (yanlış-negatif keşif).
+     *
+     * @param p ELM327 ATSP protokol numarası ("3"=ISO9141-2, "4"/"5"=KWP2000).
+     */
+    private void applyProtocolProfile(String p) {
+        if (p == null || p.isEmpty()) return;
+        char c = Character.toUpperCase(p.charAt(0));
+        boolean slowSerial = (c == '3' || c == '4' || c == '5');
+        if (!slowSerial) return;   // CAN / J1850 / bilinmeyen → dokunma
+
+        // ATST FF → yanıt bekleme 0xFF × 4 ms ≈ 1020 ms (varsayılan ~200 ms yetmiyor).
+        safeSend("ATSTFF", 500);
+        // ATSW 92 → ELM327'nin ISO/KWP hattında otomatik wakeup (keep-alive) aralığı:
+        // 0x92 × 20 ms ≈ 2.9 sn, KWP2000 P3max (5 sn oturum zaman aşımı) ALTINDA. Böylece
+        // poll seyrekleştiğinde/durduğunda bile ECU oturumu DÜŞMEZ (park sonrası ilk PID
+        // yeniden init beklemez). Bu ELM327'nin YERLEŞİK wakeup'ıdır — burada AÇIKÇA set
+        // ediyoruz çünkü klon adaptörlerde varsayılanın 00 (kapalı) geldiği görülüyor.
+        safeSend("ATSW92", 500);
+        android.util.Log.i(TAG, "[ElmInit] Yavaş seri protokol (" + p + ") → ATST FF + ATSW 92 uygulandı");
     }
 
     /**

@@ -32,8 +32,22 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class ElmCommandQueue {
 
-    /** Öncelik sırası: USER (kullanıcı DTC isteği) > POLL_FAST (hız/RPM) > POLL_SLOW (sıcaklık/yakıt vb.). */
-    public enum Priority { USER, POLL_FAST, POLL_SLOW }
+    /**
+     * Öncelik sırası: USER (kullanıcı DTC isteği) > POLL_FAST (hız/RPM) > DISCOVERY
+     * (handshake/keşif) > POLL_SLOW (sıcaklık/yakıt vb.).
+     *
+     * OBD-OS-F0-3 — DISCOVERY neden POLL_FAST'in ALTINDA: el sıkışması (VIN + 6 bitmap
+     * bloğu) kullanıcı isteği DEĞİL, arka plan keşfidir; en kötü ~10 sn sürer. USER
+     * önceliğiyle koşarken hız/RPM poll'unu (3 Hz hot-path) aç bırakıyor → data-gate
+     * açlık çekip bağlantıyı "veri yok" sanarak koparıyordu (`data_gate_loss` reconnect).
+     * Keşif hot-path'i PREEMPT ETMEZ: sürücünün gösterge akışı, arka plan keşfinden
+     * her zaman önceliklidir.
+     *
+     * DİKKAT: öncelik tek başına yetmez — çalışmakta olan görev KESİLMEZ (ELM327 senkron).
+     * Bu yüzden handshake ayrıca ADIM ADIM kuyruğa verilir (her ELM komutu ayrı görev),
+     * böylece bloklar ARASINA POLL_FAST girebilir. Bkz. OBDManager.performHandshake.
+     */
+    public enum Priority { USER, POLL_FAST, DISCOVERY, POLL_SLOW }
 
     /**
      * Kuyruğa girmiş ama HENÜZ ÇALIŞMAMIŞ bir görevi iptal etmek için işaretleyici.

@@ -598,6 +598,10 @@ export interface CarLauncherPlugin {
       // Opsiyonel — native taraf "classic" (Classic Bluetooth SPP) veya
       // "ble" (Bluetooth Low Energy) gönderir. Eski yol transport olmadan da çalışır.
       transport?: 'classic' | 'ble';
+      // BLE reklam paketinde duyurulan GATT servis UUID'leri. İSİMSİZ bir cihaz için
+      // tek pozitif OBD kanıtıdır (bkz. obdDiscovery.classifyObdDevice). Classic yolda
+      // ve eski plugin sürümlerinde gelmez → undefined.
+      serviceUuids?: string[];
     }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
@@ -860,6 +864,39 @@ export interface CarLauncherPlugin {
     raw0160?: string;
     raw0180?: string;
     raw01A0?: string;
+  }>;
+
+  /**
+   * OBD-OS-F2-1: fonksiyonel ECU probu — `ATH1` + `0100` (7DF broadcast). Araçtaki yanıt
+   * veren TÜM ECU'ların header'lı HAM cevabı döner; ayrıştırma TS'te (`ecuDiscovery.ts`).
+   * Native yanıt başlıklarını (ATH0) MUTLAKA geri kapatır; kapatamazsa reject eder
+   * (header açık kalırsa standart poll parse'ı sessizce bozulurdu).
+   *
+   * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar (graceful degrade).
+   */
+  probeEcus?(): Promise<{ raw: string }>;
+
+  /**
+   * OBD-OS-F2-3: belirli bir ECU'dan DTC okur (fiziksel adresleme, Mode 03/07/0A).
+   * Native `withEcuHeader` ile header set → oku → restore ATOMİK yapılır (yanlış ECU'ya
+   * sızıntı imkânsız). `supported:false` = ECU o modu desteklemiyor (hata DEĞİL — bilgi).
+   *
+   * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar (graceful degrade).
+   */
+  readDtcFromEcu?(options: { tx: string; rx: string; mode: '03' | '07' | '0A' }): Promise<{
+    codes: string[];
+    supported: boolean;
+  }>;
+
+  /**
+   * OBD-OS-F3-1: UDS Service 0x19-02 (ReadDTCInformation) — ÜRETİCİ-ÖZEL DTC'ler.
+   * Standart Mode 03/07/0A yalnız emisyon (P0…) kodlarını verir; Renault DF…, VAG, BMW
+   * kodları burada yaşar. Ham hex ("5902" soyulmuş) döner — ayrıştırma TS'te (`udsDtc.ts`).
+   * `supported:false` = ECU 0x19'u desteklemiyor (NRC 0x11/0x12/0x31 → hata DEĞİL).
+   */
+  readUdsDtcs?(options: { tx: string; rx: string; statusMask?: string }): Promise<{
+    raw: string;
+    supported: boolean;
   }>;
 
   /** CAN bus araç sinyalleri — read-only, native katmandan gelir */

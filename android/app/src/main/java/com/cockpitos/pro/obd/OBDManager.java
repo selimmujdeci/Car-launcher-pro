@@ -984,15 +984,72 @@ public final class OBDManager {
     }
 
     /**
-     * W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi). USER
-     * önceliğiyle TEK atomik kuyruk görevi olarak çalışır — {@link ElmProtocol#performHandshakeRaw}
-     * kendi içinde fail-soft (exception sızdırmaz), ama bağlantı yoksa burada reddedilir.
+     * W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi).
+     *
+     * OBD-OS-F0-3: artık USER önceliğiyle TEK atomik görev DEĞİL. Her ELM komutu ayrı
+     * DISCOVERY görevi olarak kuyruğa girer → adımlar arasına POLL_FAST (hız/RPM) girebilir.
+     * Eskiden en kötü ~10 sn boyunca hot-path aç kalıyor, data-gate bağlantıyı "veri yok"
+     * sanıp koparıyordu (`data_gate_loss`). Fail-soft davranış ve süreklilik-bit disiplini
+     * DEĞİŞMEDİ; bağlantı yoksa burada reddedilir.
      */
     public ElmProtocol.HandshakeRaw performHandshake() throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        return p.performHandshakeRaw(step -> {
+            try {
+                return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, step).get();
+            } catch (java.util.concurrent.ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof Exception) throw (Exception) cause;
+                throw ee;
+            }
+        });
+    }
+
+    /**
+     * OBD-OS-F3-1: UDS 0x19-02 — üretici-özel DTC'ler (Renault DF…). Belirli ECU'ya,
+     * header set → oku → restore TEK atomik kuyruk görevinde. USER önceliği (kullanıcı taraması).
+     */
+    public String readUdsDtcs(String tx, String rx, String statusMask) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
-            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::performHandshakeRaw).get();
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readUdsDtcsRaw(statusMask))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * OBD-OS-F2-3: belirli bir ECU'dan DTC okur (fiziksel adresleme). USER önceliği —
+     * kullanıcının başlattığı tarama, hot-path'in ÖNÜNDE (DTC isteği beklemez).
+     * Header set → oku → restore TEK atomik kuyruk görevinde (araya poll giremez).
+     */
+    public java.util.List<String> readDtcsFromEcu(String tx, String rx, String mode) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.readDtcsFromEcu(tx, rx, mode)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * OBD-OS-F2-1: fonksiyonel ECU probu (ATH1 + 0100 → yanıt veren tüm ECU header'ları).
+     * DISCOVERY önceliği: keşif arka plandır, hız/RPM hot-path'ini PREEMPT ETMEZ (F0-3 dersi).
+     */
+    public String probeEcus() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, p::probeEcusRaw).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
