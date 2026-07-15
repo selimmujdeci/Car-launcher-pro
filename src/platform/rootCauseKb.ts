@@ -54,9 +54,18 @@ const ENTRIES: readonly RootCauseKbEntry[] = [
   },
   {
     code: 'FUSION_LOW_CONFIDENCE',
-    suspectFiles: ['src/platform/speedFusion.ts', 'src/platform/gpsService.ts'],
-    suspectSymbols: ['speedFusion', 'fuseSpeed'],
-    fixHint: 'GPS doğruluk/izin ile donanım hız kaynağını karşılaştır; hangi kaynak sapıyor (GPS anteni mi, OBD hız PID mi).',
+    // ANA YOL: aktif kaynak seçimi VehicleCompute worker'da (_resolveSpeedSource) yapılır ve
+    // VehicleSignalResolver → halStatusStore.activeSource'a yansır — tanı raporundaki
+    // `fusion.activeSource` BURADAN gelir. `speedFusion.ts` İKİNCİL yoldur (yalnız
+    // MiniMapWidget + telemetryService); plausibility'si vardır ama ana göstergeyi beslemez.
+    // Bu yüzden çelişki önce worker'da aranır (bkz. `_isSpeedRejected` RPM çapraz kontrolü).
+    suspectFiles: [
+      'src/platform/vehicleDataLayer/VehicleCompute.worker.ts',
+      'src/platform/speedFusion.ts',
+      'src/platform/gpsService.ts',
+    ],
+    suspectSymbols: ['_resolveSpeedSource', '_isSpeedRejected', 'speedFusion', 'fuseSpeed'],
+    fixHint: 'Önce worker: OBD hızı ile RPM/GPS çelişiyor mu (ör. hız 0 iken RPM>rölanti ve GPS hareket görüyor → OBD hız PID güvenilmez; KWP araçlarda hız ABS ECU\'sundadır, motor ECU\'su 0 döner). Sonra GPS ucu: doğruluk/izin. Hangi kaynağın saptığını kanıtla — "donanım kesin" varsayma.',
     requiredEvidence: ['gpsAccuracyM', 'gpsPermission', 'hwSpeedSource', 'fusionDiffKmh'],
   },
   {
