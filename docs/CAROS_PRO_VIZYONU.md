@@ -391,6 +391,21 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
   eksikken "desteklenmiyor" çıkarımı YASAK. Kilit: `pidDiscoveryEvidence.test.ts` (15).
   Payload ~0.5-0.8 KB (≤6 blok, preview ≤24 hane). **🔴 gerçek araç raporuyla teyit
   bekliyor** — Trafic/Doblo raporunda evidence gözlenince Ledger'a işlenecek.
+- **PR-OBD-DIAG-3 (2026-07-15, kod+test):** **EXTENDED PID POLL KANITI** eklendi —
+  `obdDeep.extendedPollEvidence`. Kök: Trafic raporunda `extended.samples: []` iki farklı
+  arızayı ayıramıyordu (H1 poll hiç çalışmadı · H2 çalıştı ama ECU değer üretmedi · H3
+  native başarılı ama JS/store'a akmadı). Yeni oturumluk **bounded** sayaçlar
+  (attempted/success/noData/timeout(0-byte,partial)/negative/error/callbackEmitted +
+  kadans pollCycles/burstCycles/roundRobinCycles + son 8 deneme halkası) native tarafta
+  (`ExtendedPollEvidence`, iki poll loop'ta O(1) instrumentation) + JS akış sayaçları
+  (`eventsReceived/decodeFailures/valuesStored`) birleştirilip **H1/H2/H3/H4 kesin hükmü**
+  üretiliyor (`classifyExtendedPoll`, saf/test edilebilir). Outcome, mevcut
+  `ElmResponseParser.Kind`'den türetilir (`readPidClassified` — readPidRaw'ın null'a
+  çökerttiği sınıflandırmayı korur); **ek OBD komutu YOK, polling davranışı DEĞİŞMEDİ**,
+  ham yanıt gövdesi saklanmaz (PII-güvenli, yalnız responseLength). Kilitler:
+  `ExtendedPollEvidenceTest` (14, JVM) + `extendedPollEvidence.test.ts` (16). Payload ~1 KB.
+  **🔴 gerçek araç raporuyla teyit bekliyor** — Trafic raporunda H1/H2 ayrımı gözlenince
+  Ledger'a işlenecek (sıradaki saha adımı).
 - **Bağımlılıklar:** Supabase RPC · migration 025/026 (history boşluğu — P1-5).
 - **Eksik ana parça:** — · **Sonraki atomik PR:** —
 - **Kabul kriterleri:** (karşılandı) cihazda buton → `vehicle_events` satırı → panelde listelenir.

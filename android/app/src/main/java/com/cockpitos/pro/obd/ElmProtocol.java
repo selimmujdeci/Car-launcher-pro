@@ -142,6 +142,22 @@ public final class ElmProtocol {
         return null;
     }
 
+    /**
+     * PR-OBD-DIAG-3: {@link #readPidRaw} ile AYNI tek ELM komutunu çalıştırır, ama ham
+     * SINIFLANDIRMAYI ({@link ElmResponseParser.Kind}: OK/NO_DATA/NEG_7F/TIMEOUT/…) korur.
+     *
+     * KÖK NEDEN: {@code readPidRaw} sonucu {@code null}'a çökerttiğinden EXTENDED poll
+     * hattında "poll denendi ama ECU değer üretmedi" (H2) ile "hiç denenmedi" (H1)
+     * ayrılamıyordu ({@code extended.samples: []} her iki durumda aynı görünüyor). Bu metot
+     * outcome kanıtını yukarı taşır ({@link ExtendedPollEvidence}). Davranış EŞDEĞER: çağıran
+     * yalnız OK+veri durumunda {@code dataHex}'i kullanır (readPidRaw ile bit-bit aynı bayt),
+     * hiç ek OBD komutu göndermez.
+     */
+    public ElmResponseParser.Result readPidClassified(String pid) {
+        String p = pid.toUpperCase(java.util.Locale.ROOT);
+        return sendAndClassify("01" + p, 1500, "41", p);
+    }
+
     // ── W5-OBD-PR1: El sıkışması (VIN + desteklenen-PID bitmap keşfi) ──────────
 
     /** VIN (Mode 09 PID 02) sorgu timeout'u — multi-frame ISO-TP için biraz uzun. */

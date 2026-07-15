@@ -406,6 +406,35 @@ export interface AppVersionInfo {
   packageName: string;
 }
 
+/**
+ * PR-OBD-DIAG-3: native EXTENDED PID poll kanıtı — {@code getObdExtendedPollEvidence}'ın
+ * döndürdüğü ham şekil. Tümü bounded; ham yanıt gövdesi YOK (yalnız responseLength) → PII-güvenli.
+ */
+export interface NativeExtendedPollEvidence {
+  present: boolean;
+  transport: string;
+  burstEnabled: boolean;
+  configuredPidCount: number;
+  configuredPidPreview: string[];
+  counters: {
+    pollCycles: number; burstCycles: number; roundRobinCycles: number;
+    attempted: number; success: number; noData: number; busy: number;
+    negativeResponse: number; error: number; timeoutNoBytes: number;
+    timeoutPartial: number; parseFailure: number; cancelled: number;
+    unknownFailure: number; callbackEmitted: number; maxBurstSizeObserved: number;
+  };
+  lastAttemptedPid: string | null;
+  lastSuccessfulPid: string | null;
+  lastOutcome: string | null;
+  lastElapsedMs: number;
+  lastPollAt: number;
+  coherent: boolean;
+  lastAttempts: {
+    pid: string; outcome: string; elapsedMs: number;
+    responseLength: number; callbackEmitted: boolean;
+  }[];
+}
+
 export interface CarLauncherPlugin {
   /** OTA v1: cihazda KURULU gerçek sürüm (PackageManager — drift imkânsız) */
   getAppVersionInfo(): Promise<AppVersionInfo>;
@@ -548,6 +577,11 @@ export interface CarLauncherPlugin {
   // PID'leri her poll turunda okunur (hızlı tazeleme). Ekran kapanınca kapatılır.
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).
   setObdDiagnosticBurst?(opts: { enable: boolean }): Promise<{ enabled: boolean }>;
+
+  // PR-OBD-DIAG-3: EXTENDED PID poll hattı tanı KANITI — oturumluk bounded sayaçlar
+  // (attempted/success/callbackEmitted…) + son 8 deneme. "Tanı Gönder" H1/H2/H3 ayrımı için.
+  // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft: kanıt yok → NO_NATIVE_EVIDENCE).
+  getObdExtendedPollEvidence?(): Promise<NativeExtendedPollEvidence>;
 
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(

@@ -14,6 +14,7 @@ import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats, getHandsha
 import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
 import { getSupportedPids, getPidValue } from './obd/extendedPidService';
+import { getExtendedPollEvidence, type ExtendedPollEvidenceSnapshot } from './obd/extendedPollEvidence';
 import { getDTCStateSnapshot } from './dtcService';
 import { getAiHealthSnapshot } from './aiHealth';
 import { getProviderQuotaSnapshot } from './companion/companionChatProvider';
@@ -52,6 +53,8 @@ export interface ObdDeepSnapshot {
     discovered: boolean; supportedCount: number;
     samples: { pid: string; name: string; value: number; ageMs: number }[];
   };
+  /** PR-OBD-DIAG-3: EXTENDED PID poll KANITI — H1/H2/H3 ayrımı (samples boşsa neden?). */
+  extendedPollEvidence: ExtendedPollEvidenceSnapshot | null;
   /** PR-5a/PR-1a: handshake yaşam-döngüsü kanıtı (non-PII) — root-cause zinciri için. */
   handshake: {
     outcome: string; ranAt: number | null; vinClass: string | null; vinPresent: boolean;
@@ -153,6 +156,9 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
       supportedCount: supported ? supported.size : 0,
       samples,
     },
+    // PR-OBD-DIAG-3: samples boşsa "neden" — native poll kanıtı (refreshExtendedPollEvidence
+    // rapor derlenmeden önce await edilir; edilmediyse fail-soft NO_NATIVE_EVIDENCE döner).
+    extendedPollEvidence: _safe(() => getExtendedPollEvidence(), null),
     handshake: _safe(() => getHandshakeDiagnostics(), {
       outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
       bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,

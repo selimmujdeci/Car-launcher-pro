@@ -64,6 +64,13 @@ let _listenerHandle: PluginListenerHandle | null = null;
 let _listenerStarting = false;
 let _burst = false;                                     // Canlı Test burst modu (cap+native hız)
 
+/* PR-OBD-DIAG-3: JS-tarafı akış sayaçları — native "callbackEmitted" ile birlikte H3'ü
+ * (native başarılı ama JS/store'a değer akmadı) köprü-kaybı mı decode-kaybı mı ayırır.
+ * Oturumluk (notifyObdConnected'da sıfırlanır); saf sayaç, davranış değiştirmez. */
+let _jsEventsReceived = 0;   // bilinen PID için native'den değer olayı geldi
+let _jsDecodeFailures = 0;   // olay geldi ama decodeStandardPid NaN döndü (saklanamadı)
+let _jsValuesStored = 0;     // başarıyla _values'e yazıldı (→ sample adayı)
+
 /* ── Bitmask çözümleme (saf — test edilebilir) ────────────────────────────── */
 
 /**
@@ -136,8 +143,9 @@ function _onExtendedData(event: { pid: string; data: string }): void {
     // Normal PID değeri
     const def = STANDARD_PID_MAP.get(pid);
     if (!def) return;
+    _jsEventsReceived++; // PR-OBD-DIAG-3: bilinen PID için değer olayı JS'e ulaştı
     const value = decodeStandardPid(pid, event.data);
-    if (Number.isNaN(value)) return; // bozuk/sınır dışı — sessizce atla (fail-soft, eski sözleşme)
+    if (Number.isNaN(value)) { _jsDecodeFailures++; return; } // bozuk/sınır dışı — fail-soft (eski sözleşme)
     // raw: ham data hex de saklanır — Canlı Test ekranı doğruluk denetimi için gösterir.
     const entry: ExtendedPidValue = {
       value,
@@ -146,6 +154,7 @@ function _onExtendedData(event: { pid: string; data: string }): void {
       raw: (event.data ?? '').trim(),
     };
     _values.set(pid, entry);
+    _jsValuesStored++; // PR-OBD-DIAG-3: değer saklandı → obdDeep.extended.samples adayı
     _watchers.get(pid)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ExtPidWatcher', e); }
     });
@@ -251,6 +260,11 @@ export function seedSupportedPids(supportedPidNums: Iterable<number>): void {
  * (boş liste zaten native varsayılanı).
  */
 export function notifyObdConnected(): void {
+  // PR-OBD-DIAG-3: yeni bağlantı = yeni oturum → JS akış sayaçları sıfırlanır (native
+  // ExtendedPollEvidence.reset ile hizalı). İzleyici olmasa bile sıfırla (kanıt temiz başlasın).
+  _jsEventsReceived = 0;
+  _jsDecodeFailures = 0;
+  _jsValuesStored = 0;
   if (_watchers.size === 0) return;
   // Yeni bağlantı = muhtemelen aynı araç ama garanti değil; keşif sonucu YENİDEN
   // doğrulanır (farklı araca takılan adaptör senaryosu).
@@ -258,6 +272,22 @@ export function notifyObdConnected(): void {
   _discoveryQueue = [DISCOVERY_PIDS[0]];
   _ensureListener();
   _pushToNative();
+}
+
+/**
+ * PR-OBD-DIAG-3: JS-tarafı extended akış sayaçları (native kanıtla birleştirilir —
+ * bkz. extendedPollEvidence.ts). eventsReceived vs valuesStored, H3'ün köprü-kaybı mı
+ * decode-kaybı mı olduğunu ayırır; valuesCached = anlık _values boyutu.
+ */
+export function getExtendedJsCounters(): {
+  eventsReceived: number; decodeFailures: number; valuesStored: number; valuesCached: number;
+} {
+  return {
+    eventsReceived: _jsEventsReceived,
+    decodeFailures: _jsDecodeFailures,
+    valuesStored: _jsValuesStored,
+    valuesCached: _values.size,
+  };
 }
 
 /**
@@ -286,6 +316,9 @@ export const _internals = {
     _listenerHandle = null;
     _listenerStarting = false;
     _burst = false;
+    _jsEventsReceived = 0;
+    _jsDecodeFailures = 0;
+    _jsValuesStored = 0;
   },
   onExtendedData: _onExtendedData,
   buildNativeList: _buildNativeList,

@@ -47,6 +47,9 @@ import {
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
   buildPlatformRuntimeSnapshot,
 } from './diagnosticSections';
+// PR-OBD-DIAG-3: native extended poll kanıtı async — buildObdDeepSnapshot senkron okumadan
+// önce tazelenir (fail-soft: eski APK / hata → kanıt yok).
+import { refreshExtendedPollEvidence } from './obd/extendedPollEvidence';
 import { buildTriageSnapshot, buildRootCauseSnapshot, buildDiagnosticVerdict, type TriageSections, type ErrorLedgerLike } from './diagnosticTriage';
 import { buildErrorLedger, type RawErrorLike } from './errorLedger';
 import { useVidStore } from '../store/useVidStore';
@@ -532,6 +535,8 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
   const [gps, storageQueue] = await Promise.all([
     _safeSectionAsync(buildGpsDeepSnapshot),
     buildStorageQueueSnapshot().catch(() => ({ queuePending: 0, storagePct: -1, storageWarn: false })),
+    // PR-OBD-DIAG-3: native extended poll kanıtını tazele → buildObdDeepSnapshot senkron okur.
+    refreshExtendedPollEvidence().catch(() => { /* fail-soft: kanıt yok */ }),
   ]);
 
   const payload = _deepSanitize({

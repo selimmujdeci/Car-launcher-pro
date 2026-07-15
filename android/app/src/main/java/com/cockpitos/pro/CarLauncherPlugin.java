@@ -96,6 +96,7 @@ import com.cockpitos.pro.can.CanFrameDecoder;
 import com.cockpitos.pro.can.VehicleSignalMapper;
 import com.cockpitos.pro.obd.BleObdManager;
 import com.cockpitos.pro.obd.BleObdScanner;
+import com.cockpitos.pro.obd.ExtendedPollEvidence;
 import com.cockpitos.pro.obd.OBDBluetoothManager;
 import com.cockpitos.pro.obd.OBDManager;
 import com.cockpitos.pro.obd.ObdPollSample;
@@ -1369,6 +1370,9 @@ public class CarLauncherPlugin extends Plugin {
         }
         if (obdManager != null) obdManager.setExtendedPids(pids);
         if (bleObdManager != null) bleObdManager.setExtendedPids(pids);
+        // PR-OBD-DIAG-3: TS'in verdiği liste (niyet) kanıta işlenir → poll HİÇ çalışmasa
+        // bile configuredPidCount>0 kalır (H1: configured>0 & attempted=0 görünür kılınır).
+        ExtendedPollEvidence.INSTANCE.setRequestedPids(pids);
         call.resolve();
     }
 
@@ -1386,8 +1390,68 @@ public class CarLauncherPlugin extends Plugin {
         boolean enable = call.getBoolean("enable", false);
         if (obdManager    != null) obdManager.setDiagnosticBurst(enable);
         if (bleObdManager != null) bleObdManager.setDiagnosticBurst(enable);
+        ExtendedPollEvidence.INSTANCE.setBurstEnabled(enable); // PR-OBD-DIAG-3: burst niyeti kanıta
         JSObject ret = new JSObject();
         ret.put("enabled", enable);
+        call.resolve(ret);
+    }
+
+    /**
+     * PR-OBD-DIAG-3: EXTENDED PID poll hattı tanı KANITI — oturumluk bounded sayaçlar
+     * (attempted/success/noData/timeout/callback…) + son 8 deneme halkası. "Tanı Gönder"
+     * bunu okur ({@code obdDeep.extendedPollEvidence}) → H1 (poll çalışmadı) / H2 (ECU değer
+     * üretmedi) / H3 (native başarılı ama JS'e akmadı) ayrımı tek raporla yapılır. Yalnız
+     * OKUR — hiçbir OBD komutu göndermez, polling davranışını değiştirmez.
+     */
+    @PluginMethod
+    public void getObdExtendedPollEvidence(PluginCall call) {
+        ExtendedPollEvidence.Snapshot s = ExtendedPollEvidence.INSTANCE.snapshot();
+        JSObject ret = new JSObject();
+        ret.put("present", s.present);
+        ret.put("transport", s.transport);
+        ret.put("burstEnabled", s.burstEnabled);
+        ret.put("configuredPidCount", s.configuredPidCount);
+        JSArray preview = new JSArray();
+        for (String pid : s.configuredPidPreview) preview.put(pid);
+        ret.put("configuredPidPreview", preview);
+
+        JSObject c = new JSObject();
+        c.put("pollCycles", s.pollCycles);
+        c.put("burstCycles", s.burstCycles);
+        c.put("roundRobinCycles", s.roundRobinCycles);
+        c.put("attempted", s.attemptedCount);
+        c.put("success", s.successCount);
+        c.put("noData", s.noDataCount);
+        c.put("busy", s.busyCount);
+        c.put("negativeResponse", s.negativeResponseCount);
+        c.put("error", s.errorCount);
+        c.put("timeoutNoBytes", s.timeoutNoBytesCount);
+        c.put("timeoutPartial", s.timeoutPartialCount);
+        c.put("parseFailure", s.parseFailureCount);
+        c.put("cancelled", s.cancelledCount);
+        c.put("unknownFailure", s.unknownFailureCount);
+        c.put("callbackEmitted", s.callbackEmittedCount);
+        c.put("maxBurstSizeObserved", s.maxBurstSizeObserved);
+        ret.put("counters", c);
+
+        ret.put("lastAttemptedPid", s.lastAttemptedPid);
+        ret.put("lastSuccessfulPid", s.lastSuccessfulPid);
+        ret.put("lastOutcome", s.lastOutcome);
+        ret.put("lastElapsedMs", s.lastElapsedMs);
+        ret.put("lastPollAt", s.lastPollAt);
+        ret.put("coherent", s.isCoherent());
+
+        JSArray attempts = new JSArray();
+        for (ExtendedPollEvidence.Attempt a : s.lastAttempts) {
+            JSObject o = new JSObject();
+            o.put("pid", a.pid);
+            o.put("outcome", a.outcome);
+            o.put("elapsedMs", a.elapsedMs);
+            o.put("responseLength", a.responseLength);
+            o.put("callbackEmitted", a.callbackEmitted);
+            attempts.put(o);
+        }
+        ret.put("lastAttempts", attempts);
         call.resolve(ret);
     }
 

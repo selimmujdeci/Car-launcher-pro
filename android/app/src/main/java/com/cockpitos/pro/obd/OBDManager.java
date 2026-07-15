@@ -519,6 +519,8 @@ public final class OBDManager {
     }
 
     private void pollLoop() {
+        // PR-OBD-DIAG-3: yeni poll oturumu — extended kanıt sayaçlarını sıfırla (niyet korunur).
+        ExtendedPollEvidence.INSTANCE.reset("classic");
         while (obdRunning && isTransportAlive()) {
             try {
                 // Kendini iyileştirme: PID okumaları hataları fail-soft yutar (ERROR→-1),
@@ -565,20 +567,25 @@ public final class OBDManager {
                 // Patch 8: EXTENDED grup — normalde turda EN FAZLA BİR PID, round-robin,
                 // POLL_SLOW önceliğinde (DTC/USER her zaman öne geçer). Liste boşken sıfır
                 // maliyet. BURST modunda (Canlı Test ekranı) turda TÜM liste okunur.
+                // PR-OBD-DIAG-3: her deneme outcome'u ExtendedPollEvidence'a işlenir (davranış aynı).
                 java.util.List<String> ext = extendedPids;
                 if (!ext.isEmpty()) {
-                    if (diagnosticBurst) {
+                    final boolean burst = diagnosticBurst;
+                    ExtendedPollEvidence.INSTANCE.recordCycle(burst, ext.size());
+                    if (burst) {
                         // Teşhis burst: tüm izlenen PID'ler bu turda okunur → hızlı tazeleme.
                         for (String extPid : ext) {
-                            if (!obdRunning) break;
-                            String extRaw = queuedExtendedRead(extPid);
-                            if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                            if (!obdRunning) {
+                                ExtendedPollEvidence.INSTANCE.recordAttempt(
+                                    extPid, ExtendedPollEvidence.Outcome.CANCELLED, 0, 0, false);
+                                break;
+                            }
+                            recordAndEmitExtended(extPid);
                         }
                     } else {
                         final String extPid = ext.get(extendedIdx % ext.size());
                         extendedIdx++;
-                        String extRaw = queuedExtendedRead(extPid);
-                        if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                        recordAndEmitExtended(extPid);
                     }
                 }
                 pollCycle++;
@@ -662,15 +669,33 @@ public final class OBDManager {
         this.diagnosticBurst = on;
     }
 
-    /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 8). */
-    private String queuedExtendedRead(String pid) {
+    /**
+     * PR-OBD-DIAG-3: bir EXTENDED PID'i okur, outcome kanıtını biriktirir ve (yalnız OK+veri
+     * durumunda — eski davranışla birebir aynı) JS'e yayar. Ek OBD komutu YOK.
+     */
+    private void recordAndEmitExtended(String extPid) {
+        long t0 = System.currentTimeMillis();
+        ElmResponseParser.Result r = queuedExtendedClassified(extPid);
+        long dt = System.currentTimeMillis() - t0;
+        ExtendedPollEvidence.Outcome outcome = (r == null)
+            ? ExtendedPollEvidence.Outcome.CANCELLED
+            : ExtendedPollEvidence.fromResult(r);
+        boolean emit = r != null && r.kind == ElmResponseParser.Kind.OK
+            && r.dataHex != null && !r.dataHex.isEmpty();
+        int respLen = (r != null && r.raw != null) ? r.raw.length() : 0;
+        ExtendedPollEvidence.INSTANCE.recordAttempt(extPid, outcome, dt, respLen, emit);
+        if (emit) listener.onExtendedPid(extPid, r.dataHex);
+    }
+
+    /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir — outcome sınıflandırmalı (Patch 8 / DIAG-3). */
+    private ElmResponseParser.Result queuedExtendedClassified(String pid) {
         final ElmProtocol p = elm;
         if (p == null) return null;
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.POLL_SLOW, null,
-                () -> p.readPidRaw(pid)).get();
+                () -> p.readPidClassified(pid)).get();
         } catch (Exception e) {
-            return null; // EXTENDED opsiyonel — hata sessizce atlanır (fail-soft)
+            return null; // kuyruk kapandı / iptal — çağıran CANCELLED sayar (fail-soft)
         }
     }
 
