@@ -111,7 +111,7 @@ vi.mock('../platform/crashLogger', () => ({
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../platform/nativePlugin';
 import {
-  startOBD, stopOBD, onOBDData, getHandshakeDiagnostics,
+  startOBD, stopOBD, onOBDData, getHandshakeDiagnostics, resetObdConnection,
   type OBDData,
 } from '../platform/obdService';
 
@@ -837,6 +837,61 @@ describe('obdService — araç değişimi kurtarması, tek-araç kullanıcısın
     expect(seen.filter((p) => p === '5').length).toBeGreaterThan(seen.filter((p) => p === undefined).length);
 
     // KİLİT 3 (F0-2 sözleşmesi): kalıcı kayıt hiçbir hâlde SİLİNMEZ.
+    expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   3f. BAĞLANTIYI SIFIRLA (kullanıcı-tetikli) — "hiç bağlanılmamış gibi".
+
+   SAHA (2026-07-15, kullanıcı isteği): dongle yeni araca takılınca tarama ekranındaki
+   "Bağlantıyı Sıfırla" → sistem hiç bağlantı yokmuş gibi davranmalı → yeni araca bağlanır.
+   Eskiden bunun TEK yolu uygulamayı komple öldürmekti: `stopOBD()` soketi kapatır ama
+   OTURUM-İÇİ öğrenme/kimlik durumunu (lastSuccessAt / addressConnectedOnce / bypass /
+   protocolCycle) KORUR → yeni araca eski aracın protokolü zorlanmaya devam ederdi.
+
+   KULLANICI BEYANI EN GÜÇLÜ KANITTIR: sistem araç değişimini timeout biriktirerek
+   TAHMİN eder (~1 dk); kullanıcı BİLİR → tahmin eşiği beklenmez.
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — resetObdConnection: hiç bağlanılmamış gibi başlar', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({
+      devices: [{ name: 'ELM327 BT', address: '00:11:22:33:44:55' }],
+    });
+    localStorage.setItem('obd:lastProtocol', '5');   // eski araçtan (Trafic/KWP)
+  });
+  afterEach(() => {
+    stopOBD();
+    localStorage.removeItem('obd:lastProtocol');
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('sıfırlama sonrası İLK deneme ATSP0 gider (eski aracın protokolü zorlanmaz)', async () => {
+    // 1) Eski araca bağlan → lastSuccessAt + addressConnectedOnce dolar.
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValueOnce({ protocol: '5' });
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 10; i++) { await Promise.resolve(); }
+    expect(getHandshakeDiagnostics().lastSuccessAt).not.toBeNull();
+
+    // 2) Kullanıcı dongle'ı yeni araca taktı → "Bağlantıyı Sıfırla".
+    resetObdConnection();
+
+    // Handshake kanıtı sıfırlanır (yeni araç → eski aracın el sıkışması geçersiz).
+    expect(getHandshakeDiagnostics().lastSuccessAt).toBeNull();
+
+    // 3) Yeni tur: protokol ZORLANMAZ → ATSP0-otomatik ile yeni araç bulunur.
+    vi.mocked(CarLauncher.connectOBD).mockClear();
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {}));
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const arg = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string } | undefined;
+    expect(arg?.protocol).toBeUndefined();
+
+    // 4) F0-2 sözleşmesi: kalıcı kayıt SİLİNMEZ — başarıdaki ATDPN üzerine yazar.
     expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
   });
 });

@@ -1594,6 +1594,39 @@ export function stopOBD(): void {
 }
 
 /**
+ * BAĞLANTIYI SIFIRLA — "hiç bağlanılmamış gibi" davran (KULLANICI-TETİKLİ).
+ *
+ * Neden gerekli: `stopOBD()` soketi kapatır ama OTURUM-İÇİ öğrenme/kimlik durumuna
+ * bilinçli olarak DOKUNMAZ (aynı araca yeniden bağlanırken hızlı olmak için korunur).
+ * Kullanıcı dongle'ı BAŞKA ARACA taktığında ise tam tersi gerekir: bu durum korunursa
+ *   · `_lastHandshakeSuccessAt` dolu  → flaky-araç guard'ı yanlış protokolün bypass'ını
+ *     geciktirir (limit 3),
+ *   · `_addressConnectedOnce` true    → "doğrulanmış adaptör, ASLA pes etme" → deep-reconnect
+ *     sonsuz döner → ekran "Bağlanıyor…"da kalır,
+ *   · `_protocolCycleIndex` / bypass  → eski aracın protokolü zorlanmaya devam eder.
+ * Kullanıcı uygulamayı ÖLDÜRDÜĞÜNDE bunlar sıfırlandığı için bağlantı düzeliyordu
+ * (saha 2026-07-15). Bu fonksiyon aynı etkiyi uygulamayı kapatmadan verir.
+ *
+ * KULLANICI BEYANI EN GÜÇLÜ KANITTIR: sistem araç değişimini ancak timeout biriktirerek
+ * TAHMİN eder; kullanıcı BİLİR. Bu yüzden burada tahmin eşikleri beklenmez.
+ *
+ * F0-2 sözleşmesi KORUNUR: kalıcı `obd:lastProtocol` SİLİNMEZ — ilk deneme ATSP0-otomatik
+ * gider, yeni araç bulununca başarıdaki ATDPN yazımı önbelleği kendiliğinden tazeler.
+ * Kayıtlı adres/transport da SİLİNMEZ (aynı dongle) — kullanıcı isterse listeden başka
+ * cihaz seçebilir. Yeniden bağlantıyı çağıran başlatır (`startOBD`).
+ */
+export function resetObdConnection(): void {
+  stopOBD();                          // soket + timer + watchdog + mock (zero-leak)
+  _learnedProtocolBypassed = true;    // ilk deneme ATSP0-otomatik → yeni aracı bul
+  _learnedProtocolTimeouts = 0;
+  _lastHandshakeSuccessAt  = null;    // flaky-araç guard'ı sıfır → yanlış protokol hızlı bypass
+  _addressConnectedOnce    = false;   // deep-reconnect sonsuz döngüsü açılmaz
+  _protocolCycleIndex      = 0;
+  _reconnectAttempts       = 0;
+  _handshakeDiag = _mkHandshakeDiag({ outcome: 'not_run', ranAt: null });
+}
+
+/**
  * Push live data directly from the native plugin (alternative to listener pattern).
  */
 export function updateOBDData(partial: Partial<NativeOBDData>): void {

@@ -10,9 +10,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings, KeyRound, Trash2, Stethoscope, ChevronDown } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
-import { startOBD, stopOBD, useOBDConnectionState, useOBDState } from '../../platform/obdService';
+import { startOBD, stopOBD, resetObdConnection, useOBDConnectionState, useOBDState } from '../../platform/obdService';
 import { classifyObdDevice, CONFIDENCE_RANK, type ObdConfidence } from '../../platform/obdDiscovery';
-import { saveObdAddress, saveObdTransport, isValidTcpAddress, loadVerifiedObdAddresses } from '../../platform/obdStorage';
+import { saveObdAddress, saveObdTransport, isValidTcpAddress, loadVerifiedObdAddresses, loadObdAddress, loadObdTransport } from '../../platform/obdStorage';
 import { OBDDiagnosticTimeline } from './OBDDiagnosticTimeline';
 import { startSession, setSessionDevice, endSession, recordDiag } from '../../platform/obdDiagnosticRecorder';
 
@@ -911,6 +911,34 @@ export function OBDConnectModal({ open, onClose }: Props) {
           >
             <RefreshCw style={{ width: iconSm, height: iconSm }} className={scanning ? 'animate-spin' : ''} />
             {scanning ? 'Taranıyor…' : 'Yeniden Tara'}
+          </button>
+          {/*
+            BAĞLANTIYI SIFIRLA — dongle başka araca takıldığında (saha 2026-07-15).
+            Sistem araç değişimini ancak timeout biriktirerek TAHMİN eder (~1 dk);
+            kullanıcı BİLİR → tek dokunuşla "hiç bağlanılmamış gibi" başlat.
+            Eskiden bunun tek yolu uygulamayı komple öldürmekti.
+          */}
+          <button
+            onClick={() => {
+              resetObdConnection();
+              // Kayıtlı adres korunur (aynı dongle) → kullanıcı hemen yeniden bağlanabilir;
+              // isterse listeden başka cihaz seçer. Protokol kaydı SİLİNMEZ: ilk deneme
+              // ATSP0-otomatik gider, yeni araç bulununca ATDPN önbelleği tazeler.
+              const addr = loadObdAddress();
+              if (addr) startOBD(addr, undefined, loadObdTransport() ?? undefined);
+            }}
+            className="font-bold uppercase tracking-wider transition-all active:scale-95"
+            style={{
+              padding: `${spMd} ${spXl}`,
+              fontSize: fsm,
+              borderRadius: rMd,
+              minHeight: '44px',
+              background: 'var(--oem-surface-2)',
+              border: '1px solid var(--oem-warn, var(--oem-line))',
+              color: 'var(--oem-ink-2)',
+            }}
+          >
+            Bağlantıyı Sıfırla
           </button>
           <button
             onClick={onClose}
