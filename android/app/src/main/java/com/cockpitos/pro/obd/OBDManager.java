@@ -3,13 +3,18 @@ package com.cockpitos.pro.obd;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Build;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -318,27 +323,12 @@ public final class OBDManager {
 
                 try { bt.cancelDiscovery(); } catch (SecurityException ignored) {}
 
-                // ── Silent PIN Pairing ────────────────────────────────────
-                // Cihaz eşleştirilmemiş (BOND_NONE) ve PIN sağlanmışsa
-                // Android'in sistem diyaloğu göstermeden sessizce eşleştir.
-                if (present(pin) && device.getBondState() != BluetoothDevice.BOND_BONDED) {
-                    try {
-                        device.setPin(pin.getBytes());
-                        device.createBond();
-                        // Eşleştirme tamamlanana kadar bekle — max 15 s
-                        int waited = 0;
-                        while (device.getBondState() != BluetoothDevice.BOND_BONDED && waited < 15_000) {
-                            Thread.sleep(300);
-                            waited += 300;
-                        }
-                        if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
-                            android.util.Log.w("OBD", "Silent pairing timeout — bağlantı yine de deneniyor");
-                        }
-                    } catch (Exception pairEx) {
-                        // Eşleştirme başarısız olsa da RFCOMM insecure fallback denenecek
-                        android.util.Log.w("OBD", "Silent pairing hatası: " + pairEx.getMessage());
-                    }
-                }
+                // ── OEM-grade eşleşme kapısı (PairingGate) ─────────────────
+                // KURAL: daha önce eşleşmiş cihazda HİÇBİR DURUMDA yeniden pair isteği çıkmaz;
+                // dialog yalnız gerçekten gerekli olduğunda. Karar TEK yerde (PairingGate),
+                // otoriter kaynak getBondedDevices() listesi (tek device nesnesinin cache'li
+                // state'i değil). Bkz. PairingGate sınıf yorumu (kök neden analizi).
+                ensureBonded(bt, device, address, pin);
 
                 // ── 3 katmanlı RFCOMM bağlantı (Car Scanner / Torque yöntemi) ──────────
                 // ELM327 klonları SDP servis kaydını çoğu kez düzgün yayınlamaz; bu yüzden
@@ -416,6 +406,153 @@ public final class OBDManager {
                 cb.onFailed(e.getMessage(), code);
             }
         });
+    }
+
+    // ── OEM-grade eşleşme (PairingGate + dialog-bastırma) ─────────────────────
+
+    /** Bond timeout (sessiz eşleşme) — createBond sonrası BONDED beklenen üst sınır. */
+    private static final long PAIR_TIMEOUT_MS = 15_000L;
+
+    /**
+     * Eşleşmeyi OEM kuralına göre YÖNETİR — {@link PairingGate} kararını uygular:
+     *  - ALREADY_BONDED → hiçbir şey yapma (pair YOK, dialog imkânsız). ANA KAZANÇ: bonded
+     *    cihaz artık {@code getRemoteDevice().getBondState()} cache'i yüzünden pairing bloğuna
+     *    GİRMEZ; otorite {@code getBondedDevices()} listesidir.
+     *  - WAIT_BONDING → devam eden eşleşmeyi bekle (İKİNCİ createBond başlatma → çift-bond
+     *    yarışı + dialog riski biter).
+     *  - PAIR_WITH_PIN → dialog-bastırmalı sessiz eşleşme (PAIRING_REQUEST receiver + setPin).
+     *  - CONNECT_WITHOUT_PAIRING → createBond ÇAĞIRMA; secure socket.connect() Android'in
+     *    kendi akışını tetikler (dialog yalnız gerçekten gerekliyse).
+     *
+     * Fail-soft: her adım kendi hatasını yutar — eşleşme kesinleşmese bile 3 katmanlı RFCOMM
+     * (secure→insecure→reflection) yine denenir (mevcut davranış korunur).
+     */
+    private void ensureBonded(BluetoothAdapter bt, BluetoothDevice device, String address, String pin) {
+        int bondState;
+        boolean inBondedList;
+        try {
+            bondState = device.getBondState();
+            inBondedList = isInBondedList(bt, address);
+        } catch (SecurityException e) {
+            android.util.Log.w("OBD", "Bond durumu okunamadı (izin): " + e.getMessage());
+            return; // izin yoksa pairing'e karışma — RFCOMM yolu yine denenir
+        }
+
+        PairingGate.Decision d = PairingGate.decide(bondState, inBondedList, present(pin));
+        android.util.Log.i("OBD", "[Pairing] bondState=" + bondState
+            + " bondedList=" + inBondedList + " hasPin=" + present(pin) + " → " + d);
+
+        switch (d) {
+            case ALREADY_BONDED:
+            case CONNECT_WITHOUT_PAIRING:
+                return; // pairing YOK — socket katmanı devralır
+            case WAIT_BONDING:
+                waitForBond(device, PAIR_TIMEOUT_MS); // yalnız BEKLE, yeni bond başlatma
+                return;
+            case PAIR_WITH_PIN:
+                silentPairWithPin(device, pin);
+                return;
+        }
+    }
+
+    /** Otoriter bond kontrolü — {@code getBondedDevices()} listesi (cache'li tek-device state değil). */
+    private boolean isInBondedList(BluetoothAdapter bt, String address) {
+        try {
+            Set<BluetoothDevice> bonded = bt.getBondedDevices();
+            if (bonded == null) return false;
+            for (BluetoothDevice b : bonded) {
+                if (address.equals(b.getAddress())) return true;
+            }
+        } catch (SecurityException ignored) {}
+        return false;
+    }
+
+    /** Devam eden eşleşmenin (BOND_BONDING) sonucunu bekler — yeni createBond BAŞLATMAZ. */
+    private void waitForBond(BluetoothDevice device, long timeoutMs) {
+        long waited = 0;
+        try {
+            while (device.getBondState() == BluetoothDevice.BOND_BONDING && waited < timeoutMs) {
+                Thread.sleep(300);
+                waited += 300;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (SecurityException ignored) {}
+    }
+
+    /**
+     * Dialog-BASTIRMALI sessiz eşleşme: PAIRING_REQUEST receiver'ı (PIN/consent'i uygulamadan
+     * enjekte eder) + setPin + createBond. Receiver olmadan setPin+createBond modern SSP
+     * adaptörlerde sistem dialog'unu tetikler — bu yüzden pair penceresi boyunca kayıtlı kalır.
+     * Yalnız gerçekten eşleşmemiş cihaz için çağrılır (PairingGate.PAIR_WITH_PIN).
+     */
+    private void silentPairWithPin(BluetoothDevice device, String pin) {
+        BroadcastReceiver pairingReceiver = registerPairingResponder(device, pin);
+        try {
+            try { device.setPin(pin.getBytes(StandardCharsets.US_ASCII)); } catch (Exception ignored) {}
+            boolean started;
+            try { started = device.createBond(); }
+            catch (SecurityException e) { android.util.Log.w("OBD", "createBond izni yok: " + e.getMessage()); return; }
+            if (!started) { android.util.Log.w("OBD", "createBond() false — RFCOMM insecure fallback denenecek"); return; }
+
+            waitForBond(device, PAIR_TIMEOUT_MS);
+            if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+                android.util.Log.w("OBD", "Sessiz eşleşme timeout — bağlantı yine de deneniyor");
+            }
+        } finally {
+            if (pairingReceiver != null) {
+                try { mContext.unregisterReceiver(pairingReceiver); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    /**
+     * PAIRING_REQUEST için yüksek-öncelikli, dialog-bastıran receiver kaydeder. Yalnız HEDEF
+     * cihaz için PIN/consent'i programatik uygular ({@code abortBroadcast()} ile sistem
+     * dialog'unu iptal eder). Kayıt başarısız olursa null döner (fail-soft — pair yine denenir).
+     */
+    private BroadcastReceiver registerPairingResponder(final BluetoothDevice target, final String pin) {
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context ctx, Intent intent) {
+                if (!BluetoothDevice.ACTION_PAIRING_REQUEST.equals(intent.getAction())) return;
+                BluetoothDevice dev;
+                int variant;
+                try {
+                    dev = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                        ? intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class)
+                        : intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                    variant = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, BluetoothDevice.ERROR);
+                } catch (Exception e) { return; }
+                if (dev == null || !dev.getAddress().equals(target.getAddress())) return;
+
+                final int CONSENT = 3; // PAIRING_VARIANT_CONSENT (gizli API — literal)
+                try {
+                    if (variant == BluetoothDevice.PAIRING_VARIANT_PIN) {
+                        dev.setPin(pin.getBytes(StandardCharsets.US_ASCII));
+                        abortBroadcast(); // sistem dialog'unu bastır
+                    } else if (variant == BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION
+                            || variant == CONSENT) {
+                        dev.setPairingConfirmation(true);
+                        abortBroadcast();
+                    }
+                } catch (SecurityException e) {
+                    android.util.Log.w("OBD", "Pairing yanıt izni yok: " + e.getMessage());
+                }
+            }
+        };
+        try {
+            IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_PAIRING_REQUEST);
+            filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                mContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                mContext.registerReceiver(receiver, filter);
+            }
+            return receiver;
+        } catch (Exception e) {
+            android.util.Log.w("OBD", "Pairing receiver kaydı başarısız: " + e.getMessage());
+            return null;
+        }
     }
 
     /**
