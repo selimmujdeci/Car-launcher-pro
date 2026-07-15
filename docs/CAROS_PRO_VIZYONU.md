@@ -506,7 +506,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Readiness | ENTEGRE | HAYIR | Doblo'da 3/3 monitör gözlendi (🟡 #70) |
 | UDS 0x19 | ENTEGRE | HAYIR | FAZ 3; üretici kodlu araç yok |
 | UDS 0x22 | ENTEGRE | HAYIR | FAZ 3; saha borcu |
-| KWP2000 | ENTEGRE | HAYIR | Trafic **kullanıcıda değil** → uzaktan rapor yolu |
+| KWP2000 | ENTEGRE | HAYIR | Trafic **kullanıcıda değil** → uzaktan rapor yolu. **2026-07-15 PR-OBD-KWP-1:** KWP acquisition yolu kapandı — boş-tx/6-hane KWP adresleme + **Servis 21** (ReadDataByLocalIdentifier) + profil `protocols` kapısı (CAN profili KWP hattında sorgulanmaz → COMM_ERROR fırtınası bitti) + `renaultTraficKwpProfile` (kanıt-dürüst: yalnız ISO kimlik DID'leri, LID'ler Servis 21 keşif taramasıyla sahada kanıtlanacak) + extended NO_DATA demotion (39/39 NO_DATA israfı biter, UI "VERMİYOR" gerçek nedeni gösterir) + `signalHub` tek otoriter okuma. 🔴 #79 |
 | ISO-TP | — | — | **Bilinçli yazılmadı** (ELM327 donanımda yapıyor) — gerekçe roadmap'te |
 | Manufacturer-specific diagnostics | ENTEGRE | HAYIR | F3-1; üretici kodlu araç borcu |
 | Renault/Dacia DF codes | ENTEGRE | HAYIR | Trafic borcu |

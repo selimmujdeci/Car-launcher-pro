@@ -258,6 +258,35 @@
 
 ---
 
+## PR-OBD-KWP-1 — KWP Acquisition Yolu (2026-07-15, roadmap-sonrası ek faz)
+
+> Trafic sahası kök nedenleri: (1) Mode 22/DID yolu CAN adresleme VARSAYIYORDU → KWP hattında
+> COMM_ERROR fırtınası; (2) KWP üretici verisinin gerçek kapısı Servis 21 HİÇ yoktu;
+> (3) NO_DATA dönen extended PID'ler sonsuza dek yeniden sorgulanıyordu (ATST FF sonrası
+> tur başına ~1 sn × 39 PID israfı); (4) üç ayrı değer deposu tek veri gerçeği sunmuyordu.
+
+- [x] **KWP-1a · Native KWP adresleme** — 🔴 — `withEcuHeader`: boş tx = header'a DOKUNMA
+  (varsayılan oturum — KWP'de en olası başarı yolu) · 6 hane = KWP 3-bayt ATSH (ATCRA yok,
+  restore protokole göre C133F1/686AF1, HeaderRestoreException disiplini korunur).
+- [x] **KWP-1b · Servis 21 (ReadDataByLocalIdentifier)** — 🔴 — `readDataById('21', lid)`
+  ortak udsRequest motorunda (NRC/pending/session TEK yerde); plugin `readObdDid.service`
+  parametresi; `openExtendedSession` protokol-farkındalı (KWP: 10 81 → 10 C0; CAN: 10 03).
+- [x] **KWP-1c · Profil protokol kapısı + Trafic profili** — 🔴 — `VehicleDidProfile.protocols`
+  (CAN profilleri `['can']` işaretlendi → KWP hattında sorgulanmaz, `PROTOCOL_MISMATCH`
+  kanıtı); yeni `renaultTraficKwpProfile` (kwp/iso9141, varsayılan-oturum adresleme,
+  YALNIZ ISO 14229-1 kimlik DID'leri — DDT2000 kopyalanmaz, LID'ler keşifle kanıtlanacak);
+  `didDiscoveryService` Servis 21 LID taraması (salt-okuma, kullanıcı tetiklemeli).
+- [x] **KWP-1d · Extended NO_DATA öğrenme (demotion)** — 🔴 — native `ExtendedNoDataTracker`:
+  3 ardışık NO_DATA/7F → oturum-içi turdan düşer (OK sayaç sıfırlar; TIMEOUT/ERROR NÖTR —
+  yanlış-negatif öğrenme yasak); demote anında TEK `obdExtendedPidStatus` olayı → TS
+  `getPidStatus()`='no_data' → Canlı Test "VERMİYOR" rozeti + `obdDeep.extended.unavailable`.
+- [x] **KWP-1e · signalHub (tek otoriter okuma yüzeyi)** — 🔴 — `readSignal('speed'|'pid:5C'|
+  'did:F190')` → SignalEnvelope (0≠no_data · unsupported/no_data/stale/valid kanıtla ayrışır ·
+  provenance+confidence); depolar TAŞINMADI (hot-path'e sıfır dokunuş), pull-tabanlı.
+- Kabul (cihaz, Trafic): core akış kesintisiz · `mode22.decision` PROTOCOL_MISMATCH yerine
+  gerçek sorgu sonucu · Servis 21 keşfinde ≥1 pozitif LID (varsa) · NO_DATA 39'lusu ~2 tur
+  sonra turdan düşer ve Canlı Test gerçek nedeni gösterir · KWP oturumu kararlı.
+
 ## Nasıl güncelliyoruz (iş akışı)
 1. Bir göreve başlarken kutucuğu `[~]` yap.
 2. Kod tamam + `npm run test` yeşil + `tsc` temiz olunca `[x]` yap (ledger 🔴 kalır).
