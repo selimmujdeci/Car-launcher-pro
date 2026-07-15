@@ -43,6 +43,32 @@ patch · real-device doğrulama · performans bütçesi); vizyon-hizalı yeni ze
 gerçek araçta o ölçüt gözlemlenince **🟢 "doğrulandı"**ya taşınır, cihazda düşerse
 **❌ "düştü"**ye. Kütükte 🔴 bekleyen bir özelliği "tamam/çalışıyor" diye sunma.
 
+## CAROS PRO Vizyon Kaynağı
+
+CAROS PRO ürün vizyonunun, capability roadmap'inin ve özellik gerçeklik
+durumlarının tek kalıcı kaynağı:
+
+`docs/CAROS_PRO_VIZYONU.md`
+
+CAROS PRO ile ilgili her görevden önce bu dosya okunmalıdır.
+
+İlgili bir PR tamamlandığında:
+- etkilenen özellik durumu,
+- production/test/UI/saha kanıtı,
+- kalan eksikler,
+- sonraki atomik PR
+
+bu dosyada güncellenmelidir.
+
+Dosya varlığı veya izole test özelliği tamamlanmış saymak için yeterli değildir.
+Gerçek saha kanıtı olmadan "Sahada Doğrulandı" veya "Ürün Hazır" yazılamaz.
+
+Durum seviyeleri: **YOK · İSKELET · ENTEGRE · DOĞRULANDI · SAHADA DOĞRULANDI**
+(+ ayrı alan: **ÜRÜN HAZIR: EVET/HAYIR** — altı koşulun tamamı şart).
+Saha durumunda `docs/DEVICE_VALIDATION_LEDGER.md` mutlak otoritedir; vizyon
+belgesiyle çelişirse durum YÜKSELTİLMEZ, çelişki vizyon belgesinin
+"Çelişki Kaydı" bölümüne yazılır.
+
 ## 🤖 OTOMATİK AJAN/MODEL YÖNLENDİRME (KULLANICI POLİTİKASI — ZORUNLU)
 
 Kullanıcı ajan/model ADI VERMEZ. Görev geldiğinde ana oturum görevi sınıflandırır

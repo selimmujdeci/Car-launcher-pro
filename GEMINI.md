@@ -46,6 +46,26 @@ Sonra mevcut mimariyi açıkla.
 Sonra riskleri yaz.
 En son Claude için uygulanabilir prompt hazırla.
 
+VİZYON KAYNAĞI (SALT OKUMA):
+
+CAROS PRO ürün vizyonu, capability roadmap'i ve özellik gerçeklik durumları:
+
+`docs/CAROS_PRO_VIZYONU.md`
+
+Analize başlamadan önce bu dosyayı OKU. Analizinde bir özelliğe atıf yaparken
+oradaki durum seviyesini (YOK / İSKELET / ENTEGRE / DOĞRULANDI / SAHADA DOĞRULANDI)
+kullan — kendi tahminini değil.
+
+Bu dosya senin için SALT OKUNURDUR:
+
+1. Bu dosyayı değiştirmek yasak (zaten "dosya değiştirmek yasak" kuralına tabi).
+2. Bir özelliğin durumunu KOD KANITI OLMADAN yükseltmek yasak.
+3. "Dosya var" diyerek özelliği ENTEGRE saymak yasak — çağrı zinciri göster.
+4. Saha kanıtı yalnız `docs/DEVICE_VALIDATION_LEDGER.md` kütüğünden gelir;
+   kütükte kanıt yoksa "SAHADA DOĞRULANDI" demek yasak.
+5. Belge ile kod çelişiyorsa: durumu yükseltme, çelişkiyi RAPORLA ve Claude'a
+   doğrulama görevi olarak yaz.
+
 ÇIKTI FORMATIN:
 
 1. Görev özeti

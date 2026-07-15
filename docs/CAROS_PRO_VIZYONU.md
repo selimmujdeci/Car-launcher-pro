@@ -1,0 +1,579 @@
+# CAROS PRO VİZYONU
+
+> **Durum:** Canlı belge
+> **Belge türü:** Ürün vizyonu + capability roadmap
+> **Kaynak gerçekliği:** Kod, test, UI ve saha kanıtı ayrı değerlendirilir
+> **Güncelleme kuralı:** İlgili her PR sonrasında güncellenir
+> **Son güncelleme:** 2026-07-15 · Branch: `feat/w5-obd-pr1-native-handshake`
+
+---
+
+## 0. Bu Belge Ne Değildir
+
+Bu bir pazarlama yazısı değildir. Burada yazan bir özellik, **o özelliğin var olduğu
+anlamına gelmez** — yanındaki durum etiketi neyse odur. Vizyon bölümleri ürünün nereye
+gittiğini anlatır; capability defteri ürünün **bugün nerede olduğunu** anlatır. İkisi
+bilinçli olarak ayrı tutulmuştur ve karıştırılmaları yasaktır.
+
+Bu belge Claude'un veya herhangi bir ajanın sohbet hafızasının yerine geçer. Sohbet
+hafızası uçar; bu dosya sürüm kontrolündedir.
+
+---
+
+## 1. Kaynak Hiyerarşisi (çelişkide kim kazanır)
+
+| Belge | Rolü | Otorite |
+|---|---|---|
+| `CLAUDE.md` | Anayasa — çalışma kuralları | **Mutlak** (çatışmada `AI.md` ile birlikte kazanır) |
+| `AI.md` | Uygulama kuralları (atomik patch, real-device) | **Mutlak** |
+| `docs/DEVICE_VALIDATION_LEDGER.md` | **Saha kanıtının TEK kaynağı** | Saha durumunda **mutlak** |
+| **`docs/CAROS_PRO_VIZYONU.md`** (bu dosya) | **Ürün vizyonu + capability roadmap ana kaynağı** | Vizyon/öncelik/durum özetinde **birincil** |
+| `docs/CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE.md` | Mimari referans (katmanlar, motorlar, invaryantlar) | Mimari "nasıl" sorusunda birincil |
+| `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md` | OBD/teşhis **alt-roadmap'i** (FAZ 0–4 görev kırılımı) | OBD görev detayında birincil |
+| `docs-local/caros-feature-audit.html` | 57 özellik **detay denetim görünümü** | Denetim ayrıntısında yardımcı |
+| `docs/CAROS_15_YIL_VIZYON_YOL_HARITASI.md` | 2026-07-08 tarihli denetim fotoğrafı | **Tarihsel** — bayat, güncellenmiyor |
+| `ROADMAP.md` (kök) | 2026-06-24 tarihli yol haritası | **Tarihsel** — bayat, güncellenmiyor |
+
+**Kural:** Bu belge ile bir başkası çelişirse → durum **yükseltilmez**, çelişki
+[§9 Çelişki Kaydı](#9-çelişki-kaydı)'na yazılır ve kod/test/saha denetimi yeniden yapılır.
+
+---
+
+## 2. Ana Ürün Vizyonu
+
+- **CAROS PRO yalnızca bir OBD uygulaması değildir.**
+- CAROS PRO, araç içinde çalışan **AI destekli Vehicle Operating System / Edge Brain**'dir.
+- **Arabam Cebimde**, aracın telefondaki ana kontrol ve yönetim merkezidir.
+- İki sistem **tek mantıksal Digital Twin, Vehicle Memory ve araç kimliği** paylaşır.
+- **Araç ekranı** güvenli sürüş, hızlı durum, navigasyon, medya ve sesli etkileşime odaklanır.
+- **Telefon uygulamasından** araçla ilgili neredeyse bütün bilgi ve yönetim işlemlerine ulaşılabilir.
+- Sistem **offline-first, fail-closed, zero-trust, evidence-first, safety-first ve
+  budget-aware** çalışır.
+- **Nihai amaç arızayı göstermek değil, oluşmadan önce önlemektir**; aracı, sürücüyü ve
+  aileyi korumaktır.
+
+**Referans neden Tesla değil:** Tesla yalnızca kendi aracını tanır. CAROS PRO yüzlerce
+**bilinmeyen** marka/modeli **öğrenmek** zorundadır — garantili OEM verisi yok, güvenilmez
+aftermarket telemetri var. Bu yüzden daha güçlü olmak zorundayız, daha gösterişli değil.
+
+---
+
+## 3. Mimari İlkeler (değişmez)
+
+1. **Safety First** — güvenlik-kritik iş her tier'da açık, her koşulda öncelikli.
+2. **Evidence First** — kanıtsız karar yok; her yargı kanıta bağlanır.
+3. **Zero-Trust Telemetry** — hiçbir veri doğrulanmadan kabul edilmez.
+4. **Fail-Closed Truth** — kanıt eksikse "temiz" denmez; belirsizlik belirsizdir.
+5. **Offline First** — internet bir özellik değil, bir bonustur.
+6. **Privacy and Consent First** — PII tek kapıdan maskelenir; rıza olmadan veri çıkmaz.
+7. **Budget-Aware Hybrid Runtime** — her katman DeviceTier bütçesine abonedir.
+8. **Modular Architecture** — modüller sözleşmeyle konuşur, birbirinin içine uzanmaz.
+9. **Event Bus ve bounded ortak veri sözleşmeleri** — tek bus; sınırsız payload yok.
+10. **Hot / Warm / Cold path ayrımı** — ağır analiz hot-path'e (3 Hz hız/RPM) asla girmez.
+11. **Gerçek araç kanıtı olmadan "tamamlandı" denmez.**
+12. **Dosya varlığı özellik varlığı sayılmaz.**
+13. **Testli olmak ürün hazır olmak anlamına gelmez.**
+14. **Saha doğrulaması olmadan "sahada doğrulandı" yazılmaz.**
+
+> İlke 11–14 bu belgenin varlık sebebidir. Bir PR bunları çiğnediğinde belge değil,
+> PR yanlıştır.
+
+---
+
+## 4. CAROS PRO ↔ Arabam Cebimde Bütünlüğü
+
+```
+┌─────────────────────────────────────────┐
+│  CAROS PRO — Araç içi gerçek zamanlı beyin │
+│  · OBD / CAN / GPS / sensörler            │
+│  · Safety Kernel                          │
+│  · canlı Digital Twin                     │
+│  · olay algılama                          │
+│  · fail-closed karar                      │
+│  · offline çalışma                        │
+└─────────────────────────────────────────┘
+                    ⇅  Vehicle Link Fabric
+┌─────────────────────────────────────────┐
+│  Arabam Cebimde — Telefon kontrol merkezi │
+│  · araç sağlığı        · bakım            │
+│  · Vehicle Memory      · raporlar         │
+│  · Digital Twin görünümü · AI             │
+│  · teşhis              · ayarlar          │
+│  · kullanıcı ve araç yönetimi             │
+└─────────────────────────────────────────┘
+                    ⇅  Güvenli Senkronizasyon
+┌─────────────────────────────────────────┐
+│  CAROS Cloud                              │
+│  · yedekleme                              │
+│  · uzun dönem öğrenme                     │
+│  · Fleet Intelligence                     │
+│  · çoklu cihaz senkronizasyonu            │
+└─────────────────────────────────────────┘
+```
+
+**Bugünkü gerçek:** "Arabam Cebimde" bugün `website/src/app/(pwa)/kumanda` altındaki
+PWA'dır — uzaktan komut (AES-256-GCM + ECDH P-256) ve panel çekirdeği vardır. Vizyondaki
+**tek mantıksal Digital Twin / Vehicle Memory paylaşımı henüz YOKTUR**: paylaşılan araç
+kimliği ve senkronizasyon sözleşmesi yazılmamıştır. Vehicle Link Fabric'in araç-içi ucu
+çalışır (store → provider → adapter → HAL → Event Bus → Kernel), **bulut ucu bağlı değildir**.
+
+---
+
+## 5. Gerçeklik Durum Modeli
+
+Her özellik için **yalnız** şu seviyeler kullanılır:
+
+| Seviye | Anlamı |
+|---|---|
+| **YOK** | Kod yok. Sıfırdan yazılacak. |
+| **İSKELET** | Dosya/motor var ama production'da çağrılmıyor veya tüketilmiyor. |
+| **ENTEGRE** | Gerçek çağrı zincirine bağlı, ama ürün katmanı (UI/hata/telemetri) eksik. |
+| **DOĞRULANDI** | Production entegre + davranış testli + UI/API + hata yönetimi tam. Saha kanıtı yok. |
+| **SAHADA DOĞRULANDI** | Yukarıdakilerin hepsi + kütükte ölçülebilir gerçek cihaz/araç kanıtı. |
+
+Ayrı alan: **ÜRÜN HAZIR: EVET / HAYIR**
+
+`ÜRÜN HAZIR = EVET` yalnızca şu **altı koşulun tamamında** verilebilir:
+
+1. Production entegrasyonu var.
+2. Davranış testleri var.
+3. Kullanıcı UI veya API yüzeyi var.
+4. Hata yönetimi var.
+5. Observability/telemetry var.
+6. **Gerçek cihaz veya araç doğrulaması var.**
+
+> Altı koşulun altıncısı en sık atlanan ve en pahalı olandır. Kütükte 🟢 olmayan hiçbir
+> özellik ÜRÜN HAZIR = EVET alamaz.
+
+**Bugünkü toplam (57 denetlenen özellik):** YOK 14 · İSKELET 22 · ENTEGRE 14 ·
+DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
+(Detay: `docs-local/caros-feature-audit.html`)
+
+---
+
+## 6. Yapılan ve Kanıtlananlar
+
+> Buraya **yalnız** kod/test/saha kanıtı olan işler girer. Sıra: en güçlü kanıt üstte.
+
+### 6.1 Sahada doğrulanmış (kütük 🟢)
+
+| # | İş | Kapsam | Test | Saha kanıtı | Kalan eksik |
+|---|---|---|---|---|---|
+| Ledger #67 | **Öğrenilmiş protokol timeout'ta korunur** (OBD-OS-F0-2) | 2-strike timeout kalıcı `obd:lastProtocol`'ü silmez, yalnız oturum-içi bypass | Suite yeşil; 3b regresyon kilidi yeni davranışa güncellendi | **Doblo (CAN) + Redmi + BLE**: kayıt korundu | Trafic (KWP) 10 soğuk açılış senaryosu hâlâ açık |
+| Ledger #3/#4/#5 | **Tanı Gönder uçtan uca** | boot self-pair → `triggerSupportSnapshot()` → RPC → `/admin/tani` | sanitize DENY_KEYS + teslimat 8-durum kilitleri | Cihazda buton → `vehicle_events` satırı → panelde listelendi | Migration 025/026 history boşluğu |
+| Ledger #B | **Backend `push_vehicle_event` `text = uuid` düzeltmesi** | RPC rate-limit sorgusu tip uyumsuzluğu | — | Canlı Supabase'te doğrulandı | — |
+| Ledger #10 | **VehicleCompute worker "require is not defined" ölümü** | oxc es2015 class-field → `_defineProperty` → `require` | Worker boot testi | Head unit'te worker ayakta | — |
+| Ledger #14 | **Cloud geofence uçtan uca** | SecuritySuite → `push_geofence_zone` RPC → head unit | — | Uçtan uca gözlendi | Geofence **yazma** yolu ayrı |
+
+### 6.2 Kısmi saha kanıtı (kütük 🟡)
+
+| # | İş | Ne kanıtlandı | Ne kanıtlanmadı |
+|---|---|---|---|
+| Ledger #66/69/71 | Fail-closed DTC verdisi (F0-1) · handshake DISCOVERY kuyruğu (F0-3) · tek reconnect otoritesi (F0-5) | **Doblo/CAN taze APK: regresyon YOK**; F0-1 verdisi "kapsam-farkında" davrandı | **DTC'li araç yok** → "temiz demeyecek" iddiası tetiklenemedi; F0-3/F0-5 mekanizmaları tetiklenmedi |
+| Ledger #70 | CAN regresyonu yok (F0-4) | Doblo'da 92 s kesintisiz akış: motor 62-69°C, devir 847-1088, menzil 270 km, 3/3 monitör | KWP (Trafic) kazancı — araç kullanıcıda değil |
+| Ledger #65 | Native handshake + supported PID discovery (W5-OBD-PR1) | Cihazda canlı veri: hız 15, RPM 905, coolant 80°C, yakıt barı | Extended PID **değer dolumu**; ⚠️ RPM=0 anomalisi |
+
+### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
+
+- **OBD Diagnostic OS FAZ 0–4:** 25/26 görev kod olarak tamam (+1 gereksiz→kapatıldı),
+  tam suite **4074 yeşil (235 dosya)**, tsc + lint + Java derlemesi temiz. **Commit YOK.**
+  Yalnız 3 madde saha kanıtına ulaştı (§6.1/§6.2). Detay: `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md`.
+- **Diagnostics V2 Root Cause Engine:** PR-1→8 uygulandı ve yeşil (Finding V2,
+  `buildRootCauseSnapshot`, errorLedger, rootCauseKb, INCONCLUSIVE, çok-hipotez,
+  `buildDiagnosticVerdict`, IncidentCenter VerdictSection). **Hiçbiri cihazda doğrulanmadı.**
+- **Platform omurgası:** Vehicle HAL · Event Bus · Kernel · Capability Registry · Provider
+  Adapter zinciri merged. Kütükte #33–#59 arası ağırlıkla 🔴.
+
+> **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
+> hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;
+> `ATH0` restore bozulursa standart poll parser'ı **sessizce** ölür. Kod bunu korur
+> (`HeaderRestoreException`, doğrulamalı+retry'li ATH0) ama **sahada kanıtlanmadı**.
+
+---
+
+## 7. Yapılacaklar (faz ve öncelik)
+
+### P0 — Yanlış güven / güvenlik
+
+| # | İş | Neden P0 | Kabul kriteri |
+|---|---|---|---|
+| P0-1 | **OBD FAZ 0–4 saha borcunu kapat** (25 maddeden 22'si 🔴/🟡) | Kod "tamam" ama kullanıcıya yanlış güven riski sahada kanıtlanmadı | Kütükte her madde 🟢 veya ❌; ❌ olan geri alınır |
+| P0-2 | **ATH0 restore regresyon testi (araçta)** | Sessiz veri ölümü — kullanıcı fark etmez | Tam tarama sonrası hız/RPM/coolant akışı 60 s kesintisiz |
+| P0-3 | **Gömülü AI anahtarı bundle/APK sızıntısı** | **Satış blocker** — `.env` VITE anahtarları literal gömülü | Anahtar rotate + kaldır + nokta erişim + CI guard |
+| P0-4 | **Debug/güvenlik bayrakları shippable build'de** (`/enable-adb`, port 8899) | Satışa gitmemeli | Release build'de erişilemez + guard testi |
+| P0-5 | **DTC'li araçta fail-closed verdi doğrulaması** (F0-1) | Ürünün ana güven vaadi | Pending/permanent kodlu araçta ekran "SİSTEM TEMİZ" DEMEZ |
+
+### P1 — Temel güvenilirlik
+
+| # | İş | Kabul kriteri |
+|---|---|---|
+| P1-1 | Extended PID **değer dolumu** + ⚠️ RPM=0 anomalisi kök nedeni | Canlı Test'te extended PID'ler değer gösterir; motor açıkken RPM>0 |
+| P1-2 | Trafic (KWP) 10 soğuk açılış — protokol koruma saha kabulü | `protocolActive='5'` kalır, dakikalarca-takılma = 0 |
+| P1-3 | `canStatus` store'a yazılmıyor (W4B artığı) | Kaynak-kaybı durumu store'dan okunabilir |
+| P1-4 | GPS çift/üçlü abonelik (#62) | Tek konum akışı; park gürültüsü kesilir |
+| P1-5 | Migration 025/026 history boşluğu | Supabase history ile kod uyumlu |
+
+### P2 — Ürün kapsamı
+
+| # | İş | Kabul kriteri |
+|---|---|---|
+| P2-1 | **Deep Scan tetikleyicisi** (W5-3c handler) — bkz. §8 | Kullanıcı/ignition ile gerçek tarama başlar, faz yürür, sonuç üretilir |
+| P2-2 | **Prediction Engine production tüketicisi** | Motor çıktısı store/UI'da görünür (tek dar dilim) |
+| P2-3 | Root Cause PR-9 (subsystem yayılımı) + cihaz doğrulaması | Kök neden gerçek araçta kanıtla üretilir |
+| P2-4 | Vehicle Memory — bounded kalıcı zaman-serisi | Yazma throttle'lı, bounded, atomik depo |
+| P2-5 | Digital Twin **provenance** katmanı | Her sinyalin kaynak izi okunabilir |
+| P2-6 | Cloud Sync şema + RLS/GRANT sözleşmesi (veri akışından ÖNCE) | GRANT+RLS+policy üçlüsü doğrulama sorgusuyla kanıtlı |
+
+### P3 — Kalite, UI ve gözlemlenebilirlik
+
+| # | İş | Kabul kriteri |
+|---|---|---|
+| P3-1 | Maintenance Timeline UI (mevcut veriyle) | Yeni sinyal eklemeden timeline görünür |
+| P3-2 | Privacy Center paneli | Ne toplanıyor / sil / dışa aktar |
+| P3-3 | Yerleşim Motoru'nu kalan temalara yay (EXPEDITION dahil) | Tüm temalarda yerleşim etkili |
+| P3-4 | Scan Completeness raporu UI | Hangi ECU tarandı/atlandı görünür |
+| P3-5 | Web↔ürün uyumu: "200+ DTC" iddiası → gerçek sayı | Web ile ürün aynı sayıyı söyler |
+
+### Uzun vadeli vizyon
+
+Aşağıdaki §8 defterinde **YOK** durumundaki her şey buraya aittir. Bunlar **taahhüt
+değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığında taahhüt olur.
+
+---
+
+## 8. Capability Defteri
+
+> Durumlar §5 modeline göredir. **YOK** = kod yok; vizyon rezervuarı.
+> Kritik/aktif özellikler tam şablonla, geri kalanı kompakt tabloyla tutulur.
+
+### 8.1 Tam şablonlu kritik özellikler
+
+#### Deep Vehicle Scan
+
+- **Amaç:** Tüm ECU'ları profesyonel biçimde tarayıp eksiksiz teşhis tabanı üretmek.
+- **Kullanıcı değeri:** Car Scanner'ın göremediği ABS/airbag/şanzıman/BCM arızalarını görmek.
+- **Mimari rol:** Teşhis kanıt tabanının üreticisi (Capability + Root Cause besleyicisi).
+- **Durum:** **İSKELET**
+- **Ürün hazır:** HAYIR
+- **Production kanıtı:** Wiring **boot'ta çalışıyor** — `SystemBoot.ts:586`
+  `startPlatformCoreDeepScanWiring()` + `SystemBoot.ts:667` `triggerDeepScanOfflinePass()`
+  → `orchestrator.runOfflinePass()`. **ANCAK handler bağlı değil (W5-3c ayrı PR)** →
+  tüm offline fazlar `skipped` → **aktif ECU/PID/DID sorgusu YOK, gerçek tarama YOK**,
+  üretim davranışı değişmez. Aktif fazlar ayrıca `waiting_for_ignition`'da fail-closed bloke.
+- **Test kanıtı:** Faz makinesi + fail-closed + ownership birim testleri. Gerçek tarama testi yok.
+- **UI/API:** YOK — kullanıcı taramayı başlatamaz, sonucu göremez.
+- **Saha doğrulaması:** Doğrulanmadı.
+- **Runtime yolu:** Cold
+- **DeviceTier etkisi:** Yalnız soğuk-yol/idle; low tier'da faz sayısı budanır.
+- **Bağımlılıklar:** Ignition source (authoritative kanıt yok → `ignitionConfirmed` daima `null`), OBD transport.
+- **Eksik ana parça:** **Faz handler'ları** (W5-3c) + kullanıcı/ignition tetikleyicisi + sonuç yüzeyi.
+- **Sonraki atomik PR:** W5-3c — offline faz handler'ları (tek faz, gerçek iş, bounded çıktı).
+- **Kabul kriterleri:** (kod) handler bağlı fazda `skipped` yerine gerçek sonuç üretilir;
+  (cihaz) gerçek araçta ≥1 faz tamamlanır ve **tarama sonrası hız/RPM akışı bozulmaz**.
+- **Son güncelleme:** 2026-07-15
+
+#### Prediction Engine
+
+- **Amaç:** Arızayı oluşmadan önce tahmin etmek (anayasanın 6. kapısı).
+- **Kullanıcı değeri:** "5 dk sonra ne olacak" — önleme, gösterme değil.
+- **Mimari rol:** Vehicle Brain'in öngörü katmanı.
+- **Durum:** **İSKELET**
+- **Ürün hazır:** HAYIR
+- **Production kanıtı:** **YOK** — production consumer yok; çıktı hiçbir store/UI'ya bağlı değil.
+- **Test kanıtı:** İzole birim testi (`predictionEngine.test.ts`) — production yolu test edilmiyor.
+- **UI/API:** YOK
+- **Saha doğrulaması:** Doğrulanmadı.
+- **Runtime yolu:** Cold · **DeviceTier etkisi:** Yalnız idle/soğuk-yol; low tier'da kapalı.
+- **Bağımlılıklar:** Vehicle Memory (zaman-serisi) — **yok**, bu yüzden besleme tabanı eksik.
+- **Eksik ana parça:** Besleyen zaman-serisi + tüketen store/UI.
+- **Sonraki atomik PR:** P2-2 — tek sinyalle dar dilim: motor → store slice → kart yüzeyi.
+- **Kabul kriterleri:** (kod) production yolundan çıktı üretilir; (cihaz) gerçek araçta
+  en az bir öngörü kanıtla gösterilir ve yanlış-alarm oranı ölçülür.
+- **Son güncelleme:** 2026-07-15
+
+#### Digital Twin
+
+- **Amaç:** Aracın canlı dijital ikizi — kimlik, geçmiş, şimdi ve gelecek tek modelde.
+- **Kullanıcı değeri:** Araç ve telefon aynı gerçeği görür.
+- **Mimari rol:** CAROS PRO ↔ Arabam Cebimde paylaşımının **çekirdeği**.
+- **Durum:** **İSKELET**
+- **Ürün hazır:** HAYIR
+- **Production kanıtı:** `UnifiedVehicleStore` **gerçek Digital Twin değildir** — yalnız
+  anlık sinyal aynasıdır. **Kimlik, history, prediction, provenance ve lifecycle eksiktir.**
+- **Test kanıtı:** Store birim testleri (twin davranışı test edilemez — yok).
+- **UI/API:** Göstergeler (anlık); twin yüzeyi YOK.
+- **Saha doğrulaması:** Doğrulanmadı.
+- **Runtime yolu:** Hot (veri katmanı) · **DeviceTier etkisi:** Görsel twin low tier'da feda; veri katmanı bütçeli.
+- **Bağımlılıklar:** Vehicle HAL (var), Vehicle Memory (yok), Vehicle Passport (iskelet).
+- **Eksik ana parça:** Kimlik + geçmiş + tahmin + **provenance** + yaşam döngüsü.
+- **Sonraki atomik PR:** P2-5 — provenance (her sinyalin kaynak izi): twin'in ilk gerçek katmanı.
+- **Kabul kriterleri:** (kod) her sinyal kaynağıyla birlikte okunur; (cihaz) gerçek araçta
+  provenance zinciri kanıtla doğrulanır.
+- **Son güncelleme:** 2026-07-15
+
+#### AI Fabric
+
+- **Amaç:** Tek AI yerine uzman AI ekibi (router + uzmanlar + kanıt hakemi).
+- **Kullanıcı değeri:** Doğru soruyu doğru uzmana sormak; kanıtla tartılmış tek cevap.
+- **Mimari rol:** Zekâ katmanının orkestrasyonu.
+- **Durum:** **İSKELET**
+- **Ürün hazır:** HAYIR
+- **Production kanıtı:** **Model fallback zinciri (Gemini→Groq→Haiku) çoklu-agent AI Fabric
+  DEĞİLDİR.** Uzman agent router, evidence judge ve birleşik cevap akışı **yoktur**.
+- **Test kanıtı:** Fallback zinciri testli; fabric davranışı yok → test edilemez.
+- **UI/API:** YOK (fabric olarak) · **Saha doğrulaması:** Doğrulanmadı.
+- **Runtime yolu:** Cold · **DeviceTier etkisi:** Yalnız yüksek tier + çevrimiçi.
+- **Bağımlılıklar:** Evidence Engine (entegre), BYOK anahtar akışı (P0-3 ile bağlı).
+- **Eksik ana parça:** Agent router · uzmanlık ayrımı · evidence judge · cevap birleştirme.
+- **Sonraki atomik PR:** İki-uzman + hakem ile en dar çalışan akış (router iskeleti değil).
+- **Kabul kriterleri:** (kod) iki uzman + hakemden tek birleşik cevap; (cihaz) gerçek
+  araç sorusunda kanıtla doğrulanmış cevap.
+- **Son güncelleme:** 2026-07-15
+
+#### Self Diagnostic System
+
+- **Amaç:** Uygulamanın kendi sağlığını izlemesi ve kanıtı dışarı taşıması.
+- **Kullanıcı değeri:** "Tanı Gönder" — sorun bize kanıtla ulaşır.
+- **Mimari rol:** Observability'nin tek kapısı.
+- **Durum:** **SAHADA DOĞRULANDI**
+- **Ürün hazır:** **EVET** (altı koşulun tamamı)
+- **Production kanıtı:** `GlobalDiagnosticButton` → `selfTestEngine` → sanitize (PII-guard)
+  → `diagnosticDelivery` → Supabase RPC → `/admin/tani`.
+- **Test kanıtı:** sanitize DENY_KEYS, teslimat 8-durum, rate-limit kuyruk kilitleri.
+- **UI/API:** Tanı Gönder butonu + `DiagnosticReportModal` (rıza + önizleme + reportId).
+- **Saha doğrulaması:** 🟢 Ledger #3/#4/#5 — boot self-pair + RPC teslimatı gerçek cihazda;
+  W4E runtime sayaçları raporda gözlendi (484 B).
+- **Runtime yolu:** Cold · **DeviceTier etkisi:** Her tier açık — ucuz, talep-güdümlü.
+- **Bağımlılıklar:** Supabase RPC · migration 025/026 (history boşluğu — P1-5).
+- **Eksik ana parça:** — · **Sonraki atomik PR:** —
+- **Kabul kriterleri:** (karşılandı) cihazda buton → `vehicle_events` satırı → panelde listelenir.
+- **Son güncelleme:** 2026-07-15
+
+### 8.2 Vehicle Intelligence
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Digital Twin | İSKELET | HAYIR | §8.1 — provenance/kimlik/history/lifecycle yok |
+| Vehicle Memory | İSKELET | HAYIR | Öğrenme motoru çalışır; **kalıcı zaman-serisi yok** |
+| Vehicle DNA | YOK | HAYIR | Vehicle Memory'ye bağımlı |
+| Vehicle Timeline | YOK | HAYIR | Maintenance Timeline (İSKELET) ile karıştırılmamalı |
+| Vehicle Black Box | YOK | HAYIR | Olay-anı kalıcılığı gerekir |
+| Vehicle Ghost Replay | YOK | HAYIR | Black Box'a bağımlı |
+| Vehicle Life Story | YOK | HAYIR | Memory + Passport + bulut gerekir |
+| Vehicle Passport | İSKELET | HAYIR | `vehicleIdentityService` + fingerprint var; **passport UI/doğrulama zinciri yok** |
+| Vehicle Personality | YOK | HAYIR | Vizyon rezervuarı |
+| Vehicle Memory Graph | YOK | HAYIR | Vizyon rezervuarı |
+| Reliability Score | YOK | HAYIR | Health Score (İSKELET) ile ayrı |
+| Risk Radar | YOK | HAYIR | Vizyon rezervuarı |
+| Vehicle Health Forecast | YOK | HAYIR | Prediction Engine'e bağımlı |
+| Component Life | YOK | HAYIR | Vizyon rezervuarı |
+| Vehicle Stress Meter | YOK | HAYIR | Vizyon rezervuarı |
+| Hidden Fault Hunter | YOK | HAYIR | Deep Scan + UDS'e bağımlı |
+| Vehicle Immune System | YOK | HAYIR | Vizyon rezervuarı |
+| Missing Sensor Reconstruction | YOK | HAYIR | Zero-trust ile dikkatli tasarım ister |
+| Future Failure Map | YOK | HAYIR | Prediction'a bağımlı |
+| Vehicle Digital Shadow | YOK | HAYIR | Twin'e bağımlı |
+| Vehicle MRI | YOK | HAYIR | Deep Scan'e bağımlı |
+| Road Learning | YOK | HAYIR | Vizyon rezervuarı |
+| Vehicle Evolution | YOK | HAYIR | Vizyon rezervuarı |
+
+### 8.3 AI Fabric
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| AI Router | İSKELET | HAYIR | Model **fallback** var; uzman router yok |
+| AI Mechanic | YOK | HAYIR | Root Cause + KB üstüne kurulur |
+| AI Analyst | YOK | HAYIR | Vizyon rezervuarı |
+| AI Predictor | İSKELET | HAYIR | = Prediction Engine (§8.1) |
+| AI Historian | YOK | HAYIR | Vehicle Memory'ye bağımlı |
+| AI Cost Advisor | YOK | HAYIR | Vizyon rezervuarı |
+| AI Trip Planner | YOK | HAYIR | Vizyon rezervuarı |
+| AI Learning Engine | İSKELET | HAYIR | `autoLearningEngine` var; kalıcılık yok |
+| AI Evidence Judge | YOK | HAYIR | **AI Fabric'in kilit eksiği** |
+| AI Teacher | YOK | HAYIR | Vizyon rezervuarı |
+| AI Fleet Brain | YOK | HAYIR | Fleet Intelligence'a bağımlı |
+| AI Service Advisor | İSKELET | HAYIR | `maintenanceBrain`/`fuelAdvisorService`; öneri katmanı bağlı değil |
+| AI Negotiator | YOK | HAYIR | Vizyon rezervuarı |
+| AI Mechanic Battle | YOK | HAYIR | Vizyon rezervuarı |
+| AI Explainability | YOK | HAYIR | Confidence/provenance üstüne kurulur |
+| AI What If | YOK | HAYIR | Vizyon rezervuarı |
+| AI Future Report | YOK | HAYIR | Vizyon rezervuarı |
+| AI Repair Verification | YOK | HAYIR | Repair Memory'ye bağımlı |
+| AI Laboratory | YOK | HAYIR | Vizyon rezervuarı |
+| Self-Healing Advisor | YOK | HAYIR | Vizyon rezervuarı |
+| Failure Simulator | YOK | HAYIR | Vizyon rezervuarı |
+| Maintenance Simulator | YOK | HAYIR | Vizyon rezervuarı |
+| Cost Predictor | YOK | HAYIR | Vizyon rezervuarı |
+
+### 8.4 Teşhis ve OBD
+
+> Görev kırılımı: `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md` (FAZ 0–4).
+> **Kod 25/26 tamam · suite 4074 yeşil · saha borcu 22 madde.**
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Professional OBD OS | ENTEGRE | HAYIR | Core PID araçta akıyor (🟡 #65); extended değer dolumu + RPM=0 anomalisi açık |
+| Fail-Closed Diagnostic Verdict | ENTEGRE | HAYIR | 🟡 #66 — regresyon yok gözlendi; **DTC'li araçta kanıt yok** (P0-5) |
+| Protocol-Aware Timing | ENTEGRE | HAYIR | FAZ 0 kapsamı; saha borcu |
+| Learned Protocol Preservation | **DOĞRULANDI** | HAYIR | 🟢 #67 Doblo/CAN'de kanıtlı; **Trafic/KWP kabulü açık** (P1-2) |
+| DataGate Lifecycle | ENTEGRE | HAYIR | F0-3 kapsamı; mekanizma tetiklenmedi |
+| Multi-ECU Discovery | ENTEGRE | HAYIR | `multiEcuScan` → `DTCPanel` + `verdictEngine` (production); saha kanıtı yok |
+| Deep Vehicle Scan | İSKELET | HAYIR | §8.1 — handler yok → fazlar `skipped` |
+| ECU Topology | YOK | HAYIR | Discovery çıktısına bağımlı |
+| ECU Router | YOK | HAYIR | Vizyon rezervuarı |
+| Standard DTC Mode 03/07/0A | ENTEGRE | HAYIR | `dtcService` + completeness; DTC'li araç borcu |
+| Freeze Frame | ENTEGRE | HAYIR | FAZ 1; freeze frame'li araç yok |
+| Readiness | ENTEGRE | HAYIR | Doblo'da 3/3 monitör gözlendi (🟡 #70) |
+| UDS 0x19 | ENTEGRE | HAYIR | FAZ 3; üretici kodlu araç yok |
+| UDS 0x22 | ENTEGRE | HAYIR | FAZ 3; saha borcu |
+| KWP2000 | ENTEGRE | HAYIR | Trafic **kullanıcıda değil** → uzaktan rapor yolu |
+| ISO-TP | — | — | **Bilinçli yazılmadı** (ELM327 donanımda yapıyor) — gerekçe roadmap'te |
+| Manufacturer-specific diagnostics | ENTEGRE | HAYIR | F3-1; üretici kodlu araç borcu |
+| Renault/Dacia DF codes | ENTEGRE | HAYIR | Trafic borcu |
+| Scan Completeness | İSKELET | HAYIR | Deep Scan'e bağımlı → üretecek tarama yok; UI yok |
+| Confidence ve provenance | ENTEGRE | HAYIR | Confidence kanıttan türer (kilitli); **provenance twin'de eksik** |
+| Write Safety Gate | DOĞRULANDI | HAYIR | 7 kapılı karar modeli + testler; **native yazma bilinçli YAZILMADI** (F4-5) |
+| Bounded diagnostic evidence | ENTEGRE | HAYIR | errorLedger + bounded payload; saha kanıtı yok |
+
+### 8.5 Sürücü ve Yolculuk
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Driver DNA | YOK | HAYIR | `smartDrivingEngine` sinyalleri temel olabilir |
+| Driver-vs-Vehicle Analysis | YOK | HAYIR | Vizyon rezervuarı |
+| AI Driving Coach | YOK | HAYIR | Driving Style'a bağımlı |
+| Driving Style Analysis | İSKELET | HAYIR | Mod tespiti tüketiliyor; **stil skorlaması yok** |
+| Journey Intelligence | İSKELET | HAYIR | `tripLogService` kayıt tutar; özet katmanı yok |
+| Trip Replay | YOK | HAYIR | Black Box'a bağımlı |
+| Smart Route Analysis | YOK | HAYIR | routing + health ayrı sistemler |
+| Weather Impact Analysis | YOK | HAYIR | `weatherService` ham veri; etki modeli yok |
+| AI Road Companion | İSKELET | HAYIR | companion iskeleti + safety kernel; ürün deneyimi yok |
+| AI DJ | YOK | HAYIR | Vizyon rezervuarı |
+| AI Radio | YOK | HAYIR | Vizyon rezervuarı |
+| Doğal konuşma | ENTEGRE | HAYIR | `semanticAiService` + parser; saha kanıtı yok |
+| Medya yönlendirme | ENTEGRE | HAYIR | `youtubeService`/`musicCommandParser`; tam sesli kontrol kısmi |
+| Telefon ve mesaj entegrasyonu | DOĞRULANDI | HAYIR | PhoneScreen + contacts; head unit saha kanıtı yok |
+| Güvenli hands-free kullanım | İSKELET | HAYIR | modeController var; **HFDM kısıt profili yok** |
+
+### 8.6 Bakım ve Servis
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Predictive Maintenance | İSKELET | HAYIR | Prediction × maintenanceBrain **birleşimi kodda yok** |
+| Smart Maintenance Planner | İSKELET | HAYIR | Statik hatırlatma var; dinamik hesap yok |
+| Maintenance Timeline | İSKELET | HAYIR | Veri var; **timeline UI yok** (P3-1) |
+| Repair Memory | YOK | HAYIR | Vehicle Memory'ye bağımlı |
+| AI Service Advisor | İSKELET | HAYIR | §8.3 |
+| AI Repair Verification | YOK | HAYIR | Repair Memory'ye bağımlı |
+| Servis öncesi kontrol listesi | YOK | HAYIR | Vizyon rezervuarı |
+| Gereksiz parça değişimi uyarısı | YOK | HAYIR | **Ürünün en güçlü vaatlerinden** — Root Cause + KB üstüne kurulur |
+| Maliyet tahmini | YOK | HAYIR | Vizyon rezervuarı |
+| Doğrulanmış bakım/tamir geçmişi | YOK | HAYIR | Passport + Memory + bulut gerekir |
+
+### 8.7 Güvenlik ve Hayat Koruma
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Emergency AI | YOK | HAYIR | `hazardService`/`safetyService` **farklı amaç** |
+| Emergency Contact System | YOK | HAYIR | Emergency AI'ya bağımlı |
+| Konum paylaşımı | ENTEGRE | HAYIR | Realtime konum (Supabase) var; acil bağlamı yok |
+| Acil arama desteği | YOK | HAYIR | Phone Integration üstüne kurulur |
+| Kaza sonrası rehberlik | YOK | HAYIR | Vizyon rezervuarı |
+| Silent Emergency | YOK | HAYIR | Vizyon rezervuarı |
+| Vehicle Guardian Mode | YOK | HAYIR | Park algısı var; **güç bütçesi sözleşmesi şart** (akü riski) |
+| Güvenlik-kritik hot-path | ENTEGRE | HAYIR | SafetyBrain + SafetyOverlay; **VoiceSafetyAnnouncer + CAN canlı bağlantı yok** |
+| Kullanıcı izni ve açık rıza | ENTEGRE | HAYIR | DiagnosticReportModal rızası 🟢; genel rıza akışı (KVKK/GDPR) yok |
+| Yanlış alarm azaltma | İSKELET | HAYIR | Debounce/histerezis var; ölçülen yanlış-alarm oranı yok |
+| Ghost Replay / Black Box olay koruması | YOK | HAYIR | Vizyon rezervuarı |
+
+### 8.8 Güç ve Uyku Yönetimi
+
+> **Bu grup bütünüyle YOK.** Akü boşaltma riski taşıdığı için her madde
+> **güç bütçesi sözleşmesi** olmadan uygulanamaz.
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Battery Protection | YOK | HAYIR | Voltaj PID okunuyor; koruma politikası yok |
+| Smart Surveillance | YOK | HAYIR | Guardian Mode'a bağımlı |
+| Continuous Surveillance | YOK | HAYIR | Güç bütçesi olmadan **yasak** |
+| Service Session | YOK | HAYIR | Vizyon rezervuarı |
+| OBD/ECU Sleep Profile (araç bazlı) | YOK | HAYIR | Uyku olay kaydı gerekir (öğrenme öncesi kanıt) |
+| Öğrenilmiş Wake Policy | YOK | HAYIR | Sleep Profile'a bağımlı; reconnect ≠ wake stratejisi |
+| Kontrollü kısa ECU uyanışı | YOK | HAYIR | Write Gate disiplini ister |
+| Akü düşükken wake reddi | YOK | HAYIR | **Bu grubun ilk yazılacak maddesi** (fail-closed) |
+| Araç uyurken geçmiş analizi | YOK | HAYIR | Vehicle Memory'ye bağımlı |
+| Tekrar uykuya dönme doğrulaması | YOK | HAYIR | Saha kanıtı zorunlu |
+
+### 8.9 Platform ve Ekosistem
+
+| Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
+|---|---|---|---|
+| Vehicle Link Fabric | ENTEGRE | HAYIR | Araç-içi zincir çalışır (🟡 HAL→Bus 0,37 publish/sn); **bulut ucu yok** |
+| Arabam Cebimde | ENTEGRE | HAYIR | PWA kumanda + E2E şifreli uzaktan komut; **twin/memory paylaşımı yok** |
+| CAROS Cloud | İSKELET | HAYIR | Supabase + RPC var; **senkron sözleşmesi yok** |
+| Digital Garage | YOK | HAYIR | **Tek araç varsayımı** sökülmeli (geniş dokunuş) |
+| Family Sharing | YOK | HAYIR | Garage + Cloud Sync'e bağımlı |
+| Fleet Mode | İSKELET | HAYIR | admin/FleetCenter (web); cihaz-içi filo modu yok |
+| Fleet Intelligence | İSKELET | HAYIR | `fleetKb` servis kapısı; **anonim toplama boru hattı yok** |
+| Privacy Center | İSKELET | HAYIR | Sanitize motoru 🟡 kanıtlı; **kullanıcı paneli yok** (P3-2) |
+| Cloud Sync | İSKELET | HAYIR | Tek yönlü rapor teslimi 🟢; **senkron/şema/RLS yok** (P2-6) |
+| OTA Intelligence | ENTEGRE | HAYIR | `otaUpdateService` state machine; **telemetri yok**, saha kanıtı yok |
+| Vehicle Marketplace | YOK | HAYIR | Life Story + doğrulama otoritesi ister — **ürün kararı gerekir** |
+| Digital Health Certificate | YOK | HAYIR | Passport + doğrulanmış geçmişe bağımlı |
+| Çoklu araç/kullanıcı yetkilendirmesi | İSKELET | HAYIR | RBAC (driver/admin/super_admin) var; **çoklu araç modeli yok** |
+| Adaptive Runtime | DOĞRULANDI | HAYIR | Tier motoru + histerezis kilitleri; **düşük-uçta (K24) tier kabulü ölçülmedi** |
+| Knowledge Base | ENTEGRE | HAYIR | KB **statik/yerel** — "öğrenen filo KB" iddiası doğrulanmadı |
+
+---
+
+## 9. Çelişki Kaydı
+
+> Kanıtla çözülene kadar **hiçbir durum yükseltilmez**. Yeni çelişki bulunduğunda buraya yazılır.
+
+| # | Çelişki | Kanıt | Karar |
+|---|---|---|---|
+| Ç-1 | `docs/OBD_DIAGNOSTIC_OS_ROADMAP.md` kendini **"TEK GERÇEK KAYNAKTIR"** ilan ediyor; bu belge de ana kaynak olarak konumlanıyor. | İki dosyanın başlıkları. | **Çözüldü:** roadmap **OBD alt-roadmap'idir** (görev kırılımı); vizyon/durum özeti bu belgededir. Roadmap'in kendi ifadesi OBD kapsamıyla sınırlı okunur. |
+| Ç-2 | Roadmap "FAZ 0 → 3 madde 🟢 (F0-1, F0-2, F0-4)" diyor; **kütükte F0-1 (#66) hâlâ 🔴/🟡 satırında, F0-4 (#70) 🟡 KISMİ**. | `DEVICE_VALIDATION_LEDGER.md` §🟢 tablosu: yalnız **#67 (F0-2)** tam 🟢; #66/69/71 satırı açıkça "**KISMİ 🟡**". | **Kütük kazanır.** Bu belgede F0-1 = 🟡 (regresyon yok, DTC'li araç kanıtı yok), F0-4 = 🟡. Roadmap'in "3 🟢" özeti **iyimser**. |
+| Ç-3 | `docs-local/caros-feature-audit.html`, Deep Scan için "`start()/run()/runNextPhase()` production'da **hiçbir yerden çağrılmıyor**" diyordu. | `SystemBoot.ts:667` → `triggerDeepScanOfflinePass()` → `orchestrator.runOfflinePass()` **çağrılıyor**; ancak handler bağlı değil → tüm fazlar `skipped`. | **Kısmen yanlış → HTML düzeltildi.** Sonuç seviyesi (İSKELET) değişmez: gerçek tarama yok. Doğru ifade §8.1'dedir. |
+| Ç-4 | `docs/CAROS_15_YIL_VIZYON_YOL_HARITASI.md` (2026-07-08) ve `ROADMAP.md` (2026-06-24) farklı durum tabloları taşıyor. | Tarihler + içerik. | **Tarihsel** ilan edildi (§1). Güncellenmiyorlar; çelişkide bu belge kazanır. |
+| Ç-5 | Web sitesi "200+ DTC" diyor; üründe **37** DTC var. | `WEB_URUN_UYUM_BACKLOG.md`. | Açık — P3-5. Pazarlama iddiası **ürün gerçeğine** çekilecek. |
+
+---
+
+## 10. Güncelleme Protokolü (bağlayıcı)
+
+Bu belge statik kalmaz. CAROS PRO ile ilgili **her PR veya önemli değişiklikte**:
+
+1. Göreve başlamadan önce **bu dosya okunur**.
+2. Yapılan işin **hangi vizyon özelliğini etkilediği** belirlenir.
+3. PR tamamlandığında **ilgili özellik durumu güncellenir**.
+4. **Yeni dosya eklenmesi özelliği otomatik olarak tamamlanmış yapmaz.**
+5. Durum **yalnız gerçek kanıta göre** yükseltilir.
+6. **Saha kanıtı yoksa "SAHADA DOĞRULANDI" verilmez.**
+7. Özellik hâlâ iskeletse **dürüstçe İSKELET kalır**.
+8. PR kapsamı dışında kalan maddeler **dokümana yazılır** (sessizce düşürülmez).
+9. **Son güncelleme tarihi ve ilgili PR/commit** eklenir.
+10. Roadmap sırası bilinçli mimari kararla değiştiyse **gerekçe yazılır**.
+
+### PR sonrası kontrol listesi
+
+- [ ] Bu dosya okundu, etkilenen özellik(ler) bulundu.
+- [ ] Durum seviyesi kanıta göre güncellendi (yükseltme kanıtsız yapılmadı).
+- [ ] Production kanıtı: **çağrı zinciri** yazıldı (import ≠ kanıt).
+- [ ] Test kanıtı: davranış testi mi, izole test mi — ayrıldı.
+- [ ] UI/API yüzeyi güncellendi (yoksa "YOK" yazıldı).
+- [ ] Saha doğrulaması: kütük satırı referansı verildi veya "Doğrulanmadı" yazıldı.
+- [ ] Ürün hazır: altı koşul tek tek kontrol edildi.
+- [ ] Eksik ana parça + sonraki atomik PR güncellendi.
+- [ ] Kapsam dışı bırakılanlar yazıldı.
+- [ ] Son güncelleme tarihi + PR/commit eklendi.
+- [ ] Çelişki bulunduysa §9'a yazıldı.
+
+---
+
+## 11. Kapsam Dışı (bu belgenin yapmadıkları)
+
+- Bu belge **kod değiştirmez**; capability durumu kodun aynasıdır, tersi değil.
+- Bu belge **vizyonu uygulanmış özellik gibi sunmaz** — §8'deki YOK'lar taahhüt değildir.
+- Bu belge **gelecekteki tüm fikirleri kısa vadeli taahhüde çevirmez**; öncelik yalnız
+  P0–P3'tedir.
