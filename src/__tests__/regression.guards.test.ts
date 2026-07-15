@@ -37,6 +37,7 @@ import healthMonitorSrc from '../platform/system/SystemHealthMonitor.ts?raw';
 import orientationGateSrc from '../platform/sensors/orientationSensorGate.ts?raw';
 import remoteLogServiceSrc from '../platform/remoteLogService.ts?raw';
 import diagnosticTriageSrc from '../platform/diagnosticTriage.ts?raw';
+import dtcServiceSrc from '../platform/dtcService.ts?raw';
 import { AdaptiveRuntimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { forceMode } from './sim/runtimeSimulator';
@@ -1180,6 +1181,105 @@ describe('OBD Core v2 — obdStatus reason disiplini kilidi (reconnect fırtına
       .toMatch(/loadObdProtocol/);
     expect(obdServiceSrc, 'saveObdProtocol çağrısı kaldırılmış — ATDPN ile öğrenilen protokol persist edilmiyor')
       .toMatch(/saveObdProtocol\(/);
+  });
+
+  it('YAPISAL: öğrenilmiş protokol TIMEOUT ile SİLİNMEZ — yalnız oturum-içi bypass (OBD-OS-F0-2)', () => {
+    // Kök neden: timeout, "protokol yanlış"ın kanıtı DEĞİLDİR — yavaş/flaky KWP-ISO9141
+    // araçlar (Trafic) soğuk açılışta timeout üretir. Eski kod kalıcı obd:lastProtocol'ü
+    // siliyordu → DOĞRU protokol çöpe gidiyor, her açılış yavaş ATSP0-aramaya düşüyordu.
+    // Bu kilit düşerse kalıcı silme geri gelmiş demektir.
+    expect(obdServiceSrc, 'obdService yeniden clearObdProtocol() çağırıyor — timeout kalıcı protokolü siliyor olabilir (F0-2 ihlali)')
+      .not.toMatch(/clearObdProtocol\s*\(/);
+    expect(obdServiceSrc, '_learnedProtocolBypassed kaldırılmış — oturum-içi bypass mekanizması yok')
+      .toMatch(/_learnedProtocolBypassed/);
+    // Bypass GERÇEKTEN etkili olmalı: forcedProtocol hesabında learned okuma bypass'a bağlı.
+    // (2026-07-15: ternary → if/else. Kilit KALDIRILMADI, yeni doğru davranışa taşındı —
+    // bypass artık TEK KULLANIMLIK olduğu için okuma noktası bayrağı da tüketiyor.)
+    expect(obdServiceSrc, 'bypass edilmiş protokol hâlâ zorlanıyor — loadObdProtocol() bypass kapısından geçmiyor')
+      .toMatch(/if\s*\(_learnedProtocolBypassed\)\s*\{[\s\S]{0,120}?_learnedProtocol\s*=\s*null/);
+    expect(obdServiceSrc, 'bypass yolunda loadObdProtocol() okunuyor — bypass etkisiz')
+      .toMatch(/\}\s*else\s*\{[\s\S]{0,80}?_learnedProtocol\s*=\s*loadObdProtocol\(\)/);
+  });
+
+  it('YAPISAL: protokol bypass’ı TEK KULLANIMLIK — tek-araç kullanıcısı cezalandırılmaz (2026-07-15)', () => {
+    // Kök neden (saha): dongle Trafic(KWP/5)→Doblo(CAN/7) aynı oturumda taşınınca öğrenilmiş
+    // protokol sonsuza dek zorlanıyordu → deep-reconnect sonsuz "Bağlanıyor…" → kullanıcı
+    // uygulamayı öldürmek zorunda kalıyordu. Çözüm ısrarlı timeout'ta bypass — AMA kalıcı
+    // bypass yeni bir zarar üretir: park halinde (kontak kapalı → dongle güçsüz) timeout'lar
+    // birikir, bunlar protokolün yanlış olduğunun kanıtı DEĞİLDİR (BT'ye hiç bağlanılamadı) →
+    // her sabah aracına binen tek-araç kullanıcısı yavaş ATSP0-aramasına mahkûm olurdu.
+    // Bu kilit düşerse ya sonsuz döngü ya da tek-araç cezası geri gelmiş demektir.
+    expect(obdServiceSrc, 'bypass tüketilmiyor — KALICI bypass tek-araç kullanıcısını her açılışta ATSP0-aramasına mahkûm eder')
+      .toMatch(/_learnedProtocolBypassed\s*=\s*false;\s*\/\/\s*tek kullanımlık/);
+    // Flaky-araç toleransı: bu oturumda bağlanan protokol için eşik YÜKSEK ama SONSUZ DEĞİL.
+    expect(obdServiceSrc, 'LEARNED_PROTOCOL_TIMEOUT_LIMIT_AFTER_SUCCESS yok — flaky/araç-değişimi dengesi kayboldu')
+      .toMatch(/LEARNED_PROTOCOL_TIMEOUT_LIMIT_AFTER_SUCCESS/);
+    // Eski hata geri gelmesin: lastSuccessAt KOŞULSUZ return ETMEMELİ (bypass'ı tümden engellerdi).
+    expect(obdServiceSrc, 'lastSuccessAt koşulsuz return — araç değişiminde bypass ASLA çalışmaz (sonsuz "Bağlanıyor…")')
+      .not.toMatch(/if\s*\(_lastHandshakeSuccessAt\s*!=\s*null\)\s*return;/);
+    // Başarıda sayaç sıfırlanmalı: gerçek flaky araç (arada bağlanan) eşiğe ulaşmasın.
+    expect(obdServiceSrc, 'başarılı handshake sayacı sıfırlamıyor — flaky araç zamanla yanlışlıkla bypass edilir')
+      .toMatch(/_lastHandshakeSuccessAt\s*=\s*Date\.now\(\);[\s\S]{0,700}?_learnedProtocolTimeouts\s*=\s*0;/);
+  });
+
+  it('YAPISAL: handshake POLL_FAST\'i preempt ETMEZ — adım adım DISCOVERY kuyruğu (OBD-OS-F0-3)', () => {
+    // Kök neden: el sıkışması (VIN + 6 bitmap bloğu, en kötü ~10 sn) USER önceliğiyle TEK
+    // atomik kuyruk görevi olarak koşuyordu. ELM327 senkron → ÇALIŞAN görev kesilemez →
+    // hız/RPM (3 Hz hot-path) bu süre boyunca tamamen aç kalıyor, data-gate "veri gelmiyor"
+    // deyip bağlantıyı koparıyordu (data_gate_loss). İKİ koşul birden gerekli:
+    //   (a) DISCOVERY önceliği POLL_FAST'in ALTINDA olmalı, VE
+    //   (b) handshake ADIM ADIM kuyruğa girmeli (yoksa öncelik tek başına işe yaramaz).
+    const queueSrc = read('android/app/src/main/java/com/cockpitos/pro/obd/ElmCommandQueue.java');
+    const elmSrc   = read('android/app/src/main/java/com/cockpitos/pro/obd/ElmProtocol.java');
+    const obdMgr   = read('android/app/src/main/java/com/cockpitos/pro/obd/OBDManager.java');
+    const bleMgr   = read('android/app/src/main/java/com/cockpitos/pro/obd/BleObdManager.java');
+
+    // (a) Enum SIRASI önceliktir (compareTo → ordinal): USER < POLL_FAST < DISCOVERY < POLL_SLOW.
+    expect(queueSrc, 'DISCOVERY önceliği kaldırılmış veya POLL_FAST\'in ÜSTÜNE alınmış — keşif hot-path\'i preempt eder')
+      .toMatch(/enum\s+Priority\s*\{\s*USER\s*,\s*POLL_FAST\s*,\s*DISCOVERY\s*,\s*POLL_SLOW\s*\}/);
+
+    // (b) Zincir adım adım: performHandshakeRaw bir step-runner ALIR (tek atomik görev DEĞİL).
+    expect(elmSrc, 'HandshakeStepRunner kaldırılmış — handshake yeniden tek atomik görev olmuş olabilir')
+      .toMatch(/performHandshakeRaw\s*\(\s*HandshakeStepRunner/);
+
+    // Her iki transport da handshake\'i DISCOVERY ile kuyruğa vermeli; USER\'a geri dönmemeli.
+    for (const [name, src] of [['OBDManager', obdMgr], ['BleObdManager', bleMgr]] as const) {
+      expect(src, `${name}.performHandshake DISCOVERY önceliğini kullanmıyor`)
+        .toMatch(/performHandshakeRaw\(step\s*->\s*\{[\s\S]{0,200}Priority\.DISCOVERY/);
+      expect(src, `${name}.performHandshake hâlâ USER önceliğiyle tek atomik görev gönderiyor`)
+        .not.toMatch(/submit\(\s*ElmCommandQueue\.Priority\.USER\s*,\s*null\s*,\s*p::performHandshakeRaw\s*\)/);
+    }
+  });
+
+  it('YAPISAL: obdStatus reason\'ı STATE\'e göre ayrışır — çift reconnect motoru yok (OBD-OS-F0-5)', () => {
+    // Kök neden: köprü state'e BAKMADAN her bildirime "link_lost" damgası vuruyordu →
+    // native attemptReconnect() "reconnecting" derken TS kopma sanıp PARALEL tur açıyor,
+    // native "connected" (BAŞARI) derken bile TS iyileşmiş bağlantıyı yeniden kuruyordu.
+    // Bu kilit düşerse çift-motor çakışması geri gelir.
+    const pluginSrc = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(pluginSrc, '"reconnecting" durumu native_reconnecting reason\'ı üretmiyor — TS paralel tur açar')
+      .toMatch(/"reconnecting"\.equals\(state\)[\s\S]{0,60}native_reconnecting/);
+    expect(pluginSrc, '"connected" durumu native_reconnected reason\'ı üretmiyor — TS başarıyı kopma sanar')
+      .toMatch(/"connected"\.equals\(state\)[\s\S]{0,60}native_reconnected/);
+    // TS tarafı: otorite bayrağı reconnect tetikleyen HER üç yolu da kapatmalı.
+    expect(obdServiceSrc, '_nativeReconnectInFlight kaldırılmış — native reconnect sürerken TS karışabilir')
+      .toMatch(/_nativeReconnectInFlight/);
+    const guards = obdServiceSrc.match(/if\s*\(\s*_nativeReconnectInFlight\s*\)\s*return/g) ?? [];
+    expect(guards.length, 'otorite guard\'ı 3 yolda da (status listener + stale watchdog + data gate) olmalı')
+      .toBeGreaterThanOrEqual(3);
+  });
+
+  it('GÜVENLİK: Mode 04 (DTC silme) WriteGate\'ten geçmeden native\'e GİTMEZ (OBD-OS-F0-6)', () => {
+    // Salt-okuma vaadi: araca YAZAN tek yol Mode 04'tür ve hız=0 + taze telemetri +
+    // açık onay kapılarının ARDINDA olmalıdır. Kapı kanıtı ÇAĞIRANDAN değil, OBD
+    // servisinden okunur (çağıran "hız 0" diye yalan söyleyemez).
+    expect(dtcServiceSrc, 'evaluateDtcClearGate çağrısı kaldırılmış — DTC silme artık kapısız (seyir halinde ECU yazması mümkün)')
+      .toMatch(/evaluateDtcClearGate\s*\(/);
+    expect(dtcServiceSrc, 'kapı kanıtı OBD servisinden okunmuyor — çağıranın iddiasına güveniliyor olabilir')
+      .toMatch(/getOBDDataSnapshot\s*\(/);
+    // Reddedilen kararda native yazma YAPILMAMALI: gate reddi erken return ile biter.
+    expect(dtcServiceSrc, 'gate reddinde erken çıkış yok — reddedilen karar native clearDTC() çağrısına düşebilir')
+      .toMatch(/!decision\.allowed[\s\S]{0,120}return\s+gateDenied\(decision\)/);
   });
 });
 

@@ -1028,9 +1028,23 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // Patch 3: ÖNCE bu oturumda/önceki oturumda ÖĞRENİLMİŞ protokolü (ElmInitSequencer ATDPN)
   // dene — ATSP0 otomatik arama YOK, ARAMASIZ bağlan. Yalnız gerçek bir UNABLE_TO_CONNECT
   // hatası yaşandıysa (_protocolCycleIndex>0) sırayla bir sonraki adaya geçilir.
-  // F0-2: bypass edilmiş öğrenilmiş protokol bu oturumda KULLANILMAZ (storage'da DURUR) —
+  // F0-2: bypass edilmiş öğrenilmiş protokol bu denemede KULLANILMAZ (storage'da DURUR) —
   // ısrarlı timeout sonrası ATSP0-otomatik'e düşülür, ama bilgi kalıcı olarak silinmez.
-  const _learnedProtocol = _learnedProtocolBypassed ? null : loadObdProtocol();
+  //
+  // BYPASS TEK KULLANIMLIKTIR (2026-07-15): bu deneme ATSP0-otomatik gider, sonraki deneme
+  // YİNE öğrenilmiş protokolle başlar. Neden kalıcı değil: park halinde (kontak kapalı →
+  // dongle güçsüz) reconnect timeout'ları birikir, ama bunlar protokolün YANLIŞ olduğunun
+  // kanıtı DEĞİLDİR — BT'ye hiç bağlanılamamıştır. Kalıcı bypass, her sabah aynı aracına
+  // binen (tek-araç) kullanıcıyı her seferinde yavaş ATSP0-aramaya mahkûm ederdi.
+  // Araç GERÇEKTEN değiştiyse tek bir ATSP0 denemesi yeter: bağlanır → ATDPN yazımı
+  // önbelleği yeni protokole tazeler → bypass kendiliğinden gereksizleşir.
+  let _learnedProtocol: string | null;
+  if (_learnedProtocolBypassed) {
+    _learnedProtocol = null;
+    _learnedProtocolBypassed = false;   // tek kullanımlık — sonraki tur yine öğrenilmişle başlar
+  } else {
+    _learnedProtocol = loadObdProtocol();
+  }
   const forcedProtocol = _protocolCycleIndex > 0
     ? PROTOCOL_CYCLE[_protocolCycleIndex % PROTOCOL_CYCLE.length]
     : (_learnedProtocol ?? PROTOCOL_CYCLE[0]);
