@@ -63,6 +63,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
   const [pinValue,    setPinValue]    = useState('');
   const [showAll,     setShowAll]     = useState(false);
   const [showDiag,    setShowDiag]    = useState(false);   // teşhis timeline — varsayılan KAPALI
+  const [resetting,   setResetting]   = useState(false);   // PR-OBD-CONN-1: reset lifecycle görünür + debounce
   // Patch 10: WiFi ELM327 (AP modu) manuel adres girişi — K24 gibi standart BT'si
   // OEM tarafından kilitli head unit'lerde OBD'ye ulaşmanın TEK yolu.
   const [wifiAddress, setWifiAddress] = useState('');
@@ -920,14 +921,28 @@ export function OBDConnectModal({ open, onClose }: Props) {
           */}
           <button
             onClick={() => {
-              resetObdConnection();
-              // Kayıtlı adres korunur (aynı dongle) → kullanıcı hemen yeniden bağlanabilir;
-              // isterse listeden başka cihaz seçer. Protokol kaydı SİLİNMEZ: ilk deneme
-              // ATSP0-otomatik gider, yeni araç bulununca ATDPN önbelleği tazeler.
-              const addr = loadObdAddress();
-              if (addr) startOBD(addr, undefined, loadObdTransport() ?? undefined);
+              // PR-OBD-CONN-1: DETERMİNİSTİK + GÖRÜNÜR reset. Eskiden reset() + startOBD()
+              // TEK senkron tick'te çağrılıyordu → kullanıcı görünür bir disconnect/reconnect
+              // yaşam döngüsü görmüyordu (saha: "hiçbir şey olmadı"). Artık: buton "Sıfırlanıyor…"
+              // + disabled (çift-dokunuş yok) → native disconnect TAMAMLANANA kadar bekle →
+              // ANCAK SONRA tek temiz reconnect (eski GATT oturumu kapanmadan reconnect yarışı yok).
+              if (resetting) return;                    // debounce
+              setResetting(true);
+              void (async () => {
+                try {
+                  await resetObdConnection('user');     // native disconnect+close biter
+                  // Kayıtlı adres korunur (aynı dongle) → temiz oturumdan yeniden bağlan;
+                  // isterse listeden başka cihaz seçer. Protokol kaydı SİLİNMEZ: ilk deneme
+                  // ATSP0-otomatik gider, yeni araç bulununca ATDPN önbelleği tazeler.
+                  const addr = loadObdAddress();
+                  if (addr) startOBD(addr, undefined, loadObdTransport() ?? undefined);
+                } finally {
+                  setResetting(false);
+                }
+              })();
             }}
-            className="font-bold uppercase tracking-wider transition-all active:scale-95"
+            disabled={resetting}
+            className="font-bold uppercase tracking-wider transition-all active:scale-95 disabled:opacity-50"
             style={{
               padding: `${spMd} ${spXl}`,
               fontSize: fsm,
@@ -938,7 +953,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
               color: 'var(--oem-ink-2)',
             }}
           >
-            Bağlantıyı Sıfırla
+            {resetting ? 'Sıfırlanıyor…' : 'Bağlantıyı Sıfırla'}
           </button>
           <button
             onClick={onClose}

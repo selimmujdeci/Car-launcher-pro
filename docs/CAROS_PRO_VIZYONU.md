@@ -406,6 +406,22 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
   `ExtendedPollEvidenceTest` (14, JVM) + `extendedPollEvidence.test.ts` (16). Payload ~1 KB.
   **🔴 gerçek araç raporuyla teyit bekliyor** — Trafic raporunda H1/H2 ayrımı gözlenince
   Ledger'a işlenecek (sıradaki saha adımı).
+- **PR-OBD-CONN-1 (2026-07-15, kod+test):** **DETERMİNİSTİK + GÖZLEMLENEBİLİR bağlantı reset'i.**
+  Kök neden (`OBDConnectModal.tsx`): "Bağlantıyı Sıfırla" `resetObdConnection()` (async native
+  disconnect, fire-and-forget) + `startOBD()`'yi TEK senkron tick'te çağırıyordu → kullanıcı
+  görünür disconnect/reconnect yaşam döngüsü görmüyordu (saha: "hiçbir şey olmadı"). Native
+  zincir zaten tamdı (`disconnectOBD` → iki manager `disconnect()`+`close()`+queue clear;
+  `_startNative` `_pendingDisconnect`'i await ediyordu → native yarış korunuyordu) — boşluk
+  UX/gözlemlenebilirlikteydi. Fix: `resetObdConnection` artık **Promise** (senkron flag/handshake
+  sıfırlama ANINDA; async bölüm native disconnect'i BEKLER) → UI buton "Sıfırlanıyor…" + disabled
+  (çift-dokunuş yok) → disconnect BİTİNCE tek temiz reconnect. Bounded lifecycle telemetrisi
+  (`getObdConnLifecycle` → `obdDeep.connLifecycle`): reset istendi/bitti · disconnectCalled ·
+  reconnectRequested · lastResetReason · state · lastPacketAgeMs (PII yok). **Reset ≠ Forget:**
+  reset kayıtlı adresi/protokol kaydını KORUR (aynı dongle, temiz oturum); cihazı unutmaz.
+  Kilitler: `obdService.test.ts` CONN-1 (5). Suite 4166 yeşil, tsc+lint temiz. Native değişiklik
+  YOK. **🔴 CİHAZDA DOĞRULANMADI** — Trafic'te reset→"Sıfırlanıyor"→disconnect kanıtı +
+  reconnect'te ham trafik yeniden başlaması gözlenince Ledger'a. **Not:** stale-veri "connected"
+  rozetini gizleme (freshness-gated badge) bu PR'da DEĞİL — ayrı takip.
 - **Bağımlılıklar:** Supabase RPC · migration 025/026 (history boşluğu — P1-5).
 - **Eksik ana parça:** — · **Sonraki atomik PR:** —
 - **Kabul kriterleri:** (karşılandı) cihazda buton → `vehicle_events` satırı → panelde listelenir.
@@ -605,6 +621,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Ç-5 | Web sitesi "200+ DTC" diyor; üründe **37** DTC var. | `WEB_URUN_UYUM_BACKLOG.md`. | Açık — P3-5. Pazarlama iddiası **ürün gerçeğine** çekilecek. |
 | Ç-6 | Root Cause Engine `FUSION_LOW_CONFIDENCE` için **yanlış dosyayı** işaret ediyordu (`speedFusion.ts`). | Tanı raporundaki `fusion.activeSource` `useHALStatusStore`'dan gelir → `VehicleSignalResolver:348` → **VehicleCompute worker**. `speedFusion.ts` yalnız `MiniMapWidget` + `telemetryService` tarafından kullanılır — ana göstergeyi beslemez. | **Düzeltildi** (`931b41c`): `suspectFiles` artık ana yolu (worker) ilk sırada gösteriyor. **Ders:** tanı motorunun kendisi de kanıtla denetlenmeli — yanlış yönlendiren tanı, tanısızlıktan pahalıdır (beni de yanlış dosyaya yolladı). |
 | Ç-7 | **İki paralel hız sistemi** var ve *akıllı olan* ana yolda değil. | `speedFusion.ts` plausibility + histerezis + kalibrasyon içerir ama yalnız MiniMap/telemetry'de; ana gösterge yolu (worker → resolver → HAL store) bunlardan **hiçbirine** sahip değildi. | **Kısmen kapatıldı** (`931b41c` çelişki kapısını ana yola koydu). **Açık borç:** iki sistemin varlığı mimari bir kokudur — uzun vadede tek otoriter hız kaynağı olmalı (Digital Twin provenance ile birlikte, P2-5). |
+| Ç-9 | "Bağlantıyı Sıfırla" saha'da **görünür lifecycle üretmiyordu** → kayıtlı cihaz "bağlı gibi" kalıyor, UI/native aynı gerçeği gösterip göstermediği belirsizdi. | `OBDConnectModal.tsx`: reset + reconnect TEK senkron tick'te; `resetObdConnection` void (async native disconnect fire-and-forget). Native disconnect zinciri aslında tamdı → boşluk UX/gözlemlenebilirlikte. | **Düzeltildi** (PR-OBD-CONN-1): reset artık Promise (native disconnect'i bekler) + buton "Sıfırlanıyor…"/disabled + bounded lifecycle telemetrisi (`obdDeep.connLifecycle`). **Açık borç:** stale-veri "connected" rozetini gizleme (freshness-gated badge) ayrı PR. **🔴 Trafic'te doğrulanmadı.** |
 | Ç-8 | Kod yorumu "**Vite prod'da `worker.format:'iife'` → `type:'module'`'ü classic'e ZORLAR**" diyordu; bu YANLIŞTI. | Duster saha raporu `44a81bd1` (WebView 74): `VehicleCompute:create — Failed to construct 'Worker': Module scripts are not supported on DedicatedWorker` (tekrarlı) + `%45 ana thread donması` verdict'i. Prod bundle incelemesi: worker DOSYASI IIFE ama call-site `{type:"module"}` **kalıyordu** → Vite `type`'ı call-site'ta değiştirMEZ. | **Düzeltildi** (PR-RUNTIME-WORKER-1): iki literal-type call-site (`import.meta.env.DEV` ölü-kod eleme ile prod'da 'classic' bırakır). Prod bundle artık `{type:"classic"}`. **Ders:** worker DOSYA formatı ≠ constructor `type` seçeneği — ikisi ayrı ayrı doğrulanmalı; "Vite halleder" varsayımı bundle denetimiyle sınanmadan yazılmamalı. **🔴 Duster/8227L cihazda worker round-trip doğrulaması bekliyor.** |
 
 ---

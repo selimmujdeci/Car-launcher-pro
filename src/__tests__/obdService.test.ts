@@ -112,6 +112,7 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../platform/nativePlugin';
 import {
   startOBD, stopOBD, onOBDData, getHandshakeDiagnostics, resetObdConnection,
+  getObdConnLifecycle,
   type OBDData,
 } from '../platform/obdService';
 
@@ -878,7 +879,9 @@ describe('obdService — resetObdConnection: hiç bağlanılmamış gibi başlar
     expect(getHandshakeDiagnostics().lastSuccessAt).not.toBeNull();
 
     // 2) Kullanıcı dongle'ı yeni araca taktı → "Bağlantıyı Sıfırla".
-    resetObdConnection();
+    // PR-OBD-CONN-1: artık Promise döner (native disconnect'i bekler); SENKRON etkiler
+    // (flag/handshake sıfırlama) yine anında geçerlidir → await gerekmeden kanıtlanır.
+    void resetObdConnection();
 
     // Handshake kanıtı sıfırlanır (yeni araç → eski aracın el sıkışması geçersiz).
     expect(getHandshakeDiagnostics().lastSuccessAt).toBeNull();
@@ -893,5 +896,60 @@ describe('obdService — resetObdConnection: hiç bağlanılmamış gibi başlar
 
     // 4) F0-2 sözleşmesi: kalıcı kayıt SİLİNMEZ — başarıdaki ATDPN üzerine yazar.
     expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
+  });
+});
+
+describe('obdService — PR-OBD-CONN-1: deterministik + gözlemlenebilir reset lifecycle', () => {
+  beforeEach(() => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.disconnectOBD).mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    stopOBD();
+    vi.clearAllMocks();
+  });
+
+  it('resetObdConnection Promise döner ve native disconnect TAMAMLANANA kadar bekler', async () => {
+    let disconnectResolved = false;
+    vi.mocked(CarLauncher.disconnectOBD).mockImplementation(
+      () => new Promise<void>((res) => { setTimeout(() => { disconnectResolved = true; res(); }, 0); }),
+    );
+    const before = getObdConnLifecycle().resetCompletedCount;
+    await resetObdConnection('user');
+    // resetCompleted YALNIZCA disconnect bittikten sonra artar → deterministik sıralama kanıtı.
+    expect(disconnectResolved).toBe(true);
+    expect(getObdConnLifecycle().resetCompletedCount).toBe(before + 1);
+  });
+
+  it('reset senkron etkisi ANINDA geçerli (await gerekmeden resetRequested + disconnectCalled artar)', () => {
+    const before = getObdConnLifecycle();
+    void resetObdConnection('user');   // await YOK
+    const after = getObdConnLifecycle();
+    expect(after.resetRequestedCount).toBe(before.resetRequestedCount + 1);
+    expect(after.disconnectCalledCount).toBe(before.disconnectCalledCount + 1);
+    expect(after.lastResetReason).toBe('user');
+    expect(after.lastResetAt).toBeGreaterThan(0);
+  });
+
+  it('startOBD reconnect talebini sayar (reconnectRequested artar)', () => {
+    const before = getObdConnLifecycle().reconnectRequestedCount;
+    startOBD('00:11:22:33:44:55');
+    expect(getObdConnLifecycle().reconnectRequestedCount).toBe(before + 1);
+  });
+
+  it('ardışık iki reset idempotent — sayaçlar tutarlı artar, crash yok', async () => {
+    const before = getObdConnLifecycle().resetRequestedCount;
+    await resetObdConnection('user');
+    await resetObdConnection('user');
+    expect(getObdConnLifecycle().resetRequestedCount).toBe(before + 2);
+    expect(getObdConnLifecycle().resetCompletedCount).toBeGreaterThanOrEqual(before + 2);
+  });
+
+  it('lifecycle snapshot PII taşımaz (yalnız sayaç/enum/zaman)', () => {
+    const snap = getObdConnLifecycle();
+    const keys = Object.keys(snap);
+    // adres/deviceName/mac gibi tanımlayıcı alan OLMAMALI.
+    expect(keys.some((k) => /address|mac|device|name|vin/i.test(k))).toBe(false);
+    expect(typeof snap.connectionState).toBe('string');
   });
 });

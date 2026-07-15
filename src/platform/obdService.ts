@@ -141,6 +141,18 @@ let _nativeGeneration = 0;
 // connectOBD() çağrısına girmez.
 let _pendingDisconnect: Promise<void> | null = null;
 
+// ── PR-OBD-CONN-1: bağlantı yaşam-döngüsü kanıtı (bounded, PII'siz) ─────────
+// "Bağlantıyı Sıfırla" saha'da görünür bir lifecycle üretmiyordu → reset gerçekten
+// çalıştı mı, native disconnect/close çağrıldı mı, reconnect tetiklendi mi belirsizdi.
+// Bu sayaçlar Tanı Gönder'e girer (getObdConnLifecycle) → UI/native/transport aynı
+// gerçeği mi gösteriyor sorusu kanıtla yanıtlanır. Saturating (taşma yok), MAC/adres YOK.
+const _connLifecycle = {
+  resetRequested: 0, resetCompleted: 0, disconnectCalled: 0, reconnectRequested: 0,
+  lastResetReason: null as string | null,
+  lastResetAt: 0, lastDisconnectAt: 0, lastReconnectAt: 0,
+};
+const _connSat = (n: number): number => (n >= 1_000_000_000 ? n : n + 1);
+
 // ── Stale-data watchdog ──────────────────────────────────────
 let _lastRealDataMs = 0;
 let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
@@ -1481,6 +1493,9 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
     _merge({ connectionState: 'error', source: 'none' });
     return;
   }
+  // PR-OBD-CONN-1: bağlantı/yeniden-bağlantı talebi (lifecycle kanıtı, bounded).
+  _connLifecycle.reconnectRequested = _connSat(_connLifecycle.reconnectRequested);
+  _connLifecycle.lastReconnectAt    = Date.now();
   if (address) {
     _lastKnownAddress = address;
     saveObdAddress(address);
@@ -1601,6 +1616,9 @@ export function stopOBD(): void {
   _iceRpmMissStart = null;
   clearAccumulatedBuffer();
   _stopMock();
+  // PR-OBD-CONN-1: native disconnect (disconnect()+close()+queue clear) talebi — sayaca işlenir.
+  _connLifecycle.disconnectCalled = _connSat(_connLifecycle.disconnectCalled);
+  _connLifecycle.lastDisconnectAt = Date.now();
   _pendingDisconnect = _removeNativeHandles().then(() => {
     if (Capacitor.isNativePlatform()) {
       return CarLauncher.disconnectOBD().catch(() => {});
@@ -1631,8 +1649,16 @@ export function stopOBD(): void {
  * Kayıtlı adres/transport da SİLİNMEZ (aynı dongle) — kullanıcı isterse listeden başka
  * cihaz seçebilir. Yeniden bağlantıyı çağıran başlatır (`startOBD`).
  */
-export function resetObdConnection(): void {
-  stopOBD();                          // soket + timer + watchdog + mock (zero-leak)
+export async function resetObdConnection(reason: string = 'user'): Promise<void> {
+  // PR-OBD-CONN-1: DETERMİNİSTİK + GÖZLEMLENEBİLİR. Senkron bölüm (aşağıdaki tüm state
+  // sıfırlamaları) EŞ ZAMANLI çalışır — çağıran await etmese bile "hiç bağlanılmamış gibi"
+  // etki ANINDA geçerlidir (mevcut sözleşme korunur). Async bölüm YALNIZCA native
+  // disconnect'in TAMAMLANMASINI bekler → çağıran (UI) temiz reconnect'i disconnect
+  // BİTTİKTEN SONRA sıralayabilir (eski GATT oturumu kapanmadan reconnect yarışı olmaz).
+  _connLifecycle.resetRequested  = _connSat(_connLifecycle.resetRequested);
+  _connLifecycle.lastResetReason = reason;
+  _connLifecycle.lastResetAt     = Date.now();
+  stopOBD();                          // soket + timer + watchdog + mock (zero-leak) — SENKRON
   _learnedProtocolBypassed = true;    // ilk deneme ATSP0-otomatik → yeni aracı bul
   _learnedProtocolTimeouts = 0;
   _lastHandshakeSuccessAt  = null;    // flaky-araç guard'ı sıfır → yanlış protokol hızlı bypass
@@ -1640,6 +1666,36 @@ export function resetObdConnection(): void {
   _protocolCycleIndex      = 0;
   _reconnectAttempts       = 0;
   _handshakeDiag = _mkHandshakeDiag({ outcome: 'not_run', ranAt: null });
+  // Native disconnect (disconnect()+close()+queue clear) TAMAMLANANA kadar bekle (fail-soft).
+  const pd = _pendingDisconnect;
+  if (pd) { try { await pd; } catch { /* yoksay — disconnect zaten fail-soft */ } }
+  _connLifecycle.resetCompleted = _connSat(_connLifecycle.resetCompleted);
+}
+
+/**
+ * PR-OBD-CONN-1: bağlantı yaşam-döngüsü kanıtı (bounded, PII'siz) — Tanı Gönder için.
+ * reset/disconnect/reconnect sayaçları + son sebep/zaman + anlık state + son paket yaşı.
+ * "Bağlantıyı Sıfırla gerçekten çalıştı mı, native disconnect çağrıldı mı" sorusuna kanıt.
+ */
+export function getObdConnLifecycle(): {
+  resetRequestedCount: number; resetCompletedCount: number;
+  disconnectCalledCount: number; reconnectRequestedCount: number;
+  lastResetReason: string | null;
+  lastResetAt: number; lastDisconnectAt: number; lastReconnectAt: number;
+  connectionState: OBDData['connectionState']; lastPacketAgeMs: number;
+} {
+  return {
+    resetRequestedCount:     _connLifecycle.resetRequested,
+    resetCompletedCount:     _connLifecycle.resetCompleted,
+    disconnectCalledCount:   _connLifecycle.disconnectCalled,
+    reconnectRequestedCount: _connLifecycle.reconnectRequested,
+    lastResetReason:         _connLifecycle.lastResetReason,
+    lastResetAt:             _connLifecycle.lastResetAt,
+    lastDisconnectAt:        _connLifecycle.lastDisconnectAt,
+    lastReconnectAt:         _connLifecycle.lastReconnectAt,
+    connectionState:         _current.connectionState,
+    lastPacketAgeMs:         _lastRealDataMs > 0 ? Math.max(0, Date.now() - _lastRealDataMs) : -1,
+  };
 }
 
 /**
