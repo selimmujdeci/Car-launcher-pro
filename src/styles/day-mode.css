@@ -270,6 +270,39 @@ html.light-ui {
   --oem-ink-3:      rgba(18,21,26,0.64) !important;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   SISTEMIK GUNDUZ DUZELTMESI (2026-07-14 saha: gunduz tutarsiz palet)
+   KOK NEDEN: iki token sistemi var (yeni oem tokenlari ve ESKI bg/text tokenlari).
+   html.light-ui yalniz oem tokenlarini flip ediyordu; eski token kullanan bilesenler
+   (drawer bantlari, Iklim butonlari, TripBanner altligi, HAM OBD terminali)
+   gunduzde KOYU kaliyordu. Bu blok ESKI token setini de .light-ui altinda aciga
+   cevirir -> her iki sistem birlikte flip, tum ekranlar tutarli. Gece ETKILENMEZ.
+   ════════════════════════════════════════════════════════════════════════ */
+html.light-ui {
+  /* Eski zemin token seti -> acik */
+  --bg-card:        #FFFFFF !important;
+  --bg-primary:     #F4F6FA !important;
+  --bg-secondary:   #FFFFFF !important;
+  --bg-surface:     #FFFFFF !important;
+  --bg-main:        #EDF0F5 !important;
+  --bg-panel:       #FFFFFF !important;
+  --bg-elevated:    #FFFFFF !important;
+  /* Eski murekkep token seti -> koyu */
+  --text:           #0A0C10 !important;
+  --text-main:      #0A0C10 !important;
+  --text-primary:   #0A0C10 !important;
+  --text-dim:       #2A2F38 !important;
+  /* Kenar / ayrac */
+  --border-color:   rgba(0,0,0,0.14) !important;
+  --divider-color:  rgba(0,0,0,0.12) !important;
+}
+
+/* Tailwind duz text-white (token degil) gunduzde acik zeminde gorunmez.
+   Notr yuzeyde koyu murekkebe cevrilir (genel, okunabilir). */
+html.light-ui .text-white {
+  color: var(--oem-ink, #14171C) !important;
+}
+
 /* AYARLAR — açık modda (light-ui) görünmez kalan class-tabanlı yazılar.
    Yukarıdaki "açıklamaları aydınlat" kuralı beyaz zemine ters düşüyor:
    slate / düşük-opak beyaz açıklamalar açık kart üstünde kayboluyor.

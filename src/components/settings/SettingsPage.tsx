@@ -1466,23 +1466,21 @@ function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean
         onClick={() => onChange?.(!value)}
         style={{
           width: 60, height: 32, borderRadius: 999, position: 'relative',
-          border: '1px solid ' + (value ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'var(--oem-line-strong, rgba(240,235,224,0.16))'),
-          background: value
-            ? 'linear-gradient(180deg, oklch(86% 0.10 70 / 0.55), oklch(60% 0.12 50 / 0.45))'
-            : 'rgba(255,255,255,0.06)',
-          boxShadow: value
-            ? '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.20)'
-            : 'inset 0 2px 5px rgba(0,0,0,0.35)',
+          // AÇIK/KAPALI net: ON = DOLU accent (her iki temada belirgin), OFF = gri yüzey + kenar.
+          border: '1px solid ' + (value ? 'var(--oem-accent, #f59e0b)' : 'var(--oem-line)'),
+          background: value ? 'var(--oem-accent, #f59e0b)' : 'var(--oem-surface-3)',
+          boxShadow: value ? 'inset 0 1px 2px rgba(0,0,0,0.15)' : 'inset 0 1px 3px rgba(0,0,0,0.12)',
           cursor: 'pointer',
           transition: 'background .2s ease, border-color .2s ease',
         }}>
         <span
           style={{
-            position: 'absolute', top: 4, left: value ? 32 : 4,
-            width: 22, height: 22, borderRadius: 999,
+            position: 'absolute', top: 3, left: value ? 31 : 3,
+            width: 24, height: 24, borderRadius: 999,
             background: '#ffffff',
+            border: '1px solid rgba(0,0,0,0.14)',   // açık track üstünde de görünür knob
             transition: 'left .2s ease',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.45)',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.30)',
           }} />
       </button>
     </div>
@@ -1654,6 +1652,7 @@ function ProfilesTabContent() {
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [pendingDel, setPendingDel] = useState<VehicleProfile | null>(null);
 
   const activate = useCallback((p: VehicleProfile) => {
     setActiveVehicleProfile(p.id);
@@ -1678,10 +1677,15 @@ function ProfilesTabContent() {
     setNewName(''); setAdding(false);
   }, [newName, settings.defaultMusic, addVehicleProfile]);
 
+  // In-app temalı onay (native window.confirm YOK — head-unit'te siyah/İngilizce
+  // OK-CANCEL dialog'u çıkarıyordu; gündüz/gece uyumlu modal ile değiştirildi).
   const del = useCallback((p: VehicleProfile) => {
-    if (typeof window !== 'undefined' && !window.confirm(`"${p.name}" profili silinsin mi?`)) return;
-    removeVehicleProfile(p.id);
-  }, [removeVehicleProfile]);
+    setPendingDel(p);
+  }, []);
+  const confirmDel = useCallback(() => {
+    if (pendingDel) removeVehicleProfile(pendingDel.id);
+    setPendingDel(null);
+  }, [pendingDel, removeVehicleProfile]);
 
   const full = profiles.length >= MAX_PROFILES;
 
@@ -1773,6 +1777,58 @@ function ProfilesTabContent() {
           />
         )}
       </div>
+
+      {/* Profil silme onayı — in-app temalı modal (native window.confirm YERİNE) */}
+      {pendingDel && (
+        <div
+          role="dialog" aria-modal="true" aria-label="Profil silme onayı"
+          onClick={() => setPendingDel(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(2,6,14,0.55)', backdropFilter: 'blur(4px)', padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 400, borderRadius: 20, overflow: 'hidden',
+              background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div style={{ padding: '20px 22px 8px' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--oem-ink)', marginBottom: 6 }}>
+                Profili sil
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--oem-ink-2)', lineHeight: 1.5 }}>
+                <b style={{ color: 'var(--oem-ink)' }}>"{pendingDel.name}"</b> profili kalıcı olarak silinsin mi?
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '12px 22px 18px' }}>
+              <button
+                onClick={() => setPendingDel(null)}
+                style={{
+                  padding: '9px 18px', borderRadius: 12, fontSize: 13, fontWeight: 700,
+                  background: 'var(--oem-surface-2)', color: 'var(--oem-ink)',
+                  border: '1px solid var(--oem-line)', cursor: 'pointer',
+                }}
+              >
+                Vazgeç
+              </button>
+              <button
+                onClick={confirmDel}
+                style={{
+                  padding: '9px 18px', borderRadius: 12, fontSize: 13, fontWeight: 800,
+                  background: '#dc2626', color: '#fff', border: '1px solid #dc2626', cursor: 'pointer',
+                }}
+              >
+                Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

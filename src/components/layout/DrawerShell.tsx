@@ -43,7 +43,7 @@ function NormalDrawer({ open, onClose, children }: Omit<Props, 'fullscreen'>) {
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+          border: '1px solid var(--oem-line)',
           boxShadow: '0 -1px 0 rgba(255,255,255,0.05) inset, 0 32px 80px -28px rgba(0,0,0,0.72)',
           transform: open ? 'translateY(0)' : 'translateY(100%)',
           opacity: open ? 1 : 0,
@@ -67,13 +67,13 @@ function NormalDrawer({ open, onClose, children }: Omit<Props, 'fullscreen'>) {
             paddingBottom: '10px',
             flexShrink: 0,
             cursor: 'pointer',
-            background: 'var(--bg-primary, #0f1320)',
+            background: 'var(--oem-surface-0)',
             backdropFilter: 'blur(32px)',
             WebkitBackdropFilter: 'blur(32px)',
           }}
           onClick={onClose}
         >
-          <div style={{ width: '48px', height: '5px', borderRadius: '9999px', background: 'var(--divider-color, rgba(255,255,255,0.20))' }} />
+          <div style={{ width: '48px', height: '5px', borderRadius: '9999px', background: 'var(--oem-line)' }} />
         </div>
         <div
           style={{
@@ -82,7 +82,7 @@ function NormalDrawer({ open, onClose, children }: Omit<Props, 'fullscreen'>) {
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            background: 'var(--bg-primary, #0f1320)',
+            background: 'var(--oem-surface-0)',
             backdropFilter: 'blur(32px)',
             WebkitBackdropFilter: 'blur(32px)',
           }}

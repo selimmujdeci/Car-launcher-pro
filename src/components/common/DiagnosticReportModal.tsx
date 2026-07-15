@@ -136,18 +136,18 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
         className="w-full rounded-2xl overflow-hidden flex flex-col"
         style={{
           maxWidth: 440, maxHeight: '90vh',
-          background: 'rgba(12,18,30,0.98)', border: '1px solid rgba(255,255,255,0.10)',
+          background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line)',
           boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
         }}
       >
         {/* Başlık */}
         <div className="flex items-center justify-between px-4 py-3"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="text-[13px] font-black" style={{ color: 'var(--text-primary, #e8edf5)' }}>
+          style={{ borderBottom: '1px solid var(--oem-line)' }}>
+          <div className="text-[13px] font-black" style={{ color: 'var(--oem-ink)' }}>
             {title ?? 'Tanı Raporu Gönder'}
           </div>
           <button onClick={onClose} aria-label="Kapat"
-            className="p-1 rounded-lg" style={{ color: 'rgba(255,255,255,0.6)' }}>
+            className="p-1 rounded-lg" style={{ color: 'var(--oem-ink-2)' }}>
             <X size={16} />
           </button>
         </div>
@@ -157,7 +157,7 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
             <div className="flex flex-col gap-3">
               {/* Kategori */}
               <div>
-                <div className="text-[11px] font-bold mb-1.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                <div className="text-[11px] font-bold mb-1.5" style={{ color: 'var(--oem-ink-2)' }}>
                   Kategori
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -169,7 +169,7 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
                         style={{
                           background: on ? 'rgba(96,165,250,0.18)' : 'rgba(255,255,255,0.04)',
                           border: `1px solid ${on ? 'rgba(96,165,250,0.55)' : 'rgba(255,255,255,0.08)'}`,
-                          color: on ? '#93c5fd' : 'rgba(255,255,255,0.65)',
+                          color: on ? '#93c5fd' : 'var(--oem-ink-2)',
                         }}>
                         {c}
                       </button>
@@ -181,8 +181,8 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
               {/* Açıklama */}
               <div>
                 <label htmlFor="diag-note" className="text-[11px] font-bold mb-1.5 block"
-                  style={{ color: 'rgba(255,255,255,0.7)' }}>
-                  Problem açıklaması <span style={{ color: 'rgba(255,255,255,0.4)' }}>(isteğe bağlı)</span>
+                  style={{ color: 'var(--oem-ink-2)' }}>
+                  Problem açıklaması <span style={{ color: 'var(--oem-ink-3)' }}>(isteğe bağlı)</span>
                 </label>
                 <textarea
                   id="diag-note"
@@ -192,33 +192,33 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
                   placeholder="Ne oldu? Ne zaman? (Kişisel bilgi yazmayın — otomatik maskelenir.)"
                   className="w-full rounded-lg px-2.5 py-2 text-[12px] resize-none"
                   style={{
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
-                    color: 'var(--text-primary, #e8edf5)', outline: 'none',
+                    background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)',
+                    color: 'var(--oem-ink)', outline: 'none',
                   }}
                 />
-                <div className="text-[10px] text-right mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                <div className="text-[10px] text-right mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>
                   {note.length}/1000
                 </div>
               </div>
 
               {/* Önizleme */}
               <div className="rounded-lg px-2.5 py-2"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
                 <div className="text-[11px] font-bold mb-1 flex items-center gap-1.5"
-                  style={{ color: 'rgba(255,255,255,0.7)' }}>
+                  style={{ color: 'var(--oem-ink-2)' }}>
                   <ShieldCheck size={12} /> Gönderilecek veri önizlemesi
                 </div>
                 {previewErr ? (
                   <div className="text-[11px]" style={{ color: '#f87171' }}>Önizleme hazırlanamadı.</div>
                 ) : !preview ? (
-                  <div className="text-[11px] flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  <div className="text-[11px] flex items-center gap-1.5" style={{ color: 'var(--oem-ink-3)' }}>
                     <Loader2 size={12} className="animate-spin" /> Hesaplanıyor…
                   </div>
                 ) : (
                   <div className="flex flex-col gap-1.5">
-                    <div className="text-[11px]" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                    <div className="text-[11px]" style={{ color: 'var(--oem-ink-2)' }}>
                       Boyut: <b>{fmtSize(preview.sizeBytes)}</b>
-                      {note.trim() && <span style={{ color: 'rgba(255,255,255,0.5)' }}> · Açıklamanız eklenecek</span>}
+                      {note.trim() && <span style={{ color: 'var(--oem-ink-3)' }}> · Açıklamanız eklenecek</span>}
                     </div>
                     {preview.willTruncate && (
                       <div className="text-[10px] flex items-center gap-1" style={{ color: '#fbbf24' }}>
@@ -226,17 +226,17 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
                       </div>
                     )}
                     <details>
-                      <summary className="text-[10px] font-bold cursor-pointer" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                      <summary className="text-[10px] font-bold cursor-pointer" style={{ color: 'var(--oem-ink-3)' }}>
                         {preview.sections.length} bölüm gönderilecek
                       </summary>
-                      <div className="text-[10px] mt-1 leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                      <div className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--oem-ink-3)' }}>
                         {preview.sections.map((s) => s.label).join(' · ')}
                       </div>
                     </details>
                     <div className="text-[10px]" style={{ color: '#6ee7b7' }}>
                       Maskelenir: {preview.masked.map((m) => m.split(' →')[0]).join(', ')}
                     </div>
-                    <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    <div className="text-[10px]" style={{ color: 'var(--oem-ink-3)' }}>
                       Gönderilmez: {preview.notSent.slice(0, 5).join(', ')}…
                     </div>
                   </div>
@@ -248,7 +248,7 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
                 <input type="checkbox" checked={consent}
                   onChange={(e) => setConsent(e.target.checked)}
                   className="mt-0.5" style={{ accentColor: '#34d399' }} />
-                <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                <span className="text-[11px]" style={{ color: 'var(--oem-ink-2)' }}>
                   Yukarıdaki teknik veriyi ve açıklamamı destek ekibine <b>göndermeyi onaylıyorum</b>.
                   Konum, kimlik ve cihaz kişisel bilgisi gönderilmez.
                 </span>
@@ -258,7 +258,7 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
 
           {phase === 'sending' && (
             <div className="flex items-center gap-2 py-6 justify-center text-[12px]"
-              style={{ color: 'rgba(255,255,255,0.7)' }}>
+              style={{ color: 'var(--oem-ink-2)' }}>
               <Loader2 size={16} className="animate-spin" /> Gönderiliyor…
             </div>
           )}
@@ -272,11 +272,11 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
               </div>
               {reportId && accepted && (
                 <div className="rounded-lg px-2.5 py-2 flex items-center justify-between gap-2"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
                   <div className="min-w-0">
-                    <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.5)' }}>Rapor Numarası</div>
+                    <div className="text-[10px]" style={{ color: 'var(--oem-ink-3)' }}>Rapor Numarası</div>
                     <div className="text-[12px] font-mono font-bold truncate"
-                      style={{ color: 'var(--text-primary, #e8edf5)' }}>{reportId}</div>
+                      style={{ color: 'var(--oem-ink)' }}>{reportId}</div>
                   </div>
                   <button onClick={handleCopy} aria-label="Rapor numarasını kopyala"
                     className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold flex-shrink-0"
@@ -286,7 +286,7 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
                   </button>
                 </div>
               )}
-              <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+              <div className="text-[10px]" style={{ color: 'var(--oem-ink-3)' }}>
                 Destek için bu numarayı iletin.
               </div>
             </div>
@@ -295,10 +295,10 @@ export function DiagnosticReportModal({ open, onClose, send, title }: Diagnostic
 
         {/* Aksiyonlar */}
         <div className="flex items-center justify-end gap-2 px-4 py-3"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          style={{ borderTop: '1px solid var(--oem-line)' }}>
           <button onClick={onClose}
             className="px-3 py-1.5 rounded-xl text-[11px] font-bold"
-            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)' }}>
+            style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}>
             {phase === 'result' ? 'Kapat' : 'Vazgeç'}
           </button>
           {phase !== 'result' && (

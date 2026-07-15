@@ -20,34 +20,36 @@ interface ToastMeta {
   titleColor:  string;
 }
 
+/* Theme-aware: bg = --oem-surface-0 (gündüz beyaz / gece koyu), renkli border+ikon
+ * aksan olarak her iki modda çalışır, başlık okunabilir MİD-TON (beyaz+koyu zeminde). */
 const TYPE_META: Record<ToastType, ToastMeta> = {
   error: {
     icon:       AlertCircle,
-    bg:         '#1a0a0a',
-    border:     '#ef444430',
+    bg:         'var(--oem-surface-0)',
+    border:     '#ef444455',
     iconColor:  '#ef4444',
-    titleColor: '#fca5a5',
+    titleColor: '#dc2626',
   },
   warning: {
     icon:       AlertTriangle,
-    bg:         '#1a140a',
-    border:     '#f59e0b30',
+    bg:         'var(--oem-surface-0)',
+    border:     '#f59e0b55',
     iconColor:  '#f59e0b',
-    titleColor: '#fcd34d',
+    titleColor: '#d97706',
   },
   info: {
     icon:       Info,
-    bg:         '#0a0f1a',
-    border:     '#3b82f630',
+    bg:         'var(--oem-surface-0)',
+    border:     '#3b82f655',
     iconColor:  '#3b82f6',
-    titleColor: '#93c5fd',
+    titleColor: '#2563eb',
   },
   success: {
     icon:       CheckCircle,
-    bg:         '#0a1a0f',
-    border:     '#22c55e30',
+    bg:         'var(--oem-surface-0)',
+    border:     '#22c55e55',
     iconColor:  '#22c55e',
-    titleColor: '#86efac',
+    titleColor: '#16a34a',
   },
 };
 
@@ -78,14 +80,16 @@ const ToastItem = memo(function ToastItem({ toast }: { toast: AppToast }) {
           {toast.title}
         </div>
         {toast.message && (
-          <div className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">
+          <div className="text-xs mt-1 leading-snug line-clamp-2"
+            style={{ color: 'var(--oem-ink-3)' }}>
             {toast.message}
           </div>
         )}
       </div>
       <button
         onClick={onClose}
-        className="flex-shrink-0 text-slate-600 hover:text-slate-400 active:scale-90 transition-all"
+        className="flex-shrink-0 active:scale-90 transition-all"
+        style={{ color: 'var(--oem-ink-3)' }}
       >
         <X className="w-4 h-4" />
       </button>

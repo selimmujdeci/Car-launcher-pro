@@ -8,7 +8,7 @@ import {
 } from '../../platform/breakReminderService';
 import { useOBDState } from '../../platform/obdService';
 
-const CARD = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 24, padding: 20 };
+const CARD = { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', borderRadius: 24, padding: 20 };
 const DARK_BG = 'rgba(10,14,26,0.95)';
 
 /* ── Nefes Egzersizi ─── */
@@ -112,7 +112,7 @@ const EntApps = memo(function EntApps() {
             <button
               key={id}
               onClick={() => openApp(app)}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '18px 8px', borderRadius: 16, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', cursor: 'pointer' }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '18px 8px', borderRadius: 16, background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', cursor: 'pointer' }}
             >
               <span style={{ fontSize: 28 }}>{app.icon}</span>
               <span style={{ color: '#e2e8f0', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{app.name}</span>
@@ -140,14 +140,14 @@ const BreakReminderManager = memo(function BreakReminderManager() {
           <div style={{ width: 4, height: 16, borderRadius: 4, background: '#fbbf24' }} />
           <span style={{ color: '#fef3c7', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Mola Hatırlatıcı</span>
         </div>
-        <button onClick={handleToggle} style={{ width: 52, height: 28, borderRadius: 14, background: br.enabled ? '#f59e0b' : 'rgba(255,255,255,0.10)', border: 'none', cursor: 'pointer', padding: 3, transition: 'background 0.2s', display: 'flex', alignItems: 'center' }}>
+        <button onClick={handleToggle} style={{ width: 52, height: 28, borderRadius: 14, background: br.enabled ? '#f59e0b' : 'var(--oem-surface-2)', border: 'none', cursor: 'pointer', padding: 3, transition: 'background 0.2s', display: 'flex', alignItems: 'center' }}>
           <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#fff', display: 'block', transform: br.enabled ? 'translateX(24px)' : 'translateX(0)', transition: 'transform 0.2s' }} />
         </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {intervals.map(min => (
-          <button key={min} onClick={() => setBreakInterval(min)} style={{ flex: 1, height: 40, borderRadius: 12, background: br.intervalMin === min ? '#f59e0b' : 'rgba(255,255,255,0.07)', color: br.intervalMin === min ? '#fff' : '#94a3b8', border: `1px solid ${br.intervalMin === min ? 'transparent' : 'rgba(255,255,255,0.10)'}`, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer' }}>
+          <button key={min} onClick={() => setBreakInterval(min)} style={{ flex: 1, height: 40, borderRadius: 12, background: br.intervalMin === min ? '#f59e0b' : 'var(--oem-surface-2)', color: br.intervalMin === min ? '#fff' : '#94a3b8', border: `1px solid ${br.intervalMin === min ? 'transparent' : 'rgba(255,255,255,0.10)'}`, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer' }}>
             {min < 60 ? `${min}D` : `${min / 60}S`}
           </button>
         ))}
@@ -159,7 +159,7 @@ const BreakReminderManager = memo(function BreakReminderManager() {
             <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Sürüş Süresi</span>
             <span style={{ color: pct > 80 ? '#fbbf24' : '#e2e8f0', fontSize: 11, fontWeight: 800 }}>{elapsedMin} / {br.intervalMin} DK</span>
           </div>
-          <div style={{ height: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 5, overflow: 'hidden' }}>
+          <div style={{ height: 10, background: 'var(--oem-surface-2)', borderRadius: 5, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#10b981', borderRadius: 5, transition: 'width 0.5s' }} />
           </div>
           <div style={{ color: '#64748b', fontSize: 10, fontWeight: 600, marginTop: 8 }}>
@@ -215,7 +215,7 @@ export const EntertainmentPortal = memo(function EntertainmentPortal() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: DARK_BG, overflow: 'hidden' }}>
       {/* Başlık */}
-      <div style={{ flexShrink: 0, padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 16, background: 'rgba(255,255,255,0.03)' }}>
+      <div style={{ flexShrink: 0, padding: '20px 24px', borderBottom: '1px solid var(--oem-line)', display: 'flex', alignItems: 'center', gap: 16, background: 'var(--oem-surface-2)' }}>
         <div style={{ width: 52, height: 52, borderRadius: 20, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Tv size={26} color="#a78bfa" />
         </div>

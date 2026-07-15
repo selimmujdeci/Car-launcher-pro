@@ -15,7 +15,7 @@ function fmtTs(ts: number): string {
 function cmdColor(cmd: string): string {
   const c = cmd.toUpperCase();
   if (c.startsWith('AT')) return 'text-sky-400';           // ELM327 kurulum
-  if (c === '03' || c === '07' || c === '0A') return 'text-amber-300'; // DTC okuma
+  if (c === '03' || c === '07' || c === '0A') return 'text-amber-600'; // DTC okuma
   if (c === '04') return 'text-red-400';                   // DTC temizle
   return 'text-emerald-400';                               // PID sorgu (01/09/22…)
 }
@@ -24,10 +24,10 @@ function cmdColor(cmd: string): string {
 function respColor(resp: string): string {
   const r = resp.toUpperCase();
   if (resp.startsWith('⚠')) return 'text-red-400';
-  if (r.includes('NODATA') || r.replace(/\s+/g, '').includes('NODATA')) return 'text-gray-500';
+  if (r.includes('NODATA') || r.replace(/\s+/g, '').includes('NODATA')) return 'text-[color:var(--oem-ink-3)]';
   if (r.includes('ERROR') || r.includes('UNABLE') || r.includes('STOPPED')) return 'text-red-400';
-  if (/^\s*4[37A]/.test(r)) return 'text-amber-200 font-bold'; // DTC pozitif yanıt — asıl kanıt
-  return 'text-gray-200';
+  if (/^\s*4[37A]/.test(r)) return 'text-amber-600 font-bold'; // DTC pozitif yanıt — asıl kanıt
+  return 'text-[color:var(--oem-ink)]';
 }
 
 export const ObdRawView = memo(function ObdRawView() {
@@ -49,20 +49,20 @@ export const ObdRawView = memo(function ObdRawView() {
       <div className="flex items-center gap-2 px-1">
         <button
           onClick={clearLog}
-          className="px-3 py-1 rounded text-xs font-mono border border-gray-600 text-gray-400 hover:bg-gray-800"
+          className="px-3 py-1 rounded text-xs font-mono border border-[var(--oem-line)] text-[color:var(--oem-ink-2)] hover:bg-[var(--oem-surface-3)]"
         >
           TEMİZLE
         </button>
-        <span className="text-[10px] font-mono text-gray-500 hidden sm:inline">
+        <span className="text-[10px] font-mono text-[color:var(--oem-ink-3)] hidden sm:inline">
           AT=kurulum · 03/07/0A=DTC · 43/47/4A=yanıt · ⚠=hata
         </span>
-        <span className="ml-auto text-xs font-mono text-gray-500">
+        <span className="ml-auto text-xs font-mono text-[color:var(--oem-ink-3)]">
           {log.length} / 500
         </span>
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[8rem_3.5rem_5rem_1fr] gap-x-3 px-2 pb-1 border-b border-gray-700 text-gray-500 text-xs font-mono uppercase">
+      <div className="grid grid-cols-[8rem_3.5rem_5rem_1fr] gap-x-3 px-2 pb-1 border-b border-[var(--oem-line)] text-[color:var(--oem-ink-3)] text-xs font-mono uppercase">
         <span>Timestamp</span>
         <span>ms</span>
         <span>Komut</span>
@@ -71,7 +71,7 @@ export const ObdRawView = memo(function ObdRawView() {
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {log.length === 0 ? (
-          <p className="text-gray-600 text-xs font-mono px-2 py-4 leading-relaxed">
+          <p className="text-[color:var(--oem-ink-3)] text-xs font-mono px-2 py-4 leading-relaxed">
             OBD trafiği yok. Bu panel açıkken OBD'ye bağlan ve tarama yap.
             <br />
             Handshake (ATZ/ATE0/ATSP…) ve ham DTC yanıtı (03 → 43…) burada akar.
@@ -80,10 +80,10 @@ export const ObdRawView = memo(function ObdRawView() {
           log.map((entry: ObdTrafficEntry, i) => (
             <div
               key={i}
-              className="grid grid-cols-[8rem_3.5rem_5rem_1fr] gap-x-3 px-2 py-0.5 text-xs font-mono hover:bg-gray-800/50 even:bg-gray-900/30"
+              className="grid grid-cols-[8rem_3.5rem_5rem_1fr] gap-x-3 px-2 py-0.5 text-xs font-mono hover:bg-[var(--oem-surface-3)] even:bg-[var(--oem-surface-1)]"
             >
-              <span className="text-gray-400">{fmtTs(entry.ts)}</span>
-              <span className={entry.ms > 1000 ? 'text-orange-400' : 'text-gray-500'}>{entry.ms}</span>
+              <span className="text-[color:var(--oem-ink-2)]">{fmtTs(entry.ts)}</span>
+              <span className={entry.ms > 1000 ? 'text-orange-400' : 'text-[color:var(--oem-ink-3)]'}>{entry.ms}</span>
               <span className={cmdColor(entry.cmd)}>{entry.cmd}</span>
               <span className={`${respColor(entry.resp)} break-all whitespace-pre-wrap`}>{entry.resp || '—'}</span>
             </div>
