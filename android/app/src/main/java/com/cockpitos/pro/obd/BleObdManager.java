@@ -132,6 +132,18 @@ public final class BleObdManager {
     private volatile java.util.List<String> extendedPids = java.util.Collections.emptyList();
     private int extendedIdx = 0;
 
+    /**
+     * PR-OBD-BLE-1: Teşhis BURST modu — bkz. OBDManager.diagnosticBurst (aynı sözleşme).
+     * Açıkken pollLoop EXTENDED grubunun TÜM izlenen PID'lerini HER turda okur (round-robin
+     * "turda 1" yerine) ve tur arası bekleme kısaltılır → tüm sensörler ~saniyeler içinde
+     * tazelenir. Yalnız Canlı Test ekranı görünürken açılır (Malı-400 sıfır-maliyet korunur).
+     * Eskiden BLE'de YOKTU → BLE transport'ta "Tüm PID Canlı Test" yalnız round-robin çalışıyor,
+     * extended hattı fiilen boş kalıyordu (saha: Trafic/Doblo aynı 6-7 PID sınırı).
+     */
+    private volatile boolean diagnosticBurst = false;
+    /** BURST modunda tur arası minimum bekleme (ms) — bkz. OBDManager.BURST_POLL_MS. */
+    private static final int BURST_POLL_MS = 400;
+
     // ── GATT operasyon senkronizasyonu ───────────────────────────────────────────
     // Android GATT seri olduğundan tek bir "op sonucu" kanalı yeterli. Her bloklayıcı
     // operasyon (connect / discover / mtu / descriptor-write) bu kuyruktan sonuç bekler.
@@ -299,20 +311,32 @@ public final class BleObdManager {
                     lastVoltage = queuedVoltageRead(p);
                 }
 
-                // Patch 8: EXTENDED grup — bkz. OBDManager.pollLoop() aynı desen/gerekçe.
+                // Patch 8 / PR-OBD-BLE-1: EXTENDED grup — bkz. OBDManager.pollLoop() aynı desen.
                 java.util.List<String> ext = extendedPids;
                 if (!ext.isEmpty()) {
-                    final String extPid = ext.get(extendedIdx % ext.size());
-                    extendedIdx++;
-                    String extRaw = queuedExtendedRead(p, extPid);
-                    if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                    if (diagnosticBurst) {
+                        // Teşhis burst: tüm izlenen PID'ler bu turda okunur → hızlı tazeleme.
+                        // İptal kontrolü: kopma/kapanışta yarım turda çık (obdRunning=false).
+                        for (String extPid : ext) {
+                            if (!obdRunning || gatt == null) break;
+                            String extRaw = queuedExtendedRead(p, extPid);
+                            if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                        }
+                    } else {
+                        final String extPid = ext.get(extendedIdx % ext.size());
+                        extendedIdx++;
+                        String extRaw = queuedExtendedRead(p, extPid);
+                        if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                    }
                 }
                 pollCycle++;
 
                 listener.onObdData(new ObdPollSample(speed, rpm, engineTemp, fuelLevel,
                     throttle, intakeTemp, boostPressure, lastVoltage));
 
-                Thread.sleep(fastPollMs);
+                // PR-OBD-BLE-1: BURST modunda tur arası bekleme kısaltılır (tüm PID'ler zaten
+                // bu turda okundu → tur uzun; ek uzun bekleme "sabit" hissi verirdi).
+                Thread.sleep(diagnosticBurst ? BURST_POLL_MS : fastPollMs);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -362,6 +386,16 @@ public final class BleObdManager {
         java.util.List<String> copy = new java.util.ArrayList<>(
             pids.subList(0, Math.min(pids.size(), 32)));
         this.extendedPids = java.util.Collections.unmodifiableList(copy);
+    }
+
+    /**
+     * PR-OBD-BLE-1: Teşhis BURST modunu aç/kapat — bkz. OBDManager.setDiagnosticBurst.
+     * Açıkken pollLoop EXTENDED grubunun tüm izlenen PID'lerini her turda okur (hızlı
+     * tazeleme). Kapanınca eski düşük-yük round-robin davranışına döner (Malı-400).
+     * volatile alan → plugin thread'inden güvenli yazım, pollLoop thread'inden okuma.
+     */
+    public void setDiagnosticBurst(boolean on) {
+        this.diagnosticBurst = on;
     }
 
     /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 8). */

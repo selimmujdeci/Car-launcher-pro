@@ -1375,12 +1375,17 @@ public class CarLauncherPlugin extends Plugin {
     /**
      * Teşhis BURST modu (OBD Canlı Test ekranı) — açıkken EXTENDED grubunun tüm izlenen
      * PID'leri her poll turunda okunur (hızlı tazeleme). Ekran kapanınca kapatılır →
-     * düşük-yük round-robin'e döner (Malı-400 sözleşmesi). Classic/TCP (OBDManager) yolu.
+     * düşük-yük round-robin'e döner (Malı-400 sözleşmesi).
+     * PR-OBD-BLE-1: HER İKİ transport'a uygulanır (Classic/TCP + BLE). Eskiden yalnız
+     * OBDManager'a uygulanıyordu → BLE dongle'lı araçlarda burst hiç açılmıyor, extended
+     * hattı round-robin'de kalıyordu (saha: Trafic/Doblo aynı 6-7 PID). Aktif olmayan
+     * yöneticide de set edilir (bağlıysa hemen, değilse sonraki bağlantıda geçerli).
      */
     @PluginMethod
     public void setObdDiagnosticBurst(PluginCall call) {
         boolean enable = call.getBoolean("enable", false);
-        if (obdManager != null) obdManager.setDiagnosticBurst(enable);
+        if (obdManager    != null) obdManager.setDiagnosticBurst(enable);
+        if (bleObdManager != null) bleObdManager.setDiagnosticBurst(enable);
         JSObject ret = new JSObject();
         ret.put("enabled", enable);
         call.resolve(ret);

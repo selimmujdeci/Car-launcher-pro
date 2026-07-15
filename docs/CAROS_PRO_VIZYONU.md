@@ -210,7 +210,7 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 | # | İş | Kabul kriteri |
 |---|---|---|
-| P1-1 | Extended PID **değer dolumu** + ⚠️ RPM=0 anomalisi kök nedeni | Canlı Test'te extended PID'ler değer gösterir; motor açıkken RPM>0. **Rapor `8edd61a6` teyit etti:** `discovered: true, supportedCount: 15` ama `samples: []` — keşif çalışıyor, dolum yok |
+| P1-1 | Extended PID **değer dolumu** + ⚠️ RPM=0 anomalisi kök nedeni | Canlı Test'te extended PID'ler değer gösterir; motor açıkken RPM>0. **Rapor `8edd61a6` teyit etti:** `discovered: true, supportedCount: 15` ama `samples: []` — keşif çalışıyor, dolum yok. **PR-OBD-BLE-1 (2026-07-15) kök neden buldu+kod düzeltmesi:** "Tüm PID Canlı Test" burst modu `BleObdManager`'da ve `CarLauncherPlugin.setObdDiagnosticBurst` wiring'inde YOKTU → BLE dongle'lı araçlarda (Trafic+Doblo aynı 6-7 PID) extended hattı yalnız round-robin. Burst BLE'ye eklendi (Classic deseninin birebir aynası); `compileDebugJavaWithJavac` başarılı, TS sözleşme 32 test yeşil. **🔴 CİHAZDA DOĞRULANMADI** — kabul: BLE dongle + panel açıkken ≤20 sn'de ≥5 extended PID `TAZE`. Kalan: değer sığ seed (blok 40-A0) + NO_DATA/timeout ayrıştırması (ayrı PR'lar) |
 | P1-2 | Trafic (KWP) 10 soğuk açılış — protokol koruma saha kabulü | `protocolActive='5'` kalır, dakikalarca-takılma = 0. **Kısmen ilerledi:** rapor `8edd61a6` KWP'de handshake `ok` + protokol 5 aktif gösterdi (tek oturum; 10 açılış ölçütü hâlâ açık) |
 | P1-3 | `canStatus` store'a yazılmıyor (W4B artığı) | Kaynak-kaybı durumu store'dan okunabilir |
 | P1-4 | GPS çift/üçlü abonelik (#62) | Tek konum akışı; park gürültüsü kesilir |
