@@ -11,6 +11,7 @@
  */
 
 import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats, getHandshakeDiagnostics } from './obdService';
+import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
 import { getSupportedPids, getPidValue } from './obd/extendedPidService';
 import { getDTCStateSnapshot } from './dtcService';
@@ -61,6 +62,8 @@ export interface ObdDeepSnapshot {
     protocolTried: string | null; protocolActive: string | null;
     lastSuccessAt: number | null; reconnectReason: string | null;
     reconnectHistory: { ts: number; reason: string }[];
+    // PR-OBD-DIAG-2: bounded PID keşif kanıtı (per-blok outcome/continuation/stopReason).
+    discoveryEvidence: DiscoveryEvidence | null;
   };
   dtc: {
     count: number; isStale: boolean; error: string | null; lastReadAt: number | null;
@@ -154,7 +157,7 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
       outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
       bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,
       timeoutStage: null, durationMs: null, protocolTried: null, protocolActive: null,
-      lastSuccessAt: null, reconnectReason: null, reconnectHistory: [],
+      lastSuccessAt: null, reconnectReason: null, reconnectHistory: [], discoveryEvidence: null,
     }),
     dtc: {
       count: dtcCount, isStale: dtcIsStale, error: dtcError,

@@ -303,3 +303,144 @@ export function buildHandshakeResult(raw: RawHandshake): HandshakeResult {
     readBlocks,
   };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PR-OBD-DIAG-2 — PID KEŞİF KANITI (bounded · PII-güvenli · salt-TÜRETİLMİŞ)
+
+   AMAÇ (observability): `readBlocks:["0","20"]` yalnız SONUCU gösterir, KARARIN
+   kanıtını göstermez. Geçerli "continuation CLEAR", NO_DATA, timeout ve partial
+   yanıt aynı nihai görüntüye çöküyordu → saha raporuyla discovery'nin DOĞRU mu
+   durduğu yoksa ERKEN mi kesildiği ayrılamıyordu.
+
+   Bu kanıt YALNIZ `performHandshake()`'in ZATEN döndürdüğü ham bloklardan türetilir
+   → EK OBD KOMUTU YOK, handshake davranışı byte düzeyinde DEĞİŞMEZ. "attempted"
+   belirsizliği (boş string = sorgulanmadı mı, total-timeout mu?) continuation
+   ZİNCİRİ yeniden kurularak çözülür — native `hasContinuationBit` (byte D bit0) ile
+   birebir. Kanıt eksikse (UNKNOWN) "desteklenmiyor" SONUCU ÇIKARILMAZ.
+══════════════════════════════════════════════════════════════════════════ */
+
+export type DiscoveryBlockOutcome =
+  | 'OK' | 'NO_DATA' | 'TIMEOUT_NO_BYTES' | 'TIMEOUT_PARTIAL'
+  | 'NEGATIVE_RESPONSE' | 'ERROR' | 'PARSE_ERROR' | 'NOT_ATTEMPTED';
+export type DiscoveryContinuation = 'SET' | 'CLEAR' | 'UNKNOWN';
+export type DiscoveryStopReason =
+  | 'CONTINUATION_CLEAR' | 'OUTCOME_UNKNOWN' | 'RESPONSE_INVALID'
+  | 'MAX_STANDARD_BLOCK' | 'NEXT_BLOCK_ATTEMPTED' | 'NOT_REACHED';
+
+export interface DiscoveryBlockEvidence {
+  /** Bitmap blok probe PID'i ('00'|'20'|'40'|'60'|'80'|'A0'). */
+  block: string;
+  /** Gönderilen komut ('0100'|'0120'|…). */
+  command: string;
+  /** Zincir bu bloğu sorguladı mı (continuation'dan türetilir). */
+  attempted: boolean;
+  outcome: DiscoveryBlockOutcome;
+  /** Normalize yanıt uzunluğu (hex hane) — bounded. */
+  responseLength: number;
+  /** Bounded normalize hex özeti (maks DISCOVERY_PREVIEW_MAX hane). PII yok. */
+  normalizedResponsePreview: string;
+  /** Geçerliyse tam 4 bitmap baytı (8 hex hane); değilse null. */
+  bitmapBytes: string | null;
+  continuation: DiscoveryContinuation;
+  /** Bir sonraki blok sorgulanacak mı (continuation SET & son blok değil). */
+  nextBlockAttempted: boolean;
+  stopReason: DiscoveryStopReason;
+}
+export interface DiscoveryEvidence {
+  /** ≤ 6 blok (bounded). */
+  blocks: DiscoveryBlockEvidence[];
+  /** Zincirin durduğu son sorgulanan bloğun stopReason'ı. */
+  finalStopReason: DiscoveryStopReason;
+  /** true = kesin durma (CONTINUATION_CLEAR / MAX_STANDARD_BLOCK) → "desteklenmiyor" güvenli. */
+  evidenceComplete: boolean;
+}
+
+/** Yanıt önizleme tavanı (hex hane) — bounded telemetri. */
+const DISCOVERY_PREVIEW_MAX = 24;
+/** responseLength görünüm tavanı — bozuk/uzun yanıt payload'ı şişirmesin. */
+const DISCOVERY_RESPLEN_MAX = 999;
+
+/** "41 <pid>" başlığından SONRAKİ tam 4 bitmap baytını çıkarır (yoksa null). */
+function _bitmapFourBytes(raw: string, pid: string): number[] | null {
+  const tokens = _hexTokens(raw);
+  const idx = tokens.findIndex((t, i) => t === '41' && tokens[i + 1] === pid);
+  if (idx < 0) return null;
+  const s = idx + 2;
+  if (tokens.length < s + 4) return null;
+  const bytes = [tokens[s], tokens[s + 1], tokens[s + 2], tokens[s + 3]].map((h) => parseInt(h!, 16));
+  return bytes.some((b) => Number.isNaN(b)) ? null : bytes;
+}
+
+/**
+ * Ham handshake bloklarından bounded PID keşif kanıtı üretir. SAF — yan etkisiz,
+ * ek sorgu yok. Native continuation kararını (byte D bit0) birebir yeniden kurar;
+ * böylece "boş yanıt" = zincir-canlıysa TIMEOUT_NO_BYTES, zincir-ölüyse NOT_ATTEMPTED.
+ */
+export function buildDiscoveryEvidence(raw: RawHandshake): DiscoveryEvidence {
+  const blocks: DiscoveryBlockEvidence[] = [];
+  let chainAlive = true;
+  let finalStopReason: DiscoveryStopReason = 'NOT_REACHED';
+
+  for (let i = 0; i < BITMAP_BLOCKS.length; i++) {
+    const blk = BITMAP_BLOCKS[i];
+    const isLast = i === BITMAP_BLOCKS.length - 1;
+    const rawStr = blk.raw(raw);
+
+    // Zincir bir önceki blokta durdu → bu blok hiç sorgulanmadı.
+    if (!chainAlive) {
+      blocks.push({
+        block: blk.pid, command: '01' + blk.pid, attempted: false, outcome: 'NOT_ATTEMPTED',
+        responseLength: 0, normalizedResponsePreview: '', bitmapBytes: null,
+        continuation: 'UNKNOWN', nextBlockAttempted: false, stopReason: 'NOT_REACHED',
+      });
+      continue;
+    }
+
+    // Zincir sorgulamalıydı ama native alanı sağlamadı (eski plugin) → kanıt yok, dur.
+    if (rawStr == null) {
+      blocks.push({
+        block: blk.pid, command: '01' + blk.pid, attempted: false, outcome: 'NOT_ATTEMPTED',
+        responseLength: 0, normalizedResponsePreview: '', bitmapBytes: null,
+        continuation: 'UNKNOWN', nextBlockAttempted: false, stopReason: 'OUTCOME_UNKNOWN',
+      });
+      finalStopReason = 'OUTCOME_UNKNOWN';
+      chainAlive = false;
+      continue;
+    }
+
+    const compact = rawStr.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+    const cls = classifyHandshakeResponse(rawStr, '41', blk.pid);
+    const bytes = _bitmapFourBytes(rawStr, blk.pid);
+
+    let outcome: DiscoveryBlockOutcome;
+    let continuation: DiscoveryContinuation = 'UNKNOWN';
+    if (cls === 'ok') {
+      if (bytes) { outcome = 'OK'; continuation = (bytes[3]! & 0x01) !== 0 ? 'SET' : 'CLEAR'; }
+      else outcome = 'PARSE_ERROR';              // başlık var ama < 4 data baytı
+    } else if (cls === 'no_data')     outcome = 'NO_DATA';
+    else if (cls === 'unsupported')   outcome = 'NEGATIVE_RESPONSE';
+    else if (cls === 'error' || cls === 'busy') outcome = 'ERROR';
+    else outcome = compact.length === 0 ? 'TIMEOUT_NO_BYTES' : 'TIMEOUT_PARTIAL';
+
+    const willContinue = continuation === 'SET' && !isLast;
+    let stopReason: DiscoveryStopReason;
+    if (continuation === 'SET')        stopReason = isLast ? 'MAX_STANDARD_BLOCK' : 'NEXT_BLOCK_ATTEMPTED';
+    else if (continuation === 'CLEAR') stopReason = 'CONTINUATION_CLEAR';
+    else stopReason = outcome === 'PARSE_ERROR' ? 'RESPONSE_INVALID' : 'OUTCOME_UNKNOWN';
+
+    blocks.push({
+      block: blk.pid, command: '01' + blk.pid, attempted: true, outcome,
+      responseLength: Math.min(compact.length, DISCOVERY_RESPLEN_MAX),
+      normalizedResponsePreview: compact.slice(0, DISCOVERY_PREVIEW_MAX),
+      bitmapBytes: bytes ? bytes.map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join('') : null,
+      continuation, nextBlockAttempted: willContinue, stopReason,
+    });
+
+    finalStopReason = stopReason;
+    chainAlive = willContinue;
+  }
+
+  const evidenceComplete =
+    finalStopReason === 'CONTINUATION_CLEAR' || finalStopReason === 'MAX_STANDARD_BLOCK';
+  return { blocks, finalStopReason, evidenceComplete };
+}

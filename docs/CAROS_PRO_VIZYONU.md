@@ -381,6 +381,16 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 - **Saha doğrulaması:** 🟢 Ledger #3/#4/#5 — boot self-pair + RPC teslimatı gerçek cihazda;
   W4E runtime sayaçları raporda gözlendi (484 B).
 - **Runtime yolu:** Cold · **DeviceTier etkisi:** Her tier açık — ucuz, talep-güdümlü.
+- **PR-OBD-DIAG-2 (2026-07-15, kod+test):** Rapora **PID KEŞİF KANITI** eklendi —
+  `obdDeep.handshake.discoveryEvidence`: her bitmap bloğu (00→A0) için outcome
+  (OK/NO_DATA/TIMEOUT_*/NEGATIVE/PARSE_ERROR/NOT_ATTEMPTED) + continuation
+  (SET/CLEAR/UNKNOWN) + stopReason + `evidenceComplete`. Salt-türetilmiş
+  (`buildDiscoveryEvidence`, ek OBD komutu YOK, handshake byte davranışı değişmedi).
+  Artık `readBlocks:["0","20"]` sonucunun **doğru durma** (CONTINUATION_CLEAR) mı yoksa
+  **erken kesilme** (NO_DATA/timeout → OUTCOME_UNKNOWN) mı olduğu ayrılabiliyor; kanıt
+  eksikken "desteklenmiyor" çıkarımı YASAK. Kilit: `pidDiscoveryEvidence.test.ts` (15).
+  Payload ~0.5-0.8 KB (≤6 blok, preview ≤24 hane). **🔴 gerçek araç raporuyla teyit
+  bekliyor** — Trafic/Doblo raporunda evidence gözlenince Ledger'a işlenecek.
 - **Bağımlılıklar:** Supabase RPC · migration 025/026 (history boşluğu — P1-5).
 - **Eksik ana parça:** — · **Sonraki atomik PR:** —
 - **Kabul kriterleri:** (karşılandı) cihazda buton → `vehicle_events` satırı → panelde listelenir.

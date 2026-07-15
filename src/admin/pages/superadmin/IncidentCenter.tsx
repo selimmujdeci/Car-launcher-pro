@@ -876,12 +876,22 @@ function TrailSection({ trail }: { trail: TrailEventLike[] }) {
 }
 
 // ── OBD DERİN render ──────────────────────────────────────────────────────────
+// PR-OBD-DIAG-2: bounded PID keşif kanıtı (payload'dan salt-okunur, gevşek Like tipi)
+interface DiscoveryBlockLike {
+  block?: string; command?: string; attempted?: boolean; outcome?: string
+  responseLength?: number; normalizedResponsePreview?: string; bitmapBytes?: string | null
+  continuation?: string; nextBlockAttempted?: boolean; stopReason?: string
+}
+interface DiscoveryEvidenceLike {
+  blocks?: DiscoveryBlockLike[]; finalStopReason?: string; evidenceComplete?: boolean
+}
 interface ObdDeepLike {
   adapter?: { source?: string; connectionState?: string; vehicleType?: string; lastSeenMs?: number }
   health?: { connectionQuality?: number; lastPacketAgeMs?: number; reconnectPressure?: number; sensorReliability?: Record<string, number> }
   live?: Record<string, number>
   extended?: { discovered?: boolean; supportedCount?: number; samples?: { pid: string; name: string; value: number; ageMs: number }[] }
   dtc?: { count?: number; isStale?: boolean; error?: string | null; lastReadAt?: number | null; codes?: { code: string; severity: string; system: string }[] }
+  handshake?: { discoveryEvidence?: DiscoveryEvidenceLike | null }
 }
 
 const DTC_COLOR: Record<string, string> = { critical: '#dc2626', warning: '#d97706', info: '#6b7280' }
@@ -958,6 +968,40 @@ function ObdDeepSection({ deep }: { deep: ObdDeepLike }) {
               <span style={{ color: '#6b7280' }}>{c.system}</span>
             </div>
           ))}
+        </div>
+      )}
+      <PidDiscoveryEvidence ev={deep.handshake?.discoveryEvidence ?? null} />
+    </div>
+  )
+}
+
+// ── PR-OBD-DIAG-2: PID KEŞİF KANITI render (bounded, salt gösterim) ────────────
+function PidDiscoveryEvidence({ ev }: { ev: DiscoveryEvidenceLike | null }) {
+  if (!ev || !Array.isArray(ev.blocks) || ev.blocks.length === 0) return null
+  const OUT_COLOR: Record<string, string> = {
+    OK: '#16a34a', NO_DATA: '#d97706', NEGATIVE_RESPONSE: '#d97706',
+    TIMEOUT_NO_BYTES: '#dc2626', TIMEOUT_PARTIAL: '#dc2626', ERROR: '#dc2626',
+    PARSE_ERROR: '#dc2626', NOT_ATTEMPTED: '#4b5563',
+  }
+  return (
+    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed #1a1a1a' }}>
+      <p className="sa-label" style={{ marginBottom: 4, color: ev.evidenceComplete ? '#16a34a' : '#d97706' }}>
+        PID KEŞİF KANITI — durma: {ev.finalStopReason ?? '?'} · kanıt: {ev.evidenceComplete ? 'TAM' : 'EKSİK'}
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {ev.blocks.map((b, i) => (
+          <div key={`${b.command ?? i}`} className="sa-mono" style={{ display: 'flex', gap: 8, fontSize: 9, color: '#6b7280' }}>
+            <span style={{ width: 42, color: '#374151' }}>{b.command ?? '?'}</span>
+            <span style={{ width: 118, color: OUT_COLOR[b.outcome ?? ''] ?? '#6b7280' }}>{b.outcome ?? '?'}</span>
+            <span style={{ width: 70 }}>devam {b.continuation ?? '?'}</span>
+            <span style={{ flex: 1, color: '#374151' }}>{b.bitmapBytes ?? (b.responseLength ? `${b.responseLength} hane` : '')}</span>
+            <span style={{ color: '#4b5563' }}>{b.stopReason ?? ''}</span>
+          </div>
+        ))}
+      </div>
+      {!ev.evidenceComplete && (
+        <div className="sa-mono" style={{ fontSize: 9, color: '#d97706', marginTop: 3 }}>
+          ⚠ Kanıt EKSİK — "desteklenmiyor" sonucu çıkarılamaz
         </div>
       )}
     </div>

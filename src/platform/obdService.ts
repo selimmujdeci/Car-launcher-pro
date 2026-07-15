@@ -27,7 +27,8 @@ import {
   flushCanSnapshotNow,
   stopCanSnapshot,
 } from './canSnapshotService';
-import { buildHandshakeResult, classifyHandshakeResponse } from '../core/val/OBDHandshake';
+import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence } from '../core/val/OBDHandshake';
+import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
 import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
@@ -247,6 +248,12 @@ export interface HandshakeDiagnostics {
   reconnectReason: ReconnectReason | null;
   /** Bounded reconnect geçmişi (son N) — döngü neden dönüyor. */
   reconnectHistory: { ts: number; reason: ReconnectReason }[];
+  /**
+   * PR-OBD-DIAG-2: bounded PID keşif kanıtı (her bitmap bloğu için outcome +
+   * continuation + stopReason). Salt-türetilmiş (ek OBD komutu yok). null = handshake
+   * çalışmadı / eski plugin ham blok taşımadı.
+   */
+  discoveryEvidence: DiscoveryEvidence | null;
 }
 
 // PR-1a carry-over durumu (denemeler arası korunur; wholesale _handshakeDiag'a okunur).
@@ -274,6 +281,7 @@ function _mkHandshakeDiag(partial: Partial<HandshakeDiagnostics>): HandshakeDiag
     lastSuccessAt: _lastHandshakeSuccessAt,
     reconnectReason: _lastReconnectReason,
     reconnectHistory: _reconnectHistory.slice(-RECONNECT_HISTORY_MAX),
+    discoveryEvidence: null,
     ...partial,
   };
 }
@@ -286,6 +294,12 @@ export function getHandshakeDiagnostics(): HandshakeDiagnostics {
     ..._handshakeDiag,
     readBlocks: [..._handshakeDiag.readBlocks],
     reconnectHistory: _handshakeDiag.reconnectHistory.map((r) => ({ ...r })),
+    discoveryEvidence: _handshakeDiag.discoveryEvidence
+      ? {
+          ..._handshakeDiag.discoveryEvidence,
+          blocks: _handshakeDiag.discoveryEvidence.blocks.map((b) => ({ ...b })),
+        }
+      : null,
   };
 }
 
@@ -1354,6 +1368,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           readBlocks: [...result.readBlocks].map((b) => b.toString(16)),
           supportedCount: result.supportedPids.size, failReason: null,
           durationMs: Math.round(performance.now() - _diagT0),
+          // PR-OBD-DIAG-2: aynı ham bloklardan bounded keşif kanıtı türet (ek sorgu yok).
+          discoveryEvidence: buildDiscoveryEvidence(raw),
         });
         console.info('[OBD:Handshake]',
           result.vin ? 'VIN: ' + result.vin : `VIN yok (${vinClass}), PID heuristic`,
