@@ -30,7 +30,7 @@ import {
 import { buildHandshakeResult, classifyHandshakeResponse } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, clearObdProtocol, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -46,15 +46,14 @@ import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
-  CONNECT_TIMEOUT_MS,
-  STALE_THRESHOLD_MS,
   WATCHDOG_INTERVAL_MS,
-  DATA_GATE_TIMEOUT_MS,
   DEEP_RECONNECT_INTERVAL_MS,
   getReconnectDelay,
   shouldAttemptReconnect,
-  isDataStale,
 } from './obdRetryPolicy';
+// OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
+// (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
+import { getProtocolProfile, type ProtocolTimeoutProfile } from './obd/protocolProfile';
 
 /**
  * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
@@ -111,11 +110,26 @@ let _protocolCycleIndex = 0;
 // (Doblo→Trafic) önbellekteki ÖĞRENİLMİŞ protokol (obd:lastProtocol) yeni araca yanlış
 // olabilir. Yanlış protokol UNABLE_TO_CONNECT değil TIMEOUT üretir → protokol döngüsü
 // ilerlemez (bilinçli: geçici BT gürültüsünde protokolü terk etme) → sonsuz "Bağlanıyor…".
-// ÇÖZÜM: öğrenilmiş protokolde ARDIŞIK timeout say; eşiği aşınca protokolü SIFIRLA
-// (bir sonraki bağlantı ATSP0-otomatik → yeni aracı kendi algılar). 2-strike: tek geçici
-// takılma protokolü terk ETTİRMEZ, ısrarlı uyuşmazlık kendini onarır.
+//
+// OBD-OS-F0-2 (öğrenilmiş protokolü timeout'ta KORU): ısrarlı timeout artık kalıcı
+// protokolü SİLMEZ — yalnız BU OTURUM için bypass eder (ATSP0-otomatik'e düşer). Timeout
+// "protokol yanlış"ın KANITI DEĞİLDİR: yavaş/flaky KWP-ISO9141 araçlar (Trafic) soğuk
+// açılışta timeout üretir; silmek DOĞRU protokolü kalıcı olarak çöpe atıp her açılışta
+// yavaş ATSP0-aramaya mahkûm ediyordu. Bypass ile: aynı araçsa sonraki oturum yine
+// öğrenilmiş protokolden aramasız başlar; araç GERÇEKTEN değiştiyse ATSP0 doğrusunu bulur
+// ve başarıdaki ATDPN yazımı önbelleği kendiliğinden günceller (silmeye gerek yok).
+// 2-strike: tek geçici takılma bypass ETTİRMEZ, ısrarlı uyuşmazlık kendini onarır.
 let _learnedProtocolTimeouts = 0;
+let _learnedProtocolBypassed = false;
 const LEARNED_PROTOCOL_TIMEOUT_LIMIT = 2;
+/**
+ * Öğrenilmiş protokol BU OTURUMDA en az bir kez bağlandıysa uygulanan (daha yüksek)
+ * timeout toleransı. Flaky KWP/ISO9141 araçlar (Trafic) ara sıra timeout üretir →
+ * doğru protokolü hemen bırakmayız. Ama tolerans SONSUZ OLAMAZ: aynı oturumda dongle
+ * BAŞKA ARACA takılmış olabilir (aynı MAC → aynı adres → deep-reconnect sonsuz döner).
+ * Sayaç her başarılı handshake'te sıfırlanır → gerçekten flaky araçta bu sınıra ulaşılmaz.
+ */
+const LEARNED_PROTOCOL_TIMEOUT_LIMIT_AFTER_SUCCESS = 3;
 
 // Generation counter — prevents stale in-flight _startNative() from writing
 // state after a stop/restart cycle. Each startOBD() call increments this.
@@ -133,6 +147,22 @@ let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 // ── Data Validation Gate ─────────────────────────────────────
 let _dataGateTimer: ReturnType<typeof setTimeout> | null = null;
 let _dataGatePassed = false;
+
+// ── OBD-OS-F0-5: TEK RECONNECT OTORİTESİ ─────────────────────
+// Native (OBDManager/BleObdManager.attemptReconnect) poll thread'inde KENDİ kendini
+// iyileştirir: ölü soketi kapatır, backoff bekler, yeniden bağlanıp ELM'i init eder.
+// Bu sürerken TS'in de reconnect başlatması ÇİFT MOTOR demektir — TS native'in
+// kurmakta olduğu soketi kapatır, ikisi birbirini iptal eder (kararsız döngü).
+// Native "reconnecting" dediği andan "connected"/"disconnected" diyene kadar
+// OTORİTE NATIVE'DİR: TS watchdog + data-gate + status-reconnect askıya alınır.
+let _nativeReconnectInFlight = false;
+let _nativeReconnectGuardTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Native reconnect için üst sınır. Native tur (MAX_RECONNECT_ATTEMPTS × backoff + ELM
+ * init) bunun ALTINDA biter. FAIL-SAFE: "connected"/"disconnected" event'i bir şekilde
+ * kaybolursa TS sonsuza dek askıda kalmasın — süre dolunca otorite TS'e döner.
+ */
+const NATIVE_RECONNECT_MAX_MS = 60_000;
 
 // ── Direct-reconnect: last known BT MAC ─────────────────────
 // Persisted to localStorage so app restart skips full BT INQUIRY scan.
@@ -504,6 +534,61 @@ function _diagCommon(): { source: string; vehicleType: string; lastSeenMs: numbe
   };
 }
 
+/* ── OBD-OS-F0-5: native reconnect otoritesi ─────────────── */
+
+/**
+ * Native reconnect BAŞLADI → otorite native'e geçer. TS'in kendi iyileştirme
+ * motorları (stale watchdog + data-gate) DURDURULUR; bu sırada gelen 'link_lost'
+ * event'leri de yok sayılır (bkz. obdStatus listener).
+ */
+function _beginNativeReconnect(): void {
+  if (_nativeReconnectInFlight) return;
+  _nativeReconnectInFlight = true;
+  _stopStaleWatchdog();
+  _clearDataGate();
+  _merge({ connectionState: 'reconnecting' });
+  if (_nativeReconnectGuardTimer) clearTimeout(_nativeReconnectGuardTimer);
+  _nativeReconnectGuardTimer = setTimeout(() => {
+    _nativeReconnectGuardTimer = null;
+    if (!_running || !_nativeReconnectInFlight) return;
+    // FAIL-SAFE: native ne "connected" ne "disconnected" dedi (event kaybı/donma).
+    // Otoriteyi TS geri alır — sessizce askıda kalmaktan iyidir.
+    _nativeReconnectInFlight = false;
+    logError('OBD:NativeReconnect', new Error(`Native reconnect ${NATIVE_RECONNECT_MAX_MS / 1000}s içinde sonuçlanmadı — otorite TS'e döndü`));
+    void _removeNativeHandles().then(() => _scheduleReconnect());
+  }, NATIVE_RECONNECT_MAX_MS);
+}
+
+/**
+ * Native reconnect BİTTİ (başarılı) → otorite TS'e döner. Veri akışı yeniden
+ * doğrulanır: data-gate açılır (native "bağlandı" dese de PID akmıyorsa TS kopar).
+ */
+function _endNativeReconnect(gen: number): void {
+  if (_nativeReconnectGuardTimer) { clearTimeout(_nativeReconnectGuardTimer); _nativeReconnectGuardTimer = null; }
+  if (!_nativeReconnectInFlight) return;
+  _nativeReconnectInFlight = false;
+  // "Bağlandı" demek "veri akıyor" demek DEĞİLDİR (zero-trust) → gate yeniden kurulur.
+  _startDataValidationGate(gen);
+}
+
+/** stopOBD / yeni bağlantı turu → otorite bayrağı temizlenir (leak yok). */
+function _clearNativeReconnectAuthority(): void {
+  if (_nativeReconnectGuardTimer) { clearTimeout(_nativeReconnectGuardTimer); _nativeReconnectGuardTimer = null; }
+  _nativeReconnectInFlight = false;
+}
+
+/* ── OBD-OS-F0-4: protokol-sınıfı timeout profili ────────── */
+
+/**
+ * Bu bağlantının timeout profili. Aktif protokol (ATDPN) biliniyorsa ona, yoksa
+ * öğrenilmiş/zorlanmış protokole göre. Bilinmiyorsa CAN (mevcut) değerleri —
+ * çalışan CAN davranışı BİREBİR korunur; yalnız yavaş seri protokoller (KWP/ISO9141)
+ * daha geniş pencere alır (10.4 kbit/s hat, 5-baud init → CAN penceresi YETMİYOR).
+ */
+function _protocolProfile(): ProtocolTimeoutProfile {
+  return getProtocolProfile(_lastProtocolActive ?? _lastProtocolTried);
+}
+
 /* ── Stale-data watchdog ─────────────────────────────────── */
 
 function _startStaleWatchdog(): void {
@@ -511,9 +596,11 @@ function _startStaleWatchdog(): void {
   _lastRealDataMs = Date.now();
   _staleWatchdogTimer = setInterval(() => {
     if (!_running || _current.source !== 'real') return;
-    if (isDataStale(_lastRealDataMs)) {
+    if (_nativeReconnectInFlight) return;   // F0-5: otorite native'de — TS tur açmaz
+    const staleMs = _protocolProfile().staleThresholdMs;
+    if (Date.now() - _lastRealDataMs > staleMs) {
       // RFCOMM socket sessizce düştü — reconnect tetikle
-      logError('OBD:StaleData', new Error(`${STALE_THRESHOLD_MS / 1000}s boyunca veri alınamadı`));
+      logError('OBD:StaleData', new Error(`${staleMs / 1000}s boyunca veri alınamadı`));
       emitObdDiag('stale_data', 'OBD_STALE_DATA', {
         ..._diagCommon(),
         transport: _lastKnownTransport,
@@ -543,22 +630,25 @@ function _clearDataGate(): void {
 /**
  * connectOBD + ısınma süresinden sonra çağrılır.
  * İlk geçerli hız/RPM verisi geldiğinde 'connected'/'real' state'e geçilir.
- * DATA_GATE_TIMEOUT_MS içinde PID akışı başlamazsa reconnect tetiklenir.
+ * OBD-OS-F0-4: pencere PROTOKOL SINIFINA göre (KWP/ISO9141 yavaş seri hat → daha geniş);
+ * CAN/bilinmeyen → mevcut DATA_GATE_TIMEOUT_MS aynen.
  */
 function _startDataValidationGate(gen: number): void {
   _stopStaleWatchdog(); // ısınma sırasında erken gelen veri watchdog başlatmış olabilir
   _clearDataGate();
+  const gateMs = _protocolProfile().dataGateTimeoutMs;
   _dataGateTimer = setTimeout(() => {
     _dataGateTimer = null;
     if (!_running || _nativeGeneration !== gen) return;
+    if (_nativeReconnectInFlight) return;   // F0-5: otorite native'de — TS tur açmaz
     if (!_dataGatePassed) {
       recordFault('OBD_DATA_GATE_TIMEOUT');
-      logError('OBD:DataGate', new Error(`Bağlandı fakat ${DATA_GATE_TIMEOUT_MS / 1000}s içinde PID verisi alınamadı (Stale bağlantı)`));
+      logError('OBD:DataGate', new Error(`Bağlandı fakat ${gateMs / 1000}s içinde PID verisi alınamadı (Stale bağlantı)`));
       emitObdDiag('data_gate', 'OBD_DATA_GATE_TIMEOUT', {
         ..._diagCommon(),
         transport: _lastKnownTransport,
         attempts:  _reconnectAttempts,
-        elapsedMs: DATA_GATE_TIMEOUT_MS,
+        elapsedMs: gateMs,
         msg:       'Bağlandı fakat PID verisi alınamadı (stale bağlantı)',
       });
       _stopStaleWatchdog();
@@ -569,7 +659,7 @@ function _startDataValidationGate(gen: number): void {
         if (isFeatureEnabled('obdDataGateAutoReconnect')) _scheduleReconnect();
       });
     }
-  }, DATA_GATE_TIMEOUT_MS);
+  }, gateMs);
 }
 
 /**
@@ -671,6 +761,8 @@ function _scheduleReconnect(): void {
 
   clearAccumulatedBuffer(); // T507: parçalı paket tamponunu temizle
   _clearDataGate();         // önceki gate/timer sızıntısını önle
+  // F0-5: TS yeni bir tur açıyor → native otoritesi geçersiz (o soket zaten kapatılıyor).
+  _clearNativeReconnectAuthority();
 
   // Fix 2: A2DP glitch önleme — reconnect sırasında BT INQUIRY scan'i durdur.
   // BT inquiry scan sırasında PLL çakışması → GPS ±15 m jitter + A2DP sniff-mode askıya → müzik atlaması.
@@ -728,9 +820,10 @@ function _scheduleReconnect(): void {
     _lastKnownTransport = null;
     clearObdTransport();           // storage'da transport + verified silinir
     _lastTransportVerified = false; // adaptör değişti → doğrulama geçersiz
-    // Patch 3: adaptör muhtemelen değişti — öğrenilen protokol de stale sayılır (yeni
-    // adaptör/araç farklı protokol kullanabilir); bir sonraki bağlantı ATSP0'dan başlar.
-    clearObdProtocol();
+    // F0-2: adaptör muhtemelen değişti — ama öğrenilen protokolü SİLMEYİZ (timeout, "protokol
+    // yanlış"ın kanıtı değil; aynı araca dönüldüğünde aramasız bağlanmayı korur). Yerine bu
+    // oturum için bypass: sonraki deneme ATSP0-otomatik'ten başlar, başarıda ATDPN üzerine yazar.
+    _learnedProtocolBypassed = true;
     _protocolCycleIndex = 0;
     if (MOCK_ENABLED && !nativePlatform) {
       _startMock();
@@ -861,11 +954,18 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // görünüp PARALEL bir reconnect turu başlatıyordu (BC8 kararsız döngü kök nedeni).
   // Fix: yalnız reason==='link_lost' VEYA reason alanı hiç yoksa (eski APK geri-uyum)
   // reconnect tetiklenir; 'connect_failed' ve 'user_disconnect' bilinçli olarak yok sayılır.
+  // OBD-OS-F0-5: native kendi reconnect'ini yürütürken TS KARIŞMAZ (çift motor yasak).
+  // 'native_reconnecting' → otorite native'e geçer · 'native_reconnected' → TS'e döner.
   const statusHandle = await CarLauncher.addListener(
     'obdStatus',
-    (event: { reason?: 'link_lost' | 'connect_failed' | 'user_disconnect' }) => {
+    (event: { reason?: 'link_lost' | 'connect_failed' | 'user_disconnect' | 'native_reconnecting' | 'native_reconnected' }) => {
       if (!_running || _nativeGeneration !== myGen) return;
+      if (event.reason === 'native_reconnecting') { _beginNativeReconnect(); return; }
+      if (event.reason === 'native_reconnected')  { _endNativeReconnect(myGen); return; }
       if (event.reason !== undefined && event.reason !== 'link_lost') return;
+      // Native reconnect sürerken gelen kopma bildirimi native'in KENDİ ara adımıdır
+      // (ölü soketi kapatıyor) — TS paralel tur başlatmaz; native sonucu bildirecek.
+      if (_nativeReconnectInFlight) return;
       void _removeNativeHandles().then(() => _scheduleReconnect());
     },
   );
@@ -920,11 +1020,17 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   );
   // ELM327 ATSP numaraları: undefined=ATSP0 otomatik · 6=CAN 11/500 · 5=KWP hızlı init ·
   // 4=KWP 5-baud · 3=ISO 9141-2 · 7=CAN 29/500. Otomatik çoğu aracı bulur; bulamazsa sırayla denenir.
-  const PROTOCOL_CYCLE: (string | undefined)[] = [undefined, '6', '5', '4', '3', '7'];
+  // OBD-OS-F1-5: J1850 (ATSP1 PWM / ATSP2 VPW) döngüye EKLENDİ — 1996-2004 Amerikan
+  // araçları (Ford PWM · GM VPW) bu hatları kullanır; döngüde yoklardı → o araçlarda
+  // ATSP0 dışında hiçbir aday denenmiyordu. SIRA yaygınlıkla: auto → CAN → KWP →
+  // ISO9141 → CAN29 → J1850. En nadir olan SONDA (yaygın aracı geciktirmesin).
+  const PROTOCOL_CYCLE: (string | undefined)[] = [undefined, '6', '5', '4', '3', '7', '1', '2'];
   // Patch 3: ÖNCE bu oturumda/önceki oturumda ÖĞRENİLMİŞ protokolü (ElmInitSequencer ATDPN)
   // dene — ATSP0 otomatik arama YOK, ARAMASIZ bağlan. Yalnız gerçek bir UNABLE_TO_CONNECT
   // hatası yaşandıysa (_protocolCycleIndex>0) sırayla bir sonraki adaya geçilir.
-  const _learnedProtocol = loadObdProtocol();
+  // F0-2: bypass edilmiş öğrenilmiş protokol bu oturumda KULLANILMAZ (storage'da DURUR) —
+  // ısrarlı timeout sonrası ATSP0-otomatik'e düşülür, ama bilgi kalıcı olarak silinmez.
+  const _learnedProtocol = _learnedProtocolBypassed ? null : loadObdProtocol();
   const forcedProtocol = _protocolCycleIndex > 0
     ? PROTOCOL_CYCLE[_protocolCycleIndex % PROTOCOL_CYCLE.length]
     : (_learnedProtocol ?? PROTOCOL_CYCLE[0]);
@@ -933,20 +1039,37 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // ARAÇ-DEĞİŞİMİ KURTARMASI: bu deneme ÖĞRENİLMİŞ (önbellek) protokolü mü zorluyor?
   const _wasForcingLearned = _protocolCycleIndex === 0 && _learnedProtocol != null
     && forcedProtocol === _learnedProtocol;
-  /** Öğrenilmiş protokolde ısrarlı TIMEOUT → araç değişmiş olabilir; eşikte protokolü sıfırla. */
+  /** Öğrenilmiş protokolde ısrarlı TIMEOUT → araç değişmiş olabilir; eşikte OTURUM-İÇİ bypass. */
   const _noteLearnedProtocolTimeout = (timedOut: boolean): void => {
     if (!timedOut || !_wasForcingLearned) return;
+    // FLAKY-ARAÇ KORUMASI (2026-07-14 Trafic/KWP saha): bu protokol BU OTURUMDA en az bir
+    // kez bağlandıysa (lastSuccessAt), protokol muhtemelen DOĞRUdur — timeout'lar yavaş/flaky
+    // protokol (KWP/ISO9141) kaynaklı → doğru protokolü hemen bırakıp yavaş ATSP0-aramaya
+    // DÖNME: tolerans yükselir (2 → 3).
+    //
+    // AMA TOLERANS SONSUZ DEĞİL (2026-07-15 saha: dongle Trafic→Doblo, uygulama açık):
+    // eski davranış burada KOŞULSUZ `return` ediyordu → "bu oturumda bağlandı = araç
+    // değişmedi" varsayımı. Kullanıcı dongle'ı aynı oturumda BAŞKA ARACA takınca
+    // (aynı MAC → `_addressConnectedOnce` → deep-reconnect) yanlış protokol ASLA bypass
+    // edilmiyordu → sonsuz "Bağlanıyor…" → kullanıcı uygulamayı ÖLDÜRMEK zorunda kalıyordu
+    // (yeni oturum = lastSuccessAt null = bypass çalışır). Artık ısrarlı timeout sonunda
+    // bypass edilir; sayaç her başarıda sıfırlandığı için gerçek flaky araç bu sınıra ulaşmaz.
+    const limit = _lastHandshakeSuccessAt != null
+      ? LEARNED_PROTOCOL_TIMEOUT_LIMIT_AFTER_SUCCESS
+      : LEARNED_PROTOCOL_TIMEOUT_LIMIT;
     _learnedProtocolTimeouts++;
-    if (_learnedProtocolTimeouts >= LEARNED_PROTOCOL_TIMEOUT_LIMIT) {
-      clearObdProtocol();               // önbellek protokol stale → sil
+    if (_learnedProtocolTimeouts >= limit) {
+      // F0-2: SİLME YOK — yalnız bu oturum için bypass. obd:lastProtocol storage'da DURUR;
+      // araç gerçekten değiştiyse başarılı bağlantıdaki ATDPN yazımı üzerine yazar.
+      _learnedProtocolBypassed = true;
       _learnedProtocolTimeouts = 0;
-      _protocolCycleIndex = 0;          // _learnedProtocol artık yok → sonraki deneme ATSP0-otomatik
+      _protocolCycleIndex = 0;          // learned bypass edildi → sonraki deneme ATSP0-otomatik
       if (!_stale()) {
         recordDiag({
           stage: 'protocol', status: 'warn', transport: _connectedTp,
           protocol: forcedProtocol ?? null,
           userMessage: 'Araç değişmiş olabilir — otomatik protokol algılamaya geçiliyor…',
-          technicalMessage: `Öğrenilmiş protokol (${forcedProtocol}) ${LEARNED_PROTOCOL_TIMEOUT_LIMIT}× timeout → sıfırlandı, sonraki bağlantı ATSP0`,
+          technicalMessage: `Öğrenilmiş protokol (${forcedProtocol}) ${limit}× timeout → bu oturumda bypass (kalıcı kayıt KORUNDU), sonraki deneme ATSP0`,
         });
       }
     }
@@ -995,6 +1118,11 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // ble↔classic otomatik fallback'ine KATILMAZ. Yanlış IP'de 15s BT taramasına düşmek
   // saçma olurdu; BT tarafı başarısız olunca TCP'ye sıçramak da YOK (TCP yalnız açık
   // seçimle). _fallbackTp === null → tek deneme, başarısızsa doğrudan reconnect zincirine düş.
+  // OBD-OS-F0-4: bu denemenin protokol sınıfına göre connect penceresi. KWP/ISO9141
+  // (10.4 kbit/s seri, 5-baud init 2–3 sn) CAN'e biçilmiş 15 sn'ye SIĞMIYOR → bağlantı
+  // kurulmadan kesiliyordu. CAN/bilinmeyen → 15 s AYNEN (yanlış transport'ta BLE↔classic
+  // fallback'i geciktirmemek için bilinmeyen protokolde pencere UZATILMAZ).
+  const _connectTimeoutMs = getProtocolProfile(forcedProtocol).connectTimeoutMs;
   const _isTcp = _lastKnownTransport === 'tcp';
   // A-fix: persisted transport ÖNCEKİ oturumda canlı-veri ile doğrulandıysa (verified) ona
   // boot'ta güven → BLE-first turunu ATLA, doğrudan o transport'u primary dene. Doğrulanmamış
@@ -1003,10 +1131,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   const _directPrimary  = _transportConfirmed || _trustPersisted;
   const _primaryTp:  ObdTransport = _isTcp ? 'tcp' : (_directPrimary ? (_lastKnownTransport ?? 'ble') : 'ble');
   const _fallbackTp: ObdTransport | null = _isTcp ? null : (_primaryTp === 'ble' ? 'classic' : 'ble');
-  const _primaryTimeoutMs  = _isTcp ? CONNECT_TIMEOUT_MS : (_directPrimary ? CONNECT_TIMEOUT_MS : BLE_FIRST_TIMEOUT_MS);
+  const _primaryTimeoutMs  = _isTcp ? _connectTimeoutMs : (_directPrimary ? _connectTimeoutMs : BLE_FIRST_TIMEOUT_MS);
   // Oturum-içi doğrulanmış → yanlış yolda 3s hızlı-fallback. Persist-verified (ama bu oturumda
   // henüz bağlanmadı) → fallback'e TAM timeout (adaptör değiştiyse doğru yol açlık çekmesin).
-  const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : CONNECT_TIMEOUT_MS;
+  const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : _connectTimeoutMs;
   let _connectedTp = _primaryTp;
   let _connectResult: { protocol?: string } | void;
   try {
@@ -1127,6 +1255,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // okunan protokol varsa persist edilir — sonraki bağlantı ARAMASIZ bağlanır.
   _protocolCycleIndex = 0;
   _learnedProtocolTimeouts = 0;   // bağlantı başarılı → araç-değişimi sayacı sıfırlanır
+  _learnedProtocolBypassed = false; // F0-2: bypass kalkar — aşağıdaki ATDPN yazımı önbelleği tazeler
   if (_connectResult && typeof _connectResult === 'object' && _connectResult.protocol) {
     _lastProtocolActive = _connectResult.protocol;   // PR-1a: GERÇEK aktif protokol (ATDPN)
     saveObdProtocol(_connectResult.protocol);
@@ -1200,6 +1329,11 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         const b00Class  = classifyHandshakeResponse(raw.raw0100, '41', '00');
         // PR-5a/PR-1a: aşama kanıtını sakla (non-PII) — tanı snapshot'ı okuyacak.
         _lastHandshakeSuccessAt = Date.now();   // son başarılı handshake damgası
+        // Flaky-araç toleransı yeniden dolar: bağlantı KURULDU → önceki ardışık timeout'lar
+        // "araç değişmiş olabilir" kanıtı sayılmaz. Böylece gerçekten flaky bir araç
+        // (arada bağlanan) bypass sınırına ASLA ulaşmaz; yalnız hiç bağlanamayan (= dongle
+        // başka araca takılmış) durum ısrarlı timeout biriktirip bypass'a düşer.
+        _learnedProtocolTimeouts = 0;
         _handshakeDiag = _mkHandshakeDiag({
           outcome: 'ok', ranAt: Date.now(),
           vinClass, vinPresent: !!result.vin, bitmapClass: b00Class,
@@ -1429,6 +1563,7 @@ export function stopOBD(): void {
   _reconnectAttempts = 0;
   _stopStaleWatchdog();
   _clearDataGate();
+  _clearNativeReconnectAuthority();  // F0-5: guard timer + otorite bayrağı (zero-leak)
   // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
   if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }
   _warmupActive = false;
