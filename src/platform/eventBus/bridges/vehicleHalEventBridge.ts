@@ -81,6 +81,12 @@ export interface EventBusPublishTarget {
     retained?: boolean;
     vehicleFingerprintHash?: string;
   }) => PlatformEvent | null;
+  /**
+   * TALEP KAPISI (PR-E1) — OPSİYONEL: bu event adına (veya domain'ine) aktif abone var mı?
+   * `PlatformEventBus.hasSubscribers()` yapısal olarak uyar. Sağlanmazsa (eski/fake bus)
+   * kapı DEVRE DIŞI kalır → eski davranış (her zaman publish) korunur → geriye dönük uyum.
+   */
+  hasSubscribers?: (eventName: string) => boolean;
 }
 
 export interface VehicleHalEventBridgeDeps {
@@ -94,6 +100,12 @@ export interface VehicleHalEventBridgeStatus {
   readonly disposed: boolean;
   readonly publishedCount: number;
   readonly droppedCount: number;
+  /**
+   * PR-E1 — TALEP KAPISI: tüketici olmadığı için ATLANAN transient yayın sayısı.
+   * `droppedCount` DEĞİLDİR: atlanan event bus'a hiç girmez (drop = bus reddetti/patladı).
+   * Bounded sayaç — ham telemetri/VIN taşımaz; yalnız kapının çalıştığının kanıtı.
+   */
+  readonly skippedCount: number;
   readonly lastPublishAt: number | null;
 }
 
@@ -139,6 +151,7 @@ export class VehicleHalEventBridge {
   private _disposed = false;
   private _publishedCount = 0;
   private _droppedCount = 0;
+  private _skippedCount = 0;      // PR-E1: tüketicisiz atlanan transient yayın (bounded)
   private _lastPublishAt: number | null = null;
 
   private readonly _lastSignalSig = new Map<string, string>();  // signalId → son yayın imzası
@@ -182,8 +195,10 @@ export class VehicleHalEventBridge {
       if (!s.supported) { this._lastSignalSig.delete(s.id); continue; } // unsupported → event yok
       const sig = _signalSig(s);
       if (this._lastSignalSig.get(s.id) === sig) continue;              // duplicate → yok
-      this._lastSignalSig.set(s.id, sig);
-      this._publish('vehicle.signal.changed', {
+      // R-1: imza YALNIZ gerçek publish sonrası güncellenir (aşağıya bkz.). Burada set
+      // edilseydi, talep kapısı publish'i atladığında imza yine de kirlenir; abone sonradan
+      // geldiğinde değer değişmediği için ilk gerçek event SONSUZA DEK yutulurdu.
+      const sent = this._publish('vehicle.signal.changed', {
         signalId: s.id,
         value: _valueSummary(s.value),
         quality: s.quality,
@@ -193,6 +208,7 @@ export class VehicleHalEventBridge {
         supported: true,
         timestamp: typeof s.timestamp === 'number' ? s.timestamp : this._nowSafe(),
       }, { transient: true });
+      if (sent) this._lastSignalSig.set(s.id, sig);   // R-1: yalnız teslim edilen imza kaydedilir
     }
 
     // 2) Ignition (retained) — yalnız supported + boolean değeri değişince.
@@ -230,22 +246,56 @@ export class VehicleHalEventBridge {
     }
   }
 
-  /** Tek publish sarmalayıcı — fail-soft + sayaç. */
+  /**
+   * TALEP KAPISI (PR-E1) — bu transient event için publish maliyetine değer mi?
+   *
+   * Yalnız `transient` yayınlara uygulanır. Retained yaşam-döngüsü event'leri KAPIYA TABİ
+   * DEĞİLDİR: `_retain()` bus'ta dispatch'ten ÖNCE çalışır, yani geç gelen tüketici
+   * `replayLast` ile doğru başlangıç durumunu alır — onları atlamak durumu kaybettirirdi.
+   *
+   * FAIL-SAFE: bus kapı sağlamıyorsa VEYA kontrol patlarsa → `true` (YAYINLA). Belirsizlikte
+   * event kaybetmek yerine eski davranışa düşülür (fail-soft ≠ fail-silent).
+   */
+  private _shouldPublishTransient(name: string): boolean {
+    const has = this._bus.hasSubscribers;
+    if (typeof has !== 'function') return true;          // eski/fake bus → eski davranış
+    try {
+      return has.call(this._bus, name);
+    } catch {
+      return true;                                        // kontrol patladı → kaybetme, yayınla
+    }
+  }
+
+  /**
+   * Tek publish sarmalayıcı — fail-soft + sayaç.
+   * @returns Gerçekten yayınlandıysa `true`. Çağıran dedupe imzasını YALNIZ `true` iken
+   *          günceller (R-1): atlanan event imzayı kirletirse, abone sonradan geldiğinde
+   *          değer değişmediği için ilk gerçek event sonsuza dek yutulurdu.
+   */
   private _publish(
     name: string,
     payload: unknown,
     opts: { transient?: boolean; retained?: boolean; vehicleFingerprintHash?: string } = {},
-  ): void {
+  ): boolean {
+    // Talep kapısı: tüketicisiz transient yayın = saf hot-path israfı (freeze + deep-freeze +
+    // sanitize + kuyruk + drain → boş listener listesi). Atlama DROP DEĞİLDİR: event bus'a
+    // hiç girmez, `droppedCount` kirlenmez.
+    if (opts.transient === true && !this._shouldPublishTransient(name)) {
+      this._skippedCount++;
+      return false;
+    }
     try {
       const ev = this._bus.publish({
         name, payload, domain: 'vehicle', source: 'vehicle_hal',
         transient: opts.transient, retained: opts.retained,
         vehicleFingerprintHash: opts.vehicleFingerprintHash,
       });
-      if (ev) { this._publishedCount++; this._lastPublishAt = this._nowSafe(); }
-      else { this._droppedCount++; }              // Bus reddetti → kaynak servis etkilenmez
+      if (ev) { this._publishedCount++; this._lastPublishAt = this._nowSafe(); return true; }
+      this._droppedCount++;                        // Bus reddetti → kaynak servis etkilenmez
+      return false;
     } catch {
       this._droppedCount++;                        // publish hatası izole
+      return false;
     }
   }
 
@@ -262,6 +312,7 @@ export class VehicleHalEventBridge {
       disposed: this._disposed,
       publishedCount: this._publishedCount,
       droppedCount: this._droppedCount,
+      skippedCount: this._skippedCount,
       lastPublishAt: this._lastPublishAt,
     });
   }
