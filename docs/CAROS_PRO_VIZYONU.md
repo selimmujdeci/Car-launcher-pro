@@ -5,6 +5,8 @@
 > **Kaynak gerçekliği:** Kod, test, UI ve saha kanıtı ayrı değerlendirilir
 > **Güncelleme kuralı:** İlgili her PR sonrasında güncellenir
 > **Son güncelleme:** 2026-07-15 · Branch: `feat/w5-obd-pr1-native-handshake`
+> **Son işlenen PR'lar:** `7754500` (W5-3c-3 change detection) · `931b41c` (hız çelişki kapısı) ·
+> `7d95ed8`+`0eb98e2` (araç değişimi kurtarması) · `69d1972` (Bağlantıyı Sıfırla)
 
 ---
 
@@ -172,6 +174,7 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 | Ledger #66/69/71 | Fail-closed DTC verdisi (F0-1) · handshake DISCOVERY kuyruğu (F0-3) · tek reconnect otoritesi (F0-5) | **Doblo/CAN taze APK: regresyon YOK**; F0-1 verdisi "kapsam-farkında" davrandı | **DTC'li araç yok** → "temiz demeyecek" iddiası tetiklenemedi; F0-3/F0-5 mekanizmaları tetiklenmedi |
 | Ledger #70 | CAN regresyonu yok (F0-4) | Doblo'da 92 s kesintisiz akış: motor 62-69°C, devir 847-1088, menzil 270 km, 3/3 monitör | KWP (Trafic) kazancı — araç kullanıcıda değil |
 | Ledger #65 | Native handshake + supported PID discovery (W5-OBD-PR1) | Cihazda canlı veri: hız 15, RPM 905, coolant 80°C, yakıt barı | Extended PID **değer dolumu**; ⚠️ RPM=0 anomalisi |
+| Rapor `8edd61a6` (2026-07-15) | **KWP/protokol 5 aracında handshake TAM çalıştı** | `outcome: ok` · `vinPresent: true` · `vinClass/bitmapClass: ok` · 15 PID · 6.2 sn · quality %100 · OBD 8.2 sn'de bağlandı · DTC okundu (0 kod) · self-test 13 pass/1 warn/**0 fail** · boşta render ~3 fps | **Extended `samples: []`** (P1-1) · **hız PID'i 0 dönüyor** (→ #77 fix) · Event Bus'ta **0 tüketici** (aşağıya bkz.) |
 
 ### 6.3 Kod tamam + test yeşil, saha borcu açık (kütük 🔴)
 
@@ -207,11 +210,13 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
 
 | # | İş | Kabul kriteri |
 |---|---|---|
-| P1-1 | Extended PID **değer dolumu** + ⚠️ RPM=0 anomalisi kök nedeni | Canlı Test'te extended PID'ler değer gösterir; motor açıkken RPM>0 |
-| P1-2 | Trafic (KWP) 10 soğuk açılış — protokol koruma saha kabulü | `protocolActive='5'` kalır, dakikalarca-takılma = 0 |
+| P1-1 | Extended PID **değer dolumu** + ⚠️ RPM=0 anomalisi kök nedeni | Canlı Test'te extended PID'ler değer gösterir; motor açıkken RPM>0. **Rapor `8edd61a6` teyit etti:** `discovered: true, supportedCount: 15` ama `samples: []` — keşif çalışıyor, dolum yok |
+| P1-2 | Trafic (KWP) 10 soğuk açılış — protokol koruma saha kabulü | `protocolActive='5'` kalır, dakikalarca-takılma = 0. **Kısmen ilerledi:** rapor `8edd61a6` KWP'de handshake `ok` + protokol 5 aktif gösterdi (tek oturum; 10 açılış ölçütü hâlâ açık) |
 | P1-3 | `canStatus` store'a yazılmıyor (W4B artığı) | Kaynak-kaybı durumu store'dan okunabilir |
 | P1-4 | GPS çift/üçlü abonelik (#62) | Tek konum akışı; park gürültüsü kesilir |
 | P1-5 | Migration 025/026 history boşluğu | Supabase history ile kod uyumlu |
+| **P1-6** | **Event Bus tüketicisi yok** — omurga yayın yapıyor, kimse dinlemiyor (`publishedCount 127 / activeListenerCount 0`) | En az bir gerçek tüketici bağlanır ve `deliveredCount > 0` sahada gözlenir; ya da omurga dürüstçe "hazır ama kullanılmıyor" olarak etiketlenir |
+| **P1-7** | **BT-timeout ile protokol-timeout ayrılmıyor** — ikisi de "zaman aşımı" | Native'den aşama bilgisi (`connect` / `init` / `protocol`) gelir → "dongle yok" ile "protokol yanlış" karışmaz. Bu ayrım olmadan araç-değişimi tahmini hep tahmin kalır (bkz. #78 fix'in tolerans dengesi) |
 
 ### P2 — Ürün kapsamı
 
@@ -444,8 +449,10 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 
 | Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
 |---|---|---|---|
-| Professional OBD OS | ENTEGRE | HAYIR | Core PID araçta akıyor (🟡 #65); extended değer dolumu + RPM=0 anomalisi açık |
+| Professional OBD OS | ENTEGRE | HAYIR | Core PID araçta akıyor (🟡 #65). **2026-07-15 KWP kanıtı** (rapor `8edd61a6`): protokol 5'te handshake `ok`, VIN okundu (`vinPresent`), bitmap `ok`, 15 PID, quality %100, 6.2 sn. **Extended `samples: []` — değer dolumu HÂLÂ YOK** (P1-1); hız PID'i bu araçta `0` dönüyor (aşağıya bkz.) |
 | Fail-Closed Diagnostic Verdict | ENTEGRE | HAYIR | 🟡 #66 — regresyon yok gözlendi; **DTC'li araçta kanıt yok** (P0-5) |
+| **Araç Değişimi Kurtarması** (yeni) | ENTEGRE | HAYIR | **Saha bug'ı çözüldü** (`7d95ed8`+`0eb98e2`): dongle aynı oturumda başka araca takılınca öğrenilmiş protokol sonsuza dek zorlanıyordu → sonsuz "Bağlanıyor…" → kullanıcı uygulamayı **öldürmek** zorundaydı. Kök: `if (_lastHandshakeSuccessAt != null) return;` (= "bu oturumda bağlandıysa araç değişmedi" varsayımı). Kademeli tolerans + **tek-kullanımlık** bypass. 🔴 #78 |
+| **Bağlantıyı Sıfırla** (yeni) | ENTEGRE | HAYIR | `69d1972` — kullanıcı-tetikli tam sıfırlama (`resetObdConnection`): `stopOBD()`'nin dokunmadığı oturum-içi öğrenme/kimlik durumu (`_lastHandshakeSuccessAt`, `_addressConnectedOnce`, bypass, protocolCycle) temizlenir = uygulamayı öldürmenin etkisi, uygulama kapanmadan. **Kullanıcı beyanı en güçlü kanıt** → tahmin eşiği beklenmez. UI: OBD tarama modalı footer. 🔴 #78 |
 | Protocol-Aware Timing | ENTEGRE | HAYIR | FAZ 0 kapsamı; saha borcu |
 | Learned Protocol Preservation | **DOĞRULANDI** | HAYIR | 🟢 #67 Doblo/CAN'de kanıtlı; **Trafic/KWP kabulü açık** (P1-2) |
 | DataGate Lifecycle | ENTEGRE | HAYIR | F0-3 kapsamı; mekanizma tetiklenmedi |
@@ -464,6 +471,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Renault/Dacia DF codes | ENTEGRE | HAYIR | Trafic borcu |
 | Scan Completeness | İSKELET | HAYIR | Deep Scan'e bağımlı → üretecek tarama yok; UI yok |
 | Confidence ve provenance | ENTEGRE | HAYIR | Confidence kanıttan türer (kilitli); **provenance twin'de eksik** |
+| **Hız Kaynağı Çelişki Kapısı** (yeni) | ENTEGRE | HAYIR | `931b41c` — **ilk saha-kanıtlı zero-trust ihlali kapatıldı.** Rapor `8edd61a6`: GPS 38.1 km/h · OBD hız **0** · RPM 1434 · gaz %13 → araç giderken gösterge 0'da kaldı, sürüş/park modu **7 kez flip-flop**. Kök: worker çapraz kontrolü TEK YÖNLÜ (`raw > 10 && rpm === 0` reddediliyor, simetriği kabul) + kaynak seçimi donanımı **"kesin değer"** sayıyordu (yorumda yazılı). Yapısal sebep: KWP'de hız ABS ECU'sunda; motor ECU'su `41 0D 00` döner. `_hwSpeedContradicted()`: donanım <1 + GPS >15 + RPM >900 → o kaynağın güveni 0 → GPS kazanır. 🔴 #77 |
 | Write Safety Gate | DOĞRULANDI | HAYIR | 7 kapılı karar modeli + testler; **native yazma bilinçli YAZILMADI** (F4-5) |
 | Bounded diagnostic evidence | ENTEGRE | HAYIR | errorLedger + bounded payload; saha kanıtı yok |
 
@@ -540,7 +548,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 
 | Özellik | Durum | Ürün hazır | Kanıt / eksik ana parça |
 |---|---|---|---|
-| Vehicle Link Fabric | ENTEGRE | HAYIR | Araç-içi zincir çalışır (🟡 HAL→Bus 0,37 publish/sn); **bulut ucu yok** |
+| Vehicle Link Fabric | ENTEGRE | HAYIR | Araç-içi zincir çalışır (🟡 HAL→Bus 0,37 publish/sn); **bulut ucu yok**. ⚠️ **Yeni bulgu (rapor `8edd61a6`): omurga yayın yapıyor ama KİMSE DİNLEMİYOR** — `eventBus: publishedCount 127 · deliveredCount 0 · activeListenerCount 0 · droppedCount 0`; `halBridge: publishedCount 124`. Zincir teknik olarak sağlam (kayıp yok), ama **ucu boşta**: W3/W4'te kurulan otoyoldan henüz kimse geçmiyor. Zarar vermiyor, değer de üretmiyor → "ENTEGRE" etiketi bu yüzden yanıltıcı olabilir; tüketici gelene kadar dürüst okuma: *taşıyıcı hazır, yük yok*. |
 | Arabam Cebimde | ENTEGRE | HAYIR | PWA kumanda + E2E şifreli uzaktan komut; **twin/memory paylaşımı yok** |
 | CAROS Cloud | İSKELET | HAYIR | Supabase + RPC var; **senkron sözleşmesi yok** |
 | Digital Garage | YOK | HAYIR | **Tek araç varsayımı** sökülmeli (geniş dokunuş) |
@@ -569,6 +577,8 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | Ç-3 | `docs-local/caros-feature-audit.html`, Deep Scan için "`start()/run()/runNextPhase()` production'da **hiçbir yerden çağrılmıyor**" diyordu. | `SystemBoot.ts:667` → `triggerDeepScanOfflinePass()` → `orchestrator.runOfflinePass()` **çağrılıyor**; ancak handler bağlı değil → tüm fazlar `skipped`. | **Kısmen yanlış → HTML düzeltildi.** Sonuç seviyesi (İSKELET) değişmez: gerçek tarama yok. Doğru ifade §8.1'dedir. |
 | Ç-4 | `docs/CAROS_15_YIL_VIZYON_YOL_HARITASI.md` (2026-07-08) ve `ROADMAP.md` (2026-06-24) farklı durum tabloları taşıyor. | Tarihler + içerik. | **Tarihsel** ilan edildi (§1). Güncellenmiyorlar; çelişkide bu belge kazanır. |
 | Ç-5 | Web sitesi "200+ DTC" diyor; üründe **37** DTC var. | `WEB_URUN_UYUM_BACKLOG.md`. | Açık — P3-5. Pazarlama iddiası **ürün gerçeğine** çekilecek. |
+| Ç-6 | Root Cause Engine `FUSION_LOW_CONFIDENCE` için **yanlış dosyayı** işaret ediyordu (`speedFusion.ts`). | Tanı raporundaki `fusion.activeSource` `useHALStatusStore`'dan gelir → `VehicleSignalResolver:348` → **VehicleCompute worker**. `speedFusion.ts` yalnız `MiniMapWidget` + `telemetryService` tarafından kullanılır — ana göstergeyi beslemez. | **Düzeltildi** (`931b41c`): `suspectFiles` artık ana yolu (worker) ilk sırada gösteriyor. **Ders:** tanı motorunun kendisi de kanıtla denetlenmeli — yanlış yönlendiren tanı, tanısızlıktan pahalıdır (beni de yanlış dosyaya yolladı). |
+| Ç-7 | **İki paralel hız sistemi** var ve *akıllı olan* ana yolda değil. | `speedFusion.ts` plausibility + histerezis + kalibrasyon içerir ama yalnız MiniMap/telemetry'de; ana gösterge yolu (worker → resolver → HAL store) bunlardan **hiçbirine** sahip değildi. | **Kısmen kapatıldı** (`931b41c` çelişki kapısını ana yola koydu). **Açık borç:** iki sistemin varlığı mimari bir kokudur — uzun vadede tek otoriter hız kaynağı olmalı (Digital Twin provenance ile birlikte, P2-5). |
 
 ---
 
