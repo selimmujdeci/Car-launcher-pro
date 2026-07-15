@@ -340,8 +340,17 @@ describe('W5-1 wiring — kapsam sınırı', () => {
     expect(WIRING_SRC).not.toMatch(/JSON\.stringify|structuredClone/);
   });
 
-  it('33) handler bağlama YOK (handlers geçilmez)', () => {
-    expect(WIRING_SRC).not.toMatch(/handlers\s*:/);
+  /**
+   * W5-3c-3 GÜNCELLEMESİ (kilit kaldırılmadı — YENİ DOĞRU DAVRANIŞA taşındı):
+   * Eskiden HİÇBİR handler bağlanmazdı. Artık YALNIZ offline `change_detection`
+   * bağlıdır. Kilidin asıl amacı korunuyor: AKTİF faz handler'ı wiring'e girmesin.
+   */
+  it('33) yalnız change_detection handler’ı bağlanır (aktif faz handler’ı YOK)', () => {
+    expect(WIRING_SRC).toMatch(/change_detection:\s*createOfflineChangeDetectionHandler\(\)/);
+    for (const active of ['vehicle_identity', 'protocol_detection', 'ecu_discovery',
+      'standard_pid_discovery', 'manufacturer_did_discovery', 'firmware_inventory']) {
+      expect(WIRING_SRC).not.toMatch(new RegExp(`${active}\\s*:`));
+    }
   });
 });
 

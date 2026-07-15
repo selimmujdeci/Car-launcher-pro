@@ -373,14 +373,29 @@ describe('W5-3b — cancel & timeout', () => {
  * 12-13) Handler yok · aktif discovery yok
  * ═════════════════════════════════════════════════════════════════════ */
 
-describe('W5-3b — handler yok / aktif discovery yok', () => {
-  it('12) trigger runOfflinePass’a HANDLER geçmez', async () => {
+describe('W5-3b — handler kapsamı / aktif discovery yok', () => {
+  /**
+   * W5-3c-3 GÜNCELLEMESİ (kilit kaldırılmadı — YENİ DOĞRU DAVRANIŞA taşındı):
+   * Eskiden `handlers` HİÇ geçilmezdi (W5-3b: "handler yok"). Artık YALNIZ offline
+   * `change_detection` handler'ı bağlanır. Kilidin koruduğu asıl invaryant değişmedi:
+   * AKTİF faza (araca sorgu gönderen) handler BAĞLANMAZ.
+   */
+  it('12) trigger runOfflinePass’a YALNIZ change_detection handler’ı geçer (aktif faz YOK)', async () => {
     const orch = fakeOrch();
     start(mkDeps({ orchestrator: orch }));
 
     await triggerDeepScanOfflinePass();
     const arg = orch.runOfflinePass.mock.calls[0][0] as OfflinePassInput | undefined;
-    expect(arg?.handlers).toBeUndefined();
+    const handlers = arg?.handlers as Record<string, unknown> | undefined;
+
+    expect(handlers).toBeDefined();
+    expect(Object.keys(handlers ?? {})).toEqual(['change_detection']);
+    expect(typeof handlers?.change_detection).toBe('function');
+    // Aktif fazlar (araca sorgu gönderir) ASLA bağlanmaz:
+    for (const active of ['vehicle_identity', 'protocol_detection', 'ecu_discovery',
+      'standard_pid_discovery', 'manufacturer_did_discovery', 'firmware_inventory']) {
+      expect(handlers?.[active]).toBeUndefined();
+    }
   });
 
   it('13) gerçek zincirde aktif-kayıt API’leri HİÇ çağrılmaz (aktif discovery yok)', async () => {

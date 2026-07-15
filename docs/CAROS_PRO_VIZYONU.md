@@ -253,24 +253,56 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 - **Amaç:** Tüm ECU'ları profesyonel biçimde tarayıp eksiksiz teşhis tabanı üretmek.
 - **Kullanıcı değeri:** Car Scanner'ın göremediği ABS/airbag/şanzıman/BCM arızalarını görmek.
 - **Mimari rol:** Teşhis kanıt tabanının üreticisi (Capability + Root Cause besleyicisi).
-- **Durum:** **İSKELET**
+- **Durum:** **İSKELET** (offline `change_detection` fazı ENTEGRE — aşağıya bakınız)
 - **Ürün hazır:** HAYIR
 - **Production kanıtı:** Wiring **boot'ta çalışıyor** — `SystemBoot.ts:586`
   `startPlatformCoreDeepScanWiring()` + `SystemBoot.ts:667` `triggerDeepScanOfflinePass()`
-  → `orchestrator.runOfflinePass()`. **ANCAK handler bağlı değil (W5-3c ayrı PR)** →
-  tüm offline fazlar `skipped` → **aktif ECU/PID/DID sorgusu YOK, gerçek tarama YOK**,
-  üretim davranışı değişmez. Aktif fazlar ayrıca `waiting_for_ignition`'da fail-closed bloke.
-- **Test kanıtı:** Faz makinesi + fail-closed + ownership birim testleri. Gerçek tarama testi yok.
+  → `orchestrator.runOfflinePass()`. **W5-3c-3'ten sonra:** `change_detection` fazı artık
+  gerçek handler'a bağlı → `skipped` değil, karar üretiyor. **Diğer 5 offline faz hâlâ
+  handler'sız → `skipped`; 6 aktif faz (ECU/PID/DID/firmware sorgusu) hiç çalışmıyor** —
+  `waiting_for_ignition`'da fail-closed bloke. **Gerçek ECU taraması hâlâ YOK.**
+- **Test kanıtı:** Faz makinesi + fail-closed + ownership birim testleri; W5-3c-3 ile
+  21 change-detection kilidi. Gerçek tarama testi yok.
 - **UI/API:** YOK — kullanıcı taramayı başlatamaz, sonucu göremez.
 - **Saha doğrulaması:** Doğrulanmadı.
 - **Runtime yolu:** Cold
 - **DeviceTier etkisi:** Yalnız soğuk-yol/idle; low tier'da faz sayısı budanır.
 - **Bağımlılıklar:** Ignition source (authoritative kanıt yok → `ignitionConfirmed` daima `null`), OBD transport.
-- **Eksik ana parça:** **Faz handler'ları** (W5-3c) + kullanıcı/ignition tetikleyicisi + sonuç yüzeyi.
-- **Sonraki atomik PR:** W5-3c — offline faz handler'ları (tek faz, gerçek iş, bounded çıktı).
-- **Kabul kriterleri:** (kod) handler bağlı fazda `skipped` yerine gerçek sonuç üretilir;
-  (cihaz) gerçek araçta ≥1 faz tamamlanır ve **tarama sonrası hız/RPM akışı bozulmaz**.
-- **Son güncelleme:** 2026-07-15
+- **Eksik ana parça:** Kalan **offline faz handler'ları** + **aktif faz tetikleyicisi**
+  (ignition/kullanıcı) + sonuç yüzeyi.
+- **Sonraki atomik PR:** W5-3c-4 — sıradaki offline faz handler'ı (`capability_analysis`),
+  aynı pasif-okuma disiplini ile.
+- **Kabul kriterleri:** (kod) handler bağlı fazda `skipped` yerine gerçek sonuç üretilir
+  ✅ `change_detection` için karşılandı; (cihaz) gerçek araçta ≥1 faz tamamlanır ve
+  **tarama sonrası hız/RPM akışı bozulmaz** — 🔴 açık.
+- **Son güncelleme:** 2026-07-15 (W5-3c-3)
+
+##### Offline Change Detection (alt-yetenek — W5-3c-3)
+
+- **Durum:** **ENTEGRE** (İSKELET'ten yükseldi — production'da çağrılıyor ve karar üretiyor)
+- **Ürün hazır:** HAYIR — UI yüzeyi yok, saha kanıtı yok.
+- **Production kanıtı:** `SystemBoot:667` → `triggerDeepScanOfflinePass()` →
+  `runOfflinePass({handlers:{change_detection}})` → `offlineChangeDetectionHandler` →
+  `changeBaselineAdapter.resolve()` → (fingerprint store + deep scan geçmişi, **pasif okuma**)
+  → `changedEcu:true` ise `runtime.recordChangeDetection()`.
+- **Test kanıtı:** 21 kilit (`offlineChangeDetection.test.ts`) — lazy-load, fail-closed
+  no_baseline, VIN-matcher ECU tespiti, tautoloji koruması, bounded çıktı, yazma-yok,
+  Event-Bus-yok statik guard'ı.
+- **UI/API:** YOK — sonuç yalnız runtime sayacına düşer, kullanıcı görmez.
+- **Saha doğrulaması:** **Doğrulanmadı** (🔴). Kabul ölçütü: aynı VIN'e ECU eklenip/çıkarılıp
+  yeniden bağlanınca `changedEcu` bir kez kaydedilir; ECU seti aynıyken **asla** kaydedilmez.
+- **Runtime yolu:** Cold · **DeviceTier etkisi:** Her tier — 2 bounded okuma (≤8 fingerprint LRU), ucuz.
+- **Bağımlılıklar:** `VehicleFingerprintStore` (VIN dolu olmalı — VIN yoksa matcher `signature`'a
+  düşer ve baseline devretmez), `DeepScanPersistenceStore` (önceki tarama kaydı).
+- **Eksik ana parça:** `changedFirmware` **hiç üretilmiyor** — offline pass firmware envanteri
+  toplamıyor (DID sorgusu = aktif faz). Firmware değişimi için aktif faz şart.
+- **Sonraki atomik PR:** UI yüzeyi veya W5-3c-4 (bkz. üst madde).
+- **Mimari not (bilinçli karar):** Baseline yalnız hash ile aranamaz — fingerprint hash'i
+  `V:vin|P:proto|E:ecus|B:bitmap` türevi olduğu için **ECU değişimi hash'i de değiştirir**
+  (anahtar kaybolur). Bu yüzden hash → bulunamazsa **VIN matcher** ile önceki fingerprint'e
+  ulaşılır ve ECU setleri karşılaştırılır. Matcher yalnız `reason:'vin'` (confidence 1.0)
+  kabul eder; `signature` döngüsel (ECU/bitmap türevi), `adapter-mac` aracı değil dongle'ı tanır.
+- **Son güncelleme:** 2026-07-15 (W5-3c-3)
 
 #### Prediction Engine
 

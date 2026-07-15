@@ -9,15 +9,20 @@
  *
  * W5-3b (offline trigger): `runOfflinePass()` İLK kez üretim wiring'ine bağlanır —
  * `triggerDeepScanOfflinePass()` tek deterministik giriş noktasıdır (hash/dedup guard,
- * single-flight). HANDLER YOK (W5-3c ayrı PR) → tüm offline fazlar `skipped` → GERÇEK
- * İŞ YAPILMAZ, üretim davranışı DEĞİŞMEZ. Aktif ECU/PID/DID/Firmware sorgusu YOK; change
- * detection / knowledge / fingerprint / evidence / report ÇALIŞMAZ; runtime
- * `idle → running → idle` döner (pass sonunda `runtime.reset()` W5-3a garantisi).
+ * single-flight). Runtime `idle → running → idle` döner (pass sonunda `runtime.reset()`
+ * W5-3a garantisi).
  *
- * NE YAPMAZ (bilinçli — W5-1 yalnız ownership'tir):
- *  - `start()`/`run()`/`runNextPhase()` ÇAĞIRMAZ → hiçbir tarama başlamaz, hiçbir faz yürümez.
- *  - `handlers` BAĞLAMAZ (orchestrator boş handler ile kurulur → tüm fazlar `skipped` kalırdı,
- *    ama zaten çalıştırılmaz). Aktif ECU/PID/DID sorgusu YOK · native/OBD/CAN'e DOKUNMAZ.
+ * W5-3c-3 (change detection handler): offline `change_detection` fazı artık GERÇEK bir
+ * handler'a bağlıdır → bu faz `skipped` DEĞİL, karar üretir (`no_baseline` /
+ * `unchanged_offline` / `ecu_set_changed`). Handler YALNIZ PASİF OKUMA yapar (fingerprint
+ * store + deep scan geçmişi): araca sorgu YOK · yazma YOK · Event Bus YOK. Diğer offline
+ * fazlar (capability/fingerprint/knowledge/evidence/report) hâlâ handler'sız → `skipped`.
+ * Aktif ECU/PID/DID/Firmware sorgusu YOK.
+ *
+ * NE YAPMAZ (bilinçli):
+ *  - `start()`/`run()`/`runNextPhase()` ÇAĞIRMAZ → aktif tarama başlamaz (yalnız offline pass).
+ *  - AKTİF faza handler BAĞLAMAZ — `OfflinePhaseHandlers` tip kilidi bunu DERLEME HATASI
+ *    yapar. Aktif ECU/PID/DID sorgusu YOK · native/OBD/CAN'e DOKUNMAZ.
  *  - Event Bus'a PUBLISH ETMEZ · Capability Registry'yi GÜNCELLEMEZ · Assistant Context/Deep Scan
  *    Event Bridge/offline-run/capability-evidence — HİÇBİRİ (ayrı W5-2..W5-5 PR'ları). UI/SQL YOK.
  *  - Ignition'ı BYPASS ETMEZ · manual scan AÇMAZ · RPM/voltaj/OBD'den kontak ÇIKARSAMAZ.
@@ -60,6 +65,7 @@ import {
   type OfflinePassSummary,
   type OfflinePassBlockedReason,
 } from '../deepScan';
+import { createOfflineChangeDetectionHandler } from '../deepScan/offlineChangeDetectionHandler';
 
 /**
  * Wiring'in SAHİPLENDİĞİ orchestrator — yalnız gereken salt-okunur yüzey (yapısal).
@@ -358,9 +364,15 @@ export async function triggerDeepScanOfflinePass(
   st.lastRun = startedAt;
 
   try {
-    // Handler GEÇİLMEZ → tüm offline fazlar `skipped`; aktif-kayıt yolu tetiklenmez.
-    // Vehicle fingerprint verilmez (HAL/fingerprint bu PR'da bağlanmaz).
-    const summary = await a.orchestrator.runOfflinePass({ phaseTimeoutMs: opts.phaseTimeoutMs });
+    // W5-3c-3: YALNIZ `change_detection` handler'ı bağlıdır (offline faz — araca sorgu YOK,
+    // yazma YOK, Event Bus YOK; pasif okuma: fingerprint store + deep scan geçmişi).
+    // Diğer offline fazlar hâlâ handler'sız → `skipped`. AKTİF fazlara handler bağlamak
+    // DERLEME HATASIDIR (`OfflinePhaseHandlers` tip kilidi).
+    // Handler kurulumu LAZY'dir: baseline diski yalnız faza gelinince okunur.
+    const summary = await a.orchestrator.runOfflinePass({
+      phaseTimeoutMs: opts.phaseTimeoutMs,
+      handlers: { change_detection: createOfflineChangeDetectionHandler() },
+    });
     st.lastResult = summary.ran ? 'ran' : 'blocked';
     st.lastReason = summary.blockedReason;
     st.lastPhaseCount = summary.phaseCount;
