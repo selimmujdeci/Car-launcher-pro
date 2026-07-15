@@ -30,6 +30,12 @@ export interface PerfSample {
   fps:      number;   // rAF kadansı (-1 = ölçülmedi/düşük tier)
   maxGapMs: number;   // salvoda en büyük kare aralığı (-1 = ölçülmedi)
   lagMs:    number;   // ana-thread zamanlama sapması (jank vekili)
+  // DONMA SİNYALİ (tüm tier'lar — düşük-tier'da fps salvosu ATLANDIĞI için asıl kanıt):
+  // PerformanceObserver('longtask') ile son örnekten beri ana-thread'i ≥50ms bloke
+  // eden en uzun görev + adet. PASİF (rAF/polling yok) → ısı bütçesine dokunmaz.
+  // Harita + gösterge birlikte donuyorsa BURADA görünür (data throttle değil, stall).
+  maxLongTaskMs: number;  // -1 = longtask API yok
+  longTaskCount: number;  // bu pencerede ≥50ms görev adedi
 }
 
 export interface PerfSeriesSnapshot {
@@ -47,6 +53,42 @@ const FPS_BURST_MS = 400;   // fps salvosu süresi (yalnız mid/high tier)
 let _installed = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 const _samples: PerfSample[] = [];
+
+/* ── Pasif long-task gözlemcisi (donma dedektörü) ───────────────── */
+// PerformanceObserver ana-thread'i ≥50ms bloke eden görevleri raporlar. Örnek
+// pencereleri arasında biriktiririz; _sample() okuyup SIFIRLAR. API yoksa -1 kalır.
+let _longTaskObserver: PerformanceObserver | null = null;
+let _longTaskSupported = false;
+let _winMaxLongTaskMs = 0;
+let _winLongTaskCount = 0;
+
+function _installLongTaskObserver(): void {
+  try {
+    if (typeof PerformanceObserver === 'undefined') return;
+    // Bazı WebView'lerde 'longtask' desteklenmez → observe() throw eder (fail-soft).
+    _longTaskObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const dur = entry.duration;
+        if (dur > _winMaxLongTaskMs) _winMaxLongTaskMs = dur;
+        _winLongTaskCount++;
+      }
+    });
+    _longTaskObserver.observe({ entryTypes: ['longtask'] });
+    _longTaskSupported = true;
+  } catch {
+    _longTaskObserver = null;
+    _longTaskSupported = false;
+  }
+}
+
+/** Pencere long-task metriğini okur ve sayaçları sıfırlar (örnek başına bir kez). */
+function _drainLongTask(): { maxLongTaskMs: number; longTaskCount: number } {
+  if (!_longTaskSupported) return { maxLongTaskMs: -1, longTaskCount: 0 };
+  const out = { maxLongTaskMs: Math.round(_winMaxLongTaskMs), longTaskCount: _winLongTaskCount };
+  _winMaxLongTaskMs = 0;
+  _winLongTaskCount = 0;
+  return out;
+}
 
 /* ── Ölçüm yardımcıları (fail-soft) ─────────────────────────── */
 
@@ -112,10 +154,11 @@ async function _sample(): Promise<void> {
     const lagMs   = await _measureLagMs();
     const { fps, maxGapMs } = await _measureFpsBurst();
     if (!_installed) return;  // teardown sırasında çözüldü → geç örnek kaydetme (zero-leak)
+    const { maxLongTaskMs, longTaskCount } = _drainLongTask();
     _samples.push({
       ts: Date.now(),
       tempC: thermal.tempC, level: thermal.level,
-      memMb, fps, maxGapMs, lagMs,
+      memMb, fps, maxGapMs, lagMs, maxLongTaskMs, longTaskCount,
     });
     if (_samples.length > MAX_SAMPLES) _samples.shift();
   } catch { /* fail-soft — tek örnek düşse seri devam eder */ }
@@ -130,6 +173,7 @@ async function _sample(): Promise<void> {
 export function startPerfSeries(): () => void {
   if (_installed) return () => { /* zaten kurulu */ };
   _installed = true;
+  _installLongTaskObserver();  // pasif donma dedektörü (boot'tan itibaren dinler)
   void _sample();  // boot tabanı
   try {
     _timer = setInterval(() => { void _sample(); }, SAMPLE_MS);
@@ -137,6 +181,13 @@ export function startPerfSeries(): () => void {
 
   return () => {
     if (_timer) { clearInterval(_timer); _timer = null; }
+    if (_longTaskObserver) {
+      try { _longTaskObserver.disconnect(); } catch { /* fail-soft */ }
+      _longTaskObserver = null;
+    }
+    _longTaskSupported = false;
+    _winMaxLongTaskMs = 0;
+    _winLongTaskCount = 0;
     _samples.length = 0;
     _installed = false;
   };
@@ -150,6 +201,13 @@ export function getPerfSeriesSnapshot(): PerfSeriesSnapshot {
 /** @internal testler için. */
 export function _resetPerfSeriesForTest(): void {
   if (_timer) { clearInterval(_timer); _timer = null; }
+  if (_longTaskObserver) {
+    try { _longTaskObserver.disconnect(); } catch { /* fail-soft */ }
+    _longTaskObserver = null;
+  }
+  _longTaskSupported = false;
+  _winMaxLongTaskMs = 0;
+  _winLongTaskCount = 0;
   _samples.length = 0;
   _installed = false;
 }

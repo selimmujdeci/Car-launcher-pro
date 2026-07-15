@@ -31,6 +31,14 @@ export interface ObdHealthSnapshot {
   sensorReliability: Partial<Record<HealthField, number>>;
   /** Son kabul edilen paketten bu yana geçen süre (ms). -1 = hiç paket yok. */
   lastPacketAgeMs: number;
+  /**
+   * DONMA SİNYALİ (kullanıcı algısı): son geçerli paket STALE_ABS_MS'ten eski mi.
+   * connectionQuality'den BAĞIMSIZ ve MUTLAK — çünkü "gösterge donuk mu" sorusu
+   * adaptörün ne kadar hızlı olabileceğine değil, verinin ne kadardır güncellenmediğine
+   * bağlıdır. Zayıf head unit gerçekten yavaş sorgulasa bile kullanıcı için gösterge
+   * DONUKTUR → bu bayrak açık kalmalı (rapor "her şey %100" yalanını söylememeli).
+   */
+  isStale: boolean;
   /** Sönümlü reconnect sayacı (teşhis için ham değer). */
   reconnectPressure: number;
 }
@@ -45,6 +53,11 @@ const RECONNECT_PENALTY = 25;
 const STALE_GRACE_FACTOR = 3;
 /** Bayatlık cezasının tavana (50 puan) ulaştığı kat. */
 const STALE_MAX_FACTOR = 10;
+/**
+ * Mutlak donma eşiği (ms) — son paket bundan eskiyse `isStale=true`. Sürücü için
+ * göstergenin ~4s güncellenmemesi "donmuş" demektir; poll config'inden bağımsız.
+ */
+const STALE_ABS_MS = 4_000;
 
 function _decay(value: number, elapsedMs: number, halfLifeMs: number): number {
   if (elapsedMs <= 0 || value === 0) return value;
@@ -129,7 +142,11 @@ class ObdHealthMonitorImpl {
       if (total > 0.01) sensorReliability[f] = Math.round((100 * ok) / total);
     }
 
-    return { connectionQuality, sensorReliability, lastPacketAgeMs, reconnectPressure };
+    // Donma: yalnız gerçek paket yaşına bakar (oturum başlangıcı DEĞİL — henüz hiç
+    // paket gelmemişse "donuk" değil "bekliyor" durumundadır, isStale=false).
+    const isStale = lastPacketAgeMs >= 0 && lastPacketAgeMs > STALE_ABS_MS;
+
+    return { connectionQuality, sensorReliability, lastPacketAgeMs, isStale, reconnectPressure };
   }
 
   /** Test/oturum sıfırlama — tüm sayaçlar başlangıç durumuna döner. */

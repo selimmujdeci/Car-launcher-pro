@@ -128,7 +128,7 @@ interface HealthSectionLike {
 interface ObdDeepSectionLike {
   // PR-4: adapter bağlantı durumu — "OBD bağlı değildi" INCONCLUSIVE kararı için.
   adapter?: { source?: string; connectionState?: string; lastSeenMs?: number } | null;
-  health?: { connectionQuality?: number; reconnectPressure?: number };
+  health?: { connectionQuality?: number; reconnectPressure?: number; lastPacketAgeMs?: number; isStale?: boolean };
   extended?: { discovered?: boolean; supportedCount?: number } | null;
   // PR-5a/PR-1a: handshake yaşam-döngüsü kanıtı (non-PII) — PR-6 OBD analizörü tüketir.
   handshake?: {
@@ -149,7 +149,7 @@ interface ObdDeepSectionLike {
     codes?: ({ code?: string; severity?: string; system?: string } | null)[];
   };
 }
-interface PerfSampleLike { ts: number; tempC: number; level: number; memMb: number; fps: number; lagMs: number }
+interface PerfSampleLike { ts: number; tempC: number; level: number; memMb: number; fps: number; lagMs: number; maxLongTaskMs?: number; longTaskCount?: number }
 interface PerfSeriesSectionLike { installed?: boolean; samples?: PerfSampleLike[] }
 interface NetAiSectionLike {
   online?: boolean;
@@ -194,6 +194,12 @@ const FUSION_GPS_ACCURACY_POOR_M = 50;
 const TRANSPORT_RECONNECT_WARN   = 3;
 const OBD_QUALITY_POOR_PCT       = 50;
 const UI_UNTIMELY_WARN           = 3;
+// Ana-thread donması (longtask): tek görev bu süreyi aşarsa harita+gösterge birlikte
+// "takılır". 500ms = gözle görülür kilitlenme; kullanıcı "donma" olarak algılar.
+const MAIN_THREAD_STALL_MS       = 500;
+// OBD "donuk veri" fallback eşiği (ms) — payload'da isStale yoksa (eski APK) ham
+// paket yaşından türetilir. ObdHealthMonitor.STALE_ABS_MS ile hizalı.
+const OBD_STALE_AGE_MS           = 4_000;
 const STORAGE_QUEUE_WARN         = 20;
 const STORAGE_QUEUE_OFFLINE_WARN = 5;
 
@@ -293,6 +299,34 @@ function ruleMemoryLeak(s: TriageSections): TriageFinding | null {
   };
 }
 
+/**
+ * ANA-THREAD DONMASI — longtask gözlemcisinden. Düşük-tier'da fps salvosu atlandığı
+ * için (perfSeriesRecorder) render donması EskiDEN görünmezdi; longtask bunu kapatır.
+ * Harita + gösterge BİRLİKTE takılıyorsa kök burada: bir senkron görev main-thread'i
+ * bloke ediyor (data throttle değil). Kullanıcının "harita bile takılıyor" şikâyeti.
+ */
+function ruleMainThreadJank(s: TriageSections): TriageFinding | null {
+  const samples = s.perfSeries?.samples;
+  if (!Array.isArray(samples) || samples.length === 0) return null;
+  let worst = 0;
+  let total = 0;
+  for (const smp of samples) {
+    const v = smp?.maxLongTaskMs;
+    if (typeof v !== 'number' || v < 0) continue;   // -1 = API yok → atla
+    if (v > worst) worst = v;
+    if (typeof smp.longTaskCount === 'number' && smp.longTaskCount > 0) total += smp.longTaskCount;
+  }
+  if (worst <= MAIN_THREAD_STALL_MS) return null;
+  return {
+    severity: 'warning',
+    code: 'MAIN_THREAD_STALL',
+    title: 'Ana thread donması (harita/gösterge takılması)',
+    reason: `En uzun ana-thread bloklaması ${Math.round(worst)}ms (${total} uzun görev). Bu sürede harita render'ı ve göstergeler birlikte donar — veri değil, render/hesap kaynaklı.`,
+    action: 'Donma anındaki senkron yükü bulun (ağır zekâ katmanı/storage yazımı/CAN snapshot); hot-path dışına alın veya böl',
+    sources: ['perfSeries'],
+  };
+}
+
 function rulePower(s: TriageSections): TriageFinding | null {
   const p = s.power;
   if (!p || typeof p.severity !== 'string') return null;
@@ -352,6 +386,36 @@ function ruleTransportObd(s: TriageSections): TriageFinding | null {
       : `${t.reconnectAttempts} reconnect denemesi bu oturumda`,
     action: 'OBD adaptör bağlantısını/gücünü kontrol edin',
     sources: qualityPoor ? ['transport', 'obdDeep'] : ['transport'],
+  };
+}
+
+/**
+ * "Bağlı ama DONUK" — bağlantı ayakta (source real + connected) fakat son geçerli
+ * paket bayat → göstergeler donuk görünür. connectionQuality bunu ~9s'ye kadar
+ * gizler (STALE_GRACE_FACTOR); bu kural o körlüğü kapatır. Kopma DEĞİL — veri
+ * seyrek/yavaş geliyor (yavaş protokol/adaptör, köprü tıkanması, poll config).
+ * Not: kullanıcının "veriler sabit kalıyor, harita bile takılıyor" şikâyetinde OBD
+ * tarafını temsil eder; harita/render tarafını ruleMainThreadJank yakalar.
+ */
+function ruleObdStaleData(s: TriageSections): TriageFinding | null {
+  const od = s.obdDeep;
+  const adapter = od?.adapter;
+  // Yalnız GERÇEKTEN bağlıyken konuş — bağlı değilse "donuk" değil "yok" durumu (başka kural).
+  if (!adapter || adapter.source !== 'real' || adapter.connectionState !== 'connected') return null;
+  const h = od?.health;
+  if (!h) return null;
+  // isStale yeni APK'da gelir; yoksa ham paket yaşından türet (geriye-uyum).
+  const ageMs = typeof h.lastPacketAgeMs === 'number' ? h.lastPacketAgeMs : -1;
+  const stale = h.isStale === true || (ageMs > OBD_STALE_AGE_MS);
+  if (!stale) return null;
+  const ageTxt = ageMs >= 0 ? `${(ageMs / 1000).toFixed(1)}s` : '?';
+  return {
+    severity: 'warning',
+    code: 'OBD_DATA_STALE',
+    title: 'OBD bağlı ama veri donuk/seyrek geliyor',
+    reason: `Bağlantı ayakta (real/connected) fakat son geçerli paket ${ageTxt} önce — göstergeler donuk görünür. Kopma değil, veri seyrek akıyor (yavaş protokol/adaptör veya köprü tıkanması).`,
+    action: 'Adaptör poll hızını/protokolü, BLE bağlantı kalitesini ve UI bildirim throttle ayarını kontrol edin',
+    sources: ['obdDeep'],
   };
 }
 
@@ -523,8 +587,8 @@ function ruleObdDtc(s: TriageSections): TriageFinding | null {
 }
 
 const RULES: readonly Rule[] = [
-  ruleHealth, ruleBootThermal, ruleMemoryLeak, rulePower, ruleFusion,
-  ruleTransportObd, ruleNetAi, ruleSelfTest, ruleUiActivity, ruleStorageQueue,
+  ruleHealth, ruleBootThermal, ruleMemoryLeak, ruleMainThreadJank, rulePower, ruleFusion,
+  ruleTransportObd, ruleObdStaleData, ruleNetAi, ruleSelfTest, ruleUiActivity, ruleStorageQueue,
   ruleGeofence, ruleGps, ruleObdDtc,
 ];
 

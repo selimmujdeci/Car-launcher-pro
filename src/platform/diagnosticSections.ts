@@ -42,7 +42,7 @@ export interface ObdDeepSnapshot {
     source: string; connectionState: string; vehicleType: string; lastSeenMs: number;
   };
   health: {
-    connectionQuality: number; lastPacketAgeMs: number; reconnectPressure: number;
+    connectionQuality: number; lastPacketAgeMs: number; isStale: boolean; reconnectPressure: number;
     sensorReliability: Record<string, number>;
   };
   /** Anahtar canlı sinyaller — geçersiz (-1) olanlar "yok" say. */
@@ -83,7 +83,7 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
     connectionState: 'unknown', source: 'none', vehicleType: 'ice', lastSeenMs: 0,
   });
   const health = _safe(() => getObdHealth(), {
-    connectionQuality: 0, lastPacketAgeMs: -1, reconnectPressure: 0,
+    connectionQuality: 0, lastPacketAgeMs: -1, isStale: false, reconnectPressure: 0,
     sensorReliability: {} as Record<string, number>,
   });
 
@@ -140,6 +140,7 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
     health: {
       connectionQuality: health.connectionQuality,
       lastPacketAgeMs:   health.lastPacketAgeMs,
+      isStale:           health.isStale ?? false,
       reconnectPressure: Math.round((health.reconnectPressure ?? 0) * 100) / 100,
       sensorReliability: health.sensorReliability ?? {},
     },
