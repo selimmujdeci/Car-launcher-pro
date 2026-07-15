@@ -50,6 +50,15 @@ public final class OBDManager {
          * @param rawHex mode/pid başlığı soyulmuş ham data hex (ör. "8C")
          */
         void onExtendedPid(String pid, String rawHex);
+        /**
+         * PR-OBD-KWP-1: bir EXTENDED PID oturum-içi "sorma" listesine alındı (demote) —
+         * ardışık NO_DATA/7F kanıtıyla. TS bunu gerçek neden olarak UI'ya taşır
+         * ("araç bu PID'i vermiyor"). default: geriye uyumlu.
+         *
+         * @param pid    2 hane hex PID
+         * @param reason şimdilik tek değer: "no_data"
+         */
+        default void onExtendedPidUnavailable(String pid, String reason) {}
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
@@ -261,6 +270,8 @@ public final class OBDManager {
      * sorgulanır (FAST kadansı ne olursa olsun ek yük sabit ve düşük öncelikli).
      */
     private volatile java.util.List<String> extendedPids = java.util.Collections.emptyList();
+    /** PR-OBD-KWP-1: ardışık NO_DATA öğrenme — desteklenmeyen PID turdan düşer (oturum-içi). */
+    private final ExtendedNoDataTracker extNoData = new ExtendedNoDataTracker();
     /** Round-robin imleci — yalnız pollLoop thread'inden erişilir. */
     private int extendedIdx = 0;
 
@@ -521,6 +532,8 @@ public final class OBDManager {
     private void pollLoop() {
         // PR-OBD-DIAG-3: yeni poll oturumu — extended kanıt sayaçlarını sıfırla (niyet korunur).
         ExtendedPollEvidence.INSTANCE.reset("classic");
+        // PR-OBD-KWP-1: yeni oturum = NO_DATA öğrenmesi sıfırlanır (farklı araç olabilir).
+        extNoData.reset();
         while (obdRunning && isTransportAlive()) {
             try {
                 // Kendini iyileştirme: PID okumaları hataları fail-soft yutar (ERROR→-1),
@@ -574,18 +587,28 @@ public final class OBDManager {
                     ExtendedPollEvidence.INSTANCE.recordCycle(burst, ext.size());
                     if (burst) {
                         // Teşhis burst: tüm izlenen PID'ler bu turda okunur → hızlı tazeleme.
+                        // PR-OBD-KWP-1: demote edilen PID atlanır — NO_DATA'lı 39 PID'in her
+                        // turda ~1'er sn (ATST FF) bekletmesi turu dakikalara şişirirdi.
                         for (String extPid : ext) {
                             if (!obdRunning) {
                                 ExtendedPollEvidence.INSTANCE.recordAttempt(
                                     extPid, ExtendedPollEvidence.Outcome.CANCELLED, 0, 0, false);
                                 break;
                             }
+                            if (extNoData.shouldSkip(extPid)) continue;
                             recordAndEmitExtended(extPid);
                         }
                     } else {
-                        final String extPid = ext.get(extendedIdx % ext.size());
-                        extendedIdx++;
-                        recordAndEmitExtended(extPid);
+                        // PR-OBD-KWP-1: round-robin'de demote edilmemiş İLK PID okunur
+                        // (hepsi demote ise tur ek komut çalıştırmaz — sıfır maliyete dönüş).
+                        final int n = ext.size();
+                        for (int i = 0; i < n; i++) {
+                            final String extPid = ext.get(extendedIdx % n);
+                            extendedIdx++;
+                            if (extNoData.shouldSkip(extPid)) continue;
+                            recordAndEmitExtended(extPid);
+                            break;
+                        }
                     }
                 }
                 pollCycle++;
@@ -653,11 +676,15 @@ public final class OBDManager {
     public void setExtendedPids(java.util.List<String> pids) {
         if (pids == null || pids.isEmpty()) {
             this.extendedPids = java.util.Collections.emptyList();
+            extNoData.onListChanged(java.util.Collections.emptyList());
             return;
         }
         java.util.List<String> copy = new java.util.ArrayList<>(
             pids.subList(0, Math.min(pids.size(), 48)));
         this.extendedPids = java.util.Collections.unmodifiableList(copy);
+        // PR-OBD-KWP-1: liste İÇERİĞİ değiştiyse NO_DATA öğrenmesi sıfırlanır (yeni talep=yeni şans);
+        // aynı liste yeniden gönderilirse (her watchPid aboneliği push eder) öğrenme KORUNUR.
+        extNoData.onListChanged(this.extendedPids);
     }
 
     /**
@@ -685,6 +712,10 @@ public final class OBDManager {
         int respLen = (r != null && r.raw != null) ? r.raw.length() : 0;
         ExtendedPollEvidence.INSTANCE.recordAttempt(extPid, outcome, dt, respLen, emit);
         if (emit) listener.onExtendedPid(extPid, r.dataHex);
+        // PR-OBD-KWP-1: NO_DATA/7F öğrenmesi — eşik aşıldıysa TEK KEZ TS'e bildir (gerçek neden).
+        if (extNoData.recordOutcome(extPid, r)) {
+            listener.onExtendedPidUnavailable(extPid, "no_data");
+        }
     }
 
     /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir — outcome sınıflandırmalı (Patch 8 / DIAG-3). */
@@ -1067,11 +1098,20 @@ public final class OBDManager {
      * @throws Exception iletişim hatası / diğer negatif yanıt / pending zaman aşımı / header restore hatası.
      */
     public String readObdDid(String tx, String rx, String did) throws Exception {
+        return readObdDid(tx, rx, did, "22");
+    }
+
+    /**
+     * PR-OBD-KWP-1: servis-parametrik aşırı yükleme — "22" (UDS ReadDataByIdentifier) veya
+     * "21" (KWP ReadDataByLocalIdentifier). tx boş string ise header'a hiç dokunulmaz
+     * (varsayılan oturum adreslemesi — KWP'de en olası başarı yolu).
+     */
+    public String readObdDid(String tx, String rx, String did, String service) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, () -> p.readDid(did))).get();
+                () -> p.withEcuHeader(tx, rx, () -> p.readDataById(service, did))).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;

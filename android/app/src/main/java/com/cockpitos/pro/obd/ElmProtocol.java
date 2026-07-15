@@ -460,21 +460,82 @@ public final class ElmProtocol {
     private static final int UDS_PENDING_TOTAL_TIMEOUT_MS = 10_000;
 
     /**
-     * ECU adresleme atomik bloğu — tx'in uzunluğuna göre dallanır (Patch 13):
+     * ECU adresleme atomik bloğu — tx'in uzunluğuna göre dallanır (Patch 13 + PR-OBD-KWP-1):
+     *  - boş/null (VARSAYILAN oturum) → header'a HİÇ DOKUNULMAZ, action doğrudan çalışır.
+     *    KWP (ISO 14230) araçta en olası başarı yolu budur: K-line'da init'li oturum zaten
+     *    fonksiyonel adresle kurulu; header değiştirmek yeniden bus-init riski taşır.
      *  - 3 hex hane (standart 11-bit ISO 15765-4) → {@link #withEcuHeader11Bit} (Patch 12A,
      *    DEĞİŞMEDİ — davranış BİREBİR aynı).
+     *  - 6 hex hane (KWP/ISO 3-bayt header, ör. "8110F1") → {@link #withEcuHeaderKwp}
+     *    (ATSH yalnız; ATCRA CAN-only olduğu için GÖNDERİLMEZ).
      *  - 8 hex hane (29-bit genişletilmiş adresleme, ör. "18DADAF1") → {@link #withEcuHeader29Bit}
      *    (ATCP öncelik baytı + ATSP7 protokol geçişi, ROADMAP boşluk (3)).
      *
      * Bu metod {@link ElmCommandQueue}'nun TEK worker thread'i üzerinden çağrılmalıdır (ör.
      * {@code cmdQueue.submit(USER, ...)}) — böylece header ayarlama → okuma → restore ATOMİK
-     * olur, araya başka bir komut giremez (her iki dal için de geçerli).
+     * olur, araya başka bir komut giremez (tüm dallar için geçerli).
      */
     public <T> T withEcuHeader(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
-        if (tx != null && tx.length() == 8) {
+        if (tx == null || tx.isEmpty()) {
+            // Varsayılan adresleme: header set/restore YOK → restore riski de yok.
+            return action.call();
+        }
+        if (tx.length() == 8) {
             return withEcuHeader29Bit(tx, rx, action);
         }
+        if (tx.length() == 6) {
+            return withEcuHeaderKwp(tx, action);
+        }
         return withEcuHeader11Bit(tx, rx, action);
+    }
+
+    /**
+     * PR-OBD-KWP-1 — KWP2000/ISO 9141 3-bayt header adresleme (ör. tx="8110F1": format 0x80
+     * + hedef 0x10 + kaynak 0xF1; ELM327 format baytının uzunluk bitlerini KENDİSİ doldurur).
+     *
+     * CAN'den farkları:
+     *  - {@code ATCRA} GÖNDERİLMEZ (CAN alım filtresi — K-line'da anlamsız, klonlarda "?" üretir).
+     *    K-line tek kablodur; yanıt zaten istek yapılan ECU'dan gelir, rx filtresi gerekmez.
+     *  - Restore hedefi 7DF DEĞİL: aktif protokole göre ISO 9141-2 → "686AF1",
+     *    KWP ('4'/'5') → "C133F1" (ISO 14230-4 fonksiyonel OBD header'ı). Protokol
+     *    öğrenilemezse KWP varsayılır (bu dala yalnız 6 haneli tx ile girilir → yavaş seri hat).
+     *
+     * Patch 12A restore yasası AYNEN geçerli: action ne olursa olsun finally-eşdeğeri restore,
+     * başarısızlık {@link HeaderRestoreException} ile raporlanır (sessiz yanlış veri yasak).
+     */
+    private <T> T withEcuHeaderKwp(String tx, java.util.concurrent.Callable<T> action) throws Exception {
+        T result = null;
+        Exception primary = null;
+        final String protocolDigit = queryActiveProtocolDigit();
+        try {
+            String sh = channel.send("ATSH" + tx, 500);
+            if (!okish(sh)) {
+                throw new IOException("KWP header ayarlanamadı (tx=" + tx + "): ATSH 'OK' dönmedi (" + summarize(sh) + ")");
+            }
+            result = action.call();
+        } catch (Exception e) {
+            primary = e;
+        }
+        Exception restoreFailure = restoreKwpDefaultHeader(protocolDigit);
+        if (primary != null) {
+            if (restoreFailure != null) primary.addSuppressed(restoreFailure);
+            throw primary;
+        }
+        if (restoreFailure != null) throw restoreFailure;
+        return result;
+    }
+
+    /** KWP/ISO varsayılan fonksiyonel header'a restore — protokole göre hedef seçilir. */
+    private Exception restoreKwpDefaultHeader(String protocolDigit) {
+        // ISO 9141-2 ('3') → 68 6A F1; KWP2000 ('4'/'5') ve bilinmeyen → C1 33 F1 (ISO 14230-4).
+        String target = "3".equals(protocolDigit) ? "686AF1" : "C133F1";
+        try {
+            String sh = channel.send("ATSH" + target, 500);
+            if (!okish(sh)) return new HeaderRestoreException("ATSH" + target + " (KWP) restore başarısız: " + summarize(sh));
+            return null;
+        } catch (Exception e) {
+            return new HeaderRestoreException("ATSH" + target + " (KWP) restore istisna: " + e.getMessage());
+        }
     }
 
     /**
@@ -772,6 +833,29 @@ public final class ElmProtocol {
     }
 
     /**
+     * PR-OBD-KWP-1 — Servis-parametrik veri tanımlayıcı okuma. {@code withEcuHeader} bloğu
+     * İÇİNDE çağrılmalıdır (header yönetmez).
+     *
+     * KWP2000 (ISO 14230) araçlarda üretici verisi Servis 0x22'de DEĞİL, Servis 0x21'de
+     * (ReadDataByLocalIdentifier, 1-bayt LID) yaşar — Renault Trafic gibi KWP araçların
+     * "Mode 22 yolu başarısız" görünmesinin kök nedeni budur. Bu metot iki servisi de
+     * AYNI udsRequest motorundan (NRC disiplini + pending retry + session-required + çok-satır
+     * birleştirme TEK yerde) geçirir:
+     *  - service "22": istek {@code 22<DID 4 hane>}, olumlu yanıt {@code 62<DID>}.
+     *  - service "21": istek {@code 21<LID 2 hane>}, olumlu yanıt {@code 61<LID>}.
+     *
+     * @return olumlu yanıt öneki SOYULMUŞ ham data hex; desteklenmiyorsa null.
+     */
+    public String readDataById(String service, String id) throws IOException {
+        String s = service == null ? "22" : service;
+        String d = id.toUpperCase(Locale.ROOT);
+        if ("21".equals(s)) {
+            return udsRequest("21" + d, "21", "61" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "LID " + d);
+        }
+        return readDid(d);
+    }
+
+    /**
      * OBD-OS-F3-6 — UDS negatif yanıt kodu (NRC) sınıflandırması (ISO 14229-1 Tablo A.1).
      *
      * KÖK: eskiden 0x31/0x33/0x78 DIŞINDAKİ her NRC generic IOException'a düşüyordu —
@@ -827,13 +911,25 @@ public final class ElmProtocol {
      * TesterPresent (0x3E) GEREKMEZ: oturum + istek AYNI atomik kuyruk görevinde ardışık
      * çalışır → ECU'nun S3 oturum zaman aşımı (tipik 5 sn) penceresine girilmez.
      *
-     * @return true = oturum açıldı (olumlu yanıt 50 03); false = ECU açamadı/desteklemiyor.
+     * @return true = oturum açıldı (olumlu yanıt 50 xx); false = ECU açamadı/desteklemiyor.
      */
     public boolean openExtendedSession() {
+        // PR-OBD-KWP-1: protokol-farkındalı oturum seçimi. CAN/UDS → 10 03 (extended).
+        // KWP/ISO9141 → önce 10 81 (ISO 14230-4 standart tanı oturumu), olmazsa 10 C0
+        // (birçok Renault/PSA KWP ECU'sunun genişletilmiş oturumu). Hepsi SALT oturum
+        // komutudur (ECU'ya yazmaz, security access değildir) — güvenli.
+        String digit = queryActiveProtocolDigit();
+        boolean slowSerial = "3".equals(digit) || "4".equals(digit) || "5".equals(digit);
+        if (!slowSerial) return trySessionCommand("1003", "5003");
+        return trySessionCommand("1081", "5081") || trySessionCommand("10C0", "50C0");
+    }
+
+    /** Tek oturum komutu dener — olumlu yanıt öneki görülürse true (fail-soft). */
+    private boolean trySessionCommand(String cmd, String positiveNeedle) {
         try {
-            String raw = sendChecked("1003", 2000);
+            String raw = sendChecked(cmd, 2000);
             String compact = raw == null ? "" : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
-            return compact.contains("5003");   // olumlu yanıt: 50 03 <P2 timing…>
+            return compact.contains(positiveNeedle);
         } catch (Exception e) {
             return false;   // fail-soft: oturum açılamadı → çağıran mevcut sonuca döner
         }

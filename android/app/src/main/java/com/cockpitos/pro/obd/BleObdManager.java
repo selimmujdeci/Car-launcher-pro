@@ -58,6 +58,8 @@ public final class BleObdManager {
         void onObdData(ObdPollSample sample);
         /** Patch 8: EXTENDED grup ham PID sonucu — bkz. OBDManager.OnOBDDataListener.onExtendedPid. */
         void onExtendedPid(String pid, String rawHex);
+        /** PR-OBD-KWP-1: bkz. OBDManager.OnOBDDataListener.onExtendedPidUnavailable (aynı sözleşme). */
+        default void onExtendedPidUnavailable(String pid, String reason) {}
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
@@ -130,6 +132,8 @@ public final class BleObdManager {
 
     /** Patch 8: bkz. OBDManager.extendedPids — aynı talep-güdümlü/sıfır-maliyet deseni. */
     private volatile java.util.List<String> extendedPids = java.util.Collections.emptyList();
+    /** PR-OBD-KWP-1: ardışık NO_DATA öğrenme — bkz. OBDManager.extNoData (aynı sözleşme). */
+    private final ExtendedNoDataTracker extNoData = new ExtendedNoDataTracker();
     private int extendedIdx = 0;
 
     /**
@@ -289,6 +293,8 @@ public final class BleObdManager {
     private void pollLoop() {
         // PR-OBD-DIAG-3: yeni poll oturumu — extended kanıt sayaçlarını sıfırla (niyet korunur).
         ExtendedPollEvidence.INSTANCE.reset("ble");
+        // PR-OBD-KWP-1: yeni oturum = NO_DATA öğrenmesi sıfırlanır (farklı araç olabilir).
+        extNoData.reset();
         while (obdRunning && gatt != null) {
             try {
                 Set<String> pidSet = obdPidSet;
@@ -322,18 +328,26 @@ public final class BleObdManager {
                     if (burst) {
                         // Teşhis burst: tüm izlenen PID'ler bu turda okunur → hızlı tazeleme.
                         // İptal kontrolü: kopma/kapanışta yarım turda çık (obdRunning=false).
+                        // PR-OBD-KWP-1: demote edilen PID atlanır (bkz. OBDManager aynı gerekçe).
                         for (String extPid : ext) {
                             if (!obdRunning || gatt == null) {
                                 ExtendedPollEvidence.INSTANCE.recordAttempt(
                                     extPid, ExtendedPollEvidence.Outcome.CANCELLED, 0, 0, false);
                                 break;
                             }
+                            if (extNoData.shouldSkip(extPid)) continue;
                             recordAndEmitExtended(p, extPid);
                         }
                     } else {
-                        final String extPid = ext.get(extendedIdx % ext.size());
-                        extendedIdx++;
-                        recordAndEmitExtended(p, extPid);
+                        // PR-OBD-KWP-1: demote edilmemiş İLK PID okunur (hepsi demote → sıfır komut).
+                        final int n = ext.size();
+                        for (int i = 0; i < n; i++) {
+                            final String extPid = ext.get(extendedIdx % n);
+                            extendedIdx++;
+                            if (extNoData.shouldSkip(extPid)) continue;
+                            recordAndEmitExtended(p, extPid);
+                            break;
+                        }
                     }
                 }
                 pollCycle++;
@@ -388,11 +402,14 @@ public final class BleObdManager {
     public void setExtendedPids(java.util.List<String> pids) {
         if (pids == null || pids.isEmpty()) {
             this.extendedPids = java.util.Collections.emptyList();
+            extNoData.onListChanged(java.util.Collections.emptyList());
             return;
         }
         java.util.List<String> copy = new java.util.ArrayList<>(
             pids.subList(0, Math.min(pids.size(), 32)));
         this.extendedPids = java.util.Collections.unmodifiableList(copy);
+        // PR-OBD-KWP-1: liste içeriği değiştiyse öğrenme sıfırlanır (bkz. OBDManager).
+        extNoData.onListChanged(this.extendedPids);
     }
 
     /**
@@ -422,6 +439,10 @@ public final class BleObdManager {
         int respLen = (r != null && r.raw != null) ? r.raw.length() : 0;
         ExtendedPollEvidence.INSTANCE.recordAttempt(extPid, outcome, dt, respLen, emit);
         if (emit) listener.onExtendedPid(extPid, r.dataHex);
+        // PR-OBD-KWP-1: NO_DATA/7F öğrenmesi — eşik aşıldıysa TEK KEZ TS'e bildir (gerçek neden).
+        if (extNoData.recordOutcome(extPid, r)) {
+            listener.onExtendedPidUnavailable(extPid, "no_data");
+        }
     }
 
     /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir — outcome sınıflandırmalı (Patch 8 / DIAG-3). */
@@ -623,11 +644,19 @@ public final class BleObdManager {
      * @throws Exception iletişim hatası / diğer negatif yanıt / pending zaman aşımı / header restore hatası.
      */
     public String readObdDid(String tx, String rx, String did) throws Exception {
+        return readObdDid(tx, rx, did, "22");
+    }
+
+    /**
+     * PR-OBD-KWP-1: servis-parametrik aşırı yükleme (OBDManager ile aynı sözleşme) —
+     * "22" (UDS) veya "21" (KWP ReadDataByLocalIdentifier); tx boş ise header'a dokunulmaz.
+     */
+    public String readObdDid(String tx, String rx, String did, String service) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, () -> p.readDid(did))).get();
+                () -> p.withEcuHeader(tx, rx, () -> p.readDataById(service, did))).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;

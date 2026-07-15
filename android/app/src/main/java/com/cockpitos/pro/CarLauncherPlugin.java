@@ -762,6 +762,11 @@ public class CarLauncherPlugin extends Plugin {
         }
 
         @Override
+        public void onExtendedPidUnavailable(String pid, String reason) {
+            obdListener.onExtendedPidUnavailable(pid, reason);
+        }
+
+        @Override
         public void onStatusChanged(String state, String message) {
             obdListener.onStatusChanged(state, message);
         }
@@ -817,6 +822,16 @@ public class CarLauncherPlugin extends Plugin {
             event.put("pid",  pid);
             event.put("data", rawHex);
             notifyListeners("obdExtendedData", event);
+        }
+
+        @Override
+        public void onExtendedPidUnavailable(String pid, String reason) {
+            // PR-OBD-KWP-1: PID oturum-içi demote edildi (ardışık NO_DATA/7F) — TS gerçek
+            // nedeni UI'ya taşır. Demote başına TEK olay → köprü trafiği ihmal edilebilir.
+            JSObject event = new JSObject();
+            event.put("pid",    pid);
+            event.put("status", reason);
+            notifyListeners("obdExtendedPidStatus", event);
         }
 
         @Override
@@ -1655,9 +1670,9 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — üretici-özel DID okuma ──────
 
-    private String readObdDidFromActive(String tx, String rx, String did) throws Exception {
-        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readObdDid(tx, rx, did);
-        if (obdManager    != null && obdManager.isConnected())    return obdManager.readObdDid(tx, rx, did);
+    private String readObdDidFromActive(String tx, String rx, String did, String service) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readObdDid(tx, rx, did, service);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readObdDid(tx, rx, did, service);
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
 
@@ -1666,16 +1681,25 @@ public class CarLauncherPlugin extends Plugin {
         String tx = call.getString("tx");
         String rx = call.getString("rx");
         String did = call.getString("did");
-        if (tx == null || tx.isEmpty() || rx == null || rx.isEmpty() || did == null || did.isEmpty()) {
-            call.reject("OBD_DID_FAILED", "tx/rx/did parametreleri eksik");
+        // PR-OBD-KWP-1: service "22" (UDS, varsayılan — geriye dönük uyum) | "21" (KWP LID).
+        String service = call.getString("service", "22");
+        // tx/rx artık BOŞ OLABİLİR (varsayılan oturum adreslemesi — header'a dokunulmaz;
+        // KWP'de en olası başarı yolu). Yalnız did zorunlu.
+        if (did == null || did.isEmpty()) {
+            call.reject("OBD_DID_FAILED", "did parametresi eksik");
             return;
         }
-        final String t = tx.toUpperCase(java.util.Locale.ROOT);
-        final String r = rx.toUpperCase(java.util.Locale.ROOT);
+        if (!"22".equals(service) && !"21".equals(service)) {
+            call.reject("OBD_DID_FAILED", "service '22' veya '21' olmalı");
+            return;
+        }
+        final String t = tx == null ? "" : tx.toUpperCase(java.util.Locale.ROOT);
+        final String r = rx == null ? "" : rx.toUpperCase(java.util.Locale.ROOT);
         final String d = did.toUpperCase(java.util.Locale.ROOT);
+        final String s = service;
         new Thread(() -> {
             try {
-                String data = readObdDidFromActive(t, r, d);
+                String data = readObdDidFromActive(t, r, d, s);
                 JSObject ret = new JSObject();
                 if (data != null) {
                     ret.put("data", data);
