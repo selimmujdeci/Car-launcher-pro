@@ -48,12 +48,15 @@ let _vsabGen      = 0;     // Vision SAB generation sayacı
 
 function _createVisionWorker(): Worker | null {
   try {
-    // type:'module' dev'de çalışır; prod'da vite.config `worker.format:'iife'`
-    // classic IIFE'ye zorlar → Chrome 52+ eski WebView'da yüklenir. (§HEAD_UNIT_MATRIX)
-    const w = new Worker(
-      new URL('./VisionCompute.worker.ts', import.meta.url),
-      { type: 'module', name: 'VisionCompute' },
-    );
+    // PR-RUNTIME-WORKER-1: worker DOSYASI prod'da IIFE (worker.format:'iife') ama `type`
+    // constructor seçeneği Vite tarafından call-site'ta değişmez → sabit 'module' WebView<80'de
+    // "Module scripts are not supported" ile throw eder. type'ı build-time seç: DEV → Vite ESM
+    // servis eder ('module' şart); PROD → IIFE bundle ('classic', WebView 52+). İki ayrı
+    // literal-type call-site — Vite `type`'ın literal olmasını zorunlu kılar; prod'da 'module'
+    // dalı ölü-kod elenir. (§HEAD_UNIT_MATRIX)
+    const w = import.meta.env.DEV
+      ? new Worker(new URL('./VisionCompute.worker.ts', import.meta.url), { type: 'module', name: 'VisionCompute' })
+      : new Worker(new URL('./VisionCompute.worker.ts', import.meta.url), { type: 'classic', name: 'VisionCompute' });
     w.onmessage = (e: MessageEvent) => {
       _workerBusy = false;
       const msg = e.data as { type: string; frame?: VisionFrame; message?: string };
