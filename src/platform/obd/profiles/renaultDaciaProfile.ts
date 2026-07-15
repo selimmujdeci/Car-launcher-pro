@@ -28,6 +28,9 @@ export const renaultDaciaProfile: VehicleDidProfile = {
     'yalnız evrensel ISO 14229-1 kimlik seti (universalUdsProfile ile aynı). ' +
     'DID keşif aracı ile sahada büyütülecek.',
   source: RENAULT_DACIA_SOURCE,
+  // PR-OBD-KWP-1: bu profil 11-bit CAN (7E0/7E8) adresleme varsayar — KWP/ISO9141
+  // hattinda sorgulanmasi COMM_ERROR firtinasi uretir (Trafic sahasi); kapi ile kapatilir.
+  protocols: ['can'],
   ecus: [
     { id: 'engine', name: "Motor ECU'su", tx: '7E0', rx: '7E8' },
   ],

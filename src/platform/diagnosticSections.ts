@@ -13,7 +13,7 @@
 import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats, getHandshakeDiagnostics, getObdConnLifecycle } from './obdService';
 import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
-import { getSupportedPids, getPidValue } from './obd/extendedPidService';
+import { getSupportedPids, getPidValue, getUnavailablePids } from './obd/extendedPidService';
 import { getExtendedPollEvidence, type ExtendedPollEvidenceSnapshot } from './obd/extendedPollEvidence';
 import { getMode22Evidence, type Mode22Evidence } from './obd/manufacturerPidService';
 import { getDTCStateSnapshot } from './dtcService';
@@ -53,6 +53,9 @@ export interface ObdDeepSnapshot {
   extended: {
     discovered: boolean; supportedCount: number;
     samples: { pid: string; name: string; value: number; ageMs: number }[];
+    /** PR-OBD-KWP-1: native'in ardışık NO_DATA/7F kanıtıyla turdan düşürdüğü PID'ler —
+     *  "bitmap destekli ama araç vermiyor" gerçeği (Trafic 39/39 vakasının raporu). Bounded ≤48. */
+    unavailable: string[];
   };
   /** PR-OBD-DIAG-3: EXTENDED PID poll KANITI — H1/H2/H3 ayrımı (samples boşsa neden?). */
   extendedPollEvidence: ExtendedPollEvidenceSnapshot | null;
@@ -160,6 +163,8 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
       discovered: supported !== null,
       supportedCount: supported ? supported.size : 0,
       samples,
+      // PR-OBD-KWP-1: native NO_DATA demote kanıtı (bounded — tavan 48, native listeyle aynı).
+      unavailable: _safe(() => [...getUnavailablePids().keys()].slice(0, 48), [] as string[]),
     },
     // PR-OBD-DIAG-3: samples boşsa "neden" — native poll kanıtı (refreshExtendedPollEvidence
     // rapor derlenmeden önce await edilir; edilmediyse fail-soft NO_NATIVE_EVIDENCE döner).

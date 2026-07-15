@@ -547,7 +547,11 @@ export interface CarLauncherPlugin {
   // ElmProtocol.withEcuHeader). supported:false → DID desteklenmiyor (7F22 31/33 veya
   // NO DATA) — kalıcı işaretlenmeli, bir daha sorulmamalı. Opsiyonel: eski plugin
   // sürümlerinde bulunmayabilir (manufacturerPidService fail-soft çağırır).
-  readObdDid?(opts: { tx: string; rx: string; did: string }): Promise<{ data: string | null; supported: boolean }>;
+  // PR-OBD-KWP-1 genişletmesi: service '22' (UDS ReadDataByIdentifier, varsayılan) |
+  // '21' (KWP ReadDataByLocalIdentifier — Trafic gibi ISO 14230 araçların üretici verisi).
+  // tx/rx BOŞ string olabilir → native header'a HİÇ dokunmaz (varsayılan oturum adreslemesi;
+  // KWP'de en olası başarı yolu). tx: '' | 3 hane (11-bit CAN) | 6 hane (KWP 3-bayt) | 8 hane (29-bit).
+  readObdDid?(opts: { tx: string; rx: string; did: string; service?: '22' | '21' }): Promise<{ data: string | null; supported: boolean }>;
 
   // Uygulama içi OBD cihaz tarama (pair gerektirmeden keşfeder)
   startOBDDiscovery(): Promise<void>;
@@ -726,6 +730,12 @@ export interface CarLauncherPlugin {
   addListener(
     event: 'obdExtendedData',
     handler: (data: { pid: string; data: string }) => void,
+  ): Promise<PluginListenerHandle>;
+  // PR-OBD-KWP-1: EXTENDED PID oturum-içi demote bildirimi — pid ardışık NO_DATA/7F
+  // kanıtıyla turdan düşürüldü (status: 'no_data'). Demote başına TEK olay.
+  addListener(
+    event: 'obdExtendedPidStatus',
+    handler: (data: { pid: string; status: string }) => void,
   ): Promise<PluginListenerHandle>;
   // Teşhis ham trafik: cmd=gönderilen komut, resp=ham yanıt ('⚠ ' öneki=hata),
   // ms=süre, ts=epoch. Yalnız setObdTrafficCapture(true) sonrası akar.

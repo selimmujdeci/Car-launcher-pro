@@ -60,6 +60,10 @@ const _watchers = new Map<string, Set<Watcher>>();      // pid → callback'ler
 const _values = new Map<string, ExtendedPidValue>();    // pid → son değer
 let _supported: Set<string> | null = null;              // null = keşif tamamlanmadı
 let _discoveryQueue: string[] = [];                     // bekleyen bitmask PID'leri
+/** PR-OBD-KWP-1: native'in oturum-içi demote ettiği PID'ler (ardışık NO_DATA/7F) —
+ *  "araç bu PID'i VERMİYOR" gerçek nedeni. Bitmap-destekli ama veri gelmeyen PID
+ *  (Trafic 39/39 NO_DATA vakası) artık UI'da dürüstçe etiketlenebilir. */
+const _unavailable = new Map<string, string>();          // pid → neden ('no_data')
 let _listenerHandle: PluginListenerHandle | null = null;
 let _listenerStarting = false;
 let _burst = false;                                     // Canlı Test burst modu (cap+native hız)
@@ -163,6 +167,19 @@ function _onExtendedData(event: { pid: string; data: string }): void {
   }
 }
 
+/** PR-OBD-KWP-1: native demote bildirimi — PID turdan düşürüldü (ardışık NO_DATA/7F). */
+function _onExtendedPidStatus(event: { pid: string; status: string }): void {
+  try {
+    const pid = (event.pid ?? '').toUpperCase();
+    if (!pid) return;
+    _unavailable.set(pid, event.status || 'no_data');
+    // Değer önbelleği bilinçli KORUNUR: daha önce gerçek değer geldiyse UI onu
+    // "bayat + artık akmıyor" olarak gösterebilir (silmek kanıt kaybı olur).
+  } catch (e) {
+    logError('OBD:ExtPidStatus', e);
+  }
+}
+
 /** Tek seferlik olay dinleyicisi — İLK izleyicide kurulur (boşta sıfır maliyet). */
 function _ensureListener(): void {
   if (_listenerHandle || _listenerStarting || !Capacitor.isNativePlatform()) return;
@@ -170,6 +187,10 @@ function _ensureListener(): void {
   void CarLauncher.addListener('obdExtendedData', _onExtendedData)
     .then((h) => { _listenerHandle = h; _listenerStarting = false; })
     .catch((e) => { _listenerStarting = false; logError('OBD:ExtPidListen', e); });
+  // PR-OBD-KWP-1: demote bildirimi ayrı kanal — eski APK'da olay hiç gelmez (fail-soft).
+  // Handle saklanmaz: dinleyici modül ömrü boyunca yaşar (obdExtendedData ile aynı ömür).
+  void CarLauncher.addListener('obdExtendedPidStatus', _onExtendedPidStatus)
+    .catch(() => { /* eski plugin — durum bilgisi yok, davranış değişmez */ });
 }
 
 /** Keşfi başlat (idempotent) — yalnız izleyici varken çağrılır. */
@@ -225,6 +246,33 @@ export function getSupportedPids(): Set<string> | null {
   return _supported ? new Set(_supported) : null;
 }
 
+/* ── PR-OBD-KWP-1: per-PID gerçek durum (tek veri gerçeği için) ───────────── */
+
+export type ExtendedPidStatus =
+  | 'live'         // taze değer var (< staleMs)
+  | 'stale'        // değer var ama eski
+  | 'no_data'      // bitmap destekli görünüyor ama ECU vermiyor (native demote kanıtı)
+  | 'unsupported'  // keşif bitmap'i bu PID'i desteklemiyor diyor
+  | 'probing';     // henüz kanıt yok (keşif/ilk sorgu sürüyor)
+
+/** Bir extended PID'in GERÇEK durumu — UI "neden okunamıyor"u bununla gösterir.
+ *  Fail-closed sıra: gerçek değer kanıtı > native no-data kanıtı > bitmap kanıtı > bilinmiyor. */
+export function getPidStatus(pid: string, staleMs = 15_000): ExtendedPidStatus {
+  const key = pid.toUpperCase();
+  const v = _values.get(key);
+  if (v && !_unavailable.has(key)) {
+    return Date.now() - v.updatedAt <= staleMs ? 'live' : 'stale';
+  }
+  if (_unavailable.has(key)) return 'no_data';
+  if (_supported !== null && !_supported.has(key)) return 'unsupported';
+  return 'probing';
+}
+
+/** Native'in demote ettiği PID'ler (kopya) — teşhis raporu/UI listesi için. */
+export function getUnavailablePids(): ReadonlyMap<string, string> {
+  return new Map(_unavailable);
+}
+
 /**
  * Native Handshake keşif sonucunu (tek doğruluk kaynağı) extended katmana TOHUMLAR —
  * extended kanaldan YENİDEN bitmask keşfi beklemeye gerek kalmaz.
@@ -265,6 +313,9 @@ export function notifyObdConnected(): void {
   _jsEventsReceived = 0;
   _jsDecodeFailures = 0;
   _jsValuesStored = 0;
+  // PR-OBD-KWP-1: yeni bağlantı = native NO_DATA öğrenmesi de sıfırlandı (ExtendedNoDataTracker
+  // reset) → TS aynası da sıfırlanır (farklı araç 'no_data' damgasını miras almasın).
+  _unavailable.clear();
   if (_watchers.size === 0) return;
   // Yeni bağlantı = muhtemelen aynı araç ama garanti değil; keşif sonucu YENİDEN
   // doğrulanır (farklı araca takılan adaptör senaryosu).
@@ -313,6 +364,7 @@ export const _internals = {
     _values.clear();
     _supported = null;
     _discoveryQueue = [];
+    _unavailable.clear();
     _listenerHandle = null;
     _listenerStarting = false;
     _burst = false;
@@ -321,6 +373,7 @@ export const _internals = {
     _jsValuesStored = 0;
   },
   onExtendedData: _onExtendedData,
+  onExtendedPidStatus: _onExtendedPidStatus,
   buildNativeList: _buildNativeList,
   getDiscoveryQueue: () => [..._discoveryQueue],
 };

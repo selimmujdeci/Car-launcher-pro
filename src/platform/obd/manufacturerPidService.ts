@@ -26,6 +26,8 @@ import {
   decodeCompiledDid,
 } from './vehicleDidProfile';
 import type { CompiledDidDef, VehicleDidValue } from './vehicleDidProfile';
+import { getActiveProtocolClass } from './activeProtocol';
+import type { ProtocolClass } from './protocolProfile';
 
 /** Round-robin zamanlayıcı aralığı (ms) — üretici verileri yavaş değişir, 2-5s yeter. */
 export const MANUFACTURER_POLL_INTERVAL_MS = 3000;
@@ -41,6 +43,10 @@ type Watcher = (v: ManufacturerDidValue) => void;
 
 /* ── Modül durumu ─────────────────────────────────────────────────────────── */
 let _profile: ReadonlyMap<string, CompiledDidDef> | null = null;
+/** PR-OBD-KWP-1: profilin protokol kısıtı (null = kısıt yok). Tick, aktif protokol sınıfı
+ *  bu listede DEĞİLSE sorgu yapmaz — CAN header'lı profili KWP hattına göndermek
+ *  COMM_ERROR fırtınasıdır (Trafic sahasındaki "Mode 22 başarısız" kök nedenlerinden biri). */
+let _profileProtocols: ProtocolClass[] | null = null;
 const _watchers = new Map<string, Set<Watcher>>();
 const _values = new Map<string, ManufacturerDidValue>();
 const _unsupported = new Set<string>(); // 7F-31/33 → KALICI desteklenmiyor
@@ -92,6 +98,7 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
   const result = validateVehicleDidProfile(rawProfile);
   if (!result.valid) return { ok: false, errors: result.errors };
   _profile = compileVehicleDidProfile(result.profile);
+  _profileProtocols = result.profile.protocols ? [...result.profile.protocols] as ProtocolClass[] : null;
   _unsupported.clear();
   _values.clear();
   _rrIndex = 0;
@@ -103,10 +110,23 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
 /** Profili kaldırır — izleyici kalmışsa bile zamanlayıcı durur (profilsiz okunacak DID yok). */
 export function unloadProfile(): void {
   _profile = null;
+  _profileProtocols = null;
   _unsupported.clear();
   _values.clear();
   _resetM22(); // PR-OBD-DATA-1: profil kaldırıldı → kanıt sıfırlanır
   _syncTimer();
+}
+
+/**
+ * PR-OBD-KWP-1: profil bu protokolde uygulanabilir mi? true = sorgu serbest.
+ * Kısıt yoksa VEYA aktif protokol BİLİNMİYORSA (null) serbest — bilinmeyen protokolde
+ * sorguyu kesmek yanlış-negatif üretirdi; kanıt katmanı sonucu zaten dürüst kaydeder.
+ */
+function _protocolAllowed(): boolean {
+  if (_profileProtocols === null) return true;
+  const active = getActiveProtocolClass();
+  if (active === null) return true;
+  return _profileProtocols.includes(active);
 }
 
 /** Yüklü profil var mı. */
@@ -140,6 +160,9 @@ async function _tick(): Promise<void> {
   if (_inFlight) return; // önceki tur hâlâ sürüyor — üst üste binme
   const profile = _profile;
   if (!profile) return;
+  // PR-OBD-KWP-1: protokol kapısı — CAN-kısıtlı profil KWP hattında SORGULANMAZ
+  // (COMM_ERROR fırtınası yerine dürüst "protokol uyumsuz"; getMode22Evidence raporlar).
+  if (!_protocolAllowed()) return;
   const dids = _watchedDids();
   if (dids.length === 0 || !CarLauncher.readObdDid) return;
 
@@ -150,7 +173,7 @@ async function _tick(): Promise<void> {
 
   _inFlight = true;
   try {
-    const r = await CarLauncher.readObdDid({ tx: def.tx, rx: def.rx, did: def.did });
+    const r = await CarLauncher.readObdDid({ tx: def.tx, rx: def.rx, did: def.did, service: def.service });
     if (!r.supported) {
       _unsupported.add(did); // KALICI — bir daha sorulmaz
       _recordM22(def, 'UNSUPPORTED', false); // PR-OBD-DATA-1: fail-closed kanıt (7F)
@@ -222,15 +245,18 @@ export function getSupportedDids(): CompiledDidDef[] {
 /* ── PR-OBD-DATA-1: Mode-22 acquisition kanıtı (fail-closed karar) ─────────── */
 
 export type Mode22Decision =
-  | 'NO_PROFILE'      // üretici DID profili yüklü değil → kanıt yok (fail-closed)
-  | 'NOT_PROBED'      // profil var ama henüz DID sorgulanmadı (izleyici yok / yeni)
-  | 'HAS_REAL_VALUE'  // en az bir gerçek manufacturer value okundu
-  | 'ALL_UNSUPPORTED' // sorgulandı, tümü 7F → araç bu DID'leri DESTEKLEMİYOR (fail-closed)
-  | 'COMM_FAILING'    // sorgulandı, değer yok + iletişim hatası baskın (KWP adresleme/flaky link)
-  | 'INCONCLUSIVE';   // karışık/eksik — kanıt tam değil
+  | 'NO_PROFILE'        // üretici DID profili yüklü değil → kanıt yok (fail-closed)
+  | 'PROTOCOL_MISMATCH' // PR-OBD-KWP-1: profil bu protokol sınıfında uygulanamaz → hiç sorgulanmadı
+  | 'NOT_PROBED'        // profil var ama henüz DID sorgulanmadı (izleyici yok / yeni)
+  | 'HAS_REAL_VALUE'    // en az bir gerçek manufacturer value okundu
+  | 'ALL_UNSUPPORTED'   // sorgulandı, tümü 7F → araç bu DID'leri DESTEKLEMİYOR (fail-closed)
+  | 'COMM_FAILING'      // sorgulandı, değer yok + iletişim hatası baskın (KWP adresleme/flaky link)
+  | 'INCONCLUSIVE';     // karışık/eksik — kanıt tam değil
 
 export interface Mode22Evidence {
   profileLoaded: boolean;
+  /** PR-OBD-KWP-1: true = profil aktif protokol sınıfıyla uyumsuz (sorgu kapalı). */
+  protocolGated: boolean;
   watchedCount: number;
   probed: number; supported: number; unsupported: number; noData: number;
   decodeFail: number; commError: number;
@@ -246,9 +272,12 @@ export interface Mode22Evidence {
 /** Fail-closed karar — SAHTE değer yok; yalnız native gerçekliğinden türetilir. */
 export function classifyMode22(e: {
   profileLoaded: boolean; watchedCount: number; probed: number; supported: number;
-  unsupported: number; commError: number;
+  unsupported: number; commError: number; protocolGated?: boolean;
 }): Mode22Decision {
   if (!e.profileLoaded) return 'NO_PROFILE';
+  // PR-OBD-KWP-1: sorgu hiç yapılmadıysa VE nedeni protokol kapısıysa bunu söyle —
+  // "NOT_PROBED" (izleyici yok) ile "profil bu araçta uygulanamaz" farklı teşhislerdir.
+  if (e.protocolGated && e.probed === 0) return 'PROTOCOL_MISMATCH';
   if (e.probed === 0) return 'NOT_PROBED';
   if (e.supported > 0) return 'HAS_REAL_VALUE';
   if (e.unsupported > 0 && e.commError === 0) return 'ALL_UNSUPPORTED';
@@ -259,15 +288,16 @@ export function classifyMode22(e: {
 /** Bounded Mode-22 acquisition kanıtı — Tanı Gönder (obdDeep.mode22) için. */
 export function getMode22Evidence(): Mode22Evidence {
   const profileLoaded = _profile !== null;
+  const protocolGated = profileLoaded && !_protocolAllowed();
   const watchedCount = _watchers.size;
   const base = {
-    profileLoaded, watchedCount,
+    profileLoaded, protocolGated, watchedCount,
     probed: _m22.probed, supported: _m22.supported, unsupported: _m22.unsupported,
     commError: _m22.commError,
   };
   const decision = classifyMode22(base);
   return {
-    profileLoaded, watchedCount,
+    profileLoaded, protocolGated, watchedCount,
     probed: _m22.probed, supported: _m22.supported, unsupported: _m22.unsupported,
     noData: _m22.noData, decodeFail: _m22.decodeFail, commError: _m22.commError,
     lastOutcome: _m22.lastOutcome, lastDid: _m22.lastDid, lastSupportedDid: _m22.lastSupportedDid,

@@ -220,7 +220,8 @@ describe('Patch 12B — manufacturerPidService: sıfır-boşta + abonelik (Mali-
 
     await _internals.tick();
 
-    expect(M.readObdDidMock).toHaveBeenCalledWith({ tx: '7E0', rx: '7E8', did: '1234' });
+    // PR-OBD-KWP-1: tick artık servis parametresini de taşır (varsayılan '22' — davranış aynı).
+    expect(M.readObdDidMock).toHaveBeenCalledWith({ tx: '7E0', rx: '7E8', did: '1234', service: '22' });
     expect(values).toEqual([10]);
     expect(getDidValue('1234')?.value).toBe(10);
   });

@@ -55,6 +55,7 @@ import {
 // OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
 // (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
 import { getProtocolProfile, type ProtocolTimeoutProfile } from './obd/protocolProfile';
+import { setActiveObdProtocol } from './obd/activeProtocol';
 
 /**
  * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
@@ -1119,6 +1120,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // set edilir. protocolTried≠protocolActive → araç-değişimi protokol uyuşmazlığı kanıtı.
   _lastProtocolTried  = forcedProtocol ?? null;
   _lastProtocolActive = null;
+  setActiveObdProtocol(null); // PR-OBD-KWP-1: yeni deneme = paylaşılan kayıt da temizlenir
 
   // Tek transport ile bağlantı denemesi — verilen timeout ile yarışır (askıda kalmasın).
   // Patch 3: dönüş değeri {protocol?} taşır — ElmInitSequencer'ın ATDPN ile okuduğu aktif
@@ -1298,6 +1300,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   _learnedProtocolBypassed = false; // F0-2: bypass kalkar — aşağıdaki ATDPN yazımı önbelleği tazeler
   if (_connectResult && typeof _connectResult === 'object' && _connectResult.protocol) {
     _lastProtocolActive = _connectResult.protocol;   // PR-1a: GERÇEK aktif protokol (ATDPN)
+    setActiveObdProtocol(_connectResult.protocol);   // PR-OBD-KWP-1: veri-yolu katmanları için paylaşılan kayıt
     saveObdProtocol(_connectResult.protocol);
     recordDiag({
       stage: 'protocol', status: 'success',

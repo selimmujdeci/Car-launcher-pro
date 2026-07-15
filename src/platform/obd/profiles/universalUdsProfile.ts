@@ -30,6 +30,9 @@ export const universalUdsProfile: VehicleDidProfile = {
     'Motor ECU\'su 7E0/7E8 varsayılan (11-bit CAN). Boru hattının uçtan uca kanıtı ' +
     'olarak kullanılır (VIN çapraz doğrulama: F190 ↔ Mode 09).',
   source: UNIVERSAL_UDS_SOURCE,
+  // PR-OBD-KWP-1: bu profil 11-bit CAN (7E0/7E8) adresleme varsayar — KWP/ISO9141
+  // hattinda sorgulanmasi COMM_ERROR firtinasi uretir (Trafic sahasi); kapi ile kapatilir.
+  protocols: ['can'],
   ecus: [
     { id: 'engine', name: "Motor ECU'su", tx: '7E0', rx: '7E8' },
   ],

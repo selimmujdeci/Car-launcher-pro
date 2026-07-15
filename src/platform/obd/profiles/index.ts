@@ -21,8 +21,10 @@ import { loadProfile, unloadProfile } from '../manufacturerPidService';
 import { universalUdsProfile, UNIVERSAL_UDS_SOURCE } from './universalUdsProfile';
 import { renaultDaciaProfile, RENAULT_DACIA_SOURCE } from './renaultDaciaProfile';
 import { renaultZoePh2Profile, RENAULT_ZOE_PH2_SOURCE } from './renaultZoePh2Profile';
+import { renaultTraficKwpProfile, RENAULT_TRAFIC_KWP_SOURCE } from './renaultTraficKwpProfile';
 
-export type ManufacturerDidProfileId = 'none' | 'universal-uds' | 'renault-dacia' | 'renault-zoe-ph2';
+export type ManufacturerDidProfileId =
+  | 'none' | 'universal-uds' | 'renault-dacia' | 'renault-zoe-ph2' | 'renault-trafic-kwp';
 
 /** UI seçici için sıralı liste — 'none' dahil değil (o ayrı "kapalı" seçeneği). */
 export const MANUFACTURER_DID_PROFILES: Readonly<
@@ -31,6 +33,7 @@ export const MANUFACTURER_DID_PROFILES: Readonly<
   'universal-uds': universalUdsProfile,
   'renault-dacia': renaultDaciaProfile,
   'renault-zoe-ph2': renaultZoePh2Profile,
+  'renault-trafic-kwp': renaultTraficKwpProfile,
 };
 
 export const MANUFACTURER_DID_PROFILE_LABELS: Readonly<Record<ManufacturerDidProfileId, string>> = {
@@ -38,12 +41,14 @@ export const MANUFACTURER_DID_PROFILE_LABELS: Readonly<Record<ManufacturerDidPro
   'universal-uds': universalUdsProfile.brand,
   'renault-dacia': renaultDaciaProfile.brand,
   'renault-zoe-ph2': renaultZoePh2Profile.brand,
+  'renault-trafic-kwp': renaultTraficKwpProfile.brand,
 };
 
 export const MANUFACTURER_DID_PROFILE_SOURCES: Readonly<Record<Exclude<ManufacturerDidProfileId, 'none'>, string>> = {
   'universal-uds': UNIVERSAL_UDS_SOURCE,
   'renault-dacia': RENAULT_DACIA_SOURCE,
   'renault-zoe-ph2': RENAULT_ZOE_PH2_SOURCE,
+  'renault-trafic-kwp': RENAULT_TRAFIC_KWP_SOURCE,
 };
 
 export interface ManufacturerDidProfileSyncResult {
