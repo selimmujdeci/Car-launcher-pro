@@ -540,9 +540,24 @@ public class ElmProtocolTest {
         assertEquals("41", elm.readDid("F190"));
     }
 
-    @Test(expected = IOException.class)
-    public void readDid_digerNrc_hataFirlatir() throws Exception {
+    /**
+     * OBD-OS-F3-4 KİLİT GÜNCELLEMESİ (bilinçli davranış değişimi — kilit SİLİNMEDİ, güncellendi):
+     * NRC 0x22 (conditionsNotCorrect) artık FATAL değil → SESSION_REQUIRED: extended session
+     * (1003) BİR KEZ denenir; ECU oturumu da açamazsa "desteklenmiyor" (null). Eski kilit
+     * IOException bekliyordu (FAZ 3 öncesi davranış) — bkz. {@code classifyNrc} yorumu.
+     */
+    @Test
+    public void readDid_nrc22_sessionDenenir_acilamazsa_null() throws Exception {
         RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 22"); // conditionsNotCorrect
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertNull(elm.readDid("F190"));
+        assertTrue("extended session (1003) BİR KEZ denenmeli", ch.sent.contains("1003"));
+    }
+
+    /** Orijinal niyetin KORUNMUŞ kilidi: gerçekten tanınmayan NRC (0x10 generalReject → FATAL) → IOException. */
+    @Test(expected = IOException.class)
+    public void readDid_bilinmeyenNrc_hataFirlatir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 10"); // generalReject
         ElmProtocol elm = new ElmProtocol(ch);
         elm.readDid("F190");
     }
