@@ -64,6 +64,12 @@ public final class BleObdManager {
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
         void onError(String error);
+        /**
+         * Teşhis ham-trafik (BLE): her ELM327 komut/yanıt çifti — bkz. OBDManager.OnOBDDataListener.
+         * YALNIZ {@link OBDManager#setTrafficCapture(boolean)} açıkken çağrılır (varsayılan KAPALI).
+         * default: geriye uyumlu. "HAM OBD TRAFİĞİ" paneli Classic gibi BLE'de de dolsun diye eklendi.
+         */
+        default void onObdTraffic(String cmd, String resp, long ms) {}
     }
 
     /** connect() için tek-seferlik sonuç callback'i — PluginCall resolve/reject Plugin'de kalır. */
@@ -870,6 +876,9 @@ public final class BleObdManager {
             BluetoothGattCharacteristic w = writeChar;
             if (g == null || w == null) throw new IOException("BLE OBD bağlantısı yok");
 
+            // Teşhis: komut→yanıt süresini ölç (yalnız capture açıkken — bkz. OBDManager.RfcommChannel).
+            final long started = OBDManager.isTrafficCaptureOn() ? System.currentTimeMillis() : 0L;
+
             // Önceki yanıt artıklarını temizle (Classic'teki stale-skip karşılığı).
             synchronized (rxLock) {
                 rxBuffer.setLength(0);
@@ -898,13 +907,31 @@ public final class BleObdManager {
 
             // '>' prompt'una kadar notify reassembly buffer'ını bekle.
             long dead = System.currentTimeMillis() + timeoutMs;
+            String resp;
             synchronized (rxLock) {
                 while (!promptSeen) {
                     long remaining = dead - System.currentTimeMillis();
                     if (remaining <= 0) break; // timeout — eldeki kısmi yanıtı dön (Classic davranışı)
                     rxLock.wait(remaining);
                 }
-                return rxBuffer.toString().trim();
+                resp = rxBuffer.toString().trim();
+            }
+            // PR-OBD-BLE-TRAFFIC: ham trafiği "HAM OBD TRAFİĞİ" paneline (obdTraffic event) ilet.
+            // Classic RfcommChannel ile aynı sözleşme; NO_DATA gibi normal yanıtlar da yakalanır
+            // (KWP oturum-stall teşhisi için kritik). Yalnız capture açıkken; kanalı bloke etmez.
+            emitBleTraffic(cmd, resp, started);
+            return resp;
+        }
+
+        /** Ham trafik çiftini "HAM OBD TRAFİĞİ" paneline (ring + obdTraffic event) — yalnız capture açıkken. */
+        private void emitBleTraffic(String cmd, String resp, long started) {
+            if (!OBDManager.isTrafficCaptureOn() || started == 0L) return;
+            long ms = System.currentTimeMillis() - started;
+            OBDManager.recordTraffic(System.currentTimeMillis(), cmd, resp, ms); // PC'nin HTTP ile çekeceği ortak tampon
+            try {
+                listener.onObdTraffic(cmd, resp, ms);
+            } catch (Exception ignored) {
+                // Teşhis köprüsü asla OBD akışını bozmaz — listener hatası yutulur.
             }
         }
 

@@ -775,6 +775,12 @@ public class CarLauncherPlugin extends Plugin {
         public void onError(String error) {
             obdListener.onError(error);
         }
+
+        @Override
+        public void onObdTraffic(String cmd, String resp, long ms) {
+            // BLE ham trafiği → mevcut Classic köprüsüne delege (notifyListeners "obdTraffic").
+            obdListener.onObdTraffic(cmd, resp, ms);
+        }
     };
 
     /** OBD motoru → köprü: gelen veriyi mevcut notifyListeners + SAB yoluyla JS'e ilet. */

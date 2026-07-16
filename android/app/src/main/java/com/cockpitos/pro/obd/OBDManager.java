@@ -113,6 +113,9 @@ public final class OBDManager {
     /** Teşhis paneli köprüsü — ham trafik yakalamayı aç/kapat (bkz. {@link #sTrafficCapture}). */
     public static void setTrafficCapture(boolean on) { sTrafficCapture = on; }
 
+    /** BLE (BleObdManager) aynı paket içinden ham-trafik bayrağını okur — tek doğruluk kaynağı. */
+    static boolean isTrafficCaptureOn() { return sTrafficCapture; }
+
     /**
      * Teşhis ham-trafik halka tamponu — son N komut/yanıt çifti. PC'nin ağdan (teşhis
      * HTTP sunucusu) çekebilmesi için native'de tutulur; JS köprüsünden (onObdTraffic)
@@ -122,7 +125,7 @@ public final class OBDManager {
     private static final java.util.ArrayDeque<String[]> sTrafficRing = new java.util.ArrayDeque<>();
 
     /** Ham trafik çiftini halka tampona yazar (thread-safe). */
-    private static void recordTraffic(long ts, String cmd, String resp, long ms) {
+    static void recordTraffic(long ts, String cmd, String resp, long ms) {
         synchronized (sTrafficRing) {
             if (sTrafficRing.size() >= TRAFFIC_MAX) sTrafficRing.pollFirst();
             sTrafficRing.addLast(new String[] { Long.toString(ts), cmd, resp, Long.toString(ms) });
