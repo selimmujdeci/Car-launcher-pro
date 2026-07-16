@@ -123,6 +123,24 @@ public class KwpDeadSessionRecoveryTest {
         assertEquals("iki tam eşik = iki ATPC (sayaç ATPC sonrası sıfırdan)", 2, countAtpc(ch.sent));
     }
 
+    // ── Kilit 6 (PR-OBD-PROTO-CYCLE): yanlış protokol zorlanınca DÜRÜST hata ───
+    // Araç değişimi (Trafic/KWP→Doblo/CAN): zorlanan 5 CAN araçta "BUS INIT: ERROR"
+    // döner; eskiden sahte başarı → JS döngüsü 6'ya hiç ilerlemiyordu (sonsuz Bağlanıyor).
+
+    @Test(expected = ElmInitSequencer.UnableToConnectException.class)
+    public void forcedKwpOnCanCar_busInitError_throwsUnableToConnect() throws Exception {
+        RecordingChannel ch = new RecordingChannel().defaultTo("OK");
+        ch.on("ATZ", "ELM327 v1.5").on("0100", "BUS INIT: ...ERROR");
+        new ElmProtocol(ch).initELM327("5");
+    }
+
+    @Test(expected = ElmInitSequencer.UnableToConnectException.class)
+    public void forcedCanOnKwpCar_canError_throwsUnableToConnect() throws Exception {
+        RecordingChannel ch = new RecordingChannel().defaultTo("OK");
+        ch.on("ATZ", "ELM327 v1.5").on("0100", "CAN ERROR");
+        new ElmProtocol(ch).initELM327("6");
+    }
+
     // ── Kilit 5: ATWM yalnız KWP init'inde ─────────────────────────────────────
 
     @Test

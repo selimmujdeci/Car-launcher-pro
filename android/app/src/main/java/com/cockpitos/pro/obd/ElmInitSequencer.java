@@ -99,8 +99,19 @@ public final class ElmInitSequencer {
         if (containsIgnoreCase(warm, "SEARCHING")) {
             warm = sendChecked("", 5000);
         }
-        if (compact(warm).contains("UNABLETOCONNECT")) {
-            throw new UnableToConnectException("ELM327: UNABLE TO CONNECT (0100 warm-up, protokol=" + (sp != null ? sp : "auto") + ")");
+        // PR-OBD-PROTO-CYCLE: yalnız "UNABLE TO CONNECT" sert hata sayılıyordu. Yanlış protokol
+        // ZORLANDIĞINDA (araç değişimi: Trafic/KWP→Doblo/CAN) ELM327 "BUS INIT: ...ERROR"
+        // (KWP init CAN araçta) ya da "CAN ERROR" (CAN init KWP araçta) döner — bunlar sahte
+        // başarı sayılıyordu → connected-ama-ölü oturum → JS protokol döngüsü 6'ya HİÇ
+        // ilerlemiyordu → sonsuz "Bağlanıyor" (saha 2026-07-16 Doblo). Hepsi dürüst
+        // UNABLE_TO_CONNECT'tir: JS bu kodla bir sonraki protokol adayına geçer.
+        String warmCompact = compact(warm);
+        if (warmCompact.contains("UNABLETOCONNECT")
+            || (warmCompact.contains("BUSINIT") && warmCompact.contains("ERROR"))
+            || warmCompact.contains("CANERROR")
+            || warmCompact.contains("BUSERROR")) {
+            throw new UnableToConnectException("ELM327: araç bu protokolde yanıt vermedi (0100 warm-up="
+                + summarize(warm) + ", protokol=" + (sp != null ? sp : "auto") + ")");
         }
 
         // 7) ATDPN — aktif protokol numarasını oku (opsiyonel; okunamazsa null döner, akış bozulmaz).
