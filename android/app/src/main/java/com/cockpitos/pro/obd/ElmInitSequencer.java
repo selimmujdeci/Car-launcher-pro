@@ -134,13 +134,23 @@ public final class ElmInitSequencer {
 
         // ATST FF → yanıt bekleme 0xFF × 4 ms ≈ 1020 ms (varsayılan ~200 ms yetmiyor).
         safeSend("ATSTFF", 500);
+        // PR-OBD-KWP-RECOVER: ATWM C1 33 F1 3E → periyodik wakeup MESAJININ KENDİSİ —
+        // standart KWP2000 fonksiyonel TesterPresent (ISO 14230-4 header C1 33 F1 + servis 3E).
+        // Orijinal ELM327'de bu zaten KWP varsayılanıdır; KLONLARDA yanlış/boş gelebiliyor →
+        // ATSW aralığı doğru olsa bile ECU wakeup'ı reddedip oturumu düşürür (Trafic saha
+        // kanıtı: handshake OK → sonra kalıcı NO DATA). Yalnız KWP ('4'/'5'); ISO9141 ('3')
+        // varsayılanda kalır (farklı wakeup formatı kullanır). Desteklemeyen klon '?' → yoksay.
+        if (c == '4' || c == '5') safeSend("ATWMC133F13E", 500);
         // ATSW 92 → ELM327'nin ISO/KWP hattında otomatik wakeup (keep-alive) aralığı:
         // 0x92 × 20 ms ≈ 2.9 sn, KWP2000 P3max (5 sn oturum zaman aşımı) ALTINDA. Böylece
         // poll seyrekleştiğinde/durduğunda bile ECU oturumu DÜŞMEZ (park sonrası ilk PID
         // yeniden init beklemez). Bu ELM327'nin YERLEŞİK wakeup'ıdır — burada AÇIKÇA set
         // ediyoruz çünkü klon adaptörlerde varsayılanın 00 (kapalı) geldiği görülüyor.
         safeSend("ATSW92", 500);
-        android.util.Log.i(TAG, "[ElmInit] Yavaş seri protokol (" + p + ") → ATST FF + ATSW 92 uygulandı");
+        try {
+            android.util.Log.i(TAG, "[ElmInit] Yavaş seri protokol (" + p + ") → ATST FF"
+                + ((c == '4' || c == '5') ? " + ATWM (TesterPresent)" : "") + " + ATSW 92 uygulandı");
+        } catch (Throwable ignored) { /* JVM unit test: android.util.Log mock yok */ }
     }
 
     /**

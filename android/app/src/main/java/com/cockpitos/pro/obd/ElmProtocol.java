@@ -19,6 +19,34 @@ public final class ElmProtocol {
 
     private final ElmCommandChannel channel;
 
+    // ── PR-OBD-KWP-RECOVER: KWP/ISO9141 ölü-oturum kendini-iyileştirme ────────────
+    // KANIT (2026-07-16, Renault Trafic, BLE + KWP/5, ham trafik paneli): handshake OK
+    // (0100→983B8011) SONRASI tüm Mode-01 istekleri kalıcı NO DATA; ATRV/ATH1 OK
+    // (adaptör canlı). K-line oturumu düşünce ELM327 "bus init edilmiş" saymaya devam
+    // eder, istekleri init'siz gönderir → ECU asla yanıtlamaz → SONSUZ NO DATA
+    // (kendine gelmez; JS data-gate'i BT'yi koparıp 30-60s'lik reconnect churn'üne girer).
+    // KURTARMA: ardışık N ÇEKİRDEK Mode-01 NO_DATA → ATPC (Protocol Close) → ELM327
+    // bir SONRAKİ istekte otomatik taze fast-init yapar → oturum yeniden kurulur,
+    // veri BT koparmadan ~1-2s'de geri akar. CAN/J1850'de tamamen pasif.
+
+    /** initELM327'nin döndürdüğü aktif protokol (ATDPN) — kurtarma kapısı bunu okur. */
+    private volatile String activeProtocol = null;
+
+    /** Ardışık çekirdek Mode-01 NO_DATA sayacı — tüm komutlar tek executor'dan geçer (cmdQueue). */
+    private int coreNoDataStreak = 0;
+
+    /** Bu kadar ardışık çekirdek NO_DATA = oturum ölü kabul (≈2 poll turu / ~6s). */
+    static final int KWP_DEAD_SESSION_THRESHOLD = 4;
+
+    /**
+     * Sayaç YALNIZ çekirdek poll PID'lerinde ilerler. EXTENDED keşif PID'leri BİLEREK
+     * dışarıda: Trafic'te 39 extended'ın NO_DATA olması NORMALDİR (araç o PID'leri
+     * vermiyor) — onları saymak SAĞLIKLI oturumu yanlış-pozitif ATPC ile öldürürdü.
+     * Ölü oturumda çekirdek de NO_DATA döner (saha kanıtı) → doğru sinyal çekirdektir.
+     */
+    private static final java.util.Set<String> CORE_MODE01 = java.util.Set.of(
+        "010D", "010C", "0105", "012F", "0111", "010F", "010B");
+
     public ElmProtocol(ElmCommandChannel channel) {
         this.channel = channel;
     }
@@ -32,7 +60,9 @@ public final class ElmProtocol {
      * @throws ElmInitSequencer.UnableToConnectException araç/protokolden gerçekten yanıt alınamadı.
      */
     public String initELM327(String protocol) throws IOException {
-        return new ElmInitSequencer(channel).init(protocol);
+        coreNoDataStreak = 0; // taze oturum — kurtarma sayacı sıfırdan
+        activeProtocol = new ElmInitSequencer(channel).init(protocol);
+        return activeProtocol;
     }
 
     // ── PID readers (Patch 4: ElmResponseParser ile SINIFLANDIRILMIŞ) ────────
@@ -440,10 +470,43 @@ public final class ElmProtocol {
     /** channel.send() + ElmResponseParser.classify() — iletişim hatasını ERROR sınıfına çevirir. */
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
         try {
-            return ElmResponseParser.classify(channel.send(cmd, timeoutMs), mode, pid);
+            ElmResponseParser.Result r = ElmResponseParser.classify(channel.send(cmd, timeoutMs), mode, pid);
+            noteKwpSessionHealth(cmd, r.kind);
+            return r;
         } catch (Exception e) {
             return new ElmResponseParser.Result(ElmResponseParser.Kind.ERROR, null, null);
         }
+    }
+
+    /**
+     * PR-OBD-KWP-RECOVER — ölü K-line oturumunu tespit edip ATPC ile kurtarır (sınıf başındaki
+     * blok yoruma bakınız). YALNIZ yavaş seri protokolde (3/4/5) + YALNIZ çekirdek Mode-01
+     * PID'lerinde çalışır; OK sayacı sıfırlar, NO_DATA dışındaki sınıflar (ERROR/BUSY/7F)
+     * oturum kanıtı sayılmaz. Fail-soft: ATPC yanıtı önemsiz, hata yutulur (sonraki eşikte
+     * yeniden denenir). Log çağrısı JVM unit testte mock'suz diye ayrıca korunur.
+     */
+    private void noteKwpSessionHealth(String cmd, ElmResponseParser.Kind kind) {
+        if (cmd == null || !CORE_MODE01.contains(cmd) || !isSlowSerialActive()) return;
+        if (kind == ElmResponseParser.Kind.OK) { coreNoDataStreak = 0; return; }
+        if (kind != ElmResponseParser.Kind.NO_DATA) return;
+        if (++coreNoDataStreak < KWP_DEAD_SESSION_THRESHOLD) return;
+        coreNoDataStreak = 0;
+        try {
+            android.util.Log.w("OBD", "[KwpRecover] " + KWP_DEAD_SESSION_THRESHOLD
+                + " ardışık çekirdek NO DATA (protokol=" + activeProtocol
+                + ") → ATPC — oturum bir sonraki istekte yeniden kurulacak");
+        } catch (Throwable ignored) { /* JVM unit test: android.util.Log mock yok */ }
+        try {
+            channel.send("ATPC", 500);
+        } catch (Exception ignored) { /* fail-soft — sonraki eşikte tekrar denenir */ }
+    }
+
+    /** Aktif protokol yavaş seri mi (ISO 9141-2 '3' / KWP2000 '4'-'5')? CAN/J1850 → false. */
+    private boolean isSlowSerialActive() {
+        String p = activeProtocol;
+        if (p == null || p.isEmpty()) return false;
+        char c = p.charAt(0);
+        return c == '3' || c == '4' || c == '5';
     }
 
     // ── Patch 12A: UDS Mode 22 (ReadDataByIdentifier) + ECU adresleme ───────────
