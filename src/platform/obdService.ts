@@ -31,7 +31,7 @@ import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence
 import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -219,6 +219,9 @@ let _lastKnownAddress: string | null = loadObdAddress();
 // Adaptör-değişimi koruması: kayıtlı MAC bu OTURUMDA en az bir kez RFCOMM ile
 // bağlandı mı? false + tüm reconnect'ler tükendi → adres muhtemelen stale (yeni
 // adaptör) → temizle. true (bağlanıp düştü = araç kapanması gibi) → adres korunur.
+//
+// ⚠️ BU BAYRAK OTURUMLUKTUR — process ölünce SIFIRLANIR. Tek başına kullanmak SOĞUK
+// DÖNÜŞ hatasının köküydü (bkz. _isAddressProven).
 let _addressConnectedOnce = false;
 let _lastKnownPin: string | null = null; // session-only, güvenlik için localStorage'a yazılmaz
 
@@ -1094,6 +1097,37 @@ function _onRealData(patch: Partial<OBDData>): void {
  * Delays: 1 s, 2 s, 4 s, 8 s, 16 s — then gives up and falls back to mock.
  * Mock data continues flowing between attempts so OBD panels stay alive.
  */
+/**
+ * Bu adaptör KANITLANMIŞ mı — yani ondan daha önce GERÇEK ECU verisi aktı mı?
+ *
+ * SOĞUK DÖNÜŞ KÖK DÜZELTMESİ. Eskiden karar YALNIZ `_addressConnectedOnce`'a bakıyordu;
+ * o ise MODÜL-SEVİYESİ BELLEK değişkenidir → araç kapanınca head unit ölür, process ölür,
+ * bayrak SIFIRLANIR. Kontak açılınca ELM327 henüz beslenmemişken 5 deneme (≈62s) düşer →
+ * "bu oturumda hiç bağlanamadı → yanlış adaptör olmalı" denip KAYITLI ADRES SİLİNİRDİ →
+ * sonraki başlatma OBD_NO_DEVICE → kullanıcı AYARLARA gitmek zorunda kalırdı (saha şikâyeti).
+ *
+ * Oysa adaptörün İYİ olduğunun KALICI kanıtı zaten vardı: `obd:verifiedAddresses` defteri
+ * (yalnız gerçek ECU verisi aktığında `markObdAddressVerified` ile yazılır — bağlanmak
+ * yetmez, VERİ akmak şart). obdService o defteri yalnız YAZIYOR, hiç OKUMUYORDU.
+ *
+ * İki kanıt kaynağı OR'lanır:
+ *   - `_addressConnectedOnce` → bu oturumda bağlandı (sıcak yol, eski davranış)
+ *   - kalıcı defter          → geçmişte veri aktı (soğuk yol, YENİ)
+ *
+ * Adaptör-değişimi koruması KORUNUR: defterde OLMAYAN (hiç veri akmamış) bir adres hâlâ
+ * temizlenir → yanlış cihaza sonsuza dek asılmayız.
+ */
+function _isAddressProven(): boolean {
+  if (_addressConnectedOnce) return true;
+  const addr = _lastKnownAddress;
+  if (!addr) return false;
+  try {
+    return loadVerifiedObdAddresses().has(addr.trim().toUpperCase());
+  } catch {
+    return false; // defter okunamadı → fail-closed (eski davranış: temizle)
+  }
+}
+
 function _scheduleReconnect(): void {
   if (!_running) return;
 
@@ -1128,12 +1162,15 @@ function _scheduleReconnect(): void {
   }
 
   if (!shouldAttemptReconnect(_reconnectAttempts)) {
+    // SOĞUK DÖNÜŞ KÖK DÜZELTMESİ: kanıt YALNIZ oturum belleğinden değil, KALICI
+    // defterden de okunur (bkz. _isAddressProven).
+    const proven = _isAddressProven();
     // Üstel tur tükendi — tek tanı eventi (deneme sayısı sıfırlanmadan ÖNCE)
     emitObdDiag('reconnect', 'OBD_RECONNECT_EXHAUSTED', {
       ..._diagCommon(),
       transport: _lastKnownTransport,
       attempts:  _reconnectAttempts,
-      msg: _addressConnectedOnce
+      msg: proven
         ? 'Üstel reconnect turu tükendi — derin döngüye geçildi'
         : 'Üstel reconnect turu tükendi — kayıtlı adres temizlendi',
     });
@@ -1144,7 +1181,7 @@ function _scheduleReconnect(): void {
     // kapanması gibi GEÇİCİ drop) → sistem ASLA pes etmez. 'reconnecting' durumunda
     // kalır ve DEEP_RECONNECT_INTERVAL_MS'de bir yeni üstel tur başlatır. Kontak
     // saatler sonra tekrar açılsa bile bağlantı kendiliğinden geri gelir.
-    if (_addressConnectedOnce) {
+    if (proven) {
       _merge({ connectionState: 'reconnecting', source: (MOCK_ENABLED && !nativePlatform) ? 'mock' : 'none', deviceName: '' });
       if (!nativePlatform) _startMock();
       _scheduleDeepReconnect();
@@ -1906,11 +1943,34 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
           await _startNative();
           return; // success — don't start mock
         } catch (e) {
-          // Native failed → dürüst error state, mock YOK.
-          // Kullanıcı gerçek cihazda sahte 42 km/h görmemeli.
+          // SOĞUK DÖNÜŞ KÖK DÜZELTMESİ: boot'taki İLK bağlantı düşerse artık RECONNECT
+          // MERDİVENİNE gireriz.
+          //
+          // ESKİDEN: burada yalnız `_merge({connectionState:'error'})` vardı → otomatik
+          // yeniden deneme HİÇ YOKTU. Merdiven (_scheduleReconnect) ve derin döngü SADECE
+          // bir kez bağlanıp SONRA kopan oturumlarda (watchdog / link_lost) devreye giriyordu;
+          // soğuk boot o yollara HİÇ girmiyordu. Sonuç (saha): araç bir hafta kapalı kalır →
+          // kontak açılır → ELM327 henüz beslenmemiş / BT stack hazır değil → ilk connect
+          // düşer → KALICI 'error' → kullanıcı AYARLARDAN manuel bağlamak zorunda kalır.
+          //
+          // MERDİVEN YALNIZ KANITLANMIŞ ADAPTÖRDE (bkz. _isAddressProven): bu adaptörden
+          // daha önce GERÇEK ECU verisi aktı → yokluğu GEÇİCİdir (kontak kapalı / dongle
+          // henüz beslenmiyor) → üstel backoff (2/4/8/16/32s), tükenirse derin döngü
+          // (5 dk'da bir yeni tur) → kontak saatler/günler sonra açılsa bile veri
+          // KENDİLİĞİNDEN gelir, kullanıcı ayarlara GİRMEZ.
+          //
+          // KANITSIZ adres → ESKİ davranış (dürüst 'error', otomatik deneme YOK):
+          //   · kullanıcı yanlış cihaz seçmiş olabilir → ona otomatik asılmayız,
+          //   · ortada gerçek bir cihaz olmayabilir → sonsuz reconnect döngüsü OLUŞMAZ.
+          // Kanıt = `obd:verifiedAddresses` defteri (yalnız veri AKINCA yazılır; bağlanmak
+          // yetmez) → "yanlış adaptöre otomatik bağlanma" garantisi buradan gelir.
           logError('OBD:StartNative', e);
           await _removeNativeHandles();
-          _merge({ connectionState: 'error', source: 'none', deviceName: '' });
+          if (_isAddressProven()) {
+            _scheduleReconnect();
+          } else {
+            _merge({ connectionState: 'error', source: 'none', deviceName: '' });
+          }
           return; // native platformda hata sonrası mock'a düşme
         }
       }
