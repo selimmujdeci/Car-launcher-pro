@@ -108,6 +108,12 @@ function computeRow(
     return { valueText: fmtVal(v, def.unit), raw: '', status: stale ? 'stale' : 'fresh' };
   }
   // Extended PID (yalnız geçerli çözülen değerler ext snapshot'ında bulunur)
+  // ⚠️ SIRA KRİTİK (saha 2026-07-17): bağlantı kontrolü değer kontrolünden ÖNCE gelmeli.
+  // Eskiden `if (e && !noData) return <değer>` ÖNCE geliyordu → extendedPidService._values
+  // bellek-içi önbelleği önceki oturumdan dolu olduğu için, OBD KOPUKKEN bile eski sayılar
+  // BAYAT rozetiyle gösteriliyordu. Bağlantı yokken bir sayı göstermek — rozeti ne olursa
+  // olsun — kullanıcıya yalan söylemektir; çekirdek dal bunu zaten doğru yapıyordu.
+  if (!connected) return { valueText: '—', raw: '', status: 'nolink' };
   const e = ext[def.pid];
   // PR-OBD-KWP-1: native demote kanıtı — ECU bu PID'i VERMİYOR (bitmap yanılgısı dahil).
   // Değer önbelleği olsa bile artık akmıyor demektir; gerçek nedeni göster.
@@ -116,7 +122,6 @@ function computeRow(
     const age = now - e.updatedAt;
     return { valueText: fmtVal(e.value, def.unit), raw: e.raw, status: age > FRESH_MS ? 'stale' : 'fresh' };
   }
-  if (!connected) return { valueText: '—', raw: '', status: 'nolink' };
   if (noData) return { valueText: '—', raw: e?.raw ?? '', status: 'nodata' };
   const sup = isPidSupported(def.pid);
   if (sup === false) return { valueText: '—', raw: '', status: 'unsupported' };
