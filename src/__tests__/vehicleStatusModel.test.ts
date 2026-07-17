@@ -37,8 +37,19 @@ describe('OBD durumu (freshness çekirdeği)', () => {
     expect(deriveObdStatus({ ...base, lastSeenMs: T0 - 1_000, now: T0 })).toBe('connected'));
   it('7. connected ama stale (3–10s)', () =>
     expect(deriveObdStatus({ ...base, lastSeenMs: T0 - 5_000, now: T0 })).toBe('stale'));
-  it('>10s sessizlik → disconnected', () =>
-    expect(deriveObdStatus({ ...base, lastSeenMs: T0 - 11_000, now: T0 })).toBe('disconnected'));
+  // SÖZLEŞME DEĞİŞTİ (dalgalanma kök düzeltmesi): bu kilit eskiden ">10s sessizlik →
+  // disconnected" diyordu. O davranış YANLIŞTI: link canlıyken ECU'nun susması bir KOPMA
+  // DEĞİLDİR. POWER_SAVE'de poll periyodu 15s → yaş 10s'i RUTİN olarak aşar → sağlıklı
+  // bağlantıda sahte "OBD bağlı değil" ve reconnect dalgalanması üretiyordu.
+  // Kilit KALDIRILMADI, yeni doğru davranışa GÜNCELLENDİ: uzun sessizlik = 'stale'.
+  it('>10s sessizlik → stale (KOPMA DEĞİL — link canlı, ECU susmuş)', () =>
+    expect(deriveObdStatus({ ...base, lastSeenMs: T0 - 11_000, now: T0 })).toBe('stale'));
+  it('çok uzun sessizlik (60s) bile disconnected DEĞİL — kopma yalnız transport kanıtıyla', () =>
+    expect(deriveObdStatus({ ...base, lastSeenMs: T0 - 60_000, now: T0 })).toBe('stale'));
+  it('DOĞRULANMIŞ transport kopması → disconnected (taze veri olsa bile)', () =>
+    expect(deriveObdStatus({
+      ...base, transportConnected: false, lastSeenMs: T0 - 100, now: T0,
+    })).toBe('disconnected'));
   it('8. idle → disconnected', () =>
     expect(deriveObdStatus({ connectionState: 'idle', source: 'none', lastSeenMs: 0, now: T0, available: true })).toBe('disconnected'));
   it('9a. MOCK bağlı sayılmaz (source=mock)', () =>

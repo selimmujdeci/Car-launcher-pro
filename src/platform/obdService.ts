@@ -49,8 +49,10 @@ import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
   WATCHDOG_INTERVAL_MS,
   DEEP_RECONNECT_INTERVAL_MS,
+  STALE_THRESHOLD_MS,
   getReconnectDelay,
   shouldAttemptReconnect,
+  computeStaleThresholdMs,
 } from './obdRetryPolicy';
 // OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
 // (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
@@ -155,7 +157,18 @@ const _connLifecycle = {
 const _connSat = (n: number): number => (n >= 1_000_000_000 ? n : n + 1);
 
 // ── Stale-data watchdog ──────────────────────────────────────
+/** Son GEÇERLİ ECU frame'i (ATRV HARİÇ — bkz. _hasEcuData). "dataFresh" bundan türer. */
 let _lastRealDataMs = 0;
+/**
+ * Son HERHANGİ bir native paket (ATRV DAHİL) — LINK HEARTBEAT. "transportConnected"
+ * bundan türer. `_lastRealDataMs`'ten AYRI olması şart: ATRV, ECU ölse bile ~5s'de bir
+ * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
+ */
+let _lastRxAt = 0;
+/** Gerçek link kopması sayacı (teşhis kütüğü). */
+let _linkFailureCount = 0;
+/** Veri bayatlama sayacı — link canlıyken ECU'nun sustuğu kez (teşhis kütüğü). */
+let _dataStaleCount = 0;
 let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Data Validation Gate ─────────────────────────────────────
@@ -476,6 +489,19 @@ function _merge(partial: Partial<OBDData>): void {
     partial = { ...partial, fuelLevel: dispFuel, ...computed };
   }
   const prevConnState = _current.connectionState;
+
+  // INVARYANT (fail-closed, TEK nokta): connectionState 'connected'ten AYRILIYORSA
+  // transport/veri kanıtı da düşer. 10 ayrı kopma/hata çağrı yerinde tek tek set etmek
+  // yerine burada zorlanır → yeni bir kopma yolu eklendiğinde bayraklar SESSİZCE
+  // "bağlı" kalamaz. Çağıran açıkça değer verdiyse (ör. watchdog dataFresh:false) o kazanır.
+  if (partial.connectionState !== undefined && partial.connectionState !== 'connected') {
+    partial = {
+      transportConnected: false,
+      dataFresh: false,
+      ...partial, // çağıranın açık değeri invaryantı EZER (bilinçli)
+    };
+  }
+
   _current = { ..._current, ...partial };
 
   // Testability: connectionState geçişinde body attribute güncelle (CSS/logic etkilemez)
@@ -657,26 +683,102 @@ function _protocolProfile(): ProtocolTimeoutProfile {
 
 /* ── Stale-data watchdog ─────────────────────────────────── */
 
+/**
+ * Bu bağlantının bayatlık eşiği — protokol tabanı + AKTİF poll kadansından türer.
+ * Sabit 12s eşiği POWER_SAVE (15s poll) / SAFE_MODE (10s poll) modlarında SAHTE
+ * bayatlık üretiyordu (bkz. computeStaleThresholdMs kök-neden yorumu).
+ */
+function _staleThresholdMs(): number {
+  const floor = _protocolProfile().staleThresholdMs;
+  const fastMs = computeObdPollProfile(getDeviceTier(), runtimeManager.getConfig().obdPollingMs).fastMs;
+  return computeStaleThresholdMs(floor, fastMs);
+}
+
+/**
+ * Watchdog — İKİ AYRI ARIZAYI AYIRIR (eskiden ikisi tek kovaydı):
+ *
+ *  1. LINK ÖLÜ (`_lastRxAt`): native'den HİÇBİR paket gelmiyor — ATRV (adaptör voltajı)
+ *     bile yok. Adaptör fiziksel olarak çıkarıldı / RFCOMM sessizce düştü → GERÇEK kopma
+ *     → transportConnected=false + reconnect. UI "OBD bağlı değil" YALNIZ burada.
+ *
+ *  2. VERİ BAYAT (`_lastValidFrameAt`): link CANLI (ATRV akıyor) ama ECU susmuş →
+ *     dataFresh=false. Bu bir KOPMA DEĞİLDİR: adaptör takılı, hat sağlam, yalnız ECU
+ *     veri vermiyor. Native handle KALDIRILMAZ, reconnect BAŞLATILMAZ, son değerler
+ *     "stale" olarak KORUNUR. Eskiden bu yol da reconnect tetikliyordu → dalgalanma.
+ *
+ * Bu ayrım, ATRV'yi bir HEARTBEAT olarak kullanır: daha önce ATRV `_lastRealDataMs`'i
+ * tazeleyip ECU donmasını MASKELİYORDU; artık ayrı bir zaman damgasında (`_lastRxAt`)
+ * yaşıyor ve tam tersi işi yapıyor — canlılığı KANITLIYOR, donmayı gizlemiyor.
+ */
 function _startStaleWatchdog(): void {
   if (_staleWatchdogTimer !== null) return;
-  _lastRealDataMs = Date.now();
+  const t0 = Date.now();
+  _lastRealDataMs = t0;
+  _lastRxAt = t0;
   _staleWatchdogTimer = setInterval(() => {
     if (!_running || _current.source !== 'real') return;
     if (_nativeReconnectInFlight) return;   // F0-5: otorite native'de — TS tur açmaz
-    const staleMs = _protocolProfile().staleThresholdMs;
-    if (Date.now() - _lastRealDataMs > staleMs) {
-      // RFCOMM socket sessizce düştü — reconnect tetikle
-      logError('OBD:StaleData', new Error(`${staleMs / 1000}s boyunca veri alınamadı`));
+    const now = Date.now();
+    const staleMs = _staleThresholdMs();
+
+    // ── 1. LINK ÖLÜ Mİ? (gerçek kopma) ──────────────────────────────────────
+    if (now - _lastRxAt > staleMs) {
+      _linkFailureCount++;
+      logError('OBD:LinkLost', new Error(`${Math.round(staleMs / 1000)}s boyunca HİÇBİR paket alınamadı (ATRV dahil)`));
+      _logStateTransition('connected', 'reconnecting', 'link_dead', now, staleMs);
       emitObdDiag('stale_data', 'OBD_STALE_DATA', {
         ..._diagCommon(),
         transport: _lastKnownTransport,
-        elapsedMs: Date.now() - _lastRealDataMs,
-        msg:       'Veri akışı kesildi (RFCOMM sessiz drop)',
+        elapsedMs: now - _lastRxAt,
+        msg:       'Link öldü: hiçbir paket yok (ATRV dahil) — gerçek kopma',
       });
       _stopStaleWatchdog();
+      _merge({ transportConnected: false, dataFresh: false });
       void _removeNativeHandles().then(() => _scheduleReconnect());
+      return;
+    }
+
+    // ── 2. VERİ BAYAT MI? (link canlı, ECU susmuş) — TEARDOWN YOK ───────────
+    const dataStale = now - _lastValidFrameAt() > staleMs;
+    if (dataStale && _current.dataFresh) {
+      _dataStaleCount++;
+      _logStateTransition('data_fresh', 'data_stale', 'ecu_silent', now, staleMs);
+      // Son değerler BİLİNÇLİ olarak korunur (silinmez) — UI onları 'stale' gösterir.
+      _merge({ dataFresh: false });
+    } else if (!dataStale && !_current.dataFresh) {
+      _logStateTransition('data_stale', 'data_fresh', 'ecu_resumed', now, staleMs);
+      _merge({ dataFresh: true });
     }
   }, WATCHDOG_INTERVAL_MS);
+}
+
+/** ECU'dan gelen son GEÇERLİ frame'in zamanı (ATRV sayılmaz — bkz. _hasEcuData). */
+function _lastValidFrameAt(): number {
+  return _lastRealDataMs;
+}
+
+/**
+ * Durum geçişi kütüğü — "neden" sorusunun dürüst cevabı. Sahada dalgalanmayı teşhis
+ * ederken elimizde YALNIZ "connected/disconnected" vardı; sebep, kaynak ve zaman
+ * damgaları olmadan hangi eşiğin patladığı görülemiyordu.
+ */
+function _logStateTransition(
+  from: string, to: string, reason: string, now: number, thresholdMs: number,
+): void {
+  console.info('[OBD:StateTransition]', JSON.stringify({
+    from, to, reason,
+    source:           _current.source,
+    transport:        _lastKnownTransport,
+    protocol:         _lastProtocolActive ?? _lastProtocolTried ?? 'auto',
+    at:               now,
+    lastRxAt:         _lastRxAt,
+    lastValidFrameAt: _lastValidFrameAt(),
+    rxAgeMs:          now - _lastRxAt,
+    frameAgeMs:       now - _lastValidFrameAt(),
+    thresholdMs,
+    linkFailureCount: _linkFailureCount,
+    dataStaleCount:   _dataStaleCount,
+  }));
 }
 
 function _stopStaleWatchdog(): void {
@@ -761,7 +863,12 @@ function _onRealData(patch: Partial<OBDData>): void {
   // CAN'de (proto 6/7) KWP'nin ATPC ölü-oturum kurtarması da yok → manuel reset'e dek donuk.
   // Data-gate zaten ATRV'yi `_hasEcuData` ile HARİÇ tutuyordu; watchdog'un referansını da
   // aynı kapıya bağlıyoruz → ATRV artık donmayı maskelemez, watchdog reconnect'i tetikler.
-  if (_hasEcuData(patch)) _lastRealDataMs = Date.now();
+  const _rxNow = Date.now();
+  // LINK HEARTBEAT: HER native paketi (ATRV dahil) linkin canlı olduğunu KANITLAR.
+  // Bu, `_lastRealDataMs`'ten AYRI tutulur — ATRV eskiden ECU donmasını maskeliyordu;
+  // artık ayrı damgada yaşayıp tam tersini yapıyor: canlılığı kanıtlıyor, donmayı gizlemiyor.
+  _lastRxAt = _rxNow;
+  if (_hasEcuData(patch)) _lastRealDataMs = _rxNow;
 
   // Fix 3: ısınma devam ediyorken geçerli çekirdek PID gelirse 2s deadline'ı iptal et
   if (_warmupActive && _warmupResolve && _hasEcuData(patch)) {
@@ -773,7 +880,12 @@ function _onRealData(patch: Partial<OBDData>): void {
     if (_hasEcuData(patch)) {
       _dataGatePassed = true;
       if (_dataGateTimer) { clearTimeout(_dataGateTimer); _dataGateTimer = null; }
-      _merge({ ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real' });
+      _logStateTransition(_current.connectionState, 'connected', 'first_ecu_frame', _rxNow, _staleThresholdMs());
+      _merge({
+        ...patch, lastSeenMs: _lastRealDataMs, connectionState: 'connected', source: 'real',
+        // Gerçek ECU frame'i aktı → link KANITLI canlı, veri KANITLI taze.
+        transportConnected: true, dataFresh: true, lastRxAt: _rxNow,
+      });
       _startStaleWatchdog();
       // A-fix: CANLI PID verisi doğrulandı → aktif transport'u kalıcı "verified" işaretle.
       // Sonraki boot bu transport'u doğrudan dener (BLE-first turu atlanır). TCP hariç (ayrı yol).
@@ -817,7 +929,15 @@ function _onRealData(patch: Partial<OBDData>): void {
     }
   }
 
-  _merge({ ...patch, lastSeenMs: _lastRealDataMs });
+  // Gate geçilmiş normal akış: ECU frame'i geldiyse veri yeniden TAZE (watchdog'un bir
+  // sonraki turunu bekletmeden — kısa boşluktan çıkış anında UI'ya yansısın).
+  _merge({
+    ...patch,
+    lastSeenMs: _lastRealDataMs,
+    lastRxAt: _rxNow,
+    transportConnected: true,               // paket geldi → link canlı (ATRV bile olsa)
+    dataFresh: _hasEcuData(patch) ? true : _current.dataFresh,
+  });
 }
 
 /* ── Exponential back-off reconnect ──────────────────────── */
@@ -1817,6 +1937,19 @@ export function getOBDStatusSnapshot(): {
     vehicleType:     _current.vehicleType,
     lastSeenMs:      _current.lastSeenMs,
   };
+}
+
+/**
+ * UI tazelik penceresi (ms) — AKTİF poll kadansından türer. TEK KAYNAK: UI'nın kendi
+ * sabitini tutması, POWER_SAVE'de (15s poll) 3s'lik pencereyle sahte bayatlık üretiyordu.
+ * Bağlı değilken de güvenli bir değer döner (fail-soft, throw yok).
+ */
+export function getObdFreshWindowMs(): number {
+  try {
+    return _staleThresholdMs();
+  } catch {
+    return STALE_THRESHOLD_MS; // fail-soft: protokol tabanı
+  }
 }
 
 /**

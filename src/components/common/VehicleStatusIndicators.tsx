@@ -2,7 +2,7 @@ import { memo, useState, useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import { Gauge, Satellite, Sparkles } from 'lucide-react';
 import { isNative } from '../../platform/bridge';
-import { useOBDState } from '../../platform/obdService';
+import { useOBDState, getObdFreshWindowMs } from '../../platform/obdService';
 import { useGPSState } from '../../platform/gpsService';
 import { getAiHealthSnapshot } from '../../platform/aiHealth';
 import { sensitiveKeyStore } from '../../platform/sensitiveKeyStore';
@@ -77,6 +77,10 @@ function VehicleStatusIndicatorsInner({ palette, size = 15 }: { palette: StatusP
   const obdStatus = deriveObdStatus({
     connectionState: obd.connectionState, source: obd.source,
     lastSeenMs: obd.lastSeenMs, now, available: isNative,
+    // "OBD bağlı değil" YALNIZ doğrulanmış transport kopmasında. ECU'nun susması
+    // (dataFresh=false) 'stale' üretir → son değerler korunur, sahte kopma yok.
+    transportConnected: obd.transportConnected,
+    freshMs: getObdFreshWindowMs(),   // aktif poll kadansından türer
   });
   const gpsStatus = deriveGpsStatus({
     unavailable: gps.unavailable, isTracking: gps.isTracking, hasLocation: gps.location != null,

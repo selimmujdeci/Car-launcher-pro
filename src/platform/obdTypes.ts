@@ -16,8 +16,28 @@ export interface OBDData {
   source: 'real' | 'mock' | 'none';
   deviceName: string;
   vehicleType: VehicleType;  // aktif araç tipi
-  /** Unix ms — son gerçek (native) veri paketi alındığında güncellenir. 0 = hiç alınmadı. */
+  /** Unix ms — son GEÇERLİ ECU frame'i (ATRV HARİÇ). 0 = hiç alınmadı. */
   lastSeenMs: number;
+
+  /* ── Ayrık bağlantı durumları ────────────────────────────────────────────────
+   * `connectionState` DÖRT ayrı gerçeği tek alana sıkıştırıyordu; bir PID timeout'u
+   * global "kopuk" gibi görünüyordu. Bu üç alan onları AYIRIR (connectionState
+   * geriye dönük uyum için AYNEN korunur). */
+
+  /**
+   * Transport (RFCOMM/GATT/TCP) linki DOĞRULANMIŞ biçimde canlı mı — native'den paket
+   * geliyor mu (ATRV dahil). UI "OBD bağlı değil" mesajını YALNIZ bu false iken gösterir.
+   * ECU'nun susması bunu false YAPMAZ.
+   */
+  transportConnected: boolean;
+  /**
+   * ECU verisi TAZE mi. false → son değerler KORUNUR ama "stale" gösterilir; bağlantı
+   * DÜŞMEZ, reconnect BAŞLAMAZ. Kısa veri boşluklarının UI'da kopma gibi görünmemesi
+   * için `transportConnected`'ten ayrıdır.
+   */
+  dataFresh: boolean;
+  /** Unix ms — son HERHANGİ bir native paket (ATRV dahil) = link heartbeat. 0 = hiç. */
+  lastRxAt: number;
 
   // ── Universal ─────────────────────────────────
   speed: number;        // km/h
@@ -75,6 +95,10 @@ export const INITIAL: OBDData = {
   deviceName: '',
   vehicleType: 'ice',
   lastSeenMs: 0,
+  // Fail-closed: kanıt gelene kadar link "bağlı değil", veri "taze değil".
+  transportConnected: false,
+  dataFresh: false,
+  lastRxAt: 0,
   // Universal
   speed: 0,
   headlights: false,

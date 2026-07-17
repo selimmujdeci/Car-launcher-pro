@@ -94,7 +94,6 @@ vi.mock('../platform/obdSanitizer', () => ({
 
 import { startOBD, stopOBD, getOBDStatusSnapshot } from '../platform/obdService';
 import { _resetObdDiagEmitterForTest } from '../platform/obdDiagEmitter';
-import { STALE_THRESHOLD_MS } from '../platform/obdRetryPolicy';
 
 const ADDR = '00:11:22:33:44:55';
 
@@ -170,25 +169,62 @@ describe('5. KONTROL GRUBU — reconnect OLMADAN donma var mı?', () => {
   });
 });
 
-describe('2+3+4. WATCHDOG KAYNAKLI TEK RECONNECT — idempotent mi?', () => {
-  it('KÖK: POWER_SAVE poll periyodu (15s) > stale eşiği (12s) → SAHTE reconnect ateşlenir', async () => {
+describe('2. DALGALANMA KÖK DÜZELTMESİ — sahte reconnect ARTIK ateşlenmemeli', () => {
+  it('KÖK KİLİDİ: POWER_SAVE (15s poll) sağlıklı kadansta reconnect TETİKLEMEZ', async () => {
+    // Bu test kök nedeni belgeler: eşik artık kadansa bağlı
+    // (max(12s taban, 15s×3 + 2s jitter) = 47s) → 15s'lik poll SAHTE bayatlık üretmez.
+    // Düzeltmeden ÖNCE: sabit 12s eşik < 15s poll → her turda sahte reconnect.
     await establishConnection();
     const before = probe();
     expect(before.connectCalls).toBe(1);
 
-    // Gerçek POWER_SAVE kadansı: sonraki çekirdek PID 15s sonra gelecek. Ama watchdog
-    // 12s'de "veri kesildi" der. Bu ARALIKTA (12s..15s) sahte reconnect ateşlenir.
-    await vi.advanceTimersByTimeAsync(STALE_THRESHOLD_MS + 5_000);
+    // Gerçek POWER_SAVE kadansı: 15s'de bir çekirdek PID — eski 12s eşiğini AŞAR.
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(15_000);
+      feedEcuData({ speed: 40 + i, rpm: 1500 });
+    }
 
     const after = probe();
-    // SAHTE reconnect gerçekleşti mi? (kök nedenin kanıtı)
+    expect(after.connectCalls).toBe(before.connectCalls); // SIFIR sahte reconnect
+    expect(after.connectionState).toBe('connected');       // dalgalanma YOK
+  });
+
+  it('VERİ BAYAT ≠ KOPMA: link canlıyken (ATRV akıyor) ECU susarsa reconnect BAŞLAMAZ', async () => {
+    await establishConnection();
+    const before = probe();
+
+    // ECU sustu ama adaptör canlı: yalnız ATRV (batteryVoltage) akmaya devam ediyor.
+    // ATRV `_hasEcuData` DIŞINDADIR → dataFresh düşer, ama link heartbeat'i tazeler.
+    for (let i = 0; i < 12; i++) {
+      await vi.advanceTimersByTimeAsync(5_000);
+      feedEcuData({ batteryVoltage: 14.2 }); // yalnız ATRV — ECU verisi YOK
+    }
+
+    const after = probe();
+    expect(after.connectCalls).toBe(before.connectCalls); // TEARDOWN YOK
+    expect(after.liveDataListeners).toBe(1);              // native handle KALDIRILMADI
+    expect(after.connectionState).toBe('connected');      // bağlantı DÜŞMEDİ
+  });
+});
+
+describe('3+4. GERÇEK LINK ÖLÜMÜ — hızlı algılanmalı ve idempotent olmalı', () => {
+  /** Hiçbir paket göndermeden (ATRV dahil) linki öldürür → gerçek kopma. */
+  async function killLink(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(60_000); // hiçbir feed yok → heartbeat ölür
+    await vi.advanceTimersByTimeAsync(10_000); // reconnect turu ilerlesin
+  }
+
+  it('GERÇEK KOPMA GİZLENMEZ: hiç paket gelmezse (ATRV dahil) reconnect TETİKLENİR', async () => {
+    await establishConnection();
+    const before = probe();
+    await killLink();
+    const after = probe();
     expect(after.connectCalls).toBeGreaterThan(before.connectCalls);
   });
 
-  it('IDEMPOTENT: reconnect sonrası TEK data + TEK status dinleyicisi kalmalı (çift poll yok)', async () => {
+  it('IDEMPOTENT: gerçek reconnect sonrası TEK data + TEK status dinleyicisi (çift poll yok)', async () => {
     await establishConnection();
-    await vi.advanceTimersByTimeAsync(STALE_THRESHOLD_MS + 5_000); // sahte reconnect
-    await vi.advanceTimersByTimeAsync(5_000);                      // reconnect tamamlansın
+    await killLink();
     feedEcuData({ speed: 55, rpm: 2000 });
     await vi.advanceTimersByTimeAsync(10);
 
@@ -201,15 +237,12 @@ describe('2+3+4. WATCHDOG KAYNAKLI TEK RECONNECT — idempotent mi?', () => {
   it('IDEMPOTENT: reconnect sonrası poll scheduler YENİDEN başlar (veri akışı geri gelir)', async () => {
     await establishConnection();
     const beforeFrame = probe().lastValidFrameAt;
-
-    await vi.advanceTimersByTimeAsync(STALE_THRESHOLD_MS + 5_000);
-    await vi.advanceTimersByTimeAsync(5_000);
-    feedEcuData({ speed: 55, rpm: 2000 }); // yeni oturumdan veri
+    await killLink();
+    feedEcuData({ speed: 55, rpm: 2000 });
     await vi.advanceTimersByTimeAsync(10);
 
     const p = probe();
-    // DONMA KANITI: reconnect sonrası veri AKMIYORSA lastValidFrameAt ilerlemez ve
-    // connectionState 'connected'e dönmez.
+    // DONMA KANITI: reconnect sonrası veri AKMIYORSA lastValidFrameAt ilerlemez.
     expect(p.lastValidFrameAt).toBeGreaterThan(beforeFrame);
     expect(p.connectionState).toBe('connected');
   });
@@ -217,9 +250,7 @@ describe('2+3+4. WATCHDOG KAYNAKLI TEK RECONNECT — idempotent mi?', () => {
   it('IDEMPOTENT: ESKİ oturumun event"i reddedilmeli (sessionId guard)', async () => {
     await establishConnection();
     const staleCb = (M.listeners['obdData'] ?? [])[0]!; // 1. oturumun dinleyicisi
-
-    await vi.advanceTimersByTimeAsync(STALE_THRESHOLD_MS + 5_000);
-    await vi.advanceTimersByTimeAsync(5_000);
+    await killLink();
     feedEcuData({ speed: 55, rpm: 2000 });
     await vi.advanceTimersByTimeAsync(10);
     const beforeGhost = probe();
@@ -228,17 +259,15 @@ describe('2+3+4. WATCHDOG KAYNAKLI TEK RECONNECT — idempotent mi?', () => {
     staleCb({ speed: 999, rpm: 9999 });
     await vi.advanceTimersByTimeAsync(10);
 
-    const afterGhost = probe();
-    expect(afterGhost.lastValidFrameAt).toBe(beforeGhost.lastValidFrameAt);
+    expect(probe().lastValidFrameAt).toBe(beforeGhost.lastValidFrameAt);
   });
 
-  it('TIMER SIZINTISI: tekrarlanan sahte reconnect timer sayısını BÜYÜTMEMELİ', async () => {
+  it('TIMER SIZINTISI: tekrarlanan gerçek reconnect timer sayısını BÜYÜTMEMELİ', async () => {
     await establishConnection();
 
     const counts: number[] = [];
     for (let cycle = 0; cycle < 3; cycle++) {
-      await vi.advanceTimersByTimeAsync(STALE_THRESHOLD_MS + 5_000);
-      await vi.advanceTimersByTimeAsync(5_000);
+      await killLink();
       feedEcuData({ speed: 50, rpm: 1800 });
       await vi.advanceTimersByTimeAsync(10);
       counts.push(vi.getTimerCount());

@@ -16,9 +16,21 @@
 
 /* ── Freshness bütçeleri (ms) ─────────────────────────────────────────────── */
 
-/** OBD gerçek paket tazelik bandı — 0–3s healthy. */
+/**
+ * OBD gerçek paket tazelik bandı — bu yaşın altı "healthy".
+ *
+ * ⚠️ Bu bir VARSAYILANDIR: gerçek tazelik penceresi aktif poll kadansına bağlıdır
+ * (PERFORMANCE 250ms … POWER_SAVE 15s). Çağıran `freshMs` geçebilir.
+ */
 export const OBD_FRESH_MS = 3_000;
-/** OBD 3–10s → stale; >10s → disconnected. */
+/**
+ * Bu yaşın üstü "stale" (veri akmıyor) — ama KOPUK DEĞİL.
+ *
+ * ⚠️ SÖZLEŞME DEĞİŞTİ: `deriveObdStatus` artık yaş ne kadar büyürse büyüsün
+ * 'disconnected' DÖNMEZ. Bayat veri bir kopma değildir (adaptör takılı, hat sağlam,
+ * yalnız ECU susmuş). 'disconnected' YALNIZ `transportConnected === false` ile —
+ * yani DOĞRULANMIŞ link kopmasıyla — üretilir.
+ */
 export const OBD_STALE_MS = 10_000;
 /** GPS fix tazelik bandı. */
 export const GPS_STALE_MS = 30_000;
@@ -76,6 +88,16 @@ export function deriveBtStatus(i: {
  */
 export function deriveObdStatus(i: {
   connectionState: string; source: string; lastSeenMs: number; now: number; available: boolean;
+  /**
+   * Transport linki DOĞRULANMIŞ canlı mı (obdService.transportConnected). Verilmezse
+   * `connectionState === 'connected'` varsayılır (eski çağıranlar için geriye dönük uyum).
+   */
+  transportConnected?: boolean;
+  /**
+   * Tazelik penceresi — aktif poll kadansından türetilmeli (POWER_SAVE'de 15s poll,
+   * 3s'lik sabit pencere SAHTE bayatlık üretir). Verilmezse {@link OBD_FRESH_MS}.
+   */
+  freshMs?: number;
 }): ObdStatus {
   if (!i.available) return 'unavailable';
   if (i.connectionState === 'error') return 'error';
@@ -84,15 +106,26 @@ export function deriveObdStatus(i: {
    || i.connectionState === 'scanning'
    || i.connectionState === 'reconnecting') return 'connecting';
 
-  // 'connected' state — ama SAHTE bağlı gösterme: yalnız real + fresh sayılır.
+  // 'connected' state — ama SAHTE bağlı gösterme: yalnız real sayılır.
   if (i.connectionState === 'connected') {
     if (i.source !== 'real') return 'disconnected';   // mock/none → bağlı DEĞİL
-    if (i.lastSeenMs <= 0)   return 'connecting';      // state connected ama paket yok
+
+    // DOĞRULANMIŞ transport kopması — "OBD bağlı değil" YALNIZ burada dürüsttür.
+    // (undefined → eski çağıran; connectionState'e güven.)
+    if (i.transportConnected === false) return 'disconnected';
+
+    if (i.lastSeenMs <= 0) return 'connecting';       // state connected ama hiç paket yok
     const age = i.now - i.lastSeenMs;
-    if (age < 0)             return 'connected';       // saat atlaması → son bilineni koru
-    if (age <= OBD_FRESH_MS) return 'connected';
-    if (age <= OBD_STALE_MS) return 'stale';
-    return 'disconnected';                              // >10s sessizlik
+    if (age < 0) return 'connected';                   // saat atlaması → son bilineni koru
+    const freshMs = (typeof i.freshMs === 'number' && i.freshMs > 0) ? i.freshMs : OBD_FRESH_MS;
+    if (age <= freshMs) return 'connected';
+
+    // KÖK DÜZELTME: eskiden `age > OBD_STALE_MS` → 'disconnected' idi. Bu YALANDI:
+    // link canlıyken ECU'nun susması bir KOPMA DEĞİLDİR (POWER_SAVE'de poll periyodu
+    // 15s → yaş 10s'i rutin olarak aşar → sağlıklı bağlantıda sahte "OBD bağlı değil").
+    // Artık yaş ne olursa olsun 'stale': son değerler korunur, bağlantı düşmez.
+    // Gerçek kopma YALNIZ transportConnected=false ile gelir (yukarıda).
+    return 'stale';
   }
   // idle vb.
   return 'disconnected';
