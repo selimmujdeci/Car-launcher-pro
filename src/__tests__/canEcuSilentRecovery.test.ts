@@ -79,6 +79,7 @@ import { _resetObdDiagEmitterForTest } from '../platform/obdDiagEmitter';
 import {
   getRecoveryLevel, getRecoveryCooldownMs, isCanRecoveryApplicable,
   ECU_SILENT_STREAK_TO_RECOVER, MAX_RECOVERY_ATTEMPTS, RECOVERY_BASE_COOLDOWN_MS,
+  isEngineLikelyRunning, ENGINE_RUNNING_VOLTAGE_MIN,
 } from '../platform/obdRetryPolicy';
 
 const ADDR = '00:11:22:33:44:55';
@@ -92,7 +93,8 @@ async function silentEcuFor(ms: number): Promise<void> {
   const step = 2_000;
   for (let t = 0; t < ms; t += step) {
     await vi.advanceTimersByTimeAsync(step);
-    feed({ batteryVoltage: 14.2 }); // ATRV — _hasEcuData DIŞINDA → dataFresh düşer
+    feed({ batteryVoltage: 14.2 }); // ATRV — _hasEcuData DIŞINDA → dataFresh düşer.
+    // 14.2V = alternatör şarj ediyor → motor ÇALIŞIYOR → ECU susması ARIZA → kurtarma MEŞRU.
   }
 }
 
@@ -150,6 +152,27 @@ describe('saf politika — merdiven / backoff / protokol kapısı', () => {
     expect(isCanRecoveryApplicable(null)).toBe(false);
     expect(isCanRecoveryApplicable(undefined)).toBe(false);
     expect(isCanRecoveryApplicable('')).toBe(false);
+  });
+});
+
+describe('kontak kapısı — motor kapalıyken ECU susması NORMALDİR', () => {
+  it('alternatör şarj voltajı → motor çalışıyor (ECU susması ARIZA)', () => {
+    expect(isEngineLikelyRunning(14.2)).toBe(true);  // tipik şarj
+    expect(isEngineLikelyRunning(13.5)).toBe(true);
+    expect(isEngineLikelyRunning(ENGINE_RUNNING_VOLTAGE_MIN)).toBe(true); // sınır dahil
+  });
+
+  it('yalnız akü voltajı → motor KAPALI (ECU susması BEKLENİR, kurtarma YOK)', () => {
+    expect(isEngineLikelyRunning(12.6)).toBe(false); // dolu akü, kontak kapalı
+    expect(isEngineLikelyRunning(12.0)).toBe(false);
+    expect(isEngineLikelyRunning(11.8)).toBe(false);
+  });
+
+  it('voltaj bilinmiyorsa kurtarma YOK (çıkarım yasak — kanıt yoksa dokunma)', () => {
+    expect(isEngineLikelyRunning(null)).toBe(false);
+    expect(isEngineLikelyRunning(undefined)).toBe(false);
+    expect(isEngineLikelyRunning(NaN)).toBe(false);
+    expect(isEngineLikelyRunning(-1)).toBe(false); // "desteklenmiyor" konvansiyonu
   });
 });
 
@@ -263,6 +286,48 @@ describe('CAN proto 6 — ECU sessizliği kontrollü simüle edilir', () => {
 });
 
 /* ══ KWP KORUMASI ═════════════════════════════════════════════════════════ */
+
+describe('KONTAK KAPISI — entegrasyon (saha 2026-07-17: park halinde boşuna kurtarma)', () => {
+  /** Motor KAPALI: dongle beslenir (ATRV akar) ama alternatör yok → 12.4V. */
+  async function parkedEngineOffFor(ms: number): Promise<void> {
+    const step = 2_000;
+    for (let t = 0; t < ms; t += step) {
+      await vi.advanceTimersByTimeAsync(step);
+      feed({ batteryVoltage: 12.4 }); // yalnız akü — motor KAPALI
+    }
+  }
+
+  it('KRİTİK: motor kapalı + park → ECU susması BEKLENİR, kurtarma HİÇ çalışmaz', async () => {
+    await establish();
+    // Sürüş bitti, araç park edildi, kontak kapatıldı. Dongle hâlâ beslenmede (ATRV akıyor)
+    // ama ECU uyudu. Bu ARIZA DEĞİL — uyuyan ECU'yu hiçbir komut uyandırmaz; merdiveni
+    // tırmanmak israf ve son basamakta (transport_reconnect) UI dalgalanması demek.
+    await parkedEngineOffFor(60_000);
+
+    expect(getOBDDataSnapshot().dataFresh).toBe(false);     // dürüstçe bayat
+    expect(M.recoverCalls).toHaveLength(0);                 // ama kurtarma DENENMEDİ
+    expect(getOBDStatusSnapshot().connectionState).toBe('connected'); // dalgalanma YOK
+  });
+
+  it('YANLIŞ-NEGATİF KORUMASI: motor ÇALIŞIRKEN donma HÂLÂ kurtarılır', async () => {
+    // Kontak kapısı gerçek donmayı ENGELLEMEMELİ — kullanıcının asıl derdi bu
+    // ("akıyor sonra donuyor"; sahada 1764 rpm / 34 km/h sürüş değerlerinde donmuştu).
+    await establish();
+    await silentEcuFor(30_000);   // 14.2V — motor çalışıyor
+    expect(M.recoverCalls.length).toBeGreaterThan(0);
+    expect(M.recoverCalls[0]).toBe('protocol_close');
+  });
+
+  it('kontak GERİ açılınca kurtarma yeniden mümkün olur (kalıcı kilitlenme yok)', async () => {
+    await establish();
+    await parkedEngineOffFor(40_000);
+    expect(M.recoverCalls).toHaveLength(0);
+
+    // Motor çalıştırıldı ama ECU hâlâ susuyor → ARTIK arıza → kurtarma başlamalı.
+    await silentEcuFor(30_000);
+    expect(M.recoverCalls.length).toBeGreaterThan(0);
+  });
+});
 
 describe('KWP (proto 5) — native ATPC davranışı BOZULMAZ', () => {
   it('KRİTİK: KWP"de TS kurtarması HİÇ çalışmaz (çift ATPC yok)', async () => {

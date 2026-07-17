@@ -141,6 +141,38 @@ export function isCanRecoveryApplicable(activeProtocol: string | null | undefine
   return c === '6' || c === '7' || c === '8' || c === '9'
       || c === 'A' || c === 'B' || c === 'C';
 }
+
+/**
+ * Alternatör şarj eşiği (V) — bunun ÜSTÜ "motor çalışıyor" kanıtıdır.
+ * Motor çalışırken alternatör/DC-DC 13.2–14.8 V verir; kontak kapalı/ACC'de yalnız akü
+ * görülür (11.8–12.8 V). 13.0 V ikisinin arasındaki standart ayrım noktasıdır.
+ */
+export const ENGINE_RUNNING_VOLTAGE_MIN = 13.0;
+
+/**
+ * Motor ÇALIŞIYOR mu — adaptör voltajından (ATRV) türetilen KANIT.
+ *
+ * NEDEN GEREKLİ (saha 2026-07-17): CAN ECU-silent kurtarması kontak durumunu HİÇ
+ * sormuyordu. Araç PARK halinde ve motor KAPALIYKEN ECU'nun susması NORMALDİR — arıza
+ * değil. Kurtarma o durumda ATPC → ELM reinit → transport reconnect merdivenini BOŞUNA
+ * tırmanıyor (uyuyan ECU'yu hiçbir komut uyandırmaz) ve son basamak UI'da 'connecting'
+ * dalgalanması üretiyordu.
+ *
+ * NEDEN ATRV (çıkarım değil, KANIT): ECU sustuğunda bile ATRV akmaya DEVAM eder — zaten
+ * `transportConnected`'i ayakta tutan odur (bkz. _lastRxAt heartbeat). Yani ECU-silent
+ * dalında voltaj HER ZAMAN bilinir; `deepScanIgnitionSource` gibi ayrı bir kontak kaynağı
+ * OLMADAN, "kontak kapalı" çıkarımı YAPMADAN doğrudan ölçüme dayanırız (anayasa: kanıtsız
+ * çıkarım yasak).
+ *
+ * @param batteryVoltage ATRV okuması; bilinmiyorsa null/undefined/-1.
+ * @returns true = motor çalışıyor (ECU susması ARIZADIR → kurtar) ·
+ *          false = motor kapalı VEYA voltaj bilinmiyor (susma BEKLENİR → kurtarma YOK)
+ */
+export function isEngineLikelyRunning(batteryVoltage: number | null | undefined): boolean {
+  if (typeof batteryVoltage !== 'number' || !Number.isFinite(batteryVoltage)) return false;
+  if (batteryVoltage < 0) return false; // -1 = desteklenmiyor konvansiyonu
+  return batteryVoltage >= ENGINE_RUNNING_VOLTAGE_MIN;
+}
 /** connectOBD + ısınma sonrası ilk PID için bekleme süresi */
 export const DATA_GATE_TIMEOUT_MS   = 10_000; // 10 s
 /**

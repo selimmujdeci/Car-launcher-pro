@@ -57,6 +57,8 @@ import {
   getRecoveryLevel,
   getRecoveryCooldownMs,
   isCanRecoveryApplicable,
+  isEngineLikelyRunning,
+  ENGINE_RUNNING_VOLTAGE_MIN,
 } from './obdRetryPolicy';
 // OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
 // (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
@@ -832,6 +834,20 @@ async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void>
   const activeProto = _lastProtocolActive ?? _lastProtocolTried;
   if (!isCanRecoveryApplicable(activeProto)) return;
 
+  // KONTAK KAPISI (saha 2026-07-17): motor KAPALIYKEN ECU'nun susması NORMALDİR — arıza
+  // değil. Uyuyan ECU'yu hiçbir komut uyandırmaz; kurtarma merdivenini boşuna tırmanmak
+  // hem israf hem de son basamakta (transport_reconnect) UI dalgalanması üretir.
+  // Kanıt ATRV'dir: ECU sussa bile voltaj akmaya devam eder (transportConnected'i o ayakta
+  // tutuyor) → bu dalda voltaj HER ZAMAN bilinir. Çıkarım YOK, doğrudan ölçüm.
+  if (!isEngineLikelyRunning(_current.batteryVoltage)) {
+    console.info('[OBD:EcuRecovery]', JSON.stringify({
+      event: 'skip', reason: 'engine_not_running',
+      batteryVoltage: _current.batteryVoltage, threshold: ENGINE_RUNNING_VOLTAGE_MIN,
+      msg: 'motor kapalı → ECU susması BEKLENİR, kurtarma yapılmaz',
+    }));
+    return;
+  }
+
   // Cooldown (üstel backoff) — kurtarma turları birbirini kovalamasın.
   if (_lastRecoveryAt > 0) {
     const cooldown = getRecoveryCooldownMs(_recoveryAttempt);
@@ -857,6 +873,7 @@ async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void>
   console.info('[OBD:EcuRecovery]', JSON.stringify({
     event: 'attempt', level, attempt, protocol: activeProto,
     source: _current.source, transport: _lastKnownTransport,
+    batteryVoltage: _current.batteryVoltage,  // kontak kapısının kanıtı — teşhiste kritik
     at: now, lastRxAt: _lastRxAt, lastValidFrameAt: _lastValidFrameAt(),
     frameAgeMs: now - _lastValidFrameAt(), thresholdMs: staleMs,
     ecuSilentStreak: _ecuSilentStreak, dataStaleCount: _dataStaleCount,
