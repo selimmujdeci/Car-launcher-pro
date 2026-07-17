@@ -990,8 +990,23 @@ describe('Sürüş kamerası stil-kapısı yasağı kilidi (harita sabit/dönmü
     const src = read('src/components/map/MiniMapWidget.tsx');
     expect(src, 'kare-başı çıplak stil kapısı geri gelmiş — sürüşte fix\'ler yutulur')
       .not.toMatch(/if \(!mapRef\.current\.isStyleLoaded\(\)\) return;/);
-    expect(src, 'stil kapısı yalnız init yoluna uygulanmalı (_initialized && guard)')
-      .toMatch(/!mapRef\.current\._initialized && !mapRef\.current\.isStyleLoaded\(\)/);
+  });
+
+  it('YAPISAL: MiniMapWidget init yolu stil kapısıyla SONSUZA DEK engellenmez (Rover görünür)', () => {
+    // SÖZLEŞME GÜNCELLENDİ (saha 2026-07-17: "mini haritada araç gözükmüyor, tam ekranda
+    // gözüküyor"). ESKİ kilit init yolunda `!_initialized && !isStyleLoaded() → return`
+    // kapısını ZORUNLU tutuyordu. Ama Android WebView'da `style.load` bazen HİÇ GELMEZ
+    // (FullMapView'ın kendi "Stuck-LOADING guard"ı bunun kanıtı; o, marker'ı isStyleLoaded()
+    // SORMADAN ekliyor) → isStyleLoaded() sonsuza dek false → addUserMarker HİÇ çağrılmaz
+    // → Rover mini haritada ASLA çizilmez. Kilit KALDIRILMADI, yeni doğru davranışa GÜNCELLENDİ.
+    //
+    // YENİ SÖZLEŞME: init DENENİR; stil gerçekten hazır değilse addUserMarker throw eder,
+    // `_initialized` false kalır ve BİR SONRAKİ GPS fix'inde tekrar denenir (fail-soft).
+    const src = read('src/components/map/MiniMapWidget.tsx');
+    expect(src, 'init yolu erken-return ile sonsuza dek engellenmiş — Rover hiç çizilmez')
+      .not.toMatch(/if \(!mapRef\.current\._initialized && !mapRef\.current\.isStyleLoaded\(\)\) return;/);
+    expect(src, 'init yolundaki addUserMarker try/catch ile korunmalı (stil hazır değilse retry)')
+      .toMatch(/try \{[\s\S]{0,200}addUserMarker\(mapRef\.current/);
   });
 
   it('YAPISAL: FullMapView rAF tick takip yolu isStyleLoaded ile kapılanmaz', () => {

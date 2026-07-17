@@ -316,7 +316,16 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     // ekleyen addUserMarker) için şarttır. Güncelleme yolunda (marker setData +
     // kamera jumpTo) bu kapı ZARARLI: tile yüklenirken ve her setData sonrası
     // false döner → sürüşte fix'lerin çoğu yutuluyor, harita "sabit" kalıyordu.
-    if (!mapRef.current._initialized && !mapRef.current.isStyleLoaded()) return;
+    // ⭐ KÖK NEDEN FIX (2026-07-17, saha: "mini haritada araç gözükmüyor, tam ekranda
+    // gözüküyor"): burada `!_initialized && !isStyleLoaded()` → return kapısı vardı.
+    // Android WebView'da `style.load` bazen HİÇ GELMEZ (FullMapView bunun için ayrı bir
+    // "Stuck-LOADING guard" taşır) → isStyleLoaded() sonsuza dek false → effect her fix'te
+    // erken döner → addUserMarker HİÇ çağrılmaz → Rover mini haritada ASLA çizilmez.
+    // FullMapView aynı marker'ı `mapStatus==='READY'` ile, isStyleLoaded() SORMADAN ekliyordu
+    // → bu yüzden tam ekranda görünüyor, mini haritada görünmüyordu.
+    // Kapı kaldırıldı: aşağıdaki ilk-kurulum dalı try/catch ile korunuyor — stil gerçekten
+    // hazır değilse addUserMarker throw eder ve _initialized false kalır → BİR SONRAKİ GPS
+    // fix'inde tekrar denenir (fail-soft, sonsuz engel yok).
 
     const { latitude, longitude } = location;
     // speed: GPS m/s → km/h (null/undefined → 0)
@@ -346,14 +355,21 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     _setCompassDemand(isDriving);
 
     if (!mapRef.current._initialized) {
-      addUserMarker(mapRef.current, latitude, longitude, hdg);
-      // Başlangıç zoom: sokak seviyesi (16 = tek tek sokaklar görünür)
-      setMapCenter(mapRef.current, [longitude, latitude], 16, true);
-      mapRef.current._initialized = true;
-      wasDrivingRef.current = isDriving;
-      lastAppliedLatRef.current = latitude;
-      lastAppliedLngRef.current = longitude;
-      lastAppliedTsRef.current  = _nowTs;
+      // Stil hazır değilse addUserMarker throw eder → _initialized false KALIR ve bir
+      // sonraki GPS fix'inde yeniden denenir. Eskiden bu deneme isStyleLoaded() kapısıyla
+      // hiç yapılmıyordu (bkz. yukarıdaki kök-neden notu).
+      try {
+        addUserMarker(mapRef.current, latitude, longitude, hdg);
+        // Başlangıç zoom: sokak seviyesi (16 = tek tek sokaklar görünür)
+        setMapCenter(mapRef.current, [longitude, latitude], 16, true);
+        mapRef.current._initialized = true;
+        wasDrivingRef.current = isDriving;
+        lastAppliedLatRef.current = latitude;
+        lastAppliedLngRef.current = longitude;
+        lastAppliedTsRef.current  = _nowTs;
+      } catch {
+        /* stil henüz hazır değil → sonraki fix'te tekrar denenir (fail-soft) */
+      }
     } else if (isDriving) {
       // Sürüş modu: hıza göre zoom + heading rotasyonu + look-ahead offset (her fix uygulanır)
       // Kamera hızı _effKmh: Doppler 0'a saplansa bile zoom/pitch gerçek harekete uyar.
