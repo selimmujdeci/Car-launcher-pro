@@ -736,21 +736,23 @@ export function OBDConnectModal({ open, onClose }: Props) {
                               : 'Daha önce eşleşmiş'}
                     </div>
                   </button>
-                  {dev.bonded && (
-                    <button
-                      onClick={() => void handleForget(dev)}
-                      disabled={!!connecting || !!connected}
-                      title="Cihazı unut (eşleşmeyi sil)"
-                      aria-label="Cihazı unut"
-                      className="shrink-0 flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
-                      style={{
-                        width: '44px', height: '44px', borderRadius: rSm,
-                        background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger)',
-                      }}
-                    >
-                      <Trash2 style={{ width: iconSm, height: iconSm }} className="text-[color:var(--oem-danger)]" />
-                    </button>
-                  )}
+                  {/* Cihazı unut — HER cihazda görünür (yalnız bonded değil). Saha (2026-07-16 Doblo):
+                      bozuk/yarım eşleşme (BONDING'de takılı) dongle'da `dev.bonded` false görünüyor
+                      → eski koşul butonu gizliyordu → kullanıcı bozuk bond'u uygulamadan temizleyemiyordu
+                      (PIN kabul edilmiyor). removeBond BOND_NONE'da idempotent/zararsız → her satırda güvenli. */}
+                  <button
+                    onClick={() => void handleForget(dev)}
+                    disabled={!!connecting || !!connected}
+                    title="Cihazı unut (eşleşmeyi sil — PIN sorunu / bozuk eşleşme için)"
+                    aria-label="Cihazı unut"
+                    className="shrink-0 flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+                    style={{
+                      width: '44px', height: '44px', borderRadius: rSm,
+                      background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger)',
+                    }}
+                  >
+                    <Trash2 style={{ width: iconSm, height: iconSm }} className="text-[color:var(--oem-danger)]" />
+                  </button>
                   </div>
                 );
               })}
