@@ -1128,6 +1128,163 @@ function _isAddressProven(): boolean {
   }
 }
 
+/* ══ Foreground auto-resume ═══════════════════════════════════════════════════
+ * Uygulama arka plandayken Android JS timer'larını kısar/askıya alır ve BT linki
+ * düşebilir. Öne gelindiğinde HİÇBİR ŞEY oturumu yeniden doğrulamıyordu → "bağlı
+ * görünüyor ama veri akmıyor". Bu blok o boşluğu doldurur — ama KÖR CONNECT YAPMAZ:
+ * önce oturum sağlığı DÖRT AYRI eksende ölçülür, yalnız gerçekten bozuksa müdahale edilir.
+ */
+
+/** Foreground olayları arası minimum ara — art arda resume fırtınası yasak. */
+export const FOREGROUND_RESUME_COOLDOWN_MS = 30_000;
+/** appStateChange gürültüsünü sönümle (aynı geçişte birden çok olay gelebilir). */
+const FOREGROUND_DEBOUNCE_MS = 600;
+
+let _foregroundResumeInFlight = false;
+let _lastForegroundResumeAt = 0;
+let _foregroundDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let _appStateUnsub: (() => void) | null = null;
+
+/**
+ * OBD oturum sağlığı — DÖRT AYRI eksen. "Bluetooth bağlı" TEK BAŞINA READY DEĞİLDİR;
+ * bu ayrım olmadan foreground'da neyin bozuk olduğu (link mi, oturum mu, poll mu, veri mi)
+ * bilinemez ve tek çare kör reconnect olurdu.
+ */
+export function getObdSessionHealth(): {
+  /** Native handle'lar duruyor ve link canlı (paket geliyor) mu. */
+  transportReady: boolean;
+  /** Veri kapısı geçildi mi — yani ELM init + protokol + ilk gerçek ECU frame'i tamam. */
+  sessionReady: boolean;
+  /** TS-tarafı oturum zamanlayıcısı (stale watchdog) çalışıyor mu — canlı oturumun kanıtı. */
+  pollingActive: boolean;
+  /** ECU verisi taze mi. */
+  dataFresh: boolean;
+  /** Hepsi birden — YALNIZ bu true iken sistem READY sayılır. */
+  ready: boolean;
+} {
+  const transportReady = _nativeHandles.length > 0 && _current.transportConnected;
+  const sessionReady   = _dataGatePassed;
+  const pollingActive  = _staleWatchdogTimer !== null;
+  const dataFresh      = _current.dataFresh;
+  return {
+    transportReady, sessionReady, pollingActive, dataFresh,
+    ready: transportReady && sessionReady && pollingActive && dataFresh,
+  };
+}
+
+/**
+ * Foreground'da müdahale gerekli mi? SAF karar (yan etkisiz) — test edilebilir.
+ * Fail-closed: emin olmadığımız her durumda DOKUNMA (mevcut sağlıklı oturumu bozmaktansa
+ * bir tur beklemek yeğdir).
+ */
+function _foregroundResumeDecision(): { resume: boolean; reason: string } {
+  if (!_running)               return { resume: false, reason: 'service_stopped' };
+  // Devam eden bir kurtarma/yeniden bağlanma varsa KARIŞMA (çift motor yasak).
+  if (_reconnectTimer !== null)     return { resume: false, reason: 'reconnect_pending' };
+  if (_nativeReconnectInFlight)     return { resume: false, reason: 'native_reconnect_inflight' };
+  if (_recoveryInFlight)            return { resume: false, reason: 'ecu_recovery_inflight' };
+  // KANIT KAPISI: yalnız geçmişte GERÇEK ECU verisi akmış adaptöre otomatik dönülür.
+  // Kullanıcı cihazı "unuttu"ysa storage'da adres YOKTUR → burada eleriz.
+  if (!_isAddressProven())     return { resume: false, reason: 'address_not_proven' };
+
+  const h = getObdSessionHealth();
+  if (h.ready)                 return { resume: false, reason: 'healthy' }; // DOKUNMA
+  if (_nativeHandles.length === 0)          return { resume: true, reason: 'no_native_handles' };
+  if (h.transportReady && !h.dataFresh)     return { resume: true, reason: 'transport_up_no_ecu_data' };
+  if (!h.pollingActive)                     return { resume: true, reason: 'poll_scheduler_stopped' };
+  // connecting/initializing sürüyor olabilir → bırak tamamlansın.
+  return { resume: false, reason: 'transitional' };
+}
+
+/**
+ * Foreground auto-resume — IDEMPOTENT. `_startNative` generation'ı artırır (eski oturumun
+ * event'leri reddedilir) ve native `connect()` kendi `disconnect()`'ini çağırır → tek
+ * manager / tek session / tek poll loop garantisi korunur.
+ */
+async function _resumeFromForeground(): Promise<void> {
+  if (_foregroundResumeInFlight) return;
+
+  // ADRESİ STORAGE'DAN TAZELE: `_lastKnownAddress` modül YÜKLENİRKEN bir kez okunuyordu
+  // → başka bir yol (modal/unut) adresi değiştirdiyse bellek BAYAT kalıyordu.
+  const stored = loadObdAddress();
+  if (!stored) {
+    // Kullanıcı cihazı UNUTTU → otomatik bağlanma YOK (kullanıcı iradesi kazanır).
+    console.info('[OBD:ForegroundResume]', JSON.stringify({ event: 'skip', reason: 'no_saved_address' }));
+    return;
+  }
+  if (stored !== _lastKnownAddress) _lastKnownAddress = stored;
+
+  const decision = _foregroundResumeDecision();
+  const health = getObdSessionHealth();
+  if (!decision.resume) {
+    console.info('[OBD:ForegroundResume]', JSON.stringify({ event: 'skip', reason: decision.reason, ...health }));
+    return;
+  }
+
+  const now = Date.now();
+  if (_lastForegroundResumeAt > 0 && now - _lastForegroundResumeAt < FOREGROUND_RESUME_COOLDOWN_MS) {
+    console.info('[OBD:ForegroundResume]', JSON.stringify({ event: 'skip', reason: 'cooldown' }));
+    return;
+  }
+
+  _foregroundResumeInFlight = true;
+  _lastForegroundResumeAt = now;
+  console.info('[OBD:ForegroundResume]', JSON.stringify({
+    event: 'resume', reason: decision.reason, ...health,
+    transport: _lastKnownTransport, lastRxAt: _lastRxAt, lastValidFrameAt: _lastValidFrameAt(),
+  }));
+
+  try {
+    await _removeNativeHandles();      // eski handle'lar → sızıntı/çift dinleyici yok
+    _reconnectAttempts = 0;            // taze tur
+    await _startNative({ trustBypass: true });
+  } catch (e) {
+    logError('OBD:ForegroundResume', e);
+    await _removeNativeHandles();
+    // Kanıtlı adaptör → merdiven devralır (boot yolundaki sözleşmenin AYNISI).
+    if (_isAddressProven()) _scheduleReconnect();
+    else _merge({ connectionState: 'error', source: 'none' });
+  } finally {
+    _foregroundResumeInFlight = false;
+  }
+}
+
+/**
+ * Uygulama foreground'a geldi (appStateChange isActive=true). Debounce'lu — aynı geçişte
+ * birden çok olay gelebilir. Dışa açık: test ve gelecekteki ignition/adapter-geri-döndü
+ * tetikleyicileri aynı kapıdan geçer.
+ */
+export function notifyAppForeground(): void {
+  if (_foregroundDebounceTimer) clearTimeout(_foregroundDebounceTimer);
+  _foregroundDebounceTimer = setTimeout(() => {
+    _foregroundDebounceTimer = null;
+    void _resumeFromForeground();
+  }, FOREGROUND_DEBOUNCE_MS);
+}
+
+/** appStateChange aboneliği — startOBD kurar, stopOBD bırakır (zero-leak, tek sahip). */
+function _startAppStateListener(): void {
+  if (_appStateUnsub || !Capacitor.isNativePlatform()) return;
+  // Dinamik import: web/test ortamında @capacitor/app yüklenmesin (App.tsx ile aynı desen).
+  void import('@capacitor/app')
+    .then(({ App: CapApp }) => CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) notifyAppForeground();
+    }))
+    .then((handle) => {
+      // stopOBD zaten çağrıldıysa handle'ı hemen bırak (yarış koruması — zero-leak).
+      if (!_running) { void handle.remove(); return; }
+      _appStateUnsub = () => { void handle.remove(); };
+    })
+    .catch((e) => { logError('OBD:AppStateListen', e); }); // eski plugin → fail-soft
+}
+
+function _stopAppStateListener(): void {
+  if (_foregroundDebounceTimer) { clearTimeout(_foregroundDebounceTimer); _foregroundDebounceTimer = null; }
+  _appStateUnsub?.();
+  _appStateUnsub = null;
+  _foregroundResumeInFlight = false;
+}
+
 function _scheduleReconnect(): void {
   if (!_running) return;
 
@@ -1914,6 +2071,14 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
     return;
   }
   _running = true;
+  // ADRESİ STORAGE'DAN TAZELE: `_lastKnownAddress` modül YÜKLENİRKEN bir kez okunuyordu
+  // (satır ~217). Modül, storage yazılmadan önce yüklendiyse veya başka bir yol adresi
+  // değiştirdiyse bellek BAYAT kalıyordu → adressiz startOBD() "kayıtlı cihaz yok" sanıyordu.
+  if (!address) {
+    const stored = loadObdAddress();
+    if (stored) _lastKnownAddress = stored;
+  }
+  _startAppStateListener();   // foreground auto-resume (zero-leak: stopOBD bırakır)
 
   // Tier 2 async hydration — bir kez çalışır, BT bağlantısıyla yarışmaz.
   // Filesystem okuma (~50-150ms) tamamlandığında gerçek veri henüz yoksa patch uygular.
@@ -2001,6 +2166,7 @@ export function stopOBD(): void {
   _prevRpm = null;     // jump-detection sıfırla — reconnect'te stale eşik kalmasın
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _reconnectAttempts = 0;
+  _stopAppStateListener();  // foreground aboneliği + debounce timer (zero-leak)
   _stopStaleWatchdog();
   _clearDataGate();
   _clearExtraPidWatches();            // "tüm PID" sürekli izleyicilerini bırak (zero-leak)
