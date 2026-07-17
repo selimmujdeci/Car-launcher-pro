@@ -1260,6 +1260,26 @@ public final class OBDManager {
     }
 
     /**
+     * PR-CAN-RECOVER — TS-tetiklemeli ECU-silent kurtarma (yalnız CAN; karar TS'te).
+     * Kuyruğa USER önceliğiyle girer → poll turunun ortasına GİRMEZ (atomik).
+     *
+     * @param level "protocol_close" (ATPC) | "elm_reinit" (ATWS + init)
+     * @return true = basamak uygulandı.
+     */
+    public boolean recoverSession(String level) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> "elm_reinit".equals(level) ? p.reinitSession() : p.protocolClose()).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
      * PR-CAP-2 — {@link #readObdDid}'in HAM KANIT (kind + NRC) döndüren biçimi. Yetenek
      * öğrenmesi bunu kullanır: 7F-31 (kimlik yok) ≠ 7F-33 (güvenlik) ≠ 7F-22 (koşul) ≠
      * NO DATA ayrımı yalnız burada korunur.

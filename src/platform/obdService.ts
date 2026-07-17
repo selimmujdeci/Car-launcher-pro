@@ -50,9 +50,13 @@ import {
   WATCHDOG_INTERVAL_MS,
   DEEP_RECONNECT_INTERVAL_MS,
   STALE_THRESHOLD_MS,
+  ECU_SILENT_STREAK_TO_RECOVER,
   getReconnectDelay,
   shouldAttemptReconnect,
   computeStaleThresholdMs,
+  getRecoveryLevel,
+  getRecoveryCooldownMs,
+  isCanRecoveryApplicable,
 } from './obdRetryPolicy';
 // OBD-OS-F0-4: connect/data-gate/stale pencereleri artık PROTOKOL SINIFINA göre
 // (CAN/bilinmeyen → obdRetryPolicy sabitleriyle BİREBİR aynı; KWP/ISO9141 → geniş).
@@ -170,6 +174,22 @@ let _linkFailureCount = 0;
 /** Veri bayatlama sayacı — link canlıyken ECU'nun sustuğu kez (teşhis kütüğü). */
 let _dataStaleCount = 0;
 let _staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+/* ── PR-CAN-RECOVER: CAN ECU-silent kurtarma durumu ──────────────────────────
+ * KWP/ISO9141'de kurtarma NATIVE'de (ElmProtocol.noteKwpSessionHealth → ATPC);
+ * CAN'de (proto 6/7…) HİÇ YOKTU → ECU susunca manuel reset'e dek donuk. Bu blok
+ * o boşluğu BOUNDED doldurur ve dalgalanmayı yeniden icat etmemek için sıkı kapılıdır. */
+
+/** Ardışık "ECU sessiz" doğrulaması — TEK stale olayı kurtarma BAŞLATMAZ. */
+let _ecuSilentStreak = 0;
+/** Kaçıncı kurtarma denemesindeyiz (0 tabanlı) — basamağı ve cooldown'u belirler. */
+let _recoveryAttempt = 0;
+/** Son kurtarma denemesinin zamanı — cooldown bundan ölçülür. */
+let _lastRecoveryAt = 0;
+/** Kurtarma uçuşta mı — çift tetikleme yasak (watchdog 5s'de bir çalışır). */
+let _recoveryInFlight = false;
+/** Kurtarma tavanı aşıldı → DUR. Veri geri gelene kadar bir daha denenmez (sonsuz döngü yok). */
+let _recoveryExhausted = false;
 
 // ── Data Validation Gate ─────────────────────────────────────
 let _dataGateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -746,8 +766,19 @@ function _startStaleWatchdog(): void {
       // Son değerler BİLİNÇLİ olarak korunur (silinmez) — UI onları 'stale' gösterir.
       _merge({ dataFresh: false });
     } else if (!dataStale && !_current.dataFresh) {
+      // Emniyet ağı: normalde _onRealData dataFresh'i zaten geri açar (ve sayaçları
+      // sıfırlar). Buraya yalnız o yol atlanırsa düşülür.
       _logStateTransition('data_stale', 'data_fresh', 'ecu_resumed', now, staleMs);
       _merge({ dataFresh: true });
+      _resetEcuRecoveryState('ecu_resumed');
+    }
+
+    // ── 3. CAN ECU-SILENT KURTARMA (bounded) ────────────────────────────────
+    if (dataStale) {
+      _ecuSilentStreak++;
+      void _maybeRunEcuRecovery(now, staleMs);
+    } else {
+      _ecuSilentStreak = 0;
     }
   }, WATCHDOG_INTERVAL_MS);
 }
@@ -755,6 +786,110 @@ function _startStaleWatchdog(): void {
 /** ECU'dan gelen son GEÇERLİ frame'in zamanı (ATRV sayılmaz — bkz. _hasEcuData). */
 function _lastValidFrameAt(): number {
   return _lastRealDataMs;
+}
+
+/* ── PR-CAN-RECOVER: CAN ECU-silent kurtarma orkestratörü ─────────────────── */
+
+/** Kurtarma sayaçlarını sıfırlar (veri geri geldi / oturum değişti). */
+function _resetEcuRecoveryState(reason: string): void {
+  if (_recoveryAttempt === 0 && _ecuSilentStreak === 0 && !_recoveryExhausted) return;
+  console.info('[OBD:EcuRecovery]', JSON.stringify({
+    event: 'reset', reason, previousAttempt: _recoveryAttempt, at: Date.now(),
+  }));
+  _ecuSilentStreak = 0;
+  _recoveryAttempt = 0;
+  _lastRecoveryAt = 0;
+  _recoveryExhausted = false;
+}
+
+/**
+ * CAN ECU-silent kurtarma — BOUNDED merdiven.
+ *
+ * KAPILAR (hepsi geçilmeden tek bir komut bile gitmez):
+ *   1. transportConnected === true  → link canlı (yoksa bu bir KOPMA, kurtarma değil)
+ *   2. dataFresh === false          → ECU susmuş
+ *   3. ardışık doğrulama ≥ ECU_SILENT_STREAK_TO_RECOVER → TEK stale olayı tetiklemez
+ *   4. protokol CAN (6/7/8/9/A/B/C) → KWP/ISO9141'de native ATPC ZATEN çalışıyor;
+ *      ikinci motor = çift ATPC = yeni dalgalanma
+ *   5. cooldown doldu (üstel backoff: 10s · 20s · 40s)
+ *   6. tavan aşılmadı (MAX_RECOVERY_ATTEMPTS) → aşılırsa DURUR, sonsuz döngü YOK
+ *   7. başka kurtarma uçuşta değil
+ *   8. native reconnect otoritesi TS'te
+ *
+ * MERDİVEN: protocol_close (ATPC) → elm_reinit (ATWS+init) → transport_reconnect.
+ * İlk iki basamak transport'a DOKUNMAZ → connectionState DEĞİŞMEZ → UI dalgalanmaz.
+ */
+async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void> {
+  if (_recoveryInFlight || _recoveryExhausted) return;
+  if (!_current.transportConnected || _current.dataFresh) return;
+  if (_ecuSilentStreak < ECU_SILENT_STREAK_TO_RECOVER) return;
+  if (_nativeReconnectInFlight) return;
+
+  // CAN kapısı — KWP/ISO9141'in native kurtarmasına ASLA karışma.
+  const activeProto = _lastProtocolActive ?? _lastProtocolTried;
+  if (!isCanRecoveryApplicable(activeProto)) return;
+
+  // Cooldown (üstel backoff) — kurtarma turları birbirini kovalamasın.
+  if (_lastRecoveryAt > 0) {
+    const cooldown = getRecoveryCooldownMs(_recoveryAttempt);
+    if (now - _lastRecoveryAt < cooldown) return;
+  }
+
+  const level = getRecoveryLevel(_recoveryAttempt);
+  if (level === null) {
+    // Tavan aşıldı → DUR. Veri kendiliğinden dönerse _resetEcuRecoveryState açar.
+    _recoveryExhausted = true;
+    console.warn('[OBD:EcuRecovery]', JSON.stringify({
+      event: 'exhausted', attempts: _recoveryAttempt, protocol: activeProto,
+      msg: 'kurtarma tavanı aşıldı — veri dönene dek yeni deneme YOK (sonsuz döngü koruması)',
+    }));
+    return;
+  }
+
+  const myGen = _nativeGeneration;   // sessionId koruması
+  _recoveryInFlight = true;
+  _lastRecoveryAt = now;
+  const attempt = _recoveryAttempt++;
+
+  console.info('[OBD:EcuRecovery]', JSON.stringify({
+    event: 'attempt', level, attempt, protocol: activeProto,
+    source: _current.source, transport: _lastKnownTransport,
+    at: now, lastRxAt: _lastRxAt, lastValidFrameAt: _lastValidFrameAt(),
+    frameAgeMs: now - _lastValidFrameAt(), thresholdMs: staleMs,
+    ecuSilentStreak: _ecuSilentStreak, dataStaleCount: _dataStaleCount,
+  }));
+
+  try {
+    if (level === 'transport_reconnect') {
+      // SON ÇARE — ilk iki basamak ECU'yu uyandıramadı. connectionState değişir (UI
+      // 'connecting' görür); bu bilinçli ve YALNIZ burada.
+      _logStateTransition('connected', 'reconnecting', 'ecu_recovery_last_resort', now, staleMs);
+      _stopStaleWatchdog();
+      _merge({ transportConnected: false, dataFresh: false });
+      await _removeNativeHandles();
+      if (_nativeGeneration !== myGen || !_running) return; // oturum değişti → bırak
+      _scheduleReconnect();
+      return;
+    }
+
+    // Basamak 1/2 — transport'a DOKUNMAZ.
+    if (!CarLauncher.recoverObdSession) {
+      // Eski APK: bu basamak YOK → atla, bir sonrakine geç (fail-soft, yalan söyleme).
+      console.info('[OBD:EcuRecovery]', JSON.stringify({ event: 'skipped', level, reason: 'plugin_unavailable' }));
+      return;
+    }
+    const { ok } = await CarLauncher.recoverObdSession({ level });
+    if (_nativeGeneration !== myGen || !_running) return; // oturum değişti → sonucu YUT
+    console.info('[OBD:EcuRecovery]', JSON.stringify({ event: 'result', level, attempt, ok }));
+    // ok=false → sayaç zaten ilerledi; sonraki cooldown sonunda bir üst basamak denenir.
+    // ok=true  → ECU verisi dönerse watchdog 'ecu_resumed' görüp sayaçları SIFIRLAR.
+    //            Dönmezse bir üst basamağa geçilir (ATPC her zaman yetmez).
+  } catch (e) {
+    if (_nativeGeneration !== myGen) return;
+    logError('OBD:EcuRecovery', e);
+  } finally {
+    if (_nativeGeneration === myGen) _recoveryInFlight = false;
+  }
 }
 
 /**
@@ -782,6 +917,10 @@ function _logStateTransition(
 }
 
 function _stopStaleWatchdog(): void {
+  // Watchdog duruyorsa kurtarma bağlamı da geçersizdir (yeni oturum kendi sayacını kurar)
+  // → sayaçlar taşınmaz: eski oturumun 2. denemesiyle yeni oturum SON ÇAREden başlamaz.
+  _resetEcuRecoveryState('watchdog_stopped');
+  _recoveryInFlight = false;
   if (_staleWatchdogTimer !== null) {
     clearInterval(_staleWatchdogTimer);
     _staleWatchdogTimer = null;
@@ -868,7 +1007,15 @@ function _onRealData(patch: Partial<OBDData>): void {
   // Bu, `_lastRealDataMs`'ten AYRI tutulur — ATRV eskiden ECU donmasını maskeliyordu;
   // artık ayrı damgada yaşayıp tam tersini yapıyor: canlılığı kanıtlıyor, donmayı gizlemiyor.
   _lastRxAt = _rxNow;
-  if (_hasEcuData(patch)) _lastRealDataMs = _rxNow;
+  if (_hasEcuData(patch)) {
+    _lastRealDataMs = _rxNow;
+    // KURTARMA BAŞARISI — TEK OTORİTER SİNYAL: ECU yeniden konuşuyor. Sıfırlama BURADA
+    // olmalı, watchdog'da DEĞİL: aşağıdaki _merge zaten dataFresh=true yapıyor → watchdog'un
+    // "stale→fresh" dalı hiç çalışmaz → sayaçlar asla sıfırlanmazdı ve bir sonraki sessizlik
+    // merdivenin ORTASINDAN (elm_reinit) başlardı. (Testle yakalandı.)
+    // Sıfırlanacak bir şey yoksa erken döner → hot-path'te üç tam sayı karşılaştırması.
+    _resetEcuRecoveryState('ecu_data_received');
+  }
 
   // Fix 3: ısınma devam ediyorken geçerli çekirdek PID gelirse 2s deadline'ı iptal et
   if (_warmupActive && _warmupResolve && _hasEcuData(patch)) {

@@ -671,6 +671,23 @@ public final class BleObdManager {
     }
 
     /**
+     * PR-CAN-RECOVER — TS-tetiklemeli ECU-silent kurtarma (OBDManager ile AYNI sözleşme —
+     * BLE ve Classic yolları ayrışmaz).
+     */
+    public boolean recoverSession(String level) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> "elm_reinit".equals(level) ? p.reinitSession() : p.protocolClose()).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
      * PR-CAP-2 — {@link #readObdDid}'in HAM KANIT (kind + NRC) döndüren biçimi
      * (OBDManager ile AYNI sözleşme — BLE ve Classic yolları ayrışmaz).
      */

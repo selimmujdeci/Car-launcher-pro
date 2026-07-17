@@ -1682,6 +1682,42 @@ public class CarLauncherPlugin extends Plugin {
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
 
+    /**
+     * PR-CAN-RECOVER — TS-tetiklemeli CAN ECU-silent kurtarma basamağı.
+     *
+     * KARAR TS'TE: eşik/ardışıklık/cooldown/backoff/tavan TS'te (obdService); native yalnız
+     * komutu uygular. KWP/ISO9141'in NATIVE otomatik ATPC kurtarması BU YOLDAN BAĞIMSIZDIR
+     * ve DEĞİŞMEDİ — TS bu metodu yalnız CAN (proto 6/7/8/9/A/B/C) için çağırır → aynı
+     * protokolde asla iki kurtarma motoru çalışmaz.
+     */
+    @PluginMethod
+    public void recoverObdSession(PluginCall call) {
+        String level = call.getString("level", "protocol_close");
+        if (!"protocol_close".equals(level) && !"elm_reinit".equals(level)) {
+            call.reject("INVALID_ARGS", "level 'protocol_close' veya 'elm_reinit' olmalı");
+            return;
+        }
+        final String lv = level;
+        new Thread(() -> {
+            try {
+                boolean ok;
+                if (bleObdManager != null && bleObdManager.isConnected()) {
+                    ok = bleObdManager.recoverSession(lv);
+                } else if (obdManager != null && obdManager.isConnected()) {
+                    ok = obdManager.recoverSession(lv);
+                } else {
+                    throw new java.io.IOException("OBD okuyucu bağlı değil");
+                }
+                JSObject ret = new JSObject();
+                ret.put("ok", ok);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "kurtarma başarısız";
+                mainHandler.post(() -> call.reject("OBD_RECOVER_FAILED", msg));
+            }
+        }, "obd-recover").start();
+    }
+
     /** PR-CAP-2: aktif taşımadan HAM KANIT (kind + NRC) okur — BLE/Classic ayrışmaz. */
     private com.cockpitos.pro.obd.ElmProtocol.UdsEvidence readObdDidDetailedFromActive(
             String tx, String rx, String did, String service) throws Exception {

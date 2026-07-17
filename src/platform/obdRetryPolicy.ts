@@ -59,6 +59,88 @@ export function computeStaleThresholdMs(protocolFloorMs: number, fastMs: number)
   if (!Number.isFinite(fastMs) || fastMs <= 0) return floor;
   return Math.max(floor, fastMs * STALE_MISSED_POLLS + STALE_JITTER_MARGIN_MS);
 }
+
+/* ── CAN ECU-silent kurtarma politikası ────────────────────────────────────────
+ *
+ * NEDEN: KWP/ISO9141'de ölü oturum kurtarması NATIVE'dedir (ElmProtocol.noteKwpSessionHealth
+ * → ardışık çekirdek NO_DATA → ATPC), ama `isSlowSerialActive()` kapısı CAN'i (proto 6/7)
+ * BİLİNÇLİ olarak dışarıda bırakır. Sonuç: CAN'de ECU susunca kurtarma YOK → manuel
+ * reset'e dek donuk (saha 2026-07-16 Doblo). Bu politika o boşluğu TS tarafında,
+ * BOUNDED biçimde doldurur.
+ *
+ * DALGALANMA KORUMASI (bu politikanın en önemli kısmı): kurtarma, dalgalanmayı yeniden
+ * icat ETMEMELİDİR. Bu yüzden:
+ *   - TEK stale olayı kurtarma tetiklemez (ardışık ECU_SILENT_STREAK_TO_RECOVER şart),
+ *   - denemeler arası cooldown ÜSTEL büyür,
+ *   - toplam deneme SINIRLI (MAX_RECOVERY_ATTEMPTS) → sonsuz döngü YOK,
+ *   - ilk iki basamak transport'a DOKUNMAZ → connectionState değişmez → UI dalgalanmaz.
+ */
+
+/**
+ * Kurtarma basamağı — en hafiften en ağıra. Her basamak bir öncekinin başarısızlığında
+ * denenir; hiçbiri ECU'ya YAZMAZ (salt okuma/oturum komutları — write/coding/security YOK).
+ */
+export type ObdRecoveryLevel =
+  /** ATPC (Protocol Close) — ELM327 bir SONRAKİ istekte protokolü taze kurar. Transport'a
+   *  DOKUNMAZ, poll döngüsü sürer, ~1-2s. KWP'nin native kurtarmasının CAN karşılığı. */
+  | 'protocol_close'
+  /** Kontrollü ELM yeniden init (ATWS + init dizisi + ATSP<n>). Transport'a DOKUNMAZ ama
+   *  ELM327'yi sıfırlar (~2-4s). ATPC yetmediyse adaptör durum makinesi karışmış demektir. */
+  | 'elm_reinit'
+  /** SON ÇARE: transport reconnect (BT/GATT koparıp yeniden bağlan). connectionState
+   *  değişir → UI 'connecting' görür. Yalnız ilk iki basamak başarısızsa. */
+  | 'transport_reconnect';
+
+/**
+ * Kurtarma tetiklenmeden ÖNCE gereken ARDIŞIK "ECU sessiz" doğrulaması (watchdog turu).
+ * 2: tek bir stale olayı ASLA kurtarma başlatmaz (kullanıcı şartı) — iki ardışık tur
+ * (≥2×WATCHDOG_INTERVAL_MS) sessizlik gerçek bir ECU susmasıdır.
+ */
+export const ECU_SILENT_STREAK_TO_RECOVER = 2;
+
+/** Toplam kurtarma denemesi tavanı — aşılınca kurtarma DURUR (sonsuz döngü yasak). */
+export const MAX_RECOVERY_ATTEMPTS = 3;
+
+/** İlk cooldown (ms). Her denemede üstel büyür: 10s → 20s → 40s. */
+export const RECOVERY_BASE_COOLDOWN_MS = 10_000;
+
+/**
+ * Deneme numarasına (0 tabanlı) göre kurtarma basamağı. Merdiven en hafiften en ağıra:
+ * 0 → protocol_close · 1 → elm_reinit · 2 → transport_reconnect.
+ * Tavan aşılırsa null (kurtarma durur — çağıran ısrar ETMEZ).
+ */
+export function getRecoveryLevel(attempt: number): ObdRecoveryLevel | null {
+  switch (attempt) {
+    case 0:  return 'protocol_close';
+    case 1:  return 'elm_reinit';
+    case 2:  return 'transport_reconnect';
+    default: return null; // MAX_RECOVERY_ATTEMPTS aşıldı → dur
+  }
+}
+
+/**
+ * Bir denemeden sonra beklenecek cooldown (ms) — üstel: 10s · 20s · 40s.
+ * Kurtarma turlarının birbirini kovalayıp dalgalanma üretmesini engeller.
+ */
+export function getRecoveryCooldownMs(attempt: number): number {
+  const a = Math.max(0, Math.min(attempt, MAX_RECOVERY_ATTEMPTS));
+  return RECOVERY_BASE_COOLDOWN_MS * Math.pow(2, a);
+}
+
+/**
+ * CAN kurtarması bu protokolde uygulanabilir mi?
+ *
+ * YALNIZ CAN (ISO 15765-4: ATSP 6/7/8/9 + A/B/C kullanıcı CAN). Yavaş seri protokoller
+ * (3 ISO9141 · 4/5 KWP) HARİÇ: onlarda native ATPC kurtarması ZATEN çalışıyor
+ * (ElmProtocol.noteKwpSessionHealth) — ikinci bir motor eklemek ÇİFT KURTARMA olur
+ * (aynı anda iki taraf ATPC gönderir → oturum sürekli kapanır → yeni bir dalgalanma).
+ */
+export function isCanRecoveryApplicable(activeProtocol: string | null | undefined): boolean {
+  if (!activeProtocol) return false; // protokol bilinmiyor → fail-closed, kurtarma YOK
+  const c = activeProtocol.trim().toUpperCase().charAt(0);
+  return c === '6' || c === '7' || c === '8' || c === '9'
+      || c === 'A' || c === 'B' || c === 'C';
+}
 /** connectOBD + ısınma sonrası ilk PID için bekleme süresi */
 export const DATA_GATE_TIMEOUT_MS   = 10_000; // 10 s
 /**

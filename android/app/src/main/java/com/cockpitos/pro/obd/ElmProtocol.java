@@ -501,6 +501,58 @@ public final class ElmProtocol {
         } catch (Exception ignored) { /* fail-soft — sonraki eşikte tekrar denenir */ }
     }
 
+    /* ══ PR-CAN-RECOVER: TS-tetiklemeli kurtarma primitifleri ═════════════════
+     *
+     * NEDEN TS TETİKLER: KWP/ISO9141'de kurtarma NATIVE'de otomatiktir
+     * ({@link #noteKwpSessionHealth} — ardışık çekirdek NO_DATA → ATPC) ama o kapı
+     * {@link #isSlowSerialActive()} ile CAN'i BİLİNÇLİ dışarıda bırakır. CAN'de ECU
+     * susunca kurtarma YOKTU → manuel reset'e dek donuk (saha Doblo).
+     *
+     * CAN'de eşik kararını NATIVE'e koymuyoruz: "ECU sessiz" kanıtı TS'te toplanıyor
+     * (transportConnected + dataFresh + ardışık doğrulama + cooldown + backoff + tavan).
+     * Native yalnız KOMUTU uygular. Böylece İKİ kurtarma motoru asla aynı protokolde
+     * çalışmaz (KWP → native · CAN → TS) ve çift-ATPC riski olmaz.
+     *
+     * İkisi de SALT OTURUM komutudur — ECU'ya YAZMAZ (write/coding/security DEĞİL).
+     */
+
+    /**
+     * Basamak 1 — ATPC (Protocol Close). ELM327 bir SONRAKİ istekte protokolü TAZE kurar.
+     * Transport'a dokunmaz, poll döngüsü sürer. KWP'nin native kurtarmasıyla AYNI komut,
+     * yalnız tetikleyeni farklı (TS).
+     *
+     * @return true = komut gönderildi (ELM yanıtı önemsiz — ATPC "OK" dönmeyebilir).
+     */
+    public boolean protocolClose() {
+        try {
+            channel.send("ATPC", 500);
+            // Oturum kapandı → ölü-oturum sayacı da sıfırlanmalı; aksi halde KWP tarafı
+            // bayat streak ile hemen ikinci bir ATPC gönderebilirdi.
+            coreNoDataStreak = 0;
+            return true;
+        } catch (Exception e) {
+            return false; // fail-soft — TS bir sonraki basamağa geçer
+        }
+    }
+
+    /**
+     * Basamak 2 — kontrollü ELM yeniden init: ATWS (warm start) + tam init dizisi
+     * (ATSP&lt;n&gt; dahil, ÖĞRENİLMİŞ protokol korunur → ATSP0 arama turu YOK).
+     * Transport'a dokunmaz. ATPC yetmediyse ELM327 durum makinesi karışmış demektir.
+     *
+     * @return true = init başarılı (ATDPN protokol okundu).
+     */
+    public boolean reinitSession() {
+        try {
+            channel.send("ATWS", 1000);           // warm start — soket KAPANMAZ
+            String p = initELM327(activeProtocol); // öğrenilmiş protokolle taze init
+            coreNoDataStreak = 0;
+            return p != null;
+        } catch (Exception e) {
+            return false; // fail-soft — TS son çareye (transport reconnect) geçer
+        }
+    }
+
     /** Aktif protokol yavaş seri mi (ISO 9141-2 '3' / KWP2000 '4'-'5')? CAN/J1850 → false. */
     private boolean isSlowSerialActive() {
         String p = activeProtocol;

@@ -585,6 +585,16 @@ export interface CarLauncherPlugin {
   // bulunmayabilir (obdService varlık kontrolü + catch ile çağırır — fail-soft).
   setObdPollProfile?(opts: { fastMs: number; uiHz?: number }): Promise<void>;
 
+  /**
+   * PR-CAN-RECOVER: CAN ECU-silent kurtarma basamağı. Karar TS'te (eşik/cooldown/backoff/
+   * tavan obdService'te); native yalnız komutu uygular. İkisi de SALT oturum komutudur —
+   * ECU'ya YAZMAZ.
+   *   'protocol_close' → ATPC; ELM bir sonraki istekte protokolü taze kurar (transport'a dokunmaz)
+   *   'elm_reinit'     → ATWS + init dizisi (öğrenilmiş ATSP korunur; transport'a dokunmaz)
+   * Opsiyonel: eski APK'da YOK → çağıran guard'lar ve basamağı ATLAR (fail-soft).
+   */
+  recoverObdSession?(opts: { level: 'protocol_close' | 'elm_reinit' }): Promise<{ ok: boolean }>;
+
   // Patch 8: EXTENDED grup PID listesi (talep-güdümlü — extendedPidService yönetir).
   // Boş liste = devre dışı (native poll turu ek komut çalıştırmaz, sıfır maliyet).
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).
