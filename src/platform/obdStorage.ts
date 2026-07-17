@@ -162,6 +162,36 @@ export function clearObdProtocol(): void {
   mirrorObdToVid({ lastProtocolNum: null });
 }
 
+/* ── Araç-bazlı yakıt kalibrasyonu (PID 0x2F sensör eğrisi düzeltmesi) ──────────
+ * Bazı araçlarda (Fiat/PSA/Renault) OBD PID 2F'nin bildirdiği yüzde, gösterge
+ * panelindeki yakıt seviyesiyle UYUŞMAZ (doğrusal-olmayan şamandıra + üretici
+ * kalibrasyon eğrisi). Örn. saha 2026-07-16 Doblo: 2F=%26 iken gerçek ~%48.
+ * Ölçek adaptör MAC'ine göre saklanır (adaptör+araç ikilisi); varsayılan 1.0
+ * (kalibrasyonsuz → hiçbir aracı etkilemez). displayFuel = clamp(raw2F × scale). */
+const OBD_FUEL_CALIB_PREFIX = 'obd:fuelCalib:';
+
+/** Bu adres için yakıt ölçek katsayısı. Yoksa/geçersizse 1.0 (kalibrasyonsuz). */
+export function loadObdFuelCalib(address: string): number {
+  if (!address) return 1;
+  try {
+    const raw = localStorage.getItem(OBD_FUEL_CALIB_PREFIX + address);
+    const n = raw != null ? parseFloat(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  } catch { return 1; }
+}
+
+/** Yakıt ölçek katsayısını adrese göre kalıcılaştırır (1.0 → kalibrasyon temizle). */
+export function saveObdFuelCalib(address: string, scale: number): void {
+  if (!address) return;
+  try {
+    if (Number.isFinite(scale) && scale > 0 && scale !== 1) {
+      localStorage.setItem(OBD_FUEL_CALIB_PREFIX + address, String(scale));
+    } else {
+      localStorage.removeItem(OBD_FUEL_CALIB_PREFIX + address);
+    }
+  } catch { /* quota */ }
+}
+
 /** Kalıcı OBD profil kimliğini safeStorage'dan okur. */
 export function loadObdProfileId(): string | null {
   return safeGetRaw(OBD_PROFILE_KEY) ?? null;

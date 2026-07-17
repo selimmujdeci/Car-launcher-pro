@@ -31,7 +31,7 @@ import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence
 import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, isValidTcpAddress, markObdAddressVerified, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { isFeatureEnabled, recordFault } from './safety/SafetyBrain';
 import { useExpertStore } from '../store/useExpertStore';
@@ -41,7 +41,7 @@ import { getMockInitialData, generateMockUpdate } from './obdMockEngine';
 import { getPidListForVehicle, refinePidList } from './obdPidConfig';
 import { computeObdPollProfile } from './obd/AdaptivePollingController';
 import { obdHealthMonitor, HEALTH_FIELDS } from './obd/ObdHealthMonitor';
-import { notifyObdConnected as notifyExtendedPids, seedSupportedPids as seedExtendedSupported } from './obd/extendedPidService';
+import { notifyObdConnected as notifyExtendedPids, seedSupportedPids as seedExtendedSupported, watchPid as watchExtendedPid, ELM_WATCH_CAP } from './obd/extendedPidService';
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
@@ -333,8 +333,41 @@ let _warmupResolve: (() => void) | null = null;
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
 let _fuelTankL        = 0;   // 0 = not configured
 let _avgConsumL100    = 0;   // 0 = not configured (L per 100 km)
+// Araç-bazlı yakıt ölçek katsayısı — OBD PID 2F, Fiat/PSA/Renault gösterge eğrisiyle
+// uyuşmadığında düzeltir (saha 2026-07-16 Doblo: 2F=%26 iken gerçek ~%48). 1 = kalibrasyonsuz.
+// Bağlantıda adrese göre loadObdFuelCalib ile yüklenir; _merge'de ham 2F'ye uygulanır.
+let _fuelCalibScale   = 1;
 
 let _prevRpm: number | null = null;
+
+// "Tüm desteklenen PID'leri oku" — handshake keşfindeki core-OLMAYAN destekli PID'leri
+// (04 yük, 10 MAF, 33 baro, 49/4A pedal, 21/23/2C…) extended kanalda SÜREKLİ izler. Böylece
+// yalnız Canlı Test paneli açıkken değil, her zaman okunurlar (asistan/loglama/panel anında).
+// Extended round-robin POLL_SLOW'da 1 PID/tur → çekirdek RPM hot-path'i YAVAŞLAMAZ. Yalnız
+// KANITLI destekli PID'ler izlenir → NO-DATA israfı yok. stopOBD'de temizlenir (zero-leak).
+let _extraPidUnsubs: Array<() => void> = [];
+/** Native FAST poll'un zaten okuduğu çekirdek Mode-01 PID'leri (extended'de tekrar izlenmez). */
+const _CORE_POLL_PIDS = new Set<number>([0x0D, 0x0C, 0x05, 0x2F, 0x11, 0x0F, 0x0B]);
+
+function _clearExtraPidWatches(): void {
+  for (const u of _extraPidUnsubs) { try { u(); } catch { /* watcher zaten gitti */ } }
+  _extraPidUnsubs = [];
+}
+
+/** Handshake'te KANITLI destekli, core-olmayan PID'leri sürekli izlemeye al (cap'e kadar). */
+function _watchAllSupportedPids(supported: ReadonlySet<number>): void {
+  _clearExtraPidWatches();
+  let count = 0;
+  for (const num of supported) {
+    if (_CORE_POLL_PIDS.has(num)) continue;          // core zaten FAST poll'da
+    if (num % 0x20 === 0) continue;                  // 0x20/0x40… = "sonraki blok" bayrağı, veri değil
+    if (count >= ELM_WATCH_CAP) break;               // izleme tavanı (rotasyon makul kalsın)
+    // StandardPidRegistry key formatı: 2 haneli büyük-harf hex, '0x' YOK (ör. '2F', '04').
+    const hex = num.toString(16).toUpperCase().padStart(2, '0');
+    _extraPidUnsubs.push(watchExtendedPid(hex, () => { /* değer _values'e saklanır; panel/asistan okur */ }));
+    count++;
+  }
+}
 
 // performanceMode değişiminde yalnızca reconnect timer'ı iptal et.
 // Mock interval yönetimi merkezi RuntimeEngine (_unsubRuntime) tarafından yapılır.
@@ -433,8 +466,14 @@ function _recordConnMilestone(prev: OBDConnectionState, next: OBDConnectionState
 function _merge(partial: Partial<OBDData>): void {
   // Recompute fuel metrics whenever fuelLevel is updated
   if (partial.fuelLevel !== undefined && partial.fuelLevel >= 0) {
-    const computed = computeFuelMetrics(partial.fuelLevel, _fuelTankL, _avgConsumL100);
-    partial = { ...partial, ...computed };
+    // Araç-bazlı yakıt kalibrasyonu: ham OBD 2F yüzdesini gösterge-eşdeğerine ölçekle
+    // (yalnız kalibre araçlarda; _fuelCalibScale=1 → dokunmaz). Native HER pakette HAM 2F
+    // gönderir → burada tek yerde ölçeklenir (çift-uygulama yok). clamp 0–100.
+    const dispFuel = _fuelCalibScale !== 1
+      ? Math.round(Math.max(0, Math.min(100, partial.fuelLevel * _fuelCalibScale)))
+      : partial.fuelLevel;
+    const computed = computeFuelMetrics(dispFuel, _fuelTankL, _avgConsumL100);
+    partial = { ...partial, fuelLevel: dispFuel, ...computed };
   }
   const prevConnState = _current.connectionState;
   _current = { ..._current, ...partial };
@@ -714,7 +753,15 @@ function _hasEcuData(patch: Partial<OBDData>): boolean {
  * VALIDATION_THRESHOLD kez tekrar ederse StandardProfile'e döner.
  */
 function _onRealData(patch: Partial<OBDData>): void {
-  _lastRealDataMs = Date.now();
+  // ECU DONMA TESPİTİ (saha 2026-07-16 Doblo/CAN): tazelik referansı YALNIZ gerçek ECU
+  // verisiyle güncellenir. ATRV (adaptör voltajı) ECU ÖLSE BİLE ~5s'de bir gelir; eskiden
+  // _lastRealDataMs koşulsuz (satırın en başında) tazeleniyordu → ATRV-only patch de "taze
+  // veri" sayılıyordu → stale watchdog ECU donmasını HİÇ yakalamıyordu ("akıyor sonra donuyor":
+  // veri bir kez akar, ECU ölür, ATRV akmaya devam eder → UI son değerde sonsuz donar).
+  // CAN'de (proto 6/7) KWP'nin ATPC ölü-oturum kurtarması da yok → manuel reset'e dek donuk.
+  // Data-gate zaten ATRV'yi `_hasEcuData` ile HARİÇ tutuyordu; watchdog'un referansını da
+  // aynı kapıya bağlıyoruz → ATRV artık donmayı maskelemez, watchdog reconnect'i tetikler.
+  if (_hasEcuData(patch)) _lastRealDataMs = Date.now();
 
   // Fix 3: ısınma devam ediyorken geçerli çekirdek PID gelirse 2s deadline'ı iptal et
   if (_warmupActive && _warmupResolve && _hasEcuData(patch)) {
@@ -1080,9 +1127,15 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   // ARAÇ-DEĞİŞİMİ KURTARMASI: bu deneme ÖĞRENİLMİŞ (önbellek) protokolü mü zorluyor?
   const _wasForcingLearned = _protocolCycleIndex === 0 && _learnedProtocol != null
     && forcedProtocol === _learnedProtocol;
-  /** Öğrenilmiş protokolde ısrarlı TIMEOUT → araç değişmiş olabilir; eşikte OTURUM-İÇİ bypass. */
-  const _noteLearnedProtocolTimeout = (timedOut: boolean): void => {
-    if (!timedOut || !_wasForcingLearned) return;
+  /** Öğrenilmiş protokolde ISRARLI SERT BAŞARISIZLIK → araç değişmiş olabilir; eşikte OTURUM-İÇİ bypass.
+   *  `hardFailure`: bu deneme öğrenilmiş protokolü zorlarken, UNABLE_TO_CONNECT protokol-döngüsünün
+   *  (index++) kendi kendine onaramayacağı bir başarısızlıkla düştü — TIMEOUT **veya** düz
+   *  CONNECT_FAILED. Bu ikincisi kritik (saha 2026-07-16 BLE "OBDII"): BLE init 0100 warm-up'ta
+   *  BUS INIT/CAN ERROR yerine soket/GATT IOException ile düşerse native kod CONNECT_FAILED döner
+   *  → UNABLE değil (döngü ilerlemez) → timeout değil (eski guard es geçerdi) → cached protokol
+   *  (5/KWP) SONSUZA KADAR zorlanır → sonsuz "Bağlanıyor". Artık connect-fail de sayılır. */
+  const _noteLearnedProtocolFailure = (hardFailure: boolean): void => {
+    if (!hardFailure || !_wasForcingLearned) return;
     // FLAKY-ARAÇ KORUMASI (2026-07-14 Trafic/KWP saha): bu protokol BU OTURUMDA en az bir
     // kez bağlandıysa (lastSuccessAt), protokol muhtemelen DOĞRUdur — timeout'lar yavaş/flaky
     // protokol (KWP/ISO9141) kaynaklı → doğru protokolü hemen bırakıp yavaş ATSP0-aramaya
@@ -1110,7 +1163,7 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
           stage: 'protocol', status: 'warn', transport: _connectedTp,
           protocol: forcedProtocol ?? null,
           userMessage: 'Araç değişmiş olabilir — otomatik protokol algılamaya geçiliyor…',
-          technicalMessage: `Öğrenilmiş protokol (${forcedProtocol}) ${limit}× timeout → bu oturumda bypass (kalıcı kayıt KORUNDU), sonraki deneme ATSP0`,
+          technicalMessage: `Öğrenilmiş protokol (${forcedProtocol}) ${limit}× sert başarısızlık (timeout/connect-fail) → bu oturumda bypass (kalıcı kayıt KORUNDU), sonraki deneme ATSP0`,
         });
       }
     }
@@ -1202,7 +1255,9 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
       if (!_stale()) {
         const timedOut = ePrimary instanceof Error && ePrimary.message.includes('zaman aşımı');
         // ARAÇ-DEĞİŞİMİ KURTARMASI (TCP tek-deneme yolu için de) — bkz. çift-transport yolu.
-        _noteLearnedProtocolTimeout(timedOut);
+        // UNABLE_TO_CONNECT zaten protokol döngüsünü ilerletti (yukarıda index++) → onu sayma;
+        // geri kalan her sert başarısızlık (timeout VEYA connect-fail) öğrenilmiş-bypass'a sayılır.
+        _noteLearnedProtocolFailure(!_isUnableToConnectError(ePrimary));
         emitObdDiag('connect', timedOut ? 'OBD_CONNECT_TIMEOUT' : 'OBD_CONNECT_FAIL', {
           ..._diagCommon(),
           transport: 'tcp',
@@ -1251,7 +1306,10 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         const timedOut = eFallback instanceof Error && eFallback.message.includes('zaman aşımı');
         // ARAÇ-DEĞİŞİMİ KURTARMASI: her iki transport da timeout + öğrenilmiş protokol
         // zorlanıyordu → ısrarlı uyuşmazlık sayacı; eşikte protokol sıfırlanır.
-        _noteLearnedProtocolTimeout(timedOut);
+        // UNABLE_TO_CONNECT (primary VEYA fallback) zaten protokol döngüsünü ilerletti (index++)
+        // → onu öğrenilmiş-bypass'a sayma; geri kalan her sert başarısızlık (timeout VEYA düz
+        // connect-fail — BLE init IOsoket hatası dahil) sayılır → cached protokol sonsuz zorlanmaz.
+        _noteLearnedProtocolFailure(!(_isUnableToConnectError(ePrimary) || _isUnableToConnectError(eFallback)));
         // Native soket hatasını PII-güvenli kategoriye sınıflandır (busy/refused/closed/…).
         // Fallback (son denenen transport) hatası daha alakalı; generic ise primary'e düş.
         const _rFb = classifyObdErrorReason(eFallback);
@@ -1318,6 +1376,8 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   //    ilk geçerli PID gelince _onRealData zaten anında 'connected'e geçirir.)
   _lastKnownAddress = candidate.address;
   saveObdAddress(candidate.address);
+  // Araç-bazlı yakıt kalibrasyonunu bu adaptör/araç için yükle (yoksa 1 = kalibrasyonsuz).
+  _fuelCalibScale = loadObdFuelCalib(candidate.address);
   _addressConnectedOnce = true; // RFCOMM/GATT+init başarılı → bu adres bu oturumda doğrulandı
   _merge({ connectionState: 'initializing', source: 'none' });
 
@@ -1364,7 +1424,12 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
         // kanaldan YENİDEN bitmask keşfi beklemez (aksi halde _supported=null iken izlenen
         // tüm PID'ler native'e gidip NO-DATA fırtınasıyla keşfi tıkıyordu). Yalnız EKLER,
         // izleyici yoksa no-op. readBlocks boşsa (kanıt yok) seed boş → fail-soft dokunmaz.
-        if (result.readBlocks.size > 0) seedExtendedSupported(result.supportedPids);
+        if (result.readBlocks.size > 0) {
+          seedExtendedSupported(result.supportedPids);
+          // "Tüm PID'leri oku": keşfedilen core-olmayan destekli PID'leri SÜREKLİ izle
+          // (panel kapalıyken de akar; asistan/loglama okur). Extended POLL_SLOW → RPM'i yavaşlatmaz.
+          _watchAllSupportedPids(result.supportedPids);
+        }
 
         // Timeout türü ayrımı (item 5): NO DATA / TIMEOUT / UNSUPPORTED sessizce
         // yutulmaz — VIN + zorunlu 0100 bloğunun sınıfı loglanır (teşhis şeffaflığı).
@@ -1611,6 +1676,7 @@ export function stopOBD(): void {
   _reconnectAttempts = 0;
   _stopStaleWatchdog();
   _clearDataGate();
+  _clearExtraPidWatches();            // "tüm PID" sürekli izleyicilerini bırak (zero-leak)
   _clearNativeReconnectAuthority();  // F0-5: guard timer + otorite bayrağı (zero-leak)
   // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
   if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }

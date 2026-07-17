@@ -94,6 +94,13 @@ vi.mock('../platform/obdStorage', () => ({
   loadObdProtocol:   vi.fn(() => null),
   saveObdProtocol:   vi.fn(),
   clearObdProtocol:  vi.fn(),
+  // obdService'in obdStorage'dan İMPORT ETTİĞİ HER ŞEY burada olmalı: eksik export
+  // undefined döner ve ilk çağrıda TypeError ile bağlantı zincirini sessizce koparır
+  // (handshake/data_gate aşamalarına HİÇ ulaşılmaz → o diag'lar üretilmez).
+  loadObdFuelCalib:  vi.fn(() => 1),   // 1 = kalibrasyonsuz (üretim varsayılanı)
+  saveObdFuelCalib:  vi.fn(),
+  isValidTcpAddress: vi.fn(() => false),
+  markObdAddressVerified: vi.fn(),
 }));
 
 vi.mock('../platform/vehicleProfileService', () => ({ persistHandshakeVin: vi.fn() }));
