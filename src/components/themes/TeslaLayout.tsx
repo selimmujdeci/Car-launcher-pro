@@ -1,3 +1,4 @@
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import type { ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react';
 import {
@@ -251,8 +252,18 @@ const FuelCard = memo(function FuelCard() {
   const p = usePal();
   const obd = useOBDState();
   const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
-  const range = lvl != null ? Math.round((lvl / 100) * 750) : null;
+  // CANLI KAPISI (saha 2026-07-17): OBD bağlı değilken "345 km menzil + yarı dolu yakıt"
+  // gösteriliyordu. Sebep: canSnapshotService son bilinen yakıtı 12 SAATE kadar geri yükleyip
+  // patch'e source='real' damgası vuruyor → `fuelLevel >= 0` kontrolü bunu ELEYEMİYOR.
+  // dataFresh + lastSeenMs bayat-kurtarma ile canlı ölçümü ayırır (bkz. isObdReadingLive).
+  const live = isObdReadingLive(obd);
+  const lvl = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
+  // Menzil UYDURULMAZ: sabit 750 km katsayısı yerine araç profilinin tank+tüketim
+  // hesabından gelen gerçek değer (computeFuelMetrics → estimatedRangeKm). Tank
+  // yapılandırılmamışsa -1 döner → dürüstçe '—' (HorizonLayout ile aynı desen).
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
+    ? Math.round(obd.estimatedRangeKm)
+    : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
     <div style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">

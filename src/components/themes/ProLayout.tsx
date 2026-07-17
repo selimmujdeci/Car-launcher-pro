@@ -1,3 +1,4 @@
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { memo, useEffect, useState, useMemo, useRef, lazy, Suspense, createContext, useContext } from 'react';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
@@ -188,7 +189,10 @@ const GaugeCard = memo(function GaugeCard() {
   const gps = useGPSLocation();
   const { playing, track } = useMediaState();
   const speedKmh = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
-  const range = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round((obd.fuelLevel / 100) * 750) : null;
+  // Canlı kapısı + gerçek menzil (sabit 750 km katsayısı UYDURMAYDI) — bkz. isObdReadingLive.
+  const range = isObdReadingLive(obd) && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
+    ? Math.round(obd.estimatedRangeKm)
+    : null;
 
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
@@ -503,8 +507,15 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
   // Living theme — araç durumu ekseni (eşikler: fuel<=12, engineTemp>=105, OBD yok/stale).
   const { veh } = useLivingThemeState();
   const st = VEH_STATUS[veh] ?? VEH_STATUS.normal;
-  const battery = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round(obd.fuelLevel) : 78;
-  const range = obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round((obd.fuelLevel / 100) * 750) : 320;
+  // SAHTE VERİ YASAĞI (saha 2026-07-17): burada veri YOKKEN sabit 78 / 320 UYDURULUYORDU —
+  // kullanıcı OBD'siz, araçta değilken dolu yakıt + menzil görüyordu. Artık kanıt yoksa null
+  // → gösterge '—'. Ayrıca canlı kapısı: kurtarılmış (12 saate kadar bayat) snapshot
+  // source='real' damgalı geldiği için `fuelLevel >= 0` tek başına YETMEZ (bkz. isObdReadingLive).
+  const live = isObdReadingLive(obd);
+  const battery = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? Math.round(obd.fuelLevel) : null;
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
+    ? Math.round(obd.estimatedRangeKm)
+    : null;
   // Odometre — GPS'ten beslenir (OBD'siz de çalışır), TEK kaynak useVehicleStore.odometer.
   const odometer = useUnifiedVehicleStore(s => s.odometer);
 
@@ -532,9 +543,11 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
       <div className="flex-1 min-h-0 flex items-center gap-3 my-1">
         <div className="flex-1 flex items-center justify-center min-w-0"><VehicleSVG p={p} /></div>
         <div className="flex flex-col gap-2 flex-shrink-0" style={{ minWidth: 88 }}>
-          <Stat p={p} icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={`${battery}%`} label="Batarya" />
-          <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="2.5 bar" label="Lastik" />
-          <Stat p={p} icon={<Navigation className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${range} km`} label="Menzil" />
+          <Stat p={p} icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={battery != null ? `${battery}%` : '—'} label="Batarya" />
+          {/* Lastik basıncı: "2.5 bar" SABİT YAZILMIŞTI — hiçbir TPMS kaynağına bağlı değil,
+              düpedüz uydurma. Gerçek TPMS okuması bağlanana dek dürüstçe '—'. */}
+          <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="—" label="Lastik" />
+          <Stat p={p} icon={<Navigation className="w-4 h-4" style={{ color: p.ink2 }} />} value={range != null ? `${range} km` : '—'} label="Menzil" />
           <Stat p={p} icon={<Gauge className="w-4 h-4" style={{ color: p.ink2 }} />} value={`${Math.round(odometer)} km`} label="Kilometre" />
         </div>
       </div>

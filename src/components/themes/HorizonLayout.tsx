@@ -1,3 +1,4 @@
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Settings, Car, Bell,
@@ -273,8 +274,13 @@ const HzRangeCard = memo(function HzRangeCard() {
   const obd = useOBDState();
   const eng = useEngineReadout();
   const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
-  const range = obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
+  // Canlı kapısı: kurtarılmış CAN snapshot'ı (12 saate kadar bayat) source='real' damgalı
+  // geldiği için `fuelLevel >= 0` tek başına YETMEZ. CAN-bus yedeği (eng.fuel) KORUNUR —
+  // o ayrı ve MEŞRU bir canlı kaynaktır (K24/Hiworld), yalnız bayat OBD değeri elenir.
+  const live = isObdReadingLive(obd);
+  const lvl = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
+  // estimatedRangeKm bayat fuelLevel'den yeniden hesaplanıyor (setObdFuelConfig) → o da kapıya tabi.
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
   const fpct = lvl != null ? Math.max(0, Math.min(lvl, 100)) : 0;
   return (
     <Panel style={{ padding: '13px 15px' }}>

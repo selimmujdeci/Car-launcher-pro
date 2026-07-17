@@ -131,6 +131,37 @@ export function deriveObdStatus(i: {
   return 'disconnected';
 }
 
+/* ── OBD okuma güvenilirliği (gösterim kapısı) ────────────────────────────── */
+
+/**
+ * Bu OBD okuması EKRANDA SAYI OLARAK gösterilecek kadar canlı mı?
+ *
+ * KÖK PROBLEM (saha 2026-07-17): araçta değilken ve OBD hiç bağlı değilken gösterge
+ * "345 km menzil + yarı dolu yakıt" gösteriyordu. Sebep: `canSnapshotService` son bilinen
+ * CAN anlık görüntüsünü **12 saate kadar** geri yüklüyor (`STALE_STATIC_MS`) ve patch'e
+ * `source = 'real'` DAMGASI VURUYOR ("UI idle'da takılı kalmasın" niyetiyle). Bu yüzden
+ * `source === 'real'` kontrolü bu veriyi ELEYEMEZ — dün akmış yakıt, bugün canlı görünür.
+ *
+ * AYIRT EDİCİ: `dataFresh` + `lastSeenMs`. Hydration `_merge`'i BYPASS ettiği için
+ * (`_current = { ...INITIAL, ...hydrateCanSnapshotSync() }`) bu iki alan dokunulmaz kalır:
+ * dataFresh=false, lastSeenMs=0. Yani "kurtarılmış son bilinen değer" ile "canlı ölçüm"
+ * tam olarak buradan ayrılır.
+ *
+ * Kullanım: false → gösterge '—' göstermeli (sayı UYDURMA). Son bilinen değeri göstermek
+ * isteyen çağıran bunu AÇIKÇA "son bilinen/bayat" olarak etiketlemeli — canlıymış gibi DEĞİL.
+ */
+export function isObdReadingLive(i: {
+  source: string;
+  /** obdService.dataFresh — ilk gerçek ECU frame'i geldi ve taze mi. */
+  dataFresh?: boolean;
+  /** Son GERÇEK ECU frame'i (ATRV hariç). 0 = hiç ölçülmedi. */
+  lastSeenMs?: number;
+}): boolean {
+  if (i.source !== 'real') return false;      // mock/none → asla
+  if (i.dataFresh !== true) return false;     // kurtarılmış snapshot burada elenir
+  return (i.lastSeenMs ?? 0) > 0;             // hiç ölçüm yoksa sayı gösterme
+}
+
 /* ── GPS ──────────────────────────────────────────────────────────────────── */
 
 export function deriveGpsStatus(i: {
