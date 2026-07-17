@@ -1259,6 +1259,24 @@ public final class OBDManager {
         }
     }
 
+    /**
+     * PR-CAP-2 — {@link #readObdDid}'in HAM KANIT (kind + NRC) döndüren biçimi. Yetenek
+     * öğrenmesi bunu kullanır: 7F-31 (kimlik yok) ≠ 7F-33 (güvenlik) ≠ 7F-22 (koşul) ≠
+     * NO DATA ayrımı yalnız burada korunur.
+     */
+    public ElmProtocol.UdsEvidence readObdDidDetailed(String tx, String rx, String did, String service) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readDataByIdDetailed(service, did))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
     // ── PID readers (ElmProtocol'e delege — davranış birebir korunur) ────────
 
     private int readPID_speed() { return elm.readPID_speed(); }

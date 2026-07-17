@@ -49,11 +49,27 @@ public final class ElmResponseParser {
         public final String dataHex;
         /** Ham (trim edilmiş) yanıt — teşhis/loglama için. */
         public final String raw;
+        /**
+         * PR-CAP-2: {@link Kind#NEG_7F} ise ECU'nun NRC baytı (ISO 14229-1 Tablo A.1,
+         * ör. 0x31 requestOutOfRange / 0x33 securityAccessDenied / 0x22 conditionsNotCorrect);
+         * diğer kind'lerde VEYA NRC okunamadıysa null.
+         *
+         * NEDEN: NRC olmadan "araç bu kimliği HİÇ tanımıyor" (0x31 → kalıcı) ile "motor
+         * çalışınca okunur" (0x22 → geçici) ve "güvenlik gerekli" (0x33) AYIRT EDİLEMEZ.
+         * Eskiden bu bayt ATILIYORDU → JS tarafı `supported:false` gelen her kimliği KALICI
+         * kara listeye alıyordu → koşula bağlı bir DID sonsuza dek yasaklanıyordu.
+         */
+        public final Integer nrc;
 
         Result(Kind kind, String dataHex, String raw) {
+            this(kind, dataHex, raw, null);
+        }
+
+        Result(Kind kind, String dataHex, String raw, Integer nrc) {
             this.kind = kind;
             this.dataHex = dataHex;
             this.raw = raw;
+            this.nrc = nrc;
         }
     }
 
@@ -93,6 +109,23 @@ public final class ElmResponseParser {
     }
 
     /**
+     * PR-CAP-2: "7F<reqMode>" eşleşmesinden SONRAKİ iki hex haneyi NRC baytı olarak okur.
+     *
+     * @param compact boşluksuz/büyük-harf yanıt
+     * @param at      NRC'nin başlaması beklenen index ("7F"+reqMode'dan hemen sonra)
+     * @return 0x00-0xFF NRC; iki hane yoksa/hex değilse null (yarım yanıt — fail-soft,
+     *         çağıran NRC'siz NEG_7F'i muhafazakâr işler).
+     */
+    private static Integer parseNrc(String compact, int at) {
+        if (at + 2 > compact.length()) return null;
+        try {
+            return Integer.parseInt(compact.substring(at, at + 2), 16);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * Ham ELM327 yanıtını sınıflandırır ve (Kind.OK ise) {@code mode+pid} veri
      * bloğunu çıkarır.
      *
@@ -125,7 +158,14 @@ public final class ElmResponseParser {
         // 7F <request-mode> <NRC> — negatif yanıt REQUEST modunu taşır (pozitif yanıt
         // önekinden 0x40 az, SAE J1979 kuralı: 41→01, 49→09, vb.), "mode" (pozitif önek) DEĞİL.
         String reqMode = requestModeHex(mode);
-        if (reqMode != null && compact.contains("7F" + reqMode)) return new Result(Kind.NEG_7F, null, raw);
+        if (reqMode != null) {
+            String neg = "7F" + reqMode;
+            int negIdx = compact.indexOf(neg);
+            // PR-CAP-2: NRC baytını da çıkar — "7F<reqMode><NRC>". NRC yoksa (yanıt yarım
+            // kaldı) null; sınıf yine NEG_7F kalır (ECU ayrık negatif yanıt VERDİ — bu bilgi
+            // korunur), JS tarafı NRC'siz durumu muhafazakâr işler (kalıcı eleme YOK).
+            if (negIdx >= 0) return new Result(Kind.NEG_7F, null, raw, parseNrc(compact, negIdx + neg.length()));
+        }
         if (compact.equals("?") || compact.contains("ERROR")) return new Result(Kind.ERROR, null, raw);
 
         // Tanınan bir kalıp yok ve beklenen blok da bulunamadı — muhtemelen kısmi/

@@ -1682,6 +1682,14 @@ public class CarLauncherPlugin extends Plugin {
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
 
+    /** PR-CAP-2: aktif taşımadan HAM KANIT (kind + NRC) okur — BLE/Classic ayrışmaz. */
+    private com.cockpitos.pro.obd.ElmProtocol.UdsEvidence readObdDidDetailedFromActive(
+            String tx, String rx, String did, String service) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readObdDidDetailed(tx, rx, did, service);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readObdDidDetailed(tx, rx, did, service);
+        throw new java.io.IOException("OBD okuyucu bağlı değil");
+    }
+
     @PluginMethod
     public void readObdDid(PluginCall call) {
         String tx = call.getString("tx");
@@ -1705,15 +1713,23 @@ public class CarLauncherPlugin extends Plugin {
         final String s = service;
         new Thread(() -> {
             try {
-                String data = readObdDidFromActive(t, r, d, s);
+                // PR-CAP-2: HAM KANIT okunur (kind + NRC). `data`/`supported` alanları
+                // BİREBİR eski anlamlarıyla korunur (geriye dönük uyum — eski JS sürümü
+                // yeni alanları yoksayar); `kind`/`nrc` EK bilgidir ve kararı TS verir
+                // (capabilityOutcome.classifyElmResponse) — native karar VERMEZ.
+                com.cockpitos.pro.obd.ElmProtocol.UdsEvidence ev =
+                    readObdDidDetailedFromActive(t, r, d, s);
                 JSObject ret = new JSObject();
-                if (data != null) {
-                    ret.put("data", data);
+                if (ev.data != null) {
+                    ret.put("data", ev.data);
                     ret.put("supported", true);
                 } else {
                     ret.put("data", org.json.JSONObject.NULL);
                     ret.put("supported", false);
                 }
+                ret.put("kind", ev.kind);
+                if (ev.nrc != null) ret.put("nrc", ev.nrc.intValue());
+                else ret.put("nrc", org.json.JSONObject.NULL);
                 mainHandler.post(() -> call.resolve(ret));
             } catch (Exception e) {
                 String msg = e.getMessage() != null ? e.getMessage() : "DID okunamadı";

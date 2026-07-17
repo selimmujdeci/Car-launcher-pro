@@ -918,6 +918,65 @@ public final class ElmProtocol {
         return readDid(d);
     }
 
+    /* ══ PR-CAP-2: ham yetenek kanıtı — karar TS'te ═══════════════════════════ */
+
+    /**
+     * Bir UDS/KWP veri isteğinin HAM sonucu. Native KARAR VERMEZ, yalnız kanıt taşır
+     * (bu dosyanın felsefesi: "ayrıştırma yapılmaz, ham hex TS'e döner").
+     * Kararı {@code capabilityOutcome.classifyElmResponse} verir.
+     */
+    public static final class UdsEvidence {
+        /** {@code kind == "OK"} ise pozitif önek soyulmuş gövde; aksi halde null. */
+        public final String data;
+        /** "OK" | "NO_DATA" | "NEG_7F" — {@code ElmResponseParser.Kind} ile aynı ad uzayı. */
+        public final String kind;
+        /** {@code kind == "NEG_7F"} ise ECU'nun NRC baytı (0x00-0xFF); aksi halde null. */
+        public final Integer nrc;
+
+        UdsEvidence(String data, String kind, Integer nrc) {
+            this.data = data;
+            this.kind = kind;
+            this.nrc = nrc;
+        }
+    }
+
+    /**
+     * NRC TAŞIYAN negatif yanıt hatası. Bir {@link IOException}'dır → mevcut çağıranlar
+     * (readUdsDtcsRaw, KWP DTC) davranış farkı GÖRMEZ; yalnız DID yolu {@link #nrc}'yi okur.
+     */
+    public static final class UdsNegativeResponseException extends IOException {
+        /** ECU'nun NRC baytı; okunamadıysa null. */
+        public final Integer nrc;
+
+        UdsNegativeResponseException(Integer nrc, String message) {
+            super(message);
+            this.nrc = nrc;
+        }
+    }
+
+    /**
+     * PR-CAP-2 — {@link #readDataById}'nin HAM KANIT döndüren biçimi (servis "22" UDS DID /
+     * "21" KWP LID). Hat/adaptör hatası (IOException) YUKARI FIRLAR: bu, araç yeteneği
+     * hakkında KANIT DEĞİLDİR (TS onu 'timeout' sayar ve HİÇBİR ŞEY öğrenmez) — sessizce
+     * "desteklenmiyor" öğrenmek, kopan bir kabloyu araç sınırı sanmak olurdu.
+     *
+     * {@code withEcuHeader} bloğu İÇİNDE çağrılmalıdır (header yönetmez).
+     */
+    public UdsEvidence readDataByIdDetailed(String service, String id) throws IOException {
+        String s = service == null ? "22" : service;
+        String d = id.toUpperCase(Locale.ROOT);
+        try {
+            if ("21".equals(s)) {
+                return udsRequestDetailed("21" + d, "21", "61" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "LID " + d);
+            }
+            return udsRequestDetailed("22" + d, "22", "62" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "DID " + d);
+        } catch (UdsNegativeResponseException e) {
+            // FATAL NRC (ör. 0x83 engineIsNotRunning) — ECU ayrık yanıt VERDİ, kimlik muhtemelen
+            // VAR. Hata olarak yutmak yerine kanıt olarak taşı → TS condition_required öğrenir.
+            return new UdsEvidence(null, "NEG_7F", e.nrc);
+        }
+    }
+
     /**
      * OBD-OS-F3-6 — UDS negatif yanıt kodu (NRC) sınıflandırması (ISO 14229-1 Tablo A.1).
      *
@@ -1030,6 +1089,28 @@ public final class ElmProtocol {
      */
     private String udsRequest(String cmd, String service, String positiveNeedle,
                               int totalTimeoutMs, String label) throws IOException {
+        // PR-CAP-2: mevcut String sözleşmesi (ve FATAL'de IOException fırlatma davranışı)
+        // BİREBİR korunur — yalnız ham kanıt taşıyan dal ayrıldı. UdsNegativeResponseException
+        // bir IOException'dır → eski çağıranlar (readUdsDtcsRaw, KWP DTC) fark ETMEZ.
+        return udsRequestDetailed(cmd, service, positiveNeedle, totalTimeoutMs, label).data;
+    }
+
+    /**
+     * PR-CAP-2 — {@link #udsRequest}'in HAM KANIT döndüren biçimi.
+     *
+     * KÖK PROBLEM: eski udsRequest BEŞ ayrı durumu tek {@code null}'a düşürüyordu → çağıran
+     * (plugin) {@code supported:false} yapıyordu → JS tarafı hepsini KALICI "desteklenmiyor"
+     * sayıyordu. Oysa:
+     *   - NO DATA                  → ECU sustu (sınırlı tekrar)
+     *   - NRC 0x31 requestOutOfRange → kimlik YOK (kalıcı)
+     *   - NRC 0x33 securityAccessDenied → kimlik VAR, güvenlik istiyor (kapsam dışı)
+     *   - NRC 0x22 conditionsNotCorrect → kimlik VAR, motor durgun (SONRA tekrar)
+     * Bu ayrımlar {@link UdsEvidence#nrc} ile TS'e taşınır; KARARI TS verir
+     * ({@code capabilityOutcome.classifyElmResponse}) — bu dosyanın felsefesiyle aynı:
+     * "ayrıştırma yapılmaz, ham hex TS'e döner; tek doğruluk kaynağı TS".
+     */
+    private UdsEvidence udsRequestDetailed(String cmd, String service, String positiveNeedle,
+                                           int totalTimeoutMs, String label) throws IOException {
         final long deadline = System.currentTimeMillis() + totalTimeoutMs;
         // F3-4: extended session YALNIZ BİR KEZ denenir — açıldıktan sonra hâlâ reddediliyorsa
         // servis gerçekten yok demektir (sonsuz session→retry→session döngüsü YASAK).
@@ -1039,7 +1120,9 @@ public final class ElmProtocol {
         while (true) {
             String compact = raw == null ? "" : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
             if (compact.isEmpty()) throw new IOException("ELM327 yanıt vermedi (" + label + ")");
-            if (compact.contains("NODATA")) return null; // ECU isteği hiç tanımıyor → desteklenmiyor
+            // ECU sustu — "kimlik yok" DEĞİL (eski yorum yanıltıcıydı): bitmap destekli bir
+            // PID de NO DATA verebilir (Trafic/KWP sahası). TS bunu 'no_data' olarak öğrenir.
+            if (compact.contains("NODATA")) return new UdsEvidence(null, "NO_DATA", null);
 
             if (compact.contains("UNABLETOCONNECT") || compact.contains("CANERROR")
                 || compact.contains("BUSERROR") || compact.contains("STOPPED")
@@ -1050,9 +1133,13 @@ public final class ElmProtocol {
             int negIdx = compact.indexOf("7F" + service);
             if (negIdx >= 0 && compact.length() >= negIdx + 6) {
                 String nrc = compact.substring(negIdx + 4, negIdx + 6);
+                Integer nrcVal = parseHexByte(nrc);
                 switch (classifyNrc(nrc)) {
                     case UNSUPPORTED:
-                        return null;
+                        // PR-CAP-2: NRC KORUNUR. Eskiden 0x11/0x12/0x31 (kimlik yok → kalıcı) ile
+                        // 0x33 (güvenlik → kapsam dışı) aynı null'a düşüyordu; TS ikisini artık
+                        // ayırır (unsupported vs security_required).
+                        return new UdsEvidence(null, "NEG_7F", nrcVal);
                     case RETRY:
                         if (System.currentTimeMillis() >= deadline) {
                             throw new IOException("UDS " + describeNrc(nrc) + " zaman aşımı (" + label + ")");
@@ -1062,16 +1149,23 @@ public final class ElmProtocol {
                     case SESSION_REQUIRED:
                         // F3-4: servis var ama bu oturumda kapalı → extended session aç, TEK KEZ tekrar dene.
                         if (sessionTried || System.currentTimeMillis() >= deadline) {
-                            return null;   // oturum açıldı ama yine reddetti → gerçekten desteklenmiyor
+                            // PR-CAP-2: oturum açıldı ama ECU yine reddetti. Bu "kimlik YOK" DEMEK
+                            // DEĞİLDİR — NRC 0x22/0x24/0x7E/0x7F "koşul/oturum" ailesidir → TS bunu
+                            // condition_required olarak öğrenir ve SONRA tekrar dener (eskiden
+                            // kalıcı "desteklenmiyor" sayılıp sonsuza dek yasaklanıyordu).
+                            return new UdsEvidence(null, "NEG_7F", nrcVal);
                         }
                         sessionTried = true;
                         if (!openExtendedSession()) {
-                            return null;   // ECU extended session'ı da açamadı → desteklenmiyor say
+                            return new UdsEvidence(null, "NEG_7F", nrcVal); // oturum açılamadı — yine koşul ailesi
                         }
                         raw = sendChecked(cmd, 2000);   // aynı isteği yeni oturumda tekrarla
                         continue;
                     default:
-                        throw new IOException("UDS negatif yanıt: " + describeNrc(nrc) + " (" + label + ")");
+                        // FATAL: NRC'yi TAŞIYAN IOException (ör. 0x83 engineIsNotRunning). Eski
+                        // çağıranlar IOException yakalar → davranış AYNI; DID yolu nrc'yi okur.
+                        throw new UdsNegativeResponseException(
+                            nrcVal, "UDS negatif yanıt: " + describeNrc(nrc) + " (" + label + ")");
                 }
             }
 
@@ -1086,9 +1180,20 @@ public final class ElmProtocol {
 
             for (String body : splitResponseBodies(raw)) {
                 int idx = body.indexOf(positiveNeedle);
-                if (idx >= 0) return body.substring(idx + positiveNeedle.length());
+                if (idx >= 0) {
+                    return new UdsEvidence(body.substring(idx + positiveNeedle.length()), "OK", null);
+                }
             }
             throw new IOException("Beklenmeyen UDS yanıtı (" + label + "): " + summarize(raw));
+        }
+    }
+
+    /** PR-CAP-2: iki hex haneyi bayta çevirir; okunamazsa null (fail-soft). */
+    private static Integer parseHexByte(String hex) {
+        try {
+            return Integer.parseInt(hex, 16);
+        } catch (Exception e) {
+            return null;
         }
     }
 

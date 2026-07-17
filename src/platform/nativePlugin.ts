@@ -551,7 +551,20 @@ export interface CarLauncherPlugin {
   // '21' (KWP ReadDataByLocalIdentifier — Trafic gibi ISO 14230 araçların üretici verisi).
   // tx/rx BOŞ string olabilir → native header'a HİÇ dokunmaz (varsayılan oturum adreslemesi;
   // KWP'de en olası başarı yolu). tx: '' | 3 hane (11-bit CAN) | 6 hane (KWP 3-bayt) | 8 hane (29-bit).
-  readObdDid?(opts: { tx: string; rx: string; did: string; service?: '22' | '21' }): Promise<{ data: string | null; supported: boolean }>;
+  /**
+   * PR-CAP-2: `kind`/`nrc` HAM KANITTIR — kararı TS verir (`capabilityOutcome`).
+   * `data`/`supported` eski anlamlarıyla korunur (geriye dönük uyum).
+   *
+   * `kind`/`nrc` ESKİ APK'da GELMEZ (undefined) → çağıran `nrc: null` ile muhafazakâr
+   * dala düşer (kalıcı eleme YOK). Hat hatası burada REJECT'tir (araç yeteneği hakkında
+   * kanıt DEĞİL → çağıran 'timeout' sayar ve hiçbir şey öğrenmez).
+   */
+  readObdDid?(opts: { tx: string; rx: string; did: string; service?: '22' | '21' }): Promise<{
+    data: string | null;
+    supported: boolean;
+    kind?: 'OK' | 'NO_DATA' | 'NEG_7F';
+    nrc?: number | null;
+  }>;
 
   // Uygulama içi OBD cihaz tarama (pair gerektirmeden keşfeder)
   startOBDDiscovery(): Promise<void>;
