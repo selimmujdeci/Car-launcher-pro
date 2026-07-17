@@ -15,6 +15,7 @@ import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
 import { getSupportedPids, getPidValue, getUnavailablePids } from './obd/extendedPidService';
 import { getExtendedPollEvidence, type ExtendedPollEvidenceSnapshot } from './obd/extendedPollEvidence';
+import { getKwpRecoveryEvidence, type KwpRecoveryEvidenceSnapshot } from './obd/kwpRecoveryEvidence';
 import { getMode22Evidence, type Mode22Evidence } from './obd/manufacturerPidService';
 import { getDTCStateSnapshot } from './dtcService';
 import { getAiHealthSnapshot } from './aiHealth';
@@ -59,6 +60,8 @@ export interface ObdDeepSnapshot {
   };
   /** PR-OBD-DIAG-3: EXTENDED PID poll KANITI — H1/H2/H3 ayrımı (samples boşsa neden?). */
   extendedPollEvidence: ExtendedPollEvidenceSnapshot | null;
+  /** PR-KWP-EVID: KWP ölü-oturum kurtarma kanıtı (bounded). null = native vermedi/eski APK. */
+  kwpRecoveryEvidence: KwpRecoveryEvidenceSnapshot | null;
   /** PR-OBD-CONN-1: bağlantı yaşam-döngüsü — reset/disconnect/reconnect gerçekten çalıştı mı. */
   connLifecycle: ReturnType<typeof getObdConnLifecycle> | null;
   /** PR-OBD-DATA-1: Mode-22 acquisition kanıtı — gerçek değer mi, fail-closed unsupported mu. */
@@ -169,6 +172,8 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
     // PR-OBD-DIAG-3: samples boşsa "neden" — native poll kanıtı (refreshExtendedPollEvidence
     // rapor derlenmeden önce await edilir; edilmediyse fail-soft NO_NATIVE_EVIDENCE döner).
     extendedPollEvidence: _safe(() => getExtendedPollEvidence(), null),
+    // PR-KWP-EVID: "kurtarma denendi mi / ATPC sonrası veri döndü mü / Data Gate mi yıktı"
+    kwpRecoveryEvidence: _safe(() => getKwpRecoveryEvidence(), null),
     // PR-OBD-CONN-1: bağlantı yaşam-döngüsü kanıtı (reset/disconnect/reconnect sayaçları).
     connLifecycle: _safe(() => getObdConnLifecycle(), null),
     // PR-OBD-DATA-1: Mode-22 acquisition kanıtı (gerçek değer VEYA fail-closed unsupported).

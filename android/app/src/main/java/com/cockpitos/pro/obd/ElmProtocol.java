@@ -487,10 +487,25 @@ public final class ElmProtocol {
      */
     private void noteKwpSessionHealth(String cmd, ElmResponseParser.Kind kind) {
         if (cmd == null || !CORE_MODE01.contains(cmd) || !isSlowSerialActive()) return;
-        if (kind == ElmResponseParser.Kind.OK) { coreNoDataStreak = 0; return; }
+        // PR-KWP-EVID: kanıt YALNIZ bu kapının içinde toplanır → CAN/J1850'de (isSlowSerialActive
+        // false) HİÇBİR alan dolmaz ve status NOT_ATTEMPTED kalır. CAN kurtarma davranışı ile
+        // sıfır temas (o TS'te, ayrı motor).
+        if (kind == ElmResponseParser.Kind.OK) {
+            coreNoDataStreak = 0;
+            // Kurtarma IN_PROGRESS idiyse burada RECOVERED'a döner + ATPC→ilk-PID süresi ölçülür.
+            KwpRecoveryEvidence.INSTANCE.noteCoreOk(System.currentTimeMillis());
+            return;
+        }
         if (kind != ElmResponseParser.Kind.NO_DATA) return;
+        KwpRecoveryEvidence.INSTANCE.noteCoreNoData();
         if (++coreNoDataStreak < KWP_DEAD_SESSION_THRESHOLD) return;
         coreNoDataStreak = 0;
+        // TAVAN (yeni): oturum başına en fazla MAX_RECOVERIES_PER_SESSION kurtarma. Eskiden
+        // sınırsızdı — her 4 NO_DATA'da sonsuza dek ATPC gidiyordu (ölü ECU'da bitmeyen tur).
+        // Karar TEK yerde (evidence.shouldAttemptRecovery) → sayaç/durum ile ATPC hep tutarlı.
+        if (!KwpRecoveryEvidence.INSTANCE.shouldAttemptRecovery(System.currentTimeMillis(), activeProtocol)) {
+            return; // tavan doldu → ATPC GÖNDERİLMEZ (status FAILED'a düşer)
+        }
         try {
             android.util.Log.w("OBD", "[KwpRecover] " + KWP_DEAD_SESSION_THRESHOLD
                 + " ardışık çekirdek NO DATA (protokol=" + activeProtocol
@@ -498,7 +513,12 @@ public final class ElmProtocol {
         } catch (Throwable ignored) { /* JVM unit test: android.util.Log mock yok */ }
         try {
             channel.send("ATPC", 500);
-        } catch (Exception ignored) { /* fail-soft — sonraki eşikte tekrar denenir */ }
+        } catch (Exception ignored) {
+            // fail-soft — sonraki eşikte tekrar denenir. Ama SESSİZ DEĞİL: kanıta işlenir,
+            // yoksa "kurtarma denendi (recoveryCount++) ama ATPC hiç gitmedi" hali raporda
+            // BAŞARILI bir deneme gibi görünürdü.
+            KwpRecoveryEvidence.INSTANCE.noteAtpcSendFailed();
+        }
     }
 
     /* ══ PR-CAN-RECOVER: TS-tetiklemeli kurtarma primitifleri ═════════════════

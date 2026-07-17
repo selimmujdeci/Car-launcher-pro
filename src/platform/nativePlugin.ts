@@ -595,6 +595,29 @@ export interface CarLauncherPlugin {
    */
   recoverObdSession?(opts: { level: 'protocol_close' | 'elm_reinit' }): Promise<{ ok: boolean }>;
 
+  /**
+   * PR-KWP-EVID: native KWP ölü-oturum kurtarma kanıtı (bounded sayaç + son durum).
+   * Ham log DÖNMEZ. CAN'de status NOT_ATTEMPTED + sayaçlar 0 (kapı KWP'ye özel).
+   * Opsiyonel: eski APK'da yok → çağıran null snapshot ile fail-soft.
+   */
+  getObdKwpRecoveryEvidence?(): Promise<{
+    status: string;
+    coreNoDataStreak: number;
+    maxCoreNoDataStreak: number;
+    recoveryCount: number;
+    suppressedCount: number;
+    atpcSendFailures: number;
+    lastRecoveryAt: number;
+    lastRecoveryToFirstPidMs: number;
+    killedByDataGate: number;
+    protocolAtRecovery: string | null;
+    threshold: number;
+    maxPerSession: number;
+  }>;
+
+  /** PR-KWP-EVID: JS Data Gate oturumu yıktı → native kanıta işlensin (ateşle-unut). */
+  notifyObdDataGateTeardown?(): Promise<void>;
+
   // Patch 8: EXTENDED grup PID listesi (talep-güdümlü — extendedPidService yönetir).
   // Boş liste = devre dışı (native poll turu ek komut çalıştırmaz, sıfır maliyet).
   // Opsiyonel: eski plugin sürümlerinde bulunmayabilir (fail-soft çağrılır).

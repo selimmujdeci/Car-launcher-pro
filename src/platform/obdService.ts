@@ -45,6 +45,7 @@ import { notifyObdConnected as notifyExtendedPids, seedSupportedPids as seedExte
 import { getDeviceTier } from './deviceCapabilities';
 import { recordDiag } from './obdDiagnosticRecorder';
 import { emitObdDiag, getLastObdDiagReason, classifyObdErrorReason } from './obdDiagEmitter';
+import { notifyKwpDataGateTeardown } from './obd/kwpRecoveryEvidence';
 import { shouldFallbackFromEV, shouldFallbackFromICE } from './obdValidation';
 import {
   WATCHDOG_INTERVAL_MS,
@@ -969,6 +970,11 @@ function _startDataValidationGate(gen: number): void {
     if (!_running || _nativeGeneration !== gen) return;
     if (_nativeReconnectInFlight) return;   // F0-5: otorite native'de — TS tur açmaz
     if (!_dataGatePassed) {
+      // PR-KWP-EVID: native kanıta bildir — Data Gate NATIVE'in BİLMEDİĞİ bir JS kavramıdır.
+      // KWP kurtarması (ATPC) IN_PROGRESS iken burada oturumu yıkıyorsak, ATPC'ye veri
+      // döndürme ŞANSI TANIMAMIŞIZ demektir; sahadaki en kritik hipotez tam olarak bu.
+      // Ateşle-unut: gate yolunu bloklamaz, eski APK'da no-op. Davranış DEĞİŞMEZ — yalnız ölçüm.
+      notifyKwpDataGateTeardown();
       recordFault('OBD_DATA_GATE_TIMEOUT');
       logError('OBD:DataGate', new Error(`Bağlandı fakat ${gateMs / 1000}s içinde PID verisi alınamadı (Stale bağlantı)`));
       emitObdDiag('data_gate', 'OBD_DATA_GATE_TIMEOUT', {

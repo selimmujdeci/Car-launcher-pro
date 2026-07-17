@@ -50,6 +50,7 @@ import {
 // PR-OBD-DIAG-3: native extended poll kanıtı async — buildObdDeepSnapshot senkron okumadan
 // önce tazelenir (fail-soft: eski APK / hata → kanıt yok).
 import { refreshExtendedPollEvidence } from './obd/extendedPollEvidence';
+import { refreshKwpRecoveryEvidence } from './obd/kwpRecoveryEvidence';
 import { buildTriageSnapshot, buildRootCauseSnapshot, buildDiagnosticVerdict, type TriageSections, type ErrorLedgerLike } from './diagnosticTriage';
 import { buildErrorLedger, type RawErrorLike } from './errorLedger';
 import { useVidStore } from '../store/useVidStore';
@@ -537,6 +538,8 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     buildStorageQueueSnapshot().catch(() => ({ queuePending: 0, storagePct: -1, storageWarn: false })),
     // PR-OBD-DIAG-3: native extended poll kanıtını tazele → buildObdDeepSnapshot senkron okur.
     refreshExtendedPollEvidence().catch(() => { /* fail-soft: kanıt yok */ }),
+    // PR-KWP-EVID: native KWP kurtarma kanıtını tazele → buildObdDeepSnapshot senkron okur.
+    refreshKwpRecoveryEvidence().catch(() => { /* fail-soft: kanıt yok */ }),
   ]);
 
   const payload = _deepSanitize({

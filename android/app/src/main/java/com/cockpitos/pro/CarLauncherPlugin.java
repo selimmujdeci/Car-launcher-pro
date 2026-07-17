@@ -97,6 +97,7 @@ import com.cockpitos.pro.can.VehicleSignalMapper;
 import com.cockpitos.pro.obd.BleObdManager;
 import com.cockpitos.pro.obd.BleObdScanner;
 import com.cockpitos.pro.obd.ExtendedPollEvidence;
+import com.cockpitos.pro.obd.KwpRecoveryEvidence;
 import com.cockpitos.pro.obd.OBDBluetoothManager;
 import com.cockpitos.pro.obd.OBDManager;
 import com.cockpitos.pro.obd.ObdPollSample;
@@ -1441,6 +1442,42 @@ public class CarLauncherPlugin extends Plugin {
      * üretmedi) / H3 (native başarılı ama JS'e akmadı) ayrımı tek raporla yapılır. Yalnız
      * OKUR — hiçbir OBD komutu göndermez, polling davranışını değiştirmez.
      */
+    /**
+     * PR-KWP-EVID: KWP ölü-oturum kurtarma kanıtı (bounded sayaç + son durum).
+     * Ham native log DÖKÜLMEZ — yalnız sayaçlar ve status. CAN'de tüm alanlar boş/
+     * NOT_ATTEMPTED kalır (kurtarma kapısı isSlowSerialActive ile KWP'ye özel).
+     */
+    @PluginMethod
+    public void getObdKwpRecoveryEvidence(PluginCall call) {
+        KwpRecoveryEvidence.Snapshot s = KwpRecoveryEvidence.INSTANCE.snapshot();
+        JSObject ret = new JSObject();
+        ret.put("status", s.status);
+        ret.put("coreNoDataStreak", s.coreNoDataStreak);
+        ret.put("maxCoreNoDataStreak", s.maxCoreNoDataStreak);
+        ret.put("recoveryCount", s.recoveryCount);
+        ret.put("suppressedCount", s.suppressedCount);
+        ret.put("atpcSendFailures", s.atpcSendFailures);
+        ret.put("lastRecoveryAt", s.lastRecoveryAt);
+        ret.put("lastRecoveryToFirstPidMs", s.lastRecoveryToFirstPidMs);
+        ret.put("killedByDataGate", s.killedByDataGate);
+        ret.put("threshold", s.threshold);
+        ret.put("maxPerSession", s.maxPerSession);
+        if (s.protocolAtRecovery != null) ret.put("protocolAtRecovery", s.protocolAtRecovery);
+        else ret.put("protocolAtRecovery", org.json.JSONObject.NULL);
+        call.resolve(ret);
+    }
+
+    /**
+     * PR-KWP-EVID: JS Data Gate bağlantıyı yıktı → native kanıta işle. Data Gate NATIVE'in
+     * BİLMEDİĞİ bir JS kavramıdır; "kurtarma sürerken oturum kapatıldı mı" sorusu ancak
+     * JS bildirirse cevaplanabilir (sahadaki en kritik hipotez).
+     */
+    @PluginMethod
+    public void notifyObdDataGateTeardown(PluginCall call) {
+        KwpRecoveryEvidence.INSTANCE.noteDataGateTeardown();
+        call.resolve();
+    }
+
     @PluginMethod
     public void getObdExtendedPollEvidence(PluginCall call) {
         ExtendedPollEvidence.Snapshot s = ExtendedPollEvidence.INSTANCE.snapshot();

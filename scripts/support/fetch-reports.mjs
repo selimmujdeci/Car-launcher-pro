@@ -97,6 +97,34 @@ function fmtReport(row) {
       L.push(`║   Son denemeler: ${tail}`);
     }
   }
+  // PR-KWP-EVID: KWP ölü-oturum kurtarması — "denendi mi / veri döndü mü / gate mi yıktı".
+  const kr = od.kwpRecoveryEvidence;
+  if (kr) {
+    const STATUS_TR = {
+      NOT_ATTEMPTED: 'UYGULANMADI (KWP değil veya oturum sağlıklı)',
+      IN_PROGRESS:   'SÜRÜYOR — ATPC gitti, ilk geçerli PID bekleniyor',
+      RECOVERED:     'BAŞARILI — ATPC sonrası veri GERİ GELDİ',
+      FAILED:        'BAŞARISIZ — ATPC sonrası veri DÖNMEDİ',
+    };
+    L.push(`║ KWP KURTARMA: ${STATUS_TR[kr.status] ?? kr.status}`);
+    L.push(`║   Tetik: ${kr.recoveryCount}/${kr.maxPerSession} · bastırılan(tavan): ${kr.suppressedCount} · ATPC gönderim hatası: ${kr.atpcSendFailures}`);
+    L.push(`║   Ardışık NO_DATA: şimdi=${kr.coreNoDataStreak} · zirve=${kr.maxCoreNoDataStreak} · eşik=${kr.threshold}`);
+    if (kr.lastRecoveryAt > 0) {
+      const ago = Math.round((Date.now() - kr.lastRecoveryAt) / 1000);
+      L.push(`║   Son tetik: ${new Date(kr.lastRecoveryAt).toISOString()} (${ago}s önce) · protokol=${kr.protocolAtRecovery ?? '?'}`);
+    }
+    if (kr.lastRecoveryToFirstPidMs >= 0) {
+      L.push(`║   ATPC → ilk geçerli PID: ${kr.lastRecoveryToFirstPidMs}ms`);
+    }
+    // SAHA HİPOTEZİ: 18s Data Gate, ATPC'nin oturumu diriltmesine fırsat tanımadan yıkıyor mu?
+    if (kr.killedByDataGate > 0) {
+      L.push(`║   ⚠ DATA GATE, KURTARMA SÜRERKEN ${kr.killedByDataGate}× OTURUMU YIKTI`);
+      L.push(`║     ⟹ ATPC'ye veri döndürme şansı TANINMAMIŞ olabilir (gate süresi vs kurtarma yarışı)`);
+    }
+    if (kr.status === 'NOT_ATTEMPTED' && kr.maxCoreNoDataStreak === 0) {
+      L.push(`║   ⟹ Bu oturumda KWP kurtarma yolu HİÇ devrede değil (CAN/J1850 ise normal)`);
+    }
+  }
   // PR-OBD-CONN-1: bağlantı yaşam-döngüsü — "Bağlantıyı Sıfırla gerçekten çalıştı mı".
   const cl = od.connLifecycle;
   if (cl) {
