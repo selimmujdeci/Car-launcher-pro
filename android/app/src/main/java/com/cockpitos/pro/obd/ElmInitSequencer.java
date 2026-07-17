@@ -106,10 +106,22 @@ public final class ElmInitSequencer {
         // ilerlemiyordu → sonsuz "Bağlanıyor" (saha 2026-07-16 Doblo). Hepsi dürüst
         // UNABLE_TO_CONNECT'tir: JS bu kodla bir sonraki protokol adayına geçer.
         String warmCompact = compact(warm);
+        // ZORLANMIŞ PROTOKOL + NO DATA = YANLIŞ PROTOKOL (saha 2026-07-16, Renault KWP):
+        // önbellek `obd:lastProtocol='7'` (CAN 29-bit) bir KWP2000 (proto 5) araca ZORLANINCA
+        // ELM327 CAN çerçevesi gönderir, K-hat ECU'su hiç yanıtlamaz → 0100 dahil TÜM Mode-01
+        // "NO DATA" döner. NO DATA sert-hata deseni (BUS INIT/CAN ERROR) OLMADIĞINDAN init
+        // "başarılı" sayılıyordu → bağlı-ama-ölü oturum (ATRV=14.6V çalışır ama 41xx SIFIR) →
+        // JS "bağlandı" sanıp protokol döngüsünü ilerletmiyordu → SONSUZ NO DATA. Artık zorlanmış
+        // protokolde NO DATA da dürüst UNABLE_TO_CONNECT: JS bir sonraki adaya (7→6→5) geçer,
+        // KWP 5'te ECU yanıtlar → bağlanır → ATDPN yazımı bayat '7' önbelleğini düzeltir.
+        // NOT: yalnız sp!=null (zorlanmış). ATSP0-otomatik (sp==null) yolu AYNEN korunur — orada
+        // ELM tüm protokolleri kendi tarar; ayrıca poll-anı NO DATA kurtarması (ATPC+ATWM, proto
+        // 3/4/5) BAĞLANMIŞ oturum içindir, bu init-anı kapısıyla çakışmaz.
         if (warmCompact.contains("UNABLETOCONNECT")
             || (warmCompact.contains("BUSINIT") && warmCompact.contains("ERROR"))
             || warmCompact.contains("CANERROR")
-            || warmCompact.contains("BUSERROR")) {
+            || warmCompact.contains("BUSERROR")
+            || (sp != null && warmCompact.contains("NODATA"))) {
             throw new UnableToConnectException("ELM327: araç bu protokolde yanıt vermedi (0100 warm-up="
                 + summarize(warm) + ", protokol=" + (sp != null ? sp : "auto") + ")");
         }
