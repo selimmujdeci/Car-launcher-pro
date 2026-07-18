@@ -63,4 +63,38 @@ public final class PairingGate {
         }
         return Decision.CONNECT_WITHOUT_PAIRING;        // Android akışı — dialog yalnız gerekliyse
     }
+
+    /**
+     * PR-OBD-PAIR-CONTINUITY: bond-BEKLEME stratejisi — ensureBonded()'ın Decision'a göre
+     * hangi native eylemi yapacağının SAF haritası (Android API'ye bağımsız, JUnit test edilir).
+     *
+     * KÖK NEDEN (bu haritadan önce): OBDManager tek bir 15s POLLING waitForBond() kullanıyordu
+     * — insan PIN girişi (Android sistem dialog'u) asenkron ve bu pencereyi kolayca aşıyor.
+     * Bonding SONRADAN (15s'den sonra) tamamlansa bile bağlantı denemesi zaten düşmüş oluyordu
+     * → kullanıcı ilk eşleştirmede İKİNCİ kez "Bağlan" demek zorunda kalıyordu.
+     *
+     * NOT (bilinçli kapsam): CONNECT_WITHOUT_PAIRING → NONE döner (bekleme YOK). Bu dal native'de
+     * createBond() ÇAĞIRMAZ; OS'in kendi bonding akışı (varsa) RFCOMM secure socket.connect()
+     * İÇİNDE senkron olarak zaten gerçekleşir/beklenir. Burada AYRICA bir bond-bekleme eklemek,
+     * hiç bonding GEREKTİRMEYEN (insecure-only) adaptörlerde asla gelmeyecek bir BOND_BONDED
+     * sinyalini 90s boşuna beklemek anlamına gelirdi — gerçek regresyon riski. Bu dalın gerçek
+     * düzeltmesi JS tarafındaki connect-timeout uzatmasıdır (bkz. obdService.ts PAIRING_GRACE).
+     */
+    public static WaitStrategy waitStrategyFor(Decision d) {
+        switch (d) {
+            case PAIR_WITH_PIN: return WaitStrategy.START_AND_WAIT;
+            case WAIT_BONDING:  return WaitStrategy.WAIT_ONLY;
+            default:             return WaitStrategy.NONE; // ALREADY_BONDED, CONNECT_WITHOUT_PAIRING
+        }
+    }
+
+    /** {@link #waitStrategyFor(Decision)} dönüş tipi — native eylemi. */
+    public enum WaitStrategy {
+        /** Bekleme YOK — ya zaten bonded ya da bekleme native açısından anlamsız/riskli. */
+        NONE,
+        /** createBond()+setPin() BAŞLAT, SONRA bounded bekle (yalnız PAIR_WITH_PIN). */
+        START_AND_WAIT,
+        /** createBond() ÇAĞIRMA — devam eden bir eşleşmeyi (varsa) yalnız bounded bekle. */
+        WAIT_ONLY
+    }
 }

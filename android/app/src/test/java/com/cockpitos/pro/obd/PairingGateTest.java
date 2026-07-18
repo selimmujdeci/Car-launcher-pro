@@ -71,4 +71,40 @@ public class PairingGateTest {
         assertEquals(PairingGate.Decision.ALREADY_BONDED,
             decide(PairingGate.BOND_BONDING, true, true));
     }
+
+    // ── PR-OBD-PAIR-CONTINUITY: waitStrategyFor — SAF karar haritası kilitleri ──────
+    // Kök neden: OBDManager tek bir 15s POLLING waitForBond() kullanıyordu; insan PIN
+    // girişi bu pencereyi kolayca aşıyor, bonding SONRADAN bitse bile bağlantı denemesi
+    // zaten düşmüş oluyordu. Bu harita, hangi Decision'ın ne kadar/nasıl beklendiğinin
+    // TEK doğruluk kaynağıdır — Android API'ye bağımsız, JUnit ile kilitlenir.
+
+    @Test
+    public void waitStrategyFor_ALREADY_BONDED_NONE() {
+        assertEquals(PairingGate.WaitStrategy.NONE,
+            PairingGate.waitStrategyFor(PairingGate.Decision.ALREADY_BONDED));
+    }
+
+    @Test
+    public void waitStrategyFor_PAIR_WITH_PIN_START_AND_WAIT() {
+        // Native createBond()+setPin() BAŞLATIR, sonra bounded bekler (BOND_WAIT_TIMEOUT_MS).
+        assertEquals(PairingGate.WaitStrategy.START_AND_WAIT,
+            PairingGate.waitStrategyFor(PairingGate.Decision.PAIR_WITH_PIN));
+    }
+
+    @Test
+    public void waitStrategyFor_WAIT_BONDING_WAIT_ONLY() {
+        // Devam eden bir eşleşme var — İKİNCİ createBond çağrılmaz, yalnız beklenir.
+        assertEquals(PairingGate.WaitStrategy.WAIT_ONLY,
+            PairingGate.waitStrategyFor(PairingGate.Decision.WAIT_BONDING));
+    }
+
+    @Test
+    public void waitStrategyFor_CONNECT_WITHOUT_PAIRING_NONE() {
+        // BİLİNÇLİ KAPSAM: bu dal native'de createBond() ÇAĞIRMAZ — bond-bekleme eklemek,
+        // hiç bonding gerektirmeyen (insecure-only) adaptörlerde asla gelmeyecek bir
+        // BOND_BONDED sinyalini boşuna bekleyip gerçek regresyon üretirdi. Gerçek düzeltme
+        // JS tarafındaki connect-timeout uzatmasıdır (bkz. obdService.ts PAIRING_GRACE).
+        assertEquals(PairingGate.WaitStrategy.NONE,
+            PairingGate.waitStrategyFor(PairingGate.Decision.CONNECT_WITHOUT_PAIRING));
+    }
 }
