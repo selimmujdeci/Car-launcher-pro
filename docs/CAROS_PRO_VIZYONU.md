@@ -4,8 +4,9 @@
 > **Belge türü:** Ürün vizyonu + capability roadmap
 > **Kaynak gerçekliği:** Kod, test, UI ve saha kanıtı ayrı değerlendirilir
 > **Güncelleme kuralı:** İlgili her PR sonrasında güncellenir
-> **Son güncelleme:** 2026-07-15 · Branch: `feat/w5-obd-pr1-native-handshake`
-> **Son işlenen PR'lar:** `7754500` (W5-3c-3 change detection) · `931b41c` (hız çelişki kapısı) ·
+> **Son güncelleme:** 2026-07-18 · Branch: `feat/w5-obd-pr1-native-handshake`
+> **Son işlenen PR'lar:** PR-OBD-PAIR-CONTINUITY (ilk-eşleştirme oto-bağlantı kök düzeltmesi) ·
+> `7754500` (W5-3c-3 change detection) · `931b41c` (hız çelişki kapısı) ·
 > `7d95ed8`+`0eb98e2` (araç değişimi kurtarması) · `69d1972` (Bağlantıyı Sıfırla)
 
 ---
@@ -186,6 +187,10 @@ DOĞRULANDI 6 · SAHADA DOĞRULANDI 1 · **ÜRÜN HAZIR: 1**
   `buildDiagnosticVerdict`, IncidentCenter VerdictSection). **Hiçbiri cihazda doğrulanmadı.**
 - **Platform omurgası:** Vehicle HAL · Event Bus · Kernel · Capability Registry · Provider
   Adapter zinciri merged. Kütükte #33–#59 arası ağırlıkla 🔴.
+- **İlk-Eşleştirme Sürekliliği (PR-OBD-PAIR-CONTINUITY):** bonded olmayan Classic adaptöre
+  ilk `connect()` çağrısı, insan PIN girişi asenkron bitse bile aynı çağrı içinde devam eder
+  (native receiver-latch bond bekleme + JS pairing-grace timeout). JUnit 10/10 + tam suite
+  4378/4378 + tsc temiz. **Cihazda doğrulanmadı** (§8.4, kütük #82).
 
 > **Uyarı — en yüksek riskli açık test:** Tam tarama sonrası ana ekrana dönüldüğünde
 > hız/RPM/coolant **hâlâ akıyor mu?** Çoklu-ECU probu `ATH1` + UDS extended session açar;
@@ -515,6 +520,7 @@ değildir** — vizyon rezervuarıdır. Bir madde ancak P0–P3'e taşındığı
 | **Hız Kaynağı Çelişki Kapısı** (yeni) | ENTEGRE | HAYIR | `931b41c` — **ilk saha-kanıtlı zero-trust ihlali kapatıldı.** Rapor `8edd61a6`: GPS 38.1 km/h · OBD hız **0** · RPM 1434 · gaz %13 → araç giderken gösterge 0'da kaldı, sürüş/park modu **7 kez flip-flop**. Kök: worker çapraz kontrolü TEK YÖNLÜ (`raw > 10 && rpm === 0` reddediliyor, simetriği kabul) + kaynak seçimi donanımı **"kesin değer"** sayıyordu (yorumda yazılı). Yapısal sebep: KWP'de hız ABS ECU'sunda; motor ECU'su `41 0D 00` döner. `_hwSpeedContradicted()`: donanım <1 + GPS >15 + RPM >900 → o kaynağın güveni 0 → GPS kazanır. 🔴 #77 |
 | Write Safety Gate | DOĞRULANDI | HAYIR | 7 kapılı karar modeli + testler; **native yazma bilinçli YAZILMADI** (F4-5) |
 | Bounded diagnostic evidence | ENTEGRE | HAYIR | errorLedger + bounded payload; saha kanıtı yok |
+| **İlk-Eşleştirme Sürekliliği** (yeni) | ENTEGRE | HAYIR | **Kök neden:** native'de `ACTION_PAIRING_REQUEST` alıcısı vardı ama `ACTION_BOND_STATE_CHANGED` alıcısı YOKTU; ilk eşleştirmede Android bonding ASENKRON tamamlanır (insan PIN'i OS dialog'una girer) ama tek timeout-sınırlı deneme (eski 15s + JS 8-15s `Promise.race`) bu pencereyi aşıp düşüyordu, bonding sonradan bitse bile yeniden tetik yoktu → kullanıcı 2. kez "Bağlan" demek zorundaydı. `PairingGate.waitStrategyFor` saf haritası + `OBDManager.waitForBondViaReceiver` (receiver-latch, `BOND_WAIT_TIMEOUT_MS=90s`, zero-leak) + JS `PAIRING_GRACE_TIMEOUT_MS` (yalnız kullanıcı-başlatmış+Classic+bonded-değil). `CONNECT_WITHOUT_PAIRING` bilinçli olarak dokunulmadı (insecure-only adaptörlerde regresyon riski). Test: JUnit 10/10 + `regression.guards.test.ts` 2 yeni kilit + tam suite 4378/4378 + tsc temiz. 🔴 #82 |
 
 ### 8.5 Sürücü ve Yolculuk
 
