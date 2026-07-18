@@ -413,8 +413,20 @@ public final class OBDManager {
 
     // ── OEM-grade eşleşme (PairingGate + dialog-bastırma) ─────────────────────
 
-    /** Bond timeout (sessiz eşleşme) — createBond sonrası BONDED beklenen üst sınır. */
+    /** Bond timeout (sessiz eşleşme) — createBond sonrası BONDED beklenen üst sınır.
+     *  Receiver kaydı başarısız olup eski polling'e (waitForBond) düşülürse kullanılır. */
     private static final long PAIR_TIMEOUT_MS = 15_000L;
+
+    /**
+     * PR-OBD-PAIR-CONTINUITY: İLK-EŞLEŞTİRME bounded bekleme üst sınırı — insan Android
+     * sistem PIN/SSP dialog'unu göreceği ve yanıtlayacağı süre için. Eski PAIR_TIMEOUT_MS
+     * (15s) bunun için YETERSİZDİ: kullanıcı PIN'i girerken bonding tamamlanmadan JS Promise.race
+     * timeout'u düşüyor, bonding SONRADAN bitse bile bağlantı denemesini yeniden sürecek tetik
+     * olmadığından ilk oturum hiç başlamıyordu (kullanıcı 2. kez "Bağlan" demek zorunda kalıyordu).
+     * Yalnız {@link PairingGate.WaitStrategy#START_AND_WAIT} / {@link PairingGate.WaitStrategy#WAIT_ONLY}
+     * yollarında kullanılır — reconnect (reopenBt) bu sabiti GÖRMEZ (orada cihaz zaten bonded).
+     */
+    private static final long BOND_WAIT_TIMEOUT_MS = 90_000L;
 
     /**
      * Eşleşmeyi OEM kuralına göre YÖNETİR — {@link PairingGate} kararını uygular:
@@ -445,14 +457,18 @@ public final class OBDManager {
         android.util.Log.i("OBD", "[Pairing] bondState=" + bondState
             + " bondedList=" + inBondedList + " hasPin=" + present(pin) + " → " + d);
 
-        switch (d) {
-            case ALREADY_BONDED:
-            case CONNECT_WITHOUT_PAIRING:
-                return; // pairing YOK — socket katmanı devralır
-            case WAIT_BONDING:
-                waitForBond(device, PAIR_TIMEOUT_MS); // yalnız BEKLE, yeni bond başlatma
+        // PR-OBD-PAIR-CONTINUITY: hangi native eylemin yapılacağı SAF haritadan gelir
+        // (PairingGate.waitStrategyFor — JUnit test edilir, bkz. PairingGateTest).
+        PairingGate.WaitStrategy strategy = PairingGate.waitStrategyFor(d);
+        switch (strategy) {
+            case NONE:
+                return; // ALREADY_BONDED / CONNECT_WITHOUT_PAIRING — pairing YOK, socket katmanı devralır
+            case WAIT_ONLY:
+                // WAIT_BONDING: yeni bond BAŞLATMA — devam eden eşleşmeyi İLK-EŞLEŞTİRME
+                // bounded penceresiyle (insan PIN'i için 90s) bekle.
+                waitForBondViaReceiver(device, BOND_WAIT_TIMEOUT_MS);
                 return;
-            case PAIR_WITH_PIN:
+            case START_AND_WAIT:
                 silentPairWithPin(device, pin);
                 return;
         }
@@ -470,7 +486,11 @@ public final class OBDManager {
         return false;
     }
 
-    /** Devam eden eşleşmenin (BOND_BONDING) sonucunu bekler — yeni createBond BAŞLATMAZ. */
+    /**
+     * Devam eden eşleşmenin (BOND_BONDING) sonucunu bekler — yeni createBond BAŞLATMAZ.
+     * POLLING (Thread.sleep 300ms) — yalnız {@link #waitForBondViaReceiver} receiver kaydı
+     * BAŞARISIZ olduğunda fail-soft düşüş yolu olarak kullanılır (bkz. çağıran).
+     */
     private void waitForBond(BluetoothDevice device, long timeoutMs) {
         long waited = 0;
         try {
@@ -481,6 +501,91 @@ public final class OBDManager {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (SecurityException ignored) {}
+    }
+
+    /**
+     * PR-OBD-PAIR-CONTINUITY: {@link BluetoothDevice#ACTION_BOND_STATE_CHANGED} üzerinden
+     * HEDEF cihazın bonding SONUCUNU bounded bekler — {@link #waitForBond} POLLING'inin
+     * yerini alır (yalnız {@link PairingGate.WaitStrategy#START_AND_WAIT} /
+     * {@link PairingGate.WaitStrategy#WAIT_ONLY} çağıranlarında).
+     *
+     * KÖK NEDEN (bu metoddan önce): 15s'lik POLLING waitForBond, insan Android sistem
+     * PIN/SSP dialog'unu yanıtlarken kolayca aşılıyordu; bonding SONRADAN bitse bile bunu
+     * "duyacak" bir mekanizma yoktu → ilk oturum hiç başlamıyordu.
+     *
+     * DAVRANIŞ: BOND_BONDED gelince ANINDA döner (90s'in tamamı beklenmez) — RFCOMM 3-katmanlı
+     * yola hemen devam edilir. BOND_NONE gelince de ANINDA döner (eşleşme reddedildi/iptal —
+     * kalan grace boşuna harcanmaz). Timeout dolarsa (kullanıcı hiç yanıtlamadı) false döner —
+     * çağıran yine de RFCOMM'u dener (mevcut fail-soft davranışla tutarlı, dialog Android
+     * tarafında açık kalmaya devam edebilir).
+     *
+     * ZERO-LEAK: receiver finally'de HER ZAMAN unregisterReceiver edilir.
+     */
+    private boolean waitForBondViaReceiver(final BluetoothDevice device, long timeoutMs) {
+        // Kayıt ÖNCESİ zaten bonded olabilir (karar anı ile bu çağrı arasında bir yarış) —
+        // bu durumda receiver'a hiç gerek yok.
+        try {
+            if (device.getBondState() == BluetoothDevice.BOND_BONDED) return true;
+        } catch (SecurityException ignored) { return false; }
+
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final String targetAddress = device.getAddress();
+
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context ctx, Intent intent) {
+                if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) return;
+                BluetoothDevice dev;
+                try {
+                    dev = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                        ? intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class)
+                        : intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                } catch (Exception e) { return; }
+                if (dev == null || targetAddress == null || !targetAddress.equals(dev.getAddress())) return;
+
+                int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                if (state == BluetoothDevice.BOND_BONDED || state == BluetoothDevice.BOND_NONE) {
+                    // BONDED → başarı; NONE → reddedildi/iptal/başarısız — her ikisi de SONUÇ,
+                    // latch açılır. BOND_BONDING ara durumdur — henüz sonuç yok, latch açılmaz.
+                    latch.countDown();
+                }
+            }
+        };
+
+        boolean registered = false;
+        try {
+            IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                mContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                mContext.registerReceiver(receiver, filter);
+            }
+            registered = true;
+        } catch (Exception e) {
+            android.util.Log.w("OBD", "Bond receiver kaydı başarısız: " + e.getMessage());
+        }
+
+        if (!registered) {
+            // Fail-soft: receiver kaydı başarısızsa eski POLLING davranışına düş (davranış
+            // regresyonu yok — yalnız PAIR_TIMEOUT_MS'lik daha kısa bir pencereyle).
+            waitForBond(device, PAIR_TIMEOUT_MS);
+            try { return device.getBondState() == BluetoothDevice.BOND_BONDED; }
+            catch (SecurityException e) { return false; }
+        }
+
+        try {
+            // Kayıt SONRASI tekrar kontrol — createBond()/registerReceiver arasındaki dar
+            // pencerede bonding tamamlanmış olabilir (broadcast KAÇIRILMIŞ olabilir).
+            if (device.getBondState() == BluetoothDevice.BOND_BONDED) return true;
+            latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (SecurityException ignored) {
+        } finally {
+            try { mContext.unregisterReceiver(receiver); } catch (Exception ignored) {}
+        }
+        // Latch timeout'la da dönmüş olabilir — bond durumunu OTORİTER kaynaktan son kez oku.
+        try { return device.getBondState() == BluetoothDevice.BOND_BONDED; }
+        catch (SecurityException e) { return false; }
     }
 
     /**
@@ -498,9 +603,11 @@ public final class OBDManager {
             catch (SecurityException e) { android.util.Log.w("OBD", "createBond izni yok: " + e.getMessage()); return; }
             if (!started) { android.util.Log.w("OBD", "createBond() false — RFCOMM insecure fallback denenecek"); return; }
 
-            waitForBond(device, PAIR_TIMEOUT_MS);
-            if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
-                android.util.Log.w("OBD", "Sessiz eşleşme timeout — bağlantı yine de deneniyor");
+            // PR-OBD-PAIR-CONTINUITY: eski 15s POLLING yerine receiver-latch tabanlı
+            // İLK-EŞLEŞTİRME bounded bekleme (90s) — insan PIN girişi için yeterli pencere.
+            boolean bonded = waitForBondViaReceiver(device, BOND_WAIT_TIMEOUT_MS);
+            if (!bonded) {
+                android.util.Log.w("OBD", "Sessiz eşleşme timeout/red — bağlantı yine de deneniyor");
             }
         } finally {
             if (pairingReceiver != null) {
