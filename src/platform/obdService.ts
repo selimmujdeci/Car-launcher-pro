@@ -73,6 +73,28 @@ import { setActiveObdProtocol } from './obd/activeProtocol';
  */
 const BLE_FIRST_TIMEOUT_MS = 8_000;
 
+/**
+ * PR-OBD-PAIR-CONTINUITY: bonded OLMAYAN bir Classic adaptöre kullanıcı-başlatmış İLK
+ * bağlantı denemesinde uygulanan grace timeout — normal connect-timeout (8-15s) insan
+ * Android sistem PIN/SSP dialog'unu yanıtlaması için YETERSİZDİR.
+ *
+ * KÖK NEDEN: native OBDManager.connect() PairingGate.CONNECT_WITHOUT_PAIRING /
+ * PAIR_WITH_PIN yollarında bonding'i (varsa) senkron socket.connect() İÇİNDE bekler —
+ * bu iş parçacığı Promise.race timeout'undan BAĞIMSIZ arka planda çalışmaya devam eder.
+ * Eskiden JS 8-15s'de pes edip Promise'i reddediyordu; native taraf bonding SONRADAN
+ * bitirip cb.onConnected() çağırsa bile artık kimse dinlemiyordu (PluginCall sonucu
+ * sessizce yok sayılıyordu) → kullanıcı 2. kez "Bağlan" demek zorunda kalıyordu.
+ * Native taraftaki eşleniği: OBDManager.BOND_WAIT_TIMEOUT_MS (aynı üst sınır — 90s).
+ *
+ * Yalnız ŞU DÖRT koşul birden sağlanınca uygulanır (bkz. _startNative):
+ *   (1) kullanıcı startOBD(address, …) ile AÇIKÇA bir cihaz seçti (_userInitiatedFreshAddress),
+ *   (2) transport classic (TCP/BLE bu native mekanizmayı kullanmaz),
+ *   (3) bu adres bu oturumda henüz doğrulanmadı (_addressConnectedOnce false),
+ *   (4) native getObdBondState() hedefin BONDED OLMADIĞINI bildirdi.
+ * Bonded cihazlarda / soğuk-boot no-arg reconnect'te davranış BİREBİR aynı kalır — grace yok.
+ */
+const PAIRING_GRACE_TIMEOUT_MS = 90_000;
+
 /* ── Types & Initial State ───────────────────────────────── */
 
 import { INITIAL } from './obdTypes';
@@ -227,6 +249,13 @@ let _lastKnownAddress: string | null = loadObdAddress();
 // DÖNÜŞ hatasının köküydü (bkz. _isAddressProven).
 let _addressConnectedOnce = false;
 let _lastKnownPin: string | null = null; // session-only, güvenlik için localStorage'a yazılmaz
+
+// PR-OBD-PAIR-CONTINUITY: kullanıcı startOBD(address, …) ile AÇIKÇA bir cihaz seçtiğinde
+// true olur — bir sonraki _startNative() denemesinde "bu ilk-eşleştirme grace adayı mı?"
+// sorusuna cevap verir. TEK KULLANIMLIKTIR (bir _startNative girişinde tüketilir) — soğuk-boot
+// no-arg startOBD() (useLayoutServices otomatik reconnect) bu bayrağı HİÇ SET ETMEZ, dolayısıyla
+// grace yalnızca kullanıcı-başlatmış bağlantılarda devreye girer (bkz. _startNative).
+let _userInitiatedFreshAddress = false;
 
 // Son kullanılan taşıma katmanı ('classic' | 'ble'). MAC adresiyle birlikte persist edilir
 // → direct-reconnect yolunda doğru transport ile bağlanılır. null = mevcut Classic varsayılanı.
@@ -1710,10 +1739,36 @@ async function _startNative(opts?: { trustBypass?: boolean }): Promise<void> {
   const _directPrimary  = _transportConfirmed || _trustPersisted;
   const _primaryTp:  ObdTransport = _isTcp ? 'tcp' : (_directPrimary ? (_lastKnownTransport ?? 'ble') : 'ble');
   const _fallbackTp: ObdTransport | null = _isTcp ? null : (_primaryTp === 'ble' ? 'classic' : 'ble');
-  const _primaryTimeoutMs  = _isTcp ? _connectTimeoutMs : (_directPrimary ? _connectTimeoutMs : BLE_FIRST_TIMEOUT_MS);
+  let _primaryTimeoutMs  = _isTcp ? _connectTimeoutMs : (_directPrimary ? _connectTimeoutMs : BLE_FIRST_TIMEOUT_MS);
   // Oturum-içi doğrulanmış → yanlış yolda 3s hızlı-fallback. Persist-verified (ama bu oturumda
   // henüz bağlanmadı) → fallback'e TAM timeout (adaptör değiştiyse doğru yol açlık çekmesin).
-  const _fallbackTimeoutMs = _transportConfirmed ? 3_000 : _connectTimeoutMs;
+  let _fallbackTimeoutMs = _transportConfirmed ? 3_000 : _connectTimeoutMs;
+
+  // PR-OBD-PAIR-CONTINUITY: bu deneme ilk-eşleştirme grace ADAYI mı? (bkz. PAIRING_GRACE_TIMEOUT_MS
+  // yorumu). Bayrak TEK KULLANIMLIKTIR — burada tüketilir, sonraki otomatik reconnect'ler
+  // (native/JS) bu genişletilmiş pencereyi miras ALMAZ (yalnız gerçek kullanıcı eylemi kapsanır).
+  const _pairingGraceCandidate = _userInitiatedFreshAddress && !_isTcp && !_addressConnectedOnce;
+  _userInitiatedFreshAddress = false;
+  if (_pairingGraceCandidate && CarLauncher.getObdBondState) {
+    try {
+      const { bonded } = await CarLauncher.getObdBondState({ address: cand.address });
+      if (_stale()) { void _removeNativeHandles(); return; }
+      if (!bonded) {
+        // Yalnız CLASSIC bacağı uzatılır — native BOND_WAIT_TIMEOUT_MS mekanizması yalnız
+        // OBDManager'da (Classic); BLE/TCP bu grace'e ihtiyaç duymaz/katılmaz.
+        if (_primaryTp === 'classic')  _primaryTimeoutMs  = Math.max(_primaryTimeoutMs,  PAIRING_GRACE_TIMEOUT_MS);
+        if (_fallbackTp === 'classic') _fallbackTimeoutMs = Math.max(_fallbackTimeoutMs, PAIRING_GRACE_TIMEOUT_MS);
+        recordDiag({
+          stage: 'bond', status: 'info', transport: 'classic',
+          userMessage: 'İlk eşleştirme — PIN onayı için bekleniyor…',
+          technicalMessage: `PAIRING_GRACE aktif (${PAIRING_GRACE_TIMEOUT_MS / 1000}s) — hedef bonded değil`,
+        });
+      }
+    } catch {
+      // Sorgu başarısız (eski native / hata) → güvenli varsayılan: grace YOK, eski davranış aynen.
+    }
+  }
+
   let _connectedTp = _primaryTp;
   let _connectResult: { protocol?: string } | void;
   try {
@@ -2052,6 +2107,9 @@ export function startOBD(address?: string, pin?: string, transport?: ObdTranspor
     _lastKnownAddress = address;
     saveObdAddress(address);
     _addressConnectedOnce = false; // yeni adres: henüz doğrulanmadı
+    // PR-OBD-PAIR-CONTINUITY: kullanıcı AÇIKÇA bir cihaz seçti — bir sonraki _startNative()
+    // denemesi bu adresin bonded durumunu sorup gerekirse ilk-eşleştirme grace'i uygular.
+    _userInitiatedFreshAddress = true;
   }
   if (pin !== undefined) _lastKnownPin = pin || null; // boş string → null (PIN'siz)
   if (transport) {
@@ -2185,6 +2243,10 @@ export function stopOBD(): void {
 
   _running = false;
   _nativeGeneration++; // invalidate any in-flight _startNative() continuations
+  // PR-OBD-PAIR-CONTINUITY: yarım kalmış bir kullanıcı-başlatmış deneme varsa bayrağı
+  // burada da temizle — aksi halde sonraki SOĞUK-BOOT no-arg reconnect (ilgisiz bir
+  // startOBD() çağrısı) bu stale bayrağı miras alıp yanlışlıkla grace timeout kazanabilirdi.
+  _userInitiatedFreshAddress = false;
   _lastNotifyTime = 0; // debounce sıfırla — sonraki bildirim her zaman geçer
   _prevRpm = null;     // jump-detection sıfırla — reconnect'te stale eşik kalmasın
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }

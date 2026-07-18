@@ -1284,6 +1284,64 @@ describe('OBD Core v2 — obdStatus reason disiplini kilidi (reconnect fırtına
       .toBeGreaterThanOrEqual(3);
   });
 
+  it('YAPISAL: PR-OBD-PAIR-CONTINUITY — ilk-eşleştirme bonding sürekliliği (Classic, PAIR_WITH_PIN/WAIT_BONDING)', () => {
+    // Kök neden: OBDManager.connect() eski 15s POLLING waitForBond kullanıyordu; insan
+    // Android sistem PIN dialog'unu yanıtlarken bu pencereyi kolayca aşıyordu. Bonding
+    // SONRADAN bitse bile bunu duyacak/devam ettirecek bir tetik yoktu → ilk oturum hiç
+    // başlamıyor, kullanıcı 2. kez "Bağlan" demek zorunda kalıyordu. Bu kilit düşerse
+    // receiver-latch süreklilik mekanizması geri alınmış demektir.
+    const pairingGateSrc = read('android/app/src/main/java/com/cockpitos/pro/obd/PairingGate.java');
+    const obdMgrSrc       = read('android/app/src/main/java/com/cockpitos/pro/obd/OBDManager.java');
+
+    // Saf karar haritası — JUnit'te (PairingGateTest) ayrıca kilitlenir; burada sadece
+    // native tarafın onu KULLANDIĞINI (ham switch'e geri dönmediğini) doğrular.
+    expect(pairingGateSrc, 'PairingGate.waitStrategyFor kaldırılmış — bond-bekleme stratejisi saf haritadan gelmiyor')
+      .toMatch(/public static WaitStrategy waitStrategyFor\(Decision d\)/);
+    expect(pairingGateSrc, 'WaitStrategy enum kaldırılmış')
+      .toMatch(/enum WaitStrategy\s*\{[\s\S]{0,120}NONE,/);
+
+    expect(obdMgrSrc, 'ensureBonded() artık PairingGate.waitStrategyFor kullanmıyor — eski ham switch(Decision) geri gelmiş olabilir')
+      .toMatch(/PairingGate\.WaitStrategy strategy = PairingGate\.waitStrategyFor\(d\)/);
+    expect(obdMgrSrc, 'BOND_WAIT_TIMEOUT_MS (90s ilk-eşleştirme penceresi) kaldırılmış')
+      .toMatch(/BOND_WAIT_TIMEOUT_MS\s*=\s*90_000L/);
+    expect(obdMgrSrc, 'waitForBondViaReceiver kaldırılmış — receiver-latch bekleme yok')
+      .toMatch(/private boolean waitForBondViaReceiver\(/);
+    expect(obdMgrSrc, 'ACTION_BOND_STATE_CHANGED receiver\'ı kaldırılmış — POLLING\'e geri dönülmüş olabilir')
+      .toMatch(/ACTION_BOND_STATE_CHANGED/);
+    // Zero-leak: receiver HER ZAMAN finally'de unregister edilmeli.
+    expect(obdMgrSrc, 'waitForBondViaReceiver zero-leak değil — finally bloğunda unregisterReceiver yok')
+      .toMatch(/finally\s*\{\s*try\s*\{\s*mContext\.unregisterReceiver\(receiver\)/);
+
+    // BİLİNÇLİ KAPSAM: CONNECT_WITHOUT_PAIRING (native createBond ÇAĞIRMAZ) receiver-latch
+    // bekleme almaz — bonding hiç gerektirmeyen (insecure-only) adaptörlerde asla gelmeyecek
+    // bir BOND_BONDED sinyalini boşuna bekleyip regresyon üretirdi. Bu dalın gerçek düzeltmesi
+    // JS tarafındaki connect-timeout uzatmasıdır (aşağıdaki PAIRING_GRACE kilidi).
+    expect(pairingGateSrc, 'CONNECT_WITHOUT_PAIRING artık NONE dönmüyor — bilinçli kapsam kararı değişmiş olabilir')
+      .toMatch(/default:\s*return WaitStrategy\.NONE;/);
+  });
+
+  it('YAPISAL: PR-OBD-PAIR-CONTINUITY — JS ilk-eşleştirme grace timeout (Classic, bonded değilken)', () => {
+    // JS tarafı: native socket.connect() bonding'i (CONNECT_WITHOUT_PAIRING dahil) senkron
+    // beklerken, eski 8-15s Promise.race timeout'u bu denemeyi native TAMAMLANMADAN reddediyordu
+    // — native taraf SONRADAN başarılı olsa bile PluginCall sonucu sessizce yok sayılıyordu.
+    expect(obdServiceSrc, 'PAIRING_GRACE_TIMEOUT_MS sabiti kaldırılmış')
+      .toMatch(/const PAIRING_GRACE_TIMEOUT_MS = 90_000;/);
+    expect(obdServiceSrc, '_userInitiatedFreshAddress bayrağı kaldırılmış')
+      .toMatch(/let _userInitiatedFreshAddress = false;/);
+    // Bayrak YALNIZ startOBD(address, …) çağrısında (kullanıcı eylemi) set edilmeli —
+    // soğuk-boot no-arg reconnect yolu bunu HİÇ görmemeli.
+    expect(obdServiceSrc, "_userInitiatedFreshAddress artık startOBD'nin address bloğunda set edilmiyor — soğuk-boot ile ayrışma bozulmuş olabilir")
+      .toMatch(/if \(address\) \{[\s\S]{0,400}_userInitiatedFreshAddress = true;/);
+    // Bayrak stopOBD()'de temizlenmeli — yarım kalmış bir deneme sonraki ilgisiz reconnect'e sızmasın.
+    expect(obdServiceSrc, 'stopOBD() artık _userInitiatedFreshAddress\'i temizlemiyor — stale bayrak sonraki reconnect\'e sızabilir')
+      .toMatch(/_running = false;\s*\n\s*_nativeGeneration\+\+;[\s\S]{0,450}_userInitiatedFreshAddress = false;/);
+    // Grace yalnız bonded DEĞİLKEN ve yalnız 'classic' bacağında uygulanmalı.
+    expect(obdServiceSrc, 'grace artık getObdBondState sonucuna (bonded) göre koşullanmıyor')
+      .toMatch(/if \(!bonded\) \{[\s\S]{0,350}PAIRING_GRACE_TIMEOUT_MS/);
+    expect(obdServiceSrc, "grace 'classic' dışı transport'a (BLE/TCP) da uygulanıyor olabilir — yalnız classic bacağı hedeflenmeli")
+      .toMatch(/_primaryTp === 'classic'\)\s*_primaryTimeoutMs\s*=\s*Math\.max/);
+  });
+
   it('GÜVENLİK: Mode 04 (DTC silme) WriteGate\'ten geçmeden native\'e GİTMEZ (OBD-OS-F0-6)', () => {
     // Salt-okuma vaadi: araca YAZAN tek yol Mode 04'tür ve hız=0 + taze telemetri +
     // açık onay kapılarının ARDINDA olmalıdır. Kapı kanıtı ÇAĞIRANDAN değil, OBD
