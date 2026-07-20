@@ -306,7 +306,10 @@ describe('MAVI3-4b — bayat kuşak reddi', () => {
     h.dispatch({ ...NEXT_CMD });
     await flush();
     expect(h.spies.mediaNext).not.toHaveBeenCalled();
-    expect(h.handle.bridge.lastOutcome).toBe('stale');
+    // MAVI3-4c: köprü ile eski hat AYNI metoda (isMaviOwned) sorar; o metot bayat anahtara `false`
+    // döndüğü için köprü gerekçeyi ayırt etmez ve sahiplik kapısında durur → 'not-owned'.
+    // Güvenlik özelliği (yürütme YOK) değişmedi; yalnız typed etiket daha genel.
+    expect(h.handle.bridge.lastOutcome).toBe('not-owned');
   });
 
   it('bayat komut hiç feedback ÜRETMEZ (tur açılmaz)', async () => {

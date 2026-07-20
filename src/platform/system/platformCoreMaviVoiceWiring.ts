@@ -13,20 +13,44 @@
  * Yalnız resmi servis/API çağrılır; vehicle.health.read SALT-OKUMA (readDTCCodes + snapshot).
  */
 
-import { registerCommandHandler } from '../voiceService';
+import { registerCommandHandler, subscribeVoiceState, cancelAssistantDuck } from '../voiceService';
 import { ttsCancel } from '../ttsService';
+import { getFlag } from '../remoteConfigService';
 import { useCarTheme, toDay, toNight } from '../../store/useCarTheme';
 import { useStore } from '../../store/useStore';
 import { resolveScreen } from '../screenRegistry';
 import { play, getMediaState } from '../mediaService';
-import { next as mediaNext, togglePlayPause } from '../media/carosMediaLayer';
+import { next as mediaNext, togglePlayPause, hasQueue } from '../media/carosMediaLayer';
 import { setVolume } from '../systemSettingsService';
 import { stopNavigation } from '../navigationService';
 import { resolveAndNavigate } from '../addressNavigationEngine';
 import { getGPSState } from '../gpsService';
 import { readDTCCodes, onDTCState, type DTCState } from '../dtcService';
 import { createMaviWiring, type MaviWiringHandle } from '../maviCore/wiring/maviWiring';
+import { createMediaNextPort } from '../maviCore/wiring/maviMediaPort';
+import { createTakeoverPolicy } from '../maviCore/wiring/takeoverPolicy';
 import type { PilotHandlerDeps, PilotThemeMode } from '../maviCore/wiring/maviPilotHandlers';
+
+/* ── TAKEOVER feature flag ─────────────────────────────────────
+ * VARSAYILAN KAPALI. Kaynak sırası:
+ *   1. remoteConfigService.getFlag — projenin mevcut config mekanizması; BİLİNMEYEN anahtar için
+ *      `false` döner (fail-safe: yanlışlıkla production'da açılamaz).
+ *   2. localStorage — YALNIZ geliştirme/saha-testi için manuel kaldıraç.
+ * Değer bir kez, wiring başlarken okunur (polling/abonelik YOK). Geçersiz/eksik değer → SHADOW.
+ * Bu bayrak YALNIZ `media.next` allowlist'ini açar; 9 pilot eylemi global TAKEOVER'a ALMAZ ve
+ * araç/ECU eylemlerine hiçbir koşulda dokunamaz (takeoverPolicy eligible kümesi bunu garanti eder). */
+export const MAVI_TAKEOVER_FLAG = 'mavi.mediaNextTakeover.enabled';
+
+function readTakeoverFlag(): boolean {
+  try {
+    if (getFlag(MAVI_TAKEOVER_FLAG) === true) return true;
+  } catch { /* fail-safe → kapalı */ }
+  try {
+    // Yalnız açık 'true' string'i açar; başka HER değer (null/'1'/'yes'/bozuk) → KAPALI.
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(MAVI_TAKEOVER_FLAG) === 'true') return true;
+  } catch { /* fail-safe → kapalı */ }
+  return false;
+}
 
 /* ── Gerçek pilot servis portları ─────────────────────────────── */
 
@@ -69,7 +93,14 @@ function buildPilotDeps(): PilotHandlerDeps {
     },
     mediaPlay: () => play(),
     mediaPause: () => { if (getMediaState().playing) togglePlayPause(); },
-    mediaNext: () => mediaNext(),
+    // PARİTE (MAVI3-4c): eski hat `cancelAssistantDuck(); next()` yapar — aynı sıra + dürüstlük
+    // ön-koşulu. Kuyruk da oturum da yoksa next() ÇAĞRILMAZ ve handler ok:false üretir.
+    mediaNext: createMediaNextPort({
+      cancelAssistantDuck,
+      hasQueue,
+      hasSession: () => getMediaState().hasSession,
+      next: mediaNext,
+    }),
     setVolume: (percent: number) => setVolume(percent),
     getVolume: () => {
       try { return useStore.getState().settings.volume; } catch { return undefined; }
@@ -98,12 +129,21 @@ let _handle: MaviWiringHandle | null = null;
  * SystemBoot Wave 4'te `_reg`/`_regNamed` ile LIFO stack'e kaydedilir.
  */
 export function startMaviVoiceWiring(): () => void {
-  if (_handle) return stopMaviVoiceWiring;
+  if (_handle) return stopMaviVoiceWiring; // idempotent → guard/listener iki kez bağlanmaz
+  // Bayrak KAPALIYSA (varsayılan) mod SHADOW'dur → hakem pasif, eski hat hiç susturulmaz.
+  const takeover = readTakeoverFlag();
   _handle = createMaviWiring({
     pilotDeps: buildPilotDeps(),
     registerCommandHandler,
+    subscribeVoiceState,
     ttsCancel,
-    mode: 'shadow', // Model A: gölge — mevcut davranış değişmez, çifte yürütme yok.
+    mode: takeover ? 'takeover' : 'shadow',
+    // Allowlist AÇIKÇA verilir: bayrak yalnız media.next'i açabilir — 9 pilot eylemi global
+    // TAKEOVER'a alamaz; araç/ECU eylemleri takeoverPolicy tarafından zaten eligible değildir.
+    policy: createTakeoverPolicy({
+      mode: takeover ? 'takeover' : 'shadow',
+      allowlist: ['media.next'],
+    }),
   });
   _handle.start();
   return stopMaviVoiceWiring;

@@ -26,8 +26,9 @@ import { createFeedbackChannel, MaviFeedbackChannel, type MaviFeedback } from '.
 import { createPilotHandlers, createShadowHandlers, type PilotHandlerDeps } from './maviPilotHandlers';
 import { createTakeoverPolicy, type TakeoverPolicy } from './takeoverPolicy';
 import { getTakeoverArbiter, type TakeoverArbiter } from './takeoverArbiter';
+import { setMaviOwnershipResolver, clearMaviOwnershipResolver } from './maviOwnership';
 import {
-  createMaviVoiceBridge, MaviVoiceBridge,
+  createMaviVoiceBridge, MaviVoiceBridge, defaultPilotCommandMap,
   type ParsedCommandLike, type PilotMapping, type MaviBridgeMode, type VoiceLifecycleEventLike,
 } from './maviVoiceBridge';
 
@@ -148,10 +149,19 @@ export function createMaviWiring(deps: MaviWiringDeps): MaviWiringHandle {
       // eski hat hiçbir şekilde susturulmaz; mevcut davranış birebir korunur.
       try { arbiter.activate(policy); } catch { /* fail-soft */ }
       bridge.start();
+      // Eski hattın sahiplik sorgusunu bağla — KÖPRÜNÜN eşleyicisi + KÖPRÜNÜN kimliği kullanılır
+      // (tek key-builder → iki tarafta anahtar sapması imkânsız).
+      setMaviOwnershipResolver({
+        mapCommand: typeof deps.mapCommand === 'function' ? deps.mapCommand : defaultPilotCommandMap,
+        identity: () => bridge.identity,
+        arbiter,
+      });
     },
     dispose(): void {
       _started = false;
       if (_feedbackUnsub) { try { _feedbackUnsub(); } catch { /* fail-soft */ } _feedbackUnsub = null; }
+      // Sahiplik sorgusu ÖNCE sökülür → dispose anından itibaren eski hat davranışı geri gelir.
+      clearMaviOwnershipResolver();
       bridge.dispose();
       // Güvenlik ağı: sahiplik terminal yollarda zaten bırakılmıştır; bu yalnız hakemi pasifleştirir.
       try { arbiter.deactivate(); } catch { /* fail-soft */ }

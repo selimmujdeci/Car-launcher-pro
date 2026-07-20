@@ -242,6 +242,11 @@ export class MaviVoiceBridge {
   }
 
   get mode(): MaviBridgeMode { return this._mode; }
+  /**
+   * Anlık kuşak/oturum kimliği. Eski hattın sahiplik sorgusu (maviOwnership) BU kimliği kullanır →
+   * iki hat aynı komut için AYNI anahtarı üretir (paralel kimlik mantığı yok).
+   */
+  get identity(): VoiceIdentity { return this._identity; }
   /** Son turun typed sonucu (tanı). */
   get lastOutcome(): MaviTurnOutcome | null { return this._lastOutcome; }
   /** Şu an bu köprünün sahiplendiği anahtar (tanı) — terminal yolda null'a döner. */
@@ -358,18 +363,26 @@ export class MaviVoiceBridge {
     // 1. DEĞER-temelli dedup: aynı kuşakta aynı anahtar → İKİNCİ TUR AÇILMAZ (execute+feedback yok).
     if (this._isDuplicateKey(key)) { this._lastOutcome = 'duplicate'; return; }
 
-    // 2. Hakem kararı. Hakem throw ederse 'inactive' varsayılır → SHADOW yolu (eski hat susturulmaz).
-    let outcome: string;
-    try { outcome = this._arbiter.claim(key); } catch { outcome = 'inactive'; }
+    // 2. ORTAK KARAR: eski hattın sorduğu METODUN AYNISI (`isMaviOwned`). İki hattın farklı
+    //    metotlara sorması, kısmi arızada ikisinin birden çalışmasına yol açardı; tek metot
+    //    üzerinden gitmek bunu YAPISAL olarak imkânsız kılar. Throw/false → devralma YOK.
+    let owned = false;
+    try { owned = this._arbiter.isMaviOwned(key) === true; } catch { owned = false; }
 
-    // 3. Bayat kuşak / hakem seviyesinde duplicate → hiçbir tur açılmaz.
+    // 3. Sahiplenme (dedup + yaşam döngüsü). Yalnız ortak karar 'true' ise denenir.
+    let outcome: string = 'inactive';
+    if (owned) {
+      try { outcome = this._arbiter.claim(key); } catch { outcome = 'inactive'; }
+    }
+
+    // 4. Bayat kuşak / hakem seviyesinde duplicate → hiçbir tur açılmaz.
     if (outcome === 'stale')     { this._lastOutcome = 'stale'; this._markSeen(key); return; }
     if (outcome === 'duplicate') { this._lastOutcome = 'duplicate'; this._markSeen(key); return; }
 
     this._markSeen(key);
     const claimed = outcome === 'claimed';
 
-    // 4. SAHİPLİK KAPISI: eylem GERÇEK handler'a bağlıysa ama sahiplik alınamadıysa (hakem pasif/
+    // 5. SAHİPLİK KAPISI: eylem GERÇEK handler'a bağlıysa ama sahiplik alınamadıysa (hakem pasif/
     //    hata/eligible değil) planı HİÇ çalıştırma — aksi halde orchestrator gerçek servisi çağırır
     //    ve eski hatla birlikte ÇİFTE YÜRÜTME olurdu. Eski hat zaten fail-open olarak devrededir.
     let realWired = false;

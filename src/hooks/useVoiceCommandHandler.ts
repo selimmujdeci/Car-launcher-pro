@@ -16,6 +16,7 @@ import type { MusicFavorite, AppSettings } from '../store/useStore';
 import { useStore } from '../store/useStore';
 import { useCarTheme, baseOf, toDay, toNight, isDay, type CoreTheme } from '../store/useCarTheme';
 import { getVoiceSetting } from '../platform/settingsVoice';
+import { isCommandOwnedByMavi } from '../platform/maviCore/wiring/maviOwnership';
 
 // activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
 const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
@@ -245,6 +246,15 @@ export function useVoiceCommandHandler({
 
   useEffect(() => {
     return registerCommandHandler((cmd: ParsedCommand) => {
+      // ── MAVİ TAKEOVER GUARD (Faz-3 · MAVI3-4c) ──────────────────────────
+      // Aynı istekte iki hattın birden çalışmasını engelleyen TEK karar noktası. Cevap senkron ve
+      // SIRA-BAĞIMSIZDIR: bu handler'ın Mavi köprüsünden önce mi sonra mı çağrıldığı sonucu
+      // değiştirmez. FAIL-OPEN: wiring yoksa, bayrak kapalıysa (varsayılan), anahtar geçersizse
+      // veya hakem hata atarsa `false` döner → eski hat bugünkü gibi çalışır. Hakem allowlist'i
+      // yalnız `media.next` içerdiğinden guard pratikte SADECE o komutta etkilidir; diğer tüm
+      // komutlar bu satırdan etkilenmeden akar.
+      if (isCommandOwnedByMavi(cmd)) return;
+
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       void reportVoiceDiag('voice_command_execute', { command: cmd.type });
       if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
