@@ -103,12 +103,13 @@ describe('A · boş depo', () => {
     for (const st of allStatuses(s)) expect(ALLOWED).toContain(st);
   });
 
-  it('planning/executing/speech_end NO_SOURCE; diğer fazlar NOT_TESTED', () => {
+  it('MAVI-INSTRUMENTATION-1: planning/executing/execution_result/speech_end artık kaynaklı — boş depoda diğerleri gibi NOT_TESTED', () => {
     const s = buildMaviEvidenceSection();
     const st = (p: string) => s.lifecycle.find((x) => x.phase === p)?.status;
-    expect(st('planning')).toBe('NO_SOURCE');
-    expect(st('executing')).toBe('NO_SOURCE');
-    expect(st('speech_end')).toBe('NO_SOURCE');
+    expect(st('planning')).toBe('NOT_TESTED');
+    expect(st('executing')).toBe('NOT_TESTED');
+    expect(st('execution_result')).toBe('NOT_TESTED');
+    expect(st('speech_end')).toBe('NOT_TESTED');
     expect(st('listening')).toBe('NOT_TESTED');
     expect(st('wake_detected')).toBe('NOT_TESTED');
   });
@@ -166,7 +167,7 @@ describe('B · lifecycle kayıtları', () => {
  * ══════════════════════════════════════════════════════════════ */
 
 describe('C · segment istatistikleri', () => {
-  it('kaynağı olan segment OBSERVED + doğru istatistik; kaynaksız segment NO_SOURCE + null', () => {
+  it('kaynağı olan segment OBSERVED + doğru istatistik; MAVI-INSTRUMENTATION-1 sonrası ölçülmeyen segment NOT_OBSERVED (NO_SOURCE değil)', () => {
     const s = buildMaviEvidenceSection({
       timings: [
         timing({ wakeToListening: 100, listeningToTranscript: 50 }),
@@ -177,7 +178,9 @@ describe('C · segment istatistikleri', () => {
     const seg = (k: string) => s.latencySegments.find((x) => x.segment === k);
     expect(seg('wakeToListening')).toMatchObject({ status: 'OBSERVED', count: 3, minMs: 100, maxMs: 300, averageMs: 200 });
     expect(seg('listeningToTranscript')?.status).toBe('OBSERVED');
-    expect(seg('planToExecution')?.status).toBe('NO_SOURCE');
+    // planToExecution artık KAYNAKLI (planning/executing gerçekten emit edilir) — bu örneklemde
+    // yalnız ölçülmediği için NOT_OBSERVED, NO_SOURCE DEĞİL.
+    expect(seg('planToExecution')?.status).toBe('NOT_OBSERVED');
     expect(seg('planToExecution')?.minMs).toBeNull();
     expect(s.summary.measuredSegmentCount).toBe(2);
   });
@@ -264,14 +267,14 @@ describe('F · çift yürütme (üç bağımsız işaret)', () => {
  * ══════════════════════════════════════════════════════════════ */
 
 describe('G · NO_SOURCE ayrımı', () => {
-  it('başka fazlar gözlense bile planning/executing/speech_end NO_SOURCE kalır', () => {
+  it('MAVI-INSTRUMENTATION-1: başka fazlar gözlenince, gözlenmeyen planning/executing/speech_end NOT_OBSERVED olur (NO_SOURCE değil — artık kaynaklı)', () => {
     recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1, correlationId: 'g1.s1' });
     recordLifecycleEvent({ phase: 'speaking', atMs: 2, atMono: 2, generationId: 1, sessionId: 1, correlationId: 'g1.s1' });
     const s = buildMaviEvidenceSection();
     for (const p of ['planning', 'executing', 'speech_end']) {
       const st = s.lifecycle.find((x) => x.phase === p)?.status;
-      expect(st).toBe('NO_SOURCE');
-      expect(st).not.toBe('NOT_OBSERVED');
+      expect(st).toBe('NOT_OBSERVED');
+      expect(st).not.toBe('NO_SOURCE');
     }
   });
 

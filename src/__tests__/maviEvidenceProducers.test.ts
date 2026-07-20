@@ -101,12 +101,12 @@ describe('PR-DIAG-2 — lifecycle ham olay üreticisi', () => {
     expect(r.phaseCoverage.find((p) => p.id === 'phase.wake_detected')?.verdict).toBe('OBSERVED');
   });
 
-  it('emit edilmeyen fazlar raporda NO_SOURCE kalır (üretici uydurmaz)', async () => {
+  it('MAVI-INSTRUMENTATION-1: emit edilmeyen fazlar (artık kaynaklı) NOT_OBSERVED kalır — üretici uydurmaz', async () => {
     const h = setup({ takeover: false });
     h.emit({ phase: 'listening', generationId: 1, sessionId: 1, at: 10 });
     const r = buildMaviEvidenceReport();
-    expect(r.phaseCoverage.find((p) => p.id === 'phase.planning')?.verdict).toBe('NO_SOURCE');
-    expect(r.phaseCoverage.find((p) => p.id === 'phase.speech_end')?.verdict).toBe('NO_SOURCE');
+    expect(r.phaseCoverage.find((p) => p.id === 'phase.planning')?.verdict).toBe('NOT_OBSERVED');
+    expect(r.phaseCoverage.find((p) => p.id === 'phase.speech_end')?.verdict).toBe('NOT_OBSERVED');
   });
 });
 

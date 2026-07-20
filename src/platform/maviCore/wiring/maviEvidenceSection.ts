@@ -278,13 +278,14 @@ export function neutralizeCode(v: string | null | undefined): string | null | un
  * ════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Yalnız bu iki segmentin ÖLÇÜM KAYNAĞI vardır (wake/listening/transcribing fazları voiceService'ten
- * gelir). Diğer üçü `planning`/`executing` marker'ına muhtaçtır; bu fazlar voiceService kanalında
- * HİÇ emit edilmez (PHASES_WITHOUT_SOURCE ile aynı gerekçe) → segment NO_SOURCE'tur, NOT_OBSERVED
- * DEĞİL. Bu ayrım testle (C/G) kilitlenir.
+ * MAVI-INSTRUMENTATION-1: BEŞ segmentin de artık ÖLÇÜM KAYNAĞI vardır. `transcriptToPlan`/
+ * `planToExecution`/`executionToSpeech` `planning`/`executing`/`speaking` marker'larına muhtaçtı;
+ * bu fazlar artık voiceService'ten (processTextCommand/dispatch/dispatchDriving/dispatchChain/
+ * _answerSensorQuery) GERÇEKTEN emit edilir → segment NO_SOURCE değil, örneklem yoksa dürüstçe
+ * NOT_TESTED/NOT_OBSERVED'a düşer (uydurma 0 ms YOK). Bu ayrım testle (C/G) kilitlenir.
  */
 const SEGMENTS_WITH_SOURCE: ReadonlySet<VoiceSegmentKey> = new Set<VoiceSegmentKey>([
-  'wakeToListening', 'listeningToTranscript',
+  'wakeToListening', 'listeningToTranscript', 'transcriptToPlan', 'planToExecution', 'executionToSpeech',
 ]);
 
 /* ══════════════════════════════════════════════════════════════════════════

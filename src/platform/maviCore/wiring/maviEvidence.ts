@@ -103,6 +103,8 @@ export interface LifecycleEventRecord {
   readonly correlationId: string;
   /** Bir önceki olaydan bu yana geçen süre (ilk olayda undefined). */
   readonly latencyMs?: number;
+  /** MAVI-INSTRUMENTATION-1 — yalnız 'execution_result' fazı: bounded sonuç kodu (PII yok). */
+  readonly result?: string;
 }
 
 /** 2. TAKEOVER — komut başına tam karar zinciri. */
@@ -372,16 +374,19 @@ export function aggregateSegments(
  * Rapor
  * ════════════════════════════════════════════════════════════════════════ */
 
-/** voiceService'in HİÇ emit etmediği fazlar → NOT_OBSERVED değil, NO_SOURCE (dürüstlük). */
-export const PHASES_WITHOUT_SOURCE: readonly string[] = Object.freeze([
-  'planning',    // Mavi orchestrator üretir, voiceService kanalına bağlı DEĞİL
-  'executing',   // aynı
-  'speech_end',  // voiceService yalnız 'speaking' (başlangıç) emit eder — bitiş sinyali YOK
-]);
+/**
+ * voiceService'in HİÇ emit etmediği fazlar → NOT_OBSERVED değil, NO_SOURCE (dürüstlük).
+ * MAVI-INSTRUMENTATION-1: 'planning'/'executing'/'execution_result'/'speech_end' artık
+ * voiceService'ten GERÇEK kaynağa sahip (processTextCommand/dispatch/dispatchDriving/
+ * dispatchChain/_answerSensorQuery + registerTtsEndListener) → bu listeden çıkarıldı.
+ * Şu an ölçüm kanalı gerçekten OLMAYAN bir faz yok; liste boş ama gelecekte yeni bir
+ * faz eklenip henüz kaynaklanmadıysa buraya EKLENİR (dürüstlük ilkesi kalıcıdır).
+ */
+export const PHASES_WITHOUT_SOURCE: readonly string[] = Object.freeze([]);
 
 export const EXPECTED_PHASES: readonly string[] = Object.freeze([
   'wake_detected', 'listening', 'transcribing', 'planning', 'executing',
-  'speaking', 'speech_end', 'cancelled', 'timeout', 'error',
+  'execution_result', 'speaking', 'speech_end', 'cancelled', 'timeout', 'error',
 ]);
 
 export interface MaviEvidenceReport {

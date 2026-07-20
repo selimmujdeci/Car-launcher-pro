@@ -119,6 +119,8 @@ export interface VoiceLifecycleEventLike {
   readonly sessionId: number;
   /** Monotonik an (voiceService sağlar). Opsiyonel — saf testler vermeyebilir. */
   readonly at?: number;
+  /** MAVI-INSTRUMENTATION-1 — yalnız 'execution_result' fazı: bounded sonuç kodu. */
+  readonly result?: string;
 }
 
 /** FNV-1a 32-bit — hızlı, allocation'sız, deterministik. Ham metin SAKLANMAZ (yalnız hash). */
@@ -353,6 +355,7 @@ export class MaviVoiceBridge {
         sessionId: e.sessionId,
         correlationId: sessionCorrelationId(e.generationId, e.sessionId),
         ...(latencyMs !== undefined ? { latencyMs } : {}),
+        ...(typeof e.result === 'string' && e.result.length > 0 ? { result: e.result } : {}),
       });
     } catch { /* fail-soft: tanı yazımı köprüyü ASLA bozmaz */ }
 

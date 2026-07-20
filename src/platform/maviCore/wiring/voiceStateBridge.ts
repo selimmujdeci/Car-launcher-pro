@@ -13,8 +13,10 @@
  *    wiring gerçeği bağlar). latencyTracker opsiyonel beslenir.
  *  - EKSİK/SIRA-DIŞI olayda CRASH YOK: beklenmeyen phase → bounded diagnostic; segment undefined kalır.
  *  - STALE GENERATION telemetriyi KİRLETMEZ: eski kuşaktan geç gelen olay YOK SAYILIR.
- *  - `planning`/`executing` voiceService'ten GELMEZ (Faz-2 komut-merkezli) → o segmentler doğal
- *    olarak eksik kalır + diagnostic'le işaretlenir (dürüst kapsam; MAVI3-4 takeover'da gelebilir).
+ *  - MAVI-INSTRUMENTATION-1: `planning`/`executing` artık voiceService'ten GERÇEKTEN gelir
+ *    (processTextCommand/dispatch/dispatchDriving/dispatchChain/_answerSensorQuery emit eder) →
+ *    PHASE_TO_MARKER haritası burada zaten hazırdı, yeni bir değişiklik gerekmedi (yalnız üretici
+ *    tarafı beslendi).
  *  - TIMER/polling YOK · UI/TTS simülasyonu YOK · unsubscribe İDEMPOTENT.
  */
 

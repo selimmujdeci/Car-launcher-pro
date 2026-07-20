@@ -313,6 +313,9 @@ function _armFollowUp(): void {
 // TTS bitti → (A) kurulu takip varsa mikrofonu yeniden aç, yoksa
 //             (B) takipsiz sohbet cevabıysa idle'a dön (sabit timer YOK).
 registerTtsEndListener(() => {
+  // MAVI-INSTRUMENTATION-1: ttsService'in TÜM yolları (native/web/klip · başarı/hata/iptal)
+  // bu tek noktaya toplanır (_notifyTtsEnd) — speech_end HER durumda burada kapanır.
+  _emitVoiceEvent('speech_end');
   // (A) Takip dinlemesi (sürekli sohbet döngüsü) ────────────────
   if (_followUpArmed) {
     // AI hâlâ işliyor/dinleme zaten açık → bu bitiş ara feedback'ti, kurulu kal.
@@ -377,12 +380,24 @@ export function cancelAssistantDuck(): void {
  * Mevcut davranışı DEĞİŞTİRMEZ: yeni typed olay kanalı, `push()` tek funnel'ının SONUNA
  * eklenen tek satırla beslenir + birkaç kritik noktadan (wake/timeout/cancel) emit. Polling
  * veya setInterval YOK; import yan etkisi YOK (kanal boş başlar). Mavi telemetri köprüsü
- * (MAVI3-2) bunu tüketir. `planning`/`executing` voiceService'ten GELMEZ (Mavi orchestrator
- * üretir) — union'da tanımlıdır ama burada emit edilmez (dürüst kapsam). */
+ * (MAVI3-2) bunu tüketir.
+ *
+ * MAVI-INSTRUMENTATION-1: `planning`/`executing`/`execution_result` artık BURADAN (voiceService)
+ * gerçek komut işleme anlarında emit edilir (processTextCommand + dispatch/dispatchDriving/
+ * dispatchChain/_answerSensorQuery/AI-ACTION dalı) — Mavi orchestrator'a bağımlı DEĞİLDİR, tüm
+ * komut hattını (yerel + AI) kapsar. `speech_end` gerçek TTS bitişinde (registerTtsEndListener,
+ * ttsService'in TÜM yollarını — native/web/klip, başarı/hata/iptal — toplayan tek nokta) emit
+ * edilir. Davranış DEĞİŞMEZ: bu yalnız ADDITIVE gözlem olayları — hiçbir karar/komut/TTS çağrısı
+ * taşınmaz, yalnız yanına bir emit satırı eklenir. */
 
 export type VoiceLifecyclePhase =
   | 'idle' | 'wake_detected' | 'listening' | 'transcribing'
-  | 'planning' | 'executing' | 'speaking' | 'cancelled' | 'timeout' | 'error';
+  | 'planning' | 'executing' | 'execution_result' | 'speaking' | 'speech_end'
+  | 'cancelled' | 'timeout' | 'error';
+
+/** `execution_result` fazının bounded sonuç kodu — serbest metin YOK, PII YOK. */
+export type VoiceExecutionResult =
+  | 'success' | 'failed' | 'rejected' | 'unsupported' | 'no_target' | 'cancelled';
 
 export interface VoiceLifecycleEvent {
   readonly phase: VoiceLifecyclePhase;
@@ -394,6 +409,8 @@ export interface VoiceLifecycleEvent {
   readonly at: number;
   /** Yalnız 'transcribing' — transcript UZUNLUĞU (ham metin/PII YOK). */
   readonly transcriptLength?: number;
+  /** Yalnız 'execution_result' — bounded sonuç kodu (ham metin/komut içeriği YOK). */
+  readonly result?: VoiceExecutionResult;
 }
 
 const _voiceEventListeners = new Set<(e: VoiceLifecycleEvent) => void>();
@@ -424,9 +441,15 @@ export function subscribeVoiceState(listener: (e: VoiceLifecycleEvent) => void):
 }
 
 /** İç emit: id'leri + zaman ekler, ardışık aynı-phase gürültüsünü bastırır, listener hatasını izole eder. */
-function _emitVoiceEvent(phase: VoiceLifecyclePhase, extra?: { transcriptLength?: number; newSession?: boolean }): void {
+function _emitVoiceEvent(
+  phase: VoiceLifecyclePhase,
+  extra?: { transcriptLength?: number; newSession?: boolean; result?: VoiceExecutionResult },
+): void {
   if (extra?.newSession) { _voiceSessionId++; _voiceGenerationId++; }
   // Ardışık aynı phase → bastır ('transcribing' hariç: transcript uzunluğu değişebilir).
+  // Çift-yürütme koruması: aynı transcript için 'executing'/'execution_result' iki kez ÜST ÜSTE
+  // gelirse (fire-and-forget çağrı iki kez tetiklenirse) ikinci emit sessizce bastırılır — evidence
+  // ring'i şişmez, tek kayıt kalır (MAVI-INSTRUMENTATION-1).
   if (phase === _lastEmittedPhase && phase !== 'transcribing') return;
   _lastEmittedPhase = phase;
   const evt: VoiceLifecycleEvent = Object.freeze({
@@ -435,6 +458,7 @@ function _emitVoiceEvent(phase: VoiceLifecyclePhase, extra?: { transcriptLength?
     sessionId: _voiceSessionId,
     at: _voiceNow(),
     transcriptLength: extra?.transcriptLength,
+    result: extra?.result,
   });
   for (const fn of _voiceEventListeners) {
     try { fn(evt); } catch { /* listener hatası voiceService'i ASLA bozmaz (fail-soft) */ }
@@ -549,6 +573,8 @@ function getResetDelays(): Record<string, number> {
 }
 
 function dispatch(cmd: ParsedCommand): void {
+  // MAVI-INSTRUMENTATION-1: seçilen action dispatch edilmeden HEMEN önce.
+  _emitVoiceEvent('executing');
   void reportVoiceDiag('voice_intent', { intent: cmd.type });
   pushTrail('action', `sesli komut: ${cmd.type}`);  // olay izi (PII yok — yalnız intent tipi)
   push({
@@ -569,7 +595,15 @@ function dispatch(cmd: ParsedCommand): void {
   } else {
     speakFeedback(cmd.feedback);
   }
-  _commandHandlers.forEach((fn) => fn(cmd));
+  let _execOutcome: VoiceExecutionResult = 'success';
+  try {
+    _commandHandlers.forEach((fn) => fn(cmd));
+  } catch (e) {
+    _execOutcome = 'failed';
+    throw e; // orijinal davranış korunur: hata YUTULMAZ, yalnız sonuç önce kaydedilir
+  } finally {
+    _emitVoiceEvent('execution_result', { result: _execOutcome });
+  }
   void reportVoiceDiag('voice_success', { intent: cmd.type });
   const delays = getResetDelays();
   setTimeout(() => {
@@ -580,6 +614,8 @@ function dispatch(cmd: ParsedCommand): void {
 }
 
 function dispatchDriving(cmd: ParsedCommand): void {
+  // MAVI-INSTRUMENTATION-1: seçilen action dispatch edilmeden HEMEN önce.
+  _emitVoiceEvent('executing');
   void reportVoiceDiag('voice_intent', { intent: cmd.type });
   pushTrail('action', `sesli komut (sürüşte): ${cmd.type}`);  // olay izi (PII yok)
   _endConvSession(); // araç komutu → sohbet döngüsü biter (yalnız companion sohbeti sürer)
@@ -589,7 +625,15 @@ function dispatchDriving(cmd: ParsedCommand): void {
     speakFeedback(cmd.feedback);
   }
   pushHistory(cmd);
-  _commandHandlers.forEach((fn) => fn(cmd));
+  let _execOutcome: VoiceExecutionResult = 'success';
+  try {
+    _commandHandlers.forEach((fn) => fn(cmd));
+  } catch (e) {
+    _execOutcome = 'failed';
+    throw e; // orijinal davranış korunur: hata YUTULMAZ, yalnız sonuç önce kaydedilir
+  } finally {
+    _emitVoiceEvent('execution_result', { result: _execOutcome });
+  }
   void reportVoiceDiag('voice_success', { intent: cmd.type });
 }
 
@@ -605,6 +649,8 @@ function dispatchDriving(cmd: ParsedCommand): void {
  * string değer) TTS'te OKUNMAZ (ISO 15008) — toast ile ekrana yönlendirilir.
  */
 async function _answerSensorQuery(sensorQuery: string): Promise<void> {
+  // MAVI-INSTRUMENTATION-1: seçilen action (sensör okuma) dispatch edilmeden HEMEN önce.
+  _emitVoiceEvent('executing');
   _endConvSession(); // araç sorgusu = araç komutu → sohbet döngüsü başlatmaz (dispatch ile aynı)
   push({ status: 'processing', transcript: sensorQuery, error: null, suggestions: [] });
   speakFeedback('Bakıyorum...');
@@ -615,6 +661,7 @@ async function _answerSensorQuery(sensorQuery: string): Promise<void> {
       speakFeedback('Bu sensörü tanımıyorum.');
       push({ status: 'error', error: 'Sensör bulunamadı', transcript: sensorQuery, suggestions: [] });
       setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+      _emitVoiceEvent('execution_result', { result: 'no_target' }); // sensör tanınmadı — hedef yok
       return;
     }
     if (typeof answer.value === 'string' && answer.value.length > 20) {
@@ -626,11 +673,13 @@ async function _answerSensorQuery(sensorQuery: string): Promise<void> {
     push({ status: 'success', error: null, transcript: sensorQuery, suggestions: [] });
     const delays = getResetDelays();
     setTimeout(() => { if (_current.status === 'success') push({ status: 'idle' }); }, delays.normal ?? 2500);
+    _emitVoiceEvent('execution_result', { result: 'success' });
   } catch {
     // fail-soft: sensör okuma hatası komut akışını kesmez (CLAUDE.md §2)
     speakFeedback('Sensör verisi alınamadı.');
     push({ status: 'error', error: 'Sensör hatası', transcript: sensorQuery, suggestions: [] });
     setTimeout(() => { if (_current.status === 'error') push({ status: 'idle', error: null }); }, 3000);
+    _emitVoiceEvent('execution_result', { result: 'failed' });
   }
   void reportVoiceDiag('voice_success', { intent: 'query_sensor' });
 }
@@ -642,13 +691,23 @@ async function _answerSensorQuery(sensorQuery: string): Promise<void> {
 const CHAIN_SPLIT = /\s+(?:ve|sonra|ardindan|ardından|bir de|hem de|ayrica|ayrıca)\s+/i;
 
 function dispatchChain(cmds: ParsedCommand[], ctx?: VehicleContext): void {
+  // MAVI-INSTRUMENTATION-1: seçilen action(lar) dispatch edilmeden HEMEN önce.
+  _emitVoiceEvent('executing');
   // Tek birleşik TTS (üst üste konuşma olmasın), sonra her komutun aksiyonu.
   _endConvSession(); // komut zinciri = araç komutu → takip dinlemesi yok
   const combined = cmds.map((c) => c.feedback).filter(Boolean).join(', ');
   if (combined) speakFeedback(combined);
-  for (const cmd of cmds) {
-    pushHistory(cmd);
-    _commandHandlers.forEach((fn) => fn(cmd));
+  let _chainOutcome: VoiceExecutionResult = 'success';
+  try {
+    for (const cmd of cmds) {
+      pushHistory(cmd);
+      _commandHandlers.forEach((fn) => fn(cmd));
+    }
+  } catch (e) {
+    _chainOutcome = 'failed';
+    throw e; // orijinal davranış korunur: hata YUTULMAZ, yalnız sonuç önce kaydedilir
+  } finally {
+    _emitVoiceEvent('execution_result', { result: _chainOutcome });
   }
   if (!ctx?.isDriving) {
     push({
@@ -1011,6 +1070,10 @@ export async function processTextCommand(
     return false;
   }
 
+  // MAVI-INSTRUMENTATION-1: transcript kabul edildi + karar üretimi burada BAŞLAR — tüm
+  // yönlendirme dallarını (bekleyen onay/zincir/bypass/AI/yerel fallback) tek noktadan kapsar.
+  _emitVoiceEvent('planning');
+
   const cfg = getConfig();
   const now = Date.now();
 
@@ -1026,6 +1089,7 @@ export async function processTextCommand(
       if (NEGATE_RE.test(trimmed)) {
         _pendingCmd = null;
         _endConvSession(); // onay diyaloğu bitti — komut akışı sohbet döngüsü başlatmaz
+        _emitVoiceEvent('execution_result', { result: 'cancelled' }); // kullanıcı bekleyen komutu reddetti
         speakFeedback('Tamam, vazgeçtim.');
         push({ status: 'idle', error: null });
         return true;
@@ -1216,7 +1280,16 @@ export async function processTextCommand(
           confidence: brain.semantic.confidence,
           feedback:   brain.semantic.feedback,
         };
-        _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
+        _emitVoiceEvent('executing');
+        let _aiExecOutcome: VoiceExecutionResult = 'success';
+        try {
+          _aiHandlers.forEach((fn) => fn(aiCompat, ctx));
+        } catch (e) {
+          _aiExecOutcome = 'failed';
+          throw e;
+        } finally {
+          _emitVoiceEvent('execution_result', { result: _aiExecOutcome });
+        }
         void reportVoiceDiag('voice_success', { intent: intent.type, provider });
         _endConvSession(); // araç komutu → sohbet döngüsü başlatmaz
         speakFeedback(brain.semantic.feedback);
@@ -1285,11 +1358,13 @@ export async function processTextCommand(
   }
 
   // (e) Hiçbir şey eşleşmedi → "anlaşılamadı" (çıkmaz yok; ikinci AI/“internet yavaş” yok).
+  // NOT dispatch edildi → 'executing' YOK; doğrudan terminal sonuç (desteklenmeyen komut).
   void reportVoiceDiag('voice_error', {
     errorCode: 'ERR_NO_MATCH',
     transcriptLength: trimmed.length,
     provider,
   });
+  _emitVoiceEvent('execution_result', { result: 'unsupported' });
   _endConvSession(); // terminal hata — sohbet döngüsü biter, pencere kapanabilir
   push({
     status:      'error',
