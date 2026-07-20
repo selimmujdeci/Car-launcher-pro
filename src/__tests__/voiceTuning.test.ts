@@ -34,7 +34,7 @@ vi.mock('../platform/nativePlugin', () => ({
     addListener: () => Promise.resolve({ remove: async () => {} }),
   },
 }));
-vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult }));
+vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, buildCommandGrammar: () => ['[unk]'] }));
 vi.mock('../platform/offlineConversationEngine', () => ({
   tryOfflineConversation: () => ({ handled: false, response: '' }),
 }));
