@@ -194,6 +194,13 @@ export interface AppNavigationActionsDeps {
   readonly currentGeneration?: () => number;
   /** Dedupe penceresi (ms) — çift-tetik koruması. Varsayılan motor değeri (1500). */
   readonly dedupeWindowMs?: number;
+  /**
+   * AYNI registry'ye eklenecek EK eylem tanımları (MAVI4-DRIVE-2: güvenli uygulama eylemleri).
+   * Nav id'leriyle çakışmamalı (çakışırsa registry kurulum-zamanı Error verir — fail-closed).
+   */
+  readonly extraDefinitions?: readonly ActionDefinition[];
+  /** Ek eylemlerin handler'ları (aynı engine üzerinden çalışır — yeni dispatcher YOK). */
+  readonly extraHandlers?: Readonly<Record<string, ActionHandler>>;
 }
 
 export interface NavDispatchOptions {
@@ -201,6 +208,11 @@ export interface NavDispatchOptions {
   readonly generation?: number;
   /** Kullanıcı orta/yüksek riski önceden onayladı mı (nav düşük risk → etkisiz). */
   readonly confirmed?: boolean;
+  /**
+   * Eylem payload'u (DRIVE-2 güvenli eylemleri: title/section/value). registry.validate'ten geçer;
+   * geçersizse adım 'invalid' düşer (typed input). Nav eylemleri payload'suzdur (validateEmpty).
+   */
+  readonly payload?: unknown;
 }
 
 export interface NavDispatchOutcome {
@@ -233,7 +245,12 @@ export function createAppNavigationActions(deps: AppNavigationActionsDeps): AppN
   const now = typeof deps.now === 'function' ? deps.now : defaultNow;
   const registry: MaviActionRegistry = createActionRegistry();
   for (const def of buildNavActionDefinitions(deps.screenIds)) registry.register(def); // çift id → Error (kurulum-zamanı)
-  const handlers = createNavHandlers(deps.port, deps.screenIds);
+  // MAVI4-DRIVE-2: AYNI registry güvenli uygulama eylemleriyle GENİŞLETİLİR (nav id'leriyle çakışmaz).
+  for (const def of deps.extraDefinitions ?? []) registry.register(def);
+  const handlers: Record<string, ActionHandler> = {
+    ...createNavHandlers(deps.port, deps.screenIds),
+    ...(deps.extraHandlers ?? {}),
+  };
   const engine = createExecutionEngine({
     registry, gate: deps.gate, handlers,
     now: deps.now,
@@ -254,7 +271,7 @@ export function createAppNavigationActions(deps: AppNavigationActionsDeps): AppN
     const startedAt = safeNow(now);
     const plan: MaviPlan = {
       mode: 'sequential',
-      steps: [{ actionId, confirmed: opts?.confirmed }],
+      steps: [{ actionId, payload: opts?.payload, confirmed: opts?.confirmed }],
       ...(typeof opts?.generation === 'number' ? { generation: opts.generation } : {}),
     };
     let result: PlanResult;
