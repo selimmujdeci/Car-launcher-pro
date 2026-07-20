@@ -80,6 +80,7 @@ import { healthMonitor }           from './SystemHealthMonitor';
 import { initCommunityService, stopCommunityService } from '../communityService';
 import { stopVoiceService }        from '../voiceService';
 import { startWakeWordService, notifyVoskModelReady } from '../wakeWordService';
+import { startMaviVoiceWiring } from './platformCoreMaviVoiceWiring';
 import {
   startCompanionEngine,
   stopCompanionEngine,
@@ -714,6 +715,18 @@ class SystemBoot {
     // notifyVoskModelReady) — erken start "model yok" ile sağır kalıyordu.
     _log('  › WakeWordService');
     this._reg(startWakeWordService());
+
+    // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
+    // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService
+    // komut akışı hâlâ ayakta). Model A: pilot handler'lar no-op → mevcut komut davranışı DEĞİŞMEZ,
+    // çifte yürütme YOK; yalnız lifecycle/telemetry/context/güvenlik-kapısı/feedback gölge çalışır.
+    // Wiring fonksiyonu idempotent + fail-soft; savunmacı catch yalnız sözleşme ihlali için.
+    _log('  › Mavi Voice Bridge (Faz-2 shadow wiring)');
+    try {
+      this._reg(startMaviVoiceWiring());
+    } catch (e) {
+      logError('SystemBoot:maviVoiceWiring', e);
+    }
 
     // OTA güncelleme servisi: boot kontrolü + 6 saatlik poll (OTA v1 / Commit 6)
     _log('  › OtaUpdateService');
