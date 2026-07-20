@@ -43,6 +43,7 @@ vi.mock('../platform/voiceService', () => ({
   startListening: (...a: unknown[]) => M.startListening(...a),
   isVoicePaused: () => M.voicePaused,
   getVoiceSnapshot: () => ({ status: M.voiceStatus }),
+  notifyWakeDetected: vi.fn(),
 }));
 vi.mock('../platform/ttsService', () => ({
   ttsSpeak: (text: string, opts?: { onEnd?: () => void }) => {
