@@ -51,6 +51,8 @@ import {
 // önce tazelenir (fail-soft: eski APK / hata → kanıt yok).
 import { refreshExtendedPollEvidence } from './obd/extendedPollEvidence';
 import { refreshKwpRecoveryEvidence } from './obd/kwpRecoveryEvidence';
+// PR-DIAG-3: MAVİ ses/TAKEOVER kanıt bölümü — DIAG-1/DIAG-2 verisini SERİLEŞTİRİR (karar vermez).
+import { collectMaviEvidenceSection } from './maviCore/wiring/maviEvidenceSection';
 import { buildTriageSnapshot, buildRootCauseSnapshot, buildDiagnosticVerdict, type TriageSections, type ErrorLedgerLike } from './diagnosticTriage';
 import { buildErrorLedger, type RawErrorLike } from './errorLedger';
 import { useVidStore } from '../store/useVidStore';
@@ -619,6 +621,11 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     // içeriği, araç sinyal DEĞERLERİ, VIN/koordinat/CAN YOK). Wiring yoksa sayaçlar
     // null ("ölçülemiyor" ≠ 0). Bridge henüz bağlı değil → bölümü YOK.
     platform: _safeSection(buildPlatformRuntimeSnapshot),
+    // MAVİ ÇEKİRDEĞİ ses/TAKEOVER kanıtı (PR-DIAG-3) — lifecycle/karar/media.next/ownership/
+    // segment/safety kanıtını DIAG-1/DIAG-2 depolarından OKUYUP serileştirir. KARAR VERMEZ
+    // (yalnız OBSERVED/NOT_OBSERVED/NOT_TESTED/NO_SOURCE); ledger'a yazmaz. Kendi içinde
+    // fail-soft; _safeSection ek savunma katmanı (bölüm patlasa ana rapor ETKİLENMEZ).
+    MAVI_VOICE_AND_TAKEOVER_EVIDENCE: _safeSection(collectMaviEvidenceSection),
   }, 0) as Record<string, unknown>;
 
   return payload;
@@ -751,6 +758,7 @@ const _SECTION_LABELS: Record<string, string> = {
   triage: 'Öncelikli bulgular', inspector: 'Geliştirici izi', selfTest: 'Otomatik test',
   userReport: 'Açıklamanız', source: 'Kaynak', rootCause: 'Kök neden',
   errorLedger: 'Hata defteri (eski/yeni)', diagnosticVerdict: 'Tanı verdikti',
+  MAVI_VOICE_AND_TAKEOVER_EVIDENCE: 'Mavi ses / TAKEOVER kanıtı',
 };
 
 const _MASKED_INFO = [

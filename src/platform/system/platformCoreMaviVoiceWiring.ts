@@ -27,6 +27,9 @@ import { resolveAndNavigate } from '../addressNavigationEngine';
 import { getGPSState } from '../gpsService';
 import { readDTCCodes, onDTCState, type DTCState } from '../dtcService';
 import { createMaviWiring, type MaviWiringHandle } from '../maviCore/wiring/maviWiring';
+// PR-DIAG-3: tanı raporunun segment kaynağı — MEVCUT voiceState.recent()'e REFERANS göstericisi
+// (yeni buffer/telemetri DEĞİL). start/dispose ile set/temizlenir.
+import { setMaviVoiceTimingsSource } from '../maviCore/wiring/maviEvidenceSection';
 import { createMediaNextPort } from '../maviCore/wiring/maviMediaPort';
 import { createTakeoverPolicy } from '../maviCore/wiring/takeoverPolicy';
 import type { PilotHandlerDeps, PilotThemeMode } from '../maviCore/wiring/maviPilotHandlers';
@@ -146,12 +149,18 @@ export function startMaviVoiceWiring(): () => void {
     }),
   });
   _handle.start();
+  // Tanı raporu segment kaynağını canlı köprüye bağla (PR-DIAG-3). Kopya tutulmaz — rapor anında
+  // `recent()` okunur; köprü yoksa boş dizi (segmentler dürüstçe NOT_TESTED kalır).
+  try {
+    setMaviVoiceTimingsSource(() => _handle?.voiceState?.recent() ?? []);
+  } catch { /* fail-soft: kanıt kaynağı bağlanamazsa üretim akışı ETKİLENMEZ */ }
   return stopMaviVoiceWiring;
 }
 
 /** Mavi Voice wiring'i durdur (idempotent). */
 export function stopMaviVoiceWiring(): void {
   if (!_handle) return;
+  try { setMaviVoiceTimingsSource(null); } catch { /* fail-soft */ }
   try { _handle.dispose(); } catch { /* fail-soft */ }
   _handle = null;
 }
