@@ -20,7 +20,7 @@ import { EvidenceStore } from './evidenceStore';
 import { buildAiCoreVerdict, type AiCoreVerdict } from './verdictEngine';
 import type { TriageSections, ErrorLedgerLike } from '../diagnosticTriage';
 import type { AiAgent, AiExplainer } from './agents/agentContract';
-import type { AiAgentReport } from './types';
+import type { AiAgentReport, AiEvidenceItem } from './types';
 import type { VehicleMemoryStore, VehicleMemoryFact } from './vehicleMemory';
 import { AiSafetyGate } from './safetyGate';
 
@@ -38,6 +38,12 @@ export interface AiOrchestratorRunInput {
   readonly errorLedger?: ErrorLedgerLike | null;
   /** Opsiyonel LLM açıklama kancası (karar otoritesi değil). */
   readonly explainer?: AiExplainer | null;
+  /**
+   * ADDITIVE (Faz-2.5): dışarıda mevcut kaynaklardan türetilmiş EK kanıt (tanı zenginleştirme).
+   * Bağlam kanıtının YANINA ingest edilir (dedup EvidenceStore'da). Karar otoritesi değil —
+   * yalnız ajanların okuyacağı kanıt havuzunu genişletir. Verilmezse davranış BİREBİR aynı.
+   */
+  readonly extraEvidence?: readonly AiEvidenceItem[];
 }
 
 export interface AiOrchestratorRunResult {
@@ -96,9 +102,13 @@ export class AiOrchestrator {
     // 1) Deterministik verdict (offline).
     const verdict = buildAiCoreVerdict(sections, input.errorLedger ?? null);
 
-    // 2) Kanıt topla (bağlamdan türet → depo).
+    // 2) Kanıt topla (bağlamdan türet → depo). Faz-2.5: dışarıdan gelen EK kanıt (tanı
+    //    zenginleştirme) additive ingest edilir; EvidenceStore anahtar-bazlı dedup eder.
     const evidence = new EvidenceStore({ now: this._now });
     evidence.ingestMany(deriveContextEvidence(ctx, now));
+    if (Array.isArray(input.extraEvidence) && input.extraEvidence.length > 0) {
+      evidence.ingestMany(input.extraEvidence);
+    }
 
     // 3) Bu aracın hafızasını hatırla (varsa).
     let memory: readonly VehicleMemoryFact[] = [];

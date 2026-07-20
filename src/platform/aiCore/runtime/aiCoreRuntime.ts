@@ -27,6 +27,25 @@ import { AI_MECHANIC_ID } from '../agents/aiMechanic';
 import {
   halSnapshotToContextInput, type HalSnapshotLike, type HalIdentityLike,
 } from './halAdapter';
+import {
+  deriveDiagnosticEvidence, obdDeepToSections,
+  type DiagObdDeepLike, type DiagSourceHealthLike, type DiagFreezeFrameLike, type DiagMemoryLimitLike,
+} from './diagnosticEvidence';
+import type { AiEvidenceItem } from '../types';
+import type { TriageSections } from '../../diagnosticTriage';
+
+/**
+ * Faz-2.5 tanı zenginleştirme sağlayıcısı (DI). Edge çalışmasında ÇAĞRILIR — mevcut
+ * Diagnostics V2 anlık görüntüsünü (obdDeep) + kaynak sağlığı + cache freeze döndürür.
+ * Yeni poll AÇMAZ (mevcut snapshot okunur). null → zenginleştirme yok (Faz-2 davranışı).
+ */
+export interface DiagnosticsProviderResult {
+  readonly obdDeep?: DiagObdDeepLike | null;
+  readonly sourceHealth?: DiagSourceHealthLike | null;
+  readonly freezeFrame?: DiagFreezeFrameLike | null;
+  readonly memoryLimits?: readonly DiagMemoryLimitLike[];
+}
+export type DiagnosticsProvider = () => DiagnosticsProviderResult | null;
 
 /* ── Decoupled runtime bağımlılıkları (PlatformEventBus / vehicleHal yapısal uyar) ── */
 
@@ -52,6 +71,8 @@ export interface AiCoreRuntimeDeps {
   readonly bus: RuntimeBusLike;
   readonly hal: RuntimeHalLike;
   readonly orchestrator: AiOrchestrator;
+  /** Faz-2.5: tanı zenginleştirme sağlayıcısı (opsiyonel). Yoksa Faz-2 davranışı (minimal). */
+  readonly diagnosticsProvider?: DiagnosticsProvider;
   readonly now?: () => number;
   readonly online?: () => boolean;
   /** İki çalışma arası minimum (bounded). Varsayılan 4000ms. */
@@ -96,6 +117,7 @@ export class AiCoreRuntime {
   private readonly _bus: RuntimeBusLike;
   private readonly _hal: RuntimeHalLike;
   private readonly _orchestrator: AiOrchestrator;
+  private readonly _diagProvider: DiagnosticsProvider | null;
   private readonly _now: () => number;
   private readonly _online: () => boolean;
   private readonly _minInterval: number;
@@ -118,6 +140,7 @@ export class AiCoreRuntime {
     this._bus = deps.bus;
     this._hal = deps.hal;
     this._orchestrator = deps.orchestrator;
+    this._diagProvider = deps.diagnosticsProvider ?? null;
     this._now = typeof deps.now === 'function' ? deps.now : () => Date.now();
     this._online = typeof deps.online === 'function' ? deps.online : () => true;
     this._minInterval = deps.minRunIntervalMs && deps.minRunIntervalMs > 0 ? deps.minRunIntervalMs : DEFAULT_MIN_RUN_INTERVAL_MS;
@@ -159,12 +182,33 @@ export class AiCoreRuntime {
     this._lastRunAt = this._now();
     this._runCount++;
     try {
+      const now = this._now();
       const snapshot = this._hal.getSnapshot();
       const identity = this._hal.getVehicleIdentity();
-      const ctx = assembleVehicleContext(
-        halSnapshotToContextInput(snapshot, identity, this._now(), this._safeOnline()),
-      );
-      const result = await this._orchestrator.run({ context: ctx });
+      const ctxInput = halSnapshotToContextInput(snapshot, identity, now, this._safeOnline());
+
+      // Faz-2.5: tanı zenginleştirme — mevcut Diagnostics V2 anlık görüntüsünden EK kanıt +
+      // zengin sections (verdict çekirdeğini DAHA İYİ besler; ikinci otorite değil). Provider
+      // yoksa Faz-2 davranışı (minimal). Provider hatası izole → minimal bağlama düşülür.
+      let sections: TriageSections | null | undefined = ctxInput.diagnosticSections;
+      let extraEvidence: AiEvidenceItem[] = [];
+      if (this._diagProvider) {
+        try {
+          const diag = this._diagProvider();
+          if (diag) {
+            if (diag.obdDeep) sections = obdDeepToSections(diag.obdDeep);
+            extraEvidence = deriveDiagnosticEvidence({
+              obdDeep: diag.obdDeep, sourceHealth: diag.sourceHealth,
+              freezeFrame: diag.freezeFrame, memoryLimits: diag.memoryLimits,
+            }, now);
+          }
+        } catch (e) {
+          console.error('[AiCoreRuntime] tanı zenginleştirme hatası — izole, minimal bağlam', e);
+        }
+      }
+
+      const ctx = assembleVehicleContext({ ...ctxInput, diagnosticSections: sections });
+      const result = await this._orchestrator.run({ context: ctx, extraEvidence });
       if (this._disposed) return;                     // await sırasında dispose geldi → yayınlama
       this._lastResult = result;
       this._publishResult(result, ctx.fingerprintHash);

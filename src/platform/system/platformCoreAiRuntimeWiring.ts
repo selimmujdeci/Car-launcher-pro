@@ -34,8 +34,10 @@ import { aiMechanic } from '../aiCore/agents/aiMechanic';
 import { createVehicleMemoryStore, type VehicleMemoryStore } from '../aiCore/vehicleMemory';
 import {
   AiCoreRuntime, type RuntimeBusLike, type RuntimeHalLike, type AiCoreRuntimeStatus,
+  type DiagnosticsProvider, type DiagnosticsProviderResult,
 } from '../aiCore/runtime/aiCoreRuntime';
 import type { AiOrchestratorRunResult } from '../aiCore/aiOrchestrator';
+import { buildObdDeepSnapshot, buildPlatformRuntimeSnapshot } from '../diagnosticSections';
 
 /** Test için opsiyonel DI; üretimde `getAppEventBus()` + `vehicleHal` + varsayılan orchestrator. */
 export interface AiRuntimeWiringDeps {
@@ -43,6 +45,27 @@ export interface AiRuntimeWiringDeps {
   readonly hal?: RuntimeHalLike;
   readonly orchestrator?: AiOrchestrator;
   readonly memory?: VehicleMemoryStore;
+  /** Faz-2.5: tanı zenginleştirme sağlayıcısı (test DI). Üretimde varsayılan snapshot okuyucu. */
+  readonly diagnosticsProvider?: DiagnosticsProvider;
+}
+
+/**
+ * VARSAYILAN tanı sağlayıcı (Faz-2.5) — edge çalışmasında mevcut Diagnostics V2 anlık
+ * görüntüsünü OKUR (yeni poll YOK; `buildObdDeepSnapshot`/`buildPlatformRuntimeSnapshot`
+ * fail-soft `_safe`-sarmalı okuyuculardır). Freeze-frame CANLI sorgu gerektirdiğinden
+ * DAHİL EDİLMEZ (yalnız cache-varsa; snapshot taşımıyorsa builder "yakalanmadı" işaretler).
+ * memoryLimits geçilmez — orchestrator Vehicle Memory'yi zaten kendi içinde hatırlar (çift
+ * temsil YOK). Hata → null (runtime minimal bağlama düşer).
+ */
+function _defaultDiagnosticsProvider(): DiagnosticsProviderResult | null {
+  try {
+    const obdDeep = buildObdDeepSnapshot();
+    let sourceHealth: DiagnosticsProviderResult['sourceHealth'] = null;
+    try { sourceHealth = buildPlatformRuntimeSnapshot().sourceHealth; } catch { sourceHealth = null; }
+    return { obdDeep, sourceHealth };
+  } catch {
+    return null;   // tanı okuması başarısız → zenginleştirme yok (fail-soft)
+  }
 }
 
 export type AiRuntimeWiringCleanup = () => void;
@@ -99,6 +122,7 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
 
     runtime = new AiCoreRuntime({
       bus, hal, orchestrator,
+      diagnosticsProvider: deps.diagnosticsProvider ?? _defaultDiagnosticsProvider,
       online: () => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true),
     });
     const own = runtime;
