@@ -1117,3 +1117,37 @@ export function parseCommand(input: string): ParsedCommand | null {
 export function commandLabel(type: CommandType): string {
   return PATTERNS.find((p) => p.type === type)?.label ?? type;
 }
+
+/* ── Offline KOMUT GRAMMAR'ı (Yol A — internetsizken OEM-hissi tanıma) ──────────
+ * Vosk'u asistanın GERÇEK komut sözlüğüne kısıtlar → arama uzayı daralır, offline
+ * komut tanıma doğruluğu fırlar (wake word grammar'ıyla aynı ilke). Grammar dışı
+ * konuşma "[unk]"a düşer; parser substring eşleşmesini yine bulur ("haritayı aç
+ * lütfen" → "haritayı aç [unk]" → open_maps). Online'da KULLANILMAZ — bulut STT tam
+ * dikteyi çözer. Vosk kuralı: sözlükte olmayan kelimeyi (spotify/waze/İngilizce) Vosk
+ * sessizce yok sayar; grammar yine kurulur (native try/catch full-vocab fallback). */
+let _commandGrammarCache: string[] | null = null;
+
+export function buildCommandGrammar(): string[] {
+  if (_commandGrammarCache) return _commandGrammarCache;
+  const out = new Set<string>();
+  const add = (s: string): void => {
+    const t = s.toLowerCase().trim().replace(/\s+/g, ' ');
+    if (t.length >= 2) out.add(t);
+  };
+  for (const p of PATTERNS) {
+    for (const k of p.keywords) add(k);
+    for (const t of p.tokens) add(t);
+  }
+  // Onay/ret + sohbet kapatma + sık dolgu (parser bunları da bekler).
+  for (const w of ['evet', 'tabii', 'olur', 'tamam', 'aynen', 'hayır', 'yok', 'iptal', 'vazgeç',
+                   'sus', 'kapat', 'dur', 'yeter', 'lütfen', 'bir', 'biraz', 'şunu', 'şu', 'aç', 'kapa']) add(w);
+  // Sayılar (klima/ses/derece) + birimler.
+  for (const w of ['sıfır', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz', 'on',
+                   'on bir', 'on iki', 'on üç', 'on dört', 'on beş', 'on altı', 'on yedi', 'on sekiz', 'on dokuz',
+                   'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan', 'yüz',
+                   'derece', 'yüzde', 'seviye']) add(w);
+  const grammar = Array.from(out);
+  grammar.push('[unk]'); // ŞART: liste dışı söz → tek [unk] (yanlış zorlama yok)
+  _commandGrammarCache = grammar;
+  return grammar;
+}
