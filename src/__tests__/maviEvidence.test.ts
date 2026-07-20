@@ -11,6 +11,7 @@ import {
   recordLifecycleEvent, recordTakeoverDecision, recordMediaNext, recordBargeIn,
   recordSafety, recordLegacyExecution, recordLifecyclePhase, adjustRegistration,
   _resetMaviEvidenceForTest,
+  commandCorrelationId,
   SEGMENT_KEYS, PHASES_WITHOUT_SOURCE, MAX_DECISIONS, MAX_LIFECYCLE_EVENTS,
   type TakeoverDecisionRecord, type MediaNextRecord, type EvidenceVerdict,
 } from '../platform/maviCore/wiring/maviEvidence';
@@ -20,13 +21,18 @@ import type { TakeoverArbiterStats } from '../platform/maviCore/wiring/takeoverA
 const ALLOWED_VERDICTS: readonly EvidenceVerdict[] = ['OBSERVED', 'NOT_OBSERVED', 'NOT_TESTED', 'NO_SOURCE'];
 
 function decision(over: Partial<TakeoverDecisionRecord> = {}): TakeoverDecisionRecord {
+  const generationId = over.generationId ?? 1;
+  const sessionId = over.sessionId ?? 1;
+  const commandId = over.commandId ?? 'music_next#abc';
   return {
-    atMs: 1_000, generationId: 1, sessionId: 1,
-    commandType: 'music_next', commandId: 'music_next#abc',
+    atMs: 1_000, generationId, sessionId,
+    commandType: 'music_next', commandId,
+    // correlationId üreticideki AYNI saf builder'dan gelir (join tutarlılığı).
+    correlationId: commandCorrelationId(generationId, sessionId, commandId),
     resolvedAction: 'media.next',
     legacyCandidate: true, maviCandidate: true,
     flagState: 'takeover', allowlisted: true, ownershipDecision: true,
-    claimOutcome: 'claimed', executedBy: 'mavi',
+    claimOutcome: 'claimed', owner: 'mavi', executedBy: 'mavi',
     executionResult: 'ok', releaseReason: 'completed', errorReason: null,
     ...over,
   };
@@ -34,7 +40,8 @@ function decision(over: Partial<TakeoverDecisionRecord> = {}): TakeoverDecisionR
 
 function media(over: Partial<MediaNextRecord> = {}): MediaNextRecord {
   return {
-    atMs: 1_000, cancelAssistantDuckCalled: true,
+    atMs: 1_000, correlationId: 'g1.s1#music_next#abc', port: 'mavi', nextCallCount: 1,
+    cancelAssistantDuckCalled: true,
     hasQueue: true, hasSession: false, nextCalled: true,
     serviceResult: 'ok', typedFeedback: 'action_ok', errorReason: null,
     ...over,
@@ -66,7 +73,7 @@ describe('maviEvidence — rapor ASLA karar vermez', () => {
   });
 
   it('serileştirilmiş raporda PASS/FAIL/"çalışıyor" karar sözcüğü GEÇMEZ', () => {
-    recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1 });
+    recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1, correlationId: 'g1.s1' });
     recordTakeoverDecision(decision());
     recordMediaNext(media());
     recordSafety({ atMs: 1, actionId: 'media.next', decision: 'allowed', readOnly: true, reason: null });
@@ -101,7 +108,7 @@ describe('maviEvidence — üç-değerli gözlem ayrımı', () => {
   });
 
   it('emit edilmeyen fazlar NO_SOURCE (NOT_OBSERVED DEĞİL — yanıltmaz)', () => {
-    recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1 });
+    recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1, correlationId: 'g1.s1' });
     const r = buildMaviEvidenceReport();
     for (const phase of PHASES_WITHOUT_SOURCE) {
       const it = r.phaseCoverage.find((p) => p.id === `phase.${phase}`);
@@ -111,7 +118,7 @@ describe('maviEvidence — üç-değerli gözlem ayrımı', () => {
   });
 
   it('gözlenen faz OBSERVED, hiç gelmeyen faz (başkaları varken) NOT_OBSERVED', () => {
-    recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1 });
+    recordLifecycleEvent({ phase: 'listening', atMs: 1, atMono: 1, generationId: 1, sessionId: 1, correlationId: 'g1.s1' });
     const r = buildMaviEvidenceReport();
     expect(r.phaseCoverage.find((p) => p.id === 'phase.listening')?.verdict).toBe('OBSERVED');
     expect(r.phaseCoverage.find((p) => p.id === 'phase.timeout')?.verdict).toBe('NOT_OBSERVED');
@@ -136,12 +143,33 @@ describe('maviEvidence — çift yürütme kritik hata üretir', () => {
   });
 
   it('media.next hem Mavi hem eski hatta sayılmışsa KRİTİK', () => {
-    recordTakeoverDecision(decision({ executedBy: 'mavi' }));
-    recordLegacyExecution('mediaNext');
+    // Mavi ve legacy AYRI anahtar → çift-anahtar kritiği DEĞİL, sayaç-düzeyi kritiği kilitlenir.
+    recordTakeoverDecision(decision({ commandId: 'mavi-key', executedBy: 'mavi' }));
+    recordLegacyExecution({
+      generationId: 2, sessionId: 2, commandId: 'legacy-key',
+      resolvedAction: 'media.next', atMs: 1_000,
+    });
     const r = buildMaviEvidenceReport();
     expect(r.criticalFindings.some((f) => f.includes('tek hat garantisi'))).toBe(true);
     expect(r.mediaNextTotals.maviExecuted).toBe(1);
     expect(r.mediaNextTotals.legacyExecuted).toBe(1);
+  });
+
+  it('aynı correlationId hem Mavi hem legacy → ÇİFT YÜRÜTME kritiği (correlation join)', () => {
+    recordTakeoverDecision(decision({ generationId: 3, sessionId: 3, commandId: 'k', executedBy: 'mavi' }));
+    recordLegacyExecution({ generationId: 3, sessionId: 3, commandId: 'k', resolvedAction: 'media.next', atMs: 1 });
+    const r = buildMaviEvidenceReport();
+    expect(r.criticalFindings.some((f) => f.includes('ÇİFT YÜRÜTME'))).toBe(true);
+  });
+
+  it('legacy aynı anahtarı 2 kez yürütmüşse KRİTİK (sayaç artar, ring şişmez)', () => {
+    const rec = { generationId: 1, sessionId: 1, commandId: 'dup', resolvedAction: 'media.next', atMs: 1 };
+    recordLegacyExecution(rec);
+    recordLegacyExecution(rec);
+    const r = buildMaviEvidenceReport();
+    expect(r.legacyExecutions).toHaveLength(1);
+    expect(r.legacyExecutions[0]?.legacyExecutionCount).toBe(2);
+    expect(r.criticalFindings.some((f) => f.includes('2 kez yürüttü'))).toBe(true);
   });
 
   it('tek hat çalıştıysa KRİTİK BULGU YOK ve singlePath OBSERVED', () => {
@@ -282,7 +310,7 @@ describe('maviEvidence — bounded / fail-soft / yan etkisiz', () => {
   it('ring tavanları aşılmaz (sınırsız büyüme yok)', () => {
     for (let i = 0; i < MAX_DECISIONS + 25; i++) recordTakeoverDecision(decision({ commandId: `c${i}` }));
     for (let i = 0; i < MAX_LIFECYCLE_EVENTS + 40; i++) {
-      recordLifecycleEvent({ phase: 'listening', atMs: i, atMono: i, generationId: 1, sessionId: 1 });
+      recordLifecycleEvent({ phase: 'listening', atMs: i, atMono: i, generationId: 1, sessionId: 1, correlationId: 'g1.s1' });
     }
     const r = buildMaviEvidenceReport();
     expect(r.takeoverDecisions.length).toBe(MAX_DECISIONS);

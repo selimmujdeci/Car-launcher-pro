@@ -79,7 +79,7 @@ function setup(opts: { takeover?: boolean; arbiter?: TakeoverArbiter; allowlist?
   const spies = makeSpies();
   const feedbacks: MaviFeedback[] = [];
   let cmdListener: ((c: ParsedCommandLike) => void) | null = null;
-  let stateListener: ((e: VoiceLifecycleEventLike) => void) | null = null;
+  const stateSubs = new Set<(e: VoiceLifecycleEventLike) => void>(); // gerçek voiceService = Set multiplexer
   const counts = { handlerRegistrations: 0, voiceStateSubs: 0 };
   let clock = 1_000;
 
@@ -98,8 +98,8 @@ function setup(opts: { takeover?: boolean; arbiter?: TakeoverArbiter; allowlist?
     },
     subscribeVoiceState: (fn) => {
       counts.voiceStateSubs++;
-      stateListener = fn;
-      return () => { stateListener = null; };
+      stateSubs.add(fn);
+      return () => { stateSubs.delete(fn); };
     },
     ttsCancel: spies.ttsCancel,
     mode: opts.takeover ? 'takeover' : 'shadow',
@@ -112,7 +112,7 @@ function setup(opts: { takeover?: boolean; arbiter?: TakeoverArbiter; allowlist?
 
   return {
     dispatch: (cmd) => { cmdListener?.(cmd); },
-    emitVoiceState: (e) => { stateListener?.(e); },
+    emitVoiceState: (e) => { for (const fn of [...stateSubs]) fn(e); },
     advance: (ms) => { clock += ms; },
     feedbacks, spies, arbiter, handle,
     get handlerRegistrations() { return counts.handlerRegistrations; },
@@ -327,7 +327,7 @@ describe('MAVI3-4b — bayat kuşak reddi', () => {
     const spies = makeSpies();
     const feedbacks: MaviFeedback[] = [];
     let cmdListener: ((c: ParsedCommandLike) => void) | null = null;
-    let stateListener: ((e: VoiceLifecycleEventLike) => void) | null = null;
+    const stateSubs2 = new Set<(e: VoiceLifecycleEventLike) => void>();
 
     // mediaNext uzun sürsün: tam bu sırada barge-in (yeni kuşak) gelsin.
     let resolveNext: (() => void) | null = null;
@@ -339,7 +339,7 @@ describe('MAVI3-4b — bayat kuşak reddi', () => {
     const handle = createMaviWiring({
       pilotDeps,
       registerCommandHandler: (fn) => { cmdListener = fn; return () => { cmdListener = null; }; },
-      subscribeVoiceState: (fn) => { stateListener = fn; return () => { stateListener = null; }; },
+      subscribeVoiceState: (fn) => { stateSubs2.add(fn); return () => { stateSubs2.delete(fn); }; },
       ttsCancel: spies.ttsCancel,
       mode: 'takeover',
       policy: createTakeoverPolicy({ mode: 'takeover' }),
@@ -348,13 +348,13 @@ describe('MAVI3-4b — bayat kuşak reddi', () => {
     });
     handle.start();
 
-    stateListener?.({ phase: 'listening', generationId: 1, sessionId: 1 });
+    for (const fn of [...stateSubs2]) fn({ phase: 'listening', generationId: 1, sessionId: 1 });
     cmdListener?.({ ...NEXT_CMD });
     await flush();
     expect(handle.bridge.ownedKey).not.toBeNull(); // tur uçuşta, sahiplik bizde
 
     // Kullanıcı araya girdi → yeni kuşak: sahiplik bayatlar.
-    stateListener?.({ phase: 'wake_detected', generationId: 2, sessionId: 2 });
+    for (const fn of [...stateSubs2]) fn({ phase: 'wake_detected', generationId: 2, sessionId: 2 });
     resolveNext?.();
     await flush();
 

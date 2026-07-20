@@ -47,6 +47,11 @@ import type { MaviPlan, StepResult } from '../executionEngine';
 import { MaviFeedbackChannel } from './maviFeedback';
 import { buildActionFeedback, buildPlanFeedback, buildStageFeedback } from './maviFeedback';
 import { getTakeoverArbiter, type TakeoverArbiter, type TakeoverOwnershipKey } from './takeoverArbiter';
+import {
+  recordLifecycleEvent, recordTakeoverDecision, recordBargeIn,
+  setCurrentCorrelation, sessionCorrelationId, commandCorrelationId,
+  type TakeoverDecisionRecord,
+} from './maviEvidence';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * ParsedCommand → pilot eylem eşlemesi (coexistence glue)
@@ -112,6 +117,8 @@ export interface VoiceLifecycleEventLike {
   readonly phase: string;
   readonly generationId: number;
   readonly sessionId: number;
+  /** Monotonik an (voiceService sağlar). Opsiyonel — saf testler vermeyebilir. */
+  readonly at?: number;
 }
 
 /** FNV-1a 32-bit — hızlı, allocation'sız, deterministik. Ham metin SAKLANMAZ (yalnız hash). */
@@ -228,6 +235,8 @@ export class MaviVoiceBridge {
   private _seenGeneration = -1;
   /** Son turun typed sonucu — tanı/test gözlemi (sesli çıkışa BAĞLI DEĞİL). */
   private _lastOutcome: MaviTurnOutcome | null = null;
+  /** Son lifecycle olayının monotonik anı — olaylar arası latency kanıtı (tek sayı, bounded). */
+  private _lastEventMono = -1;
 
   constructor(deps: MaviVoiceBridgeDeps) {
     this._orch = deps.orchestrator;
@@ -326,13 +335,47 @@ export class MaviVoiceBridge {
   /** Lifecycle olayı: kuşak/oturum kimliğini tazele + hakemi bilgilendir (bayat tur otomatik düşer). */
   private _onVoiceState(e: VoiceLifecycleEventLike): void {
     if (!e || !Number.isFinite(e.generationId) || !Number.isFinite(e.sessionId)) return;
+
+    // PR-DIAG-2 · ÜRETİCİ #1: HAM lifecycle olayı kaydı. MEVCUT aboneliğin içinde — yeni abonelik
+    // YOK. Aynı-kimlik erken çıkışından ÖNCE yazılır; aksi halde bir kuşak içindeki fazlar
+    // (listening→transcribing→speaking) kanıta HİÇ girmezdi. Kayıt fail-soft.
+    try {
+      const atMono = typeof e.at === 'number' && Number.isFinite(e.at) ? e.at : -1;
+      const latencyMs = this._lastEventMono >= 0 && atMono >= this._lastEventMono
+        ? atMono - this._lastEventMono
+        : undefined;
+      if (atMono >= 0) this._lastEventMono = atMono;
+      recordLifecycleEvent({
+        phase: e.phase,
+        atMs: Date.now(),
+        atMono,
+        generationId: e.generationId,
+        sessionId: e.sessionId,
+        correlationId: sessionCorrelationId(e.generationId, e.sessionId),
+        ...(latencyMs !== undefined ? { latencyMs } : {}),
+      });
+    } catch { /* fail-soft: tanı yazımı köprüyü ASLA bozmaz */ }
+
     if (e.generationId === this._identity.generationId && e.sessionId === this._identity.sessionId) return;
     this._identity = { generationId: e.generationId, sessionId: e.sessionId };
     try { this._arbiter.observeGeneration(e.generationId, e.sessionId); } catch { /* fail-soft */ }
     // Kuşak ilerledi → bizim uçuştaki turumuz artık bayat; sahipliği bırak.
     if (this._ownedKey && this._ownedKey.generationId < e.generationId) {
+      const stale = this._ownedKey;
       this._ownedKey = null; // hakem zaten 'stale' ile düşürdü — çifte release'e gerek yok
       this._lastOutcome = 'stale';
+      // ÜRETİCİ #4 (barge-in): kuşak ilerlemesiyle düşen tur kanıta girer.
+      try {
+        recordBargeIn({
+          atMs: Date.now(),
+          correlationId: sessionCorrelationId(stale.generationId, stale.sessionId),
+          oldGeneration: stale.generationId,
+          newGeneration: e.generationId,
+          staleDecision: true,
+          cancelledExecution: true,
+          releaseReason: 'stale',
+        });
+      } catch { /* fail-soft */ }
     }
   }
 
@@ -353,6 +396,38 @@ export class MaviVoiceBridge {
     if (this._seenKeys.length > MAX_SEEN_KEYS_PER_GENERATION) this._seenKeys.shift();
   }
 
+  /**
+   * PR-DIAG-2 · ÜRETİCİ #2: komut kararının TAM zincirini tek kayıtta yazar. Tüm alanlar zaten
+   * bu akışta hesaplanmıştır — yeni ölçüm YOK. Fail-soft.
+   */
+  private _recordDecision(
+    cmd: ParsedCommandLike, key: TakeoverOwnershipKey, fields: Partial<TakeoverDecisionRecord>,
+  ): void {
+    try {
+      recordTakeoverDecision({
+        atMs: Date.now(),
+        generationId: key.generationId,
+        sessionId: key.sessionId,
+        commandType: cmd.type,
+        commandId: key.commandId,
+        correlationId: commandCorrelationId(key.generationId, key.sessionId, key.commandId),
+        resolvedAction: key.actionId,
+        legacyCandidate: true,   // eski hat her ParsedCommand'ı görür (guard'la elenir)
+        maviCandidate: true,     // eşleme bulundu → Mavi adayı
+        flagState: this._mode,
+        allowlisted: false,
+        ownershipDecision: false,
+        claimOutcome: null,
+        owner: null,
+        executedBy: 'none',
+        executionResult: null,
+        releaseReason: null,
+        errorReason: null,
+        ...fields,
+      });
+    } catch { /* fail-soft */ }
+  }
+
   private _onCommand(cmd: ParsedCommandLike): void {
     if (!cmd || typeof cmd.type !== 'string') return;
     const mapped = this._map(cmd);
@@ -361,7 +436,11 @@ export class MaviVoiceBridge {
     const key = buildOwnershipKey(this._identity, commandIdentityOf(cmd), mapped.actionId);
 
     // 1. DEĞER-temelli dedup: aynı kuşakta aynı anahtar → İKİNCİ TUR AÇILMAZ (execute+feedback yok).
-    if (this._isDuplicateKey(key)) { this._lastOutcome = 'duplicate'; return; }
+    if (this._isDuplicateKey(key)) {
+      this._lastOutcome = 'duplicate';
+      this._recordDecision(cmd, key, { claimOutcome: 'duplicate', releaseReason: 'duplicate' });
+      return;
+    }
 
     // 2. ORTAK KARAR: eski hattın sorduğu METODUN AYNISI (`isMaviOwned`). İki hattın farklı
     //    metotlara sorması, kısmi arızada ikisinin birden çalışmasına yol açardı; tek metot
@@ -375,9 +454,21 @@ export class MaviVoiceBridge {
       try { outcome = this._arbiter.claim(key); } catch { outcome = 'inactive'; }
     }
 
+    // Eligibility (allowlist ∩ eligible) — kanıt alanı; karar hakemde.
+    let allowlisted = false;
+    try { allowlisted = this._arbiter.active && this._isRealHandler(mapped.actionId); } catch { allowlisted = false; }
+
     // 4. Bayat kuşak / hakem seviyesinde duplicate → hiçbir tur açılmaz.
-    if (outcome === 'stale')     { this._lastOutcome = 'stale'; this._markSeen(key); return; }
-    if (outcome === 'duplicate') { this._lastOutcome = 'duplicate'; this._markSeen(key); return; }
+    if (outcome === 'stale') {
+      this._lastOutcome = 'stale'; this._markSeen(key);
+      this._recordDecision(cmd, key, { allowlisted, ownershipDecision: owned, claimOutcome: 'stale', releaseReason: 'stale' });
+      return;
+    }
+    if (outcome === 'duplicate') {
+      this._lastOutcome = 'duplicate'; this._markSeen(key);
+      this._recordDecision(cmd, key, { allowlisted, ownershipDecision: owned, claimOutcome: 'duplicate', releaseReason: 'duplicate' });
+      return;
+    }
 
     this._markSeen(key);
     const claimed = outcome === 'claimed';
@@ -387,14 +478,33 @@ export class MaviVoiceBridge {
     //    ve eski hatla birlikte ÇİFTE YÜRÜTME olurdu. Eski hat zaten fail-open olarak devrededir.
     let realWired = false;
     try { realWired = this._isRealHandler(mapped.actionId); } catch { realWired = false; }
-    if (!claimed && realWired) { this._lastOutcome = 'not-owned'; return; }
+    if (!claimed && realWired) {
+      this._lastOutcome = 'not-owned';
+      this._recordDecision(cmd, key, {
+        allowlisted, ownershipDecision: owned, claimOutcome: outcome,
+        executedBy: 'none', releaseReason: 'not_owned',
+      });
+      return;
+    }
 
     // 'claimed' → GERÇEK yürütme (sahiplik bizde). Aksi halde Faz-2 SHADOW gözlem turu.
     if (claimed) this._ownedKey = key;
-    void this._runTurn(mapped, key, claimed);
+    void this._runTurn(mapped, key, claimed, cmd, { allowlisted, ownershipDecision: owned, claimOutcome: outcome });
   }
 
-  private async _runTurn(mapped: PilotMapping, key: TakeoverOwnershipKey, claimed: boolean): Promise<void> {
+  private async _runTurn(
+    mapped: PilotMapping, key: TakeoverOwnershipKey, claimed: boolean,
+    cmd?: ParsedCommandLike, decisionFields?: Partial<TakeoverDecisionRecord>,
+  ): Promise<void> {
+    // PR-DIAG-2 · CORRELATION: turun tamamı (derinlerdeki media portu dahil) bu kimlikle
+    // ilişkilendirilir. Terminal yolda `finally` ile TEMİZLENİR. Davranışa etkisi YOKTUR.
+    const correlationId = commandCorrelationId(key.generationId, key.sessionId, key.commandId);
+    if (claimed) { try { setCurrentCorrelation(correlationId); } catch { /* fail-soft */ } }
+    /** Terminal kanıt kaydı — tur nasıl bittiyse öyle yazılır (yorum YOK). */
+    const finalize = (fields: Partial<TakeoverDecisionRecord>): void => {
+      if (cmd) this._recordDecision(cmd, key, { ...decisionFields, ...fields });
+    };
+
     // Yeni tur: önceki tur hâlâ açıksa (idle değil) barge-in ile temizle → yeni kuşak.
     // NOT: bargeIn sahipliği bırakır; bu turun sahipliği _onCommand'da SONRA atandığından korunur.
     if (this._orch.state !== 'idle') {
@@ -411,6 +521,7 @@ export class MaviVoiceBridge {
         // lifecycle reddetti (yarış) → gerçek yürütme YOK; sahiplik derhal bırakılır.
         this._lastOutcome = 'rejected';
         if (claimed) this._releaseOwnership('cancelled');
+        finalize({ executedBy: 'none', executionResult: 'rejected', releaseReason: 'cancelled' });
         return;
       }
 
@@ -429,6 +540,7 @@ export class MaviVoiceBridge {
         this._lastOutcome = 'stale';
         this._ownedKey = null;
         try { if (this._orch.state !== 'idle') { this._orch.cancel(); this._orch.recover(); } } catch { /* noop */ }
+        finalize({ executedBy: 'none', executionResult: 'stale_result', releaseReason: 'stale' });
         return;
       }
 
@@ -445,18 +557,32 @@ export class MaviVoiceBridge {
       this._orch.finish();
       this._lastOutcome = claimed ? 'executed' : 'shadow';
       // TERMİNAL: sahiplik burada bırakılır — dispose BEKLENMEZ.
-      if (claimed) {
-        this._releaseOwnership(
-          step && step.status === 'ok' ? 'completed'
-            : step && step.status === 'timeout' ? 'timeout'
-              : 'error',
-        );
-      }
-    } catch {
+      const releaseReason = step && step.status === 'ok' ? 'completed'
+        : step && step.status === 'timeout' ? 'timeout'
+          : 'error';
+      if (claimed) this._releaseOwnership(releaseReason);
+      finalize({
+        executedBy: claimed ? 'mavi' : 'none',
+        owner: claimed ? 'mavi' : null,
+        executionResult: step ? step.status : 'no_step',
+        releaseReason: claimed ? releaseReason : null,
+        errorReason: step && step.status !== 'ok' ? (step.reason ?? step.status) : null,
+      });
+    } catch (e) {
       // Fail-soft: köprü hiçbir koşulda uygulamayı çökertmez; turu güvenli kapat + sahipliği bırak.
       this._lastOutcome = 'error';
       try { if (this._orch.state !== 'idle') { this._orch.fail(); this._orch.recover(); } } catch { /* noop */ }
       if (claimed) this._releaseOwnership('error');
+      finalize({
+        executedBy: claimed ? 'mavi' : 'none',
+        owner: claimed ? 'mavi' : null,
+        executionResult: 'exception',
+        releaseReason: claimed ? 'error' : null,
+        errorReason: e instanceof Error ? e.name : 'unknown_error',
+      });
+    } finally {
+      // Correlation bağlamı turla birlikte KAPANIR (sızmaz).
+      if (claimed) { try { setCurrentCorrelation(null); } catch { /* fail-soft */ } }
     }
   }
 }

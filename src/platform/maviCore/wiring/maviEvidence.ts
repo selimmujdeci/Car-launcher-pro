@@ -48,10 +48,49 @@ export interface EvidenceItem {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * Correlation — tek ses komutunun tüm yaşam döngüsünü birleştirir (PR-DIAG-2)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Correlation kimlikleri SAF TÜRETİLİR — sayaç/rastgelelik/state YOKTUR. Aynı kuşak+oturum (ve
+ * komut) için her çağıran AYNI kimliği üretir; bu yüzden eski hat ile Mavi hattı, birbirini hiç
+ * tanımadan aynı correlationId'yi yazar ve rapor sonradan birleştirilebilir.
+ *
+ * YALNIZ TANI AMAÇLIDIR — hiçbir davranışı etkilemez, hiçbir karar bu kimliğe bakmaz.
+ */
+export function sessionCorrelationId(generationId: number, sessionId: number): string {
+  const g = Number.isFinite(generationId) ? generationId : -1;
+  const s = Number.isFinite(sessionId) ? sessionId : -1;
+  return `g${g}.s${s}`;
+}
+
+/** Komut düzeyi correlation — oturum kimliğinin ALT kümesi (prefix ile join edilebilir). */
+export function commandCorrelationId(generationId: number, sessionId: number, commandId: string): string {
+  const c = typeof commandId === 'string' && commandId.length > 0 ? commandId : 'unknown';
+  return `${sessionCorrelationId(generationId, sessionId)}#${c}`;
+}
+
+/**
+ * AMBIENT correlation: yürütme sırasında derinlerdeki port'lar (media.next) komut bağlamını
+ * bilmez. Köprü turu açarken bunu SET eder, terminal yolda TEMİZLER (finally). Tek string —
+ * bounded, timer yok, yan etki yok. Yanlış ilişkilendirme riski turların serileştirilmiş
+ * olmasıyla sınırlıdır (barge-in önceki turu iptal eder).
+ */
+let _currentCorrelation: string | null = null;
+
+export function setCurrentCorrelation(id: string | null): void {
+  try { _currentCorrelation = typeof id === 'string' && id.length > 0 ? id : null; } catch { /* fail-soft */ }
+}
+
+export function getCurrentCorrelation(): string | null {
+  return _currentCorrelation;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
  * Kayıt tipleri (üreticiler bunları yazar)
  * ════════════════════════════════════════════════════════════════════════ */
 
-/** 1. Voice lifecycle — her adım: timestamp · generationId · sessionId · latency. */
+/** 1. Voice lifecycle — her adım: timestamp · generationId · sessionId · correlationId · latency. */
 export interface LifecycleEventRecord {
   readonly phase: string;
   /** Duvar saati (rapor okunabilirliği). */
@@ -60,6 +99,8 @@ export interface LifecycleEventRecord {
   readonly atMono: number;
   readonly generationId: number;
   readonly sessionId: number;
+  /** Oturum düzeyi correlation (`g<gen>.s<session>`). */
+  readonly correlationId: string;
   /** Bir önceki olaydan bu yana geçen süre (ilk olayda undefined). */
   readonly latencyMs?: number;
 }
@@ -72,6 +113,8 @@ export interface TakeoverDecisionRecord {
   readonly commandType: string;
   /** Değer-temelli komut kimliği (hash — ham metin DEĞİL). */
   readonly commandId: string;
+  /** Komut düzeyi correlation (`g<gen>.s<session>#<commandId>`). */
+  readonly correlationId: string;
   /** Çözümlenen pilot eylem (eşleme yoksa null → yalnız legacy adayı). */
   readonly resolvedAction: string | null;
   /** Eski hat bu komutu çalıştırmaya aday mıydı. */
@@ -86,6 +129,8 @@ export interface TakeoverDecisionRecord {
   readonly ownershipDecision: boolean;
   /** `arbiter.claim` sonucu (sorulmadıysa null). */
   readonly claimOutcome: string | null;
+  /** Sahiplik kime ait oldu (kimse almadıysa null). */
+  readonly owner: 'legacy' | 'mavi' | null;
   /** GERÇEK yürütmeyi hangi hat yaptı. */
   readonly executedBy: 'legacy' | 'mavi' | 'none';
   /** Yürütme sonucu (executionEngine StepStatus veya port sonucu). */
@@ -99,6 +144,12 @@ export interface TakeoverDecisionRecord {
 /** 3. media.next — port gerçekleri. */
 export interface MediaNextRecord {
   readonly atMs: number;
+  /** Ambient correlation (turu açan köprüden gelir; bağlam yoksa null). */
+  readonly correlationId: string | null;
+  /** Bu portu hangi hat yürüttü. */
+  readonly port: 'mavi' | 'legacy';
+  /** Bu port örneğinin kümülatif `next()` çağrı sayısı (çift atlama tespiti). */
+  readonly nextCallCount: number;
   readonly cancelAssistantDuckCalled: boolean;
   readonly hasQueue: boolean;
   readonly hasSession: boolean;
@@ -113,6 +164,8 @@ export interface MediaNextRecord {
 /** 4. Barge-in. */
 export interface BargeInRecord {
   readonly atMs: number;
+  /** Eski (iptal edilen) turun oturum correlation'ı. */
+  readonly correlationId: string | null;
   readonly oldGeneration: number;
   readonly newGeneration: number;
   readonly staleDecision: boolean;
@@ -137,6 +190,7 @@ export interface LifecycleCounters {
 /** 8. Safety — AiSafetyGate ve reddedilen eylemler. */
 export interface SafetyRecord {
   readonly atMs: number;
+  readonly correlationId: string | null;
   readonly actionId: string;
   /** Kapı kararı. */
   readonly decision: 'allowed' | 'denied' | 'hard_forbidden';
@@ -166,8 +220,23 @@ const _counters = {
   commandListeners: 0, voiceStateSubscriptions: 0, guards: 0,
 };
 
-/** Eski hattın GERÇEK yürütme sayacı — çift yürütme tespitinin ikinci yarısı. */
-const _legacyExec = { mediaNext: 0, other: 0 };
+/** 4. Eski hattın GERÇEK yürütme kaydı — KOMUT BAZINDA (çift yürütme tespitinin ikinci yarısı). */
+export interface LegacyExecutionRecord {
+  readonly generationId: number;
+  readonly sessionId: number;
+  readonly commandId: string;
+  readonly correlationId: string;
+  /** Çözümlenen pilot eylem (Mavi eşlemesi yoksa null). */
+  readonly resolvedAction: string | null;
+  /** Bu anahtar için eski hattın kaç kez yürüttüğü. */
+  readonly legacyExecutionCount: number;
+  readonly lastAtMs: number;
+}
+
+export const MAX_LEGACY_EXECUTIONS = 40;
+
+/** correlationId → kayıt (bounded; ekleme sırası korunur). */
+const _legacyExec = new Map<string, LegacyExecutionRecord>();
 
 function push<T>(ring: T[], item: T, max: number): void {
   ring.push(item);
@@ -196,9 +265,34 @@ export function recordSafety(rec: SafetyRecord): void {
   try { push(_safety, Object.freeze({ ...rec }), MAX_SAFETY_RECORDS); } catch { /* fail-soft */ }
 }
 
-/** Eski hattın gerçekten çalıştırdığı komutu say (guard'ın geçirdiği yol). */
-export function recordLegacyExecution(kind: 'mediaNext' | 'other'): void {
-  try { if (kind === 'mediaNext') _legacyExec.mediaNext++; else _legacyExec.other++; } catch { /* fail-soft */ }
+/**
+ * Eski hattın GERÇEKTEN çalıştırdığı komutu KOMUT BAZINDA say (guard'ın geçirdiği yol).
+ * Aynı anahtar tekrar gelirse sayaç artar (yeni kayıt açılmaz) → ring şişmez.
+ */
+export function recordLegacyExecution(input: {
+  generationId: number; sessionId: number; commandId: string;
+  resolvedAction: string | null; atMs: number;
+}): void {
+  try {
+    if (!input || typeof input.commandId !== 'string') return;
+    const correlationId = commandCorrelationId(input.generationId, input.sessionId, input.commandId);
+    const prev = _legacyExec.get(correlationId);
+    _legacyExec.set(correlationId, Object.freeze({
+      generationId: input.generationId,
+      sessionId: input.sessionId,
+      commandId: input.commandId,
+      correlationId,
+      resolvedAction: input.resolvedAction ?? null,
+      legacyExecutionCount: (prev?.legacyExecutionCount ?? 0) + 1,
+      lastAtMs: input.atMs,
+    }));
+    // Bounded: en eski anahtarı düşür (Map ekleme sırasını korur).
+    while (_legacyExec.size > MAX_LEGACY_EXECUTIONS) {
+      const oldest = _legacyExec.keys().next().value;
+      if (oldest === undefined) break;
+      _legacyExec.delete(oldest);
+    }
+  } catch { /* fail-soft */ }
 }
 
 /** Lifecycle sayaçları — wiring çağırır (yeni durum DEĞİL, zaten bilinen olgular). */
@@ -228,7 +322,8 @@ export function _resetMaviEvidenceForTest(): void {
   _bargeIns.length = 0; _safety.length = 0;
   _counters.starts = 0; _counters.restarts = 0; _counters.disposes = 0;
   _counters.commandListeners = 0; _counters.voiceStateSubscriptions = 0; _counters.guards = 0;
-  _legacyExec.mediaNext = 0; _legacyExec.other = 0;
+  _legacyExec.clear();
+  _currentCorrelation = null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -305,7 +400,9 @@ export interface MaviEvidenceReport {
     attempts: number; nextCalled: number; legacyExecuted: number; maviExecuted: number;
     unavailable: number; threw: number;
   }>;
-  /** 4. Barge-in. */
+  /** 4. Eski hattın komut-bazında yürütme kayıtları. */
+  readonly legacyExecutions: readonly LegacyExecutionRecord[];
+  /** Barge-in. */
   readonly bargeIns: readonly BargeInRecord[];
   /** 5. Ownership yaşam döngüsü (MEVCUT arbiter.stats() — kopya tutulmaz). */
   readonly ownership: TakeoverArbiterStats | null;
@@ -367,11 +464,15 @@ export function buildMaviEvidenceReport(deps: BuildEvidenceDeps = {}): MaviEvide
   });
 
   /* ── media.next toplamları ───────────────────────────────── */
+  const legacyExecutions = [..._legacyExec.values()];
+  const legacyMediaNext = legacyExecutions
+    .filter((l) => l.resolvedAction === 'media.next')
+    .reduce((sum, l) => sum + l.legacyExecutionCount, 0);
   const maviExecuted = _decisions.filter((d) => d.resolvedAction === 'media.next' && d.executedBy === 'mavi').length;
   const mediaNextTotals = Object.freeze({
     attempts: _media.length,
     nextCalled: _media.filter((m) => m.nextCalled).length,
-    legacyExecuted: _legacyExec.mediaNext,
+    legacyExecuted: legacyMediaNext,
     maviExecuted,
     unavailable: _media.filter((m) => m.serviceResult === 'unavailable').length,
     threw: _media.filter((m) => m.serviceResult === 'throw').length,
@@ -387,10 +488,26 @@ export function buildMaviEvidenceReport(deps: BuildEvidenceDeps = {}): MaviEvide
     }
   }
   // Aynı anahtar için hem legacy hem mavi yürütme kaydı.
-  const maviKeys = new Set(_decisions.filter((d) => d.executedBy === 'mavi').map((d) => `${d.generationId}:${d.commandId}`));
-  const legacyKeys = new Set(_decisions.filter((d) => d.executedBy === 'legacy').map((d) => `${d.generationId}:${d.commandId}`));
+  const maviKeys = new Set(_decisions.filter((d) => d.executedBy === 'mavi').map((d) => d.correlationId));
+  const legacyKeys = new Set([
+    ..._decisions.filter((d) => d.executedBy === 'legacy').map((d) => d.correlationId),
+    // Eski hattın KENDİ kaydı (guard'ın geçirdiği yol) — correlationId ile join edilir.
+    ...legacyExecutions.map((l) => l.correlationId),
+  ]);
   for (const k of maviKeys) {
     if (legacyKeys.has(k)) criticalFindings.push(`KRİTİK: ÇİFT YÜRÜTME — ${k} hem Mavi hem eski hat tarafından çalıştırıldı.`);
+  }
+  // Tek anahtarda eski hat birden fazla kez yürütmüş (çift atlama).
+  for (const l of legacyExecutions) {
+    if (l.legacyExecutionCount > 1) {
+      criticalFindings.push(`KRİTİK: ${l.correlationId} — eski hat aynı komutu ${l.legacyExecutionCount} kez yürüttü.`);
+    }
+  }
+  // Tek turda port birden fazla kez next() çağırmış.
+  for (const m of _media) {
+    if (m.nextCallCount > 1 && m.correlationId) {
+      criticalFindings.push(`KRİTİK: ${m.correlationId} — media.next portu tek turda ${m.nextCallCount} kez çağrıldı.`);
+    }
   }
   // Sayaç düzeyinde çift atlama: aynı komut için mavi+legacy media.next toplamı denemeden fazla.
   if (mediaNextTotals.maviExecuted > 0 && mediaNextTotals.legacyExecuted > 0) {
@@ -551,6 +668,7 @@ export function buildMaviEvidenceReport(deps: BuildEvidenceDeps = {}): MaviEvide
     takeoverDecisions: Object.freeze(_decisions.slice()),
     mediaNext: Object.freeze(_media.slice()),
     mediaNextTotals,
+    legacyExecutions: Object.freeze(legacyExecutions),
     bargeIns: Object.freeze(_bargeIns.slice()),
     ownership,
     lifecycleCounters: Object.freeze({ ..._counters }),

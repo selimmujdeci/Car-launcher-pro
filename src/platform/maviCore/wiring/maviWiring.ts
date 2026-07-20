@@ -27,6 +27,8 @@ import { createPilotHandlers, createShadowHandlers, type PilotHandlerDeps } from
 import { createTakeoverPolicy, type TakeoverPolicy } from './takeoverPolicy';
 import { getTakeoverArbiter, type TakeoverArbiter } from './takeoverArbiter';
 import { setMaviOwnershipResolver, clearMaviOwnershipResolver } from './maviOwnership';
+import { createVoiceStateBridge, type VoiceStateBridge } from './voiceStateBridge';
+import { recordLifecyclePhase, adjustRegistration } from './maviEvidence';
 import {
   createMaviVoiceBridge, MaviVoiceBridge, defaultPilotCommandMap,
   type ParsedCommandLike, type PilotMapping, type MaviBridgeMode, type VoiceLifecycleEventLike,
@@ -87,6 +89,11 @@ export interface MaviWiringDeps {
 
 export interface MaviWiringHandle {
   readonly bridge: MaviVoiceBridge;
+  /**
+   * Segment telemetri köprüsü (MAVI3-2). PR-DIAG-2'ye kadar üretimde HİÇ kurulmuyordu (ölü kod);
+   * artık MEVCUT start/dispose yaşam döngüsüne bağlıdır. `recent()` tanı raporunun segment kaynağı.
+   */
+  readonly voiceState: VoiceStateBridge | null;
   readonly feedback: MaviFeedbackChannel;
   readonly mode: MaviBridgeMode;
   /** Etkin TAKEOVER politikası (hangi eylemlerin gerçek çalıştığının tek kaynağı). */
@@ -131,17 +138,23 @@ export function createMaviWiring(deps: MaviWiringDeps): MaviWiringHandle {
     isRealHandler: (actionId) => handlerKindFor(actionId, policy) === 'real',
   });
 
+  // MAVI3-2 telemetri köprüsü — YALNIZ subscribeVoiceState verilmişse kurulur (yeni bağımlılık YOK).
+  const voiceState: VoiceStateBridge | null = typeof deps.subscribeVoiceState === 'function'
+    ? createVoiceStateBridge({ subscribeVoiceState: deps.subscribeVoiceState })
+    : null;
+
   let _feedbackUnsub: (() => void) | null = null;
   let _started = false;
 
   return {
-    bridge, feedback, mode, policy,
+    bridge, voiceState, feedback, mode, policy,
     handlerKindOf(actionId: string): 'real' | 'shadow' | 'unknown' {
       return handlerKindFor(actionId, policy);
     },
     start(): void {
-      if (_started) return;
+      if (_started) return;   // idempotent → sayaç ve abonelikler İKİ KEZ artmaz
       _started = true;
+      try { recordLifecyclePhase('start'); } catch { /* fail-soft */ }
       if (typeof deps.onFeedback === 'function') {
         _feedbackUnsub = feedback.subscribe(deps.onFeedback);
       }
@@ -149,6 +162,15 @@ export function createMaviWiring(deps: MaviWiringDeps): MaviWiringHandle {
       // eski hat hiçbir şekilde susturulmaz; mevcut davranış birebir korunur.
       try { arbiter.activate(policy); } catch { /* fail-soft */ }
       bridge.start();
+      try { adjustRegistration('commandListener', 1); } catch { /* fail-soft */ }
+      if (voiceState) {
+        // Telemetri köprüsü ABONELİĞİ fail-soft: throw ederse ana köprü ETKİLENMEZ (yalnız
+        // segment telemetrisi kaydolmaz). Sayaç yalnız gerçekten abone olunduysa artırılır.
+        try {
+          voiceState.start();
+          try { adjustRegistration('voiceStateSubscription', 1); } catch { /* fail-soft */ }
+        } catch { /* fail-soft: segment telemetrisi olmadan da köprü çalışır */ }
+      }
       // Eski hattın sahiplik sorgusunu bağla — KÖPRÜNÜN eşleyicisi + KÖPRÜNÜN kimliği kullanılır
       // (tek key-builder → iki tarafta anahtar sapması imkânsız).
       setMaviOwnershipResolver({
@@ -158,11 +180,18 @@ export function createMaviWiring(deps: MaviWiringDeps): MaviWiringHandle {
       });
     },
     dispose(): void {
+      const wasStarted = _started;
       _started = false;
+      if (wasStarted) { try { recordLifecyclePhase('dispose'); } catch { /* fail-soft */ } }
       if (_feedbackUnsub) { try { _feedbackUnsub(); } catch { /* fail-soft */ } _feedbackUnsub = null; }
       // Sahiplik sorgusu ÖNCE sökülür → dispose anından itibaren eski hat davranışı geri gelir.
       clearMaviOwnershipResolver();
+      if (voiceState) {
+        voiceState.dispose();
+        if (wasStarted) { try { adjustRegistration('voiceStateSubscription', -1); } catch { /* fail-soft */ } }
+      }
       bridge.dispose();
+      if (wasStarted) { try { adjustRegistration('commandListener', -1); } catch { /* fail-soft */ } }
       // Güvenlik ağı: sahiplik terminal yollarda zaten bırakılmıştır; bu yalnız hakemi pasifleştirir.
       try { arbiter.deactivate(); } catch { /* fail-soft */ }
     },

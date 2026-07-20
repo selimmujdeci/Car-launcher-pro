@@ -47,7 +47,7 @@ function setup(opts: {
   mediaNextImpl?: () => void;
 } = {}): Harness {
   const listeners: ((c: ParsedCommandLike) => void)[] = [];
-  let stateListener: ((e: VoiceLifecycleEventLike) => void) | null = null;
+  const stateSubs = new Set<(e: VoiceLifecycleEventLike) => void>(); // gerçek voiceService = Set multiplexer
   let clock = 1_000;
   const counts = { legacyRegistrations: 0 };
 
@@ -82,7 +82,7 @@ function setup(opts: {
       listeners.push(fn);
       return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); };
     },
-    subscribeVoiceState: (fn) => { stateListener = fn; return () => { stateListener = null; }; },
+    subscribeVoiceState: (fn) => { stateSubs.add(fn); return () => { stateSubs.delete(fn); }; },
     ttsCancel: vi.fn(),
     mode,
     policy: createTakeoverPolicy({ mode, allowlist: ['media.next'] }),
@@ -95,7 +95,7 @@ function setup(opts: {
 
   return {
     dispatch: (cmd) => { for (const fn of [...listeners]) fn(cmd); },
-    emitVoiceState: (e) => { stateListener?.(e); },
+    emitVoiceState: (e) => { for (const fn of [...stateSubs]) fn(e); },
     advance: (ms) => { clock += ms; },
     legacyNext, legacyOther, maviNext, maviTheme, arbiter, handle,
     get legacyRegistrations() { return counts.legacyRegistrations; },

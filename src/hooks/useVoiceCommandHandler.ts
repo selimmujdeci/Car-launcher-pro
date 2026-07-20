@@ -16,7 +16,8 @@ import type { MusicFavorite, AppSettings } from '../store/useStore';
 import { useStore } from '../store/useStore';
 import { useCarTheme, baseOf, toDay, toNight, isDay, type CoreTheme } from '../store/useCarTheme';
 import { getVoiceSetting } from '../platform/settingsVoice';
-import { isCommandOwnedByMavi } from '../platform/maviCore/wiring/maviOwnership';
+import { isCommandOwnedByMavi, resolveOwnershipKey } from '../platform/maviCore/wiring/maviOwnership';
+import { recordLegacyExecution, adjustRegistration } from '../platform/maviCore/wiring/maviEvidence';
 
 // activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
 const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
@@ -245,7 +246,10 @@ export function useVoiceCommandHandler({
   }, []);
 
   useEffect(() => {
-    return registerCommandHandler((cmd: ParsedCommand) => {
+    // PR-DIAG-2 · ÜRETİCİ #5 (guard sayacı): kayıt/sökme MEVCUT useEffect yaşam döngüsüne bağlıdır
+    // — yeni abonelik/timer YOK. Sızıntı olursa sayaç 1'i aşar ve rapor bunu gösterir.
+    try { adjustRegistration('guard', 1); } catch { /* fail-soft */ }
+    const _unregister = registerCommandHandler((cmd: ParsedCommand) => {
       // ── MAVİ TAKEOVER GUARD (Faz-3 · MAVI3-4c) ──────────────────────────
       // Aynı istekte iki hattın birden çalışmasını engelleyen TEK karar noktası. Cevap senkron ve
       // SIRA-BAĞIMSIZDIR: bu handler'ın Mavi köprüsünden önce mi sonra mı çağrıldığı sonucu
@@ -254,6 +258,20 @@ export function useVoiceCommandHandler({
       // yalnız `media.next` içerdiğinden guard pratikte SADECE o komutta etkilidir; diğer tüm
       // komutlar bu satırdan etkilenmeden akar.
       if (isCommandOwnedByMavi(cmd)) return;
+
+      // PR-DIAG-2 · ÜRETİCİ #4: guard'ın GEÇİRDİĞİ komut = eski hattın gerçek yürütmesi.
+      // Anahtar, Mavi'nin kullandığı AYNI saf builder'dan gelir → iki taraf aynı correlationId'yi
+      // yazar ve rapor sonradan birleştirilebilir. Kayıt fail-soft; komut akışını ASLA etkilemez.
+      try {
+        const _k = resolveOwnershipKey(cmd);
+        recordLegacyExecution({
+          generationId: _k?.generationId ?? -1,
+          sessionId:    _k?.sessionId ?? -1,
+          commandId:    _k?.commandId ?? cmd.type,
+          resolvedAction: _k?.actionId ?? null,
+          atMs: Date.now(),
+        });
+      } catch { /* fail-soft */ }
 
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       void reportVoiceDiag('voice_command_execute', { command: cmd.type });
@@ -417,5 +435,9 @@ export function useVoiceCommandHandler({
       });
 
     });
+    return () => {
+      try { adjustRegistration('guard', -1); } catch { /* fail-soft */ }
+      _unregister();
+    };
   }, []);
 }

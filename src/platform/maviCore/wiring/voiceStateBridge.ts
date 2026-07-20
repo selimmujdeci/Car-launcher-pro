@@ -29,7 +29,8 @@ export interface VoiceLifecycleEventLike {
   readonly phase: string;
   readonly generationId: number;
   readonly sessionId: number;
-  readonly at: number;
+  /** Monotonik an — gerçek voiceService olayı her zaman taşır; `_onEvent` yokluğa karşı savunmacı. */
+  readonly at?: number;
   readonly transcriptLength?: number;
 }
 
