@@ -946,6 +946,131 @@ export function getRouteState(): RouteState {
   return useRouteStore.getState();
 }
 
+/* ── TRIP wiring köprüsü (MAVI4-TRIP-5B) ─────────────────────────────────────
+ * TRIP preview/apply motorlarını mevcut routing altyapısına bağlamak için İKİ dar,
+ * YAN ETKİSİZ export. Yeni routing algoritması YOK — mevcut _tryServer / offline
+ * katman / store şekli yeniden kullanılır. Bu iki fonksiyon dışında routingService
+ * davranışı DEĞİŞMEZ.
+ */
+
+/** Yan etkisiz tek-bacak rota sonucu — OSRM/offline ile aynı [lon,lat] format. */
+export interface RouteLegResult {
+  geometry:  [number, number][];
+  distanceM: number;
+  durationS: number;
+}
+
+/**
+ * Yan etkisiz TEK bacak rota getir — store/TTS/navStyle/EventBus'a DOKUNMAZ.
+ *
+ * Mevcut katmanlar yeniden kullanılır (yeni algoritma YOK): native daemon (native) →
+ * uzak OSRM (_tryServer) → offline A* worker (computeOfflineRoute). Hepsi düşerse
+ * `null` (fail-soft). Straight-line fallback BİLİNÇLİ olarak YOK: o bir navigasyon
+ * son-çaresidir, güvenilir preview kaynağı değil. Sağlayıcı/hata detayı yüzeye SIZMAZ.
+ *
+ * fetchRoute'un aksine hiçbir Zustand yazısı / _fireNavStyle / speakNavigation yapmaz;
+ * bu yüzden TRIP-4 preview'in enjekte LegRouter'ı için güvenlidir.
+ */
+export async function fetchRouteLeg(
+  fromLat: number, fromLon: number,
+  toLat:   number, toLon:   number,
+): Promise<RouteLegResult | null> {
+  // Coğrafi geçerlilik — geçersiz koordinatta ağa hiç çıkma.
+  if (!Number.isFinite(fromLat) || Math.abs(fromLat) > 90)  return null;
+  if (!Number.isFinite(fromLon) || Math.abs(fromLon) > 180) return null;
+  if (!Number.isFinite(toLat)   || Math.abs(toLat)   > 90)  return null;
+  if (!Number.isFinite(toLon)   || Math.abs(toLon)   > 180) return null;
+
+  // Katman 0: Native OSRM daemon (yalnız native; yan etkisiz).
+  if (isNative) {
+    try {
+      const d = await tryLocalDaemon(fromLon, fromLat, toLon, toLat);
+      if (d && Array.isArray(d.geometry) && d.geometry.length >= 2) {
+        return { geometry: d.geometry, distanceM: d.distanceM, durationS: d.durationS };
+      }
+    } catch { /* fail-soft: sonraki katman */ }
+  }
+
+  // Katman 1-2: Uzak OSRM — yalnız çevrimiçiyse; her sunucu fail-soft, store yazMAZ.
+  if (typeof navigator === 'undefined' || navigator.onLine) {
+    for (const server of getRoutingServers()) {
+      try {
+        const r = await _tryServer(server, fromLon, fromLat, toLon, toLat);
+        if (r.geometry && r.geometry.length >= 2) {
+          return { geometry: r.geometry, distanceM: r.distance, durationS: r.duration };
+        }
+      } catch { /* fail-soft: sonraki sunucu / offline katman */ }
+    }
+  }
+
+  // Katman 3: Offline A* worker — store yazMAZ, ana thread bloklamaz.
+  try {
+    const off = await computeOfflineRoute(fromLat, fromLon, toLat, toLon);
+    if (off && Array.isArray(off.geometry) && off.geometry.length >= 2) {
+      return { geometry: off.geometry, distanceM: off.distanceM, durationS: off.durationS };
+    }
+  } catch { /* fail-soft */ }
+
+  return null;
+}
+
+/** writeActiveRoute girdisi — RouteStoreAdapter tarafından kurulur. */
+export interface ActiveRouteWrite {
+  geometry:    [number, number][];
+  distanceM:   number;
+  durationS:   number;
+  /** Orijinal adımlar (resume/rollback için taşınır); yoksa hedef sentinel adımı üretilir. */
+  steps?:      RouteStep[];
+  serverUsed?: string | null;
+  hasToll?:    boolean;
+}
+
+/**
+ * Aktif rotayı DOĞRUDAN store'a yazar — TRIP apply/resume/rollback köprüsü (MAVI4-TRIP-5B).
+ *
+ * YALNIZ RouteStoreAdapter üzerinden, kullanıcı AÇIK onayıyla çağrılır. cumulativeDistances
+ * geometriden yeniden türetilir; adım verilmezse hedef sentinel adımı enjekte edilir (offline
+ * davranışıyla aynı). Alternatif rotalar temizlenir ve `_allRoutes` tek aktif rotaya
+ * senkronlanır → apply sonrası selectAltRoute bayat bir rotaya dönemez.
+ *
+ * fetchRoute'tan FARKI: TTS/navStyle/EventBus TETİKLEMEZ. Navigasyon-stil (focus mode)
+ * kararı bu apply köprüsünün işi değildir — o karar mevcut hattında (fetchRoute/clearRoute)
+ * kalır; bu köprü yalnız store şeklini yazar.
+ */
+export function writeActiveRoute(input: ActiveRouteWrite): void {
+  if (!input || !Array.isArray(input.geometry) || input.geometry.length < 2) return;
+  const geometry = input.geometry;
+  const last = geometry[geometry.length - 1];
+  const steps = (input.steps && input.steps.length > 0)
+    ? input.steps
+    : [_makeSentinelStep(last[0], last[1], input.distanceM, input.durationS)];
+  const hasToll = input.hasToll ?? false;
+
+  useRouteStore.setState({
+    loading:              false,
+    error:                null,
+    geometry,
+    cumulativeDistances:  buildCumulativeDistances(geometry),
+    alternatives:         [],
+    altDistances:         [],
+    altDurations:         [],
+    altHasToll:           [],
+    altRealIndices:       [],
+    selectedAltIndex:     0,
+    hasToll,
+    steps,
+    totalDistanceMeters:  input.distanceM,
+    totalDurationSeconds: input.durationS,
+    currentStepIndex:     0,
+    distanceToNextTurnMeters: 0,
+    pendingManeuver:      null,
+    serverUsed:           input.serverUsed ?? 'trip-apply',
+  });
+
+  // Alternatif seçim durumunu senkronla — apply sonrası tek geçerli rota.
+  _allRoutes = [{ geometry, distanceM: input.distanceM, durationS: input.durationS, steps, hasToll }];
+}
+
 /** React hook — NavigationHUD ve FullMapView için. */
 export function useRouteState(): RouteState {
   return useRouteStore(s => s);
