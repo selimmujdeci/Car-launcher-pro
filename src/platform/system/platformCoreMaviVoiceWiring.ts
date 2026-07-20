@@ -44,7 +44,10 @@ async function readVehicleHealth(): Promise<{ dtcCount: number; criticalCount: n
   let snap: DTCState | null = null;
   const unsub = onDTCState((s) => { snap = s; });
   unsub();
-  const codes = snap?.codes ?? [];
+  // `snap` geri-çağrı içinde atanır; TS akış analizi bunu göremediği için tipi `null`a daraltıp
+  // `?.` sonrası `never` üretiyordu (TS2339/TS7006). Cast YALNIZ daralmayı geri alır — çalışma
+  // zamanı davranışı birebir aynıdır (aynı okuma, aynı `?? []` fallback).
+  const codes = (snap as DTCState | null)?.codes ?? [];
   const criticalCount = codes.filter((c) => c.severity === 'critical').length;
   const summary = codes.length === 0
     ? 'Araç sistemleri temiz, sorun yok'

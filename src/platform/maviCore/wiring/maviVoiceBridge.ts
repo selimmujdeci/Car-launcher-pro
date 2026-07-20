@@ -21,14 +21,32 @@
  * → çalan cevap kesilir, lifecycle sıfırlanır; yeni tur yeni kuşak üretir → eski turun planı stale
  * reddedilir (task 4).
  *
+ * FAZ-3 · MAVI3-4b — HAKEM ENTEGRASYONU + DEĞER-TEMELLİ DEDUP:
+ *  - Köprü artık her komut için `generationId + sessionId + commandId + actionId` dörtlü SAHİPLİK
+ *    ANAHTARI üretir. commandId komut DEĞERİNDEN türetilir (FNV-1a hash) — NESNE REFERANSI dedup
+ *    için yeterli DEĞİLDİR (aynı değer farklı nesne olarak gelebilir).
+ *  - Kuşak/oturum kimliği voiceService lifecycle olaylarından (MAVI3-1 subscribeVoiceState, DI)
+ *    gelir; her kuşak değişiminde hakem `observeGeneration` ile bilgilendirilir → bayat tur otomatik
+ *    serbest kalır.
+ *  - GERÇEK yürütme YALNIZ `arbiter.claim(key) === 'claimed'` ise başlar. `duplicate`/`stale` →
+ *    HİÇBİR tur açılmaz (ikinci execute yok, ikinci feedback yok). `inactive`/`not-eligible` →
+ *    Faz-2 SHADOW gözlem turu aynen sürer (handler seti zaten no-op → gerçek servis dokunuşu yok).
+ *  - Sahiplik HER terminal yolda bırakılır (completed/error/cancelled/timeout/stale/superseded) →
+ *    doğruluk dispose'a BAĞLI DEĞİL; dispose yalnız ek güvenlik ağıdır.
+ *  - Hakem throw ederse köprü SHADOW yoluna düşer → eski hattı susturacak state ASLA üretilmez.
+ *
+ * TTS SINIRI (Faz-3 boyunca): typed feedback ÜRETİLİR ama sesli çıkışa BAĞLANMAZ. voiceService'in
+ * handler'lardan ÖNCE konuşan `speakFeedback` akışına DOKUNULMAZ → çift TTS yapısal olarak yok.
+ *
  * SAF/DI: voiceService/ttsService DOĞRUDAN import EDİLMEZ (yan-etkisiz maviCore) — registerCommandHandler
- * + ttsCancel DI ile verilir (SystemBoot wiring gerçeğini bağlar; test mock'lar).
+ * + ttsCancel + subscribeVoiceState DI ile verilir (SystemBoot wiring gerçeğini bağlar; test mock'lar).
  */
 
 import type { MaviOrchestrator } from '../maviOrchestrator';
-import type { MaviPlan } from '../executionEngine';
+import type { MaviPlan, StepResult } from '../executionEngine';
 import { MaviFeedbackChannel } from './maviFeedback';
 import { buildActionFeedback, buildPlanFeedback, buildStageFeedback } from './maviFeedback';
+import { getTakeoverArbiter, type TakeoverArbiter, type TakeoverOwnershipKey } from './takeoverArbiter';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * ParsedCommand → pilot eylem eşlemesi (coexistence glue)
@@ -80,10 +98,80 @@ export function defaultPilotCommandMap(cmd: ParsedCommandLike): PilotMapping | n
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * Komut kimliği (DEĞER-temelli — nesne referansı YETERSİZ)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** voiceService kuşak/oturum kimliği (MAVI3-1 lifecycle olaylarından beslenir). */
+export interface VoiceIdentity {
+  readonly generationId: number;
+  readonly sessionId: number;
+}
+
+/** Köprünün ihtiyaç duyduğu minimal lifecycle olayı görünümü (voiceService tipine bağımlı değil). */
+export interface VoiceLifecycleEventLike {
+  readonly phase: string;
+  readonly generationId: number;
+  readonly sessionId: number;
+}
+
+/** FNV-1a 32-bit — hızlı, allocation'sız, deterministik. Ham metin SAKLANMAZ (yalnız hash). */
+function fnv1a(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * Komutun DEĞER-temelli tekil kimliği: `type` + ham metnin normalize edilmiş hash'i. Aynı DEĞERE
+ * sahip iki AYRI nesne AYNI commandId'yi üretir (nesne referansı dedup için yetersizdir); farklı
+ * komutlar farklı kimlik alır. Ham transkript TAŞINMAZ (PII yok — yalnız hash).
+ */
+export function commandIdentityOf(cmd: ParsedCommandLike): string {
+  const type = typeof cmd?.type === 'string' ? cmd.type : 'unknown';
+  const raw = typeof cmd?.raw === 'string' ? cmd.raw.trim().toLowerCase() : '';
+  // extra alanı da kimliğe girer (ör. farklı hedefli iki navigate_address ayrı komuttur).
+  let extraSig = '';
+  if (cmd?.extra && typeof cmd.extra === 'object') {
+    const keys = Object.keys(cmd.extra).sort();
+    for (const k of keys) extraSig += `${k}=${String((cmd.extra as Record<string, unknown>)[k])};`;
+  }
+  return `${type}#${fnv1a(raw).toString(16)}${extraSig ? '.' + fnv1a(extraSig).toString(16) : ''}`;
+}
+
+/** Dörtlü sahiplik anahtarını kurar (hakem sözleşmesi). */
+export function buildOwnershipKey(
+  identity: VoiceIdentity, commandId: string, actionId: string,
+): TakeoverOwnershipKey {
+  return { generationId: identity.generationId, sessionId: identity.sessionId, commandId, actionId };
+}
+
+/** Değer eşitliği — nesne kimliği DEĞİL. */
+function sameOwnershipKey(a: TakeoverOwnershipKey, b: TakeoverOwnershipKey): boolean {
+  return a.generationId === b.generationId && a.sessionId === b.sessionId
+    && a.commandId === b.commandId && a.actionId === b.actionId;
+}
+
+/** Kuşak başına görülen anahtar sayısı üst sınırı (bounded — sınırsız büyüme yok). */
+const MAX_SEEN_KEYS_PER_GENERATION = 16;
+
+/* ══════════════════════════════════════════════════════════════════════════
  * Köprü
  * ════════════════════════════════════════════════════════════════════════ */
 
 export type MaviBridgeMode = 'shadow' | 'takeover';
+
+/** Bir turun neden yürütülmediği / nasıl bittiği (typed — serbest metin yok). */
+export type MaviTurnOutcome =
+  | 'shadow'        // gözlem turu koştu (gerçek servis dokunuşu yok)
+  | 'executed'      // GERÇEK yürütme yapıldı (claimed)
+  | 'duplicate'     // aynı anahtar zaten işlendi → tur AÇILMADI
+  | 'stale'         // bayat kuşak → tur AÇILMADI
+  | 'not-owned'     // eylem GERÇEK handler'a bağlı ama sahiplik ALINAMADI → tur AÇILMADI
+  | 'rejected'      // lifecycle capture reddetti (yarış)
+  | 'error';        // beklenmeyen hata (fail-soft)
 
 export interface MaviVoiceBridgeDeps {
   readonly orchestrator: MaviOrchestrator;
@@ -96,6 +184,23 @@ export interface MaviVoiceBridgeDeps {
   readonly mapCommand?: (cmd: ParsedCommandLike) => PilotMapping | null;
   /** Coexistence modu (varsayılan 'shadow'). Bilgi amaçlı — handler seçimi orchestrator kurulumunda. */
   readonly mode?: MaviBridgeMode;
+  /**
+   * TAKEOVER hakemi (varsayılan: modül tekil örneği). Kuşak gözlemi + claim/release burada yapılır.
+   * Hakem PASİF ise (varsayılan) davranış Faz-2 SHADOW ile BİREBİR aynıdır.
+   */
+  readonly arbiter?: TakeoverArbiter;
+  /**
+   * voiceService.subscribeVoiceState (MAVI3-1, DI). Kuşak/oturum kimliğini besler. Verilmezse
+   * köprü sabit kimlikle (gen=0, session=0) çalışır — dedup yine DEĞER-temelli işler, yalnız
+   * kuşak-tabanlı bayatlık reddi devre dışı kalır (saf testler için).
+   */
+  readonly subscribeVoiceState?: (listener: (e: VoiceLifecycleEventLike) => void) => () => void;
+  /**
+   * Bu eylem orchestrator'da GERÇEK handler'a mı bağlı (wiring bilir). Sahiplik alınamadığında
+   * gerçek-bağlı eylemin planı HİÇ çalıştırılmaz → claim reddedilirken bile çifte yürütme olmaz.
+   * Verilmezse tüm eylemler shadow varsayılır (saf testler + Faz-2 uyumu).
+   */
+  readonly isRealHandler?: (actionId: string) => boolean;
 }
 
 export class MaviVoiceBridge {
@@ -106,10 +211,23 @@ export class MaviVoiceBridge {
   private readonly _map: (cmd: ParsedCommandLike) => PilotMapping | null;
   private readonly _mode: MaviBridgeMode;
 
+  private readonly _arbiter: TakeoverArbiter;
+  private readonly _subscribeVoiceState?: (listener: (e: VoiceLifecycleEventLike) => void) => () => void;
+  private readonly _isRealHandler: (actionId: string) => boolean;
+
   private _started = false;
   private _unregister: (() => void) | null = null;
-  /** Aktif tur zinciri — barge-in/dispose sıralaması için (yalnız izleme). */
-  private _turnInFlight = false;
+  private _unsubVoiceState: (() => void) | null = null;
+
+  /** Aktif kuşak/oturum kimliği (lifecycle olaylarından; abonelik yoksa sabit 0/0). */
+  private _identity: VoiceIdentity = { generationId: 0, sessionId: 0 };
+  /** Bu köprünün SAHİPLENDİĞİ aktif tur anahtarı — release'in tek kaynağı. */
+  private _ownedKey: TakeoverOwnershipKey | null = null;
+  /** Bu kuşakta görülen komut anahtarları (bounded; kuşak değişince temizlenir). */
+  private _seenKeys: string[] = [];
+  private _seenGeneration = -1;
+  /** Son turun typed sonucu — tanı/test gözlemi (sesli çıkışa BAĞLI DEĞİL). */
+  private _lastOutcome: MaviTurnOutcome | null = null;
 
   constructor(deps: MaviVoiceBridgeDeps) {
     this._orch = deps.orchestrator;
@@ -118,26 +236,43 @@ export class MaviVoiceBridge {
     this._ttsCancel = deps.ttsCancel;
     this._map = typeof deps.mapCommand === 'function' ? deps.mapCommand : defaultPilotCommandMap;
     this._mode = deps.mode === 'takeover' ? 'takeover' : 'shadow';
+    this._arbiter = deps.arbiter ?? getTakeoverArbiter();
+    this._subscribeVoiceState = deps.subscribeVoiceState;
+    this._isRealHandler = typeof deps.isRealHandler === 'function' ? deps.isRealHandler : () => false;
   }
 
   get mode(): MaviBridgeMode { return this._mode; }
+  /** Son turun typed sonucu (tanı). */
+  get lastOutcome(): MaviTurnOutcome | null { return this._lastOutcome; }
+  /** Şu an bu köprünün sahiplendiği anahtar (tanı) — terminal yolda null'a döner. */
+  get ownedKey(): TakeoverOwnershipKey | null { return this._ownedKey; }
 
-  /** Kur — idempotent. voiceService komut akışına abone olur; orchestrator'ı başlatır. */
+  /** Kur — idempotent. voiceService komut akışına + lifecycle olaylarına abone olur. */
   start(): void {
     if (this._started) return;
     this._started = true;
     this._orch.start();
+    // Kuşak gözlemi komut aboneliğinden ÖNCE kurulur → ilk komut taze kimlikle işlenir.
+    if (typeof this._subscribeVoiceState === 'function') {
+      try {
+        this._unsubVoiceState = this._subscribeVoiceState((e) => this._onVoiceState(e));
+      } catch { /* fail-soft: lifecycle gözlemi olmadan da köprü çalışır */ }
+    }
     this._unregister = this._registerCommandHandler((cmd) => this._onCommand(cmd));
   }
 
-  /** Sök — idempotent. Abonelik + orchestrator + feedback temizlenir. */
+  /** Sök — idempotent. Abonelik + orchestrator + feedback + sahiplik temizlenir. */
   dispose(): void {
+    // Sahiplik doğruluğu dispose'a BAĞLI DEĞİL (terminal yollarda zaten bırakılır); bu yalnız ağ.
+    this._releaseOwnership('superseded');
     if (!this._started) { this._feedback.reset(); return; }
     this._started = false;
+    if (this._unsubVoiceState) { try { this._unsubVoiceState(); } catch { /* fail-soft */ } this._unsubVoiceState = null; }
     if (this._unregister) { try { this._unregister(); } catch { /* fail-soft */ } this._unregister = null; }
     try { this._orch.dispose(); } catch { /* fail-soft */ }
     this._feedback.reset();
-    this._turnInFlight = false;
+    this._seenKeys = [];
+    this._seenGeneration = -1;
   }
 
   restart(): void { this.dispose(); this.start(); }
@@ -148,6 +283,8 @@ export class MaviVoiceBridge {
    */
   bargeIn(): void {
     try { this._ttsCancel(); } catch { /* fail-soft */ }
+    // Kullanıcı araya girdi → uçuştaki turun sahipliği DERHAL bırakılır (dispose beklenmez).
+    this._releaseOwnership('cancelled');
     // Aktif bir tur varsa iptal et → cancelled; sonra recover → idle (yeni tur kuşağı için hazır).
     if (this._orch.state !== 'idle') {
       this._orch.cancel();
@@ -155,25 +292,114 @@ export class MaviVoiceBridge {
     }
   }
 
+  /* ── Sahiplik yaşam döngüsü ─────────────────────────────────── */
+
+  /**
+   * Sahipliği bırak — İDEMPOTENT. Hakem anahtar-eşleşmeli çalıştığı için GEÇ gelen bir release
+   * yeni turun sahipliğini SİLEMEZ (hakem eşleşmeyen anahtarda no-op döner).
+   */
+  private _releaseOwnership(reason: 'completed' | 'error' | 'cancelled' | 'timeout' | 'stale' | 'superseded'): void {
+    const key = this._ownedKey;
+    if (!key) return;
+    this._ownedKey = null;
+    try { this._arbiter.release(key, reason); } catch { /* fail-soft: hakem hatası köprüyü bozmaz */ }
+  }
+
+  /** Bu köprü hâlâ verilen anahtarın sahibi mi (stale sonuç reddi için). */
+  private _stillOwns(key: TakeoverOwnershipKey): boolean {
+    if (!this._ownedKey || !sameOwnershipKey(this._ownedKey, key)) return false;
+    try {
+      const owner = this._arbiter.currentOwner();
+      return owner !== null && sameOwnershipKey(owner.key, key);
+    } catch {
+      return false; // fail-soft → başarı iddia etme
+    }
+  }
+
   /* ── İç akış ────────────────────────────────────────────────── */
+
+  /** Lifecycle olayı: kuşak/oturum kimliğini tazele + hakemi bilgilendir (bayat tur otomatik düşer). */
+  private _onVoiceState(e: VoiceLifecycleEventLike): void {
+    if (!e || !Number.isFinite(e.generationId) || !Number.isFinite(e.sessionId)) return;
+    if (e.generationId === this._identity.generationId && e.sessionId === this._identity.sessionId) return;
+    this._identity = { generationId: e.generationId, sessionId: e.sessionId };
+    try { this._arbiter.observeGeneration(e.generationId, e.sessionId); } catch { /* fail-soft */ }
+    // Kuşak ilerledi → bizim uçuştaki turumuz artık bayat; sahipliği bırak.
+    if (this._ownedKey && this._ownedKey.generationId < e.generationId) {
+      this._ownedKey = null; // hakem zaten 'stale' ile düşürdü — çifte release'e gerek yok
+      this._lastOutcome = 'stale';
+    }
+  }
+
+  /** Bu kuşakta bu anahtar daha önce görüldü mü (değer-temelli, bounded). */
+  private _isDuplicateKey(key: TakeoverOwnershipKey): boolean {
+    if (this._seenGeneration !== key.generationId) {
+      this._seenGeneration = key.generationId;
+      this._seenKeys = [];
+      return false;
+    }
+    return this._seenKeys.includes(keySignature(key));
+  }
+
+  private _markSeen(key: TakeoverOwnershipKey): void {
+    const sig = keySignature(key);
+    if (this._seenKeys.includes(sig)) return;
+    this._seenKeys.push(sig);
+    if (this._seenKeys.length > MAX_SEEN_KEYS_PER_GENERATION) this._seenKeys.shift();
+  }
 
   private _onCommand(cmd: ParsedCommandLike): void {
     if (!cmd || typeof cmd.type !== 'string') return;
     const mapped = this._map(cmd);
     if (!mapped) return; // pilot değil → eski hat halleder (coexistence)
-    void this._runTurn(mapped);
+
+    const key = buildOwnershipKey(this._identity, commandIdentityOf(cmd), mapped.actionId);
+
+    // 1. DEĞER-temelli dedup: aynı kuşakta aynı anahtar → İKİNCİ TUR AÇILMAZ (execute+feedback yok).
+    if (this._isDuplicateKey(key)) { this._lastOutcome = 'duplicate'; return; }
+
+    // 2. Hakem kararı. Hakem throw ederse 'inactive' varsayılır → SHADOW yolu (eski hat susturulmaz).
+    let outcome: string;
+    try { outcome = this._arbiter.claim(key); } catch { outcome = 'inactive'; }
+
+    // 3. Bayat kuşak / hakem seviyesinde duplicate → hiçbir tur açılmaz.
+    if (outcome === 'stale')     { this._lastOutcome = 'stale'; this._markSeen(key); return; }
+    if (outcome === 'duplicate') { this._lastOutcome = 'duplicate'; this._markSeen(key); return; }
+
+    this._markSeen(key);
+    const claimed = outcome === 'claimed';
+
+    // 4. SAHİPLİK KAPISI: eylem GERÇEK handler'a bağlıysa ama sahiplik alınamadıysa (hakem pasif/
+    //    hata/eligible değil) planı HİÇ çalıştırma — aksi halde orchestrator gerçek servisi çağırır
+    //    ve eski hatla birlikte ÇİFTE YÜRÜTME olurdu. Eski hat zaten fail-open olarak devrededir.
+    let realWired = false;
+    try { realWired = this._isRealHandler(mapped.actionId); } catch { realWired = false; }
+    if (!claimed && realWired) { this._lastOutcome = 'not-owned'; return; }
+
+    // 'claimed' → GERÇEK yürütme (sahiplik bizde). Aksi halde Faz-2 SHADOW gözlem turu.
+    if (claimed) this._ownedKey = key;
+    void this._runTurn(mapped, key, claimed);
   }
 
-  private async _runTurn(mapped: PilotMapping): Promise<void> {
+  private async _runTurn(mapped: PilotMapping, key: TakeoverOwnershipKey, claimed: boolean): Promise<void> {
     // Yeni tur: önceki tur hâlâ açıksa (idle değil) barge-in ile temizle → yeni kuşak.
-    if (this._orch.state !== 'idle') this.bargeIn();
+    // NOT: bargeIn sahipliği bırakır; bu turun sahipliği _onCommand'da SONRA atandığından korunur.
+    if (this._orch.state !== 'idle') {
+      try { this._ttsCancel(); } catch { /* fail-soft */ }
+      this._orch.cancel();
+      this._orch.recover();
+    }
 
-    this._turnInFlight = true;
     try {
       // Komut-merkezli tur: listening→understanding (wake/dinleme gerçekte voiceService'te oldu).
       this._orch.beginListening();
       const token = this._orch.capture();
-      if (!token) { this._turnInFlight = false; return; } // lifecycle reddetti (yarış) → sessiz çık
+      if (!token) {
+        // lifecycle reddetti (yarış) → gerçek yürütme YOK; sahiplik derhal bırakılır.
+        this._lastOutcome = 'rejected';
+        if (claimed) this._releaseOwnership('cancelled');
+        return;
+      }
 
       // Sessiz bırakmama: planlama başında nötr ara feedback.
       this._feedback.emit(buildStageFeedback('planning'));
@@ -184,8 +410,17 @@ export class MaviVoiceBridge {
       };
       const result = await this._orch.execute(plan, token);
 
-      // Sonuç doğrulama → typed feedback (dürüst).
-      const step = result.steps[0];
+      // STALE SONUÇ REDDİ (typed): yürütme sırasında kuşak ilerlediyse/sahiplik devrolduysa bu turun
+      // sonucu artık geçerli DEĞİL → feedback ÜRETİLMEZ, başarı İDDİA EDİLMEZ.
+      if (claimed && !this._stillOwns(key)) {
+        this._lastOutcome = 'stale';
+        this._ownedKey = null;
+        try { if (this._orch.state !== 'idle') { this._orch.cancel(); this._orch.recover(); } } catch { /* noop */ }
+        return;
+      }
+
+      // Sonuç doğrulama → typed feedback (dürüst). TTS'e BAĞLI DEĞİL (Faz-4).
+      const step: StepResult | undefined = result.steps[0];
       if (step) {
         const successText = extractSuccessText(mapped.actionId, step.value);
         this._feedback.emit(buildActionFeedback(step, successText ? { successText } : {}));
@@ -195,13 +430,27 @@ export class MaviVoiceBridge {
 
       // Turu kapat (executing → idle + telemetry oturumu).
       this._orch.finish();
+      this._lastOutcome = claimed ? 'executed' : 'shadow';
+      // TERMİNAL: sahiplik burada bırakılır — dispose BEKLENMEZ.
+      if (claimed) {
+        this._releaseOwnership(
+          step && step.status === 'ok' ? 'completed'
+            : step && step.status === 'timeout' ? 'timeout'
+              : 'error',
+        );
+      }
     } catch {
-      // Fail-soft: köprü hiçbir koşulda uygulamayı çökertmez; turu güvenli kapat.
+      // Fail-soft: köprü hiçbir koşulda uygulamayı çökertmez; turu güvenli kapat + sahipliği bırak.
+      this._lastOutcome = 'error';
       try { if (this._orch.state !== 'idle') { this._orch.fail(); this._orch.recover(); } } catch { /* noop */ }
-    } finally {
-      this._turnInFlight = false;
+      if (claimed) this._releaseOwnership('error');
     }
   }
+}
+
+/** Anahtarın değer imzası (dedup listesi için — nesne referansı DEĞİL). */
+function keySignature(key: TakeoverOwnershipKey): string {
+  return `${key.generationId}:${key.sessionId}:${key.commandId}:${key.actionId}`;
 }
 
 /** Araç sağlığı gibi değer taşıyan eylemlerde başarı metnini çıkar (yoksa generic "Tamam"). */
