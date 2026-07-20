@@ -45,6 +45,7 @@ import {
   publishRuntimeStarted,
   publishRuntimeStopped,
 } from './platformCoreEventBusWiring';
+import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
 import { startFuelAdvisor }        from '../diagnostic/fuelAdvisorService';
 import { startBlackBox }           from '../security/blackBoxService';
@@ -731,6 +732,19 @@ class SystemBoot {
     // (Remote Log v1 / Commit 2)
     _log('  › RemoteLogService');
     this._reg(startRemoteLogService());
+
+    // AI Core runtime (Faz-2): edge-tetikli, BOUNDED AI Usta çalıştırması. Event Bus (Wave 1) +
+    // HAL bridge (Wave 2) kurulduktan SONRA kaydedilir → getAppEventBus() + vehicleHal hazır;
+    // LIFO shutdown'da bunlardan ÖNCE dispose olur (runtime kapanırken bus/HAL ayakta). Bus yoksa
+    // wiring sessizce no-op döner (fail-soft). Salt-okuma (Orchestrator read-only Safety Gate →
+    // ECU write/coding/actuator bloke); ai.mechanic.report yayınlar + result store. İKİNCİ POLLING/
+    // OTORİTE YOK (yalnız edge-tetikli HAL okuma). Savunmacı catch yalnız sözleşme ihlali için.
+    _log('  › AI Core runtime wiring (Faz-2)');
+    try {
+      this._reg(startPlatformCoreAiRuntimeWiring());
+    } catch (e) {
+      logError('SystemBoot:aiRuntimeWiring', e);
+    }
 
     // Vosk STT modelini boot sonrası arka planda ısıt — eskiden ilk mikrofon
     // basışında unpack+load (zayıf head unit CPU'sunda 20-40 sn) ödeniyor,
