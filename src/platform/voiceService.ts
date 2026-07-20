@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
-import { parseCommandFull, type ParsedCommand, type ParseSuggestion } from './commandParser';
+import { parseCommandFull, buildCommandGrammar, type ParsedCommand, type ParseSuggestion } from './commandParser';
 import { repairTranscript } from './asrRepair';
 import { tryOfflineConversation } from './offlineConversationEngine';
 import { getConfig } from './performanceMode';
@@ -487,10 +487,24 @@ function _maybeEmitVoiceLifecycle(prev: VoiceStatus, next: VoiceStatus, partial:
   }
 }
 
+/* Tanı: son dinleme oturumundaki TEPE ses seviyesi (0..1). ~0 kalıyorsa mikrofon
+ * sessizlik yakalıyor (ölü kaynak/donanım) — "dinliyor ama boş" kökünü ayırır.
+ * listening'e her girişte sıfırlanır, rmsData geldikçe max'lanır. PII değil. */
+let _sessionPeakVolume = 0;
+
+/** Tanı: son/aktif dinleme oturumundaki tepe mikrofon seviyesi (0..1). */
+export function getSessionPeakVolume(): number {
+  return _sessionPeakVolume;
+}
+
 function push(partial: Partial<VoiceState>): void {
   const prevStatus = _current.status;
   _current = { ..._current, ...partial };
+  if (partial.volumeLevel !== undefined && partial.volumeLevel > _sessionPeakVolume) {
+    _sessionPeakVolume = partial.volumeLevel;
+  }
   if (partial.status !== undefined && partial.status !== prevStatus) {
+    if (_current.status === 'listening' && prevStatus !== 'listening') _sessionPeakVolume = 0;
     _applyAssistantDuck(prevStatus, _current.status);
     if (_current.status === 'processing') _armProcessingFailsafe();
     else _clearProcessingFailsafe();
@@ -1386,24 +1400,60 @@ export function startListening(opts?: StartListeningOpts): void {
         // n-best: STT'nin ilk birkaç alternatifini iste — beyin doğru olanı seçer
         // (Vosk küçük TR modeli tek "en iyi"de sık yanılıyor). Wake yolu kendi path'i.
         onlineFallback: true, language: 'tr-TR', maxResults: STT_MAX_ALTERNATIVES,
+        // HİBRİT STT: online + sağlıklıyken native Vosk yolu yakaladığı sesi WAV olarak
+        // döndürür → JS bulut STT'ye (Groq Whisper / Gemini) gönderir (OEM doğruluk),
+        // başarısızsa Vosk metni kalır (tek yakalama, çakışma yok). Telefon (Google STT)
+        // yolu WAV üretmez → doğrudan Google metni kullanılır. Offline → returnAudio false.
+        // Bulut STT kapısı: yalnız navigator.onLine. isAiNetHealthy() (Gemini devre
+        // kesici) BİLİNÇLİ olarak çıkarıldı — Groq Whisper STT ayrı endpoint, Gemini
+        // beyninin 429/hatası bulut TANIMAYI bloke etmemeli (saha: companion_groq
+        // çalışıyor ama cloud STT hiç girmiyordu). Kötü ağı 6sn timeout + fail-soft toparlar.
+        returnAudio: typeof navigator !== 'undefined' && navigator.onLine,
+        // OFFLINE KOMUT GRAMMAR'ı (Yol A): internetsizken Vosk'u komut sözlüğüne kısıtla
+        // → offline komut doğruluğu OEM-hissine çıkar. ONLINE'da verilmez (bulut tam
+        // dikteyi çözer; grammar serbest cümleyi [unk]'a düşürürdü). Native full-vocab fallback'li.
+        grammar: (typeof navigator !== 'undefined' && navigator.onLine)
+          ? undefined : buildCommandGrammar(),
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
         // Takip dinlemesi (sohbet modu) KISA pencere kullanır — sessizlikte hızlı idle.
         gain: VOICE_TUNING.nativeGainX,
         maxListenMs: opts?.followUpWindow ? VOICE_TUNING.followUpListenMs : VOICE_TUNING.maxListenMs,
       })
-        .then((result) => {
+        .then(async (result) => {
           clearTimeout(sttFailsafe);
           _stopNativeVolumeListener();
           unduckMedia();
-          const transcript = result.transcript?.trim() ?? '';
+          const voskTranscript = result.transcript?.trim() ?? '';
+          // HİBRİT STT: native WAV döndürdüyse (Vosk yolu + online) bulut STT dene.
+          // Vosk BOŞ dönse bile WAV varsa denenir (Vosk kaçırdığını bulut yakalayabilir).
+          const wav = (result as { audioWav?: string }).audioWav;
+          let transcript = voskTranscript;
+          let alts = result.alternatives;
+          if (wav) {
+            // Round-trip boyunca geri bildirim (mikrofon kapandı, işliyoruz).
+            void reportVoiceDiag('voice_route', { route: 'cloud_try' });
+            push({ status: 'processing', transcript: voskTranscript });
+            try {
+              const { cloudTranscribe } = await import('./cloudSttService');
+              const cloud = await cloudTranscribe(wav);
+              if (cloud && cloud.trim()) {
+                transcript = cloud.trim();
+                alts = [transcript]; // bulut güvenilir → Vosk alt adaylarını karıştırma
+                void reportVoiceDiag('voice_route', { route: 'cloud_stt' });
+              } else {
+                // Bulut boş/anahtar yok → Vosk metni (varsa) kalır. Tanı: neden başarısız?
+                void reportVoiceDiag('voice_route', { route: 'cloud_miss' });
+              }
+            } catch { void reportVoiceDiag('voice_route', { route: 'cloud_error' }); }
+          }
           if (transcript) {
             _consecutiveEmptyCount = 0;
             _convSession = true; // sesli oturum aktif — cevap sonrası mikrofon yeniden açılır
             void reportVoiceDiag('voice_transcript', { transcriptLength: transcript.length });
             // CarLauncher bitti → anında "işleniyor" hissi ver, ardından processTextCommand çalışır
             push({ status: 'processing', transcript });
-            void processTextCommand(transcript, undefined, result.alternatives);
+            void processTextCommand(transcript, undefined, alts);
           } else {
             // Boş transcript: kullanıcı sessiz kaldı → sohbet döngüsü biter.
             _endConvSession();
