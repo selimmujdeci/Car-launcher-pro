@@ -27,7 +27,7 @@
 
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
-import { startListening, isVoicePaused, getVoiceSnapshot } from './voiceService';
+import { startListening, isVoicePaused, getVoiceSnapshot, notifyWakeDetected } from './voiceService';
 import {
   matchesWakeTranscript,
   fuzzyMatchesWake,
@@ -170,6 +170,8 @@ function onWakeWordDetected(): void {
   _lastWakeAcceptedAt = now;
 
   push({ status: 'detected', lastTrigger: now });
+  // MAVI3-1 additive: Mavi telemetri köprüsüne wake sinyali (wake motoru mantığı DEĞİŞMEZ).
+  notifyWakeDetected();
 
   if (_state.companion) {
     // Kısa selamlama → TTS bitince aktif dinleme (TTS konuşurken STT açılmaz;

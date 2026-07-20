@@ -213,6 +213,7 @@ function _armProcessingFailsafe(): void {
     if (_current.status === 'processing') {
       console.warn('[Voice] processing failsafe — forcing idle');
       void reportVoiceDiag('voice_timeout', { errorCode: 'ERR_PROCESSING_FAILSAFE' });
+      _emitVoiceEvent('timeout'); // MAVI3-1: typed timeout (push idle sonra emit eder)
       _endConvSession();
       push({ status: 'idle', error: null });
     }
@@ -372,6 +373,120 @@ export function cancelAssistantDuck(): void {
   _assistantDuckedMusic = false;
 }
 
+/* ── Voice Lifecycle Events (Faz-3 · MAVI3-1 — ADDITIVE gözlemlenebilirlik) ──
+ * Mevcut davranışı DEĞİŞTİRMEZ: yeni typed olay kanalı, `push()` tek funnel'ının SONUNA
+ * eklenen tek satırla beslenir + birkaç kritik noktadan (wake/timeout/cancel) emit. Polling
+ * veya setInterval YOK; import yan etkisi YOK (kanal boş başlar). Mavi telemetri köprüsü
+ * (MAVI3-2) bunu tüketir. `planning`/`executing` voiceService'ten GELMEZ (Mavi orchestrator
+ * üretir) — union'da tanımlıdır ama burada emit edilmez (dürüst kapsam). */
+
+export type VoiceLifecyclePhase =
+  | 'idle' | 'wake_detected' | 'listening' | 'transcribing'
+  | 'planning' | 'executing' | 'speaking' | 'cancelled' | 'timeout' | 'error';
+
+export interface VoiceLifecycleEvent {
+  readonly phase: VoiceLifecyclePhase;
+  /** Barge-in/stale reddi için oturum kuşağı (wake veya idle→listening'de artar). */
+  readonly generationId: number;
+  /** Dinleme oturumu kimliği (kuşakla birlikte artar). */
+  readonly sessionId: number;
+  /** Monotonik zaman (performance.now) — süre telemetrisi clock-jump güvenli. */
+  readonly at: number;
+  /** Yalnız 'transcribing' — transcript UZUNLUĞU (ham metin/PII YOK). */
+  readonly transcriptLength?: number;
+}
+
+const _voiceEventListeners = new Set<(e: VoiceLifecycleEvent) => void>();
+let _voiceSessionId = 0;
+let _voiceGenerationId = 0;
+let _lastEmittedPhase: VoiceLifecyclePhase | null = null;
+/** wake_detected sonrası ilk 'listening' AYNI oturumdur (kuşak iki kez artmasın). */
+let _wakePending = false;
+
+function _voiceNow(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now() : Date.now();
+}
+
+/**
+ * ADDITIVE typed voice-lifecycle aboneliği. Mevcut `useVoiceState`/`_stateListeners` akışını
+ * ETKİLEMEZ. Unsubscribe İDEMPOTENT (ikinci çağrı zararsız). Listener hatası izole edilir.
+ */
+export function subscribeVoiceState(listener: (e: VoiceLifecycleEvent) => void): () => void {
+  if (typeof listener !== 'function') return () => {};
+  _voiceEventListeners.add(listener);
+  let active = true;
+  return () => {
+    if (!active) return;      // idempotent
+    active = false;
+    _voiceEventListeners.delete(listener);
+  };
+}
+
+/** İç emit: id'leri + zaman ekler, ardışık aynı-phase gürültüsünü bastırır, listener hatasını izole eder. */
+function _emitVoiceEvent(phase: VoiceLifecyclePhase, extra?: { transcriptLength?: number; newSession?: boolean }): void {
+  if (extra?.newSession) { _voiceSessionId++; _voiceGenerationId++; }
+  // Ardışık aynı phase → bastır ('transcribing' hariç: transcript uzunluğu değişebilir).
+  if (phase === _lastEmittedPhase && phase !== 'transcribing') return;
+  _lastEmittedPhase = phase;
+  const evt: VoiceLifecycleEvent = Object.freeze({
+    phase,
+    generationId: _voiceGenerationId,
+    sessionId: _voiceSessionId,
+    at: _voiceNow(),
+    transcriptLength: extra?.transcriptLength,
+  });
+  for (const fn of _voiceEventListeners) {
+    try { fn(evt); } catch { /* listener hatası voiceService'i ASLA bozmaz (fail-soft) */ }
+  }
+}
+
+/**
+ * Wake word algılandığında (wakeWordService) çağrılır — 'wake_detected' + yeni oturum kuşağı.
+ * Sonraki 'listening' aynı oturumdur (kuşak tekrar artmaz). ADDITIVE: wake motoru değişmez.
+ */
+export function notifyWakeDetected(): void {
+  _wakePending = true;
+  _emitVoiceEvent('wake_detected', { newSession: true });
+}
+
+/** push() SONUNDA çağrılır: VoiceStatus geçişini typed lifecycle event'e MAP eder (SAF map). */
+function _maybeEmitVoiceLifecycle(prev: VoiceStatus, next: VoiceStatus, partial: Partial<VoiceState>): void {
+  if (next === prev) {
+    // Durum aynı ama transcript güncellendiyse (processing içinde) 'transcribing'i tazele.
+    if (next === 'processing' && typeof partial.transcript === 'string' && partial.transcript.length > 0) {
+      _emitVoiceEvent('transcribing', { transcriptLength: partial.transcript.length });
+    }
+    return;
+  }
+  switch (next) {
+    case 'listening': {
+      // idle/success/error/throttled'dan yeni dinleme → yeni oturum (wake zaten açtıysa hariç).
+      const fromRest = prev === 'idle' || prev === 'throttled' || prev === 'success' || prev === 'error';
+      const newSession = fromRest && !_wakePending;
+      _wakePending = false;
+      _emitVoiceEvent('listening', { newSession });
+      break;
+    }
+    case 'processing':
+      _emitVoiceEvent('transcribing', {
+        transcriptLength: typeof partial.transcript === 'string' ? partial.transcript.length : undefined,
+      });
+      break;
+    case 'success':
+      _emitVoiceEvent('speaking');
+      break;
+    case 'error':
+      _emitVoiceEvent('error');
+      break;
+    case 'idle':
+      _wakePending = false;
+      _emitVoiceEvent('idle');
+      break;
+    // 'throttled' → gerçek yaşam döngüsü değil (hız sınırı) → event yok.
+  }
+}
+
 function push(partial: Partial<VoiceState>): void {
   const prevStatus = _current.status;
   _current = { ..._current, ...partial };
@@ -385,6 +500,8 @@ function push(partial: Partial<VoiceState>): void {
     else if (_current.status === 'error') { _lastSttOutcomeAt = Date.now(); _lastSttOk = false; }
   }
   _stateListeners.forEach((fn) => fn(_current));
+  // MAVI3-1 additive: VoiceStatus geçişini typed lifecycle event'e köprüle (mevcut akış etkilenmez).
+  _maybeEmitVoiceLifecycle(prevStatus, _current.status, partial);
 }
 
 function pushHistory(cmd: ParsedCommand): void {
@@ -1235,6 +1352,7 @@ export function startListening(opts?: StartListeningOpts): void {
       if (_current.status === 'listening') {
         console.warn(`[Voice] STT failsafe (${VOICE_TUNING.listenFailsafeMs}ms) — forcing idle`);
         void reportVoiceDiag('voice_timeout', { errorCode: 'ERR_LISTEN_FAILSAFE' });
+        _emitVoiceEvent('timeout'); // MAVI3-1: typed timeout
         _stopNativeVolumeListener();
         unduckMedia();
         _endConvSession();
@@ -1466,6 +1584,7 @@ export function stopListening(): void {
   // Kullanıcı isteğiyle durdurma — sohbet döngüsü her durumda biter
   // (TTS çalarken X'e basılması dahil; durum 'listening' olmayabilir).
   _endConvSession();
+  _emitVoiceEvent('cancelled'); // MAVI3-1: açık kullanıcı iptali (push idle sonra emit eder)
   // Warmup timer status 'listening'e ulaşmadan önce de iptale açık olmalı
   if (_nativeSttWarmupTimer !== null) {
     clearTimeout(_nativeSttWarmupTimer);
@@ -1523,6 +1642,12 @@ export function _resetVoiceServiceForTest(): void {
   }
   _clearConvIdle();
   _current = { ...INITIAL };
+  // MAVI3-1: lifecycle event durumunu da sıfırla (testler arası izolasyon).
+  _voiceEventListeners.clear();
+  _voiceSessionId = 0;
+  _voiceGenerationId = 0;
+  _lastEmittedPhase = null;
+  _wakePending = false;
 }
 
 /** @internal — durum geçişini zorlar (processing failsafe testi). */
