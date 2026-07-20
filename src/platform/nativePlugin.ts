@@ -169,6 +169,14 @@ export interface SpeechRecognitionOptions {
   /** Dinlerken müzik kısılsın mı (varsayılan true). Wake word PASİF döngüsü
    *  false geçer — sürekli %12 duck müziği dinlenemez hâle getiriyordu. */
   duckWhileListening?: boolean;
+  /** HİBRİT STT (varsayılan false): true iken Vosk yolu yakaladığı sesi WAV base64
+   *  olarak sonuca (audioWav) ekler → JS bulut STT'ye gönderir. Google (telefon) yolu
+   *  YOK SAYAR. Yalnız aktif dinleme geçer; wake word/enroll geçmez. */
+  returnAudio?: boolean;
+  /** OFFLINE KOMUT GRAMMAR'ı (Yol A): verilirse Vosk yalnız bu sözlüğe + "[unk]"a
+   *  kısıtlanır → offline komut doğruluğu fırlar. İnternetsizken geçilir; online'da
+   *  verilmez (bulut tam dikteyi çözer). Grammar kurulamazsa native full-vocab'a düşer. */
+  grammar?: string[];
 }
 
 // Faz 5 — grammar-kısıtlı native wake word thread'i (startWakeWordListening)
@@ -191,6 +199,9 @@ export interface SpeechRecognitionResult {
    * belirsizliğini bunlardan seçerek çözer. Eski native / tek sonuç → [transcript].
    */
   alternatives?: string[];
+  /** HİBRİT STT: returnAudio:true iken Vosk yolunun yakaladığı ses (WAV base64).
+   *  Yalnız Vosk yolunda gelir (Google yolu üretmez). JS bulut STT'ye gönderir. */
+  audioWav?: string;
 }
 
 /* ── Contacts types ──────────────────────────────────────── */
