@@ -29,4 +29,10 @@ export {
   type CurveRiskPolicyInput,
   type CurveDirection,
   type RoadSurfaceCondition,
+  evaluateSpeedLimitRisk,
+  SPEED_LIMIT_RULE_ID,
+  type SpeedLimitRiskInput,
+  type SpeedLimitSegmentInput,
+  type SpeedLimitVehicleInput,
+  type SpeedLimitPolicyInput,
 } from './rules';
