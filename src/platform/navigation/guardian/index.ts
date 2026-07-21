@@ -35,4 +35,11 @@ export {
   type SpeedLimitSegmentInput,
   type SpeedLimitVehicleInput,
   type SpeedLimitPolicyInput,
+  evaluateRoadProfileRisk,
+  ROAD_PROFILE_RULE_ID,
+  type RoadProfileRiskInput,
+  type RoadProfileSegmentInput,
+  type RoadProfileVehicleInput,
+  type RoadProfilePolicyInput,
+  type RoadProfileGradeThresholds,
 } from './rules';

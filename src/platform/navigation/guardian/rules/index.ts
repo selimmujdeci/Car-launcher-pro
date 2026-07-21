@@ -1,5 +1,5 @@
 /**
- * Guardian Rules — barrel — GUARDIAN-AI-G2/G3.
+ * Guardian Rules — barrel — GUARDIAN-AI-G2/G3/G4.
  *
  * Her kural SAF bir fonksiyondur, `GuardianRuleResult` üretir.
  * `guardianEngine.ts`e OTOMATİK bağlanmaz — DI ile wiring katmanı bağlar
@@ -26,3 +26,13 @@ export {
   type SpeedLimitVehicleInput,
   type SpeedLimitPolicyInput,
 } from './speedLimitRule';
+
+export {
+  evaluateRoadProfileRisk,
+  ROAD_PROFILE_RULE_ID,
+  type RoadProfileRiskInput,
+  type RoadProfileSegmentInput,
+  type RoadProfileVehicleInput,
+  type RoadProfilePolicyInput,
+  type RoadProfileGradeThresholds,
+} from './roadProfileRule';
