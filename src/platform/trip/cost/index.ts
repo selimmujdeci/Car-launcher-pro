@@ -30,3 +30,17 @@ export {
   type FuelCostInput,
   type FuelCostBreakdown,
 } from './providers/fuelCostProvider';
+
+export {
+  computeTollCost,
+  createTollProvider,
+  TOLL_NO_SEGMENT_CONFIDENCE,
+  type TollSegmentInput,
+  type TollSegmentKind,
+  type TollPriceEntry,
+  type TollProviderInput,
+  type TollCostBreakdown,
+  type TollMatchedSegmentBreakdown,
+  type TollMissingSegmentBreakdown,
+  type TollMismatchedCurrencySegmentBreakdown,
+} from './providers/tollProvider';
