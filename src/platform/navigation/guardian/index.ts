@@ -68,4 +68,13 @@ export {
   type RoadHazardSeverityByHazard,
   type RoadHazardSeverityOrNone,
   type RoadHazardType,
+  evaluateDriverFatigueRisk,
+  DRIVER_FATIGUE_RULE_ID,
+  type DriverFatigueRiskInput,
+  type DriverFatigueSignalsInput,
+  type DriverFatiguePolicyInput,
+  type DriverFatigueThresholds,
+  type DriverFatigueTierThresholds,
+  type DriverFatigueNightDrivingPolicy,
+  type DriverFatigueBooleanSeverities,
 } from './rules';
