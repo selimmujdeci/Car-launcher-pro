@@ -20,6 +20,12 @@ export { SEVERITY_ORDER, SEVERITY_WEIGHT } from './models';
 export { runGuardian } from './guardianEngine';
 
 export {
+  buildGuardianRuleResults,
+  GUARDIAN_RULE_REGISTRY_ORDER,
+  type GuardianRuleRegistryInput,
+} from './guardianRuleRegistry';
+
+export {
   evaluateCurveRisk,
   CURVE_RISK_RULE_ID,
   type CurveRiskInput,
