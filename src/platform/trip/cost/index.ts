@@ -60,3 +60,19 @@ export {
   type LodgingUnsupportedPricingUnitStayBreakdown,
   type LodgingMismatchedCurrencyStayBreakdown,
 } from './providers/lodgingProvider';
+
+export {
+  computeParkingCost,
+  createParkingProvider,
+  PARKING_NO_STOP_CONFIDENCE,
+  type ParkingStopKind,
+  type ParkingPricingUnit,
+  type ParkingStopInput,
+  type ParkingPriceEntry,
+  type ParkingProviderInput,
+  type ParkingCostBreakdown,
+  type ParkingMatchedStopBreakdown,
+  type ParkingMissingPriceStopBreakdown,
+  type ParkingMissingDurationStopBreakdown,
+  type ParkingMismatchedCurrencyStopBreakdown,
+} from './providers/parkingProvider';
