@@ -77,4 +77,12 @@ export {
   type DriverFatigueTierThresholds,
   type DriverFatigueNightDrivingPolicy,
   type DriverFatigueBooleanSeverities,
+  evaluateSpeedCameraRisk,
+  SPEED_CAMERA_RULE_ID,
+  type SpeedCameraRiskInput,
+  type SpeedCameraInput,
+  type SpeedCameraRiskPolicyInput,
+  type SpeedCameraSeverityByCameraType,
+  type SpeedCameraSeverityOrNone,
+  type SpeedCameraType,
 } from './rules';

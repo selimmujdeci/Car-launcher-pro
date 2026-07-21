@@ -1,5 +1,5 @@
 /**
- * Guardian Rules — barrel — GUARDIAN-AI-G2/G3/G4/G5/G6/G7/G8.
+ * Guardian Rules — barrel — GUARDIAN-AI-G2/G3/G4/G5/G6/G7/G8/G9.
  *
  * Her kural SAF bir fonksiyondur, `GuardianRuleResult` üretir.
  * `guardianEngine.ts`e OTOMATİK bağlanmaz — DI ile wiring katmanı bağlar
@@ -83,3 +83,14 @@ export {
   type DriverFatigueNightDrivingPolicy,
   type DriverFatigueBooleanSeverities,
 } from './driverFatigueRule';
+
+export {
+  evaluateSpeedCameraRisk,
+  SPEED_CAMERA_RULE_ID,
+  type SpeedCameraRiskInput,
+  type SpeedCameraInput,
+  type SpeedCameraRiskPolicyInput,
+  type SpeedCameraSeverityByCameraType,
+  type SpeedCameraSeverityOrNone,
+  type SpeedCameraType,
+} from './speedCameraWarningRule';
