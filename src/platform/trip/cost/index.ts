@@ -93,3 +93,9 @@ export {
   runTripCostPipeline,
   type TripCostInput,
 } from './tripCostPipeline';
+
+export {
+  buildTripPlanFromActiveRoute,
+  buildTripPlanFromPreviewLegs,
+  type TripPlanMetadata,
+} from './tripCostRouteAdapter';
