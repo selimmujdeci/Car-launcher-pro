@@ -47,6 +47,16 @@ export type { MapSource, RawMapData } from './providers/mapSource';
 export type { ObdSource } from './providers/obdSource';
 export type { WeatherSource } from './providers/weatherSource';
 export type { DriverSource } from './providers/driverSource';
+export {
+  createGpsServiceSource,
+  createUnifiedStoreGpsLocationPort,
+  type GpsLocationPort,
+  type GpsLocationSnapshot,
+  type GpsSpeedUnit,
+  type GpsClock,
+  type GpsSourcePolicy,
+  type GpsServiceSourceDependencies,
+} from './providers/concrete/gpsServiceSource';
 
 export {
   evaluateCurveRisk,
