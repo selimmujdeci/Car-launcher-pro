@@ -31,6 +31,7 @@ import { resolveScreen } from './screenRegistry';
 import { searchContacts, recordCall } from './contactsService';
 import { addFact, forgetFact } from './companion/companionMemory';
 import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
+import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -63,6 +64,9 @@ export interface CommandContext {
   /** Uygulama-içi serbest adres/yer navigasyonu (resolveAndNavigate wrapper'ı).
    *  intentEngine.routeIntent ile aynı yol → harici nav app'e gitmeden kendi haritamız. */
   navigateToPlace?: (query: string) => void;
+  /** NAVIGATION-P1-1: "en yakın X" merkezi dispatch — intentEngine.RouterContext
+   *  ile AYNI sözleşme (dispatchNearbyPoiNavigation wrapper'ı). */
+  dispatchNearbyPoi?: (category: NearbyPoiCategory) => void;
   /** Araç kapı kilidi — CAN bus sinyali; L2 ACK onaylandığında resolve eder */
   hwLockDoors?:   () => Promise<CommandResult>;
   /** Araç kapı kilidi açma — güvenlik: sürüş sırasında engellenir; L2 ACK ile resolve */
@@ -217,9 +221,11 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         break;
       }
       case 'FIND_NEARBY_GAS': {
-        if (ctx.navigateToPlace) ctx.navigateToPlace('yakın benzinlik');
+        // NAVIGATION-P1-1: merkezi dispatch — düz-metin geocode ARTIK YOK; TTS burada
+        // TEKRARLANMAZ çünkü dispatchNearbyPoiNavigation kendi successKey TTS'ini söyler
+        // (çift konuşma önlenir).
+        if (ctx.dispatchNearbyPoi) ctx.dispatchNearbyPoi('fuel');
         else ctx.launch(ctx.defaultNav);
-        _speak('Yakın benzinlik aranıyor', isDriving);
         break;
       }
       case 'FIND_NEARBY_PARKING': {

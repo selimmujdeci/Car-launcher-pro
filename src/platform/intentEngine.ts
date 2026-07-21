@@ -23,6 +23,7 @@ import type { CommandResult } from './bridge';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
 import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
+import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -152,6 +153,11 @@ export interface RouterContext {
   addMusicFavorite?: () => void;
   /** Serbest adres / yer araması — resolveAndNavigate wrapper'ı */
   navigateToPlace?: (query: string) => void;
+  /** NAVIGATION-P1-1: "en yakın X" merkezi dispatch — GPS fail-closed + dedupe +
+   *  bounded TTS için dispatchNearbyPoiNavigation() wrapper'ı. navigateToPlace'in
+   *  YERİNE geçmez (o serbest metin/adres için kalır); yalnız sentinel tabanlı
+   *  "en yakın kategori" komutları için kullanılır. */
+  dispatchNearbyPoi?: (category: NearbyPoiCategory) => void;
   // T-12: Donanım komutları — L2 ACK Promise döner (bridge → VehicleCommandQueue)
   hwLockDoors?:   () => Promise<CommandResult>;
   hwUnlockDoors?: () => Promise<CommandResult>;
@@ -414,7 +420,10 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       break;
     }
     case 'FIND_NEARBY_GAS': {
-      ctx.navigateToPlace?.('yakın benzinlik');
+      // NAVIGATION-P1-1: merkezi dispatch — düz-metin geocode ('yakın benzinlik')
+      // ARTIK KULLANILMIYOR; GPS fail-closed + dedupe + bounded TTS için
+      // dispatchNearbyPoiNavigation('fuel', gps) üzerinden akar (bkz. nearbyPoiNavigation.ts).
+      ctx.dispatchNearbyPoi?.('fuel');
       break;
     }
     case 'FIND_NEARBY_PARKING': {

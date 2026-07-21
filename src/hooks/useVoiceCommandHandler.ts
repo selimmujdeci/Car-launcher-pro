@@ -242,6 +242,12 @@ export function useVoiceCommandHandler({
           const gps = getGPSState().location;
           resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
         },
+        // NAVIGATION-P1-1: AI/Mavi beyin hattı da hastane ile AYNI merkezi "en yakın X"
+        // dispatch'ine bağlanır (GPS fail-closed + dedupe + bounded TTS).
+        dispatchNearbyPoi: (cat) => {
+          const gps = getGPSState().location;
+          dispatchNearbyPoiNavigation(cat, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+        },
       });
     });
   }, []);
@@ -278,10 +284,9 @@ export function useVoiceCommandHandler({
       void reportVoiceDiag('voice_command_execute', { command: cmd.type });
       if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
 
-      // "En yakın hastane" — NAVIGATION-P0-2: fuel/parking'in düz resolveAndNavigate
-      // yolundan FARKLI olarak merkezi dispatchNearbyPoiNavigation'a delege edilir
-      // (GPS fail-closed + dedupe + bounded TTS için — bkz. nearbyPoiNavigation.ts).
-      // Fuel/parking BİLİNÇLİ OLARAK değiştirilmedi (regresyon riski).
+      // "En yakın hastane" — NAVIGATION-P0-2: merkezi dispatchNearbyPoiNavigation'a
+      // delege edilir (GPS fail-closed + dedupe + bounded TTS için — bkz.
+      // nearbyPoiNavigation.ts).
       if (cmd.type === 'find_nearby_hospital') {
         const gps = getGPSState().location;
         dispatchNearbyPoiNavigation(
@@ -291,11 +296,25 @@ export function useVoiceCommandHandler({
         return;
       }
 
+      // "En yakın benzinlik" — NAVIGATION-P1-1: eskiden bu blok navigate_address/place/
+      // parking ile birlikte doğrudan resolveAndNavigate('__nearby_gas__', gps) çağırırdı
+      // (GPS fail-closed/dedupe/bounded-TTS YOKTU). Artık hastane ile AYNI merkezi hatta
+      // (dispatchNearbyPoiNavigation) taşındı — fuel katalog girişi zaten tam tanımlıydı,
+      // yalnız çağrı yeri eksikti. Parking BİLİNÇLİ OLARAK değiştirilmedi (henüz katalogda
+      // değil — gelecek iş, aşağıdaki genel bloktan geçmeye devam eder).
+      if (cmd.type === 'find_nearby_gas') {
+        const gps = getGPSState().location;
+        dispatchNearbyPoiNavigation(
+          'fuel',
+          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+        );
+        return;
+      }
+
       // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür
       if (
         cmd.type === 'navigate_address' ||
         cmd.type === 'navigate_place'   ||
-        cmd.type === 'find_nearby_gas'  ||
         cmd.type === 'find_nearby_parking'
       ) {
         const dest = cmd.extra?.destination ?? cmd.raw;
@@ -342,6 +361,12 @@ export function useVoiceCommandHandler({
         navigateToPlace: (query) => {
           const gps = getGPSState().location;
           resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+        },
+        // NAVIGATION-P1-1: yerel commandParser→intentEngine.routeIntent hattı da
+        // AYNI merkezi "en yakın X" dispatch'ine bağlanır.
+        dispatchNearbyPoi: (cat) => {
+          const gps = getGPSState().location;
+          dispatchNearbyPoiNavigation(cat, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
         },
         playMusicSearch: (appKey, query) => {
           // Şarkı/sanatçı adı → KAYNAK FARK ETMEKSİZİN uygulama içinde çal.
