@@ -76,3 +76,20 @@ export {
   type ParkingMissingDurationStopBreakdown,
   type ParkingMismatchedCurrencyStopBreakdown,
 } from './providers/parkingProvider';
+
+export {
+  buildFuelProvider,
+  buildTollProvider,
+  buildLodgingProvider,
+  buildParkingProvider,
+  type TripFuelCategoryInput,
+  type TripTollCategoryInput,
+  type TripLodgingCategoryInput,
+  type TripParkingCategoryInput,
+} from './tripCostAdapters';
+
+export {
+  buildTripCostProviders,
+  runTripCostPipeline,
+  type TripCostInput,
+} from './tripCostPipeline';
