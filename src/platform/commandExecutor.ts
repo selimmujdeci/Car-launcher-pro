@@ -30,6 +30,7 @@ import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
 import { searchContacts, recordCall } from './contactsService';
 import { addFact, forgetFact } from './companion/companionMemory';
+import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
 
 /* ── Volume state ─────────────────────────────────────────── */
 
@@ -174,8 +175,18 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
          kategorisini yakalar → uygulama-içi FullMapView açar (harici Google
          Maps'e YÖNLENDİRME YOK). intentEngine.routeIntent ile birebir tutarlı —
          eskiden AI yolu bridge.launchNavigation ile harici app açıyordu (iki
-         router ayrışması). navigateToPlace varsa hedefe uygulama-içi rota kurar. */
+         router ayrışması). navigateToPlace varsa hedefe uygulama-içi rota kurar.
+         NAVIGATION-P0-1: destination 'home'/'work' ise TEK merkezi hatta
+         (homeWorkNavigation — intentEngine.routeIntent ile AYNI fonksiyon)
+         delege edilir; gerçek koordinat yoksa fail-closed (ekran da açılmaz,
+         sahte "başlatılıyor" mesajı SÖYLENMEZ — dispatchHomeWorkNavigation
+         kendi bounded TTS'ini üretir, burada ÇİFT konuşma yapılmaz). */
       case 'OPEN_NAVIGATION': {
+        const dest = intent.payload.destination;
+        if (isHomeWorkDestination(dest)) {
+          dispatchHomeWorkNavigation(dest);
+          break;
+        }
         ctx.launch(ctx.defaultNav);
         _speak('Navigasyon başlatılıyor', isDriving);
         break;

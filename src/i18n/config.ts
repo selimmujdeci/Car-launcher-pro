@@ -39,6 +39,26 @@ const resources = {
         "virtual_cockpit": "AUDI VIRTUAL COCKPIT",
         "engine": "MOTOR",
         "temp_short": "ISIL"
+      },
+      "navigation": {
+        "home_starting": "Ev için rota başlatılıyor.",
+        "work_starting": "İş için rota başlatılıyor.",
+        "home_missing": "Ev adresi kayıtlı değil. Navigasyon ayarlarından ekleyebilirsin.",
+        "work_missing": "İş adresi kayıtlı değil. Navigasyon ayarlarından ekleyebilirsin.",
+        "destination_invalid": "Kayıtlı konum geçersiz. Lütfen adresi yeniden kaydet.",
+        "settings_title": "Ev / İş Adresi",
+        "settings_sub": "Sesle \"eve git\" / \"işe git\" için hedef kaydet",
+        "settings_home_label": "Ev adresi",
+        "settings_work_label": "İş adresi",
+        "settings_placeholder": "Adres ara…",
+        "settings_use_current_location": "Konumumu kullan",
+        "settings_save": "Kaydet",
+        "settings_delete": "Sil",
+        "settings_not_set": "Ayarlanmadı",
+        "settings_saved": "Kaydedildi",
+        "settings_saving": "Kaydediliyor…",
+        "settings_no_results": "Sonuç bulunamadı",
+        "settings_location_unavailable": "Konum alınamadı"
       }
     }
   },
@@ -78,6 +98,26 @@ const resources = {
         "virtual_cockpit": "AUDI VIRTUAL COCKPIT",
         "engine": "ENGINE",
         "temp_short": "TEMP"
+      },
+      "navigation": {
+        "home_starting": "Starting route to home.",
+        "work_starting": "Starting route to work.",
+        "home_missing": "Home address is not saved. You can add it in navigation settings.",
+        "work_missing": "Work address is not saved. You can add it in navigation settings.",
+        "destination_invalid": "Saved location is invalid. Please save the address again.",
+        "settings_title": "Home / Work Address",
+        "settings_sub": "Save a destination for \"go home\" / \"go to work\" by voice",
+        "settings_home_label": "Home address",
+        "settings_work_label": "Work address",
+        "settings_placeholder": "Search address…",
+        "settings_use_current_location": "Use my location",
+        "settings_save": "Save",
+        "settings_delete": "Delete",
+        "settings_not_set": "Not set",
+        "settings_saved": "Saved",
+        "settings_saving": "Saving…",
+        "settings_no_results": "No results",
+        "settings_location_unavailable": "Location unavailable"
       }
     }
   }

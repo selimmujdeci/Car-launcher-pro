@@ -22,6 +22,7 @@ import type { ParsedCommand, CommandType } from './commandParser';
 import type { CommandResult } from './bridge';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
+import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -362,7 +363,20 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       ctx.openDrawer('music');
       break;
     }
-    case 'OPEN_NAVIGATION':
+    case 'OPEN_NAVIGATION': {
+      // NAVIGATION-P0-1 kök neden düzeltmesi: destination 'home'/'work' ise TEK merkezi
+      // hattan (homeWorkNavigation) gerçek koordinata navigasyon başlatılır — yalnız ekran
+      // açıp hedefi görmezden gelen eski davranış (destination her zaman kayboluyordu) burada
+      // biter. Ev/İş DEĞİLSE (ör. "haritayı aç") davranış AYNEN korunur: ctx.launch(appId).
+      const dest = intent.payload.destination;
+      if (isHomeWorkDestination(dest)) {
+        dispatchHomeWorkNavigation(dest); // fail-closed: kayıtlı/geçerli değilse startNavigation hiç çağrılmaz
+        break;
+      }
+      const appId = intent.payload.targetApp;
+      if (appId) ctx.launch(appId);
+      break;
+    }
     case 'OPEN_PHONE':
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;

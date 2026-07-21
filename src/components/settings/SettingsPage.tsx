@@ -8,6 +8,7 @@ import {
   Cpu, Shield, ShieldCheck, Gauge, Settings2, Lock,
   Mic, Eye, EyeOff, CheckCircle, XCircle, Loader,
   Grid3X3, Star, Users, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
+  Home,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -36,6 +37,8 @@ import { setBrightness, setVolume, isSystemControlSupported } from '../../platfo
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
+import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
+import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { KeyBeamPanel } from './KeyBeamPanel';
 import { OtaUpdateCard } from './OtaUpdateCard';
@@ -2214,6 +2217,14 @@ function SettingsPageInner({ onClose }: Props) {
               <Panel accent="#22d3ee">
                 <SectionTitle icon={HardDrive} title="Offline Konum Veritabanı" sub="Mahalle, benzinlik, hastane — internetsiz ara" color="#22d3ee" />
                 <OfflineDataPanel />
+              </Panel>
+
+              {/* ── Ev / İş Adresi (NAVIGATION-P0-1) ──
+                   Sesle "eve git"/"işe git" komutlarının gerçek rota üretebilmesi için
+                   TEK kayıt yüzeyi (addressBookService.setQuickAddress). */}
+              <Panel accent="#60a5fa">
+                <SectionTitle icon={Home} title={i18n.t('navigation.settings_title')} sub={i18n.t('navigation.settings_sub')} color="#60a5fa" />
+                <HomeWorkAddressPanel />
               </Panel>
 
               {/* ── Hotspot / İnternet Bağlantısı ── */}
