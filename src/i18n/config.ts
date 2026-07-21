@@ -65,7 +65,10 @@ const resources = {
         "nearby_gps_unavailable": "Konumun alınamadığı için yakındaki hastaneler aranamadı.",
         "nearby_gas_starting": "En yakın benzinlik için rota başlatılıyor.",
         "nearby_gas_none": "Yakınında uygun bir benzinlik bulunamadı.",
-        "nearby_gas_error": "Benzinlik araması şu anda tamamlanamadı. Lütfen tekrar dene."
+        "nearby_gas_error": "Benzinlik araması şu anda tamamlanamadı. Lütfen tekrar dene.",
+        "nearby_parking_starting": "En yakın otopark için rota başlatılıyor.",
+        "nearby_parking_none": "Yakınında uygun bir otopark bulunamadı.",
+        "nearby_parking_error": "Otopark araması şu anda tamamlanamadı. Lütfen tekrar dene."
       }
     }
   },
@@ -131,7 +134,10 @@ const resources = {
         "nearby_gps_unavailable": "Nearby hospitals could not be searched because your location is unavailable.",
         "nearby_gas_starting": "Starting navigation to the nearest gas station.",
         "nearby_gas_none": "No suitable gas station was found nearby.",
-        "nearby_gas_error": "The gas station search could not be completed right now. Please try again."
+        "nearby_gas_error": "The gas station search could not be completed right now. Please try again.",
+        "nearby_parking_starting": "Starting navigation to the nearest parking.",
+        "nearby_parking_none": "No suitable parking was found nearby.",
+        "nearby_parking_error": "The parking search could not be completed right now. Please try again."
       }
     }
   }

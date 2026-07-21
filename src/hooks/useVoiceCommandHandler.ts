@@ -300,8 +300,7 @@ export function useVoiceCommandHandler({
       // parking ile birlikte doğrudan resolveAndNavigate('__nearby_gas__', gps) çağırırdı
       // (GPS fail-closed/dedupe/bounded-TTS YOKTU). Artık hastane ile AYNI merkezi hatta
       // (dispatchNearbyPoiNavigation) taşındı — fuel katalog girişi zaten tam tanımlıydı,
-      // yalnız çağrı yeri eksikti. Parking BİLİNÇLİ OLARAK değiştirilmedi (henüz katalogda
-      // değil — gelecek iş, aşağıdaki genel bloktan geçmeye devam eder).
+      // yalnız çağrı yeri eksikti.
       if (cmd.type === 'find_nearby_gas') {
         const gps = getGPSState().location;
         dispatchNearbyPoiNavigation(
@@ -311,11 +310,23 @@ export function useVoiceCommandHandler({
         return;
       }
 
+      // "En yakın otopark" — NAVIGATION-P1-2: fuel ile AYNI desen. Eskiden bu blok
+      // navigate_address/place ile birlikte doğrudan resolveAndNavigate('__nearby_parking__',
+      // gps) çağırırdı (GPS fail-closed/dedupe/bounded-TTS YOKTU). Artık fuel/hastane ile
+      // AYNI merkezi hatta (dispatchNearbyPoiNavigation) taşındı.
+      if (cmd.type === 'find_nearby_parking') {
+        const gps = getGPSState().location;
+        dispatchNearbyPoiNavigation(
+          'parking',
+          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+        );
+        return;
+      }
+
       // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür
       if (
         cmd.type === 'navigate_address' ||
-        cmd.type === 'navigate_place'   ||
-        cmd.type === 'find_nearby_parking'
+        cmd.type === 'navigate_place'
       ) {
         const dest = cmd.extra?.destination ?? cmd.raw;
         const gps  = getGPSState().location;

@@ -427,7 +427,10 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       break;
     }
     case 'FIND_NEARBY_PARKING': {
-      ctx.navigateToPlace?.('yakın park yeri');
+      // NAVIGATION-P1-2: merkezi dispatch — düz-metin geocode ('yakın park yeri')
+      // ARTIK KULLANILMIYOR; GPS fail-closed + dedupe + bounded TTS için
+      // dispatchNearbyPoiNavigation('parking', gps) üzerinden akar (fuel P1-1 ile aynı desen).
+      ctx.dispatchNearbyPoi?.('parking');
       break;
     }
     case 'FIND_NEARBY_HOSPITAL': {

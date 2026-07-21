@@ -147,6 +147,20 @@ describe('addressParser.tryParseNavAddress — hastane ayrımı', () => {
     expect(r?.destination).toBe('__nearby_parking__');
   });
 
+  it('NAVIGATION-P1-2: İSİMLİ otopark KORUNUR — "Forum AVM otoparkına git" __nearby_parking__ sentinel DEĞİL', () => {
+    const r = tryParseNavAddress('Forum AVM otoparkına git');
+    expect(r).not.toBeNull();
+    expect(r?.intent).not.toBe('find_nearby_parking');
+    expect(r?.destination).not.toBe('__nearby_parking__');
+    expect(r?.intent).toBe('navigate_place');
+  });
+
+  it('NAVIGATION-P1-2: bare "otopark bul" hâlâ genel sentinel üretir (hastane deseniyle tutarlı)', () => {
+    const r = tryParseNavAddress('otopark bul');
+    expect(r?.intent).toBe('find_nearby_parking');
+    expect(r?.destination).toBe('__nearby_parking__');
+  });
+
   it('NAVIGATION-P1-1: İSİMLİ benzinlik KORUNUR — "Shell Tarsus\'a git" __nearby_gas__ sentinel DEĞİL', () => {
     const r = tryParseNavAddress("Shell Tarsus'a git");
     expect(r).not.toBeNull();
@@ -261,13 +275,16 @@ describe('geocodingService.searchNearby — hospital amenity + doğrulama', () =
 /* ── C. dispatchNearbyPoiNavigation — GPS fail-closed + dedupe + TTS ─────── */
 
 describe('nearbyPoiNavigation.dispatchNearbyPoiNavigation', () => {
-  it('kategori kataloğu yalnız fuel + hospital içerir, sentinel tek yerde tanımlı', () => {
+  it('kategori kataloğu fuel + hospital + parking içerir (NAVIGATION-P1-2), sentinel tek yerde tanımlı', () => {
     const categories = Object.keys(NEARBY_POI_CATALOG).sort();
-    expect(categories).toEqual(['fuel', 'hospital']);
+    expect(categories).toEqual(['fuel', 'hospital', 'parking']);
     expect(NEARBY_POI_CATALOG.fuel.sentinel).toBe('__nearby_gas__');
     expect(NEARBY_POI_CATALOG.hospital.sentinel).toBe('__nearby_hospital__');
     expect(NEARBY_POI_CATALOG.hospital.amenity).toBe('hospital');
     expect(NEARBY_POI_CATALOG.hospital.radiusM).toBe(5000);
+    expect(NEARBY_POI_CATALOG.parking.sentinel).toBe('__nearby_parking__');
+    expect(NEARBY_POI_CATALOG.parking.amenity).toBe('parking');
+    expect(NEARBY_POI_CATALOG.parking.radiusM).toBe(5000);
   });
 
   it('GPS YOK (undefined) → arama YAPILMAZ, navigasyon BAŞLAMAZ, fail-closed TTS söylenir', () => {
@@ -479,9 +496,121 @@ describe("nearbyPoiNavigation.dispatchNearbyPoiNavigation — 'fuel' (NAVIGATION
   });
 });
 
-/* ── H. NAVIGATION-P1-1 — home/work dedupe anahtar uzayı ile çakışma yok ──── */
+/* ── C3. NAVIGATION-P1-2 — dispatchNearbyPoiNavigation('parking') doğrudan kapsamı ──
+ * Eski legacy ses yolu resolveAndNavigate('__nearby_parking__', gps) çağırıyordu —
+ * GPS fail-closed/dedupe/bounded-TTS YOKTU. Artık fuel/hastane ile AYNI merkezi
+ * hattan geçiyor; bu blok parking'in AYNI garantilere sahip olduğunu kanıtlar. */
+describe("nearbyPoiNavigation.dispatchNearbyPoiNavigation — 'parking' (NAVIGATION-P1-2)", () => {
+  it('parking: kategori kataloğunda tam tanımlı (sentinel/amenity/radiusM/i18n key\'leri)', () => {
+    expect(NEARBY_POI_CATALOG.parking).toEqual({
+      sentinel:          '__nearby_parking__',
+      amenity:           'parking',
+      radiusM:           5000,
+      successKey:        'navigation.nearby_parking_starting',
+      notFoundKey:       'navigation.nearby_parking_none',
+      errorKey:          'navigation.nearby_parking_error',
+      gpsUnavailableKey: 'navigation.nearby_gps_unavailable',
+    });
+  });
 
-describe('nearbyPoiNavigation — home/work dedupe ile çakışma yok (NAVIGATION-P1-1)', () => {
+  it('parking: GPS YOK → arama YAPILMAZ, navigasyon BAŞLAMAZ, fail-closed TTS söylenir', () => {
+    const res = dispatchNearbyPoiNavigation('parking', undefined);
+    expect(res).toEqual({ ok: false, reason: 'no_gps' });
+    expect(startNavigationMock).not.toHaveBeenCalled();
+    expect(speakNavigationMock).toHaveBeenCalledWith(i18n.t('navigation.nearby_gps_unavailable'));
+  });
+
+  it('parking: GPS 0,0 → geçersiz kabul edilir, arama YOK', () => {
+    const res = dispatchNearbyPoiNavigation('parking', { lat: 0, lng: 0 });
+    expect(res).toEqual({ ok: false, reason: 'no_gps' });
+    expect(startNavigationMock).not.toHaveBeenCalled();
+  });
+
+  it('parking: GPS sınır-dışı (|lng|>180) → geçersiz kabul edilir, arama YOK', () => {
+    const res = dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 190 });
+    expect(res).toEqual({ ok: false, reason: 'no_gps' });
+    expect(startNavigationMock).not.toHaveBeenCalled();
+  });
+
+  it('parking: geçerli GPS + tek Overpass sonucu → startNavigation TAM 1 kez çağrılır', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [
+      { id: 1, lat: 36.805, lon: 34.635, tags: { name: 'AVM Otoparkı' } },
+    ] }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+
+    const res = dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 34.63 });
+    expect(res).toEqual({ ok: true });
+
+    await vi.waitFor(() => {
+      expect(startNavigationMock).toHaveBeenCalledTimes(1);
+    });
+    expect(startNavigationMock.mock.calls[0][0]).toMatchObject({ latitude: 36.805, longitude: 34.635 });
+    vi.unstubAllGlobals();
+  });
+
+  it('parking: sonuç YOK → navigasyon başlamaz, bounded nearby_parking_none TTS söylenir', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })));
+
+    dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 34.63 });
+
+    await vi.waitFor(() => {
+      expect(speakNavigationMock.mock.calls.some(
+        (c) => c[0] === i18n.t('navigation.nearby_parking_none'),
+      )).toBe(true);
+    });
+    expect(startNavigationMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('parking: network hatası → çökme yok, navigasyon başlamaz, nearby_parking_error TTS söylenir', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('network fail'); }));
+
+    expect(() => dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 34.63 })).not.toThrow();
+
+    await vi.waitFor(() => {
+      expect(speakNavigationMock.mock.calls.some(
+        (c) => c[0] === i18n.t('navigation.nearby_parking_error'),
+      )).toBe(true);
+    });
+    expect(startNavigationMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('parking: tek-dispatch (dedupe) — nearby:parking anahtarıyla 1200ms içinde iki tetiklenme TEK arama başlatır', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })));
+
+    const t0 = 4_000_000;
+    const first  = dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 34.63 }, t0);
+    const second = dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 34.63 }, t0 + 50);
+
+    expect(first).toEqual({ ok: true });
+    expect(second).toEqual({ ok: false, reason: 'debounced' });
+    vi.unstubAllGlobals();
+  });
+
+  it('parking: fuel/hospital/parking ÜÇÜ birbirini BLOKLAMAZ — üç ayrı anahtar uzayı', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })));
+
+    const t0 = 4_500_000;
+    const parkingRes  = dispatchNearbyPoiNavigation('parking',  { lat: 36.80, lng: 34.63 }, t0);
+    const fuelRes      = dispatchNearbyPoiNavigation('fuel',     { lat: 36.80, lng: 34.63 }, t0 + 10);
+    const hospitalRes  = dispatchNearbyPoiNavigation('hospital', { lat: 36.80, lng: 34.63 }, t0 + 20);
+
+    expect(parkingRes).toEqual({ ok: true });
+    expect(fuelRes).toEqual({ ok: true });
+    expect(hospitalRes).toEqual({ ok: true });
+    vi.unstubAllGlobals();
+  });
+});
+
+/* ── H. NAVIGATION-P1-1/P1-2 — home/work dedupe anahtar uzayı ile çakışma yok ──── */
+
+describe('nearbyPoiNavigation — home/work dedupe ile çakışma yok (NAVIGATION-P1-1/P1-2)', () => {
   it('dispatchNearbyPoiNavigation(\'fuel\') ve dispatchHomeWorkNavigation(\'home\') birbirini BLOKLAMAZ', async () => {
     const { dispatchHomeWorkNavigation, _resetHomeWorkDispatchGuardForTests } =
       await import('../platform/homeWorkNavigation');
@@ -503,6 +632,30 @@ describe('nearbyPoiNavigation — home/work dedupe ile çakışma yok (NAVIGATIO
     expect(fuelRes).toEqual({ ok: true });
 
     clearQuickAddress('home');
+    vi.unstubAllGlobals();
+  });
+
+  it('dispatchNearbyPoiNavigation(\'parking\') ve dispatchHomeWorkNavigation(\'work\') birbirini BLOKLAMAZ (NAVIGATION-P1-2)', async () => {
+    const { dispatchHomeWorkNavigation, _resetHomeWorkDispatchGuardForTests } =
+      await import('../platform/homeWorkNavigation');
+    const { setQuickAddress, clearQuickAddress } = await import('../platform/addressBookService');
+
+    _resetHomeWorkDispatchGuardForTests();
+    clearQuickAddress('work');
+    setQuickAddress('work', { latitude: 39.92, longitude: 32.85 });
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })));
+
+    const t0 = 3_500_000;
+    const workRes    = dispatchHomeWorkNavigation('work', t0);
+    const parkingRes = dispatchNearbyPoiNavigation('parking', { lat: 36.80, lng: 34.63 }, t0 + 5);
+
+    expect(workRes.ok).toBe(true);
+    expect(parkingRes).toEqual({ ok: true });
+
+    clearQuickAddress('work');
     vi.unstubAllGlobals();
   });
 });
@@ -544,6 +697,21 @@ describe('intentEngine.routeIntent — FIND_NEARBY_HOSPITAL', () => {
     expect(navigateToPlace).not.toHaveBeenCalledWith('yakın benzinlik');
     expect(navigateToPlace).not.toHaveBeenCalled();
   });
+
+  it('NAVIGATION-P1-2: FIND_NEARBY_PARKING artık ctx.dispatchNearbyPoi(\'parking\') çağırır — düz metin geocode ARTIK YOK', async () => {
+    const navigateToPlace  = vi.fn();
+    const dispatchNearbyPoi = vi.fn();
+    const ctx = makeCtx({ navigateToPlace, dispatchNearbyPoi });
+    const intent = toIntent(
+      { type: 'find_nearby_parking', raw: 'en yakın otopark', confidence: 0.9, feedback: 'Yakın otopark aranıyor', priority: 'critical' },
+      { defaultNav: 'maps', defaultMusic: 'spotify' },
+    );
+    await routeIntent(intent, ctx);
+    expect(dispatchNearbyPoi).toHaveBeenCalledWith('parking');
+    expect(dispatchNearbyPoi).toHaveBeenCalledTimes(1);
+    expect(navigateToPlace).not.toHaveBeenCalledWith('yakın park yeri');
+    expect(navigateToPlace).not.toHaveBeenCalled();
+  });
 });
 
 describe('commandExecutor.executeIntent — FIND_NEARBY_HOSPITAL', () => {
@@ -568,6 +736,23 @@ describe('commandExecutor.executeIntent — FIND_NEARBY_HOSPITAL', () => {
     const launch = vi.fn();
     const ctx = makeCmdCtx({ launch, dispatchNearbyPoi: undefined });
     await executeIntent({ type: 'FIND_NEARBY_GAS', payload: {}, priority: 'critical' }, ctx);
+    expect(launch).toHaveBeenCalledWith('maps');
+  });
+
+  it('NAVIGATION-P1-2: FIND_NEARBY_PARKING artık ctx.dispatchNearbyPoi(\'parking\') çağırır — düz metin geocode ARTIK YOK, TTS burada TEKRARLANMAZ', async () => {
+    const navigateToPlace  = vi.fn();
+    const dispatchNearbyPoi = vi.fn();
+    const ctx = makeCmdCtx({ navigateToPlace, dispatchNearbyPoi });
+    await executeIntent({ type: 'FIND_NEARBY_PARKING', payload: {}, priority: 'critical' }, ctx);
+    expect(dispatchNearbyPoi).toHaveBeenCalledWith('parking');
+    expect(dispatchNearbyPoi).toHaveBeenCalledTimes(1);
+    expect(navigateToPlace).not.toHaveBeenCalled();
+  });
+
+  it('FIND_NEARBY_PARKING: ctx.dispatchNearbyPoi tanımsızsa fail-soft: ctx.launch(defaultNav) çağrılır', async () => {
+    const launch = vi.fn();
+    const ctx = makeCmdCtx({ launch, dispatchNearbyPoi: undefined });
+    await executeIntent({ type: 'FIND_NEARBY_PARKING', payload: {}, priority: 'critical' }, ctx);
     expect(launch).toHaveBeenCalledWith('maps');
   });
 });
@@ -599,6 +784,18 @@ describe('nearby POI i18n anahtarları', () => {
     i18n.changeLanguage('en');
     expect(i18n.t('navigation.nearby_gas_starting')).toBe('Starting navigation to the nearest gas station.');
     expect(i18n.t('navigation.nearby_gas_none')).toBe('No suitable gas station was found nearby.');
+    i18n.changeLanguage('tr');
+  });
+  it('TR otopark metinleri tanımlı (NAVIGATION-P1-2)', () => {
+    i18n.changeLanguage('tr');
+    expect(i18n.t('navigation.nearby_parking_starting')).toBe('En yakın otopark için rota başlatılıyor.');
+    expect(i18n.t('navigation.nearby_parking_none')).toBe('Yakınında uygun bir otopark bulunamadı.');
+    expect(i18n.t('navigation.nearby_parking_error')).toContain('tamamlanamadı');
+  });
+  it('EN otopark metinleri tanımlı (NAVIGATION-P1-2)', () => {
+    i18n.changeLanguage('en');
+    expect(i18n.t('navigation.nearby_parking_starting')).toBe('Starting navigation to the nearest parking.');
+    expect(i18n.t('navigation.nearby_parking_none')).toBe('No suitable parking was found nearby.');
     i18n.changeLanguage('tr');
   });
 });
@@ -679,24 +876,26 @@ describe('addressNavigationEngine.resolveAndNavigate — hospital sentinel', () 
         homeWorkNavigation dedupe anahtar uzayını etkilememeli) ─────────────── */
 
 describe('nearbyPoiNavigation — home/work ile çakışma yok', () => {
-  it('NearbyPoiCategory tipi yalnız fuel|hospital kabul eder (type-level; derleme testi)', () => {
+  it('NearbyPoiCategory tipi yalnız fuel|hospital|parking kabul eder (type-level; derleme testi)', () => {
     const cat: NearbyPoiCategory = 'hospital';
-    expect(['fuel', 'hospital']).toContain(cat);
+    const cat2: NearbyPoiCategory = 'parking';
+    expect(['fuel', 'hospital', 'parking']).toContain(cat);
+    expect(['fuel', 'hospital', 'parking']).toContain(cat2);
   });
 });
 
-/* ── I. NAVIGATION-P1-1 — useVoiceCommandHandler.ts legacy handler wiring kilidi ──
+/* ── I. NAVIGATION-P1-1/P1-2 — useVoiceCommandHandler.ts legacy handler wiring kilidi ──
  * Bu hook React.useEffect içinde registerCommandHandler(gerçekCallback) çağırıyor;
  * @testing-library/react bu repoda YOK (bkz. safetyContext.test.tsx, useOBDLifecycle.test.ts
  * başlık yorumları) ve renderToStaticMarkup useEffect ÇALIŞTIRMAZ → hook'u gerçekten
  * mount edip callback'i yakalayacak bir render altyapısı yok. Bu yüzden diğer
  * "*Wiring.test.ts" dosyalarındaki (platformCoreDeepScanWiring.test.ts vb.) established
- * kaynak-metni kilidi deseni kullanılır: kaçırılması KOLAY bir regresyonu (birinin fuel'i
- * eski resolveAndNavigate('__nearby_gas__') yoluna geri alması) statik olarak kilitler.
- * Gerçek ÇALIŞMA ZAMANI davranışı zaten C2 bloğunda dispatchNearbyPoiNavigation('fuel', …)
- * üzerinden tam kapsamlı test edildi — burası yalnızca "doğru fonksiyon doğru cmd.type'a
- * bağlı mı" kablolamasını kilitler. */
-describe('useVoiceCommandHandler.ts — legacy handler kablolama kilidi (NAVIGATION-P1-1)', () => {
+ * kaynak-metni kilidi deseni kullanılır: kaçırılması KOLAY bir regresyonu (birinin fuel/
+ * parking'i eski resolveAndNavigate('__nearby_gas__'/'__nearby_parking__') yoluna geri
+ * alması) statik olarak kilitler. Gerçek ÇALIŞMA ZAMANI davranışı zaten C2/C3 bloklarında
+ * dispatchNearbyPoiNavigation('fuel'/'parking', …) üzerinden tam kapsamlı test edildi —
+ * burası yalnızca "doğru fonksiyon doğru cmd.type'a bağlı mı" kablolamasını kilitler. */
+describe('useVoiceCommandHandler.ts — legacy handler kablolama kilidi (NAVIGATION-P1-1/P1-2)', () => {
   const HOOK_SRC = readFileSync(
     join(process.cwd(), 'src', 'hooks', 'useVoiceCommandHandler.ts'),
     'utf8',
@@ -711,12 +910,22 @@ describe('useVoiceCommandHandler.ts — legacy handler kablolama kilidi (NAVIGAT
     expect(window).toMatch(/dispatchNearbyPoiNavigation\(\s*\n?\s*'fuel'/);
   });
 
-  it('find_nearby_gas ARTIK navigate_address/place/parking ile aynı resolveAndNavigate blokunda DEĞİL', () => {
-    // Eski (P1-1 öncesi) davranış: tek if koşulunda
+  it("find_nearby_parking artık dispatchNearbyPoiNavigation('parking', …) çağırıyor (NAVIGATION-P1-2)", () => {
+    const idx = HOOK_SRC.indexOf("cmd.type === 'find_nearby_parking'");
+    expect(idx).toBeGreaterThan(-1);
+    const window = HOOK_SRC.slice(idx, idx + 300);
+    expect(window).toMatch(/dispatchNearbyPoiNavigation\(\s*\n?\s*'parking'/);
+  });
+
+  it('find_nearby_gas/find_nearby_parking ARTIK navigate_address/place ile aynı resolveAndNavigate blokunda DEĞİL', () => {
+    // Eski (P1-1/P1-2 öncesi) davranış: tek if koşulunda
     // navigate_address || navigate_place || find_nearby_gas || find_nearby_parking
     // birlikte resolveAndNavigate(dest, …) çağırıyordu. Bu artık YOK olmalı.
     expect(HOOK_SRC).not.toMatch(
-      /navigate_address['"][\s\S]{0,40}navigate_place['"][\s\S]{0,40}find_nearby_gas['"]/,
+      /navigate_address['"][\s\S]{0,40}navigate_place['"][\s\S]{0,80}find_nearby_gas['"]/,
+    );
+    expect(HOOK_SRC).not.toMatch(
+      /navigate_address['"][\s\S]{0,40}navigate_place['"][\s\S]{0,80}find_nearby_parking['"]/,
     );
   });
 
@@ -727,8 +936,15 @@ describe('useVoiceCommandHandler.ts — legacy handler kablolama kilidi (NAVIGAT
     expect(window).toMatch(/dispatchNearbyPoiNavigation\(\s*\n?\s*'hospital'/);
   });
 
-  it('find_nearby_parking hâlâ resolveAndNavigate ile (henüz merkezi hatta taşınmadı — bilinçli kapsam dışı)', () => {
-    expect(HOOK_SRC).toMatch(/find_nearby_parking['"][\s\S]{0,250}resolveAndNavigate\(/);
+  it('serbest adres bloğu artık YALNIZ navigate_address || navigate_place içerir (NAVIGATION-P1-2)', () => {
+    // find_nearby_gas/find_nearby_parking her ikisi de kendi ayrı bloklarına taşındı;
+    // genel geocode bloğunda artık sentinel tabanlı "en yakın X" komutu KALMAMALI.
+    const idx = HOOK_SRC.indexOf('Serbest adres navigasyonu');
+    expect(idx).toBeGreaterThan(-1);
+    const window = HOOK_SRC.slice(idx, idx + 400);
+    expect(window).not.toMatch(/find_nearby_gas|find_nearby_parking/);
+    expect(window).toMatch(/navigate_address/);
+    expect(window).toMatch(/navigate_place/);
   });
 
   it('iki ctx nesnesine de (AI yolu + routeIntent yolu) dispatchNearbyPoi wrapper\'ı eklendi', () => {

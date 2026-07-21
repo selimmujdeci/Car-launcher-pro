@@ -9,13 +9,13 @@
  * X" kategorisi eklemek yalnızca NEARBY_POI_CATALOG'a bir satır eklemek
  * demektir; dağınık sentinel/magic-string YOK.
  *
- * ÖNEMLİ — mevcut fuel/parking çağrı yolu (useVoiceCommandHandler.ts'teki
- * legacy handler, satır ~281-294) BİLİNÇLİ OLARAK bu modülü kullanmaz;
- * doğrudan resolveAndNavigate(sentinel, gps) çağırır. O yol bu PR'da
- * DEĞİŞTİRİLMEDİ (regresyon riski). Bu modül şu an yalnız hastane için
- * (ve genel bir gelecekteki üçüncü kategori için) aktif kullanılıyor,
- * ama fuel/parking de aynı GPS fail-closed + dedupe + TTS sözleşmesinden
- * faydalanabilsin diye katalogda tam tanımlıdır.
+ * NAVIGATION-P1-1 / P1-2: fuel ve parking de hospital ile AYNI merkezi
+ * hatta taşındı — useVoiceCommandHandler.ts'teki legacy handler artık her
+ * üç kategori için de doğrudan dispatchNearbyPoiNavigation(category, gps)
+ * çağırır (bkz. o dosyadaki find_nearby_gas/find_nearby_hospital/
+ * find_nearby_parking blokları). intentEngine.routeIntent ve
+ * commandExecutor.executeIntent de ctx.dispatchNearbyPoi(category) ile
+ * AYNI hatta bağlanır.
  *
  * GPS fail-closed: konum yok VEYA geçersizse (0,0 / |lat|>90 / |lng|>180)
  * ARAMA YAPILMAZ — homeWorkNavigation.ts (dispatchHomeWorkNavigation) ile
@@ -33,7 +33,7 @@ import i18n from '../i18n/config';
 /* ── Kategori kataloğu ───────────────────────────────────────────────── */
 
 /** Aktif "en yakın X" kategorileri — yeni kategori eklemek için burayı genişlet. */
-export type NearbyPoiCategory = 'fuel' | 'hospital';
+export type NearbyPoiCategory = 'fuel' | 'hospital' | 'parking';
 
 export interface NearbyPoiDefinition {
   /** addressNavigationEngine.resolveAndNavigate'in tanıdığı özel sentinel değer. */
@@ -72,6 +72,15 @@ export const NEARBY_POI_CATALOG: Record<NearbyPoiCategory, NearbyPoiDefinition> 
     successKey:        'navigation.nearby_hospital_starting',
     notFoundKey:       'navigation.nearby_hospital_none',
     errorKey:          'navigation.nearby_hospital_error',
+    gpsUnavailableKey: 'navigation.nearby_gps_unavailable',
+  },
+  parking: {
+    sentinel:          '__nearby_parking__',
+    amenity:           'parking',
+    radiusM:           5000,
+    successKey:        'navigation.nearby_parking_starting',
+    notFoundKey:       'navigation.nearby_parking_none',
+    errorKey:          'navigation.nearby_parking_error',
     gpsUnavailableKey: 'navigation.nearby_gps_unavailable',
   },
 };

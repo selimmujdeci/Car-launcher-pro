@@ -109,11 +109,16 @@ export function tryParseNavAddress(rawText: string): ParsedNavAddress | null {
     };
   }
 
-  /* ── Yakın otopark ───────────────────────────────────────── */
+  /* ── Yakın otopark ────────────────────────────────────────
+   * NAVIGATION-P1-2: hastane deseni ile BİREBİR aynı daraltma. Eski geniş
+   * /otopark/ + /park\s*yer/ regex'i İSİMLİ otoparkları da ("Forum AVM
+   * otoparkına git") yanlışlıkla nearby sentinel'ine düşürüyordu. Yalnız
+   * genel ifadeler yakalanır; isimli otopark aşağıdaki sondan-fiil /
+   * PLACE_KEYWORDS akışına (navigate_place → geocode) bırakılır. */
   if (
     /en\s*yakin\s*(otopark|park\s*yer|park\s*alan)/.test(lower) ||
-    /otopark/.test(lower) ||
-    /park\s*yer/.test(lower)
+    /yakin\w{0,6}\s*otopark/.test(lower) ||
+    /^(otopark(a|ta|i)?|park\s*yer(i|ine)?)\s*(bul|git|gotur|goturun)?$/.test(lower)
   ) {
     return {
       intent:      'find_nearby_parking',

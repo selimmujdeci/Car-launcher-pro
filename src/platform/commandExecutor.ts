@@ -229,9 +229,10 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<v
         break;
       }
       case 'FIND_NEARBY_PARKING': {
-        if (ctx.navigateToPlace) ctx.navigateToPlace('yakın park yeri');
+        // NAVIGATION-P1-2: merkezi dispatch — düz-metin geocode ARTIK YOK; TTS burada
+        // TEKRARLANMAZ çünkü dispatchNearbyPoiNavigation kendi successKey TTS'ini söyler.
+        if (ctx.dispatchNearbyPoi) ctx.dispatchNearbyPoi('parking');
         else ctx.launch(ctx.defaultNav);
-        _speak('Yakın park yeri aranıyor', isDriving);
         break;
       }
       case 'FIND_NEARBY_HOSPITAL': {
