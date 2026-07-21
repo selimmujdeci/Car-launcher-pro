@@ -26,6 +26,11 @@ export {
 } from './guardianRuleRegistry';
 
 export {
+  buildGuardianRegistryInput,
+  type GuardianRawPlatformData,
+} from './adapters/guardianAdapterRegistry';
+
+export {
   evaluateCurveRisk,
   CURVE_RISK_RULE_ID,
   type CurveRiskInput,
