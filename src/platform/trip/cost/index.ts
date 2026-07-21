@@ -44,3 +44,19 @@ export {
   type TollMissingSegmentBreakdown,
   type TollMismatchedCurrencySegmentBreakdown,
 } from './providers/tollProvider';
+
+export {
+  computeLodgingCost,
+  createLodgingProvider,
+  LODGING_NO_STAY_CONFIDENCE,
+  type LodgingKind,
+  type LodgingPricingUnit,
+  type LodgingStayInput,
+  type LodgingPriceEntry,
+  type LodgingProviderInput,
+  type LodgingCostBreakdown,
+  type LodgingMatchedStayBreakdown,
+  type LodgingMissingStayBreakdown,
+  type LodgingUnsupportedPricingUnitStayBreakdown,
+  type LodgingMismatchedCurrencyStayBreakdown,
+} from './providers/lodgingProvider';
