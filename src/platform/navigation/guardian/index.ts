@@ -42,4 +42,12 @@ export {
   type RoadProfileVehicleInput,
   type RoadProfilePolicyInput,
   type RoadProfileGradeThresholds,
+  evaluateWeatherRisk,
+  WEATHER_RULE_ID,
+  type WeatherRiskInput,
+  type WeatherConditionInput,
+  type WeatherRiskPolicyInput,
+  type WeatherSurfaceCondition,
+  type WeatherSeverityOrNone,
+  type WeatherSeverityByCondition,
 } from './rules';
