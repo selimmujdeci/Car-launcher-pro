@@ -26,7 +26,7 @@ import { adaptRoadHazardInput, type RawRoadHazardData } from './roadHazardAdapte
 import { adaptDriverFatigueInput, type RawDriverFatigueData } from './driverFatigueAdapter';
 import { adaptSpeedCameraInput, type RawSpeedCameraData } from './speedCameraAdapter';
 
-function isObject(v: unknown): v is Record<string, unknown> {
+function isObject<T>(v: T): v is T & Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 

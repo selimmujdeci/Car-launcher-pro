@@ -34,7 +34,7 @@ import type { ObdSource } from './obdSource';
 import type { WeatherSource } from './weatherSource';
 import type { DriverSource } from './driverSource';
 
-function isObject(v: unknown): v is Record<string, unknown> {
+function isObject<T>(v: T): v is T & Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 function isFiniteNumber(v: unknown): v is number {

@@ -13,7 +13,7 @@ const CAMERA_TYPES: ReadonlySet<string> = new Set([
   'fixed_speed', 'average_speed', 'mobile_speed', 'traffic_light', 'combined', 'unknown',
 ]);
 
-function isObject(v: unknown): v is Record<string, unknown> {
+function isObject<T>(v: T): v is T & Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 function isFiniteNumber(v: unknown): v is number {

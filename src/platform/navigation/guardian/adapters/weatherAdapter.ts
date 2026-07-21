@@ -11,7 +11,7 @@ import type { WeatherRiskInput, WeatherRiskPolicyInput, WeatherSurfaceCondition 
 
 const WEATHER_SURFACES: ReadonlySet<string> = new Set(['dry', 'wet', 'snow', 'ice', 'unknown']);
 
-function isObject(v: unknown): v is Record<string, unknown> {
+function isObject<T>(v: T): v is T & Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 function isFiniteNumber(v: unknown): v is number {
